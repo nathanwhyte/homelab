@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 
+DASHBOARD_DIR="$HOME/code/homelab/dashboard"
+
 if [ ! -x "$(command -v "kubectl")" ]; then
     echo "kubectl not installed installed."
     exit 1
@@ -26,29 +28,29 @@ helm upgrade --install kubernetes-dashboard \
 
 echo -e "\nApplying kubernetes-dashboard manifests..."
 
-if [ ! -f "ingress.yaml" ]; then
+if [ ! -f "$DASHBOARD_DIR/ingress.yaml" ]; then
     echo "ingress.yaml file not found!"
     exit 1
 fi
 
-if [ ! -f "user.yaml" ]; then
+if [ ! -f "$DASHBOARD_DIR/user.yaml" ]; then
      echo "user.yaml file not found!"
      exit 1
 fi
 
-if [ ! -f "cloudflared.yaml" ]; then
+if [ ! -f "$DASHBOARD_DIR/cloudflared.yaml" ]; then
      echo "cloudflared.yaml file not found!"
      exit 1
 fi
 
-if [ ! -f "cloudflared.secret.yaml" ]; then
+if [ ! -f "$DASHBOARD_DIR/cloudflared.secret.yaml" ]; then
      echo "cloudflared.secret.yaml file not found!"
      echo "Create this file and apply it, or manually create the cloudflare secret."
 else
-     kubectl apply -f cloudflared.secret.yaml
+     kubectl apply -f "$DASHBOARD_DIR/cloudflared.secret.yaml"
 fi
 
-kubectl apply -f ingress.yaml -f user.yaml -f cloudflared.yaml
+kubectl apply -f "$DASHBOARD_DIR/ingress.yaml" -f "$DASHBOARD_DIR/user.yaml" -f "$DASHBOARD_DIR/cloudflared.yaml"
 
 echo -e "\nDone! Visit:"
 echo "  https://k8s.nathanwhyte.dev/#/overview?namespace=kubernetes-dashboard"
