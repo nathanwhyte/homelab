@@ -1,7 +1,7 @@
 # 🐋 Kubernetes Homelab
 
-It's like AWS, if AWS was hosted entirely in my office, next to my cat's food bowl,
-running on of old laptops and my gaming PC from high school.
+> It's like AWS, if AWS was hosted entirely in my office, next to my cat's food bowl,
+> running on of old laptops and my gaming PC from high school.   - Me, circa Today
 
 ## Apps
 
@@ -13,7 +13,7 @@ running on of old laptops and my gaming PC from high school.
 
 [View on GitHub](https://github.com/nathanwhyte/nathanwhyte.dev)
 
-- Basically my extended resume, with colors and fancy formatting.
+- Basically my extended resume, with colors and better formatting.
 
 ### Build Hook
 
