@@ -1,0 +1,14 @@
+---
+# Traefik Middleware to remove size limits for Harbor
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: harbor-no-limit
+  namespace: harbor
+spec:
+  buffering:
+    maxRequestBodyBytes: 0 # 0 = unlimited
+    memRequestBodyBytes: 10485760 # 10MB buffer in memory
+    maxResponseBodyBytes: 0 # unlimited response size
+    memResponseBodyBytes: 10485760 # 10MB buffer in memory
+    retryExpression: "IsNetworkError() && Attempts() < 2"

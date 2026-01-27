@@ -57,6 +57,13 @@ Mimicking [Grafana Cloud's Kubernetes Monitoring](https://grafana.com/docs/grafa
 - Alloy for log collection via [k8s-monitoring-helm](https://github.com/grafana/k8s-monitoring-helm)
 - Loki for log aggregation via [Loki's official helm chart](https://github.com/grafana/loki/tree/main/production/helm/loki)
 
+### Harbor
+
+Container image registry with a nice web interface.
+
+- Deployed using [Harbor's official helm chart](https://github.com/goharbor/harbor-helm)
+- Public image repositories for images used in the cluster.
+
 ### Garage
 
 S3-compatible object storage engine.

@@ -1,0 +1,238 @@
+---
+# Harbor Helm Chart Values
+# Full-featured container registry with web UI, scanning, and RBAC
+#
+# Install with:
+# helm repo add harbor https://helm.goharbor.io
+# helm repo update
+# helm install harbor harbor/harbor -f harbor/helm/harbor-values.yaml -n harbor --create-namespace
+#
+# Access:
+# - Web UI: https://registry.nathanwhyte.dev
+# - Docker: docker login registry.nathanwhyte.dev
+#
+# Default admin credentials: admin / Harbor12345 (change after first login)
+
+# Expose Harbor services
+expose:
+  type: ingress
+  tls:
+    # Enable TLS with cert-manager for automatic Let's Encrypt certificates
+    enabled: true
+    # Use cert-manager to manage certificates
+    certSource: secret
+    secret:
+      # cert-manager will create this secret automatically
+      secretName: harbor-tls
+  ingress:
+    hosts:
+      core: registry.nathanwhyte.dev
+    className: traefik
+    annotations:
+      cert-manager.io/cluster-issuer: letsencrypt-prod
+    # Harbor's nginx handles routing internally
+
+# External URL (must match ingress host)
+externalURL: https://registry.nathanwhyte.dev
+
+# Persistence configuration
+persistence:
+  enabled: true
+  # Resource policy: keep persistent volumes on helm delete
+  resourcePolicy: "keep"
+  persistentVolumeClaim:
+    # Registry storage (filesystem-based on Longhorn)
+    registry:
+      storageClass: longhorn-db
+      size: 20Gi
+    jobservice:
+      jobLog:
+        storageClass: ""
+        size: 1Gi
+      scanDataExports:
+        storageClass: ""
+        size: 1Gi
+    database:
+      # PostgreSQL data
+      storageClass: longhorn-ssd
+      size: 5Gi
+    redis:
+      # Redis data
+      storageClass: longhorn-ssd
+      size: 5Gi
+    trivy:
+      # Trivy vulnerability database
+      storageClass: longhorn-ssd
+      size: 5Gi
+
+# Image pull policy
+imagePullPolicy: IfNotPresent
+
+# Harbor components configuration
+harborAdminPassword: "<CHANGE_ME>" # Change after first login
+
+# Image and chart storage (using filesystem/PVC)
+imageChartStorage:
+  disableredirect: false
+  type: filesystem
+  filesystem:
+    rootdirectory: /storage
+
+# Database (PostgreSQL)
+database:
+  type: internal
+  internal:
+    image:
+      repository: goharbor/harbor-db
+      tag: v2.11.1
+    # PostgreSQL resources
+    resources:
+      requests:
+        memory: 256Mi
+        cpu: 100m
+      limits:
+        memory: 512Mi
+        cpu: 500m
+
+# Redis cache
+redis:
+  type: internal
+  internal:
+    image:
+      repository: goharbor/redis-photon
+      tag: v2.11.1
+    # Redis resources
+    resources:
+      requests:
+        memory: 128Mi
+        cpu: 100m
+      limits:
+        memory: 256Mi
+        cpu: 200m
+
+# Harbor Core (API server)
+core:
+  replicas: 1 # Single replica to avoid volume conflicts
+  resources:
+    requests:
+      memory: 256Mi
+      cpu: 100m
+    limits:
+      memory: 1Gi
+      cpu: 1000m
+  # Allow anonymous/public pull access for projects marked as public
+  # Pushes still require authentication
+  projectCreationRestriction: "everyone"
+  # Enable automatic cert generation
+  enableAutoGenCert: true
+
+# Harbor Portal (Web UI)
+portal:
+  replicas: 1
+  resources:
+    requests:
+      memory: 64Mi
+      cpu: 50m
+    limits:
+      memory: 128Mi
+      cpu: 200m
+
+# Harbor Job Service (image scanning, garbage collection)
+jobservice:
+  replicas: 1 # Set to 1 to avoid Multi-Attach errors with RWO volumes
+  resources:
+    requests:
+      memory: 256Mi
+      cpu: 100m
+    limits:
+      memory: 1Gi
+      cpu: 1000m
+
+# Harbor Registry (Docker registry component)
+registry:
+  replicas: 1 # Set to 1 to avoid Multi-Attach errors with RWO volumes
+  resources:
+    requests:
+      memory: 256Mi
+      cpu: 100m
+    limits:
+      memory: 1Gi
+      cpu: 1000m
+  # Registry controller
+  controller:
+    resources:
+      requests:
+        memory: 128Mi
+        cpu: 50m
+      limits:
+        memory: 256Mi
+        cpu: 200m
+
+# Trivy vulnerability scanner
+trivy:
+  enabled: true
+  replicas: 1
+  resources:
+    requests:
+      memory: 512Mi
+      cpu: 200m
+    limits:
+      memory: 2Gi
+      cpu: 1000m
+  # Update vulnerability database on startup
+  gitHubToken: ""
+  # Offline mode (use cached database)
+  offlineScan: false
+
+# Notary (image signing) - optional, disabled by default
+notary:
+  enabled: false
+
+# Metrics
+metrics:
+  enabled: true
+  core:
+    path: /metrics
+    port: 8001
+  registry:
+    path: /metrics
+    port: 8001
+  jobservice:
+    path: /metrics
+    port: 8001
+  exporter:
+    path: /metrics
+    port: 8001
+
+# Cache configuration
+cache:
+  enabled: true
+  expireHours: 24
+
+# Log level
+logLevel: info
+
+# Proxy configuration (if Harbor needs to access external registries through proxy)
+proxy:
+  httpProxy:
+  httpsProxy:
+  noProxy: 127.0.0.1,localhost,.local,.internal,garage.garage.svc.cluster.local
+  components:
+    - core
+    - jobservice
+    - trivy
+
+# Update strategy
+updateStrategy:
+  type: RollingUpdate
+
+# Nginx (internal component, handles routing)
+nginx:
+  replicas: 1
+  resources:
+    requests:
+      memory: 128Mi
+      cpu: 100m
+    limits:
+      memory: 256Mi
+      cpu: 500m
