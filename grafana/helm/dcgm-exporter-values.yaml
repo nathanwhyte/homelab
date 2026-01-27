@@ -1,0 +1,63 @@
+# NVIDIA DCGM Exporter Helm Chart Values
+# Chart: gpu-helm-charts/dcgm-exporter
+# Purpose: Export NVIDIA GPU metrics for Prometheus scraping
+# Reference: https://docs.nvidia.com/datacenter/cloud-native/gpu-telemetry/latest/kube-prometheus.html
+
+# ServiceMonitor configuration for Prometheus Operator integration
+# The ServiceMonitor will be automatically discovered by Prometheus since
+# prometheus.prometheusSpec.serviceMonitorSelector: {} is configured in
+# kube-prometheus-stack-values.yaml
+serviceMonitor:
+  enabled: false
+  # Namespace where ServiceMonitor will be created (same as Prometheus namespace)
+  namespace: grafana
+  # Scrape interval
+  interval: 30s
+  scrapeTimeout: 10s
+  # Labels for ServiceMonitor (empty means Prometheus will discover it via serviceMonitorSelector: {})
+  labels: {}
+
+# Resource limits
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+    # Request GPU resources - required for NVML library access
+    nvidia.com/gpu: 1
+  limits:
+    cpu: 200m
+    memory: 512Mi
+    # Limit GPU resources (optional, but recommended)
+    nvidia.com/gpu: 1
+
+# Security context for GPU access
+securityContext:
+  capabilities:
+    add:
+      - SYS_ADMIN
+
+# Node selector to deploy only on GPU nodes
+# GPU Operator labels nodes with nvidia.com/gpu.present: "true"
+nodeSelector:
+  nvidia.com/gpu.present: "true"
+
+# Tolerations for GPU nodes (if GPU nodes have taints)
+# GPU Operator typically doesn't taint nodes, but add if needed
+tolerations: []
+
+# Image configuration (using default from chart)
+# image:
+#   repository: nvcr.io/nvidia/k8s/dcgm-exporter
+#   tag: 4.4.2-4.7.1-ubuntu22.04
+#   pullPolicy: IfNotPresent
+
+# Service configuration
+service:
+  type: ClusterIP
+  port: 9400
+  # Port name must match ServiceMonitor endpoint port name (default is "metrics")
+  portName: metrics
+
+# Additional arguments for dcgm-exporter
+# args: []
+

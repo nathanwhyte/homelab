@@ -1,0 +1,16 @@
+---
+# PersistentVolumeClaim for Grafana storage with ReadWriteMany access mode
+# This PVC will be shared by all Grafana replicas in the scaled deployment
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: grafana-storage-rwx
+  namespace: grafana
+spec:
+  accessModes:
+    - ReadWriteMany
+  storageClassName: longhorn-nvme
+  resources:
+    requests:
+      storage: 10Gi
+

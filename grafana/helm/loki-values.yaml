@@ -1,0 +1,117 @@
+# Grafana Loki Helm Chart Values
+# Chart: grafana/loki
+# Deployment Mode: SingleBinary (single-replica monolithic)
+
+# Deployment mode
+deploymentMode: SingleBinary
+
+# Single Binary configuration
+singleBinary:
+  replicas: 1
+
+  # Resource limits (increased for better performance)
+  resources:
+    requests:
+      cpu: 200m
+      memory: 512Mi
+    limits:
+      cpu: 1000m
+      memory: 2Gi
+
+  # Persistence configuration using Longhorn
+  persistence:
+    enabled: true
+    storageClass: longhorn-ssd
+    accessModes:
+      - ReadWriteOnce
+    size: 20Gi
+
+# Loki configuration
+loki:
+  # Disable authentication for single-tenant setup
+  auth_enabled: false
+
+  # Common configuration
+  commonConfig:
+    replication_factor: 1
+
+  # Storage configuration - filesystem
+  storage:
+    type: filesystem
+
+  # Schema configuration for TSDB
+  schemaConfig:
+    configs:
+      - from: "2024-04-01"
+        store: tsdb
+        object_store: filesystem
+        schema: v13
+        index:
+          prefix: loki_index_
+          period: 24h
+
+  # Ingester configuration
+  ingester:
+    chunk_encoding: snappy
+    max_chunk_age: 1h
+    chunk_idle_period: 30m
+
+  # Limits configuration
+  limits_config:
+    allow_structured_metadata: true
+    volume_enabled: true
+    # Retention period (reduced to 1 day for performance)
+    retention_period: 24h
+    max_query_series: 500
+    max_streams_per_user: 10000
+    # Increase ingestion rate limit (default is 4MB/sec, increase to 16MB/sec)
+    ingestion_rate_mb: 16
+    ingestion_burst_size_mb: 32
+    # Allow older samples to be ingested (increase from default 168h to 336h = 14 days)
+    # This helps when Loki restarts and needs to catch up on old logs
+    reject_old_samples: true
+    reject_old_samples_max_age: 336h
+
+# Gateway configuration
+# The Loki Helm chart creates a gateway service by default
+# Service name will be "loki-gateway" in grafana namespace
+# Matches Grafana datasource: http://loki-gateway.grafana.svc.cluster.local
+gateway:
+  enabled: true
+  service:
+    type: NodePort
+    port: 80
+    nodePort: 31080
+  # Disable authentication for single-tenant setup
+  auth_enabled: false
+
+# Disable MinIO (using filesystem storage instead)
+minio:
+  enabled: false
+
+# Zero out replica counts of other deployment modes
+backend:
+  replicas: 0
+read:
+  replicas: 0
+write:
+  replicas: 0
+ingester:
+  replicas: 0
+querier:
+  replicas: 0
+queryFrontend:
+  replicas: 0
+queryScheduler:
+  replicas: 0
+distributor:
+  replicas: 0
+compactor:
+  replicas: 0
+indexGateway:
+  replicas: 0
+bloomCompactor:
+  replicas: 0
+bloomGateway:
+  replicas: 0
+

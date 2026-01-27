@@ -1,0 +1,318 @@
+# kube-prometheus-stack Helm Chart Values
+# Chart: prometheus-community/kube-prometheus-stack
+
+# Full name override to prevent resource names from exceeding 63 character limit
+# Without this, names like "prometheus-kube-prometheus-stack-kube-prometheus-prometheus-rulefiles-0"
+# exceed Kubernetes' 63 character limit for labels and volume names.
+# NOTE: This requires deleting the existing Prometheus CRD before upgrading.
+nameOverride: prom
+
+fullnameOverride: prom
+
+# Global configuration
+global:
+  rbac:
+    create: true
+
+# Prometheus Operator configuration
+prometheusOperator:
+  enabled: true
+  # Resource limits
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+# Default rules configuration
+defaultRules:
+  create: true
+  rules:
+    # Node-related rules for hardware metrics
+    node: true
+    nodeExporterRecording: true
+    nodeExporterAlerting: true
+
+# Prometheus configuration
+prometheus:
+  enabled: true
+  prometheusSpec:
+    # Pin to v3.7.3 to avoid v3.8.0 bug with remote write receiver
+    # See: https://github.com/prometheus/prometheus/issues/17659
+    version: v3.7.3
+    image:
+      registry: quay.io
+      repository: prometheus/prometheus
+      tag: v3.7.3
+      sha: ""
+      pullPolicy: IfNotPresent
+    # Storage configuration using Longhorn
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: longhorn-ssd
+          accessModes:
+            - ReadWriteOnce
+          resources:
+            requests:
+              storage: 20Gi
+    # Retention configuration (reduced to 7d for performance)
+    retention: 7d
+    retentionSize: ""
+    # Global scrape interval (increased to reduce polling frequency)
+    scrapeInterval: 2m
+    # External labels
+    externalLabels:
+      cluster: k8s
+    # Service monitor selector (scrape all ServiceMonitors)
+    serviceMonitorSelector: {}
+    serviceMonitorSelectorNilUsesHelmValues: false
+    # Pod monitor selector
+    podMonitorSelector: {}
+    podMonitorSelectorNilUsesHelmValues: false
+    # Rule selector
+    ruleSelector: {}
+    ruleSelectorNilUsesHelmValues: false
+    # Additional scrape configs for cluster components
+    # GPU metrics scraping configuration for dcgm-exporter
+    # Reference: https://docs.nvidia.com/datacenter/cloud-native/gpu-telemetry/latest/kube-prometheus.html
+    additionalScrapeConfigs:
+      - job_name: gpu-metrics
+        scrape_interval: 2m
+        metrics_path: /metrics
+        scheme: http
+        kubernetes_sd_configs:
+          - role: endpoints
+            namespaces:
+              names:
+                - grafana
+        relabel_configs:
+          # Only scrape dcgm-exporter endpoints
+          - source_labels:
+              - __meta_kubernetes_endpoints_name
+            action: keep
+            regex: dcgm-exporter.*
+          # Drop node-feature-discovery endpoints
+          - source_labels:
+              - __meta_kubernetes_endpoints_name
+            action: drop
+            regex: .*-node-feature-discovery-master
+          # Add node label for better identification
+          - source_labels:
+              - __meta_kubernetes_pod_node_name
+            action: replace
+            target_label: kubernetes_node
+      - job_name: "garage"
+        scrape_interval: 2m
+        static_configs:
+          - targets:
+              - "garage-0.garage-headless.garage.svc.cluster.local:3903"
+              - "garage-1.garage-headless.garage.svc.cluster.local:3903"
+              - "garage-2.garage-headless.garage.svc.cluster.local:3903"
+    # Enable lifecycle API for reloading config
+    enableLifecycle: true
+    # Enable remote write receiver to accept remote write requests
+    enableRemoteWriteReceiver: true
+    # TSDB configuration
+    tsdb:
+      # Allow out-of-order samples within a 5 minute window (reduced from 10m for performance)
+      # This is needed for remote write receivers that may send samples slightly out of order
+      outOfOrderTimeWindow: 5m
+    # Note: additionalArgs is not supported in prometheusSpec by the Helm chart
+    # TSDB block duration settings must be applied via a post-deployment patch
+    # See: monitoring/grafana/manifests/prometheus-patch.yaml
+    # Resource limits (increased for better performance)
+    resources:
+      requests:
+        cpu: 500m
+        memory: 1Gi
+      limits:
+        cpu: 2000m
+        memory: 4Gi
+  # Prometheus service configuration
+  service:
+    type: NodePort
+    port: 9090
+    nodePort: 30909
+
+# Grafana configuration
+grafana:
+  enabled: true
+  replicas: 1
+  # Admin credentials (matching current config)
+  adminUser: admin
+  adminPassword: <CHANGE_ME>
+  # Grafana performance configuration
+  grafana.ini:
+    datasources:
+      cache: true
+    dashboards:
+      min_refresh_interval: 5s
+    # Memory optimization settings
+    server:
+      # Limit query timeout to prevent long-running queries from consuming memory
+      query_timeout: 60s
+    # Reduce memory usage for large dashboards and rendering
+    rendering:
+      # Limit concurrent rendering requests to reduce memory usage
+      concurrent_render_request_limit: 5
+      # Timeout for rendering requests
+      render_timeout: 30s
+  # Dashboard provisioning - automatically import NVIDIA DCGM Exporter dashboard
+  # Dashboard ID: 12239 from https://grafana.com/grafana/dashboards/12239
+  # Reference: https://docs.nvidia.com/datacenter/cloud-native/gpu-telemetry/latest/kube-prometheus.html
+  dashboardProviders:
+    dashboardproviders.yaml:
+      apiVersion: 1
+      providers:
+        - name: "default"
+          orgId: 1
+          folder: ""
+          type: file
+          disableDeletion: false
+          editable: true
+          options:
+            path: /var/lib/grafana/dashboards/default
+  dashboards:
+    default:
+      nvidia-dcgm-exporter:
+        gnetId: 12239
+        revision: 1
+        datasource: Prometheus
+        folder: ""
+  # Ingress configuration (matching current config)
+  ingress:
+    enabled: true
+    ingressClassName: ""
+    annotations:
+      traefik.ingress.kubernetes.io/router.entrypoints: web
+    hosts:
+      - grafana.nathanwhyte.dev
+    path: /
+  # Persistence using Longhorn
+  # Using existing PVC (grafana-storage-rwx) with ReadWriteMany access mode
+  # This allows multiple Grafana pods to share the same volume
+  persistence:
+    enabled: true
+    type: pvc
+    existingClaim: grafana-storage-rwx
+  # Resource limits (increased to handle actual usage)
+  # Current usage: ~203m CPU, ~728Mi memory
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 1Gi
+  # Health check probes configuration
+  # Increased timeouts to handle slow responses under load
+  readinessProbe:
+    httpGet:
+      path: /api/health
+      port: 3000
+    initialDelaySeconds: 10
+    periodSeconds: 10
+    timeoutSeconds: 5
+    successThreshold: 1
+    failureThreshold: 3
+  livenessProbe:
+    httpGet:
+      path: /api/health
+      port: 3000
+    initialDelaySeconds: 60
+    periodSeconds: 10
+    timeoutSeconds: 5
+    successThreshold: 1
+    failureThreshold: 10
+  # Service configuration
+  service:
+    type: ClusterIP
+    port: 3000
+
+# Alertmanager configuration (can be disabled if not needed)
+alertmanager:
+  enabled: true
+  alertmanagerSpec:
+    # Storage configuration using Longhorn
+    storage:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: longhorn-ssd
+          accessModes:
+            - ReadWriteOnce
+          resources:
+            requests:
+              storage: 5Gi
+    # Resource limits
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        cpu: 200m
+        memory: 256Mi
+
+# kube-state-metrics configuration (enabled by default)
+kubeStateMetrics:
+  enabled: true
+  # Resource limits
+  resources:
+    requests:
+      cpu: 100m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+
+# node-exporter configuration (enabled by default)
+prometheus-node-exporter:
+  enabled: true
+  # Enable hardware monitoring collectors
+  # hwmon collector is enabled by default, but explicitly configure for clarity
+  extraArgs:
+    - --collector.hwmon
+    - --collector.systemd
+    - --collector.textfile
+    - --collector.netdev
+    - --collector.netstat
+    - --collector.diskstats
+    - --collector.filesystem
+    - --collector.meminfo
+    - --collector.loadavg
+    - --collector.cpu
+  # Mount host paths for hardware sensor access
+  # Note: /sys and /proc are typically mounted automatically by the chart
+  # These additional mounts ensure access to hardware monitoring paths
+  extraVolumes:
+    - name: sys-class-hwmon
+      hostPath:
+        path: /sys/class/hwmon
+    - name: sys-class-thermal
+      hostPath:
+        path: /sys/class/thermal
+  extraVolumeMounts:
+    - name: sys-class-hwmon
+      mountPath: /host/sys/class/hwmon
+      readOnly: true
+    - name: sys-class-thermal
+      mountPath: /host/sys/class/thermal
+      readOnly: true
+  # Security context for accessing host hardware
+  securityContext:
+    runAsNonRoot: false
+    runAsUser: 0
+  # Resource limits for DaemonSet
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+  # Enable host PID namespace for better hardware access
+  hostPID: true
+  hostNetwork: false
+  hostIPC: false

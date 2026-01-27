@@ -1,0 +1,75 @@
+# Kubernetes Monitoring Helm Chart Values
+# Chart: grafana/k8s-monitoring
+# Purpose: Deploy Alloy for log collection, forwarding to existing Loki
+
+# Cluster configuration
+cluster:
+  name: k8s
+
+# Destinations - forward logs to existing Loki gateway
+destinations:
+  - name: loki
+    type: loki
+    # Point to existing Loki gateway service
+    url: http://loki-gateway.grafana.svc.cluster.local/loki/api/v1/push
+
+# Cluster events collection
+clusterEvents:
+  enabled: false
+  collector: alloy-singleton
+
+# Node logs
+nodeLogs:
+  enabled: true
+  # Use all logs-capable destinations (will use the loki destination above)
+  destinations: []
+  # Collector is automatically set to alloy-logs
+
+# Pod logs collection
+podLogs:
+  enabled: true
+  gatherMethod: kubernetesApi
+
+# Collectors
+alloy-singleton:
+  enabled: true
+  alloy:
+    # Resource limits (increased for better performance)
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+
+alloy-metrics:
+  enabled: false
+
+alloy-logs:
+  enabled: true
+  alloy:
+    mounts:
+      varlog: true
+      dockercontainers: false
+    clustering:
+      enabled: true
+    # Resource limits (increased for better performance)
+    resources:
+      requests:
+        cpu: 200m
+        memory: 256Mi
+      limits:
+        cpu: 1000m
+        memory: 1Gi
+
+alloy-profiles:
+  enabled: false
+
+alloy-receiver:
+  enabled: false
+
+# Alloy Operator - manages Alloy instances
+alloy-operator:
+  # Deploy the Alloy Operator (manages Alloy instances)
+  deploy: true
