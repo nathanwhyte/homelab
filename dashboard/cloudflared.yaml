@@ -1,0 +1,43 @@
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: cloudflared
+  namespace: kubernetes-dashboard
+automountServiceAccountToken: false
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cloudflared
+  namespace: kubernetes-dashboard
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: cloudflared
+  template:
+    metadata:
+      labels:
+        app: cloudflared
+    spec:
+      containers:
+        - name: cloudflared
+          image: cloudflare/cloudflared:latest
+          args:
+            - tunnel
+            - --no-autoupdate
+            - run
+            - --token-file=/etc/cloudflared/token
+          volumeMounts:
+            - name: tokenfile
+              mountPath: /etc/cloudflared
+              readOnly: true
+      volumes:
+        - name: tokenfile
+          secret:
+            secretName: kubernetes-dashboard-cloudflared-token
+            items:
+              - key: TOKEN
+                path: token
