@@ -2,7 +2,8 @@
 
 > It's like AWS, if AWS was hosted entirely in my office, next to my cat's food bowl,
 > running on of old laptops and my gaming PC from high school.
->    - Me, circa Today
+>
+> ~ Me, circa Today
 
 ## Apps
 
@@ -47,7 +48,8 @@ Persistent storage solution for the entire cluster.
 
 - Deployed using [Longhorn's helm install guide](https://longhorn.io/docs/1.10.1/deploy/install/install-with-helm/)
 - Backups and redundancy on HDD, databases and caches on SSD/NVMe
-- Successfully prevented me from accidentally erasing an entire hard drive full of family videos
+- Successfully prevented me from accidentally erasing an entire hard drive
+  full of family videos
 
 ### Grafana Suite
 
@@ -63,15 +65,37 @@ Container image registry with a nice web interface.
 
 - Deployed using [Harbor's official helm chart](https://github.com/goharbor/harbor-helm)
 - Public image repositories for images used in the cluster.
+- Read more in the Harbor [readme](./harbor/HARBOR.md).
 
 ### Garage
 
 S3-compatible object storage engine.
 
 - Deployed based on [Garage's official guide](https://garagehq.deuxfleurs.fr/documentation/cookbook/kubernetes/)
+- Custom manager container for bucket management with the AWS S3 CLI.
 
 ## Other Technologies
 
+### Databases
+
+Postgres containers, for apps that need them, with Longhorn SSD storage
+for replicated persistent storage.
+
+### Pi-hole
+
+Network-wide ad and tracker blocking with nice built-ins and easy configuration.
+
+### Unbound
+
+For in-house DNS resolution for speed and privacy
+
 ### Cloudflare Tunnel
 
+Secure public-facing access to services without exposing my home IP address or
+opening ports on my router _(for most services)_.
+
 ### Cloudflare DNS
+
+For services that don't use Cloudflare Tunnel, Cloudflare's DNS
+_(plus router port-forwarding)_ allows for secure access via my domain,
+with SSL as an additional layer.
