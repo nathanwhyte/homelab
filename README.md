@@ -1,7 +1,8 @@
 # 🐋 Kubernetes Homelab
 
 > It's like AWS, if AWS was hosted entirely in my office, next to my cat's food bowl,
-> running on of old laptops and my gaming PC from high school.   - Me, circa Today
+> running on of old laptops and my gaming PC from high school.
+>    - Me, circa Today
 
 ## Apps
 
