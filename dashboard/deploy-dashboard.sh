@@ -15,10 +15,10 @@ if [ ! -x "$(command -v "helm")" ]; then
      exit 1
 fi
 
-helm repo add kubernetes-dashboard https://kubernetes.github.io/dashboard/ \
+helm repo add kubernetes-dashboard https://kubernetes.github.io/dashboard/
 
 echo "Updating helm repositories..."
-helm repo update > /dev/null
+helm repo update kubernetes-dashboard
 
 helm upgrade --install kubernetes-dashboard \
      kubernetes-dashboard/kubernetes-dashboard \
@@ -31,14 +31,15 @@ if [ ! -f "ingress.yaml" ]; then
     exit 1
 fi
 
-kubectl apply -f ingress.yaml
-
 if [ ! -f "user.yaml" ]; then
      echo "user.yaml file not found!"
      exit 1
 fi
 
-kubectl apply -f user.yaml
+if [ ! -f "cloudflared.yaml" ]; then
+     echo "cloudflared.yaml file not found!"
+     exit 1
+fi
 
 if [ ! -f "cloudflared.secret.yaml" ]; then
      echo "cloudflared.secret.yaml file not found!"
@@ -47,14 +48,7 @@ else
      kubectl apply -f cloudflared.secret.yaml
 fi
 
-if [ ! -f "cloudflared.yaml" ]; then
-     echo "cloudflared.yaml file not found!"
-     exit 1
-fi
+kubectl apply -f ingress.yaml -f user.yaml -f cloudflared.yaml
 
-kubectl apply -f cloudflared.yaml
-
-echo -e "\nDone! Try these next:"
-echo "  kubectl get pods -n kubernetes-dashboard"
-echo "  kubectl logs -f -n kubernetes-dashboard deployments/kubernetes-dashboard-api"
-echo "  kubectl logs -f -n kubernetes-dashboard deployments/kubernetes-dashboard-kong"
+echo -e "\nDone! Visit:"
+echo "  https://k8s.nathanwhyte.dev/#/overview?namespace=kubernetes-dashboard"
