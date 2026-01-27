@@ -1,0 +1,46 @@
+# Sensitive files - tokens and credentials
+**/kube-token.txt
+**/*token*.txt
+**/*secret*.yaml
+**/*secret*.yml
+**/*.key
+**/*.pem
+**/*.crt
+**/*.p12
+**/*.pfx
+**/htpasswd
+
+# Kubernetes temporary files
+*.kubeconfig
+kubeconfig
+.kube/
+
+# Helm
+.helm/
+
+# Terraform (if used)
+.terraform/
+*.tfstate
+*.tfstate.*
+.terraform.lock.hcl
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Backup files
+*.bak
+*.backup
+*~
+
+# Editor and IDE files
+.cursor/
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+*.sublime-project
+*.sublime-workspace
