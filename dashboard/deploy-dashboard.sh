@@ -3,17 +3,17 @@
 DASHBOARD_DIR="$HOME/code/homelab/dashboard"
 
 if [ ! -x "$(command -v "kubectl")" ]; then
-    echo "kubectl not installed installed."
+    echo "kubectl not installed."
     exit 1
 fi
 
-if [ ! kubectl cluster-info > /dev/null 2>&1 ]; then
+if ! kubectl cluster-info > /dev/null 2>&1; then
      echo "kubectl not connected to a cluster."
      exit 1
 fi
 
 if [ ! -x "$(command -v "helm")" ]; then
-     echo "helm not installed installed."
+     echo "helm not installed."
      exit 1
 fi
 

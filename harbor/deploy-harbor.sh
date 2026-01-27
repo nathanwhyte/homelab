@@ -8,7 +8,7 @@ if [ ! -x "$(command -v "kubectl")" ]; then
     exit 1
 fi
 
-if [ ! kubectl cluster-info > /dev/null 2>&1 ]; then
+if ! kubectl cluster-info > /dev/null 2>&1; then
      echo "kubectl not connected to a cluster."
      exit 1
 fi
