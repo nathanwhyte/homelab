@@ -1,0 +1,111 @@
+---
+# Garage Manager Deployment
+# Lightweight service for managing Garage S3 buckets and files
+# Access via: kubectl exec -it deployment/garage-manager -n garage -- python /app/garage-manager.py <command>
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: garage-manager
+  namespace: garage
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: garage-manager
+  template:
+    metadata:
+      labels:
+        app: garage-manager
+    spec:
+      restartPolicy: Always
+      securityContext:
+        fsGroup: 1000
+      initContainers:
+        - name: install-boto3
+          image: python:3.11-slim
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -c
+            - |
+              echo "Installing boto3..."
+              pip install --no-cache-dir --target /packages boto3
+              echo "boto3 installation complete"
+          volumeMounts:
+            - name: python-packages
+              mountPath: /packages
+      containers:
+        - name: garage-manager
+          image: python:3.11-slim
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -c
+            - |
+              echo "Garage Manager ready. Use kubectl exec to run commands."
+              echo "Examples:"
+              echo "  kubectl exec -it deployment/garage-manager -n garage -- python /app/garage-manager.py list-buckets"
+              echo "  kubectl exec -it deployment/garage-manager -n garage -- python /app/garage-manager.py list-files mybucket"
+              echo "  kubectl exec -it deployment/garage-manager -n garage -- python /app/garage-manager.py list-tree"
+              echo "  kubectl exec -it deployment/garage-manager -n garage -- python /app/garage-manager.py upload mybucket /tmp/file.txt file.txt"
+              echo "  kubectl exec -it deployment/garage-manager -n garage -- python /app/garage-manager.py download mybucket file.txt /tmp/file.txt"
+              echo "  kubectl exec -it deployment/garage-manager -n garage -- python /app/garage-manager.py delete mybucket file.txt"
+              tail -f /dev/null
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          readinessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  test -f /app/garage-manager.py && python -c "import boto3"
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 2
+            successThreshold: 1
+            failureThreshold: 3
+          env:
+            - name: GARAGE_ENDPOINT
+              valueFrom:
+                configMapKeyRef:
+                  name: garage-manager-config
+                  key: S3_PROVIDER_ENDPOINT
+            - name: S3_PROVIDER_REGION
+              valueFrom:
+                configMapKeyRef:
+                  name: garage-manager-config
+                  key: S3_PROVIDER_REGION
+            - name: S3_PROVIDER_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: garage-manager-credentials
+                  key: S3_PROVIDER_ACCESS_KEY
+            - name: S3_PROVIDER_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: garage-manager-credentials
+                  key: S3_PROVIDER_SECRET_KEY
+            - name: PYTHONPATH
+              value: /packages
+          volumeMounts:
+            - name: garage-manager-script
+              mountPath: /app/garage-manager.py
+              subPath: garage-manager.py
+              readOnly: true
+            - name: python-packages
+              mountPath: /packages
+              readOnly: true
+      volumes:
+        - name: garage-manager-script
+          configMap:
+            name: garage-manager-config
+            defaultMode: 0755
+        - name: python-packages
+          emptyDir: {}
+

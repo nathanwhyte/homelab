@@ -1,0 +1,197 @@
+---
+# Garage Helm Chart Values
+# Customized for Glossary deployment with Longhorn storage
+#
+# Based on official Garage Helm chart structure:
+# https://garagehq.deuxfleurs.fr/documentation/cookbook/kubernetes/
+#
+# Install with:
+# helm repo add garage https://garage.deuxfleurs.fr/helm
+# helm repo update
+# helm install garage garage/garage -f k8s/garage/values.yaml -n garage
+#
+# View default values:
+# helm show values garage/garage
+
+# Garage configuration (maps to garage.toml)
+garage:
+  # Database engine (lmdb is default and recommended)
+  dbEngine: "lmdb"
+
+  # Block size (1MB default, can be increased for better performance)
+  blockSize: "1048576"
+
+  # Replication mode (3 replicas for quorum)
+  replicationMode: "3"
+
+  # Compression level (1 is default, higher = more CPU, less storage)
+  compressionLevel: "1"
+
+  # RPC bind address
+  rpcBindAddr: "[::]:3901"
+
+  # RPC secret - if empty, chart will auto-generate and store in Secret
+  # To use existing secret, reference it here (e.g., from garage-secrets)
+  # The secret should contain the RPC secret as a plain string value
+  rpcSecret: ""
+
+  # Bootstrap peers (not needed with Kubernetes discovery)
+  bootstrapPeers: []
+
+  # Use Kubernetes discovery (default, creates CRDs automatically)
+  kubernetesSkipCrd: false
+
+  # S3 API configuration
+  s3:
+    api:
+      region: "garage"
+      rootDomain: ".s3.garage.tld"
+    web:
+      rootDomain: ".web.garage.tld"
+      index: "index.html"
+
+  # Use existing ConfigMap for garage.toml (leave empty to use values above)
+  existingConfigMap: ""
+
+  # Custom garage.toml string template (overrides above if set)
+  garageTomlString: ""
+
+# Data persistence
+persistence:
+  enabled: true
+  meta:
+    # Use custom Longhorn StorageClass for metadata
+    storageClass: "longhorn-nvme"
+    size: 100Mi
+  data:
+    # Use custom Longhorn StorageClass for data
+    storageClass: "longhorn-ssd"
+    size: 50Gi
+
+# Deployment configuration
+deployment:
+  # Use StatefulSet for stable pod identities
+  kind: StatefulSet
+  # Number of Garage nodes (matches replication mode)
+  replicaCount: 3
+  # OrderedReady ensures pods start/stop in order
+  podManagementPolicy: OrderedReady
+
+# Container image
+image:
+  repository: dxflrs/amd64_garage
+  # Leave empty to use chart's default tag (recommended)
+  tag: ""
+  pullPolicy: IfNotPresent
+
+# Init container image
+initImage:
+  repository: busybox
+  tag: stable
+  pullPolicy: IfNotPresent
+
+# Image pull secrets (if needed for private registry)
+imagePullSecrets: []
+
+# Name overrides (leave empty for defaults)
+nameOverride: ""
+fullnameOverride: ""
+
+# Service account
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+# Additional pod annotations
+podAnnotations: {}
+
+# Pod security context
+podSecurityContext:
+  runAsUser: 1000
+  runAsGroup: 1000
+  fsGroup: 1000
+  runAsNonRoot: true
+
+# Container security context
+securityContext:
+  capabilities:
+    drop:
+      - ALL
+  readOnlyRootFilesystem: true
+
+# Service configuration
+service:
+  # Service type for S3 API
+  type: ClusterIP
+  s3:
+    api:
+      port: 3900
+    web:
+      port: 3902
+  # Admin API is handled via headless service automatically
+
+# Ingress configuration
+ingress:
+  s3:
+    api:
+      enabled: true
+      className: "traefik"
+      labels:
+        traefik.ingress.kubernetes.io/router.entrypoints: web
+      hosts:
+        - host: uploads.nathanwhyte.dev
+          paths:
+            - path: /
+              pathType: Prefix
+
+# Resource limits and requests
+resources: {}
+  # Example resource configuration:
+  # limits:
+  #   cpu: 1000m
+  #   memory: 2Gi
+  # requests:
+  #   cpu: 100m
+  #   memory: 512Mi
+
+# Health probes
+livenessProbe: {}
+readinessProbe: {}
+
+# Node selector (for pod placement)
+nodeSelector: {}
+
+# Tolerations (for tainted nodes)
+tolerations: []
+
+# Affinity rules (for pod placement)
+affinity: {}
+
+# Additional environment variables
+environment: {}
+
+# Extra volumes
+extraVolumes: {}
+
+# Extra volume mounts
+extraVolumeMounts: {}
+
+# Monitoring configuration
+monitoring:
+  metrics:
+    # Enable metrics service with Prometheus annotations
+    enabled: true
+    serviceMonitor:
+      # Create ServiceMonitor CRD for Prometheus Operator
+      enabled: false
+      path: /metrics
+      labels: {}
+      interval: 15s
+      scheme: http
+      tlsConfig: {}
+      scrapeTimeout: 10s
+      relabelings: []
+  tracing:
+    # OpenTelemetry trace sink endpoint
+    sink: ""

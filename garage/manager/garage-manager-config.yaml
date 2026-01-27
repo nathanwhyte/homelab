@@ -1,0 +1,348 @@
+---
+# ConfigMap for Garage Manager
+# Contains the Python script and configuration
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: garage-manager-config
+  namespace: garage
+data:
+  garage-manager.py: |
+    #!/usr/bin/env python3
+    """
+    Garage Manager - S3-compatible object storage management tool
+
+    A CLI tool for managing Garage buckets and files using boto3.
+    Supports basic operations: list buckets, list files, upload, download, delete.
+    """
+
+    import os
+    import sys
+    import argparse
+    import boto3
+    from botocore.exceptions import ClientError, NoCredentialsError, EndpointConnectionError
+
+
+    def get_s3_client():
+        """Create and return a boto3 S3 client configured for Garage."""
+        endpoint_url = os.getenv('S3_PROVIDER_ENDPOINT', 'http://garage.garage.svc.cluster.local:3900')
+        region = os.getenv('S3_PROVIDER_REGION', 'garage')
+        access_key = os.getenv('S3_PROVIDER_ACCESS_KEY')
+        secret_key = os.getenv('S3_PROVIDER_SECRET_KEY')
+
+        if not access_key or not secret_key:
+            print("Error: S3_PROVIDER_ACCESS_KEY and S3_PROVIDER_SECRET_KEY must be set", file=sys.stderr)
+            sys.exit(1)
+
+        # Strip whitespace (including newlines) from credentials
+        access_key = access_key.strip()
+        secret_key = secret_key.strip()
+
+        return boto3.client(
+            's3',
+            endpoint_url=endpoint_url,
+            aws_access_key_id=access_key,
+            aws_secret_access_key=secret_key,
+            region_name=region
+        )
+
+
+    def list_buckets(client):
+        """List all buckets."""
+        try:
+            response = client.list_buckets()
+            buckets = response.get('Buckets', [])
+
+            if not buckets:
+                print("No buckets found.")
+                return
+
+            print(f"Found {len(buckets)} bucket(s):")
+            for bucket in buckets:
+                name = bucket['Name']
+                created = bucket['CreationDate'].strftime('%Y-%m-%d %H:%M:%S')
+                print(f"  - {name} (created: {created})")
+
+        except EndpointConnectionError as e:
+            print(f"Error: Could not connect to Garage endpoint: {e}", file=sys.stderr)
+            sys.exit(1)
+        except ClientError as e:
+            print(f"Error listing buckets: {e}", file=sys.stderr)
+            sys.exit(1)
+        except Exception as e:
+            print(f"Unexpected error: {e}", file=sys.stderr)
+            sys.exit(1)
+
+
+    def list_files(client, bucket_name):
+        """List all files in a bucket."""
+        try:
+            response = client.list_objects_v2(Bucket=bucket_name)
+
+            if 'Contents' not in response:
+                print(f"Bucket '{bucket_name}' is empty.")
+                return
+
+            objects = response['Contents']
+            print(f"Found {len(objects)} file(s) in bucket '{bucket_name}':")
+
+            for obj in objects:
+                key = obj['Key']
+                size = obj['Size']
+                modified = obj['LastModified'].strftime('%Y-%m-%d %H:%M:%S')
+                print(f"  - {key} ({size} bytes, modified: {modified})")
+
+        except ClientError as e:
+            error_code = e.response.get('Error', {}).get('Code', '')
+            if error_code == 'NoSuchBucket':
+                print(f"Error: Bucket '{bucket_name}' does not exist", file=sys.stderr)
+            else:
+                print(f"Error listing files: {e}", file=sys.stderr)
+            sys.exit(1)
+        except Exception as e:
+            print(f"Unexpected error: {e}", file=sys.stderr)
+            sys.exit(1)
+
+
+    def upload_file(client, bucket_name, local_path, remote_key):
+        """Upload a file to a bucket."""
+        try:
+            if not os.path.exists(local_path):
+                print(f"Error: Local file '{local_path}' does not exist", file=sys.stderr)
+                sys.exit(1)
+
+            print(f"Uploading '{local_path}' to '{bucket_name}/{remote_key}'...")
+            client.upload_file(local_path, bucket_name, remote_key)
+            print(f"Successfully uploaded '{remote_key}' to bucket '{bucket_name}'")
+
+        except ClientError as e:
+            error_code = e.response.get('Error', {}).get('Code', '')
+            if error_code == 'NoSuchBucket':
+                print(f"Error: Bucket '{bucket_name}' does not exist", file=sys.stderr)
+            else:
+                print(f"Error uploading file: {e}", file=sys.stderr)
+            sys.exit(1)
+        except Exception as e:
+            print(f"Unexpected error: {e}", file=sys.stderr)
+            sys.exit(1)
+
+
+    def download_file(client, bucket_name, remote_key, local_path):
+        """Download a file from a bucket."""
+        try:
+            # Create directory if it doesn't exist
+            local_dir = os.path.dirname(local_path)
+            if local_dir and not os.path.exists(local_dir):
+                os.makedirs(local_dir, exist_ok=True)
+
+            print(f"Downloading '{bucket_name}/{remote_key}' to '{local_path}'...")
+            client.download_file(bucket_name, remote_key, local_path)
+            print(f"Successfully downloaded '{remote_key}' to '{local_path}'")
+
+        except ClientError as e:
+            error_code = e.response.get('Error', {}).get('Code', '')
+            if error_code == 'NoSuchBucket':
+                print(f"Error: Bucket '{bucket_name}' does not exist", file=sys.stderr)
+            elif error_code == 'NoSuchKey':
+                print(f"Error: File '{remote_key}' does not exist in bucket '{bucket_name}'", file=sys.stderr)
+            else:
+                print(f"Error downloading file: {e}", file=sys.stderr)
+            sys.exit(1)
+        except Exception as e:
+            print(f"Unexpected error: {e}", file=sys.stderr)
+            sys.exit(1)
+
+
+    def delete_file(client, bucket_name, remote_key):
+        """Delete a file from a bucket."""
+        try:
+            print(f"Deleting '{bucket_name}/{remote_key}'...")
+            client.delete_object(Bucket=bucket_name, Key=remote_key)
+            print(f"Successfully deleted '{remote_key}' from bucket '{bucket_name}'")
+
+        except ClientError as e:
+            error_code = e.response.get('Error', {}).get('Code', '')
+            if error_code == 'NoSuchBucket':
+                print(f"Error: Bucket '{bucket_name}' does not exist", file=sys.stderr)
+            elif error_code == 'NoSuchKey':
+                print(f"Error: File '{remote_key}' does not exist in bucket '{bucket_name}'", file=sys.stderr)
+            else:
+                print(f"Error deleting file: {e}", file=sys.stderr)
+            sys.exit(1)
+        except Exception as e:
+            print(f"Unexpected error: {e}", file=sys.stderr)
+            sys.exit(1)
+
+
+    def list_tree(client):
+        """List all buckets and their files in a tree-like format."""
+        try:
+            # Get all buckets
+            buckets_response = client.list_buckets()
+            buckets = buckets_response.get('Buckets', [])
+
+            if not buckets:
+                print("No buckets found.")
+                return
+
+            # Build tree structure for each bucket
+            for bucket in buckets:
+                bucket_name = bucket['Name']
+                print(f"{bucket_name}/")
+
+                # Get all objects in the bucket (handle pagination)
+                objects = []
+                paginator = client.get_paginator('list_objects_v2')
+                pages = paginator.paginate(Bucket=bucket_name)
+
+                for page in pages:
+                    if 'Contents' in page:
+                        objects.extend(page['Contents'])
+
+                if not objects:
+                    print("  (empty)")
+                    print()
+                    continue
+
+                # Organize objects into a tree structure
+                tree = {}
+                for obj in objects:
+                    key = obj['Key']
+                    parts = key.split('/')
+
+                    # Navigate/create tree structure
+                    current = tree
+                    for i, part in enumerate(parts):
+                        if i == len(parts) - 1:
+                            # This is a file (leaf node)
+                            current[part] = {'_file': True, '_size': obj['Size']}
+                        else:
+                            # This is a directory (intermediate node)
+                            if part not in current:
+                                current[part] = {}
+                            current = current[part]
+
+                # Print tree structure
+                _print_tree(tree, prefix="  ", is_last=True)
+                print()
+
+        except EndpointConnectionError as e:
+            print(f"Error: Could not connect to Garage endpoint: {e}", file=sys.stderr)
+            sys.exit(1)
+        except ClientError as e:
+            error_code = e.response.get('Error', {}).get('Code', '')
+            if error_code == 'NoSuchBucket':
+                print(f"Error: Bucket does not exist", file=sys.stderr)
+            else:
+                print(f"Error listing tree: {e}", file=sys.stderr)
+            sys.exit(1)
+        except Exception as e:
+            print(f"Unexpected error: {e}", file=sys.stderr)
+            sys.exit(1)
+
+
+    def _print_tree(tree, prefix="", is_last=True):
+        """Recursively print tree structure."""
+        items = sorted(tree.items())
+        for i, (name, value) in enumerate(items):
+            is_last_item = (i == len(items) - 1)
+
+            # Determine the connector symbol
+            if is_last_item:
+                connector = "└── "
+                next_prefix = prefix + "    "
+            else:
+                connector = "├── "
+                next_prefix = prefix + "│   "
+
+            # Check if this is a file or directory
+            if isinstance(value, dict) and '_file' in value:
+                # It's a file
+                size = value.get('_size', 0)
+                size_str = _format_size(size)
+                print(f"{prefix}{connector}{name} ({size_str})")
+            else:
+                # It's a directory
+                print(f"{prefix}{connector}{name}/")
+                _print_tree(value, next_prefix, is_last_item)
+
+
+    def _format_size(size_bytes):
+        """Format size in human-readable format."""
+        for unit in ['B', 'KB', 'MB', 'GB', 'TB']:
+            if size_bytes < 1024.0:
+                return f"{size_bytes:.1f} {unit}"
+            size_bytes /= 1024.0
+        return f"{size_bytes:.1f} PB"
+
+
+    def main():
+        parser = argparse.ArgumentParser(
+            description='Garage Manager - S3-compatible object storage management tool',
+            formatter_class=argparse.RawDescriptionHelpFormatter,
+            epilog="""
+    Examples:
+      %(prog)s list-buckets
+      %(prog)s list-files mybucket
+      %(prog)s list-tree
+      %(prog)s upload mybucket /tmp/file.txt file.txt
+      %(prog)s download mybucket file.txt /tmp/file.txt
+      %(prog)s delete mybucket file.txt
+            """
+        )
+
+        subparsers = parser.add_subparsers(dest='command', help='Command to execute')
+
+        # list-buckets command
+        subparsers.add_parser('list-buckets', help='List all buckets')
+
+        # list-tree command
+        subparsers.add_parser('list-tree', help='List all buckets and their files in a tree format')
+
+        # list-files command
+        list_parser = subparsers.add_parser('list-files', help='List files in a bucket')
+        list_parser.add_argument('bucket', help='Bucket name')
+
+        # upload command
+        upload_parser = subparsers.add_parser('upload', help='Upload a file to a bucket')
+        upload_parser.add_argument('bucket', help='Bucket name')
+        upload_parser.add_argument('local_path', help='Local file path')
+        upload_parser.add_argument('remote_key', help='Remote object key (path in bucket)')
+
+        # download command
+        download_parser = subparsers.add_parser('download', help='Download a file from a bucket')
+        download_parser.add_argument('bucket', help='Bucket name')
+        download_parser.add_argument('remote_key', help='Remote object key (path in bucket)')
+        download_parser.add_argument('local_path', help='Local file path to save to')
+
+        # delete command
+        delete_parser = subparsers.add_parser('delete', help='Delete a file from a bucket')
+        delete_parser.add_argument('bucket', help='Bucket name')
+        delete_parser.add_argument('remote_key', help='Remote object key (path in bucket)')
+
+        args = parser.parse_args()
+
+        if not args.command:
+            parser.print_help()
+            sys.exit(1)
+
+        client = get_s3_client()
+
+        if args.command == 'list-buckets':
+            list_buckets(client)
+        elif args.command == 'list-tree':
+            list_tree(client)
+        elif args.command == 'list-files':
+            list_files(client, args.bucket)
+        elif args.command == 'upload':
+            upload_file(client, args.bucket, args.local_path, args.remote_key)
+        elif args.command == 'download':
+            download_file(client, args.bucket, args.remote_key, args.local_path)
+        elif args.command == 'delete':
+            delete_file(client, args.bucket, args.remote_key)
+
+
+    if __name__ == '__main__':
+        main()
+  S3_PROVIDER_ENDPOINT: "http://garage.garage.svc.cluster.local:3900"
+  S3_PROVIDER_REGION: "garage"
