@@ -1,5 +1,7 @@
 # Harbor Container Registry
 
+_Generated with help from Cursor._
+
 Harbor is an open-source container registry with enterprise features including:
 - **Web UI** for managing images, projects, and users
 - **Vulnerability Scanning** with Trivy integration
