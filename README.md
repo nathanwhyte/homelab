@@ -1,5 +1,11 @@
 # 🐋 Kubernetes Homelab
 
+Self-hosted [K3s](https://docs.k3s.io/) Kubernetes cluster running on 4
+[Ubuntu Linux](https://ubuntu.com/server) nodes.
+
+This cluster hosts web applications, databases, data backups, an image
+registry, and much more.
+
 > It's like AWS, if AWS was hosted entirely in my office, next to my cat's food bowl,
 > running on of old laptops and my gaming PC from high school.
 >
@@ -15,7 +21,8 @@
 
 [View on GitHub](https://github.com/nathanwhyte/nathanwhyte.dev)
 
-- Basically my extended resume, with colors and better formatting.
+- An extension of my resume, with colors and better formatting.
+- Built using the [Phoenix Framework](https://www.phoenixframework.org/) for Elixir and [TailwindCSS](https://tailwindcss.com/).
 
 ### Build Hook
 
@@ -24,7 +31,7 @@
 - Fills the role of GitHub actions on pushes to main, but for free.
 - Triggers image builds and resource deployments for configured projects on request.
 - Requests secured via bearer tokens passed as secrets to GitHub Actions workflows.
-- Built using Rust's [axum](https://docs.rs/axum/latest/axum/index.html) framework.
+- Built using Rust's [axum](https://docs.rs/axum/latest/axum/index.html) web framework with image builds running in a [Docker BuildKit](https://docs.docker.com/build/buildkit/configure/) container.
 
 ### Personal Glossary
 
@@ -33,6 +40,7 @@
 - A knowledge base / second brain / notes store / wiki for things I always forget.
 - Integrated search function across different notes, projects, tags, and topics.
 - AI-powered notes review and topic synthesis.
+- Built using Elixir's [Phoenix LiveView](https://www.phoenixframework.org/) for reactivity and [TailwindCSS](https://tailwindcss.com/) for styling.
 
 ## Services
 
