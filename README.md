@@ -21,24 +21,24 @@ registry, and much more.
 
 ### Portfolio Website - [nathanwhyte.dev](https://www.nathanwhyte.dev)
 
-[View on GitHub](https://github.com/nathanwhyte/nathanwhyte.dev)
-
 - An extension of my resume, with colors and better formatting.
 - Built using the [Phoenix Framework](https://www.phoenixframework.org/) for Elixir and [TailwindCSS](https://tailwindcss.com/).
 
-### Build Hook
+[View on GitHub](https://github.com/nathanwhyte/nathanwhyte.dev)
 
-[View on GitHub](https://github.com/nathanwhyte/build-hook)
+### Build Hook
 
 - Fills the role of GitHub actions for building images and deploying changes on pushes to main, but for free.
 - Built using Rust's [axum](https://docs.rs/axum/latest/axum/index.html) web framework with image builds running in a [Docker BuildKit](https://docs.docker.com/build/buildkit/configure/) container.
 
-### Glossary
+[View on GitHub](https://github.com/nathanwhyte/build-hook)
 
-[View on GitHub](https://github.com/nathanwhyte/glossary)
+### Glossary
 
 - A knowledge base / second brain / notes store / personal wiki for things I always forget.
 - Built using Phoenix's [LiveView](https://hexdocs.pm/phoenix_live_view/welcome.html) for reactivity and [TailwindCSS](https://tailwindcss.com/) for styling.
+
+[View on GitHub](https://github.com/nathanwhyte/glossary)
 
 ## Services
 
