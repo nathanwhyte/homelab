@@ -30,9 +30,7 @@ registry, and much more.
 
 [View on GitHub](https://github.com/nathanwhyte/build-hook)
 
-- Fills the role of GitHub actions on pushes to main, but for free.
-- Triggers image builds and resource deployments for configured projects on request.
-- Requests secured via bearer tokens passed as secrets to GitHub Actions workflows.
+- Fills the role of GitHub actions for building images and deploying changes on pushes to main, but for free.
 - Built using Rust's [axum](https://docs.rs/axum/latest/axum/index.html) web framework with image builds running in a [Docker BuildKit](https://docs.docker.com/build/buildkit/configure/) container.
 
 ### Glossary
@@ -40,8 +38,6 @@ registry, and much more.
 [View on GitHub](https://github.com/nathanwhyte/glossary)
 
 - A knowledge base / second brain / notes store / personal wiki for things I always forget.
-- Integrated search function across different notes, projects, tags, and topics.
-- AI-powered notes review and topic synthesis.
 - Built using Phoenix's [LiveView](https://hexdocs.pm/phoenix_live_view/welcome.html) for reactivity and [TailwindCSS](https://tailwindcss.com/) for styling.
 
 ## Services
@@ -58,8 +54,7 @@ Persistent storage solution for the entire cluster.
 
 - Deployed using [Longhorn's kubectl install guide](https://longhorn.io/docs/1.10.1/deploy/install/install-with-kubectl/).
 - Backups and redundancy on HDD, databases and caches on SSD/NVMe.
-- Successfully prevented me from accidentally erasing an entire hard drive
-  full of family videos.
+- Successfully prevented me from accidentally erasing an entire hard drive full of family videos.
 
 ### Grafana Suite
 
@@ -101,11 +96,8 @@ For in-house DNS resolution for speed and privacy
 
 ### Cloudflare Tunnel
 
-Secure public-facing access to services without exposing my home IP address or
-opening ports on my router _(for most services)_.
+Secure public-facing access to services without exposing my home IP address or opening ports on my router _(for most services)_.
 
 ### Cloudflare DNS
 
-For services that don't use Cloudflare Tunnel, Cloudflare's DNS
-_(plus router port-forwarding)_ allows for secure access via my domain,
-with SSL as an additional layer.
+For services that don't use Cloudflare Tunnel, Cloudflare's DNS _(plus router port-forwarding)_ allows for secure access via my domain.
