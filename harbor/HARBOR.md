@@ -63,14 +63,11 @@ kubectl get certificate -n harbor
 ### 3. Access Harbor
 
 **Web UI**: https://registry.nathanwhyte.dev
-- Username: `admin`
-- Password: `<CHANGE_ME>` (change immediately after first login)
-- **Note**: The default password is set in `harbor-values.yaml` and should be changed on first login
 
 **Docker Login**:
 ```bash
 docker login registry.nathanwhyte.dev
-# Enter username: admin
+# Enter username: <username>
 # Enter password: <CHANGE_ME>
 ```
 
@@ -432,20 +429,6 @@ kubectl exec -it -n harbor deployment/harbor-core -- df -h /storage
 **Issue**: High memory usage
 - **Solution**: Review resource limits in `harbor-values.yaml` and adjust if needed
 - Monitor: `kubectl top pods -n harbor`
-
-## Uninstalling
-
-To completely remove Harbor:
-
-```bash
-# Uninstall Helm release
-helm uninstall harbor -n harbor
-
-# Delete PVCs (WARNING: This deletes all data)
-kubectl delete pvc -n harbor -l app=harbor
-
-# Delete namespace
-kubectl delete namespace harbor
 ```
 
 ## Resources
