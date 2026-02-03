@@ -44,7 +44,7 @@ persistence:
     # Registry storage (filesystem-based on Longhorn)
     registry:
       storageClass: longhorn-db
-      size: 20Gi
+      size: 30Gi
     jobservice:
       jobLog:
         storageClass: ""
