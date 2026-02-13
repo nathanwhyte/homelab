@@ -21,7 +21,7 @@ singleBinary:
   # Persistence configuration using Longhorn
   persistence:
     enabled: true
-    storageClass: longhorn-ssd
+    storageClass: longhorn-hdd
     accessModes:
       - ReadWriteOnce
     size: 20Gi

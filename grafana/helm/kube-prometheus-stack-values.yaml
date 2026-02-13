@@ -52,12 +52,12 @@ prometheus:
     storageSpec:
       volumeClaimTemplate:
         spec:
-          storageClassName: longhorn-ssd
+          storageClassName: longhorn-hdd
           accessModes:
             - ReadWriteOnce
           resources:
             requests:
-              storage: 20Gi
+              storage: 50Gi
     # Retention configuration (reduced to 7d for performance)
     retention: 7d
     retentionSize: ""
@@ -240,12 +240,12 @@ alertmanager:
     storage:
       volumeClaimTemplate:
         spec:
-          storageClassName: longhorn-ssd
+          storageClassName: longhorn-hdd
           accessModes:
             - ReadWriteOnce
           resources:
             requests:
-              storage: 5Gi
+              storage: 10Gi
     # Resource limits
     resources:
       requests:

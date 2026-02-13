@@ -44,7 +44,7 @@ persistence:
     # Registry storage (filesystem-based on Longhorn)
     registry:
       storageClass: longhorn-db
-      size: 30Gi
+      size: 20Gi
     jobservice:
       jobLog:
         storageClass: ""
@@ -54,7 +54,7 @@ persistence:
         size: 1Gi
     database:
       # PostgreSQL data
-      storageClass: longhorn-ssd
+      storageClass: longhorn-hdd
       size: 5Gi
     redis:
       # Redis data
