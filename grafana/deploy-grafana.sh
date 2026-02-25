@@ -68,6 +68,11 @@ if [ ! -f "$GRAFANA_DIR/manifests/cloudflared.yaml" ]; then
      exit 1
 fi
 
+if [ ! -f "$GRAFANA_DIR/manifests/pvc-rwx.yaml" ]; then
+     echo "pvc-rwx.yaml file not found!"
+     exit 1
+fi
+
 if [ ! -f "$GRAFANA_DIR/cloudflared.secret.yaml" ]; then
      echo "cloudflared.secret.yaml file not found!"
      echo "Create this file and apply it, or manually create the cloudflare secret."
@@ -76,7 +81,7 @@ else
 fi
 
 echo -e "\nApplying other manifests..."
-kubectl apply -f "$GRAFANA_DIR/manifests/rbac.yaml" -f "$GRAFANA_DIR/manifests/cloudflared.yaml"
+kubectl apply -f "$GRAFANA_DIR/manifests/pvc-rwx.yaml" -f "$GRAFANA_DIR/manifests/rbac.yaml" -f "$GRAFANA_DIR/manifests/cloudflared.yaml"
 
 echo -e "\nDone! Visit:"
 echo "  https://k8s.nathanwhyte.dev/#/overview?namespace=grafana"

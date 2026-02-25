@@ -16,7 +16,7 @@ This repo contains Kubernetes manifests, Helm values, and small deploy scripts f
 Top-level directories generally map to deployed services:
 
 - `dashboard/`: Kubernetes Dashboard manifests and tunnel/ingress config.
-- `grafana/`: Observability stack (Prometheus/Grafana/Loki/Alloy), with Helm values under `grafana/helm/` and manifests under `grafana/manifests/`.
+- `grafana/`: Observability stack (Prometheus/Grafana/Loki/Alloy), with Helm values under `grafana/helm/` and manifests under `grafana/manifests/`. Grafana is provisioned with Prometheus and Loki datasources; Alloy (k8s-monitoring) sends logs to Loki and metrics to Prometheus; Kubernetes and Logs dashboards are provisioned via the stack values.
 - `harbor/`: Harbor registry, Helm values and supporting manifests.
 - `longhorn/`: Longhorn storage, Helm values and supporting manifests.
 - `garage/`: Garage (S3-compatible object storage), values and a `manager/` subfolder for the garage manager manifests/config.

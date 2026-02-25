@@ -160,6 +160,15 @@ grafana:
       concurrent_render_request_limit: 5
       # Timeout for rendering requests
       render_timeout: 30s
+  # Additional datasources: Loki (logs from Alloy -> k8s-monitoring)
+  # Enables Explore and log dashboards to query cluster logs.
+  additionalDataSources:
+    - name: Loki
+      type: loki
+      access: proxy
+      url: http://loki-gateway.grafana.svc.cluster.local
+      isDefault: false
+      editable: false
   # Dashboard provisioning - automatically import NVIDIA DCGM Exporter dashboard
   # Dashboard ID: 12239 from https://grafana.com/grafana/dashboards/12239
   # Reference: https://docs.nvidia.com/datacenter/cloud-native/gpu-telemetry/latest/kube-prometheus.html
@@ -182,6 +191,36 @@ grafana:
         revision: 1
         datasource: Prometheus
         folder: ""
+      # Kubernetes cluster overview (metrics)
+      k8s-cluster:
+        gnetId: 7249
+        revision: 1
+        datasource: Prometheus
+        folder: Kubernetes
+      # Node Exporter (host metrics)
+      node-exporter:
+        gnetId: 1860
+        revision: 36
+        datasource: Prometheus
+        folder: Kubernetes
+      # Kubernetes / Views / Pods
+      k8s-pods:
+        gnetId: 15757
+        revision: 4
+        datasource: Prometheus
+        folder: Kubernetes
+      # Kubernetes / Views / Nodes
+      k8s-nodes:
+        gnetId: 15761
+        revision: 4
+        datasource: Prometheus
+        folder: Kubernetes
+      # Loki / Logs (for log exploration)
+      loki-logs:
+        gnetId: 12019
+        revision: 3
+        datasource: Loki
+        folder: Logs
   # Ingress configuration (matching current config)
   ingress:
     enabled: true

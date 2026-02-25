@@ -6,12 +6,17 @@
 cluster:
   name: k8s
 
-# Destinations - forward logs to existing Loki gateway
+# Destinations - logs to Loki, metrics to Prometheus (remote write)
+# Enables Alloy to gather logs and metrics and deliver to the stack.
 destinations:
   - name: loki
     type: loki
     # Point to existing Loki gateway service
     url: http://loki-gateway.grafana.svc.cluster.local/loki/api/v1/push
+  - name: prometheus
+    type: prometheus
+    # kube-prometheus-stack Prometheus remote write receiver (fullnameOverride: prom)
+    url: http://prom-prometheus.grafana.svc.cluster.local:9090/api/v1/write
 
 # Cluster events collection
 clusterEvents:
@@ -21,14 +26,17 @@ clusterEvents:
 # Node logs
 nodeLogs:
   enabled: true
-  # Use all logs-capable destinations (will use the loki destination above)
-  destinations: []
+  # Send to Loki (explicit so logs flow to the provisioned Loki datasource)
+  destinations:
+    - loki
   # Collector is automatically set to alloy-logs
 
 # Pod logs collection
 podLogs:
   enabled: true
   gatherMethod: kubernetesApi
+  destinations:
+    - loki
 
 # Collectors
 alloy-singleton:
@@ -43,8 +51,17 @@ alloy-singleton:
         cpu: 500m
         memory: 512Mi
 
+# Enable Alloy to scrape cluster metrics and remote-write to Prometheus
 alloy-metrics:
-  enabled: false
+  enabled: true
+  alloy:
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
 
 alloy-logs:
   enabled: true
