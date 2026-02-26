@@ -20,6 +20,7 @@ Top-level directories generally map to deployed services:
 - `harbor/`: Harbor registry, Helm values and supporting manifests.
 - `longhorn/`: Longhorn storage, Helm values and supporting manifests.
 - `garage/`: Garage (S3-compatible object storage), values and a `manager/` subfolder for the garage manager manifests/config.
+- `gpu/`: NVIDIA GPU Operator Helm values; GPU nodes are labeled `gpu=true`.
 
 Each service folder typically includes:
 
