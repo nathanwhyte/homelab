@@ -25,7 +25,7 @@ done
 kubectl apply -f "$LLAMA_DIR/namespace.yaml"
 kubectl apply -f "$LLAMA_DIR/pvc.yaml"
 
-# Remove old vLLM deployment if present to free the single GPU.
+# Remove legacy llama deployment if present to free the single GPU.
 kubectl delete deployment -n "$NAMESPACE" llama --ignore-not-found
 
 kubectl apply -f "$LLAMA_DIR/llamacpp-deployment.yaml"
@@ -37,6 +37,9 @@ kubectl wait --for=condition=available deployment/llamacpp-openai -n "$NAMESPACE
 echo -e "\nDone!"
 echo "  Service DNS: http://llama-api.llama.svc.cluster.local"
 echo "  OpenAI API base URL: http://llama-api.llama.svc.cluster.local/v1"
+echo "  Default requested model: current.gguf"
+echo "  Primary model file: Meta-Llama-3.1-8B-Instruct.Q4_K_M.gguf"
+echo "  Fallback model file: Mistral-7B-Instruct-v0.3-Q4_K_M.gguf"
 
 echo -e "\nCheck status:"
 echo "  kubectl get pods -n $NAMESPACE"
@@ -46,4 +49,4 @@ echo -e "\nQuick in-cluster test (example):"
 echo "  kubectl run -it --rm curl --image=curlimages/curl:8.12.1 --restart=Never -- \\
     curl -sS http://llama-api.llama.svc.cluster.local/v1/chat/completions \\
     -H 'Content-Type: application/json' \\
-    -d '{\"model\":\"tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf\",\"messages\":[{\"role\":\"user\",\"content\":\"Write one sentence about homelabs.\"}],\"max_tokens\":64}'"
+    -d '{\"model\":\"current.gguf\",\"messages\":[{\"role\":\"user\",\"content\":\"Write one sentence about homelabs.\"}],\"max_tokens\":64}'"

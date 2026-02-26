@@ -2,10 +2,9 @@
 
 OpenAI-compatible local LLM serving in the `llama` namespace.
 
-This folder contains two deployment paths:
+This folder uses the llama.cpp deployment path for current GPUs (Pascal `sm_61`).
 
-- `deploy-llamacpp.sh` (recommended for current GPUs, Pascal `sm_61`)
-- `deploy-llama-vllm.sh` (kept for reference; vLLM requires newer GPU arch)
+- `deploy-llamacpp.sh`
 
 ## Current endpoint
 
@@ -23,8 +22,36 @@ This folder contains two deployment paths:
 kubectl run -it --rm curl --image=curlimages/curl:8.12.1 --restart=Never -- \
   curl -sS http://llama-api.llama.svc.cluster.local/v1/chat/completions \
   -H 'Content-Type: application/json' \
-  -d '{"model":"tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf","messages":[{"role":"user","content":"Write one sentence about homelabs."}],"max_tokens":64}'
+  -d '{"model":"current.gguf","messages":[{"role":"user","content":"Write one sentence about homelabs."}],"max_tokens":64}'
 ```
+
+## Benchmark suite (7B/8B)
+
+Benchmark files:
+
+- `benchmarks/models.json`: model matrix (primary/fallback files + URLs)
+- `benchmarks/cases.json`: 12 cases each for `codegen`, `tech_qa`, `basic_qa`
+- `benchmarks/run_benchmarks.py`: orchestrates model switch, rollout, scoring, report output
+- `run-benchmarks.sh`: convenience launcher
+
+Default scoring weights (accuracy-leaning):
+
+- overall: `60% accuracy + 40% speed`
+- accuracy mix: `50% codegen + 30% tech_qa + 20% basic_qa`
+
+Run full suite:
+
+```bash
+./llama/run-benchmarks.sh
+```
+
+Run only selected models:
+
+```bash
+./llama/run-benchmarks.sh --models llama31_8b_q4km,qwen25_7b_q4km
+```
+
+Output is written to `llama/benchmarks/results/` as JSON and Markdown ranking reports.
 
 ## Files
 

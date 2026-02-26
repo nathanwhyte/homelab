@@ -1,0 +1,26 @@
+[
+  {
+    "id": "llama31_8b_q4km",
+    "label": "Llama 3.1 8B Instruct Q4_K_M",
+    "primary_model_file": "Meta-Llama-3.1-8B-Instruct.Q4_K_M.gguf",
+    "primary_model_url": "https://huggingface.co/QuantFactory/Meta-Llama-3.1-8B-Instruct-GGUF/resolve/main/Meta-Llama-3.1-8B-Instruct.Q4_K_M.gguf",
+    "fallback_model_file": "Mistral-7B-Instruct-v0.3-Q4_K_M.gguf",
+    "fallback_model_url": "https://huggingface.co/bartowski/Mistral-7B-Instruct-v0.3-GGUF/resolve/main/Mistral-7B-Instruct-v0.3-Q4_K_M.gguf"
+  },
+  {
+    "id": "qwen25_7b_q4km",
+    "label": "Qwen2.5 7B Instruct Q4_K_M",
+    "primary_model_file": "Qwen2.5-7B-Instruct-Q4_K_M.gguf",
+    "primary_model_url": "https://huggingface.co/bartowski/Qwen2.5-7B-Instruct-GGUF/resolve/main/Qwen2.5-7B-Instruct-Q4_K_M.gguf",
+    "fallback_model_file": "Mistral-7B-Instruct-v0.3-Q4_K_M.gguf",
+    "fallback_model_url": "https://huggingface.co/bartowski/Mistral-7B-Instruct-v0.3-GGUF/resolve/main/Mistral-7B-Instruct-v0.3-Q4_K_M.gguf"
+  },
+  {
+    "id": "mistral_7b_q4km",
+    "label": "Mistral 7B Instruct v0.3 Q4_K_M",
+    "primary_model_file": "Mistral-7B-Instruct-v0.3-Q4_K_M.gguf",
+    "primary_model_url": "https://huggingface.co/bartowski/Mistral-7B-Instruct-v0.3-GGUF/resolve/main/Mistral-7B-Instruct-v0.3-Q4_K_M.gguf",
+    "fallback_model_file": "Mistral-7B-Instruct-v0.3-Q4_K_M.gguf",
+    "fallback_model_url": "https://huggingface.co/bartowski/Mistral-7B-Instruct-v0.3-GGUF/resolve/main/Mistral-7B-Instruct-v0.3-Q4_K_M.gguf"
+  }
+]

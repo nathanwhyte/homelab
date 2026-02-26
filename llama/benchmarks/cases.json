@@ -1,0 +1,428 @@
+[
+  {
+    "id": "codegen_01_reverse_words",
+    "category": "codegen",
+    "prompt": "Write Python code for a function reverse_words(text: str) -> str. It should trim extra whitespace and reverse the word order. Return only a python code block.",
+    "max_tokens": 220,
+    "evaluator": {
+      "type": "python_unit",
+      "function": "reverse_words",
+      "tests": [
+        {"args": ["hello world"], "expected": "world hello"},
+        {"args": ["  one   two three  "], "expected": "three two one"}
+      ]
+    }
+  },
+  {
+    "id": "codegen_02_is_prime",
+    "category": "codegen",
+    "prompt": "Write Python code for a function is_prime(n: int) -> bool. Return only a python code block.",
+    "max_tokens": 220,
+    "evaluator": {
+      "type": "python_unit",
+      "function": "is_prime",
+      "tests": [
+        {"args": [2], "expected": true},
+        {"args": [17], "expected": true},
+        {"args": [21], "expected": false},
+        {"args": [1], "expected": false}
+      ]
+    }
+  },
+  {
+    "id": "codegen_03_fibonacci",
+    "category": "codegen",
+    "prompt": "Write Python code for a function fibonacci(n: int) -> int where fibonacci(0)=0 and fibonacci(1)=1. Return only a python code block.",
+    "max_tokens": 220,
+    "evaluator": {
+      "type": "python_unit",
+      "function": "fibonacci",
+      "tests": [
+        {"args": [0], "expected": 0},
+        {"args": [1], "expected": 1},
+        {"args": [10], "expected": 55}
+      ]
+    }
+  },
+  {
+    "id": "codegen_04_two_sum",
+    "category": "codegen",
+    "prompt": "Write Python code for a function two_sum(nums: list[int], target: int) -> tuple[int, int]. Return indices of the two numbers that add up to target. You may assume one valid answer exists. Return only a python code block.",
+    "max_tokens": 260,
+    "evaluator": {
+      "type": "python_unit",
+      "function": "two_sum",
+      "tests": [
+        {"args": [[2, 7, 11, 15], 9], "expected": [0, 1]},
+        {"args": [[3, 2, 4], 6], "expected": [1, 2]}
+      ],
+      "order_insensitive_pairs": true
+    }
+  },
+  {
+    "id": "codegen_05_merge_intervals",
+    "category": "codegen",
+    "prompt": "Write Python code for merge_intervals(intervals: list[list[int]]) -> list[list[int]] that merges overlapping intervals. Return only a python code block.",
+    "max_tokens": 260,
+    "evaluator": {
+      "type": "python_unit",
+      "function": "merge_intervals",
+      "tests": [
+        {"args": [[[1, 3], [2, 6], [8, 10], [15, 18]]], "expected": [[1, 6], [8, 10], [15, 18]]},
+        {"args": [[[1, 4], [4, 5]]], "expected": [[1, 5]]}
+      ]
+    }
+  },
+  {
+    "id": "codegen_06_binary_search",
+    "category": "codegen",
+    "prompt": "Write Python code for binary_search(nums: list[int], target: int) -> int that returns the index of target in a sorted list, or -1 when not found. Return only a python code block.",
+    "max_tokens": 220,
+    "evaluator": {
+      "type": "python_unit",
+      "function": "binary_search",
+      "tests": [
+        {"args": [[1, 3, 5, 7, 9], 7], "expected": 3},
+        {"args": [[1, 3, 5, 7, 9], 2], "expected": -1}
+      ]
+    }
+  },
+  {
+    "id": "codegen_07_dedupe",
+    "category": "codegen",
+    "prompt": "Write Python code for dedupe_preserve_order(items: list[int]) -> list[int] that removes duplicates while preserving first occurrence order. Return only a python code block.",
+    "max_tokens": 220,
+    "evaluator": {
+      "type": "python_unit",
+      "function": "dedupe_preserve_order",
+      "tests": [
+        {"args": [[1, 2, 1, 3, 2, 4]], "expected": [1, 2, 3, 4]},
+        {"args": [[5, 5, 5]], "expected": [5]}
+      ]
+    }
+  },
+  {
+    "id": "codegen_08_clamp",
+    "category": "codegen",
+    "prompt": "Write Python code for clamp(value: int, low: int, high: int) -> int that constrains value to inclusive [low, high]. Return only a python code block.",
+    "max_tokens": 180,
+    "evaluator": {
+      "type": "python_unit",
+      "function": "clamp",
+      "tests": [
+        {"args": [5, 1, 10], "expected": 5},
+        {"args": [-2, 0, 3], "expected": 0},
+        {"args": [99, 0, 3], "expected": 3}
+      ]
+    }
+  },
+  {
+    "id": "codegen_09_chunk_list",
+    "category": "codegen",
+    "prompt": "Write Python code for chunk_list(items: list[int], size: int) -> list[list[int]] that splits items into chunks of length size. Assume size > 0. Return only a python code block.",
+    "max_tokens": 220,
+    "evaluator": {
+      "type": "python_unit",
+      "function": "chunk_list",
+      "tests": [
+        {"args": [[1, 2, 3, 4, 5], 2], "expected": [[1, 2], [3, 4], [5]]},
+        {"args": [[1, 2, 3], 3], "expected": [[1, 2, 3]]}
+      ]
+    }
+  },
+  {
+    "id": "codegen_10_count_vowels",
+    "category": "codegen",
+    "prompt": "Write Python code for count_vowels(text: str) -> int that counts vowels a, e, i, o, u case-insensitively. Return only a python code block.",
+    "max_tokens": 180,
+    "evaluator": {
+      "type": "python_unit",
+      "function": "count_vowels",
+      "tests": [
+        {"args": ["Hello"], "expected": 2},
+        {"args": ["rhythm"], "expected": 0},
+        {"args": ["AEIOU"], "expected": 5}
+      ]
+    }
+  },
+  {
+    "id": "codegen_11_transpose_matrix",
+    "category": "codegen",
+    "prompt": "Write Python code for transpose_matrix(matrix: list[list[int]]) -> list[list[int]] that transposes a rectangular matrix. Return only a python code block.",
+    "max_tokens": 220,
+    "evaluator": {
+      "type": "python_unit",
+      "function": "transpose_matrix",
+      "tests": [
+        {"args": [[[1, 2, 3], [4, 5, 6]]], "expected": [[1, 4], [2, 5], [3, 6]]},
+        {"args": [[[7], [8]]], "expected": [[7, 8]]}
+      ]
+    }
+  },
+  {
+    "id": "codegen_12_longest_prefix",
+    "category": "codegen",
+    "prompt": "Write Python code for longest_common_prefix(words: list[str]) -> str. Return only a python code block.",
+    "max_tokens": 240,
+    "evaluator": {
+      "type": "python_unit",
+      "function": "longest_common_prefix",
+      "tests": [
+        {"args": [["flower", "flow", "flight"]], "expected": "fl"},
+        {"args": [["dog", "racecar", "car"]], "expected": ""}
+      ]
+    }
+  },
+  {
+    "id": "tech_qa_01_deploy_vs_stateful",
+    "category": "tech_qa",
+    "prompt": "In 4 short bullets, compare Kubernetes Deployment vs StatefulSet and when to use each.",
+    "max_tokens": 220,
+    "evaluator": {
+      "type": "keyword",
+      "required": ["deployment", "statefulset", "stateless", "stable", "storage", "ordered"],
+      "min_required": 4
+    }
+  },
+  {
+    "id": "tech_qa_02_tcp_udp",
+    "category": "tech_qa",
+    "prompt": "Briefly explain TCP vs UDP and one real-world use case for each.",
+    "max_tokens": 200,
+    "evaluator": {
+      "type": "keyword",
+      "required": ["tcp", "udp", "reliable", "connectionless", "ordered"],
+      "min_required": 4
+    }
+  },
+  {
+    "id": "tech_qa_03_idempotency",
+    "category": "tech_qa",
+    "prompt": "What is idempotency in APIs and why does it matter for retries? Keep it concise.",
+    "max_tokens": 180,
+    "evaluator": {
+      "type": "keyword",
+      "required": ["idempotent", "retry", "duplicate", "side effect", "same result"],
+      "min_required": 3
+    }
+  },
+  {
+    "id": "tech_qa_04_ci_cd",
+    "category": "tech_qa",
+    "prompt": "Give a concise difference between continuous integration and continuous delivery/deployment.",
+    "max_tokens": 180,
+    "evaluator": {
+      "type": "keyword",
+      "required": ["integration", "build", "test", "delivery", "deployment"],
+      "min_required": 4
+    }
+  },
+  {
+    "id": "tech_qa_05_tls_chain",
+    "category": "tech_qa",
+    "prompt": "What does a TLS certificate chain do, and what causes a chain validation failure?",
+    "max_tokens": 200,
+    "evaluator": {
+      "type": "keyword",
+      "required": ["certificate", "chain", "intermediate", "root", "trust", "expired"],
+      "min_required": 4
+    }
+  },
+  {
+    "id": "tech_qa_06_dns_records",
+    "category": "tech_qa",
+    "prompt": "Explain the difference between an A record and a CNAME record in DNS.",
+    "max_tokens": 170,
+    "evaluator": {
+      "type": "keyword",
+      "required": ["a record", "cname", "ip", "alias", "hostname"],
+      "min_required": 4
+    }
+  },
+  {
+    "id": "tech_qa_07_scaling",
+    "category": "tech_qa",
+    "prompt": "Horizontal scaling vs vertical scaling: when is each a better choice?",
+    "max_tokens": 180,
+    "evaluator": {
+      "type": "keyword",
+      "required": ["horizontal", "vertical", "replicas", "resource", "single node"],
+      "min_required": 4
+    }
+  },
+  {
+    "id": "tech_qa_08_mutex_semaphore",
+    "category": "tech_qa",
+    "prompt": "Compare a mutex and a semaphore in concurrent programming.",
+    "max_tokens": 180,
+    "evaluator": {
+      "type": "keyword",
+      "required": ["mutex", "semaphore", "lock", "counting", "thread"],
+      "min_required": 4
+    }
+  },
+  {
+    "id": "tech_qa_09_cache_aside",
+    "category": "tech_qa",
+    "prompt": "Describe the cache-aside pattern and one downside.",
+    "max_tokens": 180,
+    "evaluator": {
+      "type": "keyword",
+      "required": ["cache", "read", "miss", "database", "stale"],
+      "min_required": 4
+    }
+  },
+  {
+    "id": "tech_qa_10_blue_green",
+    "category": "tech_qa",
+    "prompt": "What is a blue/green deployment and why does it reduce risk?",
+    "max_tokens": 180,
+    "evaluator": {
+      "type": "keyword",
+      "required": ["blue", "green", "traffic", "rollback", "downtime"],
+      "min_required": 4
+    }
+  },
+  {
+    "id": "tech_qa_11_container_layers",
+    "category": "tech_qa",
+    "prompt": "How do Docker image layers affect build caching and image size?",
+    "max_tokens": 180,
+    "evaluator": {
+      "type": "keyword",
+      "required": ["layer", "cache", "rebuild", "size", "order"],
+      "min_required": 4
+    }
+  },
+  {
+    "id": "tech_qa_12_n_plus_one",
+    "category": "tech_qa",
+    "prompt": "What is the N+1 query problem and how can you mitigate it?",
+    "max_tokens": 190,
+    "evaluator": {
+      "type": "keyword",
+      "required": ["n+1", "query", "database", "join", "eager loading", "batch"],
+      "min_required": 4
+    }
+  },
+  {
+    "id": "basic_qa_01_https_port",
+    "category": "basic_qa",
+    "prompt": "Answer with only the number: What is the default TCP port for HTTPS?",
+    "max_tokens": 20,
+    "evaluator": {
+      "type": "exact",
+      "accepted": ["443"]
+    }
+  },
+  {
+    "id": "basic_qa_02_power_of_two",
+    "category": "basic_qa",
+    "prompt": "Answer with only the number: What is 2 to the power of 10?",
+    "max_tokens": 20,
+    "evaluator": {
+      "type": "exact",
+      "accepted": ["1024"]
+    }
+  },
+  {
+    "id": "basic_qa_03_math_percent",
+    "category": "basic_qa",
+    "prompt": "Answer with only the number: What is 15% of 240?",
+    "max_tokens": 20,
+    "evaluator": {
+      "type": "exact",
+      "accepted": ["36"]
+    }
+  },
+  {
+    "id": "basic_qa_04_binary",
+    "category": "basic_qa",
+    "prompt": "Answer with only digits: What is decimal 10 in binary?",
+    "max_tokens": 20,
+    "evaluator": {
+      "type": "exact",
+      "accepted": ["1010"]
+    }
+  },
+  {
+    "id": "basic_qa_05_git_status",
+    "category": "basic_qa",
+    "prompt": "Answer with only the command: Which git command shows the current working tree status?",
+    "max_tokens": 30,
+    "evaluator": {
+      "type": "exact",
+      "accepted": ["git status"]
+    }
+  },
+  {
+    "id": "basic_qa_06_http_404",
+    "category": "basic_qa",
+    "prompt": "Answer in 1-2 words: What does HTTP 404 mean?",
+    "max_tokens": 20,
+    "evaluator": {
+      "type": "exact",
+      "accepted": ["not found"]
+    }
+  },
+  {
+    "id": "basic_qa_07_service_default_type",
+    "category": "basic_qa",
+    "prompt": "Answer in one word: In Kubernetes, what is the default Service type?",
+    "max_tokens": 20,
+    "evaluator": {
+      "type": "exact",
+      "accepted": ["clusterip"]
+    }
+  },
+  {
+    "id": "basic_qa_08_minutes",
+    "category": "basic_qa",
+    "prompt": "Answer with only the number: How many minutes are in 2.5 hours?",
+    "max_tokens": 20,
+    "evaluator": {
+      "type": "exact",
+      "accepted": ["150"]
+    }
+  },
+  {
+    "id": "basic_qa_09_indexing",
+    "category": "basic_qa",
+    "prompt": "Answer with only the number: In zero-based indexing, what is the index of the third element?",
+    "max_tokens": 20,
+    "evaluator": {
+      "type": "exact",
+      "accepted": ["2"]
+    }
+  },
+  {
+    "id": "basic_qa_10_cidr",
+    "category": "basic_qa",
+    "prompt": "Answer with only the number: In IPv4, how many usable host addresses are in a /24 subnet?",
+    "max_tokens": 20,
+    "evaluator": {
+      "type": "exact",
+      "accepted": ["254"]
+    }
+  },
+  {
+    "id": "basic_qa_11_json_null",
+    "category": "basic_qa",
+    "prompt": "Answer with only the JSON literal for a null value.",
+    "max_tokens": 20,
+    "evaluator": {
+      "type": "exact",
+      "accepted": ["null"]
+    }
+  },
+  {
+    "id": "basic_qa_12_ipv4_octets",
+    "category": "basic_qa",
+    "prompt": "Answer with only the number: How many octets are in an IPv4 address?",
+    "max_tokens": 20,
+    "evaluator": {
+      "type": "exact",
+      "accepted": ["4"]
+    }
+  }
+]

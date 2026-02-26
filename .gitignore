@@ -44,3 +44,8 @@ kubeconfig
 .DS_Store
 *.sublime-project
 *.sublime-workspace
+
+# Python files
+__pycache__/
+*.py[cod]
+*$py.class
