@@ -79,6 +79,14 @@ S3-compatible object storage engine.
 - Deployed based on [Garage's official guide](https://garagehq.deuxfleurs.fr/documentation/cookbook/kubernetes/).
 - Custom manager container for bucket management with the AWS S3 CLI.
 
+### Llama
+
+Internal OpenAI-compatible LLM endpoint backed by `llama.cpp`.
+
+- Deployed as a single GPU replica in the `llama` namespace.
+- Exposed in-cluster via `llama-api.llama.svc.cluster.local`.
+- Read more in [`llama/README.md`](./llama/README.md).
+
 ## Other Technologies
 
 ### Databases

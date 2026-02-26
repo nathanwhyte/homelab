@@ -1,0 +1,81 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: llama
+  namespace: llama
+  labels:
+    app: llama
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: llama
+  template:
+    metadata:
+      labels:
+        app: llama
+    spec:
+      runtimeClassName: nvidia
+      nodeSelector:
+        gpu: "true"
+        kubernetes.io/hostname: wemby
+      containers:
+        - name: vllm
+          image: vllm/vllm-openai:v0.13.0
+          env:
+            - name: VLLM_PORT
+              value: "29500"
+          command:
+            - /bin/sh
+            - -c
+          args:
+            - >-
+              vllm serve TinyLlama/TinyLlama-1.1B-Chat-v1.0
+              --host 0.0.0.0
+              --port 8000
+              --dtype half
+              --gpu-memory-utilization 0.85
+              --max-model-len 2048
+          ports:
+            - containerPort: 8000
+              name: http
+          resources:
+            requests:
+              cpu: "500m"
+              memory: 2Gi
+              nvidia.com/gpu: "1"
+            limits:
+              cpu: "2"
+              memory: 6Gi
+              nvidia.com/gpu: "1"
+          startupProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 120
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 12
+          volumeMounts:
+            - name: model-cache
+              mountPath: /root/.cache/huggingface
+            - name: shm
+              mountPath: /dev/shm
+      volumes:
+        - name: model-cache
+          persistentVolumeClaim:
+            claimName: llama-model-cache
+        - name: shm
+          emptyDir:
+            medium: Memory
+            sizeLimit: 2Gi

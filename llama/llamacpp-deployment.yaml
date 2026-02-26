@@ -1,0 +1,102 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: llamacpp-openai
+  namespace: llama
+  labels:
+    app: llamacpp-openai
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: llamacpp-openai
+  template:
+    metadata:
+      labels:
+        app: llamacpp-openai
+    spec:
+      runtimeClassName: nvidia
+      nodeSelector:
+        gpu: "true"
+      securityContext:
+        fsGroup: 0
+      initContainers:
+        - name: model-fetch
+          image: curlimages/curl:8.12.1
+          securityContext:
+            runAsUser: 0
+            runAsGroup: 0
+          command:
+            - /bin/sh
+            - -c
+          args:
+            - >-
+              set -eu;
+              if [ ! -f /models/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf ]; then
+                echo "Downloading TinyLlama GGUF model...";
+                curl -fL --retry 5 --retry-delay 5 "https://huggingface.co/TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF/resolve/main/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf" -o /models/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf;
+              else
+                echo "Model already present in PVC cache.";
+              fi
+          volumeMounts:
+            - name: model-cache
+              mountPath: /models
+      containers:
+        - name: llamacpp
+          image: ghcr.io/ggml-org/llama.cpp:server-cuda
+          command:
+            - /app/llama-server
+          args:
+            - --model
+            - /models/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf
+            - --host
+            - 0.0.0.0
+            - --port
+            - "8000"
+            - --ctx-size
+            - "2048"
+            - --n-gpu-layers
+            - "35"
+            - --parallel
+            - "1"
+          ports:
+            - containerPort: 8000
+              name: http
+          resources:
+            requests:
+              cpu: "500m"
+              memory: 2Gi
+              nvidia.com/gpu: "1"
+            limits:
+              cpu: "2"
+              memory: 6Gi
+              nvidia.com/gpu: "1"
+          startupProbe:
+            tcpSocket:
+              port: 8000
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 120
+          readinessProbe:
+            tcpSocket:
+              port: 8000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 12
+          volumeMounts:
+            - name: model-cache
+              mountPath: /models
+            - name: shm
+              mountPath: /dev/shm
+      volumes:
+        - name: model-cache
+          persistentVolumeClaim:
+            claimName: llama-model-cache
+        - name: shm
+          emptyDir:
+            medium: Memory
+            sizeLimit: 2Gi
