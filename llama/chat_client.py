@@ -8,16 +8,30 @@ import json
 import os
 import subprocess
 import sys
-import textwrap
 import urllib.error
 import urllib.request
 import uuid
+
+try:
+    from rich.console import Console  # type: ignore[import-not-found]
+    from rich.markdown import Markdown  # type: ignore[import-not-found]
+    from rich.table import Table  # type: ignore[import-not-found]
+
+    RICH_AVAILABLE = True
+except ImportError:
+    Console = None
+    Markdown = None
+    Table = None
+    RICH_AVAILABLE = False
 
 
 DEFAULT_BASE_URL = "http://127.0.0.1:8000/v1"
 IN_CLUSTER_BASE_URL = "http://llama-api.llama.svc.cluster.local/v1"
 DEFAULT_MEMORY_URL = "http://memory-service.llama.svc.cluster.local"
+IN_CLUSTER_MEMORY_URL = "http://memory-service.llama.svc.cluster.local"
 DEFAULT_MODEL = "current.gguf"
+
+CONSOLE = Console() if RICH_AVAILABLE and Console is not None else None
 
 
 def parse_args() -> argparse.Namespace:
@@ -176,7 +190,26 @@ def call_llm_with_kubectl(
         "temperature": temperature,
     }
     endpoint = f"{base_url.rstrip('/')}/chat/completions"
-    pod_name = f"llama-chat-{uuid.uuid4().hex[:8]}"
+    return post_json_with_kubectl(
+        url=endpoint,
+        payload=payload,
+        timeout=timeout,
+        namespace=namespace,
+        image=image,
+        pod_prefix="llama-chat",
+    )
+
+
+def post_json_with_kubectl(
+    *,
+    url: str,
+    payload: dict,
+    timeout: int,
+    namespace: str,
+    image: str,
+    pod_prefix: str,
+) -> dict:
+    pod_name = f"{pod_prefix}-{uuid.uuid4().hex[:8]}"
 
     cmd = [
         "kubectl",
@@ -186,6 +219,7 @@ def call_llm_with_kubectl(
         namespace,
         "--rm",
         "-i",
+        "--quiet",
         "--restart=Never",
         "--image",
         image,
@@ -193,7 +227,7 @@ def call_llm_with_kubectl(
         "--",
         "curl",
         "-sS",
-        endpoint,
+        url,
         "-H",
         "Content-Type: application/json",
         "-d",
@@ -242,7 +276,20 @@ def maybe_retrieve_memory(args: argparse.Namespace, prompt: str, chat_id: str) -
     url = f"{args.memory_base_url.rstrip('/')}/memory/retrieve"
 
     try:
-        result = post_json(url, payload, timeout=max(2, args.timeout // 2))
+        if args.kubectl_run:
+            memory_url = url
+            if "127.0.0.1" in memory_url or "localhost" in memory_url:
+                memory_url = f"{IN_CLUSTER_MEMORY_URL}/memory/retrieve"
+            result = post_json_with_kubectl(
+                url=memory_url,
+                payload=payload,
+                timeout=max(2, args.timeout // 2),
+                namespace=args.namespace,
+                image=args.kubectl_image,
+                pod_prefix="llama-memory-get",
+            )
+        else:
+            result = post_json(url, payload, timeout=max(2, args.timeout // 2))
         return (result.get("memory_block") or "").strip()
     except Exception as exc:
         print(
@@ -273,7 +320,20 @@ def maybe_upsert_memory(
     url = f"{args.memory_base_url.rstrip('/')}/memory/upsert-turn"
 
     try:
-        post_json(url, payload, timeout=max(2, args.timeout // 2))
+        if args.kubectl_run:
+            memory_url = url
+            if "127.0.0.1" in memory_url or "localhost" in memory_url:
+                memory_url = f"{IN_CLUSTER_MEMORY_URL}/memory/upsert-turn"
+            post_json_with_kubectl(
+                url=memory_url,
+                payload=payload,
+                timeout=max(2, args.timeout // 2),
+                namespace=args.namespace,
+                image=args.kubectl_image,
+                pod_prefix="llama-memory-put",
+            )
+        else:
+            post_json(url, payload, timeout=max(2, args.timeout // 2))
     except Exception as exc:
         print(f"Warning: memory upsert unavailable ({exc}).", file=sys.stderr)
 
@@ -286,23 +346,56 @@ def assistant_content(result: dict) -> str:
     return (message.get("content") or "").strip()
 
 
-def format_output(result: dict) -> str:
+def render_output(result: dict) -> None:
     choices = result.get("choices") or []
     if not choices:
-        return "No choices returned.\nRaw response:\n" + json.dumps(result, indent=2)
+        if RICH_AVAILABLE and CONSOLE is not None:
+            CONSOLE.rule("[bold]Assistant[/bold]")
+            CONSOLE.print("No choices returned.")
+            CONSOLE.print_json(data=result)
+        else:
+            print(
+                "No choices returned.\nRaw response:\n" + json.dumps(result, indent=2)
+            )
+        return
 
     content = assistant_content(result)
     usage = result.get("usage") or {}
 
-    lines = ["Assistant", "---------"]
-    if content:
-        lines.append(textwrap.fill(content, width=100))
-    else:
-        lines.append("(empty response)")
-
     prompt_tokens = usage.get("prompt_tokens")
     completion_tokens = usage.get("completion_tokens")
     total_tokens = usage.get("total_tokens")
+
+    if (
+        RICH_AVAILABLE
+        and CONSOLE is not None
+        and Markdown is not None
+        and Table is not None
+    ):
+        CONSOLE.rule("[bold]Assistant[/bold]")
+        if content:
+            CONSOLE.print(Markdown(content))
+        else:
+            CONSOLE.print("(empty response)")
+
+        if any(v is not None for v in (prompt_tokens, completion_tokens, total_tokens)):
+            usage_table = Table(title="Usage")
+            usage_table.add_column("prompt_tokens", justify="right")
+            usage_table.add_column("completion_tokens", justify="right")
+            usage_table.add_column("total_tokens", justify="right")
+            usage_table.add_row(
+                str(prompt_tokens),
+                str(completion_tokens),
+                str(total_tokens),
+            )
+            CONSOLE.print(usage_table)
+        return
+
+    lines = ["Assistant", "---------"]
+    if content:
+        lines.append(content)
+    else:
+        lines.append("(empty response)")
 
     if any(v is not None for v in (prompt_tokens, completion_tokens, total_tokens)):
         lines.extend(
@@ -315,8 +408,7 @@ def format_output(result: dict) -> str:
                 f"total_tokens: {total_tokens}",
             ]
         )
-
-    return "\n".join(lines)
+    print("\n".join(lines))
 
 
 def main() -> None:
@@ -363,7 +455,7 @@ def main() -> None:
             timeout=args.timeout,
         )
 
-    print(format_output(result))
+    render_output(result)
     maybe_upsert_memory(
         args,
         prompt=prompt,
