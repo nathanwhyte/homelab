@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Minimal CLI client for the in-cluster llama OpenAI endpoint."""
+"""Minimal CLI client for llama-api with optional durable memory."""
 
 from __future__ import annotations
 
@@ -16,6 +16,7 @@ import uuid
 
 DEFAULT_BASE_URL = "http://127.0.0.1:8000/v1"
 IN_CLUSTER_BASE_URL = "http://llama-api.llama.svc.cluster.local/v1"
+DEFAULT_MEMORY_URL = "http://memory-service.llama.svc.cluster.local"
 DEFAULT_MODEL = "current.gguf"
 
 
@@ -53,6 +54,27 @@ def parse_args() -> argparse.Namespace:
         help="HTTP timeout in seconds (default: %(default)s)",
     )
     parser.add_argument(
+        "--memory",
+        choices=("on", "off"),
+        default=os.getenv("LLAMA_MEMORY", "on"),
+        help="Enable durable memory retrieval/upsert (default: %(default)s)",
+    )
+    parser.add_argument(
+        "--memory-base-url",
+        default=os.getenv("LLAMA_MEMORY_BASE_URL", DEFAULT_MEMORY_URL),
+        help="Memory service base URL (default: %(default)s)",
+    )
+    parser.add_argument(
+        "--user-id",
+        default=os.getenv("LLAMA_USER_ID", "default-user"),
+        help="Stable user identity for memory lookup (default: %(default)s)",
+    )
+    parser.add_argument(
+        "--chat-id",
+        default=os.getenv("LLAMA_CHAT_ID", ""),
+        help="Chat session id (default: auto-generated)",
+    )
+    parser.add_argument(
         "--kubectl-run",
         action="store_true",
         help="Run the request from an ephemeral in-cluster pod via kubectl run",
@@ -82,33 +104,37 @@ def read_prompt(args: argparse.Namespace) -> str:
     raise SystemExit("No prompt provided. Pass text as an argument or pipe via stdin.")
 
 
+def post_json(url: str, payload: dict, timeout: int) -> dict:
+    body = json.dumps(payload).encode("utf-8")
+    req = urllib.request.Request(
+        url,
+        data=body,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        response_body = resp.read().decode("utf-8")
+    return json.loads(response_body) if response_body else {}
+
+
 def call_llm(
     *,
     base_url: str,
     model: str,
-    prompt: str,
+    messages: list[dict],
     max_tokens: int,
     temperature: float,
     timeout: int,
 ) -> dict:
     payload = {
         "model": model,
-        "messages": [{"role": "user", "content": prompt}],
+        "messages": messages,
         "max_tokens": max_tokens,
         "temperature": temperature,
     }
 
-    body = json.dumps(payload).encode("utf-8")
-    req = urllib.request.Request(
-        f"{base_url.rstrip('/')}/chat/completions",
-        data=body,
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
-
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            response_body = resp.read().decode("utf-8")
+        return post_json(f"{base_url.rstrip('/')}/chat/completions", payload, timeout)
     except urllib.error.HTTPError as err:
         details = err.read().decode("utf-8", errors="replace")
         raise SystemExit(f"HTTP {err.code}: {details}") from err
@@ -131,17 +157,12 @@ def call_llm(
             "  kubectl -n llama port-forward svc/llama-api 8000:80"
         ) from err
 
-    try:
-        return json.loads(response_body)
-    except json.JSONDecodeError as err:
-        raise SystemExit(f"Invalid JSON response: {err}") from err
-
 
 def call_llm_with_kubectl(
     *,
     base_url: str,
     model: str,
-    prompt: str,
+    messages: list[dict],
     max_tokens: int,
     temperature: float,
     timeout: int,
@@ -150,7 +171,7 @@ def call_llm_with_kubectl(
 ) -> dict:
     payload = {
         "model": model,
-        "messages": [{"role": "user", "content": prompt}],
+        "messages": messages,
         "max_tokens": max_tokens,
         "temperature": temperature,
     }
@@ -196,7 +217,7 @@ def call_llm_with_kubectl(
 
     try:
         return json.loads(body)
-    except json.JSONDecodeError as err:
+    except json.JSONDecodeError:
         decoder = json.JSONDecoder()
         for i, ch in enumerate(body):
             if ch != "{":
@@ -206,9 +227,63 @@ def call_llm_with_kubectl(
                 return parsed
             except json.JSONDecodeError:
                 continue
-        raise SystemExit(
-            f"Invalid JSON response from kubectl run: {err}\nRaw: {body}"
-        ) from err
+        raise SystemExit(f"Invalid JSON response from kubectl run. Raw: {body}")
+
+
+def maybe_retrieve_memory(args: argparse.Namespace, prompt: str, chat_id: str) -> str:
+    if args.memory != "on":
+        return ""
+
+    payload = {
+        "user_id": args.user_id,
+        "chat_id": chat_id,
+        "query": prompt,
+    }
+    url = f"{args.memory_base_url.rstrip('/')}/memory/retrieve"
+
+    try:
+        result = post_json(url, payload, timeout=max(2, args.timeout // 2))
+        return (result.get("memory_block") or "").strip()
+    except Exception as exc:
+        print(
+            f"Warning: memory retrieval unavailable ({exc}). Continuing without memory.",
+            file=sys.stderr,
+        )
+        return ""
+
+
+def maybe_upsert_memory(
+    args: argparse.Namespace,
+    *,
+    prompt: str,
+    assistant_response: str,
+    chat_id: str,
+) -> None:
+    if args.memory != "on":
+        return
+
+    payload = {
+        "user_id": args.user_id,
+        "chat_id": chat_id,
+        "turns": [
+            {"role": "user", "content": prompt},
+            {"role": "assistant", "content": assistant_response},
+        ],
+    }
+    url = f"{args.memory_base_url.rstrip('/')}/memory/upsert-turn"
+
+    try:
+        post_json(url, payload, timeout=max(2, args.timeout // 2))
+    except Exception as exc:
+        print(f"Warning: memory upsert unavailable ({exc}).", file=sys.stderr)
+
+
+def assistant_content(result: dict) -> str:
+    choices = result.get("choices") or []
+    if not choices:
+        return ""
+    message = choices[0].get("message") or {}
+    return (message.get("content") or "").strip()
 
 
 def format_output(result: dict) -> str:
@@ -216,8 +291,7 @@ def format_output(result: dict) -> str:
     if not choices:
         return "No choices returned.\nRaw response:\n" + json.dumps(result, indent=2)
 
-    message = choices[0].get("message") or {}
-    content = (message.get("content") or "").strip()
+    content = assistant_content(result)
     usage = result.get("usage") or {}
 
     lines = ["Assistant", "---------"]
@@ -248,6 +322,23 @@ def format_output(result: dict) -> str:
 def main() -> None:
     args = parse_args()
     prompt = read_prompt(args)
+    chat_id = args.chat_id.strip() or f"chat-{uuid.uuid4().hex[:10]}"
+
+    memory_block = maybe_retrieve_memory(args, prompt, chat_id)
+    messages: list[dict] = []
+    if memory_block:
+        messages.append(
+            {
+                "role": "system",
+                "content": (
+                    "Use the memory context if it is relevant and consistent with the current request.\n"
+                    "Memory context:\n"
+                    f"{memory_block}"
+                ),
+            }
+        )
+    messages.append({"role": "user", "content": prompt})
+
     if args.kubectl_run:
         base_url = args.base_url
         if "127.0.0.1" in base_url or "localhost" in base_url:
@@ -255,7 +346,7 @@ def main() -> None:
         result = call_llm_with_kubectl(
             base_url=base_url,
             model=args.model,
-            prompt=prompt,
+            messages=messages,
             max_tokens=args.max_tokens,
             temperature=args.temperature,
             timeout=args.timeout,
@@ -266,12 +357,19 @@ def main() -> None:
         result = call_llm(
             base_url=args.base_url,
             model=args.model,
-            prompt=prompt,
+            messages=messages,
             max_tokens=args.max_tokens,
             temperature=args.temperature,
             timeout=args.timeout,
         )
+
     print(format_output(result))
+    maybe_upsert_memory(
+        args,
+        prompt=prompt,
+        assistant_response=assistant_content(result),
+        chat_id=chat_id,
+    )
 
 
 if __name__ == "__main__":

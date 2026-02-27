@@ -1,0 +1,56 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: embedder-gpu
+  namespace: llama
+  labels:
+    app: embedder-gpu
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: embedder-gpu
+  template:
+    metadata:
+      labels:
+        app: embedder-gpu
+    spec:
+      runtimeClassName: nvidia
+      nodeSelector:
+        kubernetes.io/hostname: wemby
+        gpu: "true"
+      containers:
+        - name: tei
+          image: ghcr.io/huggingface/text-embeddings-inference:cuda-1.9
+          args:
+            - --model-id
+            - sentence-transformers/all-MiniLM-L6-v2
+            - --pooling
+            - mean
+            - --dtype
+            - float16
+          ports:
+            - containerPort: 80
+              name: http
+          resources:
+            requests:
+              cpu: "500m"
+              memory: 2Gi
+              nvidia.com/gpu: "1"
+            limits:
+              cpu: "2"
+              memory: 6Gi
+              nvidia.com/gpu: "1"
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 80
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 80
+            initialDelaySeconds: 20
+            periodSeconds: 20

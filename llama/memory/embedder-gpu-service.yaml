@@ -1,0 +1,15 @@
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: embedder-gpu
+  namespace: llama
+spec:
+  type: ClusterIP
+  selector:
+    app: embedder-gpu
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 80
+      protocol: TCP
