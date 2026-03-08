@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 
 HARBOR_DIR="$HOME/code/homelab/harbor"
+LONGHORN_DIR="$HOME/code/homelab/longhorn"
 NAMESPACE="harbor"
 
 if [ ! -x "$(command -v "kubectl")" ]; then
@@ -44,6 +45,7 @@ if [ ! -f "$HARBOR_DIR/harbor-middleware.yaml" ]; then
     exit 1
 fi
 
+kubectl apply -f "$LONGHORN_DIR/storage.yaml"
 kubectl apply -f "$HARBOR_DIR/namespace.yaml"
 kubectl apply -f "$HARBOR_DIR/letsencrypt-issuer.yaml"
 kubectl apply -f "$HARBOR_DIR/harbor-middleware.yaml"

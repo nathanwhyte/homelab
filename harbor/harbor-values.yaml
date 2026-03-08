@@ -43,14 +43,17 @@ persistence:
   persistentVolumeClaim:
     # Registry storage (filesystem-based on Longhorn)
     registry:
-      storageClass: longhorn-db
+      storageClass: longhorn-harbor
+      accessMode: ReadWriteMany
       size: 20Gi
     jobservice:
       jobLog:
-        storageClass: ""
+        storageClass: longhorn-harbor
+        accessMode: ReadWriteMany
         size: 1Gi
       scanDataExports:
-        storageClass: ""
+        storageClass: longhorn-harbor
+        accessMode: ReadWriteMany
         size: 1Gi
     database:
       # PostgreSQL data
