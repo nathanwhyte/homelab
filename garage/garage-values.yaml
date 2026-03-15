@@ -166,7 +166,16 @@ nodeSelector: {}
 tolerations: []
 
 # Affinity rules (for pod placement)
-affinity: {}
+affinity:
+  podAntiAffinity:
+    requiredDuringSchedulingIgnoredDuringExecution:
+      - labelSelector:
+          matchExpressions:
+            - key: app.kubernetes.io/name
+              operator: In
+              values:
+                - garage
+        topologyKey: kubernetes.io/hostname
 
 # Additional environment variables
 environment: {}

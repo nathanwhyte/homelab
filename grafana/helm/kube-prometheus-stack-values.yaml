@@ -131,6 +131,18 @@ prometheus:
       limits:
         cpu: 2000m
         memory: 4Gi
+    affinity:
+      podAntiAffinity:
+        preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                  - key: app.kubernetes.io/name
+                    operator: In
+                    values:
+                      - grafana
+              topologyKey: kubernetes.io/hostname
   # Prometheus service configuration
   service:
     type: NodePort
@@ -270,6 +282,18 @@ grafana:
   service:
     type: ClusterIP
     port: 3000
+  affinity:
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          podAffinityTerm:
+            labelSelector:
+              matchExpressions:
+                - key: app.kubernetes.io/name
+                  operator: In
+                  values:
+                    - prometheus
+            topologyKey: kubernetes.io/hostname
 
 # Alertmanager configuration (can be disabled if not needed)
 alertmanager:

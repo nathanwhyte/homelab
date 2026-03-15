@@ -16,6 +16,19 @@ spec:
       labels:
         app: memory-service
     spec:
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 50
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values:
+                        - qdrant
+                        - embedder-cpu
+                topologyKey: kubernetes.io/hostname
       containers:
         - name: memory-service
           image: python:3.12-slim

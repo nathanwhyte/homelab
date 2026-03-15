@@ -16,6 +16,19 @@ spec:
       labels:
         app: embedder-cpu
     spec:
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 50
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values:
+                        - qdrant
+                        - memory-service
+                topologyKey: kubernetes.io/hostname
       containers:
         - name: tei
           image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.9

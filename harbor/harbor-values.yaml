@@ -96,6 +96,23 @@ database:
       limits:
         memory: 512Mi
         cpu: 500m
+    affinity:
+      podAntiAffinity:
+        preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                  - key: app
+                    operator: In
+                    values:
+                      - harbor
+                  - key: component
+                    operator: In
+                    values:
+                      - core
+                      - redis
+              topologyKey: kubernetes.io/hostname
 
 # Redis cache
 redis:
@@ -112,6 +129,23 @@ redis:
       limits:
         memory: 256Mi
         cpu: 200m
+    affinity:
+      podAntiAffinity:
+        preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                  - key: app
+                    operator: In
+                    values:
+                      - harbor
+                  - key: component
+                    operator: In
+                    values:
+                      - database
+                      - core
+              topologyKey: kubernetes.io/hostname
 
 # Harbor Core (API server)
 core:
@@ -128,6 +162,23 @@ core:
   projectCreationRestriction: "everyone"
   # Enable automatic cert generation
   enableAutoGenCert: true
+  affinity:
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          podAffinityTerm:
+            labelSelector:
+              matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                    - harbor
+                - key: component
+                  operator: In
+                  values:
+                    - database
+                    - redis
+            topologyKey: kubernetes.io/hostname
 
 # Harbor Portal (Web UI)
 portal:
