@@ -1,0 +1,37 @@
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: amd-gpu-device-plugin
+  namespace: kube-system
+  labels:
+    app: amd-gpu-device-plugin
+spec:
+  selector:
+    matchLabels:
+      app: amd-gpu-device-plugin
+  template:
+    metadata:
+      labels:
+        app: amd-gpu-device-plugin
+    spec:
+      nodeSelector:
+        gpu.vendor: amd
+      priorityClassName: system-node-critical
+      containers:
+        - name: amd-gpu-dp
+          image: rocm/k8s-device-plugin:latest
+          securityContext:
+            privileged: true
+          volumeMounts:
+            - name: dp
+              mountPath: /var/lib/kubelet/device-plugins
+            - name: sys
+              mountPath: /sys
+      volumes:
+        - name: dp
+          hostPath:
+            path: /var/lib/kubelet/device-plugins
+        - name: sys
+          hostPath:
+            path: /sys
