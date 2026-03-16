@@ -1,0 +1,88 @@
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: nanochat-gpt2-rocm
+  namespace: nanochat
+spec:
+  backoffLimit: 2
+  template:
+    spec:
+      restartPolicy: OnFailure
+      nodeSelector:
+        kubernetes.io/hostname: timmy
+        gpu.vendor: amd
+      containers:
+        - name: nanochat
+          image: registry.nathanwhyte.dev/library/nanochat:rocm
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              set -eu
+              cd /app
+
+              # Stage 1: Data + tokenizer (single-process)
+              python -m nanochat.dataset -n 170
+              python -m scripts.tok_train
+              python -m scripts.tok_eval
+
+              # Stage 2: Pretrain GPT-2 (depth=24, ~440M params) — 2x GPU DDP
+              torchrun --nproc_per_node=2 -m scripts.base_train -- \
+                --depth=24 \
+                --device-batch-size=4 \
+                --run=dummy \
+                --save-every=5000
+
+              # Stage 3: Evaluate (single-process)
+              python -m scripts.base_eval
+
+              # Stage 4: Download identity data for SFT
+              curl -L -o /app/data/identity_conversations.jsonl \
+                https://karpathy-public.s3.us-west-2.amazonaws.com/identity_conversations.jsonl
+
+              # Stage 5: SFT — 2x GPU DDP
+              torchrun --nproc_per_node=2 -m scripts.chat_sft -- \
+                --device-batch-size=4
+
+              # Stage 6: Chat eval (single-process)
+              python -m scripts.chat_eval -- -i sft
+          env:
+            - name: NANOCHAT_DTYPE
+              value: "bfloat16"
+            - name: PYTORCH_TUNABLEOP_ENABLED
+              value: "1"
+            - name: PYTORCH_ALLOC_CONF
+              value: "expandable_segments:True"
+            - name: WANDB_MODE
+              value: "disabled"
+            - name: OMP_NUM_THREADS
+              value: "1"
+          resources:
+            requests:
+              cpu: "4"
+              memory: 16Gi
+              amd.com/gpu: "2"
+            limits:
+              cpu: "8"
+              memory: 32Gi
+              amd.com/gpu: "2"
+          securityContext:
+            privileged: true
+          volumeMounts:
+            - name: data
+              mountPath: /app/data
+            - name: checkpoints
+              mountPath: /app/logs
+            - name: shm
+              mountPath: /dev/shm
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: nanochat-data
+        - name: checkpoints
+          persistentVolumeClaim:
+            claimName: nanochat-checkpoints
+        - name: shm
+          emptyDir:
+            medium: Memory
+            sizeLimit: 8Gi
