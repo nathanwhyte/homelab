@@ -1,0 +1,115 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: embedder-llamacpp
+  namespace: viking
+  labels:
+    app: embedder-llamacpp
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: embedder-llamacpp
+  template:
+    metadata:
+      labels:
+        app: embedder-llamacpp
+    spec:
+      runtimeClassName: nvidia
+      nodeSelector:
+        kubernetes.io/hostname: wemby
+        gpu: "true"
+      securityContext:
+        fsGroup: 0
+      initContainers:
+        - name: model-fetch
+          image: curlimages/curl:8.12.1
+          env:
+            - name: MODEL_FILE
+              value: all-MiniLM-L6-v2-f16.gguf
+            - name: MODEL_URL
+              value: https://huggingface.co/second-state/All-MiniLM-L6-v2-Embedding-GGUF/resolve/main/all-MiniLM-L6-v2-ggml-model-f16.gguf
+          securityContext:
+            runAsUser: 0
+            runAsGroup: 0
+          command:
+            - /bin/sh
+            - -c
+          args:
+            - >-
+              set -eu;
+              model="/models/${MODEL_FILE}";
+              if [ -f "${model}" ]; then
+                echo "Embedding model already present in cache.";
+              else
+                echo "Downloading embedding model from ${MODEL_URL}...";
+                curl -fL --retry 5 --retry-delay 5 "${MODEL_URL}" -o "${model}";
+                echo "Download complete.";
+              fi
+          volumeMounts:
+            - name: model-cache
+              mountPath: /models
+      containers:
+        - name: llamacpp
+          image: ghcr.io/ggml-org/llama.cpp:server-cuda
+          command:
+            - /app/llama-server
+          args:
+            - --model
+            - /models/all-MiniLM-L6-v2-f16.gguf
+            - --host
+            - 0.0.0.0
+            - --port
+            - "8000"
+            - --embedding
+            - --pooling
+            - mean
+            - --n-gpu-layers
+            - "999"
+            - --ctx-size
+            - "8192"
+            - --parallel
+            - "4"
+            - --batch-size
+            - "8192"
+            - --ubatch-size
+            - "8192"
+          ports:
+            - containerPort: 8000
+              name: http
+          resources:
+            requests:
+              cpu: "250m"
+              memory: 768Mi
+              nvidia.com/gpu: "1"
+            limits:
+              cpu: "2"
+              memory: 3Gi
+              nvidia.com/gpu: "1"
+          startupProbe:
+            tcpSocket:
+              port: 8000
+            periodSeconds: 5
+            failureThreshold: 60
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            periodSeconds: 20
+            timeoutSeconds: 5
+          volumeMounts:
+            - name: model-cache
+              mountPath: /models
+      volumes:
+        - name: model-cache
+          persistentVolumeClaim:
+            claimName: wemby-model-cache

@@ -1,0 +1,17 @@
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: openviking-data
+  namespace: viking
+  annotations:
+    # 2 replicas for data redundancy across nodes
+    longhorn.io/number-of-replicas: "2"
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+  storageClassName: longhorn-ssd
+  volumeMode: Filesystem

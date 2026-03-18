@@ -1,0 +1,105 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: openviking
+  namespace: viking
+  labels:
+    app: openviking
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: openviking
+  template:
+    metadata:
+      labels:
+        app: openviking
+    spec:
+      terminationGracePeriodSeconds: 30
+      affinity:
+        nodeAffinity:
+          # Prefer stable CPU-only nodes over GPU nodes
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 80
+              preference:
+                matchExpressions:
+                  - key: kubernetes.io/hostname
+                    operator: In
+                    values:
+                      - steph
+                      - patty
+            # Actively avoid timmy (unstable AMD GPU node)
+            - weight: 100
+              preference:
+                matchExpressions:
+                  - key: kubernetes.io/hostname
+                    operator: NotIn
+                    values:
+                      - timmy
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 50
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values:
+                        - llamacpp-openai
+                        - llamacpp-rocm
+                        - embedder-gpu
+                topologyKey: kubernetes.io/hostname
+      containers:
+        - name: openviking
+          image: ghcr.io/volcengine/openviking:main
+          ports:
+            - containerPort: 1933
+              name: http
+          resources:
+            requests:
+              cpu: "100m"
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          startupProbe:
+            httpGet:
+              path: /health
+              port: 1933
+            periodSeconds: 5
+            failureThreshold: 12
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 1933
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 1933
+            initialDelaySeconds: 10
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 3
+          lifecycle:
+            preStop:
+              exec:
+                command: ["/bin/sh", "-c", "sleep 5"]
+          volumeMounts:
+            - name: config
+              mountPath: /app/ov.conf
+              subPath: ov.conf
+              readOnly: true
+            - name: data
+              mountPath: /app/data
+      volumes:
+        - name: config
+          configMap:
+            name: openviking-config
+        - name: data
+          persistentVolumeClaim:
+            claimName: openviking-data

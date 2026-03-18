@@ -1,0 +1,15 @@
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: openviking
+  namespace: viking
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 1933
+      protocol: TCP
+      targetPort: 1933
+  selector:
+    app: openviking
