@@ -1,0 +1,173 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: summarizer-api-code
+  namespace: llama
+data:
+  app.py: |
+    #!/usr/bin/env python3
+    """Agent context summarization API.
+
+    POST /summarize  — summarize context text
+    POST /v1/summarize — alias
+    GET  /healthz    — health check
+    """
+    from __future__ import annotations
+
+    import json
+    import os
+    import urllib.request
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+    LLM_URL = os.getenv("LLM_URL", "http://qwen-summarizer-llm.llama.svc.cluster.local/v1/chat/completions")
+    LLM_MODEL = os.getenv("LLM_MODEL", "qwen3-14b")
+    BIND_HOST = os.getenv("BIND_HOST", "0.0.0.0")
+    BIND_PORT = int(os.getenv("BIND_PORT", "8082"))
+    DEFAULT_MAX_TOKENS = int(os.getenv("DEFAULT_MAX_TOKENS", "1024"))
+
+    SYSTEM_PROMPTS = {
+        "context": (
+            "/no_think You are a precise context summarizer for an AI agent system. "
+            "Summarize the provided context into a concise, structured format that preserves: "
+            "1) Key decisions and their rationale, "
+            "2) Important facts, names, and values, "
+            "3) Current state and pending actions, "
+            "4) Any errors or blockers encountered. "
+            "Use bullet points. Omit filler and pleasantries. Be terse."
+        ),
+        "conversation": (
+            "/no_think You are a conversation summarizer. Condense the conversation into key points: "
+            "what was discussed, what was decided, what actions were taken, and what remains open. "
+            "Preserve technical details and specific values. Use bullet points."
+        ),
+        "code": (
+            "/no_think You are a code change summarizer. Given code context, describe: "
+            "1) What changed and why, "
+            "2) Key files and functions affected, "
+            "3) Any notable patterns or decisions. "
+            "Be specific about names, paths, and values."
+        ),
+    }
+
+
+    def llm_request(messages: list[dict], max_tokens: int, temperature: float) -> dict:
+        payload = {
+            "model": LLM_MODEL,
+            "messages": messages,
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+            "min_p": 0.05,
+            "repeat_penalty": 1.1,
+            "stream": False,
+        }
+        data = json.dumps(payload).encode("utf-8")
+        req = urllib.request.Request(
+            url=LLM_URL,
+            data=data,
+            method="POST",
+            headers={"Content-Type": "application/json"},
+        )
+        with urllib.request.urlopen(req, timeout=120) as resp:
+            result = json.loads(resp.read().decode("utf-8"))
+
+        choices = result.get("choices", [])
+        if not choices:
+            raise ValueError("No choices in LLM response")
+
+        content = choices[0].get("message", {}).get("content", "")
+        timings = result.get("timings", {})
+        usage = result.get("usage", {})
+        return {"content": content, "timings": timings, "usage": usage}
+
+
+    class SummarizerHandler(BaseHTTPRequestHandler):
+        server_version = "summarizer-api/0.1"
+
+        def log_message(self, fmt: str, *args: object) -> None:
+            print(fmt % args)
+
+        def send_json(self, status: int, payload: dict) -> None:
+            body = json.dumps(payload).encode("utf-8")
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def parse_json_body(self) -> dict:
+            length = int(self.headers.get("Content-Length", "0"))
+            raw = self.rfile.read(length) if length else b"{}"
+            return json.loads(raw.decode("utf-8"))
+
+        def do_GET(self) -> None:
+            if self.path == "/healthz":
+                self.send_json(200, {"ok": True})
+                return
+            self.send_json(404, {"error": "not_found"})
+
+        def do_POST(self) -> None:
+            if self.path in ("/summarize", "/v1/summarize"):
+                self.handle_summarize()
+                return
+            self.send_json(404, {"error": "not_found"})
+
+        def handle_summarize(self) -> None:
+            try:
+                body = self.parse_json_body()
+                context = (body.get("context") or "").strip()
+                mode = (body.get("mode") or "context").strip()
+                max_tokens = int(body.get("max_tokens") or DEFAULT_MAX_TOKENS)
+                temperature = float(body.get("temperature") or 0.3)
+
+                if not context:
+                    self.send_json(400, {"error": "context is required"})
+                    return
+
+                system_prompt = SYSTEM_PROMPTS.get(mode, SYSTEM_PROMPTS["context"])
+
+                # Allow custom system prompt override
+                if body.get("system_prompt"):
+                    system_prompt = body["system_prompt"]
+
+                messages = [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": context},
+                ]
+
+                result = llm_request(messages, max_tokens, temperature)
+                summary = result["content"]
+                timings = result["timings"]
+                usage = result["usage"]
+
+                response = {
+                    "ok": True,
+                    "summary": summary,
+                    "mode": mode,
+                    "input_chars": len(context),
+                    "output_chars": len(summary),
+                    "usage": usage,
+                }
+                if timings:
+                    response["perf"] = {
+                        "prompt_tok_s": round(timings.get("prompt_per_second", 0), 1),
+                        "gen_tok_s": round(timings.get("predicted_per_second", 0), 1),
+                        "prompt_ms": round(timings.get("prompt_ms", 0), 1),
+                        "gen_ms": round(timings.get("predicted_ms", 0), 1),
+                    }
+                self.send_json(200, response)
+
+            except Exception as exc:
+                self.send_json(500, {"error": "summarize_failed", "detail": str(exc)})
+
+
+    def main() -> None:
+        server = ThreadingHTTPServer((BIND_HOST, BIND_PORT), SummarizerHandler)
+        print(f"summarizer-api listening on {BIND_HOST}:{BIND_PORT}")
+        print(f"LLM backend: {LLM_URL}")
+        print(f"Modes: {', '.join(SYSTEM_PROMPTS.keys())}")
+        server.serve_forever()
+
+
+    if __name__ == "__main__":
+        main()
