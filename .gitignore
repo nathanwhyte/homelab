@@ -17,12 +17,7 @@ kubeconfig
 
 # Helm
 .helm/
-
-# Terraform (if used)
-.terraform/
-*.tfstate
-*.tfstate.*
-.terraform.lock.hcl
+**/charts/
 
 # Environment files
 .env
@@ -32,7 +27,6 @@ kubeconfig
 # Backup files
 *.bak
 *.backup
-*~
 
 # Editor and IDE files
 .cursor/
@@ -42,10 +36,25 @@ kubeconfig
 *.swo
 *~
 .DS_Store
-*.sublime-project
-*.sublime-workspace
 
-# Python files
+# MCP config (contains API keys)
+.mcp.json
+opencode.json
+
+# Generated caches
+**/.index-cache.json
+
+# Python
 __pycache__/
 *.py[cod]
 *$py.class
+.ruff_cache/
+.mypy_cache/
+.venv/
+venv/
+
+# Rust (garage vendored source)
+**/target/
+
+# Shell
+*.log
