@@ -2,21 +2,21 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: llamacpp-rocm
+  name: qwen-summarizer
   namespace: llama
   labels:
-    app: llamacpp-rocm
+    app: qwen-summarizer
 spec:
   replicas: 1
   strategy:
     type: Recreate
   selector:
     matchLabels:
-      app: llamacpp-rocm
+      app: qwen-summarizer
   template:
     metadata:
       labels:
-        app: llamacpp-rocm
+        app: qwen-summarizer
     spec:
       nodeSelector:
         kubernetes.io/hostname: timmy
@@ -27,53 +27,28 @@ spec:
         - name: model-fetch
           image: curlimages/curl:8.12.1
           env:
-            - name: LLAMA_PRIMARY_MODEL_FILE
-              value: Meta-Llama-3.1-8B-Instruct.Q4_K_M.gguf
-            - name: LLAMA_PRIMARY_MODEL_URL
-              value: https://huggingface.co/QuantFactory/Meta-Llama-3.1-8B-Instruct-GGUF/resolve/main/Meta-Llama-3.1-8B-Instruct.Q4_K_M.gguf
-            - name: LLAMA_FALLBACK_MODEL_FILE
-              value: Mistral-7B-Instruct-v0.3-Q4_K_M.gguf
-            - name: LLAMA_FALLBACK_MODEL_URL
-              value: https://huggingface.co/bartowski/Mistral-7B-Instruct-v0.3-GGUF/resolve/main/Mistral-7B-Instruct-v0.3-Q4_K_M.gguf
-            - name: LLAMA_SELECTED_MODEL_SYMLINK
-              value: /models/current.gguf
+            - name: MODEL_FILE
+              value: Qwen3-14B-Q4_K_M.gguf
+            - name: MODEL_URL
+              value: https://huggingface.co/Qwen/Qwen3-14B-GGUF/resolve/main/Qwen3-14B-Q4_K_M.gguf
           securityContext:
             runAsUser: 0
             runAsGroup: 0
-          command:
-            - /bin/sh
-            - -c
+          command: ["/bin/sh", "-c"]
           args:
             - >-
               set -eu;
-              primary_model="/models/${LLAMA_PRIMARY_MODEL_FILE}";
-              fallback_model="/models/${LLAMA_FALLBACK_MODEL_FILE}";
-              if [ -f "${primary_model}" ]; then
-                echo "Primary model already present in PVC cache.";
+              model_path="/models/${MODEL_FILE}";
+              if [ -f "${model_path}" ]; then
+                echo "Model already cached: ${model_path}";
               else
-                echo "Downloading primary model from ${LLAMA_PRIMARY_MODEL_URL}...";
-                if curl -fL --retry 5 --retry-delay 5 "${LLAMA_PRIMARY_MODEL_URL}" -o "${primary_model}"; then
-                  echo "Primary model download complete.";
-                else
-                  echo "Primary model download failed; using fallback model.";
-                  if [ -f "${fallback_model}" ]; then
-                    echo "Fallback model already present in PVC cache.";
-                  else
-                    echo "Downloading fallback model from ${LLAMA_FALLBACK_MODEL_URL}...";
-                    curl -fL --retry 5 --retry-delay 5 "${LLAMA_FALLBACK_MODEL_URL}" -o "${fallback_model}";
-                  fi;
-                fi;
+                echo "Downloading ${MODEL_FILE}...";
+                curl -fL --retry 5 --retry-delay 10 "${MODEL_URL}" -o "${model_path}.tmp";
+                mv "${model_path}.tmp" "${model_path}";
+                echo "Download complete.";
               fi;
-              if [ -f "${primary_model}" ]; then
-                ln -sf "${primary_model}" "${LLAMA_SELECTED_MODEL_SYMLINK}";
-                echo "Selected primary model.";
-              elif [ -f "${fallback_model}" ]; then
-                ln -sf "${fallback_model}" "${LLAMA_SELECTED_MODEL_SYMLINK}";
-                echo "Selected fallback model.";
-              else
-                echo "No model available after download attempts.";
-                exit 1;
-              fi
+              ln -sf "${model_path}" /models/current.gguf;
+              echo "Model ready."
           volumeMounts:
             - name: model-cache
               mountPath: /models
@@ -91,7 +66,7 @@ spec:
             - --host
             - 0.0.0.0
             - --port
-            - "8000"
+            - "8001"
             - --ctx-size
             - "8192"
             - --n-gpu-layers
@@ -110,12 +85,12 @@ spec:
             - --no-warmup
             - --mlock
           ports:
-            - containerPort: 8000
+            - containerPort: 8001
               name: http
           resources:
             requests:
               cpu: "500m"
-              memory: 2Gi
+              memory: 4Gi
               amd.com/gpu: "1"
             limits:
               cpu: "8"
@@ -125,13 +100,13 @@ spec:
             privileged: true
           startupProbe:
             tcpSocket:
-              port: 8000
+              port: 8001
             periodSeconds: 10
             timeoutSeconds: 5
             failureThreshold: 120
           readinessProbe:
             tcpSocket:
-              port: 8000
+              port: 8001
             initialDelaySeconds: 5
             periodSeconds: 10
             timeoutSeconds: 5

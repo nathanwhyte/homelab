@@ -145,15 +145,14 @@ ingress:
             - path: /
               pathType: Prefix
 
-# Resource limits and requests
-resources: {}
-  # Example resource configuration:
-  # limits:
-  #   cpu: 1000m
-  #   memory: 2Gi
-  # requests:
-  #   cpu: 100m
-  #   memory: 512Mi
+# Resource limits and requests (added: was unbounded)
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    cpu: 250m
+    memory: 256Mi
 
 # Health probes
 livenessProbe: {}

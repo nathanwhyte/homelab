@@ -42,26 +42,27 @@ podLogs:
 alloy-singleton:
   enabled: true
   alloy:
-    # Resource limits (increased for better performance)
+    # Resource limits (tuned down: low actual usage)
     resources:
       requests:
-        cpu: 100m
-        memory: 128Mi
+        cpu: 50m
+        memory: 64Mi
       limits:
-        cpu: 500m
-        memory: 512Mi
+        cpu: 250m
+        memory: 256Mi
 
 # Enable Alloy to scrape cluster metrics and remote-write to Prometheus
 alloy-metrics:
   enabled: true
   alloy:
+    # Resource limits (tuned down: low actual usage)
     resources:
       requests:
-        cpu: 100m
-        memory: 128Mi
+        cpu: 50m
+        memory: 64Mi
       limits:
-        cpu: 500m
-        memory: 512Mi
+        cpu: 250m
+        memory: 256Mi
 
 alloy-logs:
   enabled: true
@@ -71,14 +72,14 @@ alloy-logs:
       dockercontainers: false
     clustering:
       enabled: true
-    # Resource limits (increased for better performance)
+    # Resource limits (tuned down: moderate usage as DaemonSet)
     resources:
       requests:
-        cpu: 200m
-        memory: 256Mi
+        cpu: 100m
+        memory: 128Mi
       limits:
-        cpu: 1000m
-        memory: 1Gi
+        cpu: 500m
+        memory: 512Mi
 
 alloy-profiles:
   enabled: false

@@ -123,14 +123,14 @@ prometheus:
     # Note: additionalArgs is not supported in prometheusSpec by the Helm chart
     # TSDB block duration settings must be applied via a post-deployment patch
     # See: monitoring/grafana/manifests/prometheus-patch.yaml
-    # Resource limits (increased for better performance)
+    # Resource limits (tuned: actual usage ~91m CPU, ~1.6Gi mem)
     resources:
       requests:
-        cpu: 500m
+        cpu: 200m
         memory: 1Gi
       limits:
-        cpu: 2000m
-        memory: 4Gi
+        cpu: 1000m
+        memory: 2560Mi
     affinity:
       podAntiAffinity:
         preferredDuringSchedulingIgnoredDuringExecution:
@@ -249,15 +249,14 @@ grafana:
     enabled: true
     type: pvc
     existingClaim: grafana-storage-rwx
-  # Resource limits (increased to handle actual usage)
-  # Current usage: ~203m CPU, ~728Mi memory
+  # Resource limits (tuned: actual usage ~7m CPU, ~541Mi mem)
   resources:
     requests:
-      cpu: 100m
+      cpu: 50m
       memory: 128Mi
     limits:
-      cpu: 500m
-      memory: 1Gi
+      cpu: 250m
+      memory: 768Mi
   # Health check probes configuration
   # Increased timeouts to handle slow responses under load
   readinessProbe:

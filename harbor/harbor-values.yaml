@@ -152,11 +152,11 @@ core:
   replicas: 1 # Single replica to avoid volume conflicts
   resources:
     requests:
-      memory: 256Mi
-      cpu: 100m
+      memory: 128Mi
+      cpu: 50m
     limits:
-      memory: 1Gi
-      cpu: 1000m
+      memory: 512Mi
+      cpu: 500m
   # Allow anonymous/public pull access for projects marked as public
   # Pushes still require authentication
   projectCreationRestriction: "everyone"
@@ -196,22 +196,22 @@ jobservice:
   replicas: 1 # Set to 1 to avoid Multi-Attach errors with RWO volumes
   resources:
     requests:
-      memory: 256Mi
-      cpu: 100m
+      memory: 128Mi
+      cpu: 50m
     limits:
-      memory: 1Gi
-      cpu: 1000m
+      memory: 512Mi
+      cpu: 500m
 
 # Harbor Registry (Docker registry component)
 registry:
   replicas: 1 # Set to 1 to avoid Multi-Attach errors with RWO volumes
   resources:
     requests:
-      memory: 256Mi
-      cpu: 100m
+      memory: 128Mi
+      cpu: 50m
     limits:
-      memory: 1Gi
-      cpu: 1000m
+      memory: 512Mi
+      cpu: 500m
   # Registry controller
   controller:
     resources:
@@ -228,11 +228,11 @@ trivy:
   replicas: 1
   resources:
     requests:
-      memory: 512Mi
-      cpu: 200m
+      memory: 256Mi
+      cpu: 100m
     limits:
-      memory: 2Gi
-      cpu: 1000m
+      memory: 1Gi
+      cpu: 500m
   # Update vulnerability database on startup
   gitHubToken: ""
   # Offline mode (use cached database)

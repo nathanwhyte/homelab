@@ -9,14 +9,14 @@ deploymentMode: SingleBinary
 singleBinary:
   replicas: 1
 
-  # Resource limits (increased for better performance)
+  # Resource limits (tuned: actual usage ~37m CPU, ~333Mi mem)
   resources:
     requests:
-      cpu: 200m
-      memory: 512Mi
+      cpu: 100m
+      memory: 256Mi
     limits:
-      cpu: 1000m
-      memory: 2Gi
+      cpu: 500m
+      memory: 1Gi
 
   # Persistence configuration using Longhorn
   persistence:

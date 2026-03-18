@@ -95,18 +95,18 @@ spec:
             - --n-gpu-layers
             - "999"
             - --parallel
-            - "1"
+            - "2"
           ports:
             - containerPort: 8000
               name: http
           resources:
             requests:
               cpu: "500m"
-              memory: 2Gi
+              memory: 1Gi
               nvidia.com/gpu: "1"
             limits:
-              cpu: "2"
-              memory: 6Gi
+              cpu: "4"
+              memory: 8Gi
               nvidia.com/gpu: "1"
           startupProbe:
             tcpSocket:
