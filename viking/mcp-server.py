@@ -10,11 +10,8 @@ Exposes OpenViking's context database as MCP tools so Claude can
 store, search, and retrieve agent context across sessions.
 
 Requires:
-  OPENVIKING_URL  — e.g. http://localhost:1933
+  OPENVIKING_URL  — e.g. https://context.nathanwhyte.dev
   OPENVIKING_KEY  — API key for the OpenViking instance
-
-Start a port-forward first if running against a k8s cluster:
-  kubectl port-forward -n viking svc/openviking 1933:1933
 """
 
 import os
@@ -26,7 +23,7 @@ from mcp.server.fastmcp import FastMCP
 
 mcp = FastMCP("openviking")
 
-OV_URL = os.environ.get("OPENVIKING_URL", "http://localhost:1933")
+OV_URL = os.environ.get("OPENVIKING_URL", "https://context.nathanwhyte.dev")
 OV_KEY = os.environ.get("OPENVIKING_KEY", "")
 
 

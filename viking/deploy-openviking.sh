@@ -21,13 +21,18 @@ kubectl apply -f "$SCRIPT_DIR/embedder-llamacpp-service.yaml"
 kubectl apply -f "$SCRIPT_DIR/openviking-deployment.yaml"
 kubectl apply -f "$SCRIPT_DIR/openviking-service.yaml"
 
+# Cloudflare Tunnel (public access via context.nathanwhyte.dev)
+kubectl apply -f "$SCRIPT_DIR/cloudflared.yaml"
+
 echo ""
 echo "=== Waiting for rollouts ==="
 kubectl rollout status deployment/embedder-llamacpp -n viking --timeout=300s &
 kubectl rollout status deployment/openviking -n viking --timeout=120s &
+kubectl rollout status deployment/cloudflared -n viking --timeout=60s &
 wait
 
 echo ""
 echo "=== OpenViking deployed ==="
 echo "Internal: http://openviking.viking.svc.cluster.local:1933"
-echo "Health:   kubectl exec -n viking deploy/openviking -- curl -s http://localhost:1933/health"
+echo "Public:   https://context.nathanwhyte.dev"
+echo "Health:   curl -s -H 'X-API-Key: \$OPENVIKING_KEY' https://context.nathanwhyte.dev/health"
