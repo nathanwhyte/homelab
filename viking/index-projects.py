@@ -11,7 +11,7 @@ a structured index, then uploads each as markdown to Viking so any future
 agent session can search across projects.
 
 Requires:
-  OPENVIKING_URL  — e.g. https://viking.nathanwhyte.dev
+  OPENVIKING_URL  — e.g. https://context.nathanwhyte.dev
   OPENVIKING_KEY  — API key for the OpenViking instance
   claude          — Claude Code CLI in PATH
 
@@ -27,7 +27,6 @@ import asyncio
 import json
 import os
 import sys
-import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -43,8 +42,10 @@ PROJECT_MARKERS = {
     "setup.py", "requirements.txt",
 }
 
-OV_URL = os.environ.get("OPENVIKING_URL", "https://viking.nathanwhyte.dev")
+OV_URL = os.environ.get("OPENVIKING_URL", "https://context.nathanwhyte.dev")
 OV_KEY = os.environ.get("OPENVIKING_KEY", "openviking-homelab")
+OV_ACCOUNT = os.environ.get("OPENVIKING_ACCOUNT", "default")
+OV_USER = os.environ.get("OPENVIKING_USER", "natew")
 
 VIKING_BASE_DIR = "viking://resources/projects"
 
@@ -207,34 +208,36 @@ async def run_claude_agent(
             return None
 
         try:
-            # claude --output-format json wraps result in {"type":"result","result":...}
             outer = json.loads(stdout.decode())
-
-            # Check for budget/error subtypes
             subtype = outer.get("subtype", "")
-            if "error" in subtype:
+
+            if subtype != "success":
                 print(f"  [{name}] Agent ended with: {subtype}")
 
-            result_text = outer.get("result", "")
-            if not result_text:
-                print(f"  [{name}] Empty result (subtype={subtype})")
-                return None
+            # --json-schema puts structured output in "structured_output" field
+            index = outer.get("structured_output")
+            if index and isinstance(index, dict):
+                cost = outer.get("total_cost_usd", 0)
+                print(f"  [{name}] OK (${cost:.3f})")
+                return index
 
-            # The result text should be the JSON matching our schema
-            # It might be wrapped in markdown code fences
-            text = result_text.strip()
-            if text.startswith("```"):
-                lines = text.splitlines()
-                if lines[0].startswith("```"):
-                    lines = lines[1:]
-                if lines and lines[-1].strip() == "```":
-                    lines = lines[:-1]
-                text = "\n".join(lines)
+            # Fallback: try parsing from "result" text field
+            result_text = outer.get("result", "").strip()
+            if result_text:
+                if result_text.startswith("```"):
+                    lines = result_text.splitlines()
+                    if lines[0].startswith("```"):
+                        lines = lines[1:]
+                    if lines and lines[-1].strip() == "```":
+                        lines = lines[:-1]
+                    result_text = "\n".join(lines)
+                index = json.loads(result_text)
+                cost = outer.get("total_cost_usd", 0)
+                print(f"  [{name}] OK (${cost:.3f})")
+                return index
 
-            index = json.loads(text)
-            cost = outer.get("total_cost_usd", 0)
-            print(f"  [{name}] OK (${cost:.3f})")
-            return index
+            print(f"  [{name}] No structured output (subtype={subtype})")
+            return None
         except (json.JSONDecodeError, KeyError, TypeError) as e:
             print(f"  [{name}] Failed to parse output: {e}")
             raw = stdout.decode(errors="replace")[:500]
@@ -335,7 +338,7 @@ def format_manifest(results: dict[str, dict]) -> str:
         langs = ", ".join(idx.get("languages", []))
         tech = ", ".join(idx.get("tech_stack", [])[:3])
         status = idx.get("status", "unknown")
-        lines.append(f"| [{name}](viking://resources/projects/{name}/{name}-index.md) | {langs} | {tech} | {status} |")
+        lines.append(f"| {name} | {langs} | {tech} | {status} |")
     lines.append("")
 
     # Quick descriptions
@@ -351,117 +354,95 @@ def format_manifest(results: dict[str, dict]) -> str:
     return "\n".join(lines)
 
 
-# ── Viking Upload ──────────────────────────────────────────────────
+# ── Viking Upload (sync httpx, matches MCP server pattern) ────────
 
-async def upload_to_viking(
-    name: str,
-    markdown: str,
-    client: httpx.AsyncClient,
-) -> bool:
+def _viking_client() -> httpx.Client:
+    """Create a sync httpx client for Viking API."""
+    return httpx.Client(
+        base_url=OV_URL,
+        headers={
+            "X-API-Key": OV_KEY,
+            "X-OpenViking-Account": OV_ACCOUNT,
+            "X-OpenViking-User": OV_USER,
+            "Content-Type": "application/json",
+        },
+        timeout=120.0,
+    )
+
+
+def _safe_api(client: httpx.Client, method: str, path: str, retries: int = 2, **kwargs) -> dict | None:
+    """Make an API call, returning parsed JSON or None on error. Retries on connection errors."""
+    import time
+    for attempt in range(retries + 1):
+        try:
+            resp = client.request(method, path, **kwargs)
+            return resp.json()
+        except (httpx.ConnectError, httpx.RemoteProtocolError) as e:
+            if attempt < retries:
+                time.sleep(1)
+                continue
+            return None
+        except Exception:
+            return None
+
+
+def _ensure_dir(client: httpx.Client, uri: str) -> None:
+    """Create directory, ignoring 'already exists' errors."""
+    result = _safe_api(client, "POST", "/api/v1/fs/mkdir", json={"uri": uri})
+    # Ignore errors — directory may already exist (server throws on duplicate)
+
+
+def _temp_upload(name: str, filename: str, content: bytes) -> str | None:
+    """Upload content as temp file, returning temp_path or None."""
+    try:
+        resp = httpx.post(
+            f"{OV_URL}/api/v1/resources/temp_upload",
+            headers={
+                "X-API-Key": OV_KEY,
+                "X-OpenViking-Account": OV_ACCOUNT,
+                "X-OpenViking-User": OV_USER,
+            },
+            files={"file": (filename, content, "text/markdown")},
+            timeout=60.0,
+        )
+        data = resp.json()
+        if data.get("status") == "error":
+            print(f"  [{name}] Temp upload failed: {data.get('error', {}).get('message', data)}")
+            return None
+        return data["result"]["temp_path"]
+    except Exception as e:
+        print(f"  [{name}] Temp upload error: {e}")
+        return None
+
+
+def _add_resource(label: str, filename: str, markdown: str, client: httpx.Client) -> bool:
+    """Upload markdown content as a Viking resource."""
+    temp_path = _temp_upload(label, filename, markdown.encode())
+    if not temp_path:
+        return False
+
+    result = _safe_api(client, "POST", "/api/v1/resources", json={
+        "temp_path": temp_path,
+        "target_dir": VIKING_BASE_DIR,
+        "name": label,
+    })
+    if not result or result.get("status") == "error":
+        print(f"  [{label}] Add resource failed: {result}")
+        return False
+
+    root_uri = result.get("result", {}).get("root_uri", "?")
+    print(f"  [{label}] Uploaded to {root_uri}")
+    return True
+
+
+def upload_to_viking(name: str, markdown: str, client: httpx.Client) -> bool:
     """Upload a project index to Viking."""
-    resource_dir = f"{VIKING_BASE_DIR}/{name}"
-    resource_name = f"{name}-index"
-
-    try:
-        # 1. Delete old resource (ignore 404)
-        resp = await client.request(
-            "DELETE",
-            "/api/v1/fs",
-            json={"uri": resource_dir, "recursive": True},
-        )
-        if resp.status_code not in (200, 404):
-            data = resp.json()
-            if data.get("status") == "error":
-                err = data.get("error", {})
-                # Ignore "not found" errors
-                if "not found" not in str(err).lower():
-                    print(f"  [{name}] Warning: delete returned {err}")
-
-        # 2. Create directory
-        resp = await client.post(
-            "/api/v1/fs/mkdir",
-            json={"uri": resource_dir},
-        )
-
-        # 3. Temp upload
-        content_bytes = markdown.encode("utf-8")
-        resp = await client.post(
-            "/api/v1/resources/temp_upload",
-            headers={"Content-Type": None},  # let httpx set multipart headers
-            files={"file": (f"{resource_name}.md", content_bytes, "text/markdown")},
-        )
-        upload_result = resp.json()
-        if upload_result.get("status") == "error":
-            print(f"  [{name}] Upload failed: {upload_result}")
-            return False
-        temp_path = upload_result["result"]["temp_path"]
-
-        # 4. Add as resource
-        resp = await client.post(
-            "/api/v1/resources",
-            json={
-                "temp_path": temp_path,
-                "target_dir": resource_dir,
-                "name": resource_name,
-            },
-        )
-        result = resp.json()
-        if result.get("status") == "error":
-            print(f"  [{name}] Add resource failed: {result}")
-            return False
-
-        print(f"  [{name}] Uploaded to {result['result']['root_uri']}")
-        return True
-
-    except Exception as e:
-        print(f"  [{name}] Upload error: {e}")
-        return False
+    return _add_resource(f"project-{name}-index", f"project-{name}-index.md", markdown, client)
 
 
-async def upload_manifest(markdown: str, client: httpx.AsyncClient) -> bool:
+def upload_manifest(markdown: str, client: httpx.Client) -> bool:
     """Upload the top-level manifest."""
-    try:
-        # Ensure base dir exists
-        await client.post("/api/v1/fs/mkdir", json={"uri": VIKING_BASE_DIR})
-
-        # Delete old manifest
-        await client.request(
-            "DELETE",
-            "/api/v1/fs",
-            json={"uri": f"{VIKING_BASE_DIR}/manifest", "recursive": True},
-        )
-
-        # Temp upload
-        resp = await client.post(
-            "/api/v1/resources/temp_upload",
-            headers={"Content-Type": None},
-            files={"file": ("manifest.md", markdown.encode("utf-8"), "text/markdown")},
-        )
-        upload_result = resp.json()
-        if upload_result.get("status") == "error":
-            print(f"  [manifest] Upload failed: {upload_result}")
-            return False
-        temp_path = upload_result["result"]["temp_path"]
-
-        resp = await client.post(
-            "/api/v1/resources",
-            json={
-                "temp_path": temp_path,
-                "target_dir": VIKING_BASE_DIR,
-                "name": "manifest",
-            },
-        )
-        result = resp.json()
-        if result.get("status") == "error":
-            print(f"  [manifest] Add resource failed: {result}")
-            return False
-
-        print(f"  [manifest] Uploaded to {result['result']['root_uri']}")
-        return True
-
-    except Exception as e:
-        print(f"  [manifest] Upload error: {e}")
-        return False
+    return _add_resource("project-manifest", "project-manifest.md", markdown, client)
 
 
 # ── Main ───────────────────────────────────────────────────────────
@@ -472,41 +453,57 @@ async def main():
     parser.add_argument("--dry-run", action="store_true", help="Index but skip Viking upload")
     parser.add_argument("--concurrency", type=int, default=4, help="Max concurrent Claude agents")
     parser.add_argument("--verbose", action="store_true", help="Print Claude agent stderr")
+    parser.add_argument("--upload-only", action="store_true", help="Skip indexing, upload cached results")
+    parser.add_argument("--viking-url", type=str, help="Override Viking URL (default: OPENVIKING_URL env or localhost:1933)")
     args = parser.parse_args()
 
+    global OV_URL
+    if args.viking_url:
+        OV_URL = args.viking_url
+
     only = [p.strip() for p in args.projects.split(",")] if args.projects else None
+    cache_path = Path(__file__).parent / ".index-cache.json"
 
-    # Discover
-    projects = discover_projects(only)
-    if not projects:
-        print("No projects found to index.")
-        sys.exit(1)
+    if args.upload_only:
+        if not cache_path.exists():
+            print("No cached results found. Run without --upload-only first.")
+            sys.exit(1)
+        results = json.loads(cache_path.read_text())
+        if only:
+            results = {k: v for k, v in results.items() if k in only}
+        print(f"Loaded {len(results)} cached indexes")
+    else:
+        # Discover
+        projects = discover_projects(only)
+        if not projects:
+            print("No projects found to index.")
+            sys.exit(1)
 
-    print(f"Found {len(projects)} projects to index:")
-    for p in projects:
-        print(f"  - {p.name}")
-    print()
+        print(f"Found {len(projects)} projects to index:")
+        for p in projects:
+            print(f"  - {p.name}")
+        print()
 
-    # Index with Claude agents
-    print("Indexing with Claude agents...")
-    semaphore = asyncio.Semaphore(args.concurrency)
-    tasks = [
-        run_claude_agent(p, semaphore, verbose=args.verbose)
-        for p in projects
-    ]
-    raw_results = await asyncio.gather(*tasks)
+        # Index with Claude agents
+        print("Indexing with Claude agents...")
+        semaphore = asyncio.Semaphore(args.concurrency)
+        tasks = [
+            run_claude_agent(p, semaphore, verbose=args.verbose)
+            for p in projects
+        ]
+        raw_results = await asyncio.gather(*tasks)
 
-    # Collect successful results
-    results: dict[str, dict] = {}
-    for project, result in zip(projects, raw_results):
-        if result is not None:
-            results[project.name] = result
+        # Collect successful results
+        results: dict[str, dict] = {}
+        for project, result in zip(projects, raw_results):
+            if result is not None:
+                results[project.name] = result
 
-    print(f"\nSuccessfully indexed {len(results)}/{len(projects)} projects")
+        print(f"\nSuccessfully indexed {len(results)}/{len(projects)} projects")
 
-    if not results:
-        print("No projects indexed successfully.")
-        sys.exit(1)
+        if not results:
+            print("No projects indexed successfully.")
+            sys.exit(1)
 
     # Format as markdown
     markdowns: dict[str, str] = {}
@@ -514,6 +511,10 @@ async def main():
         markdowns[name] = format_as_markdown(index)
 
     manifest_md = format_manifest(results)
+
+    # Save intermediate results to JSON (avoids re-indexing if upload fails)
+    cache_path.write_text(json.dumps(results, indent=2))
+    print(f"Cached index results to {cache_path}")
 
     if args.dry_run:
         print("\n--- DRY RUN: Showing results ---\n")
@@ -528,28 +529,20 @@ async def main():
         print(manifest_md)
         return
 
-    # Upload to Viking
+    # Upload to Viking (sync — port-forwarded connections are fragile with async)
     print(f"\nUploading to Viking ({OV_URL})...")
-    async with httpx.AsyncClient(
-        base_url=OV_URL,
-        headers={"X-API-Key": OV_KEY, "Content-Type": "application/json"},
-        timeout=120.0,
-    ) as client:
-        # Ensure base directory exists
-        await client.post("/api/v1/fs/mkdir", json={"uri": VIKING_BASE_DIR})
+    with _viking_client() as client:
+        # Ensure base directory exists (ignore "already exists" errors)
+        _ensure_dir(client, VIKING_BASE_DIR)
 
-        # Upload project indexes
-        upload_tasks = [
-            upload_to_viking(name, md, client)
-            for name, md in markdowns.items()
-        ]
-        upload_results = await asyncio.gather(*upload_tasks)
+        success = 0
+        for name, md in markdowns.items():
+            if upload_to_viking(name, md, client):
+                success += 1
 
-        success = sum(1 for r in upload_results if r)
-        print(f"\nUploaded {success}/{len(upload_results)} project indexes")
+        print(f"\nUploaded {success}/{len(markdowns)} project indexes")
 
-        # Upload manifest
-        await upload_manifest(manifest_md, client)
+        upload_manifest(manifest_md, client)
 
     print("\nDone!")
 
