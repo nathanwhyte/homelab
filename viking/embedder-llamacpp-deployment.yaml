@@ -70,13 +70,13 @@ spec:
             - --n-gpu-layers
             - "999"
             - --ctx-size
-            - "8192"
+            - "2048"
             - --parallel
-            - "4"
+            - "8"
             - --batch-size
-            - "8192"
+            - "2048"
             - --ubatch-size
-            - "8192"
+            - "2048"
           ports:
             - containerPort: 8000
               name: http

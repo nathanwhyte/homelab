@@ -10,7 +10,18 @@ data:
       "default_account": "default",
       "default_user": "natew",
       "storage": {
-        "workspace": "/app/data"
+        "workspace": "/app/data",
+        "vectordb": {
+          "backend": "local",
+          "name": "context",
+          "dimension": 384
+        }
+      },
+      "code": {
+        "code_summary_mode": "ast"
+      },
+      "rerank": {
+        "threshold": 0.1
       },
       "server": {
         "host": "0.0.0.0",
@@ -28,9 +39,10 @@ data:
           "model": "all-MiniLM-L6-v2",
           "api_key": "sk-no-key-required",
           "api_base": "http://embedder-llamacpp.viking.svc.cluster.local:8080/v1",
-          "dimension": 384
+          "dimension": 384,
+          "batch_size": 8
         },
-        "max_concurrent": 3
+        "max_concurrent": 8
       },
       "vlm": {
         "provider": "litellm",
