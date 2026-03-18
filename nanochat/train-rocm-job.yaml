@@ -5,7 +5,7 @@ metadata:
   name: nanochat-gpt2-rocm
   namespace: nanochat
 spec:
-  backoffLimit: 2
+  backoffLimit: 5
   template:
     spec:
       restartPolicy: OnFailure
@@ -14,24 +14,28 @@ spec:
         gpu.vendor: amd
       containers:
         - name: nanochat
-          image: registry.nathanwhyte.dev/library/nanochat:rocm
+          image: registry.nathanwhyte.dev/library/nanochat:rocm-v3
+          imagePullPolicy: IfNotPresent
           command: ["/bin/bash", "-c"]
           args:
             - |
               set -eu
               cd /app
+              # Symlink cache to PVC so downloads survive restarts
+              mkdir -p /app/data/cache
+              ln -sfn /app/data/cache /root/.cache/nanochat
 
               # Stage 1: Data + tokenizer (single-process)
               python -m nanochat.dataset -n 170
               python -m scripts.tok_train
               python -m scripts.tok_eval
 
-              # Stage 2: Pretrain GPT-2 (depth=24, ~440M params) — 2x GPU DDP
-              torchrun --nproc_per_node=2 -m scripts.base_train -- \
-                --depth=24 \
-                --device-batch-size=4 \
-                --run=dummy \
-                --save-every=5000
+              # Stage 2: Pretrain GPT-2 (depth=24, ~440M params) — single GPU
+              python -c "
+              import faulthandler, sys; faulthandler.enable()
+              sys.argv = ['base_train', '--depth=12', '--device-batch-size=8', '--run=dummy', '--save-every=500']
+              import scripts.base_train
+              " || { echo '--- STAGE 2 FAILED ---'; exit 1; }
 
               # Stage 3: Evaluate (single-process)
               python -m scripts.base_eval
@@ -40,15 +44,17 @@ spec:
               curl -L -o /app/data/identity_conversations.jsonl \
                 https://karpathy-public.s3.us-west-2.amazonaws.com/identity_conversations.jsonl
 
-              # Stage 5: SFT — 2x GPU DDP
-              torchrun --nproc_per_node=2 -m scripts.chat_sft -- \
+              # Stage 5: SFT — single GPU
+              python -m scripts.chat_sft \
                 --device-batch-size=4
 
               # Stage 6: Chat eval (single-process)
-              python -m scripts.chat_eval -- -i sft
+              python -m scripts.chat_eval -i sft
           env:
+            - name: HIP_VISIBLE_DEVICES
+              value: "1"
             - name: NANOCHAT_DTYPE
-              value: "bfloat16"
+              value: "float16"
             - name: PYTORCH_TUNABLEOP_ENABLED
               value: "1"
             - name: PYTORCH_ALLOC_CONF
@@ -61,11 +67,11 @@ spec:
             requests:
               cpu: "4"
               memory: 16Gi
-              amd.com/gpu: "2"
+              amd.com/gpu: "1"
             limits:
               cpu: "8"
               memory: 32Gi
-              amd.com/gpu: "2"
+              amd.com/gpu: "1"
           securityContext:
             privileged: true
           volumeMounts:

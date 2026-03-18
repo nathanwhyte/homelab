@@ -6,11 +6,10 @@ RUN pip install --no-cache-dir uv
 WORKDIR /app
 RUN git clone https://github.com/karpathy/nanochat.git .
 
-# Create venv that inherits system ROCm torch, then install all other deps
-RUN uv venv --system-site-packages && \
-    uv sync --no-install-package torch
+# Install non-torch deps into system Python 3.12 (torch already present from base image)
+RUN pip install --no-cache-dir $(python3.12 -c "import tomllib,pathlib;p=tomllib.loads(pathlib.Path('pyproject.toml').read_text());print(' '.join(d for d in p.get('project',{}).get('dependencies',[]) if 'torch' not in d.lower()))")
 
-ENV PATH="/app/.venv/bin:$PATH"
+ENV PYTHONPATH="/app:${PYTHONPATH}"
 
 # ROCm PyTorch perf tuning (these are real PyTorch env vars)
 ENV PYTORCH_TUNABLEOP_ENABLED=1
