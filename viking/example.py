@@ -6,15 +6,18 @@
 """
 OpenViking quickstart example.
 
-Requires port-forward:
-  kubectl port-forward -n viking svc/openviking 1933:1933
+Requires:
+  OPENVIKING_URL  — e.g. https://context.nathanwhyte.dev
+  OPENVIKING_KEY  — API key for the OpenViking instance
 """
+
+import os
 
 from openviking_cli.client.sync_http import SyncHTTPClient
 
 client = SyncHTTPClient(
-    url="http://localhost:1933",
-    api_key="47067ca1b704af555e417d8abf18ceebfa2e54f88e08b7d66db6f457d51fff55",
+    url=os.environ.get("OPENVIKING_URL", "https://context.nathanwhyte.dev"),
+    api_key=os.environ["OPENVIKING_KEY"],
     timeout=300.0,  # 5 min — VLM processing of large docs takes time
 )
 
