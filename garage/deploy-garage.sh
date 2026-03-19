@@ -18,11 +18,15 @@ if [ ! -x "$(command -v "helm")" ]; then
      exit 1
 fi
 
-echo "Updating helm repositories..."
-helm repo add garage https://garage.deuxfleurs.fr/helm
-helm repo update garage
+CHART_DIR="$GARAGE_DIR/garage/script/helm/garage"
 
-echo -e "\nDeploying Garage S3-compatible storage..."
+echo "Deploying Garage S3-compatible storage..."
+
+if [ ! -d "$CHART_DIR" ]; then
+    echo "Helm chart not found at $CHART_DIR"
+    echo "Clone the Garage repo: git clone https://git.deuxfleurs.fr/Deuxfleurs/garage $GARAGE_DIR/garage"
+    exit 1
+fi
 
 if [ ! -f "$GARAGE_DIR/garage-values.yaml" ]; then
     echo "garage-values.yaml file not found!"
@@ -35,7 +39,7 @@ if [ ! -f "$GARAGE_DIR/cloudflared.yaml" ]; then
 fi
 
 helm upgrade --install garage \
-    garage/garage \
+    "$CHART_DIR" \
     --create-namespace \
     --namespace "$NAMESPACE" \
     -f "$GARAGE_DIR/garage-values.yaml"

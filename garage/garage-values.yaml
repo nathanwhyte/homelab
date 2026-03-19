@@ -6,12 +6,10 @@
 # https://garagehq.deuxfleurs.fr/documentation/cookbook/kubernetes/
 #
 # Install with:
-# helm repo add garage https://garage.deuxfleurs.fr/helm
-# helm repo update
-# helm install garage garage/garage -f k8s/garage/values.yaml -n garage
+# helm install garage ./garage/script/helm/garage -f garage-values.yaml -n garage
 #
 # View default values:
-# helm show values garage/garage
+# helm show values ./garage/script/helm/garage
 
 # Garage configuration (maps to garage.toml)
 garage:
