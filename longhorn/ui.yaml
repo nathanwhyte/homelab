@@ -44,6 +44,8 @@ spec:
                 path: token
 
 ---
+# Traefik basic auth middleware for Longhorn UI
+# Ingress itself is managed by the Helm chart (see longhorn-values.yaml)
 apiVersion: traefik.io/v1alpha1
 kind: Middleware
 metadata:
@@ -52,26 +54,3 @@ metadata:
 spec:
   basicAuth:
     secret: longhorn-auth-secret
-
----
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: longhorn-ingress
-  namespace: longhorn-system
-  annotations:
-    traefik.ingress.kubernetes.io/router.entrypoints: web
-    traefik.ingress.kubernetes.io/router.middlewares: longhorn-system-longhorn-auth@kubernetescrd
-spec:
-  ingressClassName: traefik
-  rules:
-    - host: longhorn.nathanwhyte.dev
-      http:
-        paths:
-          - path: /
-            pathType: Prefix
-            backend:
-              service:
-                name: longhorn-frontend
-                port:
-                  number: 80

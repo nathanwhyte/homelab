@@ -1,60 +1,61 @@
 #!/usr/bin/env bash
+set -euo pipefail
 
-LONGHORN_DIR="$HOME/code/homelab/longhorn"
+LONGHORN_DIR="$(cd "$(dirname "$0")" && pwd)"
 NAMESPACE="longhorn-system"
+CHART_VERSION="1.11.0"
 
-if [ ! -x "$(command -v "kubectl")" ]; then
+if ! command -v kubectl &>/dev/null; then
     echo "kubectl not installed."
     exit 1
 fi
 
-if ! kubectl cluster-info > /dev/null 2>&1; then
-     echo "kubectl not connected to a cluster."
-     exit 1
-fi
-
-echo -e "\nDeploying Longhorn distributed storage system..."
-
-if [ ! -f "$LONGHORN_DIR/longhorn-values.yaml" ]; then
-    echo "longhorn-values.yaml file not found!"
+if ! kubectl cluster-info &>/dev/null; then
+    echo "kubectl not connected to a cluster."
     exit 1
 fi
 
-if [ ! -f "$LONGHORN_DIR/storage.yaml" ]; then
-    echo "storage.yaml file not found!"
+if ! command -v helm &>/dev/null; then
+    echo "helm not installed."
     exit 1
 fi
 
-if [ ! -f "$LONGHORN_DIR/ui.yaml" ]; then
-    echo "ui.yaml file not found!"
-    exit 1
-fi
+echo "Deploying Longhorn v${CHART_VERSION} via Helm..."
 
-echo "Applying Longhorn manifests..."
-kubectl apply -f "$LONGHORN_DIR/longhorn-values.yaml"
+# Ensure repo is available
+helm repo add longhorn https://charts.longhorn.io 2>/dev/null || true
+helm repo update longhorn
 
-echo -e "\nWaiting for Longhorn to be ready..."
-echo "This may take a few minutes..."
-kubectl wait --for=condition=ready pod -l app=longhorn-manager -n "$NAMESPACE" --timeout=300s || true
+# Install or upgrade Longhorn
+helm upgrade --install longhorn longhorn/longhorn \
+  --namespace "$NAMESPACE" --create-namespace \
+  --version "$CHART_VERSION" \
+  -f "$LONGHORN_DIR/longhorn-values.yaml"
 
-echo -e "\nApplying Longhorn storage classes..."
+echo -e "\nWaiting for Longhorn Manager to be ready..."
+kubectl wait --for=condition=ready pod -l app=longhorn-manager \
+  -n "$NAMESPACE" --timeout=300s || true
+
+echo -e "\nApplying custom storage classes..."
 kubectl apply -f "$LONGHORN_DIR/storage.yaml"
 
-echo -e "\nApplying Longhorn UI and ingress configuration..."
+echo -e "\nApplying Longhorn UI extras (cloudflared, basic auth middleware)..."
 kubectl apply -f "$LONGHORN_DIR/ui.yaml"
 
-echo -e "\nDone! Visit:"
+echo -e "\nDone!"
 echo "  Web UI: https://longhorn.nathanwhyte.dev"
-echo "  Default credentials: admin / <see longhorn-auth-secret>"
+echo "  Credentials: admin / <see longhorn-auth-secret>"
 
 echo -e "\nCheck status:"
 echo "  kubectl get pods -n $NAMESPACE"
 echo "  kubectl get storageclass | grep longhorn"
-echo "  kubectl get ingress -n $NAMESPACE"
+echo "  helm status longhorn -n $NAMESPACE"
 
-echo -e "\nAvailable Longhorn storage classes:"
-echo "  - longhorn-hdd (HDD storage, 1 replica)"
-echo "  - longhorn-ssd (SSD storage, 1 replica)"
-echo "  - longhorn-nvme (NVMe storage, 1 replica)"
-echo "  - longhorn-ethernet (Ethernet nodes, 1 replica)"
-echo "  - longhorn-db (Database optimized, SSD, 3 replicas)"
+echo -e "\nStorage classes:"
+echo "  longhorn       (default, 1 replica)"
+echo "  longhorn-hdd   (HDD, ethernet nodes, 1 replica)"
+echo "  longhorn-ssd   (SSD, 1 replica)"
+echo "  longhorn-nvme  (NVMe, 1 replica)"
+echo "  longhorn-ethernet (ethernet nodes, 1 replica)"
+echo "  longhorn-db    (SSD, 3 replicas)"
+echo "  longhorn-harbor (HDD, ethernet, 2 replicas, NFS)"
