@@ -29,17 +29,38 @@ spec:
                     values:
                       - steph
                       - patty
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 50
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values:
+                        - stirling-pdf
+                topologyKey: kubernetes.io/hostname
       containers:
         - name: stirling-pdf
-          image: stirlingtools/stirling-pdf:latest
+          image: stirlingtools/stirling-pdf:latest-fat
           ports:
             - containerPort: 8080
               name: http
           env:
             - name: DOCKER_ENABLE_SECURITY
-              value: "false"
+              value: "true"
             - name: SECURITY_ENABLELOGIN
-              value: "false"
+              value: "true"
+            - name: SECURITY_INITIALLOGIN_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: stirling-pdf-credentials
+                  key: USERNAME
+            - name: SECURITY_INITIALLOGIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: stirling-pdf-credentials
+                  key: PASSWORD
             - name: SYSTEM_DEFAULTLOCALE
               value: "en-US"
             - name: SYSTEM_MAXFILESIZE
@@ -47,7 +68,7 @@ spec:
           resources:
             requests:
               cpu: "100m"
-              memory: 256Mi
+              memory: 512Mi
             limits:
               cpu: "2"
               memory: 2Gi
@@ -56,7 +77,7 @@ spec:
               path: /api/v1/info/status
               port: 8080
             periodSeconds: 10
-            failureThreshold: 30
+            failureThreshold: 36
           readinessProbe:
             httpGet:
               path: /api/v1/info/status

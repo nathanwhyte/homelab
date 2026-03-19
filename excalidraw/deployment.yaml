@@ -29,6 +29,17 @@ spec:
                     values:
                       - steph
                       - patty
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 50
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values:
+                        - excalidraw
+                topologyKey: kubernetes.io/hostname
       containers:
         - name: excalidraw
           image: excalidraw/excalidraw:latest

@@ -30,6 +30,17 @@ spec:
                     values:
                       - steph
                       - patty
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 50
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values:
+                        - heaper
+                topologyKey: kubernetes.io/hostname
       containers:
         - name: heaper
           image: ghcr.io/janlunge/heaper:latest

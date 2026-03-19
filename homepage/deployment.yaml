@@ -30,6 +30,17 @@ spec:
                     values:
                       - steph
                       - patty
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 50
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values:
+                        - homepage
+                topologyKey: kubernetes.io/hostname
       initContainers:
         - name: copy-config
           image: busybox:1.36

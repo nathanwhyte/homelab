@@ -29,6 +29,17 @@ spec:
                     values:
                       - steph
                       - patty
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 50
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values:
+                        - it-tools
+                topologyKey: kubernetes.io/hostname
       containers:
         - name: it-tools
           image: corentinth/it-tools:latest
