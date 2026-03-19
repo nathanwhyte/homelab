@@ -1,0 +1,59 @@
+---
+# PostgreSQL data — SSD for database performance
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: heaper-postgres
+  namespace: heaper
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: longhorn-ssd
+  resources:
+    requests:
+      storage: 5Gi
+
+---
+# App data, config, thumbnails
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: heaper-data
+  namespace: heaper
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: longhorn-ssd
+  resources:
+    requests:
+      storage: 5Gi
+
+---
+# File storage — HDD is fine for bulk files
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: heaper-storage
+  namespace: heaper
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: longhorn-hdd
+  resources:
+    requests:
+      storage: 50Gi
+
+---
+# Backups
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: heaper-backups
+  namespace: heaper
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: longhorn-hdd
+  resources:
+    requests:
+      storage: 20Gi
