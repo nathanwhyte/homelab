@@ -30,6 +30,19 @@ spec:
                     values:
                       - steph
                       - patty
+      initContainers:
+        - name: copy-config
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            - cp /config-source/* /app/config/ && mkdir -p /app/config/logs
+          volumeMounts:
+            - name: config-source
+              mountPath: /config-source
+              readOnly: true
+            - name: config
+              mountPath: /app/config
       containers:
         - name: homepage
           image: ghcr.io/gethomepage/homepage:latest
@@ -43,6 +56,12 @@ spec:
             limits:
               cpu: "500m"
               memory: 512Mi
+          startupProbe:
+            httpGet:
+              path: /
+              port: 3000
+            periodSeconds: 5
+            failureThreshold: 12
           readinessProbe:
             httpGet:
               path: /
@@ -52,12 +71,15 @@ spec:
             httpGet:
               path: /
               port: 3000
-            initialDelaySeconds: 5
+            initialDelaySeconds: 10
             periodSeconds: 30
+            failureThreshold: 3
           volumeMounts:
             - name: config
               mountPath: /app/config
       volumes:
-        - name: config
+        - name: config-source
           configMap:
             name: homepage-config
+        - name: config
+          emptyDir: {}

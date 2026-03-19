@@ -38,6 +38,8 @@ spec:
           env:
             - name: DOCKER_ENABLE_SECURITY
               value: "false"
+            - name: SECURITY_ENABLELOGIN
+              value: "false"
             - name: SYSTEM_DEFAULTLOCALE
               value: "en-US"
             - name: SYSTEM_MAXFILESIZE
@@ -51,19 +53,19 @@ spec:
               memory: 2Gi
           startupProbe:
             httpGet:
-              path: /
+              path: /api/v1/info/status
               port: 8080
-            periodSeconds: 5
-            failureThreshold: 24
+            periodSeconds: 10
+            failureThreshold: 30
           readinessProbe:
             httpGet:
-              path: /
+              path: /api/v1/info/status
               port: 8080
             periodSeconds: 10
             timeoutSeconds: 5
           livenessProbe:
             httpGet:
-              path: /
+              path: /api/v1/info/status
               port: 8080
             initialDelaySeconds: 15
             periodSeconds: 30
