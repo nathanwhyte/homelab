@@ -1,0 +1,80 @@
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: sysbench-timmy
+  namespace: sysbench
+  labels:
+    app: sysbench
+    node: timmy
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 86400  # auto-cleanup after 24h
+  template:
+    metadata:
+      labels:
+        app: sysbench
+        node: timmy
+    spec:
+      restartPolicy: Never
+      nodeSelector:
+        kubernetes.io/hostname: timmy
+      containers:
+        - name: sysbench
+          image: ubuntu:24.04
+          command:
+            - /bin/bash
+            - -c
+          args:
+            - |
+              set -euo pipefail
+              apt-get update -qq && apt-get install -y -qq sysbench > /dev/null 2>&1
+
+              echo "=============================="
+              echo "  SYSBENCH SUITE — timmy"
+              echo "  $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+              echo "=============================="
+
+              echo ""
+              echo "--- CPU Benchmark (16 threads, 60s) ---"
+              sysbench cpu --threads=16 --time=60 run
+
+              echo ""
+              echo "--- Memory Benchmark (read, 16 threads, 60s) ---"
+              sysbench memory --threads=16 --time=60 --memory-oper=read run
+
+              echo ""
+              echo "--- Memory Benchmark (write, 16 threads, 60s) ---"
+              sysbench memory --threads=16 --time=60 --memory-oper=write run
+
+              echo ""
+              echo "--- FileIO Benchmark (prepare 4G test files) ---"
+              sysbench fileio --file-total-size=4G prepare
+
+              echo ""
+              echo "--- FileIO Benchmark (sequential read, 60s) ---"
+              sysbench fileio --file-total-size=4G --file-test-mode=seqrd --time=60 run
+
+              echo ""
+              echo "--- FileIO Benchmark (sequential write, 60s) ---"
+              sysbench fileio --file-total-size=4G --file-test-mode=seqwr --time=60 run
+
+              echo ""
+              echo "--- FileIO Benchmark (random read/write, 60s) ---"
+              sysbench fileio --file-total-size=4G --file-test-mode=rndrw --time=60 run
+
+              echo ""
+              echo "--- FileIO Benchmark (cleanup) ---"
+              sysbench fileio --file-total-size=4G cleanup
+
+              echo ""
+              echo "=============================="
+              echo "  SUITE COMPLETE"
+              echo "=============================="
+          resources:
+            requests:
+              cpu: "1"
+              memory: 1Gi
+            limits:
+              cpu: "16"
+              memory: 8Gi
