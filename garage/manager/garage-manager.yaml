@@ -71,7 +71,7 @@ spec:
             successThreshold: 1
             failureThreshold: 3
           env:
-            - name: GARAGE_ENDPOINT
+            - name: S3_PROVIDER_ENDPOINT
               valueFrom:
                 configMapKeyRef:
                   name: garage-manager-config
