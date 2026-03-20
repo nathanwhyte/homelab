@@ -45,7 +45,7 @@ persistence:
     registry:
       storageClass: longhorn-harbor
       accessMode: ReadWriteMany
-      size: 20Gi
+      size: 50Gi
     jobservice:
       jobLog:
         storageClass: longhorn-harbor
