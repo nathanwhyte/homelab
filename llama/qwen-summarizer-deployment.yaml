@@ -90,11 +90,11 @@ spec:
           resources:
             requests:
               cpu: "500m"
-              memory: 4Gi
+              memory: 3Gi
               amd.com/gpu: "1"
             limits:
-              cpu: "8"
-              memory: 16Gi
+              cpu: "4"
+              memory: 10Gi
               amd.com/gpu: "1"
           securityContext:
             privileged: true

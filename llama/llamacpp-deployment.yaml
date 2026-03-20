@@ -106,7 +106,7 @@ spec:
               nvidia.com/gpu: "1"
             limits:
               cpu: "4"
-              memory: 8Gi
+              memory: 6Gi
               nvidia.com/gpu: "1"
           startupProbe:
             tcpSocket:

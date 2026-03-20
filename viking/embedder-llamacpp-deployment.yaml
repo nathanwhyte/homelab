@@ -83,11 +83,11 @@ spec:
           resources:
             requests:
               cpu: "250m"
-              memory: 768Mi
+              memory: 512Mi
               nvidia.com/gpu: "1"
             limits:
               cpu: "2"
-              memory: 3Gi
+              memory: 2Gi
               nvidia.com/gpu: "1"
           startupProbe:
             tcpSocket:

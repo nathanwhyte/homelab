@@ -118,8 +118,8 @@ spec:
               memory: 2Gi
               amd.com/gpu: "1"
             limits:
-              cpu: "8"
-              memory: 16Gi
+              cpu: "4"
+              memory: 10Gi
               amd.com/gpu: "1"
           securityContext:
             privileged: true
