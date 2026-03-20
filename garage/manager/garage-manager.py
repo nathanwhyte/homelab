@@ -16,15 +16,15 @@ from botocore.exceptions import ClientError, EndpointConnectionError
 def get_s3_client():
     """Create and return a boto3 S3 client configured for Garage."""
     endpoint_url = os.getenv(
-        "GARAGE_ENDPOINT", "http://garage.garage.svc.cluster.local:3900"
+        "S3_PROVIDER_ENDPOINT", "http://garage.garage.svc.cluster.local:3900"
     )
-    region = os.getenv("GARAGE_REGION", "garage")
-    access_key = os.getenv("AWS_ACCESS_KEY_ID")
-    secret_key = os.getenv("AWS_SECRET_ACCESS_KEY")
+    region = os.getenv("S3_PROVIDER_REGION", "garage")
+    access_key = os.getenv("S3_PROVIDER_ACCESS_KEY")
+    secret_key = os.getenv("S3_PROVIDER_SECRET_KEY")
 
     if not access_key or not secret_key:
         print(
-            "Error: AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY must be set",
+            "Error: S3_PROVIDER_ACCESS_KEY and S3_PROVIDER_SECRET_KEY must be set",
             file=sys.stderr,
         )
         sys.exit(1)

@@ -21,7 +21,8 @@ spec:
       terminationGracePeriodSeconds: 30
       affinity:
         nodeAffinity:
-          # Prefer stable CPU-only nodes over GPU nodes
+          # Patty and Steph are being decommissioned, so prefer the remaining
+          # stable general-purpose nodes.
           preferredDuringSchedulingIgnoredDuringExecution:
             - weight: 80
               preference:
@@ -29,8 +30,8 @@ spec:
                   - key: kubernetes.io/hostname
                     operator: In
                     values:
-                      - steph
-                      - patty
+                      - manu
+                      - wemby
             # Actively avoid timmy (unstable AMD GPU node)
             - weight: 100
               preference:

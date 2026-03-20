@@ -25,12 +25,19 @@ mcp = FastMCP("openviking")
 
 OV_URL = os.environ.get("OPENVIKING_URL", "https://context.nathanwhyte.dev")
 OV_KEY = os.environ.get("OPENVIKING_KEY", "")
+OV_ACCOUNT = os.environ.get("OPENVIKING_ACCOUNT", "default")
+OV_USER = os.environ.get("OPENVIKING_USER", "natew")
 
 
 def _client() -> httpx.Client:
     return httpx.Client(
         base_url=OV_URL,
-        headers={"X-API-Key": OV_KEY, "Content-Type": "application/json"},
+        headers={
+            "X-API-Key": OV_KEY,
+            "X-OpenViking-Account": OV_ACCOUNT,
+            "X-OpenViking-User": OV_USER,
+            "Content-Type": "application/json",
+        },
         timeout=120.0,
     )
 
@@ -41,6 +48,11 @@ def _result(resp: httpx.Response):
         err = data.get("error", {})
         raise RuntimeError(f"OpenViking error: {err.get('message', data)}")
     return data.get("result")
+
+
+def _join_resource_uri(parent_uri: str, name: str) -> str:
+    parent = parent_uri.rstrip("/")
+    return f"{parent}/{name}"
 
 
 # ── Search & Retrieval ──────────────────────────────────────────────
@@ -118,7 +130,7 @@ def viking_ls(uri: str = "viking://") -> str:
 def viking_tree(uri: str = "viking://", depth: int = 3) -> str:
     """Tree view of the OpenViking filesystem."""
     with _client() as c:
-        r = c.get("/api/v1/fs/tree", params={"uri": uri, "depth": depth})
+        r = c.get("/api/v1/fs/tree", params={"uri": uri, "level_limit": depth})
         result = _result(r)
         lines = []
         for item in result:
@@ -159,7 +171,9 @@ def viking_overview(uri: str) -> str:
 
 
 @mcp.tool()
-def viking_add_text(content: str, name: str, target_dir: str = "viking://resources/") -> str:
+def viking_add_text(
+    content: str, name: str, target_dir: str = "viking://resources/"
+) -> str:
     """Add text content as a resource to OpenViking.
 
     Use this to store notes, documentation, code snippets, or any text
@@ -169,17 +183,23 @@ def viking_add_text(content: str, name: str, target_dir: str = "viking://resourc
         # Upload as temp file
         upload = httpx.post(
             f"{OV_URL}/api/v1/resources/temp_upload",
-            headers={"X-API-Key": OV_KEY},
+            headers={
+                "X-API-Key": OV_KEY,
+                "X-OpenViking-Account": OV_ACCOUNT,
+                "X-OpenViking-User": OV_USER,
+            },
             files={"file": (f"{name}.md", content.encode(), "text/markdown")},
             timeout=60.0,
         )
         temp_path = upload.json()["result"]["temp_path"]
         # Add as resource
-        r = c.post("/api/v1/resources", json={
-            "temp_path": temp_path,
-            "target_dir": target_dir,
-            "name": name,
-        })
+        r = c.post(
+            "/api/v1/resources",
+            json={
+                "temp_path": temp_path,
+                "to": _join_resource_uri(target_dir, name),
+            },
+        )
         result = _result(r)
         return f"Added: {result['root_uri']}"
 
@@ -197,7 +217,7 @@ def viking_mkdir(uri: str) -> str:
 def viking_rm(uri: str) -> str:
     """Remove a file or directory from the OpenViking filesystem."""
     with _client() as c:
-        r = c.delete("/api/v1/fs", json={"uri": uri, "recursive": True})
+        r = c.delete("/api/v1/fs", params={"uri": uri, "recursive": "true"})
         _result(r)
         return f"Removed: {uri}"
 
@@ -224,10 +244,13 @@ def viking_session_message(session_id: str, role: str, content: str) -> str:
         content: The message text
     """
     with _client() as c:
-        r = c.post(f"/api/v1/sessions/{session_id}/messages", json={
-            "role": role,
-            "content": content,
-        })
+        r = c.post(
+            f"/api/v1/sessions/{session_id}/messages",
+            json={
+                "role": role,
+                "content": content,
+            },
+        )
         result = _result(r)
         return f"Message added (count: {result['message_count']})"
 
@@ -249,8 +272,7 @@ def viking_status() -> str:
     """Check OpenViking system health and queue status."""
     with _client() as c:
         health = c.get("/health").json()
-        status = c.get("/api/v1/system/status",
-                       headers={"X-API-Key": OV_KEY}).json()
+        status = c.get("/api/v1/system/status", headers={"X-API-Key": OV_KEY}).json()
         lines = [
             f"Health: {health.get('status')} (v{health.get('version')})",
             f"Initialized: {status.get('result', {}).get('initialized')}",

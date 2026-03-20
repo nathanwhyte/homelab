@@ -1,0 +1,57 @@
+---
+# One-shot copy pods used during the RWX -> RWO migration.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: harbor-jobservice-rwo-sync
+  namespace: harbor
+spec:
+  restartPolicy: Never
+  containers:
+    - name: rsync
+      image: alpine:3.20
+      command:
+        - /bin/sh
+        - -c
+      args:
+        - apk add --no-cache rsync && rsync -aHAX --numeric-ids --delete /source/ /dest/
+      volumeMounts:
+        - name: source
+          mountPath: /source
+        - name: dest
+          mountPath: /dest
+  volumes:
+    - name: source
+      persistentVolumeClaim:
+        claimName: harbor-jobservice
+    - name: dest
+      persistentVolumeClaim:
+        claimName: harbor-jobservice-rwo
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: harbor-registry-rwo-sync
+  namespace: harbor
+spec:
+  restartPolicy: Never
+  containers:
+    - name: rsync
+      image: alpine:3.20
+      command:
+        - /bin/sh
+        - -c
+      args:
+        - apk add --no-cache rsync && rsync -aHAX --numeric-ids --delete /source/ /dest/
+      volumeMounts:
+        - name: source
+          mountPath: /source
+        - name: dest
+          mountPath: /dest
+  volumes:
+    - name: source
+      persistentVolumeClaim:
+        claimName: harbor-registry
+    - name: dest
+      persistentVolumeClaim:
+        claimName: harbor-registry-rwo

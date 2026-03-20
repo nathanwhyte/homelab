@@ -1,0 +1,28 @@
+---
+# Pre-created RWO claims for Harbor's single-replica components.
+# These are referenced via `existingClaim` in `harbor-values.yaml`.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: harbor-registry-rwo
+  namespace: harbor
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 50Gi
+  storageClassName: longhorn-harbor
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: harbor-jobservice-rwo
+  namespace: harbor
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+  storageClassName: longhorn-harbor

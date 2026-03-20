@@ -36,10 +36,35 @@ import httpx
 
 CODE_DIR = Path.home() / "code"
 SKIP_DIRS = {"archive", "repos", "sources", "keys", "tokens"}
+WALK_SKIP_DIRS = {
+    ".claude",
+    ".cursor",
+    ".git",
+    ".idea",
+    ".vscode",
+    ".venv",
+    "venv",
+    "node_modules",
+    "dist",
+    "build",
+    "target",
+    "__pycache__",
+    ".mypy_cache",
+    ".ruff_cache",
+}
 PROJECT_MARKERS = {
-    ".git", "Cargo.toml", "package.json", "mix.exs", "pyproject.toml",
-    "go.mod", "Makefile", "flake.nix", "docker-compose.yml", "Dockerfile",
-    "setup.py", "requirements.txt",
+    ".git",
+    "Cargo.toml",
+    "package.json",
+    "mix.exs",
+    "pyproject.toml",
+    "go.mod",
+    "Makefile",
+    "flake.nix",
+    "docker-compose.yml",
+    "Dockerfile",
+    "setup.py",
+    "requirements.txt",
 }
 
 OV_URL = os.environ.get("OPENVIKING_URL", "https://context.nathanwhyte.dev")
@@ -53,69 +78,80 @@ CLAUDE_MODEL = "sonnet"
 CLAUDE_BUDGET = "0.30"
 CLAUDE_TIMEOUT = 300  # 5 minutes
 
-INDEX_SCHEMA = json.dumps({
-    "type": "object",
-    "required": ["name", "description", "tech_stack", "languages", "status"],
-    "properties": {
-        "name": {"type": "string", "description": "Project name"},
-        "description": {"type": "string", "description": "One-paragraph description of what this project does"},
-        "tech_stack": {
-            "type": "array",
-            "items": {"type": "string"},
-            "description": "Frameworks, libraries, platforms (e.g. Axum, React, Phoenix, Kubernetes)"
-        },
-        "languages": {
-            "type": "array",
-            "items": {"type": "string"},
-            "description": "Programming languages used"
-        },
-        "status": {
-            "type": "string",
-            "enum": ["active", "maintenance", "archived", "experiment"],
-            "description": "Project status"
-        },
-        "key_components": {
-            "type": "array",
-            "items": {
+INDEX_SCHEMA = json.dumps(
+    {
+        "type": "object",
+        "required": ["name", "description", "tech_stack", "languages", "status"],
+        "properties": {
+            "name": {"type": "string", "description": "Project name"},
+            "description": {
+                "type": "string",
+                "description": "One-paragraph description of what this project does",
+            },
+            "tech_stack": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Frameworks, libraries, platforms (e.g. Axum, React, Phoenix, Kubernetes)",
+            },
+            "languages": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Programming languages used",
+            },
+            "status": {
+                "type": "string",
+                "enum": ["active", "maintenance", "archived", "experiment"],
+                "description": "Project status",
+            },
+            "key_components": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string"},
+                        "path": {"type": "string"},
+                        "purpose": {"type": "string"},
+                    },
+                    "required": ["name", "path", "purpose"],
+                },
+                "description": "Major modules or components",
+            },
+            "entry_points": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Main entry points (e.g. src/main.rs, lib/app.ex)",
+            },
+            "deployment": {
                 "type": "object",
                 "properties": {
-                    "name": {"type": "string"},
-                    "path": {"type": "string"},
-                    "purpose": {"type": "string"}
+                    "method": {
+                        "type": "string",
+                        "description": "How it's deployed (k8s, docker, vercel, etc.)",
+                    },
+                    "url": {"type": "string", "description": "Production URL if any"},
+                    "namespace": {
+                        "type": "string",
+                        "description": "K8s namespace if applicable",
+                    },
                 },
-                "required": ["name", "path", "purpose"]
             },
-            "description": "Major modules or components"
-        },
-        "entry_points": {
-            "type": "array",
-            "items": {"type": "string"},
-            "description": "Main entry points (e.g. src/main.rs, lib/app.ex)"
-        },
-        "deployment": {
-            "type": "object",
-            "properties": {
-                "method": {"type": "string", "description": "How it's deployed (k8s, docker, vercel, etc.)"},
-                "url": {"type": "string", "description": "Production URL if any"},
-                "namespace": {"type": "string", "description": "K8s namespace if applicable"}
-            }
-        },
-        "commands": {
-            "type": "object",
-            "properties": {
-                "build": {"type": "string"},
-                "run": {"type": "string"},
-                "test": {"type": "string"}
+            "commands": {
+                "type": "object",
+                "properties": {
+                    "build": {"type": "string"},
+                    "run": {"type": "string"},
+                    "test": {"type": "string"},
+                },
+                "description": "Key commands to build, run, and test",
             },
-            "description": "Key commands to build, run, and test"
+            "architecture_notes": {
+                "type": "string",
+                "description": "Brief notes on architecture, patterns, or anything notable",
+            },
         },
-        "architecture_notes": {
-            "type": "string",
-            "description": "Brief notes on architecture, patterns, or anything notable"
-        }
-    },
-    "additionalProperties": False,
-})
+        "additionalProperties": False,
+    }
+)
 
 AGENT_PROMPT = """\
 Index this project for a searchable knowledge base. Be fast and factual.
@@ -125,6 +161,10 @@ Index this project for a searchable knowledge base. Be fast and factual.
 3. List top-level directory structure
 4. Identify languages, frameworks, entry points, deployment method
 
+Ignore nested git repositories, submodules, and vendored build checkouts inside the
+project. They are not part of the project index and should not be explored as first-
+class components.
+
 Omit fields you can't determine. Output ONLY the JSON matching the schema.
 """
 
@@ -132,6 +172,7 @@ ALLOWED_TOOLS = "Read,Glob,Grep,Bash(git:*,ls:*,find:*,head:*,wc:*)"
 
 
 # ── Discovery ──────────────────────────────────────────────────────
+
 
 def discover_projects(only: list[str] | None = None) -> list[Path]:
     """Find project directories under CODE_DIR."""
@@ -151,7 +192,47 @@ def discover_projects(only: list[str] | None = None) -> list[Path]:
     return projects
 
 
+def find_nested_git_repos(project_path: Path) -> list[str]:
+    """Find nested git repos/submodules inside a project and return relative paths."""
+    nested: list[str] = []
+
+    def _should_walk_dir(name: str) -> bool:
+        return name not in WALK_SKIP_DIRS and not name.startswith(".")
+
+    for root, dirnames, filenames in os.walk(project_path, topdown=True):
+        current = Path(root)
+        rel = current.relative_to(project_path)
+
+        if rel == Path("."):
+            dirnames[:] = [d for d in dirnames if _should_walk_dir(d)]
+            continue
+
+        if ".git" in dirnames or ".git" in filenames:
+            nested.append(rel.as_posix())
+            dirnames[:] = []
+            continue
+
+        dirnames[:] = [d for d in dirnames if _should_walk_dir(d)]
+
+    return sorted(nested)
+
+
+def build_agent_prompt(project_path: Path) -> str:
+    """Build the Claude prompt, adding nested repo exclusions when present."""
+    nested_repos = find_nested_git_repos(project_path)
+    if not nested_repos:
+        return AGENT_PROMPT
+
+    ignored = "\n".join(f"- {path}/" for path in nested_repos)
+    return (
+        f"{AGENT_PROMPT}\n\n"
+        "Known nested git repos/submodules to ignore in this project:\n"
+        f"{ignored}"
+    )
+
+
 # ── Claude Agent ───────────────────────────────────────────────────
+
 
 async def run_claude_agent(
     project_path: Path,
@@ -160,20 +241,27 @@ async def run_claude_agent(
 ) -> dict | None:
     """Spawn a Claude agent to index a single project."""
     name = project_path.name
-    prompt = AGENT_PROMPT.format(project_path=project_path)
+    prompt = build_agent_prompt(project_path)
 
     cmd = [
         "claude",
-        "-p", prompt,
-        "--model", CLAUDE_MODEL,
-        "--max-budget-usd", CLAUDE_BUDGET,
-        "--output-format", "json",
-        "--json-schema", INDEX_SCHEMA,
-        "--allowedTools", ALLOWED_TOOLS,
+        "-p",
+        prompt,
+        "--model",
+        CLAUDE_MODEL,
+        "--max-budget-usd",
+        CLAUDE_BUDGET,
+        "--output-format",
+        "json",
+        "--json-schema",
+        INDEX_SCHEMA,
+        "--allowedTools",
+        ALLOWED_TOOLS,
     ]
 
     async with semaphore:
         print(f"  [{name}] Starting agent...")
+        proc = None
         try:
             proc = await asyncio.create_subprocess_exec(
                 *cmd,
@@ -188,7 +276,8 @@ async def run_claude_agent(
         except asyncio.TimeoutError:
             print(f"  [{name}] TIMEOUT after {CLAUDE_TIMEOUT}s")
             try:
-                proc.kill()
+                if proc is not None:
+                    proc.kill()
             except ProcessLookupError:
                 pass
             return None
@@ -246,6 +335,7 @@ async def run_claude_agent(
 
 
 # ── Markdown Formatting ────────────────────────────────────────────
+
 
 def format_as_markdown(index: dict) -> str:
     """Convert a project index dict to readable markdown."""
@@ -325,7 +415,9 @@ def format_manifest(results: dict[str, dict]) -> str:
     lines = []
     lines.append("# Project Index Manifest")
     lines.append("")
-    lines.append(f"*Generated {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}*")
+    lines.append(
+        f"*Generated {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}*"
+    )
     lines.append("")
     lines.append(f"**{len(results)} projects indexed**")
     lines.append("")
@@ -356,6 +448,7 @@ def format_manifest(results: dict[str, dict]) -> str:
 
 # ── Viking Upload (sync httpx, matches MCP server pattern) ────────
 
+
 def _viking_client() -> httpx.Client:
     """Create a sync httpx client for Viking API."""
     return httpx.Client(
@@ -370,9 +463,12 @@ def _viking_client() -> httpx.Client:
     )
 
 
-def _safe_api(client: httpx.Client, method: str, path: str, retries: int = 2, **kwargs) -> dict | None:
+def _safe_api(
+    client: httpx.Client, method: str, path: str, retries: int = 2, **kwargs
+) -> dict | None:
     """Make an API call, returning parsed JSON or None on error. Retries on connection errors."""
     import time
+
     for attempt in range(retries + 1):
         try:
             resp = client.request(method, path, **kwargs)
@@ -392,6 +488,11 @@ def _ensure_dir(client: httpx.Client, uri: str) -> None:
     # Ignore errors — directory may already exist (server throws on duplicate)
 
 
+def _join_resource_uri(parent_uri: str, name: str) -> str:
+    parent = parent_uri.rstrip("/")
+    return f"{parent}/{name}"
+
+
 def _temp_upload(name: str, filename: str, content: bytes) -> str | None:
     """Upload content as temp file, returning temp_path or None."""
     try:
@@ -407,7 +508,9 @@ def _temp_upload(name: str, filename: str, content: bytes) -> str | None:
         )
         data = resp.json()
         if data.get("status") == "error":
-            print(f"  [{name}] Temp upload failed: {data.get('error', {}).get('message', data)}")
+            print(
+                f"  [{name}] Temp upload failed: {data.get('error', {}).get('message', data)}"
+            )
             return None
         return data["result"]["temp_path"]
     except Exception as e:
@@ -415,17 +518,23 @@ def _temp_upload(name: str, filename: str, content: bytes) -> str | None:
         return None
 
 
-def _add_resource(label: str, filename: str, markdown: str, client: httpx.Client) -> bool:
+def _add_resource(
+    label: str, filename: str, markdown: str, client: httpx.Client
+) -> bool:
     """Upload markdown content as a Viking resource."""
     temp_path = _temp_upload(label, filename, markdown.encode())
     if not temp_path:
         return False
 
-    result = _safe_api(client, "POST", "/api/v1/resources", json={
-        "temp_path": temp_path,
-        "target_dir": VIKING_BASE_DIR,
-        "name": label,
-    })
+    result = _safe_api(
+        client,
+        "POST",
+        "/api/v1/resources",
+        json={
+            "temp_path": temp_path,
+            "to": _join_resource_uri(VIKING_BASE_DIR, label),
+        },
+    )
     if not result or result.get("status") == "error":
         print(f"  [{label}] Add resource failed: {result}")
         return False
@@ -437,7 +546,9 @@ def _add_resource(label: str, filename: str, markdown: str, client: httpx.Client
 
 def upload_to_viking(name: str, markdown: str, client: httpx.Client) -> bool:
     """Upload a project index to Viking."""
-    return _add_resource(f"project-{name}-index", f"project-{name}-index.md", markdown, client)
+    return _add_resource(
+        f"project-{name}-index", f"project-{name}-index.md", markdown, client
+    )
 
 
 def upload_manifest(markdown: str, client: httpx.Client) -> bool:
@@ -447,14 +558,33 @@ def upload_manifest(markdown: str, client: httpx.Client) -> bool:
 
 # ── Main ───────────────────────────────────────────────────────────
 
+
 async def main():
-    parser = argparse.ArgumentParser(description="Index project directories into OpenViking")
-    parser.add_argument("--projects", type=str, help="Comma-separated list of project names to index")
-    parser.add_argument("--dry-run", action="store_true", help="Index but skip Viking upload")
-    parser.add_argument("--concurrency", type=int, default=4, help="Max concurrent Claude agents")
-    parser.add_argument("--verbose", action="store_true", help="Print Claude agent stderr")
-    parser.add_argument("--upload-only", action="store_true", help="Skip indexing, upload cached results")
-    parser.add_argument("--viking-url", type=str, help="Override Viking URL (default: OPENVIKING_URL env or localhost:1933)")
+    parser = argparse.ArgumentParser(
+        description="Index project directories into OpenViking"
+    )
+    parser.add_argument(
+        "--projects", type=str, help="Comma-separated list of project names to index"
+    )
+    parser.add_argument(
+        "--dry-run", action="store_true", help="Index but skip Viking upload"
+    )
+    parser.add_argument(
+        "--concurrency", type=int, default=4, help="Max concurrent Claude agents"
+    )
+    parser.add_argument(
+        "--verbose", action="store_true", help="Print Claude agent stderr"
+    )
+    parser.add_argument(
+        "--upload-only",
+        action="store_true",
+        help="Skip indexing, upload cached results",
+    )
+    parser.add_argument(
+        "--viking-url",
+        type=str,
+        help="Override Viking URL (default: OPENVIKING_URL env or localhost:1933)",
+    )
     args = parser.parse_args()
 
     global OV_URL
@@ -487,10 +617,7 @@ async def main():
         # Index with Claude agents
         print("Indexing with Claude agents...")
         semaphore = asyncio.Semaphore(args.concurrency)
-        tasks = [
-            run_claude_agent(p, semaphore, verbose=args.verbose)
-            for p in projects
-        ]
+        tasks = [run_claude_agent(p, semaphore, verbose=args.verbose) for p in projects]
         raw_results = await asyncio.gather(*tasks)
 
         # Collect successful results
@@ -519,13 +646,13 @@ async def main():
     if args.dry_run:
         print("\n--- DRY RUN: Showing results ---\n")
         for name in sorted(markdowns):
-            print(f"{'='*60}")
+            print(f"{'=' * 60}")
             print(f"  {name}")
-            print(f"{'='*60}")
+            print(f"{'=' * 60}")
             print(markdowns[name])
-        print(f"{'='*60}")
+        print(f"{'=' * 60}")
         print("  MANIFEST")
-        print(f"{'='*60}")
+        print(f"{'=' * 60}")
         print(manifest_md)
         return
 
