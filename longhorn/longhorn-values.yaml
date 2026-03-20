@@ -22,6 +22,9 @@ defaultSettings:
   priorityClass: "longhorn-critical"
   disableRevisionCounter: '{"v1":"true"}'
   guaranteedInstanceManagerCPU: '{"v1":"2","v2":"2"}'
+  # After shrinking from five Longhorn nodes to three, keep future volumes
+  # minimally rebalanced without the churn of best-effort balancing.
+  replicaAutoBalance: "least-effort"
 
 # Ingress for Longhorn UI
 ingress:
