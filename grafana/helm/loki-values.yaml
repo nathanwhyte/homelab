@@ -15,8 +15,8 @@ singleBinary:
       cpu: 100m
       memory: 256Mi
     limits:
-      cpu: 500m
-      memory: 1Gi
+      cpu: 300m
+      memory: 768Mi
 
   # Persistence configuration using Longhorn
   persistence:

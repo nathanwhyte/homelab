@@ -99,14 +99,12 @@ operator:
           preference:
             matchExpressions:
               - key: "node-role.kubernetes.io/master"
-                operator: In
-                values: [""]
+                operator: DoesNotExist
         - weight: 1
           preference:
             matchExpressions:
               - key: "node-role.kubernetes.io/control-plane"
-                operator: In
-                values: [""]
+                operator: DoesNotExist
   logging:
     # Zap time encoding (one of 'epoch', 'millis', 'nano', 'iso8601', 'rfc3339' or 'rfc3339nano')
     timeEncoding: epoch
@@ -524,10 +522,24 @@ node-feature-discovery:
   gc:
     enable: true
     replicaCount: 1
+    resources:
+      requests:
+        cpu: 10m
+        memory: 64Mi
+      limits:
+        cpu: 100m
+        memory: 256Mi
     serviceAccount:
       name: node-feature-discovery
       create: false
   worker:
+    resources:
+      requests:
+        cpu: 5m
+        memory: 32Mi
+      limits:
+        cpu: 100m
+        memory: 128Mi
     serviceAccount:
       name: node-feature-discovery
       # disable creation to avoid duplicate serviceaccount creation by master spec below
@@ -556,6 +568,13 @@ node-feature-discovery:
           deviceLabelFields:
           - vendor
   master:
+    resources:
+      requests:
+        cpu: 10m
+        memory: 64Mi
+      limits:
+        cpu: 200m
+        memory: 512Mi
     serviceAccount:
       name: node-feature-discovery
       create: true

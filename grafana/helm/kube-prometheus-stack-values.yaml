@@ -129,8 +129,8 @@ prometheus:
         cpu: 200m
         memory: 1Gi
       limits:
-        cpu: 1000m
-        memory: 2560Mi
+        cpu: 500m
+        memory: 2Gi
     affinity:
       podAntiAffinity:
         preferredDuringSchedulingIgnoredDuringExecution:
