@@ -108,4 +108,3 @@ spec:
             defaultMode: 0755
         - name: python-packages
           emptyDir: {}
-

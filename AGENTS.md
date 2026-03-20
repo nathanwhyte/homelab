@@ -36,7 +36,7 @@ Each service folder typically includes:
   - Avoid large refactors/renames unless necessary; keep diffs reviewable.
 - **Helm values**
   - Keep values files focused on overrides; prefer chart defaults where reasonable.
-  - When adding configuration, include a short comment explaining *why* (especially for security, persistence, ingress, or resource limits).
+  - When adding configuration, include a short comment explaining _why_ (especially for security, persistence, ingress, or resource limits).
 - **Scripts**
   - Keep deploy scripts idempotent where possible.
   - Avoid embedding tokens/credentials in scripts; require env vars or pre-created secrets instead.
@@ -53,4 +53,3 @@ When editing files, prefer quick, local checks:
 
 - Keep changes scoped to the service you’re touching.
 - Update `README.md` only when adding/removing services or materially changing how deployments work.
-

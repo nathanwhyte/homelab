@@ -9,7 +9,7 @@ metadata:
     node: timmy
 spec:
   backoffLimit: 0
-  ttlSecondsAfterFinished: 86400  # auto-cleanup after 24h
+  ttlSecondsAfterFinished: 86400 # auto-cleanup after 24h
   template:
     metadata:
       labels:

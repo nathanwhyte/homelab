@@ -3,6 +3,7 @@
 _Generated with help from Cursor._
 
 Harbor is an open-source container registry with enterprise features including:
+
 - **Web UI** for managing images, projects, and users
 - **Vulnerability Scanning** with Trivy integration
 - **RBAC** for fine-grained access control
@@ -14,6 +15,7 @@ Harbor is an open-source container registry with enterprise features including:
 ## Architecture
 
 Harbor uses:
+
 - **Storage Backend**: Longhorn persistent volumes (filesystem-based)
 - **Database**: PostgreSQL (internal, deployed by Helm chart, v2.11.1)
 - **Cache**: Redis (internal, deployed by Helm chart, v2.11.1)
@@ -67,6 +69,7 @@ kubectl get certificate -n harbor
 **Web UI**: https://registry.nathanwhyte.dev
 
 **Docker Login**:
+
 ```bash
 docker login registry.nathanwhyte.dev
 # Enter username: <username>
@@ -78,11 +81,12 @@ docker login registry.nathanwhyte.dev
 ### Storage Configuration
 
 Harbor stores image layers and metadata using Longhorn persistent volumes:
+
 - **Registry Storage**: 20Gi PVC using `longhorn-db` storage class (image layers and charts)
 - **Database**: 5Gi PVC using `longhorn-ssd` storage class (PostgreSQL data)
 - **Redis**: 5Gi PVC using `longhorn-ssd` storage class (cache data)
 - **Trivy**: 5Gi PVC using `longhorn-ssd` storage class (vulnerability database)
-- **Job Service**: 
+- **Job Service**:
   - Job logs: 1Gi PVC (default storage class)
   - Scan data exports: 1Gi PVC (default storage class)
 
@@ -91,6 +95,7 @@ Harbor stores image layers and metadata using Longhorn persistent volumes:
 ### Upload Size Limits
 
 No size limits are enforced for image pushes:
+
 - **Traefik Middleware**: `harbor-no-limit` middleware configured with:
   - `maxRequestBodyBytes: 0` (unlimited request body)
   - `maxResponseBodyBytes: 0` (unlimited response body)
@@ -187,6 +192,7 @@ docker pull registry.nathanwhyte.dev/private-project/myapp:latest
 ### Scan for Vulnerabilities
 
 Harbor automatically scans images on push (if enabled). View results in the web UI:
+
 1. Navigate to your project
 2. Click on a repository
 3. View the "Vulnerabilities" column for scan results
@@ -197,6 +203,7 @@ Harbor automatically scans images on push (if enabled). View results in the web 
 ### Access Metrics
 
 Harbor exposes Prometheus metrics on all components:
+
 - **Core**: `http://harbor-core.harbor.svc.cluster.local:8001/metrics`
 - **Registry**: `http://harbor-registry.harbor.svc.cluster.local:8001/metrics`
 - **Jobservice**: `http://harbor-jobservice.harbor.svc.cluster.local:8001/metrics`
@@ -234,11 +241,12 @@ Harbor data is stored in Longhorn persistent volumes. Back up these PVCs for dis
 - **Database**: PostgreSQL PVC (`harbor-database`, 5Gi, `longhorn-ssd`)
 - **Redis**: Redis PVC (`harbor-redis`, 5Gi, `longhorn-ssd`)
 - **Trivy**: Vulnerability database PVC (`harbor-trivy`, 5Gi, `longhorn-ssd`)
-- **Job Service**: 
+- **Job Service**:
   - Job logs PVC (`harbor-jobservice-jobservice-joblog`, 1Gi)
   - Scan data exports PVC (`harbor-jobservice-jobservice-scan-data-exports`, 1Gi)
 
 **Backup Methods**:
+
 1. Use Longhorn's built-in backup functionality
 2. Create snapshots of PVCs
 3. Export database using `pg_dump` from the database pod
@@ -247,6 +255,7 @@ Harbor data is stored in Longhorn persistent volumes. Back up these PVCs for dis
 ### Garbage Collection
 
 Run garbage collection to remove unused blobs and free up storage:
+
 1. Log in to Harbor web UI
 2. Go to "Administration" → "Garbage Collection"
 3. Click "Run Now" or schedule automatic runs
@@ -295,6 +304,7 @@ docker push registry.nathanwhyte.dev/library/image:tag
 ```
 
 **Batch Migration Script**:
+
 ```bash
 # List all images in old registry (if accessible)
 # Then loop through and migrate each one
@@ -412,28 +422,35 @@ kubectl exec -it -n harbor deployment/harbor-core -- df -h /storage
 ### Common Issues
 
 **Issue**: Pods stuck in `Pending` state
+
 - **Solution**: Check PVC status and ensure storage classes are available
 - Check: `kubectl get pvc -n harbor`
 
 **Issue**: Certificate not issued
+
 - **Solution**: Verify cert-manager is running and ClusterIssuer is configured
 - Check: `kubectl get clusterissuer letsencrypt-prod`
 - Check: `kubectl get secret cloudflare-api-token -n cert-manager`
 
 **Issue**: Cannot push large images
+
 - **Solution**: Verify Traefik middleware is applied: `kubectl get middleware -n harbor`
 - Check: `kubectl describe middleware harbor-no-limit -n harbor`
 
 **Issue**: Vulnerability scans failing
+
 - **Solution**: Check Trivy pod logs and ensure it has internet access for database updates
 - Check: `kubectl logs -n harbor -l component=trivy`
 
 **Issue**: High memory usage
+
 - **Solution**: Review resource limits in `harbor-values.yaml` and adjust if needed
 - Monitor: `kubectl top pods -n harbor`
+
 ```
 
 ## Resources
 
 - [Harbor Documentation](https://goharbor.io/docs/)
 - [Harbor Helm Chart](https://github.com/goharbor/harbor-helm)
+```
