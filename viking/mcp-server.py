@@ -178,26 +178,37 @@ def viking_add_text(
 
     Use this to store notes, documentation, code snippets, or any text
     that should be searchable and summarized.
+
+    Args:
+        content: The text content to store
+        name: A short name for the resource (used in the URI)
+        target_dir: Viking directory to store in (e.g. viking://resources/projects/myproject)
     """
+    dest_uri = _join_resource_uri(target_dir, name)
+    # Use a dedicated client for multipart temp upload (no Content-Type default)
+    upload_headers = {
+        "X-API-Key": OV_KEY,
+        "X-OpenViking-Account": OV_ACCOUNT,
+        "X-OpenViking-User": OV_USER,
+    }
+    upload = httpx.post(
+        f"{OV_URL}/api/v1/resources/temp_upload",
+        headers=upload_headers,
+        files={"file": (f"{name}.md", content.encode(), "text/markdown")},
+        timeout=60.0,
+    )
+    upload_data = upload.json()
+    if upload_data.get("status") == "error":
+        err = upload_data.get("error", {})
+        raise RuntimeError(f"Temp upload failed: {err.get('message', upload_data)}")
+    temp_path = upload_data["result"]["temp_path"]
+    # Add as resource at the target location
     with _client() as c:
-        # Upload as temp file
-        upload = httpx.post(
-            f"{OV_URL}/api/v1/resources/temp_upload",
-            headers={
-                "X-API-Key": OV_KEY,
-                "X-OpenViking-Account": OV_ACCOUNT,
-                "X-OpenViking-User": OV_USER,
-            },
-            files={"file": (f"{name}.md", content.encode(), "text/markdown")},
-            timeout=60.0,
-        )
-        temp_path = upload.json()["result"]["temp_path"]
-        # Add as resource
         r = c.post(
             "/api/v1/resources",
             json={
                 "temp_path": temp_path,
-                "to": _join_resource_uri(target_dir, name),
+                "to": dest_uri,
             },
         )
         result = _result(r)
@@ -217,7 +228,7 @@ def viking_mkdir(uri: str) -> str:
 def viking_rm(uri: str) -> str:
     """Remove a file or directory from the OpenViking filesystem."""
     with _client() as c:
-        r = c.delete("/api/v1/fs", params={"uri": uri, "recursive": "true"})
+        r = c.request("DELETE", "/api/v1/fs", params={"uri": uri, "recursive": "true"})
         _result(r)
         return f"Removed: {uri}"
 
