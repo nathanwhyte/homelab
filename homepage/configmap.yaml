@@ -1,0 +1,110 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: homepage-config
+  namespace: homepage
+data:
+  settings.yaml: |
+    title: Nate's Homelab
+    favicon: https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/kubernetes.png
+    headerStyle: clean
+    layout:
+      AI & Knowledge:
+        style: row
+        columns: 3
+      Creative Tools:
+        style: row
+        columns: 3
+      Infrastructure:
+        style: row
+        columns: 3
+      Developer Tools:
+        style: row
+        columns: 2
+
+  bookmarks.yaml: |
+    - Links:
+        - GitHub:
+            - icon: github
+              href: https://github.com/
+        - Cloudflare:
+            - icon: cloudflare
+              href: https://dash.cloudflare.com/
+
+  services.yaml: |
+    - AI & Knowledge:
+        - OpenViking:
+            icon: https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/elasticsearch.png
+            href: https://context.nathanwhyte.dev
+            description: Semantic context database for AI agents
+        - LLaMA:
+            icon: https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/ollama.png
+            description: LLM inference (llama.cpp on GPU)
+        - Heaper:
+            icon: https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/note-mark.png
+            href: https://heaper.nathanwhyte.dev
+            description: Notes & file management
+
+    - Creative Tools:
+        - Excalidraw:
+            icon: https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/excalidraw.png
+            href: https://draw.nathanwhyte.dev
+            description: Hand-drawn whiteboard & diagrams
+        - Stirling PDF:
+            icon: https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/stirling-pdf.png
+            href: https://pdf.nathanwhyte.dev
+            description: Merge, split, convert, compress PDFs
+
+    - Infrastructure:
+        - Grafana:
+            icon: grafana
+            href: https://logs.nathanwhyte.dev
+            description: Metrics, logs & monitoring
+        - Longhorn:
+            icon: https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/longhorn.png
+            href: https://longhorn.nathanwhyte.dev
+            description: Distributed block storage
+        - Harbor:
+            icon: https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/harbor.png
+            href: https://registry.nathanwhyte.dev
+            description: Container image registry
+        - Garage:
+            icon: https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/minio.png
+            href: https://uploads.nathanwhyte.dev
+            description: S3-compatible object storage
+        - K8s Dashboard:
+            icon: kubernetes-dashboard
+            href: https://k8s.nathanwhyte.dev
+            description: Kubernetes cluster dashboard
+
+    - Developer Tools:
+        - IT-Tools:
+            icon: https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/it-tools.png
+            href: https://tools.nathanwhyte.dev
+            description: 80+ developer utilities
+
+  widgets.yaml: |
+    - kubernetes:
+        cluster:
+          show: true
+          cpu: true
+          memory: true
+          showLabel: true
+          label: "homelab"
+        nodes:
+          show: true
+          cpu: true
+          memory: true
+          showLabel: true
+    - datetime:
+        text_size: xl
+        format:
+          dateStyle: long
+          timeStyle: short
+
+  kubernetes.yaml: |
+    mode: cluster
+
+  docker.yaml: |
+    # not used — Kubernetes-native

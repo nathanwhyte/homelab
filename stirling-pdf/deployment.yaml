@@ -1,0 +1,100 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: stirling-pdf
+  namespace: stirling-pdf
+  labels:
+    app: stirling-pdf
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      app: stirling-pdf
+  template:
+    metadata:
+      labels:
+        app: stirling-pdf
+    spec:
+      affinity:
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 80
+              preference:
+                matchExpressions:
+                  - key: kubernetes.io/hostname
+                    operator: In
+                    values:
+                      - steph
+                      - patty
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 50
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values:
+                        - stirling-pdf
+                topologyKey: kubernetes.io/hostname
+      containers:
+        - name: stirling-pdf
+          image: stirlingtools/stirling-pdf:latest-fat
+          ports:
+            - containerPort: 8080
+              name: http
+          env:
+            - name: DOCKER_ENABLE_SECURITY
+              value: "true"
+            - name: SECURITY_ENABLELOGIN
+              value: "true"
+            - name: SECURITY_INITIALLOGIN_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: stirling-pdf-credentials
+                  key: USERNAME
+            - name: SECURITY_INITIALLOGIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: stirling-pdf-credentials
+                  key: PASSWORD
+            - name: SYSTEM_DEFAULTLOCALE
+              value: "en-US"
+            - name: SYSTEM_MAXFILESIZE
+              value: "100"
+          resources:
+            requests:
+              cpu: "100m"
+              memory: 512Mi
+            limits:
+              cpu: "2"
+              memory: 2Gi
+          startupProbe:
+            httpGet:
+              path: /api/v1/info/status
+              port: 8080
+            periodSeconds: 10
+            failureThreshold: 36
+          readinessProbe:
+            httpGet:
+              path: /api/v1/info/status
+              port: 8080
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /api/v1/info/status
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          volumeMounts:
+            - name: configs
+              mountPath: /configs
+      volumes:
+        - name: configs
+          emptyDir: {}
