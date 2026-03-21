@@ -18,9 +18,10 @@ spec:
       labels:
         app: qwen-summarizer
     spec:
+      runtimeClassName: nvidia
       nodeSelector:
-        kubernetes.io/hostname: timmy
-        gpu.vendor: amd
+        kubernetes.io/hostname: manu
+        gpu: "true"
       securityContext:
         fsGroup: 0
       initContainers:
@@ -54,10 +55,7 @@ spec:
               mountPath: /models
       containers:
         - name: llamacpp
-          image: ghcr.io/ggml-org/llama.cpp:server-rocm
-          env:
-            - name: HIP_VISIBLE_DEVICES
-              value: "0"
+          image: ghcr.io/ggml-org/llama.cpp:server-cuda
           command:
             - /app/llama-server
           args:
@@ -68,7 +66,7 @@ spec:
             - --port
             - "8001"
             - --ctx-size
-            - "8192"
+            - "4096"
             - --n-gpu-layers
             - "999"
             - --parallel
@@ -91,13 +89,11 @@ spec:
             requests:
               cpu: "500m"
               memory: 3Gi
-              amd.com/gpu: "1"
+              nvidia.com/gpu: "1"
             limits:
               cpu: "4"
               memory: 10Gi
-              amd.com/gpu: "1"
-          securityContext:
-            privileged: true
+              nvidia.com/gpu: "1"
           startupProbe:
             tcpSocket:
               port: 8001
@@ -119,7 +115,7 @@ spec:
       volumes:
         - name: model-cache
           persistentVolumeClaim:
-            claimName: llama-rocm-model-cache
+            claimName: llama-model-cache
         - name: shm
           emptyDir:
             medium: Memory

@@ -5,7 +5,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 echo "Deploying Qwen3 14B summarizer stack..."
 
-echo "1/4 Applying Qwen llama.cpp backend (timmy GPU)..."
+echo "1/4 Applying Qwen llama.cpp backend (manu NVIDIA GPU)..."
 kubectl apply -f "$SCRIPT_DIR/qwen-summarizer-deployment.yaml"
 kubectl apply -f "$SCRIPT_DIR/qwen-summarizer-service.yaml"
 
