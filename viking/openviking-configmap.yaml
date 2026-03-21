@@ -26,8 +26,8 @@ data:
       "server": {
         "host": "0.0.0.0",
         "port": 1933,
-        "workers": 3,
-        "root_api_key": "openviking-homelab"
+        "workers": 4,
+        "root_api_key": "47067ca1b704af555e417d8abf18ceebfa2e54f88e08b7d66db6f457d51fff55"
       },
       "log": {
         "level": "INFO",
@@ -49,6 +49,6 @@ data:
         "model": "openai/qwen3-8b",
         "api_key": "sk-no-key-required",
         "api_base": "http://qwen-summarizer-llm.llama.svc.cluster.local/v1",
-        "max_concurrent": 2
+        "max_concurrent": 6
       }
     }
