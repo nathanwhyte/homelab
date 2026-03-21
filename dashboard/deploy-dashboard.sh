@@ -17,13 +17,13 @@ if [ ! -x "$(command -v "helm")" ]; then
      exit 1
 fi
 
-helm repo add kubernetes-dashboard https://kubernetes.github.io/dashboard/
-
 echo "Updating helm repositories..."
+helm repo add kubernetes-dashboard https://kubernetes.github.io/dashboard/ 2>/dev/null || true
 helm repo update kubernetes-dashboard
 
+echo "Deploying kubernetes-dashboard..."
 helm upgrade --install kubernetes-dashboard \
-     kubernetes-dashboard/kubernetes-dashboard \
+    kubernetes-dashboard/kubernetes-dashboard \
     --create-namespace --namespace kubernetes-dashboard
 
 echo -e "\nApplying kubernetes-dashboard manifests..."
