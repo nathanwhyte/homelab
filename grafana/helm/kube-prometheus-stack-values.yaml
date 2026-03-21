@@ -87,13 +87,13 @@ prometheus:
           - role: endpoints
             namespaces:
               names:
-                - grafana
+                - gpu-operator
         relabel_configs:
           # Only scrape dcgm-exporter endpoints
           - source_labels:
               - __meta_kubernetes_endpoints_name
             action: keep
-            regex: dcgm-exporter.*
+            regex: .*dcgm-exporter.*
           # Drop node-feature-discovery endpoints
           - source_labels:
               - __meta_kubernetes_endpoints_name
@@ -104,6 +104,13 @@ prometheus:
               - __meta_kubernetes_pod_node_name
             action: replace
             target_label: kubernetes_node
+      # AMD GPU metrics from sysfs-based exporter on timmy
+      - job_name: amd-gpu-metrics
+        scrape_interval: 2m
+        metrics_path: /metrics
+        static_configs:
+          - targets:
+              - "amdgpu-exporter.kube-system.svc.cluster.local:9101"
       - job_name: "garage"
         scrape_interval: 2m
         static_configs:
@@ -198,11 +205,8 @@ grafana:
             path: /var/lib/grafana/dashboards/default
   dashboards:
     default:
-      nvidia-dcgm-exporter:
-        gnetId: 12239
-        revision: 1
-        datasource: Prometheus
-        folder: ""
+      # NVIDIA DCGM dashboard provisioned via ConfigMap (gpu/nvidia/dcgm-dashboard.yaml)
+      # to avoid ${DS_PROMETHEUS} input variable resolution issues with gnetId imports.
       # Kubernetes cluster overview (metrics)
       k8s-cluster:
         gnetId: 7249
