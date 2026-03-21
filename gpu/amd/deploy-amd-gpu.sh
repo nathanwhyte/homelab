@@ -31,9 +31,19 @@ kubectl apply -f "$AMD_GPU_DIR/amd-device-plugin.yaml"
 echo -e "\nWaiting for AMD GPU device plugin rollout..."
 kubectl rollout status daemonset/amd-gpu-device-plugin -n kube-system --timeout=120s || true
 
+echo -e "\nDeploying AMD GPU metrics exporter..."
+kubectl apply -f "$AMD_GPU_DIR/amdgpu-exporter.yaml"
+kubectl rollout status daemonset/amdgpu-exporter -n kube-system --timeout=120s || true
+
+echo -e "\nDeploying AMD GPU Grafana dashboard..."
+kubectl apply -f "$AMD_GPU_DIR/amdgpu-dashboard.yaml"
+
 echo -e "\nDone!"
 echo "Verify GPU resource is registered:"
 echo "  kubectl describe node timmy | grep amd.com/gpu"
+echo ""
+echo "Verify metrics exporter:"
+echo "  kubectl exec -n kube-system ds/amdgpu-exporter -- wget -qO- http://localhost:9101/metrics"
 echo ""
 echo "Run smoke test:"
 echo "  kubectl apply -f $AMD_GPU_DIR/rocm-test-pod.yaml"
