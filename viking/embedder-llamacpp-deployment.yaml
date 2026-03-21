@@ -18,10 +18,24 @@ spec:
       labels:
         app: embedder-llamacpp
     spec:
-      runtimeClassName: nvidia
-      nodeSelector:
-        kubernetes.io/hostname: wemby
-        gpu: "true"
+      affinity:
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 80
+              preference:
+                matchExpressions:
+                  - key: kubernetes.io/hostname
+                    operator: In
+                    values:
+                      - manu
+                      - wemby
+            - weight: 100
+              preference:
+                matchExpressions:
+                  - key: kubernetes.io/hostname
+                    operator: NotIn
+                    values:
+                      - timmy
       securityContext:
         fsGroup: 0
       initContainers:
@@ -54,7 +68,7 @@ spec:
               mountPath: /models
       containers:
         - name: llamacpp
-          image: ghcr.io/ggml-org/llama.cpp:server-cuda
+          image: ghcr.io/ggml-org/llama.cpp:server
           command:
             - /app/llama-server
           args:
@@ -68,11 +82,11 @@ spec:
             - --pooling
             - mean
             - --n-gpu-layers
-            - "999"
+            - "0"
             - --ctx-size
             - "2048"
             - --parallel
-            - "8"
+            - "4"
             - --batch-size
             - "2048"
             - --ubatch-size
@@ -83,13 +97,11 @@ spec:
               name: http
           resources:
             requests:
-              cpu: "250m"
-              memory: 512Mi
-              nvidia.com/gpu: "1"
+              cpu: "500m"
+              memory: 256Mi
             limits:
               cpu: "2"
-              memory: 2Gi
-              nvidia.com/gpu: "1"
+              memory: 1Gi
           startupProbe:
             tcpSocket:
               port: 8000
@@ -112,5 +124,5 @@ spec:
               mountPath: /models
       volumes:
         - name: model-cache
-          persistentVolumeClaim:
-            claimName: wemby-model-cache
+          emptyDir:
+            sizeLimit: 200Mi
