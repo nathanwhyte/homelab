@@ -26,7 +26,7 @@ data:
       "server": {
         "host": "0.0.0.0",
         "port": 1933,
-        "workers": 4,
+        "workers": 2,
         "root_api_key": "47067ca1b704af555e417d8abf18ceebfa2e54f88e08b7d66db6f457d51fff55"
       },
       "log": {
@@ -42,7 +42,7 @@ data:
           "dimension": 384,
           "batch_size": 8
         },
-        "max_concurrent": 8
+        "max_concurrent": 4
       },
       "vlm": {
         "provider": "litellm",
