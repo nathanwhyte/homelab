@@ -19,7 +19,7 @@ spec:
         app: embedder-llamacpp
     spec:
       nodeSelector:
-        kubernetes.io/hostname: manu
+        kubernetes.io/hostname: timmy
       securityContext:
         fsGroup: 0
       initContainers:
