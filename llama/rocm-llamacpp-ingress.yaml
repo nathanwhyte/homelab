@@ -1,0 +1,25 @@
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: llama-rocm-api-key
+  namespace: llama
+type: Opaque
+stringData:
+  API_KEY: "***REMOVED-BUG-1029***"
+
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: llama-rocm-api
+  namespace: llama
+spec:
+  entryPoints:
+    - web
+  routes:
+    - match: Host(`llama.local`) || PathPrefix(`/llama-api`)
+      kind: Rule
+      services:
+        - name: llama-rocm-api
+          port: 80

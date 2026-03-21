@@ -28,13 +28,13 @@ spec:
           image: curlimages/curl:8.12.1
           env:
             - name: LLAMA_PRIMARY_MODEL_FILE
-              value: Meta-Llama-3.1-8B-Instruct.Q4_K_M.gguf
+              value: Mistral-Small-24B-Instruct-2501-Q4_K_M.gguf
             - name: LLAMA_PRIMARY_MODEL_URL
-              value: https://huggingface.co/QuantFactory/Meta-Llama-3.1-8B-Instruct-GGUF/resolve/main/Meta-Llama-3.1-8B-Instruct.Q4_K_M.gguf
+              value: https://huggingface.co/bartowski/Mistral-Small-24B-Instruct-2501-GGUF/resolve/main/Mistral-Small-24B-Instruct-2501-Q4_K_M.gguf
             - name: LLAMA_FALLBACK_MODEL_FILE
-              value: Mistral-7B-Instruct-v0.3-Q4_K_M.gguf
+              value: Qwen3.5-27B-Q3_K_M.gguf
             - name: LLAMA_FALLBACK_MODEL_URL
-              value: https://huggingface.co/bartowski/Mistral-7B-Instruct-v0.3-GGUF/resolve/main/Mistral-7B-Instruct-v0.3-Q4_K_M.gguf
+              value: https://huggingface.co/unsloth/Qwen3.5-27B-GGUF/resolve/main/Qwen3.5-27B-Q3_K_M.gguf
             - name: LLAMA_SELECTED_MODEL_SYMLINK
               value: /models/current.gguf
           securityContext:
@@ -83,6 +83,11 @@ spec:
           env:
             - name: HIP_VISIBLE_DEVICES
               value: "0"
+            - name: LLAMA_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: llama-rocm-api-key
+                  key: API_KEY
           command:
             - /app/llama-server
           args:
@@ -97,7 +102,7 @@ spec:
             - --n-gpu-layers
             - "999"
             - --parallel
-            - "2"
+            - "1"
             - --cache-type-k
             - q8_0
             - --cache-type-v
@@ -109,6 +114,10 @@ spec:
             - "0"
             - --no-warmup
             - --mlock
+            - --flash-attn
+            - "on"
+            - --api-key
+            - $(LLAMA_API_KEY)
           ports:
             - containerPort: 8000
               name: http
