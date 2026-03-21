@@ -10,7 +10,8 @@ kubectl apply -f "$SCRIPT_DIR/namespace.yaml"
 
 # PVCs first
 kubectl apply -f "$SCRIPT_DIR/openviking-pvc.yaml"
-kubectl apply -f "$SCRIPT_DIR/wemby-model-cache-pvc.yaml"
+# wemby-model-cache PVC no longer needed (embedder uses emptyDir)
+# kubectl apply -f "$SCRIPT_DIR/wemby-model-cache-pvc.yaml"
 
 # Config
 kubectl apply -f "$SCRIPT_DIR/openviking-configmap.yaml"
