@@ -7,9 +7,9 @@ metadata:
   labels:
     app: embedder-llamacpp
 spec:
-  replicas: 1
+  replicas: 2
   strategy:
-    type: Recreate
+    type: RollingUpdate
   selector:
     matchLabels:
       app: embedder-llamacpp
@@ -18,8 +18,22 @@ spec:
       labels:
         app: embedder-llamacpp
     spec:
-      nodeSelector:
-        kubernetes.io/hostname: timmy
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: kubernetes.io/hostname
+                    operator: In
+                    values:
+                      - timmy
+                      - manu
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  app: embedder-llamacpp
+              topologyKey: kubernetes.io/hostname
       securityContext:
         fsGroup: 0
       initContainers:
@@ -68,9 +82,9 @@ spec:
             - --n-gpu-layers
             - "0"
             - --ctx-size
-            - "2048"
+            - "4096"
             - --parallel
-            - "4"
+            - "8"
             - --batch-size
             - "2048"
             - --ubatch-size
@@ -81,11 +95,11 @@ spec:
               name: http
           resources:
             requests:
-              cpu: "500m"
-              memory: 256Mi
+              cpu: "1"
+              memory: 512Mi
             limits:
-              cpu: "2"
-              memory: 1Gi
+              cpu: "4"
+              memory: 2Gi
           startupProbe:
             tcpSocket:
               port: 8000
