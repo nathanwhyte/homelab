@@ -21,12 +21,12 @@ data:
         "code_summary_mode": "ast"
       },
       "rerank": {
-        "threshold": 0.1
+        "threshold": 0.2
       },
       "server": {
         "host": "0.0.0.0",
         "port": 1933,
-        "workers": 1,
+        "workers": 3,
         "root_api_key": "openviking-homelab"
       },
       "log": {
@@ -46,9 +46,9 @@ data:
       },
       "vlm": {
         "provider": "litellm",
-        "model": "openai/llama-3.1-8b-instruct",
+        "model": "openai/qwen3-14b",
         "api_key": "sk-no-key-required",
-        "api_base": "http://llama-api.llama.svc.cluster.local/v1",
+        "api_base": "http://qwen-summarizer-llm.llama.svc.cluster.local/v1",
         "max_concurrent": 2
       }
     }
