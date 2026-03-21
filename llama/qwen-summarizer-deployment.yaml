@@ -7,7 +7,7 @@ metadata:
   labels:
     app: qwen-summarizer
 spec:
-  replicas: 0
+  replicas: 1
   strategy:
     type: Recreate
   selector:
@@ -66,16 +66,22 @@ spec:
             - --port
             - "8001"
             - --ctx-size
-            - "8192"
+            - "16384"
             - --n-gpu-layers
             - "999"
             - --parallel
-            - "4"
+            - "6"
             - --cache-type-k
-            - q8_0
+            - q4_0
             - --cache-type-v
-            - q8_0
+            - q4_0
             - --cont-batching
+            - --batch-size
+            - "2048"
+            - --ubatch-size
+            - "512"
+            - --flash-attn
+            - "on"
             - --split-mode
             - none
             - --main-gpu
