@@ -49,9 +49,8 @@ spec:
                     - key: app
                       operator: In
                       values:
-                        - llamacpp-openai
+                        - qwen-summarizer
                         - llamacpp-rocm
-                        - embedder-gpu
                 topologyKey: kubernetes.io/hostname
       containers:
         - name: openviking

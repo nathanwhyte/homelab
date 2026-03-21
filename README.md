@@ -83,8 +83,8 @@ S3-compatible object storage engine.
 
 Internal OpenAI-compatible LLM endpoint backed by `llama.cpp`.
 
-- Deployed as a single GPU replica in the `llama` namespace.
-- Exposed in-cluster via `llama-api.llama.svc.cluster.local`.
+- Qwen3-8B summarizer on manu (`qwen-summarizer-llm.llama.svc.cluster.local`)
+- ROCm server on timmy (scaled to 0)
 - Read more in [`llama/README.md`](./llama/README.md).
 
 ## Other Technologies
