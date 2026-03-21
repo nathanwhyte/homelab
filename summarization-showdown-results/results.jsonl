@@ -1,0 +1,25 @@
+{"round": 1, "config": "B", "elapsed_s": 37, "completion_tokens": 1023, "output_file": "./summarization-showdown-results/R1_B.md", "content_preview": "# GPU Dashboards Abstract\n\nThis directory provides a unified Grafana dashboard for monitoring GPU metrics across heterogeneous hardware nodes. The primary configuration resides in `gpu-overview-dashbo"}
+{"round": 2, "config": "B", "elapsed_s": 39, "completion_tokens": 1024, "output_file": "./summarization-showdown-results/R2_B.md", "content_preview": "*   **Issue:** llama.cpp deployment on \"timmy\" crashing due to OOM after ~2h (RSS 11.2Gi > 10Gi limit).\n*   **Root Cause:** q8_0 KV cache precision too high for Qwen3.5-27B + 8192 context within conta"}
+{"round": 3, "config": "B", "elapsed_s": 156, "completion_tokens": 1024, "output_file": "./summarization-showdown-results/R3_B.md", "content_preview": ""}
+{"round": 4, "config": "B", "elapsed_s": 151, "completion_tokens": 1024, "output_file": "./summarization-showdown-results/R4_B.md", "content_preview": ""}
+{"round": 5, "config": "B", "elapsed_s": 154, "completion_tokens": 1024, "output_file": "./summarization-showdown-results/R5_B.md", "content_preview": "# Longhorn Backup Architecture Decision\n\n### Context\n*   **Stack:** Longhorn"}
+{"round": 1, "config": "E", "elapsed_s": 18, "completion_tokens": 123, "tok_s": 16.4}
+{"round": 2, "config": "E", "elapsed_s": 6, "completion_tokens": 194, "tok_s": 33.4}
+{"round": 3, "config": "E", "elapsed_s": 31, "completion_tokens": 970, "tok_s": 32.8}
+{"round": 4, "config": "E", "elapsed_s": 8, "completion_tokens": 234, "tok_s": 33.7}
+{"round": 5, "config": "E", "elapsed_s": 18, "completion_tokens": 559, "tok_s": 32.8}
+{"round": 1, "config": "F", "elapsed_s": 15, "completion_tokens": 131, "tok_s": 33.4}
+{"round": 2, "config": "F", "elapsed_s": 4, "completion_tokens": 120, "tok_s": 33.3}
+{"round": 3, "config": "F", "elapsed_s": 0, "completion_tokens": 0, "tok_s": 0.0}
+{"round": 4, "config": "F", "elapsed_s": 5, "completion_tokens": 144, "tok_s": 33.6}
+{"round": 5, "config": "F", "elapsed_s": 1, "completion_tokens": 0, "tok_s": 0.0}
+{"round": 1, "config": "F", "elapsed_s": 15, "completion_tokens": 144, "tok_s": 33.2}
+{"round": 2, "config": "F", "elapsed_s": 5, "completion_tokens": 132, "tok_s": 33.2}
+{"round": 3, "config": "F", "elapsed_s": 29, "completion_tokens": 919, "tok_s": 32.5}
+{"round": 4, "config": "F", "elapsed_s": 9, "completion_tokens": 265, "tok_s": 33.2}
+{"round": 5, "config": "F", "elapsed_s": 16, "completion_tokens": 479, "tok_s": 32.5}
+{"round": 1, "config": "G", "elapsed_s": 15, "completion_tokens": 142, "tok_s": 33.5}
+{"round": 2, "config": "G", "elapsed_s": 5, "completion_tokens": 131, "tok_s": 33.2}
+{"round": 3, "config": "G", "elapsed_s": 25, "completion_tokens": 782, "tok_s": 32.6}
+{"round": 4, "config": "G", "elapsed_s": 9, "completion_tokens": 278, "tok_s": 33.3}
+{"round": 5, "config": "G", "elapsed_s": 16, "completion_tokens": 493, "tok_s": 32.6}
