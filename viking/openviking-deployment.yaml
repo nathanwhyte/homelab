@@ -18,7 +18,7 @@ spec:
       labels:
         app: openviking
     spec:
-      terminationGracePeriodSeconds: 30
+      terminationGracePeriodSeconds: 15
       affinity:
         nodeAffinity:
           # Patty and Steph are being decommissioned, so prefer the remaining
@@ -52,6 +52,19 @@ spec:
                         - qwen-summarizer
                         - llamacpp-rocm
                 topologyKey: kubernetes.io/hostname
+      initContainers:
+        - name: temp-cleanup
+          image: busybox:1.37
+          command: ["/bin/sh", "-c"]
+          args:
+            - >-
+              echo "Cleaning stale temp files...";
+              find /app/data/temp -type f -mtime +1 -delete 2>/dev/null || true;
+              find /app/data/temp -type d -empty -delete 2>/dev/null || true;
+              echo "Done."
+          volumeMounts:
+            - name: data
+              mountPath: /app/data
       containers:
         - name: openviking
           image: ghcr.io/volcengine/openviking:main
@@ -60,17 +73,17 @@ spec:
               name: http
           resources:
             requests:
-              cpu: "100m"
-              memory: 256Mi
+              cpu: "500m"
+              memory: 512Mi
             limits:
-              cpu: "1"
-              memory: 1Gi
+              cpu: "2"
+              memory: 2Gi
           startupProbe:
             httpGet:
               path: /health
               port: 1933
-            periodSeconds: 5
-            failureThreshold: 12
+            periodSeconds: 3
+            failureThreshold: 10
           readinessProbe:
             httpGet:
               path: /ready
