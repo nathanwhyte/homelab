@@ -7,7 +7,7 @@ metadata:
   labels:
     app: llamacpp-rocm
 spec:
-  replicas: 0
+  replicas: 1
   strategy:
     type: Recreate
   selector:
@@ -83,11 +83,6 @@ spec:
           env:
             - name: HIP_VISIBLE_DEVICES
               value: "0"
-            - name: LLAMA_API_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: llama-rocm-api-key
-                  key: API_KEY
           command:
             - /app/llama-server
           args:
@@ -116,8 +111,6 @@ spec:
             - --mlock
             - --flash-attn
             - "on"
-            - --api-key
-            - $(LLAMA_API_KEY)
           ports:
             - containerPort: 8000
               name: http
