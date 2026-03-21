@@ -46,7 +46,7 @@ data:
       },
       "vlm": {
         "provider": "litellm",
-        "model": "openai/qwen3-14b",
+        "model": "openai/qwen3-8b",
         "api_key": "sk-no-key-required",
         "api_base": "http://qwen-summarizer-llm.llama.svc.cluster.local/v1",
         "max_concurrent": 2
