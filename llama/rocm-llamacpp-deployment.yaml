@@ -28,13 +28,13 @@ spec:
           image: curlimages/curl:8.12.1
           env:
             - name: LLAMA_PRIMARY_MODEL_FILE
-              value: Mistral-Small-24B-Instruct-2501-Q4_K_M.gguf
+              value: Qwen3-8B-Q4_K_M.gguf
             - name: LLAMA_PRIMARY_MODEL_URL
-              value: https://huggingface.co/bartowski/Mistral-Small-24B-Instruct-2501-GGUF/resolve/main/Mistral-Small-24B-Instruct-2501-Q4_K_M.gguf
+              value: https://huggingface.co/Qwen/Qwen3-8B-GGUF/resolve/main/Qwen3-8B-Q4_K_M.gguf
             - name: LLAMA_FALLBACK_MODEL_FILE
-              value: Qwen3.5-27B-Q3_K_M.gguf
+              value: Qwen3-14B-Q5_K_M.gguf
             - name: LLAMA_FALLBACK_MODEL_URL
-              value: https://huggingface.co/unsloth/Qwen3.5-27B-GGUF/resolve/main/Qwen3.5-27B-Q3_K_M.gguf
+              value: https://huggingface.co/unsloth/Qwen3-14B-GGUF/resolve/main/Qwen3-14B-Q5_K_M.gguf
             - name: LLAMA_SELECTED_MODEL_SYMLINK
               value: /models/current.gguf
           securityContext:
@@ -93,21 +93,24 @@ spec:
             - --port
             - "8000"
             - --ctx-size
-            - "8192"
+            - "32768"
             - --n-gpu-layers
             - "999"
             - --parallel
-            - "1"
+            - "8"
             - --cache-type-k
-            - q8_0
+            - q4_0
             - --cache-type-v
-            - q8_0
+            - q4_0
+            - --batch-size
+            - "2048"
+            - --ubatch-size
+            - "512"
             - --cont-batching
             - --split-mode
             - none
             - --main-gpu
             - "0"
-            - --no-warmup
             - --mlock
             - --flash-attn
             - "on"
@@ -120,8 +123,8 @@ spec:
               memory: 2Gi
               amd.com/gpu: "1"
             limits:
-              cpu: "4"
-              memory: 10Gi
+              cpu: "8"
+              memory: 6Gi
               amd.com/gpu: "1"
           securityContext:
             privileged: true
@@ -150,4 +153,4 @@ spec:
         - name: shm
           emptyDir:
             medium: Memory
-            sizeLimit: 2Gi
+            sizeLimit: 4Gi
