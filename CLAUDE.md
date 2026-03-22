@@ -70,3 +70,30 @@ When spawning subagents (Agent/Task tool), the routing block is automatically in
 | `ctx stats`   | Call the `ctx_stats` MCP tool and display the full output verbatim                    |
 | `ctx doctor`  | Call the `ctx_doctor` MCP tool, run the returned shell command, display as checklist  |
 | `ctx upgrade` | Call the `ctx_upgrade` MCP tool, run the returned shell command, display as checklist |
+
+# LLM infrastructure
+
+The cluster runs a shared Qwen3-8B model on timmy's RX 9070 XT (16GB VRAM) serving both OpenViking VLM and interactive tasks.
+
+## Service routing
+
+| Service | Endpoint | Purpose |
+|---------|----------|---------|
+| Shared LLM | `qwen-summarizer-llm.llama.svc:80` → `llamacpp-rocm:8000` on timmy | All LLM inference (4 parallel slots, 8192 ctx/slot, 32768 total) |
+| Embedder | `embedder-llamacpp.viking.svc:8080` on timmy | nomic-embed-text-v1.5 f16 (768-dim, CPU-only, single replica) |
+| OpenViking | `openviking.viking.svc:1933` on wemby | Knowledge base API |
+| Agent API | `summarizer-api.llama.svc:80` → `:8082` on wemby | Agentic tool-calling loop with OpenViking |
+
+## Agent endpoint
+
+`POST summarizer-api.llama.svc/v1/agent` runs a tool-calling loop: LLM generates tool calls → summarizer-api executes them against OpenViking API → results fed back → repeats until final answer.
+
+Available tools: `viking_search`, `viking_read`, `viking_find`, `viking_ls`, `viking_add_text`.
+
+## Failover
+
+If timmy is down, restore manu's qwen-summarizer by: setting `llama/qwen-summarizer-deployment.yaml` replicas to 1, reverting `llama/llm-alias-service.yaml` selector to `app: qwen-summarizer` / targetPort 8001.
+
+# OpenViking knowledge base organization
+
+See [OPENVIKING.md](OPENVIKING.md) for the full organization guide, including L0/L1/L2 tiered loading, directory structure rules, and cleanup cadence.
