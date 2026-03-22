@@ -114,6 +114,8 @@ spec:
             - --mlock
             - --flash-attn
             - "on"
+            - --reasoning-format
+            - deepseek
           ports:
             - containerPort: 8000
               name: http
