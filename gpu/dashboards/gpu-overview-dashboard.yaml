@@ -135,7 +135,7 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "expr": "label_replace(DCGM_FI_DEV_GPU_UTIL, \"short_model\", \"$1\", \"modelName\", \".*?(GTX \\\\d+|RTX \\\\d+|Tesla .*|A\\\\d+)\")",
+              "expr": "label_replace(max by (Hostname, modelName) (DCGM_FI_DEV_GPU_UTIL),\"short_model\", \"$1\", \"modelName\", \".*?(GTX \\\\d+|RTX \\\\d+|Tesla .*|A\\\\d+)\")",
               "legendFormat": "{{Hostname}} \u2014 {{short_model}}",
               "refId": "A"
             },
@@ -144,7 +144,7 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "expr": "amdgpu_utilization_percent{gpu=\"1\"}",
+              "expr": "max(amdgpu_utilization_percent{gpu=\"1\"})",
               "legendFormat": "timmy \u2014 RX 9070 XT",
               "refId": "B"
             }
@@ -204,7 +204,7 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "expr": "label_replace(DCGM_FI_DEV_GPU_UTIL, \"short_model\", \"$1\", \"modelName\", \".*?(GTX \\\\d+|RTX \\\\d+|Tesla .*|A\\\\d+)\")",
+              "expr": "label_replace(max by (Hostname, modelName) (DCGM_FI_DEV_GPU_UTIL),\"short_model\", \"$1\", \"modelName\", \".*?(GTX \\\\d+|RTX \\\\d+|Tesla .*|A\\\\d+)\")",
               "legendFormat": "{{Hostname}} \u2014 {{short_model}}",
               "refId": "A"
             },
@@ -213,7 +213,7 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "expr": "amdgpu_utilization_percent{gpu=\"1\"}",
+              "expr": "max(amdgpu_utilization_percent{gpu=\"1\"})",
               "legendFormat": "timmy \u2014 RX 9070 XT",
               "refId": "B"
             }
@@ -330,7 +330,7 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "expr": "label_replace(DCGM_FI_DEV_GPU_TEMP, \"short_model\", \"$1\", \"modelName\", \".*?(GTX \\\\d+|RTX \\\\d+|Tesla .*|A\\\\d+)\")",
+              "expr": "label_replace(max by (Hostname, modelName) (DCGM_FI_DEV_GPU_TEMP),\"short_model\", \"$1\", \"modelName\", \".*?(GTX \\\\d+|RTX \\\\d+|Tesla .*|A\\\\d+)\")",
               "legendFormat": "{{Hostname}} \u2014 {{short_model}}",
               "refId": "A"
             },
@@ -339,7 +339,7 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "expr": "amdgpu_temperature_celsius{gpu=\"1\"}",
+              "expr": "max(amdgpu_temperature_celsius{gpu=\"1\"})",
               "legendFormat": "timmy \u2014 RX 9070 XT",
               "refId": "B"
             }
@@ -409,7 +409,7 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "expr": "(avg(DCGM_FI_DEV_GPU_TEMP) + avg(amdgpu_temperature_celsius{gpu=\"1\"})) / 2",
+              "expr": "(avg(max by (Hostname, modelName) (DCGM_FI_DEV_GPU_TEMP)) + max(amdgpu_temperature_celsius{gpu=\"1\"})) / 2",
               "legendFormat": "",
               "refId": "A"
             }
@@ -517,7 +517,7 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "expr": "label_replace(DCGM_FI_DEV_POWER_USAGE, \"short_model\", \"$1\", \"modelName\", \".*?(GTX \\\\d+|RTX \\\\d+|Tesla .*|A\\\\d+)\")",
+              "expr": "label_replace(max by (Hostname, modelName) (DCGM_FI_DEV_POWER_USAGE),\"short_model\", \"$1\", \"modelName\", \".*?(GTX \\\\d+|RTX \\\\d+|Tesla .*|A\\\\d+)\")",
               "legendFormat": "{{Hostname}} \u2014 {{short_model}}",
               "refId": "A"
             },
@@ -526,7 +526,7 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "expr": "amdgpu_power_watts{gpu=\"1\"}",
+              "expr": "max(amdgpu_power_watts{gpu=\"1\"})",
               "legendFormat": "timmy \u2014 RX 9070 XT",
               "refId": "B"
             }
@@ -596,7 +596,7 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "expr": "sum(DCGM_FI_DEV_POWER_USAGE) + sum(amdgpu_power_watts{gpu=\"1\"})",
+              "expr": "sum(max by (Hostname, modelName) (DCGM_FI_DEV_POWER_USAGE)) + max(amdgpu_power_watts{gpu=\"1\"})",
               "legendFormat": "",
               "refId": "A"
             }
@@ -704,7 +704,7 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "expr": "label_replace(DCGM_FI_DEV_FB_USED * 1048576, \"short_model\", \"$1\", \"modelName\", \".*?(GTX \\\\d+|RTX \\\\d+|Tesla .*|A\\\\d+)\")",
+              "expr": "label_replace(max by (Hostname, modelName) (DCGM_FI_DEV_FB_USED) * 1048576,\"short_model\", \"$1\", \"modelName\", \".*?(GTX \\\\d+|RTX \\\\d+|Tesla .*|A\\\\d+)\")",
               "legendFormat": "{{Hostname}} \u2014 {{short_model}}",
               "refId": "A"
             },
@@ -713,7 +713,7 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "expr": "amdgpu_vram_used_bytes{gpu=\"1\"}",
+              "expr": "max(amdgpu_vram_used_bytes{gpu=\"1\"})",
               "legendFormat": "timmy \u2014 RX 9070 XT",
               "refId": "B"
             }
@@ -776,7 +776,7 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "expr": "label_replace(DCGM_FI_DEV_FB_USED * 1048576, \"short_model\", \"$1\", \"modelName\", \".*?(GTX \\\\d+|RTX \\\\d+|Tesla .*|A\\\\d+)\")",
+              "expr": "label_replace(max by (Hostname, modelName) (DCGM_FI_DEV_FB_USED) * 1048576,\"short_model\", \"$1\", \"modelName\", \".*?(GTX \\\\d+|RTX \\\\d+|Tesla .*|A\\\\d+)\")",
               "legendFormat": "{{Hostname}} \u2014 {{short_model}}",
               "refId": "A"
             },
@@ -785,7 +785,7 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "expr": "amdgpu_vram_used_bytes{gpu=\"1\"}",
+              "expr": "max(amdgpu_vram_used_bytes{gpu=\"1\"})",
               "legendFormat": "timmy \u2014 RX 9070 XT",
               "refId": "B"
             }
@@ -893,7 +893,7 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "expr": "label_replace(DCGM_FI_DEV_SM_CLOCK, \"short_model\", \"$1\", \"modelName\", \".*?(GTX \\\\d+|RTX \\\\d+|Tesla .*|A\\\\d+)\")",
+              "expr": "label_replace(max by (Hostname, modelName) (DCGM_FI_DEV_SM_CLOCK),\"short_model\", \"$1\", \"modelName\", \".*?(GTX \\\\d+|RTX \\\\d+|Tesla .*|A\\\\d+)\")",
               "legendFormat": "{{Hostname}} \u2014 {{short_model}}",
               "refId": "A"
             },
@@ -902,7 +902,7 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "expr": "amdgpu_clock_gpu_mhz{gpu=\"1\"}",
+              "expr": "max(amdgpu_clock_gpu_mhz{gpu=\"1\"})",
               "legendFormat": "timmy \u2014 RX 9070 XT",
               "refId": "B"
             }
@@ -997,7 +997,7 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "expr": "label_replace(DCGM_FI_DEV_MEM_CLOCK, \"short_model\", \"$1\", \"modelName\", \".*?(GTX \\\\d+|RTX \\\\d+|Tesla .*|A\\\\d+)\")",
+              "expr": "label_replace(max by (Hostname, modelName) (DCGM_FI_DEV_MEM_CLOCK),\"short_model\", \"$1\", \"modelName\", \".*?(GTX \\\\d+|RTX \\\\d+|Tesla .*|A\\\\d+)\")",
               "legendFormat": "{{Hostname}} \u2014 {{short_model}}",
               "refId": "A"
             },
@@ -1006,7 +1006,7 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "expr": "amdgpu_clock_mem_mhz{gpu=\"1\"}",
+              "expr": "max(amdgpu_clock_mem_mhz{gpu=\"1\"})",
               "legendFormat": "timmy \u2014 RX 9070 XT",
               "refId": "B"
             }
@@ -1115,7 +1115,7 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "expr": "label_replace(DCGM_FI_DEV_MEM_COPY_UTIL, \"short_model\", \"$1\", \"modelName\", \".*?(GTX \\\\d+|RTX \\\\d+|Tesla .*|A\\\\d+)\")",
+              "expr": "label_replace(max by (Hostname, modelName) (DCGM_FI_DEV_MEM_COPY_UTIL),\"short_model\", \"$1\", \"modelName\", \".*?(GTX \\\\d+|RTX \\\\d+|Tesla .*|A\\\\d+)\")",
               "legendFormat": "{{Hostname}} \u2014 {{short_model}}",
               "refId": "A"
             }
@@ -1210,7 +1210,7 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "expr": "amdgpu_fan_rpm{gpu=\"1\"}",
+              "expr": "max(amdgpu_fan_rpm{gpu=\"1\"})",
               "legendFormat": "timmy \u2014 RX 9070 XT",
               "refId": "A"
             }
