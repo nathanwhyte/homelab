@@ -7,9 +7,12 @@ metadata:
   labels:
     app: embedder-llamacpp
 spec:
-  replicas: 2
+  replicas: 1
   strategy:
     type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 0
   selector:
     matchLabels:
       app: embedder-llamacpp
@@ -18,22 +21,8 @@ spec:
       labels:
         app: embedder-llamacpp
     spec:
-      affinity:
-        nodeAffinity:
-          requiredDuringSchedulingIgnoredDuringExecution:
-            nodeSelectorTerms:
-              - matchExpressions:
-                  - key: kubernetes.io/hostname
-                    operator: In
-                    values:
-                      - timmy
-                      - manu
-        podAntiAffinity:
-          requiredDuringSchedulingIgnoredDuringExecution:
-            - labelSelector:
-                matchLabels:
-                  app: embedder-llamacpp
-              topologyKey: kubernetes.io/hostname
+      nodeSelector:
+        kubernetes.io/hostname: timmy
       securityContext:
         fsGroup: 0
       initContainers:
@@ -41,9 +30,9 @@ spec:
           image: curlimages/curl:8.12.1
           env:
             - name: MODEL_FILE
-              value: all-MiniLM-L6-v2-f16.gguf
+              value: nomic-embed-text-v1.5.f16.gguf
             - name: MODEL_URL
-              value: https://huggingface.co/second-state/All-MiniLM-L6-v2-Embedding-GGUF/resolve/main/all-MiniLM-L6-v2-ggml-model-f16.gguf
+              value: https://huggingface.co/nomic-ai/nomic-embed-text-v1.5-GGUF/resolve/main/nomic-embed-text-v1.5.f16.gguf
           securityContext:
             runAsUser: 0
             runAsGroup: 0
@@ -71,7 +60,7 @@ spec:
             - /app/llama-server
           args:
             - --model
-            - /models/all-MiniLM-L6-v2-f16.gguf
+            - /models/nomic-embed-text-v1.5.f16.gguf
             - --host
             - 0.0.0.0
             - --port
@@ -82,13 +71,17 @@ spec:
             - --n-gpu-layers
             - "0"
             - --ctx-size
-            - "4096"
+            - "8192"
             - --parallel
-            - "8"
+            - "4"
             - --batch-size
             - "2048"
             - --ubatch-size
             - "2048"
+            - --rope-scaling
+            - yarn
+            - --rope-freq-scale
+            - "0.75"
             - --mlock
           ports:
             - containerPort: 8000
@@ -123,4 +116,4 @@ spec:
       volumes:
         - name: model-cache
           emptyDir:
-            sizeLimit: 200Mi
+            sizeLimit: 500Mi
