@@ -1,7 +1,7 @@
 #!/usr/bin/env -S uv run --script
 # /// script
 # requires-python = ">=3.10"
-# dependencies = ["mcp[cli]", "httpx"]
+# dependencies = ["mcp[cli]", "httpx[http2]"]
 # ///
 """
 OpenViking MCP Server for Claude Code.
@@ -26,7 +26,7 @@ mcp = FastMCP("openviking")
 OV_URL = os.environ.get("OPENVIKING_URL", "https://context.nathanwhyte.dev")
 OV_KEY = os.environ.get("OPENVIKING_KEY", "")
 OV_ACCOUNT = os.environ.get("OPENVIKING_ACCOUNT", "default")
-OV_USER = os.environ.get("OPENVIKING_USER", "natew")
+OV_USER = os.environ.get("OPENVIKING_USER", "noot")
 
 
 def _client() -> httpx.Client:
@@ -39,6 +39,7 @@ def _client() -> httpx.Client:
             "Content-Type": "application/json",
         },
         timeout=120.0,
+        http2=True,
     )
 
 
@@ -191,12 +192,11 @@ def viking_add_text(
         "X-OpenViking-Account": OV_ACCOUNT,
         "X-OpenViking-User": OV_USER,
     }
-    upload = httpx.post(
-        f"{OV_URL}/api/v1/resources/temp_upload",
-        headers=upload_headers,
-        files={"file": (f"{name}.md", content.encode(), "text/markdown")},
-        timeout=60.0,
-    )
+    with httpx.Client(headers=upload_headers, timeout=60.0, http2=True) as uc:
+        upload = uc.post(
+            f"{OV_URL}/api/v1/resources/temp_upload",
+            files={"file": (f"{name}.md", content.encode(), "text/markdown")},
+        )
     upload_data = upload.json()
     if upload_data.get("status") == "error":
         err = upload_data.get("error", {})
