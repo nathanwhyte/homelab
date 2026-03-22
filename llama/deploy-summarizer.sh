@@ -5,14 +5,13 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 echo "Deploying summarizer stack (backed by llamacpp-rocm)..."
 
-echo "1/3 Applying LLM alias service (routes to llamacpp-rocm)..."
+echo "1/2 Applying LLM alias service (routes to llamacpp-rocm)..."
 kubectl apply -f "$SCRIPT_DIR/llm-alias-service.yaml"
 
-echo "2/3 Applying summarizer API code + deployment..."
-kubectl apply -f "$SCRIPT_DIR/summarizer-api-configmap.yaml"
+echo "2/2 Applying summarizer API deployment..."
 kubectl apply -f "$SCRIPT_DIR/summarizer-api-deployment.yaml"
 
-echo "3/3 Waiting for rollout..."
+echo "Waiting for rollout..."
 kubectl rollout status deployment/summarizer-api -n llama --timeout=60s || true
 
 echo ""
