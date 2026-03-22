@@ -61,23 +61,27 @@ spec:
               echo "Cleaning stale temp files...";
               find /app/data/temp -type f -mtime +1 -delete 2>/dev/null || true;
               find /app/data/temp -type d -empty -delete 2>/dev/null || true;
+              echo "Removing stale locks...";
+              rm -f /app/data/.openviking.pid;
+              rm -f /app/data/vectordb/context/store/LOCK;
+              find /app/data/viking -name '.path.ovlock' -delete 2>/dev/null || true;
               echo "Done."
           volumeMounts:
             - name: data
               mountPath: /app/data
       containers:
         - name: openviking
-          image: ghcr.io/volcengine/openviking:main
+          image: ghcr.io/volcengine/openviking:v0.2.9
           ports:
             - containerPort: 1933
               name: http
           resources:
             requests:
-              cpu: "500m"
-              memory: 512Mi
+              cpu: "1"
+              memory: 1Gi
             limits:
-              cpu: "2"
-              memory: 2Gi
+              cpu: "4"
+              memory: 4Gi
           startupProbe:
             httpGet:
               path: /health
