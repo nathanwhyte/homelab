@@ -39,12 +39,24 @@ kubectl wait --for=condition=ready pod -l app=longhorn-manager \
 echo -e "\nApplying custom storage classes..."
 kubectl apply -f "$LONGHORN_DIR/storage.yaml"
 
+if [ -f "$LONGHORN_DIR/r2-backup-target.secret.yaml" ]; then
+    echo -e "\nApplying R2 backup target secret..."
+    kubectl apply -f "$LONGHORN_DIR/r2-backup-target.secret.yaml"
+else
+    echo -e "\nR2 backup target secret not found."
+    echo "  Backups will stay unavailable until the secret exists."
+    echo "  Copy longhorn/r2-backup-target.secret.yaml.example to"
+    echo "  longhorn/r2-backup-target.secret.yaml and fill in real R2 credentials,"
+    echo "  or create the secret manually in $NAMESPACE."
+fi
+
 echo -e "\nApplying Longhorn UI extras (cloudflared, basic auth middleware)..."
 kubectl apply -f "$LONGHORN_DIR/ui.yaml"
 
 echo -e "\nDone!"
 echo "  Web UI: https://longhorn.nathanwhyte.dev"
 echo "  Credentials: admin / <see longhorn-auth-secret>"
+echo "  Backup target: s3://longhorn-backups@auto/cluster/homelab-k3s/longhorn/"
 
 echo -e "\nCheck status:"
 echo "  kubectl get pods -n $NAMESPACE"
