@@ -79,7 +79,7 @@ The cluster runs a shared Qwen3-8B model on timmy's RX 9070 XT (16GB VRAM) servi
 
 | Service | Endpoint | Purpose |
 |---------|----------|---------|
-| Shared LLM | `qwen-summarizer-llm.llama.svc:80` → `llamacpp-rocm:8000` on timmy | All LLM inference (4 parallel slots, 8192 ctx/slot, 32768 total) |
+| Shared LLM | `qwen-summarizer-llm.llama.svc:80` → `llamacpp-rocm:8000` on timmy | All LLM inference (4 parallel slots, 8192 ctx/slot, 32768 total). Consumers: OV VLM (6 concurrent), summarizer-api (2 concurrent) |
 | Embedder | `embedder-llamacpp.viking.svc:8080` on timmy | nomic-embed-text-v1.5 f16 (768-dim, CPU-only, single replica) |
 | OpenViking | `openviking.viking.svc:1933` on wemby | Knowledge base API |
 | Agent API | `summarizer-api.llama.svc:80` → `:8082` on wemby | Agentic tool-calling loop with OpenViking |
