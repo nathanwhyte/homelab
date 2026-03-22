@@ -97,7 +97,7 @@ spec:
             - --n-gpu-layers
             - "999"
             - --parallel
-            - "8"
+            - "4"
             - --cache-type-k
             - q4_0
             - --cache-type-v
@@ -105,7 +105,7 @@ spec:
             - --batch-size
             - "2048"
             - --ubatch-size
-            - "512"
+            - "2048"
             - --cont-batching
             - --split-mode
             - none
