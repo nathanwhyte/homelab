@@ -8,13 +8,13 @@ data:
   ov.conf: |
     {
       "default_account": "default",
-      "default_user": "natew",
+      "default_user": "noot",
       "storage": {
         "workspace": "/app/data",
         "vectordb": {
           "backend": "local",
           "name": "context",
-          "dimension": 384
+          "dimension": 768
         }
       },
       "code": {
@@ -26,7 +26,7 @@ data:
       "server": {
         "host": "0.0.0.0",
         "port": 1933,
-        "workers": 2,
+        "workers": 1,
         "root_api_key": "47067ca1b704af555e417d8abf18ceebfa2e54f88e08b7d66db6f457d51fff55"
       },
       "log": {
@@ -36,10 +36,10 @@ data:
       "embedding": {
         "dense": {
           "provider": "openai",
-          "model": "all-MiniLM-L6-v2",
+          "model": "nomic-embed-text-v1.5",
           "api_key": "sk-no-key-required",
           "api_base": "http://embedder-llamacpp.viking.svc.cluster.local:8080/v1",
-          "dimension": 384,
+          "dimension": 768,
           "batch_size": 8
         },
         "max_concurrent": 4
@@ -49,6 +49,6 @@ data:
         "model": "openai/qwen3-8b",
         "api_key": "sk-no-key-required",
         "api_base": "http://qwen-summarizer-llm.llama.svc.cluster.local/v1",
-        "max_concurrent": 6
+        "max_concurrent": 4
       }
     }
