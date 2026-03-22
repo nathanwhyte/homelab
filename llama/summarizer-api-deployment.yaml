@@ -18,11 +18,8 @@ spec:
     spec:
       containers:
         - name: summarizer-api
-          image: python:3.12-slim
-          command:
-            - python3
-            - -u
-            - /app/app.py
+          image: registry.nathanwhyte.dev/robots/summarizer-api:latest
+          imagePullPolicy: Always
           ports:
             - containerPort: 8082
               name: http
@@ -39,10 +36,8 @@ spec:
               value: "default"
             - name: OPENVIKING_USER
               value: "noot"
-          volumeMounts:
-            - name: app-code
-              mountPath: /app
-              readOnly: true
+            - name: MAX_LLM_CONCURRENT
+              value: "2"
           resources:
             requests:
               cpu: 100m
@@ -62,11 +57,6 @@ spec:
               port: 8082
             initialDelaySeconds: 10
             periodSeconds: 20
-      volumes:
-        - name: app-code
-          configMap:
-            name: summarizer-api-code
-            defaultMode: 0555
 ---
 apiVersion: v1
 kind: Service
