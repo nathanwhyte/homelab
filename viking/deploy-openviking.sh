@@ -16,6 +16,17 @@ kubectl apply -f "$SCRIPT_DIR/openviking-pvc.yaml"
 # Config
 kubectl apply -f "$SCRIPT_DIR/openviking-configmap.yaml"
 
+# S3 credentials for AGFS backend
+if [ -f "$SCRIPT_DIR/openviking-s3-credentials.secret.yaml" ]; then
+    echo "Applying S3 credentials secret..."
+    kubectl apply -f "$SCRIPT_DIR/openviking-s3-credentials.secret.yaml"
+else
+    echo "S3 credentials secret not found."
+    echo "  AGFS will fail to start until the secret exists."
+    echo "  Copy viking/openviking-s3-credentials.secret.yaml.example to"
+    echo "  viking/openviking-s3-credentials.secret.yaml and fill in Garage credentials."
+fi
+
 # Deployments and services
 kubectl apply -f "$SCRIPT_DIR/embedder-llamacpp-deployment.yaml"
 kubectl apply -f "$SCRIPT_DIR/embedder-llamacpp-service.yaml"

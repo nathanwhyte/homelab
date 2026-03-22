@@ -15,6 +15,15 @@ data:
           "backend": "local",
           "name": "context",
           "dimension": 768
+        },
+        "agfs": {
+          "backend": "s3",
+          "s3": {
+            "bucket": "openviking-agfs",
+            "endpoint": "http://garage.garage.svc.cluster.local:3900",
+            "region": "garage",
+            "use_path_style": true
+          }
         }
       },
       "code": {
