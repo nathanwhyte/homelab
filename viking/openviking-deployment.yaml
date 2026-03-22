@@ -72,27 +72,16 @@ spec:
       containers:
         - name: openviking
           image: ghcr.io/volcengine/openviking:v0.2.9
-          env:
-            - name: AWS_ACCESS_KEY_ID
-              valueFrom:
-                secretKeyRef:
-                  name: openviking-s3-credentials
-                  key: AWS_ACCESS_KEY_ID
-            - name: AWS_SECRET_ACCESS_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: openviking-s3-credentials
-                  key: AWS_SECRET_ACCESS_KEY
           ports:
             - containerPort: 1933
               name: http
           resources:
             requests:
-              cpu: "2"
-              memory: 1.5Gi
+              cpu: "1"
+              memory: 1Gi
             limits:
               cpu: "4"
-              memory: 6Gi
+              memory: 4Gi
           startupProbe:
             httpGet:
               path: /health

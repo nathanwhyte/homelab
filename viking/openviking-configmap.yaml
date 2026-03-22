@@ -22,6 +22,8 @@ data:
             "bucket": "openviking-agfs",
             "endpoint": "http://garage.garage.svc.cluster.local:3900",
             "region": "garage",
+            "access_key": "GKb0157d7a1f22c8e39c5464fc",
+            "secret_key": "870141d4a56187469b076fa35840a8b0422313c43df47d8d367879c8bf603866",
             "use_path_style": true
           }
         }
@@ -35,7 +37,7 @@ data:
       "server": {
         "host": "0.0.0.0",
         "port": 1933,
-        "workers": 2,
+        "workers": 1,
         "root_api_key": "47067ca1b704af555e417d8abf18ceebfa2e54f88e08b7d66db6f457d51fff55"
       },
       "log": {
