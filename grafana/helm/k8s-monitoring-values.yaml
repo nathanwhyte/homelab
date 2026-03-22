@@ -51,9 +51,9 @@ alloy-singleton:
         cpu: 250m
         memory: 256Mi
 
-# Enable Alloy to scrape cluster metrics and remote-write to Prometheus
+# Alloy metrics collector - disabled (kube-prometheus-stack handles metrics)
 alloy-metrics:
-  enabled: true
+  enabled: false
   alloy:
     # Resource limits (tuned down: low actual usage)
     resources:
