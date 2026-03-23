@@ -64,7 +64,7 @@ persistence:
   data:
     # Use custom Longhorn StorageClass for data
     storageClass: "longhorn-ssd"
-    size: 50Gi
+    size: 100Gi
 
 # Deployment configuration
 deployment:
