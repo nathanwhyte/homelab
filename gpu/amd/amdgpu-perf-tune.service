@@ -1,0 +1,21 @@
+[Unit]
+Description=AMD GPU performance tuning (COMPUTE profile + raised power cap)
+After=multi-user.target
+# Wait for amdgpu driver to initialize
+ConditionPathExists=/sys/class/drm/card1/device/pp_power_profile_mode
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+
+# Set COMPUTE power profile (index 5)
+ExecStart=/bin/bash -c 'echo 5 > /sys/class/drm/card1/device/pp_power_profile_mode'
+# Raise power cap to 340W (max allowed)
+ExecStart=/bin/bash -c 'echo 340000000 > /sys/class/drm/card1/device/hwmon/hwmon*/power1_cap'
+
+# Revert on stop: back to defaults
+ExecStop=/bin/bash -c 'echo 0 > /sys/class/drm/card1/device/pp_power_profile_mode'
+ExecStop=/bin/bash -c 'echo 304000000 > /sys/class/drm/card1/device/hwmon/hwmon*/power1_cap'
+
+[Install]
+WantedBy=multi-user.target

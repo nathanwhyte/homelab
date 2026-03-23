@@ -38,7 +38,7 @@ def _client() -> httpx.Client:
             "X-OpenViking-User": OV_USER,
             "Content-Type": "application/json",
         },
-        timeout=120.0,
+        timeout=None,
         http2=True,
     )
 
@@ -192,7 +192,7 @@ def viking_add_text(
         "X-OpenViking-Account": OV_ACCOUNT,
         "X-OpenViking-User": OV_USER,
     }
-    with httpx.Client(headers=upload_headers, timeout=60.0, http2=True) as uc:
+    with httpx.Client(headers=upload_headers, timeout=None, http2=True) as uc:
         upload = uc.post(
             f"{OV_URL}/api/v1/resources/temp_upload",
             files={"file": (f"{name}.md", content.encode(), "text/markdown")},
@@ -267,7 +267,7 @@ def viking_add_file(
         "X-OpenViking-Account": OV_ACCOUNT,
         "X-OpenViking-User": OV_USER,
     }
-    with httpx.Client(headers=upload_headers, timeout=60.0, http2=True) as uc:
+    with httpx.Client(headers=upload_headers, timeout=None, http2=True) as uc:
         upload = uc.post(
             f"{OV_URL}/api/v1/resources/temp_upload",
             files={"file": (filename, content.encode(), mime)},

@@ -73,7 +73,7 @@ spec:
             - --ctx-size
             - "8192"
             - --parallel
-            - "4"
+            - "8"
             - --batch-size
             - "4096"
             - --ubatch-size
@@ -88,11 +88,11 @@ spec:
               name: http
           resources:
             requests:
-              cpu: "1"
-              memory: 512Mi
+              cpu: "2"
+              memory: 1Gi
             limits:
-              cpu: "4"
-              memory: 2Gi
+              cpu: "8"
+              memory: 6Gi
           startupProbe:
             tcpSocket:
               port: 8000

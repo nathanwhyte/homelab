@@ -7,7 +7,7 @@ metadata:
   labels:
     app: summarizer-api
 spec:
-  replicas: 1
+  replicas: 0
   selector:
     matchLabels:
       app: summarizer-api
@@ -16,6 +16,8 @@ spec:
       labels:
         app: summarizer-api
     spec:
+      nodeSelector:
+        kubernetes.io/hostname: manu
       containers:
         - name: summarizer-api
           image: registry.nathanwhyte.dev/robots/summarizer-api:latest
@@ -37,7 +39,7 @@ spec:
             - name: OPENVIKING_USER
               value: "noot"
             - name: MAX_LLM_CONCURRENT
-              value: "2"
+              value: "4"
           resources:
             requests:
               cpu: 100m

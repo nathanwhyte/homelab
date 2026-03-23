@@ -3,7 +3,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: llamacpp-rocm
-  namespace: llama
+  namespace: viking
   labels:
     app: llamacpp-rocm
 spec:
@@ -93,27 +93,28 @@ spec:
             - --port
             - "8000"
             - --ctx-size
-            - "32768"
+            - "98304"
             - --n-gpu-layers
             - "999"
             - --parallel
-            - "4"
+            - "12"
             - --cache-type-k
             - q4_0
             - --cache-type-v
             - q4_0
             - --batch-size
-            - "2048"
+            - "8192"
             - --ubatch-size
-            - "2048"
+            - "4096"
             - --cont-batching
             - --split-mode
             - none
             - --main-gpu
             - "0"
-            - --mlock
             - --flash-attn
             - "on"
+            - --cache-ram
+            - "16384"
             - --reasoning-format
             - deepseek
           ports:
@@ -126,7 +127,7 @@ spec:
               amd.com/gpu: "1"
             limits:
               cpu: "8"
-              memory: 6Gi
+              memory: 20Gi
               amd.com/gpu: "1"
           securityContext:
             privileged: true
@@ -156,3 +157,19 @@ spec:
           emptyDir:
             medium: Memory
             sizeLimit: 4Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: llamacpp-rocm-llm
+  namespace: viking
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 80
+      protocol: TCP
+      targetPort: 8000
+  selector:
+    app: llamacpp-rocm
+  sessionAffinity: None

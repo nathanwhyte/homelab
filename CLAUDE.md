@@ -73,16 +73,17 @@ When spawning subagents (Agent/Task tool), the routing block is automatically in
 
 # LLM infrastructure
 
-The cluster runs a shared Qwen3-8B model on timmy's RX 9070 XT (16GB VRAM) serving both OpenViking VLM and interactive tasks.
+The cluster runs two Qwen3-8B instances on separate GPUs: timmy's RX 9070 XT (dedicated to OV) and manu's GTX 1080 (dedicated to summarizer-api).
 
 ## Service routing
 
 | Service | Endpoint | Purpose |
 |---------|----------|---------|
-| Shared LLM | `qwen-summarizer-llm.llama.svc:80` → `llamacpp-rocm:8000` on timmy | All LLM inference (4 parallel slots, 8192 ctx/slot, 32768 total). Consumers: OV VLM (6 concurrent), summarizer-api (2 concurrent) |
+| OV LLM (timmy) | `llamacpp-rocm-llm.viking.svc:80` → `llamacpp-rocm:8000` on timmy | OV VLM inference (8 parallel slots, 8192 ctx/slot, 65536 total, q4_0 KV cache, 20Gi memory limit). Consumer: OV VLM (6 concurrent) |
+| Summarizer LLM (manu) | `qwen-summarizer-llm.llama.svc:80` → `qwen-summarizer:8001` on manu | Summarizer-api inference (5 parallel slots, 8192 ctx/slot, 40960 total, q4_0 KV cache, 10Gi memory limit). Consumer: summarizer-api (4 concurrent). Scaled to 0. |
 | Embedder | `embedder-llamacpp.viking.svc:8080` on timmy | nomic-embed-text-v1.5 f16 (768-dim, CPU-only, single replica) |
 | OpenViking | `openviking.viking.svc:1933` on wemby | Knowledge base API |
-| Agent API | `summarizer-api.llama.svc:80` → `:8082` on wemby | Agentic tool-calling loop with OpenViking |
+| Agent API | `summarizer-api.llama.svc:80` → `:8082` on manu | Agentic tool-calling loop with OpenViking. Scaled to 0. |
 
 ## Agent endpoint
 
@@ -92,7 +93,7 @@ Available tools: `viking_search`, `viking_read`, `viking_find`, `viking_ls`, `vi
 
 ## Failover
 
-If timmy is down, restore manu's qwen-summarizer by: setting `llama/qwen-summarizer-deployment.yaml` replicas to 1, reverting `llama/llm-alias-service.yaml` selector to `app: qwen-summarizer` / targetPort 8001.
+If manu is down, point `qwen-summarizer-llm` service back to timmy: change selector to `app: llamacpp-rocm`, targetPort to 8000 in `llama/llm-alias-service.yaml`. If timmy is down, OV indexing stops but summarizer-api continues on manu independently.
 
 # OpenViking knowledge base organization
 

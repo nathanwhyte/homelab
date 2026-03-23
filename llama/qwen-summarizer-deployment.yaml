@@ -66,28 +66,28 @@ spec:
             - --port
             - "8001"
             - --ctx-size
-            - "16384"
+            - "40960"
             - --n-gpu-layers
             - "999"
             - --parallel
-            - "6"
+            - "5"
             - --cache-type-k
             - q4_0
             - --cache-type-v
             - q4_0
             - --cont-batching
             - --batch-size
-            - "2048"
+            - "4096"
             - --ubatch-size
-            - "512"
-            - --flash-attn
-            - "on"
+            - "1024"
             - --split-mode
             - none
             - --main-gpu
             - "0"
-            - --no-warmup
             - --mlock
+            - --no-warmup
+            - --reasoning-format
+            - deepseek
           ports:
             - containerPort: 8001
               name: http
