@@ -93,15 +93,15 @@ spec:
               path: /ready
               port: 1933
             periodSeconds: 10
-            timeoutSeconds: 5
+            timeoutSeconds: 10
           livenessProbe:
             httpGet:
               path: /health
               port: 1933
             initialDelaySeconds: 10
-            periodSeconds: 20
-            timeoutSeconds: 5
-            failureThreshold: 3
+            periodSeconds: 30
+            timeoutSeconds: 15
+            failureThreshold: 5
           lifecycle:
             preStop:
               exec:
