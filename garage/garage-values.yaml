@@ -60,7 +60,7 @@ persistence:
   meta:
     # Use custom Longhorn StorageClass for metadata
     storageClass: "longhorn-nvme"
-    size: 200Mi
+    size: 1Gi
   data:
     # Use custom Longhorn StorageClass for data
     storageClass: "longhorn-ssd"
