@@ -1,0 +1,76 @@
+---
+# Traefik basic auth middleware for OpenViking API
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: openviking-auth
+  namespace: viking
+spec:
+  basicAuth:
+    secret: openviking-auth-secret
+
+---
+# HTTP → HTTPS redirect middleware
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: openviking-https-redirect
+  namespace: viking
+spec:
+  redirectScheme:
+    scheme: https
+    permanent: true
+
+---
+# HTTP entrypoint — redirects to HTTPS
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: openviking-redirect
+  namespace: viking
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: web
+    traefik.ingress.kubernetes.io/router.middlewares: viking-openviking-https-redirect@kubernetescrd
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: context.nathanwhyte.dev
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: openviking
+                port:
+                  number: 1933
+
+---
+# HTTPS entrypoint — authenticated access
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: openviking-ingress
+  namespace: viking
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.middlewares: viking-openviking-auth@kubernetescrd
+    traefik.ingress.kubernetes.io/router.tls: "true"
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - context.nathanwhyte.dev
+      secretName: openviking-tls
+  rules:
+    - host: context.nathanwhyte.dev
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: openviking
+                port:
+                  number: 1933

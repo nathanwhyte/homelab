@@ -27,24 +27,34 @@ else
     echo "  viking/openviking-s3-credentials.secret.yaml and fill in Garage credentials."
 fi
 
+# Auth secret for Traefik basicAuth ingress
+if [ -f "$SCRIPT_DIR/openviking-auth.secret.yaml" ]; then
+    echo "Applying auth secret..."
+    kubectl apply -f "$SCRIPT_DIR/openviking-auth.secret.yaml"
+else
+    echo "Auth secret not found."
+    echo "  Ingress will reject all requests until the secret exists."
+    echo "  See viking/openviking-auth.secret.yaml.example for instructions."
+fi
+
 # Deployments and services
 kubectl apply -f "$SCRIPT_DIR/embedder-llamacpp-deployment.yaml"
 kubectl apply -f "$SCRIPT_DIR/embedder-llamacpp-service.yaml"
 kubectl apply -f "$SCRIPT_DIR/openviking-deployment.yaml"
 kubectl apply -f "$SCRIPT_DIR/openviking-service.yaml"
 
-# Cloudflare Tunnel (public access via context.nathanwhyte.dev)
-kubectl apply -f "$SCRIPT_DIR/cloudflared.yaml"
+# Traefik ingress (context.nathanwhyte.dev with basicAuth)
+kubectl apply -f "$SCRIPT_DIR/openviking-ingress.yaml"
 
 echo ""
 echo "=== Waiting for rollouts ==="
 kubectl rollout status deployment/embedder-llamacpp -n viking --timeout=300s &
 kubectl rollout status deployment/openviking -n viking --timeout=120s &
-kubectl rollout status deployment/cloudflared -n viking --timeout=60s &
 wait
 
 echo ""
 echo "=== OpenViking deployed ==="
 echo "Internal: http://openviking.viking.svc.cluster.local:1933"
-echo "Public:   https://context.nathanwhyte.dev"
-echo "Health:   curl -s -H 'X-API-Key: \$OPENVIKING_KEY' https://context.nathanwhyte.dev/health"
+echo "LAN:      https://context.nathanwhyte.dev"
+echo "Auth:     Basic api:<token from openviking-auth.secret.yaml>"
+echo "Health:   curl -u api:\$TOKEN -H 'X-API-Key: \$OPENVIKING_KEY' https://context.nathanwhyte.dev/health"
