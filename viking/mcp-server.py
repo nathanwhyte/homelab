@@ -1,7 +1,7 @@
 #!/usr/bin/env -S uv run --script
 # /// script
 # requires-python = ">=3.10"
-# dependencies = ["mcp[cli]", "httpx[http2]"]
+# dependencies = ["mcp[cli]", "httpx[http2]", "boto3"]
 # ///
 """
 OpenViking MCP Server for Claude Code.
@@ -215,6 +215,80 @@ def viking_add_text(
         return f"Added: {result['root_uri']}"
 
 
+MIME_MAP = {
+    ".py": "text/x-python",
+    ".sh": "text/x-shellscript",
+    ".bash": "text/x-shellscript",
+    ".yaml": "text/yaml",
+    ".yml": "text/yaml",
+    ".json": "application/json",
+    ".toml": "text/toml",
+    ".md": "text/markdown",
+    ".txt": "text/plain",
+    ".js": "text/javascript",
+    ".ts": "text/typescript",
+}
+
+
+@mcp.tool()
+def viking_add_file(
+    content: str,
+    name: str,
+    target_dir: str = "viking://resources/",
+    extension: str = "",
+) -> str:
+    """Add a file to OpenViking, preserving its original extension and MIME type.
+
+    Use this for scripts, configs, and other files where exact content
+    retrieval matters. The file is stored as-is and retrievable via viking_read.
+
+    Args:
+        content: The file content to store
+        name: Filename for the resource (e.g. 'backup-db.sh', 'values.yaml')
+        target_dir: Viking directory to store in (e.g. viking://resources/filestore/scripts)
+        extension: File extension override (e.g. '.py'). Auto-detected from name if omitted.
+    """
+    # Detect extension from name if not provided
+    ext = extension
+    if not ext:
+        for suffix in MIME_MAP:
+            if name.endswith(suffix):
+                ext = suffix
+                break
+    if not ext:
+        ext = ".txt"
+    mime = MIME_MAP.get(ext, "text/plain")
+    # Ensure name has the extension
+    filename = name if name.endswith(ext) else f"{name}{ext}"
+
+    dest_uri = _join_resource_uri(target_dir, name.rsplit(".", 1)[0] if "." in name else name)
+    upload_headers = {
+        "X-API-Key": OV_KEY,
+        "X-OpenViking-Account": OV_ACCOUNT,
+        "X-OpenViking-User": OV_USER,
+    }
+    with httpx.Client(headers=upload_headers, timeout=60.0, http2=True) as uc:
+        upload = uc.post(
+            f"{OV_URL}/api/v1/resources/temp_upload",
+            files={"file": (filename, content.encode(), mime)},
+        )
+    upload_data = upload.json()
+    if upload_data.get("status") == "error":
+        err = upload_data.get("error", {})
+        raise RuntimeError(f"Temp upload failed: {err.get('message', upload_data)}")
+    temp_path = upload_data["result"]["temp_path"]
+    with _client() as c:
+        r = c.post(
+            "/api/v1/resources",
+            json={
+                "temp_path": temp_path,
+                "to": dest_uri,
+            },
+        )
+        result = _result(r)
+        return f"Added: {result['root_uri']}"
+
+
 @mcp.tool()
 def viking_mkdir(uri: str) -> str:
     """Create a directory in the OpenViking filesystem."""
@@ -231,6 +305,100 @@ def viking_rm(uri: str) -> str:
         r = c.request("DELETE", "/api/v1/fs", params={"uri": uri, "recursive": "true"})
         _result(r)
         return f"Removed: {uri}"
+
+
+# ── Raw File Store (S3-backed) ────────────────────────────────────
+# Stores files directly in Garage S3, bypassing OpenViking's parser.
+# Use for scripts, configs, and other files needing exact retrieval.
+
+import boto3
+from botocore.config import Config as BotoConfig
+
+_S3_ENDPOINT = os.environ.get("GARAGE_S3_ENDPOINT", "http://10.43.237.247:3900")
+_S3_ACCESS_KEY = os.environ.get("GARAGE_S3_ACCESS_KEY", "GKb0157d7a1f22c8e39c5464fc")
+_S3_SECRET_KEY = os.environ.get("GARAGE_S3_SECRET_KEY", "870141d4a56187469b076fa35840a8b0422313c43df47d8d367879c8bf603866")
+_S3_BUCKET = os.environ.get("FILESTORE_BUCKET", "filestore")
+_S3_REGION = "garage"
+
+
+def _s3():
+    return boto3.client(
+        "s3",
+        endpoint_url=_S3_ENDPOINT,
+        aws_access_key_id=_S3_ACCESS_KEY,
+        aws_secret_access_key=_S3_SECRET_KEY,
+        region_name=_S3_REGION,
+        config=BotoConfig(signature_version="s3v4"),
+    )
+
+
+def _ensure_bucket():
+    """Create the filestore bucket if it doesn't exist."""
+    s3 = _s3()
+    try:
+        s3.head_bucket(Bucket=_S3_BUCKET)
+    except Exception:
+        s3.create_bucket(Bucket=_S3_BUCKET)
+
+
+@mcp.tool()
+def file_store(content: str, path: str) -> str:
+    """Store a file in the raw filestore (exact content, no parsing).
+
+    Files are stored in Garage S3 and retrievable exactly as uploaded.
+    Use for scripts, configs, skills, and other files needing exact retrieval.
+
+    Args:
+        content: The file content to store
+        path: File path in the store (e.g. 'scripts/backfill-claude-mem.py',
+              'configs/garage-values.yaml', 'skills/index-codebase.md')
+    """
+    _ensure_bucket()
+    s3 = _s3()
+    s3.put_object(Bucket=_S3_BUCKET, Key=path, Body=content.encode("utf-8"))
+    return f"Stored: filestore://{path} ({len(content)} chars)"
+
+
+@mcp.tool()
+def file_get(path: str) -> str:
+    """Retrieve a file from the raw filestore (exact content).
+
+    Returns the file content exactly as it was stored.
+
+    Args:
+        path: File path in the store (e.g. 'scripts/backfill-claude-mem.py')
+    """
+    s3 = _s3()
+    try:
+        obj = s3.get_object(Bucket=_S3_BUCKET, Key=path)
+        return obj["Body"].read().decode("utf-8")
+    except s3.exceptions.NoSuchKey:
+        raise RuntimeError(f"File not found: filestore://{path}")
+
+
+@mcp.tool()
+def file_list(prefix: str = "") -> str:
+    """List files in the raw filestore.
+
+    Args:
+        prefix: Optional path prefix to filter (e.g. 'scripts/', 'configs/')
+    """
+    _ensure_bucket()
+    s3 = _s3()
+    resp = s3.list_objects_v2(Bucket=_S3_BUCKET, Prefix=prefix)
+    contents = resp.get("Contents", [])
+    if not contents:
+        return f"(empty) filestore://{prefix}"
+    lines = [f"filestore://{prefix} ({len(contents)} files)"]
+    for obj in contents:
+        size = obj["Size"]
+        key = obj["Key"]
+        if size < 1024:
+            size_str = f"{size}B"
+        else:
+            size_str = f"{size // 1024}KB"
+        lines.append(f"  {key} ({size_str})")
+    return "\n".join(lines)
 
 
 # ── Sessions ────────────────────────────────────────────────────────
