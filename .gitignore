@@ -58,3 +58,4 @@ venv/
 
 # Shell
 *.log
+.claude/index/
