@@ -75,9 +75,9 @@ spec:
             - --parallel
             - "4"
             - --batch-size
-            - "2048"
+            - "4096"
             - --ubatch-size
-            - "2048"
+            - "4096"
             - --rope-scaling
             - yarn
             - --rope-freq-scale
