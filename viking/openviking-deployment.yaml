@@ -95,13 +95,12 @@ spec:
             periodSeconds: 10
             timeoutSeconds: 10
           livenessProbe:
-            httpGet:
-              path: /health
+            tcpSocket:
               port: 1933
             initialDelaySeconds: 10
             periodSeconds: 30
-            timeoutSeconds: 15
-            failureThreshold: 5
+            timeoutSeconds: 5
+            failureThreshold: 10
           lifecycle:
             preStop:
               exec:
