@@ -59,3 +59,9 @@ venv/
 # Shell
 *.log
 .claude/index/
+
+# uv lock files
+uv-*.lock
+
+# Node compile cache
+node-compile-cache/
