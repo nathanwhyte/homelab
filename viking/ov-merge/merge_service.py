@@ -144,8 +144,8 @@ async def merge_cycle(client: httpx.AsyncClient):
                 all_worker_uris |= w_uris
                 logger.debug("Worker %s has %d URIs", worker, len(w_uris))
             except Exception as exc:
-                logger.warning("Failed to list URIs on %s: %s", worker, exc)
-                state.errors.append(f"list {worker}: {exc}")
+                logger.warning("Failed to list URIs on %s: %r", worker, exc)
+                state.errors.append(f"list {worker}: {exc!r}")
 
         if not all_worker_uris:
             logger.warning("No URIs found across any workers")

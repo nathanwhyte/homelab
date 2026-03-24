@@ -75,14 +75,15 @@ spec:
             httpGet:
               path: /health
               port: 1933
-            periodSeconds: 3
-            failureThreshold: 10
+            periodSeconds: 5
+            failureThreshold: 30
+            timeoutSeconds: 120
           readinessProbe:
             httpGet:
-              path: /ready
+              path: /health
               port: 1933
             periodSeconds: 10
-            timeoutSeconds: 10
+            timeoutSeconds: 120
           livenessProbe:
             tcpSocket:
               port: 1933
