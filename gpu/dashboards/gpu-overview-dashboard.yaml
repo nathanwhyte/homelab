@@ -339,9 +339,18 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "expr": "max(amdgpu_temperature_celsius{gpu=\"1\"})",
-              "legendFormat": "timmy \u2014 RX 9070 XT",
+              "expr": "max(amdgpu_temperature_celsius{gpu=\"1\",sensor=\"edge\"})",
+              "legendFormat": "timmy \u2014 RX 9070 XT (edge)",
               "refId": "B"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "max(amdgpu_temperature_celsius{gpu=\"1\",sensor=\"junction\"})",
+              "legendFormat": "timmy \u2014 RX 9070 XT (junction)",
+              "refId": "C"
             }
           ]
         },
@@ -409,7 +418,7 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "expr": "(avg(max by (Hostname, modelName) (DCGM_FI_DEV_GPU_TEMP)) + max(amdgpu_temperature_celsius{gpu=\"1\"})) / 2",
+              "expr": "(avg(max by (Hostname, modelName) (DCGM_FI_DEV_GPU_TEMP)) + max(amdgpu_temperature_celsius{gpu=\"1\",sensor=\"edge\"})) / 2",
               "legendFormat": "",
               "refId": "A"
             }
