@@ -9,7 +9,7 @@ spec:
     - ReadWriteOnce
   resources:
     requests:
-      storage: 100Gi
+      storage: 10Gi
   storageClassName: longhorn-ssd
   volumeMode: Filesystem
 ---
@@ -23,6 +23,6 @@ spec:
     - ReadWriteOnce
   resources:
     requests:
-      storage: 50Gi
+      storage: 5Gi
   storageClassName: longhorn-ssd
   volumeMode: Filesystem
