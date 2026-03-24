@@ -5,6 +5,7 @@ metadata:
   name: ov-worker-headless
   namespace: viking
 spec:
+  publishNotReadyAddresses: true
   clusterIP: None
   ports:
     - name: http

@@ -87,7 +87,7 @@ data:
             f"{base_url}/api/v1/fs/tree",
             params={"uri": "viking://", "level_limit": 99},
             headers=HEADERS,
-            timeout=30,
+            timeout=120,
         )
         data = resp.json()
         if data.get("status") == "error":
