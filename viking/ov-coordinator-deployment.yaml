@@ -1,0 +1,51 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ov-coordinator
+  namespace: viking
+  labels:
+    app: ov-coordinator
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ov-coordinator
+  template:
+    metadata:
+      labels:
+        app: ov-coordinator
+    spec:
+      containers:
+        - name: ov-coordinator
+          image: registry.nathanwhyte.dev/homelab/ov-coordinator:latest
+          ports:
+            - containerPort: 1933
+              name: http
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          env:
+            - name: OV_WORKERS
+              value: >-
+                http://ov-worker-0.ov-worker-headless.viking.svc.cluster.local:1933,http://ov-worker-1.ov-worker-headless.viking.svc.cluster.local:1933,http://ov-worker-2.ov-worker-headless.viking.svc.cluster.local:1933
+            - name: OV_API_KEY
+              valueFrom:
+                configMapKeyRef:
+                  name: openviking-config
+                  key: api-key
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 1933
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            tcpSocket:
+              port: 1933
+            initialDelaySeconds: 5
+            periodSeconds: 30

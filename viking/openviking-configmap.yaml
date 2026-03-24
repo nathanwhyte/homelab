@@ -5,6 +5,7 @@ metadata:
   name: openviking-config
   namespace: viking
 data:
+  api-key: "47067ca1b704af555e417d8abf18ceebfa2e54f88e08b7d66db6f457d51fff55"
   ov.conf: |
     {
       "default_account": "default",
