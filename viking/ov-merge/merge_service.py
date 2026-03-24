@@ -79,7 +79,7 @@ async def list_uris(client: httpx.AsyncClient, base_url: str) -> set[str]:
         f"{base_url}/api/v1/fs/tree",
         params={"uri": "viking://", "level_limit": 99},
         headers=HEADERS,
-        timeout=120,
+        timeout=600,
     )
     data = resp.json()
     if data.get("status") == "error":
