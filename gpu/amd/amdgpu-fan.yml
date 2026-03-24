@@ -1,0 +1,19 @@
+# amdgpu-fan config — aggressive cooling curve for headless server
+# Targets junction temp. Ramps much earlier than default firmware curve.
+# Install to /etc/amdgpu-fan.yml on timmy.
+
+speed_matrix:  # [temp(*C), speed(0-100%)]
+- [0, 30]
+- [50, 40]
+- [70, 60]
+- [80, 80]
+- [85, 100]
+
+cards:
+- card1
+
+# Use junction temp (temp2_input) instead of edge (temp1_input)
+temp_src: junction
+
+# Drop 5C before reducing fan speed (prevents oscillation)
+temp_drop: 5

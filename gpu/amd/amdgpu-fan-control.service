@@ -1,0 +1,15 @@
+[Unit]
+Description=AMD GPU fan controller (junction temp based)
+After=multi-user.target
+
+[Service]
+Type=simple
+User=root
+ExecStart=/bin/bash /opt/amdgpu-fan-control.sh
+Restart=on-failure
+RestartSec=5
+Environment=AMDGPU_CARD=card1
+Environment=FAN_INTERVAL=3
+
+[Install]
+WantedBy=multi-user.target
