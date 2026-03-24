@@ -7,7 +7,7 @@ WORKDIR /app
 RUN git clone https://github.com/karpathy/nanochat.git .
 
 # Install non-torch deps into system Python 3.12 (torch already present from base image)
-RUN pip install --no-cache-dir $(python3.12 -c "import tomllib,pathlib;p=tomllib.loads(pathlib.Path('pyproject.toml').read_text());print(' '.join(d for d in p.get('project',{}).get('dependencies',[]) if 'torch' not in d.lower()))")
+RUN pip install --no-cache-dir wandb $(python3.12 -c "import tomllib,pathlib;p=tomllib.loads(pathlib.Path('pyproject.toml').read_text());print(' '.join(d for d in p.get('project',{}).get('dependencies',[]) if 'torch' not in d.lower()))")
 
 ENV PYTHONPATH="/app:${PYTHONPATH}"
 
