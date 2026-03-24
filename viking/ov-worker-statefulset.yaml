@@ -1,0 +1,109 @@
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ov-worker
+  namespace: viking
+  labels:
+    app: ov-worker
+spec:
+  serviceName: ov-worker-headless
+  replicas: 5
+  podManagementPolicy: Parallel
+  selector:
+    matchLabels:
+      app: ov-worker
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+        annotations:
+          longhorn.io/number-of-replicas: "2"
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: longhorn-ssd
+        resources:
+          requests:
+            storage: 10Gi
+  template:
+    metadata:
+      labels:
+        app: ov-worker
+    spec:
+      terminationGracePeriodSeconds: 15
+      # No affinity rules — let scheduler spread freely across nodes
+      initContainers:
+        - name: config-gen
+          image: python:3.12-slim
+          command: ["/bin/sh", "-c"]
+          args:
+            - "python3 -c \"import json; conf=json.load(open('/config-template/ov.conf')); conf['vlm']['max_concurrent']=2; conf['embedding']['max_concurrent']=1; json.dump(conf, open('/config-out/ov.conf','w'), indent=2)\""
+          volumeMounts:
+            - name: config-template
+              mountPath: /config-template
+            - name: config-out
+              mountPath: /config-out
+        - name: temp-cleanup
+          image: busybox:1.37
+          command: ["/bin/sh", "-c"]
+          args:
+            - >-
+              echo "Cleaning stale temp files...";
+              find /app/data/temp -type f -mtime +1 -delete 2>/dev/null || true;
+              find /app/data/temp -type d -empty -delete 2>/dev/null || true;
+              echo "Removing stale locks...";
+              rm -f /app/data/.openviking.pid;
+              rm -f /app/data/vectordb/context/store/LOCK;
+              find /app/data/viking -name '.path.ovlock' -delete 2>/dev/null || true;
+              echo "Done."
+          volumeMounts:
+            - name: data
+              mountPath: /app/data
+      containers:
+        - name: openviking
+          image: ghcr.io/volcengine/openviking:v0.2.9
+          ports:
+            - containerPort: 1933
+              name: http
+          resources:
+            requests:
+              cpu: "1"
+              memory: 1Gi
+            limits:
+              cpu: "3"
+              memory: 3Gi
+          startupProbe:
+            httpGet:
+              path: /health
+              port: 1933
+            periodSeconds: 3
+            failureThreshold: 10
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 1933
+            periodSeconds: 10
+            timeoutSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: 1933
+            initialDelaySeconds: 10
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 10
+          lifecycle:
+            preStop:
+              exec:
+                command: ["/bin/sh", "-c", "sleep 5"]
+          volumeMounts:
+            - name: config-out
+              mountPath: /app/ov.conf
+              subPath: ov.conf
+              readOnly: true
+            - name: data
+              mountPath: /app/data
+      volumes:
+        - name: config-template
+          configMap:
+            name: openviking-config
+        - name: config-out
+          emptyDir: {}
