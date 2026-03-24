@@ -433,7 +433,8 @@ data:
           "fieldConfig": {
             "defaults": {
               "color": {
-                "mode": "palette-classic"
+                "fixedColor": "#FF69B4",
+                "mode": "fixed"
               },
               "custom": {
                 "axisBorderShow": false,
@@ -490,7 +491,38 @@ data:
                 ]
               }
             },
-            "overrides": []
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byFrameRefID",
+                  "options": "A"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "fixedColor": "#FF69B4",
+                      "mode": "fixed"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byFrameRefID",
+                  "options": "B"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "fixedColor": "#9B59B6",
+                      "mode": "fixed"
+                    }
+                  }
+                ]
+              }
+            ]
           },
           "options": {
             "legend": {

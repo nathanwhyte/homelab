@@ -1,0 +1,14 @@
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ov-worker-headless
+  namespace: viking
+spec:
+  clusterIP: None
+  ports:
+    - name: http
+      port: 1933
+      targetPort: 1933
+  selector:
+    app: ov-worker
