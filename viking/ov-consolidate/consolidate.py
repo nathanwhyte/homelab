@@ -42,7 +42,7 @@ TEST_QUERIES = [
     "flannel network subnet configuration",
 ]
 
-TIMEOUT = httpx.Timeout(120.0, connect=30.0)
+TIMEOUT = httpx.Timeout(None, connect=30.0)
 
 # ---------------------------------------------------------------------------
 # Helpers
