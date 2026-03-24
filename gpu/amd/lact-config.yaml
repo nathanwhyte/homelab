@@ -8,6 +8,7 @@ current_profile: null
 auto_switch_profiles: false
 gpus:
   1002:7550-1849:5414-0000:03:00.0:
+    power_cap: 340
     fan_control_enabled: true
     fan_control_settings:
       mode: curve
