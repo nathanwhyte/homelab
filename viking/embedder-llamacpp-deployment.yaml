@@ -71,7 +71,7 @@ spec:
             - --n-gpu-layers
             - "0"
             - --ctx-size
-            - "8192"
+            - "16384"
             - --parallel
             - "8"
             - --batch-size
