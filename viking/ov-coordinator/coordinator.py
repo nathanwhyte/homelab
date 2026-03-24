@@ -47,6 +47,11 @@ logger = logging.getLogger("ov-coordinator")
 worker_healthy: dict[str, bool] = {w: True for w in WORKERS}
 _rr_counter = 0  # round-robin counter for stateless routes
 
+# Temp file store: maps temp_path -> (worker_url, raw_body, content_type)
+# Ensures POST /resources can re-upload to the hash-routed worker if
+# temp_upload landed on a different one. Entries auto-expire on use.
+_temp_store: dict[str, tuple[str, bytes, str]] = {}
+
 
 def healthy_workers() -> list[str]:
     return [w for w in WORKERS if worker_healthy.get(w)]
@@ -103,7 +108,7 @@ _proxy_client: httpx.AsyncClient | None = None
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     global _proxy_client
-    _proxy_client = httpx.AsyncClient(timeout=120)
+    _proxy_client = httpx.AsyncClient(timeout=None)
     task = asyncio.create_task(_health_loop())
     yield
     task.cancel()
@@ -126,7 +131,7 @@ async def _forward_json(client: httpx.AsyncClient, method: str, worker: str,
     url = f"{worker}{path}"
     if query:
         url = f"{url}?{query}"
-    return await client.request(method, url, content=body, headers=HEADERS, timeout=120)
+    return await client.request(method, url, content=body, headers=HEADERS)
 
 
 async def _forward_raw(client: httpx.AsyncClient, method: str, worker: str,
@@ -137,7 +142,7 @@ async def _forward_raw(client: httpx.AsyncClient, method: str, worker: str,
     if query:
         url = f"{url}?{query}"
     hdrs = {**HEADERS, "Content-Type": content_type}
-    return await client.request(method, url, content=body, headers=hdrs, timeout=120)
+    return await client.request(method, url, content=body, headers=hdrs)
 
 
 def _build_response(resp: httpx.Response, partial: bool = False) -> Response:
@@ -367,9 +372,9 @@ async def proxy(request: Request, path: str):
     # --- Write routes (hash or broadcast) ---
 
     if full_path == "/api/v1/resources/temp_upload" and method == "POST":
-        # Route to specific worker using X-OV-Route-To header (target URI).
-        # The indexing script sets this to the intended "to" URI so temp_upload
-        # and POST /resources land on the same worker.
+        # Route via X-OV-Route-To header if provided, else round-robin.
+        # Store the upload body so POST /resources can re-upload to the
+        # correct hash-routed worker if it differs.
         route_key = request.headers.get("x-ov-route-to", "")
         if route_key:
             target = _hash_route(route_key)
@@ -377,10 +382,52 @@ async def proxy(request: Request, path: str):
             target = _round_robin()
         logger.debug("temp_upload -> %s (route_key=%s)", target, route_key or "none")
         r = await _forward_raw(client, method, target, full_path, body, query, content_type)
+        if r.status_code < 400:
+            try:
+                data = r.json()
+                temp_path = data.get("result", {}).get("temp_path", "")
+                if temp_path:
+                    _temp_store[temp_path] = (target, body, content_type)
+            except Exception:
+                pass
         return _build_response(r)
 
     if full_path == "/api/v1/resources" and method == "POST":
-        return await _hash_route_forward(client, body, "to", full_path, query, method)
+        # Hash-route by "to" URI. If the temp file was uploaded to a
+        # different worker, re-upload it to the target worker first.
+        try:
+            data = json.loads(body)
+            to_uri = data.get("to", "")
+            temp_path = data.get("temp_path", "")
+        except Exception:
+            to_uri = ""
+            temp_path = ""
+        if not to_uri:
+            return _error(400, "missing 'to' field")
+        target = _hash_route(to_uri)
+        if not worker_healthy.get(target, False):
+            return _error(503, f"owning worker {target} is down")
+
+        # Re-upload temp file if it landed on a different worker
+        stored = _temp_store.pop(temp_path, None)
+        if stored:
+            original_worker, original_body, original_ct = stored
+            if original_worker != target:
+                logger.debug("re-uploading temp %s from %s to %s", temp_path, original_worker, target)
+                reup = await _forward_raw(client, "POST", target,
+                                          "/api/v1/resources/temp_upload",
+                                          original_body, "", original_ct)
+                if reup.status_code < 400:
+                    try:
+                        new_temp = reup.json().get("result", {}).get("temp_path", "")
+                        if new_temp:
+                            data["temp_path"] = new_temp
+                            body = json.dumps(data).encode()
+                    except Exception:
+                        pass
+
+        r = await _forward_json(client, method, target, full_path, body, query)
+        return _build_response(r)
 
     if full_path == "/api/v1/fs/mkdir" and method == "POST":
         return await _broadcast(client, method, full_path, body, query)
