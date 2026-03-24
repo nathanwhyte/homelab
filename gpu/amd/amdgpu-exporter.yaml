@@ -51,6 +51,7 @@ data:
         defs = [
             ("amdgpu_utilization_percent", "gauge", "GPU utilization percentage"),
             ("amdgpu_temperature_celsius", "gauge", "GPU edge temperature in Celsius"),
+            ("amdgpu_junction_temperature_celsius", "gauge", "GPU junction (hotspot) temperature in Celsius"),
             ("amdgpu_vram_used_bytes", "gauge", "VRAM used in bytes"),
             ("amdgpu_vram_total_bytes", "gauge", "VRAM total in bytes"),
             ("amdgpu_power_watts", "gauge", "Current power draw in watts"),
@@ -74,6 +75,9 @@ data:
                 val = read_file(os.path.join(hwmon, "temp1_input"))
                 if val:
                     lines.append(f"amdgpu_temperature_celsius{{{lbl}}} {int(val) / 1000}")
+                val = read_file(os.path.join(hwmon, "temp2_input"))
+                if val:
+                    lines.append(f"amdgpu_junction_temperature_celsius{{{lbl}}} {int(val) / 1000}")
 
             val = read_file(os.path.join(dev, "mem_info_vram_used"))
             if val:

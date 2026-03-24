@@ -416,6 +416,120 @@ data:
           ]
         },
         {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "type": "timeseries",
+          "id": 19,
+          "title": "Junction Temperature (AMD)",
+          "description": "GPU hotspot temperature — the throttling-relevant sensor, typically 20\u201325\u00b0C above edge temp",
+          "gridPos": {
+            "h": 8,
+            "w": 24,
+            "x": 0,
+            "y": 18
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "axisBorderShow": false,
+                "axisCenteredZero": false,
+                "axisColorMode": "text",
+                "axisPlacement": "auto",
+                "drawStyle": "line",
+                "fillOpacity": 5,
+                "gradientMode": "none",
+                "lineInterpolation": "linear",
+                "lineWidth": 2,
+                "pointSize": 5,
+                "showPoints": "never",
+                "spanNulls": true,
+                "stacking": {
+                  "group": "A",
+                  "mode": "none"
+                },
+                "thresholdsStyle": {
+                  "mode": "line+area"
+                },
+                "barAlignment": 0,
+                "barWidthFactor": 0.6,
+                "hideFrom": {
+                  "legend": false,
+                  "tooltip": false,
+                  "viz": false
+                },
+                "insertNulls": false,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "showValues": false
+              },
+              "mappings": [],
+              "min": 0,
+              "unit": "celsius",
+              "max": 110,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "yellow",
+                    "value": 85
+                  },
+                  {
+                    "color": "red",
+                    "value": 95
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "calcs": [
+                "mean",
+                "lastNotNull",
+                "max"
+              ],
+              "displayMode": "table",
+              "placement": "right",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "max(amdgpu_junction_temperature_celsius{gpu=\"1\"})",
+              "legendFormat": "timmy \u2014 RX 9070 XT (junction)",
+              "refId": "A"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "max(amdgpu_temperature_celsius{gpu=\"1\"})",
+              "legendFormat": "timmy \u2014 RX 9070 XT (edge)",
+              "refId": "B"
+            }
+          ]
+        },
+        {
           "type": "row",
           "id": 7,
           "title": "Power",
