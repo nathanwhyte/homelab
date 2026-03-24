@@ -1,0 +1,388 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ov-merge-code
+  namespace: viking
+data:
+  merge_service.py: |
+    """OV Merge Service — continuously merges worker shards into a single VikingDB.
+
+    Runs a background loop that:
+    1. Lists all URIs across all workers (union)
+    2. Lists URIs on the merged instance
+    3. Reindexes missing URIs on the merged instance
+    4. Exposes /merge-status for the coordinator to poll
+
+    Env vars:
+      OV_WORKERS       — comma-separated worker base URLs
+      OV_MERGED_URL    — base URL of the merged OV instance
+      OV_API_KEY       — API key forwarded to OV instances
+      MERGE_INTERVAL   — seconds between merge cycles (default 60)
+      STALE_THRESHOLD  — seconds before merged data is considered stale (default 600)
+      PORT             — listen port (default 8080)
+    """
+
+    import asyncio
+    import logging
+    import os
+    import time
+    from dataclasses import dataclass, field
+    from datetime import datetime, timezone
+
+    import httpx
+    from fastapi import FastAPI
+
+    # ---------------------------------------------------------------------------
+    # Configuration
+    # ---------------------------------------------------------------------------
+
+    WORKERS = [u.strip() for u in os.environ.get("OV_WORKERS", "").split(",") if u.strip()]
+    MERGED_URL = os.environ.get("OV_MERGED_URL", "")
+    API_KEY = os.environ.get("OV_API_KEY", "")
+    MERGE_INTERVAL = int(os.environ.get("MERGE_INTERVAL", "60"))
+    STALE_THRESHOLD = int(os.environ.get("STALE_THRESHOLD", "600"))
+    PORT = int(os.environ.get("PORT", "8080"))
+
+    HEADERS = {
+        "X-API-Key": API_KEY,
+        "X-OpenViking-Account": "default",
+        "X-OpenViking-User": "noot",
+        "Content-Type": "application/json",
+    }
+
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s:%(name)s:%(message)s")
+    logger = logging.getLogger("ov-merge")
+
+    # ---------------------------------------------------------------------------
+    # Merge state
+    # ---------------------------------------------------------------------------
+
+
+    @dataclass
+    class MergeState:
+        healthy: bool = False
+        stale: bool = True
+        last_merge_completed: str | None = None
+        last_merge_duration_s: float = 0
+        uri_count: int = 0
+        in_progress: bool = False
+        items_remaining: int = 0
+        items_reindexed: int = 0
+        last_error: str | None = None
+        cycle_count: int = 0
+        errors: list[str] = field(default_factory=list)
+
+
+    state = MergeState()
+
+    # ---------------------------------------------------------------------------
+    # Helpers
+    # ---------------------------------------------------------------------------
+
+
+    async def list_uris(client: httpx.AsyncClient, base_url: str) -> set[str]:
+        """List all non-directory URIs on an OV instance."""
+        resp = await client.get(
+            f"{base_url}/api/v1/fs/tree",
+            params={"uri": "viking://", "level_limit": 99},
+            headers=HEADERS,
+            timeout=30,
+        )
+        data = resp.json()
+        if data.get("status") == "error":
+            raise RuntimeError(f"tree error from {base_url}: {data}")
+        result = data.get("result") or []
+        return {node["uri"] for node in result if not node.get("isDir", False)}
+
+
+    async def reindex_uri(client: httpx.AsyncClient, uri: str) -> bool:
+        """Trigger reindex of a single URI on the merged instance. Returns True on success."""
+        try:
+            resp = await client.post(
+                f"{MERGED_URL}/api/v1/content/reindex",
+                json={"uri": uri, "regenerate": True, "wait": True},
+                headers=HEADERS,
+            )
+            data = resp.json()
+            if data.get("status") == "error":
+                err = data.get("error", {}).get("message", str(data))
+                logger.warning("reindex failed for %s: %s", uri, err)
+                return False
+            return True
+        except Exception as exc:
+            logger.warning("reindex exception for %s: %s", uri, exc)
+            return False
+
+
+    async def check_merged_health(client: httpx.AsyncClient) -> bool:
+        """Check if the merged OV instance is responding."""
+        try:
+            resp = await client.get(f"{MERGED_URL}/health", timeout=5)
+            return resp.status_code == 200
+        except Exception:
+            return False
+
+
+    # ---------------------------------------------------------------------------
+    # Merge loop
+    # ---------------------------------------------------------------------------
+
+
+    async def merge_cycle(client: httpx.AsyncClient):
+        """Run one merge cycle: list, diff, reindex."""
+        state.in_progress = True
+        state.items_reindexed = 0
+        state.errors = []
+        cycle_start = time.monotonic()
+
+        try:
+            # Check merged instance health first
+            if not await check_merged_health(client):
+                state.healthy = False
+                state.last_error = "merged instance unreachable"
+                logger.warning("Merged instance at %s is unreachable, skipping cycle", MERGED_URL)
+                return
+
+            # List URIs across all workers
+            all_worker_uris: set[str] = set()
+            for worker in WORKERS:
+                try:
+                    w_uris = await list_uris(client, worker)
+                    all_worker_uris |= w_uris
+                    logger.debug("Worker %s has %d URIs", worker, len(w_uris))
+                except Exception as exc:
+                    logger.warning("Failed to list URIs on %s: %s", worker, exc)
+                    state.errors.append(f"list {worker}: {exc}")
+
+            if not all_worker_uris:
+                logger.warning("No URIs found across any workers")
+                state.healthy = True
+                state.stale = False
+                state.last_merge_completed = datetime.now(timezone.utc).isoformat()
+                return
+
+            # List URIs on merged instance
+            try:
+                merged_uris = await list_uris(client, MERGED_URL)
+            except Exception as exc:
+                state.healthy = False
+                state.last_error = f"merged list failed: {exc}"
+                logger.error("Failed to list merged URIs: %s", exc)
+                return
+
+            # Compute delta
+            missing = all_worker_uris - merged_uris
+            state.items_remaining = len(missing)
+            state.uri_count = len(all_worker_uris)
+
+            if missing:
+                logger.info("Reindexing %d missing URIs on merged instance", len(missing))
+
+            # Reindex missing URIs
+            for uri in sorted(missing):
+                ok = await reindex_uri(client, uri)
+                if ok:
+                    state.items_reindexed += 1
+                    logger.info("Reindexed %s (%d/%d)", uri, state.items_reindexed, len(missing))
+                else:
+                    state.errors.append(f"reindex {uri}")
+                state.items_remaining -= 1
+
+            # Update state
+            state.healthy = True
+            state.stale = False
+            state.last_merge_completed = datetime.now(timezone.utc).isoformat()
+            state.last_merge_duration_s = round(time.monotonic() - cycle_start, 1)
+            state.cycle_count += 1
+            state.last_error = None
+
+            logger.info(
+                "Merge cycle %d complete: %d total URIs, %d reindexed, %d errors, %.1fs",
+                state.cycle_count,
+                len(all_worker_uris),
+                state.items_reindexed,
+                len(state.errors),
+                state.last_merge_duration_s,
+            )
+
+        except Exception as exc:
+            state.last_error = str(exc)
+            logger.exception("Merge cycle failed: %s", exc)
+        finally:
+            state.in_progress = False
+
+
+    async def merge_loop():
+        """Run merge cycles forever with MERGE_INTERVAL sleep between them."""
+        async with httpx.AsyncClient(timeout=None) as client:
+            while True:
+                await merge_cycle(client)
+                await asyncio.sleep(MERGE_INTERVAL)
+
+
+    # ---------------------------------------------------------------------------
+    # Staleness checker
+    # ---------------------------------------------------------------------------
+
+
+    async def staleness_loop():
+        """Periodically check if the last merge is too old."""
+        while True:
+            if state.last_merge_completed:
+                last = datetime.fromisoformat(state.last_merge_completed)
+                age = (datetime.now(timezone.utc) - last).total_seconds()
+                if age > STALE_THRESHOLD:
+                    state.stale = True
+            await asyncio.sleep(10)
+
+
+    # ---------------------------------------------------------------------------
+    # FastAPI app
+    # ---------------------------------------------------------------------------
+
+    from contextlib import asynccontextmanager
+
+
+    @asynccontextmanager
+    async def lifespan(_app: FastAPI):
+        merge_task = asyncio.create_task(merge_loop())
+        stale_task = asyncio.create_task(staleness_loop())
+        yield
+        merge_task.cancel()
+        stale_task.cancel()
+        for t in (merge_task, stale_task):
+            try:
+                await t
+            except asyncio.CancelledError:
+                pass
+
+
+    app = FastAPI(title="OV Merge Service", lifespan=lifespan)
+
+
+    @app.get("/merge-status")
+    async def merge_status():
+        return {
+            "healthy": state.healthy,
+            "stale": state.stale,
+            "last_merge_completed": state.last_merge_completed,
+            "last_merge_duration_s": state.last_merge_duration_s,
+            "uri_count": state.uri_count,
+            "in_progress": state.in_progress,
+            "items_remaining": state.items_remaining,
+            "items_reindexed": state.items_reindexed,
+            "cycle_count": state.cycle_count,
+            "last_error": state.last_error,
+            "error_count": len(state.errors),
+            "config": {
+                "merge_interval": MERGE_INTERVAL,
+                "stale_threshold": STALE_THRESHOLD,
+                "worker_count": len(WORKERS),
+                "merged_url": MERGED_URL,
+            },
+        }
+
+
+    @app.get("/health")
+    async def health():
+        return {"status": "ok"}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ov-merge
+  namespace: viking
+  labels:
+    app: ov-merge
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ov-merge
+  template:
+    metadata:
+      labels:
+        app: ov-merge
+    spec:
+      initContainers:
+        - name: install-deps
+          image: python:3.12-slim
+          command: ["/bin/sh", "-c"]
+          args:
+            - pip install --no-cache-dir --target=/deps fastapi uvicorn httpx
+          volumeMounts:
+            - name: deps
+              mountPath: /deps
+      containers:
+        - name: ov-merge
+          image: python:3.12-slim
+          command: ["/bin/sh", "-c"]
+          args:
+            - >-
+              PYTHONPATH=/deps exec python -m uvicorn merge_service:app
+              --host 0.0.0.0 --port 8080 --log-level info
+              --app-dir /app
+          ports:
+            - containerPort: 8080
+              name: http
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
+          env:
+            - name: OV_WORKERS
+              value: >-
+                http://ov-worker-0.ov-worker-headless.viking.svc.cluster.local:1933,http://ov-worker-1.ov-worker-headless.viking.svc.cluster.local:1933,http://ov-worker-2.ov-worker-headless.viking.svc.cluster.local:1933,http://ov-worker-3.ov-worker-headless.viking.svc.cluster.local:1933,http://ov-worker-4.ov-worker-headless.viking.svc.cluster.local:1933
+            - name: OV_MERGED_URL
+              value: "http://ov-merged.viking.svc.cluster.local:1933"
+            - name: OV_API_KEY
+              valueFrom:
+                configMapKeyRef:
+                  name: openviking-config
+                  key: api-key
+            - name: MERGE_INTERVAL
+              value: "60"
+            - name: STALE_THRESHOLD
+              value: "600"
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            tcpSocket:
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          volumeMounts:
+            - name: code
+              mountPath: /app
+            - name: deps
+              mountPath: /deps
+      volumes:
+        - name: code
+          configMap:
+            name: ov-merge-code
+        - name: deps
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ov-merge
+  namespace: viking
+  labels:
+    app: ov-merge
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+  selector:
+    app: ov-merge

@@ -28,6 +28,8 @@ from fastapi import FastAPI, Request, Response
 WORKERS = [u.strip() for u in os.environ.get("OV_WORKERS", "").split(",") if u.strip()]
 API_KEY = os.environ.get("OV_API_KEY", "")
 PORT = int(os.environ.get("PORT", "1933"))
+MERGED_URL = os.environ.get("OV_MERGED_URL", "")
+MERGE_STATUS_URL = os.environ.get("OV_MERGE_STATUS_URL", "")
 
 HEADERS = {
     "X-API-Key": API_KEY,
@@ -46,6 +48,10 @@ logger = logging.getLogger("ov-coordinator")
 
 worker_healthy: dict[str, bool] = {w: True for w in WORKERS}
 _rr_counter = 0  # round-robin counter for stateless routes
+
+# Merged instance state (populated by _health_loop polling the merge service)
+merged_healthy: bool = False
+merged_stale: bool = True
 
 # Temp file store: maps temp_path -> (worker_url, raw_body, content_type)
 # Ensures POST /resources can re-upload to the hash-routed worker if
@@ -82,11 +88,17 @@ def _any_single() -> str:
     return hw[0]
 
 
+def _use_merged() -> bool:
+    """Whether to route reads to the merged instance instead of fan-out."""
+    return bool(MERGED_URL) and merged_healthy and not merged_stale
+
+
 # ---------------------------------------------------------------------------
 # Background health monitor
 # ---------------------------------------------------------------------------
 
 async def _health_loop():
+    global merged_healthy, merged_stale
     async with httpx.AsyncClient(timeout=4) as client:
         while True:
             for w in WORKERS:
@@ -95,6 +107,20 @@ async def _health_loop():
                     worker_healthy[w] = r.status_code == 200
                 except Exception:
                     worker_healthy[w] = False
+            # Poll merge service status
+            if MERGE_STATUS_URL:
+                try:
+                    r = await client.get(f"{MERGE_STATUS_URL}/merge-status")
+                    if r.status_code == 200:
+                        data = r.json()
+                        merged_healthy = data.get("healthy", False)
+                        merged_stale = data.get("stale", True)
+                    else:
+                        merged_healthy = False
+                        merged_stale = True
+                except Exception:
+                    merged_healthy = False
+                    merged_stale = True
             await asyncio.sleep(HEALTH_INTERVAL)
 
 
@@ -325,6 +351,12 @@ async def health():
         "workers": status,
         "healthy_count": sum(1 for v in status.values() if v),
         "total_count": len(WORKERS),
+        "merged": {
+            "url": MERGED_URL or None,
+            "healthy": merged_healthy,
+            "stale": merged_stale,
+            "active": _use_merged(),
+        },
     }
 
 
@@ -441,13 +473,36 @@ async def proxy(request: Request, path: str):
     # --- Read routes (fan-out + merge) ---
 
     if full_path == "/api/v1/search/search" and method == "POST":
+        if _use_merged():
+            try:
+                r = await _forward_json(client, method, MERGED_URL, full_path, body, query)
+                if r.status_code == 200:
+                    return _build_response(r)
+            except Exception:
+                logger.debug("merged search failed, falling back to fan-out")
         return await _fanout_search(client, full_path, body, query)
 
     if full_path in ("/api/v1/search/find", "/api/v1/search/grep") and method == "POST":
+        if _use_merged():
+            try:
+                r = await _forward_json(client, method, MERGED_URL, full_path, body, query)
+                if r.status_code == 200:
+                    return _build_response(r)
+            except Exception:
+                logger.debug("merged find/grep failed, falling back to fan-out")
         return await _fanout_merge_list(client, method, full_path, body, query)
 
     if full_path in ("/api/v1/content/read", "/api/v1/content/abstract",
                      "/api/v1/content/overview") and method == "GET":
+        if _use_merged():
+            try:
+                r = await _forward_json(client, method, MERGED_URL, full_path, body, query)
+                if r.status_code == 200:
+                    data = r.json()
+                    if data.get("status") == "ok" and data.get("result"):
+                        return _build_response(r)
+            except Exception:
+                logger.debug("merged content read failed, falling back to fan-out")
         return await _fanout_first(client, method, full_path, body, query)
 
     # --- Filesystem (shared S3 — any single worker) ---

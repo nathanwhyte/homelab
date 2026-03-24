@@ -1,0 +1,16 @@
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ov-merged
+  namespace: viking
+  labels:
+    app: ov-merged
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 1933
+      targetPort: 1933
+  selector:
+    app: openviking
