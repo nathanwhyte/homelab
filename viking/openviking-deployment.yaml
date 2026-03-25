@@ -93,7 +93,7 @@ spec:
               path: /ready
               port: 1933
             periodSeconds: 10
-            timeoutSeconds: 10
+            timeoutSeconds: 120
           livenessProbe:
             tcpSocket:
               port: 1933
