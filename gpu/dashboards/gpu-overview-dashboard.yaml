@@ -33,31 +33,22 @@ data:
       "links": [],
       "panels": [
         {
-          "type": "row",
-          "id": 1,
-          "title": "Utilization",
+          "collapsed": false,
           "gridPos": {
             "h": 1,
             "w": 24,
             "x": 0,
             "y": 0
           },
-          "collapsed": false,
-          "panels": []
+          "id": 1,
+          "panels": [],
+          "title": "Utilization",
+          "type": "row"
         },
         {
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
-          },
-          "type": "timeseries",
-          "id": 2,
-          "title": "GPU Utilization",
-          "gridPos": {
-            "h": 8,
-            "w": 18,
-            "x": 0,
-            "y": 1
           },
           "fieldConfig": {
             "defaults": {
@@ -68,14 +59,27 @@ data:
                 "axisBorderShow": false,
                 "axisCenteredZero": false,
                 "axisColorMode": "text",
+                "axisLabel": "",
                 "axisPlacement": "auto",
+                "barAlignment": 0,
+                "barWidthFactor": 0.6,
                 "drawStyle": "line",
                 "fillOpacity": 5,
                 "gradientMode": "none",
+                "hideFrom": {
+                  "legend": false,
+                  "tooltip": false,
+                  "viz": false
+                },
+                "insertNulls": false,
                 "lineInterpolation": "linear",
                 "lineWidth": 2,
                 "pointSize": 5,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
                 "showPoints": "never",
+                "showValues": false,
                 "spanNulls": true,
                 "stacking": {
                   "group": "A",
@@ -83,36 +87,31 @@ data:
                 },
                 "thresholdsStyle": {
                   "mode": "off"
-                },
-                "barAlignment": 0,
-                "barWidthFactor": 0.6,
-                "hideFrom": {
-                  "legend": false,
-                  "tooltip": false,
-                  "viz": false
-                },
-                "insertNulls": false,
-                "scaleDistribution": {
-                  "type": "linear"
-                },
-                "showValues": false
+                }
               },
               "mappings": [],
-              "min": 0,
-              "unit": "percent",
               "max": 100,
+              "min": 0,
               "thresholds": {
                 "mode": "absolute",
                 "steps": [
                   {
                     "color": "green",
-                    "value": null
+                    "value": 0
                   }
                 ]
-              }
+              },
+              "unit": "percent"
             },
             "overrides": []
           },
+          "gridPos": {
+            "h": 8,
+            "w": 18,
+            "x": 0,
+            "y": 1
+          },
+          "id": 2,
           "options": {
             "legend": {
               "calcs": [
@@ -125,10 +124,12 @@ data:
               "showLegend": true
             },
             "tooltip": {
+              "hideZeros": false,
               "mode": "multi",
               "sort": "desc"
             }
           },
+          "pluginVersion": "12.4.1",
           "targets": [
             {
               "datasource": {
@@ -148,21 +149,14 @@ data:
               "legendFormat": "timmy \u2014 RX 9070 XT",
               "refId": "B"
             }
-          ]
+          ],
+          "title": "GPU Utilization",
+          "type": "timeseries"
         },
         {
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
-          },
-          "type": "stat",
-          "id": 3,
-          "title": "Current Utilization",
-          "gridPos": {
-            "h": 8,
-            "w": 6,
-            "x": 18,
-            "y": 1
           },
           "fieldConfig": {
             "defaults": {
@@ -170,24 +164,34 @@ data:
                 "mode": "palette-classic"
               },
               "mappings": [],
-              "unit": "percent",
+              "max": 100,
               "min": 0,
               "thresholds": {
                 "mode": "absolute",
                 "steps": [
                   {
                     "color": "green",
-                    "value": null
+                    "value": 0
                   }
                 ]
-              }
+              },
+              "unit": "percent"
             },
             "overrides": []
           },
+          "gridPos": {
+            "h": 8,
+            "w": 6,
+            "x": 18,
+            "y": 1
+          },
+          "id": 3,
           "options": {
             "colorMode": "value",
             "graphMode": "area",
             "justifyMode": "auto",
+            "orientation": "auto",
+            "percentChangeColorMode": "standard",
             "reduceOptions": {
               "calcs": [
                 "lastNotNull"
@@ -195,9 +199,11 @@ data:
               "fields": "",
               "values": false
             },
+            "showPercentChange": false,
             "textMode": "auto",
             "wideLayout": true
           },
+          "pluginVersion": "12.4.1",
           "targets": [
             {
               "datasource": {
@@ -217,34 +223,27 @@ data:
               "legendFormat": "timmy \u2014 RX 9070 XT",
               "refId": "B"
             }
-          ]
+          ],
+          "title": "Current Utilization",
+          "type": "stat"
         },
         {
-          "type": "row",
-          "id": 4,
-          "title": "Temperature",
+          "collapsed": false,
           "gridPos": {
             "h": 1,
             "w": 24,
             "x": 0,
             "y": 9
           },
-          "collapsed": false,
-          "panels": []
+          "id": 4,
+          "panels": [],
+          "title": "Temperature",
+          "type": "row"
         },
         {
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
-          },
-          "type": "timeseries",
-          "id": 5,
-          "title": "GPU Temperature",
-          "gridPos": {
-            "h": 8,
-            "w": 18,
-            "x": 0,
-            "y": 10
           },
           "fieldConfig": {
             "defaults": {
@@ -255,14 +254,27 @@ data:
                 "axisBorderShow": false,
                 "axisCenteredZero": false,
                 "axisColorMode": "text",
+                "axisLabel": "",
                 "axisPlacement": "auto",
+                "barAlignment": 0,
+                "barWidthFactor": 0.6,
                 "drawStyle": "line",
                 "fillOpacity": 5,
                 "gradientMode": "none",
+                "hideFrom": {
+                  "legend": false,
+                  "tooltip": false,
+                  "viz": false
+                },
+                "insertNulls": false,
                 "lineInterpolation": "linear",
                 "lineWidth": 2,
                 "pointSize": 5,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
                 "showPoints": "never",
+                "showValues": false,
                 "spanNulls": true,
                 "stacking": {
                   "group": "A",
@@ -270,30 +282,17 @@ data:
                 },
                 "thresholdsStyle": {
                   "mode": "line+area"
-                },
-                "barAlignment": 0,
-                "barWidthFactor": 0.6,
-                "hideFrom": {
-                  "legend": false,
-                  "tooltip": false,
-                  "viz": false
-                },
-                "insertNulls": false,
-                "scaleDistribution": {
-                  "type": "linear"
-                },
-                "showValues": false
+                }
               },
               "mappings": [],
-              "min": 0,
-              "unit": "celsius",
               "max": 100,
+              "min": 0,
               "thresholds": {
                 "mode": "absolute",
                 "steps": [
                   {
                     "color": "green",
-                    "value": null
+                    "value": 0
                   },
                   {
                     "color": "yellow",
@@ -304,10 +303,18 @@ data:
                     "value": 90
                   }
                 ]
-              }
+              },
+              "unit": "celsius"
             },
             "overrides": []
           },
+          "gridPos": {
+            "h": 8,
+            "w": 18,
+            "x": 0,
+            "y": 10
+          },
+          "id": 5,
           "options": {
             "legend": {
               "calcs": [
@@ -320,10 +327,12 @@ data:
               "showLegend": true
             },
             "tooltip": {
+              "hideZeros": false,
               "mode": "multi",
               "sort": "desc"
             }
           },
+          "pluginVersion": "12.4.1",
           "targets": [
             {
               "datasource": {
@@ -343,21 +352,14 @@ data:
               "legendFormat": "timmy \u2014 RX 9070 XT",
               "refId": "B"
             }
-          ]
+          ],
+          "title": "GPU Temperature",
+          "type": "timeseries"
         },
         {
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
-          },
-          "type": "gauge",
-          "id": 6,
-          "title": "Avg Temperature",
-          "gridPos": {
-            "h": 8,
-            "w": 6,
-            "x": 18,
-            "y": 10
           },
           "fieldConfig": {
             "defaults": {
@@ -365,29 +367,36 @@ data:
                 "mode": "thresholds"
               },
               "mappings": [],
-              "min": 0,
               "max": 100,
-              "unit": "celsius",
+              "min": 0,
               "thresholds": {
                 "mode": "absolute",
                 "steps": [
                   {
                     "color": "green",
-                    "value": null
+                    "value": 0
                   },
                   {
                     "color": "#EAB839",
-                    "value": 75.0
+                    "value": 75
                   },
                   {
                     "color": "red",
-                    "value": 90.0
+                    "value": 90
                   }
                 ]
-              }
+              },
+              "unit": "celsius"
             },
             "overrides": []
           },
+          "gridPos": {
+            "h": 8,
+            "w": 6,
+            "x": 18,
+            "y": 10
+          },
+          "id": 6,
           "options": {
             "minVizHeight": 75,
             "minVizWidth": 75,
@@ -403,6 +412,7 @@ data:
             "showThresholdMarkers": true,
             "sizing": "auto"
           },
+          "pluginVersion": "12.4.1",
           "targets": [
             {
               "datasource": {
@@ -413,23 +423,16 @@ data:
               "legendFormat": "",
               "refId": "A"
             }
-          ]
+          ],
+          "title": "Avg Temperature",
+          "type": "gauge"
         },
         {
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "type": "timeseries",
-          "id": 19,
-          "title": "Junction Temperature (AMD)",
-          "description": "GPU hotspot temperature — the throttling-relevant sensor, typically 20\u201325\u00b0C above edge temp",
-          "gridPos": {
-            "h": 8,
-            "w": 24,
-            "x": 0,
-            "y": 18
-          },
+          "description": "GPU hotspot temperature \u2014 the throttling-relevant sensor, typically 20\u201325\u00b0C above edge temp",
           "fieldConfig": {
             "defaults": {
               "color": {
@@ -440,14 +443,27 @@ data:
                 "axisBorderShow": false,
                 "axisCenteredZero": false,
                 "axisColorMode": "text",
+                "axisLabel": "",
                 "axisPlacement": "auto",
+                "barAlignment": 0,
+                "barWidthFactor": 0.6,
                 "drawStyle": "line",
                 "fillOpacity": 5,
                 "gradientMode": "none",
+                "hideFrom": {
+                  "legend": false,
+                  "tooltip": false,
+                  "viz": false
+                },
+                "insertNulls": false,
                 "lineInterpolation": "linear",
                 "lineWidth": 2,
                 "pointSize": 5,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
                 "showPoints": "never",
+                "showValues": false,
                 "spanNulls": true,
                 "stacking": {
                   "group": "A",
@@ -455,30 +471,17 @@ data:
                 },
                 "thresholdsStyle": {
                   "mode": "line+area"
-                },
-                "barAlignment": 0,
-                "barWidthFactor": 0.6,
-                "hideFrom": {
-                  "legend": false,
-                  "tooltip": false,
-                  "viz": false
-                },
-                "insertNulls": false,
-                "scaleDistribution": {
-                  "type": "linear"
-                },
-                "showValues": false
+                }
               },
               "mappings": [],
-              "min": 0,
-              "unit": "celsius",
               "max": 110,
+              "min": 0,
               "thresholds": {
                 "mode": "absolute",
                 "steps": [
                   {
                     "color": "green",
-                    "value": null
+                    "value": 0
                   },
                   {
                     "color": "yellow",
@@ -489,7 +492,8 @@ data:
                     "value": 95
                   }
                 ]
-              }
+              },
+              "unit": "celsius"
             },
             "overrides": [
               {
@@ -524,6 +528,13 @@ data:
               }
             ]
           },
+          "gridPos": {
+            "h": 8,
+            "w": 18,
+            "x": 0,
+            "y": 18
+          },
+          "id": 19,
           "options": {
             "legend": {
               "calcs": [
@@ -536,10 +547,12 @@ data:
               "showLegend": true
             },
             "tooltip": {
+              "hideZeros": false,
               "mode": "multi",
               "sort": "desc"
             }
           },
+          "pluginVersion": "12.4.1",
           "targets": [
             {
               "datasource": {
@@ -559,34 +572,98 @@ data:
               "legendFormat": "timmy \u2014 RX 9070 XT (edge)",
               "refId": "B"
             }
-          ]
-        },
-        {
-          "type": "row",
-          "id": 7,
-          "title": "Power",
-          "gridPos": {
-            "h": 1,
-            "w": 24,
-            "x": 0,
-            "y": 18
-          },
-          "collapsed": false,
-          "panels": []
+          ],
+          "title": "Junction Temperature (AMD)",
+          "type": "timeseries"
         },
         {
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "type": "timeseries",
-          "id": 8,
-          "title": "GPU Power Draw",
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "thresholds"
+              },
+              "mappings": [],
+              "max": 110,
+              "min": 0,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": 0
+                  },
+                  {
+                    "color": "#EAB839",
+                    "value": 85
+                  },
+                  {
+                    "color": "red",
+                    "value": 95
+                  }
+                ]
+              },
+              "unit": "celsius"
+            },
+            "overrides": []
+          },
           "gridPos": {
             "h": 8,
-            "w": 18,
+            "w": 6,
+            "x": 18,
+            "y": 18
+          },
+          "id": 20,
+          "options": {
+            "minVizHeight": 75,
+            "minVizWidth": 75,
+            "orientation": "auto",
+            "reduceOptions": {
+              "calcs": [
+                "mean"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "showThresholdLabels": false,
+            "showThresholdMarkers": true,
+            "sizing": "auto"
+          },
+          "pluginVersion": "12.4.1",
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "max(amdgpu_junction_temperature_celsius{gpu=\"1\"})",
+              "legendFormat": "",
+              "refId": "A"
+            }
+          ],
+          "title": "Avg Junction Temp",
+          "type": "gauge"
+        },
+        {
+          "collapsed": false,
+          "gridPos": {
+            "h": 1,
+            "w": 24,
             "x": 0,
-            "y": 19
+            "y": 26
+          },
+          "id": 7,
+          "panels": [],
+          "title": "Power",
+          "type": "row"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
           },
           "fieldConfig": {
             "defaults": {
@@ -597,14 +674,27 @@ data:
                 "axisBorderShow": false,
                 "axisCenteredZero": false,
                 "axisColorMode": "text",
+                "axisLabel": "",
                 "axisPlacement": "auto",
+                "barAlignment": 0,
+                "barWidthFactor": 0.6,
                 "drawStyle": "line",
                 "fillOpacity": 5,
                 "gradientMode": "none",
+                "hideFrom": {
+                  "legend": false,
+                  "tooltip": false,
+                  "viz": false
+                },
+                "insertNulls": false,
                 "lineInterpolation": "linear",
                 "lineWidth": 2,
                 "pointSize": 5,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
                 "showPoints": "never",
+                "showValues": false,
                 "spanNulls": true,
                 "stacking": {
                   "group": "A",
@@ -612,35 +702,30 @@ data:
                 },
                 "thresholdsStyle": {
                   "mode": "off"
-                },
-                "barAlignment": 0,
-                "barWidthFactor": 0.6,
-                "hideFrom": {
-                  "legend": false,
-                  "tooltip": false,
-                  "viz": false
-                },
-                "insertNulls": false,
-                "scaleDistribution": {
-                  "type": "linear"
-                },
-                "showValues": false
+                }
               },
               "mappings": [],
               "min": 0,
-              "unit": "watt",
               "thresholds": {
                 "mode": "absolute",
                 "steps": [
                   {
                     "color": "green",
-                    "value": null
+                    "value": 0
                   }
                 ]
-              }
+              },
+              "unit": "watt"
             },
             "overrides": []
           },
+          "gridPos": {
+            "h": 8,
+            "w": 18,
+            "x": 0,
+            "y": 27
+          },
+          "id": 8,
           "options": {
             "legend": {
               "calcs": [
@@ -653,10 +738,12 @@ data:
               "showLegend": true
             },
             "tooltip": {
+              "hideZeros": false,
               "mode": "multi",
               "sort": "desc"
             }
           },
+          "pluginVersion": "12.4.1",
           "targets": [
             {
               "datasource": {
@@ -676,21 +763,14 @@ data:
               "legendFormat": "timmy \u2014 RX 9070 XT",
               "refId": "B"
             }
-          ]
+          ],
+          "title": "GPU Power Draw",
+          "type": "timeseries"
         },
         {
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
-          },
-          "type": "gauge",
-          "id": 9,
-          "title": "Total GPU Power",
-          "gridPos": {
-            "h": 8,
-            "w": 6,
-            "x": 18,
-            "y": 19
           },
           "fieldConfig": {
             "defaults": {
@@ -698,29 +778,36 @@ data:
                 "mode": "thresholds"
               },
               "mappings": [],
-              "min": 0,
               "max": 600,
-              "unit": "watt",
+              "min": 0,
               "thresholds": {
                 "mode": "absolute",
                 "steps": [
                   {
                     "color": "green",
-                    "value": null
+                    "value": 0
                   },
                   {
                     "color": "#EAB839",
-                    "value": 450.0
+                    "value": 450
                   },
                   {
                     "color": "red",
-                    "value": 540.0
+                    "value": 540
                   }
                 ]
-              }
+              },
+              "unit": "watt"
             },
             "overrides": []
           },
+          "gridPos": {
+            "h": 8,
+            "w": 6,
+            "x": 18,
+            "y": 27
+          },
+          "id": 9,
           "options": {
             "minVizHeight": 75,
             "minVizWidth": 75,
@@ -736,6 +823,7 @@ data:
             "showThresholdMarkers": true,
             "sizing": "auto"
           },
+          "pluginVersion": "12.4.1",
           "targets": [
             {
               "datasource": {
@@ -746,34 +834,27 @@ data:
               "legendFormat": "",
               "refId": "A"
             }
-          ]
+          ],
+          "title": "Total GPU Power",
+          "type": "gauge"
         },
         {
-          "type": "row",
-          "id": 10,
-          "title": "VRAM",
+          "collapsed": false,
           "gridPos": {
             "h": 1,
             "w": 24,
             "x": 0,
-            "y": 27
+            "y": 35
           },
-          "collapsed": false,
-          "panels": []
+          "id": 10,
+          "panels": [],
+          "title": "VRAM",
+          "type": "row"
         },
         {
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
-          },
-          "type": "timeseries",
-          "id": 11,
-          "title": "VRAM Used",
-          "gridPos": {
-            "h": 8,
-            "w": 14,
-            "x": 0,
-            "y": 28
           },
           "fieldConfig": {
             "defaults": {
@@ -785,13 +866,25 @@ data:
                 "axisCenteredZero": false,
                 "axisColorMode": "text",
                 "axisPlacement": "auto",
+                "barAlignment": 0,
+                "barWidthFactor": 0.6,
                 "drawStyle": "line",
                 "fillOpacity": 5,
                 "gradientMode": "none",
+                "hideFrom": {
+                  "legend": false,
+                  "tooltip": false,
+                  "viz": false
+                },
+                "insertNulls": false,
                 "lineInterpolation": "linear",
                 "lineWidth": 2,
                 "pointSize": 5,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
                 "showPoints": "never",
+                "showValues": false,
                 "spanNulls": true,
                 "stacking": {
                   "group": "A",
@@ -799,35 +892,29 @@ data:
                 },
                 "thresholdsStyle": {
                   "mode": "off"
-                },
-                "barAlignment": 0,
-                "barWidthFactor": 0.6,
-                "hideFrom": {
-                  "legend": false,
-                  "tooltip": false,
-                  "viz": false
-                },
-                "insertNulls": false,
-                "scaleDistribution": {
-                  "type": "linear"
-                },
-                "showValues": false
+                }
               },
               "mappings": [],
               "min": 0,
-              "unit": "bytes",
               "thresholds": {
                 "mode": "absolute",
                 "steps": [
                   {
-                    "color": "green",
-                    "value": null
+                    "color": "green"
                   }
                 ]
-              }
+              },
+              "unit": "bytes"
             },
             "overrides": []
           },
+          "gridPos": {
+            "h": 8,
+            "w": 14,
+            "x": 0,
+            "y": 36
+          },
+          "id": 11,
           "options": {
             "legend": {
               "calcs": [
@@ -863,21 +950,14 @@ data:
               "legendFormat": "timmy \u2014 RX 9070 XT",
               "refId": "B"
             }
-          ]
+          ],
+          "title": "VRAM Used",
+          "type": "timeseries"
         },
         {
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
-          },
-          "type": "bargauge",
-          "id": 12,
-          "title": "VRAM Usage per GPU",
-          "gridPos": {
-            "h": 8,
-            "w": 10,
-            "x": 14,
-            "y": 28
           },
           "fieldConfig": {
             "defaults": {
@@ -885,20 +965,26 @@ data:
                 "mode": "palette-classic"
               },
               "mappings": [],
-              "unit": "bytes",
               "min": 0,
               "thresholds": {
                 "mode": "absolute",
                 "steps": [
                   {
-                    "color": "green",
-                    "value": null
+                    "color": "green"
                   }
                 ]
-              }
+              },
+              "unit": "bytes"
             },
             "overrides": []
           },
+          "gridPos": {
+            "h": 8,
+            "w": 10,
+            "x": 14,
+            "y": 36
+          },
+          "id": 12,
           "options": {
             "displayMode": "gradient",
             "minVizHeight": 10,
@@ -935,34 +1021,27 @@ data:
               "legendFormat": "timmy \u2014 RX 9070 XT",
               "refId": "B"
             }
-          ]
+          ],
+          "title": "VRAM Usage per GPU",
+          "type": "bargauge"
         },
         {
-          "type": "row",
-          "id": 13,
-          "title": "Clocks",
+          "collapsed": false,
           "gridPos": {
             "h": 1,
             "w": 24,
             "x": 0,
-            "y": 36
+            "y": 44
           },
-          "collapsed": false,
-          "panels": []
+          "id": 13,
+          "panels": [],
+          "title": "Clocks",
+          "type": "row"
         },
         {
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
-          },
-          "type": "timeseries",
-          "id": 14,
-          "title": "GPU Core Clock",
-          "gridPos": {
-            "h": 8,
-            "w": 12,
-            "x": 0,
-            "y": 37
           },
           "fieldConfig": {
             "defaults": {
@@ -974,13 +1053,25 @@ data:
                 "axisCenteredZero": false,
                 "axisColorMode": "text",
                 "axisPlacement": "auto",
+                "barAlignment": 0,
+                "barWidthFactor": 0.6,
                 "drawStyle": "line",
                 "fillOpacity": 5,
                 "gradientMode": "none",
+                "hideFrom": {
+                  "legend": false,
+                  "tooltip": false,
+                  "viz": false
+                },
+                "insertNulls": false,
                 "lineInterpolation": "linear",
                 "lineWidth": 2,
                 "pointSize": 5,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
                 "showPoints": "never",
+                "showValues": false,
                 "spanNulls": true,
                 "stacking": {
                   "group": "A",
@@ -988,35 +1079,29 @@ data:
                 },
                 "thresholdsStyle": {
                   "mode": "off"
-                },
-                "barAlignment": 0,
-                "barWidthFactor": 0.6,
-                "hideFrom": {
-                  "legend": false,
-                  "tooltip": false,
-                  "viz": false
-                },
-                "insertNulls": false,
-                "scaleDistribution": {
-                  "type": "linear"
-                },
-                "showValues": false
+                }
               },
               "mappings": [],
               "min": 0,
-              "unit": "MHz",
               "thresholds": {
                 "mode": "absolute",
                 "steps": [
                   {
-                    "color": "green",
-                    "value": null
+                    "color": "green"
                   }
                 ]
-              }
+              },
+              "unit": "MHz"
             },
             "overrides": []
           },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 45
+          },
+          "id": 14,
           "options": {
             "legend": {
               "calcs": [
@@ -1052,21 +1137,14 @@ data:
               "legendFormat": "timmy \u2014 RX 9070 XT",
               "refId": "B"
             }
-          ]
+          ],
+          "title": "GPU Core Clock",
+          "type": "timeseries"
         },
         {
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
-          },
-          "type": "timeseries",
-          "id": 15,
-          "title": "Memory Clock",
-          "gridPos": {
-            "h": 8,
-            "w": 12,
-            "x": 12,
-            "y": 37
           },
           "fieldConfig": {
             "defaults": {
@@ -1078,13 +1156,25 @@ data:
                 "axisCenteredZero": false,
                 "axisColorMode": "text",
                 "axisPlacement": "auto",
+                "barAlignment": 0,
+                "barWidthFactor": 0.6,
                 "drawStyle": "line",
                 "fillOpacity": 5,
                 "gradientMode": "none",
+                "hideFrom": {
+                  "legend": false,
+                  "tooltip": false,
+                  "viz": false
+                },
+                "insertNulls": false,
                 "lineInterpolation": "linear",
                 "lineWidth": 2,
                 "pointSize": 5,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
                 "showPoints": "never",
+                "showValues": false,
                 "spanNulls": true,
                 "stacking": {
                   "group": "A",
@@ -1092,35 +1182,29 @@ data:
                 },
                 "thresholdsStyle": {
                   "mode": "off"
-                },
-                "barAlignment": 0,
-                "barWidthFactor": 0.6,
-                "hideFrom": {
-                  "legend": false,
-                  "tooltip": false,
-                  "viz": false
-                },
-                "insertNulls": false,
-                "scaleDistribution": {
-                  "type": "linear"
-                },
-                "showValues": false
+                }
               },
               "mappings": [],
               "min": 0,
-              "unit": "MHz",
               "thresholds": {
                 "mode": "absolute",
                 "steps": [
                   {
-                    "color": "green",
-                    "value": null
+                    "color": "green"
                   }
                 ]
-              }
+              },
+              "unit": "MHz"
             },
             "overrides": []
           },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 45
+          },
+          "id": 15,
           "options": {
             "legend": {
               "calcs": [
@@ -1156,34 +1240,27 @@ data:
               "legendFormat": "timmy \u2014 RX 9070 XT",
               "refId": "B"
             }
-          ]
+          ],
+          "title": "Memory Clock",
+          "type": "timeseries"
         },
         {
-          "type": "row",
-          "id": 16,
-          "title": "Other Metrics",
+          "collapsed": false,
           "gridPos": {
             "h": 1,
             "w": 24,
             "x": 0,
-            "y": 45
+            "y": 53
           },
-          "collapsed": false,
-          "panels": []
+          "id": 16,
+          "panels": [],
+          "title": "Other Metrics",
+          "type": "row"
         },
         {
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
-          },
-          "type": "timeseries",
-          "id": 17,
-          "title": "Memory Copy Utilization (NVIDIA)",
-          "gridPos": {
-            "h": 8,
-            "w": 12,
-            "x": 0,
-            "y": 46
           },
           "fieldConfig": {
             "defaults": {
@@ -1195,13 +1272,25 @@ data:
                 "axisCenteredZero": false,
                 "axisColorMode": "text",
                 "axisPlacement": "auto",
+                "barAlignment": 0,
+                "barWidthFactor": 0.6,
                 "drawStyle": "line",
                 "fillOpacity": 5,
                 "gradientMode": "none",
+                "hideFrom": {
+                  "legend": false,
+                  "tooltip": false,
+                  "viz": false
+                },
+                "insertNulls": false,
                 "lineInterpolation": "linear",
                 "lineWidth": 2,
                 "pointSize": 5,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
                 "showPoints": "never",
+                "showValues": false,
                 "spanNulls": true,
                 "stacking": {
                   "group": "A",
@@ -1209,36 +1298,30 @@ data:
                 },
                 "thresholdsStyle": {
                   "mode": "off"
-                },
-                "barAlignment": 0,
-                "barWidthFactor": 0.6,
-                "hideFrom": {
-                  "legend": false,
-                  "tooltip": false,
-                  "viz": false
-                },
-                "insertNulls": false,
-                "scaleDistribution": {
-                  "type": "linear"
-                },
-                "showValues": false
+                }
               },
               "mappings": [],
-              "min": 0,
-              "unit": "percent",
               "max": 100,
+              "min": 0,
               "thresholds": {
                 "mode": "absolute",
                 "steps": [
                   {
-                    "color": "green",
-                    "value": null
+                    "color": "green"
                   }
                 ]
-              }
+              },
+              "unit": "percent"
             },
             "overrides": []
           },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 54
+          },
+          "id": 17,
           "options": {
             "legend": {
               "calcs": [
@@ -1265,21 +1348,14 @@ data:
               "legendFormat": "{{Hostname}} \u2014 {{short_model}}",
               "refId": "A"
             }
-          ]
+          ],
+          "title": "Memory Copy Utilization (NVIDIA)",
+          "type": "timeseries"
         },
         {
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
-          },
-          "type": "timeseries",
-          "id": 18,
-          "title": "Fan Speed (AMD)",
-          "gridPos": {
-            "h": 8,
-            "w": 12,
-            "x": 12,
-            "y": 46
           },
           "fieldConfig": {
             "defaults": {
@@ -1291,13 +1367,25 @@ data:
                 "axisCenteredZero": false,
                 "axisColorMode": "text",
                 "axisPlacement": "auto",
+                "barAlignment": 0,
+                "barWidthFactor": 0.6,
                 "drawStyle": "line",
                 "fillOpacity": 5,
                 "gradientMode": "none",
+                "hideFrom": {
+                  "legend": false,
+                  "tooltip": false,
+                  "viz": false
+                },
+                "insertNulls": false,
                 "lineInterpolation": "linear",
                 "lineWidth": 2,
                 "pointSize": 5,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
                 "showPoints": "never",
+                "showValues": false,
                 "spanNulls": true,
                 "stacking": {
                   "group": "A",
@@ -1305,35 +1393,29 @@ data:
                 },
                 "thresholdsStyle": {
                   "mode": "off"
-                },
-                "barAlignment": 0,
-                "barWidthFactor": 0.6,
-                "hideFrom": {
-                  "legend": false,
-                  "tooltip": false,
-                  "viz": false
-                },
-                "insertNulls": false,
-                "scaleDistribution": {
-                  "type": "linear"
-                },
-                "showValues": false
+                }
               },
               "mappings": [],
               "min": 0,
-              "unit": "rpm",
               "thresholds": {
                 "mode": "absolute",
                 "steps": [
                   {
-                    "color": "green",
-                    "value": null
+                    "color": "green"
                   }
                 ]
-              }
+              },
+              "unit": "rpm"
             },
             "overrides": []
           },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 54
+          },
+          "id": 18,
           "options": {
             "legend": {
               "calcs": [
@@ -1360,15 +1442,22 @@ data:
               "legendFormat": "timmy \u2014 RX 9070 XT",
               "refId": "A"
             }
-          ]
+          ],
+          "title": "Fan Speed (AMD)",
+          "type": "timeseries"
         }
       ],
-      "schemaVersion": 39,
+      "preload": false,
+      "refresh": "30s",
+      "schemaVersion": 42,
       "tags": [
         "gpu",
         "nvidia",
         "amd"
       ],
+      "templating": {
+        "list": []
+      },
       "time": {
         "from": "now-1h",
         "to": "now"
@@ -1377,6 +1466,6 @@ data:
       "timezone": "browser",
       "title": "GPU Overview",
       "uid": "gpu-overview",
-      "version": 1,
-      "refresh": "30s"
+      "version": 9,
+      "weekStart": ""
     }
