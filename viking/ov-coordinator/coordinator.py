@@ -82,10 +82,8 @@ def _round_robin() -> str:
 
 
 def _any_single() -> str:
-    hw = healthy_workers()
-    if not hw:
-        raise RuntimeError("no healthy workers")
-    return hw[0]
+    """Pick a healthy worker via round-robin (reuses the same counter as _round_robin)."""
+    return _round_robin()
 
 
 def _use_merged() -> bool:

@@ -345,7 +345,7 @@ spec:
                   name: openviking-config
                   key: api-key
             - name: MERGE_INTERVAL
-              value: "60"
+              value: "300"
             - name: STALE_THRESHOLD
               value: "600"
           readinessProbe:
