@@ -53,10 +53,11 @@ spec:
                 configMapKeyRef:
                   name: openviking-config
                   key: api-key
-            - name: OV_MERGED_URL
-              value: "http://ov-merged.viking.svc.cluster.local:1933"
-            - name: OV_MERGE_STATUS_URL
-              value: "http://ov-merge.viking.svc.cluster.local:8080"
+            # Merged reads disabled — using sharded fan-out as default
+            # - name: OV_MERGED_URL
+            #   value: "http://ov-merged.viking.svc.cluster.local:1933"
+            # - name: OV_MERGE_STATUS_URL
+            #   value: "http://ov-merge.viking.svc.cluster.local:8080"
           readinessProbe:
             httpGet:
               path: /health

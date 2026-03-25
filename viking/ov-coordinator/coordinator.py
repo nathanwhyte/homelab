@@ -38,7 +38,7 @@ HEADERS = {
     "Content-Type": "application/json",
 }
 
-HEALTH_INTERVAL = 5  # seconds between health polls
+HEALTH_INTERVAL = 30  # seconds between health polls
 
 logger = logging.getLogger("ov-coordinator")
 
@@ -99,7 +99,7 @@ def _use_merged() -> bool:
 
 async def _health_loop():
     global merged_healthy, merged_stale
-    async with httpx.AsyncClient(timeout=4) as client:
+    async with httpx.AsyncClient(timeout=120) as client:
         while True:
             for w in WORKERS:
                 try:
