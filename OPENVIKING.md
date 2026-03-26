@@ -1,140 +1,101 @@
 # OpenViking Organization Guide
 
-This project uses [OpenViking](https://github.com/volcengine/OpenViking) (v0.2.9) as a persistent context database for AI agents. OpenViking organizes all context as a virtual filesystem under `viking://` URIs.
+This project uses [OpenViking](https://github.com/volcengine/OpenViking) (v0.2.9) as a persistent knowledge base for AI agents.
 
-## How retrieval works (why structure matters)
+## Core principle: Progressive addition, not bulk indexing
 
-OpenViking's retrieval engine is **directory-recursive**: it scores directories by their L0 abstracts, enters the highest-scoring ones, and drills down. Understanding this is critical to organizing content effectively.
+OV is for **knowledge artifacts** — decisions, debugging insights, architecture rationale, and learned patterns. The codebase itself is NOT indexed into OV. Agents read the repo directly.
 
-### L0/L1/L2 tiered loading
+Knowledge enters OV through two paths:
 
-When you add a file, the semantic processor (Qwen3-8B) auto-generates metadata at each level:
+1. **Automatic**: Session commits extract memories into `user/memories/` and `agent/memories/`
+2. **Manual**: Agents add notable findings via `viking_add_text` during normal work
 
-| Layer | File | Size | Purpose |
-|-------|------|------|---------|
-| **L0** | `.abstract.md` | ~100 tokens | Vector search, quick directory scoring |
-| **L1** | `.overview.md` | ~2k tokens | Rerank, content navigation, structure summary |
-| **L2** | Original file | Unlimited | Full content, loaded on demand |
+### Before adding anything, ask three questions
 
-Every **directory** also gets its own L0/L1 — a composite abstract of its children. This means directory grouping directly affects retrieval quality.
+1. **Can't be derived from code or git history?** — If `git log`, `git blame`, or reading the file answers it, don't add it.
+2. **Would save significant time if rediscovered?** — Non-obvious root causes, gotchas, and configuration traps pass. Routine changes don't.
+3. **Remains relevant going forward?** — If a later change superseded it, it's history, not knowledge. Skip it.
 
-### Directory recursive retrieval algorithm
+All three must be true. If in doubt, don't add — a lean index with high signal beats a comprehensive one with noise.
 
-```
-Query → Intent Analysis → Hierarchical Retrieval → Rerank → Results
-```
+### What gets added (and when)
 
-1. **Intent analysis**: LLM generates 0-5 typed queries from the user's request
-2. **Initial positioning**: Vector search scores L0 abstracts to find high-score directories
-3. **Refined exploration**: Secondary retrieval within that directory
-4. **Recursive drill-down**: If subdirectories exist and score above threshold, recurse
-5. **Convergence**: Stops when top-K results are stable for 3 rounds
+| Trigger | Content | Target |
+|---------|---------|--------|
+| Non-obvious debugging discovery | Root cause + fix + why it was hard to find | `resources/{project}/{service}/` |
+| Architecture decision | Decision + rationale + alternatives considered + trade-offs | `resources/{project}/{service}/` |
+| New service or major config change | What it does, why it exists, key endpoints, gotchas | `resources/{project}/{service}/` |
+| Deployment state after significant changes | Final config, design decisions, mistakes corrected | `resources/{project}/{service}/` |
+| Project instruction files | CLAUDE.md, AGENTS.md (indexed on first session only) | `resources/{project}/` |
 
-### Score propagation
+### What is NEVER added
 
-A child's final score = `0.5 * embedding_score + 0.5 * parent_score`. Files in well-described directories inherit a relevance boost. Poorly-named or overly-broad directories dilute this signal.
+- **Source code files** — the repo is the source of truth. Use `Read`/`Grep` directly.
+- **Full codebase indexes** — bulk imports produce UUID dirs with empty abstracts that cripple search.
+- **Command output or ephemeral state** — transient, no long-term value.
+- **Duplicate content** — always `viking_search` before adding. Duplicates split retrieval scores.
+- **Session logs or summaries** — use claude-mem for operational history. OV is for curated knowledge only.
+- **Routine changes** — "updated config value X to Y" belongs in git, not OV. Only add if the *why* is non-obvious.
+- **Content from other memory systems** — don't bulk-import from claude-mem or similar. Selectively evaluate individual items against the three questions above.
 
-## Directory structure rules
+## Official OV docs (how retrieval works)
 
-### Mirror the repo layout
+- [Context Types](https://github.com/volcengine/OpenViking/blob/main/docs/en/concepts/02-context-types.md) — Resources, Memory, Skills
+- [Context Layers](https://github.com/volcengine/OpenViking/blob/main/docs/en/concepts/03-context-layers.md) — L0/L1/L2 tiered loading
+- [Viking URI](https://github.com/volcengine/OpenViking/blob/main/docs/en/concepts/04-viking-uri.md) — Scopes & path conventions
+- [Retrieval](https://github.com/volcengine/OpenViking/blob/main/docs/en/concepts/07-retrieval.md) — Directory-recursive search, score propagation
+- [Sessions](https://github.com/volcengine/OpenViking/blob/main/docs/en/concepts/08-session.md) — Session lifecycle & memory extraction
 
-Each project gets its own top-level directory under `viking://resources/projects/`:
+Key mechanic: `final_score = 0.5 * embedding_score + 0.5 * parent_directory_score`. Well-named directories amplify all children. UUID directories produce zero signal.
 
-```
-viking://resources/projects/
-  ├── homelab/                ← personal homelab K8s cluster
-  │   ├── llama/              ← matches repo directory names
-  │   ├── viking/
-  │   ├── gpu/
-  │   └── ...
-  ├── <work-project>/         ← each work project is separate
-  │   ├── <service-dir>/
-  │   └── ...
-  └── ...
-```
+## Directory layout
 
-Within each project, mirror the repo's directory structure:
+Follow OV's default convention — one directory per project directly under resources:
 
 ```
-viking://resources/projects/<project-name>/
-  ├── <service-dir>/          ← matches repo directory names
-  │   ├── <filename>.md       ← actual repo files, indexed with their real names
-  │   └── ...
-  ├── <research-topic>/       ← standalone research/assessments
-  └── <project-name>-claude   ← project CLAUDE.md (auto-indexed)
+viking://resources/config/                    ← global agent config/instructions
+viking://resources/config/{agent-name}/       ← per-agent configs (optional)
+viking://resources/{project}/                 ← one per repo
+viking://resources/{project}/{service}/       ← mirrors repo directory names
 ```
 
-**Work projects must be separated from personal projects.** Never mix work codebases into `viking://resources/projects/homelab/`.
+### Config directory (`resources/config/`)
 
-### Naming rules
+Cross-project agent instructions and shared configuration. Agents can `viking_search("agent instructions config")` to discover global conventions.
 
-- **Use real filenames** when indexing repo files, not UUIDs or `upload_*.md`
-- **Match repo directory structure** — `llama/rocm-llamacpp-deployment.yaml` → `viking://resources/projects/homelab/llama/rocm-llamacpp-deployment`
-- **Use descriptive names** for research/notes: `dual-gtx-1080-sli-assessment`, not `gpu-research-1`
-
-Why: UUID filenames produce useless L0 abstracts. The retriever can't score them during directory scanning, so they only get found by accident via full-text search.
-
-### Directory depth: 3-4 levels max below project root
-
-The recursive retriever converges after ~3 rounds of stable top-K. Deep nesting (>4 levels below your project root) slows convergence without improving precision. Flat layouts lose the "lock directory → refine" benefit.
-
-Good: `projects/homelab/llama/benchmarks/`
-Avoid: `projects/homelab/llama/benchmarks/qwen8b/optimized/round2/`
-
-### Group related content under topic directories
-
-Instead of many flat sibling directories, group by topic so the parent directory gets a strong, focused L0 abstract.
-
-**Before** (7 flat benchmark dirs dilute `llama/` abstract):
 ```
-llama/bench-agentic/
-llama/bench-haiku-direct/
-llama/bench-qwen8b/
-llama/showdown-report/
-llama/showdown-report-comparison/
+viking://resources/config/
+  ├── global-claude-instructions    ← ~/.claude/CLAUDE.md
+  ├── openviking-guide              ← OPENVIKING.md (this file)
+  └── {agent-name}/                 ← per-agent configs if needed
 ```
 
-**After** (retriever can quickly enter or skip the whole subtree):
+Per-project instruction files stay under their project:
 ```
-llama/benchmarks/
-  ├── agentic/
-  ├── haiku-direct/
-  ├── qwen8b/
-  └── showdown-reports/
+viking://resources/homelab/homelab-claude    ← homelab/CLAUDE.md
+viking://resources/homelab/homelab-agents    ← homelab/AGENTS.md
 ```
 
-Why: The parent directory `llama/benchmarks/` gets an abstract like "LLM performance benchmarks across models and configurations" — the retriever can decide in one step whether to drill in or skip the entire subtree, instead of evaluating 7 siblings individually.
+### Project directories
 
-### Consolidate duplicate topics
+```
+viking://resources/homelab/llama/
+viking://resources/homelab/gpu/
+viking://resources/dipdash/api/
+```
 
-If two directories cover the same subject (e.g., `HARDWARE/` and `cluster-hardware-detailed-inventory/`), merge into one. Duplicate directories split retrieval scores — the retriever finds half the content in each and neither scores high enough to surface reliably.
+### Rules
 
-## Cleanup cadence
-
-- Before re-indexing a project, remove stale `index/` subdirectories and flat summary uploads from prior passes
-- Remove directories that duplicate content now covered by direct file indexing (e.g., `homelab-deploy-scripts` is redundant when deploy scripts are indexed per-service)
-- Keep standalone research/assessment directories — they contain unique analysis not in the codebase
-- Rename any `upload_*.md` files to descriptive names
-
-## What to index
-
-- New infrastructure issues and their fixes
-- Architecture decisions or changes to resource allocation
-- New services, deploy scripts, or configurations
-- Non-obvious debugging steps that would save time next session
-
-## What NOT to index
-
-- Routine command output or ephemeral state
-- Information already in the codebase (it will be indexed directly from the repo)
-- Duplicate content — use `viking_search` first before adding
-- Flat summaries of things that are better indexed as the original files
-- Vendored content (e.g., `garage/garage/doc/`) — index only homelab-authored files
+- **Real filenames only** — never UUIDs or `upload_*.md`
+- **Mirror repo structure** — `llama/` in repo → `homelab/llama/` in OV
+- **Descriptive names** for research: `dual-gpu-assessment`, not `gpu-research-1`
+- **3-4 levels max** below project root — retriever converges after ~3 rounds
+- **Group related content** under topic dirs for focused parent abstracts
+- **Search before adding** — duplicates split retrieval scores
 
 ## Shared LLM infrastructure
 
-- OpenViking's VLM runs on the shared Qwen3-8B endpoint via `qwen-summarizer-llm.llama.svc`
-- Embedder: **nomic-embed-text-v1.5** (768-dim, 2048 tokens/slot) on timmy + manu via `embedder-llamacpp.viking.svc:8080`. Uses YaRN RoPE scaling (`--rope-scaling yarn --rope-freq-scale 0.75`) for extended context.
-- The agentic endpoint at `summarizer-api.llama.svc/v1/agent` provides tool-calling loops backed by OpenViking
-- When indexing large batches, the VLM semantic processing queue runs concurrently (max_concurrent: 6 slots) — monitor with `kubectl logs -n llama deploy/llamacpp-rocm`
-- **Bulk re-index**: Use `POST /api/v1/content/reindex` with `{"uri": "<dir-uri>", "regenerate": true, "wait": true}`. Must pass directory URIs, not file URIs. Run sequentially to avoid lock contention.
+- VLM: Qwen3-8B on `llamacpp-rocm-llm.viking.svc` (RX 9070 XT)
+- Embedder: nomic-embed-text-v1.5 on `embedder-llamacpp.viking.svc:8080`
+- Manual reindex: `POST /api/v1/content/reindex {"uri": "<dir>", "regenerate": true, "wait": true}`
