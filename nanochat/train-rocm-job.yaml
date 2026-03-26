@@ -26,7 +26,7 @@ spec:
               ln -sfn /app/data/cache /root/.cache/nanochat
 
               # Stage 1: Data + tokenizer (single-process)
-              python -m nanochat.dataset -n 8
+              python -m nanochat.dataset -n 170
               python -m scripts.tok_train
               python -m scripts.tok_eval
 
@@ -50,27 +50,36 @@ spec:
               " || { echo '--- GPU DIAGNOSTIC FAILED ---'; exit 1; }
               echo "=== GPU DIAGNOSTIC PASSED ==="
 
-              # Stage 2: Pretrain GPT-2 (depth=4, ~15M params) — single GPU
+              # Stage 2: Pretrain GPT-2 (depth=16, ~205M params) — single GPU
               python -c "
               import faulthandler, sys; faulthandler.enable()
-              sys.argv = ['base_train', '--depth=4', '--device-batch-size=8', '--run=dummy', '--save-every=100', '--resume-from-step=-1']
+              sys.argv = ['base_train', '--depth=16', '--device-batch-size=4', '--run=pop', '--save-every=500', '--window-pattern=L']
               import scripts.base_train
-              " || true
+              "
               echo "--- STAGE 2 FINISHED ---"
 
-              # Stage 3: Evaluate — skipped, base_train already runs full eval suite
-              # base_eval crashes on KV cache dtype mismatch (float16 vs bfloat16)
+              # Stage 3: Evaluate — skipped, OOM on 16GB GPU
+              # base_eval tries to allocate 8 GiB for logits softcap; base_train already runs inline eval
+              # python -m scripts.base_eval
 
-              echo "=== PRETRAINING COMPLETE ==="
-              echo "SFT skipped — KV cache dtype mismatch (float16 vs bfloat16) needs image fix"
-              echo "To be resolved for final 'pop' model training"
+              # Stage 4: Download identity data for SFT
+              curl -L -o /app/data/identity_conversations.jsonl \
+                https://karpathy-public.s3.us-west-2.amazonaws.com/identity_conversations.jsonl
+
+              # Stage 5: SFT — single GPU
+              python -m scripts.chat_sft \
+                --run=pop \
+                --device-batch-size=4
+
+              # Stage 6: Chat eval (single-process)
+              python -m scripts.chat_eval -i sft
+
+              echo "=== ALL STAGES COMPLETE ==="
           env:
             # GPU visibility managed by amd.com/gpu device plugin
             # Do NOT set HIP_VISIBLE_DEVICES or ROCR_VISIBLE_DEVICES — conflicts with plugin
             - name: TORCHDYNAMO_DISABLE
               value: "1"
-            - name: NANOCHAT_DTYPE
-              value: "float16"
             - name: PYTORCH_TUNABLEOP_ENABLED
               value: "0"
             - name: PYTORCH_ALLOC_CONF
