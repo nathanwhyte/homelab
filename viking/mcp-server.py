@@ -183,7 +183,7 @@ def viking_add_text(
     Args:
         content: The text content to store
         name: A short name for the resource (used in the URI)
-        target_dir: Viking directory to store in (e.g. viking://resources/projects/myproject)
+        target_dir: Viking directory to store in (e.g. viking://resources/myproject)
     """
     dest_uri = _join_resource_uri(target_dir, name)
     # Use a dedicated client for multipart temp upload (no Content-Type default)

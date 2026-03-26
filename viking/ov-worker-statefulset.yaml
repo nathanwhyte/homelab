@@ -23,7 +23,7 @@ spec:
         storageClassName: longhorn-ssd
         resources:
           requests:
-            storage: 10Gi
+            storage: 5Gi
   template:
     metadata:
       labels:
