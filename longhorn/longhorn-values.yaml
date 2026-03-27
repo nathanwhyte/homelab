@@ -42,8 +42,6 @@ ingress:
   path: /
   annotations:
     traefik.ingress.kubernetes.io/router.entrypoints: web
-    traefik.ingress.kubernetes.io/router.middlewares: >-
-      longhorn-system-longhorn-auth@kubernetescrd
 
 # Network policies (k3s)
 networkPolicies:
