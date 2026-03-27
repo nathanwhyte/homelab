@@ -116,7 +116,7 @@ prometheus:
         scrape_interval: 30s
         static_configs:
           - targets:
-              - "192.168.1.19:9111"
+              - "ollama.llama.svc:9111"
             labels:
               node: "timmy"
       - job_name: "garage"
