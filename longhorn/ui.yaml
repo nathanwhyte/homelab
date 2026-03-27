@@ -43,14 +43,3 @@ spec:
               - key: TOKEN
                 path: token
 
----
-# Traefik basic auth middleware for Longhorn UI
-# Ingress itself is managed by the Helm chart (see longhorn-values.yaml)
-apiVersion: traefik.io/v1alpha1
-kind: Middleware
-metadata:
-  name: longhorn-auth
-  namespace: longhorn-system
-spec:
-  basicAuth:
-    secret: longhorn-auth-secret
