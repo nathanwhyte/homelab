@@ -7,7 +7,7 @@ metadata:
   labels:
     app: llamacpp-rocm
 spec:
-  replicas: 1
+  replicas: 0
   strategy:
     type: Recreate
   selector:
@@ -171,5 +171,5 @@ spec:
       protocol: TCP
       targetPort: 8000
   selector:
-    app: llamacpp-rocm
+    app: llamacpp-cuda-ov
   sessionAffinity: None
