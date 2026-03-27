@@ -111,6 +111,14 @@ prometheus:
         static_configs:
           - targets:
               - "amdgpu-exporter.kube-system.svc.cluster.local:9101"
+      # Ollama inference metrics from exporter on timmy
+      - job_name: "ollama-metrics"
+        scrape_interval: 30s
+        static_configs:
+          - targets:
+              - "192.168.1.19:9111"
+            labels:
+              node: "timmy"
       - job_name: "garage"
         scrape_interval: 2m
         static_configs:

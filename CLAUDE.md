@@ -73,17 +73,20 @@ When spawning subagents (Agent/Task tool), the routing block is automatically in
 
 # LLM infrastructure
 
-The cluster runs two Qwen3-8B instances on separate GPUs: timmy's RX 9070 XT (dedicated to OV) and manu's GTX 1080 (dedicated to summarizer-api).
+The OV LLM (Qwen3-8B) runs on manu's GTX 1080. timmy's RX 9070 XT is free for model experimentation. The summarizer stack on manu is scaled to 0.
 
 ## Service routing
 
 | Service | Endpoint | Purpose |
 |---------|----------|---------|
-| OV LLM (timmy) | `llamacpp-rocm-llm.viking.svc:80` → `llamacpp-rocm:8000` on timmy | OV VLM inference (8 parallel slots, 8192 ctx/slot, 65536 total, q4_0 KV cache, 20Gi memory limit). Consumer: OV VLM (6 concurrent) |
+| OV LLM (manu) | `llamacpp-rocm-llm.viking.svc:80` → `llamacpp-cuda-ov:8000` on manu | OV VLM inference (4 parallel slots, 8192 ctx/slot, 32768 total, q4_0 KV cache, 10Gi memory limit). Consumer: OV VLM (3 concurrent) |
+| ROCm LLM (timmy) | `llamacpp-rocm` deployment in viking namespace | Scaled to 0. Available for rollback or experimentation. RX 9070 XT (16GB VRAM). |
 | Summarizer LLM (manu) | `qwen-summarizer-llm.llama.svc:80` → `qwen-summarizer:8001` on manu | Summarizer-api inference (5 parallel slots, 8192 ctx/slot, 40960 total, q4_0 KV cache, 10Gi memory limit). Consumer: summarizer-api (4 concurrent). Scaled to 0. |
 | Embedder | `embedder-llamacpp.viking.svc:8080` on timmy | nomic-embed-text-v1.5 f16 (768-dim, CPU-only, single replica) |
 | OpenViking | `openviking.viking.svc:1933` on wemby | Knowledge base API |
 | Agent API | `summarizer-api.llama.svc:80` → `:8082` on manu | Agentic tool-calling loop with OpenViking. Scaled to 0. |
+| Ollama (timmy) | `192.168.1.19:11434` on timmy (bare metal) | qwen3.5:9b-q4_K_M via Ollama systemd. Used by `ollama launch claude`. Flash attn, q8_0 KV, 65K ctx, keep-alive infinite. |
+| Ollama Exporter | `192.168.1.19:9111` on timmy (bare metal) | Prometheus metrics for Ollama inference (model status, VRAM, tok/s, request counts). Scraped every 30s. |
 
 ## Agent endpoint
 
@@ -93,7 +96,7 @@ Available tools: `viking_search`, `viking_read`, `viking_find`, `viking_ls`, `vi
 
 ## Failover
 
-If manu is down, point `qwen-summarizer-llm` service back to timmy: change selector to `app: llamacpp-rocm`, targetPort to 8000 in `llama/llm-alias-service.yaml`. If timmy is down, OV indexing stops but summarizer-api continues on manu independently.
+If manu is down, roll back OV LLM to timmy: change `llamacpp-rocm-llm` service selector back to `app: llamacpp-rocm` and scale `llamacpp-rocm` to 1 in `viking/rocm-llamacpp-deployment.yaml`. timmy's 9070 XT is currently free and available as a hot standby.
 
 # OpenViking knowledge base organization
 

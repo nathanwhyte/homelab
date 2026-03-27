@@ -61,9 +61,38 @@ sleep 3
 echo "=== Creating qwen35-claude model ==="
 ollama create qwen35-claude -f /tmp/Modelfile-qwen35-claude
 
+echo "=== Installing ollama-exporter ==="
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+sudo mkdir -p /opt/ollama-exporter
+sudo cp "$SCRIPT_DIR/ollama-exporter.py" /opt/ollama-exporter/ollama-exporter.py
+
+sudo tee /etc/systemd/system/ollama-exporter.service > /dev/null <<'EOF'
+[Unit]
+Description=Prometheus exporter for Ollama inference metrics
+After=ollama.service
+Wants=ollama.service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /opt/ollama-exporter/ollama-exporter.py --ollama http://localhost:11434 --port 9111
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+sudo systemctl daemon-reload
+sudo systemctl enable --now ollama-exporter
+
 echo "=== Verifying ==="
 ollama ps
+echo ""
+systemctl is-active ollama-exporter && echo "ollama-exporter: running on :9111" || echo "ollama-exporter: FAILED"
 echo ""
 echo "Done. Use from any machine on the LAN:"
 echo "  export OLLAMA_HOST=http://timmy:11434"
 echo "  ollama launch claude --model qwen35-claude"
+echo ""
+echo "Metrics: http://timmy:9111/metrics"
