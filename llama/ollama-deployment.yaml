@@ -1,0 +1,144 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ollama
+  namespace: llama
+  labels:
+    app: ollama
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: ollama
+  template:
+    metadata:
+      labels:
+        app: ollama
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: timmy
+        gpu.vendor: amd
+      securityContext:
+        fsGroup: 0
+      containers:
+        - name: ollama
+          image: ollama/ollama:rocm
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              ollama serve &
+              OLLAMA_PID=$!
+              /scripts/startup.sh
+              wait $OLLAMA_PID
+          env:
+            - name: OLLAMA_HOST
+              value: "0.0.0.0"
+            - name: OLLAMA_FLASH_ATTENTION
+              value: "1"
+            - name: OLLAMA_KV_CACHE_TYPE
+              value: "q8_0"
+            - name: OLLAMA_KEEP_ALIVE
+              value: "-1"
+            - name: OLLAMA_NUM_PARALLEL
+              value: "2"
+            - name: OLLAMA_MAX_LOADED_MODELS
+              value: "1"
+            - name: HIP_VISIBLE_DEVICES
+              value: "0"
+          ports:
+            - containerPort: 11434
+              name: http
+          resources:
+            requests:
+              cpu: "500m"
+              memory: 2Gi
+              amd.com/gpu: "1"
+            limits:
+              cpu: "8"
+              memory: 20Gi
+              amd.com/gpu: "1"
+          securityContext:
+            privileged: true
+          startupProbe:
+            tcpSocket:
+              port: 11434
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 120
+          readinessProbe:
+            tcpSocket:
+              port: 11434
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 12
+          volumeMounts:
+            - name: model-cache
+              mountPath: /root/.ollama
+            - name: shm
+              mountPath: /dev/shm
+            - name: startup
+              mountPath: /scripts
+            - name: modelfiles
+              mountPath: /modelfiles
+        - name: ollama-exporter
+          image: python:3.12-slim
+          command: ["python3", "/scripts/ollama-exporter.py"]
+          args:
+            - "--ollama"
+            - "http://localhost:11434"
+            - "--port"
+            - "9111"
+          ports:
+            - containerPort: 9111
+              name: metrics
+          resources:
+            requests:
+              cpu: "50m"
+              memory: 64Mi
+            limits:
+              cpu: "200m"
+              memory: 128Mi
+          volumeMounts:
+            - name: startup
+              mountPath: /scripts
+      volumes:
+        - name: model-cache
+          persistentVolumeClaim:
+            claimName: llama-model-cache
+        - name: shm
+          emptyDir:
+            medium: Memory
+            sizeLimit: 4Gi
+        - name: startup
+          configMap:
+            name: ollama-startup
+            defaultMode: 0755
+        - name: modelfiles
+          configMap:
+            name: ollama-modelfiles
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ollama
+  namespace: llama
+  labels:
+    app: ollama
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 80
+      protocol: TCP
+      targetPort: 11434
+    - name: metrics
+      port: 9111
+      protocol: TCP
+      targetPort: 9111
+  selector:
+    app: ollama
