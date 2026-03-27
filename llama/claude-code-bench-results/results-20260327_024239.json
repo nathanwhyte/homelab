@@ -1,0 +1,682 @@
+{
+  "metadata": {
+    "timestamp": "2026-03-27T02:42:39.369358+00:00",
+    "models": {
+      "sonnet-46": {
+        "type": "claude",
+        "model": "claude-sonnet-4-6",
+        "label": "Claude Sonnet 4.6"
+      }
+    },
+    "total_tests": 12,
+    "runs_per_test": 3
+  },
+  "results": [
+    {
+      "test_id": "T1",
+      "test_name": "Single Tool Selection",
+      "category": "tool_calling",
+      "model": "sonnet-46",
+      "run": 1,
+      "elapsed_ms": 1784,
+      "input_tokens": 892,
+      "output_tokens": 72,
+      "tokens_per_sec": null,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Correct tool and args: {'name': 'search_code', 'arguments': {'pattern': 'TODO', 'path': 'src/'}}",
+      "content_preview": "",
+      "tool_calls": [
+        {
+          "name": "search_code",
+          "arguments": {
+            "pattern": "TODO",
+            "path": "src/"
+          }
+        }
+      ]
+    },
+    {
+      "test_id": "T1",
+      "test_name": "Single Tool Selection",
+      "category": "tool_calling",
+      "model": "sonnet-46",
+      "run": 2,
+      "elapsed_ms": 1894,
+      "input_tokens": 892,
+      "output_tokens": 72,
+      "tokens_per_sec": null,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Correct tool and args: {'name': 'search_code', 'arguments': {'pattern': 'TODO', 'path': 'src/'}}",
+      "content_preview": "",
+      "tool_calls": [
+        {
+          "name": "search_code",
+          "arguments": {
+            "pattern": "TODO",
+            "path": "src/"
+          }
+        }
+      ]
+    },
+    {
+      "test_id": "T1",
+      "test_name": "Single Tool Selection",
+      "category": "tool_calling",
+      "model": "sonnet-46",
+      "run": 3,
+      "elapsed_ms": 2481,
+      "input_tokens": 892,
+      "output_tokens": 72,
+      "tokens_per_sec": null,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Correct tool and args: {'name': 'search_code', 'arguments': {'pattern': 'TODO', 'path': 'src/'}}",
+      "content_preview": "",
+      "tool_calls": [
+        {
+          "name": "search_code",
+          "arguments": {
+            "pattern": "TODO",
+            "path": "src/"
+          }
+        }
+      ]
+    },
+    {
+      "test_id": "T2",
+      "test_name": "Multi-Tool Planning",
+      "category": "tool_calling",
+      "model": "sonnet-46",
+      "run": 1,
+      "elapsed_ms": 2956,
+      "input_tokens": 922,
+      "output_tokens": 144,
+      "tokens_per_sec": null,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Correct tool and args: {'name': 'read_file', 'arguments': {'path': '/etc/app/config.yaml'}}",
+      "content_preview": "Sure! Let me start by reading the config file and checking port 8080 usage simultaneously, since these are independent tasks.",
+      "tool_calls": [
+        {
+          "name": "read_file",
+          "arguments": {
+            "path": "/etc/app/config.yaml"
+          }
+        },
+        {
+          "name": "run_command",
+          "arguments": {
+            "command": "lsof -i :8080 || echo \"Port 8080 is not in use\""
+          }
+        }
+      ]
+    },
+    {
+      "test_id": "T2",
+      "test_name": "Multi-Tool Planning",
+      "category": "tool_calling",
+      "model": "sonnet-46",
+      "run": 2,
+      "elapsed_ms": 6085,
+      "input_tokens": 922,
+      "output_tokens": 143,
+      "tokens_per_sec": null,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Correct tool and args: {'name': 'read_file', 'arguments': {'path': '/etc/app/config.yaml'}}",
+      "content_preview": "Sure! Let me start by reading the config file and checking port 8080 simultaneously, since these are independent tasks.",
+      "tool_calls": [
+        {
+          "name": "read_file",
+          "arguments": {
+            "path": "/etc/app/config.yaml"
+          }
+        },
+        {
+          "name": "run_command",
+          "arguments": {
+            "command": "lsof -i :8080 || echo \"Port 8080 is not in use\""
+          }
+        }
+      ]
+    },
+    {
+      "test_id": "T2",
+      "test_name": "Multi-Tool Planning",
+      "category": "tool_calling",
+      "model": "sonnet-46",
+      "run": 3,
+      "elapsed_ms": 2674,
+      "input_tokens": 922,
+      "output_tokens": 143,
+      "tokens_per_sec": null,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Correct tool and args: {'name': 'read_file', 'arguments': {'path': '/etc/app/config.yaml'}}",
+      "content_preview": "Sure! Let me start by reading the config file and checking port 8080 simultaneously, since these are independent tasks.",
+      "tool_calls": [
+        {
+          "name": "read_file",
+          "arguments": {
+            "path": "/etc/app/config.yaml"
+          }
+        },
+        {
+          "name": "run_command",
+          "arguments": {
+            "command": "lsof -i :8080 || echo \"Port 8080 is not in use\""
+          }
+        }
+      ]
+    },
+    {
+      "test_id": "T3",
+      "test_name": "Argument Precision",
+      "category": "tool_calling",
+      "model": "sonnet-46",
+      "run": 1,
+      "elapsed_ms": 3738,
+      "input_tokens": 900,
+      "output_tokens": 126,
+      "tokens_per_sec": null,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Correct tool and args: {'name': 'search_code', 'arguments': {'pattern': 'func handle_\\\\w+', 'path': 'pkg/', 'file_glob': '*.go'}}",
+      "content_preview": "I'll search for functions named with the `handle_` prefix in all `.go` files under the `pkg/` directory right away!",
+      "tool_calls": [
+        {
+          "name": "search_code",
+          "arguments": {
+            "pattern": "func handle_\\w+",
+            "path": "pkg/",
+            "file_glob": "*.go"
+          }
+        }
+      ]
+    },
+    {
+      "test_id": "T3",
+      "test_name": "Argument Precision",
+      "category": "tool_calling",
+      "model": "sonnet-46",
+      "run": 2,
+      "elapsed_ms": 2766,
+      "input_tokens": 900,
+      "output_tokens": 126,
+      "tokens_per_sec": null,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Correct tool and args: {'name': 'search_code', 'arguments': {'pattern': 'func handle_\\\\w+', 'path': 'pkg/', 'file_glob': '*.go'}}",
+      "content_preview": "I'll search for functions named with the `handle_` prefix in all `.go` files under the `pkg/` directory right away!",
+      "tool_calls": [
+        {
+          "name": "search_code",
+          "arguments": {
+            "pattern": "func handle_\\w+",
+            "path": "pkg/",
+            "file_glob": "*.go"
+          }
+        }
+      ]
+    },
+    {
+      "test_id": "T3",
+      "test_name": "Argument Precision",
+      "category": "tool_calling",
+      "model": "sonnet-46",
+      "run": 3,
+      "elapsed_ms": 3704,
+      "input_tokens": 900,
+      "output_tokens": 126,
+      "tokens_per_sec": null,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Correct tool and args: {'name': 'search_code', 'arguments': {'pattern': 'func handle_\\\\w+', 'path': 'pkg/', 'file_glob': '*.go'}}",
+      "content_preview": "I'll search for functions named with the `handle_` prefix in all `.go` files under the `pkg/` directory right away!",
+      "tool_calls": [
+        {
+          "name": "search_code",
+          "arguments": {
+            "pattern": "func handle_\\w+",
+            "path": "pkg/",
+            "file_glob": "*.go"
+          }
+        }
+      ]
+    },
+    {
+      "test_id": "T4",
+      "test_name": "Python Function",
+      "category": "code_gen",
+      "model": "sonnet-46",
+      "run": 1,
+      "elapsed_ms": 7876,
+      "input_tokens": 120,
+      "output_tokens": 638,
+      "tokens_per_sec": null,
+      "passed": true,
+      "score": 1.0,
+      "reason": "All keywords present + valid Python syntax",
+      "content_preview": "```python\ndef parse_cron(expr: str) -> dict:\n    fields = expr.strip().split()\n    if len(fields) != 5:\n        raise ValueError(f\"Expected 5 fields, got {len(fields)}\")\n\n    field_names = ['minute', ",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T4",
+      "test_name": "Python Function",
+      "category": "code_gen",
+      "model": "sonnet-46",
+      "run": 2,
+      "elapsed_ms": 7980,
+      "input_tokens": 120,
+      "output_tokens": 638,
+      "tokens_per_sec": null,
+      "passed": true,
+      "score": 1.0,
+      "reason": "All keywords present + valid Python syntax",
+      "content_preview": "```python\ndef parse_cron(expr: str) -> dict:\n    fields = expr.strip().split()\n    if len(fields) != 5:\n        raise ValueError(f\"Expected 5 fields, got {len(fields)}\")\n\n    field_names = ['minute', ",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T4",
+      "test_name": "Python Function",
+      "category": "code_gen",
+      "model": "sonnet-46",
+      "run": 3,
+      "elapsed_ms": 6924,
+      "input_tokens": 120,
+      "output_tokens": 623,
+      "tokens_per_sec": null,
+      "passed": true,
+      "score": 1.0,
+      "reason": "All keywords present + valid Python syntax",
+      "content_preview": "```python\ndef parse_cron(expr: str) -> dict:\n    fields = expr.strip().split()\n    if len(fields) != 5:\n        raise ValueError(f\"Expected 5 fields, got {len(fields)}\")\n    \n    field_names = ['minut",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T5",
+      "test_name": "Kubernetes YAML",
+      "category": "code_gen",
+      "model": "sonnet-46",
+      "run": 1,
+      "elapsed_ms": 4525,
+      "input_tokens": 80,
+      "output_tokens": 412,
+      "tokens_per_sec": null,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Found 5/5 keywords",
+      "content_preview": "```yaml\napiVersion: v1\nkind: Namespace\nmetadata:\n  name: cache\n---\napiVersion: v1\nkind: PersistentVolumeClaim\nmetadata:\n  name: redis-data\n  namespace: cache\nspec:\n  accessModes:\n    - ReadWriteOnce\n ",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T5",
+      "test_name": "Kubernetes YAML",
+      "category": "code_gen",
+      "model": "sonnet-46",
+      "run": 2,
+      "elapsed_ms": 4413,
+      "input_tokens": 80,
+      "output_tokens": 412,
+      "tokens_per_sec": null,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Found 5/5 keywords",
+      "content_preview": "```yaml\napiVersion: v1\nkind: Namespace\nmetadata:\n  name: cache\n---\napiVersion: v1\nkind: PersistentVolumeClaim\nmetadata:\n  name: redis-data\n  namespace: cache\nspec:\n  accessModes:\n    - ReadWriteOnce\n ",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T5",
+      "test_name": "Kubernetes YAML",
+      "category": "code_gen",
+      "model": "sonnet-46",
+      "run": 3,
+      "elapsed_ms": 4725,
+      "input_tokens": 80,
+      "output_tokens": 412,
+      "tokens_per_sec": null,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Found 5/5 keywords",
+      "content_preview": "```yaml\napiVersion: v1\nkind: Namespace\nmetadata:\n  name: cache\n---\napiVersion: v1\nkind: PersistentVolumeClaim\nmetadata:\n  name: redis-data\n  namespace: cache\nspec:\n  accessModes:\n    - ReadWriteOnce\n ",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T6",
+      "test_name": "Bash Function",
+      "category": "code_gen",
+      "model": "sonnet-46",
+      "run": 1,
+      "elapsed_ms": 4379,
+      "input_tokens": 87,
+      "output_tokens": 177,
+      "tokens_per_sec": null,
+      "passed": true,
+      "score": 0.75,
+      "reason": "Found 3/4 keywords",
+      "content_preview": "```bash\nretry_cmd() {\n    local cmd=\"$1\"\n    local max_attempts=3\n    local attempt=1\n    local delay=1\n\n    while [ $attempt -le $max_attempts ]; do\n        echo \"Attempt $attempt of $max_attempts\" >",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T6",
+      "test_name": "Bash Function",
+      "category": "code_gen",
+      "model": "sonnet-46",
+      "run": 2,
+      "elapsed_ms": 3072,
+      "input_tokens": 87,
+      "output_tokens": 177,
+      "tokens_per_sec": null,
+      "passed": true,
+      "score": 0.75,
+      "reason": "Found 3/4 keywords",
+      "content_preview": "```bash\nretry_cmd() {\n    local cmd=\"$1\"\n    local max_attempts=3\n    local attempt=1\n    local delay=1\n\n    while [ $attempt -le $max_attempts ]; do\n        echo \"Attempt $attempt of $max_attempts\" >",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T6",
+      "test_name": "Bash Function",
+      "category": "code_gen",
+      "model": "sonnet-46",
+      "run": 3,
+      "elapsed_ms": 2993,
+      "input_tokens": 87,
+      "output_tokens": 177,
+      "tokens_per_sec": null,
+      "passed": true,
+      "score": 0.75,
+      "reason": "Found 3/4 keywords",
+      "content_preview": "```bash\nretry_cmd() {\n    local cmd=\"$1\"\n    local max_attempts=3\n    local attempt=1\n    local delay=1\n\n    while [ $attempt -le $max_attempts ]; do\n        echo \"Attempt $attempt of $max_attempts\" >",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T7",
+      "test_name": "Bug Detection",
+      "category": "code_understanding",
+      "model": "sonnet-46",
+      "run": 1,
+      "elapsed_ms": 7226,
+      "input_tokens": 179,
+      "output_tokens": 433,
+      "tokens_per_sec": null,
+      "passed": false,
+      "score": 0.0,
+      "reason": "None of ['shallow copy', 'same reference', 'same list', 'same row', 'same object', 'aliased', 'all rows are the same', 'references to the same'] found in response",
+      "content_preview": "## Bug: Shallow List Copying\n\nThe problem is on this line:\n\n```python\ndp = [[0] * (n + 1)] * (m + 1)\n```\n\nUsing `* (m + 1)` to replicate the list **doesn't create independent rows** \u2014 it creates `m + ",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T7",
+      "test_name": "Bug Detection",
+      "category": "code_understanding",
+      "model": "sonnet-46",
+      "run": 2,
+      "elapsed_ms": 6056,
+      "input_tokens": 179,
+      "output_tokens": 321,
+      "tokens_per_sec": null,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Found: 'same object'",
+      "content_preview": "## Bug: Shallow List Copying\n\nThe problem is on this line:\n\n```python\ndp = [[0] * (n + 1)] * (m + 1)\n```\n\nUsing `* (m + 1)` creates a list containing **`m + 1` references to the same inner list**, rat",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T7",
+      "test_name": "Bug Detection",
+      "category": "code_understanding",
+      "model": "sonnet-46",
+      "run": 3,
+      "elapsed_ms": 6678,
+      "input_tokens": 179,
+      "output_tokens": 392,
+      "tokens_per_sec": null,
+      "passed": false,
+      "score": 0.0,
+      "reason": "None of ['shallow copy', 'same reference', 'same list', 'same row', 'same object', 'aliased', 'all rows are the same', 'references to the same'] found in response",
+      "content_preview": "## Bug: Shallow List Copying\n\nThe problem is on this line:\n\n```python\ndp = [[0] * (n + 1)] * (m + 1)\n```\n\nUsing `* (m + 1)` to replicate the list **does not create independent rows** \u2014 it creates `m +",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T8",
+      "test_name": "Race Condition",
+      "category": "code_understanding",
+      "model": "sonnet-46",
+      "run": 1,
+      "elapsed_ms": 7387,
+      "input_tokens": 96,
+      "output_tokens": 427,
+      "tokens_per_sec": null,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Identified race condition and suggested fix",
+      "content_preview": "## Concurrency Issues\n\n### 1. **Data Race on `counter`**\nMultiple goroutines read and write `counter` simultaneously without synchronization. The `counter++` operation is **not atomic** \u2014 it compiles ",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T8",
+      "test_name": "Race Condition",
+      "category": "code_understanding",
+      "model": "sonnet-46",
+      "run": 2,
+      "elapsed_ms": 7873,
+      "input_tokens": 96,
+      "output_tokens": 422,
+      "tokens_per_sec": null,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Identified race condition and suggested fix",
+      "content_preview": "## Concurrency Issues\n\n### 1. **Data Race on `counter`**\nMultiple goroutines read and write `counter` simultaneously without synchronization. The `counter++` operation is **not atomic** \u2014 it compiles ",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T8",
+      "test_name": "Race Condition",
+      "category": "code_understanding",
+      "model": "sonnet-46",
+      "run": 3,
+      "elapsed_ms": 7999,
+      "input_tokens": 96,
+      "output_tokens": 400,
+      "tokens_per_sec": null,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Identified race condition and suggested fix",
+      "content_preview": "## Concurrency Issues\n\n### 1. **Data Race on `counter`**\nMultiple goroutines read and write `counter` simultaneously without synchronization. The `counter++` operation is **not atomic** \u2014 it compiles ",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T9",
+      "test_name": "Refactoring",
+      "category": "code_understanding",
+      "model": "sonnet-46",
+      "run": 1,
+      "elapsed_ms": 13505,
+      "input_tokens": 124,
+      "output_tokens": 537,
+      "tokens_per_sec": null,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Found: 'guard clause'",
+      "content_preview": "## Refactoring Suggestions\n\n### Issues with Current Code\n- **Deep nesting** (\"arrow code\") makes logic hard to follow\n- **Repeated logic** - `strip().lower()` appears twice\n- **No separation of concer",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T9",
+      "test_name": "Refactoring",
+      "category": "code_understanding",
+      "model": "sonnet-46",
+      "run": 2,
+      "elapsed_ms": 11438,
+      "input_tokens": 124,
+      "output_tokens": 552,
+      "tokens_per_sec": null,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Found: 'guard clause'",
+      "content_preview": "## Refactoring Suggestions\n\n### 1. Flatten Nested Conditionals (Main Issue)\nThe deeply nested `if` statements are the primary problem. Combine conditions and use **guard clauses** to reduce nesting:\n\n",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T9",
+      "test_name": "Refactoring",
+      "category": "code_understanding",
+      "model": "sonnet-46",
+      "run": 3,
+      "elapsed_ms": 10074,
+      "input_tokens": 124,
+      "output_tokens": 447,
+      "tokens_per_sec": null,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Found: 'guard clause'",
+      "content_preview": "## Refactoring Suggestions\n\n### Issues with Current Code\n- **Deep nesting** (4 levels) makes logic hard to follow\n- **Duplicated transformation** (`.strip().lower()`) in both branches\n- **No separatio",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T10",
+      "test_name": "Debug Plan",
+      "category": "reasoning",
+      "model": "sonnet-46",
+      "run": 1,
+      "elapsed_ms": 36845,
+      "input_tokens": 78,
+      "output_tokens": 2047,
+      "tokens_per_sec": null,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Found 6/6 keywords",
+      "content_preview": "# Kubernetes CrashLoopBackOff Debugging Plan\n\n## Mental Model First\n\nCrashLoopBackOff means the container **starts, crashes, and Kubernetes keeps retrying** with exponential backoff. With your specifi",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T10",
+      "test_name": "Debug Plan",
+      "category": "reasoning",
+      "model": "sonnet-46",
+      "run": 2,
+      "elapsed_ms": 36682,
+      "input_tokens": 78,
+      "output_tokens": 2048,
+      "tokens_per_sec": null,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Found 6/6 keywords",
+      "content_preview": "# Kubernetes CrashLoopBackOff Debugging Plan\n\n## Mental Model First\n\nCrashLoopBackOff means the container **starts, crashes, and Kubernetes keeps retrying** with exponential backoff. With your specifi",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T10",
+      "test_name": "Debug Plan",
+      "category": "reasoning",
+      "model": "sonnet-46",
+      "run": 3,
+      "elapsed_ms": 36800,
+      "input_tokens": 78,
+      "output_tokens": 2047,
+      "tokens_per_sec": null,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Found 6/6 keywords",
+      "content_preview": "# Kubernetes CrashLoopBackOff Debugging Plan\n\n## Mental Model First\n\nCrashLoopBackOff means the container **starts, crashes, and Kubernetes keeps retrying** with exponential backoff. With your specifi",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T11",
+      "test_name": "Migration Plan",
+      "category": "reasoning",
+      "model": "sonnet-46",
+      "run": 1,
+      "elapsed_ms": 29158,
+      "input_tokens": 67,
+      "output_tokens": 2048,
+      "tokens_per_sec": null,
+      "passed": false,
+      "score": 0.3333333333333333,
+      "reason": "Only 2/6 keywords; missing: ['pg_dump', 'PersistentVolume', 'test', 'rollback']",
+      "content_preview": "# PostgreSQL Migration: Docker Compose \u2192 Kubernetes StatefulSet with Longhorn\n\n## Architecture Overview\n\n```\nCURRENT STATE                          TARGET STATE\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500                      ",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T11",
+      "test_name": "Migration Plan",
+      "category": "reasoning",
+      "model": "sonnet-46",
+      "run": 2,
+      "elapsed_ms": 28011,
+      "input_tokens": 67,
+      "output_tokens": 2048,
+      "tokens_per_sec": null,
+      "passed": false,
+      "score": 0.3333333333333333,
+      "reason": "Only 2/6 keywords; missing: ['pg_dump', 'PersistentVolume', 'test', 'rollback']",
+      "content_preview": "# PostgreSQL Migration: Docker Compose \u2192 Kubernetes StatefulSet with Longhorn\n\n## Architecture Overview\n\n```\nCURRENT STATE                          TARGET STATE\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500                      ",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T11",
+      "test_name": "Migration Plan",
+      "category": "reasoning",
+      "model": "sonnet-46",
+      "run": 3,
+      "elapsed_ms": 30622,
+      "input_tokens": 67,
+      "output_tokens": 2048,
+      "tokens_per_sec": null,
+      "passed": false,
+      "score": 0.3333333333333333,
+      "reason": "Only 2/6 keywords; missing: ['pg_dump', 'PersistentVolume', 'service', 'rollback']",
+      "content_preview": "# PostgreSQL Migration: Docker Compose \u2192 Kubernetes StatefulSet with Longhorn\n\n## Architecture Overview\n\n```\nCURRENT STATE                          TARGET STATE\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500                      ",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T12",
+      "test_name": "Next Step Reasoning",
+      "category": "reasoning",
+      "model": "sonnet-46",
+      "run": 1,
+      "elapsed_ms": 14810,
+      "input_tokens": 123,
+      "output_tokens": 624,
+      "tokens_per_sec": null,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Found: 'raise the limit'",
+      "content_preview": "## Diagnosis\n\nYour pod is being **OOM Killed** because it's consistently using ~498Mi against a 512Mi limit \u2014 you're at **97% of your memory limit** with very little headroom.\n\n## Immediate Fix\n\n**Inc",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T12",
+      "test_name": "Next Step Reasoning",
+      "category": "reasoning",
+      "model": "sonnet-46",
+      "run": 2,
+      "elapsed_ms": 13783,
+      "input_tokens": 123,
+      "output_tokens": 643,
+      "tokens_per_sec": null,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Found: 'memory limit'",
+      "content_preview": "## Diagnosis\n\nYour pod is being **OOMKilled** because it's consistently using ~498Mi of memory, which is right at the 512Mi limit. Kubernetes kills the container when it exceeds the limit.\n\n## Immedia",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T12",
+      "test_name": "Next Step Reasoning",
+      "category": "reasoning",
+      "model": "sonnet-46",
+      "run": 3,
+      "elapsed_ms": 13112,
+      "input_tokens": 123,
+      "output_tokens": 557,
+      "tokens_per_sec": null,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Found: 'raise the limit'",
+      "content_preview": "## Diagnosis\n\nYour pod is being **OOMKilled** because it's consistently using ~498Mi against a 512Mi limit \u2014 you're at **97% of your memory limit**, so the kernel is killing the process when it tries ",
+      "tool_calls": null
+    }
+  ]
+}

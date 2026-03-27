@@ -1,0 +1,14 @@
+{
+  "metadata": {
+    "timestamp": "2026-03-27T03:58:46.584766+00:00",
+    "hostname": "wemby",
+    "location": "local",
+    "base_url": "http://localhost:11434",
+    "models": [
+      "qwen3.5:9b-q8_0",
+      "qwen3.5:9b-q4_K_M"
+    ],
+    "runs_per_test": 3
+  },
+  "results": []
+}
