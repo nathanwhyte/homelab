@@ -11,9 +11,12 @@ sudo tee /etc/systemd/system/ollama.service.d/override.conf > /dev/null <<'EOF'
 # Listen on all interfaces (so wemby/other nodes can connect)
 Environment="OLLAMA_HOST=0.0.0.0"
 
-# Flash attention — enables KV cache quantization (q8_0)
-# Cuts KV memory by ~50%, doubling effective context window
+# Flash attention — required for KV cache quantization
 Environment="OLLAMA_FLASH_ATTENTION=1"
+
+# Quantize KV cache to q8_0 (from default f16)
+# Cuts KV memory by ~50% with negligible quality loss, doubling effective context
+Environment="OLLAMA_KV_CACHE_TYPE=q8_0"
 
 # Keep model loaded indefinitely (dedicated GPU, single-user)
 # Default is 5m which wastes 10s reloading between Claude Code prompts
