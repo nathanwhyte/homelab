@@ -6,9 +6,7 @@ metadata:
   namespace: llama
 type: Opaque
 data:
-  # base64-encoded htpasswd entry: ollama:YOUR_API_KEY_HERE
-  # Generate with: htpasswd -nb ollama <password> | base64 -w 0
-  users: REPLACE_WITH_BASE64_HTPASSWD
+  users: b2xsYW1hOiRhcHIxJFFuWkRLdi92JG51MUZ0b1Y2OXp1NDNqVlBCWVdlZTAKCg==
 ---
 apiVersion: traefik.io/v1alpha1
 kind: Middleware
