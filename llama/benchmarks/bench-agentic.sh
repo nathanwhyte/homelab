@@ -5,7 +5,7 @@ set -euo pipefail
 # Tests: tool calling, multi-step reasoning, code generation, structured output
 # Designed to mirror Claude Code + Sonnet/Opus capabilities
 
-OUTPUT_DIR="./agentic-bench-results"
+OUTPUT_DIR="./results/agentic"
 mkdir -p "$OUTPUT_DIR"
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 REPORT="$OUTPUT_DIR/report-${TIMESTAMP}.md"

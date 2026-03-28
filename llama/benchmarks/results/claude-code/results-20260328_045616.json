@@ -1,0 +1,899 @@
+{
+  "metadata": {
+    "timestamp": "2026-03-28T04:56:16.473895+00:00",
+    "models": {
+      "qwen-claude": {
+        "type": "ollama",
+        "base_url": "http://192.168.1.19:11434",
+        "model": "qwen-claude",
+        "label": "Qwen-Claude (tuned)"
+      },
+      "qwen35-lite": {
+        "type": "ollama",
+        "base_url": "http://192.168.1.19:11434",
+        "model": "qwen3.5:9b-q4_K_M",
+        "label": "Qwen3.5 9B Q4"
+      }
+    },
+    "total_tests": 12,
+    "runs_per_test": 2
+  },
+  "results": [
+    {
+      "test_id": "T1",
+      "test_name": "Single Tool Selection",
+      "category": "tool_calling",
+      "model": "qwen-claude",
+      "run": 1,
+      "elapsed_ms": 3889,
+      "input_tokens": 613,
+      "output_tokens": 193,
+      "tokens_per_sec": 59.6,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Correct tool and args: {'name': 'search_code', 'arguments': {'path': 'src/', 'pattern': 'TODO'}}",
+      "content_preview": "",
+      "tool_calls": [
+        {
+          "name": "search_code",
+          "arguments": {
+            "path": "src/",
+            "pattern": "TODO"
+          }
+        }
+      ]
+    },
+    {
+      "test_id": "T1",
+      "test_name": "Single Tool Selection",
+      "category": "tool_calling",
+      "model": "qwen-claude",
+      "run": 2,
+      "elapsed_ms": 3299,
+      "input_tokens": 613,
+      "output_tokens": 160,
+      "tokens_per_sec": 59.7,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Correct tool and args: {'name': 'search_code', 'arguments': {'path': 'src/', 'pattern': 'TODO'}}",
+      "content_preview": "",
+      "tool_calls": [
+        {
+          "name": "search_code",
+          "arguments": {
+            "path": "src/",
+            "pattern": "TODO"
+          }
+        }
+      ]
+    },
+    {
+      "test_id": "T2",
+      "test_name": "Multi-Tool Planning",
+      "category": "tool_calling",
+      "model": "qwen-claude",
+      "run": 1,
+      "elapsed_ms": 2161,
+      "input_tokens": 643,
+      "output_tokens": 93,
+      "tokens_per_sec": 60.0,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Correct tool and args: {'name': 'read_file', 'arguments': {'path': '/etc/app/config.yaml'}}",
+      "content_preview": "",
+      "tool_calls": [
+        {
+          "name": "read_file",
+          "arguments": {
+            "path": "/etc/app/config.yaml"
+          }
+        }
+      ]
+    },
+    {
+      "test_id": "T2",
+      "test_name": "Multi-Tool Planning",
+      "category": "tool_calling",
+      "model": "qwen-claude",
+      "run": 2,
+      "elapsed_ms": 2091,
+      "input_tokens": 643,
+      "output_tokens": 89,
+      "tokens_per_sec": 60.0,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Correct tool and args: {'name': 'read_file', 'arguments': {'path': '/etc/app/config.yaml'}}",
+      "content_preview": "",
+      "tool_calls": [
+        {
+          "name": "read_file",
+          "arguments": {
+            "path": "/etc/app/config.yaml"
+          }
+        }
+      ]
+    },
+    {
+      "test_id": "T3",
+      "test_name": "Argument Precision",
+      "category": "tool_calling",
+      "model": "qwen-claude",
+      "run": 1,
+      "elapsed_ms": 2724,
+      "input_tokens": 619,
+      "output_tokens": 127,
+      "tokens_per_sec": 59.9,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Correct tool and args: {'name': 'search_code', 'arguments': {'path': 'pkg/', 'file_glob': '*.go', 'pattern': 'func handle_'}}",
+      "content_preview": "",
+      "tool_calls": [
+        {
+          "name": "search_code",
+          "arguments": {
+            "path": "pkg/",
+            "file_glob": "*.go",
+            "pattern": "func handle_"
+          }
+        }
+      ]
+    },
+    {
+      "test_id": "T3",
+      "test_name": "Argument Precision",
+      "category": "tool_calling",
+      "model": "qwen-claude",
+      "run": 2,
+      "elapsed_ms": 2925,
+      "input_tokens": 619,
+      "output_tokens": 139,
+      "tokens_per_sec": 59.8,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Correct tool and args: {'name': 'search_code', 'arguments': {'pattern': 'handle_', 'path': 'pkg/', 'file_glob': '*.go'}}",
+      "content_preview": "",
+      "tool_calls": [
+        {
+          "name": "search_code",
+          "arguments": {
+            "pattern": "handle_",
+            "path": "pkg/",
+            "file_glob": "*.go"
+          }
+        }
+      ]
+    },
+    {
+      "test_id": "T4",
+      "test_name": "Python Function",
+      "category": "code_gen",
+      "model": "qwen-claude",
+      "run": 1,
+      "elapsed_ms": 21775,
+      "input_tokens": 120,
+      "output_tokens": 1257,
+      "tokens_per_sec": 59.4,
+      "passed": true,
+      "score": 1.0,
+      "reason": "All keywords present + valid Python syntax",
+      "content_preview": "```python\ndef parse_cron(expr: str) -> dict:\n    def parse_field(field: str, min_val: int, max_val: int) -> list:\n        result = []\n        \n        # Handle step values (*/n)\n        if field.start",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T4",
+      "test_name": "Python Function",
+      "category": "code_gen",
+      "model": "qwen-claude",
+      "run": 2,
+      "elapsed_ms": 15272,
+      "input_tokens": 120,
+      "output_tokens": 879,
+      "tokens_per_sec": 59.5,
+      "passed": true,
+      "score": 1.0,
+      "reason": "All keywords present + valid Python syntax",
+      "content_preview": "```python\ndef parse_cron(expr: str) -> dict:\n    def parse_field(field: str, min_val: int, max_val: int) -> list:\n        if field == '*':\n            return list(range(min_val, max_val + 1))\n        ",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T5",
+      "test_name": "Kubernetes YAML",
+      "category": "code_gen",
+      "model": "qwen-claude",
+      "run": 1,
+      "elapsed_ms": 35437,
+      "input_tokens": 91,
+      "output_tokens": 2048,
+      "tokens_per_sec": 59.2,
+      "passed": false,
+      "score": 0.0,
+      "reason": "Only 0/5 keywords; missing: ['Deployment', 'redis', 'livenessProbe', 'persistentVolumeClaim', '256Mi']",
+      "content_preview": "",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T5",
+      "test_name": "Kubernetes YAML",
+      "category": "code_gen",
+      "model": "qwen-claude",
+      "run": 2,
+      "elapsed_ms": 34763,
+      "input_tokens": 91,
+      "output_tokens": 2009,
+      "tokens_per_sec": 59.2,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Found 5/5 keywords",
+      "content_preview": "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: redis\n  namespace: cache\nspec:\n  replicas: 1\n  selector:\n    matchLabels:\n      app: redis\n  template:\n    metadata:\n      labels:\n        app: r",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T6",
+      "test_name": "Bash Function",
+      "category": "code_gen",
+      "model": "qwen-claude",
+      "run": 1,
+      "elapsed_ms": 12955,
+      "input_tokens": 92,
+      "output_tokens": 745,
+      "tokens_per_sec": 59.5,
+      "passed": true,
+      "score": 0.75,
+      "reason": "Found 3/4 keywords",
+      "content_preview": "```bash\nretry_cmd() {\n    local cmd=\"$1\"\n    local max_attempts=3\n    local attempt=0\n    local delay=1\n\n    while [ $attempt -lt $max_attempts ]; do\n        attempt=$((attempt + 1))\n        echo \"Att",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T6",
+      "test_name": "Bash Function",
+      "category": "code_gen",
+      "model": "qwen-claude",
+      "run": 2,
+      "elapsed_ms": 11597,
+      "input_tokens": 92,
+      "output_tokens": 666,
+      "tokens_per_sec": 59.6,
+      "passed": true,
+      "score": 0.75,
+      "reason": "Found 3/4 keywords",
+      "content_preview": "```bash\nretry_cmd() {\n    local cmd=\"$1\"\n    local attempt=1\n    local max_attempts=3\n    local delay=1\n\n    while [ $attempt -le $max_attempts ]; do\n        echo \"Attempt $attempt\" >&2\n        if eva",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T7",
+      "test_name": "Bug Detection",
+      "category": "code_understanding",
+      "model": "qwen-claude",
+      "run": 1,
+      "elapsed_ms": 30267,
+      "input_tokens": 177,
+      "output_tokens": 1746,
+      "tokens_per_sec": 59.2,
+      "passed": false,
+      "score": 0.0,
+      "reason": "None of ['shallow copy', 'same reference', 'same list', 'same row', 'same object', 'aliased', 'all rows are the same', 'references to the same'] found in response",
+      "content_preview": "**Bug:** Shared mutable reference in DP table initialization.\n\n**Location:** `dp = [[0] * (n + 1)] * (m + 1)`\n\n**Issue:** This creates `(m + 1)` references to the **same** list object. Modifying `dp[i",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T7",
+      "test_name": "Bug Detection",
+      "category": "code_understanding",
+      "model": "qwen-claude",
+      "run": 2,
+      "elapsed_ms": 35499,
+      "input_tokens": 177,
+      "output_tokens": 2048,
+      "tokens_per_sec": 59.2,
+      "passed": false,
+      "score": 0.0,
+      "reason": "None of ['shallow copy', 'same reference', 'same list', 'same row', 'same object', 'aliased', 'all rows are the same', 'references to the same'] found in response",
+      "content_preview": "",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T8",
+      "test_name": "Race Condition",
+      "category": "code_understanding",
+      "model": "qwen-claude",
+      "run": 1,
+      "elapsed_ms": 6997,
+      "input_tokens": 104,
+      "output_tokens": 398,
+      "tokens_per_sec": 59.7,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Identified race condition and suggested fix",
+      "content_preview": "# Concurrency Issues\n\n## 1. **Race Condition** \u26a0\ufe0f\nThe `counter` variable is accessed by multiple goroutines without synchronization. The `counter++` operation is **not atomic** in Go (it involves read",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T8",
+      "test_name": "Race Condition",
+      "category": "code_understanding",
+      "model": "qwen-claude",
+      "run": 2,
+      "elapsed_ms": 6598,
+      "input_tokens": 104,
+      "output_tokens": 375,
+      "tokens_per_sec": 59.7,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Identified race condition and suggested fix",
+      "content_preview": "This code has a **data race** on the `counter` variable:\n\n1. **Race Condition**: Multiple goroutines read and write `counter` concurrently without synchronization.\n2. **Lost Updates**: Due to the race",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T9",
+      "test_name": "Refactoring",
+      "category": "code_understanding",
+      "model": "qwen-claude",
+      "run": 1,
+      "elapsed_ms": 35451,
+      "input_tokens": 124,
+      "output_tokens": 2048,
+      "tokens_per_sec": 59.2,
+      "passed": false,
+      "score": 0.0,
+      "reason": "None of ['guard clause', 'early continue', 'flatten', 'nested', 'simplif', 'extract', 'combine', 'consolidat', 'walrus', 'ternary', 'min(', '[:100]'] found in response",
+      "content_preview": "",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T9",
+      "test_name": "Refactoring",
+      "category": "code_understanding",
+      "model": "qwen-claude",
+      "run": 2,
+      "elapsed_ms": 35467,
+      "input_tokens": 124,
+      "output_tokens": 2048,
+      "tokens_per_sec": 59.2,
+      "passed": false,
+      "score": 0.0,
+      "reason": "None of ['guard clause', 'early continue', 'flatten', 'nested', 'simplif', 'extract', 'combine', 'consolidat', 'walrus', 'ternary', 'min(', '[:100]'] found in response",
+      "content_preview": "",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T10",
+      "test_name": "Debug Plan",
+      "category": "reasoning",
+      "model": "qwen-claude",
+      "run": 1,
+      "elapsed_ms": 32175,
+      "input_tokens": 80,
+      "output_tokens": 1860,
+      "tokens_per_sec": 59.3,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Found 6/6 keywords",
+      "content_preview": "# Kubernetes CrashLoopBackOff Debugging Plan\n\n## Phase 1: Initial Assessment (5-10 minutes)\n\n### 1.1 Check Pod Status & Events\n```bash\n# Get pod details\nkubectl get pod <pod-name> -n <namespace> -o wi",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T10",
+      "test_name": "Debug Plan",
+      "category": "reasoning",
+      "model": "qwen-claude",
+      "run": 2,
+      "elapsed_ms": 24889,
+      "input_tokens": 80,
+      "output_tokens": 1439,
+      "tokens_per_sec": 59.4,
+      "passed": true,
+      "score": 0.8333333333333334,
+      "reason": "Found 5/6 keywords",
+      "content_preview": "# Kubernetes Pod CrashLoopBackOff Debugging Plan\n\n## Phase 1: Initial Assessment & Information Gathering\n\n### 1.1 Check Pod Status\n```bash\nkubectl get pod <pod-name> -n <namespace> -o wide\nkubectl des",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T11",
+      "test_name": "Migration Plan",
+      "category": "reasoning",
+      "model": "qwen-claude",
+      "run": 1,
+      "elapsed_ms": 35429,
+      "input_tokens": 74,
+      "output_tokens": 2048,
+      "tokens_per_sec": 59.2,
+      "passed": true,
+      "score": 0.8333333333333334,
+      "reason": "Found 5/6 keywords",
+      "content_preview": "# PostgreSQL Migration Plan: Docker Compose \u2192 Kubernetes StatefulSet with Longhorn\n\n## Executive Summary\n\nThis migration plan enables a zero-downtime transition from a single-node Docker Compose Postg",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T11",
+      "test_name": "Migration Plan",
+      "category": "reasoning",
+      "model": "qwen-claude",
+      "run": 2,
+      "elapsed_ms": 35454,
+      "input_tokens": 74,
+      "output_tokens": 2048,
+      "tokens_per_sec": 59.2,
+      "passed": false,
+      "score": 0.0,
+      "reason": "Only 0/6 keywords; missing: ['StatefulSet', 'pg_dump', 'PersistentVolume', 'service', 'test', 'rollback']",
+      "content_preview": "",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T12",
+      "test_name": "Next Step Reasoning",
+      "category": "reasoning",
+      "model": "qwen-claude",
+      "run": 1,
+      "elapsed_ms": 8827,
+      "input_tokens": 144,
+      "output_tokens": 502,
+      "tokens_per_sec": 59.6,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Found: 'increase memory'",
+      "content_preview": "The pod is being killed due to memory exhaustion. Here's what you should do next:\n\n### Immediate Actions\n\n1. **Increase Memory Limits**\n   ```bash\n   kubectl edit deployment myapp-abc123\n   # Increase",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T12",
+      "test_name": "Next Step Reasoning",
+      "category": "reasoning",
+      "model": "qwen-claude",
+      "run": 2,
+      "elapsed_ms": 13030,
+      "input_tokens": 144,
+      "output_tokens": 747,
+      "tokens_per_sec": 59.5,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Found: 'increase memory'",
+      "content_preview": "The pod is being OOMKilled because it's using 498Mi of memory against a 512Mi limit\u2014only 14Mi of headroom remains. This is insufficient for normal operation.\n\n### Recommended Next Steps\n\n1. **Increase",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T1",
+      "test_name": "Single Tool Selection",
+      "category": "tool_calling",
+      "model": "qwen35-lite",
+      "run": 1,
+      "elapsed_ms": 2197,
+      "input_tokens": 613,
+      "output_tokens": 94,
+      "tokens_per_sec": 60.0,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Correct tool and args: {'name': 'search_code', 'arguments': {'path': 'src/', 'pattern': 'TODO'}}",
+      "content_preview": "",
+      "tool_calls": [
+        {
+          "name": "search_code",
+          "arguments": {
+            "path": "src/",
+            "pattern": "TODO"
+          }
+        }
+      ]
+    },
+    {
+      "test_id": "T1",
+      "test_name": "Single Tool Selection",
+      "category": "tool_calling",
+      "model": "qwen35-lite",
+      "run": 2,
+      "elapsed_ms": 2212,
+      "input_tokens": 613,
+      "output_tokens": 117,
+      "tokens_per_sec": 59.8,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Correct tool and args: {'name': 'search_code', 'arguments': {'path': 'src/', 'pattern': 'TODO'}}",
+      "content_preview": "",
+      "tool_calls": [
+        {
+          "name": "search_code",
+          "arguments": {
+            "path": "src/",
+            "pattern": "TODO"
+          }
+        }
+      ]
+    },
+    {
+      "test_id": "T2",
+      "test_name": "Multi-Tool Planning",
+      "category": "tool_calling",
+      "model": "qwen35-lite",
+      "run": 1,
+      "elapsed_ms": 4090,
+      "input_tokens": 643,
+      "output_tokens": 225,
+      "tokens_per_sec": 59.6,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Correct tool and args: {'name': 'read_file', 'arguments': {'path': '/etc/app/config.yaml'}}",
+      "content_preview": "",
+      "tool_calls": [
+        {
+          "name": "read_file",
+          "arguments": {
+            "path": "/etc/app/config.yaml"
+          }
+        },
+        {
+          "name": "run_command",
+          "arguments": {
+            "command": "ss -tlnp | grep ':8080' || echo 'Port 8080 is not in use'"
+          }
+        }
+      ]
+    },
+    {
+      "test_id": "T2",
+      "test_name": "Multi-Tool Planning",
+      "category": "tool_calling",
+      "model": "qwen35-lite",
+      "run": 2,
+      "elapsed_ms": 4142,
+      "input_tokens": 643,
+      "output_tokens": 228,
+      "tokens_per_sec": 59.5,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Correct tool and args: {'name': 'read_file', 'arguments': {'path': '/etc/app/config.yaml'}}",
+      "content_preview": "",
+      "tool_calls": [
+        {
+          "name": "read_file",
+          "arguments": {
+            "path": "/etc/app/config.yaml"
+          }
+        },
+        {
+          "name": "run_command",
+          "arguments": {
+            "command": "ss -tlnp | grep :8080 || echo \"Port 8080 is not in use\""
+          }
+        }
+      ]
+    },
+    {
+      "test_id": "T3",
+      "test_name": "Argument Precision",
+      "category": "tool_calling",
+      "model": "qwen35-lite",
+      "run": 1,
+      "elapsed_ms": 2586,
+      "input_tokens": 619,
+      "output_tokens": 139,
+      "tokens_per_sec": 59.7,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Correct tool and args: {'name': 'search_code', 'arguments': {'pattern': 'handle_', 'path': 'pkg/', 'file_glob': '*.go'}}",
+      "content_preview": "",
+      "tool_calls": [
+        {
+          "name": "search_code",
+          "arguments": {
+            "pattern": "handle_",
+            "path": "pkg/",
+            "file_glob": "*.go"
+          }
+        }
+      ]
+    },
+    {
+      "test_id": "T3",
+      "test_name": "Argument Precision",
+      "category": "tool_calling",
+      "model": "qwen35-lite",
+      "run": 2,
+      "elapsed_ms": 2578,
+      "input_tokens": 619,
+      "output_tokens": 139,
+      "tokens_per_sec": 59.8,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Correct tool and args: {'name': 'search_code', 'arguments': {'pattern': 'handle_', 'path': 'pkg/', 'file_glob': '*.go'}}",
+      "content_preview": "",
+      "tool_calls": [
+        {
+          "name": "search_code",
+          "arguments": {
+            "pattern": "handle_",
+            "path": "pkg/",
+            "file_glob": "*.go"
+          }
+        }
+      ]
+    },
+    {
+      "test_id": "T4",
+      "test_name": "Python Function",
+      "category": "code_gen",
+      "model": "qwen35-lite",
+      "run": 1,
+      "elapsed_ms": 17216,
+      "input_tokens": 120,
+      "output_tokens": 992,
+      "tokens_per_sec": 59.5,
+      "passed": true,
+      "score": 1.0,
+      "reason": "All keywords present + valid Python syntax",
+      "content_preview": "```python\ndef parse_cron(expr: str) -> dict:\n    def parse_field(field: str, min_val: int, max_val: int) -> list:\n        if field == '*':\n            return list(range(min_val, max_val + 1))\n        ",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T4",
+      "test_name": "Python Function",
+      "category": "code_gen",
+      "model": "qwen35-lite",
+      "run": 2,
+      "elapsed_ms": 21543,
+      "input_tokens": 120,
+      "output_tokens": 1243,
+      "tokens_per_sec": 59.4,
+      "passed": true,
+      "score": 1.0,
+      "reason": "All keywords present + valid Python syntax",
+      "content_preview": "```python\ndef parse_cron(expr: str) -> dict:\n    def parse_field(field: str, min_val: int, max_val: int) -> list:\n        if field == '*':\n            return list(range(min_val, max_val + 1))\n        ",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T5",
+      "test_name": "Kubernetes YAML",
+      "category": "code_gen",
+      "model": "qwen35-lite",
+      "run": 1,
+      "elapsed_ms": 35471,
+      "input_tokens": 91,
+      "output_tokens": 2048,
+      "tokens_per_sec": 59.2,
+      "passed": false,
+      "score": 0.0,
+      "reason": "Only 0/5 keywords; missing: ['Deployment', 'redis', 'livenessProbe', 'persistentVolumeClaim', '256Mi']",
+      "content_preview": "",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T5",
+      "test_name": "Kubernetes YAML",
+      "category": "code_gen",
+      "model": "qwen35-lite",
+      "run": 2,
+      "elapsed_ms": 35437,
+      "input_tokens": 91,
+      "output_tokens": 2048,
+      "tokens_per_sec": 59.3,
+      "passed": false,
+      "score": 0.0,
+      "reason": "Only 0/5 keywords; missing: ['Deployment', 'redis', 'livenessProbe', 'persistentVolumeClaim', '256Mi']",
+      "content_preview": "",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T6",
+      "test_name": "Bash Function",
+      "category": "code_gen",
+      "model": "qwen35-lite",
+      "run": 1,
+      "elapsed_ms": 11012,
+      "input_tokens": 92,
+      "output_tokens": 630,
+      "tokens_per_sec": 59.4,
+      "passed": true,
+      "score": 0.75,
+      "reason": "Found 3/4 keywords",
+      "content_preview": "```bash\nretry_cmd() {\n    local cmd=\"$1\"\n    local attempt=1\n    local max_attempts=3\n    local backoff=1\n\n    while [ $attempt -le $max_attempts ]; do\n        echo \"Attempt $attempt\" >&2\n        if e",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T6",
+      "test_name": "Bash Function",
+      "category": "code_gen",
+      "model": "qwen35-lite",
+      "run": 2,
+      "elapsed_ms": 11946,
+      "input_tokens": 92,
+      "output_tokens": 687,
+      "tokens_per_sec": 59.7,
+      "passed": true,
+      "score": 0.75,
+      "reason": "Found 3/4 keywords",
+      "content_preview": "```bash\nretry_cmd() {\n    local cmd=\"$1\"\n    local attempt=0\n    local max_attempts=3\n    \n    while [ $attempt -lt $max_attempts ]; do\n        attempt=$((attempt + 1))\n        echo \"Attempt $attempt\"",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T7",
+      "test_name": "Bug Detection",
+      "category": "code_understanding",
+      "model": "qwen35-lite",
+      "run": 1,
+      "elapsed_ms": 35489,
+      "input_tokens": 177,
+      "output_tokens": 2048,
+      "tokens_per_sec": 59.2,
+      "passed": false,
+      "score": 0.0,
+      "reason": "None of ['shallow copy', 'same reference', 'same list', 'same row', 'same object', 'aliased', 'all rows are the same', 'references to the same'] found in response",
+      "content_preview": "",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T7",
+      "test_name": "Bug Detection",
+      "category": "code_understanding",
+      "model": "qwen35-lite",
+      "run": 2,
+      "elapsed_ms": 35495,
+      "input_tokens": 177,
+      "output_tokens": 2048,
+      "tokens_per_sec": 59.2,
+      "passed": false,
+      "score": 0.0,
+      "reason": "None of ['shallow copy', 'same reference', 'same list', 'same row', 'same object', 'aliased', 'all rows are the same', 'references to the same'] found in response",
+      "content_preview": "",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T8",
+      "test_name": "Race Condition",
+      "category": "code_understanding",
+      "model": "qwen35-lite",
+      "run": 1,
+      "elapsed_ms": 9889,
+      "input_tokens": 104,
+      "output_tokens": 567,
+      "tokens_per_sec": 59.7,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Identified race condition and suggested fix",
+      "content_preview": "# Concurrency Issues\n\n## Primary Issue: Data Race\n\nThe `counter` variable is accessed by multiple goroutines without synchronization, creating a **data race**:\n\n```go\ncounter++  // Not atomic!\n```\n\nTh",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T8",
+      "test_name": "Race Condition",
+      "category": "code_understanding",
+      "model": "qwen35-lite",
+      "run": 2,
+      "elapsed_ms": 8430,
+      "input_tokens": 104,
+      "output_tokens": 482,
+      "tokens_per_sec": 59.8,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Identified race condition and suggested fix",
+      "content_preview": "# Concurrency Issues\n\n## 1. **Race Condition** \u26a0\ufe0f\nMultiple goroutines increment `counter` concurrently without synchronization. The `counter++` operation is not atomic (read-modify-write), causing los",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T9",
+      "test_name": "Refactoring",
+      "category": "code_understanding",
+      "model": "qwen35-lite",
+      "run": 1,
+      "elapsed_ms": 18109,
+      "input_tokens": 124,
+      "output_tokens": 1045,
+      "tokens_per_sec": 59.5,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Found: 'guard clause'",
+      "content_preview": "Here are several refactoring improvements for your `process` function, organized by approach and trade-off.\n\n---\n\n### \u2705 Recommended Refactored Version\n\n```python\ndef process(data):\n    \"\"\"\n    Process",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T9",
+      "test_name": "Refactoring",
+      "category": "code_understanding",
+      "model": "qwen35-lite",
+      "run": 2,
+      "elapsed_ms": 35992,
+      "input_tokens": 124,
+      "output_tokens": 2048,
+      "tokens_per_sec": 58.3,
+      "passed": false,
+      "score": 0.0,
+      "reason": "None of ['guard clause', 'early continue', 'flatten', 'nested', 'simplif', 'extract', 'combine', 'consolidat', 'walrus', 'ternary', 'min(', '[:100]'] found in response",
+      "content_preview": "",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T10",
+      "test_name": "Debug Plan",
+      "category": "reasoning",
+      "model": "qwen35-lite",
+      "run": 1,
+      "elapsed_ms": 35406,
+      "input_tokens": 80,
+      "output_tokens": 2048,
+      "tokens_per_sec": 59.3,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Found 6/6 keywords",
+      "content_preview": "Here is a systematic debugging plan for a `CrashLoopBackOff` pod involving Longhorn storage, GPU hardware, and a recent image update.\n\n### Phase 1: Triage & Observation\n**Goal:** Confirm the state and",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T10",
+      "test_name": "Debug Plan",
+      "category": "reasoning",
+      "model": "qwen35-lite",
+      "run": 2,
+      "elapsed_ms": 35821,
+      "input_tokens": 80,
+      "output_tokens": 2048,
+      "tokens_per_sec": 58.6,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Found 6/6 keywords",
+      "content_preview": "Here is a systematic debugging plan for a `CrashLoopBackOff` pod involving Longhorn storage, GPU hardware, and a recent image update.\n\n### Phase 1: Immediate Triage (5 Minutes)\n*Goal: Determine the im",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T11",
+      "test_name": "Migration Plan",
+      "category": "reasoning",
+      "model": "qwen35-lite",
+      "run": 1,
+      "elapsed_ms": 35875,
+      "input_tokens": 74,
+      "output_tokens": 2048,
+      "tokens_per_sec": 58.5,
+      "passed": true,
+      "score": 0.8333333333333334,
+      "reason": "Found 5/6 keywords",
+      "content_preview": "# PostgreSQL Migration Plan: Docker Compose \u2192 Kubernetes StatefulSet with Longhorn\n\n## Overview\n\nThis migration plan ensures a zero-downtime transition from a single-node Docker Compose PostgreSQL set",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T11",
+      "test_name": "Migration Plan",
+      "category": "reasoning",
+      "model": "qwen35-lite",
+      "run": 2,
+      "elapsed_ms": 35422,
+      "input_tokens": 74,
+      "output_tokens": 2048,
+      "tokens_per_sec": 59.3,
+      "passed": true,
+      "score": 0.6666666666666666,
+      "reason": "Found 4/6 keywords",
+      "content_preview": "# PostgreSQL Migration Plan: Docker Compose \u2192 K8s StatefulSet + Longhorn\n\n## \u26a0\ufe0f Important Reality Check\n**True zero downtime is not achievable** during infrastructure migration. However, we can achiev",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T12",
+      "test_name": "Next Step Reasoning",
+      "category": "reasoning",
+      "model": "qwen35-lite",
+      "run": 1,
+      "elapsed_ms": 9554,
+      "input_tokens": 144,
+      "output_tokens": 545,
+      "tokens_per_sec": 59.6,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Found: 'increase memory'",
+      "content_preview": "The pod is being killed due to Out of Memory (OOM) because it's using nearly all of its allocated memory limit (498Mi out of 512Mi). Here's what you should do next:\n\n## Immediate Fix: Increase Memory ",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T12",
+      "test_name": "Next Step Reasoning",
+      "category": "reasoning",
+      "model": "qwen35-lite",
+      "run": 2,
+      "elapsed_ms": 12470,
+      "input_tokens": 144,
+      "output_tokens": 715,
+      "tokens_per_sec": 59.6,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Found: 'increase memory'",
+      "content_preview": "You're experiencing an Out-Of-Memory (OOM) kill issue. Your pod is using **498Mi** of memory, which is dangerously close to your **512Mi** limit. When it exceeds the limit, Kubernetes kills the contai",
+      "tool_calls": null
+    }
+  ]
+}

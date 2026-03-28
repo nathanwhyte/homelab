@@ -1,0 +1,1712 @@
+{
+  "metadata": {
+    "timestamp": "2026-03-28T13:18:34.606859+00:00",
+    "models": {
+      "haiku-45": {
+        "type": "claude",
+        "model": "claude-haiku-4-5-20251001",
+        "label": "Claude Haiku 4.5"
+      },
+      "sonnet-46": {
+        "type": "claude",
+        "model": "claude-sonnet-4-6",
+        "label": "Claude Sonnet 4.6"
+      }
+    },
+    "total_tests": 20,
+    "runs_per_test": 2
+  },
+  "results": [
+    {
+      "test_id": "T1",
+      "test_name": "Single Tool Selection",
+      "category": "tool_calling",
+      "model": "haiku-45",
+      "run": 1,
+      "elapsed_ms": 3084,
+      "input_tokens": 891,
+      "output_tokens": 84,
+      "tokens_per_sec": null,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Correct tool and args: {'name': 'search_code', 'arguments': {'path': 'src/', 'pattern': 'TODO'}}",
+      "content_preview": "I'll search for TODO comments in the src/ directory.",
+      "tool_calls": [
+        {
+          "name": "search_code",
+          "arguments": {
+            "path": "src/",
+            "pattern": "TODO"
+          }
+        }
+      ]
+    },
+    {
+      "test_id": "T1",
+      "test_name": "Single Tool Selection",
+      "category": "tool_calling",
+      "model": "haiku-45",
+      "run": 2,
+      "elapsed_ms": 938,
+      "input_tokens": 891,
+      "output_tokens": 102,
+      "tokens_per_sec": null,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Correct tool and args: {'name': 'search_code', 'arguments': {'path': 'src', 'pattern': 'TODO', 'file_glob': '*'}}",
+      "content_preview": "I'll search for TODO comments in the src/ directory.",
+      "tool_calls": [
+        {
+          "name": "search_code",
+          "arguments": {
+            "path": "src",
+            "pattern": "TODO",
+            "file_glob": "*"
+          }
+        }
+      ]
+    },
+    {
+      "test_id": "T2",
+      "test_name": "Multi-Tool Planning",
+      "category": "tool_calling",
+      "model": "haiku-45",
+      "run": 1,
+      "elapsed_ms": 989,
+      "input_tokens": 921,
+      "output_tokens": 147,
+      "tokens_per_sec": null,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Correct tool and args: {'name': 'read_file', 'arguments': {'path': '/etc/app/config.yaml'}}",
+      "content_preview": "I'll help you with that. Let me start by reading the config file and checking if port 8080 is in use.",
+      "tool_calls": [
+        {
+          "name": "read_file",
+          "arguments": {
+            "path": "/etc/app/config.yaml"
+          }
+        },
+        {
+          "name": "run_command",
+          "arguments": {
+            "command": "netstat -tuln | grep 8080 || echo \"Port 8080 is not in use\""
+          }
+        }
+      ]
+    },
+    {
+      "test_id": "T2",
+      "test_name": "Multi-Tool Planning",
+      "category": "tool_calling",
+      "model": "haiku-45",
+      "run": 2,
+      "elapsed_ms": 5797,
+      "input_tokens": 921,
+      "output_tokens": 147,
+      "tokens_per_sec": null,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Correct tool and args: {'name': 'read_file', 'arguments': {'path': '/etc/app/config.yaml'}}",
+      "content_preview": "I'll help you with that. Let me start by reading the config file and checking if port 8080 is in use.",
+      "tool_calls": [
+        {
+          "name": "read_file",
+          "arguments": {
+            "path": "/etc/app/config.yaml"
+          }
+        },
+        {
+          "name": "run_command",
+          "arguments": {
+            "command": "netstat -tuln | grep 8080 || echo \"Port 8080 is not in use\""
+          }
+        }
+      ]
+    },
+    {
+      "test_id": "T3",
+      "test_name": "Argument Precision",
+      "category": "tool_calling",
+      "model": "haiku-45",
+      "run": 1,
+      "elapsed_ms": 1014,
+      "input_tokens": 899,
+      "output_tokens": 103,
+      "tokens_per_sec": null,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Correct tool and args: {'name': 'search_code', 'arguments': {'path': 'pkg/', 'file_glob': '*.go', 'pattern': 'func\\\\s+\\\\w*handle_\\\\w*'}}",
+      "content_preview": "",
+      "tool_calls": [
+        {
+          "name": "search_code",
+          "arguments": {
+            "path": "pkg/",
+            "file_glob": "*.go",
+            "pattern": "func\\s+\\w*handle_\\w*"
+          }
+        }
+      ]
+    },
+    {
+      "test_id": "T3",
+      "test_name": "Argument Precision",
+      "category": "tool_calling",
+      "model": "haiku-45",
+      "run": 2,
+      "elapsed_ms": 1098,
+      "input_tokens": 899,
+      "output_tokens": 129,
+      "tokens_per_sec": null,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Correct tool and args: {'name': 'search_code', 'arguments': {'path': 'pkg/', 'file_glob': '*.go', 'pattern': 'func\\\\s+\\\\(.*\\\\)\\\\s+handle_\\\\w+'}}",
+      "content_preview": "I'll search for functions named 'handle_' in all .go files under the pkg/ directory.",
+      "tool_calls": [
+        {
+          "name": "search_code",
+          "arguments": {
+            "path": "pkg/",
+            "file_glob": "*.go",
+            "pattern": "func\\s+\\(.*\\)\\s+handle_\\w+"
+          }
+        }
+      ]
+    },
+    {
+      "test_id": "T4",
+      "test_name": "Python Function",
+      "category": "code_gen",
+      "model": "haiku-45",
+      "run": 1,
+      "elapsed_ms": 8052,
+      "input_tokens": 119,
+      "output_tokens": 678,
+      "tokens_per_sec": null,
+      "passed": true,
+      "score": 1.0,
+      "reason": "All keywords present + valid Python syntax",
+      "content_preview": "```python\ndef parse_cron(expr: str) -> dict:\n    fields = expr.split()\n    if len(fields) != 5:\n        raise ValueError(\"Cron expression must have exactly 5 fields\")\n    \n    field_names = ['minute',",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T4",
+      "test_name": "Python Function",
+      "category": "code_gen",
+      "model": "haiku-45",
+      "run": 2,
+      "elapsed_ms": 3654,
+      "input_tokens": 119,
+      "output_tokens": 654,
+      "tokens_per_sec": null,
+      "passed": true,
+      "score": 1.0,
+      "reason": "All keywords present + valid Python syntax",
+      "content_preview": "```python\ndef parse_cron(expr: str) -> dict:\n    fields = expr.split()\n    if len(fields) != 5:\n        raise ValueError(\"Cron expression must have exactly 5 fields\")\n    \n    field_names = ['minute',",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T5",
+      "test_name": "Kubernetes YAML",
+      "category": "code_gen",
+      "model": "haiku-45",
+      "run": 1,
+      "elapsed_ms": 1685,
+      "input_tokens": 79,
+      "output_tokens": 314,
+      "tokens_per_sec": null,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Found 5/5 keywords",
+      "content_preview": "```yaml\napiVersion: v1\nkind: Namespace\nmetadata:\n  name: cache\n---\napiVersion: v1\nkind: PersistentVolumeClaim\nmetadata:\n  name: redis-data\n  namespace: cache\nspec:\n  accessModes:\n    - ReadWriteOnce\n ",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T5",
+      "test_name": "Kubernetes YAML",
+      "category": "code_gen",
+      "model": "haiku-45",
+      "run": 2,
+      "elapsed_ms": 1587,
+      "input_tokens": 79,
+      "output_tokens": 314,
+      "tokens_per_sec": null,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Found 5/5 keywords",
+      "content_preview": "```yaml\napiVersion: v1\nkind: Namespace\nmetadata:\n  name: cache\n---\napiVersion: v1\nkind: PersistentVolumeClaim\nmetadata:\n  name: redis-data\n  namespace: cache\nspec:\n  accessModes:\n    - ReadWriteOnce\n ",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T6",
+      "test_name": "Bash Function",
+      "category": "code_gen",
+      "model": "haiku-45",
+      "run": 1,
+      "elapsed_ms": 1026,
+      "input_tokens": 86,
+      "output_tokens": 156,
+      "tokens_per_sec": null,
+      "passed": true,
+      "score": 0.75,
+      "reason": "Found 3/4 keywords",
+      "content_preview": "```bash\nretry_cmd() {\n    local cmd=\"$1\"\n    local max_attempts=3\n    local attempt=1\n    local wait_time=1\n    \n    while [ $attempt -le $max_attempts ]; do\n        echo \"Attempt $attempt\" >&2\n      ",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T6",
+      "test_name": "Bash Function",
+      "category": "code_gen",
+      "model": "haiku-45",
+      "run": 2,
+      "elapsed_ms": 1249,
+      "input_tokens": 86,
+      "output_tokens": 196,
+      "tokens_per_sec": null,
+      "passed": true,
+      "score": 0.75,
+      "reason": "Found 3/4 keywords",
+      "content_preview": "```bash\nretry_cmd() {\n    local cmd=\"$1\"\n    local max_attempts=3\n    local attempt=1\n    local wait_time=1\n\n    while [ $attempt -le $max_attempts ]; do\n        echo \"Attempt $attempt of $max_attempt",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T7",
+      "test_name": "Bug Detection",
+      "category": "code_understanding",
+      "model": "haiku-45",
+      "run": 1,
+      "elapsed_ms": 2140,
+      "input_tokens": 178,
+      "output_tokens": 200,
+      "tokens_per_sec": null,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Found: 'same list'",
+      "content_preview": "# Bug in LCS Code\n\n**Critical Issue:** Line 2 has a list aliasing bug.\n\n```python\ndp = [[0] * (n + 1)] * (m + 1)\n```\n\nThis creates `(m + 1)` references to the **same list object**. When you modify one",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T7",
+      "test_name": "Bug Detection",
+      "category": "code_understanding",
+      "model": "haiku-45",
+      "run": 2,
+      "elapsed_ms": 1897,
+      "input_tokens": 178,
+      "output_tokens": 173,
+      "tokens_per_sec": null,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Found: 'shallow copy'",
+      "content_preview": "# Bug Found\n\n**Line 2:** `dp = [[0] * (n + 1)] * (m + 1)`\n\nThis creates a **shallow copy** issue. All rows reference the **same list object**, so modifying one row affects all rows.\n\n## Fix\n\n```python",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T8",
+      "test_name": "Race Condition",
+      "category": "code_understanding",
+      "model": "haiku-45",
+      "run": 1,
+      "elapsed_ms": 2350,
+      "input_tokens": 95,
+      "output_tokens": 301,
+      "tokens_per_sec": null,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Identified race condition and suggested fix",
+      "content_preview": "# Concurrency Issues\n\n1. **Race Condition on `counter++`**\n   - Multiple goroutines read, increment, and write `counter` simultaneously without synchronization\n   - The `++` operation is not atomic (r",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T8",
+      "test_name": "Race Condition",
+      "category": "code_understanding",
+      "model": "haiku-45",
+      "run": 2,
+      "elapsed_ms": 2471,
+      "input_tokens": 95,
+      "output_tokens": 354,
+      "tokens_per_sec": null,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Identified race condition and suggested fix",
+      "content_preview": "# Concurrency Issues\n\n1. **Race Condition**: Multiple goroutines are incrementing `counter` simultaneously without synchronization. The `counter++` operation is not atomic\u2014it involves read, modify, an",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T9",
+      "test_name": "Refactoring",
+      "category": "code_understanding",
+      "model": "haiku-45",
+      "run": 1,
+      "elapsed_ms": 3951,
+      "input_tokens": 123,
+      "output_tokens": 535,
+      "tokens_per_sec": null,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Found: 'flatten'",
+      "content_preview": "# Refactoring Suggestions\n\nHere are specific improvements:\n\n## 1. **Flatten Nested Conditionals** (Most Important)\n```python\ndef process(data):\n    result = []\n    for item in data:\n        if item is",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T9",
+      "test_name": "Refactoring",
+      "category": "code_understanding",
+      "model": "haiku-45",
+      "run": 2,
+      "elapsed_ms": 4249,
+      "input_tokens": 123,
+      "output_tokens": 527,
+      "tokens_per_sec": null,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Found: 'flatten'",
+      "content_preview": "# Refactoring Suggestions\n\n## 1. **Flatten Nested Conditionals** (Most Important)\nThe deeply nested `if` statements make this hard to read. Use early returns or combine conditions:\n\n```python\ndef proc",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T10",
+      "test_name": "Debug Plan",
+      "category": "reasoning",
+      "model": "haiku-45",
+      "run": 1,
+      "elapsed_ms": 14357,
+      "input_tokens": 77,
+      "output_tokens": 2048,
+      "tokens_per_sec": null,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Found 6/6 keywords",
+      "content_preview": "# Kubernetes CrashLoopBackOff Debugging Plan\n\nI'll walk you through a systematic approach, starting with quick wins and progressing to deeper investigation.\n\n## Phase 1: Immediate Triage (5 minutes)\n\n",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T10",
+      "test_name": "Debug Plan",
+      "category": "reasoning",
+      "model": "haiku-45",
+      "run": 2,
+      "elapsed_ms": 13451,
+      "input_tokens": 77,
+      "output_tokens": 1605,
+      "tokens_per_sec": null,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Found 6/6 keywords",
+      "content_preview": "# Kubernetes CrashLoopBackOff Debugging Plan\n\nI'll walk through a systematic approach, prioritizing the most common causes first.\n\n## Phase 1: Quick Assessment (5 minutes)\n\n```bash\n# Get pod status an",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T11",
+      "test_name": "Migration Plan",
+      "category": "reasoning",
+      "model": "haiku-45",
+      "run": 1,
+      "elapsed_ms": 11942,
+      "input_tokens": 66,
+      "output_tokens": 2048,
+      "tokens_per_sec": null,
+      "passed": true,
+      "score": 0.8333333333333334,
+      "reason": "Found 5/6 keywords",
+      "content_preview": "# PostgreSQL Migration Plan: Docker Compose \u2192 K8s StatefulSet with Longhorn\n\n## Pre-Migration Phase (1-2 days)\n\n### 1. Infrastructure Preparation\n\n```yaml\n# 1.1 Longhorn Setup\napiVersion: v1\nkind: Nam",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T11",
+      "test_name": "Migration Plan",
+      "category": "reasoning",
+      "model": "haiku-45",
+      "run": 2,
+      "elapsed_ms": 11594,
+      "input_tokens": 66,
+      "output_tokens": 2048,
+      "tokens_per_sec": null,
+      "passed": false,
+      "score": 0.5,
+      "reason": "Found 3/6 keywords",
+      "content_preview": "# PostgreSQL Migration to Kubernetes StatefulSet with Longhorn\n\n## Pre-Migration Assessment\n\n### Current State Analysis\n```bash\n# Check database size and activity\ndocker exec postgres_container psql -",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T12",
+      "test_name": "Next Step Reasoning",
+      "category": "reasoning",
+      "model": "haiku-45",
+      "run": 1,
+      "elapsed_ms": 5037,
+      "input_tokens": 122,
+      "output_tokens": 422,
+      "tokens_per_sec": null,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Found: 'memory limit'",
+      "content_preview": "# Analysis & Next Steps\n\nYour pod is in a **CrashLoopBackOff** due to **OOMKilled** (Out of Memory). The pod is using 498Mi but only has a 512Mi limit, leaving almost no buffer.\n\n## Immediate Actions\n",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T12",
+      "test_name": "Next Step Reasoning",
+      "category": "reasoning",
+      "model": "haiku-45",
+      "run": 2,
+      "elapsed_ms": 6000,
+      "input_tokens": 122,
+      "output_tokens": 411,
+      "tokens_per_sec": null,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Found: 'memory limit'",
+      "content_preview": "# Analysis & Next Steps\n\nYour pod is in **CrashLoopBackOff** due to an **OOMKilled** (Out of Memory) error. The metrics show the pod is using 498Mi against a 512Mi limit\u2014it's running out of memory.\n\n#",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T13",
+      "test_name": "Multi-File Architecture",
+      "category": "hard_code_gen",
+      "model": "haiku-45",
+      "run": 1,
+      "elapsed_ms": 913,
+      "input_tokens": 962,
+      "output_tokens": 90,
+      "tokens_per_sec": null,
+      "passed": false,
+      "score": 0.13999999999999999,
+      "reason": "1/8 components",
+      "content_preview": "I'll help you create a complete Python REST API with FastAPI. Let me start by creating the project structure and then the necessary files.",
+      "tool_calls": [
+        {
+          "name": "run_command",
+          "arguments": {
+            "command": "mkdir -p fastapi-notes-api"
+          }
+        }
+      ]
+    },
+    {
+      "test_id": "T13",
+      "test_name": "Multi-File Architecture",
+      "category": "hard_code_gen",
+      "model": "haiku-45",
+      "run": 2,
+      "elapsed_ms": 762,
+      "input_tokens": 962,
+      "output_tokens": 90,
+      "tokens_per_sec": null,
+      "passed": false,
+      "score": 0.13999999999999999,
+      "reason": "1/8 components",
+      "content_preview": "I'll help you create a complete Python REST API with FastAPI. Let me start by creating the project structure and then the necessary files.",
+      "tool_calls": [
+        {
+          "name": "run_command",
+          "arguments": {
+            "command": "mkdir -p fastapi_notes_app"
+          }
+        }
+      ]
+    },
+    {
+      "test_id": "T14",
+      "test_name": "Complex Algorithm",
+      "category": "hard_code_gen",
+      "model": "haiku-45",
+      "run": 1,
+      "elapsed_ms": 3268,
+      "input_tokens": 95,
+      "output_tokens": 509,
+      "tokens_per_sec": null,
+      "passed": true,
+      "score": 1.0,
+      "reason": "All keywords present + valid Python syntax",
+      "content_preview": "```python\nclass Node:\n    def __init__(self, key=0, value=0):\n        self.key = key\n        self.value = value\n        self.prev = None\n        self.next = None\n\n\nclass LRUCache:\n    def __init__(sel",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T14",
+      "test_name": "Complex Algorithm",
+      "category": "hard_code_gen",
+      "model": "haiku-45",
+      "run": 2,
+      "elapsed_ms": 2471,
+      "input_tokens": 95,
+      "output_tokens": 518,
+      "tokens_per_sec": null,
+      "passed": true,
+      "score": 1.0,
+      "reason": "All keywords present + valid Python syntax",
+      "content_preview": "```python\nclass Node:\n    def __init__(self, key=0, value=0):\n        self.key = key\n        self.value = value\n        self.prev = None\n        self.next = None\n\n\nclass LRUCache:\n    def __init__(sel",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T15",
+      "test_name": "Debug Stack Trace",
+      "category": "hard_code_gen",
+      "model": "haiku-45",
+      "run": 1,
+      "elapsed_ms": 891,
+      "input_tokens": 1025,
+      "output_tokens": 82,
+      "tokens_per_sec": null,
+      "passed": false,
+      "score": 0.3,
+      "reason": "Partial: tool=True, diagnosis=False",
+      "content_preview": "I'll help you diagnose and fix this issue. Let me first read your app.py file to see the current implementation.",
+      "tool_calls": [
+        {
+          "name": "read_file",
+          "arguments": {
+            "path": "app.py"
+          }
+        }
+      ]
+    },
+    {
+      "test_id": "T15",
+      "test_name": "Debug Stack Trace",
+      "category": "hard_code_gen",
+      "model": "haiku-45",
+      "run": 2,
+      "elapsed_ms": 1570,
+      "input_tokens": 1025,
+      "output_tokens": 82,
+      "tokens_per_sec": null,
+      "passed": false,
+      "score": 0.3,
+      "reason": "Partial: tool=True, diagnosis=False",
+      "content_preview": "I'll help you diagnose and fix this issue. Let me first read your app.py file to see the current implementation.",
+      "tool_calls": [
+        {
+          "name": "read_file",
+          "arguments": {
+            "path": "app.py"
+          }
+        }
+      ]
+    },
+    {
+      "test_id": "T16",
+      "test_name": "Multi-Step Tool Chain",
+      "category": "hard_tool_calling",
+      "model": "haiku-45",
+      "run": 1,
+      "elapsed_ms": 1446,
+      "input_tokens": 944,
+      "output_tokens": 208,
+      "tokens_per_sec": null,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Correct tool and args: {'name': 'search_code', 'arguments': {'path': 'src/', 'pattern': 'import.*auth|from.*auth', 'file_glob': '*.py'}}",
+      "content_preview": "I'll help you refactor the authentication module. Let me start by searching for files that import 'auth' and then reading the main auth.py file.",
+      "tool_calls": [
+        {
+          "name": "search_code",
+          "arguments": {
+            "path": "src/",
+            "pattern": "import.*auth|from.*auth",
+            "file_glob": "*.py"
+          }
+        },
+        {
+          "name": "read_file",
+          "arguments": {
+            "path": "src/auth.py"
+          }
+        },
+        {
+          "name": "list_directory",
+          "arguments": {
+            "path": "src/"
+          }
+        }
+      ]
+    },
+    {
+      "test_id": "T16",
+      "test_name": "Multi-Step Tool Chain",
+      "category": "hard_tool_calling",
+      "model": "haiku-45",
+      "run": 2,
+      "elapsed_ms": 1594,
+      "input_tokens": 944,
+      "output_tokens": 208,
+      "tokens_per_sec": null,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Correct tool and args: {'name': 'search_code', 'arguments': {'path': 'src/', 'pattern': 'import.*auth|from.*auth', 'file_glob': '*.py'}}",
+      "content_preview": "I'll help you refactor the authentication module. Let me start by searching for files that import 'auth' and then reading the main auth.py file.",
+      "tool_calls": [
+        {
+          "name": "search_code",
+          "arguments": {
+            "path": "src/",
+            "pattern": "import.*auth|from.*auth",
+            "file_glob": "*.py"
+          }
+        },
+        {
+          "name": "read_file",
+          "arguments": {
+            "path": "src/auth.py"
+          }
+        },
+        {
+          "name": "list_directory",
+          "arguments": {
+            "path": "src/"
+          }
+        }
+      ]
+    },
+    {
+      "test_id": "T17",
+      "test_name": "Tool with Context Window",
+      "category": "hard_tool_calling",
+      "model": "haiku-45",
+      "run": 1,
+      "elapsed_ms": 823,
+      "input_tokens": 953,
+      "output_tokens": 98,
+      "tokens_per_sec": null,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Correct tool run_command with args: {'name': 'run_command', 'arguments': {'command': 'git log --oneline -20 -- \"*auth*\"'}}",
+      "content_preview": "I'll help you investigate this CI pipeline failure. Let me start by checking the git log for recent changes to the auth module, then examine the test file.",
+      "tool_calls": [
+        {
+          "name": "run_command",
+          "arguments": {
+            "command": "git log --oneline -20 -- \"*auth*\""
+          }
+        }
+      ]
+    },
+    {
+      "test_id": "T17",
+      "test_name": "Tool with Context Window",
+      "category": "hard_tool_calling",
+      "model": "haiku-45",
+      "run": 2,
+      "elapsed_ms": 924,
+      "input_tokens": 953,
+      "output_tokens": 98,
+      "tokens_per_sec": null,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Correct tool run_command with args: {'name': 'run_command', 'arguments': {'command': 'git log --oneline -20 -- \"*auth*\"'}}",
+      "content_preview": "I'll help you investigate this CI pipeline failure. Let me start by checking the git log for recent changes to the auth module, then examine the test file.",
+      "tool_calls": [
+        {
+          "name": "run_command",
+          "arguments": {
+            "command": "git log --oneline -20 -- \"*auth*\""
+          }
+        }
+      ]
+    },
+    {
+      "test_id": "T18",
+      "test_name": "Ambiguous Request Routing",
+      "category": "hard_tool_calling",
+      "model": "haiku-45",
+      "run": 1,
+      "elapsed_ms": 1330,
+      "input_tokens": 915,
+      "output_tokens": 197,
+      "tokens_per_sec": null,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Correct tool and args: {'name': 'run_command', 'arguments': {'command': 'find /var/log -type f -exec du -h {} + | sort -rh | head -30'}}",
+      "content_preview": "I'll help you find the largest files in /var/log and identify which ones are safe to rotate or delete.",
+      "tool_calls": [
+        {
+          "name": "run_command",
+          "arguments": {
+            "command": "find /var/log -type f -exec du -h {} + | sort -rh | head -30"
+          }
+        },
+        {
+          "name": "run_command",
+          "arguments": {
+            "command": "du -sh /var/log/* | sort -rh"
+          }
+        },
+        {
+          "name": "run_command",
+          "arguments": {
+            "command": "ls -lh /var/log/ | head -20"
+          }
+        }
+      ]
+    },
+    {
+      "test_id": "T18",
+      "test_name": "Ambiguous Request Routing",
+      "category": "hard_tool_calling",
+      "model": "haiku-45",
+      "run": 2,
+      "elapsed_ms": 1418,
+      "input_tokens": 915,
+      "output_tokens": 217,
+      "tokens_per_sec": null,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Correct tool and args: {'name': 'run_command', 'arguments': {'command': \"find /var/log -type f -exec ls -lh {} \\\\; | awk '{print $5, $9}' | sort -hr | head -30\"}}",
+      "content_preview": "I'll help you find the largest files in /var/log and identify which ones are safe to manage.",
+      "tool_calls": [
+        {
+          "name": "run_command",
+          "arguments": {
+            "command": "find /var/log -type f -exec ls -lh {} \\; | awk '{print $5, $9}' | sort -hr | head -30"
+          }
+        },
+        {
+          "name": "run_command",
+          "arguments": {
+            "command": "du -sh /var/log/* 2>/dev/null | sort -hr | head -20"
+          }
+        },
+        {
+          "name": "run_command",
+          "arguments": {
+            "command": "du -sh /var/log 2>/dev/null"
+          }
+        }
+      ]
+    },
+    {
+      "test_id": "T19",
+      "test_name": "Build CLI App",
+      "category": "agentic",
+      "model": "haiku-45",
+      "run": 1,
+      "elapsed_ms": 827,
+      "input_tokens": 1009,
+      "output_tokens": 90,
+      "tokens_per_sec": null,
+      "passed": false,
+      "score": 0.0,
+      "reason": "no write_file (used run_command); cli keywords: 0/6",
+      "content_preview": "I'll build a Python CLI todo app called 'td' with all the requested features. Let me start by creating the directory structure and the main implementation.",
+      "tool_calls": [
+        {
+          "name": "run_command",
+          "arguments": {
+            "command": "mkdir -p ~/.td"
+          }
+        }
+      ]
+    },
+    {
+      "test_id": "T19",
+      "test_name": "Build CLI App",
+      "category": "agentic",
+      "model": "haiku-45",
+      "run": 2,
+      "elapsed_ms": 1283,
+      "input_tokens": 1009,
+      "output_tokens": 90,
+      "tokens_per_sec": null,
+      "passed": false,
+      "score": 0.0,
+      "reason": "no write_file (used run_command); cli keywords: 0/6",
+      "content_preview": "I'll build a Python CLI todo app called 'td' with all the requested features. Let me start by creating the directory structure and the main implementation.",
+      "tool_calls": [
+        {
+          "name": "run_command",
+          "arguments": {
+            "command": "mkdir -p ~/.td"
+          }
+        }
+      ]
+    },
+    {
+      "test_id": "T20",
+      "test_name": "Build REST API",
+      "category": "agentic",
+      "model": "haiku-45",
+      "run": 1,
+      "elapsed_ms": 7051,
+      "input_tokens": 1017,
+      "output_tokens": 1515,
+      "tokens_per_sec": null,
+      "passed": false,
+      "score": 0.52,
+      "reason": "used write_file; substantial content; api keywords: 1/8",
+      "content_preview": "I'll build a minimal Flask REST API for a bookmark manager with all the requested features.",
+      "tool_calls": [
+        {
+          "name": "write_file",
+          "arguments": {
+            "path": "app.py",
+            "content": "import sqlite3\nimport json\nfrom datetime import datetime\nfrom flask import Flask, request, jsonify\n\napp = Flask(__name__)\nDATABASE = 'bookmarks.db'\n\n# Initialize database\ndef init_db():\n    \"\"\"Create tables if they don't exist\"\"\"\n    conn = sqlite3.connect(DATABASE)\n    cursor = conn.cursor()\n    \n    # Create bookmarks table\n    cursor.execute('''\n        CREATE TABLE IF NOT EXISTS bookmarks (\n            id INTEGER PRIMARY KEY AUTOINCREMENT,\n            url TEXT NOT NULL,\n            title TEXT NOT NULL,\n            tags TEXT,\n            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP\n        )\n    ''')\n    \n    conn.commit()\n    conn.close()\n\ndef get_db():\n    \"\"\"Get database connection\"\"\"\n    conn = sqlite3.connect(DATABASE)\n    conn.row_factory = sqlite3.Row\n    return conn\n\ndef bookmark_to_dict(row):\n    \"\"\"Convert database row to dictionary\"\"\"\n    if row is None:\n        return None\n    \n    tags = []\n    if row['tags']:\n        tags = json.loads(row['tags'])\n    \n    return {\n        'id': row['id'],\n        'url': row['url'],\n        'title': row['title'],\n        'tags': tags,\n        'created_at': row['created_at']\n    }\n\n# Routes\n\n@app.route('/bookmarks', methods=['GET'])\ndef list_bookmarks():\n    \"\"\"List all bookmarks, optionally filtered by tag\"\"\"\n    tag_filter = request.args.get('tag')\n    \n    conn = get_db()\n    cursor = conn.cursor()\n    \n    if tag_filter:\n        # Get all bookmarks and filter by tag (since tags are stored as JSON)\n        cursor.execute('SELECT * FROM bookmarks ORDER BY created_at DESC')\n        rows = cursor.fetchall()\n        conn.close()\n        \n        bookmarks = []\n        for row in rows:\n            bookmark = bookmark_to_dict(row)\n            if tag_filter.lower() in [t.lower() for t in bookmark['tags']]:\n                bookmarks.append(bookmark)\n        \n        return jsonify(bookmarks), 200\n    else:\n        cursor.execute('SELECT * FROM bookmarks ORDER BY created_at DESC')\n        rows = cursor.fetchall()\n        conn.close()\n        \n        bookmarks = [bookmark_to_dict(row) for row in rows]\n        return jsonify(bookmarks), 200\n\n@app.route('/bookmarks', methods=['POST'])\ndef create_bookmark():\n    \"\"\"Create a new bookmark\"\"\"\n    data = request.get_json()\n    \n    # Validate required fields\n    if not data or 'url' not in data or 'title' not in data:\n        return jsonify({'error': 'url and title are required'}), 400\n    \n    url = data.get('url')\n    title = data.get('title')\n    tags = data.get('tags', [])\n    \n    # Validate tags is a list\n    if not isinstance(tags, list):\n        return jsonify({'error': 'tags must be a list'}), 400\n    \n    # Store tags as JSON string\n    tags_json = json.dumps(tags)\n    \n    conn = get_db()\n    cursor = conn.cursor()\n    \n    try:\n        cursor.execute(\n            'INSERT INTO bookmarks (url, title, tags) VALUES (?, ?, ?)',\n            (url, title, tags_json)\n        )\n        conn.commit()\n        bookmark_id = cursor.lastrowid\n        \n        # Fetch and return the created bookmark\n        cursor.execute('SELECT * FROM bookmarks WHERE id = ?', (bookmark_id,))\n        row = cursor.fetchone()\n        conn.close()\n        \n        bookmark = bookmark_to_dict(row)\n        return jsonify(bookmark), 201\n    \n    except Exception as e:\n        conn.close()\n        return jsonify({'error': str(e)}), 500\n\n@app.route('/bookmarks/<int:bookmark_id>', methods=['GET'])\ndef get_bookmark(bookmark_id):\n    \"\"\"Get a single bookmark by ID\"\"\"\n    conn = get_db()\n    cursor = conn.cursor()\n    \n    cursor.execute('SELECT * FROM bookmarks WHERE id = ?', (bookmark_id,))\n    row = cursor.fetchone()\n    conn.close()\n    \n    if row is None:\n        return jsonify({'error': 'Bookmark not found'}), 404\n    \n    bookmark = bookmark_to_dict(row)\n    return jsonify(bookmark), 200\n\n@app.route('/bookmarks/<int:bookmark_id>', methods=['DELETE'])\ndef delete_bookmark(bookmark_id):\n    \"\"\"Delete a bookmark by ID\"\"\"\n    conn = get_db()\n    cursor = conn.cursor()\n    \n    # Check if bookmark exists\n    cursor.execute('SELECT * FROM bookmarks WHERE id = ?', (bookmark_id,))\n    row = cursor.fetchone()\n    \n    if row is None:\n        conn.close()\n        return jsonify({'error': 'Bookmark not found'}), 404\n    \n    # Delete the bookmark\n    cursor.execute('DELETE FROM bookmarks WHERE id = ?', (bookmark_id,))\n    conn.commit()\n    conn.close()\n    \n    return jsonify({'message': 'Bookmark deleted successfully'}), 200\n\n@app.errorhandler(404)\ndef not_found(error):\n    \"\"\"Handle 404 errors\"\"\"\n    return jsonify({'error': 'Endpoint not found'}), 404\n\n@app.errorhandler(405)\ndef method_not_allowed(error):\n    \"\"\"Handle 405 errors\"\"\"\n    return jsonify({'error': 'Method not allowed'}), 405\n\nif __name__ == '__main__':\n    init_db()\n    app.run(debug=True, host='0.0.0.0', port=5000)\n"
+          }
+        }
+      ]
+    },
+    {
+      "test_id": "T20",
+      "test_name": "Build REST API",
+      "category": "agentic",
+      "model": "haiku-45",
+      "run": 2,
+      "elapsed_ms": 6562,
+      "input_tokens": 1017,
+      "output_tokens": 1463,
+      "tokens_per_sec": null,
+      "passed": false,
+      "score": 0.52,
+      "reason": "used write_file; substantial content; api keywords: 1/8",
+      "content_preview": "I'll build a minimal Flask REST API for a bookmark manager with all the requested features.",
+      "tool_calls": [
+        {
+          "name": "write_file",
+          "arguments": {
+            "path": "app.py",
+            "content": "import sqlite3\nimport json\nfrom datetime import datetime\nfrom flask import Flask, request, jsonify\n\napp = Flask(__name__)\nDATABASE = 'bookmarks.db'\n\n# Initialize database\ndef init_db():\n    \"\"\"Create tables if they don't exist\"\"\"\n    conn = sqlite3.connect(DATABASE)\n    cursor = conn.cursor()\n    \n    # Create bookmarks table\n    cursor.execute('''\n        CREATE TABLE IF NOT EXISTS bookmarks (\n            id INTEGER PRIMARY KEY AUTOINCREMENT,\n            url TEXT NOT NULL,\n            title TEXT NOT NULL,\n            tags TEXT,\n            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP\n        )\n    ''')\n    \n    conn.commit()\n    conn.close()\n\ndef get_db_connection():\n    \"\"\"Get database connection with row factory\"\"\"\n    conn = sqlite3.connect(DATABASE)\n    conn.row_factory = sqlite3.Row\n    return conn\n\ndef bookmark_to_dict(row):\n    \"\"\"Convert database row to dictionary\"\"\"\n    tags = json.loads(row['tags']) if row['tags'] else []\n    return {\n        'id': row['id'],\n        'url': row['url'],\n        'title': row['title'],\n        'tags': tags,\n        'created_at': row['created_at']\n    }\n\n@app.route('/bookmarks', methods=['GET'])\ndef list_bookmarks():\n    \"\"\"List all bookmarks, optionally filtered by tag\"\"\"\n    tag_filter = request.args.get('tag')\n    \n    conn = get_db_connection()\n    cursor = conn.cursor()\n    \n    if tag_filter:\n        # Get all bookmarks and filter by tag in Python\n        cursor.execute('SELECT * FROM bookmarks ORDER BY created_at DESC')\n        rows = cursor.fetchall()\n        bookmarks = [\n            bookmark_to_dict(row) for row in rows\n            if tag_filter in json.loads(row['tags'] or '[]')\n        ]\n    else:\n        cursor.execute('SELECT * FROM bookmarks ORDER BY created_at DESC')\n        rows = cursor.fetchall()\n        bookmarks = [bookmark_to_dict(row) for row in rows]\n    \n    conn.close()\n    return jsonify(bookmarks), 200\n\n@app.route('/bookmarks', methods=['POST'])\ndef create_bookmark():\n    \"\"\"Create a new bookmark\"\"\"\n    data = request.get_json()\n    \n    # Validate required fields\n    if not data or 'url' not in data or 'title' not in data:\n        return jsonify({'error': 'Missing required fields: url, title'}), 400\n    \n    url = data.get('url')\n    title = data.get('title')\n    tags = data.get('tags', [])\n    \n    # Validate tags is a list\n    if not isinstance(tags, list):\n        return jsonify({'error': 'Tags must be a list'}), 400\n    \n    # Store tags as JSON string\n    tags_json = json.dumps(tags)\n    \n    conn = get_db_connection()\n    cursor = conn.cursor()\n    \n    try:\n        cursor.execute(\n            'INSERT INTO bookmarks (url, title, tags) VALUES (?, ?, ?)',\n            (url, title, tags_json)\n        )\n        conn.commit()\n        bookmark_id = cursor.lastrowid\n        \n        # Fetch and return the created bookmark\n        cursor.execute('SELECT * FROM bookmarks WHERE id = ?', (bookmark_id,))\n        row = cursor.fetchone()\n        bookmark = bookmark_to_dict(row)\n        \n        conn.close()\n        return jsonify(bookmark), 201\n    except Exception as e:\n        conn.close()\n        return jsonify({'error': str(e)}), 500\n\n@app.route('/bookmarks/<int:bookmark_id>', methods=['GET'])\ndef get_bookmark(bookmark_id):\n    \"\"\"Get a single bookmark by ID\"\"\"\n    conn = get_db_connection()\n    cursor = conn.cursor()\n    \n    cursor.execute('SELECT * FROM bookmarks WHERE id = ?', (bookmark_id,))\n    row = cursor.fetchone()\n    conn.close()\n    \n    if row is None:\n        return jsonify({'error': 'Bookmark not found'}), 404\n    \n    bookmark = bookmark_to_dict(row)\n    return jsonify(bookmark), 200\n\n@app.route('/bookmarks/<int:bookmark_id>', methods=['DELETE'])\ndef delete_bookmark(bookmark_id):\n    \"\"\"Delete a bookmark by ID\"\"\"\n    conn = get_db_connection()\n    cursor = conn.cursor()\n    \n    # Check if bookmark exists\n    cursor.execute('SELECT * FROM bookmarks WHERE id = ?', (bookmark_id,))\n    row = cursor.fetchone()\n    \n    if row is None:\n        conn.close()\n        return jsonify({'error': 'Bookmark not found'}), 404\n    \n    # Delete the bookmark\n    cursor.execute('DELETE FROM bookmarks WHERE id = ?', (bookmark_id,))\n    conn.commit()\n    conn.close()\n    \n    return jsonify({'message': 'Bookmark deleted successfully'}), 200\n\n@app.errorhandler(404)\ndef not_found(error):\n    \"\"\"Handle 404 errors\"\"\"\n    return jsonify({'error': 'Endpoint not found'}), 404\n\n@app.errorhandler(405)\ndef method_not_allowed(error):\n    \"\"\"Handle 405 errors\"\"\"\n    return jsonify({'error': 'Method not allowed'}), 405\n\nif __name__ == '__main__':\n    init_db()\n    app.run(debug=True, host='0.0.0.0', port=5000)\n"
+          }
+        }
+      ]
+    },
+    {
+      "test_id": "T1",
+      "test_name": "Single Tool Selection",
+      "category": "tool_calling",
+      "model": "sonnet-46",
+      "run": 1,
+      "elapsed_ms": 2616,
+      "input_tokens": 892,
+      "output_tokens": 72,
+      "tokens_per_sec": null,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Correct tool and args: {'name': 'search_code', 'arguments': {'pattern': 'TODO', 'path': 'src/'}}",
+      "content_preview": "",
+      "tool_calls": [
+        {
+          "name": "search_code",
+          "arguments": {
+            "pattern": "TODO",
+            "path": "src/"
+          }
+        }
+      ]
+    },
+    {
+      "test_id": "T1",
+      "test_name": "Single Tool Selection",
+      "category": "tool_calling",
+      "model": "sonnet-46",
+      "run": 2,
+      "elapsed_ms": 2159,
+      "input_tokens": 892,
+      "output_tokens": 72,
+      "tokens_per_sec": null,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Correct tool and args: {'name': 'search_code', 'arguments': {'pattern': 'TODO', 'path': 'src/'}}",
+      "content_preview": "",
+      "tool_calls": [
+        {
+          "name": "search_code",
+          "arguments": {
+            "pattern": "TODO",
+            "path": "src/"
+          }
+        }
+      ]
+    },
+    {
+      "test_id": "T2",
+      "test_name": "Multi-Tool Planning",
+      "category": "tool_calling",
+      "model": "sonnet-46",
+      "run": 1,
+      "elapsed_ms": 2453,
+      "input_tokens": 922,
+      "output_tokens": 143,
+      "tokens_per_sec": null,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Correct tool and args: {'name': 'read_file', 'arguments': {'path': '/etc/app/config.yaml'}}",
+      "content_preview": "Sure! Let me start by reading the config file and checking port 8080 simultaneously, since these are independent tasks.",
+      "tool_calls": [
+        {
+          "name": "read_file",
+          "arguments": {
+            "path": "/etc/app/config.yaml"
+          }
+        },
+        {
+          "name": "run_command",
+          "arguments": {
+            "command": "lsof -i :8080 || echo \"Port 8080 is not in use\""
+          }
+        }
+      ]
+    },
+    {
+      "test_id": "T2",
+      "test_name": "Multi-Tool Planning",
+      "category": "tool_calling",
+      "model": "sonnet-46",
+      "run": 2,
+      "elapsed_ms": 2037,
+      "input_tokens": 922,
+      "output_tokens": 143,
+      "tokens_per_sec": null,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Correct tool and args: {'name': 'read_file', 'arguments': {'path': '/etc/app/config.yaml'}}",
+      "content_preview": "I'll start by reading the config file and checking if port 8080 is in use simultaneously, since these are independent actions!",
+      "tool_calls": [
+        {
+          "name": "read_file",
+          "arguments": {
+            "path": "/etc/app/config.yaml"
+          }
+        },
+        {
+          "name": "run_command",
+          "arguments": {
+            "command": "lsof -i :8080 || echo \"Port 8080 is free\""
+          }
+        }
+      ]
+    },
+    {
+      "test_id": "T3",
+      "test_name": "Argument Precision",
+      "category": "tool_calling",
+      "model": "sonnet-46",
+      "run": 1,
+      "elapsed_ms": 2639,
+      "input_tokens": 900,
+      "output_tokens": 126,
+      "tokens_per_sec": null,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Correct tool and args: {'name': 'search_code', 'arguments': {'pattern': 'func handle_\\\\w+', 'path': 'pkg/', 'file_glob': '*.go'}}",
+      "content_preview": "I'll search for functions named with the `handle_` prefix in all `.go` files under the `pkg/` directory right away!",
+      "tool_calls": [
+        {
+          "name": "search_code",
+          "arguments": {
+            "pattern": "func handle_\\w+",
+            "path": "pkg/",
+            "file_glob": "*.go"
+          }
+        }
+      ]
+    },
+    {
+      "test_id": "T3",
+      "test_name": "Argument Precision",
+      "category": "tool_calling",
+      "model": "sonnet-46",
+      "run": 2,
+      "elapsed_ms": 2561,
+      "input_tokens": 900,
+      "output_tokens": 126,
+      "tokens_per_sec": null,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Correct tool and args: {'name': 'search_code', 'arguments': {'pattern': 'func handle_\\\\w+', 'path': 'pkg/', 'file_glob': '*.go'}}",
+      "content_preview": "I'll search for functions named with the `handle_` prefix in all `.go` files under the `pkg/` directory right away!",
+      "tool_calls": [
+        {
+          "name": "search_code",
+          "arguments": {
+            "pattern": "func handle_\\w+",
+            "path": "pkg/",
+            "file_glob": "*.go"
+          }
+        }
+      ]
+    },
+    {
+      "test_id": "T4",
+      "test_name": "Python Function",
+      "category": "code_gen",
+      "model": "sonnet-46",
+      "run": 1,
+      "elapsed_ms": 7356,
+      "input_tokens": 120,
+      "output_tokens": 638,
+      "tokens_per_sec": null,
+      "passed": true,
+      "score": 1.0,
+      "reason": "All keywords present + valid Python syntax",
+      "content_preview": "```python\ndef parse_cron(expr: str) -> dict:\n    fields = expr.strip().split()\n    if len(fields) != 5:\n        raise ValueError(f\"Expected 5 fields, got {len(fields)}\")\n\n    field_names = ['minute', ",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T4",
+      "test_name": "Python Function",
+      "category": "code_gen",
+      "model": "sonnet-46",
+      "run": 2,
+      "elapsed_ms": 6456,
+      "input_tokens": 120,
+      "output_tokens": 658,
+      "tokens_per_sec": null,
+      "passed": true,
+      "score": 1.0,
+      "reason": "All keywords present + valid Python syntax",
+      "content_preview": "```python\ndef parse_cron(expr: str) -> dict:\n    fields = expr.strip().split()\n    if len(fields) != 5:\n        raise ValueError(f\"Expected 5 fields, got {len(fields)}\")\n\n    field_names = ['minute', ",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T5",
+      "test_name": "Kubernetes YAML",
+      "category": "code_gen",
+      "model": "sonnet-46",
+      "run": 1,
+      "elapsed_ms": 4643,
+      "input_tokens": 80,
+      "output_tokens": 412,
+      "tokens_per_sec": null,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Found 5/5 keywords",
+      "content_preview": "```yaml\napiVersion: v1\nkind: Namespace\nmetadata:\n  name: cache\n---\napiVersion: v1\nkind: PersistentVolumeClaim\nmetadata:\n  name: redis-data\n  namespace: cache\nspec:\n  accessModes:\n    - ReadWriteOnce\n ",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T5",
+      "test_name": "Kubernetes YAML",
+      "category": "code_gen",
+      "model": "sonnet-46",
+      "run": 2,
+      "elapsed_ms": 6615,
+      "input_tokens": 80,
+      "output_tokens": 428,
+      "tokens_per_sec": null,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Found 5/5 keywords",
+      "content_preview": "```yaml\napiVersion: v1\nkind: Namespace\nmetadata:\n  name: cache\n---\napiVersion: v1\nkind: PersistentVolumeClaim\nmetadata:\n  name: redis-data\n  namespace: cache\nspec:\n  accessModes:\n    - ReadWriteOnce\n ",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T6",
+      "test_name": "Bash Function",
+      "category": "code_gen",
+      "model": "sonnet-46",
+      "run": 1,
+      "elapsed_ms": 3113,
+      "input_tokens": 87,
+      "output_tokens": 177,
+      "tokens_per_sec": null,
+      "passed": true,
+      "score": 0.75,
+      "reason": "Found 3/4 keywords",
+      "content_preview": "```bash\nretry_cmd() {\n    local cmd=\"$1\"\n    local max_attempts=3\n    local attempt=1\n    local delay=1\n\n    while [ $attempt -le $max_attempts ]; do\n        echo \"Attempt $attempt of $max_attempts\" >",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T6",
+      "test_name": "Bash Function",
+      "category": "code_gen",
+      "model": "sonnet-46",
+      "run": 2,
+      "elapsed_ms": 3154,
+      "input_tokens": 87,
+      "output_tokens": 177,
+      "tokens_per_sec": null,
+      "passed": true,
+      "score": 0.75,
+      "reason": "Found 3/4 keywords",
+      "content_preview": "```bash\nretry_cmd() {\n    local cmd=\"$1\"\n    local max_attempts=3\n    local attempt=1\n    local delay=1\n\n    while [ $attempt -le $max_attempts ]; do\n        echo \"Attempt $attempt of $max_attempts\" >",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T7",
+      "test_name": "Bug Detection",
+      "category": "code_understanding",
+      "model": "sonnet-46",
+      "run": 1,
+      "elapsed_ms": 6435,
+      "input_tokens": 179,
+      "output_tokens": 404,
+      "tokens_per_sec": null,
+      "passed": false,
+      "score": 0.0,
+      "reason": "None of ['shallow copy', 'same reference', 'same list', 'same row', 'same object', 'aliased', 'all rows are the same', 'references to the same'] found in response",
+      "content_preview": "## Bug: Shallow List Copying\n\nThe problem is on this line:\n\n```python\ndp = [[0] * (n + 1)] * (m + 1)\n```\n\nUsing `* (m + 1)` to replicate the list **does not create independent rows** \u2014 it creates `m +",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T7",
+      "test_name": "Bug Detection",
+      "category": "code_understanding",
+      "model": "sonnet-46",
+      "run": 2,
+      "elapsed_ms": 6937,
+      "input_tokens": 179,
+      "output_tokens": 254,
+      "tokens_per_sec": null,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Found: 'references to the same'",
+      "content_preview": "## Bug: Shallow List Copying\n\nThe problem is on this line:\n\n```python\ndp = [[0] * (n + 1)] * (m + 1)\n```\n\nUsing `* (m + 1)` creates a list containing **`m + 1` references to the same inner list**, rat",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T8",
+      "test_name": "Race Condition",
+      "category": "code_understanding",
+      "model": "sonnet-46",
+      "run": 1,
+      "elapsed_ms": 8015,
+      "input_tokens": 96,
+      "output_tokens": 397,
+      "tokens_per_sec": null,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Identified race condition and suggested fix",
+      "content_preview": "## Concurrency Issues\n\n### 1. **Data Race on `counter`**\nMultiple goroutines simultaneously read and write `counter` without synchronization. The `counter++` operation is **not atomic** \u2014 it compiles ",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T8",
+      "test_name": "Race Condition",
+      "category": "code_understanding",
+      "model": "sonnet-46",
+      "run": 2,
+      "elapsed_ms": 7024,
+      "input_tokens": 96,
+      "output_tokens": 359,
+      "tokens_per_sec": null,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Identified race condition and suggested fix",
+      "content_preview": "## Concurrency Issues\n\n### 1. **Data Race on `counter`**\nMultiple goroutines simultaneously read and write `counter` without synchronization. The `counter++` operation is **not atomic** \u2014 it compiles ",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T9",
+      "test_name": "Refactoring",
+      "category": "code_understanding",
+      "model": "sonnet-46",
+      "run": 1,
+      "elapsed_ms": 9919,
+      "input_tokens": 124,
+      "output_tokens": 528,
+      "tokens_per_sec": null,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Found: 'guard clause'",
+      "content_preview": "## Refactoring Suggestions\n\n### 1. Reduce Nesting with Guard Clauses / Early Continue\n\nThe deeply nested `if` statements are the main issue. Flatten them using `continue` and combining conditions:\n\n``",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T9",
+      "test_name": "Refactoring",
+      "category": "code_understanding",
+      "model": "sonnet-46",
+      "run": 2,
+      "elapsed_ms": 10156,
+      "input_tokens": 124,
+      "output_tokens": 544,
+      "tokens_per_sec": null,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Found: 'guard clause'",
+      "content_preview": "## Refactoring Suggestions\n\n### 1. Flatten Nested Conditionals (Main Issue)\nThe deeply nested `if` statements are the biggest readability problem. Use **guard clauses** and combine conditions:\n\n```pyt",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T10",
+      "test_name": "Debug Plan",
+      "category": "reasoning",
+      "model": "sonnet-46",
+      "run": 1,
+      "elapsed_ms": 37465,
+      "input_tokens": 78,
+      "output_tokens": 2048,
+      "tokens_per_sec": null,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Found 6/6 keywords",
+      "content_preview": "# Kubernetes CrashLoopBackOff Debugging Plan\n\n## Mental Model First\n\nCrashLoopBackOff means the container **starts, crashes, and Kubernetes keeps retrying** with exponential backoff. With your specifi",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T10",
+      "test_name": "Debug Plan",
+      "category": "reasoning",
+      "model": "sonnet-46",
+      "run": 2,
+      "elapsed_ms": 38109,
+      "input_tokens": 78,
+      "output_tokens": 2048,
+      "tokens_per_sec": null,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Found 6/6 keywords",
+      "content_preview": "# Kubernetes CrashLoopBackOff Debugging Plan\n\n## Mental Model First\n\nCrashLoopBackOff means the container **starts, crashes, and Kubernetes keeps retrying** with exponential backoff. With your specifi",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T11",
+      "test_name": "Migration Plan",
+      "category": "reasoning",
+      "model": "sonnet-46",
+      "run": 1,
+      "elapsed_ms": 28321,
+      "input_tokens": 67,
+      "output_tokens": 2048,
+      "tokens_per_sec": null,
+      "passed": true,
+      "score": 0.8333333333333334,
+      "reason": "Found 5/6 keywords",
+      "content_preview": "# PostgreSQL Migration: Docker Compose \u2192 Kubernetes StatefulSet with Longhorn\n\n## Architecture Overview\n\n```\nCURRENT STATE                          TARGET STATE\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500                      ",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T11",
+      "test_name": "Migration Plan",
+      "category": "reasoning",
+      "model": "sonnet-46",
+      "run": 2,
+      "elapsed_ms": 28519,
+      "input_tokens": 67,
+      "output_tokens": 2048,
+      "tokens_per_sec": null,
+      "passed": false,
+      "score": 0.5,
+      "reason": "Found 3/6 keywords",
+      "content_preview": "# PostgreSQL Migration: Docker Compose \u2192 Kubernetes StatefulSet with Longhorn\n\n## Architecture Overview\n\n```\nCURRENT STATE                          TARGET STATE\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500                      ",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T12",
+      "test_name": "Next Step Reasoning",
+      "category": "reasoning",
+      "model": "sonnet-46",
+      "run": 1,
+      "elapsed_ms": 14106,
+      "input_tokens": 123,
+      "output_tokens": 575,
+      "tokens_per_sec": null,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Found: 'memory limit'",
+      "content_preview": "## Diagnosis\n\nYour pod is being **OOM Killed** because it's consistently using ~498Mi against a 512Mi limit \u2014 you're at **97% of your memory limit** with very little headroom.\n\n## Immediate Fix\n\n**Inc",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T12",
+      "test_name": "Next Step Reasoning",
+      "category": "reasoning",
+      "model": "sonnet-46",
+      "run": 2,
+      "elapsed_ms": 10936,
+      "input_tokens": 123,
+      "output_tokens": 513,
+      "tokens_per_sec": null,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Found: 'memory limit'",
+      "content_preview": "## Diagnosis\n\nYour pod is being **OOMKilled** because it's consistently using ~498Mi of memory, which is right at the 512Mi limit. Kubernetes kills the container when it exceeds the limit.\n\n## Immedia",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T13",
+      "test_name": "Multi-File Architecture",
+      "category": "hard_code_gen",
+      "model": "sonnet-46",
+      "run": 1,
+      "elapsed_ms": 4187,
+      "input_tokens": 963,
+      "output_tokens": 149,
+      "tokens_per_sec": null,
+      "passed": false,
+      "score": 0.0,
+      "reason": "0/8 components",
+      "content_preview": "I'll start by planning the project structure, then create all the files systematically. Let me first check the current directory and then build everything out.\n\n**Plan:**\n1. Check current directory\n2.",
+      "tool_calls": [
+        {
+          "name": "run_command",
+          "arguments": {
+            "command": "pwd && ls"
+          }
+        }
+      ]
+    },
+    {
+      "test_id": "T13",
+      "test_name": "Multi-File Architecture",
+      "category": "hard_code_gen",
+      "model": "sonnet-46",
+      "run": 2,
+      "elapsed_ms": 6830,
+      "input_tokens": 963,
+      "output_tokens": 209,
+      "tokens_per_sec": null,
+      "passed": false,
+      "score": 0.27999999999999997,
+      "reason": "2/8 components",
+      "content_preview": "I'll start by planning the project structure, then create all the files systematically.\n\n**Plan:**\n1. Create the directory structure\n2. Install dependencies & create `requirements.txt`\n3. Create the d",
+      "tool_calls": [
+        {
+          "name": "run_command",
+          "arguments": {
+            "command": "mkdir -p notes_api/app && touch notes_api/app/__init__.py"
+          }
+        }
+      ]
+    },
+    {
+      "test_id": "T14",
+      "test_name": "Complex Algorithm",
+      "category": "hard_code_gen",
+      "model": "sonnet-46",
+      "run": 1,
+      "elapsed_ms": 8452,
+      "input_tokens": 96,
+      "output_tokens": 790,
+      "tokens_per_sec": null,
+      "passed": true,
+      "score": 1.0,
+      "reason": "All keywords present + valid Python syntax",
+      "content_preview": "```python\nclass LRUCache:\n    class _Node:\n        __slots__ = ('key', 'value', 'prev', 'next')\n\n        def __init__(self, key=None, value=None):\n            self.key = key\n            self.value = v",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T14",
+      "test_name": "Complex Algorithm",
+      "category": "hard_code_gen",
+      "model": "sonnet-46",
+      "run": 2,
+      "elapsed_ms": 10453,
+      "input_tokens": 96,
+      "output_tokens": 802,
+      "tokens_per_sec": null,
+      "passed": true,
+      "score": 1.0,
+      "reason": "All keywords present + valid Python syntax",
+      "content_preview": "```python\nclass LRUCache:\n    class _Node:\n        __slots__ = ('key', 'value', 'prev', 'next')\n\n        def __init__(self, key=None, value=None):\n            self.key = key\n            self.value = v",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T15",
+      "test_name": "Debug Stack Trace",
+      "category": "hard_code_gen",
+      "model": "sonnet-46",
+      "run": 1,
+      "elapsed_ms": 1921,
+      "input_tokens": 1026,
+      "output_tokens": 70,
+      "tokens_per_sec": null,
+      "passed": false,
+      "score": 0.3,
+      "reason": "Partial: tool=True, diagnosis=False",
+      "content_preview": "Sure! Let me read the file first before diagnosing anything.",
+      "tool_calls": [
+        {
+          "name": "read_file",
+          "arguments": {
+            "path": "app.py"
+          }
+        }
+      ]
+    },
+    {
+      "test_id": "T15",
+      "test_name": "Debug Stack Trace",
+      "category": "hard_code_gen",
+      "model": "sonnet-46",
+      "run": 2,
+      "elapsed_ms": 3122,
+      "input_tokens": 1026,
+      "output_tokens": 70,
+      "tokens_per_sec": null,
+      "passed": false,
+      "score": 0.3,
+      "reason": "Partial: tool=True, diagnosis=False",
+      "content_preview": "Sure! Let me read the file first before diagnosing anything.",
+      "tool_calls": [
+        {
+          "name": "read_file",
+          "arguments": {
+            "path": "app.py"
+          }
+        }
+      ]
+    },
+    {
+      "test_id": "T16",
+      "test_name": "Multi-Step Tool Chain",
+      "category": "hard_tool_calling",
+      "model": "sonnet-46",
+      "run": 1,
+      "elapsed_ms": 3130,
+      "input_tokens": 945,
+      "output_tokens": 146,
+      "tokens_per_sec": null,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Correct tool and args: {'name': 'search_code', 'arguments': {'pattern': 'from auth import|import auth', 'path': 'src/'}}",
+      "content_preview": "Sure! Let's start by gathering all the information we need in parallel \u2014 searching for auth imports and reading the main file at the same time.",
+      "tool_calls": [
+        {
+          "name": "search_code",
+          "arguments": {
+            "pattern": "from auth import|import auth",
+            "path": "src/"
+          }
+        },
+        {
+          "name": "read_file",
+          "arguments": {
+            "path": "src/auth.py"
+          }
+        }
+      ]
+    },
+    {
+      "test_id": "T16",
+      "test_name": "Multi-Step Tool Chain",
+      "category": "hard_tool_calling",
+      "model": "sonnet-46",
+      "run": 2,
+      "elapsed_ms": 2473,
+      "input_tokens": 945,
+      "output_tokens": 146,
+      "tokens_per_sec": null,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Correct tool and args: {'name': 'search_code', 'arguments': {'pattern': 'from auth import|import auth', 'path': 'src/'}}",
+      "content_preview": "Sure! Let's start by gathering all the information we need in parallel \u2014 searching for auth imports and reading the main file at the same time.",
+      "tool_calls": [
+        {
+          "name": "search_code",
+          "arguments": {
+            "pattern": "from auth import|import auth",
+            "path": "src/"
+          }
+        },
+        {
+          "name": "read_file",
+          "arguments": {
+            "path": "src/auth.py"
+          }
+        }
+      ]
+    },
+    {
+      "test_id": "T17",
+      "test_name": "Tool with Context Window",
+      "category": "hard_tool_calling",
+      "model": "sonnet-46",
+      "run": 1,
+      "elapsed_ms": 2824,
+      "input_tokens": 954,
+      "output_tokens": 133,
+      "tokens_per_sec": null,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Correct tool run_command with args: {'name': 'run_command', 'arguments': {'command': 'git log --oneline --since=\"2 days ago\" -- auth*  '}}",
+      "content_preview": "I'll investigate this in parallel \u2014 checking the git log and reading the test file at the same time.",
+      "tool_calls": [
+        {
+          "name": "run_command",
+          "arguments": {
+            "command": "git log --oneline --since=\"2 days ago\" -- auth*  "
+          }
+        },
+        {
+          "name": "read_file",
+          "arguments": {
+            "path": "tests/test_auth.py"
+          }
+        }
+      ]
+    },
+    {
+      "test_id": "T17",
+      "test_name": "Tool with Context Window",
+      "category": "hard_tool_calling",
+      "model": "sonnet-46",
+      "run": 2,
+      "elapsed_ms": 3451,
+      "input_tokens": 954,
+      "output_tokens": 165,
+      "tokens_per_sec": null,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Correct tool run_command with args: {'name': 'run_command', 'arguments': {'command': 'git log --oneline --since=\"2 days ago\" -- auth.py app/auth.py src/auth.py $(git ls-files \\'**/auth.py\\' \\'auth.py\\' 2>/dev/null)'}}",
+      "content_preview": "I'll investigate in parallel \u2014 checking the git log and reading the test file at the same time.",
+      "tool_calls": [
+        {
+          "name": "run_command",
+          "arguments": {
+            "command": "git log --oneline --since=\"2 days ago\" -- auth.py app/auth.py src/auth.py $(git ls-files '**/auth.py' 'auth.py' 2>/dev/null)"
+          }
+        },
+        {
+          "name": "read_file",
+          "arguments": {
+            "path": "tests/test_auth.py"
+          }
+        }
+      ]
+    },
+    {
+      "test_id": "T18",
+      "test_name": "Ambiguous Request Routing",
+      "category": "hard_tool_calling",
+      "model": "sonnet-46",
+      "run": 1,
+      "elapsed_ms": 2640,
+      "input_tokens": 916,
+      "output_tokens": 151,
+      "tokens_per_sec": null,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Correct tool and args: {'name': 'run_command', 'arguments': {'command': 'df -h / /var /var/log 2>/dev/null | sort -u'}}",
+      "content_preview": "Let me investigate the disk usage in `/var/log` thoroughly.",
+      "tool_calls": [
+        {
+          "name": "run_command",
+          "arguments": {
+            "command": "df -h / /var /var/log 2>/dev/null | sort -u"
+          }
+        },
+        {
+          "name": "run_command",
+          "arguments": {
+            "command": "du -sh /var/log/* /var/log/**/* 2>/dev/null | sort -rh | head -40"
+          }
+        }
+      ]
+    },
+    {
+      "test_id": "T18",
+      "test_name": "Ambiguous Request Routing",
+      "category": "hard_tool_calling",
+      "model": "sonnet-46",
+      "run": 2,
+      "elapsed_ms": 2968,
+      "input_tokens": 916,
+      "output_tokens": 151,
+      "tokens_per_sec": null,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Correct tool and args: {'name': 'run_command', 'arguments': {'command': 'df -h / /var /var/log 2>/dev/null | sort -u'}}",
+      "content_preview": "Let me investigate the disk usage in `/var/log` thoroughly.",
+      "tool_calls": [
+        {
+          "name": "run_command",
+          "arguments": {
+            "command": "df -h / /var /var/log 2>/dev/null | sort -u"
+          }
+        },
+        {
+          "name": "run_command",
+          "arguments": {
+            "command": "du -sh /var/log/* /var/log/**/* 2>/dev/null | sort -rh | head -40"
+          }
+        }
+      ]
+    },
+    {
+      "test_id": "T19",
+      "test_name": "Build CLI App",
+      "category": "agentic",
+      "model": "sonnet-46",
+      "run": 1,
+      "elapsed_ms": 4046,
+      "input_tokens": 1010,
+      "output_tokens": 143,
+      "tokens_per_sec": null,
+      "passed": false,
+      "score": 0.0,
+      "reason": "no write_file (used run_command); cli keywords: 0/6",
+      "content_preview": "I'll build this step by step. Let me start by planning the structure, then create all the necessary files.\n\n**Plan:**\n1. Create the project directory\n2. Write `td.py` \u2014 the main CLI app with all comma",
+      "tool_calls": [
+        {
+          "name": "run_command",
+          "arguments": {
+            "command": "mkdir -p td_app"
+          }
+        }
+      ]
+    },
+    {
+      "test_id": "T19",
+      "test_name": "Build CLI App",
+      "category": "agentic",
+      "model": "sonnet-46",
+      "run": 2,
+      "elapsed_ms": 3135,
+      "input_tokens": 1010,
+      "output_tokens": 166,
+      "tokens_per_sec": null,
+      "passed": false,
+      "score": 0.0,
+      "reason": "no write_file (used run_command); cli keywords: 0/6",
+      "content_preview": "I'll build this step by step. Let me start by planning the structure, then create all the files.\n\n**Plan:**\n1. Create the project directory\n2. Write `td.py` \u2014 the full CLI implementation\n3. Write a `s",
+      "tool_calls": [
+        {
+          "name": "run_command",
+          "arguments": {
+            "command": "mkdir -p td_app"
+          }
+        }
+      ]
+    },
+    {
+      "test_id": "T20",
+      "test_name": "Build REST API",
+      "category": "agentic",
+      "model": "sonnet-46",
+      "run": 1,
+      "elapsed_ms": 22300,
+      "input_tokens": 1018,
+      "output_tokens": 1857,
+      "tokens_per_sec": null,
+      "passed": false,
+      "score": 0.4,
+      "reason": "used write_file; substantial content; api keywords: 0/8",
+      "content_preview": "",
+      "tool_calls": [
+        {
+          "name": "write_file",
+          "arguments": {
+            "path": "app.py",
+            "content": "import sqlite3\nimport json\nfrom datetime import datetime, timezone\nfrom flask import Flask, request, jsonify, g\n\napp = Flask(__name__)\nDATABASE = \"bookmarks.db\"\n\n\n# ---------------------------------------------------------------------------\n# Database helpers\n# ---------------------------------------------------------------------------\n\ndef get_db() -> sqlite3.Connection:\n    \"\"\"Return the per-request database connection, creating it if needed.\"\"\"\n    if \"db\" not in g:\n        g.db = sqlite3.connect(DATABASE, detect_types=sqlite3.PARSE_DECLTYPES)\n        g.db.row_factory = sqlite3.Row   # rows behave like dicts\n        g.db.execute(\"PRAGMA journal_mode=WAL\")  # better concurrency\n    return g.db\n\n\n@app.teardown_appcontext\ndef close_db(exception=None) -> None:\n    \"\"\"Close the database connection at the end of every request.\"\"\"\n    db = g.pop(\"db\", None)\n    if db is not None:\n        db.close()\n\n\ndef init_db() -> None:\n    \"\"\"Create the bookmarks table if it does not already exist.\"\"\"\n    with app.app_context():\n        db = get_db()\n        db.execute(\n            \"\"\"\n            CREATE TABLE IF NOT EXISTS bookmarks (\n                id         INTEGER PRIMARY KEY AUTOINCREMENT,\n                url        TEXT    NOT NULL,\n                title      TEXT    NOT NULL DEFAULT '',\n                tags       TEXT    NOT NULL DEFAULT '[]',   -- JSON array\n                created_at TEXT    NOT NULL\n            )\n            \"\"\"\n        )\n        db.commit()\n\n\n# ---------------------------------------------------------------------------\n# Serialisation helper\n# ---------------------------------------------------------------------------\n\ndef row_to_dict(row: sqlite3.Row) -> dict:\n    \"\"\"Convert a sqlite3.Row to a plain dict, deserialising the tags field.\"\"\"\n    d = dict(row)\n    d[\"tags\"] = json.loads(d[\"tags\"])\n    return d\n\n\n# ---------------------------------------------------------------------------\n# Validation helper\n# ---------------------------------------------------------------------------\n\ndef validate_bookmark_payload(data: dict) -> tuple[dict | None, str | None]:\n    \"\"\"\n    Validate the JSON body for create/update operations.\n\n    Returns (cleaned_data, None) on success or (None, error_message) on failure.\n    \"\"\"\n    if not data:\n        return None, \"Request body must be JSON.\"\n\n    url = (data.get(\"url\") or \"\").strip()\n    if not url:\n        return None, \"'url' is required and must be a non-empty string.\"\n\n    title = (data.get(\"title\") or \"\").strip()\n    tags  = data.get(\"tags\", [])\n\n    if not isinstance(tags, list):\n        return None, \"'tags' must be a JSON array.\"\n\n    # Coerce every tag to a stripped string and drop empty ones\n    tags = [str(t).strip() for t in tags if str(t).strip()]\n\n    return {\"url\": url, \"title\": title, \"tags\": tags}, None\n\n\n# ---------------------------------------------------------------------------\n# Routes\n# ---------------------------------------------------------------------------\n\n@app.route(\"/bookmarks\", methods=[\"GET\"])\ndef list_bookmarks():\n    \"\"\"\n    GET /bookmarks          \u2014 return all bookmarks\n    GET /bookmarks?tag=x    \u2014 return bookmarks whose tags array contains *x*\n    \"\"\"\n    tag_filter = request.args.get(\"tag\", \"\").strip()\n    db = get_db()\n\n    if tag_filter:\n        # Use SQLite's JSON functions (available since 3.38) with a fallback\n        # to a LIKE-based search for older SQLite builds.\n        try:\n            rows = db.execute(\n                \"\"\"\n                SELECT * FROM bookmarks\n                WHERE EXISTS (\n                    SELECT 1 FROM json_each(tags)\n                    WHERE json_each.value = ?\n                )\n                ORDER BY id\n                \"\"\",\n                (tag_filter,),\n            ).fetchall()\n        except sqlite3.OperationalError:\n            # Fallback: crude LIKE search (works for simple tag names)\n            rows = db.execute(\n                \"SELECT * FROM bookmarks WHERE tags LIKE ? ORDER BY id\",\n                (f'%\"{tag_filter}\"%',),\n            ).fetchall()\n    else:\n        rows = db.execute(\"SELECT * FROM bookmarks ORDER BY id\").fetchall()\n\n    return jsonify([row_to_dict(r) for r in rows]), 200\n\n\n@app.route(\"/bookmarks\", methods=[\"POST\"])\ndef create_bookmark():\n    \"\"\"\n    POST /bookmarks\n    Body: { \"url\": \"https://\u2026\", \"title\": \"\u2026\", \"tags\": [\"python\", \"flask\"] }\n    \"\"\"\n    cleaned, error = validate_bookmark_payload(request.get_json(silent=True))\n    if error:\n        return jsonify({\"error\": error}), 400\n\n    now = datetime.now(timezone.utc).isoformat()\n    db  = get_db()\n\n    cursor = db.execute(\n        \"INSERT INTO bookmarks (url, title, tags, created_at) VALUES (?, ?, ?, ?)\",\n        (cleaned[\"url\"], cleaned[\"title\"], json.dumps(cleaned[\"tags\"]), now),\n    )\n    db.commit()\n\n    new_id = cursor.lastrowid\n    row    = db.execute(\"SELECT * FROM bookmarks WHERE id = ?\", (new_id,)).fetchone()\n    return jsonify(row_to_dict(row)), 201\n\n\n@app.route(\"/bookmarks/<int:bookmark_id>\", methods=[\"GET\"])\ndef get_bookmark(bookmark_id: int):\n    \"\"\"GET /bookmarks/<id> \u2014 fetch a single bookmark by its id.\"\"\"\n    row = get_db().execute(\n        \"SELECT * FROM bookmarks WHERE id = ?\", (bookmark_id,)\n    ).fetchone()\n\n    if row is None:\n        return jsonify({\"error\": f\"Bookmark {bookmark_id} not found.\"}), 404\n\n    return jsonify(row_to_dict(row)), 200\n\n\n@app.route(\"/bookmarks/<int:bookmark_id>\", methods=[\"DELETE\"])\ndef delete_bookmark(bookmark_id: int):\n    \"\"\"DELETE /bookmarks/<id> \u2014 remove a bookmark permanently.\"\"\"\n    db  = get_db()\n    row = db.execute(\n        \"SELECT * FROM bookmarks WHERE id = ?\", (bookmark_id,)\n    ).fetchone()\n\n    if row is None:\n        return jsonify({\"error\": f\"Bookmark {bookmark_id} not found.\"}), 404\n\n    db.execute(\"DELETE FROM bookmarks WHERE id = ?\", (bookmark_id,))\n    db.commit()\n\n    # 200 with the deleted resource is more informative than a bare 204\n    return jsonify({\"deleted\": row_to_dict(row)}), 200\n\n\n# ---------------------------------------------------------------------------\n# Error handlers\n# ---------------------------------------------------------------------------\n\n@app.errorhandler(404)\ndef not_found(e):\n    return jsonify({\"error\": \"The requested URL was not found on this server.\"}), 404\n\n\n@app.errorhandler(405)\ndef method_not_allowed(e):\n    return jsonify({\"error\": \"Method not allowed.\"}), 405\n\n\n@app.errorhandler(500)\ndef internal_error(e):\n    return jsonify({\"error\": \"An internal server error occurred.\"}), 500\n\n\n# ---------------------------------------------------------------------------\n# Entry point\n# ---------------------------------------------------------------------------\n\nif __name__ == \"__main__\":\n    init_db()                        # ensure table exists before first request\n    app.run(debug=True, port=5000)\n"
+          }
+        }
+      ]
+    },
+    {
+      "test_id": "T20",
+      "test_name": "Build REST API",
+      "category": "agentic",
+      "model": "sonnet-46",
+      "run": 2,
+      "elapsed_ms": 20083,
+      "input_tokens": 1018,
+      "output_tokens": 1646,
+      "tokens_per_sec": null,
+      "passed": false,
+      "score": 0.4,
+      "reason": "used write_file; substantial content; api keywords: 0/8",
+      "content_preview": "Let me build this step by step, starting with the complete `app.py`.",
+      "tool_calls": [
+        {
+          "name": "write_file",
+          "arguments": {
+            "path": "app.py",
+            "content": "import sqlite3\nimport json\nfrom datetime import datetime, timezone\nfrom flask import Flask, request, jsonify, g\n\napp = Flask(__name__)\nDATABASE = \"bookmarks.db\"\n\n# ---------------------------------------------------------------------------\n# Database helpers\n# ---------------------------------------------------------------------------\n\ndef get_db() -> sqlite3.Connection:\n    \"\"\"Return the per-request database connection stored on Flask's `g` object.\"\"\"\n    if \"db\" not in g:\n        g.db = sqlite3.connect(DATABASE, detect_types=sqlite3.PARSE_DECLTYPES)\n        g.db.row_factory = sqlite3.Row   # rows behave like dicts\n    return g.db\n\n\n@app.teardown_appcontext\ndef close_db(exception=None) -> None:\n    \"\"\"Close the database connection at the end of every request.\"\"\"\n    db = g.pop(\"db\", None)\n    if db is not None:\n        db.close()\n\n\ndef init_db() -> None:\n    \"\"\"Create the bookmarks table if it does not already exist.\"\"\"\n    db = get_db()\n    db.execute(\n        \"\"\"\n        CREATE TABLE IF NOT EXISTS bookmarks (\n            id        INTEGER PRIMARY KEY AUTOINCREMENT,\n            url       TEXT    NOT NULL,\n            title     TEXT    NOT NULL,\n            tags      TEXT    NOT NULL DEFAULT '[]',   -- JSON array stored as text\n            created_at TEXT   NOT NULL\n        )\n        \"\"\"\n    )\n    db.commit()\n\n\n# ---------------------------------------------------------------------------\n# Serialisation helper\n# ---------------------------------------------------------------------------\n\ndef row_to_dict(row: sqlite3.Row) -> dict:\n    \"\"\"Convert a sqlite3.Row to a plain dict, deserialising the tags JSON.\"\"\"\n    d = dict(row)\n    d[\"tags\"] = json.loads(d[\"tags\"])\n    return d\n\n\n# ---------------------------------------------------------------------------\n# Routes\n# ---------------------------------------------------------------------------\n\n@app.route(\"/bookmarks\", methods=[\"GET\"])\ndef list_bookmarks():\n    \"\"\"\n    GET /bookmarks        \u2192 return all bookmarks\n    GET /bookmarks?tag=x  \u2192 return bookmarks whose tags array contains *x*\n    \"\"\"\n    tag_filter = request.args.get(\"tag\", \"\").strip()\n    db = get_db()\n\n    rows = db.execute(\n        \"SELECT * FROM bookmarks ORDER BY id\"\n    ).fetchall()\n\n    bookmarks = [row_to_dict(r) for r in rows]\n\n    # Filter in Python \u2013 the tags column is a JSON string, so it is simpler\n    # (and portable) to filter after deserialisation rather than using SQLite's\n    # json_each() which requires a newer SQLite build.\n    if tag_filter:\n        bookmarks = [b for b in bookmarks if tag_filter in b[\"tags\"]]\n\n    return jsonify(bookmarks), 200\n\n\n@app.route(\"/bookmarks\", methods=[\"POST\"])\ndef create_bookmark():\n    \"\"\"\n    POST /bookmarks\n    Body (JSON): { \"url\": \"...\", \"title\": \"...\", \"tags\": [\"a\", \"b\"] }\n    Returns the created bookmark with HTTP 201.\n    \"\"\"\n    data = request.get_json(silent=True)\n\n    # \u2500\u2500 Validate input \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n    if not data:\n        return jsonify({\"error\": \"Request body must be valid JSON.\"}), 400\n\n    url   = (data.get(\"url\")   or \"\").strip()\n    title = (data.get(\"title\") or \"\").strip()\n    tags  = data.get(\"tags\", [])\n\n    errors = {}\n    if not url:\n        errors[\"url\"] = \"url is required and must not be empty.\"\n    if not title:\n        errors[\"title\"] = \"title is required and must not be empty.\"\n    if not isinstance(tags, list):\n        errors[\"tags\"] = \"tags must be a JSON array.\"\n    elif not all(isinstance(t, str) for t in tags):\n        errors[\"tags\"] = \"Every tag must be a string.\"\n\n    if errors:\n        return jsonify({\"error\": \"Validation failed.\", \"details\": errors}), 400\n\n    # \u2500\u2500 Persist \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n    created_at = datetime.now(timezone.utc).isoformat()\n    tags_json  = json.dumps(tags)\n\n    db = get_db()\n    cursor = db.execute(\n        \"INSERT INTO bookmarks (url, title, tags, created_at) VALUES (?, ?, ?, ?)\",\n        (url, title, tags_json, created_at),\n    )\n    db.commit()\n\n    new_id = cursor.lastrowid\n    row = db.execute(\n        \"SELECT * FROM bookmarks WHERE id = ?\", (new_id,)\n    ).fetchone()\n\n    return jsonify(row_to_dict(row)), 201\n\n\n@app.route(\"/bookmarks/<int:bookmark_id>\", methods=[\"GET\"])\ndef get_bookmark(bookmark_id: int):\n    \"\"\"GET /bookmarks/<id> \u2192 return a single bookmark or 404.\"\"\"\n    db  = get_db()\n    row = db.execute(\n        \"SELECT * FROM bookmarks WHERE id = ?\", (bookmark_id,)\n    ).fetchone()\n\n    if row is None:\n        return jsonify({\"error\": f\"Bookmark {bookmark_id} not found.\"}), 404\n\n    return jsonify(row_to_dict(row)), 200\n\n\n@app.route(\"/bookmarks/<int:bookmark_id>\", methods=[\"DELETE\"])\ndef delete_bookmark(bookmark_id: int):\n    \"\"\"DELETE /bookmarks/<id> \u2192 delete bookmark or 404.\"\"\"\n    db  = get_db()\n    row = db.execute(\n        \"SELECT id FROM bookmarks WHERE id = ?\", (bookmark_id,)\n    ).fetchone()\n\n    if row is None:\n        return jsonify({\"error\": f\"Bookmark {bookmark_id} not found.\"}), 404\n\n    db.execute(\"DELETE FROM bookmarks WHERE id = ?\", (bookmark_id,))\n    db.commit()\n\n    # 204 No Content is also acceptable; 200 + confirmation message is friendlier.\n    return jsonify({\"message\": f\"Bookmark {bookmark_id} deleted successfully.\"}), 200\n\n\n# ---------------------------------------------------------------------------\n# Application entry-point\n# ---------------------------------------------------------------------------\n\nwith app.app_context():\n    init_db()   # auto-create table before the first request is served\n\nif __name__ == \"__main__\":\n    app.run(debug=True)\n"
+          }
+        }
+      ]
+    }
+  ]
+}

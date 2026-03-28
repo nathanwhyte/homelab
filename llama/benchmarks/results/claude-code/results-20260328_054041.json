@@ -1,0 +1,3177 @@
+{
+  "metadata": {
+    "timestamp": "2026-03-28T05:40:41.658109+00:00",
+    "models": {
+      "qwen-claude": {
+        "type": "ollama",
+        "base_url": "http://192.168.1.19:11434",
+        "model": "qwen-claude",
+        "label": "Qwen-Claude (tuned)"
+      },
+      "qwen35-lite": {
+        "type": "ollama",
+        "base_url": "http://192.168.1.19:11434",
+        "model": "qwen3.5:9b-q4_K_M",
+        "label": "Qwen3.5 9B Q4"
+      },
+      "qwen3-14b": {
+        "type": "ollama",
+        "base_url": "http://192.168.1.19:11434",
+        "model": "qwen3:14b",
+        "label": "Qwen3 14B"
+      },
+      "qwen3-coder": {
+        "type": "ollama",
+        "base_url": "http://192.168.1.19:11434",
+        "model": "qwen3-coder:30b-a3b-q4_K_M",
+        "label": "Qwen3-Coder MoE"
+      }
+    },
+    "total_tests": 20,
+    "runs_per_test": 2
+  },
+  "results": [
+    {
+      "test_id": "T1",
+      "test_name": "Single Tool Selection",
+      "category": "tool_calling",
+      "model": "qwen-claude",
+      "run": 1,
+      "elapsed_ms": 3700,
+      "input_tokens": 613,
+      "output_tokens": 159,
+      "tokens_per_sec": 51.8,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Correct tool and args: {'name': 'search_code', 'arguments': {'path': 'src/', 'pattern': 'TODO'}}",
+      "content_preview": "",
+      "tool_calls": [
+        {
+          "name": "search_code",
+          "arguments": {
+            "path": "src/",
+            "pattern": "TODO"
+          }
+        }
+      ]
+    },
+    {
+      "test_id": "T1",
+      "test_name": "Single Tool Selection",
+      "category": "tool_calling",
+      "model": "qwen-claude",
+      "run": 2,
+      "elapsed_ms": 2374,
+      "input_tokens": 613,
+      "output_tokens": 106,
+      "tokens_per_sec": 59.8,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Correct tool and args: {'name': 'search_code', 'arguments': {'path': 'src/', 'pattern': 'TODO'}}",
+      "content_preview": "",
+      "tool_calls": [
+        {
+          "name": "search_code",
+          "arguments": {
+            "path": "src/",
+            "pattern": "TODO"
+          }
+        }
+      ]
+    },
+    {
+      "test_id": "T2",
+      "test_name": "Multi-Tool Planning",
+      "category": "tool_calling",
+      "model": "qwen-claude",
+      "run": 1,
+      "elapsed_ms": 2096,
+      "input_tokens": 643,
+      "output_tokens": 89,
+      "tokens_per_sec": 60.0,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Correct tool and args: {'name': 'read_file', 'arguments': {'path': '/etc/app/config.yaml'}}",
+      "content_preview": "",
+      "tool_calls": [
+        {
+          "name": "read_file",
+          "arguments": {
+            "path": "/etc/app/config.yaml"
+          }
+        }
+      ]
+    },
+    {
+      "test_id": "T2",
+      "test_name": "Multi-Tool Planning",
+      "category": "tool_calling",
+      "model": "qwen-claude",
+      "run": 2,
+      "elapsed_ms": 2098,
+      "input_tokens": 643,
+      "output_tokens": 89,
+      "tokens_per_sec": 60.0,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Correct tool and args: {'name': 'read_file', 'arguments': {'path': '/etc/app/config.yaml'}}",
+      "content_preview": "",
+      "tool_calls": [
+        {
+          "name": "read_file",
+          "arguments": {
+            "path": "/etc/app/config.yaml"
+          }
+        }
+      ]
+    },
+    {
+      "test_id": "T3",
+      "test_name": "Argument Precision",
+      "category": "tool_calling",
+      "model": "qwen-claude",
+      "run": 1,
+      "elapsed_ms": 2813,
+      "input_tokens": 619,
+      "output_tokens": 132,
+      "tokens_per_sec": 59.8,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Correct tool and args: {'name': 'search_code', 'arguments': {'pattern': 'handle_', 'path': 'pkg/', 'file_glob': '*.go'}}",
+      "content_preview": "",
+      "tool_calls": [
+        {
+          "name": "search_code",
+          "arguments": {
+            "pattern": "handle_",
+            "path": "pkg/",
+            "file_glob": "*.go"
+          }
+        }
+      ]
+    },
+    {
+      "test_id": "T3",
+      "test_name": "Argument Precision",
+      "category": "tool_calling",
+      "model": "qwen-claude",
+      "run": 2,
+      "elapsed_ms": 2727,
+      "input_tokens": 619,
+      "output_tokens": 127,
+      "tokens_per_sec": 59.7,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Correct tool and args: {'name': 'search_code', 'arguments': {'path': 'pkg/', 'file_glob': '*.go', 'pattern': 'func handle_'}}",
+      "content_preview": "",
+      "tool_calls": [
+        {
+          "name": "search_code",
+          "arguments": {
+            "path": "pkg/",
+            "file_glob": "*.go",
+            "pattern": "func handle_"
+          }
+        }
+      ]
+    },
+    {
+      "test_id": "T4",
+      "test_name": "Python Function",
+      "category": "code_gen",
+      "model": "qwen-claude",
+      "run": 1,
+      "elapsed_ms": 18534,
+      "input_tokens": 120,
+      "output_tokens": 1066,
+      "tokens_per_sec": 59.4,
+      "passed": true,
+      "score": 1.0,
+      "reason": "All keywords present + valid Python syntax",
+      "content_preview": "```python\ndef parse_cron(expr: str) -> dict:\n    def parse_field(field: str, min_val: int, max_val: int) -> list:\n        if field == '*':\n            return list(range(min_val, max_val + 1))\n        ",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T4",
+      "test_name": "Python Function",
+      "category": "code_gen",
+      "model": "qwen-claude",
+      "run": 2,
+      "elapsed_ms": 17635,
+      "input_tokens": 120,
+      "output_tokens": 1015,
+      "tokens_per_sec": 59.4,
+      "passed": true,
+      "score": 1.0,
+      "reason": "All keywords present + valid Python syntax",
+      "content_preview": "```python\ndef parse_cron(expr: str) -> dict:\n    def parse_field(field: str, min_val: int, max_val: int) -> list:\n        if field == '*':\n            return list(range(min_val, max_val + 1))\n        ",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T5",
+      "test_name": "Kubernetes YAML",
+      "category": "code_gen",
+      "model": "qwen-claude",
+      "run": 1,
+      "elapsed_ms": 6666,
+      "input_tokens": 91,
+      "output_tokens": 378,
+      "tokens_per_sec": 59.6,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Found 5/5 keywords",
+      "content_preview": "```yaml\napiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: redis\n  namespace: cache\nspec:\n  replicas: 1\n  selector:\n    matchLabels:\n      app: redis\n  template:\n    metadata:\n      labels:\n      ",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T5",
+      "test_name": "Kubernetes YAML",
+      "category": "code_gen",
+      "model": "qwen-claude",
+      "run": 2,
+      "elapsed_ms": 35529,
+      "input_tokens": 91,
+      "output_tokens": 2048,
+      "tokens_per_sec": 59.1,
+      "passed": false,
+      "score": 0.0,
+      "reason": "Only 0/5 keywords; missing: ['Deployment', 'redis', 'livenessProbe', 'persistentVolumeClaim', '256Mi']",
+      "content_preview": "",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T6",
+      "test_name": "Bash Function",
+      "category": "code_gen",
+      "model": "qwen-claude",
+      "run": 1,
+      "elapsed_ms": 10514,
+      "input_tokens": 92,
+      "output_tokens": 602,
+      "tokens_per_sec": 59.6,
+      "passed": true,
+      "score": 0.75,
+      "reason": "Found 3/4 keywords",
+      "content_preview": "```bash\nretry_cmd() {\n    local cmd=\"$1\"\n    local max_attempts=3\n    local attempt=1\n    local backoff=1\n\n    while [ $attempt -le $max_attempts ]; do\n        echo \"Attempt $attempt\" >&2\n        if e",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T6",
+      "test_name": "Bash Function",
+      "category": "code_gen",
+      "model": "qwen-claude",
+      "run": 2,
+      "elapsed_ms": 11001,
+      "input_tokens": 92,
+      "output_tokens": 630,
+      "tokens_per_sec": 59.5,
+      "passed": true,
+      "score": 0.75,
+      "reason": "Found 3/4 keywords",
+      "content_preview": "```bash\nretry_cmd() {\n    local cmd=\"$1\"\n    local attempt=1\n    local max_attempts=3\n    local delay=1\n\n    while [ $attempt -le $max_attempts ]; do\n        echo \"Attempt $attempt\" >&2\n        if eva",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T7",
+      "test_name": "Bug Detection",
+      "category": "code_understanding",
+      "model": "qwen-claude",
+      "run": 1,
+      "elapsed_ms": 35584,
+      "input_tokens": 177,
+      "output_tokens": 2048,
+      "tokens_per_sec": 59.1,
+      "passed": false,
+      "score": 0.0,
+      "reason": "None of ['shallow copy', 'same reference', 'same list', 'same row', 'same object', 'aliased', 'all rows are the same', 'references to the same'] found in response",
+      "content_preview": "",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T7",
+      "test_name": "Bug Detection",
+      "category": "code_understanding",
+      "model": "qwen-claude",
+      "run": 2,
+      "elapsed_ms": 35582,
+      "input_tokens": 177,
+      "output_tokens": 2048,
+      "tokens_per_sec": 59.1,
+      "passed": false,
+      "score": 0.0,
+      "reason": "None of ['shallow copy', 'same reference', 'same list', 'same row', 'same object', 'aliased', 'all rows are the same', 'references to the same'] found in response",
+      "content_preview": "",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T8",
+      "test_name": "Race Condition",
+      "category": "code_understanding",
+      "model": "qwen-claude",
+      "run": 1,
+      "elapsed_ms": 8418,
+      "input_tokens": 104,
+      "output_tokens": 480,
+      "tokens_per_sec": 59.6,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Identified race condition and suggested fix",
+      "content_preview": "# Concurrency Issues Identified\n\n## 1. **Data Race (Critical)**\nThe `counter` variable is accessed concurrently by multiple goroutines without synchronization. The `counter++` operation is **not atomi",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T8",
+      "test_name": "Race Condition",
+      "category": "code_understanding",
+      "model": "qwen-claude",
+      "run": 2,
+      "elapsed_ms": 8064,
+      "input_tokens": 104,
+      "output_tokens": 459,
+      "tokens_per_sec": 59.6,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Identified race condition and suggested fix",
+      "content_preview": "This Go code has a **data race** on the `counter` variable:\n\n### Issues:\n\n1. **Race Condition**: Multiple goroutines read and write `counter` without synchronization. The `counter++` operation is not ",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T9",
+      "test_name": "Refactoring",
+      "category": "code_understanding",
+      "model": "qwen-claude",
+      "run": 1,
+      "elapsed_ms": 35524,
+      "input_tokens": 124,
+      "output_tokens": 2048,
+      "tokens_per_sec": 59.1,
+      "passed": false,
+      "score": 0.0,
+      "reason": "None of ['guard clause', 'early continue', 'flatten', 'nested', 'simplif', 'extract', 'combine', 'consolidat', 'walrus', 'ternary', 'min(', '[:100]'] found in response",
+      "content_preview": "",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T9",
+      "test_name": "Refactoring",
+      "category": "code_understanding",
+      "model": "qwen-claude",
+      "run": 2,
+      "elapsed_ms": 15664,
+      "input_tokens": 124,
+      "output_tokens": 901,
+      "tokens_per_sec": 59.5,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Found: 'guard clause'",
+      "content_preview": "Here's a refactored version of your function with several improvements for clarity, maintainability, and efficiency:\n\n```python\nfrom typing import List, Optional\n\ndef process(data: List[Optional[str]]",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T10",
+      "test_name": "Debug Plan",
+      "category": "reasoning",
+      "model": "qwen-claude",
+      "run": 1,
+      "elapsed_ms": 35473,
+      "input_tokens": 80,
+      "output_tokens": 2048,
+      "tokens_per_sec": 59.2,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Found 6/6 keywords",
+      "content_preview": "# Kubernetes CrashLoopBackOff Debugging Plan\n\n## Phase 1: Initial Assessment (5-10 minutes)\n\n### 1.1 Check Pod Status\n```bash\nkubectl get pods -n <namespace> -o wide\nkubectl describe pod <pod-name> -n",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T10",
+      "test_name": "Debug Plan",
+      "category": "reasoning",
+      "model": "qwen-claude",
+      "run": 2,
+      "elapsed_ms": 30438,
+      "input_tokens": 80,
+      "output_tokens": 1756,
+      "tokens_per_sec": 59.2,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Found 6/6 keywords",
+      "content_preview": "# Kubernetes CrashLoopBackOff Debugging Plan\n\n## \ud83d\udd0d Phase 1: Initial Assessment\n\n### 1.1 Check Pod Status & Events\n```bash\nkubectl get pod <pod-name> -o wide\nkubectl describe pod <pod-name>\nkubectl log",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T11",
+      "test_name": "Migration Plan",
+      "category": "reasoning",
+      "model": "qwen-claude",
+      "run": 1,
+      "elapsed_ms": 35464,
+      "input_tokens": 74,
+      "output_tokens": 2048,
+      "tokens_per_sec": 59.2,
+      "passed": true,
+      "score": 0.8333333333333334,
+      "reason": "Found 5/6 keywords",
+      "content_preview": "# PostgreSQL Migration Plan: Docker Compose \u2192 Kubernetes StatefulSet with Longhorn\n\n## Executive Summary\n\nThis migration plan ensures **zero downtime** by using a **blue-green deployment strategy** wi",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T11",
+      "test_name": "Migration Plan",
+      "category": "reasoning",
+      "model": "qwen-claude",
+      "run": 2,
+      "elapsed_ms": 35460,
+      "input_tokens": 74,
+      "output_tokens": 2048,
+      "tokens_per_sec": 59.2,
+      "passed": false,
+      "score": 0.0,
+      "reason": "Only 0/6 keywords; missing: ['StatefulSet', 'pg_dump', 'PersistentVolume', 'service', 'test', 'rollback']",
+      "content_preview": "",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T12",
+      "test_name": "Next Step Reasoning",
+      "category": "reasoning",
+      "model": "qwen-claude",
+      "run": 1,
+      "elapsed_ms": 11101,
+      "input_tokens": 144,
+      "output_tokens": 634,
+      "tokens_per_sec": 59.5,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Found: 'increase memory'",
+      "content_preview": "Your pod is being killed because it's using nearly all of its memory limit (498Mi out of 512Mi), which triggers OOMKilled. Here's what you should do next:\n\n## Immediate Actions\n\n### 1. Increase Memory",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T12",
+      "test_name": "Next Step Reasoning",
+      "category": "reasoning",
+      "model": "qwen-claude",
+      "run": 2,
+      "elapsed_ms": 10161,
+      "input_tokens": 144,
+      "output_tokens": 579,
+      "tokens_per_sec": 59.5,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Found: 'increase memory'",
+      "content_preview": "The issue is clear: your pod is using 498Mi of memory, which is dangerously close to the 512Mi limit. When it exceeds the limit, Kubernetes kills the container with OOMKilled (exit code 137), causing ",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T13",
+      "test_name": "Multi-File Architecture",
+      "category": "hard_code_gen",
+      "model": "qwen-claude",
+      "run": 1,
+      "elapsed_ms": 4888,
+      "input_tokens": 680,
+      "output_tokens": 250,
+      "tokens_per_sec": 59.5,
+      "passed": false,
+      "score": 0.27999999999999997,
+      "reason": "2/8 components",
+      "content_preview": "I'll help you create a complete FastAPI REST API with SQLite storage. Let me start by creating the project structure and then populate each file.",
+      "tool_calls": [
+        {
+          "name": "run_command",
+          "arguments": {
+            "command": "mkdir -p notes-api"
+          }
+        }
+      ]
+    },
+    {
+      "test_id": "T13",
+      "test_name": "Multi-File Architecture",
+      "category": "hard_code_gen",
+      "model": "qwen-claude",
+      "run": 2,
+      "elapsed_ms": 4647,
+      "input_tokens": 680,
+      "output_tokens": 236,
+      "tokens_per_sec": 59.5,
+      "passed": false,
+      "score": 0.27999999999999997,
+      "reason": "2/8 components",
+      "content_preview": "I'll create a complete FastAPI REST API project with SQLite storage. Let me start by creating the project structure and all necessary files.",
+      "tool_calls": [
+        {
+          "name": "run_command",
+          "arguments": {
+            "command": "mkdir -p notes_api/{routers,models,schemas,crud,config}"
+          }
+        }
+      ]
+    },
+    {
+      "test_id": "T14",
+      "test_name": "Complex Algorithm",
+      "category": "hard_code_gen",
+      "model": "qwen-claude",
+      "run": 1,
+      "elapsed_ms": 22294,
+      "input_tokens": 98,
+      "output_tokens": 1286,
+      "tokens_per_sec": 59.3,
+      "passed": true,
+      "score": 1.0,
+      "reason": "All keywords present + valid Python syntax",
+      "content_preview": "```python\nclass Node:\n    def __init__(self, key=None, value=None):\n        self.key = key\n        self.value = value\n        self.prev = None\n        self.next = None\n\n\nclass LRUCache:\n    def __init",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T14",
+      "test_name": "Complex Algorithm",
+      "category": "hard_code_gen",
+      "model": "qwen-claude",
+      "run": 2,
+      "elapsed_ms": 22882,
+      "input_tokens": 98,
+      "output_tokens": 1320,
+      "tokens_per_sec": 59.3,
+      "passed": true,
+      "score": 1.0,
+      "reason": "All keywords present + valid Python syntax",
+      "content_preview": "```python\nclass Node:\n    def __init__(self, key: int, value: int):\n        self.key = key\n        self.value = value\n        self.prev = None\n        self.next = None\n\n\nclass LRUCache:\n    def __init",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T15",
+      "test_name": "Debug Stack Trace",
+      "category": "hard_code_gen",
+      "model": "qwen-claude",
+      "run": 1,
+      "elapsed_ms": 2652,
+      "input_tokens": 733,
+      "output_tokens": 117,
+      "tokens_per_sec": 59.8,
+      "passed": false,
+      "score": 0.3,
+      "reason": "Partial: tool=True, diagnosis=False",
+      "content_preview": "",
+      "tool_calls": [
+        {
+          "name": "read_file",
+          "arguments": {
+            "path": "app.py"
+          }
+        }
+      ]
+    },
+    {
+      "test_id": "T15",
+      "test_name": "Debug Stack Trace",
+      "category": "hard_code_gen",
+      "model": "qwen-claude",
+      "run": 2,
+      "elapsed_ms": 3249,
+      "input_tokens": 733,
+      "output_tokens": 152,
+      "tokens_per_sec": 59.6,
+      "passed": false,
+      "score": 0.3,
+      "reason": "Partial: tool=True, diagnosis=False",
+      "content_preview": "",
+      "tool_calls": [
+        {
+          "name": "read_file",
+          "arguments": {
+            "path": "app.py"
+          }
+        }
+      ]
+    },
+    {
+      "test_id": "T16",
+      "test_name": "Multi-Step Tool Chain",
+      "category": "hard_tool_calling",
+      "model": "qwen-claude",
+      "run": 1,
+      "elapsed_ms": 3900,
+      "input_tokens": 660,
+      "output_tokens": 194,
+      "tokens_per_sec": 59.6,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Correct tool and args: {'name': 'search_code', 'arguments': {'pattern': 'import.*auth|from.*auth', 'path': 'src/'}}",
+      "content_preview": "I'll help you refactor the authentication module. Let me start by searching for files importing 'auth' in the src/ directory and reading the main auth.py file.",
+      "tool_calls": [
+        {
+          "name": "search_code",
+          "arguments": {
+            "pattern": "import.*auth|from.*auth",
+            "path": "src/"
+          }
+        },
+        {
+          "name": "search_code",
+          "arguments": {
+            "pattern": "auth\\.",
+            "path": "src/"
+          }
+        }
+      ]
+    },
+    {
+      "test_id": "T16",
+      "test_name": "Multi-Step Tool Chain",
+      "category": "hard_tool_calling",
+      "model": "qwen-claude",
+      "run": 2,
+      "elapsed_ms": 3573,
+      "input_tokens": 660,
+      "output_tokens": 175,
+      "tokens_per_sec": 59.6,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Correct tool and args: {'name': 'search_code', 'arguments': {'pattern': 'import.*auth|from.*auth', 'path': 'src/'}}",
+      "content_preview": "I'll help you refactor the authentication module. Let me start by searching for files importing 'auth' in the src/ directory and reading the main auth.py file.",
+      "tool_calls": [
+        {
+          "name": "search_code",
+          "arguments": {
+            "pattern": "import.*auth|from.*auth",
+            "path": "src/"
+          }
+        },
+        {
+          "name": "read_file",
+          "arguments": {
+            "path": "src/auth.py"
+          }
+        }
+      ]
+    },
+    {
+      "test_id": "T17",
+      "test_name": "Tool with Context Window",
+      "category": "hard_tool_calling",
+      "model": "qwen-claude",
+      "run": 1,
+      "elapsed_ms": 3459,
+      "input_tokens": 670,
+      "output_tokens": 168,
+      "tokens_per_sec": 59.7,
+      "passed": false,
+      "score": 0.0,
+      "reason": "Wrong tool: list_directory (expected one of ['run_command', 'search_code'])",
+      "content_preview": "",
+      "tool_calls": [
+        {
+          "name": "list_directory",
+          "arguments": {
+            "path": "."
+          }
+        }
+      ]
+    },
+    {
+      "test_id": "T17",
+      "test_name": "Tool with Context Window",
+      "category": "hard_tool_calling",
+      "model": "qwen-claude",
+      "run": 2,
+      "elapsed_ms": 3984,
+      "input_tokens": 670,
+      "output_tokens": 199,
+      "tokens_per_sec": 59.6,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Correct tool run_command with args: {'name': 'run_command', 'arguments': {'command': 'git log --oneline -10 -- auth/'}}",
+      "content_preview": "I'll help you investigate this CI pipeline failure. Let me start by checking the git log for recent changes to the auth module and reading the test file.",
+      "tool_calls": [
+        {
+          "name": "run_command",
+          "arguments": {
+            "command": "git log --oneline -10 -- auth/"
+          }
+        },
+        {
+          "name": "list_directory",
+          "arguments": {
+            "path": "."
+          }
+        }
+      ]
+    },
+    {
+      "test_id": "T18",
+      "test_name": "Ambiguous Request Routing",
+      "category": "hard_tool_calling",
+      "model": "qwen-claude",
+      "run": 1,
+      "elapsed_ms": 4863,
+      "input_tokens": 637,
+      "output_tokens": 251,
+      "tokens_per_sec": 59.5,
+      "passed": false,
+      "score": 0.5,
+      "reason": "Correct tool but missing 'du' in args: {'command': 'ls -lh /var/log/ | head -20'}",
+      "content_preview": "I'll help you identify the largest files in /var/log to determine which ones are safe to rotate or delete. Let me start by examining the directory structure and finding the largest files.",
+      "tool_calls": [
+        {
+          "name": "run_command",
+          "arguments": {
+            "command": "ls -lh /var/log/ | head -20"
+          }
+        },
+        {
+          "name": "run_command",
+          "arguments": {
+            "command": "du -h /var/log/* 2>/dev/null | sort -rh | head -20"
+          }
+        }
+      ]
+    },
+    {
+      "test_id": "T18",
+      "test_name": "Ambiguous Request Routing",
+      "category": "hard_tool_calling",
+      "model": "qwen-claude",
+      "run": 2,
+      "elapsed_ms": 2482,
+      "input_tokens": 637,
+      "output_tokens": 113,
+      "tokens_per_sec": 59.9,
+      "passed": false,
+      "score": 0.5,
+      "reason": "Correct tool but missing 'ls' in args: {'command': 'du -h --max-depth=1 /var/log | sort -hr | head -20'}",
+      "content_preview": "",
+      "tool_calls": [
+        {
+          "name": "run_command",
+          "arguments": {
+            "command": "du -h --max-depth=1 /var/log | sort -hr | head -20"
+          }
+        }
+      ]
+    },
+    {
+      "test_id": "T19",
+      "test_name": "Build CLI App",
+      "category": "agentic",
+      "model": "qwen-claude",
+      "run": 1,
+      "elapsed_ms": 32353,
+      "input_tokens": 722,
+      "output_tokens": 1832,
+      "tokens_per_sec": 58.9,
+      "passed": false,
+      "score": 0.4,
+      "reason": "used write_file; substantial content; cli keywords: 0/6",
+      "content_preview": "",
+      "tool_calls": [
+        {
+          "name": "write_file",
+          "arguments": {
+            "path": "td.py",
+            "content": "#!/usr/bin/env python3\n\"\"\"\ntd - A simple CLI todo app\n\"\"\"\nimport argparse\nimport json\nimport os\nimport sys\n\nTODOS_FILE = os.path.expanduser(\"~/.td/todos.json\")\n\n\ndef load_todos():\n    \"\"\"Load todos from JSON file.\"\"\"\n    if not os.path.exists(TODOS_FILE):\n        return []\n    try:\n        with open(TODOS_FILE, 'r') as f:\n            return json.load(f)\n    except (json.JSONDecodeError, IOError):\n        return []\n\n\ndef save_todos(todos):\n    \"\"\"Save todos to JSON file.\"\"\"\n    os.makedirs(os.path.dirname(TODOS_FILE), exist_ok=True)\n    with open(TODOS_FILE, 'w') as f:\n        json.dump(todos, f, indent=2)\n\n\ndef add_task(description):\n    \"\"\"Add a new todo.\"\"\"\n    todos = load_todos()\n    todo_id = len(todos) + 1\n    todos.append({\n        \"id\": todo_id,\n        \"description\": description,\n        \"completed\": False\n    })\n    save_todos(todos)\n    print(f\"Added todo #{todo_id}: {description}\")\n\n\ndef list_todos():\n    \"\"\"List all todos.\"\"\"\n    todos = load_todos()\n    if not todos:\n        print(\"No todos found.\")\n        return\n    for todo in todos:\n        status = \"\u2713\" if todo[\"completed\"] else \"\u25cb\"\n        print(f\"{todo['id']}. [{status}] {todo['description']}\")\n\n\ndef mark_done(todo_id):\n    \"\"\"Mark a todo as complete.\"\"\"\n    todos = load_todos()\n    for i, todo in enumerate(todos):\n        if todo[\"id\"] == todo_id:\n            todo[\"completed\"] = True\n            save_todos(todos)\n            print(f\"Marked todo #{todo_id} as complete.\")\n            return\n    print(f\"Todo #{todo_id} not found.\")\n\n\ndef remove_todo(todo_id):\n    \"\"\"Remove a todo.\"\"\"\n    todos = load_todos()\n    for i, todo in enumerate(todos):\n        if todo[\"id\"] == todo_id:\n            todos.pop(i)\n            save_todos(todos)\n            print(f\"Removed todo #{todo_id}.\")\n            return\n    print(f\"Todo #{todo_id} not found.\")\n\n\ndef main():\n    parser = argparse.ArgumentParser(description=\"A simple CLI todo app\")\n    subparsers = parser.add_subparsers(dest=\"command\", help=\"Available commands\")\n    \n    # Add command\n    add_parser = subparsers.add_parser(\"add\", help=\"Add a new todo\")\n    add_parser.add_argument(\"description\", help=\"Task description\")\n    \n    # List command\n    subparsers.add_parser(\"list\", help=\"List all todos\")\n    \n    # Done command\n    done_parser = subparsers.add_parser(\"done\", help=\"Mark a todo as complete\")\n    done_parser.add_argument(\"id\", type=int, help=\"Todo ID\")\n    \n    # Remove command\n    remove_parser = subparsers.add_parser(\"remove\", help=\"Remove a todo\")\n    remove_parser.add_argument(\"id\", type=int, help=\"Todo ID\")\n    \n    args = parser.parse_args()\n    \n    if args.command == \"add\":\n        add_task(args.description)\n    elif args.command == \"list\":\n        list_todos()\n    elif args.command == \"done\":\n        mark_done(args.id)\n    elif args.command == \"remove\":\n        remove_todo(args.id)\n    else:\n        parser.print_help()\n\n\nif __name__ == \"__main__\":\n    main()\n"
+          }
+        }
+      ]
+    },
+    {
+      "test_id": "T19",
+      "test_name": "Build CLI App",
+      "category": "agentic",
+      "model": "qwen-claude",
+      "run": 2,
+      "elapsed_ms": 34637,
+      "input_tokens": 722,
+      "output_tokens": 1961,
+      "tokens_per_sec": 58.8,
+      "passed": false,
+      "score": 0.4,
+      "reason": "used write_file; substantial content; cli keywords: 0/6",
+      "content_preview": "I'll create the main `td.py` file with the complete implementation for the todo CLI app.",
+      "tool_calls": [
+        {
+          "name": "write_file",
+          "arguments": {
+            "path": "td.py",
+            "content": "#!/usr/bin/env python3\n\"\"\"\ntd - A simple CLI todo app\nUsage:\n    td add \"task description\"   - adds a todo\n    td list                      - shows all todos with IDs and status\n    td done <id>                 - marks a todo as complete\n    td remove <id>               - deletes a todo\n\"\"\"\n\nimport argparse\nimport json\nimport os\nfrom datetime import datetime\n\nTODOS_FILE = os.path.expanduser(\"~/.td/todos.json\")\n\n\ndef load_todos():\n    \"\"\"Load todos from file.\"\"\"\n    if not os.path.exists(TODOS_FILE):\n        return []\n    with open(TODOS_FILE, 'r') as f:\n        return json.load(f)\n\n\ndef save_todos(todos):\n    \"\"\"Save todos to file.\"\"\"\n    os.makedirs(os.path.dirname(TODOS_FILE), exist_ok=True)\n    with open(TODOS_FILE, 'w') as f:\n        json.dump(todos, f, indent=2)\n\n\ndef add_task(description):\n    \"\"\"Add a new todo.\"\"\"\n    todos = load_todos()\n    todo_id = len(todos) + 1\n    todo = {\n        \"id\": todo_id,\n        \"description\": description,\n        \"status\": \"pending\",\n        \"created_at\": datetime.now().isoformat()\n    }\n    todos.append(todo)\n    save_todos(todos)\n    print(f\"Added todo #{todo_id}: {description}\")\n\n\ndef list_todos():\n    \"\"\"List all todos.\"\"\"\n    todos = load_todos()\n    if not todos:\n        print(\"No todos found.\")\n        return\n    for todo in todos:\n        print(f\"#{todo['id']}: {todo['description']} [{todo['status']}]\")\n\n\ndef mark_done(todo_id):\n    \"\"\"Mark a todo as complete.\"\"\"\n    todos = load_todos()\n    for todo in todos:\n        if todo['id'] == todo_id:\n            todo['status'] = 'done'\n            save_todos(todos)\n            print(f\"Marked todo #{todo_id} as done.\")\n            return\n    print(f\"Todo #{todo_id} not found.\")\n\n\ndef remove_todo(todo_id):\n    \"\"\"Remove a todo.\"\"\"\n    todos = load_todos()\n    original_length = len(todos)\n    todos = [todo for todo in todos if todo['id'] != todo_id]\n    if len(todos) < original_length:\n        save_todos(todos)\n        print(f\"Removed todo #{todo_id}.\")\n    else:\n        print(f\"Todo #{todo_id} not found.\")\n\n\ndef main():\n    parser = argparse.ArgumentParser(description='A simple CLI todo app')\n    subparsers = parser.add_subparsers(dest='command', help='Commands')\n\n    # add command\n    add_parser = subparsers.add_parser('add', help='Add a new todo')\n    add_parser.add_argument('description', help='Task description')\n\n    # list command\n    subparsers.add_parser('list', help='List all todos')\n\n    # done command\n    done_parser = subparsers.add_parser('done', help='Mark a todo as complete')\n    done_parser.add_argument('id', type=int, help='Todo ID')\n\n    # remove command\n    remove_parser = subparsers.add_parser('remove', help='Remove a todo')\n    remove_parser.add_argument('id', type=int, help='Todo ID')\n\n    args = parser.parse_args()\n\n    if args.command == 'add':\n        add_task(args.description)\n    elif args.command == 'list':\n        list_todos()\n    elif args.command == 'done':\n        mark_done(args.id)\n    elif args.command == 'remove':\n        remove_todo(args.id)\n    else:\n        parser.print_help()\n\n\nif __name__ == '__main__':\n    main()\n"
+          }
+        }
+      ]
+    },
+    {
+      "test_id": "T20",
+      "test_name": "Build REST API",
+      "category": "agentic",
+      "model": "qwen-claude",
+      "run": 1,
+      "elapsed_ms": 32155,
+      "input_tokens": 736,
+      "output_tokens": 1821,
+      "tokens_per_sec": 58.9,
+      "passed": true,
+      "score": 0.64,
+      "reason": "used write_file; substantial content; api keywords: 2/8",
+      "content_preview": "I'll create a complete Flask REST API for the bookmark manager with all the required endpoints and SQLite storage.",
+      "tool_calls": [
+        {
+          "name": "write_file",
+          "arguments": {
+            "path": "app.py",
+            "content": "from flask import Flask, request, jsonify, g\nimport sqlite3\nimport json\nfrom functools import wraps\n\napp = Flask(__name__)\nDATABASE = 'bookmarks.db'\n\ndef get_db():\n    \"\"\"Get database connection.\"\"\"\n    if 'db' not in g:\n        g.db = sqlite3.connect(DATABASE)\n        g.db.row_factory = sqlite3.Row\n    return g.db\n\ndef init_db():\n    \"\"\"Initialize database and create table if not exists.\"\"\"\n    with app.app_context():\n        db = get_db()\n        db.execute('''\n            CREATE TABLE IF NOT EXISTS bookmarks (\n                id INTEGER PRIMARY KEY AUTOINCREMENT,\n                url TEXT NOT NULL,\n                title TEXT NOT NULL,\n                tags TEXT NOT NULL\n            )\n        ''')\n        db.commit()\n\n@app.before_request\ndef before_request():\n    g.db = get_db()\n\n@app.teardown_appcontext\ndef close_db(error):\n    \"\"\"Close database connection.\"\"\"\n    db = g.pop('db', None)\n    if db is not None:\n        db.close()\n\n@app.route('/bookmarks', methods=['GET'])\ndef list_bookmarks():\n    \"\"\"List all bookmarks or filter by tag.\"\"\"\n    tag = request.args.get('tag')\n    db = get_db()\n    \n    if tag:\n        cursor = db.execute(\n            'SELECT * FROM bookmarks WHERE ? IN (SELECT value FROM json_each(tags))',\n            (tag,)\n        )\n    else:\n        cursor = db.execute('SELECT * FROM bookmarks')\n    \n    bookmarks = [dict(row) for row in cursor.fetchall()]\n    return jsonify(bookmarks), 200\n\n@app.route('/bookmarks', methods=['POST'])\ndef create_bookmark():\n    \"\"\"Create a new bookmark.\"\"\"\n    data = request.get_json()\n    \n    if not data or 'url' not in data or 'title' not in data:\n        return jsonify({'error': 'url and title are required'}), 400\n    \n    tags = data.get('tags', [])\n    \n    db = get_db()\n    cursor = db.execute(\n        'INSERT INTO bookmarks (url, title, tags) VALUES (?, ?, ?)',\n        (data['url'], data['title'], json.dumps(tags))\n    )\n    db.commit()\n    \n    bookmark = dict(cursor.lastrowid, url=data['url'], title=data['title'], tags=tags)\n    return jsonify(bookmark), 201\n\n@app.route('/bookmarks/<int:id>', methods=['GET'])\ndef get_bookmark(id):\n    \"\"\"Get a single bookmark by ID.\"\"\"\n    db = get_db()\n    cursor = db.execute('SELECT * FROM bookmarks WHERE id = ?', (id,))\n    bookmark = cursor.fetchone()\n    \n    if bookmark is None:\n        return jsonify({'error': 'Bookmark not found'}), 404\n    \n    return jsonify(dict(bookmark)), 200\n\n@app.route('/bookmarks/<int:id>', methods=['DELETE'])\ndef delete_bookmark(id):\n    \"\"\"Delete a bookmark by ID.\"\"\"\n    db = get_db()\n    cursor = db.execute('SELECT * FROM bookmarks WHERE id = ?', (id,))\n    bookmark = cursor.fetchone()\n    \n    if bookmark is None:\n        return jsonify({'error': 'Bookmark not found'}), 404\n    \n    db.execute('DELETE FROM bookmarks WHERE id = ?', (id,))\n    db.commit()\n    \n    return jsonify({'message': 'Bookmark deleted'}), 200\n\nif __name__ == '__main__':\n    init_db()\n    app.run(debug=True)\n"
+          }
+        }
+      ]
+    },
+    {
+      "test_id": "T20",
+      "test_name": "Build REST API",
+      "category": "agentic",
+      "model": "qwen-claude",
+      "run": 2,
+      "elapsed_ms": 19979,
+      "input_tokens": 736,
+      "output_tokens": 1122,
+      "tokens_per_sec": 59.1,
+      "passed": false,
+      "score": 0.4,
+      "reason": "used write_file; substantial content; api keywords: 0/8",
+      "content_preview": "",
+      "tool_calls": [
+        {
+          "name": "write_file",
+          "arguments": {
+            "path": "app.py",
+            "content": "from flask import Flask, request, jsonify, g\nimport sqlite3\nimport os\n\napp = Flask(__name__)\n\nDATABASE = 'bookmarks.db'\n\n\ndef get_db():\n    \"\"\"Get database connection, creating table if not exists.\"\"\"\n    if 'db' not in g:\n        conn = sqlite3.connect(DATABASE)\n        conn.row_factory = sqlite3.Row\n        g.db = conn\n        init_db(conn)\n    return g.db\n\n\ndef init_db(conn):\n    \"\"\"Initialize database with bookmarks table if not exists.\"\"\"\n    conn.execute('''\n        CREATE TABLE IF NOT EXISTS bookmarks (\n            id INTEGER PRIMARY KEY AUTOINCREMENT,\n            url TEXT NOT NULL,\n            title TEXT NOT NULL,\n            tags TEXT NOT NULL\n        )\n    ''')\n    conn.commit()\n\n\n@app.teardown_appcontext\ndef close_db(error):\n    \"\"\"Close database connection at end of request.\"\"\"\n    db = g.pop('db', None)\n    if db is not None:\n        db.close()\n\n\n@app.route('/bookmarks', methods=['GET'])\ndef list_bookmarks():\n    \"\"\"List all bookmarks or filter by tag.\"\"\"\n    tag = request.args.get('tag')\n    conn = get_db()\n    cursor = conn.cursor()\n    \n    if tag:\n        cursor.execute(\n            'SELECT * FROM bookmarks WHERE ? IN (SELECT value FROM json_each(tags))',\n            (tag,)\n        )\n    else:\n        cursor.execute('SELECT * FROM bookmarks')\n    \n    bookmarks = [dict(row) for row in cursor.fetchall()]\n    return jsonify(bookmarks), 200\n\n\n@app.route('/bookmarks', methods=['POST'])\ndef create_bookmark():\n    \"\"\"Add a new bookmark.\"\"\"\n    data = request.get_json()\n    \n    if not data:\n        return jsonify({'error': 'No JSON data provided'}), 400\n    \n    if 'url' not in data or 'title' not in data:\n        return jsonify({'error': 'url and title are required'}), 400\n    \n    if 'tags' not in data:\n        return jsonify({'error': 'tags array is required'}), 400\n    \n    conn = get_db()\n    cursor = conn.cursor()\n    \n    # Escape tags for JSON storage\n    tags_json = json.dumps(data['tags'])\n    \n    cursor.execute(\n        'INSERT INTO bookmarks (url, title, tags) VALUES (?, ?, ?)',\n        (data['url'], data['title'], tags_json)\n    )\n    \n    bookmark_id = cursor.lastrowid\n    conn.commit()\n    \n    # Fetch the created bookmark\n    cursor.execute('SELECT * FROM bookmarks WHERE id = ?', (bookmark_id,))\n    bookmark = dict(cursor.fetchone())\n    \n    return jsonify(bookmark), 201\n\n\n@app.route('/bookmarks/<int:id>', methods=['GET'])\ndef get_bookmark(id):\n    \"\"\"Get a specific bookmark by ID.\"\"\"\n    conn = get_db()\n    cursor = conn.cursor()\n    \n    cursor.execute('SELECT * FROM bookmarks WHERE id = ?', (id,))\n    bookmark = cursor.fetchone()\n    \n    if bookmark is None:\n        return jsonify({'error': 'Bookmark not found'}), 404\n    \n    return jsonify(dict(bookmark)), 200\n\n\n@app.route('/bookmarks/<int:id>', methods=['DELETE'])\ndef delete_bookmark(id):\n    \"\"\"Delete a bookmark by ID.\"\"\"\n    conn = get_db()\n    cursor = conn.cursor()\n    \n    cursor.execute('SELECT * FROM bookmarks WHERE id = ?', (id,))\n    bookmark = cursor.fetchone()\n    \n    if bookmark is None:\n        return jsonify({'error': 'Bookmark not found'}), 404\n    \n    cursor.execute('DELETE FROM bookmarks WHERE id = ?', (id,))\n    conn.commit()\n    \n    return jsonify({'message': 'Bookmark deleted'}), 200\n\n\nif __name__ == '__main__':\n    app.run(debug=True)\n"
+          }
+        }
+      ]
+    },
+    {
+      "test_id": "T1",
+      "test_name": "Single Tool Selection",
+      "category": "tool_calling",
+      "model": "qwen35-lite",
+      "run": 1,
+      "elapsed_ms": 2170,
+      "input_tokens": 613,
+      "output_tokens": 93,
+      "tokens_per_sec": 59.9,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Correct tool and args: {'name': 'search_code', 'arguments': {'path': 'src/', 'pattern': 'TODO'}}",
+      "content_preview": "",
+      "tool_calls": [
+        {
+          "name": "search_code",
+          "arguments": {
+            "path": "src/",
+            "pattern": "TODO"
+          }
+        }
+      ]
+    },
+    {
+      "test_id": "T1",
+      "test_name": "Single Tool Selection",
+      "category": "tool_calling",
+      "model": "qwen35-lite",
+      "run": 2,
+      "elapsed_ms": 1813,
+      "input_tokens": 613,
+      "output_tokens": 94,
+      "tokens_per_sec": 59.9,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Correct tool and args: {'name': 'search_code', 'arguments': {'path': 'src/', 'pattern': 'TODO'}}",
+      "content_preview": "",
+      "tool_calls": [
+        {
+          "name": "search_code",
+          "arguments": {
+            "path": "src/",
+            "pattern": "TODO"
+          }
+        }
+      ]
+    },
+    {
+      "test_id": "T2",
+      "test_name": "Multi-Tool Planning",
+      "category": "tool_calling",
+      "model": "qwen35-lite",
+      "run": 1,
+      "elapsed_ms": 1753,
+      "input_tokens": 643,
+      "output_tokens": 89,
+      "tokens_per_sec": 59.9,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Correct tool and args: {'name': 'read_file', 'arguments': {'path': '/etc/app/config.yaml'}}",
+      "content_preview": "",
+      "tool_calls": [
+        {
+          "name": "read_file",
+          "arguments": {
+            "path": "/etc/app/config.yaml"
+          }
+        }
+      ]
+    },
+    {
+      "test_id": "T2",
+      "test_name": "Multi-Tool Planning",
+      "category": "tool_calling",
+      "model": "qwen35-lite",
+      "run": 2,
+      "elapsed_ms": 3683,
+      "input_tokens": 643,
+      "output_tokens": 201,
+      "tokens_per_sec": 59.5,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Correct tool and args: {'name': 'read_file', 'arguments': {'path': '/etc/app/config.yaml'}}",
+      "content_preview": "I'll help you with that. Let me start by reading the config file and checking if port 8080 is in use.",
+      "tool_calls": [
+        {
+          "name": "read_file",
+          "arguments": {
+            "path": "/etc/app/config.yaml"
+          }
+        },
+        {
+          "name": "run_command",
+          "arguments": {
+            "command": "ss -tlnp | grep 8080 || netstat -tlnp | grep 8080 || echo \"Port 8080 check\""
+          }
+        }
+      ]
+    },
+    {
+      "test_id": "T3",
+      "test_name": "Argument Precision",
+      "category": "tool_calling",
+      "model": "qwen35-lite",
+      "run": 1,
+      "elapsed_ms": 2584,
+      "input_tokens": 619,
+      "output_tokens": 139,
+      "tokens_per_sec": 59.7,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Correct tool and args: {'name': 'search_code', 'arguments': {'pattern': 'handle_', 'path': 'pkg/', 'file_glob': '*.go'}}",
+      "content_preview": "",
+      "tool_calls": [
+        {
+          "name": "search_code",
+          "arguments": {
+            "pattern": "handle_",
+            "path": "pkg/",
+            "file_glob": "*.go"
+          }
+        }
+      ]
+    },
+    {
+      "test_id": "T3",
+      "test_name": "Argument Precision",
+      "category": "tool_calling",
+      "model": "qwen35-lite",
+      "run": 2,
+      "elapsed_ms": 2566,
+      "input_tokens": 619,
+      "output_tokens": 138,
+      "tokens_per_sec": 59.7,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Correct tool and args: {'name': 'search_code', 'arguments': {'pattern': 'handle_', 'path': 'pkg/', 'file_glob': '*.go'}}",
+      "content_preview": "",
+      "tool_calls": [
+        {
+          "name": "search_code",
+          "arguments": {
+            "pattern": "handle_",
+            "path": "pkg/",
+            "file_glob": "*.go"
+          }
+        }
+      ]
+    },
+    {
+      "test_id": "T4",
+      "test_name": "Python Function",
+      "category": "code_gen",
+      "model": "qwen35-lite",
+      "run": 1,
+      "elapsed_ms": 20690,
+      "input_tokens": 120,
+      "output_tokens": 1192,
+      "tokens_per_sec": 59.3,
+      "passed": true,
+      "score": 1.0,
+      "reason": "All keywords present + valid Python syntax",
+      "content_preview": "```python\ndef parse_cron(expr: str) -> dict:\n    def parse_field(field: str, min_val: int, max_val: int) -> list:\n        if field == '*':\n            return list(range(min_val, max_val + 1))\n        ",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T4",
+      "test_name": "Python Function",
+      "category": "code_gen",
+      "model": "qwen35-lite",
+      "run": 2,
+      "elapsed_ms": 21543,
+      "input_tokens": 120,
+      "output_tokens": 1241,
+      "tokens_per_sec": 59.3,
+      "passed": true,
+      "score": 1.0,
+      "reason": "All keywords present + valid Python syntax",
+      "content_preview": "```python\ndef parse_cron(expr: str) -> dict:\n    def parse_field(field: str, min_val: int, max_val: int) -> list:\n        if field == '*':\n            return list(range(min_val, max_val + 1))\n        ",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T5",
+      "test_name": "Kubernetes YAML",
+      "category": "code_gen",
+      "model": "qwen35-lite",
+      "run": 1,
+      "elapsed_ms": 35490,
+      "input_tokens": 91,
+      "output_tokens": 2048,
+      "tokens_per_sec": 59.1,
+      "passed": false,
+      "score": 0.0,
+      "reason": "Only 0/5 keywords; missing: ['Deployment', 'redis', 'livenessProbe', 'persistentVolumeClaim', '256Mi']",
+      "content_preview": "",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T5",
+      "test_name": "Kubernetes YAML",
+      "category": "code_gen",
+      "model": "qwen35-lite",
+      "run": 2,
+      "elapsed_ms": 35504,
+      "input_tokens": 91,
+      "output_tokens": 2048,
+      "tokens_per_sec": 59.1,
+      "passed": false,
+      "score": 0.0,
+      "reason": "Only 0/5 keywords; missing: ['Deployment', 'redis', 'livenessProbe', 'persistentVolumeClaim', '256Mi']",
+      "content_preview": "",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T6",
+      "test_name": "Bash Function",
+      "category": "code_gen",
+      "model": "qwen35-lite",
+      "run": 1,
+      "elapsed_ms": 13367,
+      "input_tokens": 92,
+      "output_tokens": 768,
+      "tokens_per_sec": 59.4,
+      "passed": true,
+      "score": 0.75,
+      "reason": "Found 3/4 keywords",
+      "content_preview": "```bash\nretry_cmd() {\n    local cmd=\"$1\"\n    local max_attempts=3\n    local attempt=1\n    local delay=1\n\n    while [ $attempt -le $max_attempts ]; do\n        echo \"Attempt $attempt\" >&2\n        eval \"",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T6",
+      "test_name": "Bash Function",
+      "category": "code_gen",
+      "model": "qwen35-lite",
+      "run": 2,
+      "elapsed_ms": 17246,
+      "input_tokens": 92,
+      "output_tokens": 993,
+      "tokens_per_sec": 59.4,
+      "passed": true,
+      "score": 0.75,
+      "reason": "Found 3/4 keywords",
+      "content_preview": "```bash\nretry_cmd() {\n    local cmd=\"$1\"\n    local attempt=1\n    local max_attempts=3\n    local backoff=1\n\n    while [ $attempt -le $max_attempts ]; do\n        echo \"Attempt $attempt\" >&2\n        eval",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T7",
+      "test_name": "Bug Detection",
+      "category": "code_understanding",
+      "model": "qwen35-lite",
+      "run": 1,
+      "elapsed_ms": 30464,
+      "input_tokens": 177,
+      "output_tokens": 1754,
+      "tokens_per_sec": 59.2,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Found: 'same list'",
+      "content_preview": "The DP table initialization `dp = [[0] * (n + 1)] * (m + 1)` creates multiple references to the same list object. Modifying `dp[i][j]` will inadvertently update all rows, corrupting the calculation.\n\n",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T7",
+      "test_name": "Bug Detection",
+      "category": "code_understanding",
+      "model": "qwen35-lite",
+      "run": 2,
+      "elapsed_ms": 26091,
+      "input_tokens": 177,
+      "output_tokens": 1502,
+      "tokens_per_sec": 59.2,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Found: 'same list'",
+      "content_preview": "**Bug:** The line `dp = [[0] * (n + 1)] * (m + 1)` creates a list where all rows reference the same list object. Modifying `dp[i][j]` will inadvertently modify every row in the table, corrupting the D",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T8",
+      "test_name": "Race Condition",
+      "category": "code_understanding",
+      "model": "qwen35-lite",
+      "run": 1,
+      "elapsed_ms": 8990,
+      "input_tokens": 104,
+      "output_tokens": 513,
+      "tokens_per_sec": 59.5,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Identified race condition and suggested fix",
+      "content_preview": "# Concurrency Issues\n\n## 1. **Data Race** \u26a0\ufe0f\nMultiple goroutines read and write `counter` without synchronization. This violates Go's memory model and will trigger a race condition warning with `go ru",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T8",
+      "test_name": "Race Condition",
+      "category": "code_understanding",
+      "model": "qwen35-lite",
+      "run": 2,
+      "elapsed_ms": 10453,
+      "input_tokens": 104,
+      "output_tokens": 598,
+      "tokens_per_sec": 59.5,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Identified race condition and suggested fix",
+      "content_preview": "# Concurrency Issues\n\n## 1. **Data Race** \u26a0\ufe0f\nMultiple goroutines read and write `counter` without synchronization. This violates Go's memory model and will trigger a race detector warning.\n\n## 2. **Lo",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T9",
+      "test_name": "Refactoring",
+      "category": "code_understanding",
+      "model": "qwen35-lite",
+      "run": 1,
+      "elapsed_ms": 35531,
+      "input_tokens": 124,
+      "output_tokens": 2048,
+      "tokens_per_sec": 59.1,
+      "passed": false,
+      "score": 0.0,
+      "reason": "None of ['guard clause', 'early continue', 'flatten', 'nested', 'simplif', 'extract', 'combine', 'consolidat', 'walrus', 'ternary', 'min(', '[:100]'] found in response",
+      "content_preview": "",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T9",
+      "test_name": "Refactoring",
+      "category": "code_understanding",
+      "model": "qwen35-lite",
+      "run": 2,
+      "elapsed_ms": 19562,
+      "input_tokens": 124,
+      "output_tokens": 1127,
+      "tokens_per_sec": 59.3,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Found: 'extract'",
+      "content_preview": "# Code Review: Refactoring Suggestions\n\n## Current Issues\n\n1. **Deep nesting** (4 levels) reduces readability\n2. **Redundant checks** (`is not None` before `isinstance(item, str)`)\n3. **Empty string c",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T10",
+      "test_name": "Debug Plan",
+      "category": "reasoning",
+      "model": "qwen35-lite",
+      "run": 1,
+      "elapsed_ms": 33987,
+      "input_tokens": 80,
+      "output_tokens": 1961,
+      "tokens_per_sec": 59.1,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Found 6/6 keywords",
+      "content_preview": "# Kubernetes CrashLoopBackOff Debugging Plan\n\n## Phase 1: Immediate Pod Status Analysis\n\n### 1.1 Check Pod Events and Logs\n```bash\n# Get pod details\nkubectl describe pod <pod-name> -n <namespace>\n\n# C",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T10",
+      "test_name": "Debug Plan",
+      "category": "reasoning",
+      "model": "qwen35-lite",
+      "run": 2,
+      "elapsed_ms": 35500,
+      "input_tokens": 80,
+      "output_tokens": 2048,
+      "tokens_per_sec": 59.1,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Found 6/6 keywords",
+      "content_preview": "# Kubernetes CrashLoopBackOff Debugging Plan\n\n## Phase 1: Initial Assessment (5-10 minutes)\n\n### 1.1 Check Pod Status & Events\n```bash\n# Get detailed pod status\nkubectl get pod <pod-name> -n <namespac",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T11",
+      "test_name": "Migration Plan",
+      "category": "reasoning",
+      "model": "qwen35-lite",
+      "run": 1,
+      "elapsed_ms": 35488,
+      "input_tokens": 74,
+      "output_tokens": 2048,
+      "tokens_per_sec": 59.1,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Found 6/6 keywords",
+      "content_preview": "# PostgreSQL Migration Plan: Docker Compose \u2192 Kubernetes StatefulSet with Longhorn\n\n## Executive Summary\n\nThis plan enables a zero-downtime migration of a 20GB PostgreSQL database from a single-node D",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T11",
+      "test_name": "Migration Plan",
+      "category": "reasoning",
+      "model": "qwen35-lite",
+      "run": 2,
+      "elapsed_ms": 26614,
+      "input_tokens": 74,
+      "output_tokens": 1536,
+      "tokens_per_sec": 59.2,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Found 6/6 keywords",
+      "content_preview": "# PostgreSQL Migration Plan: Docker Compose \u2192 Kubernetes StatefulSet with Longhorn\n\n## Executive Summary\n\nThis migration plan enables a zero-downtime transition from a single-node Docker Compose Postg",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T12",
+      "test_name": "Next Step Reasoning",
+      "category": "reasoning",
+      "model": "qwen35-lite",
+      "run": 1,
+      "elapsed_ms": 12110,
+      "input_tokens": 144,
+      "output_tokens": 692,
+      "tokens_per_sec": 59.4,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Found: 'increase memory'",
+      "content_preview": "# Pod is OOMKilled Due to Memory Limit\n\nYour pod is being killed because it's using **~498Mi** of memory, which is very close to the **512Mi** limit. When it exceeds the limit (even slightly), Kuberne",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T12",
+      "test_name": "Next Step Reasoning",
+      "category": "reasoning",
+      "model": "qwen35-lite",
+      "run": 2,
+      "elapsed_ms": 14186,
+      "input_tokens": 144,
+      "output_tokens": 813,
+      "tokens_per_sec": 59.4,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Found: 'increase memory'",
+      "content_preview": "# The Problem\n\nYour pod is being **OOMKilled** because it's using **~498Mi** of memory, which is dangerously close to your **512Mi limit**. When it tries to exceed 512Mi, Kubernetes kills it (exit cod",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T13",
+      "test_name": "Multi-File Architecture",
+      "category": "hard_code_gen",
+      "model": "qwen35-lite",
+      "run": 1,
+      "elapsed_ms": 4596,
+      "input_tokens": 680,
+      "output_tokens": 233,
+      "tokens_per_sec": 59.5,
+      "passed": false,
+      "score": 0.27999999999999997,
+      "reason": "2/8 components",
+      "content_preview": "I'll create a complete FastAPI REST API project with SQLite storage. Let me start by creating the project structure and then the files.",
+      "tool_calls": [
+        {
+          "name": "run_command",
+          "arguments": {
+            "command": "mkdir -p notes_api/routers"
+          }
+        }
+      ]
+    },
+    {
+      "test_id": "T13",
+      "test_name": "Multi-File Architecture",
+      "category": "hard_code_gen",
+      "model": "qwen35-lite",
+      "run": 2,
+      "elapsed_ms": 5739,
+      "input_tokens": 680,
+      "output_tokens": 320,
+      "tokens_per_sec": 59.3,
+      "passed": false,
+      "score": 0.42,
+      "reason": "3/8 components",
+      "content_preview": "I'll create a complete FastAPI REST API project for managing notes with SQLite storage. Let me start by setting up the project structure and creating all necessary files.",
+      "tool_calls": [
+        {
+          "name": "run_command",
+          "arguments": {
+            "command": "mkdir -p notes-api"
+          }
+        }
+      ]
+    },
+    {
+      "test_id": "T14",
+      "test_name": "Complex Algorithm",
+      "category": "hard_code_gen",
+      "model": "qwen35-lite",
+      "run": 1,
+      "elapsed_ms": 23410,
+      "input_tokens": 98,
+      "output_tokens": 1350,
+      "tokens_per_sec": 59.3,
+      "passed": true,
+      "score": 1.0,
+      "reason": "All keywords present + valid Python syntax",
+      "content_preview": "```python\nclass Node:\n    def __init__(self, key, value):\n        self.key = key\n        self.value = value\n        self.prev = None\n        self.next = None\n\n\nclass LRUCache:\n    def __init__(self, c",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T14",
+      "test_name": "Complex Algorithm",
+      "category": "hard_code_gen",
+      "model": "qwen35-lite",
+      "run": 2,
+      "elapsed_ms": 19401,
+      "input_tokens": 98,
+      "output_tokens": 1118,
+      "tokens_per_sec": 59.3,
+      "passed": true,
+      "score": 1.0,
+      "reason": "All keywords present + valid Python syntax",
+      "content_preview": "```python\nclass Node:\n    def __init__(self, key, value):\n        self.key = key\n        self.value = value\n        self.prev = None\n        self.next = None\n\n\nclass LRUCache:\n    def __init__(self, c",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T15",
+      "test_name": "Debug Stack Trace",
+      "category": "hard_code_gen",
+      "model": "qwen35-lite",
+      "run": 1,
+      "elapsed_ms": 2939,
+      "input_tokens": 733,
+      "output_tokens": 134,
+      "tokens_per_sec": 59.6,
+      "passed": false,
+      "score": 0.3,
+      "reason": "Partial: tool=True, diagnosis=False",
+      "content_preview": "",
+      "tool_calls": [
+        {
+          "name": "read_file",
+          "arguments": {
+            "path": "app.py"
+          }
+        }
+      ]
+    },
+    {
+      "test_id": "T15",
+      "test_name": "Debug Stack Trace",
+      "category": "hard_code_gen",
+      "model": "qwen35-lite",
+      "run": 2,
+      "elapsed_ms": 4627,
+      "input_tokens": 733,
+      "output_tokens": 253,
+      "tokens_per_sec": 59.4,
+      "passed": false,
+      "score": 0.3,
+      "reason": "Partial: tool=True, diagnosis=False",
+      "content_preview": "",
+      "tool_calls": [
+        {
+          "name": "read_file",
+          "arguments": {
+            "path": "app.py"
+          }
+        }
+      ]
+    },
+    {
+      "test_id": "T16",
+      "test_name": "Multi-Step Tool Chain",
+      "category": "hard_tool_calling",
+      "model": "qwen35-lite",
+      "run": 1,
+      "elapsed_ms": 3237,
+      "input_tokens": 660,
+      "output_tokens": 175,
+      "tokens_per_sec": 59.6,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Correct tool and args: {'name': 'search_code', 'arguments': {'path': 'src/', 'pattern': 'import.*auth|from.*auth'}}",
+      "content_preview": "I'll help you refactor the authentication module. Let me start by searching for files importing 'auth' in the src/ directory and then read the main auth.py file.",
+      "tool_calls": [
+        {
+          "name": "search_code",
+          "arguments": {
+            "path": "src/",
+            "pattern": "import.*auth|from.*auth"
+          }
+        },
+        {
+          "name": "list_directory",
+          "arguments": {
+            "path": "src/"
+          }
+        }
+      ]
+    },
+    {
+      "test_id": "T16",
+      "test_name": "Multi-Step Tool Chain",
+      "category": "hard_tool_calling",
+      "model": "qwen35-lite",
+      "run": 2,
+      "elapsed_ms": 2721,
+      "input_tokens": 660,
+      "output_tokens": 145,
+      "tokens_per_sec": 59.6,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Correct tool and args: {'name': 'search_code', 'arguments': {'path': 'src/', 'pattern': 'import.*auth'}}",
+      "content_preview": "I'll help you refactor the authentication module. Let me start by searching for files importing 'auth' in the src/ directory and then read the main auth.py file.",
+      "tool_calls": [
+        {
+          "name": "search_code",
+          "arguments": {
+            "path": "src/",
+            "pattern": "import.*auth"
+          }
+        }
+      ]
+    },
+    {
+      "test_id": "T17",
+      "test_name": "Tool with Context Window",
+      "category": "hard_tool_calling",
+      "model": "qwen35-lite",
+      "run": 1,
+      "elapsed_ms": 3060,
+      "input_tokens": 670,
+      "output_tokens": 165,
+      "tokens_per_sec": 59.6,
+      "passed": false,
+      "score": 0.0,
+      "reason": "Wrong tool: list_directory (expected one of ['run_command', 'search_code'])",
+      "content_preview": "",
+      "tool_calls": [
+        {
+          "name": "list_directory",
+          "arguments": {
+            "path": "."
+          }
+        }
+      ]
+    },
+    {
+      "test_id": "T17",
+      "test_name": "Tool with Context Window",
+      "category": "hard_tool_calling",
+      "model": "qwen35-lite",
+      "run": 2,
+      "elapsed_ms": 3962,
+      "input_tokens": 670,
+      "output_tokens": 217,
+      "tokens_per_sec": 59.5,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Correct tool run_command with args: {'name': 'run_command', 'arguments': {'command': 'git log --oneline -10 -- auth/'}}",
+      "content_preview": "I'll help you investigate this CI failure. Let me start by checking the git log for recent changes to the auth module and then read the test file.",
+      "tool_calls": [
+        {
+          "name": "run_command",
+          "arguments": {
+            "command": "git log --oneline -10 -- auth/"
+          }
+        },
+        {
+          "name": "read_file",
+          "arguments": {
+            "path": "tests/test_auth.py"
+          }
+        }
+      ]
+    },
+    {
+      "test_id": "T18",
+      "test_name": "Ambiguous Request Routing",
+      "category": "hard_tool_calling",
+      "model": "qwen35-lite",
+      "run": 1,
+      "elapsed_ms": 2917,
+      "input_tokens": 637,
+      "output_tokens": 158,
+      "tokens_per_sec": 59.6,
+      "passed": false,
+      "score": 0.5,
+      "reason": "Correct tool but missing 'du' in args: {'command': 'ls -lh /var/log/ | head -50'}",
+      "content_preview": "",
+      "tool_calls": [
+        {
+          "name": "run_command",
+          "arguments": {
+            "command": "ls -lh /var/log/ | head -50"
+          }
+        }
+      ]
+    },
+    {
+      "test_id": "T18",
+      "test_name": "Ambiguous Request Routing",
+      "category": "hard_tool_calling",
+      "model": "qwen35-lite",
+      "run": 2,
+      "elapsed_ms": 2453,
+      "input_tokens": 637,
+      "output_tokens": 131,
+      "tokens_per_sec": 59.8,
+      "passed": false,
+      "score": 0.0,
+      "reason": "Wrong tool: list_directory (expected run_command)",
+      "content_preview": "I'll help you identify the largest files in /var/log and suggest which ones can be safely rotated or deleted. Let me start by exploring the directory structure.",
+      "tool_calls": [
+        {
+          "name": "list_directory",
+          "arguments": {
+            "path": "/var/log"
+          }
+        }
+      ]
+    },
+    {
+      "test_id": "T19",
+      "test_name": "Build CLI App",
+      "category": "agentic",
+      "model": "qwen35-lite",
+      "run": 1,
+      "elapsed_ms": 35860,
+      "input_tokens": 722,
+      "output_tokens": 2048,
+      "tokens_per_sec": 58.7,
+      "passed": false,
+      "score": 0.0,
+      "reason": "cli keywords: 0/6",
+      "content_preview": "I'll create the main `td.py` file with the complete implementation for the CLI todo app.",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T19",
+      "test_name": "Build CLI App",
+      "category": "agentic",
+      "model": "qwen35-lite",
+      "run": 2,
+      "elapsed_ms": 34083,
+      "input_tokens": 722,
+      "output_tokens": 1949,
+      "tokens_per_sec": 58.8,
+      "passed": false,
+      "score": 0.4,
+      "reason": "used write_file; substantial content; cli keywords: 0/6",
+      "content_preview": "I'll create the main `td.py` file with the complete implementation for the CLI todo app.",
+      "tool_calls": [
+        {
+          "name": "write_file",
+          "arguments": {
+            "path": "td.py",
+            "content": "#!/usr/bin/env python3\n\"\"\"\ntd - A simple CLI todo app\n\"\"\"\n\nimport argparse\nimport json\nimport os\nimport sys\n\n\n# Constants\nDATA_DIR = os.path.expanduser(\"~/.td\")\nDATA_FILE = os.path.join(DATA_DIR, \"todos.json\")\n\n\ndef load_todos():\n    \"\"\"Load todos from JSON file.\"\"\"\n    if not os.path.exists(DATA_FILE):\n        return []\n    try:\n        with open(DATA_FILE, 'r') as f:\n            return json.load(f)\n    except (json.JSONDecodeError, IOError):\n        return []\n\n\ndef save_todos(todos):\n    \"\"\"Save todos to JSON file.\"\"\"\n    os.makedirs(DATA_DIR, exist_ok=True)\n    with open(DATA_FILE, 'w') as f:\n        json.dump(todos, f, indent=2)\n\n\ndef add_task(description):\n    \"\"\"Add a new todo task.\"\"\"\n    todos = load_todos()\n    new_id = len(todos) + 1\n    todos.append({\n        \"id\": new_id,\n        \"description\": description,\n        \"completed\": False\n    })\n    save_todos(todos)\n    print(f\"Added todo #{new_id}: {description}\")\n\n\ndef list_tasks():\n    \"\"\"List all todos.\"\"\"\n    todos = load_todos()\n    if not todos:\n        print(\"No todos found.\")\n        return\n    \n    for todo in todos:\n        status = \"\u2713\" if todo[\"completed\"] else \"\u25cb\"\n        print(f\"#{todo['id']} [{status}] {todo['description']}\")\n\n\ndef mark_done(task_id):\n    \"\"\"Mark a todo as complete.\"\"\"\n    todos = load_todos()\n    for todo in todos:\n        if todo[\"id\"] == task_id:\n            todo[\"completed\"] = True\n            save_todos(todos)\n            print(f\"Marked todo #{task_id} as complete\")\n            return\n    print(f\"Todo #{task_id} not found\")\n\n\ndef remove_task(task_id):\n    \"\"\"Remove a todo.\"\"\"\n    todos = load_todos()\n    original_length = len(todos)\n    todos = [todo for todo in todos if todo[\"id\"] != task_id]\n    if len(todos) < original_length:\n        save_todos(todos)\n        print(f\"Removed todo #{task_id}\")\n    else:\n        print(f\"Todo #{task_id} not found\")\n\n\ndef main():\n    parser = argparse.ArgumentParser(\n        description=\"A simple CLI todo app\",\n        prog=\"td\"\n    )\n    \n    subparsers = parser.add_subparsers(dest=\"command\", help=\"Available commands\")\n    \n    # Add command\n    add_parser = subparsers.add_parser(\"add\", help=\"Add a new todo\")\n    add_parser.add_argument(\"description\", help=\"Task description\")\n    \n    # List command\n    subparsers.add_parser(\"list\", help=\"List all todos\")\n    \n    # Done command\n    done_parser = subparsers.add_parser(\"done\", help=\"Mark a todo as complete\")\n    done_parser.add_argument(\"id\", type=int, help=\"Todo ID\")\n    \n    # Remove command\n    remove_parser = subparsers.add_parser(\"remove\", help=\"Remove a todo\")\n    remove_parser.add_argument(\"id\", type=int, help=\"Todo ID\")\n    \n    args = parser.parse_args()\n    \n    if args.command == \"add\":\n        add_task(args.description)\n    elif args.command == \"list\":\n        list_tasks()\n    elif args.command == \"done\":\n        mark_done(args.id)\n    elif args.command == \"remove\":\n        remove_task(args.id)\n    else:\n        parser.print_help()\n\n\nif __name__ == \"__main__\":\n    main()\n"
+          }
+        }
+      ]
+    },
+    {
+      "test_id": "T20",
+      "test_name": "Build REST API",
+      "category": "agentic",
+      "model": "qwen35-lite",
+      "run": 1,
+      "elapsed_ms": 31770,
+      "input_tokens": 736,
+      "output_tokens": 1819,
+      "tokens_per_sec": 58.9,
+      "passed": false,
+      "score": 0.52,
+      "reason": "used write_file; substantial content; api keywords: 1/8",
+      "content_preview": "I'll create a complete Flask REST API for the bookmark manager with all the required endpoints.",
+      "tool_calls": [
+        {
+          "name": "write_file",
+          "arguments": {
+            "path": "app.py",
+            "content": "from flask import Flask, request, jsonify, g\nimport sqlite3\nimport json\n\napp = Flask(__name__)\nDATABASE = 'bookmarks.db'\n\ndef get_db():\n    \"\"\"Get database connection, creating one if needed.\"\"\"\n    db = g.pop('database', None)\n    if db is None:\n        db = g['database'] = sqlite3.connect(DATABASE)\n        db.row_factory = sqlite3.Row\n    return db\n\ndef init_db():\n    \"\"\"Initialize database and create table if it doesn't exist.\"\"\"\n    with app.app_context():\n        db = get_db()\n        db.execute('''\n            CREATE TABLE IF NOT EXISTS bookmarks (\n                id INTEGER PRIMARY KEY AUTOINCREMENT,\n                url TEXT NOT NULL,\n                title TEXT NOT NULL,\n                tags TEXT NOT NULL\n            )\n        ''')\n        db.commit()\n\n@app.before_request\ndef before_request():\n    \"\"\"Set up database connection before each request.\"\"\"\n    g['database'] = sqlite3.connect(DATABASE)\n    g['database'].row_factory = sqlite3.Row\n\n@app.teardown_appcontext\ndef close_db(exception):\n    \"\"\"Close database connection after each request.\"\"\"\n    db = g.pop('database', None)\n    if db is not None:\n        db.close()\n\n@app.route('/bookmarks', methods=['GET'])\ndef get_bookmarks():\n    \"\"\"List all bookmarks, optionally filtered by tag.\"\"\"\n    db = get_db()\n    tag = request.args.get('tag')\n    \n    if tag:\n        cursor = db.execute(\n            'SELECT * FROM bookmarks WHERE ? IN (json_each.value) ORDER BY id',\n            [tag]\n        )\n    else:\n        cursor = db.execute('SELECT * FROM bookmarks ORDER BY id')\n    \n    bookmarks = [dict(row) for row in cursor.fetchall()]\n    return jsonify(bookmarks)\n\n@app.route('/bookmarks', methods=['POST'])\ndef create_bookmark():\n    \"\"\"Add a new bookmark.\"\"\"\n    data = request.get_json()\n    \n    # Validate required fields\n    if not data or 'url' not in data or 'title' not in data:\n        return jsonify({'error': 'url and title are required'}), 400\n    \n    db = get_db()\n    cursor = db.execute(\n        'INSERT INTO bookmarks (url, title, tags) VALUES (?, ?, ?)',\n        (data['url'], data['title'], json.dumps(data.get('tags', [])))\n    )\n    db.commit()\n    bookmark_id = cursor.lastrowid\n    \n    # Fetch and return the created bookmark\n    cursor = db.execute('SELECT * FROM bookmarks WHERE id = ?', [bookmark_id])\n    bookmark = dict(cursor.fetchone())\n    return jsonify(bookmark), 201\n\n@app.route('/bookmarks/<int:id>', methods=['GET'])\ndef get_bookmark(id):\n    \"\"\"Get a single bookmark by ID.\"\"\"\n    db = get_db()\n    cursor = db.execute('SELECT * FROM bookmarks WHERE id = ?', [id])\n    bookmark = cursor.fetchone()\n    \n    if bookmark is None:\n        return jsonify({'error': 'Bookmark not found'}), 404\n    \n    return jsonify(dict(bookmark))\n\n@app.route('/bookmarks/<int:id>', methods=['DELETE'])\ndef delete_bookmark(id):\n    \"\"\"Delete a bookmark by ID.\"\"\"\n    db = get_db()\n    cursor = db.execute('SELECT * FROM bookmarks WHERE id = ?', [id])\n    bookmark = cursor.fetchone()\n    \n    if bookmark is None:\n        return jsonify({'error': 'Bookmark not found'}), 404\n    \n    db.execute('DELETE FROM bookmarks WHERE id = ?', [id])\n    db.commit()\n    return jsonify({'message': 'Bookmark deleted'}), 200\n\nif __name__ == '__main__':\n    init_db()\n    app.run(debug=True)\n"
+          }
+        }
+      ]
+    },
+    {
+      "test_id": "T20",
+      "test_name": "Build REST API",
+      "category": "agentic",
+      "model": "qwen35-lite",
+      "run": 2,
+      "elapsed_ms": 31504,
+      "input_tokens": 736,
+      "output_tokens": 1803,
+      "tokens_per_sec": 58.9,
+      "passed": true,
+      "score": 0.64,
+      "reason": "used write_file; substantial content; api keywords: 2/8",
+      "content_preview": "I'll create a complete Flask REST API for a bookmark manager with all the required endpoints and SQLite storage.",
+      "tool_calls": [
+        {
+          "name": "write_file",
+          "arguments": {
+            "path": "app.py",
+            "content": "from flask import Flask, request, jsonify, g\nimport sqlite3\nimport json\n\napp = Flask(__name__)\nDATABASE = 'bookmarks.db'\n\n\ndef get_db():\n    \"\"\"Get database connection\"\"\"\n    if 'db' not in g:\n        g.db = sqlite3.connect(DATABASE)\n        g.db.row_factory = sqlite3.Row\n    return g.db\n\n\ndef init_db():\n    \"\"\"Initialize database and create table if not exists\"\"\"\n    db = get_db()\n    db.execute('''\n        CREATE TABLE IF NOT EXISTS bookmarks (\n            id INTEGER PRIMARY KEY AUTOINCREMENT,\n            url TEXT NOT NULL,\n            title TEXT NOT NULL,\n            tags TEXT NOT NULL\n        )\n    ''')\n    db.commit()\n\n\n@app.before_request\ndef before_request():\n    g.db = None\n\n\n@app.teardown_appcontext\ndef close_db(error):\n    \"\"\"Close database connection\"\"\"\n    db = g.pop('db', None)\n    if db is not None:\n        db.close()\n\n\n@app.route('/bookmarks', methods=['GET'])\ndef list_bookmarks():\n    \"\"\"List all bookmarks or filter by tag\"\"\"\n    tag = request.args.get('tag')\n    db = get_db()\n    \n    if tag:\n        cursor = db.execute(\n            'SELECT * FROM bookmarks WHERE ? IN (SELECT value FROM json_each(tags))',\n            (tag,)\n        )\n    else:\n        cursor = db.execute('SELECT * FROM bookmarks')\n    \n    bookmarks = [dict(row) for row in cursor.fetchall()]\n    return jsonify(bookmarks)\n\n\n@app.route('/bookmarks', methods=['POST'])\ndef add_bookmark():\n    \"\"\"Add a new bookmark\"\"\"\n    data = request.get_json()\n    \n    if not data or 'url' not in data or 'title' not in data:\n        return jsonify({'error': 'Missing required fields: url, title'}), 400\n    \n    db = get_db()\n    cursor = db.execute(\n        'INSERT INTO bookmarks (url, title, tags) VALUES (?, ?, ?)',\n        (data['url'], data['title'], json.dumps(data.get('tags', [])))\n    )\n    db.commit()\n    \n    bookmark_id = cursor.lastrowid\n    return jsonify({\n        'id': bookmark_id,\n        'url': data['url'],\n        'title': data['title'],\n        'tags': data.get('tags', [])\n    }), 201\n\n\n@app.route('/bookmarks/<int:id>', methods=['GET'])\ndef get_bookmark(id):\n    \"\"\"Get a specific bookmark by ID\"\"\"\n    db = get_db()\n    cursor = db.execute('SELECT * FROM bookmarks WHERE id = ?', (id,))\n    bookmark = cursor.fetchone()\n    \n    if bookmark is None:\n        return jsonify({'error': 'Bookmark not found'}), 404\n    \n    return jsonify(dict(bookmark))\n\n\n@app.route('/bookmarks/<int:id>', methods=['DELETE'])\ndef delete_bookmark(id):\n    \"\"\"Delete a bookmark by ID\"\"\"\n    db = get_db()\n    cursor = db.execute('SELECT * FROM bookmarks WHERE id = ?', (id,))\n    bookmark = cursor.fetchone()\n    \n    if bookmark is None:\n        return jsonify({'error': 'Bookmark not found'}), 404\n    \n    db.execute('DELETE FROM bookmarks WHERE id = ?', (id,))\n    db.commit()\n    \n    return jsonify({'message': 'Bookmark deleted'}), 200\n\n\nif __name__ == '__main__':\n    init_db()\n    app.run(debug=True)\n"
+          }
+        }
+      ]
+    },
+    {
+      "test_id": "T1",
+      "test_name": "Single Tool Selection",
+      "category": "tool_calling",
+      "model": "qwen3-14b",
+      "run": 1,
+      "elapsed_ms": 13524,
+      "input_tokens": 371,
+      "output_tokens": 668,
+      "tokens_per_sec": 50.9,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Correct tool and args: {'name': 'search_code', 'arguments': {'pattern': 'TODO:.*', 'path': 'src/', 'file_glob': '**/*'}}",
+      "content_preview": "",
+      "tool_calls": [
+        {
+          "name": "search_code",
+          "arguments": {
+            "pattern": "TODO:.*",
+            "path": "src/",
+            "file_glob": "**/*"
+          }
+        }
+      ]
+    },
+    {
+      "test_id": "T1",
+      "test_name": "Single Tool Selection",
+      "category": "tool_calling",
+      "model": "qwen3-14b",
+      "run": 2,
+      "elapsed_ms": 13442,
+      "input_tokens": 371,
+      "output_tokens": 694,
+      "tokens_per_sec": 52.5,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Correct tool and args: {'name': 'search_code', 'arguments': {'file_glob': '**/*', 'pattern': 'TODO:.*', 'path': 'src/'}}",
+      "content_preview": "",
+      "tool_calls": [
+        {
+          "name": "search_code",
+          "arguments": {
+            "file_glob": "**/*",
+            "pattern": "TODO:.*",
+            "path": "src/"
+          }
+        }
+      ]
+    },
+    {
+      "test_id": "T2",
+      "test_name": "Multi-Tool Planning",
+      "category": "tool_calling",
+      "model": "qwen3-14b",
+      "run": 1,
+      "elapsed_ms": 22417,
+      "input_tokens": 401,
+      "output_tokens": 1142,
+      "tokens_per_sec": 52.1,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Correct tool and args: {'name': 'read_file', 'arguments': {'path': '/etc/app/config.yaml'}}",
+      "content_preview": "",
+      "tool_calls": [
+        {
+          "name": "read_file",
+          "arguments": {
+            "path": "/etc/app/config.yaml"
+          }
+        }
+      ]
+    },
+    {
+      "test_id": "T2",
+      "test_name": "Multi-Tool Planning",
+      "category": "tool_calling",
+      "model": "qwen3-14b",
+      "run": 2,
+      "elapsed_ms": 24476,
+      "input_tokens": 401,
+      "output_tokens": 1255,
+      "tokens_per_sec": 52.0,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Correct tool and args: {'name': 'read_file', 'arguments': {'path': '/etc/app/config.yaml'}}",
+      "content_preview": "",
+      "tool_calls": [
+        {
+          "name": "read_file",
+          "arguments": {
+            "path": "/etc/app/config.yaml"
+          }
+        }
+      ]
+    },
+    {
+      "test_id": "T3",
+      "test_name": "Argument Precision",
+      "category": "tool_calling",
+      "model": "qwen3-14b",
+      "run": 1,
+      "elapsed_ms": 5042,
+      "input_tokens": 377,
+      "output_tokens": 250,
+      "tokens_per_sec": 52.8,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Correct tool and args: {'name': 'search_code', 'arguments': {'pattern': 'func handle_', 'file_glob': '*.go', 'path': 'pkg/'}}",
+      "content_preview": "",
+      "tool_calls": [
+        {
+          "name": "search_code",
+          "arguments": {
+            "pattern": "func handle_",
+            "file_glob": "*.go",
+            "path": "pkg/"
+          }
+        }
+      ]
+    },
+    {
+      "test_id": "T3",
+      "test_name": "Argument Precision",
+      "category": "tool_calling",
+      "model": "qwen3-14b",
+      "run": 2,
+      "elapsed_ms": 10203,
+      "input_tokens": 377,
+      "output_tokens": 526,
+      "tokens_per_sec": 52.5,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Correct tool and args: {'name': 'search_code', 'arguments': {'pattern': 'func handle_[a-zA-Z0-9]+', 'file_glob': '*.go', 'path': 'pkg/'}}",
+      "content_preview": "",
+      "tool_calls": [
+        {
+          "name": "search_code",
+          "arguments": {
+            "pattern": "func handle_[a-zA-Z0-9]+",
+            "file_glob": "*.go",
+            "path": "pkg/"
+          }
+        }
+      ]
+    },
+    {
+      "test_id": "T4",
+      "test_name": "Python Function",
+      "category": "code_gen",
+      "model": "qwen3-14b",
+      "run": 1,
+      "elapsed_ms": 40073,
+      "input_tokens": 120,
+      "output_tokens": 2048,
+      "tokens_per_sec": 51.8,
+      "passed": false,
+      "score": 0.0,
+      "reason": "Missing keywords: ['def parse_cron', 'minute', 'hour']",
+      "content_preview": "",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T4",
+      "test_name": "Python Function",
+      "category": "code_gen",
+      "model": "qwen3-14b",
+      "run": 2,
+      "elapsed_ms": 40014,
+      "input_tokens": 120,
+      "output_tokens": 2048,
+      "tokens_per_sec": 51.8,
+      "passed": false,
+      "score": 0.0,
+      "reason": "Missing keywords: ['def parse_cron', 'minute', 'hour']",
+      "content_preview": "",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T5",
+      "test_name": "Kubernetes YAML",
+      "category": "code_gen",
+      "model": "qwen3-14b",
+      "run": 1,
+      "elapsed_ms": 10331,
+      "input_tokens": 91,
+      "output_tokens": 534,
+      "tokens_per_sec": 52.9,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Found 5/5 keywords",
+      "content_preview": "```yaml\napiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: redis\n  namespace: cache\nspec:\n  replicas: 1\n  selector:\n    matchLabels:\n      app: redis\n  template:\n    metadata:\n      labels:\n      ",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T5",
+      "test_name": "Kubernetes YAML",
+      "category": "code_gen",
+      "model": "qwen3-14b",
+      "run": 2,
+      "elapsed_ms": 26707,
+      "input_tokens": 91,
+      "output_tokens": 1378,
+      "tokens_per_sec": 52.3,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Found 5/5 keywords",
+      "content_preview": "```yaml\napiVersion: apps/v1\nkind: Deployment\nmetadata:\n  namespace: cache\n  name: redis\nspec:\n  replicas: 1\n  selector:\n    matchLabels:\n      app: redis\n  template:\n    metadata:\n      labels:\n      ",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T6",
+      "test_name": "Bash Function",
+      "category": "code_gen",
+      "model": "qwen3-14b",
+      "run": 1,
+      "elapsed_ms": 40046,
+      "input_tokens": 92,
+      "output_tokens": 2048,
+      "tokens_per_sec": 51.8,
+      "passed": false,
+      "score": 0.0,
+      "reason": "Only 0/4 keywords; missing: ['retry', 'sleep', 'stderr', 'return']",
+      "content_preview": "",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T6",
+      "test_name": "Bash Function",
+      "category": "code_gen",
+      "model": "qwen3-14b",
+      "run": 2,
+      "elapsed_ms": 39982,
+      "input_tokens": 92,
+      "output_tokens": 2048,
+      "tokens_per_sec": 51.8,
+      "passed": false,
+      "score": 0.0,
+      "reason": "Only 0/4 keywords; missing: ['retry', 'sleep', 'stderr', 'return']",
+      "content_preview": "",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T7",
+      "test_name": "Bug Detection",
+      "category": "code_understanding",
+      "model": "qwen3-14b",
+      "run": 1,
+      "elapsed_ms": 27709,
+      "input_tokens": 168,
+      "output_tokens": 1422,
+      "tokens_per_sec": 52.1,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Found: 'references to the same'",
+      "content_preview": "**Bugs Identified:**\n\n1. **Incorrect DP Table Initialization**  \n   `dp = [[0] * (n + 1)] * (m + 1)` creates **multiple references to the same inner list**. Modifying any row will corrupt all rows (e.",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T7",
+      "test_name": "Bug Detection",
+      "category": "code_understanding",
+      "model": "qwen3-14b",
+      "run": 2,
+      "elapsed_ms": 29713,
+      "input_tokens": 168,
+      "output_tokens": 1528,
+      "tokens_per_sec": 52.1,
+      "passed": false,
+      "score": 0.0,
+      "reason": "None of ['shallow copy', 'same reference', 'same list', 'same row', 'same object', 'aliased', 'all rows are the same', 'references to the same'] found in response",
+      "content_preview": "The code has two critical issues:\n\n1. **Incorrect DP Table Initialization**  \n   `dp = [[0] * (n + 1)] * (m + 1)` creates a list of lists where **all rows reference the same inner list**. Modifying an",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T8",
+      "test_name": "Race Condition",
+      "category": "code_understanding",
+      "model": "qwen3-14b",
+      "run": 1,
+      "elapsed_ms": 13699,
+      "input_tokens": 94,
+      "output_tokens": 708,
+      "tokens_per_sec": 52.7,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Identified race condition and suggested fix",
+      "content_preview": "The code has **two critical concurrency issues**:\n\n1. **Data Race**:  \n   The `counter++` operation is not atomic. Multiple goroutines may read/write the same memory location concurrently, leading to ",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T8",
+      "test_name": "Race Condition",
+      "category": "code_understanding",
+      "model": "qwen3-14b",
+      "run": 2,
+      "elapsed_ms": 9273,
+      "input_tokens": 94,
+      "output_tokens": 482,
+      "tokens_per_sec": 52.9,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Identified race condition and suggested fix",
+      "content_preview": "The code has two critical concurrency issues:\n\n1. **Race Condition**: Multiple goroutines concurrently incrementing `counter` without synchronization. The `counter++` operation is not atomic, leading ",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T9",
+      "test_name": "Refactoring",
+      "category": "code_understanding",
+      "model": "qwen3-14b",
+      "run": 1,
+      "elapsed_ms": 40066,
+      "input_tokens": 113,
+      "output_tokens": 2048,
+      "tokens_per_sec": 51.8,
+      "passed": false,
+      "score": 0.0,
+      "reason": "None of ['guard clause', 'early continue', 'flatten', 'nested', 'simplif', 'extract', 'combine', 'consolidat', 'walrus', 'ternary', 'min(', '[:100]'] found in response",
+      "content_preview": "",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T9",
+      "test_name": "Refactoring",
+      "category": "code_understanding",
+      "model": "qwen3-14b",
+      "run": 2,
+      "elapsed_ms": 40000,
+      "input_tokens": 113,
+      "output_tokens": 2048,
+      "tokens_per_sec": 51.8,
+      "passed": false,
+      "score": 0.0,
+      "reason": "None of ['guard clause', 'early continue', 'flatten', 'nested', 'simplif', 'extract', 'combine', 'consolidat', 'walrus', 'ternary', 'min(', '[:100]'] found in response",
+      "content_preview": "",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T10",
+      "test_name": "Debug Plan",
+      "category": "reasoning",
+      "model": "qwen3-14b",
+      "run": 1,
+      "elapsed_ms": 40027,
+      "input_tokens": 80,
+      "output_tokens": 2048,
+      "tokens_per_sec": 51.9,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Found 6/6 keywords",
+      "content_preview": "Here\u2019s a systematic debugging plan for your **CrashLoopBackOff** scenario, addressing the PVC, GPU, and image update factors:\n\n---\n\n### **1. Confirm the Pod and CrashLoopBackOff Details**\n- **Check Po",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T10",
+      "test_name": "Debug Plan",
+      "category": "reasoning",
+      "model": "qwen3-14b",
+      "run": 2,
+      "elapsed_ms": 39987,
+      "input_tokens": 80,
+      "output_tokens": 2048,
+      "tokens_per_sec": 51.8,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Found 6/6 keywords",
+      "content_preview": "Here's a systematic debugging plan for the **CrashLoopBackOff** issue with your pod, considering the PVC, GPU, and image update context:\n\n---\n\n### **1. Check Pod Logs (Immediate Root Cause)**\n- **Comm",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T11",
+      "test_name": "Migration Plan",
+      "category": "reasoning",
+      "model": "qwen3-14b",
+      "run": 1,
+      "elapsed_ms": 40026,
+      "input_tokens": 74,
+      "output_tokens": 2048,
+      "tokens_per_sec": 51.9,
+      "passed": false,
+      "score": 0.0,
+      "reason": "Only 0/6 keywords; missing: ['StatefulSet', 'pg_dump', 'PersistentVolume', 'service', 'test', 'rollback']",
+      "content_preview": "",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T11",
+      "test_name": "Migration Plan",
+      "category": "reasoning",
+      "model": "qwen3-14b",
+      "run": 2,
+      "elapsed_ms": 39975,
+      "input_tokens": 74,
+      "output_tokens": 2048,
+      "tokens_per_sec": 51.9,
+      "passed": false,
+      "score": 0.0,
+      "reason": "Only 0/6 keywords; missing: ['StatefulSet', 'pg_dump', 'PersistentVolume', 'service', 'test', 'rollback']",
+      "content_preview": "",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T12",
+      "test_name": "Next Step Reasoning",
+      "category": "reasoning",
+      "model": "qwen3-14b",
+      "run": 1,
+      "elapsed_ms": 34162,
+      "input_tokens": 141,
+      "output_tokens": 1749,
+      "tokens_per_sec": 52.0,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Found: 'increase memory'",
+      "content_preview": "Based on the information provided, here's a structured approach to resolve the issue:\n\n---\n\n### **1. Confirm the Root Cause**\n- **OOMKilled (exit code 137)** indicates the container was killed by the ",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T12",
+      "test_name": "Next Step Reasoning",
+      "category": "reasoning",
+      "model": "qwen3-14b",
+      "run": 2,
+      "elapsed_ms": 39075,
+      "input_tokens": 141,
+      "output_tokens": 1999,
+      "tokens_per_sec": 51.8,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Found: 'memory limit'",
+      "content_preview": "The pod is crashing due to **Out-Of-Memory (OOM)**, even though the current memory usage (`498Mi`) is below the **memory limit (`512Mi`)**. Here's how to proceed:\n\n---\n\n### **1. Investigate the Root C",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T13",
+      "test_name": "Multi-File Architecture",
+      "category": "hard_code_gen",
+      "model": "qwen3-14b",
+      "run": 1,
+      "elapsed_ms": 11155,
+      "input_tokens": 438,
+      "output_tokens": 564,
+      "tokens_per_sec": 52.4,
+      "passed": false,
+      "score": 0.3,
+      "reason": "used file tools; 0/8 components",
+      "content_preview": "",
+      "tool_calls": [
+        {
+          "name": "list_directory",
+          "arguments": {
+            "path": "fastapi_notes_api"
+          }
+        }
+      ]
+    },
+    {
+      "test_id": "T13",
+      "test_name": "Multi-File Architecture",
+      "category": "hard_code_gen",
+      "model": "qwen3-14b",
+      "run": 2,
+      "elapsed_ms": 14757,
+      "input_tokens": 438,
+      "output_tokens": 759,
+      "tokens_per_sec": 52.2,
+      "passed": false,
+      "score": 0.3,
+      "reason": "used file tools; 0/8 components",
+      "content_preview": "",
+      "tool_calls": [
+        {
+          "name": "list_directory",
+          "arguments": {
+            "path": "."
+          }
+        }
+      ]
+    },
+    {
+      "test_id": "T14",
+      "test_name": "Complex Algorithm",
+      "category": "hard_code_gen",
+      "model": "qwen3-14b",
+      "run": 1,
+      "elapsed_ms": 40046,
+      "input_tokens": 98,
+      "output_tokens": 2048,
+      "tokens_per_sec": 51.8,
+      "passed": false,
+      "score": 0.0,
+      "reason": "Missing keywords: ['class LRUCache', 'def get', 'def put', '__len__', '__contains__']",
+      "content_preview": "",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T14",
+      "test_name": "Complex Algorithm",
+      "category": "hard_code_gen",
+      "model": "qwen3-14b",
+      "run": 2,
+      "elapsed_ms": 40004,
+      "input_tokens": 98,
+      "output_tokens": 2048,
+      "tokens_per_sec": 51.8,
+      "passed": false,
+      "score": 0.0,
+      "reason": "Missing keywords: ['class LRUCache', 'def get', 'def put', '__len__', '__contains__']",
+      "content_preview": "",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T15",
+      "test_name": "Debug Stack Trace",
+      "category": "hard_code_gen",
+      "model": "qwen3-14b",
+      "run": 1,
+      "elapsed_ms": 28983,
+      "input_tokens": 489,
+      "output_tokens": 1467,
+      "tokens_per_sec": 51.7,
+      "passed": false,
+      "score": 0.3,
+      "reason": "Partial: tool=True, diagnosis=False",
+      "content_preview": "",
+      "tool_calls": [
+        {
+          "name": "read_file",
+          "arguments": {
+            "path": "app.py"
+          }
+        }
+      ]
+    },
+    {
+      "test_id": "T15",
+      "test_name": "Debug Stack Trace",
+      "category": "hard_code_gen",
+      "model": "qwen3-14b",
+      "run": 2,
+      "elapsed_ms": 16073,
+      "input_tokens": 489,
+      "output_tokens": 825,
+      "tokens_per_sec": 52.1,
+      "passed": false,
+      "score": 0.3,
+      "reason": "Partial: tool=True, diagnosis=False",
+      "content_preview": "",
+      "tool_calls": [
+        {
+          "name": "read_file",
+          "arguments": {
+            "path": "app.py"
+          }
+        }
+      ]
+    },
+    {
+      "test_id": "T16",
+      "test_name": "Multi-Step Tool Chain",
+      "category": "hard_tool_calling",
+      "model": "qwen3-14b",
+      "run": 1,
+      "elapsed_ms": 8366,
+      "input_tokens": 418,
+      "output_tokens": 420,
+      "tokens_per_sec": 52.4,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Correct tool and args: {'name': 'search_code', 'arguments': {'file_glob': '*.py', 'path': 'src/', 'pattern': '\\\\bimport\\\\b\\\\s*auth|\\\\bfrom\\\\b\\\\s*auth'}}",
+      "content_preview": "",
+      "tool_calls": [
+        {
+          "name": "search_code",
+          "arguments": {
+            "file_glob": "*.py",
+            "path": "src/",
+            "pattern": "\\bimport\\b\\s*auth|\\bfrom\\b\\s*auth"
+          }
+        }
+      ]
+    },
+    {
+      "test_id": "T16",
+      "test_name": "Multi-Step Tool Chain",
+      "category": "hard_tool_calling",
+      "model": "qwen3-14b",
+      "run": 2,
+      "elapsed_ms": 14173,
+      "input_tokens": 418,
+      "output_tokens": 729,
+      "tokens_per_sec": 52.3,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Correct tool and args: {'name': 'search_code', 'arguments': {'path': 'src/', 'pattern': 'import\\\\s+auth|from\\\\s+auth'}}",
+      "content_preview": "",
+      "tool_calls": [
+        {
+          "name": "search_code",
+          "arguments": {
+            "path": "src/",
+            "pattern": "import\\s+auth|from\\s+auth"
+          }
+        }
+      ]
+    },
+    {
+      "test_id": "T17",
+      "test_name": "Tool with Context Window",
+      "category": "hard_tool_calling",
+      "model": "qwen3-14b",
+      "run": 1,
+      "elapsed_ms": 19574,
+      "input_tokens": 428,
+      "output_tokens": 995,
+      "tokens_per_sec": 52.1,
+      "passed": false,
+      "score": 0.0,
+      "reason": "Wrong tool: read_file (expected one of ['run_command', 'search_code'])",
+      "content_preview": "",
+      "tool_calls": [
+        {
+          "name": "read_file",
+          "arguments": {
+            "path": "auth/"
+          }
+        }
+      ]
+    },
+    {
+      "test_id": "T17",
+      "test_name": "Tool with Context Window",
+      "category": "hard_tool_calling",
+      "model": "qwen3-14b",
+      "run": 2,
+      "elapsed_ms": 5495,
+      "input_tokens": 428,
+      "output_tokens": 282,
+      "tokens_per_sec": 52.6,
+      "passed": false,
+      "score": 0.0,
+      "reason": "Wrong tool: list_directory (expected one of ['run_command', 'search_code'])",
+      "content_preview": "",
+      "tool_calls": [
+        {
+          "name": "list_directory",
+          "arguments": {
+            "path": "auth/"
+          }
+        }
+      ]
+    },
+    {
+      "test_id": "T18",
+      "test_name": "Ambiguous Request Routing",
+      "category": "hard_tool_calling",
+      "model": "qwen3-14b",
+      "run": 1,
+      "elapsed_ms": 9308,
+      "input_tokens": 395,
+      "output_tokens": 470,
+      "tokens_per_sec": 52.5,
+      "passed": false,
+      "score": 0.5,
+      "reason": "Correct tool but missing 'ls' in args: {'command': 'du -a /var/log | sort -n | tail -n 20'}",
+      "content_preview": "",
+      "tool_calls": [
+        {
+          "name": "run_command",
+          "arguments": {
+            "command": "du -a /var/log | sort -n | tail -n 20"
+          }
+        }
+      ]
+    },
+    {
+      "test_id": "T18",
+      "test_name": "Ambiguous Request Routing",
+      "category": "hard_tool_calling",
+      "model": "qwen3-14b",
+      "run": 2,
+      "elapsed_ms": 10578,
+      "input_tokens": 395,
+      "output_tokens": 545,
+      "tokens_per_sec": 52.4,
+      "passed": false,
+      "score": 0.5,
+      "reason": "Correct tool but missing 'ls' in args: {'command': 'du -sh /var/log/* | sort -hr'}",
+      "content_preview": "",
+      "tool_calls": [
+        {
+          "name": "run_command",
+          "arguments": {
+            "command": "du -sh /var/log/* | sort -hr"
+          }
+        }
+      ]
+    },
+    {
+      "test_id": "T19",
+      "test_name": "Build CLI App",
+      "category": "agentic",
+      "model": "qwen3-14b",
+      "run": 1,
+      "elapsed_ms": 40573,
+      "input_tokens": 479,
+      "output_tokens": 2048,
+      "tokens_per_sec": 51.4,
+      "passed": false,
+      "score": 0.0,
+      "reason": "cli keywords: 0/6",
+      "content_preview": "",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T19",
+      "test_name": "Build CLI App",
+      "category": "agentic",
+      "model": "qwen3-14b",
+      "run": 2,
+      "elapsed_ms": 29293,
+      "input_tokens": 479,
+      "output_tokens": 1495,
+      "tokens_per_sec": 51.7,
+      "passed": false,
+      "score": 0.0,
+      "reason": "cli keywords: 0/6",
+      "content_preview": "",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T20",
+      "test_name": "Build REST API",
+      "category": "agentic",
+      "model": "qwen3-14b",
+      "run": 1,
+      "elapsed_ms": 40587,
+      "input_tokens": 492,
+      "output_tokens": 2048,
+      "tokens_per_sec": 51.4,
+      "passed": false,
+      "score": 0.0,
+      "reason": "api keywords: 0/8",
+      "content_preview": "",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T20",
+      "test_name": "Build REST API",
+      "category": "agentic",
+      "model": "qwen3-14b",
+      "run": 2,
+      "elapsed_ms": 30924,
+      "input_tokens": 492,
+      "output_tokens": 1576,
+      "tokens_per_sec": 51.6,
+      "passed": false,
+      "score": 0.4,
+      "reason": "used write_file; substantial content; api keywords: 0/8",
+      "content_preview": "",
+      "tool_calls": [
+        {
+          "name": "write_file",
+          "arguments": {
+            "path": "app.py",
+            "content": "from flask import Flask, request, jsonify, abort\nimport sqlite3\nimport os\n\napp = Flask(__name__)\nDB_PATH = 'bookmarks.db'\n\n# Initialize database\nwith sqlite3.connect(DB_PATH) as conn:\n    conn.execute('''\n        CREATE TABLE IF NOT EXISTS bookmarks (\n            id INTEGER PRIMARY KEY,\n            url TEXT NOT NULL,\n            title TEXT NOT NULL,\n            tags TEXT\n        )\n    ''')\n\n@app.route('/bookmarks', methods=['GET', 'POST'])\ndef bookmarks():\n    if request.method == 'GET':\n        # Filter by tag query parameter\n        tag = request.args.get('tag')\n        \n        with sqlite3.connect(DB_PATH) as conn:\n            cur = conn.cursor()\n            if tag:\n                cur.execute('''\n                    SELECT * FROM bookmarks\n                    WHERE tags LIKE ?\n                ''', (f'%{tag}%',))\n            else:\n                cur.execute('SELECT * FROM bookmarks')\n            \n            rows = cur.fetchall()\n            \n        return jsonify([{\n            'id': row[0],\n            'url': row[1],\n            'title': row[2],\n            'tags': row[3].split(',') if row[3] else []\n        } for row in rows])\n\n    elif request.method == 'POST':\n        data = request.get_json()\n        \n        # Validate required fields\n        if not data.get('url') or not data.get('title'):\n            abort(400)\n        \n        tags = data.get('tags', [])\n        \n        with sqlite3.connect(DB_PATH) as conn:\n            cur = conn.cursor()\n            cur.execute('''\n                INSERT INTO bookmarks (url, title, tags)\n                VALUES (?, ?, ?)\n            ''', (data['url'], data['title'], ','.join(tags)))\n            \n            conn.commit()\n            \n        return jsonify({\n            'id': cur.lastrowid,\n            'url': data['url'],\n            'title': data['title'],\n            'tags': tags\n        }), 201\n\n@app.route('/bookmarks/<int:bookmark_id>', methods=['GET', 'DELETE'])\ndef bookmark(bookmark_id):\n    with sqlite3.connect(DB_PATH) as conn:\n        cur = conn.cursor()\n        cur.execute('SELECT * FROM bookmarks WHERE id = ?', (bookmark_id,))\n        row = cur.fetchone()\n        \n        if not row:\n            abort(404)\n        \n        if request.method == 'GET':\n            return jsonify({\n                'id': row[0],\n                'url': row[1],\n                'title': row[2],\n                'tags': row[3].split(',') if row[3] else []\n            })\n        \n        elif request.method == 'DELETE':\n            cur.execute('DELETE FROM bookmarks WHERE id = ?', (bookmark_id,))\n            conn.commit()\n            \n            return '', 204\n\nif __name__ == '__main__':\n    app.run(debug=True)"
+          }
+        }
+      ]
+    },
+    {
+      "test_id": "T1",
+      "test_name": "Single Tool Selection",
+      "category": "tool_calling",
+      "model": "qwen3-coder",
+      "run": 1,
+      "elapsed_ms": 2171,
+      "input_tokens": 657,
+      "output_tokens": 55,
+      "tokens_per_sec": 52.0,
+      "passed": false,
+      "score": 0.0,
+      "reason": "No tool calls in response",
+      "content_preview": "I'll help you find all TODO comments in the src/ directory. Let me search for these comments using the search_code tool.\n\n<function=search_code>\n<parameter=pattern>\nTODO\n</parameter>\n<parameter=path>\n",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T1",
+      "test_name": "Single Tool Selection",
+      "category": "tool_calling",
+      "model": "qwen3-coder",
+      "run": 2,
+      "elapsed_ms": 1127,
+      "input_tokens": 657,
+      "output_tokens": 54,
+      "tokens_per_sec": 52.3,
+      "passed": false,
+      "score": 0.0,
+      "reason": "No tool calls in response",
+      "content_preview": "I'll help you find all TODO comments in the src/ directory. Let me search for them using the search_code tool.\n\n<function=search_code>\n<parameter=pattern>\nTODO\n</parameter>\n<parameter=path>\nsrc/\n</par",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T2",
+      "test_name": "Multi-Tool Planning",
+      "category": "tool_calling",
+      "model": "qwen3-coder",
+      "run": 1,
+      "elapsed_ms": 1775,
+      "input_tokens": 687,
+      "output_tokens": 69,
+      "tokens_per_sec": 51.8,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Correct tool and args: {'name': 'read_file', 'arguments': {'path': '/etc/app/config.yaml'}}",
+      "content_preview": "I'll help you read the config file, check if port 8080 is in use, and then write a new config with port 9090.\n\nFirst, let's read the existing config file:",
+      "tool_calls": [
+        {
+          "name": "read_file",
+          "arguments": {
+            "path": "/etc/app/config.yaml"
+          }
+        }
+      ]
+    },
+    {
+      "test_id": "T2",
+      "test_name": "Multi-Tool Planning",
+      "category": "tool_calling",
+      "model": "qwen3-coder",
+      "run": 2,
+      "elapsed_ms": 1433,
+      "input_tokens": 687,
+      "output_tokens": 69,
+      "tokens_per_sec": 51.7,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Correct tool and args: {'name': 'read_file', 'arguments': {'path': '/etc/app/config.yaml'}}",
+      "content_preview": "I'll help you read the config file, check if port 8080 is in use, and then write a new config with port 9090.\n\nFirst, let's read the existing config file:",
+      "tool_calls": [
+        {
+          "name": "read_file",
+          "arguments": {
+            "path": "/etc/app/config.yaml"
+          }
+        }
+      ]
+    },
+    {
+      "test_id": "T3",
+      "test_name": "Argument Precision",
+      "category": "tool_calling",
+      "model": "qwen3-coder",
+      "run": 1,
+      "elapsed_ms": 1613,
+      "input_tokens": 663,
+      "output_tokens": 61,
+      "tokens_per_sec": 51.8,
+      "passed": false,
+      "score": 0.0,
+      "reason": "No tool calls in response",
+      "content_preview": "I'll search for functions named 'handle_' in all .go files under the pkg/ directory.\n\n<function=search_code>\n<parameter=pattern>\nfunc handle_\n</parameter>\n<parameter=path>\npkg/\n</parameter>\n<parameter",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T3",
+      "test_name": "Argument Precision",
+      "category": "tool_calling",
+      "model": "qwen3-coder",
+      "run": 2,
+      "elapsed_ms": 1437,
+      "input_tokens": 663,
+      "output_tokens": 69,
+      "tokens_per_sec": 51.7,
+      "passed": false,
+      "score": 0.0,
+      "reason": "No tool calls in response",
+      "content_preview": "I'll search for functions named 'handle_' in all .go files under the pkg/ directory. Let me do that for you.\n\n<function=search_code>\n<parameter=pattern>\n^func handle_\n</parameter>\n<parameter=path>\npkg",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T4",
+      "test_name": "Python Function",
+      "category": "code_gen",
+      "model": "qwen3-coder",
+      "run": 1,
+      "elapsed_ms": 12108,
+      "input_tokens": 118,
+      "output_tokens": 621,
+      "tokens_per_sec": 52.8,
+      "passed": true,
+      "score": 1.0,
+      "reason": "All keywords present + valid Python syntax",
+      "content_preview": "```python\ndef parse_cron(expr: str) -> dict:\n    fields = expr.strip().split()\n    if len(fields) != 5:\n        raise ValueError(\"Invalid cron expression\")\n    \n    result = {}\n    \n    # Parse each f",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T4",
+      "test_name": "Python Function",
+      "category": "code_gen",
+      "model": "qwen3-coder",
+      "run": 2,
+      "elapsed_ms": 15645,
+      "input_tokens": 118,
+      "output_tokens": 799,
+      "tokens_per_sec": 51.9,
+      "passed": true,
+      "score": 1.0,
+      "reason": "All keywords present + valid Python syntax",
+      "content_preview": "```python\ndef parse_cron(expr: str) -> dict:\n    fields = expr.strip().split()\n    if len(fields) != 5:\n        raise ValueError(\"Cron expression must have exactly 5 fields\")\n    \n    result = {}\n    ",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T5",
+      "test_name": "Kubernetes YAML",
+      "category": "code_gen",
+      "model": "qwen3-coder",
+      "run": 1,
+      "elapsed_ms": 3528,
+      "input_tokens": 89,
+      "output_tokens": 180,
+      "tokens_per_sec": 54.5,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Found 5/5 keywords",
+      "content_preview": "```yaml\napiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: redis\n  namespace: cache\nspec:\n  replicas: 1\n  selector:\n    matchLabels:\n      app: redis\n  template:\n    metadata:\n      labels:\n      ",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T5",
+      "test_name": "Kubernetes YAML",
+      "category": "code_gen",
+      "model": "qwen3-coder",
+      "run": 2,
+      "elapsed_ms": 4093,
+      "input_tokens": 89,
+      "output_tokens": 215,
+      "tokens_per_sec": 54.3,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Found 5/5 keywords",
+      "content_preview": "```yaml\napiVersion: v1\nkind: Namespace\nmetadata:\n  name: cache\n---\napiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: redis\n  namespace: cache\nspec:\n  replicas: 1\n  selector:\n    matchLabels:\n    ",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T6",
+      "test_name": "Bash Function",
+      "category": "code_gen",
+      "model": "qwen3-coder",
+      "run": 1,
+      "elapsed_ms": 2460,
+      "input_tokens": 90,
+      "output_tokens": 123,
+      "tokens_per_sec": 54.6,
+      "passed": true,
+      "score": 0.75,
+      "reason": "Found 3/4 keywords",
+      "content_preview": "```bash\nretry_cmd() {\n    local cmd=\"$1\"\n    local attempt=1\n    local delay=1\n    \n    while true; do\n        if eval \"$cmd\"; then\n            return 0\n        fi\n        \n        if [ $attempt -ge 3",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T6",
+      "test_name": "Bash Function",
+      "category": "code_gen",
+      "model": "qwen3-coder",
+      "run": 2,
+      "elapsed_ms": 2343,
+      "input_tokens": 90,
+      "output_tokens": 123,
+      "tokens_per_sec": 55.2,
+      "passed": true,
+      "score": 0.75,
+      "reason": "Found 3/4 keywords",
+      "content_preview": "```bash\nretry_cmd() {\n    local cmd=\"$1\"\n    local attempt=1\n    local delay=1\n    \n    while true; do\n        if eval \"$cmd\"; then\n            return 0\n        fi\n        \n        if [ $attempt -ge 3",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T7",
+      "test_name": "Bug Detection",
+      "category": "code_understanding",
+      "model": "qwen3-coder",
+      "run": 1,
+      "elapsed_ms": 2463,
+      "input_tokens": 166,
+      "output_tokens": 122,
+      "tokens_per_sec": 54.6,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Found: 'same list'",
+      "content_preview": "The bug is in the line:\n\n```python\ndp = [[0] * (n + 1)] * (m + 1)\n```\n\nThis creates a 2D list where all rows reference the same list object. When you modify one row, all rows are affected because they",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T7",
+      "test_name": "Bug Detection",
+      "category": "code_understanding",
+      "model": "qwen3-coder",
+      "run": 2,
+      "elapsed_ms": 2412,
+      "input_tokens": 166,
+      "output_tokens": 126,
+      "tokens_per_sec": 54.7,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Found: 'same list'",
+      "content_preview": "The bug is in this line:\n\n```python\ndp = [[0] * (n + 1)] * (m + 1)\n```\n\nThis creates a 2D list where all rows reference the same list object. When you modify one row, all rows get modified because the",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T8",
+      "test_name": "Race Condition",
+      "category": "code_understanding",
+      "model": "qwen3-coder",
+      "run": 1,
+      "elapsed_ms": 4050,
+      "input_tokens": 92,
+      "output_tokens": 208,
+      "tokens_per_sec": 54.5,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Identified race condition and suggested fix",
+      "content_preview": "This Go code has a **race condition** that will cause unpredictable behavior:\n\n## Main Issues:\n\n1. **Race condition**: Multiple goroutines are concurrently modifying `counter` without any synchronizat",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T8",
+      "test_name": "Race Condition",
+      "category": "code_understanding",
+      "model": "qwen3-coder",
+      "run": 2,
+      "elapsed_ms": 4424,
+      "input_tokens": 92,
+      "output_tokens": 234,
+      "tokens_per_sec": 54.5,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Identified race condition and suggested fix",
+      "content_preview": "This Go code has a **race condition** and will produce unpredictable output:\n\n## Main Issues:\n\n1. **Race Condition**: Multiple goroutines are concurrently modifying `counter` without any synchronizati",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T9",
+      "test_name": "Refactoring",
+      "category": "code_understanding",
+      "model": "qwen3-coder",
+      "run": 1,
+      "elapsed_ms": 6314,
+      "input_tokens": 111,
+      "output_tokens": 326,
+      "tokens_per_sec": 54.0,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Found: 'flatten'",
+      "content_preview": "Here's a refactored version with several improvements:\n\n```python\ndef process(data):\n    result = []\n    for item in data:\n        if item is not None and isinstance(item, str) and len(item) > 0:\n    ",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T9",
+      "test_name": "Refactoring",
+      "category": "code_understanding",
+      "model": "qwen3-coder",
+      "run": 2,
+      "elapsed_ms": 6846,
+      "input_tokens": 111,
+      "output_tokens": 360,
+      "tokens_per_sec": 53.8,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Found: 'flatten'",
+      "content_preview": "Here's a refactored version with several improvements:\n\n```python\ndef process(data):\n    result = []\n    for item in data:\n        if item is not None and isinstance(item, str) and len(item) > 0:\n    ",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T10",
+      "test_name": "Debug Plan",
+      "category": "reasoning",
+      "model": "qwen3-coder",
+      "run": 1,
+      "elapsed_ms": 17436,
+      "input_tokens": 78,
+      "output_tokens": 891,
+      "tokens_per_sec": 52.2,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Found 6/6 keywords",
+      "content_preview": "# Systematic Debugging Plan for CrashLoopBackOff Pod\n\n## 1. **Initial Pod Status Assessment**\n```bash\n# Check pod status and recent events\nkubectl get pod <pod-name> -n <namespace>\nkubectl describe po",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T10",
+      "test_name": "Debug Plan",
+      "category": "reasoning",
+      "model": "qwen3-coder",
+      "run": 2,
+      "elapsed_ms": 28114,
+      "input_tokens": 78,
+      "output_tokens": 1400,
+      "tokens_per_sec": 50.5,
+      "passed": true,
+      "score": 0.8333333333333334,
+      "reason": "Found 5/6 keywords",
+      "content_preview": "# Systematic Debugging Plan for CrashLoopBackOff Pod\n\n## Phase 1: Initial Assessment & Information Gathering\n\n### 1.1 Check Pod Status and Logs\n```bash\n# Get pod details\nkubectl get pods -n <namespace",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T11",
+      "test_name": "Migration Plan",
+      "category": "reasoning",
+      "model": "qwen3-coder",
+      "run": 1,
+      "elapsed_ms": 31506,
+      "input_tokens": 72,
+      "output_tokens": 1557,
+      "tokens_per_sec": 50.2,
+      "passed": true,
+      "score": 0.8333333333333334,
+      "reason": "Found 5/6 keywords",
+      "content_preview": "# PostgreSQL Migration Plan: Docker Compose to K8s StatefulSet with Longhorn\n\n## Phase 1: Pre-Migration Preparation (2-3 days)\n\n### 1.1 Environment Setup\n```bash\n# Create Kubernetes cluster (if needed",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T11",
+      "test_name": "Migration Plan",
+      "category": "reasoning",
+      "model": "qwen3-coder",
+      "run": 2,
+      "elapsed_ms": 31858,
+      "input_tokens": 72,
+      "output_tokens": 1573,
+      "tokens_per_sec": 50.0,
+      "passed": true,
+      "score": 0.8333333333333334,
+      "reason": "Found 5/6 keywords",
+      "content_preview": "# PostgreSQL Migration Plan: Docker Compose to K8s StatefulSet with Longhorn\n\n## Phase 1: Pre-Migration Preparation (2-3 days)\n\n### 1.1 Environment Setup\n```bash\n# Create Kubernetes cluster with Longh",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T12",
+      "test_name": "Next Step Reasoning",
+      "category": "reasoning",
+      "model": "qwen3-coder",
+      "run": 1,
+      "elapsed_ms": 6353,
+      "input_tokens": 139,
+      "output_tokens": 327,
+      "tokens_per_sec": 53.7,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Found: 'increase memory'",
+      "content_preview": "Based on the information you've provided, your pod is crashing due to an Out of Memory (OOM) error. Here's what you should do next:\n\n## Immediate Actions:\n\n1. **Increase the memory limit** - Your pod ",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T12",
+      "test_name": "Next Step Reasoning",
+      "category": "reasoning",
+      "model": "qwen3-coder",
+      "run": 2,
+      "elapsed_ms": 7170,
+      "input_tokens": 139,
+      "output_tokens": 376,
+      "tokens_per_sec": 53.7,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Found: 'memory limit'",
+      "content_preview": "Based on the information you've provided, your pod is crashing due to OOMKilled (Out of Memory) errors, even though it's not consistently using 512Mi memory. Here's what you should do next:\n\n## Immedi",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T13",
+      "test_name": "Multi-File Architecture",
+      "category": "hard_code_gen",
+      "model": "qwen3-coder",
+      "run": 1,
+      "elapsed_ms": 1905,
+      "input_tokens": 724,
+      "output_tokens": 74,
+      "tokens_per_sec": 51.4,
+      "passed": false,
+      "score": 0.13999999999999999,
+      "reason": "1/8 components",
+      "content_preview": "I'll create a FastAPI REST API with the requested features. Let me start by setting up the project structure and creating the necessary files.\n\nFirst, I'll create the directory structure:",
+      "tool_calls": [
+        {
+          "name": "run_command",
+          "arguments": {
+            "command": "mkdir -p fastapi_notes_app/{models,services,routers,db}"
+          }
+        }
+      ]
+    },
+    {
+      "test_id": "T13",
+      "test_name": "Multi-File Architecture",
+      "category": "hard_code_gen",
+      "model": "qwen3-coder",
+      "run": 2,
+      "elapsed_ms": 1559,
+      "input_tokens": 724,
+      "output_tokens": 75,
+      "tokens_per_sec": 51.5,
+      "passed": false,
+      "score": 0.13999999999999999,
+      "reason": "1/8 components",
+      "content_preview": "I'll create a Python REST API with FastAPI that meets your requirements. Let me start by setting up the project structure and then implement each component.\n\nFirst, I'll create the directory structure",
+      "tool_calls": [
+        {
+          "name": "run_command",
+          "arguments": {
+            "command": "mkdir fastapi-notes-app && cd fastapi-notes-app && mkdir src"
+          }
+        }
+      ]
+    },
+    {
+      "test_id": "T14",
+      "test_name": "Complex Algorithm",
+      "category": "hard_code_gen",
+      "model": "qwen3-coder",
+      "run": 1,
+      "elapsed_ms": 7874,
+      "input_tokens": 96,
+      "output_tokens": 407,
+      "tokens_per_sec": 53.6,
+      "passed": true,
+      "score": 1.0,
+      "reason": "All keywords present + valid Python syntax",
+      "content_preview": "```python\nclass ListNode:\n    def __init__(self, key=0, value=0):\n        self.key = key\n        self.value = value\n        self.prev = None\n        self.next = None\n\nclass LRUCache:\n    def __init__(",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T14",
+      "test_name": "Complex Algorithm",
+      "category": "hard_code_gen",
+      "model": "qwen3-coder",
+      "run": 2,
+      "elapsed_ms": 7739,
+      "input_tokens": 96,
+      "output_tokens": 405,
+      "tokens_per_sec": 53.5,
+      "passed": true,
+      "score": 1.0,
+      "reason": "All keywords present + valid Python syntax",
+      "content_preview": "```python\nclass ListNode:\n    def __init__(self, key=0, value=0):\n        self.key = key\n        self.value = value\n        self.prev = None\n        self.next = None\n\nclass LRUCache:\n    def __init__(",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T15",
+      "test_name": "Debug Stack Trace",
+      "category": "hard_code_gen",
+      "model": "qwen3-coder",
+      "run": 1,
+      "elapsed_ms": 1530,
+      "input_tokens": 775,
+      "output_tokens": 52,
+      "tokens_per_sec": 50.2,
+      "passed": false,
+      "score": 0.0,
+      "reason": "Partial: tool=False, diagnosis=False",
+      "content_preview": "I'll help you diagnose and fix this SQLite database locking issue in your FastAPI application. Let me first check your app.py file to understand the current implementation.\n\n<function=read_file>\n<para",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T15",
+      "test_name": "Debug Stack Trace",
+      "category": "hard_code_gen",
+      "model": "qwen3-coder",
+      "run": 2,
+      "elapsed_ms": 1109,
+      "input_tokens": 775,
+      "output_tokens": 52,
+      "tokens_per_sec": 51.3,
+      "passed": false,
+      "score": 0.0,
+      "reason": "Partial: tool=False, diagnosis=False",
+      "content_preview": "I'll help you diagnose and fix this SQLite database locking issue in your FastAPI application. Let me first check your app.py file to understand the current implementation.\n\n<function=read_file>\n<para",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T16",
+      "test_name": "Multi-Step Tool Chain",
+      "category": "hard_tool_calling",
+      "model": "qwen3-coder",
+      "run": 1,
+      "elapsed_ms": 3844,
+      "input_tokens": 704,
+      "output_tokens": 171,
+      "tokens_per_sec": 50.6,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Correct tool and args: {'name': 'search_code', 'arguments': {'pattern': 'import.*auth', 'path': 'src/'}}",
+      "content_preview": "I'll help you refactor the authentication module by first searching for files that import 'auth' and then examining the main auth.py file to create a plan for splitting it into auth_middleware.py and ",
+      "tool_calls": [
+        {
+          "name": "search_code",
+          "arguments": {
+            "pattern": "import.*auth",
+            "path": "src/"
+          }
+        },
+        {
+          "name": "search_code",
+          "arguments": {
+            "pattern": "from.*auth",
+            "path": "src/"
+          }
+        },
+        {
+          "name": "list_directory",
+          "arguments": {
+            "path": "src/"
+          }
+        },
+        {
+          "name": "read_file",
+          "arguments": {
+            "path": "src/auth.py"
+          }
+        }
+      ]
+    },
+    {
+      "test_id": "T16",
+      "test_name": "Multi-Step Tool Chain",
+      "category": "hard_tool_calling",
+      "model": "qwen3-coder",
+      "run": 2,
+      "elapsed_ms": 3497,
+      "input_tokens": 704,
+      "output_tokens": 171,
+      "tokens_per_sec": 50.6,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Correct tool and args: {'name': 'search_code', 'arguments': {'pattern': 'import.*auth', 'path': 'src/'}}",
+      "content_preview": "I'll help you refactor the authentication module by first searching for files that import 'auth' and then examining the main auth.py file to create a plan for splitting it into auth_middleware.py and ",
+      "tool_calls": [
+        {
+          "name": "search_code",
+          "arguments": {
+            "pattern": "import.*auth",
+            "path": "src/"
+          }
+        },
+        {
+          "name": "search_code",
+          "arguments": {
+            "pattern": "from.*auth",
+            "path": "src/"
+          }
+        },
+        {
+          "name": "list_directory",
+          "arguments": {
+            "path": "src/"
+          }
+        },
+        {
+          "name": "read_file",
+          "arguments": {
+            "path": "src/auth.py"
+          }
+        }
+      ]
+    },
+    {
+      "test_id": "T17",
+      "test_name": "Tool with Context Window",
+      "category": "hard_tool_calling",
+      "model": "qwen3-coder",
+      "run": 1,
+      "elapsed_ms": 2018,
+      "input_tokens": 714,
+      "output_tokens": 80,
+      "tokens_per_sec": 51.3,
+      "passed": true,
+      "score": 1.0,
+      "reason": "Correct tool run_command with args: {'name': 'run_command', 'arguments': {'command': 'git log --oneline -10'}}",
+      "content_preview": "I'll help you debug this CI pipeline failure. Let me start by checking the git log to see recent changes to the auth module, then examine the test file to understand what's expected.\n\nFirst, let me ch",
+      "tool_calls": [
+        {
+          "name": "run_command",
+          "arguments": {
+            "command": "git log --oneline -10"
+          }
+        }
+      ]
+    },
+    {
+      "test_id": "T17",
+      "test_name": "Tool with Context Window",
+      "category": "hard_tool_calling",
+      "model": "qwen3-coder",
+      "run": 2,
+      "elapsed_ms": 1455,
+      "input_tokens": 714,
+      "output_tokens": 70,
+      "tokens_per_sec": 51.5,
+      "passed": false,
+      "score": 0.0,
+      "reason": "No tool calls in response",
+      "content_preview": "I'll help you debug this CI pipeline failure. Let me start by checking the git log to see recent changes to the auth module, then examine the test file to understand what's expected.\n\n<function=run_co",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T18",
+      "test_name": "Ambiguous Request Routing",
+      "category": "hard_tool_calling",
+      "model": "qwen3-coder",
+      "run": 1,
+      "elapsed_ms": 1773,
+      "input_tokens": 681,
+      "output_tokens": 69,
+      "tokens_per_sec": 51.6,
+      "passed": false,
+      "score": 0.5,
+      "reason": "Correct tool but missing 'ls' in args: {'command': 'du -ah /var/log | sort -rh | head -20'}",
+      "content_preview": "I'll help you identify the largest files in /var/log to determine which ones are safe to rotate or delete. Let's start by examining the disk usage.",
+      "tool_calls": [
+        {
+          "name": "run_command",
+          "arguments": {
+            "command": "du -ah /var/log | sort -rh | head -20"
+          }
+        }
+      ]
+    },
+    {
+      "test_id": "T18",
+      "test_name": "Ambiguous Request Routing",
+      "category": "hard_tool_calling",
+      "model": "qwen3-coder",
+      "run": 2,
+      "elapsed_ms": 1150,
+      "input_tokens": 681,
+      "output_tokens": 55,
+      "tokens_per_sec": 52.1,
+      "passed": false,
+      "score": 0.0,
+      "reason": "No tool calls in response",
+      "content_preview": "I'll help you identify the largest files in /var/log to determine which ones are safe to rotate or delete. Let's start by examining the directory structure and file sizes.\n\n<function=list_directory>\n<",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T19",
+      "test_name": "Build CLI App",
+      "category": "agentic",
+      "model": "qwen3-coder",
+      "run": 1,
+      "elapsed_ms": 18575,
+      "input_tokens": 765,
+      "output_tokens": 865,
+      "tokens_per_sec": 48.3,
+      "passed": true,
+      "score": 0.6,
+      "reason": "cli keywords: 6/6",
+      "content_preview": "I'll build a Python CLI todo app called 'td' with the requested features. Let me start by creating the main file with the full implementation.\n\n<function=write_file>\n<parameter=path>\ntd.py\n</parameter",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T19",
+      "test_name": "Build CLI App",
+      "category": "agentic",
+      "model": "qwen3-coder",
+      "run": 2,
+      "elapsed_ms": 19490,
+      "input_tokens": 765,
+      "output_tokens": 924,
+      "tokens_per_sec": 48.1,
+      "passed": false,
+      "score": 0.4,
+      "reason": "used write_file; substantial content; cli keywords: 0/6",
+      "content_preview": "I'll build a Python CLI todo app called 'td' with the specified features. Let me start by creating the main file with the full implementation.",
+      "tool_calls": [
+        {
+          "name": "write_file",
+          "arguments": {
+            "path": "td.py",
+            "content": "#!/usr/bin/env python3\n\"\"\"\ntd - A simple CLI todo application\n\"\"\"\n\nimport argparse\nimport json\nimport os\nfrom pathlib import Path\n\n# Define the data directory and file\nDATA_DIR = Path.home() / '.td'\nTODO_FILE = DATA_DIR / 'todos.json'\n\ndef init_data_dir():\n    \"\"\"Create the data directory if it doesn't exist\"\"\"\n    if not DATA_DIR.exists():\n        DATA_DIR.mkdir(parents=True, exist_ok=True)\n\ndef load_todos():\n    \"\"\"Load todos from the JSON file\"\"\"\n    init_data_dir()\n    if not TODO_FILE.exists():\n        return []\n    \n    try:\n        with open(TODO_FILE, 'r') as f:\n            return json.load(f)\n    except (json.JSONDecodeError, IOError):\n        return []\n\ndef save_todos(todos):\n    \"\"\"Save todos to the JSON file\"\"\"\n    init_data_dir()\n    try:\n        with open(TODO_FILE, 'w') as f:\n            json.dump(todos, f, indent=2)\n    except IOError:\n        raise Exception(\"Failed to save todos\")\n\ndef add_todo(description):\n    \"\"\"Add a new todo\"\"\"\n    todos = load_todos()\n    new_todo = {\n        'id': len(todos) + 1,\n        'description': description,\n        'completed': False\n    }\n    todos.append(new_todo)\n    save_todos(todos)\n    print(f\"Added todo with ID {new_todo['id']}\")\n\ndef list_todos():\n    \"\"\"List all todos with their status\"\"\"\n    todos = load_todos()\n    \n    if not todos:\n        print(\"No todos found.\")\n        return\n    \n    print(\"Todos:\")\n    for todo in todos:\n        status = \"\u2713\" if todo['completed'] else \"\u25cb\"\n        print(f\"  {status} {todo['id']}: {todo['description']}\")\n\ndef done_todo(todo_id):\n    \"\"\"Mark a todo as complete\"\"\"\n    todos = load_todos()\n    \n    for todo in todos:\n        if todo['id'] == todo_id:\n            todo['completed'] = True\n            save_todos(todos)\n            print(f\"Marked todo {todo_id} as complete\")\n            return\n    \n    print(f\"Todo with ID {todo_id} not found\")\n\ndef remove_todo(todo_id):\n    \"\"\"Delete a todo\"\"\"\n    todos = load_todos()\n    \n    # Filter out the todo with the given ID\n    new_todos = [todo for todo in todos if todo['id'] != todo_id]\n    \n    if len(new_todos) == len(todos):\n        print(f\"Todo with ID {todo_id} not found\")\n        return\n    \n    # Reassign IDs to maintain sequential order\n    for i, todo in enumerate(new_todos):\n        todo['id'] = i + 1\n    \n    save_todos(new_todos)\n    print(f\"Removed todo with ID {todo_id}\")\n\ndef main():\n    parser = argparse.ArgumentParser(description='td - A simple CLI todo application')\n    subparsers = parser.add_subparsers(dest='command', help='Available commands')\n\n    # Add command\n    add_parser = subparsers.add_parser('add', help='Add a new todo')\n    add_parser.add_argument('description', nargs='+', help='Todo description')\n\n    # List command\n    list_parser = subparsers.add_parser('list', help='List all todos')\n\n    # Done command\n    done_parser = subparsers.add_parser('done', help='Mark a todo as complete')\n    done_parser.add_argument('id', type=int, help='Todo ID')\n\n    # Remove command\n    remove_parser = subparsers.add_parser('remove', help='Remove a todo')\n    remove_parser.add_argument('id', type=int, help='Todo ID')\n\n    args = parser.parse_args()\n\n    if args.command == 'add':\n        description = ' '.join(args.description)\n        add_todo(description)\n    elif args.command == 'list':\n        list_todos()\n    elif args.command == 'done':\n        done_todo(args.id)\n    elif args.command == 'remove':\n        remove_todo(args.id)\n    else:\n        parser.print_help()\n\nif __name__ == '__main__':\n    main()"
+          }
+        }
+      ]
+    },
+    {
+      "test_id": "T20",
+      "test_name": "Build REST API",
+      "category": "agentic",
+      "model": "qwen3-coder",
+      "run": 1,
+      "elapsed_ms": 19581,
+      "input_tokens": 778,
+      "output_tokens": 908,
+      "tokens_per_sec": 48.0,
+      "passed": true,
+      "score": 0.6,
+      "reason": "api keywords: 8/8",
+      "content_preview": "I'll build a minimal Flask REST API for a bookmark manager with all the requested functionality. Let me create the complete app.py file step by step.\n\n<function=write_file>\n<parameter=path>\napp.py\n</p",
+      "tool_calls": null
+    },
+    {
+      "test_id": "T20",
+      "test_name": "Build REST API",
+      "category": "agentic",
+      "model": "qwen3-coder",
+      "run": 2,
+      "elapsed_ms": 18733,
+      "input_tokens": 778,
+      "output_tokens": 887,
+      "tokens_per_sec": 48.1,
+      "passed": false,
+      "score": 0.52,
+      "reason": "used write_file; substantial content; api keywords: 1/8",
+      "content_preview": "I'll create a minimal Flask REST API for a bookmark manager as requested. Let me build the complete app.py file step by step.",
+      "tool_calls": [
+        {
+          "name": "write_file",
+          "arguments": {
+            "path": "app.py",
+            "content": "from flask import Flask, request, jsonify\nimport sqlite3\nimport os\n\napp = Flask(__name__)\n\n# Database setup\nDATABASE = 'bookmarks.db'\n\ndef init_db():\n    \"\"\"Initialize the database and create the bookmarks table if it doesn't exist\"\"\"\n    conn = sqlite3.connect(DATABASE)\n    cursor = conn.cursor()\n    cursor.execute('''\n        CREATE TABLE IF NOT EXISTS bookmarks (\n            id INTEGER PRIMARY KEY AUTOINCREMENT,\n            url TEXT NOT NULL,\n            title TEXT NOT NULL,\n            tags TEXT\n        )\n    ''')\n    conn.commit()\n    conn.close()\n\ndef get_db_connection():\n    \"\"\"Get a database connection\"\"\"\n    conn = sqlite3.connect(DATABASE)\n    conn.row_factory = sqlite3.Row\n    return conn\n\ndef bookmark_to_dict(bookmark):\n    \"\"\"Convert a bookmark row to a dictionary\"\"\"\n    return {\n        'id': bookmark['id'],\n        'url': bookmark['url'],\n        'title': bookmark['title'],\n        'tags': bookmark['tags'].split(',') if bookmark['tags'] else []\n    }\n\n# Routes\n\n@app.route('/bookmarks', methods=['GET'])\ndef get_bookmarks():\n    \"\"\"Get all bookmarks or filter by tag\"\"\"\n    conn = get_db_connection()\n    \n    # Check if tag parameter is provided\n    tag = request.args.get('tag')\n    if tag:\n        # Filter bookmarks by tag\n        bookmarks = conn.execute('''\n            SELECT * FROM bookmarks \n            WHERE tags LIKE ?\n            ORDER BY id DESC\n        ''', (f'%{tag}%',)).fetchall()\n    else:\n        # Get all bookmarks\n        bookmarks = conn.execute('SELECT * FROM bookmarks ORDER BY id DESC').fetchall()\n    \n    conn.close()\n    \n    return jsonify([bookmark_to_dict(bookmark) for bookmark in bookmarks])\n\n@app.route('/bookmarks/<int:id>', methods=['GET'])\ndef get_bookmark(id):\n    \"\"\"Get a specific bookmark by ID\"\"\"\n    conn = get_db_connection()\n    bookmark = conn.execute('SELECT * FROM bookmarks WHERE id = ?', (id,)).fetchone()\n    conn.close()\n    \n    if bookmark is None:\n        return jsonify({'error': 'Bookmark not found'}), 404\n    \n    return jsonify(bookmark_to_dict(bookmark))\n\n@app.route('/bookmarks', methods=['POST'])\ndef add_bookmark():\n    \"\"\"Add a new bookmark\"\"\"\n    data = request.get_json()\n    \n    # Validate required fields\n    if not data or 'url' not in data or 'title' not in data:\n        return jsonify({'error': 'URL and title are required'}), 400\n    \n    url = data['url']\n    title = data['title']\n    tags = ','.join(data.get('tags', [])) if data.get('tags') else None\n    \n    conn = get_db_connection()\n    cursor = conn.cursor()\n    cursor.execute('''\n        INSERT INTO bookmarks (url, title, tags)\n        VALUES (?, ?, ?)\n    ''', (url, title, tags))\n    conn.commit()\n    \n    # Get the inserted bookmark\n    bookmark_id = cursor.lastrowid\n    new_bookmark = conn.execute('SELECT * FROM bookmarks WHERE id = ?', (bookmark_id,)).fetchone()\n    conn.close()\n    \n    return jsonify(bookmark_to_dict(new_bookmark)), 201\n\n@app.route('/bookmarks/<int:id>', methods=['DELETE'])\ndef delete_bookmark(id):\n    \"\"\"Delete a bookmark by ID\"\"\"\n    conn = get_db_connection()\n    bookmark = conn.execute('SELECT * FROM bookmarks WHERE id = ?', (id,)).fetchone()\n    \n    if bookmark is None:\n        conn.close()\n        return jsonify({'error': 'Bookmark not found'}), 404\n    \n    conn.execute('DELETE FROM bookmarks WHERE id = ?', (id,))\n    conn.commit()\n    conn.close()\n    \n    return jsonify({'message': 'Bookmark deleted successfully'}), 200\n\nif __name__ == '__main__':\n    # Initialize the database on startup\n    init_db()\n    app.run(debug=True)"
+          }
+        }
+      ]
+    }
+  ]
+}

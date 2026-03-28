@@ -1,0 +1,99 @@
+{
+  "model": "mistral-stress",
+  "base_url": "http://localhost:11434",
+  "model_info": {
+    "size_gb": 16.5,
+    "vram_gb": 16.0
+  },
+  "results": [
+    {
+      "turn": 1,
+      "prompt_tokens": 180,
+      "prompt_ms": 93,
+      "prompt_tok_s": 1932.7,
+      "gen_tokens": 256,
+      "gen_ms": 8812,
+      "gen_tok_s": 29.0,
+      "wall_ms": 9111,
+      "total_ctx": 436
+    },
+    {
+      "turn": 2,
+      "prompt_tokens": 454,
+      "prompt_ms": 98,
+      "prompt_tok_s": 4607.2,
+      "gen_tokens": 256,
+      "gen_ms": 8831,
+      "gen_tok_s": 29.0,
+      "wall_ms": 9130,
+      "total_ctx": 710
+    },
+    {
+      "turn": 3,
+      "prompt_tokens": 1102,
+      "prompt_ms": 346,
+      "prompt_tok_s": 3181.6,
+      "gen_tokens": 194,
+      "gen_ms": 6721,
+      "gen_tok_s": 28.9,
+      "wall_ms": 7234,
+      "total_ctx": 1296
+    },
+    {
+      "turn": 4,
+      "prompt_tokens": 1320,
+      "prompt_ms": 94,
+      "prompt_tok_s": 13895.7,
+      "gen_tokens": 256,
+      "gen_ms": 8896,
+      "gen_tok_s": 28.8,
+      "wall_ms": 9184,
+      "total_ctx": 1576
+    },
+    {
+      "turn": 5,
+      "prompt_tokens": 1968,
+      "prompt_ms": 364,
+      "prompt_tok_s": 5403.2,
+      "gen_tokens": 256,
+      "gen_ms": 8956,
+      "gen_tok_s": 28.6,
+      "wall_ms": 9521,
+      "total_ctx": 2224
+    },
+    {
+      "turn": 6,
+      "prompt_tokens": 2261,
+      "prompt_ms": 84,
+      "prompt_tok_s": 26774.5,
+      "gen_tokens": 256,
+      "gen_ms": 8979,
+      "gen_tok_s": 28.5,
+      "wall_ms": 9266,
+      "total_ctx": 2517
+    },
+    {
+      "turn": 7,
+      "prompt_tokens": 2648,
+      "prompt_ms": 168,
+      "prompt_tok_s": 15696.7,
+      "gen_tokens": 256,
+      "gen_ms": 8990,
+      "gen_tok_s": 28.5,
+      "wall_ms": 9364,
+      "total_ctx": 2904
+    },
+    {
+      "turn": 8,
+      "prompt_tokens": 2937,
+      "prompt_ms": 94,
+      "prompt_tok_s": 31064.1,
+      "gen_tokens": 256,
+      "gen_ms": 9021,
+      "gen_tok_s": 28.4,
+      "wall_ms": 9320,
+      "total_ctx": 3193
+    }
+  ],
+  "spill_detected": false
+}
