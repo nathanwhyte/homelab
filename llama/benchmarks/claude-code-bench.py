@@ -34,6 +34,24 @@ MODELS = {
         "model": "qwen3.5:9b-q4_K_M",
         "label": "Qwen3.5 9B Q4",
     },
+    "qwen-claude": {
+        "type": "ollama",
+        "base_url": "http://192.168.1.19:11434",
+        "model": "qwen-claude",
+        "label": "Qwen-Claude (tuned)",
+    },
+    "qwen3-14b": {
+        "type": "ollama",
+        "base_url": "http://192.168.1.19:11434",
+        "model": "qwen3:14b",
+        "label": "Qwen3 14B",
+    },
+    "qwen3-coder": {
+        "type": "ollama",
+        "base_url": "http://192.168.1.19:11434",
+        "model": "qwen3-coder:30b-a3b-q4_K_M",
+        "label": "Qwen3-Coder MoE",
+    },
     "haiku-45": {
         "type": "claude",
         "model": "claude-haiku-4-5-20251001",
@@ -508,7 +526,222 @@ TESTS = [
         "tools": None,
         "grade": lambda r: _grade_any_phrase(r, ["increase memory", "raise the limit", "memory limit", "1Gi", "1024Mi", "768Mi", "bump", "raise limit"]),
     },
+    # ── Category 5: Hard Code Gen ──
+    {
+        "id": "T13",
+        "name": "Multi-File Architecture",
+        "category": "hard_code_gen",
+        "messages": [
+            {"role": "system", "content": "You are a coding assistant with access to tools. Plan your work step by step, using tools for each action."},
+            {"role": "user", "content": "I need a Python REST API with FastAPI that has: 1) a GET /health endpoint, 2) CRUD for a 'notes' resource (id, title, body, created_at) stored in SQLite, 3) proper error handling. Show me what files to create and their contents. Start by creating the project structure."},
+        ],
+        "tools": BENCHMARK_TOOLS,
+        "grade": lambda r: _grade_app_builder(r),
+    },
+    {
+        "id": "T14",
+        "name": "Complex Algorithm",
+        "category": "hard_code_gen",
+        "messages": [
+            {"role": "system", "content": "You are a coding assistant. Write clean, correct code. No explanation, just code."},
+            {"role": "user", "content": "Write a Python class `LRUCache(capacity: int)` with O(1) `get(key)` and `put(key, value)` methods. Use a doubly-linked list and a hash map. Include `__len__` and `__contains__`. Do not use collections.OrderedDict."},
+        ],
+        "tools": None,
+        "grade": lambda r: _grade_code_gen(r, ["class LRUCache", "def get", "def put", "__len__", "__contains__"], python_compile=True),
+    },
+    {
+        "id": "T15",
+        "name": "Debug Stack Trace",
+        "category": "hard_code_gen",
+        "messages": [
+            {"role": "system", "content": "You are a coding assistant with access to tools. Diagnose the issue and fix it."},
+            {"role": "user", "content": """My FastAPI app crashes with this traceback:
+
+Traceback (most recent call last):
+  File "app.py", line 45, in create_item
+    db.execute("INSERT INTO items (name, price) VALUES (?, ?)", (item.name, item.price))
+sqlite3.OperationalError: database is locked
+
+This happens under load when multiple requests hit the endpoint. The DB connection is created at module level:
+```python
+import sqlite3
+db = sqlite3.connect("items.db")
+```
+
+What's wrong and how do I fix it? Use read_file to check app.py first."""},
+        ],
+        "tools": BENCHMARK_TOOLS,
+        "grade": lambda r: _grade_debug_stacktrace(r),
+    },
+    {
+        "id": "T16",
+        "name": "Multi-Step Tool Chain",
+        "category": "hard_tool_calling",
+        "messages": [
+            {"role": "system", "content": "You are a coding assistant with access to tools. Execute tasks step by step using tools."},
+            {"role": "user", "content": "I need to refactor the authentication module. First, search for all files importing 'auth' in the src/ directory. Then read the main auth.py file. Based on what you find, create a plan for splitting it into auth_middleware.py and auth_utils.py."},
+        ],
+        "tools": BENCHMARK_TOOLS,
+        "grade": lambda r: _grade_tool(r, "search_code", ["auth", "src"]),
+    },
+    {
+        "id": "T17",
+        "name": "Tool with Context Window",
+        "category": "hard_tool_calling",
+        "messages": [
+            {"role": "system", "content": "You are a coding assistant with access to tools. Use tools precisely."},
+            {"role": "user", "content": "The CI pipeline is failing. Here's the error:\n\n```\nERROR: test_user_creation (tests/test_auth.py) - AssertionError: 401 != 201\n```\n\nThe test was passing yesterday. Check git log for recent changes to the auth module, then read the test file to understand what's expected."},
+        ],
+        "tools": BENCHMARK_TOOLS,
+        "grade": lambda r: _grade_tool_any(r, ["run_command", "search_code"], [["git log", "auth"], ["test_auth"]]),
+    },
+    {
+        "id": "T18",
+        "name": "Ambiguous Request Routing",
+        "category": "hard_tool_calling",
+        "messages": [
+            {"role": "system", "content": "You are a coding assistant with access to tools. Choose the most efficient approach."},
+            {"role": "user", "content": "Something is eating disk space on the server. /var/log is 15GB. Find the largest files and suggest which ones are safe to rotate or delete."},
+        ],
+        "tools": BENCHMARK_TOOLS,
+        "grade": lambda r: _grade_tool(r, "run_command", ["var"]),
+    },
+    # ── Category 6: Agentic App Building ──
+    {
+        "id": "T19",
+        "name": "Build CLI App",
+        "category": "agentic",
+        "messages": [
+            {"role": "system", "content": "You are a coding agent. Build the requested application step by step. For each step, use the appropriate tool. Start by creating the directory structure, then write each file."},
+            {"role": "user", "content": """Build a Python CLI todo app called 'td' with these features:
+- `td add "task description"` — adds a todo
+- `td list` — shows all todos with IDs and status
+- `td done <id>` — marks a todo as complete
+- `td remove <id>` — deletes a todo
+- Store data in ~/.td/todos.json
+- Use argparse, no external dependencies
+
+Start by creating the main td.py file with the full implementation."""},
+        ],
+        "tools": BENCHMARK_TOOLS,
+        "grade": lambda r: _grade_agentic_app(r, "cli"),
+    },
+    {
+        "id": "T20",
+        "name": "Build REST API",
+        "category": "agentic",
+        "messages": [
+            {"role": "system", "content": "You are a coding agent. Build the requested application step by step. For each step, use the appropriate tool. Write complete, working code."},
+            {"role": "user", "content": """Build a minimal Flask REST API for a bookmark manager:
+- GET /bookmarks — list all bookmarks
+- POST /bookmarks — add bookmark {url, title, tags[]}
+- GET /bookmarks/<id> — get one bookmark
+- DELETE /bookmarks/<id> — delete bookmark
+- GET /bookmarks?tag=python — filter by tag
+- Store in SQLite, auto-create table on startup
+- Return proper HTTP status codes (201 for create, 404 for not found)
+
+Start by writing the complete app.py file."""},
+        ],
+        "tools": BENCHMARK_TOOLS,
+        "grade": lambda r: _grade_agentic_app(r, "api"),
+    },
 ]
+
+
+def _grade_tool_any(resp, tool_names, arg_checks_list):
+    """Grade: correct if any of the given tools is called with matching args."""
+    tc = resp.get("tool_calls")
+    if not tc:
+        return 0.0, "No tool calls in response"
+    first = tc[0]
+    for tool_name, arg_checks in zip(tool_names, arg_checks_list):
+        if first["name"] == tool_name:
+            args_str = json.dumps(first.get("arguments", {})).lower()
+            hits = sum(1 for c in arg_checks if c.lower() in args_str)
+            if hits >= 1:
+                return 1.0, f"Correct tool {tool_name} with args: {first}"
+            return 0.5, f"Right tool {tool_name} but args missing: {first}"
+    return 0.0, f"Wrong tool: {first['name']} (expected one of {tool_names})"
+
+
+def _grade_debug_stacktrace(resp):
+    """Grade: must identify the connection-sharing bug and suggest per-request connections."""
+    tc = resp.get("tool_calls")
+    text = (resp.get("content") or "").lower()
+    # Should use read_file first (tool call)
+    tool_score = 0.3 if tc and tc[0]["name"] == "read_file" else 0.0
+    # Must identify the shared connection problem
+    diag_phrases = ["per-request", "per request", "thread", "connection per", "connection pool",
+                    "not thread-safe", "single connection", "shared connection", "module level",
+                    "global connection", "check_same_thread"]
+    diag_score = 0.7 if any(p in text for p in diag_phrases) else 0.0
+    total = tool_score + diag_score
+    if total >= 0.7:
+        return total, "Correct diagnosis and approach"
+    return total, f"Partial: tool={tool_score > 0}, diagnosis={diag_score > 0}"
+
+
+def _grade_app_builder(resp):
+    """Grade: must either use write_file tool or produce code with key app components."""
+    tc = resp.get("tool_calls")
+    text = (resp.get("content") or "").lower()
+    score = 0.0
+    reasons = []
+    # Tool use: should create files
+    if tc:
+        tool_names = [t["name"] for t in tc]
+        if "write_file" in tool_names or "list_directory" in tool_names:
+            score += 0.3
+            reasons.append("used file tools")
+    # Must mention key components
+    components = ["fastapi", "sqlite", "crud", "health", "notes", "get", "post", "delete"]
+    hits = sum(1 for c in components if c in text)
+    comp_score = min(hits / 5 * 0.7, 0.7)
+    score += comp_score
+    reasons.append(f"{hits}/{len(components)} components")
+    return score, "; ".join(reasons)
+
+
+def _grade_agentic_app(resp, app_type):
+    """Grade agentic app-building: must use write_file and produce working code."""
+    tc = resp.get("tool_calls")
+    text = (resp.get("content") or "").lower()
+    score = 0.0
+    reasons = []
+
+    # Tool usage (0.3)
+    if tc:
+        tool_names = [t["name"] for t in tc]
+        if "write_file" in tool_names:
+            score += 0.3
+            reasons.append("used write_file")
+            # Check if content is substantial
+            for t in tc:
+                if t["name"] == "write_file":
+                    content = json.dumps(t.get("arguments", {})).lower()
+                    if len(content) > 200:
+                        score += 0.1
+                        reasons.append("substantial content")
+                    break
+        else:
+            reasons.append(f"no write_file (used {tool_names[0]})")
+
+    # Code quality (0.6)
+    if app_type == "cli":
+        keywords = ["argparse", "add_parser", "json", "def ", "todos", "args"]
+        hits = sum(1 for kw in keywords if kw in text)
+        code_score = min(hits / 4 * 0.6, 0.6)
+        score += code_score
+        reasons.append(f"cli keywords: {hits}/{len(keywords)}")
+    elif app_type == "api":
+        keywords = ["flask", "sqlite", "get", "post", "delete", "201", "404", "bookmarks"]
+        hits = sum(1 for kw in keywords if kw in text)
+        code_score = min(hits / 5 * 0.6, 0.6)
+        score += code_score
+        reasons.append(f"api keywords: {hits}/{len(keywords)}")
+
+    return score, "; ".join(reasons)
 
 
 def _grade_code_gen(resp, keywords, python_compile=False):
@@ -620,8 +853,8 @@ def run_benchmark(model_ids, test_ids, runs_per_test):
 
 def print_summary(results, model_ids):
     """Print summary table to stdout."""
-    categories = ["tool_calling", "code_gen", "code_understanding", "reasoning"]
-    cat_short = {"tool_calling": "Tool", "code_gen": "Code", "code_understanding": "Edit", "reasoning": "Plan"}
+    categories = ["tool_calling", "code_gen", "code_understanding", "reasoning", "hard_code_gen", "hard_tool_calling", "agentic"]
+    cat_short = {"tool_calling": "Tool", "code_gen": "Code", "code_understanding": "Edit", "reasoning": "Plan", "hard_code_gen": "Hard", "hard_tool_calling": "HdTl", "agentic": "Agent"}
 
     print(f"\n{'='*80}")
     print("  CLAUDE CODE AGENT BENCHMARK — RESULTS")
@@ -688,7 +921,7 @@ def main():
     parser.add_argument("--runs", type=int, default=3, help="Runs per test (default: 3)")
     parser.add_argument(
         "--output",
-        default="./claude-code-bench-results",
+        default="./results/claude-code",
         help="Output directory",
     )
     args = parser.parse_args()
@@ -708,7 +941,7 @@ def main():
 
     print("Claude Code Agent Benchmark")
     print(f"Models: {', '.join(MODELS[m]['label'] for m in model_ids)}")
-    print(f"Tests: {test_ids or 'all 12'} × {args.runs} runs each")
+    print(f"Tests: {test_ids or f'all {len(TESTS)}'} × {args.runs} runs each")
 
     results = run_benchmark(model_ids, test_ids, args.runs)
     print_summary(results, model_ids)

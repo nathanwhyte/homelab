@@ -14,9 +14,9 @@ Environment="OLLAMA_HOST=0.0.0.0"
 # Flash attention — required for KV cache quantization
 Environment="OLLAMA_FLASH_ATTENTION=1"
 
-# Quantize KV cache to q8_0 (from default f16)
-# Cuts KV memory by ~50% with negligible quality loss, doubling effective context
-Environment="OLLAMA_KV_CACHE_TYPE=q8_0"
+# Quantize KV cache to q4_0 (from default f16)
+# Cuts KV memory by ~75%, maximizing decode throughput
+Environment="OLLAMA_KV_CACHE_TYPE=q4_0"
 
 # Keep model loaded indefinitely (dedicated GPU, single-user)
 # Default is 5m which wastes 10s reloading between Claude Code prompts
@@ -25,6 +25,9 @@ Environment="OLLAMA_KEEP_ALIVE=-1"
 # Single concurrent request (Claude Code is single-threaded)
 # More slots = more KV cache memory per slot = less context per request
 Environment="OLLAMA_NUM_PARALLEL=1"
+
+# Reuse KV cache for shared prompt prefixes (Claude Code sends same system prompt)
+Environment="OLLAMA_MULTIUSER_CACHE=1"
 
 # Only keep 1 model loaded (16GB can't fit two models)
 Environment="OLLAMA_MAX_LOADED_MODELS=1"
@@ -38,17 +41,16 @@ sudo systemctl daemon-reload
 
 echo "=== Creating optimized Modelfile ==="
 
-# qwen35-claude: optimized for ollama launch claude
-cat > /tmp/Modelfile-qwen35-claude <<'MODELFILE'
+# qwen-claude: optimized for ollama launch claude
+cat > /tmp/Modelfile-qwen-claude <<'MODELFILE'
 FROM qwen3.5:9b-q4_K_M
 
-# Context: 65K fits entirely in VRAM (8 attention layers × q8_0 KV ≈ 4.2GB)
-# Can push to 131072 but KV starts spilling to RAM above ~114K
-PARAMETER num_ctx 65536
+# Context: 32K fits easily in VRAM with q4_0 KV + q4_0 model
+# Plenty for Claude Code tool-call prompts, leaves headroom for fast KV access
+PARAMETER num_ctx 32768
 
-# Disable thinking mode — Claude Code needs fast tool calls, not reasoning chains
-# Thinking inflates tokens 10-20x and wastes time on simple tool selections
-SYSTEM "/no_think"
+# Larger batch for faster prompt evaluation (prefill phase)
+PARAMETER num_batch 1024
 
 # Keep model defaults for generation quality
 # (temperature=1, top_k=20, top_p=0.95, presence_penalty=1.5)
@@ -58,8 +60,8 @@ echo "=== Restarting Ollama ==="
 sudo systemctl restart ollama
 sleep 3
 
-echo "=== Creating qwen35-claude model ==="
-ollama create qwen35-claude -f /tmp/Modelfile-qwen35-claude
+echo "=== Creating qwen-claude model ==="
+ollama create qwen-claude -f /tmp/Modelfile-qwen-claude
 
 echo "=== Installing ollama-exporter ==="
 
@@ -92,7 +94,7 @@ echo ""
 systemctl is-active ollama-exporter && echo "ollama-exporter: running on :9111" || echo "ollama-exporter: FAILED"
 echo ""
 echo "Done. Use from any machine on the LAN:"
-echo "  export OLLAMA_HOST=http://timmy:11434"
-echo "  ollama launch claude --model qwen35-claude"
+echo "  export OLLAMA_HOST=http://192.168.1.19:11434"
+echo "  ollama launch claude --model qwen-claude"
 echo ""
-echo "Metrics: http://timmy:9111/metrics"
+echo "Metrics: http://192.168.1.19:9111/metrics"
