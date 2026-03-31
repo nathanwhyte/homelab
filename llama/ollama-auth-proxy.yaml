@@ -1,0 +1,121 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ollama-auth-proxy-config
+  namespace: llama
+data:
+  nginx.conf.template: |
+    events {
+      worker_connections 128;
+    }
+    http {
+      server {
+        listen 8080;
+
+        location = /health {
+          return 200 'ok';
+          add_header Content-Type text/plain;
+        }
+
+        location / {
+          if ($http_authorization != "Bearer __API_KEY__") {
+            return 401 '{"error":"unauthorized"}';
+          }
+
+          proxy_pass http://ollama.llama.svc.cluster.local:80;
+          proxy_set_header Host $host;
+          proxy_set_header X-Real-IP $remote_addr;
+          proxy_http_version 1.1;
+          proxy_read_timeout 600s;
+          proxy_send_timeout 600s;
+          proxy_buffering off;
+          chunked_transfer_encoding on;
+        }
+      }
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ollama-auth-proxy
+  namespace: llama
+  labels:
+    app: ollama-auth-proxy
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ollama-auth-proxy
+  template:
+    metadata:
+      labels:
+        app: ollama-auth-proxy
+    spec:
+      initContainers:
+        - name: render-config
+          image: busybox:1.36
+          command: ["sh", "-c"]
+          args:
+            - sed "s|__API_KEY__|${API_KEY}|" /config-template/nginx.conf.template > /config/nginx.conf
+          env:
+            - name: API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: ollama-api-key
+                  key: API_KEY
+          volumeMounts:
+            - name: config-template
+              mountPath: /config-template
+            - name: config-rendered
+              mountPath: /config
+      containers:
+        - name: nginx
+          image: nginx:1.27-alpine
+          ports:
+            - containerPort: 8080
+              name: http
+          volumeMounts:
+            - name: config-rendered
+              mountPath: /etc/nginx
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 2
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 30
+      volumes:
+        - name: config-template
+          configMap:
+            name: ollama-auth-proxy-config
+        - name: config-rendered
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ollama-auth-proxy
+  namespace: llama
+  labels:
+    app: ollama-auth-proxy
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8080
+  selector:
+    app: ollama-auth-proxy
