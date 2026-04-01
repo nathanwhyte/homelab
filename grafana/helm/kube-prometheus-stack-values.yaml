@@ -61,8 +61,8 @@ prometheus:
     # Retention configuration (reduced to 7d for performance)
     retention: 7d
     retentionSize: ""
-    # Global scrape interval (increased to reduce polling frequency)
-    scrapeInterval: 2m
+    # Global scrape interval
+    scrapeInterval: 30s
     # External labels
     externalLabels:
       cluster: k8s
@@ -80,7 +80,7 @@ prometheus:
     # Reference: https://docs.nvidia.com/datacenter/cloud-native/gpu-telemetry/latest/kube-prometheus.html
     additionalScrapeConfigs:
       - job_name: gpu-metrics
-        scrape_interval: 2m
+        scrape_interval: 30s
         metrics_path: /metrics
         scheme: http
         kubernetes_sd_configs:
@@ -106,7 +106,7 @@ prometheus:
             target_label: kubernetes_node
       # AMD GPU metrics from sysfs-based exporter on timmy
       - job_name: amd-gpu-metrics
-        scrape_interval: 2m
+        scrape_interval: 30s
         metrics_path: /metrics
         static_configs:
           - targets:
@@ -120,7 +120,7 @@ prometheus:
             labels:
               node: "timmy"
       - job_name: "garage"
-        scrape_interval: 2m
+        scrape_interval: 30s
         static_configs:
           - targets:
               - "garage-0.garage-headless.garage.svc.cluster.local:3903"
