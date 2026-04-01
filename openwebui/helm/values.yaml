@@ -1,0 +1,63 @@
+# Open WebUI Helm Values — homelab deployment
+# Chart: open-webui/open-webui
+
+replicaCount: 1
+
+image:
+  repository: ghcr.io/open-webui/open-webui
+  pullPolicy: IfNotPresent
+  slim: true
+
+# --- External Ollama (timmy bare metal) ---
+ollama:
+  enabled: false
+
+ollamaUrls:
+  - "http://ollama.llama.svc:80"
+
+# --- OpenAI-compatible API (llama-server on manu) ---
+enableOpenaiApi: true
+openaiBaseApiUrl: "http://llamacpp-rocm-llm.viking.svc:80/v1"
+openaiApiKey: "not-needed"
+
+# --- Pipelines (disabled for simplicity) ---
+pipelines:
+  enabled: false
+
+# --- Persistence (Longhorn SSD) ---
+persistence:
+  enabled: true
+  size: 2Gi
+  storageClass: longhorn-ssd
+  accessModes:
+    - ReadWriteOnce
+
+# --- Ingress (Traefik) ---
+ingress:
+  enabled: true
+  class: traefik
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.tls: "true"
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+  host: chat.nathanwhyte.dev
+  tls: true
+  existingSecret: ""
+
+# --- Service ---
+service:
+  type: ClusterIP
+  port: 80
+
+# --- Resources ---
+resources:
+  requests:
+    cpu: 100m
+    memory: 512Mi
+  limits:
+    cpu: "2"
+    memory: 3Gi
+
+# --- Websocket (single replica, no Redis needed) ---
+websocket:
+  enabled: false
