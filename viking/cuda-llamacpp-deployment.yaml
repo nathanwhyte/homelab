@@ -39,6 +39,14 @@ spec:
       securityContext:
         fsGroup: 0
       initContainers:
+        - name: gpu-tune
+          image: nvidia/cuda:12.4.0-base-ubuntu22.04
+          command: ["nvidia-smi", "-pl", "220"]
+          securityContext:
+            privileged: true
+          resources:
+            limits:
+              nvidia.com/gpu: "1"
         - name: model-fetch
           image: curlimages/curl:8.12.1
           env:
@@ -85,21 +93,26 @@ spec:
             - "999"
             - --parallel
             - "4"
+            - --threads
+            - "8"
             - --cache-type-k
             - q4_0
             - --cache-type-v
             - q4_0
             - --cont-batching
             - --batch-size
-            - "4096"
+            - "2048"
             - --ubatch-size
-            - "1024"
+            - "512"
             - --split-mode
             - none
             - --main-gpu
             - "0"
             - --mlock
             - --no-warmup
+            - --flash-attn
+            - "on"
+            - --metrics
             - --reasoning-format
             - deepseek
           ports:
