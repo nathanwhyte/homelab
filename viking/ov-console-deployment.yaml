@@ -1,0 +1,90 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ov-console
+  namespace: viking
+  labels:
+    app: ov-console
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: ov-console
+  template:
+    metadata:
+      labels:
+        app: ov-console
+    spec:
+      terminationGracePeriodSeconds: 10
+      affinity:
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 80
+              preference:
+                matchExpressions:
+                  - key: kubernetes.io/hostname
+                    operator: In
+                    values:
+                      - manu
+                      - wemby
+            - weight: 100
+              preference:
+                matchExpressions:
+                  - key: kubernetes.io/hostname
+                    operator: NotIn
+                    values:
+                      - timmy
+      initContainers:
+        - name: fetch-static
+          image: busybox:1.37
+          command: ["/bin/sh", "-c"]
+          args:
+            - >-
+              BASE="https://raw.githubusercontent.com/volcengine/OpenViking/main/openviking/console/static";
+              mkdir -p /static;
+              wget -q -O /static/index.html "$BASE/index.html" &&
+              wget -q -O /static/app.js "$BASE/app.js" &&
+              wget -q -O /static/styles.css "$BASE/styles.css" &&
+              echo "Static files downloaded" || echo "Download failed" >&2
+          volumeMounts:
+            - name: console-static
+              mountPath: /static
+      containers:
+        - name: ov-console
+          image: ghcr.io/volcengine/openviking:v0.2.9
+          command: ["python", "-m", "openviking.console.bootstrap"]
+          args:
+            - "--host=0.0.0.0"
+            - "--port=8020"
+            - "--openviking-url=http://openviking.viking.svc:1933"
+            - "--write-enabled"
+          ports:
+            - containerPort: 8020
+              name: http
+          resources:
+            requests:
+              cpu: "250m"
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+          readinessProbe:
+            tcpSocket:
+              port: 8020
+            periodSeconds: 10
+            failureThreshold: 3
+          livenessProbe:
+            tcpSocket:
+              port: 8020
+            initialDelaySeconds: 5
+            periodSeconds: 30
+            failureThreshold: 5
+          volumeMounts:
+            - name: console-static
+              mountPath: /app/.venv/lib/python3.13/site-packages/openviking/console/static
+      volumes:
+        - name: console-static
+          emptyDir: {}
