@@ -2,13 +2,6 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: ollama-modelfiles
-  namespace: llama
-data: {}
----
-apiVersion: v1
-kind: ConfigMap
-metadata:
   name: ollama-startup
   namespace: llama
 data:
@@ -22,29 +15,32 @@ data:
     done
     echo "Ollama is ready."
 
-    # Process each Modelfile in /modelfiles/
-    for modelfile in /modelfiles/*; do
-      name=$(basename "$modelfile")
-      echo "Processing model: $name"
-
-      # Extract base model from FROM line
-      base=$(grep -i '^FROM ' "$modelfile" | head -1 | awk '{print $2}')
-
-      # Pull base model if not already present
-      if ! ollama list | grep -q "^${base}"; then
-        echo "Pulling base model: $base"
-        ollama pull "$base"
-      else
-        echo "Base model already present: $base"
-      fi
-
-      # Create custom model from Modelfile
-      echo "Creating custom model: $name"
-      ollama create "$name" -f "$modelfile"
-    done
-
-    echo "All models ready."
     ollama list
+
+    echo "Pulling gemma4:e4b..."
+    ollama pull gemma4:e4b || true
+
+    echo "Pulling devstral:24b..."
+    ollama pull devstral:24b || true
+
+    echo "Pulling devstral-small-2:24b..."
+    ollama pull devstral-small-2:24b || true
+
+    echo "Creating 4k context variants..."
+    printf 'FROM devstral:24b\nPARAMETER num_ctx 4096\n' > /tmp/Modelfile.devstral
+    ollama create devstral-4k -f /tmp/Modelfile.devstral || true
+
+    printf 'FROM devstral-small-2:24b\nPARAMETER num_ctx 4096\n' > /tmp/Modelfile.devstral-small-2
+    ollama create devstral-small-2-4k -f /tmp/Modelfile.devstral-small-2 || true
+
+    printf 'FROM devstral-small-2:24b\nPARAMETER num_ctx 32768\n' > /tmp/Modelfile.devstral-small-2-32k
+    ollama create devstral-small-2-32k -f /tmp/Modelfile.devstral-small-2-32k || true
+
+    echo "Warming up gemma4:e4b..."
+    ollama run gemma4:e4b "hi" > /dev/null 2>&1 || true
+    echo "Warmup complete."
+
+    touch /tmp/startup-complete
   ollama-exporter.py: |
     #!/usr/bin/env python3
     """Prometheus exporter for Ollama inference metrics.
@@ -75,6 +71,7 @@ data:
         "ollama_model_vram_bytes": {},       # {model: bytes}
         "ollama_model_size_bytes": {},       # {model: bytes}
         "ollama_model_expires_at": {},       # {model: unix timestamp}
+        "ollama_model_context_length": {},   # {model: max context tokens}
         # From /api/chat response tracking (updated via /push endpoint)
         "ollama_request_total": {},          # {model: count}
         "ollama_gen_tokens_total": {},       # {model: count}
@@ -86,6 +83,7 @@ data:
         "ollama_gen_tokens_per_sec": {},     # {model: latest tok/s}
         "ollama_prompt_tokens_per_sec": {},  # {model: latest tok/s}
         "ollama_last_request_seconds": {},   # {model: last wall time}
+        "ollama_last_prompt_tokens": {},     # {model: prompt tokens in last request}
     }
 
 
@@ -96,16 +94,53 @@ data:
             with urllib.request.urlopen(req, timeout=5) as resp:
                 data = json.loads(resp.read())
 
+            models = data.get("models", [])
+
+            # Fetch context length for each loaded model outside the lock
+            ctx_lengths = {}
+            for m in models:
+                raw_name = m.get("name", "unknown")
+                name = raw_name.removesuffix(":latest")
+                try:
+                    show_req = urllib.request.Request(
+                        f"{ollama_url}/api/show",
+                        data=json.dumps({"name": raw_name}).encode(),
+                        method="POST",
+                        headers={"Content-Type": "application/json"},
+                    )
+                    with urllib.request.urlopen(show_req, timeout=5) as r:
+                        show_data = json.loads(r.read())
+                    # Prefer runtime num_ctx (from modelfile) over architectural max
+                    params_text = show_data.get("parameters", "")
+                    ctx_len = None
+                    for line in params_text.splitlines():
+                        parts = line.split()
+                        if len(parts) == 2 and parts[0] == "num_ctx":
+                            ctx_len = int(parts[1])
+                            break
+                    if ctx_len is None:
+                        model_info = show_data.get("model_info", {})
+                        raw = next(
+                            (v for k, v in model_info.items() if "context_length" in k),
+                            None,
+                        )
+                        if raw:
+                            ctx_len = int(raw)
+                    if ctx_len:
+                        ctx_lengths[name] = ctx_len
+                except Exception:
+                    pass
+
             with _lock:
                 _metrics["ollama_up"] = 1
-                models = data.get("models", [])
                 _metrics["ollama_models_loaded"] = len(models)
                 _metrics["ollama_model_vram_bytes"] = {}
                 _metrics["ollama_model_size_bytes"] = {}
                 _metrics["ollama_model_expires_at"] = {}
+                _metrics["ollama_model_context_length"] = ctx_lengths
 
                 for m in models:
-                    name = m.get("name", "unknown")
+                    name = m.get("name", "unknown").removesuffix(":latest")
                     _metrics["ollama_model_vram_bytes"][name] = m.get("size_vram", 0)
                     _metrics["ollama_model_size_bytes"][name] = m.get("size", 0)
                     expires = m.get("expires_at", "")
@@ -153,6 +188,7 @@ data:
             if prompt_sec > 0:
                 _metrics["ollama_prompt_tokens_per_sec"][model] = round(prompt_count / prompt_sec, 1)
             _metrics["ollama_last_request_seconds"][model] = round(total_sec, 3)
+            _metrics["ollama_last_prompt_tokens"][model] = prompt_count
 
 
     def format_metrics():
@@ -179,9 +215,12 @@ data:
             gauge("ollama_models_loaded", "Number of models currently loaded.", _metrics["ollama_models_loaded"])
             gauge("ollama_model_vram_bytes", "VRAM used by model in bytes.", _metrics["ollama_model_vram_bytes"], labels=True)
             gauge("ollama_model_size_bytes", "Total model size in bytes.", _metrics["ollama_model_size_bytes"], labels=True)
+            gauge("ollama_model_expires_at", "Unix timestamp when model will be unloaded.", _metrics["ollama_model_expires_at"], labels=True)
+            gauge("ollama_model_context_length", "Configured context window length in tokens.", _metrics["ollama_model_context_length"], labels=True)
             gauge("ollama_gen_tokens_per_sec", "Latest generation speed in tokens/sec.", _metrics["ollama_gen_tokens_per_sec"], labels=True)
             gauge("ollama_prompt_tokens_per_sec", "Latest prompt processing speed in tokens/sec.", _metrics["ollama_prompt_tokens_per_sec"], labels=True)
             gauge("ollama_last_request_seconds", "Wall time of last request in seconds.", _metrics["ollama_last_request_seconds"], labels=True)
+            gauge("ollama_last_prompt_tokens", "Prompt token count from the most recent request.", _metrics["ollama_last_prompt_tokens"], labels=True)
 
             counter("ollama_request_total", "Total number of completed requests.", _metrics["ollama_request_total"])
             counter("ollama_gen_tokens_total", "Total generated tokens.", _metrics["ollama_gen_tokens_total"])
