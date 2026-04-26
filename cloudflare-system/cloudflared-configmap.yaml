@@ -26,8 +26,6 @@ data:
         service: http://open-webui.openwebui.svc.cluster.local:80
       - hostname: context.nathanwhyte.dev
         service: http://openviking.viking.svc.cluster.local:1933
-      - hostname: viking.nathanwhyte.dev
-        service: http://ov-console.viking.svc.cluster.local:8020
       - hostname: nathanwhyte.dev
         service: http://phx.portfolio.svc.cluster.local:80
       - hostname: www.nathanwhyte.dev
@@ -36,8 +34,7 @@ data:
       # Scaled-to-0 services — uncomment and set domains when ready
       # - hostname: <coach>.nathanwhyte.dev
       #   service: http://credit-coach.coach.svc.cluster.local:3000
-      # - hostname: <equal-risk>.nathanwhyte.dev
-      #   service: http://rails.equal-risk.svc.cluster.local:3000
+      # equal-risk — has its own tunnel (49357c9c) in equal-risk namespace
       # - hostname: <glossary>.nathanwhyte.dev
       #   service: http://glossary.glossary.svc.cluster.local:4000
       - hostname: llama.nathanwhyte.dev
