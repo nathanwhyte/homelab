@@ -1,0 +1,13 @@
+[Unit]
+Description=LACT AMD GPU controller daemon
+After=multi-user.target
+ConditionPathExists=/sys/class/drm/card1
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/lact daemon
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
