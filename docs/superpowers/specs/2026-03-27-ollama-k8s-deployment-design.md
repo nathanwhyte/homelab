@@ -1,5 +1,7 @@
 # Ollama Kubernetes Deployment Design
 
+> ⚠️ **SUPERSEDED** — Design decisions in this file were changed during implementation: KV cache is q4_0 (not q8_0), external access is via Cloudflare Tunnel (not Traefik), and `imagePullPolicy: Always` was added post-deployment. See `llama/ollama-deployment.yaml` for what actually shipped.
+
 **Date:** 2026-03-27
 **Status:** Approved
 **Namespace:** `llama`

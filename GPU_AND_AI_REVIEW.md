@@ -78,6 +78,10 @@ Comprehensive review of all GPU setup, model benchmarks, and AI tools work in th
 | 2026-03-27 | `1e4d5a6` | Ollama Deployment with exporter sidecar and ClusterIP Service |
 | 2026-03-27 | `624f751` | Traefik Ingress for Ollama (robots.nathanwhyte.dev, BasicAuth) |
 | 2026-03-29 | `6e46cc5` | Replace Traefik ingress with Cloudflare Tunnel for Ollama |
+| 2026-04-09 | `3044-3045` | Added `imagePullPolicy: Always` to force Ollama image updates; gemma4:e4b added to modelfiles |
+| 2026-04-10 | `4913498` | Dual-model loading enabled; Prometheus scrape target moved from bare-metal to K8s service |
+| 2026-04-11 | `3063-3065` | LACT daemon deployed on timmy; fan curve tuned for aggressive cooling; thermal throttling resolved |
+| 2026-04-11 | `3076` | GPU fan curve adjusted to max at 85°C (GPU reached 94°C); replica count set to 1 for llama-model-cache |
 
 ---
 
@@ -129,7 +133,14 @@ Comprehensive review of all GPU setup, model benchmarks, and AI tools work in th
 - External access via Cloudflare Tunnel (robots.nathanwhyte.dev)
 - Open WebUI deployed alongside in openwebui namespace
 
-### Current Architecture (2026-03-28)
+### Stage 8: LACT, Dual-Model, and Thermal Tuning (Apr 9-11)
+- `imagePullPolicy: Always` added to force Ollama image updates
+- gemma4:e4b added to modelfiles; dual-model loading enabled
+- LACT daemon deployed on timmy to replace amdgpu-fan-control (sysfs inaccessible over SSH)
+- GPU thermal throttling resolved: fan curve adjusted to max at 85°C (GPU was reaching 94°C)
+- llama-model-cache replica count reduced to 1 (Longhorn optimization)
+
+### Current Architecture (2026-04-11)
 
 ```
                     ┌──────────────────────────────────────┐
@@ -451,8 +462,8 @@ Detailed concurrency testing for the OV LLM endpoint on manu.
 | `embedder-llamacpp.viking.svc:8080` | Embeddings | nomic-embed on timmy (CPU) |
 | `openviking.viking.svc:1933` | Knowledge base | OV server on wemby |
 | `ollama.llama.svc:80` | Ollama API | Ollama on timmy |
-| `qwen-summarizer-llm.llama.svc:80` | Summarizer LLM | Scaled to 0 |
-| `summarizer-api.llama.svc:80` | Agent API | Scaled to 0 |
+| `qwen-summarizer-llm.llama.svc:80` | Summarizer LLM | **Removed** (Apr 2026) |
+| `summarizer-api.llama.svc:80` | Agent API | **Removed** (Apr 2026) — replaced by OV tool-calling |
 
 ### GPU Allocation
 
