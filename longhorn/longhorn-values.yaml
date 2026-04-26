@@ -30,7 +30,7 @@ defaultSettings:
 # Default backup target for manual off-cluster backups to Cloudflare R2.
 # Credentials live in the longhorn-r2-backup-target secret.
 defaultBackupStore:
-  backupTarget: "s3://longhorn-backups@auto/cluster/homelab-k3s/longhorn/"
+  backupTarget: "s3://homelab@auto/cluster/homelab-k3s/longhorn/"
   backupTargetCredentialSecret: "longhorn-r2-backup-target"
   pollInterval: 900
 
