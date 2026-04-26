@@ -1,6 +1,6 @@
 # 🐋 Kubernetes Homelab
 
-Self-hosted [K3s](https://docs.k3s.io/) Kubernetes cluster running on 4
+Self-hosted [K3s](https://docs.k3s.io/) Kubernetes cluster running on 3
 [Ubuntu Linux](https://ubuntu.com/server) nodes.
 
 This cluster hosts web applications, databases, data backups, an image
@@ -81,11 +81,12 @@ S3-compatible object storage engine.
 
 ### Llama
 
-Internal OpenAI-compatible LLM endpoint backed by `llama.cpp`.
+Internal OpenAI-compatible LLM endpoints backed by `llama.cpp` and Ollama.
 
-- Qwen3-8B summarizer on manu (`qwen-summarizer-llm.llama.svc.cluster.local`)
-- ROCm server on timmy (scaled to 0)
-- Read more in [`llama/README.md`](./llama/README.md).
+- **Ollama** (timmy, RX 9070 XT): `ollama.llama.svc:80` — primary for Claude Code; also serves OpenWebUI
+- **OV LLM** (manu, GTX 1080): `llamacpp-cuda-llm.viking.svc:80` — OV VLM inference only; ROCm hot standby scaled to 0
+- **Embedder** (timmy, CPU): `embedder-llamacpp.viking.svc:8080` — nomic-embed-text f16
+- Read more in [`llama/README.md`](./llama/README.md) and [`viking/`](./viking/).
 
 ## Other Technologies
 

@@ -1,5 +1,7 @@
 # Ollama K8s Deployment Implementation Plan
 
+> ⚠️ **SUPERSEDED** — This plan was executed in March 2026. Traefik ingress was replaced by Cloudflare Tunnel the same day. KV cache was changed from q8_0 to q4_0. See `llama/ollama-deployment.yaml` and `llama/ollama-configmap.yaml` for the deployed configuration. Benchmark results are in `GPU_AND_AI_REVIEW.md`.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Deploy Ollama on timmy's RX 9070 XT as a K8s Deployment with Prometheus exporter sidecar, ConfigMap-driven model management, and Traefik ingress with API key auth on `robots.nathanwhyte.dev`.
