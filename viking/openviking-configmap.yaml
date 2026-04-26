@@ -60,7 +60,7 @@ data:
         "provider": "litellm",
         "model": "openai/qwen3-8b",
         "api_key": "sk-no-key-required",
-        "api_base": "http://llamacpp-rocm-llm.viking.svc.cluster.local/v1",
+          "api_base": "http://llamacpp-cuda-llm.viking.svc.cluster.local/v1",
         "max_concurrent": 10
       }
     }

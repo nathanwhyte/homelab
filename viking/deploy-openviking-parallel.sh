@@ -80,15 +80,21 @@ kubectl -n "${NAMESPACE}" rollout status deployment/ov-coordinator --timeout=120
 echo "--- Step 10: Service (coordinator) ---"
 kubectl apply -f "${SCRIPT_DIR}/ov-coordinator-service.yaml"
 
+# Step 10b: Apply merged single-instance service path for background merging
+echo "--- Step 10b: Merged instance ---"
+kubectl apply -f "${SCRIPT_DIR}/openviking-deployment.yaml"
+kubectl apply -f "${SCRIPT_DIR}/ov-merged-service.yaml"
+
 # Step 11: Apply ingress (unchanged)
 echo "--- Step 11: Ingress ---"
 kubectl apply -f "${SCRIPT_DIR}/openviking-ingress.yaml"
 
-# Step 12: Apply embedder + LLM (unchanged, just ensure they're running)
-echo "--- Step 12: Embedder + LLM ---"
+# Step 12: Apply embedder + CUDA LLM
+echo "--- Step 12: Embedder + CUDA LLM ---"
 kubectl apply -f "${SCRIPT_DIR}/embedder-llamacpp-deployment.yaml"
 kubectl apply -f "${SCRIPT_DIR}/embedder-llamacpp-service.yaml"
-kubectl apply -f "${SCRIPT_DIR}/rocm-llamacpp-deployment.yaml"
+kubectl apply -f "${SCRIPT_DIR}/cuda-llamacpp-deployment.yaml"
+kubectl apply -f "${SCRIPT_DIR}/cuda-llamacpp-service.yaml"
 
 # Step 13: Verify
 echo ""

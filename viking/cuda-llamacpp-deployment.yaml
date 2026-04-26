@@ -108,7 +108,6 @@ spec:
             - none
             - --main-gpu
             - "0"
-            - --mlock
             - --no-warmup
             - --flash-attn
             - "on"

@@ -8,7 +8,7 @@ metadata:
     app: ov-worker
 spec:
   serviceName: ov-worker-headless
-  replicas: 2
+  replicas: 3
   podManagementPolicy: Parallel
   selector:
     matchLabels:

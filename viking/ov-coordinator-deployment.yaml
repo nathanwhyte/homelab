@@ -47,7 +47,7 @@ spec:
           env:
             - name: OV_WORKERS
               value: >-
-                http://ov-worker-0.ov-worker-headless.viking.svc.cluster.local:1933,http://ov-worker-1.ov-worker-headless.viking.svc.cluster.local:1933
+                http://ov-worker-0.ov-worker-headless.viking.svc.cluster.local:1933,http://ov-worker-1.ov-worker-headless.viking.svc.cluster.local:1933,http://ov-worker-2.ov-worker-headless.viking.svc.cluster.local:1933
             - name: OV_API_KEY
               valueFrom:
                 configMapKeyRef:
