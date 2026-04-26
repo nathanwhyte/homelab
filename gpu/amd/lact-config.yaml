@@ -17,9 +17,9 @@ gpus:
       temperature_key: junction
       interval_ms: 500
       curve:
-        40: 0.3
-        60: 0.4
-        75: 0.6
-        82: 0.8
-        85: 1.0
+        25: 0.60
+        40: 0.80
+        55: 1.0
+        70: 1.0
+        82: 1.0
       spindown_delay_ms: 5000
