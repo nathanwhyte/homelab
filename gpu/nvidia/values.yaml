@@ -289,7 +289,13 @@ dcgmExporter:
   version: 4.4.2-4.7.0-distroless
   imagePullPolicy: IfNotPresent
   env: []
-  resources: {}
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 200m
+      memory: 640Mi
   hostPID: false
   # HPC job mapping configuration for correlating GPU metrics with HPC workload manager jobs
   # This is used by HPC workload managers like Slurm to label GPU metrics with job IDs
