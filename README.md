@@ -11,35 +11,6 @@ registry, and much more.
 >
 > ~ Me, circa Today
 
-## Apps
-
-### Equal Risk Portfolio Calculator - [equalriskportfolio.com](https://equalriskportfolio.com)
-
-- Used by financial advisors to build portfolios that balance risk across asset classes.
-
-[View on GitHub](https://github.com/nathanwhyte/equal-risk-portfolio)
-
-### Portfolio Website - [nathanwhyte.dev](https://www.nathanwhyte.dev)
-
-- An extension of my resume, with colors and better formatting.
-- Built using the [Phoenix Framework](https://www.phoenixframework.org/) for Elixir and [TailwindCSS](https://tailwindcss.com/).
-
-[View on GitHub](https://github.com/nathanwhyte/nathanwhyte.dev)
-
-### Build Hook
-
-- Fills the role of GitHub actions for building images and deploying changes on pushes to main, but for free.
-- Built using Rust's [axum](https://docs.rs/axum/latest/axum/index.html) web framework with image builds running in a [Docker BuildKit](https://docs.docker.com/build/buildkit/configure/) container.
-
-[View on GitHub](https://github.com/nathanwhyte/build-hook)
-
-### Glossary
-
-- A knowledge base / second brain / notes store / personal wiki for things I always forget.
-- Built using Phoenix's [LiveView](https://hexdocs.pm/phoenix_live_view/welcome.html) for reactivity and [TailwindCSS](https://tailwindcss.com/) for styling.
-
-[View on GitHub](https://github.com/nathanwhyte/glossary)
-
 ## Services
 
 ### Kubernetes Dashboard
@@ -47,6 +18,12 @@ registry, and much more.
 Kubernetes' own dashboard for cluster management.
 
 - Deployed using [the official guide](https://kubernetes.io/docs/tasks/access-application-cluster/web-ui-dashboard/).
+
+### Headlamp
+
+A modern, extensible Kubernetes UI alternative to the official dashboard.
+
+- Deployed via Helm with a Cloudflare Tunnel for secure access.
 
 ### Longhorn
 
@@ -72,6 +49,45 @@ Container image registry with a nice web interface.
 - Public image repositories for images used in the cluster.
 - Read more in the Harbor [README](./harbor/HARBOR.md).
 
+### OpenWebUI
+
+Web interface for interacting with local LLMs via Ollama.
+
+- Deployed with Helm in the `openwebui` namespace.
+- Serves as the primary chat interface for the local Ollama instance.
+
+### SearXNG
+
+Privacy-respecting metasearch engine, used as the web search backend for OpenWebUI.
+
+- Lightweight deployment with custom settings via ConfigMap.
+- Aggregates results from multiple search engines without tracking.
+
+### Homepage
+
+A clean, customizable personal dashboard for accessing internal services.
+
+- Static configuration via ConfigMap with service bookmarks and status widgets.
+- Exposed through a Cloudflare Tunnel.
+
+### Excalidraw
+
+Virtual whiteboard for sketching diagrams and brainstorming.
+
+- Lightweight, collaborative drawing tool deployed in-cluster.
+
+### IT-tools
+
+Collection of handy developer utilities (formatters, converters, encoders, etc.).
+
+- Single-container deployment for quick access to common tools.
+
+### Stirling PDF
+
+Web-based PDF manipulation tool (merge, split, rotate, compress, convert, etc.).
+
+- Runs in a container with all PDF processing handled locally.
+
 ### Garage
 
 S3-compatible object storage engine.
@@ -81,11 +97,11 @@ S3-compatible object storage engine.
 
 ### Llama
 
-Internal OpenAI-compatible LLM endpoints backed by `llama.cpp` and Ollama.
+Internal OpenAI-compatible LLM endpoints backed by Ollama and `llama.cpp`.
 
-- **Ollama** (timmy, RX 9070 XT): `ollama.llama.svc:80` — primary for Claude Code; also serves OpenWebUI
-- **OV LLM** (manu, GTX 1080): `llamacpp-cuda-llm.viking.svc:80` — OV VLM inference only; ROCm hot standby scaled to 0
-- **Embedder** (timmy, CPU): `embedder-llamacpp.viking.svc:8080` — nomic-embed-text f16
+- **Ollama** (timmy, RX 9070 XT): `ollama.llama.svc:80` — primary inference for Claude Code and OpenWebUI; hosts models like Qwen, Gemma, Mistral
+- **OV LLM** (manu, GTX 1080): `llamacpp-cuda-llm.viking.svc:80` — OpenViking VLM inference; ROCm hot standby on timmy scaled to 0
+- **Embedder** (timmy, CPU): `embedder-llamacpp.viking.svc:8080` — nomic-embed-text f16 for vector embeddings
 - Read more in [`llama/README.md`](./llama/README.md) and [`viking/`](./viking/).
 
 ## Other Technologies
