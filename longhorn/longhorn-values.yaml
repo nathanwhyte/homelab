@@ -1,13 +1,13 @@
 ---
 # Longhorn Helm Chart Values
-# Chart: longhorn/longhorn v1.11.0
+# Chart: longhorn/longhorn v1.11.1
 #
 # Install with:
 #   helm repo add longhorn https://charts.longhorn.io
 #   helm repo update
 #   helm upgrade --install longhorn longhorn/longhorn \
 #     --namespace longhorn-system --create-namespace \
-#     -f longhorn/longhorn-values.yaml --version 1.11.0
+#     -f longhorn/longhorn-values.yaml --version 1.11.1
 
 # Default StorageClass configuration
 persistence:
