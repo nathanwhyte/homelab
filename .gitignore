@@ -65,3 +65,9 @@ uv-*.lock
 
 # Node compile cache
 node-compile-cache/
+
+# Lock files
+*.lock
+
+# Nested git repositories
+garage/garage/
