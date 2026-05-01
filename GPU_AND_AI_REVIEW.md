@@ -1,6 +1,6 @@
 # GPU & AI Infrastructure Review
 
-Comprehensive review of all GPU setup, model benchmarks, and AI tools work in the homelab K3s cluster. Compiled 2026-03-28.
+Comprehensive review of all GPU setup, model benchmarks, and AI tools work in the homelab K3s cluster. Compiled 2026-05-01.
 
 ---
 
@@ -8,21 +8,21 @@ Comprehensive review of all GPU setup, model benchmarks, and AI tools work in th
 
 ### Cluster Overview
 
-5-node K3s cluster. 56 threads, ~84 GB RAM, ~6.5 TB raw storage, 30 GB total VRAM across 3 GPUs.
+3-node K3s cluster. 36 threads, ~64 GB RAM, mixed storage, 30 GB total VRAM across 3 GPUs.
 
 | Node | Role | CPU | RAM | Storage | GPU | VRAM |
 |------|------|-----|-----|---------|-----|------|
 | **timmy** | Worker | AMD Ryzen 7 7800X3D (8C/16T) | 32 GB | WD Green SN3000 2TB NVMe | AMD RX 9070 XT (RDNA 4, gfx1201) | 16 GB GDDR6 |
 | **manu** | Worker | AMD Ryzen 7 1700 (8C/16T) | 16 GB | 2x Samsung 860 EVO 1TB SATA SSD | NVIDIA GTX 1080 (Pascal, SM 6.1) | 8 GB GDDR5X |
 | **wemby** | Control+Worker | Intel i7-8750H (6C/12T) | 16 GB | WDC SN520 256GB NVMe + 1TB HDD | NVIDIA GTX 1060 | 6 GB |
-| **patty** | Worker | Intel i5-7200U (2C/4T) | 8 GB | 1TB SATA HDD | None | -- |
-| **steph** | Worker | Intel i5-10210U (4C/8T) | 12 GB | 256GB NVMe | None | -- |
+
+**Retired nodes:** patty (i5-7200U, 8 GB) and steph (i5-10210U, 12 GB) removed from cluster.
 
 ### GPU Details
 
 | GPU | Node | Driver Stack | Device Plugin | Monitoring | Known Quirks |
 |-----|------|-------------|---------------|------------|-------------|
-| RX 9070 XT | timmy | AMDGPU 7.2.70200, ROCm 7.2, Kernel 6.17.0-19 | `amd.com/gpu: "1"` (no runtimeClassName needed) | Custom amdgpu-exporter DaemonSet (sysfs-based, port 9101) | iGPU (PCI 1002:164E) must be filtered: `HIP_VISIBLE_DEVICES=0`. Vulkan reverses device order. |
+| RX 9070 XT | timmy | AMDGPU 7.2.70200, ROCm 7.2, Kernel 6.17.0-23 | `amd.com/gpu: "1"` (no runtimeClassName needed) | Custom amdgpu-exporter DaemonSet (sysfs-based, port 9101) | iGPU (PCI 1002:164E) must be filtered: `HIP_VISIBLE_DEVICES=0`. Vulkan reverses device order. |
 | GTX 1080 | manu | NVIDIA GPU Operator (DCGM Exporter 4.4.2-4.7.0) | `nvidia.com/gpu: "1"`, `runtimeClassName: nvidia` | DCGM Exporter → Prometheus | Memory clock BIOS-locked at 4513 MHz (vs 5005 max). `nvidia-smi -ac` not supported on GeForce. |
 | GTX 1060 | wemby | NVIDIA GPU Operator | `nvidia.com/gpu: "1"`, `runtimeClassName: nvidia` | DCGM Exporter | Only 6 GB VRAM. Not currently used for inference. |
 
@@ -66,7 +66,7 @@ Comprehensive review of all GPU setup, model benchmarks, and AI tools work in th
 | 2026-03-23 | `38f6aca` | Add GPU profile toggle script for timmy |
 | 2026-03-23 | `7aef331` | Add junction temp metric to AMD GPU exporter |
 
-### Phase 4: Ollama Integration (Mar 2026)
+### Phase 4: Ollama Integration (Mar-Apr 2026)
 
 | Date | Commit | Event |
 |------|--------|-------|
@@ -82,6 +82,16 @@ Comprehensive review of all GPU setup, model benchmarks, and AI tools work in th
 | 2026-04-10 | `4913498` | Dual-model loading enabled; Prometheus scrape target moved from bare-metal to K8s service |
 | 2026-04-11 | `3063-3065` | LACT daemon deployed on timmy; fan curve tuned for aggressive cooling; thermal throttling resolved |
 | 2026-04-11 | `3076` | GPU fan curve adjusted to max at 85°C (GPU reached 94°C); replica count set to 1 for llama-model-cache |
+| 2026-04-27 | `3100` | Removed smaller devstral models from Ollama ConfigMap |
+| 2026-04-27 | `3103-3104` | Pruned ~80 GB of stale Ollama models (devstral, legacy) from PVC |
+| 2026-04-30 | `3116-3118` | SearXNG search service added; ConfigMap patched to fix CrashLoopBackOff |
+
+### Phase 5: Infrastructure Consolidation (Apr-May 2026)
+
+| Date | Commit | Event |
+|------|--------|-------|
+| 2026-04-30 | `3119` | Investigated combining cloudflared/ and cloudflare-system/ directories |
+| 2026-05-01 | `3122-3124` | Consolidated cloudflare tunnel manifests into unified `cloudflare/` directory |
 
 ---
 
@@ -140,22 +150,31 @@ Comprehensive review of all GPU setup, model benchmarks, and AI tools work in th
 - GPU thermal throttling resolved: fan curve adjusted to max at 85°C (GPU was reaching 94°C)
 - llama-model-cache replica count reduced to 1 (Longhorn optimization)
 
-### Current Architecture (2026-04-11)
+### Stage 9: Model Refresh & Cleanup (Apr 27-30)
+- Removed devstral models (devstral-4k, devstral-small-2-4k, devstral-small-2-32k) from startup script
+- Pruned ~80 GB of stale models from Ollama PVC
+- Added qwen3.5, qwen3.5-128k (131072 ctx), starcoder2, codestral to model lineup
+- SearXNG search service deployed for OpenWebUI web search integration
+
+### Current Architecture (2026-05-01)
 
 ```
                     ┌──────────────────────────────────────┐
                     │          timmy (RX 9070 XT)          │
                     │                                      │
                     │  ┌─ Ollama (llama ns) ────────────┐  │
-                    │  │ qwen3.5:9b-q4_K_M              │  │
+                    │  │ gemma4:e4b (warm), qwen3.5,    │  │
+                    │  │ mistral-nemo, starcoder2,      │  │
+                    │  │ codestral (available)          │  │
                     │  │ flash-attn, q4_0 KV, keep-alive │  │
                     │  │ + Ollama Exporter sidecar       │  │
+                    │  │ + Auth Proxy (nginx)            │  │
                     │  └────────────────────────────────┘  │
                     │                                      │
-                    │  ┌─ Embedder (viking ns) ──────────┐ │
-                    │  │ nomic-embed-text-v1.5 f16       │ │
-                    │  │ CPU-only, 768-dim, ctx 16384    │ │
-                    │  └─────────────────────────────────┘ │
+                    │  ┌─ Embedder (viking ns) ──────────┐  │
+                    │  │ nomic-embed-text-v1.5 f16      │  │
+                    │  │ CPU-only, 768-dim, ctx 16384    │  │
+                    │  └─────────────────────────────────┘  │
                     └──────────────────────────────────────┘
 
                     ┌──────────────────────────────────────┐
@@ -167,6 +186,14 @@ Comprehensive review of all GPU setup, model benchmarks, and AI tools work in th
                     │  │ flash-attn, batch 2048           │ │
                     │  │ Power limit: 220W via nvidia-smi │ │
                     │  └─────────────────────────────────┘ │
+                    │                                      │
+                    │  ┌─ Open WebUI (openwebui ns) ──────┐ │
+                    │  │ StatefulSet, single replica      │ │
+                    │  └─────────────────────────────────┘ │
+                    │                                      │
+                    │  ┌─ SearXNG (searxng ns) ──────────┐ │
+                    │  │ Search aggregator for WebUI      │ │
+                    │  └─────────────────────────────────┘ │
                     └──────────────────────────────────────┘
 
                     ┌──────────────────────────────────────┐
@@ -174,11 +201,9 @@ Comprehensive review of all GPU setup, model benchmarks, and AI tools work in th
                     │                                      │
                     │  ┌─ OpenViking (viking ns) ─────────┐│
                     │  │ v0.2.9, AGFS on Garage S3       ││
-                    │  │ 2 workers (StatefulSet)          ││
+                    │  │ 3 workers (StatefulSet)          ││
                     │  │ Coordinator + Merge service      ││
-                    │  └──────────────────────────────────┘│
-                    │  ┌─ Open WebUI (openwebui ns) ──────┐│
-                    │  │ StatefulSet, single replica      ││
+                    │  │ Console web UI                   ││
                     │  └──────────────────────────────────┘│
                     └──────────────────────────────────────┘
 ```
@@ -321,6 +346,7 @@ Detailed concurrency testing for the OV LLM endpoint on manu.
 
 - Embedder ctx-size bumped from 8192 to 16384 to fix embedding failures with 8 parallel slots
 - Ollama context: 24K optimal for qwen3.5:9b -- higher values (48K, 65K) cause gen slowdown as KV spills to RAM
+- qwen3.5-128k variant created with 131072 ctx for long-context tasks (separate from default 24K)
 - `max_tokens=2048` is "free insurance" -- model naturally stops at 100-900 tokens for summarization
 
 #### Networking
@@ -341,6 +367,7 @@ Detailed concurrency testing for the OV LLM endpoint on manu.
 | Nanochat training without iGPU filtering | ROCm enumerates both devices, crashes on iGPU |
 | OV multi-worker in v0.2.9 | Scoped search broken, no true multi-worker support |
 | Large model (Qwen3 14B) on GTX 1080 | Exceeded 8 GB VRAM, switched to Qwen3-8B |
+| devstral-small-2:24b on 16GB | Filled VRAM exactly at 100% offload; required scaling all other GPU workloads to 0 |
 
 ---
 
@@ -353,10 +380,10 @@ Detailed concurrency testing for the OV LLM endpoint on manu.
 | Component | Namespace | Node | Status | Config |
 |-----------|-----------|------|--------|--------|
 | OpenViking server (v0.2.9) | viking | wemby | Running (1 replica) | AGFS on Garage S3, 4 CPU / 4Gi mem |
-| OV Workers (StatefulSet) | viking | spread | Running (2/2) | 5Gi PVC each, Longhorn SSD, 3 CPU / 3Gi mem |
-| OV Coordinator | viking | any | Running (1/1) | Routes parallel indexing across workers |
-| OV Merge service | viking | any | Scaled to 0 | Unified read service for multi-worker reads |
-| OV Console | viking | any | Running (1/1) | Web UI for browsing knowledge base |
+| OV Workers (StatefulSet) | viking | spread | Running (3/3) | 5Gi PVC each, Longhorn SSD, 3 CPU / 3Gi mem |
+| OV Coordinator | viking | timmy | Running (1/1) | Routes parallel indexing across workers |
+| OV Merge service | viking | timmy | Running (1/1) | Unified read service for multi-worker reads |
+| OV Console | viking | wemby | Running (1/1) | Web UI for browsing knowledge base |
 | Embedder (llama.cpp) | viking | timmy | Running (1/1) | nomic-embed-text-v1.5 f16, CPU-only, 768-dim, 8 parallel, ctx 16384 |
 | VLM (llama.cpp CUDA) | viking | manu | Running (1/1) | Qwen3-8B Q4_K_M, 4 slots, 32768 ctx, q4_0 KV |
 | MCP Server | local | -- | Python process | httpx with HTTP/2, connects to OV + VLM + Embedder |
@@ -366,20 +393,13 @@ Detailed concurrency testing for the OV LLM endpoint on manu.
 **Storage evolution:**
 - Local PVC → Garage S3 (AGFS migration)
 - Discovered v0.2.9 limitations: no multi-worker, scoped search broken, creds must be inline
+- Workers scaled from 2 → 3 for better throughput
 
-### 6.2 Summarizer API
+### 6.2 Summarizer API (Removed)
 
-**Purpose:** Agentic tool-calling loop with LLM + OpenViking integration.
+**Status:** Scaled to 0 and removed from active service routing (Apr 2026).
 
-| Endpoint | Description |
-|----------|-------------|
-| `POST /summarize` | Summarize context text (code, conversation, general) |
-| `POST /v1/agent` | Agentic loop: LLM generates tool calls → executed against OV → results fed back → repeat |
-| `GET /healthz` | Health check |
-
-- Concurrency limiter: 2 simultaneous LLM requests
-- Tools available: `viking_search`, `viking_read`, `viking_find`, `viking_ls`, `viking_add_text`
-- **Currently scaled to 0** (along with `qwen-summarizer-llm` service on manu)
+Previously provided agentic tool-calling loop with LLM + OpenViking integration. Functionality superseded by OpenViking's native tool-calling capabilities.
 
 ### 6.3 Ollama
 
@@ -389,18 +409,20 @@ Detailed concurrency testing for the OV LLM endpoint on manu.
 |---------|-------|
 | Image | `ollama/ollama:rocm` |
 | Node | timmy (RX 9070 XT) |
-| Model | qwen3.5:9b-q4_K_M (via Modelfile `qwen35-claude`) |
+| Warm model | `gemma4:e4b` (~10 GB VRAM, 69%/31% CPU/GPU split) |
+| Available models | `qwen3.5`, `qwen3.5-128k` (131072 ctx), `gemma4:e4b`, `mistral-nemo`, `starcoder2`, `codestral`, `starcoder2:15b`, `codestral:22b` |
 | Flash attention | Enabled |
 | KV cache type | q4_0 (75% memory savings) |
 | Keep alive | Infinite (-1) -- dedicated GPU, single-user |
 | Parallel slots | 1 (Claude Code is single-threaded) |
-| Max loaded models | 1 (16GB can't fit two) |
-| Context | 24K (higher causes KV spill to RAM) |
+| Max loaded models | 1 (16GB can't fit two large models simultaneously) |
+| Context | 24K default; 128K for qwen3.5-128k variant |
 | Thinking mode | Disabled (/no_think) -- inflates tokens 10-20x |
 | Monitoring | Ollama exporter sidecar (port 9111) |
+| Auth | nginx auth proxy in front of Ollama API |
 | External access | robots.nathanwhyte.dev via Cloudflare Tunnel |
 
-**Alternative model:** devstral-small-2:24b (Mistral's SWE agent model) -- fills 16GB exactly at 100% GPU offload. Purpose-built for tool calling, vision, 384K native context. Requires scaling other GPU workloads to 0 first.
+**Removed models (Apr 2026):** devstral-4k, devstral-small-2-4k, devstral-small-2-32k -- pruned to free ~80 GB.
 
 ### 6.4 Open WebUI
 
@@ -409,8 +431,20 @@ Detailed concurrency testing for the OV LLM endpoint on manu.
 - Namespace: openwebui
 - StatefulSet: 1 replica
 - Service: ClusterIP on port 80
+- Node: manu (moved from wemby to free wemby's resources for OpenViking)
+- Web search: SearXNG integration enabled (searxng namespace)
 
-### 6.5 Nanochat Training Pipeline
+### 6.5 SearXNG
+
+**Purpose:** Privacy-respecting search aggregator for OpenWebUI web search.
+
+- Namespace: searxng
+- Deployment: 1 replica
+- Node: manu
+- Config: `server.secret_key` required in ConfigMap (missing key caused CrashLoopBackOff, patched Apr 30)
+- Integration: OpenWebUI configured to use SearXNG for web search queries
+
+### 6.6 Nanochat Training Pipeline
 
 **Purpose:** LLM fine-tuning on AMD GPU.
 
@@ -422,8 +456,9 @@ Detailed concurrency testing for the OV LLM endpoint on manu.
 | GPU | timmy's RX 9070 XT |
 | Target model name | "pop" (`--run=pop`) |
 | Fix applied | Single GPU with v3 image (iGPU filtering) |
+| Status | Moved to `backlog/` (May 2026) -- not actively training |
 
-### 6.6 GPU Monitoring Stack
+### 6.7 GPU Monitoring Stack
 
 | Component | Type | Node Selector | Metrics |
 |-----------|------|---------------|---------|
@@ -436,7 +471,7 @@ Detailed concurrency testing for the OV LLM endpoint on manu.
 
 ---
 
-## 7. Current State (2026-03-28)
+## 7. Current State (2026-05-01)
 
 ### Running Workloads
 
@@ -446,30 +481,32 @@ Detailed concurrency testing for the OV LLM endpoint on manu.
 | **viking** | llamacpp-rocm | 0/0 | -- | -- | Scaled to 0 (hot standby) |
 | **viking** | embedder-llamacpp | 1/1 | timmy | CPU | nomic-embed-text-v1.5 |
 | **viking** | openviking | 1/1 | wemby | -- | OV server |
-| **viking** | ov-worker (SS) | 2/2 | spread | -- | OV data workers |
-| **viking** | ov-coordinator | 1/1 | any | -- | Parallel indexing coordinator |
-| **viking** | ov-console | 1/1 | any | -- | OV web UI |
-| **viking** | ov-merge | 0/0 | -- | -- | Scaled to 0 |
+| **viking** | ov-worker (SS) | 3/3 | spread | -- | OV data workers |
+| **viking** | ov-coordinator | 1/1 | timmy | -- | Parallel indexing coordinator |
+| **viking** | ov-console | 1/1 | wemby | -- | OV web UI |
+| **viking** | ov-merge | 1/1 | timmy | -- | Unified read service |
 | **llama** | ollama | 1/1 | timmy | RX 9070 XT | Ollama for Claude Code |
-| **llama** | cloudflared | 0/0 | -- | -- | Scaled to 0 |
-| **openwebui** | open-webui (SS) | 1/1 | any | -- | Chat UI |
+| **llama** | ollama-auth-proxy | 1/1 | timmy | -- | BasicAuth proxy for Ollama |
+| **llama** | cloudflared | 0/0 | -- | -- | Scaled to 0 (using namespace tunnels) |
+| **openwebui** | open-webui (SS) | 1/1 | manu | -- | Chat UI |
+| **searxng** | searxng | 1/1 | manu | -- | Search aggregator |
 
 ### Service Routing
 
 | Service | Endpoint | Backends |
 |---------|----------|----------|
-| `llamacpp-rocm-llm.viking.svc:80` | OV VLM | Selector: `app: llamacpp-cuda-ov` (points to manu CUDA) |
+| `llamacpp-cuda-llm.viking.svc:80` | OV VLM | Selector: `app: llamacpp-cuda-ov` (points to manu CUDA) |
 | `embedder-llamacpp.viking.svc:8080` | Embeddings | nomic-embed on timmy (CPU) |
 | `openviking.viking.svc:1933` | Knowledge base | OV server on wemby |
 | `ollama.llama.svc:80` | Ollama API | Ollama on timmy |
 | `qwen-summarizer-llm.llama.svc:80` | Summarizer LLM | **Removed** (Apr 2026) |
-| `summarizer-api.llama.svc:80` | Agent API | **Removed** (Apr 2026) — replaced by OV tool-calling |
+| `summarizer-api.llama.svc:80` | Agent API | **Removed** (Apr 2026) -- replaced by OV tool-calling |
 
 ### GPU Allocation
 
 | GPU | Current Workload | VRAM Used | Notes |
 |-----|-----------------|-----------|-------|
-| RX 9070 XT (timmy) | Ollama qwen3.5:9b-q4_K_M | ~5 GB weights + KV | Ollama keeps model loaded indefinitely |
+| RX 9070 XT (timmy) | Ollama gemma4:e4b | ~10 GB | Model loaded indefinitely; qwen3.5 available on demand |
 | GTX 1080 (manu) | llamacpp-cuda-ov Qwen3-8B | ~6.2 GB / 8 GB | 4 parallel slots, power limit 220W |
 | GTX 1060 (wemby) | Unused | 0 | Available for lightweight tasks |
 
@@ -507,7 +544,7 @@ Detailed concurrency testing for the OV LLM endpoint on manu.
 
 **Context:** timmy's 9070 XT could run either llama.cpp or Ollama.
 
-**Rationale:** Ollama provides model management, Modelfile customization, keep-alive, and native `ollama launch claude` integration. The overhead is minimal. devstral-small-2:24b (purpose-built for SWE agents) fills 16GB exactly via Ollama.
+**Rationale:** Ollama provides model management, Modelfile customization, keep-alive, and native `ollama launch claude` integration. The overhead is minimal.
 
 ### Decision 6: LACT for GPU tuning (consolidated)
 
@@ -527,6 +564,18 @@ Detailed concurrency testing for the OV LLM endpoint on manu.
 
 **Rationale:** Garage S3 provides shared object storage accessible from any node. However, discovered v0.2.9 limitations -- multi-worker and scoped search broken, credentials must be inline. Still better than node-pinned local PVCs for availability.
 
+### Decision 9: Remove devstral models (Apr 2026)
+
+**Context:** devstral-small-2:24b filled 16GB VRAM at 100% GPU offload, requiring all other GPU workloads to be scaled to 0.
+
+**Rationale:** The model was impractical for daily use in a multi-workload cluster. Smaller variants (4k, 32k) were also unused. Removed from startup script and pruned ~80 GB from PVC to free space.
+
+### Decision 10: Add qwen3.5-128k variant (Apr 2026)
+
+**Context:** Need for long-context tasks beyond Ollama's default 24K context.
+
+**Rationale:** Created a separate Modelfile variant with `num_ctx 131072` for tasks requiring very long context windows. Default qwen3.5 remains at 24K for speed. The 128K variant trades speed for context length.
+
 ---
 
 ## 9. Lessons Learned
@@ -538,3 +587,6 @@ Detailed concurrency testing for the OV LLM endpoint on manu.
 5. **RDNA 4 support arrived** -- Ollama and llama.cpp both work on the 9070 XT with ROCm 7.2, but the iGPU must be explicitly filtered.
 6. **Network tuning has outsized impact** -- VXLAN→host-gw and HTTP/1.1→HTTP/2 both provided large throughput improvements with minimal effort.
 7. **Monitoring is essential** -- GPU dashboards, Ollama exporter, and Prometheus scraping caught power-starvation and thermal issues that would have gone unnoticed.
+8. **Model hoarding is expensive** -- keeping unused models on PVC consumes significant storage. Regular pruning saves space and reduces startup time.
+9. **ConfigMap secrets are a footgun** -- SearXNG's `server.secret_key` missing from ConfigMap caused CrashLoopBackOff. Always validate required secrets in ConfigMaps.
+10. **128K context is a different beast** -- while possible, models with 131072 context require careful memory management and are significantly slower than their 24K counterparts.
