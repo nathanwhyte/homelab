@@ -1,0 +1,50 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: crictl-image-prune
+  namespace: kube-system
+  labels:
+    app: crictl-image-prune
+spec:
+  selector:
+    matchLabels:
+      app: crictl-image-prune
+  template:
+    metadata:
+      labels:
+        app: crictl-image-prune
+    spec:
+      hostPID: true
+      containers:
+        - name: prune
+          image: busybox:musl
+          command:
+            - sh
+            - -c
+            - |
+              while true; do
+                echo "$(date): Pruning unused images..."
+                nsenter --mount=/proc/1/ns/mnt -- /usr/local/bin/crictl \
+                  --runtime-endpoint /run/k3s/containerd/containerd.sock \
+                  rmi --prune 2>&1 || true
+                # Sleep 24 hours
+                sleep 86400
+              done
+          securityContext:
+            privileged: true
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+      tolerations:
+        - key: node-role.kubernetes.io/control-plane
+          operator: Exists
+          effect: NoSchedule
+        - key: node-role.kubernetes.io/master
+          operator: Exists
+          effect: NoSchedule
+      priorityClassName: system-node-critical
+      restartPolicy: Always
