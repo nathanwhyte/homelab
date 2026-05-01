@@ -1,94 +1,89 @@
 #!/usr/bin/env bash
-# GPU fan controller for AMD RDNA 4 — uses fan1_target (RPM) instead of PWM.
-# PWM writes are ignored by RDNA 4 firmware; fan1_target works.
-# Reads junction temp (temp2_input). Designed for headless 24/7 inference.
+# AMD GPU fan controller — RDNA 4 (RX 9070 XT)
+# Uses junction temp (temp2_input) for throttle-relevant control.
+# RDNA 4 exposes fan1_enable instead of pwm1_enable; pwm1 is written directly.
+#
+# Curve matches amdgpu-fan.yml:
+#   0°C→30%  50°C→40%  70°C→60%  80°C→80%  85°C→100%
+#
+# Deploy: cp amdgpu-fan-control.sh /opt/amdgpu-fan-control.sh
+# Service env vars: AMDGPU_CARD (default: card1), FAN_INTERVAL (default: 3)
 
 set -euo pipefail
 
 CARD="${AMDGPU_CARD:-card1}"
-HWMON=$(ls -d /sys/class/drm/${CARD}/device/hwmon/hwmon* 2>/dev/null | head -1)
 INTERVAL="${FAN_INTERVAL:-3}"
+TEMP_DROP=5   # hysteresis: don't reduce fan until temp falls this many °C
 
-if [ -z "$HWMON" ]; then
-    echo "ERROR: No hwmon found for ${CARD}"
-    exit 1
-fi
+HWMON_BASE="/sys/class/drm/${CARD}/device/hwmon"
+HWMON_PATH="${HWMON_BASE}/$(ls "${HWMON_BASE}/" | head -1)"
+TEMP_FILE="${HWMON_PATH}/temp2_input"   # junction temp (millidegrees)
+PWM_FILE="${HWMON_PATH}/pwm1"
 
-FAN_TARGET="${HWMON}/fan1_target"
-FAN_INPUT="${HWMON}/fan1_input"
-FAN_MAX=$(cat "${HWMON}/fan1_max" 2>/dev/null || echo 3600)
-FAN_MIN=$(cat "${HWMON}/fan1_min" 2>/dev/null || echo 0)
-TEMP_JUNCTION="${HWMON}/temp2_input"
-TEMP_EDGE="${HWMON}/temp1_input"
+# Curve: parallel arrays of (temp °C, fan %)
+CURVE_TEMPS=(0  50  70  80  85)
+CURVE_SPEEDS=(30 40  60  80 100)
 
-if [ ! -f "$FAN_TARGET" ]; then
-    echo "ERROR: fan1_target not found at ${FAN_TARGET}"
-    exit 1
-fi
+interpolate() {
+    local temp=$1
+    local n=${#CURVE_TEMPS[@]}
+    local last=$(( n - 1 ))
 
-# Enable manual fan control if supported
-if [ -f "${HWMON}/pwm1_enable" ]; then
-    echo 1 > "${HWMON}/pwm1_enable" 2>/dev/null || true
-fi
+    (( temp <= CURVE_TEMPS[0] ))    && echo "${CURVE_SPEEDS[0]}"  && return
+    (( temp >= CURVE_TEMPS[last] )) && echo "${CURVE_SPEEDS[last]}" && return
 
-# Fan curve: junction_temp → fan RPM percentage of max
-# Aggressive for inference — prioritize cooling over noise
-LAST_RPM=0
-TEMP_DROP=5
-
-get_fan_pct() {
-    local t=$1
-    [ "$t" -ge 85 ] && echo 100 && return
-    [ "$t" -ge 80 ] && echo 80 && return
-    [ "$t" -ge 70 ] && echo 60 && return
-    [ "$t" -ge 50 ] && echo 40 && return
-    echo 30
+    for (( i=1; i<n; i++ )); do
+        if (( temp <= CURVE_TEMPS[i] )); then
+            local t0=${CURVE_TEMPS[i-1]} t1=${CURVE_TEMPS[i]}
+            local s0=${CURVE_SPEEDS[i-1]} s1=${CURVE_SPEEDS[i]}
+            echo $(( s0 + (s1 - s0) * (temp - t0) / (t1 - t0) ))
+            return
+        fi
+    done
 }
 
-cleanup() {
-    echo "Restoring automatic fan control..."
-    if [ -f "${HWMON}/pwm1_enable" ]; then
-        echo 2 > "${HWMON}/pwm1_enable" 2>/dev/null || true
-    fi
-    exit 0
-}
-trap cleanup SIGTERM SIGINT
+pct_to_pwm() { echo $(( $1 * 255 / 100 )); }
 
-echo "amdgpu-fan-control started (RPM target mode)"
-echo "  Card: ${CARD} (${HWMON})"
-echo "  Fan target: ${FAN_TARGET}"
-echo "  Fan range: ${FAN_MIN}-${FAN_MAX} RPM"
-echo "  Junction temp: ${TEMP_JUNCTION}"
-echo "  Interval: ${INTERVAL}s"
+restore_auto() {
+    echo "restoring automatic fan control"
+    # pwm1_enable=2 restores auto mode on standard cards; RDNA 4 may not have this file
+    [[ -f "${HWMON_PATH}/pwm1_enable" ]] && echo 2 > "${HWMON_PATH}/pwm1_enable" 2>/dev/null || true
+}
+trap restore_auto EXIT INT TERM
+
+echo "amdgpu-fan-control starting"
+echo "  card:     ${CARD}"
+echo "  hwmon:    ${HWMON_PATH}"
+echo "  interval: ${INTERVAL}s"
+echo "  temp_drop: ${TEMP_DROP}°C"
+echo "  fan control: direct pwm1 (RDNA 4 — no pwm1_enable)"
+
+prev_temp=0
+current_speed=0
 
 while true; do
-    junc_raw=$(cat "$TEMP_JUNCTION" 2>/dev/null || echo 0)
-    junc=$((junc_raw / 1000))
+    raw=$(cat "${TEMP_FILE}")
+    temp=$(( raw / 1000 ))
 
-    edge_raw=$(cat "$TEMP_EDGE" 2>/dev/null || echo 0)
-    edge=$((edge_raw / 1000))
-
-    pct=$(get_fan_pct "$junc")
-    target_rpm=$(( pct * FAN_MAX / 100 ))
-
-    # Hysteresis: only reduce RPM if temp dropped enough
-    if [ "$target_rpm" -lt "$LAST_RPM" ]; then
-        check_pct=$(get_fan_pct $((junc + TEMP_DROP)))
-        check_rpm=$(( check_pct * FAN_MAX / 100 ))
-        if [ "$check_rpm" -ge "$LAST_RPM" ]; then
-            target_rpm=$LAST_RPM
-            pct=$((LAST_RPM * 100 / FAN_MAX))
-        fi
+    # Apply hysteresis when temperature is falling:
+    # use (temp - TEMP_DROP) for curve lookup so we don't ramp down prematurely
+    if (( temp < prev_temp )); then
+        effective=$(( temp - TEMP_DROP ))
+        (( effective < 0 )) && effective=0
+    else
+        effective=${temp}
     fi
 
-    echo "$target_rpm" > "$FAN_TARGET" 2>/dev/null || true
-    LAST_RPM=$target_rpm
-    actual_rpm=$(cat "$FAN_INPUT" 2>/dev/null || echo 0)
+    target=$(interpolate "${effective}")
 
-    # Log every 30 seconds
-    if [ $(( SECONDS % 30 )) -lt "$INTERVAL" ]; then
-        echo "j=${junc}C e=${edge}C target=${target_rpm}RPM actual=${actual_rpm}RPM (${pct}%)"
+    if (( target != current_speed )); then
+        pwm=$(pct_to_pwm "${target}")
+        echo "${pwm}" > "${PWM_FILE}"
+        printf "%s  junction=%d°C  effective=%d°C  fan=%d%%  pwm=%d\n" \
+            "$(date '+%H:%M:%S')" "${temp}" "${effective}" "${target}" "${pwm}"
+        current_speed=${target}
     fi
 
-    sleep "$INTERVAL"
+    prev_temp=${temp}
+    sleep "${INTERVAL}"
 done

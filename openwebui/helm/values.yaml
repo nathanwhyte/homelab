@@ -8,17 +8,32 @@ image:
   pullPolicy: IfNotPresent
   slim: true
 
-# --- External Ollama (timmy bare metal) ---
+# --- External Ollama (timmy K8s) ---
 ollama:
   enabled: false
 
 ollamaUrls:
   - "http://ollama.llama.svc:80"
 
-# --- OpenAI-compatible API (llama-server on manu) ---
-enableOpenaiApi: true
-openaiBaseApiUrl: "http://llamacpp-rocm-llm.viking.svc:80/v1"
-openaiApiKey: "not-needed"
+# --- Available models (matches llama/ollama-configmap.yaml) ---
+# Leaving unset = auto-discover all models from Ollama endpoint.
+# Set OLLAMA_MODELS to filter which models appear in the UI (comma-separated).
+extraEnvVars:
+  - name: OLLAMA_MODELS
+    value: "mistral-nemo-q8,gemma4:e4b,qwen3.5:9b"
+
+  # --- Web Search (SearXNG) ---
+  - name: ENABLE_RAG_WEB_SEARCH
+    value: "true"
+  - name: WEB_SEARCH_ENGINE
+    value: "searxng"
+  - name: SEARXNG_QUERY_URL
+    value: "http://searxng.searxng.svc:8080/search?q=<query>&format=json"
+  - name: WEB_SEARCH_RESULT_COUNT
+    value: "5"
+
+# --- OpenAI-compatible API (disabled — OV LLM is for OpenViking, not chat UI) ---
+enableOpenaiApi: false
 
 # --- Pipelines (disabled for simplicity) ---
 pipelines:
@@ -32,17 +47,9 @@ persistence:
   accessModes:
     - ReadWriteOnce
 
-# --- Ingress (Traefik) ---
+# --- Ingress (disabled — Cloudflare tunnel handles chat.nathanwhyte.dev) ---
 ingress:
-  enabled: true
-  class: traefik
-  annotations:
-    traefik.ingress.kubernetes.io/router.entrypoints: websecure
-    traefik.ingress.kubernetes.io/router.tls: "true"
-    cert-manager.io/cluster-issuer: letsencrypt-prod
-  host: chat.nathanwhyte.dev
-  tls: true
-  existingSecret: ""
+  enabled: false
 
 # --- Service ---
 service:
