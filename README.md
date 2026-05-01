@@ -63,31 +63,6 @@ Privacy-respecting metasearch engine, used as the web search backend for OpenWeb
 - Lightweight deployment with custom settings via ConfigMap.
 - Aggregates results from multiple search engines without tracking.
 
-### Homepage
-
-A clean, customizable personal dashboard for accessing internal services.
-
-- Static configuration via ConfigMap with service bookmarks and status widgets.
-- Exposed through a Cloudflare Tunnel.
-
-### Excalidraw
-
-Virtual whiteboard for sketching diagrams and brainstorming.
-
-- Lightweight, collaborative drawing tool deployed in-cluster.
-
-### IT-tools
-
-Collection of handy developer utilities (formatters, converters, encoders, etc.).
-
-- Single-container deployment for quick access to common tools.
-
-### Stirling PDF
-
-Web-based PDF manipulation tool (merge, split, rotate, compress, convert, etc.).
-
-- Runs in a container with all PDF processing handled locally.
-
 ### Garage
 
 S3-compatible object storage engine.
