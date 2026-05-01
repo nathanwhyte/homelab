@@ -157,6 +157,9 @@ core:
     limits:
       memory: 512Mi
       cpu: 500m
+  # NOTE: Probe timeouts are patched manually on the live deployment because
+  # chart v1.18.3 hardcodes them without values support. After any helm
+  # upgrade, re-apply: kubectl patch deployment harbor-core -n harbor --type='json' -p='[{"op":"add","path":"/spec/template/spec/containers/0/livenessProbe/timeoutSeconds","value":5},{"op":"add","path":"/spec/template/spec/containers/0/readinessProbe/timeoutSeconds","value":5}]'
   # Allow anonymous/public pull access for projects marked as public
   # Pushes still require authentication
   projectCreationRestriction: "everyone"
