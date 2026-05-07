@@ -1,95 +1,114 @@
-# context-mode — MANDATORY routing rules
+# Homelab project
 
-You have context-mode MCP tools available. These rules are NOT optional — they protect your context window from flooding. A single unrouted command can dump 56 KB into context and waste the entire session.
+3-node K3s cluster running AI/RAG workloads. See [AGENTS.md](AGENTS.md) for repo conventions and safety rules. See [HARDWARE.md](HARDWARE.md) for node specs. See [GPU_AND_AI_REVIEW.md](GPU_AND_AI_REVIEW.md) for design decisions, benchmarks, and architecture history.
 
-## BLOCKED commands — do NOT attempt these
+## Cluster topology
 
-### curl / wget — BLOCKED
-
-Any Bash command containing `curl` or `wget` is intercepted and replaced with an error message. Do NOT retry.
-Instead use:
-
-- `ctx_fetch_and_index(url, source)` to fetch and index web pages
-- `ctx_execute(language: "javascript", code: "const r = await fetch(...)")` to run HTTP calls in sandbox
-
-### Inline HTTP — BLOCKED
-
-Any Bash command containing `fetch('http`, `requests.get(`, `requests.post(`, `http.get(`, or `http.request(` is intercepted and replaced with an error message. Do NOT retry with Bash.
-Instead use:
-
-- `ctx_execute(language, code)` to run HTTP calls in sandbox — only stdout enters context
-
-### WebFetch — BLOCKED
-
-WebFetch calls are denied entirely. The URL is extracted and you are told to use `ctx_fetch_and_index` instead.
-Instead use:
-
-- `ctx_fetch_and_index(url, source)` then `ctx_search(queries)` to query the indexed content
-
-## REDIRECTED tools — use sandbox equivalents
-
-### Bash (>20 lines output)
-
-Bash is ONLY for: `git`, `mkdir`, `rm`, `mv`, `cd`, `ls`, `npm install`, `pip install`, and other short-output commands.
-For everything else, use:
-
-- `ctx_batch_execute(commands, queries)` — run multiple commands + search in ONE call
-- `ctx_execute(language: "shell", code: "...")` — run in sandbox, only stdout enters context
-
-### Read (for analysis)
-
-If you are reading a file to **Edit** it → Read is correct (Edit needs content in context).
-If you are reading to **analyze, explore, or summarize** → use `ctx_execute_file(path, language, code)` instead. Only your printed summary enters context. The raw file content stays in the sandbox.
-
-### Grep (large results)
-
-Grep results can flood context. Use `ctx_execute(language: "shell", code: "grep ...")` to run searches in sandbox. Only your printed summary enters context.
-
-## Tool selection hierarchy
-
-1. **GATHER**: `ctx_batch_execute(commands, queries)` — Primary tool. Runs all commands, auto-indexes output, returns search results. ONE call replaces 30+ individual calls.
-2. **FOLLOW-UP**: `ctx_search(queries: ["q1", "q2", ...])` — Query indexed content. Pass ALL questions as array in ONE call.
-3. **PROCESSING**: `ctx_execute(language, code)` | `ctx_execute_file(path, language, code)` — Sandbox execution. Only stdout enters context.
-4. **WEB**: `ctx_fetch_and_index(url, source)` then `ctx_search(queries)` — Fetch, chunk, index, query. Raw HTML never enters context.
-5. **INDEX**: `ctx_index(content, source)` — Store content in FTS5 knowledge base for later search.
-
-## Subagent routing
-
-When spawning subagents (Agent/Task tool), the routing block is automatically injected into their prompt. Bash-type subagents are upgraded to general-purpose so they have access to MCP tools. You do NOT need to manually instruct subagents about context-mode.
-
-## Output constraints
-
-- Keep responses under 500 words.
-- Write artifacts (code, configs, PRDs) to FILES — never return them as inline text. Return only: file path + 1-line description.
-- When indexing content, use descriptive source labels so others can `ctx_search(source: "label")` later.
-
-## ctx commands
-
-| Command       | Action                                                                                |
-| ------------- | ------------------------------------------------------------------------------------- |
-| `ctx stats`   | Call the `ctx_stats` MCP tool and display the full output verbatim                    |
-| `ctx doctor`  | Call the `ctx_doctor` MCP tool, run the returned shell command, display as checklist  |
-| `ctx upgrade` | Call the `ctx_upgrade` MCP tool, run the returned shell command, display as checklist |
-
-# LLM infrastructure
-
-timmy's RX 9070 XT is free for model experimentation.
+| Node | Role | GPU | Key workloads |
+|------|------|-----|---------------|
+| manu | worker | GTX 1080 8 GB | llamacpp-cuda-ov, ov-coordinator, openviking, ov-worker-0 |
+| timmy | worker | RX 9070 XT 16 GB | ollama, embedder-llamacpp, ov-merge, ov-worker-2 |
+| wemby | CP + worker | GTX 1060 6 GB | ov-console, ov-worker-1 |
 
 ## Service routing
 
-| Service | Endpoint | Purpose |
-|---------|----------|---------|
-| OV LLM (manu) | `llamacpp-cuda-llm.viking.svc:80` → `llamacpp-cuda-ov:8000` on manu | OV VLM inference only — NOT for OpenWebUI. 4 parallel slots, 8192 ctx/slot, q4_0 KV cache, 10Gi memory limit. |
-| ROCm LLM (timmy) | `llamacpp-rocm` deployment in viking namespace | Scaled to 0. Available for rollback or experimentation. RX 9070 XT (16GB VRAM). |
-| Embedder | `embedder-llamacpp.viking.svc:8080` on timmy | nomic-embed-text-v1.5 f16 (768-dim, CPU-only, single replica) |
-| OpenViking | `openviking.viking.svc:1933` on wemby | Knowledge base API |
-| Ollama (timmy) | `192.168.1.19:11434` on timmy (K8s, llama ns) | Warm model: `mistral-nemo-q8` (12B Q8_0, 32K ctx, ~14.2GB VRAM). Also available: `gemma-4` (gemma4:e4b, ~82 tok/s), `qwen-14b` (qwen2.5-coder:14b, code Q&A), `ministral-14b` (structured output). q4_0 KV, flash attn, 1h keep-alive, 1 parallel slot. |
-| Ollama Exporter | `192.168.1.19:9111` on timmy (bare metal) | Prometheus metrics for Ollama inference (model status, VRAM, tok/s, request counts). Scraped every 30s. |
+| Service | NS | Endpoint | Port | Node | Notes |
+|---------|-----|----------|------|------|-------|
+| OV LLM | viking | `llamacpp-cuda-llm.viking.svc` | 80→8000 | manu | VLM inference only; selector: `app=llamacpp-cuda-ov` |
+| Embedder | viking | `embedder-llamacpp.viking.svc` | 8080→8000 | timmy | CPU-only (n-gpu-layers=0) |
+| OpenViking | viking | `openviking.viking.svc` | 1933 | manu | Selector: `app=ov-coordinator` (write path) |
+| ov-merged | viking | `ov-merged.viking.svc` | 1933 | manu | Selector: `app=openviking` (read/merged path) |
+| ov-coordinator | viking | `ov-coordinator.viking.svc` | 1933 | manu | Write-sharded proxy to workers |
+| ov-merge | viking | `ov-merge.viking.svc` | 8080 | timmy | Merge status API; merges worker data into ov-merged |
+| ov-console | viking | `ov-console.viking.svc` | 8020 | wemby | Web UI; `--write-enabled` |
+| ov-worker | viking | headless | 1933 | spread | 3-replica StatefulSet; Parallel pod management |
+| Ollama | llama | `192.168.1.19` (LB) | 11434 | timmy | LoadBalancer; externalIP 192.168.1.19 |
+| Ollama Exporter | llama | `192.168.1.19` (LB) | 9111 | timmy | Sidecar in ollama pod; python:3.12-slim |
+| Ollama Auth Proxy | llama | `ollama-auth-proxy.llama.svc` | 80→8080 | timmy | nginx BasicAuth; Bearer token auth |
+
+## LLM configuration
+
+### OV LLM — llamacpp-cuda-ov (manu, NVIDIA GPU)
+
+| Setting | Value |
+|---------|-------|
+| Model | Qwen3-8B Q4_K_M (`/models/current.gguf`) |
+| ctx-size | 32768 (shared across 4 parallel slots) |
+| parallel | 4 |
+| KV cache | q4_0 (K + V) |
+| flash-attn | on |
+| cont-batching | enabled |
+| reasoning-format | deepseek |
+| batch | 2048 / ubatch 512 |
+| GPU power limit | 220W (nvidia-smi -pl 220 in initContainer) |
+| Resources | req 500m/3Gi+1GPU, lim 4/10Gi+1GPU |
+| Strategy | Recreate |
+
+### Embedder — embedder-llamacpp (timmy, CPU-only)
+
+| Setting | Value |
+|---------|-------|
+| Model | nomic-embed-text-v1.5 f16 |
+| ctx-size | 16384 |
+| parallel | 8 |
+| n-gpu-layers | 0 (CPU-only) |
+| rope-scaling | yarn, freq-scale 0.75 |
+| pooling | mean |
+| mlock | enabled |
+| Resources | req 2/1Gi, lim 8/6Gi |
+
+**Note**: Model stored in emptyDir (500Mi limit) — re-downloads on every pod restart.
+
+### Ollama (timmy, AMD ROCm GPU)
+
+| Setting | Value |
+|---------|-------|
+| NUM_CTX | 65536 |
+| FLASH_ATTENTION | 1 |
+| KV_CACHE_TYPE | q4_0 |
+| KEEP_ALIVE | 1h |
+| NUM_PARALLEL | 1 |
+| MAX_LOADED_MODELS | 1 |
+| HIP_VISIBLE_DEVICES | 0 |
+| Resources | req 500m/2Gi+1GPU, lim 8/20Gi+1GPU |
+| Startup models | gemma4:e4b (warm), qwen3.5, qwen3.5-128k, mistral-nemo, devstral:24b, codestral:22b, starcoder2:15b |
+| Strategy | Recreate |
+
+## Network / Ingress
+
+### Middlewares (viking ns, Traefik CRD)
+
+| Name | Type | Detail |
+|------|------|--------|
+| openviking-basicauth | basicAuth | secret: `openviking-auth-secret` |
+| openviking-https-redirect | redirectScheme | HTTP → HTTPS, permanent |
+| ov-console-local-only | ipAllowList | 192.168.1.0/24, 10.42.0.0/16, 10.43.0.0/16 |
+| ov-console-https-redirect | redirectScheme | HTTP → HTTPS, permanent |
+
+### External routes
+
+| Host | Backend | Entry | Middlewares | TLS |
+|------|---------|-------|-------------|-----|
+| `context.nathanwhyte.dev` | `openviking:1933` | websecure | openviking-basicauth | letsencrypt-prod |
+| `context.nathanwhyte.dev` | `openviking:1933` | web | openviking-https-redirect | — |
+| `viking.nathanwhyte.dev` | `ov-console:8020` | websecure | ov-console-local-only | letsencrypt-prod |
+| `viking.nathanwhyte.dev` | `ov-console:8020` | web | ov-console-https-redirect | — |
+
+## Secrets and config
+
+| Secret | NS | Purpose |
+|--------|-----|---------|
+| openviking-auth-secret | viking | htpasswd for BasicAuth middleware |
+| openviking-api-key | viking | OV API key (injected into coordinator, merge, workers) |
+| openviking-s3-credentials | viking | Garage S3 credentials (injected into openviking config) |
+| ollama-api-key | llama | Bearer token for auth proxy |
+
+ConfigMap `openviking-config` is rewritten at startup by an initContainer that injects S3 credentials and API key from secrets. Workers override `vlm.max_concurrent=2` and `embedding.max_concurrent=1`.
 
 ## Failover
 
-If manu is down, roll back OV LLM to timmy: change `llamacpp-rocm-llm` service selector back to `app: llamacpp-rocm` and scale `llamacpp-rocm` to 1 in `viking/rocm-llamacpp-deployment.yaml`. timmy's 9070 XT is currently free and available as a hot standby.
+If manu goes down, OV LLM can be redeployed to timmy's RX 9070 XT by creating a new deployment targeting timmy. The old ROCm manifest (`rocm-llamacpp-deployment.yaml`) was removed — a fresh deployment would be needed. See [GPU_AND_AI_REVIEW.md](GPU_AND_AI_REVIEW.md) for the full architecture history.
 
-# OpenViking knowledge base organization
+## OpenViking knowledge base
 
-See [OPENVIKING.md](OPENVIKING.md) for the full organization guide, including L0/L1/L2 tiered loading, directory structure rules, and cleanup cadence.
+See [OPENVIKING.md](OPENVIKING.md) for the organization guide (L0/L1/L2 tiers, directory rules, what to index). See ~/code/CLAUDE.md for the save/search workflow rules.
