@@ -315,8 +315,8 @@ import boto3
 from botocore.config import Config as BotoConfig
 
 _S3_ENDPOINT = os.environ.get("GARAGE_S3_ENDPOINT", "http://10.43.237.247:3900")
-_S3_ACCESS_KEY = os.environ.get("GARAGE_S3_ACCESS_KEY", "GKb0157d7a1f22c8e39c5464fc")
-_S3_SECRET_KEY = os.environ.get("GARAGE_S3_SECRET_KEY", "870141d4a56187469b076fa35840a8b0422313c43df47d8d367879c8bf603866")
+_S3_ACCESS_KEY = os.environ.get("GARAGE_S3_ACCESS_KEY")  # required — set in K8s secret
+_S3_SECRET_KEY = os.environ.get("GARAGE_S3_SECRET_KEY")  # required — set in K8s secret
 _S3_BUCKET = os.environ.get("FILESTORE_BUCKET", "filestore")
 _S3_REGION = "garage"
 
