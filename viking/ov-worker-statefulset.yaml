@@ -40,8 +40,8 @@ spec:
               python3 -c "
               import json, os
               conf = json.load(open('/config-template/ov.conf'))
-              conf['vlm']['max_concurrent'] = 2
-              conf['embedding']['max_concurrent'] = 1
+              conf['vlm']['max_concurrent'] = 4
+              conf['embedding']['max_concurrent'] = 3
               conf['server']['root_api_key'] = os.environ['API_KEY']
               conf['storage']['agfs']['s3']['access_key'] = os.environ['S3_ACCESS_KEY']
               conf['storage']['agfs']['s3']['secret_key'] = os.environ['S3_SECRET_KEY']
@@ -96,7 +96,7 @@ spec:
               memory: 1Gi
             limits:
               cpu: "3"
-              memory: 3Gi
+              memory: 4Gi
           startupProbe:
             httpGet:
               path: /health
