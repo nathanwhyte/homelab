@@ -21,7 +21,7 @@
 | ov-coordinator | viking | `ov-coordinator.viking.svc` | 1933 | manu | Write-sharded proxy to workers |
 | ov-merge | viking | `ov-merge.viking.svc` | 8080 | timmy | Merge status API; merges worker data into ov-merged |
 | ov-console | viking | `ov-console.viking.svc` | 8020 | wemby | Web UI; `--write-enabled` |
-| ov-worker | viking | headless | 1933 | spread | 3-replica StatefulSet; Parallel pod management |
+| ov-worker | viking | headless | 1933 | timmy (preferred) | 3-replica StatefulSet; Parallel pod management; soft affinity timmy(80)/manu(20) |
 | Ollama | llama | `192.168.1.19` (LB) | 11434 | timmy | LoadBalancer; externalIP 192.168.1.19 |
 | Ollama Exporter | llama | `192.168.1.19` (LB) | 9111 | timmy | Sidecar in ollama pod; python:3.12-slim |
 | Ollama Auth Proxy | llama | `ollama-auth-proxy.llama.svc` | 80→8080 | timmy | nginx BasicAuth; Bearer token auth |
