@@ -103,7 +103,7 @@
 | openviking-s3-credentials | viking | Garage S3 credentials (injected into openviking config) |
 | ollama-api-key | llama | Bearer token for auth proxy |
 
-ConfigMap `openviking-config` is rewritten at startup by an initContainer that injects S3 credentials and API key from secrets. Workers override `vlm.max_concurrent=2` and `embedding.max_concurrent=1`.
+ConfigMap `openviking-config` is rewritten at startup by an initContainer that injects S3 credentials and API key from secrets. Workers override `vlm.max_concurrent=4` and `embedding.max_concurrent=3`. Base config: `server.workers=2`, `embedding.batch_size=128`.
 
 ## Failover
 
