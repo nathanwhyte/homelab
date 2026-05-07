@@ -10,7 +10,7 @@ data:
       "default_account": "default",
       "default_user": "noot",
       "storage": {
-        "workspace": "/app/data",
+        "workspace": "/local",
         "vectordb": {
           "backend": "local",
           "name": "context",
