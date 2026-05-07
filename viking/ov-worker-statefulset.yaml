@@ -30,7 +30,23 @@ spec:
         app: ov-worker
     spec:
       terminationGracePeriodSeconds: 15
-      # No affinity rules — let scheduler spread freely across nodes
+      affinity:
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 80
+              preference:
+                matchExpressions:
+                  - key: kubernetes.io/hostname
+                    operator: In
+                    values:
+                      - timmy
+            - weight: 20
+              preference:
+                matchExpressions:
+                  - key: kubernetes.io/hostname
+                    operator: In
+                    values:
+                      - manu
       initContainers:
         - name: config-gen
           image: python:3.12-slim
