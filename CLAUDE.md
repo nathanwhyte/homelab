@@ -111,4 +111,4 @@ If manu goes down, OV LLM can be redeployed to timmy's RX 9070 XT by creating a 
 
 ## OpenViking knowledge base
 
-See [OPENVIKING.md](OPENVIKING.md) for the organization guide (L0/L1/L2 tiers, directory rules, what to index). See ~/code/CLAUDE.md for the save/search workflow rules.
+See [OPENVIKING.md](viking/OPENVIKING.md) for the organization guide (L0/L1/L2 tiers, directory rules, what to index). See ~/code/CLAUDE.md for the save/search workflow rules.
