@@ -74,16 +74,16 @@ spec:
           args:
             - >-
               echo "Cleaning stale temp files...";
-              find /local/temp -type f -mtime +1 -delete 2>/dev/null || true;
-              find /local/temp -type d -empty -delete 2>/dev/null || true;
+              find /app/data/temp -type f -mtime +1 -delete 2>/dev/null || true;
+              find /app/data/temp -type d -empty -delete 2>/dev/null || true;
               echo "Removing stale locks...";
-              rm -f /local/.openviking.pid;
-              rm -f /local/vectordb/context/store/LOCK;
-              find /local/viking -name '.path.ovlock' -delete 2>/dev/null || true;
+              rm -f /app/data/.openviking.pid;
+              rm -f /app/data/vectordb/context/store/LOCK;
+              find /app/data/viking -name '.path.ovlock' -delete 2>/dev/null || true;
               echo "Done."
           volumeMounts:
             - name: data
-              mountPath: /local
+              mountPath: /app/data
       containers:
         - name: openviking
           image: ghcr.io/volcengine/openviking:v0.2.9
@@ -127,7 +127,7 @@ spec:
               subPath: ov.conf
               readOnly: true
             - name: data
-              mountPath: /local
+              mountPath: /app/data
       volumes:
         - name: config-template
           configMap:
