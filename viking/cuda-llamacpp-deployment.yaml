@@ -41,7 +41,7 @@ spec:
       initContainers:
         - name: gpu-tune
           image: nvidia/cuda:12.4.0-base-ubuntu22.04
-          command: ["nvidia-smi", "-pl", "220"]
+          command: ["nvidia-smi", "-pl", "238"]
           securityContext:
             privileged: true
           resources:
@@ -103,12 +103,11 @@ spec:
             - --batch-size
             - "2048"
             - --ubatch-size
-            - "512"
+            - "1024"
             - --split-mode
             - none
             - --main-gpu
             - "0"
-            - --no-warmup
             - --flash-attn
             - "on"
             - --metrics
