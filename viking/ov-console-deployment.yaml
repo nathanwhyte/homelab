@@ -54,7 +54,7 @@ spec:
               mountPath: /static
       containers:
         - name: ov-console
-          image: ghcr.io/volcengine/openviking:v0.2.9
+          image: ghcr.io/volcengine/openviking:v0.3.14
           command: ["python", "-m", "openviking.console.bootstrap"]
           args:
             - "--host=0.0.0.0"

@@ -86,7 +86,7 @@ spec:
               mountPath: /app/data
       containers:
         - name: openviking
-          image: ghcr.io/volcengine/openviking:v0.2.9
+          image: ghcr.io/volcengine/openviking:v0.3.14
           ports:
             - containerPort: 1933
               name: http
@@ -123,7 +123,7 @@ spec:
                 command: ["/bin/sh", "-c", "sleep 5"]
           volumeMounts:
             - name: config-out
-              mountPath: /app/ov.conf
+              mountPath: /app/.openviking/ov.conf
               subPath: ov.conf
               readOnly: true
             - name: data
