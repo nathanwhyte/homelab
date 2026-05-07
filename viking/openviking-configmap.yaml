@@ -5,7 +5,6 @@ metadata:
   name: openviking-config
   namespace: viking
 data:
-  api-key: "47067ca1b704af555e417d8abf18ceebfa2e54f88e08b7d66db6f457d51fff55"
   ov.conf: |
     {
       "default_account": "default",
@@ -23,8 +22,8 @@ data:
             "bucket": "openviking-agfs",
             "endpoint": "http://garage.garage.svc.cluster.local:3900",
             "region": "garage",
-            "access_key": "GKb0157d7a1f22c8e39c5464fc",
-            "secret_key": "870141d4a56187469b076fa35840a8b0422313c43df47d8d367879c8bf603866",
+            "access_key": "${S3_ACCESS_KEY}",
+            "secret_key": "${S3_SECRET_KEY}",
             "use_path_style": true
           }
         }
@@ -39,7 +38,7 @@ data:
         "host": "0.0.0.0",
         "port": 1933,
         "workers": 1,
-        "root_api_key": "47067ca1b704af555e417d8abf18ceebfa2e54f88e08b7d66db6f457d51fff55"
+        "root_api_key": "${API_KEY}"
       },
       "log": {
         "level": "INFO",

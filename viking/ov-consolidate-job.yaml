@@ -232,7 +232,10 @@ spec:
             - name: OV_WORKERS
               value: "http://ov-worker-0.ov-worker-headless.viking.svc.cluster.local:1933,http://ov-worker-1.ov-worker-headless.viking.svc.cluster.local:1933,http://ov-worker-2.ov-worker-headless.viking.svc.cluster.local:1933"
             - name: OV_API_KEY
-              value: "47067ca1b704af555e417d8abf18ceebfa2e54f88e08b7d66db6f457d51fff55"
+              valueFrom:
+                secretKeyRef:
+                  name: openviking-api-key
+                  key: api-key
           volumeMounts:
             - name: script
               mountPath: /app

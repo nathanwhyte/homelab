@@ -25,7 +25,7 @@ from pathlib import Path
 # ── Configuration ────────────────────────────────────────────────────
 
 DEFAULT_COORDINATOR = "http://openviking.viking.svc.cluster.local:1933"
-DEFAULT_API_KEY = "47067ca1b704af555e417d8abf18ceebfa2e54f88e08b7d66db6f457d51fff55"
+DEFAULT_API_KEY = ""  # Must be set via OV_API_KEY env var
 DEFAULT_REPO = "/home/natew/code/homelab"
 TARGET_BASE = "viking://resources/projects/homelab"
 
