@@ -37,7 +37,7 @@ data:
       "server": {
         "host": "0.0.0.0",
         "port": 1933,
-        "workers": 1,
+        "workers": 2,
         "root_api_key": "${API_KEY}"
       },
       "log": {
@@ -51,7 +51,7 @@ data:
           "api_key": "sk-no-key-required",
           "api_base": "http://embedder-llamacpp.viking.svc.cluster.local:8080/v1",
           "dimension": 768,
-          "batch_size": 64
+          "batch_size": 128
         },
         "max_concurrent": 4
       },
