@@ -37,7 +37,7 @@ data:
       "server": {
         "host": "0.0.0.0",
         "port": 1933,
-        "workers": 2,
+        "workers": 1,
         "root_api_key": "${API_KEY}"
       },
       "log": {

@@ -6,9 +6,9 @@
 
 | Node | Role | GPU | Key workloads |
 |------|------|-----|---------------|
-| manu | worker | GTX 1080 8 GB | llamacpp-cuda-ov, ov-coordinator, openviking, ov-worker-0 |
-| timmy | worker | RX 9070 XT 16 GB | ollama, embedder-llamacpp, ov-merge, ov-worker-2 |
-| wemby | CP + worker | GTX 1060 6 GB | ov-console, ov-worker-1 |
+| manu | worker | GTX 1080 8 GB | llamacpp-cuda-ov, ov-coordinator, openviking |
+| timmy | worker | RX 9070 XT 16 GB | ollama, embedder-llamacpp, ov-merge, ov-worker (preferred) |
+| wemby | CP + worker | GTX 1060 6 GB | ov-console |
 
 ## Service routing
 
@@ -103,7 +103,7 @@
 | openviking-s3-credentials | viking | Garage S3 credentials (injected into openviking config) |
 | ollama-api-key | llama | Bearer token for auth proxy |
 
-ConfigMap `openviking-config` is rewritten at startup by an initContainer that injects S3 credentials and API key from secrets. Workers override `vlm.max_concurrent=4` and `embedding.max_concurrent=3`. Base config: `server.workers=2`, `embedding.batch_size=128`.
+ConfigMap `openviking-config` is rewritten at startup by an initContainer that injects S3 credentials and API key from secrets. Workers override `vlm.max_concurrent=4` and `embedding.max_concurrent=3`. Base config: `server.workers=1`, `embedding.batch_size=128`. Note: `server.workers=1` is required — multiple uvicorn workers per pod cause RocksDB VectorDB lock contention, crashing child processes and stalling the semantic queue.
 
 ## Failover
 
