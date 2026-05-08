@@ -16,34 +16,34 @@ echo ""
 
 # Step 1: Ensure namespace exists
 echo "--- Step 1: Namespace ---"
-kubectl apply -f "${SCRIPT_DIR}/namespace.yaml"
+kubectl apply -f "${SCRIPT_DIR}/manifests/namespace.yaml"
 
 # Step 2: Apply PVCs (unchanged, used by workers)
 echo "--- Step 2: PVCs ---"
-kubectl apply -f "${SCRIPT_DIR}/openviking-pvc.yaml"
+kubectl apply -f "${SCRIPT_DIR}/manifests/openviking-pvc.yaml"
 
 # Step 3: Apply base ConfigMap (unchanged, used by workers)
 echo "--- Step 3: ConfigMap ---"
-kubectl apply -f "${SCRIPT_DIR}/openviking-configmap.yaml"
+kubectl apply -f "${SCRIPT_DIR}/manifests/openviking-configmap.yaml"
 
 # Step 4: Apply secrets (if they exist)
 echo "--- Step 4: Secrets ---"
-if [ -f "${SCRIPT_DIR}/openviking-s3-credentials.secret.yaml" ]; then
+if [ -f "${SCRIPT_DIR}/manifests/openviking-s3-credentials.secret.yaml" ]; then
     echo "Applying S3 credentials secret..."
-    kubectl apply -f "${SCRIPT_DIR}/openviking-s3-credentials.secret.yaml"
+    kubectl apply -f "${SCRIPT_DIR}/manifests/openviking-s3-credentials.secret.yaml"
 else
     echo "S3 credentials secret not found."
     echo "  AGFS will fail to start until the secret exists."
-    echo "  Copy viking/openviking-s3-credentials.secret.yaml.example and fill in Garage credentials."
+    echo "  Copy viking/manifests/openviking-s3-credentials.secret.yaml.example and fill in Garage credentials."
 fi
 
-if [ -f "${SCRIPT_DIR}/openviking-auth.secret.yaml" ]; then
+if [ -f "${SCRIPT_DIR}/manifests/openviking-auth.secret.yaml" ]; then
     echo "Applying auth secret..."
-    kubectl apply -f "${SCRIPT_DIR}/openviking-auth.secret.yaml"
+    kubectl apply -f "${SCRIPT_DIR}/manifests/openviking-auth.secret.yaml"
 else
     echo "Auth secret not found."
     echo "  Ingress will reject all requests until the secret exists."
-    echo "  See viking/openviking-auth.secret.yaml.example for instructions."
+    echo "  See viking/manifests/openviking-auth.secret.yaml.example for instructions."
 fi
 
 # Step 5: Create coordinator code ConfigMap from source
@@ -58,43 +58,43 @@ kubectl -n "${NAMESPACE}" scale deployment/openviking --replicas=0 2>/dev/null |
 
 # Step 7: Apply headless service for worker DNS
 echo "--- Step 7: Headless service ---"
-kubectl apply -f "${SCRIPT_DIR}/ov-worker-headless-service.yaml"
+kubectl apply -f "${SCRIPT_DIR}/manifests/ov-worker-headless-service.yaml"
 
 # Step 8: Apply worker StatefulSet
 echo "--- Step 8: Worker StatefulSet ---"
-kubectl apply -f "${SCRIPT_DIR}/ov-worker-statefulset.yaml"
+kubectl apply -f "${SCRIPT_DIR}/manifests/ov-worker-statefulset.yaml"
 # Apply worker config configmap if it exists
-[[ -f "${SCRIPT_DIR}/ov-worker-config-configmap.yaml" ]] && \
-    kubectl apply -f "${SCRIPT_DIR}/ov-worker-config-configmap.yaml"
+[[ -f "${SCRIPT_DIR}/manifests/ov-worker-config-configmap.yaml" ]] && \
+    kubectl apply -f "${SCRIPT_DIR}/manifests/ov-worker-config-configmap.yaml"
 
 echo "Waiting for workers..."
 kubectl -n "${NAMESPACE}" rollout status statefulset/ov-worker --timeout=180s
 
 # Step 9: Apply coordinator deployment
 echo "--- Step 9: Coordinator ---"
-kubectl apply -f "${SCRIPT_DIR}/ov-coordinator-deployment.yaml"
+kubectl apply -f "${SCRIPT_DIR}/manifests/ov-coordinator-deployment.yaml"
 echo "Waiting for coordinator..."
 kubectl -n "${NAMESPACE}" rollout status deployment/ov-coordinator --timeout=120s
 
 # Step 10: Apply coordinator service (replaces existing 'openviking' service)
 echo "--- Step 10: Service (coordinator) ---"
-kubectl apply -f "${SCRIPT_DIR}/ov-coordinator-service.yaml"
+kubectl apply -f "${SCRIPT_DIR}/manifests/ov-coordinator-service.yaml"
 
 # Step 10b: Apply merged single-instance service path for background merging
 echo "--- Step 10b: Merged instance ---"
-kubectl apply -f "${SCRIPT_DIR}/openviking-deployment.yaml"
-kubectl apply -f "${SCRIPT_DIR}/ov-merged-service.yaml"
+kubectl apply -f "${SCRIPT_DIR}/manifests/openviking-deployment.yaml"
+kubectl apply -f "${SCRIPT_DIR}/manifests/ov-merged-service.yaml"
 
 # Step 11: Apply ingress (unchanged)
 echo "--- Step 11: Ingress ---"
-kubectl apply -f "${SCRIPT_DIR}/openviking-ingress.yaml"
+kubectl apply -f "${SCRIPT_DIR}/manifests/openviking-ingress.yaml"
 
 # Step 12: Apply embedder + CUDA LLM
 echo "--- Step 12: Embedder + CUDA LLM ---"
-kubectl apply -f "${SCRIPT_DIR}/embedder-llamacpp-deployment.yaml"
-kubectl apply -f "${SCRIPT_DIR}/embedder-llamacpp-service.yaml"
-kubectl apply -f "${SCRIPT_DIR}/cuda-llamacpp-deployment.yaml"
-kubectl apply -f "${SCRIPT_DIR}/cuda-llamacpp-service.yaml"
+kubectl apply -f "${SCRIPT_DIR}/manifests/embedder-llamacpp-deployment.yaml"
+kubectl apply -f "${SCRIPT_DIR}/manifests/embedder-llamacpp-service.yaml"
+kubectl apply -f "${SCRIPT_DIR}/manifests/cuda-llamacpp-deployment.yaml"
+kubectl apply -f "${SCRIPT_DIR}/manifests/cuda-llamacpp-service.yaml"
 
 # Step 13: Verify
 echo ""
@@ -120,5 +120,5 @@ echo ""
 echo "To rollback to single instance:"
 echo "  kubectl -n ${NAMESPACE} scale statefulset/ov-worker --replicas=0"
 echo "  kubectl -n ${NAMESPACE} scale deployment/ov-coordinator --replicas=0"
-echo "  kubectl apply -f ${SCRIPT_DIR}/openviking-service.yaml  # restore original selector"
+echo "  kubectl apply -f ${SCRIPT_DIR}/manifests/openviking-service.yaml  # restore original selector"
 echo "  kubectl -n ${NAMESPACE} scale deployment/openviking --replicas=1"
