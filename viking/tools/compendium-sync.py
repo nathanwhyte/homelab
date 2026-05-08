@@ -222,19 +222,14 @@ def sync_one(filepath, update=False):
 
     try:
         if update and uri_exists(uri):
-            # Update existing entry using ov write
+            # Update existing entry by deleting and recreating
+            # (ov write only works on files, not directories; entries are directories)
+            subprocess.run(['ov', 'rm', '-r', uri], capture_output=True, text=True, timeout=10)
+            subprocess.run(['ov', 'mkdir', target_dir], capture_output=True, text=True)
             result = subprocess.run(
-                ['ov', 'write', uri, '--content', payload],
+                ['ov', 'add-resource', tmp_path, '--to', uri],
                 capture_output=True, text=True, timeout=30
             )
-            if result.returncode != 0:
-                # Fallback: try add-resource with delete + recreate
-                subprocess.run(['ov', 'rm', '-r', uri], capture_output=True, text=True, timeout=10)
-                subprocess.run(['ov', 'mkdir', target_dir], capture_output=True, text=True)
-                result = subprocess.run(
-                    ['ov', 'add-resource', tmp_path, '--to', uri],
-                    capture_output=True, text=True, timeout=30
-                )
             if result.returncode != 0:
                 return {'status': 'error', 'path': filepath, 'reason': result.stderr[:200]}
             return {'status': 'updated', 'id': entry_id, 'name': name, 'target_dir': target_dir, 'uri': uri}
@@ -336,6 +331,7 @@ def sync_all(update=False):
             continue
 
         result = sync_one(filepath, update=update)
+        print(f"  [{len(results['synced'])+len(results['updated'])+len(results['exists'])+len(results['skipped'])+len(results['errors'])+1}/{len(files)}] {result['status']}: {result.get('id', '?')}", flush=True)
         if result['status'] in ('synced', 'updated', 'exists'):
             results[result['status']].append(result)
         elif result['status'] == 'skipped':
