@@ -103,7 +103,7 @@
 | openviking-s3-credentials | viking | Garage S3 credentials (injected into openviking config) |
 | ollama-api-key | llama | Bearer token for auth proxy |
 
-ConfigMap `openviking-config` is rewritten at startup by an initContainer that injects S3 credentials and API key from secrets. Workers override `vlm.max_concurrent=4` and `embedding.max_concurrent=3`. Base config: `server.workers=1`, `embedding.batch_size=128`. Note: `server.workers=1` is required — multiple uvicorn workers per pod cause RocksDB VectorDB lock contention, crashing child processes and stalling the semantic queue.
+ConfigMap `openviking-config` is rewritten at startup by an initContainer that injects S3 credentials and API key from secrets. Workers override `vlm.max_concurrent=4` and `embedding.max_concurrent=3`. Base config: `server.workers=1`, `embedding.batch_size=128`, `storage.lock_timeout=10.0`. Note: `server.workers=1` is required — multiple uvicorn workers per pod cause RocksDB VectorDB lock contention, crashing child processes and stalling the semantic queue. `lock_timeout=10.0` prevents "resource is busy" errors on directory locks during VLM processing — the server waits up to 10s for locks instead of failing immediately (upstream default was 0.0, fixed in PR #1064).
 
 ## Failover
 
