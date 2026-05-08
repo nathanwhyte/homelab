@@ -11,6 +11,7 @@ data:
       "default_user": "noot",
       "storage": {
         "workspace": "/app/data",
+        "lock_timeout": 10.0,
         "vectordb": {
           "backend": "local",
           "name": "context",
