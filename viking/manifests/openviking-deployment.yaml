@@ -19,38 +19,10 @@ spec:
         app: openviking
     spec:
       terminationGracePeriodSeconds: 15
-      affinity:
-        nodeAffinity:
-          # Patty and Steph are being decommissioned, so prefer the remaining
-          # stable general-purpose nodes.
-          preferredDuringSchedulingIgnoredDuringExecution:
-            - weight: 80
-              preference:
-                matchExpressions:
-                  - key: kubernetes.io/hostname
-                    operator: In
-                    values:
-                      - manu
-                      - wemby
-            # Actively avoid timmy (unstable AMD GPU node)
-            - weight: 100
-              preference:
-                matchExpressions:
-                  - key: kubernetes.io/hostname
-                    operator: NotIn
-                    values:
-                      - timmy
-        podAntiAffinity:
-          preferredDuringSchedulingIgnoredDuringExecution:
-            - weight: 50
-              podAffinityTerm:
-                labelSelector:
-                  matchExpressions:
-                    - key: app
-                      operator: In
-                      values:
-                        - qwen-summarizer
-                topologyKey: kubernetes.io/hostname
+      # Timmy has the 9070 XT-backed ROCm LLM service and the best local
+      # hardware, so keep the single OpenViking worker close to its hot path.
+      nodeSelector:
+        kubernetes.io/hostname: timmy
       initContainers:
         - name: config-rewrite
           image: python:3.12-slim
@@ -117,11 +89,14 @@ spec:
               name: http
           resources:
             requests:
-              cpu: "1"
-              memory: 1Gi
-            limits:
+              # Single-instance local AGFS keeps indexing, queue work, and file
+              # operations in one pod. Keep memory capped so timmy still has
+              # headroom for model runtime caches and node-level services.
               cpu: "4"
               memory: 4Gi
+            limits:
+              cpu: "12"
+              memory: 8Gi
           startupProbe:
             httpGet:
               path: /health
@@ -155,7 +130,7 @@ spec:
       volumes:
         - name: config-template
           configMap:
-            name: openviking-config
+            name: openviking-standalone-config
         - name: config-out
           emptyDir: {}
         - name: data

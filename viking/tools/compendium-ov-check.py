@@ -17,6 +17,7 @@ import sys
 
 VAULT_ROOT = os.path.expanduser("~/code/compendium")
 OV_TARGET_BASE = "viking://resources/compendium"
+ACTIVE_STATUSES = {"todo", "open", "proposed", "in-progress", "investigating", "active"}
 
 # Terminal directories and their required frontmatter fields
 TERMINAL_DIRS = {
@@ -57,6 +58,18 @@ def get_status(frontmatter):
     return None
 
 
+def entry_id_from_stem(stem):
+    match = re.match(r'^([A-Z]+-\d+)', stem)
+    return match.group(1) if match else stem
+
+
+def ov_name_for_stem(stem):
+    eid = entry_id_from_stem(stem)
+    if re.match(r'^\d{4}-\d{2}-\d{2}-', eid):
+        return eid
+    return eid.lower()
+
+
 def ov_ls(uri):
     """List an OV directory. Returns list of entry names or empty list."""
     result = subprocess.run(
@@ -66,6 +79,7 @@ def ov_ls(uri):
     if result.returncode != 0:
         return []
     entries = []
+    uri_prefix = uri.rstrip("/") + "/"
     for line in result.stdout.strip().split('\n'):
         line = line.strip()
         if not line:
@@ -74,6 +88,11 @@ def ov_ls(uri):
         match = re.match(r'\[[df]\]\s+(.+)', line)
         if match:
             entries.append(match.group(1).strip())
+            continue
+        # Newer table output starts rows with full Viking URIs.
+        if line.startswith(uri_prefix):
+            entry_uri = line.split()[0]
+            entries.append(entry_uri.removeprefix(uri_prefix).strip("/"))
     return entries
 
 
@@ -117,7 +136,7 @@ def check_structure():
             ov_names.add(name)
 
         for stem, filepath in local_files.items():
-            ov_name = stem.lower()
+            ov_name = ov_name_for_stem(stem)
             if ov_name not in ov_names:
                 issues.append({
                     'type': 'missing_in_ov',
@@ -135,7 +154,7 @@ def check_stale():
     issues = []
     for subdir, meta in TERMINAL_DIRS.items():
         local_files = local_terminal_files(subdir)
-        local_stems = {stem.lower() for stem in local_files.keys()}
+        local_stems = {ov_name_for_stem(stem) for stem in local_files.keys()}
 
         ov_entries = ov_ls(f"{OV_TARGET_BASE}/{subdir}")
         for entry in ov_entries:
@@ -198,14 +217,11 @@ def check_active_not_in_ov():
             if frontmatter is None:
                 continue
             status = get_status(frontmatter)
-            # Terminal statuses shouldn't be in active dirs, but if they are,
-            # they're probably fine to be in OV
-            terminal_statuses = {'fixed', 'wontfix', 'shipped', 'dropped'}
-            if status and status in terminal_statuses:
+            if status not in ACTIVE_STATUSES:
                 continue
 
-            # Active item — check if it exists in OV
-            ov_name = stem.lower()
+            # Active item by sync policy — check if it exists in OV
+            ov_name = ov_name_for_stem(stem)
             ov_uri = f"{OV_TARGET_BASE}/{subdir}/{ov_name}.md"
             result = subprocess.run(
                 ['ov', 'stat', ov_uri],

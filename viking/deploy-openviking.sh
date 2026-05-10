@@ -13,8 +13,10 @@ kubectl apply -f "$SCRIPT_DIR/manifests/openviking-pvc.yaml"
 # wemby-model-cache PVC no longer needed (embedder uses emptyDir)
 # kubectl apply -f "$SCRIPT_DIR/manifests/wemby-model-cache-pvc.yaml"
 
-# Config
+# Config. The standalone config is the canonical single-worker path: local AGFS
+# on the OpenViking PVC and local llama.cpp VLM on timmy.
 kubectl apply -f "$SCRIPT_DIR/manifests/openviking-configmap.yaml"
+kubectl apply -f "$SCRIPT_DIR/manifests/openviking-standalone-configmap.yaml"
 
 # S3 credentials for AGFS backend
 if [ -f "$SCRIPT_DIR/manifests/openviking-api-key.secret.yaml" ]; then
@@ -28,13 +30,13 @@ else
 fi
 
 if [ -f "$SCRIPT_DIR/manifests/openviking-s3-credentials.secret.yaml" ]; then
-    echo "Applying S3 credentials secret..."
+    echo "Applying optional S3 credentials secret..."
     kubectl apply -f "$SCRIPT_DIR/manifests/openviking-s3-credentials.secret.yaml"
 else
-    echo "S3 credentials secret not found."
-    echo "  AGFS will fail to start until the secret exists."
+    echo "Optional S3 credentials secret not found."
+    echo "  This is fine for the canonical local AGFS deployment."
     echo "  Copy viking/manifests/openviking-s3-credentials.secret.yaml.example to"
-    echo "  viking/manifests/openviking-s3-credentials.secret.yaml and fill in Garage credentials."
+    echo "  viking/manifests/openviking-s3-credentials.secret.yaml only when using S3 AGFS."
 fi
 
 # Auth secret for Traefik basicAuth ingress
@@ -47,16 +49,19 @@ else
     echo "  See viking/manifests/openviking-auth.secret.yaml.example for instructions."
 fi
 
-# Local embedding service and ROCm Ollama backend first; OpenViking's config
-# points at the embedder in this namespace and Ollama in the llama namespace.
-kubectl apply -f "$SCRIPT_DIR/../llama/namespace.yaml"
-kubectl apply -f "$SCRIPT_DIR/../llama/pvc.yaml"
-kubectl apply -f "$SCRIPT_DIR/../llama/ollama-configmap.yaml"
-kubectl apply -f "$SCRIPT_DIR/../llama/ollama-deployment.yaml"
-kubectl -n llama scale deployment/ollama --replicas=1
+# The single-worker OpenViking path uses the ROCm llama.cpp backend below.
+# Keep the older Ollama ROCm deployment stopped so its model cache does not
+# compete with llama.cpp and OpenViking for timmy's system memory/GPU.
+if kubectl -n llama get deployment/ollama >/dev/null 2>&1; then
+    kubectl -n llama scale deployment/ollama --replicas=0
+fi
 
+# Local embedding service and ROCm llama.cpp backend first. OpenViking is pinned
+# to timmy and points at these in-namespace services.
 kubectl apply -f "$SCRIPT_DIR/manifests/embedder-llamacpp-deployment.yaml"
 kubectl apply -f "$SCRIPT_DIR/manifests/embedder-llamacpp-service.yaml"
+kubectl apply -f "$SCRIPT_DIR/manifests/rocm-llamacpp-deployment.yaml"
+kubectl apply -f "$SCRIPT_DIR/manifests/rocm-llamacpp-service.yaml"
 
 # Single-instance OpenViking is the canonical deployment path. The
 # coordinator/worker manifests are kept for experiments, not default rollout.
@@ -68,8 +73,8 @@ kubectl apply -f "$SCRIPT_DIR/manifests/openviking-ingress.yaml"
 
 echo ""
 echo "=== Waiting for rollouts ==="
-kubectl rollout status deployment/ollama -n llama --timeout=600s &
 kubectl rollout status deployment/embedder-llamacpp -n viking --timeout=300s &
+kubectl rollout status deployment/llamacpp-rocm -n viking --timeout=900s &
 kubectl rollout status deployment/openviking -n viking --timeout=120s &
 wait
 

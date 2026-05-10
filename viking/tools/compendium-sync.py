@@ -24,6 +24,7 @@ from pathlib import Path
 
 VAULT_ROOT = Path(os.environ.get("COMPENDIUM_ROOT", "~/code/compendium")).expanduser()
 DEFAULT_TARGET_BASE = os.environ.get("OV_TARGET_BASE", "viking://resources/compendium")
+ACTIVE_STATUSES = {"todo", "open", "proposed", "in-progress", "investigating", "active"}
 
 EXCLUDE_DIRS = {
     ".claude",
@@ -132,6 +133,14 @@ def scalar(value) -> str:
     return str(value)
 
 
+def first_field(frontmatter: str, *keys: str):
+    for key in keys:
+        value = field(frontmatter, key)
+        if value is not None:
+            return value
+    return None
+
+
 def first_useful_paragraph(body: str) -> str:
     paragraph = []
     for line in body.splitlines():
@@ -187,6 +196,19 @@ def target_dir_for(rel_path: str, target_base: str) -> str:
     return f"{target_base.rstrip('/')}/{str(parent).replace(os.sep, '/')}/"
 
 
+def normalize_compendium_path(raw_path: str) -> Path:
+    path = Path(raw_path).expanduser()
+    if not path.is_absolute():
+        path = VAULT_ROOT / path
+    return path.resolve()
+
+
+def uri_for_path(path: Path, target_base: str) -> str:
+    rel_path = str(path.relative_to(VAULT_ROOT))
+    eid = entry_id("", path)
+    return f"{target_dir_for(rel_path, target_base)}{ov_name(eid)}.md"
+
+
 def payload_for(path: Path, target_base: str) -> Entry | None:
     text = path.read_text()
     frontmatter, body = parse_frontmatter(text)
@@ -205,6 +227,7 @@ def payload_for(path: Path, target_base: str) -> Entry | None:
     entry_type = scalar(field(frontmatter, "type") or path.parent.name)
     status = scalar(field(frontmatter, "status"))
     repo = scalar(field(frontmatter, "repo") or field(frontmatter, "repos"))
+    customers = first_field(frontmatter, "customers", "customer")
 
     lines = [
         "[ov_mode: pointer]",
@@ -216,10 +239,17 @@ def payload_for(path: Path, target_base: str) -> Entry | None:
         f"Repo: {repo}",
         f"Priority: {scalar(field(frontmatter, 'priority') or field(frontmatter, 'severity'))}",
         f"Customer: {scalar(field(frontmatter, 'customer'))}",
+        f"Customers: {scalar(customers)}",
+        f"People: {scalar(first_field(frontmatter, 'people', 'person', 'assignee'))}",
+        f"Themes: {scalar(field(frontmatter, 'themes'))}",
+        f"Domains: {scalar(first_field(frontmatter, 'domains', 'domain', 'topic'))}",
         f"Pipeline: {scalar(field(frontmatter, 'pipeline'))}",
         f"Tags: {scalar(field(frontmatter, 'tags'))}",
         f"Aliases: {scalar(field(frontmatter, 'aliases'))}",
+        f"Retrieval Summary: {scalar(first_field(frontmatter, 'retrieval_summary', 'summary'))}",
         f"Related: {scalar(field(frontmatter, 'related'))}",
+        f"Source: {scalar(field(frontmatter, 'source'))}",
+        f"Sources: {scalar(field(frontmatter, 'sources'))}",
         "---",
         frontmatter,
         "---",
@@ -263,6 +293,23 @@ def entries(target_base: str) -> list[Entry]:
     return [entry for path in iter_markdown() if (entry := payload_for(path, target_base))]
 
 
+def entries_for_paths(paths: list[str], target_base: str) -> list[Entry]:
+    selected = []
+    seen = set()
+    for raw_path in paths:
+        path = normalize_compendium_path(raw_path)
+        if path in seen:
+            continue
+        seen.add(path)
+        if not path.exists():
+            raise FileNotFoundError(path)
+        entry = payload_for(path, target_base)
+        if entry is None:
+            raise ValueError(f"No pointer payload for {path}")
+        selected.append(entry)
+    return selected
+
+
 def select(entries_: list[Entry], args) -> list[Entry]:
     selected = entries_
     if args.repo:
@@ -272,10 +319,7 @@ def select(entries_: list[Entry], args) -> list[Entry]:
     if args.status:
         selected = [e for e in selected if e.status == args.status]
     if args.exclude_active:
-        selected = [
-            e for e in selected
-            if e.status not in {"todo", "open", "proposed", "in-progress", "investigating", "active"}
-        ]
+        selected = [e for e in selected if e.status not in ACTIVE_STATUSES]
     if args.order == "small-first":
         selected = sorted(selected, key=lambda e: len(e.payload))
     elif args.order == "large-first":
@@ -354,7 +398,7 @@ def health_check() -> str:
         return f"health: failed ({exc})"
 
 
-def sync_entry(entry: Entry, update: bool, wait: bool) -> tuple[str, str]:
+def sync_entry(entry: Entry, wait: bool) -> tuple[str, str]:
     with tempfile.NamedTemporaryFile("w", suffix=".md", prefix=f"{entry.name}-", delete=False) as tmp:
         tmp.write(entry.payload)
         tmp_path = tmp.name
@@ -362,8 +406,6 @@ def sync_entry(entry: Entry, update: bool, wait: bool) -> tuple[str, str]:
         mkdir = run_ov(["mkdir", entry.target_dir], timeout=30)
         if mkdir.returncode != 0 and "exists" not in mkdir.stderr.lower():
             return "error", mkdir.stderr.strip()[:300]
-        if update:
-            run_ov(["rm", "-r", entry.uri], timeout=30)
         cmd = ["add-resource", tmp_path, "--to", entry.uri]
         if wait:
             cmd.append("--wait")
@@ -402,6 +444,9 @@ def cmd_sync(args, entries_: list[Entry]) -> int:
     selected = select(entries_, args)
     print(f"Selected {len(selected)} entries (offset={args.offset}, limit={args.limit or 'all'})")
     if args.dry_run:
+        for raw_path in args.delete_path:
+            uri = uri_for_path(normalize_compendium_path(raw_path), args.target_base)
+            print(f"dry-run delete {uri} <- {raw_path}")
         for entry in selected:
             print(f"dry-run {entry.uri} <- {entry.rel_path} ({len(entry.payload)} bytes)")
         return 0
@@ -411,11 +456,24 @@ def cmd_sync(args, entries_: list[Entry]) -> int:
         print(f"OpenViking CLI config error: {config_msg}", file=sys.stderr)
         return 1
     print(f"OpenViking CLI: {config_msg}")
+    if args.update:
+        print("--update is deprecated: add-resource --to refreshes existing resources in place")
+
+    for raw_path in args.delete_path:
+        uri = uri_for_path(normalize_compendium_path(raw_path), args.target_base)
+        result = run_ov(["rm", "-r", uri], timeout=120)
+        if result.returncode == 0:
+            print(f"deleted: {uri}", flush=True)
+        elif "not found" in result.stderr.lower() or "does not exist" in result.stderr.lower():
+            print(f"delete skipped: {uri} (missing)", flush=True)
+        else:
+            print(f"delete error: {uri} {result.stderr.strip()[:300]}", file=sys.stderr)
+            return 1
 
     ok = 0
     errors = 0
     for idx, entry in enumerate(selected, 1):
-        status, detail = sync_entry(entry, update=args.update, wait=not args.no_wait)
+        status, detail = sync_entry(entry, wait=not args.no_wait)
         print(f"[{idx}/{len(selected)}] {status}: {entry.entry_id} {detail}", flush=True)
         if status in {"synced", "exists"}:
             ok += 1
@@ -446,22 +504,51 @@ def main() -> int:
     plan = sub.add_parser("plan")
     sync = sub.add_parser("sync")
     for p in (plan, sync):
+        p.add_argument("paths", nargs="*", help="Optional compendium markdown paths to sync")
         p.add_argument("--limit", type=int, default=0, help="Maximum entries to select; 0 means all")
         p.add_argument("--offset", type=int, default=0)
         p.add_argument("--repo")
         p.add_argument("--type")
         p.add_argument("--status")
-        p.add_argument("--exclude-active", action="store_true")
+        p.add_argument(
+            "--exclude-active",
+            action="store_true",
+            default=True,
+            help="Exclude active/open work items from sync selection (default)",
+        )
+        p.add_argument(
+            "--include-active",
+            action="store_false",
+            dest="exclude_active",
+            help="Include active/open work items in sync selection",
+        )
         p.add_argument("--order", choices=["path", "small-first", "large-first"], default="path")
     sync.add_argument("--batch-size", type=int, default=10)
     sync.add_argument("--pause", type=float, default=0)
-    sync.add_argument("--update", action="store_true")
+    sync.add_argument(
+        "--update",
+        action="store_true",
+        help="Deprecated no-op; add-resource --to refreshes existing resources in place",
+    )
+    sync.add_argument(
+        "--delete-path",
+        action="append",
+        default=[],
+        help="Delete the OpenViking pointer URI for a previous compendium path before syncing",
+    )
     sync.add_argument("--dry-run", action="store_true")
     sync.add_argument("--no-wait", action="store_true")
     sync.add_argument("--max-errors", type=int, default=3)
 
     args = parser.parse_args()
-    all_entries = entries(args.target_base)
+    try:
+        if args.command in {"plan", "sync"} and getattr(args, "paths", None):
+            all_entries = entries_for_paths(args.paths, args.target_base)
+        else:
+            all_entries = entries(args.target_base)
+    except (FileNotFoundError, ValueError) as exc:
+        print(f"Selection error: {exc}", file=sys.stderr)
+        return 1
 
     if args.command == "stats":
         print_stats(all_entries, args.target_base)
