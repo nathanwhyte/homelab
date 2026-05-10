@@ -59,11 +59,27 @@ spec:
               conf['vlm']['max_concurrent'] = 4
               conf['embedding']['max_concurrent'] = 3
               conf['server']['root_api_key'] = os.environ['API_KEY']
-              conf['storage']['agfs']['s3']['access_key'] = os.environ['S3_ACCESS_KEY']
-              conf['storage']['agfs']['s3']['secret_key'] = os.environ['S3_SECRET_KEY']
+              agfs = conf.get('storage', {}).get('agfs', {})
+              if agfs.get('backend', 'local') == 's3':
+                  agfs.setdefault('s3', {})
+                  agfs['s3']['access_key'] = os.environ['S3_ACCESS_KEY']
+                  agfs['s3']['secret_key'] = os.environ['S3_SECRET_KEY']
+              else:
+                  agfs.pop('s3', None)
+              node = os.environ.get('NODE_NAME', '')
+              if 'timmy' in node:
+                conf['vlm']['api_base'] = 'http://llamacpp-rocm-llm.viking.svc.cluster.local/v1'
+                print(f'Worker on {node}: using ROCm VLM endpoint')
+              else:
+                conf['vlm']['api_base'] = 'http://llamacpp-cuda-llm.viking.svc.cluster.local/v1'
+                print(f'Worker on {node}: using CUDA VLM endpoint')
               json.dump(conf, open('/config-out/ov.conf', 'w'), indent=2)
               "
           env:
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
             - name: API_KEY
               valueFrom:
                 secretKeyRef:
