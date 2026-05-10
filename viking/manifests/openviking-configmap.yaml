@@ -11,10 +11,6 @@ data:
       "default_user": "noot",
       "storage": {
         "workspace": "/app/data",
-        "transaction": {
-          "lock_timeout": 10.0,
-          "lock_expire": 300.0
-        },
         "vectordb": {
           "backend": "local",
           "name": "context",
@@ -61,9 +57,9 @@ data:
       },
       "vlm": {
         "provider": "litellm",
-        "model": "openai/current.gguf",
+        "model": "ollama/qwen3:8b",
         "api_key": "sk-no-key-required",
-        "api_base": "http://llamacpp-rocm-llm.viking.svc.cluster.local/v1",
-        "max_concurrent": 6
+        "api_base": "http://ollama.llama.svc.cluster.local:11434",
+        "max_concurrent": 1
       }
     }
