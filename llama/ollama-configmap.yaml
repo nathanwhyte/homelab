@@ -17,39 +17,11 @@ data:
 
     ollama list
 
-    echo "Pulling gemma4:e4b..."
-    ollama pull gemma4:e4b || true
+    echo "Pulling qwen3:8b..."
+    ollama pull qwen3:8b || true
 
-    echo "Pulling devstral:24b..."
-    ollama pull devstral:24b || true
-
-    echo "Pulling devstral-small-2:24b..."
-    ollama pull devstral-small-2:24b || true
-
-    echo "Pulling codestral:22b..."
-    ollama pull codestral:22b || true
-
-    echo "Pulling starcoder2:15b..."
-    ollama pull starcoder2:15b || true
-
-    echo "Creating 4k context variants..."
-    printf 'FROM devstral:24b\nPARAMETER num_ctx 4096\n' > /tmp/Modelfile.devstral
-    ollama create devstral-4k -f /tmp/Modelfile.devstral || true
-
-    printf 'FROM devstral-small-2:24b\nPARAMETER num_ctx 4096\n' > /tmp/Modelfile.devstral-small-2
-    ollama create devstral-small-2-4k -f /tmp/Modelfile.devstral-small-2 || true
-
-    printf 'FROM devstral-small-2:24b\nPARAMETER num_ctx 32768\n' > /tmp/Modelfile.devstral-small-2-32k
-    ollama create devstral-small-2-32k -f /tmp/Modelfile.devstral-small-2-32k || true
-
-    printf 'FROM codestral:22b\nPARAMETER num_ctx 4096\n' > /tmp/Modelfile.codestral
-    ollama create codestral -f /tmp/Modelfile.codestral || true
-
-    printf 'FROM starcoder2:15b\nPARAMETER num_ctx 4096\n' > /tmp/Modelfile.starcoder2
-    ollama create starcoder2 -f /tmp/Modelfile.starcoder2 || true
-
-    echo "Warming up gemma4:e4b..."
-    ollama run gemma4:e4b "hi" > /dev/null 2>&1 || true
+    echo "Warming up qwen3:8b..."
+    ollama run qwen3:8b "hi" > /dev/null 2>&1 || true
     echo "Warmup complete."
 
     touch /tmp/startup-complete
