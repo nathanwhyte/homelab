@@ -1,451 +1,486 @@
 #!/usr/bin/env python3
-"""Compendium → OpenViking sync script (Pattern #1 prototype).
+"""Progressive Compendium -> OpenViking pointer sync.
 
-Reads markdown entries from the compendium vault, builds pointer payloads,
-and uploads them to OpenViking via the `ov` CLI.
-
-Modes:
-  sync-one <path>          - Sync a single entry
-  sync-all [--update]      - Walk the vault and sync all entries
-  sync-all --update        - Update existing entries (use ov write instead of add-resource)
-  backfill                 - Add missing ov_mode: pointer to frontmatter, commit, then sync-all
+This indexes compact pointer payloads from ~/code/compendium into OpenViking.
+It is intentionally staged: start with --dry-run/plan, then sync small batches
+with --limit and increase only after search and queue behavior look healthy.
 """
 
+from __future__ import annotations
+
+import argparse
+import json
 import os
 import re
-import sys
 import subprocess
+import sys
 import tempfile
+import time
+import urllib.error
+import urllib.request
+from dataclasses import dataclass
+from pathlib import Path
 
-VAULT_ROOT = os.path.expanduser("~/code/compendium")
-OV_TARGET_BASE = "viking://resources/compendium"
 
-# Directories and files to EXCLUDE from sync
+VAULT_ROOT = Path(os.environ.get("COMPENDIUM_ROOT", "~/code/compendium")).expanduser()
+DEFAULT_TARGET_BASE = os.environ.get("OV_TARGET_BASE", "viking://resources/compendium")
+
 EXCLUDE_DIRS = {
-    "_templates", "_sources", "_briefs", "_verification-reports",
-    "_inbox", "_scripts", ".claude", ".git", "docs"
+    ".claude",
+    ".git",
+    ".obsidian",
+    "_briefs",
+    "_inbox",
+    "_scripts",
+    "_sources",
+    "_templates",
+    "_verification-reports",
+    "docs",
 }
 EXCLUDE_FILES = {
-    "dashboard.md", "DATAVIEW.md", "README.md", "index.md", "log.md",
-    "CLAUDE.md", ".gitignore"
-}
-
-# Entry type → ID prefix mapping
-TYPE_PREFIX = {
-    "ideas": "IDEA",
-    "bugs": "BUG",
-    "features": "FEAT",
-    "tasks": "TASK",
-    "projects": "PROJ",
-    "info": "INFO",
+    ".gitignore",
+    "CLAUDE.md",
+    "DATAVIEW.md",
+    "README.md",
+    "dashboard.md",
+    "index.md",
+    "log.md",
 }
 
 
-def parse_frontmatter(content):
-    """Extract YAML frontmatter from markdown content."""
-    match = re.match(r'^---\s*\n(.*?)\n---\s*\n', content, re.DOTALL)
-    if not match:
-        return None, content
-    fm_text = match.group(1)
-    body = content[match.end():]
-    return fm_text, body
+@dataclass(frozen=True)
+class Entry:
+    path: Path
+    rel_path: str
+    frontmatter: str
+    body: str
+    entry_id: str
+    name: str
+    ov_mode: str
+    payload: str
+    target_dir: str
+    uri: str
+    status: str
+    entry_type: str
+    repo: str
 
 
-def get_field(frontmatter, field):
-    """Extract a field value from YAML frontmatter text."""
-    # Simple regex-based extraction (no yaml dependency)
-    match = re.search(rf'^{field}:\s*(.+)$', frontmatter, re.MULTILINE)
+def parse_frontmatter(text: str) -> tuple[str | None, str]:
+    match = re.match(r"^---\s*\n(.*?)\n---\s*\n", text, re.DOTALL)
     if not match:
+        return None, text
+    return match.group(1), text[match.end() :]
+
+
+def field(frontmatter: str, key: str):
+    lines = frontmatter.splitlines()
+    start = None
+    raw = None
+    for i, line in enumerate(lines):
+        match = re.match(rf"^{re.escape(key)}:\s*(.*)$", line)
+        if match:
+            start = i
+            raw = match.group(1).strip()
+            break
+    if start is None or raw is None:
         return None
-    value = match.group(1).strip()
-    # Handle list format: [tag1, tag2, ...]
-    if value.startswith('[') and value.endswith(']'):
-        return [t.strip().strip("'\"") for t in value[1:-1].split(',')]
-    return value
+
+    if raw in ("null", "~", "[]"):
+        return None
+
+    if raw.startswith("[") or raw == "":
+        collected = [raw] if raw else []
+        for line in lines[start + 1 :]:
+            if line and not line.startswith((" ", "\t")):
+                break
+            stripped = line.strip()
+            if not stripped:
+                continue
+            collected.append(stripped)
+            if stripped.endswith("]"):
+                break
+        joined = " ".join(collected).strip()
+        if joined.startswith("[") and joined.endswith("]"):
+            return [
+                item.strip().strip(",").strip("'\"")
+                for item in joined[1:-1].split(",")
+                if item.strip().strip(",").strip("'\"")
+            ]
+
+    if raw == "":
+        items = []
+        for line in lines[start + 1 :]:
+            if line and not line.startswith((" ", "\t")):
+                break
+            stripped = line.strip()
+            if stripped.startswith("- "):
+                items.append(stripped[2:].strip().strip("'\""))
+        return items if items else ""
+
+    if raw.startswith("[") and raw.endswith("]"):
+        return [item.strip().strip("'\"") for item in raw[1:-1].split(",") if item.strip()]
+    if (raw.startswith('"') and raw.endswith('"')) or (raw.startswith("'") and raw.endswith("'")):
+        return raw[1:-1]
+    return raw
 
 
-def get_effective_ov_mode(frontmatter):
-    """Determine effective ov_mode from frontmatter. Default: pointer."""
-    ov_mode = get_field(frontmatter, 'ov_mode')
-    if ov_mode is None:
-        return 'pointer'
-    return ov_mode.strip().lower()
+def scalar(value) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, list):
+        return ", ".join(str(v) for v in value)
+    return str(value)
 
 
-def extract_first_paragraph(body):
-    """Extract the first non-empty, non-heading paragraph after frontmatter."""
-    lines = body.split('\n')
-    para_lines = []
-    in_para = False
-    for line in lines:
+def first_useful_paragraph(body: str) -> str:
+    paragraph = []
+    for line in body.splitlines():
         stripped = line.strip()
         if not stripped:
-            if in_para and para_lines:
+            if paragraph:
                 break
             continue
-        if stripped.startswith('#'):
-            if in_para and para_lines:
+        if stripped.startswith("#") or stripped == "---":
+            if paragraph:
                 break
             continue
-        # Skip lines that are just emphasis markers
-        if stripped.startswith('_') and stripped.endswith('_') and len(stripped) > 2:
-            # Keep the text, strip the emphasis
-            para_lines.append(stripped)
-            in_para = True
+        if stripped.startswith("> Canonical source:"):
             continue
-        para_lines.append(stripped)
-        in_para = True
-    return ' '.join(para_lines) if para_lines else ''
+        if stripped.startswith("|") and stripped.endswith("|"):
+            continue
+        if stripped.startswith("> "):
+            stripped = stripped[2:].strip()
+        if stripped.startswith("_") and stripped.endswith("_"):
+            stripped = stripped.strip("_")
+        paragraph.append(stripped)
+    return " ".join(paragraph)
 
 
-def extract_headings(body):
-    """Extract ## and ### headings from the body."""
-    headings = []
-    for line in body.split('\n'):
+def headings(body: str) -> list[str]:
+    out = []
+    for line in body.splitlines():
         stripped = line.strip()
-        if stripped.startswith('## ') or stripped.startswith('### '):
-            # Remove trailing colons
-            heading = stripped.rstrip(':')
-            headings.append(heading)
-    return headings
+        if stripped.startswith("## ") or stripped.startswith("### "):
+            out.append(stripped.rstrip(":"))
+    return out
 
 
-def get_entry_id(frontmatter, filepath):
-    """Extract entry ID from frontmatter or filename."""
-    fm_id = get_field(frontmatter, 'id')
-    if fm_id:
-        return fm_id
-    # Derive from filename: BUG-003-slug.md → BUG-003
-    basename = os.path.basename(filepath)
-    match = re.match(r'^([A-Z]+-\d+)', basename)
-    if match:
-        return match.group(1)
-    # For date-prefixed plan files: 2026-04-28-slug.md → use filename stem
-    date_match = re.match(r'^(\d{4}-\d{2}-\d{2}-.+)\.md$', basename)
-    if date_match:
-        return date_match.group(1)
-    # For info/ and other entries without type prefix: slug-name.md → use filename stem
-    stem_match = re.match(r'^(.+)\.md$', basename)
-    if stem_match:
-        return stem_match.group(1)
-    return None
+def entry_id(frontmatter: str, path: Path) -> str:
+    explicit = field(frontmatter, "id")
+    if explicit:
+        return str(explicit)
+    stem = path.stem
+    match = re.match(r"^([A-Z]+-\d+)", stem)
+    return match.group(1) if match else stem
 
 
-def get_rel_path(filepath):
-    """Get path relative to VAULT_ROOT."""
-    return os.path.relpath(filepath, VAULT_ROOT)
+def ov_name(eid: str) -> str:
+    if re.match(r"^\d{4}-\d{2}-\d{2}-", eid):
+        return eid
+    return eid.lower()
 
 
-def get_target_dir(filepath):
-    """Determine OV target_dir mirroring vault subdirectory structure."""
-    rel_path = get_rel_path(filepath)
-    parts = rel_path.split(os.sep)
-    # Remove the filename, keep the directory path
-    dir_parts = parts[:-1]
-    # Build target_dir
-    dir_path = '/'.join(dir_parts) if dir_parts else ''
-    return f"{OV_TARGET_BASE}/{dir_path}/" if dir_path else f"{OV_TARGET_BASE}/"
+def target_dir_for(rel_path: str, target_base: str) -> str:
+    parent = Path(rel_path).parent
+    if str(parent) == ".":
+        return target_base.rstrip("/") + "/"
+    return f"{target_base.rstrip('/')}/{str(parent).replace(os.sep, '/')}/"
 
 
-def get_ov_name(entry_id):
-    """Derive OV resource name from entry ID (lowercase)."""
-    if entry_id:
-        # For date-prefixed plan IDs, keep as-is (already lowercase-friendly)
-        if re.match(r'^\d{4}-\d{2}-\d{2}-', entry_id):
-            return entry_id
-        return entry_id.lower()
-    return None
+def payload_for(path: Path, target_base: str) -> Entry | None:
+    text = path.read_text()
+    frontmatter, body = parse_frontmatter(text)
+    if frontmatter is None:
+        return None
 
+    mode = scalar(field(frontmatter, "ov_mode") or "pointer").lower()
+    if mode == "none":
+        return None
 
-def build_payload(frontmatter, body, filepath):
-    """Build the pointer payload per the COMPENDIUM_OV_SPEC.md format."""
-    entry_id = get_entry_id(frontmatter, filepath)
-    title = get_field(frontmatter, 'title') or ''
-    tags = get_field(frontmatter, 'tags')
-    tags_str = ', '.join(tags) if isinstance(tags, list) else (tags or '')
-    ov_mode = get_effective_ov_mode(frontmatter)
-    rel_path = get_rel_path(filepath)
-    first_para = extract_first_paragraph(body)
-    headings = extract_headings(body)
+    rel_path = str(path.relative_to(VAULT_ROOT))
+    eid = entry_id(frontmatter, path)
+    name = ov_name(eid)
+    target_dir = target_dir_for(rel_path, target_base)
+    uri = f"{target_dir}{name}.md"
+    entry_type = scalar(field(frontmatter, "type") or path.parent.name)
+    status = scalar(field(frontmatter, "status"))
+    repo = scalar(field(frontmatter, "repo") or field(frontmatter, "repos"))
 
     lines = [
-        f"[ov_mode: {ov_mode}]",
+        "[ov_mode: pointer]",
         f"Path: ~/code/compendium/{rel_path}",
-        f"ID: {entry_id or 'unknown'}",
-        f"Title: {title}",
-        f"Tags: {tags_str}",
+        f"ID: {eid}",
+        f"Title: {scalar(field(frontmatter, 'title'))}",
+        f"Type: {entry_type}",
+        f"Status: {status}",
+        f"Repo: {repo}",
+        f"Priority: {scalar(field(frontmatter, 'priority') or field(frontmatter, 'severity'))}",
+        f"Customer: {scalar(field(frontmatter, 'customer'))}",
+        f"Pipeline: {scalar(field(frontmatter, 'pipeline'))}",
+        f"Tags: {scalar(field(frontmatter, 'tags'))}",
+        f"Aliases: {scalar(field(frontmatter, 'aliases'))}",
+        f"Related: {scalar(field(frontmatter, 'related'))}",
         "---",
         frontmatter,
         "---",
-        first_para,
+        "Summary:",
+        first_useful_paragraph(body),
         "",
         "Headings:",
     ]
-    for h in headings:
-        lines.append(h)
+    lines.extend(headings(body))
 
-    return '\n'.join(lines)
+    return Entry(
+        path=path,
+        rel_path=rel_path,
+        frontmatter=frontmatter,
+        body=body,
+        entry_id=eid,
+        name=name,
+        ov_mode=mode,
+        payload="\n".join(lines),
+        target_dir=target_dir,
+        uri=uri,
+        status=status,
+        entry_type=entry_type,
+        repo=repo,
+    )
 
 
-def uri_exists(uri):
-    """Check if a URI already exists in OV."""
-    result = subprocess.run(['ov', 'stat', uri], capture_output=True, text=True, timeout=10)
-    return result.returncode == 0
+def iter_markdown() -> list[Path]:
+    paths = []
+    for path in VAULT_ROOT.rglob("*.md"):
+        rel_parts = path.relative_to(VAULT_ROOT).parts
+        if any(part in EXCLUDE_DIRS for part in rel_parts):
+            continue
+        if path.name in EXCLUDE_FILES:
+            continue
+        paths.append(path)
+    return sorted(paths)
 
 
-def sync_one(filepath, update=False):
-    """Sync a single entry to OV. If update=True, overwrite existing entries."""
-    with open(filepath, 'r') as f:
-        content = f.read()
+def entries(target_base: str) -> list[Entry]:
+    return [entry for path in iter_markdown() if (entry := payload_for(path, target_base))]
 
-    frontmatter, body = parse_frontmatter(content)
-    if frontmatter is None:
-        return {'status': 'skip', 'path': filepath, 'reason': 'no frontmatter'}
 
-    ov_mode = get_effective_ov_mode(frontmatter)
-    if ov_mode == 'none':
-        return {'status': 'skipped', 'path': filepath, 'reason': 'ov_mode: none'}
+def select(entries_: list[Entry], args) -> list[Entry]:
+    selected = entries_
+    if args.repo:
+        selected = [e for e in selected if args.repo in e.repo.split(", ")]
+    if args.type:
+        selected = [e for e in selected if e.entry_type == args.type]
+    if args.status:
+        selected = [e for e in selected if e.status == args.status]
+    if args.exclude_active:
+        selected = [
+            e for e in selected
+            if e.status not in {"todo", "open", "proposed", "in-progress", "investigating", "active"}
+        ]
+    if args.order == "small-first":
+        selected = sorted(selected, key=lambda e: len(e.payload))
+    elif args.order == "large-first":
+        selected = sorted(selected, key=lambda e: len(e.payload), reverse=True)
+    else:
+        selected = sorted(selected, key=lambda e: e.rel_path)
+    return selected[args.offset : args.offset + args.limit if args.limit else None]
 
-    entry_id = get_entry_id(frontmatter, filepath)
-    name = get_ov_name(entry_id)
-    if not name:
-        return {'status': 'error', 'path': filepath, 'reason': 'no entry ID'}
 
-    payload = build_payload(frontmatter, body, filepath)
-    target_dir = get_target_dir(filepath)
-    uri = f"{target_dir}{name}.md"
+def ov_cli_config() -> tuple[dict[str, str], str | None]:
+    """Build an explicit CLI config so ov subprocesses match OPENVIKING_* env."""
+    url = os.environ.get("OPENVIKING_URL")
+    if not url:
+        return os.environ.copy(), None
 
-    # Write payload to temp file
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.md', delete=False, prefix=f'{name}-') as tmp:
-        tmp.write(payload)
-        tmp_path = tmp.name
+    key = os.environ.get("OPENVIKING_KEY")
+    if not key:
+        raise RuntimeError("OPENVIKING_URL is set but OPENVIKING_KEY is missing")
 
+    config = {
+        "url": url.rstrip("/"),
+        "api_key": key,
+        "account": os.environ.get("OPENVIKING_ACCOUNT", "default"),
+        "user": os.environ.get("OPENVIKING_USER", "noot"),
+    }
+    tmp = tempfile.NamedTemporaryFile("w", suffix=".json", prefix="ovcli-", delete=False)
     try:
-        if update and uri_exists(uri):
-            # Update existing entry by deleting and recreating
-            # (ov write only works on files, not directories; entries are directories)
-            subprocess.run(['ov', 'rm', '-r', uri], capture_output=True, text=True, timeout=10)
-            subprocess.run(['ov', 'mkdir', target_dir], capture_output=True, text=True)
-            result = subprocess.run(
-                ['ov', 'add-resource', tmp_path, '--to', uri],
-                capture_output=True, text=True, timeout=30
-            )
-            if result.returncode != 0:
-                return {'status': 'error', 'path': filepath, 'reason': result.stderr[:200]}
-            return {'status': 'updated', 'id': entry_id, 'name': name, 'target_dir': target_dir, 'uri': uri}
-        else:
-            # Create new entry
-            subprocess.run(['ov', 'mkdir', target_dir], capture_output=True, text=True)
-            result = subprocess.run(
-                ['ov', 'add-resource', tmp_path, '--to', uri],
-                capture_output=True, text=True, timeout=30
-            )
-            if result.returncode != 0:
-                if 'already exists' in result.stderr or 'EXISTS' in result.stderr:
-                    return {'status': 'exists', 'id': entry_id, 'name': name, 'target_dir': target_dir, 'uri': uri}
-                return {'status': 'error', 'path': filepath, 'reason': result.stderr[:200]}
-            return {'status': 'synced', 'id': entry_id, 'name': name, 'target_dir': target_dir, 'uri': uri}
+        json.dump(config, tmp)
+        tmp.write("\n")
+        tmp.close()
+    except Exception:
+        Path(tmp.name).unlink(missing_ok=True)
+        raise
+
+    env = os.environ.copy()
+    env["OPENVIKING_CLI_CONFIG_FILE"] = tmp.name
+    return env, tmp.name
+
+
+def run_ov(cmd: list[str], timeout: int = 120) -> subprocess.CompletedProcess:
+    env, config_path = ov_cli_config()
+    try:
+        return subprocess.run(["ov", *cmd], capture_output=True, text=True, timeout=timeout, env=env)
     finally:
-        os.unlink(tmp_path)
+        if config_path:
+            Path(config_path).unlink(missing_ok=True)
 
 
-def should_sync(filepath):
-    """Check if a file should be synced (not excluded)."""
-    rel_path = os.path.relpath(filepath, VAULT_ROOT)
-    parts = rel_path.split(os.sep)
+def check_ov_cli_config() -> tuple[bool, str]:
+    try:
+        env, config_path = ov_cli_config()
+    except RuntimeError as exc:
+        return False, str(exc)
 
-    # Check excluded directories
-    for part in parts:
-        if part in EXCLUDE_DIRS:
-            return False
+    if not config_path:
+        return True, "using existing ov CLI config"
 
-    # Check excluded files
-    basename = os.path.basename(filepath)
-    if basename in EXCLUDE_FILES:
-        return False
-
-    # Only .md files
-    if not basename.endswith('.md'):
-        return False
-
-    return True
+    Path(config_path).unlink(missing_ok=True)
+    return True, f"using OPENVIKING_URL={env['OPENVIKING_URL'].rstrip('/')}"
 
 
-def walk_vault():
-    """Walk the vault and return all syncable .md files."""
-    files = []
-    for root, dirs, filenames in os.walk(VAULT_ROOT):
-        # Filter out excluded directories in-place
-        dirs[:] = [d for d in dirs if d not in EXCLUDE_DIRS and not d.startswith('.')]
-        for fn in filenames:
-            if fn.endswith('.md'):
-                filepath = os.path.join(root, fn)
-                if should_sync(filepath):
-                    files.append(filepath)
-    return sorted(files)
+def health_check() -> str:
+    url = os.environ.get("OPENVIKING_URL")
+    if not url:
+        return "health: skipped (OPENVIKING_URL unset)"
+    key = os.environ.get("OPENVIKING_KEY", "")
+    req = urllib.request.Request(f"{url.rstrip('/')}/health")
+    if key:
+        req.add_header("X-API-Key", key)
+    start = time.monotonic()
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            elapsed_ms = int((time.monotonic() - start) * 1000)
+            return f"health: HTTP {resp.status} in {elapsed_ms}ms"
+    except (urllib.error.URLError, TimeoutError) as exc:
+        return f"health: failed ({exc})"
 
 
-def check_id_collisions(files):
-    """Check for duplicate entry IDs across the vault. Returns list of collisions."""
-    id_map = {}
-    for filepath in files:
-        with open(filepath, 'r') as f:
-            content = f.read()
-        frontmatter, _ = parse_frontmatter(content)
-        if frontmatter is None:
-            continue
-        entry_id = get_entry_id(frontmatter, filepath)
-        if entry_id:
-            if entry_id not in id_map:
-                id_map[entry_id] = []
-            id_map[entry_id].append(filepath)
-
-    collisions = {eid: paths for eid, paths in id_map.items() if len(paths) > 1}
-    return collisions
-
-
-def sync_all(update=False):
-    """Sync all entries in the vault. If update=True, overwrite existing entries."""
-    files = walk_vault()
-
-    # Check for ID collisions before syncing
-    collisions = check_id_collisions(files)
-    if collisions:
-        print("WARNING: Duplicate entry IDs found:")
-        for eid, paths in collisions.items():
-            print(f"  {eid}:")
-            for p in paths:
-                print(f"    - {os.path.relpath(p, VAULT_ROOT)}")
-        print(f"Skipping {sum(len(v) for v in collisions.values())} entries with duplicate IDs.\n")
-
-    results = {'synced': [], 'updated': [], 'exists': [], 'skipped': [], 'errors': []}
-
-    for filepath in files:
-        # Skip entries with duplicate IDs
-        with open(filepath, 'r') as f:
-            content = f.read()
-        frontmatter, _ = parse_frontmatter(content)
-        entry_id = get_entry_id(frontmatter, filepath) if frontmatter else None
-        if entry_id and entry_id in collisions:
-            results['skipped'].append({'path': filepath, 'reason': f'duplicate ID: {entry_id}'})
-            continue
-
-        result = sync_one(filepath, update=update)
-        print(f"  [{len(results['synced'])+len(results['updated'])+len(results['exists'])+len(results['skipped'])+len(results['errors'])+1}/{len(files)}] {result['status']}: {result.get('id', '?')}", flush=True)
-        if result['status'] in ('synced', 'updated', 'exists'):
-            results[result['status']].append(result)
-        elif result['status'] == 'skipped':
-            results['skipped'].append(result)
-        elif result['status'] == 'error':
-            results['errors'].append(result)
-
-    return results
+def sync_entry(entry: Entry, update: bool, wait: bool) -> tuple[str, str]:
+    with tempfile.NamedTemporaryFile("w", suffix=".md", prefix=f"{entry.name}-", delete=False) as tmp:
+        tmp.write(entry.payload)
+        tmp_path = tmp.name
+    try:
+        mkdir = run_ov(["mkdir", entry.target_dir], timeout=30)
+        if mkdir.returncode != 0 and "exists" not in mkdir.stderr.lower():
+            return "error", mkdir.stderr.strip()[:300]
+        if update:
+            run_ov(["rm", "-r", entry.uri], timeout=30)
+        cmd = ["add-resource", tmp_path, "--to", entry.uri]
+        if wait:
+            cmd.append("--wait")
+        result = run_ov(cmd, timeout=600 if wait else 120)
+        if result.returncode == 0:
+            return "synced", entry.uri
+        if "already exists" in result.stderr.lower() or "exists" in result.stderr.lower():
+            return "exists", entry.uri
+        return "error", result.stderr.strip()[:300]
+    finally:
+        Path(tmp_path).unlink(missing_ok=True)
 
 
-def print_results(results):
-    """Print a summary table."""
-    print(f"\n| Status | ID | Target dir | Mode | Notes |")
-    print(f"|--------|-----|------------|------|-------|")
-    for r in results.get('synced', []):
-        print(f"| synced | {r.get('id', '?')} | {r.get('target_dir', '?')} | pointer | — |")
-    for r in results.get('updated', []):
-        print(f"| updated | {r.get('id', '?')} | {r.get('target_dir', '?')} | pointer | — |")
-    for r in results.get('exists', []):
-        print(f"| exists | {r.get('id', '?')} | {r.get('target_dir', '?')} | pointer | — |")
-    for r in results.get('skipped', []):
-        rel = os.path.relpath(r['path'], VAULT_ROOT)
-        print(f"| skipped | — | — | none | {rel}: {r['reason']} |")
-    for r in results.get('errors', []):
-        rel = os.path.relpath(r['path'], VAULT_ROOT)
-        print(f"| error | — | {r.get('target_dir', '?')} | pointer | {rel}: {r['reason']} |")
-
-    total = len(results.get('synced', [])) + len(results.get('updated', [])) + len(results.get('exists', [])) + len(results.get('skipped', [])) + len(results.get('errors', []))
-    print(f"\nTotal: {len(results.get('synced', []))} synced, {len(results.get('updated', []))} updated, {len(results.get('exists', []))} exists, {len(results.get('skipped', []))} skipped, {len(results.get('errors', []))} errors ({total} entries scanned)")
-
-
-def backfill():
-    """Add ov_mode: pointer to entries missing it, commit, then sync-all."""
-    files = walk_vault()
-    modified = []
-
-    for filepath in files:
-        with open(filepath, 'r') as f:
-            content = f.read()
-
-        frontmatter, _ = parse_frontmatter(content)
-        if frontmatter is None:
-            continue
-
-        ov_mode = get_field(frontmatter, 'ov_mode')
-        if ov_mode is not None:
-            continue  # Already has ov_mode
-
-        # Add ov_mode: pointer after the tags line, or at end of frontmatter
-        fm_lines = frontmatter.split('\n')
-        inserted = False
-        new_lines = []
-        for line in fm_lines:
-            new_lines.append(line)
-            if line.startswith('tags:'):
-                new_lines.append('ov_mode: pointer')
-                inserted = True
-        if not inserted:
-            new_lines.append('ov_mode: pointer')
-
-        new_fm = '\n'.join(new_lines)
-        new_content = content.replace(frontmatter, new_fm, 1)
-
-        with open(filepath, 'w') as f:
-            f.write(new_content)
-        modified.append(os.path.relpath(filepath, VAULT_ROOT))
-
-    # Commit changes
-    if modified:
-        subprocess.run(['git', 'add', '-A'], cwd=VAULT_ROOT, capture_output=True)
-        subprocess.run(
-            ['git', 'commit', '-m', 'backfill: add ov_mode: pointer to all entries'],
-            cwd=VAULT_ROOT, capture_output=True
-        )
-        print(f"Modified {len(modified)} entries, committed.")
-    else:
-        print("No entries needed ov_mode added.")
-
-    # Now sync all
-    results = sync_all()
-    print_results(results)
+def print_stats(entries_: list[Entry], target_base: str) -> None:
+    sizes = [len(e.payload) for e in entries_]
+    print(f"Vault: {VAULT_ROOT}")
+    print(f"Target: {target_base}")
+    print(f"Entries: {len(entries_)}")
+    if sizes:
+        print(f"Payload bytes: avg={sum(sizes)//len(sizes)} min={min(sizes)} max={max(sizes)}")
+    for label, getter in (
+        ("Types", lambda e: e.entry_type or "(none)"),
+        ("Statuses", lambda e: e.status or "(none)"),
+        ("Repos", lambda e: e.repo or "(none)"),
+    ):
+        counts = {}
+        for entry in entries_:
+            key = getter(entry)
+            counts[key] = counts.get(key, 0) + 1
+        print(f"\n{label}")
+        for key, count in sorted(counts.items(), key=lambda x: (-x[1], x[0])):
+            print(f"  {key}: {count}")
 
 
-if __name__ == '__main__':
-    if len(sys.argv) < 2:
-        print("Usage: compendium-sync.py <mode> [args]")
-        print("Modes: sync-one <path>, sync-all [--update], backfill")
-        sys.exit(1)
+def cmd_sync(args, entries_: list[Entry]) -> int:
+    selected = select(entries_, args)
+    print(f"Selected {len(selected)} entries (offset={args.offset}, limit={args.limit or 'all'})")
+    if args.dry_run:
+        for entry in selected:
+            print(f"dry-run {entry.uri} <- {entry.rel_path} ({len(entry.payload)} bytes)")
+        return 0
 
-    mode = sys.argv[1]
+    config_ok, config_msg = check_ov_cli_config()
+    if not config_ok:
+        print(f"OpenViking CLI config error: {config_msg}", file=sys.stderr)
+        return 1
+    print(f"OpenViking CLI: {config_msg}")
 
-    if mode == 'sync-one':
-        if len(sys.argv) < 3:
-            print("Usage: compendium-sync.py sync-one <path>")
-            sys.exit(1)
-        filepath = os.path.expanduser(sys.argv[2])
-        result = sync_one(filepath)
-        print(f"| Status | ID | Target dir | Mode | Notes |")
-        print(f"|--------|-----|------------|------|-------|")
-        if result['status'] == 'synced':
-            print(f"| synced | {result.get('id', '?')} | {result.get('target_dir', '?')} | pointer | — |")
-        elif result['status'] == 'skipped':
-            print(f"| skipped | — | — | none | {result['reason']} |")
+    ok = 0
+    errors = 0
+    for idx, entry in enumerate(selected, 1):
+        status, detail = sync_entry(entry, update=args.update, wait=not args.no_wait)
+        print(f"[{idx}/{len(selected)}] {status}: {entry.entry_id} {detail}", flush=True)
+        if status in {"synced", "exists"}:
+            ok += 1
         else:
-            print(f"| {result['status']} | — | — | — | {result.get('reason', '?')} |")
+            errors += 1
+            if errors >= args.max_errors:
+                print(f"stopping after {errors} errors")
+                return 1
+        if idx % args.batch_size == 0:
+            print(health_check(), flush=True)
+            if args.pause:
+                time.sleep(args.pause)
+    print(f"Done: {ok} ok, {errors} errors")
+    print(health_check())
+    return 1 if errors else 0
 
-    elif mode == 'sync-all':
-        update = '--update' in sys.argv
-        results = sync_all(update=update)
-        print_results(results)
 
-    elif mode == 'backfill':
-        backfill()
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--target-base", default=DEFAULT_TARGET_BASE)
+    sub = parser.add_subparsers(dest="command", required=True)
 
-    else:
-        print(f"Unknown mode: {mode}")
-        sys.exit(1)
+    sub.add_parser("stats")
+
+    preview = sub.add_parser("preview")
+    preview.add_argument("path")
+
+    plan = sub.add_parser("plan")
+    sync = sub.add_parser("sync")
+    for p in (plan, sync):
+        p.add_argument("--limit", type=int, default=0, help="Maximum entries to select; 0 means all")
+        p.add_argument("--offset", type=int, default=0)
+        p.add_argument("--repo")
+        p.add_argument("--type")
+        p.add_argument("--status")
+        p.add_argument("--exclude-active", action="store_true")
+        p.add_argument("--order", choices=["path", "small-first", "large-first"], default="path")
+    sync.add_argument("--batch-size", type=int, default=10)
+    sync.add_argument("--pause", type=float, default=0)
+    sync.add_argument("--update", action="store_true")
+    sync.add_argument("--dry-run", action="store_true")
+    sync.add_argument("--no-wait", action="store_true")
+    sync.add_argument("--max-errors", type=int, default=3)
+
+    args = parser.parse_args()
+    all_entries = entries(args.target_base)
+
+    if args.command == "stats":
+        print_stats(all_entries, args.target_base)
+        return 0
+    if args.command == "preview":
+        entry = payload_for(Path(args.path).expanduser(), args.target_base)
+        if entry is None:
+            print("No pointer payload for that file", file=sys.stderr)
+            return 1
+        print(entry.payload)
+        return 0
+    if args.command == "plan":
+        for entry in select(all_entries, args):
+            print(f"{entry.uri}\t{entry.rel_path}\t{len(entry.payload)} bytes")
+        return 0
+    if args.command == "sync":
+        return cmd_sync(args, all_entries)
+    return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
