@@ -155,7 +155,7 @@ spec:
       volumes:
         - name: config-template
           configMap:
-            name: openviking-standalone-config
+            name: openviking-config
         - name: config-out
           emptyDir: {}
         - name: data
