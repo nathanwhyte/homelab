@@ -61,8 +61,13 @@ spec:
               import json, os
               conf = json.load(open('/config-template/ov.conf'))
               conf['server']['root_api_key'] = os.environ['API_KEY']
-              conf['storage']['agfs']['s3']['access_key'] = os.environ['S3_ACCESS_KEY']
-              conf['storage']['agfs']['s3']['secret_key'] = os.environ['S3_SECRET_KEY']
+              agfs = conf.get('storage', {}).get('agfs', {})
+              if agfs.get('backend', 'local') == 's3':
+                  agfs.setdefault('s3', {})
+                  agfs['s3']['access_key'] = os.environ['S3_ACCESS_KEY']
+                  agfs['s3']['secret_key'] = os.environ['S3_SECRET_KEY']
+              else:
+                  agfs.pop('s3', None)
               json.dump(conf, open('/config-out/ov.conf', 'w'), indent=2)
               "
           env:
@@ -76,11 +81,13 @@ spec:
                 secretKeyRef:
                   name: openviking-s3-credentials
                   key: AWS_ACCESS_KEY_ID
+                  optional: true
             - name: S3_SECRET_KEY
               valueFrom:
                 secretKeyRef:
                   name: openviking-s3-credentials
                   key: AWS_SECRET_ACCESS_KEY
+                  optional: true
           volumeMounts:
             - name: config-template
               mountPath: /config-template
@@ -150,7 +157,7 @@ spec:
       volumes:
         - name: config-template
           configMap:
-            name: openviking-config
+            name: openviking-standalone-config
         - name: config-out
           emptyDir: {}
         - name: data
