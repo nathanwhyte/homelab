@@ -17,11 +17,11 @@ data:
 
     ollama list
 
-    echo "Pulling qwen3:8b..."
-    ollama pull qwen3:8b || true
+    echo "Pulling gemma4:e4b..."
+    ollama pull gemma4:e4b || true
 
-    echo "Warming up qwen3:8b..."
-    ollama run qwen3:8b "hi" > /dev/null 2>&1 || true
+    echo "Warming up gemma4:e4b..."
+    ollama run gemma4:e4b "hi" > /dev/null 2>&1 || true
     echo "Warmup complete."
 
     touch /tmp/startup-complete

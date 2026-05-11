@@ -19,8 +19,8 @@ spec:
         app: openviking
     spec:
       terminationGracePeriodSeconds: 15
-      # Timmy has the 9070 XT-backed ROCm LLM service and the best local
-      # hardware, so keep the single OpenViking worker close to its hot path.
+      # Keep the OpenViking data path on timmy while the dedicated CUDA VLM
+      # backend on manu owns the NVIDIA GPU.
       nodeSelector:
         kubernetes.io/hostname: timmy
       initContainers:
