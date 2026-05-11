@@ -14,7 +14,7 @@ kubectl apply -f "$SCRIPT_DIR/manifests/openviking-pvc.yaml"
 # kubectl apply -f "$SCRIPT_DIR/manifests/wemby-model-cache-pvc.yaml"
 
 # Config. The standalone config is the canonical single-worker path: local AGFS
-# on the OpenViking PVC and local llama.cpp VLM on timmy.
+# on the OpenViking PVC and a dedicated CUDA llama.cpp VLM on manu.
 kubectl apply -f "$SCRIPT_DIR/manifests/openviking-configmap.yaml"
 kubectl apply -f "$SCRIPT_DIR/manifests/openviking-standalone-configmap.yaml"
 
@@ -49,19 +49,12 @@ else
     echo "  See viking/manifests/openviking-auth.secret.yaml.example for instructions."
 fi
 
-# The single-worker OpenViking path uses the ROCm llama.cpp backend below.
-# Keep the older Ollama ROCm deployment stopped so its model cache does not
-# compete with llama.cpp and OpenViking for timmy's system memory/GPU.
-if kubectl -n llama get deployment/ollama >/dev/null 2>&1; then
-    kubectl -n llama scale deployment/ollama --replicas=0
-fi
-
-# Local embedding service and ROCm llama.cpp backend first. OpenViking is pinned
-# to timmy and points at these in-namespace services.
+# Local embedding service and CUDA llama.cpp backend first. OpenViking is
+# pinned to timmy and points at these in-namespace services.
 kubectl apply -f "$SCRIPT_DIR/manifests/embedder-llamacpp-deployment.yaml"
 kubectl apply -f "$SCRIPT_DIR/manifests/embedder-llamacpp-service.yaml"
-kubectl apply -f "$SCRIPT_DIR/manifests/rocm-llamacpp-deployment.yaml"
-kubectl apply -f "$SCRIPT_DIR/manifests/rocm-llamacpp-service.yaml"
+kubectl apply -f "$SCRIPT_DIR/manifests/cuda-llamacpp-deployment.yaml"
+kubectl apply -f "$SCRIPT_DIR/manifests/cuda-llamacpp-service.yaml"
 
 # Single-instance OpenViking is the canonical deployment path. The
 # coordinator/worker manifests are kept for experiments, not default rollout.
@@ -74,7 +67,7 @@ kubectl apply -f "$SCRIPT_DIR/manifests/openviking-ingress.yaml"
 echo ""
 echo "=== Waiting for rollouts ==="
 kubectl rollout status deployment/embedder-llamacpp -n viking --timeout=300s &
-kubectl rollout status deployment/llamacpp-rocm -n viking --timeout=900s &
+kubectl rollout status deployment/llamacpp-cuda-ov -n viking --timeout=900s &
 kubectl rollout status deployment/openviking -n viking --timeout=120s &
 wait
 

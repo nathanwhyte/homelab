@@ -271,6 +271,6 @@ Only `resources`, `user`, `agent`, and `session` are addressable through the pub
 
 ## Shared LLM infrastructure
 
-- VLM: Qwen3-8B on `llamacpp-cuda-ov.viking.svc` (manu, NVIDIA GTX 1080)
+- VLM: Qwen3-8B on `llamacpp-cuda-llm.viking.svc` (manu, NVIDIA GTX 1080)
 - Embedder: nomic-embed-text-v1.5 on `embedder-llamacpp.viking.svc:8080` (timmy, CPU-only)
 - Manual reindex: `POST /api/v1/content/reindex {"uri": "<dir>", "regenerate": true, "wait": true}`
