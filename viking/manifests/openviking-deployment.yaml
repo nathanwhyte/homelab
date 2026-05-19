@@ -26,7 +26,9 @@ spec:
       initContainers:
         - name: config-rewrite
           image: python:3.12-slim
-          command: ["/bin/sh", "-c"]
+          command:
+            - /bin/sh
+            - -c
           args:
             - |
               python3 -c "
@@ -67,20 +69,76 @@ spec:
               mountPath: /config-out
         - name: temp-cleanup
           image: busybox:1.37
-          command: ["/bin/sh", "-c"]
+          command:
+            - /bin/sh
+            - -c
           args:
-            - >-
-              echo "Cleaning stale temp files...";
-              find /app/data/temp -type f -mtime +1 -delete 2>/dev/null || true;
-              find /app/data/temp -type d -empty -delete 2>/dev/null || true;
-              echo "Removing stale locks...";
-              rm -f /app/data/.openviking.pid;
-              rm -f /app/data/vectordb/context/store/LOCK;
-              find /app/data/viking -name '.path.ovlock' -delete 2>/dev/null || true;
-              echo "Done."
+            - echo "Cleaning stale temp files..."; find /app/data/temp -type f -mtime +1 -delete 2>/dev/null || true; find /app/data/temp -type d -empty -delete 2>/dev/null || true; find /app/data/viking/default/temp -type d -empty -delete 2>/dev/null || true; echo "Removing stale locks..."; rm -f /app/data/.openviking.pid; rm -f /app/data/vectordb/context/store/LOCK; find /app/data/viking -name '.path.ovlock' -delete 2>/dev/null || true; echo "Done."
           volumeMounts:
             - name: data
               mountPath: /app/data
+        - name: patch-syncdiff
+          image: ghcr.io/volcengine/openviking:v0.3.14
+          command:
+            - /bin/sh
+            - -c
+          args:
+            - |
+              echo "Patching semantic_processor.py with SyncDiff retry logic..."
+              python3 << 'PATCH_EOF'
+              import re
+              path = "/app/.venv/lib/python3.13/site-packages/openviking/storage/queuefs/semantic_processor.py"
+              with open(path) as f:
+                  content = f.read()
+              # Match the try/except block around _mv_vector_store_l0_l1 using regex
+              # to handle the backslash-continued f-string and variable formatting
+              pattern = re.compile(
+                  r'[ \t]+try:\s+'
+                  r'await\s+viking_fs\._mv_vector_store_l0_l1\(\s+'
+                  r'root_dir,\s+target_dir,\s+ctx=ctx,\s+lock_handle=lock_handle,\s+\)\s+'
+                  r'except\s+Exception\s+as\s+e:\s+'
+                  r'logger\.error\([\s\S]+?Failed to move L0/L1[\s\S]+?\)',
+                  re.DOTALL
+              )
+              replacement = (
+                  '            import asyncio as _asyncio\n'
+                  '            max_retries = 3\n'
+                  '            for attempt in range(max_retries + 1):\n'
+                  '                try:\n'
+                  '                    await viking_fs._mv_vector_store_l0_l1(\n'
+                  '                        root_dir,\n'
+                  '                        target_dir,\n'
+                  '                        ctx=ctx,\n'
+                  '                        lock_handle=lock_handle,\n'
+                  '                    )\n'
+                  '                    break\n'
+                  '                except Exception as e:\n'
+                  '                    if attempt < max_retries:\n'
+                  '                        delay = 2 ** attempt\n'
+                  '                        logger.warning(\n'
+                  '                            f"[SyncDiff] Retry {attempt+1}/{max_retries} "\n'
+                  '                            f"L0/L1 move after lock contention ({delay}s): {root_dir}"\n'
+                  '                        )\n'
+                  '                        await _asyncio.sleep(delay)\n'
+                  '                    else:\n'
+                  '                        logger.error(\n'
+                  '                            f"[SyncDiff] Failed to move L0/L1 index after "\n'
+                  '                            f"{max_retries+1} attempts: {root_dir} -> {target_dir}, error={e}"\n'
+                  '                        )'
+              )
+              if pattern.search(content):
+                  content = pattern.sub(replacement, content)
+                  with open(path, 'w') as f:
+                      f.write(content)
+                  print("Patch applied successfully")
+              else:
+                  print("WARNING: Patch target not found")
+                  if "_mv_vector_store_l0_l1" in content:
+                      print("  Found _mv_vector_store_l0_l1 reference")
+                  if "Failed to move L0/L1" in content:
+                      print("  Found error message reference")
+              PATCH_EOF
+              echo "Patch complete."
       containers:
         - name: openviking
           image: ghcr.io/volcengine/openviking:v0.3.14
@@ -119,12 +177,37 @@ spec:
           lifecycle:
             preStop:
               exec:
-                command: ["/bin/sh", "-c", "sleep 5"]
+                command:
+                  - /bin/sh
+                  - -c
+                  - sleep 5
           volumeMounts:
             - name: config-out
               mountPath: /app/.openviking/ov.conf
               subPath: ov.conf
               readOnly: true
+            - name: data
+              mountPath: /app/data
+        - name: lock-cleanup
+          image: busybox:1.37
+          command:
+            - /bin/sh
+            - -c
+          args:
+            - |-
+              while true; do
+                find /app/data/viking -name '.path.ovlock' -delete 2>/dev/null || true;
+                find /app/data/viking/default/temp -type d -empty -delete 2>/dev/null || true;
+                sleep 300;
+              done
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 50m
+              memory: 32Mi
+          volumeMounts:
             - name: data
               mountPath: /app/data
       volumes:
