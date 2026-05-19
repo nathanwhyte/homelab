@@ -53,8 +53,8 @@ fi
 # pinned to timmy and points at these in-namespace services.
 kubectl apply -f "$SCRIPT_DIR/manifests/embedder-llamacpp-deployment.yaml"
 kubectl apply -f "$SCRIPT_DIR/manifests/embedder-llamacpp-service.yaml"
-kubectl apply -f "$SCRIPT_DIR/manifests/cuda-llamacpp-deployment.yaml"
-kubectl apply -f "$SCRIPT_DIR/manifests/cuda-llamacpp-service.yaml"
+kubectl apply -f "$SCRIPT_DIR/manifests/rocm-llamacpp-deployment.yaml"
+kubectl apply -f "$SCRIPT_DIR/manifests/rocm-llamacpp-service.yaml"
 
 # Single-instance OpenViking is the canonical deployment path. The
 # coordinator/worker manifests are kept for experiments, not default rollout.
