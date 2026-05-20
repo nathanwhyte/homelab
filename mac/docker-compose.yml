@@ -1,0 +1,71 @@
+# MacBook → cluster telemetry agents.
+#
+# Two containers:
+#   - ollama-exporter: scrapes the native Ollama on the host
+#   - alloy:           ships Ollama + native GPU metrics + Ollama logs to the cluster
+#
+# The Apple Silicon GPU exporter is NOT containerized — `powermetrics` needs
+# direct macOS hardware access. It runs as a LaunchDaemon on the host and is
+# scraped by Alloy via host.docker.internal:9112.
+#
+# Install:
+#   docker compose -f mac/docker-compose.yml up -d
+#
+# Logs:
+#   docker compose -f mac/docker-compose.yml logs -f
+#
+# Update:
+#   docker compose -f mac/docker-compose.yml pull
+#   docker compose -f mac/docker-compose.yml up -d
+
+services:
+  ollama-exporter:
+    # uv-bundled Python image (per user convention; uv run works out of the box
+    # even for stdlib-only single-file scripts via --no-project).
+    image: ghcr.io/astral-sh/uv:python3.12-bookworm-slim
+    container_name: ollama-exporter
+    restart: unless-stopped
+    command:
+      - uv
+      - run
+      - --no-project
+      - /opt/exporter/ollama-exporter.py
+      - --ollama
+      - http://host.docker.internal:11434
+      - --port
+      - "9111"
+    volumes:
+      - ./exporters/ollama-exporter.py:/opt/exporter/ollama-exporter.py:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      # Optional: expose to host for local debugging (curl localhost:9111/metrics).
+      # Not required for Alloy → exporter traffic (uses the compose network).
+      - "127.0.0.1:9111:9111"
+
+  alloy:
+    image: grafana/alloy:latest
+    container_name: alloy
+    restart: unless-stopped
+    command:
+      - run
+      - --server.http.listen-addr=0.0.0.0:12345
+      - --storage.path=/var/lib/alloy/data
+      - /etc/alloy/config.alloy
+    volumes:
+      - ./alloy/config.alloy:/etc/alloy/config.alloy:ro
+      # Tail the native Ollama log directory (Ollama.app default path).
+      # If you launch `ollama serve` from a shell, change this to wherever
+      # you redirect stdout (see mac/README.md).
+      - ${HOME}/.ollama/logs:/var/log/ollama:ro
+      - alloy-data:/var/lib/alloy/data
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      # Alloy debug UI — curl http://localhost:12345/-/ready from the host.
+      - "127.0.0.1:12345:12345"
+    depends_on:
+      - ollama-exporter
+
+volumes:
+  alloy-data:

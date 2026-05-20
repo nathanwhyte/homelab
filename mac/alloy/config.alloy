@@ -1,0 +1,71 @@
+// Grafana Alloy config for the M5 MacBook.
+//
+// Runs in the `alloy` container (see mac/docker-compose.yml).
+// Targets:
+//   - ollama-exporter:9111         (sidecar container, compose-network DNS)
+//   - host.docker.internal:9112    (mac-gpu-exporter, native LaunchDaemon)
+//   - /var/log/ollama/server.log   (bind-mounted from ~/.ollama/logs)
+//
+// Ships to cluster NodePorts on timmy (192.168.1.19); see
+// thoughts/shared/plans/2026-05-20-export-macbook-metrics-and-logs.md.
+
+// ── Metric scrapes ──────────────────────────────────────────────────────────
+
+prometheus.scrape "ollama_local" {
+  targets = [{
+    __address__ = "ollama-exporter:9111",
+    instance    = "macbook-m5",
+    job         = "ollama-metrics",
+  }]
+  scrape_interval = "30s"
+  forward_to      = [prometheus.remote_write.cluster.receiver]
+}
+
+prometheus.scrape "mac_gpu_local" {
+  targets = [{
+    __address__ = "host.docker.internal:9112",
+    instance    = "macbook-m5",
+    job         = "mac-gpu-metrics",
+  }]
+  scrape_interval = "15s"
+  forward_to      = [prometheus.remote_write.cluster.receiver]
+}
+
+prometheus.remote_write "cluster" {
+  endpoint {
+    url = "http://192.168.1.19:30909/api/v1/write"
+  }
+  external_labels = {
+    node    = "macbook-m5",
+    source  = "macbook-m5",
+    cluster = "k8s",
+  }
+}
+
+// ── Log shipping ────────────────────────────────────────────────────────────
+//
+// ~/.ollama/logs is bind-mounted at /var/log/ollama (see docker-compose.yml).
+// If you launch `ollama serve` from a shell instead of Ollama.app, redirect
+// its stdout to a file inside ~/.ollama/logs/ so this match still picks it up.
+
+local.file_match "ollama_logs" {
+  path_targets = [{
+    __path__ = "/var/log/ollama/server.log",
+    job      = "ollama",
+    host     = "macbook-m5",
+  }]
+}
+
+loki.source.file "ollama" {
+  targets    = local.file_match.ollama_logs.targets
+  forward_to = [loki.write.cluster.receiver]
+}
+
+loki.write "cluster" {
+  endpoint {
+    url = "http://192.168.1.19:31080/loki/api/v1/push"
+  }
+  external_labels = {
+    source = "macbook-m5",
+  }
+}

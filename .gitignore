@@ -71,3 +71,4 @@ node-compile-cache/
 
 # Nested git repositories
 garage/garage/
+mac/exporters/__pycache__/

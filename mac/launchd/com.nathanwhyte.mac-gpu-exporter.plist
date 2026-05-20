@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  System LaunchDaemon for the Apple Silicon GPU/ANE/SoC exporter.
+
+  Runs as root because `powermetrics` requires root.
+
+  Install:
+    sudo cp com.nathanwhyte.mac-gpu-exporter.plist /Library/LaunchDaemons/
+    sudo chown root:wheel /Library/LaunchDaemons/com.nathanwhyte.mac-gpu-exporter.plist
+    sudo launchctl load /Library/LaunchDaemons/com.nathanwhyte.mac-gpu-exporter.plist
+
+  Listens on :9112.
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.nathanwhyte.mac-gpu-exporter</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/bin/env</string>
+    <string>python3</string>
+    <string>/Users/noot/code/homelab/mac/exporters/mac-gpu-exporter.py</string>
+    <string>--port</string>
+    <string>9112</string>
+    <string>--interval</string>
+    <string>5</string>
+  </array>
+
+  <key>RunAtLoad</key>
+  <true/>
+
+  <key>KeepAlive</key>
+  <true/>
+
+  <key>ThrottleInterval</key>
+  <integer>10</integer>
+
+  <key>UserName</key>
+  <string>root</string>
+
+  <key>StandardOutPath</key>
+  <string>/var/log/mac-gpu-exporter.log</string>
+
+  <key>StandardErrorPath</key>
+  <string>/var/log/mac-gpu-exporter.log</string>
+
+  <key>ProcessType</key>
+  <string>Background</string>
+</dict>
+</plist>
