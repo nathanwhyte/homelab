@@ -56,9 +56,9 @@ spec:
               echo "Model ready."
           env:
             - name: MODEL_FILE
-              value: Qwen3-8B-Q4_K_M.gguf
+              value: Qwen_Qwen3-8B-IQ4_XS.gguf
             - name: MODEL_URL
-              value: https://huggingface.co/Qwen/Qwen3-8B-GGUF/resolve/main/Qwen3-8B-Q4_K_M.gguf
+              value: https://huggingface.co/bartowski/Qwen_Qwen3-8B-GGUF/resolve/main/Qwen_Qwen3-8B-IQ4_XS.gguf
           securityContext:
             runAsUser: 0
             runAsGroup: 0
@@ -80,7 +80,7 @@ spec:
             - --port
             - "8000"
             - --ctx-size
-            - "49152"
+            - "57344"
             - --n-gpu-layers
             - "999"
             - --parallel

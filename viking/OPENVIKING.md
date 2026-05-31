@@ -178,6 +178,8 @@ The MCP tool handles both steps automatically.
 
 Always use `--wait` flag with CLI uploads. Without it, concurrent uploads compete for queue locks, causing semantic processing stalls (we hit this exact issue with VLM debugging).
 
+Even with `--wait`, the semantic queue processor runs tasks concurrently based on `embedding.max_concurrent` and `vlm.max_concurrent`. When multiple tasks target the same AGFS subtree (e.g., bulk sync of `bugs/mage/`), RocksDB POINT/SUBTREE locks contend and time out. The fix: keep both concurrency values at `1` in `openviking-standalone-configmap.yaml` — this serializes all semantic processing and eliminates lock contention on local AGFS (2026-05-30).
+
 For MCP-based uploads during a session, add one item at a time and verify it processes before adding the next.
 
 ## Maintenance best practices
