@@ -49,13 +49,13 @@ data:
           "dimension": 768,
           "batch_size": 128
         },
-        "max_concurrent": 4
+        "max_concurrent": 1
       },
       "vlm": {
         "provider": "litellm",
         "model": "openai/current.gguf",
         "api_key": "sk-no-key-required",
         "api_base": "http://llamacpp-rocm-llm.viking.svc.cluster.local/v1",
-        "max_concurrent": 2
+        "max_concurrent": 1
       }
     }

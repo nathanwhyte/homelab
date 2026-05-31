@@ -72,3 +72,11 @@ After applying:
 - All 3 worker pods scheduled to timmy (soft affinity 80/20 timmy/manu) — expected with current load
 - `ov add-resource` fails through external HTTPS proxy with `[INTERNAL]` — root cause is VectorDB lock contention, not Traefik
 - `ov wait` hangs through Traefik (long-poll buffering) — known issue, not related to this change
+
+### Follow-up: AGFS Subtree Lock Contention (2026-05-30)
+
+Even with `server.workers: 1`, the semantic queue's `embedding.max_concurrent: 4` and `vlm.max_concurrent: 2` cause RocksDB POINT/SUBTREE lock contention when bulk-processing files in the same directory tree. The fix:
+- `embedding.max_concurrent`: 4 → **1** — serializes embedding writes, eliminates subtree lock contention
+- `vlm.max_concurrent`: 2 → **1** — same for VLM annotation writes
+
+This was discovered during a compendium bug-archive reindex where ~10 files in `bugs/mage/` all contended for AGFS transaction locks on the same parent directory. The LLM completions succeeded but SyncDiff commits failed with `[POINT]` / `[SUBTREE]` timeout errors.
