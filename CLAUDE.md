@@ -124,7 +124,7 @@
 | openviking-s3-credentials | viking | Garage S3 credentials (injected into openviking config) |
 | ollama-api-key | llama | Bearer token for auth proxy |
 
-ConfigMap `openviking-standalone-config` uses `agfs.backend: local` with `storage.transaction` lock defaults. Main OpenViking routes VLM calls to `llamacpp-rocm-llm` with `vlm.max_concurrent=6`. Base config: `server.workers=1`, `embedding.batch_size=128`. Note: `server.workers=1` is required — multiple uvicorn workers per pod cause RocksDB VectorDB lock contention, crashing child processes and stalling the semantic queue.
+ConfigMap `openviking-standalone-config` uses `agfs.backend: local` with `storage.transaction` lock defaults. Main OpenViking routes VLM calls to `llamacpp-rocm-llm` with `vlm.max_concurrent=6`. Base config: `server.workers=1`, `embedding.batch_size=128`. Note: `server.workers=1` is required — multiple uvicorn workers per pod cause embedded local LevelDB VectorDB lock contention (each worker is a separate process opening the same `store/LOCK`), crashing child processes and stalling the semantic queue. This is specific to `vectordb.backend: local`; a networked backend would not have this constraint. See `viking/docs/2026-06-01-openviking-parallelization-cross-reference.md`.
 
 ConfigMap `openviking-config` is retained for workers if scaled back up. Uses `agfs.backend: s3` against Garage with `storage.transaction` defaults added. InitContainers in both `openviking` Deployment and `ov-worker` StatefulSet are backend-agnostic: S3 credentials are conditionally injected only when `agfs.backend == "s3"`.
 
