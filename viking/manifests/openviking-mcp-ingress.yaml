@@ -1,0 +1,42 @@
+---
+# /mcp ingress — exposed without BasicAuth so the native OpenViking MCP
+# endpoint can be reached by Claude Code and other HTTP-mode MCP clients
+# using Authorization: Bearer <api-key>.
+#
+# Co-exists with openviking-ingress.yaml on the same host
+# (context.nathanwhyte.dev). For networking.k8s.io/v1 Ingress, paths with
+# the most specific prefix win regardless of declaration order, so a
+# request to /mcp hits THIS rule (no BasicAuth), while /api/v1/* and the
+# web UI still hit the BasicAuth-protected openviking-ingress rule.
+#
+# TLS is terminated on the openviking-ingress rule (it owns the
+# cert-manager letsencrypt-prod cert for context.nathanwhyte.dev). The
+# /mcp rule does not need a separate TLS block — Traefik reuses the
+# existing certificate for the same host.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: openviking-mcp
+  namespace: viking
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.tls: "true"
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - context.nathanwhyte.dev
+      # No secretName here — the certificate is owned by
+      # openviking-ingress and reused for the same host.
+  rules:
+    - host: context.nathanwhyte.dev
+      http:
+        paths:
+          - path: /mcp
+            pathType: Prefix
+            backend:
+              service:
+                name: openviking
+                port:
+                  number: 1933
