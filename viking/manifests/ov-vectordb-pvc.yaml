@@ -1,0 +1,16 @@
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ov-vectordb-data
+  namespace: viking
+  annotations:
+    longhorn.io/number-of-replicas: "2"
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: longhorn-ssd
+  volumeMode: Filesystem
+  resources:
+    requests:
+      storage: 10Gi
