@@ -6,19 +6,19 @@
 
 | Node | Role | GPU | Key workloads |
 |------|------|-----|---------------|
-| manu | worker | GTX 1080 8 GB | llamacpp-cuda-ov, ov-coordinator, openviking |
-| timmy | worker | RX 9070 XT 16 GB | ollama, llamacpp-rocm, embedder-llamacpp, ov-merge, ov-worker (preferred) |
+| manu | worker | GTX 1080 8 GB | llamacpp-cuda-ov (scaled to 0), ov-coordinator (scaled to 0) — GPU currently idle |
+| timmy | worker | RX 9070 XT 16 GB | ollama, llamacpp-rocm, embedder-llamacpp, openviking, ov-merge (scaled to 0), ov-worker (scaled to 0) |
 | wemby | CP + worker | GTX 1060 6 GB | ov-console |
 
 ## Service routing
 
 | Service | NS | Endpoint | Port | Node | Notes |
 |---------|-----|----------|------|------|-------|
-| OV LLM | viking | `llamacpp-cuda-llm.viking.svc` | 80→8000 | manu | VLM inference only; selector: `app=llamacpp-cuda-ov` |
+| OV LLM | viking | `llamacpp-cuda-llm.viking.svc` | 80→8000 | manu | VLM inference only; selector: `app=llamacpp-cuda-ov`; **currently scaled to 0** |
 | OV LLM (ROCm) | viking | `llamacpp-rocm-llm.viking.svc` | 80→8000 | timmy | VLM inference on AMD GPU; selector: `app=llamacpp-rocm`; workers on timmy route here |
 | Embedder | viking | `embedder-llamacpp.viking.svc` | 8080→8000 | timmy | CPU-only (n-gpu-layers=0) |
-| OpenViking | viking | `openviking.viking.svc` | 1933 | manu | Selector: `app=openviking`; single-instance local AGFS |
-| ov-merged | viking | `ov-merged.viking.svc` | 1933 | manu | Selector: `app=openviking` (same pod as OpenViking) |
+| OpenViking | viking | `openviking.viking.svc` | 1933 | timmy | Selector: `app=openviking`; single-instance local AGFS |
+| ov-merged | viking | `ov-merged.viking.svc` | 1933 | timmy | Selector: `app=openviking` (same pod as OpenViking) |
 | ov-coordinator | viking | `ov-coordinator.viking.svc` | 1933 | — | **Scaled to 0**. Stateless proxy, not needed in single-instance mode |
 | ov-merge | viking | `ov-merge.viking.svc` | 8080 | — | **Scaled to 0**. Not needed without workers |
 | ov-console | viking | `ov-console.viking.svc` | 8020 | wemby | Web UI; `--write-enabled` |
@@ -132,7 +132,7 @@ ConfigMap `openviking-config` is retained for workers if scaled back up. Uses `a
 
 Workers and coordinator are scaled to 0. To restore parallel indexing: `kubectl scale statefulset ov-worker --replicas=3 -n viking && kubectl scale deployment ov-coordinator --replicas=1 -n viking`. Workers use the shared `openviking-config` ConfigMap with `agfs.backend: s3` and S3 credentials.
 
-If manu goes down, the `openviking` Deployment needs to be rescheduled on another node with PVC access (Longhorn handles replication).
+If timmy goes down, the `openviking` Deployment (nodeSelector `timmy`) needs to be rescheduled on another node with PVC access (Longhorn handles replication).
 
 ## OpenViking knowledge base
 
