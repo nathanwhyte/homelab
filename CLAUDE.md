@@ -6,7 +6,7 @@
 
 | Node | Role | GPU | Key workloads |
 |------|------|-----|---------------|
-| manu | worker | GTX 1080 8 GB | llamacpp-cuda-ov (scaled to 0), ov-coordinator (scaled to 0) — GPU currently idle |
+| manu | worker | GTX 1080 8 GB | embedder-llamacpp (CUDA), llamacpp-cuda-ov (scaled to 0), ov-coordinator (scaled to 0) |
 | timmy | worker | RX 9070 XT 16 GB | ollama, llamacpp-rocm, embedder-llamacpp, openviking, ov-merge (scaled to 0), ov-worker (scaled to 0) |
 | wemby | CP + worker | GTX 1060 6 GB | ov-console |
 
@@ -16,13 +16,14 @@
 |---------|-----|----------|------|------|-------|
 | OV LLM | viking | `llamacpp-cuda-llm.viking.svc` | 80→8000 | manu | VLM inference only; selector: `app=llamacpp-cuda-ov`; **currently scaled to 0** |
 | OV LLM (ROCm) | viking | `llamacpp-rocm-llm.viking.svc` | 80→8000 | timmy | VLM inference on AMD GPU; selector: `app=llamacpp-rocm`; workers on timmy route here |
-| Embedder | viking | `embedder-llamacpp.viking.svc` | 8080→8000 | timmy | CPU-only (n-gpu-layers=0) |
+| Embedder | viking | `embedder-llamacpp.viking.svc` | 8080→8000 | manu | CUDA on GTX 1080 (n-gpu-layers=999); ~70× faster than CPU |
 | OpenViking | viking | `openviking.viking.svc` | 1933 | timmy | Selector: `app=openviking`; single-instance local AGFS |
 | ov-merged | viking | `ov-merged.viking.svc` | 1933 | timmy | Selector: `app=openviking` (same pod as OpenViking) |
 | ov-coordinator | viking | `ov-coordinator.viking.svc` | 1933 | — | **Scaled to 0**. Stateless proxy, not needed in single-instance mode |
 | ov-merge | viking | `ov-merge.viking.svc` | 8080 | — | **Scaled to 0**. Not needed without workers |
 | ov-console | viking | `ov-console.viking.svc` | 8020 | wemby | Web UI; `--write-enabled` |
 | ov-worker | viking | headless | 1933 | — | **Scaled to 0**. 3-replica StatefulSet; can be restored for parallel indexing |
+| ov-vectordb | viking | `ov-vectordb.viking.svc` | 5000 | timmy | HTTP vector service (`vectordb.backend: http` target); image `ghcr.io/volcengine/openviking:v0.3.14`; `python -m openviking.storage.vectordb.service.server_fastapi`; `VIKINGDB_PERSIST_PATH=/data/vikingdb`; **scaled to 0** (post-cutover rollback) |
 | Ollama | llama | `192.168.1.19` (LB) | 11434 | timmy | LoadBalancer; externalIP 192.168.1.19 |
 | Ollama Exporter | llama | `192.168.1.19` (LB) | 9111 | timmy | Sidecar in ollama pod; python:3.12-slim |
 | Ollama Auth Proxy | llama | `ollama-auth-proxy.llama.svc` | 80→8080 | timmy | nginx BasicAuth; Bearer token auth |
@@ -65,18 +66,21 @@
 | VLM routing | OV workers on timmy → `llamacpp-rocm-llm`; workers on manu → `llamacpp-cuda-llm` |
 | Strategy | Recreate |
 
-### Embedder — embedder-llamacpp (timmy, CPU-only)
+### Embedder — embedder-llamacpp (manu, CUDA GPU)
 
 | Setting | Value |
 |---------|-------|
 | Model | nomic-embed-text-v1.5 f16 |
 | ctx-size | 16384 |
 | parallel | 8 |
-| n-gpu-layers | 0 (CPU-only) |
+| n-gpu-layers | 999 (full offload to GTX 1080) |
 | rope-scaling | yarn, freq-scale 0.75 |
 | pooling | mean |
 | mlock | enabled |
-| Resources | req 2/1Gi, lim 8/6Gi |
+| Resources | req 500m/1Gi+1GPU, lim 2/6Gi+1GPU |
+| Image | `ghcr.io/ggml-org/llama.cpp:server-cuda` |
+| runtimeClassName | nvidia |
+| nodeSelector | `kubernetes.io/hostname=manu`, `gpu=true` |
 
 **Note**: Model stored in emptyDir (500Mi limit) — re-downloads on every pod restart.
 
@@ -124,7 +128,9 @@
 | openviking-s3-credentials | viking | Garage S3 credentials (injected into openviking config) |
 | ollama-api-key | llama | Bearer token for auth proxy |
 
-ConfigMap `openviking-standalone-config` uses `agfs.backend: local` with `storage.transaction` lock defaults. Main OpenViking routes VLM calls to `llamacpp-rocm-llm` with `vlm.max_concurrent=6`. Base config: `server.workers=1`, `embedding.batch_size=128`. Note: `server.workers=1` is required — multiple uvicorn workers per pod cause embedded local LevelDB VectorDB lock contention (each worker is a separate process opening the same `store/LOCK`), crashing child processes and stalling the semantic queue. This is specific to `vectordb.backend: local`; a networked backend would not have this constraint. See `viking/docs/2026-06-01-openviking-parallelization-cross-reference.md`.
+ConfigMap `openviking-standalone-config` uses `agfs.backend: local` and `vectordb.backend: local` with `storage.transaction` lock defaults. Main OpenViking routes VLM calls to `llamacpp-rocm-llm`. Base config: `server.workers=1`, `embedding.batch_size=128`, `vlm.max_concurrent=1`, `embedding.max_concurrent=1`. Note: `server.workers=1` is required — multiple uvicorn workers per pod cause embedded local LevelDB VectorDB lock contention (each worker is a separate process opening the same `store/LOCK`), crashing child processes and stalling the semantic queue. This is specific to `vectordb.backend: local`; a networked backend would not have this constraint. See `viking/docs/2026-06-01-openviking-parallelization-cross-reference.md`.
+
+**Parallel-writer migration note (2026-06-03, rolled back):** a `vectordb.backend: http` cutover (against `ov-vectordb`) was attempted and reverted. The `ov-vectordb` service is **scaled to 0**. Reason: switching only the vectordb backend does NOT unlock parallel writers — the coarse AGFS subtree lock on `/local/default/resources/compendium` is a separate bottleneck that serializes writes per subtree regardless of the vectordb choice. Unlocking parallel writers requires BOTH `vectordb: http` AND `agfs: s3` (against Garage) at the same time, plus a clean re-ingest (in-place write-rebuild is VLM-bound, not vector-bound). See the migration plan in `viking/docs/2026-06-03-vectordb-http-cutover-notes.md` if present.
 
 ConfigMap `openviking-config` is retained for workers if scaled back up. Uses `agfs.backend: s3` against Garage with `storage.transaction` defaults added. InitContainers in both `openviking` Deployment and `ov-worker` StatefulSet are backend-agnostic: S3 credentials are conditionally injected only when `agfs.backend == "s3"`.
 
