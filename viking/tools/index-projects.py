@@ -494,7 +494,7 @@ def _join_resource_uri(parent_uri: str, name: str) -> str:
 
 
 def _temp_upload(name: str, filename: str, content: bytes) -> str | None:
-    """Upload content as temp file, returning temp_path or None."""
+    """Upload content as temp file, returning temp_file_id or None."""
     try:
         resp = httpx.post(
             f"{OV_URL}/api/v1/resources/temp_upload",
@@ -512,7 +512,7 @@ def _temp_upload(name: str, filename: str, content: bytes) -> str | None:
                 f"  [{name}] Temp upload failed: {data.get('error', {}).get('message', data)}"
             )
             return None
-        return data["result"]["temp_path"]
+        return data["result"]["temp_file_id"]
     except Exception as e:
         print(f"  [{name}] Temp upload error: {e}")
         return None
@@ -522,8 +522,8 @@ def _add_resource(
     label: str, filename: str, markdown: str, client: httpx.Client
 ) -> bool:
     """Upload markdown content as a Viking resource."""
-    temp_path = _temp_upload(label, filename, markdown.encode())
-    if not temp_path:
+    temp_file_id = _temp_upload(label, filename, markdown.encode())
+    if not temp_file_id:
         return False
 
     result = _safe_api(
@@ -531,7 +531,7 @@ def _add_resource(
         "POST",
         "/api/v1/resources",
         json={
-            "temp_path": temp_path,
+            "temp_file_id": temp_file_id,
             "to": _join_resource_uri(VIKING_BASE_DIR, label),
         },
     )

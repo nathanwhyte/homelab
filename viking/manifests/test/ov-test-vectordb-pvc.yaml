@@ -1,0 +1,20 @@
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ov-vectordb-test-data
+  namespace: viking
+  labels:
+    app: ov-test
+    component: ov-vectordb-test
+  annotations:
+    # 1 replica: test data is throwaway; don't double the storage cost.
+    longhorn.io/number-of-replicas: "1"
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+  storageClassName: longhorn-ssd
+  volumeMode: Filesystem
