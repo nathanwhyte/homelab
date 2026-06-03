@@ -1,0 +1,17 @@
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ov-vectordb-test
+  namespace: viking
+  labels:
+    app: ov-vectordb-test
+spec:
+  type: ClusterIP
+  selector:
+    app: ov-vectordb-test
+  ports:
+    - name: http
+      port: 5000
+      targetPort: 5000
+      protocol: TCP

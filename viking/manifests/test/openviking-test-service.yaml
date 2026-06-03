@@ -1,0 +1,17 @@
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: openviking-test
+  namespace: viking
+  labels:
+    app: openviking-test
+spec:
+  type: ClusterIP
+  selector:
+    app: openviking-test
+  ports:
+    - name: http
+      port: 1933
+      targetPort: 1933
+      protocol: TCP
