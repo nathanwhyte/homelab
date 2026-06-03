@@ -21,8 +21,10 @@ spec:
       labels:
         app: embedder-llamacpp
     spec:
+      runtimeClassName: nvidia
       nodeSelector:
-        kubernetes.io/hostname: timmy
+        kubernetes.io/hostname: manu
+        gpu: "true"
       securityContext:
         fsGroup: 0
       initContainers:
@@ -55,7 +57,7 @@ spec:
               mountPath: /models
       containers:
         - name: llamacpp
-          image: ghcr.io/ggml-org/llama.cpp:server
+          image: ghcr.io/ggml-org/llama.cpp:server-cuda
           command:
             - /app/llama-server
           args:
@@ -69,7 +71,7 @@ spec:
             - --pooling
             - mean
             - --n-gpu-layers
-            - "0"
+            - "999"
             - --ctx-size
             - "16384"
             - --parallel
@@ -88,11 +90,13 @@ spec:
               name: http
           resources:
             requests:
-              cpu: "2"
+              cpu: "500m"
               memory: 1Gi
+              nvidia.com/gpu: "1"
             limits:
-              cpu: "8"
+              cpu: "2"
               memory: 6Gi
+              nvidia.com/gpu: "1"
           startupProbe:
             tcpSocket:
               port: 8000
