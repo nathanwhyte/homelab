@@ -1,0 +1,69 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ov-vectordb-test
+  namespace: viking
+  labels:
+    app: ov-vectordb-test
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: ov-vectordb-test
+  template:
+    metadata:
+      labels:
+        app: ov-vectordb-test
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: timmy
+      terminationGracePeriodSeconds: 15
+      containers:
+        - name: ov-vectordb-test
+          image: ghcr.io/volcengine/openviking:v0.3.14
+          command: ["python", "-m", "openviking.storage.vectordb.service.server_fastapi"]
+          env:
+            - name: VIKINGDB_PERSIST_PATH
+              # Distinct path so we never collide with the production
+              # ov-vectordb's /data/vikingdb. Service container creates it.
+              value: /data/test/vikingdb
+          ports:
+            - name: http
+              containerPort: 5000
+          startupProbe:
+            httpGet:
+              path: /health
+              port: 5000
+            periodSeconds: 3
+            failureThreshold: 20
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 5000
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 5000
+            periodSeconds: 15
+          lifecycle:
+            preStop:
+              exec:
+                command: ["/bin/sh", "-c", "sleep 5"]
+          resources:
+            requests:
+              cpu: "500m"
+              memory: 1Gi
+            limits:
+              cpu: "2"
+              memory: 4Gi
+          volumeMounts:
+            - name: data
+              mountPath: /data
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: ov-vectordb-test-data

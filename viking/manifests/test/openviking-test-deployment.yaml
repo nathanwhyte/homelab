@@ -1,0 +1,198 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: openviking-test
+  namespace: viking
+  labels:
+    app: openviking-test
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: openviking-test
+  template:
+    metadata:
+      labels:
+        app: openviking-test
+    spec:
+      terminationGracePeriodSeconds: 15
+      nodeSelector:
+        kubernetes.io/hostname: timmy
+      initContainers:
+        # Mirrors prod: rewrite API key + inject S3 creds (we use the same
+        # secret name `openviking-s3-credentials` to avoid creating a copy).
+        - name: config-rewrite
+          image: python:3.12-slim
+          command:
+            - /bin/sh
+            - -c
+          args:
+            - |
+              python3 -c "
+              import json, os
+              conf = json.load(open('/config-template/ov.conf'))
+              conf['server']['root_api_key'] = os.environ['API_KEY']
+              agfs = conf.get('storage', {}).get('agfs', {})
+              if agfs.get('backend', 'local') == 's3':
+                  agfs.setdefault('s3', {})
+                  agfs['s3']['access_key'] = os.environ['S3_ACCESS_KEY']
+                  agfs['s3']['secret_key'] = os.environ['S3_SECRET_KEY']
+              else:
+                  agfs.pop('s3', None)
+              json.dump(conf, open('/config-out/ov.conf', 'w'), indent=2)
+              "
+          env:
+            - name: API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: openviking-api-key
+                  key: api-key
+            - name: S3_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: openviking-s3-credentials
+                  key: AWS_ACCESS_KEY_ID
+                  optional: true
+            - name: S3_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: openviking-s3-credentials
+                  key: AWS_SECRET_ACCESS_KEY
+                  optional: true
+          volumeMounts:
+            - name: config-template
+              mountPath: /config-template
+            - name: config-out
+              mountPath: /config-out
+        - name: temp-cleanup
+          image: busybox:1.37
+          command:
+            - /bin/sh
+            - -c
+          args:
+            - echo "Cleaning stale temp files..."; find /app/data/temp -type f -mtime +1 -delete 2>/dev/null || true; find /app/data/temp -type d -empty -delete 2>/dev/null || true; find /app/data/viking/default/temp -type d -empty -delete 2>/dev/null || true; echo "Removing stale locks..."; rm -f /app/data/.openviking.pid; rm -f /app/data/vectordb/context/store/LOCK; find /app/data/viking -name '.path.ovlock' -delete 2>/dev/null || true; echo "Done."
+          volumeMounts:
+            - name: data
+              mountPath: /app/data
+        # SyncDiff retry patch — same as prod. Cheap to apply and avoids
+        # the 500 Internal Server Error on the first build_index.
+        - name: patch-syncdiff
+          image: ghcr.io/volcengine/openviking:v0.3.14
+          command:
+            - /bin/sh
+            - -c
+          args:
+            - |
+              echo "Patching semantic_processor.py with SyncDiff retry logic..."
+              python3 << 'PATCH_EOF'
+              import re
+              path = "/app/.venv/lib/python3.13/site-packages/openviking/storage/queuefs/semantic_processor.py"
+              with open(path) as f:
+                  content = f.read()
+              pattern = re.compile(
+                  r'[ \t]+try:\s+'
+                  r'await\s+viking_fs\._mv_vector_store_l0_l1\(\s+'
+                  r'root_dir,\s+target_dir,\s+ctx=ctx,\s+lock_handle=lock_handle,\s+\)\s+'
+                  r'except\s+Exception\s+as\s+e:\s+'
+                  r'logger\.error\([\s\S]+?Failed to move L0/L1[\s\S]+?\)',
+                  re.DOTALL
+              )
+              replacement = (
+                  '            import asyncio as _asyncio\n'
+                  '            max_retries = 3\n'
+                  '            for attempt in range(max_retries + 1):\n'
+                  '                try:\n'
+                  '                    await viking_fs._mv_vector_store_l0_l1(\n'
+                  '                        root_dir,\n'
+                  '                        target_dir,\n'
+                  '                        ctx=ctx,\n'
+                  '                        lock_handle=lock_handle,\n'
+                  '                    )\n'
+                  '                    break\n'
+                  '                except Exception as e:\n'
+                  '                    if attempt < max_retries:\n'
+                  '                        delay = 2 ** attempt\n'
+                  '                        logger.warning(\n'
+                  '                            f"[SyncDiff] Retry {attempt+1}/{max_retries} "\n'
+                  '                            f"L0/L1 move after lock contention ({delay}s): {root_dir}"\n'
+                  '                        )\n'
+                  '                        await _asyncio.sleep(delay)\n'
+                  '                    else:\n'
+                  '                        logger.error(\n'
+                  '                            f"[SyncDiff] Failed to move L0/L1 index after "\n'
+                  '                            f"{max_retries+1} attempts: {root_dir} -> {target_dir}, error={e}"\n'
+                  '                        )'
+              )
+              if pattern.search(content):
+                  content = pattern.sub(replacement, content)
+                  with open(path, 'w') as f:
+                      f.write(content)
+                  print("Patch applied successfully")
+              else:
+                  print("WARNING: Patch target not found")
+              PATCH_EOF
+              echo "Patch complete."
+      containers:
+        - name: openviking-test
+          image: ghcr.io/volcengine/openviking:v0.3.14
+          ports:
+            - containerPort: 1933
+              name: http
+          resources:
+            requests:
+              cpu: "1"
+              memory: 2Gi
+            limits:
+              cpu: "4"
+              memory: 6Gi
+          startupProbe:
+            httpGet:
+              path: /health
+              port: 1933
+            periodSeconds: 3
+            failureThreshold: 30
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 1933
+            periodSeconds: 10
+            timeoutSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: 1933
+            initialDelaySeconds: 10
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 10
+          lifecycle:
+            preStop:
+              exec:
+                command:
+                  - /bin/sh
+                  - -c
+                  - sleep 5
+          volumeMounts:
+            - name: config-out
+              mountPath: /app/.openviking/ov.conf
+              subPath: ov.conf
+              readOnly: true
+            - name: data
+              mountPath: /app/data
+        # No TTL sidecar in this revision: the cluster's image registry
+        # can't pull kubectl, and a self-deletion sidecar isn't worth the
+        # complexity for a 1-shot test. The operator is expected to
+        # `kubectl delete -k viking/manifests/test/` when done; the test
+        # docs and validate.sh print a reminder. To add a TTL later,
+        # use a `python:3-alpine` image with an in-cluster API call.
+      volumes:
+        - name: config-template
+          configMap:
+            name: openviking-test-config
+        - name: config-out
+          emptyDir: {}
+        - name: data
+          persistentVolumeClaim:
+            claimName: openviking-test-data

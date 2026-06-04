@@ -20,7 +20,9 @@ metadata:
   labels:
     app: llamacpp-cuda-ov
 spec:
-  replicas: 1
+  # Scaled to 0 — the OV single-instance pod routes VLM calls to llamacpp-rocm-llm.
+  # This manifest is retained for experiments on manu's GPU; bump to 1 when needed.
+  replicas: 0
   revisionHistoryLimit: 1
   strategy:
     type: Recreate
@@ -31,6 +33,7 @@ spec:
     metadata:
       labels:
         app: llamacpp-cuda-ov
+        vlm-pool: "true"
     spec:
       runtimeClassName: nvidia
       nodeSelector:

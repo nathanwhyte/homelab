@@ -209,12 +209,12 @@ async def index_file(
             if data.get("status") != "ok":
                 return False, f"upload failed: {_error_msg(data)}"
 
-            temp_path = data["result"]["temp_path"]
+            temp_file_id = data["result"]["temp_file_id"]
 
             # Step 2: add resource
             resp = await client.post(
                 "/api/v1/resources",
-                json={"temp_path": temp_path, "to": uri},
+                json={"temp_file_id": temp_file_id, "to": uri},
                 headers=js_headers,
             )
             data = resp.json()

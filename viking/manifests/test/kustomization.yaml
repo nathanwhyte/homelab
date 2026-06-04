@@ -1,0 +1,22 @@
+---
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+# Non-prod OpenViking test stack: validates `agfs:s3` + `vectordb:http`
+# together before committing the production cutover.
+#
+# Apply:  kubectl apply -k viking/manifests/test/
+# Teardown: kubectl delete -k viking/manifests/test/
+#
+# All resources live in the `viking` namespace and use distinct names so
+# they cannot collide with the production openviking deployment.
+namespace: viking
+resources:
+  - openviking-test-pvc.yaml
+  - openviking-test-deployment.yaml
+  - openviking-test-service.yaml
+  - ov-test-vectordb-pvc.yaml
+  - ov-test-vectordb-deployment.yaml
+  - ov-test-vectordb-service.yaml
+  - ov-test-configmap.yaml
+  # ov-test-bucket-setup.yaml is NOT in this bundle; it's a one-shot Job
+  # and should be applied separately (see ov-test-validate.sh).

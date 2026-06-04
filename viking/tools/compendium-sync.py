@@ -26,6 +26,29 @@ VAULT_ROOT = Path(os.environ.get("COMPENDIUM_ROOT", "~/code/compendium")).expand
 DEFAULT_TARGET_BASE = os.environ.get("OV_TARGET_BASE", "viking://resources/compendium")
 ACTIVE_STATUSES = {"todo", "open", "proposed", "in-progress", "investigating", "active"}
 
+# The ov HTTP client's own request timeout, injected into the temp CLI config.
+# `add-resource --wait` keeps the connection open until the resource finishes
+# indexing; OpenViking indexes via a single-worker async queue, so under any
+# backlog --wait blocks for the entire queue drain ahead of the item (observed
+# 10-23 min/item). The ov default of ~60s then fires and reqwest reports a
+# transport-level "error sending request for url" — looking like a network
+# failure rather than a slow backend. Bulk syncs should use the default
+# (async enqueue); --wait is only viable against an idle queue. Override with
+# OPENVIKING_TIMEOUT.
+OV_CLIENT_TIMEOUT = int(os.environ.get("OPENVIKING_TIMEOUT", "600"))
+
+# Substrings that mark an ov failure as a genuine connection-level blip worth a
+# retry (e.g. a port-forward hiccup mid-backfill). Deliberately excludes
+# timeout/"error sending request": with --wait a client timeout means the
+# single-worker queue is draining, not that the request was lost — retrying
+# only re-enqueues duplicate work and deepens the backlog.
+TRANSIENT_ERROR_MARKERS = (
+    "connection reset",
+    "connection closed",
+    "connection refused",
+    "broken pipe",
+)
+
 EXCLUDE_DIRS = {
     ".claude",
     ".git",
@@ -344,6 +367,7 @@ def ov_cli_config() -> tuple[dict[str, str], str | None]:
         "api_key": key,
         "account": os.environ.get("OPENVIKING_ACCOUNT", "default"),
         "user": os.environ.get("OPENVIKING_USER", "noot"),
+        "timeout": OV_CLIENT_TIMEOUT,
     }
     tmp = tempfile.NamedTemporaryFile("w", suffix=".json", prefix="ovcli-", delete=False)
     try:
@@ -359,13 +383,33 @@ def ov_cli_config() -> tuple[dict[str, str], str | None]:
     return env, tmp.name
 
 
-def run_ov(cmd: list[str], timeout: int = 120) -> subprocess.CompletedProcess:
-    env, config_path = ov_cli_config()
-    try:
-        return subprocess.run(["ov", *cmd], capture_output=True, text=True, timeout=timeout, env=env)
-    finally:
-        if config_path:
-            Path(config_path).unlink(missing_ok=True)
+def _is_transient(result: subprocess.CompletedProcess) -> bool:
+    if result.returncode == 0:
+        return False
+    blob = f"{result.stdout}\n{result.stderr}".lower()
+    return any(marker in blob for marker in TRANSIENT_ERROR_MARKERS)
+
+
+def run_ov(cmd: list[str], timeout: int = 120, retries: int = 1) -> subprocess.CompletedProcess:
+    """Run an ov subcommand, retrying only genuine connection-level blips.
+
+    Retries are safe because every write path uses `add-resource --to`
+    (idempotent: refreshes in place) or `mkdir`/`rm` (idempotent by intent).
+    Slow-backend/queue timeouts are intentionally NOT retried (see
+    TRANSIENT_ERROR_MARKERS) — retrying them re-enqueues duplicate work.
+    """
+    result = None
+    for attempt in range(retries + 1):
+        env, config_path = ov_cli_config()
+        try:
+            result = subprocess.run(["ov", *cmd], capture_output=True, text=True, timeout=timeout, env=env)
+        finally:
+            if config_path:
+                Path(config_path).unlink(missing_ok=True)
+        if not _is_transient(result) or attempt == retries:
+            return result
+        time.sleep(2 * (attempt + 1))
+    return result
 
 
 def check_ov_cli_config() -> tuple[bool, str]:
@@ -409,7 +453,8 @@ def sync_entry(entry: Entry, wait: bool) -> tuple[str, str]:
         cmd = ["add-resource", tmp_path, "--to", entry.uri]
         if wait:
             cmd.append("--wait")
-        result = run_ov(cmd, timeout=600 if wait else 120)
+        # Grace margin so the ov client's own timeout fires before subprocess kill.
+        result = run_ov(cmd, timeout=OV_CLIENT_TIMEOUT + 60 if wait else 120)
         if result.returncode == 0:
             return "synced", entry.uri
         if "already exists" in result.stderr.lower() or "exists" in result.stderr.lower():
@@ -473,7 +518,7 @@ def cmd_sync(args, entries_: list[Entry]) -> int:
     ok = 0
     errors = 0
     for idx, entry in enumerate(selected, 1):
-        status, detail = sync_entry(entry, wait=not args.no_wait)
+        status, detail = sync_entry(entry, wait=args.wait)
         print(f"[{idx}/{len(selected)}] {status}: {entry.entry_id} {detail}", flush=True)
         if status in {"synced", "exists"}:
             ok += 1
@@ -537,7 +582,20 @@ def main() -> int:
         help="Delete the OpenViking pointer URI for a previous compendium path before syncing",
     )
     sync.add_argument("--dry-run", action="store_true")
-    sync.add_argument("--no-wait", action="store_true")
+    sync.add_argument(
+        "--wait",
+        action="store_true",
+        help="Block on each resource until fully indexed. OpenViking indexes via a "
+        "single-worker async queue, so under any backlog --wait holds the connection "
+        "for the entire queue drain ahead of the item (observed 10-23 min/item) and "
+        "will time out. Only use for tiny syncs against an idle queue; for bulk "
+        "backfills use the default (async enqueue) and let the server drain.",
+    )
+    sync.add_argument(
+        "--no-wait",
+        action="store_true",
+        help="Deprecated no-op; async enqueue is now the default.",
+    )
     sync.add_argument("--max-errors", type=int, default=3)
 
     args = parser.parse_args()
