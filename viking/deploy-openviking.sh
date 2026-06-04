@@ -61,6 +61,11 @@ kubectl apply -f "$SCRIPT_DIR/manifests/rocm-llamacpp-service.yaml"
 kubectl apply -f "$SCRIPT_DIR/manifests/openviking-deployment.yaml"
 kubectl apply -f "$SCRIPT_DIR/manifests/openviking-service.yaml"
 
+# HTTP vectordb backend — required when ov.conf sets vectordb.backend=http.
+kubectl apply -f "$SCRIPT_DIR/manifests/ov-vectordb-pvc.yaml"
+kubectl apply -f "$SCRIPT_DIR/manifests/ov-vectordb-deployment.yaml"
+kubectl apply -f "$SCRIPT_DIR/manifests/ov-vectordb-service.yaml"
+
 # Traefik ingress (context.nathanwhyte.dev with basicAuth)
 kubectl apply -f "$SCRIPT_DIR/manifests/openviking-ingress.yaml"
 
