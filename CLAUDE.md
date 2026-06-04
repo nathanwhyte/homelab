@@ -6,8 +6,8 @@
 
 | Node | Role | GPU | Key workloads |
 |------|------|-----|---------------|
-| manu | worker | GTX 1080 8 GB | embedder-llamacpp (CUDA), llamacpp-cuda-ov (scaled to 0), ov-coordinator (scaled to 0) |
-| timmy | worker | RX 9070 XT 16 GB | ollama, llamacpp-rocm, embedder-llamacpp, openviking, ov-merge (scaled to 0), ov-worker (scaled to 0) |
+| manu | worker | GTX 1080 8 GB | embedder-llamacpp (CUDA); llamacpp-cuda-ov, ov-coordinator (scaled to 0) |
+| timmy | worker | RX 9070 XT 16 GB | ollama, llamacpp-rocm, embedder-llamacpp, openviking, ov-vectordb; ov-merge, ov-worker (scaled to 0) |
 | wemby | CP + worker | GTX 1060 6 GB | ov-console |
 
 ## Service routing
@@ -32,72 +32,16 @@
 
 ## LLM configuration
 
-### OV LLM — llamacpp-cuda-ov (manu, NVIDIA GPU)
+Exact tuning (ctx-size, batch/ubatch, KV cache, resources, env) lives in the manifests — these are the single source of truth. Summary of what runs where:
 
-| Setting | Value |
-|---------|-------|
-| Model | Qwen3-8B Q4_K_M (`/models/current.gguf`) |
-| ctx-size | 32768 (shared across 4 parallel slots) |
-| parallel | 4 |
-| KV cache | q4_0 (K + V) |
-| flash-attn | on |
-| cont-batching | enabled |
-| reasoning-format | deepseek |
-| batch | 2048 / ubatch 512 |
-| GPU power limit | 220W (nvidia-smi -pl 220 in initContainer) |
-| Resources | req 500m/3Gi+1GPU, lim 4/10Gi+1GPU |
-| Strategy | Recreate |
+| Service | Node / GPU | Model | Slots | Role | Manifest |
+|---------|-----------|-------|-------|------|----------|
+| llamacpp-cuda-ov | manu / GTX 1080 | Qwen3-8B Q4_K_M | 4 | VLM (NVIDIA); **scaled to 0** — OV routes VLM to `llamacpp-rocm-llm` | `viking/manifests/cuda-llamacpp-deployment.yaml` |
+| llamacpp-rocm | timmy / RX 9070 XT | Qwen3-8B Q4_K_M | 6 | VLM (AMD); workers on timmy route here, on manu → `llamacpp-cuda-llm` | `viking/manifests/rocm-llamacpp-deployment.yaml` |
+| embedder-llamacpp | manu / GTX 1080 | nomic-embed-text-v1.5 f16 | 8 | Embeddings, n-gpu-layers=999. Model in emptyDir — re-downloads on restart | `viking/manifests/embedder-llamacpp-deployment.yaml` |
+| ollama | timmy / RX 9070 XT | gemma4:e4b + others | 1 | LoadBalancer; shares GPU with llamacpp-rocm via privileged access (no device-plugin claim) | `llama` ns |
 
-### OV LLM (ROCm) — llamacpp-rocm (timmy, AMD GPU)
-
-| Setting | Value |
-|---------|-------|
-| Model | Qwen3-8B Q4_K_M (`/models/current.gguf`) |
-| ctx-size | 49152 (shared across 6 parallel slots; 8192 per slot) |
-| parallel | 6 |
-| KV cache | q4_0 (K + V) |
-| flash-attn | on |
-| cont-batching | enabled |
-| reasoning-format | deepseek |
-| batch | 2048 / ubatch 2048 |
-| HIP_VISIBLE_DEVICES | 0 |
-| Resources | req 500m/2Gi, lim 8/20Gi (no amd.com/gpu claim — shares GPU with Ollama) |
-| GPU sharing | Coexists with Ollama via privileged access (no device plugin claim) |
-| VLM routing | OV workers on timmy → `llamacpp-rocm-llm`; workers on manu → `llamacpp-cuda-llm` |
-| Strategy | Recreate |
-
-### Embedder — embedder-llamacpp (manu, CUDA GPU)
-
-| Setting | Value |
-|---------|-------|
-| Model | nomic-embed-text-v1.5 f16 |
-| ctx-size | 16384 |
-| parallel | 8 |
-| n-gpu-layers | 999 (full offload to GTX 1080) |
-| rope-scaling | yarn, freq-scale 0.75 |
-| pooling | mean |
-| mlock | enabled |
-| Resources | req 500m/1Gi+1GPU, lim 2/6Gi+1GPU |
-| Image | `ghcr.io/ggml-org/llama.cpp:server-cuda` |
-| runtimeClassName | nvidia |
-| nodeSelector | `kubernetes.io/hostname=manu`, `gpu=true` |
-
-**Note**: Model stored in emptyDir (500Mi limit) — re-downloads on every pod restart.
-
-### Ollama (timmy, AMD ROCm GPU)
-
-| Setting | Value |
-|---------|-------|
-| NUM_CTX | 65536 |
-| FLASH_ATTENTION | 1 |
-| KV_CACHE_TYPE | q4_0 |
-| KEEP_ALIVE | 1h |
-| NUM_PARALLEL | 1 |
-| MAX_LOADED_MODELS | 1 |
-| HIP_VISIBLE_DEVICES | 0 |
-| Resources | req 500m/2Gi, lim 8/20Gi (no amd.com/gpu claim — shares GPU with llamacpp-rocm via privileged access) |
-| Startup models | gemma4:e4b (warm), qwen3.5, qwen3.5-128k, mistral-nemo, devstral:24b, codestral:22b, starcoder2:15b |
-| Strategy | Recreate |
+All llamacpp services: flash-attn on, cont-batching, KV cache q4_0, `Strategy: Recreate`.
 
 ## Network / Ingress
 
@@ -128,11 +72,9 @@
 | openviking-s3-credentials | viking | Garage S3 credentials (injected into openviking config) |
 | ollama-api-key | llama | Bearer token for auth proxy |
 
-ConfigMap `openviking-standalone-config` uses `agfs.backend: s3` (against the `openviking-agfs` Garage bucket) and `vectordb.backend: http` (against the `ov-vectordb` FastAPI service on `ov-vectordb.viking.svc.cluster.local:5000`). This is the **current production default** as of 2026-06-03 — see `viking/docs/2026-06-03-ov-prod-cutover-agfs-s3-vectordb-http.md` for the cutover log and rollback procedure. Main OpenViking routes VLM calls to `llamacpp-rocm-llm`. Base config (as of 2026-06-04, post-TASK-010): `server.workers=2`, `embedding.batch_size=128`, `vlm.max_concurrent=4`, `embedding.max_concurrent=4`. The 9070 XT is no longer shared with Ollama (Ollama deployment is scaled to 0), and FEAT-004 proved 4-writer parallelism is safe against `agfs:s3`+`vectordb:http`. Verified: 4 concurrent VLM slot completions observed in `llamacpp-rocm` logs, queue monitor `inprog` jumped 2→5 and pending dropped 43→5 in the first post-bump tick, VLM pod memory stable at 8.8 GB (limit 20 GB).
+**Production config** — ConfigMap `openviking-standalone-config`: `agfs.backend: s3` (Garage bucket `openviking-agfs`) + `vectordb.backend: http` (`ov-vectordb.viking.svc.cluster.local:5000`). Tuning: `server.workers=2`, `embedding.batch_size=128`, `vlm.max_concurrent=4`, `embedding.max_concurrent=4`. Main OpenViking routes VLM to `llamacpp-rocm-llm`. History of the agfs:s3+vectordb:http cutover and rollback procedure: `viking/docs/2026-06-03-ov-prod-cutover-agfs-s3-vectordb-http.md`.
 
-**Cutover note (2026-06-03, completed):** the `agfs:s3`+`vectordb:http` combination is now live in production. The earlier single-backend attempt (only `vectordb:http`, against local `agfs`) had been rolled back because the AGFS subtree lock on `/local/default/resources/compendium` is a separate bottleneck from vectordb. The combined cutover validated by `viking/docs/2026-06-03-ov-test-agfs-s3-vectordb-http.md` (10 sibling writes in 5s, 0 `resource is busy` rejections) is what unlocked parallel writers. **`ov-vectordb` is now scaled to 1** (was 0 during the rolled-back state). The `openviking-data` PVC's local AGFS tree was wiped in step 3.1; the in-progress rehydration is from S3 carryover (May-10 data) plus the live queue. Full homelab + projects re-ingest is a follow-up via `viking/tools/reindex-all.sh`.
-
-ConfigMap `openviking-config` is retained for workers if scaled back up. Uses `agfs.backend: s3` against Garage with `storage.transaction` defaults added. InitContainers in both `openviking` Deployment and `ov-worker` StatefulSet are backend-agnostic: S3 credentials are conditionally injected only when `agfs.backend == "s3"`.
+ConfigMap `openviking-config` is retained for workers if scaled back up (`agfs.backend: s3`, `storage.transaction` defaults). InitContainers in the `openviking` Deployment and `ov-worker` StatefulSet are backend-agnostic: S3 credentials injected only when `agfs.backend == "s3"`.
 
 ## Failover
 
