@@ -16,12 +16,21 @@ data:
           "lock_expire": 300.0
         },
         "vectordb": {
-          "backend": "local",
+          "backend": "http",
           "name": "context",
-          "dimension": 768
+          "dimension": 768,
+          "url": "http://ov-vectordb.viking.svc.cluster.local:5000"
         },
         "agfs": {
-          "backend": "local"
+          "backend": "s3",
+          "s3": {
+            "bucket": "openviking-agfs",
+            "endpoint": "http://garage.garage.svc.cluster.local:3900",
+            "region": "garage",
+            "access_key": "${S3_ACCESS_KEY}",
+            "secret_key": "${S3_SECRET_KEY}",
+            "use_path_style": true
+          }
         }
       },
       "code": {
