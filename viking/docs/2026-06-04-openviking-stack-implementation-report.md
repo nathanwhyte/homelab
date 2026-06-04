@@ -286,21 +286,29 @@ Key prod values (`openviking-standalone-config`):
 | `storage.vectordb.backend` | `http` | `ov-vectordb:5000`, dim 768 |
 | `storage.transaction.lock_timeout` | 30.0 s | AGFS TREE lock acquisition timeout |
 | `storage.transaction.lock_expire` | 300.0 s | stale-lock expiry |
-| `server.workers` | **1** | conservative; held at 1 during queue-drain |
+| `server.workers` | **2** | bumped from 1 on 2026-06-04 (Ollama no longer shares the 9070 XT) |
 | `server.port` | 1933 | |
 | `embedding.dense.model` | `nomic-embed-text-v1.5` | via embedder service |
 | `embedding.dense.batch_size` | 128 | |
-| `embedding.max_concurrent` | 1 | |
+| `embedding.max_concurrent` | **4** | bumped from 2 on 2026-06-04 (TASK-010); FEAT-004 proved 4 safe |
 | `vlm.provider` / `model` | `litellm` / `openai/current.gguf` | → `llamacpp-rocm-llm` |
-| `vlm.max_concurrent` | 1 | bump to 4 after queue drains |
-| `code.code_summary_mode` | `ast` | AST-based code summarization |
-| `rerank.threshold` | 0.2 | |
+| `vlm.max_concurrent` | **4** | bumped from 2 on 2026-06-04 (TASK-010); VLM pod memory 8.8 GB at 4-concurrent (limit 20 GB) |
 
-`server.workers=1` is deliberately conservative for the post-cutover
+`server.workers=1` was deliberately conservative for the post-cutover
 queue-drain window even though the embedded-LevelDB lock constraint that
-originally forced it no longer applies. The follow-up is to bump `workers` to
-2–4 and `vlm.max_concurrent` to 4 once the carryover compendium is re-embedded
-and latency is steady.
+originally forced it no longer applies. **Bumped to 2 on 2026-06-04** along
+with `vlm.max_concurrent=2` and `embedding.max_concurrent=2` (Ollama is no
+longer sharing the 9070 XT, so the prior safety cap is gone). Same day
+(2026-06-04, after ~30 min stable at 2/2/2 and the carryover queue had drained
+from 217 → 43), `vlm.max_concurrent` and `embedding.max_concurrent` were
+bumped to **4**; `server.workers` held at 2 (it's an HTTP request-handling
+knob, not a VLM/embedding throughput knob). FEAT-004 had already proved
+4-writer parallelism is safe against `agfs:s3`+`vectordb:http` in isolation,
+so the bump is matching production to the validated maximum — no new
+unknown. Verified: 4 concurrent VLM slot completions observed in
+`llamacpp-rocm` logs, queue monitor TICK 17 showed `inprog` jump 2 → 5 and
+`pending` drop 43 → 5 in one tick, VLM pod memory stable at 8.8 GB with no
+OOM. See `TASK-009` and `TASK-010` in `~/code/personal-compendium/tasks/`.
 
 The worker config (`openviking-config`) is identical in shape but its
 `config-gen` init container bumps `vlm.max_concurrent=4` /

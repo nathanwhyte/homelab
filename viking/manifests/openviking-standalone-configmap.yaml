@@ -42,7 +42,7 @@ data:
       "server": {
         "host": "0.0.0.0",
         "port": 1933,
-        "workers": 1,
+        "workers": 2,
         "root_api_key": "${API_KEY}"
       },
       "log": {
@@ -58,13 +58,13 @@ data:
           "dimension": 768,
           "batch_size": 128
         },
-        "max_concurrent": 1
+        "max_concurrent": 4
       },
       "vlm": {
         "provider": "litellm",
         "model": "openai/current.gguf",
         "api_key": "sk-no-key-required",
         "api_base": "http://llamacpp-rocm-llm.viking.svc.cluster.local/v1",
-        "max_concurrent": 1
+        "max_concurrent": 4
       }
     }
