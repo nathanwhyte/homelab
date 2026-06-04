@@ -12,8 +12,8 @@ data:
       "storage": {
         "workspace": "/app/data",
         "transaction": {
-          "lock_timeout": 30.0,
-          "lock_expire": 300.0
+          "lock_timeout": 5.0,
+          "lock_expire": 60.0
         },
         "vectordb": {
           "backend": "http",
