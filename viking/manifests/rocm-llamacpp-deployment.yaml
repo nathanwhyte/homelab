@@ -30,6 +30,7 @@ spec:
     metadata:
       labels:
         app: llamacpp-rocm
+        vlm-pool: "true"
     spec:
       nodeSelector:
         kubernetes.io/hostname: timmy
