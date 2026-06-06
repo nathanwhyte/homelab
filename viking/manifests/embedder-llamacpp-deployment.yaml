@@ -11,6 +11,9 @@ spec:
   strategy:
     type: RollingUpdate
     rollingUpdate:
+      # Single-GPU node: can't surge a 2nd pod onto the one GPU during in-place
+      # updates. (A temporary maxUnavailable:0/maxSurge:1 was used for the
+      # 2026-06-06 cross-node move manu→wemby, then reverted to this.)
       maxUnavailable: 1
       maxSurge: 0
   selector:
@@ -23,7 +26,7 @@ spec:
     spec:
       runtimeClassName: nvidia
       nodeSelector:
-        kubernetes.io/hostname: manu
+        kubernetes.io/hostname: wemby
         gpu: "true"
       securityContext:
         fsGroup: 0
@@ -119,5 +122,5 @@ spec:
               mountPath: /models
       volumes:
         - name: model-cache
-          emptyDir:
-            sizeLimit: 500Mi
+          persistentVolumeClaim:
+            claimName: wemby-model-cache
