@@ -42,8 +42,8 @@ Exact tuning (ctx-size, batch/ubatch, KV cache, resources, env) lives in the man
 | llamacpp-rocm | timmy / RX 9070 XT | Qwen3-8B Q4_K_M | 6 | VLM (AMD); **scaled to 0 at idle**, on-demand for indexing via `viking/tools/ov-vlm.sh`. Workers on timmy route here, on manu → `llamacpp-cuda-llm` | `viking/manifests/rocm-llamacpp-deployment.yaml` |
 | embedder-llamacpp | manu / GTX 1080 | nomic-embed-text-v1.5 f16 | 8 | Embeddings, n-gpu-layers=999. Model in emptyDir — re-downloads on restart | `viking/manifests/embedder-llamacpp-deployment.yaml` |
 | ollama | timmy / RX 9070 XT | gemma4:e4b + others | 1 | LoadBalancer; shares GPU with llamacpp-rocm via privileged access (no device-plugin claim) | `llama` ns |
-| llama-server (local) | MacBook M5 Max | Qwen3.6-27B-uncensored-heretic-v2 Q4_K_M + mmproj | 1 | VLM (local, on-demand); `img-pipeline.sh up/down`; `/no_think` suffix required for direct responses | `scripts/img-pipeline.conf` |
-| Ollama FLUX | MacBook M5 Max | FLUX.2 Klein 9B (non-commercial) | 1 | Image gen; persistent Ollama service; `img-pipeline.sh generate`; 4B also available via `--model x/flux2-klein` | `scripts/img-pipeline.conf` |
+| llama-server (local) | MacBook M5 Max | Qwen3.6-27B-uncensored-heretic-v2 Q4_K_M + mmproj | 1 | VLM (local, on-demand); `img-pipeline.sh up/down`; `/no_think` suffix required for direct responses | `~/code/robots/media/pipeline/img-pipeline.conf` |
+| Ollama FLUX | MacBook M5 Max | FLUX.2 Klein 9B (non-commercial) | 1 | Image gen; persistent Ollama service; `img-pipeline.sh generate`; 4B also available via `--model x/flux2-klein` | `~/code/robots/media/pipeline/img-pipeline.conf` |
 
 All llamacpp services: flash-attn on, cont-batching, KV cache q4_0, `Strategy: Recreate`.
 
@@ -59,7 +59,7 @@ viking/tools/ov-vlm.sh run -- python3 viking/tools/compendium-sync.py sync --lim
 
 ### Image pipeline (MacBook local)
 
-`scripts/img-pipeline.sh` wraps two local AI visual services on the MacBook M5 Max:
+`~/code/robots/media/pipeline/img-pipeline.sh` wraps two local AI visual services on the MacBook M5 Max:
 
 - **`generate "prompt"`** — Calls Ollama FLUX.2 Klein, decodes base64 PNG response, saves to `~/Pictures/ai-generated/` with timestamp filename
 - **`generate --manage-ollama "prompt"`** — Same, but auto-starts Ollama if not running and stops it after generation (EXIT trap cleanup)
@@ -71,7 +71,7 @@ viking/tools/ov-vlm.sh run -- python3 viking/tools/compendium-sync.py sync --lim
 - **`status`** — Shows both services' state (Ollama + llama-server)
 - **`run -- <cmd>`** — up → cmd → down, with EXIT trap (same pattern as `ov-vlm.sh`)
 
-Config: `scripts/img-pipeline.conf` (model paths, ports, timeouts, output dir). The Qwen3.6-27B model uses `/no_think` by default to suppress thinking tokens; pass `--raw` to include them.
+Config: `~/code/robots/media/pipeline/img-pipeline.conf` (model paths, ports, timeouts, output dir). The Qwen3.6-27B model uses `/no_think` by default to suppress thinking tokens; pass `--raw` to include them.
 
 ## Network / Ingress
 
