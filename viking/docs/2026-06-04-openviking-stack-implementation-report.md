@@ -25,10 +25,13 @@ As of the 2026-06-03 cutover, OV stores its **file tree in S3/Garage**
 scope, which is the precondition for the dormant parallel-worker design.
 
 Two GPU-backed model servers do the heavy lifting: a **nomic-embed-text-v1.5
-embedder** on manu's GTX 1080 (CUDA), and a **Qwen3-8B VLM** on timmy's RX 9070
-XT (ROCm) that generates the L0/L1 abstracts/overviews and does query intent
-analysis. A coordinator/worker/merge trio for parallel indexing is built but
-scaled to 0.
+embedder** on wemby's GTX 1060 (CUDA — moved off manu in IDEA-009 Phase 2
+to free the GTX 1080 for the VLM), and a **Qwen3-8B VLM** on manu's
+GTX 1080 (CUDA, IQ4_XS, ctx=32768, 2 slots — primary VLM since IDEA-009
+Phase 3). The retired ROCm VLM on timmy's RX 9070 XT is kept as
+rollback-only (Phase 4, 2026-06-06); the freed 16 GB AMD card now
+serves Ollama exclusively. A coordinator/worker/merge trio for parallel
+indexing is built but scaled to 0.
 
 ```mermaid
 flowchart TB
@@ -52,8 +55,8 @@ flowchart TB
         ov["openviking Deployment :1933 - REST + MCP (timmy, single-instance)"]
         console["ov-console :8020 (wemby)"]
         vdb["ov-vectordb :5000 - HTTP vector service (timmy)"]
-        emb["embedder-llamacpp :8080 - nomic-embed (manu, GTX 1080)"]
-        vlm["llamacpp-rocm :8000 - Qwen3-8B VLM (timmy, RX 9070 XT)"]
+        emb["embedder-llamacpp :8080 - nomic-embed (wemby, GTX 1060)"]
+        vlm["llamacpp-vlm :8000 - generic Service -> llamacpp-cuda-ov (manu, GTX 1080, scaled 0 at idle)"]
     end
 
     api --> ov
@@ -199,9 +202,10 @@ All components live in the `viking` namespace. Manifests are in
 |-----------|------|------|----------|------|-------|
 | `openviking` | Deployment | timmy | 1 | Main OV server (REST + MCP), single-instance | **Active** |
 | `ov-vectordb` | Deployment | timmy | 1 | HTTP vector service (`vectordb:http` target) | **Active** |
-| `embedder-llamacpp` | Deployment | manu | 1 | nomic-embed-text-v1.5 on GTX 1080 (CUDA) | **Active** |
-| `llamacpp-rocm` | Deployment | timmy | 1 | Qwen3-8B VLM on RX 9070 XT (ROCm) — OV's VLM | **Active** |
-| `llamacpp-cuda-ov` | Deployment | manu | 0 | Qwen3-8B VLM on GTX 1080 (CUDA) | Scaled to 0 |
+| `embedder-llamacpp` | Deployment | wemby | 1 | nomic-embed-text-v1.5 on GTX 1060 (CUDA) | **Active** |
+| `llamacpp-cuda-ov` | Deployment | manu | 0 | Qwen3-8B VLM on GTX 1080 (CUDA, IQ4_XS, ctx=32768, 2 slots) — OV's primary VLM | Scaled to 0 (on-demand for indexing) |
+| `llamacpp-rocm` | Deployment | — | 0 | Qwen3-8B VLM on RX 9070 XT (ROCm) — **retired 2026-06-06** (IDEA-009 Phase 4); `vlm-pool` label removed; kept for rollback | Permanently 0 |
+| `llamacpp-vlm` | Service | — | — | Generic VLM Service, selector `vlm-pool: "true"` → routes to `llamacpp-cuda-ov` | **Active** (selector) |
 | `ov-console` | Deployment | wemby | 1 | Web UI (`--write-enabled`) | **Active** |
 | `ov-coordinator` | Deployment | — | 0 | Hash-routing write proxy / read fan-out | Scaled to 0 |
 | `ov-merge` | Deployment | — | 0 | Reconciliation service for worker shards | Scaled to 0 |
@@ -214,9 +218,9 @@ a built-but-dormant parallel design (see §7).
 ### 3.1 The `openviking` Deployment (the core)
 
 Pinned to **timmy** via `nodeSelector` (keeps OV's data path co-located with
-the ROCm VLM while manu's NVIDIA GPU is free for the embedder). `Recreate`
-strategy (single writer — no rolling overlap). Four init containers run before
-the main container:
+the `ov-vectordb` service and the Garage S3 endpoint on the same node;
+`Recreate` strategy — single writer, no rolling overlap). Four init containers
+run before the main container:
 
 1. **`config-rewrite`** (`python:3.12-slim`) — reads the ConfigMap template at
    `/config-template/ov.conf`, injects `server.root_api_key` from the
@@ -253,19 +257,23 @@ timmy, serving port 5000. Persists to `/data/vikingdb`
 
 OV calls out to two OpenAI-compatible model servers (both llama.cpp):
 
-- **Embedder** — `embedder-llamacpp` on **manu**, GTX 1080, `runtimeClassName:
+- **Embedder** — `embedder-llamacpp` on **wemby**, GTX 1060, `runtimeClassName:
   nvidia`. Model `nomic-embed-text-v1.5.f16` (768-dim), `--n-gpu-layers 999`
   (full offload), ctx 16384, `--parallel 8`, batch/ubatch 4096, mean pooling,
   yarn rope (freq-scale 0.75), `--mlock`. Served at
-  `embedder-llamacpp.viking.svc:8080/v1`. **Model lives in `emptyDir`
-  (500Mi)** → re-downloads on every pod restart.
-- **VLM** — `llamacpp-rocm` on **timmy**, RX 9070 XT, Qwen3-8B Q4_K_M. This is
-  the LLM OV uses to generate L0/L1 abstracts/overviews and to do query intent
-  analysis. The standalone config points OV's VLM at
-  `http://llamacpp-rocm-llm.viking.svc.cluster.local/v1` (`provider: litellm`,
-  `model: openai/current.gguf`). A second NVIDIA VLM (`llamacpp-cuda-ov` on
-  manu, service `llamacpp-cuda-llm`) exists but is scaled to 0 — it's the route
-  workers-on-manu would use.
+  `embedder-llamacpp.viking.svc:8080/v1`. **Model cached on the
+  `wemby-model-cache` Longhorn PVC** → survives restarts (moved from
+  `emptyDir` in IDEA-009 Phase 2 when the embedder migrated off manu).
+- **VLM** — `llamacpp-cuda-ov` on **manu**, GTX 1080, Qwen3-8B IQ4_XS, ctx
+  32768, `--parallel 2`. Primary VLM since IDEA-009 Phase 3. The standalone
+  config points OV at the generic `llamacpp-vlm.viking.svc` Service
+  (`provider: litellm`, `model: openai/current.gguf`), which `selector
+  vlm-pool: "true"` routes to this deployment. Scaled to 0 at idle; brought
+  up on demand for indexing via `viking/tools/ov-vlm.sh run -- ...`. The
+  previous ROCm VLM (`llamacpp-rocm` on timmy's RX 9070 XT) was retired in
+  IDEA-009 Phase 4 — manifest and PVC retained for rollback, but the
+  `vlm-pool` label was removed so the unified Service can never route to
+  it.
 
 ---
 
@@ -291,8 +299,8 @@ Key prod values (`openviking-standalone-config`):
 | `embedding.dense.model` | `nomic-embed-text-v1.5` | via embedder service |
 | `embedding.dense.batch_size` | 128 | |
 | `embedding.max_concurrent` | **4** | bumped from 2 on 2026-06-04 (TASK-010); FEAT-004 proved 4 safe |
-| `vlm.provider` / `model` | `litellm` / `openai/current.gguf` | → `llamacpp-rocm-llm` |
-| `vlm.max_concurrent` | **4** | bumped from 2 on 2026-06-04 (TASK-010); VLM pod memory 8.8 GB at 4-concurrent (limit 20 GB) |
+| `vlm.provider` / `model` | `litellm` / `openai/current.gguf` | → `llamacpp-vlm` (generic) → `llamacpp-cuda-ov` |
+| `vlm.max_concurrent` | **2** | matches VLM server's `--parallel 2`. Was 4 on 2026-06-04 (TASK-010); reverted to 2 in IDEA-009 Phase 3 (2026-06-06) because the CUDA VLM only has 2 slots and over-commit caused every request to time out at 60s × 3 retries, stalling the queue. Drain rate with 2/2 is ~1 L0/min sustained. |
 
 `server.workers=1` was deliberately conservative for the post-cutover
 queue-drain window even though the embedded-LevelDB lock constraint that
@@ -310,8 +318,18 @@ unknown. Verified: 4 concurrent VLM slot completions observed in
 `pending` drop 43 → 5 in one tick, VLM pod memory stable at 8.8 GB with no
 OOM. See `TASK-009` and `TASK-010` in `~/code/personal-compendium/tasks/`.
 
+> **Updated 2026-06-06 (IDEA-009 Phase 3):** the VLM moved to
+> `llamacpp-cuda-ov` (GTX 1080, 2 slots, IQ4_XS). `vlm.max_concurrent`
+> reverted from 4 → **2** because the new VLM server only has
+> `--parallel 2`; 4-on-2-slot over-commit caused every request to time
+> out at 60s × 3 retries and stall the queue. Drain rate with
+> 2/2/2 (~1 L0/min) is slower than the previous rocm VLM but adequate
+> for background indexing. `embedding.max_concurrent` held at 4 (the
+> embedder still has 8 slots on the 1060, so 4 is fine).
+> `server.workers` held at 2.
+
 The worker config (`openviking-config`) is identical in shape but its
-`config-gen` init container bumps `vlm.max_concurrent=4` /
+`config-gen` init container bumps `vlm.max_concurrent=2` /
 `embedding.max_concurrent` and uses Ollama (`ollama/qwen3:8b`) as its VLM
 provider in the legacy variant.
 
@@ -334,9 +352,10 @@ provider in the legacy variant.
 | `openviking` | 1933 | `app=openviking` | REST + MCP |
 | `ov-merged` | 1933 | `app=openviking` | alias to same pod |
 | `ov-vectordb` | 5000 | `app=ov-vectordb` | vector HTTP |
-| `embedder-llamacpp` | 8080 → 8000 | `app=embedder-llamacpp` | embeddings |
-| `llamacpp-rocm-llm` | 80 → 8000 | `app=llamacpp-rocm` | VLM (AMD) |
-| `llamacpp-cuda-llm` | 80 → 8000 | `app=llamacpp-cuda-ov` | VLM (NVIDIA, scaled 0) |
+| `embedder-llamacpp` | 8080 → 8000 | `app=embedder-llamacpp` | embeddings (wemby) |
+| `llamacpp-vlm` | 80 → 8000 | `vlm-pool: "true"` | generic VLM Service → `llamacpp-cuda-ov` (manu). Used by OV's `vlm.api_base`. |
+| `llamacpp-cuda-llm` | 80 → 8000 | `app=llamacpp-cuda-ov` | VLM (NVIDIA, primary, scaled 0 at idle) |
+| `llamacpp-rocm-llm` | 80 → 8000 | `app=llamacpp-rocm` | VLM (AMD, **retired 2026-06-06**; no longer labeled `vlm-pool`, so the generic service can't route to it) |
 | `ov-console` | 8020 | console | web UI |
 
 ### Ingress (Traefik) — `context.nathanwhyte.dev`
@@ -384,8 +403,8 @@ client (index-homelab.py / MCP add_resource / console)
       → OV writes raw file into AGFS tree (S3/Garage) under a viking:// URI
       → acquires AGFS TREE lock on target subtree (.path.ovlock)
       → enqueues semantic processing (queuefs)
-          → VLM (llamacpp-rocm) generates .abstract.md (L0) + .overview.md (L1)
-          → embedder (nomic, GTX 1080) embeds L0/L1 → 768-dim vectors
+          → VLM (llamacpp-cuda-ov on manu's GTX 1080, IQ4_XS, 2 slots) generates .abstract.md (L0) + .overview.md (L1)
+          → embedder (nomic on wemby's GTX 1060) embeds L0/L1 → 768-dim vectors
           → vectors upserted into ov-vectordb (http backend)
           → L0/L1 indices moved into place (_mv_vector_store_l0_l1, with retry)
       → releases lock
@@ -488,7 +507,7 @@ Documented in `viking/docs/2026-06-03-ov-prod-cutover-agfs-s3-vectordb-http.md`.
 Fast path: flip both backends in `openviking-standalone-config` back to
 `local`, scale `ov-vectordb` to 0, re-roll the pod. Because the local AGFS tree
 was wiped during cutover (step 3.1), a rollback requires re-ingest from source
-(`reindex-all.sh`, ~3–5h at `vlm.max_concurrent=1`).
+(`reindex-all.sh`, ~3–5h at `vlm.max_concurrent=2` on the 1080).
 
 ---
 
@@ -501,8 +520,8 @@ was wiped during cutover (step 3.1), a rollback requires re-ingest from source
 | Web UI | `viking.nathanwhyte.dev` (LAN only) |
 | AGFS backend | S3 / Garage bucket `openviking-agfs` |
 | VectorDB backend | HTTP `ov-vectordb:5000` (768-dim) |
-| Embedder | nomic-embed-text-v1.5, GTX 1080 (manu) |
-| VLM | Qwen3-8B Q4_K_M, RX 9070 XT (timmy) |
+| Embedder | nomic-embed-text-v1.5, GTX 1060 (wemby) |
+| VLM | Qwen3-8B IQ4_XS, GTX 1080 (manu) — scaled to 0 at idle, on-demand via `viking/tools/ov-vlm.sh run` |
 | OV image | `ghcr.io/volcengine/openviking:v0.3.14` |
 | Mode | single-instance (parallel trio scaled to 0) |
 | Re-ingest | `viking/tools/reindex-all.sh` |

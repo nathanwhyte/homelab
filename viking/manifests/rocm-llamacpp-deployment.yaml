@@ -19,11 +19,23 @@ metadata:
   labels:
     app: llamacpp-rocm
 spec:
-  # Idle default is 0: the VLM holds ~9 GB resident and is only needed during
-  # indexing (L0/L1 generation). Bring it up on demand with
-  # `viking/tools/ov-vlm.sh run -- <index command>`, which scales it back to 0
-  # after the OV index queue drains. Re-applying this manifest will scale it
-  # back to 0, so do indexing through the wrapper rather than `kubectl apply`.
+  # ============================================================
+  # RETIRED 2026-06-06 (IDEA-009 Phase 4)
+  # ------------------------------------------------------------
+  # This deployment was the VLM backend on timmy's RX 9070 XT
+  # (ROCm, Qwen3-8B IQ4_XS, 6 parallel slots). It is permanently
+  # retired; OV now routes VLM through the unified
+  # `llamacpp-vlm` service to `llamacpp-cuda-ov` on manu's
+  # GTX 1080. Kept here as a rollback path only.
+  #
+  # To restore (rollback):
+  #   1. Set openviking-standalone-config vlm.api_base back to
+  #      http://llamacpp-rocm-llm.viking.svc.cluster.local/v1
+  #   2. Set ov-vlm.sh VLM_DEPLOY=llamacpp-rocm
+  #   3. Re-add vlm-pool: "true" to the pod template (below)
+  #   4. Apply this manifest, scale to 1, verify, then update
+  #      ov-worker init to drop the unified-service branch.
+  # ============================================================
   replicas: 0
   revisionHistoryLimit: 1
   strategy:
@@ -35,7 +47,9 @@ spec:
     metadata:
       labels:
         app: llamacpp-rocm
-        vlm-pool: "true"
+        # vlm-pool label removed (IDEA-009 Phase 4, 2026-06-06):
+        # the generic `llamacpp-vlm` Service now routes only to
+        # llamacpp-cuda-ov. This deployment is retired/rollback-only.
     spec:
       nodeSelector:
         kubernetes.io/hostname: timmy
