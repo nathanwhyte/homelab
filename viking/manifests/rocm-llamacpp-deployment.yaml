@@ -19,7 +19,12 @@ metadata:
   labels:
     app: llamacpp-rocm
 spec:
-  replicas: 1
+  # Idle default is 0: the VLM holds ~9 GB resident and is only needed during
+  # indexing (L0/L1 generation). Bring it up on demand with
+  # `viking/tools/ov-vlm.sh run -- <index command>`, which scales it back to 0
+  # after the OV index queue drains. Re-applying this manifest will scale it
+  # back to 0, so do indexing through the wrapper rather than `kubectl apply`.
+  replicas: 0
   revisionHistoryLimit: 1
   strategy:
     type: Recreate
