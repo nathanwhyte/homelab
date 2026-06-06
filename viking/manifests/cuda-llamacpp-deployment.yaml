@@ -20,8 +20,10 @@ metadata:
   labels:
     app: llamacpp-cuda-ov
 spec:
-  # Scaled to 0 — the OV single-instance pod routes VLM calls to llamacpp-rocm-llm.
-  # This manifest is retained for experiments on manu's GPU; bump to 1 when needed.
+  # Primary VLM under the IDEA-009 reshuffle (VLM → manu/GTX 1080). Idle-scaled to 0;
+  # OpenViking brings it up on demand via viking/tools/ov-vlm.sh. NOTE: manu's single
+  # nvidia.com/gpu is held by the embedder until it moves to wemby (IDEA-009 Phase 2),
+  # so this cannot schedule on manu until then.
   replicas: 0
   revisionHistoryLimit: 1
   strategy:
@@ -53,10 +55,12 @@ spec:
         - name: model-fetch
           image: curlimages/curl:8.12.1
           env:
+            # IQ4_XS (~4.2 GB) — same quant as the ROCm VLM; fits the 8 GB GTX 1080
+            # with a 32k context. (Was Q4_K_M ~5.2 GB, which OOMs at this context.)
             - name: MODEL_FILE
-              value: Qwen3-8B-Q4_K_M.gguf
+              value: Qwen_Qwen3-8B-IQ4_XS.gguf
             - name: MODEL_URL
-              value: https://huggingface.co/Qwen/Qwen3-8B-GGUF/resolve/main/Qwen3-8B-Q4_K_M.gguf
+              value: https://huggingface.co/bartowski/Qwen_Qwen3-8B-GGUF/resolve/main/Qwen_Qwen3-8B-IQ4_XS.gguf
           securityContext:
             runAsUser: 0
             runAsGroup: 0
@@ -91,9 +95,10 @@ spec:
             - --port
             - "8000"
             - --ctx-size
-            # Total server context is split across parallel slots, so this
-            # yields about 32k tokens per request with two concurrent slots.
-            - "65536"
+            # Reduced 65536→32768 to fit the 8 GB GTX 1080 (IDEA-009). Total server
+            # context splits across parallel slots → ~16k tokens/request at parallel=2,
+            # still 16× OpenViking's ~1k-token document splits.
+            - "32768"
             - --n-gpu-layers
             - "999"
             - --parallel
