@@ -29,6 +29,8 @@
 | Ollama Auth Proxy | llama | `ollama-auth-proxy.llama.svc` | 80→8080 | timmy | nginx Bearer-token auth (`Authorization: Bearer <ollama-api-key>`) |
 | Prom remote-write (LAN) | grafana | `192.168.1.19` (NodePort) | 30909 | any | `prom-prometheus` NodePort `9090→30909`; `http://192.168.1.19:30909/api/v1/write` for external pushers (e.g. MacBook Alloy); no auth, LAN only |
 | Loki push (LAN) | grafana | `192.168.1.19` (NodePort) | 31080 | any | `loki-gateway` NodePort `80→31080`; `http://192.168.1.19:31080/loki/api/v1/push` for external pushers; no auth, LAN only |
+| Image Gen (FLUX) | — | `localhost:11434` | 11434 | MacBook (local) | Ollama `x/flux2-klein` model; `img-pipeline.sh generate` |
+| Image Understand (llama-server) | — | `127.0.0.1:8081` | 8081 | MacBook (local) | Qwen3.6-27B+mmproj; `img-pipeline.sh understand`; managed lifecycle via `img-pipeline.sh up/down` |
 
 ## LLM configuration
 
@@ -40,6 +42,8 @@ Exact tuning (ctx-size, batch/ubatch, KV cache, resources, env) lives in the man
 | llamacpp-rocm | timmy / RX 9070 XT | Qwen3-8B Q4_K_M | 6 | VLM (AMD); **scaled to 0 at idle**, on-demand for indexing via `viking/tools/ov-vlm.sh`. Workers on timmy route here, on manu → `llamacpp-cuda-llm` | `viking/manifests/rocm-llamacpp-deployment.yaml` |
 | embedder-llamacpp | manu / GTX 1080 | nomic-embed-text-v1.5 f16 | 8 | Embeddings, n-gpu-layers=999. Model in emptyDir — re-downloads on restart | `viking/manifests/embedder-llamacpp-deployment.yaml` |
 | ollama | timmy / RX 9070 XT | gemma4:e4b + others | 1 | LoadBalancer; shares GPU with llamacpp-rocm via privileged access (no device-plugin claim) | `llama` ns |
+| llama-server (local) | MacBook M5 Max | Qwen3.6-27B-uncensored-heretic-v2 Q4_K_M + mmproj | 1 | VLM (local, on-demand); `img-pipeline.sh up/down`; `/no_think` suffix required for direct responses | `scripts/img-pipeline.conf` |
+| Ollama FLUX | MacBook M5 Max | FLUX.2 Klein 4B | 1 | Image gen; persistent Ollama service; `img-pipeline.sh generate` | `scripts/img-pipeline.conf` |
 
 All llamacpp services: flash-attn on, cont-batching, KV cache q4_0, `Strategy: Recreate`.
 
@@ -52,6 +56,19 @@ viking/tools/ov-vlm.sh run -- python3 viking/tools/compendium-sync.py sync --lim
 ```
 
 `run` scales the VLM to 1, waits for readiness (cold model load from the cached Longhorn PVC), runs the command, then `ov wait`s for OV's async index queue to drain before scaling back to 0 — indexing is async, so scaling down immediately after the command returns would kill in-flight VLM work. An EXIT trap returns it to 0 even on failure/Ctrl-C. `ov-vlm.sh up` / `down` / `status` manage the VLM manually for ad-hoc VLM-dependent operations (console/MCP writes). Requires the same `OPENVIKING_URL` / `OPENVIKING_KEY` env as the sync tool (for the `ov wait` drain).
+
+### Image pipeline (MacBook local)
+
+`scripts/img-pipeline.sh` wraps two local AI visual services on the MacBook M5 Max:
+
+- **`generate "prompt"`** — Calls Ollama FLUX.2 Klein, decodes base64 PNG response, saves to `~/Pictures/ai-generated/` with timestamp filename
+- **`understand <image>`** — Base64-encodes image, calls llama-server `/v1/chat/completions` with OpenAI vision format and `/no_think` suffix, prints description
+- **`up`** — Starts llama-server with mmproj on port 8081 (if not running), ensures FLUX model is pulled in Ollama
+- **`down`** — Stops llama-server (PID tracking + pkill fallback)
+- **`status`** — Shows both services' state
+- **`run -- <cmd>`** — up → cmd → down, with EXIT trap (same pattern as `ov-vlm.sh`)
+
+Config: `scripts/img-pipeline.conf` (model paths, ports, timeouts, output dir). The Qwen3.6-27B model uses `/no_think` by default to suppress thinking tokens; pass `--raw` to include them.
 
 ## Network / Ingress
 
