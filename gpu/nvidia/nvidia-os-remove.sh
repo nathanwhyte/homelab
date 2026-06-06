@@ -28,7 +28,12 @@ set -euo pipefail
 
 CMD="${1:-help}"
 
-if [ "$(id -u)" -ne 0 ]; then
+# Show help for --help/-h regardless of position
+case "$CMD" in
+  -h|--help) CMD="help" ;;
+esac
+
+if [ "$(id -u)" -ne 0 ] && [ "$CMD" != "help" ]; then
   echo "must be run as root" >&2
   exit 1
 fi
@@ -198,6 +203,50 @@ do_reboot() {
   echo "after reboot, the GPU Operator's nvidia-driver-daemonset will load the container-built module."
 }
 
+print_help() {
+  cat <<'EOF'
+nvidia-os-remove.sh — remove a host OS-level NVIDIA driver install so the
+NVIDIA GPU Operator (running via gpu-operator DaemonSet) can own the GPU.
+
+USAGE
+  sudo gpu/nvidia/nvidia-os-remove.sh <subcommand>
+  sudo gpu/nvidia/nvidia-os-remove.sh --help
+
+SUBCOMMANDS
+  inventory   Show what is installed (packages, DKMS, modprobe, udev, services)
+              and what is currently loaded. Read-only. Run this first.
+  purge       Stop OS-side nvidia services, remove DKMS module + source tree,
+              and apt-purge the nvidia-* packages. Confirms before each step.
+  cleanup     Remove modprobe.d / modules-load.d / udev entries, and rebuild
+              initramfs so the kernel doesn't try to load the now-removed
+              module on next boot.
+  reboot      Schedule a reboot via 'shutdown -r +1' (cancel with 'shutdown -c'
+              within 1 minute). Required to fully unload the OS-installed
+              kernel module.
+  all         Run inventory → purge → cleanup → reboot in order, with a
+              'yes'-to-continue prompt between each phase.
+  help        Show this help.
+
+FLOW
+  inventory → purge → cleanup → reboot
+
+After reboot, the GPU Operator's nvidia-driver-daemonset pod will load
+the container-built module, and the operator will report the node as
+Ready. ClusterPolicy spec.driver.upgradePolicy.drain.enable=true is
+recommended before the next driver upgrade so GPU pods are drained
+first.
+
+REQUIRES
+  bash 4+, apt, systemctl, modprobe, dkms, update-initramfs. Run as root
+  (root not required for `help` or `inventory` if you only want a read-only
+  peek; subsequent steps need root).
+
+SEE ALSO
+  gpu/nvidia/deploy-nvidia-gpu.sh — install/configure the GPU Operator
+  gpu/nvidia/values.yaml          — ClusterPolicy Helm values
+EOF
+}
+
 case "$CMD" in
   inventory)  do_inventory ;;
   purge)       do_purge ;;
@@ -213,6 +262,8 @@ case "$CMD" in
     do_reboot
     ;;
   help|*)
-    sed -n '2,30p' "$0"
+    print_help
+    [ "$CMD" = "help" ] && exit 0
+    exit 2
     ;;
 esac
