@@ -10,6 +10,7 @@
 #
 # Usage:
 #   img-pipeline.sh generate "prompt"            Generate an image via FLUX.2 Klein
+#   img-pipeline.sh generate --file prompt.txt    Generate from a prompt file
 #   img-pipeline.sh understand <image_path>       Describe an image via Qwen3.6+mmproj
 #   img-pipeline.sh up                            Start llama-server; ensure FLUX model
 #   img-pipeline.sh down                          Stop llama-server
@@ -24,6 +25,7 @@
 # Options (generate):
 #   --model <model>        Override FLUX model name
 #   --output <path>        Override output file path
+#   --file <path>          Read prompt from a file (useful for long/complex prompts)
 #
 # Environment overrides (see img-pipeline.conf):
 #   LLAMACPP_PORT, LLAMACPP_HOST, LLAMACPP_CTX, LLAMACPP_NGL,
@@ -166,19 +168,29 @@ do_status() {
 
 # ── Image generation ──────────────────────────────────────────────────────
 do_generate() {
-  local prompt="" model="${FLUX_MODEL}" output_path=""
+  local prompt="" model="${FLUX_MODEL}" output_path="" prompt_file=""
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --model)   model="$2"; shift 2 ;;
       --output)  output_path="$2"; shift 2 ;;
+      --file)    prompt_file="$2"; shift 2 ;;
       -h|--help)  usage 0 ;;
       *)          prompt="$1"; shift ;;
     esac
   done
 
+  # Read prompt from file if --file was given
+  if [[ -n "$prompt_file" ]]; then
+    if [[ ! -f "$prompt_file" ]]; then
+      log "ERROR: prompt file not found: ${prompt_file}"
+      exit 1
+    fi
+    prompt=$(cat "$prompt_file")
+  fi
+
   if [[ -z "$prompt" ]]; then
-    log "ERROR: generate requires a prompt string"
+    log "ERROR: generate requires a prompt string or --file"
     usage 1
   fi
 
