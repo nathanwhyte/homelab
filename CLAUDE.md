@@ -30,7 +30,7 @@
 | Prom remote-write (LAN) | grafana | `192.168.1.19` (NodePort) | 30909 | any | `prom-prometheus` NodePort `9090→30909`; `http://192.168.1.19:30909/api/v1/write` for external pushers (e.g. MacBook Alloy); no auth, LAN only |
 | Loki push (LAN) | grafana | `192.168.1.19` (NodePort) | 31080 | any | `loki-gateway` NodePort `80→31080`; `http://192.168.1.19:31080/loki/api/v1/push` for external pushers; no auth, LAN only |
 | Image Gen (FLUX) | — | `localhost:11434` | 11434 | MacBook (local) | Ollama `x/flux2-klein:9b` model (9B, non-commercial); `img-pipeline.sh generate`; 4B `x/flux2-klein` also available via `--model` |
-| Image Understand (llama-server) | — | `127.0.0.1:8081` | 8081 | MacBook (local) | Qwen3.6-27B+mmproj; `img-pipeline.sh understand`; managed lifecycle via `img-pipeline.sh up/down` |
+| Image Understand (llama-server) | — | `127.0.0.1:8081` | 8081 | MacBook (local) | Qwen3.6-27B+mmproj; `img-pipeline.sh understand`; managed lifecycle via `img-pipeline.sh up/down`; fallback for Ollama vision path |
 
 ## LLM configuration
 
@@ -42,7 +42,8 @@ Exact tuning (ctx-size, batch/ubatch, KV cache, resources, env) lives in the man
 | llamacpp-rocm | timmy / RX 9070 XT | Qwen3-8B Q4_K_M | 6 | VLM (AMD); **scaled to 0 at idle**, on-demand for indexing via `viking/tools/ov-vlm.sh`. Workers on timmy route here, on manu → `llamacpp-cuda-llm` | `viking/manifests/rocm-llamacpp-deployment.yaml` |
 | embedder-llamacpp | manu / GTX 1080 | nomic-embed-text-v1.5 f16 | 8 | Embeddings, n-gpu-layers=999. Model in emptyDir — re-downloads on restart | `viking/manifests/embedder-llamacpp-deployment.yaml` |
 | ollama | timmy / RX 9070 XT | gemma4:e4b + others | 1 | LoadBalancer; shares GPU with llamacpp-rocm via privileged access (no device-plugin claim) | `llama` ns |
-| llama-server (local) | MacBook M5 Max | Qwen3.6-27B-uncensored-heretic-v2 Q4_K_M + mmproj | 1 | VLM (local, on-demand); `img-pipeline.sh up/down`; `/no_think` suffix required for direct responses | `~/code/robots/media/pipeline/img-pipeline.conf` |
+| llama-server (local) | MacBook M5 Max | Qwen3.6-27B-uncensored-heretic-v2 Q4_K_M + mmproj | 1 | VLM (local, on-demand); `img-pipeline.sh up/down`; `/no_think` suffix required for direct responses; fallback for Ollama vision | `~/code/robots/media/pipeline/img-pipeline.conf` |
+| homework-reader (Ollama local) | MacBook M5 Max | Qwen3.6-27B-uncensored-heretic-v2 Q4_K_M + mmproj (merged monolith) | 1 | Text + vision via Ollama; merged GGUF via `tsunagi-ollama-bridge --model-type qwen35`; capabilities: `completion, thinking, vision, tools`; `/no_think` template + `think:false` in API calls | `~/code/robots/media/pipeline/homework-reader.Modelfile` |
 | Ollama FLUX | MacBook M5 Max | FLUX.2 Klein 9B (non-commercial) | 1 | Image gen; persistent Ollama service; `img-pipeline.sh generate`; 4B also available via `--model x/flux2-klein` | `~/code/robots/media/pipeline/img-pipeline.conf` |
 
 All llamacpp services: flash-attn on, cont-batching, KV cache q4_0, `Strategy: Recreate`.
@@ -63,7 +64,7 @@ viking/tools/ov-vlm.sh run -- python3 viking/tools/compendium-sync.py sync --lim
 
 - **`generate "prompt"`** — Calls Ollama FLUX.2 Klein, decodes base64 PNG response, saves to `~/Pictures/ai-generated/` with timestamp filename
 - **`generate --manage-ollama "prompt"`** — Same, but auto-starts Ollama if not running and stops it after generation (EXIT trap cleanup)
-- **`understand <image>`** — Base64-encodes image, calls llama-server `/v1/chat/completions` with OpenAI vision format and `/no_think` suffix, prints description
+- **`understand <image>`** — Base64-encodes image, calls llama-server `/v1/chat/completions` with OpenAI vision format and `/no_think` suffix, prints description. Vision also works natively in Ollama via `homework-reader` (merged GGUF monolith); use `ollama run homework-reader "describe this" --image photo.jpg` or the Ollama API `images` field
 - **`up`** — Starts llama-server with mmproj on port 8081 (if not running), ensures FLUX model is pulled in Ollama
 - **`down`** — Stops llama-server (PID tracking + pkill fallback)
 - **`ollama-up`** — Starts Ollama via `brew services start ollama`, waits for readiness
