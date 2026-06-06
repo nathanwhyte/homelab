@@ -29,7 +29,7 @@
 | Ollama Auth Proxy | llama | `ollama-auth-proxy.llama.svc` | 80→8080 | timmy | nginx Bearer-token auth (`Authorization: Bearer <ollama-api-key>`) |
 | Prom remote-write (LAN) | grafana | `192.168.1.19` (NodePort) | 30909 | any | `prom-prometheus` NodePort `9090→30909`; `http://192.168.1.19:30909/api/v1/write` for external pushers (e.g. MacBook Alloy); no auth, LAN only |
 | Loki push (LAN) | grafana | `192.168.1.19` (NodePort) | 31080 | any | `loki-gateway` NodePort `80→31080`; `http://192.168.1.19:31080/loki/api/v1/push` for external pushers; no auth, LAN only |
-| Image Gen (FLUX) | — | `localhost:11434` | 11434 | MacBook (local) | Ollama `x/flux2-klein` model; `img-pipeline.sh generate` |
+| Image Gen (FLUX) | — | `localhost:11434` | 11434 | MacBook (local) | Ollama `x/flux2-klein:9b` model (9B, non-commercial); `img-pipeline.sh generate`; 4B `x/flux2-klein` also available via `--model` |
 | Image Understand (llama-server) | — | `127.0.0.1:8081` | 8081 | MacBook (local) | Qwen3.6-27B+mmproj; `img-pipeline.sh understand`; managed lifecycle via `img-pipeline.sh up/down` |
 
 ## LLM configuration
@@ -43,7 +43,7 @@ Exact tuning (ctx-size, batch/ubatch, KV cache, resources, env) lives in the man
 | embedder-llamacpp | manu / GTX 1080 | nomic-embed-text-v1.5 f16 | 8 | Embeddings, n-gpu-layers=999. Model in emptyDir — re-downloads on restart | `viking/manifests/embedder-llamacpp-deployment.yaml` |
 | ollama | timmy / RX 9070 XT | gemma4:e4b + others | 1 | LoadBalancer; shares GPU with llamacpp-rocm via privileged access (no device-plugin claim) | `llama` ns |
 | llama-server (local) | MacBook M5 Max | Qwen3.6-27B-uncensored-heretic-v2 Q4_K_M + mmproj | 1 | VLM (local, on-demand); `img-pipeline.sh up/down`; `/no_think` suffix required for direct responses | `scripts/img-pipeline.conf` |
-| Ollama FLUX | MacBook M5 Max | FLUX.2 Klein 4B | 1 | Image gen; persistent Ollama service; `img-pipeline.sh generate` | `scripts/img-pipeline.conf` |
+| Ollama FLUX | MacBook M5 Max | FLUX.2 Klein 9B (non-commercial) | 1 | Image gen; persistent Ollama service; `img-pipeline.sh generate`; 4B also available via `--model x/flux2-klein` | `scripts/img-pipeline.conf` |
 
 All llamacpp services: flash-attn on, cont-batching, KV cache q4_0, `Strategy: Recreate`.
 
