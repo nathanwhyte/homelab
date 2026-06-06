@@ -62,10 +62,13 @@ viking/tools/ov-vlm.sh run -- python3 viking/tools/compendium-sync.py sync --lim
 `scripts/img-pipeline.sh` wraps two local AI visual services on the MacBook M5 Max:
 
 - **`generate "prompt"`** — Calls Ollama FLUX.2 Klein, decodes base64 PNG response, saves to `~/Pictures/ai-generated/` with timestamp filename
+- **`generate --manage-ollama "prompt"`** — Same, but auto-starts Ollama if not running and stops it after generation (EXIT trap cleanup)
 - **`understand <image>`** — Base64-encodes image, calls llama-server `/v1/chat/completions` with OpenAI vision format and `/no_think` suffix, prints description
 - **`up`** — Starts llama-server with mmproj on port 8081 (if not running), ensures FLUX model is pulled in Ollama
 - **`down`** — Stops llama-server (PID tracking + pkill fallback)
-- **`status`** — Shows both services' state
+- **`ollama-up`** — Starts Ollama via `brew services start ollama`, waits for readiness
+- **`ollama-down`** — Stops Ollama via `brew services stop ollama` (no-op if not running)
+- **`status`** — Shows both services' state (Ollama + llama-server)
 - **`run -- <cmd>`** — up → cmd → down, with EXIT trap (same pattern as `ov-vlm.sh`)
 
 Config: `scripts/img-pipeline.conf` (model paths, ports, timeouts, output dir). The Qwen3.6-27B model uses `/no_think` by default to suppress thinking tokens; pass `--raw` to include them.
