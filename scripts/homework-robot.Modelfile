@@ -2,8 +2,11 @@
 #
 # Rebuilds the homework-robot model with:
 #   - Proper Qwen3 chat template (role formatting, tool call support)
-#   - /no_think appended by default for direct, useful responses
-#   - Thinking tokens suppressed unless explicitly requested
+#   - Thinking DISABLED by default via /no_think in the template suffix
+#     (Ollama auto-enables "thinking" capability for Qwen3.6 GGUF models,
+#     causing the model to get "stuck" generating long reasoning chains before
+#     responding. The /no_think suffix suppresses this at the model level.)
+#   - To re-enable thinking per-request, pass think:true in the API call
 #
 # NOTE: This model cannot do vision through Ollama (split mmproj import is
 # unsupported — see TASK-016). For image understanding, use llama-server
@@ -21,7 +24,7 @@ TEMPLATE """{{- if .System }}<|im_start|>system
 {{ .Content }}{{- if eq .Role "assistant" }}<|im_end|>
 {{- end }}
 {{- end }}<|im_start|>assistant
-"""
+/no_think"""
 
 SYSTEM """You are a helpful, direct assistant. Provide clear and thorough answers. When doing math or reasoning, show your work step by step. Do not refuse reasonable requests."""
 
