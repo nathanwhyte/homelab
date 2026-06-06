@@ -273,8 +273,15 @@ do_generate() {
     output_path="${OUTPUT_DIR}/${timestamp}-flux.png"
   fi
 
-  log "generating image: '${prompt}'"
-  log "  model: ${model}"
+  log "generating image with model ${model} (prompt: $(echo "$prompt" | head -c 80)...)"
+
+  # Build JSON payload with jq to properly escape the prompt (handles quotes,
+  # newlines, backslashes, and special characters in long prompts)
+  local json_payload
+  json_payload=$(jq -n \
+    --arg model "$model" \
+    --arg prompt "$prompt" \
+    '{model: $model, prompt: $prompt, stream: false}')
 
   # Call Ollama with stream:false to get a single JSON response
   local tmpfile
@@ -283,7 +290,7 @@ do_generate() {
   local rc=0
   curl -sf "${OLLAMA_HOST}/api/generate" \
     -H "Content-Type: application/json" \
-    -d "{\"model\": \"${model}\", \"prompt\": \"${prompt}\", \"stream\": false}" \
+    -d "$json_payload" \
     -o "$tmpfile" || rc=$?
 
   if [[ $rc -ne 0 ]]; then
