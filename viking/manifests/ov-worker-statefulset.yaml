@@ -66,13 +66,11 @@ spec:
                   agfs['s3']['secret_key'] = os.environ['S3_SECRET_KEY']
               else:
                   agfs.pop('s3', None)
-              node = os.environ.get('NODE_NAME', '')
-              if 'timmy' in node:
-                conf['vlm']['api_base'] = 'http://llamacpp-rocm-llm.viking.svc.cluster.local/v1'
-                print(f'Worker on {node}: using ROCm VLM endpoint')
-              else:
-                conf['vlm']['api_base'] = 'http://llamacpp-cuda-llm.viking.svc.cluster.local/v1'
-                print(f'Worker on {node}: using CUDA VLM endpoint')
+              # As of IDEA-009 Phase 3, all workers route VLM to the unified
+              # `llamacpp-vlm` service (selector vlm-pool=true), which currently
+              # round-robins across llamacpp-cuda-ov (manu) and llamacpp-rocm
+              # (timmy). Phase 4 will retire the rocm deployment.
+              conf['vlm']['api_base'] = 'http://llamacpp-vlm.viking.svc/v1'
               json.dump(conf, open('/config-out/ov.conf', 'w'), indent=2)
               "
           env:
