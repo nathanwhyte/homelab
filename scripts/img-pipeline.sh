@@ -5,17 +5,21 @@
 #   - Image generation via FLUX.2 Klein (Ollama)
 #   - Image understanding via Qwen3.6-27B+mmproj (llama-server)
 #
-# The llama-server process is started on demand (up/run) and stopped when
-# done (down/run). Ollama is assumed to be running as a persistent service.
+# Both services can be started on demand and stopped after use.
+# Ollama is started/stopped via brew services (macOS). llama-server
+# is started/stopped as a background process with PID tracking.
 #
 # Usage:
 #   img-pipeline.sh generate "prompt"            Generate an image via FLUX.2 Klein
-#   img-pipeline.sh generate --file prompt.txt    Generate from a prompt file
-#   img-pipeline.sh understand <image_path>       Describe an image via Qwen3.6+mmproj
-#   img-pipeline.sh up                            Start llama-server; ensure FLUX model
-#   img-pipeline.sh down                          Stop llama-server
-#   img-pipeline.sh status                        Show both services' state
-#   img-pipeline.sh run -- <command...>           up → command → down (EXIT trap)
+#   img-pipeline.sh generate --file prompt.txt  Generate from a prompt file
+#   img-pipeline.sh generate --manage-ollama    Auto start/stop Ollama for this request
+#   img-pipeline.sh understand <image_path>     Describe an image via Qwen3.6+mmproj
+#   img-pipeline.sh up                           Start llama-server; ensure FLUX model
+#   img-pipeline.sh down                         Stop llama-server
+#   img-pipeline.sh ollama-up                    Start Ollama via brew services
+#   img-pipeline.sh ollama-down                  Stop Ollama via brew services
+#   img-pipeline.sh status                       Show both services' state
+#   img-pipeline.sh run -- <command...>          up → command → down (EXIT trap)
 #
 # Options (understand):
 #   --prompt "question"   Custom prompt (auto-appends /no_think unless --raw)
@@ -26,6 +30,7 @@
 #   --model <model>        Override FLUX model name
 #   --output <path>        Override output file path
 #   --file <path>          Read prompt from a file (useful for long/complex prompts)
+#   --manage-ollama        Auto start Ollama if not running, stop it after generation
 #
 # Environment overrides (see img-pipeline.conf):
 #   LLAMACPP_PORT, LLAMACPP_HOST, LLAMACPP_CTX, LLAMACPP_NGL,
@@ -34,6 +39,8 @@
 #
 # Examples:
 #   img-pipeline.sh generate "a sunset over mountains"
+#   img-pipeline.sh generate --manage-ollama "a sunset over mountains"
+#   img-pipeline.sh generate --file my-prompt.txt
 #   img-pipeline.sh understand ~/Pictures/ai-generated/20260606-143000-flux.png
 #   img-pipeline.sh understand image.png --prompt "How many cats are in this image?"
 #   img-pipeline.sh run -- img-pipeline.sh understand image.png
@@ -55,13 +62,59 @@ fi
 log() { printf '%s %s\n' "$(date +%H:%M:%S)" "$*" >&2; }
 
 usage() {
-  sed -n '2,31p' "$0" | sed 's/^# \{0,1\}//'
+  sed -n '2,33p' "$0" | sed 's/^# \{0,1\}//'
   exit "${1:-0}"
 }
 
 llamaserver_url() { echo "http://${LLAMACPP_HOST}:${LLAMACPP_PORT}"; }
 
-# ── Service lifecycle ─────────────────────────────────────────────────────
+# ── Ollama lifecycle ───────────────────────────────────────────────────────
+# Track whether we started Ollama so we can stop it on exit.
+_OLLAMA_STARTED_BY_US=false
+
+do_ollama_up() {
+  # Check if Ollama is already responding
+  if curl -sf "${OLLAMA_HOST}/api/tags" >/dev/null 2>&1; then
+    log "Ollama already running at ${OLLAMA_HOST}"
+    return 0
+  fi
+
+  log "starting Ollama via brew services..."
+  brew services start ollama >/dev/null 2>&1 || {
+    # Fallback: try direct start (for non-brew installs)
+    log "brew services start failed, trying ollama serve..."
+    nohup ollama serve >/tmp/img-pipeline-ollama.log 2>&1 &
+  }
+
+  # Wait for Ollama to become ready
+  local elapsed=0
+  log "waiting up to ${UP_TIMEOUT}s for Ollama readiness..."
+  while (( elapsed < UP_TIMEOUT )); do
+    if curl -sf "${OLLAMA_HOST}/api/tags" >/dev/null 2>&1; then
+      log "Ollama is ready"
+      _OLLAMA_STARTED_BY_US=true
+      return 0
+    fi
+    sleep 2
+    elapsed=$((elapsed + 2))
+  done
+
+  log "ERROR: Ollama did not become ready within ${UP_TIMEOUT}s"
+  log "check: brew services info ollama, or /tmp/img-pipeline-ollama.log"
+  return 1
+}
+
+do_ollama_down() {
+  if [[ "${_OLLAMA_STARTED_BY_US}" == "true" ]]; then
+    log "stopping Ollama (we started it)..."
+    brew services stop ollama >/dev/null 2>&1 || true
+    _OLLAMA_STARTED_BY_US=false
+  else
+    log "Ollama was already running — leaving it up"
+  fi
+}
+
+# ── llama-server lifecycle ────────────────────────────────────────────────
 do_up() {
   # Check if llama-server is already running
   if curl -sf "$(llamaserver_url)/health" >/dev/null 2>&1; then
@@ -155,28 +208,39 @@ do_status() {
     echo "llama-server: STOPPED"
   fi
 
-  # Ollama FLUX model
-  if ollama list 2>/dev/null | grep -q "${FLUX_MODEL}"; then
-    echo "FLUX model:  ${FLUX_MODEL} (available in Ollama)"
+  # Ollama
+  if curl -sf "${OLLAMA_HOST}/api/tags" >/dev/null 2>&1; then
+    echo "Ollama:       RUNNING at ${OLLAMA_HOST}"
   else
-    echo "FLUX model:  ${FLUX_MODEL} (NOT PULLED — run 'ollama pull ${FLUX_MODEL}')"
+    echo "Ollama:       STOPPED (run 'img-pipeline.sh ollama-up' or 'brew services start ollama')"
   fi
 
-  echo "  Ollama:    ${OLLAMA_HOST}"
+  # Ollama FLUX model (only meaningful if Ollama is running)
+  if curl -sf "${OLLAMA_HOST}/api/tags" >/dev/null 2>&1; then
+    if ollama list 2>/dev/null | grep -q "${FLUX_MODEL}"; then
+      echo "FLUX model:  ${FLUX_MODEL} (available in Ollama)"
+    else
+      echo "FLUX model:  ${FLUX_MODEL} (NOT PULLED — run 'ollama pull ${FLUX_MODEL}')"
+    fi
+  else
+    echo "FLUX model:  ${FLUX_MODEL} (Ollama not running — cannot check)"
+  fi
+
   echo "  Output:    ${OUTPUT_DIR}"
 }
 
 # ── Image generation ──────────────────────────────────────────────────────
 do_generate() {
-  local prompt="" model="${FLUX_MODEL}" output_path="" prompt_file=""
+  local prompt="" model="${FLUX_MODEL}" output_path="" prompt_file="" manage_ollama=false
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
-      --model)   model="$2"; shift 2 ;;
-      --output)  output_path="$2"; shift 2 ;;
-      --file)    prompt_file="$2"; shift 2 ;;
-      -h|--help)  usage 0 ;;
-      *)          prompt="$1"; shift ;;
+      --model)          model="$2"; shift 2 ;;
+      --output)         output_path="$2"; shift 2 ;;
+      --file)           prompt_file="$2"; shift 2 ;;
+      --manage-ollama)  manage_ollama=true; shift ;;
+      -h|--help)        usage 0 ;;
+      *)                prompt="$1"; shift ;;
     esac
   done
 
@@ -192,6 +256,13 @@ do_generate() {
   if [[ -z "$prompt" ]]; then
     log "ERROR: generate requires a prompt string or --file"
     usage 1
+  fi
+
+  # Start Ollama if --manage-ollama was given and it's not running
+  if [[ "$manage_ollama" == "true" ]]; then
+    do_ollama_up || exit 1
+    # Set EXIT trap to stop Ollama when we're done
+    trap do_ollama_down EXIT
   fi
 
   mkdir -p "${OUTPUT_DIR}"
@@ -352,6 +423,12 @@ main() {
       ;;
     down)
       do_down
+      ;;
+    ollama-up)
+      do_ollama_up
+      ;;
+    ollama-down)
+      do_ollama_down
       ;;
     status)
       do_status
