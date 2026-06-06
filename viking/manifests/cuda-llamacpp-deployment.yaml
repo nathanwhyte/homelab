@@ -20,10 +20,12 @@ metadata:
   labels:
     app: llamacpp-cuda-ov
 spec:
-  # Primary VLM under the IDEA-009 reshuffle (VLM → manu/GTX 1080). Idle-scaled to 0;
-  # OpenViking brings it up on demand via viking/tools/ov-vlm.sh. NOTE: manu's single
-  # nvidia.com/gpu is held by the embedder until it moves to wemby (IDEA-009 Phase 2),
-  # so this cannot schedule on manu until then.
+  # Primary VLM under the IDEA-009 GPU reshuffle (VLM → manu/GTX 1080).
+  # Idle-scaled to 0; OpenViking brings it up on demand via
+  # viking/tools/ov-vlm.sh run -- <index command>, which scales it back to 0
+  # after the OV index queue drains. The embedder moved off this node in
+  # IDEA-009 Phase 2 (now on wemby's GTX 1060), so the GTX 1080's full 8 GB
+  # is available for the VLM during indexing windows.
   replicas: 0
   revisionHistoryLimit: 1
   strategy:

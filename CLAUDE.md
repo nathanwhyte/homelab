@@ -6,17 +6,18 @@
 
 | Node | Role | GPU | Key workloads |
 |------|------|-----|---------------|
-| manu | worker | GTX 1080 8 GB | embedder-llamacpp (CUDA); llamacpp-cuda-ov, ov-coordinator (scaled to 0) |
-| timmy | worker | RX 9070 XT 16 GB | ollama, openviking, ov-vectordb; llamacpp-rocm (VLM, scaled to 0 at idle — on-demand for indexing); ov-merge, ov-worker (scaled to 0) |
-| wemby | CP + worker | GTX 1060 6 GB | ov-console |
+| manu | worker | GTX 1080 8 GB | llamacpp-cuda-ov (VLM, scaled to 0 at idle — on-demand for indexing via `viking/tools/ov-vlm.sh`); ov-coordinator (scaled to 0) |
+| timmy | worker | RX 9070 XT 16 GB | ollama, openviking, ov-vectordb; llamacpp-rocm (retired, scaled to 0 — see Phase 4 banner); ov-merge, ov-worker (scaled to 0) |
+| wemby | CP + worker | GTX 1060 6 GB | embedder-llamacpp (CUDA, persistent model cache on wemby-model-cache PVC); ov-console |
 
 ## Service routing
 
 | Service | NS | Endpoint | Port | Node | Notes |
 |---------|-----|----------|------|------|-------|
-| OV LLM | viking | `llamacpp-cuda-llm.viking.svc` | 80→8000 | manu | VLM inference only; selector: `app=llamacpp-cuda-ov`; **currently scaled to 0** |
-| OV LLM (ROCm) | viking | `llamacpp-rocm-llm.viking.svc` | 80→8000 | timmy | VLM inference on AMD GPU; selector: `app=llamacpp-rocm`; **scaled to 0 at idle** — brought up on demand for indexing via `viking/tools/ov-vlm.sh` (holds ~9 GB resident) |
-| Embedder | viking | `embedder-llamacpp.viking.svc` | 8080→8000 | manu | CUDA on GTX 1080 (n-gpu-layers=999); ~70× faster than CPU |
+| OV LLM (unified) | viking | `llamacpp-vlm.viking.svc` | 80→8000 | manu | Generic VLM Service; selector `vlm-pool: "true"` → routes to `llamacpp-cuda-ov`. **Scaled to 0 at idle**, on-demand for indexing via `viking/tools/ov-vlm.sh` (cold model load from Longhorn PVC, ~9 GB resident on the 1080) |
+| OV LLM (NVIDIA) | viking | `llamacpp-cuda-llm.viking.svc` | 80→8000 | manu | `llamacpp-cuda-ov`; Qwen3-8B IQ4_XS, ctx=32768, 2 slots; current sole VLM backend (Phase 3 onwards) |
+| OV LLM (AMD, retired) | viking | `llamacpp-rocm-llm.viking.svc` | 80→8000 | timmy | `llamacpp-rocm`; **permanently retired** (IDEA-009 Phase 4, 2026-06-06). Selector label `vlm-pool` removed; manifest kept for rollback only. Do not scale up. |
+| Embedder | viking | `embedder-llamacpp.viking.svc` | 8080→8000 | wemby | CUDA on GTX 1060; model cached on `wemby-model-cache` PVC. Moved off manu in IDEA-009 Phase 2 to free the 1080 for the VLM |
 | OpenViking | viking | `openviking.viking.svc` | 1933 | timmy | Selector: `app=openviking`; single-instance local AGFS |
 | ov-merged | viking | `ov-merged.viking.svc` | 1933 | timmy | Selector: `app=openviking` (same pod as OpenViking) |
 | ov-coordinator | viking | `ov-coordinator.viking.svc` | 1933 | — | **Scaled to 0**. Stateless proxy, not needed in single-instance mode |
@@ -38,10 +39,10 @@ Exact tuning (ctx-size, batch/ubatch, KV cache, resources, env) lives in the man
 
 | Service | Node / GPU | Model | Slots | Role | Manifest |
 |---------|-----------|-------|-------|------|----------|
-| llamacpp-cuda-ov | manu / GTX 1080 | Qwen3-8B Q4_K_M | 4 | VLM (NVIDIA); **scaled to 0** — OV routes VLM to `llamacpp-rocm-llm` | `viking/manifests/cuda-llamacpp-deployment.yaml` |
-| llamacpp-rocm | timmy / RX 9070 XT | Qwen3-8B Q4_K_M | 6 | VLM (AMD); **scaled to 0 at idle**, on-demand for indexing via `viking/tools/ov-vlm.sh`. Workers on timmy route here, on manu → `llamacpp-cuda-llm` | `viking/manifests/rocm-llamacpp-deployment.yaml` |
-| embedder-llamacpp | manu / GTX 1080 | nomic-embed-text-v1.5 f16 | 8 | Embeddings, n-gpu-layers=999. Model in emptyDir — re-downloads on restart | `viking/manifests/embedder-llamacpp-deployment.yaml` |
-| ollama | timmy / RX 9070 XT | gemma4:e4b + others | 1 | LoadBalancer; shares GPU with llamacpp-rocm via privileged access (no device-plugin claim) | `llama` ns |
+| llamacpp-cuda-ov | manu / GTX 1080 | Qwen3-8B IQ4_XS, ctx=32768 | 2 | **Primary VLM** (NVIDIA); scaled to 0 at idle, on-demand for indexing via `viking/tools/ov-vlm.sh`. ~29-30 tok/s gen, ~414 tok/s prompt eval on the 1080. | `viking/manifests/cuda-llamacpp-deployment.yaml` |
+| llamacpp-rocm | timmy / RX 9070 XT | Qwen3-8B IQ4_XS, ctx=57344 | 6 | **Retired** (IDEA-009 Phase 4, 2026-06-06). `vlm-pool` label removed from pod template so the unified service no longer routes here. Kept for rollback only. | `viking/manifests/rocm-llamacpp-deployment.yaml` |
+| embedder-llamacpp | wemby / GTX 1060 | nomic-embed-text-v1.5 f16, ctx=16384 | 8 | Embeddings, n-gpu-layers=999. Model on `wemby-model-cache` PVC (no re-download on restart). | `viking/manifests/embedder-llamacpp-deployment.yaml` |
+| ollama | timmy / RX 9070 XT | gemma4:e4b + others | 1 | LoadBalancer; **now has full 16 GB VRAM** (VLM no longer contends) | `llama` ns |
 | llama-server (local) | MacBook M5 Max | Qwen3.6-27B-uncensored-heretic-v2 Q4_K_M + mmproj | 1 | VLM (local, on-demand); `img-pipeline.sh up/down`; `/no_think` suffix required for direct responses; fallback for Ollama vision | `~/code/robots/media/pipeline/img-pipeline.conf` |
 | Ollama FLUX | MacBook M5 Max | FLUX.2 Klein 9B (non-commercial) | 1 | Image gen; persistent Ollama service; `img-pipeline.sh generate`; 4B also available via `--model x/flux2-klein` | `~/code/robots/media/pipeline/img-pipeline.conf` |
 
@@ -51,13 +52,13 @@ All llamacpp services: flash-attn on, cont-batching, KV cache q4_0, `Strategy: R
 
 ### VLM idle scaling (on-demand)
 
-`llamacpp-rocm` (the VLM) holds ~9 GB resident and is only used during indexing (L0/L1 generation); reads/searches never touch it. Its manifest default is `replicas: 0`, so the idle cluster carries no VLM. Bring it up only for the duration of an index run with the wrapper:
+`llamacpp-cuda-ov` (the VLM) holds ~6 GB resident on the GTX 1080 and is only used during indexing (L0/L1 generation); reads/searches never touch it. Its manifest default is `replicas: 0`, so the idle cluster carries no VLM. Bring it up only for the duration of an index run with the wrapper:
 
 ```
 viking/tools/ov-vlm.sh run -- python3 viking/tools/compendium-sync.py sync --limit 50
 ```
 
-`run` scales the VLM to 1, waits for readiness (cold model load from the cached Longhorn PVC), runs the command, then `ov wait`s for OV's async index queue to drain before scaling back to 0 — indexing is async, so scaling down immediately after the command returns would kill in-flight VLM work. An EXIT trap returns it to 0 even on failure/Ctrl-C. `ov-vlm.sh up` / `down` / `status` manage the VLM manually for ad-hoc VLM-dependent operations (console/MCP writes). Requires the same `OPENVIKING_URL` / `OPENVIKING_KEY` env as the sync tool (for the `ov wait` drain).
+`run` scales the VLM to 1, waits for readiness (cold model load from the cached Longhorn PVC), runs the command, then `ov wait`s for OV's async index queue to drain before scaling back to 0 — indexing is async, so scaling down immediately after the command returns would kill in-flight VLM work. An EXIT trap returns it to 0 even on failure/Ctrl-C. `ov-vlm.sh up` / `down` / `status` manage the VLM manually for ad-hoc VLM-dependent operations (console/MCP writes). Requires the same `OPENVIKING_URL` / `OPENVIKING_KEY` env as the sync tool (for the `ov wait` drain — the v0.3.14 CLI's `ov wait` has a known client/server mismatch on `/api/v1/system/wait`, so the wrapper falls back to polling `ov status` when the long-poll errors out).
 
 ### Image pipeline (MacBook local)
 
@@ -104,7 +105,7 @@ Config: `~/code/robots/media/pipeline/img-pipeline.conf` (model paths, ports, ti
 | openviking-s3-credentials | viking | Garage S3 credentials (injected into openviking config) |
 | ollama-api-key | llama | Bearer token for auth proxy |
 
-**Production config** — ConfigMap `openviking-standalone-config`: `agfs.backend: s3` (Garage bucket `openviking-agfs`) + `vectordb.backend: http` (`ov-vectordb.viking.svc.cluster.local:5000`). Tuning: `server.workers=2`, `embedding.batch_size=128`, `vlm.max_concurrent=4`, `embedding.max_concurrent=4`. Main OpenViking routes VLM to `llamacpp-rocm-llm`. History of the agfs:s3+vectordb:http cutover and rollback procedure: `viking/docs/2026-06-03-ov-prod-cutover-agfs-s3-vectordb-http.md`.
+**Production config** — ConfigMap `openviking-standalone-config`: `agfs.backend: s3` (Garage bucket `openviking-agfs`) + `vectordb.backend: http` (`ov-vectordb.viking.svc.cluster.local:5000`). Tuning: `server.workers=2`, `embedding.batch_size=128`, `vlm.max_concurrent=2`, `embedding.max_concurrent=4` (was 4 each; `vlm.max_concurrent` dropped to 2 in IDEA-009 Phase 3 to match the VLM server's `--parallel 2` — over-commit caused every request to time out at 60s × 3 retries and stall the queue). VLM endpoint: `http://llamacpp-vlm.viking.svc/v1` (generic Service, routes to the sole active backend `llamacpp-cuda-ov`). History of the agfs:s3+vectordb:http cutover and rollback procedure: `viking/docs/2026-06-03-ov-prod-cutover-agfs-s3-vectordb-http.md`.
 
 ConfigMap `openviking-config` is retained for workers if scaled back up (`agfs.backend: s3`, `storage.transaction` defaults). InitContainers in the `openviking` Deployment and `ov-worker` StatefulSet are backend-agnostic: S3 credentials injected only when `agfs.backend == "s3"`.
 
