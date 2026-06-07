@@ -32,6 +32,8 @@ data:
     STRIP_REASONING = os.environ.get("STRIP_REASONING", "true").lower() in {"1", "true", "yes"}
     NATIVE_THINK_FALSE = os.environ.get("NATIVE_THINK_FALSE", "true").lower() in {"1", "true", "yes"}
     FORCE_STOP_ON_CONTENT = os.environ.get("FORCE_STOP_ON_CONTENT", "true").lower() in {"1", "true", "yes"}
+    FORCE_STOP_MIN_CHARS = int(os.environ.get("FORCE_STOP_MIN_CHARS", "2"))
+    OLLAMA_NUM_CTX = int(os.environ.get("OLLAMA_NUM_CTX", "32768"))
     PORT = int(os.environ.get("PORT", "11434"))
     parsed = urllib.parse.urlparse(OLLAMA_URL)
     _lock = threading.Lock()
@@ -180,8 +182,10 @@ data:
             }
             if request_payload.get("tools"):
                 native_payload["tools"] = request_payload.get("tools")
+            native_options = {"num_ctx": OLLAMA_NUM_CTX}
             if request_max_tokens:
-                native_payload["options"] = {"num_predict": int(request_max_tokens)}
+                native_options["num_predict"] = int(request_max_tokens)
+            native_payload["options"] = native_options
 
             conn_cls = http.client.HTTPSConnection if parsed.scheme == "https" else http.client.HTTPConnection
             port = parsed.port or (443 if parsed.scheme == "https" else 80)
@@ -211,7 +215,7 @@ data:
                     if tool_calls:
                         message["tool_calls"] = tool_calls
                     finish_reason = "tool_calls" if tool_calls else ("stop" if native_done_reason in (None, "stop") else "length")
-                    if FORCE_STOP_ON_CONTENT and finish_reason == "length" and (message.get("content") or ""):
+                    if FORCE_STOP_ON_CONTENT and finish_reason == "length" and len(message.get("content") or "") >= FORCE_STOP_MIN_CHARS:
                         finish_reason = "stop"
                     payload = {
                         "id": chunk_id,
@@ -229,7 +233,7 @@ data:
                     inc("requests", (model, "200"))
                     print(
                         f"POST /v1/chat/completions native_think_false model={model} status=200 "
-                        f"duration={time.time()-started:.3f}s stream={stream} max_tokens={request_max_tokens} "
+                        f"duration={time.time()-started:.3f}s stream={stream} max_tokens={request_max_tokens} num_ctx={OLLAMA_NUM_CTX} "
                         f"finish={finish_reason} native_done_reason={native.get('done_reason')} "
                         f"content_len={len(message.get('content') or '')}",
                         flush=True,
@@ -273,7 +277,7 @@ data:
                     if native.get("done"):
                         native_done_reason = native.get("done_reason")
                         final_reason = "tool_calls" if saw_tool_calls else ("stop" if native_done_reason in (None, "stop") else "length")
-                        if FORCE_STOP_ON_CONTENT and final_reason == "length" and content_chars > 0:
+                        if FORCE_STOP_ON_CONTENT and final_reason == "length" and content_chars >= FORCE_STOP_MIN_CHARS:
                             final_reason = "stop"
                         break
                 self._send_openai_sse(chunk_id, model, {}, final_reason)
@@ -282,7 +286,7 @@ data:
                 inc("requests", (model, "200"))
                 print(
                     f"POST /v1/chat/completions native_think_false model={model} status=200 "
-                    f"duration={time.time()-started:.3f}s stream={stream} max_tokens={request_max_tokens} "
+                    f"duration={time.time()-started:.3f}s stream={stream} max_tokens={request_max_tokens} num_ctx={OLLAMA_NUM_CTX} "
                     f"finish={final_reason} native_done_reason={native_done_reason} content_len={content_chars}",
                     flush=True,
                 )
@@ -403,7 +407,7 @@ data:
 
 
     if __name__ == "__main__":
-        print(f"chat-ollama-proxy starting on :{PORT}; upstream={OLLAMA_URL}; cloud_budget={ENABLE_CLOUD_BUDGET}; strip_reasoning={STRIP_REASONING}; native_think_false={NATIVE_THINK_FALSE}; force_stop_on_content={FORCE_STOP_ON_CONTENT}")
+        print(f"chat-ollama-proxy starting on :{PORT}; upstream={OLLAMA_URL}; cloud_budget={ENABLE_CLOUD_BUDGET}; strip_reasoning={STRIP_REASONING}; native_think_false={NATIVE_THINK_FALSE}; force_stop_on_content={FORCE_STOP_ON_CONTENT}; force_stop_min_chars={FORCE_STOP_MIN_CHARS}; num_ctx={OLLAMA_NUM_CTX}")
         ThreadingHTTPServer(("0.0.0.0", PORT), ProxyHandler).serve_forever()
 ---
 apiVersion: apps/v1
@@ -440,6 +444,10 @@ spec:
               value: "true"
             - name: FORCE_STOP_ON_CONTENT
               value: "true"
+            - name: FORCE_STOP_MIN_CHARS
+              value: "2"
+            - name: OLLAMA_NUM_CTX
+              value: "32768"
             - name: PYTHONUNBUFFERED
               value: "1"
             - name: PORT
