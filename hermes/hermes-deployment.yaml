@@ -48,13 +48,14 @@ data:
     model:
       api_key: ollama
       base_url: http://chat-ollama.llama.svc:11434/v1
-      default: glm-5.1:cloud
+      default: gemma4:12b
       provider: ollama-launch
     providers:
       ollama-launch:
         api: http://chat-ollama.llama.svc:11434/v1
-        default_model: glm-5.1:cloud
+        default_model: gemma4:12b
         models:
+          - gemma4:12b
           - glm-5.1:cloud
           - qwen3.5:9b-q4_K_M
           - gemma4:e4b-it-qat
@@ -117,7 +118,7 @@ spec:
             - name: HERMES_HOME
               value: /root/.hermes
             - name: HERMES_INFERENCE_MODEL
-              value: glm-5.1:cloud
+              value: gemma4:12b
             - name: TERMINAL_ENV
               value: ssh
             - name: TERMINAL_SSH_HOST
@@ -139,7 +140,7 @@ spec:
             - name: API_SERVER_PORT
               value: "8642"
             - name: API_SERVER_MODEL_NAME
-              value: glm-5.1:cloud
+              value: gemma4:12b
             - name: API_SERVER_KEY
               valueFrom:
                 secretKeyRef:

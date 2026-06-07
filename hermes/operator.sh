@@ -8,7 +8,7 @@ LOCAL_PORT="${HERMES_LOCAL_PORT:-8642}"
 REMOTE_PORT="${HERMES_REMOTE_PORT:-8642}"
 BASE_URL="${HERMES_BASE_URL:-http://127.0.0.1:${LOCAL_PORT}}"
 PF_LOG="${HERMES_PORT_FORWARD_LOG:-/tmp/hermes-port-forward.log}"
-MODEL="${HERMES_MODEL:-glm-5.1:cloud}"
+MODEL="${HERMES_MODEL:-gemma4:12b}"
 
 usage() {
   cat <<'EOF'
@@ -40,7 +40,7 @@ Environment:
   HERMES_LOCAL_PORT         default: 8642
   HERMES_REMOTE_PORT        default: 8642
   HERMES_API_KEY            optional; otherwise read from Secret hermes-api-server-key
-  HERMES_MODEL              model for ask/run commands (default: glm-5.1:cloud)
+  HERMES_MODEL              model for ask/run commands (default: gemma4:12b)
 EOF
 }
 
