@@ -83,6 +83,24 @@ data:
         return data.get("model") or "unknown"
 
 
+    def openai_tool_calls(native_tool_calls):
+        converted = []
+        for idx, call in enumerate(native_tool_calls or []):
+            function = call.get("function") or {}
+            arguments = function.get("arguments")
+            if not isinstance(arguments, str):
+                arguments = json.dumps(arguments or {})
+            converted.append({
+                "id": call.get("id") or f"call_{idx}",
+                "type": "function",
+                "function": {
+                    "name": function.get("name") or call.get("name") or "unknown",
+                    "arguments": arguments,
+                },
+            })
+        return converted
+
+
     def call_counter(model, action="allow"):
         payload = json.dumps({"model": model}).encode()
         url = COUNTER_URL if action == "allow" else COUNTER_URL.rsplit("/", 1)[0] + "/refund"
@@ -189,7 +207,10 @@ data:
                     native = json.loads(resp_body)
                     message = native.get("message") or {"role": "assistant", "content": ""}
                     native_done_reason = native.get("done_reason")
-                    finish_reason = "stop" if native_done_reason in (None, "stop") else "length"
+                    tool_calls = openai_tool_calls(message.get("tool_calls"))
+                    if tool_calls:
+                        message["tool_calls"] = tool_calls
+                    finish_reason = "tool_calls" if tool_calls else ("stop" if native_done_reason in (None, "stop") else "length")
                     if FORCE_STOP_ON_CONTENT and finish_reason == "length" and (message.get("content") or ""):
                         finish_reason = "stop"
                     payload = {
@@ -225,6 +246,7 @@ data:
                 final_reason = "stop"
                 native_done_reason = None
                 content_chars = 0
+                saw_tool_calls = False
                 while True:
                     line = resp.readline()
                     if not line:
@@ -242,11 +264,15 @@ data:
                     if content:
                         delta["content"] = content
                         content_chars += len(content)
+                    tool_calls = openai_tool_calls(message.get("tool_calls"))
+                    if tool_calls:
+                        delta["tool_calls"] = [dict({"index": idx}, **tool_call) for idx, tool_call in enumerate(tool_calls)]
+                        saw_tool_calls = True
                     if delta:
                         self._send_openai_sse(chunk_id, model, delta, None)
                     if native.get("done"):
                         native_done_reason = native.get("done_reason")
-                        final_reason = "stop" if native_done_reason in (None, "stop") else "length"
+                        final_reason = "tool_calls" if saw_tool_calls else ("stop" if native_done_reason in (None, "stop") else "length")
                         if FORCE_STOP_ON_CONTENT and final_reason == "length" and content_chars > 0:
                             final_reason = "stop"
                         break
