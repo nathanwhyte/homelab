@@ -24,7 +24,7 @@ data:
   config.yaml: |
     _config_version: 24
     agent:
-      api_max_retries: 3
+      api_max_retries: 1
       max_turns: 90
       tool_use_enforcement: auto
       verbose: false

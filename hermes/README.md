@@ -31,8 +31,15 @@ hermes/operator.sh models
 # one-shot OpenAI-compatible chat completion
 hermes/operator.sh ask "Reply exactly: ok"
 
+# use a non-default model for a single operator command
+HERMES_MODEL=qwen3.5:9b-q4_K_M hermes/operator.sh ask "Reply exactly: ok"
+
+# send a large prompt from a file without hitting shell ARG_MAX
+hermes/operator.sh ask-file /tmp/prompt.txt
+
 # async run + Server-Sent Events stream
 hermes/operator.sh run "Reply exactly: ok"
+hermes/operator.sh run-file /tmp/prompt.txt
 
 # foreground port-forward for manual curl/OpenAI clients
 hermes/operator.sh port-forward
@@ -65,6 +72,22 @@ curl -fsS http://127.0.0.1:8642/v1/chat/completions \
     "stream": false
   }'
 ```
+
+## Tuned baseline
+
+Current TASK-045 tuning baseline for the trial-prep phase:
+
+| Setting | Value | Rationale |
+|---|---|---|
+| Default model | `glm-5.1:cloud` | Fastest path for workflow testing; local models remain available by per-call override. |
+| Per-call model override | `HERMES_MODEL=<model>` with `operator.sh ask/run` | Allows local model tests without changing the deployment default. |
+| API retries | `agent.api_max_retries: 1` | Avoid multiplying cloud-budget burn on transient failures during the trial. Revisit if reliability becomes an issue. |
+| Terminal backend | SSH to `hermes-jump` | Keeps command execution inside the constrained jump pod/RBAC boundary. |
+| Terminal timeout | `180s` | Long enough for basic kubectl/file operations; short enough to catch hangs. |
+| Compression | enabled, `threshold: 0.5`, `target_ratio: 0.2` | Keep Hermes defaults; file-based prompt tests avoid shell `ARG_MAX`. |
+| Memory | built-in memory/user profile enabled; no external provider | Avoid adding Honcho/OpenViking memory complexity before TASK-030/TASK-032. |
+| Toolsets | `hermes-cli` | Minimal toolset for current smoke tests and operator workflows. |
+| External exposure | none | API remains cluster-internal/port-forward only until TASK-030. |
 
 ## Admin/debug commands
 
