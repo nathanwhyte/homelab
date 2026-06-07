@@ -112,8 +112,7 @@ spec:
               cp /ssh-key/id_ed25519 /root/.ssh/id_ed25519
               chmod 600 /root/.ssh/id_ed25519
               cp /config/config.yaml /root/.hermes/config.yaml
-              touch /tmp/hermes-ready
-              tail -f /dev/null
+              exec hermes gateway run
           env:
             - name: HERMES_HOME
               value: /root/.hermes
@@ -131,18 +130,35 @@ spec:
               value: /root/.ssh/id_ed25519
             - name: TERMINAL_TIMEOUT
               value: "180"
+            - name: HERMES_ACCEPT_HOOKS
+              value: "1"
+            - name: API_SERVER_ENABLED
+              value: "true"
+            - name: API_SERVER_HOST
+              value: 0.0.0.0
+            - name: API_SERVER_PORT
+              value: "8642"
+            - name: API_SERVER_MODEL_NAME
+              value: glm-5.1:cloud
+            - name: API_SERVER_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: hermes-api-server-key
+                  key: api-key
           ports:
-            - containerPort: 8080
-              name: http
+            - containerPort: 8642
+              name: api
           readinessProbe:
-            exec:
-              command: ["test", "-f", "/tmp/hermes-ready"]
-            initialDelaySeconds: 5
+            httpGet:
+              path: /health
+              port: api
+            initialDelaySeconds: 20
             periodSeconds: 10
           livenessProbe:
-            exec:
-              command: ["test", "-f", "/tmp/hermes-ready"]
-            initialDelaySeconds: 30
+            httpGet:
+              path: /health
+              port: api
+            initialDelaySeconds: 120
             periodSeconds: 30
           resources:
             requests:

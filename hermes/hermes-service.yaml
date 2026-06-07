@@ -9,9 +9,9 @@ metadata:
 spec:
   type: ClusterIP
   ports:
-    - name: http
-      port: 8080
+    - name: api
+      port: 8642
       protocol: TCP
-      targetPort: 8080
+      targetPort: api
   selector:
     app: hermes-agent
