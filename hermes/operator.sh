@@ -8,6 +8,7 @@ LOCAL_PORT="${HERMES_LOCAL_PORT:-8642}"
 REMOTE_PORT="${HERMES_REMOTE_PORT:-8642}"
 BASE_URL="${HERMES_BASE_URL:-http://127.0.0.1:${LOCAL_PORT}}"
 PF_LOG="${HERMES_PORT_FORWARD_LOG:-/tmp/hermes-port-forward.log}"
+MODEL="${HERMES_MODEL:-glm-5.1:cloud}"
 
 usage() {
   cat <<'EOF'
@@ -21,7 +22,9 @@ Commands:
   health                    GET /health through a temporary port-forward
   models                    GET /v1/models through a temporary port-forward
   ask <prompt>              POST /v1/chat/completions and print assistant text
+  ask-file <path>           POST /v1/chat/completions with prompt read from file
   run <prompt>              POST /v1/runs and stream lifecycle SSE events
+  run-file <path>           POST /v1/runs with prompt read from file
   logs [args...]            kubectl logs deploy/hermes-agent (default: --tail=120)
   sessions [args...]        kubectl exec hermes sessions ... (default: list)
   status                    kubectl exec hermes status
@@ -37,6 +40,7 @@ Environment:
   HERMES_LOCAL_PORT         default: 8642
   HERMES_REMOTE_PORT        default: 8642
   HERMES_API_KEY            optional; otherwise read from Secret hermes-api-server-key
+  HERMES_MODEL              model for ask/run commands (default: glm-5.1:cloud)
 EOF
 }
 
@@ -122,26 +126,38 @@ case "$cmd" in
     curl -fsS -H "Authorization: Bearer ${key}" "${BASE_URL}/v1/models"
     echo
     ;;
-  ask)
-    [[ $# -gt 0 ]] || { echo "ask requires a prompt" >&2; exit 2; }
+  ask|ask-file)
+    if [[ "$cmd" == "ask-file" ]]; then
+      [[ $# -eq 1 ]] || { echo "ask-file requires exactly one path" >&2; exit 2; }
+      [[ -f "$1" ]] || { echo "prompt file not found: $1" >&2; exit 2; }
+      prompt="$(json_escape <"$1")"
+    else
+      [[ $# -gt 0 ]] || { echo "ask requires a prompt" >&2; exit 2; }
+      prompt="$(printf '%s' "$*" | json_escape)"
+    fi
     with_port_forward
     key="$(api_key)"
-    prompt="$(printf '%s' "$*" | json_escape)"
     curl -fsS -X POST "${BASE_URL}/v1/chat/completions" \
       -H "Authorization: Bearer ${key}" \
       -H "Content-Type: application/json" \
-      -d "{\"model\":\"glm-5.1:cloud\",\"messages\":[{\"role\":\"user\",\"content\":${prompt}}],\"stream\":false}" \
+      -d "{\"model\":\"${MODEL}\",\"messages\":[{\"role\":\"user\",\"content\":${prompt}}],\"stream\":false}" \
       | python3 -c 'import json,sys; print(json.load(sys.stdin)["choices"][0]["message"]["content"])'
     ;;
-  run)
-    [[ $# -gt 0 ]] || { echo "run requires a prompt" >&2; exit 2; }
+  run|run-file)
+    if [[ "$cmd" == "run-file" ]]; then
+      [[ $# -eq 1 ]] || { echo "run-file requires exactly one path" >&2; exit 2; }
+      [[ -f "$1" ]] || { echo "prompt file not found: $1" >&2; exit 2; }
+      prompt="$(json_escape <"$1")"
+    else
+      [[ $# -gt 0 ]] || { echo "run requires a prompt" >&2; exit 2; }
+      prompt="$(printf '%s' "$*" | json_escape)"
+    fi
     with_port_forward
     key="$(api_key)"
-    prompt="$(printf '%s' "$*" | json_escape)"
     response="$(curl -fsS -X POST "${BASE_URL}/v1/runs" \
       -H "Authorization: Bearer ${key}" \
       -H "Content-Type: application/json" \
-      -d "{\"model\":\"glm-5.1:cloud\",\"input\":${prompt}}")"
+      -d "{\"model\":\"${MODEL}\",\"input\":${prompt}}")"
     echo "$response"
     run_id="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["run_id"])' <<<"$response")"
     curl -fsS -N -H "Authorization: Bearer ${key}" "${BASE_URL}/v1/runs/${run_id}/events"
