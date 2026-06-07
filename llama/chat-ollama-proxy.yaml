@@ -30,6 +30,8 @@ data:
     COUNTER_URL = os.environ.get("COUNTER_URL", "http://cloud-llm-counter.llama.svc/allow")
     ENABLE_CLOUD_BUDGET = os.environ.get("ENABLE_CLOUD_BUDGET", "false").lower() in {"1", "true", "yes"}
     STRIP_REASONING = os.environ.get("STRIP_REASONING", "true").lower() in {"1", "true", "yes"}
+    NATIVE_THINK_FALSE = os.environ.get("NATIVE_THINK_FALSE", "true").lower() in {"1", "true", "yes"}
+    FORCE_STOP_ON_CONTENT = os.environ.get("FORCE_STOP_ON_CONTENT", "true").lower() in {"1", "true", "yes"}
     PORT = int(os.environ.get("PORT", "11434"))
     parsed = urllib.parse.urlparse(OLLAMA_URL)
     _lock = threading.Lock()
@@ -138,11 +140,154 @@ data:
         def do_DELETE(self):
             self._proxy()
 
+        def _send_openai_sse(self, chunk_id, model, delta, finish_reason=None):
+            payload = {
+                "id": chunk_id,
+                "object": "chat.completion.chunk",
+                "created": int(time.time()),
+                "model": model,
+                "choices": [{"index": 0, "delta": delta, "finish_reason": finish_reason}],
+            }
+            self.wfile.write(f"data: {json.dumps(payload)}\n\n".encode())
+            self.wfile.flush()
+
+        def _proxy_native_chat_think_false(self, request_payload, request_max_tokens):
+            model = request_payload.get("model") or "unknown"
+            stream = bool(request_payload.get("stream"))
+            native_payload = {
+                "model": model,
+                "messages": request_payload.get("messages") or [],
+                "stream": stream,
+                "think": False,
+            }
+            if request_payload.get("tools"):
+                native_payload["tools"] = request_payload.get("tools")
+            if request_max_tokens:
+                native_payload["options"] = {"num_predict": int(request_max_tokens)}
+
+            conn_cls = http.client.HTTPSConnection if parsed.scheme == "https" else http.client.HTTPConnection
+            port = parsed.port or (443 if parsed.scheme == "https" else 80)
+            conn = conn_cls(parsed.hostname, port, timeout=600)
+            body = json.dumps(native_payload).encode()
+            headers = {"Host": parsed.netloc, "Content-Type": "application/json", "Content-Length": str(len(body))}
+            started = time.time()
+            chunk_id = f"chatcmpl-proxy-{int(started * 1000)}"
+            try:
+                conn.request("POST", "/api/chat", body=body, headers=headers)
+                resp = conn.getresponse()
+                if not stream:
+                    resp_body = resp.read()
+                    if resp.status >= 400:
+                        self.send_response(resp.status, resp.reason)
+                        self.send_header("Content-Type", "application/json")
+                        self.send_header("Content-Length", str(len(resp_body)))
+                        self.send_header("Connection", "close")
+                        self.end_headers()
+                        self.close_connection = True
+                        self.wfile.write(resp_body)
+                        return
+                    native = json.loads(resp_body)
+                    message = native.get("message") or {"role": "assistant", "content": ""}
+                    native_done_reason = native.get("done_reason")
+                    finish_reason = "stop" if native_done_reason in (None, "stop") else "length"
+                    if FORCE_STOP_ON_CONTENT and finish_reason == "length" and (message.get("content") or ""):
+                        finish_reason = "stop"
+                    payload = {
+                        "id": chunk_id,
+                        "object": "chat.completion",
+                        "created": int(time.time()),
+                        "model": model,
+                        "choices": [{"index": 0, "message": message, "finish_reason": finish_reason}],
+                        "usage": {
+                            "prompt_tokens": native.get("prompt_eval_count", 0),
+                            "completion_tokens": native.get("eval_count", 0),
+                            "total_tokens": native.get("prompt_eval_count", 0) + native.get("eval_count", 0),
+                        },
+                    }
+                    self._json(200, payload)
+                    inc("requests", (model, "200"))
+                    print(
+                        f"POST /v1/chat/completions native_think_false model={model} status=200 "
+                        f"duration={time.time()-started:.3f}s stream={stream} max_tokens={request_max_tokens} "
+                        f"finish={finish_reason} native_done_reason={native.get('done_reason')} "
+                        f"content_len={len(message.get('content') or '')}",
+                        flush=True,
+                    )
+                    return
+
+                self.send_response(200, "OK")
+                self.send_header("Content-Type", "text/event-stream")
+                self.send_header("Cache-Control", "no-cache")
+                self.send_header("Connection", "close")
+                self.end_headers()
+                self.close_connection = True
+                sent_role = False
+                final_reason = "stop"
+                native_done_reason = None
+                content_chars = 0
+                while True:
+                    line = resp.readline()
+                    if not line:
+                        break
+                    line = line.strip()
+                    if not line:
+                        continue
+                    native = json.loads(line)
+                    message = native.get("message") or {}
+                    delta = {}
+                    if not sent_role:
+                        delta["role"] = "assistant"
+                        sent_role = True
+                    content = message.get("content") or ""
+                    if content:
+                        delta["content"] = content
+                        content_chars += len(content)
+                    if delta:
+                        self._send_openai_sse(chunk_id, model, delta, None)
+                    if native.get("done"):
+                        native_done_reason = native.get("done_reason")
+                        final_reason = "stop" if native_done_reason in (None, "stop") else "length"
+                        if FORCE_STOP_ON_CONTENT and final_reason == "length" and content_chars > 0:
+                            final_reason = "stop"
+                        break
+                self._send_openai_sse(chunk_id, model, {}, final_reason)
+                self.wfile.write(b"data: [DONE]\n\n")
+                self.wfile.flush()
+                inc("requests", (model, "200"))
+                print(
+                    f"POST /v1/chat/completions native_think_false model={model} status=200 "
+                    f"duration={time.time()-started:.3f}s stream={stream} max_tokens={request_max_tokens} "
+                    f"finish={final_reason} native_done_reason={native_done_reason} content_len={content_chars}",
+                    flush=True,
+                )
+            except Exception as e:
+                with _lock:
+                    _metrics["upstream_errors"] += 1
+                self._json(502, {"error": f"native chat upstream error: {e}"})
+            finally:
+                conn.close()
+
         def _proxy(self):
             length = int(self.headers.get("Content-Length", "0"))
             body = self.rfile.read(length) if length else b""
             path = urllib.parse.urlsplit(self.path).path
             model = extract_model(path, body)
+            request_max_tokens = None
+            request_options = None
+            request_stream = None
+            request_payload = None
+            if path == "/v1/chat/completions" and body:
+                try:
+                    request_payload = json.loads(body)
+                    request_max_tokens = request_payload.get("max_tokens") or request_payload.get("max_completion_tokens")
+                    request_options = request_payload.get("options")
+                    request_stream = request_payload.get("stream")
+                except Exception:
+                    pass
+
+            if NATIVE_THINK_FALSE and path == "/v1/chat/completions" and request_payload and not is_cloud_model(model):
+                self._proxy_native_chat_think_false(request_payload, request_max_tokens)
+                return
 
             if ENABLE_CLOUD_BUDGET and is_cloud_model(model):
                 status, counter_body = call_counter(model, "allow")
@@ -171,16 +316,29 @@ data:
                 resp = conn.getresponse()
                 resp_body = resp.read()
                 response_headers = dict(resp.getheaders())
+                content_type = ""
+                for header_name, header_value in response_headers.items():
+                    if header_name.lower() == "content-type":
+                        content_type = header_value
+                        break
 
-                if STRIP_REASONING and path == "/v1/chat/completions" and response_headers.get("Content-Type", "").startswith("application/json"):
+                finish_reasons = []
+                content_lengths = []
+                reasoning_lengths = []
+                if path == "/v1/chat/completions" and content_type.startswith("application/json"):
                     try:
                         payload = json.loads(resp_body)
                         for choice in payload.get("choices", []):
+                            finish_reasons.append(choice.get("finish_reason"))
                             message = choice.get("message")
                             if isinstance(message, dict):
-                                message.pop("reasoning", None)
-                        resp_body = json.dumps(payload).encode()
-                        response_headers["Content-Length"] = str(len(resp_body))
+                                content_lengths.append(len(message.get("content") or ""))
+                                reasoning_lengths.append(len(message.get("reasoning") or ""))
+                                if STRIP_REASONING:
+                                    message.pop("reasoning", None)
+                        if STRIP_REASONING:
+                            resp_body = json.dumps(payload).encode()
+                            response_headers["Content-Length"] = str(len(resp_body))
                     except Exception:
                         pass
 
@@ -199,7 +357,14 @@ data:
                 if ENABLE_CLOUD_BUDGET and is_cloud_model(model) and resp.status >= 400:
                     call_counter(model, "refund")
                 inc("requests", (model, str(resp.status)))
-                print(f"{self.command} {self.path} model={model} status={resp.status} duration={time.time()-started:.3f}s")
+                print(
+                    f"{self.command} {self.path} model={model} status={resp.status} "
+                    f"duration={time.time()-started:.3f}s stream={request_stream} "
+                    f"max_tokens={request_max_tokens} options={request_options} "
+                    f"content_type={content_type!r} finish={finish_reasons} "
+                    f"content_len={content_lengths} reasoning_len={reasoning_lengths}",
+                    flush=True,
+                )
             except Exception as e:
                 with _lock:
                     _metrics["upstream_errors"] += 1
@@ -212,7 +377,7 @@ data:
 
 
     if __name__ == "__main__":
-        print(f"chat-ollama-proxy starting on :{PORT}; upstream={OLLAMA_URL}; cloud_budget={ENABLE_CLOUD_BUDGET}; strip_reasoning={STRIP_REASONING}")
+        print(f"chat-ollama-proxy starting on :{PORT}; upstream={OLLAMA_URL}; cloud_budget={ENABLE_CLOUD_BUDGET}; strip_reasoning={STRIP_REASONING}; native_think_false={NATIVE_THINK_FALSE}; force_stop_on_content={FORCE_STOP_ON_CONTENT}")
         ThreadingHTTPServer(("0.0.0.0", PORT), ProxyHandler).serve_forever()
 ---
 apiVersion: apps/v1
@@ -245,6 +410,12 @@ spec:
               value: "false"
             - name: STRIP_REASONING
               value: "true"
+            - name: NATIVE_THINK_FALSE
+              value: "true"
+            - name: FORCE_STOP_ON_CONTENT
+              value: "true"
+            - name: PYTHONUNBUFFERED
+              value: "1"
             - name: PORT
               value: "11434"
           ports:
