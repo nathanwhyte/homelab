@@ -89,6 +89,29 @@ Current TASK-045 tuning baseline for the trial-prep phase:
 | Toolsets | `hermes-cli` | Minimal toolset for current smoke tests and operator workflows. |
 | External exposure | none | API remains cluster-internal/port-forward only until TASK-030. |
 
+## Direct Hermes CLI access
+
+If you want the native Hermes CLI instead of the HTTP API, use `kubectl exec` into the running `hermes-agent` Deployment. This is the supported direct-CLI path; there is intentionally no SSH daemon in the agent pod.
+
+```bash
+# Interactive shell in the agent container
+kubectl exec -it -n hermes deploy/hermes-agent -- bash
+
+# Native Hermes chat UI from your terminal
+kubectl exec -it -n hermes deploy/hermes-agent -- hermes chat
+
+# One-shot native CLI prompt
+kubectl exec -it -n hermes deploy/hermes-agent -- hermes -z "Reply exactly: ok"
+
+# Native session/config inspection
+kubectl exec -it -n hermes deploy/hermes-agent -- hermes sessions list
+kubectl exec -it -n hermes deploy/hermes-agent -- hermes config show
+```
+
+This starts a separate CLI process that shares the same `/root/.hermes` PVC, config, and state as the gateway. It does not attach to the already-running gateway process/session. Use `hermes/operator.sh` for normal API-driven access and `kubectl exec ... hermes chat` when you specifically want the native CLI.
+
+Direct SSH into `hermes-agent` is deliberately not configured. Adding it would require an SSH daemon, Service/key management, and safety review before any external route.
+
 ## Admin/debug commands
 
 ```bash
