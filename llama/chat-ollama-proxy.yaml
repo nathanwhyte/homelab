@@ -9,7 +9,13 @@ metadata:
 data:
   chat-ollama-proxy.py: |
     #!/usr/bin/env python3
-    """Budget-aware internal proxy for Hermes-bound Ollama traffic."""
+    """Hermes-compatible internal proxy for Ollama traffic.
+
+    This proxy intentionally does not enforce a cloud-call budget. It keeps a
+    stable internal Service for Hermes and normalizes Ollama's OpenAI-compatible
+    responses by stripping `message.reasoning`, which otherwise causes Hermes
+    Agent to treat local reasoning-model turns as incomplete/truncated.
+    """
 
     import http.client
     import json
@@ -22,6 +28,8 @@ data:
 
     OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://ollama.llama.svc.cluster.local:11434")
     COUNTER_URL = os.environ.get("COUNTER_URL", "http://cloud-llm-counter.llama.svc/allow")
+    ENABLE_CLOUD_BUDGET = os.environ.get("ENABLE_CLOUD_BUDGET", "false").lower() in {"1", "true", "yes"}
+    STRIP_REASONING = os.environ.get("STRIP_REASONING", "true").lower() in {"1", "true", "yes"}
     PORT = int(os.environ.get("PORT", "11434"))
     parsed = urllib.parse.urlparse(OLLAMA_URL)
     _lock = threading.Lock()
@@ -136,7 +144,7 @@ data:
             path = urllib.parse.urlsplit(self.path).path
             model = extract_model(path, body)
 
-            if is_cloud_model(model):
+            if ENABLE_CLOUD_BUDGET and is_cloud_model(model):
                 status, counter_body = call_counter(model, "allow")
                 if status >= 400:
                     inc("rejected", (model, "daily_budget" if status == 429 else "counter_error"))
@@ -161,21 +169,34 @@ data:
             try:
                 conn.request(self.command, upstream_path, body=body, headers=headers)
                 resp = conn.getresponse()
+                resp_body = resp.read()
+                response_headers = dict(resp.getheaders())
+
+                if STRIP_REASONING and path == "/v1/chat/completions" and response_headers.get("Content-Type", "").startswith("application/json"):
+                    try:
+                        payload = json.loads(resp_body)
+                        for choice in payload.get("choices", []):
+                            message = choice.get("message")
+                            if isinstance(message, dict):
+                                message.pop("reasoning", None)
+                        resp_body = json.dumps(payload).encode()
+                        response_headers["Content-Length"] = str(len(resp_body))
+                    except Exception:
+                        pass
+
                 self.send_response(resp.status, resp.reason)
-                for k, v in resp.getheaders():
+                for k, v in response_headers.items():
                     if k.lower() in ("connection", "transfer-encoding"):
                         continue
+                    if k.lower() == "content-length":
+                        v = str(len(resp_body))
                     self.send_header(k, v)
                 self.send_header("Connection", "close")
                 self.end_headers()
                 self.close_connection = True
-                while True:
-                    chunk = resp.read(8192)
-                    if not chunk:
-                        break
-                    self.wfile.write(chunk)
-                    self.wfile.flush()
-                if is_cloud_model(model) and resp.status >= 400:
+                self.wfile.write(resp_body)
+                self.wfile.flush()
+                if ENABLE_CLOUD_BUDGET and is_cloud_model(model) and resp.status >= 400:
                     call_counter(model, "refund")
                 inc("requests", (model, str(resp.status)))
                 print(f"{self.command} {self.path} model={model} status={resp.status} duration={time.time()-started:.3f}s")
@@ -191,7 +212,7 @@ data:
 
 
     if __name__ == "__main__":
-        print(f"chat-ollama-proxy starting on :{PORT}; upstream={OLLAMA_URL}; counter={COUNTER_URL}")
+        print(f"chat-ollama-proxy starting on :{PORT}; upstream={OLLAMA_URL}; cloud_budget={ENABLE_CLOUD_BUDGET}; strip_reasoning={STRIP_REASONING}")
         ThreadingHTTPServer(("0.0.0.0", PORT), ProxyHandler).serve_forever()
 ---
 apiVersion: apps/v1
@@ -220,6 +241,10 @@ spec:
               value: http://ollama.llama.svc.cluster.local:11434
             - name: COUNTER_URL
               value: http://cloud-llm-counter.llama.svc/allow
+            - name: ENABLE_CLOUD_BUDGET
+              value: "false"
+            - name: STRIP_REASONING
+              value: "true"
             - name: PORT
               value: "11434"
           ports:

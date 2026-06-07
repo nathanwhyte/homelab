@@ -32,7 +32,7 @@ hermes/operator.sh models
 hermes/operator.sh ask "Reply exactly: ok"
 
 # use a non-default model for a single operator command
-HERMES_MODEL=qwen3.5:9b-q4_K_M hermes/operator.sh ask "Reply exactly: ok"
+HERMES_MODEL=glm-5.1:cloud hermes/operator.sh ask "Reply exactly: ok"
 
 # send a large prompt from a file without hitting shell ARG_MAX
 hermes/operator.sh ask-file /tmp/prompt.txt
@@ -79,9 +79,10 @@ Current TASK-045 tuning baseline for the trial-prep phase:
 
 | Setting | Value | Rationale |
 |---|---|---|
-| Default model | `glm-5.1:cloud` | Fastest path for workflow testing; local models remain available by per-call override. |
-| Per-call model override | `HERMES_MODEL=<model>` with `operator.sh ask/run` | Allows local model tests without changing the deployment default. |
-| API retries | `agent.api_max_retries: 1` | Avoid multiplying cloud-budget burn on transient failures during the trial. Revisit if reliability becomes an issue. |
+| Default model | `gemma4:12b` | Local-first default for normal Hermes use; selected after `qwen3.5:9b-q4_K_M` produced Hermes `agent_incomplete` truncation errors. Cloud remains available only by explicit per-call override. |
+| Ollama endpoint | `http://chat-ollama.llama.svc:11434/v1` | Hermes uses the internal compatibility proxy, which currently strips Ollama `message.reasoning` fields and does not enforce the old cloud budget gate. |
+| Per-call model override | `HERMES_MODEL=<model>` with `operator.sh ask/run` | Allows explicit cloud or alternate local model tests without changing the deployment default. |
+| API retries | `agent.api_max_retries: 1` | Keep retry amplification low; revisit if reliability becomes an issue. |
 | Terminal backend | SSH to `hermes-jump` | Keeps command execution inside the constrained jump pod/RBAC boundary. |
 | Terminal timeout | `180s` | Long enough for basic kubectl/file operations; short enough to catch hangs. |
 | Compression | enabled, `threshold: 0.5`, `target_ratio: 0.2` | Keep Hermes defaults; file-based prompt tests avoid shell `ARG_MAX`. |
