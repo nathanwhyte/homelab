@@ -17,11 +17,31 @@ data:
 
     ollama list
 
-    echo "Pulling gemma4:e4b..."
-    ollama pull gemma4:e4b || true
+    local_models=(
+      "qwen3.5:9b-q4_K_M"
+      "gemma4:e4b-it-qat"
+      "gemma4:12b-it-qat"
+    )
+    cloud_models=(
+      "glm-5.1:cloud"
+    )
 
-    echo "Warming up gemma4:e4b..."
-    ollama run gemma4:e4b "hi" > /dev/null 2>&1 || true
+    for model in "${local_models[@]}"; do
+      echo "Pulling ${model}..."
+      ollama pull "${model}"
+    done
+
+    for model in "${cloud_models[@]}"; do
+      echo "Pulling cloud fallback ${model}..."
+      if ! ollama pull "${model}"; then
+        echo "WARN: ${model} pull failed; run ollama signin and retry before enabling Hermes cloud fallback."
+      fi
+    done
+
+    for model in "${local_models[@]}"; do
+      echo "Warming up ${model}..."
+      timeout 120s ollama run "${model}" "Return exactly: ok" > /dev/null 2>&1 || true
+    done
     echo "Warmup complete."
 
     touch /tmp/startup-complete
