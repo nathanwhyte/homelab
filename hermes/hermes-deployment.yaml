@@ -1,0 +1,175 @@
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: hermes-home
+  namespace: hermes
+  labels:
+    app: hermes-agent
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: hermes-config
+  namespace: hermes
+  labels:
+    app: hermes-agent
+data:
+  config.yaml: |
+    _config_version: 24
+    agent:
+      api_max_retries: 3
+      max_turns: 90
+      tool_use_enforcement: auto
+      verbose: false
+    approvals:
+      mode: manual
+      timeout: 60
+    compression:
+      enabled: true
+      threshold: 0.5
+      target_ratio: 0.2
+    display:
+      show_reasoning: false
+      show_cost: false
+      streaming: false
+    fallback_providers: []
+    memory:
+      memory_enabled: true
+      user_profile_enabled: true
+      memory_char_limit: 2200
+      user_char_limit: 1375
+    model:
+      api_key: ollama
+      base_url: http://chat-ollama.llama.svc:11434/v1
+      default: glm-5.1:cloud
+      provider: ollama-launch
+    providers:
+      ollama-launch:
+        api: http://chat-ollama.llama.svc:11434/v1
+        default_model: glm-5.1:cloud
+        models:
+          - glm-5.1:cloud
+          - qwen3.5:9b-q4_K_M
+          - gemma4:e4b-it-qat
+          - gemma4:12b-it-qat
+        name: Chat Ollama
+    terminal:
+      backend: ssh
+      cwd: /home/hermes
+      persistent_shell: true
+      ssh_host: hermes-jump.hermes.svc.cluster.local
+      ssh_user: hermes
+      ssh_port: 22
+      ssh_key: /root/.ssh/id_ed25519
+      timeout: 180
+    toolsets:
+      - hermes-cli
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hermes-agent
+  namespace: hermes
+  labels:
+    app: hermes-agent
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: hermes-agent
+  template:
+    metadata:
+      labels:
+        app: hermes-agent
+    spec:
+      serviceAccountName: hermes-agent
+      containers:
+        - name: hermes
+          image: python:3.12-slim
+          command: ["/bin/bash", "-lc"]
+          args:
+            - |
+              set -euo pipefail
+              export DEBIAN_FRONTEND=noninteractive
+              apt-get update
+              apt-get install -y --no-install-recommends \
+                ca-certificates \
+                curl \
+                git \
+                openssh-client \
+                ripgrep \
+                xz-utils
+              rm -rf /var/lib/apt/lists/*
+              python3 -m pip install --no-cache-dir hermes-agent==0.15.2
+              mkdir -p /root/.ssh /root/.hermes/skills
+              cp /ssh-key/id_ed25519 /root/.ssh/id_ed25519
+              chmod 600 /root/.ssh/id_ed25519
+              cp /config/config.yaml /root/.hermes/config.yaml
+              touch /tmp/hermes-ready
+              tail -f /dev/null
+          env:
+            - name: HERMES_HOME
+              value: /root/.hermes
+            - name: HERMES_INFERENCE_MODEL
+              value: glm-5.1:cloud
+            - name: TERMINAL_ENV
+              value: ssh
+            - name: TERMINAL_SSH_HOST
+              value: hermes-jump.hermes.svc.cluster.local
+            - name: TERMINAL_SSH_USER
+              value: hermes
+            - name: TERMINAL_SSH_PORT
+              value: "22"
+            - name: TERMINAL_SSH_KEY
+              value: /root/.ssh/id_ed25519
+            - name: TERMINAL_TIMEOUT
+              value: "180"
+          ports:
+            - containerPort: 8080
+              name: http
+          readinessProbe:
+            exec:
+              command: ["test", "-f", "/tmp/hermes-ready"]
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            exec:
+              command: ["test", "-f", "/tmp/hermes-ready"]
+            initialDelaySeconds: 30
+            periodSeconds: 30
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: "2"
+              memory: 2Gi
+          volumeMounts:
+            - name: hermes-home
+              mountPath: /root/.hermes
+            - name: hermes-config
+              mountPath: /config
+              readOnly: true
+            - name: ssh-key
+              mountPath: /ssh-key
+              readOnly: true
+      volumes:
+        - name: hermes-home
+          persistentVolumeClaim:
+            claimName: hermes-home
+        - name: hermes-config
+          configMap:
+            name: hermes-config
+        - name: ssh-key
+          secret:
+            secretName: hermes-jump-ssh-key
+            items:
+              - key: id_ed25519
+                path: id_ed25519
