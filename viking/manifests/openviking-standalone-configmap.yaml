@@ -65,6 +65,7 @@ data:
         "model": "openai/current.gguf",
         "api_key": "sk-no-key-required",
         "api_base": "http://llamacpp-vlm.viking.svc/v1",
-        "max_concurrent": 2
+        "max_concurrent": 2,
+        "timeout": 120
       }
     }
