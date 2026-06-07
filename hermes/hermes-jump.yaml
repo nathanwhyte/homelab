@@ -1,0 +1,143 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: hermes-jump-entrypoint
+  namespace: hermes
+  labels:
+    app: hermes-jump
+data:
+  entrypoint.sh: |
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    export DEBIAN_FRONTEND=noninteractive
+    apt-get update
+    apt-get install -y --no-install-recommends \
+      ca-certificates \
+      curl \
+      git \
+      openssh-server
+    rm -rf /var/lib/apt/lists/*
+
+    if ! command -v kubectl >/dev/null 2>&1; then
+      curl -fsSL -o /usr/local/bin/kubectl \
+        https://dl.k8s.io/release/v1.33.0/bin/linux/amd64/kubectl
+      chmod +x /usr/local/bin/kubectl
+    fi
+
+    if ! id -u hermes >/dev/null 2>&1; then
+      useradd -m -s /bin/bash hermes
+    fi
+
+    mkdir -p /home/hermes/.ssh /run/sshd
+    cp /ssh-public/id_ed25519.pub /home/hermes/.ssh/authorized_keys
+    chown -R hermes:hermes /home/hermes/.ssh
+    chmod 700 /home/hermes/.ssh
+    chmod 600 /home/hermes/.ssh/authorized_keys
+
+    mkdir -p /home/hermes/.kube
+    SERVICEACCOUNT_DIR=/var/run/secrets/kubernetes.io/serviceaccount
+    cat > /home/hermes/.kube/config <<EOF
+    apiVersion: v1
+    kind: Config
+    clusters:
+    - name: in-cluster
+      cluster:
+        certificate-authority: ${SERVICEACCOUNT_DIR}/ca.crt
+        server: https://${KUBERNETES_SERVICE_HOST}:${KUBERNETES_SERVICE_PORT}
+    contexts:
+    - name: in-cluster
+      context:
+        cluster: in-cluster
+        namespace: hermes
+        user: hermes-jump
+    current-context: in-cluster
+    users:
+    - name: hermes-jump
+      user:
+        tokenFile: ${SERVICEACCOUNT_DIR}/token
+    EOF
+    chown -R hermes:hermes /home/hermes/.kube
+    chmod 700 /home/hermes/.kube
+    chmod 600 /home/hermes/.kube/config
+
+    ssh-keygen -A
+    exec /usr/sbin/sshd -D -e
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hermes-jump
+  namespace: hermes
+  labels:
+    app: hermes-jump
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: hermes-jump
+  template:
+    metadata:
+      labels:
+        app: hermes-jump
+    spec:
+      serviceAccountName: hermes-jump
+      containers:
+        - name: sshd
+          image: debian:12-slim
+          command: ["/scripts/entrypoint.sh"]
+          ports:
+            - containerPort: 22
+              name: ssh
+          readinessProbe:
+            tcpSocket:
+              port: 22
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: 22
+            initialDelaySeconds: 20
+            periodSeconds: 30
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+          volumeMounts:
+            - name: entrypoint
+              mountPath: /scripts
+            - name: ssh-public
+              mountPath: /ssh-public
+              readOnly: true
+      volumes:
+        - name: entrypoint
+          configMap:
+            name: hermes-jump-entrypoint
+            defaultMode: 0755
+        - name: ssh-public
+          secret:
+            secretName: hermes-jump-ssh-key
+            items:
+              - key: id_ed25519.pub
+                path: id_ed25519.pub
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: hermes-jump
+  namespace: hermes
+  labels:
+    app: hermes-jump
+spec:
+  type: ClusterIP
+  ports:
+    - name: ssh
+      port: 22
+      protocol: TCP
+      targetPort: 22
+  selector:
+    app: hermes-jump
