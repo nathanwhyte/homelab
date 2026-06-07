@@ -1,0 +1,287 @@
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: cloud-llm-counter-data
+  namespace: llama
+  labels:
+    app: cloud-llm-counter
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cloud-llm-counter-config
+  namespace: llama
+  labels:
+    app: cloud-llm-counter
+data:
+  cloud-llm-counter.py: |
+    #!/usr/bin/env python3
+    """Daily call-budget guard for Ollama Cloud model requests."""
+
+    import json
+    import os
+    import tempfile
+    import threading
+    from datetime import datetime, timezone
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+    from pathlib import Path
+
+    BUDGET = int(os.environ.get("DAILY_CLOUD_CALL_BUDGET", "200"))
+    COUNTER_PATH = Path(os.environ.get("COUNTER_PATH", "/data/cloud-llm-counter.json"))
+    PORT = int(os.environ.get("PORT", "8080"))
+    _lock = threading.Lock()
+
+
+    def today():
+        return datetime.now(timezone.utc).date().isoformat()
+
+
+    def is_cloud_model(model):
+        return model.endswith(":cloud") or model.endswith("-cloud") or "-cloud" in model
+
+
+    def default_state():
+        return {"date": today(), "total": 0, "by_model": {}, "rejected": 0}
+
+
+    def load_state():
+        if not COUNTER_PATH.exists():
+            return default_state()
+        try:
+            with COUNTER_PATH.open() as f:
+                state = json.load(f)
+        except Exception:
+            return default_state()
+        if state.get("date") != today():
+            return default_state()
+        state.setdefault("total", 0)
+        state.setdefault("by_model", {})
+        state.setdefault("rejected", 0)
+        return state
+
+
+    def save_state(state):
+        COUNTER_PATH.parent.mkdir(parents=True, exist_ok=True)
+        fd, tmp = tempfile.mkstemp(prefix="cloud-llm-counter-", suffix=".json", dir=str(COUNTER_PATH.parent))
+        with os.fdopen(fd, "w") as f:
+            json.dump(state, f, sort_keys=True)
+            f.write("\n")
+        os.replace(tmp, COUNTER_PATH)
+
+
+    def render_metrics(state):
+        remaining = max(BUDGET - state["total"], 0)
+        lines = [
+            "# HELP cloud_llm_budget Daily cloud-model call budget.",
+            "# TYPE cloud_llm_budget gauge",
+            f"cloud_llm_budget {BUDGET}",
+            "# HELP cloud_llm_calls_total Cloud-model calls allowed today.",
+            "# TYPE cloud_llm_calls_total counter",
+        ]
+        if state["by_model"]:
+            for model, count in sorted(state["by_model"].items()):
+                lines.append(f'cloud_llm_calls_total{{model="{model}"}} {count}')
+        else:
+            lines.append('cloud_llm_calls_total{model="none"} 0')
+        lines.extend([
+            "# HELP cloud_llm_remaining_calls Remaining cloud-model calls today.",
+            "# TYPE cloud_llm_remaining_calls gauge",
+            f"cloud_llm_remaining_calls {remaining}",
+            "# HELP cloud_llm_rejected_total Cloud-model calls rejected today.",
+            "# TYPE cloud_llm_rejected_total counter",
+            f'cloud_llm_rejected_total{{reason="daily_budget"}} {state["rejected"]}',
+        ])
+        return "\n".join(lines) + "\n"
+
+
+    class Handler(BaseHTTPRequestHandler):
+        def _json(self, status, body):
+            payload = json.dumps(body).encode()
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers()
+            self.wfile.write(payload)
+
+        def do_GET(self):
+            with _lock:
+                state = load_state()
+            if self.path == "/healthz":
+                self._json(200, {"ok": True})
+            elif self.path == "/status":
+                body = dict(state)
+                body["budget"] = BUDGET
+                body["remaining"] = max(BUDGET - state["total"], 0)
+                self._json(200, body)
+            elif self.path == "/metrics":
+                payload = render_metrics(state).encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+                self.send_header("Content-Length", str(len(payload)))
+                self.end_headers()
+                self.wfile.write(payload)
+            else:
+                self._json(404, {"error": "not found"})
+
+        def do_POST(self):
+            if self.path not in ("/allow", "/refund"):
+                self._json(404, {"error": "not found"})
+                return
+            length = int(self.headers.get("Content-Length", "0"))
+            try:
+                body = json.loads(self.rfile.read(length) or b"{}")
+            except json.JSONDecodeError:
+                self._json(400, {"allowed": False, "error": "invalid json"})
+                return
+            model = body.get("model", "")
+            if self.path == "/refund":
+                with _lock:
+                    state = load_state()
+                    if is_cloud_model(model) and state["total"] > 0:
+                        state["total"] -= 1
+                        if state["by_model"].get(model, 0) > 0:
+                            state["by_model"][model] -= 1
+                            if state["by_model"][model] == 0:
+                                del state["by_model"][model]
+                        save_state(state)
+                    self._json(200, {
+                        "refunded": is_cloud_model(model),
+                        "model": model,
+                        "budget": BUDGET,
+                        "count": state["total"],
+                        "remaining": max(BUDGET - state["total"], 0),
+                    })
+                return
+            if not is_cloud_model(model):
+                with _lock:
+                    state = load_state()
+                self._json(200, {
+                    "allowed": True,
+                    "cloud": False,
+                    "model": model,
+                    "budget": BUDGET,
+                    "remaining": max(BUDGET - state["total"], 0),
+                })
+                return
+            with _lock:
+                state = load_state()
+                if state["total"] >= BUDGET:
+                    state["rejected"] += 1
+                    save_state(state)
+                    self._json(429, {
+                        "allowed": False,
+                        "cloud": True,
+                        "model": model,
+                        "error": "daily cloud LLM call budget exhausted",
+                        "budget": BUDGET,
+                        "count": state["total"],
+                        "remaining": 0,
+                    })
+                    return
+                state["total"] += 1
+                state["by_model"][model] = state["by_model"].get(model, 0) + 1
+                save_state(state)
+                self._json(200, {
+                    "allowed": True,
+                    "cloud": True,
+                    "model": model,
+                    "budget": BUDGET,
+                    "count": state["total"],
+                    "remaining": max(BUDGET - state["total"], 0),
+                })
+
+        def log_message(self, fmt, *args):
+            print(f"{self.address_string()} - {fmt % args}")
+
+
+    if __name__ == "__main__":
+        print(f"cloud-llm-counter starting on :{PORT}, budget={BUDGET}, path={COUNTER_PATH}")
+        ThreadingHTTPServer(("0.0.0.0", PORT), Handler).serve_forever()
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cloud-llm-counter
+  namespace: llama
+  labels:
+    app: cloud-llm-counter
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: cloud-llm-counter
+  template:
+    metadata:
+      labels:
+        app: cloud-llm-counter
+    spec:
+      containers:
+        - name: counter
+          image: python:3.12-slim
+          command: ["python3", "/scripts/cloud-llm-counter.py"]
+          env:
+            - name: DAILY_CLOUD_CALL_BUDGET
+              value: "200"
+            - name: COUNTER_PATH
+              value: /data/cloud-llm-counter.json
+            - name: PORT
+              value: "8080"
+          ports:
+            - containerPort: 8080
+              name: http
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 2
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 30
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+          volumeMounts:
+            - name: scripts
+              mountPath: /scripts
+            - name: data
+              mountPath: /data
+      volumes:
+        - name: scripts
+          configMap:
+            name: cloud-llm-counter-config
+            defaultMode: 0755
+        - name: data
+          persistentVolumeClaim:
+            claimName: cloud-llm-counter-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: cloud-llm-counter
+  namespace: llama
+  labels:
+    app: cloud-llm-counter
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 80
+      protocol: TCP
+      targetPort: 8080
+  selector:
+    app: cloud-llm-counter
