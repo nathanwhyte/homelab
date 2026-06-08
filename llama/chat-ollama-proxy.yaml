@@ -9,145 +9,55 @@ metadata:
 data:
   chat-ollama-proxy.py: |
     #!/usr/bin/env python3
-    """Hermes-compatible internal proxy for Ollama traffic.
+    """Minimal Ollama reasoning-suppression shim for Hermes.
 
-    This proxy intentionally does not enforce a cloud-call budget. It keeps a
-    stable internal Service for Hermes and normalizes Ollama's OpenAI-compatible
-    responses by stripping `message.reasoning`, which otherwise causes Hermes
-    Agent to treat local reasoning-model turns as incomplete/truncated.
+    Hermes cannot send reasoning controls to a generic Ollama provider
+    (NousResearch/hermes-agent#25758, #11237), and local models (gemma4,
+    qwen3.5, ...) emit a large `reasoning` field by default. That reasoning
+    consumes the per-response output budget, yielding `finish_reason: length`,
+    which Hermes treats as truncation and retries 3x before failing with
+    `agent_incomplete`.
+
+    This shim injects the top-level `reasoning_effort: "none"` field (which
+    Ollama's OpenAI-compatible endpoint DOES respect) into
+    /v1/chat/completions for non-cloud models, then transparently proxies the
+    response bytes to Ollama -- streamed (SSE) or not. It does not rewrite the
+    response, finish_reason, tool calls, or anything else. Context length is
+    handled natively by Hermes' `model.ollama_num_ctx` injection.
     """
 
     import http.client
     import json
     import os
-    import threading
-    import time
     import urllib.parse
-    import urllib.request
     from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
     OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://ollama.llama.svc.cluster.local:11434")
-    COUNTER_URL = os.environ.get("COUNTER_URL", "http://cloud-llm-counter.llama.svc/allow")
-    ENABLE_CLOUD_BUDGET = os.environ.get("ENABLE_CLOUD_BUDGET", "false").lower() in {"1", "true", "yes"}
-    STRIP_REASONING = os.environ.get("STRIP_REASONING", "true").lower() in {"1", "true", "yes"}
-    NATIVE_THINK_FALSE = os.environ.get("NATIVE_THINK_FALSE", "true").lower() in {"1", "true", "yes"}
-    FORCE_STOP_ON_CONTENT = os.environ.get("FORCE_STOP_ON_CONTENT", "true").lower() in {"1", "true", "yes"}
-    FORCE_STOP_MIN_CHARS = int(os.environ.get("FORCE_STOP_MIN_CHARS", "2"))
-    OLLAMA_NUM_CTX = int(os.environ.get("OLLAMA_NUM_CTX", "32768"))
     PORT = int(os.environ.get("PORT", "11434"))
+    INJECT_REASONING_NONE = os.environ.get("INJECT_REASONING_NONE", "true").lower() in {"1", "true", "yes"}
     parsed = urllib.parse.urlparse(OLLAMA_URL)
-    _lock = threading.Lock()
-    _metrics = {
-        "requests": {},
-        "rejected": {},
-        "upstream_errors": 0,
-    }
 
 
     def is_cloud_model(model):
-        return model.endswith(":cloud") or model.endswith("-cloud") or "-cloud" in model
+        return isinstance(model, str) and (model.endswith(":cloud") or "-cloud" in model)
 
 
-    def inc(bucket, key, amount=1):
-        with _lock:
-            _metrics[bucket][key] = _metrics[bucket].get(key, 0) + amount
-
-
-    def render_metrics():
-        lines = [
-            "# HELP chat_ollama_proxy_requests_total Requests proxied by model and status.",
-            "# TYPE chat_ollama_proxy_requests_total counter",
-        ]
-        with _lock:
-            for (model, status), count in sorted(_metrics["requests"].items()):
-                lines.append(f'chat_ollama_proxy_requests_total{{model="{model}",status="{status}"}} {count}')
-            lines.extend([
-                "# HELP chat_ollama_proxy_rejected_total Requests rejected by model and reason.",
-                "# TYPE chat_ollama_proxy_rejected_total counter",
-            ])
-            for (model, reason), count in sorted(_metrics["rejected"].items()):
-                lines.append(f'chat_ollama_proxy_rejected_total{{model="{model}",reason="{reason}"}} {count}')
-            lines.extend([
-                "# HELP chat_ollama_proxy_upstream_errors_total Upstream forwarding errors.",
-                "# TYPE chat_ollama_proxy_upstream_errors_total counter",
-                f"chat_ollama_proxy_upstream_errors_total {_metrics['upstream_errors']}",
-            ])
-        return "\n".join(lines) + "\n"
-
-
-    def extract_model(path, body):
-        if not body or path not in ("/api/generate", "/api/chat", "/v1/chat/completions"):
-            return "unknown"
-        try:
-            data = json.loads(body)
-        except Exception:
-            return "unknown"
-        return data.get("model") or "unknown"
-
-
-    def openai_tool_calls(native_tool_calls):
-        converted = []
-        for idx, call in enumerate(native_tool_calls or []):
-            function = call.get("function") or {}
-            arguments = function.get("arguments")
-            if not isinstance(arguments, str):
-                arguments = json.dumps(arguments or {})
-            converted.append({
-                "id": call.get("id") or f"call_{idx}",
-                "type": "function",
-                "function": {
-                    "name": function.get("name") or call.get("name") or "unknown",
-                    "arguments": arguments,
-                },
-            })
-        return converted
-
-
-    def call_counter(model, action="allow"):
-        payload = json.dumps({"model": model}).encode()
-        url = COUNTER_URL if action == "allow" else COUNTER_URL.rsplit("/", 1)[0] + "/refund"
-        req = urllib.request.Request(
-            url,
-            data=payload,
-            method="POST",
-            headers={"Content-Type": "application/json"},
-        )
-        try:
-            with urllib.request.urlopen(req, timeout=5) as resp:
-                body = resp.read()
-                return resp.status, body
-        except urllib.error.HTTPError as e:
-            return e.code, e.read()
-        except Exception as e:
-            return 503, json.dumps({"allowed": False, "error": f"counter unavailable: {e}"}).encode()
-
-
-    class ProxyHandler(BaseHTTPRequestHandler):
+    class Handler(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
 
-        def _json(self, status, body):
-            payload = json.dumps(body).encode()
+        def _send_json(self, status, obj):
+            body = json.dumps(obj).encode()
             self.send_response(status)
             self.send_header("Content-Type", "application/json")
-            self.send_header("Content-Length", str(len(payload)))
+            self.send_header("Content-Length", str(len(body)))
             self.send_header("Connection", "close")
             self.end_headers()
             self.close_connection = True
-            self.wfile.write(payload)
+            self.wfile.write(body)
 
         def do_GET(self):
             if self.path == "/healthz":
-                self._json(200, {"ok": True})
-                return
-            if self.path == "/metrics":
-                payload = render_metrics().encode()
-                self.send_response(200)
-                self.send_header("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
-                self.send_header("Content-Length", str(len(payload)))
-                self.send_header("Connection", "close")
-                self.end_headers()
-                self.close_connection = True
-                self.wfile.write(payload)
+                self._send_json(200, {"ok": True})
                 return
             self._proxy()
 
@@ -160,255 +70,73 @@ data:
         def do_DELETE(self):
             self._proxy()
 
-        def _send_openai_sse(self, chunk_id, model, delta, finish_reason=None):
-            payload = {
-                "id": chunk_id,
-                "object": "chat.completion.chunk",
-                "created": int(time.time()),
-                "model": model,
-                "choices": [{"index": 0, "delta": delta, "finish_reason": finish_reason}],
-            }
-            self.wfile.write(f"data: {json.dumps(payload)}\n\n".encode())
-            self.wfile.flush()
-
-        def _proxy_native_chat_think_false(self, request_payload, request_max_tokens):
-            model = request_payload.get("model") or "unknown"
-            stream = bool(request_payload.get("stream"))
-            native_payload = {
-                "model": model,
-                "messages": request_payload.get("messages") or [],
-                "stream": stream,
-                "think": False,
-            }
-            if request_payload.get("tools"):
-                native_payload["tools"] = request_payload.get("tools")
-            native_options = {"num_ctx": OLLAMA_NUM_CTX}
-            if request_max_tokens:
-                native_options["num_predict"] = int(request_max_tokens)
-            native_payload["options"] = native_options
-
-            conn_cls = http.client.HTTPSConnection if parsed.scheme == "https" else http.client.HTTPConnection
-            port = parsed.port or (443 if parsed.scheme == "https" else 80)
-            conn = conn_cls(parsed.hostname, port, timeout=600)
-            body = json.dumps(native_payload).encode()
-            headers = {"Host": parsed.netloc, "Content-Type": "application/json", "Content-Length": str(len(body))}
-            started = time.time()
-            chunk_id = f"chatcmpl-proxy-{int(started * 1000)}"
-            try:
-                conn.request("POST", "/api/chat", body=body, headers=headers)
-                resp = conn.getresponse()
-                if not stream:
-                    resp_body = resp.read()
-                    if resp.status >= 400:
-                        self.send_response(resp.status, resp.reason)
-                        self.send_header("Content-Type", "application/json")
-                        self.send_header("Content-Length", str(len(resp_body)))
-                        self.send_header("Connection", "close")
-                        self.end_headers()
-                        self.close_connection = True
-                        self.wfile.write(resp_body)
-                        return
-                    native = json.loads(resp_body)
-                    message = native.get("message") or {"role": "assistant", "content": ""}
-                    native_done_reason = native.get("done_reason")
-                    tool_calls = openai_tool_calls(message.get("tool_calls"))
-                    if tool_calls:
-                        message["tool_calls"] = tool_calls
-                    finish_reason = "tool_calls" if tool_calls else ("stop" if native_done_reason in (None, "stop") else "length")
-                    if FORCE_STOP_ON_CONTENT and finish_reason == "length" and len(message.get("content") or "") >= FORCE_STOP_MIN_CHARS:
-                        finish_reason = "stop"
-                    payload = {
-                        "id": chunk_id,
-                        "object": "chat.completion",
-                        "created": int(time.time()),
-                        "model": model,
-                        "choices": [{"index": 0, "message": message, "finish_reason": finish_reason}],
-                        "usage": {
-                            "prompt_tokens": native.get("prompt_eval_count", 0),
-                            "completion_tokens": native.get("eval_count", 0),
-                            "total_tokens": native.get("prompt_eval_count", 0) + native.get("eval_count", 0),
-                        },
-                    }
-                    self._json(200, payload)
-                    inc("requests", (model, "200"))
-                    print(
-                        f"POST /v1/chat/completions native_think_false model={model} status=200 "
-                        f"duration={time.time()-started:.3f}s stream={stream} max_tokens={request_max_tokens} num_ctx={OLLAMA_NUM_CTX} "
-                        f"finish={finish_reason} native_done_reason={native.get('done_reason')} "
-                        f"content_len={len(message.get('content') or '')}",
-                        flush=True,
-                    )
-                    return
-
-                self.send_response(200, "OK")
-                self.send_header("Content-Type", "text/event-stream")
-                self.send_header("Cache-Control", "no-cache")
-                self.send_header("Connection", "close")
-                self.end_headers()
-                self.close_connection = True
-                sent_role = False
-                final_reason = "stop"
-                native_done_reason = None
-                content_chars = 0
-                saw_tool_calls = False
-                while True:
-                    line = resp.readline()
-                    if not line:
-                        break
-                    line = line.strip()
-                    if not line:
-                        continue
-                    native = json.loads(line)
-                    message = native.get("message") or {}
-                    delta = {}
-                    if not sent_role:
-                        delta["role"] = "assistant"
-                        sent_role = True
-                    content = message.get("content") or ""
-                    if content:
-                        delta["content"] = content
-                        content_chars += len(content)
-                    tool_calls = openai_tool_calls(message.get("tool_calls"))
-                    if tool_calls:
-                        delta["tool_calls"] = [dict({"index": idx}, **tool_call) for idx, tool_call in enumerate(tool_calls)]
-                        saw_tool_calls = True
-                    if delta:
-                        self._send_openai_sse(chunk_id, model, delta, None)
-                    if native.get("done"):
-                        native_done_reason = native.get("done_reason")
-                        final_reason = "tool_calls" if saw_tool_calls else ("stop" if native_done_reason in (None, "stop") else "length")
-                        if FORCE_STOP_ON_CONTENT and final_reason == "length" and content_chars >= FORCE_STOP_MIN_CHARS:
-                            final_reason = "stop"
-                        break
-                self._send_openai_sse(chunk_id, model, {}, final_reason)
-                self.wfile.write(b"data: [DONE]\n\n")
-                self.wfile.flush()
-                inc("requests", (model, "200"))
-                print(
-                    f"POST /v1/chat/completions native_think_false model={model} status=200 "
-                    f"duration={time.time()-started:.3f}s stream={stream} max_tokens={request_max_tokens} num_ctx={OLLAMA_NUM_CTX} "
-                    f"finish={final_reason} native_done_reason={native_done_reason} content_len={content_chars}",
-                    flush=True,
-                )
-            except Exception as e:
-                with _lock:
-                    _metrics["upstream_errors"] += 1
-                self._json(502, {"error": f"native chat upstream error: {e}"})
-            finally:
-                conn.close()
-
         def _proxy(self):
-            length = int(self.headers.get("Content-Length", "0"))
+            length = int(self.headers.get("Content-Length", "0") or 0)
             body = self.rfile.read(length) if length else b""
             path = urllib.parse.urlsplit(self.path).path
-            model = extract_model(path, body)
-            request_max_tokens = None
-            request_options = None
-            request_stream = None
-            request_payload = None
-            if path == "/v1/chat/completions" and body:
+            model = "unknown"
+
+            if INJECT_REASONING_NONE and path == "/v1/chat/completions" and body:
                 try:
-                    request_payload = json.loads(body)
-                    request_max_tokens = request_payload.get("max_tokens") or request_payload.get("max_completion_tokens")
-                    request_options = request_payload.get("options")
-                    request_stream = request_payload.get("stream")
+                    payload = json.loads(body)
+                    model = payload.get("model") or "unknown"
+                    already = "reasoning_effort" in payload or bool(
+                        isinstance(payload.get("reasoning"), dict) and payload["reasoning"].get("effort")
+                    )
+                    if not is_cloud_model(model) and not already:
+                        payload["reasoning_effort"] = "none"
+                        body = json.dumps(payload).encode()
                 except Exception:
                     pass
 
-            if NATIVE_THINK_FALSE and path == "/v1/chat/completions" and request_payload and not is_cloud_model(model):
-                self._proxy_native_chat_think_false(request_payload, request_max_tokens)
-                return
-
-            if ENABLE_CLOUD_BUDGET and is_cloud_model(model):
-                status, counter_body = call_counter(model, "allow")
-                if status >= 400:
-                    inc("rejected", (model, "daily_budget" if status == 429 else "counter_error"))
-                    self.send_response(429 if status == 429 else 503)
-                    self.send_header("Content-Type", "application/json")
-                    self.send_header("Content-Length", str(len(counter_body)))
-                    self.send_header("Connection", "close")
-                    self.end_headers()
-                    self.close_connection = True
-                    self.wfile.write(counter_body)
-                    return
-
             conn_cls = http.client.HTTPSConnection if parsed.scheme == "https" else http.client.HTTPConnection
             port = parsed.port or (443 if parsed.scheme == "https" else 80)
             conn = conn_cls(parsed.hostname, port, timeout=600)
-            upstream_path = self.path
-            headers = {k: v for k, v in self.headers.items() if k.lower() not in ("host", "content-length", "connection")}
+            headers = {
+                k: v for k, v in self.headers.items()
+                if k.lower() not in ("host", "content-length", "connection")
+            }
             headers["Host"] = parsed.netloc
             if body:
                 headers["Content-Length"] = str(len(body))
-            started = time.time()
+
             try:
-                conn.request(self.command, upstream_path, body=body, headers=headers)
+                conn.request(self.command, self.path, body=body, headers=headers)
                 resp = conn.getresponse()
-                resp_body = resp.read()
-                response_headers = dict(resp.getheaders())
-                content_type = ""
-                for header_name, header_value in response_headers.items():
-                    if header_name.lower() == "content-type":
-                        content_type = header_value
-                        break
-
-                finish_reasons = []
-                content_lengths = []
-                reasoning_lengths = []
-                if path == "/v1/chat/completions" and content_type.startswith("application/json"):
-                    try:
-                        payload = json.loads(resp_body)
-                        for choice in payload.get("choices", []):
-                            finish_reasons.append(choice.get("finish_reason"))
-                            message = choice.get("message")
-                            if isinstance(message, dict):
-                                content_lengths.append(len(message.get("content") or ""))
-                                reasoning_lengths.append(len(message.get("reasoning") or ""))
-                                if STRIP_REASONING:
-                                    message.pop("reasoning", None)
-                        if STRIP_REASONING:
-                            resp_body = json.dumps(payload).encode()
-                            response_headers["Content-Length"] = str(len(resp_body))
-                    except Exception:
-                        pass
-
                 self.send_response(resp.status, resp.reason)
-                for k, v in response_headers.items():
-                    if k.lower() in ("connection", "transfer-encoding"):
+                for k, v in resp.getheaders():
+                    if k.lower() in ("connection", "transfer-encoding", "content-length"):
                         continue
-                    if k.lower() == "content-length":
-                        v = str(len(resp_body))
                     self.send_header(k, v)
                 self.send_header("Connection", "close")
                 self.end_headers()
                 self.close_connection = True
-                self.wfile.write(resp_body)
-                self.wfile.flush()
-                if ENABLE_CLOUD_BUDGET and is_cloud_model(model) and resp.status >= 400:
-                    call_counter(model, "refund")
-                inc("requests", (model, str(resp.status)))
-                print(
-                    f"{self.command} {self.path} model={model} status={resp.status} "
-                    f"duration={time.time()-started:.3f}s stream={request_stream} "
-                    f"max_tokens={request_max_tokens} options={request_options} "
-                    f"content_type={content_type!r} finish={finish_reasons} "
-                    f"content_len={content_lengths} reasoning_len={reasoning_lengths}",
-                    flush=True,
-                )
+                while True:
+                    chunk = resp.read(8192)
+                    if not chunk:
+                        break
+                    self.wfile.write(chunk)
+                    self.wfile.flush()
+                print(f"{self.command} {path} model={model} status={resp.status}", flush=True)
             except Exception as e:
-                with _lock:
-                    _metrics["upstream_errors"] += 1
-                self._json(502, {"error": f"upstream error: {e}"})
+                try:
+                    self._send_json(502, {"error": {"message": f"upstream error: {e}", "type": "shim_error"}})
+                except Exception:
+                    pass
             finally:
                 conn.close()
 
-        def log_message(self, fmt, *args):
+        def log_message(self, *args):
             pass
 
 
     if __name__ == "__main__":
-        print(f"chat-ollama-proxy starting on :{PORT}; upstream={OLLAMA_URL}; cloud_budget={ENABLE_CLOUD_BUDGET}; strip_reasoning={STRIP_REASONING}; native_think_false={NATIVE_THINK_FALSE}; force_stop_on_content={FORCE_STOP_ON_CONTENT}; force_stop_min_chars={FORCE_STOP_MIN_CHARS}; num_ctx={OLLAMA_NUM_CTX}")
-        ThreadingHTTPServer(("0.0.0.0", PORT), ProxyHandler).serve_forever()
+        print(
+            f"chat-ollama shim on :{PORT}; upstream={OLLAMA_URL}; "
+            f"inject_reasoning_none={INJECT_REASONING_NONE}",
+            flush=True,
+        )
+        ThreadingHTTPServer(("0.0.0.0", PORT), Handler).serve_forever()
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -434,20 +162,8 @@ spec:
           env:
             - name: OLLAMA_URL
               value: http://ollama.llama.svc.cluster.local:11434
-            - name: COUNTER_URL
-              value: http://cloud-llm-counter.llama.svc/allow
-            - name: ENABLE_CLOUD_BUDGET
-              value: "false"
-            - name: STRIP_REASONING
+            - name: INJECT_REASONING_NONE
               value: "true"
-            - name: NATIVE_THINK_FALSE
-              value: "true"
-            - name: FORCE_STOP_ON_CONTENT
-              value: "true"
-            - name: FORCE_STOP_MIN_CHARS
-              value: "2"
-            - name: OLLAMA_NUM_CTX
-              value: "32768"
             - name: PYTHONUNBUFFERED
               value: "1"
             - name: PORT
