@@ -48,18 +48,17 @@ data:
     model:
       api_key: ollama
       base_url: http://chat-ollama.llama.svc:11434/v1
-      default: gemma4:12b
+      default: glm-5.1:cloud
       provider: ollama-launch
+      ollama_num_ctx: 131072
     providers:
       ollama-launch:
         api: http://chat-ollama.llama.svc:11434/v1
-        default_model: gemma4:12b
+        default_model: glm-5.1:cloud
         models:
-          - gemma4:12b
           - glm-5.1:cloud
-          - qwen3.5:9b-q4_K_M
-          - gemma4:e4b-it-qat
           - gemma4:12b-it-qat
+          - nemotron-3-ultra:cloud
         name: Chat Ollama
     terminal:
       backend: ssh
@@ -68,7 +67,7 @@ data:
       ssh_host: hermes-jump.hermes.svc.cluster.local
       ssh_user: hermes
       ssh_port: 22
-      ssh_key: /root/.ssh/id_ed25519
+      ssh_key: /opt/data/.ssh/id_ed25519
       timeout: 180
     toolsets:
       - hermes-cli
@@ -82,6 +81,8 @@ metadata:
     app: hermes-agent
 spec:
   replicas: 1
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: hermes-agent
@@ -91,34 +92,40 @@ spec:
         app: hermes-agent
     spec:
       serviceAccountName: hermes-agent
-      containers:
-        - name: hermes
-          image: python:3.12-slim
-          command: ["/bin/bash", "-lc"]
+      securityContext:
+        fsGroup: 10000
+      initContainers:
+        - name: setup
+          image: busybox:1.37
+          command: ["/bin/sh", "-c"]
           args:
             - |
               set -euo pipefail
-              export DEBIAN_FRONTEND=noninteractive
-              apt-get update
-              apt-get install -y --no-install-recommends \
-                ca-certificates \
-                curl \
-                git \
-                openssh-client \
-                ripgrep \
-                xz-utils
-              rm -rf /var/lib/apt/lists/*
-              python3 -m pip install --no-cache-dir hermes-agent==0.15.2
-              mkdir -p /root/.ssh /root/.hermes/skills
-              cp /ssh-key/id_ed25519 /root/.ssh/id_ed25519
-              chmod 600 /root/.ssh/id_ed25519
-              cp /config/config.yaml /root/.hermes/config.yaml
-              exec hermes gateway run
+              # Copy config (always overwrite to pick up ConfigMap changes)
+              cp /config/config.yaml /data/config.yaml
+              # Copy SSH key and fix permissions
+              mkdir -p /data/.ssh
+              cp /ssh-key/id_ed25519 /data/.ssh/id_ed25519
+              chmod 600 /data/.ssh/id_ed25519
+              # Fix ownership for hermes user (UID 10000) — recursive to cover
+              # all files created by root on first run (kanban.db, history, etc.)
+              chown -R 10000:10000 /data
+          volumeMounts:
+            - name: hermes-data
+              mountPath: /data
+            - name: hermes-config
+              mountPath: /config
+              readOnly: true
+            - name: ssh-key
+              mountPath: /ssh-key
+              readOnly: true
+      containers:
+        - name: hermes
+          image: nousresearch/hermes-agent:v2026.6.5
+          args: ["gateway", "run"]
           env:
-            - name: HERMES_HOME
-              value: /root/.hermes
             - name: HERMES_INFERENCE_MODEL
-              value: gemma4:12b
+              value: glm-5.1:cloud
             - name: TERMINAL_ENV
               value: ssh
             - name: TERMINAL_SSH_HOST
@@ -128,7 +135,7 @@ spec:
             - name: TERMINAL_SSH_PORT
               value: "22"
             - name: TERMINAL_SSH_KEY
-              value: /root/.ssh/id_ed25519
+              value: /opt/data/.ssh/id_ed25519
             - name: TERMINAL_TIMEOUT
               value: "180"
             - name: HERMES_ACCEPT_HOOKS
@@ -140,26 +147,43 @@ spec:
             - name: API_SERVER_PORT
               value: "8642"
             - name: API_SERVER_MODEL_NAME
-              value: gemma4:12b
+              value: glm-5.1:cloud
             - name: API_SERVER_KEY
               valueFrom:
                 secretKeyRef:
                   name: hermes-api-server-key
                   key: api-key
+            - name: HERMES_DASHBOARD
+              value: "1"
+            - name: HERMES_DASHBOARD_HOST
+              value: 0.0.0.0
+            - name: HERMES_DASHBOARD_PORT
+              value: "9119"
+            - name: HERMES_DASHBOARD_INSECURE
+              value: "1"
+            - name: HERMES_DASHBOARD_SESSION_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: hermes-dashboard-token
+                  key: token
+            - name: HERMES_GATEWAY_BOOTSTRAP_STATE
+              value: running
           ports:
             - containerPort: 8642
               name: api
+            - containerPort: 9119
+              name: dashboard
           readinessProbe:
             httpGet:
               path: /health
               port: api
-            initialDelaySeconds: 20
+            initialDelaySeconds: 10
             periodSeconds: 10
           livenessProbe:
             httpGet:
               path: /health
               port: api
-            initialDelaySeconds: 120
+            initialDelaySeconds: 30
             periodSeconds: 30
           resources:
             requests:
@@ -169,16 +193,10 @@ spec:
               cpu: "2"
               memory: 2Gi
           volumeMounts:
-            - name: hermes-home
-              mountPath: /root/.hermes
-            - name: hermes-config
-              mountPath: /config
-              readOnly: true
-            - name: ssh-key
-              mountPath: /ssh-key
-              readOnly: true
+            - name: hermes-data
+              mountPath: /opt/data
       volumes:
-        - name: hermes-home
+        - name: hermes-data
           persistentVolumeClaim:
             claimName: hermes-home
         - name: hermes-config
