@@ -6,7 +6,7 @@
 
 | Node | Role | GPU | Key workloads |
 |------|------|-----|---------------|
-| manu | worker | GTX 1080 8 GB | llamacpp-cuda-ov (VLM, scaled to 0 at idle — on-demand for indexing via `viking/tools/ov-vlm.sh`); ov-coordinator (scaled to 0) |
+| manu | worker | GTX 1080 8 GB | llamacpp-cuda-ov (VLM, scaled to 0 at idle — on-demand for indexing via `viking/tools/ov-vlm.sh`); hermes-agent; ov-coordinator (scaled to 0) |
 | timmy | worker | RX 9070 XT 16 GB | ollama, openviking, ov-vectordb; llamacpp-rocm (retired, scaled to 0 — see Phase 4 banner); ov-merge, ov-worker (scaled to 0) |
 | wemby | CP + worker | GTX 1060 6 GB | embedder-llamacpp (CUDA, persistent model cache on wemby-model-cache PVC); ov-console |
 
@@ -31,6 +31,7 @@
 | Prom remote-write (LAN) | grafana | `192.168.1.19` (NodePort) | 30909 | any | `prom-prometheus` NodePort `9090→30909`; `http://192.168.1.19:30909/api/v1/write` for external pushers (e.g. MacBook Alloy); no auth, LAN only |
 | Loki push (LAN) | grafana | `192.168.1.19` (NodePort) | 31080 | any | `loki-gateway` NodePort `80→31080`; `http://192.168.1.19:31080/loki/api/v1/push` for external pushers; no auth, LAN only |
 | Image Gen (FLUX) | — | `localhost:11434` | 11434 | MacBook (local) | Ollama `x/flux2-klein:9b` model (9B, non-commercial); `img-pipeline.sh generate`; 4B `x/flux2-klein` also available via `--model` |
+| Hermes Agent | hermes | `hermes-agent.hermes.svc` | 8642 (api), 9119 (dashboard) | manu | Official Docker image `nousresearch/hermes-agent:v2026.6.5`; gateway + dashboard; remote gateway at `hermes.nathanwhyte.dev` via Cloudflare tunnel |
 | Image Understand (llama-server) | — | `127.0.0.1:8081` | 8081 | MacBook (local) | Qwen3.6-27B+mmproj; `img-pipeline.sh understand`; managed lifecycle via `img-pipeline.sh up/down`; fallback for Ollama vision path |
 
 ## LLM configuration
@@ -42,7 +43,8 @@ Exact tuning (ctx-size, batch/ubatch, KV cache, resources, env) lives in the man
 | llamacpp-cuda-ov | manu / GTX 1080 | Qwen3-8B IQ4_XS, ctx=32768 | 2 | **Primary VLM** (NVIDIA); scaled to 0 at idle, on-demand for indexing via `viking/tools/ov-vlm.sh`. ~29-30 tok/s gen, ~414 tok/s prompt eval on the 1080. | `viking/manifests/cuda-llamacpp-deployment.yaml` |
 | llamacpp-rocm | timmy / RX 9070 XT | Qwen3-8B IQ4_XS, ctx=57344 | 6 | **Retired** (IDEA-009 Phase 4, 2026-06-06). `vlm-pool` label removed from pod template so the unified service no longer routes here. Kept for rollback only. | `viking/manifests/rocm-llamacpp-deployment.yaml` |
 | embedder-llamacpp | wemby / GTX 1060 | nomic-embed-text-v1.5 f16, ctx=16384 | 8 | Embeddings, n-gpu-layers=999. Model on `wemby-model-cache` PVC (no re-download on restart). | `viking/manifests/embedder-llamacpp-deployment.yaml` |
-| ollama | timmy / RX 9070 XT | gemma4:e4b + others | 1 | LoadBalancer; **now has full 16 GB VRAM** (VLM no longer contends) | `llama` ns |
+| ollama | timmy / RX 9070 XT | gemma4:12b-it-qat (local), glm-5.1:cloud (remote) | 1 | LoadBalancer; `OLLAMA_CONTEXT_LENGTH=131072`, `OLLAMA_MAX_LOADED_MODELS=1`, `OLLAMA_KV_CACHE_TYPE=q4_0`; chat proxy suppresses reasoning for local models | `llama/ollama-deployment.yaml` |
+| hermes-agent | manu | glm-5.1:cloud (primary), gemma4:12b-it-qat (fallback) | 1 | Official image `nousresearch/hermes-agent:v2026.6.5`; s6-overlay manages gateway + dashboard; SSH terminal via hermes-jump; `hermes/operator.sh` for CLI | `hermes/hermes-deployment.yaml` |
 | llama-server (local) | MacBook M5 Max | Qwen3.6-27B-uncensored-heretic-v2 Q4_K_M + mmproj | 1 | VLM (local, on-demand); `img-pipeline.sh up/down`; `/no_think` suffix required for direct responses; fallback for Ollama vision | `~/code/robots/media/pipeline/img-pipeline.conf` |
 | Ollama FLUX | MacBook M5 Max | FLUX.2 Klein 9B (non-commercial) | 1 | Image gen; persistent Ollama service; `img-pipeline.sh generate`; 4B also available via `--model x/flux2-klein` | `~/code/robots/media/pipeline/img-pipeline.conf` |
 
@@ -78,23 +80,26 @@ Config: `~/code/robots/media/pipeline/img-pipeline.conf` (model paths, ports, ti
 
 ## Network / Ingress
 
-### Middlewares (viking ns, Traefik CRD)
+### Middlewares (Traefik CRD)
 
-| Name | Type | Detail |
-|------|------|--------|
-| openviking-basicauth | basicAuth | secret: `openviking-auth-secret` |
-| openviking-https-redirect | redirectScheme | HTTP → HTTPS, permanent |
-| ov-console-local-only | ipAllowList | 192.168.1.0/24, 10.42.0.0/16, 10.43.0.0/16 |
-| ov-console-https-redirect | redirectScheme | HTTP → HTTPS, permanent |
+| Name | NS | Type | Detail |
+|------|-----|------|--------|
+| openviking-basicauth | viking | basicAuth | secret: `openviking-auth-secret` |
+| openviking-https-redirect | viking | redirectScheme | HTTP → HTTPS, permanent |
+| ov-console-local-only | viking | ipAllowList | 192.168.1.0/24, 10.42.0.0/16, 10.43.0.0/16 |
+| ov-console-https-redirect | viking | redirectScheme | HTTP → HTTPS, permanent |
+| hermes-lan-only | hermes | ipAllowList | 192.168.1.0/24, 10.42.0.0/16, 10.43.0.0/16 |
+| hermes-https-redirect | hermes | redirectScheme | HTTP → HTTPS, permanent |
 
 ### External routes
 
 | Host | Backend | Entry | Middlewares | TLS |
 |------|---------|-------|-------------|-----|
-| `context.nathanwhyte.dev` | `openviking:1933` | websecure | openviking-basicauth | letsencrypt-prod |
+| `context.nathanwhyte.dev` | `openviking:1933` | websecure | openviking-basicauth | cert-manager (letsencrypt-prod) |
 | `context.nathanwhyte.dev` | `openviking:1933` | web | openviking-https-redirect | — |
-| `viking.nathanwhyte.dev` | `ov-console:8020` | websecure | ov-console-local-only | letsencrypt-prod |
+| `viking.nathanwhyte.dev` | `ov-console:8020` | websecure | ov-console-local-only | cert-manager (letsencrypt-prod) |
 | `viking.nathanwhyte.dev` | `ov-console:8020` | web | ov-console-https-redirect | — |
+| `hermes.nathanwhyte.dev` | `hermes-agent:9119` | Cloudflare tunnel | session token auth | Cloudflare origin cert |
 
 ## Secrets and config
 
@@ -104,6 +109,11 @@ Config: `~/code/robots/media/pipeline/img-pipeline.conf` (model paths, ports, ti
 | openviking-api-key | viking | OV API key (injected into coordinator, merge, workers) |
 | openviking-s3-credentials | viking | Garage S3 credentials (injected into openviking config) |
 | ollama-api-key | llama | Bearer token for auth proxy |
+| hermes-api-server-key | hermes | Bearer token for Hermes API server |
+| hermes-dashboard-token | hermes | Session token for Hermes dashboard remote gateway |
+| hermes-jump-ssh-key | hermes | SSH key for Hermes terminal (hermes-jump host) |
+
+**Hermes agent config** — ConfigMap `hermes-config`: Model `glm-5.1:cloud` (primary) via `chat-ollama.llama.svc:11434/v1` (reasoning-suppressing shim proxy); `gemma4:12b-it-qat` as fallback. Terminal: SSH to `hermes-jump.hermes.svc:22`. Dashboard: session-token auth on port 9119, exposed via Cloudflare tunnel at `hermes.nathanwhyte.dev`. API server: Bearer-token auth on port 8642. Official image `nousresearch/hermes-agent:v2026.6.5` with s6-overlay managing gateway + dashboard services. `fsGroup: 10000` ensures PVC files are writable by the hermes user. `hermes/operator.sh` provides CLI access (`health`, `models`, `ask`, `run`, `logs`, `status`, `config`, `restart`).
 
 **Production config** — ConfigMap `openviking-standalone-config`: `agfs.backend: s3` (Garage bucket `openviking-agfs`) + `vectordb.backend: http` (`ov-vectordb.viking.svc.cluster.local:5000`). Tuning: `server.workers=2`, `embedding.batch_size=128`, `vlm.max_concurrent=2`, `embedding.max_concurrent=4` (was 4 each; `vlm.max_concurrent` dropped to 2 in IDEA-009 Phase 3 to match the VLM server's `--parallel 2` — over-commit caused every request to time out at 60s × 3 retries and stall the queue). VLM endpoint: `http://llamacpp-vlm.viking.svc/v1` (generic Service, routes to the sole active backend `llamacpp-cuda-ov`). History of the agfs:s3+vectordb:http cutover and rollback procedure: `viking/docs/2026-06-03-ov-prod-cutover-agfs-s3-vectordb-http.md`.
 
