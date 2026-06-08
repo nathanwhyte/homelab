@@ -430,9 +430,16 @@ def health_check() -> str:
     if not url:
         return "health: skipped (OPENVIKING_URL unset)"
     key = os.environ.get("OPENVIKING_KEY", "")
-    req = urllib.request.Request(f"{url.rstrip('/')}/health")
+    # The edge in front of context.nathanwhyte.dev rejects the default
+    # Python-urllib User-Agent with a 403, so spoof a curl-like UA. The server
+    # authenticates via Bearer; /health is unauthenticated but we send the key
+    # anyway so the same check works if the route ever requires auth.
+    req = urllib.request.Request(
+        f"{url.rstrip('/')}/health",
+        headers={"User-Agent": "curl/8.0"},
+    )
     if key:
-        req.add_header("X-API-Key", key)
+        req.add_header("Authorization", f"Bearer {key}")
     start = time.monotonic()
     try:
         with urllib.request.urlopen(req, timeout=10) as resp:
