@@ -86,7 +86,7 @@ Current TASK-045 tuning baseline for the trial-prep phase:
 | Terminal backend | SSH to `hermes-jump` | Keeps command execution inside the constrained jump pod/RBAC boundary. |
 | Terminal timeout | `180s` | Long enough for basic kubectl/file operations; short enough to catch hangs. |
 | Compression | enabled, `threshold: 0.5`, `target_ratio: 0.2` | Keep Hermes defaults; file-based prompt tests avoid shell `ARG_MAX`. |
-| Memory | built-in memory/user profile enabled; no external provider | Avoid adding Honcho/OpenViking memory complexity before TASK-030/TASK-032. |
+| Memory | built-in + OpenViking external provider | `memory.provider: openviking` activates the bundled OV plugin; in-cluster endpoint `openviking.viking.svc:1933`; writes to `viking://resources/patterns/` and `viking://resources/preferences/` (no overlap with compendium-sync namespaces) |
 | Toolsets | `hermes-cli` | Minimal toolset for current smoke tests and operator workflows. |
 | External exposure | none | API remains cluster-internal/port-forward only until TASK-030. |
 
@@ -173,3 +173,91 @@ kubectl rollout status deployment/hermes-agent -n hermes
 ```
 
 Do not commit the generated key.
+
+## OpenViking memory provider
+
+Hermes uses the bundled OpenViking plugin for persistent, tiered semantic memory across sessions. The plugin is pre-installed in the Docker image at `/opt/hermes/plugins/memory/openviking/` — no `pip install openviking` needed. It uses `httpx` (already in the venv) for direct HTTP calls to the OV REST API.
+
+### Configuration
+
+The provider is activated by `memory.provider: openviking` in the ConfigMap. Four env vars control the connection:
+
+| Env Var | Value | Purpose |
+|---|---|---|
+| `OPENVIKING_ENDPOINT` | `http://openviking.viking.svc.cluster.local:1933` | In-cluster OV service (avoids BasicAuth and WAF issues) |
+| `OPENVIKING_API_KEY` | *(from `openviking-api-key` Secret)* | Authenticates to OV's `root_api_key` |
+| `OPENVIKING_ACCOUNT` | `default` | Tenant account (matches OV's `default_account`) |
+| `OPENVIKING_USER` | `noot` | Tenant user (must match OV's `default_user` — **not** the plugin default `default`) |
+| `OPENVIKING_AGENT` | `hermes` | Agent tag for multi-agent identification |
+
+`OPENVIKING_USER=noot` is critical — the homelab's OV instance uses `default_user: "noot"`. Sending the plugin default `default` would create a separate invisible user namespace (see BUG-006).
+
+### Cross-namespace Secret
+
+The `openviking-api-key` Secret lives in the `viking` namespace but the Hermes pod runs in `hermes`. Since K8s doesn't support cross-namespace `secretKeyRef`, the Secret must be duplicated:
+
+```bash
+# Copy the API key from viking to hermes namespace
+kubectl get secret openviking-api-key -n viking -o jsonpath='{.data.api-key}' \
+  | kubectl create secret generic openviking-api-key \
+      --namespace=hermes \
+      --from-file=api-key=/dev/stdin \
+      --dry-run=client -o yaml \
+  | kubectl apply -f -
+```
+
+Or create with a fresh key that matches both namespaces:
+
+```bash
+NEW_KEY=$(openssl rand -base64 32)
+kubectl create secret generic openviking-api-key \
+    --namespace=hermes \
+    --from-literal=api-key="$NEW_KEY" \
+    --dry-run=client -o yaml | kubectl apply -f -
+kubectl create secret generic openviking-api-key \
+    --namespace=viking \
+    --from-literal=api-key="$NEW_KEY" \
+    --dry-run=client -o yaml | kubectl apply -f -
+```
+
+After creating/updating the Secret, restart Hermes:
+
+```bash
+kubectl rollout restart deployment/hermes-agent -n hermes
+kubectl rollout status deployment/hermes-agent -n hermes
+```
+
+### What the plugin does
+
+When active, the OpenViking provider:
+
+1. **Injects context** into the system prompt (OV tools and `viking://` URI scheme description)
+2. **Prefetches relevant memories** before each turn (background semantic search)
+3. **Syncs each turn** to OV (non-blocking)
+4. **Mirrors built-in writes** — `MEMORY.md` → `viking://resources/patterns/`, `USER.md` → `viking://resources/preferences/`
+5. **Extracts memories on session end** into 6 categories: profile, preferences, entities, events, cases, patterns
+6. **Registers 5 tools**: `viking_search`, `viking_read`, `viking_browse`, `viking_remember`, `viking_add_resource`
+
+### Namespace isolation
+
+Hermes writes to namespaces that don't overlap with compendium-sync:
+
+| Writer | Namespace |
+|---|---|
+| Hermes built-in mirror | `viking://resources/patterns/`, `viking://resources/preferences/` |
+| Hermes session extraction | `viking://user/memories/`, `viking://agent/memories/` |
+| Work compendium-sync | `viking://resources/compendium/` |
+| Personal compendium-sync | `viking://resources/personal/` |
+| Homelab index scripts | `viking://resources/projects/homelab/` |
+
+No coordination mechanism is needed — idempotent upsert semantics mean concurrent writes converge.
+
+### Disable / fallback
+
+To disable the OpenViking provider and fall back to built-in memory only:
+
+1. Remove `provider: openviking` from the `memory` section in the ConfigMap (or set `provider: ""`)
+2. Remove the `OPENVIKING_*` env vars from the deployment
+3. `kubectl rollout restart deployment/hermes-agent -n hermes`
+
+If `OPENVIKING_ENDPOINT` is set but OV is unreachable, the plugin's `initialize()` health check fails and Hermes falls back to built-in memory automatically.
