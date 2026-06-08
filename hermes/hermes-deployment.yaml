@@ -45,6 +45,7 @@ data:
       user_profile_enabled: true
       memory_char_limit: 2200
       user_char_limit: 1375
+      provider: openviking
     model:
       api_key: ollama
       base_url: http://chat-ollama.llama.svc:11434/v1
@@ -121,7 +122,7 @@ spec:
               readOnly: true
       containers:
         - name: hermes
-          image: nousresearch/hermes-agent:v2026.6.5
+          image: nousresearch/hermes-agent
           args: ["gateway", "run"]
           env:
             - name: HERMES_INFERENCE_MODEL
@@ -168,6 +169,20 @@ spec:
                   key: token
             - name: HERMES_GATEWAY_BOOTSTRAP_STATE
               value: running
+            # OpenViking memory provider (IDEA-017)
+            - name: OPENVIKING_ENDPOINT
+              value: http://openviking.viking.svc.cluster.local:1933
+            - name: OPENVIKING_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: openviking-api-key
+                  key: api-key
+            - name: OPENVIKING_ACCOUNT
+              value: default
+            - name: OPENVIKING_USER
+              value: noot
+            - name: OPENVIKING_AGENT
+              value: hermes
           ports:
             - containerPort: 8642
               name: api
