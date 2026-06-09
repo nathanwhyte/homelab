@@ -203,7 +203,7 @@ All components live in the `viking` namespace. Manifests are in
 | `openviking` | Deployment | timmy | 1 | Main OV server (REST + MCP), single-instance | **Active** |
 | `ov-vectordb` | Deployment | timmy | 1 | HTTP vector service (`vectordb:http` target) | **Active** |
 | `embedder-llamacpp` | Deployment | wemby | 1 | nomic-embed-text-v1.5 on GTX 1060 (CUDA) | **Active** |
-| `llamacpp-cuda-ov` | Deployment | manu | 0 | Qwen3-8B VLM on GTX 1080 (CUDA, IQ4_XS, ctx=32768, 2 slots) — OV's primary VLM | Scaled to 0 (on-demand for indexing) |
+| `llamacpp-cuda-ov` | Deployment | manu | 0 | Qwen3-8B VLM on GTX 1080 (CUDA, IQ4_XS, ctx=32768, 2 slots) — sole GPU workload on manu, no conflict with CPU-only hermes-agent | Scaled to 0 (on-demand for indexing) |
 | `llamacpp-rocm` | Deployment | — | 0 | Qwen3-8B VLM on RX 9070 XT (ROCm) — **retired 2026-06-06** (IDEA-009 Phase 4); `vlm-pool` label removed; kept for rollback | Permanently 0 |
 | `llamacpp-vlm` | Service | — | — | Generic VLM Service, selector `vlm-pool: "true"` → routes to `llamacpp-cuda-ov` | **Active** (selector) |
 | `ov-console` | Deployment | wemby | 1 | Web UI (`--write-enabled`) | **Active** |
@@ -265,7 +265,9 @@ OV calls out to two OpenAI-compatible model servers (both llama.cpp):
   `wemby-model-cache` Longhorn PVC** → survives restarts (moved from
   `emptyDir` in IDEA-009 Phase 2 when the embedder migrated off manu).
 - **VLM** — `llamacpp-cuda-ov` on **manu**, GTX 1080, Qwen3-8B IQ4_XS, ctx
-  32768, `--parallel 2`. Primary VLM since IDEA-009 Phase 3. The standalone
+  32768, `--parallel 2`. Primary VLM since IDEA-009 Phase 3. **Sole GPU
+  workload on manu** — hermes-agent and hermes-jump are CPU-only, so scaling
+  the VLM up has zero GPU conflict. The standalone
   config points OV at the generic `llamacpp-vlm.viking.svc` Service
   (`provider: litellm`, `model: openai/current.gguf`), which `selector
   vlm-pool: "true"` routes to this deployment. Scaled to 0 at idle; brought
@@ -521,7 +523,7 @@ was wiped during cutover (step 3.1), a rollback requires re-ingest from source
 | AGFS backend | S3 / Garage bucket `openviking-agfs` |
 | VectorDB backend | HTTP `ov-vectordb:5000` (768-dim) |
 | Embedder | nomic-embed-text-v1.5, GTX 1060 (wemby) |
-| VLM | Qwen3-8B IQ4_XS, GTX 1080 (manu) — scaled to 0 at idle, on-demand via `viking/tools/ov-vlm.sh run` |
+| VLM | Qwen3-8B IQ4_XS, GTX 1080 (manu) — sole GPU workload on manu, safe to scale up; scaled to 0 at idle, on-demand via `viking/tools/ov-vlm.sh run` |
 | OV image | `ghcr.io/volcengine/openviking:v0.3.14` |
 | Mode | single-instance (parallel trio scaled to 0) |
 | Re-ingest | `viking/tools/reindex-all.sh` |

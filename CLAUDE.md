@@ -6,7 +6,7 @@
 
 | Node | Role | GPU | Key workloads |
 |------|------|-----|---------------|
-| manu | worker | GTX 1080 8 GB | llamacpp-cuda-ov (VLM, scaled to 0 at idle — on-demand for indexing via `viking/tools/ov-vlm.sh`); hermes-agent; ov-coordinator (scaled to 0) |
+| manu | worker | GTX 1080 8 GB | llamacpp-cuda-ov (VLM, **sole GPU workload** — safe to scale up, no conflict with CPU-only hermes-agent); hermes-agent; ov-coordinator (scaled to 0) |
 | timmy | worker | RX 9070 XT 16 GB | ollama, openviking, ov-vectordb; llamacpp-rocm (retired, scaled to 0 — see Phase 4 banner); ov-merge, ov-worker (scaled to 0) |
 | wemby | CP + worker | GTX 1060 6 GB | embedder-llamacpp (CUDA, persistent model cache on wemby-model-cache PVC); ov-console |
 
@@ -14,7 +14,7 @@
 
 | Service | NS | Endpoint | Port | Node | Notes |
 |---------|-----|----------|------|------|-------|
-| OV LLM (unified) | viking | `llamacpp-vlm.viking.svc` | 80→8000 | manu | Generic VLM Service; selector `vlm-pool: "true"` → routes to `llamacpp-cuda-ov`. **Scaled to 0 at idle**, on-demand for indexing via `viking/tools/ov-vlm.sh` (cold model load from Longhorn PVC, ~9 GB resident on the 1080) |
+| OV LLM (unified) | viking | `llamacpp-vlm.viking.svc` | 80→8000 | manu | Generic VLM Service; selector `vlm-pool: "true"` → routes to `llamacpp-cuda-ov`. **Scaled to 0 at idle**, on-demand for indexing via `viking/tools/ov-vlm.sh` (cold model load from Longhorn PVC, ~9 GB resident on the 1080). Safe to scale up — sole GPU workload on manu, no conflict with CPU-only hermes-agent. |
 | OV LLM (NVIDIA) | viking | `llamacpp-cuda-llm.viking.svc` | 80→8000 | manu | `llamacpp-cuda-ov`; Qwen3-8B IQ4_XS, ctx=32768, 2 slots; current sole VLM backend (Phase 3 onwards) |
 | OV LLM (AMD, retired) | viking | `llamacpp-rocm-llm.viking.svc` | 80→8000 | timmy | `llamacpp-rocm`; **permanently retired** (IDEA-009 Phase 4, 2026-06-06). Selector label `vlm-pool` removed; manifest kept for rollback only. Do not scale up. |
 | Embedder | viking | `embedder-llamacpp.viking.svc` | 8080→8000 | wemby | CUDA on GTX 1060; model cached on `wemby-model-cache` PVC. Moved off manu in IDEA-009 Phase 2 to free the 1080 for the VLM |
@@ -40,7 +40,7 @@ Exact tuning (ctx-size, batch/ubatch, KV cache, resources, env) lives in the man
 
 | Service | Node / GPU | Model | Slots | Role | Manifest |
 |---------|-----------|-------|-------|------|----------|
-| llamacpp-cuda-ov | manu / GTX 1080 | Qwen3-8B IQ4_XS, ctx=32768 | 2 | **Primary VLM** (NVIDIA); scaled to 0 at idle, on-demand for indexing via `viking/tools/ov-vlm.sh`. ~29-30 tok/s gen, ~414 tok/s prompt eval on the 1080. | `viking/manifests/cuda-llamacpp-deployment.yaml` |
+| llamacpp-cuda-ov | manu / GTX 1080 | Qwen3-8B IQ4_XS, ctx=32768 | 2 | **Primary VLM** (NVIDIA); scaled to 0 at idle, on-demand for indexing via `viking/tools/ov-vlm.sh`. **Sole GPU workload on manu** — no conflict with CPU-only hermes-agent. ~29-30 tok/s gen, ~414 tok/s prompt eval on the 1080. | `viking/manifests/cuda-llamacpp-deployment.yaml` |
 | llamacpp-rocm | timmy / RX 9070 XT | Qwen3-8B IQ4_XS, ctx=57344 | 6 | **Retired** (IDEA-009 Phase 4, 2026-06-06). `vlm-pool` label removed from pod template so the unified service no longer routes here. Kept for rollback only. | `viking/manifests/rocm-llamacpp-deployment.yaml` |
 | embedder-llamacpp | wemby / GTX 1060 | nomic-embed-text-v1.5 f16, ctx=16384 | 8 | Embeddings, n-gpu-layers=999. Model on `wemby-model-cache` PVC (no re-download on restart). | `viking/manifests/embedder-llamacpp-deployment.yaml` |
 | ollama | timmy / RX 9070 XT | gemma4:12b-it-qat (local), glm-5.1:cloud (remote) | 1 | LoadBalancer; `OLLAMA_CONTEXT_LENGTH=131072`, `OLLAMA_MAX_LOADED_MODELS=1`, `OLLAMA_KV_CACHE_TYPE=q4_0`; chat proxy suppresses reasoning for local models | `llama/ollama-deployment.yaml` |
@@ -54,7 +54,7 @@ All llamacpp services: flash-attn on, cont-batching, KV cache q4_0, `Strategy: R
 
 ### VLM idle scaling (on-demand)
 
-`llamacpp-cuda-ov` (the VLM) holds ~6 GB resident on the GTX 1080 and is only used during indexing (L0/L1 generation); reads/searches never touch it. Its manifest default is `replicas: 0`, so the idle cluster carries no VLM. Bring it up only for the duration of an index run with the wrapper:
+`llamacpp-cuda-ov` (the VLM) holds ~6 GB resident on the GTX 1080 and is only used during indexing (L0/L1 generation); reads/searches never touch it. Its manifest default is `replicas: 0`, so the idle cluster carries no VLM. **Safe to scale up at any time** — it's the only GPU workload on manu (hermes-agent and hermes-jump are CPU-only), so there's no GPU memory conflict. Bring it up only for the duration of an index run with the wrapper:
 
 ```
 viking/tools/ov-vlm.sh run -- python3 viking/tools/compendium-sync.py sync --limit 50
