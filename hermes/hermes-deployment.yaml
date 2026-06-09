@@ -1,78 +1,4 @@
 ---
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: hermes-home
-  namespace: hermes
-  labels:
-    app: hermes-agent
-spec:
-  accessModes:
-    - ReadWriteOnce
-  resources:
-    requests:
-      storage: 10Gi
----
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: hermes-config
-  namespace: hermes
-  labels:
-    app: hermes-agent
-data:
-  config.yaml: |
-    _config_version: 24
-    agent:
-      api_max_retries: 1
-      max_turns: 90
-      tool_use_enforcement: auto
-      verbose: false
-    approvals:
-      mode: manual
-      timeout: 60
-    compression:
-      enabled: true
-      threshold: 0.5
-      target_ratio: 0.2
-    display:
-      show_reasoning: false
-      show_cost: false
-      streaming: false
-    fallback_providers: []
-    memory:
-      memory_enabled: true
-      user_profile_enabled: true
-      memory_char_limit: 2200
-      user_char_limit: 1375
-      provider: openviking
-    model:
-      api_key: ollama
-      base_url: http://chat-ollama.llama.svc:11434/v1
-      default: glm-5.1:cloud
-      provider: ollama-launch
-      ollama_num_ctx: 131072
-    providers:
-      ollama-launch:
-        api: http://chat-ollama.llama.svc:11434/v1
-        default_model: glm-5.1:cloud
-        models:
-          - glm-5.1:cloud
-          - gemma4:12b-it-qat
-          - nemotron-3-ultra:cloud
-        name: Chat Ollama
-    terminal:
-      backend: ssh
-      cwd: /home/hermes
-      persistent_shell: true
-      ssh_host: hermes-jump.hermes.svc.cluster.local
-      ssh_user: hermes
-      ssh_port: 22
-      ssh_key: /opt/data/.ssh/id_ed25519
-      timeout: 180
-    toolsets:
-      - hermes-cli
----
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -122,7 +48,8 @@ spec:
               readOnly: true
       containers:
         - name: hermes
-          image: nousresearch/hermes-agent
+          image: nousresearch/hermes-agent:latest
+          imagePullPolicy: Always
           args: ["gateway", "run"]
           env:
             - name: HERMES_INFERENCE_MODEL
