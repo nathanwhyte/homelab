@@ -10,7 +10,7 @@ data:
   config.yaml: |
     _config_version: 24
     agent:
-      api_max_retries: 1
+      api_max_retries: 3
       max_turns: 90
       tool_use_enforcement: auto
       verbose: false
@@ -21,6 +21,10 @@ data:
       enabled: true
       threshold: 0.5
       target_ratio: 0.2
+    delegation:
+      max_concurrent_children: 5
+      max_spawn_depth: 2
+      child_timeout_seconds: 900
     display:
       show_reasoning: false
       show_cost: false
@@ -58,3 +62,15 @@ data:
       timeout: 180
     toolsets:
       - hermes-cli
+    mcp_servers:
+      kubernetes:
+        command: "npx"
+        args: ["-y", "@modelcontextprotocol/server-kubernetes"]
+      grafana:
+        url: "${GRAFANA_URL}"
+        headers:
+          Authorization: "Bearer ${GRAFANA_SERVICE_ACCOUNT_TOKEN}"
+      openviking:
+        url: "http://openviking.viking.svc.cluster.local:1933/mcp"
+        headers:
+          Authorization: "Bearer ${OPENVIKING_API_KEY}"
