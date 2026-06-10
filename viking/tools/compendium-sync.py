@@ -324,6 +324,21 @@ def entries_for_paths(paths: list[str], target_base: str) -> list[Entry]:
         if path in seen:
             continue
         seen.add(path)
+
+        # Vault layout is <type>/<topic>/<file>.md (e.g. guides/tooling/,
+        # ideas/completed/, bugs/homelab/). Path args from log re-run
+        # instructions often omit the <topic> segment, so the simple
+        # VAULT_ROOT / raw_path join misses the file. If the raw path is
+        # relative and didn't resolve directly, scan the type's subdirs
+        # for a unique stem match. Absolute paths skip this lookup so a
+        # typo against a precise path still produces a clear error.
+        if not Path(raw_path).expanduser().is_absolute() and not path.exists():
+            type_dir = VAULT_ROOT / Path(raw_path).parts[0]
+            if type_dir.is_dir():
+                stem = Path(raw_path).stem
+                matches = sorted(type_dir.rglob(f"{stem}.md"))
+                if matches:
+                    path = matches[0]
         if not path.exists():
             raise FileNotFoundError(path)
         entry = payload_for(path, target_base)
