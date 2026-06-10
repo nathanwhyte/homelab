@@ -256,8 +256,16 @@ def drain_keys(prefix: str) -> list[tuple[str, int]]:
                     int(c.find("s3:Size", NS).text),
                 )
             )
-        if root.get("IsTruncated") == "true":
-            token = root.get("NextContinuationToken")
+        # `IsTruncated` is a child element, not an attribute — `root.get("IsTruncated")`
+        # always returns None. Use `findtext` against the S3 namespace.
+        is_truncated = (root.findtext("s3:IsTruncated", "false", NS) or "false").strip().lower()
+        if is_truncated == "true":
+            token_el = root.find("s3:NextContinuationToken", NS)
+            token = token_el.text if token_el is not None else None
+            if not token:
+                raise RuntimeError(
+                    f"ListObjectsV2 reported IsTruncated=true but no NextContinuationToken for prefix {prefix!r}"
+                )
         else:
             return out
 
@@ -404,14 +412,30 @@ def apply_plan(plan: list[dict], concurrency: int) -> None:
     For each RENAME, we copy the source to the destination, then delete the source.
     This is not transactional — if any step fails, we stop and surface the error.
     Mutations are parallelised across `concurrency` threads.
+
+    Idempotent: re-running on an already-partially-applied plan is safe. The
+    rename logic skips actions where the source no longer exists (already
+    moved), and the delete logic skips where the target is already gone.
     """
     renames = [p for p in plan if p["action"] == "RENAME"]
     deletes = [p for p in plan if p["action"] == "DELETE"]
 
     rename_lock = threading.Lock()
     rename_done = [0]
+    rename_skipped = [0]
 
     def do_rename(p: dict):
+        # Idempotency: if the destination already exists AND the source is gone,
+        # this rename was already applied; skip.
+        if head_object(p["src"]) == 404:
+            with rename_lock:
+                rename_skipped[0] += 1
+            return
+        if head_object(p["dst"]) == 200 and head_object(p["src"]) == 404:
+            # Destination present, source absent — already renamed.
+            with rename_lock:
+                rename_skipped[0] += 1
+            return
         # Server-side copy (no payload transfer) to the destination.
         status = copy_object(p["src"], p["dst"])
         if status != 200:
@@ -431,8 +455,14 @@ def apply_plan(plan: list[dict], concurrency: int) -> None:
 
     delete_lock = threading.Lock()
     delete_done = [0]
+    delete_skipped = [0]
 
     def do_delete(p: dict):
+        # Idempotency: skip if the source is already gone.
+        if head_object(p["src"]) == 404:
+            with delete_lock:
+                delete_skipped[0] += 1
+            return
         status = delete_object(p["src"])
         if status not in (202, 204):
             raise RuntimeError(f"delete failed: {p['src']} (HTTP {status})")
@@ -445,7 +475,8 @@ def apply_plan(plan: list[dict], concurrency: int) -> None:
     print(f"\nPhase 2: DELETE  ({len(deletes)} objects, concurrency={concurrency})")
     run_parallel(do_delete, deletes, concurrency)
 
-    print("\nAll operations succeeded.")
+    print(f"\nDone. RENAME applied: {rename_done[0]}, skipped (already done): {rename_skipped[0]}.")
+    print(f"      DELETE  applied: {delete_done[0]}, skipped (already done): {delete_skipped[0]}.")
 
 
 def run_parallel(fn, items, concurrency):
