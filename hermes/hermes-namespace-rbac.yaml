@@ -23,31 +23,32 @@ metadata:
     app: hermes-jump
 ---
 apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
+kind: ClusterRole
 metadata:
-  name: hermes-agent-read
-  namespace: hermes
+  name: hermes-agent-reader
 rules:
   - apiGroups: [""]
-    resources: ["pods", "pods/log", "services"]
+    resources: ["pods", "pods/log", "services", "events", "configmaps", "namespaces", "nodes"]
     verbs: ["get", "list", "watch"]
   - apiGroups: ["apps"]
-    resources: ["deployments", "replicasets"]
+    resources: ["deployments", "statefulsets", "daemonsets", "replicasets"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["batch"]
+    resources: ["jobs", "cronjobs"]
     verbs: ["get", "list", "watch"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
+kind: ClusterRoleBinding
 metadata:
-  name: hermes-agent-read
-  namespace: hermes
+  name: hermes-agent-reader
 subjects:
   - kind: ServiceAccount
     name: hermes-agent
     namespace: hermes
 roleRef:
   apiGroup: rbac.authorization.k8s.io
-  kind: Role
-  name: hermes-agent-read
+  kind: ClusterRole
+  name: hermes-agent-reader
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
