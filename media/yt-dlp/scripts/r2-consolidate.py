@@ -43,9 +43,13 @@ from collections import defaultdict
 
 AK = os.environ.get("R2_AK", "252fd0b63874b32278a38ae39cff877b")
 SK = os.environ.get("R2_SK", "4999254a6b3cb663b35238b256a9f39153cb44501832f3c03378c2ef7ddfeeea")
+SESSION_TOKEN = os.environ.get("R2_SESSION_TOKEN", "")
 ACCOUNT_ID = os.environ.get("R2_ACCOUNT_ID", "e9f17cd063113cea9c2e73c302971066")
 BUCKET = os.environ.get("R2_BUCKET", "homelab")
-HOST = f"{ACCOUNT_ID}.r2.cloudflarestorage.com"
+# Virtual-hosted-style host: bucket is in the hostname, not the path.
+# R2 requires this for object-level ops (GET/PUT/DELETE). Path-style only
+# works for ListBucket. See: https://developers.cloudflare.com/r2/api/s3/api/
+HOST = f"{BUCKET}.{ACCOUNT_ID}.r2.cloudflarestorage.com"
 NS = {"s3": "http://s3.amazonaws.com/doc/2006-03-01/"}
 
 OLD_BASE = "backups/cluster/homelab-k3s/volumes/archive/media/"
@@ -58,22 +62,24 @@ def sigv4(canonical_query: str) -> tuple[str, str]:
     now = datetime.datetime.now(datetime.timezone.utc)
     amz_date = now.strftime("%Y%m%dT%H%M%SZ")
     date_stamp = amz_date[:8]
-    canonical_uri = f"/{BUCKET}"
-    canonical_headers = (
-        f"host:{HOST}\n"
-        f"x-amz-content-sha256:UNSIGNED-PAYLOAD\n"
-        f"x-amz-date:{amz_date}\n"
-    )
+    canonical_uri = "/"
+    headers_list = [
+        ("host", HOST),
+        ("x-amz-content-sha256", "UNSIGNED-PAYLOAD"),
+        ("x-amz-date", amz_date),
+    ]
+    if SESSION_TOKEN:
+        headers_list.append(("x-amz-security-token", SESSION_TOKEN))
+    headers_list.sort(key=lambda kv: kv[0])
+    canonical_headers = "".join(f"{n}:{v}\n" for n, v in headers_list)
+    signed = ";".join(n for n, _ in headers_list)
     canonical_request = "\n".join(
-        [
-            "GET",
-            canonical_uri,
-            canonical_query,
-            canonical_headers,
-            "host;x-amz-content-sha256;x-amz-date",
-            "UNSIGNED-PAYLOAD",
-        ]
+        [canonical_uri, canonical_query, canonical_headers, signed, "UNSIGNED-PAYLOAD"]
     )
+    # Note: this old helper was originally built for GET, but it's only used
+    # by `list_v2` now. We always need to start the canonical request with the
+    # HTTP method, so insert it here.
+    canonical_request = "GET\n" + canonical_request
     scope = f"{date_stamp}/auto/s3/aws4_request"
     string_to_sign = "\n".join(
         [
@@ -94,7 +100,7 @@ def sigv4(canonical_query: str) -> tuple[str, str]:
     sig = hmac.new(k_signing, string_to_sign.encode(), hashlib.sha256).hexdigest()
     return (
         f"AWS4-HMAC-SHA256 Credential={AK}/{scope}, "
-        f"SignedHeaders=host;x-amz-content-sha256;x-amz-date, Signature={sig}",
+        f"SignedHeaders={signed}, Signature={sig}",
         amz_date,
     )
 
@@ -110,26 +116,39 @@ def canonical_query_string(params: dict[str, str]) -> str:
     )
 
 
-def sigv4_for_method(method: str, canonical_uri: str, canonical_query: str) -> tuple[str, str]:
+def sigv4_for_method(method: str, canonical_uri: str, canonical_query: str, extra_signed_headers: dict[str, str] | None = None) -> tuple[str, str]:
     """Sign a request where the body is UNSIGNED-PAYLOAD.
 
-    PUT/POST/DELETE use the same canonical structure as GET; we share this helper.
+    `extra_signed_headers` is a dict of header-name -> value pairs (e.g. `x-amz-copy-source`)
+    that must be included in the canonical request. They are added to canonical_headers
+    and to the SignedHeaders list in the order provided.
     """
     now = datetime.datetime.now(datetime.timezone.utc)
     amz_date = now.strftime("%Y%m%dT%H%M%SZ")
     date_stamp = amz_date[:8]
-    canonical_headers = (
-        f"host:{HOST}\n"
-        f"x-amz-content-sha256:UNSIGNED-PAYLOAD\n"
-        f"x-amz-date:{amz_date}\n"
-    )
+
+    headers = [
+        ("host", HOST),
+        ("x-amz-content-sha256", "UNSIGNED-PAYLOAD"),
+        ("x-amz-date", amz_date),
+    ]
+    if SESSION_TOKEN:
+        headers.append(("x-amz-security-token", SESSION_TOKEN))
+    if extra_signed_headers:
+        for name, value in extra_signed_headers.items():
+            headers.append((name.lower(), value))
+    headers.sort(key=lambda kv: kv[0])
+
+    canonical_headers = "".join(f"{name}:{value}\n" for name, value in headers)
+    signed_headers_names = ";".join(name for name, _ in headers)
+
     canonical_request = "\n".join(
         [
             method,
             canonical_uri,
             canonical_query,
             canonical_headers,
-            "host;x-amz-content-sha256;x-amz-date",
+            signed_headers_names,
             "UNSIGNED-PAYLOAD",
         ]
     )
@@ -153,7 +172,7 @@ def sigv4_for_method(method: str, canonical_uri: str, canonical_query: str) -> t
     sig = hmac.new(k_signing, string_to_sign.encode(), hashlib.sha256).hexdigest()
     return (
         f"AWS4-HMAC-SHA256 Credential={AK}/{scope}, "
-        f"SignedHeaders=host;x-amz-content-sha256;x-amz-date, Signature={sig}",
+        f"SignedHeaders={signed_headers_names}, Signature={sig}",
         amz_date,
     )
 
@@ -185,25 +204,30 @@ def _take_token():
 
 
 def request(method: str, key: str, params: dict[str, str] | None = None):
-    """Issue a signed R2 request. `key` is the object key (not URL-encoded)."""
+    """Issue a signed R2 request against a virtual-hosted-style URL.
+
+    `key` is the object key (not URL-encoded). For bucket-level operations
+    (LIST), pass key="" and the canonical URI will be "/".
+    """
     _take_token()
     params = params or {}
     canonical_query = canonical_query_string(params)
-    canonical_uri = "/" + urllib.parse.quote(BUCKET, safe="") + "/" + urllib.parse.quote(key, safe="")
+    # Virtual-hosted-style: bucket is in the Host, not the path. Encode
+    # the key for the URI (one round of encoding, except '/').
+    canonical_uri = "/" + urllib.parse.quote(key, safe="/")
     auth, amz_date = sigv4_for_method(method, canonical_uri, canonical_query)
     url = f"https://{HOST}{canonical_uri}"
     if canonical_query:
         url += "?" + canonical_query
-    req = urllib.request.Request(
-        url,
-        headers={
-            "Authorization": auth,
-            "x-amz-date": amz_date,
-            "x-amz-content-sha256": "UNSIGNED-PAYLOAD",
-            "Host": HOST,
-        },
-        method=method,
-    )
+    headers_out = {
+        "Authorization": auth,
+        "x-amz-date": amz_date,
+        "x-amz-content-sha256": "UNSIGNED-PAYLOAD",
+        "Host": HOST,
+    }
+    if SESSION_TOKEN:
+        headers_out["x-amz-security-token"] = SESSION_TOKEN
+    req = urllib.request.Request(url, headers=headers_out, method=method)
     return urllib.request.urlopen(req)
 
 
@@ -247,23 +271,25 @@ def copy_object(src_key: str, dst_key: str) -> int:
     # The destination key is part of the request URL.
     params: dict[str, str] = {}
     canonical_query = canonical_query_string(params)
-    canonical_uri = "/" + urllib.parse.quote(BUCKET, safe="") + "/" + urllib.parse.quote(dst_key, safe="")
-    auth, amz_date = sigv4_for_method("PUT", canonical_uri, canonical_query)
+    canonical_uri = "/" + urllib.parse.quote(dst_key, safe="/")
+    copy_source = f"/{BUCKET}/{urllib.parse.quote(src_key, safe='/')}"
+    auth, amz_date = sigv4_for_method(
+        "PUT", canonical_uri, canonical_query,
+        extra_signed_headers={"x-amz-copy-source": copy_source},
+    )
     url = f"https://{HOST}{canonical_uri}"
     if canonical_query:
         url += "?" + canonical_query
-    copy_source = f"/{BUCKET}/{urllib.parse.quote(src_key, safe='')}"
-    req = urllib.request.Request(
-        url,
-        headers={
-            "Authorization": auth,
-            "x-amz-date": amz_date,
-            "x-amz-content-sha256": "UNSIGNED-PAYLOAD",
-            "Host": HOST,
-            "x-amz-copy-source": copy_source,
-        },
-        method="PUT",
-    )
+    headers_out = {
+        "Authorization": auth,
+        "x-amz-date": amz_date,
+        "x-amz-content-sha256": "UNSIGNED-PAYLOAD",
+        "Host": HOST,
+        "x-amz-copy-source": copy_source,
+    }
+    if SESSION_TOKEN:
+        headers_out["x-amz-security-token"] = SESSION_TOKEN
+    req = urllib.request.Request(url, headers=headers_out, method="PUT")
     with urllib.request.urlopen(req) as r:
         return r.status
 
@@ -272,21 +298,20 @@ def delete_object(key: str) -> int:
     _take_token()
     params: dict[str, str] = {}
     canonical_query = canonical_query_string(params)
-    canonical_uri = "/" + urllib.parse.quote(BUCKET, safe="") + "/" + urllib.parse.quote(key, safe="")
+    canonical_uri = "/" + urllib.parse.quote(key, safe="/")
     auth, amz_date = sigv4_for_method("DELETE", canonical_uri, canonical_query)
     url = f"https://{HOST}{canonical_uri}"
     if canonical_query:
         url += "?" + canonical_query
-    req = urllib.request.Request(
-        url,
-        headers={
-            "Authorization": auth,
-            "x-amz-date": amz_date,
-            "x-amz-content-sha256": "UNSIGNED-PAYLOAD",
-            "Host": HOST,
-        },
-        method="DELETE",
-    )
+    headers_out = {
+        "Authorization": auth,
+        "x-amz-date": amz_date,
+        "x-amz-content-sha256": "UNSIGNED-PAYLOAD",
+        "Host": HOST,
+    }
+    if SESSION_TOKEN:
+        headers_out["x-amz-security-token"] = SESSION_TOKEN
+    req = urllib.request.Request(url, headers=headers_out, method="DELETE")
     with urllib.request.urlopen(req) as r:
         return r.status
 
@@ -296,21 +321,20 @@ def head_object(key: str) -> int:
     _take_token()
     params: dict[str, str] = {}
     canonical_query = canonical_query_string(params)
-    canonical_uri = "/" + urllib.parse.quote(BUCKET, safe="") + "/" + urllib.parse.quote(key, safe="")
+    canonical_uri = "/" + urllib.parse.quote(key, safe="/")
     auth, amz_date = sigv4_for_method("HEAD", canonical_uri, canonical_query)
     url = f"https://{HOST}{canonical_uri}"
     if canonical_query:
         url += "?" + canonical_query
-    req = urllib.request.Request(
-        url,
-        headers={
-            "Authorization": auth,
-            "x-amz-date": amz_date,
-            "x-amz-content-sha256": "UNSIGNED-PAYLOAD",
-            "Host": HOST,
-        },
-        method="HEAD",
-    )
+    headers_out = {
+        "Authorization": auth,
+        "x-amz-date": amz_date,
+        "x-amz-content-sha256": "UNSIGNED-PAYLOAD",
+        "Host": HOST,
+    }
+    if SESSION_TOKEN:
+        headers_out["x-amz-security-token"] = SESSION_TOKEN
+    req = urllib.request.Request(url, headers=headers_out, method="HEAD")
     try:
         with urllib.request.urlopen(req) as r:
             return r.status
