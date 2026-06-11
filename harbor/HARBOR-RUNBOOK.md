@@ -175,6 +175,82 @@ As of 2026-06-10, the in-repo values file intentionally pins them at v2.14.3 (on
 | Image pull from another host fails with x509 | Cert rotation; check `kubectl get certificate -n harbor` |
 | Helm upgrade hangs | Check that all `existingClaim` references still resolve to Bound PVCs |
 
+## Auth: admin password
+
+### Current model
+
+- **The K8s Secret `harbor-core` carries `HARBOR_ADMIN_PASSWORD`**, rendered from the chart's `harborAdminPassword` value at install time. The values file (`harbor-values.yaml`) keeps this as the literal placeholder `<CHANGE_ME>`.
+- **The chart only writes the DB on first install** — if the `admin` row in `harbor_user` already exists, the `harborAdminPassword` value is ignored on subsequent upgrades. The Secret and the DB can drift.
+- **The default install (before this fix) was bricked**: the Secret held `<CHANGE_ME>`, the DB held a PBKDF2-SHA256 hash of an unknown original password, and no one in-cluster knew the plaintext. Reset procedure below.
+- **Public pull is anonymous**: Harbor's distribution layer (`/service/token?scope=repository:*:pull`) hands out a valid pull token for any public project without checking credentials — verified 2026-06-11 that wrong-password, no-password, and admin-with-correct-password all receive the same pull-scoped token. The Core API and the push paths are still auth-gated.
+
+### Resetting the admin password (direct DB update)
+
+Required when:
+- The K8s Secret has drifted from the DB (the most common failure mode on a long-running cluster)
+- The `admin` row in `harbor_user` has an unknown password
+- The "Forgot password" UI flow is unusable (the admin email field is empty by default)
+
+**The hash algorithm** (from `goharbor/harbor/src/common/utils/encrypt/encrypt.go`): `pbkdf2_hmac('sha256', plain.encode(), salt_b64_str.encode(), 4096, 16).hex()`. The salt column is the **base64-encoded form of 24 random bytes** (32 chars), and Harbor feeds that b64 string to PBKDF2 — not the raw bytes. Output is 32 hex chars; `password VARCHAR(40)` accommodates this with room to spare.
+
+**Procedure:**
+
+```bash
+# 1. Generate a fresh hash + salt (run on the MacBook, not the cluster)
+NEW_PW=$(LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom | head -c 24)
+
+python3 - <<EOF
+import hashlib, base64, secrets
+new_salt = base64.b64encode(secrets.token_bytes(24)).decode()
+new_hash = hashlib.pbkdf2_hmac('sha256', '$NEW_PW'.encode(), new_salt.encode(), 4096, 16).hex()
+print(f"UPDATE harbor_user SET password='{new_hash}', salt='{new_salt}', password_version='sha256' WHERE username='admin';")
+EOF
+
+# 2. Save NEW_PW to your password manager. Wipe from the shell after.
+
+# 3. Apply the UPDATE via psql on the DB pod
+kubectl exec -n harbor harbor-database-0 -- env PGPASSWORD=changeit psql \
+  -U postgres -d registry -c "<paste the printed UPDATE here>"
+
+# 4. Verify auth works
+curl -sS -u "admin:$NEW_PW" "https://registry.nathanwhyte.dev/api/v2.0/users/current" | python3 -m json.tool
+# Expect: {"admin_role_in_auth":false,"comment":"admin user","realname":"system admin","sysadmin_flag":true,...,"username":"admin"}
+
+# 5. Re-sync the K8s Secret via the deploy script
+./harbor/deploy-harbor.sh --admin-password "$NEW_PW"
+# (or HARBOR_ADMIN_PASSWORD=$NEW_PW ./harbor/deploy-harbor.sh)
+```
+
+**Important gotcha:** the deploy script's `--set harborAdminPassword=...` only writes the Secret — it does **not** touch the DB. Conversely, the `UPDATE` only writes the DB — it does not touch the Secret. You need both. Do the DB `UPDATE` first, then the deploy, in that order, so the Secret never holds a value that diverges from the DB (e.g. if the deploy script's pod restart ever triggers a re-migration that resets the password from the Secret, you'll be locked out again).
+
+### Public pull — implications
+
+Because the distribution layer issues valid pull tokens to anyone for public projects, **any image pushed to a public project on `registry.nathanwhyte.dev` is world-readable**. As of 2026-06-11, all 9 projects (`build-hook`, `coach`, `equal-risk`, `glossary`, `homelab`, `library`, `portfolio`, `robots`, `viking`) are public. This was the **intended** design (see `HARBOR.md` "Project creation: Open... public pull is anonymous, push always requires auth"), but worth being explicit about:
+
+- Don't push secrets, internal configs, or proprietary code to a project that's public
+- The credit-coach source repo is private on GitHub; the corresponding Harbor project `coach` is also public — verify that's still your intent before pushing new images
+- To make a project private: `curl -u admin:$PW -X PUT "https://registry.nathanwhyte.dev/api/v2.0/projects/<name>" -H "Content-Type: application/json" -d '{"metadata":{"public":"false"}}'`
+
+### Verifying the auth path end-to-end
+
+```bash
+# 1. Core API
+curl -sS -u "admin:$HARBOR_ADMIN_PASSWORD" "https://registry.nathanwhyte.dev/api/v2.0/users/current"
+#   Expect: admin user JSON, NOT a 401 errors array
+
+# 2. Push path (creates a repo as a side effect)
+docker login registry.nathanwhyte.dev -u admin -p "$HARBOR_ADMIN_PASSWORD"
+docker pull hello-world
+docker tag hello-world registry.nathanwhyte.dev/library/hello-world:test
+docker push registry.nathanwhyte.dev/library/hello-world:test
+#   Expect: digest: sha256:...; image visible in Harbor UI under library/
+
+# 3. harbor-cli (if installed)
+harbor-cli login https://registry.nathanwhyte.dev --name admin --password "$HARBOR_ADMIN_PASSWORD"
+harbor-cli project list
+#   Expect: 9 projects listed
+```
+
 ## See also
 
 - `harbor/HARBOR.md` — one-page index

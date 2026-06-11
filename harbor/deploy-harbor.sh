@@ -13,20 +13,27 @@ VALUES_FILE="$HARBOR_DIR/harbor-values.yaml"
 TIMEOUT="10m"
 SKIP_PROBE_PATCH=0
 HELM_DIFF=0
+ADMIN_PASSWORD="${HARBOR_ADMIN_PASSWORD:-}"
 
 usage() {
     cat <<EOF
-Usage: $0 [--skip-probe-patch] [--diff]
+Usage: $0 [--skip-probe-patch] [--diff] [--admin-password <pw>]
 
-  --skip-probe-patch  Skip the automatic re-apply of the chart-v1.18.3
-                      liveness/readiness probe-timeout patch after helm upgrade.
-                      Use this once chart >= 1.19.0 is in place and the
-                      upstream timeout no longer needs overriding.
-  --diff              Run \`helm diff upgrade\` instead of \`helm upgrade\`.
-                      Requires the helm-diff plugin. Exits 0 if the diff
-                      matches expectations (or the in-repo file is already
-                      in sync), 1 otherwise.
-  -h, --help          Show this help.
+  --skip-probe-patch    Skip the automatic re-apply of the chart-v1.18.3
+                        liveness/readiness probe-timeout patch after helm upgrade.
+                        Use this once chart >= 1.19.0 is in place and the
+                        upstream timeout no longer needs overriding.
+  --diff                Run \`helm diff upgrade\` instead of \`helm upgrade\`.
+                        Requires the helm-diff plugin. Exits 0 if the diff
+                        matches expectations (or the in-repo file is already
+                        in sync), 1 otherwise.
+  --admin-password <pw> Pass a real password to the chart's
+                        \`harborAdminPassword\` value via \`--set\`. Keeps the
+                        secret out of git. If omitted, falls back to
+                        \$HARBOR_ADMIN_PASSWORD in the environment; if both
+                        are empty, the chart uses its default (the literal
+                        string "<CHANGE_ME>").
+  -h, --help            Show this help.
 EOF
 }
 
@@ -39,6 +46,11 @@ while [ $# -gt 0 ]; do
         --diff)
             HELM_DIFF=1
             shift
+            ;;
+        --admin-password)
+            [ $# -ge 2 ] || { echo "--admin-password requires a value" >&2; exit 2; }
+            ADMIN_PASSWORD="$2"
+            shift 2
             ;;
         -h | --help)
             usage
@@ -114,10 +126,20 @@ if [ "$HELM_DIFF" -eq 1 ]; then
         exit 1
     fi
     echo -e "\nRunning helm diff upgrade (informational)..."
+    HELM_SET_ARGS=()
+    if [ -n "$ADMIN_PASSWORD" ]; then
+        HELM_SET_ARGS+=(--set "harborAdminPassword=$ADMIN_PASSWORD")
+    fi
     helm diff upgrade "$RELEASE_NAME" "$CHART_REF" \
         --namespace "$NAMESPACE" \
-        -f "$VALUES_FILE" || true
+        -f "$VALUES_FILE" \
+        "${HELM_SET_ARGS[@]}" || true
     exit 0
+fi
+
+HELM_SET_ARGS=()
+if [ -n "$ADMIN_PASSWORD" ]; then
+    HELM_SET_ARGS+=(--set "harborAdminPassword=$ADMIN_PASSWORD")
 fi
 
 helm upgrade --install "$RELEASE_NAME" \
@@ -126,7 +148,8 @@ helm upgrade --install "$RELEASE_NAME" \
     --create-namespace \
     --wait \
     --timeout "$TIMEOUT" \
-    -f "$VALUES_FILE"
+    -f "$VALUES_FILE" \
+    "${HELM_SET_ARGS[@]}"
 
 # Post-hook: re-apply the chart-v1.18.3 probe-timeout patch on harbor-core.
 # This compensates for the chart hardcoding probe timeoutSeconds=1 (or
@@ -142,7 +165,11 @@ fi
 
 echo -e "\nDone! Visit:"
 echo "  Web UI: https://registry.nathanwhyte.dev"
-echo "  Default credentials: admin / <CHANGE_ME>"
+if [ -n "$ADMIN_PASSWORD" ]; then
+    echo "  Admin user: admin (password was passed via --admin-password / \$HARBOR_ADMIN_PASSWORD — not echoed for safety)"
+else
+    echo "  Default credentials: admin / <CHANGE_ME>  (set --admin-password or \$HARBOR_ADMIN_PASSWORD before running)"
+fi
 echo "  Docker login: docker login registry.nathanwhyte.dev"
 
 echo -e "\nCheck status:"
