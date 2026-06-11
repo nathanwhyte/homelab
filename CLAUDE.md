@@ -6,7 +6,7 @@
 
 | Node | Role | GPU | Key workloads |
 |------|------|-----|---------------|
-| manu | worker | GTX 1080 8 GB | llamacpp-cuda-ov (VLM, **sole GPU workload** — safe to scale up, no conflict with CPU-only hermes-agent); hermes-agent; ov-coordinator (scaled to 0) |
+| manu | worker | GTX 1080 8 GB | llamacpp-cuda-ov (VLM, **always on — replicas=1, sole GPU workload**); hermes-agent; ov-coordinator (scaled to 0) |
 | timmy | worker | RX 9070 XT 16 GB | ollama, openviking, ov-vectordb; llamacpp-rocm (retired, scaled to 0 — see Phase 4 banner); ov-merge, ov-worker (scaled to 0) |
 | wemby | CP + worker | GTX 1060 6 GB | embedder-llamacpp (CUDA, persistent model cache on wemby-model-cache PVC); ov-console |
 
