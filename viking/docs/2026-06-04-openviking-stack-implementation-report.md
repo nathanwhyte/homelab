@@ -56,7 +56,7 @@ flowchart TB
         console["ov-console :8020 (wemby)"]
         vdb["ov-vectordb :5000 - HTTP vector service (timmy)"]
         emb["embedder-llamacpp :8080 - nomic-embed (wemby, GTX 1060)"]
-        vlm["llamacpp-vlm :8000 - generic Service -> llamacpp-cuda-ov (manu, GTX 1080, scaled 0 at idle)"]
+        vlm["llamacpp-vlm :8000 - generic Service -> llamacpp-cuda-ov (manu, GTX 1080, always on)"]
     end
 
     api --> ov
@@ -203,7 +203,7 @@ All components live in the `viking` namespace. Manifests are in
 | `openviking` | Deployment | timmy | 1 | Main OV server (REST + MCP), single-instance | **Active** |
 | `ov-vectordb` | Deployment | timmy | 1 | HTTP vector service (`vectordb:http` target) | **Active** |
 | `embedder-llamacpp` | Deployment | wemby | 1 | nomic-embed-text-v1.5 on GTX 1060 (CUDA) | **Active** |
-| `llamacpp-cuda-ov` | Deployment | manu | 0 | Qwen3-8B VLM on GTX 1080 (CUDA, IQ4_XS, ctx=32768, 2 slots) — sole GPU workload on manu, no conflict with CPU-only hermes-agent | Scaled to 0 (on-demand for indexing) |
+| `llamacpp-cuda-ov` | Deployment | manu | 1 | Qwen3-8B VLM on GTX 1080 (CUDA, IQ4_XS, ctx=32768, 2 slots) — sole GPU workload on manu, no conflict with CPU-only hermes-agent; **always on since 2026-06-11** (was on-demand) | **Active** |
 | `llamacpp-rocm` | Deployment | — | 0 | Qwen3-8B VLM on RX 9070 XT (ROCm) — **retired 2026-06-06** (IDEA-009 Phase 4); `vlm-pool` label removed; kept for rollback | Permanently 0 |
 | `llamacpp-vlm` | Service | — | — | Generic VLM Service, selector `vlm-pool: "true"` → routes to `llamacpp-cuda-ov` | **Active** (selector) |
 | `ov-console` | Deployment | wemby | 1 | Web UI (`--write-enabled`) | **Active** |
@@ -270,9 +270,14 @@ OV calls out to two OpenAI-compatible model servers (both llama.cpp):
   the VLM up has zero GPU conflict. The standalone
   config points OV at the generic `llamacpp-vlm.viking.svc` Service
   (`provider: litellm`, `model: openai/current.gguf`), which `selector
-  vlm-pool: "true"` routes to this deployment. Scaled to 0 at idle; brought
-  up on demand for indexing via `viking/tools/ov-vlm.sh run -- ...`. The
-  previous ROCm VLM (`llamacpp-rocm` on timmy's RX 9070 XT) was retired in
+  vlm-pool: "true"` routes to this deployment. Steady-state replicas=1,
+  always on (changed 2026-06-11 from the on-demand pattern described
+  in earlier revisions — see commit history; the 1080 is VLM-exclusive
+  and the round-trip risk of cutting off in-flight L0 jobs isn't worth
+  the saved watts). Manual `viking/tools/ov-vlm.sh down` is still
+  available to release the GPU for something else, and `up`/`run` exist
+  for completeness. The previous ROCm VLM (`llamacpp-rocm` on timmy's
+  RX 9070 XT) was retired in
   IDEA-009 Phase 4 — manifest and PVC retained for rollback, but the
   `vlm-pool` label was removed so the unified Service can never route to
   it.
@@ -356,7 +361,7 @@ provider in the legacy variant.
 | `ov-vectordb` | 5000 | `app=ov-vectordb` | vector HTTP |
 | `embedder-llamacpp` | 8080 → 8000 | `app=embedder-llamacpp` | embeddings (wemby) |
 | `llamacpp-vlm` | 80 → 8000 | `vlm-pool: "true"` | generic VLM Service → `llamacpp-cuda-ov` (manu). Used by OV's `vlm.api_base`. |
-| `llamacpp-cuda-llm` | 80 → 8000 | `app=llamacpp-cuda-ov` | VLM (NVIDIA, primary, scaled 0 at idle) |
+| `llamacpp-cuda-llm` | 80 → 8000 | `app=llamacpp-cuda-ov` | VLM (NVIDIA, primary, always on since 2026-06-11) |
 | `llamacpp-rocm-llm` | 80 → 8000 | `app=llamacpp-rocm` | VLM (AMD, **retired 2026-06-06**; no longer labeled `vlm-pool`, so the generic service can't route to it) |
 | `ov-console` | 8020 | console | web UI |
 
@@ -523,7 +528,7 @@ was wiped during cutover (step 3.1), a rollback requires re-ingest from source
 | AGFS backend | S3 / Garage bucket `openviking-agfs` |
 | VectorDB backend | HTTP `ov-vectordb:5000` (768-dim) |
 | Embedder | nomic-embed-text-v1.5, GTX 1060 (wemby) |
-| VLM | Qwen3-8B IQ4_XS, GTX 1080 (manu) — sole GPU workload on manu, safe to scale up; scaled to 0 at idle, on-demand via `viking/tools/ov-vlm.sh run` |
+| VLM | Qwen3-8B IQ4_XS, GTX 1080 (manu) — sole GPU workload on manu; **always on since 2026-06-11** (was on-demand via `viking/tools/ov-vlm.sh run`) |
 | OV image | `ghcr.io/volcengine/openviking:v0.3.14` |
 | Mode | single-instance (parallel trio scaled to 0) |
 | Re-ingest | `viking/tools/reindex-all.sh` |

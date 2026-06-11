@@ -273,6 +273,6 @@ Only `resources`, `user`, `agent`, and `session` are addressable through the pub
 
 ## Shared LLM infrastructure
 
-- VLM: Qwen3-8B on `llamacpp-vlm.viking.svc` (generic Service → `llamacpp-cuda-ov` on manu, NVIDIA GTX 1080; scaled to 0 at idle, on-demand for indexing)
+- VLM: Qwen3-8B on `llamacpp-vlm.viking.svc` (generic Service → `llamacpp-cuda-ov` on manu, NVIDIA GTX 1080; **steady-state replicas=1, always on** since 2026-06-11 — the 1080 is VLM-exclusive, no on-demand scaling)
 - Embedder: nomic-embed-text-v1.5 on `embedder-llamacpp.viking.svc:8080` (wemby, NVIDIA GTX 1060 — moved off manu in IDEA-009 Phase 2 to free the 1080 for the VLM)
 - Manual reindex: `POST /api/v1/content/reindex {"uri": "<dir>", "regenerate": true, "wait": true}`
