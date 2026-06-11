@@ -1,0 +1,33 @@
+# Dedicated StorageClass for the yt-dlp media PVC.
+#
+# Q2 (Option 1A) for the IDEA-019 yt-dlp revival:
+#   200 Gi PVC, numberOfReplicas: 2, nodeSelector: wemby.
+#
+# Why a dedicated SC: the existing `longhorn-hdd` SC has
+# `numberOfReplicas: 1` and no wemby-specific nodeSelector, so it would
+# land on either manu-hdd or wemby-hdd and survive only one disk
+# failure. This SC bakes in the 2-replica + wemby-pinned defaults so the
+# PVC manifest stays clean.
+#
+# Modeled on `longhorn/longhorn-harbor` StorageClass in
+# ~/code/homelab/longhorn/storage.yaml (HDD + ethernet + 2 replicas).
+#
+# `volumeBindingMode: Immediate` is the right call here because the SC
+# is restricted to a single node (wemby); the pod will run on wemby too
+# (via `nodeName: wemby` in the Job template) so there's no scheduling
+# skew to worry about.
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: longhorn-hdd-wemby
+provisioner: driver.longhorn.io
+allowVolumeExpansion: true
+reclaimPolicy: Delete
+volumeBindingMode: Immediate
+parameters:
+  numberOfReplicas: "2"
+  staleReplicaTimeout: "2880"
+  fromBackup: ""
+  fsType: "ext4"
+  diskSelector: "hdd"
+  nodeSelector: "wemby"

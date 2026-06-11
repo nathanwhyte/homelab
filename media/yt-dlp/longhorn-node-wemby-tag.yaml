@@ -1,0 +1,23 @@
+# Patch the wemby Longhorn Node to add a `wemby` tag.
+#
+# Why: Q2 (Option 1A) requires the yt-dlp media PVC to be pinned to wemby.
+# The Longhorn-helm-installed `ethernet` tag is set on all 3 nodes
+# (manu, timmy, wemby) so it can't disambiguate. The new `wemby` tag is
+# exclusive to wemby, and the dedicated `longhorn-hdd-wemby` StorageClass
+# filters on it via `nodeSelector: wemby`.
+#
+# This is a one-time bootstrap. After it's applied, all future
+# `longhorn-hdd-wemby` PVCs will land on wemby-hdd automatically.
+#
+# Tags accumulate (a `nodeSelector` match-ANDs the listed tags, not ORs),
+# so this doesn't disturb the existing `ethernet` tag that other storage
+# classes depend on.
+apiVersion: longhorn.io/v1beta2
+kind: Node
+metadata:
+  name: wemby
+  namespace: longhorn-system
+spec:
+  tags:
+    - ethernet
+    - wemby

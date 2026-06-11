@@ -1,0 +1,33 @@
+---
+# 200 Gi media PVC for the IDEA-019 yt-dlp revival.
+#
+# Q1 (closed): 200 Gi is ~1.75x the deduplicated 75.7 GB R2 inventory
+#              (post-consolidation figure), with headroom for new
+#              playlist growth before re-sizing. Now 2.8x the
+#              deduplicated 70.5 GB final figure.
+# Q2 (closed): Option 1A — numberOfReplicas: 2, nodeAffinity to wemby.
+#              The `longhorn-hdd-wemby` SC handles both via its
+#              `numberOfReplicas: 2` and `nodeSelector: wemby` parameters.
+#
+# Access mode is RWO because the new design is a single CronJob at a time
+# (staggered schedule per Q4). If we ever enable parallel CronJobs we'll
+# revisit: either switch to RWX (Longhorn supports this) or use one PVC
+# per playlist.
+#
+# Mounted at /downloads (media files) and /yt-dlp-archive (per-playlist
+# archive tracking files) — both subPaths of the same volume claim.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: media
+  namespace: yt-dlp
+  labels:
+    app.kubernetes.io/name: yt-dlp
+    app.kubernetes.io/component: storage
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: longhorn-hdd-wemby
+  resources:
+    requests:
+      storage: 200Gi

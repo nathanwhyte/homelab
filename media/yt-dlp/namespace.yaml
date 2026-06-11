@@ -1,0 +1,8 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: yt-dlp
+  labels:
+    app.kubernetes.io/name: yt-dlp
+    app.kubernetes.io/part-of: media
