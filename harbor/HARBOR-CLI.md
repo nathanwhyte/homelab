@@ -84,13 +84,15 @@ docker login registry.nathanwhyte.dev \
 
 **Verified 2026-06-10** (results now in `HARBOR.md`'s "External consumers" row). Each pull namespace maps to a project, but only some have their source repos on this machine.
 
-| Harbor image | Cluster ns | Project / source repo | Local path |
-|---|---|---|---|
-| `build-hook/api` | `build` | build-hook (CI/CD webhook for buildkit builds) | **not on this machine** — only the deployment manifest in `~/code/dotfiles/hermes/k8s/manifests.yaml` |
-| `coach/coach` + `coach/scrub` | `coach` | credit-coach (Rails + Bun frontend + scrubber sidecar) | **not on this machine** — deployment manifests only |
-| `equal-risk/rails` + `equal-risk/math` | `equal-risk` | equal-risk-portfolio (Rails + Python FastAPI) | `~/code/equal-risk-portfolio/` (own `build-docker.sh` + `k8s/`; pushes via `docker buildx`) |
-| `glossary/glossary` | `glossary` | glossary (likely a Phoenix/Elixir app per Hermes memory note) | **not on this machine** — deployment manifests only |
-| `portfolio/portfolio` | `portfolio` | portfolio (likely a Phoenix/Elixir app per Hermes memory note) | **not on this machine** — deployment manifests only |
+| Harbor image | Cluster ns | Source repo (GitHub) | Stack | Local path |
+|---|---|---|---|---|
+| `build-hook/api` | `build` | [`nathanwhyte/build-hook`](https://github.com/nathanwhyte/build-hook) (public, Rust) | Static binary; `Cmd: ['build-hook']`, WorkingDir `/app` | **not on this machine** — only the deployment manifest in `~/code/dotfiles/hermes/k8s/manifests.yaml` |
+| `coach/coach` | `coach` | [`nathanwhyte/credit-coach`](https://github.com/nathanwhyte/credit-coach) (private, Python — actually Bun+TS) | Bun frontend; `Cmd: ['bun','./server.js']`, `NODE_ENV=production`, user `nextjs` | **not on this machine** — deployment manifests only |
+| `coach/scrub` (`release`) | `coach` | `nathanwhyte/credit-coach` (same repo, sidecar) | Python FastAPI; `Cmd: ['/app/.venv/bin/fastapi','run','app/main.py']` | **not on this machine** |
+| `equal-risk/rails` (`test`) | `equal-risk` | [`nathanwhyte/equal-risk-portfolio`](https://github.com/nathanwhyte/equal-risk-portfolio) (public, Ruby) | Rails + Thruster; `Cmd: ['./bin/thrust','./bin/rails','server']`, `RAILS_ENV=production` | `~/code/equal-risk-portfolio/` (own `build-docker.sh` + `k8s/`; pushes via `docker buildx`) |
+| `equal-risk/math` (`test`) | `equal-risk` | `nathanwhyte/equal-risk-portfolio` (same repo, sibling service) | Python FastAPI (inferred — not probed) | same as above |
+| `glossary/glossary` | `glossary` | [`nathanwhyte/glossary`](https://github.com/nathanwhyte/glossary) (public, Elixir) | Phoenix release; `Cmd: ['/app/bin/server']`, `MIX_ENV=prod`, user `nobody` | **not on this machine** — deployment manifests only |
+| `portfolio/portfolio` | `portfolio` | **No GitHub source found** (checked `nathanwhyte` and `aclamant` orgs via `gh repo list`/`gh search`) — image created 2026-03-15, last pulled 2026-04-13 | Phoenix release (per image config: `Cmd: ['/app/bin/server']`, `MIX_ENV=prod`, user `nobody`); would need to be extracted from the image if rebuilt | **not on this machine** — deployment manifests only |
 
 **Push scripts in this repo:**
 
