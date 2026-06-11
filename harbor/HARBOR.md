@@ -17,7 +17,7 @@ Private container registry running on the K3s cluster. Hosts the hermes-agent, o
 | Auth | Local DB. Default admin: `admin` / `<CHANGE_ME>` (change after first login) |
 | Project creation | Open (`projectCreationRestriction: "everyone"`) — public pull is anonymous, push always requires auth |
 | Metrics | Prometheus endpoints on every component, port 8001, path `/metrics` |
-| External consumers | (TBD — see `harbor/HARBOR-CLI.md` "Audit" section for the grep to run) |
+| External consumers | **Active pulls (verified 2026-06-10):** `build/build-hook:api`, `coach/coach` + `coach/scrub`, `equal-risk/math` + `equal-risk/rails`, `glossary/glossary`, `portfolio/portfolio` — all defined in `~/code/dotfiles/hermes/k8s/manifests.yaml`, not in this repo. **Active pushes (verified 2026-06-10):** `viking/deploy-openviking-parallel.sh` pushes to `registry.nathanwhyte.dev/homelab`; `backlog/nanochat/build.sh` pushes to `registry.nathanwhyte.dev/library`. None of the cluster's current `viking/`, `llama/`, `grafana/`, `hermes/`, `harbor/`, or system namespaces pull from Harbor — they all use upstream registries (docker.io, ghcr.io, quay.io, nvcr.io, rancher). |
 
 ## Quick start
 

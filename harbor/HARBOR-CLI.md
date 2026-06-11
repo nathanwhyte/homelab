@@ -82,16 +82,41 @@ docker login registry.nathanwhyte.dev \
 
 ## Audit: who else pushes to this Harbor?
 
-The in-repo docs claim Harbor is "for hermes-agent, ov-vectordb, and other cluster-built images." Worth verifying with a grep:
+**Verified 2026-06-10** (results now in `HARBOR.md`'s "External consumers" row).
+
+**Active pulls** (6 namespaces, all from `~/code/dotfiles/hermes/k8s/manifests.yaml`):
+
+| Namespace | Image |
+|---|---|
+| `build` | `build-hook/api:latest` |
+| `coach` | `coach/coach:latest`, `coach/scrub:release` |
+| `equal-risk` | `equal-risk/math:test`, `equal-risk/rails:test` |
+| `glossary` | `glossary/glossary:latest` |
+| `portfolio` | `portfolio/portfolio:latest` |
+
+**Active pushes** (2 scripts in this repo):
+
+| Script | Target |
+|---|---|
+| `viking/deploy-openviking-parallel.sh` | `registry.nathanwhyte.dev/homelab` |
+| `backlog/nanochat/build.sh` | `registry.nathanwhyte.dev/library` |
+
+**Notably absent:** no pulls from `harbor`, `viking`, `llama`, `grafana`, `hermes`, or any system namespace. The `viking/ov-coordinator`, `ov-merged`, `ov-vectordb`, and related services all pull from `ghcr.io/volcengine/openviking:v0.3.14` and `ghcr.io/ggml-org/llama.cpp:server-cuda` — not from local Harbor. The hermes-agent cluster deployment pulls `nousresearch/hermes-agent:latest` from Docker Hub.
+
+To re-run the audit:
 
 ```bash
-# Searches the homelab repo (and personal-compendium, since IDs are sometimes hardcoded there too)
-grep -rn 'registry\.nathanwhyte\.dev' ~/code/ ~/code/personal-compendium/ \
-    --include='*.yaml' --include='*.yml' --include='*.sh' --include='*.md' \
-    2>/dev/null
-```
+# In-cluster: which namespaces pull from registry.nathanwhyte.dev?
+for ns in $(kubectl get ns -o jsonpath='{range .items[*]}{.metadata.name}{" "}{end}'); do
+  out=$(kubectl get pods -n "$ns" -o jsonpath='{range .items[*]}{.spec.containers[*].image}{" "}{end}' 2>/dev/null | tr ' ' '\n' | grep 'registry\.nathanwhyte\.dev' | sort -u)
+  [ -n "$out" ] && { echo "--- $ns ---"; echo "$out"; }
+done
 
-Likely consumers: hermes-agent (image pull), ov-vectordb (image pull), nothing else by default. Anything else is a real consumer to log in `HARBOR.md`'s "External consumers" row.
+# Repo-wide: who references the registry?
+grep -rn 'registry\.nathanwhyte\.dev' ~/code/ \
+    --include='*.yaml' --include='*.yml' --include='*.sh' \
+    2>/dev/null | grep -v 'harbor/\|thoughts/'
+```
 
 ## See also
 
