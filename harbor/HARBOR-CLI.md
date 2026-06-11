@@ -82,24 +82,22 @@ docker login registry.nathanwhyte.dev \
 
 ## Audit: who else pushes to this Harbor?
 
-**Verified 2026-06-10** (results now in `HARBOR.md`'s "External consumers" row).
+**Verified 2026-06-10** (results now in `HARBOR.md`'s "External consumers" row). Each pull namespace maps to a project, but only some have their source repos on this machine.
 
-**Active pulls** (6 namespaces, all from `~/code/dotfiles/hermes/k8s/manifests.yaml`):
+| Harbor image | Cluster ns | Project / source repo | Local path |
+|---|---|---|---|
+| `build-hook/api` | `build` | build-hook (CI/CD webhook for buildkit builds) | **not on this machine** — only the deployment manifest in `~/code/dotfiles/hermes/k8s/manifests.yaml` |
+| `coach/coach` + `coach/scrub` | `coach` | credit-coach (Rails + Bun frontend + scrubber sidecar) | **not on this machine** — deployment manifests only |
+| `equal-risk/rails` + `equal-risk/math` | `equal-risk` | equal-risk-portfolio (Rails + Python FastAPI) | `~/code/equal-risk-portfolio/` (own `build-docker.sh` + `k8s/`; pushes via `docker buildx`) |
+| `glossary/glossary` | `glossary` | glossary (likely a Phoenix/Elixir app per Hermes memory note) | **not on this machine** — deployment manifests only |
+| `portfolio/portfolio` | `portfolio` | portfolio (likely a Phoenix/Elixir app per Hermes memory note) | **not on this machine** — deployment manifests only |
 
-| Namespace | Image |
-|---|---|
-| `build` | `build-hook/api:latest` |
-| `coach` | `coach/coach:latest`, `coach/scrub:release` |
-| `equal-risk` | `equal-risk/math:test`, `equal-risk/rails:test` |
-| `glossary` | `glossary/glossary:latest` |
-| `portfolio` | `portfolio/portfolio:latest` |
+**Push scripts in this repo:**
 
-**Active pushes** (2 scripts in this repo):
-
-| Script | Target |
-|---|---|
-| `viking/deploy-openviking-parallel.sh` | `registry.nathanwhyte.dev/homelab` |
-| `backlog/nanochat/build.sh` | `registry.nathanwhyte.dev/library` |
+| Script | Target | Live consumer? |
+|---|---|---|
+| `viking/deploy-openviking-parallel.sh` | `registry.nathanwhyte.dev/homelab` | **No** — `ov-coordinator`, `ov-merge`, `ov-worker` all scaled to 0; current OV deploy pulls `ghcr.io/volcengine/openviking:v0.3.14` from upstream |
+| `backlog/nanochat/build.sh` | `registry.nathanwhyte.dev/library/nanochat:*` | **No** — `backlog/nanochat/train-rocm-job.yaml` references `nanochat:rocm-v4` but the job itself is in `backlog/`, not deployed on the cluster |
 
 **Notably absent:** no pulls from `harbor`, `viking`, `llama`, `grafana`, `hermes`, or any system namespace. The `viking/ov-coordinator`, `ov-merged`, `ov-vectordb`, and related services all pull from `ghcr.io/volcengine/openviking:v0.3.14` and `ghcr.io/ggml-org/llama.cpp:server-cuda` — not from local Harbor. The hermes-agent cluster deployment pulls `nousresearch/hermes-agent:latest` from Docker Hub.
 
