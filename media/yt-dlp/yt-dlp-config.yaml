@@ -1,0 +1,57 @@
+---
+# yt-dlp configuration for the IDEA-019 revival.
+#
+# Changes from the retired `yt-dlp-config` ConfigMap (see
+# ~/code/repos/k8s/media/yt-dlp/manifests/configmap.yaml):
+#   - DROP `--js-runtimes deno:/usr/bin/deno`: `yt-dlp[default]` bundles
+#     `yt-dlp-ejs`, so the JavaScript challenge solver runs without Deno
+#     (or any Node-equivalent runtime).
+#   - DROP `--extractor-args "youtube:player-client=mweb"`: yt-dlp
+#     auto-selects the best client now; the forced `mweb` override was
+#     a workaround for a long-removed player-client that we don't need
+#     anymore.
+#   - DROP `--remote-components ejs:npm`: no Node runtime, no need to
+#     allow remote component loading.
+#   - DROP `--preset-alias mp4` from the video default: with no
+#     AtomicParsley (Q3), the alias was a no-op; the file extension
+#     follows the source format (mp4/webm).
+#
+# Kept (verbatim from the retired config):
+#   --continue, --force-write-archive
+#   --concurrent-fragments 8, --resize-buffer
+#   --match-filters "duration<?10860" (cap 3h01m; covers all known
+#     "Wow" entries; long-form goes to manual download)
+#   --output "/downloads/%(playlist)s/%(title)s.%(ext)s"
+#   --xattrs, --embed-metadata, --embed-thumbnail, --no-embed-chapters
+#   --no-keep-fragments
+#   --preset-alias sleep
+#   --cookies /yt-dlp-archive/cookies.txt (only loaded if the file
+#     exists, gated in the Job template)
+#
+# No music default: the retired setup had a second ConfigMap
+# (`yt-dlp-music`) for the playlist-4 audio path. With the new design
+# the audio args live in the playlist-4 entry's `EXTRA_ARGS_DEFAULT`
+# env var (see cronjobs.yaml) so we don't need a second ConfigMap.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: yt-dlp-config
+  namespace: yt-dlp
+data:
+  yt-dlp.conf: |
+    ### general
+    --continue
+    --force-write-archive
+
+    ### download options
+    --concurrent-fragments 8
+    --resize-buffer
+    --match-filters "duration<?10860"
+    --output "/downloads/%(playlist)s/%(title)s.%(ext)s"
+    --xattrs
+    --embed-metadata
+    --embed-thumbnail
+    --no-embed-chapters
+    --no-keep-fragments
+    --preset-alias sleep
+    --cookies /yt-dlp-archive/cookies.txt

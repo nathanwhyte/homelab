@@ -1,0 +1,52 @@
+---
+# Playlist URLs for the IDEA-019 yt-dlp revival.
+#
+# Verbatim from the retired `yt-dlp-playlists` ConfigMap (see
+# ~/code/repos/k8s/media/yt-dlp/manifests/configmap.yaml). The 6
+# playlist set is unchanged per Q4; the initial validation run targets
+# playlist 2 ("Gotta Keep These Somewhere") — see
+# cronjob-validation.yaml.
+#
+# Each CronJob references three keys:
+#   - playlist-N         : the YouTube playlist URL
+#   - playlist-N-name    : the playlist name (matches the
+#                          `%(playlist)s` placeholder in yt-dlp.conf's
+#                          --output template, so files land in
+#                          /downloads/<name>/<title>.<ext>)
+#   - playlist-N-extra-args (optional): default extra yt-dlp args
+#                          (set on EXTRA_ARGS_DEFAULT env var; the
+#                          operator can override per-run via
+#                          operator.sh run-job N "<args>")
+#
+# Q4 (closed): same 6 playlists as the old setup. Playlist 4 ("Study")
+# stays configured for MP3 audio extraction.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: yt-dlp-playlists
+  namespace: yt-dlp
+data:
+  # Essential
+  playlist-1: "https://youtube.com/playlist?list=PL8RARzxYAJTSCbN1q27kUcNl2OV_nw1Fb&si=Zu3OjdkBzTBhm8Zy"
+  playlist-1-name: "Essential"
+
+  # Gotta Keep These Somewhere — INITIAL VALIDATION TARGET
+  playlist-2: "https://youtube.com/playlist?list=PL8RARzxYAJTSq8CPV0ZOl8rhaO9rwg_WU&si=a7hEwe1L3e9O_1P2"
+  playlist-2-name: "Gotta Keep These Somewhere"
+
+  # Nice
+  playlist-3: "https://youtube.com/playlist?list=PL8RARzxYAJTQEe5T7pFEsqo9wbt3LVH9o&si=aZLC4jRg9UCk4hi4"
+  playlist-3-name: "Nice"
+
+  # Study (audio: MP3 extraction)
+  playlist-4: "https://youtube.com/playlist?list=PL8RARzxYAJTQ8g9F9WzX3xbCaFOWYKvhT&si=aC6C87IwENTGUbKO"
+  playlist-4-name: "Study"
+  playlist-4-extra-args: "--extract-audio --preset-alias mp3"
+
+  # Wow
+  playlist-5: "https://youtube.com/playlist?list=PL8RARzxYAJTSivRkyBdQ4zSsk6NgRvSjC&si=vySIZliBz1ppFles"
+  playlist-5-name: "Wow"
+
+  # Ugh
+  playlist-6: "https://youtube.com/playlist?list=PL8RARzxYAJTRMs2nm4EG6AG-dNPXmFRT9&si=rmL9tE77bjjYyqSn"
+  playlist-6-name: "Ugh"
