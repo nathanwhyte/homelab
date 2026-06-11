@@ -1,6 +1,6 @@
-# Harbor CLI (`harbor-cli`) Reference
+# Harbor CLI (`harbor`) Reference
 
-`harbor-cli` is the official command-line companion to Harbor. It covers ~30 top-level commands / 167 subcommands — most workflows that today are done via the web UI, `kubectl exec` into the core/database pods, or ad-hoc `curl` to `/api/v2.0/...`. **Optional, recommended for any operator who touches Harbor more than once a month.** Verified on Harbor 2.14.3; should be forward-compatible to 2.15.x.
+`harbor` (package / source repo: `harbor-cli`) is the official command-line companion to Harbor. The binary installs as `harbor`, not `harbor-cli` — a common gotcha. It covers ~30 top-level commands / 167 subcommands — most workflows that today are done via the web UI, `kubectl exec` into the core/database pods, or ad-hoc `curl` to `/api/v2.0/...`. **Optional, recommended for any operator who touches Harbor more than once a month.** Verified on Harbor 2.15.1; binary v0.0.22 (via `brew install harbor-cli`).
 
 ## Install
 
@@ -12,18 +12,22 @@ brew install harbor-cli
 # https://github.com/goharbor/harbor-cli/releases
 
 # Verify
-harbor-cli --version    # expect v0.0.22 or later
+harbor --version    # expect v0.0.22 or later
 ```
 
 ## Auth
 
 ```bash
-# Username + password
-harbor-cli login https://registry.nathanwhyte.dev \
-    --name admin \
+# Username + password (binary is `harbor`, not `harbor-cli`)
+harbor login https://registry.nathanwhyte.dev \
+    --username admin \
     --password "$HARBOR_ADMIN_PASSWORD"
 
-# The credentials are stored in ~/.harbor-cli/harbor-cli.yaml.
+# Or use --password-stdin
+echo "$HARBOR_ADMIN_PASSWORD" | harbor login https://registry.nathanwhyte.dev \
+    --username admin --password-stdin
+
+# The credentials are stored in ~/.config/harbor-cli/config.yaml.
 # Or use a robot account for automation (see below).
 ```
 
@@ -31,22 +35,22 @@ harbor-cli login https://registry.nathanwhyte.dev \
 
 | Workflow | Command |
 |---|---|
-| List projects | `harbor-cli project list` |
-| Create a project | `harbor-cli project create --name myproject --public` |
-| Toggle scan-on-push | `harbor-cli project update --name myproject --scan-on-push=true` |
-| List repos in a project | `harbor-cli repo list --project myproject` |
-| Show tags | `harbor-cli tag list --project myproject --repo myapp` |
-| Trigger a scan | `harbor-cli scan start --project myproject --repo myapp --tag latest` |
-| List vulnerabilities for an artifact | `harbor-cli vuln list --project myproject --repo myapp --tag latest` |
-| Robot accounts (CI push/pull) | `harbor-cli robot create --name ci-deployer --project myproject --duration 90` |
-| List robot accounts | `harbor-cli robot list` |
-| Retention policy | `harbor-cli retention create --project myproject --template retention-template.json` |
-| Garbage collection jobs | `harbor-cli gc list` ; `harbor-cli gc create --schedule 0 2 * * *` |
-| Audit log (last 24h) | `harbor-cli auditlog list --query 'Begin=2026-06-09T00:00:00 End=2026-06-10T00:00:00'` |
-| Job service status | `harbor-cli jobservice list` |
-| Show Harbor version + components | `harbor-cli version` ; `harbor-cli health` |
+| List projects | `harbor project list` |
+| Create a project | `harbor project create --name myproject --public` |
+| Toggle scan-on-push | `harbor project update --name myproject --scan-on-push=true` |
+| List repos in a project | `harbor repo list --project myproject` |
+| Show tags | `harbor tag list --project myproject --repo myapp` |
+| Trigger a scan | `harbor scan start --project myproject --repo myapp --tag latest` |
+| List vulnerabilities for an artifact | `harbor vuln list --project myproject --repo myapp --tag latest` |
+| Robot accounts (CI push/pull) | `harbor robot create --name ci-deployer --project myproject --duration 90` |
+| List robot accounts | `harbor robot list` |
+| Retention policy | `harbor retention create --project myproject --template retention-template.json` |
+| Garbage collection jobs | `harbor gc list` ; `harbor gc create --schedule 0 2 * * *` |
+| Audit log (last 24h) | `harbor auditlog list --query 'Begin=2026-06-09T00:00:00 End=2026-06-10T00:00:00'` |
+| Job service status | `harbor jobservice list` |
+| Show Harbor version + components | `harbor version` ; `harbor health` |
 
-For the full surface, see `harbor-cli <command> --help` and the upstream [CLI docs](https://goharbor.io/cli-docs/).
+For the full surface, see `harbor <command> --help` and the upstream [CLI docs](https://goharbor.io/cli-docs/).
 
 ## Robot accounts for CI / agents
 
@@ -54,7 +58,7 @@ A robot account is a non-human Harbor identity scoped to one project. Use it for
 
 ```bash
 # Create (90-day expiry; cap permissions to the project)
-harbor-cli robot create \
+harbor robot create \
     --name hermes-agent-pusher \
     --project hermes-agent \
     --action push,pull \
