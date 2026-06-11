@@ -1,17 +1,21 @@
 ---
 # Harbor Helm Chart Values
-# Full-featured container registry with web UI, scanning, and RBAC
+# Chart: harbor-1.19.1, App: Harbor v2.15.1
+# Last refreshed: 2026-06-10 — `deploy-harbor.sh` ran a single helm upgrade
+# that bumped chart 1.18.3 / app 2.14.3 -> chart 1.19.1 / app 2.15.1.
+# The DB and Redis images are intentionally pinned to v2.14.3 to match
+# the prior release; bump on the next planned upgrade cycle.
 #
 # Install with:
-# helm repo add harbor https://helm.goharbor.io
-# helm repo update
-# helm install harbor harbor/harbor -f harbor/helm/harbor-values.yaml -n harbor --create-namespace
+#   helm repo add harbor https://helm.goharbor.io
+#   helm repo update
+#   helm install harbor harbor/harbor -f harbor/harbor-values.yaml -n harbor --create-namespace
 #
 # Access:
-# - Web UI: https://registry.nathanwhyte.dev
-# - Docker: docker login registry.nathanwhyte.dev
+#   Web UI: https://registry.nathanwhyte.dev
+#   Docker: docker login registry.nathanwhyte.dev
 #
-# Default admin credentials: admin / Harbor12345 (change after first login)
+# Default admin credentials: admin / <CHANGE_ME> (change after first login)
 
 # Expose Harbor services
 expose:
@@ -19,10 +23,9 @@ expose:
   tls:
     # Enable TLS with cert-manager for automatic Let's Encrypt certificates
     enabled: true
-    # Use cert-manager to manage certificates
     certSource: secret
     secret:
-      # cert-manager will create this secret automatically
+      # cert-manager populates this secret automatically
       secretName: harbor-tls
   ingress:
     hosts:
@@ -87,8 +90,7 @@ database:
   internal:
     image:
       repository: goharbor/harbor-db
-      tag: v2.11.1
-    # PostgreSQL resources
+      tag: v2.14.3
     resources:
       requests:
         memory: 256Mi
@@ -120,15 +122,14 @@ redis:
   internal:
     image:
       repository: goharbor/redis-photon
-      tag: v2.11.1
-    # Redis resources
+      tag: v2.14.3
     resources:
       requests:
-        memory: 128Mi
         cpu: 100m
+        memory: 128Mi
       limits:
-        memory: 256Mi
         cpu: 200m
+        memory: 256Mi
     affinity:
       podAntiAffinity:
         preferredDuringSchedulingIgnoredDuringExecution:
@@ -160,8 +161,9 @@ core:
   # NOTE: Probe timeouts are patched manually on the live deployment because
   # chart v1.18.3 hardcodes them without values support. After any helm
   # upgrade, re-apply: kubectl patch deployment harbor-core -n harbor --type='json' -p='[{"op":"add","path":"/spec/template/spec/containers/0/livenessProbe/timeoutSeconds","value":5},{"op":"add","path":"/spec/template/spec/containers/0/readinessProbe/timeoutSeconds","value":5}]'
-  # Allow anonymous/public pull access for projects marked as public
-  # Pushes still require authentication
+  # deploy-harbor.sh re-applies this patch automatically post-upgrade; --skip-probe-patch to opt out.
+  # Allow anonymous/public pull access for projects marked as public.
+  # Pushes still require authentication.
   projectCreationRestriction: "everyone"
   # Enable automatic cert generation
   enableAutoGenCert: true
@@ -179,8 +181,8 @@ core:
                 - key: component
                   operator: In
                   values:
-                    - database
-                    - redis
+                  - database
+                  - redis
             topologyKey: kubernetes.io/hostname
 
 # Harbor Portal (Web UI)

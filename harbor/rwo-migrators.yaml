@@ -1,4 +1,8 @@
 ---
+# FROZEN — May 2026 RWX → RWO migration artifacts
+# These pods ran successfully and are functionally dead. Retained as
+# paper trail for any future volume-class migration. Do not apply.
+# See RWO-MIGRATION.md for the full runbook and rollback procedure.
 # One-shot copy pods used during the RWX -> RWO migration.
 apiVersion: v1
 kind: Pod
