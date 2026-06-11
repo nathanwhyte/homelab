@@ -12,9 +12,15 @@
 #     anymore.
 #   - DROP `--remote-components ejs:npm`: no Node runtime, no need to
 #     allow remote component loading.
-#   - DROP `--preset-alias mp4` from the video default: with no
-#     AtomicParsley (Q3), the alias was a no-op; the file extension
-#     follows the source format (mp4/webm).
+#   - DROP `--preset-alias mp4` from the video default: without
+#     AtomicParsley (Q3), the chapter-embedding half of the alias was
+#     a no-op. The merge-format half (which forces .mp4 container)
+#     would still work, but av1+webm sources then need an ffmpeg
+#     transcode to fit cleanly into mp4 — too costly to do on every
+#     video. Deferred to a post-download transcode script on the
+#     operator machine (TBD) that can batch-convert .mkv → .mp4 on
+#     demand. Net: today files are .mkv for av1 sources, .mp4 for
+#     h264 sources.
 #
 # Kept (verbatim from the retired config):
 #   --continue, --force-write-archive
