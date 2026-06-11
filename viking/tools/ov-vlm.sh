@@ -1,37 +1,40 @@
 #!/usr/bin/env bash
-# Scale the OpenViking VLM (llamacpp-cuda-ov) up around an indexing session and
-# back to 0 when idle.
+# Manual control for the OpenViking VLM (llamacpp-cuda-ov).
 #
-# The VLM (Qwen3-8B on manu's GTX 1080) holds ~9 GB resident and is only needed
-# during indexing, where OpenViking calls it to generate L0 abstracts and L1
-# overviews. Reads, searches, and `find` never touch it. So the idle state is
-# replicas=0; we bring it up only for the duration of an index run.
+# The VLM (Qwen3-8B on manu's GTX 1080) holds ~9 GB resident and is used by
+# OpenViking for L0 abstract / L1 overview generation during indexing, and by
+# the `viking.nathanwhyte.dev` console / MCP for any write path that needs
+# the model. As of 2026-06-11 the VLM is steady-state replicas=1, always on:
+# the 1080 is VLM-exclusive (embedder on wemby/1060, hermes-agent is CPU-only),
+# cold model load from the cached Longhorn PVC is ~40s, and a premature
+# scale-down can cut off in-flight L0 jobs (this exact failure was hit on
+# 2026-06-10, requiring a manual scale-back-up to recover).
 #
-# As of IDEA-009 Phase 3, the VLM is served by the unified `llamacpp-vlm`
-# service (selector `vlm-pool=true`), which currently round-robins across both
-# llamacpp-cuda-ov (manu/GTX 1080) and llamacpp-rocm (timmy/RX 9070 XT). With
-# the cuda deployment scaled to 1 and the rocm deployment scaled to 0, the
-# service routes to the cuda pod. (Phase 4 will retire the rocm deployment and
-# remove its `vlm-pool=true` label.)
+# This script exists for manual override -- e.g. releasing the GPU if
+# something else ever needs the 1080, or as a safety net if the VLM pod
+# crashes and you need to recreate it. `up` / `down` / `status` are the
+# primary commands; `run` is kept as a compatibility alias that wraps a
+# command with up/drain/down for the old on-demand idiom, but is no longer
+# the recommended pattern (just run the command -- the VLM is already up).
 #
-# Indexing is async on the OV server: `add-resource` enqueues and returns long
-# before the VLM work runs. So `run` does NOT scale down right after the wrapped
-# command exits -- it first `ov wait`s for the single-worker queue to drain,
-# otherwise we would kill the VLM out from under in-flight L0/L1 generation.
+# `down` waits for the OV index queue to drain before scaling to 0, so you
+# don't kill the VLM out from under in-flight L0/L1 generation. `up` waits
+# for the rollout to complete (cold model load). The drain step uses the
+# same `ov wait` (with polling fallback) pattern as before.
 #
 # Usage:
 #   ov-vlm.sh up                         # scale to 1 and wait until ready
-#   ov-vlm.sh down                       # scale to 0
+#   ov-vlm.sh down                       # drain queue, then scale to 0
 #   ov-vlm.sh status                     # show replicas / readiness
-#   ov-vlm.sh run -- <command...>        # up -> run -> drain queue -> down
+#   ov-vlm.sh run -- <command...>        # legacy: up -> run -> drain -> down
 #
 # Examples:
+#   ov-vlm.sh status                     # check the VLM
+#   ov-vlm.sh down                       # release the GPU
 #   ov-vlm.sh run -- python3 viking/tools/compendium-sync.py sync --limit 50
-#   COMPENDIUM_ROOT=~/code/personal-compendium OV_TARGET_BASE=viking://resources/personal \
-#     ov-vlm.sh run -- python3 viking/tools/compendium-sync.py sync
 #
-# `run` and `down`-after-drain require the same OPENVIKING_URL / OPENVIKING_KEY
-# env that the sync tool uses, because the queue drain goes through `ov wait`.
+# `down` and `run` require the same OPENVIKING_URL / OPENVIKING_KEY env that
+# the sync tool uses, because the queue drain goes through `ov wait`.
 #
 # Env overrides:
 #   VIKING_NS          namespace                       (default: viking)

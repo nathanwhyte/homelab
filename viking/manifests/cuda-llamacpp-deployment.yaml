@@ -21,12 +21,17 @@ metadata:
     app: llamacpp-cuda-ov
 spec:
   # Primary VLM under the IDEA-009 GPU reshuffle (VLM → manu/GTX 1080).
-  # Idle-scaled to 0; OpenViking brings it up on demand via
-  # viking/tools/ov-vlm.sh run -- <index command>, which scales it back to 0
-  # after the OV index queue drains. The embedder moved off this node in
-  # IDEA-009 Phase 2 (now on wemby's GTX 1060), so the GTX 1080's full 8 GB
-  # is available for the VLM during indexing windows.
-  replicas: 0
+  # Steady-state: replicas=1, always on. The 1080 is VLM-exclusive — the
+  # embedder moved to wemby's GTX 1060 in IDEA-009 Phase 2 and hermes-agent
+  # is CPU-only, so there is no GPU memory conflict. Earlier on-demand
+  # scaling (scaled to 0 at idle, brought up via viking/tools/ov-vlm.sh for
+  # index runs) is no longer worth the friction: cold model load from the
+  # Longhorn PVC is ~40s, and an in-flight scale-down can cut off L0 jobs
+  # the VLM is actively generating. Cold-load cost is paid once on pod
+  # startup; keeping the model warm is cheaper than the round-trip risk.
+  # If you ever need the 1080 for something else, scale down manually:
+  # `kubectl scale deploy/llamacpp-cuda-ov --replicas=0 -n viking`.
+  replicas: 1
   revisionHistoryLimit: 1
   strategy:
     type: Recreate
