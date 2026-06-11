@@ -152,6 +152,7 @@ See `harbor/deploy-harbor.sh` for the upgrade command. **As of 2026-06-10, the c
 - Take a `pg_dump` and a Longhorn snapshot of the 3 RWO PVCs.
 - Run `helm diff upgrade` (use `deploy-harbor.sh --diff` if `helm-diff` is installed) to confirm the only changes are image-tag bumps.
 - Expect 5-10 min total wall time, 2-5 min of registry downtime.
+- The script requires `--admin-password` (or `$HARBOR_ADMIN_PASSWORD`) on any non-preflight run. See "Auth: admin password" and "Auth: `secretKey`" below for the rotation procedures.
 
 ## DB/Redis stuck on a pinned version
 
@@ -250,6 +251,69 @@ harbor-cli login https://registry.nathanwhyte.dev --name admin --password "$HARB
 harbor-cli project list
 #   Expect: 9 projects listed
 ```
+
+## Auth: `secretKey` (Harbor core signing key)
+
+### What it is
+
+The `SECRET_KEY` env var on `harbor-core`, populated by the chart from the `harbor-core` K8s Secret's `secretKey` data key. Harbor uses it to sign session cookies, CSRF tokens, and a few internal tokens (project-creation tokens, robot-account creation, etc.). **Different from `HARBOR_ADMIN_PASSWORD`**, which gates DB auth — `secretKey` is the signing key for the auth layer that sits on top of DB auth.
+
+### Why it matters
+
+Lower-impact than the admin password (it doesn't gate the DB, just signs cookies/tokens), but:
+
+- Anyone with `get secret` on `harbor-core` can read it (same RBAC as `HARBOR_ADMIN_PASSWORD`)
+- A leaked `secretKey` lets an attacker forge Harbor session/CSRF tokens, bypassing password auth for any user they can phish a session for
+- A weak `secretKey` (e.g. the chart's literal default) is exposed to anyone who can read the Secret
+
+### Current state (verified 2026-06-11)
+
+The `secretKey` data key in `harbor/harbor-core` decodes to the literal string `not-a-secure-key` — the chart's default placeholder, never rotated. The chart's `harbor-values.yaml` doesn't override it, so every `helm upgrade` re-applies the placeholder.
+
+This is independent of the admin password fix in the previous section — `HARBOR_ADMIN_PASSWORD` was reset to a strong random value in TASK-050, but `secretKey` is still the placeholder.
+
+### How to rotate
+
+The Secret is the source of truth (read by the pod at startup). The values file has no entry for `secretKey`, so the procedure is purely on the Secret.
+
+```bash
+# 1. Generate a fresh 16-byte base64 random value (24 chars)
+NEW_KEY=$(head -c16 /dev/urandom | base64)
+
+# 2. Patch the Secret in-place. The /data/secretKey path holds the base64 of
+#    the new value, so we base64-encode the value before injecting.
+kubectl patch secret harbor-core -n harbor \
+    --type='json' \
+    -p="[{\"op\":\"replace\",\"path\":\"/data/secretKey\",\"value\":\"$(printf '%s' "$NEW_KEY" | base64)\"}]"
+
+# 3. Rollout to pick up the new env var. Harbor-core will see the new
+#    SECRET_KEY on its next pod start.
+kubectl rollout restart deployment/harbor-core -n harbor
+
+# 4. Wait for the rollout to settle (~30-60s; the probe-timeout patch keeps
+#    it from flapping during startup).
+kubectl rollout status deployment/harbor-core -n harbor --timeout=120s
+```
+
+### Verify
+
+```bash
+# 1. The Secret now holds a 24-char base64 string, not the literal placeholder
+kubectl get secret harbor-core -n harbor -o jsonpath='{.data.secretKey}' | base64 -d
+#   Expect: 24-char base64 string, NOT "not-a-secure-key"
+
+# 2. The registry is still healthy
+curl -fsS https://registry.nathanwhyte.dev/api/v2.0/health
+#   Expect: {"status":"healthy"}
+
+# 3. Existing sessions/tokens signed with the old key are invalidated (cookie
+#    re-auth needed; web UI users will be logged out — this is the expected
+#    behavior, not a failure)
+```
+
+### Why this is safe to rotate freely
+
+Unlike `HARBOR_ADMIN_PASSWORD` (which only writes the DB on first install), `secretKey` is read at pod start and has no chart-managed migration logic. The patch + rollout works on every upgrade. The cost is signing-key invalidation — any active web-UI sessions are dropped, which is acceptable for a personal cluster.
 
 ## See also
 
