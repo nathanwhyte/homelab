@@ -38,6 +38,14 @@
 #                            the output directory.
 #   reap-jobs                Delete completed/failed Jobs older than 1h
 #                            to keep the namespace tidy.
+#   sync-archive             Sync /downloads/ (minus ad-hoc/) from the
+#                            cluster to the local /Volumes/Archive/YouTube/.
+#                            Pass --apply to actually rsync; pass
+#                            --delete to also drop local files that
+#                            no longer exist on the cluster (DANGER).
+#                            Wraps ./sync-to-archive.sh. Env vars
+#                            NS/PVC/REMOTE_ROOT/LOCAL/EXCLUDE_DIRS
+#                            are honored (see sync-to-archive.sh header).
 #
 # Environment:
 #   YT_DLP_NS                default: yt-dlp
@@ -285,6 +293,19 @@ cmd_reap_jobs() {
 		done
 }
 
+cmd_sync_archive() {
+	# Forward to ./sync-to-archive.sh, preserving NS/PVC/REMOTE_ROOT/
+	# LOCAL/EXCLUDE_DIRS env vars (the script reads them directly).
+	local script_dir
+	script_dir="$(cd "$(dirname "$0")" && pwd)"
+	local target="${script_dir}/sync-to-archive.sh"
+	[ -x "$target" ] || {
+		echo "sync-to-archive.sh not found or not executable at $target" >&2
+		exit 127
+	}
+	"$target" "$@"
+}
+
 # --- dispatch --------------------------------------------------------------
 
 sub="${1:-}"
@@ -302,6 +323,7 @@ enable) cmd_set_suspend "${1:-}" "false" ;;
 disable) cmd_set_suspend "${1:-}" "true" ;;
 download) cmd_download "$@" ;;
 reap-jobs) cmd_reap_jobs ;;
+sync-archive) cmd_sync_archive "$@" ;;
 -h | --help | help | "") usage ;;
 *)
 	echo "unknown subcommand: ${sub}" >&2
