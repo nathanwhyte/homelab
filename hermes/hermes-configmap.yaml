@@ -37,10 +37,12 @@ data:
     delegation:
       model: gemma4:12b-it-qat
       provider: ollama-launch
-      max_concurrent_children: 5
+      max_concurrent_children: 3
       max_spawn_depth: 2
       child_timeout_seconds: 900
       reasoning_effort: none
+      ollama_num_ctx: 4096
+      ollama_think: false
     display:
       show_reasoning: false
       show_cost: false
@@ -73,7 +75,7 @@ data:
       base_url: http://chat-ollama.llama.svc:11434/v1
       default: glm-5.1:cloud
       provider: ollama-launch
-      ollama_num_ctx: 131072
+      ollama_num_ctx: 8192
     providers:
       ollama-launch:
         api: http://chat-ollama.llama.svc:11434/v1
@@ -91,26 +93,38 @@ data:
         provider: ollama-launch
         model: gemma4:12b-it-qat
         timeout: 120
+        ollama_num_ctx: 4096
+        ollama_think: false
       skills_hub:
         provider: ollama-launch
         model: gemma4:12b-it-qat
         timeout: 30
+        ollama_num_ctx: 4096
+        ollama_think: false
       approval:
         provider: ollama-launch
         model: gemma4:12b-it-qat
         timeout: 30
+        ollama_num_ctx: 2048
+        ollama_think: false
       mcp:
         provider: ollama-launch
         model: gemma4:12b-it-qat
         timeout: 30
+        ollama_num_ctx: 4096
+        ollama_think: false
       title_generation:
         provider: ollama-launch
         model: gemma4:12b-it-qat
         timeout: 30
+        ollama_num_ctx: 2048
+        ollama_think: false
       profile_describer:
         provider: ollama-launch
         model: gemma4:12b-it-qat
         timeout: 60
+        ollama_num_ctx: 4096
+        ollama_think: false
     security:
       allow_private_urls: false
       redact_secrets: true
