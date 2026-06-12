@@ -69,7 +69,7 @@ if [[ "${is_router}" == true ]]; then
 	sudo sysctl -p /etc/sysctl.d/99-tailscale.conf
 	up_args+=("--advertise-routes=${ADVERTISE_ROUTES}")
 else
-	echo ">> ${node} is a plain tailnet node (SSH + accept-routes only)."
+	echo ">> ${node} is a plain tailnet node (SSH only, no --accept-routes — see line 52 comment)."
 fi
 
 # 3. Bring it up.
