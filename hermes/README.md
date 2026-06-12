@@ -5,6 +5,23 @@ Hermes runs in the `hermes` namespace as two Deployments:
 - `hermes-agent` — Hermes Agent runtime, currently running `hermes gateway run`
 - `hermes-jump` — constrained SSH terminal backend used by Hermes for shell/tool execution
 
+### Persistent storage
+
+| PVC | Mount | Pod | Size | Purpose |
+|---|---|---|---|---|
+| `hermes-home` | `/opt/data` | `hermes-agent` | 10Gi | Agent config, sessions, kanban DB |
+| `hermes-jump-home` | `/home/hermes` | `hermes-jump` | 5Gi | uv, Python, git repos, SSH known_hosts, tool configs |
+
+The jump pod PVC ensures `uv`, Python, `gh`, and other tools survive pod restarts. On first boot, the entrypoint bootstraps `uv` + Python 3.12 and git config into the persistent volume. Subsequent boots skip installation if binaries already exist.
+
+To reset the jump home (e.g. after corruption):
+
+```bash
+kubectl delete pvc hermes-jump-home -n hermes
+kubectl rollout restart deployment/hermes-jump -n hermes
+# The entrypoint will recreate everything on the fresh PVC
+```
+
 The agent API is **cluster-internal only**. Do not expose it through Cloudflare or any public ingress until the PROJ-006 safety review is complete.
 
 ## Operator access model
