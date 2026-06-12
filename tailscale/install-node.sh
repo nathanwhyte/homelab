@@ -23,9 +23,10 @@ set -euo pipefail
 ROUTER_NODES=("manu" "wemby")
 
 # Routes advertised by the router nodes. 192.168.1.0/24 is the must-have (full
-# LAN reach incl. pihole/unbound). The cluster CIDRs let tailnet clients hit
-# Service/Pod IPs directly; drop them if they collide with another tailnet's routes.
-ADVERTISE_ROUTES="192.168.1.0/24,10.42.0.0/16,10.43.0.0/16"
+# LAN reach incl. pihole/unbound). Cluster CIDRs (10.42.0.0/16, 10.43.0.0/16)
+# were dropped 2026-06-12 to reduce blast radius — they're reachable via the LAN
+# route anyway, and advertising them risked collision with other tailnets.
+ADVERTISE_ROUTES="192.168.1.0/24"
 # ----------------------------------------------------------------------------
 
 node="$(hostname -s)"
