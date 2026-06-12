@@ -6,9 +6,9 @@
 
 | Node | Role | GPU | Key workloads |
 |------|------|-----|---------------|
-| manu | worker | GTX 1080 8 GB | llamacpp-cuda-ov (VLM, **always on — replicas=1, sole GPU workload**); hermes-agent; ov-coordinator (scaled to 0) |
-| timmy | worker | RX 9070 XT 16 GB | ollama, openviking, ov-vectordb; llamacpp-rocm (retired, scaled to 0 — see Phase 4 banner); ov-merge, ov-worker (scaled to 0) |
-| wemby | CP + worker | GTX 1060 6 GB | embedder-llamacpp (CUDA, persistent model cache on wemby-model-cache PVC); ov-console |
+| manu | agent | GTX 1080 8 GB | llamacpp-cuda-ov (VLM, **always on — replicas=1, sole GPU workload**); hermes-agent; ov-coordinator (scaled to 0) |
+| timmy | agent | RX 9070 XT 16 GB | ollama, openviking, ov-vectordb; llamacpp-rocm (retired, scaled to 0 — see Phase 4 banner); ov-merge, ov-worker (scaled to 0) |
+| wemby | server (Control Plane + worker) | GTX 1060 6 GB | embedder-llamacpp (CUDA, persistent model cache on wemby-model-cache PVC); ov-console |
 
 ## Service routing
 
@@ -96,6 +96,22 @@ Config: `~/code/robots/media/pipeline/img-pipeline.conf` (model paths, ports, ti
 | `viking.nathanwhyte.dev` | `ov-console:8020` | websecure | ov-console-local-only | cert-manager (letsencrypt-prod) |
 | `viking.nathanwhyte.dev` | `ov-console:8020` | web | ov-console-https-redirect | — |
 | `hermes.nathanwhyte.dev` | `hermes-agent:9119` | Cloudflare tunnel | session token auth | Cloudflare origin cert |
+
+### Tailscale — private external access (PROJ-008)
+
+Host-level Tailscale on all 3 nodes (WireGuard mesh) for **private admin/network access** from off-LAN. Complements the Cloudflare Tunnel (public web); the two coexist. Runbook: `tailscale/README.md`.
+
+| Node | Tailscale role | Tailnet IP | OS user |
+|------|---------------|------------|---------|
+| manu | HA subnet router | 100.114.66.32 | noot |
+| wemby | HA subnet router | 100.118.40.21 | natew |
+| timmy | plain node | 100.95.215.105 | noot |
+
+- **Advertised routes**: `192.168.1.0/24` only (cluster CIDRs dropped — reachable via LAN route, advertising them risked collision)
+- **`--accept-routes`**: belongs only on **off-LAN client devices** (MacBook/phone). Do NOT set on the nodes themselves — they're physically on the advertised subnet and accepting the route causes asymmetric routing (ERR-007)
+- **kubectl**: two contexts in `~/.kube/config` — `homelab` (LAN IP 192.168.1.9:6443 via subnet route) and `tailnet` (100.118.40.21:6443 direct; requires `--tls-san` in `/etc/rancher/k3s/config.yaml` on wemby, already done)
+- **SSH**: `ssh wemby` / `ssh manu` / `ssh timmy` via `~/.ssh/config` aliases (all point to tailnet IPs). Wemby user is `natew`, not `noot`
+- **Tailscale SSH** (`tailscale ssh`): ACL-gated keyless SSH also available; wemby requires `tailscale ssh natew@wemby`
 
 ## Secrets and config
 
