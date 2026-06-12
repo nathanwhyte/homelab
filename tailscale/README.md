@@ -63,7 +63,15 @@ TS_AUTHKEY=tskey-auth-xxxx ./tailscale/install-node.sh
 ```
 
 The script installs tailscale, enables IP forwarding on the router nodes, and runs
-`tailscale up --ssh --accept-routes [--advertise-routes=...]`. It's idempotent.
+`tailscale up --ssh [--advertise-routes=...]`. It's idempotent.
+
+> **Do not `--accept-routes` on the nodes.** All three are physically on
+> `192.168.1.0/24`; if a node accepts that advertised route it sends LAN replies
+> out `tailscale0` instead of its NIC, which silently breaks direct SSH / kubectl
+> / ICMP from on-LAN clients (the underlay UDP still works, so `tailscale ping`
+> and tailnet-IP SSH keep working — a confusing half-broken state). `--accept-routes`
+> belongs only on **off-LAN client devices** (phone/laptop while traveling) that
+> need to reach the LAN through the subnet router.
 
 > The auth key is passed at runtime (env var) — it is **not** stored in the repo.
 > `**/*secret*.yaml` and any local key files stay gitignored.
