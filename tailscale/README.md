@@ -32,8 +32,10 @@ Each node joining the tailnet directly gives:
   route) on `:6443`.
 
 The subnet routers add **full LAN reach** (`192.168.1.0/24`) so tailnet clients
-can hit pihole, other devices, and — via `10.42.0.0/16` / `10.43.0.0/16` — cluster
-Pod/Service IPs directly.
+can hit pihole, other devices, and cluster services via their LAN IPs. Cluster
+CIDRs (`10.42.0.0/16`, `10.43.0.0/16`) were dropped from advertised routes
+(2026-06-12) — they're reachable via the LAN route anyway, and advertising them
+risked collision with other tailnets.
 
 ## Setup
 
@@ -49,6 +51,7 @@ Pod/Service IPs directly.
    ```json
    "autoApprovers": {
      "routes": { "192.168.1.0/24": ["tag:k8s-node"] }
+   // Cluster CIDRs were dropped from advertised routes (2026-06-12)
    }
    ```
 
@@ -78,7 +81,7 @@ The script installs tailscale, enables IP forwarding on the router nodes, and ru
 
 ### 3. Approve routes + verify (TASK-054)
 
-In the admin console, approve `192.168.1.0/24` (and the cluster CIDRs if used) on
+In the admin console, approve `192.168.1.0/24` on
 **both** manu and wemby (Machines → node → Edit route settings) — unless
 autoApprovers handles it. Then from an **off-LAN** device on the tailnet
 (`--accept-routes` enabled):
@@ -112,6 +115,10 @@ ssh <user>@<node>            # standard key-based SSH over the tailnet, or
 ssh <user>@<node>.<tailnet>.ts.net   # via MagicDNS; Tailscale SSH if ACL-allowed
 ```
 
+> **wemby user is `natew`, not `noot`.** The `tailscale ssh` CLI defaults to
+> your local MacBook username (`noot`), which matches manu and timmy but not
+> wemby. Use `tailscale ssh natew@wemby` or `ssh natew@100.118.40.21`.
+
 ## Files
 
 | File              | Purpose                                                          |
@@ -123,13 +130,13 @@ ssh <user>@<node>.<tailnet>.ts.net   # via MagicDNS; Tailscale SSH if ACL-allowe
 
 The [Tailscale Kubernetes Operator](https://tailscale.com/docs/kubernetes-operator) is a Helm-installed, in-cluster option that adds **workload-level** networking — declarative per-service tailnet exposure and egress. It does **not** replace host-level Tailscale (it dies with the cluster, so break-glass access still requires host-level).
 
-| Operator feature | What it does | Why it's interesting |
-|-----------------|-------------|---------------------|
-| L7 Ingress | `Ingress` with `ingressClassName: tailscale` → `*.ts.net` with auto-TLS | Replace some Cloudflare Tunnel routes for private services |
-| L3 Ingress | Annotate Service `tailscale.com/expose: "true"` → tailnet IP | Selective exposure instead of advertising entire CIDR |
-| Egress | `Connector` CR → pods reach tailnet services | Cluster pods (e.g. hermes-agent) reaching off-LAN tailnet devices |
-| API Server Proxy | `tailscale configure kubeconfig` → identity-based kubectl | Audit trail via impersonation headers |
-| Funnel | Annotate `tailscale.com/funnel: "true"` → public endpoint | Replace Cloudflare for services that don't need WAF/caching |
+| Operator feature | What it does                                                            | Why it's interesting                                              |
+| ---------------- | ----------------------------------------------------------------------- | ----------------------------------------------------------------- |
+| L7 Ingress       | `Ingress` with `ingressClassName: tailscale` → `*.ts.net` with auto-TLS | Replace some Cloudflare Tunnel routes for private services        |
+| L3 Ingress       | Annotate Service `tailscale.com/expose: "true"` → tailnet IP            | Selective exposure instead of advertising entire CIDR             |
+| Egress           | `Connector` CR → pods reach tailnet services                            | Cluster pods (e.g. hermes-agent) reaching off-LAN tailnet devices |
+| API Server Proxy | `tailscale configure kubeconfig` → identity-based kubectl               | Audit trail via impersonation headers                             |
+| Funnel           | Annotate `tailscale.com/funnel: "true"` → public endpoint               | Replace Cloudflare for services that don't need WAF/caching       |
 
 See PROJ-008 (2026-06-13 note) for the full research findings and prioritization.
 
