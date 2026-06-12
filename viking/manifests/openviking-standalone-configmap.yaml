@@ -50,6 +50,7 @@ data:
         "output": "stdout"
       },
       "embedding": {
+        "_comment_max_input_tokens": "Intentionally absent. The embedder runs --parallel 8 with --ctx-size 16384 (2048/slot). OV chunks inputs internally; a max_input_tokens guardrail would truncate documents unnecessarily. Removed from live in PR #10 era.",
         "dense": {
           "provider": "openai",
           "model": "nomic-embed-text-v1.5",
