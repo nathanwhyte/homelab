@@ -33,8 +33,8 @@ data:
     memory:
       memory_enabled: true
       user_profile_enabled: true
-      memory_char_limit: 2200
-      user_char_limit: 1375
+      memory_char_limit: 11000
+      user_char_limit: 6875
       provider: openviking
     model:
       api_key: ollama
@@ -62,15 +62,3 @@ data:
       timeout: 180
     toolsets:
       - hermes-cli
-    mcp_servers:
-      kubernetes:
-        command: "npx"
-        args: ["-y", "@modelcontextprotocol/server-kubernetes"]
-      grafana:
-        url: "${GRAFANA_URL}"
-        headers:
-          Authorization: "Bearer ${GRAFANA_SERVICE_ACCOUNT_TOKEN}"
-      openviking:
-        url: "http://openviking.viking.svc.cluster.local:1933/mcp"
-        headers:
-          Authorization: "Bearer ${OPENVIKING_API_KEY}"

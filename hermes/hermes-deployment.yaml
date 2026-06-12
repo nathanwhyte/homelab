@@ -96,14 +96,8 @@ spec:
                   key: token
             - name: HERMES_GATEWAY_BOOTSTRAP_STATE
               value: running
-            # Grafana MCP server
-            - name: GRAFANA_URL
-              value: "http://kube-prometheus-stack-grafana.grafana.svc.cluster.local:3000"
-            - name: GRAFANA_SERVICE_ACCOUNT_TOKEN
-              valueFrom:
-                secretKeyRef:
-                  name: hermes-grafana-token
-                  key: token
+            - name: GATEWAY_ALLOW_ALL_USERS
+              value: "true"
             # OpenViking memory provider (IDEA-017)
             - name: OPENVIKING_ENDPOINT
               value: http://openviking.viking.svc.cluster.local:1933
@@ -127,7 +121,7 @@ spec:
             httpGet:
               path: /health
               port: api
-            initialDelaySeconds: 10
+            initialDelaySeconds: 30
             periodSeconds: 10
           livenessProbe:
             httpGet:
