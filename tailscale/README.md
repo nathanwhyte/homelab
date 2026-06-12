@@ -95,18 +95,22 @@ ping 192.168.1.<pihole>      # LAN reachable via the subnet route
 
 ### kubectl over the tailnet (TASK-055)
 
-Two options:
+Two contexts in `~/.kube/config`:
 
-- **Via the subnet route (no cluster change):** target a node's **LAN** IP —
-  `https://192.168.1.<node>:6443`. The LAN IP is already a K3s cert SAN.
-- **Via the node's tailnet IP/MagicDNS (cleaner long-term):** add the tailnet IP
-  or MagicDNS name to the API-server cert SANs with the K3s `--tls-san` flag
-  (`/etc/rancher/k3s/config.yaml`), restart k3s so the cert regenerates, then
-  point kubeconfig at `https://<node>.<tailnet>.ts.net:6443`.
+| Context | Server | Path | Requires |
+|---------|--------|------|----------|
+| `homelab` | `192.168.1.9:6443` | LAN IP via subnet route | `--accept-routes` on client |
+| `tailnet` | `100.118.40.21:6443` | Direct tailnet IP | `--tls-san` on wemby (done) |
 
 ```bash
-kubectl --server https://192.168.1.<node>:6443 get nodes
+kubectl --context homelab get nodes   # via subnet route
+kubectl --context tailnet get nodes   # via tailnet IP
 ```
+
+The `tailnet` context requires `--tls-san 100.118.40.21` in
+`/etc/rancher/k3s/config.yaml` on wemby (already added 2026-06-12)
+so the API server cert is valid for the tailnet IP. The CA cert is
+stored at `~/.kube/k3s-ca.crt`.
 
 ### SSH over the tailnet (TASK-056)
 
