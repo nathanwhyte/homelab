@@ -10,11 +10,8 @@ Hermes runs in the `hermes` namespace as two Deployments:
 | PVC | Mount | Pod | Size | Purpose |
 |---|---|---|---|---|
 | `hermes-home` | `/opt/data` | `hermes-agent` | 10Gi | Agent config, sessions, kanban DB |
-| `hermes-jump-home` | `/home/hermes` | `hermes-jump` | 5Gi | uv, Python, git repos, SSH known_hosts, tool configs |
 
-The jump pod PVC ensures `uv`, Python, `gh`, and other tools survive pod restarts. On first boot, the entrypoint bootstraps `uv` + Python 3.12 and git config into the persistent volume. Subsequent boots skip installation if binaries already exist.
-
-The jump pod also receives a `GITHUB_TOKEN` env var from the `github-access-token` Secret. On first boot, the entrypoint runs `gh auth login --with-token` to persist the credential in `~/.config/gh/hosts.yml` on the PVC. Subsequent boots skip re-auth if the hosts file already exists.
+> **Note:** The `hermes-jump-home` PVC and the enhanced entrypoint (uv, Python, gh, git config, GITHUB_TOKEN) described in earlier versions of this README exist in the repo manifests (`hermes-jump-pvc.yaml`, `hermes-jump.yaml`) but have **not been applied** to the live cluster. The current jump pod is ephemeral — no persistent home directory, no pre-installed tooling, and no GITHUB_TOKEN mount. See `hermes-jump.yaml` and `hermes-jump-pvc.yaml` for the desired-state manifests.
 
 To create the secret in the hermes namespace (copy from the existing build namespace secret):
 
@@ -117,20 +114,19 @@ A full ground-truthed reference (live-verified against the running API server) l
 
 ## Tuned baseline
 
-Current TASK-045 tuning baseline for the trial-prep phase:
+Current tuning baseline (synced 2026-06-12):
 
 | Setting | Value | Rationale |
 |---|---|---|
-| Default model | `gemma4:12b` | Local-first default for normal Hermes use; selected after `qwen3.5:9b-q4_K_M` produced Hermes `agent_incomplete` truncation errors. Cloud remains available only by explicit per-call override. |
+| Default model | `glm-5.1:cloud` | Cloud-first default for quality; local `gemma4:12b-it-qat` available as fallback. |
 | Ollama endpoint | `http://chat-ollama.llama.svc:11434/v1` | Hermes uses the internal compatibility proxy. For local models, the proxy bridges OpenAI chat-completions requests to Ollama native `/api/chat` with `think: false`, maps the response back to OpenAI/SSE shape, and does not enforce the old cloud budget gate. |
 | Per-call model override | `HERMES_MODEL=<model>` with `operator.sh ask/run` | Allows explicit cloud or alternate local model tests without changing the deployment default. |
-| API retries | `agent.api_max_retries: 1` | Keep retry amplification low; revisit if reliability becomes an issue. |
-| Terminal backend | SSH to `hermes-jump` | Keeps command execution inside the constrained jump pod/RBAC boundary. |
-| Terminal timeout | `180s` | Long enough for basic kubectl/file operations; short enough to catch hangs. |
-| Compression | enabled, `threshold: 0.5`, `target_ratio: 0.2` | Keep Hermes defaults; file-based prompt tests avoid shell `ARG_MAX`. |
-| Memory | built-in + OpenViking external provider | `memory.provider: openviking` activates the bundled OV plugin; in-cluster endpoint `openviking.viking.svc:1933`; writes to `viking://resources/patterns/` and `viking://resources/preferences/` (no overlap with compendium-sync namespaces) |
+| API retries | `agent.api_max_retries: 3` | Allow retries for transient cloud API failures. |
+| Delegation | `max_concurrent_children: 5`, `max_spawn_depth: 2`, `child_timeout_seconds: 900` | Parallel subagent workloads on 9070 XT (tuned per PR #9 VRAM analysis). |
+| Compression | enabled, `threshold: 0.88`, `target_ratio: 0.2` | Higher threshold avoids compressing short outputs. |
+| Memory | `memory_char_limit: 14000`, `user_char_limit: 9000` via OpenViking external provider | `memory.provider: openviking` activates the bundled OV plugin; in-cluster endpoint `openviking.viking.svc:1933`; writes to `viking://resources/patterns/` and `viking://resources/preferences/` (no overlap with compendium-sync namespaces) |
 | Toolsets | `hermes-cli` | Minimal toolset for current smoke tests and operator workflows. |
-| External exposure | none | API remains cluster-internal/port-forward only until TASK-030. |
+| External exposure | Cloudflare tunnel at `hermes.nathanwhyte.dev` (dashboard); LAN Ingress also active | Dashboard exposed via Cloudflare tunnel; API server cluster-internal. |
 
 ## Direct Hermes CLI access
 
