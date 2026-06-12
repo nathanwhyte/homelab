@@ -224,6 +224,22 @@ curl -sS -u "admin:$NEW_PW" "https://registry.nathanwhyte.dev/api/v2.0/users/cur
 
 **Important gotcha:** the deploy script's `--set harborAdminPassword=...` only writes the Secret — it does **not** touch the DB. Conversely, the `UPDATE` only writes the DB — it does not touch the Secret. You need both. Do the DB `UPDATE` first, then the deploy, in that order, so the Secret never holds a value that diverges from the DB (e.g. if the deploy script's pod restart ever triggers a re-migration that resets the password from the Secret, you'll be locked out again).
 
+**Second-order gotcha (discovered 2026-06-11):** the chart's "ensure admin exists" migration **does** re-hash the current Secret value into the DB on every `helm upgrade` if the migration's "user exists" check is bypassed (e.g. when the salt was regenerated or the row's `password_version` was reset). Net effect: my DB `UPDATE` + deploy script flow is **not atomic** — the `helm upgrade` itself can rewrite the DB row with the Secret's plaintext after I've already updated both. To rotate the admin password in one shot without this race:
+
+1. Update only the K8s Secret via `deploy-harbor.sh --admin-password` (no DB `UPDATE` first).
+2. Let the chart's startup migration hash the new Secret value into the DB row.
+
+That flips the gotcha on its head: the chart *is* the canonical source for the admin password, and the DB `UPDATE` workaround from TASK-050 is only needed when the Secret has drifted to the chart's `<CHANGE_ME>` placeholder. As of this writing the chart's "ensure admin exists" migration (chart 1.19.1) re-hashes on every restart that re-initializes the password field, which means `--admin-password` alone is enough. **Verify after the rotation:**
+
+```bash
+# After deploy-harbor.sh --admin-password $NEW_PW
+NEW_HASH=$(python3 -c "import hashlib; print(hashlib.pbkdf2_hmac('sha256', '$NEW_PW'.encode(), '<salt-from-DB>'.encode(), 4096, 16).hex())")
+kubectl exec -n harbor harbor-database-0 -- env PGPASSWORD=changeit psql -U postgres -d registry -tA -c "SELECT password FROM harbor_user WHERE username='admin';"
+#   Expect: $NEW_HASH
+```
+
+If they don't match, the migration didn't run (or ran before the Secret update landed) — re-`helm upgrade` the release to trigger another migration pass.
+
 ### Public pull — implications
 
 Because the distribution layer issues valid pull tokens to anyone for public projects, **any image pushed to a public project on `registry.nathanwhyte.dev` is world-readable**. As of 2026-06-11, all 9 projects (`build-hook`, `coach`, `equal-risk`, `glossary`, `homelab`, `library`, `portfolio`, `robots`, `viking`) are public. This was the **intended** design (see `HARBOR.md` "Project creation: Open... public pull is anonymous, push always requires auth"), but worth being explicit about:
