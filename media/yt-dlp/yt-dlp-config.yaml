@@ -22,6 +22,24 @@
 #     demand. Net: today files are .mkv for av1 sources, .mp4 for
 #     h264 sources.
 #
+# Added:
+#   --restrict-filenames: sanitizes filenames to ASCII, preventing
+#     ENAMETOOLONG when videos have extremely long Unicode/emoji titles
+#     (a single emoji can be 4+ UTF-8 bytes, so a 100-char emoji title
+#     blows past ext4's 255-byte component limit). Also avoids
+#     whitespace/ampersand issues in shell contexts.
+#   --no-write-thumbnail: skip writing standalone .webp thumbnail files.
+#     Thumbnails are already embedded in the media file via
+#     --embed-thumbnail, so standalone thumb files are redundant.
+#     This prevents ENAMETOOLONG on the thumbnail write path, which
+#     --trim-filenames does NOT cover (yt-dlp only trims the download
+#     filename, not the thumbnail filename).
+#   --ignore-errors: continue past unavailable/deleted videos instead
+#     of exiting non-zero. Without this, a single terminated-account
+#     video causes the whole job to fail (backoffLimit triggers, pod
+#     is GC'd, no logs). For a playlist sync, skipping dead videos is
+#     the correct behavior.
+#
 # Kept (verbatim from the retired config):
 #   --continue, --force-write-archive
 #   --concurrent-fragments 8, --resize-buffer
@@ -48,6 +66,8 @@ data:
     ### general
     --continue
     --force-write-archive
+    --restrict-filenames
+    --ignore-errors
 
     ### download options
     --concurrent-fragments 8
@@ -57,6 +77,7 @@ data:
     --xattrs
     --embed-metadata
     --embed-thumbnail
+    --no-write-thumbnail
     --no-embed-chapters
     --no-keep-fragments
     --preset-alias sleep
