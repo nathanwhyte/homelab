@@ -7,7 +7,7 @@ metadata:
   labels:
     app: hermes-agent
 data:
-  config.yaml: |
+  config.yaml: |-
     _config_version: 24
     agent:
       api_max_retries: 3
@@ -84,7 +84,6 @@ data:
           - gemma4:12b-it-qat
           - gemma4:31b-cloud
           - glm-5.1:cloud
-          - nemotron-3-ultra:cloud
         name: Chat Ollama
     prompt_caching:
       cache_ttl: 10m
