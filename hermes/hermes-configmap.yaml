@@ -19,12 +19,28 @@ data:
       timeout: 60
     compression:
       enabled: true
-      threshold: 0.5
+      threshold: 0.88
       target_ratio: 0.2
+      protect_last_n: 25
+      hygiene_hard_message_limit: 600
+      protect_first_n: 3
+      abort_on_summary_failure: true
+    checkpoints:
+      enabled: true
+      max_snapshots: 20
+      max_total_size_mb: 500
+      max_file_size_mb: 10
+      auto_prune: true
+      retention_days: 7
+      delete_orphans: true
+      min_interval_hours: 24
     delegation:
+      model: gemma4:12b-it-qat
+      provider: ollama-launch
       max_concurrent_children: 5
       max_spawn_depth: 2
       child_timeout_seconds: 900
+      reasoning_effort: none
     display:
       show_reasoning: false
       show_cost: false
@@ -33,8 +49,8 @@ data:
     memory:
       memory_enabled: true
       user_profile_enabled: true
-      memory_char_limit: 11000
-      user_char_limit: 6875
+      memory_char_limit: 14000
+      user_char_limit: 9000
       provider: openviking
     model:
       api_key: ollama
@@ -48,9 +64,37 @@ data:
         default_model: glm-5.1:cloud
         models:
           - gemma4:12b-it-qat
+          - gemma4:31b-cloud
           - glm-5.1:cloud
           - nemotron-3-ultra:cloud
         name: Chat Ollama
+    prompt_caching:
+      cache_ttl: 10m
+    auxiliary:
+      compression:
+        provider: ollama-launch
+        model: gemma4:12b-it-qat
+        timeout: 120
+      skills_hub:
+        provider: ollama-launch
+        model: gemma4:12b-it-qat
+        timeout: 30
+      approval:
+        provider: ollama-launch
+        model: gemma4:12b-it-qat
+        timeout: 30
+      mcp:
+        provider: ollama-launch
+        model: gemma4:12b-it-qat
+        timeout: 30
+      title_generation:
+        provider: ollama-launch
+        model: gemma4:12b-it-qat
+        timeout: 30
+      profile_describer:
+        provider: ollama-launch
+        model: gemma4:12b-it-qat
+        timeout: 60
     terminal:
       backend: ssh
       cwd: /home/hermes
