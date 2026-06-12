@@ -172,7 +172,7 @@
         },
         "compression": {
             "provider": "ollama-launch",
-            "model": "gemma4:31b-cloud",
+            "model": "gemma4:12b-it-qat",
             "base_url": "",
             "api_key": "",
             "timeout": 120,
@@ -180,7 +180,7 @@
         },
         "skills_hub": {
             "provider": "ollama-launch",
-            "model": "gemma4:31b-cloud",
+            "model": "gemma4:12b-it-qat",
             "base_url": "",
             "api_key": "",
             "timeout": 30,
@@ -188,7 +188,7 @@
         },
         "approval": {
             "provider": "ollama-launch",
-            "model": "gemma4:31b-cloud",
+            "model": "gemma4:12b-it-qat",
             "base_url": "",
             "api_key": "",
             "timeout": 30,
@@ -196,7 +196,7 @@
         },
         "mcp": {
             "provider": "ollama-launch",
-            "model": "gemma4:31b-cloud",
+            "model": "gemma4:12b-it-qat",
             "base_url": "",
             "api_key": "",
             "timeout": 30,
@@ -204,7 +204,7 @@
         },
         "title_generation": {
             "provider": "ollama-launch",
-            "model": "gemma4:31b-cloud",
+            "model": "gemma4:12b-it-qat",
             "base_url": "",
             "api_key": "",
             "timeout": 30,
@@ -236,7 +236,7 @@
         },
         "profile_describer": {
             "provider": "ollama-launch",
-            "model": "gemma4:31b-cloud",
+            "model": "gemma4:12b-it-qat",
             "base_url": "",
             "api_key": "",
             "timeout": 60,
@@ -408,7 +408,7 @@
         "provider": "openviking"
     },
     "delegation": {
-        "model": "gemma4:31b-cloud",
+        "model": "gemma4:12b-it-qat",
         "provider": "ollama-launch",
         "base_url": "",
         "api_key": "",
