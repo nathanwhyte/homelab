@@ -78,16 +78,86 @@ kubectl exec -n yt-dlp <debug-pod> -- tail /yt-dlp-archive/archive-playlist-2.tx
 
 ## Enabling the other 5 playlists
 
-Once the validation run is clean:
+Once the validation run is clean, pre-seed each playlist's archive file
+from the R2 backup of the prior architecture (see the **R2 archive-seeding**
+section below), then enable the CronJobs:
 
 ```
 for n in 1 3 4 5 6; do
+  media/yt-dlp/operator.sh seed-archive $n --apply
   media/yt-dlp/operator.sh enable $n
 done
 ```
 
 Or flip `suspend: true` → `suspend: false` in `cronjobs.yaml` and
 re-apply with `kubectl apply -f media/yt-dlp/cronjobs.yaml`.
+
+## R2 archive-seeding
+
+The CronJob templates use `--download-archive` to skip already-downloaded
+videos. For each playlist, the archive file at
+`/yt-dlp-archive/archive-playlist-N.txt` is the source of truth for "what
+do we have." When bringing up a new playlist, you can pre-seed that
+archive file with the IDs of the videos already backed up in R2.
+
+**Where the IDs come from.** The R2 keys under
+`backups/cluster/homelab-k3s/volumes/archive/media/YouTube/<name>/` are
+named by video title, not by video ID — so the seeder can't recover
+them from the R2 listing. The ID list has to come from somewhere else.
+The typical source is a one-time `yt-dlp --flat-playlist` extraction:
+
+```bash
+# Pull the IDs for one playlist without downloading any video.
+yt-dlp --flat-playlist --print id '<playlist_url>' > /tmp/playlist-3.ids
+```
+
+`--flat-playlist` is a metadata-only fetch (a few KB, not GB).
+
+Procedure (per playlist):
+
+```bash
+# 1. Get the IDs (one-off, a few seconds)
+yt-dlp --flat-playlist --print id '<playlist_url>' > /tmp/playlist-3.ids
+
+# 2. Dry-run
+media/yt-dlp/operator.sh seed-archive 3 --ids-file /tmp/playlist-3.ids
+
+# 3. Apply (writes the archive file to the media PVC)
+media/yt-dlp/operator.sh seed-archive 3 --ids-file /tmp/playlist-3.ids --apply
+
+# 4. Run the corresponding Job once
+media/yt-dlp/operator.sh run-job 3
+
+# 5. Tail logs
+media/yt-dlp/operator.sh logs
+```
+
+For multiple playlists in one shot, lay out files at
+`/tmp/yt-dlp-archives/archive-playlist-N.txt` (one per playlist, in yt-dlp
+archive format or just bare IDs) and run:
+
+```bash
+media/yt-dlp/operator.sh seed-archive --all \
+    --ids-dir /tmp/yt-dlp-archives --apply
+```
+
+Flags (passed to the underlying `r2-seed-archive.py`):
+
+- `--ids-file <path>` — single playlist, IDs from a file.
+- `--ids-stdin` — single playlist, IDs from stdin (pipe `yt-dlp
+  --flat-playlist --print id`).
+- `--ids-dir <path>` — `--all` mode, reads
+  `<path>/archive-playlist-N.txt` per playlist.
+- `--check-r2` — also enumerate the R2 prefix and print the file count
+  as a sanity check (R2 keys are title-named and don't carry IDs; this
+  only confirms the prefix has roughly the expected media count).
+- `--apply` — actually write to the PVC. Default is dry-run.
+- `--force` — overwrite an existing archive file on the PVC.
+
+The seeder is idempotent: re-running without `--force` is a no-op if the
+file already exists. The archive file is staged on the PVC with UID
+1000 / GID 1000 / mode 0644, matching the `fsGroup: 1000` on the
+CronJob template.
 
 ## Operator script
 
@@ -99,6 +169,11 @@ Usage: media/yt-dlp/operator.sh <command> [args]
   logs [job|pod]             Stream logs (most recent if no arg)
   archive-list               Show per-playlist archive stats
   archive-reset <N>          Wipe archive-playlist-N.txt (re-downloads all)
+  seed-archive <N|--all>     Stage an archive-playlist-N.txt on the
+                             media PVC from an operator-supplied ID
+                             list. Pass --ids-file, --ids-stdin, or
+                             --ids-dir to provide the IDs, then
+                             --apply to write.
   list-cronjobs              Show schedule + suspend state for all 6
   enable <N>                 Un-suspend CronJob N
   disable <N>                Suspend CronJob N
