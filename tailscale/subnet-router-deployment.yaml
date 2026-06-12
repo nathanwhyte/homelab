@@ -1,0 +1,64 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tailscale-subnet-router
+  namespace: tailscale
+spec:
+  # Single instance: one router advertises the routes. (Tailscale supports HA
+  # subnet routers, but each needs its own identity/state secret — not worth it
+  # for a homelab. If this node dies, reschedule picks another wired node.)
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: tailscale-subnet-router
+  template:
+    metadata:
+      labels:
+        app: tailscale-subnet-router
+    spec:
+      serviceAccountName: tailscale-subnet-router
+      affinity:
+        nodeAffinity:
+          # Keep the router off any wifi-attached node (matches cloudflared).
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: network
+                    operator: NotIn
+                    values:
+                      - wifi
+      containers:
+        - name: tailscale
+          image: tailscale/tailscale:v1.78.1
+          env:
+            # Userspace networking (netstack + SNAT): no NET_ADMIN, no privileged
+            # pod, no /dev/net/tun. Sufficient for subnet routing.
+            - name: TS_USERSPACE
+              value: "true"
+            - name: TS_KUBE_SECRET
+              value: tailscale-state
+            - name: TS_HOSTNAME
+              value: homelab-subnet-router
+            # Advertise the home LAN + the K3s pod/service CIDRs so tailnet
+            # devices can reach nodes (SSH, kubectl :6443) and in-cluster
+            # Services/Pods directly. Routes must be APPROVED in the admin
+            # console (Machines → homelab-subnet-router → Edit route settings)
+            # before they take effect.
+            - name: TS_ROUTES
+              value: "192.168.1.0/24,10.42.0.0/16,10.43.0.0/16"
+            - name: TS_AUTHKEY
+              valueFrom:
+                secretKeyRef:
+                  name: tailscale-auth
+                  key: TS_AUTHKEY
+          resources:
+            requests:
+              memory: 64Mi
+              cpu: 100m
+            limits:
+              memory: 256Mi
+              cpu: 500m
+          securityContext:
+            runAsNonRoot: false
