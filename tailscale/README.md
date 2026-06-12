@@ -46,7 +46,9 @@ risked collision with other tailnets.
    auth key): ✅ Reusable, ✅ Pre-approved. Optionally tag it
    (`tag:k8s-node`) and add a matching ACL entry.
 3. (Recommended) In the admin console, set an **autoApprovers** ACL for
-   `192.168.1.0/24` so the subnet routes self-approve on re-register:
+   `192.168.1.0/24` so the subnet routes self-approve on re-register
+   (without this, restarting `tailscaled` may require manual route
+   re-approval — discovered during HA failover testing 2026-06-12):
 
    ```json
    "autoApprovers": {
