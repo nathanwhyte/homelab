@@ -46,6 +46,22 @@ data:
       show_cost: false
       streaming: false
     fallback_providers: []
+    file_read_max_chars: 100000
+    tool_output:
+      max_bytes: 50000
+      max_lines: 2000
+      max_line_length: 2000
+    tool_loop_guardrails:
+      warnings_enabled: true
+      hard_stop_enabled: false
+      warn_after:
+        exact_failure: 2
+        same_tool_failure: 3
+        idempotent_no_progress: 2
+      hard_stop_after:
+        exact_failure: 5
+        same_tool_failure: 8
+        idempotent_no_progress: 5
     memory:
       memory_enabled: true
       user_profile_enabled: true
@@ -95,6 +111,119 @@ data:
         provider: ollama-launch
         model: gemma4:12b-it-qat
         timeout: 60
+    security:
+      allow_private_urls: false
+      redact_secrets: true
+      tirith_enabled: true
+      tirith_path: tirith
+      tirith_timeout: 5
+      tirith_fail_open: true
+      website_blocklist:
+        enabled: false
+        domains: []
+        shared_files: []
+      acked_advisories: []
+      allow_lazy_installs: true
+    streaming:
+      enabled: false
+      transport: auto
+      edit_interval: 0.8
+      buffer_threshold: 24
+      cursor: " ▉"
+      fresh_final_after_seconds: 60
+    sessions:
+      auto_prune: false
+      retention_days: 90
+      vacuum_after_prune: true
+      min_interval_hours: 24
+      write_json_snapshots: false
+    cron:
+      wrap_response: true
+      max_parallel_jobs: null
+    kanban:
+      dispatch_in_gateway: true
+      dispatch_interval_seconds: 60
+      failure_limit: 2
+      worker_log_rotate_bytes: 2097152
+      worker_log_backup_count: 1
+      orchestrator_profile: ""
+      default_assignee: ""
+      auto_decompose: true
+      auto_decompose_per_tick: 3
+      dispatch_stale_timeout_seconds: 14400
+    gateway:
+      strict: false
+      media_delivery_allow_dirs: []
+      trust_recent_files: true
+      trust_recent_files_seconds: 600
+    logging:
+      level: INFO
+      max_size_mb: 5
+      backup_count: 3
+    model_catalog:
+      enabled: true
+      url: "https://hermes-agent.nousresearch.com/docs/api/model-catalog.json"
+      ttl_hours: 1
+      providers: {}
+    network:
+      force_ipv4: false
+    goals:
+      max_turns: 20
+    skills:
+      external_dirs: []
+      template_vars: true
+      inline_shell: false
+      inline_shell_timeout: 10
+      guard_agent_created: false
+      write_approval: false
+    curator:
+      enabled: true
+      interval_hours: 168
+      min_idle_hours: 2
+      stale_after_days: 30
+      archive_after_days: 90
+      prune_builtins: true
+      backup:
+        enabled: true
+        keep: 5
+    openrouter:
+      response_cache: true
+      response_cache_ttl: 300
+      min_coding_score: 0.65
+    bedrock:
+      region: ""
+      discovery:
+        enabled: true
+        provider_filter: []
+        refresh_interval: 3600
+      guardrail:
+        guardrail_identifier: ""
+        guardrail_version: ""
+        stream_processing_mode: async
+        trace: disabled
+    privacy:
+      redact_pii: false
+    x_search:
+      model: grok-4.20-reasoning
+      timeout_seconds: 180
+      retries: 2
+    secrets:
+      bitwarden:
+        enabled: false
+        access_token_env: BWS_ACCESS_TOKEN
+        project_id: ""
+        cache_ttl_seconds: 300
+        override_existing: true
+        auto_install: true
+        server_url: ""
+    code_execution:
+      mode: project
+    tools:
+      tool_search:
+        enabled: auto
+        threshold_pct: 10
+        search_default_limit: 5
+        max_search_limit: 20
     terminal:
       backend: ssh
       cwd: /home/hermes
