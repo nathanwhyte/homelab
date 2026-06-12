@@ -48,7 +48,12 @@ else
 fi
 
 # 2. Build the `tailscale up` argument list.
-up_args=(--ssh --accept-routes "--hostname=${node}")
+# NOTE: deliberately NO --accept-routes. All cluster nodes are physically on the
+# advertised subnet (192.168.1.0/24); if a node accepts that route it sends LAN
+# replies out tailscale0 instead of its NIC, breaking direct SSH/kubectl/ICMP
+# from on-LAN clients (return-path blackhole). --accept-routes belongs only on
+# OFF-LAN client devices (phone/laptop while traveling).
+up_args=(--ssh "--hostname=${node}")
 if [[ -n "${TS_AUTHKEY:-}" ]]; then
 	up_args+=("--authkey=${TS_AUTHKEY}")
 fi
