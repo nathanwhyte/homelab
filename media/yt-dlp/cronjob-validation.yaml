@@ -36,8 +36,9 @@
 #   4. eval set -- to splice EXTRA_ARGS in (preserving quoting) so the
 #      operator can pass per-run overrides like
 #      `operator.sh run-job 2 "--no-mtime"`.
-#   5. exec yt-dlp "$@" so the shell becomes yt-dlp (clean signal
-#      handling).
+#   5. yt-dlp "$@" || true — run yt-dlp; ignore non-zero exit (unavailable
+#      videos cause exit 1 even with --ignore-errors; the job should succeed
+#      as long as the playlist was fully processed).
 #   6. On exit, sweep *.f[0-9]* (yt-dlp's fragment files) and *.part
 #      from the playlist directory to prevent stale partials from
 #      being re-counted on the next run. (yt-dlp's --no-keep-fragments
@@ -68,7 +69,7 @@ spec:
   jobTemplate:
     spec:
       backoffLimit: 1
-      activeDeadlineSeconds: 14400   # 4h hard cap
+      activeDeadlineSeconds: 14400 # 4h hard cap
       template:
         metadata:
           labels:
@@ -137,9 +138,11 @@ spec:
                   mkdir -p "/downloads/${PLAYLIST_NAME}"
                   cd "/downloads/${PLAYLIST_NAME}"
 
-                  # `exec` so the shell becomes yt-dlp (clean signal
-                  # handling + the right exit code surfaces).
-                  exec yt-dlp "$@"
+                  # || true: yt-dlp exits non-zero when videos are
+                  # unavailable even with --ignore-errors; the job
+                  # should succeed as long as the playlist was fully
+                  # processed.
+                  yt-dlp "$@" || true
               volumeMounts:
                 - name: config
                   mountPath: /config

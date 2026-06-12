@@ -109,7 +109,7 @@ spec:
                   fi
                   mkdir -p "/downloads/${PLAYLIST_NAME}"
                   cd "/downloads/${PLAYLIST_NAME}"
-                  exec yt-dlp "$@"
+                  yt-dlp "$@" || true
               volumeMounts:
                 - name: config
                   mountPath: /config
@@ -203,7 +203,7 @@ spec:
                   fi
                   mkdir -p "/downloads/${PLAYLIST_NAME}"
                   cd "/downloads/${PLAYLIST_NAME}"
-                  exec yt-dlp "$@"
+                  yt-dlp "$@" || true
               volumeMounts:
                 - name: config
                   mountPath: /config
@@ -297,7 +297,7 @@ spec:
                   fi
                   mkdir -p "/downloads/${PLAYLIST_NAME}"
                   cd "/downloads/${PLAYLIST_NAME}"
-                  exec yt-dlp "$@"
+                  yt-dlp "$@" || true
               volumeMounts:
                 - name: config
                   mountPath: /config
@@ -391,7 +391,7 @@ spec:
                   fi
                   mkdir -p "/downloads/${PLAYLIST_NAME}"
                   cd "/downloads/${PLAYLIST_NAME}"
-                  exec yt-dlp "$@"
+                  yt-dlp "$@" || true
               volumeMounts:
                 - name: config
                   mountPath: /config
@@ -485,7 +485,7 @@ spec:
                   fi
                   mkdir -p "/downloads/${PLAYLIST_NAME}"
                   cd "/downloads/${PLAYLIST_NAME}"
-                  exec yt-dlp "$@"
+                  yt-dlp "$@" || true
               volumeMounts:
                 - name: config
                   mountPath: /config
