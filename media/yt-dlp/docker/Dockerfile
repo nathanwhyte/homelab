@@ -4,8 +4,14 @@
 # Base:  python:3.12-alpine
 #
 # Notable changes from the retired ~/code/repos/k8s/media/yt-dlp/docker/Dockerfile:
-#   - DROP deno: `yt-dlp[default]` bundles `yt-dlp-ejs` (npm-equivalent
-#     JavaScript challenge solver), so Deno is no longer needed for EJS.
+#   - KEEP deno: re-added 2026-06-11 after the first validation run
+#     showed the "No supported JavaScript runtime could be found" warning.
+#     `yt-dlp-ejs` is bundled with `yt-dlp[default]`, but EJS needs an
+#     actual JS runtime (Deno, Node, Bun, etc.) to execute the challenge
+#     solver. Without one, YouTube extraction still works for most videos
+#     but some formats are missing and PO-token-gated videos will fail.
+#     The `yt-dlp` wiki's recommended default is Deno; Alpine ships
+#     `deno-2.7.x` so it's a one-line apk add.
 #   - DROP AtomicParsley: Q3 closed with "drop from image, re-add only if a
 #     metadata issue surfaces on a real yt-dlp run." ffmpeg handles the
 #     metadata cases we actually use; chapters are intentionally skipped.
@@ -20,24 +26,32 @@
 #     eliminates the bgutil-provider sidecar from the retired architecture.
 #
 # Build:
-#   docker build -t nathanwhyte/yt-dlp:2026.06.10-yt-dlp media/yt-dlp/docker/
+#   docker buildx build --platform=linux/amd64 \
+#     -t nathanwhyte/yt-dlp:2026.06.10-yt-dlp \
+#     --push media/yt-dlp/docker/
 # Push:
-#   docker push nathanwhyte/yt-dlp:2026.06.10-yt-dlp
+#   (handled by --push above; or `docker push` after a plain `docker build`)
 FROM python:3.12-alpine
 
 # Install system dependencies
 # - ffmpeg: required for merging video/audio and post-processing
 # - ca-certificates: for SSL/TLS validation when talking to YouTube / S3
+# - deno: JS runtime for yt-dlp-ejs challenge solving. Without it,
+#   `yt-dlp[default]` still works but some formats are missing and
+#   PO-token-gated videos fail. The EJS README on the yt-dlp wiki
+#   recommends Deno as the default; Alpine's `deno` package is
+#   ~25 MB and is kept up to date.
 RUN apk add --no-cache \
     ffmpeg \
     ca-certificates \
+    deno \
     && rm -rf /var/cache/apk/*
 
 # Install yt-dlp and the in-process POT plugin
 # - yt-dlp[default]: main package; the `default` extra group bundles
 #   `yt-dlp-ejs` (the JavaScript challenge solver), certifi, mutagen,
 #   pycryptodome, and websockets — all the things the old Dockerfile
-#   installed individually.
+#   installed individually. EJS needs a JS runtime (deno, above).
 # - bgutil-ytdlp-pot-provider: featured plugin maintained by a yt-dlp
 #   maintainer; runs in-process so the new design drops the bgutil-provider
 #   Deployment + ClusterIP Service from the retired architecture.
