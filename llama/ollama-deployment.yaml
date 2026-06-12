@@ -39,7 +39,7 @@ spec:
             - name: OLLAMA_HOST
               value: "0.0.0.0"
             - name: OLLAMA_CONTEXT_LENGTH
-              value: "8192"
+              value: "131072"
             - name: OLLAMA_FLASH_ATTENTION
               value: "1"
             - name: OLLAMA_KV_CACHE_TYPE
@@ -50,8 +50,6 @@ spec:
               value: "3"
             - name: OLLAMA_MAX_LOADED_MODELS
               value: "1"
-            - name: OLLAMA_CONTEXT_LENGTH
-              value: "8192"
             - name: HIP_VISIBLE_DEVICES
               value: "0"
           ports:

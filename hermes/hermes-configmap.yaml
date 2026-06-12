@@ -41,7 +41,7 @@ data:
       max_spawn_depth: 2
       child_timeout_seconds: 900
       reasoning_effort: none
-      ollama_num_ctx: 4096
+      ollama_num_ctx: 8192
       ollama_think: false
     display:
       show_reasoning: false
@@ -75,7 +75,7 @@ data:
       base_url: http://chat-ollama.llama.svc:11434/v1
       default: glm-5.1:cloud
       provider: ollama-launch
-      ollama_num_ctx: 8192
+      ollama_num_ctx: 131072
     providers:
       ollama-launch:
         api: http://chat-ollama.llama.svc:11434/v1
@@ -93,7 +93,7 @@ data:
         provider: ollama-launch
         model: gemma4:12b-it-qat
         timeout: 120
-        ollama_num_ctx: 4096
+        ollama_num_ctx: 8192
         ollama_think: false
       skills_hub:
         provider: ollama-launch
