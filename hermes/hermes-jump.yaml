@@ -95,6 +95,11 @@ data:
       su - hermes -c '/home/hermes/.local/bin/uv python install 3.12'
     fi
 
+    # Authenticate gh CLI if GITHUB_TOKEN is provided (persists on PVC)
+    if [ -n "${GITHUB_TOKEN:-}" ] && [ ! -f /home/hermes/.config/gh/hosts.yml ]; then
+      su - hermes -c "echo \"$GITHUB_TOKEN\" | gh auth login --with-token 2>/dev/null || true"
+    fi
+
     ssh-keygen -A
     exec /usr/sbin/sshd -D -e
 ---
@@ -140,6 +145,12 @@ spec:
             limits:
               cpu: "1"
               memory: 1Gi
+          env:
+            - name: GITHUB_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: github-access-token
+                  key: GITHUB_TOKEN
           volumeMounts:
             - name: entrypoint
               mountPath: /scripts
