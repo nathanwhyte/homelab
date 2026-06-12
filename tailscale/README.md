@@ -119,6 +119,20 @@ ssh <user>@<node>.<tailnet>.ts.net   # via MagicDNS; Tailscale SSH if ACL-allowe
 | `install-node.sh` | Host-level installer/enroller; role-aware (router vs plain node) |
 | `README.md`       | This runbook                                                     |
 
+## Future: Tailscale Kubernetes Operator (complementary)
+
+The [Tailscale Kubernetes Operator](https://tailscale.com/docs/kubernetes-operator) is a Helm-installed, in-cluster option that adds **workload-level** networking — declarative per-service tailnet exposure and egress. It does **not** replace host-level Tailscale (it dies with the cluster, so break-glass access still requires host-level).
+
+| Operator feature | What it does | Why it's interesting |
+|-----------------|-------------|---------------------|
+| L7 Ingress | `Ingress` with `ingressClassName: tailscale` → `*.ts.net` with auto-TLS | Replace some Cloudflare Tunnel routes for private services |
+| L3 Ingress | Annotate Service `tailscale.com/expose: "true"` → tailnet IP | Selective exposure instead of advertising entire CIDR |
+| Egress | `Connector` CR → pods reach tailnet services | Cluster pods (e.g. hermes-agent) reaching off-LAN tailnet devices |
+| API Server Proxy | `tailscale configure kubeconfig` → identity-based kubectl | Audit trail via impersonation headers |
+| Funnel | Annotate `tailscale.com/funnel: "true"` → public endpoint | Replace Cloudflare for services that don't need WAF/caching |
+
+See PROJ-008 (2026-06-13 note) for the full research findings and prioritization.
+
 ## Alternatives considered
 
 - **Mechanism — Cloudflare Tunnel vs Tailscale.** Cloudflare is an L7
