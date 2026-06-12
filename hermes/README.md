@@ -5,6 +5,40 @@ Hermes runs in the `hermes` namespace as two Deployments:
 - `hermes-agent` — Hermes Agent runtime, currently running `hermes gateway run`
 - `hermes-jump` — constrained SSH terminal backend used by Hermes for shell/tool execution
 
+### Persistent storage
+
+| PVC | Mount | Pod | Size | Purpose |
+|---|---|---|---|---|
+| `hermes-home` | `/opt/data` | `hermes-agent` | 10Gi | Agent config, sessions, kanban DB |
+| `hermes-jump-home` | `/home/hermes` | `hermes-jump` | 5Gi | uv, Python, git repos, SSH known_hosts, tool configs |
+
+The jump pod PVC ensures `uv`, Python, `gh`, and other tools survive pod restarts. On first boot, the entrypoint bootstraps `uv` + Python 3.12 and git config into the persistent volume. Subsequent boots skip installation if binaries already exist.
+
+The jump pod also receives a `GITHUB_TOKEN` env var from the `github-access-token` Secret. On first boot, the entrypoint runs `gh auth login --with-token` to persist the credential in `~/.config/gh/hosts.yml` on the PVC. Subsequent boots skip re-auth if the hosts file already exists.
+
+To create the secret in the hermes namespace (copy from the existing build namespace secret):
+
+```bash
+kubectl get secret github-access-token -n build -o json \
+  | python3 -c "
+import sys, json
+d = json.load(sys.stdin)
+d['metadata'].update({'name':'github-access-token','namespace':'hermes','labels':{'app':'hermes-jump'}})
+for k in ('uid','resourceVersion','creationTimestamp','managedFields'):
+    d['metadata'].pop(k, None)
+d.get('metadata',{}).pop('annotations', None)
+json.dump(d, sys.stdout)" \
+  | kubectl apply -f -
+```
+
+To reset the jump home (e.g. after corruption):
+
+```bash
+kubectl delete pvc hermes-jump-home -n hermes
+kubectl rollout restart deployment/hermes-jump -n hermes
+# The entrypoint will recreate everything on the fresh PVC
+```
+
 The agent API is **cluster-internal only**. Do not expose it through Cloudflare or any public ingress until the PROJ-006 safety review is complete.
 
 ## Operator access model

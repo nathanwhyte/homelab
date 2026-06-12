@@ -17,6 +17,7 @@ data:
       ca-certificates \
       curl \
       git \
+      jq \
       openssh-server
     rm -rf /var/lib/apt/lists/*
 
@@ -26,9 +27,21 @@ data:
       chmod +x /usr/local/bin/kubectl
     fi
 
+    if ! command -v gh >/dev/null 2>&1; then
+      curl -fsSL -o /tmp/gh.tar.gz \
+        https://github.com/cli/cli/releases/download/v2.74.0/gh_2.74.0_linux_amd64.tar.gz
+      tar xzf /tmp/gh.tar.gz -C /tmp
+      cp /tmp/gh_*/bin/gh /usr/local/bin/gh
+      rm -rf /tmp/gh.tar.gz /tmp/gh_*
+      chmod +x /usr/local/bin/gh
+    fi
+
     if ! id -u hermes >/dev/null 2>&1; then
       useradd -m -s /bin/bash hermes
     fi
+
+    # Ensure the hermes user owns their persistent home (first-boot fix)
+    chown hermes:hermes /home/hermes
 
     mkdir -p /home/hermes/.ssh /run/sshd
     cp /ssh-public/id_ed25519.pub /home/hermes/.ssh/authorized_keys
@@ -61,6 +74,31 @@ data:
     chown -R hermes:hermes /home/hermes/.kube
     chmod 700 /home/hermes/.kube
     chmod 600 /home/hermes/.kube/config
+
+    # Set up PATH for all login shells so ~/.local/bin is always available
+    cat > /etc/profile.d/hermes-path.sh <<'PATHEOF'
+    export PATH="$HOME/.local/bin:$PATH"
+    PATHEOF
+
+    # Bootstrap git config on first boot (persists on PVC)
+    if [ ! -f /home/hermes/.gitconfig ]; then
+      su - hermes -c 'git config --global user.name "NewtBot" && git config --global user.email "nathanwhyte35@gmail.com" && git config --global init.defaultBranch main && git config --global core.sshCommand "ssh -o StrictHostKeyChecking=accept-new"'
+      chown hermes:hermes /home/hermes/.gitconfig
+    fi
+
+    # Install uv + Python on first boot (persists on PVC)
+    if ! command -v uv >/dev/null 2>&1; then
+      su - hermes -c 'curl -LsSf https://astral.sh/uv/install.sh | sh'
+    fi
+    # Ensure uv-managed Python is available
+    if [ ! -x /home/hermes/.local/bin/python3.12 ]; then
+      su - hermes -c '/home/hermes/.local/bin/uv python install 3.12'
+    fi
+
+    # Authenticate gh CLI if GITHUB_TOKEN is provided (persists on PVC)
+    if [ -n "${GITHUB_TOKEN:-}" ] && [ ! -f /home/hermes/.config/gh/hosts.yml ]; then
+      su - hermes -c "echo \"$GITHUB_TOKEN\" | gh auth login --with-token 2>/dev/null || true"
+    fi
 
     ssh-keygen -A
     exec /usr/sbin/sshd -D -e
@@ -103,16 +141,24 @@ spec:
           resources:
             requests:
               cpu: 100m
-              memory: 128Mi
+              memory: 256Mi
             limits:
               cpu: "1"
-              memory: 512Mi
+              memory: 1Gi
+          env:
+            - name: GITHUB_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: github-access-token
+                  key: GITHUB_TOKEN
           volumeMounts:
             - name: entrypoint
               mountPath: /scripts
             - name: ssh-public
               mountPath: /ssh-public
               readOnly: true
+            - name: hermes-jump-home
+              mountPath: /home/hermes
       volumes:
         - name: entrypoint
           configMap:
@@ -124,6 +170,9 @@ spec:
             items:
               - key: id_ed25519.pub
                 path: id_ed25519.pub
+        - name: hermes-jump-home
+          persistentVolumeClaim:
+            claimName: hermes-jump-home
 ---
 apiVersion: v1
 kind: Service
