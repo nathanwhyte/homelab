@@ -77,20 +77,30 @@ Config: `~/code/robots/media/pipeline/img-pipeline.conf` (model paths, ports, ti
 
 | Name | NS | Type | Detail |
 |------|-----|------|--------|
-| openviking-basicauth | viking | basicAuth | secret: `openviking-auth-secret` |
+| harbor-no-limit | harbor | buffering | Unlimited body size for image pushes |
 | openviking-https-redirect | viking | redirectScheme | HTTP → HTTPS, permanent |
 | hermes-lan-only | hermes | ipAllowList | 192.168.1.0/24, 10.42.0.0/16, 10.43.0.0/16 |
 | hermes-https-redirect | hermes | redirectScheme | HTTP → HTTPS, permanent |
 
+> **Note:** `openviking-basicauth` (viking ns, basicAuth) exists in repo manifest (`viking/manifests/openviking-basicauth-middleware.yaml`) but is **not deployed** to the live cluster. The `context.nathanwhyte.dev` route goes through the Cloudflare tunnel (no Traefik IngressRoute), so BasicAuth at the Traefik layer is unnecessary — auth is handled by OV's `root_api_key` instead.
+
 ### External routes
 
-| Host | Backend | Entry | Middlewares | TLS |
-|------|---------|-------|-------------|-----|
-| `context.nathanwhyte.dev` | `openviking:1933` | websecure | openviking-basicauth | cert-manager (letsencrypt-prod) |
-| `context.nathanwhyte.dev` | `openviking:1933` | web | openviking-https-redirect | — |
-| `hermes.nathanwhyte.dev` | `hermes-agent:9119` | Cloudflare tunnel | session token auth | Cloudflare origin cert |
+All external routes are served via the Cloudflare tunnel (see `cloudflare/main-tunnel/cloudflared-configmap.yaml`). There are no Traefik IngressRoutes in the live cluster.
 
-Additional routes served exclusively via Cloudflare tunnel (not through Traefik IngressRoute): `k8s.nathanwhyte.dev` (k8s-dashboard), `lamp.nathanwhyte.dev` (headlamp), `uploads.nathanwhyte.dev` (garage S3), `logs.nathanwhyte.dev` (grafana), `longhorn.nathanwhyte.dev` (longhorn UI), `chat.nathanwhyte.dev` (open-webui), `llama.nathanwhyte.dev` (ollama-auth-proxy), `nathanwhyte.dev` / `www.nathanwhyte.dev` (portfolio), `ssh.nathanwhyte.dev` / `ssh-timmy.nathanwhyte.dev` (SSH). See `cloudflare/main-tunnel/cloudflared-configmap.yaml` for the full tunnel config.
+| Host | Backend | Auth | Notes |
+|------|---------|------|-------|
+| `context.nathanwhyte.dev` | `openviking:1933` | OV `root_api_key` | API + `/mcp` |
+| `hermes.nathanwhyte.dev` | `hermes-agent:9119` | session token | Dashboard |
+| `k8s.nathanwhyte.dev` | k8s-dashboard | — | |
+| `lamp.nathanwhyte.dev` | headlamp | — | |
+| `uploads.nathanwhyte.dev` | garage:3900 | — | S3 |
+| `logs.nathanwhyte.dev` | grafana | — | |
+| `longhorn.nathanwhyte.dev` | longhorn-frontend | — | |
+| `chat.nathanwhyte.dev` | open-webui | — | |
+| `llama.nathanwhyte.dev` | ollama-auth-proxy | Bearer token | |
+| `nathanwhyte.dev` / `www.nathanwhyte.dev` | portfolio | — | |
+| `ssh.nathanwhyte.dev` / `ssh-timmy.nathanwhyte.dev` | SSH | — | |
 
 ### Tailscale — private external access (PROJ-008)
 
