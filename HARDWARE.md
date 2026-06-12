@@ -4,7 +4,7 @@ Audited 2026-03-20. 3-node K3s cluster running Ubuntu 24.04 LTS.
 
 ## Nodes
 
-### manu (Worker)
+### manu (Agent)
 
 | Component   | Details                             |
 | ----------- | ----------------------------------- |
@@ -14,7 +14,7 @@ Audited 2026-03-20. 3-node K3s cluster running Ubuntu 24.04 LTS.
 | **GPU**     | NVIDIA GeForce GTX 1080 (8 GB VRAM) |
 | **Kernel**  | 6.17.0-19-generic                   |
 
-### timmy (Worker)
+### timmy (Agent)
 
 | Component   | Details                                    |
 | ----------- | ------------------------------------------ |
@@ -24,7 +24,7 @@ Audited 2026-03-20. 3-node K3s cluster running Ubuntu 24.04 LTS.
 | **GPU**     | AMD Radeon RX 9070 XT (16 GB VRAM, RDNA 4) |
 | **Kernel**  | 6.17.0-19-generic                          |
 
-### wemby (Worker + Control Plane)
+### wemby (Server — Control Plane + Worker)
 
 | Component   | Details                                                         |
 | ----------- | --------------------------------------------------------------- |
