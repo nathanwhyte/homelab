@@ -102,7 +102,7 @@ spec:
               )
               replacement = (
                   '            import asyncio as _asyncio\n'
-                  '            max_retries = 3\n'
+                  '            max_retries = 10\n'
                   '            for attempt in range(max_retries + 1):\n'
                   '                try:\n'
                   '                    await viking_fs._mv_vector_store_l0_l1(\n'
@@ -114,7 +114,7 @@ spec:
                   '                    break\n'
                   '                except Exception as e:\n'
                   '                    if attempt < max_retries:\n'
-                  '                        delay = 2 ** attempt\n'
+                  '                        delay = min(2 ** attempt, 60)\n'
                   '                        logger.warning(\n'
                   '                            f"[SyncDiff] Retry {attempt+1}/{max_retries} "\n'
                   '                            f"L0/L1 move after lock contention ({delay}s): {root_dir}"\n'

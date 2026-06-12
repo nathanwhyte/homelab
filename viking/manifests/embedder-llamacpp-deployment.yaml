@@ -78,7 +78,7 @@ spec:
             - --ctx-size
             - "16384"
             - --parallel
-            - "8"
+            - "4"
             - --batch-size
             - "4096"
             - --ubatch-size
