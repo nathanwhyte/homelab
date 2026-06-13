@@ -101,16 +101,16 @@ Two contexts in `~/.kube/config`:
 
 | Context | Server | Path | Requires |
 |---------|--------|------|----------|
-| `homelab` | `192.168.1.9:6443` | LAN IP via subnet route | `--accept-routes` on client |
-| `tailnet` | `100.118.40.21:6443` | Direct tailnet IP | `--tls-san` on wemby (done) |
+| `homelab` | `192.168.1.19:6443` | LAN IP via subnet route | `--accept-routes` on client |
+| `tailnet` | `100.95.215.105:6443` | Direct tailnet IP | `--tls-san` on timmy (done) |
 
 ```bash
 kubectl --context homelab get nodes   # via subnet route
 kubectl --context tailnet get nodes   # via tailnet IP
 ```
 
-The `tailnet` context requires `--tls-san 100.118.40.21` in
-`/etc/rancher/k3s/config.yaml` on wemby (already added 2026-06-12)
+The `tailnet` context requires `--tls-san 100.95.215.105` in
+`/etc/rancher/k3s/config.yaml` on timmy (already added 2026-06-12)
 so the API server cert is valid for the tailnet IP. The CA cert is
 stored at `~/.kube/k3s-ca.crt`.
 

@@ -26,9 +26,9 @@ Comprehensive review of all GPU setup, model benchmarks, and AI tools work in th
 
 | Node | Role | CPU | RAM | Storage | GPU | VRAM |
 |------|------|-----|-----|---------|-----|------|
-| **timmy** | Worker | AMD Ryzen 7 7800X3D (8C/16T) | 32 GB | WD Green SN3000 2TB NVMe | AMD RX 9070 XT (RDNA 4, gfx1201) | 16 GB GDDR6 |
+| **timmy** | Control+Worker | AMD Ryzen 7 7800X3D (8C/16T) | 32 GB | WD Green SN3000 2TB NVMe | AMD RX 9070 XT (RDNA 4, gfx1201) | 16 GB GDDR6 |
 | **manu** | Worker | AMD Ryzen 7 1700 (8C/16T) | 16 GB | 2x Samsung 860 EVO 1TB SATA SSD | NVIDIA GTX 1080 (Pascal, SM 6.1) | 8 GB GDDR5X |
-| **wemby** | Control+Worker | Intel i7-8750H (6C/12T) | 16 GB | WDC SN520 256GB NVMe + 1TB HDD | NVIDIA GTX 1060 | 6 GB |
+| **wemby** | Worker | Intel i7-8750H (6C/12T) | 16 GB | WDC SN520 256GB NVMe + 1TB HDD | NVIDIA GTX 1060 | 6 GB |
 
 **Retired nodes:** patty (i5-7200U, 8 GB) and steph (i5-10210U, 12 GB) removed from cluster.
 
