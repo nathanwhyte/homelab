@@ -39,11 +39,7 @@ spec:
               # SSH client config: auto-accept new host keys (safety net for
               # jump pod recreation after host key persistence fix)
               if [ ! -f /data/.ssh/config ]; then
-                cat > /data/.ssh/config <<'SSHEOF'
-Host hermes-jump.hermes.svc.cluster.local
-  StrictHostKeyChecking accept-new
-  UserKnownHostsFile /opt/data/.ssh/known_hosts
-SSHEOF
+                printf 'Host hermes-jump.hermes.svc.cluster.local\n  StrictHostKeyChecking accept-new\n  UserKnownHostsFile /opt/data/.ssh/known_hosts\n' > /data/.ssh/config
                 chmod 600 /data/.ssh/config
               fi
               # Fix ownership for hermes user (UID 10000) — recursive to cover
@@ -62,7 +58,7 @@ SSHEOF
         - name: hermes
           image: nousresearch/hermes-agent:latest
           imagePullPolicy: Always
-          args: ["gateway", "run"]
+          args: ["gateway", "run", "--replace"]
           env:
             - name: HERMES_INFERENCE_MODEL
               value: glm-5.1:cloud
