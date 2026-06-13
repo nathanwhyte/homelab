@@ -74,10 +74,32 @@ S3-compatible object storage engine.
 
 Internal OpenAI-compatible LLM endpoints backed by Ollama and `llama.cpp`.
 
-- **Ollama** (timmy, RX 9070 XT): `ollama.llama.svc:80` — primary inference for Claude Code and OpenWebUI; hosts models like Qwen, Gemma, Mistral
-- **OV LLM** (manu, GTX 1080): `llamacpp-cuda-llm.viking.svc:80` — OpenViking VLM inference; ROCm hot standby on timmy scaled to 0
-- **Embedder** (timmy, CPU): `embedder-llamacpp.viking.svc:8080` — nomic-embed-text f16 for vector embeddings
+- **Ollama** (timmy, RX 9070 XT): `ollama.llama.svc:11434` — primary inference for Claude Code, Hermes, and OpenWebUI; hosts gemma4:12b-it-qat (local) and glm-5.1:cloud (remote)
+- **OV VLM** (manu, GTX 1080): `llamacpp-cuda-ov` in viking namespace — OpenViking vision/L0 generation; always on (steady-state replicas=1)
+- **Embedder** (wemby, GTX 1060, CUDA): `embedder-llamacpp.viking.svc:8080` — nomic-embed-text f16 for vector embeddings
 - Read more in [`llama/README.md`](./llama/README.md) and [`viking/`](./viking/).
+
+### Hermes
+
+AI agent with persistent OpenViking memory, SSH terminal backend, and Cloudflare-exposed dashboard.
+
+- Agent API on port 8642 (cluster-internal), dashboard on 9119 (exposed at `hermes.nathanwhyte.dev` via Cloudflare tunnel)
+- Uses OpenViking as memory provider (writes to `viking://resources/patterns/` and `viking://resources/preferences/`)
+- Read more in [`hermes/README.md`](./hermes/README.md).
+
+### OpenViking
+
+Hierarchical RAG engine with auto-generated L0/L1/L2 semantic indices over a filesystem-shaped knowledge tree.
+
+- S3-backed file storage (Garage), HTTP vector DB, embedder on wemby (CUDA), VLM on manu (CUDA)
+- API at `context.nathanwhyte.dev`, console at `viking.nathanwhyte.dev`
+- Read more in [`viking/OPENVIKING.md`](./viking/OPENVIKING.md).
+
+### Tailscale
+
+WireGuard mesh for private admin/network access from off-LAN. All 3 nodes run Tailscale; manu and wemby are HA subnet routers advertising `192.168.1.0/24`.
+
+- Read more in [`tailscale/README.md`](./tailscale/README.md).
 
 ## Other Technologies
 

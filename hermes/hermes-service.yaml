@@ -13,5 +13,9 @@ spec:
       port: 8642
       protocol: TCP
       targetPort: api
+    - name: dashboard
+      port: 9119
+      protocol: TCP
+      targetPort: dashboard
   selector:
     app: hermes-agent
