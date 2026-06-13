@@ -1,6 +1,6 @@
 # Cluster Hardware Inventory
 
-Audited 2026-06-12. 3-node K3s cluster running Ubuntu 24.04.4 LTS, K3s v1.35.2+k3s1.
+Audited 2026-06-12. 3-node K3s cluster running Ubuntu 24.04.4 LTS, K3s v1.35.5+k3s1.
 
 ## Nodes
 
@@ -14,7 +14,7 @@ Audited 2026-06-12. 3-node K3s cluster running Ubuntu 24.04.4 LTS, K3s v1.35.2+k
 | **GPU**     | NVIDIA GeForce GTX 1080 (8 GB VRAM) |
 | **Kernel**  | 6.17.0-35-generic                   |
 
-### timmy (Agent)
+### timmy (Server — Control Plane + Worker)
 
 | Component   | Details                                    |
 | ----------- | ------------------------------------------ |
@@ -24,7 +24,7 @@ Audited 2026-06-12. 3-node K3s cluster running Ubuntu 24.04.4 LTS, K3s v1.35.2+k
 | **GPU**     | AMD Radeon RX 9070 XT (16 GB VRAM, RDNA 4) |
 | **Kernel**  | 6.17.0-35-generic                          |
 
-### wemby (Server — Control Plane + Worker)
+### wemby (Agent)
 
 | Component   | Details                                                         |
 | ----------- | --------------------------------------------------------------- |

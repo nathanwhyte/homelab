@@ -7,8 +7,8 @@
 | Node | Role | GPU | Key workloads |
 |------|------|-----|---------------|
 | manu | agent | GTX 1080 8 GB | llamacpp-cuda-ov (VLM, **always on — replicas=1, sole GPU workload**); hermes-agent |
-| timmy | agent | RX 9070 XT 16 GB | ollama, openviking, ov-vectordb; llamacpp-rocm (**retired** — see Phase 4 banner) |
-| wemby | server (Control Plane + worker) | GTX 1060 6 GB | embedder-llamacpp (CUDA, persistent model cache on wemby-model-cache PVC) |
+| timmy | server (Control Plane + worker) | RX 9070 XT 16 GB | ollama, openviking, ov-vectordb; llamacpp-rocm (**retired** — see Phase 4 banner) |
+| wemby | agent | GTX 1060 6 GB | embedder-llamacpp (CUDA, persistent model cache on wemby-model-cache PVC) |
 
 ## Service routing
 
@@ -114,7 +114,7 @@ Host-level Tailscale on all 3 nodes (WireGuard mesh) for **private admin/network
 
 - **Advertised routes**: `192.168.1.0/24` only (cluster CIDRs dropped — reachable via LAN route, advertising them risked collision)
 - **`--accept-routes`**: belongs only on **off-LAN client devices** (MacBook/phone). Do NOT set on the nodes themselves — they're physically on the advertised subnet and accepting the route causes asymmetric routing (ERR-007)
-- **kubectl**: two contexts in `~/.kube/config` — `homelab` (LAN IP 192.168.1.9:6443 via subnet route) and `tailnet` (100.118.40.21:6443 direct; requires `--tls-san` in `/etc/rancher/k3s/config.yaml` on wemby, already done)
+- **kubectl**: two contexts in `~/.kube/config` — `homelab` (LAN IP 192.168.1.19:6443 via subnet route) and `tailnet` (100.95.215.105:6443 direct; requires `--tls-san` in `/etc/rancher/k3s/config.yaml` on timmy, already done)
 - **SSH**: `ssh wemby` / `ssh manu` / `ssh timmy` via `~/.ssh/config` aliases (all point to tailnet IPs). Wemby user is `natew`, not `noot`
 - **Tailscale SSH** (`tailscale ssh`): ACL-gated keyless SSH also available; wemby requires `tailscale ssh natew@wemby`
 
