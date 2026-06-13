@@ -42,9 +42,11 @@ data:
       child_timeout_seconds: 900
       reasoning_effort: none
     display:
-      show_reasoning: false
+      personality: technical
+      show_reasoning: true
       show_cost: false
       streaming: false
+      credits_notices: false
     fallback_providers: []
     file_read_max_chars: 100000
     tool_output:
