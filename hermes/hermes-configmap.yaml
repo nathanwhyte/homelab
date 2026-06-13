@@ -15,7 +15,7 @@ data:
       tool_use_enforcement: auto
       verbose: false
     approvals:
-      mode: manual
+      mode: smart
       timeout: 60
     compression:
       enabled: true
