@@ -1,6 +1,6 @@
 # Harbor Container Registry
 
-Private container registry running on the K3s cluster. Hosts the hermes-agent, ov-vectordb, and other cluster-built images.
+Private container registry running on the K3s cluster. Hosts images for external projects (build-hook, credit-coach, equal-risk, glossary, portfolio) and legacy homelab images (OV worker/coordinator/merge — all scaled to 0).
 
 ## At a glance
 
@@ -11,7 +11,7 @@ Private container registry running on the K3s cluster. Hosts the hermes-agent, o
 | Helm release | `harbor` (revision 3, upgraded 2026-06-10) |
 | Chart / App | `harbor-1.19.1` / Harbor **2.15.1** (app components); DB and Redis pinned at v2.14.3 in `harbor-values.yaml` |
 | Components | core, portal, registry, jobservice, database, redis, trivy, exporter (single replica each) |
-| Storage | RWO Longhorn volumes — `harbor-registry-rwo` (50Gi, longhorn-harbor), `harbor-jobservice-rwo` (1Gi, longhorn-harbor); database (5Gi, longhorn-hdd), redis (5Gi, longhorn-ssd), trivy (5Gi, longhorn-ssd) |
+| Storage | RWO Longhorn volumes, all on `longhorn-harbor` storage class — `harbor-registry-rwo` (50Gi), `harbor-jobservice-rwo` (1Gi), database (5Gi), redis (5Gi), trivy (5Gi) |
 | TLS | cert-manager DNS-01 via Cloudflare (`letsencrypt-prod` ClusterIssuer, `harbor-tls` Secret) |
 | Ingress | Traefik with `harbor-no-limit` middleware (unlimited image push body size) |
 | Auth | Local DB. Default admin: `admin` / `<CHANGE_ME>` (change after first login) |

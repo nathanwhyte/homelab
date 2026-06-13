@@ -39,6 +39,8 @@ data:
       #   service: http://glossary.glossary.svc.cluster.local:4000
       - hostname: llama.nathanwhyte.dev
         service: http://ollama-auth-proxy.llama.svc.cluster.local:80
+      - hostname: hermes.nathanwhyte.dev
+        service: http://hermes-agent.hermes.svc.cluster.local:9119
       - hostname: ssh.nathanwhyte.dev
         service: ssh://wemby.cloudflare-system.svc.cluster.local:22
       - hostname: ssh-timmy.nathanwhyte.dev

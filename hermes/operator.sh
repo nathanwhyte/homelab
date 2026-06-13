@@ -40,7 +40,7 @@ Environment:
   HERMES_LOCAL_PORT         default: 8642
   HERMES_REMOTE_PORT        default: 8642
   HERMES_API_KEY            optional; otherwise read from Secret hermes-api-server-key
-  HERMES_MODEL              model for ask/run commands (default: gemma4:12b)
+  HERMES_MODEL              model for ask/run commands (default: glm-5.1:cloud)
 EOF
 }
 

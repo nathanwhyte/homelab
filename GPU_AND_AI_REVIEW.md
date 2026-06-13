@@ -1,5 +1,19 @@
 # GPU & AI Infrastructure Review
 
+> **⚠️ Historical document** — compiled 2026-05-01. The sections below ("Current Architecture", "Running Workloads", "Service Routing", "GPU Allocation", and "AI Tools Deployed") reflect the cluster state as of that date and have diverged significantly. For current state, see `CLAUDE.md` (service routing, LLM config, topology) and `HARDWARE.md` (node specs).
+>
+> **Key changes since 2026-05-01 (IDEA-009 Phases 2-4):**
+> - Embedder moved from timmy (CPU) to wemby (GTX 1060, CUDA) to free the 1080 for VLM-exclusive use
+> - ROCm VLM (`llamacpp-rocm`) retired 2026-06-06; VLM is now `llamacpp-cuda-ov` on manu exclusively
+> - OV coordinator, merge, workers, and console removed from cluster (not just scaled to 0)
+> - Ollama model lineup changed: gemma4:12b-it-qat (local), glm-5.1:cloud (remote); keep-alive 30m; NUM_PARALLEL=1
+> - Hermes Agent deployed (hermes namespace) with OpenViking memory provider
+> - Tailscale mesh deployed on all 3 nodes
+> - VLM steady-state changed from on-demand scaling to always-on (replicas=1)
+> - VLM parallel slots reduced from 4 to 2; `vlm.max_concurrent` reduced from 4 to 2
+>
+> The benchmarks (§4), tuning history (§5), and design decisions (§8) remain valid as historical reference.
+
 Comprehensive review of all GPU setup, model benchmarks, and AI tools work in the homelab K3s cluster. Compiled 2026-05-01.
 
 ---

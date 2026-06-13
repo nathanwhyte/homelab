@@ -18,9 +18,13 @@ Top-level directories generally map to deployed services:
 - `dashboard/`: Kubernetes Dashboard manifests and tunnel/ingress config.
 - `grafana/`: Observability stack (Prometheus/Grafana/Loki/Alloy), with Helm values under `grafana/helm/` and manifests under `grafana/manifests/`. Grafana is provisioned with Prometheus and Loki datasources; Alloy (k8s-monitoring) sends logs to Loki and metrics to Prometheus; Kubernetes and Logs dashboards are provisioned via the stack values.
 - `harbor/`: Harbor registry, Helm values and supporting manifests.
+- `hermes/`: Hermes Agent deployment (agent + jump SSH terminal), ConfigMap, operator helper script.
+- `llama/`: Ollama and llamacpp LLM serving (chat proxy, auth proxy, cloud LLM counter).
 - `longhorn/`: Longhorn storage, Helm values and supporting manifests.
 - `garage/`: Garage (S3-compatible object storage), values and a `manager/` subfolder for the garage manager manifests/config.
 - `gpu/`: NVIDIA GPU Operator Helm values; GPU nodes are labeled `gpu=true`.
+- `tailscale/`: Tailscale node setup scripts and WireGuard mesh configuration (PROJ-008).
+- `viking/`: OpenViking RAG engine (standalone deployment, embedder, VLM, vectordb, sync tools, docs).
 
 Each service folder typically includes:
 

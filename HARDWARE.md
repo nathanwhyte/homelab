@@ -1,6 +1,6 @@
 # Cluster Hardware Inventory
 
-Audited 2026-03-20. 3-node K3s cluster running Ubuntu 24.04 LTS.
+Audited 2026-06-12. 3-node K3s cluster running Ubuntu 24.04.4 LTS, K3s v1.35.2+k3s1.
 
 ## Nodes
 
@@ -12,7 +12,7 @@ Audited 2026-03-20. 3-node K3s cluster running Ubuntu 24.04 LTS.
 | **RAM**     | 16 GB                               |
 | **Storage** | 2x Samsung SSD 860 EVO 1TB (SATA)   |
 | **GPU**     | NVIDIA GeForce GTX 1080 (8 GB VRAM) |
-| **Kernel**  | 6.17.0-19-generic                   |
+| **Kernel**  | 6.17.0-35-generic                   |
 
 ### timmy (Agent)
 
@@ -22,7 +22,7 @@ Audited 2026-03-20. 3-node K3s cluster running Ubuntu 24.04 LTS.
 | **RAM**     | 32 GB                                      |
 | **Storage** | WD Green SN3000 2TB (NVMe)                 |
 | **GPU**     | AMD Radeon RX 9070 XT (16 GB VRAM, RDNA 4) |
-| **Kernel**  | 6.17.0-19-generic                          |
+| **Kernel**  | 6.17.0-35-generic                          |
 
 ### wemby (Server — Control Plane + Worker)
 
@@ -32,7 +32,7 @@ Audited 2026-03-20. 3-node K3s cluster running Ubuntu 24.04 LTS.
 | **RAM**     | 16 GB                                                           |
 | **Storage** | WDC PC SN520 256 GB (NVMe) + Seagate ST1000LM035 1TB (SATA HDD) |
 | **GPU**     | NVIDIA GeForce GTX 1060 (6 GB VRAM)                             |
-| **Kernel**  | 6.8.0-106-generic                                               |
+| **Kernel**  | 6.8.0-124-generic                                               |
 
 ## Retired Nodes
 
