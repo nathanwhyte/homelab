@@ -19,7 +19,7 @@ data:
       timeout: 60
     compression:
       enabled: true
-      threshold: 0.88
+      threshold: 0.75
       target_ratio: 0.2
       protect_last_n: 25
       hygiene_hard_message_limit: 600
@@ -65,8 +65,9 @@ data:
     memory:
       memory_enabled: true
       user_profile_enabled: true
-      memory_char_limit: 14000
-      user_char_limit: 9000
+      memory_char_limit: 20000
+      max_chars: 35000
+      user_char_limit: 12000
       provider: openviking
     model:
       api_key: ollama
@@ -130,7 +131,7 @@ data:
       cursor: " ▉"
       fresh_final_after_seconds: 60
     sessions:
-      auto_prune: false
+      auto_prune: true
       retention_days: 90
       vacuum_after_prune: true
       min_interval_hours: 24
