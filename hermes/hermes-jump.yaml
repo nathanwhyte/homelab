@@ -100,7 +100,28 @@ data:
       su - hermes -c "echo \"$GITHUB_TOKEN\" | gh auth login --with-token 2>/dev/null || true"
     fi
 
-    ssh-keygen -A
+    # Persist SSH host keys on PVC so they survive pod recreation.
+    # On first boot: generate keys and store in /home/hermes/.ssh/host_keys/.
+    # On subsequent boots: symlink from /etc/ssh/ to the PVC-backed keys.
+    HOST_KEY_DIR=/home/hermes/.ssh/host_keys
+    mkdir -p "$HOST_KEY_DIR"
+    for keytype in ed25519 ecdsa rsa; do
+      if [ -f "$HOST_KEY_DIR/ssh_host_${keytype}_key" ]; then
+        # Reuse persisted key — symlink into /etc/ssh/ where sshd expects them
+        ln -sf "$HOST_KEY_DIR/ssh_host_${keytype}_key"     "/etc/ssh/ssh_host_${keytype}_key"
+        ln -sf "$HOST_KEY_DIR/ssh_host_${keytype}_key.pub" "/etc/ssh/ssh_host_${keytype}_key.pub"
+      else
+        # First boot: generate and persist
+        ssh-keygen -t "$keytype" -f "$HOST_KEY_DIR/ssh_host_${keytype}_key" -N "" -q
+        ln -sf "$HOST_KEY_DIR/ssh_host_${keytype}_key"     "/etc/ssh/ssh_host_${keytype}_key"
+        ln -sf "$HOST_KEY_DIR/ssh_host_${keytype}_key.pub" "/etc/ssh/ssh_host_${keytype}_key.pub"
+      fi
+    done
+    chown -R hermes:hermes "$HOST_KEY_DIR"
+    # Ensure sshd can read the keys (root needs read access via symlink)
+    chmod 600 "$HOST_KEY_DIR"/ssh_host_*_key
+    chmod 644 "$HOST_KEY_DIR"/ssh_host_*_key.pub
+
     exec /usr/sbin/sshd -D -e
 ---
 apiVersion: apps/v1

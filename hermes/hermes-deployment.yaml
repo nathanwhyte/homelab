@@ -34,6 +34,16 @@ spec:
               mkdir -p /data/.ssh
               cp /ssh-key/id_ed25519 /data/.ssh/id_ed25519
               chmod 600 /data/.ssh/id_ed25519
+              # SSH client config: auto-accept new host keys (safety net for
+              # jump pod recreation after host key persistence fix)
+              if [ ! -f /data/.ssh/config ]; then
+                cat > /data/.ssh/config <<'SSHEOF'
+Host hermes-jump.hermes.svc.cluster.local
+  StrictHostKeyChecking accept-new
+  UserKnownHostsFile /opt/data/.ssh/known_hosts
+SSHEOF
+                chmod 600 /data/.ssh/config
+              fi
               # Fix ownership for hermes user (UID 10000) — recursive to cover
               # all files created by root on first run (kanban.db, history, etc.)
               chown -R 10000:10000 /data
