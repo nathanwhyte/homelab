@@ -41,8 +41,8 @@ data:
         service: http://ollama-auth-proxy.llama.svc.cluster.local:80
       - hostname: hermes.nathanwhyte.dev
         service: http://hermes-agent.hermes.svc.cluster.local:9119
+      # Single break-glass entry point: timmy (control plane). Reach wemby/manu by
+      # hopping from timmy (ssh wemby / ssh manu over the tailnet, or ssh -J).
       - hostname: ssh.nathanwhyte.dev
-        service: ssh://wemby.cloudflare-system.svc.cluster.local:22
-      - hostname: ssh-timmy.nathanwhyte.dev
         service: ssh://timmy.cloudflare-system.svc.cluster.local:22
       - service: http_status:404
