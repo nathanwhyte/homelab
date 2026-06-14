@@ -1,32 +1,8 @@
-# SSH access services for Cloudflare Tunnel
-# Headless Services with manual Endpoints to route SSH traffic to cluster nodes
-# cloudflared can't use ExternalName for SSH, so we use Endpoints + Service
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: wemby
-  namespace: cloudflare-system
-spec:
-  clusterIP: None
-  ports:
-    - name: ssh
-      port: 22
-      protocol: TCP
-      targetPort: 22
----
-apiVersion: v1
-kind: Endpoints
-metadata:
-  name: wemby
-  namespace: cloudflare-system
-subsets:
-  - addresses:
-      - ip: 192.168.1.9
-    ports:
-      - name: ssh
-        port: 22
-        protocol: TCP
+# SSH access service for Cloudflare Tunnel
+# Headless Service with manual Endpoints to route SSH traffic to the control-plane node.
+# cloudflared can't use ExternalName for SSH, so we use Endpoints + Service.
+# Single break-glass entry point: timmy (control plane). Reach wemby/manu by hopping
+# from timmy (ssh wemby / ssh manu over the tailnet, or ssh -J ssh.nathanwhyte.dev <node>).
 ---
 apiVersion: v1
 kind: Service

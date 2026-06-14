@@ -100,7 +100,7 @@ All external routes are served via the Cloudflare tunnel (see `cloudflare/main-t
 | `chat.nathanwhyte.dev` | open-webui | — | |
 | `llama.nathanwhyte.dev` | ollama-auth-proxy | Bearer token | |
 | `nathanwhyte.dev` / `www.nathanwhyte.dev` | portfolio | — | |
-| `ssh.nathanwhyte.dev` / `ssh-timmy.nathanwhyte.dev` | SSH | — | |
+| `ssh.nathanwhyte.dev` | SSH → timmy (control plane), user `noot` | Access service token + `homelab-breakglass` key | Single break-glass entry (works with Tailscale off). Tunnel proxies raw TCP to timmy:22; break-glass pubkey lives in root-owned `/etc/ssh/auth_keys/%u` on each node (sshd `AuthorizedKeysFile` extended via `sshd_config.d/10-breakglass.conf`). Reach wemby/manu by hopping from timmy. Client: `~/.ssh/config` sources the service-token env file in its ProxyCommand. (`ssh-timmy`/`ssh-wemby`/`ssh-manu` retired) |
 
 ### Tailscale — private external access (PROJ-008)
 
