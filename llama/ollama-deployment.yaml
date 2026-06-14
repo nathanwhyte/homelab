@@ -39,7 +39,7 @@ spec:
             - name: OLLAMA_HOST
               value: "0.0.0.0"
             - name: OLLAMA_CONTEXT_LENGTH
-              value: "131072"
+              value: "8192"
             - name: OLLAMA_FLASH_ATTENTION
               value: "1"
             - name: OLLAMA_KV_CACHE_TYPE
@@ -57,11 +57,11 @@ spec:
               name: http
           resources:
             requests:
-              cpu: "500m"
+              cpu: "1"
               memory: 4Gi
             limits:
               cpu: "8"
-              memory: 24Gi
+              memory: 16Gi
           securityContext:
             privileged: true
           startupProbe:
