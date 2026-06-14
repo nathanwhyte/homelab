@@ -18,8 +18,9 @@ data:
     ollama list
 
     local_models=(
-      "qwen3.5:9b-q4_K_M"
-      "gemma4:e4b-it-qat"
+      "gemma4:12b-it-qat"
+    )
+    warmup_models=(
       "gemma4:12b-it-qat"
     )
     cloud_models=(
@@ -39,7 +40,7 @@ data:
       fi
     done
 
-    for model in "${local_models[@]}"; do
+    for model in "${warmup_models[@]}"; do
       echo "Warming up ${model}..."
       timeout 120s ollama run "${model}" "Return exactly: ok" > /dev/null 2>&1 || true
     done
