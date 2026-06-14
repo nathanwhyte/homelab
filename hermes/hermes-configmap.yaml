@@ -43,7 +43,7 @@ data:
       reasoning_effort: none
     display:
       personality: technical
-      show_reasoning: true
+      show_reasoning: false
       show_cost: false
       streaming: false
       credits_notices: false
@@ -125,6 +125,11 @@ data:
         shared_files: []
       acked_advisories: []
       allow_lazy_installs: true
+    slack:
+      require_mention: true
+      strict_mention: false
+      home_channel: C0BB574ADDE
+      free_response_channels: C0BB574ADDE,C0BAAU3AWNN
     streaming:
       enabled: false
       transport: auto
