@@ -20,6 +20,7 @@ spec:
         app: hermes-agent
     spec:
       serviceAccountName: hermes-agent
+      terminationGracePeriodSeconds: 210
       securityContext:
         fsGroup: 10000
         fsGroupChangePolicy: "OnRootMismatch"
@@ -32,10 +33,14 @@ spec:
               set -euo pipefail
               # Copy config (always overwrite to pick up ConfigMap changes)
               cp /config/config.yaml /data/config.yaml
-              # Copy SSH key and fix permissions
+              # Ensure .ssh directory exists and copy SSH key
               mkdir -p /data/.ssh
               cp /ssh-key/id_ed25519 /data/.ssh/id_ed25519
               chmod 600 /data/.ssh/id_ed25519
+              # Clean stale gateway lock/state from previous pod —
+              # s6-overlay auto-supervises gateway, stale PIDs cause
+              # "Gateway already running" on fresh pod start (cf. #13655)
+              rm -f /data/gateway.lock /data/gateway_state.json
               # SSH client config: auto-accept new host keys (safety net for
               # jump pod recreation after host key persistence fix)
               if [ ! -f /data/.ssh/config ]; then
@@ -58,7 +63,9 @@ spec:
         - name: hermes
           image: nousresearch/hermes-agent:latest
           imagePullPolicy: Always
-          args: ["gateway", "run", "--replace"]
+          # No --replace: s6-overlay supervises gateway lifecycle;
+          # --replace races with s6-supervise restart (cf. #11718, #13655)
+          args: ["gateway", "run"]
           env:
             - name: HERMES_INFERENCE_MODEL
               value: glm-5.1:cloud
@@ -102,8 +109,9 @@ spec:
                 secretKeyRef:
                   name: hermes-dashboard-token
                   key: token
-            - name: HERMES_GATEWAY_BOOTSTRAP_STATE
-              value: running
+            # Removed HERMES_GATEWAY_BOOTSTRAP_STATE — it triggered
+            # s6 reconcile-profiles to start a second gateway instance,
+            # racing with the container args "gateway run" (cf. #13655)
             - name: GATEWAY_ALLOW_ALL_USERS
               value: "true"
             # OpenViking memory provider (IDEA-017)
@@ -147,6 +155,18 @@ spec:
           volumeMounts:
             - name: hermes-data
               mountPath: /opt/data
+          lifecycle:
+            preStop:
+              exec:
+                command: ["sleep", "5"]
+            postStart:
+              exec:
+                # Re-assert SSH key permissions after kubelet fsGroup
+                # volume reconciliation may have added g+rw (0660 → 0600)
+                command:
+                  - /bin/sh
+                  - -c
+                  - chmod 600 /opt/data/.ssh/id_ed25519
       volumes:
         - name: hermes-data
           persistentVolumeClaim:
