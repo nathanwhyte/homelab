@@ -128,6 +128,8 @@ spec:
               value: noot
             - name: OPENVIKING_AGENT
               value: hermes
+            - name: SLACK_HOME_CHANNEL
+              value: C0BAP91GV42
           ports:
             - containerPort: 8642
               name: api
