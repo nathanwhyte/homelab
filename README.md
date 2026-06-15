@@ -7,7 +7,7 @@ This cluster hosts web applications, databases, data backups, an image
 registry, and much more.
 
 > It's like AWS, if AWS was hosted entirely in my office, next to my cat's food bowl,
-> running on of old laptops and my gaming PC from high school.
+> running on old laptops and my gaming PC from high school.
 >
 > ~ Me, circa Today
 
@@ -110,11 +110,11 @@ for replicated persistent storage.
 
 ### Pi-hole
 
-Network-wide ad and tracker blocking with nice built-ins and easy configuration.
+> **Not currently deployed.** Network-wide ad and tracker blocking — planned for future deployment.
 
 ### Unbound
 
-For in-house DNS resolution for speed and privacy
+> **Not currently deployed.** In-house DNS resolution for speed and privacy — planned for future deployment.
 
 ### Cloudflare Tunnel
 
