@@ -114,7 +114,7 @@ spec:
             # racing with the container args "gateway run" (cf. #13655)
             - name: GATEWAY_ALLOW_ALL_USERS
               value: "true"
-            # OpenViking memory provider (IDEA-017)
+            # OpenViking knowledge base provider (IDEA-017) — still active for viking_* tools
             - name: OPENVIKING_ENDPOINT
               value: http://openviking.viking.svc.cluster.local:1933
             - name: OPENVIKING_API_KEY
@@ -128,6 +128,12 @@ spec:
               value: noot
             - name: OPENVIKING_AGENT
               value: hermes
+            # Mem0 memory provider (IDEA-029) — replaces OV for agent memory
+            - name: MEM0_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: mem0-api-key
+                  key: ADMIN_API_KEY
             - name: SLACK_HOME_CHANNEL
               value: C0BAP91GV42
           ports:

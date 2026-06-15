@@ -70,7 +70,10 @@ data:
       memory_char_limit: 20000
       max_chars: 35000
       user_char_limit: 12000
-      provider: openviking
+      provider: mem0
+      mem0:
+        api_key: "${MEM0_API_KEY}"
+        base_url: "http://mem0-server.mem0.svc.cluster.local:8080"
     model:
       api_key: ollama
       base_url: http://chat-ollama.llama.svc:11434/v1

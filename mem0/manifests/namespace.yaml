@@ -1,0 +1,8 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: mem0
+  labels:
+    app.kubernetes.io/name: mem0
+    app.kubernetes.io/part-of: mem0
