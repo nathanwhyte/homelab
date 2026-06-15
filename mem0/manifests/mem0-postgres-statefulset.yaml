@@ -1,0 +1,101 @@
+---
+# Mem0 PostgreSQL + pgvector
+# Stores memories as vectors and metadata.
+# PVC: 5Gi (expandable) on Longhorn default storage.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: mem0-postgres
+  namespace: mem0
+  labels:
+    app: mem0-postgres
+spec:
+  serviceName: mem0-postgres
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mem0-postgres
+  template:
+    metadata:
+      labels:
+        app: mem0-postgres
+    spec:
+      containers:
+        - name: postgres
+          image: pgvector/pgvector:pg17
+          ports:
+            - containerPort: 5432
+              name: postgres
+          env:
+            - name: POSTGRES_USER
+              value: postgres
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: mem0-secrets
+                  key: POSTGRES_PASSWORD
+            - name: POSTGRES_DB
+              value: postgres
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: "1"
+              memory: 2Gi
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-q", "-d", "postgres", "-U", "postgres"]
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 5
+          livenessProbe:
+            exec:
+              command: ["pg_isready", "-q", "-d", "postgres", "-U", "postgres"]
+            periodSeconds: 20
+            timeoutSeconds: 5
+          volumeMounts:
+            - name: postgres-data
+              mountPath: /var/lib/postgresql/data
+            - name: init-db
+              mountPath: /docker-entrypoint-initdb.d/init-db.sh
+              subPath: init-db.sh
+      volumes:
+        - name: init-db
+          configMap:
+            name: mem0-init-db
+            defaultMode: 0755
+  volumeClaimTemplates:
+    - metadata:
+        name: postgres-data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 5Gi
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mem0-init-db
+  namespace: mem0
+data:
+  init-db.sh: |
+    #!/bin/bash
+    set -e
+    psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-EOSQL
+        SELECT 'CREATE DATABASE mem0_app' WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'mem0_app')\gexec
+    EOSQL
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mem0-postgres
+  namespace: mem0
+spec:
+  selector:
+    app: mem0-postgres
+  ports:
+    - port: 5432
+      targetPort: 5432
+  clusterIP: None  # Headless for StatefulSet
