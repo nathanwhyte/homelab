@@ -12,8 +12,10 @@ data:
       "storage": {
         "workspace": "/app/data",
         "transaction": {
-          "lock_timeout": 5.0,
-          "lock_expire": 60.0
+          "lock_timeout": 30.0,
+          "lock_expire": 60.0,
+          "v2_lock_retry_interval_seconds": 0.5,
+          "v2_lock_max_retries": 10
         },
         "vectordb": {
           "backend": "http",
@@ -50,7 +52,7 @@ data:
         "output": "stdout"
       },
       "embedding": {
-        "_comment_max_input_tokens": "Intentionally absent. The embedder runs --parallel 8 with --ctx-size 16384 (2048/slot). OV chunks inputs internally; a max_input_tokens guardrail would truncate documents unnecessarily. Removed from live in PR #10 era.",
+        "_comment_max_input_tokens": "Intentionally absent. The embedder runs --parallel 2 with --ctx-size 16384 (8192/slot, matching nomic-embed's native limit). OV chunks inputs internally; a max_input_tokens guardrail would truncate documents unnecessarily. Removed from live in PR #10 era.",
         "dense": {
           "provider": "openai",
           "model": "nomic-embed-text-v1.5",
