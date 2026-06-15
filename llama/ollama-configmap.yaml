@@ -25,7 +25,6 @@ data:
     )
     cloud_models=(
       "glm-5.1:cloud"
-      "nemotron-3-ultra:cloud"
     )
 
     for model in "${local_models[@]}"; do

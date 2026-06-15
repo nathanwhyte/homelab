@@ -28,7 +28,9 @@ spec:
         - name: ollama
           image: ollama/ollama:0.30.6-rocm
           imagePullPolicy: IfNotPresent
-          command: ["/bin/bash", "-c"]
+          command:
+            - /bin/bash
+            - -c
           args:
             - |
               ollama serve &
@@ -37,15 +39,15 @@ spec:
               wait $OLLAMA_PID
           env:
             - name: OLLAMA_HOST
-              value: "0.0.0.0"
+              value: 0.0.0.0
             - name: OLLAMA_CONTEXT_LENGTH
               value: "8192"
             - name: OLLAMA_FLASH_ATTENTION
               value: "1"
             - name: OLLAMA_KV_CACHE_TYPE
-              value: "q4_0"
+              value: q4_0
             - name: OLLAMA_KEEP_ALIVE
-              value: "30m"
+              value: 30m
             - name: OLLAMA_NUM_PARALLEL
               value: "2"
             - name: OLLAMA_MAX_LOADED_MODELS
@@ -57,7 +59,7 @@ spec:
               name: http
           resources:
             requests:
-              cpu: "1"
+              cpu: 1000m
               memory: 4Gi
             limits:
               cpu: "8"
@@ -72,7 +74,10 @@ spec:
             failureThreshold: 120
           readinessProbe:
             exec:
-              command: ["test", "-f", "/tmp/startup-complete"]
+              command:
+                - test
+                - -f
+                - /tmp/startup-complete
             initialDelaySeconds: 5
             periodSeconds: 5
             timeoutSeconds: 3
@@ -88,21 +93,23 @@ spec:
               mountPath: /opt/rocm/lib/rocblas/library
         - name: ollama-exporter
           image: python:3.12-slim
-          command: ["python3", "/scripts/ollama-exporter.py"]
+          command:
+            - python3
+            - /scripts/ollama-exporter.py
           args:
-            - "--ollama"
-            - "http://localhost:11434"
-            - "--port"
+            - --ollama
+            - http://localhost:11434
+            - --port
             - "9111"
           ports:
             - containerPort: 9111
               name: metrics
           resources:
             requests:
-              cpu: "50m"
+              cpu: 50m
               memory: 64Mi
             limits:
-              cpu: "200m"
+              cpu: 200m
               memory: 128Mi
           volumeMounts:
             - name: startup
@@ -114,7 +121,7 @@ spec:
         - name: shm
           emptyDir:
             medium: Memory
-            sizeLimit: 4Gi
+            sizeLimit: 2Gi
         - name: startup
           configMap:
             name: ollama-startup
