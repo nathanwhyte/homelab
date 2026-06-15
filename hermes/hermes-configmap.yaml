@@ -8,7 +8,7 @@ metadata:
     app: hermes-agent
 data:
   config.yaml: |-
-    _config_version: 24
+    _config_version: 30
     agent:
       api_max_retries: 3
       max_turns: 90
@@ -128,8 +128,8 @@ data:
     slack:
       require_mention: true
       strict_mention: false
-      home_channel: C0BB574ADDE
-      free_response_channels: C0BB574ADDE,C0BAAU3AWNN
+      home_channel: C0BAP91GV42
+      free_response_channels: C0BAP91GV42,C0BB566T7SL
     streaming:
       enabled: false
       transport: auto

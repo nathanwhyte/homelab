@@ -460,7 +460,9 @@
   "timezone": "",
   "slack": {
     "require_mention": true,
-    "free_response_channels": "",
+    "strict_mention": false,
+    "home_channel": "C0BAP91GV42",
+    "free_response_channels": "C0BAP91GV42,C0BB566T7SL",
     "allowed_channels": "",
     "channel_prompts": {}
   },
