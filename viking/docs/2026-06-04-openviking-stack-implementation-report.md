@@ -259,7 +259,7 @@ OV calls out to two OpenAI-compatible model servers (both llama.cpp):
 
 - **Embedder** — `embedder-llamacpp` on **wemby**, GTX 1060, `runtimeClassName:
   nvidia`. Model `nomic-embed-text-v1.5.f16` (768-dim), `--n-gpu-layers 999`
-  (full offload), ctx 16384, `--parallel 8`, batch/ubatch 4096, mean pooling,
+  (full offload), ctx 16384, `--parallel 2` (8192 tok/slot, matches model's 8192 native limit; was `--parallel 8` until 2026-06-16 — 2048 tok/slot caused overflow), batch/ubatch 4096, mean pooling,
   yarn rope (freq-scale 0.75), `--mlock`. Served at
   `embedder-llamacpp.viking.svc:8080/v1`. **Model cached on the
   `wemby-model-cache` Longhorn PVC** → survives restarts (moved from
