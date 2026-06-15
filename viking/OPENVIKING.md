@@ -180,6 +180,10 @@ Always use `--wait` flag with CLI uploads. Without it, concurrent uploads compet
 
 Even with `--wait`, the semantic queue processor runs tasks concurrently based on `embedding.max_concurrent` and `vlm.max_concurrent`. When multiple tasks target the same AGFS subtree (e.g., bulk sync of `bugs/mage/`), AGFS EXACT/TREE path locks (logged as POINT/SUBTREE) contend and time out. Note: this is the AGFS transaction layer, not the VectorDB — distinct from the embedded LevelDB VectorDB process lock. Current production concurrency: `vlm.max_concurrent=2` (matches VLM server's `--parallel 2` — over-commit caused every request to time out, IDEA-009 Phase 3), `embedding.max_concurrent=4` (bumped from 2 in TASK-010; FEAT-004 proved 4 safe). Lock contention was resolved by moving AGFS to S3/Garage (process-local locks, not shared-filesystem locks). The `vlm.max_concurrent=1` guidance from 2026-05-30 predated the S3 cutover and is no longer necessary.
 
+**Lock configuration** (BUG-017 mitigations, applied 2026-06-16): `lock_timeout: 30.0` (was 5.0 — too low for 40s+ VLM calls), `v2_lock_retry_interval_seconds: 0.5`, `v2_lock_max_retries: 10`. These convert infinite-retry stalls into bounded, predictable failures and prevent premature lock expiry mid-VLM-call. The upstream architectural fix (GH #2015 — splitting source write from semantic refresh) is still pending.
+
+**Embedder configuration**: `--parallel 2 --ctx-size 16384` (8192 tokens/slot, matching nomic-embed-text-v1.5's 8192 native context limit). Previous `--parallel 8` (2048 tokens/slot) caused embedding overflow on longer documents; `--parallel 4` (4096/slot) was a partial mitigation.
+
 For MCP-based uploads during a session, add one item at a time and verify it processes before adding the next.
 
 ## Maintenance best practices
