@@ -33,7 +33,7 @@ spec:
     spec:
       containers:
         - name: mem0
-          image: registry.nathanwhyte.dev/homelab/mem0-api-server:b55c51e-hl3
+          image: registry.nathanwhyte.dev/homelab/mem0-api-server:b55c51e-hl4
           # Run DB migrations before serving — the upstream server/Dockerfile CMD
           # starts uvicorn directly and never runs `alembic upgrade head` (the dev
           # compose does it in its command), so the app tables (request_logs, api
@@ -46,11 +46,16 @@ spec:
             - containerPort: 8000
               name: http
           env:
-            # Point LLM + embedder to shared Ollama on timmy
+            # LLM extraction → chat-ollama-proxy (reasoning-suppressing shim), NOT
+            # ollama directly. gemma4:12b-it-qat emits a reasoning field that can
+            # leak into the response content and break mem0's strict json.loads of
+            # the extracted facts (silent fallback to zero facts). The proxy injects
+            # reasoning=none so the content is clean JSON. Embeddings use a separate
+            # endpoint (MEM0_EMBEDDER_API_BASE below).
             - name: OPENAI_API_KEY
               value: "sk-no-op"  # Ollama doesn't need a real key
             - name: OPENAI_API_BASE
-              value: "http://ollama.llama.svc.cluster.local:11434/v1"
+              value: "http://chat-ollama-proxy.llama.svc.cluster.local:11434/v1"
             # Postgres connection
             - name: POSTGRES_HOST
               value: "mem0-postgres.mem0.svc.cluster.local"
@@ -82,10 +87,21 @@ spec:
             - name: APP_DB_NAME
               value: "mem0_app"
             # Default models (via Ollama for LLM, embedder-llamacpp for embeddings)
+            # Extraction model: glm-5.1:cloud (Hermes' primary). mem0 v2.0.6's
+            # ADDITIVE_EXTRACTION_PROMPT is too complex for the local
+            # gemma4:12b-it-qat — it returns an empty/truncated ("{\"") response
+            # that fails mem0's JSON parse, yielding zero stored memories. The
+            # cloud model returns valid {"memory":[...]}. Routed via chat-ollama-proxy
+            # (reasoning suppression also helps this reasoning-capable model).
             - name: MEM0_DEFAULT_LLM_MODEL
-              value: "gemma4:12b-it-qat"
+              value: "glm-5.1:cloud"
             - name: MEM0_DEFAULT_EMBEDDER_MODEL
               value: "nomic-embed-text-v1.5"
+            # nomic-embed-text-v1.5 emits 768-dim vectors; mem0 defaults to 1536 and
+            # creates the pgvector column at that width, so inserts fail without this.
+            # Changing this requires dropping/recreating the `memories` table.
+            - name: MEM0_EMBEDDING_DIMS
+              value: "768"
             # Embedding provider override — point to the existing OV embedder
             # (not Ollama, since Ollama doesn't have embedding models loaded)
             - name: MEM0_EMBEDDER_API_BASE
