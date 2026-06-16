@@ -136,10 +136,10 @@ kubectl rollout restart deployment/hermes-agent -n hermes
 
 | Call type | Model | Endpoint | GPU |
 |-----------|-------|----------|-----|
-| LLM extraction | **glm-5.1:cloud** | chat-ollama-proxy.llama:11434 → ollama | cloud (Ollama) |
+| LLM extraction | **gemma4:12b-it-qat** (local) | chat-ollama-proxy.llama:11434 → ollama | timmy RX 9070 XT |
 | Embedding | nomic-embed-text-v1.5 (768-dim) | embedder-llamacpp.viking:8080 | wemby GTX 1060 |
 
-**Why glm-5.1:cloud, not local gemma4:** mem0 v2.0.6 uses a single-call `ADDITIVE_EXTRACTION_PROMPT` that returns a `{"memory":[...]}` operations object. The local `gemma4:12b-it-qat` can't handle that prompt — it returns an empty or truncated (`{"`) response that fails mem0's JSON parse, so **nothing gets stored** (the simpler legacy fact prompt works, but mem0 no longer uses it). `glm-5.1:cloud` (Hermes' primary) returns valid output. Extraction is routed through `chat-ollama-proxy` (`INJECT_REASONING_NONE=true`) so reasoning tokens don't contaminate the JSON.
+**Context window is critical (not model size).** mem0 v2.0.6 uses a single-call `ADDITIVE_EXTRACTION_PROMPT` (~9-10K tokens) that returns a `{"memory":[...]}` operations object. With the live Ollama at `OLLAMA_CONTEXT_LENGTH=8192`, that prompt was **truncated**, so local models saw mangled instructions and emitted `{"` then stopped → nothing stored (this looked like a model-capability failure but wasn't — even glm-5.1:cloud only worked because cloud models ignore the local `num_ctx`). Raising `OLLAMA_CONTEXT_LENGTH` to **16384** (`llama/ollama-deployment.yaml`) fixes it: the local `gemma4:12b-it-qat` extracts correctly, so **no cloud model is needed**. Extraction is routed through `chat-ollama-proxy` (`INJECT_REASONING_NONE=true`) so reasoning tokens don't contaminate the JSON.
 
 **Embedding dimensions:** `nomic-embed-text-v1.5` emits 768-dim vectors. mem0 defaults to 1536 (OpenAI) and creates the pgvector column at that width, so `MEM0_EMBEDDING_DIMS=768` is required — and changing it means **dropping and recreating the `memories` table**.
 
