@@ -1,8 +1,8 @@
 diff --git a/server/main.py b/server/main.py
-index 7476698..4bb002b 100644
+index 7476698..992508f 100644
 --- a/server/main.py
 +++ b/server/main.py
-@@ -114,6 +114,16 @@ OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
+@@ -114,6 +114,20 @@ OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
  HISTORY_DB_PATH = os.environ.get("HISTORY_DB_PATH", "/app/history/history.db")
  DEFAULT_LLM_MODEL = os.environ.get("MEM0_DEFAULT_LLM_MODEL", "gpt-4.1-nano-2025-04-14")
  DEFAULT_EMBEDDER_MODEL = os.environ.get("MEM0_DEFAULT_EMBEDDER_MODEL", "text-embedding-3-small")
@@ -16,10 +16,19 @@ index 7476698..4bb002b 100644
 +# mem0's LLM provider ignores OPENAI_API_BASE and hits api.openai.com. Pass it as an
 +# explicit openai_base_url on the LLM config so extraction goes to Ollama.
 +LLM_API_BASE = os.environ.get("OPENAI_API_BASE")
-
++# Embedding vector dimensions. mem0 defaults to 1536 (OpenAI text-embedding-3-small)
++# and creates the pgvector column at that width; nomic-embed-text-v1.5 emits 768, so
++# inserts fail with "expected 1536 dimensions, not 768" unless this is set to match.
++EMBEDDING_DIMS = int(os.environ.get("MEM0_EMBEDDING_DIMS", "1536"))
+ 
  DEFAULT_CONFIG = {
      "version": "v1.1",
-@@ -130,9 +140,23 @@ DEFAULT_CONFIG = {
+@@ -126,13 +140,29 @@ DEFAULT_CONFIG = {
+             "user": POSTGRES_USER,
+             "password": POSTGRES_PASSWORD,
+             "collection_name": POSTGRES_COLLECTION_NAME,
++            "embedding_model_dims": EMBEDDING_DIMS,
+         },
      },
      "llm": {
          "provider": "openai",
@@ -37,6 +46,7 @@ index 7476698..4bb002b 100644
 +        "config": {
 +            "api_key": EMBEDDER_API_KEY,
 +            "model": DEFAULT_EMBEDDER_MODEL,
++            "embedding_dims": EMBEDDING_DIMS,
 +            # When set, overrides OPENAI_API_BASE for embeddings only (homelab).
 +            **({"openai_base_url": EMBEDDER_API_BASE} if EMBEDDER_API_BASE else {}),
 +        },
@@ -44,3 +54,4 @@ index 7476698..4bb002b 100644
 -    "embedder": {"provider": "openai", "config": {"api_key": OPENAI_API_KEY, "model": DEFAULT_EMBEDDER_MODEL}},
      "history_db_path": HISTORY_DB_PATH,
  }
+ 
