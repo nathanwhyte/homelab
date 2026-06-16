@@ -136,10 +136,12 @@ kubectl rollout restart deployment/hermes-agent -n hermes
 
 | Call type | Model | Endpoint | GPU |
 |-----------|-------|----------|-----|
-| LLM extraction | gemma4:12b-it-qat | ollama.llama:11434 | timmy RX 9070 XT |
-| Embedding | nomic-embed-text-v1.5 | embedder-llamacpp.viking:8080 | wemby GTX 1060 |
+| LLM extraction | **glm-5.1:cloud** | chat-ollama-proxy.llama:11434 → ollama | cloud (Ollama) |
+| Embedding | nomic-embed-text-v1.5 (768-dim) | embedder-llamacpp.viking:8080 | wemby GTX 1060 |
 
-Note: LLM extraction calls to Ollama share the same `OLLAMA_MAX_LOADED_MODELS=1` constraint as Hermes auxiliary tasks. Mem0 extraction calls may evict the currently loaded model; OLLAMA_KEEP_ALIVE=3m means models unload after 3 min idle. Cold start ~10-15s for gemma4:12b-it-qat.
+**Why glm-5.1:cloud, not local gemma4:** mem0 v2.0.6 uses a single-call `ADDITIVE_EXTRACTION_PROMPT` that returns a `{"memory":[...]}` operations object. The local `gemma4:12b-it-qat` can't handle that prompt — it returns an empty or truncated (`{"`) response that fails mem0's JSON parse, so **nothing gets stored** (the simpler legacy fact prompt works, but mem0 no longer uses it). `glm-5.1:cloud` (Hermes' primary) returns valid output. Extraction is routed through `chat-ollama-proxy` (`INJECT_REASONING_NONE=true`) so reasoning tokens don't contaminate the JSON.
+
+**Embedding dimensions:** `nomic-embed-text-v1.5` emits 768-dim vectors. mem0 defaults to 1536 (OpenAI) and creates the pgvector column at that width, so `MEM0_EMBEDDING_DIMS=768` is required — and changing it means **dropping and recreating the `memories` table**.
 
 ## Rollback
 
