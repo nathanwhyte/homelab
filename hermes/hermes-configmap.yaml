@@ -35,6 +35,9 @@ data:
       delete_orphans: true
       min_interval_hours: 24
     delegation:
+      # gemma4 local sub-agents share the RX 9070 XT with mem0 extraction.
+      # max_concurrent_children=5 + 1 mem0 slot = 6 concurrent generations.
+      # Validated by INFO-055; Ollama configured with OLLAMA_NUM_PARALLEL=6.
       model: gemma4:12b-it-qat
       provider: ollama-launch
       max_concurrent_children: 5
