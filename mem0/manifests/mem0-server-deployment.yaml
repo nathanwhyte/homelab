@@ -1,7 +1,13 @@
 ---
 # Mem0 API server
 # REST API for memory CRUD. Routes LLM/embedding calls to shared Ollama on timmy.
-# Image: mem0/mem0 (official, Apache 2.0)
+# Image: built from mem0ai/mem0 server/ (commit b55c51e) for linux/amd64 and
+# pushed to Harbor — the upstream mem0/mem0-api-server is arm64-only, and the
+# cluster nodes are all amd64. The homelab build (Dockerfile.homelab) adds libpq5
+# (upstream's server/Dockerfile omits it, so psycopg can't load) and drops the
+# dev-only uvicorn --reload. Rebuild: docker buildx build --platform linux/amd64
+# -f Dockerfile.homelab -t registry.nathanwhyte.dev/homelab/mem0-api-server:<sha>
+# --push server/  (see mem0/README.md for the full recipe)
 # Exposed at mem0-server.mem0.svc.cluster.local:8080
 apiVersion: apps/v1
 kind: Deployment
@@ -27,7 +33,15 @@ spec:
     spec:
       containers:
         - name: mem0
-          image: mem0/mem0:latest
+          image: registry.nathanwhyte.dev/homelab/mem0-api-server:b55c51e-hl3
+          # Run DB migrations before serving — the upstream server/Dockerfile CMD
+          # starts uvicorn directly and never runs `alembic upgrade head` (the dev
+          # compose does it in its command), so the app tables (request_logs, api
+          # keys, etc.) are missing without this.
+          command:
+            - sh
+            - -c
+            - alembic upgrade head && uvicorn main:app --host 0.0.0.0 --port 8000
           ports:
             - containerPort: 8000
               name: http
@@ -84,6 +98,14 @@ spec:
             # Auth disabled for internal cluster use
             - name: AUTH_DISABLED
               value: "false"
+            # SQLite audit-history DB. Upstream default is /app/history/history.db,
+            # but that dir only exists via the dev compose volume mount — point it
+            # at the mounted emptyDir below so the server can create it on startup.
+            - name: HISTORY_DB_PATH
+              value: "/data/history/history.db"
+          volumeMounts:
+            - name: history
+              mountPath: /data/history
           resources:
             requests:
               cpu: 500m
@@ -93,17 +115,26 @@ spec:
               memory: 2Gi
           readinessProbe:
             httpGet:
-              path: /health
+              # This server has no /health route — `/` is an unauthenticated
+              # redirect to the OpenAPI docs (307), which kubelet treats as healthy.
+              path: /
               port: 8000
             periodSeconds: 10
             timeoutSeconds: 5
             failureThreshold: 6
           livenessProbe:
             httpGet:
-              path: /health
+              # This server has no /health route — `/` is an unauthenticated
+              # redirect to the OpenAPI docs (307), which kubelet treats as healthy.
+              path: /
               port: 8000
             periodSeconds: 20
             timeoutSeconds: 5
+      volumes:
+        # Ephemeral store for the SQLite audit-history DB. The authoritative
+        # memories live in pgvector (Postgres); this is just a per-pod history log.
+        - name: history
+          emptyDir: {}
 ---
 apiVersion: v1
 kind: Service

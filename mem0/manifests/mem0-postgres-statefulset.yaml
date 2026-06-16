@@ -36,6 +36,11 @@ spec:
                   key: POSTGRES_PASSWORD
             - name: POSTGRES_DB
               value: postgres
+            # Use a subdirectory of the mount, not the mount root — the Longhorn
+            # PVC root holds a lost+found dir, which makes initdb refuse the
+            # "exists but is not empty" data directory.
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
           resources:
             requests:
               cpu: 250m
