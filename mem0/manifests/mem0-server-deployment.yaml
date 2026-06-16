@@ -87,14 +87,15 @@ spec:
             - name: APP_DB_NAME
               value: "mem0_app"
             # Default models (via Ollama for LLM, embedder-llamacpp for embeddings)
-            # Extraction model: glm-5.1:cloud (Hermes' primary). mem0 v2.0.6's
-            # ADDITIVE_EXTRACTION_PROMPT is too complex for the local
-            # gemma4:12b-it-qat — it returns an empty/truncated ("{\"") response
-            # that fails mem0's JSON parse, yielding zero stored memories. The
-            # cloud model returns valid {"memory":[...]}. Routed via chat-ollama-proxy
-            # (reasoning suppression also helps this reasoning-capable model).
+            # Extraction model: local gemma4:12b-it-qat via chat-ollama-proxy.
+            # mem0 v2.0.6's ADDITIVE_EXTRACTION_PROMPT is ~9-10K tokens; the earlier
+            # empty/truncated ("{\"") responses were caused by Ollama truncating it
+            # at OLLAMA_CONTEXT_LENGTH=8192 — NOT a model-capability limit. With the
+            # context raised to 16384 (see llama/ollama-deployment.yaml) the local
+            # model extracts correctly, so no cloud model is needed. The proxy still
+            # strips reasoning tokens.
             - name: MEM0_DEFAULT_LLM_MODEL
-              value: "glm-5.1:cloud"
+              value: "gemma4:12b-it-qat"
             - name: MEM0_DEFAULT_EMBEDDER_MODEL
               value: "nomic-embed-text-v1.5"
             # nomic-embed-text-v1.5 emits 768-dim vectors; mem0 defaults to 1536 and
