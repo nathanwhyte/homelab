@@ -35,6 +35,32 @@ LLM serving infrastructure in the `llama` namespace.
 
 **Permanently retired** (IDEA-009 Phase 4, 2026-06-06). Manifest retained for rollback only. The VLM now runs exclusively on manu's GTX 1080 via `llamacpp-cuda-ov` in the `viking` namespace.
 
+## Benchmarking
+
+`llama/tools/ollama-concurrency-benchmark.py` measures how `gemma4:12b-it-qat` behaves under 1..N concurrent client requests. Use it to validate `OLLAMA_NUM_PARALLEL` sizing for Hermes sub-agents and mem0 extraction sharing the same GPU.
+
+```bash
+# Basic sweep 1..6 against the current Ollama config
+uv run --with aiohttp python llama/tools/ollama-concurrency-benchmark.py \
+  --max-concurrency 6 --output-json results.json --output-csv results.csv
+
+# Mixed workload: one mem0-style long extraction prompt plus sub-agent prompts
+uv run --with aiohttp python llama/tools/ollama-concurrency-benchmark.py \
+  --max-concurrency 6 --mixed --output-json results-mixed.json
+
+# Run inside the cluster from a throwaway pod
+kubectl run -it --rm bench --image=python:3.12-slim --restart=Never -- \
+  sh -c "pip install aiohttp && curl -sSLO https://raw.githubusercontent.com/nathanwhyte/homelab/main/llama/tools/ollama-concurrency-benchmark.py && python ollama-concurrency-benchmark.py --url http://ollama.llama.svc:11434"
+```
+
+To compare multiple `NUM_PARALLEL` values (e.g., 2, 4, 6), use the sweep wrapper. It patches the Ollama Deployment, waits for rollout, runs the benchmark, and restores the original value:
+
+```bash
+NP_VALUES="2 4 6" BENCHMARK_ARGS="--max-concurrency 6 --mixed" llama/tools/sweep-num-parallel.sh
+```
+
+Results match the methodology in INFO-047 and feed into INFO-055.
+
 ## Quick test
 
 ```bash
