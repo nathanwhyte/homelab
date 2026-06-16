@@ -40,8 +40,12 @@ spec:
           env:
             - name: OLLAMA_HOST
               value: 0.0.0.0
+            # 16384 (was 8192): mem0's v2.0.6 ADDITIVE_EXTRACTION_PROMPT is ~9-10K
+            # tokens; at 8192 it was truncated and local models emitted "{" then
+            # stopped. 16384 fits the prompt so local gemma4:12b extracts correctly
+            # (no cloud model needed). KV cache grows accordingly (q4_0, ×NUM_PARALLEL).
             - name: OLLAMA_CONTEXT_LENGTH
-              value: "8192"
+              value: "16384"
             - name: OLLAMA_FLASH_ATTENTION
               value: "1"
             - name: OLLAMA_KV_CACHE_TYPE
