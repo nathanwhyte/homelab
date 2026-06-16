@@ -19,11 +19,43 @@ Hermes ──knowledge──▶ openviking.viking:1933 (unchanged)
 
 | Component | Manifest | Resources | Storage |
 |-----------|----------|-----------|---------|
-| Mem0 API server | `mem0-server-deployment.yaml` | 0.5-2 CPU, 1-2 Gi RAM | None |
+| Mem0 API server | `mem0-server-deployment.yaml` | 0.5-2 CPU, 1-2 Gi RAM | emptyDir (SQLite history) |
 | PostgreSQL + pgvector | `mem0-postgres-statefulset.yaml` | 0.25-1 CPU, 0.5-2 Gi RAM | 5Gi PVC (Longhorn) |
 | Secrets | `mem0-secrets.yaml` | — | — |
 
 **Total footprint**: ~3 vCPU, ~4.5 Gi RAM (fits on timmy alongside Ollama + OV vectordb).
+
+## Building the API server image (amd64)
+
+The upstream `mem0/mem0-api-server` image on Docker Hub is **arm64-only**; the cluster
+nodes are all amd64, so the image is built from source and pushed to Harbor
+(`registry.nathanwhyte.dev/homelab/mem0-api-server`).
+
+```bash
+git clone --depth 1 https://github.com/mem0ai/mem0.git
+cd mem0/server
+# Apply the homelab source patch (routes embeddings off OPENAI_API_BASE)
+git apply /path/to/homelab/mem0/build/embedder-base-url.patch
+# Copy the homelab Dockerfile (adds libpq5, drops dev --reload)
+cp /path/to/homelab/mem0/build/Dockerfile ./Dockerfile.homelab
+kubectl get secret harbor-core -n harbor -o jsonpath='{.data.HARBOR_ADMIN_PASSWORD}' \
+  | base64 -d | docker login registry.nathanwhyte.dev -u admin --password-stdin
+docker buildx build --platform linux/amd64 -f Dockerfile.homelab \
+  -t registry.nathanwhyte.dev/homelab/mem0-api-server:<sha> --push .
+```
+
+Three deviations from the stock `server/Dockerfile` were required for a working deploy:
+
+| Fix | Where | Why |
+|-----|-------|-----|
+| `apt-get install libpq5` | `mem0/build/Dockerfile` | Upstream pins plain `psycopg` (not `psycopg[binary]`); the slim base ships no libpq, so the server can't import. |
+| `alembic upgrade head` before uvicorn | Deployment `command:` | Stock CMD starts uvicorn directly and never migrates — app tables (`request_logs`, api keys, settings) are missing without it. |
+| `HISTORY_DB_PATH=/data/history/history.db` + emptyDir | Deployment env + volume | Default `/app/history/history.db` dir only exists via the dev compose volume; sqlite can't create it otherwise. |
+| `openai_base_url` on the embedder | `mem0/build/embedder-base-url.patch` | Stock `DEFAULT_CONFIG` sends both LLM and embeddings to the single `OPENAI_API_BASE`; the patch makes it honor `MEM0_EMBEDDER_API_BASE` so embeddings go to `embedder-llamacpp`, not Ollama. |
+
+**Auth & health quirks:** the `ADMIN_API_KEY` must be sent as the **`X-API-Key`** header
+(the `Authorization: Bearer` path only decodes JWTs). There is **no `/health` route** —
+use `/` (unauthenticated 307 redirect) for k8s probes.
 
 ## Deployment
 

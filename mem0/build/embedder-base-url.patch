@@ -1,0 +1,46 @@
+diff --git a/server/main.py b/server/main.py
+index 7476698..4bb002b 100644
+--- a/server/main.py
++++ b/server/main.py
+@@ -114,6 +114,16 @@ OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
+ HISTORY_DB_PATH = os.environ.get("HISTORY_DB_PATH", "/app/history/history.db")
+ DEFAULT_LLM_MODEL = os.environ.get("MEM0_DEFAULT_LLM_MODEL", "gpt-4.1-nano-2025-04-14")
+ DEFAULT_EMBEDDER_MODEL = os.environ.get("MEM0_DEFAULT_EMBEDDER_MODEL", "text-embedding-3-small")
++# homelab: route the embedder at a dedicated OpenAI-compatible endpoint, separate
++# from the LLM's OPENAI_API_BASE. The stock server sends both LLM and embeddings to
++# the single OPENAI_API_BASE; we keep extraction on Ollama but embeddings on the
++# dedicated embedder-llamacpp service.
++EMBEDDER_API_BASE = os.environ.get("MEM0_EMBEDDER_API_BASE")
++EMBEDDER_API_KEY = os.environ.get("MEM0_EMBEDDER_API_KEY") or OPENAI_API_KEY
++# The official openai SDK reads OPENAI_BASE_URL, not the legacy OPENAI_API_BASE, so
++# mem0's LLM provider ignores OPENAI_API_BASE and hits api.openai.com. Pass it as an
++# explicit openai_base_url on the LLM config so extraction goes to Ollama.
++LLM_API_BASE = os.environ.get("OPENAI_API_BASE")
+
+ DEFAULT_CONFIG = {
+     "version": "v1.1",
+@@ -130,9 +140,23 @@ DEFAULT_CONFIG = {
+     },
+     "llm": {
+         "provider": "openai",
+-        "config": {"api_key": OPENAI_API_KEY, "temperature": 0.2, "model": DEFAULT_LLM_MODEL},
++        "config": {
++            "api_key": OPENAI_API_KEY,
++            "temperature": 0.2,
++            "model": DEFAULT_LLM_MODEL,
++            # When set, overrides the openai SDK default for extraction (homelab → Ollama).
++            **({"openai_base_url": LLM_API_BASE} if LLM_API_BASE else {}),
++        },
++    },
++    "embedder": {
++        "provider": "openai",
++        "config": {
++            "api_key": EMBEDDER_API_KEY,
++            "model": DEFAULT_EMBEDDER_MODEL,
++            # When set, overrides OPENAI_API_BASE for embeddings only (homelab).
++            **({"openai_base_url": EMBEDDER_API_BASE} if EMBEDDER_API_BASE else {}),
++        },
+     },
+-    "embedder": {"provider": "openai", "config": {"api_key": OPENAI_API_KEY, "model": DEFAULT_EMBEDDER_MODEL}},
+     "history_db_path": HISTORY_DB_PATH,
+ }
