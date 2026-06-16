@@ -128,7 +128,10 @@ spec:
               value: noot
             - name: OPENVIKING_AGENT
               value: hermes
-            # Mem0 memory provider (IDEA-029) — replaces OV for agent memory
+            # Mem0 memory provider (IDEA-029) — replaces OV for agent memory.
+            # mem0 LLM extraction + Hermes local sub-agents share gemma4:12b-it-qat
+            # on timmy's RX 9070 XT; cohabitation validated at OLLAMA_NUM_PARALLEL=6
+            # (see INFO-055).
             - name: MEM0_API_KEY
               valueFrom:
                 secretKeyRef:
