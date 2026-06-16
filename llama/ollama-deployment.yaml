@@ -52,8 +52,12 @@ spec:
               value: q4_0
             - name: OLLAMA_KEEP_ALIVE
               value: 3m
+            # 6 slots: sized for the mem0 + Hermes cohabitation design (INFO-055).
+            # Worst-case concurrent local generations = up to 5 Hermes sub-agents
+            # (max_concurrent_children) + 1 mem0 extraction. q4_0 KV @16k is ~0.25 GB
+            # per slot, so 6 slots ≈ 7.2 GB weights + ~1.5 GB KV ≈ 8.7 GB / 16 GB.
             - name: OLLAMA_NUM_PARALLEL
-              value: "2"
+              value: "6"
             - name: OLLAMA_MAX_LOADED_MODELS
               value: "1"
             - name: HIP_VISIBLE_DEVICES
