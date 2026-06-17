@@ -1,0 +1,64 @@
+# Dockerfile for the mem0 OSS dashboard.
+#
+# The dashboard source lives inside the mem0-api-server image at /app/dashboard.
+# We copy it out, build the Next.js standalone output with pnpm, and serve it
+# with the upstream entrypoint.sh that swaps NEXT_PUBLIC_* placeholders at
+# runtime for the real env values.
+#
+# Build:
+#   docker buildx build --platform linux/amd64 -f Dockerfile.dashboard \
+#     -t registry.nathanwhyte.dev/homelab/mem0-dashboard:<tag> --push .
+#
+# The <tag> should match the mem0-api-server source tag so the two images stay
+# in sync (e.g. b55c51e-hl4).
+
+FROM registry.nathanwhyte.dev/homelab/mem0-api-server:b55c51e-hl4 AS source
+
+FROM node:20-alpine AS base
+RUN apk add --no-cache libc6-compat
+WORKDIR /app
+
+# Dependencies
+FROM base AS deps
+COPY --from=source /app/dashboard/package.json ./
+COPY --from=source /app/dashboard/pnpm-lock.yaml ./
+COPY --from=source /app/dashboard/pnpm-workspace.yaml ./
+RUN corepack enable pnpm && pnpm i --frozen-lockfile
+
+# Build
+FROM base AS builder
+WORKDIR /app
+COPY --from=deps /app/node_modules ./node_modules
+COPY --from=source /app/dashboard/. .
+
+ENV NEXT_TELEMETRY_DISABLED=1
+# Placeholders replaced at runtime by entrypoint.sh
+ENV NEXT_PUBLIC_API_URL=NEXT_PUBLIC_API_URL
+ENV NEXT_PUBLIC_INSTANCE_NAME=NEXT_PUBLIC_INSTANCE_NAME
+
+RUN npm run build
+
+# Production
+FROM base AS runner
+WORKDIR /app
+
+ENV NODE_ENV=production
+ENV NEXT_TELEMETRY_DISABLED=1
+ENV PORT=3000
+ENV HOSTNAME="0.0.0.0"
+
+RUN addgroup --system --gid 1001 nodejs && \
+    adduser --system --uid 1001 nextjs
+
+COPY --from=builder /app/public ./public
+COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
+COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
+COPY --from=source --chown=nextjs:nodejs /app/dashboard/entrypoint.sh /home/nextjs/entrypoint.sh
+RUN chmod +x /home/nextjs/entrypoint.sh
+
+USER nextjs
+
+EXPOSE 3000
+
+ENTRYPOINT ["/home/nextjs/entrypoint.sh"]
+CMD ["node", "server.js"]

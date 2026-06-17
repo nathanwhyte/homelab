@@ -22,13 +22,14 @@ The **mem0-adapter** sidecar exists because the upstream `nousresearch/hermes-ag
 
 ## Components
 
-| Component             | Manifest / Image                                                                               | Resources                | Storage                   |
-| --------------------- | ---------------------------------------------------------------------------------------------- | ------------------------ | ------------------------- |
-| Mem0 API server       | `mem0-server-deployment.yaml`                                                                  | 0.5-2 CPU, 1-2 Gi RAM    | emptyDir (SQLite history) |
-| PostgreSQL + pgvector | `mem0-postgres-statefulset.yaml`                                                               | 0.25-1 CPU, 0.5-2 Gi RAM | 5Gi PVC (Longhorn)        |
-| mem0-adapter sidecar  | `hermes/mem0-adapter/` → `registry.nathanwhyte.dev/homelab/mem0-adapter`                       | 50m-1 CPU, 64Mi-512Mi    | none                      |
-| Custom Hermes image   | `hermes/mem0-adapter/Dockerfile.hermes` → `registry.nathanwhyte.dev/homelab/hermes-agent-mem0` | —                        | —                         |
-| Secrets               | `mem0-secrets.yaml` + `hermes/hermes-deployment.yaml`                                          | —                        | —                         |
+| Component             | Manifest / Image                                                                               | Resources                 | Storage                   |
+| --------------------- | ---------------------------------------------------------------------------------------------- | ------------------------- | ------------------------- |
+| Mem0 API server       | `mem0-server-deployment.yaml`                                                                  | 0.5-2 CPU, 1-2 Gi RAM     | emptyDir (SQLite history) |
+| Mem0 Dashboard        | `mem0-dashboard-deployment.yaml`                                                               | 50m-1 CPU, 128Mi-1 Gi RAM | none                      |
+| PostgreSQL + pgvector | `mem0-postgres-statefulset.yaml`                                                               | 0.25-1 CPU, 0.5-2 Gi RAM  | 5Gi PVC (Longhorn)        |
+| mem0-adapter sidecar  | `hermes/mem0-adapter/` → `registry.nathanwhyte.dev/homelab/mem0-adapter`                       | 50m-1 CPU, 64Mi-512Mi     | none                      |
+| Custom Hermes image   | `hermes/mem0-adapter/Dockerfile.hermes` → `registry.nathanwhyte.dev/homelab/hermes-agent-mem0` | —                         | —                         |
+| Secrets               | `mem0-secrets.yaml` + `hermes/hermes-deployment.yaml`                                          | —                         | —                         |
 
 **Total footprint**: ~3.5 vCPU, ~5 Gi RAM (fits on timmy alongside Ollama + OV vectordb; Hermes itself runs on manu CPU).
 
@@ -178,6 +179,110 @@ Then:
 kubectl apply -f hermes/hermes-configmap.yaml
 kubectl apply -f hermes/hermes-deployment.yaml
 kubectl rollout restart deployment/hermes-agent -n hermes
+```
+
+## Dashboard
+
+The mem0 server source ships a Next.js dashboard (`/app/dashboard`) that provides a
+web UI for memories, API keys, entities, configuration, and request history. It is
+built and deployed as a separate container image and exposed at
+**`https://mem0.nathanwhyte.dev`**.
+
+```
+Browser ──▶ https://mem0.nathanwhyte.dev ──▶ mem0-dashboard:3000
+                 │
+                 └── API path prefixes ──▶ mem0-server:8080
+```
+
+### Build the dashboard image
+
+The dashboard source lives inside the mem0-api-server image at `/app/dashboard`,
+so the dashboard image is built from that source with a multi-stage Node/pnpm
+build. Keep the tag in sync with the API server image to avoid version drift.
+
+```bash
+cd mem0/build
+TAG=b55c51e-hl4  # match the mem0-api-server tag you are running
+
+kubectl get secret harbor-core -n harbor -o jsonpath='{.data.HARBOR_ADMIN_PASSWORD}' \
+  | base64 -d | docker login registry.nathanwhyte.dev -u admin --password-stdin
+
+docker buildx build --platform linux/amd64 -f Dockerfile.dashboard \
+  -t registry.nathanwhyte.dev/homelab/mem0-dashboard:${TAG} --push .
+```
+
+### Deploy
+
+```bash
+kubectl apply -f mem0/manifests/mem0-dashboard-deployment.yaml
+kubectl rollout status deployment/mem0-dashboard -n mem0
+```
+
+The dashboard container receives three important URLs:
+
+| Env var               | Value                                            | Purpose                                                             |
+| --------------------- | ------------------------------------------------ | ------------------------------------------------------------------- |
+| `NEXT_PUBLIC_API_URL` | `https://api-mem0.nathanwhyte.dev`               | Public base URL used by the browser for API calls                   |
+| `API_INTERNAL_URL`    | `http://mem0-server.mem0.svc.cluster.local:8080` | In-cluster URL used by Next.js server-side routes/API handlers      |
+| `DASHBOARD_URL`       | `https://mem0.nathanwhyte.dev`                   | Used for CORS origin in mem0-server and for secure-cookie detection |
+
+`entrypoint.sh` swaps the `NEXT_PUBLIC_*` placeholders baked into the Next.js
+standalone output at pod startup; `API_INTERNAL_URL` and `DASHBOARD_URL` are read
+at runtime and do not need placeholder substitution.
+
+### Expose via Cloudflare tunnel
+
+The dashboard and the mem0 API get their own hostnames. This keeps the
+routing simple: `mem0.nathanwhyte.dev` serves only the Next.js dashboard, and
+`api-mem0.nathanwhyte.dev` serves the mem0-server REST API. The dashboard's
+browser-side client uses `NEXT_PUBLIC_API_URL=https://api-mem0.nathanwhyte.dev`,
+and its server-side routes/API handlers proxy through `API_INTERNAL_URL`.
+
+The tunnel rules in `cloudflare/main-tunnel/cloudflared-configmap.yaml`:
+
+```yaml
+- hostname: mem0.nathanwhyte.dev
+  service: http://mem0-dashboard.mem0.svc.cluster.local:3000
+- hostname: api-mem0.nathanwhyte.dev
+  service: http://mem0-server.mem0.svc.cluster.local:8080
+```
+
+Create the DNS records with `cloudflared`:
+
+```bash
+kubectl get secret cloudflared-credentials -n cloudflare-system \
+  -o jsonpath='{.data.credentials\.json}' | base64 -d > /tmp/cloudflared-creds.json
+cloudflared tunnel --credentials-file /tmp/cloudflared-creds.json route dns \
+  936478c5-b4a9-400c-8490-053451dda497 mem0.nathanwhyte.dev
+cloudflared tunnel --credentials-file /tmp/cloudflared-creds.json route dns \
+  936478c5-b4a9-400c-8490-053451dda497 api-mem0.nathanwhyte.dev
+```
+
+Then restart the tunnel:
+
+```bash
+kubectl apply -f cloudflare/main-tunnel/cloudflared-configmap.yaml
+kubectl rollout restart deployment/cloudflared -n cloudflare-system
+```
+
+### First-admin setup
+
+On first visit, the dashboard redirects to `/setup` and lets you create the admin
+account. Once a user exists, registration closes. If you ever need to reset it,
+delete the row from the `mem0_app` database:
+
+```bash
+kubectl exec -n mem0 sts/mem0-postgres -- psql -U postgres -d mem0_app \
+  -c "DELETE FROM users WHERE email='<your-email>';"
+```
+
+### Verify
+
+```bash
+# Dashboard serves a 307 redirect to /setup when no admin exists
+curl -sI https://mem0.nathanwhyte.dev/
+# API path is routed to mem0-server
+curl -s https://mem0.nathanwhyte.dev/auth/setup-status
 ```
 
 ## Model routing
