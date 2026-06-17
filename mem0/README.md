@@ -175,7 +175,12 @@ API path only. This is the wrong client class for self-hosted Mem0:
 
 Mem0's own docs confirm this split: use `Memory` (Python library) or raw HTTP
 for self-hosted, and `MemoryClient` only for the Platform. See
-[Mem0 OSS REST API](https://docs.mem0.ai/open-source/features/rest-api).
+[Mem0 OSS REST API](https://docs.mem0.ai/open-source/features/rest-api) and
+[Platform vs Open Source](https://docs.mem0.ai/platform/platform-vs-oss).
+
+The `mem0` CLI is also Platform-only — it "works with the Mem0 Platform API"
+and is not a tool for the self-hosted OSS server. Do not use it to verify the
+homelab deployment.
 
 Attempting to wire Hermes to the self-hosted server today results in 404 / 401
 errors from the Mem0 Platform client. Do **not** apply the Hermes ConfigMap and
