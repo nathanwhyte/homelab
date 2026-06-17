@@ -76,7 +76,7 @@ data:
       provider: mem0
       mem0:
         api_key: "${MEM0_API_KEY}"
-        base_url: "http://mem0-server.mem0.svc.cluster.local:8080"
+        base_url: "http://localhost:18080" # in-pod mem0-adapter sidecar translates Platform API → OSS API
     model:
       api_key: ollama
       base_url: http://chat-ollama.llama.svc:11434/v1
