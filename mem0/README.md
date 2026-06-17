@@ -89,12 +89,14 @@ kubectl rollout status statefulset/mem0-postgres -n mem0
 ### 4. Verify Mem0 API
 
 ```bash
-# Health check
-curl -sf http://mem0-server.mem0.svc.cluster.local:8080/health
+# Health check (there is no /health route; / returns a 307 redirect to Swagger UI)
+curl -sf http://mem0-server.mem0.svc.cluster.local:8080/
 
 # Create a test memory
-curl -X POST http://mem0-server.mem0.svc.cluster.local:8080/v1/memories/ \
-  -H "Authorization: Bearer $ADMIN_API_KEY" \
+# Auth: use X-API-Key (Bearer is rejected by the OSS server)
+# Path: /memories/ (no /v1/ prefix on the OSS server)
+curl -X POST http://mem0-server.mem0.svc.cluster.local:8080/memories/ \
+  -H "X-API-Key: $ADMIN_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"messages": [{"role": "user", "content": "I prefer dark mode for coding"}], "user_id": "test-user"}'
 ```
@@ -123,7 +125,7 @@ Update `hermes/hermes-deployment.yaml` env vars (add alongside OPENVIKING\_\* va
 - name: MEM0_API_KEY
   valueFrom:
     secretKeyRef:
-      name: mem0-secrets
+      name: mem0-api-key # lives in the hermes namespace
       key: ADMIN_API_KEY
 ```
 
@@ -154,6 +156,51 @@ To revert to OV-only memory:
 2. Remove MEM0\_\* env vars from deployment
 3. `kubectl rollout restart deployment/hermes-agent -n hermes`
 4. (Optional) Scale down mem0 namespace: `kubectl scale deployment/mem0-server --replicas=0 -n mem0`
+
+## Hermes integration status
+
+⚠️ **Blocked on upstream Hermes OSS-mode support.**
+
+The self-hosted Mem0 server is healthy and reachable from the cluster, but the
+`nousresearch/hermes-agent:latest` image currently uses the **Mem0 Platform**
+API path only:
+
+- It imports `from mem0 import MemoryClient` and constructs
+  `MemoryClient(api_key=self._api_key)` with no `host=` parameter.
+- The official `mem0ai` Python client talks to `https://api.mem0.ai` and uses
+  routes such as `/v1/ping/`, `/v3/memories/add/`, and `/v3/memories/search/`.
+- The self-hosted server exposes OSS routes such as `/memories/`, `/search/`,
+  and `/entities/`, and requires `X-API-Key` auth.
+
+Attempting to wire Hermes to the self-hosted server today results in 404 / 401
+errors from the Mem0 Platform client. Do **not** apply the Hermes ConfigMap and
+Deployment changes from step 5 until one of the following is available:
+
+1. Hermes PR [#15624](https://github.com/NousResearch/hermes-agent/pull/15624)
+   (mem0 OSS/self-hosted mode) merges and a new image is published.
+2. A local adapter or patched plugin is built to bridge the OSS API.
+
+### Verified OSS API behavior
+
+Tested by port-forwarding `mem0-server` to `localhost:18080` and calling the
+endpoints directly:
+
+| Call                             | Route                  | Auth                    | Result                               |
+| -------------------------------- | ---------------------- | ----------------------- | ------------------------------------ |
+| Health                           | `GET /`                | none                    | 307 → Swagger UI ✅                  |
+| Create memory                    | `POST /memories/`      | `X-API-Key`             | ✅                                   |
+| Create memory                    | `POST /v1/memories/`   | `X-API-Key`             | 404 ❌                               |
+| Create memory                    | `POST /memories/`      | `Authorization: Bearer` | 401 ❌                               |
+| Search                           | `POST /search`         | `X-API-Key`             | ✅                                   |
+| Concurrent distinct writes       | `POST /memories/` (5×) | `X-API-Key`             | ✅                                   |
+| Concurrent near-duplicate writes | `POST /memories/` (5×) | `X-API-Key`             | Empty results (server-side dedup) ⚠️ |
+
+### Deduplication pitfall
+
+Mem0's server-side LLM extraction collapses semantically identical messages into
+a single fact and returns `{"results": []}` for duplicates. This is by design,
+but it can look like a silent failure when several Hermes sub-agents report the
+same finding. Use distinct, specific phrasing for test messages.
 
 ## Related
 
