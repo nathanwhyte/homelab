@@ -163,14 +163,19 @@ To revert to OV-only memory:
 
 The self-hosted Mem0 server is healthy and reachable from the cluster, but the
 `nousresearch/hermes-agent:latest` image currently uses the **Mem0 Platform**
-API path only:
+API path only. This is the wrong client class for self-hosted Mem0:
 
 - It imports `from mem0 import MemoryClient` and constructs
   `MemoryClient(api_key=self._api_key)` with no `host=` parameter.
-- The official `mem0ai` Python client talks to `https://api.mem0.ai` and uses
-  routes such as `/v1/ping/`, `/v3/memories/add/`, and `/v3/memories/search/`.
-- The self-hosted server exposes OSS routes such as `/memories/`, `/search/`,
-  and `/entities/`, and requires `X-API-Key` auth.
+- The `MemoryClient` in `mem0ai` is designed for the managed Platform at
+  `https://api.mem0.ai`; it calls routes such as `/v1/ping/`, `/v3/memories/add/`,
+  and `/v3/memories/search/`.
+- The self-hosted OSS server exposes a different REST surface (`/memories/`,
+  `/search/`, `/entities/`, etc.) and requires `X-API-Key` auth.
+
+Mem0's own docs confirm this split: use `Memory` (Python library) or raw HTTP
+for self-hosted, and `MemoryClient` only for the Platform. See
+[Mem0 OSS REST API](https://docs.mem0.ai/open-source/features/rest-api).
 
 Attempting to wire Hermes to the self-hosted server today results in 404 / 401
 errors from the Mem0 Platform client. Do **not** apply the Hermes ConfigMap and
@@ -179,6 +184,45 @@ Deployment changes from step 5 until one of the following is available:
 1. Hermes PR [#15624](https://github.com/NousResearch/hermes-agent/pull/15624)
    (mem0 OSS/self-hosted mode) merges and a new image is published.
 2. A local adapter or patched plugin is built to bridge the OSS API.
+
+### OSS REST endpoint reference
+
+From the official
+[Mem0 OSS REST API docs](https://docs.mem0.ai/open-source/features/rest-api):
+
+| Method   | Path                                  | Description                                                |
+| -------- | ------------------------------------- | ---------------------------------------------------------- |
+| `POST`   | `/configure`                          | Set memory configuration                                   |
+| `GET`    | `/configure`                          | Get current memory configuration                           |
+| `GET`    | `/configure/providers`                | List bundled LLM/embedder providers                        |
+| `POST`   | `/memories`                           | Create memories                                            |
+| `GET`    | `/memories`                           | Get all memories (filter by `user_id`/`agent_id`/`run_id`) |
+| `GET`    | `/memories/{memory_id}`               | Get a specific memory                                      |
+| `PUT`    | `/memories/{memory_id}`               | Update a memory                                            |
+| `DELETE` | `/memories/{memory_id}`               | Delete a specific memory                                   |
+| `DELETE` | `/memories`                           | Delete all memories for an identifier                      |
+| `GET`    | `/memories/{memory_id}/history`       | Get memory history                                         |
+| `POST`   | `/search`                             | Search memories                                            |
+| `POST`   | `/reset`                              | Reset all memories                                         |
+| `GET`    | `/entities`                           | Distinct `user_id`/`agent_id`/`run_id` values with counts  |
+| `DELETE` | `/entities/{entity_type}/{entity_id}` | Cascade-delete all memories for an entity                  |
+
+Note: **none of these use the `/v1/` prefix**. The
+[Mem0 API Reference](https://docs.mem0.ai/api-reference) documents the hosted
+Platform API, not the OSS server.
+
+### Auth modes
+
+The OSS server supports three auth modes (per the Mem0 docs):
+
+| Mode                   | Header                          | Use case                                             |
+| ---------------------- | ------------------------------- | ---------------------------------------------------- |
+| Per-user API key       | `X-API-Key: m0sk_...`           | Programmatic access scoped to a dashboard user       |
+| Legacy `ADMIN_API_KEY` | `X-API-Key: <env value>`        | Back-compat for deployments that set `ADMIN_API_KEY` |
+| Bearer JWT             | `Authorization: Bearer <token>` | Dashboard sessions from `POST /auth/login`           |
+
+The current homelab deployment sets `ADMIN_API_KEY` and uses it via the
+`X-API-Key` header.
 
 ### Verified OSS API behavior
 
