@@ -5,25 +5,32 @@ Self-hosted Mem0 deployment for Hermes agent memory, replacing OpenViking as the
 ## Architecture
 
 ```
-Hermes ──memory──▶ mem0-server:8080 ──▶ mem0-postgres:5432 (pgvector)
-                          │
-                          ├── LLM extraction ──▶ ollama.llama (gemma4:12b-it-qat)
-                          └── Embedding    ──▶ embedder-llamacpp.viking (nomic-embed-text-v1.5)
+Hermes ──memory──▶ mem0-adapter:18080 ──▶ mem0-server:8080 ──▶ mem0-postgres:5432 (pgvector)
+                           │
+                           └── translates Platform v1/v3 API ──▶ OSS REST API
+
+mem0-server:
+  ├── LLM extraction ──▶ ollama.llama (gemma4:12b-it-qat)
+  └── Embedding      ──▶ embedder-llamacpp.viking (nomic-embed-text-v1.5)
 
 Hermes ──knowledge──▶ openviking.viking:1933 (unchanged)
 ```
 
 **Split-provider design**: Mem0 handles agent memory reads/writes (the `memory` tool, `mem0_search`, `mem0_profile`, `mem0_conclude`). OpenViking handles knowledge base operations (`viking_search`, `viking_read`, `viking_browse`, `viking_add_resource`). No data loss — both systems coexist.
 
+The **mem0-adapter** sidecar exists because the upstream `nousresearch/hermes-agent` image uses the Mem0 Platform `MemoryClient` (routes `/v1/ping/`, `/v3/memories/add/`, `/v3/memories/search/`, `Authorization: Token <key>`), while the self-hosted OSS server speaks OSS REST routes (`/memories`, `/search`, `X-API-Key`). The adapter translates between the two until upstream Hermes PR [#15624](https://github.com/NousResearch/hermes-agent/pull/15624) lands.
+
 ## Components
 
-| Component             | Manifest                         | Resources                | Storage                   |
-| --------------------- | -------------------------------- | ------------------------ | ------------------------- |
-| Mem0 API server       | `mem0-server-deployment.yaml`    | 0.5-2 CPU, 1-2 Gi RAM    | emptyDir (SQLite history) |
-| PostgreSQL + pgvector | `mem0-postgres-statefulset.yaml` | 0.25-1 CPU, 0.5-2 Gi RAM | 5Gi PVC (Longhorn)        |
-| Secrets               | `mem0-secrets.yaml`              | —                        | —                         |
+| Component             | Manifest / Image                                                                               | Resources                | Storage                   |
+| --------------------- | ---------------------------------------------------------------------------------------------- | ------------------------ | ------------------------- |
+| Mem0 API server       | `mem0-server-deployment.yaml`                                                                  | 0.5-2 CPU, 1-2 Gi RAM    | emptyDir (SQLite history) |
+| PostgreSQL + pgvector | `mem0-postgres-statefulset.yaml`                                                               | 0.25-1 CPU, 0.5-2 Gi RAM | 5Gi PVC (Longhorn)        |
+| mem0-adapter sidecar  | `hermes/mem0-adapter/` → `registry.nathanwhyte.dev/homelab/mem0-adapter`                       | 50m-1 CPU, 64Mi-512Mi    | none                      |
+| Custom Hermes image   | `hermes/mem0-adapter/Dockerfile.hermes` → `registry.nathanwhyte.dev/homelab/hermes-agent-mem0` | —                        | —                         |
+| Secrets               | `mem0-secrets.yaml` + `hermes/hermes-deployment.yaml`                                          | —                        | —                         |
 
-**Total footprint**: ~3 vCPU, ~4.5 Gi RAM (fits on timmy alongside Ollama + OV vectordb).
+**Total footprint**: ~3.5 vCPU, ~5 Gi RAM (fits on timmy alongside Ollama + OV vectordb; Hermes itself runs on manu CPU).
 
 ## Building the API server image (amd64)
 
@@ -101,7 +108,32 @@ curl -X POST http://mem0-server.mem0.svc.cluster.local:8080/memories/ \
   -d '{"messages": [{"role": "user", "content": "I prefer dark mode for coding"}], "user_id": "test-user"}'
 ```
 
-### 5. Wire Hermes (after verifying Mem0 works)
+### 5. Build and push the adapter + custom Hermes image
+
+The adapter lives in `hermes/mem0-adapter/`. It exposes the Platform v1/v3 API
+on port 18080 and forwards to the OSS server.
+
+```bash
+cd hermes/mem0-adapter
+TAG=$(git rev-parse --short HEAD)
+
+# Build the adapter sidecar
+kubectl get secret harbor-core -n harbor -o jsonpath='{.data.HARBOR_ADMIN_PASSWORD}' \
+  | base64 -d | docker login registry.nathanwhyte.dev -u admin --password-stdin
+docker buildx build --platform linux/amd64 -t registry.nathanwhyte.dev/homelab/mem0-adapter:${TAG} --push .
+
+# Build the custom Hermes image (adds mem0ai==2.0.6 to upstream image)
+docker buildx build --platform linux/amd64 -f Dockerfile.hermes \
+  -t registry.nathanwhyte.dev/homelab/hermes-agent-mem0:${TAG} --push .
+```
+
+Both images are tiny operational patches:
+
+- **mem0-adapter** translates Platform requests to OSS routes and auth.
+- **hermes-agent-mem0** installs `mem0ai==2.0.6` into the upstream Hermes venv
+  (`/opt/hermes/.venv/bin/python`) because the upstream image does not ship it.
+
+### 6. Wire Hermes
 
 Update `hermes/hermes-configmap.yaml`:
 
@@ -115,10 +147,19 @@ memory:
   provider: mem0 # was: openviking
   mem0:
     api_key: "${MEM0_API_KEY}"
-    base_url: "http://mem0-server.mem0.svc.cluster.local:8080"
+    base_url: "http://localhost:18080" # points at the in-pod adapter sidecar
 ```
 
-Update `hermes/hermes-deployment.yaml` env vars (add alongside OPENVIKING\_\* vars):
+Update `hermes/hermes-deployment.yaml`:
+
+- Set the Hermes image to `registry.nathanwhyte.dev/homelab/hermes-agent-mem0:${TAG}`.
+- Add the `mem0-adapter` sidecar container (see the live manifest for the full
+  snippet; it mounts no volumes and uses `MEM0_URL` + `ADMIN_API_KEY` env vars).
+- Add the `mem0-plugin-copy` init container that copies `patched-plugin.py`
+  from the adapter image to an `emptyDir`.
+- Mount the patched plugin over `/opt/hermes/plugins/memory/mem0/__init__.py`
+  via `subPath`.
+- Add Hermes env vars:
 
 ```yaml
 # Mem0 memory provider (IDEA-029)
@@ -127,6 +168,8 @@ Update `hermes/hermes-deployment.yaml` env vars (add alongside OPENVIKING\_\* va
     secretKeyRef:
       name: mem0-api-key # lives in the hermes namespace
       key: ADMIN_API_KEY
+- name: MEM0_BASE_URL
+  value: "http://localhost:18080"
 ```
 
 Then:
@@ -153,42 +196,61 @@ kubectl rollout restart deployment/hermes-agent -n hermes
 To revert to OV-only memory:
 
 1. Change `memory.provider: openviking` in configmap
-2. Remove MEM0\_\* env vars from deployment
-3. `kubectl rollout restart deployment/hermes-agent -n hermes`
-4. (Optional) Scale down mem0 namespace: `kubectl scale deployment/mem0-server --replicas=0 -n mem0`
+2. Remove the mem0-adapter sidecar, the `mem0-plugin-copy` init container, and the patched-plugin volume/volumeMount
+3. Switch the Hermes image back to `nousresearch/hermes-agent:latest`
+4. Remove MEM0\_\* env vars from deployment
+5. `kubectl rollout restart deployment/hermes-agent -n hermes`
+6. (Optional) Scale down mem0 namespace: `kubectl scale deployment/mem0-server --replicas=0 -n mem0`
 
 ## Hermes integration status
 
-⚠️ **Blocked on upstream Hermes OSS-mode support.**
+✅ **Fixed by a local adapter sidecar + patched plugin + custom Hermes image.**
 
-The self-hosted Mem0 server is healthy and reachable from the cluster, but the
-`nousresearch/hermes-agent:latest` image currently uses the **Mem0 Platform**
-API path only. This is the wrong client class for self-hosted Mem0:
+The upstream `nousresearch/hermes-agent:latest` image uses the Mem0 Platform
+`MemoryClient` without a `host=` parameter, so it cannot talk to the self-hosted
+OSS server directly. The homelab deploy adds three small bridging pieces:
 
-- It imports `from mem0 import MemoryClient` and constructs
-  `MemoryClient(api_key=self._api_key)` with no `host=` parameter.
-- The `MemoryClient` in `mem0ai` is designed for the managed Platform at
-  `https://api.mem0.ai`; it calls routes such as `/v1/ping/`, `/v3/memories/add/`,
-  and `/v3/memories/search/`.
-- The self-hosted OSS server exposes a different REST surface (`/memories/`,
-  `/search/`, `/entities/`, etc.) and requires `X-API-Key` auth.
+1. **`hermes/mem0-adapter/main.py`** — a FastAPI sidecar that exposes the
+   Platform v1/v3 endpoints Hermes expects and forwards them to the OSS server:
 
-Mem0's own docs confirm this split: use `Memory` (Python library) or raw HTTP
-for self-hosted, and `MemoryClient` only for the Platform. See
-[Mem0 OSS REST API](https://docs.mem0.ai/open-source/features/rest-api) and
-[Platform vs Open Source](https://docs.mem0.ai/platform/platform-vs-oss).
+   | Platform request (Hermes)   | OSS translation  |
+   | --------------------------- | ---------------- |
+   | `GET /v1/ping/`             | static pong      |
+   | `POST /v3/memories/add/`    | `POST /memories` |
+   | `POST /v3/memories/search/` | `POST /search`   |
+   | `POST /v3/memories/`        | `GET /memories`  |
 
-The `mem0` CLI is also Platform-only — it "works with the Mem0 Platform API"
-and is not a tool for the self-hosted OSS server. Do not use it to verify the
-homelab deployment.
+   The adapter also rewrites auth (`Authorization: Token <key>` → `X-API-Key: <key>`)
+   and drops headers that break forwarding (`authorization`, `mem0-user-id`,
+   `content-length`).
 
-Attempting to wire Hermes to the self-hosted server today results in 404 / 401
-errors from the Mem0 Platform client. Do **not** apply the Hermes ConfigMap and
-Deployment changes from step 5 until one of the following is available:
+2. **`hermes/mem0-adapter/patched-plugin.py`** — a copy of the upstream Hermes
+   mem0 plugin with two minimal changes:
+   - Reads `base_url` from `MEM0_BASE_URL` / `MEM0_HOST` / `mem0.json`.
+   - Passes `host=base_url` to `MemoryClient(...)` so the client points at
+     `http://localhost:18080` (the adapter sidecar) instead of `https://api.mem0.ai`.
 
-1. Hermes PR [#15624](https://github.com/NousResearch/hermes-agent/pull/15624)
-   (mem0 OSS/self-hosted mode) merges and a new image is published.
-2. A local adapter or patched plugin is built to bridge the OSS API.
+3. **`hermes/mem0-adapter/Dockerfile.hermes`** — layers `mem0ai==2.0.6` onto the
+   upstream Hermes image with `uv pip install --python /opt/hermes/.venv/bin/python`,
+   because the upstream image does not include the `mem0ai` package.
+
+The manifest wires it together: an init container copies the patched plugin into
+a shared `emptyDir`, the Hermes container mounts it over
+`/opt/hermes/plugins/memory/mem0/__init__.py`, and the `mem0-adapter` sidecar runs
+in the same pod. The upstream OSS/self-hosted PR [#15624](https://github.com/NousResearch/hermes-agent/pull/15624)
+is still the preferred long-term fix; the adapter can be retired once it merges.
+
+### End-to-end verification
+
+Tested on the live cluster after applying the updated manifest:
+
+| Step           | Command / check                                                                                   | Result                                                                                                |
+| -------------- | ------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| Hermes health  | `./hermes/operator.sh health`                                                                     | `{"status": "ok", ...}` ✅                                                                            |
+| Store a memory | `ask "Remember that my favorite test animal is the capybara, for mem0 integration test INFO-055"` | Hermes replied and stored the fact ✅                                                                 |
+| Adapter proxy  | `kubectl logs -c mem0-adapter deploy/hermes-agent`                                                | `GET /v1/ping/`, `POST /v3/memories/add/`, `POST /v3/memories/search/` all returned 200 ✅            |
+| Database row   | `SELECT ... FROM memories` in `mem0-postgres`                                                     | Row found with payload `Favorite test animal is the capybara (for mem0 integration test INFO-055)` ✅ |
+| Memory recall  | `ask "What is my favorite test animal, from our recent mem0 integration test?"`                   | Hermes answered `capybara` ✅                                                                         |
 
 ### OSS REST endpoint reference
 
@@ -231,8 +293,7 @@ The current homelab deployment sets `ADMIN_API_KEY` and uses it via the
 
 ### Verified OSS API behavior
 
-Tested by port-forwarding `mem0-server` to `localhost:18080` and calling the
-endpoints directly:
+Tested by port-forwarding `mem0-server` to `localhost:18080` from this MacBook.
 
 | Call                             | Route                  | Auth                    | Result                               |
 | -------------------------------- | ---------------------- | ----------------------- | ------------------------------------ |
@@ -255,5 +316,6 @@ same finding. Use distinct, specific phrasing for test messages.
 
 - IDEA-029: Original proposal
 - BUG-017: OV SUBTREE lock contention (motivation)
+- BUG-018: Hermes self-hosted mem0 blocker (resolved via adapter)
 - IMPR-005: Route OV models through shared Ollama (related GPU optimization)
 - INFO-055: mem0 + Hermes GPU cohabitation benchmark (`OLLAMA_NUM_PARALLEL=6` validated)

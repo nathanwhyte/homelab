@@ -1,0 +1,6 @@
+FROM nousresearch/hermes-agent:latest
+
+# mem0ai is required by the patched mem0 plugin but is not bundled in the
+# upstream Hermes image. Install a pinned version so the MemoryClient class
+# is available at runtime.
+RUN uv pip install --python /opt/hermes/.venv/bin/python --no-cache mem0ai==2.0.6

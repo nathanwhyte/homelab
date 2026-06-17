@@ -59,9 +59,21 @@ spec:
             - name: ssh-key
               mountPath: /ssh-key
               readOnly: true
+        - name: mem0-plugin-copy
+          image: registry.nathanwhyte.dev/homelab/mem0-adapter:fe57dd3
+          imagePullPolicy: Always
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -euo pipefail
+              mkdir -p /plugins
+              cp /app/patched-plugin.py /plugins/__init__.py
+          volumeMounts:
+            - name: mem0-plugin-patch
+              mountPath: /plugins
       containers:
         - name: hermes
-          image: nousresearch/hermes-agent:latest
+          image: registry.nathanwhyte.dev/homelab/hermes-agent-mem0:fe57dd3
           imagePullPolicy: Always
           # No --replace: s6-overlay supervises gateway lifecycle;
           # --replace races with s6-supervise restart (cf. #11718, #13655)
@@ -137,6 +149,9 @@ spec:
                 secretKeyRef:
                   name: mem0-api-key
                   key: ADMIN_API_KEY
+            # Point the patched mem0 plugin at the local adapter sidecar.
+            - name: MEM0_BASE_URL
+              value: "http://localhost:18080"
             - name: SLACK_HOME_CHANNEL
               value: C0BAP91GV42
           ports:
@@ -166,6 +181,10 @@ spec:
           volumeMounts:
             - name: hermes-data
               mountPath: /opt/data
+            - name: mem0-plugin-patch
+              mountPath: /opt/hermes/plugins/memory/mem0/__init__.py
+              subPath: __init__.py
+              readOnly: true
           lifecycle:
             preStop:
               exec:
@@ -178,6 +197,27 @@ spec:
                   - /bin/sh
                   - -c
                   - chmod 600 /opt/data/.ssh/id_ed25519
+        - name: mem0-adapter
+          image: registry.nathanwhyte.dev/homelab/mem0-adapter:fe57dd3
+          imagePullPolicy: Always
+          env:
+            - name: MEM0_URL
+              value: http://mem0-server.mem0.svc.cluster.local:8080
+            - name: ADMIN_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: mem0-api-key
+                  key: ADMIN_API_KEY
+          ports:
+            - containerPort: 18080
+              name: mem0-adapter
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
       volumes:
         - name: hermes-data
           persistentVolumeClaim:
@@ -191,3 +231,5 @@ spec:
             items:
               - key: id_ed25519
                 path: id_ed25519
+        - name: mem0-plugin-patch
+          emptyDir: {}
