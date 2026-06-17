@@ -53,7 +53,7 @@ spec:
             # reasoning=none so the content is clean JSON. Embeddings use a separate
             # endpoint (MEM0_EMBEDDER_API_BASE below).
             - name: OPENAI_API_KEY
-              value: "sk-no-op"  # Ollama doesn't need a real key
+              value: "sk-no-op" # Ollama doesn't need a real key
             - name: OPENAI_API_BASE
               value: "http://chat-ollama-proxy.llama.svc.cluster.local:11434/v1"
             # Postgres connection
@@ -115,6 +115,11 @@ spec:
             # Auth disabled for internal cluster use
             - name: AUTH_DISABLED
               value: "false"
+            # CORS origin for the dashboard + telemetry nudge URL. The dashboard is
+            # exposed at https://mem0.nathanwhyte.dev and makes browser calls to the
+            # mem0 API via the same hostname (Cloudflare tunnel path routing).
+            - name: DASHBOARD_URL
+              value: "https://mem0.nathanwhyte.dev"
             # SQLite audit-history DB. Upstream default is /app/history/history.db,
             # but that dir only exists via the dev compose volume mount — point it
             # at the mounted emptyDir below so the server can create it on startup.
