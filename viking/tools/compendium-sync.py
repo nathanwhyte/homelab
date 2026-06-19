@@ -23,6 +23,9 @@ from pathlib import Path
 
 
 VAULT_ROOT = Path(os.environ.get("COMPENDIUM_ROOT", "~/code/compendium")).expanduser()
+# Keep the displayed path portable (e.g. ~/code/personal-compendium/...) instead of
+# hardcoding the default work vault.
+VAULT_ROOT_DISPLAY = str(VAULT_ROOT).replace(str(Path.home()), "~", 1)
 DEFAULT_TARGET_BASE = os.environ.get("OV_TARGET_BASE", "viking://resources/compendium")
 ACTIVE_STATUSES = {"todo", "open", "proposed", "in-progress", "investigating", "active"}
 
@@ -142,8 +145,12 @@ def field(frontmatter: str, key: str):
         return items if items else ""
 
     if raw.startswith("[") and raw.endswith("]"):
-        return [item.strip().strip("'\"") for item in raw[1:-1].split(",") if item.strip()]
-    if (raw.startswith('"') and raw.endswith('"')) or (raw.startswith("'") and raw.endswith("'")):
+        return [
+            item.strip().strip("'\"") for item in raw[1:-1].split(",") if item.strip()
+        ]
+    if (raw.startswith('"') and raw.endswith('"')) or (
+        raw.startswith("'") and raw.endswith("'")
+    ):
         return raw[1:-1]
     return raw
 
@@ -254,7 +261,7 @@ def payload_for(path: Path, target_base: str) -> Entry | None:
 
     lines = [
         "[ov_mode: pointer]",
-        f"Path: ~/code/compendium/{rel_path}",
+        f"Path: {VAULT_ROOT_DISPLAY}/{rel_path}",
         f"ID: {eid}",
         f"Title: {scalar(field(frontmatter, 'title'))}",
         f"Type: {entry_type}",
@@ -313,7 +320,9 @@ def iter_markdown() -> list[Path]:
 
 
 def entries(target_base: str) -> list[Entry]:
-    return [entry for path in iter_markdown() if (entry := payload_for(path, target_base))]
+    return [
+        entry for path in iter_markdown() if (entry := payload_for(path, target_base))
+    ]
 
 
 def entries_for_paths(paths: list[str], target_base: str) -> list[Entry]:
@@ -384,7 +393,9 @@ def ov_cli_config() -> tuple[dict[str, str], str | None]:
         "user": os.environ.get("OPENVIKING_USER", "noot"),
         "timeout": OV_CLIENT_TIMEOUT,
     }
-    tmp = tempfile.NamedTemporaryFile("w", suffix=".json", prefix="ovcli-", delete=False)
+    tmp = tempfile.NamedTemporaryFile(
+        "w", suffix=".json", prefix="ovcli-", delete=False
+    )
     try:
         json.dump(config, tmp)
         tmp.write("\n")
@@ -405,7 +416,9 @@ def _is_transient(result: subprocess.CompletedProcess) -> bool:
     return any(marker in blob for marker in TRANSIENT_ERROR_MARKERS)
 
 
-def run_ov(cmd: list[str], timeout: int = 120, retries: int = 1) -> subprocess.CompletedProcess:
+def run_ov(
+    cmd: list[str], timeout: int = 120, retries: int = 1
+) -> subprocess.CompletedProcess:
     """Run an ov subcommand, retrying only genuine connection-level blips.
 
     Retries are safe because every write path uses `add-resource --to`
@@ -417,7 +430,9 @@ def run_ov(cmd: list[str], timeout: int = 120, retries: int = 1) -> subprocess.C
     for attempt in range(retries + 1):
         env, config_path = ov_cli_config()
         try:
-            result = subprocess.run(["ov", *cmd], capture_output=True, text=True, timeout=timeout, env=env)
+            result = subprocess.run(
+                ["ov", *cmd], capture_output=True, text=True, timeout=timeout, env=env
+            )
         finally:
             if config_path:
                 Path(config_path).unlink(missing_ok=True)
@@ -465,7 +480,9 @@ def health_check() -> str:
 
 
 def sync_entry(entry: Entry, wait: bool) -> tuple[str, str]:
-    with tempfile.NamedTemporaryFile("w", suffix=".md", prefix=f"{entry.name}-", delete=False) as tmp:
+    with tempfile.NamedTemporaryFile(
+        "w", suffix=".md", prefix=f"{entry.name}-", delete=False
+    ) as tmp:
         tmp.write(entry.payload)
         tmp_path = tmp.name
     try:
@@ -479,7 +496,10 @@ def sync_entry(entry: Entry, wait: bool) -> tuple[str, str]:
         result = run_ov(cmd, timeout=OV_CLIENT_TIMEOUT + 60 if wait else 120)
         if result.returncode == 0:
             return "synced", entry.uri
-        if "already exists" in result.stderr.lower() or "exists" in result.stderr.lower():
+        if (
+            "already exists" in result.stderr.lower()
+            or "exists" in result.stderr.lower()
+        ):
             return "exists", entry.uri
         return "error", result.stderr.strip()[:300]
     finally:
@@ -492,7 +512,9 @@ def print_stats(entries_: list[Entry], target_base: str) -> None:
     print(f"Target: {target_base}")
     print(f"Entries: {len(entries_)}")
     if sizes:
-        print(f"Payload bytes: avg={sum(sizes)//len(sizes)} min={min(sizes)} max={max(sizes)}")
+        print(
+            f"Payload bytes: avg={sum(sizes) // len(sizes)} min={min(sizes)} max={max(sizes)}"
+        )
     for label, getter in (
         ("Types", lambda e: e.entry_type or "(none)"),
         ("Statuses", lambda e: e.status or "(none)"),
@@ -509,13 +531,17 @@ def print_stats(entries_: list[Entry], target_base: str) -> None:
 
 def cmd_sync(args, entries_: list[Entry]) -> int:
     selected = select(entries_, args)
-    print(f"Selected {len(selected)} entries (offset={args.offset}, limit={args.limit or 'all'})")
+    print(
+        f"Selected {len(selected)} entries (offset={args.offset}, limit={args.limit or 'all'})"
+    )
     if args.dry_run:
         for raw_path in args.delete_path:
             uri = uri_for_path(normalize_compendium_path(raw_path), args.target_base)
             print(f"dry-run delete {uri} <- {raw_path}")
         for entry in selected:
-            print(f"dry-run {entry.uri} <- {entry.rel_path} ({len(entry.payload)} bytes)")
+            print(
+                f"dry-run {entry.uri} <- {entry.rel_path} ({len(entry.payload)} bytes)"
+            )
         return 0
 
     config_ok, config_msg = check_ov_cli_config()
@@ -524,14 +550,19 @@ def cmd_sync(args, entries_: list[Entry]) -> int:
         return 1
     print(f"OpenViking CLI: {config_msg}")
     if args.update:
-        print("--update is deprecated: add-resource --to refreshes existing resources in place")
+        print(
+            "--update is deprecated: add-resource --to refreshes existing resources in place"
+        )
 
     for raw_path in args.delete_path:
         uri = uri_for_path(normalize_compendium_path(raw_path), args.target_base)
         result = run_ov(["rm", "-r", uri], timeout=120)
         if result.returncode == 0:
             print(f"deleted: {uri}", flush=True)
-        elif "not found" in result.stderr.lower() or "does not exist" in result.stderr.lower():
+        elif (
+            "not found" in result.stderr.lower()
+            or "does not exist" in result.stderr.lower()
+        ):
             print(f"delete skipped: {uri} (missing)", flush=True)
         else:
             print(f"delete error: {uri} {result.stderr.strip()[:300]}", file=sys.stderr)
@@ -541,7 +572,9 @@ def cmd_sync(args, entries_: list[Entry]) -> int:
     errors = 0
     for idx, entry in enumerate(selected, 1):
         status, detail = sync_entry(entry, wait=args.wait)
-        print(f"[{idx}/{len(selected)}] {status}: {entry.entry_id} {detail}", flush=True)
+        print(
+            f"[{idx}/{len(selected)}] {status}: {entry.entry_id} {detail}", flush=True
+        )
         if status in {"synced", "exists"}:
             ok += 1
         else:
@@ -571,8 +604,15 @@ def main() -> int:
     plan = sub.add_parser("plan")
     sync = sub.add_parser("sync")
     for p in (plan, sync):
-        p.add_argument("paths", nargs="*", help="Optional compendium markdown paths to sync")
-        p.add_argument("--limit", type=int, default=0, help="Maximum entries to select; 0 means all")
+        p.add_argument(
+            "paths", nargs="*", help="Optional compendium markdown paths to sync"
+        )
+        p.add_argument(
+            "--limit",
+            type=int,
+            default=0,
+            help="Maximum entries to select; 0 means all",
+        )
         p.add_argument("--offset", type=int, default=0)
         p.add_argument("--repo")
         p.add_argument("--type")
@@ -589,7 +629,9 @@ def main() -> int:
             dest="exclude_active",
             help="Include active/open work items in sync selection",
         )
-        p.add_argument("--order", choices=["path", "small-first", "large-first"], default="path")
+        p.add_argument(
+            "--order", choices=["path", "small-first", "large-first"], default="path"
+        )
     sync.add_argument("--batch-size", type=int, default=10)
     sync.add_argument("--pause", type=float, default=0)
     sync.add_argument(
