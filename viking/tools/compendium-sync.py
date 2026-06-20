@@ -40,17 +40,21 @@ ACTIVE_STATUSES = {"todo", "open", "proposed", "in-progress", "investigating", "
 # OPENVIKING_TIMEOUT.
 OV_CLIENT_TIMEOUT = int(os.environ.get("OPENVIKING_TIMEOUT", "600"))
 
-# Substrings that mark an ov failure as a genuine connection-level blip worth a
-# retry (e.g. a port-forward hiccup mid-backfill). Deliberately excludes
-# timeout/"error sending request": with --wait a client timeout means the
-# single-worker queue is draining, not that the request was lost — retrying
-# only re-enqueues duplicate work and deepens the backlog.
+# Connection-level failures: the request never landed, so retrying is always
+# safe. "error sending request" is reqwest's transport-reset message — emitted
+# when the OV server drops the connection mid-write under AGFS SUBTREE lock
+# contention (BUG-1007 / BUG-1017), the dominant batch-sync failure mode.
 TRANSIENT_ERROR_MARKERS = (
     "connection reset",
     "connection closed",
     "connection refused",
     "broken pipe",
+    "error sending request",
 )
+# Slow-backend timeouts are retryable ONLY without --wait. With --wait a client
+# timeout means the single-worker queue is still draining (the request DID land),
+# so retrying would re-enqueue duplicate work and deepen the backlog.
+TIMEOUT_MARKERS = ("timed out", "timeout")
 
 EXCLUDE_DIRS = {
     ".claude",
@@ -409,22 +413,28 @@ def ov_cli_config() -> tuple[dict[str, str], str | None]:
     return env, tmp.name
 
 
-def _is_transient(result: subprocess.CompletedProcess) -> bool:
+def _is_transient(result: subprocess.CompletedProcess, cmd: list[str]) -> bool:
     if result.returncode == 0:
         return False
     blob = f"{result.stdout}\n{result.stderr}".lower()
-    return any(marker in blob for marker in TRANSIENT_ERROR_MARKERS)
+    if any(marker in blob for marker in TRANSIENT_ERROR_MARKERS):
+        return True
+    if "--wait" not in cmd and any(marker in blob for marker in TIMEOUT_MARKERS):
+        return True
+    return False
 
 
 def run_ov(
-    cmd: list[str], timeout: int = 120, retries: int = 1
+    cmd: list[str], timeout: int = 120, retries: int = 3
 ) -> subprocess.CompletedProcess:
-    """Run an ov subcommand, retrying only genuine connection-level blips.
+    """Run an ov subcommand, retrying connection-level failures with backoff.
 
     Retries are safe because every write path uses `add-resource --to`
     (idempotent: refreshes in place) or `mkdir`/`rm` (idempotent by intent).
-    Slow-backend/queue timeouts are intentionally NOT retried (see
-    TRANSIENT_ERROR_MARKERS) — retrying them re-enqueues duplicate work.
+    This absorbs the lock-contention resets of BUG-1007/BUG-1017 where the OV
+    server resets mid-write while async L0/L1 processing holds the parent
+    SUBTREE lock. Slow-queue timeouts under --wait are NOT retried (see
+    _is_transient) — retrying them re-enqueues duplicate work.
     """
     result = None
     for attempt in range(retries + 1):
@@ -436,9 +446,9 @@ def run_ov(
         finally:
             if config_path:
                 Path(config_path).unlink(missing_ok=True)
-        if not _is_transient(result) or attempt == retries:
+        if not _is_transient(result, cmd) or attempt == retries:
             return result
-        time.sleep(2 * (attempt + 1))
+        time.sleep(min(2**attempt, 30))  # backoff: 1, 2, 4, 8s … capped 30s
     return result
 
 
