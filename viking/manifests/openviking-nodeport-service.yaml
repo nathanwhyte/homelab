@@ -1,0 +1,20 @@
+---
+# LAN-only NodePort for OpenViking API + MCP.
+# Reachable on any node IP at port 31933; protected by OV root API key.
+# Complements the ClusterIP service used inside the cluster and the
+# Cloudflare tunnel used for public web access.
+apiVersion: v1
+kind: Service
+metadata:
+  name: openviking-lan
+  namespace: viking
+spec:
+  type: NodePort
+  ports:
+    - name: http
+      port: 1933
+      targetPort: 1933
+      nodePort: 31933
+      protocol: TCP
+  selector:
+    app: openviking
