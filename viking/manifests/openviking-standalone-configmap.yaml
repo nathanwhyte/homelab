@@ -18,7 +18,7 @@ data:
         "vectordb": {
           "backend": "http",
           "name": "context",
-          "dimension": 768,
+          "dimension": 2560,
           "url": "http://ov-vectordb.viking.svc.cluster.local:5000"
         },
         "agfs": {
@@ -50,16 +50,16 @@ data:
         "output": "stdout"
       },
       "embedding": {
-        "max_input_tokens": 1900,
+        "max_input_tokens": 8192,
         "dense": {
           "provider": "openai",
-          "model": "nomic-embed-text-v1.5",
+          "model": "qwen3-embedding-4b",
           "api_key": "sk-no-...ired",
-          "api_base": "http://embedder-llamacpp.viking.svc.cluster.local:8080/v1",
-          "dimension": 768,
-          "batch_size": 128
+          "api_base": "http://embedder-qwen.viking.svc.cluster.local:8080/v1",
+          "dimension": 2560,
+          "batch_size": 256
         },
-        "max_concurrent": 4
+        "max_concurrent": 6
       },
       "vlm": {
         "provider": "litellm",
