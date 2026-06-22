@@ -8,11 +8,13 @@ LLM serving infrastructure in the `llama` namespace.
 
 - **Models**: gemma4:12b-it-qat (local), glm-5.1:cloud (remote); others available on demand
 - **Endpoint**: `http://ollama.llama.svc:11434` (ClusterIP) or `192.168.1.19:11434` (LoadBalancer externalIP)
-- **Config**: `OLLAMA_NUM_PARALLEL=1`, `OLLAMA_CONTEXT_LENGTH=131072`, `OLLAMA_MAX_LOADED_MODELS=1`, `OLLAMA_KV_CACHE_TYPE=q4_0`, `OLLAMA_KEEP_ALIVE=30m`
+- **Config**: `OLLAMA_NUM_PARALLEL=6`, `OLLAMA_CONTEXT_LENGTH=16384`, `OLLAMA_MAX_LOADED_MODELS=1`, `OLLAMA_KV_CACHE_TYPE=q4_0`, `OLLAMA_KEEP_ALIVE=3m`
 - **Deploy**: `llama/ollama-deployment.yaml`
 
-### Ollama Auth Proxy (wemby)
+### Ollama Auth Proxy
 
+- nginx Bearer-token auth proxy for Ollama (`Authorization: Bearer <...>`)
+- No nodeSelector — not pinned to any specific node
 - **Purpose**: nginx Bearer-token auth (`Authorization: Bearer <ollama-api-key>`) for external access
 - **Endpoint**: `http://ollama-auth-proxy.llama.svc:80`
 - **Deploy**: `llama/ollama-auth-proxy.yaml`

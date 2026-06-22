@@ -1,6 +1,6 @@
 # OpenViking Organization Guide
 
-This project uses [OpenViking](https://github.com/volcengine/OpenViking) (v0.3.14) as a persistent knowledge base for AI agents.
+This project uses [OpenViking](https://github.com/volcengine/OpenViking) (v0.4.4) as a persistent knowledge base for AI agents.
 
 ## Core principle: Progressive addition, not bulk indexing
 
