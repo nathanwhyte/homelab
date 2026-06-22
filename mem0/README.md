@@ -61,7 +61,7 @@ Three deviations from the stock `server/Dockerfile` were required for a working 
 | `HISTORY_DB_PATH=/data/history/history.db` + emptyDir | Deployment env + volume              | Default `/app/history/history.db` dir only exists via the dev compose volume; sqlite can't create it otherwise.                                                                              |
 | `openai_base_url` on the embedder                     | `mem0/build/embedder-base-url.patch` | Stock `DEFAULT_CONFIG` sends both LLM and embeddings to the single `OPENAI_API_BASE`; the patch makes it honor `MEM0_EMBEDDER_API_BASE` so embeddings go to `embedder-llamacpp`, not Ollama. |
 
-**Auth & health quirks:** the `ADMIN_API_KEY` must be sent as the **`X-API-Key`** header
+**Auth & health quirks:** the `MEM0_API_KEY` must be sent as the **`X-API-Key`** header
 (the `Authorization: Bearer` path only decodes JWTs). There is **no `/health` route** —
 use `/` (unauthenticated 307 redirect) for k8s probes.
 
@@ -72,7 +72,7 @@ use `/` (unauthenticated 307 redirect) for k8s probes.
 ```bash
 # Generate random secrets
 POSTGRES_PASSWORD=$(openssl rand -base64 24 | tr -d '/+=' | head -c 32)
-ADMIN_API_KEY=$(openssl rand -base64 24 | tr -d '/+=' | head -c 32)
+MEM0_API_KEY=$(openssl rand -base64 24 | tr -d '/+=' | head -c 32)
 JWT_SECRET=$(openssl rand -base64 24 | tr -d '/+=' | head -c 32)
 
 # Create the secret (edit mem0-secrets.yaml with the generated values first)
@@ -104,7 +104,7 @@ curl -sf http://mem0-server.mem0.svc.cluster.local:8080/
 # Auth: use X-API-Key (Bearer is rejected by the OSS server)
 # Path: /memories/ (no /v1/ prefix on the OSS server)
 curl -X POST http://mem0-server.mem0.svc.cluster.local:8080/memories/ \
-  -H "X-API-Key: $ADMIN_API_KEY" \
+  -H "X-API-Key: $MEM0_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"messages": [{"role": "user", "content": "I prefer dark mode for coding"}], "user_id": "test-user"}'
 ```
@@ -155,7 +155,7 @@ Update `hermes/hermes-deployment.yaml`:
 
 - Set the Hermes image to `registry.nathanwhyte.dev/homelab/hermes-agent-mem0:${TAG}`.
 - Add the `mem0-adapter` sidecar container (see the live manifest for the full
-  snippet; it mounts no volumes and uses `MEM0_URL` + `ADMIN_API_KEY` env vars).
+  snippet; it mounts no volumes and uses `MEM0_URL` + `MEM0_API_KEY` env vars).
 - Add the `mem0-plugin-copy` init container that copies `patched-plugin.py`
   from the adapter image to an `emptyDir`.
 - Mount the patched plugin over `/opt/hermes/plugins/memory/mem0/__init__.py`
@@ -168,7 +168,7 @@ Update `hermes/hermes-deployment.yaml`:
   valueFrom:
     secretKeyRef:
       name: mem0-api-key # lives in the hermes namespace
-      key: ADMIN_API_KEY
+      key: MEM0_API_KEY
 - name: MEM0_BASE_URL
   value: "http://localhost:18080"
 ```
@@ -390,10 +390,10 @@ The OSS server supports three auth modes (per the Mem0 docs):
 | Mode                   | Header                          | Use case                                             |
 | ---------------------- | ------------------------------- | ---------------------------------------------------- |
 | Per-user API key       | `X-API-Key: m0sk_...`           | Programmatic access scoped to a dashboard user       |
-| Legacy `ADMIN_API_KEY` | `X-API-Key: <env value>`        | Back-compat for deployments that set `ADMIN_API_KEY` |
+| Legacy `MEM0_API_KEY` | `X-API-Key: <env value>`        | Back-compat for deployments that set `MEM0_API_KEY` |
 | Bearer JWT             | `Authorization: Bearer <token>` | Dashboard sessions from `POST /auth/login`           |
 
-The current homelab deployment sets `ADMIN_API_KEY` and uses it via the
+The current homelab deployment sets `MEM0_API_KEY` and uses it via the
 `X-API-Key` header.
 
 ### Verified OSS API behavior
