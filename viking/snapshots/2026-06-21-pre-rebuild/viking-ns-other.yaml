@@ -1,0 +1,542 @@
+apiVersion: v1
+items:
+- apiVersion: networking.k8s.io/v1
+  kind: Ingress
+  metadata:
+    annotations:
+      cert-manager.io/cluster-issuer: letsencrypt-prod
+      kubectl.kubernetes.io/last-applied-configuration: |
+        {"apiVersion":"networking.k8s.io/v1","kind":"Ingress","metadata":{"annotations":{"cert-manager.io/cluster-issuer":"letsencrypt-prod","traefik.ingress.kubernetes.io/router.entrypoints":"websecure","traefik.ingress.kubernetes.io/router.middlewares":"viking-openviking-basicauth@kubernetescrd","traefik.ingress.kubernetes.io/router.tls":"true"},"name":"openviking-ingress","namespace":"viking"},"spec":{"ingressClassName":"traefik","rules":[{"host":"context.nathanwhyte.dev","http":{"paths":[{"backend":{"service":{"name":"openviking","port":{"number":1933}}},"path":"/","pathType":"Prefix"}]}}],"tls":[{"hosts":["context.nathanwhyte.dev"],"secretName":"openviking-tls"}]}}
+      traefik.ingress.kubernetes.io/router.entrypoints: websecure
+      traefik.ingress.kubernetes.io/router.middlewares: viking-openviking-basicauth@kubernetescrd
+      traefik.ingress.kubernetes.io/router.tls: "true"
+    creationTimestamp: "2026-05-10T05:55:16Z"
+    generation: 1
+    name: openviking-ingress
+    namespace: viking
+    resourceVersion: "43509275"
+    uid: 05bd81a3-0d94-476e-ba88-96c2fae9ffe1
+  spec:
+    ingressClassName: traefik
+    rules:
+    - host: context.nathanwhyte.dev
+      http:
+        paths:
+        - backend:
+            service:
+              name: openviking
+              port:
+                number: 1933
+          path: /
+          pathType: Prefix
+    tls:
+    - hosts:
+      - context.nathanwhyte.dev
+      secretName: openviking-tls
+  status:
+    loadBalancer:
+      ingress:
+      - ip: 192.168.1.10
+      - ip: 192.168.1.19
+      - ip: 192.168.1.9
+- apiVersion: networking.k8s.io/v1
+  kind: Ingress
+  metadata:
+    annotations:
+      cert-manager.io/cluster-issuer: letsencrypt-prod
+      kubectl.kubernetes.io/last-applied-configuration: |
+        {"apiVersion":"networking.k8s.io/v1","kind":"Ingress","metadata":{"annotations":{"cert-manager.io/cluster-issuer":"letsencrypt-prod","traefik.ingress.kubernetes.io/router.entrypoints":"websecure","traefik.ingress.kubernetes.io/router.tls":"true"},"name":"openviking-mcp","namespace":"viking"},"spec":{"ingressClassName":"traefik","rules":[{"host":"context.nathanwhyte.dev","http":{"paths":[{"backend":{"service":{"name":"openviking","port":{"number":1933}}},"path":"/mcp","pathType":"Prefix"}]}}],"tls":[{"hosts":["context.nathanwhyte.dev"]}]}}
+      traefik.ingress.kubernetes.io/router.entrypoints: websecure
+      traefik.ingress.kubernetes.io/router.tls: "true"
+    creationTimestamp: "2026-06-01T18:19:50Z"
+    generation: 1
+    name: openviking-mcp
+    namespace: viking
+    resourceVersion: "43509301"
+    uid: 9b0a0638-f715-421b-b8bb-8558cb629550
+  spec:
+    ingressClassName: traefik
+    rules:
+    - host: context.nathanwhyte.dev
+      http:
+        paths:
+        - backend:
+            service:
+              name: openviking
+              port:
+                number: 1933
+          path: /mcp
+          pathType: Prefix
+    tls:
+    - hosts:
+      - context.nathanwhyte.dev
+  status:
+    loadBalancer:
+      ingress:
+      - ip: 192.168.1.10
+      - ip: 192.168.1.19
+      - ip: 192.168.1.9
+- apiVersion: networking.k8s.io/v1
+  kind: Ingress
+  metadata:
+    annotations:
+      kubectl.kubernetes.io/last-applied-configuration: |
+        {"apiVersion":"networking.k8s.io/v1","kind":"Ingress","metadata":{"annotations":{"traefik.ingress.kubernetes.io/router.entrypoints":"web","traefik.ingress.kubernetes.io/router.middlewares":"viking-openviking-https-redirect@kubernetescrd"},"name":"openviking-redirect","namespace":"viking"},"spec":{"ingressClassName":"traefik","rules":[{"host":"context.nathanwhyte.dev","http":{"paths":[{"backend":{"service":{"name":"openviking","port":{"number":1933}}},"path":"/","pathType":"Prefix"}]}}]}}
+      traefik.ingress.kubernetes.io/router.entrypoints: web
+      traefik.ingress.kubernetes.io/router.middlewares: viking-openviking-https-redirect@kubernetescrd
+    creationTimestamp: "2026-05-10T05:55:16Z"
+    generation: 1
+    name: openviking-redirect
+    namespace: viking
+    resourceVersion: "43509281"
+    uid: fb0a80ad-1fd8-4e53-918b-ea2ed106f20d
+  spec:
+    ingressClassName: traefik
+    rules:
+    - host: context.nathanwhyte.dev
+      http:
+        paths:
+        - backend:
+            service:
+              name: openviking
+              port:
+                number: 1933
+          path: /
+          pathType: Prefix
+  status:
+    loadBalancer:
+      ingress:
+      - ip: 192.168.1.10
+      - ip: 192.168.1.19
+      - ip: 192.168.1.9
+- apiVersion: v1
+  kind: Service
+  metadata:
+    annotations:
+      kubectl.kubernetes.io/last-applied-configuration: |
+        {"apiVersion":"v1","kind":"Service","metadata":{"annotations":{},"name":"embedder-llamacpp","namespace":"viking"},"spec":{"ports":[{"name":"http","port":8080,"protocol":"TCP","targetPort":8000}],"selector":{"app":"embedder-llamacpp"},"type":"ClusterIP"}}
+    creationTimestamp: "2026-05-10T05:55:16Z"
+    name: embedder-llamacpp
+    namespace: viking
+    resourceVersion: "34040121"
+    uid: 247afba4-502c-49f1-8455-1119a742740d
+  spec:
+    clusterIP: 10.43.66.166
+    clusterIPs:
+    - 10.43.66.166
+    internalTrafficPolicy: Cluster
+    ipFamilies:
+    - IPv4
+    ipFamilyPolicy: SingleStack
+    ports:
+    - name: http
+      port: 8080
+      protocol: TCP
+      targetPort: 8000
+    selector:
+      app: embedder-llamacpp
+    sessionAffinity: None
+    type: ClusterIP
+  status:
+    loadBalancer: {}
+- apiVersion: v1
+  kind: Service
+  metadata:
+    annotations:
+      kubectl.kubernetes.io/last-applied-configuration: |
+        {"apiVersion":"v1","kind":"Service","metadata":{"annotations":{},"name":"llamacpp-cuda-llm","namespace":"viking"},"spec":{"ports":[{"name":"http","port":80,"protocol":"TCP","targetPort":8000}],"selector":{"app":"llamacpp-cuda-ov"},"type":"ClusterIP"}}
+    creationTimestamp: "2026-05-10T05:55:16Z"
+    name: llamacpp-cuda-llm
+    namespace: viking
+    resourceVersion: "34040145"
+    uid: 5a7f380b-60f4-47c4-b8d3-84790f9deeed
+  spec:
+    clusterIP: 10.43.143.100
+    clusterIPs:
+    - 10.43.143.100
+    internalTrafficPolicy: Cluster
+    ipFamilies:
+    - IPv4
+    ipFamilyPolicy: SingleStack
+    ports:
+    - name: http
+      port: 80
+      protocol: TCP
+      targetPort: 8000
+    selector:
+      app: llamacpp-cuda-ov
+    sessionAffinity: None
+    type: ClusterIP
+  status:
+    loadBalancer: {}
+- apiVersion: v1
+  kind: Service
+  metadata:
+    annotations:
+      kubectl.kubernetes.io/last-applied-configuration: |
+        {"apiVersion":"v1","kind":"Service","metadata":{"annotations":{},"name":"llamacpp-rocm-llm","namespace":"viking"},"spec":{"ports":[{"name":"http","port":80,"protocol":"TCP","targetPort":8000}],"selector":{"app":"llamacpp-rocm"},"type":"ClusterIP"}}
+    creationTimestamp: "2026-05-10T16:08:33Z"
+    name: llamacpp-rocm-llm
+    namespace: viking
+    resourceVersion: "34151549"
+    uid: 9916bf10-f08b-4332-a60a-377501589ff4
+  spec:
+    clusterIP: 10.43.132.86
+    clusterIPs:
+    - 10.43.132.86
+    internalTrafficPolicy: Cluster
+    ipFamilies:
+    - IPv4
+    ipFamilyPolicy: SingleStack
+    ports:
+    - name: http
+      port: 80
+      protocol: TCP
+      targetPort: 8000
+    selector:
+      app: llamacpp-rocm
+    sessionAffinity: None
+    type: ClusterIP
+  status:
+    loadBalancer: {}
+- apiVersion: v1
+  kind: Service
+  metadata:
+    annotations:
+      kubectl.kubernetes.io/last-applied-configuration: |
+        {"apiVersion":"v1","kind":"Service","metadata":{"annotations":{},"name":"llamacpp-vlm","namespace":"viking"},"spec":{"ports":[{"name":"http","port":80,"protocol":"TCP","targetPort":8000}],"selector":{"vlm-pool":"true"},"type":"ClusterIP"}}
+    creationTimestamp: "2026-06-02T16:13:38Z"
+    name: llamacpp-vlm
+    namespace: viking
+    resourceVersion: "39981976"
+    uid: 5507d5f6-977b-4ffb-94e3-6cc9a5c9a7e4
+  spec:
+    clusterIP: 10.43.99.113
+    clusterIPs:
+    - 10.43.99.113
+    internalTrafficPolicy: Cluster
+    ipFamilies:
+    - IPv4
+    ipFamilyPolicy: SingleStack
+    ports:
+    - name: http
+      port: 80
+      protocol: TCP
+      targetPort: 8000
+    selector:
+      vlm-pool: "true"
+    sessionAffinity: None
+    type: ClusterIP
+  status:
+    loadBalancer: {}
+- apiVersion: v1
+  kind: Service
+  metadata:
+    annotations:
+      kubectl.kubernetes.io/last-applied-configuration: |
+        {"apiVersion":"v1","kind":"Service","metadata":{"annotations":{},"name":"openviking","namespace":"viking"},"spec":{"ports":[{"name":"http","port":1933,"protocol":"TCP","targetPort":1933}],"selector":{"app":"openviking"},"type":"ClusterIP"}}
+    creationTimestamp: "2026-05-10T05:55:16Z"
+    name: openviking
+    namespace: viking
+    resourceVersion: "34040166"
+    uid: c68044aa-1b9f-43d4-9093-dd6441b28a3b
+  spec:
+    clusterIP: 10.43.253.4
+    clusterIPs:
+    - 10.43.253.4
+    internalTrafficPolicy: Cluster
+    ipFamilies:
+    - IPv4
+    ipFamilyPolicy: SingleStack
+    ports:
+    - name: http
+      port: 1933
+      protocol: TCP
+      targetPort: 1933
+    selector:
+      app: openviking
+    sessionAffinity: None
+    type: ClusterIP
+  status:
+    loadBalancer: {}
+- apiVersion: v1
+  kind: Service
+  metadata:
+    annotations:
+      kubectl.kubernetes.io/last-applied-configuration: |
+        {"apiVersion":"v1","kind":"Service","metadata":{"annotations":{},"name":"openviking-lan","namespace":"viking"},"spec":{"ports":[{"name":"http","nodePort":31933,"port":1933,"protocol":"TCP","targetPort":1933}],"selector":{"app":"openviking"},"type":"NodePort"}}
+    creationTimestamp: "2026-06-21T20:08:24Z"
+    name: openviking-lan
+    namespace: viking
+    resourceVersion: "45104260"
+    uid: d26bc87c-e99a-4670-bdad-0ab83ecf2217
+  spec:
+    clusterIP: 10.43.153.75
+    clusterIPs:
+    - 10.43.153.75
+    externalTrafficPolicy: Cluster
+    internalTrafficPolicy: Cluster
+    ipFamilies:
+    - IPv4
+    ipFamilyPolicy: SingleStack
+    ports:
+    - name: http
+      nodePort: 31933
+      port: 1933
+      protocol: TCP
+      targetPort: 1933
+    selector:
+      app: openviking
+    sessionAffinity: None
+    type: NodePort
+  status:
+    loadBalancer: {}
+- apiVersion: v1
+  kind: Service
+  metadata:
+    annotations:
+      kubectl.kubernetes.io/last-applied-configuration: |
+        {"apiVersion":"v1","kind":"Service","metadata":{"annotations":{},"labels":{"app":"ov-vectordb"},"name":"ov-vectordb","namespace":"viking"},"spec":{"ports":[{"name":"http","port":5000,"protocol":"TCP","targetPort":5000}],"selector":{"app":"ov-vectordb"},"type":"ClusterIP"}}
+    creationTimestamp: "2026-06-02T16:31:42Z"
+    labels:
+      app: ov-vectordb
+    name: ov-vectordb
+    namespace: viking
+    resourceVersion: "39985282"
+    uid: 672f25e0-8436-4c14-902b-6fdc095a7f39
+  spec:
+    clusterIP: 10.43.180.49
+    clusterIPs:
+    - 10.43.180.49
+    internalTrafficPolicy: Cluster
+    ipFamilies:
+    - IPv4
+    ipFamilyPolicy: SingleStack
+    ports:
+    - name: http
+      port: 5000
+      protocol: TCP
+      targetPort: 5000
+    selector:
+      app: ov-vectordb
+    sessionAffinity: None
+    type: ClusterIP
+  status:
+    loadBalancer: {}
+- apiVersion: v1
+  kind: PersistentVolumeClaim
+  metadata:
+    annotations:
+      kubectl.kubernetes.io/last-applied-configuration: |
+        {"apiVersion":"v1","kind":"PersistentVolumeClaim","metadata":{"annotations":{},"name":"llama-cuda-model-cache","namespace":"viking"},"spec":{"accessModes":["ReadWriteOnce"],"resources":{"requests":{"storage":"10Gi"}},"storageClassName":"longhorn-ssd"}}
+      pv.kubernetes.io/bind-completed: "yes"
+      pv.kubernetes.io/bound-by-controller: "yes"
+      volume.beta.kubernetes.io/storage-provisioner: driver.longhorn.io
+      volume.kubernetes.io/storage-provisioner: driver.longhorn.io
+    creationTimestamp: "2026-05-10T05:55:16Z"
+    finalizers:
+    - kubernetes.io/pvc-protection
+    name: llama-cuda-model-cache
+    namespace: viking
+    resourceVersion: "34040280"
+    uid: 5b528734-e7e7-4ee7-b9a4-33e2559a6be3
+  spec:
+    accessModes:
+    - ReadWriteOnce
+    resources:
+      requests:
+        storage: 10Gi
+    storageClassName: longhorn-ssd
+    volumeMode: Filesystem
+    volumeName: pvc-5b528734-e7e7-4ee7-b9a4-33e2559a6be3
+  status:
+    accessModes:
+    - ReadWriteOnce
+    capacity:
+      storage: 10Gi
+    phase: Bound
+- apiVersion: v1
+  kind: PersistentVolumeClaim
+  metadata:
+    annotations:
+      kubectl.kubernetes.io/last-applied-configuration: |
+        {"apiVersion":"v1","kind":"PersistentVolumeClaim","metadata":{"annotations":{},"name":"llama-rocm-model-cache","namespace":"viking"},"spec":{"accessModes":["ReadWriteOnce"],"resources":{"requests":{"storage":"15Gi"}},"storageClassName":"longhorn-ssd"}}
+      pv.kubernetes.io/bind-completed: "yes"
+      pv.kubernetes.io/bound-by-controller: "yes"
+      volume.beta.kubernetes.io/storage-provisioner: driver.longhorn.io
+      volume.kubernetes.io/storage-provisioner: driver.longhorn.io
+    creationTimestamp: "2026-05-10T16:08:33Z"
+    finalizers:
+    - kubernetes.io/pvc-protection
+    name: llama-rocm-model-cache
+    namespace: viking
+    resourceVersion: "34151600"
+    uid: e212d222-9f12-4fa3-aa5e-2fb557960d1a
+  spec:
+    accessModes:
+    - ReadWriteOnce
+    resources:
+      requests:
+        storage: 15Gi
+    storageClassName: longhorn-ssd
+    volumeMode: Filesystem
+    volumeName: pvc-e212d222-9f12-4fa3-aa5e-2fb557960d1a
+  status:
+    accessModes:
+    - ReadWriteOnce
+    capacity:
+      storage: 15Gi
+    phase: Bound
+- apiVersion: v1
+  kind: PersistentVolumeClaim
+  metadata:
+    annotations:
+      kubectl.kubernetes.io/last-applied-configuration: |
+        {"apiVersion":"v1","kind":"PersistentVolumeClaim","metadata":{"annotations":{"longhorn.io/number-of-replicas":"2"},"name":"openviking-data","namespace":"viking"},"spec":{"accessModes":["ReadWriteOnce"],"resources":{"requests":{"storage":"10Gi"}},"storageClassName":"longhorn-ssd","volumeMode":"Filesystem"}}
+      longhorn.io/number-of-replicas: "2"
+      pv.kubernetes.io/bind-completed: "yes"
+      pv.kubernetes.io/bound-by-controller: "yes"
+      volume.beta.kubernetes.io/storage-provisioner: driver.longhorn.io
+      volume.kubernetes.io/storage-provisioner: driver.longhorn.io
+    creationTimestamp: "2026-06-21T15:59:07Z"
+    finalizers:
+    - kubernetes.io/pvc-protection
+    name: openviking-data
+    namespace: viking
+    resourceVersion: "45054361"
+    uid: 21650fc9-d3c6-4bf2-b4b9-55c571528b16
+  spec:
+    accessModes:
+    - ReadWriteOnce
+    resources:
+      requests:
+        storage: 10Gi
+    storageClassName: longhorn-ssd
+    volumeMode: Filesystem
+    volumeName: pvc-21650fc9-d3c6-4bf2-b4b9-55c571528b16
+  status:
+    accessModes:
+    - ReadWriteOnce
+    capacity:
+      storage: 10Gi
+    phase: Bound
+- apiVersion: v1
+  kind: PersistentVolumeClaim
+  metadata:
+    annotations:
+      kubectl.kubernetes.io/last-applied-configuration: |
+        {"apiVersion":"v1","kind":"PersistentVolumeClaim","metadata":{"annotations":{"longhorn.io/number-of-replicas":"2"},"name":"ov-vectordb-data","namespace":"viking"},"spec":{"accessModes":["ReadWriteOnce"],"resources":{"requests":{"storage":"10Gi"}},"storageClassName":"longhorn-ssd","volumeMode":"Filesystem"}}
+      longhorn.io/number-of-replicas: "2"
+      pv.kubernetes.io/bind-completed: "yes"
+      pv.kubernetes.io/bound-by-controller: "yes"
+      volume.beta.kubernetes.io/storage-provisioner: driver.longhorn.io
+      volume.kubernetes.io/storage-provisioner: driver.longhorn.io
+    creationTimestamp: "2026-06-21T15:59:07Z"
+    finalizers:
+    - kubernetes.io/pvc-protection
+    name: ov-vectordb-data
+    namespace: viking
+    resourceVersion: "45054383"
+    uid: 5cffee01-be47-4309-8368-a9d3ff87c5e2
+  spec:
+    accessModes:
+    - ReadWriteOnce
+    resources:
+      requests:
+        storage: 10Gi
+    storageClassName: longhorn-ssd
+    volumeMode: Filesystem
+    volumeName: pvc-5cffee01-be47-4309-8368-a9d3ff87c5e2
+  status:
+    accessModes:
+    - ReadWriteOnce
+    capacity:
+      storage: 10Gi
+    phase: Bound
+- apiVersion: v1
+  kind: PersistentVolumeClaim
+  metadata:
+    annotations:
+      kubectl.kubernetes.io/last-applied-configuration: |
+        {"apiVersion":"v1","kind":"PersistentVolumeClaim","metadata":{"annotations":{},"name":"wemby-model-cache","namespace":"viking"},"spec":{"accessModes":["ReadWriteOnce"],"resources":{"requests":{"storage":"10Gi"}},"storageClassName":"longhorn-ssd","volumeMode":"Filesystem"}}
+      pv.kubernetes.io/bind-completed: "yes"
+      pv.kubernetes.io/bound-by-controller: "yes"
+      volume.beta.kubernetes.io/storage-provisioner: driver.longhorn.io
+      volume.kubernetes.io/storage-provisioner: driver.longhorn.io
+    creationTimestamp: "2026-06-06T16:53:36Z"
+    finalizers:
+    - kubernetes.io/pvc-protection
+    name: wemby-model-cache
+    namespace: viking
+    resourceVersion: "41005194"
+    uid: 6b57946f-6496-45f3-9431-ad5f141bc58e
+  spec:
+    accessModes:
+    - ReadWriteOnce
+    resources:
+      requests:
+        storage: 10Gi
+    storageClassName: longhorn-ssd
+    volumeMode: Filesystem
+    volumeName: pvc-6b57946f-6496-45f3-9431-ad5f141bc58e
+  status:
+    accessModes:
+    - ReadWriteOnce
+    capacity:
+      storage: 10Gi
+    phase: Bound
+- apiVersion: v1
+  data:
+    api-key: ZjYxMzdhNDBiZGY2NGVmMTg3YTEwNTUxNzAxMDE3MjkyYzdlNGZkZTg5YTgzNjQ2M2JhZWNhYzUwZjA4ZTcxNw==
+  kind: Secret
+  metadata:
+    annotations:
+      kubectl.kubernetes.io/last-applied-configuration: |
+        {"apiVersion":"v1","data":{"api-key":"ZjYxMzdhNDBiZGY2NGVmMTg3YTEwNTUxNzAxMDE3MjkyYzdlNGZkZTg5YTgzNjQ2M2JhZWNhYzUwZjA4ZTcxNw=="},"kind":"Secret","metadata":{"annotations":{},"name":"openviking-api-key","namespace":"viking"},"type":"Opaque"}
+    creationTimestamp: "2026-05-10T06:03:02Z"
+    name: openviking-api-key
+    namespace: viking
+    resourceVersion: "34129111"
+    uid: f50c5886-1143-4792-9f81-cb75ecbbd483
+  type: Opaque
+- apiVersion: v1
+  data:
+    AWS_ACCESS_KEY_ID: R0tlMDJjYzdlZDY0NTMyNjkzN2Y3ZTE4NWU=
+    AWS_SECRET_ACCESS_KEY: M2I0MTk2OTU3ZTVhY2Y1MDIwYjZkOGNhODQ2M2U1MDgzZGMyNDE0MDJjNTBhNzIzNjU0YjkxYmQxZjZhYmMyNg==
+  kind: Secret
+  metadata:
+    annotations:
+      kubectl.kubernetes.io/last-applied-configuration: |
+        {"apiVersion":"v1","data":{"AWS_ACCESS_KEY_ID":"R0tlMDJjYzdlZDY0NTMyNjkzN2Y3ZTE4NWU=","AWS_SECRET_ACCESS_KEY":"M2I0MTk2OTU3ZTVhY2Y1MDIwYjZkOGNhODQ2M2U1MDgzZGMyNDE0MDJjNTBhNzIzNjU0YjkxYmQxZjZhYmMyNg=="},"kind":"Secret","metadata":{"annotations":{},"name":"openviking-s3-credentials","namespace":"viking"},"type":"Opaque"}
+    creationTimestamp: "2026-05-10T06:03:02Z"
+    name: openviking-s3-credentials
+    namespace: viking
+    resourceVersion: "34127664"
+    uid: 923756cb-55be-4bec-98c2-7f6fe5db05fb
+  type: Opaque
+- apiVersion: v1
+  data:
+    tls.crt: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSUZCakNDQSs2Z0F3SUJBZ0lTQmlvTWFxRjY5NENhVytzUmZMSWJwczhBTUEwR0NTcUdTSWIzRFFFQkN3VUEKTURNeEN6QUpCZ05WQkFZVEFsVlRNUll3RkFZRFZRUUtFdzFNWlhRbmN5QkZibU55ZVhCME1Rd3dDZ1lEVlFRRApFd05TTVRJd0hoY05Nall3TlRFd01EUTFPREF5V2hjTk1qWXdPREE0TURRMU9EQXhXakFpTVNBd0hnWURWUVFECkV4ZGpiMjUwWlhoMExtNWhkR2hoYm5kb2VYUmxMbVJsZGpDQ0FTSXdEUVlKS29aSWh2Y05BUUVCQlFBRGdnRVAKQURDQ0FRb0NnZ0VCQU5zY25UU3FMSkxWZ2J4czRYaVdBemVxeGhmQUcyK2JmMTJKOHJSbGtxWE03cFhVWklLOQorai8zdU5MRFpzTkp6SEFNZlozbUV3emltMW5rc0xMbXJnRklyQjI3ZmRNZWpXYy9CQkpidGd3MTJNSTd6bmpkCktDendDVUk0Z1d0U3BRNlI5TU1TTVVjVWp2RmluU3FqMmtDWVllODBOcWE2UnJFLytyRFl3ZC9kdW9BdUNRVk4KK3RoRmJKQ3EwUUdTaElKRmJTdGlXRG0yeUZjV0hrdlZEWTFTYkQvWWJtU0E3SWo0NUZvTHBJVDJxS2tYQVJJYQpoRlhRR29ZZmc3MkYwdUJqbDZlaWF3TVc4OE1DamRmUmVRQnFsMENTQ3AxRlRBVXZVT3FKQ1ZjdzJ1bFovS1JuCnhRL1UrelhxNWx6cWdPWE8zM1dRK2tvMDB1QmlkU2xCZFFFQ0F3RUFBYU9DQWlNd2dnSWZNQTRHQTFVZER3RUIKL3dRRUF3SUZvREFUQmdOVkhTVUVEREFLQmdnckJnRUZCUWNEQVRBTUJnTlZIUk1CQWY4RUFqQUFNQjBHQTFVZApEZ1FXQkJRakFLL0VFS1I2ckYyRnVRK05qWmNYQmlkTmpEQWZCZ05WSFNNRUdEQVdnQlFBdFNueUxZNXZNZWliClRLMTRQdnJjNlF6UjBqQXpCZ2dyQmdFRkJRY0JBUVFuTUNVd0l3WUlLd1lCQlFVSE1BS0dGMmgwZEhBNkx5OXkKTVRJdWFTNXNaVzVqY2k1dmNtY3ZNQ0lHQTFVZEVRUWJNQm1DRjJOdmJuUmxlSFF1Ym1GMGFHRnVkMmg1ZEdVdQpaR1YyTUJNR0ExVWRJQVFNTUFvd0NBWUdaNEVNQVFJQk1DMEdBMVVkSHdRbU1DUXdJcUFnb0I2R0hHaDBkSEE2Ckx5OXlNVEl1WXk1c1pXNWpjaTV2Y21jdk1TNWpjbXd3Z2dFTEJnb3JCZ0VFQWRaNUFnUUNCSUg4QklINUFQY0EKZGdEQ01YNVhSUm1qUmU1L09ONnlrRUhyeDhJaFdpSy9mOVcxclhhYTJRNVN6UUFBQVo0UWRYRU5BQUFFQXdCSApNRVVDSUFMREEvYWhxaVZNNUlBRW1IS2cwbitwV3JMc3c0VXExbXE5azc2SFlMNmtBaUVBMEJrSUNMNkdCMnVMCkN1NkJaOVRpWG5PK2t0azQyVk9QUzZ4cS9tQlJHWjRBZlFBbTQyUnVXR2toSTd3MFAwY2tOWnMza3Mwa1dvalkKRmRPVE0vMlpHS3RISXdBQUFaNFFkWEQrQUFnQUFBVUFEMlZaQ3dRREFFWXdSQUlnSWp0a20yNlN5ekNHZEJYNwpEYy90ZDZrWFNoTmQ0Rkx4RDNGZUpqdktJaTBDSUYrN0N5SDN1cVQyNWdoRVBQK21IVXNtcktheEZBclVFeFQ2CnR5NlZpU2dNTUEwR0NTcUdTSWIzRFFFQkN3VUFBNElCQVFBdmhXVHFmVCtlMDFTYm0rRE5pR0NBUm5Kc2ZrVHQKajFZcWpyUnpIRGJ4cnp0RmJ5Yk1LdGpocmp3Y0g1YU1RSEdXQWJWNDNHWmZnSFpXNUh4L0xsZTlSRmx4WUFQZwpUMnQvbmtra2ZYS2Q2d3hFQ3hwQmduTGtYQnV4VWNHUGYxaFpaNWdZTkJRb0NsdDNDL2hvUVhIQlhTRHBQcXZRCmdkQkwzTTFZWllFaldRY0FBTDAwbWJNdm55ejAwVFB2NE1TME1NTjNldWl5VzNSMmd4MWFzL3VTU1M2MHArUWIKb3FjMTlXYnNGbHVhcUJFb0pvd0lWTWZqVkRqbEVqUkJZNVY1TnZXZ3pOaUtINkQ4RDM5c2pFRHRONWRhNWk1Wgo3TGhPamRXSkhNMVdLQktITjdLU3l2d0E4dWMvYkpGSjFIZDZnanh6SndlTmhiL0VFVjRsK3ExagotLS0tLUVORCBDRVJUSUZJQ0FURS0tLS0tCi0tLS0tQkVHSU4gQ0VSVElGSUNBVEUtLS0tLQpNSUlGQmpDQ0F1NmdBd0lCQWdJUkFNSVNNa3R3cWJTUmNkeEE5K0tGSmp3d0RRWUpLb1pJaHZjTkFRRUxCUUF3ClR6RUxNQWtHQTFVRUJoTUNWVk14S1RBbkJnTlZCQW9USUVsdWRHVnlibVYwSUZObFkzVnlhWFI1SUZKbGMyVmgKY21Ob0lFZHliM1Z3TVJVd0V3WURWUVFERXd4SlUxSkhJRkp2YjNRZ1dERXdIaGNOTWpRd016RXpNREF3TURBdwpXaGNOTWpjd016RXlNak0xT1RVNVdqQXpNUXN3Q1FZRFZRUUdFd0pWVXpFV01CUUdBMVVFQ2hNTlRHVjBKM01nClJXNWpjbmx3ZERFTU1Bb0dBMVVFQXhNRFVqRXlNSUlCSWpBTkJna3Foa2lHOXcwQkFRRUZBQU9DQVE4QU1JSUIKQ2dLQ0FRRUEycGdvZEsyK2xQNDc0QjdpNVV0MXF5d1NmKzJuQXpKK05wZnM2REdQcFJPTkM1a3VIczBCVVQxTQo1U2h1Q1ZVeHFxVWlYWEwwTFFmQ1RVQTgzd0VqdVhnMzlScGxNalRtaG5HZEJPK0VDRnU5QWhxWjY2WUJBSnB6CmtHMlBvZ2VnMEpmVDJrVmhnVFU5RlBuRXdGOXEzQXVXR3JDZjR5cnF2U3JXbU1lYmNhczdkQTg4MjdKZ3ZscEwKVGhqcDJ5cHpYSWxoWlo3KzdUeW15MDV2NUo3NUFFYXoveGxOS21PemptYkdHSVZ3eDFCbGJ6dDA1VWlERHdoWQpYUzBqblY2ai91amJBS0hTOU9NWlRmTHVldllubnVYTm5DMmk4bitjRjYzdkV6YzUwYlRJTEVIV2hzRHA3Q0g0CldSdC91VHA4bjF3Qm5XSUV3aWk5Q3EwOHloRHNHd0lEQVFBQm80SDRNSUgxTUE0R0ExVWREd0VCL3dRRUF3SUIKaGpBZEJnTlZIU1VFRmpBVUJnZ3JCZ0VGQlFjREFnWUlLd1lCQlFVSEF3RXdFZ1lEVlIwVEFRSC9CQWd3QmdFQgovd0lCQURBZEJnTlZIUTRFRmdRVUFMVXA4aTJPYnpIb20weXRlRDc2M09rTTBkSXdId1lEVlIwakJCZ3dGb0FVCmViUlo1bnUyNWVRQmM0QUlpTWdhV1BicG0yNHdNZ1lJS3dZQkJRVUhBUUVFSmpBa01DSUdDQ3NHQVFVRkJ6QUMKaGhab2RIUndPaTh2ZURFdWFTNXNaVzVqY2k1dmNtY3ZNQk1HQTFVZElBUU1NQW93Q0FZR1o0RU1BUUlCTUNjRwpBMVVkSHdRZ01CNHdIS0Fhb0JpR0ZtaDBkSEE2THk5NE1TNWpMbXhsYm1OeUxtOXlaeTh3RFFZSktvWklodmNOCkFRRUxCUUFEZ2dJQkFJOTEwQW5QYW5aSVpUS1MzclZFeUlWMjlCV0VqQUsvZHV1ejhlTDVib1NvVnBIaGtrdjMKNGVvQWVFaVBkWkxqNUVaN0cyQXJJSytnemhUbFJRMXE0RktHcFBQYUZCU3BxVi94YlViNVVsQVhRT25rSG4zbQpGVmorcVl2ODcvV2VZK0JtNHNOM094OEJoeWFVN1VBUTNMZVo3TjFYMDF4eFFlNHdJQUFFM0pWTFVDaUhtWkwrCnFvQ1V0Z1lJRlBnY2czNTBRTVVJV2d4UFhOR0VuY1Q5MjFuZTdubHVJMDJWOHBMVW1DbHFYT3NDd1VMdytQVk8KWkNCN3FPTXh4TUJvQ1VlTDJMbDRvTXBPU3I1cEpDcExOM3RSQTJzNlAxS0xzOVRTclZoT2srN0xYMjhOTVVsSQp1c1EvbnhMSklEMFJoQWVGdFBqeU9DT3NjUUJBNTMrTlJqU0NhazdQNEE1alg3cHBta2NKRUNMK1MwaTNrWFZVCnk1TWU1QmJyVTg5NzNqWk52L2F4NitaSzZUTThqV21pbUw2b2Y2T3JYN1pVNkUyV3FhenpzRnJMRzNvMmt5U2IKemxoU2dKODFDbDR0djNTYllpWVhuSkV4S1F2emY4M0RZb3RveDNmMGZ3djd4bG4xQTJaTHBsQ2IwTytsL0FLMApZRTBEUzJGUHhTQUhpMGl3TWZXMm5OSEpyWGNZM0xMSEQ3N2dSZ2plNEV2ZXViaTJ4eGErTm1rL2htaExkSUVUCmlWREZhbm9Dck1WSXBRNTlYV0hremRGbW9IWEhCVjdvaWJWakdTTzdVTFNRN01KMU56NTFwaHVESlNnQUlVN0EKMHpyTG5PckFqL2RmcmxFV1JoQ3ZBZ2J1d0xaWDFBMnNqTmpYb1BPSGJzUGl5K2xPMUtGOC9YWTcKLS0tLS1FTkQgQ0VSVElGSUNBVEUtLS0tLQo=
+    tls.key: LS0tLS1CRUdJTiBSU0EgUFJJVkFURSBLRVktLS0tLQpNSUlFb3dJQkFBS0NBUUVBMnh5ZE5Lb3NrdFdCdkd6aGVKWURONnJHRjhBYmI1dC9YWW55dEdXU3BjenVsZFJrCmdyMzZQL2U0MHNObXcwbk1jQXg5bmVZVERPS2JXZVN3c3VhdUFVaXNIYnQ5MHg2Tlp6OEVFbHUyRERYWXdqdk8KZU4wb0xQQUpRamlCYTFLbERwSDB3eEl4UnhTTzhXS2RLcVBhUUpoaDd6UTJwcnBHc1QvNnNOakIzOTI2Z0M0SgpCVTM2MkVWc2tLclJBWktFZ2tWdEsySllPYmJJVnhZZVM5VU5qVkpzUDlodVpJRHNpUGprV2d1a2hQYW9xUmNCCkVocUVWZEFhaGgrRHZZWFM0R09YcDZKckF4Ynp3d0tOMTlGNUFHcVhRSklLblVWTUJTOVE2b2tKVnpEYTZWbjgKcEdmRkQ5VDdOZXJtWE9xQTVjN2ZkWkQ2U2pUUzRHSjFLVUYxQVFJREFRQUJBb0lCQVFET0hwM1lWQm00UzNkUApIUklCMFFUWDBpT2xaZ2VwTnh0YWtCR3NHRDBiRWF5RGNCalpVUVBnTnhZNzFxdU9ISmRmOUxBYTRMdWRESE5kCjNoOUhQSEFHTHlvU2tqVHNiTHBTbk5va3R2ZUxod0FRd0JnY1pOZU5ab1VmTVc2MTJqb0JlZFpKeDR4cHRISS8KcXlmMFc4MU5wTXZFTFZjWUF2WExla2RISTdGRitGNU12NDNjOWRkWWlQMzBPbnlHY1U4bUI5RWUwNXo1RzlUZApLOWczS2lFTnk0N3MvYlBtcTU1Yksrd0dXcXVOMGVTK0FxTjB3a2lNUDVvcmZhOUhTRGdtcHJuRFNINGNVdFYvCjZGK09wdi92Zmd6OVhjc1JWTU1jc1BhTlo5NzAxMy9mbDdUZC9VTXNkdmYwMXY2VUQ3eVN1VzhoZGJzeE9lbnkKTmF6ZWJkeE5Bb0dCQVBySW1JalphRXpuaXo0dTUvd1lwc1BSeVE0aDMzaUVLNzE3emFjTWZjcGtlOER6Q0UyMgoraVM0dzJ1L09mMy9IZEZtZVcxL1R6TGVGODBwVUtZVFJoRkFsWWMrZ0lOYndjdHRCNlVBTEFaNEQxUWJDeWxhCk9VZ0g3eFg0OFV5TENxcmhDUHU3cC9KZkdSdFNyc25KcjB1Yk16YURvWVB0SE1yVFZwRFNZSXhQQW9HQkFOK3IKWGtOSVdMZHBFUmJKZUVCWFdMYXFBUW84K2kxdlgxZTBoSFZLcG8wM3owRU0xcUtKNUh6ZURsVjRXTkRheGp0Sgp0ZDI0cGd5U3ArMXlHaXFrZWFLTFJJU2cwSzJVTDZaTTJHalBwWHlKczdHdm9mWEtkMFpJNGV5SE5ORSt2dEdkClhFaWlqRll1ZlNuRnJxM09LQ0l2TG01Mmg5WWJHV2U1M2ZVc1BBV3ZBb0dBV2RWSmJwd1NWSm9Nc3ZXeWZBZUkKbFZTc3BMZFZpYUl1Mk8xa09aYXI2TGdkN0h3aVdWUldQcGxBeDNQMG5odW8zcjNLZVlMRkovK09ueHRSbkd3RApDV01OTFNraWQrdUNmQkJPVUxqRERINHRYMzlnZkN1cG9UZldXUlNYdTBlRFJycmRzTzhEdGpxQ2o5c0thWllwCmlQZkxYSmZDWDdPc1FLdDdzdHpwWU5rQ2dZQnVUNVJEMXJCNmRJVUxHZjRHclkyQk9VTWVDNGpQVTdoUUJ5VzAKdTBaOUsyTTZEOXpqZU9LSmV2TFMwSEh0UDVpNHNOZlRMRGdveDBPdTViRm1Db3c2MERqUXVJZHl0RHp6NWI1dApvc3RaS29qSFAzbS9RVVdtRWxmcVVaeUkva3NhRW1QckpzL1R5VVhOamtOaVVPU1dSM0s4NUJTR1VnTXJsdzJTCjEyZ2EzUUtCZ0Eycmh2VTlVZGRHYytobGRQNW5aWE9ta3BXMm5wSXBRQUd2c0k4RS9xY0pCekphaFJiOW1MRUIKaTdrek51YnVmUGNTbDFERVZTQnZqSkVFYlFzclpwU2IzVjcrb0t0aHZIdE84Um1WQ2VJUnczd0tKZDEwRXdKRQpROHRWM25OWEtDSGtCTjJGb25tM3hVMjhLZlNrYmRmdlJaSTdwdmNNZHpvczhEek40YzVFCi0tLS0tRU5EIFJTQSBQUklWQVRFIEtFWS0tLS0tCg==
+  kind: Secret
+  metadata:
+    annotations:
+      cert-manager.io/alt-names: context.nathanwhyte.dev
+      cert-manager.io/certificate-name: openviking-tls
+      cert-manager.io/common-name: context.nathanwhyte.dev
+      cert-manager.io/ip-sans: ""
+      cert-manager.io/issuer-group: cert-manager.io
+      cert-manager.io/issuer-kind: ClusterIssuer
+      cert-manager.io/issuer-name: letsencrypt-prod
+      cert-manager.io/uri-sans: ""
+    creationTimestamp: "2026-05-10T05:56:34Z"
+    labels:
+      controller.cert-manager.io/fao: "true"
+    name: openviking-tls
+    namespace: viking
+    resourceVersion: "34040677"
+    uid: 76246894-9022-42bd-b55c-b32a39baf1de
+  type: kubernetes.io/tls
+kind: List
+metadata:
+  resourceVersion: ""
