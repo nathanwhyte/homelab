@@ -11,7 +11,7 @@ Private container registry running on the K3s cluster. Hosts images for external
 | Helm release | `harbor` (revision 3, upgraded 2026-06-10) |
 | Chart / App | `harbor-1.19.1` / Harbor **2.15.1** (app components); DB and Redis pinned at v2.14.3 in `harbor-values.yaml` |
 | Components | core, portal, registry, jobservice, database, redis, trivy, exporter (single replica each) |
-| Storage | RWO Longhorn volumes, all on `longhorn-harbor` storage class — `harbor-registry-rwo` (50Gi), `harbor-jobservice-rwo` (1Gi), database (5Gi), redis (5Gi), trivy (5Gi) |
+|| Storage | RWO Longhorn volumes — registry and jobservice on `longhorn-harbor`, database on `longhorn-hdd`, redis and trivy on `longhorn-ssd`: `harbor-registry-rwo` (50Gi), `harbor-jobservice-rwo` (1Gi), database (5Gi), redis (5Gi), trivy (5Gi) |
 | TLS | cert-manager DNS-01 via Cloudflare (`letsencrypt-prod` ClusterIssuer, `harbor-tls` Secret) |
 | Ingress | Traefik with `harbor-no-limit` middleware (unlimited image push body size) |
 | Auth | Local DB. Default admin: `admin` / `<CHANGE_ME>` (change after first login) |

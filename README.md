@@ -81,10 +81,10 @@ Internal OpenAI-compatible LLM endpoints backed by Ollama and `llama.cpp`.
 
 ### Hermes
 
-AI agent with persistent OpenViking memory, SSH terminal backend, and Cloudflare-exposed dashboard.
+AI agent with mem0 persistent memory (OpenViking knowledge-base tools), SSH terminal backend, and Cloudflare-exposed dashboard.
 
 - Agent API on port 8642 (cluster-internal), dashboard on 9119 (exposed at `hermes.nathanwhyte.dev` via Cloudflare tunnel)
-- Uses OpenViking as memory provider (writes to `viking://resources/patterns/` and `viking://resources/preferences/`)
+- Uses mem0 as memory provider (mem0-adapter sidecar translates Platform API → OSS API); OpenViking provides knowledge-base tools (`viking_*`)
 - Read more in [`hermes/README.md`](./hermes/README.md).
 
 ### OpenViking

@@ -123,8 +123,8 @@ Current tuning baseline (synced 2026-06-12):
 | Per-call model override | `HERMES_MODEL=<model>` with `operator.sh ask/run` | Allows explicit cloud or alternate local model tests without changing the deployment default. |
 | API retries | `agent.api_max_retries: 3` | Allow retries for transient cloud API failures. |
 | Delegation | `max_concurrent_children: 5`, `max_spawn_depth: 2`, `child_timeout_seconds: 900` | Parallel subagent workloads on 9070 XT (tuned per PR #9 VRAM analysis). |
-| Compression | enabled, `threshold: 0.88`, `target_ratio: 0.2` | Higher threshold avoids compressing short outputs. |
-| Memory | `memory_char_limit: 14000`, `user_char_limit: 9000` via OpenViking external provider | `memory.provider: openviking` activates the bundled OV plugin; in-cluster endpoint `openviking.viking.svc:1933`; writes to `viking://resources/patterns/` and `viking://resources/preferences/` (no overlap with compendium-sync namespaces) |
+|| Compression | enabled, `threshold: 0.75`, `target_ratio: 0.2` | Lower threshold triggers compression more aggressively. |
+| Memory | `memory_char_limit: 20000`, `user_char_limit: 12000` via mem0 provider | `memory.provider: mem0` with mem0-adapter sidecar on localhost:18080 (translates Platform API → OSS API, backed by Mem0 server in `mem0` namespace with PostgreSQL/pgvector); OpenViking knowledge-base tools (`viking_*`) remain active via `OPENVIKING_ENDPOINT` |
 | Toolsets | `hermes-cli` | Minimal toolset for current smoke tests and operator workflows. |
 | External exposure | Cloudflare tunnel at `hermes.nathanwhyte.dev` (dashboard); LAN Ingress also active | Dashboard exposed via Cloudflare tunnel; API server cluster-internal. |
 
