@@ -89,11 +89,17 @@ spec:
             - --pooling
             - last
             - --ctx-size
-            - "8192"
+            # Total ctx across parallel slots → 8192/slot at --parallel 4,
+            # matching OV's embedding.max_input_tokens=8192 so long chunks
+            # (e.g. PROJ-012's 1826-token block) don't get rejected with
+            # "exceeds available context size". --parallel was 6 but the
+            # embedder isn't the bottleneck for this workload (the VLM is),
+            # so 4 slots is plenty and gives each slot a full 8k of context.
+            - "32768"
             - --n-gpu-layers
             - "999"
             - --parallel
-            - "6"
+            - "4"
             - --threads
             - "8"
             - --batch-size
