@@ -1,15 +1,10 @@
 ---
-# Suspended CronJobs for playlists 1, 3, 4, 5, 6.
+# Enabled CronJobs for playlists 1, 3, 4, 5, 6.
 #
-# `suspend: true` keeps them registered with the cluster (so the
-# schedule is visible in `kubectl get cronjobs -A` and the operator
-# scripts can `create job --from=cronjob/...` against any of them) but
-# prevents the controller from creating Jobs on the schedule.
-#
-# After the validation run on playlist 2 proves the pipeline, flip
-# each `suspend: true` → `suspend: false` (or `kubectl patch cronjob
-# ... -p '{"spec":{"suspend":false}}'` per-playlist) to enable the
-# rest of the set.
+# These were enabled after playlist 2 validated the pipeline. They run
+# on staggered schedules so the RWO media PVC is never contended by two
+# yt-dlp Jobs at once. Set `suspend: true` to pause a playlist without
+# unregistering it from the cluster.
 #
 # Schedule staggering:
 #   - 0 0  * * * — Essential (midnight UTC, off-peak)
@@ -42,7 +37,7 @@ metadata:
     app.kubernetes.io/playlist: "1"
 spec:
   schedule: "0 0 * * *"
-  suspend: true
+  suspend: false
   timeZone: "Etc/UTC"
   concurrencyPolicy: Forbid
   successfulJobsHistoryLimit: 3
@@ -136,7 +131,7 @@ metadata:
     app.kubernetes.io/playlist: "3"
 spec:
   schedule: "20 4 * * *"
-  suspend: true
+  suspend: false
   timeZone: "Etc/UTC"
   concurrencyPolicy: Forbid
   successfulJobsHistoryLimit: 3
@@ -230,7 +225,7 @@ metadata:
     app.kubernetes.io/playlist: "4"
 spec:
   schedule: "30 6 * * *"
-  suspend: true
+  suspend: false
   timeZone: "Etc/UTC"
   concurrencyPolicy: Forbid
   successfulJobsHistoryLimit: 3
@@ -324,7 +319,7 @@ metadata:
     app.kubernetes.io/playlist: "5"
 spec:
   schedule: "40 8 * * *"
-  suspend: true
+  suspend: false
   timeZone: "Etc/UTC"
   concurrencyPolicy: Forbid
   successfulJobsHistoryLimit: 3
@@ -418,7 +413,7 @@ metadata:
     app.kubernetes.io/playlist: "6"
 spec:
   schedule: "50 10 * * *"
-  suspend: true
+  suspend: false
   timeZone: "Etc/UTC"
   concurrencyPolicy: Forbid
   successfulJobsHistoryLimit: 3
