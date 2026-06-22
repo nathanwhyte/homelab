@@ -4,6 +4,8 @@ kind: Service
 metadata:
   name: openviking
   namespace: viking
+  labels:
+    app: openviking
 spec:
   type: ClusterIP
   ports:
@@ -11,5 +13,9 @@ spec:
       port: 1933
       protocol: TCP
       targetPort: 1933
+    - name: metrics
+      port: 9210
+      protocol: TCP
+      targetPort: 9210
   selector:
     app: openviking

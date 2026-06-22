@@ -1,0 +1,36 @@
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: openviking-alerts
+  namespace: viking
+  labels:
+    app: openviking
+spec:
+  groups:
+    - name: openviking.rules
+      rules:
+        - alert: OpenVikingDown
+          expr: openviking_up == 0
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "OpenViking exporter reports OV unreachable for 5m"
+            description: "ov-exporter's last poll cycle failed (ov status or lock count). OV may be down or the exporter lost its API key."
+        - alert: OpenVikingLocksAccumulating
+          expr: openviking_lock_path_ovlock_count > 20
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "OpenViking has >20 stale .path.ovlock files for 5m"
+            description: "Stale subtree lifecycle locks are accumulating in AGFS — the lock-cleanup sidecar may not be keeping up, signaling GH #2015-style contention."
+        - alert: OpenVikingQueueNotDraining
+          expr: openviking_queue_pending{queue="total"} > 5 and delta(openviking_queue_pending{queue="total"}[15m]) >= 0
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "OpenViking total queue pending not decreasing over 15m"
+            description: "Queue depth is above 5 and has not fallen in 15m — indexing is stalled (VLM saturation or lock contention)."
