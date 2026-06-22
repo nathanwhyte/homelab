@@ -7,7 +7,9 @@
 OpenViking quickstart example.
 
 Requires:
-  OPENVIKING_URL  — e.g. https://context.nathanwhyte.dev
+  OPENVIKING_URL  — default http://openviking.viking.svc:1933 (in-cluster);
+                    use http://192.168.1.19:31933 on the LAN, or
+                    https://context.nathanwhyte.dev from off-LAN/external.
   OPENVIKING_KEY  — API key for the OpenViking instance
 """
 
@@ -16,7 +18,7 @@ import os
 from openviking_cli.client.sync_http import SyncHTTPClient
 
 client = SyncHTTPClient(
-    url=os.environ.get("OPENVIKING_URL", "https://context.nathanwhyte.dev"),
+    url=os.environ.get("OPENVIKING_URL", "http://openviking.viking.svc:1933"),
     api_key=os.environ["OPENVIKING_KEY"],
     timeout=300.0,  # 5 min — VLM processing of large docs takes time
 )
@@ -46,7 +48,9 @@ try:
     print("\nWaiting for semantic processing (VLM generates abstracts/overviews)...")
     result = client.wait_processed(timeout=240)
     for queue, stats in result.items():
-        print(f"  {queue}: processed={stats['processed']}, errors={stats['error_count']}")
+        print(
+            f"  {queue}: processed={stats['processed']}, errors={stats['error_count']}"
+        )
 
     abstract = client.abstract(root_uri)
     overview = client.overview(root_uri)
@@ -67,4 +71,5 @@ try:
 except Exception as e:
     print(f"Error: {e}")
     import traceback
+
     traceback.print_exc()

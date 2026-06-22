@@ -19,8 +19,9 @@
 #
 # `down` waits for the OV index queue to drain before scaling to 0, so you
 # don't kill the VLM out from under in-flight L0/L1 generation. `up` waits
-# for the rollout to complete (cold model load). The drain step uses the
-# same `ov wait` (with polling fallback) pattern as before.
+# for the rollout to complete (cold model load). The drain step polls
+# `ov status` (the `ov wait` long-poll endpoint is broken on v0.3.14) --
+# the same approach as compendium-sync.py.
 #
 # Usage:
 #   ov-vlm.sh up                         # scale to 1 and wait until ready
@@ -34,7 +35,7 @@
 #   ov-vlm.sh run -- python3 viking/tools/compendium-sync.py sync --limit 50
 #
 # `down` and `run` require the same OPENVIKING_URL / OPENVIKING_KEY env that
-# the sync tool uses, because the queue drain goes through `ov wait`.
+# the sync tool uses, because the queue drain polls `ov status`.
 #
 # Env overrides:
 #   VIKING_NS          namespace                       (default: viking)
@@ -51,80 +52,87 @@ DRAIN_TIMEOUT="${VLM_DRAIN_TIMEOUT:-3600}"
 log() { printf '%s %s\n' "$(date +%H:%M:%S)" "$*" >&2; }
 
 usage() {
-  sed -n '2,40p' "$0" | sed 's/^# \{0,1\}//'
-  exit "${1:-0}"
+	sed -n '2,40p' "$0" | sed 's/^# \{0,1\}//'
+	exit "${1:-0}"
 }
 
 vlm_up() {
-  log "scaling $DEPLOY -> 1 in $NS"
-  kubectl scale deployment "$DEPLOY" -n "$NS" --replicas=1 >/dev/null
-  log "waiting up to ${UP_TIMEOUT}s for rollout (cold model load from cached PVC)"
-  kubectl rollout status deployment "$DEPLOY" -n "$NS" --timeout="${UP_TIMEOUT}s"
-  log "$DEPLOY is ready"
+	log "scaling $DEPLOY -> 1 in $NS"
+	kubectl scale deployment "$DEPLOY" -n "$NS" --replicas=1 >/dev/null
+	log "waiting up to ${UP_TIMEOUT}s for rollout (cold model load from cached PVC)"
+	kubectl rollout status deployment "$DEPLOY" -n "$NS" --timeout="${UP_TIMEOUT}s"
+	log "$DEPLOY is ready"
 }
 
 vlm_down() {
-  log "scaling $DEPLOY -> 0 in $NS"
-  kubectl scale deployment "$DEPLOY" -n "$NS" --replicas=0 >/dev/null
+	log "scaling $DEPLOY -> 0 in $NS"
+	kubectl scale deployment "$DEPLOY" -n "$NS" --replicas=0 >/dev/null
 }
 
 vlm_status() {
-  kubectl get deployment "$DEPLOY" -n "$NS" \
-    -o 'custom-columns=NAME:.metadata.name,DESIRED:.spec.replicas,READY:.status.readyReplicas,AVAILABLE:.status.availableReplicas'
+	kubectl get deployment "$DEPLOY" -n "$NS" \
+		-o 'custom-columns=NAME:.metadata.name,DESIRED:.spec.replicas,READY:.status.readyReplicas,AVAILABLE:.status.availableReplicas'
 }
 
 drain() {
-  # Wait for the OV index queue to drain. Tries `ov wait` first (single
-  # long-poll blocking call); if that errors out (the v0.3.14 CLI/server
-  # build mismatch on /api/v1/system/wait means it returns "Network error"
-  # even when the request actually reaches the server), fall back to polling
-  # `ov status` until pending+in-progress = 0, or the timeout elapses.
-  local deadline=$(( $(date +%s) + DRAIN_TIMEOUT ))
-  log "waiting up to ${DRAIN_TIMEOUT}s for OV index queue to drain"
-  if ov wait --timeout "$DRAIN_TIMEOUT" 2>/dev/null; then
-    return 0
-  fi
-  log "ov wait unavailable (known v0.3.14 client/server mismatch on /api/v1/system/wait); falling back to polling ov status"
-  while [ "$(date +%s)" -lt "$deadline" ]; do
-    local out
-    out=$(ov status 2>/dev/null) || { sleep 5; continue; }
-    local pending inprog
-    pending=$(echo "$out" | awk '/^TOTAL/ {print $3}' | head -1)
-    inprog=$(echo "$out"  | awk '/^TOTAL/ {print $5}' | head -1)
-    pending="${pending:-?}"
-    inprog="${inprog:-?}"
-    log "queue: pending=$pending in_progress=$inprog"
-    if [ "$pending" = "0" ] && [ "$inprog" = "0" ]; then
-      log "queue drained"
-      return 0
-    fi
-    sleep 10
-  done
-  log "WARN: drain timeout (${DRAIN_TIMEOUT}s) reached; queue may still have pending work"
-  return 1
+	# Wait for the OV index queue to drain. Polls `ov status --output json`
+	# until pending+in-progress = 0 (mirrors compendium-sync.py's _queue_is_drain).
+	# The long-poll `ov wait` endpoint (/api/v1/system/wait) is broken on v0.3.14
+	# -- it returns "Network error" after 60s even when the server and queue are
+	# healthy -- so we do not use it. Status polling returns immediately while
+	# work is in flight and exits as soon as the queue is empty.
+	local deadline=$(($(date +%s) + DRAIN_TIMEOUT))
+	log "waiting up to ${DRAIN_TIMEOUT}s for OV index queue to drain"
+	while [ "$(date +%s)" -lt "$deadline" ]; do
+		local counts pending inprog
+		counts=$(ov status --output json 2>/dev/null | python3 -c '
+import json, re, sys
+try:
+    q = json.load(sys.stdin)["result"]["components"]["queue"]["status"]
+    m = re.search(r"\|\s*TOTAL\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|", q)
+    print(f"{m.group(1)} {m.group(2)}" if m else "? ?")
+except Exception:
+    print("? ?")
+' 2>/dev/null) || counts="? ?"
+		read -r pending inprog <<<"$counts"
+		log "queue: pending=$pending in_progress=$inprog"
+		if [ "$pending" = "0" ] && [ "$inprog" = "0" ]; then
+			log "queue drained"
+			return 0
+		fi
+		sleep 10
+	done
+	log "WARN: drain timeout (${DRAIN_TIMEOUT}s) reached; queue may still have pending work"
+	return 1
 }
 
 main() {
-  [ "$#" -ge 1 ] || usage 1
-  case "$1" in
-    up) vlm_up ;;
-    down) vlm_down ;;
-    status) vlm_status ;;
-    run)
-      shift
-      [ "${1:-}" = "--" ] && shift
-      [ "$#" -ge 1 ] || { log "run: no command given"; usage 1; }
-      # Always return to idle (replicas=0) on any exit path, including Ctrl-C.
-      trap vlm_down EXIT
-      vlm_up
-      rc=0
-      "$@" || rc=$?
-      drain || log "WARN: ov wait did not confirm a clean drain; scaling down anyway"
-      exit "$rc"
-      ;;
-    -h | --help | help) usage 0 ;;
-    *) log "unknown command: $1"; usage 1 ;;
-  esac
+	[ "$#" -ge 1 ] || usage 1
+	case "$1" in
+	up) vlm_up ;;
+	down) vlm_down ;;
+	status) vlm_status ;;
+	run)
+		shift
+		[ "${1:-}" = "--" ] && shift
+		[ "$#" -ge 1 ] || {
+			log "run: no command given"
+			usage 1
+		}
+		# Always return to idle (replicas=0) on any exit path, including Ctrl-C.
+		trap vlm_down EXIT
+		vlm_up
+		rc=0
+		"$@" || rc=$?
+		drain || log "WARN: drain did not confirm an empty queue; scaling down anyway"
+		exit "$rc"
+		;;
+	-h | --help | help) usage 0 ;;
+	*)
+		log "unknown command: $1"
+		usage 1
+		;;
+	esac
 }
 
 main "$@"

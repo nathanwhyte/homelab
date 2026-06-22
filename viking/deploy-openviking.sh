@@ -64,7 +64,8 @@ kubectl apply -f "$SCRIPT_DIR/manifests/ov-vectordb-pvc.yaml"
 kubectl apply -f "$SCRIPT_DIR/manifests/ov-vectordb-deployment.yaml"
 kubectl apply -f "$SCRIPT_DIR/manifests/ov-vectordb-service.yaml"
 
-# Traefik ingress (context.nathanwhyte.dev with basicAuth)
+# Traefik IngressRoute (repo manifest; the live public route uses the Cloudflare
+# tunnel — see CLAUDE.md Endpoint tiers. NOTE: openviking-basicauth is not deployed.)
 kubectl apply -f "$SCRIPT_DIR/manifests/openviking-ingress.yaml"
 
 echo ""
@@ -77,6 +78,7 @@ wait
 echo ""
 echo "=== OpenViking deployed ==="
 echo "Internal: http://openviking.viking.svc.cluster.local:1933"
-echo "LAN:      https://context.nathanwhyte.dev"
-echo "Auth:     Basic api:<token from openviking-auth.secret.yaml>"
-echo "Health:   curl -u api:\$TOKEN -H 'X-API-Key: \$OPENVIKING_KEY' https://context.nathanwhyte.dev/health"
+echo "LAN:      http://192.168.1.19:31933"
+echo "Public:   https://context.nathanwhyte.dev (Cloudflare tunnel)"
+echo "Auth:     OV root_api_key (\$OPENVIKING_KEY)"
+echo "Health:   curl -H 'X-API-Key: \$OPENVIKING_KEY' http://192.168.1.19:31933/health"
