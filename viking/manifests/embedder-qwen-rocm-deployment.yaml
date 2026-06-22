@@ -1,0 +1,176 @@
+---
+# Qwen3-Embedding-4B on timmy's RX 9070 XT (ROCm).
+# See plan: ~/code/compendium/docs/plans/2026-06-22-IDEA-1042-qwen-embedding-deployment.md
+#
+# Replaces nomic-embed-text-v1.5 on wemby. Dimension changes 768 -> 2560,
+# requiring a vectordb wipe + re-embed (handled in Phase 3-4 of the plan).
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: embedder-qwen-model-cache
+  namespace: viking
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: longhorn-ssd
+  resources:
+    requests:
+      storage: 15Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: embedder-qwen-rocm
+  namespace: viking
+  labels:
+    app: embedder-qwen-rocm
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: embedder-qwen-rocm
+  template:
+    metadata:
+      labels:
+        app: embedder-qwen-rocm
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: timmy
+        gpu.vendor: amd
+      securityContext:
+        fsGroup: 0
+      initContainers:
+        - name: model-fetch
+          image: curlimages/curl:8.12.1
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+              model_path="/models/${MODEL_FILE}"
+              if [ -f "${model_path}" ]; then
+                echo "Model already cached: ${model_path}"
+              else
+                echo "Downloading ${MODEL_FILE}..."
+                curl -fL --retry 5 --retry-delay 10 "${MODEL_URL}" -o "${model_path}.tmp"
+                mv "${model_path}.tmp" "${model_path}"
+                echo "Download complete."
+              fi
+              ln -sf "${model_path}" /models/current.gguf
+              echo "Model ready."
+          env:
+            - name: MODEL_FILE
+              value: Qwen3-Embedding-4B-Q8_0.gguf
+            - name: MODEL_URL
+              value: https://huggingface.co/Qwen/Qwen3-Embedding-4B-GGUF/resolve/main/Qwen3-Embedding-4B-Q8_0.gguf
+          securityContext:
+            runAsUser: 0
+            runAsGroup: 0
+          volumeMounts:
+            - name: model-cache
+              mountPath: /models
+      containers:
+        - name: llamacpp
+          image: ghcr.io/ggml-org/llama.cpp:server-rocm
+          env:
+            - name: HIP_VISIBLE_DEVICES
+              value: "0"
+          command: ["/app/llama-server"]
+          args:
+            - --model
+            - /models/current.gguf
+            - --host
+            - "0.0.0.0"
+            - --port
+            - "8000"
+            - --embedding
+            - --pooling
+            - last
+            - --ctx-size
+            - "8192"
+            - --n-gpu-layers
+            - "999"
+            - --parallel
+            - "6"
+            - --threads
+            - "8"
+            - --batch-size
+            - "4096"
+            - --ubatch-size
+            - "4096"
+            - --split-mode
+            - none
+            - --main-gpu
+            - "0"
+            - --flash-attn
+            - "on"
+            - --metrics
+            - --mlock
+          ports:
+            - containerPort: 8000
+              name: http
+          resources:
+            requests:
+              cpu: "500m"
+              memory: 2Gi
+            limits:
+              cpu: "8"
+              memory: 12Gi
+          securityContext:
+            privileged: true
+          startupProbe:
+            tcpSocket:
+              port: 8000
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 120
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            periodSeconds: 20
+            timeoutSeconds: 5
+          volumeMounts:
+            - name: model-cache
+              mountPath: /models
+            - name: shm
+              mountPath: /dev/shm
+            - name: rocblas-library
+              mountPath: /opt/rocm/lib/rocblas/library
+      volumes:
+        - name: model-cache
+          persistentVolumeClaim:
+            claimName: embedder-qwen-model-cache
+        - name: shm
+          emptyDir:
+            medium: Memory
+            sizeLimit: 4Gi
+        - name: rocblas-library
+          hostPath:
+            path: /opt/rocm-7.2.1/lib/rocblas/library
+            type: Directory
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: embedder-qwen
+  namespace: viking
+  labels:
+    app: embedder-qwen-rocm
+spec:
+  type: ClusterIP
+  selector:
+    app: embedder-qwen-rocm
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8000
+      protocol: TCP
