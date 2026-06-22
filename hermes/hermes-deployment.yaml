@@ -144,7 +144,7 @@ spec:
             # mem0 LLM extraction + Hermes local sub-agents share gemma4:12b-it-qat
             # on timmy's RX 9070 XT; cohabitation validated at OLLAMA_NUM_PARALLEL=6
             # (see INFO-055).
-            - name: MEM0_API_KEY
+            - name: ADMIN_API_KEY
               valueFrom:
                 secretKeyRef:
                   name: mem0-api-key
