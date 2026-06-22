@@ -1,0 +1,21 @@
+apiVersion: v1
+items:
+- apiVersion: traefik.io/v1alpha1
+  kind: Middleware
+  metadata:
+    annotations:
+      kubectl.kubernetes.io/last-applied-configuration: |
+        {"apiVersion":"traefik.io/v1alpha1","kind":"Middleware","metadata":{"annotations":{},"name":"openviking-https-redirect","namespace":"viking"},"spec":{"redirectScheme":{"permanent":true,"scheme":"https"}}}
+    creationTimestamp: "2026-05-10T05:55:16Z"
+    generation: 1
+    name: openviking-https-redirect
+    namespace: viking
+    resourceVersion: "34040169"
+    uid: 0fd0455e-91b4-464d-b453-54acbb4738b6
+  spec:
+    redirectScheme:
+      permanent: true
+      scheme: https
+kind: List
+metadata:
+  resourceVersion: ""
