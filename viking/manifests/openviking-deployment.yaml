@@ -187,6 +187,75 @@ spec:
           volumeMounts:
             - name: data
               mountPath: /app/data
+        - name: ov-exporter
+          # Reuses the OV image so the `ov` CLI is available for `ov status`
+          # polling. Script is mounted from the openviking-exporter ConfigMap;
+          # regenerate via viking/scripts/regen-exporter-configmap.sh.
+          # `ov language en` runs once at container start to clear v0.4.x's
+          # first-run language gate (the gate persists state under
+          # ~/.openviking/, which is the container's HOME).
+          image: ghcr.io/volcengine/openviking:v0.4.4
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -eu
+              mkdir -p /tmp/ov
+              cat >/tmp/ov/ovcli.conf <<EOF
+              {"url": "${OPENVIKING_URL}", "api_key": "${OPENVIKING_KEY}", "account": "default", "user": "noot"}
+              EOF
+              export OPENVIKING_CLI_CONFIG_FILE=/tmp/ov/ovcli.conf
+              ov language en >/dev/null 2>&1 || true
+              exec python3 /scripts/ov-exporter.py
+          env:
+            - name: OPENVIKING_URL
+              value: http://localhost:1933
+            - name: OPENVIKING_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: openviking-api-key
+                  key: user-api-key
+            - name: AGFS_PATH
+              value: /app/data/viking
+            - name: POLL_INTERVAL
+              value: "15"
+            - name: PORT
+              value: "9210"
+          ports:
+            - containerPort: 9210
+              name: metrics
+          resources:
+            requests:
+              cpu: 20m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+          startupProbe:
+            httpGet:
+              path: /health
+              port: 9210
+            periodSeconds: 3
+            failureThreshold: 30
+          readinessProbe:
+            httpGet:
+              path: /metrics
+              port: 9210
+            periodSeconds: 15
+            timeoutSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 9210
+            periodSeconds: 30
+            timeoutSeconds: 5
+          volumeMounts:
+            - name: exporter-script
+              mountPath: /scripts
+              readOnly: true
+            - name: data
+              mountPath: /app/data
+              readOnly: true
       volumes:
         - name: config-template
           configMap:
@@ -195,6 +264,10 @@ spec:
           emptyDir: {}
         - name: ov-patch
           emptyDir: {}
+        - name: exporter-script
+          configMap:
+            name: openviking-exporter
+            defaultMode: 0755
         - name: data
           persistentVolumeClaim:
             claimName: openviking-data
