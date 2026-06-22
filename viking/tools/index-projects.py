@@ -11,7 +11,7 @@ a structured index, then uploads each as markdown to Viking so any future
 agent session can search across projects.
 
 Requires:
-  OPENVIKING_URL  — e.g. https://context.nathanwhyte.dev
+  OPENVIKING_URL  — default http://openviking.viking.svc:1933 for in-cluster use
   OPENVIKING_KEY  — API key for the OpenViking instance
   claude          — Claude Code CLI in PATH
 
@@ -67,7 +67,7 @@ PROJECT_MARKERS = {
     "requirements.txt",
 }
 
-OV_URL = os.environ.get("OPENVIKING_URL", "https://context.nathanwhyte.dev")
+OV_URL = os.environ.get("OPENVIKING_URL", "http://openviking.viking.svc:1933")
 OV_KEY = os.environ.get("OPENVIKING_KEY", "openviking-homelab")
 OV_ACCOUNT = os.environ.get("OPENVIKING_ACCOUNT", "default")
 OV_USER = os.environ.get("OPENVIKING_USER", "natew")
