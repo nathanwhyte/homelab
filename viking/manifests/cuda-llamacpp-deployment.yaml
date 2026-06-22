@@ -103,13 +103,15 @@ spec:
             - "8000"
             - --ctx-size
             # Reduced 65536→32768 to fit the 8 GB GTX 1080 (IDEA-009). Total server
-            # context splits across parallel slots → ~16k tokens/request at parallel=2,
-            # still 16× OpenViking's ~1k-token document splits.
+            # context splits across parallel slots → 8k tokens/request at parallel=4,
+            # still 8× OpenViking's ~1k-token document splits. Bumped 2→4 (IDEA-1042
+            # Phase 4) to drain the post-Qwen-cutover semantic queue faster; the
+            # embedder is no longer the bottleneck so VLM was the queue's long pole.
             - "32768"
             - --n-gpu-layers
             - "999"
             - --parallel
-            - "2"
+            - "4"
             - --threads
             - "8"
             - --cache-type-k
