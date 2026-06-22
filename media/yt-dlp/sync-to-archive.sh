@@ -24,6 +24,12 @@
 #   NS=yt-dlp PVC=media REMOTE_ROOT=/downloads \
 #     LOCAL=/Volumes/Archive/YouTube \
 #     media/yt-dlp/sync-to-archive.sh --apply
+#   LOCAL=~/Music/YouTube ONLY=Study \
+#     media/yt-dlp/sync-to-archive.sh --apply
+#                                                 # alternative target:
+#                                                 # copy just the Study
+#                                                 # playlist (audio) to
+#                                                 # ~/Music/YouTube/Study
 #
 # Environment:
 #   NS          yt-dlp namespace              (default: yt-dlp)
@@ -34,6 +40,8 @@
 #                                           (default: "ad-hoc")
 #   POD_NAME    pod name to use                (default: yt-dlp-sync)
 #   TMP_DIR     local staging dir              (default: $TMPDIR/yt-dlp-sync)
+#   ONLY        restrict sync to one subdir of REMOTE_ROOT (e.g. "Study");
+#               the subdir is preserved under LOCAL (default: empty = all)
 
 set -euo pipefail
 
@@ -42,6 +50,7 @@ PVC="${PVC:-media}"
 REMOTE_ROOT="${REMOTE_ROOT:-/downloads}"
 LOCAL="${LOCAL:-/Volumes/Archive/YouTube}"
 EXCLUDE_DIRS="${EXCLUDE_DIRS:-ad-hoc}"
+ONLY="${ONLY:-}"
 POD_NAME="${POD_NAME:-yt-dlp-sync}"
 TMP_DIR="${TMP_DIR:-$TMPDIR/yt-dlp-sync}"
 
@@ -125,12 +134,24 @@ fi
 #    through kubectl exec to our local file. (kubectl cp uses tar
 #    under the hood; piping tar through kubectl exec gives the same
 #    effect but lets us pick the exclude list explicitly.)
+#
+#    When ONLY is set, stream just that one subdir of REMOTE_ROOT
+#    instead of the whole tree; the subdir is preserved in the archive
+#    layout so it lands under LOCAL/<ONLY>/ (mirrors the full-sync shape).
 local_tar="$TMP_DIR/yt-dlp-cluster-$(date +%Y%m%d-%H%M%S).tar"
-echo "Streaming $REMOTE_ROOT/ (minus: $EXCLUDE_DIRS) from pod to $local_tar ..."
-
-# tar's -C flag treats the path as relative; we cd into REMOTE_ROOT
-# so the archive layout mirrors the destination dir names exactly.
-tar_args=(-cf - -C "$REMOTE_ROOT" "${exclude_args[@]}" .)
+if [ -n "$ONLY" ]; then
+	if ! kubectl exec -n "$NS" "$POD_NAME" -- test -d "$REMOTE_ROOT/$ONLY" 2>/dev/null; then
+		echo "ERROR: subdir '$ONLY' not found under $REMOTE_ROOT on the PVC" >&2
+		exit 1
+	fi
+	echo "Streaming $REMOTE_ROOT/$ONLY/ from pod to $local_tar ..."
+	# tar's -C flag treats the path as relative; we cd into REMOTE_ROOT
+	# so the archive layout mirrors the destination dir names exactly.
+	tar_args=(-cf - -C "$REMOTE_ROOT" "${exclude_args[@]}" "$ONLY")
+else
+	echo "Streaming $REMOTE_ROOT/ (minus: $EXCLUDE_DIRS) from pod to $local_tar ..."
+	tar_args=(-cf - -C "$REMOTE_ROOT" "${exclude_args[@]}" .)
+fi
 kubectl exec -n "$NS" "$POD_NAME" -- tar "${tar_args[@]}" \
 	>"$local_tar"
 
