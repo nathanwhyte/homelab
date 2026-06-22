@@ -50,6 +50,7 @@ data:
         "output": "stdout"
       },
       "embedding": {
+        "max_input_tokens": 1900,
         "dense": {
           "provider": "openai",
           "model": "nomic-embed-text-v1.5",
