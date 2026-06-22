@@ -77,12 +77,49 @@ spec:
           volumeMounts:
             - name: data
               mountPath: /app/data
+        - name: role-value-patch
+          image: ghcr.io/volcengine/openviking:v0.4.4
+          command:
+            - /bin/sh
+            - -c
+          args:
+            - |
+              python3 -c "
+              import os, re, shutil
+              src = '/app/.venv/lib/python3.13/site-packages/openviking'
+              dst = '/ov-patch/openviking'
+              shutil.copytree(src, dst, dirs_exist_ok=True)
+              for root, dirs, files in os.walk(dst):
+                  for f in files:
+                      if not f.endswith('.py'):
+                          continue
+                      path = os.path.join(root, f)
+                      text = open(path, 'r', encoding='utf-8').read()
+                      new_text = re.sub(r'\.role\.value\b', '.role', text)
+                      # Role is a str subclass, not an enum; replace enum-style
+                      # iteration over Role with the built-in role constants.
+                      new_text = re.sub(
+                          r'\{r\.value for r in Role\}',
+                          '{Role.ROOT, Role.ADMIN, Role.USER}',
+                          new_text,
+                      )
+                      if new_text != text:
+                          open(path, 'w', encoding='utf-8').write(new_text)
+                          print('patched', path)
+              print('role.value patch done')
+              "
+          volumeMounts:
+            - name: ov-patch
+              mountPath: /ov-patch
       containers:
         - name: openviking
           image: ghcr.io/volcengine/openviking:v0.4.4
           ports:
             - containerPort: 1933
               name: http
+          env:
+            - name: PYTHONPATH
+              value: /ov-patch
           resources:
             requests:
               # Single-instance local AGFS keeps indexing, queue work, and file
@@ -124,6 +161,8 @@ spec:
               mountPath: /app/.openviking/ov.conf
               subPath: ov.conf
               readOnly: true
+            - name: ov-patch
+              mountPath: /ov-patch
             - name: data
               mountPath: /app/data
         - name: lock-cleanup
@@ -153,6 +192,8 @@ spec:
           configMap:
             name: openviking-standalone-config
         - name: config-out
+          emptyDir: {}
+        - name: ov-patch
           emptyDir: {}
         - name: data
           persistentVolumeClaim:
