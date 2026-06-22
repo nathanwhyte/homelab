@@ -45,6 +45,7 @@ data:
         "output": "stdout"
       },
       "embedding": {
+        "max_input_tokens": 1900,
         "dense": {
           "provider": "openai",
           "model": "nomic-embed-text-v1.5",
@@ -60,6 +61,6 @@ data:
         "model": "ollama/qwen3:8b",
         "api_key": "sk-no-key-required",
         "api_base": "http://ollama.llama.svc.cluster.local:11434",
-        "max_concurrent": 1
+        "max_concurrent": 2
       }
     }

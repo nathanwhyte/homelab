@@ -4,13 +4,13 @@ set -euo pipefail
 NANOCHAT_DIR="$HOME/code/homelab/nanochat"
 
 if [ ! -x "$(command -v "kubectl")" ]; then
-    echo "kubectl not installed."
-    exit 1
+	echo "kubectl not installed."
+	exit 1
 fi
 
-if ! kubectl cluster-info > /dev/null 2>&1; then
-    echo "kubectl not connected to a cluster."
-    exit 1
+if ! kubectl cluster-info >/dev/null 2>&1; then
+	echo "kubectl not connected to a cluster."
+	exit 1
 fi
 
 echo -e "\nDeploying nanochat namespace and PVCs..."
@@ -30,9 +30,7 @@ echo "  2. Build and push images (if not already done):"
 echo "     bash $NANOCHAT_DIR/build.sh --rocm-only"
 echo ""
 echo "  3. Scale down GPU workloads on timmy before training:"
-echo "     kubectl scale deployment/llamacpp-rocm -n viking --replicas=0"
-echo "     kubectl scale statefulset/ov-worker -n viking --replicas=0"
-echo "     kubectl scale deployment/ov-coordinator -n viking --replicas=0"
+echo "     kubectl scale deployment/ollama -n llama --replicas=0   # frees timmy's RX 9070 XT"
 echo ""
 echo "  4. Submit training job:"
 echo "     kubectl delete job nanochat-gpt2-rocm -n nanochat --ignore-not-found"
@@ -42,6 +40,4 @@ echo "  5. Watch training logs:"
 echo "     kubectl logs -f job/nanochat-gpt2-rocm -n nanochat"
 echo ""
 echo "  6. After training, restore services:"
-echo "     kubectl scale deployment/llamacpp-rocm -n viking --replicas=1"
-echo "     kubectl scale statefulset/ov-worker -n viking --replicas=5"
-echo "     kubectl scale deployment/ov-coordinator -n viking --replicas=1"
+echo "     kubectl scale deployment/ollama -n llama --replicas=1"

@@ -1,6 +1,16 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# ⚠️  ARCHIVED / RESTORE-ONLY — do not run for a normal deploy.
+# The parallel coordinator/worker/merge trio was removed from the live cluster
+# after the 2026-06-03 single-instance cutover (see CLAUDE.md §Failover). These
+# manifests are retained in the repo only so the parallel path can be restored
+# if throughput ever demands it. The canonical deploy is deploy-openviking.sh
+# (single-instance). To restore parallel mode: `kubectl apply` the
+# ov-coordinator, ov-merge, and ov-worker manifests, then
+# `kubectl scale statefulset ov-worker --replicas=3 -n viking`
+# && `kubectl scale deployment ov-coordinator --replicas=1 -n viking`.
+#
 # Parallel OpenViking Deployment
 # Deploys 3 OV worker pods + coordinator proxy
 # Usage: bash viking/deploy-openviking-parallel.sh [--build]
@@ -29,28 +39,28 @@ kubectl apply -f "${SCRIPT_DIR}/manifests/openviking-configmap.yaml"
 # Step 4: Apply secrets (if they exist)
 echo "--- Step 4: Secrets ---"
 if [ -f "${SCRIPT_DIR}/manifests/openviking-s3-credentials.secret.yaml" ]; then
-    echo "Applying S3 credentials secret..."
-    kubectl apply -f "${SCRIPT_DIR}/manifests/openviking-s3-credentials.secret.yaml"
+	echo "Applying S3 credentials secret..."
+	kubectl apply -f "${SCRIPT_DIR}/manifests/openviking-s3-credentials.secret.yaml"
 else
-    echo "S3 credentials secret not found."
-    echo "  AGFS will fail to start until the secret exists."
-    echo "  Copy viking/manifests/openviking-s3-credentials.secret.yaml.example and fill in Garage credentials."
+	echo "S3 credentials secret not found."
+	echo "  AGFS will fail to start until the secret exists."
+	echo "  Copy viking/manifests/openviking-s3-credentials.secret.yaml.example and fill in Garage credentials."
 fi
 
 if [ -f "${SCRIPT_DIR}/manifests/openviking-auth.secret.yaml" ]; then
-    echo "Applying auth secret..."
-    kubectl apply -f "${SCRIPT_DIR}/manifests/openviking-auth.secret.yaml"
+	echo "Applying auth secret..."
+	kubectl apply -f "${SCRIPT_DIR}/manifests/openviking-auth.secret.yaml"
 else
-    echo "Auth secret not found."
-    echo "  Ingress will reject all requests until the secret exists."
-    echo "  See viking/manifests/openviking-auth.secret.yaml.example for instructions."
+	echo "Auth secret not found."
+	echo "  Ingress will reject all requests until the secret exists."
+	echo "  See viking/manifests/openviking-auth.secret.yaml.example for instructions."
 fi
 
 # Step 5: Create coordinator code ConfigMap from source
 echo "--- Step 5: Coordinator ConfigMap ---"
 kubectl -n "${NAMESPACE}" create configmap ov-coordinator-code \
-    --from-file=coordinator.py="${SCRIPT_DIR}/ov-coordinator/coordinator.py" \
-    --dry-run=client -o yaml | kubectl apply -f -
+	--from-file=coordinator.py="${SCRIPT_DIR}/ov-coordinator/coordinator.py" \
+	--dry-run=client -o yaml | kubectl apply -f -
 
 # Step 6: Scale down existing single-instance deployment (if running)
 echo "--- Step 6: Scale down existing deployment ---"
@@ -64,8 +74,8 @@ kubectl apply -f "${SCRIPT_DIR}/manifests/ov-worker-headless-service.yaml"
 echo "--- Step 8: Worker StatefulSet ---"
 kubectl apply -f "${SCRIPT_DIR}/manifests/ov-worker-statefulset.yaml"
 # Apply worker config configmap if it exists
-[[ -f "${SCRIPT_DIR}/manifests/ov-worker-config-configmap.yaml" ]] && \
-    kubectl apply -f "${SCRIPT_DIR}/manifests/ov-worker-config-configmap.yaml"
+[[ -f "${SCRIPT_DIR}/manifests/ov-worker-config-configmap.yaml" ]] &&
+	kubectl apply -f "${SCRIPT_DIR}/manifests/ov-worker-config-configmap.yaml"
 
 echo "Waiting for workers..."
 kubectl -n "${NAMESPACE}" rollout status statefulset/ov-worker --timeout=180s
@@ -115,7 +125,7 @@ echo "Run: kubectl run test --rm -i --restart=Never --image=curlimages/curl -- c
 echo ""
 echo "=== Deployment complete ==="
 echo "Internal: http://openviking.viking.svc.cluster.local:1933"
-echo "LAN:      https://context.nathanwhyte.dev"
+echo "LAN:      http://192.168.1.19:31933"
 echo ""
 echo "To rollback to single instance:"
 echo "  kubectl -n ${NAMESPACE} scale statefulset/ov-worker --replicas=0"

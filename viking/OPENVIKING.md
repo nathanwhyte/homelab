@@ -21,13 +21,13 @@ All three must be true. If in doubt, don't add — a lean index with high signal
 
 ### What gets added (and when)
 
-| Trigger | Content | Target |
-|---------|---------|--------|
-| Non-obvious debugging discovery | Root cause + fix + why it was hard to find | `resources/{project}/{service}/` |
-| Architecture decision | Decision + rationale + alternatives considered + trade-offs | `resources/{project}/{service}/` |
-| New service or major config change | What it does, why it exists, key endpoints, gotchas | `resources/{project}/{service}/` |
-| Deployment state after significant changes | Final config, design decisions, mistakes corrected | `resources/{project}/{service}/` |
-| Project instruction files | CLAUDE.md, AGENTS.md (indexed on first session only) | `resources/{project}/` |
+| Trigger                                    | Content                                                     | Target                           |
+| ------------------------------------------ | ----------------------------------------------------------- | -------------------------------- |
+| Non-obvious debugging discovery            | Root cause + fix + why it was hard to find                  | `resources/{project}/{service}/` |
+| Architecture decision                      | Decision + rationale + alternatives considered + trade-offs | `resources/{project}/{service}/` |
+| New service or major config change         | What it does, why it exists, key endpoints, gotchas         | `resources/{project}/{service}/` |
+| Deployment state after significant changes | Final config, design decisions, mistakes corrected          | `resources/{project}/{service}/` |
+| Project instruction files                  | CLAUDE.md, AGENTS.md (indexed on first session only)        | `resources/{project}/`           |
 
 ### What is NEVER added
 
@@ -36,7 +36,7 @@ All three must be true. If in doubt, don't add — a lean index with high signal
 - **Command output or ephemeral state** — transient, no long-term value.
 - **Duplicate content** — always `viking_search` before adding. Duplicates split retrieval scores.
 - **Session logs or summaries** — use claude-mem for operational history. OV is for curated knowledge only.
-- **Routine changes** — "updated config value X to Y" belongs in git, not OV. Only add if the *why* is non-obvious.
+- **Routine changes** — "updated config value X to Y" belongs in git, not OV. Only add if the _why_ is non-obvious.
 - **Content from other memory systems** — don't bulk-import from claude-mem or similar. Selectively evaluate individual items against the three questions above.
 
 ## How retrieval works
@@ -45,11 +45,11 @@ Understanding OV's retrieval mechanism is essential for organizing content effec
 
 ### Three content layers
 
-| Layer | Name | File | Token Limit | Purpose |
-|-------|------|------|-------------|---------|
-| **L0** | Abstract | `.abstract.md` | ~100 tokens | Vector search, quick filtering |
-| **L1** | Overview | `.overview.md` | ~2k tokens | Rerank, content navigation |
-| **L2** | Detail | Original files/subdirs | Unlimited | Full content, on-demand loading |
+| Layer  | Name     | File                   | Token Limit | Purpose                         |
+| ------ | -------- | ---------------------- | ----------- | ------------------------------- |
+| **L0** | Abstract | `.abstract.md`         | ~100 tokens | Vector search, quick filtering  |
+| **L1** | Overview | `.overview.md`         | ~2k tokens  | Rerank, content navigation      |
+| **L2** | Detail   | Original files/subdirs | Unlimited   | Full content, on-demand loading |
 
 The VLM auto-generates L0 and L1 for both files and directories. Well-written directory abstracts amplify all children's scores.
 
@@ -67,13 +67,13 @@ OV uses hierarchical retrieval, not flat vector search:
 
 ### `find()` vs `search()`
 
-| Feature | `find()` | `search()` |
-|---------|----------|------------|
-| Session context | Not needed | Required |
-| Intent analysis | Not used | LLM analysis |
-| Query count | Single query | 0-5 TypedQueries |
-| Latency | Low | Higher |
-| Best for | Simple lookups, scoped searches | Complex tasks, multi-intent queries |
+| Feature         | `find()`                        | `search()`                          |
+| --------------- | ------------------------------- | ----------------------------------- |
+| Session context | Not needed                      | Required                            |
+| Intent analysis | Not used                        | LLM analysis                        |
+| Query count     | Single query                    | 0-5 TypedQueries                    |
+| Latency         | Low                             | Higher                              |
+| Best for        | Simple lookups, scoped searches | Complex tasks, multi-intent queries |
 
 **Always pass `scope=`** to narrow results. Example: `viking_find("VLM routing", scope="viking://resources/homelab/")`
 
@@ -108,6 +108,7 @@ viking://resources/config/
 ```
 
 Per-project instruction files stay under their project:
+
 ```
 viking://resources/homelab/homelab-claude    ← homelab/CLAUDE.md
 viking://resources/homelab/homelab-agents    ← homelab/AGENTS.md
@@ -123,15 +124,15 @@ viking://resources/dipdash/api/
 
 ### Directory structure rules
 
-| Rule | Why | Example |
-|------|-----|---------|
-| **Real filenames only** | UUIDs/upload hashes produce zero L0 abstract signal, making children invisible to retrieval | `gpu-thermal-throttle.md` not `upload_a3f2.md` |
-| **Mirror repo structure** | Predictable paths make scoped searches reliable | `llama/` in repo → `homelab/llama/` in OV |
-| **3-4 levels max** below project root | Retriever converges after ~3 rounds; deeper paths rarely get explored | `resources/homelab/gpu/thermal-assessment` is fine; `resources/homelab/gpu/nvidia/thermal/2024/` is too deep |
-| **Group related content under topic dirs** | Parent directory abstracts amplify all children's scores | `viking://resources/homelab/gpu/` with multiple GPU-related files under it |
-| **Descriptive kebab-case names** | Names become part of the embedding; vague names hurt search | `dual-gpu-assessment` not `gpu-research-1` |
-| **Use trailing slash for directories** | Distinguishes dirs from files in URI operations | `viking://resources/homelab/gpu/` (dir) vs `viking://resources/homelab/gpu.md` (file) |
-| **Search before adding** | Duplicate content splits retrieval scores across copies | Always `viking_find` or `viking_search` first |
+| Rule                                       | Why                                                                                         | Example                                                                                                      |
+| ------------------------------------------ | ------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| **Real filenames only**                    | UUIDs/upload hashes produce zero L0 abstract signal, making children invisible to retrieval | `gpu-thermal-throttle.md` not `upload_a3f2.md`                                                               |
+| **Mirror repo structure**                  | Predictable paths make scoped searches reliable                                             | `llama/` in repo → `homelab/llama/` in OV                                                                    |
+| **3-4 levels max** below project root      | Retriever converges after ~3 rounds; deeper paths rarely get explored                       | `resources/homelab/gpu/thermal-assessment` is fine; `resources/homelab/gpu/nvidia/thermal/2024/` is too deep |
+| **Group related content under topic dirs** | Parent directory abstracts amplify all children's scores                                    | `viking://resources/homelab/gpu/` with multiple GPU-related files under it                                   |
+| **Descriptive kebab-case names**           | Names become part of the embedding; vague names hurt search                                 | `dual-gpu-assessment` not `gpu-research-1`                                                                   |
+| **Use trailing slash for directories**     | Distinguishes dirs from files in URI operations                                             | `viking://resources/homelab/gpu/` (dir) vs `viking://resources/homelab/gpu.md` (file)                        |
+| **Search before adding**                   | Duplicate content splits retrieval scores across copies                                     | Always `viking_find` or `viking_search` first                                                                |
 
 ### Recommended homelab structure
 
@@ -159,11 +160,11 @@ viking://resources/
 
 ### Two upload paths
 
-| Method | When to use | How |
-|--------|-------------|-----|
+| Method                                       | When to use                                                | How                              |
+| -------------------------------------------- | ---------------------------------------------------------- | -------------------------------- |
 | `viking_add_text(content, name, target_dir)` | Single knowledge artifact at moment of discovery (default) | In-line during work via MCP tool |
-| `ov add-resource <file> --to <uri> --wait` | Importing an existing file (docs, configs) | CLI, one-shot |
-| `viking_session_commit` | End of multi-hour sessions with many interwoven findings | Batch extraction by OV |
+| `ov add-resource <file> --to <uri> --wait`   | Importing an existing file (docs, configs)                 | CLI, one-shot                    |
+| `viking_session_commit`                      | End of multi-hour sessions with many interwoven findings   | Batch extraction by OV           |
 
 ### Upload workflow (API level)
 
@@ -184,25 +185,48 @@ Even with `--wait`, the semantic queue processor runs tasks concurrently based o
 
 **Embedder configuration**: `--parallel 2 --ctx-size 16384` (8192 tokens/slot, matching nomic-embed-text-v1.5's 8192 native context limit). Previous `--parallel 8` (2048 tokens/slot) caused embedding overflow on longer documents; `--parallel 4` (4096/slot) was a partial mitigation.
 
+**`max_input_tokens` guardrail (commit `6830a18`)**: despite `--ctx-size 16384`, the embedder-llamacpp server reports `n_ctx: 2048` to clients regardless of the flag (nomic-embed-text-v1.5 quirk), so OV must not assume it can send 8192-token chunks. OV only truncates inputs when `embedding.max_input_tokens` is set — without it, long documents overflow the 2048 slot and the embedding queue errors out. `embedding.max_input_tokens: 1900` is therefore mandatory in every OV config (`openviking-standalone-config` and the worker-retained `openviking-config`). Leave a small margin under 2048.
+
 For MCP-based uploads during a session, add one item at a time and verify it processes before adding the next.
+
+### Large compendium sync (`compendium-sync.py`)
+
+For bulk re-sync of a vault (hundreds of entries), use `viking/tools/compendium-sync.py` with the modes tuned to avoid same-parent SUBTREE-lock write conflicts during parent-overview refresh:
+
+```bash
+# Recommended large-sync mode (round-robins across parent dirs)
+uv run viking/tools/compendium-sync.py \
+  --order interleave --delay 5 --no-wait
+```
+
+- `--order interleave` — round-robins across parent directories instead of walking one directory at a time. Two entries in the same parent (e.g., `bugs/BUG-007.md`, `bugs/BUG-008.md`) both need the same parent's `.overview.md` regenerated, which serializes on the subtree lock. Interleaving spreads the same-parent clashes out in time so the lock is usually free by the time the second entry's parent-refresh runs.
+- `--delay 5` — 5s pause between submissions, a soft rate cap that keeps the embedding/semantic queues from saturating.
+- `--no-wait` — do not block on `ov wait` after each entry; submit and move on. The long-poll `ov wait` endpoint (`/api/v1/system/wait`) is broken on v0.3.14 (returns "Network error" after 60s even when healthy), so `--no-wait` skips it. Use `--wait-drain` at the end of the run to block until the queue is empty instead.
+
+Queue-drain options (both poll `ov status --output json` — the `status["result"]["components"]["queue"]["status"]` TOTAL row — rather than the broken `ov wait`):
+
+- `--wait-drain` — after submitting all entries, poll until pending + in-progress = 0 (the script's `_queue_is_drain` / `wait_for_drain` logic). Use this when you need to know the sync fully settled before proceeding.
+- `--no-wait` — fire-and-forget; check `ov status` yourself later. Right for unattended bulk syncs where you'll verify the queue separately.
+
+For the personal vault, set `COMPENDIUM_ROOT=~/code/personal-compendium OV_TARGET_BASE=viking://resources/personal/` (same tool, different roots — see the homelab `CLAUDE.md` "Indexed compendia" table).
 
 ## Maintenance best practices
 
 ### CLI commands
 
-| Task | Command | When |
-|------|---------|------|
-| Reindex single resource | `ov reindex viking://resources/homelab/gpu/thermal.md` | After editing content |
-| Force regenerate all abstracts | `ov reindex viking://resources/homelab/ -r` | After reorganizing directories |
-| Wait for completion | `ov reindex <uri> --wait` | After bulk changes, before searching |
-| Remove stale content | `ov rm viking://resources/volcengine/` | When content is no longer relevant |
-| Move/rename | `ov mv viking://old/path viking://new/path` | Restructuring without losing abstracts |
-| Check L0 abstracts | `ov abstract viking://resources/homelab/gpu/` | Verify abstracts are populated (not `[.abstract.md is not ready]`) |
-| Check L1 overviews | `ov overview viking://resources/homelab/gpu/` | Verify overviews exist |
-| Full tree audit | `ov tree viking://resources/ -L 3` | Monthly or after major restructuring |
-| List directory | `ov ls viking://resources/homelab/` | Quick check of contents |
-| Read file content | `ov read viking://resources/homelab/gpu/assessment.md` | View L2 full content |
-| Search content | `ov grep "pattern" viking://resources/homelab/` | Pattern search within resources |
+| Task                           | Command                                                | When                                                               |
+| ------------------------------ | ------------------------------------------------------ | ------------------------------------------------------------------ |
+| Reindex single resource        | `ov reindex viking://resources/homelab/gpu/thermal.md` | After editing content                                              |
+| Force regenerate all abstracts | `ov reindex viking://resources/homelab/ -r`            | After reorganizing directories                                     |
+| Wait for completion            | `ov reindex <uri> --wait`                              | After bulk changes, before searching                               |
+| Remove stale content           | `ov rm viking://resources/volcengine/`                 | When content is no longer relevant                                 |
+| Move/rename                    | `ov mv viking://old/path viking://new/path`            | Restructuring without losing abstracts                             |
+| Check L0 abstracts             | `ov abstract viking://resources/homelab/gpu/`          | Verify abstracts are populated (not `[.abstract.md is not ready]`) |
+| Check L1 overviews             | `ov overview viking://resources/homelab/gpu/`          | Verify overviews exist                                             |
+| Full tree audit                | `ov tree viking://resources/ -L 3`                     | Monthly or after major restructuring                               |
+| List directory                 | `ov ls viking://resources/homelab/`                    | Quick check of contents                                            |
+| Read file content              | `ov read viking://resources/homelab/gpu/assessment.md` | View L2 full content                                               |
+| Search content                 | `ov grep "pattern" viking://resources/homelab/`        | Pattern search within resources                                    |
 
 ### API reindex (programmatic)
 
@@ -219,12 +243,12 @@ POST /api/v1/maintenance/reindex
 
 ### Cleanup cadence
 
-| Frequency | Task |
-|-----------|------|
-| Per session | Search before adding; save findings as they occur |
-| Weekly | Audit tree for stale or duplicate content |
-| Monthly | Full `ov reindex -r --wait` on project root after significant restructuring |
-| After major changes | Reindex affected directories |
+| Frequency           | Task                                                                        |
+| ------------------- | --------------------------------------------------------------------------- |
+| Per session         | Search before adding; save findings as they occur                           |
+| Weekly              | Audit tree for stale or duplicate content                                   |
+| Monthly             | Full `ov reindex -r --wait` on project root after significant restructuring |
+| After major changes | Reindex affected directories                                                |
 
 ## Session management
 
@@ -247,9 +271,9 @@ After `session.commit()`, OV runs async memory extraction:
 
 ### `viking_add_text` vs `viking_session_commit`
 
-| Method | Use when | How |
-|--------|----------|-----|
-| `viking_add_text` | Single finding at moment of discovery | Direct, immediate |
+| Method                  | Use when                                                 | How                    |
+| ----------------------- | -------------------------------------------------------- | ---------------------- |
+| `viking_add_text`       | Single finding at moment of discovery                    | Direct, immediate      |
 | `viking_session_commit` | End of multi-hour sessions with many interwoven findings | Batch extraction by OV |
 
 **Never use `viking_session_commit` as a substitute for saving important findings as they occur.** It's a complement, not a replacement.
@@ -264,14 +288,14 @@ viking://{scope}/{path}
 
 ### Scopes
 
-| Scope | Description | Lifecycle | Visibility |
-|-------|-------------|-----------|------------|
-| `resources` | Independent resources | Long-term | Global |
-| `user` | User-level data | Long-term | Global |
-| `agent` | Agent-level data | Long-term | Global |
-| `session` | Session-level data | Session lifetime | Current session |
-| `temp` | Temporary files | During parsing | Internal |
-| `queue` | Processing queue | Temporary | Internal |
+| Scope       | Description           | Lifecycle        | Visibility      |
+| ----------- | --------------------- | ---------------- | --------------- |
+| `resources` | Independent resources | Long-term        | Global          |
+| `user`      | User-level data       | Long-term        | Global          |
+| `agent`     | Agent-level data      | Long-term        | Global          |
+| `session`   | Session-level data    | Session lifetime | Current session |
+| `temp`      | Temporary files       | During parsing   | Internal        |
+| `queue`     | Processing queue      | Temporary        | Internal        |
 
 Only `resources`, `user`, `agent`, and `session` are addressable through the public API.
 
