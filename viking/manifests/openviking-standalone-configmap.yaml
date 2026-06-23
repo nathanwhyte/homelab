@@ -67,6 +67,6 @@ data:
         "api_key": "sk-no-...ired",
         "api_base": "http://llamacpp-vlm.viking.svc/v1",
         "max_concurrent": 4,
-        "timeout": 120
+        "timeout": 300
       }
     }
