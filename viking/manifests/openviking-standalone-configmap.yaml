@@ -43,7 +43,8 @@ data:
         "host": "0.0.0.0",
         "port": 1933,
         "workers": 2,
-        "root_api_key": "${API_KEY}"
+        "root_api_key": "${API_KEY}",
+        "auth_mode": "trusted"
       },
       "log": {
         "level": "INFO",
