@@ -1,0 +1,24 @@
+---
+# 2-replica HDD class for copyparty's files volume.
+#
+# The existing `longhorn-hdd` SC defaults to 1 replica (despite the name);
+# `longhorn-hdd-wemby` pins to wemby only. This new class spreads across the
+# `ethernet`-tagged nodes (manu + wemby) with 2 replicas on `hdd`-tagged
+# disks (manu-hdd, wemby-hdd). `dataLocality: best-effort` keeps a replica
+# colocated with the workload to cut read latency without forcing a pin.
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: longhorn-hdd-2x
+provisioner: driver.longhorn.io
+reclaimPolicy: Retain
+allowVolumeExpansion: true
+volumeBindingMode: Immediate
+parameters:
+  numberOfReplicas: "2"
+  staleReplicaTimeout: "30"
+  fromBackup: ""
+  diskSelector: "hdd"
+  nodeSelector: "ethernet"
+  dataLocality: "best-effort"
+  fsType: "ext4"

@@ -1,0 +1,24 @@
+---
+# Daily Longhorn snapshots of the copyparty-files volume, 7-day retention.
+# This is the accidental-rm safety net that replaces the rsync
+# `--backup-dir=.trash/<date>` mechanism the previous design had —
+# copyparty's `--dr` (delete-remote) flag from u2c.py wipes server-side
+# files immediately, so point-in-time recovery is via Longhorn snapshots.
+#
+# Snapshot != backup (snapshots live on the same Longhorn volume). If we
+# ever lose the volume entirely, snapshots go with it. A real off-cluster
+# backup (e.g., Longhorn → Garage S3) can be added later as a follow-up.
+apiVersion: longhorn.io/v1beta2
+kind: RecurringJob
+metadata:
+  name: copyparty-files-snap-daily
+  namespace: longhorn-system
+spec:
+  cron: "0 4 * * *"
+  task: snapshot
+  groups: []
+  retain: 7
+  concurrency: 1
+  labels:
+    pvc: copyparty-files
+    ns: copyparty
