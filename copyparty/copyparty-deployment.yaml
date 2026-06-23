@@ -1,0 +1,184 @@
+---
+# Single copyparty Pod, the new home for both MacBook backup (writable) and
+# yt-dlp media browse (read-only via NFS gateway).
+#
+# Pinned to wemby because:
+#   - The NFS gateway in `yt-dlp` ns is also wemby-pinned (same-node share
+#     with the yt-dlp `media` RWO PVC).
+#   - Keeping copyparty colocated cuts NFS RTT to a local-loopback hop and
+#     lets `dataLocality: best-effort` on the copyparty-files PVC keep its
+#     primary replica on wemby too.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: copyparty
+  namespace: copyparty
+  labels:
+    app: copyparty
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: copyparty
+  template:
+    metadata:
+      labels:
+        app: copyparty
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: wemby
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: copyparty
+          # Same image + digest pin used by the previous deployments.
+          image: docker.io/copyparty/min:1.20.16@sha256:69d09373147a35735083fc2c9491df0a6b8e5ba19387dc45f35a6f23a6eaa7cf
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -c
+          # Volume spec:
+          #   /srv/files -> URL /files with rwmd granted to ${USER} only.
+          #       u2c.py needs w/m/d for sync semantics (incl. --dr delete-
+          #       remote); the MacBook backup script relies on delete to
+          #       mirror Mac-side rms.
+          #   /srv/media -> URL /media with r granted to ${USER} only.
+          #       NFS mount is RO at mount level too; belt and braces.
+          # `-s` is copyparty's safety profile: --no-thumb --no-mtag-ff
+          # --dotpart --no-robots --force-js. It deliberately does NOT
+          # include --no-mv/--no-del (those are in -ss), so it's compatible
+          # with our writable /files volume. --dotpart hides in-flight u2c
+          # uploads from listings. The min variant has no thumbnailer or
+          # mutagen anyway, so --no-thumb/--no-mtag-ff are belt-and-braces.
+          # `-e2d` enables up2k file indexing for chunk deduplication;
+          # `--hist=/cfg` puts the sqlite db on a local emptyDir, avoiding
+          # the well-documented sqlite-on-network-fs corruption issue.
+          # Server-side accidental-rm safety: copyparty has no built-in
+          # retention. Longhorn RecurringJob snapshots on copyparty-files
+          # PVC handle point-in-time recovery (see snapshot-policy.yaml).
+          args:
+            - |
+              set -eu
+              exec python3 -m copyparty \
+                -i 0.0.0.0 -p 3923 \
+                -v "/srv/files:files:rwmd,${USER}" \
+                -v "/srv/media:media:r,${USER}" \
+                -a "${USER}:${PASSWORD}" \
+                -e2d \
+                --hist=/cfg \
+                -s --no-reload \
+                -q
+          env:
+            - name: USER
+              valueFrom:
+                secretKeyRef:
+                  name: copyparty-accounts
+                  key: USER
+            - name: PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: copyparty-accounts
+                  key: PASSWORD
+          ports:
+            - containerPort: 3923
+              name: http
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: "2"
+              memory: 1Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          startupProbe:
+            tcpSocket:
+              port: 3923
+            periodSeconds: 5
+            failureThreshold: 24
+          readinessProbe:
+            tcpSocket:
+              port: 3923
+            periodSeconds: 10
+            timeoutSeconds: 3
+          livenessProbe:
+            tcpSocket:
+              port: 3923
+            periodSeconds: 30
+            timeoutSeconds: 5
+          volumeMounts:
+            - name: files
+              mountPath: /srv/files
+            - name: media
+              mountPath: /srv/media
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+            - name: cfg
+              mountPath: /cfg
+      volumes:
+        - name: files
+          persistentVolumeClaim:
+            claimName: copyparty-files
+        - name: media
+          persistentVolumeClaim:
+            claimName: media-nfs
+            readOnly: true
+        - name: tmp
+          emptyDir:
+            medium: Memory
+            sizeLimit: 128Mi
+        - name: cfg
+          emptyDir:
+            sizeLimit: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: copyparty
+  namespace: copyparty
+  labels:
+    app: copyparty
+spec:
+  type: ClusterIP
+  selector:
+    app: copyparty
+  ports:
+    - name: http
+      port: 80
+      protocol: TCP
+      targetPort: 3923
+---
+# Single LAN + Tailscale entry point. Reachable at:
+#   - http://192.168.1.19:31920/      (LAN, any node IP)
+#   - http://100.95.215.105:31920/    (Tailscale, primary off-LAN)
+# Replaces the previous proxy on the same NodePort.
+apiVersion: v1
+kind: Service
+metadata:
+  name: copyparty-lan
+  namespace: copyparty
+  labels:
+    app: copyparty
+spec:
+  type: NodePort
+  selector:
+    app: copyparty
+  ports:
+    - name: http
+      port: 80
+      protocol: TCP
+      targetPort: 3923
+      nodePort: 31920

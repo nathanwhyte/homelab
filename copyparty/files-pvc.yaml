@@ -1,0 +1,18 @@
+---
+# Primary copyparty storage. Houses the MacBook backup tree plus future
+# user uploads. 200 Gi to start, expandable in-place (allowVolumeExpansion).
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: copyparty-files
+  namespace: copyparty
+  labels:
+    app.kubernetes.io/name: copyparty
+    app.kubernetes.io/component: storage
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: longhorn-hdd-2x
+  resources:
+    requests:
+      storage: 200Gi

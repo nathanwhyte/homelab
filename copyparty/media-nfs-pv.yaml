@@ -1,0 +1,51 @@
+---
+# Cluster-scope PV that pipes the yt-dlp NFS gateway into a PVC the copyparty
+# Deployment can claim. Bound 1:1 to media-nfs PVC in the copyparty ns.
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: media-nfs-readonly
+  labels:
+    app.kubernetes.io/name: copyparty
+    app.kubernetes.io/component: external-storage
+spec:
+  capacity:
+    # Nominal — NFS PVs don't enforce quota; the upstream yt-dlp PVC is the
+    # real ceiling. Matched to that PVC's 200 Gi for visual consistency.
+    storage: 200Gi
+  accessModes:
+    - ReadOnlyMany
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: ""
+  mountOptions:
+    - ro
+    - nfsvers=4.1
+    - hard
+    - timeo=600
+  nfs:
+    # kubelet does the mount on the host, where cluster DNS is NOT resolvable.
+    # The ClusterIP of media-nfs.yt-dlp.svc is stable as long as the Service
+    # isn't deleted; pin it here. If the Service IP ever changes (recreated),
+    # update this and re-bounce the copyparty pod.
+    server: 10.43.240.36
+    path: /
+  claimRef:
+    namespace: copyparty
+    name: media-nfs
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: media-nfs
+  namespace: copyparty
+  labels:
+    app.kubernetes.io/name: copyparty
+    app.kubernetes.io/component: external-storage
+spec:
+  accessModes:
+    - ReadOnlyMany
+  storageClassName: ""
+  volumeName: media-nfs-readonly
+  resources:
+    requests:
+      storage: 200Gi
