@@ -55,4 +55,13 @@ data:
       # hopping from timmy (ssh wemby / ssh manu over the tailnet, or ssh -J).
       - hostname: ssh.nathanwhyte.dev
         service: ssh://timmy.cloudflare-system.svc.cluster.local:22
+      # Consolidated copyparty (FEAT-1017). Auth is copyparty's built-in
+      # account from copyparty-accounts Secret — a single shared password
+      # is the weak link on the public internet, accepted as a tradeoff
+      # for "browse from anywhere" convenience. The MacBook backup script
+      # still pushes via Tailscale (100.95.215.105:31920), not the tunnel,
+      # to keep u2c unattended. See INFO-1064 for the auth-posture
+      # tradeoffs and the path to upgrade to Cloudflare Access if wanted.
+      - hostname: files.nathanwhyte.dev
+        service: http://copyparty.copyparty.svc.cluster.local:80
       - service: http_status:404
