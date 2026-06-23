@@ -1,0 +1,117 @@
+---
+# NFS gateway exposing the yt-dlp `media` PVC read-only to other namespaces.
+#
+# Why this exists: K8s PVCs are namespace-scoped — a Pod in the `copyparty`
+# ns can't mount a PVC owned by the `yt-dlp` ns. This gateway mounts the RWO
+# `media` PVC on wemby (same-node share with `yt-dlp-archive-push`) and
+# re-exports it via NFSv4. A cluster-scope PV (see
+# ../../copyparty/media-nfs-pv.yaml) plumbs that NFS endpoint into a PVC in
+# the copyparty ns.
+#
+# The export is read-only and the mount inside the gateway is also read-only
+# — copyparty (and anything else reading via NFS) physically cannot write
+# back to the yt-dlp tree.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: media-nfs-gateway
+  namespace: yt-dlp
+  labels:
+    app: media-nfs-gateway
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: media-nfs-gateway
+  template:
+    metadata:
+      labels:
+        app: media-nfs-gateway
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: wemby
+      containers:
+        - name: nfs
+          # In-kernel NFS server. Needs privileged: true to expose
+          # /proc/fs/nfsd from the host kernel — that's intrinsic to how
+          # in-kernel nfsd works inside a container, and is why the standard
+          # alternative is userspace ganesha-nfs (heavier RAM, no host kernel
+          # dependence). Privileged is acceptable here because (a) the pod
+          # is namespace-isolated in `yt-dlp`, (b) its only mount is the
+          # RO media PVC, and (c) it doesn't bind a NodePort — only an
+          # in-cluster Service.
+          image: itsthenetwork/nfs-server-alpine:12
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: SHARED_DIRECTORY
+              value: /nfsshare
+            - name: PERMITTED
+              # In-cluster Service is ClusterIP only; access is already
+              # gated to in-cluster traffic by NetworkPolicy (or lack of
+              # NodePort). The image's template substitution mishandles
+              # multi-CIDR strings, so we keep this as `*`.
+              value: "*"
+            - name: READ_ONLY
+              value: "true"
+            - name: SYNC
+              # async is fine for a read-only export — there are no writes
+              # to flush, and the upstream Longhorn volume is the source of
+              # truth.
+              value: "false"
+          ports:
+            - containerPort: 2049
+              name: nfs
+            - containerPort: 111
+              name: rpcbind
+            - containerPort: 32765
+              name: mountd
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          securityContext:
+            privileged: true
+          volumeMounts:
+            - name: media
+              mountPath: /nfsshare
+              readOnly: true
+      volumes:
+        - name: media
+          persistentVolumeClaim:
+            claimName: media
+            readOnly: true
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: media-nfs
+  namespace: yt-dlp
+  labels:
+    app: media-nfs-gateway
+spec:
+  type: ClusterIP
+  selector:
+    app: media-nfs-gateway
+  ports:
+    - name: nfs
+      port: 2049
+      protocol: TCP
+      targetPort: 2049
+    - name: rpcbind
+      port: 111
+      protocol: TCP
+      targetPort: 111
+    - name: rpcbind-udp
+      port: 111
+      protocol: UDP
+      targetPort: 111
+    - name: mountd
+      port: 32765
+      protocol: TCP
+      targetPort: 32765
