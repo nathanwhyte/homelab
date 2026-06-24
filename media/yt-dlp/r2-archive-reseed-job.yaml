@@ -1,0 +1,137 @@
+---
+# One-shot Job: re-seed the --download-archive files from the current
+# YouTube playlists.
+#
+# Why: the 2026-06-24 R2 bootstrap Job used a bare `rclone sync` with no
+# --backup-dir, which deleted every PVC-root file not present under
+# R2's YouTube/ prefix — including archive-playlist-N.txt and
+# cookies.txt. Without these, the next daily CronJob has no archive
+# history and would re-process every playlist video (self-healing via
+# --force-write-archive + default no-overwrites, but risk of re-download
+# if a title/format drifted).
+#
+# This Job reproduces the original seed (see scripts/r2-seed-archive.py
+# + operator.sh seed-archive): for each playlist, flat-list the current
+# IDs and write `youtube <id>` lines to /yt-dlp-archive/archive-playlist-N.txt.
+#
+# Semantic: the archive should mark every already-downloaded video.
+# Since the cron has run daily for 12 days and --force-write-archive
+# recorded every successful skip/download, the current playlist state
+# ≈ what's on disk, so seeding from the current playlist reproduces a
+# correct archive. (Genuinely-new, not-yet-downloaded videos added in
+# the last few hours are the only edge case; the cron will catch them
+# next run if their ID isn't here — but they almost certainly are on
+# disk already from prior runs.)
+#
+# Cookies: cookies.txt was also deleted by the bootstrap. flat-playlist
+# listing usually works without cookies for public playlists; if a
+# playlist is private/restricted, this Job will error on that one and
+# the operator must re-stage cookies.txt before re-running.
+#
+# Run:
+#   kubectl apply -f media/yt-dlp/r2-archive-reseed-job.yaml
+#   kubectl logs -n yt-dlp -f job/yt-dlp-r2-archive-reseed
+#   kubectl delete -f media/yt-dlp/r2-archive-reseed-job.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: yt-dlp-r2-archive-reseed
+  namespace: yt-dlp
+  labels:
+    app.kubernetes.io/name: yt-dlp
+    app.kubernetes.io/component: r2-archive-reseed
+spec:
+  backoffLimit: 0
+  activeDeadlineSeconds: 1800
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: yt-dlp
+        app.kubernetes.io/component: r2-archive-reseed
+    spec:
+      restartPolicy: Never
+      nodeName: wemby
+      securityContext:
+        fsGroup: 1000
+      containers:
+        - name: yt-dlp
+          image: nathanwhyte/yt-dlp:2026.06.10-yt-dlp
+          imagePullPolicy: IfNotPresent
+          resources:
+            requests:
+              cpu: 250m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          env:
+            - name: PLAYLIST_1
+              valueFrom:
+                configMapKeyRef:
+                  name: yt-dlp-playlists
+                  key: playlist-1
+            - name: PLAYLIST_2
+              valueFrom:
+                configMapKeyRef:
+                  name: yt-dlp-playlists
+                  key: playlist-2
+            - name: PLAYLIST_3
+              valueFrom:
+                configMapKeyRef:
+                  name: yt-dlp-playlists
+                  key: playlist-3
+            - name: PLAYLIST_4
+              valueFrom:
+                configMapKeyRef:
+                  name: yt-dlp-playlists
+                  key: playlist-4
+            - name: PLAYLIST_5
+              valueFrom:
+                configMapKeyRef:
+                  name: yt-dlp-playlists
+                  key: playlist-5
+            - name: PLAYLIST_6
+              valueFrom:
+                configMapKeyRef:
+                  name: yt-dlp-playlists
+                  key: playlist-6
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -eu
+              cd /yt-dlp-archive
+              cookies=""
+              if [ -f /yt-dlp-archive/cookies.txt ]; then
+                cookies="--cookies /yt-dlp-archive/cookies.txt"
+              fi
+              n=1
+              while [ $n -le 6 ]; do
+                url=$(eval echo "\$PLAYLIST_$n")
+                echo "=== playlist $n: $url ==="
+                tmp="/yt-dlp-archive/archive-playlist-${n}.txt.tmp"
+                # --flat-playlist --print id: one ID per line, no download.
+                # Prefix each with "youtube " as --download-archive expects.
+                if yt-dlp --flat-playlist --print id --no-warnings $cookies "$url" \
+                    | sed 's/^/youtube /' > "$tmp"; then
+                  cnt=$(wc -l < "$tmp")
+                  mv "$tmp" "/yt-dlp-archive/archive-playlist-${n}.txt"
+                  echo "playlist $n: wrote $cnt IDs"
+                else
+                  rm -f "$tmp"
+                  echo "playlist $n: FAILED to list (private/restricted? needs cookies.txt)" >&2
+                fi
+                n=$((n + 1))
+              done
+              echo "=== final archive counts ==="
+              for f in /yt-dlp-archive/archive-playlist-*.txt; do
+                printf "%4s  %s\n" "$(wc -l < "$f")" "$(basename "$f")"
+              done
+          volumeMounts:
+            - name: media
+              mountPath: /yt-dlp-archive
+      volumes:
+        - name: media
+          persistentVolumeClaim:
+            claimName: media

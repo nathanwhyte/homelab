@@ -1,0 +1,85 @@
+---
+# One-shot Job: stream the R2 YouTube archive into the media PVC.
+#
+# Direction: R2 -> PVC. `--size-only` is the correctness gate (R2 doesn't
+# preserve mtime reliably and we don't want re-pulls). `--fast-list`
+# trades RAM for one LIST per prefix instead of per-dir walk. ~75 GB
+# inventory at ~50 MB/s sustained ≈ 25 min wall.
+#
+# Idempotent: rerunning skips objects whose size matches. Safe to delete
+# and re-apply.
+#
+# Run:
+#   kubectl apply -f media/yt-dlp/r2-bootstrap-job.yaml
+#   kubectl logs -n yt-dlp -f job/yt-dlp-r2-bootstrap
+#   kubectl delete -f media/yt-dlp/r2-bootstrap-job.yaml  # after completion
+#
+# RWO note: the media PVC is RWO and already mounted by
+# yt-dlp-archive-push + media-nfs-gateway on wemby. This Job also pins
+# to wemby so the kubelet allows the additional mount on the same node.
+# Daily playlist CronJobs (02:00-04:00 UTC) also mount the PVC; the
+# bootstrap should finish well before that window. If it doesn't, the
+# `concurrencyPolicy: Forbid` on the playlist CronJobs will queue them.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: yt-dlp-r2-bootstrap
+  namespace: yt-dlp
+  labels:
+    app.kubernetes.io/name: yt-dlp
+    app.kubernetes.io/component: r2-bootstrap
+spec:
+  backoffLimit: 1
+  activeDeadlineSeconds: 14400
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: yt-dlp
+        app.kubernetes.io/component: r2-bootstrap
+    spec:
+      restartPolicy: OnFailure
+      nodeName: wemby
+      securityContext:
+        fsGroup: 1000
+      containers:
+        - name: rclone
+          image: rclone/rclone:1.68
+          imagePullPolicy: IfNotPresent
+          resources:
+            requests:
+              cpu: 500m
+              memory: 1Gi
+            limits:
+              cpu: "4"
+              memory: 4Gi
+          envFrom:
+            - secretRef:
+                name: r2-credentials
+          args:
+            - sync
+            - r2:homelab/backups/cluster/homelab-k3s/volumes/archive/media/YouTube
+            - /downloads
+            - --transfers=8
+            - --checkers=16
+            - --fast-list
+            - --s3-chunk-size=64M
+            - --size-only
+            - --no-update-modtime
+            - --stats=30s
+            - --stats-one-line
+            - --exclude=ad-hoc/**
+            # PVC-local state that is NOT in R2 — a bare `rclone sync`
+            # would delete these from the PVC (happened 2026-06-24: the
+            # first run wiped archive-playlist-N.txt + cookies.txt).
+            # Excluding preserves them on re-runs.
+            - --exclude=archive-playlist-*.txt
+            - --exclude=cookies.txt
+            - --exclude=lost+found/**
+          volumeMounts:
+            - name: media
+              mountPath: /downloads
+      volumes:
+        - name: media
+          persistentVolumeClaim:
+            claimName: media
