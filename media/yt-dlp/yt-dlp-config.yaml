@@ -45,7 +45,10 @@
 #   --concurrent-fragments 8, --resize-buffer
 #   --match-filters "duration<?10860" (cap 3h01m; covers all known
 #     "Wow" entries; long-form goes to manual download)
-#   --output "/downloads/%(playlist)s/%(title)s.%(ext)s"
+#   --output "%(title)s.%(ext)s" (callers cd into the playlist dir;
+#     was "/downloads/%(playlist)s/%(title)s.%(ext)s" until 2026-06-23,
+#     when --restrict-filenames sanitizing %(playlist)s caused a
+#     multi-word playlist to fork between spaced and underscored dirs)
 #   --xattrs, --embed-metadata, --embed-thumbnail, --no-embed-chapters
 #   --no-keep-fragments
 #   --preset-alias sleep
@@ -73,7 +76,13 @@ data:
     --concurrent-fragments 8
     --resize-buffer
     --match-filters "duration<?10860"
-    --output "/downloads/%(playlist)s/%(title)s.%(ext)s"
+    # Relative output: each caller (cronjobs + operator.sh ad-hoc) is
+    # expected to `cd` into the target directory before invoking yt-dlp,
+    # so the playlist directory name is the literal value of PLAYLIST_NAME
+    # rather than `%(playlist)s` (which `--restrict-filenames` above
+    # sanitizes — spaces → underscores — causing a single playlist with a
+    # multi-word title to fork into two dirs, see 2026-06-23 fix).
+    --output "%(title)s.%(ext)s"
     --xattrs
     --embed-metadata
     --embed-thumbnail
