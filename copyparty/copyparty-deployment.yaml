@@ -89,6 +89,10 @@ spec:
                 -e2d \
                 --hist=/cfg \
                 --dotpart --no-robots --force-js --no-reload \
+                --acao "https://files.nathanwhyte.dev,http://100.95.215.105:31920,http://192.168.1.19:31920" \
+                --xff-hdr cf-connecting-ip \
+                --xff-src "10.42.0.0/16,10.43.0.0/16" \
+                --rproxy 1 \
                 -q
           env:
             - name: USER
