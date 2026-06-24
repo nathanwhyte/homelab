@@ -1,0 +1,156 @@
+---
+# One-shot Job: consolidate the Study playlist on .mp3.
+#
+# Background: Study is configured as audio-only (yt-dlp-playlists.yaml:44
+# `playlist-4-extra-args: --extract-audio --preset-alias mp3`). The
+# 2026-06-23 R2 bootstrap pulled in 113 legacy .mp4 files (and a handful
+# of .m4a/.webm/.partial) from the pre-IDEA-019 pipeline, which wrote
+# audio into an mp4 container with the cover art as an embedded PNG
+# "video" stream. Players treat them as audio-only anyway, but the
+# directory should be .mp3-only going forward.
+#
+# Behavior per file:
+#   - <basename>.{mp4,m4a,webm}: if <basename>.mp3 already exists, drop
+#     the legacy file; else ffmpeg-remux to .mp3 (-vn to drop the cover
+#     stream; copy if already mp3, else libmp3lame -q:a 2), then drop.
+#   - *.partial: yt-dlp resume crumbs — delete unconditionally.
+#
+# Future re-downloads: archive-playlist-4.txt was seeded from R2 with
+# all 154 YouTube IDs, so yt-dlp's --download-archive prevents these
+# from re-fetching. New playlist entries land as .mp3 per the
+# extract-audio config.
+#
+# Run:
+#   kubectl apply -f media/yt-dlp/study-remux-job.yaml
+#   kubectl logs -n yt-dlp -f job/yt-dlp-study-remux
+#   kubectl delete -f media/yt-dlp/study-remux-job.yaml  # after success
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: yt-dlp-study-remux
+  namespace: yt-dlp
+  labels:
+    app.kubernetes.io/name: yt-dlp
+    app.kubernetes.io/component: study-remux
+spec:
+  backoffLimit: 0
+  activeDeadlineSeconds: 7200
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: yt-dlp
+        app.kubernetes.io/component: study-remux
+    spec:
+      restartPolicy: Never
+      nodeName: wemby
+      securityContext:
+        fsGroup: 1000
+      containers:
+        - name: ffmpeg
+          image: linuxserver/ffmpeg:7.1.1
+          imagePullPolicy: IfNotPresent
+          resources:
+            requests:
+              cpu: 500m
+              memory: 512Mi
+            limits:
+              cpu: "4"
+              memory: 2Gi
+          # linuxserver/ffmpeg's /bin/sh is dash, which doesn't support
+          # `read -d ''` for NUL-delimited iteration over weird filenames
+          # (titles can contain newlines, apostrophes, etc.). Use bash.
+          command:
+            - /bin/bash
+            - -c
+            - |
+              set -euxo pipefail
+              cd /downloads/Study
+
+              # Counters via files so the subshell-piped `while` loop
+              # can update them without losing values on exit.
+              C=$(mktemp -d)
+              for n in partial dropped remuxed_copy remuxed_encode failed; do
+                : > "$C/$n"
+              done
+              bump() { printf 'x' >> "$C/$1"; }
+              count() { wc -c < "$C/$1" | tr -d ' '; }
+
+              # .partial: nuke unconditionally (yt-dlp resume crumbs).
+              find . -maxdepth 1 -type f -name '*.partial' -print0 \
+                | while IFS= read -r -d '' f; do
+                    echo "[partial] rm: $f"
+                    rm -f -- "$f"
+                    bump partial
+                  done
+
+              # Every non-mp3 audio container: drop if an .mp3 sibling
+              # already exists, else remux.
+              find . -maxdepth 1 -type f \
+                  \( -iname '*.mp4' -o -iname '*.m4a' -o -iname '*.webm' \) \
+                  -print0 \
+                | while IFS= read -r -d '' src; do
+                    dst="${src%.*}.mp3"
+
+                    if [ -e "$dst" ]; then
+                      echo "[dup] mp3 sibling exists, dropping: $src"
+                      rm -f -- "$src"
+                      bump dropped
+                      continue
+                    fi
+
+                    acodec=$(ffprobe -v error -select_streams a:0 \
+                              -show_entries stream=codec_name \
+                              -of default=nw=1:nk=1 -- "$src" 2>/dev/null || echo unknown)
+
+                    if [ "$acodec" = "mp3" ]; then
+                      mode='copy'
+                      tag='remuxed_copy'
+                      set -- -c:a copy
+                    else
+                      mode="encode($acodec)"
+                      tag='remuxed_encode'
+                      set -- -c:a libmp3lame -q:a 2
+                    fi
+
+                    # -f mp3 forces the output muxer; without it, ffmpeg
+                    # tries to infer from the extension and fails on
+                    # `.mp3.tmp`.
+                    tmp="${dst}.tmp"
+                    if ffmpeg -nostdin -loglevel error -y \
+                          -i "$src" -vn -map_metadata 0 -id3v2_version 3 \
+                          "$@" -f mp3 -- "$tmp"; then
+                      mv -- "$tmp" "$dst"
+                      rm -f -- "$src"
+                      echo "[$mode] ok: $src -> $dst"
+                      bump "$tag"
+                    else
+                      rm -f -- "$tmp"
+                      echo "[FAIL] ffmpeg failed, leaving legacy: $src"
+                      bump failed
+                    fi
+                  done
+
+              echo
+              echo "=== summary ==="
+              printf '  partial deleted   : %s\n' "$(count partial)"
+              printf '  dropped (had mp3) : %s\n' "$(count dropped)"
+              printf '  remuxed (copy)    : %s\n' "$(count remuxed_copy)"
+              printf '  remuxed (encode)  : %s\n' "$(count remuxed_encode)"
+              printf '  failures          : %s\n' "$(count failed)"
+              echo
+              echo "=== final Study/ extension counts ==="
+              ls | sed -E 's/.*\.([^.]+)$/\1/' | sort | uniq -c | sort -rn
+              echo "=== total size ==="
+              du -sh .
+
+              # Fail the Job if any file failed to remux, so it surfaces
+              # in `kubectl get job` instead of silently succeeding.
+              [ "$(count failed)" = "0" ]
+          volumeMounts:
+            - name: media
+              mountPath: /downloads
+      volumes:
+        - name: media
+          persistentVolumeClaim:
+            claimName: media
