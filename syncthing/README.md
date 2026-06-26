@@ -9,7 +9,7 @@ A single Pod running `syncthing/syncthing`, backed by a 50 Gi `longhorn-nvme` PV
 | Piece | Detail |
 | --- | --- |
 | Image | `docker.io/syncthing/syncthing:1.27.12` (TODO: digest-pin before first deploy) |
-| Node | Determined by Longhorn — pod follows the PVC to whichever node has free NVMe disk space (`diskSelector: nvme`). Check with `kubectl -n syncthing get pod -o wide`. |
+| Node | `timmy` (pinned via `nodeSelector`). Timmy has the largest NVMe disk (2 TB) and is where `longhorn-nvme` placed the replica; the pin colocates the engine with the replica. |
 | Storage | PVC `syncthing-data`, 50 Gi `longhorn-nvme` (RWO, **single-replica NVMe**). Single replica is acceptable here because every paired peer (MacBook, iPad, phone) also holds the vault — the cluster anchor is one of N copies. |
 | Snapshots | `syncthing-data-snap-daily` Longhorn RecurringJob, 04:30 daily, 7-day retention |
 | Identity | Syncthing device ID generated on first start, persists in `/var/syncthing/config/cert.pem` |
@@ -19,7 +19,7 @@ A single Pod running `syncthing/syncthing`, backed by a 50 Gi `longhorn-nvme` PV
 | Service | Type | Port | Reachability |
 | --- | --- | --- | --- |
 | `syncthing-gui` | ClusterIP | 80 → 8384 | In-cluster only (port-forward for setup) |
-| `syncthing-sync` | NodePort | 22000 TCP/UDP → `32200`, 21027 UDP → `32127` | LAN (`192.168.1.19:32200`), Tailscale (any node's tailnet IP; the direct-path node is wherever the pod landed) |
+| `syncthing-sync` | NodePort | 22000 TCP/UDP → `32200`, 21027 UDP → `32127` | LAN (`192.168.1.19:32200`), Tailscale (`100.95.215.105:32200` for the direct path to timmy where the pod runs; other tailnet IPs work via cluster networking) |
 
 GUI is intentionally ClusterIP-only on first deploy because there is no password until the user sets one through the web UI. Once the GUI password is configured, follow-up work can add a Tailscale NodePort or Cloudflare-Access-gated Ingress for off-cluster admin access.
 
