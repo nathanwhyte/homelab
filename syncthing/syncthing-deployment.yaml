@@ -8,13 +8,12 @@
 # when two devices can't reach each other directly over Tailscale.
 #
 # Node placement:
-#   No explicit nodeSelector — longhorn-nvme uses volumeBindingMode:
-#   Immediate, so the PVC binds to whichever node has free space on an
-#   nvme-tagged Longhorn disk. With RWO + single-replica NVMe, the pod
-#   has to follow the volume, so the scheduler will pin it automatically
-#   once the PVC is bound. Tailscale runs on every node as a subnet
-#   router or plain peer, so outbound NAT traversal works wherever the
-#   pod lands.
+#   Pinned to timmy (see nodeSelector below) because timmy has the
+#   largest NVMe disk and longhorn-nvme placed the replica there. With
+#   Immediate binding the PVC was provisioned first; the pod nodeSelector
+#   colocates the engine with the replica. Without the pin, the pod can
+#   land on a node without a local NVMe replica and cross the LAN for
+#   every read.
 #
 # Identity persistence:
 #   /var/syncthing/config/{cert.pem,key.pem} generated on first start
@@ -40,6 +39,18 @@ spec:
       labels:
         app: syncthing
     spec:
+      # Pinned to timmy because:
+      #   - timmy has the largest NVMe disk in the cluster (WD Green SN3000
+      #     2 TB) vs. wemby/manu's 256 GB sticks — plenty of headroom for
+      #     the vault and future small-blob plugins (Excalidraw, Ink, Jot).
+      #   - The Longhorn replica for syncthing-data was placed on timmy
+      #     by longhorn-nvme's diskSelector (only timmy and wemby have
+      #     nvme-tagged disks; manu has none). Pinning the pod here keeps
+      #     the engine and replica colocated for read/write locality.
+      # Without this pin, scheduling can drop the pod on a node without
+      # the NVMe replica, leading to remote-replica I/O across the LAN.
+      nodeSelector:
+        kubernetes.io/hostname: timmy
       securityContext:
         runAsNonRoot: true
         runAsUser: 1000
