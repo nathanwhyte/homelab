@@ -23,6 +23,7 @@ Top-level directories generally map to deployed services:
 - `longhorn/`: Longhorn storage, Helm values and supporting manifests.
 - `garage/`: Garage (S3-compatible object storage), values and a `manager/` subfolder for the garage manager manifests/config.
 - `gpu/`: NVIDIA GPU Operator Helm values; GPU nodes are labeled `gpu=true`.
+- `syncthing/`: Always-on Syncthing peer for Obsidian/compendium vault sync across MacBook(s), iPad, phone, and the cluster (IDEA-1024/IDEA-1046). Manifests + architecture doc under `syncthing/docs/`.
 - `tailscale/`: Tailscale node setup scripts and WireGuard mesh configuration (PROJ-008).
 - `viking/`: OpenViking RAG engine (standalone deployment, embedder, VLM, vectordb, sync tools, docs).
 
