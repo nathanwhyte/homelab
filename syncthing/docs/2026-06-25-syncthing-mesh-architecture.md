@@ -163,12 +163,16 @@ The current `~/code/compendium/.stignore` excludes:
 |---|---|
 | VCS plumbing | `.git`, `.gitignore`, `.worktrees`, `.pre-commit-config.yaml` |
 | OS junk | `.DS_Store`, `Thumbs.db`, `desktop.ini` |
-| Obsidian per-device state | `.obsidian/workspace*`, `.obsidian/cache`, `.obsidian/icons`, `.obsidian/plugins/*/data.json` |
+| Obsidian per-device state | `.obsidian` (whole directory) |
 | Local dev artifacts | `.venv`, `__pycache__`, `*.pyc`, `.ruff_cache`, `.mypy_cache`, `node_modules`, `*.egg-info` |
 | Toolchain config (managed via git) | `.markdownlint-cli2.jsonc`, `.markdownlintignore`, `.prettierrc` |
 | Claude Code project state | `.claude` |
 | Old lifecycle artifacts | `*.bak`, `*.swp`, `*.tmp`, `*~` |
 | Syncthing internals | `.stversions`, `.stfolder`, `*.sync-conflict-*` |
+
+### Notable decision: the entire `.obsidian/` directory is excluded
+
+Workspace, cache, plugin state, installed-plugin lists, themes, and per-vault settings all stay per-device. Tradeoff: setting up a new peer means installing the desired plugins and configuring Obsidian on that peer separately — sync only handles vault content, not Obsidian itself. Worth it because partial `.obsidian/` syncing (just `workspace*` + `cache` + `plugins/*/data.json`) had every device fighting over the same "what's open" state and plugin data files containing absolute paths.
 
 ### Notable decision: `.git/` is excluded
 
