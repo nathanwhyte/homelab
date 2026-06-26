@@ -146,7 +146,7 @@ For a full disaster-recovery backup, snapshot all 3 Longhorn PVCs (`harbor-regis
 
 ## Upgrading
 
-See `harbor/deploy-harbor.sh` for the upgrade command. **As of 2026-06-10, the cluster is on chart 1.19.1 / Harbor 2.15.1** (app components) with DB and Redis pinned at 2.14.3. The full refresh-and-upgrade plan that produced this state is at `~/code/personal-compendium/docs/plans/2026-06-10-IDEA-021-harbor-refresh-and-upgrade.md`. Key points for the next upgrade:
+See `harbor/deploy-harbor.sh` for the upgrade command. **As of 2026-06-10, the cluster is on chart 1.19.1 / Harbor 2.15.1** (app components) with DB and Redis pinned at 2.14.3. The full refresh-and-upgrade plan that produced this state is at `~/code/archive/personal-compendium/docs/plans/2026-06-10-IDEA-021-harbor-refresh-and-upgrade.md` (archived). Key points for the next upgrade:
 
 - Read the latest chart release notes and the latest app release notes **before** upgrading.
 - Take a `pg_dump` and a Longhorn snapshot of the 3 RWO PVCs.
@@ -337,4 +337,4 @@ Unlike `HARBOR_ADMIN_PASSWORD` (which only writes the DB on first install), `sec
 - `harbor/HARBOR-CLI.md` — `harbor-cli` workflows
 - `harbor/RWO-MIGRATION.md` — May 2026 RWX→RWO migration runbook (frozen)
 - `harbor/deploy-harbor.sh` — install / upgrade
-- `~/code/personal-compendium/docs/plans/2026-06-10-IDEA-021-harbor-refresh-and-upgrade.md` — 2.15.1 upgrade plan
+- `~/code/archive/personal-compendium/docs/plans/2026-06-10-IDEA-021-harbor-refresh-and-upgrade.md` — 2.15.1 upgrade plan (archived)

@@ -329,7 +329,7 @@ so the bump is matching production to the validated maximum — no new
 unknown. Verified: 4 concurrent VLM slot completions observed in
 `llamacpp-rocm` logs, queue monitor TICK 17 showed `inprog` jump 2 → 5 and
 `pending` drop 43 → 5 in one tick, VLM pod memory stable at 8.8 GB with no
-OOM. See `TASK-009` and `TASK-010` in `~/code/personal-compendium/tasks/`.
+OOM. See `TASK-009` and `TASK-010` in `~/code/archive/personal-compendium/tasks/`.
 
 > **Updated 2026-06-06 (IDEA-009 Phase 3):** the VLM moved to
 > `llamacpp-cuda-ov` (GTX 1080, 2 slots, IQ4_XS). `vlm.max_concurrent`

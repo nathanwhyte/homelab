@@ -246,5 +246,5 @@ If something goes wrong after the wipe (OV CrashLoopBackOff, /ready not 200, etc
 ## Files changed
 
 - `viking/docs/2026-06-03-ov-data-wipe-restart.md` — this doc (new)
-- `~/code/personal-compendium/tasks/TASK-008-homelab-reingest-compendium-after-cutover.md` — frontmatter `status_detail` updated to reflect empty state
-- `~/code/personal-compendium/log.md` — 2026-06-03 entry recording the wipe
+- `~/code/archive/personal-compendium/tasks/TASK-008-homelab-reingest-compendium-after-cutover.md` — frontmatter `status_detail` updated to reflect empty stat
+- `~/code/archive/personal-compendium/log.md` — 2026-06-03 entry recording the wipe
