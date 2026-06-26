@@ -1,0 +1,205 @@
+---
+# Always-on Syncthing peer for vault sync (IDEA-1024, IDEA-1046).
+#
+# Role: cluster-side anchor in a Syncthing device mesh. Real edits happen
+# on MacBook(s), iPad, phone. This peer's job is to (a) always be online
+# so devices can converge against it, (b) hold the canonical replica on
+# a Longhorn PVC with daily snapshots, (c) act as a relay-of-last-resort
+# when two devices can't reach each other directly over Tailscale.
+#
+# Node placement:
+#   No explicit nodeSelector — longhorn-nvme uses volumeBindingMode:
+#   Immediate, so the PVC binds to whichever node has free space on an
+#   nvme-tagged Longhorn disk. With RWO + single-replica NVMe, the pod
+#   has to follow the volume, so the scheduler will pin it automatically
+#   once the PVC is bound. Tailscale runs on every node as a subnet
+#   router or plain peer, so outbound NAT traversal works wherever the
+#   pod lands.
+#
+# Identity persistence:
+#   /var/syncthing/config/{cert.pem,key.pem} generated on first start
+#   define the cluster device ID that peers pair against. The PVC MUST
+#   persist these — losing them means every peer has to re-pair.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: syncthing
+  namespace: syncthing
+  labels:
+    app: syncthing
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: syncthing
+  template:
+    metadata:
+      labels:
+        app: syncthing
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: syncthing
+          # Official image. TODO: digest-pin before first deploy — match
+          # the copyparty/iv pattern (`image@sha256:...`).
+          image: docker.io/syncthing/syncthing:1.27.12
+          imagePullPolicy: IfNotPresent
+          env:
+            # Bind GUI on all interfaces inside the pod so the ClusterIP
+            # service can reach it. External exposure is gated separately
+            # by the syncthing-gui Service (ClusterIP only on first
+            # deploy — port-forward for initial setup, expose later).
+            - name: STGUIADDRESS
+              value: "0.0.0.0:8384"
+            # Tell Syncthing where to keep both config and data. Matches
+            # the volume mount below; the upstream Docker image defaults
+            # to this path anyway, but being explicit avoids surprise if
+            # the image's default changes.
+            - name: STHOMEDIR
+              value: "/var/syncthing/config"
+            - name: STDATADIR
+              value: "/var/syncthing"
+          ports:
+            - containerPort: 8384
+              name: gui
+              protocol: TCP
+            - containerPort: 22000
+              name: sync-tcp
+              protocol: TCP
+            - containerPort: 22000
+              name: sync-quic
+              protocol: UDP
+            - containerPort: 21027
+              name: discovery
+              protocol: UDP
+          resources:
+            # Vault traffic is light. Bumped headroom for occasional
+            # large blob propagation (Excalidraw images, PDF annotations
+            # via Jot) and rescans after device pairing churn.
+            requests:
+              cpu: "100m"
+              memory: 256Mi
+            limits:
+              cpu: "2"
+              memory: 2Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+            capabilities:
+              drop:
+                - ALL
+          startupProbe:
+            tcpSocket:
+              port: 8384
+            periodSeconds: 5
+            failureThreshold: 24
+          readinessProbe:
+            httpGet:
+              # /rest/noauth/health returns 200 without auth and reflects
+              # Syncthing's actual readiness, unlike a bare TCP probe.
+              path: /rest/noauth/health
+              port: 8384
+            periodSeconds: 10
+            timeoutSeconds: 3
+          livenessProbe:
+            tcpSocket:
+              port: 8384
+            periodSeconds: 30
+            timeoutSeconds: 5
+          volumeMounts:
+            - name: data
+              mountPath: /var/syncthing
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: syncthing-data
+        - name: tmp
+          emptyDir:
+            medium: Memory
+            sizeLimit: 128Mi
+---
+# GUI / REST API. ClusterIP-only on first deploy: there is no GUI
+# password until the user sets one through the web UI, so we keep
+# the surface inside the cluster. Initial setup pattern:
+#
+#   kubectl -n syncthing port-forward svc/syncthing-gui 8384:80
+#   open http://localhost:8384
+#
+# Once a GUI password is configured (Actions → Settings → GUI), add a
+# Tailscale NodePort or Cloudflare-Access-gated Ingress as a follow-up.
+apiVersion: v1
+kind: Service
+metadata:
+  name: syncthing-gui
+  namespace: syncthing
+  labels:
+    app: syncthing
+spec:
+  type: ClusterIP
+  selector:
+    app: syncthing
+  ports:
+    - name: http
+      port: 80
+      protocol: TCP
+      targetPort: 8384
+---
+# Sync protocol entry point. NodePort on both TCP and UDP so peers can
+# reach the cluster anchor over either the LAN IP or Tailscale.
+#
+#   - TCP 22000: primary sync protocol
+#   - UDP 22000: QUIC sync (preferred when reachable; falls back to TCP)
+#   - UDP 21027: local discovery (LAN broadcast — wired here for
+#     completeness, but only useful for devices physically on
+#     192.168.1.0/24; off-LAN peers use Syncthing's global discovery
+#     servers + the device ID).
+#
+# Reachable at:
+#   - 192.168.1.19:32200       (LAN, any node IP)
+#   - Tailscale: any node's tailnet IP works (NodePort binds every node).
+#     The direct path is the tailnet IP of whichever node the pod actually
+#     landed on — check with `kubectl -n syncthing get pod -o wide`. The
+#     other nodes still route the connection via cluster networking, just
+#     with one extra hop.
+#
+# Peer config on each device should add this anchor by device ID and let
+# Syncthing's discovery + Tailscale resolve addresses; the explicit
+# IP:32200 entry above is the fallback / initial pairing target.
+apiVersion: v1
+kind: Service
+metadata:
+  name: syncthing-sync
+  namespace: syncthing
+  labels:
+    app: syncthing
+spec:
+  type: NodePort
+  selector:
+    app: syncthing
+  ports:
+    - name: sync-tcp
+      port: 22000
+      protocol: TCP
+      targetPort: 22000
+      nodePort: 32200
+    - name: sync-quic
+      port: 22000
+      protocol: UDP
+      targetPort: 22000
+      nodePort: 32200
+    - name: discovery
+      port: 21027
+      protocol: UDP
+      targetPort: 21027
+      nodePort: 32127
