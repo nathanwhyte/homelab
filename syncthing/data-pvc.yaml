@@ -1,0 +1,31 @@
+---
+# Syncthing always-on peer storage. Holds both Syncthing config (device
+# cert/key — these define the cluster device ID and MUST persist) and the
+# replicated folder contents. 50 Gi to start; the compendium + Obsidian
+# vault is small (text), the headroom is for Excalidraw/Ink/Jot blobs and
+# whatever else lands in the synced vaults over time. Expandable in-place
+# (allowVolumeExpansion on longhorn-nvme).
+#
+# Storage-class tradeoff:
+#   longhorn-nvme is single-replica (numberOfReplicas: "1"). For Syncthing
+#   that's acceptable because the vault data also lives on every paired
+#   peer (MacBook, iPad, phone) — the K3s anchor is one of N copies, not
+#   the only copy. The local backstop is the daily Longhorn snapshot
+#   (syncthing-data-snap-daily, see snapshot-policy.yaml). NVMe is
+#   chosen over longhorn-hdd-2x for the small-file workload (vault is
+#   thousands of small Markdown files; HDD seek time dominates rescans).
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: syncthing-data
+  namespace: syncthing
+  labels:
+    app.kubernetes.io/name: syncthing
+    app.kubernetes.io/component: storage
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: longhorn-nvme
+  resources:
+    requests:
+      storage: 50Gi
