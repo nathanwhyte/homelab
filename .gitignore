@@ -74,3 +74,5 @@ garage/garage/
 mac/exporters/__pycache__/
 
 backups/
+
+.worktrees/
