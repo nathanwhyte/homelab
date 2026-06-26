@@ -53,7 +53,64 @@ When editing files, prefer quick, local checks:
 - If available: `shellcheck <script>` and/or `yamllint <file>`
 - Keep manifests syntactically valid YAML (don’t rely on cluster-side validation)
 
+## Worktree & Branch Conventions
+
+**For multi-file updates and longer-running sessions, use git worktrees.** A worktree gives the session its own isolated working tree backed by a real git branch — safe from interruptions, crash-resilient, and mergeable back into `main` when done. This is the default for any task that touches more than a few files or spans an extended period (manifest refactors, multi-service updates, research docs).
+
+### Setup
+
+Worktrees live inside the repo's `.worktrees/` directory (already gitignored):
+
+```bash
+cd ~/code/homelab
+git worktree add .worktrees/<slug> -b <branch> origin/main
+cd .worktrees/<slug>
+# Work here...
+```
+
+### Branch naming
+
+Follow the existing `type/description` convention used in this repo:
+
+- `docs/drift-fix-<date>` — documentation corrections and drift fixes
+- `feat/<short-description>` — new features or services
+- `fix/<short-description>` — bug fixes
+- `scan/<description>` — scan or audit outputs
+
+All PRs target `main` directly.
+
+### When to use a worktree
+
+- Multi-file changes (manifest updates across services, config refactors)
+- Long-running sessions that might be interrupted
+- Parallel work on the same repo (one worktree per branch, never share)
+
+### When NOT to use a worktree
+
+- Simple single-file edits (one manifest tweak, one values override) — just commit on `main` directly.
+- Read-only operations (querying, linting, searching, `kubectl get`).
+- When the user asks for a specific branch name instead.
+
+### Cleanup
+
+After a PR merges or is closed:
+
+```bash
+cd ~/code/homelab
+git worktree remove .worktrees/<slug>
+git branch -d <branch>
+```
+
+Never leave orphaned worktrees — they lock branches and waste disk space. If a directory was deleted manually, run `git worktree prune` before adding new worktrees.
+
+### Parallel work rules
+
+- **One worktree per branch.** Never check out the same branch in two worktrees.
+- **Rebase before push.** Always `git fetch origin main && git rebase origin/main` before pushing.
+- **Clean up after merge.** Remove the worktree and delete the local branch when the PR is done.
+- See the `git-parallel-work` skill for the full protocol (merge ordering, YAML conflict avoidance, post-merge cascade, cron PR supersession).
+
 ## Change hygiene
 
-- Keep changes scoped to the service you’re touching.
+- Keep changes scoped to the service you're touching.
 - Update `README.md` only when adding/removing services or materially changing how deployments work.
