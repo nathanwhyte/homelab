@@ -23,7 +23,7 @@ from pathlib import Path
 
 
 VAULT_ROOT = Path(os.environ.get("COMPENDIUM_ROOT", "~/code/compendium")).expanduser()
-# Keep the displayed path portable (e.g. ~/code/personal-compendium/...) instead of
+# Keep the displayed path portable (e.g. ~/code/compendium/...) instead of
 # hardcoding the default work vault.
 VAULT_ROOT_DISPLAY = str(VAULT_ROOT).replace(str(Path.home()), "~", 1)
 DEFAULT_TARGET_BASE = os.environ.get("OV_TARGET_BASE", "viking://resources/compendium")

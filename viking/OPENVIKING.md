@@ -208,7 +208,7 @@ Queue-drain options (both poll `ov status --output json` — the `status["result
 - `--wait-drain` — after submitting all entries, poll until pending + in-progress = 0 (the script's `_queue_is_drain` / `wait_for_drain` logic). Use this when you need to know the sync fully settled before proceeding.
 - `--no-wait` — fire-and-forget; check `ov status` yourself later. Right for unattended bulk syncs where you'll verify the queue separately.
 
-For the personal vault, set `COMPENDIUM_ROOT=~/code/personal-compendium OV_TARGET_BASE=viking://resources/personal/` (same tool, different roots — see the homelab `CLAUDE.md` "Indexed compendia" table).
+For personal-band entries (IDs ≥ 1000) in the unified vault, set `COMPENDIUM_ROOT=~/code/compendium OV_TARGET_BASE=viking://resources/personal/` (same tool, different roots — see the homelab `CLAUDE.md` "Indexed compendia" table).
 
 ## Maintenance best practices
 
