@@ -1,0 +1,26 @@
+---
+# Daily Longhorn snapshots of the syncthing-data volume, 7-day retention.
+# Mirrors the copyparty-files-snap-daily pattern.
+#
+# Same caveat: snapshot != backup. Snapshots live on the same Longhorn
+# volume; if the volume is lost, snapshots go with it. An off-cluster
+# backup (e.g. Longhorn → Garage S3) can be added later as a follow-up.
+#
+# Recovery use case for Syncthing specifically: a peer-side bad delete
+# replicates to this anchor quickly. Syncthing's own File Versioning is
+# the first line of defense (configure in GUI per folder); these
+# snapshots are the belt-and-braces backstop.
+apiVersion: longhorn.io/v1beta2
+kind: RecurringJob
+metadata:
+  name: syncthing-data-snap-daily
+  namespace: longhorn-system
+spec:
+  cron: "30 4 * * *"
+  task: snapshot
+  groups: []
+  retain: 7
+  concurrency: 1
+  labels:
+    pvc: syncthing-data
+    ns: syncthing
