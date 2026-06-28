@@ -1,0 +1,5 @@
+# CLAUDE.md is size-constrained (homelab SessionStart hook enforces a 40k-char limit).
+# Prettier's markdown table-alignment pads every cell to the widest column, inflating the
+# file past that limit with pure whitespace. Keep hand-authored compact tables; all other
+# markdown in the repo is still formatted by prettier.
+CLAUDE.md
