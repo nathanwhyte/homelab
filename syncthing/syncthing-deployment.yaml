@@ -7,6 +7,18 @@
 # a Longhorn PVC with daily snapshots, (c) act as a relay-of-last-resort
 # when two devices can't reach each other directly over Tailscale.
 #
+# Live configuration (config.xml on the PVC, not in this manifest):
+#   - Device ID: TV6TSSE-KGK7I5I-67NHCFE-5W2UWHK-5MSILTH-DANAGXN-SXFX5IF-JOV37AU
+#   - Peers:
+#       pop      (ZVRGSKY-...)   LAN / dynamic
+#       workbook (GKF45N7-...)   tcp://100.122.123.110:22000 + dynamic
+#       iPad     (S5J3BNJ-...)   tcp::/100.81.84.101:32200 + dynamic
+#   - Folder "compendium" (~/compendium) is receiveonly on this peer so
+#     cluster-internal writes cannot propagate back to the MacBooks.
+#     Share the folder with all three peers on this side.
+#   - Default folder (/var/syncthing/Sync) is unused and left disabled
+#     or unshared.
+#
 # Node placement:
 #   Pinned to timmy (see nodeSelector below) because timmy has the
 #   largest NVMe disk and longhorn-nvme placed the replica there. With
