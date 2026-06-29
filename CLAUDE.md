@@ -54,7 +54,7 @@ Exact tuning (ctx-size, batch/ubatch, KV cache, resources, env) lives in the man
 
 Local MacBook Ollama models (homework-reader, homework-robot-nvfp4, homework-robot-nvfp4-mlp) are documented in `~/code/robots/media/homework/CLAUDE.md`.
 
-All llamacpp services: flash-attn on, cont-batching, KV cache q4_0, `Strategy: Recreate`.
+All current llamacpp services (cuda-llamacpp-deployment, embedder-qwen-rocm-deployment): flash-attn on, cont-batching, KV cache q4_0, `Strategy: Recreate`. The legacy `embedder-llamacpp` (scaled-to-0 rollback path) uses `Strategy: RollingUpdate` and does not set `--flash-attn` or `--cont-batching`.
 
 ### ROCm / RDNA4 guardrails
 
@@ -90,7 +90,7 @@ VLM is steady-state `replicas=1`, always on. History + rationale: `GPU_AND_AI_RE
 | hermes-lan-only           | hermes | ipAllowList    | 192.168.1.0/24, 10.42.0.0/16, 10.43.0.0/16 |
 | hermes-https-redirect     | hermes | redirectScheme | HTTP → HTTPS, permanent                    |
 
-> `openviking-basicauth` (viking ns, basicAuth) exists in repo manifest (`viking/manifests/openviking-basicauth-middleware.yaml`) but is **not deployed** — `context.nathanwhyte.dev` goes through the Cloudflare tunnel (no Traefik IngressRoute), so auth is OV `root_api_key` instead.
+> `openviking-basicauth` (viking ns, basicAuth) exists in repo manifest (`viking/manifests/openviking-basicauth-middleware.yaml`) and is referenced by the Traefik Ingress in `viking/manifests/openviking-ingress.yaml`. The `/mcp` path has its own Ingress (`viking/manifests/openviking-mcp-ingress.yaml`) without BasicAuth so the native OpenViking MCP endpoint can be reached via Bearer token. `context.nathanwhyte.dev` is also reachable through the Cloudflare tunnel (see External routes table, marked "both"). Auth is OV `root_api_key` on every tier.
 
 ### Endpoint tiers
 
@@ -177,7 +177,7 @@ Host-level Tailscale on all 3 nodes (WireGuard mesh) for **private admin/network
 - Auth: `server.auth_mode = "trusted"` (set 2026-06-23). Trusted mode still requires `root_api_key` on every request (host `0.0.0.0` non-localhost) and trusts `X-OpenViking-Account`/`X-OpenViking-User` headers — so root key + identity headers work for tenant-scoped data APIs (the pattern `compendium-sync.py` and local OV MCP rely on)
 - Cutover + rollback procedure: `viking/docs/2026-06-03-ov-prod-cutover-agfs-s3-vectordb-http.md`
 
-ConfigMap `openviking-config` is retained for workers if scaled back up (`agfs.backend: s3`). InitContainers inject S3 creds only when `agfs.backend == "s3"`.
+ConfigMap `openviking-config` is retained for workers if scaled back up (`agfs.backend: s3`). InitContainers inject S3 creds only when `agfs.backend == "s3"`. **Note:** this ConfigMap still has pre-Qwen-cutover values (768-dim nomic embedder, `vectordb.backend: local`, `max_input_tokens: 1900`, VLM pointing at Ollama) — update it to match `openviking-standalone-config` (2560-dim Qwen embedder, `vectordb.backend: http`, `max_input_tokens: 8192`, VLM at `llamacpp-vlm.viking.svc`) before scaling workers back up.
 
 ## Failover
 
