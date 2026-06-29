@@ -109,7 +109,7 @@ curl -fsS http://127.0.0.1:8642/v1/chat/completions \
 A full ground-truthed reference (live-verified against the running API server) lives in [`hermes/docs/http-api-reference.md`](docs/http-api-reference.md). Highlights:
 
 - **API server (port 8642)** — OpenAI-compatible `chat.completions` only; stateless proxy, no tool execution; advertised model `glm-5.1:cloud` but any name accepted
-- **Dashboard (port 9119)** — Web UI + REST API; **cluster-internal only**; **currently insecure** (`HERMES_DASHBOARD_INSECURE=1` is set and `/api/status` reports `auth_required: false`, even though `HERMES_DASHBOARD_SESSION_TOKEN` is wired in — token is unused until the env var is removed)
+- **Dashboard (port 9119)** — Web UI + REST API; exposed at `hermes.nathanwhyte.dev` via Cloudflare tunnel + Traefik Ingress (LAN-only middleware); **currently insecure** (`HERMES_DASHBOARD_INSECURE=1` is set and `/api/status` reports `auth_required: false`, even though `HERMES_DASHBOARD_SESSION_TOKEN` is wired in — token is unused until the env var is removed)
 - **External exposure** — API server has no Ingress; dashboard is exposed at `hermes.nathanwhyte.dev` via Cloudflare tunnel (TASK-030 pending)
 
 ## Tuned baseline
