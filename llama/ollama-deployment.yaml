@@ -26,6 +26,7 @@ spec:
         fsGroup: 0
       containers:
         - name: ollama
+          # ROCm gfx1201 validated: llama/docs/2026-06-28-rocm-gfx1201-validation-baseline.md
           image: ollama/ollama:0.30.6-rocm
           imagePullPolicy: IfNotPresent
           command:
@@ -60,6 +61,8 @@ spec:
               value: "6"
             - name: OLLAMA_MAX_LOADED_MODELS
               value: "1"
+            # RDNA4 guardrail: keeps container on discrete RX 9070 XT, not iGPU.
+            # Do NOT set HSA_OVERRIDE_GFX_VERSION — gfx1201 is native.
             - name: HIP_VISIBLE_DEVICES
               value: "0"
           ports:
