@@ -109,7 +109,7 @@ curl -fsS http://127.0.0.1:8642/v1/chat/completions \
 A full ground-truthed reference (live-verified against the running API server) lives in [`hermes/docs/http-api-reference.md`](docs/http-api-reference.md). Highlights:
 
 - **API server (port 8642)** — OpenAI-compatible `chat.completions` only; stateless proxy, no tool execution; advertised model `glm-5.1:cloud` but any name accepted
-- **Dashboard (port 9119)** — Web UI + REST API; **cluster-internal only**; **currently insecure** (`HERMES_DASHBOARD_INSECURE=1` is set and `/api/status` reports `auth_required: false`, even though `HERMES_DASHBOARD_SESSION_TOKEN` is wired in — token is unused until the env var is removed)
+- **Dashboard (port 9119)** — Web UI + REST API; exposed at `hermes.nathanwhyte.dev` via Cloudflare tunnel + Traefik Ingress (LAN-only middleware); **currently insecure** (`HERMES_DASHBOARD_INSECURE=1` is set and `/api/status` reports `auth_required: false`, even though `HERMES_DASHBOARD_SESSION_TOKEN` is wired in — token is unused until the env var is removed)
 - **External exposure** — API server has no Ingress; dashboard is exposed at `hermes.nathanwhyte.dev` via Cloudflare tunnel (TASK-030 pending)
 
 ## Tuned baseline
@@ -212,13 +212,13 @@ kubectl rollout status deployment/hermes-agent -n hermes
 
 Do not commit the generated key.
 
-## OpenViking memory provider
+## OpenViking knowledge-base tools
 
-Hermes uses the bundled OpenViking plugin for persistent, tiered semantic memory across sessions. The plugin is pre-installed in the Docker image at `/opt/hermes/plugins/memory/openviking/` — no `pip install openviking` needed. It uses `httpx` (already in the venv) for direct HTTP calls to the OV REST API.
+Hermes uses the bundled OpenViking plugin for persistent, tiered semantic knowledge-base access across sessions. The plugin is pre-installed in the Docker image at `/opt/hermes/plugins/memory/openviking/` — no `pip install openviking` needed. It uses `httpx` (already in the venv) for direct HTTP calls to the OV REST API. Agent memory is handled by the mem0 provider (see "Tuned baseline" table above); OV is the knowledge-base provider only.
 
 ### Configuration
 
-The provider is activated by `memory.provider: openviking` in the ConfigMap. Four env vars control the connection:
+The provider is activated by `memory.provider: mem0` in the ConfigMap. The OV knowledge-base tools (`viking_*`) are activated by the `OPENVIKING_*` env vars in the Deployment. Four env vars control the OV connection:
 
 | Env Var | Value | Purpose |
 |---|---|---|
@@ -294,7 +294,7 @@ No coordination mechanism is needed — idempotent upsert semantics mean concurr
 
 To disable the OpenViking provider and fall back to built-in memory only:
 
-1. Remove `provider: openviking` from the `memory` section in the ConfigMap (or set `provider: ""`)
+1. Remove `provider: mem0` from the `memory` section in the ConfigMap (or set `provider: ""`)
 2. Remove the `OPENVIKING_*` env vars from the deployment
 3. `kubectl rollout restart deployment/hermes-agent -n hermes`
 
