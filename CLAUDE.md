@@ -173,7 +173,7 @@ Host-level Tailscale on all 3 nodes (WireGuard mesh) for **private admin/network
 
 - `agfs.backend: s3` (Garage bucket `openviking-agfs`) + `vectordb.backend: http` (`ov-vectordb.viking.svc.cluster.local:5000`)
 - Tuning: `server.workers=2`, `embedding.batch_size=256`, `vlm.max_concurrent=4`, `embedding.max_concurrent=6`
-- VLM endpoint: `http://llamacpp-vlm.viking.svc/v1` (generic VLM service) — **TODO: live ConfigMap still points to the generic service; `kubectl apply` of the manifest update to `llamacpp-cuda-llm` is pending**
+- VLM endpoint: `http://llamacpp-vlm.viking.svc/v1` (generic VLM service, selector `vlm-pool: "true"` → `llamacpp-cuda-ov`)
 - Auth: `server.auth_mode = "trusted"` (set 2026-06-23). Trusted mode still requires `root_api_key` on every request (host `0.0.0.0` non-localhost) and trusts `X-OpenViking-Account`/`X-OpenViking-User` headers — so root key + identity headers work for tenant-scoped data APIs (the pattern `compendium-sync.py` and local OV MCP rely on)
 - Cutover + rollback procedure: `viking/docs/2026-06-03-ov-prod-cutover-agfs-s3-vectordb-http.md`
 

@@ -212,13 +212,13 @@ kubectl rollout status deployment/hermes-agent -n hermes
 
 Do not commit the generated key.
 
-## OpenViking memory provider
+## OpenViking knowledge-base tools
 
-Hermes uses the bundled OpenViking plugin for persistent, tiered semantic memory across sessions. The plugin is pre-installed in the Docker image at `/opt/hermes/plugins/memory/openviking/` — no `pip install openviking` needed. It uses `httpx` (already in the venv) for direct HTTP calls to the OV REST API.
+Hermes uses the bundled OpenViking plugin for persistent, tiered semantic knowledge-base access across sessions. The plugin is pre-installed in the Docker image at `/opt/hermes/plugins/memory/openviking/` — no `pip install openviking` needed. It uses `httpx` (already in the venv) for direct HTTP calls to the OV REST API. Agent memory is handled by the mem0 provider (see "Tuned baseline" table above); OV is the knowledge-base provider only.
 
 ### Configuration
 
-The provider is activated by `memory.provider: openviking` in the ConfigMap. Four env vars control the connection:
+The provider is activated by `memory.provider: mem0` in the ConfigMap. The OV knowledge-base tools (`viking_*`) are activated by the `OPENVIKING_*` env vars in the Deployment. Four env vars control the OV connection:
 
 | Env Var | Value | Purpose |
 |---|---|---|
@@ -294,7 +294,7 @@ No coordination mechanism is needed — idempotent upsert semantics mean concurr
 
 To disable the OpenViking provider and fall back to built-in memory only:
 
-1. Remove `provider: openviking` from the `memory` section in the ConfigMap (or set `provider: ""`)
+1. Remove `provider: mem0` from the `memory` section in the ConfigMap (or set `provider: ""`)
 2. Remove the `OPENVIKING_*` env vars from the deployment
 3. `kubectl rollout restart deployment/hermes-agent -n hermes`
 
