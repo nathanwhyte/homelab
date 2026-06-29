@@ -2,6 +2,15 @@
 
 _Generated 2026-06-04. Reflects the post-2026-06-03 production cutover state (`agfs:s3` + `vectordb:http`)._
 
+> **⚠️ Dated snapshot** — the following have changed since 2026-06-04:
+> - OV image upgraded from `v0.3.14` → `v0.4.4` (2026-06-21)
+> - Embedder moved from nomic-embed-text-v1.5 on wemby (GTX 1060, CUDA, 768-dim) → Qwen3-Embedding-4B on timmy (RX 9070 XT, ROCm, 2560-dim) (IDEA-1042, 2026-06-22)
+> - `embedding.max_input_tokens` raised from 1900 → 8192
+> - `vlm.max_concurrent` raised from 2 → 4 (IDEA-1042 Phase 4)
+> - `ov-console` still runs `v0.3.14` (console not bumped during the v0.4.4 upgrade)
+>
+> For current state, see `CLAUDE.md` (service routing, LLM config) and `HARDWARE.md` (node specs).
+
 This document describes how the OpenViking ("OV") stack is implemented in the
 homelab K3s cluster: what each component is, how they wire together, how data
 flows from ingest to retrieval, the access/auth patterns, and the relevant
