@@ -76,7 +76,7 @@ Internal OpenAI-compatible LLM endpoints backed by Ollama and `llama.cpp`.
 
 - **Ollama** (timmy, RX 9070 XT): `ollama.llama.svc:11434` — primary inference for Claude Code, Hermes, and OpenWebUI; hosts gemma4:12b-it-qat (local) and glm-5.1:cloud (remote)
 - **OV VLM** (manu, GTX 1080): `llamacpp-cuda-ov` in viking namespace — OpenViking vision/L0 generation; always on (steady-state replicas=1)
-- **Embedder** (wemby, GTX 1060, CUDA): `embedder-llamacpp.viking.svc:8080` — nomic-embed-text f16 for vector embeddings
+- **Embedder** (timmy, RX 9070 XT, ROCm): `embedder-qwen.viking.svc:8080` — Qwen3-Embedding-4B Q8_0 (2560-dim) for vector embeddings; legacy `embedder-llamacpp` on wemby (GTX 1060, CUDA) scaled-to-0 rollback path
 - Read more in [`llama/README.md`](./llama/README.md) and [`viking/`](./viking/).
 
 ### Hermes

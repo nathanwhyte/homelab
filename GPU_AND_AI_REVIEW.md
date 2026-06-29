@@ -7,11 +7,11 @@
 > - Embedder moved from timmy (CPU) to wemby (GTX 1060, CUDA) to free the 1080 for VLM-exclusive use
 > - ROCm VLM (`llamacpp-rocm`) retired 2026-06-06; VLM is now `llamacpp-cuda-ov` on manu exclusively
 > - OV coordinator, merge, workers, and console removed from cluster (not just scaled to 0)
-> - Ollama model lineup changed: gemma4:12b-it-qat (local), glm-5.1:cloud (remote); keep-alive 30m; NUM_PARALLEL=1
-> - Hermes Agent deployed (hermes namespace) with OpenViking memory provider
+> - Ollama model lineup changed: gemma4:12b-it-qat (local), glm-5.1:cloud (remote); keep-alive 3m; NUM_PARALLEL=6
+> - Hermes Agent deployed (hermes namespace) with mem0 memory provider + OpenViking knowledge-base tools
 > - Tailscale mesh deployed on all 3 nodes
 > - VLM steady-state changed from on-demand scaling to always-on (replicas=1)
-> - VLM parallel slots reduced from 4 to 2; `vlm.max_concurrent` reduced from 4 to 2
+> - VLM parallel slots reduced from 4 to 2, then bumped back to 4 (IDEA-1042 Phase 4); `vlm.max_concurrent` reduced from 4 to 2, then bumped back to 4
 >
 > The benchmarks (§4), tuning history (§5), and design decisions (§8) remain valid as historical reference.
 

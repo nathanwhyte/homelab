@@ -102,10 +102,10 @@ docker login registry.nathanwhyte.dev \
 
 | Script | Target | Live consumer? |
 |---|---|---|
-| `viking/deploy-openviking-parallel.sh` | `registry.nathanwhyte.dev/homelab` | **No** — `ov-coordinator`, `ov-merge`, `ov-worker` all scaled to 0; current OV deploy pulls `ghcr.io/volcengine/openviking:v0.3.14` from upstream |
+| `viking/deploy-openviking-parallel.sh` | `registry.nathanwhyte.dev/homelab` | **No** — `ov-coordinator`, `ov-merge`, `ov-worker` all scaled to 0; current OV deploy pulls `ghcr.io/volcengine/openviking:v0.4.4` from upstream |
 | `backlog/nanochat/build.sh` | `registry.nathanwhyte.dev/library/nanochat:*` | **No** — `backlog/nanochat/train-rocm-job.yaml` references `nanochat:rocm-v4` but the job itself is in `backlog/`, not deployed on the cluster |
 
-**Notably absent:** no pulls from `harbor`, `viking`, `llama`, `grafana`, `hermes`, or any system namespace. The `viking/ov-coordinator`, `ov-merged`, `ov-vectordb`, and related services all pull from `ghcr.io/volcengine/openviking:v0.3.14` and `ghcr.io/ggml-org/llama.cpp:server-cuda` — not from local Harbor. The hermes-agent cluster deployment pulls `nousresearch/hermes-agent:latest` from Docker Hub.
+**Notably absent:** no pulls from `harbor`, `viking`, `llama`, `grafana`, `hermes`, or any system namespace. The `viking/ov-coordinator`, `ov-merged`, `ov-vectordb`, and related services all pull from `ghcr.io/volcengine/openviking:v0.4.4` and `ghcr.io/ggml-org/llama.cpp:server-cuda` — not from local Harbor. The hermes-agent cluster deployment pulls `registry.nathanwhyte.dev/homelab/hermes-agent-mem0:fe57dd3` from the local Harbor.
 
 To re-run the audit:
 
