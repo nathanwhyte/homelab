@@ -73,8 +73,11 @@ spec:
               mountPath: /models
       containers:
         - name: llamacpp
+          # ROCm gfx1201 validated: llama/docs/2026-06-28-rocm-gfx1201-validation-baseline.md
           image: ghcr.io/ggml-org/llama.cpp:server-rocm
           env:
+            # RDNA4 guardrail: keeps container on discrete RX 9070 XT, not iGPU.
+            # Do NOT set HSA_OVERRIDE_GFX_VERSION — gfx1201 is native.
             - name: HIP_VISIBLE_DEVICES
               value: "0"
           command: ["/app/llama-server"]

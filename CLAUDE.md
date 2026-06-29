@@ -56,6 +56,21 @@ Local MacBook Ollama models (homework-reader, homework-robot-nvfp4, homework-rob
 
 All llamacpp services: flash-attn on, cont-batching, KV cache q4_0, `Strategy: Recreate`.
 
+### ROCm / RDNA4 guardrails
+
+Timmy's RX 9070 XT (`gfx1201`) runs both Ollama and the embedder-qwen-rocm llama.cpp server. Rules for maintaining the ROCm serving path:
+
+| Rule | Detail |
+|---|---|
+| GPU visibility | `HIP_VISIBLE_DEVICES=0` is mandatory in all ROCm manifests. Prevents iGPU (`gfx1036`) selection. |
+| `HSA_OVERRIDE_GFX_VERSION` | Do NOT set. The 9070 XT is natively `gfx1201`; overriding masks real compatibility failures. |
+| rocBLAS hostPath | Mount `/opt/rocm-7.2.1/lib/rocblas/library` only. Do NOT mount hipBLASLt (`/opt/rocm-7.2.1/lib/hipblaslt/library`) without a version-aligned benchmark. |
+| `ROCBLAS_USE_HIPBLASLT` | Do NOT set. Benchmarked 2026-06-28: no performance difference, no warnings to suppress. |
+| Image upgrades | Before bumping any ROCm image tag, run the gfx1201 validation commands in `llama/docs/2026-06-28-rocm-gfx1201-validation-baseline.md`. |
+| vLLM | Experimental only — use a separate manifest/branch, not production Ollama. Verify `torch.cuda.is_available()` and `torch.cuda.device_count()` inside the container. For PyTorch/vLLM, also set `CUDA_VISIBLE_DEVICES=0` alongside `HIP_VISIBLE_DEVICES=0`. |
+| ROCm tooling | Prefer `amd-smi` over legacy `rocm-smi`; prefer `rocprofv3` over legacy `rocprof`. |
+| Host ROCm | Current baseline is ROCm 7.2.1. Do not upgrade without a benchmark justification. |
+
 ### VLM scaling (steady-state: always on)
 
 VLM is steady-state `replicas=1`, always on. History + rationale: `GPU_AND_AI_REVIEW.md`. Manual control: `viking/tools/ov-vlm.sh up|down|status` (`down` drains the OV index queue first); `ov-vlm.sh run -- <cmd>` is an alias for "just run the command" (kept for compatibility).
