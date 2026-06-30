@@ -1,0 +1,50 @@
+{
+  "extends": "markdownlint/style/prettier",
+  "config": {
+    // Multiple H1 — some long-form homelab docs (reviews, reports, dated
+    // snapshots under viking/docs and llama/docs) use H1 for major sections.
+    // Don't block on it.
+    "MD025": false,
+
+    // Line length — Prettier (printWidth: 100) handles prose wrapping.
+    // Don't double-report in markdownlint.
+    "MD013": false,
+
+    // Blockquote nesting — not relevant for this repo.
+    "MD060": false,
+
+    // Heading style — allow both atx (# Heading) and setext (Heading
+    // ---) for compatibility with legacy files.
+    "MD003": false,
+
+    // Table column count — disable for now (noisy on legacy tables).
+    "MD056": false,
+
+    // Inline HTML (<br>, <sub>, etc.) — too few to be a pre-commit blocker.
+    "MD033": false,
+
+    // --- Rules we enforce ---
+
+    // No emphasis-as-heading (e.g., **bold** used as a section header).
+    "MD036": false,
+
+    // Fenced code blocks must have a language tag (```json not ```).
+    "MD040": { "style": "fenced" },
+
+    // First line of a file should be a top-level heading.
+    "MD041": true,
+
+    // Trailing punctuation in code fences — report but don't block.
+    "MD045": true,
+
+    // Blank line inside blockquote — report to improve readability.
+    "MD028": true,
+
+    // Trailing spaces in list items — auto-fixable, keep enabled.
+    "MD009": { "style": "spaces" },
+
+    // Duplicate heading content — report for awareness.
+    "MD024": false,
+  },
+  "ignores": [".worktrees/**/*.md", "hermes/hermes-cluster-data/**/*.md"],
+}
