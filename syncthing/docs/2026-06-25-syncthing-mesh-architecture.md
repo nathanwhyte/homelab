@@ -1,5 +1,7 @@
 # Syncthing mesh architecture — vault sync across MacBook(s), iPad, phone, and homelab
 
+Status: ⬚ **SCALED DOWN** (2026-06-29) — The cluster-side anchor was scaled to 0 replicas due to duplication issues in the compendium vault. See [Operational log](#operational-log) below for details.
+
 Date: 2026-06-25
 
 Status: Initial deployment live. Architecture decisions ratified; current state mid-recovery from a `.stignore`-after-initial-sync stalemate (see [Lessons](#lessons-learned-and-followups)). Design rationale lives in compendium **IDEA-1024** (homelab sync infra) and **IDEA-1046** (personal notes/task/memory OS), consolidated under **PROJ-1011**.
@@ -239,6 +241,12 @@ The fix in this case is a one-time cleanup (described above). The lesson for fut
 | Add `syncthing` to homelab `CLAUDE.md` Service routing table | Keeps the cluster's operational map honest |
 
 ---
+
+## Operational log
+
+| Date | Event | Details |
+|---|---|---|
+| 2026-06-29 | **Scaled down to 0 replicas** | Cluster-side anchor was causing duplication issues in the compendium vault. Peers are syncing directly over Tailscale without the cluster anchor. PVC (`syncthing-data`, 50Gi) remains bound on `timmy`. Replicas line updated in manifest from `1` to `0`. |
 
 ## References
 

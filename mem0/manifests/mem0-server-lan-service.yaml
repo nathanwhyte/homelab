@@ -1,0 +1,22 @@
+---
+# NodePort service for mem0-server, exposing it on the LAN/Tailscale.
+# Used by the local Hermes mem0-adapter to bypass Cloudflare rate limits.
+# Pod runs on manu (192.168.1.10 / 100.114.66.32). NodePort 30080 is accessible
+# from any node's LAN or Tailscale IP.
+apiVersion: v1
+kind: Service
+metadata:
+  name: mem0-server-lan
+  namespace: mem0
+  labels:
+    app: mem0-server
+spec:
+  type: NodePort
+  selector:
+    app: mem0-server
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8000
+      nodePort: 30080
+      protocol: TCP
