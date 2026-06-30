@@ -88,11 +88,11 @@ spec:
             # deploy — port-forward for initial setup, expose later).
             - name: STGUIADDRESS
               value: "0.0.0.0:8384"
-            # NOTE: do not set STHOMEDIR + STDATADIR together — Syncthing
-            # treats those as --config and --data and demands both-or-
-            # none. The upstream image already passes --home=/var/syncthing
-            # in its entrypoint, which is what we want (config + data both
-            # under the mounted PVC). Leaving these env vars unset.
+          # NOTE: do not set STHOMEDIR + STDATADIR together — Syncthing
+          # treats those as --config and --data and demands both-or-
+          # none. The upstream image already passes --home=/var/syncthing
+          # in its entrypoint, which is what we want (config + data both
+          # under the mounted PVC). Leaving these env vars unset.
           ports:
             - containerPort: 8384
               name: gui

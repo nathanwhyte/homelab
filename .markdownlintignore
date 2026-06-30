@@ -1,0 +1,17 @@
+# Markdownlint ignore patterns for homelab
+# Exclude directories with known structural debt that we accept
+
+# Backup/worktree directories
+.worktrees/
+
+# Git and IDE files
+git*
+*.git*
+*.vscode*
+*.idea*
+
+# Build and cache directories
+node_modules/
+dist/
+build/
+coverage/

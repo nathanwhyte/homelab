@@ -42,4 +42,3 @@ spec:
             items:
               - key: TOKEN
                 path: token
-

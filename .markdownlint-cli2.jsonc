@@ -46,5 +46,13 @@
     // Duplicate heading content — report for awareness.
     "MD024": false,
   },
-  "ignores": [".worktrees/**/*.md", "hermes/hermes-cluster-data/**/*.md"],
+  "ignores": [
+    ".worktrees/**/*.md",
+    "hermes/hermes-cluster-data/**/*.md",
+    // .prettierignore and .markdownlint-cli2.jsonc are config, not markdown —
+    // markdownlint's broad `**/*.md` glob catches .prettierignore because of
+    // its `.md` suffix; its `# comment` lines trip the heading rules.
+    ".prettierignore",
+    ".markdownlint-cli2.jsonc"
+  ],
 }

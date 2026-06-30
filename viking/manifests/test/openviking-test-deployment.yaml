@@ -181,12 +181,12 @@ spec:
               readOnly: true
             - name: data
               mountPath: /app/data
-        # No TTL sidecar in this revision: the cluster's image registry
-        # can't pull kubectl, and a self-deletion sidecar isn't worth the
-        # complexity for a 1-shot test. The operator is expected to
-        # `kubectl delete -k viking/manifests/test/` when done; the test
-        # docs and validate.sh print a reminder. To add a TTL later,
-        # use a `python:3-alpine` image with an in-cluster API call.
+      # No TTL sidecar in this revision: the cluster's image registry
+      # can't pull kubectl, and a self-deletion sidecar isn't worth the
+      # complexity for a 1-shot test. The operator is expected to
+      # `kubectl delete -k viking/manifests/test/` when done; the test
+      # docs and validate.sh print a reminder. To add a TTL later,
+      # use a `python:3-alpine` image with an in-cluster API call.
       volumes:
         - name: config-template
           configMap:

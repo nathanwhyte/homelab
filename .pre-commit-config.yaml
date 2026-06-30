@@ -1,0 +1,61 @@
+# See https://pre-commit.com for more information
+# See https://pre-commit.com/hooks.html for more hooks
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    # Bumped from v3.2.0 to v5.0.0 on 2026-06-30 — v3.2.0 doesn't ship
+    # `check-shebang-scripts-are-executable` (added in v4.x), so the config
+    # couldn't be installed/loaded. v5.0.0 is the latest stable before v6.0.0
+    # (Aug 2025); v6.0.0 deferred pending review.
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+        # exclude viking/snapshots/ — point-in-time archives of cluster state;
+        # reformatting would lose the "what it actually was" signal
+        exclude: ^viking/snapshots/
+        # `-m` enables multi-document mode. Several manifests in this repo
+        # legitimately use `---` separators (multi-doc Services, multi-ingress
+        # files, etc.). check-yaml defaults to single-doc and errors on the
+        # second `---`.
+        args: ["-m"]
+      - id: check-added-large-files
+      - id: check-merge-conflict
+      - id: check-case-conflict
+      - id: detect-private-key
+      - id: check-executables-have-shebangs
+      - id: check-shebang-scripts-are-executable
+
+  - repo: local
+    hooks:
+      - id: bare-code-fences
+        name: Check for bare code fences (MD040)
+        description: Reject commits with bare ``` fences that lack a language tag.
+        entry: _scripts/check-bare-fences.sh
+        language: script
+        types: [markdown]
+        pass_filenames: true
+
+  - repo: https://github.com/adrienverge/yamllint
+    rev: v1.35.1
+    hooks:
+      - id: yamllint
+        # Use the repo's tuned config. Same viking/snapshots exclusion as check-yaml.
+        # --no-warnings so the 10 pre-existing warnings (comments-indentation,
+        # comments missing starting space) don't block commits; only errors do.
+        # 13 errors remain — 9 auto-fixed by end-of-file-fixer, 4 are real
+        # issues in gpu/amd/amdgpu-fan.yml, harbor/harbor-values.yaml,
+        # longhorn/ui.yaml.
+        args:
+          - --config-file=.yamllint.yml
+          - --no-warnings
+        exclude: ^viking/snapshots/
+
+  - repo: https://github.com/DavidAnson/markdownlint-cli2
+    rev: v0.22.1
+    hooks:
+      - id: markdownlint-cli2
+        args:
+          - --config
+          - .markdownlint-cli2.jsonc
+          - --fix

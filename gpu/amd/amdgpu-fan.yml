@@ -3,14 +3,14 @@
 # Install to /etc/amdgpu-fan.yml on timmy.
 
 speed_matrix:  # [temp(*C), speed(0-100%)]
-- [0, 30]
+- [0, 30]  # yamllint disable-line rule:indentation
 - [50, 40]
 - [70, 60]
 - [80, 80]
 - [85, 100]
 
 cards:
-- card1
+- card1  # yamllint disable-line rule:indentation
 
 # Use junction temp (temp2_input) instead of edge (temp1_input)
 temp_src: junction
