@@ -47,4 +47,4 @@ spec:
               service:
                 name: hermes-agent
                 port:
-                  number: 9119
+                  number: 9119  # hermes-dashboard-redirect port

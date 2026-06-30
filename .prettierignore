@@ -1,5 +1,8 @@
-# CLAUDE.md is size-constrained (homelab SessionStart hook enforces a 40k-char limit).
-# Prettier's markdown table-alignment pads every cell to the widest column, inflating the
-# file past that limit with pure whitespace. Keep hand-authored compact tables; all other
-# markdown in the repo is still formatted by prettier.
-CLAUDE.md
+# The four reference files under `reference/` are also formatter-skipped — they're
+# navigation indexes, prettier would re-pad their already-compact tables. Keep them
+# hand-authored so the link targets stay short.
+# Reference-table file convention (added 2026-06-30 when CLAUDE.md was slimmed to fit the
+# 40k SessionStart cap): tables the agent must `Read` on demand live in `reference/*.md`,
+# CLAUDE.md keeps only the short orienting tables (topology, ROCm guardrails, middlewares,
+# secrets) that should be in front of the agent at all times.
+reference/

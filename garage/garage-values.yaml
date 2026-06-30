@@ -127,7 +127,8 @@ service:
       port: 3900
     web:
       port: 3902
-  # Admin API is handled via headless service automatically
+
+# Admin API is handled via headless service automatically
 
 # Ingress configuration
 ingress:

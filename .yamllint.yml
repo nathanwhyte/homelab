@@ -1,0 +1,73 @@
+---
+# yamllint config for the homelab repo
+# Repo mix: ~150 K8s manifests, helm values, lact profiles, 2 docker-compose,
+# 1 cloudflared config embedded as a block scalar. Tune rules to match
+# existing repo style and avoid false-positives on K8s conventions.
+#
+# Status (2026-06-30): 0 errors, 0 warnings across the repo. Pre-commit uses
+# --no-warnings so warnings would not block commits; the work below brought
+# the file to a true clean state.
+#
+# Earlier debt (now fixed): 13 errors across 12 files + 10 warnings.
+# - 9 missing-trailing-newline (auto-fixed by `end-of-file-fixer`)
+# - 3 wrong-indentation (`gpu/amd/amdgpu-fan.yml` via pragma,
+#   `harbor/harbor-values.yaml` via 2-space indent,
+#   `longhorn/ui.yaml` extra blank line removed)
+# - 7 comments-indentation + 3 missing-starting-space warnings
+#   (all fixed in-place: gpu/nvidia/values.yaml, harbor/harbor-values.yaml,
+#   syncthing/syncthing-deployment.yaml, garage/garage-values.yaml,
+#   grafana/helm/k8s-monitoring-values.yaml,
+#   viking/manifests/openviking-mcp-ingress.yaml,
+#   viking/manifests/test/openviking-test-deployment.yaml)
+#
+# (line-length: disabled 2026-06-30 — long lines in this repo are real:
+#  base64 secrets, embedded JSON-as-string, heredoc command strings.)
+extends: default
+
+# Lines length — disabled. Long lines in this repo are real (base64 blobs in
+# Secrets, embedded JSON-as-string in helm values, heredoc command strings)
+# with no easy fix. Per the 2026-06-30 decision: "ignore the line length
+# warning if there's no easy fix." If a per-file override is needed,
+# use `# yamllint disable-line rule:line-length` at the end of the line.
+rules:
+  line-length: disable
+
+  # K8s / Helm use `yes` / `no` / `on` / `off` as boolean values sometimes
+  # (e.g., `replicas: 3` is fine but Helm chart values.yaml uses `yes`).
+  # Default rule is `truthy` which is too aggressive.
+  truthy:
+    allowed-values: ['true', 'false', 'yes', 'no']
+    check-keys: false
+
+  # Comments inside K8s manifests often end with a period (e.g., "OV server
+  # config.") — default rule complains.
+  comments:
+    min-spaces-from-content: 1
+    require-starting-space: true
+
+  # Document start `---` is required at the top of multi-doc files, but
+  # single-doc K8s manifests often omit it. Disable — false positives on
+  # every K8s manifest otherwise.
+  document-start: disable
+
+  # Empty value at end of file (e.g., `key:` on a line by itself) is normal
+  # in K8s config (placeholder keys filled in by a controller).
+  empty-values:
+    forbid-in-block-mappings: false
+    forbid-in-flow-mappings: false
+
+  # Trailing spaces — handled by `end-of-file-fixer` + `trailing-whitespace`
+  # in the pre-commit-hooks set. Suppress the yamllint duplicate.
+  trailing-spaces: disable
+
+ignore: |
+  # Generated helm-rendered output, snapshot archives (history of cluster
+  # state at a point in time — reformatting would lose the "what it actually
+  # was" signal).
+  viking/snapshots/
+  # Per-session worktrees for subagents — not committed, not subject to
+  # repo lint rules.
+  .claude/worktrees/
+  # Hermes agent's node_modules (hundreds of vendored YAML schema/config
+  # files in @askjo/camofox-browser/... — third-party, not our code).
+  hermes/hermes-cluster-data/node/

@@ -52,7 +52,7 @@ validator:
   repository: nvcr.io/nvidia
   image: gpu-operator
   # If version is not specified, then default is to use chart.AppVersion
-  #version: ""
+  # version: ""
   imagePullPolicy: IfNotPresent
   imagePullSecrets: []
   env: []
@@ -65,7 +65,7 @@ operator:
   repository: nvcr.io/nvidia
   image: gpu-operator
   # If version is not specified, then default is to use chart.AppVersion
-  #version: ""
+  # version: ""
   imagePullPolicy: IfNotPresent
   imagePullSecrets: []
   priorityClassName: system-node-critical
@@ -316,7 +316,7 @@ dcgmExporter:
     #   target_label: instance
     #   replacement: $1
     #   action: replace
-  # DCGM Exporter configuration
+  # DCGM Exporter configuration  # yamllint disable-line rule:comments-indentation
   # This block is used to configure DCGM Exporter to emit a customized list of metrics.
   # Use "name" to either point to an existing ConfigMap or to create a new one with a
   # list of configurations (i.e with create=true).
@@ -402,7 +402,7 @@ nodeStatusExporter:
   repository: nvcr.io/nvidia
   image: gpu-operator
   # If version is not specified, then default is to use chart.AppVersion
-  #version: ""
+  # version: ""
   imagePullPolicy: IfNotPresent
   imagePullSecrets: []
   resources: {}

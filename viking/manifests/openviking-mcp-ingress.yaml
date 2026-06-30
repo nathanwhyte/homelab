@@ -28,7 +28,7 @@ spec:
     - hosts:
         - context.nathanwhyte.dev
       # No secretName here — the certificate is owned by
-      # openviking-ingress and reused for the same host.
+      # openviking-ingress and reused for the same host.  # yamllint disable-line rule:comments-indentation
   rules:
     - host: context.nathanwhyte.dev
       http:

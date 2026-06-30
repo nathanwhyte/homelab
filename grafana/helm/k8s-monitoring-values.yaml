@@ -29,7 +29,8 @@ nodeLogs:
   # Send to Loki (explicit so logs flow to the provisioned Loki datasource)
   destinations:
     - loki
-  # Collector is automatically set to alloy-logs
+
+# Collector is automatically set to alloy-logs
 
 # Pod logs collection
 podLogs:

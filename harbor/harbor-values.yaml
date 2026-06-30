@@ -33,7 +33,7 @@ expose:
     className: traefik
     annotations:
       cert-manager.io/cluster-issuer: letsencrypt-prod
-    # Harbor's nginx handles routing internally
+# Harbor's nginx handles routing internally
 
 # External URL (must match ingress host)
 externalURL: https://registry.nathanwhyte.dev
@@ -181,8 +181,8 @@ core:
                 - key: component
                   operator: In
                   values:
-                  - database
-                  - redis
+                    - database
+                    - redis
             topologyKey: kubernetes.io/hostname
 
 # Harbor Portal (Web UI)
