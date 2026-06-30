@@ -1,0 +1,45 @@
+---
+# coredns-custom ConfigMap — in-cluster DNS for homelab-local hostnames.
+#
+# Mounted at /etc/coredns/custom/ on the coredns Deployment (volume
+# `custom-config-volume`); the live Corefile already imports
+# `/etc/coredns/custom/*.server` and `*.override` so this ConfigMap is a
+# drop-in. The volume is declared `optional: true` in the coredns
+# Deployment, so this file can be applied/removed without restarts.
+#
+# Each `*.server` key is a CoreDNS server block. We use the `hosts` plugin
+# for A records, the `cache` plugin to control TTL, and `reload` so edits
+# land within 15s (no coredns rollout needed).
+#
+# Convention: keep this file scoped to A/AAAA/PTR records for the homelab
+# namespace. Cluster-internal `*.svc.cluster.local` names continue to
+# resolve via the kubernetes plugin. Healthcheck/Traefik/OV routes go in
+# their own keys below the core pop entry.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: coredns-custom
+  namespace: kube-system
+  labels:
+    app.kubernetes.io/name: coredns-custom
+    app.kubernetes.io/component: dns
+    app.kubernetes.io/part-of: homelab
+data:
+  # --- ollama-pop.homelab.local — pop's native MLX ollama (FEAT-1021) ---
+  #
+  # pop's LAN IP is router-reserved (192.168.1.6) so this A record is
+  # stable. Pods reach pop's ollama as
+  # `http://ollama-pop.homelab.local:11434` from any namespace.
+  #
+  # Why DNS (not a Service+Endpoints): one ConfigMap key, no kube-proxy,
+  # no stale Endpoints subset when pop sleeps. The Service+Endpoints
+  # variant is documented as a fallback in `llama/ollama-pop/README.md`.
+  ollama-pop.server: |
+    ollama-pop.homelab.local {
+      hosts {
+        192.168.1.6 ollama-pop.homelab.local
+        ttl 60
+        reload 15s
+      }
+      cache 60
+    }
