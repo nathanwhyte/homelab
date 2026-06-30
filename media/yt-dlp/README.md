@@ -24,21 +24,26 @@ five suspended until the validation run proves the pipeline).
 ## First-time setup
 
 1. **Build the image** (from repo root):
+
    ```
    docker build -t nathanwhyte/yt-dlp:2026.06.10-yt-dlp media/yt-dlp/docker/
    docker push  nathanwhyte/yt-dlp:2026.06.10-yt-dlp
    ```
+
    The Dockerfile is `python:3.12-alpine` + ffmpeg +
    `yt-dlp[default]` (bundles `yt-dlp-ejs` for JS challenge solving) +
    `bgutil-ytdlp-pot-provider` (in-process POT tokens, no sidecar).
 
 2. **Apply manifests**:
+
    ```
    bash media/yt-dlp/setup.sh
    ```
+
    This is idempotent. Re-run it after manifest edits to re-converge.
 
 3. **Verify the PVC** binds to a wemby-backed Longhorn volume:
+
    ```
    kubectl get pvc -n yt-dlp media
    # STATUS should be Bound, the VOLUME name maps to a Longhorn
@@ -56,12 +61,14 @@ kubectl logs -n yt-dlp -l job-name=test-validation -f
 ```
 
 Or via the operator script:
+
 ```
 media/yt-dlp/operator.sh run-job 2
 media/yt-dlp/operator.sh logs test-validation
 ```
 
 What to look for in the logs:
+
 - `[youtube] Extracting URL: ...` for each video in the playlist
 - `[download] Destination: /downloads/Gotta Keep These Somewhere/<title>.webm`
 - `[download] 100% of ~<size>MiB`
@@ -70,9 +77,11 @@ What to look for in the logs:
 
 After the run, the archive file should have one line per processed
 video:
+
 ```
 kubectl exec -n yt-dlp <debug-pod> -- tail /yt-dlp-archive/archive-playlist-2.txt
 ```
+
 (`<debug-pod>` is any pod mounting the `media` PVC, e.g. a one-off
 `alpine:3.20` via `kubectl run --rm -it --image=alpine:3.20 ...`.)
 

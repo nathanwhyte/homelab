@@ -8,6 +8,7 @@ prompt. The subagent operates inside the test worktree at
 NOT touch the main compendium vault.
 
 When the agent completes, it should report:
+
 - Counts of entries created per type
 - A list of intentional near-duplicate / keyword-trap pairs (so the
   test plan can probe ranking behavior on them)

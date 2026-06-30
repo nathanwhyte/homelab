@@ -235,7 +235,7 @@ in `~/code/compendium/`.
 - Parse YAML frontmatter (e.g., `python-frontmatter`)
 - Extract first paragraph (everything between frontmatter close and
   first heading or blank line)
-- Walk AST for headings (or simple regex over `^#{1,3} `)
+- Walk AST for headings (or simple regex over `^#{1,3}`)
 - Compose payload string per the format above
 - Call `ov add-resource <tmpfile> --to <uri>` per entry
 - For moved files, pass `--delete-path <old-path>` while syncing the new

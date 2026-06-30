@@ -89,7 +89,7 @@ OV uses hierarchical retrieval, not flat vector search:
 
 Follow OV's default convention — one directory per project directly under resources:
 
-```
+```text
 viking://resources/config/                    ← global agent config/instructions
 viking://resources/config/{agent-name}/       ← per-agent configs (optional)
 viking://resources/{project}/                 ← one per repo
@@ -100,7 +100,7 @@ viking://resources/{project}/{service}/       ← mirrors repo directory names
 
 Cross-project agent instructions and shared configuration. Agents can `viking_search("agent instructions config")` to discover global conventions.
 
-```
+```text
 viking://resources/config/
   ├── global-claude-instructions    ← ~/.claude/CLAUDE.md
   ├── openviking-guide              ← viking/OPENVIKING.md (this file)
@@ -109,14 +109,14 @@ viking://resources/config/
 
 Per-project instruction files stay under their project:
 
-```
+```text
 viking://resources/homelab/homelab-claude    ← homelab/CLAUDE.md
 viking://resources/homelab/homelab-agents    ← homelab/AGENTS.md
 ```
 
 ### Project directories
 
-```
+```text
 viking://resources/homelab/llama/
 viking://resources/homelab/gpu/
 viking://resources/dipdash/api/
@@ -136,7 +136,7 @@ viking://resources/dipdash/api/
 
 ### Recommended homelab structure
 
-```
+```text
 viking://resources/
 ├── config/                          ← global agent config
 │   ├── global-claude-instructions
@@ -230,7 +230,7 @@ For personal-band entries (IDs ≥ 1000) in the unified vault, set `COMPENDIUM_R
 
 ### API reindex (programmatic)
 
-```
+```http
 POST /api/v1/maintenance/reindex
 {"uri": "viking://resources/homelab/", "regenerate": true, "wait": true}
 ```
@@ -282,7 +282,7 @@ After `session.commit()`, OV runs async memory extraction:
 
 ### URI format
 
-```
+```text
 viking://{scope}/{path}
 ```
 

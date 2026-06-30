@@ -42,6 +42,7 @@ References: <https://docs.openviking.ai/en/concepts/01-architecture>, <https://d
 | `ov-merge` Deployment | URI reindex loop (not content copy) | None | None | None |
 
 Service routing:
+
 - `openviking` Service → `app: openviking` (merged Deployment)
 - `ov-merged` Service → `app: openviking` (same Deployment)
 - `openviking` external ingress → `openviking:1933` with BasicAuth
@@ -68,6 +69,7 @@ kubectl -n viking get svc openviking -o jsonpath='{.spec.selector.app}'
 Create a dedicated ConfigMap for the standalone `openviking` Deployment. This replaces the shared `openviking-config` for this Deployment only. Workers keep their existing shared ConfigMap (they're being scaled down anyway, but this keeps the config separate for future use).
 
 Changes from `openviking-config`:
+
 - `storage.agfs.backend`: `"local"` (was `"s3"`)
 - Remove entire `storage.agfs.s3` block (no S3 credentials needed)
 - Add `storage.transaction` block with lock defaults

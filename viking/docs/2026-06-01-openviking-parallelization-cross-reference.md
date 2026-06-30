@@ -1,6 +1,6 @@
 # OpenViking Parallelization Cross-Reference
 
-**Date:** 2026-06-01  
+**Date:** 2026-06-01
 **Scope:** Cross-reference homelab OpenViking parallelization notes against upstream OpenViking docs and source.
 
 ## Executive summary
