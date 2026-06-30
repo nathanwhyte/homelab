@@ -41,24 +41,24 @@ spec:
           env:
             - name: OLLAMA_HOST
               value: 0.0.0.0
-            # 16384 (was 8192): mem0's v2.0.6 ADDITIVE_EXTRACTION_PROMPT is ~9-10K
-            # tokens; at 8192 it was truncated and local models emitted "{" then
-            # stopped. 16384 fits the prompt so local gemma4:12b extracts correctly
-            # (no cloud model needed). KV cache grows accordingly (q4_0, ×NUM_PARALLEL).
+            # 32768: ceiling for benchmark/agentic workloads (cluster-agentic.toml
+            # uses num_ctx=32768). Ollama allocates KV on demand, so this does not
+            # pre-allocate 32K worth of cache; it just permits per-request num_ctx up
+            # to this value. Production Hermes/mem0 workloads stay at 16K or below.
             - name: OLLAMA_CONTEXT_LENGTH
-              value: "16384"
+              value: "32768"
             - name: OLLAMA_FLASH_ATTENTION
               value: "1"
             - name: OLLAMA_KV_CACHE_TYPE
               value: q4_0
             - name: OLLAMA_KEEP_ALIVE
               value: 3m
-            # 6 slots: sized for the mem0 + Hermes cohabitation design (INFO-055).
-            # Worst-case concurrent local generations = up to 5 Hermes sub-agents
-            # (max_concurrent_children) + 1 mem0 extraction. q4_0 KV @16k is ~0.25 GB
-            # per slot, so 6 slots ≈ 7.2 GB weights + ~1.5 GB KV ≈ 8.7 GB / 16 GB.
+            # 8 slots: matches the benchmark suite's cluster-agentic config
+            # (max_concurrency=8). q4_0 KV keeps 8×32K slots within the 16 GB VRAM
+            # budget for typical agentic prompt lengths. Production Hermes currently
+            # peaks at 5 sub-agents + 1 mem0 extraction, so 8 is generous headroom.
             - name: OLLAMA_NUM_PARALLEL
-              value: "6"
+              value: "8"
             - name: OLLAMA_MAX_LOADED_MODELS
               value: "1"
             # RDNA4 guardrail: keeps container on discrete RX 9070 XT, not iGPU.
