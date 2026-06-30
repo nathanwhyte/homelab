@@ -1,10 +1,14 @@
 # syncthing
 
+⬚ **STATUS: SCALED DOWN** — The cluster-side anchor was scaled to 0 replicas on 2026-06-29 due to duplication issues it caused in the compendium vault. Peers are syncing directly over Tailscale without the cluster anchor. To re-enable: `kubectl -n syncthing scale deployment syncthing --replicas=1`.
+
 Always-on Syncthing peer for vault sync — the cluster-side anchor for an Obsidian/compendium device mesh that includes MacBook(s), iPad, and phone. Design rationale lives in compendium **IDEA-1024** (homelab sync architecture) and **IDEA-1046** (personal notes/task/memory OS).
 
 ## What this is
 
 A single Pod running `syncthing/syncthing`, backed by a 50 Gi `longhorn-nvme` PVC, with daily Longhorn snapshots. It does not host any compute or business logic — its job is to be online so peers can converge against it.
+
+**Current status: scaled down (replicas=0) as of 2026-06-29.** The cluster anchor was causing duplication issues in the compendium vault; peers are syncing directly over Tailscale without it.
 
 | Piece | Detail |
 | --- | --- |

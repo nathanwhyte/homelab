@@ -1,5 +1,9 @@
 ---
 # Always-on Syncthing peer for vault sync (IDEA-1024, IDEA-1046).
+# STATUS: SCALED DOWN — replicas=0 as of 2026-06-29.
+# Reason: cluster-side anchor was causing duplication issues in the
+# compendium vault; peers are syncing directly over Tailscale without it.
+# To re-enable: kubectl -n syncthing scale deployment syncthing --replicas=1
 #
 # Role: cluster-side anchor in a Syncthing device mesh. Real edits happen
 # on MacBook(s), iPad, phone. This peer's job is to (a) always be online
@@ -39,7 +43,8 @@ metadata:
   labels:
     app: syncthing
 spec:
-  replicas: 1
+  # replicas: 0 (scaled down 2026-06-29 due to duplication issues in compendium)
+  replicas: 0
   revisionHistoryLimit: 1
   strategy:
     type: Recreate
