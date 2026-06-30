@@ -188,6 +188,7 @@ As of 2026-06-10, the in-repo values file intentionally pins them at v2.14.3 (on
 ### Resetting the admin password (direct DB update)
 
 Required when:
+
 - The K8s Secret has drifted from the DB (the most common failure mode on a long-running cluster)
 - The `admin` row in `harbor_user` has an unknown password
 - The "Forgot password" UI flow is unusable (the admin email field is empty by default)

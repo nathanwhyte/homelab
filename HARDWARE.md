@@ -65,3 +65,18 @@ Audited 2026-06-12. 3-node K3s cluster running Ubuntu 24.04.4 LTS, K3s v1.35.5+k
 | **Raw Storage**   | ~5.25 TB                           |
 | **Discrete GPUs** | 3 (GTX 1080, GTX 1060, RX 9070 XT) |
 | **Total VRAM**    | 30 GB                              |
+
+## AMD / RDNA4 guardrails (timmy's RX 9070 XT)
+
+Timmy's RX 9070 XT (`gfx1201`) runs Ollama (the embedder moved to wemby CUDA on 2026-06-29; `embedder-qwen-rocm` is retained at replicas=0 as a ROCm rollback path). Rules for maintaining the ROCm serving path (apply to Ollama, and to `embedder-qwen-rocm` if rolled back):
+
+| Rule                       | Detail                                                                                                                                                                                                                                                     |
+| -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| GPU visibility             | `HIP_VISIBLE_DEVICES=0` is mandatory in all ROCm manifests. Prevents iGPU (`gfx1036`) selection.                                                                                                                                                           |
+| `HSA_OVERRIDE_GFX_VERSION` | Do NOT set. The 9070 XT is natively `gfx1201`; overriding masks real compatibility failures.                                                                                                                                                               |
+| rocBLAS hostPath           | Mount `/opt/rocm-7.2.1/lib/rocblas/library` only. Do NOT mount hipBLASLt (`/opt/rocm-7.2.1/lib/hipblaslt/library`) without a version-aligned benchmark.                                                                                                    |
+| `ROCBLAS_USE_HIPBLASLT`    | Do NOT set. Benchmarked 2026-06-28: no performance difference, no warnings to suppress.                                                                                                                                                                    |
+| Image upgrades             | Before bumping any ROCm image tag, run the gfx1201 validation commands in `llama/docs/2026-06-28-rocm-gfx1201-validation-baseline.md`.                                                                                                                     |
+| vLLM                       | Experimental only — use a separate manifest/branch, not production Ollama. Verify `torch.cuda.is_available()` and `torch.cuda.device_count()` inside the container. For PyTorch/vLLM, also set `CUDA_VISIBLE_DEVICES=0` alongside `HIP_VISIBLE_DEVICES=0`. |
+| ROCm tooling               | Prefer `amd-smi` over legacy `rocm-smi`; prefer `rocprofv3` over legacy `rocprof`.                                                                                                                                                                         |
+| Host ROCm                  | Current baseline is ROCm 7.2.1. Do not upgrade without a benchmark justification.                                                                                                                                                                          |

@@ -52,6 +52,7 @@ Pattern: Two bursts separated by ~7 minutes. Request durations (18s–3m36s) con
 ## Caller Fingerprint
 
 The endpoint `/v1/messages?beta=true` is Ollama's Anthropic Messages API compatibility path. The `?beta=true` query parameter is **not** emitted by the standard Anthropic Python/JS SDK (which uses the `anthropic-beta` header instead). This implies the caller is either:
+
 - A custom client that adds `?beta=true` explicitly
 - A specific UI/integration layer (e.g. OpenWebUI's Anthropic connection type) that appends it
 - A version of `ollama run --model ... --api anthropic` or similar wrapper
@@ -113,11 +114,13 @@ Traffic from any of these pods to port 11434 would be MASQUERADE'd by their loca
 ## OpenWebUI Model Configuration
 
 OpenWebUI is explicitly configured with:
+
 ```
 OLLAMA_MODELS=mistral-nemo-q8,gemma4:e4b,qwen3.5:9b
 OLLAMA_BASE_URLS=http://ollama.llama.svc:11434
 ENABLE_OPENAI_API=False
 ```
+
 `gemma4:e4b` is a known model in the UI, confirming it can be selected by users. However, OpenWebUI uses internal K8s DNS for Ollama, so its requests would NOT produce source `10.42.0.246`.
 
 ---

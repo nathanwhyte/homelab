@@ -52,6 +52,7 @@ Indexing speed is bottlenecked by conservative concurrency limits that underutil
 ## Validation
 
 After applying:
+
 1. `ov add_text` a batch of 5-10 resources and time total completion
 2. Check VLM slot utilization during indexing (`/metrics` endpoint on llamacpp)
 3. Verify no OOM kills on worker pods (`kubectl describe pod ov-worker-X`)
@@ -60,15 +61,18 @@ After applying:
 ## Post-Deployment Results (2026-05-07)
 
 ### Applied Successfully
+
 - `vlm.max_concurrent`: 2 → 4 ✅
 - `embedding.max_concurrent`: 1 → 3 ✅
 - `embedding.batch_size`: 64 → 128 ✅
 - Worker memory limit: 3Gi → 4Gi ✅
 
 ### Reverted
+
 - `server.workers`: 2 → **1** (reverted). Two uvicorn workers per pod compete for the RocksDB VectorDB exclusive lock (`/app/data/vectordb/context/store/LOCK`). The lock acquisition failure causes child processes to crash with `LockAcquisitionError` and stalls the semantic processing queue indefinitely. Single-worker mode is required until OV migrates to a lock-free vector store.
 
 ### Additional Findings
+
 - All 3 worker pods scheduled to timmy (soft affinity 80/20 timmy/manu) — expected with current load
 - `ov add-resource` fails through external HTTPS proxy with `[INTERNAL]` — root cause is VectorDB lock contention, not Traefik
 - `ov wait` hangs through Traefik (long-poll buffering) — known issue, not related to this change
@@ -76,6 +80,7 @@ After applying:
 ### Follow-up: AGFS Subtree Lock Contention (2026-05-30)
 
 Even with `server.workers: 1`, the semantic queue's `embedding.max_concurrent: 4` and `vlm.max_concurrent: 2` cause RocksDB POINT/SUBTREE lock contention when bulk-processing files in the same directory tree. The fix:
+
 - `embedding.max_concurrent`: 4 → **1** — serializes embedding writes, eliminates subtree lock contention
 - `vlm.max_concurrent`: 2 → **1** — same for VLM annotation writes
 

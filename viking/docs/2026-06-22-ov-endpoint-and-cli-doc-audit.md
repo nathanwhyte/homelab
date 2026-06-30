@@ -29,7 +29,7 @@ Date: 2026-06-22
 | --- | --- | --- | --- |
 | `viking/tools/example.py:10,19` | docstring + default `https://context.nathanwhyte.dev` | Quickstart example points users at the public edge by default | Default to in-cluster `http://openviking.viking.svc:1933`; keep public as an explicit-env example |
 | `viking/deploy-openviking.sh:80,82` | `echo "LAN: https://context.nathanwhyte.dev"`; health curl against public URL | Labels the public tunnel as "LAN"; ignores the actual LAN NodePort | Echo `http://192.168.1.19:31933` as LAN; keep public as "Public" |
-| `viking/deploy-openviking-parallel.sh:114,117,118` | same "LAN: https://context..." + parallel-trio smoke test | Same mislabel; also exercises the removed coordinator/worker trio | Either delete (parallel mode decommissioned) or relabel + drop trio refs |
+| `viking/deploy-openviking-parallel.sh:114,117,118` | same "LAN: <https://context>..." + parallel-trio smoke test | Same mislabel; also exercises the removed coordinator/worker trio | Either delete (parallel mode decommissioned) or relabel + drop trio refs |
 | `dotfiles/claude/.mcp.json` (openviking block) | `https://context.nathanwhyte.dev/mcp` | Intentionally public for portability (per fork note) | Document rationale in-file comment; consider Tailscale URL as a commented alternative |
 | `dotfiles/pi/agent/mcp.json:9` | `https://context.nathanwhyte.dev/mcp` | Pi is off-LAN/off-Tailnet → public is correct | No change; verify Pi cannot reach Tailnet (else could use Tailscale) |
 

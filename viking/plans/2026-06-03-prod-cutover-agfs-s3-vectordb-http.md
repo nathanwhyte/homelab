@@ -192,13 +192,13 @@ kubectl -n garage exec garage-0 -c garage -- /garage bucket list | grep test
 
 ### Success criteria
 
-#### Automated:
+#### Automated
 
 - [x] `kubectl delete -k viking/manifests/test/` exits 0
 - [x] All four test resources (deploy, svc, pvc) for both test pods are gone
 - [x] `openviking-agfs-test` bucket is gone from `garage bucket list`
 
-#### Manual:
+#### Manual
 
 - [x] `kubectl get all -n viking` shows only the production resources
       (openviking, ov-vectordb at 0, the inference endpoints, the
@@ -297,7 +297,7 @@ we catch the bad config only after Phase 3.
 
 ### Success criteria
 
-#### Automated:
+#### Automated
 
 - [ ] `python3 -c 'import json; json.load(open(...))'` parses the
       ConfigMap JSON
@@ -307,7 +307,7 @@ we catch the bad config only after Phase 3.
 - [ ] The `openviking` pod is still 1/1, ready, and serving search
       (the running pod has the old config still)
 
-#### Manual:
+#### Manual
 
 - [ ] The diff in `git diff viking/manifests/openviking-standalone-configmap.yaml`
       is exactly the three edits above (no accidental field renames)
@@ -423,7 +423,7 @@ as `ok`, the cutover has failed. Jump to Phase 5 rollback
 
 ### Success criteria
 
-#### Automated:
+#### Automated
 
 - [ ] `kubectl -n viking get deploy` shows `openviking 1/1` and
       `ov-vectordb 1/1`
@@ -433,7 +433,7 @@ as `ok`, the cutover has failed. Jump to Phase 5 rollback
       exits 0
 - [ ] `curl /api/v1/ready` returns 200 with all 4 checks = `ok`
 
-#### Manual:
+#### Manual
 
 - [ ] The openviking pod log shows `mode=s3` for the AGFS plugin
       and `mode=http` for the vectordb backend (proves the
@@ -587,7 +587,7 @@ curl -fsS http://127.0.0.1:5000/health
 
 ### Success criteria
 
-#### Automated:
+#### Automated
 
 - [ ] `temp_upload` returns 200 with a `temp_file_id`
 - [ ] `commit` returns 200 with `status: success`
@@ -596,7 +596,7 @@ curl -fsS http://127.0.0.1:5000/health
 - [ ] `ov-vectordb /health` returns 200
 - [ ] The 5-minute search poll exits 0 (smoke doc is findable)
 
-#### Manual:
+#### Manual
 
 - [ ] The smoke-test URI is findable via the public ingress
       `https://context.nathanwhyte.dev/api/v1/search/search`
@@ -762,13 +762,13 @@ The commit message describes the cutover + the rollback doc.
 
 ### Success criteria
 
-#### Automated:
+#### Automated
 
 - [ ] `git diff` shows only the intended files
 - [ ] `git status` is clean
 - [ ] The committed ConfigMap matches the post-cutover state
 
-#### Manual:
+#### Manual
 
 - [ ] `https://context.nathanwhyte.dev/api/v1/ready` returns
       4/4 ok

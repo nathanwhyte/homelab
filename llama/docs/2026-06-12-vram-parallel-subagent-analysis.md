@@ -1,8 +1,8 @@
 # VRAM & Parallel Subagent Analysis: gemma4:12b-it-qat on RX 9070 XT
 
-**Date:** 2026-06-12  
-**Author:** NewtBot (Hermes Agent)  
-**PR:** https://github.com/nathanwhyte/homelab/pull/9
+**Date:** 2026-06-12
+**Author:** NewtBot (Hermes Agent)
+**PR:** <https://github.com/nathanwhyte/homelab/pull/9>
 
 ---
 
@@ -111,12 +111,14 @@ All scenarios fit within the 15.9 GB VRAM with comfortable headroom.
 ### Trade-offs of Local Primary
 
 **Advantages:**
+
 - No cloud API latency or outages
 - No per-token costs
 - Full privacy — no data leaves cluster
 - Slightly faster per-token (52 vs 45 tok/s including network)
 
 **Disadvantages:**
+
 - Reduces max concurrent subagents from 3 → 2 (primary takes 1 slot)
 - 12B Q4_0 is likely less capable than glm-5.1:cloud
 - Primary conversation shares GPU with subagents → potential latency spikes
@@ -153,6 +155,7 @@ With `MAX_LOADED_MODELS=2`, both gemma4:12b and gemma4:e4b could coexist:
 | 12b + qwen3.5:9b | 12.72 GB | 3.18 GB | ✗ Too tight |
 
 **Not recommended** because:
+
 - 12b + e4b leaves only 5.98 GB for KV across both models
 - Model swapping with MAX_LOADED_MODELS=1 adds 30-60s latency
 - MAX_LOADED_MODELS=2 is too tight for meaningful parallelism
