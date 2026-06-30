@@ -38,15 +38,15 @@ sudo pfctl -e
 #    Anchor rules are NOT in the main ruleset — query the anchor directly.
 sudo pfctl -a com.user.ollama-serve -sr
 # expect (six rules, dual-stack — pop ollama binds IPv6 *:11434):
-#   pass in quick on en0  inet  proto tcp from 192.168.1.0/24  to any port 11434
-#   pass in quick on en0  inet6 proto tcp from fe80::/10       to any port 11434
-#   pass in quick on utun* inet  proto tcp from 100.64.0.0/10  to any port 11434
-#   pass in quick on utun* inet6 proto tcp from 100.64.0.0/10  to any port 11434
+#   pass in quick on en0  inet  proto tcp from 192.168.1.0/24     to any port 11434
+#   pass in quick on en0  inet6 proto tcp from fe80::/10          to any port 11434
+#   pass in quick on utun9 inet  proto tcp from 100.64.0.0/10     to any port 11434
+#   pass in quick on utun9 inet6 proto tcp from fd7a:115c:a1e0::/48 to any port 11434
 #   block in quick on en0  inet  proto tcp to any port 11434
 #   block in quick on en0  inet6 proto tcp to any port 11434
 ```
 
-### Why the rules cover both `inet` and `inet6`
+### Why the rules cover both `inet` and `inet6`, and why Tailscale is pinned to `utun9`
 
 pop's `com.user.ollama-serve` LaunchAgent binds `*:11434` (IPv6 wildcard)
 with IPv4-mapped dual-stack. If the anchor only specified `inet`
@@ -55,6 +55,16 @@ entirely and fall through to pf's default — which on macOS is "pass"
 when pf is loaded by a non-system component. Covering both address
 families makes the "LAN + Tailnet only" guarantee hold regardless of
 how the client dialled.
+
+Tailscale on macOS exposes its mesh on a specific `utun` device —
+on Apple Silicon it's `utun9` (mtu 1280) at the time of writing. The
+other `utun*` interfaces (WARP, Mullvad, etc.) are link-local only
+and we deliberately don't open the firewall to them. The Tailscale
+IPv4 range is `100.64.0.0/10` (CGNAT); the IPv6 range is
+`fd7a:115c:a1e0::/48` (the well-known Tailnet ULA). **Do not** mix
+the two — pf rejects `utun* inet6 from 100.64.0.0/10` with "rule
+expands to no valid combination" because that CIDR has no IPv6
+members.
 
 ## Alternative — `socketfilterfw` (binary allow, no subnet scoping)
 
