@@ -1,0 +1,230 @@
+---
+# Prototype Prometheus exporter for Mem0 memory inventory metrics.
+# Mem0 OSS exposes no /metrics endpoint, so this queries aggregate-only data from
+# public.memories.payload in Postgres. It intentionally does not export memory text.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mem0-exporter
+  namespace: mem0
+data:
+  mem0_exporter.py: |
+    import os
+    import re
+    import time
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+    import psycopg
+
+    LABEL_RE = re.compile(r'[^a-zA-Z0-9_:]')
+
+    def label_value(value):
+        value = str(value or 'unknown')
+        return value.replace('\\', r'\\').replace('"', r'\"').replace('\n', ' ')
+
+    def metric_name_part(value):
+        value = str(value or 'unknown').strip() or 'unknown'
+        return LABEL_RE.sub('_', value)
+
+    def dsn():
+        return (
+            f"host={os.environ.get('POSTGRES_HOST', 'mem0-postgres.mem0.svc.cluster.local')} "
+            f"port={os.environ.get('POSTGRES_PORT', '5432')} "
+            f"dbname={os.environ.get('POSTGRES_DB', 'postgres')} "
+            f"user={os.environ.get('POSTGRES_USER', 'postgres')} "
+            f"password={os.environ['POSTGRES_PASSWORD']} "
+            "connect_timeout=5"
+        )
+
+    def query_metrics():
+        lines = [
+            '# HELP mem0_exporter_up Whether the mem0 exporter can query Postgres',
+            '# TYPE mem0_exporter_up gauge',
+        ]
+        try:
+            with psycopg.connect(dsn()) as conn:
+                with conn.cursor() as cur:
+                    cur.execute("""
+                        select
+                          count(*)::bigint as total,
+                          extract(epoch from min((payload->>'created_at')::timestamptz))::bigint as oldest,
+                          extract(epoch from max((payload->>'created_at')::timestamptz))::bigint as newest
+                        from public.memories
+                    """)
+                    total, oldest, newest = cur.fetchone()
+                    lines += [
+                        'mem0_exporter_up 1',
+                        '# HELP mem0_memories_total Total stored mem0 memories',
+                        '# TYPE mem0_memories_total gauge',
+                        f'mem0_memories_total {total or 0}',
+                        '# HELP mem0_memory_oldest_timestamp_seconds Oldest memory created_at Unix timestamp',
+                        '# TYPE mem0_memory_oldest_timestamp_seconds gauge',
+                        f'mem0_memory_oldest_timestamp_seconds {oldest or 0}',
+                        '# HELP mem0_memory_newest_timestamp_seconds Newest memory created_at Unix timestamp',
+                        '# TYPE mem0_memory_newest_timestamp_seconds gauge',
+                        f'mem0_memory_newest_timestamp_seconds {newest or 0}',
+                    ]
+
+                    groups = [
+                        ('mem0_memories_by_user', 'user_id', "coalesce(payload->>'user_id','unknown')"),
+                        ('mem0_memories_by_agent', 'agent_id', "coalesce(payload->>'agent_id','unknown')"),
+                        ('mem0_memories_by_role', 'role', "coalesce(payload->>'role','unknown')"),
+                    ]
+                    for metric, label, expr in groups:
+                        lines += [
+                            f'# HELP {metric} Stored mem0 memories grouped by {label}',
+                            f'# TYPE {metric} gauge',
+                        ]
+                        cur.execute(f"select {expr} as label, count(*)::bigint from public.memories group by 1 order by 2 desc, 1")
+                        for value, count in cur.fetchall():
+                            lines.append(f'{metric}{{{label}="{label_value(value)}"}} {count}')
+
+                    lines += [
+                        '# HELP mem0_memory_metadata_key_total Stored mem0 memories containing each metadata key',
+                        '# TYPE mem0_memory_metadata_key_total gauge',
+                    ]
+                    cur.execute("""
+                        select key, count(*)::bigint
+                        from public.memories,
+                             jsonb_object_keys(coalesce(payload->'metadata','{}'::jsonb)) as key
+                        group by key
+                        order by 2 desc, key
+                    """)
+                    for key, count in cur.fetchall():
+                        lines.append(f'mem0_memory_metadata_key_total{{key="{label_value(key)}"}} {count}')
+        except Exception as exc:
+            lines += [
+                'mem0_exporter_up 0',
+                f'# scrape_error {label_value(type(exc).__name__ + ": " + str(exc))}',
+            ]
+        return ('\n'.join(lines) + '\n').encode()
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            if self.path == '/healthz':
+                self.send_response(200)
+                self.end_headers()
+                self.wfile.write(b'ok\n')
+                return
+            if self.path != '/metrics':
+                self.send_response(404)
+                self.end_headers()
+                return
+            body = query_metrics()
+            self.send_response(200)
+            self.send_header('Content-Type', 'text/plain; version=0.0.4; charset=utf-8')
+            self.send_header('Content-Length', str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, fmt, *args):
+            return
+
+    if __name__ == '__main__':
+        port = int(os.environ.get('PORT', '9090'))
+        ThreadingHTTPServer(('0.0.0.0', port), Handler).serve_forever()
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mem0-exporter
+  namespace: mem0
+  labels:
+    app: mem0-exporter
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mem0-exporter
+  template:
+    metadata:
+      labels:
+        app: mem0-exporter
+    spec:
+      containers:
+        - name: exporter
+          image: python:3.12-slim
+          # Prototype: install the small Postgres client dependency at startup.
+          # Replace with a prebuilt image if this becomes long-term production infra.
+          command:
+            - sh
+            - -c
+            - pip install --no-cache-dir 'psycopg[binary]==3.2.13' && python /app/mem0_exporter.py
+          ports:
+            - containerPort: 9090
+              name: metrics
+          env:
+            - name: POSTGRES_HOST
+              value: mem0-postgres.mem0.svc.cluster.local
+            - name: POSTGRES_PORT
+              value: "5432"
+            - name: POSTGRES_DB
+              value: postgres
+            - name: POSTGRES_USER
+              value: postgres
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: mem0-secrets
+                  key: POSTGRES_PASSWORD
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 9090
+            periodSeconds: 10
+            timeoutSeconds: 3
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 9090
+            periodSeconds: 30
+            timeoutSeconds: 3
+          resources:
+            requests:
+              cpu: 25m
+              memory: 128Mi
+            limits:
+              cpu: 250m
+              memory: 256Mi
+          volumeMounts:
+            - name: exporter-script
+              mountPath: /app/mem0_exporter.py
+              subPath: mem0_exporter.py
+      volumes:
+        - name: exporter-script
+          configMap:
+            name: mem0-exporter
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mem0-exporter
+  namespace: mem0
+  labels:
+    app: mem0-exporter
+spec:
+  selector:
+    app: mem0-exporter
+  ports:
+    - name: metrics
+      port: 9090
+      targetPort: 9090
+---
+# kube-prometheus-stack Prometheus is configured with an empty
+# serviceMonitorSelector, so ServiceMonitors in service namespaces are scraped.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: mem0-exporter
+  namespace: mem0
+  labels:
+    app: mem0-exporter
+spec:
+  selector:
+    matchLabels:
+      app: mem0-exporter
+  endpoints:
+    - port: metrics
+      interval: 30s
+      path: /metrics
+      scrapeTimeout: 10s
