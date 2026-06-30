@@ -16,26 +16,26 @@ Live benchmarks on the 9070 XT (16 GB VRAM) reveal three key findings:
 
 3. **`OLLAMA_CONTEXT_LENGTH` is a ceiling, NOT a pre-allocation** — reducing from 131072→8192 saves <0.2 GB. Don't reduce it; control actual KV usage via per-request `num_ctx`.
 
-**Additionally:** Switching the primary model to local gemma4:12b-it-qat is **feasible** with reduced concurrency (3→2 subagents). See the [Local Primary Scenario](#scenario-primary-model--local-gemma412b-it-qat) section.
+**Additionally:** Switching the primary model to local gemma4:12b-it-qat is **feasible** with reduced concurrency (3→2 subagents). See the [Local Primary Scenario](#scenario-primary-model--local-gemma4) section.
 
 ---
 
 ## Hardware & Model Profile
 
-| Metric | Value |
-|---|---|
-| GPU | AMD Radeon RX 9070 XT |
-| VRAM Total | 15.9 GB |
-| Pod memory limit | 24 Gi |
-| `/dev/shm` | 4 Gi |
-| ROCm | 7.2.1 |
+| Metric           | Value                 |
+| ---------------- | --------------------- |
+| GPU              | AMD Radeon RX 9070 XT |
+| VRAM Total       | 15.9 GB               |
+| Pod memory limit | 24 Gi                 |
+| `/dev/shm`       | 4 Gi                  |
+| ROCm             | 7.2.1                 |
 
-| Model | Size (VRAM) | Parameters | Quant | Throughput |
-|---|---|---|---|---|
-| gemma4:12b-it-qat | 7.02 GB | 11.9B | Q4_0 | 52 tok/s |
-| gemma4:e4b-it-qat | 2.90 GB | 7.5B | Q4_0 | 83 tok/s |
-| qwen3.5:9b-q4_K_M | ~5.7 GB | 9.7B | Q4_K_M | (not tested) |
-| glm-5.1:cloud | 0 GB (remote) | unknown | cloud | 45 tok/s (w/ latency) |
+| Model             | Size (VRAM)   | Parameters | Quant  | Throughput            |
+| ----------------- | ------------- | ---------- | ------ | --------------------- |
+| gemma4:12b-it-qat | 7.02 GB       | 11.9B      | Q4_0   | 52 tok/s              |
+| gemma4:e4b-it-qat | 2.90 GB       | 7.5B       | Q4_0   | 83 tok/s              |
+| qwen3.5:9b-q4_K_M | ~5.7 GB       | 9.7B       | Q4_K_M | (not tested)          |
+| glm-5.1:cloud     | 0 GB (remote) | unknown    | cloud  | 45 tok/s (w/ latency) |
 
 ---
 
@@ -44,12 +44,12 @@ Live benchmarks on the 9070 XT (16 GB VRAM) reveal three key findings:
 `OLLAMA_CONTEXT_LENGTH` is just a **ceiling** — Ollama allocates KV cache based on actual tokens, not the max context window.
 
 | ctx Setting | Actual Tokens | Ollama VRAM | GPU VRAM |
-|---|---|---|---|
-| 2048 | 21 | 6.79 GB | 7.76 GB |
-| 4096 | 21 | 6.80 GB | 7.76 GB |
-| 8192 | 21 | 6.97 GB | 7.76 GB |
-| 32768 | 21 | 7.02 GB | 7.71 GB |
-| 65536 | 21 | 7.54 GB | 7.71 GB |
+| ----------- | ------------- | ----------- | -------- |
+| 2048        | 21            | 6.79 GB     | 7.76 GB  |
+| 4096        | 21            | 6.80 GB     | 7.76 GB  |
+| 8192        | 21            | 6.97 GB     | 7.76 GB  |
+| 32768       | 21            | 7.02 GB     | 7.71 GB  |
+| 65536       | 21            | 7.54 GB     | 7.71 GB  |
 
 **Implication:** Keep `OLLAMA_CONTEXT_LENGTH=131072`. Control actual KV usage via per-request `num_ctx`.
 
@@ -57,11 +57,11 @@ Live benchmarks on the 9070 XT (16 GB VRAM) reveal three key findings:
 
 ## Thinking Mode
 
-| Config | Tokens for "3+4=?" | Wall Time |
-|---|---|---|
-| `think: false` | 2 | 0.43s |
-| `think: true` | 53 | 1.41s |
-| **Overhead** | **26×** | **3.3×** |
+| Config         | Tokens for "3+4=?" | Wall Time |
+| -------------- | ------------------ | --------- |
+| `think: false` | 2                  | 0.43s     |
+| `think: true`  | 53                 | 1.41s     |
+| **Overhead**   | **26×**            | **3.3×**  |
 
 With `num_predict=200` and `think:true`, the model consumed all 200 tokens on thinking and produced **zero visible content**.
 
@@ -71,7 +71,7 @@ With `num_predict=200` and `think:true`, the model consumed all 200 tokens on th
 
 ### Current Setup (primary=cloud)
 
-```
+```text
 Primary conversation → glm-5.1:cloud (remote, no local VRAM)
 Subagents/auxiliary  → gemma4:12b-it-qat (local, 7.02 GB VRAM)
 Available for KV:    ~8.9 GB (56% of 15.9 GB)
@@ -84,29 +84,29 @@ All workloads share the same model on the same GPU. Every primary conversation t
 
 ### VRAM Budget Analysis
 
-| Scenario | Total Used | % of 16 GB | Free | Status |
-|---|---|---|---|---|
-| **Current (cloud primary, 3 subagents)** | | | | |
-| 3 × subagent @ 4K ctx | 9.9 GB | 62% | 6.0 GB | ✓ SAFE |
-| 3 × subagent @ 8K ctx | 11.3 GB | 71% | 4.6 GB | ✓ SAFE |
-| **Primary local + 2 subagents** | | | | |
-| Primary(8K) + 2×sub(4K) | 10.6 GB | 67% | 5.3 GB | ✓ SAFE |
-| Primary(16K) + 2×sub(4K) | 12.0 GB | 76% | 3.9 GB | ✓ SAFE |
-| **Primary local + 1 subagent (conservative)** | | | | |
-| Primary(8K) + sub(4K) | 9.9 GB | 62% | 6.0 GB | ✓ SAFE |
-| Primary(16K) + sub(4K) | 11.3 GB | 71% | 4.6 GB | ✓ SAFE |
-| **Worst case** | | | | |
-| Primary(16K) + sub(4K) + compression(8K) | 12.7 GB | 80% | 3.2 GB | ✓ SAFE |
+| Scenario                                      | Total Used | % of 16 GB | Free   | Status |
+| --------------------------------------------- | ---------- | ---------- | ------ | ------ |
+| **Current (cloud primary, 3 subagents)**      |            |            |        |        |
+| 3 × subagent @ 4K ctx                         | 9.9 GB     | 62%        | 6.0 GB | ✓ SAFE |
+| 3 × subagent @ 8K ctx                         | 11.3 GB    | 71%        | 4.6 GB | ✓ SAFE |
+| **Primary local + 2 subagents**               |            |            |        |        |
+| Primary(8K) + 2×sub(4K)                       | 10.6 GB    | 67%        | 5.3 GB | ✓ SAFE |
+| Primary(16K) + 2×sub(4K)                      | 12.0 GB    | 76%        | 3.9 GB | ✓ SAFE |
+| **Primary local + 1 subagent (conservative)** |            |            |        |        |
+| Primary(8K) + sub(4K)                         | 9.9 GB     | 62%        | 6.0 GB | ✓ SAFE |
+| Primary(16K) + sub(4K)                        | 11.3 GB    | 71%        | 4.6 GB | ✓ SAFE |
+| **Worst case**                                |            |            |        |        |
+| Primary(16K) + sub(4K) + compression(8K)      | 12.7 GB    | 80%        | 3.2 GB | ✓ SAFE |
 
 All scenarios fit within the 15.9 GB VRAM with comfortable headroom.
 
 ### Throughput Comparison
 
-| Model | Location | Throughput | Latency | Quality | Cost |
-|---|---|---|---|---|---|
-| glm-5.1:cloud | Remote | 45 tok/s | +200-500ms/network | Likely stronger | Per-token |
-| gemma4:12b-it-qat | Local | 52 tok/s | Minimal | Good (12B Q4_0) | Free |
-| gemma4:e4b-it-qat | Local | 83 tok/s | Minimal | Weaker (7.5B Q4_0) | Free |
+| Model             | Location | Throughput | Latency            | Quality            | Cost      |
+| ----------------- | -------- | ---------- | ------------------ | ------------------ | --------- |
+| glm-5.1:cloud     | Remote   | 45 tok/s   | +200-500ms/network | Likely stronger    | Per-token |
+| gemma4:12b-it-qat | Local    | 52 tok/s   | Minimal            | Good (12B Q4_0)    | Free      |
+| gemma4:e4b-it-qat | Local    | 83 tok/s   | Minimal            | Weaker (7.5B Q4_0) | Free      |
 
 ### Trade-offs of Local Primary
 
@@ -148,11 +148,11 @@ delegation:
 
 With `MAX_LOADED_MODELS=2`, both gemma4:12b and gemma4:e4b could coexist:
 
-| Config | Weights | Free for KV | Feasible? |
-|---|---|---|---|
-| 12b only | 7.02 GB | 8.9 GB | ✓ 3 parallel slots |
-| 12b + e4b | 9.92 GB | 5.98 GB | ⚠️ Limited KV |
-| 12b + qwen3.5:9b | 12.72 GB | 3.18 GB | ✗ Too tight |
+| Config           | Weights  | Free for KV | Feasible?          |
+| ---------------- | -------- | ----------- | ------------------ |
+| 12b only         | 7.02 GB  | 8.9 GB      | ✓ 3 parallel slots |
+| 12b + e4b        | 9.92 GB  | 5.98 GB     | ⚠️ Limited KV      |
+| 12b + qwen3.5:9b | 12.72 GB | 3.18 GB     | ✗ Too tight        |
 
 **Not recommended** because:
 
@@ -167,22 +167,22 @@ With `MAX_LOADED_MODELS=2`, both gemma4:12b and gemma4:e4b could coexist:
 
 ### Ollama Deployment
 
-| Parameter | Before | After | Rationale |
-|---|---|---|---|
-| `OLLAMA_NUM_PARALLEL` | `1` | `3` | Enable 3 concurrent slots |
-| `OLLAMA_CONTEXT_LENGTH` | `131072` | `131072` | Unchanged — ceiling, not pre-allocation |
-| `OLLAMA_MAX_LOADED_MODELS` | `1` | `1` | Single model optimal on 16 GB |
+| Parameter                  | Before   | After    | Rationale                               |
+| -------------------------- | -------- | -------- | --------------------------------------- |
+| `OLLAMA_NUM_PARALLEL`      | `1`      | `3`      | Enable 3 concurrent slots               |
+| `OLLAMA_CONTEXT_LENGTH`    | `131072` | `131072` | Unchanged — ceiling, not pre-allocation |
+| `OLLAMA_MAX_LOADED_MODELS` | `1`      | `1`      | Single model optimal on 16 GB           |
 
 ### Hermes Config
 
-| Section | Parameter | Before | After |
-|---|---|---|---|
-| `delegation` | `max_concurrent_children` | `5` | `3` |
-| `delegation` | `ollama_num_ctx` | — | `8192` |
-| `delegation` | `ollama_think` | — | `false` |
-| `model` | `ollama_num_ctx` | `131072` | `131072` |
-| `auxiliary.*` | `ollama_num_ctx` | — | 2048/4096/8192 (per task) |
-| `auxiliary.*` | `ollama_think` | — | `false` |
+| Section       | Parameter                 | Before   | After                     |
+| ------------- | ------------------------- | -------- | ------------------------- |
+| `delegation`  | `max_concurrent_children` | `5`      | `3`                       |
+| `delegation`  | `ollama_num_ctx`          | —        | `8192`                    |
+| `delegation`  | `ollama_think`            | —        | `false`                   |
+| `model`       | `ollama_num_ctx`          | `131072` | `131072`                  |
+| `auxiliary.*` | `ollama_num_ctx`          | —        | 2048/4096/8192 (per task) |
+| `auxiliary.*` | `ollama_think`            | —        | `false`                   |
 
 ---
 

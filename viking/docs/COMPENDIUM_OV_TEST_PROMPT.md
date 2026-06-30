@@ -149,14 +149,14 @@ rebuilding makes the worktree feel like a live vault for the test.
 
 Stage all changes:
 
-```
+```bash
 git add -A
 git commit -m "test: populate 60 faux entries for Pattern #1 ranking probes"
 ```
 
 Then return a structured report:
 
-```
+```text
 ENTRY COUNTS
 - ideas: 15 (12 active, 3 completed)
 - bugs: 15 (6 active, 9 resolved)

@@ -57,7 +57,7 @@ stale name. They would have failed the next re-ingest run.
 
 ## Architecture of the test stack
 
-```
+```text
 viking namespace
 ├── openviking-test       (Deployment, 1 replica, Recreate, timmy)
 │   ├── ov.conf:

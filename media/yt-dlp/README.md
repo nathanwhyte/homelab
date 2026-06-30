@@ -25,7 +25,7 @@ five suspended until the validation run proves the pipeline).
 
 1. **Build the image** (from repo root):
 
-   ```
+   ```bash
    docker build -t nathanwhyte/yt-dlp:2026.06.10-yt-dlp media/yt-dlp/docker/
    docker push  nathanwhyte/yt-dlp:2026.06.10-yt-dlp
    ```
@@ -36,7 +36,7 @@ five suspended until the validation run proves the pipeline).
 
 2. **Apply manifests**:
 
-   ```
+   ```bash
    bash media/yt-dlp/setup.sh
    ```
 
@@ -44,7 +44,7 @@ five suspended until the validation run proves the pipeline).
 
 3. **Verify the PVC** binds to a wemby-backed Longhorn volume:
 
-   ```
+   ```bash
    kubectl get pvc -n yt-dlp media
    # STATUS should be Bound, the VOLUME name maps to a Longhorn
    # volume whose spec.nodeSelector contains "wemby".
@@ -55,14 +55,14 @@ five suspended until the validation run proves the pipeline).
 Don't wait for the 02:10 UTC schedule — trigger the validation run
 manually:
 
-```
+```bash
 kubectl create job --from=cronjob/yt-dlp-playlist-2 -n yt-dlp test-validation
 kubectl logs -n yt-dlp -l job-name=test-validation -f
 ```
 
 Or via the operator script:
 
-```
+```bash
 media/yt-dlp/operator.sh run-job 2
 media/yt-dlp/operator.sh logs test-validation
 ```
@@ -78,7 +78,7 @@ What to look for in the logs:
 After the run, the archive file should have one line per processed
 video:
 
-```
+```bash
 kubectl exec -n yt-dlp <debug-pod> -- tail /yt-dlp-archive/archive-playlist-2.txt
 ```
 
@@ -91,7 +91,7 @@ Once the validation run is clean, pre-seed each playlist's archive file
 from the R2 backup of the prior architecture (see the **R2 archive-seeding**
 section below), then enable the CronJobs:
 
-```
+```bash
 for n in 1 3 4 5 6; do
   media/yt-dlp/operator.sh seed-archive $n --apply
   media/yt-dlp/operator.sh enable $n
@@ -170,7 +170,7 @@ CronJob template.
 
 ## Operator script
 
-```
+```text
 Usage: media/yt-dlp/operator.sh <command> [args]
 
   run-job <N> [extra-args]   Manually run CronJob N now (N in 1..6)

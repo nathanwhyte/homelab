@@ -115,7 +115,7 @@ Traffic from any of these pods to port 11434 would be MASQUERADE'd by their loca
 
 OpenWebUI is explicitly configured with:
 
-```
+```bash
 OLLAMA_MODELS=mistral-nemo-q8,gemma4:e4b,qwen3.5:9b
 OLLAMA_BASE_URLS=http://ollama.llama.svc:11434
 ENABLE_OPENAI_API=False

@@ -1,4 +1,3 @@
----
 # Harbor RWX to RWO Migration
 
 This runbook migrates Harbor's `registry` and `jobservice` data from the current
@@ -58,21 +57,22 @@ spec:
     requests:
       storage: 50Gi
   storageClassName: longhorn-harbor
----
+```
 
+```yaml
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-name: harbor-jobservice-rwo
-namespace: harbor
+  name: harbor-jobservice-rwo
+  namespace: harbor
 spec:
-accessModes: - ReadWriteOnce
-resources:
-requests:
-storage: 1Gi
-storageClassName: longhorn-harbor
-
-````
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+  storageClassName: longhorn-harbor
+```
 
 ## 2. Seed-copy the data
 
@@ -107,7 +107,7 @@ spec:
     - name: dest
       persistentVolumeClaim:
         claimName: harbor-registry-rwo
-````
+```
 
 Jobservice copy pod:
 

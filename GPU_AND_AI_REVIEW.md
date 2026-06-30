@@ -182,7 +182,7 @@ Comprehensive review of all GPU setup, model benchmarks, and AI tools work in th
 
 ### Current Architecture (2026-05-01)
 
-```
+```text
                     ┌──────────────────────────────────────┐
                     │          timmy (RX 9070 XT)          │
                     │                                      │

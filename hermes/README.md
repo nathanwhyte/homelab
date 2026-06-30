@@ -5,10 +5,10 @@ Hermes runs in the `hermes` namespace as two Deployments:
 - `hermes-agent` — Hermes Agent runtime, currently running `hermes gateway run`
 - `hermes-jump` — constrained SSH terminal backend used by Hermes for shell/tool execution
 
-### Persistent storage
+## Persistent storage
 
-| PVC | Mount | Pod | Size | Purpose |
-|---|---|---|---|---|
+| PVC           | Mount       | Pod            | Size | Purpose                           |
+| ------------- | ----------- | -------------- | ---- | --------------------------------- |
 | `hermes-home` | `/opt/data` | `hermes-agent` | 10Gi | Agent config, sessions, kanban DB |
 
 > **Note:** The `hermes-jump-home` PVC and the enhanced entrypoint (uv, Python, gh, git config, GITHUB_TOKEN) described in earlier versions of this README exist in the repo manifests (`hermes-jump-pvc.yaml`, `hermes-jump.yaml`) but have **not been applied** to the live cluster. The current jump pod is ephemeral — no persistent home directory, no pre-installed tooling, and no GITHUB_TOKEN mount. See `hermes-jump.yaml` and `hermes-jump-pvc.yaml` for the desired-state manifests.
@@ -116,17 +116,17 @@ A full ground-truthed reference (live-verified against the running API server) l
 
 Current tuning baseline (synced 2026-06-12):
 
-| Setting | Value | Rationale |
-|---|---|---|
-| Default model | `glm-5.1:cloud` | Cloud-first default for quality; local `gemma4:12b-it-qat` available as fallback. |
-| Ollama endpoint | `http://chat-ollama.llama.svc:11434/v1` | Hermes uses the internal compatibility proxy. For local models, the proxy bridges OpenAI chat-completions requests to Ollama native `/api/chat` with `think: false`, maps the response back to OpenAI/SSE shape, and does not enforce the old cloud budget gate. |
-| Per-call model override | `HERMES_MODEL=<model>` with `operator.sh ask/run` | Allows explicit cloud or alternate local model tests without changing the deployment default. |
-| API retries | `agent.api_max_retries: 3` | Allow retries for transient cloud API failures. |
-| Delegation | `max_concurrent_children: 5`, `max_spawn_depth: 2`, `child_timeout_seconds: 900` | Parallel subagent workloads on 9070 XT (tuned per PR #9 VRAM analysis). |
-|| Compression | enabled, `threshold: 0.75`, `target_ratio: 0.2` | Lower threshold triggers compression more aggressively. |
-| Memory | `memory_char_limit: 20000`, `user_char_limit: 12000` via mem0 provider | `memory.provider: mem0` with mem0-adapter sidecar on localhost:18080 (translates Platform API → OSS API, backed by Mem0 server in `mem0` namespace with PostgreSQL/pgvector); OpenViking knowledge-base tools (`viking_*`) remain active via `OPENVIKING_ENDPOINT` |
-| Toolsets | `hermes-cli` | Minimal toolset for current smoke tests and operator workflows. |
-| External exposure | Cloudflare tunnel at `hermes.nathanwhyte.dev` (dashboard); LAN Ingress also active | Dashboard exposed via Cloudflare tunnel; API server cluster-internal. |
+| Setting                 | Value                                                                              | Rationale                                                                                                                                                                                                                                                          |
+| ----------------------- | ---------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Default model           | `glm-5.1:cloud`                                                                    | Cloud-first default for quality; local `gemma4:12b-it-qat` available as fallback.                                                                                                                                                                                  |
+| Ollama endpoint         | `http://chat-ollama.llama.svc:11434/v1`                                            | Hermes uses the internal compatibility proxy. For local models, the proxy bridges OpenAI chat-completions requests to Ollama native `/api/chat` with `think: false`, maps the response back to OpenAI/SSE shape, and does not enforce the old cloud budget gate.   |
+| Per-call model override | `HERMES_MODEL=<model>` with `operator.sh ask/run`                                  | Allows explicit cloud or alternate local model tests without changing the deployment default.                                                                                                                                                                      |
+| API retries             | `agent.api_max_retries: 3`                                                         | Allow retries for transient cloud API failures.                                                                                                                                                                                                                    |
+| Delegation              | `max_concurrent_children: 5`, `max_spawn_depth: 2`, `child_timeout_seconds: 900`   | Parallel subagent workloads on 9070 XT (tuned per PR #9 VRAM analysis).                                                                                                                                                                                            |
+|                         | Compression                                                                        | enabled, `threshold: 0.75`, `target_ratio: 0.2`                                                                                                                                                                                                                    | Lower threshold triggers compression more aggressively. |
+| Memory                  | `memory_char_limit: 20000`, `user_char_limit: 12000` via mem0 provider             | `memory.provider: mem0` with mem0-adapter sidecar on localhost:18080 (translates Platform API → OSS API, backed by Mem0 server in `mem0` namespace with PostgreSQL/pgvector); OpenViking knowledge-base tools (`viking_*`) remain active via `OPENVIKING_ENDPOINT` |
+| Toolsets                | `hermes-cli`                                                                       | Minimal toolset for current smoke tests and operator workflows.                                                                                                                                                                                                    |
+| External exposure       | Cloudflare tunnel at `hermes.nathanwhyte.dev` (dashboard); LAN Ingress also active | Dashboard exposed via Cloudflare tunnel; API server cluster-internal.                                                                                                                                                                                              |
 
 ## Direct Hermes CLI access
 
@@ -220,13 +220,13 @@ Hermes uses the bundled OpenViking plugin for persistent, tiered semantic knowle
 
 The provider is activated by `memory.provider: mem0` in the ConfigMap. The OV knowledge-base tools (`viking_*`) are activated by the `OPENVIKING_*` env vars in the Deployment. Four env vars control the OV connection:
 
-| Env Var | Value | Purpose |
-|---|---|---|
-| `OPENVIKING_ENDPOINT` | `http://openviking.viking.svc.cluster.local:1933` | In-cluster OV service (avoids BasicAuth and WAF issues) |
-| `OPENVIKING_API_KEY` | *(from `openviking-api-key` Secret)* | Authenticates to OV's `root_api_key` |
-| `OPENVIKING_ACCOUNT` | `default` | Tenant account (matches OV's `default_account`) |
-| `OPENVIKING_USER` | `noot` | Tenant user (must match OV's `default_user` — **not** the plugin default `default`) |
-| `OPENVIKING_AGENT` | `hermes` | Agent tag for multi-agent identification |
+| Env Var               | Value                                             | Purpose                                                                             |
+| --------------------- | ------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| `OPENVIKING_ENDPOINT` | `http://openviking.viking.svc.cluster.local:1933` | In-cluster OV service (avoids BasicAuth and WAF issues)                             |
+| `OPENVIKING_API_KEY`  | _(from `openviking-api-key` Secret)_              | Authenticates to OV's `root_api_key`                                                |
+| `OPENVIKING_ACCOUNT`  | `default`                                         | Tenant account (matches OV's `default_account`)                                     |
+| `OPENVIKING_USER`     | `noot`                                            | Tenant user (must match OV's `default_user` — **not** the plugin default `default`) |
+| `OPENVIKING_AGENT`    | `hermes`                                          | Agent tag for multi-agent identification                                            |
 
 `OPENVIKING_USER=noot` is critical — the homelab's OV instance uses `default_user: "noot"`. Sending the plugin default `default` would create a separate invisible user namespace (see BUG-006).
 
@@ -280,13 +280,13 @@ When active, the OpenViking provider:
 
 Hermes writes to namespaces that don't overlap with compendium-sync:
 
-| Writer | Namespace |
-|---|---|
-| Hermes built-in mirror | `viking://resources/patterns/`, `viking://resources/preferences/` |
-| Hermes session extraction | `viking://user/memories/`, `viking://agent/memories/` |
-| Work compendium-sync | `viking://resources/compendium/` |
-| Personal compendium-sync | `viking://resources/personal/` |
-| Homelab index scripts | `viking://resources/projects/homelab/` |
+| Writer                    | Namespace                                                         |
+| ------------------------- | ----------------------------------------------------------------- |
+| Hermes built-in mirror    | `viking://resources/patterns/`, `viking://resources/preferences/` |
+| Hermes session extraction | `viking://user/memories/`, `viking://agent/memories/`             |
+| Work compendium-sync      | `viking://resources/compendium/`                                  |
+| Personal compendium-sync  | `viking://resources/personal/`                                    |
+| Homelab index scripts     | `viking://resources/projects/homelab/`                            |
 
 No coordination mechanism is needed — idempotent upsert semantics mean concurrent writes converge.
 
