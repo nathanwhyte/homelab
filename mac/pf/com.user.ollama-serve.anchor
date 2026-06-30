@@ -1,0 +1,46 @@
+# /etc/pf.anchors/com.user.ollama-serve
+#
+# FEAT-1021 — scope pop ollama to LAN + Tailscale CGNAT only.
+#
+# pop's LaunchAgent (`com.user.ollama-serve`) binds 0.0.0.0:11434 so the
+# cluster can reach it via the coredns-custom ConfigMap
+# (k8s/coredns-custom-configmap.yaml) which resolves
+# ollama-pop.homelab.local → 192.168.1.6. The WAN path is already closed
+# by the router, but Tailscale and LAN scanners can still hit 11434.
+# This anchor makes the bind truly private: only the LAN (cluster nodes,
+# on-LAN MacBook) and the Tailscale CGNAT range (100.64.0.0/10) can reach
+# the listener. Everything else is blocked.
+#
+# Install (one-time, on pop):
+#
+#   sudo cp mac/pf/com.user.ollama-serve.anchor /etc/pf.anchors/com.user.ollama-serve
+#   sudo chmod 644 /etc/pf.anchors/com.user.ollama-serve
+#
+# Wire into /etc/pf.conf (append after the OS-default anchors, before any
+# closing brace):
+#
+#   load anchor "com.user.ollama-serve" from "/etc/pf.anchors/com.user.ollama-serve"
+#
+# Then load + verify:
+#
+#   sudo pfctl -f /etc/pf.conf
+#   sudo pfctl -e            # enable if not already
+#   sudo pfctl -sr | grep 11434
+#
+# Rollback:
+#
+#   sudo pfctl -a com.user.ollama-serve -F all
+#   sudo rm /etc/pf.anchors/com.user.ollama-serve
+#   # And remove the `load anchor` line from /etc/pf.conf
+#
+# See mac/docs/ollama-pop-fw.md for the full rationale and the
+# socketfilterfw alternative (binary allow, no subnet scoping).
+
+# Allow inbound TCP 11434 from LAN (cluster nodes + on-LAN MacBook).
+pass in quick on en0 inet proto tcp from 192.168.1.0/24 to any port 11434
+
+# Allow inbound TCP 11434 from Tailscale CGNAT (off-LAN MacBook, phones).
+pass in quick on utun* inet proto tcp from 100.64.0.0/10 to any port 11434
+
+# Block everything else that would hit the LAN-side bind.
+block in quick on en0 inet proto tcp to any port 11434

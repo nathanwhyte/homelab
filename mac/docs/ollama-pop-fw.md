@@ -8,10 +8,46 @@ macOS firewall so the bind on `0.0.0.0:11434` (set by
 `com.user.ollama-serve` LaunchAgent) is reachable from the cluster's
 subnets and the Tailscale CGNAT range, and nothing else.
 
-## One-time setup
+## One-time setup — `pf` (recommended)
 
-Run from pop. The `socketfilterfw` rules are global, so they survive
-`com.user.ollama-serve` restarts and reboots.
+`pf` is preferred over `socketfilterfw` because it scopes by source
+subnet (LAN + Tailscale CGNAT) rather than allowing the binary
+unconditionally. Rules live in `/etc/pf.anchors/` and are loaded at
+boot via `/etc/pf.conf`.
+
+```sh
+# 1. Install the anchor file shipped with this repo.
+sudo cp mac/pf/com.user.ollama-serve.anchor /etc/pf.anchors/com.user.ollama-serve
+sudo chmod 644 /etc/pf.anchors/com.user.ollama-serve
+
+# 2. Wire it into /etc/pf.conf. Append after the OS-default anchors,
+#    before the closing brace:
+#
+#      load anchor "com.user.ollama-serve" from "/etc/pf.anchors/com.user.ollama-serve"
+#
+#    (Edit with `sudo vim /etc/pf.conf` or `sudo nano /etc/pf.conf`.)
+
+# 3. Verify the LaunchAgent is bound to 0.0.0.0:11434 (FEAT-1021 Phase 2).
+lsof -nP -iTCP:11434 -sTCP:LISTEN
+
+# 4. Load and enable.
+sudo pfctl -f /etc/pf.conf
+sudo pfctl -e
+
+# 5. Sanity: the rules are live.
+sudo pfctl -sr | grep 11434
+# expect:
+#   pass in quick on en0 inet proto tcp from 192.168.1.0/24 to any port 11434
+#   pass in quick on utun* inet proto tcp from 100.64.0.0/10 to any port 11434
+#   block in quick on en0 inet proto tcp to any port 11434
+```
+
+## Alternative — `socketfilterfw` (binary allow, no subnet scoping)
+
+`socketfilterfw --add` is binary (allow / block) and does not have a
+first-class `--from 192.168.1.0/24` flag. Use this only if you can't
+edit `/etc/pf.conf`. The `socketfilterfw` rules are global, so they
+survive `com.user.ollama-serve` restarts and reboots.
 
 ```sh
 # Verify current state — pop should ALREADY bind 0.0.0.0:11434 (the
@@ -19,14 +55,8 @@ Run from pop. The `socketfilterfw` rules are global, so they survive
 # didn't load; check `launchctl list | grep ollama`.
 lsof -nP -iTCP:11434 -sTCP:LISTEN
 
-# Allow ollama inbound (the binary path; /usr/bin/true is a placeholder for
-# the macOS Sonoma+ app-based path — see note below).
+# Allow ollama inbound (the binary path).
 sudo /usr/libexec/ApplicationFirewall/socketfilterfw --add /Applications/Ollama.app/Contents/Resources/ollama
-
-# Allow inbound 11434 from the LAN (cluster nodes + on-LAN MacBook).
-sudo /usr/libexec/ApplicationFirewall/socketfilterfw \
-  --add /Applications/Ollama.app/Contents/Resources/ollama \
-  --block-only none
 
 # Sanity: list active application rules.
 sudo /usr/libexec/ApplicationFirewall/socketfilterfw --listapps
@@ -80,11 +110,18 @@ kubectl --context=homelab -n viking exec deploy/openviking -- \
 
 ## Rollback
 
+### pf path (primary)
+
 ```sh
-# If the LaunchAgent path is rolled back to the pre-FEAT-1021
-# `ollama serve` started by the Ollama.app login item:
+# Flush the anchor and unload from /etc/pf.conf.
+sudo pfctl -a com.user.ollama-serve -F all
+sudo rm /etc/pf.anchors/com.user.ollama-serve
+# And remove the `load anchor` line from /etc/pf.conf
+```
+
+### socketfilterfw path (alternative)
+
+```sh
 sudo /usr/libexec/ApplicationFirewall/socketfilterfw \
   --remove /Applications/Ollama.app/Contents/Resources/ollama
-# And/or remove the pf anchor:
-sudo pfctl -a com.user.ollama-serve -F all
 ```
