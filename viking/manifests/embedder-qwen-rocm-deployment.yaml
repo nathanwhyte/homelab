@@ -1,9 +1,13 @@
 ---
-# Qwen3-Embedding-4B on timmy's RX 9070 XT (ROCm).
+# Qwen3-Embedding-4B on timmy's RX 9070 XT (ROCm) — RETIRED rollback path.
 # See plan: ~/code/compendium/docs/plans/2026-06-22-IDEA-1042-qwen-embedding-deployment.md
 #
-# Replaces nomic-embed-text-v1.5 on wemby. Dimension changes 768 -> 2560,
-# requiring a vectordb wipe + re-embed (handled in Phase 3-4 of the plan).
+# Superseded 2026-06-29 by embedder-qwen-cuda (wemby GTX 1060) so timmy's
+# 9070 XT is free for Ollama (mem0 LLM extraction). replicas=0; the live
+# `embedder-qwen` Service now lives in embedder-qwen-cuda-deployment.yaml
+# (selector app=embedder-qwen-cuda). To roll back to ROCm: scale this to 1
+# AND repoint the Service selector to app=embedder-qwen-rocm.
+# Replaced nomic-embed-text-v1.5 (768 -> 2560 dim, vectordb re-embed in plan Phase 3-4).
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
@@ -25,7 +29,7 @@ metadata:
   labels:
     app: embedder-qwen-rocm
 spec:
-  replicas: 1
+  replicas: 0 # retired; superseded by embedder-qwen-cuda on wemby
   revisionHistoryLimit: 1
   strategy:
     type: Recreate
@@ -166,20 +170,8 @@ spec:
           hostPath:
             path: /opt/rocm-7.2.1/lib/rocblas/library
             type: Directory
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: embedder-qwen
-  namespace: viking
-  labels:
-    app: embedder-qwen-rocm
-spec:
-  type: ClusterIP
-  selector:
-    app: embedder-qwen-rocm
-  ports:
-    - name: http
-      port: 8080
-      targetPort: 8000
-      protocol: TCP
+# The `embedder-qwen` Service is NOT defined here anymore — it lives in
+# embedder-qwen-cuda-deployment.yaml (selector app=embedder-qwen-cuda).
+# Keeping it out of this file prevents re-applying the ROCm rollback from
+# repointing the Service at a 0-replica deployment. See the header comment
+# for the manual repoint steps if ROCm is actually rolled back.

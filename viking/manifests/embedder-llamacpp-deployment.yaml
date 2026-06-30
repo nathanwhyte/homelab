@@ -1,4 +1,10 @@
 ---
+# nomic-embed-text-v1.5 (768-dim) on wemby's GTX 1060 — RETIRED rollback path.
+# Retired 2026-06-30 (past the 2026-06-29 removable date noted in CLAUDE.md):
+# the primary embedder is now embedder-qwen-cuda (Qwen3-Embedding-4B, 2560-dim)
+# on the same GPU. replicas=0; kept as a 768-dim rollback should the Qwen
+# embedder need to be swapped out. Note: OV is configured for 2560-dim, so
+# rolling back here also requires a vectordb wipe + re-embed + OV config change.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -7,7 +13,7 @@ metadata:
   labels:
     app: embedder-llamacpp
 spec:
-  replicas: 1
+  replicas: 0 # retired 2026-06-30; kept as 768-dim rollback path
   strategy:
     type: RollingUpdate
     rollingUpdate:

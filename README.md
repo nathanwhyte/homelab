@@ -76,7 +76,7 @@ Internal OpenAI-compatible LLM endpoints backed by Ollama and `llama.cpp`.
 
 - **Ollama** (timmy, RX 9070 XT): `ollama.llama.svc:11434` — primary inference for Claude Code, Hermes, and OpenWebUI; hosts gemma4:12b-it-qat (local) and glm-5.1:cloud (remote)
 - **OV VLM** (manu, GTX 1080): `llamacpp-cuda-ov` in viking namespace — OpenViking vision/L0 generation; always on (steady-state replicas=1)
-- **Embedder** (timmy, RX 9070 XT, ROCm): `embedder-qwen.viking.svc:8080` — Qwen3-Embedding-4B Q8_0 (2560-dim) for vector embeddings; legacy `embedder-llamacpp` on wemby (GTX 1060, CUDA) scaled-to-0 rollback path
+- **Embedder** (wemby, GTX 1060, CUDA): `embedder-qwen.viking.svc:8080` — Qwen3-Embedding-4B Q8_0 (2560-dim) for vector embeddings (moved from timmy ROCm 2026-06-29 to free the 9070 XT for Ollama); legacy `embedder-llamacpp` on wemby retired (replicas=0, 768-dim rollback path)
 - Read more in [`llama/README.md`](./llama/README.md) and [`viking/`](./viking/).
 
 ### Hermes
@@ -91,7 +91,7 @@ AI agent with mem0 persistent memory (OpenViking knowledge-base tools), SSH term
 
 Hierarchical RAG engine with auto-generated L0/L1/L2 semantic indices over a filesystem-shaped knowledge tree.
 
-- S3-backed file storage (Garage), HTTP vector DB, embedder on timmy (ROCm), VLM on manu (CUDA)
+- S3-backed file storage (Garage), HTTP vector DB, embedder on wemby (CUDA, since 2026-06-29), VLM on manu (CUDA)
 - API at `context.nathanwhyte.dev`, console at `viking.nathanwhyte.dev`
 - Endpoint tiers: in-cluster `openviking.viking.svc:1933` · LAN `192.168.1.19:31933` · Tailscale `100.95.215.105:31933` · public `context.nathanwhyte.dev` (Cloudflare tunnel)
 - Read more in [`viking/OPENVIKING.md`](./viking/OPENVIKING.md).

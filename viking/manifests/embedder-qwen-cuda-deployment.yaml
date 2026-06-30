@@ -1,9 +1,12 @@
 ---
-# Qwen3-Embedding-4B on wemby's GTX 1060 (CUDA).
-# Moved from timmy's RX 9070 XT to free VRAM for Ollama (mem0 LLM extraction).
-# GTX 1060 has 6 GB VRAM; Qwen3-Embedding-4B Q8_0 ≈ 4 GB weights.
-# Conservative ctx (16384) + parallel 2 → 8192/slot, same per-slot context as
-# the ROCm deployment's 32768/4. KV cache fits in remaining ~2 GB.
+# Qwen3-Embedding-4B on wemby's GTX 1060 (CUDA) — PRIMARY embedder.
+# Moved 2026-06-29 from timmy's RX 9070 XT to free VRAM for Ollama (mem0 LLM
+# extraction). GTX 1060 has 6 GB VRAM; Qwen3-Embedding-4B Q8_0 ≈ 4 GB weights,
+# leaving ~2 GB for KV cache. ctx 8192 / parallel 1 / batch 512 — KV ~580 MB,
+# fits the 1060. Per-slot context (8192) matches the ROCm deployment's
+# 32768/4 and OV's embedding.max_input_tokens=8192.
+# The `embedder-qwen` Service (selector app=embedder-qwen-cuda) lives here;
+# embedder-qwen-rocm-deployment.yaml is retained at replicas=0 as rollback.
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
