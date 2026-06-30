@@ -285,6 +285,71 @@ curl -sI https://mem0.nathanwhyte.dev/
 curl -s https://mem0.nathanwhyte.dev/auth/setup-status
 ```
 
+## Prometheus memory-inventory exporter
+
+Mem0 OSS does not expose Prometheus metrics for stored memories (`/metrics` and
+`/api/metrics` return 404). The homelab deploy adds a tiny aggregate-only
+exporter that queries `public.memories.payload` in Postgres and intentionally
+does **not** expose memory text.
+
+| Metric | Meaning |
+| --- | --- |
+| `mem0_exporter_up` | Exporter can query Postgres (`1`) or failed (`0`) |
+| `mem0_memories_total` | Total stored memories |
+| `mem0_memories_by_user{user_id=...}` | Stored memories grouped by `user_id` |
+| `mem0_memories_by_agent{agent_id=...}` | Stored memories grouped by `agent_id` |
+| `mem0_memories_by_role{role=...}` | Stored memories grouped by payload role |
+| `mem0_memory_oldest_timestamp_seconds` | Oldest memory creation timestamp |
+| `mem0_memory_newest_timestamp_seconds` | Newest memory creation timestamp |
+| `mem0_memory_metadata_key_total{key=...}` | Count of memories containing each metadata key |
+
+### Build the exporter image
+
+Local Docker may not be available on the MacBook; the cluster has a BuildKit pod
+in the `build` namespace that can build and push to Harbor.
+
+```bash
+cd ~/code/homelab
+TAG=2026-06-30-r2
+POD=$(kubectl --context=tailnet -n build get pod -l app=buildkitd -o jsonpath='{.items[0].metadata.name}')
+TMP=$(mktemp -d)
+cp mem0/exporter/Dockerfile mem0/exporter/mem0_exporter.py "$TMP/"
+kubectl --context=tailnet -n build cp "$TMP" "$POD":/tmp/mem0-exporter-build
+
+HARBOR_PASSWORD=$(kubectl --context=tailnet -n harbor get secret harbor-core \
+  -o jsonpath='{.data.HARBOR_ADMIN_PASSWORD}' | base64 -d)
+
+kubectl --context=tailnet -n build exec -i "$POD" -- sh -s <<'EOS' "$HARBOR_PASSWORD" "$TAG"
+set -eu
+PASS="$1"
+TAG="$2"
+DOCKER_CONFIG=/tmp/docker-config
+export DOCKER_CONFIG
+mkdir -p "$DOCKER_CONFIG"
+AUTH=$(printf 'admin:%s' "$PASS" | base64 | tr -d '\n')
+cat > "$DOCKER_CONFIG/config.json" <<EOF
+{"auths":{"registry.nathanwhyte.dev":{"auth":"$AUTH"}}}
+EOF
+buildctl build \
+  --frontend dockerfile.v0 \
+  --local context=/tmp/mem0-exporter-build \
+  --local dockerfile=/tmp/mem0-exporter-build \
+  --opt platform=linux/amd64 \
+  --output type=image,name="registry.nathanwhyte.dev/homelab/mem0-exporter:${TAG}",push=true
+rm -rf "$DOCKER_CONFIG"
+EOS
+```
+
+### Deploy and verify
+
+```bash
+kubectl --context=tailnet apply -f mem0/manifests/mem0-exporter.yaml
+kubectl --context=tailnet -n mem0 rollout status deployment/mem0-exporter
+kubectl --context=tailnet -n mem0 port-forward svc/mem0-exporter 19091:9090
+curl -fsS http://127.0.0.1:19091/healthz
+curl -fsS http://127.0.0.1:19091/metrics | grep '^mem0_memories_total '
+```
+
 ## Model routing
 
 | Call type      | Model                           | Endpoint                               | GPU              |
