@@ -25,7 +25,9 @@
 #
 #   sudo pfctl -f /etc/pf.conf
 #   sudo pfctl -e            # enable if not already
-#   sudo pfctl -sr | grep 11434
+#   sudo pfctl -a com.user.ollama-serve -sr   # anchor rules are NOT
+#                                             # in the main ruleset —
+#                                             # query the anchor directly
 #
 # Rollback:
 #
@@ -36,11 +38,20 @@
 # See mac/docs/ollama-pop-fw.md for the full rationale and the
 # socketfilterfw alternative (binary allow, no subnet scoping).
 
-# Allow inbound TCP 11434 from LAN (cluster nodes + on-LAN MacBook).
-pass in quick on en0 inet proto tcp from 192.168.1.0/24 to any port 11434
+# pop's `com.user.ollama-serve` LaunchAgent binds IPv6 `*:11434` (dual-
+# stack — also accepts IPv4-mapped traffic), so the rules must cover both
+# `inet` (IPv4) and `inet6` (IPv6). The cluster reaches pop on IPv4
+# (192.168.1.6 LAN + 100.64.0.0/10 Tailscale CGNAT); Tailscale peers
+# also come in over IPv6 on `utun*`.
+
+# Allow inbound TCP 11434 from LAN (cluster nodes + on-LAN MacBook), both v4 and v6.
+pass in quick on en0 inet  proto tcp from 192.168.1.0/24 to any port 11434
+pass in quick on en0 inet6 proto tcp from fe80::/10        to any port 11434
 
 # Allow inbound TCP 11434 from Tailscale CGNAT (off-LAN MacBook, phones).
-pass in quick on utun* inet proto tcp from 100.64.0.0/10 to any port 11434
+pass in quick on utun* inet  proto tcp from 100.64.0.0/10 to any port 11434
+pass in quick on utun* inet6 proto tcp from 100.64.0.0/10 to any port 11434
 
-# Block everything else that would hit the LAN-side bind.
-block in quick on en0 inet proto tcp to any port 11434
+# Block everything else that would hit the LAN-side bind, both v4 and v6.
+block in quick on en0 inet  proto tcp to any port 11434
+block in quick on en0 inet6 proto tcp to any port 11434
