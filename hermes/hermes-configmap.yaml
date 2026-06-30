@@ -8,7 +8,7 @@ metadata:
     app: hermes-agent
 data:
   config.yaml: |-
-    _config_version: 29
+    _config_version: 30
     agent:
       api_max_retries: 3
       max_turns: 90
@@ -50,7 +50,27 @@ data:
       show_cost: false
       streaming: false
       credits_notices: false
-    fallback_providers: []
+    fallback_providers:
+      # pop tier — large-model MLX reasoning, linked in-cluster via
+      # coredns-custom (k8s/coredns-custom-configmap.yaml) — FEAT-1021.
+      # Reachable as ollama-pop.homelab.local:11434 from any pod. The
+      # 0.5s health probe is a tight loop; pop ollama is not always-on
+      # (lid-close sleeps), so a fast fail-over is the whole point of
+      # the fallback_providers list.
+      #
+      # TODO(fe57dd3): confirm the exact fallback_providers field names
+      # against the upstream hermes-agent config schema. The fields
+      # below mirror the `delegation:` block (provider: ollama-launch)
+      # since that proves `ollama-launch` is a known provider type. If
+      # the schema wants `api_mode: openai` or `type: openai`, adjust
+      # before rolling out the pod.
+      - provider: ollama-launch
+        name: ollama-pop
+        base_url: http://ollama-pop.homelab.local:11434
+        model: qwen3.6:35b-mlx
+        health_check_url: http://ollama-pop.homelab.local:11434
+        health_check_interval: 0.5
+        max_concurrent: 1
     file_read_max_chars: 100000
     tool_output:
       max_bytes: 50000

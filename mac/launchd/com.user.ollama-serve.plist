@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  User LaunchAgent for the ollama server on pop.
+
+  Sets OLLAMA_HOST=0.0.0.0:11434 and OLLAMA_ORIGINS=* before launching
+  `ollama serve` so cluster pods can reach pop's ollama cross-origin over
+  the LAN. This is the mac-side counterpart of the in-cluster
+  coredns-custom ConfigMap (k8s/coredns-custom-configmap.yaml) that
+  resolves ollama-pop.homelab.local to 192.168.1.6 (FEAT-1021).
+
+  Install:
+    cp com.user.ollama-serve.plist ~/Library/LaunchAgents/
+    launchctl load -w ~/Library/LaunchAgents/com.user.ollama-serve.plist
+
+  Stop the existing double-listen first (if any):
+    lsof -nP -iTCP:11434 -sTCP:LISTEN   # identify PIDs
+    kill <pid>                          # kill the 127.0.0.1:11434 listener
+    launchctl load -w ...               # then start the LaunchAgent
+
+  Uninstall:
+    launchctl unload ~/Library/LaunchAgents/com.user.ollama-serve.plist
+    rm ~/Library/LaunchAgents/com.user.ollama-serve.plist
+
+  Logs:
+    stdout/stderr → /tmp/com.user.ollama-serve.log
+
+  Companion macOS firewall rule (allow inbound 11434 from LAN + Tailscale
+  CGNAT only — keep pop ollama off the public Cloudflare tunnel):
+    See mac/docs/ollama-pop-fw.md for the exact `socketfilterfw` commands.
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.user.ollama-serve</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/zsh</string>
+    <string>-c</string>
+    <string>cd $HOME && exec /Applications/Ollama.app/Contents/Resources/ollama serve</string>
+  </array>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>OLLAMA_HOST</key>
+    <string>0.0.0.0:11434</string>
+    <key>OLLAMA_ORIGINS</key>
+    <string>*</string>
+    <key>PATH</key>
+    <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+  </dict>
+
+  <key>RunAtLoad</key>
+  <true/>
+
+  <key>KeepAlive</key>
+  <dict>
+    <key>SuccessfulExit</key>
+    <false/>
+    <key>Crashed</key>
+    <true/>
+  </dict>
+
+  <key>ThrottleInterval</key>
+  <integer>10</integer>
+
+  <key>StandardOutPath</key>
+  <string>/tmp/com.user.ollama-serve.log</string>
+
+  <key>StandardErrorPath</key>
+  <string>/tmp/com.user.ollama-serve.err.log</string>
+
+  <key>ProcessType</key>
+  <string>Background</string>
+</dict>
+</plist>
