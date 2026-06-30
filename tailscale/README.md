@@ -77,7 +77,7 @@ The script installs tailscale, enables IP forwarding on the router nodes, and ru
 > and tailnet-IP SSH keep working — a confusing half-broken state). `--accept-routes`
 > belongs only on **off-LAN client devices** (phone/laptop while traveling) that
 > need to reach the LAN through the subnet router.
-
+>
 > The auth key is passed at runtime (env var) — it is **not** stored in the repo.
 > `**/*secret*.yaml` and any local key files stay gitignored.
 
@@ -99,10 +99,10 @@ ping 192.168.1.<pihole>      # LAN reachable via the subnet route
 
 Two contexts in `~/.kube/config`:
 
-| Context | Server | Path | Requires |
-|---------|--------|------|----------|
-| `homelab` | `192.168.1.19:6443` | LAN IP via subnet route | `--accept-routes` on client |
-| `tailnet` | `100.95.215.105:6443` | Direct tailnet IP | `--tls-san` on timmy (done) |
+| Context   | Server                | Path                    | Requires                    |
+| --------- | --------------------- | ----------------------- | --------------------------- |
+| `homelab` | `192.168.1.19:6443`   | LAN IP via subnet route | `--accept-routes` on client |
+| `tailnet` | `100.95.215.105:6443` | Direct tailnet IP       | `--tls-san` on timmy (done) |
 
 ```bash
 kubectl --context homelab get nodes   # via subnet route

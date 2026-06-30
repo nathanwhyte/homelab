@@ -4,7 +4,7 @@ Self-hosted Mem0 deployment for Hermes agent memory, replacing OpenViking as the
 
 ## Architecture
 
-```
+```text
 Hermes ──memory──▶ mem0-adapter:18080 ──▶ mem0-server:8080 ──▶ mem0-postgres:5432 (pgvector)
                            │
                            └── translates Platform v1/v3 API ──▶ OSS REST API
@@ -188,7 +188,7 @@ web UI for memories, API keys, entities, configuration, and request history. It 
 built and deployed as a separate container image and exposed at
 **`https://mem0.nathanwhyte.dev`**.
 
-```
+```text
 Browser ──▶ https://mem0.nathanwhyte.dev ──▶ mem0-dashboard:3000
                  │
                  └── API path prefixes ──▶ mem0-server:8080

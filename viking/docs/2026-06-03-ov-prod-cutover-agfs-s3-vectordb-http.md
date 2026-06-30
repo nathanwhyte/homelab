@@ -159,7 +159,7 @@ If the new stack misbehaves and we need to go back to local backends:
 
 ## Verification log
 
-```
+```bash
 $ kubectl -n viking apply -f viking/manifests/openviking-standalone-configmap.yaml
 configmap/openviking-standalone-config configured
 

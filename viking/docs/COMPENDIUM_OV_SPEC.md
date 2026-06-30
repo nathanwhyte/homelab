@@ -46,7 +46,7 @@ become discoverable without per-file edits.
 
 For each entry with effective `ov_mode = pointer`, the sync uploads:
 
-```
+```text
 [ov_mode: pointer]
 Path: ~/code/compendium/<rel-path>/<filename>.md
 ID: <entry-id>

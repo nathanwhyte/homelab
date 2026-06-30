@@ -13,7 +13,7 @@ The cluster receives via NodePorts already exposed on every node:
 
 ## Architecture
 
-```
+```text
 ┌─ macOS host ──────────────────────────────────────────┐
 │                                                       │
 │  ollama serve (native, :11434)                        │

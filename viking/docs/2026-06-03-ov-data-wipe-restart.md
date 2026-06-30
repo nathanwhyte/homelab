@@ -177,7 +177,7 @@ $ kubectl -n viking exec openviking-... -c openviking -- curl -sS -X POST \
 
 **4. OV logs show VLM + embedding completed:**
 
-```
+```text
 2026-06-04 04:19:51 - openviking.storage.queuefs.embedding_tracker - INFO - Registered embedding tracker for SemanticMsg c4201966-...: 3 tasks
 2026-06-04 04:19:51 - openviking.storage.queuefs.semantic_processor - INFO - Completed semantic generation for: viking://resources/smoke/20260603-231934
 2026-06-04 04:19:52 - openviking.storage.queuefs.embedding_tracker - INFO - All embedding tasks(3) completed for SemanticMsg c4201966-...
