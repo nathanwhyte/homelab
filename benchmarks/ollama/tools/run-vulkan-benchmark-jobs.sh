@@ -49,8 +49,26 @@ run_config_job() {
   fi
 }
 
+capture_env() {
+  local out="${OUTPUT_DIR}/cluster-vulkan-env.json"
+  kubectl get deployment ollama -n "$NS" -o json | \
+    jq '{
+      num_parallel: .spec.template.spec.containers[] | select(.name=="ollama") | .env[] | select(.name=="OLLAMA_NUM_PARALLEL") | .value,
+      context_length: .spec.template.spec.containers[] | select(.name=="ollama") | .env[] | select(.name=="OLLAMA_CONTEXT_LENGTH") | .value,
+      kv_cache_type: .spec.template.spec.containers[] | select(.name=="ollama") | .env[] | select(.name=="OLLAMA_KV_CACHE_TYPE") | .value,
+      keep_alive: .spec.template.spec.containers[] | select(.name=="ollama") | .env[] | select(.name=="OLLAMA_KEEP_ALIVE") | .value,
+      load_timeout: .spec.template.spec.containers[] | select(.name=="ollama") | .env[] | select(.name=="OLLAMA_LOAD_TIMEOUT") | .value,
+      vulkan: .spec.template.spec.containers[] | select(.name=="ollama") | .env[] | select(.name=="OLLAMA_VULKAN") | .value,
+      vk_visible_devices: .spec.template.spec.containers[] | select(.name=="ollama") | .env[] | select(.name=="GGML_VK_VISIBLE_DEVICES") | .value,
+      image: .spec.template.spec.containers[] | select(.name=="ollama") | .image,
+      timestamp: now | todate
+    }' > "$out"
+  log "captured Vulkan env to ${out}"
+}
+
 main() {
   mkdir -p "${OUTPUT_DIR}"
+  capture_env
   for config in "${CONFIGS[@]}"; do
     run_config_job "$config"
   done
