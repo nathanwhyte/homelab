@@ -15,7 +15,7 @@ kubectl create configmap bench-scripts \
 	--from-file=metrics.py=../lib/metrics.py \
 	--from-file=output.py=../lib/output.py \
 	--from-file=prompts.py=../lib/prompts.py \
-	--from-file=__init__.py=../lib/__init__.py \
+	--from-file=tool_calls.py=../lib/tool_calls.py \
 	--from-file=cluster-agentic.toml=configs/cluster-agentic.toml \
 	--from-file=cluster-default.toml=configs/cluster-default.toml \
 	--from-file=cluster-np1-agentic.toml=configs/cluster-np1-agentic.toml \

@@ -1,0 +1,52 @@
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ollama-benchmark-vulkan
+  namespace: llama
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        app: ollama-benchmark-vulkan
+    spec:
+      restartPolicy: Never
+      nodeSelector:
+        kubernetes.io/hostname: timmy
+      containers:
+        - name: bench
+          image: python:3.12-slim
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -c
+            - |
+              pip install --quiet aiohttp
+              mkdir -p /bench/lib /bench/benchmarks/results
+              cp /scripts/concurrency-bench.py /bench/
+              cp /scripts/metrics.py /scripts/output.py /scripts/prompts.py /scripts/tool_calls.py /bench/lib/
+              cp /scripts/cluster-vulkan*.toml /bench/
+              cd /bench
+              echo "=== running benchmark: ${CONFIG} ==="
+              python -u concurrency-bench.py --config "${CONFIG}.toml"
+          env:
+            - name: PYTHONPATH
+              value: /bench
+          securityContext:
+            privileged: true
+          volumeMounts:
+            - name: scripts
+              mountPath: /scripts
+            - name: results
+              mountPath: /bench/benchmarks/results
+      volumes:
+        - name: scripts
+          configMap:
+            name: bench-scripts-vulkan
+            defaultMode: 0755
+        - name: results
+          hostPath:
+            path: /var/lib/ollama-benchmark/results
+            type: DirectoryOrCreate

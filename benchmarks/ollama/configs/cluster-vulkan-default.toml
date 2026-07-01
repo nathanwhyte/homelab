@@ -1,0 +1,26 @@
+# Cluster-side Vulkan backend benchmark for timmy's RX 9070 XT.
+# Mirrors cluster-default.toml but uses the Vulkan-capable Ollama image and a
+# distinct output prefix so ROCm and Vulkan results do not collide.
+
+[ollama]
+url = "http://ollama.llama.svc:11434"
+model = "gemma4:12b-it-qat"
+num_ctx = 16384
+num_predict = 512
+temperature = 0.3
+
+[workload]
+name = "mixed_mem0"
+max_concurrency = 8
+requests_per_level = 8
+repeats = 3
+cooldown_seconds = 15
+
+[prometheus]
+url = "http://prom-prometheus.grafana:9090"
+instance_label = ".*"
+sample_interval_seconds = 2.0
+
+[output]
+dir = "benchmarks/results"
+prefix = "ollama-cluster-vulkan-default"

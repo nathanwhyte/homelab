@@ -1,0 +1,1710 @@
+apiVersion: v1
+data:
+  cluster-vulkan-agentic.toml: |
+    # Cluster-side Vulkan backend agentic benchmark for timmy's RX 9070 XT.
+    # Mirrors cluster-agentic.toml but uses the Vulkan-capable Ollama image and a
+    # distinct output prefix so ROCm and Vulkan results do not collide.
+
+    [ollama]
+    url = "http://ollama.llama.svc:11434"
+    model = "gemma4:12b-it-qat"
+    num_ctx = 32768
+    num_predict = 2048
+    temperature = 0.3
+
+    [workload]
+    name = "agentic"
+    max_concurrency = 8
+    requests_per_level = 8
+    repeats = 3
+    cooldown_seconds = 20
+
+    [prometheus]
+    url = "http://prom-prometheus.grafana:9090"
+    instance_label = ".*"
+    sample_interval_seconds = 2.0
+
+    [output]
+    dir = "benchmarks/results"
+    prefix = "ollama-cluster-vulkan-agentic"
+  cluster-vulkan-default.toml: |
+    # Cluster-side Vulkan backend benchmark for timmy's RX 9070 XT.
+    # Mirrors cluster-default.toml but uses the Vulkan-capable Ollama image and a
+    # distinct output prefix so ROCm and Vulkan results do not collide.
+
+    [ollama]
+    url = "http://ollama.llama.svc:11434"
+    model = "gemma4:12b-it-qat"
+    num_ctx = 16384
+    num_predict = 512
+    temperature = 0.3
+
+    [workload]
+    name = "mixed_mem0"
+    max_concurrency = 8
+    requests_per_level = 8
+    repeats = 3
+    cooldown_seconds = 15
+
+    [prometheus]
+    url = "http://prom-prometheus.grafana:9090"
+    instance_label = ".*"
+    sample_interval_seconds = 2.0
+
+    [output]
+    dir = "benchmarks/results"
+    prefix = "ollama-cluster-vulkan-default"
+  cluster-vulkan-q5km-agentic.toml: |
+    # Vulkan Q5_K_M agentic benchmark. VRAM watch item: Q5_K_M weights plus 32K
+    # context at np=8 may approach the 16 GB ceiling. If the run fails to load,
+    # retry with NUM_PARALLEL=4 or num_ctx=16384.
+
+    [ollama]
+    url = "http://ollama.llama.svc:11434"
+    model = "hf.co/unsloth/gemma-4-12B-it-qat-GGUF:Q5_K_M"
+    num_ctx = 32768
+    num_predict = 2048
+    temperature = 0.3
+
+    [workload]
+    name = "agentic"
+    max_concurrency = 8
+    requests_per_level = 8
+    repeats = 3
+    cooldown_seconds = 20
+
+    [prometheus]
+    url = "http://prom-prometheus.grafana:9090"
+    instance_label = ".*"
+    sample_interval_seconds = 2.0
+
+    [output]
+    dir = "benchmarks/results"
+    prefix = "ollama-cluster-vulkan-q5km-agentic"
+  cluster-vulkan-q5km-default.toml: |
+    # Vulkan benchmark using the higher-quality Q5_K_M quant from Unsloth.
+    # Runs the same mixed_mem0 workload shape as the default config so the
+    # ROCm/Vulkan/Q4_0/Q5_K_M/Q6_K matrix is directly comparable.
+
+    [ollama]
+    url = "http://ollama.llama.svc:11434"
+    model = "hf.co/unsloth/gemma-4-12B-it-qat-GGUF:Q5_K_M"
+    num_ctx = 16384
+    num_predict = 512
+    temperature = 0.3
+
+    [workload]
+    name = "mixed_mem0"
+    max_concurrency = 8
+    requests_per_level = 8
+    repeats = 3
+    cooldown_seconds = 15
+
+    [prometheus]
+    url = "http://prom-prometheus.grafana:9090"
+    instance_label = ".*"
+    sample_interval_seconds = 2.0
+
+    [output]
+    dir = "benchmarks/results"
+    prefix = "ollama-cluster-vulkan-q5km-default"
+  cluster-vulkan-q6k-agentic.toml: |
+    # Vulkan Q6_K agentic benchmark. High VRAM risk: Q6_K weights plus 32K
+    # context at np=8 will likely exceed 16 GB. If the run fails to load, retry
+    # with NUM_PARALLEL=4 or num_ctx=16384.
+
+    [ollama]
+    url = "http://ollama.llama.svc:11434"
+    model = "hf.co/unsloth/gemma-4-12B-it-qat-GGUF:Q6_K"
+    num_ctx = 32768
+    num_predict = 2048
+    temperature = 0.3
+
+    [workload]
+    name = "agentic"
+    max_concurrency = 8
+    requests_per_level = 8
+    repeats = 3
+    cooldown_seconds = 20
+
+    [prometheus]
+    url = "http://prom-prometheus.grafana:9090"
+    instance_label = ".*"
+    sample_interval_seconds = 2.0
+
+    [output]
+    dir = "benchmarks/results"
+    prefix = "ollama-cluster-vulkan-q6k-agentic"
+  cluster-vulkan-q6k-default.toml: |
+    # Vulkan benchmark using the near-lossless Q6_K quant from Unsloth.
+    # Runs the same mixed_mem0 workload shape as the default config so the
+    # ROCm/Vulkan/Q4_0/Q5_K_M/Q6_K matrix is directly comparable.
+
+    [ollama]
+    url = "http://ollama.llama.svc:11434"
+    model = "hf.co/unsloth/gemma-4-12B-it-qat-GGUF:Q6_K"
+    num_ctx = 16384
+    num_predict = 512
+    temperature = 0.3
+
+    [workload]
+    name = "mixed_mem0"
+    max_concurrency = 8
+    requests_per_level = 8
+    repeats = 3
+    cooldown_seconds = 15
+
+    [prometheus]
+    url = "http://prom-prometheus.grafana:9090"
+    instance_label = ".*"
+    sample_interval_seconds = 2.0
+
+    [output]
+    dir = "benchmarks/results"
+    prefix = "ollama-cluster-vulkan-q6k-default"
+  concurrency-bench.py: |
+    #!/usr/bin/env python3
+    """Ollama concurrency benchmark harness.
+
+    Replaces the ad-hoc llama/tools/ollama-concurrency-benchmark.py with a
+    config-driven tool that reports P50/P90/P95/P99 latency percentiles,
+    inter-token latency (ITL), and aggregate throughput. Supports mixed mem0 +
+    sub-agent workloads and samples GPU metrics during the run.
+    """
+
+    from __future__ import annotations
+
+    import argparse
+    import asyncio
+    import statistics
+    import sys
+    import time
+    from dataclasses import dataclass, field
+    from pathlib import Path
+    from typing import Any, Optional
+
+    import tomllib
+
+
+    try:
+        import aiohttp
+    except ImportError as exc:  # pragma: no cover - runtime dependency hint
+        raise SystemExit(
+            "aiohttp is required. Run: uv run --with aiohttp python "
+            "benchmarks/ollama/tools/concurrency-bench.py ..."
+        ) from exc
+
+
+    # Make lib imports work when running from repo root, PYTHONPATH, or a flat
+    # directory (e.g. /bench with lib/ alongside the script).
+    script_dir = Path(__file__).resolve().parent
+    lib_root: Path | None = None
+    # Flat layout: lib/ next to the script.
+    if (script_dir / "lib" / "metrics.py").exists():
+        lib_root = script_dir / "lib"
+    # Source layout mounted under /scripts with /scripts/lib alongside.
+    elif (script_dir / "scripts" / "lib" / "metrics.py").exists():
+        lib_root = script_dir / "scripts" / "lib"
+    # Repo root layout: walk up until we find a lib/ directory with metrics.py.
+    else:
+        for parent in script_dir.parents:
+            if (parent / "lib" / "metrics.py").exists():
+                lib_root = parent / "lib"
+                break
+    if lib_root is None:
+        raise SystemExit(
+            f"Could not find benchmark lib/ directory containing metrics.py "
+            f"(script_dir={script_dir})"
+        )
+    sys.path.insert(0, str(lib_root))
+
+    from metrics import sample_during  # type: ignore[import-not-found]
+    from output import (  # type: ignore[import-not-found]
+        build_meta,
+        latency_summary,
+        markdown_table,
+        throughput_summary,
+        write_csv,
+        write_json,
+    )
+    from prompts import select_workload  # type: ignore[import-not-found]
+    from tool_calls import validate_tool_call  # type: ignore[import-not-found]
+
+
+    @dataclass
+    class RequestResult:
+        wall_s: float
+        ttft_s: float
+        itl_s: float
+        gen_tps: float
+        tokens: int
+        prompt_tokens: int
+        error: Optional[str] = None
+        response_text: Optional[str] = None
+        tool_validation: Optional[dict[str, Any]] = None
+
+
+    @dataclass
+    class LevelResult:
+        concurrency: int
+        requests: int
+        repeats: int
+        wall_s: list[float] = field(default_factory=list)
+        ttft_s: list[float] = field(default_factory=list)
+        itl_s: list[float] = field(default_factory=list)
+        gen_tps: list[float] = field(default_factory=list)
+        tokens: list[int] = field(default_factory=list)
+        prompt_tokens: list[int] = field(default_factory=list)
+        repeat_throughput: list[float] = field(default_factory=list)
+        aggregate_tok_s: Optional[float] = None
+        tool_validations: list[dict[str, Any]] = field(default_factory=list)
+
+        def _tool_validation_summary(self) -> Optional[dict[str, Any]]:
+            if not self.tool_validations:
+                return None
+            n = len(self.tool_validations)
+
+            def _rate(key: str) -> float:
+                return sum(1 for v in self.tool_validations if v.get(key)) / n
+
+            return {
+                "count": n,
+                "valid_json_rate": round(_rate("valid_json"), 4),
+                "has_tool_field_rate": round(_rate("has_tool_field"), 4),
+                "has_arguments_field_rate": round(_rate("has_arguments_field"), 4),
+                "tool_recognized_rate": round(_rate("tool_recognized"), 4),
+                "required_args_present_rate": round(_rate("required_args_present"), 4),
+                "arg_types_valid_rate": round(_rate("arg_types_valid"), 4),
+                "fully_valid_rate": round(
+                    sum(
+                        1
+                        for v in self.tool_validations
+                        if v.get("valid_json")
+                        and v.get("tool_recognized")
+                        and v.get("required_args_present")
+                        and v.get("arg_types_valid")
+                    )
+                    / n,
+                    4,
+                ),
+            }
+
+        def to_summary(self) -> dict[str, Any]:
+            summary: dict[str, Any] = {
+                "concurrency": self.concurrency,
+                "requests": self.requests,
+                "repeats": self.repeats,
+                "aggregate_tok_s": round(self.aggregate_tok_s, 2)
+                if self.aggregate_tok_s is not None
+                else None,
+                "wall_s": latency_summary(self.wall_s, "wall_s"),
+                "ttft_s": latency_summary(self.ttft_s, "ttft_s"),
+                "itl_s": latency_summary(self.itl_s, "itl_s"),
+                "gen_tps": latency_summary(self.gen_tps, "gen_tps"),
+                "tokens": {
+                    "mean": round(statistics.mean(self.tokens), 1) if self.tokens else 0.0,
+                    "total": sum(self.tokens),
+                },
+                "prompt_tokens": {
+                    "mean": round(statistics.mean(self.prompt_tokens), 1)
+                    if self.prompt_tokens
+                    else 0.0,
+                    "total": sum(self.prompt_tokens),
+                },
+            }
+            tv = self._tool_validation_summary()
+            if tv is not None:
+                summary["tool_validation"] = tv
+            return summary
+
+        def to_csv_row(self) -> dict[str, Any]:
+            """Flatten percentiles into scalar columns for CSV/Markdown output."""
+            s = self.to_summary()
+
+            def _lat(prefix: str) -> dict[str, float]:
+                d = s[prefix]
+                return {
+                    f"{prefix}_p50": d["p50"],
+                    f"{prefix}_p95": d["p95"],
+                    f"{prefix}_mean": d["mean"],
+                }
+
+            row = {
+                "concurrency": s["concurrency"],
+                "requests": s["requests"],
+                "repeats": s["repeats"],
+                "aggregate_tok_s": s["aggregate_tok_s"],
+                **_lat("wall_s"),
+                **_lat("ttft_s"),
+                **_lat("itl_s"),
+                **_lat("gen_tps"),
+                "tokens_mean": s["tokens"]["mean"],
+                "tokens_total": s["tokens"]["total"],
+                "prompt_tokens_mean": s["prompt_tokens"]["mean"],
+                "prompt_tokens_total": s["prompt_tokens"]["total"],
+            }
+            if "tool_validation" in s:
+                row.update({f"tv_{k}": v for k, v in s["tool_validation"].items()})
+            return row
+
+
+    async def run_request(
+        session: aiohttp.ClientSession,
+        url: str,
+        model: str,
+        prompt: str,
+        num_ctx: int,
+        num_predict: int,
+        temperature: float,
+    ) -> RequestResult:
+        payload = {
+            "model": model,
+            "prompt": prompt,
+            "stream": False,
+            "options": {
+                "num_ctx": num_ctx,
+                "num_predict": num_predict,
+                "temperature": temperature,
+            },
+        }
+        t0 = time.monotonic()
+        try:
+            async with session.post(
+                f"{url}/api/generate",
+                json=payload,
+                timeout=aiohttp.ClientTimeout(total=300),
+            ) as resp:
+                data = await resp.json()
+        except Exception as exc:
+            return RequestResult(
+                wall_s=time.monotonic() - t0,
+                ttft_s=0.0,
+                itl_s=0.0,
+                gen_tps=0.0,
+                tokens=0,
+                prompt_tokens=0,
+                error=str(exc),
+            )
+        wall = time.monotonic() - t0
+
+        load_ns = data.get("load_duration", 0) or 0
+        prefill_ns = data.get("prompt_eval_duration", 0) or 0
+        eval_ns = data.get("eval_duration", 0) or 0
+        eval_count = data.get("eval_count", 0) or 0
+        prompt_count = data.get("prompt_eval_count", 0) or 0
+
+        ttft = (load_ns + prefill_ns) / 1e9
+        gen_tps = eval_count / (eval_ns / 1e9) if eval_ns else 0.0
+        itl = 1.0 / gen_tps if gen_tps > 0 else 0.0
+
+        response_text = data.get("response", "")
+        return RequestResult(
+            wall_s=wall,
+            ttft_s=ttft,
+            itl_s=itl,
+            gen_tps=gen_tps,
+            tokens=eval_count,
+            prompt_tokens=prompt_count,
+            response_text=response_text,
+        )
+
+
+    async def benchmark_level(
+        session: aiohttp.ClientSession,
+        url: str,
+        model: str,
+        prompts: list[str],
+        concurrency: int,
+        num_ctx: int,
+        num_predict: int,
+        temperature: float,
+        expected_tools: Optional[list[Optional[str]]] = None,
+        validate_tools: bool = False,
+    ) -> list[RequestResult]:
+        sem = asyncio.Semaphore(concurrency)
+
+        async def bounded(prompt_idx: int, prompt: str) -> RequestResult:
+            async with sem:
+                result = await run_request(
+                    session, url, model, prompt, num_ctx, num_predict, temperature
+                )
+                if validate_tools and result.response_text is not None:
+                    expected = expected_tools[prompt_idx] if expected_tools else None
+                    validation = validate_tool_call(result.response_text, expected)
+                    result.tool_validation = validation.to_dict()
+                return result
+
+        return await asyncio.gather(*[bounded(i, p) for i, p in enumerate(prompts)])
+
+
+    async def warmup(
+        session: aiohttp.ClientSession,
+        url: str,
+        model: str,
+        prompt: str,
+        num_ctx: int,
+        num_predict: int,
+        temperature: float,
+    ) -> RequestResult:
+        return await run_request(
+            session, url, model, prompt, num_ctx, num_predict, temperature
+        )
+
+
+    def load_config(path: Path) -> dict[str, Any]:
+        with path.open("rb") as f:
+            return tomllib.load(f)
+
+
+    def make_output_dir(config: dict[str, Any], override_dir: Optional[str]) -> Path:
+        base = (
+            Path(override_dir)
+            if override_dir
+            else Path(config.get("output", {}).get("dir", "benchmarks/results"))
+        )
+        prefix = config.get("output", {}).get("prefix", "ollama")
+        timestamp = time.strftime("%Y%m%d-%H%M%S")
+        outdir = base / f"{prefix}-{timestamp}"
+        outdir.mkdir(parents=True, exist_ok=True)
+        return outdir
+
+
+    def print_summary_table(results: list[LevelResult]) -> None:
+        print("\n=== Ollama Concurrency Benchmark Summary ===")
+        print(
+            f"{'Conc':>4} | {'Req':>3} | {'P50 TTFT':>8} | {'P95 TTFT':>8} | "
+            f"{'P50 ITL':>8} | {'P95 ITL':>8} | {'Agg tok/s':>10} | {'P50 gen':>8}"
+        )
+        print("-" * 78)
+        for r in results:
+            s = r.to_summary()
+            print(
+                f"{r.concurrency:>4} | {r.requests:>3} | "
+                f"{s['ttft_s']['p50']:>8.2f} | {s['ttft_s']['p95']:>8.2f} | "
+                f"{s['itl_s']['p50']:>8.3f} | {s['itl_s']['p95']:>8.3f} | "
+                f"{s['aggregate_tok_s'] if s['aggregate_tok_s'] is not None else 'n/a':>10} | "
+                f"{s['gen_tps']['p50']:>8.1f}"
+            )
+
+
+    def build_arg_parser() -> argparse.ArgumentParser:
+        parser = argparse.ArgumentParser(
+            description="Benchmark Ollama concurrent inference.",
+            formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+        )
+        parser.add_argument(
+            "--config",
+            type=Path,
+            default=Path("benchmarks/ollama/configs/default.toml"),
+            help="TOML config path",
+        )
+        parser.add_argument(
+            "--output-dir",
+            type=str,
+            default=None,
+            help="Override the output directory from config",
+        )
+        parser.add_argument(
+            "--dry-run",
+            action="store_true",
+            help="Print the first prompt and exit without calling Ollama",
+        )
+        parser.add_argument(
+            "--no-gpu-sampling",
+            action="store_true",
+            help="Disable Prometheus GPU metric sampling",
+        )
+        parser.add_argument(
+            "--amdsmi",
+            action="store_true",
+            help="Sample AMD GPU metrics via the local amdsmi Python library (ROCm)",
+        )
+        parser.add_argument(
+            "--tool-validate",
+            action="store_true",
+            help="Validate tool-calling responses (requires tool_calling workload)",
+        )
+        return parser
+
+
+    async def main() -> int:
+        parser = build_arg_parser()
+        args = parser.parse_args()
+
+        if not args.config.exists():
+            print(f"ERROR: config not found: {args.config}", file=sys.stderr)
+            return 1
+
+        config = load_config(args.config)
+        ollama_cfg = config.get("ollama", {})
+        workload_cfg = config.get("workload", {})
+        prom_cfg = config.get("prometheus", {})
+
+        url = ollama_cfg.get("url", "http://ollama.llama.svc:11434")
+        model = ollama_cfg.get("model", "gemma4:12b-it-qat")
+        num_ctx = ollama_cfg.get("num_ctx", 16384)
+        num_predict = ollama_cfg.get("num_predict", 512)
+        temperature = ollama_cfg.get("temperature", 0.3)
+
+        workload_name = workload_cfg.get("name", "mixed_mem0")
+        max_concurrency = workload_cfg.get("max_concurrency", 6)
+        requests_per_level = workload_cfg.get("requests_per_level", max_concurrency)
+        repeats = workload_cfg.get("repeats", 3)
+        cooldown = workload_cfg.get("cooldown_seconds", 15)
+        tool_validate = args.tool_validate or workload_cfg.get("tool_validate", False)
+
+        prom_url = prom_cfg.get("url", "http://prom-prometheus.grafana:9090")
+        prom_instance = prom_cfg.get("instance_label", ".*")
+        sample_interval = prom_cfg.get("sample_interval_seconds", 2.0)
+        enable_gpu = not args.no_gpu_sampling and prom_url
+        use_amdsmi = args.amdsmi
+
+        workload = select_workload(workload_name, requests_per_level)
+        prompts = workload.prompts
+        expected_tools = workload.expected_tools if workload.expected_tools else None
+
+        if args.dry_run:
+            print("Dry run; first prompt:")
+            print(prompts[0][:200] + "..." if len(prompts[0]) > 200 else prompts[0])
+            return 0
+
+        connector = aiohttp.TCPConnector(limit=max_concurrency + 5)
+        async with aiohttp.ClientSession(connector=connector) as session:
+            # Connectivity / model check.
+            try:
+                async with session.get(f"{url}/api/tags", timeout=10) as resp:
+                    models = await resp.json()
+                model_names = [m.get("name", "") for m in models.get("models", [])]
+                if not any(model in n for n in model_names):
+                    print(
+                        f"WARNING: model '{model}' not found in Ollama /api/tags. "
+                        f"Available: {model_names}",
+                        file=sys.stderr,
+                    )
+            except Exception as exc:
+                print(f"ERROR: cannot reach Ollama at {url}: {exc}", file=sys.stderr)
+                return 1
+
+            # Warmup.
+            print(f"Warming up with 1 request to {model} ...")
+            warmup_res = await warmup(
+                session, url, model, prompts[0], num_ctx, num_predict, temperature
+            )
+            if warmup_res.error:
+                print(f"ERROR during warmup: {warmup_res.error}", file=sys.stderr)
+                return 1
+            print(
+                f"Warmup complete: wall={warmup_res.wall_s:.2f}s, "
+                f"TTFT={warmup_res.ttft_s:.2f}s, ITL={warmup_res.itl_s:.3f}s, "
+                f"gen={warmup_res.gen_tps:.1f} tok/s"
+            )
+
+            level_results: list[LevelResult] = []
+            for level in range(1, max_concurrency + 1):
+                print(
+                    f"\nBenchmarking concurrency={level} with {requests_per_level} requests "
+                    f"(x{repeats} repeats) ..."
+                )
+
+                level_res = LevelResult(
+                    concurrency=level, requests=len(prompts), repeats=repeats
+                )
+                gpu_samples: list[Any] = []
+                repeat_start_global = time.monotonic()
+
+                for _ in range(repeats):
+                    repeat_start = time.monotonic()
+                    repeat_results = await benchmark_level(
+                        session,
+                        url,
+                        model,
+                        prompts,
+                        level,
+                        num_ctx,
+                        num_predict,
+                        temperature,
+                        expected_tools=expected_tools,
+                        validate_tools=tool_validate,
+                    )
+                    repeat_wall = time.monotonic() - repeat_start
+                    repeat_tokens = 0
+                    for rr in repeat_results:
+                        if rr.error:
+                            print(
+                                f"  Request error at concurrency={level}: {rr.error}",
+                                file=sys.stderr,
+                            )
+                            continue
+                        level_res.wall_s.append(rr.wall_s)
+                        level_res.ttft_s.append(rr.ttft_s)
+                        level_res.itl_s.append(rr.itl_s)
+                        level_res.gen_tps.append(rr.gen_tps)
+                        level_res.tokens.append(rr.tokens)
+                        level_res.prompt_tokens.append(rr.prompt_tokens)
+                        repeat_tokens += rr.tokens
+                        if rr.tool_validation:
+                            level_res.tool_validations.append(rr.tool_validation)
+                    if repeat_wall > 0:
+                        level_res.repeat_throughput.append(repeat_tokens / repeat_wall)
+
+                    if enable_gpu or use_amdsmi:
+                        series_list = await sample_during(
+                            session,
+                            duration_s=repeat_wall,
+                            interval_s=sample_interval,
+                            prom_url=prom_url,
+                            ollama_url=url,
+                            model_name=model,
+                            instance_label=prom_instance,
+                            use_amdsmi=use_amdsmi,
+                        )
+                        gpu_samples.extend([s.__dict__ for s in series_list])
+
+                total_wall = time.monotonic() - repeat_start_global
+                total_tokens = sum(level_res.tokens)
+                level_res.aggregate_tok_s = (
+                    total_tokens / total_wall if total_wall > 0 else 0.0
+                )
+
+                level_results.append(level_res)
+                s = level_res.to_summary()
+                print(
+                    f"  P50 TTFT={s['ttft_s']['p50']:.2f}s, "
+                    f"P95 TTFT={s['ttft_s']['p95']:.2f}s, "
+                    f"P50 ITL={s['itl_s']['p50']:.3f}s, "
+                    f"aggregate throughput={s['aggregate_tok_s']:.1f} tok/s"
+                )
+                if "tool_validation" in s:
+                    tv = s["tool_validation"]
+                    print(
+                        f"  tool validation: fully_valid={tv['fully_valid_rate']:.1%} "
+                        f"(json={tv['valid_json_rate']:.1%}, "
+                        f"tool={tv['tool_recognized_rate']:.1%}, "
+                        f"args={tv['required_args_present_rate']:.1%})"
+                    )
+
+                if level < max_concurrency:
+                    print(f"Cooling down for {cooldown}s ...")
+                    await asyncio.sleep(cooldown)
+
+            print_summary_table(level_results)
+
+            outdir = make_output_dir(config, args.output_dir)
+            json_path = outdir / "results.json"
+            csv_path = outdir / "summary.csv"
+            md_path = outdir / "summary.md"
+
+            samples_meta = [
+                {
+                    "workload": workload_name,
+                    "max_concurrency": max_concurrency,
+                    "requests_per_level": requests_per_level,
+                    "repeats": repeats,
+                }
+            ]
+            all_validations = [v for r in level_results for v in r.tool_validations]
+            summary: dict[str, Any] = {
+                "levels": [r.to_summary() for r in level_results],
+                "overall_throughput": throughput_summary(
+                    [tok for r in level_results for tok in r.tokens],
+                    [w for r in level_results for w in r.wall_s],
+                ),
+            }
+            if all_validations:
+                n = len(all_validations)
+
+                def _overall_rate(key: str) -> float:
+                    return sum(1 for v in all_validations if v.get(key)) / n
+
+                summary["overall_tool_validation"] = {
+                    "count": n,
+                    "valid_json_rate": round(_overall_rate("valid_json"), 4),
+                    "has_tool_field_rate": round(_overall_rate("has_tool_field"), 4),
+                    "has_arguments_field_rate": round(
+                        _overall_rate("has_arguments_field"), 4
+                    ),
+                    "tool_recognized_rate": round(_overall_rate("tool_recognized"), 4),
+                    "required_args_present_rate": round(
+                        _overall_rate("required_args_present"), 4
+                    ),
+                    "arg_types_valid_rate": round(_overall_rate("arg_types_valid"), 4),
+                    "fully_valid_rate": round(
+                        sum(
+                            1
+                            for v in all_validations
+                            if v.get("valid_json")
+                            and v.get("tool_recognized")
+                            and v.get("required_args_present")
+                            and v.get("arg_types_valid")
+                        )
+                        / n,
+                        4,
+                    ),
+                }
+
+            write_json(
+                json_path,
+                meta=build_meta("ollama-concurrency-bench"),
+                config=config,
+                samples=samples_meta,
+                summary=summary,
+                gpu_series=gpu_samples or None,
+            )
+            print(f"\nWrote JSON results to {json_path}")
+
+            csv_rows = [r.to_csv_row() for r in level_results]
+            write_csv(csv_path, csv_rows)
+            print(f"Wrote CSV summary to {csv_path}")
+
+            md_path.write_text(
+                f"# Ollama concurrency benchmark summary\n\n{markdown_table(csv_rows)}\n"
+            )
+            print(f"Wrote Markdown summary to {md_path}")
+
+        return 0
+
+
+    if __name__ == "__main__":
+        sys.exit(asyncio.run(main()))
+  metrics.py: |
+    """GPU and model-state metric helpers for the benchmarking harness.
+
+    All queries are async so they can be sampled concurrently with a benchmark run.
+    The module supports:
+
+    - AMD GPU metrics via Prometheus (amdgpu-exporter)
+    - AMD GPU metrics via the local amdsmi Python library (RDNA4/RDNA3)
+    - NVIDIA GPU metrics via Prometheus (DCGM)
+    - Ollama /api/ps as a VRAM fallback
+    """
+
+    from __future__ import annotations
+
+    import asyncio
+    import time
+    from dataclasses import dataclass, field
+    from typing import Any, Optional
+
+
+    def _now_ms() -> int:
+        return int(time.time() * 1000)
+
+
+    @dataclass
+    class GpuSample:
+        timestamp_ms: int
+        vram_bytes: Optional[int] = None
+        vram_total_bytes: Optional[int] = None
+        power_watts: Optional[float] = None
+        temp_celsius: Optional[float] = None
+        temp_mem_celsius: Optional[float] = None
+        gpu_util_percent: Optional[float] = None
+        mem_util_percent: Optional[float] = None
+        fan_rpm: Optional[int] = None
+        throttle: Optional[bool] = None
+        voltage_gfx_mv: Optional[int] = None
+        voltage_mem_mv: Optional[int] = None
+        clock_gfx_mhz: Optional[int] = None
+        clock_mem_mhz: Optional[int] = None
+        source: str = "unknown"
+
+
+    @dataclass
+    class GpuSeries:
+        metric: str
+        instance: Optional[str] = None
+        gpu: Optional[str] = None
+        samples: list[GpuSample] = field(default_factory=list)
+
+
+    async def _prom_query(
+        session: Any,
+        prom_url: str,
+        query: str,
+        timeout: float = 10.0,
+    ) -> Optional[list[dict]]:
+        """Run an instant PromQL query and return the 'result' list."""
+        try:
+            import aiohttp
+        except ImportError as exc:  # pragma: no cover - runtime dependency hint
+            raise SystemExit(
+                "aiohttp is required. Run: uv run --with aiohttp python ..."
+            ) from exc
+
+        try:
+            async with session.get(
+                f"{prom_url}/api/v1/query",
+                params={"query": query},
+                timeout=aiohttp.ClientTimeout(total=timeout),
+            ) as resp:
+                data = await resp.json()
+        except Exception:
+            return None
+        if data.get("status") != "success":
+            return None
+        return data.get("data", {}).get("result", [])
+
+
+    async def sample_amd_gpu(
+        session: Any,
+        prom_url: str,
+        instance_label: Optional[str] = None,
+    ) -> GpuSeries:
+        """Sample AMD GPU VRAM, power, and temperature from amdgpu-exporter."""
+        matchers = ""
+        if instance_label:
+            matchers += f',instance=~"{instance_label}"'
+
+        vram_results = await _prom_query(
+            session, prom_url, f"amdgpu_vram_used_bytes{{{matchers.lstrip(',')}}}"
+        )
+        power_results = await _prom_query(
+            session, prom_url, f"amdgpu_power_watts{{{matchers.lstrip(',')}}}"
+        )
+        temp_results = await _prom_query(
+            session,
+            prom_url,
+            f"amdgpu_junction_temperature_celsius{{{matchers.lstrip(',')}}}",
+        )
+
+        def _first_value(results: Optional[list[dict]]) -> Optional[float]:
+            if not results:
+                return None
+            try:
+                return float(results[0]["value"][1])
+            except (KeyError, ValueError, IndexError):
+                return None
+
+        return GpuSeries(
+            metric="amdgpu",
+            instance=instance_label,
+            samples=[
+                GpuSample(
+                    timestamp_ms=_now_ms(),
+                    vram_bytes=int(v)
+                    if (v := _first_value(vram_results)) is not None
+                    else None,
+                    power_watts=_first_value(power_results),
+                    temp_celsius=_first_value(temp_results),
+                    source="prometheus:amdgpu-exporter",
+                )
+            ],
+        )
+
+
+    async def sample_nvidia_gpu(
+        session: Any,
+        prom_url: str,
+        instance_label: Optional[str] = None,
+    ) -> GpuSeries:
+        """Sample NVIDIA GPU VRAM, power, and temperature from DCGM."""
+        matchers = ""
+        if instance_label:
+            matchers += f',instance=~"{instance_label}"'
+
+        vram_results = await _prom_query(
+            session, prom_url, f"DCGM_FI_DEV_FB_USED{{{matchers.lstrip(',')}}}"
+        )
+        power_results = await _prom_query(
+            session, prom_url, f"DCGM_FI_DEV_POWER_USAGE{{{matchers.lstrip(',')}}}"
+        )
+        temp_results = await _prom_query(
+            session, prom_url, f"DCGM_FI_DEV_GPU_TEMP{{{matchers.lstrip(',')}}}"
+        )
+
+        def _first_value(results: Optional[list[dict]]) -> Optional[float]:
+            if not results:
+                return None
+            try:
+                return float(results[0]["value"][1])
+            except (KeyError, ValueError, IndexError):
+                return None
+
+        return GpuSeries(
+            metric="dcgm",
+            instance=instance_label,
+            samples=[
+                GpuSample(
+                    timestamp_ms=_now_ms(),
+                    vram_bytes=int(v)
+                    if (v := _first_value(vram_results)) is not None
+                    else None,
+                    power_watts=_first_value(power_results),
+                    temp_celsius=_first_value(temp_results),
+                    source="prometheus:dcgm",
+                )
+            ],
+        )
+
+
+    def _find_discrete_amd_gpu():
+        """Return the first discrete AMD GPU handle using amdsmi VRAM size.
+
+        Returns None if amdsmi is unavailable or no discrete GPU is found.
+        Skips APUs/iGPUs by requiring > 1 GiB of VRAM.
+        """
+        try:
+            import amdsmi
+        except Exception:
+            return None
+
+        try:
+            amdsmi.amdsmi_init()
+            handles = amdsmi.amdsmi_get_processor_handles()
+            for handle in handles:
+                try:
+                    vram_info = amdsmi.amdsmi_get_gpu_vram_info(handle)
+                    vram_mb = vram_info.get("vram_size") or 0
+                    if vram_mb > 1024:
+                        return handle
+                except Exception:
+                    continue
+            return None
+        except Exception:
+            return None
+
+
+    def _sample_amdsmi_once(handle: Any) -> Optional[GpuSample]:
+        """Synchronous sample of one AMD GPU via amdsmi."""
+        try:
+            import amdsmi
+        except Exception:
+            return None
+
+        try:
+            bdf = amdsmi.amdsmi_get_gpu_device_bdf(handle)
+            metrics = amdsmi.amdsmi_get_gpu_metrics_info(handle)
+            vram_info = amdsmi.amdsmi_get_gpu_vram_info(handle)
+        except Exception:
+            return None
+
+        def _n(v):
+            """Return a numeric value or None if it's 'N/A' or missing."""
+            if v is None or v == "N/A":
+                return None
+            try:
+                return float(v) if isinstance(v, (int, float, str)) else None
+            except (TypeError, ValueError):
+                return None
+
+        def _b(v):
+            if v is None:
+                return None
+            try:
+                return int(v)
+            except (TypeError, ValueError):
+                return None
+
+        return GpuSample(
+            timestamp_ms=_now_ms(),
+            vram_total_bytes=_b((vram_info.get("vram_size") or 0) * 1024 * 1024) if vram_info else None,
+            power_watts=_n(metrics.get("average_socket_power")),
+            temp_celsius=_n(metrics.get("temperature_hotspot")),
+            temp_mem_celsius=_n(metrics.get("temperature_mem")),
+            gpu_util_percent=_n(metrics.get("average_gfx_activity")),
+            mem_util_percent=_n(metrics.get("average_umc_activity")),
+            fan_rpm=_b(metrics.get("current_fan_speed")),
+            throttle=metrics.get("throttle_status") if metrics.get("throttle_status") is not None else None,
+            voltage_gfx_mv=_b(metrics.get("voltage_gfx")),
+            voltage_mem_mv=_b(metrics.get("voltage_mem")),
+            clock_gfx_mhz=_b(metrics.get("current_gfxclk")),
+            clock_mem_mhz=_b(metrics.get("current_uclk")),
+            source=f"amdsmi:{bdf}",
+        )
+
+
+    async def sample_amdsmi_gpu(handle: Optional[Any] = None) -> GpuSeries:
+        """Sample AMD GPU metrics via the local amdsmi Python library.
+
+        If ``handle`` is not provided, the first discrete GPU (VRAM > 1 GiB) is
+        selected. This avoids picking up the integrated APU on systems like timmy.
+        Returns an empty series if amdsmi is unavailable or fails.
+        """
+        if handle is None:
+            handle = _find_discrete_amd_gpu()
+
+        sample = None
+        if handle is not None:
+            sample = await asyncio.to_thread(_sample_amdsmi_once, handle)
+
+        return GpuSeries(
+            metric="amdsmi",
+            gpu=None,
+            samples=[sample] if sample is not None else [],
+        )
+
+
+    async def sample_ollama_ps(
+        session: Any,
+        ollama_url: str,
+        model_name: Optional[str] = None,
+    ) -> GpuSeries:
+        """Sample Ollama /api/ps VRAM for the requested model (or all models)."""
+        try:
+            import aiohttp
+        except ImportError as exc:  # pragma: no cover - runtime dependency hint
+            raise SystemExit(
+                "aiohttp is required. Run: uv run --with aiohttp python ..."
+            ) from exc
+
+        total_vram = None
+        try:
+            async with session.get(
+                f"{ollama_url}/api/ps", timeout=aiohttp.ClientTimeout(total=10)
+            ) as resp:
+                data = await resp.json()
+            models = data.get("models", [])
+            if model_name:
+                for m in models:
+                    name = m.get("name", "")
+                    if model_name in name or name.startswith(model_name.split(":")[0]):
+                        total_vram = m.get("size_vram")
+                        break
+            else:
+                total_vram = sum((m.get("size_vram") or 0) for m in models)
+        except Exception:
+            pass
+
+        return GpuSeries(
+            metric="ollama_ps",
+            instance=ollama_url,
+            samples=[
+                GpuSample(
+                    timestamp_ms=_now_ms(),
+                    vram_bytes=int(total_vram) if total_vram is not None else None,
+                    source="ollama:/api/ps",
+                )
+            ],
+        )
+
+
+    async def sample_all(
+        session: Any,
+        prom_url: Optional[str] = None,
+        ollama_url: Optional[str] = None,
+        model_name: Optional[str] = None,
+        instance_label: Optional[str] = None,
+        use_amdsmi: bool = False,
+    ) -> list[GpuSeries]:
+        """Sample every available metric source concurrently."""
+        tasks = []
+        if use_amdsmi:
+            tasks.append(sample_amdsmi_gpu())
+        if prom_url:
+            tasks.append(sample_amd_gpu(session, prom_url, instance_label))
+            tasks.append(sample_nvidia_gpu(session, prom_url, instance_label))
+        if ollama_url:
+            tasks.append(sample_ollama_ps(session, ollama_url, model_name))
+        if not tasks:
+            return []
+        return await asyncio.gather(*tasks)
+
+
+    async def sample_during(
+        session: Any,
+        duration_s: float,
+        interval_s: float,
+        prom_url: Optional[str] = None,
+        ollama_url: Optional[str] = None,
+        model_name: Optional[str] = None,
+        instance_label: Optional[str] = None,
+        use_amdsmi: bool = False,
+    ):
+        """Sample GPU metrics repeatedly during a benchmark window.
+
+        Returns one GpuSeries per metric, each containing all samples merged by
+        metric name. The caller can use the raw sample list for time-series plots.
+        """
+        merged: dict[str, GpuSeries] = {}
+        end = time.monotonic() + duration_s
+        while time.monotonic() < end:
+            series_list = await sample_all(
+                session, prom_url, ollama_url, model_name, instance_label, use_amdsmi
+            )
+            for series in series_list:
+                if series.metric not in merged:
+                    merged[series.metric] = GpuSeries(
+                        metric=series.metric,
+                        instance=series.instance,
+                        gpu=series.gpu,
+                    )
+                merged[series.metric].samples.extend(series.samples)
+            await asyncio.sleep(interval_s)
+        return list(merged.values())
+  output.py: |
+    """Structured result writers for the benchmarking harness.
+
+    Every harness writes a JSON bundle that conforms to
+    `benchmarks/results-schema.json`, plus a CSV summary and a Markdown table for
+    quick paste into compendium items.
+    """
+
+    from __future__ import annotations
+
+    import csv
+    import json
+    import statistics
+    from dataclasses import dataclass
+    from pathlib import Path
+    from typing import Any, Optional
+
+
+    SCHEMA_VERSION = "1.0.0"
+
+
+    @dataclass
+    class Percentiles:
+        p50: float
+        p90: float
+        p95: float
+        p99: float
+        mean: float
+        min: float
+        max: float
+
+
+    def percentiles(values: list[float]) -> Percentiles:
+        """Compute P50/P90/P95/P99 plus mean/min/max for a list of floats."""
+        if not values:
+            return Percentiles(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+        sorted_values = sorted(values)
+        n = len(sorted_values)
+
+        def _pct(p: float) -> float:
+            idx = (n - 1) * p
+            low = int(idx)
+            high = min(low + 1, n - 1)
+            weight = idx - low
+            return sorted_values[low] * (1 - weight) + sorted_values[high] * weight
+
+        return Percentiles(
+            p50=_pct(0.50),
+            p90=_pct(0.90),
+            p95=_pct(0.95),
+            p99=_pct(0.99),
+            mean=statistics.mean(sorted_values),
+            min=sorted_values[0],
+            max=sorted_values[-1],
+        )
+
+
+    def _percentiles_as_dict(p: Percentiles) -> dict[str, float]:
+        return {
+            "p50": round(p.p50, 4),
+            "p90": round(p.p90, 4),
+            "p95": round(p.p95, 4),
+            "p99": round(p.p99, 4),
+            "mean": round(p.mean, 4),
+            "min": round(p.min, 4),
+            "max": round(p.max, 4),
+        }
+
+
+    def build_meta(tool: str, version: Optional[str] = None) -> dict[str, Any]:
+        """Build the common `meta` block for a result bundle."""
+        import subprocess
+
+        commit = "unknown"
+        try:
+            commit = subprocess.check_output(
+                ["git", "rev-parse", "--short", "HEAD"],
+                text=True,
+                stderr=subprocess.DEVNULL,
+            ).strip()
+        except Exception:
+            pass
+
+        return {
+            "tool": tool,
+            "version": version or "unknown",
+            "schema_version": SCHEMA_VERSION,
+            "timestamp": _iso_now(),
+            "commit": commit,
+        }
+
+
+    def _iso_now() -> str:
+        from datetime import datetime, timezone
+
+        return datetime.now(timezone.utc).isoformat()
+
+
+    def write_json(
+        path: Path,
+        meta: dict[str, Any],
+        config: dict[str, Any],
+        samples: list[dict[str, Any]],
+        summary: dict[str, Any],
+        gpu_series: Optional[list[dict[str, Any]]] = None,
+    ) -> None:
+        """Write a JSON result bundle conforming to results-schema.json."""
+        payload = {
+            "meta": meta,
+            "config": config,
+            "samples": samples,
+            "summary": summary,
+        }
+        if gpu_series is not None:
+            payload["gpu_series"] = gpu_series
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(payload, indent=2, default=str))
+
+
+    def write_csv(path: Path, rows: list[dict[str, Any]]) -> None:
+        """Write a CSV summary. Keys come from the first row."""
+        if not rows:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("")
+            return
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("w", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=list(rows[0].keys()))
+            writer.writeheader()
+            writer.writerows(rows)
+
+
+    def markdown_table(rows: list[dict[str, Any]]) -> str:
+        """Render a Markdown table from a list of dicts."""
+        if not rows:
+            return ""
+        headers = list(rows[0].keys())
+        lines = ["| " + " | ".join(headers) + " |"]
+        lines.append("| " + " | ".join(["---"] * len(headers)) + " |")
+        for row in rows:
+            lines.append("| " + " | ".join(str(row.get(h, "")) for h in headers) + " |")
+        return "\n".join(lines)
+
+
+    def latency_summary(
+        values: list[float],
+        name: str,
+    ) -> dict[str, Any]:
+        """Return a standard latency summary dict with percentiles."""
+        p = percentiles(values)
+        return {
+            "metric": name,
+            **_percentiles_as_dict(p),
+            "unit": "s",
+            "count": len(values),
+        }
+
+
+    def throughput_summary(
+        generated_tokens: list[int],
+        wall_seconds: list[float],
+    ) -> dict[str, Any]:
+        """Return aggregate throughput summary across multiple requests."""
+        total_tokens = sum(generated_tokens)
+        total_wall = sum(wall_seconds)
+        per_request = [
+            tok / wall if wall > 0 else 0.0
+            for tok, wall in zip(generated_tokens, wall_seconds)
+        ]
+        p = percentiles(per_request) if per_request else Percentiles(0, 0, 0, 0, 0, 0, 0)
+        return {
+            "metric": "throughput",
+            "total_tokens": total_tokens,
+            "total_wall_s": round(total_wall, 4),
+            "aggregate_tok_s": round(total_tokens / total_wall, 2)
+            if total_wall > 0
+            else 0.0,
+            **_percentiles_as_dict(p),
+            "unit": "tok/s",
+            "count": len(per_request),
+        }
+  prompts.py: |
+    """Shared benchmark prompt workloads.
+
+    These prompts are version-controlled so that benchmark results can be compared
+    across time. Changing a prompt changes the workload identity and should be
+    reflected in the harness config/version.
+    """
+
+    from __future__ import annotations
+
+    from dataclasses import dataclass, field
+    from typing import Optional
+
+    from tool_calls import tool_calling_prompts
+
+
+    SUB_AGENT_PROMPTS = [
+        "Write a Python function that validates an email address. Include a docstring and three test cases.",
+        "Explain the trade-offs between REST and gRPC APIs in three short paragraphs.",
+        "Design a minimal Prometheus exporter for a fictional job queue. List the metrics and their labels.",
+        "Refactor this snippet into a class-based state machine: a door can be open, closed, or locked; transitions must be valid.",
+        "Summarize the key differences between symmetric and asymmetric encryption for a junior developer.",
+    ]
+
+
+    AGENTIC_PROMPTS = [
+        """Review the following Python function and produce a structured code review. Identify at least three concrete issues (bugs, style, or maintainability) and suggest fixes.
+
+    ```python
+    def process_orders(orders, users, apply_discount=False):
+        results = []
+        for order in orders:
+            user = None
+            for u in users:
+                if u['id'] == order['user_id']:
+                    user = u
+                    break
+            if user is None:
+                print("User not found for order", order['id'])
+                continue
+            total = order['amount']
+            if apply_discount:
+                total = total * 0.9
+            results.append({
+                'order_id': order['id'],
+                'user_email': user['email'],
+                'total': total,
+                'items': order['items']
+            })
+        return results
+    ```
+
+    Provide your review as a JSON object with a top-level key \"issues\" containing an array of objects, each with \"severity\", \"line\", \"description\", and \"suggestion\".""",
+        """You are assisting with a system design task. A team wants to build a real-time collaborative note-taking application that supports offline editing, conflict resolution, and sync across mobile and desktop clients. Propose a high-level architecture covering data model, sync protocol, and conflict resolution strategy. Keep your response under 1500 words and use bullet points for trade-offs.""",
+        """Summarize the following multi-turn conversation into a concise status update. Extract any decisions made, open questions, and action items with owners.
+
+    Alice: We need to pick a vector database for the knowledge base.
+    Bob: I've used pgvector and Chroma; pgvector scales better with our existing Postgres.
+    Alice: What about embedding dimension and index type?
+    Bob: Qwen3-Embedding-4B outputs 2560 dimensions. We'll need ivfflat or hnsw.
+    Alice: Let's go with pgvector + hnsw. Bob, can you prototype the schema?
+    Bob: Yes, I'll have a draft by Friday.
+    Alice: I'll review it against the OpenViking ingest pipeline. One concern: how do we handle re-indexing after bulk updates?
+    Bob: We'll batch updates and run a maintenance job weekly.
+
+    Provide the output as JSON with keys: \"decisions\", \"open_questions\", \"action_items\".""",
+    ]
+
+
+    MEM0_EXTRACTION_PROMPT = """You are a memory extraction assistant. Your task is to read the conversation below and emit a single JSON object with a top-level key "memory" containing an array of memory operations. Each operation must have keys: "data" (string), "event" (string), "category" (one of: habits, preferences, goals, relationships, plans, other), and "score" (number 0.0-1.0). Do not output any text outside the JSON object.
+
+    Conversation:
+    User: I've been trying to wake up at 6am to work on my side project before my day job. I prefer dark mode for all my coding tools. My partner and I are planning a trip to Japan in the spring. I want to improve my Python async skills this year, and I usually review my weekly goals on Sunday evenings. I dislike noisy open-plan offices.
+
+    Extract memories as JSON:"""
+
+
+    VLM_VISION_PROMPT = "Describe this image in one sentence, then list three specific details visible in it."
+
+
+    @dataclass
+    class Workload:
+        name: str
+        prompts: list[str]
+        expected_tools: list[Optional[str]] = field(default_factory=list)
+
+
+    def sub_agent_workload(count: int) -> Workload:
+        """Return a workload of distinct short sub-agent prompts."""
+        prompts = [SUB_AGENT_PROMPTS[i % len(SUB_AGENT_PROMPTS)] for i in range(count)]
+        return Workload(name="sub_agent", prompts=prompts)
+
+
+    def prefix_cache_workload(count: int) -> Workload:
+        """Return a workload that repeats the same prompt to exercise prefix caching."""
+        return Workload(name="prefix_cache", prompts=[SUB_AGENT_PROMPTS[0]] * count)
+
+
+    def mixed_mem0_workload(count: int) -> Workload:
+        """Return a workload mixing one mem0-style extraction with sub-agent prompts."""
+        prompts = [MEM0_EXTRACTION_PROMPT]
+        i = 0
+        while len(prompts) < count:
+            prompts.append(SUB_AGENT_PROMPTS[i % len(SUB_AGENT_PROMPTS)])
+            i += 1
+        return Workload(name="mixed_mem0", prompts=prompts)
+
+
+    def vlm_vision_workload() -> Workload:
+        """Return the placeholder VLM vision-understanding workload."""
+        return Workload(name="vlm_vision", prompts=[VLM_VISION_PROMPT])
+
+
+    def agentic_workload(count: int) -> Workload:
+        """Return a workload of longer, complex agentic prompts."""
+        prompts = []
+        i = 0
+        while len(prompts) < count:
+            prompts.append(AGENTIC_PROMPTS[i % len(AGENTIC_PROMPTS)])
+            i += 1
+        return Workload(name="agentic", prompts=prompts)
+
+
+    def tool_calling_workload(count: int) -> Workload:
+        """Return a workload of tool-calling prompts with expected tool names."""
+        prompts, expected_tools = tool_calling_prompts(count)
+        return Workload(name="tool_calling", prompts=prompts, expected_tools=expected_tools)
+
+
+    def select_workload(name: str, count: int) -> Workload:
+        """Select a named workload."""
+        if name == "sub_agent":
+            return sub_agent_workload(count)
+        if name == "prefix_cache":
+            return prefix_cache_workload(count)
+        if name == "mixed_mem0":
+            return mixed_mem0_workload(count)
+        if name == "agentic":
+            return agentic_workload(count)
+        if name == "vlm_vision":
+            return vlm_vision_workload()
+        if name == "tool_calling":
+            return tool_calling_workload(count)
+        raise ValueError(f"Unknown workload: {name}")
+  tool_calls.py: |
+    """Tool-calling prompt schemas and response validators.
+
+    Used by the benchmark harness to measure how reliably a model emits
+    valid, well-formed tool calls when asked. The validator is intentionally
+    strict: the response must be a single JSON object with a known tool name
+    and all required arguments present.
+    """
+
+    from __future__ import annotations
+
+    import json
+    from dataclasses import dataclass
+    from typing import Any, Optional
+
+
+    TOOLS = {
+        "get_weather": {
+            "description": "Get current weather for a location.",
+            "args": {
+                "location": {"type": "str", "required": True},
+                "unit": {"type": "str", "required": True},
+            },
+        },
+        "search_calendar": {
+            "description": "Search calendar events by query and optional date range.",
+            "args": {
+                "query": {"type": "str", "required": True},
+                "date_range": {"type": "str", "required": True},
+            },
+        },
+        "send_email": {
+            "description": "Send an email to a recipient.",
+            "args": {
+                "to": {"type": "str", "required": True},
+                "subject": {"type": "str", "required": True},
+                "body": {"type": "str", "required": True},
+            },
+        },
+        "create_reminder": {
+            "description": "Create a reminder with a title and datetime.",
+            "args": {
+                "title": {"type": "str", "required": True},
+                "datetime": {"type": "str", "required": True},
+            },
+        },
+        "calculate": {
+            "description": "Evaluate a mathematical expression and return the result.",
+            "args": {
+                "expression": {"type": "str", "required": True},
+            },
+        },
+    }
+
+
+    TOOL_INSTRUCTION = """You are a helpful assistant with access to the following tools:
+
+    - get_weather: Get current weather for a location. Args: location (str), unit (str, "c" or "f").
+    - search_calendar: Search calendar events. Args: query (str), date_range (str).
+    - send_email: Send an email. Args: to (str), subject (str), body (str).
+    - create_reminder: Create a reminder. Args: title (str), datetime (str).
+    - calculate: Evaluate a math expression. Args: expression (str).
+
+    Respond with ONLY a single JSON object in this exact format:
+    {"tool": "<tool_name>", "arguments": {<args>}}
+
+    Do not include markdown, explanations, or any text outside the JSON object."""
+
+
+    TOOL_CALLING_PROMPTS = [
+        (
+            "get_weather",
+            "What's the weather like in Austin, Texas? Give me the temperature in celsius.",
+        ),
+        ("search_calendar", "Find my meetings about the budget review next week."),
+        ("send_email", "Email sarah@example.com to say the deployment is complete."),
+        ("create_reminder", "Remind me to call Mom tomorrow at 6pm."),
+        ("calculate", "What is 145 times 37 plus 82?"),
+        (
+            "get_weather",
+            "Will it rain in Seattle today? Show the temperature in fahrenheit.",
+        ),
+        ("search_calendar", "When is my dentist appointment?"),
+        (
+            "send_email",
+            "Send a quick email to team@example.com with the subject 'Standup notes' and body 'Notes are in the shared doc.'",
+        ),
+    ]
+
+
+    @dataclass
+    class ValidationResult:
+        valid_json: bool
+        has_tool_field: bool
+        has_arguments_field: bool
+        tool_recognized: bool
+        required_args_present: bool
+        arg_types_valid: bool
+        error: Optional[str] = None
+
+        def to_dict(self) -> dict[str, Any]:
+            return {
+                "valid_json": self.valid_json,
+                "has_tool_field": self.has_tool_field,
+                "has_arguments_field": self.has_arguments_field,
+                "tool_recognized": self.tool_recognized,
+                "required_args_present": self.required_args_present,
+                "arg_types_valid": self.arg_types_valid,
+                "error": self.error,
+            }
+
+
+    def _strip_markdown(text: str) -> str:
+        """Remove markdown code fences if present."""
+        text = text.strip()
+        if text.startswith("```"):
+            lines = text.splitlines()
+            # Drop first fence and optional language line
+            if lines and lines[0].startswith("```"):
+                lines = lines[1:]
+            if lines and lines[-1].startswith("```"):
+                lines = lines[:-1]
+            text = "\n".join(lines).strip()
+        return text
+
+
+    def validate_tool_call(
+        response: str, expected_tool: Optional[str] = None
+    ) -> ValidationResult:
+        """Validate a single tool-calling response.
+
+        If expected_tool is provided, tool_recognized also checks that the
+        emitted tool name matches.
+        """
+        cleaned = _strip_markdown(response)
+        try:
+            parsed = json.loads(cleaned)
+        except json.JSONDecodeError as exc:
+            return ValidationResult(
+                valid_json=False,
+                has_tool_field=False,
+                has_arguments_field=False,
+                tool_recognized=False,
+                required_args_present=False,
+                arg_types_valid=False,
+                error=f"json_decode_error: {exc}",
+            )
+
+        if not isinstance(parsed, dict):
+            return ValidationResult(
+                valid_json=True,
+                has_tool_field=False,
+                has_arguments_field=False,
+                tool_recognized=False,
+                required_args_present=False,
+                arg_types_valid=False,
+                error="parsed_json_not_object",
+            )
+
+        has_tool_field = "tool" in parsed and isinstance(parsed["tool"], str)
+        has_arguments_field = "arguments" in parsed and isinstance(
+            parsed.get("arguments"), dict
+        )
+
+        if not has_tool_field:
+            return ValidationResult(
+                valid_json=True,
+                has_tool_field=False,
+                has_arguments_field=has_arguments_field,
+                tool_recognized=False,
+                required_args_present=False,
+                arg_types_valid=False,
+                error="missing_tool_field",
+            )
+
+        tool_name = parsed["tool"]
+        tool_recognized = tool_name in TOOLS
+        if expected_tool and tool_recognized:
+            tool_recognized = tool_name == expected_tool
+
+        if not has_arguments_field:
+            return ValidationResult(
+                valid_json=True,
+                has_tool_field=True,
+                has_arguments_field=False,
+                tool_recognized=tool_recognized,
+                required_args_present=False,
+                arg_types_valid=False,
+                error="missing_arguments_field",
+            )
+
+        args = parsed["arguments"]
+        schema = TOOLS.get(tool_name, {"args": {}})
+        required = {k for k, v in schema["args"].items() if v.get("required")}
+        required_args_present = required.issubset(args.keys())
+
+        arg_types_valid = True
+        type_errors: list[str] = []
+        for key, spec in schema["args"].items():
+            if key in args:
+                expected_type = spec.get("type", "str")
+                value = args[key]
+                if expected_type == "str" and not isinstance(value, str):
+                    arg_types_valid = False
+                    type_errors.append(f"{key} should be str, got {type(value).__name__}")
+                elif expected_type == "number" and not isinstance(value, (int, float)):
+                    arg_types_valid = False
+                    type_errors.append(
+                        f"{key} should be number, got {type(value).__name__}"
+                    )
+
+        error = None
+        if not tool_recognized:
+            error = f"unrecognized_tool: {tool_name}"
+        elif not required_args_present:
+            missing = sorted(required - set(args.keys()))
+            error = f"missing_required_args: {missing}"
+        elif not arg_types_valid:
+            error = f"arg_type_errors: {type_errors}"
+
+        return ValidationResult(
+            valid_json=True,
+            has_tool_field=True,
+            has_arguments_field=True,
+            tool_recognized=tool_recognized,
+            required_args_present=required_args_present,
+            arg_types_valid=arg_types_valid,
+            error=error,
+        )
+
+
+    def tool_calling_prompts(count: int) -> tuple[list[str], list[Optional[str]]]:
+        """Return tool-calling user prompts and expected tool names.
+
+        The returned prompts include the system/tool instruction prefix so the
+        model knows the required output format. expected_tools is a parallel
+        list used by the validator to check the correct tool was selected.
+        """
+        prompts: list[str] = []
+        expected_tools: list[Optional[str]] = []
+        i = 0
+        while len(prompts) < count:
+            tool, user_prompt = TOOL_CALLING_PROMPTS[i % len(TOOL_CALLING_PROMPTS)]
+            full_prompt = f"{TOOL_INSTRUCTION}\n\nUser: {user_prompt}\n\nAssistant:"
+            prompts.append(full_prompt)
+            expected_tools.append(tool)
+            i += 1
+        return prompts, expected_tools
+kind: ConfigMap
+metadata:
+  name: bench-scripts-vulkan
+  namespace: llama
