@@ -29,13 +29,53 @@ data:
     import http.client
     import json
     import os
+    import threading
+    import time
     import urllib.parse
+    import urllib.request
     from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
     OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://ollama.llama.svc.cluster.local:11434")
     PORT = int(os.environ.get("PORT", "11434"))
     INJECT_REASONING_NONE = os.environ.get("INJECT_REASONING_NONE", "true").lower() in {"1", "true", "yes"}
     parsed = urllib.parse.urlparse(OLLAMA_URL)
+    METRICS_PUSH_URL = os.environ.get("METRICS_PUSH_URL", "")
+
+
+    def _push_metrics(model, response_body, elapsed_ns):
+        try:
+            usage = None
+            try:
+                data = json.loads(response_body)
+                usage = data.get("usage")
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                for line in reversed(response_body.decode(errors="replace").split("\n")):
+                    line = line.strip()
+                    if line.startswith("data: ") and line != "data: [DONE]":
+                        try:
+                            usage = json.loads(line[6:]).get("usage")
+                            if usage:
+                                break
+                        except (json.JSONDecodeError, ValueError):
+                            continue
+            if not usage:
+                return
+            payload = json.dumps({
+                "model": model,
+                "eval_count": usage.get("completion_tokens", 0),
+                "eval_duration": 0,
+                "prompt_eval_count": usage.get("prompt_tokens", 0),
+                "prompt_eval_duration": 0,
+                "total_duration": elapsed_ns,
+            }).encode()
+            req = urllib.request.Request(
+                f"{METRICS_PUSH_URL}/push",
+                data=payload,
+                headers={"Content-Type": "application/json"},
+            )
+            urllib.request.urlopen(req, timeout=2)
+        except Exception:
+            pass
 
 
     def is_cloud_model(model):
@@ -75,8 +115,9 @@ data:
             body = self.rfile.read(length) if length else b""
             path = urllib.parse.urlsplit(self.path).path
             model = "unknown"
+            is_chat = self.command == "POST" and path == "/v1/chat/completions"
 
-            if INJECT_REASONING_NONE and path == "/v1/chat/completions" and body:
+            if INJECT_REASONING_NONE and is_chat and body:
                 try:
                     payload = json.loads(body)
                     model = payload.get("model") or "unknown"
@@ -101,6 +142,7 @@ data:
                 headers["Content-Length"] = str(len(body))
 
             try:
+                t0 = time.monotonic_ns()
                 conn.request(self.command, self.path, body=body, headers=headers)
                 resp = conn.getresponse()
                 self.send_response(resp.status, resp.reason)
@@ -111,13 +153,23 @@ data:
                 self.send_header("Connection", "close")
                 self.end_headers()
                 self.close_connection = True
+                buf = [] if is_chat and resp.status == 200 else None
                 while True:
                     chunk = resp.read(8192)
                     if not chunk:
                         break
                     self.wfile.write(chunk)
                     self.wfile.flush()
+                    if buf is not None:
+                        buf.append(chunk)
+                elapsed_ns = time.monotonic_ns() - t0
                 print(f"{self.command} {path} model={model} status={resp.status}", flush=True)
+                if buf and METRICS_PUSH_URL:
+                    threading.Thread(
+                        target=_push_metrics,
+                        args=(model, b"".join(buf), elapsed_ns),
+                        daemon=True,
+                    ).start()
             except Exception as e:
                 try:
                     self._send_json(502, {"error": {"message": f"upstream error: {e}", "type": "shim_error"}})
@@ -133,7 +185,8 @@ data:
     if __name__ == "__main__":
         print(
             f"chat-ollama shim on :{PORT}; upstream={OLLAMA_URL}; "
-            f"inject_reasoning_none={INJECT_REASONING_NONE}",
+            f"inject_reasoning_none={INJECT_REASONING_NONE}; "
+            f"metrics_push={'on' if METRICS_PUSH_URL else 'off'}",
             flush=True,
         )
         ThreadingHTTPServer(("0.0.0.0", PORT), Handler).serve_forever()
@@ -168,6 +221,8 @@ spec:
               value: "1"
             - name: PORT
               value: "11434"
+            - name: METRICS_PUSH_URL
+              value: http://ollama.llama.svc.cluster.local:9111
           ports:
             - containerPort: 11434
               name: http
