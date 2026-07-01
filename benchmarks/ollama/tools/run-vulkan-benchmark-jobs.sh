@@ -8,13 +8,16 @@ NS="${NS:-llama}"
 OUTPUT_DIR="${OUTPUT_DIR:-benchmarks/results}"
 
 # Order: baseline default/agentic first, then higher-bit quants.
+# 2026-07-01: Q5_K_M and Q6_K model tags are not available in the Unsloth
+# HF repo, so the higher-bit quant configs are skipped. Re-enable them once
+# the GGUFs are published or converted locally.
 CONFIGS=(
   cluster-vulkan-default
   cluster-vulkan-agentic
-  cluster-vulkan-q5km-default
-  cluster-vulkan-q6k-default
-  cluster-vulkan-q5km-agentic
-  cluster-vulkan-q6k-agentic
+  # cluster-vulkan-q5km-default
+  # cluster-vulkan-q6k-default
+  # cluster-vulkan-q5km-agentic
+  # cluster-vulkan-q6k-agentic
 )
 
 log() {

@@ -1,6 +1,10 @@
 # Vulkan Q5_K_M agentic benchmark. VRAM watch item: Q5_K_M weights plus 32K
 # context at np=8 may approach the 16 GB ceiling. If the run fails to load,
 # retry with NUM_PARALLEL=4 or num_ctx=16384.
+#
+# 2026-07-01: this model tag is not available in the Unsloth HF repo
+# (only UD-Q4_K_XL exists there). Do not run until a Q5_K_M GGUF is
+# published or converted locally.
 
 [ollama]
 url = "http://ollama.llama.svc:11434"
