@@ -1021,6 +1021,15 @@ data:
               "expr": "max(amdgpu_vram_used_bytes{gpu=\"1\"})",
               "legendFormat": "timmy \u2014 RX 9070 XT",
               "refId": "B"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "max(macmon_memory_ram_used_bytes{node=\"macbook-m5\"})",
+              "legendFormat": "pop \u2014 M5 Max (unified RAM)",
+              "refId": "C"
             }
           ],
           "title": "VRAM Used",
@@ -1092,6 +1101,15 @@ data:
               "expr": "max(amdgpu_vram_used_bytes{gpu=\"1\"})",
               "legendFormat": "timmy \u2014 RX 9070 XT",
               "refId": "B"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "max(macmon_memory_ram_used_bytes{node=\"macbook-m5\"})",
+              "legendFormat": "pop \u2014 M5 Max (unified RAM)",
+              "refId": "C"
             }
           ],
           "title": "VRAM Usage per GPU",
