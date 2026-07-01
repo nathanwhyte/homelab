@@ -1,15 +1,16 @@
 # MacBook → Cluster telemetry
 
-Ships Ollama metrics, Apple Silicon GPU telemetry, and the `ollama serve` log
-from the M5 MacBook into the in-cluster Prometheus + Loki, where they appear
-on the **Ollama & GPU Metrics** Grafana dashboard tagged `node="macbook-m5"`.
+Ships Ollama metrics, Apple Silicon GPU telemetry, general MacBook hardware
+metrics, and the `ollama serve` log from the M5 MacBook into the in-cluster
+Prometheus + Loki, where they appear on the **Ollama & GPU Metrics** and **Mac
+Metrics** Grafana dashboards tagged `node="macbook-m5"`.
 
 The cluster receives via NodePorts already exposed on every node:
 
-| Purpose | URL |
-|---|---|
-| Prometheus remote-write | `http://192.168.1.19:30909/api/v1/write` |
-| Loki push | `http://192.168.1.19:31080/loki/api/v1/push` |
+| Purpose                 | URL                                          |
+| ----------------------- | -------------------------------------------- |
+| Prometheus remote-write | `http://192.168.1.19:30909/api/v1/write`     |
+| Loki push               | `http://192.168.1.19:31080/loki/api/v1/push` |
 
 ## Architecture
 
@@ -21,6 +22,10 @@ The cluster receives via NodePorts already exposed on every node:
 │                                                       │
 │  mac-gpu-exporter.py (native LaunchDaemon, :9112)     │
 │  └─ powermetrics (requires hardware access)           │
+│                                                       │
+│  macmon serve (user LaunchAgent, :9113)              │
+│  └─ CPU/GPU/ANE power, temps, freq, RAM/swap         │
+│     (no root required)                               │
 │                                                       │
 │  ┌─ Docker (compose project: mac) ─────────────────┐  │
 │  │                                                 │  │
@@ -45,14 +50,17 @@ sensors, so the GPU exporter must run on the host.
 
 ## Layout
 
-| Path | What |
-|---|---|
-| `docker-compose.yml` | Defines `ollama-exporter` (image: `ghcr.io/astral-sh/uv:python3.12-bookworm-slim`, runs via `uv run --no-project`) and `alloy` (image: `grafana/alloy:latest`) containers. |
-| `alloy/config.alloy` | Alloy: scrape both exporters, tail Ollama log, ship to cluster. Bind-mounted into the alloy container. |
-| `exporters/ollama-exporter.py` | Pure-Python exporter, bind-mounted into the ollama-exporter container. Identical to `llama/ollama/ollama-exporter.py`. |
-| `exporters/mac-gpu-exporter.py` | Native Apple Silicon GPU exporter (wraps `powermetrics`). Runs as a LaunchDaemon on the host. |
-| `exporters/test_mac_gpu_exporter.py` | Unit tests for the `powermetrics` parser. |
-| `launchd/com.nathanwhyte.mac-gpu-exporter.plist` | System LaunchDaemon (runs as root for `powermetrics`). |
+| Path                                             | What                                                                                                                                                                       |
+| ------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `docker-compose.yml`                             | Defines `ollama-exporter` (image: `ghcr.io/astral-sh/uv:python3.12-bookworm-slim`, runs via `uv run --no-project`) and `alloy` (image: `grafana/alloy:latest`) containers. |
+| `alloy/config.alloy`                             | Alloy: scrape all exporters, tail Ollama log, ship to cluster. Bind-mounted into the alloy container.                                                                      |
+| `exporters/ollama-exporter.py`                   | Pure-Python exporter, bind-mounted into the ollama-exporter container. Identical to `llama/ollama/ollama-exporter.py`.                                                     |
+| `exporters/mac-gpu-exporter.py`                  | Native Apple Silicon GPU exporter (wraps `powermetrics`). Runs as a LaunchDaemon on the host.                                                                              |
+| `exporters/test_mac_gpu_exporter.py`             | Unit tests for the `powermetrics` parser.                                                                                                                                  |
+| `launchd/com.nathanwhyte.mac-gpu-exporter.plist` | System LaunchDaemon (runs as root for `powermetrics`).                                                                                                                     |
+| `launchd/com.nathanwhyte.macmon.plist`           | User LaunchAgent that runs `macmon serve` on `:9113` (no root).                                                                                                            |
+| `grafana/dashboards/mac-metrics.json`            | New Grafana dashboard for MacBook hardware metrics.                                                                                                                        |
+| `grafana/manifests/mac-metrics-dashboard.yaml`   | ConfigMap that provisions the Mac Metrics dashboard.                                                                                                                       |
 
 ## Install
 
@@ -65,9 +73,14 @@ cd /Users/noot/code/homelab
 # 1. Native GPU exporter (system LaunchDaemon — needs root)
 sudo cp mac/launchd/com.nathanwhyte.mac-gpu-exporter.plist /Library/LaunchDaemons/
 sudo chown root:wheel /Library/LaunchDaemons/com.nathanwhyte.mac-gpu-exporter.plist
-sudo launchctl load /Library/LaunchDaemons/com.nathanwhyte.mac-gpu-exporter.plist
+sudo launchctl bootstrap system /Library/LaunchDaemons/com.nathanwhyte.mac-gpu-exporter.plist
 
-# 2. Containers
+# 2. User LaunchAgent for macmon (no root)
+mkdir -p /Users/noot/.local/share/macmon
+cp mac/launchd/com.nathanwhyte.macmon.plist ~/Library/LaunchAgents/
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.nathanwhyte.macmon.plist
+
+# 3. Containers
 docker compose -f mac/docker-compose.yml up -d
 ```
 
@@ -80,16 +93,19 @@ docker compose -f mac/docker-compose.yml ps
 # Local exporters
 curl -fsS localhost:9111/metrics | grep ^ollama_up           # via compose port-forward
 curl -fsS localhost:9112/metrics | grep ^mac_gpu_power_watts # native LaunchDaemon
+curl -fsS localhost:9113/metrics | grep ^macmon_sys_power_watts # user LaunchAgent
 
 # Alloy
 curl -fsS localhost:12345/-/ready                            # OK
 
-# Native LaunchDaemon
+# LaunchAgents / LaunchDaemons
 sudo launchctl list | grep mac-gpu-exporter
+launchctl list | grep macmon
 
 # End-to-end (from anywhere with cluster Grafana MCP access)
-# ollama_up{node="macbook-m5"}  → 1
-# mac_gpu_power_watts            → live value
+# ollama_up{node="macbook-m5"}      → 1
+# mac_gpu_power_watts                → live value
+# macmon_sys_power_watts{node="macbook-m5"} → live value
 # {job="ollama", host="macbook-m5"} in Loki → recent log lines
 ```
 
@@ -133,8 +149,18 @@ sudo launchctl unload /Library/LaunchDaemons/com.nathanwhyte.mac-gpu-exporter.pl
 sudo rm /Library/LaunchDaemons/com.nathanwhyte.mac-gpu-exporter.plist
 ```
 
-No persistent state on the Mac beyond `/var/log/mac-gpu-exporter.log` and the
-named Docker volume `mac_alloy-data` (removed by `down -v`).
+No persistent state on the Mac beyond `/var/log/mac-gpu-exporter.log`,
+`/Users/noot/.local/share/macmon/macmon.log`, and the named Docker volume
+`mac_alloy-data` (removed by `down -v`).
+
+## Dashboards
+
+Metrics from this pipeline are used on two Grafana dashboards:
+
+- **Ollama & GPU Metrics** (`grafana/dashboards/ollama-and-gpu-metrics.json`) —
+  cluster AMD GPU plus a MacBook row with `macmon_*` GPU/power/temperature panels.
+- **Mac Metrics** (`grafana/dashboards/mac-metrics.json`) — dedicated Apple
+  Silicon CPU/GPU/ANE power, frequency, temperature, and memory overview.
 
 ## Notes
 
@@ -144,6 +170,6 @@ named Docker volume `mac_alloy-data` (removed by `down -v`).
 - `host.docker.internal:host-gateway` works on Docker Desktop, OrbStack,
   Rancher Desktop, and Colima ≥ 0.5.6.
 - Alloy and the Ollama exporter restart automatically with `restart:
-  unless-stopped`. The native GPU LaunchDaemon restarts via launchd.
+unless-stopped`. The native GPU LaunchDaemon restarts via launchd.
 - If Docker isn't running at boot, the containers won't start — enable
   "Start on login" / "Launch at startup" in Docker Desktop / OrbStack.
