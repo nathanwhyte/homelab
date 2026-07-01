@@ -51,8 +51,13 @@ spec:
               value: "1"
             - name: OLLAMA_KV_CACHE_TYPE
               value: q4_0
+            # Keep the working model resident to avoid reload latency for Hermes/mem0
+            # and other always-on cluster services. Trade-off: GPU stays warm and the
+            # case fans may spin periodically even when no requests are in flight.
+            # The previous 3m unload was chosen to keep temps/fan noise down; -1
+            # prioritizes latency and slot stability over idle acoustics.
             - name: OLLAMA_KEEP_ALIVE
-              value: 3m
+              value: "-1"
             # Allow large model pulls from cluster registry over slow paths.
             - name: OLLAMA_LOAD_TIMEOUT
               value: 15m
