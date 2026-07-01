@@ -1,0 +1,80 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ollama-benchmark-resume
+  namespace: llama
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        app: ollama-benchmark-resume
+    spec:
+      restartPolicy: Never
+      nodeSelector:
+        kubernetes.io/hostname: timmy
+      containers:
+        - name: bench
+          image: python:3.12-slim
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -c
+            - |
+              pip install --quiet aiohttp
+              # amdsmi's C library depends on libdrm_amdgpu, which is part of the
+              # host's Debian system libraries and not bundled in /opt/rocm.
+              apt-get update --quiet --allow-releaseinfo-change >/dev/null 2>&1 || true
+              apt-get install --quiet -y --no-install-recommends libdrm2 libdrm-amdgpu1 >/dev/null 2>&1 || true
+              # Optionally install the amdsmi Python wrapper from the mounted ROCm
+              # tree. This lets the harness sample throttle status, mem temperature,
+              # and other RDNA4-specific metrics directly via the driver.
+              if [ -d /opt/rocm/share/amd_smi ]; then
+                pip install --quiet /opt/rocm/share/amd_smi || true
+              elif [ -x /opt/rocm/bin/amd-smi ] || [ -f /opt/rocm/lib/libamd_smi.so ]; then
+                pip install --quiet amdsmi || true
+              fi
+              mkdir -p /bench/lib /bench/benchmarks/results
+              cp /scripts/concurrency-bench.py /bench/
+              cp /scripts/metrics.py /scripts/output.py /scripts/prompts.py /scripts/__init__.py /bench/lib/
+              cp /scripts/cluster-*.toml /bench/
+              cd /bench
+              echo "=== resuming sweep from cluster-np6-agentic ==="
+              python -u concurrency-bench.py --config cluster-np6-agentic.toml --amdsmi
+              echo "=== running cluster-np8-default ==="
+              python -u concurrency-bench.py --config cluster-np8-default.toml --amdsmi
+              echo "=== running cluster-np8-agentic ==="
+              python -u concurrency-bench.py --config cluster-np8-agentic.toml --amdsmi
+          env:
+            - name: PYTHONPATH
+              value: /bench
+            - name: LD_LIBRARY_PATH
+              value: /opt/rocm/lib:/opt/rocm/lib64
+          securityContext:
+            privileged: true
+          volumeMounts:
+            - name: scripts
+              mountPath: /scripts
+            - name: results
+              mountPath: /bench/benchmarks/results
+            - name: rocm
+              mountPath: /opt/rocm
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              memory: 1Gi
+      volumes:
+        - name: scripts
+          configMap:
+            name: bench-scripts
+        - name: results
+          hostPath:
+            path: /var/lib/ollama-benchmark/results
+            type: DirectoryOrCreate
+        - name: rocm
+          hostPath:
+            path: /opt/rocm
+            type: DirectoryOrCreate

@@ -1,0 +1,25 @@
+# Pop-local Ollama concurrency benchmark config.
+# Targets gemma4:12b-mlx on the M5 Max, matching the cluster workload shape.
+
+[ollama]
+url = "http://localhost:11434"
+model = "gemma4:12b-mlx"
+num_ctx = 16384
+num_predict = 512
+temperature = 0.3
+
+[workload]
+name = "mixed_mem0"
+max_concurrency = 6
+requests_per_level = 6
+repeats = 3
+cooldown_seconds = 15
+
+[prometheus]
+url = ""
+instance_label = ""
+sample_interval_seconds = 2.0
+
+[output]
+dir = "benchmarks/results"
+prefix = "ollama-pop-mixed"

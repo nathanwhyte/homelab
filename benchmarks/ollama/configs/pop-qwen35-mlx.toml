@@ -1,0 +1,25 @@
+# Pop-local Ollama concurrency benchmark config for qwen3.5:9b-mlx.
+ # Mirrors the gemma4 workload shape on the M5 Max.
+
+ [ollama]
+ url = "http://localhost:11434"
+ model = "qwen3.5:9b-mlx"
+ num_ctx = 16384
+ num_predict = 512
+ temperature = 0.3
+
+ [workload]
+ name = "mixed_mem0"
+ max_concurrency = 6
+ requests_per_level = 6
+ repeats = 3
+ cooldown_seconds = 15
+
+ [prometheus]
+ url = ""
+ instance_label = ""
+ sample_interval_seconds = 2.0
+
+ [output]
+ dir = "benchmarks/results"
+ prefix = "ollama-pop-qwen35-mlx"

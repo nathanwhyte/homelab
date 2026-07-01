@@ -1,0 +1,25 @@
+# Pop-local NUM_PARALLEL=6 agentic test for the M5 Max.
+# Production-style agentic concurrency with 32K context.
+
+[ollama]
+url = "http://localhost:11434"
+model = "gemma4:12b-mlx"
+num_ctx = 32768
+num_predict = 2048
+temperature = 0.3
+
+[workload]
+name = "agentic"
+max_concurrency = 6
+requests_per_level = 6
+repeats = 3
+cooldown_seconds = 20
+
+[prometheus]
+url = ""
+instance_label = ""
+sample_interval_seconds = 2.0
+
+[output]
+dir = "benchmarks/results"
+prefix = "ollama-pop-np6-agentic"

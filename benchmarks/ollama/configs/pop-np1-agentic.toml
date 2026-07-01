@@ -1,0 +1,25 @@
+# Pop-local NUM_PARALLEL=1 agentic test for the M5 Max.
+# Single-slot ceiling with 32K context and long generation.
+
+[ollama]
+url = "http://localhost:11434"
+model = "gemma4:12b-mlx"
+num_ctx = 32768
+num_predict = 2048
+temperature = 0.3
+
+[workload]
+name = "agentic"
+max_concurrency = 1
+requests_per_level = 1
+repeats = 3
+cooldown_seconds = 20
+
+[prometheus]
+url = ""
+instance_label = ""
+sample_interval_seconds = 2.0
+
+[output]
+dir = "benchmarks/results"
+prefix = "ollama-pop-np1-agentic"
