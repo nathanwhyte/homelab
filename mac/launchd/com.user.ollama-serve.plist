@@ -38,7 +38,7 @@
   <array>
     <string>/bin/zsh</string>
     <string>-c</string>
-    <string>cd $HOME && exec /Applications/Ollama.app/Contents/Resources/ollama serve</string>
+    <string>cd $HOME &amp;&amp; exec /Applications/Ollama.app/Contents/Resources/ollama serve</string>
   </array>
 
   <key>EnvironmentVariables</key>
@@ -47,6 +47,16 @@
     <string>0.0.0.0:11434</string>
     <key>OLLAMA_ORIGINS</key>
     <string>*</string>
+    <!-- Pop M5 Max practical envelope: NUM_PARALLEL=3 keeps desktop responsive
+         while still allowing 1 foreground + 2 background LLM clients. 16K context
+         matches the safe boundary from the 2026-07-01 sweep; 2m load timeout is
+         enough for local MLX model loads without blocking forever. -->
+    <key>OLLAMA_NUM_PARALLEL</key>
+    <string>3</string>
+    <key>OLLAMA_CONTEXT_LENGTH</key>
+    <string>16384</string>
+    <key>OLLAMA_LOAD_TIMEOUT</key>
+    <string>2m</string>
     <key>PATH</key>
     <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
   </dict>

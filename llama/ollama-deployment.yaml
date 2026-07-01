@@ -53,6 +53,9 @@ spec:
               value: q4_0
             - name: OLLAMA_KEEP_ALIVE
               value: 3m
+            # Allow large model pulls from cluster registry over slow paths.
+            - name: OLLAMA_LOAD_TIMEOUT
+              value: 15m
             # 8 slots: matches the benchmark suite's cluster-agentic config
             # (max_concurrency=8). q4_0 KV keeps 8×32K slots within the 16 GB VRAM
             # budget for typical agentic prompt lengths. Production Hermes currently
