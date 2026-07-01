@@ -1,0 +1,299 @@
+#!/usr/bin/env python3
+"""AMD GPU Prometheus exporter — sysfs + amdsmi metrics for RDNA4 GPUs."""
+import http.server
+import os
+import glob
+import threading
+
+PORT = 9101
+AMD_VENDOR = "0x1002"
+
+# Lazily import amdsmi so the exporter still starts if the library is missing.
+_amdsmi = None
+
+
+def _get_amdsmi():
+    global _amdsmi
+    if _amdsmi is not None:
+        return _amdsmi
+    try:
+        import amdsmi
+
+        amdsmi.amdsmi_init()
+        _amdsmi = amdsmi
+    except Exception:
+        _amdsmi = False
+    return _amdsmi
+
+
+def _find_discrete_amd_gpu():
+    amdsmi = _get_amdsmi()
+    if not amdsmi:
+        return None
+    try:
+        for handle in amdsmi.amdsmi_get_processor_handles():
+            try:
+                vram_bytes = amdsmi.amdsmi_get_gpu_memory_total(
+                    handle, amdsmi.AmdSmiMemoryType.VRAM
+                )
+                if vram_bytes > 1024 * 1024 * 1024:
+                    return handle
+            except Exception:
+                continue
+    except Exception:
+        pass
+    return None
+
+
+def find_amd_gpus():
+    """Find AMD GPU card paths in sysfs."""
+    gpus = []
+    for card_path in sorted(glob.glob("/sys/class/drm/card[0-9]*/device")):
+        vendor_file = os.path.join(card_path, "vendor")
+        if os.path.isfile(vendor_file):
+            with open(vendor_file) as f:
+                if f.read().strip() == AMD_VENDOR:
+                    card_name = card_path.split("/")[-2]
+                    gpu_id = card_name.replace("card", "")
+                    gpus.append((gpu_id, card_path))
+    return gpus
+
+
+def read_file(path):
+    try:
+        with open(path) as f:
+            return f.read().strip()
+    except (IOError, OSError):
+        return None
+
+
+def find_hwmon(device_path):
+    hwmon_dirs = glob.glob(os.path.join(device_path, "hwmon", "hwmon*"))
+    return hwmon_dirs[0] if hwmon_dirs else None
+
+
+def _safe_float(value):
+    if value is None or value == "N/A":
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _safe_int(value):
+    if value is None or value == "N/A":
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def collect_amdsmi_metrics(gpu_id):
+    """Collect RDNA4-specific metrics from the amdsmi library."""
+    amdsmi = _get_amdsmi()
+    if not amdsmi:
+        return []
+    handle = _find_discrete_amd_gpu()
+    if handle is None:
+        return []
+
+    lines = []
+    metrics = {}
+    try:
+        metrics = amdsmi.amdsmi_get_gpu_metrics_info(handle)
+    except Exception:
+        pass
+
+    def emit(name, value, metric_type="gauge", help_text=""):
+        if value is None:
+            return
+        lines.append(f"# HELP {name} {help_text}")
+        lines.append(f"# TYPE {name} {metric_type}")
+        lines.append(f'{name}{{gpu="{gpu_id}"}} {value}')
+
+    emit(
+        "amdgpu_temperature_hotspot_celsius",
+        _safe_float(metrics.get("temperature_hotspot")),
+        help_text="GPU junction (hotspot) temperature in Celsius",
+    )
+    emit(
+        "amdgpu_temperature_mem_celsius",
+        _safe_float(metrics.get("temperature_mem")),
+        help_text="GPU memory temperature in Celsius",
+    )
+    emit(
+        "amdgpu_power_socket_watts",
+        _safe_float(metrics.get("average_socket_power")),
+        help_text="GPU socket power draw in watts",
+    )
+    emit(
+        "amdgpu_gfx_activity_percent",
+        _safe_float(metrics.get("average_gfx_activity")),
+        help_text="Average GFX activity percentage",
+    )
+    emit(
+        "amdgpu_umc_activity_percent",
+        _safe_float(metrics.get("average_umc_activity")),
+        help_text="Average UMC (memory controller) activity percentage",
+    )
+    emit(
+        "amdgpu_voltage_gfx_mv",
+        _safe_int(metrics.get("voltage_gfx")),
+        help_text="GFX voltage in millivolts",
+    )
+    emit(
+        "amdgpu_voltage_mem_mv",
+        _safe_int(metrics.get("voltage_mem")),
+        help_text="Memory voltage in millivolts",
+    )
+    emit(
+        "amdgpu_throttle_status",
+        1 if metrics.get("throttle_status") else 0,
+        metric_type="gauge",
+        help_text="GPU throttle status (1 = throttled)",
+    )
+
+    try:
+        vram_total = amdsmi.amdsmi_get_gpu_memory_total(
+            handle, amdsmi.AmdSmiMemoryType.VRAM
+        )
+        if vram_total:
+            emit(
+                "amdgpu_vram_total_bytes",
+                vram_total,
+                help_text="VRAM total in bytes",
+            )
+        vram_used = amdsmi.amdsmi_get_gpu_memory_usage(
+            handle, amdsmi.AmdSmiMemoryType.VRAM
+        )
+        if vram_used is not None:
+            emit(
+                "amdgpu_vram_used_bytes",
+                vram_used,
+                help_text="VRAM used in bytes",
+            )
+    except Exception:
+        pass
+
+    # amdsmi clock domains (current, not DPM-selected).
+    emit(
+        "amdgpu_clock_gfx_mhz",
+        _safe_int(metrics.get("current_gfxclk")),
+        help_text="Current GFX clock in MHz",
+    )
+    emit(
+        "amdgpu_clock_mem_mhz",
+        _safe_int(metrics.get("current_uclk")),
+        help_text="Current memory (uclk) clock in MHz",
+    )
+
+    return lines
+
+
+def collect_metrics():
+    gpus = find_amd_gpus()
+    if not gpus:
+        return "# No AMD GPUs found\n"
+
+    lines = []
+    defs = [
+        ("amdgpu_utilization_percent", "gauge", "GPU utilization percentage"),
+        ("amdgpu_temperature_celsius", "gauge", "GPU edge temperature in Celsius"),
+        ("amdgpu_junction_temperature_celsius", "gauge", "GPU junction (hotspot) temperature in Celsius"),
+        ("amdgpu_vram_used_bytes", "gauge", "VRAM used in bytes"),
+        ("amdgpu_vram_total_bytes", "gauge", "VRAM total in bytes"),
+        ("amdgpu_power_watts", "gauge", "Current power draw in watts"),
+        ("amdgpu_fan_rpm", "gauge", "Fan speed in RPM"),
+        ("amdgpu_clock_gpu_mhz", "gauge", "GPU clock speed in MHz"),
+        ("amdgpu_clock_mem_mhz", "gauge", "Memory clock speed in MHz"),
+    ]
+    for name, mtype, help_text in defs:
+        lines.append(f"# HELP {name} {help_text}")
+        lines.append(f"# TYPE {name} {mtype}")
+
+    amdsmi_lines = []
+    for gpu_id, dev in gpus:
+        lbl = f'gpu="{gpu_id}"'
+        hwmon = find_hwmon(dev)
+
+        val = read_file(os.path.join(dev, "gpu_busy_percent"))
+        if val:
+            lines.append(f"amdgpu_utilization_percent{{{lbl}}} {val}")
+
+        if hwmon:
+            val = read_file(os.path.join(hwmon, "temp1_input"))
+            if val:
+                lines.append(f"amdgpu_temperature_celsius{{{lbl}}} {int(val) / 1000}")
+            val = read_file(os.path.join(hwmon, "temp2_input"))
+            if val:
+                lines.append(f"amdgpu_junction_temperature_celsius{{{lbl}}} {int(val) / 1000}")
+
+        val = read_file(os.path.join(dev, "mem_info_vram_used"))
+        if val:
+            lines.append(f"amdgpu_vram_used_bytes{{{lbl}}} {val}")
+
+        val = read_file(os.path.join(dev, "mem_info_vram_total"))
+        if val:
+            lines.append(f"amdgpu_vram_total_bytes{{{lbl}}} {val}")
+
+        if hwmon:
+            val = read_file(os.path.join(hwmon, "power1_average"))
+            if val:
+                lines.append(f"amdgpu_power_watts{{{lbl}}} {int(val) / 1000000}")
+
+        if hwmon:
+            val = read_file(os.path.join(hwmon, "fan1_input"))
+            if val:
+                lines.append(f"amdgpu_fan_rpm{{{lbl}}} {val}")
+
+        for sysfs_file, metric in [("pp_dpm_sclk", "amdgpu_clock_gpu_mhz"), ("pp_dpm_mclk", "amdgpu_clock_mem_mhz")]:
+            content = read_file(os.path.join(dev, sysfs_file))
+            if content:
+                for ln in content.splitlines():
+                    if "*" in ln:
+                        for part in ln.split():
+                            if "mhz" in part.lower():
+                                try:
+                                    lines.append(f'{metric}{{{lbl}}} {float(part.lower().replace("mhz", ""))}')
+                                except ValueError:
+                                    pass
+                                break
+                        break
+
+        # Append amdsmi metrics once per scrape to avoid duplicate HELP/TYPE lines.
+        if not amdsmi_lines:
+            amdsmi_lines = collect_amdsmi_metrics(gpu_id)
+
+    if amdsmi_lines:
+        lines.extend(amdsmi_lines)
+
+    return "\n".join(lines) + "\n"
+
+
+class Handler(http.server.BaseHTTPRequestHandler):
+    def do_GET(self):
+        if self.path == "/metrics":
+            body = collect_metrics().encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+        elif self.path == "/health":
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(b"ok")
+        else:
+            self.send_response(404)
+            self.end_headers()
+
+    def log_message(self, format, *args):
+        pass
+
+
+if __name__ == "__main__":
+    server = http.server.HTTPServer(("0.0.0.0", PORT), Handler)
+    print(f"AMD GPU exporter listening on :{PORT}")
+    server.serve_forever()

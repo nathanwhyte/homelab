@@ -1,7 +1,12 @@
 ---
 # AMD GPU Prometheus Exporter
-# Reads metrics from sysfs (/sys/class/drm/card*/device/) — no ROCm dependency.
-# Exposes on port 9101 for Prometheus scraping.
+# Reads metrics from sysfs (/sys/class/drm/card*/device/) and, on RDNA4/RDNA3
+# GPUs, from the local amdsmi Python library (ROCm).  Exposes on port 9101.
+#
+# Build the image from gpu/amd/amdgpu-exporter/:
+#   ./build-rocm-amdsmi-tar.sh /tmp/rocm-amdsmi.tar.gz
+#   docker build -t registry.nathanwhyte.dev/homelab/amdgpu-exporter:amdsmi .
+#   docker push registry.nathanwhyte.dev/homelab/amdgpu-exporter:amdsmi
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -10,13 +15,50 @@ metadata:
 data:
   exporter.py: |
     #!/usr/bin/env python3
-    """AMD GPU Prometheus exporter — reads metrics from sysfs."""
+    """AMD GPU Prometheus exporter — sysfs + amdsmi metrics for RDNA4 GPUs."""
     import http.server
     import os
     import glob
 
     PORT = 9101
     AMD_VENDOR = "0x1002"
+
+    # Lazily import amdsmi so the exporter still starts if the library is missing.
+    _amdsmi = None
+
+
+    def _get_amdsmi():
+        global _amdsmi
+        if _amdsmi is not None:
+            return _amdsmi
+        try:
+            import amdsmi
+
+            amdsmi.amdsmi_init()
+            _amdsmi = amdsmi
+        except Exception:
+            _amdsmi = False
+        return _amdsmi
+
+
+    def _find_discrete_amd_gpu():
+        amdsmi = _get_amdsmi()
+        if not amdsmi:
+            return None
+        try:
+            for handle in amdsmi.amdsmi_get_processor_handles():
+                try:
+                    vram_bytes = amdsmi.amdsmi_get_gpu_memory_total(
+                        handle, amdsmi.AmdSmiMemoryType.VRAM
+                    )
+                    if vram_bytes > 1024 * 1024 * 1024:
+                        return handle
+                except Exception:
+                    continue
+        except Exception:
+            pass
+        return None
+
 
     def find_amd_gpus():
         """Find AMD GPU card paths in sysfs."""
@@ -31,6 +73,7 @@ data:
                         gpus.append((gpu_id, card_path))
         return gpus
 
+
     def read_file(path):
         try:
             with open(path) as f:
@@ -38,9 +81,131 @@ data:
         except (IOError, OSError):
             return None
 
+
     def find_hwmon(device_path):
         hwmon_dirs = glob.glob(os.path.join(device_path, "hwmon", "hwmon*"))
         return hwmon_dirs[0] if hwmon_dirs else None
+
+
+    def _safe_float(value):
+        if value is None or value == "N/A":
+            return None
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return None
+
+
+    def _safe_int(value):
+        if value is None or value == "N/A":
+            return None
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return None
+
+
+    def collect_amdsmi_metrics(gpu_id):
+        """Collect RDNA4-specific metrics from the amdsmi library."""
+        amdsmi = _get_amdsmi()
+        if not amdsmi:
+            return []
+        handle = _find_discrete_amd_gpu()
+        if handle is None:
+            return []
+
+        lines = []
+        metrics = {}
+        try:
+            metrics = amdsmi.amdsmi_get_gpu_metrics_info(handle)
+        except Exception:
+            pass
+
+        def emit(name, value, metric_type="gauge", help_text=""):
+            if value is None:
+                return
+            lines.append(f"# HELP {name} {help_text}")
+            lines.append(f"# TYPE {name} {metric_type}")
+            lines.append(f'{name}{{gpu="{gpu_id}"}} {value}')
+
+        emit(
+            "amdgpu_temperature_hotspot_celsius",
+            _safe_float(metrics.get("temperature_hotspot")),
+            help_text="GPU junction (hotspot) temperature in Celsius",
+        )
+        emit(
+            "amdgpu_temperature_mem_celsius",
+            _safe_float(metrics.get("temperature_mem")),
+            help_text="GPU memory temperature in Celsius",
+        )
+        emit(
+            "amdgpu_power_socket_watts",
+            _safe_float(metrics.get("average_socket_power")),
+            help_text="GPU socket power draw in watts",
+        )
+        emit(
+            "amdgpu_gfx_activity_percent",
+            _safe_float(metrics.get("average_gfx_activity")),
+            help_text="Average GFX activity percentage",
+        )
+        emit(
+            "amdgpu_umc_activity_percent",
+            _safe_float(metrics.get("average_umc_activity")),
+            help_text="Average UMC (memory controller) activity percentage",
+        )
+        emit(
+            "amdgpu_voltage_gfx_mv",
+            _safe_int(metrics.get("voltage_gfx")),
+            help_text="GFX voltage in millivolts",
+        )
+        emit(
+            "amdgpu_voltage_mem_mv",
+            _safe_int(metrics.get("voltage_mem")),
+            help_text="Memory voltage in millivolts",
+        )
+        emit(
+            "amdgpu_throttle_status",
+            1 if metrics.get("throttle_status") else 0,
+            metric_type="gauge",
+            help_text="GPU throttle status (1 = throttled)",
+        )
+
+        try:
+            vram_total = amdsmi.amdsmi_get_gpu_memory_total(
+                handle, amdsmi.AmdSmiMemoryType.VRAM
+            )
+            if vram_total:
+                emit(
+                    "amdgpu_vram_total_bytes",
+                    vram_total,
+                    help_text="VRAM total in bytes",
+                )
+            vram_used = amdsmi.amdsmi_get_gpu_memory_usage(
+                handle, amdsmi.AmdSmiMemoryType.VRAM
+            )
+            if vram_used is not None:
+                emit(
+                    "amdgpu_vram_used_bytes",
+                    vram_used,
+                    help_text="VRAM used in bytes",
+                )
+        except Exception:
+            pass
+
+        # amdsmi clock domains (current, not DPM-selected).
+        emit(
+            "amdgpu_clock_gfx_mhz",
+            _safe_int(metrics.get("current_gfxclk")),
+            help_text="Current GFX clock in MHz",
+        )
+        emit(
+            "amdgpu_clock_mem_mhz",
+            _safe_int(metrics.get("current_uclk")),
+            help_text="Current memory (uclk) clock in MHz",
+        )
+
+        return lines
+
 
     def collect_metrics():
         gpus = find_amd_gpus()
@@ -63,6 +228,7 @@ data:
             lines.append(f"# HELP {name} {help_text}")
             lines.append(f"# TYPE {name} {mtype}")
 
+        amdsmi_lines = []
         for gpu_id, dev in gpus:
             lbl = f'gpu="{gpu_id}"'
             hwmon = find_hwmon(dev)
@@ -100,9 +266,9 @@ data:
             for sysfs_file, metric in [("pp_dpm_sclk", "amdgpu_clock_gpu_mhz"), ("pp_dpm_mclk", "amdgpu_clock_mem_mhz")]:
                 content = read_file(os.path.join(dev, sysfs_file))
                 if content:
-                    for line in content.splitlines():
-                        if "*" in line:
-                            for part in line.split():
+                    for ln in content.splitlines():
+                        if "*" in ln:
+                            for part in ln.split():
                                 if "mhz" in part.lower():
                                     try:
                                         lines.append(f'{metric}{{{lbl}}} {float(part.lower().replace("mhz", ""))}')
@@ -111,7 +277,15 @@ data:
                                     break
                             break
 
+            # Append amdsmi metrics once per scrape to avoid duplicate HELP/TYPE lines.
+            if not amdsmi_lines:
+                amdsmi_lines = collect_amdsmi_metrics(gpu_id)
+
+        if amdsmi_lines:
+            lines.extend(amdsmi_lines)
+
         return "\n".join(lines) + "\n"
+
 
     class Handler(http.server.BaseHTTPRequestHandler):
         def do_GET(self):
@@ -132,6 +306,7 @@ data:
 
         def log_message(self, format, *args):
             pass
+
 
     if __name__ == "__main__":
         server = http.server.HTTPServer(("0.0.0.0", PORT), Handler)
@@ -158,18 +333,25 @@ spec:
         gpu.vendor: amd
       containers:
         - name: exporter
-          image: python:3-alpine
+          image: registry.nathanwhyte.dev/homelab/amdgpu-exporter:amdsmi
           command: ["python3", "/app/exporter.py"]
           ports:
             - containerPort: 9101
               name: metrics
+          env:
+            - name: LD_LIBRARY_PATH
+              value: /opt/rocm/lib:/opt/rocm/lib64:/usr/lib/x86_64-linux-gnu
+            - name: ROCM_PATH
+              value: /opt/rocm
+          securityContext:
+            privileged: true
           resources:
             requests:
               cpu: 10m
-              memory: 32Mi
+              memory: 64Mi
             limits:
               cpu: 100m
-              memory: 64Mi
+              memory: 128Mi
           readinessProbe:
             httpGet:
               path: /health
@@ -184,12 +366,24 @@ spec:
             - name: sys
               mountPath: /sys
               readOnly: true
+            - name: dev
+              mountPath: /dev
+              readOnly: true
+            - name: rocm
+              mountPath: /opt/rocm
+              readOnly: true
             - name: script
               mountPath: /app
       volumes:
         - name: sys
           hostPath:
             path: /sys
+        - name: dev
+          hostPath:
+            path: /dev
+        - name: rocm
+          hostPath:
+            path: /opt/rocm
         - name: script
           configMap:
             name: amdgpu-exporter-script

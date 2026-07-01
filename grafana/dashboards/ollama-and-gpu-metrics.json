@@ -1,1 +1,2700 @@
-{"meta":{"type":"db","canSave":true,"canEdit":true,"canAdmin":true,"canStar":true,"canDelete":true,"slug":"ollama-and-gpu-metrics","url":"/d/84153687-7cc9-4164-bbb3-c73589de56f4/ollama-and-gpu-metrics","expires":"0001-01-01T00:00:00Z","created":"2026-03-27T22:49:51Z","updated":"2026-05-20T19:15:29Z","updatedBy":"MCP","createdBy":"MCP","version":21,"hasAcl":false,"isFolder":false,"apiVersion":"v0alpha1","folderId":0,"folderUid":"","folderTitle":"General","folderUrl":"","provisioned":false,"provisionedExternalId":"","annotationsPermissions":{"dashboard":{"canAdd":true,"canEdit":true,"canDelete":true},"organization":{"canAdd":true,"canEdit":true,"canDelete":true}}},"dashboard":{"annotations":{"list":[{"builtIn":1,"datasource":{"type":"grafana","uid":"-- Grafana --"},"enable":true,"hide":true,"iconColor":"rgba(0, 211, 255, 1)","name":"Annotations \u0026 Alerts","type":"dashboard"}]},"editable":true,"fiscalYearStartMonth":0,"graphTooltip":1,"id":89,"links":[],"panels":[{"datasource":{"type":"prometheus","uid":"prometheus"},"fieldConfig":{"defaults":{"mappings":[{"options":{"1":{"color":"green","text":"UP"}},"type":"value"},{"options":{"0":{"color":"red","text":"DOWN"}},"type":"value"}],"thresholds":{"mode":"absolute","steps":[{"color":"red","value":0},{"color":"green","value":1}]}},"overrides":[]},"gridPos":{"h":4,"w":4,"x":0,"y":0},"id":1,"options":{"colorMode":"background","graphMode":"none","justifyMode":"auto","orientation":"auto","percentChangeColorMode":"standard","reduceOptions":{"calcs":["lastNotNull"],"fields":"","values":false},"showPercentChange":false,"textMode":"value","wideLayout":true},"pluginVersion":"12.4.1","targets":[{"expr":"ollama_up","legendFormat":"Status","refId":"A"}],"title":"Ollama Status","type":"stat"},{"datasource":{"type":"prometheus","uid":"prometheus"},"fieldConfig":{"defaults":{"mappings":[],"thresholds":{"mode":"absolute","steps":[{"color":"blue","value":0},{"color":"green","value":1}]}},"overrides":[]},"gridPos":{"h":4,"w":4,"x":4,"y":0},"id":2,"options":{"colorMode":"background","graphMode":"none","justifyMode":"auto","orientation":"auto","percentChangeColorMode":"standard","reduceOptions":{"calcs":["lastNotNull"],"fields":"","values":false},"showPercentChange":false,"textMode":"value","wideLayout":true},"pluginVersion":"12.4.1","targets":[{"expr":"ollama_models_loaded","legendFormat":"Models","refId":"A"}],"title":"Models Loaded","type":"stat"},{"datasource":{"type":"prometheus","uid":"prometheus"},"fieldConfig":{"defaults":{"mappings":[],"max":100,"min":0,"thresholds":{"mode":"absolute","steps":[{"color":"green","value":0},{"color":"yellow","value":70},{"color":"red","value":90}]},"unit":"percent"},"overrides":[]},"gridPos":{"h":4,"w":4,"x":8,"y":0},"id":3,"options":{"minVizHeight":75,"minVizWidth":75,"orientation":"auto","reduceOptions":{"calcs":["lastNotNull"],"fields":"","values":false},"showThresholdLabels":false,"showThresholdMarkers":true,"sizing":"auto"},"pluginVersion":"12.4.1","targets":[{"expr":"amdgpu_utilization_percent{gpu=\"1\"}","legendFormat":"Utilization","refId":"A"}],"title":"GPU Utilization","type":"gauge"},{"datasource":{"type":"prometheus","uid":"prometheus"},"fieldConfig":{"defaults":{"mappings":[],"max":100,"min":0,"thresholds":{"mode":"absolute","steps":[{"color":"green","value":0},{"color":"yellow","value":70},{"color":"red","value":90}]},"unit":"percent"},"overrides":[]},"gridPos":{"h":4,"w":4,"x":12,"y":0},"id":4,"options":{"minVizHeight":75,"minVizWidth":75,"orientation":"auto","reduceOptions":{"calcs":["lastNotNull"],"fields":"","values":false},"showThresholdLabels":false,"showThresholdMarkers":true,"sizing":"auto"},"pluginVersion":"12.4.1","targets":[{"expr":"amdgpu_vram_used_bytes{gpu=\"1\"} / amdgpu_vram_total_bytes{gpu=\"1\"} * 100","legendFormat":"VRAM %","refId":"A"}],"title":"VRAM Usage","type":"gauge"},{"datasource":{"type":"prometheus","uid":"prometheus"},"fieldConfig":{"defaults":{"mappings":[],"max":110,"min":0,"thresholds":{"mode":"absolute","steps":[{"color":"green","value":0},{"color":"yellow","value":80},{"color":"red","value":95}]},"unit":"celsius"},"overrides":[]},"gridPos":{"h":4,"w":4,"x":16,"y":0},"id":5,"options":{"minVizHeight":75,"minVizWidth":75,"orientation":"auto","reduceOptions":{"calcs":["lastNotNull"],"fields":"","values":false},"showThresholdLabels":false,"showThresholdMarkers":true,"sizing":"auto"},"pluginVersion":"12.4.1","targets":[{"expr":"amdgpu_junction_temperature_celsius{gpu=\"1\"}","legendFormat":"Junction","refId":"A"}],"title":"Junction Temp","type":"gauge"},{"datasource":{"type":"prometheus","uid":"prometheus"},"fieldConfig":{"defaults":{"mappings":[],"thresholds":{"mode":"absolute","steps":[{"color":"green","value":0},{"color":"yellow","value":250},{"color":"red","value":340}]},"unit":"watt"},"overrides":[]},"gridPos":{"h":4,"w":4,"x":20,"y":0},"id":6,"options":{"colorMode":"background","graphMode":"area","justifyMode":"auto","orientation":"auto","percentChangeColorMode":"standard","reduceOptions":{"calcs":["lastNotNull"],"fields":"","values":false},"showPercentChange":false,"textMode":"value","wideLayout":true},"pluginVersion":"12.4.1","targets":[{"expr":"amdgpu_power_watts{gpu=\"1\"}","legendFormat":"Power","refId":"A"}],"title":"Power Draw","type":"stat"},{"collapsed":false,"gridPos":{"h":1,"w":24,"x":0,"y":4},"id":16,"panels":[],"title":"Ollama Inference","type":"row"},{"datasource":{"type":"prometheus","uid":"prometheus"},"fieldConfig":{"defaults":{"custom":{"align":"auto","cellOptions":{"type":"auto"},"footer":{"reducers":[]},"inspect":false},"mappings":[],"thresholds":{"mode":"absolute","steps":[{"color":"green","value":0},{"color":"red","value":80}]}},"overrides":[{"matcher":{"id":"byName","options":"VRAM"},"properties":[{"id":"unit","value":"bytes"},{"id":"custom.align","value":"right"}]},{"matcher":{"id":"byName","options":"Context"},"properties":[{"id":"unit","value":"short"},{"id":"custom.align","value":"right"}]},{"matcher":{"id":"byName","options":"Unloads in"},"properties":[{"id":"unit","value":"s"},{"id":"custom.align","value":"right"}]}]},"gridPos":{"h":8,"w":15,"x":0,"y":5},"id":17,"options":{"cellHeight":"sm","frameIndex":0,"showHeader":true,"sortBy":[{"desc":true,"displayName":"VRAM"}]},"pluginVersion":"12.4.1","targets":[{"datasource":{"type":"prometheus","uid":"prometheus"},"expr":"max by (model) (max_over_time(ollama_model_vram_bytes[1m]))","refId":"A"},{"datasource":{"type":"prometheus","uid":"prometheus"},"expr":"max by (model) (max_over_time(ollama_model_context_length[1m]))","refId":"B"},{"datasource":{"type":"prometheus","uid":"prometheus"},"expr":"max by (model) (max_over_time(ollama_model_expires_at[1m])) - time()","refId":"C"}],"title":"Active Models","transformations":[{"id":"labelsToFields"},{"id":"organize","options":{"excludeByName":{"Value":true},"renameByName":{"A":"VRAM","B":"Context","C":"Unloads in","model":"Model","node":"Node"}}}],"type":"table"},{"datasource":{"type":"prometheus","uid":"prometheus"},"fieldConfig":{"defaults":{"mappings":[],"thresholds":{"mode":"absolute","steps":[{"color":"green","value":0}]},"unit":"short"},"overrides":[]},"gridPos":{"h":4,"w":3,"x":15,"y":5},"id":18,"options":{"colorMode":"none","graphMode":"none","justifyMode":"auto","orientation":"auto","percentChangeColorMode":"standard","reduceOptions":{"calcs":["lastNotNull"],"fields":"","values":false},"showPercentChange":false,"textMode":"auto","wideLayout":true},"pluginVersion":"12.4.1","targets":[{"datasource":{"type":"prometheus","uid":"prometheus"},"expr":"ollama_model_context_length","legendFormat":"{{model}}","refId":"A"}],"title":"Context Length","type":"stat"},{"datasource":{"type":"prometheus","uid":"prometheus"},"fieldConfig":{"defaults":{"mappings":[],"max":100,"min":0,"thresholds":{"mode":"absolute","steps":[{"color":"green","value":0},{"color":"yellow","value":60},{"color":"red","value":85}]},"unit":"percent"},"overrides":[]},"gridPos":{"h":4,"w":2,"x":18,"y":5},"id":19,"options":{"minVizHeight":75,"minVizWidth":75,"orientation":"auto","reduceOptions":{"calcs":["lastNotNull"],"fields":"","values":false},"showThresholdLabels":false,"showThresholdMarkers":true,"sizing":"auto"},"pluginVersion":"12.4.1","targets":[{"datasource":{"type":"prometheus","uid":"prometheus"},"expr":"ollama_last_prompt_tokens / ollama_model_context_length * 100","legendFormat":"{{model}}","refId":"A"}],"title":"Context Fill (last req)","type":"gauge"},{"datasource":{"type":"prometheus","uid":"prometheus"},"fieldConfig":{"defaults":{"color":{"mode":"thresholds"},"mappings":[],"thresholds":{"mode":"absolute","steps":[{"color":"red","value":0},{"color":"yellow","value":60},{"color":"green","value":600}]},"unit":"s"},"overrides":[]},"gridPos":{"h":4,"w":4,"x":20,"y":5},"id":20,"options":{"colorMode":"background","graphMode":"none","justifyMode":"auto","orientation":"auto","percentChangeColorMode":"standard","reduceOptions":{"calcs":["lastNotNull"],"fields":"","values":false},"showPercentChange":false,"textMode":"auto","wideLayout":true},"pluginVersion":"12.4.1","targets":[{"datasource":{"type":"prometheus","uid":"prometheus"},"expr":"ollama_model_expires_at - time()","legendFormat":"{{model}}","refId":"A"}],"title":"Unloads In","type":"stat"},{"datasource":{"type":"prometheus","uid":"prometheus"},"fieldConfig":{"defaults":{"color":{"mode":"palette-classic"},"custom":{"axisBorderShow":false,"axisCenteredZero":false,"axisColorMode":"text","axisLabel":"","axisPlacement":"auto","barAlignment":0,"barWidthFactor":0.6,"drawStyle":"line","fillOpacity":20,"gradientMode":"none","hideFrom":{"legend":false,"tooltip":false,"viz":false},"insertNulls":false,"lineInterpolation":"linear","lineWidth":2,"pointSize":5,"scaleDistribution":{"type":"linear"},"showPoints":"auto","showValues":false,"spanNulls":false,"stacking":{"group":"A","mode":"none"},"thresholdsStyle":{"mode":"off"}},"mappings":[],"min":0,"thresholds":{"mode":"absolute","steps":[{"color":"green","value":0},{"color":"red","value":80}]},"unit":"bytes"},"overrides":[]},"gridPos":{"h":8,"w":9,"x":15,"y":9},"id":24,"options":{"legend":{"calcs":[],"displayMode":"list","placement":"bottom","showLegend":true},"tooltip":{"hideZeros":false,"mode":"multi","sort":"none"}},"pluginVersion":"12.4.1","targets":[{"datasource":{"type":"prometheus","uid":"prometheus"},"expr":"ollama_model_vram_bytes","legendFormat":"{{model}}","refId":"A"}],"title":"VRAM Per Model","type":"timeseries"},{"datasource":{"type":"prometheus","uid":"prometheus"},"fieldConfig":{"defaults":{"color":{"mode":"palette-classic"},"custom":{"axisBorderShow":false,"axisCenteredZero":false,"axisColorMode":"text","axisLabel":"","axisPlacement":"auto","barAlignment":0,"barWidthFactor":0.6,"drawStyle":"line","fillOpacity":15,"gradientMode":"none","hideFrom":{"legend":false,"tooltip":false,"viz":false},"insertNulls":false,"lineInterpolation":"linear","lineWidth":2,"pointSize":5,"scaleDistribution":{"type":"linear"},"showPoints":"auto","showValues":false,"spanNulls":false,"stacking":{"group":"A","mode":"none"},"thresholdsStyle":{"mode":"off"}},"mappings":[],"min":0,"thresholds":{"mode":"absolute","steps":[{"color":"green","value":0},{"color":"red","value":80}]},"unit":"short"},"overrides":[]},"gridPos":{"h":4,"w":11,"x":0,"y":13},"id":23,"options":{"legend":{"calcs":[],"displayMode":"list","placement":"bottom","showLegend":true},"tooltip":{"hideZeros":false,"mode":"multi","sort":"none"}},"pluginVersion":"12.4.1","targets":[{"datasource":{"type":"prometheus","uid":"prometheus"},"expr":"ollama_gen_tokens_per_sec","legendFormat":"gen {{model}}","refId":"A"},{"datasource":{"type":"prometheus","uid":"prometheus"},"expr":"ollama_prompt_tokens_per_sec","legendFormat":"prompt {{model}}","refId":"B"}],"title":"Token Speed (tok/s)","type":"timeseries"},{"datasource":{"type":"prometheus","uid":"prometheus"},"fieldConfig":{"defaults":{"decimals":1,"mappings":[],"thresholds":{"mode":"absolute","steps":[{"color":"green","value":0}]},"unit":"short"},"overrides":[]},"gridPos":{"h":4,"w":2,"x":11,"y":13},"id":22,"options":{"colorMode":"none","graphMode":"none","justifyMode":"auto","orientation":"auto","percentChangeColorMode":"standard","reduceOptions":{"calcs":["lastNotNull"],"fields":"","values":false},"showPercentChange":false,"textMode":"auto","wideLayout":true},"pluginVersion":"12.4.1","targets":[{"datasource":{"type":"prometheus","uid":"prometheus"},"expr":"ollama_prompt_tokens_per_sec","legendFormat":"{{model}}","refId":"A"}],"title":"Prompt tok/s","type":"stat"},{"datasource":{"type":"prometheus","uid":"prometheus"},"fieldConfig":{"defaults":{"decimals":1,"mappings":[],"thresholds":{"mode":"absolute","steps":[{"color":"green","value":0}]},"unit":"short"},"overrides":[]},"gridPos":{"h":4,"w":2,"x":13,"y":13},"id":21,"options":{"colorMode":"none","graphMode":"none","justifyMode":"auto","orientation":"auto","percentChangeColorMode":"standard","reduceOptions":{"calcs":["lastNotNull"],"fields":"","values":false},"showPercentChange":false,"textMode":"auto","wideLayout":true},"pluginVersion":"12.4.1","targets":[{"datasource":{"type":"prometheus","uid":"prometheus"},"expr":"ollama_gen_tokens_per_sec","legendFormat":"{{model}}","refId":"A"}],"title":"Gen tok/s","type":"stat"},{"collapsed":false,"gridPos":{"h":1,"w":24,"x":0,"y":17},"id":10,"panels":[],"title":"GPU Performance","type":"row"},{"datasource":{"type":"prometheus","uid":"prometheus"},"fieldConfig":{"defaults":{"color":{"mode":"palette-classic"},"custom":{"axisBorderShow":false,"axisCenteredZero":false,"axisColorMode":"text","axisLabel":"","axisPlacement":"auto","axisSoftMax":100,"axisSoftMin":0,"barAlignment":0,"barWidthFactor":0.6,"drawStyle":"line","fillOpacity":20,"gradientMode":"none","hideFrom":{"legend":false,"tooltip":false,"viz":false},"insertNulls":false,"lineInterpolation":"linear","lineWidth":2,"pointSize":5,"scaleDistribution":{"type":"linear"},"showPoints":"auto","showValues":false,"spanNulls":false,"stacking":{"group":"A","mode":"none"},"thresholdsStyle":{"mode":"off"}},"mappings":[],"max":100,"min":0,"thresholds":{"mode":"absolute","steps":[{"color":"green","value":0},{"color":"red","value":80}]},"unit":"percent"},"overrides":[]},"gridPos":{"h":8,"w":12,"x":0,"y":18},"id":7,"options":{"legend":{"calcs":[],"displayMode":"list","placement":"bottom","showLegend":true},"tooltip":{"hideZeros":false,"mode":"single","sort":"none"}},"pluginVersion":"12.4.1","targets":[{"expr":"amdgpu_utilization_percent{gpu=\"1\"}","legendFormat":"GPU %","refId":"A"}],"title":"GPU Utilization Over Time","type":"timeseries"},{"datasource":{"type":"prometheus","uid":"prometheus"},"fieldConfig":{"defaults":{"color":{"mode":"palette-classic"},"custom":{"axisBorderShow":false,"axisCenteredZero":false,"axisColorMode":"text","axisLabel":"","axisPlacement":"auto","barAlignment":0,"barWidthFactor":0.6,"drawStyle":"line","fillOpacity":20,"gradientMode":"none","hideFrom":{"legend":false,"tooltip":false,"viz":false},"insertNulls":false,"lineInterpolation":"linear","lineWidth":2,"pointSize":5,"scaleDistribution":{"type":"linear"},"showPoints":"auto","showValues":false,"spanNulls":false,"stacking":{"group":"A","mode":"none"},"thresholdsStyle":{"mode":"off"}},"mappings":[],"min":0,"thresholds":{"mode":"absolute","steps":[{"color":"green","value":0},{"color":"red","value":80}]},"unit":"bytes"},"overrides":[{"matcher":{"id":"byName","options":"Total"},"properties":[{"id":"custom.lineStyle","value":{"dash":[10,10],"fill":"dash"}},{"id":"custom.fillOpacity","value":0}]}]},"gridPos":{"h":8,"w":12,"x":12,"y":18},"id":8,"options":{"legend":{"calcs":[],"displayMode":"list","placement":"bottom","showLegend":true},"tooltip":{"hideZeros":false,"mode":"multi","sort":"none"}},"pluginVersion":"12.4.1","targets":[{"expr":"amdgpu_vram_used_bytes{gpu=\"1\"}","legendFormat":"Used","refId":"A"},{"expr":"amdgpu_vram_total_bytes{gpu=\"1\"}","legendFormat":"Total","refId":"B"}],"title":"VRAM Usage Over Time","type":"timeseries"},{"collapsed":false,"gridPos":{"h":1,"w":24,"x":0,"y":26},"id":11,"panels":[],"title":"Thermals \u0026 Power","type":"row"},{"datasource":{"type":"prometheus","uid":"prometheus"},"fieldConfig":{"defaults":{"color":{"mode":"palette-classic"},"custom":{"axisBorderShow":false,"axisCenteredZero":false,"axisColorMode":"text","axisLabel":"","axisPlacement":"auto","barAlignment":0,"barWidthFactor":0.6,"drawStyle":"line","fillOpacity":10,"gradientMode":"none","hideFrom":{"legend":false,"tooltip":false,"viz":false},"insertNulls":false,"lineInterpolation":"linear","lineWidth":2,"pointSize":5,"scaleDistribution":{"type":"linear"},"showPoints":"auto","showValues":false,"spanNulls":false,"stacking":{"group":"A","mode":"none"},"thresholdsStyle":{"mode":"line"}},"mappings":[],"thresholds":{"mode":"absolute","steps":[{"color":"green","value":0},{"color":"red","value":80}]},"unit":"celsius"},"overrides":[]},"gridPos":{"h":8,"w":12,"x":0,"y":27},"id":9,"options":{"legend":{"calcs":[],"displayMode":"list","placement":"bottom","showLegend":true},"tooltip":{"hideZeros":false,"mode":"multi","sort":"none"}},"pluginVersion":"12.4.1","targets":[{"expr":"amdgpu_temperature_celsius{gpu=\"1\"}","legendFormat":"Edge","refId":"A"},{"expr":"amdgpu_junction_temperature_celsius{gpu=\"1\"}","legendFormat":"Junction","refId":"B"}],"title":"Temperature Over Time","type":"timeseries"},{"datasource":{"type":"prometheus","uid":"prometheus"},"fieldConfig":{"defaults":{"color":{"mode":"palette-classic"},"custom":{"axisBorderShow":false,"axisCenteredZero":false,"axisColorMode":"text","axisLabel":"","axisPlacement":"auto","barAlignment":0,"barWidthFactor":0.6,"drawStyle":"line","fillOpacity":20,"gradientMode":"none","hideFrom":{"legend":false,"tooltip":false,"viz":false},"insertNulls":false,"lineInterpolation":"linear","lineWidth":2,"pointSize":5,"scaleDistribution":{"type":"linear"},"showPoints":"auto","showValues":false,"spanNulls":false,"stacking":{"group":"A","mode":"none"},"thresholdsStyle":{"mode":"off"}},"mappings":[],"thresholds":{"mode":"absolute","steps":[{"color":"green","value":0},{"color":"red","value":80}]},"unit":"watt"},"overrides":[]},"gridPos":{"h":8,"w":12,"x":12,"y":27},"id":12,"options":{"legend":{"calcs":[],"displayMode":"list","placement":"bottom","showLegend":true},"tooltip":{"hideZeros":false,"mode":"single","sort":"none"}},"pluginVersion":"12.4.1","targets":[{"expr":"amdgpu_power_watts{gpu=\"1\"}","legendFormat":"Power","refId":"A"}],"title":"Power Draw Over Time","type":"timeseries"},{"collapsed":false,"gridPos":{"h":1,"w":24,"x":0,"y":35},"id":13,"panels":[],"title":"Hardware Details","type":"row"},{"datasource":{"type":"prometheus","uid":"prometheus"},"fieldConfig":{"defaults":{"color":{"mode":"palette-classic"},"custom":{"axisBorderShow":false,"axisCenteredZero":false,"axisColorMode":"text","axisLabel":"","axisPlacement":"auto","barAlignment":0,"barWidthFactor":0.6,"drawStyle":"line","fillOpacity":10,"gradientMode":"none","hideFrom":{"legend":false,"tooltip":false,"viz":false},"insertNulls":false,"lineInterpolation":"linear","lineWidth":2,"pointSize":5,"scaleDistribution":{"type":"linear"},"showPoints":"auto","showValues":false,"spanNulls":false,"stacking":{"group":"A","mode":"none"},"thresholdsStyle":{"mode":"off"}},"mappings":[],"thresholds":{"mode":"absolute","steps":[{"color":"green","value":0},{"color":"red","value":80}]},"unit":"clockmhz"},"overrides":[]},"gridPos":{"h":8,"w":12,"x":0,"y":36},"id":14,"options":{"legend":{"calcs":[],"displayMode":"list","placement":"bottom","showLegend":true},"tooltip":{"hideZeros":false,"mode":"multi","sort":"none"}},"pluginVersion":"12.4.1","targets":[{"expr":"amdgpu_clock_gpu_mhz{gpu=\"1\"}","legendFormat":"GPU Clock","refId":"A"},{"expr":"amdgpu_clock_mem_mhz{gpu=\"1\"}","legendFormat":"Memory Clock","refId":"B"}],"title":"Clock Speeds","type":"timeseries"},{"datasource":{"type":"prometheus","uid":"prometheus"},"fieldConfig":{"defaults":{"color":{"fixedColor":"purple","mode":"fixed"},"custom":{"axisBorderShow":false,"axisCenteredZero":false,"axisColorMode":"text","axisLabel":"","axisPlacement":"auto","barAlignment":0,"barWidthFactor":0.6,"drawStyle":"line","fillOpacity":15,"gradientMode":"none","hideFrom":{"legend":false,"tooltip":false,"viz":false},"insertNulls":false,"lineInterpolation":"linear","lineWidth":2,"pointSize":5,"scaleDistribution":{"type":"linear"},"showPoints":"auto","showValues":false,"spanNulls":false,"stacking":{"group":"A","mode":"none"},"thresholdsStyle":{"mode":"off"}},"mappings":[],"thresholds":{"mode":"absolute","steps":[{"color":"green","value":0},{"color":"red","value":80}]},"unit":"rotrpm"},"overrides":[]},"gridPos":{"h":8,"w":12,"x":12,"y":36},"id":15,"options":{"legend":{"calcs":[],"displayMode":"list","placement":"bottom","showLegend":true},"tooltip":{"hideZeros":false,"mode":"single","sort":"none"}},"pluginVersion":"12.4.1","targets":[{"expr":"amdgpu_fan_rpm{gpu=\"1\"}","legendFormat":"Fan RPM","refId":"A"}],"title":"Fan Speed","type":"timeseries"}],"preload":false,"refresh":"10s","schemaVersion":42,"tags":["ollama","gpu","inference"],"templating":{"list":[]},"time":{"from":"now-1h","to":"now"},"timepicker":{},"timezone":"browser","title":"Ollama \u0026 GPU Metrics","uid":"84153687-7cc9-4164-bbb3-c73589de56f4","version":21,"weekStart":""}}
+{
+  "meta": {
+    "type": "db",
+    "canSave": true,
+    "canEdit": true,
+    "canAdmin": true,
+    "canStar": true,
+    "canDelete": true,
+    "slug": "ollama-and-gpu-metrics",
+    "url": "/d/84153687-7cc9-4164-bbb3-c73589de56f4/ollama-and-gpu-metrics",
+    "expires": "0001-01-01T00:00:00Z",
+    "created": "2026-03-27T22:49:51Z",
+    "updated": "2026-05-20T19:15:29Z",
+    "updatedBy": "MCP",
+    "createdBy": "MCP",
+    "version": 21,
+    "hasAcl": false,
+    "isFolder": false,
+    "apiVersion": "v0alpha1",
+    "folderId": 0,
+    "folderUid": "",
+    "folderTitle": "General",
+    "folderUrl": "",
+    "provisioned": false,
+    "provisionedExternalId": "",
+    "annotationsPermissions": {
+      "dashboard": {
+        "canAdd": true,
+        "canEdit": true,
+        "canDelete": true
+      },
+      "organization": {
+        "canAdd": true,
+        "canEdit": true,
+        "canDelete": true
+      }
+    }
+  },
+  "dashboard": {
+    "annotations": {
+      "list": [
+        {
+          "builtIn": 1,
+          "datasource": {
+            "type": "grafana",
+            "uid": "-- Grafana --"
+          },
+          "enable": true,
+          "hide": true,
+          "iconColor": "rgba(0, 211, 255, 1)",
+          "name": "Annotations & Alerts",
+          "type": "dashboard"
+        }
+      ]
+    },
+    "editable": true,
+    "fiscalYearStartMonth": 0,
+    "graphTooltip": 1,
+    "id": 89,
+    "links": [],
+    "panels": [
+      {
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "mappings": [
+              {
+                "options": {
+                  "1": {
+                    "color": "green",
+                    "text": "UP"
+                  }
+                },
+                "type": "value"
+              },
+              {
+                "options": {
+                  "0": {
+                    "color": "red",
+                    "text": "DOWN"
+                  }
+                },
+                "type": "value"
+              }
+            ],
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {
+                  "color": "red",
+                  "value": 0
+                },
+                {
+                  "color": "green",
+                  "value": 1
+                }
+              ]
+            }
+          },
+          "overrides": []
+        },
+        "gridPos": {
+          "h": 4,
+          "w": 4,
+          "x": 0,
+          "y": 0
+        },
+        "id": 1,
+        "options": {
+          "colorMode": "background",
+          "graphMode": "none",
+          "justifyMode": "auto",
+          "orientation": "auto",
+          "percentChangeColorMode": "standard",
+          "reduceOptions": {
+            "calcs": [
+              "lastNotNull"
+            ],
+            "fields": "",
+            "values": false
+          },
+          "showPercentChange": false,
+          "textMode": "value",
+          "wideLayout": true
+        },
+        "pluginVersion": "12.4.1",
+        "targets": [
+          {
+            "expr": "ollama_up",
+            "legendFormat": "Status",
+            "refId": "A"
+          }
+        ],
+        "title": "Ollama Status",
+        "type": "stat"
+      },
+      {
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "mappings": [],
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {
+                  "color": "blue",
+                  "value": 0
+                },
+                {
+                  "color": "green",
+                  "value": 1
+                }
+              ]
+            }
+          },
+          "overrides": []
+        },
+        "gridPos": {
+          "h": 4,
+          "w": 4,
+          "x": 4,
+          "y": 0
+        },
+        "id": 2,
+        "options": {
+          "colorMode": "background",
+          "graphMode": "none",
+          "justifyMode": "auto",
+          "orientation": "auto",
+          "percentChangeColorMode": "standard",
+          "reduceOptions": {
+            "calcs": [
+              "lastNotNull"
+            ],
+            "fields": "",
+            "values": false
+          },
+          "showPercentChange": false,
+          "textMode": "value",
+          "wideLayout": true
+        },
+        "pluginVersion": "12.4.1",
+        "targets": [
+          {
+            "expr": "ollama_models_loaded",
+            "legendFormat": "Models",
+            "refId": "A"
+          }
+        ],
+        "title": "Models Loaded",
+        "type": "stat"
+      },
+      {
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "mappings": [],
+            "max": 100,
+            "min": 0,
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {
+                  "color": "green",
+                  "value": 0
+                },
+                {
+                  "color": "yellow",
+                  "value": 70
+                },
+                {
+                  "color": "red",
+                  "value": 90
+                }
+              ]
+            },
+            "unit": "percent"
+          },
+          "overrides": []
+        },
+        "gridPos": {
+          "h": 4,
+          "w": 4,
+          "x": 8,
+          "y": 0
+        },
+        "id": 3,
+        "options": {
+          "minVizHeight": 75,
+          "minVizWidth": 75,
+          "orientation": "auto",
+          "reduceOptions": {
+            "calcs": [
+              "lastNotNull"
+            ],
+            "fields": "",
+            "values": false
+          },
+          "showThresholdLabels": false,
+          "showThresholdMarkers": true,
+          "sizing": "auto"
+        },
+        "pluginVersion": "12.4.1",
+        "targets": [
+          {
+            "expr": "amdgpu_utilization_percent{gpu=\"1\"}",
+            "legendFormat": "Utilization",
+            "refId": "A"
+          }
+        ],
+        "title": "GPU Utilization",
+        "type": "gauge"
+      },
+      {
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "mappings": [],
+            "max": 100,
+            "min": 0,
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {
+                  "color": "green",
+                  "value": 0
+                },
+                {
+                  "color": "yellow",
+                  "value": 70
+                },
+                {
+                  "color": "red",
+                  "value": 90
+                }
+              ]
+            },
+            "unit": "percent"
+          },
+          "overrides": []
+        },
+        "gridPos": {
+          "h": 4,
+          "w": 4,
+          "x": 12,
+          "y": 0
+        },
+        "id": 4,
+        "options": {
+          "minVizHeight": 75,
+          "minVizWidth": 75,
+          "orientation": "auto",
+          "reduceOptions": {
+            "calcs": [
+              "lastNotNull"
+            ],
+            "fields": "",
+            "values": false
+          },
+          "showThresholdLabels": false,
+          "showThresholdMarkers": true,
+          "sizing": "auto"
+        },
+        "pluginVersion": "12.4.1",
+        "targets": [
+          {
+            "expr": "amdgpu_vram_used_bytes{gpu=\"1\"} / amdgpu_vram_total_bytes{gpu=\"1\"} * 100",
+            "legendFormat": "VRAM %",
+            "refId": "A"
+          }
+        ],
+        "title": "VRAM Usage",
+        "type": "gauge"
+      },
+      {
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "mappings": [],
+            "max": 110,
+            "min": 0,
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {
+                  "color": "green",
+                  "value": 0
+                },
+                {
+                  "color": "yellow",
+                  "value": 80
+                },
+                {
+                  "color": "red",
+                  "value": 95
+                }
+              ]
+            },
+            "unit": "celsius"
+          },
+          "overrides": []
+        },
+        "gridPos": {
+          "h": 4,
+          "w": 4,
+          "x": 16,
+          "y": 0
+        },
+        "id": 5,
+        "options": {
+          "minVizHeight": 75,
+          "minVizWidth": 75,
+          "orientation": "auto",
+          "reduceOptions": {
+            "calcs": [
+              "lastNotNull"
+            ],
+            "fields": "",
+            "values": false
+          },
+          "showThresholdLabels": false,
+          "showThresholdMarkers": true,
+          "sizing": "auto"
+        },
+        "pluginVersion": "12.4.1",
+        "targets": [
+          {
+            "expr": "amdgpu_junction_temperature_celsius{gpu=\"1\"}",
+            "legendFormat": "Junction",
+            "refId": "A"
+          }
+        ],
+        "title": "Junction Temp",
+        "type": "gauge"
+      },
+      {
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "mappings": [],
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {
+                  "color": "green",
+                  "value": 0
+                },
+                {
+                  "color": "yellow",
+                  "value": 250
+                },
+                {
+                  "color": "red",
+                  "value": 340
+                }
+              ]
+            },
+            "unit": "watt"
+          },
+          "overrides": []
+        },
+        "gridPos": {
+          "h": 4,
+          "w": 4,
+          "x": 20,
+          "y": 0
+        },
+        "id": 6,
+        "options": {
+          "colorMode": "background",
+          "graphMode": "area",
+          "justifyMode": "auto",
+          "orientation": "auto",
+          "percentChangeColorMode": "standard",
+          "reduceOptions": {
+            "calcs": [
+              "lastNotNull"
+            ],
+            "fields": "",
+            "values": false
+          },
+          "showPercentChange": false,
+          "textMode": "value",
+          "wideLayout": true
+        },
+        "pluginVersion": "12.4.1",
+        "targets": [
+          {
+            "expr": "amdgpu_power_watts{gpu=\"1\"}",
+            "legendFormat": "Power",
+            "refId": "A"
+          }
+        ],
+        "title": "Power Draw",
+        "type": "stat"
+      },
+      {
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "mappings": [],
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {
+                  "color": "green",
+                  "value": 0
+                },
+                {
+                  "color": "yellow",
+                  "value": 70
+                },
+                {
+                  "color": "red",
+                  "value": 90
+                }
+              ]
+            },
+            "unit": "percent",
+            "max": 100,
+            "min": 0
+          },
+          "overrides": []
+        },
+        "gridPos": {
+          "h": 4,
+          "w": 4,
+          "x": 0,
+          "y": 4
+        },
+        "id": 101,
+        "options": {
+          "colorMode": "background",
+          "graphMode": "area",
+          "justifyMode": "auto",
+          "orientation": "auto",
+          "percentChangeColorMode": "standard",
+          "reduceOptions": {
+            "calcs": [
+              "lastNotNull"
+            ],
+            "fields": "",
+            "values": false
+          },
+          "showPercentChange": false,
+          "textMode": "value",
+          "wideLayout": true
+        },
+        "pluginVersion": "12.4.1",
+        "targets": [
+          {
+            "expr": "amdgpu_gfx_activity_percent{gpu=\"1\"}",
+            "legendFormat": "GFX Activity",
+            "refId": "A"
+          }
+        ],
+        "title": "GFX Activity",
+        "type": "stat"
+      },
+      {
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "mappings": [],
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {
+                  "color": "green",
+                  "value": 0
+                },
+                {
+                  "color": "yellow",
+                  "value": 70
+                },
+                {
+                  "color": "red",
+                  "value": 90
+                }
+              ]
+            },
+            "unit": "percent",
+            "max": 100,
+            "min": 0
+          },
+          "overrides": []
+        },
+        "gridPos": {
+          "h": 4,
+          "w": 4,
+          "x": 4,
+          "y": 4
+        },
+        "id": 102,
+        "options": {
+          "colorMode": "background",
+          "graphMode": "area",
+          "justifyMode": "auto",
+          "orientation": "auto",
+          "percentChangeColorMode": "standard",
+          "reduceOptions": {
+            "calcs": [
+              "lastNotNull"
+            ],
+            "fields": "",
+            "values": false
+          },
+          "showPercentChange": false,
+          "textMode": "value",
+          "wideLayout": true
+        },
+        "pluginVersion": "12.4.1",
+        "targets": [
+          {
+            "expr": "amdgpu_umc_activity_percent{gpu=\"1\"}",
+            "legendFormat": "UMC Activity",
+            "refId": "A"
+          }
+        ],
+        "title": "UMC Activity",
+        "type": "stat"
+      },
+      {
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "mappings": [],
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {
+                  "color": "green",
+                  "value": 0
+                },
+                {
+                  "color": "yellow",
+                  "value": 80
+                },
+                {
+                  "color": "red",
+                  "value": 95
+                }
+              ]
+            },
+            "unit": "celsius",
+            "max": 110,
+            "min": 0
+          },
+          "overrides": []
+        },
+        "gridPos": {
+          "h": 4,
+          "w": 4,
+          "x": 8,
+          "y": 4
+        },
+        "id": 103,
+        "options": {
+          "colorMode": "background",
+          "graphMode": "area",
+          "justifyMode": "auto",
+          "orientation": "auto",
+          "percentChangeColorMode": "standard",
+          "reduceOptions": {
+            "calcs": [
+              "lastNotNull"
+            ],
+            "fields": "",
+            "values": false
+          },
+          "showPercentChange": false,
+          "textMode": "value",
+          "wideLayout": true
+        },
+        "pluginVersion": "12.4.1",
+        "targets": [
+          {
+            "expr": "amdgpu_temperature_hotspot_celsius{gpu=\"1\"}",
+            "legendFormat": "Hotspot Temp",
+            "refId": "A"
+          }
+        ],
+        "title": "Hotspot Temp",
+        "type": "stat"
+      },
+      {
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "mappings": [],
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {
+                  "color": "green",
+                  "value": 0
+                },
+                {
+                  "color": "yellow",
+                  "value": 80
+                },
+                {
+                  "color": "red",
+                  "value": 90
+                }
+              ]
+            },
+            "unit": "celsius",
+            "max": 100,
+            "min": 0
+          },
+          "overrides": []
+        },
+        "gridPos": {
+          "h": 4,
+          "w": 4,
+          "x": 12,
+          "y": 4
+        },
+        "id": 104,
+        "options": {
+          "colorMode": "background",
+          "graphMode": "area",
+          "justifyMode": "auto",
+          "orientation": "auto",
+          "percentChangeColorMode": "standard",
+          "reduceOptions": {
+            "calcs": [
+              "lastNotNull"
+            ],
+            "fields": "",
+            "values": false
+          },
+          "showPercentChange": false,
+          "textMode": "value",
+          "wideLayout": true
+        },
+        "pluginVersion": "12.4.1",
+        "targets": [
+          {
+            "expr": "amdgpu_temperature_mem_celsius{gpu=\"1\"}",
+            "legendFormat": "Mem Temp",
+            "refId": "A"
+          }
+        ],
+        "title": "Mem Temp",
+        "type": "stat"
+      },
+      {
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "mappings": [],
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {
+                  "color": "green",
+                  "value": 0
+                },
+                {
+                  "color": "yellow",
+                  "value": 250
+                },
+                {
+                  "color": "red",
+                  "value": 340
+                }
+              ]
+            },
+            "unit": "watt"
+          },
+          "overrides": []
+        },
+        "gridPos": {
+          "h": 4,
+          "w": 4,
+          "x": 16,
+          "y": 4
+        },
+        "id": 105,
+        "options": {
+          "colorMode": "background",
+          "graphMode": "area",
+          "justifyMode": "auto",
+          "orientation": "auto",
+          "percentChangeColorMode": "standard",
+          "reduceOptions": {
+            "calcs": [
+              "lastNotNull"
+            ],
+            "fields": "",
+            "values": false
+          },
+          "showPercentChange": false,
+          "textMode": "value",
+          "wideLayout": true
+        },
+        "pluginVersion": "12.4.1",
+        "targets": [
+          {
+            "expr": "amdgpu_power_socket_watts{gpu=\"1\"}",
+            "legendFormat": "Socket Power",
+            "refId": "A"
+          }
+        ],
+        "title": "Socket Power",
+        "type": "stat"
+      },
+      {
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "mappings": [
+              {
+                "options": {
+                  "0": {
+                    "color": "green",
+                    "text": "OK"
+                  }
+                },
+                "type": "value"
+              },
+              {
+                "options": {
+                  "1": {
+                    "color": "red",
+                    "text": "THROTTLE"
+                  }
+                },
+                "type": "value"
+              }
+            ],
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {
+                  "color": "green",
+                  "value": 0
+                },
+                {
+                  "color": "red",
+                  "value": 1
+                }
+              ]
+            },
+            "unit": "none"
+          },
+          "overrides": []
+        },
+        "gridPos": {
+          "h": 4,
+          "w": 4,
+          "x": 20,
+          "y": 4
+        },
+        "id": 106,
+        "options": {
+          "colorMode": "background",
+          "graphMode": "none",
+          "justifyMode": "auto",
+          "orientation": "auto",
+          "percentChangeColorMode": "standard",
+          "reduceOptions": {
+            "calcs": [
+              "lastNotNull"
+            ],
+            "fields": "",
+            "values": false
+          },
+          "showPercentChange": false,
+          "textMode": "value",
+          "wideLayout": true
+        },
+        "pluginVersion": "12.4.1",
+        "targets": [
+          {
+            "expr": "amdgpu_throttle_status{gpu=\"1\"}",
+            "legendFormat": "Throttle",
+            "refId": "A"
+          }
+        ],
+        "title": "Throttle Status",
+        "type": "stat"
+      },
+      {
+        "collapsed": false,
+        "gridPos": {
+          "h": 1,
+          "w": 24,
+          "x": 0,
+          "y": 8
+        },
+        "id": 16,
+        "panels": [],
+        "title": "Ollama Inference",
+        "type": "row"
+      },
+      {
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "custom": {
+              "align": "auto",
+              "cellOptions": {
+                "type": "auto"
+              },
+              "footer": {
+                "reducers": []
+              },
+              "inspect": false
+            },
+            "mappings": [],
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {
+                  "color": "green",
+                  "value": 0
+                },
+                {
+                  "color": "red",
+                  "value": 80
+                }
+              ]
+            }
+          },
+          "overrides": [
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "VRAM"
+              },
+              "properties": [
+                {
+                  "id": "unit",
+                  "value": "bytes"
+                },
+                {
+                  "id": "custom.align",
+                  "value": "right"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "Context"
+              },
+              "properties": [
+                {
+                  "id": "unit",
+                  "value": "short"
+                },
+                {
+                  "id": "custom.align",
+                  "value": "right"
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "Unloads in"
+              },
+              "properties": [
+                {
+                  "id": "unit",
+                  "value": "s"
+                },
+                {
+                  "id": "custom.align",
+                  "value": "right"
+                }
+              ]
+            }
+          ]
+        },
+        "gridPos": {
+          "h": 8,
+          "w": 15,
+          "x": 0,
+          "y": 9
+        },
+        "id": 17,
+        "options": {
+          "cellHeight": "sm",
+          "frameIndex": 0,
+          "showHeader": true,
+          "sortBy": [
+            {
+              "desc": true,
+              "displayName": "VRAM"
+            }
+          ]
+        },
+        "pluginVersion": "12.4.1",
+        "targets": [
+          {
+            "datasource": {
+              "type": "prometheus",
+              "uid": "prometheus"
+            },
+            "expr": "max by (model) (max_over_time(ollama_model_vram_bytes[1m]))",
+            "refId": "A"
+          },
+          {
+            "datasource": {
+              "type": "prometheus",
+              "uid": "prometheus"
+            },
+            "expr": "max by (model) (max_over_time(ollama_model_context_length[1m]))",
+            "refId": "B"
+          },
+          {
+            "datasource": {
+              "type": "prometheus",
+              "uid": "prometheus"
+            },
+            "expr": "max by (model) (max_over_time(ollama_model_expires_at[1m])) - time()",
+            "refId": "C"
+          }
+        ],
+        "title": "Active Models",
+        "transformations": [
+          {
+            "id": "labelsToFields"
+          },
+          {
+            "id": "organize",
+            "options": {
+              "excludeByName": {
+                "Value": true
+              },
+              "renameByName": {
+                "A": "VRAM",
+                "B": "Context",
+                "C": "Unloads in",
+                "model": "Model",
+                "node": "Node"
+              }
+            }
+          }
+        ],
+        "type": "table"
+      },
+      {
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "mappings": [],
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {
+                  "color": "green",
+                  "value": 0
+                }
+              ]
+            },
+            "unit": "short"
+          },
+          "overrides": []
+        },
+        "gridPos": {
+          "h": 4,
+          "w": 3,
+          "x": 15,
+          "y": 9
+        },
+        "id": 18,
+        "options": {
+          "colorMode": "none",
+          "graphMode": "none",
+          "justifyMode": "auto",
+          "orientation": "auto",
+          "percentChangeColorMode": "standard",
+          "reduceOptions": {
+            "calcs": [
+              "lastNotNull"
+            ],
+            "fields": "",
+            "values": false
+          },
+          "showPercentChange": false,
+          "textMode": "auto",
+          "wideLayout": true
+        },
+        "pluginVersion": "12.4.1",
+        "targets": [
+          {
+            "datasource": {
+              "type": "prometheus",
+              "uid": "prometheus"
+            },
+            "expr": "ollama_model_context_length",
+            "legendFormat": "{{model}}",
+            "refId": "A"
+          }
+        ],
+        "title": "Context Length",
+        "type": "stat"
+      },
+      {
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "mappings": [],
+            "max": 100,
+            "min": 0,
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {
+                  "color": "green",
+                  "value": 0
+                },
+                {
+                  "color": "yellow",
+                  "value": 60
+                },
+                {
+                  "color": "red",
+                  "value": 85
+                }
+              ]
+            },
+            "unit": "percent"
+          },
+          "overrides": []
+        },
+        "gridPos": {
+          "h": 4,
+          "w": 2,
+          "x": 18,
+          "y": 9
+        },
+        "id": 19,
+        "options": {
+          "minVizHeight": 75,
+          "minVizWidth": 75,
+          "orientation": "auto",
+          "reduceOptions": {
+            "calcs": [
+              "lastNotNull"
+            ],
+            "fields": "",
+            "values": false
+          },
+          "showThresholdLabels": false,
+          "showThresholdMarkers": true,
+          "sizing": "auto"
+        },
+        "pluginVersion": "12.4.1",
+        "targets": [
+          {
+            "datasource": {
+              "type": "prometheus",
+              "uid": "prometheus"
+            },
+            "expr": "ollama_last_prompt_tokens / ollama_model_context_length * 100",
+            "legendFormat": "{{model}}",
+            "refId": "A"
+          }
+        ],
+        "title": "Context Fill (last req)",
+        "type": "gauge"
+      },
+      {
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "color": {
+              "mode": "thresholds"
+            },
+            "mappings": [],
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {
+                  "color": "red",
+                  "value": 0
+                },
+                {
+                  "color": "yellow",
+                  "value": 60
+                },
+                {
+                  "color": "green",
+                  "value": 600
+                }
+              ]
+            },
+            "unit": "s"
+          },
+          "overrides": []
+        },
+        "gridPos": {
+          "h": 4,
+          "w": 4,
+          "x": 20,
+          "y": 9
+        },
+        "id": 20,
+        "options": {
+          "colorMode": "background",
+          "graphMode": "none",
+          "justifyMode": "auto",
+          "orientation": "auto",
+          "percentChangeColorMode": "standard",
+          "reduceOptions": {
+            "calcs": [
+              "lastNotNull"
+            ],
+            "fields": "",
+            "values": false
+          },
+          "showPercentChange": false,
+          "textMode": "auto",
+          "wideLayout": true
+        },
+        "pluginVersion": "12.4.1",
+        "targets": [
+          {
+            "datasource": {
+              "type": "prometheus",
+              "uid": "prometheus"
+            },
+            "expr": "ollama_model_expires_at - time()",
+            "legendFormat": "{{model}}",
+            "refId": "A"
+          }
+        ],
+        "title": "Unloads In",
+        "type": "stat"
+      },
+      {
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "color": {
+              "mode": "palette-classic"
+            },
+            "custom": {
+              "axisBorderShow": false,
+              "axisCenteredZero": false,
+              "axisColorMode": "text",
+              "axisLabel": "",
+              "axisPlacement": "auto",
+              "barAlignment": 0,
+              "barWidthFactor": 0.6,
+              "drawStyle": "line",
+              "fillOpacity": 20,
+              "gradientMode": "none",
+              "hideFrom": {
+                "legend": false,
+                "tooltip": false,
+                "viz": false
+              },
+              "insertNulls": false,
+              "lineInterpolation": "linear",
+              "lineWidth": 2,
+              "pointSize": 5,
+              "scaleDistribution": {
+                "type": "linear"
+              },
+              "showPoints": "auto",
+              "showValues": false,
+              "spanNulls": false,
+              "stacking": {
+                "group": "A",
+                "mode": "none"
+              },
+              "thresholdsStyle": {
+                "mode": "off"
+              }
+            },
+            "mappings": [],
+            "min": 0,
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {
+                  "color": "green",
+                  "value": 0
+                },
+                {
+                  "color": "red",
+                  "value": 80
+                }
+              ]
+            },
+            "unit": "bytes"
+          },
+          "overrides": []
+        },
+        "gridPos": {
+          "h": 8,
+          "w": 9,
+          "x": 15,
+          "y": 17
+        },
+        "id": 24,
+        "options": {
+          "legend": {
+            "calcs": [],
+            "displayMode": "list",
+            "placement": "bottom",
+            "showLegend": true
+          },
+          "tooltip": {
+            "hideZeros": false,
+            "mode": "multi",
+            "sort": "none"
+          }
+        },
+        "pluginVersion": "12.4.1",
+        "targets": [
+          {
+            "datasource": {
+              "type": "prometheus",
+              "uid": "prometheus"
+            },
+            "expr": "ollama_model_vram_bytes",
+            "legendFormat": "{{model}}",
+            "refId": "A"
+          }
+        ],
+        "title": "VRAM Per Model",
+        "type": "timeseries"
+      },
+      {
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "color": {
+              "mode": "palette-classic"
+            },
+            "custom": {
+              "axisBorderShow": false,
+              "axisCenteredZero": false,
+              "axisColorMode": "text",
+              "axisLabel": "",
+              "axisPlacement": "auto",
+              "barAlignment": 0,
+              "barWidthFactor": 0.6,
+              "drawStyle": "line",
+              "fillOpacity": 15,
+              "gradientMode": "none",
+              "hideFrom": {
+                "legend": false,
+                "tooltip": false,
+                "viz": false
+              },
+              "insertNulls": false,
+              "lineInterpolation": "linear",
+              "lineWidth": 2,
+              "pointSize": 5,
+              "scaleDistribution": {
+                "type": "linear"
+              },
+              "showPoints": "auto",
+              "showValues": false,
+              "spanNulls": false,
+              "stacking": {
+                "group": "A",
+                "mode": "none"
+              },
+              "thresholdsStyle": {
+                "mode": "off"
+              }
+            },
+            "mappings": [],
+            "min": 0,
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {
+                  "color": "green",
+                  "value": 0
+                },
+                {
+                  "color": "red",
+                  "value": 80
+                }
+              ]
+            },
+            "unit": "short"
+          },
+          "overrides": []
+        },
+        "gridPos": {
+          "h": 4,
+          "w": 11,
+          "x": 0,
+          "y": 21
+        },
+        "id": 23,
+        "options": {
+          "legend": {
+            "calcs": [],
+            "displayMode": "list",
+            "placement": "bottom",
+            "showLegend": true
+          },
+          "tooltip": {
+            "hideZeros": false,
+            "mode": "multi",
+            "sort": "none"
+          }
+        },
+        "pluginVersion": "12.4.1",
+        "targets": [
+          {
+            "datasource": {
+              "type": "prometheus",
+              "uid": "prometheus"
+            },
+            "expr": "ollama_gen_tokens_per_sec",
+            "legendFormat": "gen {{model}}",
+            "refId": "A"
+          },
+          {
+            "datasource": {
+              "type": "prometheus",
+              "uid": "prometheus"
+            },
+            "expr": "ollama_prompt_tokens_per_sec",
+            "legendFormat": "prompt {{model}}",
+            "refId": "B"
+          }
+        ],
+        "title": "Token Speed (tok/s)",
+        "type": "timeseries"
+      },
+      {
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "decimals": 1,
+            "mappings": [],
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {
+                  "color": "green",
+                  "value": 0
+                }
+              ]
+            },
+            "unit": "short"
+          },
+          "overrides": []
+        },
+        "gridPos": {
+          "h": 4,
+          "w": 2,
+          "x": 11,
+          "y": 21
+        },
+        "id": 22,
+        "options": {
+          "colorMode": "none",
+          "graphMode": "none",
+          "justifyMode": "auto",
+          "orientation": "auto",
+          "percentChangeColorMode": "standard",
+          "reduceOptions": {
+            "calcs": [
+              "lastNotNull"
+            ],
+            "fields": "",
+            "values": false
+          },
+          "showPercentChange": false,
+          "textMode": "auto",
+          "wideLayout": true
+        },
+        "pluginVersion": "12.4.1",
+        "targets": [
+          {
+            "datasource": {
+              "type": "prometheus",
+              "uid": "prometheus"
+            },
+            "expr": "ollama_prompt_tokens_per_sec",
+            "legendFormat": "{{model}}",
+            "refId": "A"
+          }
+        ],
+        "title": "Prompt tok/s",
+        "type": "stat"
+      },
+      {
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "decimals": 1,
+            "mappings": [],
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {
+                  "color": "green",
+                  "value": 0
+                }
+              ]
+            },
+            "unit": "short"
+          },
+          "overrides": []
+        },
+        "gridPos": {
+          "h": 4,
+          "w": 2,
+          "x": 13,
+          "y": 21
+        },
+        "id": 21,
+        "options": {
+          "colorMode": "none",
+          "graphMode": "none",
+          "justifyMode": "auto",
+          "orientation": "auto",
+          "percentChangeColorMode": "standard",
+          "reduceOptions": {
+            "calcs": [
+              "lastNotNull"
+            ],
+            "fields": "",
+            "values": false
+          },
+          "showPercentChange": false,
+          "textMode": "auto",
+          "wideLayout": true
+        },
+        "pluginVersion": "12.4.1",
+        "targets": [
+          {
+            "datasource": {
+              "type": "prometheus",
+              "uid": "prometheus"
+            },
+            "expr": "ollama_gen_tokens_per_sec",
+            "legendFormat": "{{model}}",
+            "refId": "A"
+          }
+        ],
+        "title": "Gen tok/s",
+        "type": "stat"
+      },
+      {
+        "collapsed": false,
+        "gridPos": {
+          "h": 1,
+          "w": 24,
+          "x": 0,
+          "y": 21
+        },
+        "id": 10,
+        "panels": [],
+        "title": "GPU Performance",
+        "type": "row"
+      },
+      {
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "color": {
+              "mode": "palette-classic"
+            },
+            "custom": {
+              "axisBorderShow": false,
+              "axisCenteredZero": false,
+              "axisColorMode": "text",
+              "axisLabel": "",
+              "axisPlacement": "auto",
+              "axisSoftMax": 100,
+              "axisSoftMin": 0,
+              "barAlignment": 0,
+              "barWidthFactor": 0.6,
+              "drawStyle": "line",
+              "fillOpacity": 20,
+              "gradientMode": "none",
+              "hideFrom": {
+                "legend": false,
+                "tooltip": false,
+                "viz": false
+              },
+              "insertNulls": false,
+              "lineInterpolation": "linear",
+              "lineWidth": 2,
+              "pointSize": 5,
+              "scaleDistribution": {
+                "type": "linear"
+              },
+              "showPoints": "auto",
+              "showValues": false,
+              "spanNulls": false,
+              "stacking": {
+                "group": "A",
+                "mode": "none"
+              },
+              "thresholdsStyle": {
+                "mode": "off"
+              }
+            },
+            "mappings": [],
+            "max": 100,
+            "min": 0,
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {
+                  "color": "green",
+                  "value": 0
+                },
+                {
+                  "color": "red",
+                  "value": 80
+                }
+              ]
+            },
+            "unit": "percent"
+          },
+          "overrides": []
+        },
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 0,
+          "y": 25
+        },
+        "id": 7,
+        "options": {
+          "legend": {
+            "calcs": [],
+            "displayMode": "list",
+            "placement": "bottom",
+            "showLegend": true
+          },
+          "tooltip": {
+            "hideZeros": false,
+            "mode": "single",
+            "sort": "none"
+          }
+        },
+        "pluginVersion": "12.4.1",
+        "targets": [
+          {
+            "expr": "amdgpu_utilization_percent{gpu=\"1\"}",
+            "legendFormat": "GPU %",
+            "refId": "A"
+          }
+        ],
+        "title": "GPU Utilization Over Time",
+        "type": "timeseries"
+      },
+      {
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "color": {
+              "mode": "palette-classic"
+            },
+            "custom": {
+              "axisBorderShow": false,
+              "axisCenteredZero": false,
+              "axisColorMode": "text",
+              "axisLabel": "",
+              "axisPlacement": "auto",
+              "barAlignment": 0,
+              "barWidthFactor": 0.6,
+              "drawStyle": "line",
+              "fillOpacity": 20,
+              "gradientMode": "none",
+              "hideFrom": {
+                "legend": false,
+                "tooltip": false,
+                "viz": false
+              },
+              "insertNulls": false,
+              "lineInterpolation": "linear",
+              "lineWidth": 2,
+              "pointSize": 5,
+              "scaleDistribution": {
+                "type": "linear"
+              },
+              "showPoints": "auto",
+              "showValues": false,
+              "spanNulls": false,
+              "stacking": {
+                "group": "A",
+                "mode": "none"
+              },
+              "thresholdsStyle": {
+                "mode": "off"
+              }
+            },
+            "mappings": [],
+            "min": 0,
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {
+                  "color": "green",
+                  "value": 0
+                },
+                {
+                  "color": "red",
+                  "value": 80
+                }
+              ]
+            },
+            "unit": "bytes"
+          },
+          "overrides": [
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "Total"
+              },
+              "properties": [
+                {
+                  "id": "custom.lineStyle",
+                  "value": {
+                    "dash": [
+                      10,
+                      10
+                    ],
+                    "fill": "dash"
+                  }
+                },
+                {
+                  "id": "custom.fillOpacity",
+                  "value": 0
+                }
+              ]
+            }
+          ]
+        },
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 12,
+          "y": 25
+        },
+        "id": 8,
+        "options": {
+          "legend": {
+            "calcs": [],
+            "displayMode": "list",
+            "placement": "bottom",
+            "showLegend": true
+          },
+          "tooltip": {
+            "hideZeros": false,
+            "mode": "multi",
+            "sort": "none"
+          }
+        },
+        "pluginVersion": "12.4.1",
+        "targets": [
+          {
+            "expr": "amdgpu_vram_used_bytes{gpu=\"1\"}",
+            "legendFormat": "Used",
+            "refId": "A"
+          },
+          {
+            "expr": "amdgpu_vram_total_bytes{gpu=\"1\"}",
+            "legendFormat": "Total",
+            "refId": "B"
+          }
+        ],
+        "title": "VRAM Usage Over Time",
+        "type": "timeseries"
+      },
+      {
+        "collapsed": false,
+        "gridPos": {
+          "h": 1,
+          "w": 24,
+          "x": 0,
+          "y": 36
+        },
+        "id": 11,
+        "panels": [],
+        "title": "Thermals & Power",
+        "type": "row"
+      },
+      {
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "color": {
+              "mode": "palette-classic"
+            },
+            "custom": {
+              "axisBorderShow": false,
+              "axisCenteredZero": false,
+              "axisColorMode": "text",
+              "axisLabel": "",
+              "axisPlacement": "auto",
+              "barAlignment": 0,
+              "barWidthFactor": 0.6,
+              "drawStyle": "line",
+              "fillOpacity": 10,
+              "gradientMode": "none",
+              "hideFrom": {
+                "legend": false,
+                "tooltip": false,
+                "viz": false
+              },
+              "insertNulls": false,
+              "lineInterpolation": "linear",
+              "lineWidth": 2,
+              "pointSize": 5,
+              "scaleDistribution": {
+                "type": "linear"
+              },
+              "showPoints": "auto",
+              "showValues": false,
+              "spanNulls": false,
+              "stacking": {
+                "group": "A",
+                "mode": "none"
+              },
+              "thresholdsStyle": {
+                "mode": "line"
+              }
+            },
+            "mappings": [],
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {
+                  "color": "green",
+                  "value": 0
+                },
+                {
+                  "color": "red",
+                  "value": 80
+                }
+              ]
+            },
+            "unit": "celsius"
+          },
+          "overrides": []
+        },
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 0,
+          "y": 37
+        },
+        "id": 9,
+        "options": {
+          "legend": {
+            "calcs": [],
+            "displayMode": "list",
+            "placement": "bottom",
+            "showLegend": true
+          },
+          "tooltip": {
+            "hideZeros": false,
+            "mode": "multi",
+            "sort": "none"
+          }
+        },
+        "pluginVersion": "12.4.1",
+        "targets": [
+          {
+            "expr": "amdgpu_temperature_celsius{gpu=\"1\"}",
+            "legendFormat": "Edge",
+            "refId": "A"
+          },
+          {
+            "expr": "amdgpu_junction_temperature_celsius{gpu=\"1\"}",
+            "legendFormat": "Junction",
+            "refId": "B"
+          }
+        ],
+        "title": "Temperature Over Time",
+        "type": "timeseries"
+      },
+      {
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "color": {
+              "mode": "palette-classic"
+            },
+            "custom": {
+              "axisBorderShow": false,
+              "axisCenteredZero": false,
+              "axisColorMode": "text",
+              "axisLabel": "",
+              "axisPlacement": "auto",
+              "barAlignment": 0,
+              "barWidthFactor": 0.6,
+              "drawStyle": "line",
+              "fillOpacity": 20,
+              "gradientMode": "none",
+              "hideFrom": {
+                "legend": false,
+                "tooltip": false,
+                "viz": false
+              },
+              "insertNulls": false,
+              "lineInterpolation": "linear",
+              "lineWidth": 2,
+              "pointSize": 5,
+              "scaleDistribution": {
+                "type": "linear"
+              },
+              "showPoints": "auto",
+              "showValues": false,
+              "spanNulls": false,
+              "stacking": {
+                "group": "A",
+                "mode": "none"
+              },
+              "thresholdsStyle": {
+                "mode": "off"
+              }
+            },
+            "mappings": [],
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {
+                  "color": "green",
+                  "value": 0
+                },
+                {
+                  "color": "red",
+                  "value": 80
+                }
+              ]
+            },
+            "unit": "watt"
+          },
+          "overrides": []
+        },
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 12,
+          "y": 37
+        },
+        "id": 12,
+        "options": {
+          "legend": {
+            "calcs": [],
+            "displayMode": "list",
+            "placement": "bottom",
+            "showLegend": true
+          },
+          "tooltip": {
+            "hideZeros": false,
+            "mode": "single",
+            "sort": "none"
+          }
+        },
+        "pluginVersion": "12.4.1",
+        "targets": [
+          {
+            "expr": "amdgpu_power_watts{gpu=\"1\"}",
+            "legendFormat": "Power",
+            "refId": "A"
+          }
+        ],
+        "title": "Power Draw Over Time",
+        "type": "timeseries"
+      },
+      {
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "color": {
+              "mode": "palette-classic"
+            },
+            "custom": {
+              "axisBorderShow": false,
+              "axisCenteredZero": false,
+              "axisColorMode": "text",
+              "axisLabel": "",
+              "axisPlacement": "auto",
+              "barAlignment": 0,
+              "barWidthFactor": 0.6,
+              "drawStyle": "line",
+              "fillOpacity": 10,
+              "gradientMode": "none",
+              "hideFrom": {
+                "legend": false,
+                "tooltip": false,
+                "viz": false
+              },
+              "insertNulls": false,
+              "lineInterpolation": "linear",
+              "lineWidth": 2,
+              "pointSize": 5,
+              "scaleDistribution": {
+                "type": "linear"
+              },
+              "showPoints": "auto",
+              "showValues": false,
+              "spanNulls": false,
+              "stacking": {
+                "group": "A",
+                "mode": "none"
+              },
+              "thresholdsStyle": {
+                "mode": "line"
+              }
+            },
+            "mappings": [],
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {
+                  "color": "green",
+                  "value": 0
+                },
+                {
+                  "color": "red",
+                  "value": 80
+                }
+              ]
+            },
+            "unit": "percent"
+          },
+          "overrides": []
+        },
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 0,
+          "y": 45
+        },
+        "id": 107,
+        "options": {
+          "legend": {
+            "calcs": [],
+            "displayMode": "list",
+            "placement": "bottom",
+            "showLegend": true
+          },
+          "tooltip": {
+            "hideZeros": false,
+            "mode": "multi",
+            "sort": "none"
+          }
+        },
+        "pluginVersion": "12.4.1",
+        "targets": [
+          {
+            "expr": "amdgpu_gfx_activity_percent{gpu=\"1\"}",
+            "legendFormat": "GFX",
+            "refId": "A"
+          },
+          {
+            "expr": "amdgpu_umc_activity_percent{gpu=\"1\"}",
+            "legendFormat": "UMC",
+            "refId": "B"
+          }
+        ],
+        "title": "GFX / UMC Activity",
+        "type": "timeseries"
+      },
+      {
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "color": {
+              "mode": "palette-classic"
+            },
+            "custom": {
+              "axisBorderShow": false,
+              "axisCenteredZero": false,
+              "axisColorMode": "text",
+              "axisLabel": "",
+              "axisPlacement": "auto",
+              "barAlignment": 0,
+              "barWidthFactor": 0.6,
+              "drawStyle": "line",
+              "fillOpacity": 10,
+              "gradientMode": "none",
+              "hideFrom": {
+                "legend": false,
+                "tooltip": false,
+                "viz": false
+              },
+              "insertNulls": false,
+              "lineInterpolation": "linear",
+              "lineWidth": 2,
+              "pointSize": 5,
+              "scaleDistribution": {
+                "type": "linear"
+              },
+              "showPoints": "auto",
+              "showValues": false,
+              "spanNulls": false,
+              "stacking": {
+                "group": "A",
+                "mode": "none"
+              },
+              "thresholdsStyle": {
+                "mode": "line"
+              }
+            },
+            "mappings": [],
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {
+                  "color": "green",
+                  "value": 0
+                },
+                {
+                  "color": "red",
+                  "value": 80
+                }
+              ]
+            },
+            "unit": "watt"
+          },
+          "overrides": []
+        },
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 12,
+          "y": 45
+        },
+        "id": 108,
+        "options": {
+          "legend": {
+            "calcs": [],
+            "displayMode": "list",
+            "placement": "bottom",
+            "showLegend": true
+          },
+          "tooltip": {
+            "hideZeros": false,
+            "mode": "multi",
+            "sort": "none"
+          }
+        },
+        "pluginVersion": "12.4.1",
+        "targets": [
+          {
+            "expr": "amdgpu_power_socket_watts{gpu=\"1\"}",
+            "legendFormat": "Socket Power",
+            "refId": "A"
+          }
+        ],
+        "title": "Socket Power",
+        "type": "timeseries"
+      },
+      {
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "color": {
+              "mode": "palette-classic"
+            },
+            "custom": {
+              "axisBorderShow": false,
+              "axisCenteredZero": false,
+              "axisColorMode": "text",
+              "axisLabel": "",
+              "axisPlacement": "auto",
+              "barAlignment": 0,
+              "barWidthFactor": 0.6,
+              "drawStyle": "line",
+              "fillOpacity": 10,
+              "gradientMode": "none",
+              "hideFrom": {
+                "legend": false,
+                "tooltip": false,
+                "viz": false
+              },
+              "insertNulls": false,
+              "lineInterpolation": "linear",
+              "lineWidth": 2,
+              "pointSize": 5,
+              "scaleDistribution": {
+                "type": "linear"
+              },
+              "showPoints": "auto",
+              "showValues": false,
+              "spanNulls": false,
+              "stacking": {
+                "group": "A",
+                "mode": "none"
+              },
+              "thresholdsStyle": {
+                "mode": "line"
+              }
+            },
+            "mappings": [],
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {
+                  "color": "green",
+                  "value": 0
+                },
+                {
+                  "color": "yellow",
+                  "value": 80
+                },
+                {
+                  "color": "red",
+                  "value": 95
+                }
+              ]
+            },
+            "unit": "celsius"
+          },
+          "overrides": []
+        },
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 0,
+          "y": 53
+        },
+        "id": 109,
+        "options": {
+          "legend": {
+            "calcs": [],
+            "displayMode": "list",
+            "placement": "bottom",
+            "showLegend": true
+          },
+          "tooltip": {
+            "hideZeros": false,
+            "mode": "multi",
+            "sort": "none"
+          }
+        },
+        "pluginVersion": "12.4.1",
+        "targets": [
+          {
+            "expr": "amdgpu_temperature_hotspot_celsius{gpu=\"1\"}",
+            "legendFormat": "Hotspot",
+            "refId": "A"
+          },
+          {
+            "expr": "amdgpu_temperature_mem_celsius{gpu=\"1\"}",
+            "legendFormat": "Memory",
+            "refId": "B"
+          }
+        ],
+        "title": "Hotspot & Memory Temps",
+        "type": "timeseries"
+      },
+      {
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "color": {
+              "mode": "palette-classic"
+            },
+            "custom": {
+              "axisBorderShow": false,
+              "axisCenteredZero": false,
+              "axisColorMode": "text",
+              "axisLabel": "",
+              "axisPlacement": "auto",
+              "barAlignment": 0,
+              "barWidthFactor": 0.6,
+              "drawStyle": "line",
+              "fillOpacity": 10,
+              "gradientMode": "none",
+              "hideFrom": {
+                "legend": false,
+                "tooltip": false,
+                "viz": false
+              },
+              "insertNulls": false,
+              "lineInterpolation": "linear",
+              "lineWidth": 2,
+              "pointSize": 5,
+              "scaleDistribution": {
+                "type": "linear"
+              },
+              "showPoints": "auto",
+              "showValues": false,
+              "spanNulls": false,
+              "stacking": {
+                "group": "A",
+                "mode": "none"
+              },
+              "thresholdsStyle": {
+                "mode": "line"
+              }
+            },
+            "mappings": [],
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {
+                  "color": "green",
+                  "value": 0
+                },
+                {
+                  "color": "red",
+                  "value": 80
+                }
+              ]
+            },
+            "unit": "mvolt"
+          },
+          "overrides": []
+        },
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 12,
+          "y": 53
+        },
+        "id": 110,
+        "options": {
+          "legend": {
+            "calcs": [],
+            "displayMode": "list",
+            "placement": "bottom",
+            "showLegend": true
+          },
+          "tooltip": {
+            "hideZeros": false,
+            "mode": "multi",
+            "sort": "none"
+          }
+        },
+        "pluginVersion": "12.4.1",
+        "targets": [
+          {
+            "expr": "amdgpu_voltage_gfx_mv{gpu=\"1\"}",
+            "legendFormat": "GFX",
+            "refId": "A"
+          },
+          {
+            "expr": "amdgpu_voltage_mem_mv{gpu=\"1\"}",
+            "legendFormat": "Memory",
+            "refId": "B"
+          }
+        ],
+        "title": "GFX & Memory Voltages",
+        "type": "timeseries"
+      },
+      {
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "color": {
+              "mode": "palette-classic"
+            },
+            "custom": {
+              "axisBorderShow": false,
+              "axisCenteredZero": false,
+              "axisColorMode": "text",
+              "axisLabel": "",
+              "axisPlacement": "auto",
+              "barAlignment": 0,
+              "barWidthFactor": 0.6,
+              "drawStyle": "line",
+              "fillOpacity": 10,
+              "gradientMode": "none",
+              "hideFrom": {
+                "legend": false,
+                "tooltip": false,
+                "viz": false
+              },
+              "insertNulls": false,
+              "lineInterpolation": "linear",
+              "lineWidth": 2,
+              "pointSize": 5,
+              "scaleDistribution": {
+                "type": "linear"
+              },
+              "showPoints": "auto",
+              "showValues": false,
+              "spanNulls": false,
+              "stacking": {
+                "group": "A",
+                "mode": "none"
+              },
+              "thresholdsStyle": {
+                "mode": "line"
+              }
+            },
+            "mappings": [],
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {
+                  "color": "green",
+                  "value": 0
+                },
+                {
+                  "color": "red",
+                  "value": 1
+                }
+              ]
+            },
+            "unit": "none"
+          },
+          "overrides": []
+        },
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 0,
+          "y": 61
+        },
+        "id": 111,
+        "options": {
+          "legend": {
+            "calcs": [],
+            "displayMode": "list",
+            "placement": "bottom",
+            "showLegend": true
+          },
+          "tooltip": {
+            "hideZeros": false,
+            "mode": "multi",
+            "sort": "none"
+          }
+        },
+        "pluginVersion": "12.4.1",
+        "targets": [
+          {
+            "expr": "amdgpu_throttle_status{gpu=\"1\"}",
+            "legendFormat": "Throttle",
+            "refId": "A"
+          }
+        ],
+        "title": "Throttle Status",
+        "type": "timeseries"
+      },
+      {
+        "collapsed": false,
+        "gridPos": {
+          "h": 1,
+          "w": 24,
+          "x": 0,
+          "y": 69
+        },
+        "id": 13,
+        "panels": [],
+        "title": "Hardware Details",
+        "type": "row"
+      },
+      {
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "color": {
+              "mode": "palette-classic"
+            },
+            "custom": {
+              "axisBorderShow": false,
+              "axisCenteredZero": false,
+              "axisColorMode": "text",
+              "axisLabel": "",
+              "axisPlacement": "auto",
+              "barAlignment": 0,
+              "barWidthFactor": 0.6,
+              "drawStyle": "line",
+              "fillOpacity": 10,
+              "gradientMode": "none",
+              "hideFrom": {
+                "legend": false,
+                "tooltip": false,
+                "viz": false
+              },
+              "insertNulls": false,
+              "lineInterpolation": "linear",
+              "lineWidth": 2,
+              "pointSize": 5,
+              "scaleDistribution": {
+                "type": "linear"
+              },
+              "showPoints": "auto",
+              "showValues": false,
+              "spanNulls": false,
+              "stacking": {
+                "group": "A",
+                "mode": "none"
+              },
+              "thresholdsStyle": {
+                "mode": "off"
+              }
+            },
+            "mappings": [],
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {
+                  "color": "green",
+                  "value": 0
+                },
+                {
+                  "color": "red",
+                  "value": 80
+                }
+              ]
+            },
+            "unit": "clockmhz"
+          },
+          "overrides": []
+        },
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 0,
+          "y": 70
+        },
+        "id": 14,
+        "options": {
+          "legend": {
+            "calcs": [],
+            "displayMode": "list",
+            "placement": "bottom",
+            "showLegend": true
+          },
+          "tooltip": {
+            "hideZeros": false,
+            "mode": "multi",
+            "sort": "none"
+          }
+        },
+        "pluginVersion": "12.4.1",
+        "targets": [
+          {
+            "expr": "amdgpu_clock_gpu_mhz{gpu=\"1\"}",
+            "legendFormat": "GPU Clock",
+            "refId": "A"
+          },
+          {
+            "expr": "amdgpu_clock_mem_mhz{gpu=\"1\"}",
+            "legendFormat": "Memory Clock",
+            "refId": "B"
+          }
+        ],
+        "title": "Clock Speeds",
+        "type": "timeseries"
+      },
+      {
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "color": {
+              "fixedColor": "purple",
+              "mode": "fixed"
+            },
+            "custom": {
+              "axisBorderShow": false,
+              "axisCenteredZero": false,
+              "axisColorMode": "text",
+              "axisLabel": "",
+              "axisPlacement": "auto",
+              "barAlignment": 0,
+              "barWidthFactor": 0.6,
+              "drawStyle": "line",
+              "fillOpacity": 15,
+              "gradientMode": "none",
+              "hideFrom": {
+                "legend": false,
+                "tooltip": false,
+                "viz": false
+              },
+              "insertNulls": false,
+              "lineInterpolation": "linear",
+              "lineWidth": 2,
+              "pointSize": 5,
+              "scaleDistribution": {
+                "type": "linear"
+              },
+              "showPoints": "auto",
+              "showValues": false,
+              "spanNulls": false,
+              "stacking": {
+                "group": "A",
+                "mode": "none"
+              },
+              "thresholdsStyle": {
+                "mode": "off"
+              }
+            },
+            "mappings": [],
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {
+                  "color": "green",
+                  "value": 0
+                },
+                {
+                  "color": "red",
+                  "value": 80
+                }
+              ]
+            },
+            "unit": "rotrpm"
+          },
+          "overrides": []
+        },
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 12,
+          "y": 70
+        },
+        "id": 15,
+        "options": {
+          "legend": {
+            "calcs": [],
+            "displayMode": "list",
+            "placement": "bottom",
+            "showLegend": true
+          },
+          "tooltip": {
+            "hideZeros": false,
+            "mode": "single",
+            "sort": "none"
+          }
+        },
+        "pluginVersion": "12.4.1",
+        "targets": [
+          {
+            "expr": "amdgpu_fan_rpm{gpu=\"1\"}",
+            "legendFormat": "Fan RPM",
+            "refId": "A"
+          }
+        ],
+        "title": "Fan Speed",
+        "type": "timeseries"
+      }
+    ],
+    "preload": false,
+    "refresh": "10s",
+    "schemaVersion": 42,
+    "tags": [
+      "ollama",
+      "gpu",
+      "inference"
+    ],
+    "templating": {
+      "list": []
+    },
+    "time": {
+      "from": "now-1h",
+      "to": "now"
+    },
+    "timepicker": {},
+    "timezone": "browser",
+    "title": "Ollama & GPU Metrics",
+    "uid": "84153687-7cc9-4164-bbb3-c73589de56f4",
+    "version": 21,
+    "weekStart": ""
+  }
+}
