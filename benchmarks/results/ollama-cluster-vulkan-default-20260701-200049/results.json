@@ -1,0 +1,721 @@
+{
+  "meta": {
+    "tool": "ollama-concurrency-bench",
+    "version": "unknown",
+    "schema_version": "1.0.0",
+    "timestamp": "2026-07-01T20:00:49.287986+00:00",
+    "commit": "unknown"
+  },
+  "config": {
+    "ollama": {
+      "url": "http://ollama.llama.svc:11434",
+      "model": "gemma4:12b-it-qat",
+      "num_ctx": 16384,
+      "num_predict": 512,
+      "temperature": 0.3
+    },
+    "workload": {
+      "name": "mixed_mem0",
+      "max_concurrency": 8,
+      "requests_per_level": 8,
+      "repeats": 3,
+      "cooldown_seconds": 15
+    },
+    "prometheus": {
+      "url": "http://prom-prometheus.grafana:9090",
+      "instance_label": ".*",
+      "sample_interval_seconds": 2.0
+    },
+    "output": {
+      "dir": "benchmarks/results",
+      "prefix": "ollama-cluster-vulkan-default"
+    }
+  },
+  "samples": [
+    {
+      "workload": "mixed_mem0",
+      "max_concurrency": 8,
+      "requests_per_level": 8,
+      "repeats": 3
+    }
+  ],
+  "summary": {
+    "levels": [
+      {
+        "concurrency": 1,
+        "requests": 8,
+        "repeats": 3,
+        "aggregate_tok_s": 28.56,
+        "wall_s": {
+          "metric": "wall_s",
+          "p50": 8.9049,
+          "p90": 8.9692,
+          "p95": 8.9887,
+          "p99": 9.03,
+          "mean": 8.9134,
+          "min": 8.8482,
+          "max": 9.0417,
+          "unit": "s",
+          "count": 24
+        },
+        "ttft_s": {
+          "metric": "ttft_s",
+          "p50": 0.4235,
+          "p90": 0.4475,
+          "p95": 0.451,
+          "p99": 0.4574,
+          "mean": 0.4234,
+          "min": 0.3927,
+          "max": 0.4593,
+          "unit": "s",
+          "count": 24
+        },
+        "itl_s": {
+          "metric": "itl_s",
+          "p50": 0.0165,
+          "p90": 0.0166,
+          "p95": 0.0166,
+          "p99": 0.0167,
+          "mean": 0.0165,
+          "min": 0.0163,
+          "max": 0.0167,
+          "unit": "s",
+          "count": 24
+        },
+        "gen_tps": {
+          "metric": "gen_tps",
+          "p50": 60.6237,
+          "p90": 60.8173,
+          "p95": 60.8681,
+          "p99": 61.1314,
+          "mean": 60.5852,
+          "min": 59.8937,
+          "max": 61.2086,
+          "unit": "s",
+          "count": 24
+        },
+        "tokens": {
+          "mean": 512,
+          "total": 12288
+        },
+        "prompt_tokens": {
+          "mean": 55.9,
+          "total": 1341
+        }
+      },
+      {
+        "concurrency": 2,
+        "requests": 8,
+        "repeats": 3,
+        "aggregate_tok_s": 36.69,
+        "wall_s": {
+          "metric": "wall_s",
+          "p50": 13.8349,
+          "p90": 18.0316,
+          "p95": 18.0434,
+          "p99": 18.0455,
+          "mean": 13.818,
+          "min": 9.5853,
+          "max": 18.0455,
+          "unit": "s",
+          "count": 24
+        },
+        "ttft_s": {
+          "metric": "ttft_s",
+          "p50": 0.4547,
+          "p90": 0.4832,
+          "p95": 0.5106,
+          "p99": 0.5208,
+          "mean": 0.4554,
+          "min": 0.405,
+          "max": 0.5224,
+          "unit": "s",
+          "count": 24
+        },
+        "itl_s": {
+          "metric": "itl_s",
+          "p50": 0.0259,
+          "p90": 0.0341,
+          "p95": 0.0341,
+          "p99": 0.0341,
+          "mean": 0.026,
+          "min": 0.0178,
+          "max": 0.0341,
+          "unit": "s",
+          "count": 24
+        },
+        "gen_tps": {
+          "metric": "gen_tps",
+          "p50": 42.6852,
+          "p90": 56.1779,
+          "p95": 56.1795,
+          "p99": 56.185,
+          "mean": 42.7134,
+          "min": 29.2842,
+          "max": 56.1866,
+          "unit": "s",
+          "count": 24
+        },
+        "tokens": {
+          "mean": 512,
+          "total": 12288
+        },
+        "prompt_tokens": {
+          "mean": 55.9,
+          "total": 1341
+        }
+      },
+      {
+        "concurrency": 3,
+        "requests": 8,
+        "repeats": 3,
+        "aggregate_tok_s": 51.24,
+        "wall_s": {
+          "metric": "wall_s",
+          "p50": 10.6235,
+          "p90": 19.3058,
+          "p95": 19.3413,
+          "p99": 19.3422,
+          "mean": 13.5979,
+          "min": 9.5615,
+          "max": 19.3425,
+          "unit": "s",
+          "count": 24
+        },
+        "ttft_s": {
+          "metric": "ttft_s",
+          "p50": 0.4587,
+          "p90": 0.517,
+          "p95": 0.5175,
+          "p99": 0.5223,
+          "mean": 0.4668,
+          "min": 0.4118,
+          "max": 0.5237,
+          "unit": "s",
+          "count": 24
+        },
+        "itl_s": {
+          "metric": "itl_s",
+          "p50": 0.0197,
+          "p90": 0.0366,
+          "p95": 0.0366,
+          "p99": 0.0366,
+          "mean": 0.0255,
+          "min": 0.0177,
+          "max": 0.0366,
+          "unit": "s",
+          "count": 24
+        },
+        "gen_tps": {
+          "metric": "gen_tps",
+          "p50": 50.8857,
+          "p90": 56.3074,
+          "p95": 56.5301,
+          "p99": 56.5744,
+          "mean": 43.4833,
+          "min": 27.3051,
+          "max": 56.576,
+          "unit": "s",
+          "count": 24
+        },
+        "tokens": {
+          "mean": 512,
+          "total": 12288
+        },
+        "prompt_tokens": {
+          "mean": 55.9,
+          "total": 1341
+        }
+      },
+      {
+        "concurrency": 4,
+        "requests": 8,
+        "repeats": 3,
+        "aggregate_tok_s": 62.17,
+        "wall_s": {
+          "metric": "wall_s",
+          "p50": 16.1692,
+          "p90": 20.2147,
+          "p95": 20.2154,
+          "p99": 20.2166,
+          "mean": 16.1637,
+          "min": 12.0999,
+          "max": 20.217,
+          "unit": "s",
+          "count": 24
+        },
+        "ttft_s": {
+          "metric": "ttft_s",
+          "p50": 0.4801,
+          "p90": 0.5391,
+          "p95": 0.5464,
+          "p99": 0.55,
+          "mean": 0.4899,
+          "min": 0.4439,
+          "max": 0.5507,
+          "unit": "s",
+          "count": 24
+        },
+        "itl_s": {
+          "metric": "itl_s",
+          "p50": 0.0304,
+          "p90": 0.0382,
+          "p95": 0.0382,
+          "p99": 0.0382,
+          "mean": 0.0304,
+          "min": 0.0225,
+          "max": 0.0382,
+          "unit": "s",
+          "count": 24
+        },
+        "gen_tps": {
+          "metric": "gen_tps",
+          "p50": 35.1979,
+          "p90": 44.4529,
+          "p95": 44.4532,
+          "p99": 44.4563,
+          "mean": 35.2521,
+          "min": 26.1759,
+          "max": 44.4573,
+          "unit": "s",
+          "count": 24
+        },
+        "tokens": {
+          "mean": 512,
+          "total": 12288
+        },
+        "prompt_tokens": {
+          "mean": 55.9,
+          "total": 1341
+        }
+      },
+      {
+        "concurrency": 5,
+        "requests": 8,
+        "repeats": 3,
+        "aggregate_tok_s": 63.81,
+        "wall_s": {
+          "metric": "wall_s",
+          "p50": 21.1621,
+          "p90": 21.3173,
+          "p95": 21.3183,
+          "p99": 21.3195,
+          "mean": 17.2956,
+          "min": 10.6973,
+          "max": 21.3199,
+          "unit": "s",
+          "count": 24
+        },
+        "ttft_s": {
+          "metric": "ttft_s",
+          "p50": 0.5437,
+          "p90": 0.5708,
+          "p95": 0.5748,
+          "p99": 0.5824,
+          "mean": 0.5151,
+          "min": 0.425,
+          "max": 0.5845,
+          "unit": "s",
+          "count": 24
+        },
+        "itl_s": {
+          "metric": "itl_s",
+          "p50": 0.04,
+          "p90": 0.0403,
+          "p95": 0.0403,
+          "p99": 0.0403,
+          "mean": 0.0325,
+          "min": 0.0197,
+          "max": 0.0403,
+          "unit": "s",
+          "count": 24
+        },
+        "gen_tps": {
+          "metric": "gen_tps",
+          "p50": 24.9772,
+          "p90": 50.634,
+          "p95": 50.6714,
+          "p99": 50.6758,
+          "mean": 34.5206,
+          "min": 24.8003,
+          "max": 50.6772,
+          "unit": "s",
+          "count": 24
+        },
+        "tokens": {
+          "mean": 512,
+          "total": 12288
+        },
+        "prompt_tokens": {
+          "mean": 55.9,
+          "total": 1341
+        }
+      },
+      {
+        "concurrency": 6,
+        "requests": 8,
+        "repeats": 3,
+        "aggregate_tok_s": 74.34,
+        "wall_s": {
+          "metric": "wall_s",
+          "p50": 17.1511,
+          "p90": 17.2348,
+          "p95": 17.2358,
+          "p99": 17.2371,
+          "mean": 15.3276,
+          "min": 9.7534,
+          "max": 17.2375,
+          "unit": "s",
+          "count": 24
+        },
+        "ttft_s": {
+          "metric": "ttft_s",
+          "p50": 0.5291,
+          "p90": 0.5883,
+          "p95": 0.5959,
+          "p99": 0.5991,
+          "mean": 0.5143,
+          "min": 0.3912,
+          "max": 0.6,
+          "unit": "s",
+          "count": 24
+        },
+        "itl_s": {
+          "metric": "itl_s",
+          "p50": 0.0323,
+          "p90": 0.0325,
+          "p95": 0.0325,
+          "p99": 0.0325,
+          "mean": 0.0287,
+          "min": 0.0179,
+          "max": 0.0325,
+          "unit": "s",
+          "count": 24
+        },
+        "gen_tps": {
+          "metric": "gen_tps",
+          "p50": 31.0055,
+          "p90": 55.9387,
+          "p95": 55.9484,
+          "p99": 55.9534,
+          "mean": 37.1712,
+          "min": 30.7639,
+          "max": 55.9546,
+          "unit": "s",
+          "count": 24
+        },
+        "tokens": {
+          "mean": 512,
+          "total": 12288
+        },
+        "prompt_tokens": {
+          "mean": 55.9,
+          "total": 1341
+        }
+      },
+      {
+        "concurrency": 7,
+        "requests": 8,
+        "repeats": 3,
+        "aggregate_tok_s": 69.9,
+        "wall_s": {
+          "metric": "wall_s",
+          "p50": 19.377,
+          "p90": 19.4148,
+          "p95": 19.416,
+          "p99": 19.4171,
+          "mean": 18.095,
+          "min": 9.0458,
+          "max": 19.4173,
+          "unit": "s",
+          "count": 24
+        },
+        "ttft_s": {
+          "metric": "ttft_s",
+          "p50": 0.5924,
+          "p90": 0.6418,
+          "p95": 0.6468,
+          "p99": 0.6665,
+          "mean": 0.5796,
+          "min": 0.3828,
+          "max": 0.6722,
+          "unit": "s",
+          "count": 24
+        },
+        "itl_s": {
+          "metric": "itl_s",
+          "p50": 0.0366,
+          "p90": 0.0367,
+          "p95": 0.0367,
+          "p99": 0.0367,
+          "mean": 0.0341,
+          "min": 0.0164,
+          "max": 0.0367,
+          "unit": "s",
+          "count": 24
+        },
+        "gen_tps": {
+          "metric": "gen_tps",
+          "p50": 27.3336,
+          "p90": 50.5818,
+          "p95": 60.6985,
+          "p99": 60.8001,
+          "mean": 31.5021,
+          "min": 27.2372,
+          "max": 60.8203,
+          "unit": "s",
+          "count": 24
+        },
+        "tokens": {
+          "mean": 512,
+          "total": 12288
+        },
+        "prompt_tokens": {
+          "mean": 55.9,
+          "total": 1341
+        }
+      },
+      {
+        "concurrency": 8,
+        "requests": 8,
+        "repeats": 3,
+        "aggregate_tok_s": 93.36,
+        "wall_s": {
+          "metric": "wall_s",
+          "p50": 21.7475,
+          "p90": 21.7531,
+          "p95": 21.7811,
+          "p99": 21.7873,
+          "mean": 21.7268,
+          "min": 21.6697,
+          "max": 21.7877,
+          "unit": "s",
+          "count": 24
+        },
+        "ttft_s": {
+          "metric": "ttft_s",
+          "p50": 0.6036,
+          "p90": 0.7179,
+          "p95": 0.7589,
+          "p99": 0.7701,
+          "mean": 0.6279,
+          "min": 0.5144,
+          "max": 0.7713,
+          "unit": "s",
+          "count": 24
+        },
+        "itl_s": {
+          "metric": "itl_s",
+          "p50": 0.0409,
+          "p90": 0.041,
+          "p95": 0.041,
+          "p99": 0.041,
+          "mean": 0.0408,
+          "min": 0.0407,
+          "max": 0.041,
+          "unit": "s",
+          "count": 24
+        },
+        "gen_tps": {
+          "metric": "gen_tps",
+          "p50": 24.4654,
+          "p90": 24.5988,
+          "p95": 24.5988,
+          "p99": 24.5989,
+          "mean": 24.4829,
+          "min": 24.3676,
+          "max": 24.5989,
+          "unit": "s",
+          "count": 24
+        },
+        "tokens": {
+          "mean": 512,
+          "total": 12288
+        },
+        "prompt_tokens": {
+          "mean": 55.9,
+          "total": 1341
+        }
+      }
+    ],
+    "overall_throughput": {
+      "metric": "throughput",
+      "total_tokens": 98304,
+      "total_wall_s": 2998.5165,
+      "aggregate_tok_s": 32.78,
+      "p50": 29.7078,
+      "p90": 57.188,
+      "p95": 57.5156,
+      "p99": 57.7792,
+      "mean": 36.9425,
+      "min": 23.4995,
+      "max": 57.865,
+      "unit": "tok/s",
+      "count": 192
+    }
+  },
+  "gpu_series": [
+    {
+      "metric": "amdgpu",
+      "instance": ".*",
+      "gpu": null,
+      "samples": [
+        "GpuSample(timestamp_ms=1782935939452, vram_bytes=9285971968, vram_total_bytes=None, power_watts=2.0, temp_celsius=38.0, temp_mem_celsius=None, gpu_util_percent=None, mem_util_percent=None, fan_rpm=None, throttle=None, voltage_gfx_mv=None, voltage_mem_mv=None, clock_gfx_mhz=None, clock_mem_mhz=None, source='prometheus:amdgpu-exporter')",
+        "GpuSample(timestamp_ms=1782935941536, vram_bytes=9286103040, vram_total_bytes=None, power_watts=2.0, temp_celsius=45.0, temp_mem_celsius=None, gpu_util_percent=None, mem_util_percent=None, fan_rpm=None, throttle=None, voltage_gfx_mv=None, voltage_mem_mv=None, clock_gfx_mhz=None, clock_mem_mhz=None, source='prometheus:amdgpu-exporter')",
+        "GpuSample(timestamp_ms=1782935943539, vram_bytes=9286103040, vram_total_bytes=None, power_watts=2.0, temp_celsius=45.0, temp_mem_celsius=None, gpu_util_percent=None, mem_util_percent=None, fan_rpm=None, throttle=None, voltage_gfx_mv=None, voltage_mem_mv=None, clock_gfx_mhz=None, clock_mem_mhz=None, source='prometheus:amdgpu-exporter')",
+        "GpuSample(timestamp_ms=1782935945542, vram_bytes=9286103040, vram_total_bytes=None, power_watts=2.0, temp_celsius=45.0, temp_mem_celsius=None, gpu_util_percent=None, mem_util_percent=None, fan_rpm=None, throttle=None, voltage_gfx_mv=None, voltage_mem_mv=None, clock_gfx_mhz=None, clock_mem_mhz=None, source='prometheus:amdgpu-exporter')",
+        "GpuSample(timestamp_ms=1782935947545, vram_bytes=9286103040, vram_total_bytes=None, power_watts=2.0, temp_celsius=45.0, temp_mem_celsius=None, gpu_util_percent=None, mem_util_percent=None, fan_rpm=None, throttle=None, voltage_gfx_mv=None, voltage_mem_mv=None, clock_gfx_mhz=None, clock_mem_mhz=None, source='prometheus:amdgpu-exporter')",
+        "GpuSample(timestamp_ms=1782935949547, vram_bytes=9286103040, vram_total_bytes=None, power_watts=2.0, temp_celsius=45.0, temp_mem_celsius=None, gpu_util_percent=None, mem_util_percent=None, fan_rpm=None, throttle=None, voltage_gfx_mv=None, voltage_mem_mv=None, clock_gfx_mhz=None, clock_mem_mhz=None, source='prometheus:amdgpu-exporter')",
+        "GpuSample(timestamp_ms=1782935951551, vram_bytes=9286103040, vram_total_bytes=None, power_watts=2.0, temp_celsius=45.0, temp_mem_celsius=None, gpu_util_percent=None, mem_util_percent=None, fan_rpm=None, throttle=None, voltage_gfx_mv=None, voltage_mem_mv=None, clock_gfx_mhz=None, clock_mem_mhz=None, source='prometheus:amdgpu-exporter')",
+        "GpuSample(timestamp_ms=1782935953554, vram_bytes=9286103040, vram_total_bytes=None, power_watts=2.0, temp_celsius=45.0, temp_mem_celsius=None, gpu_util_percent=None, mem_util_percent=None, fan_rpm=None, throttle=None, voltage_gfx_mv=None, voltage_mem_mv=None, clock_gfx_mhz=None, clock_mem_mhz=None, source='prometheus:amdgpu-exporter')",
+        "GpuSample(timestamp_ms=1782935955557, vram_bytes=9286103040, vram_total_bytes=None, power_watts=2.0, temp_celsius=45.0, temp_mem_celsius=None, gpu_util_percent=None, mem_util_percent=None, fan_rpm=None, throttle=None, voltage_gfx_mv=None, voltage_mem_mv=None, clock_gfx_mhz=None, clock_mem_mhz=None, source='prometheus:amdgpu-exporter')",
+        "GpuSample(timestamp_ms=1782935957560, vram_bytes=9286103040, vram_total_bytes=None, power_watts=2.0, temp_celsius=45.0, temp_mem_celsius=None, gpu_util_percent=None, mem_util_percent=None, fan_rpm=None, throttle=None, voltage_gfx_mv=None, voltage_mem_mv=None, clock_gfx_mhz=None, clock_mem_mhz=None, source='prometheus:amdgpu-exporter')",
+        "GpuSample(timestamp_ms=1782935959564, vram_bytes=9286103040, vram_total_bytes=None, power_watts=2.0, temp_celsius=45.0, temp_mem_celsius=None, gpu_util_percent=None, mem_util_percent=None, fan_rpm=None, throttle=None, voltage_gfx_mv=None, voltage_mem_mv=None, clock_gfx_mhz=None, clock_mem_mhz=None, source='prometheus:amdgpu-exporter')"
+      ]
+    },
+    {
+      "metric": "dcgm",
+      "instance": ".*",
+      "gpu": null,
+      "samples": [
+        "GpuSample(timestamp_ms=1782935939452, vram_bytes=5630, vram_total_bytes=None, power_watts=30.462, temp_celsius=61.0, temp_mem_celsius=None, gpu_util_percent=None, mem_util_percent=None, fan_rpm=None, throttle=None, voltage_gfx_mv=None, voltage_mem_mv=None, clock_gfx_mhz=None, clock_mem_mhz=None, source='prometheus:dcgm')",
+        "GpuSample(timestamp_ms=1782935941535, vram_bytes=5630, vram_total_bytes=None, power_watts=30.462, temp_celsius=61.0, temp_mem_celsius=None, gpu_util_percent=None, mem_util_percent=None, fan_rpm=None, throttle=None, voltage_gfx_mv=None, voltage_mem_mv=None, clock_gfx_mhz=None, clock_mem_mhz=None, source='prometheus:dcgm')",
+        "GpuSample(timestamp_ms=1782935943539, vram_bytes=5630, vram_total_bytes=None, power_watts=30.462, temp_celsius=61.0, temp_mem_celsius=None, gpu_util_percent=None, mem_util_percent=None, fan_rpm=None, throttle=None, voltage_gfx_mv=None, voltage_mem_mv=None, clock_gfx_mhz=None, clock_mem_mhz=None, source='prometheus:dcgm')",
+        "GpuSample(timestamp_ms=1782935945542, vram_bytes=5630, vram_total_bytes=None, power_watts=30.462, temp_celsius=61.0, temp_mem_celsius=None, gpu_util_percent=None, mem_util_percent=None, fan_rpm=None, throttle=None, voltage_gfx_mv=None, voltage_mem_mv=None, clock_gfx_mhz=None, clock_mem_mhz=None, source='prometheus:dcgm')",
+        "GpuSample(timestamp_ms=1782935947545, vram_bytes=5630, vram_total_bytes=None, power_watts=30.462, temp_celsius=61.0, temp_mem_celsius=None, gpu_util_percent=None, mem_util_percent=None, fan_rpm=None, throttle=None, voltage_gfx_mv=None, voltage_mem_mv=None, clock_gfx_mhz=None, clock_mem_mhz=None, source='prometheus:dcgm')",
+        "GpuSample(timestamp_ms=1782935949548, vram_bytes=5630, vram_total_bytes=None, power_watts=30.462, temp_celsius=61.0, temp_mem_celsius=None, gpu_util_percent=None, mem_util_percent=None, fan_rpm=None, throttle=None, voltage_gfx_mv=None, voltage_mem_mv=None, clock_gfx_mhz=None, clock_mem_mhz=None, source='prometheus:dcgm')",
+        "GpuSample(timestamp_ms=1782935951551, vram_bytes=5630, vram_total_bytes=None, power_watts=30.462, temp_celsius=61.0, temp_mem_celsius=None, gpu_util_percent=None, mem_util_percent=None, fan_rpm=None, throttle=None, voltage_gfx_mv=None, voltage_mem_mv=None, clock_gfx_mhz=None, clock_mem_mhz=None, source='prometheus:dcgm')",
+        "GpuSample(timestamp_ms=1782935953554, vram_bytes=5630, vram_total_bytes=None, power_watts=30.462, temp_celsius=61.0, temp_mem_celsius=None, gpu_util_percent=None, mem_util_percent=None, fan_rpm=None, throttle=None, voltage_gfx_mv=None, voltage_mem_mv=None, clock_gfx_mhz=None, clock_mem_mhz=None, source='prometheus:dcgm')",
+        "GpuSample(timestamp_ms=1782935955557, vram_bytes=5630, vram_total_bytes=None, power_watts=30.462, temp_celsius=61.0, temp_mem_celsius=None, gpu_util_percent=None, mem_util_percent=None, fan_rpm=None, throttle=None, voltage_gfx_mv=None, voltage_mem_mv=None, clock_gfx_mhz=None, clock_mem_mhz=None, source='prometheus:dcgm')",
+        "GpuSample(timestamp_ms=1782935957561, vram_bytes=5630, vram_total_bytes=None, power_watts=30.462, temp_celsius=61.0, temp_mem_celsius=None, gpu_util_percent=None, mem_util_percent=None, fan_rpm=None, throttle=None, voltage_gfx_mv=None, voltage_mem_mv=None, clock_gfx_mhz=None, clock_mem_mhz=None, source='prometheus:dcgm')",
+        "GpuSample(timestamp_ms=1782935959564, vram_bytes=5630, vram_total_bytes=None, power_watts=30.462, temp_celsius=61.0, temp_mem_celsius=None, gpu_util_percent=None, mem_util_percent=None, fan_rpm=None, throttle=None, voltage_gfx_mv=None, voltage_mem_mv=None, clock_gfx_mhz=None, clock_mem_mhz=None, source='prometheus:dcgm')"
+      ]
+    },
+    {
+      "metric": "ollama_ps",
+      "instance": "http://ollama.llama.svc:11434",
+      "gpu": null,
+      "samples": [
+        "GpuSample(timestamp_ms=1782935939449, vram_bytes=8301597161, vram_total_bytes=None, power_watts=None, temp_celsius=None, temp_mem_celsius=None, gpu_util_percent=None, mem_util_percent=None, fan_rpm=None, throttle=None, voltage_gfx_mv=None, voltage_mem_mv=None, clock_gfx_mhz=None, clock_mem_mhz=None, source='ollama:/api/ps')",
+        "GpuSample(timestamp_ms=1782935941454, vram_bytes=8301597161, vram_total_bytes=None, power_watts=None, temp_celsius=None, temp_mem_celsius=None, gpu_util_percent=None, mem_util_percent=None, fan_rpm=None, throttle=None, voltage_gfx_mv=None, voltage_mem_mv=None, clock_gfx_mhz=None, clock_mem_mhz=None, source='ollama:/api/ps')",
+        "GpuSample(timestamp_ms=1782935943538, vram_bytes=8301597161, vram_total_bytes=None, power_watts=None, temp_celsius=None, temp_mem_celsius=None, gpu_util_percent=None, mem_util_percent=None, fan_rpm=None, throttle=None, voltage_gfx_mv=None, voltage_mem_mv=None, clock_gfx_mhz=None, clock_mem_mhz=None, source='ollama:/api/ps')",
+        "GpuSample(timestamp_ms=1782935945541, vram_bytes=8301597161, vram_total_bytes=None, power_watts=None, temp_celsius=None, temp_mem_celsius=None, gpu_util_percent=None, mem_util_percent=None, fan_rpm=None, throttle=None, voltage_gfx_mv=None, voltage_mem_mv=None, clock_gfx_mhz=None, clock_mem_mhz=None, source='ollama:/api/ps')",
+        "GpuSample(timestamp_ms=1782935947544, vram_bytes=8301597161, vram_total_bytes=None, power_watts=None, temp_celsius=None, temp_mem_celsius=None, gpu_util_percent=None, mem_util_percent=None, fan_rpm=None, throttle=None, voltage_gfx_mv=None, voltage_mem_mv=None, clock_gfx_mhz=None, clock_mem_mhz=None, source='ollama:/api/ps')",
+        "GpuSample(timestamp_ms=1782935949547, vram_bytes=8301597161, vram_total_bytes=None, power_watts=None, temp_celsius=None, temp_mem_celsius=None, gpu_util_percent=None, mem_util_percent=None, fan_rpm=None, throttle=None, voltage_gfx_mv=None, voltage_mem_mv=None, clock_gfx_mhz=None, clock_mem_mhz=None, source='ollama:/api/ps')",
+        "GpuSample(timestamp_ms=1782935951550, vram_bytes=8301597161, vram_total_bytes=None, power_watts=None, temp_celsius=None, temp_mem_celsius=None, gpu_util_percent=None, mem_util_percent=None, fan_rpm=None, throttle=None, voltage_gfx_mv=None, voltage_mem_mv=None, clock_gfx_mhz=None, clock_mem_mhz=None, source='ollama:/api/ps')",
+        "GpuSample(timestamp_ms=1782935953553, vram_bytes=8301597161, vram_total_bytes=None, power_watts=None, temp_celsius=None, temp_mem_celsius=None, gpu_util_percent=None, mem_util_percent=None, fan_rpm=None, throttle=None, voltage_gfx_mv=None, voltage_mem_mv=None, clock_gfx_mhz=None, clock_mem_mhz=None, source='ollama:/api/ps')",
+        "GpuSample(timestamp_ms=1782935955556, vram_bytes=8301597161, vram_total_bytes=None, power_watts=None, temp_celsius=None, temp_mem_celsius=None, gpu_util_percent=None, mem_util_percent=None, fan_rpm=None, throttle=None, voltage_gfx_mv=None, voltage_mem_mv=None, clock_gfx_mhz=None, clock_mem_mhz=None, source='ollama:/api/ps')",
+        "GpuSample(timestamp_ms=1782935957560, vram_bytes=8301597161, vram_total_bytes=None, power_watts=None, temp_celsius=None, temp_mem_celsius=None, gpu_util_percent=None, mem_util_percent=None, fan_rpm=None, throttle=None, voltage_gfx_mv=None, voltage_mem_mv=None, clock_gfx_mhz=None, clock_mem_mhz=None, source='ollama:/api/ps')",
+        "GpuSample(timestamp_ms=1782935959563, vram_bytes=8301597161, vram_total_bytes=None, power_watts=None, temp_celsius=None, temp_mem_celsius=None, gpu_util_percent=None, mem_util_percent=None, fan_rpm=None, throttle=None, voltage_gfx_mv=None, voltage_mem_mv=None, clock_gfx_mhz=None, clock_mem_mhz=None, source='ollama:/api/ps')"
+      ]
+    },
+    {
+      "metric": "amdgpu",
+      "instance": ".*",
+      "gpu": null,
+      "samples": [
+        "GpuSample(timestamp_ms=1782935983325, vram_bytes=9286103040, vram_total_bytes=None, power_watts=282.0, temp_celsius=67.0, temp_mem_celsius=None, gpu_util_percent=None, mem_util_percent=None, fan_rpm=None, throttle=None, voltage_gfx_mv=None, voltage_mem_mv=None, clock_gfx_mhz=None, clock_mem_mhz=None, source='prometheus:amdgpu-exporter')",
+        "GpuSample(timestamp_ms=1782935985333, vram_bytes=9286103040, vram_total_bytes=None, power_watts=282.0, temp_celsius=67.0, temp_mem_celsius=None, gpu_util_percent=None, mem_util_percent=None, fan_rpm=None, throttle=None, voltage_gfx_mv=None, voltage_mem_mv=None, clock_gfx_mhz=None, clock_mem_mhz=None, source='prometheus:amdgpu-exporter')",
+        "GpuSample(timestamp_ms=1782935987337, vram_bytes=9286103040, vram_total_bytes=None, power_watts=282.0, temp_celsius=67.0, temp_mem_celsius=None, gpu_util_percent=None, mem_util_percent=None, fan_rpm=None, throttle=None, voltage_gfx_mv=None, voltage_mem_mv=None, clock_gfx_mhz=None, clock_mem_mhz=None, source='prometheus:amdgpu-exporter')",
+        "GpuSample(timestamp_ms=1782935989343, vram_bytes=9286103040, vram_total_bytes=None, power_watts=282.0, temp_celsius=67.0, temp_mem_celsius=None, gpu_util_percent=None, mem_util_percent=None, fan_rpm=None, throttle=None, voltage_gfx_mv=None, voltage_mem_mv=None, clock_gfx_mhz=None, clock_mem_mhz=None, source='prometheus:amdgpu-exporter')",
+        "GpuSample(timestamp_ms=1782935991348, vram_bytes=9286103040, vram_total_bytes=None, power_watts=282.0, temp_celsius=67.0, temp_mem_celsius=None, gpu_util_percent=None, mem_util_percent=None, fan_rpm=None, throttle=None, voltage_gfx_mv=None, voltage_mem_mv=None, clock_gfx_mhz=None, clock_mem_mhz=None, source='prometheus:amdgpu-exporter')",
+        "GpuSample(timestamp_ms=1782935993354, vram_bytes=9286103040, vram_total_bytes=None, power_watts=282.0, temp_celsius=67.0, temp_mem_celsius=None, gpu_util_percent=None, mem_util_percent=None, fan_rpm=None, throttle=None, voltage_gfx_mv=None, voltage_mem_mv=None, clock_gfx_mhz=None, clock_mem_mhz=None, source='prometheus:amdgpu-exporter')",
+        "GpuSample(timestamp_ms=1782935995359, vram_bytes=9286103040, vram_total_bytes=None, power_watts=282.0, temp_celsius=67.0, temp_mem_celsius=None, gpu_util_percent=None, mem_util_percent=None, fan_rpm=None, throttle=None, voltage_gfx_mv=None, voltage_mem_mv=None, clock_gfx_mhz=None, clock_mem_mhz=None, source='prometheus:amdgpu-exporter')",
+        "GpuSample(timestamp_ms=1782935997363, vram_bytes=9286103040, vram_total_bytes=None, power_watts=282.0, temp_celsius=67.0, temp_mem_celsius=None, gpu_util_percent=None, mem_util_percent=None, fan_rpm=None, throttle=None, voltage_gfx_mv=None, voltage_mem_mv=None, clock_gfx_mhz=None, clock_mem_mhz=None, source='prometheus:amdgpu-exporter')",
+        "GpuSample(timestamp_ms=1782935999366, vram_bytes=9286103040, vram_total_bytes=None, power_watts=282.0, temp_celsius=67.0, temp_mem_celsius=None, gpu_util_percent=None, mem_util_percent=None, fan_rpm=None, throttle=None, voltage_gfx_mv=None, voltage_mem_mv=None, clock_gfx_mhz=None, clock_mem_mhz=None, source='prometheus:amdgpu-exporter')",
+        "GpuSample(timestamp_ms=1782936001457, vram_bytes=9286103040, vram_total_bytes=None, power_watts=2.0, temp_celsius=40.0, temp_mem_celsius=None, gpu_util_percent=None, mem_util_percent=None, fan_rpm=None, throttle=None, voltage_gfx_mv=None, voltage_mem_mv=None, clock_gfx_mhz=None, clock_mem_mhz=None, source='prometheus:amdgpu-exporter')",
+        "GpuSample(timestamp_ms=1782936003459, vram_bytes=9286103040, vram_total_bytes=None, power_watts=2.0, temp_celsius=40.0, temp_mem_celsius=None, gpu_util_percent=None, mem_util_percent=None, fan_rpm=None, throttle=None, voltage_gfx_mv=None, voltage_mem_mv=None, clock_gfx_mhz=None, clock_mem_mhz=None, source='prometheus:amdgpu-exporter')"
+      ]
+    },
+    {
+      "metric": "dcgm",
+      "instance": ".*",
+      "gpu": null,
+      "samples": [
+        "GpuSample(timestamp_ms=1782935983324, vram_bytes=5630, vram_total_bytes=None, power_watts=30.462, temp_celsius=61.0, temp_mem_celsius=None, gpu_util_percent=None, mem_util_percent=None, fan_rpm=None, throttle=None, voltage_gfx_mv=None, voltage_mem_mv=None, clock_gfx_mhz=None, clock_mem_mhz=None, source='prometheus:dcgm')",
+        "GpuSample(timestamp_ms=1782935985332, vram_bytes=5630, vram_total_bytes=None, power_watts=30.462, temp_celsius=61.0, temp_mem_celsius=None, gpu_util_percent=None, mem_util_percent=None, fan_rpm=None, throttle=None, voltage_gfx_mv=None, voltage_mem_mv=None, clock_gfx_mhz=None, clock_mem_mhz=None, source='prometheus:dcgm')",
+        "GpuSample(timestamp_ms=1782935987338, vram_bytes=5630, vram_total_bytes=None, power_watts=30.462, temp_celsius=61.0, temp_mem_celsius=None, gpu_util_percent=None, mem_util_percent=None, fan_rpm=None, throttle=None, voltage_gfx_mv=None, voltage_mem_mv=None, clock_gfx_mhz=None, clock_mem_mhz=None, source='prometheus:dcgm')",
+        "GpuSample(timestamp_ms=1782935989343, vram_bytes=5630, vram_total_bytes=None, power_watts=30.451, temp_celsius=61.0, temp_mem_celsius=None, gpu_util_percent=None, mem_util_percent=None, fan_rpm=None, throttle=None, voltage_gfx_mv=None, voltage_mem_mv=None, clock_gfx_mhz=None, clock_mem_mhz=None, source='prometheus:dcgm')",
+        "GpuSample(timestamp_ms=1782935991349, vram_bytes=5630, vram_total_bytes=None, power_watts=30.451, temp_celsius=61.0, temp_mem_celsius=None, gpu_util_percent=None, mem_util_percent=None, fan_rpm=None, throttle=None, voltage_gfx_mv=None, voltage_mem_mv=None, clock_gfx_mhz=None, clock_mem_mhz=None, source='prometheus:dcgm')",
+        "GpuSample(timestamp_ms=1782935993354, vram_bytes=5630, vram_total_bytes=None, power_watts=30.451, temp_celsius=61.0, temp_mem_celsius=None, gpu_util_percent=None, mem_util_percent=None, fan_rpm=None, throttle=None, voltage_gfx_mv=None, voltage_mem_mv=None, clock_gfx_mhz=None, clock_mem_mhz=None, source='prometheus:dcgm')",
+        "GpuSample(timestamp_ms=1782935995360, vram_bytes=5630, vram_total_bytes=None, power_watts=30.451, temp_celsius=61.0, temp_mem_celsius=None, gpu_util_percent=None, mem_util_percent=None, fan_rpm=None, throttle=None, voltage_gfx_mv=None, voltage_mem_mv=None, clock_gfx_mhz=None, clock_mem_mhz=None, source='prometheus:dcgm')",
+        "GpuSample(timestamp_ms=1782935997363, vram_bytes=5630, vram_total_bytes=None, power_watts=30.451, temp_celsius=61.0, temp_mem_celsius=None, gpu_util_percent=None, mem_util_percent=None, fan_rpm=None, throttle=None, voltage_gfx_mv=None, voltage_mem_mv=None, clock_gfx_mhz=None, clock_mem_mhz=None, source='prometheus:dcgm')",
+        "GpuSample(timestamp_ms=1782935999366, vram_bytes=5630, vram_total_bytes=None, power_watts=30.451, temp_celsius=61.0, temp_mem_celsius=None, gpu_util_percent=None, mem_util_percent=None, fan_rpm=None, throttle=None, voltage_gfx_mv=None, voltage_mem_mv=None, clock_gfx_mhz=None, clock_mem_mhz=None, source='prometheus:dcgm')",
+        "GpuSample(timestamp_ms=1782936001457, vram_bytes=5630, vram_total_bytes=None, power_watts=30.451, temp_celsius=61.0, temp_mem_celsius=None, gpu_util_percent=None, mem_util_percent=None, fan_rpm=None, throttle=None, voltage_gfx_mv=None, voltage_mem_mv=None, clock_gfx_mhz=None, clock_mem_mhz=None, source='prometheus:dcgm')",
+        "GpuSample(timestamp_ms=1782936003459, vram_bytes=5630, vram_total_bytes=None, power_watts=30.451, temp_celsius=61.0, temp_mem_celsius=None, gpu_util_percent=None, mem_util_percent=None, fan_rpm=None, throttle=None, voltage_gfx_mv=None, voltage_mem_mv=None, clock_gfx_mhz=None, clock_mem_mhz=None, source='prometheus:dcgm')"
+      ]
+    },
+    {
+      "metric": "ollama_ps",
+      "instance": "http://ollama.llama.svc:11434",
+      "gpu": null,
+      "samples": [
+        "GpuSample(timestamp_ms=1782935983320, vram_bytes=8301597161, vram_total_bytes=None, power_watts=None, temp_celsius=None, temp_mem_celsius=None, gpu_util_percent=None, mem_util_percent=None, fan_rpm=None, throttle=None, voltage_gfx_mv=None, voltage_mem_mv=None, clock_gfx_mhz=None, clock_mem_mhz=None, source='ollama:/api/ps')",
+        "GpuSample(timestamp_ms=1782935985327, vram_bytes=8301597161, vram_total_bytes=None, power_watts=None, temp_celsius=None, temp_mem_celsius=None, gpu_util_percent=None, mem_util_percent=None, fan_rpm=None, throttle=None, voltage_gfx_mv=None, voltage_mem_mv=None, clock_gfx_mhz=None, clock_mem_mhz=None, source='ollama:/api/ps')",
+        "GpuSample(timestamp_ms=1782935987334, vram_bytes=8301597161, vram_total_bytes=None, power_watts=None, temp_celsius=None, temp_mem_celsius=None, gpu_util_percent=None, mem_util_percent=None, fan_rpm=None, throttle=None, voltage_gfx_mv=None, voltage_mem_mv=None, clock_gfx_mhz=None, clock_mem_mhz=None, source='ollama:/api/ps')",
+        "GpuSample(timestamp_ms=1782935989340, vram_bytes=8301597161, vram_total_bytes=None, power_watts=None, temp_celsius=None, temp_mem_celsius=None, gpu_util_percent=None, mem_util_percent=None, fan_rpm=None, throttle=None, voltage_gfx_mv=None, voltage_mem_mv=None, clock_gfx_mhz=None, clock_mem_mhz=None, source='ollama:/api/ps')",
+        "GpuSample(timestamp_ms=1782935991346, vram_bytes=8301597161, vram_total_bytes=None, power_watts=None, temp_celsius=None, temp_mem_celsius=None, gpu_util_percent=None, mem_util_percent=None, fan_rpm=None, throttle=None, voltage_gfx_mv=None, voltage_mem_mv=None, clock_gfx_mhz=None, clock_mem_mhz=None, source='ollama:/api/ps')",
+        "GpuSample(timestamp_ms=1782935993351, vram_bytes=8301597161, vram_total_bytes=None, power_watts=None, temp_celsius=None, temp_mem_celsius=None, gpu_util_percent=None, mem_util_percent=None, fan_rpm=None, throttle=None, voltage_gfx_mv=None, voltage_mem_mv=None, clock_gfx_mhz=None, clock_mem_mhz=None, source='ollama:/api/ps')",
+        "GpuSample(timestamp_ms=1782935995357, vram_bytes=8301597161, vram_total_bytes=None, power_watts=None, temp_celsius=None, temp_mem_celsius=None, gpu_util_percent=None, mem_util_percent=None, fan_rpm=None, throttle=None, voltage_gfx_mv=None, voltage_mem_mv=None, clock_gfx_mhz=None, clock_mem_mhz=None, source='ollama:/api/ps')",
+        "GpuSample(timestamp_ms=1782935997362, vram_bytes=8301597161, vram_total_bytes=None, power_watts=None, temp_celsius=None, temp_mem_celsius=None, gpu_util_percent=None, mem_util_percent=None, fan_rpm=None, throttle=None, voltage_gfx_mv=None, voltage_mem_mv=None, clock_gfx_mhz=None, clock_mem_mhz=None, source='ollama:/api/ps')",
+        "GpuSample(timestamp_ms=1782935999365, vram_bytes=8301597161, vram_total_bytes=None, power_watts=None, temp_celsius=None, temp_mem_celsius=None, gpu_util_percent=None, mem_util_percent=None, fan_rpm=None, throttle=None, voltage_gfx_mv=None, voltage_mem_mv=None, clock_gfx_mhz=None, clock_mem_mhz=None, source='ollama:/api/ps')",
+        "GpuSample(timestamp_ms=1782936001369, vram_bytes=8301597161, vram_total_bytes=None, power_watts=None, temp_celsius=None, temp_mem_celsius=None, gpu_util_percent=None, mem_util_percent=None, fan_rpm=None, throttle=None, voltage_gfx_mv=None, voltage_mem_mv=None, clock_gfx_mhz=None, clock_mem_mhz=None, source='ollama:/api/ps')",
+        "GpuSample(timestamp_ms=1782936003458, vram_bytes=8301597161, vram_total_bytes=None, power_watts=None, temp_celsius=None, temp_mem_celsius=None, gpu_util_percent=None, mem_util_percent=None, fan_rpm=None, throttle=None, voltage_gfx_mv=None, voltage_mem_mv=None, clock_gfx_mhz=None, clock_mem_mhz=None, source='ollama:/api/ps')"
+      ]
+    },
+    {
+      "metric": "amdgpu",
+      "instance": ".*",
+      "gpu": null,
+      "samples": [
+        "GpuSample(timestamp_ms=1782936027142, vram_bytes=9286103040, vram_total_bytes=None, power_watts=2.0, temp_celsius=40.0, temp_mem_celsius=None, gpu_util_percent=None, mem_util_percent=None, fan_rpm=None, throttle=None, voltage_gfx_mv=None, voltage_mem_mv=None, clock_gfx_mhz=None, clock_mem_mhz=None, source='prometheus:amdgpu-exporter')",
+        "GpuSample(timestamp_ms=1782936029145, vram_bytes=9286103040, vram_total_bytes=None, power_watts=2.0, temp_celsius=40.0, temp_mem_celsius=None, gpu_util_percent=None, mem_util_percent=None, fan_rpm=None, throttle=None, voltage_gfx_mv=None, voltage_mem_mv=None, clock_gfx_mhz=None, clock_mem_mhz=None, source='prometheus:amdgpu-exporter')",
+        "GpuSample(timestamp_ms=1782936031257, vram_bytes=9286103040, vram_total_bytes=None, power_watts=2.0, temp_celsius=44.0, temp_mem_celsius=None, gpu_util_percent=None, mem_util_percent=None, fan_rpm=None, throttle=None, voltage_gfx_mv=None, voltage_mem_mv=None, clock_gfx_mhz=None, clock_mem_mhz=None, source='prometheus:amdgpu-exporter')",
+        "GpuSample(timestamp_ms=1782936033261, vram_bytes=9286103040, vram_total_bytes=None, power_watts=2.0, temp_celsius=44.0, temp_mem_celsius=None, gpu_util_percent=None, mem_util_percent=None, fan_rpm=None, throttle=None, voltage_gfx_mv=None, voltage_mem_mv=None, clock_gfx_mhz=None, clock_mem_mhz=None, source='prometheus:amdgpu-exporter')",
+        "GpuSample(timestamp_ms=1782936035264, vram_bytes=9286103040, vram_total_bytes=None, power_watts=2.0, temp_celsius=44.0, temp_mem_celsius=None, gpu_util_percent=None, mem_util_percent=None, fan_rpm=None, throttle=None, voltage_gfx_mv=None, voltage_mem_mv=None, clock_gfx_mhz=None, clock_mem_mhz=None, source='prometheus:amdgpu-exporter')",
+        "GpuSample(timestamp_ms=1782936037267, vram_bytes=9286103040, vram_total_bytes=None, power_watts=2.0, temp_celsius=44.0, temp_mem_celsius=None, gpu_util_percent=None, mem_util_percent=None, fan_rpm=None, throttle=None, voltage_gfx_mv=None, voltage_mem_mv=None, clock_gfx_mhz=None, clock_mem_mhz=None, source='prometheus:amdgpu-exporter')",
+        "GpuSample(timestamp_ms=1782936039270, vram_bytes=9286103040, vram_total_bytes=None, power_watts=2.0, temp_celsius=44.0, temp_mem_celsius=None, gpu_util_percent=None, mem_util_percent=None, fan_rpm=None, throttle=None, voltage_gfx_mv=None, voltage_mem_mv=None, clock_gfx_mhz=None, clock_mem_mhz=None, source='prometheus:amdgpu-exporter')",
+        "GpuSample(timestamp_ms=1782936041273, vram_bytes=9286103040, vram_total_bytes=None, power_watts=2.0, temp_celsius=44.0, temp_mem_celsius=None, gpu_util_percent=None, mem_util_percent=None, fan_rpm=None, throttle=None, voltage_gfx_mv=None, voltage_mem_mv=None, clock_gfx_mhz=None, clock_mem_mhz=None, source='prometheus:amdgpu-exporter')",
+        "GpuSample(timestamp_ms=1782936043276, vram_bytes=9286103040, vram_total_bytes=None, power_watts=2.0, temp_celsius=44.0, temp_mem_celsius=None, gpu_util_percent=None, mem_util_percent=None, fan_rpm=None, throttle=None, voltage_gfx_mv=None, voltage_mem_mv=None, clock_gfx_mhz=None, clock_mem_mhz=None, source='prometheus:amdgpu-exporter')",
+        "GpuSample(timestamp_ms=1782936045279, vram_bytes=9286103040, vram_total_bytes=None, power_watts=2.0, temp_celsius=44.0, temp_mem_celsius=None, gpu_util_percent=None, mem_util_percent=None, fan_rpm=None, throttle=None, voltage_gfx_mv=None, voltage_mem_mv=None, clock_gfx_mhz=None, clock_mem_mhz=None, source='prometheus:amdgpu-exporter')",
+        "GpuSample(timestamp_ms=1782936047283, vram_bytes=9286103040, vram_total_bytes=None, power_watts=2.0, temp_celsius=44.0, temp_mem_celsius=None, gpu_util_percent=None, mem_util_percent=None, fan_rpm=None, throttle=None, voltage_gfx_mv=None, voltage_mem_mv=None, clock_gfx_mhz=None, clock_mem_mhz=None, source='prometheus:amdgpu-exporter')"
+      ]
+    },
+    {
+      "metric": "dcgm",
+      "instance": ".*",
+      "gpu": null,
+      "samples": [
+        "GpuSample(timestamp_ms=1782936027142, vram_bytes=5630, vram_total_bytes=None, power_watts=30.451, temp_celsius=61.0, temp_mem_celsius=None, gpu_util_percent=None, mem_util_percent=None, fan_rpm=None, throttle=None, voltage_gfx_mv=None, voltage_mem_mv=None, clock_gfx_mhz=None, clock_mem_mhz=None, source='prometheus:dcgm')",
+        "GpuSample(timestamp_ms=1782936029145, vram_bytes=5630, vram_total_bytes=None, power_watts=30.451, temp_celsius=61.0, temp_mem_celsius=None, gpu_util_percent=None, mem_util_percent=None, fan_rpm=None, throttle=None, voltage_gfx_mv=None, voltage_mem_mv=None, clock_gfx_mhz=None, clock_mem_mhz=None, source='prometheus:dcgm')",
+        "GpuSample(timestamp_ms=1782936031237, vram_bytes=5630, vram_total_bytes=None, power_watts=30.451, temp_celsius=61.0, temp_mem_celsius=None, gpu_util_percent=None, mem_util_percent=None, fan_rpm=None, throttle=None, voltage_gfx_mv=None, voltage_mem_mv=None, clock_gfx_mhz=None, clock_mem_mhz=None, source='prometheus:dcgm')",
+        "GpuSample(timestamp_ms=1782936033261, vram_bytes=5630, vram_total_bytes=None, power_watts=30.451, temp_celsius=61.0, temp_mem_celsius=None, gpu_util_percent=None, mem_util_percent=None, fan_rpm=None, throttle=None, voltage_gfx_mv=None, voltage_mem_mv=None, clock_gfx_mhz=None, clock_mem_mhz=None, source='prometheus:dcgm')",
+        "GpuSample(timestamp_ms=1782936035264, vram_bytes=5630, vram_total_bytes=None, power_watts=30.451, temp_celsius=61.0, temp_mem_celsius=None, gpu_util_percent=None, mem_util_percent=None, fan_rpm=None, throttle=None, voltage_gfx_mv=None, voltage_mem_mv=None, clock_gfx_mhz=None, clock_mem_mhz=None, source='prometheus:dcgm')",
+        "GpuSample(timestamp_ms=1782936037267, vram_bytes=5630, vram_total_bytes=None, power_watts=30.451, temp_celsius=61.0, temp_mem_celsius=None, gpu_util_percent=None, mem_util_percent=None, fan_rpm=None, throttle=None, voltage_gfx_mv=None, voltage_mem_mv=None, clock_gfx_mhz=None, clock_mem_mhz=None, source='prometheus:dcgm')",
+        "GpuSample(timestamp_ms=1782936039270, vram_bytes=5630, vram_total_bytes=None, power_watts=30.451, temp_celsius=61.0, temp_mem_celsius=None, gpu_util_percent=None, mem_util_percent=None, fan_rpm=None, throttle=None, voltage_gfx_mv=None, voltage_mem_mv=None, clock_gfx_mhz=None, clock_mem_mhz=None, source='prometheus:dcgm')",
+        "GpuSample(timestamp_ms=1782936041273, vram_bytes=5630, vram_total_bytes=None, power_watts=30.451, temp_celsius=61.0, temp_mem_celsius=None, gpu_util_percent=None, mem_util_percent=None, fan_rpm=None, throttle=None, voltage_gfx_mv=None, voltage_mem_mv=None, clock_gfx_mhz=None, clock_mem_mhz=None, source='prometheus:dcgm')",
+        "GpuSample(timestamp_ms=1782936043276, vram_bytes=5630, vram_total_bytes=None, power_watts=30.451, temp_celsius=61.0, temp_mem_celsius=None, gpu_util_percent=None, mem_util_percent=None, fan_rpm=None, throttle=None, voltage_gfx_mv=None, voltage_mem_mv=None, clock_gfx_mhz=None, clock_mem_mhz=None, source='prometheus:dcgm')",
+        "GpuSample(timestamp_ms=1782936045280, vram_bytes=5630, vram_total_bytes=None, power_watts=30.451, temp_celsius=61.0, temp_mem_celsius=None, gpu_util_percent=None, mem_util_percent=None, fan_rpm=None, throttle=None, voltage_gfx_mv=None, voltage_mem_mv=None, clock_gfx_mhz=None, clock_mem_mhz=None, source='prometheus:dcgm')",
+        "GpuSample(timestamp_ms=1782936047283, vram_bytes=5630, vram_total_bytes=None, power_watts=30.451, temp_celsius=61.0, temp_mem_celsius=None, gpu_util_percent=None, mem_util_percent=None, fan_rpm=None, throttle=None, voltage_gfx_mv=None, voltage_mem_mv=None, clock_gfx_mhz=None, clock_mem_mhz=None, source='prometheus:dcgm')"
+      ]
+    },
+    {
+      "metric": "ollama_ps",
+      "instance": "http://ollama.llama.svc:11434",
+      "gpu": null,
+      "samples": [
+        "GpuSample(timestamp_ms=1782936027138, vram_bytes=8301597161, vram_total_bytes=None, power_watts=None, temp_celsius=None, temp_mem_celsius=None, gpu_util_percent=None, mem_util_percent=None, fan_rpm=None, throttle=None, voltage_gfx_mv=None, voltage_mem_mv=None, clock_gfx_mhz=None, clock_mem_mhz=None, source='ollama:/api/ps')",
+        "GpuSample(timestamp_ms=1782936029144, vram_bytes=8301597161, vram_total_bytes=None, power_watts=None, temp_celsius=None, temp_mem_celsius=None, gpu_util_percent=None, mem_util_percent=None, fan_rpm=None, throttle=None, voltage_gfx_mv=None, voltage_mem_mv=None, clock_gfx_mhz=None, clock_mem_mhz=None, source='ollama:/api/ps')",
+        "GpuSample(timestamp_ms=1782936031147, vram_bytes=8301597161, vram_total_bytes=None, power_watts=None, temp_celsius=None, temp_mem_celsius=None, gpu_util_percent=None, mem_util_percent=None, fan_rpm=None, throttle=None, voltage_gfx_mv=None, voltage_mem_mv=None, clock_gfx_mhz=None, clock_mem_mhz=None, source='ollama:/api/ps')",
+        "GpuSample(timestamp_ms=1782936033260, vram_bytes=8301597161, vram_total_bytes=None, power_watts=None, temp_celsius=None, temp_mem_celsius=None, gpu_util_percent=None, mem_util_percent=None, fan_rpm=None, throttle=None, voltage_gfx_mv=None, voltage_mem_mv=None, clock_gfx_mhz=None, clock_mem_mhz=None, source='ollama:/api/ps')",
+        "GpuSample(timestamp_ms=1782936035263, vram_bytes=8301597161, vram_total_bytes=None, power_watts=None, temp_celsius=None, temp_mem_celsius=None, gpu_util_percent=None, mem_util_percent=None, fan_rpm=None, throttle=None, voltage_gfx_mv=None, voltage_mem_mv=None, clock_gfx_mhz=None, clock_mem_mhz=None, source='ollama:/api/ps')",
+        "GpuSample(timestamp_ms=1782936037266, vram_bytes=8301597161, vram_total_bytes=None, power_watts=None, temp_celsius=None, temp_mem_celsius=None, gpu_util_percent=None, mem_util_percent=None, fan_rpm=None, throttle=None, voltage_gfx_mv=None, voltage_mem_mv=None, clock_gfx_mhz=None, clock_mem_mhz=None, source='ollama:/api/ps')",
+        "GpuSample(timestamp_ms=1782936039269, vram_bytes=8301597161, vram_total_bytes=None, power_watts=None, temp_celsius=None, temp_mem_celsius=None, gpu_util_percent=None, mem_util_percent=None, fan_rpm=None, throttle=None, voltage_gfx_mv=None, voltage_mem_mv=None, clock_gfx_mhz=None, clock_mem_mhz=None, source='ollama:/api/ps')",
+        "GpuSample(timestamp_ms=1782936041272, vram_bytes=8301597161, vram_total_bytes=None, power_watts=None, temp_celsius=None, temp_mem_celsius=None, gpu_util_percent=None, mem_util_percent=None, fan_rpm=None, throttle=None, voltage_gfx_mv=None, voltage_mem_mv=None, clock_gfx_mhz=None, clock_mem_mhz=None, source='ollama:/api/ps')",
+        "GpuSample(timestamp_ms=1782936043275, vram_bytes=8301597161, vram_total_bytes=None, power_watts=None, temp_celsius=None, temp_mem_celsius=None, gpu_util_percent=None, mem_util_percent=None, fan_rpm=None, throttle=None, voltage_gfx_mv=None, voltage_mem_mv=None, clock_gfx_mhz=None, clock_mem_mhz=None, source='ollama:/api/ps')",
+        "GpuSample(timestamp_ms=1782936045279, vram_bytes=8301597161, vram_total_bytes=None, power_watts=None, temp_celsius=None, temp_mem_celsius=None, gpu_util_percent=None, mem_util_percent=None, fan_rpm=None, throttle=None, voltage_gfx_mv=None, voltage_mem_mv=None, clock_gfx_mhz=None, clock_mem_mhz=None, source='ollama:/api/ps')",
+        "GpuSample(timestamp_ms=1782936047282, vram_bytes=8301597161, vram_total_bytes=None, power_watts=None, temp_celsius=None, temp_mem_celsius=None, gpu_util_percent=None, mem_util_percent=None, fan_rpm=None, throttle=None, voltage_gfx_mv=None, voltage_mem_mv=None, clock_gfx_mhz=None, clock_mem_mhz=None, source='ollama:/api/ps')"
+      ]
+    }
+  ]
+}
