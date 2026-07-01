@@ -1,0 +1,82 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ollama-benchmark-verify
+  namespace: llama
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels:
+        app: ollama-benchmark-verify
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: timmy
+      restartPolicy: Never
+      containers:
+        - name: bench
+          image: python:3.12-slim
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            privileged: true
+          env:
+            - name: PYTHONPATH
+              value: /bench
+            - name: LD_LIBRARY_PATH
+              value: /opt/rocm/lib:/opt/rocm/lib64
+          command:
+            - /bin/sh
+            - -c
+            - |
+              pip install --quiet aiohttp
+              apt-get update --quiet --allow-releaseinfo-change >/dev/null 2>&1 || true
+              apt-get install --quiet -y --no-install-recommends libdrm2 libdrm-amdgpu1 >/dev/null 2>&1 || true
+              if [ -d /opt/rocm/share/amd_smi ]; then
+                pip install --quiet /opt/rocm/share/amd_smi || true
+              elif [ -x /opt/rocm/bin/amd-smi ] || [ -f /opt/rocm/lib/libamd_smi.so ]; then
+                pip install --quiet amdsmi || true
+              fi
+              mkdir -p /bench/lib /bench/benchmarks/results
+              cp /scripts/concurrency-bench.py /bench/
+              cp /scripts/metrics.py /scripts/output.py /scripts/prompts.py /scripts/__init__.py /bench/lib/
+              cp /scripts/cluster-*.toml /bench/
+              cd /bench
+              echo "=== running benchmark: cluster-test ==="
+              python -u concurrency-bench.py --config "cluster-test.toml" --amdsmi
+              echo "=== amdsmi metrics verification ==="
+              python -u - <<'PYEOF'
+              import glob, json, sys
+              files = glob.glob('/bench/benchmarks/results/ollama-*/results.json')
+              print('RESULT_FILES:', files)
+              if not files:
+                  sys.exit('No results.json found')
+              for f in files:
+                  with open(f) as fh:
+                      d = json.load(fh)
+                  series = d.get('gpu_series') or []
+                  print(f'FILE: {f}')
+                  print(f'  gpu_series_count: {len(series)}')
+                  if series:
+                      print('  first_sample:')
+                      print(json.dumps(series[0], indent=4, default=str))
+                      print('  last_sample:')
+                      print(json.dumps(series[-1], indent=4, default=str))
+              PYEOF
+          volumeMounts:
+            - mountPath: /scripts
+              name: scripts
+            - mountPath: /bench/benchmarks/results
+              name: results
+            - mountPath: /opt/rocm
+              name: rocm
+      volumes:
+        - name: scripts
+          configMap:
+            name: bench-scripts
+        - name: results
+          emptyDir: {}
+        - name: rocm
+          hostPath:
+            path: /opt/rocm
+            type: DirectoryOrCreate

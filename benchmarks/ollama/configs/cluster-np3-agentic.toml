@@ -1,0 +1,25 @@
+# Cluster-side NUM_PARALLEL=3 agentic test for timmy's RX 9070 XT.
+# Conservative agentic concurrency with 32K context.
+
+[ollama]
+url = "http://ollama.llama.svc:11434"
+model = "gemma4:12b-it-qat"
+num_ctx = 32768
+num_predict = 2048
+temperature = 0.3
+
+[workload]
+name = "agentic"
+max_concurrency = 3
+requests_per_level = 3
+repeats = 3
+cooldown_seconds = 20
+
+[prometheus]
+url = "http://prom-prometheus.grafana:9090"
+instance_label = ".*"
+sample_interval_seconds = 2.0
+
+[output]
+dir = "benchmarks/results"
+prefix = "ollama-cluster-np3-agentic"

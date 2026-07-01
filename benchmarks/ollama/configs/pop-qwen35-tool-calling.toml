@@ -1,0 +1,27 @@
+# Pop-local tool-calling consistency benchmark for qwen3.5:9b-mlx.
+# Measures how reliably the model emits valid JSON tool calls under
+# concurrent load. Tool validation is enabled in the workload section.
+
+[ollama]
+url = "http://localhost:11434"
+model = "qwen3.5:9b-mlx"
+num_ctx = 16384
+num_predict = 512
+temperature = 0.3
+
+[workload]
+name = "tool_calling"
+max_concurrency = 4
+requests_per_level = 8
+repeats = 2
+cooldown_seconds = 10
+tool_validate = true
+
+[prometheus]
+url = ""
+instance_label = ""
+sample_interval_seconds = 2.0
+
+[output]
+dir = "benchmarks/results"
+prefix = "ollama-pop-qwen35-tool-calling"

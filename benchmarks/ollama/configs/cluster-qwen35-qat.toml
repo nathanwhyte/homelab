@@ -1,0 +1,25 @@
+# Cluster-side Ollama concurrency benchmark config for qwen3.5:9b-q4_K_M.
+# Mirrors the pop qwen3.5 workload shape on timmy's RX 9070 XT.
+
+[ollama]
+url = "http://ollama.llama.svc:11434"
+model = "qwen3.5:9b-q4_K_M"
+num_ctx = 16384
+num_predict = 512
+temperature = 0.3
+
+[workload]
+name = "mixed_mem0"
+max_concurrency = 6
+requests_per_level = 6
+repeats = 3
+cooldown_seconds = 15
+
+[prometheus]
+url = "http://prom-prometheus.grafana:9090"
+instance_label = ".*"
+sample_interval_seconds = 2.0
+
+[output]
+dir = "benchmarks/results"
+prefix = "ollama-cluster-qwen35-qat"
