@@ -1,1 +1,0 @@
-/Users/noot/code/compendium/guides/tooling/GUIDE-1065-homelab-clean-marketing-style-bar-charts-for-benchmark-reports.md
