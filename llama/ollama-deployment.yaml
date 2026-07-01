@@ -26,8 +26,9 @@ spec:
         fsGroup: 0
       containers:
         - name: ollama
-          # ROCm gfx1201 validated: llama/docs/2026-06-28-rocm-gfx1201-validation-baseline.md
-          image: ollama/ollama:0.31.1-rocm
+          # Vulkan backend is the default in Ollama 0.30+ and is faster than ROCm
+          # on timmy's RX 9070 XT (RDNA4). See INFO-1084 for benchmark findings.
+          image: ollama/ollama:0.31.1
           imagePullPolicy: IfNotPresent
           command:
             - /bin/bash
@@ -69,10 +70,15 @@ spec:
               value: "8"
             - name: OLLAMA_MAX_LOADED_MODELS
               value: "1"
-            # RDNA4 guardrail: keeps container on discrete RX 9070 XT, not iGPU.
-            # Do NOT set HSA_OVERRIDE_GFX_VERSION — gfx1201 is native.
-            - name: HIP_VISIBLE_DEVICES
-              value: "0"
+            # Explicitly enable Vulkan (redundant on 0.30+, but harmless).
+            - name: OLLAMA_VULKAN
+              value: "1"
+            # Device selection: on timmy the Vulkan device order is reversed
+            # relative to ROCm, and the iGPU (PCI 1002:164E) is enumerated first.
+            # HIP_VISIBLE_DEVICES=0 picked the discrete RX 9070 XT under ROCm;
+            # under Vulkan we need GGML_VK_VISIBLE_DEVICES to exclude the iGPU.
+            - name: GGML_VK_VISIBLE_DEVICES
+              value: "1"
           ports:
             - containerPort: 11434
               name: http
@@ -108,8 +114,6 @@ spec:
               mountPath: /dev/shm
             - name: startup
               mountPath: /scripts
-            - name: rocblas-library
-              mountPath: /opt/rocm/lib/rocblas/library
         - name: ollama-exporter
           image: python:3.12-slim
           command:
@@ -145,10 +149,6 @@ spec:
           configMap:
             name: ollama-startup
             defaultMode: 0755
-        - name: rocblas-library
-          hostPath:
-            path: /opt/rocm-7.2.1/lib/rocblas/library
-            type: Directory
 ---
 apiVersion: v1
 kind: Service
