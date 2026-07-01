@@ -2,11 +2,7 @@
   "dashboard": {
     "uid": "ollama-inference-metrics",
     "title": "Ollama Inference",
-    "tags": [
-      "ollama",
-      "inference",
-      "llm"
-    ],
+    "tags": ["ollama", "inference", "llm"],
     "timezone": "browser",
     "editable": true,
     "graphTooltip": 1,
@@ -46,13 +42,13 @@
         },
         "gridPos": {
           "h": 4,
-          "w": 3,
+          "w": 6,
           "x": 0,
           "y": 0
         },
         "targets": [
           {
-            "expr": "ollama_up",
+            "expr": "max(ollama_up)",
             "legendFormat": "Status",
             "refId": "A"
           }
@@ -92,9 +88,7 @@
         },
         "options": {
           "reduceOptions": {
-            "calcs": [
-              "lastNotNull"
-            ]
+            "calcs": ["lastNotNull"]
           },
           "colorMode": "background",
           "graphMode": "none",
@@ -111,13 +105,13 @@
         },
         "gridPos": {
           "h": 4,
-          "w": 3,
-          "x": 3,
+          "w": 6,
+          "x": 6,
           "y": 0
         },
         "targets": [
           {
-            "expr": "ollama_models_loaded",
+            "expr": "sum(ollama_models_loaded)",
             "legendFormat": "Models",
             "refId": "A"
           }
@@ -142,56 +136,7 @@
         },
         "options": {
           "reduceOptions": {
-            "calcs": [
-              "lastNotNull"
-            ]
-          },
-          "colorMode": "background",
-          "graphMode": "none",
-          "textMode": "value"
-        }
-      },
-      {
-        "id": 3,
-        "type": "stat",
-        "title": "Context Length",
-        "datasource": {
-          "type": "prometheus",
-          "uid": "prometheus"
-        },
-        "gridPos": {
-          "h": 4,
-          "w": 3,
-          "x": 6,
-          "y": 0
-        },
-        "targets": [
-          {
-            "expr": "ollama_model_context_length",
-            "legendFormat": "{{model}}",
-            "refId": "A"
-          }
-        ],
-        "fieldConfig": {
-          "defaults": {
-            "unit": "short",
-            "thresholds": {
-              "mode": "absolute",
-              "steps": [
-                {
-                  "value": 0,
-                  "color": "blue"
-                }
-              ]
-            }
-          },
-          "overrides": []
-        },
-        "options": {
-          "reduceOptions": {
-            "calcs": [
-              "lastNotNull"
-            ]
+            "calcs": ["lastNotNull"]
           },
           "colorMode": "background",
           "graphMode": "none",
@@ -208,13 +153,13 @@
         },
         "gridPos": {
           "h": 4,
-          "w": 3,
-          "x": 9,
+          "w": 6,
+          "x": 12,
           "y": 0
         },
         "targets": [
           {
-            "expr": "ollama_last_prompt_tokens / ollama_model_context_length * 100",
+            "expr": "max by (model) (ollama_last_prompt_tokens) / max by (model) (ollama_model_context_length) * 100",
             "legendFormat": "{{model}}",
             "refId": "A"
           }
@@ -246,159 +191,8 @@
         },
         "options": {
           "reduceOptions": {
-            "calcs": [
-              "lastNotNull"
-            ]
+            "calcs": ["lastNotNull"]
           }
-        }
-      },
-      {
-        "id": 5,
-        "type": "stat",
-        "title": "Unloads In",
-        "datasource": {
-          "type": "prometheus",
-          "uid": "prometheus"
-        },
-        "gridPos": {
-          "h": 4,
-          "w": 3,
-          "x": 12,
-          "y": 0
-        },
-        "targets": [
-          {
-            "expr": "ollama_model_expires_at - time()",
-            "legendFormat": "{{model}}",
-            "refId": "A"
-          }
-        ],
-        "fieldConfig": {
-          "defaults": {
-            "unit": "s",
-            "thresholds": {
-              "mode": "absolute",
-              "steps": [
-                {
-                  "value": 0,
-                  "color": "red"
-                },
-                {
-                  "value": 60,
-                  "color": "yellow"
-                },
-                {
-                  "value": 600,
-                  "color": "green"
-                }
-              ]
-            }
-          },
-          "overrides": []
-        },
-        "options": {
-          "reduceOptions": {
-            "calcs": [
-              "lastNotNull"
-            ]
-          },
-          "colorMode": "background",
-          "graphMode": "none",
-          "textMode": "value"
-        }
-      },
-      {
-        "id": 6,
-        "type": "stat",
-        "title": "Gen tok/s",
-        "datasource": {
-          "type": "prometheus",
-          "uid": "prometheus"
-        },
-        "gridPos": {
-          "h": 4,
-          "w": 3,
-          "x": 15,
-          "y": 0
-        },
-        "targets": [
-          {
-            "expr": "ollama_gen_tokens_per_sec",
-            "legendFormat": "{{model}}",
-            "refId": "A"
-          }
-        ],
-        "fieldConfig": {
-          "defaults": {
-            "unit": "short",
-            "thresholds": {
-              "mode": "absolute",
-              "steps": [
-                {
-                  "value": 0,
-                  "color": "blue"
-                }
-              ]
-            }
-          },
-          "overrides": []
-        },
-        "options": {
-          "reduceOptions": {
-            "calcs": [
-              "lastNotNull"
-            ]
-          },
-          "colorMode": "background",
-          "graphMode": "area",
-          "textMode": "value"
-        }
-      },
-      {
-        "id": 7,
-        "type": "stat",
-        "title": "Prompt tok/s",
-        "datasource": {
-          "type": "prometheus",
-          "uid": "prometheus"
-        },
-        "gridPos": {
-          "h": 4,
-          "w": 3,
-          "x": 18,
-          "y": 0
-        },
-        "targets": [
-          {
-            "expr": "ollama_prompt_tokens_per_sec",
-            "legendFormat": "{{model}}",
-            "refId": "A"
-          }
-        ],
-        "fieldConfig": {
-          "defaults": {
-            "unit": "short",
-            "thresholds": {
-              "mode": "absolute",
-              "steps": [
-                {
-                  "value": 0,
-                  "color": "purple"
-                }
-              ]
-            }
-          },
-          "overrides": []
-        },
-        "options": {
-          "reduceOptions": {
-            "calcs": [
-              "lastNotNull"
-            ]
-          },
-          "colorMode": "background",
-          "graphMode": "area",
-          "textMode": "value"
         }
       },
       {
@@ -411,13 +205,13 @@
         },
         "gridPos": {
           "h": 4,
-          "w": 3,
-          "x": 21,
+          "w": 6,
+          "x": 18,
           "y": 0
         },
         "targets": [
           {
-            "expr": "ollama_last_request_seconds",
+            "expr": "max by (model) (ollama_last_request_seconds)",
             "legendFormat": "{{model}}",
             "refId": "A"
           }
@@ -448,9 +242,7 @@
         },
         "options": {
           "reduceOptions": {
-            "calcs": [
-              "lastNotNull"
-            ]
+            "calcs": ["lastNotNull"]
           },
           "colorMode": "background",
           "graphMode": "none",
@@ -614,55 +406,6 @@
         "panels": []
       },
       {
-        "id": 12,
-        "type": "timeseries",
-        "title": "Token Speed (tok/s)",
-        "datasource": {
-          "type": "prometheus",
-          "uid": "prometheus"
-        },
-        "gridPos": {
-          "h": 8,
-          "w": 12,
-          "x": 0,
-          "y": 14
-        },
-        "targets": [
-          {
-            "expr": "ollama_gen_tokens_per_sec",
-            "legendFormat": "gen {{model}}",
-            "refId": "A"
-          },
-          {
-            "expr": "ollama_prompt_tokens_per_sec",
-            "legendFormat": "prompt {{model}}",
-            "refId": "B"
-          }
-        ],
-        "fieldConfig": {
-          "defaults": {
-            "unit": "short",
-            "custom": {
-              "drawStyle": "line",
-              "lineWidth": 2,
-              "fillOpacity": 10,
-              "spanNulls": true,
-              "axisBorderShow": false
-            }
-          },
-          "overrides": []
-        },
-        "options": {
-          "legend": {
-            "displayMode": "list",
-            "placement": "bottom"
-          },
-          "tooltip": {
-            "mode": "multi"
-          }
-        }
-      },
-      {
         "id": 13,
         "type": "timeseries",
         "title": "VRAM Per Model",
@@ -671,10 +414,10 @@
           "uid": "prometheus"
         },
         "gridPos": {
-          "h": 8,
-          "w": 12,
-          "x": 12,
-          "y": 14
+          "x": 0,
+          "y": 14,
+          "w": 24,
+          "h": 8
         },
         "targets": [
           {
@@ -890,7 +633,7 @@
         },
         "gridPos": {
           "h": 4,
-          "w": 4,
+          "w": 6,
           "x": 0,
           "y": 32
         },
@@ -917,9 +660,7 @@
         },
         "options": {
           "reduceOptions": {
-            "calcs": [
-              "lastNotNull"
-            ]
+            "calcs": ["lastNotNull"]
           },
           "colorMode": "background",
           "graphMode": "area",
@@ -936,8 +677,8 @@
         },
         "gridPos": {
           "h": 4,
-          "w": 5,
-          "x": 4,
+          "w": 6,
+          "x": 6,
           "y": 32
         },
         "targets": [
@@ -963,9 +704,7 @@
         },
         "options": {
           "reduceOptions": {
-            "calcs": [
-              "lastNotNull"
-            ]
+            "calcs": ["lastNotNull"]
           },
           "colorMode": "background",
           "graphMode": "area",
@@ -982,8 +721,8 @@
         },
         "gridPos": {
           "h": 4,
-          "w": 5,
-          "x": 9,
+          "w": 6,
+          "x": 12,
           "y": 32
         },
         "targets": [
@@ -1009,56 +748,7 @@
         },
         "options": {
           "reduceOptions": {
-            "calcs": [
-              "lastNotNull"
-            ]
-          },
-          "colorMode": "background",
-          "graphMode": "area",
-          "textMode": "value"
-        }
-      },
-      {
-        "id": 22,
-        "type": "stat",
-        "title": "Total Gen Time",
-        "datasource": {
-          "type": "prometheus",
-          "uid": "prometheus"
-        },
-        "gridPos": {
-          "h": 4,
-          "w": 5,
-          "x": 14,
-          "y": 32
-        },
-        "targets": [
-          {
-            "expr": "ollama_gen_duration_seconds_total",
-            "legendFormat": "{{model}}",
-            "refId": "A"
-          }
-        ],
-        "fieldConfig": {
-          "defaults": {
-            "unit": "s",
-            "thresholds": {
-              "mode": "absolute",
-              "steps": [
-                {
-                  "value": 0,
-                  "color": "orange"
-                }
-              ]
-            }
-          },
-          "overrides": []
-        },
-        "options": {
-          "reduceOptions": {
-            "calcs": [
-              "lastNotNull"
-            ]
+            "calcs": ["lastNotNull"]
           },
           "colorMode": "background",
           "graphMode": "area",
@@ -1075,8 +765,8 @@
         },
         "gridPos": {
           "h": 4,
-          "w": 5,
-          "x": 19,
+          "w": 6,
+          "x": 18,
           "y": 32
         },
         "targets": [
@@ -1103,9 +793,7 @@
         },
         "options": {
           "reduceOptions": {
-            "calcs": [
-              "lastNotNull"
-            ]
+            "calcs": ["lastNotNull"]
           },
           "colorMode": "background",
           "graphMode": "area",
