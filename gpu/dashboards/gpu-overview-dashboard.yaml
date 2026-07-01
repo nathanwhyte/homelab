@@ -145,18 +145,9 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "expr": "max(amdgpu_utilization_percent{gpu=\"1\"})",
+              "expr": "max(amdgpu_gfx_activity_percent{gpu=\"1\"})",
               "legendFormat": "timmy \u2014 RX 9070 XT",
               "refId": "B"
-            },
-            {
-              "datasource": {
-                "type": "prometheus",
-                "uid": "prometheus"
-              },
-              "expr": "max(amdgpu_gfx_activity_percent{gpu=\"1\"})",
-              "legendFormat": "timmy \u2014 RX 9070 XT (GFX)",
-              "refId": "C"
             }
           ],
           "title": "GPU Utilization",
@@ -228,18 +219,9 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "expr": "max(amdgpu_utilization_percent{gpu=\"1\"})",
+              "expr": "max(amdgpu_gfx_activity_percent{gpu=\"1\"})",
               "legendFormat": "timmy \u2014 RX 9070 XT",
               "refId": "B"
-            },
-            {
-              "datasource": {
-                "type": "prometheus",
-                "uid": "prometheus"
-              },
-              "expr": "max(amdgpu_gfx_activity_percent{gpu=\"1\"})",
-              "legendFormat": "timmy \u2014 RX 9070 XT (GFX)",
-              "refId": "C"
             }
           ],
           "title": "Current Utilization",
