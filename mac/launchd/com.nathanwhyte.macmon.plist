@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  User LaunchAgent for macmon.
+
+  macmon reads Apple Silicon CPU/GPU/ANE/DRAM power, temperature, and usage
+  via IOReport / SMC. It does NOT require root, so it can run as the logged-in
+  user. It exposes Prometheus metrics at http://127.0.0.1:9113/metrics.
+
+  Install:
+    cp com.nathanwhyte.macmon.plist ~/Library/LaunchAgents/
+    launchctl load ~/Library/LaunchAgents/com.nathanwhyte.macmon.plist
+
+  Verify:
+    curl -fsS localhost:9113/metrics | grep ^macmon_sys_power_watts
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.nathanwhyte.macmon</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/opt/homebrew/bin/macmon</string>
+    <string>serve</string>
+    <string>-p</string>
+    <string>9113</string>
+    <string>-i</string>
+    <string>15000</string>
+  </array>
+
+  <key>RunAtLoad</key>
+  <true/>
+
+  <key>KeepAlive</key>
+  <true/>
+
+  <key>ThrottleInterval</key>
+  <integer>10</integer>
+
+  <key>StandardOutPath</key>
+  <string>/Users/noot/.local/share/macmon/macmon.log</string>
+
+  <key>StandardErrorPath</key>
+  <string>/Users/noot/.local/share/macmon/macmon.log</string>
+
+  <key>ProcessType</key>
+  <string>Background</string>
+</dict>
+</plist>

@@ -31,6 +31,16 @@ prometheus.scrape "mac_gpu_local" {
   forward_to      = [prometheus.remote_write.cluster.receiver]
 }
 
+prometheus.scrape "macmon_local" {
+  targets = [{
+    __address__ = "host.docker.internal:9113",
+    instance    = "macbook-m5",
+    job         = "macmon-metrics",
+  }]
+  scrape_interval = "15s"
+  forward_to      = [prometheus.remote_write.cluster.receiver]
+}
+
 prometheus.remote_write "cluster" {
   endpoint {
     url = "http://192.168.1.19:30909/api/v1/write"

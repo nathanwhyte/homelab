@@ -13,7 +13,7 @@
     "updated": "2026-05-20T19:15:29Z",
     "updatedBy": "MCP",
     "createdBy": "MCP",
-    "version": 21,
+    "version": 22,
     "hasAcl": false,
     "isFolder": false,
     "apiVersion": "v0alpha1",
@@ -116,9 +116,7 @@
           "orientation": "auto",
           "percentChangeColorMode": "standard",
           "reduceOptions": {
-            "calcs": [
-              "lastNotNull"
-            ],
+            "calcs": ["lastNotNull"],
             "fields": "",
             "values": false
           },
@@ -175,9 +173,7 @@
           "orientation": "auto",
           "percentChangeColorMode": "standard",
           "reduceOptions": {
-            "calcs": [
-              "lastNotNull"
-            ],
+            "calcs": ["lastNotNull"],
             "fields": "",
             "values": false
           },
@@ -239,9 +235,7 @@
           "minVizWidth": 75,
           "orientation": "auto",
           "reduceOptions": {
-            "calcs": [
-              "lastNotNull"
-            ],
+            "calcs": ["lastNotNull"],
             "fields": "",
             "values": false
           },
@@ -303,9 +297,7 @@
           "minVizWidth": 75,
           "orientation": "auto",
           "reduceOptions": {
-            "calcs": [
-              "lastNotNull"
-            ],
+            "calcs": ["lastNotNull"],
             "fields": "",
             "values": false
           },
@@ -367,9 +359,7 @@
           "minVizWidth": 75,
           "orientation": "auto",
           "reduceOptions": {
-            "calcs": [
-              "lastNotNull"
-            ],
+            "calcs": ["lastNotNull"],
             "fields": "",
             "values": false
           },
@@ -431,9 +421,7 @@
           "orientation": "auto",
           "percentChangeColorMode": "standard",
           "reduceOptions": {
-            "calcs": [
-              "lastNotNull"
-            ],
+            "calcs": ["lastNotNull"],
             "fields": "",
             "values": false
           },
@@ -497,9 +485,7 @@
           "orientation": "auto",
           "percentChangeColorMode": "standard",
           "reduceOptions": {
-            "calcs": [
-              "lastNotNull"
-            ],
+            "calcs": ["lastNotNull"],
             "fields": "",
             "values": false
           },
@@ -563,9 +549,7 @@
           "orientation": "auto",
           "percentChangeColorMode": "standard",
           "reduceOptions": {
-            "calcs": [
-              "lastNotNull"
-            ],
+            "calcs": ["lastNotNull"],
             "fields": "",
             "values": false
           },
@@ -629,9 +613,7 @@
           "orientation": "auto",
           "percentChangeColorMode": "standard",
           "reduceOptions": {
-            "calcs": [
-              "lastNotNull"
-            ],
+            "calcs": ["lastNotNull"],
             "fields": "",
             "values": false
           },
@@ -695,9 +677,7 @@
           "orientation": "auto",
           "percentChangeColorMode": "standard",
           "reduceOptions": {
-            "calcs": [
-              "lastNotNull"
-            ],
+            "calcs": ["lastNotNull"],
             "fields": "",
             "values": false
           },
@@ -759,9 +739,7 @@
           "orientation": "auto",
           "percentChangeColorMode": "standard",
           "reduceOptions": {
-            "calcs": [
-              "lastNotNull"
-            ],
+            "calcs": ["lastNotNull"],
             "fields": "",
             "values": false
           },
@@ -838,9 +816,7 @@
           "orientation": "auto",
           "percentChangeColorMode": "standard",
           "reduceOptions": {
-            "calcs": [
-              "lastNotNull"
-            ],
+            "calcs": ["lastNotNull"],
             "fields": "",
             "values": false
           },
@@ -1058,9 +1034,7 @@
           "orientation": "auto",
           "percentChangeColorMode": "standard",
           "reduceOptions": {
-            "calcs": [
-              "lastNotNull"
-            ],
+            "calcs": ["lastNotNull"],
             "fields": "",
             "values": false
           },
@@ -1126,9 +1100,7 @@
           "minVizWidth": 75,
           "orientation": "auto",
           "reduceOptions": {
-            "calcs": [
-              "lastNotNull"
-            ],
+            "calcs": ["lastNotNull"],
             "fields": "",
             "values": false
           },
@@ -1197,9 +1169,7 @@
           "orientation": "auto",
           "percentChangeColorMode": "standard",
           "reduceOptions": {
-            "calcs": [
-              "lastNotNull"
-            ],
+            "calcs": ["lastNotNull"],
             "fields": "",
             "values": false
           },
@@ -1463,9 +1433,7 @@
           "orientation": "auto",
           "percentChangeColorMode": "standard",
           "reduceOptions": {
-            "calcs": [
-              "lastNotNull"
-            ],
+            "calcs": ["lastNotNull"],
             "fields": "",
             "values": false
           },
@@ -1524,9 +1492,7 @@
           "orientation": "auto",
           "percentChangeColorMode": "standard",
           "reduceOptions": {
-            "calcs": [
-              "lastNotNull"
-            ],
+            "calcs": ["lastNotNull"],
             "fields": "",
             "values": false
           },
@@ -1730,10 +1696,7 @@
                 {
                   "id": "custom.lineStyle",
                   "value": {
-                    "dash": [
-                      10,
-                      10
-                    ],
+                    "dash": [10, 10],
                     "fill": "dash"
                   }
                 },
@@ -2673,16 +2636,464 @@
         ],
         "title": "Fan Speed",
         "type": "timeseries"
+      },
+      {
+        "id": 112,
+        "title": "MacBook",
+        "type": "row",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "gridPos": {
+          "h": 1,
+          "w": 24,
+          "x": 0,
+          "y": 79
+        },
+        "targets": []
+      },
+      {
+        "id": 113,
+        "title": "GPU Usage",
+        "type": "timeseries",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "gridPos": {
+          "h": 8,
+          "w": 8,
+          "x": 0,
+          "y": 80
+        },
+        "fieldConfig": {
+          "defaults": {
+            "color": {
+              "mode": "palette-classic"
+            },
+            "custom": {
+              "axisBorderShow": false,
+              "axisCenteredZero": false,
+              "axisColorMode": "text",
+              "axisLabel": "",
+              "axisPlacement": "auto",
+              "barAlignment": 0,
+              "barWidthFactor": 0.6,
+              "drawStyle": "line",
+              "fillOpacity": 10,
+              "gradientMode": "none",
+              "hideFrom": {
+                "legend": false,
+                "tooltip": false,
+                "viz": false
+              },
+              "insertNulls": false,
+              "lineInterpolation": "linear",
+              "lineWidth": 2,
+              "pointSize": 5,
+              "scaleDistribution": {
+                "type": "linear"
+              },
+              "showPoints": "auto",
+              "spanNulls": false,
+              "stacking": {
+                "group": "A",
+                "mode": "none"
+              },
+              "thresholdsStyle": {
+                "mode": "off"
+              }
+            },
+            "unit": "percentunit",
+            "min": 0,
+            "max": 1
+          },
+          "overrides": []
+        },
+        "options": {
+          "legend": {
+            "calcs": ["lastNotNull", "mean"],
+            "displayMode": "table",
+            "placement": "right",
+            "showLegend": true
+          },
+          "tooltip": {
+            "hideZeros": false,
+            "mode": "single",
+            "sort": "none"
+          }
+        },
+        "targets": [
+          {
+            "expr": "macmon_gpu_usage_ratio{node=\"macbook-m5\"}",
+            "refId": "A",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "prometheus"
+            }
+          }
+        ],
+        "pluginVersion": "12.4.1"
+      },
+      {
+        "id": 114,
+        "title": "GPU Power",
+        "type": "timeseries",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "gridPos": {
+          "h": 8,
+          "w": 8,
+          "x": 8,
+          "y": 80
+        },
+        "fieldConfig": {
+          "defaults": {
+            "color": {
+              "mode": "palette-classic"
+            },
+            "custom": {
+              "axisBorderShow": false,
+              "axisCenteredZero": false,
+              "axisColorMode": "text",
+              "axisLabel": "",
+              "axisPlacement": "auto",
+              "barAlignment": 0,
+              "barWidthFactor": 0.6,
+              "drawStyle": "line",
+              "fillOpacity": 10,
+              "gradientMode": "none",
+              "hideFrom": {
+                "legend": false,
+                "tooltip": false,
+                "viz": false
+              },
+              "insertNulls": false,
+              "lineInterpolation": "linear",
+              "lineWidth": 2,
+              "pointSize": 5,
+              "scaleDistribution": {
+                "type": "linear"
+              },
+              "showPoints": "auto",
+              "spanNulls": false,
+              "stacking": {
+                "group": "A",
+                "mode": "none"
+              },
+              "thresholdsStyle": {
+                "mode": "off"
+              }
+            },
+            "unit": "watt",
+            "min": 0
+          },
+          "overrides": []
+        },
+        "options": {
+          "legend": {
+            "calcs": ["lastNotNull", "mean"],
+            "displayMode": "table",
+            "placement": "right",
+            "showLegend": true
+          },
+          "tooltip": {
+            "hideZeros": false,
+            "mode": "single",
+            "sort": "none"
+          }
+        },
+        "targets": [
+          {
+            "expr": "macmon_gpu_power_watts{node=\"macbook-m5\"}",
+            "refId": "A",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "prometheus"
+            }
+          }
+        ],
+        "pluginVersion": "12.4.1"
+      },
+      {
+        "id": 115,
+        "title": "System Power",
+        "type": "timeseries",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "gridPos": {
+          "h": 8,
+          "w": 8,
+          "x": 16,
+          "y": 80
+        },
+        "fieldConfig": {
+          "defaults": {
+            "color": {
+              "mode": "palette-classic"
+            },
+            "custom": {
+              "axisBorderShow": false,
+              "axisCenteredZero": false,
+              "axisColorMode": "text",
+              "axisLabel": "",
+              "axisPlacement": "auto",
+              "barAlignment": 0,
+              "barWidthFactor": 0.6,
+              "drawStyle": "line",
+              "fillOpacity": 10,
+              "gradientMode": "none",
+              "hideFrom": {
+                "legend": false,
+                "tooltip": false,
+                "viz": false
+              },
+              "insertNulls": false,
+              "lineInterpolation": "linear",
+              "lineWidth": 2,
+              "pointSize": 5,
+              "scaleDistribution": {
+                "type": "linear"
+              },
+              "showPoints": "auto",
+              "spanNulls": false,
+              "stacking": {
+                "group": "A",
+                "mode": "none"
+              },
+              "thresholdsStyle": {
+                "mode": "off"
+              }
+            },
+            "unit": "watt",
+            "min": 0
+          },
+          "overrides": []
+        },
+        "options": {
+          "legend": {
+            "calcs": ["lastNotNull", "mean"],
+            "displayMode": "table",
+            "placement": "right",
+            "showLegend": true
+          },
+          "tooltip": {
+            "hideZeros": false,
+            "mode": "single",
+            "sort": "none"
+          }
+        },
+        "targets": [
+          {
+            "expr": "macmon_sys_power_watts{node=\"macbook-m5\"}",
+            "refId": "A",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "prometheus"
+            }
+          }
+        ],
+        "pluginVersion": "12.4.1"
+      },
+      {
+        "id": 116,
+        "title": "Mac Temps",
+        "type": "timeseries",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 0,
+          "y": 88
+        },
+        "fieldConfig": {
+          "defaults": {
+            "color": {
+              "mode": "palette-classic"
+            },
+            "custom": {
+              "axisBorderShow": false,
+              "axisCenteredZero": false,
+              "axisColorMode": "text",
+              "axisLabel": "",
+              "axisPlacement": "auto",
+              "barAlignment": 0,
+              "barWidthFactor": 0.6,
+              "drawStyle": "line",
+              "fillOpacity": 10,
+              "gradientMode": "none",
+              "hideFrom": {
+                "legend": false,
+                "tooltip": false,
+                "viz": false
+              },
+              "insertNulls": false,
+              "lineInterpolation": "linear",
+              "lineWidth": 2,
+              "pointSize": 5,
+              "scaleDistribution": {
+                "type": "linear"
+              },
+              "showPoints": "auto",
+              "spanNulls": false,
+              "stacking": {
+                "group": "A",
+                "mode": "none"
+              },
+              "thresholdsStyle": {
+                "mode": "off"
+              }
+            },
+            "unit": "celsius",
+            "min": 0
+          },
+          "overrides": []
+        },
+        "options": {
+          "legend": {
+            "calcs": ["lastNotNull", "mean"],
+            "displayMode": "table",
+            "placement": "right",
+            "showLegend": true
+          },
+          "tooltip": {
+            "hideZeros": false,
+            "mode": "single",
+            "sort": "none"
+          }
+        },
+        "targets": [
+          {
+            "expr": "macmon_cpu_temp_celsius{node=\"macbook-m5\"}",
+            "refId": "A",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "prometheus"
+            }
+          },
+          {
+            "expr": "macmon_gpu_temp_celsius{node=\"macbook-m5\"}",
+            "refId": "B",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "prometheus"
+            }
+          }
+        ],
+        "pluginVersion": "12.4.1"
+      },
+      {
+        "id": 117,
+        "title": "Mac CPU Usage",
+        "type": "timeseries",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 12,
+          "y": 88
+        },
+        "fieldConfig": {
+          "defaults": {
+            "color": {
+              "mode": "palette-classic"
+            },
+            "custom": {
+              "axisBorderShow": false,
+              "axisCenteredZero": false,
+              "axisColorMode": "text",
+              "axisLabel": "",
+              "axisPlacement": "auto",
+              "barAlignment": 0,
+              "barWidthFactor": 0.6,
+              "drawStyle": "line",
+              "fillOpacity": 10,
+              "gradientMode": "none",
+              "hideFrom": {
+                "legend": false,
+                "tooltip": false,
+                "viz": false
+              },
+              "insertNulls": false,
+              "lineInterpolation": "linear",
+              "lineWidth": 2,
+              "pointSize": 5,
+              "scaleDistribution": {
+                "type": "linear"
+              },
+              "showPoints": "auto",
+              "spanNulls": false,
+              "stacking": {
+                "group": "A",
+                "mode": "none"
+              },
+              "thresholdsStyle": {
+                "mode": "off"
+              }
+            },
+            "unit": "percentunit",
+            "min": 0,
+            "max": 1
+          },
+          "overrides": []
+        },
+        "options": {
+          "legend": {
+            "calcs": ["lastNotNull", "mean"],
+            "displayMode": "table",
+            "placement": "right",
+            "showLegend": true
+          },
+          "tooltip": {
+            "hideZeros": false,
+            "mode": "single",
+            "sort": "none"
+          }
+        },
+        "targets": [
+          {
+            "expr": "macmon_cpu_usage_ratio{node=\"macbook-m5\"}",
+            "refId": "A",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "prometheus"
+            }
+          },
+          {
+            "expr": "macmon_ecpu_usage_ratio{node=\"macbook-m5\"}",
+            "refId": "B",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "prometheus"
+            }
+          },
+          {
+            "expr": "macmon_pcpu_usage_ratio{node=\"macbook-m5\"}",
+            "refId": "C",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "prometheus"
+            }
+          }
+        ],
+        "pluginVersion": "12.4.1"
       }
     ],
     "preload": false,
     "refresh": "10s",
     "schemaVersion": 42,
-    "tags": [
-      "ollama",
-      "gpu",
-      "inference"
-    ],
+    "tags": ["ollama", "gpu", "inference"],
     "templating": {
       "list": []
     },
@@ -2694,7 +3105,7 @@
     "timezone": "browser",
     "title": "Ollama & GPU Metrics",
     "uid": "84153687-7cc9-4164-bbb3-c73589de56f4",
-    "version": 21,
+    "version": 22,
     "weekStart": ""
   }
 }
