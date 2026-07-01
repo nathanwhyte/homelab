@@ -1,8 +1,95 @@
 # Grafana Loki Helm Chart Values
+#
+# Reconstructed 2026-07-01 from `helm get values loki -n grafana` (user-supplied)
+# so deploy-grafana.sh reproduces the running release. Drift previously left this
+# file as comments-only while the live release carried the full config.
+#
+# 2026-07-01: persistence.storageClass longhorn-hdd -> longhorn-hdd-2x (2 replicas)
+# and size 20Gi -> 50Gi to match the live PVC after manual expansion.
 
-# Override: retention and limits
-# Applied directly via ConfigMap in grafana namespace (helm-manage via kubectl apply)
-
-# Key retention settings (configured in grafana/loki ConfigMap):
-#   retention_period: 24h         - chunks older than 24h are deleted by compactor
-#   reject_old_samples_max_age: 24h  - reject samples older than 24h at ingest time
+backend:
+  replicas: 0
+bloomCompactor:
+  replicas: 0
+bloomGateway:
+  replicas: 0
+chunksCache:
+  nodeSelector:
+    kubernetes.io/hostname: timmy
+compactor:
+  replicas: 0
+deploymentMode: SingleBinary
+distributor:
+  replicas: 0
+gateway:
+  auth_enabled: false
+  enabled: true
+  service:
+    nodePort: 31080
+    port: 80
+    type: NodePort
+indexGateway:
+  replicas: 0
+ingester:
+  replicas: 0
+loki:
+  auth_enabled: false
+  commonConfig:
+    replication_factor: 1
+  ingester:
+    chunk_encoding: snappy
+    chunk_idle_period: 30m
+    max_chunk_age: 1h
+  limits_config:
+    allow_structured_metadata: true
+    ingestion_burst_size_mb: 32
+    ingestion_rate_mb: 16
+    max_query_series: 500
+    max_streams_per_user: 10000
+    reject_old_samples: true
+    reject_old_samples_max_age: 336h
+    retention_period: 24h
+    volume_enabled: true
+  schemaConfig:
+    configs:
+      - from: "2024-04-01"
+        index:
+          period: 24h
+          prefix: loki_index_
+        object_store: filesystem
+        schema: v13
+        store: tsdb
+  storage:
+    type: filesystem
+minio:
+  enabled: false
+querier:
+  replicas: 0
+queryFrontend:
+  replicas: 0
+queryScheduler:
+  replicas: 0
+read:
+  replicas: 0
+resultsCache:
+  nodeSelector:
+    kubernetes.io/hostname: timmy
+singleBinary:
+  nodeSelector:
+    kubernetes.io/hostname: timmy
+  persistence:
+    accessModes:
+      - ReadWriteOnce
+    enabled: true
+    size: 50Gi
+    storageClass: longhorn-hdd-2x
+  replicas: 1
+  resources:
+    limits:
+      cpu: 300m
+      memory: 768Mi
+    requests:
+      cpu: 100m
+      memory: 256Mi
+write:
+  replicas: 0
