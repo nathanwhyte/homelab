@@ -1,0 +1,26 @@
+# Vulkan benchmark using the higher-quality Q5_K_M quant from Unsloth.
+# Runs the same mixed_mem0 workload shape as the default config so the
+# ROCm/Vulkan/Q4_0/Q5_K_M/Q6_K matrix is directly comparable.
+
+[ollama]
+url = "http://ollama.llama.svc:11434"
+model = "hf.co/unsloth/gemma-4-12B-it-qat-GGUF:Q5_K_M"
+num_ctx = 16384
+num_predict = 512
+temperature = 0.3
+
+[workload]
+name = "mixed_mem0"
+max_concurrency = 8
+requests_per_level = 8
+repeats = 3
+cooldown_seconds = 15
+
+[prometheus]
+url = "http://prom-prometheus.grafana:9090"
+instance_label = ".*"
+sample_interval_seconds = 2.0
+
+[output]
+dir = "benchmarks/results"
+prefix = "ollama-cluster-vulkan-q5km-default"

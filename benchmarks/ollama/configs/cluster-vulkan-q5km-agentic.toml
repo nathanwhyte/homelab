@@ -1,0 +1,26 @@
+# Vulkan Q5_K_M agentic benchmark. VRAM watch item: Q5_K_M weights plus 32K
+# context at np=8 may approach the 16 GB ceiling. If the run fails to load,
+# retry with NUM_PARALLEL=4 or num_ctx=16384.
+
+[ollama]
+url = "http://ollama.llama.svc:11434"
+model = "hf.co/unsloth/gemma-4-12B-it-qat-GGUF:Q5_K_M"
+num_ctx = 32768
+num_predict = 2048
+temperature = 0.3
+
+[workload]
+name = "agentic"
+max_concurrency = 8
+requests_per_level = 8
+repeats = 3
+cooldown_seconds = 20
+
+[prometheus]
+url = "http://prom-prometheus.grafana:9090"
+instance_label = ".*"
+sample_interval_seconds = 2.0
+
+[output]
+dir = "benchmarks/results"
+prefix = "ollama-cluster-vulkan-q5km-agentic"

@@ -39,7 +39,7 @@ spec:
               fi
               mkdir -p /bench/lib /bench/benchmarks/results
               cp /scripts/concurrency-bench.py /bench/
-              cp /scripts/metrics.py /scripts/output.py /scripts/prompts.py /scripts/__init__.py /bench/lib/
+              cp /scripts/metrics.py /scripts/output.py /scripts/prompts.py /scripts/tool_calls.py /bench/lib/
               cp /scripts/cluster-*.toml /bench/
               cd /bench
               # The single config to run is supplied via CONFIG env.
