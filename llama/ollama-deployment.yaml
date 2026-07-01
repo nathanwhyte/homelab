@@ -27,7 +27,7 @@ spec:
       containers:
         - name: ollama
           # ROCm gfx1201 validated: llama/docs/2026-06-28-rocm-gfx1201-validation-baseline.md
-          image: ollama/ollama:0.30.6-rocm
+          image: ollama/ollama:0.31.1-rocm
           imagePullPolicy: IfNotPresent
           command:
             - /bin/bash
