@@ -468,7 +468,7 @@ data:
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "description": "GPU hotspot temperature \u2014 the throttling-relevant sensor, typically 20\u201325\u00b0C above edge temp",
+          "description": "AMD thermal sensors \u2014 hotspot (throttling-relevant, typically 20\u201325\u00b0C above edge), edge, and memory",
           "fieldConfig": {
             "defaults": {
               "color": {
@@ -595,8 +595,8 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "expr": "max(amdgpu_junction_temperature_celsius{gpu=\"1\"})",
-              "legendFormat": "timmy \u2014 RX 9070 XT (junction)",
+              "expr": "max(amdgpu_temperature_hotspot_celsius{gpu=\"1\"})",
+              "legendFormat": "timmy \u2014 RX 9070 XT (hotspot)",
               "refId": "A"
             },
             {
@@ -613,21 +613,12 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "expr": "max(amdgpu_temperature_hotspot_celsius{gpu=\"1\"})",
-              "legendFormat": "timmy \u2014 RX 9070 XT (hotspot)",
-              "refId": "C"
-            },
-            {
-              "datasource": {
-                "type": "prometheus",
-                "uid": "prometheus"
-              },
               "expr": "max(amdgpu_temperature_mem_celsius{gpu=\"1\"})",
               "legendFormat": "timmy \u2014 RX 9070 XT (mem)",
-              "refId": "D"
+              "refId": "C"
             }
           ],
-          "title": "Junction Temperature (AMD)",
+          "title": "AMD Temperatures (Hotspot / Edge / Mem)",
           "type": "timeseries"
         },
         {
@@ -693,12 +684,12 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "expr": "max(amdgpu_junction_temperature_celsius{gpu=\"1\"})",
+              "expr": "max(amdgpu_temperature_hotspot_celsius{gpu=\"1\"})",
               "legendFormat": "",
               "refId": "A"
             }
           ],
-          "title": "Avg Junction Temp",
+          "title": "Avg Hotspot Temp",
           "type": "gauge"
         },
         {
