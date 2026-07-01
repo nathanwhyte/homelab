@@ -1,6 +1,10 @@
 # Vulkan Q6_K agentic benchmark. High VRAM risk: Q6_K weights plus 32K
 # context at np=8 will likely exceed 16 GB. If the run fails to load, retry
 # with NUM_PARALLEL=4 or num_ctx=16384.
+#
+# 2026-07-01: this model tag is not available in the Unsloth HF repo
+# (only UD-Q4_K_XL exists there). Do not run until a Q6_K GGUF is
+# published or converted locally.
 
 [ollama]
 url = "http://ollama.llama.svc:11434"

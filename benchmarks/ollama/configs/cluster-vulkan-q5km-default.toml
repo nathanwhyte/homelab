@@ -1,6 +1,10 @@
 # Vulkan benchmark using the higher-quality Q5_K_M quant from Unsloth.
 # Runs the same mixed_mem0 workload shape as the default config so the
 # ROCm/Vulkan/Q4_0/Q5_K_M/Q6_K matrix is directly comparable.
+#
+# 2026-07-01: this model tag is not available in the Unsloth HF repo
+# (only UD-Q4_K_XL exists there). Do not run until a Q5_K_M GGUF is
+# published or converted locally.
 
 [ollama]
 url = "http://ollama.llama.svc:11434"
