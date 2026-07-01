@@ -1,5 +1,5 @@
 ---
-# Combined GPU dashboard — NVIDIA (DCGM) + AMD (sysfs) metrics
+# Combined GPU dashboard — NVIDIA (DCGM) + AMD (sysfs + amdsmi) metrics
 # Shows all 3 cluster GPUs (GTX 1080, GTX 1060, RX 9070 XT) side by side
 apiVersion: v1
 kind: ConfigMap
@@ -26,7 +26,7 @@ data:
           }
         ]
       },
-      "description": "All cluster GPUs \u2014 NVIDIA (DCGM) and AMD (sysfs) \u2014 in one view",
+      "description": "All cluster GPUs \u2014 NVIDIA (DCGM) and AMD (sysfs + amdsmi) \u2014 in one view",
       "editable": true,
       "fiscalYearStartMonth": 0,
       "graphTooltip": 1,
@@ -148,6 +148,15 @@ data:
               "expr": "max(amdgpu_utilization_percent{gpu=\"1\"})",
               "legendFormat": "timmy \u2014 RX 9070 XT",
               "refId": "B"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "max(amdgpu_gfx_activity_percent{gpu=\"1\"})",
+              "legendFormat": "timmy \u2014 RX 9070 XT (GFX)",
+              "refId": "C"
             }
           ],
           "title": "GPU Utilization",
@@ -222,6 +231,15 @@ data:
               "expr": "max(amdgpu_utilization_percent{gpu=\"1\"})",
               "legendFormat": "timmy \u2014 RX 9070 XT",
               "refId": "B"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "max(amdgpu_gfx_activity_percent{gpu=\"1\"})",
+              "legendFormat": "timmy \u2014 RX 9070 XT (GFX)",
+              "refId": "C"
             }
           ],
           "title": "Current Utilization",
@@ -349,8 +367,26 @@ data:
                 "uid": "prometheus"
               },
               "expr": "max(amdgpu_temperature_celsius{gpu=\"1\"})",
-              "legendFormat": "timmy \u2014 RX 9070 XT",
+              "legendFormat": "timmy \u2014 RX 9070 XT (edge)",
               "refId": "B"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "max(amdgpu_temperature_hotspot_celsius{gpu=\"1\"})",
+              "legendFormat": "timmy \u2014 RX 9070 XT (hotspot)",
+              "refId": "C"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "max(amdgpu_temperature_mem_celsius{gpu=\"1\"})",
+              "legendFormat": "timmy \u2014 RX 9070 XT (mem)",
+              "refId": "D"
             }
           ],
           "title": "GPU Temperature",
@@ -571,6 +607,24 @@ data:
               "expr": "max(amdgpu_temperature_celsius{gpu=\"1\"})",
               "legendFormat": "timmy \u2014 RX 9070 XT (edge)",
               "refId": "B"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "max(amdgpu_temperature_hotspot_celsius{gpu=\"1\"})",
+              "legendFormat": "timmy \u2014 RX 9070 XT (hotspot)",
+              "refId": "C"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "max(amdgpu_temperature_mem_celsius{gpu=\"1\"})",
+              "legendFormat": "timmy \u2014 RX 9070 XT (mem)",
+              "refId": "D"
             }
           ],
           "title": "Junction Temperature (AMD)",
@@ -760,8 +814,17 @@ data:
                 "uid": "prometheus"
               },
               "expr": "max(amdgpu_power_watts{gpu=\"1\"})",
-              "legendFormat": "timmy \u2014 RX 9070 XT",
+              "legendFormat": "timmy \u2014 RX 9070 XT (board)",
               "refId": "B"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "max(amdgpu_power_socket_watts{gpu=\"1\"})",
+              "legendFormat": "timmy \u2014 RX 9070 XT (socket)",
+              "refId": "C"
             }
           ],
           "title": "GPU Power Draw",
@@ -1347,9 +1410,18 @@ data:
               "expr": "label_replace(max by (Hostname, modelName) (DCGM_FI_DEV_MEM_COPY_UTIL),\"short_model\", \"$1\", \"modelName\", \".*?(GTX \\\\d+|RTX \\\\d+|Tesla .*|A\\\\d+)\")",
               "legendFormat": "{{Hostname}} \u2014 {{short_model}}",
               "refId": "A"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "max(amdgpu_umc_activity_percent{gpu=\"1\"})",
+              "legendFormat": "timmy \u2014 RX 9070 XT (UMC)",
+              "refId": "B"
             }
           ],
-          "title": "Memory Copy Utilization (NVIDIA)",
+          "title": "Memory Controller Utilization",
           "type": "timeseries"
         },
         {
@@ -1445,6 +1517,198 @@ data:
           ],
           "title": "Fan Speed (AMD)",
           "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "axisBorderShow": false,
+                "axisCenteredZero": false,
+                "axisColorMode": "text",
+                "axisPlacement": "auto",
+                "barAlignment": 0,
+                "barWidthFactor": 0.6,
+                "drawStyle": "line",
+                "fillOpacity": 5,
+                "gradientMode": "none",
+                "hideFrom": {
+                  "legend": false,
+                  "tooltip": false,
+                  "viz": false
+                },
+                "insertNulls": false,
+                "lineInterpolation": "linear",
+                "lineWidth": 2,
+                "pointSize": 5,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "showPoints": "never",
+                "showValues": false,
+                "spanNulls": true,
+                "stacking": {
+                  "group": "A",
+                  "mode": "none"
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              },
+              "mappings": [],
+              "min": 0,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green"
+                  }
+                ]
+              },
+              "unit": "mvolt"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 62
+          },
+          "id": 21,
+          "options": {
+            "legend": {
+              "calcs": [
+                "mean",
+                "lastNotNull",
+                "max"
+              ],
+              "displayMode": "table",
+              "placement": "right",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "max(amdgpu_voltage_gfx_mv{gpu=\"1\"})",
+              "legendFormat": "timmy — GFX",
+              "refId": "A"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "max(amdgpu_voltage_mem_mv{gpu=\"1\"})",
+              "legendFormat": "timmy — Memory",
+              "refId": "B"
+            }
+          ],
+          "title": "GPU Voltages (AMD)",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "thresholds"
+              },
+              "mappings": [
+                {
+                  "options": {
+                    "0": {
+                      "color": "green",
+                      "index": 0,
+                      "text": "OK"
+                    }
+                  },
+                  "type": "value"
+                },
+                {
+                  "options": {
+                    "from": 1,
+                    "result": {
+                      "color": "red",
+                      "index": 1,
+                      "text": "THROTTLED"
+                    },
+                    "to": 999999
+                  },
+                  "type": "range"
+                }
+              ],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": 0
+                  },
+                  {
+                    "color": "red",
+                    "value": 1
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 62
+          },
+          "id": 22,
+          "options": {
+            "colorMode": "background",
+            "graphMode": "area",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "percentChangeColorMode": "standard",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "showPercentChange": false,
+            "textMode": "auto",
+            "wideLayout": true
+          },
+          "pluginVersion": "12.4.1",
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "max(amdgpu_throttle_status{gpu=\"1\"})",
+              "legendFormat": "timmy — RX 9070 XT",
+              "refId": "A"
+            }
+          ],
+          "title": "Throttle Status (AMD)",
+          "type": "stat"
         }
       ],
       "preload": false,
@@ -1466,6 +1730,6 @@ data:
       "timezone": "browser",
       "title": "GPU Overview",
       "uid": "gpu-overview",
-      "version": 9,
+      "version": 10,
       "weekStart": ""
     }
