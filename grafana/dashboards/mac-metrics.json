@@ -298,7 +298,7 @@
         },
         {
           "expr": "macmon_ecpu_usage_ratio{node=~\"$node\"}",
-          "refId": "A",
+          "refId": "B",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
@@ -306,7 +306,7 @@
         },
         {
           "expr": "macmon_pcpu_usage_ratio{node=~\"$node\"}",
-          "refId": "A",
+          "refId": "C",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
@@ -355,7 +355,7 @@
         },
         {
           "expr": "macmon_pcpu_freq_mhz{node=~\"$node\"}",
-          "refId": "A",
+          "refId": "B",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
@@ -528,7 +528,7 @@
         },
         {
           "expr": "macmon_gpu_power_watts{node=~\"$node\"}",
-          "refId": "A",
+          "refId": "B",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
@@ -536,7 +536,7 @@
         },
         {
           "expr": "macmon_all_power_watts{node=~\"$node\"}",
-          "refId": "A",
+          "refId": "C",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
@@ -607,7 +607,7 @@
         },
         {
           "expr": "macmon_memory_ram_total_bytes{node=~\"$node\"}",
-          "refId": "A",
+          "refId": "B",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
@@ -654,7 +654,7 @@
         },
         {
           "expr": "macmon_memory_swap_total_bytes{node=~\"$node\"}",
-          "refId": "A",
+          "refId": "B",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
