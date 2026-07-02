@@ -11,10 +11,15 @@ data:
       "default_user": "noot",
       "storage": {
         "workspace": "/app/data",
+        "transaction": {
+          "lock_timeout": 30.0,
+          "lock_expire": 60.0
+        },
         "vectordb": {
-          "backend": "local",
+          "backend": "http",
           "name": "context",
-          "dimension": 768
+          "dimension": 2560,
+          "url": "http://ov-vectordb.viking.svc.cluster.local:5000"
         },
         "agfs": {
           "backend": "s3",
@@ -38,29 +43,31 @@ data:
         "host": "0.0.0.0",
         "port": 1933,
         "workers": 1,
-        "root_api_key": "${API_KEY}"
+        "root_api_key": "${API_KEY}",
+        "auth_mode": "trusted"
       },
       "log": {
         "level": "INFO",
         "output": "stdout"
       },
       "embedding": {
-        "max_input_tokens": 1900,
+        "max_input_tokens": 8192,
         "dense": {
           "provider": "openai",
-          "model": "nomic-embed-text-v1.5",
+          "model": "qwen3-embedding-4b",
           "api_key": "sk-no-key-required",
-          "api_base": "http://embedder-llamacpp.viking.svc.cluster.local:8080/v1",
-          "dimension": 768,
-          "batch_size": 128
+          "api_base": "http://embedder-qwen.viking.svc.cluster.local:8080/v1",
+          "dimension": 2560,
+          "batch_size": 256
         },
-        "max_concurrent": 4
+        "max_concurrent": 6
       },
       "vlm": {
         "provider": "litellm",
-        "model": "ollama/qwen3:8b",
+        "model": "openai/current.gguf",
         "api_key": "sk-no-key-required",
-        "api_base": "http://ollama.llama.svc.cluster.local:11434",
-        "max_concurrent": 2
+        "api_base": "http://llamacpp-vlm.viking.svc/v1",
+        "max_concurrent": 4,
+        "timeout": 300
       }
     }
