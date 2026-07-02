@@ -14,8 +14,8 @@ data:
         service: https://kubernetes-dashboard-kong-proxy.kubernetes-dashboard.svc.cluster.local:443
         originRequest:
           noTLSVerify: true
-      - hostname: lamp.nathanwhyte.dev
-        service: http://headlamp.headlamp.svc.cluster.local:80
+      # headlamp torn down 2026-07-02 (namespace deleted); lamp.nathanwhyte.dev
+      # DNS record removal is a Cloudflare-dashboard action.
       - hostname: uploads.nathanwhyte.dev
         service: http://garage.garage.svc.cluster.local:3900
       - hostname: logs.nathanwhyte.dev
@@ -41,16 +41,9 @@ data:
         service: http://ollama-auth-proxy.llama.svc.cluster.local:80
       - hostname: hermes.nathanwhyte.dev
         service: http://hermes-agent.hermes.svc.cluster.local:9119
-      # Mem0 OSS dashboard. Point the entire hostname at the Next.js app; it
-      # proxies API calls server-side via API_INTERNAL_URL and serves its own
-      # /api/auth/refresh route for JWT cookie management.
-      - hostname: mem0.nathanwhyte.dev
-        service: http://mem0-dashboard.mem0.svc.cluster.local:3000
-      # Separate public hostname for the mem0 API, used by the dashboard's
-      # browser-side axios client (NEXT_PUBLIC_API_URL). CORS is allowed because
-      # mem0-server's DASHBOARD_URL matches the dashboard origin.
-      - hostname: api-mem0.nathanwhyte.dev
-        service: http://mem0-server.mem0.svc.cluster.local:8080
+      # mem0 stack torn down 2026-07-02 (namespace deleted; pg dump archived in
+      # backups/2026-07-02-mem0-teardown/). mem0/api-mem0.nathanwhyte.dev DNS
+      # record removal is a Cloudflare-dashboard action.
       # Single break-glass entry point: timmy (control plane). Reach wemby/manu by
       # hopping from timmy (ssh wemby / ssh manu over the tailnet, or ssh -J).
       - hostname: ssh.nathanwhyte.dev
