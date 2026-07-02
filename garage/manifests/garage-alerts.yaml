@@ -1,0 +1,54 @@
+# Garage storage alerts (ERR-1011 follow-up, 2026-07-02).
+#
+# Garage runs replicationMode "3" with a write quorum of 2. When replicas drop
+# below quorum, OpenViking resource pushes fail with an opaque
+# "[PROCESSING_ERROR] ... Could not reach quorum of 2" while OV /health stays
+# 200 — nothing alerted during the 2026-07-02 outage. These rules alert on
+# kube-state-metrics signals so storage failures are visible before (and
+# during) quorum loss. The cluster Prometheus has empty rule/serviceMonitor
+# selectors, so no extra labels are required.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: garage-alerts
+  namespace: garage
+spec:
+  groups:
+    - name: garage.rules
+      rules:
+        - alert: GarageReplicaDown
+          expr: kube_statefulset_status_replicas_ready{namespace="garage", statefulset="garage"} < 3
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Garage has {{ $value }}/3 ready replicas for 5m"
+            description: "At 2/3 the next replica loss breaks write quorum and OpenViking pushes start failing (ERR-1011)."
+        - alert: GarageQuorumLost
+          expr: kube_statefulset_status_replicas_ready{namespace="garage", statefulset="garage"} < 2
+          for: 1m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Garage write quorum lost ({{ $value }}/3 ready)"
+            description: "S3 writes are failing NOW; OpenViking resource pushes return PROCESSING_ERROR quorum failures (ERR-1011) while OV /health stays 200."
+        - alert: GarageRestarting
+          expr: increase(kube_pod_container_status_restarts_total{namespace="garage"}[30m]) > 0
+          for: 5m
+          labels:
+            severity: info
+          annotations:
+            summary: "Garage pod {{ $labels.pod }} restarted in the last 30m"
+            description: "Repeated restarts (e.g. node drain loops) erode quorum headroom; check node cordon/drain events."
+        - alert: GaragePodChurn
+          # Pod RECREATION (drain/evict → new pod) leaves restart counters at 0
+          # and can keep replicas_ready at 3 between scrapes — this was the
+          # 2026-07-02 failure mode (wemby GPU-upgrade drain loop recreated all
+          # three pods while OV pushes failed on quorum). Alert on young pods.
+          expr: (time() - kube_pod_start_time{namespace="garage"}) < 1800
+          for: 5m
+          labels:
+            severity: info
+          annotations:
+            summary: "Garage pod {{ $labels.pod }} was recreated in the last 30m"
+            description: "Pod recreation churn (node drains, evictions) can break Garage quorum without tripping restart or ready-replica alerts (ERR-1011)."
