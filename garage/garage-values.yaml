@@ -60,7 +60,9 @@ persistence:
   meta:
     # Use custom Longhorn StorageClass for metadata
     storageClass: "longhorn-nvme"
-    size: 1Gi
+    # 1Gi filled up 2026-07-02 (LMDB ENOSPC on 2/3 nodes broke write quorum —
+    # found by the k3s-datastore-backup test run). PVCs expanded live to 5Gi.
+    size: 5Gi
   data:
     # Use custom Longhorn StorageClass for data
     storageClass: "longhorn-ssd"
