@@ -74,7 +74,7 @@ MacBook Pro (M4 Pro) used as a secondary development/Ollama host. Runs macOS 25.
 | ----------- | ----------------------------------------------- |
 | **CPU**     | Apple M4 Pro (12-core: 8P + 4E)                 |
 | **RAM**     | 24 GB unified                                   |
-| **Storage** | 494 GB SSD (~74 GB free, ~85% used)             |
+| **Storage** | 494 GB SSD (~120 GB free, ~76% used)            |
 | **GPU**     | Apple M4 Pro 16-core integrated / Neural Engine |
 | **Display** | PG32UCDP 4K @ 120 Hz                            |
 | **Network** | 192.168.1.16 (LAN), WiFi + Ethernet             |
