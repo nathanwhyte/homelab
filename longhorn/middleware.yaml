@@ -1,0 +1,12 @@
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: longhorn-lan-only
+  namespace: longhorn-system
+spec:
+  ipAllowList:
+    sourceRange:
+      - 192.168.1.0/24
+      - 10.42.0.0/16
+      - 10.43.0.0/16

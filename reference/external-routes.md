@@ -14,12 +14,43 @@ Traefik IngressRoutes. In the Notes column below, `CF` = Cloudflare-tunnel-only,
 | `viking.nathanwhyte.dev`                  | `ov-console:8020`           | OV `root_api_key`                               | OV console; Ingress (see `viking/manifests/ov-console-ingress.yaml`)                                                                                                                                                                                                                                        |
 | `llama.nathanwhyte.dev`                   | `ollama-auth-proxy`         | Bearer token                                    | CF                                                                                                                                                                                                                                                                                                          |
 | `ssh.nathanwhyte.dev`                     | SSH → timmy:22, user `noot` | Access service token + `homelab-breakglass` key | Break-glass SSH → timmy:22 (works with Tailscale off). Tunnel proxies raw TCP to timmy:22; break-glass pubkey in root-owned `/etc/ssh/auth_keys/%u` (sshd `sshd_config.d/10-breakglass.conf`). Hop from timmy to wemby/manu. Client `~/.ssh/config` sources the service-token env file in its ProxyCommand. |
-| `k8s.nathanwhyte.dev`                     | k8s-dashboard               | —                                               | CF                                                                                                                                                                                                                                                                                                          |
 | `uploads.nathanwhyte.dev`                 | garage:3900                 | —                                               | S3; CF                                                                                                                                                                                                                                                                                                      |
 | `logs.nathanwhyte.dev`                    | grafana                     | —                                               | CF                                                                                                                                                                                                                                                                                                          |
-| `longhorn.nathanwhyte.dev`                | longhorn-frontend           | —                                               | CF                                                                                                                                                                                                                                                                                                          |
 | `chat.nathanwhyte.dev`                    | open-webui                  | —                                               | CF                                                                                                                                                                                                                                                                                                          |
 | `nathanwhyte.dev` / `www.nathanwhyte.dev` | portfolio                   | —                                               | CF                                                                                                                                                                                                                                                                                                          |
+
+> `lamp.nathanwhyte.dev`/`mem0.nathanwhyte.dev`/`api-mem0.nathanwhyte.dev` removed 2026-07-02 — headlamp and the mem0 stack were torn down live (see IMPR-1028).
+
+## LAN / Tailnet-only admin UIs (IMPR-1029)
+
+Not tunneled through Cloudflare at all — no public hostname exists. Reachable
+only from the LAN (`192.168.1.0/24`) or a Tailscale-connected client, via
+Traefik on 192.168.1.19.
+
+> **Status (2026-07-02): still on the Cloudflare tunnel, not cut over yet.**
+> The `ipAllowList` middlewares (`k8s-dashboard-lan-only`, `longhorn-lan-only`)
+> exist as CRD objects but are commented out of both Ingresses — Traefik's
+> `kubernetescrd` provider currently fails to resolve *any* Middleware ref
+> cluster-wide ("middleware ... does not exist"), confirmed against
+> pre-existing middlewares too (`hermes-lan-only`,
+> `viking-openviking-basicauth`) after a full Traefik restart. Wiring the
+> annotation back in during this session took `longhorn.nathanwhyte.dev`'s
+> Traefik route down (404) even for LAN clients — reverted live. The public
+> `k8s.nathanwhyte.dev`/`longhorn.nathanwhyte.dev` tunnel entries stay in
+> `cloudflare/main-tunnel/cloudflared-configmap.yaml` (repo has them removed,
+> live cluster does not) until this Traefik bug is fixed and the LAN-only
+> path is verified end-to-end.
+
+| Host                       | Backend                           | Auth                         | Notes                                                                                          |
+| -------------------------- | ---------------------------------- | ----------------------------- | ------------------------------------------------------------------------------------------------ |
+| `k8s.nathanwhyte.dev`      | `kubernetes-dashboard-kong-proxy` | ServiceAccount bearer token   | Traefik Ingress (`dashboard/ingress.yaml`)                                                       |
+| `longhorn.nathanwhyte.dev` | `longhorn-frontend`               | —                             | Traefik Ingress (Helm-managed, `longhorn/longhorn-values.yaml`)                                  |
+
+DNS: resolved via **Tailscale Split DNS** — a nameserver rule in the Tailscale
+admin console (`Split DNS` for `nathanwhyte.dev`, or per-host if the tunnel's
+other public hosts on the same zone need to keep resolving publicly) pointing
+to 192.168.1.19. Applies tailnet-wide, on or off LAN, no per-device config.
+Manual step: set up in the Tailscale admin console (not repo-managed).
 
 ## Tailscale — private external access (PROJ-008)
 

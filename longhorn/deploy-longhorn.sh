@@ -6,18 +6,18 @@ NAMESPACE="longhorn-system"
 CHART_VERSION="1.11.0"
 
 if ! command -v kubectl &>/dev/null; then
-    echo "kubectl not installed."
-    exit 1
+	echo "kubectl not installed."
+	exit 1
 fi
 
 if ! kubectl cluster-info &>/dev/null; then
-    echo "kubectl not connected to a cluster."
-    exit 1
+	echo "kubectl not connected to a cluster."
+	exit 1
 fi
 
 if ! command -v helm &>/dev/null; then
-    echo "helm not installed."
-    exit 1
+	echo "helm not installed."
+	exit 1
 fi
 
 echo "Deploying Longhorn v${CHART_VERSION} via Helm..."
@@ -28,33 +28,33 @@ helm repo update longhorn
 
 # Install or upgrade Longhorn
 helm upgrade --install longhorn longhorn/longhorn \
-  --namespace "$NAMESPACE" --create-namespace \
-  --version "$CHART_VERSION" \
-  -f "$LONGHORN_DIR/longhorn-values.yaml"
+	--namespace "$NAMESPACE" --create-namespace \
+	--version "$CHART_VERSION" \
+	-f "$LONGHORN_DIR/longhorn-values.yaml"
 
 echo -e "\nWaiting for Longhorn Manager to be ready..."
 kubectl wait --for=condition=ready pod -l app=longhorn-manager \
-  -n "$NAMESPACE" --timeout=300s || true
+	-n "$NAMESPACE" --timeout=300s || true
 
 echo -e "\nApplying custom storage classes..."
 kubectl apply -f "$LONGHORN_DIR/storage.yaml"
 
 if [ -f "$LONGHORN_DIR/r2-backup-target.secret.yaml" ]; then
-    echo -e "\nApplying R2 backup target secret..."
-    kubectl apply -f "$LONGHORN_DIR/r2-backup-target.secret.yaml"
+	echo -e "\nApplying R2 backup target secret..."
+	kubectl apply -f "$LONGHORN_DIR/r2-backup-target.secret.yaml"
 else
-    echo -e "\nR2 backup target secret not found."
-    echo "  Backups will stay unavailable until the secret exists."
-    echo "  Copy longhorn/r2-backup-target.secret.yaml.example to"
-    echo "  longhorn/r2-backup-target.secret.yaml and fill in real R2 credentials,"
-    echo "  or create the secret manually in $NAMESPACE."
+	echo -e "\nR2 backup target secret not found."
+	echo "  Backups will stay unavailable until the secret exists."
+	echo "  Copy longhorn/r2-backup-target.secret.yaml.example to"
+	echo "  longhorn/r2-backup-target.secret.yaml and fill in real R2 credentials,"
+	echo "  or create the secret manually in $NAMESPACE."
 fi
 
-echo -e "\nApplying Longhorn UI extras (cloudflared, basic auth middleware)..."
-kubectl apply -f "$LONGHORN_DIR/ui.yaml"
+echo -e "\nApplying Longhorn UI LAN-only middleware..."
+kubectl apply -f "$LONGHORN_DIR/middleware.yaml"
 
 echo -e "\nDone!"
-echo "  Web UI: https://longhorn.nathanwhyte.dev"
+echo "  Web UI (Tailscale/LAN only, via Traefik on 192.168.1.19): https://longhorn.nathanwhyte.dev"
 echo "  Credentials: admin / <see longhorn-auth-secret>"
 echo "  Backup target: s3://longhorn-backups@auto/cluster/homelab-k3s/longhorn/"
 

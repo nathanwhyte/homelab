@@ -25,12 +25,14 @@ ROCm / RDNA4 guardrails for timmy's RX 9070 XT (the 1080 and 1060 are NVIDIA-onl
 
 ### Middlewares (Traefik CRD)
 
-| Name                      | NS     | Type           | Detail                                     |
-| ------------------------- | ------ | -------------- | ------------------------------------------ |
-| harbor-no-limit           | harbor | buffering      | Unlimited body size for image pushes       |
-| openviking-https-redirect | viking | redirectScheme | HTTP → HTTPS, permanent                    |
-| hermes-lan-only           | hermes | ipAllowList    | 192.168.1.0/24, 10.42.0.0/16, 10.43.0.0/16 |
-| hermes-https-redirect     | hermes | redirectScheme | HTTP → HTTPS, permanent                    |
+| Name                      | NS                   | Type           | Detail                                                                                                  |
+| ------------------------- | -------------------- | -------------- | ------------------------------------------------------------------------------------------------------- |
+| harbor-no-limit           | harbor               | buffering      | Unlimited body size for image pushes                                                                    |
+| openviking-https-redirect | viking               | redirectScheme | HTTP → HTTPS, permanent                                                                                 |
+| hermes-lan-only           | hermes               | ipAllowList    | 192.168.1.0/24, 10.42.0.0/16, 10.43.0.0/16                                                              |
+| hermes-https-redirect     | hermes               | redirectScheme | HTTP → HTTPS, permanent                                                                                 |
+| k8s-dashboard-lan-only    | kubernetes-dashboard | ipAllowList    | CRD exists, **not wired to the Ingress** — Traefik CRD provider bug, see external-routes.md (IMPR-1029) |
+| longhorn-lan-only         | longhorn-system      | ipAllowList    | CRD exists, **not wired to the Ingress** — Traefik CRD provider bug, see external-routes.md (IMPR-1029) |
 
 > `openviking-basicauth` (viking ns, basicAuth) exists in repo manifest (`viking/manifests/openviking-basicauth-middleware.yaml`) and is referenced by the Traefik Ingress in `viking/manifests/openviking-ingress.yaml`. The `/mcp` path has its own Ingress (`viking/manifests/openviking-mcp-ingress.yaml`) without BasicAuth so the native OpenViking MCP endpoint can be reached via Bearer token. `context.nathanwhyte.dev` is also reachable through the Cloudflare tunnel (see [External routes](reference/external-routes.md), marked "both"). Auth is OV `root_api_key` on every tier.
 

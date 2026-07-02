@@ -10,18 +10,16 @@ data:
     metrics: 0.0.0.0:2000
 
     ingress:
-      - hostname: k8s.nathanwhyte.dev
-        service: https://kubernetes-dashboard-kong-proxy.kubernetes-dashboard.svc.cluster.local:443
-        originRequest:
-          noTLSVerify: true
+      # k8s.nathanwhyte.dev removed 2026-07-02 (IMPR-1029): admin UI is now
+      # Tailscale/LAN-only via Traefik, not tunneled publicly.
       # headlamp torn down 2026-07-02 (namespace deleted); lamp.nathanwhyte.dev
       # DNS record removal is a Cloudflare-dashboard action.
       - hostname: uploads.nathanwhyte.dev
         service: http://garage.garage.svc.cluster.local:3900
       - hostname: logs.nathanwhyte.dev
         service: http://kube-prometheus-stack-grafana.grafana.svc.cluster.local:3000
-      - hostname: longhorn.nathanwhyte.dev
-        service: http://longhorn-frontend.longhorn-system.svc.cluster.local:80
+      # longhorn.nathanwhyte.dev removed 2026-07-02 (IMPR-1029): admin UI is
+      # now Tailscale/LAN-only via Traefik, not tunneled publicly.
       - hostname: chat.nathanwhyte.dev
         service: http://open-webui.openwebui.svc.cluster.local:80
       - hostname: context.nathanwhyte.dev

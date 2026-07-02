@@ -1,0 +1,12 @@
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: k8s-dashboard-lan-only
+  namespace: kubernetes-dashboard
+spec:
+  ipAllowList:
+    sourceRange:
+      - 192.168.1.0/24
+      - 10.42.0.0/16
+      - 10.43.0.0/16
