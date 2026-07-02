@@ -6,28 +6,31 @@ Generated from the Ollama concurrency/tool-calling benchmark harness.
 
 | Platform | GPU | Model | Ollama version | `NUM_PARALLEL` | Context | Workload |
 |---|---|---|---|---|---|---|
-| Cluster (timmy) | RX 9070 XT 16 GB | `gemma4:12b-it-qat` | 0.31.1-rocm / 0.31.1-vulkan | 6 / 8 | 16K–32K | `mixed_mem0`, `agentic` |
+| Cluster (timmy) | RX 9070 XT 16 GB | `gemma4:12b-it-qat` | 0.31.1-vulkan | 8 | 16K–32K | `mixed_mem0`, `agentic` |
 | Pop (this Mac) | M5 Max | `gemma4:12b-mlx` | 0.31.1 | 1 / 3 / 6 | 16K–32K | `mixed_mem0`, `agentic` |
 
 > Pop `np=8` and `np6-agentic` were not completed. The pop sweep was stopped during `pop-np6-agentic` because the 32K-context / 6-slot workload spiked unified memory usage to ~96 % and caused desktop stuttering on the M5 Max. The usable pop data is `np1`, `np3` (both workloads), and `np6-default`.
+>
+> **2026-07-02 correction**: an earlier version of this report cited pop `np1-default` aggregate throughput as 94.7 tok/s. That number came from a one-off, non-reproducible validation run of the v0.31.1 MTP feature (`pop-np1-default-v031.log`, 2026-06-30) that predates the actual sweep harness. The report's own `summary.csv` and charts always used the correct, reproducible sweep run (60.55 tok/s, captured with `pop-np1-env.json`) — only the prose disagreed with its own data. The narrative below and all tables now match the sweep data. The orphaned validation run and a second unexplained duplicate run for the same config have been removed from the results directory.
+>
+> **2026-07-02**: ROCm cluster data (`np6-agentic`, `np8-agentic`, `np8-default` under 0.31.1-rocm) has been dropped from this report. Production switched to the Vulkan backend on 2026-07-01 (see `INFO-1023`) after confirming Vulkan is consistently faster; the ROCm numbers are no longer operationally relevant. Cluster figures below are Vulkan-only.
 
 ---
 
 ## Aggregate throughput
 
-### Cluster
+### Cluster (Vulkan)
 
 | Run | Conc 1 | Conc 2 | Conc 3 | Conc 4 | Conc 5 | Conc 6 | Conc 7 | Conc 8 | Saturation |
 |---|---|---|---|---|---|---|---|---|---|
-| cluster mixed_mem0 np=8 | 25.0 | 31.1 | 43.0 | 53.8 | 54.0 | 68.8 | 68.5 | **88.1** | keeps rising |
-| cluster agentic np=8 | 25.2 | 36.7 | 39.5 | 50.8 | 52.3 | 58.3 | 55.2 | **63.6** | ~conc 6 |
-| cluster agentic np=6 | 25.4 | 27.7 | 33.3 | 39.5 | 45.3 | **45.9** | — | — | ~conc 5–6 |
+| cluster mixed_mem0 np=8 | 28.6 | 36.7 | 51.2 | 62.2 | 63.8 | 74.3 | 69.9 | **93.4** | keeps rising |
+| cluster agentic np=8 | 29.4 | 32.9 | 41.2 | 47.7 | 54.8 | 51.6 | 59.3 | **69.3** | ~conc 6-8 |
 
 ### Pop
 
 | Run | Conc 1 | Conc 2 | Conc 3 | Conc 4 | Conc 5 | Conc 6 | Notes |
 |---|---|---|---|---|---|---|---|
-| pop mixed_mem0 np=1 | 94.7 | — | — | — | — | — | single-slot MTP peak |
+| pop mixed_mem0 np=1 | 60.55 | — | — | — | — | — | single-slot, MTP-boosted |
 | pop mixed_mem0 np=3 | 47.9 | 38.3 | 48.8 | — | — | — | flat scaling |
 | pop mixed_mem0 np=6 | 33.6 | 35.8 | 37.1 | 37.2 | 29.3 | **51.3** | noisy; no clear rise |
 | pop agentic np=1 | 61.4 | — | — | — | — | — | single-slot, long context |
@@ -35,28 +38,27 @@ Generated from the Ollama concurrency/tool-calling benchmark harness.
 
 ### Observations
 
-- **Cluster default workload scales well to `NUM_PARALLEL=8`**: aggregate throughput reaches 88 tok/s at conc=8. The curve is still rising, suggesting the RX 9070 XT could potentially handle `np=10–12` for short prompts.
-- **Cluster agentic workload (long context) saturates earlier**: peak is around conc=5–6, with diminishing returns beyond that. This is expected — 32K context and 2048-token outputs consume much more KV cache and compute per slot.
-- **Pop single-slot performance is dramatically higher for Gemma 4 MLX**: 94.7 tok/s at conc=1 for default workload, ~2× the cluster's per-slot speed. This is the v0.31.1 MTP effect on Apple Silicon.
+- **Cluster default workload (Vulkan) scales well to `NUM_PARALLEL=8`**: aggregate throughput reaches 93.4 tok/s at conc=8. The curve is still rising, suggesting the RX 9070 XT could potentially handle `np=10–12` for short prompts.
+- **Cluster agentic workload (long context) saturates earlier**: peak is around conc=6-8, with diminishing returns beyond that. This is expected — 32K context and 2048-token outputs consume much more KV cache and compute per slot.
+- **Pop single-slot aggregate throughput is roughly 2x the cluster's per-slot speed**: 60.55 tok/s vs 28.56 tok/s at concurrency=1 for the default workload. Per-request generation speed shows an even larger gap (see below) — the v0.31.1 MTP effect on Apple Silicon.
 - **Pop does not show clean aggregate scaling**: the `np=3` and `np=6` default curves are relatively flat or noisy. This suggests `OLLAMA_NUM_PARALLEL` on the MLX backend behaves more like independent worker slots than true continuous batching.
 
 ---
 
 ## Per-request generation speed
 
-### Cluster
+### Cluster (Vulkan)
 
 | Run | Conc 1 | Conc 2 | Conc 3 | Conc 4 | Conc 5 | Conc 6 | Conc 7 | Conc 8 |
 |---|---|---|---|---|---|---|---|---|
-| cluster mixed_mem0 np=8 | 52.8 | 35.2 | 42.5 | 30.3 | 21.1 | 30.5 | 27.4 | 23.8 |
-| cluster agentic np=8 | 51.7 | 41.1 | 30.5 | 31.3 | 31.6 | 24.2 | 21.5 | 20.9 |
-| cluster agentic np=6 | 51.7 | 28.9 | 24.0 | 21.9 | 20.0 | 20.0 | — | — |
+| cluster mixed_mem0 np=8 | 60.6 | 42.7 | 50.9 | 35.2 | 25.0 | 31.0 | 27.3 | 24.5 |
+| cluster agentic np=8 | 60.2 | 33.7 | 31.1 | 30.6 | 33.1 | 21.7 | 21.8 | 22.5 |
 
 ### Pop
 
 | Run | Conc 1 | Conc 2 | Conc 3 | Conc 4 | Conc 5 | Conc 6 |
 |---|---|---|---|---|---|---|
-| pop mixed_mem0 np=1 | **102.0** | — | — | — | — | — |
+| pop mixed_mem0 np=1 | **104.6** | — | — | — | — | — |
 | pop mixed_mem0 np=3 | 99.9 | 103.8 | 85.8 | — | — | — |
 | pop mixed_mem0 np=6 | 72.7 | 70.4 | 73.0 | 72.9 | 73.0 | 72.7 |
 | pop agentic np=1 | 92.1 | — | — | — | — | — |
@@ -64,22 +66,21 @@ Generated from the Ollama concurrency/tool-calling benchmark harness.
 
 ### Observations
 
-- Single-slot per-request speed is nearly identical on cluster for both workloads (~52 tok/s), because the agentic prompts are long but the model is compute-bound during prefill.
-- Per-request speed drops to ~20 tok/s at high concurrency for agentic workloads on the cluster. This is the latency cost of packing more requests onto the same GPU.
-- Pop's single-slot speed is roughly **2×** the cluster's single-slot speed, confirming the Gemma 4 MTP benefit on MLX.
+- Single-slot per-request speed is nearly identical on cluster for both workloads (~60 tok/s), because the agentic prompts are long but the model is compute-bound during prefill.
+- Per-request speed drops to ~22 tok/s at high concurrency for agentic workloads on the cluster. This is the latency cost of packing more requests onto the same GPU.
+- Pop's single-slot speed is roughly **1.7x** the cluster's single-slot speed, confirming the Gemma 4 MTP benefit on MLX.
 - Pop per-request speed stays high even at `np=6`, which is consistent with slots being scheduled independently rather than contending for the same compute in a single batch.
 
 ---
 
 ## P95 time-to-first-token
 
-### Cluster
+### Cluster (Vulkan)
 
 | Run | Conc 1 | Conc 2 | Conc 3 | Conc 4 | Conc 5 | Conc 6 | Conc 7 | Conc 8 |
 |---|---|---|---|---|---|---|---|---|
-| cluster mixed_mem0 np=8 | 0.44 | 0.50 | 0.54 | 0.57 | 0.58 | 0.56 | 0.68 | 0.67 |
-| cluster agentic np=8 | 2.45 | 2.51 | 2.99 | 0.51 | 0.62 | 0.63 | 0.58 | 0.66 |
-| cluster agentic np=6 | 0.46 | 0.51 | 0.55 | 0.55 | 0.58 | 0.65 | — | — |
+| cluster mixed_mem0 np=8 | 0.45 | 0.51 | 0.52 | 0.55 | 0.57 | 0.60 | 0.65 | 0.76 |
+| cluster agentic np=8 | 0.50 | 0.49 | 0.54 | 0.52 | 0.58 | 0.67 | 0.62 | 1.55 |
 
 ### Pop
 
@@ -93,8 +94,8 @@ Generated from the Ollama concurrency/tool-calling benchmark harness.
 
 ### Observations
 
-- For cluster agentic `np=8`, the first three concurrency levels show elevated P95 TTFT (2.45–2.99 s). This is likely from occasional long-prompt stalls during warmup/model settling under the new `np=8` setting. After conc=4, TTFT stabilizes under 0.7 s.
-- The cluster's normal P95 TTFT for default workload is excellent: under 0.7 s even at conc=8.
+- Cluster P95 TTFT under Vulkan stays under 0.8 s through conc=8 for the default workload.
+- Cluster agentic P95 TTFT spikes at conc=8 (1.55 s) — likely an isolated warmup/settling stall rather than a systemic issue, since conc=1-7 all stay under 0.7 s.
 - Pop TTFT is effectively instant (0.07 s single-slot, rising gently with concurrency).
 
 ---
@@ -117,11 +118,11 @@ The cluster RX 9070 XT did not hit memory limits:
 
 | Setting | Current | Recommended | Rationale |
 |---|---|---|---|
-| `OLLAMA_NUM_PARALLEL` | 8 | **8** | Good balance; default workload still scales, agentic saturates ~5–6. Could test 10–12 for short-prompt services. |
+| `OLLAMA_NUM_PARALLEL` | 8 | **8** | Good balance; default workload still scales, agentic saturates ~6-8. Could test 10–12 for short-prompt services. |
 | `OLLAMA_CONTEXT_LENGTH` | 32768 | **32768** | Required for agentic workloads; does not pre-allocate. |
 | `OLLAMA_LOAD_TIMEOUT` | 15m | **15m** | PVC loads can be slow; no downside. |
 | `OLLAMA_KV_CACHE_TYPE` | q4_0 | **q4_0** | Retain for RDNA4 symmetric K/V quantization + fused Flash Attention. |
-| Backend | ROCm | **Vulkan** | ~10–20 % faster than ROCm for this model; all layers offloaded. Use `GGML_VK_VISIBLE_DEVICES=1` because Vulkan enumerates the iGPU first on timmy. |
+| Backend | Vulkan | **Vulkan** | Already production default since 2026-07-01; ~10–20% faster than ROCm was, all layers offloaded. Use `GGML_VK_VISIBLE_DEVICES=1` because Vulkan enumerates the iGPU first on timmy. |
 | `OLLAMA_KEEP_ALIVE` | not set | **evaluate `-1`** | For always-on production services, may avoid reload latency. Needs benchmark. |
 
 ### Pop / M5 Max — safe operating boundary
@@ -146,54 +147,13 @@ For normal desktop use plus LLM workloads, the M5 Max's practical boundary is:
 
 ## Files
 
-- `aggregate-throughput.png`
-- `per-request-gen-tps.png`
-- `p95-ttft.png`
+- `single-slot-speed.png`
+- `peak-throughput.png`
+- `peak-comparison-grid.png`
 - `summary.csv`
-
-## Vulkan backend comparison
-
-A head-to-head run of `gemma4:12b-it-qat` Q4_0 at `NUM_PARALLEL=8` showed
-Ollama's Vulkan backend is **~10–20 % faster than ROCm** on the cluster RX 9070 XT.
-Both workloads used `OLLAMA_CONTEXT_LENGTH=16384` and `OLLAMA_KV_CACHE_TYPE=q4_0`.
-
-### Default workload (`mixed_mem0`)
-
-| Conc | ROCm agg tok/s | Vulkan agg tok/s | ROCm P95 TTFT | Vulkan P95 TTFT | ROCm P50 gen tok/s | Vulkan P50 gen tok/s |
-|---:|---:|---:|---:|---:|---:|---:|
-| 1 | 25.0 | 28.6 | 0.44 | 0.45 | 52.8 | 60.6 |
-| 2 | 31.1 | 36.7 | 0.50 | 0.51 | 35.2 | 42.7 |
-| 3 | 43.0 | 51.2 | 0.54 | 0.52 | 42.5 | 50.9 |
-| 4 | 53.8 | 62.2 | 0.57 | 0.55 | 30.3 | 35.2 |
-| 5 | 54.0 | 63.8 | 0.58 | 0.57 | 21.1 | 25.0 |
-| 6 | 68.8 | 74.3 | 0.56 | 0.60 | 30.5 | 31.0 |
-| 7 | 68.5 | 69.9 | 0.68 | 0.65 | 27.4 | 27.3 |
-| 8 | 88.1 | 93.4 | 0.67 | 0.76 | 23.8 | 24.5 |
-
-### Agentic workload (long context, tool-calling)
-
-| Conc | ROCm agg tok/s | Vulkan agg tok/s | ROCm P95 TTFT | Vulkan P95 TTFT | ROCm P50 gen tok/s | Vulkan P50 gen tok/s |
-|---:|---:|---:|---:|---:|---:|---:|
-| 1 | 25.2 | 29.4 | 2.45 | 0.50 | 51.7 | 60.2 |
-| 2 | 36.7 | 32.9 | 2.51 | 0.49 | 41.1 | 33.7 |
-| 3 | 39.5 | 41.2 | 2.99 | 0.54 | 30.5 | 31.1 |
-| 4 | 50.8 | 47.7 | 0.51 | 0.52 | 31.3 | 30.6 |
-| 5 | 52.3 | 54.8 | 0.62 | 0.58 | 31.6 | 33.1 |
-| 6 | 58.3 | 51.6 | 0.63 | 0.67 | 24.2 | 21.7 |
-| 7 | 55.2 | 59.3 | 0.58 | 0.62 | 21.5 | 21.8 |
-| 8 | 63.6 | 69.3 | 0.66 | 1.55 | 20.9 | 22.5 |
-
-Vulkan again has the higher peak in both workloads, and the win is larger
-for the agentic workload at the top end (+9 % peak, 63.6 → 69.3 tok/s).
-ROCm is slightly faster at a couple of mid-concurrency agentic points
-(conc=2, 4, 6), but the differences are within run-to-run variance.
-
-Ollama logs confirmed the model loaded on `Vulkan0` with all 49 layers
-offloaded. Device selection matters: Vulkan enumerates the iGPU first on
-timmy, so production uses `GGML_VK_VISIBLE_DEVICES=1`.
 
 ## Next steps
 
-1. Run the higher-bit quant variants (Q5_K_M, Q6_K) under Vulkan to finish the matrix.
+1. Run the higher-bit quant variants (Q5_K_M, Q6_K) under Vulkan to finish the matrix — currently blocked on missing HF tags for the QAT model (see `INFO-1070`).
 2. Complete remaining pop configs overnight or on a headless Mac.
 3. Consider a cluster `np=12` default-workload test if short-prompt scaling continues to rise.

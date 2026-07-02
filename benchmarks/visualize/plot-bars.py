@@ -173,38 +173,38 @@ def main() -> int:
     # Chart A: single-slot generation speed, pop vs. cluster (mirrors the
     # "with/without MTP" style — same shape of claim, different hardware).
     pop = pick(rows, "ollama-pop-np1-default", 1)
-    cluster = pick(rows, "ollama-cluster-np8-default", 1)
+    cluster = pick(rows, "ollama-cluster-vulkan-default", 1)
     horizontal_bar_chart(
         outpath=args.report_dir / "single-slot-speed.png",
         title="Single-slot generation speed",
         subtitle="tokens/s · higher is better",
         footer=(
             "Pop (M5 Max, Gemma 4 MLX) generates nearly 2x faster than the cluster\n"
-            "(RX 9070 XT, Gemma 4 GGUF) at concurrency=1. gemma4:12b, mixed_mem0 workload."
+            "(RX 9070 XT, Gemma 4 GGUF, Vulkan) at concurrency=1. gemma4:12b, mixed_mem0 workload."
         ),
-        labels=["Pop (M5 Max)", "Cluster (RX 9070 XT)"],
+        labels=["Pop (M5 Max)", "Cluster (RX 9070 XT, Vulkan)"],
         values=[float(pop["p50_gen_tps"]), float(cluster["p50_gen_tps"])],
         colors=[INK, PALETTE["gray_light"]],
         unit="tok/s",
     )
 
-    # Chart B: peak-throughput comparison across all four tested runs.
+    # Chart B: peak-throughput comparison across the tested runs.
     runs = [
         ("Pop mixed_mem0 (np=1)", "ollama-pop-np1-default", 1),
-        ("Cluster mixed_mem0 (np=8)", "ollama-cluster-np8-default", 8),
-        ("Cluster agentic (np=8)", "ollama-cluster-np8-agentic", 8),
-        ("Cluster agentic (np=6)", "ollama-cluster-np6-agentic", 6),
+        ("Cluster mixed_mem0 (np=8, Vulkan)", "ollama-cluster-vulkan-default", 8),
+        ("Cluster agentic (np=8, Vulkan)", "ollama-cluster-vulkan-agentic", 8),
     ]
     labels = [r[0] for r in runs]
     values = [float(pick(rows, r[1], r[2])["aggregate_tok_s"]) for r in runs]
-    colors = [PALETTE["green"], PALETTE["purple"], PALETTE["pink"], PALETTE["gray_light"]]
+    colors = [PALETTE["green"], PALETTE["purple"], PALETTE["pink"]]
     horizontal_bar_chart(
         outpath=args.report_dir / "peak-throughput.png",
         title="Peak aggregate throughput",
         subtitle="tokens/s · higher is better · best concurrency level per run",
         footer=(
             "Default (short-context) workload keeps scaling to conc=8 on the cluster.\n"
-            "Agentic (32K context) saturates earlier; pop's single slot is fastest per-request."
+            "Agentic (32K context) saturates earlier; pop's single slot is fastest per-request.\n"
+            "Cluster runs on the Vulkan backend (production default since 2026-07-01)."
         ),
         labels=labels,
         values=values,
@@ -215,9 +215,8 @@ def main() -> int:
     # Chart C: 3-panel grid at conc=8 (or each run's max), mirroring the
     # multi-benchmark grid layout.
     series = [
-        ("Cluster agentic (np=6)", "ollama-cluster-np6-agentic", 6, PALETTE["gray_light"]),
-        ("Cluster agentic (np=8)", "ollama-cluster-np8-agentic", 8, PALETTE["pink"]),
-        ("Cluster mixed_mem0 (np=8)", "ollama-cluster-np8-default", 8, PALETTE["purple"]),
+        ("Cluster agentic (np=8, Vulkan)", "ollama-cluster-vulkan-agentic", 8, PALETTE["pink"]),
+        ("Cluster mixed_mem0 (np=8, Vulkan)", "ollama-cluster-vulkan-default", 8, PALETTE["purple"]),
         ("Pop mixed_mem0 (np=1)", "ollama-pop-np1-default", 1, PALETTE["green"]),
     ]
     series_rows = [pick(rows, run, conc) for _, run, conc, _ in series]
@@ -229,19 +228,19 @@ def main() -> int:
             "title": "Aggregate throughput",
             "subtitle": "tok/s · peak per run · higher is better",
             "values": [float(r["aggregate_tok_s"]) for r in series_rows],
-            "highlight_idx": 2,
+            "highlight_idx": 1,
         },
         {
             "title": "Per-request speed",
             "subtitle": "tok/s · peak per run · higher is better",
             "values": [float(r["p50_gen_tps"]) for r in series_rows],
-            "highlight_idx": 3,
+            "highlight_idx": 2,
         },
         {
             "title": "P95 time-to-first-token",
             "subtitle": "seconds · peak per run · lower is better",
             "values": [float(r["p95_ttft_s"]) for r in series_rows],
-            "highlight_idx": 3,
+            "highlight_idx": 2,
         },
     ]
     grid_bar_chart(
