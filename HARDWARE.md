@@ -66,6 +66,19 @@ Audited 2026-07-02. 3-node K3s cluster running Ubuntu 24.04.4 LTS, K3s v1.35.5+k
 | **Discrete GPUs** | 3 (GTX 1080, GTX 1060, RX 9070 XT) |
 | **Total VRAM**    | 30 GB                              |
 
+## Workbook (operator workstation)
+
+MacBook Pro (M4 Pro) used as a secondary development/Ollama host. Runs macOS 25.5.0; not a K3s cluster node.
+
+| Component   | Details                                         |
+| ----------- | ----------------------------------------------- |
+| **CPU**     | Apple M4 Pro (12-core: 8P + 4E)                 |
+| **RAM**     | 24 GB unified                                   |
+| **Storage** | 494 GB SSD (~74 GB free, ~85% used)             |
+| **GPU**     | Apple M4 Pro 16-core integrated / Neural Engine |
+| **Display** | PG32UCDP 4K @ 120 Hz                            |
+| **Network** | 192.168.1.16 (LAN), WiFi + Ethernet             |
+
 ## AMD / RDNA4 guardrails (timmy's RX 9070 XT)
 
 Timmy's RX 9070 XT (`gfx1201`) runs Ollama (the embedder moved to wemby CUDA on 2026-06-29; `embedder-qwen-rocm` is retained at replicas=0 as a ROCm rollback path). Rules for maintaining the ROCm serving path (apply to Ollama, and to `embedder-qwen-rocm` if rolled back):
