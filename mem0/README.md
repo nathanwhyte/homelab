@@ -12,6 +12,8 @@ Hermes ──memory──▶ mem0-adapter:18080 ──▶ mem0-server:8080 ─�
 mem0-server:
   ├── LLM extraction ──▶ ollama.llama (gemma4:12b-it-qat)
   └── Embedding      ──▶ embedder-llamacpp.viking (nomic-embed-text-v1.5)
+                         ⚠️ BROKEN — embedder-llamacpp retired (replicas=0) 2026-06-30.
+                            See "Embedding status" below.
 
 Hermes ──knowledge──▶ openviking.viking:1933 (unchanged)
 ```
@@ -24,7 +26,8 @@ The **mem0-adapter** sidecar exists because the upstream `nousresearch/hermes-ag
 
 | Component             | Manifest / Image                                                                               | Resources                 | Storage                   |
 | --------------------- | ---------------------------------------------------------------------------------------------- | ------------------------- | ------------------------- |
-| Mem0 API server       | `mem0-server-deployment.yaml`                                                                  | 0.5-2 CPU, 1-2 Gi RAM     | emptyDir (SQLite history) |
+| Mem0 API server       | `mem0-server-deployment.yaml`                                                                               | 0.5-2 CPU, 1-2 Gi RAM     | emptyDir (SQLite history) |
+| Mem0 API server (LAN) | `mem0-server-lan` NodePort service (8080:30080)                                                              | —                         | —                         |
 | Mem0 Dashboard        | `mem0-dashboard-deployment.yaml`                                                               | 50m-1 CPU, 128Mi-1 Gi RAM | none                      |
 | PostgreSQL + pgvector | `mem0-postgres-statefulset.yaml`                                                               | 0.25-1 CPU, 0.5-2 Gi RAM  | 5Gi PVC (Longhorn)        |
 | mem0-adapter sidecar  | `hermes/mem0-adapter/` → `registry.nathanwhyte.dev/homelab/mem0-adapter`                       | 50m-1 CPU, 64Mi-512Mi     | none                      |
@@ -350,12 +353,29 @@ curl -fsS http://127.0.0.1:19091/healthz
 curl -fsS http://127.0.0.1:19091/metrics | grep '^mem0_memories_total '
 ```
 
+## Embedding status
+
+**embedder-llamacpp (nomic-embed-text-v1.5, 768-dim) was retired 2026-06-30 (replicas=0).**
+The live mem0-server is still configured with `MEM0_EMBEDDER_API_BASE=http://embedder-llamacpp.viking.svc.cluster.local:8080/v1`
+and `MEM0_EMBEDDING_DIMS=768`, so mem0's embedding path is currently **broken**.
+
+The active embedder is `embedder-qwen-cuda` (Qwen3-Embedding-4B Q8_0, 2560-dim) on wemby GTX 1060,
+but mem0 was never re-pointed at it. Fixing this requires:
+
+1. Change `MEM0_EMBEDDER_API_BASE` to `http://embedder-qwen.viking.svc.cluster.local:8080/v1`
+2. Change `MEM0_EMBEDDING_DIMS` to `2560`
+3. Drop and recreate the `memories` table in Postgres (pgvector column width is baked at table creation)
+4. Re-embed all existing memories
+
+This is tracked as a known gap — the embedder migration (timmy ROCm → wemby CUDA) happened on 2026-06-29
+and the mem0 config was not updated to follow.
+
 ## Model routing
 
-| Call type      | Model                           | Endpoint                               | GPU              |
-| -------------- | ------------------------------- | -------------------------------------- | ---------------- |
-| LLM extraction | **gemma4:12b-it-qat** (local)   | chat-ollama-proxy.llama:11434 → ollama | timmy RX 9070 XT |
-| Embedding      | nomic-embed-text-v1.5 (768-dim) | embedder-llamacpp.viking:8080          | wemby GTX 1060   |
+| Call type      | Model                           | Endpoint                               | GPU              | Status |
+| -------------- | ------------------------------- | -------------------------------------- | ---------------- | ------ |
+| LLM extraction | **gemma4:12b-it-qat** (local)   | chat-ollama-proxy.llama:11434 → ollama | timmy RX 9070 XT | ✅     |
+| Embedding      | nomic-embed-text-v1.5 (768-dim) | embedder-llamacpp.viking:8080          | wemby GTX 1060   | ❌ retired (replicas=0) |
 
 **Context window is critical (not model size).** mem0 v2.0.6 uses a single-call `ADDITIVE_EXTRACTION_PROMPT` (~9-10K tokens) that returns a `{"memory":[...]}` operations object. With the live Ollama at `OLLAMA_CONTEXT_LENGTH=8192`, that prompt was **truncated**, so local models saw mangled instructions and emitted `{"` then stopped → nothing stored (this looked like a model-capability failure but wasn't — even glm-5.1:cloud only worked because cloud models ignore the local `num_ctx`). Raising `OLLAMA_CONTEXT_LENGTH` to **16384** (`llama/ollama-deployment.yaml`) fixes it: the local `gemma4:12b-it-qat` extracts correctly, so **no cloud model is needed**. Extraction is routed through `chat-ollama-proxy` (`INJECT_REASONING_NONE=true`) so reasoning tokens don't contaminate the JSON.
 

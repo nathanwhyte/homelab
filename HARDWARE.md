@@ -1,6 +1,6 @@
 # Cluster Hardware Inventory
 
-Audited 2026-06-12. 3-node K3s cluster running Ubuntu 24.04.4 LTS, K3s v1.35.5+k3s1.
+Audited 2026-07-02. 3-node K3s cluster running Ubuntu 24.04.4 LTS, K3s v1.35.5+k3s1 (timmy, wemby) / v1.35.2+k3s1 (manu).
 
 ## Nodes
 
