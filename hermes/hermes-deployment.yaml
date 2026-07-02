@@ -61,7 +61,9 @@ spec:
               readOnly: true
         - name: mem0-plugin-copy
           image: registry.nathanwhyte.dev/homelab/mem0-adapter:fe57dd3
-          imagePullPolicy: Always
+          # IfNotPresent (IMPR-1023): tags are immutable short-SHAs, so Always
+          # only added a hard Harbor dependency at every pod (re)start.
+          imagePullPolicy: IfNotPresent
           command: ["/bin/sh", "-c"]
           args:
             - |
@@ -74,7 +76,9 @@ spec:
       containers:
         - name: hermes
           image: registry.nathanwhyte.dev/homelab/hermes-agent-mem0:fe57dd3
-          imagePullPolicy: Always
+          # IfNotPresent (IMPR-1023): tags are immutable short-SHAs, so Always
+          # only added a hard Harbor dependency at every pod (re)start.
+          imagePullPolicy: IfNotPresent
           # No --replace: s6-overlay supervises gateway lifecycle;
           # --replace races with s6-supervise restart (cf. #11718, #13655)
           args: ["gateway", "run"]
@@ -199,7 +203,9 @@ spec:
                   - chmod 600 /opt/data/.ssh/id_ed25519
         - name: mem0-adapter
           image: registry.nathanwhyte.dev/homelab/mem0-adapter:fe57dd3
-          imagePullPolicy: Always
+          # IfNotPresent (IMPR-1023): tags are immutable short-SHAs, so Always
+          # only added a hard Harbor dependency at every pod (re)start.
+          imagePullPolicy: IfNotPresent
           env:
             - name: MEM0_URL
               value: http://mem0-server.mem0.svc.cluster.local:8080

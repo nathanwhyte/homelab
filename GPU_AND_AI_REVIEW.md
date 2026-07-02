@@ -23,7 +23,7 @@ Comprehensive review of all GPU setup, model benchmarks, and AI tools work in th
 
 ### Cluster Overview
 
-3-node K3s cluster. 36 threads, ~64 GB RAM, mixed storage, 30 GB total VRAM across 3 GPUs.
+3-node K3s cluster. 44 threads, ~64 GB RAM, mixed storage, 30 GB total VRAM across 3 GPUs.
 
 | Node      | Role           | CPU                          | RAM   | Storage                         | GPU                              | VRAM        |
 | --------- | -------------- | ---------------------------- | ----- | ------------------------------- | -------------------------------- | ----------- |

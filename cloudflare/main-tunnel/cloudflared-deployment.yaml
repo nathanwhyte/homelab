@@ -35,7 +35,9 @@ spec:
               topologyKey: kubernetes.io/hostname
       containers:
         - name: cloudflared
-          image: cloudflare/cloudflared:latest
+          # Pinned to the version running in-cluster on 2026-07-02 (IMPR-1023);
+          # bump tag+digest together when upgrading.
+          image: cloudflare/cloudflared:2026.6.1@sha256:6d91c121b803126f7a5344005d17a9324788fc09d305b6e2560ec6040a7ae283
           args:
             - tunnel
             - --config

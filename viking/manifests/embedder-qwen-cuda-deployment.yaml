@@ -123,8 +123,9 @@ spec:
               cpu: "4"
               memory: 6Gi
               nvidia.com/gpu: "1"
-          securityContext:
-            privileged: true
+          # privileged dropped (IMPR-1022): runtimeClassName nvidia + the
+          # nvidia.com/gpu resource inject the GPU; verify with nvidia-smi in
+          # the pod on next rollout.
           startupProbe:
             tcpSocket:
               port: 8000

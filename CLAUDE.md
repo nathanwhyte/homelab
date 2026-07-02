@@ -56,7 +56,7 @@ OV endpoint tiers and the full external-routes + Tailscale tables live in [refer
 - Model: `glm-5.1:cloud` (primary) via `chat-ollama.llama.svc:11434/v1` (reasoning-suppressing shim); `gemma4:12b-it-qat` fallback
 - Memory: `provider: mem0` (Mem0 API server in `mem0` ns, writes PostgreSQL/pgvector); `memory_char_limit: 20000`, `user_char_limit: 12000`
 - Ports: API 8642 (Bearer auth), dashboard 9119 (session-token, tunnel at `hermes.nathanwhyte.dev`); terminal SSH `hermes-jump.hermes.svc:22` (PVC-backed in manifest, not yet applied live)
-- `GATEWAY_ALLOW_ALL_USERS=true`; image `registry.nathanwhyte.dev/homelab/hermes-agent-mem0:fe57dd3` (imagePullPolicy: Always); s6-overlay supervises gateway + dashboard; `fsGroup: 10000` / `fsGroupChangePolicy: OnRootMismatch`; `revisionHistoryLimit: 1`; `args: ["gateway", "run"]`
+- `GATEWAY_ALLOW_ALL_USERS=true`; image `registry.nathanwhyte.dev/homelab/hermes-agent-mem0:fe57dd3` (imagePullPolicy: IfNotPresent, immutable SHA tags — IMPR-1023); s6-overlay supervises gateway + dashboard; `fsGroup: 10000` / `fsGroupChangePolicy: OnRootMismatch`; `revisionHistoryLimit: 1`; `args: ["gateway", "run"]`
 - CLI: `hermes/operator.sh` (`health`, `models`, `ask`, `run`, `logs`, `status`, `config`, `restart`)
 - Delegation: `max_concurrent_children: 5`, `max_spawn_depth: 2`, `child_timeout_seconds: 900`; compression `threshold: 0.75`, `api_max_retries: 3`
 - MCP servers: none currently (K8s MCP stdio incompatible with Hermes; Grafana lacks in-cluster endpoint; OV MCP redundant with bundled memory provider)
@@ -71,7 +71,7 @@ OV endpoint tiers and the full external-routes + Tailscale tables live in [refer
 - Auth: `server.auth_mode = "trusted"` (set 2026-06-23). Trusted mode still requires `root_api_key` on every request (host `0.0.0.0` non-localhost) and trusts `X-OpenViking-Account`/`X-OpenViking-User` headers — so root key + identity headers work for tenant-scoped data APIs (the pattern `compendium-sync.py` and local OV MCP rely on)
 - Cutover + rollback procedure: `viking/docs/2026-06-03-ov-prod-cutover-agfs-s3-vectordb-http.md`
 
-ConfigMap `openviking-config` is retained for workers if scaled back up (`agfs.backend: s3`). InitContainers inject S3 creds only when `agfs.backend == "s3"`. **Note:** this ConfigMap still has pre-Qwen-cutover values (768-dim nomic embedder, `vectordb.backend: local`, `max_input_tokens: 1900`, VLM pointing at Ollama) — update it to match `openviking-standalone-config` (2560-dim Qwen embedder, `vectordb.backend: http`, `max_input_tokens: 8192`, VLM at `llamacpp-vlm.viking.svc`) before scaling workers back up.
+ConfigMap `openviking-config` is retained for workers if scaled back up (`agfs.backend: s3`). InitContainers inject S3 creds only when `agfs.backend == "s3"`. Reconciled with `openviking-standalone-config` on 2026-07-02 (IMPR-1024): 2560-dim Qwen embedder, `vectordb.backend: http`, `max_input_tokens: 8192`, VLM at `llamacpp-vlm.viking.svc`, `auth_mode: trusted`; only `server.workers: 1` intentionally differs (per-worker instances). Repo manifest updated — re-apply the ConfigMap before scaling workers back up (the live copy may still be stale).
 
 ## Failover
 

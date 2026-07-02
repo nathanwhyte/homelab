@@ -86,11 +86,18 @@ spec:
             requests:
               cpu: 1000m
               memory: 4Gi
+              amd.com/gpu: "2"
             limits:
               cpu: "8"
               memory: 16Gi
-          securityContext:
-            privileged: true
+              # De-privileged (IMPR-1022): device-plugin injection replaces
+              # privileged (which exposed ALL host devices). The plugin registers
+              # both the iGPU and the 9070 XT on timmy; requesting 2 keeps the
+              # container's device enumeration identical to the host so
+              # HIP_VISIBLE_DEVICES / GGML_VK_VISIBLE_DEVICES selection is
+              # unchanged. Nothing else schedules AMD GPUs. Verify GPU offload in
+              # `ollama ps` on next rollout before trusting this in production.
+              amd.com/gpu: "2"
           startupProbe:
             tcpSocket:
               port: 11434

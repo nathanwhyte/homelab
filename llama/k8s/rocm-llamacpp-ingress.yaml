@@ -5,8 +5,12 @@ metadata:
   name: llama-rocm-api-key
   namespace: llama
 type: Opaque
+# Never inline the key (BUG-1029: a real key was committed here). Create the
+# secret out-of-band before applying:
+#   kubectl -n llama create secret generic llama-rocm-api-key \
+#     --from-literal=API_KEY="$(openssl rand -base64 32)"
 stringData:
-  API_KEY: "***REMOVED-BUG-1029***"
+  API_KEY: "REPLACE_ME"
 
 ---
 apiVersion: traefik.io/v1alpha1
