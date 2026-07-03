@@ -19,6 +19,10 @@ spec:
       labels:
         app: omnipendium
     spec:
+      # Pull-only Harbor robot for the private omnipendium project
+      # (robot$omnipendium+omnipendium-pull; see README "Harbor pull auth")
+      imagePullSecrets:
+        - name: harbor-pull
       initContainers:
         - name: wait-for-db
           image: busybox:1.37

@@ -43,6 +43,18 @@ docker buildx build --platform linux/amd64 \
 kubectl rollout restart deployment/omnipendium -n omnipendium
 ```
 
+## Harbor pull auth
+
+The `omnipendium` Harbor project is **private** (unlike `homelab`), so the Deployment references a `harbor-pull` imagePullSecret backed by a pull-only project robot (`robot$omnipendium+omnipendium-pull`, no expiry). To recreate it:
+
+```bash
+# Harbor UI: omnipendium project → Robot Accounts → new pull-only robot, or API POST /api/v2.0/robots
+kubectl create secret docker-registry harbor-pull -n omnipendium \
+  --docker-server=registry.nathanwhyte.dev \
+  --docker-username='robot$omnipendium+omnipendium-pull' \
+  --docker-password='<robot secret>'
+```
+
 ## Verify
 
 ```bash
