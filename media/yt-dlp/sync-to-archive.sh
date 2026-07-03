@@ -5,10 +5,11 @@
 # on the cluster are LEFT ALONE (the local archive is the historical
 # record; the new PVC is a sparse overlay populated by the 6 CronJobs).
 #
-# Method: spin up a wemby-pinned alpine pod mounting the PVC, build a
-# tarball on-pod, copy it out and extract locally, then rsync from
-# staging -> local archive. rsync --ignore-existing implements the
-# deltas-only contract: any local file with the same path is skipped.
+# Method: spin up a wemby-pinned alpine pod with rsync installed,
+# mounting the PVC. Use rsync with kubectl exec as the transport so
+# rsync handles its own chunking — no tar streaming, no truncation.
+# rsync --ignore-existing implements the deltas-only contract: any
+# local file with the same path is skipped.
 #
 # Idempotent. Safe to re-run on a schedule; only new cluster files
 # incur network/disk cost.
@@ -38,7 +39,6 @@
 #   EXCLUDE_DIRS space-separated subdirs under REMOTE_ROOT to skip
 #                                           (default: "ad-hoc")
 #   POD_NAME    pod name to use                (default: yt-dlp-sync)
-#   TMP_DIR     local staging dir              (default: $TMPDIR/yt-dlp-sync)
 #   ONLY        restrict sync to one subdir of REMOTE_ROOT (e.g. "Study");
 #               the subdir is preserved under LOCAL (default: empty = all)
 
@@ -51,7 +51,6 @@ LOCAL="${LOCAL:-/Volumes/Archive/YouTube}"
 EXCLUDE_DIRS="${EXCLUDE_DIRS:-ad-hoc}"
 ONLY="${ONLY:-}"
 POD_NAME="${POD_NAME:-yt-dlp-sync}"
-TMP_DIR="${TMP_DIR:-$TMPDIR/yt-dlp-sync}"
 
 APPLY=0
 DELETE_LOCAL=0
@@ -77,16 +76,10 @@ for cmd in kubectl rsync jq; do
 	}
 done
 
-# Build --exclude args for the tar pipeline (one per excluded subdir).
-exclude_args=()
-for d in $EXCLUDE_DIRS; do
-	exclude_args+=(--exclude="$d")
-done
-
 # 1. Ensure local destination exists.
 [ -d "$LOCAL" ] || mkdir -p "$LOCAL"
-mkdir -p "$TMP_DIR"
 
+# 2. Spin up a pod with rsync installed, mounting the PVC.
 pod_overrides=$(jq -n \
 	--arg root "$REMOTE_ROOT" \
 	--arg pvc "$PVC" \
@@ -97,8 +90,7 @@ pod_overrides=$(jq -n \
 		containers: [{
 			name: "sync",
 			image: "alpine:3.20",
-			command: ["sh", "-c", "sleep 600"],
-			resources: {requests: {memory: "256Mi"}, limits: {memory: "512Mi"}},
+			command: ["sh", "-c", "apk add --no-cache rsync >/dev/null 2>&1 && sleep 3600"],
 			volumeMounts: [{name: "media", mountPath: $root}]
 		}],
 		volumes: [{
@@ -111,71 +103,79 @@ cleanup_pod() {
 	kubectl delete pod "$POD_NAME" -n "$NS" \
 		--grace-period=0 --force >/dev/null 2>&1 || true
 }
+
+if kubectl get pod "$POD_NAME" -n "$NS" >/dev/null 2>&1; then
+	cleanup_pod
+	kubectl wait --for=delete "pod/$POD_NAME" -n "$NS" --timeout=30s 2>/dev/null || sleep 2
+fi
 trap cleanup_pod EXIT
 
 echo "Bringing up sync pod $POD_NAME in ns=$NS, mounting $PVC at $REMOTE_ROOT ..."
 kubectl run "$POD_NAME" -n "$NS" \
 	--image=alpine:3.20 --restart=Never \
 	--overrides="$pod_overrides" \
-	--command -- sh -c "sleep 600" >/dev/null
+	--command -- sh -c "apk add --no-cache rsync >/dev/null 2>&1 && sleep 3600" >/dev/null
 
 kubectl wait --for=condition=Ready "pod/$POD_NAME" -n "$NS" --timeout=60s >/dev/null
 
-# 3. Build tarball inside the pod, then copy it out.
-#    Writing the tar on-pod avoids kubectl exec stream truncation on
-#    large transfers; the completed file is then streamed reliably.
-REMOTE_TAR="$REMOTE_ROOT/.sync-tmp/export.tar"
-stage="$TMP_DIR/stage-$$"
-mkdir -p "$stage"
+# Wait for rsync to be installed (apk runs in the entrypoint).
+echo "Waiting for rsync to install in pod ..."
+for _ in $(seq 1 30); do
+	if kubectl exec -n "$NS" "$POD_NAME" -- which rsync >/dev/null 2>&1; then
+		break
+	fi
+	sleep 1
+done
+if ! kubectl exec -n "$NS" "$POD_NAME" -- which rsync >/dev/null 2>&1; then
+	echo "ERROR: rsync failed to install in pod" >&2
+	exit 1
+fi
+
+# 3. Build rsync args.
+src="$REMOTE_ROOT/"
 if [ -n "$ONLY" ]; then
 	if ! kubectl exec -n "$NS" "$POD_NAME" -- test -d "$REMOTE_ROOT/$ONLY" 2>/dev/null; then
 		echo "ERROR: subdir '$ONLY' not found under $REMOTE_ROOT on the PVC" >&2
 		exit 1
 	fi
-	echo "Archiving $REMOTE_ROOT/$ONLY/ inside pod ..."
-	tar_args=(-cf "$REMOTE_TAR" -C "$REMOTE_ROOT" "${exclude_args[@]}" --exclude=".sync-tmp" "$ONLY")
-else
-	echo "Archiving $REMOTE_ROOT/ (minus: $EXCLUDE_DIRS) inside pod ..."
-	tar_args=(-cf "$REMOTE_TAR" -C "$REMOTE_ROOT" "${exclude_args[@]}" --exclude=".sync-tmp" .)
+	src="$REMOTE_ROOT/$ONLY"
+	# Preserve the subdir name under LOCAL.
+	LOCAL="$LOCAL/$ONLY"
+	[ -d "$LOCAL" ] || mkdir -p "$LOCAL"
 fi
-kubectl exec -n "$NS" "$POD_NAME" -- mkdir -p "$REMOTE_ROOT/.sync-tmp"
-kubectl exec -n "$NS" "$POD_NAME" -- tar "${tar_args[@]}"
-echo "Copying tarball from pod ..."
-kubectl exec -n "$NS" "$POD_NAME" -- cat "$REMOTE_TAR" | tar -xf - -C "$stage"
-kubectl exec -n "$NS" "$POD_NAME" -- rm -f "$REMOTE_TAR"
 
-# 4. rsync from stage -> local.
-rsync_args=(-a --ignore-existing --itemize-changes --human-readable)
+rsync_args=(-av --ignore-existing --human-readable)
+for d in $EXCLUDE_DIRS; do
+	rsync_args+=(--exclude="$d")
+done
 if [ "$DELETE_LOCAL" -eq 1 ]; then
 	echo "WARNING: --delete set; files on local with no cluster counterpart will be REMOVED"
 	rsync_args+=(--delete)
 fi
-
-rsync_summary='
-	/^>f/ { copied++ }
-	/^\.d/ { dir++ }
-	/^[*][^.]/ { changed++ }
-'
-
-echo "Syncing stage -> $LOCAL ..."
 if [ "$APPLY" -eq 0 ]; then
 	echo "DRY-RUN: pass --apply to actually copy."
-	rsync "${rsync_args[@]}" --dry-run "$stage/" "$LOCAL/" 2>&1 |
-		awk "$rsync_summary"'
-			END { printf "DRY-RUN would copy %d new files (skipped %d existing dirs)\n", copied+0, dir+0 }
-		'
-else
-	rsync "${rsync_args[@]}" "$stage/" "$LOCAL/" 2>&1 | tee "$TMP_DIR/last-rsync.log" |
-		awk "$rsync_summary"'
-			END { printf "Copied %d new files (skipped %d existing dirs, %d would-have-changed)\n", copied+0, dir+0, changed+0 }
-		'
+	rsync_args+=(--dry-run)
 fi
 
-# 5. Clean up old staging dirs (keep the current run for inspection).
-find "$TMP_DIR" -maxdepth 1 -name 'stage-*' -not -name "stage-$$" -type d -exec rm -rf {} + 2>/dev/null || true
+# 4. rsync using kubectl exec as the remote shell transport.
+#    rsync -e expects an ssh-like command that takes "host cmd..."
+#    args; this wrapper ignores the host and execs the rest in the pod.
+rsh_wrapper=$(mktemp)
+cat >"$rsh_wrapper" <<WRAPPER
+#!/bin/sh
+shift  # discard the host arg
+exec kubectl exec -i -n "$NS" "$POD_NAME" -- "\$@"
+WRAPPER
+chmod +x "$rsh_wrapper"
+
+echo "Syncing $src -> $LOCAL ..."
+rsync "${rsync_args[@]}" \
+	-e "$rsh_wrapper" \
+	pod:"$src/" "$LOCAL/"
+rm -f "$rsh_wrapper"
 
 echo
-echo "Done. Stage retained at: $stage"
+echo "Done."
 if [ "$APPLY" -eq 0 ]; then
 	echo "Re-run with --apply to actually copy. Add --delete to also drop"
 	echo "local files that no longer exist on the cluster."
