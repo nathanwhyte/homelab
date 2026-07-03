@@ -1,14 +1,328 @@
 # kube-prometheus-stack Helm Chart Values
+#
+# Reconstructed 2026-07-01 from `helm get values kube-prometheus-stack -n grafana`
+# (user-supplied) so deploy-grafana.sh reproduces the running release. The repo
+# file previously held only retention + storage; the live release carried the
+# full stack (scrape configs, grafana dashboards, node-exporter collectors, etc.).
+#
+# 2026-07-01: prometheus storageSpec storageClass longhorn-hdd -> longhorn-hdd-2x
+# (2 replicas) and storage 50Gi -> 100Gi to match the live PVC after manual
+# expansion. Alertmanager storage left on longhorn-hdd (unchanged).
+#
+# 2026-07-01: grafana admin password removed from values (was adminPassword:
+# Homelab@123). Now sourced from the externally-managed Secret `grafana-admin`
+# (keys admin-user / admin-password) via grafana.admin.existingSecret. That
+# secret is NOT chart-managed and is NOT committed (matches *secret*.yaml
+# gitignore) — create/rotate it out-of-band, e.g.:
+#   kubectl create secret generic grafana-admin -n grafana \
+#     --from-literal=admin-user=admin --from-literal=admin-password='<pw>'
+# then rotate the DB with `grafana cli admin reset-admin-password` and
+# restart the grafana pod so the reload sidecar picks up the new value.
 
-# Override: Prometheus retention
-# Applied directly via Prometheus CRD in grafana namespace (helm-manage via kubectl apply)
-
+alertmanager:
+  alertmanagerSpec:
+    nodeSelector:
+      kubernetes.io/hostname: timmy
+    resources:
+      limits:
+        cpu: 200m
+        memory: 256Mi
+      requests:
+        cpu: 100m
+        memory: 128Mi
+    storage:
+      volumeClaimTemplate:
+        spec:
+          accessModes:
+            - ReadWriteOnce
+          resources:
+            requests:
+              storage: 10Gi
+          storageClassName: longhorn-hdd
+  enabled: true
+defaultRules:
+  create: true
+  rules:
+    node: true
+    nodeExporterAlerting: true
+    nodeExporterRecording: true
+fullnameOverride: prom
+global:
+  rbac:
+    create: true
+grafana:
+  additionalDataSources:
+    - access: proxy
+      editable: false
+      isDefault: false
+      name: Loki
+      type: loki
+      url: http://loki-gateway.grafana.svc.cluster.local
+  admin:
+    existingSecret: grafana-admin
+    passwordKey: admin-password
+    userKey: admin-user
+  affinity:
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - podAffinityTerm:
+            labelSelector:
+              matchExpressions:
+                - key: app.kubernetes.io/name
+                  operator: In
+                  values:
+                    - prometheus
+            topologyKey: kubernetes.io/hostname
+          weight: 100
+  dashboardProviders:
+    dashboardproviders.yaml:
+      apiVersion: 1
+      providers:
+        - disableDeletion: false
+          editable: true
+          folder: ""
+          name: default
+          options:
+            path: /var/lib/grafana/dashboards/default
+          orgId: 1
+          type: file
+  dashboards:
+    default:
+      k8s-cluster:
+        datasource: Prometheus
+        folder: Kubernetes
+        gnetId: 7249
+        revision: 1
+      k8s-nodes:
+        datasource: Prometheus
+        folder: Kubernetes
+        gnetId: 15761
+        revision: 4
+      k8s-pods:
+        datasource: Prometheus
+        folder: Kubernetes
+        gnetId: 15757
+        revision: 4
+      loki-logs:
+        datasource: Loki
+        folder: Logs
+        gnetId: 12019
+        revision: 3
+      node-exporter:
+        datasource: Prometheus
+        folder: Kubernetes
+        gnetId: 1860
+        revision: 36
+  enabled: true
+  grafana.ini:
+    dashboards:
+      min_refresh_interval: 5s
+    datasources:
+      cache: true
+    rendering:
+      concurrent_render_request_limit: 5
+      render_timeout: 30s
+    server:
+      query_timeout: 60s
+  ingress:
+    annotations:
+      traefik.ingress.kubernetes.io/router.entrypoints: web
+    enabled: true
+    hosts:
+      - grafana.nathanwhyte.dev
+    ingressClassName: ""
+    path: /
+  livenessProbe:
+    failureThreshold: 10
+    httpGet:
+      path: /api/health
+      port: 3000
+    initialDelaySeconds: 60
+    periodSeconds: 10
+    successThreshold: 1
+    timeoutSeconds: 5
+  persistence:
+    enabled: true
+    existingClaim: grafana-storage-rwx
+    type: pvc
+  readinessProbe:
+    failureThreshold: 3
+    httpGet:
+      path: /api/health
+      port: 3000
+    initialDelaySeconds: 10
+    periodSeconds: 10
+    successThreshold: 1
+    timeoutSeconds: 5
+  replicas: 1
+  resources:
+    limits:
+      cpu: 250m
+      memory: 768Mi
+    requests:
+      cpu: 50m
+      memory: 128Mi
+  service:
+    port: 3000
+    type: ClusterIP
+kubeStateMetrics:
+  enabled: true
+  resources:
+    limits:
+      cpu: 200m
+      memory: 128Mi
+    requests:
+      cpu: 100m
+      memory: 64Mi
+nameOverride: prom
 prometheus:
+  enabled: true
   prometheusSpec:
-    retention: 3d      # was 7d, reduced to save disk
+    additionalScrapeConfigs:
+      - job_name: gpu-metrics
+        kubernetes_sd_configs:
+          - namespaces:
+              names:
+                - gpu-operator
+            role: endpoints
+        metrics_path: /metrics
+        relabel_configs:
+          - action: keep
+            regex: .*dcgm-exporter.*
+            source_labels:
+              - __meta_kubernetes_endpoints_name
+          - action: drop
+            regex: .*-node-feature-discovery-master
+            source_labels:
+              - __meta_kubernetes_endpoints_name
+          - action: replace
+            source_labels:
+              - __meta_kubernetes_pod_node_name
+            target_label: kubernetes_node
+        scheme: http
+        scrape_interval: 30s
+      - job_name: amd-gpu-metrics
+        metrics_path: /metrics
+        scrape_interval: 30s
+        static_configs:
+          - targets:
+              - amdgpu-exporter.kube-system.svc.cluster.local:9101
+      - job_name: ollama-metrics
+        scrape_interval: 30s
+        static_configs:
+          - labels:
+              node: timmy
+            targets:
+              - ollama.llama.svc:9111
+      - job_name: garage
+        scrape_interval: 30s
+        static_configs:
+          - targets:
+              - garage-0.garage-headless.garage.svc.cluster.local:3903
+              - garage-1.garage-headless.garage.svc.cluster.local:3903
+              - garage-2.garage-headless.garage.svc.cluster.local:3903
+    affinity:
+      podAntiAffinity:
+        preferredDuringSchedulingIgnoredDuringExecution:
+          - podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                  - key: app.kubernetes.io/name
+                    operator: In
+                    values:
+                      - grafana
+              topologyKey: kubernetes.io/hostname
+            weight: 100
+    enableLifecycle: true
+    enableRemoteWriteReceiver: true
+    externalLabels:
+      cluster: k8s
+    image:
+      pullPolicy: IfNotPresent
+      registry: quay.io
+      repository: prometheus/prometheus
+      sha: ""
+      tag: v3.7.3
+    nodeSelector:
+      kubernetes.io/hostname: timmy
+    podMonitorSelector: {}
+    podMonitorSelectorNilUsesHelmValues: false
+    resources:
+      limits:
+        cpu: 500m
+        memory: 2Gi
+      requests:
+        cpu: 200m
+        memory: 1Gi
+    retention: 7d
+    retentionSize: ""
+    ruleSelector: {}
+    ruleSelectorNilUsesHelmValues: false
+    scrapeInterval: 30s
+    serviceMonitorSelector: {}
+    serviceMonitorSelectorNilUsesHelmValues: false
     storageSpec:
       volumeClaimTemplate:
         spec:
+          accessModes:
+            - ReadWriteOnce
           resources:
             requests:
-              storage: 50Gi   # 3d at 30s scrape ~15-20Gi actual usage
+              storage: 100Gi
+          storageClassName: longhorn-hdd-2x
+    tsdb:
+      outOfOrderTimeWindow: 5m
+    version: v3.7.3
+  service:
+    nodePort: 30909
+    port: 9090
+    type: NodePort
+prometheus-node-exporter:
+  enabled: true
+  extraArgs:
+    - --collector.hwmon
+    - --collector.systemd
+    - --collector.textfile
+    - --collector.netdev
+    - --collector.netstat
+    - --collector.diskstats
+    - --collector.filesystem
+    - --collector.meminfo
+    - --collector.loadavg
+    - --collector.cpu
+  extraVolumeMounts:
+    - mountPath: /host/sys/class/hwmon
+      name: sys-class-hwmon
+      readOnly: true
+    - mountPath: /host/sys/class/thermal
+      name: sys-class-thermal
+      readOnly: true
+  extraVolumes:
+    - hostPath:
+        path: /sys/class/hwmon
+      name: sys-class-hwmon
+    - hostPath:
+        path: /sys/class/thermal
+      name: sys-class-thermal
+  hostIPC: false
+  hostNetwork: false
+  hostPID: true
+  resources:
+    limits:
+      cpu: 200m
+      memory: 256Mi
+    requests:
+      cpu: 100m
+      memory: 128Mi
+  securityContext:
+    runAsNonRoot: false
+    runAsUser: 0
+prometheusOperator:
+  enabled: true
+  resources:
+    limits:
+      cpu: 500m
+      memory: 512Mi
+    requests:
+      cpu: 100m
+      memory: 128Mi
