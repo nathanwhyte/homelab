@@ -1,0 +1,63 @@
+# Dedicated Postgres 16 + pgvector for the omnipendium service (stage 1).
+# Follows the per-app postgres pattern used elsewhere in the cluster
+# (coach, equal-risk, glossary) rather than a shared instance.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: omnipendium-db
+  namespace: omnipendium
+  labels:
+    app: omnipendium-db
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: omnipendium-db
+  template:
+    metadata:
+      labels:
+        app: omnipendium-db
+    spec:
+      containers:
+        - name: postgres
+          image: pgvector/pgvector:pg16
+          ports:
+            - containerPort: 5432
+              name: postgres
+          env:
+            - name: POSTGRES_DB
+              value: omnipendium
+            - name: POSTGRES_USER
+              value: omnipendium
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: omnipendium-db
+                  key: POSTGRES_PASSWORD
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          volumeMounts:
+            - name: db-data
+              mountPath: /var/lib/postgresql/data
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "omnipendium", "-d", "omnipendium"]
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            exec:
+              command: ["pg_isready", "-U", "omnipendium", "-d", "omnipendium"]
+            initialDelaySeconds: 30
+            periodSeconds: 30
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              memory: 1Gi
+      volumes:
+        - name: db-data
+          persistentVolumeClaim:
+            claimName: omnipendium-db-data

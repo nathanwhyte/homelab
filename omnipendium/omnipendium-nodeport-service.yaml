@@ -1,0 +1,20 @@
+# LAN/Tailscale NodePort for the omnipendium API (OV 31933 pattern).
+# Reachable on any node IP (or a tailnet node IP via the subnet routers)
+# at port 31940; protected by the Bearer API key enforced in the app.
+# No Cloudflare tunnel or TLS for stage 1 — Slack socket mode (TASK-1106)
+# needs no public endpoint.
+apiVersion: v1
+kind: Service
+metadata:
+  name: omnipendium-lan
+  namespace: omnipendium
+spec:
+  type: NodePort
+  ports:
+    - name: http
+      port: 8000
+      targetPort: 8000
+      nodePort: 31940
+      protocol: TCP
+  selector:
+    app: omnipendium
