@@ -5,11 +5,10 @@
 # on the cluster are LEFT ALONE (the local archive is the historical
 # record; the new PVC is a sparse overlay populated by the 6 CronJobs).
 #
-# Method: spin up a wemby-pinned alpine pod, tar up /downloads/ minus
-# the throwaway ad-hoc/ subdir, kubectl cp the tarball to a local tmp
-# dir, then rsync from tmp -> /Volumes/Archive/YouTube/. rsync's
-# --ignore-existing implements the deltas-only contract: any local
-# file with the same path is skipped, even if its mtime/size differ.
+# Method: spin up a wemby-pinned alpine pod mounting the PVC, build a
+# tarball on-pod, copy it out and extract locally, then rsync from
+# staging -> local archive. rsync --ignore-existing implements the
+# deltas-only contract: any local file with the same path is skipped.
 #
 # Idempotent. Safe to re-run on a schedule; only new cluster files
 # incur network/disk cost.
@@ -71,14 +70,12 @@ for arg in "$@"; do
 	esac
 done
 
-command -v kubectl >/dev/null 2>&1 || {
-	echo "missing required command: kubectl" >&2
-	exit 127
-}
-command -v rsync >/dev/null 2>&1 || {
-	echo "missing required command: rsync" >&2
-	exit 127
-}
+for cmd in kubectl rsync jq; do
+	command -v "$cmd" >/dev/null 2>&1 || {
+		echo "missing required command: $cmd" >&2
+		exit 127
+	}
+done
 
 # Build --exclude args for the tar pipeline (one per excluded subdir).
 exclude_args=()
@@ -86,22 +83,29 @@ for d in $EXCLUDE_DIRS; do
 	exclude_args+=(--exclude="$d")
 done
 
-# 1. Local destination must exist; create it if missing.
+# 1. Ensure local destination exists.
 [ -d "$LOCAL" ] || mkdir -p "$LOCAL"
 mkdir -p "$TMP_DIR"
 
-# 2. Build pod overrides via printf. Inline-JSON-construction via
-#    shell quoting is brittle (the line-continuation with `'"` segments
-#    confuses `sh -c` when invoked via bash -c on macOS); a one-shot
-#    printf is the path of least surprise.
-pod_overrides=$(printf '%s' \
-	'{"spec":{"nodeName":"wemby","restartPolicy":"Never",' \
-	'"securityContext":{"fsGroup":1000},' \
-	'"containers":[{"name":"sync","image":"alpine:3.20",' \
-	'"command":["sh","-c","sleep 600"],' \
-	'"volumeMounts":[{"name":"media","mountPath":"'"$REMOTE_ROOT"'"}]}],' \
-	'"volumes":[{"name":"media",' \
-	'"persistentVolumeClaim":{"claimName":"'"$PVC"'"}}]}}')
+pod_overrides=$(jq -n \
+	--arg root "$REMOTE_ROOT" \
+	--arg pvc "$PVC" \
+	'{spec: {
+		nodeName: "wemby",
+		restartPolicy: "Never",
+		securityContext: {fsGroup: 1000},
+		containers: [{
+			name: "sync",
+			image: "alpine:3.20",
+			command: ["sh", "-c", "sleep 600"],
+			resources: {requests: {memory: "256Mi"}, limits: {memory: "512Mi"}},
+			volumeMounts: [{name: "media", mountPath: $root}]
+		}],
+		volumes: [{
+			name: "media",
+			persistentVolumeClaim: {claimName: $pvc}
+		}]
+	}}')
 
 cleanup_pod() {
 	kubectl delete pod "$POD_NAME" -n "$NS" \
@@ -115,94 +119,64 @@ kubectl run "$POD_NAME" -n "$NS" \
 	--overrides="$pod_overrides" \
 	--command -- sh -c "sleep 600" >/dev/null
 
-# Wait for the pod to be Running (kubectl run returns before the
-# container is ready; kubectl cp would fail against a NotReady pod).
-for _ in $(seq 1 60); do
-	phase=$(kubectl get pod "$POD_NAME" -n "$NS" \
-		-o jsonpath='{.status.phase}' 2>/dev/null || true)
-	if [ "$phase" = "Running" ]; then
-		break
-	fi
-	sleep 1
-done
-if [ "$phase" != "Running" ]; then
-	echo "ERROR: pod $POD_NAME did not reach Running (last phase: $phase)" >&2
-	exit 1
-fi
+kubectl wait --for=condition=Ready "pod/$POD_NAME" -n "$NS" --timeout=60s >/dev/null
 
-# 3. Run tar inside the pod to stream the tree to stdout, redirect
-#    through kubectl exec to our local file. (kubectl cp uses tar
-#    under the hood; piping tar through kubectl exec gives the same
-#    effect but lets us pick the exclude list explicitly.)
-#
-#    When ONLY is set, stream just that one subdir of REMOTE_ROOT
-#    instead of the whole tree; the subdir is preserved in the archive
-#    layout so it lands under LOCAL/<ONLY>/ (mirrors the full-sync shape).
-local_tar="$TMP_DIR/yt-dlp-cluster-$(date +%Y%m%d-%H%M%S).tar"
+# 3. Build tarball inside the pod, then copy it out.
+#    Writing the tar on-pod avoids kubectl exec stream truncation on
+#    large transfers; the completed file is then streamed reliably.
+REMOTE_TAR="$REMOTE_ROOT/.sync-tmp/export.tar"
+stage="$TMP_DIR/stage-$$"
+mkdir -p "$stage"
 if [ -n "$ONLY" ]; then
 	if ! kubectl exec -n "$NS" "$POD_NAME" -- test -d "$REMOTE_ROOT/$ONLY" 2>/dev/null; then
 		echo "ERROR: subdir '$ONLY' not found under $REMOTE_ROOT on the PVC" >&2
 		exit 1
 	fi
-	echo "Streaming $REMOTE_ROOT/$ONLY/ from pod to $local_tar ..."
-	# tar's -C flag treats the path as relative; we cd into REMOTE_ROOT
-	# so the archive layout mirrors the destination dir names exactly.
-	tar_args=(-cf - -C "$REMOTE_ROOT" "${exclude_args[@]}" "$ONLY")
+	echo "Archiving $REMOTE_ROOT/$ONLY/ inside pod ..."
+	tar_args=(-cf "$REMOTE_TAR" -C "$REMOTE_ROOT" "${exclude_args[@]}" --exclude=".sync-tmp" "$ONLY")
 else
-	echo "Streaming $REMOTE_ROOT/ (minus: $EXCLUDE_DIRS) from pod to $local_tar ..."
-	tar_args=(-cf - -C "$REMOTE_ROOT" "${exclude_args[@]}" .)
+	echo "Archiving $REMOTE_ROOT/ (minus: $EXCLUDE_DIRS) inside pod ..."
+	tar_args=(-cf "$REMOTE_TAR" -C "$REMOTE_ROOT" "${exclude_args[@]}" --exclude=".sync-tmp" .)
 fi
-kubectl exec -n "$NS" "$POD_NAME" -- tar "${tar_args[@]}" \
-	>"$local_tar"
+kubectl exec -n "$NS" "$POD_NAME" -- mkdir -p "$REMOTE_ROOT/.sync-tmp"
+kubectl exec -n "$NS" "$POD_NAME" -- tar "${tar_args[@]}"
+echo "Copying tarball from pod ..."
+kubectl exec -n "$NS" "$POD_NAME" -- cat "$REMOTE_TAR" | tar -xf - -C "$stage"
+kubectl exec -n "$NS" "$POD_NAME" -- rm -f "$REMOTE_TAR"
 
-# 4. Extract the tar into a sibling staging dir (so rsync sees a
-#    real tree, not nested in a tarball).
-stage="$TMP_DIR/stage-$$"
-mkdir -p "$stage"
-tar -xf "$local_tar" -C "$stage"
-rm -f "$local_tar"
-
-# 5. rsync from stage -> local. --ignore-existing implements
-#    "deltas only, never overwrite or delete local files".
-#    --itemize-changes prints one line per action, which we grep
-#    to count deltas (>) and skips (.).
+# 4. rsync from stage -> local.
 rsync_args=(-a --ignore-existing --itemize-changes --human-readable)
 if [ "$DELETE_LOCAL" -eq 1 ]; then
 	echo "WARNING: --delete set; files on local with no cluster counterpart will be REMOVED"
 	rsync_args+=(--delete)
 fi
 
+rsync_summary='
+	/^>f/ { copied++ }
+	/^\.d/ { dir++ }
+	/^[*][^.]/ { changed++ }
+'
+
 echo "Syncing stage -> $LOCAL ..."
 if [ "$APPLY" -eq 0 ]; then
 	echo "DRY-RUN: pass --apply to actually copy."
 	rsync "${rsync_args[@]}" --dry-run "$stage/" "$LOCAL/" 2>&1 |
-		awk '
-			/^>f/ { copied++ }
-			/^\.d/ { dir++ }
-			/^[*][^.]/ { changed++ }
-			END {
-				printf "DRY-RUN would copy %d new files (skipped %d existing dirs)\n",
-					copied+0, dir+0
-			}
+		awk "$rsync_summary"'
+			END { printf "DRY-RUN would copy %d new files (skipped %d existing dirs)\n", copied+0, dir+0 }
 		'
 else
 	rsync "${rsync_args[@]}" "$stage/" "$LOCAL/" 2>&1 | tee "$TMP_DIR/last-rsync.log" |
-		awk -v log="$TMP_DIR/last-rsync.log" '
-			/^>f/ { copied++ }
-			/^\.d/ { dir++ }
-			/^[*][^.]/ { changed++ }
-			END {
-				printf "Copied %d new files (skipped %d existing dirs, %d would have-changed)\n",
-					copied+0, dir+0, changed+0
-			}
+		awk "$rsync_summary"'
+			END { printf "Copied %d new files (skipped %d existing dirs, %d would-have-changed)\n", copied+0, dir+0, changed+0 }
 		'
 fi
 
-# 6. Tidy up: keep the stage dir in TMP_DIR for inspection but
-#    delete older tarballs. Latest run's stage is preserved.
-find "$TMP_DIR" -maxdepth 1 -name 'yt-dlp-cluster-*.tar' -mmin +60 -delete 2>/dev/null || true
+# 5. Clean up old staging dirs (keep the current run for inspection).
+find "$TMP_DIR" -maxdepth 1 -name 'stage-*' -not -name "stage-$$" -type d -exec rm -rf {} + 2>/dev/null || true
 
 echo
 echo "Done. Stage retained at: $stage"
-echo "Re-run with --apply to actually copy. Add --delete to also drop"
-echo "local files that no longer exist on the cluster."
+if [ "$APPLY" -eq 0 ]; then
+	echo "Re-run with --apply to actually copy. Add --delete to also drop"
+	echo "local files that no longer exist on the cluster."
+fi
