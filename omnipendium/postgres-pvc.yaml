@@ -1,0 +1,13 @@
+# Longhorn-backed volume for the dedicated omnipendium Postgres (pgvector).
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: omnipendium-db-data
+  namespace: omnipendium
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: longhorn-omnipendium
+  resources:
+    requests:
+      storage: 5Gi

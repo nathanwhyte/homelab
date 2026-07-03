@@ -1,0 +1,16 @@
+# In-cluster ClusterIP for the omnipendium API.
+apiVersion: v1
+kind: Service
+metadata:
+  name: omnipendium
+  namespace: omnipendium
+  labels:
+    app: omnipendium # matched by omnipendium-servicemonitor.yaml
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 8000
+      targetPort: 8000
+  selector:
+    app: omnipendium

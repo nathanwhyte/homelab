@@ -1,0 +1,42 @@
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: omnipendium-alerts
+  namespace: omnipendium
+  labels:
+    app: omnipendium
+spec:
+  groups:
+    - name: omnipendium.rules
+      rules:
+        - alert: OmnipendiumDown
+          expr: >-
+            up{namespace="omnipendium", job="omnipendium"} == 0
+            or absent(up{namespace="omnipendium", job="omnipendium"})
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Omnipendium scrape target down or absent for 5m"
+            description: "Prometheus cannot scrape the omnipendium /metrics endpoint — the pod may be down, the Service label/port may have drifted, or the ServiceMonitor was deleted."
+        - alert: OmnipendiumPodRestarting
+          expr: increase(kube_pod_container_status_restarts_total{namespace="omnipendium"}[30m]) > 3
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Container in omnipendium namespace restarted >3 times in 30m"
+            description: "A container ({{ $labels.pod }}/{{ $labels.container }}) is crash-looping — check `kubectl logs -n omnipendium {{ $labels.pod }} --previous` for the failure."
+        - alert: OmnipendiumHigh5xx
+          expr: >-
+            sum(rate(http_requests_total{namespace="omnipendium", handler!="/metrics", status="5xx"}[5m]))
+            /
+            sum(rate(http_requests_total{namespace="omnipendium", handler!="/metrics"}[5m]))
+            > 0.05
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Omnipendium 5xx rate above 5% of traffic for 10m"
+            description: 'More than 5% of omnipendium HTTP responses are 5xx (prometheus-fastapi-instrumentator groups status codes, so the label is status="5xx"). Check app logs and the database connection.'

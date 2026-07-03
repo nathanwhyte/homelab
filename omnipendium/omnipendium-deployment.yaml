@@ -1,0 +1,77 @@
+# Omnipendium API — FastAPI + Postgres/pgvector knowledge base (PROJ-028 stage 1).
+# Image is built from ~/code/omnipendium (Dockerfile) and pushed to Harbor.
+# Alembic migrations run in an initContainer against the same image, so the
+# schema is always at head before the API starts.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: omnipendium
+  namespace: omnipendium
+  labels:
+    app: omnipendium
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: omnipendium
+  template:
+    metadata:
+      labels:
+        app: omnipendium
+    spec:
+      # Pull-only Harbor robot for the private omnipendium project
+      # (robot$omnipendium+omnipendium-pull; see README "Harbor pull auth")
+      imagePullSecrets:
+        - name: harbor-pull
+      initContainers:
+        - name: wait-for-db
+          image: busybox:1.37
+          command:
+            - sh
+            - -c
+            - until nc -z omnipendium-db 5432; do echo waiting for db; sleep 2; done
+        - name: migrate
+          image: registry.nathanwhyte.dev/omnipendium/omnipendium:latest
+          command: ["alembic", "upgrade", "head"]
+          workingDir: /app
+          env:
+            - name: OMNIPENDIUM_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: omnipendium-db
+                  key: OMNIPENDIUM_DATABASE_URL
+      containers:
+        - name: omnipendium
+          image: registry.nathanwhyte.dev/omnipendium/omnipendium:latest
+          ports:
+            - containerPort: 8000
+              name: http
+          env:
+            - name: OMNIPENDIUM_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: omnipendium-db
+                  key: OMNIPENDIUM_DATABASE_URL
+            - name: OMNIPENDIUM_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: omnipendium-api-key
+                  key: OMNIPENDIUM_API_KEY
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 15
+            periodSeconds: 30
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              memory: 1Gi

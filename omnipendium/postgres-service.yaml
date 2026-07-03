@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: omnipendium-db
+  namespace: omnipendium
+spec:
+  type: ClusterIP
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: 5432
+  selector:
+    app: omnipendium-db
