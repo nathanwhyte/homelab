@@ -66,3 +66,20 @@ curl http://100.95.215.105:31940/health
 ```
 
 No Cloudflare tunnel, Ingress, or TLS for stage 1 — the stage-2 Slack bot uses socket mode (TASK-1106), which needs no public endpoint.
+
+## Monitoring
+
+The app exposes `prometheus-fastapi-instrumentator` metrics at `/metrics` (PRO-246). The path is on the API-key middleware's public allowlist so in-cluster Prometheus can scrape it unauthenticated — note this also makes `/metrics` reachable on NodePort 31940 (accepted for stage 1; LAN/Tailscale only).
+
+| File                              | Purpose                                                                   |
+| --------------------------------- | ------------------------------------------------------------------------- |
+| `omnipendium-servicemonitor.yaml` | Scrapes the `omnipendium` ClusterIP Service, port `http`, `/metrics`, 30s |
+| `omnipendium-alerts.yaml`         | `OmnipendiumDown`, `OmnipendiumPodRestarting`, `OmnipendiumHigh5xx`       |
+
+The kube-prometheus-stack Prometheus runs with an empty `serviceMonitorSelector`, so the ServiceMonitor is picked up from the `omnipendium` namespace automatically (same pattern as `viking/manifests/openviking-servicemonitor.yaml`). The instrumentator groups status codes, so the 5xx alert matches `status="5xx"`.
+
+```bash
+kubectl apply -f omnipendium-servicemonitor.yaml -f omnipendium-alerts.yaml
+# verify the target appears (Prometheus UI → Status → Targets) or:
+curl http://192.168.1.x:31940/metrics | head
+```

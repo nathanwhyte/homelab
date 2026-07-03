@@ -4,6 +4,8 @@ kind: Service
 metadata:
   name: omnipendium
   namespace: omnipendium
+  labels:
+    app: omnipendium # matched by omnipendium-servicemonitor.yaml
 spec:
   type: ClusterIP
   ports:

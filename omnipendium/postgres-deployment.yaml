@@ -22,7 +22,7 @@ spec:
     spec:
       containers:
         - name: postgres
-          image: pgvector/pgvector:pg16
+          image: pgvector/pgvector:pg18
           ports:
             - containerPort: 5432
               name: postgres

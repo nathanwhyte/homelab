@@ -1,0 +1,23 @@
+---
+# ServiceMonitor for the omnipendium FastAPI service. The app exposes
+# prometheus-fastapi-instrumentator metrics at /metrics (unauthenticated —
+# the path is on the API-key middleware's public allowlist). The
+# kube-prometheus-stack Prometheus is configured with an empty
+# serviceMonitorSelector, so any ServiceMonitor in any namespace is
+# auto-scraped.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: omnipendium
+  namespace: omnipendium
+  labels:
+    app: omnipendium
+spec:
+  selector:
+    matchLabels:
+      app: omnipendium
+  endpoints:
+    - port: http
+      interval: 30s
+      path: /metrics
+      scrapeTimeout: 10s
