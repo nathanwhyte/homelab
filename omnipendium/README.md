@@ -37,9 +37,10 @@ kubectl apply -f omnipendium-deployment.yaml -f omnipendium-service.yaml -f omni
 ```bash
 cd ~/code/omnipendium
 docker buildx build --platform linux/amd64 \
-  -t registry.nathanwhyte.dev/homelab/omnipendium:$(git rev-parse --short HEAD) --push .
-# bump the two image: tags in omnipendium-deployment.yaml, then
-kubectl apply -f omnipendium-deployment.yaml
+  -t registry.nathanwhyte.dev/omnipendium/omnipendium:latest \
+  -t registry.nathanwhyte.dev/omnipendium/omnipendium:$(git rev-parse --short HEAD) --push .
+# manifests track :latest, so a restart picks up the new image
+kubectl rollout restart deployment/omnipendium -n omnipendium
 ```
 
 ## Verify

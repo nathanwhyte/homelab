@@ -27,7 +27,7 @@ spec:
             - -c
             - until nc -z omnipendium-db 5432; do echo waiting for db; sleep 2; done
         - name: migrate
-          image: registry.nathanwhyte.dev/homelab/omnipendium:90a232a
+          image: registry.nathanwhyte.dev/omnipendium/omnipendium:latest
           command: ["alembic", "upgrade", "head"]
           workingDir: /app
           env:
@@ -38,7 +38,7 @@ spec:
                   key: OMNIPENDIUM_DATABASE_URL
       containers:
         - name: omnipendium
-          image: registry.nathanwhyte.dev/homelab/omnipendium:90a232a
+          image: registry.nathanwhyte.dev/omnipendium/omnipendium:latest
           ports:
             - containerPort: 8000
               name: http
