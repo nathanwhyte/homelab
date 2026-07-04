@@ -15,7 +15,7 @@
 | ----- | ------------------------------- | ---------------- | ----------------------------------------------------------------------------------------------------- |
 | manu  | agent                           | GTX 1080 8 GB    | llamacpp-cuda-ov (VLM, **always on, replicas=1**); hermes-agent (not pinned to manu)                  |
 | timmy | server (Control Plane + worker) | RX 9070 XT 16 GB | ollama, openviking, ov-vectordb (9070 XT now dedicated to Ollama; embedder moved to wemby 2026-06-29) |
-| wemby | agent                           | GTX 1060 6 GB    | **embedder-qwen-cuda** (Qwen3-Embedding-4B, CUDA, primary); `embedder-llamacpp` (retired, replicas=0) |
+| wemby | agent                           | GTX 1060 6 GB    | **embedder-qwen-cuda** (Qwen3-Embedding-4B, CUDA, primary); `embedder-llamacpp` (deleted 2026-07-04)  |
 
 ## AMD / RDNA4 guardrails
 

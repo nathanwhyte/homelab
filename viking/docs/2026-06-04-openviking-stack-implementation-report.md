@@ -10,6 +10,12 @@ _Generated 2026-06-04. Reflects the post-2026-06-03 production cutover state (`a
 > - `vlm.max_concurrent` raised from 2 → 4 (IDEA-1042 Phase 4)
 > - `ov-console` still runs `v0.3.14` (console not bumped during the v0.4.4 upgrade)
 >
+> **2026-07-04 update:**
+>
+> - `lock-cleanup` busybox sidecar **removed** from the openviking Deployment (commit `5d0e0ff`). Upstream GH #2015 (SUBTREE lock held through semantic refresh) was fixed by the v0.4.4 upgrade and verified by the reproducer `viking/tests/test_subtree_lock_fix.py` (two concurrent sibling writes, 1.4s each, 0.0s skew). Pod now runs containers `openviking` + `ov-exporter` (init: `config-rewrite`, `temp-cleanup`, `role-value-patch`). The `OpenVikingLocksAccumulating` PrometheusRule alert remains as a regression tripwire; manual cleanup if it ever fires: `find /app/data/viking -name '.path.ovlock' -delete` inside the pod.
+> - Embedder is now Qwen3-Embedding-4B on **wemby** (GTX 1060, CUDA, 2560-dim, Service `embedder-qwen:8080`, live since 2026-06-29 — moved from timmy ROCm to free the 9070 XT for Ollama).
+> - `embedder-llamacpp` (nomic-embed-text-v1.5) Deployment and Service **deleted** from the cluster.
+>
 > For current state, see `CLAUDE.md` (service routing, LLM config) and `HARDWARE.md` (node specs).
 
 This document describes how the OpenViking ("OV") stack is implemented in the
@@ -259,6 +265,8 @@ The **main container** serves on port 1933, mounts the rendered config
 
 A sidecar **`lock-cleanup`** (busybox) loops every 300s deleting orphaned
 `.path.ovlock` files and empty temp dirs — a janitor for stuck AGFS locks.
+_[superseded — see 2026-07-04 note at top: sidecar removed after GH #2015 was
+verified fixed on v0.4.4]_
 
 ### 3.2 `ov-vectordb`
 

@@ -201,7 +201,7 @@ uv run viking/tools/compendium-sync.py \
 
 - `--order interleave` — round-robins across parent directories instead of walking one directory at a time. Two entries in the same parent (e.g., `bugs/BUG-007.md`, `bugs/BUG-008.md`) both need the same parent's `.overview.md` regenerated, which serializes on the subtree lock. Interleaving spreads the same-parent clashes out in time so the lock is usually free by the time the second entry's parent-refresh runs.
 - `--delay 5` — 5s pause between submissions, a soft rate cap that keeps the embedding/semantic queues from saturating.
-- `--no-wait` — do not block on `ov wait` after each entry; submit and move on. The long-poll `ov wait` endpoint (`/api/v1/system/wait`) is broken on v0.3.14 (returns "Network error" after 60s even when healthy), so `--no-wait` skips it. Use `--wait-drain` at the end of the run to block until the queue is empty instead.
+- `--no-wait` — do not block on `ov wait` after each entry; submit and move on. The long-poll `ov wait` endpoint (`/api/v1/system/wait`) was broken on v0.3.14 (returned "Network error" after 60s even when healthy; not re-verified on v0.4.4), so `--no-wait` skips it. Use `--wait-drain` at the end of the run to block until the queue is empty instead.
 
 Queue-drain options (both poll `ov status --output json` — the `status["result"]["components"]["queue"]["status"]` TOTAL row — rather than the broken `ov wait`):
 
@@ -302,5 +302,5 @@ Only `resources`, `user`, `agent`, and `session` are addressable through the pub
 ## Shared LLM infrastructure
 
 - VLM: Qwen3-8B on `llamacpp-vlm.viking.svc` (generic Service → `llamacpp-cuda-ov` on manu, NVIDIA GTX 1080; **steady-state replicas=1, always on** since 2026-06-11 — the 1080 is VLM-exclusive, no on-demand scaling)
-- Embedder: Qwen3-Embedding-4B Q8_0 on `embedder-qwen.viking.svc:8080` (wemby, NVIDIA GTX 1060, CUDA since 2026-06-29; 2560-dim, last-token pooling, `--parallel 1 --ctx-size 8192 --batch-size 512`). Replaced nomic-embed-text-v1.5 in IDEA-1042 cutover (2026-06-22); moved from timmy ROCm to wemby CUDA to free the 9070 XT for Ollama. `embedder-qwen-rocm` (timmy, ROCm, replicas=0) and `embedder-llamacpp` (wemby, nomic 768-dim, retired replicas=0) both retained as rollback paths.
+- Embedder: Qwen3-Embedding-4B Q8_0 on `embedder-qwen.viking.svc:8080` (wemby, NVIDIA GTX 1060, CUDA since 2026-06-29; 2560-dim, last-token pooling, `--parallel 1 --ctx-size 8192 --batch-size 512`). Replaced nomic-embed-text-v1.5 in IDEA-1042 cutover (2026-06-22); moved from timmy ROCm to wemby CUDA to free the 9070 XT for Ollama. `embedder-qwen-rocm` (timmy, ROCm, replicas=0) is retained as the rollback path; `embedder-llamacpp` (wemby, nomic 768-dim) was deleted from the cluster on 2026-07-04 (manifest kept in repo for history only).
 - Manual reindex: `POST /api/v1/content/reindex {"uri": "<dir>", "regenerate": true, "wait": true}`
