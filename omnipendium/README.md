@@ -43,6 +43,26 @@ docker buildx build --platform linux/amd64 \
 kubectl rollout restart deployment/omnipendium -n omnipendium
 ```
 
+## Embeddings
+
+The API embeds entry text and search queries via ollama (`nomic-embed-text`, 768d — must match the corpus already loaded in the DB). The Deployment pins the full env set (`OMNIPENDIUM_EMBEDDING_PROVIDER/MODEL/DIMENSIONS`, `OMNIPENDIUM_OLLAMA_BASE_URL`) because the app's config validator refuses to boot on mismatched provider/model pairs.
+
+The endpoint is the cluster ollama in the `llama` namespace, which does **not** ship embedding models by default — pull once before (or after) deploying:
+
+```bash
+kubectl exec -n llama deploy/ollama -- ollama pull nomic-embed-text
+```
+
+Failure modes while the model is missing: entry writes still succeed but log an `embedding_skipped` audit row (no vector stored), and `POST /v1/entries/search` returns 503. Once the model is pulled, backfill any gap from the service repo:
+
+```bash
+cd ~/code/omnipendium
+uv run python _scripts/backfill_embeddings.py --dry-run   # list missing
+uv run python _scripts/backfill_embeddings.py             # re-embed
+```
+
+Note: the in-cluster llama.cpp embedders (`embedder-qwen`, retired `embedder-llamacpp` in the `viking` namespace) speak the OpenAI `/v1` API and are not usable here — the service only implements ollama's `/api/embed`.
+
 ## Harbor pull auth
 
 The `omnipendium` Harbor project is **private** (unlike `homelab`), so the Deployment references a `harbor-pull` imagePullSecret backed by a pull-only project robot (`robot$omnipendium+omnipendium-pull`, no expiry). To recreate it:
