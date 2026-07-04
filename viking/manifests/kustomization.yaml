@@ -1,0 +1,27 @@
+---
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Canonical OpenViking rebuild set. Secrets are intentionally excluded because
+# real values must live in untracked *.secret.yaml files created from examples.
+resources:
+  - namespace.yaml
+  - openviking-configmap.yaml
+  - openviking-standalone-configmap.yaml
+  - openviking-exporter-configmap.yaml
+  - openviking-dashboard-configmap.yaml
+  - ov-vectordb-pvc.yaml
+  - ov-vectordb-deployment.yaml
+  - ov-vectordb-service.yaml
+  - embedder-qwen-cuda-deployment.yaml
+  - llamacpp-vlm-service.yaml
+  - cuda-llamacpp-deployment.yaml
+  - cuda-llamacpp-service.yaml
+  - openviking-pvc.yaml
+  - openviking-deployment.yaml
+  - openviking-service.yaml
+  - openviking-nodeport-service.yaml
+  - openviking-ingress.yaml
+  - openviking-mcp-ingress.yaml
+  - openviking-servicemonitor.yaml
+  - openviking-alerts.yaml
