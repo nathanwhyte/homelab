@@ -6,24 +6,48 @@ MANIFESTS="$SCRIPT_DIR/manifests"
 KUBECTL=(kubectl)
 
 if [ -n "${KUBECTL_CONTEXT:-}" ]; then
-  KUBECTL+=(--context "$KUBECTL_CONTEXT")
+	KUBECTL+=(--context "$KUBECTL_CONTEXT")
 fi
 
+APPLIED=()
+
 apply() {
-  echo "apply: $1"
-  "${KUBECTL[@]}" apply -f "$MANIFESTS/$1"
+	echo "apply: $1"
+	"${KUBECTL[@]}" apply -f "$MANIFESTS/$1"
+	APPLIED+=("$1")
+}
+
+# The script's apply list and kustomization.yaml both describe the active
+# resource set; a manifest added to only one of them is exactly the drift
+# class that rotted the previous version of this script. Secrets are
+# script-only by design (kustomization excludes untracked *.secret.yaml).
+verify_manifest_set() {
+	local expected actual
+	expected=$(awk '/^resources:/ { in_list = 1; next }
+    in_list && sub(/^  - /, "") { print; next }
+    in_list { exit }' "$MANIFESTS/kustomization.yaml" | sort)
+	actual=$(printf '%s\n' "${APPLIED[@]}" | grep -v '\.secret\.yaml$' | sort)
+	if [ "$expected" != "$actual" ]; then
+		echo "ERROR: deploy script and kustomization.yaml disagree on the active manifest set" >&2
+		echo "--- only in kustomization.yaml:" >&2
+		comm -23 <(printf '%s\n' "$expected") <(printf '%s\n' "$actual") >&2
+		echo "--- only in this script:" >&2
+		comm -13 <(printf '%s\n' "$expected") <(printf '%s\n' "$actual") >&2
+		return 1
+	fi
+	echo "manifest set check: script matches kustomization.yaml"
 }
 
 require_secret_file() {
-  local file="$1"
-  local example="$2"
-  local description="$3"
-  if [ ! -f "$MANIFESTS/$file" ]; then
-    echo "ERROR: missing $description: $MANIFESTS/$file" >&2
-    echo "       copy $MANIFESTS/$example to $MANIFESTS/$file and fill in real values" >&2
-    return 1
-  fi
-  apply "$file"
+	local file="$1"
+	local example="$2"
+	local description="$3"
+	if [ ! -f "$MANIFESTS/$file" ]; then
+		echo "ERROR: missing $description: $MANIFESTS/$file" >&2
+		echo "       copy $MANIFESTS/$example to $MANIFESTS/$file and fill in real values" >&2
+		return 1
+	fi
+	apply "$file"
 }
 
 echo "=== Deploying canonical OpenViking stack to viking namespace ==="
@@ -66,6 +90,9 @@ apply openviking-mcp-ingress.yaml
 # on kube-prometheus-stack CRDs being installed in the cluster.
 apply openviking-servicemonitor.yaml
 apply openviking-alerts.yaml
+
+echo ""
+verify_manifest_set
 
 echo ""
 echo "=== Waiting for rollouts ==="
