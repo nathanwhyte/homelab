@@ -25,7 +25,7 @@ spec:
             severity: warning
           annotations:
             summary: "OpenViking has >20 stale .path.ovlock files for 5m"
-            description: "Stale subtree lifecycle locks are accumulating in AGFS — the lock-cleanup sidecar may not be keeping up, signaling GH #2015-style contention."
+            description: "Stale subtree lifecycle locks are accumulating in AGFS. GH #2015 was fixed in v0.4.4 and the lock-cleanup sidecar removed (IMPR-1007 Phase 3) — accumulation now signals a regression or crashed writes; clean up manually with: find /app/data/viking -name '.path.ovlock' -delete"
         - alert: OpenVikingQueueNotDraining
           expr: openviking_queue_pending{queue="total"} > 5 and delta(openviking_queue_pending{queue="total"}[15m]) >= 0
           for: 15m

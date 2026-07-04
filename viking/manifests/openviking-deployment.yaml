@@ -165,28 +165,6 @@ spec:
               mountPath: /ov-patch
             - name: data
               mountPath: /app/data
-        - name: lock-cleanup
-          image: busybox:1.37
-          command:
-            - /bin/sh
-            - -c
-          args:
-            - |-
-              while true; do
-                find /app/data/viking -name '.path.ovlock' -delete 2>/dev/null || true;
-                find /app/data/viking/default/temp -type d -empty -delete 2>/dev/null || true;
-                sleep 30;
-              done
-          resources:
-            requests:
-              cpu: 10m
-              memory: 16Mi
-            limits:
-              cpu: 50m
-              memory: 32Mi
-          volumeMounts:
-            - name: data
-              mountPath: /app/data
         - name: ov-exporter
           # Reuses the OV image so the `ov` CLI is available for `ov status`
           # polling. Script is mounted from the openviking-exporter ConfigMap;
