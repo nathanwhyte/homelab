@@ -39,15 +39,8 @@ else
 	echo "  viking/manifests/openviking-s3-credentials.secret.yaml only when using S3 AGFS."
 fi
 
-# Auth secret for Traefik basicAuth ingress
-if [ -f "$SCRIPT_DIR/manifests/openviking-auth.secret.yaml" ]; then
-	echo "Applying auth secret..."
-	kubectl apply -f "$SCRIPT_DIR/manifests/openviking-auth.secret.yaml"
-else
-	echo "Auth secret not found."
-	echo "  Ingress will reject all requests until the secret exists."
-	echo "  See viking/manifests/openviking-auth.secret.yaml.example for instructions."
-fi
+# Auth posture: API-key-only (IMPR-1007 Phase 4, 2026-07-04). OV enforces
+# root_api_key on every tier; no Traefik BasicAuth layer.
 
 # Local embedding service and CUDA llama.cpp backend first. OpenViking is
 # pinned to timmy and points at these in-namespace services.
@@ -64,8 +57,8 @@ kubectl apply -f "$SCRIPT_DIR/manifests/ov-vectordb-pvc.yaml"
 kubectl apply -f "$SCRIPT_DIR/manifests/ov-vectordb-deployment.yaml"
 kubectl apply -f "$SCRIPT_DIR/manifests/ov-vectordb-service.yaml"
 
-# Traefik IngressRoute (repo manifest; the live public route uses the Cloudflare
-# tunnel — see CLAUDE.md Endpoint tiers. NOTE: openviking-basicauth is not deployed.)
+# Traefik Ingress (repo manifest; the live public route uses the Cloudflare
+# tunnel — see CLAUDE.md Endpoint tiers. Auth is OV API-key-only; no BasicAuth.)
 kubectl apply -f "$SCRIPT_DIR/manifests/openviking-ingress.yaml"
 
 echo ""

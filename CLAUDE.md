@@ -34,7 +34,7 @@ ROCm / RDNA4 guardrails for timmy's RX 9070 XT (the 1080 and 1060 are NVIDIA-onl
 | k8s-dashboard-lan-only    | kubernetes-dashboard | ipAllowList    | CRD exists, **not wired to the Ingress** — Traefik CRD provider bug, see external-routes.md (IMPR-1029) |
 | longhorn-lan-only         | longhorn-system      | ipAllowList    | CRD exists, **not wired to the Ingress** — Traefik CRD provider bug, see external-routes.md (IMPR-1029) |
 
-> `openviking-basicauth` (viking ns, basicAuth) exists in repo manifest (`viking/manifests/openviking-basicauth-middleware.yaml`) and is referenced by the Traefik Ingress in `viking/manifests/openviking-ingress.yaml`. The `/mcp` path has its own Ingress (`viking/manifests/openviking-mcp-ingress.yaml`) without BasicAuth so the native OpenViking MCP endpoint can be reached via Bearer token. `context.nathanwhyte.dev` is also reachable through the Cloudflare tunnel (see [External routes](reference/external-routes.md), marked "both"). Auth is OV `root_api_key` on every tier.
+> OpenViking auth posture is **API-key-only** (IMPR-1007 Phase 4 decision, confirmed 2026-07-04): OV enforces `root_api_key` on every tier, no Traefik BasicAuth layer. The BasicAuth middleware manifest, secret example, and the dangling ingress annotation were removed 2026-07-04 (the Middleware was never deployed live, and the Cloudflare tunnel bypasses Traefik anyway). The `/mcp` path has its own Ingress (`viking/manifests/openviking-mcp-ingress.yaml`) so the native OpenViking MCP endpoint can be reached via Bearer token. `context.nathanwhyte.dev` is also reachable through the Cloudflare tunnel (see [External routes](reference/external-routes.md), marked "both").
 
 OV endpoint tiers and the full external-routes + Tailscale tables live in [reference/external-routes.md](reference/external-routes.md).
 
@@ -42,7 +42,6 @@ OV endpoint tiers and the full external-routes + Tailscale tables live in [refer
 
 | Secret                    | NS     | Purpose                                                                                                       |
 | ------------------------- | ------ | ------------------------------------------------------------------------------------------------------------- |
-| openviking-auth-secret    | viking | htpasswd for BasicAuth middleware                                                                             |
 | openviking-api-key        | viking | OV API key (injected into coordinator, merge, workers)                                                        |
 | openviking-s3-credentials | viking | Garage S3 credentials (injected into openviking config)                                                       |
 | ollama-api-key            | llama  | Bearer token for auth proxy                                                                                   |
