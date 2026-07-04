@@ -57,6 +57,20 @@ spec:
                 secretKeyRef:
                   name: omnipendium-api-key
                   key: OMNIPENDIUM_API_KEY
+            # Embeddings — provider/model/dims must be changed together and must
+            # match the corpus already loaded in the DB (nomic-embed-text, 768d).
+            # The app's config validator fails boot on mismatched pairs, so these
+            # are pinned explicitly rather than relying on image defaults.
+            - name: OMNIPENDIUM_EMBEDDING_PROVIDER
+              value: "ollama"
+            - name: OMNIPENDIUM_EMBEDDING_MODEL
+              value: "nomic-embed-text"
+            - name: OMNIPENDIUM_EMBEDDING_DIMENSIONS
+              value: "768"
+            # Cluster ollama (llama namespace). nomic-embed-text must be pulled
+            # there before embeddings work — see README "Embeddings".
+            - name: OMNIPENDIUM_OLLAMA_BASE_URL
+              value: "http://ollama.llama.svc:11434"
           readinessProbe:
             httpGet:
               path: /health
