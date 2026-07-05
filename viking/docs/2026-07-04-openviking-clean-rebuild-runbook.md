@@ -6,7 +6,7 @@ Rebuild the OpenViking deployment from a small canonical set instead of replayin
 
 ## Current canonical architecture
 
-- `openviking` on `timmy`, single replica, `Recreate`, image `ghcr.io/volcengine/openviking:v0.4.4`.
+- `openviking` on `timmy`, single replica, `Recreate`, image `ghcr.io/volcengine/openviking:v0.4.7` (v0.4.5 fixed the trusted-mode Role serialization upstream, so the former `role-value-patch` init container is gone; see `viking/docs/2026-07-04-impr-1032-phase-a-precheck.md`).
 - AGFS storage: Garage S3 bucket `openviking-agfs` via `openviking-s3-credentials`.
 - Vector DB: `ov-vectordb` HTTP backend on `timmy`, 2560 dimensions.
 - Embedder: `embedder-qwen-cuda` on `wemby` GTX 1060, Qwen3-Embedding-4B, service `embedder-qwen:8080`.
@@ -38,7 +38,6 @@ Create these from the corresponding `.example` files before a true rebuild:
 
 - `viking/manifests/openviking-api-key.secret.yaml`
 - `viking/manifests/openviking-s3-credentials.secret.yaml`
-
 
 Do not commit the real secret files.
 

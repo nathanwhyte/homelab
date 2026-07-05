@@ -1,6 +1,6 @@
 # OpenViking Organization Guide
 
-This project uses [OpenViking](https://github.com/volcengine/OpenViking) (v0.4.4) as a persistent knowledge base for AI agents.
+This project uses [OpenViking](https://github.com/volcengine/OpenViking) (v0.4.7) as a persistent knowledge base for AI agents.
 
 ## Core principle: Progressive addition, not bulk indexing
 
@@ -201,7 +201,7 @@ uv run viking/tools/compendium-sync.py \
 
 - `--order interleave` — round-robins across parent directories instead of walking one directory at a time. Two entries in the same parent (e.g., `bugs/BUG-007.md`, `bugs/BUG-008.md`) both need the same parent's `.overview.md` regenerated, which serializes on the subtree lock. Interleaving spreads the same-parent clashes out in time so the lock is usually free by the time the second entry's parent-refresh runs.
 - `--delay 5` — 5s pause between submissions, a soft rate cap that keeps the embedding/semantic queues from saturating.
-- `--no-wait` — do not block on `ov wait` after each entry; submit and move on. The long-poll `ov wait` endpoint (`/api/v1/system/wait`) was broken on v0.3.14 (returned "Network error" after 60s even when healthy; not re-verified on v0.4.4), so `--no-wait` skips it. Use `--wait-drain` at the end of the run to block until the queue is empty instead.
+- `--no-wait` — do not block on `ov wait` after each entry; submit and move on. The long-poll `ov wait` endpoint (`/api/v1/system/wait`) was broken on v0.3.14 (returned "Network error" after 60s even when healthy; not re-verified on v0.4.4 or v0.4.7), so `--no-wait` skips it. Use `--wait-drain` at the end of the run to block until the queue is empty instead.
 
 Queue-drain options (both poll `ov status --output json` — the `status["result"]["components"]["queue"]["status"]` TOTAL row — rather than the broken `ov wait`):
 
