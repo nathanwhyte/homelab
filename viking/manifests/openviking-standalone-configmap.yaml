@@ -5,6 +5,10 @@ metadata:
   name: openviking-standalone-config
   namespace: viking
 data:
+  # git.enabled is forced off: v0.4.6+ defaults it on and inherits the Garage
+  # S3 backend from storage.agfs, which would silently start writing .ovgit
+  # object trees to the openviking-agfs bucket at the v0.4.7 bump. Opt in
+  # deliberately if VikingFS snapshots are ever wanted (IMPR-1032).
   ov.conf: |
     {
       "default_account": "default",
@@ -32,6 +36,9 @@ data:
             "use_path_style": true
           }
         }
+      },
+      "git": {
+        "enabled": false
       },
       "code": {
         "code_summary_mode": "ast"

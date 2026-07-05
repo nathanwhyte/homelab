@@ -26,8 +26,9 @@ bump is clear**; no migration steps required, one init container drops out.
 
 1. `ov status` pending **and** in-progress = 0 (coordinate with any running compendium-sync).
 2. Live-state snapshot into `viking/snapshots/` (pattern from IMPR-1007 Phase 0), including the `ov-vectordb` PVC.
-3. Post-rollout smoke: `/health`, `ov search` read path, `compendium-sync.py sync --limit 1`, `viking/tests/test_subtree_lock_fix.py`, vikingdb health in `ov status`.
-4. Upgrade local `ov` CLI to 0.4.7 in the same window.
+3. Post-rollout smoke: `openviking-server doctor` (in-pod, now part of `deploy-openviking.sh`), `/health`, `ov search` read path, `compendium-sync.py sync --limit 1`, `viking/tests/test_subtree_lock_fix.py`, vikingdb health in `ov status`.
+4. Local `ov` CLI: uv tool already at 0.4.7; remove the stale root-owned shadow first (`sudo rm /usr/local/bin/ov`).
+5. Re-apply `openviking-standalone-configmap.yaml` before the pod restart — it now pins `git.enabled: false` so the v0.4.6+ snapshot default can't start writing `.ovgit` trees to Garage unannounced.
 
 ## Sources
 

@@ -101,6 +101,12 @@ echo "=== Waiting for rollouts ==="
 "${KUBECTL[@]}" -n viking rollout status deployment/llamacpp-cuda-ov --timeout=900s
 "${KUBECTL[@]}" -n viking rollout status deployment/openviking --timeout=300s
 
+# First-party config/provider validation (embedding + VLM auth reachability).
+# Run inside the pod so it sees the rendered ov.conf and cluster DNS.
+echo ""
+echo "=== openviking-server doctor ==="
+"${KUBECTL[@]}" -n viking exec deploy/openviking -c openviking -- openviking-server doctor --config /app/.openviking/ov.conf
+
 echo ""
 echo "=== OpenViking deployed ==="
 echo "Internal: http://openviking.viking.svc.cluster.local:1933"
