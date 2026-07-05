@@ -77,49 +77,15 @@ spec:
           volumeMounts:
             - name: data
               mountPath: /app/data
-        - name: role-value-patch
-          image: ghcr.io/volcengine/openviking:v0.4.4
-          command:
-            - /bin/sh
-            - -c
-          args:
-            - |
-              python3 -c "
-              import os, re, shutil
-              src = '/app/.venv/lib/python3.13/site-packages/openviking'
-              dst = '/ov-patch/openviking'
-              shutil.copytree(src, dst, dirs_exist_ok=True)
-              for root, dirs, files in os.walk(dst):
-                  for f in files:
-                      if not f.endswith('.py'):
-                          continue
-                      path = os.path.join(root, f)
-                      text = open(path, 'r', encoding='utf-8').read()
-                      new_text = re.sub(r'\.role\.value\b', '.role', text)
-                      # Role is a str subclass, not an enum; replace enum-style
-                      # iteration over Role with the built-in role constants.
-                      new_text = re.sub(
-                          r'\{r\.value for r in Role\}',
-                          '{Role.ROOT, Role.ADMIN, Role.USER}',
-                          new_text,
-                      )
-                      if new_text != text:
-                          open(path, 'w', encoding='utf-8').write(new_text)
-                          print('patched', path)
-              print('role.value patch done')
-              "
-          volumeMounts:
-            - name: ov-patch
-              mountPath: /ov-patch
       containers:
         - name: openviking
-          image: ghcr.io/volcengine/openviking:v0.4.4
+          # v0.4.5 fixed the Role serialization bug upstream, so the former
+          # role-value-patch init container (and its /ov-patch PYTHONPATH
+          # override) is gone as of the v0.4.7 bump (IMPR-1032 Phase B).
+          image: ghcr.io/volcengine/openviking:v0.4.7
           ports:
             - containerPort: 1933
               name: http
-          env:
-            - name: PYTHONPATH
-              value: /ov-patch
           resources:
             requests:
               # Single-instance local AGFS keeps indexing, queue work, and file
@@ -161,8 +127,6 @@ spec:
               mountPath: /app/.openviking/ov.conf
               subPath: ov.conf
               readOnly: true
-            - name: ov-patch
-              mountPath: /ov-patch
             - name: data
               mountPath: /app/data
         - name: ov-exporter
@@ -172,7 +136,7 @@ spec:
           # `ov language en` runs once at container start to clear v0.4.x's
           # first-run language gate (the gate persists state under
           # ~/.openviking/, which is the container's HOME).
-          image: ghcr.io/volcengine/openviking:v0.4.4
+          image: ghcr.io/volcengine/openviking:v0.4.7
           command:
             - /bin/sh
             - -c
@@ -239,8 +203,6 @@ spec:
           configMap:
             name: openviking-standalone-config
         - name: config-out
-          emptyDir: {}
-        - name: ov-patch
           emptyDir: {}
         - name: exporter-script
           configMap:
