@@ -67,6 +67,7 @@ apply openviking-configmap.yaml
 apply openviking-standalone-configmap.yaml
 apply openviking-exporter-configmap.yaml
 apply openviking-dashboard-configmap.yaml
+apply openviking-native-dashboard-configmap.yaml
 
 # Storage and model-serving dependencies before the OpenViking API pod. OpenViking
 # readiness depends on both the HTTP vectordb and the embedding/VLM services.

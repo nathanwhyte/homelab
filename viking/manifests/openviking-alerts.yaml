@@ -8,6 +8,44 @@ metadata:
     app: openviking
 spec:
   groups:
+    # Native v0.4.7 metric families (server.observability.metrics — IMPR-1032
+    # Phase C). These are the go-forward rules.
+    - name: openviking.native.rules
+      rules:
+        - alert: OpenVikingServiceNotReady
+          expr: openviking_service_readiness == 0
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "OpenViking reports a service component not ready for 5m"
+            description: "Native readiness gauge is 0 — a dependency (vectordb, embedder, VLM) or the server itself is unhealthy."
+        - alert: OpenVikingStaleLocks
+          expr: openviking_lock_stale > 0
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "OpenViking reports stale locks for 10m"
+            description: "Potentially stale lock handles — the ERR-1014 signature (poisoned lock_handoff / abandoned client handle). Remedy: kubectl rollout restart deploy/openviking -n viking after the queue drains."
+        - alert: OpenVikingNativeQueueNotDraining
+          expr: sum(openviking_queue_pending) > 5 and (sum(openviking_queue_pending) - sum(openviking_queue_pending offset 15m)) >= 0
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "OpenViking queue pending not decreasing over 15m (native metrics)"
+            description: "Total pending is above 5 and has not fallen in 15m — indexing is stalled (VLM saturation, lock contention, or a poisoned message; see ERR-1014)."
+        - alert: OpenVikingQueueErrors
+          expr: sum(increase(openviking_queue_errors_total[15m])) > 0
+          for: 0m
+          labels:
+            severity: warning
+          annotations:
+            summary: "OpenViking queue processed errors in the last 15m"
+            description: "openviking_queue_errors_total increased — check pod logs for the failing queue."
+    # Exporter-sidecar rules (ov-exporter, port 9210). Kept during the Phase C
+    # parity window; retire with the sidecar once the native rules have soaked.
     - name: openviking.rules
       rules:
         - alert: OpenVikingDown

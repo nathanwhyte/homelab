@@ -51,7 +51,21 @@ data:
         "port": 1933,
         "workers": 2,
         "root_api_key": "${API_KEY}",
-        "auth_mode": "trusted"
+        "auth_mode": "trusted",
+        "public_base_url": "https://context.nathanwhyte.dev",
+        "temp_upload": {
+          "default_mode": "local"
+        },
+        "observability": {
+          "metrics": {
+            "enabled": true,
+            "exporters": {
+              "prometheus": {
+                "enabled": true
+              }
+            }
+          }
+        }
       },
       "log": {
         "level": "INFO",
