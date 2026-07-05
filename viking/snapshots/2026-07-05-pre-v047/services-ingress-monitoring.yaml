@@ -1,0 +1,377 @@
+apiVersion: v1
+items:
+- apiVersion: v1
+  kind: Service
+  metadata:
+    annotations:
+      kubectl.kubernetes.io/last-applied-configuration: |
+        {"apiVersion":"v1","kind":"Service","metadata":{"annotations":{},"labels":{"app":"embedder-qwen-cuda"},"name":"embedder-qwen","namespace":"viking"},"spec":{"ports":[{"name":"http","port":8080,"protocol":"TCP","targetPort":8000}],"selector":{"app":"embedder-qwen-cuda"},"type":"ClusterIP"}}
+    creationTimestamp: "2026-06-22T21:06:57Z"
+    labels:
+      app: embedder-qwen-cuda
+    name: embedder-qwen
+    namespace: viking
+    resourceVersion: "47272248"
+    uid: d206c061-992f-4be0-a0d3-fc0017880bb6
+  spec:
+    clusterIP: 10.43.249.51
+    clusterIPs:
+    - 10.43.249.51
+    internalTrafficPolicy: Cluster
+    ipFamilies:
+    - IPv4
+    ipFamilyPolicy: SingleStack
+    ports:
+    - name: http
+      port: 8080
+      protocol: TCP
+      targetPort: 8000
+    selector:
+      app: embedder-qwen-cuda
+    sessionAffinity: None
+    type: ClusterIP
+  status:
+    loadBalancer: {}
+- apiVersion: v1
+  kind: Service
+  metadata:
+    annotations:
+      kubectl.kubernetes.io/last-applied-configuration: |
+        {"apiVersion":"v1","kind":"Service","metadata":{"annotations":{},"name":"llamacpp-cuda-llm","namespace":"viking"},"spec":{"ports":[{"name":"http","port":80,"protocol":"TCP","targetPort":8000}],"selector":{"app":"llamacpp-cuda-ov"},"type":"ClusterIP"}}
+    creationTimestamp: "2026-05-10T05:55:16Z"
+    name: llamacpp-cuda-llm
+    namespace: viking
+    resourceVersion: "34040145"
+    uid: 5a7f380b-60f4-47c4-b8d3-84790f9deeed
+  spec:
+    clusterIP: 10.43.143.100
+    clusterIPs:
+    - 10.43.143.100
+    internalTrafficPolicy: Cluster
+    ipFamilies:
+    - IPv4
+    ipFamilyPolicy: SingleStack
+    ports:
+    - name: http
+      port: 80
+      protocol: TCP
+      targetPort: 8000
+    selector:
+      app: llamacpp-cuda-ov
+    sessionAffinity: None
+    type: ClusterIP
+  status:
+    loadBalancer: {}
+- apiVersion: v1
+  kind: Service
+  metadata:
+    annotations:
+      kubectl.kubernetes.io/last-applied-configuration: |
+        {"apiVersion":"v1","kind":"Service","metadata":{"annotations":{},"name":"llamacpp-vlm","namespace":"viking"},"spec":{"ports":[{"name":"http","port":80,"protocol":"TCP","targetPort":8000}],"selector":{"vlm-pool":"true"},"type":"ClusterIP"}}
+    creationTimestamp: "2026-06-02T16:13:38Z"
+    name: llamacpp-vlm
+    namespace: viking
+    resourceVersion: "39981976"
+    uid: 5507d5f6-977b-4ffb-94e3-6cc9a5c9a7e4
+  spec:
+    clusterIP: 10.43.99.113
+    clusterIPs:
+    - 10.43.99.113
+    internalTrafficPolicy: Cluster
+    ipFamilies:
+    - IPv4
+    ipFamilyPolicy: SingleStack
+    ports:
+    - name: http
+      port: 80
+      protocol: TCP
+      targetPort: 8000
+    selector:
+      vlm-pool: "true"
+    sessionAffinity: None
+    type: ClusterIP
+  status:
+    loadBalancer: {}
+- apiVersion: v1
+  kind: Service
+  metadata:
+    annotations:
+      kubectl.kubernetes.io/last-applied-configuration: |
+        {"apiVersion":"v1","kind":"Service","metadata":{"annotations":{},"labels":{"app":"openviking"},"name":"openviking","namespace":"viking"},"spec":{"ports":[{"name":"http","port":1933,"protocol":"TCP","targetPort":1933},{"name":"metrics","port":9210,"protocol":"TCP","targetPort":9210}],"selector":{"app":"openviking"},"type":"ClusterIP"}}
+    creationTimestamp: "2026-05-10T05:55:16Z"
+    labels:
+      app: openviking
+    name: openviking
+    namespace: viking
+    resourceVersion: "45162806"
+    uid: c68044aa-1b9f-43d4-9093-dd6441b28a3b
+  spec:
+    clusterIP: 10.43.253.4
+    clusterIPs:
+    - 10.43.253.4
+    internalTrafficPolicy: Cluster
+    ipFamilies:
+    - IPv4
+    ipFamilyPolicy: SingleStack
+    ports:
+    - name: http
+      port: 1933
+      protocol: TCP
+      targetPort: 1933
+    - name: metrics
+      port: 9210
+      protocol: TCP
+      targetPort: 9210
+    selector:
+      app: openviking
+    sessionAffinity: None
+    type: ClusterIP
+  status:
+    loadBalancer: {}
+- apiVersion: v1
+  kind: Service
+  metadata:
+    annotations:
+      kubectl.kubernetes.io/last-applied-configuration: |
+        {"apiVersion":"v1","kind":"Service","metadata":{"annotations":{},"name":"openviking-lan","namespace":"viking"},"spec":{"ports":[{"name":"http","nodePort":31933,"port":1933,"protocol":"TCP","targetPort":1933}],"selector":{"app":"openviking"},"type":"NodePort"}}
+    creationTimestamp: "2026-06-21T20:08:24Z"
+    name: openviking-lan
+    namespace: viking
+    resourceVersion: "45104260"
+    uid: d26bc87c-e99a-4670-bdad-0ab83ecf2217
+  spec:
+    clusterIP: 10.43.153.75
+    clusterIPs:
+    - 10.43.153.75
+    externalTrafficPolicy: Cluster
+    internalTrafficPolicy: Cluster
+    ipFamilies:
+    - IPv4
+    ipFamilyPolicy: SingleStack
+    ports:
+    - name: http
+      nodePort: 31933
+      port: 1933
+      protocol: TCP
+      targetPort: 1933
+    selector:
+      app: openviking
+    sessionAffinity: None
+    type: NodePort
+  status:
+    loadBalancer: {}
+- apiVersion: v1
+  kind: Service
+  metadata:
+    annotations:
+      kubectl.kubernetes.io/last-applied-configuration: |
+        {"apiVersion":"v1","kind":"Service","metadata":{"annotations":{},"labels":{"app":"ov-vectordb"},"name":"ov-vectordb","namespace":"viking"},"spec":{"ports":[{"name":"http","port":5000,"protocol":"TCP","targetPort":5000}],"selector":{"app":"ov-vectordb"},"type":"ClusterIP"}}
+    creationTimestamp: "2026-06-02T16:31:42Z"
+    labels:
+      app: ov-vectordb
+    name: ov-vectordb
+    namespace: viking
+    resourceVersion: "39985282"
+    uid: 672f25e0-8436-4c14-902b-6fdc095a7f39
+  spec:
+    clusterIP: 10.43.180.49
+    clusterIPs:
+    - 10.43.180.49
+    internalTrafficPolicy: Cluster
+    ipFamilies:
+    - IPv4
+    ipFamilyPolicy: SingleStack
+    ports:
+    - name: http
+      port: 5000
+      protocol: TCP
+      targetPort: 5000
+    selector:
+      app: ov-vectordb
+    sessionAffinity: None
+    type: ClusterIP
+  status:
+    loadBalancer: {}
+- apiVersion: networking.k8s.io/v1
+  kind: Ingress
+  metadata:
+    annotations:
+      cert-manager.io/cluster-issuer: letsencrypt-prod
+      kubectl.kubernetes.io/last-applied-configuration: |
+        {"apiVersion":"networking.k8s.io/v1","kind":"Ingress","metadata":{"annotations":{"cert-manager.io/cluster-issuer":"letsencrypt-prod","traefik.ingress.kubernetes.io/router.entrypoints":"websecure","traefik.ingress.kubernetes.io/router.tls":"true"},"name":"openviking-ingress","namespace":"viking"},"spec":{"ingressClassName":"traefik","rules":[{"host":"context.nathanwhyte.dev","http":{"paths":[{"backend":{"service":{"name":"openviking","port":{"number":1933}}},"path":"/","pathType":"Prefix"}]}}],"tls":[{"hosts":["context.nathanwhyte.dev"],"secretName":"openviking-tls"}]}}
+      traefik.ingress.kubernetes.io/router.entrypoints: websecure
+      traefik.ingress.kubernetes.io/router.tls: "true"
+    creationTimestamp: "2026-05-10T05:55:16Z"
+    generation: 1
+    name: openviking-ingress
+    namespace: viking
+    resourceVersion: "48744580"
+    uid: 05bd81a3-0d94-476e-ba88-96c2fae9ffe1
+  spec:
+    ingressClassName: traefik
+    rules:
+    - host: context.nathanwhyte.dev
+      http:
+        paths:
+        - backend:
+            service:
+              name: openviking
+              port:
+                number: 1933
+          path: /
+          pathType: Prefix
+    tls:
+    - hosts:
+      - context.nathanwhyte.dev
+      secretName: openviking-tls
+  status:
+    loadBalancer:
+      ingress:
+      - ip: 192.168.1.10
+      - ip: 192.168.1.19
+      - ip: 192.168.1.9
+- apiVersion: networking.k8s.io/v1
+  kind: Ingress
+  metadata:
+    annotations:
+      cert-manager.io/cluster-issuer: letsencrypt-prod
+      kubectl.kubernetes.io/last-applied-configuration: |
+        {"apiVersion":"networking.k8s.io/v1","kind":"Ingress","metadata":{"annotations":{"cert-manager.io/cluster-issuer":"letsencrypt-prod","traefik.ingress.kubernetes.io/router.entrypoints":"websecure","traefik.ingress.kubernetes.io/router.tls":"true"},"name":"openviking-mcp","namespace":"viking"},"spec":{"ingressClassName":"traefik","rules":[{"host":"context.nathanwhyte.dev","http":{"paths":[{"backend":{"service":{"name":"openviking","port":{"number":1933}}},"path":"/mcp","pathType":"Prefix"}]}}],"tls":[{"hosts":["context.nathanwhyte.dev"]}]}}
+      traefik.ingress.kubernetes.io/router.entrypoints: websecure
+      traefik.ingress.kubernetes.io/router.tls: "true"
+    creationTimestamp: "2026-06-01T18:19:50Z"
+    generation: 1
+    name: openviking-mcp
+    namespace: viking
+    resourceVersion: "48364774"
+    uid: 9b0a0638-f715-421b-b8bb-8558cb629550
+  spec:
+    ingressClassName: traefik
+    rules:
+    - host: context.nathanwhyte.dev
+      http:
+        paths:
+        - backend:
+            service:
+              name: openviking
+              port:
+                number: 1933
+          path: /mcp
+          pathType: Prefix
+    tls:
+    - hosts:
+      - context.nathanwhyte.dev
+  status:
+    loadBalancer:
+      ingress:
+      - ip: 192.168.1.10
+      - ip: 192.168.1.19
+      - ip: 192.168.1.9
+- apiVersion: networking.k8s.io/v1
+  kind: Ingress
+  metadata:
+    annotations:
+      kubectl.kubernetes.io/last-applied-configuration: |
+        {"apiVersion":"networking.k8s.io/v1","kind":"Ingress","metadata":{"annotations":{"traefik.ingress.kubernetes.io/router.entrypoints":"web","traefik.ingress.kubernetes.io/router.middlewares":"viking-openviking-https-redirect@kubernetescrd"},"name":"openviking-redirect","namespace":"viking"},"spec":{"ingressClassName":"traefik","rules":[{"host":"context.nathanwhyte.dev","http":{"paths":[{"backend":{"service":{"name":"openviking","port":{"number":1933}}},"path":"/","pathType":"Prefix"}]}}]}}
+      traefik.ingress.kubernetes.io/router.entrypoints: web
+      traefik.ingress.kubernetes.io/router.middlewares: viking-openviking-https-redirect@kubernetescrd
+    creationTimestamp: "2026-05-10T05:55:16Z"
+    generation: 1
+    name: openviking-redirect
+    namespace: viking
+    resourceVersion: "48364781"
+    uid: fb0a80ad-1fd8-4e53-918b-ea2ed106f20d
+  spec:
+    ingressClassName: traefik
+    rules:
+    - host: context.nathanwhyte.dev
+      http:
+        paths:
+        - backend:
+            service:
+              name: openviking
+              port:
+                number: 1933
+          path: /
+          pathType: Prefix
+  status:
+    loadBalancer:
+      ingress:
+      - ip: 192.168.1.10
+      - ip: 192.168.1.19
+      - ip: 192.168.1.9
+- apiVersion: monitoring.coreos.com/v1
+  kind: ServiceMonitor
+  metadata:
+    annotations:
+      kubectl.kubernetes.io/last-applied-configuration: |
+        {"apiVersion":"monitoring.coreos.com/v1","kind":"ServiceMonitor","metadata":{"annotations":{},"labels":{"app":"openviking"},"name":"openviking","namespace":"viking"},"spec":{"endpoints":[{"interval":"30s","path":"/metrics","port":"metrics","scrapeTimeout":"10s"}],"selector":{"matchLabels":{"app":"openviking"}}}}
+    creationTimestamp: "2026-06-22T01:07:21Z"
+    generation: 1
+    labels:
+      app: openviking
+    name: openviking
+    namespace: viking
+    resourceVersion: "45162834"
+    uid: cfc92fbf-d91d-4ae6-afd2-f3d5ec71d2f3
+  spec:
+    endpoints:
+    - interval: 30s
+      path: /metrics
+      port: metrics
+      scrapeTimeout: 10s
+    selector:
+      matchLabels:
+        app: openviking
+- apiVersion: monitoring.coreos.com/v1
+  kind: PrometheusRule
+  metadata:
+    annotations:
+      kubectl.kubernetes.io/last-applied-configuration: |
+        {"apiVersion":"monitoring.coreos.com/v1","kind":"PrometheusRule","metadata":{"annotations":{},"labels":{"app":"openviking"},"name":"openviking-alerts","namespace":"viking"},"spec":{"groups":[{"name":"openviking.rules","rules":[{"alert":"OpenVikingDown","annotations":{"description":"ov-exporter's last poll cycle failed (ov status or lock count). OV may be down or the exporter lost its API key.","summary":"OpenViking exporter reports OV unreachable for 5m"},"expr":"openviking_up == 0","for":"5m","labels":{"severity":"warning"}},{"alert":"OpenVikingLocksAccumulating","annotations":{"description":"Stale subtree lifecycle locks are accumulating in AGFS. GH #2015 was fixed in v0.4.4 and the lock-cleanup sidecar removed (IMPR-1007 Phase 3) — accumulation now signals a regression or crashed writes; clean up manually with: find /app/data/viking -name '.path.ovlock' -delete","summary":"OpenViking has \u003e20 stale .path.ovlock files for 5m"},"expr":"openviking_lock_path_ovlock_count \u003e 20","for":"5m","labels":{"severity":"warning"}},{"alert":"OpenVikingQueueNotDraining","annotations":{"description":"Queue depth is above 5 and has not fallen in 15m — indexing is stalled (VLM saturation or lock contention).","summary":"OpenViking total queue pending not decreasing over 15m"},"expr":"openviking_queue_pending{queue=\"total\"} \u003e 5 and delta(openviking_queue_pending{queue=\"total\"}[15m]) \u003e= 0","for":"15m","labels":{"severity":"warning"}}]}]}}
+      prometheus-operator-validated: "true"
+    creationTimestamp: "2026-06-22T01:42:44Z"
+    generation: 2
+    labels:
+      app: openviking
+    name: openviking-alerts
+    namespace: viking
+    resourceVersion: "48738457"
+    uid: b543f412-7454-459d-a7bb-4c0d25c2c842
+  spec:
+    groups:
+    - name: openviking.rules
+      rules:
+      - alert: OpenVikingDown
+        annotations:
+          description: ov-exporter's last poll cycle failed (ov status or lock count).
+            OV may be down or the exporter lost its API key.
+          summary: OpenViking exporter reports OV unreachable for 5m
+        expr: openviking_up == 0
+        for: 5m
+        labels:
+          severity: warning
+      - alert: OpenVikingLocksAccumulating
+        annotations:
+          description: 'Stale subtree lifecycle locks are accumulating in AGFS. GH
+            #2015 was fixed in v0.4.4 and the lock-cleanup sidecar removed (IMPR-1007
+            Phase 3) — accumulation now signals a regression or crashed writes; clean
+            up manually with: find /app/data/viking -name ''.path.ovlock'' -delete'
+          summary: OpenViking has >20 stale .path.ovlock files for 5m
+        expr: openviking_lock_path_ovlock_count > 20
+        for: 5m
+        labels:
+          severity: warning
+      - alert: OpenVikingQueueNotDraining
+        annotations:
+          description: Queue depth is above 5 and has not fallen in 15m — indexing
+            is stalled (VLM saturation or lock contention).
+          summary: OpenViking total queue pending not decreasing over 15m
+        expr: openviking_queue_pending{queue="total"} > 5 and delta(openviking_queue_pending{queue="total"}[15m])
+          >= 0
+        for: 15m
+        labels:
+          severity: warning
+kind: List
+metadata:
+  resourceVersion: ""
