@@ -85,7 +85,7 @@ data:
       },
       "vlm": {
         "provider": "openai",
-        "model": "glm-5.1:cloud",
+        "model": "qwen3.5:cloud",
         "api_key": "${OLLAMA_KEY}",
         "api_base": "http://chat-ollama.llama.svc.cluster.local:11434/v1",
         "max_concurrent": 4,
