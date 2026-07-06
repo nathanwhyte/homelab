@@ -87,7 +87,11 @@ singleBinary:
       - ReadWriteOnce
     enabled: true
     size: 50Gi
-    storageClass: longhorn-hdd-2x
+    # 2026-07-06 (IMPR-1038 rollout): longhorn-hdd-2x -> longhorn-hdd. The 07-01
+    # reconstruction recorded the wrong class — the live PVC (storage-loki-0) is
+    # longhorn-hdd. Any mismatch here makes every helm upgrade fail on the
+    # immutable volumeClaimTemplates (the 07-06 10:46 failed release, and ours).
+    storageClass: longhorn-hdd
   replicas: 1
   resources:
     limits:
