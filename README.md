@@ -92,7 +92,7 @@ AI agent with mem0 persistent memory (OpenViking knowledge-base tools), SSH term
 Hierarchical RAG engine with auto-generated L0/L1/L2 semantic indices over a filesystem-shaped knowledge tree.
 
 - S3-backed file storage (Garage), HTTP vector DB, embedder on timmy (RX 9070 XT, ROCm, since 2026-07-06), VLM on manu (CUDA)
-- API at `context.nathanwhyte.dev`, console at `viking.nathanwhyte.dev`
+- API + web console at `context.nathanwhyte.dev` (console at `/studio/`, root-key login; the old `viking.nathanwhyte.dev` ov-console was removed)
 - Endpoint tiers: in-cluster `openviking.viking.svc:1933` · LAN `192.168.1.19:31933` · Tailscale `100.95.215.105:31933` · public `context.nathanwhyte.dev` (Cloudflare tunnel)
 - Read more in [`viking/OPENVIKING.md`](./viking/OPENVIKING.md).
 
