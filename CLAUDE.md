@@ -14,8 +14,8 @@
 | Node  | Role                            | GPU              | Key workloads                                                                                                                    |
 | ----- | ------------------------------- | ---------------- | -------------------------------------------------------------------------------------------------------------------------------- |
 | manu  | agent                           | GTX 1080 8 GB    | llamacpp-cuda-ov (**VLM failover only** since 2026-07-05 cloud cutover; retirement candidate); hermes-agent (not pinned to manu) |
-| timmy | server (Control Plane + worker) | RX 9070 XT 16 GB | ollama, openviking, ov-vectordb (9070 XT now dedicated to Ollama; embedder moved to wemby 2026-06-29)                            |
-| wemby | agent                           | GTX 1060 6 GB    | **embedder-qwen-cuda** (Qwen3-Embedding-4B, CUDA, primary); `embedder-llamacpp` (deleted 2026-07-04)                             |
+| timmy | server (Control Plane + worker) | RX 9070 XT 16 GB | ollama, openviking, ov-vectordb, **embedder-qwen-rocm** (Qwen3-Embedding-4B, ROCm, **primary** — migrated back from wemby 2026-07-06; 9070 XT shares Ollama + embedder, ~5 GB) |
+| wemby | agent                           | GTX 1060 6 GB    | `embedder-qwen-cuda` **rollback (replicas=0)** — was primary 2026-06-29→07-06, moved off after repeated power drops (failing charging cable/port); `embedder-llamacpp` (deleted 2026-07-04) |
 
 ## AMD / RDNA4 guardrails
 
@@ -88,7 +88,7 @@ See [OPENVIKING.md](viking/OPENVIKING.md) for the organization guide (L0/L1/L2 t
 
 Full reference (components, access patterns, data flow, OV internals, parallel design, architecture diagram): [viking/docs/2026-06-04-openviking-stack-implementation-report.md](viking/docs/2026-06-04-openviking-stack-implementation-report.md).
 
-**Summary:** Hierarchical RAG engine — AGFS `viking://` tree with auto-generated L0/L1/L2 indices; single-instance in `viking` ns; fronted by Traefik at `context.nathanwhyte.dev` (API + `/mcp`) and `viking.nathanwhyte.dev` (console). Since 2026-06-03 the tree lives in S3/Garage (`agfs:s3`) and embeddings in `ov-vectordb` (`vectordb:http`). Embedder = Qwen3-Embedding-4B (wemby CUDA, since 2026-06-29; previously timmy ROCm); VLM = `qwen3.5:cloud` via llama-ns Ollama cloud routing since 2026-07-05 (manu Qwen3-8B demoted to `vlm.backup` failover).
+**Summary:** Hierarchical RAG engine — AGFS `viking://` tree with auto-generated L0/L1/L2 indices; single-instance in `viking` ns; fronted by Traefik at `context.nathanwhyte.dev` (API + `/mcp`) and `viking.nathanwhyte.dev` (console). Since 2026-06-03 the tree lives in S3/Garage (`agfs:s3`) and embeddings in `ov-vectordb` (`vectordb:http`). Embedder = Qwen3-Embedding-4B (**timmy RX 9070 XT, ROCm, since 2026-07-06**; was wemby CUDA 2026-06-29→07-06, migrated back after wemby's failing charging cable/port kept hard-dropping the node — `embedder-qwen-cuda` retained as `replicas=0` rollback; runbook `viking/docs/2026-07-06-embedder-migration-wemby-to-timmy.md`); VLM = `qwen3.5:cloud` via llama-ns Ollama cloud routing since 2026-07-05 (manu Qwen3-8B demoted to `vlm.backup` failover).
 
 ### VLM scaling (steady-state: failover standby)
 

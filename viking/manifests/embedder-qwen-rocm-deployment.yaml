@@ -1,13 +1,20 @@
 ---
-# Qwen3-Embedding-4B on timmy's RX 9070 XT (ROCm) — RETIRED rollback path.
-# See plan: ~/code/compendium/docs/plans/2026-06-22-IDEA-1042-qwen-embedding-deployment.md
+# Qwen3-Embedding-4B on timmy's RX 9070 XT (ROCm) — PRIMARY embedder.
+# Migrated back 2026-07-06 from wemby's GTX 1060 (CUDA): wemby's charging
+# cable/port keeps failing → battery drains → the node hard-drops (repeated
+# NodeStatusUnknown flaps overnight 2026-07-05/06). The live OV embedder must
+# not sit on a node that loses power intermittently. timmy was the only node
+# stable through the incident and its 9070 XT (16 GB) has ample headroom to
+# co-reside with Ollama (~5 GB embedder incl. KV; bench proved two embedders +
+# Ollama co-resided fine). Backend-invariance validated by TASK-1122: Qwen-4B
+# on this exact 9070 XT reproduced the wemby/Metal numbers exactly (55.9/73.5).
+# See: benchmarks/embedding-retrieval/BENCHMARK.md.
 #
-# Superseded 2026-06-29 by embedder-qwen-cuda (wemby GTX 1060) so timmy's
-# 9070 XT is free for Ollama (mem0 LLM extraction). replicas=0; the live
-# `embedder-qwen` Service now lives in embedder-qwen-cuda-deployment.yaml
-# (selector app=embedder-qwen-cuda). To roll back to ROCm: scale this to 1
-# AND repoint the Service selector to app=embedder-qwen-rocm.
-# Replaced nomic-embed-text-v1.5 (768 -> 2560 dim, vectordb re-embed in plan Phase 3-4).
+# ROCm gfx1201 validated: llama/docs/2026-06-28-rocm-gfx1201-validation-baseline.md
+# The `embedder-qwen` Service (selector app=embedder-qwen-rocm) lives HERE now;
+# embedder-qwen-cuda-deployment.yaml is the replicas=0 rollback (its Service
+# block was removed so there is exactly one `embedder-qwen` Service).
+# Cutover / rollback runbook: viking/docs/2026-07-06-embedder-migration-wemby-to-timmy.md
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
@@ -29,7 +36,7 @@ metadata:
   labels:
     app: embedder-qwen-rocm
 spec:
-  replicas: 0 # retired; superseded by embedder-qwen-cuda on wemby
+  replicas: 1 # PRIMARY (migrated from wemby CUDA 2026-07-06)
   revisionHistoryLimit: 1
   strategy:
     type: Recreate
@@ -77,7 +84,6 @@ spec:
               mountPath: /models
       containers:
         - name: llamacpp
-          # ROCm gfx1201 validated: llama/docs/2026-06-28-rocm-gfx1201-validation-baseline.md
           image: ghcr.io/ggml-org/llama.cpp:server-rocm
           env:
             # RDNA4 guardrail: keeps container on discrete RX 9070 XT, not iGPU.
@@ -95,20 +101,22 @@ spec:
             - --embedding
             - --pooling
             - last
+            # ctx 8192 / parallel 1 → full 8192 per slot, matching OV's
+            # embedding.max_input_tokens=8192 and the proven wemby prod config.
+            # NOT the retired 32768/parallel-4: that KV footprint OOM'd when
+            # co-resident with Ollama on this card during the TASK-1122 bench.
             - --ctx-size
-            # Total ctx across parallel slots → 8192/slot at --parallel 4,
-            # matching OV's embedding.max_input_tokens=8192 so long chunks
-            # (e.g. PROJ-012's 1826-token block) don't get rejected with
-            # "exceeds available context size". --parallel was 6 but the
-            # embedder isn't the bottleneck for this workload (the VLM is),
-            # so 4 slots is plenty and gives each slot a full 8k of context.
-            - "32768"
+            - "8192"
             - --n-gpu-layers
             - "999"
             - --parallel
-            - "4"
+            - "1"
             - --threads
             - "8"
+            # batch 4096 (bench-validated on this 9070 XT) for indexing throughput
+            # — higher than wemby's 512, which was 1060-VRAM-constrained. Raises
+            # transient memory only; 16 GB leaves Ollama ample room. Lower to 512
+            # if Ollama ever contends for VRAM.
             - --batch-size
             - "4096"
             - --ubatch-size
@@ -120,7 +128,9 @@ spec:
             - --flash-attn
             - "on"
             - --metrics
-            - --mlock
+            # NO --mlock: timmy is the control-plane node; pinning host RAM on it
+            # is disallowed (2026-07-05 incident guardrail). Weights live in VRAM
+            # via --n-gpu-layers 999 regardless, so mlock buys nothing here.
           ports:
             - containerPort: 8000
               name: http
@@ -171,8 +181,22 @@ spec:
           hostPath:
             path: /opt/rocm-7.2.1/lib/rocblas/library
             type: Directory
-# The `embedder-qwen` Service is NOT defined here anymore — it lives in
-# embedder-qwen-cuda-deployment.yaml (selector app=embedder-qwen-cuda).
-# Keeping it out of this file prevents re-applying the ROCm rollback from
-# repointing the Service at a 0-replica deployment. See the header comment
-# for the manual repoint steps if ROCm is actually rolled back.
+---
+# The live `embedder-qwen` Service now selects the ROCm deployment on timmy.
+# OV reaches the embedder at embedder-qwen.viking.svc:8080 (unchanged endpoint).
+apiVersion: v1
+kind: Service
+metadata:
+  name: embedder-qwen
+  namespace: viking
+  labels:
+    app: embedder-qwen-rocm
+spec:
+  type: ClusterIP
+  selector:
+    app: embedder-qwen-rocm
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8000
+      protocol: TCP
