@@ -86,6 +86,11 @@ singleBinary:
     accessModes:
       - ReadWriteOnce
     enabled: true
+    # 2026-07-06 (BUG-1033 recurrence): the chart's StatefulSet defaults to
+    # persistentVolumeClaimRetentionPolicy whenScaled/whenDeleted: Delete, which
+    # DELETED storage-loki-0 (and ~24h of logs) during a scale-0 reattach cycle.
+    # Live sts patched to Retain/Retain the same day; this pins it for upgrades.
+    enableStatefulSetAutoDeletePVC: false
     size: 50Gi
     # 2026-07-06 (IMPR-1038 rollout): longhorn-hdd-2x -> longhorn-hdd. The 07-01
     # reconstruction recorded the wrong class — the live PVC (storage-loki-0) is
