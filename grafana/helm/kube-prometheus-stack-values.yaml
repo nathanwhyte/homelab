@@ -250,10 +250,12 @@ prometheus:
     resources:
       limits:
         cpu: 500m
-        memory: 2Gi
+        # 2026-07-06 (IMPR-1038): 2Gi -> 3Gi; 7d peak hit 94% of the old limit
+        memory: 3Gi
       requests:
         cpu: 200m
-        memory: 1Gi
+        # 2026-07-06 (IMPR-1038): 1Gi -> 2Gi; steady usage 1.6Gi exceeded the old request
+        memory: 2Gi
     retention: 7d
     retentionSize: ""
     ruleSelector: {}

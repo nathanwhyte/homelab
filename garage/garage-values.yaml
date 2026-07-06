@@ -147,13 +147,15 @@ ingress:
               pathType: Prefix
 
 # Resource limits and requests (added: was unbounded)
+# 2026-07-06 (IMPR-1038): 64Mi/256Mi -> 128Mi/1Gi. LMDB block-manager init on the
+# current ~105GB store SIGBUSes (exit 135) inside a 256Mi limit — see BUG-1033.
 resources:
   requests:
     cpu: 50m
-    memory: 64Mi
+    memory: 128Mi
   limits:
     cpu: 250m
-    memory: 256Mi
+    memory: 1Gi
 
 # Health probes
 livenessProbe: {}

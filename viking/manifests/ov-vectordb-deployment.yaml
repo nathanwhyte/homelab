@@ -54,7 +54,8 @@ spec:
           resources:
             requests:
               cpu: "1"
-              memory: 2Gi
+              # 2026-07-06 (IMPR-1038): 2Gi -> 1Gi; 7d peak 618Mi, limit keeps burst room.
+              memory: 1Gi
             limits:
               cpu: "4"
               memory: 8Gi

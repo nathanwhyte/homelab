@@ -102,8 +102,9 @@ spec:
               # Single-instance local AGFS keeps indexing, queue work, and file
               # operations in one pod. Keep memory capped so timmy still has
               # headroom for model runtime caches and node-level services.
+              # 2026-07-06 (IMPR-1038): 4Gi -> 2Gi; 7d peak 1.4Gi, limit keeps burst room.
               cpu: "4"
-              memory: 4Gi
+              memory: 2Gi
             limits:
               cpu: "12"
               memory: 8Gi

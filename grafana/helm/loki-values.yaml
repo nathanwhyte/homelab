@@ -13,9 +13,13 @@ bloomCompactor:
   replicas: 0
 bloomGateway:
   replicas: 0
+# 2026-07-06 (IMPR-1038): cache sizing was chart-default (8192MB -> 9830Mi request,
+# observed usage 9Mi / 7d peak 3Gi); repinned off timmy live during the garage-2
+# scheduling incident. allocatedMemory drives both memcached -m and the pod request.
 chunksCache:
+  allocatedMemory: 1024
   nodeSelector:
-    kubernetes.io/hostname: timmy
+    kubernetes.io/hostname: wemby
 compactor:
   replicas: 0
 deploymentMode: SingleBinary
@@ -72,8 +76,9 @@ queryScheduler:
 read:
   replicas: 0
 resultsCache:
+  allocatedMemory: 256
   nodeSelector:
-    kubernetes.io/hostname: timmy
+    kubernetes.io/hostname: manu
 singleBinary:
   nodeSelector:
     kubernetes.io/hostname: timmy
@@ -87,9 +92,10 @@ singleBinary:
   resources:
     limits:
       cpu: 300m
-      memory: 768Mi
+      # 2026-07-06 (IMPR-1038): 768Mi -> 1Gi; 7d peak hit 84% of the old limit
+      memory: 1Gi
     requests:
       cpu: 100m
-      memory: 256Mi
+      memory: 512Mi
 write:
   replicas: 0
