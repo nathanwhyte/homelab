@@ -1,0 +1,366 @@
+{
+  "schema_version": "2.0",
+  "frozen_date": "2026-07-04",
+  "supersedes": "compendium/docs/kb-benchmark.py QUESTIONS (June personal-vault snapshot)",
+  "rationale": "The June frozen set's expected fragments referenced pre-merge personal-vault IDs that have since drifted through the +1000 IDEA-034 merge and ongoing renumbering. Neither +1000 nor identity recovers them, so this is a content-based re-curation against the live 2026-07-04 vault, not a mechanical remap. 5 June questions were dropped as orphaned (no current entry): U3 (Gmail label-color), D2 (OV embedder crash-on-startup), D5 (jump-pod worktrees), X4 (Gmail-project tasks), C3 (compendium audit-log pattern).",
+  "scoring": {
+    "match": "case-insensitive substring: match_fragment in top1 result id/uri. OV filename-based URIs and pgvector entry_ids both contain the entry id, so match_fragment == lowercased entry id is stack-agnostic.",
+    "negative": "match_fragment == 'NONE' => expect zero results above threshold (TN); any result => FP.",
+    "special": "R2 uses fragment 'bug-' to match ANY homelab bug (report-style enumeration).",
+    "thresholds": [0.5, 0.55, 0.6],
+    "ground_truth_check": "vault_path must resolve against the live vault (validate_groundtruth.py)."
+  },
+  "counts": { "total": 38, "positive": 34, "negative": 4, "dropped_from_june": 5 },
+  "questions": [
+    {
+      "qid": "E1",
+      "category": "exact-id",
+      "question": "What is BUG-1006?",
+      "match_fragment": "bug-1006",
+      "vault_path": "bugs/resolved/BUG-1006-homelab-openviking-fs-api-tenant-headers-missing.md",
+      "confidence": "high",
+      "note": "exact-id lookup; question rewritten to current ID"
+    },
+    {
+      "qid": "E2",
+      "category": "exact-id",
+      "question": "What is ERR-1007?",
+      "match_fragment": "err-1007",
+      "vault_path": "errors/homelab/ERR-1007-homelab-tailscale-accept-routes-on-advertised-subnet.md",
+      "confidence": "high",
+      "note": "exact-id lookup; rewritten to current ID"
+    },
+    {
+      "qid": "E3",
+      "category": "exact-id",
+      "question": "What is INFO-1042?",
+      "match_fragment": "info-1042",
+      "vault_path": "info/homelab/INFO-1042-homelab-cluster-node-hardware-specs-and-capabilities.md",
+      "confidence": "high",
+      "note": "exact-id lookup; rewritten to current ID"
+    },
+    {
+      "qid": "E4",
+      "category": "exact-id",
+      "question": "What is FEAT-1003?",
+      "match_fragment": "feat-1003",
+      "vault_path": "features/completed/FEAT-1003-homelab-openviking-validation-scenarios.md",
+      "confidence": "high",
+      "note": "exact-id lookup; rewritten to current ID"
+    },
+    {
+      "qid": "E5",
+      "category": "exact-id",
+      "question": "What is IDEA-1042?",
+      "match_fragment": "idea-1042",
+      "vault_path": "ideas/completed/IDEA-1042-homelab-qwen-embedding-model-for-openviking.md",
+      "confidence": "high",
+      "note": "exact-id lookup; rewritten to current ID (topically apt for this task)"
+    },
+
+    {
+      "qid": "U1",
+      "category": "usage",
+      "question": "How do I configure Hermes for Ollama cloud models?",
+      "match_fragment": "info-1038",
+      "vault_path": "info/homelab/INFO-1038-homelab-hermes-agent-configuration-reference.md",
+      "confidence": "high",
+      "note": "repointed +1000 (content preserved)"
+    },
+    {
+      "qid": "U2",
+      "category": "usage",
+      "question": "How do I set up the OpenViking CLI for the first time?",
+      "match_fragment": "guide-1011",
+      "vault_path": "guides/tooling/GUIDE-1011-tooling-openviking-cli-setup.md",
+      "confidence": "high",
+      "note": "repointed +1000 (content preserved)"
+    },
+    {
+      "qid": "U4",
+      "category": "usage",
+      "question": "How do I set up the Hermes Slack integration?",
+      "match_fragment": "info-1057",
+      "vault_path": "info/homelab/INFO-1057-homelab-hermes-slack-integration-setup.md",
+      "confidence": "high",
+      "note": "reworded from June 'join a channel with the Slack bot'; best current Slack-setup entry"
+    },
+    {
+      "qid": "U5",
+      "category": "usage",
+      "question": "How do I clean up git worktrees for compendium repos?",
+      "match_fragment": "guide-1062",
+      "vault_path": "guides/git/GUIDE-1062-homelab-git-worktree-cleanup.md",
+      "confidence": "medium",
+      "note": "reworded configure->clean up; only current worktree entry"
+    },
+    {
+      "qid": "U6",
+      "category": "usage",
+      "question": "How do agents use OpenViking to read and sync knowledge?",
+      "match_fragment": "info-1058",
+      "vault_path": "info/knowledge-base/INFO-1058-homelab-openviking-agent-usage-guide.md",
+      "confidence": "medium",
+      "note": "reworded from 'sync compendium to OV'; agent-usage guide is the closest current entry"
+    },
+
+    {
+      "qid": "D1",
+      "category": "debug",
+      "question": "Why does Ollama return empty responses with NVFP4 Qwen3.6 models?",
+      "match_fragment": "bug-1008",
+      "vault_path": "bugs/resolved/homelab/BUG-1008-homelab-homework-robot-nvfp4-ollama-auto-think.md",
+      "confidence": "high",
+      "note": "repointed to current NVFP4/Ollama bug"
+    },
+    {
+      "qid": "D3",
+      "category": "debug",
+      "question": "Why does OpenViking pointer sync fail to write from the LAN?",
+      "match_fragment": "bug-1007",
+      "vault_path": "bugs/homelab/BUG-1007-homelab-ov-pointer-sync-writes-fail-from-lan.md",
+      "confidence": "high",
+      "note": "reworded from 'pointer path errors'; current pointer-sync bug"
+    },
+    {
+      "qid": "D4",
+      "category": "debug",
+      "question": "What causes slow, looping pulls of the llama.cpp ROCm image?",
+      "match_fragment": "err-1003",
+      "vault_path": "errors/homelab/ERR-1003-homelab-rocm-image-pull-34min.md",
+      "confidence": "low",
+      "note": "weak — closest ROCm-image entry; verify vs BUG-1032/ERR-1012 drain loops"
+    },
+    {
+      "qid": "D6",
+      "category": "debug",
+      "question": "Why are Slack messages silently failing to deliver?",
+      "match_fragment": "info-1050",
+      "vault_path": "info/other/INFO-1050-slack-silent-failure-diagnosis.md",
+      "confidence": "high",
+      "note": "reworded from 'Event Subscriptions'; current Slack-failure diagnosis entry"
+    },
+
+    {
+      "qid": "S1",
+      "category": "semantic",
+      "question": "How does OpenViking handle concurrent resource commits?",
+      "match_fragment": "info-1003",
+      "vault_path": "info/knowledge-base/INFO-1003-homelab-openviking-path-locks-and-crash-recovery.md",
+      "confidence": "high",
+      "note": "repointed +1000 (content preserved)"
+    },
+    {
+      "qid": "S2",
+      "category": "semantic",
+      "question": "What is the architecture of the OpenViking vectordb backend?",
+      "match_fragment": "info-1021",
+      "vault_path": "info/knowledge-base/INFO-1021-homelab-openviking-vectordb-backend.md",
+      "confidence": "high",
+      "note": "repointed +1000 (content preserved)"
+    },
+    {
+      "qid": "S3",
+      "category": "semantic",
+      "question": "How does Tailscale integrate with the homelab?",
+      "match_fragment": "info-1046",
+      "vault_path": "info/homelab/INFO-1046-homelab-remote-access-model.md",
+      "confidence": "medium",
+      "note": "remote-access model covers Tailscale; INFO-101 is the CLI ref alternative"
+    },
+    {
+      "qid": "S4",
+      "category": "semantic",
+      "question": "What GPU workloads run on each cluster node?",
+      "match_fragment": "info-1042",
+      "vault_path": "info/homelab/INFO-1042-homelab-cluster-node-hardware-specs-and-capabilities.md",
+      "confidence": "high",
+      "note": "repointed +1000 (content preserved)"
+    },
+    {
+      "qid": "S5",
+      "category": "semantic",
+      "question": "How does the llama.cpp embedder allocate GPU context slots?",
+      "match_fragment": "info-1020",
+      "vault_path": "info/knowledge-base/INFO-1020-homelab-llamacpp-gpu-services.md",
+      "confidence": "medium",
+      "note": "reworded; llamacpp-gpu-services covers --parallel slots (June info-002 queue-types was a weaker fit)"
+    },
+    {
+      "qid": "S6",
+      "category": "semantic",
+      "question": "What is the Hermes memory architecture?",
+      "match_fragment": "info-1053",
+      "vault_path": "info/homelab/INFO-1053-homelab-mem0-memory-provider-for-hermes-agent.md",
+      "confidence": "high",
+      "note": "repointed to current mem0/Hermes memory entry (June info-038 now config-reference)"
+    },
+
+    {
+      "qid": "X1",
+      "category": "cross-ref",
+      "question": "What entries are related to OpenViking pointer sync failures?",
+      "match_fragment": "bug-1007",
+      "vault_path": "bugs/homelab/BUG-1007-homelab-ov-pointer-sync-writes-fail-from-lan.md",
+      "confidence": "high",
+      "note": "repointed to current pointer-sync bug"
+    },
+    {
+      "qid": "X2",
+      "category": "cross-ref",
+      "question": "What improvements are planned for Grafana dashboards?",
+      "match_fragment": "impr-1002",
+      "vault_path": "improvements/homelab/IMPR-1002-homelab-grafana-gpu-ollama-dashboard-cleanup.md",
+      "confidence": "high",
+      "note": "repointed +1000 (content preserved)"
+    },
+    {
+      "qid": "X3",
+      "category": "cross-ref",
+      "question": "What bugs affect the OpenViking deployment?",
+      "match_fragment": "bug-1006",
+      "vault_path": "bugs/resolved/BUG-1006-homelab-openviking-fs-api-tenant-headers-missing.md",
+      "confidence": "medium",
+      "note": "one representative OV-deployment bug; BUG-1017 queue-issues is an alternative"
+    },
+
+    {
+      "qid": "H1",
+      "category": "history",
+      "question": "What Tailscale routing issues have we hit?",
+      "match_fragment": "err-1007",
+      "vault_path": "errors/homelab/ERR-1007-homelab-tailscale-accept-routes-on-advertised-subnet.md",
+      "confidence": "high",
+      "note": "repointed to current Tailscale routing error (ERR-1013 magicdns is an alt)"
+    },
+    {
+      "qid": "H2",
+      "category": "history",
+      "question": "What Ollama auto-think / configuration drift issues have occurred?",
+      "match_fragment": "err-1005",
+      "vault_path": "errors/homelab/ERR-1005-homelab-homework-robot-ollama-auto-think.md",
+      "confidence": "medium",
+      "note": "reworded; current Ollama auto-think error"
+    },
+    {
+      "qid": "H3",
+      "category": "history",
+      "question": "What changes were made to fix the Hermes jump pod SSH keys?",
+      "match_fragment": "bug-1015",
+      "vault_path": "bugs/resolved/homelab/BUG-1015-homelab-hermes-ssh-key-permission-mutation-and-gateway-pid-race.md",
+      "confidence": "high",
+      "note": "repointed to current Hermes SSH-key bug"
+    },
+    {
+      "qid": "H4",
+      "category": "history",
+      "question": "What Slack integration problems have we encountered?",
+      "match_fragment": "info-1050",
+      "vault_path": "info/other/INFO-1050-slack-silent-failure-diagnosis.md",
+      "confidence": "medium",
+      "note": "Slack-failure diagnosis; shares target with D6 (acceptable)"
+    },
+
+    {
+      "qid": "R1",
+      "category": "report",
+      "question": "What are the hardware specs for the K3s cluster nodes?",
+      "match_fragment": "info-1042",
+      "vault_path": "info/homelab/INFO-1042-homelab-cluster-node-hardware-specs-and-capabilities.md",
+      "confidence": "high",
+      "note": "repointed +1000 (content preserved)"
+    },
+    {
+      "qid": "R2",
+      "category": "report",
+      "question": "List all known bugs in the homelab deployment",
+      "match_fragment": "bug-",
+      "vault_path": null,
+      "confidence": "high",
+      "note": "special: matches ANY homelab bug URI; no single vault_path"
+    },
+    {
+      "qid": "R3",
+      "category": "report",
+      "question": "What remote access options are available for the homelab?",
+      "match_fragment": "info-1046",
+      "vault_path": "info/homelab/INFO-1046-homelab-remote-access-model.md",
+      "confidence": "high",
+      "note": "repointed +1000 (content preserved)"
+    },
+    {
+      "qid": "R4",
+      "category": "report",
+      "question": "Summarize the OpenViking deployment architecture",
+      "match_fragment": "info-1021",
+      "vault_path": "info/knowledge-base/INFO-1021-homelab-openviking-vectordb-backend.md",
+      "confidence": "medium",
+      "note": "vectordb-backend is the closest architecture summary; INFO-1017 topology is an alt"
+    },
+
+    {
+      "qid": "N1",
+      "category": "negative",
+      "question": "What is the capital of France?",
+      "match_fragment": "NONE",
+      "vault_path": null,
+      "confidence": "high",
+      "note": "negative control"
+    },
+    {
+      "qid": "N2",
+      "category": "negative",
+      "question": "How do I bake sourdough bread?",
+      "match_fragment": "NONE",
+      "vault_path": null,
+      "confidence": "high",
+      "note": "negative control"
+    },
+    {
+      "qid": "N3",
+      "category": "negative",
+      "question": "What is the best programming language?",
+      "match_fragment": "NONE",
+      "vault_path": null,
+      "confidence": "high",
+      "note": "negative control"
+    },
+    {
+      "qid": "N4",
+      "category": "negative",
+      "question": "Who won the 2024 Super Bowl?",
+      "match_fragment": "NONE",
+      "vault_path": null,
+      "confidence": "high",
+      "note": "negative control"
+    },
+
+    {
+      "qid": "C1",
+      "category": "understanding",
+      "question": "How does OpenViking hierarchical retrieval work?",
+      "match_fragment": "info-1021",
+      "vault_path": "info/knowledge-base/INFO-1021-homelab-openviking-vectordb-backend.md",
+      "confidence": "medium",
+      "note": "vectordb-backend covers hierarchical retrieval; INFO-1058 agent-usage is an alt"
+    },
+    {
+      "qid": "C2",
+      "category": "understanding",
+      "question": "What is the difference between OpenViking find and search?",
+      "match_fragment": "info-1058",
+      "vault_path": "info/knowledge-base/INFO-1058-homelab-openviking-agent-usage-guide.md",
+      "confidence": "medium",
+      "note": "agent-usage guide contrasts find vs search"
+    },
+    {
+      "qid": "C4",
+      "category": "understanding",
+      "question": "What is the relationship between OpenViking and pgvector for the KB?",
+      "match_fragment": "info-1021",
+      "vault_path": "info/knowledge-base/INFO-1021-homelab-openviking-vectordb-backend.md",
+      "confidence": "high",
+      "note": "vectordb-backend is the pgvector relationship entry"
+    }
+  ]
+}

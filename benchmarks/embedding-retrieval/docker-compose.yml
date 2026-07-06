@@ -1,0 +1,24 @@
+# Disposable pgvector for the TASK-1122 embedder A/B (Phase 0 item 3).
+# One throwaway Postgres+pgvector; one table per (model, dimension) — see schema.sql.
+# Bring up:  docker compose up -d && docker compose exec -T db psql -U bench -d embedbench < schema.sql
+# Tear down: docker compose down -v   (drops the volume — nothing production depends on it)
+services:
+  db:
+    image: pgvector/pgvector:pg17
+    container_name: embedbench-pg
+    environment:
+      POSTGRES_USER: bench
+      POSTGRES_PASSWORD: bench
+      POSTGRES_DB: embedbench
+    ports:
+      - "5433:5432" # 5433 host-side to avoid clashing with any local pg on 5432
+    volumes:
+      - embedbench-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bench -d embedbench"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  embedbench-data:
