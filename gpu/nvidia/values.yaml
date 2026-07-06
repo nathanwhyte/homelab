@@ -195,7 +195,12 @@ driver:
     imagePullPolicy: IfNotPresent
     env: []
   env: []
-  resources: {}
+  # 2026-07-06 (IMPR-1038): driver pods use ~1.5Gi RSS per NVIDIA node with no
+  # request, invisible to the scheduler. Request only — no limit; OOM-killing
+  # the driver daemonset would take down GPU workloads on the node.
+  resources:
+    requests:
+      memory: 1536Mi
   # Private mirror repository configuration
   repoConfig:
     configMapName: ""

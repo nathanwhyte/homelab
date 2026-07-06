@@ -85,7 +85,9 @@ spec:
           resources:
             requests:
               cpu: 1000m
-              memory: 4Gi
+              # 2026-07-06 (IMPR-1038): 4Gi -> 6Gi; host-RAM 7d peak 7.2Gi during
+              # model loads even with cloud-primary routing.
+              memory: 6Gi
               amd.com/gpu: "2"
             limits:
               cpu: "8"

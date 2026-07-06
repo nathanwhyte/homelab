@@ -142,7 +142,9 @@ spec:
           resources:
             requests:
               cpu: "500m"
-              memory: 3Gi
+              # 2026-07-06 (IMPR-1038): 3Gi -> 5Gi; steady host-RAM use 5Gi (7d peak
+              # 8.9Gi). Moot once the VLM standby is retired post-cloud-soak.
+              memory: 5Gi
               nvidia.com/gpu: "1"
             limits:
               cpu: "4"
