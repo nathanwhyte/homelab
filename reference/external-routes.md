@@ -33,7 +33,8 @@ Traefik on 192.168.1.19.
 > `kubernetescrd` provider currently fails to resolve *any* Middleware ref
 > cluster-wide ("middleware ... does not exist"), confirmed against
 > pre-existing middlewares too (`hermes-lan-only`,
-> `viking-openviking-basicauth`) after a full Traefik restart. Wiring the
+> `viking-openviking-basicauth` — the latter since removed 2026-07-04 with the
+> API-key-only OV auth decision) after a full Traefik restart. Wiring the
 > annotation back in during this session took `longhorn.nathanwhyte.dev`'s
 > Traefik route down (404) even for LAN clients — reverted live. The public
 > `k8s.nathanwhyte.dev`/`longhorn.nathanwhyte.dev` tunnel entries stay in

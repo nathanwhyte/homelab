@@ -11,11 +11,11 @@
 
 ## Cluster topology
 
-| Node  | Role                            | GPU              | Key workloads                                                                                                                    |
-| ----- | ------------------------------- | ---------------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| manu  | agent                           | GTX 1080 8 GB    | llamacpp-cuda-ov (**VLM failover only** since 2026-07-05 cloud cutover; retirement candidate); hermes-agent (not pinned to manu) |
-| timmy | server (Control Plane + worker) | RX 9070 XT 16 GB | ollama, openviking, ov-vectordb, **embedder-qwen-rocm** (Qwen3-Embedding-4B, ROCm, **primary** — migrated back from wemby 2026-07-06; 9070 XT shares Ollama + embedder, ~5 GB) |
-| wemby | agent                           | GTX 1060 6 GB    | `embedder-qwen-cuda` **rollback (replicas=0)** — was primary 2026-06-29→07-06, moved off after repeated power drops (failing charging cable/port); `embedder-llamacpp` (deleted 2026-07-04) |
+| Node  | Role                            | GPU              | Key workloads                                                                                                                                                                                                                                    |
+| ----- | ------------------------------- | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| manu  | agent                           | GTX 1080 8 GB    | llamacpp-cuda-ov (**VLM failover only** since 2026-07-05 cloud cutover; retirement candidate); hermes-agent (not pinned to manu)                                                                                                                 |
+| timmy | server (Control Plane + worker) | RX 9070 XT 16 GB | ollama, openviking, ov-vectordb, **embedder-qwen-rocm** (Qwen3-Embedding-4B, ROCm, **primary** — migrated back from wemby 2026-07-06; 9070 XT shares Ollama + embedder, ~5 GB)                                                                   |
+| wemby | agent                           | GTX 1060 6 GB    | `embedder-qwen-cuda` **rollback (manifest-only: repo has replicas=0, Deployment not applied live)** — was primary 2026-06-29→07-06, moved off after repeated power drops (failing charging cable/port); `embedder-llamacpp` (deleted 2026-07-04) |
 
 ## AMD / RDNA4 guardrails
 

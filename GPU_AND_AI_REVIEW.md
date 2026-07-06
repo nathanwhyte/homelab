@@ -12,6 +12,8 @@
 > - Tailscale mesh deployed on all 3 nodes
 > - VLM steady-state changed from on-demand scaling to always-on (replicas=1)
 > - VLM parallel slots reduced from 4 to 2, then bumped back to 4 (IDEA-1042 Phase 4); `vlm.max_concurrent` reduced from 4 to 2, then bumped back to 4
+> - VLM cloud cutover 2026-07-05 (IDEA-1050): primary is now `qwen3.5:cloud` via llama-ns Ollama routing; `llamacpp-cuda-ov` on manu demoted to `vlm.backup` failover (retirement candidate once the cloud path soaks)
+> - Embedder moved back to timmy 2026-07-06: `embedder-qwen-rocm` (Qwen3-Embedding-4B, RX 9070 XT, ROCm) is primary; wemby's `embedder-qwen-cuda` kept as manifest-only rollback (repo replicas=0) after wemby's failing charging cable/port caused repeated power drops
 >
 > The benchmarks (§4), tuning history (§5), and design decisions (§8) remain valid as historical reference.
 

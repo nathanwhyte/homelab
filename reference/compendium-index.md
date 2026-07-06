@@ -11,5 +11,6 @@ the SessionStart hook stays under the 40k char cap.
 
 Legacy `personal-compendium` was merged into `~/code/compendium` (June 2026, IDEA-034,
 +1000 ID offset); old repo archived at `~/code/archive/personal-compendium/`. Personal-band
-entries (IDs ≥ 1000) sync with
-`COMPENDIUM_ROOT=~/code/compendium OV_TARGET_BASE=viking://resources/personal/`.
+entries (IDs ≥ 1000) sync into the same `viking://resources/compendium/` namespace — the
+old `viking://resources/personal/` target was removed after the merge; there is no
+separate `OV_TARGET_BASE` for personal items.
