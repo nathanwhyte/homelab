@@ -74,13 +74,15 @@ alloy-logs:
     clustering:
       enabled: true
     # Resource limits (tuned down: moderate usage as DaemonSet)
+    # 2026-07-06 (IMPR-1038): limit 512Mi -> 768Mi (7d peaks at 71-81% of old limit);
+    # request 128Mi -> 256Mi to cover the ~180Mi chart-added sidecar overhead
     resources:
       requests:
         cpu: 100m
-        memory: 128Mi
+        memory: 256Mi
       limits:
         cpu: 500m
-        memory: 512Mi
+        memory: 768Mi
 
 alloy-profiles:
   enabled: false

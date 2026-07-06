@@ -137,7 +137,8 @@ spec:
           resources:
             requests:
               cpu: "500m"
-              memory: 2Gi
+              # 2026-07-06 (IMPR-1038): 2Gi -> 3Gi; host-RAM 7d peak 4.5Gi (mmap'd GGUF).
+              memory: 3Gi
             limits:
               cpu: "8"
               memory: 12Gi

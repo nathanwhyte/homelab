@@ -13,9 +13,16 @@ bloomCompactor:
   replicas: 0
 bloomGateway:
   replicas: 0
+# 2026-07-06 (IMPR-1038): cache sizing was chart-default (8192MB -> 9830Mi request,
+# observed usage 9Mi / 7d peak 3Gi); repinned off timmy live during the garage-2
+# scheduling incident, then disabled outright in the logging scale-back — log
+# query volume doesn't justify a dedicated memcached pod. Re-enable with
+# allocatedMemory (drives memcached -m AND the pod request) if usage grows.
 chunksCache:
+  enabled: false
+  allocatedMemory: 1024
   nodeSelector:
-    kubernetes.io/hostname: timmy
+    kubernetes.io/hostname: wemby
 compactor:
   replicas: 0
 deploymentMode: SingleBinary
@@ -42,8 +49,10 @@ loki:
     max_chunk_age: 1h
   limits_config:
     allow_structured_metadata: true
-    ingestion_burst_size_mb: 32
-    ingestion_rate_mb: 16
+    # 2026-07-06 logging scale-back: 32/16 -> 8/4 MB/s; homelab ingest is a
+    # fraction of this and the lower cap bounds ingester buffer memory.
+    ingestion_burst_size_mb: 8
+    ingestion_rate_mb: 4
     max_query_series: 500
     max_streams_per_user: 10000
     reject_old_samples: true
@@ -72,8 +81,10 @@ queryScheduler:
 read:
   replicas: 0
 resultsCache:
+  enabled: false
+  allocatedMemory: 256
   nodeSelector:
-    kubernetes.io/hostname: timmy
+    kubernetes.io/hostname: manu
 singleBinary:
   nodeSelector:
     kubernetes.io/hostname: timmy
@@ -81,15 +92,31 @@ singleBinary:
     accessModes:
       - ReadWriteOnce
     enabled: true
-    size: 50Gi
-    storageClass: longhorn-hdd-2x
+    # 2026-07-06 (BUG-1033 recurrence): the chart's StatefulSet defaults to
+    # persistentVolumeClaimRetentionPolicy whenScaled/whenDeleted: Delete, which
+    # DELETED storage-loki-0 (and ~24h of logs) during a scale-0 reattach cycle.
+    # Live sts patched to Retain/Retain the same day; this pins it for upgrades.
+    enableStatefulSetAutoDeletePVC: false
+    # 2026-07-06 logging scale-back: 50Gi -> 10Gi. Free resize: the volume was
+    # recreated blank the same day (BUG-1033 recurrence), and 24h retention at
+    # homelab ingest rates needs ~1-2Gi. Size change is immutable on the sts —
+    # requires delete sts + PVC before helm upgrade.
+    size: 10Gi
+    # 2026-07-06 (IMPR-1038 rollout): longhorn-hdd-2x -> longhorn-hdd. The 07-01
+    # reconstruction recorded the wrong class — the live PVC (storage-loki-0) is
+    # longhorn-hdd. Any mismatch here makes every helm upgrade fail on the
+    # immutable volumeClaimTemplates (the 07-06 10:46 failed release, and ours).
+    storageClass: longhorn-hdd
   replicas: 1
   resources:
     limits:
       cpu: 300m
-      memory: 768Mi
+      # 2026-07-06 (IMPR-1038): 768Mi -> 1Gi; 7d peak hit 84% of the old limit
+      memory: 1Gi
     requests:
       cpu: 100m
+      # 2026-07-06 logging scale-back: 512Mi -> 256Mi with caches disabled and
+      # ingestion caps at 4MB/s; limit above keeps the burst headroom.
       memory: 256Mi
 write:
   replicas: 0

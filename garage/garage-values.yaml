@@ -74,8 +74,11 @@ deployment:
   kind: StatefulSet
   # Number of Garage nodes (matches replication mode)
   replicaCount: 3
-  # OrderedReady ensures pods start/stop in order
-  podManagementPolicy: OrderedReady
+  # 2026-07-06 (BUG-1033): Parallel, matching the live StatefulSet rebuilt during
+  # the LMDB recovery — OrderedReady deadlocks the cluster when ordinals 0/1 are
+  # corrupted (garage-2 can never start). Field is immutable; the live sts already
+  # holds Parallel, so upgrades rendering the same value pass validation.
+  podManagementPolicy: Parallel
 
 # Container image
 image:
@@ -147,13 +150,15 @@ ingress:
               pathType: Prefix
 
 # Resource limits and requests (added: was unbounded)
+# 2026-07-06 (IMPR-1038): 64Mi/256Mi -> 128Mi/1Gi. LMDB block-manager init on the
+# current ~105GB store SIGBUSes (exit 135) inside a 256Mi limit — see BUG-1033.
 resources:
   requests:
     cpu: 50m
-    memory: 64Mi
+    memory: 128Mi
   limits:
     cpu: 250m
-    memory: 256Mi
+    memory: 1Gi
 
 # Health probes
 livenessProbe: {}

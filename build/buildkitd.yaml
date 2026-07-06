@@ -1,0 +1,83 @@
+# BuildKit daemon for the webhook-driven CI image builder (build-hook).
+#
+# Adopted into the repo 2026-07-06 (IMPR-1038) from the live out-of-band
+# deployment, after patching the memory request live (2Gi -> 256Mi; the pod
+# rescheduled timmy -> manu since there is no nodeSelector). buildkitd idles
+# near-zero and only bursts during builds, so the headroom lives in the limit.
+#
+# Companion workloads still managed out-of-band (not in this repo):
+#   - Deployment `hook` (build-hook API; holds GITHUB_TOKEN + bearer tokens)
+#   - Deployment `tunnel` (cloudflared for the webhook endpoint)
+#   - ServiceAccount `buildx-builder`, Secret `registry-credentials`
+#
+# Known follow-up: cpu request "2" is over-provisioned for an idle daemon
+# (same burst pattern as memory) — trim in a future pass.
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: build
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: buildkitd
+  namespace: build
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: buildkitd
+  template:
+    metadata:
+      labels:
+        app: buildkitd
+    spec:
+      serviceAccountName: buildx-builder
+      containers:
+        - name: buildkitd
+          image: moby/buildkit:buildx-stable-1
+          args:
+            - --addr
+            - tcp://0.0.0.0:1234
+            - --addr
+            - unix:///run/buildkit/buildkitd.sock
+            - --allow-insecure-entitlement=network.host
+          ports:
+            - containerPort: 1234
+              name: buildkit
+          resources:
+            requests:
+              cpu: "2"
+              # 2026-07-06 (IMPR-1038): 2Gi -> 256Mi. Burst-only CI daemon;
+              # idle RSS ~15Mi, builds get headroom from the limit.
+              memory: 256Mi
+            limits:
+              cpu: "4"
+              memory: 4Gi
+          securityContext:
+            # BuildKit needs privileged for its OCI worker (rootless mode is a
+            # larger migration; see moby/buildkit docs).
+            privileged: true
+          volumeMounts:
+            - name: docker-config
+              mountPath: /root/.docker/config.json
+              subPath: .dockerconfigjson
+              readOnly: true
+      volumes:
+        - name: docker-config
+          secret:
+            secretName: registry-credentials
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: buildkitd
+  namespace: build
+spec:
+  ports:
+    - name: buildkit
+      port: 1234
+      targetPort: 1234
+  selector:
+    app: buildkitd

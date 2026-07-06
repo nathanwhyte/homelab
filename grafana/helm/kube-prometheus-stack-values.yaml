@@ -257,22 +257,22 @@ prometheus:
               - __meta_kubernetes_pod_node_name
             target_label: kubernetes_node
         scheme: http
-        scrape_interval: 30s
+        scrape_interval: 60s
       - job_name: amd-gpu-metrics
         metrics_path: /metrics
-        scrape_interval: 30s
+        scrape_interval: 60s
         static_configs:
           - targets:
               - amdgpu-exporter.kube-system.svc.cluster.local:9101
       - job_name: ollama-metrics
-        scrape_interval: 30s
+        scrape_interval: 60s
         static_configs:
           - labels:
               node: timmy
             targets:
               - ollama.llama.svc:9111
       - job_name: garage
-        scrape_interval: 30s
+        scrape_interval: 60s
         static_configs:
           - targets:
               - garage-0.garage-headless.garage.svc.cluster.local:3903
@@ -307,15 +307,22 @@ prometheus:
     resources:
       limits:
         cpu: 500m
-        memory: 2Gi
+        # 2026-07-06 (IMPR-1038): 2Gi -> 3Gi; 7d peak hit 94% of the old limit
+        memory: 3Gi
       requests:
         cpu: 200m
-        memory: 1Gi
-    retention: 7d
+        # 2026-07-06 (IMPR-1038): 1Gi -> 2Gi; steady usage 1.6Gi exceeded the old request
+        memory: 2Gi
+    # 2026-07-06 scale-back: 7d -> 3d per user decision (metrics rarely
+    # consulted beyond a few days; 30Gi volume now has ample headroom).
+    retention: 3d
     retentionSize: ""
     ruleSelector: {}
     ruleSelectorNilUsesHelmValues: false
-    scrapeInterval: 30s
+    # 2026-07-06 logging/monitoring scale-back: 30s -> 60s everywhere (incl.
+    # additionalScrapeConfigs) — halves sample ingest and Prometheus head-block
+    # memory; homelab dashboards don't need 30s resolution.
+    scrapeInterval: 60s
     serviceMonitorSelector: {}
     serviceMonitorSelectorNilUsesHelmValues: false
     storageSpec:
@@ -325,7 +332,10 @@ prometheus:
             - ReadWriteOnce
           resources:
             requests:
-              storage: 100Gi
+              # 2026-07-06: 100Gi -> 30Gi. Volume recreated blank (historical
+              # data dropped by choice during the wemby reboot cycle); 7d
+              # retention at 60s scrapes needs well under 30Gi.
+              storage: 30Gi
           storageClassName: longhorn-hdd-2x
     tsdb:
       outOfOrderTimeWindow: 5m
