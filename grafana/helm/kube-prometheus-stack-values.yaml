@@ -256,7 +256,9 @@ prometheus:
         cpu: 200m
         # 2026-07-06 (IMPR-1038): 1Gi -> 2Gi; steady usage 1.6Gi exceeded the old request
         memory: 2Gi
-    retention: 7d
+    # 2026-07-06 scale-back: 7d -> 3d per user decision (metrics rarely
+    # consulted beyond a few days; 30Gi volume now has ample headroom).
+    retention: 3d
     retentionSize: ""
     ruleSelector: {}
     ruleSelectorNilUsesHelmValues: false
