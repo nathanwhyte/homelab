@@ -14,7 +14,7 @@ resources:
   - ov-vectordb-pvc.yaml
   - ov-vectordb-deployment.yaml
   - ov-vectordb-service.yaml
-  - embedder-qwen-cuda-deployment.yaml
+  - embedder-qwen-rocm-deployment.yaml # primary since 2026-07-06 (embedder-qwen-cuda = replicas=0 rollback, applied manually per runbook)
   - llamacpp-vlm-service.yaml
   - cuda-llamacpp-deployment.yaml
   - cuda-llamacpp-service.yaml

@@ -81,7 +81,7 @@ MacBook Pro (M4 Pro) used as a secondary development/Ollama host. Runs macOS 25.
 
 ## AMD / RDNA4 guardrails (timmy's RX 9070 XT)
 
-Timmy's RX 9070 XT (`gfx1201`) runs Ollama (the embedder moved to wemby CUDA on 2026-06-29; `embedder-qwen-rocm` is retained at replicas=0 as a ROCm rollback path). Rules for maintaining the ROCm serving path (apply to Ollama, and to `embedder-qwen-rocm` if rolled back):
+Timmy's RX 9070 XT (`gfx1201`) runs Ollama **and** `embedder-qwen-rocm` (Qwen3-Embedding-4B, primary since 2026-07-06 — migrated back from wemby CUDA after wemby's power kept dropping; `embedder-qwen-cuda` on wemby is the replicas=0 rollback). The card hosts both (~5 GB embedder incl. KV alongside Ollama). Rules for maintaining the ROCm serving path (apply to both Ollama and `embedder-qwen-rocm`):
 
 | Rule                       | Detail                                                                                                                                                                                                                                                     |
 | -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
