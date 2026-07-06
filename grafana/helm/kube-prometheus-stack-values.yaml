@@ -200,22 +200,22 @@ prometheus:
               - __meta_kubernetes_pod_node_name
             target_label: kubernetes_node
         scheme: http
-        scrape_interval: 30s
+        scrape_interval: 60s
       - job_name: amd-gpu-metrics
         metrics_path: /metrics
-        scrape_interval: 30s
+        scrape_interval: 60s
         static_configs:
           - targets:
               - amdgpu-exporter.kube-system.svc.cluster.local:9101
       - job_name: ollama-metrics
-        scrape_interval: 30s
+        scrape_interval: 60s
         static_configs:
           - labels:
               node: timmy
             targets:
               - ollama.llama.svc:9111
       - job_name: garage
-        scrape_interval: 30s
+        scrape_interval: 60s
         static_configs:
           - targets:
               - garage-0.garage-headless.garage.svc.cluster.local:3903
@@ -260,7 +260,10 @@ prometheus:
     retentionSize: ""
     ruleSelector: {}
     ruleSelectorNilUsesHelmValues: false
-    scrapeInterval: 30s
+    # 2026-07-06 logging/monitoring scale-back: 30s -> 60s everywhere (incl.
+    # additionalScrapeConfigs) — halves sample ingest and Prometheus head-block
+    # memory; homelab dashboards don't need 30s resolution.
+    scrapeInterval: 60s
     serviceMonitorSelector: {}
     serviceMonitorSelectorNilUsesHelmValues: false
     storageSpec:
