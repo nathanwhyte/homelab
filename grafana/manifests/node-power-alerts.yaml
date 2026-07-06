@@ -1,0 +1,21 @@
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: node-power-alerts
+  namespace: grafana
+  labels:
+    app: node-exporter
+spec:
+  groups:
+    - name: node.power.rules
+      rules:
+        - alert: WembyOnBattery
+          expr: node_power_supply_online{power_supply="AC0"} == 0
+          for: 2m
+          labels:
+            severity: warning
+            node: wemby
+          annotations:
+            summary: "wemby is running on battery"
+            description: "node_power_supply_online{power_supply=\"AC0\"} is 0 for 2m — wemby is unplugged and will drain quickly."
