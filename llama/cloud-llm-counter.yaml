@@ -228,7 +228,7 @@ spec:
           command: ["python3", "/scripts/cloud-llm-counter.py"]
           env:
             - name: DAILY_CLOUD_CALL_BUDGET
-              value: "200"
+              value: "1000000" # effectively unlimited (2026-07-06, OV full resync); counter remains for usage tracking
             - name: COUNTER_PATH
               value: /data/cloud-llm-counter.json
             - name: PORT

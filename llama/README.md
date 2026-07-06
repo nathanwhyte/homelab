@@ -27,7 +27,7 @@ LLM serving infrastructure in the `llama` namespace.
 
 ### Cloud LLM Counter
 
-- **Purpose**: Daily cloud API call budget guard (`DAILY_CLOUD_CALL_BUDGET=200`)
+- **Purpose**: Daily cloud API call usage tracker (`DAILY_CLOUD_CALL_BUDGET=1000000` — effectively uncapped since 2026-07-06; advisory metrics only, nothing enforces it in the request path)
 - **Endpoint**: `http://cloud-llm-counter.llama.svc:80`
 - **Deploy**: `llama/cloud-llm-counter.yaml`
 
