@@ -1,0 +1,204 @@
+# Cluster-native overnight benchmark (TASK-1122). Disposable `bench` namespace.
+# Apply order handled by kubectl (it creates all; Job waits on services via the
+# driver's wait_url). Teardown: kubectl delete namespace bench.
+# Prereqs created out-of-band: secret `bench-git` (GitHub token) + configmap
+# `bench-scripts` (the .py + run-all.sh + ground truth) — see cluster/apply.sh.
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata: { name: bench-data, namespace: bench }
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: longhorn-ssd
+  resources: { requests: { storage: 30Gi } }
+---
+# --- scratch pgvector ---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: pgvector, namespace: bench, labels: { app: pgvector } }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: pgvector } }
+  template:
+    metadata: { labels: { app: pgvector } }
+    spec:
+      containers:
+        - name: pg
+          image: pgvector/pgvector:pg17
+          env:
+            - { name: POSTGRES_USER, value: bench }
+            - { name: POSTGRES_PASSWORD, value: bench }
+            - { name: POSTGRES_DB, value: embedbench }
+            - { name: PGDATA, value: /var/lib/postgresql/data/pgdata }
+          ports: [{ containerPort: 5432 }]
+          volumeMounts: [{ name: pgdata, mountPath: /var/lib/postgresql/data }]
+          readinessProbe:
+            exec: { command: ["pg_isready", "-U", "bench", "-d", "embedbench"] }
+            periodSeconds: 5
+      volumes: [{ name: pgdata, emptyDir: {} }]
+---
+apiVersion: v1
+kind: Service
+metadata: { name: pgvector, namespace: bench }
+spec:
+  selector: { app: pgvector }
+  ports: [{ port: 5432, targetPort: 5432 }]
+---
+# --- Qwen embedders on the 9070 XT (ROCm, --pooling last). Two pods share the
+#     card with Ollama (proven OK); ~5 GB combined weights. ---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: embedder-qwen4b, namespace: bench, labels: { app: embedder-qwen4b } }
+spec:
+  replicas: 1
+  strategy: { type: Recreate }
+  selector: { matchLabels: { app: embedder-qwen4b } }
+  template:
+    metadata: { labels: { app: embedder-qwen4b } }
+    spec:
+      nodeSelector: { kubernetes.io/hostname: timmy, gpu.vendor: amd }
+      securityContext: { fsGroup: 0 }
+      initContainers:
+        - name: fetch
+          image: curlimages/curl:8.12.1
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu; f=/models/Qwen3-Embedding-4B-Q8_0.gguf
+              [ -f "$f" ] || curl -fL --retry 5 https://huggingface.co/Qwen/Qwen3-Embedding-4B-GGUF/resolve/main/Qwen3-Embedding-4B-Q8_0.gguf -o "$f"
+              ln -sf "$f" /models/current.gguf
+          securityContext: { runAsUser: 0 }
+          volumeMounts: [{ name: models, mountPath: /models }]
+      containers:
+        - name: llamacpp
+          image: ghcr.io/ggml-org/llama.cpp:server-rocm
+          env: [{ name: HIP_VISIBLE_DEVICES, value: "0" }]
+          command: ["/app/llama-server"]
+          args: ["--model","/models/current.gguf","--host","0.0.0.0","--port","8000",
+                  "--embedding","--pooling","last","--ctx-size","8192","--n-gpu-layers","999",
+                  "--parallel","1","--batch-size","4096","--ubatch-size","4096",
+                  "--split-mode","none","--main-gpu","0","--flash-attn","on"]
+          ports: [{ containerPort: 8000 }]
+          securityContext: { privileged: true }
+          startupProbe: { tcpSocket: { port: 8000 }, periodSeconds: 10, failureThreshold: 120 }
+          readinessProbe: { httpGet: { path: /health, port: 8000 }, periodSeconds: 10 }
+          volumeMounts:
+            - { name: models, mountPath: /models }
+            - { name: shm, mountPath: /dev/shm }
+            - { name: rocblas, mountPath: /opt/rocm/lib/rocblas/library }
+      volumes:
+        - { name: models, emptyDir: {} }
+        - { name: shm, emptyDir: { medium: Memory, sizeLimit: 4Gi } }
+        - { name: rocblas, hostPath: { path: /opt/rocm-7.2.1/lib/rocblas/library, type: Directory } }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: embedder-qwen4b, namespace: bench }
+spec: { selector: { app: embedder-qwen4b }, ports: [{ port: 8000, targetPort: 8000 }] }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: embedder-qwen06, namespace: bench, labels: { app: embedder-qwen06 } }
+spec:
+  replicas: 1
+  strategy: { type: Recreate }
+  selector: { matchLabels: { app: embedder-qwen06 } }
+  template:
+    metadata: { labels: { app: embedder-qwen06 } }
+    spec:
+      nodeSelector: { kubernetes.io/hostname: timmy, gpu.vendor: amd }
+      securityContext: { fsGroup: 0 }
+      initContainers:
+        - name: fetch
+          image: curlimages/curl:8.12.1
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu; f=/models/Qwen3-Embedding-0.6B-f16.gguf
+              [ -f "$f" ] || curl -fL --retry 5 https://huggingface.co/Qwen/Qwen3-Embedding-0.6B-GGUF/resolve/main/Qwen3-Embedding-0.6B-f16.gguf -o "$f"
+              ln -sf "$f" /models/current.gguf
+          securityContext: { runAsUser: 0 }
+          volumeMounts: [{ name: models, mountPath: /models }]
+      containers:
+        - name: llamacpp
+          image: ghcr.io/ggml-org/llama.cpp:server-rocm
+          env: [{ name: HIP_VISIBLE_DEVICES, value: "0" }]
+          command: ["/app/llama-server"]
+          args: ["--model","/models/current.gguf","--host","0.0.0.0","--port","8000",
+                  "--embedding","--pooling","last","--ctx-size","8192","--n-gpu-layers","999",
+                  "--parallel","1","--batch-size","4096","--ubatch-size","4096",
+                  "--split-mode","none","--main-gpu","0","--flash-attn","on"]
+          ports: [{ containerPort: 8000 }]
+          securityContext: { privileged: true }
+          startupProbe: { tcpSocket: { port: 8000 }, periodSeconds: 10, failureThreshold: 120 }
+          readinessProbe: { httpGet: { path: /health, port: 8000 }, periodSeconds: 10 }
+          volumeMounts:
+            - { name: models, mountPath: /models }
+            - { name: shm, mountPath: /dev/shm }
+            - { name: rocblas, mountPath: /opt/rocm/lib/rocblas/library }
+      volumes:
+        - { name: models, emptyDir: {} }
+        - { name: shm, emptyDir: { medium: Memory, sizeLimit: 4Gi } }
+        - { name: rocblas, hostPath: { path: /opt/rocm-7.2.1/lib/rocblas/library, type: Directory } }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: embedder-qwen06, namespace: bench }
+spec: { selector: { app: embedder-qwen06 }, ports: [{ port: 8000, targetPort: 8000 }] }
+---
+# --- runner Job: seed corpus (clone compendium + export), then run the matrix ---
+apiVersion: batch/v1
+kind: Job
+metadata: { name: bench-runner, namespace: bench }
+spec:
+  backoffLimit: 0
+  template:
+    spec:
+      restartPolicy: Never
+      nodeSelector: { kubernetes.io/hostname: manu } # CPU/RAM headroom, off control-plane
+      initContainers:
+        - name: clone
+          image: alpine/git:2.47.1
+          env:
+            - { name: TOKEN, valueFrom: { secretKeyRef: { name: bench-git, key: token } } }
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+              [ -d /data/compendium/.git ] || git clone --depth 1 \
+                "https://${TOKEN}@github.com/nathanwhyte/compendium.git" /data/compendium
+              # Strip the token from the persisted remote URL — otherwise it
+              # sits in .git/config on the PVC for the namespace's lifetime.
+              git -C /data/compendium remote set-url origin \
+                https://github.com/nathanwhyte/compendium.git
+          volumeMounts: [{ name: data, mountPath: /data }]
+        - name: export
+          image: python:3.12-slim
+          command: ["/bin/sh", "-c"]
+          args:
+            - python /app/export_corpus.py --vault /data/compendium --out /data/corpus.jsonl
+          volumeMounts:
+            - { name: data, mountPath: /data }
+            - { name: scripts, mountPath: /app }
+      containers:
+        - name: runner
+          image: ghcr.io/astral-sh/uv:python3.12-bookworm
+          workingDir: /app
+          env:
+            - { name: BENCH_DB, value: "postgresql://bench:bench@pgvector.bench.svc:5432/embedbench" }
+            - { name: BENCH_CORPUS, value: /data/corpus.jsonl }
+            - { name: BENCH_GROUND_TRUTH, value: /app/eval_groundtruth_2026-07-04.json }
+            - { name: BENCH_RESULTS, value: /data/results }
+            - { name: BENCH_SCRATCH, value: /data/scratch }
+            - { name: UV_CACHE_DIR, value: /data/uvcache }
+            - { name: HF_HOME, value: /data/hf }
+            - { name: QWEN4B_URL, value: "http://embedder-qwen4b.bench.svc:8000/v1/embeddings" }
+            - { name: QWEN06_URL, value: "http://embedder-qwen06.bench.svc:8000/v1/embeddings" }
+          command: ["bash", "/app/run-all.sh"]
+          resources: { requests: { cpu: "2", memory: 4Gi }, limits: { cpu: "8", memory: 16Gi } }
+          volumeMounts:
+            - { name: data, mountPath: /data }
+            - { name: scripts, mountPath: /app }
+      volumes:
+        - { name: data, persistentVolumeClaim: { claimName: bench-data } }
+        - { name: scripts, configMap: { name: bench-scripts } }

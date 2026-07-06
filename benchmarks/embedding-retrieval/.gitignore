@@ -1,0 +1,10 @@
+# Derived / large artifacts — not committed
+corpus.jsonl
+corpus-cluster.jsonl
+results-cluster/*.log
+models/
+*.gguf
+scratch/
+.ruff_cache/
+__pycache__/
+*.pyc
