@@ -1,0 +1,33 @@
+# MLX-direct edit-prediction latency benchmark for Zeta 2.1 (IMPR-1037 / TASK-1111).
+# Same prompt ladder as pop-zeta21-editpred.toml but served by mlx_lm.server
+# (OpenAI /v1/completions, streaming client-side TTFT). Start the server first:
+#   mlx_lm.server --model NexVeridian/zeta-2.1-8bit --port 8081
+# (8080 is taken by Docker on pop.)
+# NOTE: TTFT here is client-measured (first streamed chunk) vs Ollama's
+# server-reported load+prefill — both include what an editor actually waits for.
+
+[ollama]
+url = "http://localhost:8081"
+model = "NexVeridian/zeta-2.1-8bit"
+api = "openai_completions"
+num_ctx = 16384
+num_predict = 512
+temperature = 0.0
+
+[workload]
+# 27 unique salted prompts x 1 repeat (9 per prefill size) — repeats of an
+# identical prompt list hit server prompt caches and understate TTFT.
+name = "edit_prediction_zeta"
+max_concurrency = 1
+requests_per_level = 27
+repeats = 1
+cooldown_seconds = 5
+
+[prometheus]
+url = ""
+instance_label = ""
+sample_interval_seconds = 2.0
+
+[output]
+dir = "benchmarks/results"
+prefix = "mlx-pop-zeta21-8bit-editpred"

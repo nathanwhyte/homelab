@@ -1,0 +1,29 @@
+# Pop-local edit-prediction latency benchmark for deepseek-coder-v2:fim
+# (IMPR-1037 / TASK-1111). Same prefill ladder as pop-zeta21-editpred.toml
+# but with DeepSeek FIM markers; compare TTFT curves between the two.
+
+[ollama]
+url = "http://localhost:11434"
+model = "deepseek-coder-v2:fim"
+num_ctx = 16384
+num_predict = 512
+temperature = 0.0
+raw = true
+
+[workload]
+# 27 unique salted prompts x 1 repeat (9 per prefill size) — repeats of an
+# identical prompt list hit server prompt caches and understate TTFT.
+name = "edit_prediction_deepseek"
+max_concurrency = 1
+requests_per_level = 27
+repeats = 1
+cooldown_seconds = 5
+
+[prometheus]
+url = ""
+instance_label = ""
+sample_interval_seconds = 2.0
+
+[output]
+dir = "benchmarks/results"
+prefix = "ollama-pop-deepseek-fim-editpred"

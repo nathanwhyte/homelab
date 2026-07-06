@@ -1,0 +1,5 @@
+# Ollama concurrency benchmark summary
+
+| concurrency | requests | repeats | aggregate_tok_s | wall_s_p50 | wall_s_p95 | wall_s_mean | ttft_s_p50 | ttft_s_p95 | ttft_s_mean | itl_s_p50 | itl_s_p95 | itl_s_mean | gen_tps_p50 | gen_tps_p95 | gen_tps_mean | tokens_mean | tokens_total | prompt_tokens_mean | prompt_tokens_total |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | 27 | 1 | 75.41 | 2.5632 | 8.3393 | 3.9652 | 0.5904 | 2.9918 | 1.2435 | 0.0066 | 0.0103 | 0.0074 | 151.3086 | 186.2744 | 144.2641 | 299 | 8073 | 4140.9 | 111804 |

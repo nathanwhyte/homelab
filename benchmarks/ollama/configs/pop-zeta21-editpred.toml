@@ -1,0 +1,29 @@
+# Pop-local edit-prediction latency benchmark for zeta2.1 (IMPR-1037 / TASK-1111).
+# Prefill-heavy raw prompts (500/2k/8k tokens) at concurrency 1 — the metric
+# that matters is TTFT vs prefill size, not throughput.
+
+[ollama]
+url = "http://localhost:11434"
+model = "zeta2.1"
+num_ctx = 16384
+num_predict = 512
+temperature = 0.0
+raw = true
+
+[workload]
+# 27 unique salted prompts x 1 repeat (9 per prefill size) — repeats of an
+# identical prompt list hit server prompt caches and understate TTFT.
+name = "edit_prediction_zeta"
+max_concurrency = 1
+requests_per_level = 27
+repeats = 1
+cooldown_seconds = 5
+
+[prometheus]
+url = ""
+instance_label = ""
+sample_interval_seconds = 2.0
+
+[output]
+dir = "benchmarks/results"
+prefix = "ollama-pop-zeta21-editpred"
