@@ -1,0 +1,86 @@
+# Omnibot — the omnipendium Slack bot (PRO-243/PRO-264), socket mode.
+# Reuses the API image with a different command; no ports/ingress needed
+# (socket mode is an outbound WebSocket). Retrieval runs in-process against
+# the same DB and cluster ollama as the API; synthesis calls Ollama Cloud.
+# Secrets: omnibot-slack (Slack tokens + Ollama Cloud key) — see
+# omnibot-slack.secret.yaml.example.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: omnibot
+  namespace: omnipendium
+  labels:
+    app: omnibot
+spec:
+  replicas: 1
+  # Socket-mode: never run two replicas — each would answer every mention.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: omnibot
+  template:
+    metadata:
+      labels:
+        app: omnibot
+    spec:
+      imagePullSecrets:
+        - name: harbor-pull
+      initContainers:
+        - name: wait-for-db
+          image: busybox:1.37
+          command:
+            - sh
+            - -c
+            - until nc -z omnipendium-db 5432; do echo waiting for db; sleep 2; done
+      containers:
+        - name: omnibot
+          image: registry.nathanwhyte.dev/omnipendium/omnipendium:latest
+          command: ["python", "-m", "omnipendium.bot"]
+          env:
+            - name: OMNIPENDIUM_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: omnipendium-db
+                  key: OMNIPENDIUM_DATABASE_URL
+            # Embeddings — must match the API deployment and the loaded corpus
+            # (nomic-embed-text, 768d, prefixed vectors post-PRO-261).
+            - name: OMNIPENDIUM_EMBEDDING_PROVIDER
+              value: "ollama"
+            - name: OMNIPENDIUM_EMBEDDING_MODEL
+              value: "nomic-embed-text"
+            - name: OMNIPENDIUM_EMBEDDING_DIMENSIONS
+              value: "768"
+            - name: OMNIPENDIUM_OLLAMA_BASE_URL
+              value: "http://ollama.llama.svc:11434"
+            # Synthesis — Ollama Cloud chat model (key in the secret).
+            - name: OMNIPENDIUM_SYNTHESIS_BASE_URL
+              value: "https://ollama.com"
+            - name: OMNIPENDIUM_SYNTHESIS_MODEL
+              value: "gpt-oss:120b"
+            - name: OMNIPENDIUM_OLLAMA_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: omnibot-slack
+                  key: OMNIPENDIUM_OLLAMA_API_KEY
+            - name: OMNIPENDIUM_SLACK_APP_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: omnibot-slack
+                  key: OMNIPENDIUM_SLACK_APP_TOKEN
+            - name: OMNIPENDIUM_SLACK_BOT_USER_OAUTH_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: omnibot-slack
+                  key: OMNIPENDIUM_SLACK_BOT_USER_OAUTH_TOKEN
+            - name: OMNIPENDIUM_SLACK_CHANNEL_ID
+              valueFrom:
+                secretKeyRef:
+                  name: omnibot-slack
+                  key: OMNIPENDIUM_SLACK_CHANNEL_ID
+          resources:
+            requests:
+              cpu: 50m
+              memory: 192Mi
+            limits:
+              memory: 512Mi
