@@ -126,6 +126,92 @@ def tool_calling_workload(count: int) -> Workload:
     return Workload(name="tool_calling", prompts=prompts, expected_tools=expected_tools)
 
 
+# Edit-prediction workloads (IMPR-1037 / TASK-1111): prefill-heavy raw code
+# prompts at three context sizes, small fixed output. Latency shape matters
+# (TTFT vs prefill size at concurrency 1), not format-token fidelity, so the
+# zeta variant uses plain continuation while deepseek uses its FIM markers.
+# Requires raw = true in the [ollama] config so no chat template is applied.
+_EP_CODE_BLOCK = '''\
+import asyncio
+from dataclasses import dataclass, field
+from typing import Optional
+
+
+@dataclass
+class PipelineRun:
+    run_id: str
+    pipeline: str
+    status: str = "pending"
+    retries: int = 0
+    errors: list[str] = field(default_factory=list)
+
+    def mark_failed(self, reason: str) -> None:
+        self.status = "failed"
+        self.errors.append(reason)
+
+    def should_retry(self, max_retries: int = 3) -> bool:
+        return self.status == "failed" and self.retries < max_retries
+
+
+async def poll_run(client, run: PipelineRun, interval_s: float = 2.0) -> str:
+    """Poll a pipeline run until it reaches a terminal state."""
+    terminal = {"completed", "failed", "cancelled"}
+    while run.status not in terminal:
+        await asyncio.sleep(interval_s)
+        payload = await client.get_run(run.run_id)
+        run.status = payload.get("status", run.status)
+    return run.status
+
+
+def summarize_runs(runs: list[PipelineRun]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for run in runs:
+        counts[run.status] = counts.get(run.status, 0) + 1
+    return counts
+'''
+
+# Target prefill sizes in tokens (~4 chars/token heuristic on code).
+_EP_PREFILL_TOKENS = [500, 2000, 8000]
+
+
+def _ep_code_context(target_tokens: int) -> str:
+    """Build a deterministic code context of roughly target_tokens tokens."""
+    target_chars = target_tokens * 4
+    parts: list[str] = []
+    i = 0
+    while sum(len(p) for p in parts) < target_chars:
+        parts.append(f"# module_{i}.py\n{_EP_CODE_BLOCK}")
+        i += 1
+    return "\n\n".join(parts)
+
+
+def _ep_split(context: str) -> tuple[str, str]:
+    """Split context into prefix/suffix, dropping a ~10% middle chunk.
+
+    The dropped chunk is the FIM "hole": with a contiguous prefix/suffix the
+    correct infill is empty and models emit EOS immediately, so the decode
+    phase would measure nothing.
+    """
+    cut1 = context.rfind("\n", 0, int(len(context) * 0.65))
+    cut2 = context.find("\n", int(len(context) * 0.75))
+    return context[: cut1 + 1], context[cut2 + 1 :]
+
+
+def edit_prediction_workload(count: int, fim_format: str) -> Workload:
+    """Return prefill-heavy edit-prediction prompts cycling context sizes."""
+    prompts = []
+    for i in range(count):
+        context = _ep_code_context(_EP_PREFILL_TOKENS[i % len(_EP_PREFILL_TOKENS)])
+        prefix, suffix = _ep_split(context)
+        if fim_format == "deepseek":
+            prompts.append(
+                f"<｜fim▁begin｜>{prefix}<｜fim▁hole｜>{suffix}<｜fim▁end｜>"
+            )
+        else:
+            prompts.append(prefix)
+    return Workload(name=f"edit_prediction_{fim_format}", prompts=prompts)
+
+
 def select_workload(name: str, count: int) -> Workload:
     """Select a named workload."""
     if name == "sub_agent":
@@ -140,4 +226,8 @@ def select_workload(name: str, count: int) -> Workload:
         return vlm_vision_workload()
     if name == "tool_calling":
         return tool_calling_workload(count)
+    if name == "edit_prediction_zeta":
+        return edit_prediction_workload(count, "zeta")
+    if name == "edit_prediction_deepseek":
+        return edit_prediction_workload(count, "deepseek")
     raise ValueError(f"Unknown workload: {name}")

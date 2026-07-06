@@ -191,6 +191,7 @@ async def run_request(
     num_ctx: int,
     num_predict: int,
     temperature: float,
+    raw: bool = False,
 ) -> RequestResult:
     payload = {
         "model": model,
@@ -202,6 +203,8 @@ async def run_request(
             "temperature": temperature,
         },
     }
+    if raw:
+        payload["raw"] = True
     t0 = time.monotonic()
     try:
         async with session.post(
@@ -255,13 +258,14 @@ async def benchmark_level(
     temperature: float,
     expected_tools: Optional[list[Optional[str]]] = None,
     validate_tools: bool = False,
+    raw: bool = False,
 ) -> list[RequestResult]:
     sem = asyncio.Semaphore(concurrency)
 
     async def bounded(prompt_idx: int, prompt: str) -> RequestResult:
         async with sem:
             result = await run_request(
-                session, url, model, prompt, num_ctx, num_predict, temperature
+                session, url, model, prompt, num_ctx, num_predict, temperature, raw
             )
             if validate_tools and result.response_text is not None:
                 expected = expected_tools[prompt_idx] if expected_tools else None
@@ -280,9 +284,10 @@ async def warmup(
     num_ctx: int,
     num_predict: int,
     temperature: float,
+    raw: bool = False,
 ) -> RequestResult:
     return await run_request(
-        session, url, model, prompt, num_ctx, num_predict, temperature
+        session, url, model, prompt, num_ctx, num_predict, temperature, raw
     )
 
 
@@ -380,6 +385,7 @@ async def main() -> int:
     num_ctx = ollama_cfg.get("num_ctx", 16384)
     num_predict = ollama_cfg.get("num_predict", 512)
     temperature = ollama_cfg.get("temperature", 0.3)
+    raw = ollama_cfg.get("raw", False)
 
     workload_name = workload_cfg.get("name", "mixed_mem0")
     max_concurrency = workload_cfg.get("max_concurrency", 6)
@@ -423,7 +429,7 @@ async def main() -> int:
         # Warmup.
         print(f"Warming up with 1 request to {model} ...")
         warmup_res = await warmup(
-            session, url, model, prompts[0], num_ctx, num_predict, temperature
+            session, url, model, prompts[0], num_ctx, num_predict, temperature, raw
         )
         if warmup_res.error:
             print(f"ERROR during warmup: {warmup_res.error}", file=sys.stderr)
@@ -460,6 +466,7 @@ async def main() -> int:
                     temperature,
                     expected_tools=expected_tools,
                     validate_tools=tool_validate,
+                    raw=raw,
                 )
                 repeat_wall = time.monotonic() - repeat_start
                 repeat_tokens = 0
