@@ -35,6 +35,9 @@ spec:
               import json, os
               conf = json.load(open('/config-template/ov.conf'))
               conf['server']['root_api_key'] = os.environ['API_KEY']
+              vlm = conf.get('vlm', {})
+              if vlm.get('api_key') == '\${OLLAMA_KEY}':
+                  vlm['api_key'] = os.environ.get('OLLAMA_KEY', '')
               agfs = conf.get('storage', {}).get('agfs', {})
               if agfs.get('backend', 'local') == 's3':
                   agfs.setdefault('s3', {})
@@ -61,6 +64,14 @@ spec:
                 secretKeyRef:
                   name: openviking-s3-credentials
                   key: AWS_SECRET_ACCESS_KEY
+                  optional: true
+            # Bearer for the llama-ns ollama auth proxy (cloud VLM primary,
+            # IDEA-1050). Duplicated from llama/ollama-api-key.
+            - name: OLLAMA_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: ollama-api-key
+                  key: API_KEY
                   optional: true
           volumeMounts:
             - name: config-template

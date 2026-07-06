@@ -61,6 +61,7 @@ apply namespace.yaml
 # root_api_key on every tier; no Traefik BasicAuth layer.
 require_secret_file openviking-api-key.secret.yaml openviking-api-key.secret.yaml.example "OpenViking API key secret"
 require_secret_file openviking-s3-credentials.secret.yaml openviking-s3-credentials.secret.yaml.example "Garage S3 credentials secret"
+require_secret_file ollama-api-key.secret.yaml ollama-api-key.secret.yaml.example "ollama auth-proxy Bearer (cloud VLM, IDEA-1050)"
 
 # Shared config and generated configmaps used by the app/exporter/dashboard.
 apply openviking-configmap.yaml
