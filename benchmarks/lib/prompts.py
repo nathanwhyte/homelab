@@ -198,10 +198,21 @@ def _ep_split(context: str) -> tuple[str, str]:
 
 
 def edit_prediction_workload(count: int, fim_format: str) -> Workload:
-    """Return prefill-heavy edit-prediction prompts cycling context sizes."""
+    """Return prefill-heavy edit-prediction prompts cycling context sizes.
+
+    Every prompt starts with a unique deterministic salt line so no two
+    prompts share a prefix. Without this, server prompt/prefix caches
+    (mlx_lm.server, Ollama) skip prefill on repeats and prefix-extensions
+    and the benchmark reports cache latency instead of prefill latency.
+    Run these with repeats = 1 — repeating an identical prompt list
+    reintroduces the cache hit.
+    """
     prompts = []
     for i in range(count):
-        context = _ep_code_context(_EP_PREFILL_TOKENS[i % len(_EP_PREFILL_TOKENS)])
+        salt = f"# benchmark request {i} nonce {i * 2654435761 % 999999937}\n"
+        context = salt + _ep_code_context(
+            _EP_PREFILL_TOKENS[i % len(_EP_PREFILL_TOKENS)]
+        )
         prefix, suffix = _ep_split(context)
         if fim_format == "deepseek":
             prompts.append(

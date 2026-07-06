@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import json
 import statistics
 import sys
 import time
@@ -183,6 +184,97 @@ class LevelResult:
         return row
 
 
+async def run_request_openai(
+    session: aiohttp.ClientSession,
+    url: str,
+    model: str,
+    prompt: str,
+    num_predict: int,
+    temperature: float,
+) -> RequestResult:
+    """Streaming /v1/completions request with client-side TTFT/ITL timing.
+
+    OpenAI-compatible servers (mlx_lm.server, vLLM, llama.cpp server) do not
+    report server-side load/prefill durations the way Ollama does, so TTFT is
+    measured as first-chunk arrival. This includes HTTP/framing overhead —
+    the same latency an editor client actually experiences.
+    """
+    payload = {
+        "model": model,
+        "prompt": prompt,
+        "max_tokens": num_predict,
+        "temperature": temperature,
+        "stream": True,
+    }
+    t0 = time.monotonic()
+    t_first: Optional[float] = None
+    n_chunks = 0
+    prompt_tokens = 0
+    completion_tokens = 0
+    text_parts: list[str] = []
+    try:
+        async with session.post(
+            f"{url}/v1/completions",
+            json=payload,
+            timeout=aiohttp.ClientTimeout(total=300),
+        ) as resp:
+            async for line_bytes in resp.content:
+                line = line_bytes.decode("utf-8", "replace").strip()
+                if not line.startswith("data:"):
+                    continue
+                data_str = line[len("data:") :].strip()
+                if data_str == "[DONE]":
+                    break
+                try:
+                    chunk = json.loads(data_str)
+                except ValueError:
+                    continue
+                choices = chunk.get("choices") or []
+                if choices and choices[0].get("text"):
+                    if t_first is None:
+                        t_first = time.monotonic()
+                    n_chunks += 1
+                    text_parts.append(choices[0]["text"])
+                usage = chunk.get("usage") or {}
+                prompt_tokens = usage.get("prompt_tokens") or prompt_tokens
+                completion_tokens = usage.get("completion_tokens") or completion_tokens
+    except Exception as exc:
+        return RequestResult(
+            wall_s=time.monotonic() - t0,
+            ttft_s=0.0,
+            itl_s=0.0,
+            gen_tps=0.0,
+            tokens=0,
+            prompt_tokens=0,
+            error=str(exc),
+        )
+    t_end = time.monotonic()
+    wall = t_end - t0
+    if t_first is None:
+        return RequestResult(
+            wall_s=wall,
+            ttft_s=0.0,
+            itl_s=0.0,
+            gen_tps=0.0,
+            tokens=0,
+            prompt_tokens=prompt_tokens,
+            error="no tokens streamed",
+        )
+    tokens = completion_tokens or n_chunks
+    decode_s = t_end - t_first
+    gen_tps = (tokens - 1) / decode_s if decode_s > 0 and tokens > 1 else 0.0
+    itl = 1.0 / gen_tps if gen_tps > 0 else 0.0
+    return RequestResult(
+        wall_s=wall,
+        ttft_s=t_first - t0,
+        itl_s=itl,
+        gen_tps=gen_tps,
+        tokens=tokens,
+        prompt_tokens=prompt_tokens,
+        response_text="".join(text_parts),
+    )
+
+
 async def run_request(
     session: aiohttp.ClientSession,
     url: str,
@@ -192,7 +284,12 @@ async def run_request(
     num_predict: int,
     temperature: float,
     raw: bool = False,
+    api: str = "ollama",
 ) -> RequestResult:
+    if api == "openai_completions":
+        return await run_request_openai(
+            session, url, model, prompt, num_predict, temperature
+        )
     payload = {
         "model": model,
         "prompt": prompt,
@@ -259,13 +356,22 @@ async def benchmark_level(
     expected_tools: Optional[list[Optional[str]]] = None,
     validate_tools: bool = False,
     raw: bool = False,
+    api: str = "ollama",
 ) -> list[RequestResult]:
     sem = asyncio.Semaphore(concurrency)
 
     async def bounded(prompt_idx: int, prompt: str) -> RequestResult:
         async with sem:
             result = await run_request(
-                session, url, model, prompt, num_ctx, num_predict, temperature, raw
+                session,
+                url,
+                model,
+                prompt,
+                num_ctx,
+                num_predict,
+                temperature,
+                raw,
+                api,
             )
             if validate_tools and result.response_text is not None:
                 expected = expected_tools[prompt_idx] if expected_tools else None
@@ -285,9 +391,10 @@ async def warmup(
     num_predict: int,
     temperature: float,
     raw: bool = False,
+    api: str = "ollama",
 ) -> RequestResult:
     return await run_request(
-        session, url, model, prompt, num_ctx, num_predict, temperature, raw
+        session, url, model, prompt, num_ctx, num_predict, temperature, raw, api
     )
 
 
@@ -386,6 +493,7 @@ async def main() -> int:
     num_predict = ollama_cfg.get("num_predict", 512)
     temperature = ollama_cfg.get("temperature", 0.3)
     raw = ollama_cfg.get("raw", False)
+    api = ollama_cfg.get("api", "ollama")
 
     workload_name = workload_cfg.get("name", "mixed_mem0")
     max_concurrency = workload_cfg.get("max_concurrency", 6)
@@ -413,23 +521,28 @@ async def main() -> int:
     async with aiohttp.ClientSession(connector=connector) as session:
         # Connectivity / model check.
         try:
-            async with session.get(f"{url}/api/tags", timeout=10) as resp:
-                models = await resp.json()
-            model_names = [m.get("name", "") for m in models.get("models", [])]
+            if api == "openai_completions":
+                async with session.get(f"{url}/v1/models", timeout=10) as resp:
+                    models = await resp.json()
+                model_names = [m.get("id", "") for m in models.get("data", [])]
+            else:
+                async with session.get(f"{url}/api/tags", timeout=10) as resp:
+                    models = await resp.json()
+                model_names = [m.get("name", "") for m in models.get("models", [])]
             if not any(model in n for n in model_names):
                 print(
-                    f"WARNING: model '{model}' not found in Ollama /api/tags. "
+                    f"WARNING: model '{model}' not found at {url}. "
                     f"Available: {model_names}",
                     file=sys.stderr,
                 )
         except Exception as exc:
-            print(f"ERROR: cannot reach Ollama at {url}: {exc}", file=sys.stderr)
+            print(f"ERROR: cannot reach server at {url}: {exc}", file=sys.stderr)
             return 1
 
         # Warmup.
         print(f"Warming up with 1 request to {model} ...")
         warmup_res = await warmup(
-            session, url, model, prompts[0], num_ctx, num_predict, temperature, raw
+            session, url, model, prompts[0], num_ctx, num_predict, temperature, raw, api
         )
         if warmup_res.error:
             print(f"ERROR during warmup: {warmup_res.error}", file=sys.stderr)
@@ -467,6 +580,7 @@ async def main() -> int:
                     expected_tools=expected_tools,
                     validate_tools=tool_validate,
                     raw=raw,
+                    api=api,
                 )
                 repeat_wall = time.monotonic() - repeat_start
                 repeat_tokens = 0
