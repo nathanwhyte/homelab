@@ -85,11 +85,11 @@ data:
       },
       "vlm": {
         "provider": "openai",
-        "model": "qwen3.5:cloud",
-        "api_key": "${OLLAMA_KEY}",
-        "api_base": "http://chat-ollama.llama.svc.cluster.local:11434/v1",
-        "max_concurrent": 8,
-        "timeout": 300,
+        "model": "mlx-community/Qwen3.6-35B-A3B-5bit",
+        "api_key": "sk-local-mlx",
+        "api_base": "http://100.113.28.62:8082/v1",
+        "max_concurrent": 4,
+        "timeout": 120,
         "backup": {
           "provider": "litellm",
           "model": "openai/current.gguf",
