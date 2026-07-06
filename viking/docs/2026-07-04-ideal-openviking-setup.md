@@ -70,7 +70,7 @@ Traefik / Cloudflare tunnel
   |-- /, /api/v1/*, /webdav/* ------------> openviking:1933  (OV API-key auth)
 
 OpenViking API pod on timmy
-  |-- app container: ghcr.io/volcengine/openviking:v0.4.4
+  |-- app container: ghcr.io/volcengine/openviking:v0.4.7
   |-- ov-exporter sidecar
   |
   |-- AGFS file tree ---------------------> Garage S3 bucket openviking-agfs
@@ -135,7 +135,7 @@ Created from local untracked files copied from examples:
 
 - `Deployment/ov-vectordb`
   - Node: `timmy`.
-  - Image: `ghcr.io/volcengine/openviking:v0.4.4`.
+  - Image: `ghcr.io/volcengine/openviking:v0.4.7`.
   - Command: `python -m openviking.storage.vectordb.service.server_fastapi`.
   - Service: `Service/ov-vectordb` on port `5000`.
 
@@ -228,13 +228,13 @@ Not recommended:
 
 Ideal routing policy:
 
-| Workload | Preferred backend | Fallback | Rationale |
-| --- | --- | --- | --- |
-| OpenViking embeddings | `embedder-qwen` local CUDA | none, fail visibly | Embedding dimensions must remain stable at 2560. |
-| OpenViking L0/L1 generation | `llamacpp-vlm` local CUDA | manually selected cloud model only for recovery | Keeps indexing reproducible and cost-free. |
-| Hermes memory extraction | local Ollama via Mem0 config | cloud model through proxy | Memory extraction can tolerate provider changes better than vectors can. |
-| Hermes agent chat/reasoning | configured provider/proxy model | local Ollama or cloud proxy | Quality/latency tradeoff depends on the session. |
-| Bulk reindex | local VLM + local embedder | avoid cloud unless intentional | Prevents surprise spend/rate-limit failures. |
+| Workload                    | Preferred backend               | Fallback                                        | Rationale                                                                |
+| --------------------------- | ------------------------------- | ----------------------------------------------- | ------------------------------------------------------------------------ |
+| OpenViking embeddings       | `embedder-qwen` local CUDA      | none, fail visibly                              | Embedding dimensions must remain stable at 2560.                         |
+| OpenViking L0/L1 generation | `llamacpp-vlm` local CUDA       | manually selected cloud model only for recovery | Keeps indexing reproducible and cost-free.                               |
+| Hermes memory extraction    | local Ollama via Mem0 config    | cloud model through proxy                       | Memory extraction can tolerate provider changes better than vectors can. |
+| Hermes agent chat/reasoning | configured provider/proxy model | local Ollama or cloud proxy                     | Quality/latency tradeoff depends on the session.                         |
+| Bulk reindex                | local VLM + local embedder      | avoid cloud unless intentional                  | Prevents surprise spend/rate-limit failures.                             |
 
 The important boundary is that OpenViking's vector schema and semantic artifacts should not silently change because the general agent model router changed.
 

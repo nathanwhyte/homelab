@@ -1,0 +1,458 @@
+apiVersion: v1
+items:
+- apiVersion: apps/v1
+  kind: Deployment
+  metadata:
+    annotations:
+      deployment.kubernetes.io/revision: "71"
+      kubectl.kubernetes.io/last-applied-configuration: |
+        {"apiVersion":"apps/v1","kind":"Deployment","metadata":{"annotations":{},"labels":{"app":"openviking"},"name":"openviking","namespace":"viking"},"spec":{"replicas":1,"selector":{"matchLabels":{"app":"openviking"}},"strategy":{"type":"Recreate"},"template":{"metadata":{"labels":{"app":"openviking"}},"spec":{"containers":[{"env":[{"name":"PYTHONPATH","value":"/ov-patch"}],"image":"ghcr.io/volcengine/openviking:v0.4.4","lifecycle":{"preStop":{"exec":{"command":["/bin/sh","-c","sleep 5"]}}},"livenessProbe":{"failureThreshold":10,"initialDelaySeconds":10,"periodSeconds":30,"tcpSocket":{"port":1933},"timeoutSeconds":5},"name":"openviking","ports":[{"containerPort":1933,"name":"http"}],"readinessProbe":{"httpGet":{"path":"/ready","port":1933},"periodSeconds":10,"timeoutSeconds":10},"resources":{"limits":{"cpu":"12","memory":"8Gi"},"requests":{"cpu":"4","memory":"4Gi"}},"startupProbe":{"failureThreshold":10,"httpGet":{"path":"/health","port":1933},"periodSeconds":3},"volumeMounts":[{"mountPath":"/app/.openviking/ov.conf","name":"config-out","readOnly":true,"subPath":"ov.conf"},{"mountPath":"/ov-patch","name":"ov-patch"},{"mountPath":"/app/data","name":"data"}]},{"command":["/bin/sh","-c","set -eu\nmkdir -p /tmp/ov\ncat \u003e/tmp/ov/ovcli.conf \u003c\u003cEOF\n{\"url\": \"${OPENVIKING_URL}\", \"api_key\": \"${OPENVIKING_KEY}\", \"account\": \"default\", \"user\": \"noot\"}\nEOF\nexport OPENVIKING_CLI_CONFIG_FILE=/tmp/ov/ovcli.conf\nov language en \u003e/dev/null 2\u003e\u00261 || true\nexec python3 /scripts/ov-exporter.py\n"],"env":[{"name":"OPENVIKING_URL","value":"http://localhost:1933"},{"name":"OPENVIKING_KEY","valueFrom":{"secretKeyRef":{"key":"user-api-key","name":"openviking-api-key"}}},{"name":"AGFS_PATH","value":"/app/data/viking"},{"name":"POLL_INTERVAL","value":"15"},{"name":"PORT","value":"9210"}],"image":"ghcr.io/volcengine/openviking:v0.4.4","livenessProbe":{"httpGet":{"path":"/health","port":9210},"periodSeconds":30,"timeoutSeconds":5},"name":"ov-exporter","ports":[{"containerPort":9210,"name":"metrics"}],"readinessProbe":{"httpGet":{"path":"/metrics","port":9210},"periodSeconds":15,"timeoutSeconds":5},"resources":{"limits":{"cpu":"100m","memory":"128Mi"},"requests":{"cpu":"20m","memory":"32Mi"}},"startupProbe":{"failureThreshold":30,"httpGet":{"path":"/health","port":9210},"periodSeconds":3},"volumeMounts":[{"mountPath":"/scripts","name":"exporter-script","readOnly":true},{"mountPath":"/app/data","name":"data","readOnly":true}]}],"initContainers":[{"args":["python3 -c \"\nimport json, os\nconf = json.load(open('/config-template/ov.conf'))\nconf['server']['root_api_key'] = os.environ['API_KEY']\nagfs = conf.get('storage', {}).get('agfs', {})\nif agfs.get('backend', 'local') == 's3':\n    agfs.setdefault('s3', {})\n    agfs['s3']['access_key'] = os.environ['S3_ACCESS_KEY']\n    agfs['s3']['secret_key'] = os.environ['S3_SECRET_KEY']\nelse:\n    agfs.pop('s3', None)\njson.dump(conf, open('/config-out/ov.conf', 'w'), indent=2)\n\"\n"],"command":["/bin/sh","-c"],"env":[{"name":"API_KEY","valueFrom":{"secretKeyRef":{"key":"api-key","name":"openviking-api-key"}}},{"name":"S3_ACCESS_KEY","valueFrom":{"secretKeyRef":{"key":"AWS_ACCESS_KEY_ID","name":"openviking-s3-credentials","optional":true}}},{"name":"S3_SECRET_KEY","valueFrom":{"secretKeyRef":{"key":"AWS_SECRET_ACCESS_KEY","name":"openviking-s3-credentials","optional":true}}}],"image":"python:3.12-slim","name":"config-rewrite","volumeMounts":[{"mountPath":"/config-template","name":"config-template"},{"mountPath":"/config-out","name":"config-out"}]},{"args":["echo \"Cleaning stale temp files...\"; find /app/data/temp -type f -mtime +1 -delete 2\u003e/dev/null || true; find /app/data/temp -type d -empty -delete 2\u003e/dev/null || true; find /app/data/viking/default/temp -type d -empty -delete 2\u003e/dev/null || true; echo \"Removing stale locks...\"; rm -f /app/data/.openviking.pid; rm -f /app/data/vectordb/context/store/LOCK; find /app/data/viking -name '.path.ovlock' -delete 2\u003e/dev/null || true; echo \"Done.\""],"command":["/bin/sh","-c"],"image":"busybox:1.37","name":"temp-cleanup","volumeMounts":[{"mountPath":"/app/data","name":"data"}]},{"args":["python3 -c \"\nimport os, re, shutil\nsrc = '/app/.venv/lib/python3.13/site-packages/openviking'\ndst = '/ov-patch/openviking'\nshutil.copytree(src, dst, dirs_exist_ok=True)\nfor root, dirs, files in os.walk(dst):\n    for f in files:\n        if not f.endswith('.py'):\n            continue\n        path = os.path.join(root, f)\n        text = open(path, 'r', encoding='utf-8').read()\n        new_text = re.sub(r'\\.role\\.value\\b', '.role', text)\n        # Role is a str subclass, not an enum; replace enum-style\n        # iteration over Role with the built-in role constants.\n        new_text = re.sub(\n            r'\\{r\\.value for r in Role\\}',\n            '{Role.ROOT, Role.ADMIN, Role.USER}',\n            new_text,\n        )\n        if new_text != text:\n            open(path, 'w', encoding='utf-8').write(new_text)\n            print('patched', path)\nprint('role.value patch done')\n\"\n"],"command":["/bin/sh","-c"],"image":"ghcr.io/volcengine/openviking:v0.4.4","name":"role-value-patch","volumeMounts":[{"mountPath":"/ov-patch","name":"ov-patch"}]}],"nodeSelector":{"kubernetes.io/hostname":"timmy"},"terminationGracePeriodSeconds":15,"volumes":[{"configMap":{"name":"openviking-standalone-config"},"name":"config-template"},{"emptyDir":{},"name":"config-out"},{"emptyDir":{},"name":"ov-patch"},{"configMap":{"defaultMode":493,"name":"openviking-exporter"},"name":"exporter-script"},{"name":"data","persistentVolumeClaim":{"claimName":"openviking-data"}}]}}}}
+    creationTimestamp: "2026-05-10T05:55:16Z"
+    generation: 86
+    labels:
+      app: openviking
+    name: openviking
+    namespace: viking
+    resourceVersion: "48738622"
+    uid: 53d98083-f7f0-495c-9ccc-bcbe94e1667c
+  spec:
+    progressDeadlineSeconds: 600
+    replicas: 1
+    revisionHistoryLimit: 1
+    selector:
+      matchLabels:
+        app: openviking
+    strategy:
+      type: Recreate
+    template:
+      metadata:
+        annotations:
+          kubectl.kubernetes.io/restartedAt: "2026-06-28T16:39:10-05:00"
+        labels:
+          app: openviking
+      spec:
+        containers:
+        - env:
+          - name: PYTHONPATH
+            value: /ov-patch
+          - name: VLM_MAX_CONCURRENT
+            value: "8"
+          - name: EMBEDDING_MAX_CONCURRENT
+            value: "8"
+          image: ghcr.io/volcengine/openviking:v0.4.4
+          imagePullPolicy: IfNotPresent
+          lifecycle:
+            preStop:
+              exec:
+                command:
+                - /bin/sh
+                - -c
+                - sleep 5
+          livenessProbe:
+            failureThreshold: 10
+            initialDelaySeconds: 10
+            periodSeconds: 30
+            successThreshold: 1
+            tcpSocket:
+              port: 1933
+            timeoutSeconds: 5
+          name: openviking
+          ports:
+          - containerPort: 1933
+            name: http
+            protocol: TCP
+          readinessProbe:
+            failureThreshold: 10
+            httpGet:
+              path: /ready
+              port: 1933
+              scheme: HTTP
+            periodSeconds: 10
+            successThreshold: 1
+            timeoutSeconds: 10
+          resources:
+            limits:
+              cpu: "12"
+              memory: 8Gi
+            requests:
+              cpu: "4"
+              memory: 4Gi
+          startupProbe:
+            failureThreshold: 10
+            httpGet:
+              path: /health
+              port: 1933
+              scheme: HTTP
+            periodSeconds: 3
+            successThreshold: 1
+            timeoutSeconds: 30
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          volumeMounts:
+          - mountPath: /app/.openviking/ov.conf
+            name: config-out
+            readOnly: true
+            subPath: ov.conf
+          - mountPath: /ov-patch
+            name: ov-patch
+          - mountPath: /app/data
+            name: data
+        - command:
+          - /bin/sh
+          - -c
+          - |
+            set -eu
+            mkdir -p /tmp/ov
+            cat >/tmp/ov/ovcli.conf <<EOF
+            {"url": "${OPENVIKING_URL}", "api_key": "${OPENVIKING_KEY}", "account": "default", "user": "noot"}
+            EOF
+            export OPENVIKING_CLI_CONFIG_FILE=/tmp/ov/ovcli.conf
+            ov language en >/dev/null 2>&1 || true
+            exec python3 /scripts/ov-exporter.py
+          env:
+          - name: OPENVIKING_URL
+            value: http://localhost:1933
+          - name: OPENVIKING_KEY
+            valueFrom:
+              secretKeyRef:
+                key: user-api-key
+                name: openviking-api-key
+          - name: AGFS_PATH
+            value: /app/data/viking
+          - name: POLL_INTERVAL
+            value: "15"
+          - name: PORT
+            value: "9210"
+          image: ghcr.io/volcengine/openviking:v0.4.4
+          imagePullPolicy: IfNotPresent
+          livenessProbe:
+            failureThreshold: 3
+            httpGet:
+              path: /health
+              port: 9210
+              scheme: HTTP
+            periodSeconds: 30
+            successThreshold: 1
+            timeoutSeconds: 5
+          name: ov-exporter
+          ports:
+          - containerPort: 9210
+            name: metrics
+            protocol: TCP
+          readinessProbe:
+            failureThreshold: 3
+            httpGet:
+              path: /metrics
+              port: 9210
+              scheme: HTTP
+            periodSeconds: 15
+            successThreshold: 1
+            timeoutSeconds: 5
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 20m
+              memory: 32Mi
+          startupProbe:
+            failureThreshold: 30
+            httpGet:
+              path: /health
+              port: 9210
+              scheme: HTTP
+            periodSeconds: 3
+            successThreshold: 1
+            timeoutSeconds: 1
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          volumeMounts:
+          - mountPath: /scripts
+            name: exporter-script
+            readOnly: true
+          - mountPath: /app/data
+            name: data
+            readOnly: true
+        dnsPolicy: ClusterFirst
+        initContainers:
+        - args:
+          - |
+            python3 -c "
+            import json, os
+            conf = json.load(open('/config-template/ov.conf'))
+            conf['server']['root_api_key'] = os.environ['API_KEY']
+            agfs = conf.get('storage', {}).get('agfs', {})
+            if agfs.get('backend', 'local') == 's3':
+                agfs.setdefault('s3', {})
+                agfs['s3']['access_key'] = os.environ['S3_ACCESS_KEY']
+                agfs['s3']['secret_key'] = os.environ['S3_SECRET_KEY']
+            else:
+                agfs.pop('s3', None)
+            json.dump(conf, open('/config-out/ov.conf', 'w'), indent=2)
+            "
+          command:
+          - /bin/sh
+          - -c
+          env:
+          - name: API_KEY
+            valueFrom:
+              secretKeyRef:
+                key: api-key
+                name: openviking-api-key
+          - name: S3_ACCESS_KEY
+            valueFrom:
+              secretKeyRef:
+                key: AWS_ACCESS_KEY_ID
+                name: openviking-s3-credentials
+                optional: true
+          - name: S3_SECRET_KEY
+            valueFrom:
+              secretKeyRef:
+                key: AWS_SECRET_ACCESS_KEY
+                name: openviking-s3-credentials
+                optional: true
+          - name: VLM_MAX_CONCURRENT
+            value: "8"
+          - name: EMBEDDING_MAX_CONCURRENT
+            value: "8"
+          image: python:3.12-slim
+          imagePullPolicy: IfNotPresent
+          name: config-rewrite
+          resources: {}
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          volumeMounts:
+          - mountPath: /config-template
+            name: config-template
+          - mountPath: /config-out
+            name: config-out
+        - args:
+          - echo "Cleaning stale temp files..."; find /app/data/temp -type f -mtime
+            +1 -delete 2>/dev/null || true; find /app/data/temp -type d -empty -delete
+            2>/dev/null || true; find /app/data/viking/default/temp -type d -empty
+            -delete 2>/dev/null || true; echo "Removing stale locks..."; rm -f /app/data/.openviking.pid;
+            rm -f /app/data/vectordb/context/store/LOCK; find /app/data/viking -name
+            '.path.ovlock' -delete 2>/dev/null || true; echo "Done."
+          command:
+          - /bin/sh
+          - -c
+          env:
+          - name: VLM_MAX_CONCURRENT
+            value: "8"
+          - name: EMBEDDING_MAX_CONCURRENT
+            value: "8"
+          image: busybox:1.37
+          imagePullPolicy: IfNotPresent
+          name: temp-cleanup
+          resources: {}
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          volumeMounts:
+          - mountPath: /app/data
+            name: data
+        - args:
+          - |
+            python3 -c "
+            import os, re, shutil
+            src = '/app/.venv/lib/python3.13/site-packages/openviking'
+            dst = '/ov-patch/openviking'
+            shutil.copytree(src, dst, dirs_exist_ok=True)
+            for root, dirs, files in os.walk(dst):
+                for f in files:
+                    if not f.endswith('.py'):
+                        continue
+                    path = os.path.join(root, f)
+                    text = open(path, 'r', encoding='utf-8').read()
+                    new_text = re.sub(r'\.role\.value\b', '.role', text)
+                    # Role is a str subclass, not an enum; replace enum-style
+                    # iteration over Role with the built-in role constants.
+                    new_text = re.sub(
+                        r'\{r\.value for r in Role\}',
+                        '{Role.ROOT, Role.ADMIN, Role.USER}',
+                        new_text,
+                    )
+                    if new_text != text:
+                        open(path, 'w', encoding='utf-8').write(new_text)
+                        print('patched', path)
+            print('role.value patch done')
+            "
+          command:
+          - /bin/sh
+          - -c
+          image: ghcr.io/volcengine/openviking:v0.4.4
+          imagePullPolicy: IfNotPresent
+          name: role-value-patch
+          resources: {}
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          volumeMounts:
+          - mountPath: /ov-patch
+            name: ov-patch
+        nodeSelector:
+          kubernetes.io/hostname: timmy
+        restartPolicy: Always
+        schedulerName: default-scheduler
+        securityContext: {}
+        terminationGracePeriodSeconds: 15
+        volumes:
+        - configMap:
+            defaultMode: 420
+            name: openviking-standalone-config
+          name: config-template
+        - emptyDir: {}
+          name: config-out
+        - emptyDir: {}
+          name: ov-patch
+        - configMap:
+            defaultMode: 493
+            name: openviking-exporter
+          name: exporter-script
+        - name: data
+          persistentVolumeClaim:
+            claimName: openviking-data
+  status:
+    availableReplicas: 1
+    conditions:
+    - lastTransitionTime: "2026-07-04T21:56:49Z"
+      lastUpdateTime: "2026-07-04T21:56:49Z"
+      message: Deployment has minimum availability.
+      reason: MinimumReplicasAvailable
+      status: "True"
+      type: Available
+    - lastTransitionTime: "2026-05-10T05:55:16Z"
+      lastUpdateTime: "2026-07-04T21:56:49Z"
+      message: ReplicaSet "openviking-68f579b47d" has successfully progressed.
+      reason: NewReplicaSetAvailable
+      status: "True"
+      type: Progressing
+    observedGeneration: 86
+    readyReplicas: 1
+    replicas: 1
+    terminatingReplicas: 0
+    updatedReplicas: 1
+- apiVersion: apps/v1
+  kind: Deployment
+  metadata:
+    annotations:
+      deployment.kubernetes.io/revision: "3"
+      kubectl.kubernetes.io/last-applied-configuration: |
+        {"apiVersion":"apps/v1","kind":"Deployment","metadata":{"annotations":{},"labels":{"app":"ov-vectordb"},"name":"ov-vectordb","namespace":"viking"},"spec":{"replicas":1,"selector":{"matchLabels":{"app":"ov-vectordb"}},"strategy":{"type":"Recreate"},"template":{"metadata":{"labels":{"app":"ov-vectordb"}},"spec":{"containers":[{"command":["python","-m","openviking.storage.vectordb.service.server_fastapi"],"env":[{"name":"VIKINGDB_PERSIST_PATH","value":"/data/vikingdb"}],"image":"ghcr.io/volcengine/openviking:v0.4.4","lifecycle":{"preStop":{"exec":{"command":["/bin/sh","-c","sleep 5"]}}},"livenessProbe":{"httpGet":{"path":"/health","port":5000},"periodSeconds":15},"name":"ov-vectordb","ports":[{"containerPort":5000,"name":"http"}],"readinessProbe":{"httpGet":{"path":"/health","port":5000},"periodSeconds":10},"resources":{"limits":{"cpu":"4","memory":"8Gi"},"requests":{"cpu":"1","memory":"2Gi"}},"startupProbe":{"failureThreshold":20,"httpGet":{"path":"/health","port":5000},"periodSeconds":3},"volumeMounts":[{"mountPath":"/data","name":"data"}]}],"nodeSelector":{"kubernetes.io/hostname":"timmy"},"terminationGracePeriodSeconds":15,"volumes":[{"name":"data","persistentVolumeClaim":{"claimName":"ov-vectordb-data"}}]}}}}
+    creationTimestamp: "2026-06-02T16:31:42Z"
+    generation: 13
+    labels:
+      app: ov-vectordb
+    name: ov-vectordb
+    namespace: viking
+    resourceVersion: "48032782"
+    uid: 6616f992-2e68-4b37-8bc8-2ec88cfa5a3a
+  spec:
+    progressDeadlineSeconds: 600
+    replicas: 1
+    revisionHistoryLimit: 10
+    selector:
+      matchLabels:
+        app: ov-vectordb
+    strategy:
+      type: Recreate
+    template:
+      metadata:
+        annotations:
+          kubectl.kubernetes.io/restartedAt: "2026-06-02T11:34:03-05:00"
+        labels:
+          app: ov-vectordb
+      spec:
+        containers:
+        - command:
+          - python
+          - -m
+          - openviking.storage.vectordb.service.server_fastapi
+          env:
+          - name: VIKINGDB_PERSIST_PATH
+            value: /data/vikingdb
+          image: ghcr.io/volcengine/openviking:v0.4.4
+          imagePullPolicy: IfNotPresent
+          lifecycle:
+            preStop:
+              exec:
+                command:
+                - /bin/sh
+                - -c
+                - sleep 5
+          livenessProbe:
+            failureThreshold: 3
+            httpGet:
+              path: /health
+              port: 5000
+              scheme: HTTP
+            periodSeconds: 15
+            successThreshold: 1
+            timeoutSeconds: 1
+          name: ov-vectordb
+          ports:
+          - containerPort: 5000
+            name: http
+            protocol: TCP
+          readinessProbe:
+            failureThreshold: 3
+            httpGet:
+              path: /health
+              port: 5000
+              scheme: HTTP
+            periodSeconds: 10
+            successThreshold: 1
+            timeoutSeconds: 1
+          resources:
+            limits:
+              cpu: "4"
+              memory: 8Gi
+            requests:
+              cpu: "1"
+              memory: 2Gi
+          startupProbe:
+            failureThreshold: 20
+            httpGet:
+              path: /health
+              port: 5000
+              scheme: HTTP
+            periodSeconds: 3
+            successThreshold: 1
+            timeoutSeconds: 1
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          volumeMounts:
+          - mountPath: /data
+            name: data
+        dnsPolicy: ClusterFirst
+        nodeSelector:
+          kubernetes.io/hostname: timmy
+        restartPolicy: Always
+        schedulerName: default-scheduler
+        securityContext: {}
+        terminationGracePeriodSeconds: 15
+        volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: ov-vectordb-data
+  status:
+    availableReplicas: 1
+    conditions:
+    - lastTransitionTime: "2026-06-02T16:31:42Z"
+      lastUpdateTime: "2026-06-21T23:56:03Z"
+      message: ReplicaSet "ov-vectordb-6bf4495df5" has successfully progressed.
+      reason: NewReplicaSetAvailable
+      status: "True"
+      type: Progressing
+    - lastTransitionTime: "2026-07-02T17:23:11Z"
+      lastUpdateTime: "2026-07-02T17:23:11Z"
+      message: Deployment has minimum availability.
+      reason: MinimumReplicasAvailable
+      status: "True"
+      type: Available
+    observedGeneration: 13
+    readyReplicas: 1
+    replicas: 1
+    terminatingReplicas: 0
+    updatedReplicas: 1
+kind: List
+metadata:
+  resourceVersion: ""

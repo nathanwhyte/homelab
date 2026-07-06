@@ -5,6 +5,10 @@ metadata:
   name: openviking-standalone-config
   namespace: viking
 data:
+  # git.enabled is forced off: v0.4.6+ defaults it on and inherits the Garage
+  # S3 backend from storage.agfs, which would silently start writing .ovgit
+  # object trees to the openviking-agfs bucket at the v0.4.7 bump. Opt in
+  # deliberately if VikingFS snapshots are ever wanted (IMPR-1032).
   ov.conf: |
     {
       "default_account": "default",
@@ -33,6 +37,9 @@ data:
           }
         }
       },
+      "git": {
+        "enabled": false
+      },
       "code": {
         "code_summary_mode": "ast"
       },
@@ -44,7 +51,21 @@ data:
         "port": 1933,
         "workers": 2,
         "root_api_key": "${API_KEY}",
-        "auth_mode": "trusted"
+        "auth_mode": "trusted",
+        "public_base_url": "https://context.nathanwhyte.dev",
+        "temp_upload": {
+          "default_mode": "local"
+        },
+        "observability": {
+          "metrics": {
+            "enabled": true,
+            "exporters": {
+              "prometheus": {
+                "enabled": true
+              }
+            }
+          }
+        }
       },
       "log": {
         "level": "INFO",
@@ -63,11 +84,19 @@ data:
         "max_concurrent": 6
       },
       "vlm": {
-        "provider": "litellm",
-        "model": "openai/current.gguf",
-        "api_key": "sk-no-...ired",
-        "api_base": "http://llamacpp-vlm.viking.svc/v1",
+        "provider": "openai",
+        "model": "qwen3.5:cloud",
+        "api_key": "${OLLAMA_KEY}",
+        "api_base": "http://chat-ollama.llama.svc.cluster.local:11434/v1",
         "max_concurrent": 4,
-        "timeout": 300
+        "timeout": 300,
+        "backup": {
+          "provider": "litellm",
+          "model": "openai/current.gguf",
+          "api_key": "sk-no-...ired",
+          "api_base": "http://llamacpp-vlm.viking.svc/v1",
+          "max_concurrent": 4,
+          "timeout": 300
+        }
       }
     }

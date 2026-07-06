@@ -61,12 +61,14 @@ apply namespace.yaml
 # root_api_key on every tier; no Traefik BasicAuth layer.
 require_secret_file openviking-api-key.secret.yaml openviking-api-key.secret.yaml.example "OpenViking API key secret"
 require_secret_file openviking-s3-credentials.secret.yaml openviking-s3-credentials.secret.yaml.example "Garage S3 credentials secret"
+require_secret_file ollama-api-key.secret.yaml ollama-api-key.secret.yaml.example "ollama auth-proxy Bearer (cloud VLM, IDEA-1050)"
 
 # Shared config and generated configmaps used by the app/exporter/dashboard.
 apply openviking-configmap.yaml
 apply openviking-standalone-configmap.yaml
 apply openviking-exporter-configmap.yaml
 apply openviking-dashboard-configmap.yaml
+apply openviking-native-dashboard-configmap.yaml
 
 # Storage and model-serving dependencies before the OpenViking API pod. OpenViking
 # readiness depends on both the HTTP vectordb and the embedding/VLM services.
@@ -100,6 +102,12 @@ echo "=== Waiting for rollouts ==="
 "${KUBECTL[@]}" -n viking rollout status deployment/embedder-qwen-cuda --timeout=900s
 "${KUBECTL[@]}" -n viking rollout status deployment/llamacpp-cuda-ov --timeout=900s
 "${KUBECTL[@]}" -n viking rollout status deployment/openviking --timeout=300s
+
+# First-party config/provider validation (embedding + VLM auth reachability).
+# Run inside the pod so it sees the rendered ov.conf and cluster DNS.
+echo ""
+echo "=== openviking-server doctor ==="
+"${KUBECTL[@]}" -n viking exec deploy/openviking -c openviking -- openviking-server doctor --config /app/.openviking/ov.conf
 
 echo ""
 echo "=== OpenViking deployed ==="
