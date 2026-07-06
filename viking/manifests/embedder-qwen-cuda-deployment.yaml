@@ -1,12 +1,14 @@
 ---
-# Qwen3-Embedding-4B on wemby's GTX 1060 (CUDA) — PRIMARY embedder.
-# Moved 2026-06-29 from timmy's RX 9070 XT to free VRAM for Ollama (mem0 LLM
-# extraction). GTX 1060 has 6 GB VRAM; Qwen3-Embedding-4B Q8_0 ≈ 4 GB weights,
-# leaving ~2 GB for KV cache. ctx 8192 / parallel 1 / batch 512 — KV ~580 MB,
-# fits the 1060. Per-slot context (8192) matches the ROCm deployment's
-# 32768/4 and OV's embedding.max_input_tokens=8192.
-# The `embedder-qwen` Service (selector app=embedder-qwen-cuda) lives here;
-# embedder-qwen-rocm-deployment.yaml is retained at replicas=0 as rollback.
+# Qwen3-Embedding-4B on wemby's GTX 1060 (CUDA) — RETIRED rollback path.
+# Was PRIMARY 2026-06-29 → 2026-07-06; superseded by embedder-qwen-rocm on
+# timmy's RX 9070 XT after wemby's charging cable/port kept failing and the
+# node hard-dropped repeatedly (see the rocm file header + migration runbook).
+# replicas=0. The live `embedder-qwen` Service now lives in
+# embedder-qwen-rocm-deployment.yaml (selector app=embedder-qwen-rocm); its
+# Service block was removed from THIS file so there is exactly one Service.
+# To roll back to wemby CUDA: scale this to 1 AND repoint the Service selector
+# to app=embedder-qwen-cuda (only if wemby's power is fixed). Runbook:
+# viking/docs/2026-07-06-embedder-migration-wemby-to-timmy.md
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
@@ -28,7 +30,7 @@ metadata:
   labels:
     app: embedder-qwen-cuda
 spec:
-  replicas: 1
+  replicas: 0 # retired; superseded by embedder-qwen-rocm on timmy 2026-07-06
   revisionHistoryLimit: 1
   strategy:
     type: Recreate
@@ -157,20 +159,7 @@ spec:
           emptyDir:
             medium: Memory
             sizeLimit: 2Gi
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: embedder-qwen
-  namespace: viking
-  labels:
-    app: embedder-qwen-cuda
-spec:
-  type: ClusterIP
-  selector:
-    app: embedder-qwen-cuda
-  ports:
-    - name: http
-      port: 8080
-      targetPort: 8000
-      protocol: TCP
+# NOTE: the `embedder-qwen` Service was moved to
+# embedder-qwen-rocm-deployment.yaml (selector app=embedder-qwen-rocm) as part
+# of the 2026-07-06 migration. Do not re-add it here — two Services with the
+# same name would fight over the selector on apply.
