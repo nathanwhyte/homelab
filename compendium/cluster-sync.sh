@@ -55,6 +55,11 @@ envsubst '${JOB_NAME} ${SYNC_ARGS}' <compendium-sync-job.template.yaml | kubectl
 echo "job: ${JOB_NAME} (args: ${SYNC_ARGS})"
 
 if [ "$FOLLOW" = "1" ]; then
+	# kubectl wait errors out if the pod doesn't exist yet — poll for creation first
+	for _ in $(seq 1 60); do
+		kubectl get pod -l job-name="${JOB_NAME}" -n compendium --no-headers 2>/dev/null | grep -q . && break
+		sleep 2
+	done
 	kubectl wait --for=condition=ready pod -l job-name="${JOB_NAME}" -n compendium --timeout=300s
 	kubectl logs -f "job/${JOB_NAME}" -n compendium
 	kubectl wait --for=condition=complete "job/${JOB_NAME}" -n compendium --timeout=60s >/dev/null 2>&1 ||
