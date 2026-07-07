@@ -85,12 +85,11 @@ data:
       },
       "vlm": {
         "provider": "openai",
-        "model": "ov-abstract",
-        "api_key": "sk-local-pop-ollama",
-        "api_base": "http://100.113.28.62:11434/v1",
-        "reasoning_effort": "none",
-        "max_concurrent": 4,
-        "timeout": 180,
+        "model": "gemma4:31b-cloud",
+        "api_key": "${OLLAMA_KEY}",
+        "api_base": "http://chat-ollama.llama.svc.cluster.local:11434/v1",
+        "max_concurrent": 8,
+        "timeout": 120,
         "backup": {
           "provider": "litellm",
           "model": "openai/current.gguf",
