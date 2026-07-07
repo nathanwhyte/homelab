@@ -84,19 +84,20 @@ data:
         "max_concurrent": 6
       },
       "vlm": {
-        "provider": "litellm",
-        "model": "openai/current.gguf",
-        "api_key": "sk-no-...ired",
-        "api_base": "http://llamacpp-vlm.viking.svc/v1",
-        "max_concurrent": 3,
-        "timeout": 600,
+        "provider": "openai",
+        "model": "ov-abstract",
+        "api_key": "sk-local-pop-ollama",
+        "api_base": "http://100.113.28.62:11434/v1",
+        "reasoning_effort": "none",
+        "max_concurrent": 4,
+        "timeout": 180,
         "backup": {
-          "provider": "openai",
-          "model": "qwen3.5:cloud",
-          "api_key": "${OLLAMA_KEY}",
-          "api_base": "http://chat-ollama.llama.svc.cluster.local:11434/v1",
-          "max_concurrent": 4,
-          "timeout": 300
+          "provider": "litellm",
+          "model": "openai/current.gguf",
+          "api_key": "sk-no-...ired",
+          "api_base": "http://llamacpp-vlm.viking.svc/v1",
+          "max_concurrent": 3,
+          "timeout": 600
         }
       }
     }
