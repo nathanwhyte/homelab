@@ -1,0 +1,32 @@
+# Pop-local prefill/TTFT probe for qwen3.6:35b-mlx (compendium matrix gap,
+# 2026-07-07 — TASK-1015/1107/1111 all scoped this but none had run).
+# Prefill-heavy raw prompts (500/2k/8k tokens) at concurrency 1 — the metric
+# that matters is TTFT vs prefill size, not throughput. raw=true skips the
+# chat/instruct template entirely, which also sidesteps BUG-1024's
+# thinking-suppression issue (that bug is specific to chat-templated paths).
+
+[ollama]
+url = "http://localhost:11434"
+model = "qwen3.6:35b-mlx"
+num_ctx = 16384
+num_predict = 512
+temperature = 0.0
+raw = true
+
+[workload]
+# 27 unique salted prompts x 1 repeat (9 per prefill size) — repeats of an
+# identical prompt list hit server prompt caches and understate TTFT.
+name = "edit_prediction_zeta"
+max_concurrency = 1
+requests_per_level = 27
+repeats = 1
+cooldown_seconds = 15
+
+[prometheus]
+url = ""
+instance_label = ""
+sample_interval_seconds = 2.0
+
+[output]
+dir = "benchmarks/results"
+prefix = "ollama-pop-qwen36-35b-mlx-editpred"
