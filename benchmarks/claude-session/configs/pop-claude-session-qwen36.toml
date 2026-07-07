@@ -1,0 +1,59 @@
+# Claude Code session-start latency scenarios — pop (M5 Max), qwen3.6:35b-mlx.
+#
+# Isolates the three suspected contributors to slow first responses:
+#   1. injected-context volume (full plugin/hook config vs bare config dir)
+#   2. model load + KV-cache allocation (cold vs warm, context window size)
+#   3. prefix-cache effects (compare run 1 vs runs 2-3 within a scenario)
+#
+# The `full-*` scenarios run in ~/code/compendium (heavy CLAUDE.md + claude-mem
+# + context-mode SessionStart hooks). The `bare-*` scenarios use a minimal
+# CLAUDE_CONFIG_DIR (no plugins, no hooks, no CLAUDE.md) in an empty project.
+
+[session]
+model = "qwen3.6:35b-mlx"
+repeats = 3
+timeout_seconds = 900
+cooldown_seconds = 10
+# ollama_host = "http://127.0.0.1:11434"  # default: local
+
+[output]
+dir = "benchmarks/results"
+prefix = "claude-session-pop-qwen36-35b"
+
+[[scenarios]]
+name = "bare-warm"
+description = "minimal config, empty project, model already loaded — floor: CLI boot + system prompt prefill only"
+config_dir = "BARE"
+cold = false
+
+[[scenarios]]
+name = "bare-cold"
+description = "minimal config, model unloaded first — adds weight load + KV alloc"
+config_dir = "BARE"
+cold = true
+
+[[scenarios]]
+name = "full-warm"
+description = "real user config in ~/code/compendium (plugins, claude-mem, CLAUDE.md), model loaded — the everyday oclauderb case"
+cwd = "~/code/compendium"
+cold = false
+
+[[scenarios]]
+name = "full-cold"
+description = "real user config, model unloaded first — worst case: full injection prefill + model load"
+cwd = "~/code/compendium"
+cold = true
+
+[[scenarios]]
+name = "full-warm-ctx32k"
+description = "real config but capped context window — tests whether the 256k KV allocation contributes"
+cwd = "~/code/compendium"
+cold = true
+env = { CLAUDE_CODE_MAX_CONTEXT_TOKENS = "32768" }
+
+[[scenarios]]
+name = "full-warm-ctx256k"
+description = "real config, explicit 256k context — pair with ctx32k; both cold so KV alloc is included"
+cwd = "~/code/compendium"
+cold = true
+env = { CLAUDE_CODE_MAX_CONTEXT_TOKENS = "262144" }
