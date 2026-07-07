@@ -1,0 +1,18 @@
+---
+# Persistent state for the compendium→OV sync runner (BUG-1034 phase 2).
+# Holds exactly one small JSON file: the last-synced commit SHA that
+# `compendium-sync.py sync --changed` reads and advances. Keeping it on a PVC
+# makes the cluster the single writer of record — no per-machine state drift.
+# The vault checkout itself stays ephemeral (fresh --depth 1 clone per Job).
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: compendium-sync-state
+  namespace: compendium
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: longhorn-ssd
+  resources:
+    requests:
+      storage: 1Gi
