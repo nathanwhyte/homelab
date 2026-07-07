@@ -1,0 +1,62 @@
+---
+# In-cluster compendium→OV sync Job (template — render via viking/tools/cluster-sync.sh).
+# Clones the vault from GitHub and runs _scripts/compendium-sync.py against the
+# in-cluster OV service, so sync runs are not bound to any workstation.
+# ${JOB_NAME} and ${SYNC_ARGS} are substituted by the runner (envsubst).
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ${JOB_NAME}
+  namespace: viking
+  labels:
+    app: compendium-sync
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        app: compendium-sync
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: sync
+          image: python:3.13-slim
+          command: ["bash", "-c"]
+          args:
+            - |
+              set -euo pipefail
+              apt-get update -qq && apt-get install -y -qq git >/dev/null
+              pip install --quiet openviking
+              # ov CLI requires a config file to exist even when env vars are set
+              mkdir -p "$HOME/.openviking"
+              printf '{"url":"%s","api_key":"%s","root_api_key":"%s","account":"default","user":"noot","timeout":300.0,"output":"table"}\n' \
+                "$OPENVIKING_URL" "$OPENVIKING_KEY" "$OPENVIKING_KEY" > "$HOME/.openviking/ovcli.conf"
+              # compendium-sync.py resolves the vault at ~/code/compendium
+              git clone --depth 1 "https://x-access-token:${GITHUB_TOKEN}@github.com/nathanwhyte/compendium.git" "$HOME/code/compendium"
+              cd "$HOME/code/compendium"
+              echo "vault at $(git rev-parse --short HEAD); running: sync ${SYNC_ARGS}"
+              python3 _scripts/compendium-sync.py sync ${SYNC_ARGS}
+          env:
+            - name: OPENVIKING_URL
+              value: http://openviking.viking.svc.cluster.local:1933
+            - name: OPENVIKING_ACCOUNT
+              value: default
+            - name: OPENVIKING_USER
+              value: noot
+            - name: OPENVIKING_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: openviking-api-key
+                  key: api-key
+            - name: GITHUB_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: compendium-git-token
+                  key: GITHUB_TOKEN
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              memory: 1Gi
