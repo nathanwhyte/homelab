@@ -1,0 +1,2123 @@
+{
+  "model": "qwen3.6:35b-mlx",
+  "repeats": 3,
+  "config": "benchmarks/claude-session/configs/pop-claude-session-qwen36.toml",
+  "scenarios": {
+    "bare-warm": {
+      "description": "minimal config, empty project, model already loaded \u2014 floor: CLI boot + system prompt prefill only",
+      "runs": [
+        {
+          "scenario": "bare-warm",
+          "cold": false,
+          "t_init_s": 0.323,
+          "t_first_assistant_s": 32.147,
+          "t_total_s": 32.172,
+          "input_tokens": 27433,
+          "output_tokens": 15,
+          "cache_read_input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "duration_ms": 31877,
+          "duration_api_ms": 53741,
+          "num_turns": 1,
+          "is_error": false,
+          "events": [
+            {
+              "t": 0.323,
+              "type": "system"
+            },
+            {
+              "t": 31.824,
+              "type": "system"
+            },
+            {
+              "t": 31.847,
+              "type": "system"
+            },
+            {
+              "t": 31.868,
+              "type": "system"
+            },
+            {
+              "t": 31.89,
+              "type": "system"
+            },
+            {
+              "t": 31.913,
+              "type": "system"
+            },
+            {
+              "t": 31.934,
+              "type": "system"
+            },
+            {
+              "t": 31.961,
+              "type": "system"
+            },
+            {
+              "t": 31.983,
+              "type": "system"
+            },
+            {
+              "t": 32.005,
+              "type": "system"
+            },
+            {
+              "t": 32.032,
+              "type": "system"
+            },
+            {
+              "t": 32.055,
+              "type": "system"
+            },
+            {
+              "t": 32.147,
+              "type": "assistant"
+            },
+            {
+              "t": 32.171,
+              "type": "assistant"
+            },
+            {
+              "t": 32.172,
+              "type": "result"
+            }
+          ],
+          "ollama_ps_after": "NAME               ID              SIZE     PROCESSOR    CONTEXT    UNTIL              \nqwen3.6:35b-mlx    1b50c6fdc2d4    24 GB    100% GPU     16384      4 minutes from now"
+        },
+        {
+          "scenario": "bare-warm",
+          "cold": false,
+          "t_init_s": 0.297,
+          "t_first_assistant_s": 24.285,
+          "t_total_s": 24.301,
+          "input_tokens": 27433,
+          "output_tokens": 15,
+          "cache_read_input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "duration_ms": 24032,
+          "duration_api_ms": 47554,
+          "num_turns": 1,
+          "is_error": false,
+          "events": [
+            {
+              "t": 0.297,
+              "type": "system"
+            },
+            {
+              "t": 23.949,
+              "type": "system"
+            },
+            {
+              "t": 23.972,
+              "type": "system"
+            },
+            {
+              "t": 23.999,
+              "type": "system"
+            },
+            {
+              "t": 24.021,
+              "type": "system"
+            },
+            {
+              "t": 24.04,
+              "type": "system"
+            },
+            {
+              "t": 24.061,
+              "type": "system"
+            },
+            {
+              "t": 24.081,
+              "type": "system"
+            },
+            {
+              "t": 24.107,
+              "type": "system"
+            },
+            {
+              "t": 24.13,
+              "type": "system"
+            },
+            {
+              "t": 24.15,
+              "type": "system"
+            },
+            {
+              "t": 24.174,
+              "type": "system"
+            },
+            {
+              "t": 24.285,
+              "type": "assistant"
+            },
+            {
+              "t": 24.299,
+              "type": "assistant"
+            },
+            {
+              "t": 24.301,
+              "type": "result"
+            }
+          ],
+          "ollama_ps_after": "NAME               ID              SIZE     PROCESSOR    CONTEXT    UNTIL              \nqwen3.6:35b-mlx    1b50c6fdc2d4    24 GB    100% GPU     16384      4 minutes from now"
+        },
+        {
+          "scenario": "bare-warm",
+          "cold": false,
+          "t_init_s": 0.29,
+          "t_first_assistant_s": 26.748,
+          "t_total_s": 26.777,
+          "input_tokens": 27433,
+          "output_tokens": 15,
+          "cache_read_input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "duration_ms": 26513,
+          "duration_api_ms": 52601,
+          "num_turns": 1,
+          "is_error": false,
+          "events": [
+            {
+              "t": 0.29,
+              "type": "system"
+            },
+            {
+              "t": 26.434,
+              "type": "system"
+            },
+            {
+              "t": 26.458,
+              "type": "system"
+            },
+            {
+              "t": 26.482,
+              "type": "system"
+            },
+            {
+              "t": 26.503,
+              "type": "system"
+            },
+            {
+              "t": 26.526,
+              "type": "system"
+            },
+            {
+              "t": 26.548,
+              "type": "system"
+            },
+            {
+              "t": 26.567,
+              "type": "system"
+            },
+            {
+              "t": 26.59,
+              "type": "system"
+            },
+            {
+              "t": 26.612,
+              "type": "system"
+            },
+            {
+              "t": 26.635,
+              "type": "system"
+            },
+            {
+              "t": 26.659,
+              "type": "system"
+            },
+            {
+              "t": 26.748,
+              "type": "assistant"
+            },
+            {
+              "t": 26.774,
+              "type": "assistant"
+            },
+            {
+              "t": 26.777,
+              "type": "result"
+            }
+          ],
+          "ollama_ps_after": "NAME               ID              SIZE     PROCESSOR    CONTEXT    UNTIL              \nqwen3.6:35b-mlx    1b50c6fdc2d4    24 GB    100% GPU     16384      4 minutes from now"
+        }
+      ],
+      "summary": {
+        "t_init_s": {
+          "min": 0.29,
+          "p50": 0.297,
+          "max": 0.323,
+          "mean": 0.303,
+          "n": 3
+        },
+        "t_first_assistant_s": {
+          "min": 24.285,
+          "p50": 26.748,
+          "max": 32.147,
+          "mean": 27.727,
+          "n": 3
+        },
+        "t_total_s": {
+          "min": 24.301,
+          "p50": 26.777,
+          "max": 32.172,
+          "mean": 27.75,
+          "n": 3
+        },
+        "input_tokens": {
+          "min": 27433,
+          "p50": 27433,
+          "max": 27433,
+          "mean": 27433.0,
+          "n": 3
+        },
+        "errors": 0
+      }
+    },
+    "bare-cold": {
+      "description": "minimal config, model unloaded first \u2014 adds weight load + KV alloc",
+      "runs": [
+        {
+          "scenario": "bare-cold",
+          "cold": true,
+          "t_init_s": 0.298,
+          "t_first_assistant_s": 37.964,
+          "t_total_s": 37.979,
+          "input_tokens": 27433,
+          "output_tokens": 15,
+          "cache_read_input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "duration_ms": 37708,
+          "duration_api_ms": 54093,
+          "num_turns": 1,
+          "is_error": false,
+          "events": [
+            {
+              "t": 0.298,
+              "type": "system"
+            },
+            {
+              "t": 37.678,
+              "type": "system"
+            },
+            {
+              "t": 37.694,
+              "type": "system"
+            },
+            {
+              "t": 37.709,
+              "type": "system"
+            },
+            {
+              "t": 37.724,
+              "type": "system"
+            },
+            {
+              "t": 37.74,
+              "type": "system"
+            },
+            {
+              "t": 37.755,
+              "type": "system"
+            },
+            {
+              "t": 37.772,
+              "type": "system"
+            },
+            {
+              "t": 37.787,
+              "type": "system"
+            },
+            {
+              "t": 37.807,
+              "type": "system"
+            },
+            {
+              "t": 37.838,
+              "type": "system"
+            },
+            {
+              "t": 37.861,
+              "type": "system"
+            },
+            {
+              "t": 37.964,
+              "type": "assistant"
+            },
+            {
+              "t": 37.978,
+              "type": "assistant"
+            },
+            {
+              "t": 37.979,
+              "type": "result"
+            }
+          ],
+          "ollama_ps_after": "NAME               ID              SIZE     PROCESSOR    CONTEXT    UNTIL              \nqwen3.6:35b-mlx    1b50c6fdc2d4    22 GB    100% GPU     16384      4 minutes from now"
+        },
+        {
+          "scenario": "bare-cold",
+          "cold": true,
+          "t_init_s": 0.319,
+          "t_first_assistant_s": 34.625,
+          "t_total_s": 34.642,
+          "input_tokens": 27433,
+          "output_tokens": 15,
+          "cache_read_input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "duration_ms": 34350,
+          "duration_api_ms": 47751,
+          "num_turns": 1,
+          "is_error": false,
+          "events": [
+            {
+              "t": 0.319,
+              "type": "system"
+            },
+            {
+              "t": 34.294,
+              "type": "system"
+            },
+            {
+              "t": 34.318,
+              "type": "system"
+            },
+            {
+              "t": 34.345,
+              "type": "system"
+            },
+            {
+              "t": 34.366,
+              "type": "system"
+            },
+            {
+              "t": 34.39,
+              "type": "system"
+            },
+            {
+              "t": 34.416,
+              "type": "system"
+            },
+            {
+              "t": 34.436,
+              "type": "system"
+            },
+            {
+              "t": 34.459,
+              "type": "system"
+            },
+            {
+              "t": 34.485,
+              "type": "system"
+            },
+            {
+              "t": 34.51,
+              "type": "system"
+            },
+            {
+              "t": 34.53,
+              "type": "system"
+            },
+            {
+              "t": 34.625,
+              "type": "assistant"
+            },
+            {
+              "t": 34.639,
+              "type": "assistant"
+            },
+            {
+              "t": 34.642,
+              "type": "result"
+            }
+          ],
+          "ollama_ps_after": "NAME               ID              SIZE     PROCESSOR    CONTEXT    UNTIL              \nqwen3.6:35b-mlx    1b50c6fdc2d4    22 GB    100% GPU     16384      4 minutes from now"
+        },
+        {
+          "scenario": "bare-cold",
+          "cold": true,
+          "t_init_s": 0.307,
+          "t_first_assistant_s": 26.783,
+          "t_total_s": 26.799,
+          "input_tokens": 27433,
+          "output_tokens": 15,
+          "cache_read_input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "duration_ms": 26519,
+          "duration_api_ms": 32075,
+          "num_turns": 1,
+          "is_error": false,
+          "events": [
+            {
+              "t": 0.307,
+              "type": "system"
+            },
+            {
+              "t": 26.513,
+              "type": "system"
+            },
+            {
+              "t": 26.526,
+              "type": "system"
+            },
+            {
+              "t": 26.541,
+              "type": "system"
+            },
+            {
+              "t": 26.559,
+              "type": "system"
+            },
+            {
+              "t": 26.577,
+              "type": "system"
+            },
+            {
+              "t": 26.592,
+              "type": "system"
+            },
+            {
+              "t": 26.608,
+              "type": "system"
+            },
+            {
+              "t": 26.632,
+              "type": "system"
+            },
+            {
+              "t": 26.652,
+              "type": "system"
+            },
+            {
+              "t": 26.674,
+              "type": "system"
+            },
+            {
+              "t": 26.701,
+              "type": "system"
+            },
+            {
+              "t": 26.783,
+              "type": "assistant"
+            },
+            {
+              "t": 26.796,
+              "type": "assistant"
+            },
+            {
+              "t": 26.799,
+              "type": "result"
+            }
+          ],
+          "ollama_ps_after": "NAME               ID              SIZE     PROCESSOR    CONTEXT    UNTIL              \nqwen3.6:35b-mlx    1b50c6fdc2d4    22 GB    100% GPU     16384      4 minutes from now"
+        }
+      ],
+      "summary": {
+        "t_init_s": {
+          "min": 0.298,
+          "p50": 0.307,
+          "max": 0.319,
+          "mean": 0.308,
+          "n": 3
+        },
+        "t_first_assistant_s": {
+          "min": 26.783,
+          "p50": 34.625,
+          "max": 37.964,
+          "mean": 33.124,
+          "n": 3
+        },
+        "t_total_s": {
+          "min": 26.799,
+          "p50": 34.642,
+          "max": 37.979,
+          "mean": 33.14,
+          "n": 3
+        },
+        "input_tokens": {
+          "min": 27433,
+          "p50": 27433,
+          "max": 27433,
+          "mean": 27433.0,
+          "n": 3
+        },
+        "errors": 0
+      }
+    },
+    "full-warm": {
+      "description": "real user config in ~/code/compendium (plugins, claude-mem, CLAUDE.md), model loaded \u2014 the everyday oclauderb case",
+      "runs": [
+        {
+          "scenario": "full-warm",
+          "cold": false,
+          "t_init_s": 2.834,
+          "t_first_assistant_s": 98.717,
+          "t_total_s": 98.967,
+          "input_tokens": 77343,
+          "output_tokens": 15,
+          "cache_read_input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "duration_ms": 96795,
+          "duration_api_ms": 95905,
+          "num_turns": 1,
+          "is_error": false,
+          "events": [
+            {
+              "t": 0.62,
+              "type": "system"
+            },
+            {
+              "t": 0.62,
+              "type": "system"
+            },
+            {
+              "t": 0.62,
+              "type": "system"
+            },
+            {
+              "t": 0.62,
+              "type": "system"
+            },
+            {
+              "t": 0.62,
+              "type": "system"
+            },
+            {
+              "t": 0.62,
+              "type": "system"
+            },
+            {
+              "t": 0.62,
+              "type": "system"
+            },
+            {
+              "t": 0.62,
+              "type": "system"
+            },
+            {
+              "t": 0.62,
+              "type": "system"
+            },
+            {
+              "t": 0.62,
+              "type": "system"
+            },
+            {
+              "t": 2.834,
+              "type": "system"
+            },
+            {
+              "t": 98.373,
+              "type": "system"
+            },
+            {
+              "t": 98.384,
+              "type": "system"
+            },
+            {
+              "t": 98.407,
+              "type": "system"
+            },
+            {
+              "t": 98.432,
+              "type": "system"
+            },
+            {
+              "t": 98.462,
+              "type": "system"
+            },
+            {
+              "t": 98.487,
+              "type": "system"
+            },
+            {
+              "t": 98.514,
+              "type": "system"
+            },
+            {
+              "t": 98.54,
+              "type": "system"
+            },
+            {
+              "t": 98.57,
+              "type": "system"
+            },
+            {
+              "t": 98.594,
+              "type": "system"
+            },
+            {
+              "t": 98.621,
+              "type": "system"
+            },
+            {
+              "t": 98.717,
+              "type": "assistant"
+            },
+            {
+              "t": 98.738,
+              "type": "assistant"
+            },
+            {
+              "t": 98.967,
+              "type": "result"
+            }
+          ],
+          "ollama_ps_after": "NAME               ID              SIZE     PROCESSOR    CONTEXT    UNTIL              \nqwen3.6:35b-mlx    1b50c6fdc2d4    34 GB    100% GPU     16384      4 minutes from now"
+        },
+        {
+          "scenario": "full-warm",
+          "cold": false,
+          "t_init_s": 2.798,
+          "t_first_assistant_s": 36.092,
+          "t_total_s": 36.337,
+          "input_tokens": 77466,
+          "output_tokens": 15,
+          "cache_read_input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "duration_ms": 34133,
+          "duration_api_ms": 33312,
+          "num_turns": 1,
+          "is_error": false,
+          "events": [
+            {
+              "t": 0.66,
+              "type": "system"
+            },
+            {
+              "t": 0.661,
+              "type": "system"
+            },
+            {
+              "t": 0.661,
+              "type": "system"
+            },
+            {
+              "t": 0.661,
+              "type": "system"
+            },
+            {
+              "t": 0.661,
+              "type": "system"
+            },
+            {
+              "t": 0.661,
+              "type": "system"
+            },
+            {
+              "t": 0.661,
+              "type": "system"
+            },
+            {
+              "t": 0.661,
+              "type": "system"
+            },
+            {
+              "t": 0.661,
+              "type": "system"
+            },
+            {
+              "t": 0.661,
+              "type": "system"
+            },
+            {
+              "t": 2.798,
+              "type": "system"
+            },
+            {
+              "t": 35.779,
+              "type": "system"
+            },
+            {
+              "t": 35.79,
+              "type": "system"
+            },
+            {
+              "t": 35.814,
+              "type": "system"
+            },
+            {
+              "t": 35.835,
+              "type": "system"
+            },
+            {
+              "t": 35.861,
+              "type": "system"
+            },
+            {
+              "t": 35.885,
+              "type": "system"
+            },
+            {
+              "t": 35.912,
+              "type": "system"
+            },
+            {
+              "t": 35.933,
+              "type": "system"
+            },
+            {
+              "t": 35.955,
+              "type": "system"
+            },
+            {
+              "t": 35.978,
+              "type": "system"
+            },
+            {
+              "t": 36.001,
+              "type": "system"
+            },
+            {
+              "t": 36.092,
+              "type": "assistant"
+            },
+            {
+              "t": 36.113,
+              "type": "assistant"
+            },
+            {
+              "t": 36.337,
+              "type": "result"
+            }
+          ],
+          "ollama_ps_after": "NAME               ID              SIZE     PROCESSOR    CONTEXT    UNTIL              \nqwen3.6:35b-mlx    1b50c6fdc2d4    36 GB    100% GPU     16384      4 minutes from now"
+        },
+        {
+          "scenario": "full-warm",
+          "cold": false,
+          "t_init_s": 2.717,
+          "t_first_assistant_s": 30.456,
+          "t_total_s": 30.707,
+          "input_tokens": 77466,
+          "output_tokens": 15,
+          "cache_read_input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "duration_ms": 28560,
+          "duration_api_ms": 27762,
+          "num_turns": 1,
+          "is_error": false,
+          "events": [
+            {
+              "t": 0.604,
+              "type": "system"
+            },
+            {
+              "t": 0.604,
+              "type": "system"
+            },
+            {
+              "t": 0.604,
+              "type": "system"
+            },
+            {
+              "t": 0.604,
+              "type": "system"
+            },
+            {
+              "t": 0.604,
+              "type": "system"
+            },
+            {
+              "t": 0.604,
+              "type": "system"
+            },
+            {
+              "t": 0.604,
+              "type": "system"
+            },
+            {
+              "t": 0.604,
+              "type": "system"
+            },
+            {
+              "t": 0.604,
+              "type": "system"
+            },
+            {
+              "t": 0.604,
+              "type": "system"
+            },
+            {
+              "t": 2.717,
+              "type": "system"
+            },
+            {
+              "t": 30.116,
+              "type": "system"
+            },
+            {
+              "t": 30.135,
+              "type": "system"
+            },
+            {
+              "t": 30.159,
+              "type": "system"
+            },
+            {
+              "t": 30.181,
+              "type": "system"
+            },
+            {
+              "t": 30.205,
+              "type": "system"
+            },
+            {
+              "t": 30.231,
+              "type": "system"
+            },
+            {
+              "t": 30.255,
+              "type": "system"
+            },
+            {
+              "t": 30.281,
+              "type": "system"
+            },
+            {
+              "t": 30.309,
+              "type": "system"
+            },
+            {
+              "t": 30.335,
+              "type": "system"
+            },
+            {
+              "t": 30.356,
+              "type": "system"
+            },
+            {
+              "t": 30.456,
+              "type": "assistant"
+            },
+            {
+              "t": 30.481,
+              "type": "assistant"
+            },
+            {
+              "t": 30.707,
+              "type": "result"
+            }
+          ],
+          "ollama_ps_after": "NAME               ID              SIZE     PROCESSOR    CONTEXT    UNTIL              \nqwen3.6:35b-mlx    1b50c6fdc2d4    37 GB    100% GPU     16384      4 minutes from now"
+        }
+      ],
+      "summary": {
+        "t_init_s": {
+          "min": 2.717,
+          "p50": 2.798,
+          "max": 2.834,
+          "mean": 2.783,
+          "n": 3
+        },
+        "t_first_assistant_s": {
+          "min": 30.456,
+          "p50": 36.092,
+          "max": 98.717,
+          "mean": 55.088,
+          "n": 3
+        },
+        "t_total_s": {
+          "min": 30.707,
+          "p50": 36.337,
+          "max": 98.967,
+          "mean": 55.337,
+          "n": 3
+        },
+        "input_tokens": {
+          "min": 77343,
+          "p50": 77466,
+          "max": 77466,
+          "mean": 77425.0,
+          "n": 3
+        },
+        "errors": 0
+      }
+    },
+    "full-cold": {
+      "description": "real user config, model unloaded first \u2014 worst case: full injection prefill + model load",
+      "runs": [
+        {
+          "scenario": "full-cold",
+          "cold": true,
+          "t_init_s": 2.669,
+          "t_first_assistant_s": 96.359,
+          "t_total_s": 96.585,
+          "input_tokens": 79452,
+          "output_tokens": 15,
+          "cache_read_input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "duration_ms": 94470,
+          "duration_api_ms": 93712,
+          "num_turns": 1,
+          "is_error": false,
+          "events": [
+            {
+              "t": 0.566,
+              "type": "system"
+            },
+            {
+              "t": 0.566,
+              "type": "system"
+            },
+            {
+              "t": 0.566,
+              "type": "system"
+            },
+            {
+              "t": 0.566,
+              "type": "system"
+            },
+            {
+              "t": 0.566,
+              "type": "system"
+            },
+            {
+              "t": 0.566,
+              "type": "system"
+            },
+            {
+              "t": 0.566,
+              "type": "system"
+            },
+            {
+              "t": 0.566,
+              "type": "system"
+            },
+            {
+              "t": 0.566,
+              "type": "system"
+            },
+            {
+              "t": 0.567,
+              "type": "system"
+            },
+            {
+              "t": 2.669,
+              "type": "system"
+            },
+            {
+              "t": 96.102,
+              "type": "system"
+            },
+            {
+              "t": 96.124,
+              "type": "system"
+            },
+            {
+              "t": 96.159,
+              "type": "system"
+            },
+            {
+              "t": 96.177,
+              "type": "system"
+            },
+            {
+              "t": 96.19,
+              "type": "system"
+            },
+            {
+              "t": 96.205,
+              "type": "system"
+            },
+            {
+              "t": 96.22,
+              "type": "system"
+            },
+            {
+              "t": 96.236,
+              "type": "system"
+            },
+            {
+              "t": 96.25,
+              "type": "system"
+            },
+            {
+              "t": 96.265,
+              "type": "system"
+            },
+            {
+              "t": 96.279,
+              "type": "system"
+            },
+            {
+              "t": 96.359,
+              "type": "assistant"
+            },
+            {
+              "t": 96.383,
+              "type": "assistant"
+            },
+            {
+              "t": 96.585,
+              "type": "result"
+            }
+          ],
+          "ollama_ps_after": "NAME               ID              SIZE     PROCESSOR    CONTEXT    UNTIL              \nqwen3.6:35b-mlx    1b50c6fdc2d4    24 GB    100% GPU     16384      4 minutes from now"
+        },
+        {
+          "scenario": "full-cold",
+          "cold": true,
+          "t_init_s": 2.649,
+          "t_first_assistant_s": 92.072,
+          "t_total_s": 92.286,
+          "input_tokens": 77314,
+          "output_tokens": 15,
+          "cache_read_input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "duration_ms": 90183,
+          "duration_api_ms": 89437,
+          "num_turns": 1,
+          "is_error": false,
+          "events": [
+            {
+              "t": 0.56,
+              "type": "system"
+            },
+            {
+              "t": 0.56,
+              "type": "system"
+            },
+            {
+              "t": 0.56,
+              "type": "system"
+            },
+            {
+              "t": 0.56,
+              "type": "system"
+            },
+            {
+              "t": 0.56,
+              "type": "system"
+            },
+            {
+              "t": 0.56,
+              "type": "system"
+            },
+            {
+              "t": 0.56,
+              "type": "system"
+            },
+            {
+              "t": 0.56,
+              "type": "system"
+            },
+            {
+              "t": 0.56,
+              "type": "system"
+            },
+            {
+              "t": 0.56,
+              "type": "system"
+            },
+            {
+              "t": 2.649,
+              "type": "system"
+            },
+            {
+              "t": 91.777,
+              "type": "system"
+            },
+            {
+              "t": 91.801,
+              "type": "system"
+            },
+            {
+              "t": 91.824,
+              "type": "system"
+            },
+            {
+              "t": 91.85,
+              "type": "system"
+            },
+            {
+              "t": 91.868,
+              "type": "system"
+            },
+            {
+              "t": 91.889,
+              "type": "system"
+            },
+            {
+              "t": 91.915,
+              "type": "system"
+            },
+            {
+              "t": 91.937,
+              "type": "system"
+            },
+            {
+              "t": 91.959,
+              "type": "system"
+            },
+            {
+              "t": 91.984,
+              "type": "system"
+            },
+            {
+              "t": 92.001,
+              "type": "system"
+            },
+            {
+              "t": 92.072,
+              "type": "assistant"
+            },
+            {
+              "t": 92.089,
+              "type": "assistant"
+            },
+            {
+              "t": 92.286,
+              "type": "result"
+            }
+          ],
+          "ollama_ps_after": "NAME               ID              SIZE     PROCESSOR    CONTEXT    UNTIL              \nqwen3.6:35b-mlx    1b50c6fdc2d4    24 GB    100% GPU     16384      4 minutes from now"
+        },
+        {
+          "scenario": "full-cold",
+          "cold": true,
+          "t_init_s": 2.664,
+          "t_first_assistant_s": 92.13,
+          "t_total_s": 92.361,
+          "input_tokens": 77314,
+          "output_tokens": 15,
+          "cache_read_input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "duration_ms": 90255,
+          "duration_api_ms": 89487,
+          "num_turns": 1,
+          "is_error": false,
+          "events": [
+            {
+              "t": 0.551,
+              "type": "system"
+            },
+            {
+              "t": 0.551,
+              "type": "system"
+            },
+            {
+              "t": 0.551,
+              "type": "system"
+            },
+            {
+              "t": 0.551,
+              "type": "system"
+            },
+            {
+              "t": 0.551,
+              "type": "system"
+            },
+            {
+              "t": 0.551,
+              "type": "system"
+            },
+            {
+              "t": 0.551,
+              "type": "system"
+            },
+            {
+              "t": 0.551,
+              "type": "system"
+            },
+            {
+              "t": 0.551,
+              "type": "system"
+            },
+            {
+              "t": 0.551,
+              "type": "system"
+            },
+            {
+              "t": 2.664,
+              "type": "system"
+            },
+            {
+              "t": 91.786,
+              "type": "system"
+            },
+            {
+              "t": 91.807,
+              "type": "system"
+            },
+            {
+              "t": 91.829,
+              "type": "system"
+            },
+            {
+              "t": 91.855,
+              "type": "system"
+            },
+            {
+              "t": 91.883,
+              "type": "system"
+            },
+            {
+              "t": 91.905,
+              "type": "system"
+            },
+            {
+              "t": 91.932,
+              "type": "system"
+            },
+            {
+              "t": 91.956,
+              "type": "system"
+            },
+            {
+              "t": 91.983,
+              "type": "system"
+            },
+            {
+              "t": 92.008,
+              "type": "system"
+            },
+            {
+              "t": 92.032,
+              "type": "system"
+            },
+            {
+              "t": 92.13,
+              "type": "assistant"
+            },
+            {
+              "t": 92.154,
+              "type": "assistant"
+            },
+            {
+              "t": 92.361,
+              "type": "result"
+            }
+          ],
+          "ollama_ps_after": "NAME               ID              SIZE     PROCESSOR    CONTEXT    UNTIL              \nqwen3.6:35b-mlx    1b50c6fdc2d4    24 GB    100% GPU     16384      4 minutes from now"
+        }
+      ],
+      "summary": {
+        "t_init_s": {
+          "min": 2.649,
+          "p50": 2.664,
+          "max": 2.669,
+          "mean": 2.661,
+          "n": 3
+        },
+        "t_first_assistant_s": {
+          "min": 92.072,
+          "p50": 92.13,
+          "max": 96.359,
+          "mean": 93.52,
+          "n": 3
+        },
+        "t_total_s": {
+          "min": 92.286,
+          "p50": 92.361,
+          "max": 96.585,
+          "mean": 93.744,
+          "n": 3
+        },
+        "input_tokens": {
+          "min": 77314,
+          "p50": 77314,
+          "max": 79452,
+          "mean": 78026.667,
+          "n": 3
+        },
+        "errors": 0
+      }
+    },
+    "full-warm-ctx32k": {
+      "description": "real config but capped context window \u2014 tests whether the 256k KV allocation contributes",
+      "runs": [
+        {
+          "scenario": "full-warm-ctx32k",
+          "cold": true,
+          "t_init_s": 2.742,
+          "t_first_assistant_s": 91.021,
+          "t_total_s": 91.231,
+          "input_tokens": 76733,
+          "output_tokens": 15,
+          "cache_read_input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "duration_ms": 89055,
+          "duration_api_ms": 88295,
+          "num_turns": 1,
+          "is_error": false,
+          "events": [
+            {
+              "t": 0.632,
+              "type": "system"
+            },
+            {
+              "t": 0.632,
+              "type": "system"
+            },
+            {
+              "t": 0.632,
+              "type": "system"
+            },
+            {
+              "t": 0.632,
+              "type": "system"
+            },
+            {
+              "t": 0.632,
+              "type": "system"
+            },
+            {
+              "t": 0.632,
+              "type": "system"
+            },
+            {
+              "t": 0.632,
+              "type": "system"
+            },
+            {
+              "t": 0.632,
+              "type": "system"
+            },
+            {
+              "t": 0.632,
+              "type": "system"
+            },
+            {
+              "t": 0.632,
+              "type": "system"
+            },
+            {
+              "t": 2.742,
+              "type": "system"
+            },
+            {
+              "t": 90.712,
+              "type": "system"
+            },
+            {
+              "t": 90.73,
+              "type": "system"
+            },
+            {
+              "t": 90.756,
+              "type": "system"
+            },
+            {
+              "t": 90.78,
+              "type": "system"
+            },
+            {
+              "t": 90.799,
+              "type": "system"
+            },
+            {
+              "t": 90.82,
+              "type": "system"
+            },
+            {
+              "t": 90.844,
+              "type": "system"
+            },
+            {
+              "t": 90.865,
+              "type": "system"
+            },
+            {
+              "t": 90.888,
+              "type": "system"
+            },
+            {
+              "t": 90.912,
+              "type": "system"
+            },
+            {
+              "t": 90.936,
+              "type": "system"
+            },
+            {
+              "t": 91.021,
+              "type": "assistant"
+            },
+            {
+              "t": 91.04,
+              "type": "assistant"
+            },
+            {
+              "t": 91.231,
+              "type": "result"
+            }
+          ],
+          "ollama_ps_after": "NAME               ID              SIZE     PROCESSOR    CONTEXT    UNTIL              \nqwen3.6:35b-mlx    1b50c6fdc2d4    23 GB    100% GPU     16384      4 minutes from now"
+        },
+        {
+          "scenario": "full-warm-ctx32k",
+          "cold": true,
+          "t_init_s": 2.741,
+          "t_first_assistant_s": 91.165,
+          "t_total_s": 91.403,
+          "input_tokens": 76733,
+          "output_tokens": 15,
+          "cache_read_input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "duration_ms": 89227,
+          "duration_api_ms": 88444,
+          "num_turns": 1,
+          "is_error": false,
+          "events": [
+            {
+              "t": 0.635,
+              "type": "system"
+            },
+            {
+              "t": 0.635,
+              "type": "system"
+            },
+            {
+              "t": 0.635,
+              "type": "system"
+            },
+            {
+              "t": 0.635,
+              "type": "system"
+            },
+            {
+              "t": 0.635,
+              "type": "system"
+            },
+            {
+              "t": 0.635,
+              "type": "system"
+            },
+            {
+              "t": 0.635,
+              "type": "system"
+            },
+            {
+              "t": 0.635,
+              "type": "system"
+            },
+            {
+              "t": 0.635,
+              "type": "system"
+            },
+            {
+              "t": 0.636,
+              "type": "system"
+            },
+            {
+              "t": 2.741,
+              "type": "system"
+            },
+            {
+              "t": 90.827,
+              "type": "system"
+            },
+            {
+              "t": 90.842,
+              "type": "system"
+            },
+            {
+              "t": 90.862,
+              "type": "system"
+            },
+            {
+              "t": 90.883,
+              "type": "system"
+            },
+            {
+              "t": 90.907,
+              "type": "system"
+            },
+            {
+              "t": 90.927,
+              "type": "system"
+            },
+            {
+              "t": 90.95,
+              "type": "system"
+            },
+            {
+              "t": 90.981,
+              "type": "system"
+            },
+            {
+              "t": 91.005,
+              "type": "system"
+            },
+            {
+              "t": 91.034,
+              "type": "system"
+            },
+            {
+              "t": 91.059,
+              "type": "system"
+            },
+            {
+              "t": 91.165,
+              "type": "assistant"
+            },
+            {
+              "t": 91.187,
+              "type": "assistant"
+            },
+            {
+              "t": 91.403,
+              "type": "result"
+            }
+          ],
+          "ollama_ps_after": "NAME               ID              SIZE     PROCESSOR    CONTEXT    UNTIL              \nqwen3.6:35b-mlx    1b50c6fdc2d4    23 GB    100% GPU     16384      4 minutes from now"
+        },
+        {
+          "scenario": "full-warm-ctx32k",
+          "cold": true,
+          "t_init_s": 2.702,
+          "t_first_assistant_s": 91.729,
+          "t_total_s": 91.954,
+          "input_tokens": 77203,
+          "output_tokens": 15,
+          "cache_read_input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "duration_ms": 89821,
+          "duration_api_ms": 89046,
+          "num_turns": 1,
+          "is_error": false,
+          "events": [
+            {
+              "t": 0.587,
+              "type": "system"
+            },
+            {
+              "t": 0.588,
+              "type": "system"
+            },
+            {
+              "t": 0.588,
+              "type": "system"
+            },
+            {
+              "t": 0.588,
+              "type": "system"
+            },
+            {
+              "t": 0.588,
+              "type": "system"
+            },
+            {
+              "t": 0.588,
+              "type": "system"
+            },
+            {
+              "t": 0.588,
+              "type": "system"
+            },
+            {
+              "t": 0.588,
+              "type": "system"
+            },
+            {
+              "t": 0.588,
+              "type": "system"
+            },
+            {
+              "t": 0.588,
+              "type": "system"
+            },
+            {
+              "t": 2.702,
+              "type": "system"
+            },
+            {
+              "t": 91.472,
+              "type": "system"
+            },
+            {
+              "t": 91.487,
+              "type": "system"
+            },
+            {
+              "t": 91.501,
+              "type": "system"
+            },
+            {
+              "t": 91.515,
+              "type": "system"
+            },
+            {
+              "t": 91.534,
+              "type": "system"
+            },
+            {
+              "t": 91.55,
+              "type": "system"
+            },
+            {
+              "t": 91.565,
+              "type": "system"
+            },
+            {
+              "t": 91.579,
+              "type": "system"
+            },
+            {
+              "t": 91.594,
+              "type": "system"
+            },
+            {
+              "t": 91.616,
+              "type": "system"
+            },
+            {
+              "t": 91.635,
+              "type": "system"
+            },
+            {
+              "t": 91.729,
+              "type": "assistant"
+            },
+            {
+              "t": 91.751,
+              "type": "assistant"
+            },
+            {
+              "t": 91.954,
+              "type": "result"
+            }
+          ],
+          "ollama_ps_after": "NAME               ID              SIZE     PROCESSOR    CONTEXT    UNTIL              \nqwen3.6:35b-mlx    1b50c6fdc2d4    23 GB    100% GPU     16384      4 minutes from now"
+        }
+      ],
+      "summary": {
+        "t_init_s": {
+          "min": 2.702,
+          "p50": 2.741,
+          "max": 2.742,
+          "mean": 2.728,
+          "n": 3
+        },
+        "t_first_assistant_s": {
+          "min": 91.021,
+          "p50": 91.165,
+          "max": 91.729,
+          "mean": 91.305,
+          "n": 3
+        },
+        "t_total_s": {
+          "min": 91.231,
+          "p50": 91.403,
+          "max": 91.954,
+          "mean": 91.529,
+          "n": 3
+        },
+        "input_tokens": {
+          "min": 76733,
+          "p50": 76733,
+          "max": 77203,
+          "mean": 76889.667,
+          "n": 3
+        },
+        "errors": 0
+      }
+    },
+    "full-warm-ctx256k": {
+      "description": "real config, explicit 256k context \u2014 pair with ctx32k; both cold so KV alloc is included",
+      "runs": [
+        {
+          "scenario": "full-warm-ctx256k",
+          "cold": true,
+          "t_init_s": 2.691,
+          "t_first_assistant_s": 91.381,
+          "t_total_s": 91.597,
+          "input_tokens": 76961,
+          "output_tokens": 15,
+          "cache_read_input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "duration_ms": 89451,
+          "duration_api_ms": 88713,
+          "num_turns": 1,
+          "is_error": false,
+          "events": [
+            {
+              "t": 0.551,
+              "type": "system"
+            },
+            {
+              "t": 0.551,
+              "type": "system"
+            },
+            {
+              "t": 0.551,
+              "type": "system"
+            },
+            {
+              "t": 0.551,
+              "type": "system"
+            },
+            {
+              "t": 0.551,
+              "type": "system"
+            },
+            {
+              "t": 0.551,
+              "type": "system"
+            },
+            {
+              "t": 0.551,
+              "type": "system"
+            },
+            {
+              "t": 0.551,
+              "type": "system"
+            },
+            {
+              "t": 0.551,
+              "type": "system"
+            },
+            {
+              "t": 0.552,
+              "type": "system"
+            },
+            {
+              "t": 2.691,
+              "type": "system"
+            },
+            {
+              "t": 91.107,
+              "type": "system"
+            },
+            {
+              "t": 91.119,
+              "type": "system"
+            },
+            {
+              "t": 91.134,
+              "type": "system"
+            },
+            {
+              "t": 91.152,
+              "type": "system"
+            },
+            {
+              "t": 91.17,
+              "type": "system"
+            },
+            {
+              "t": 91.188,
+              "type": "system"
+            },
+            {
+              "t": 91.208,
+              "type": "system"
+            },
+            {
+              "t": 91.232,
+              "type": "system"
+            },
+            {
+              "t": 91.25,
+              "type": "system"
+            },
+            {
+              "t": 91.27,
+              "type": "system"
+            },
+            {
+              "t": 91.29,
+              "type": "system"
+            },
+            {
+              "t": 91.381,
+              "type": "assistant"
+            },
+            {
+              "t": 91.407,
+              "type": "assistant"
+            },
+            {
+              "t": 91.597,
+              "type": "result"
+            }
+          ],
+          "ollama_ps_after": "NAME               ID              SIZE     PROCESSOR    CONTEXT    UNTIL              \nqwen3.6:35b-mlx    1b50c6fdc2d4    23 GB    100% GPU     16384      4 minutes from now"
+        },
+        {
+          "scenario": "full-warm-ctx256k",
+          "cold": true,
+          "t_init_s": 2.81,
+          "t_first_assistant_s": 91.782,
+          "t_total_s": 92.035,
+          "input_tokens": 77050,
+          "output_tokens": 15,
+          "cache_read_input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "duration_ms": 89880,
+          "duration_api_ms": 88999,
+          "num_turns": 1,
+          "is_error": false,
+          "events": [
+            {
+              "t": 0.562,
+              "type": "system"
+            },
+            {
+              "t": 0.562,
+              "type": "system"
+            },
+            {
+              "t": 0.562,
+              "type": "system"
+            },
+            {
+              "t": 0.562,
+              "type": "system"
+            },
+            {
+              "t": 0.562,
+              "type": "system"
+            },
+            {
+              "t": 0.562,
+              "type": "system"
+            },
+            {
+              "t": 0.562,
+              "type": "system"
+            },
+            {
+              "t": 0.562,
+              "type": "system"
+            },
+            {
+              "t": 0.562,
+              "type": "system"
+            },
+            {
+              "t": 0.562,
+              "type": "system"
+            },
+            {
+              "t": 2.81,
+              "type": "system"
+            },
+            {
+              "t": 91.398,
+              "type": "system"
+            },
+            {
+              "t": 91.424,
+              "type": "system"
+            },
+            {
+              "t": 91.442,
+              "type": "system"
+            },
+            {
+              "t": 91.467,
+              "type": "system"
+            },
+            {
+              "t": 91.487,
+              "type": "system"
+            },
+            {
+              "t": 91.506,
+              "type": "system"
+            },
+            {
+              "t": 91.596,
+              "type": "system"
+            },
+            {
+              "t": 91.623,
+              "type": "system"
+            },
+            {
+              "t": 91.646,
+              "type": "system"
+            },
+            {
+              "t": 91.672,
+              "type": "system"
+            },
+            {
+              "t": 91.695,
+              "type": "system"
+            },
+            {
+              "t": 91.782,
+              "type": "assistant"
+            },
+            {
+              "t": 91.811,
+              "type": "assistant"
+            },
+            {
+              "t": 92.035,
+              "type": "result"
+            }
+          ],
+          "ollama_ps_after": "NAME               ID              SIZE     PROCESSOR    CONTEXT    UNTIL              \nqwen3.6:35b-mlx    1b50c6fdc2d4    23 GB    100% GPU     16384      4 minutes from now"
+        },
+        {
+          "scenario": "full-warm-ctx256k",
+          "cold": true,
+          "t_init_s": 2.842,
+          "t_first_assistant_s": 98.254,
+          "t_total_s": 98.495,
+          "input_tokens": 76890,
+          "output_tokens": 19,
+          "cache_read_input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "duration_ms": 96227,
+          "duration_api_ms": 95427,
+          "num_turns": 1,
+          "is_error": false,
+          "events": [
+            {
+              "t": 0.623,
+              "type": "system"
+            },
+            {
+              "t": 0.623,
+              "type": "system"
+            },
+            {
+              "t": 0.623,
+              "type": "system"
+            },
+            {
+              "t": 0.623,
+              "type": "system"
+            },
+            {
+              "t": 0.623,
+              "type": "system"
+            },
+            {
+              "t": 0.623,
+              "type": "system"
+            },
+            {
+              "t": 0.623,
+              "type": "system"
+            },
+            {
+              "t": 0.623,
+              "type": "system"
+            },
+            {
+              "t": 0.623,
+              "type": "system"
+            },
+            {
+              "t": 0.623,
+              "type": "system"
+            },
+            {
+              "t": 2.842,
+              "type": "system"
+            },
+            {
+              "t": 97.876,
+              "type": "system"
+            },
+            {
+              "t": 97.894,
+              "type": "system"
+            },
+            {
+              "t": 97.916,
+              "type": "system"
+            },
+            {
+              "t": 97.936,
+              "type": "system"
+            },
+            {
+              "t": 97.958,
+              "type": "system"
+            },
+            {
+              "t": 97.981,
+              "type": "system"
+            },
+            {
+              "t": 98.003,
+              "type": "system"
+            },
+            {
+              "t": 98.023,
+              "type": "system"
+            },
+            {
+              "t": 98.043,
+              "type": "system"
+            },
+            {
+              "t": 98.062,
+              "type": "system"
+            },
+            {
+              "t": 98.079,
+              "type": "system"
+            },
+            {
+              "t": 98.099,
+              "type": "system"
+            },
+            {
+              "t": 98.117,
+              "type": "system"
+            },
+            {
+              "t": 98.138,
+              "type": "system"
+            },
+            {
+              "t": 98.16,
+              "type": "system"
+            },
+            {
+              "t": 98.254,
+              "type": "assistant"
+            },
+            {
+              "t": 98.273,
+              "type": "assistant"
+            },
+            {
+              "t": 98.495,
+              "type": "result"
+            }
+          ],
+          "ollama_ps_after": "NAME               ID              SIZE     PROCESSOR    CONTEXT    UNTIL       \nqwen3.6:35b-mlx    1b50c6fdc2d4    38 GB    100% GPU     16384      Stopping..."
+        }
+      ],
+      "summary": {
+        "t_init_s": {
+          "min": 2.691,
+          "p50": 2.81,
+          "max": 2.842,
+          "mean": 2.781,
+          "n": 3
+        },
+        "t_first_assistant_s": {
+          "min": 91.381,
+          "p50": 91.782,
+          "max": 98.254,
+          "mean": 93.806,
+          "n": 3
+        },
+        "t_total_s": {
+          "min": 91.597,
+          "p50": 92.035,
+          "max": 98.495,
+          "mean": 94.042,
+          "n": 3
+        },
+        "input_tokens": {
+          "min": 76890,
+          "p50": 76961,
+          "max": 77050,
+          "mean": 76967.0,
+          "n": 3
+        },
+        "errors": 0
+      }
+    }
+  }
+}

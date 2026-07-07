@@ -62,3 +62,11 @@ Results land in `benchmarks/results/claude-session-pop-qwen36-35b-<stamp>.json`.
   writes occur. claude-mem will still record observations for these runs.
 - The bare config dir is materialized under the results workdir with
   `hasCompletedOnboarding` pre-set; delete the workdir to reset it.
+- **`CLAUDE_CODE_MAX_CONTEXT_TOKENS` does not reach Ollama** (verified
+  2026-07-07: `ollama ps` showed CONTEXT=16384 in every scenario, including
+  ctx32k/ctx256k) — it only moves Claude Code's client-side compaction
+  threshold, so the ctx scenarios compare nothing server-side. Ollama's window
+  comes from the server's `OLLAMA_CONTEXT_LENGTH` (restart required). Worse
+  finding: full-config sessions prefill ~77k tokens into that 16k window, so
+  Ollama truncates/shifts away most of the injected context — a quality
+  problem on top of the latency one.
