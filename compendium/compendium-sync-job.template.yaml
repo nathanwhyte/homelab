@@ -38,8 +38,11 @@ spec:
               mkdir -p "$HOME/.openviking"
               printf '{"url":"%s","api_key":"%s","root_api_key":"%s","account":"default","user":"noot","timeout":300.0,"output":"table"}\n' \
                 "$OPENVIKING_URL" "$OPENVIKING_KEY" "$OPENVIKING_KEY" > "$HOME/.openviking/ovcli.conf"
-              # compendium-sync.py resolves the vault at ~/code/compendium
-              git clone --depth 1 "https://x-access-token:${GITHUB_TOKEN}@github.com/nathanwhyte/compendium.git" "$HOME/code/compendium"
+              # compendium-sync.py resolves the vault at ~/code/compendium.
+              # Blobless clone (NOT --depth 1): --changed needs full history to
+              # resolve the baseline SHA and run git diff; blobs fetch lazily so
+              # only HEAD's files are downloaded at checkout.
+              git clone --filter=blob:none "https://x-access-token:${GITHUB_TOKEN}@github.com/nathanwhyte/compendium.git" "$HOME/code/compendium"
               cd "$HOME/code/compendium"
               echo "vault at $(git rev-parse --short HEAD); running: sync ${SYNC_ARGS}"
               python3 _scripts/compendium-sync.py sync ${SYNC_ARGS}
