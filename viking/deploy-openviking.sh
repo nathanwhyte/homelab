@@ -75,7 +75,7 @@ apply openviking-native-dashboard-configmap.yaml
 apply ov-vectordb-pvc.yaml
 apply ov-vectordb-deployment.yaml
 apply ov-vectordb-service.yaml
-apply embedder-qwen-rocm-deployment.yaml # primary since 2026-07-06 (was embedder-qwen-cuda on wemby)
+apply embedder-qwen-rocm-deployment.yaml # Deployment embedder-qwen (backend-neutral, IMPR-1040); primary since 2026-07-06 (was embedder-qwen-cuda on wemby)
 apply llamacpp-vlm-service.yaml
 apply cuda-llamacpp-deployment.yaml
 apply cuda-llamacpp-service.yaml
@@ -99,7 +99,7 @@ verify_manifest_set
 echo ""
 echo "=== Waiting for rollouts ==="
 "${KUBECTL[@]}" -n viking rollout status deployment/ov-vectordb --timeout=300s
-"${KUBECTL[@]}" -n viking rollout status deployment/embedder-qwen-rocm --timeout=900s
+"${KUBECTL[@]}" -n viking rollout status deployment/embedder-qwen --timeout=900s
 "${KUBECTL[@]}" -n viking rollout status deployment/llamacpp-cuda-ov --timeout=900s
 "${KUBECTL[@]}" -n viking rollout status deployment/openviking --timeout=300s
 

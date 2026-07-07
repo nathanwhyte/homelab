@@ -11,10 +11,14 @@
 # See: benchmarks/embedding-retrieval/BENCHMARK.md.
 #
 # ROCm gfx1201 validated: llama/docs/2026-06-28-rocm-gfx1201-validation-baseline.md
-# The `embedder-qwen` Service (selector app=embedder-qwen-rocm) lives HERE now;
-# embedder-qwen-cuda-deployment.yaml is the replicas=0 rollback (its Service
-# block was removed so there is exactly one `embedder-qwen` Service).
+# The `embedder-qwen` Service (selector app=embedder-qwen, backend=rocm) lives
+# HERE now; embedder-qwen-cuda-deployment.yaml is the replicas=0 rollback (its
+# Service block was removed so there is exactly one `embedder-qwen` Service).
 # Cutover / rollback runbook: viking/docs/2026-07-06-embedder-migration-wemby-to-timmy.md
+#
+# IMPR-1040: Deployment renamed embedder-qwen-rocm -> embedder-qwen so backend/
+# node migrations no longer force a resource rename — backend is expressed via
+# the `backend` label and this manifest filename instead.
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
@@ -31,10 +35,11 @@ spec:
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: embedder-qwen-rocm
+  name: embedder-qwen
   namespace: viking
   labels:
-    app: embedder-qwen-rocm
+    app: embedder-qwen
+    backend: rocm
 spec:
   replicas: 1 # PRIMARY (migrated from wemby CUDA 2026-07-06)
   revisionHistoryLimit: 1
@@ -42,11 +47,12 @@ spec:
     type: Recreate
   selector:
     matchLabels:
-      app: embedder-qwen-rocm
+      app: embedder-qwen
   template:
     metadata:
       labels:
-        app: embedder-qwen-rocm
+        app: embedder-qwen
+        backend: rocm
     spec:
       nodeSelector:
         kubernetes.io/hostname: timmy
@@ -190,11 +196,11 @@ metadata:
   name: embedder-qwen
   namespace: viking
   labels:
-    app: embedder-qwen-rocm
+    app: embedder-qwen
 spec:
   type: ClusterIP
   selector:
-    app: embedder-qwen-rocm
+    app: embedder-qwen
   ports:
     - name: http
       port: 8080

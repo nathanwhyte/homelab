@@ -14,7 +14,8 @@ resources:
   - ov-vectordb-pvc.yaml
   - ov-vectordb-deployment.yaml
   - ov-vectordb-service.yaml
-  # embedder-qwen-rocm is primary since 2026-07-06 (embedder-qwen-cuda = replicas=0 rollback, applied manually per runbook)
+  # embedder-qwen-rocm-deployment.yaml is primary since 2026-07-06 (embedder-qwen-cuda = replicas=0 rollback, applied manually per runbook)
+  # IMPR-1040: Deployment resource inside is named embedder-qwen (backend-neutral); filename still names the backend.
   - embedder-qwen-rocm-deployment.yaml
   - llamacpp-vlm-service.yaml
   - cuda-llamacpp-deployment.yaml

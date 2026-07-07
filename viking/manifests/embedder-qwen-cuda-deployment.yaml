@@ -1,14 +1,18 @@
 ---
 # Qwen3-Embedding-4B on wemby's GTX 1060 (CUDA) — RETIRED rollback path.
-# Was PRIMARY 2026-06-29 → 2026-07-06; superseded by embedder-qwen-rocm on
+# Was PRIMARY 2026-06-29 → 2026-07-06; superseded by the ROCm Deployment on
 # timmy's RX 9070 XT after wemby's charging cable/port kept failing and the
-# node hard-dropped repeatedly (see the rocm file header + migration runbook).
+# node hard-dropped repeatedly (see embedder-qwen-rocm-deployment.yaml header
+# + migration runbook).
 # replicas=0. The live `embedder-qwen` Service now lives in
-# embedder-qwen-rocm-deployment.yaml (selector app=embedder-qwen-rocm); its
-# Service block was removed from THIS file so there is exactly one Service.
+# embedder-qwen-rocm-deployment.yaml (selector app=embedder-qwen); its Service
+# block was removed from THIS file so there is exactly one Service.
 # To roll back to wemby CUDA: scale this to 1 AND repoint the Service selector
 # to app=embedder-qwen-cuda (only if wemby's power is fixed). Runbook:
 # viking/docs/2026-07-06-embedder-migration-wemby-to-timmy.md
+# IMPR-1040: this Deployment keeps its backend-qualified name (embedder-qwen-cuda)
+# since it is never the live `app=embedder-qwen` target — only the active
+# backend's Deployment takes the neutral name.
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
@@ -160,6 +164,6 @@ spec:
             medium: Memory
             sizeLimit: 2Gi
 # NOTE: the `embedder-qwen` Service was moved to
-# embedder-qwen-rocm-deployment.yaml (selector app=embedder-qwen-rocm) as part
+# embedder-qwen-rocm-deployment.yaml (selector app=embedder-qwen) as part
 # of the 2026-07-06 migration. Do not re-add it here — two Services with the
 # same name would fight over the selector on apply.
