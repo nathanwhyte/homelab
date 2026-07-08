@@ -20,6 +20,14 @@
 # cross namespaces).
 set -euo pipefail
 
+case "${1:-}" in
+-h | --help)
+	# Print the header docstring (usage + examples) without dispatching a Job.
+	sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'
+	exit 0
+	;;
+esac
+
 cd "$(dirname "$0")"
 
 FOLLOW=0
@@ -42,6 +50,17 @@ copy_secret() {
 }
 copy_secret hermes github-access-token compendium-git-token
 copy_secret viking openviking-api-key openviking-api-key
+
+# Refuse to overlap: the compendium OV namespace is single-writer (BUG-1034/BUG-1035).
+# A Job with status.active>=1 (running, or pod Pending on volume attach) blocks dispatch.
+running=$(kubectl get jobs -n compendium -l app=compendium-sync \
+	-o jsonpath='{range .items[?(@.status.active)]}{.metadata.name} ({.status.active} active){"\n"}{end}' 2>/dev/null)
+if [ -n "$running" ]; then
+	echo "a compendium-sync job is already running — refusing to start a second writer:" >&2
+	printf '%s\n' "$running" | sed 's/^/  /' >&2
+	echo "re-run once it completes: kubectl -n compendium get jobs -l app=compendium-sync" >&2
+	exit 1
+fi
 
 JOB_NAME="compendium-sync-$(date +%s)"
 export JOB_NAME

@@ -18,6 +18,7 @@ metadata:
     app: compendium-sync
 spec:
   backoffLimit: 0
+  activeDeadlineSeconds: 1800 # BUG-1035: bound a wedged run so it frees the state PVC + guard
   ttlSecondsAfterFinished: 86400
   template:
     metadata:
