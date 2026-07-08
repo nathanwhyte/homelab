@@ -214,11 +214,26 @@ def edit_prediction_workload(count: int, fim_format: str) -> Workload:
             _EP_PREFILL_TOKENS[i % len(_EP_PREFILL_TOKENS)]
         )
         prefix, suffix = _ep_split(context)
+        # Per-family PSM sentinels (INFO-1005). raw=true in the config so the
+        # chat template doesn't rewrite these. Native /api/generate `suffix`
+        # is the production path; raw+markers is the benchmark control path.
         if fim_format == "deepseek":
             prompts.append(
                 f"<｜fim▁begin｜>{prefix}<｜fim▁hole｜>{suffix}<｜fim▁end｜>"
             )
-        else:
+        elif fim_format == "qwen":
+            prompts.append(
+                f"<|fim_prefix|>{prefix}<|fim_suffix|>{suffix}<|fim_middle|>"
+            )
+        elif fim_format == "starcoder2":
+            prompts.append(
+                f"<fim_prefix>{prefix}<fim_suffix>{suffix}<fim_middle>"
+            )
+        elif fim_format == "codegemma":
+            prompts.append(
+                f"<|fim_prefix|>{prefix}<|fim_suffix|>{suffix}<|fim_middle|>"
+            )
+        else:  # zeta / plain continuation (no FIM sentinels)
             prompts.append(prefix)
     return Workload(name=f"edit_prediction_{fim_format}", prompts=prompts)
 
@@ -241,4 +256,10 @@ def select_workload(name: str, count: int) -> Workload:
         return edit_prediction_workload(count, "zeta")
     if name == "edit_prediction_deepseek":
         return edit_prediction_workload(count, "deepseek")
+    if name == "edit_prediction_qwen":
+        return edit_prediction_workload(count, "qwen")
+    if name == "edit_prediction_starcoder2":
+        return edit_prediction_workload(count, "starcoder2")
+    if name == "edit_prediction_codegemma":
+        return edit_prediction_workload(count, "codegemma")
     raise ValueError(f"Unknown workload: {name}")

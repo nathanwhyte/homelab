@@ -191,6 +191,7 @@ async def run_request_openai(
     prompt: str,
     num_predict: int,
     temperature: float,
+    stop: Optional[list] = None,
 ) -> RequestResult:
     """Streaming /v1/completions request with client-side TTFT/ITL timing.
 
@@ -206,6 +207,8 @@ async def run_request_openai(
         "temperature": temperature,
         "stream": True,
     }
+    if stop:
+        payload["stop"] = stop
     t0 = time.monotonic()
     t_first: Optional[float] = None
     n_chunks = 0
@@ -285,10 +288,11 @@ async def run_request(
     temperature: float,
     raw: bool = False,
     api: str = "ollama",
+    stop: Optional[list] = None,
 ) -> RequestResult:
     if api == "openai_completions":
         return await run_request_openai(
-            session, url, model, prompt, num_predict, temperature
+            session, url, model, prompt, num_predict, temperature, stop
         )
     payload = {
         "model": model,
@@ -300,6 +304,8 @@ async def run_request(
             "temperature": temperature,
         },
     }
+    if stop:
+        payload["options"]["stop"] = stop
     if raw:
         payload["raw"] = True
     t0 = time.monotonic()
@@ -357,6 +363,7 @@ async def benchmark_level(
     validate_tools: bool = False,
     raw: bool = False,
     api: str = "ollama",
+    stop: Optional[list] = None,
 ) -> list[RequestResult]:
     sem = asyncio.Semaphore(concurrency)
 
@@ -372,6 +379,7 @@ async def benchmark_level(
                 temperature,
                 raw,
                 api,
+                stop,
             )
             if validate_tools and result.response_text is not None:
                 expected = expected_tools[prompt_idx] if expected_tools else None
@@ -392,9 +400,10 @@ async def warmup(
     temperature: float,
     raw: bool = False,
     api: str = "ollama",
+    stop: Optional[list] = None,
 ) -> RequestResult:
     return await run_request(
-        session, url, model, prompt, num_ctx, num_predict, temperature, raw, api
+        session, url, model, prompt, num_ctx, num_predict, temperature, raw, api, stop
     )
 
 
@@ -494,6 +503,7 @@ async def main() -> int:
     temperature = ollama_cfg.get("temperature", 0.3)
     raw = ollama_cfg.get("raw", False)
     api = ollama_cfg.get("api", "ollama")
+    stop = ollama_cfg.get("stop", None)
 
     workload_name = workload_cfg.get("name", "mixed_mem0")
     max_concurrency = workload_cfg.get("max_concurrency", 6)
@@ -542,7 +552,7 @@ async def main() -> int:
         # Warmup.
         print(f"Warming up with 1 request to {model} ...")
         warmup_res = await warmup(
-            session, url, model, prompts[0], num_ctx, num_predict, temperature, raw, api
+            session, url, model, prompts[0], num_ctx, num_predict, temperature, raw, api, stop
         )
         if warmup_res.error:
             print(f"ERROR during warmup: {warmup_res.error}", file=sys.stderr)
@@ -581,6 +591,7 @@ async def main() -> int:
                     validate_tools=tool_validate,
                     raw=raw,
                     api=api,
+                    stop=stop,
                 )
                 repeat_wall = time.monotonic() - repeat_start
                 repeat_tokens = 0
