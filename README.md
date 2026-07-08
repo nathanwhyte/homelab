@@ -74,7 +74,7 @@ S3-compatible object storage engine.
 Internal OpenAI-compatible LLM endpoints backed by Ollama and `llama.cpp`.
 
 - **Ollama** (timmy, RX 9070 XT): `ollama.llama.svc:11434` — primary inference for Claude Code, Hermes, and OpenWebUI; hosts gemma4:12b-it-qat (local) and glm-5.1:cloud (remote)
-- **OV VLM** (manu, GTX 1080): `llamacpp-cuda-ov` in viking namespace — **failover only** since the 2026-07-05 cloud cutover (OV's primary VLM is cloud via chat-ollama — currently `gemma4:31b-cloud` during the compendium resync, steady-state target `qwen3.5:cloud`); replicas=1 during the soak window, retirement candidate
+- **OV VLM** (manu, GTX 1080): `llamacpp-cuda-ov` in viking namespace — **failover only** since the 2026-07-05 cloud cutover (OV's primary VLM is cloud via chat-ollama — `gemma4:31b-cloud`, non-thinking, settled 2026-07-06); replicas=1 during the soak window, retirement candidate
 - **Embedder** (timmy, RX 9070 XT, ROCm): `embedder-qwen.viking.svc:8080` — Qwen3-Embedding-4B Q8_0 (2560-dim) for vector embeddings (Deployment `embedder-qwen`, migrated back to timmy 2026-07-06 after wemby's failing charging cable/port kept hard-dropping the node; co-resides with Ollama on the 9070 XT, ~5 GB; `embedder-qwen-cuda` on wemby retained as `replicas=0` rollback); legacy `embedder-llamacpp` on wemby deleted 2026-07-04 (768-dim rollback path gone); the mem0 stack that pointed at it was torn down 2026-07-02 (see `mem0/TORN-DOWN.md`)
 - Read more in [`llama/README.md`](./llama/README.md) and [`viking/`](./viking/).
 
