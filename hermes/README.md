@@ -1,5 +1,10 @@
 # Hermes Agent on K3s
 
+> **⚠️ Not currently deployed live** (IMPR-1025) — the manifests here are complete, but the mem0
+> memory backend Hermes depends on was torn down 2026-07-02 (see [`../mem0/TORN-DOWN.md`](../mem0/TORN-DOWN.md)).
+> Redeploying requires restoring the mem0 stack or switching memory providers. This README
+> describes the stack as designed/last run.
+
 Hermes runs in the `hermes` namespace as two Deployments:
 
 - `hermes-agent` — Hermes Agent runtime, currently running `hermes gateway run`

@@ -1,5 +1,9 @@
 # Mem0 Memory Provider
 
+> **⚠️ Torn down 2026-07-02** — the `mem0` namespace was deleted and the tunnel routes removed;
+> see [TORN-DOWN.md](TORN-DOWN.md). This README describes the stack as it ran and is retained
+> as the restore reference (re-apply manifests + load the archived `pg_dumpall`).
+
 Self-hosted Mem0 deployment for Hermes agent memory, replacing OpenViking as the `memory` provider while keeping OV for knowledge base operations.
 
 ## Architecture
@@ -26,8 +30,8 @@ The **mem0-adapter** sidecar exists because the upstream `nousresearch/hermes-ag
 
 | Component             | Manifest / Image                                                                               | Resources                 | Storage                   |
 | --------------------- | ---------------------------------------------------------------------------------------------- | ------------------------- | ------------------------- |
-| Mem0 API server       | `mem0-server-deployment.yaml`                                                                               | 0.5-2 CPU, 1-2 Gi RAM     | emptyDir (SQLite history) |
-| Mem0 API server (LAN) | `mem0-server-lan` NodePort service (8080:30080)                                                              | —                         | —                         |
+| Mem0 API server       | `mem0-server-deployment.yaml`                                                                  | 0.5-2 CPU, 1-2 Gi RAM     | emptyDir (SQLite history) |
+| Mem0 API server (LAN) | `mem0-server-lan` NodePort service (8080:30080)                                                | —                         | —                         |
 | Mem0 Dashboard        | `mem0-dashboard-deployment.yaml`                                                               | 50m-1 CPU, 128Mi-1 Gi RAM | none                      |
 | PostgreSQL + pgvector | `mem0-postgres-statefulset.yaml`                                                               | 0.25-1 CPU, 0.5-2 Gi RAM  | 5Gi PVC (Longhorn)        |
 | mem0-adapter sidecar  | `hermes/mem0-adapter/` → `registry.nathanwhyte.dev/homelab/mem0-adapter`                       | 50m-1 CPU, 64Mi-512Mi     | none                      |
@@ -295,16 +299,16 @@ Mem0 OSS does not expose Prometheus metrics for stored memories (`/metrics` and
 exporter that queries `public.memories.payload` in Postgres and intentionally
 does **not** expose memory text.
 
-| Metric | Meaning |
-| --- | --- |
-| `mem0_exporter_up` | Exporter can query Postgres (`1`) or failed (`0`) |
-| `mem0_memories_total` | Total stored memories |
-| `mem0_memories_by_user{user_id=...}` | Stored memories grouped by `user_id` |
-| `mem0_memories_by_agent{agent_id=...}` | Stored memories grouped by `agent_id` |
-| `mem0_memories_by_role{role=...}` | Stored memories grouped by payload role |
-| `mem0_memory_oldest_timestamp_seconds` | Oldest memory creation timestamp |
-| `mem0_memory_newest_timestamp_seconds` | Newest memory creation timestamp |
-| `mem0_memory_metadata_key_total{key=...}` | Count of memories containing each metadata key |
+| Metric                                    | Meaning                                           |
+| ----------------------------------------- | ------------------------------------------------- |
+| `mem0_exporter_up`                        | Exporter can query Postgres (`1`) or failed (`0`) |
+| `mem0_memories_total`                     | Total stored memories                             |
+| `mem0_memories_by_user{user_id=...}`      | Stored memories grouped by `user_id`              |
+| `mem0_memories_by_agent{agent_id=...}`    | Stored memories grouped by `agent_id`             |
+| `mem0_memories_by_role{role=...}`         | Stored memories grouped by payload role           |
+| `mem0_memory_oldest_timestamp_seconds`    | Oldest memory creation timestamp                  |
+| `mem0_memory_newest_timestamp_seconds`    | Newest memory creation timestamp                  |
+| `mem0_memory_metadata_key_total{key=...}` | Count of memories containing each metadata key    |
 
 ### Build the exporter image
 
@@ -359,8 +363,9 @@ curl -fsS http://127.0.0.1:19091/metrics | grep '^mem0_memories_total '
 The live mem0-server is still configured with `MEM0_EMBEDDER_API_BASE=http://embedder-llamacpp.viking.svc.cluster.local:8080/v1`
 and `MEM0_EMBEDDING_DIMS=768`, so mem0's embedding path is currently **broken**.
 
-The active embedder is `embedder-qwen-cuda` (Qwen3-Embedding-4B Q8_0, 2560-dim) on wemby GTX 1060,
-but mem0 was never re-pointed at it. Fixing this requires:
+The active cluster embedder is `embedder-qwen` (Qwen3-Embedding-4B Q8_0, 2560-dim) — on timmy's
+RX 9070 XT (ROCm) since 2026-07-06 — but mem0 was never re-pointed at it. Fixing this (on any
+future restore) requires:
 
 1. Change `MEM0_EMBEDDER_API_BASE` to `http://embedder-qwen.viking.svc.cluster.local:8080/v1`
 2. Change `MEM0_EMBEDDING_DIMS` to `2560`
@@ -372,9 +377,9 @@ and the mem0 config was not updated to follow.
 
 ## Model routing
 
-| Call type      | Model                           | Endpoint                               | GPU              | Status |
-| -------------- | ------------------------------- | -------------------------------------- | ---------------- | ------ |
-| LLM extraction | **gemma4:12b-it-qat** (local)   | chat-ollama-proxy.llama:11434 → ollama | timmy RX 9070 XT | ✅     |
+| Call type      | Model                           | Endpoint                               | GPU              | Status                  |
+| -------------- | ------------------------------- | -------------------------------------- | ---------------- | ----------------------- |
+| LLM extraction | **gemma4:12b-it-qat** (local)   | chat-ollama-proxy.llama:11434 → ollama | timmy RX 9070 XT | ✅                      |
 | Embedding      | nomic-embed-text-v1.5 (768-dim) | embedder-llamacpp.viking:8080          | wemby GTX 1060   | ❌ retired (replicas=0) |
 
 **Context window is critical (not model size).** mem0 v2.0.6 uses a single-call `ADDITIVE_EXTRACTION_PROMPT` (~9-10K tokens) that returns a `{"memory":[...]}` operations object. With the live Ollama at `OLLAMA_CONTEXT_LENGTH=8192`, that prompt was **truncated**, so local models saw mangled instructions and emitted `{"` then stopped → nothing stored (this looked like a model-capability failure but wasn't — even glm-5.1:cloud only worked because cloud models ignore the local `num_ctx`). Raising `OLLAMA_CONTEXT_LENGTH` to **16384** (`llama/ollama-deployment.yaml`) fixes it: the local `gemma4:12b-it-qat` extracts correctly, so **no cloud model is needed**. Extraction is routed through `chat-ollama-proxy` (`INJECT_REASONING_NONE=true`) so reasoning tokens don't contaminate the JSON.
@@ -472,11 +477,11 @@ Platform API, not the OSS server.
 
 The OSS server supports three auth modes (per the Mem0 docs):
 
-| Mode                   | Header                          | Use case                                             |
-| ---------------------- | ------------------------------- | ---------------------------------------------------- |
-| Per-user API key       | `X-API-Key: m0sk_...`           | Programmatic access scoped to a dashboard user       |
+| Mode                  | Header                          | Use case                                            |
+| --------------------- | ------------------------------- | --------------------------------------------------- |
+| Per-user API key      | `X-API-Key: m0sk_...`           | Programmatic access scoped to a dashboard user      |
 | Legacy `MEM0_API_KEY` | `X-API-Key: <env value>`        | Back-compat for deployments that set `MEM0_API_KEY` |
-| Bearer JWT             | `Authorization: Bearer <token>` | Dashboard sessions from `POST /auth/login`           |
+| Bearer JWT            | `Authorization: Bearer <token>` | Dashboard sessions from `POST /auth/login`          |
 
 The current homelab deployment sets `MEM0_API_KEY` and uses it via the
 `X-API-Key` header.

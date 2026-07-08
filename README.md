@@ -21,9 +21,8 @@ Kubernetes' own dashboard for cluster management.
 
 ### Headlamp
 
-A modern, extensible Kubernetes UI alternative to the official dashboard.
-
-- Deployed via Helm with a Cloudflare Tunnel for secure access.
+> **Torn down 2026-07-02.** A modern, extensible Kubernetes UI alternative to the official
+> dashboard. Manifests retained for reference — see [`headlamp/TORN-DOWN.md`](./headlamp/TORN-DOWN.md).
 
 ### Longhorn
 
@@ -75,11 +74,14 @@ S3-compatible object storage engine.
 Internal OpenAI-compatible LLM endpoints backed by Ollama and `llama.cpp`.
 
 - **Ollama** (timmy, RX 9070 XT): `ollama.llama.svc:11434` — primary inference for Claude Code, Hermes, and OpenWebUI; hosts gemma4:12b-it-qat (local) and glm-5.1:cloud (remote)
-- **OV VLM** (manu, GTX 1080): `llamacpp-cuda-ov` in viking namespace — OpenViking vision/L0 generation; always on (steady-state replicas=1)
-- **Embedder** (timmy, RX 9070 XT, ROCm): `embedder-qwen.viking.svc:8080` — Qwen3-Embedding-4B Q8_0 (2560-dim) for vector embeddings (Deployment `embedder-qwen`, migrated back to timmy 2026-07-06 after wemby's failing charging cable/port kept hard-dropping the node; co-resides with Ollama on the 9070 XT, ~5 GB; `embedder-qwen-cuda` on wemby retained as `replicas=0` rollback); legacy `embedder-llamacpp` on wemby retired (replicas=0, 768-dim rollback path); **mem0 memory provider still points at the retired embedder-llamacpp — embedding is broken** (see `mem0/README.md`)
+- **OV VLM** (manu, GTX 1080): `llamacpp-cuda-ov` in viking namespace — **failover only** since the 2026-07-05 cloud cutover (OV's primary VLM is cloud via chat-ollama — currently `gemma4:31b-cloud` during the compendium resync, steady-state target `qwen3.5:cloud`); replicas=1 during the soak window, retirement candidate
+- **Embedder** (timmy, RX 9070 XT, ROCm): `embedder-qwen.viking.svc:8080` — Qwen3-Embedding-4B Q8_0 (2560-dim) for vector embeddings (Deployment `embedder-qwen`, migrated back to timmy 2026-07-06 after wemby's failing charging cable/port kept hard-dropping the node; co-resides with Ollama on the 9070 XT, ~5 GB; `embedder-qwen-cuda` on wemby retained as `replicas=0` rollback); legacy `embedder-llamacpp` on wemby deleted 2026-07-04 (768-dim rollback path gone); the mem0 stack that pointed at it was torn down 2026-07-02 (see `mem0/TORN-DOWN.md`)
 - Read more in [`llama/README.md`](./llama/README.md) and [`viking/`](./viking/).
 
 ### Hermes
+
+> **Not currently deployed live** (IMPR-1025) — manifests are complete in [`hermes/`](./hermes/), but the mem0
+> memory backend it depends on was torn down 2026-07-02 (see [`mem0/TORN-DOWN.md`](./mem0/TORN-DOWN.md)).
 
 AI agent with mem0 persistent memory (OpenViking knowledge-base tools), SSH terminal backend, and Cloudflare-exposed dashboard.
 
@@ -91,7 +93,7 @@ AI agent with mem0 persistent memory (OpenViking knowledge-base tools), SSH term
 
 Hierarchical RAG engine with auto-generated L0/L1/L2 semantic indices over a filesystem-shaped knowledge tree.
 
-- S3-backed file storage (Garage), HTTP vector DB, embedder on timmy (RX 9070 XT, ROCm, since 2026-07-06), VLM on manu (CUDA)
+- S3-backed file storage (Garage), HTTP vector DB, embedder on timmy (RX 9070 XT, ROCm, since 2026-07-06), cloud VLM primary via chat-ollama (manu CUDA as failover since 2026-07-05)
 - API + web console at `context.nathanwhyte.dev` (console at `/studio/`, root-key login; the old `viking.nathanwhyte.dev` ov-console was removed)
 - Endpoint tiers: in-cluster `openviking.viking.svc:1933` · LAN `192.168.1.19:31933` · Tailscale `100.95.215.105:31933` · public `context.nathanwhyte.dev` (Cloudflare tunnel)
 - Read more in [`viking/OPENVIKING.md`](./viking/OPENVIKING.md).
@@ -101,6 +103,32 @@ Hierarchical RAG engine with auto-generated L0/L1/L2 semantic indices over a fil
 WireGuard mesh for private admin/network access from off-LAN. All 3 nodes run Tailscale; manu and wemby are HA subnet routers advertising `192.168.1.0/24`.
 
 - Read more in [`tailscale/README.md`](./tailscale/README.md).
+
+### Omnipendium
+
+Knowledge-base API (FastAPI + Postgres/pgvector) with a Slack bot frontend (PROJ-028 stage 1).
+
+- Read more in [`omnipendium/README.md`](./omnipendium/README.md).
+
+### Copyparty
+
+Self-hosted file server for media and general file sharing.
+
+- Longhorn HDD-backed storage plus an NFS PV for the media library.
+
+### Syncthing
+
+> **Scaled to 0 since 2026-06-29** — the cluster-side anchor caused duplication in the compendium
+> vault; peers sync directly over Tailscale. Manifests retained (see [`syncthing/README.md`](./syncthing/README.md)).
+
+Always-on Syncthing peer for Obsidian/compendium vault sync across MacBook(s), iPad, and phone.
+
+### Mem0
+
+> **Torn down 2026-07-02** — namespace deleted, final Postgres dump archived locally. Manifests
+> retained for reference — see [`mem0/TORN-DOWN.md`](./mem0/TORN-DOWN.md).
+
+Self-hosted Mem0 memory backend for Hermes (server + Platform→OSS adapter + Postgres/pgvector).
 
 ## Other Technologies
 
