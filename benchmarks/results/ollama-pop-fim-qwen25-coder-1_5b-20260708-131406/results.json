@@ -1,0 +1,130 @@
+{
+  "meta": {
+    "tool": "ollama-concurrency-bench",
+    "version": "unknown",
+    "schema_version": "1.0.0",
+    "timestamp": "2026-07-08T18:14:06.167497+00:00",
+    "commit": "3605f50"
+  },
+  "config": {
+    "ollama": {
+      "url": "http://localhost:11434",
+      "model": "qwen2.5-coder:1.5b-base",
+      "num_ctx": 16384,
+      "num_predict": 128,
+      "temperature": 0.0,
+      "raw": true,
+      "stop": [
+        "<|endoftext|>",
+        "<|fim_pad|>",
+        "<|file_sep|>",
+        "<|repo_name|>"
+      ]
+    },
+    "workload": {
+      "name": "edit_prediction_qwen",
+      "max_concurrency": 1,
+      "requests_per_level": 15,
+      "repeats": 1,
+      "cooldown_seconds": 3
+    },
+    "prometheus": {
+      "url": "",
+      "instance_label": "",
+      "sample_interval_seconds": 2.0
+    },
+    "output": {
+      "dir": "benchmarks/results",
+      "prefix": "ollama-pop-fim-qwen25-coder-1_5b"
+    }
+  },
+  "samples": [
+    {
+      "workload": "edit_prediction_qwen",
+      "max_concurrency": 1,
+      "requests_per_level": 15,
+      "repeats": 1
+    }
+  ],
+  "summary": {
+    "levels": [
+      {
+        "concurrency": 1,
+        "requests": 15,
+        "repeats": 1,
+        "aggregate_tok_s": 76.03,
+        "wall_s": {
+          "metric": "wall_s",
+          "p50": 1.3463,
+          "p90": 2.2123,
+          "p95": 2.2528,
+          "p99": 2.2966,
+          "mean": 1.4424,
+          "min": 0.7404,
+          "max": 2.3075,
+          "unit": "s",
+          "count": 15
+        },
+        "ttft_s": {
+          "metric": "ttft_s",
+          "p50": 0.5025,
+          "p90": 1.3176,
+          "p95": 1.3278,
+          "p99": 1.332,
+          "mean": 0.6961,
+          "min": 0.2391,
+          "max": 1.3331,
+          "unit": "s",
+          "count": 15
+        },
+        "itl_s": {
+          "metric": "itl_s",
+          "p50": 0.0065,
+          "p90": 0.0071,
+          "p95": 0.0073,
+          "p99": 0.0074,
+          "mean": 0.0065,
+          "min": 0.0053,
+          "max": 0.0074,
+          "unit": "s",
+          "count": 15
+        },
+        "gen_tps": {
+          "metric": "gen_tps",
+          "p50": 153.7561,
+          "p90": 167.8016,
+          "p95": 176.7447,
+          "p99": 186.073,
+          "mean": 155.5759,
+          "min": 135.1869,
+          "max": 188.4051,
+          "unit": "s",
+          "count": 15
+        },
+        "tokens": {
+          "mean": 109.7,
+          "total": 1645
+        },
+        "prompt_tokens": {
+          "mean": 3278.8,
+          "total": 49182
+        }
+      }
+    ],
+    "overall_throughput": {
+      "metric": "throughput",
+      "total_tokens": 1645,
+      "total_wall_s": 21.6354,
+      "aggregate_tok_s": 76.03,
+      "p50": 91.2409,
+      "p90": 98.3528,
+      "p95": 100.5895,
+      "p99": 104.3229,
+      "mean": 82.0523,
+      "min": 55.4717,
+      "max": 105.2562,
+      "unit": "tok/s",
+      "count": 15
+    }
+  }
+}

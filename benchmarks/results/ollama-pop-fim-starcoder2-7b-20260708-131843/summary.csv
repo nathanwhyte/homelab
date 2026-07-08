@@ -1,0 +1,2 @@
+concurrency,requests,repeats,aggregate_tok_s,wall_s_p50,wall_s_p95,wall_s_mean,ttft_s_p50,ttft_s_p95,ttft_s_mean,itl_s_p50,itl_s_p95,itl_s_mean,gen_tps_p50,gen_tps_p95,gen_tps_mean,tokens_mean,tokens_total,prompt_tokens_mean,prompt_tokens_total
+1,15,1,30.96,2.8332,7.7302,4.1341,1.2264,5.8466,2.4339,0.0124,0.0139,0.0128,80.6764,83.9226,78.6824,128,1920,3986.8,59802
