@@ -48,6 +48,11 @@ spec:
               echo "vault at $(git rev-parse --short HEAD); running: sync ${SYNC_ARGS}"
               python3 _scripts/compendium-sync.py sync ${SYNC_ARGS}
           env:
+            # Stream Python stdout line-by-line to the container log instead of
+            # block-buffering (BUG-1039 follow-up): a long-running entry (e.g. a
+            # busy-lock retry) would otherwise hide all prior output until exit.
+            - name: PYTHONUNBUFFERED
+              value: "1"
             - name: OPENVIKING_URL
               value: http://openviking.viking.svc.cluster.local:1933
             - name: OPENVIKING_ACCOUNT
