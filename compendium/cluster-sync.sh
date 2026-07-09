@@ -144,10 +144,13 @@ wait_terminal() {
 	done
 }
 
-# True when ${JOB_NAME}'s logs carry the BUG-1039 orphaned-lock signature.
+# True when ${JOB_NAME}'s logs carry the BUG-1039 orphaned-lock signature. The
+# same orphaned tree lock surfaces two ways depending on the op: `Resource is
+# busy` on add-resource, and `Resource is being processed` (a 409 from a delete
+# timing out on the held lock) on a rename/delete — match both.
 lock_failure() {
 	kubectl logs "job/${JOB_NAME}" -n compendium 2>/dev/null |
-		grep -qiE 'Resource is busy|LockAcquisitionError|Failed to acquire tree lock'
+		grep -qiE 'Resource is (busy|being processed)|LockAcquisitionError|(Failed to acquire|Timeout waiting for) .*lock'
 }
 
 restart_ov() {
