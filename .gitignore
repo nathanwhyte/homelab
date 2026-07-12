@@ -63,6 +63,11 @@ venv/
 # uv lock files
 uv-*.lock
 
+# Downloaded model weights (large, not source)
+*.gguf
+*.safetensors
+vllm/models/
+
 # Node compile cache
 node-compile-cache/
 
