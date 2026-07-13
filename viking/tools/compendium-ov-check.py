@@ -163,7 +163,7 @@ def check_structure():
                     'item': stem,
                     'subdir': subdir,
                     'local_path': filepath,
-                    'expected_uri': f"{OV_TARGET_BASE}/{subdir}/{ov_name}.md",
+                    'expected_uri': ov_uri_for(subdir, stem),
                 })
 
     return issues
@@ -184,7 +184,7 @@ def check_stale():
                     'type': 'ghost_in_ov',
                     'item': name,
                     'subdir': subdir,
-                    'uri': f"{OV_TARGET_BASE}/{subdir}/{name}.md",
+                    'uri': ov_uri_for(subdir, name),
                 })
 
     return issues
@@ -241,8 +241,7 @@ def check_active_not_in_ov():
                 continue
 
             # Active item by sync policy — check if it exists in OV
-            ov_name = ov_name_for_stem(stem)
-            ov_uri = f"{OV_TARGET_BASE}/{subdir}/{ov_name}.md"
+            ov_uri = ov_uri_for(subdir, stem)
             result = subprocess.run(
                 ['ov', 'stat', ov_uri],
                 capture_output=True, text=True, timeout=10
