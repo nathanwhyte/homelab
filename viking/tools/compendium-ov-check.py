@@ -70,6 +70,26 @@ def ov_name_for_stem(stem):
     return eid.lower()
 
 
+def ov_segment(seg):
+    """Casing rule for one URI path segment — same as ov_name (IMPR-1055)."""
+    if re.match(r'^\d{4}-\d{2}-\d{2}-', seg):
+        return seg
+    return seg.lower()
+
+
+def ov_uri_for(subdir, stem, target_base=OV_TARGET_BASE):
+    """Expected OV URI for a vault file — the single derivation site here.
+
+    Mirrors compendium-sync.py's target_dir_for + ov_name: OV paths are
+    case-sensitive with no server-side normalization (IMPR-1055), so every
+    parent segment takes the same casing rule as the ID leaf (tasks/PROJ-028/
+    → tasks/proj-028/). Kept in lockstep by the compendium vault's
+    _scripts/test-uri-derivation-parity.py.
+    """
+    normalized = "/".join(ov_segment(s) for s in subdir.strip("/").split("/"))
+    return f"{target_base.rstrip('/')}/{normalized}/{ov_name_for_stem(stem)}.md"
+
+
 def ov_ls(uri):
     """List an OV directory. Returns list of entry names or empty list."""
     result = subprocess.run(
@@ -143,7 +163,7 @@ def check_structure():
                     'item': stem,
                     'subdir': subdir,
                     'local_path': filepath,
-                    'expected_uri': f"{OV_TARGET_BASE}/{subdir}/{ov_name}.md",
+                    'expected_uri': ov_uri_for(subdir, stem),
                 })
 
     return issues
@@ -164,7 +184,7 @@ def check_stale():
                     'type': 'ghost_in_ov',
                     'item': name,
                     'subdir': subdir,
-                    'uri': f"{OV_TARGET_BASE}/{subdir}/{name}.md",
+                    'uri': ov_uri_for(subdir, name),
                 })
 
     return issues
@@ -221,8 +241,7 @@ def check_active_not_in_ov():
                 continue
 
             # Active item by sync policy — check if it exists in OV
-            ov_name = ov_name_for_stem(stem)
-            ov_uri = f"{OV_TARGET_BASE}/{subdir}/{ov_name}.md"
+            ov_uri = ov_uri_for(subdir, stem)
             result = subprocess.run(
                 ['ov', 'stat', ov_uri],
                 capture_output=True, text=True, timeout=10
