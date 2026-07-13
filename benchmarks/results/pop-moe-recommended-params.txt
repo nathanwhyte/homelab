@@ -1,0 +1,90 @@
+Pop small-MoE benchmark matrix — recommended sampling settings (PROJ-1003)
+Captured 2026-07-13 on pop via `ollama show` + ollama.com model-card review.
+
+Priority ladder per plan: (1) model card / ollama.com recommendation,
+(2) shipped Modelfile defaults from `ollama show`, (3) harness default (temp 0.3).
+
+Legend: "shipped" = value in the tag's Modelfile Parameters block;
+"card" = ollama.com model-card recommendation; "harness default" = no
+model-specific guidance found, harness temperature 0.3 used and noted in report.
+
+================================================================================
+north-mini-code-1.0:mlx-nvfp4   (MoE, Ollama MLX, nvfp4)   ctx 500000
+--------------------------------------------------------------------------------
+  ollama show Parameters (shipped):
+    temperature  1
+    top_p        0.95
+  Chosen (source: shipped Modelfile):
+    temperature = 1
+    top_p        = 0.95
+
+================================================================================
+nemotron3:33b   (Hybrid Mamba MoE, Ollama GGUF Q4_K_M)   ctx 131072
+--------------------------------------------------------------------------------
+  ollama show Parameters (shipped): NONE (no sampling params in Modelfile)
+  ollama.com card: no sampling recommendation (generic run example only)
+  Chosen (source: harness default — recorded absence):
+    temperature = 0.3   (harness default)
+    no [ollama.options] table
+
+================================================================================
+qwen3-coder:30b   (MoE coding, Ollama GGUF Q4_K_M)   ctx 262144
+--------------------------------------------------------------------------------
+  ollama show Parameters (shipped):
+    temperature     0.7
+    top_p           0.8
+    top_k           20
+    repeat_penalty  1.05
+    stop            "<|im_start|>" "<|im_end|>" "<|endoftext|>"
+  Chosen (source: shipped Modelfile, matches known model-card rec):
+    temperature = 0.7
+    top_p        = 0.8
+    top_k        = 20
+    repeat_penalty = 1.05
+
+================================================================================
+laguna-xs-2.1:latest   (MoE agentic coding, Ollama GGUF Q4_K_M)   ctx 262144
+  *** DROPPED 2026-07-13 — NOT BENCHMARKED ***
+  Upstream-acknowledged macOS/Metal empty-output bug (poolside readme banner:
+  "investigating an issue using Laguna XS 2.1 on macOS"; card: root cause not yet
+  understood, under investigation with the Ollama team). /api/chat and templated
+  /api/generate return empty on Metal; the documented raw:true workaround produces
+  degenerate repetition. Revisit after the upstream fix. Settings below retained
+  for when it can be re-run.
+--------------------------------------------------------------------------------
+  ollama show Parameters (shipped): NONE (no sampling params in Modelfile)
+  ollama.com card (Benchmark methodology): "temperature=1.0, top_k=20 and
+    top_p=1, with thinking mode enabled and a context length of 256K tokens"
+  Chosen (source: model card):
+    temperature = 1.0
+    top_p        = 1
+    top_k        = 20
+  Note: card runs with thinking mode enabled; the harness uses /api/generate
+  (raw prompt) so enable_thinking is not passed — recorded as a caveat.
+
+================================================================================
+hermes3:8b   (Dense baseline, Ollama GGUF Q4_0)   ctx 131072
+--------------------------------------------------------------------------------
+  ollama show Parameters (shipped): only stop tokens ("<|im_start|>",
+    "<|im_end|>") — no sampling params
+  Chosen (source: harness default — recorded absence):
+    temperature = 0.3   (harness default)
+    no [ollama.options] table
+
+================================================================================
+qwen3.6:35b-mlx   (MoE, current daily driver, Ollama MLX nvfp4)   ctx 262144
+--------------------------------------------------------------------------------
+  ollama show Parameters (shipped):
+    temperature       1
+    top_p             0.95
+    top_k             20
+    repeat_penalty    1
+    min_p             0
+    presence_penalty  1.5
+  Chosen (source: shipped Modelfile — run as the daily driver runs):
+    temperature = 1
+    top_p        = 0.95
+    top_k        = 20
+    repeat_penalty = 1
+    min_p        = 0
+    presence_penalty = 1.5

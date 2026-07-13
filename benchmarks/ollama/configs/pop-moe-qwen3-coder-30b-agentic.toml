@@ -1,0 +1,29 @@
+# Pop small-MoE matrix: qwen3-coder agentic @ 32K, C=1..3 (PROJ-1003)
+# Sampling: model-card recommended settings (see pop-moe-recommended-params.txt)
+[ollama]
+url = "http://localhost:11434"
+model = "qwen3-coder:30b"
+num_ctx = 32768
+num_predict = 2048
+temperature = 0.7                         # per-config (model recommendation)
+
+[ollama.options]                          # per-config (model recommendation)
+top_p = 0.8
+top_k = 20
+repeat_penalty = 1.05
+
+[workload]
+name = "agentic"
+max_concurrency = 3
+requests_per_level = 3
+repeats = 3
+cooldown_seconds = 20
+
+[prometheus]
+url = ""
+instance_label = ""
+sample_interval_seconds = 2.0
+
+[output]
+dir = "benchmarks/results"
+prefix = "ollama-pop-moe-qwen3-coder-30b-agentic"

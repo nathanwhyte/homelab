@@ -5,6 +5,8 @@ Standing reference for locally-served models across pop (M5 Max, MLX/Ollama) and
 > **Gap closed (2026-07-07)**: prefill tok/s and TTFT for `qwen3.6:35b-mlx` are now measured directly (concurrency=1, raw completion, 500/2k/8k-token prompt ladder) — see the Throughput table and `ollama-pop-qwen36-35b-mlx-prefill-breakdown-20260707-181500/`. **Prefill is not slow**: ~1,200-1,700 tok/s, scaling roughly linearly with prompt length, so TTFT is a predictable function of context size (~0.3s at 400 tokens, ~3.4s at 5.6k tokens) rather than a fixed model-level penalty. `TASK-1015`, `TASK-1107`, `TASK-1111` remain open for the broader comparisons they were scoped for (27B quant comparison, 9B-vs-35B daily-driver quality axis, mlx-lm-server-vs-Ollama), but the specific prefill-speed question is answered. Do not infer prefill speed from the GGUF `qwen3.6:35b` row below — different format (Q4_K_M vs MLX) and different hardware (timmy RX 9070 XT vs pop M5 Max).
 >
 > **Methodology gotcha found while measuring this**: the harness's `edit_prediction_zeta` workload salts prompts by index only, so re-running it against the same model reproduces byte-identical prompts and Ollama's slot cache skips prefill entirely on the repeat (reported prefill jumps to 100,000+ tok/s — a tell, not a real result). `benchmarks/ollama/tools/prefill-size-breakdown.py` fixes this with a random per-invocation salt; use it (not a second `concurrency-bench.py` run with the same config) for any repeat prefill measurement against a model that's already been benchmarked this session.
+>
+> **Small-MoE agentic matrix added (2026-07-13)**: four sub-35B models (`north-mini-code-1.0`, `nemotron3:33b`, `qwen3-coder:30b`, `hermes3:8b`) benchmarked against the `qwen3.6:35b-mlx` daily driver under one env (agentic workload, `num_ctx=32768`, `C=1..3`, NP=3) — see `report-2026-07-13-moe-matrix/`. **All four are faster than the baseline** (1.6-1.9× single-stream decode, 1.9-2.4× aggregate at C=3). Two takeaways: (1) **MLX does not continuous-batch** — the MLX models (`north-mini`, `qwen3.6`) show aggregate ≈ single-stream, while the GGUF/llama.cpp models scale with concurrency (`hermes3` +40%, `qwen3-coder` +33%); (2) the `qwen3.6:35b-mlx` **decode figure differs by workload** — 41 tok/s under this agentic-32K run vs the ~88-111 editpred-ladder number above. This is not a thinking artifact (decode t/s is content-independent) and not a 32K penalty (`north-mini`, same backend/ctx/active-params, hit 73). Both numbers are kept, workload-labelled; the canonical daily-driver decode rate warrants a follow-up. `laguna-xs-2.1` was in scope but dropped — upstream-acknowledged macOS/Metal empty-output bug (revisit after the fix).
 
 ---
 
@@ -15,7 +17,11 @@ Decode tok/s is single-stream, no batching, from each source record's own method
 | Model | Format | Type | Active params | Decode tok/s | Prefill tok/s | TTFT | Host |
 |---|---|---|---|---|---|---|---|
 | `qwen3.6:35b` | Q4_K_M GGUF | MoE | ~3 B | ~122 | — | — | timmy (RX 9070 XT) |
-| `qwen3.6:35b-mlx` | MLX | MoE | ~3 B | ~88-111 (varies with prompt length) | ~1,200-1,700 (scales linearly with prompt length, not flat) | 0.34s @400tok / 0.93s @1.6k tok / 3.4-3.5s @5.6k tok (P50, concurrency=1) | pop (M5 Max) |
+| `qwen3.6:35b-mlx` | MLX | MoE | ~3 B | ~88-111 (editpred ladder); **41 (agentic 32K, C=1 — see 2026-07-13 note)** | ~1,200-1,700 (scales linearly with prompt length, not flat) | 0.34s @400tok / 0.93s @1.6k tok / 3.4-3.5s @5.6k tok (P50, concurrency=1) | pop (M5 Max) |
+| `north-mini-code-1.0:mlx-nvfp4` | MLX nvfp4 | MoE (Cohere) | ~3 B | 73 (agentic 32K, C=1) | — | 0.055s (P50, C=1) | pop (M5 Max) |
+| `nemotron3:33b` | Q4_K_M GGUF | Hybrid Mamba MoE | ~3 B | 79 (agentic 32K, C=1) | — | 0.48s (P50, C=1) | pop (M5 Max) |
+| `qwen3-coder:30b` | Q4_K_M GGUF | MoE | ~3.3 B | 67 (agentic 32K, C=1) | — | 0.35s (P50, C=1) | pop (M5 Max) |
+| `hermes3:8b` | Q4_0 GGUF | dense | 8 B | 78 (agentic 32K, C=1) | — | 0.41s (P50, C=1) | pop (M5 Max) |
 | `gemma4:26b-mlx` | MLX | MoE | ~3.8 B | ~114 | — | — | pop (M5 Max) |
 | `gemma4:e4b-mlx` | MLX | dense | ~8 B | ~116 | — | — | pop (M5 Max) |
 | `gemma4:e2b-mlx` | MLX | dense | ~5.1 B | ~183 | — | — | pop (M5 Max) |
@@ -62,6 +68,7 @@ Decode tok/s is single-stream, no batching, from each source record's own method
 | `homelab/benchmarks/results/report-2026-07-01/README.md` | Pop MTP single-slot throughput and P95 TTFT for `gemma4:12b-mlx` (included for hardware/format contrast, not a qwen3.6 measurement) |
 | `homelab/benchmarks/results/ollama-pop-qwen36-35b-mlx-prefill-breakdown-20260707-181500/results.json` | Direct prefill/TTFT/decode measurement for `qwen3.6:35b-mlx` at 500/2k/8k-token prompt sizes, concurrency=1, raw completion (`benchmarks/ollama/tools/prefill-size-breakdown.py`) |
 | `homelab/benchmarks/results/ollama-pop-qwen36-35b-mlx-editpred-20260707-180725/` | Pooled TTFT/decode aggregate across the same prompt ladder (mixed sizes, `concurrency-bench.py`) — coarser than the size-bucketed breakdown above |
+| `homelab/benchmarks/results/report-2026-07-13-moe-matrix/` | Pop small-MoE agentic matrix (PROJ-1003): `north-mini-code-1.0`, `nemotron3:33b`, `qwen3-coder:30b`, `hermes3:8b` decode/TTFT/aggregate vs the `qwen3.6:35b-mlx` baseline, one env, agentic 32K, C=1..3, NP=3 |
 | `compendium/tasks/PROJ-1003/TASK-1015-homelab-qwen3-6-27b-unsloth-mlx-vs-ollama-mlx-benchmark.md` | Scoped but unexecuted — would measure decode/prefill/TTFT for `qwen3.6:27b-mlx` (sibling, not the 35B) |
 | `compendium/tasks/PROJ-1003/TASK-1107-homelab-qwen3-5-9b-mlx-vs-qwen3-6-35b-mlx-daily-driver-benchmark.md` | Scoped but unexecuted — would measure agentic + compendium-mgmt quality/latency for `qwen3.6:35b-mlx` vs `qwen3.5:9b-mlx` |
 | `compendium/tasks/PROJ-1003/TASK-1111-homelab-benchmark-mlx-lm-server-vs-ollama-mlx-on-pop-m5-max.md` | Scoped but unexecuted — would measure tok/s, TTFT, memory for MLX-native serving vs Ollama MLX on pop |
@@ -69,5 +76,5 @@ Decode tok/s is single-stream, no batching, from each source record's own method
 ## Next steps
 
 1. `TASK-1015`, `TASK-1107`, `TASK-1111` remain open for their broader scope (27B quant comparison, 9B-vs-35B daily-driver quality axis, mlx-lm-server-vs-Ollama) — see `compendium/tasks/PROJ-1003/`. The narrow prefill/TTFT question they were each partially scoped to answer for `qwen3.6:35b-mlx` is now covered by the measurement above.
-2. Backfill GGUF entries per `TASK-1014` (LFM2.5-8B-A1B, Qwen3-Coder-30B-A3B, nemotron3-nano) once those benchmarks run.
+2. Backfill GGUF entries per `TASK-1014` — Qwen3-Coder-30B-A3B, nemotron3-nano, hermes3:8b, north-mini-code-1.0 landed 2026-07-13 (see note + `report-2026-07-13-moe-matrix/`); LFM2.5-8B-A1B still pending. `laguna-xs-2.1` blocked on the upstream macOS/Metal bug.
 3. Consider running `prefill-size-breakdown.py` against `qwen3.5:9b-mlx` for a like-for-like prefill comparison feeding `TASK-1107`'s daily-driver decision.

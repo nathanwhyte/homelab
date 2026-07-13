@@ -289,20 +289,27 @@ async def run_request(
     raw: bool = False,
     api: str = "ollama",
     stop: Optional[list] = None,
+    extra_options: Optional[dict] = None,
 ) -> RequestResult:
     if api == "openai_completions":
         return await run_request_openai(
             session, url, model, prompt, num_predict, temperature, stop
         )
+    # Merge optional per-model sampling settings from the config's [ollama.options]
+    # table; explicit keys (num_ctx/num_predict/temperature) always win over them.
+    options: dict[str, Any] = dict(extra_options or {})
+    options.update(
+        {
+            "num_ctx": num_ctx,
+            "num_predict": num_predict,
+            "temperature": temperature,
+        }
+    )
     payload = {
         "model": model,
         "prompt": prompt,
         "stream": False,
-        "options": {
-            "num_ctx": num_ctx,
-            "num_predict": num_predict,
-            "temperature": temperature,
-        },
+        "options": options,
     }
     if stop:
         payload["options"]["stop"] = stop
@@ -364,6 +371,7 @@ async def benchmark_level(
     raw: bool = False,
     api: str = "ollama",
     stop: Optional[list] = None,
+    extra_options: Optional[dict] = None,
 ) -> list[RequestResult]:
     sem = asyncio.Semaphore(concurrency)
 
@@ -380,6 +388,7 @@ async def benchmark_level(
                 raw,
                 api,
                 stop,
+                extra_options,
             )
             if validate_tools and result.response_text is not None:
                 expected = expected_tools[prompt_idx] if expected_tools else None
@@ -401,9 +410,20 @@ async def warmup(
     raw: bool = False,
     api: str = "ollama",
     stop: Optional[list] = None,
+    extra_options: Optional[dict] = None,
 ) -> RequestResult:
     return await run_request(
-        session, url, model, prompt, num_ctx, num_predict, temperature, raw, api, stop
+        session,
+        url,
+        model,
+        prompt,
+        num_ctx,
+        num_predict,
+        temperature,
+        raw,
+        api,
+        stop,
+        extra_options,
     )
 
 
@@ -501,6 +521,7 @@ async def main() -> int:
     num_ctx = ollama_cfg.get("num_ctx", 16384)
     num_predict = ollama_cfg.get("num_predict", 512)
     temperature = ollama_cfg.get("temperature", 0.3)
+    extra_options = ollama_cfg.get("options", {})
     raw = ollama_cfg.get("raw", False)
     api = ollama_cfg.get("api", "ollama")
     stop = ollama_cfg.get("stop", None)
@@ -552,7 +573,17 @@ async def main() -> int:
         # Warmup.
         print(f"Warming up with 1 request to {model} ...")
         warmup_res = await warmup(
-            session, url, model, prompts[0], num_ctx, num_predict, temperature, raw, api, stop
+            session,
+            url,
+            model,
+            prompts[0],
+            num_ctx,
+            num_predict,
+            temperature,
+            raw,
+            api,
+            stop,
+            extra_options,
         )
         if warmup_res.error:
             print(f"ERROR during warmup: {warmup_res.error}", file=sys.stderr)
@@ -592,6 +623,7 @@ async def main() -> int:
                     raw=raw,
                     api=api,
                     stop=stop,
+                    extra_options=extra_options,
                 )
                 repeat_wall = time.monotonic() - repeat_start
                 repeat_tokens = 0

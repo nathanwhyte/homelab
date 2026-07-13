@@ -1,0 +1,25 @@
+# Pop small-MoE matrix: hermes3:8b dense baseline agentic @ 32K, C=1..3 (PROJ-1003)
+# Sampling: harness default temperature 0.3 — Modelfile ships only stop tokens,
+# no sampling params (see pop-moe-recommended-params.txt). Absence recorded in report.
+[ollama]
+url = "http://localhost:11434"
+model = "hermes3:8b"
+num_ctx = 32768
+num_predict = 2048
+temperature = 0.3                         # harness default (no model rec found)
+
+[workload]
+name = "agentic"
+max_concurrency = 3
+requests_per_level = 3
+repeats = 3
+cooldown_seconds = 20
+
+[prometheus]
+url = ""
+instance_label = ""
+sample_interval_seconds = 2.0
+
+[output]
+dir = "benchmarks/results"
+prefix = "ollama-pop-moe-hermes3-8b-agentic"

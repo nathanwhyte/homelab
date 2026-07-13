@@ -1,0 +1,250 @@
+{
+  "meta": {
+    "tool": "ollama-concurrency-bench",
+    "version": "unknown",
+    "schema_version": "1.0.0",
+    "timestamp": "2026-07-13T18:36:44.296477+00:00",
+    "commit": "a7345ab"
+  },
+  "config": {
+    "ollama": {
+      "url": "http://localhost:11434",
+      "model": "north-mini-code-1.0:mlx-nvfp4",
+      "num_ctx": 32768,
+      "num_predict": 2048,
+      "temperature": 1.0,
+      "options": {
+        "top_p": 0.95
+      }
+    },
+    "workload": {
+      "name": "agentic",
+      "max_concurrency": 3,
+      "requests_per_level": 3,
+      "repeats": 3,
+      "cooldown_seconds": 20
+    },
+    "prometheus": {
+      "url": "",
+      "instance_label": "",
+      "sample_interval_seconds": 2.0
+    },
+    "output": {
+      "dir": "benchmarks/results",
+      "prefix": "ollama-pop-moe-north-mini-nvfp4-agentic"
+    }
+  },
+  "samples": [
+    {
+      "workload": "agentic",
+      "max_concurrency": 3,
+      "requests_per_level": 3,
+      "repeats": 3
+    }
+  ],
+  "summary": {
+    "levels": [
+      {
+        "concurrency": 1,
+        "requests": 3,
+        "repeats": 3,
+        "aggregate_tok_s": 72.79,
+        "wall_s": {
+          "metric": "wall_s",
+          "p50": 25.9233,
+          "p90": 29.1837,
+          "p95": 29.4538,
+          "p99": 29.6698,
+          "mean": 21.0554,
+          "min": 8.385,
+          "max": 29.7238,
+          "unit": "s",
+          "count": 9
+        },
+        "ttft_s": {
+          "metric": "ttft_s",
+          "p50": 0.0552,
+          "p90": 0.2203,
+          "p95": 0.2337,
+          "p99": 0.2445,
+          "mean": 0.1094,
+          "min": 0.0386,
+          "max": 0.2472,
+          "unit": "s",
+          "count": 9
+        },
+        "itl_s": {
+          "metric": "itl_s",
+          "p50": 0.0137,
+          "p90": 0.0142,
+          "p95": 0.0143,
+          "p99": 0.0144,
+          "mean": 0.0136,
+          "min": 0.0126,
+          "max": 0.0145,
+          "unit": "s",
+          "count": 9
+        },
+        "gen_tps": {
+          "metric": "gen_tps",
+          "p50": 73.1669,
+          "p90": 76.0983,
+          "p95": 77.6493,
+          "p99": 78.8901,
+          "mean": 73.3848,
+          "min": 69.094,
+          "max": 79.2003,
+          "unit": "s",
+          "count": 9
+        },
+        "tokens": {
+          "mean": 1532.6,
+          "total": 13793
+        },
+        "prompt_tokens": {
+          "mean": 180,
+          "total": 1620
+        }
+      },
+      {
+        "concurrency": 2,
+        "requests": 3,
+        "repeats": 3,
+        "aggregate_tok_s": 76.49,
+        "wall_s": {
+          "metric": "wall_s",
+          "p50": 28.0733,
+          "p90": 45.3919,
+          "p95": 46.2097,
+          "p99": 46.864,
+          "mean": 32.9688,
+          "min": 23.9908,
+          "max": 47.0275,
+          "unit": "s",
+          "count": 9
+        },
+        "ttft_s": {
+          "metric": "ttft_s",
+          "p50": 0.0507,
+          "p90": 0.0946,
+          "p95": 0.0999,
+          "p99": 0.104,
+          "mean": 0.0623,
+          "min": 0.0389,
+          "max": 0.1051,
+          "unit": "s",
+          "count": 9
+        },
+        "itl_s": {
+          "metric": "itl_s",
+          "p50": 0.0132,
+          "p90": 0.0136,
+          "p95": 0.0136,
+          "p99": 0.0136,
+          "mean": 0.013,
+          "min": 0.0117,
+          "max": 0.0136,
+          "unit": "s",
+          "count": 9
+        },
+        "gen_tps": {
+          "metric": "gen_tps",
+          "p50": 75.7531,
+          "p90": 79.8038,
+          "p95": 82.8183,
+          "p99": 85.2299,
+          "mean": 76.8247,
+          "min": 73.5807,
+          "max": 85.8328,
+          "unit": "s",
+          "count": 9
+        },
+        "tokens": {
+          "mean": 1361.7,
+          "total": 12255
+        },
+        "prompt_tokens": {
+          "mean": 180,
+          "total": 1620
+        }
+      },
+      {
+        "concurrency": 3,
+        "requests": 3,
+        "repeats": 3,
+        "aggregate_tok_s": 77.24,
+        "wall_s": {
+          "metric": "wall_s",
+          "p50": 33.0429,
+          "p90": 56.1898,
+          "p95": 58.1393,
+          "p99": 59.6989,
+          "mean": 38.0049,
+          "min": 7.7721,
+          "max": 60.0888,
+          "unit": "s",
+          "count": 9
+        },
+        "ttft_s": {
+          "metric": "ttft_s",
+          "p50": 0.0604,
+          "p90": 0.0763,
+          "p95": 0.0945,
+          "p99": 0.109,
+          "mean": 0.0654,
+          "min": 0.0516,
+          "max": 0.1127,
+          "unit": "s",
+          "count": 9
+        },
+        "itl_s": {
+          "metric": "itl_s",
+          "p50": 0.013,
+          "p90": 0.0135,
+          "p95": 0.0136,
+          "p99": 0.0137,
+          "mean": 0.013,
+          "min": 0.0124,
+          "max": 0.0138,
+          "unit": "s",
+          "count": 9
+        },
+        "gen_tps": {
+          "metric": "gen_tps",
+          "p50": 77.1863,
+          "p90": 80.4108,
+          "p95": 80.5184,
+          "p99": 80.6044,
+          "mean": 77.2565,
+          "min": 72.6419,
+          "max": 80.6259,
+          "unit": "s",
+          "count": 9
+        },
+        "tokens": {
+          "mean": 1446.1,
+          "total": 13015
+        },
+        "prompt_tokens": {
+          "mean": 180,
+          "total": 1620
+        }
+      }
+    ],
+    "overall_throughput": {
+      "metric": "throughput",
+      "total_tokens": 39063,
+      "total_wall_s": 828.2623,
+      "aggregate_tok_s": 47.16,
+      "p50": 70.5023,
+      "p90": 77.0673,
+      "p95": 78.5021,
+      "p99": 79.0923,
+      "mean": 54.0885,
+      "min": 10.2182,
+      "max": 79.1239,
+      "unit": "tok/s",
+      "count": 27
+    }
+  }
+}
