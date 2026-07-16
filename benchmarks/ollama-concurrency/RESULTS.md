@@ -53,6 +53,31 @@ sharing costs the 35b ~12% decode (120 → 105) with one small-model request and
 ~26% (→ 88) under a 3-wide small-model burst; the small model loses ~26–34%.
 Memory: 25.6 + 1.5 GB resident, no pressure on 64 GB with 8k contexts.
 
+## Legs D + E — cohabitation partner sweep: MoE vs dense (2026-07-16, later same day)
+
+Same multi-model protocol as Leg C with different big-model partners for
+`qwen2.5-coder:fim-1.5b`:
+
+| pairing                                | big solo → cohab (tok/s) | FIM solo → cohab 1+1 (tok/s) | FIM TTFT max, burst (s) |
+| -------------------------------------- | ------------------------ | ---------------------------- | ----------------------- |
+| Leg C: qwen3.6:35b-mlx (MoE 35B-A3B)   | 120 → 105 (−12%)         | 283 → ~210 (−26%)            | 1.85                    |
+| Leg D: gemma4:26b-mlx                  | 119 → 105 (−12%)         | ~281 → ~197 (−30%)           | 1.82                    |
+| Leg E: qwen3.5:9b-mlx (**dense** 9.4B) | 75.6 → ~67 (−12%)        | 281 → ~90–103 (**−65%**)     | 3.47                    |
+
+Two findings:
+
+1. **gemma4:26b-mlx behaves like an MoE.** It decodes at 119 tok/s solo —
+   identical to the 35B-A3B MoE — while the unambiguously dense 9.4B nvfp4
+   model manages only 75.6 tok/s. A dense 26B would be bandwidth-capped around
+   ~35–45 tok/s on this machine.
+2. **A dense partner starves the small model; MoE partners don't.** Dense
+   decode reads the full weight set every step and saturates the memory
+   controller continuously, so the FIM model loses ~65% of its decode rate and
+   its burst TTFT tail doubles. MoE decode leaves bandwidth gaps the small
+   model can slip into (−26–30%). The big model loses the same ~12% in every
+   pairing. For the autocomplete-cohabitation use case, prefer an MoE chat
+   partner.
+
 ## Operational takeaways
 
 1. Chat model + autocomplete model side-by-side is viable on pop: the
@@ -69,4 +94,6 @@ Memory: 25.6 + 1.5 GB resident, no pressure on 64 GB with 8k contexts.
    use, not at load — the eager-KV OOM fear applies to GGUF models only.
 
 Raw data: `results-legA-qwen35b-np2.json`, `results-legB-fim15b-np2.json`,
-`results-legC-multi-np2.json`. Harness: `concurrency_bench.py`.
+`results-legC-multi-np2.json`, `results-legD-gemma26b-dense-multi-np2.json`
+(filename says dense; the data proved it MoE-like),
+`results-legE-qwen9b-dense-multi-np2.json`. Harness: `concurrency_bench.py`.

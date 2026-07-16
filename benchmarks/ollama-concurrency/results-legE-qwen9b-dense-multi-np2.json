@@ -1,0 +1,160 @@
+{
+  "mode": "multi-model",
+  "num_ctx": 8192,
+  "num_predict": 256,
+  "repeats": 3,
+  "levels": [
+    {
+      "label": "solo:qwen3.5:9b-mlx",
+      "concurrency": 1,
+      "requests_ok": 3,
+      "errors": [],
+      "ttft_s": {
+        "median": 0.192,
+        "mean": 0.347,
+        "min": 0.166,
+        "max": 0.683
+      },
+      "gen_tps_per_req": {
+        "median": 75.609,
+        "mean": 75.545,
+        "min": 75.383,
+        "max": 75.643
+      },
+      "wall_s": {
+        "median": 3.548,
+        "mean": 3.708,
+        "min": 3.522,
+        "max": 4.055
+      },
+      "aggregate_tps": {
+        "median": 72.147,
+        "mean": 69.321,
+        "min": 63.137,
+        "max": 72.68
+      },
+      "prompt_tokens_mean": 61,
+      "tokens_mean": 256,
+      "ps_after": {
+        "name": "gemma4:26b-mlx",
+        "size_gb": 16.91,
+        "size_vram_gb": 16.91,
+        "context_length": 8192
+      }
+    },
+    {
+      "label": "solo:qwen2.5-coder:fim-1.5b",
+      "concurrency": 1,
+      "requests_ok": 3,
+      "errors": [],
+      "ttft_s": {
+        "median": 0.134,
+        "mean": 0.09,
+        "min": 0.0,
+        "max": 0.135
+      },
+      "gen_tps_per_req": {
+        "median": 280.772,
+        "mean": 333519.626,
+        "min": 278.105,
+        "max": 1000000.0
+      },
+      "wall_s": {
+        "median": 0.887,
+        "mean": 0.899,
+        "min": 0.753,
+        "max": 1.056
+      },
+      "aggregate_tps": {
+        "median": 237.855,
+        "mean": 160.544,
+        "min": 1.327,
+        "max": 242.45
+      },
+      "prompt_tokens_mean": 53,
+      "tokens_mean": 156,
+      "ps_after": {
+        "name": "gemma4:26b-mlx",
+        "size_gb": 16.91,
+        "size_vram_gb": 16.91,
+        "context_length": 8192
+      }
+    },
+    {
+      "label": "concurrent:qwen3.5:9b-mlx+qwen2.5-coder:fim-1.5b",
+      "concurrency": 2,
+      "requests_ok": 6,
+      "errors": [],
+      "ttft_s": {
+        "median": 0.173,
+        "mean": 0.443,
+        "min": 0.13,
+        "max": 1.374
+      },
+      "gen_tps_per_req": {
+        "median": 86.123,
+        "mean": 85.05,
+        "min": 66.784,
+        "max": 103.269
+      },
+      "wall_s": {
+        "median": 3.804,
+        "mean": 3.283,
+        "min": 0.993,
+        "max": 4.477
+      },
+      "aggregate_tps": {
+        "median": 114.349,
+        "mean": 112.714,
+        "min": 94.054,
+        "max": 129.738
+      },
+      "prompt_tokens_mean": 46,
+      "tokens_mean": 228.2,
+      "ps_after": {
+        "name": "qwen2.5-coder:fim-1.5b",
+        "size_gb": 1.48,
+        "size_vram_gb": 1.48,
+        "context_length": 8192
+      }
+    },
+    {
+      "label": "burst:qwen3.5:9b-mlx+3xqwen2.5-coder:fim-1.5b",
+      "concurrency": 4,
+      "requests_ok": 12,
+      "errors": [],
+      "ttft_s": {
+        "median": 0.17,
+        "mean": 0.83,
+        "min": 0.099,
+        "max": 3.472
+      },
+      "gen_tps_per_req": {
+        "median": 80.933,
+        "mean": 92.351,
+        "min": 62.753,
+        "max": 181.112
+      },
+      "wall_s": {
+        "median": 3.779,
+        "mean": 3.704,
+        "min": 1.523,
+        "max": 4.766
+      },
+      "aggregate_tps": {
+        "median": 206.179,
+        "mean": 208.598,
+        "min": 205.398,
+        "max": 214.217
+      },
+      "prompt_tokens_mean": 45,
+      "tokens_mean": 236.3,
+      "ps_after": {
+        "name": "qwen3.5:9b-mlx",
+        "size_gb": 8.2,
+        "size_vram_gb": 8.2,
+        "context_length": 8192
+      }
+    }
+  ]
+}
