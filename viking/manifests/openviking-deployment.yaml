@@ -176,7 +176,14 @@ spec:
               valueFrom:
                 secretKeyRef:
                   name: openviking-api-key
-                  key: user-api-key
+                  # Root key, not user-api-key: the stored user-scoped key went
+                  # stale at the June rebuild and every 15s `ov status` poll
+                  # 401'd (openviking_up stuck at 0, OpenVikingDown always
+                  # firing). ov status needs the root key per the exporter
+                  # docs; the CLI config already carries account/user identity
+                  # headers for trusted mode. Fixed 2026-07-16 (IMPR-1063
+                  # verification follow-up).
+                  key: api-key
             - name: AGFS_PATH
               value: /app/data/viking
             - name: POLL_INTERVAL
