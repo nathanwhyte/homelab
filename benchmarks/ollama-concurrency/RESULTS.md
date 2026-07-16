@@ -111,4 +111,5 @@ stays flat — the cost is pure bandwidth sharing, never queueing.
 Raw data: `results-legA-qwen35b-np2.json`, `results-legB-fim15b-np2.json`,
 `results-legC-multi-np2.json`, `results-legD-gemma26b-dense-multi-np2.json`
 (filename says dense; the data proved it MoE-like),
-`results-legE-qwen9b-dense-multi-np2.json`. Harness: `concurrency_bench.py`.
+`results-legE-qwen9b-dense-multi-np2.json`,
+`results-legF-gemma12b-qwen9b-multi-np2.json`. Harness: `concurrency_bench.py`.
