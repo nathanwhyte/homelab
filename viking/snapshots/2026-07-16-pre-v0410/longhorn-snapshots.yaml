@@ -1,0 +1,21 @@
+---
+# Pre-IMPR-1063 Longhorn snapshots (rollback points for the
+# v0.4.7 -> v0.4.10 bump). Volume names resolved from viking PVCs on
+# 2026-07-16: openviking-data and ov-vectordb-data.
+apiVersion: longhorn.io/v1beta2
+kind: Snapshot
+metadata:
+  name: pre-v0410-openviking-data
+  namespace: longhorn-system
+spec:
+  volume: pvc-1279edf7-6091-4598-b2a0-5abc55938b09
+  createSnapshot: true
+---
+apiVersion: longhorn.io/v1beta2
+kind: Snapshot
+metadata:
+  name: pre-v0410-ov-vectordb-data
+  namespace: longhorn-system
+spec:
+  volume: pvc-ec4ecea5-cf88-4d53-b42b-b70838f70dc1
+  createSnapshot: true

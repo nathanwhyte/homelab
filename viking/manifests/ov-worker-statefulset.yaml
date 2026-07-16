@@ -106,17 +106,21 @@ spec:
               echo "Cleaning stale temp files...";
               find /app/data/temp -type f -mtime +1 -delete 2>/dev/null || true;
               find /app/data/temp -type d -empty -delete 2>/dev/null || true;
-              echo "Removing stale locks...";
+              echo "Removing stale pid/store locks...";
               rm -f /app/data/.openviking.pid;
               rm -f /app/data/vectordb/context/store/LOCK;
-              find /app/data/viking -name '.path.ovlock' -delete 2>/dev/null || true;
               echo "Done."
           volumeMounts:
             - name: data
               mountPath: /app/data
       containers:
         - name: openviking
-          image: ghcr.io/volcengine/openviking:v0.3.14
+          # Bumped undeployed at the v0.4.10 upgrade (IMPR-1063) — was a stale
+          # v0.3.14 pin that predates the 0.4.x auth/data model and must never
+          # be applied against 0.4.x data. Re-apply openviking-configmap.yaml
+          # before any scale-up (existing rule). .path.ovlock wipe removed for
+          # the same reason as the main deployment (IMPR-1062 spike).
+          image: ghcr.io/volcengine/openviking:v0.4.10
           ports:
             - containerPort: 1933
               name: http

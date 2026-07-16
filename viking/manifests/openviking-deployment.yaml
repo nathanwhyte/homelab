@@ -80,11 +80,17 @@ spec:
               mountPath: /config-out
         - name: temp-cleanup
           image: busybox:1.37
+          # .path.ovlock wipe removed at the v0.4.10 bump (IMPR-1063): tree locks
+          # live in S3 under agfs:s3 (the wipe was a no-op on this PVC), and
+          # v0.4.10 resumes interrupted work after restart — wiping its locks
+          # would race the resume (IMPR-1062 spike). The RocksDB LOCK removal
+          # stays: harmless on v0.4.10 (which also self-cleans it) and still
+          # covers a rollback to older images.
           command:
             - /bin/sh
             - -c
           args:
-            - echo "Cleaning stale temp files..."; find /app/data/temp -type f -mtime +1 -delete 2>/dev/null || true; find /app/data/temp -type d -empty -delete 2>/dev/null || true; find /app/data/viking/default/temp -type d -empty -delete 2>/dev/null || true; echo "Removing stale locks..."; rm -f /app/data/.openviking.pid; rm -f /app/data/vectordb/context/store/LOCK; find /app/data/viking -name '.path.ovlock' -delete 2>/dev/null || true; echo "Done."
+            - echo "Cleaning stale temp files..."; find /app/data/temp -type f -mtime +1 -delete 2>/dev/null || true; find /app/data/temp -type d -empty -delete 2>/dev/null || true; find /app/data/viking/default/temp -type d -empty -delete 2>/dev/null || true; echo "Removing stale pid/store locks..."; rm -f /app/data/.openviking.pid; rm -f /app/data/vectordb/context/store/LOCK; echo "Done."
           volumeMounts:
             - name: data
               mountPath: /app/data
@@ -93,7 +99,9 @@ spec:
           # v0.4.5 fixed the Role serialization bug upstream, so the former
           # role-value-patch init container (and its /ov-patch PYTHONPATH
           # override) is gone as of the v0.4.7 bump (IMPR-1032 Phase B).
-          image: ghcr.io/volcengine/openviking:v0.4.7
+          # v0.4.10 bump: IMPR-1063 (no data migration in the 0.4.7→0.4.10
+          # range; rollback is a pure tag revert).
+          image: ghcr.io/volcengine/openviking:v0.4.10
           ports:
             - containerPort: 1933
               name: http
@@ -148,7 +156,7 @@ spec:
           # `ov language en` runs once at container start to clear v0.4.x's
           # first-run language gate (the gate persists state under
           # ~/.openviking/, which is the container's HOME).
-          image: ghcr.io/volcengine/openviking:v0.4.7
+          image: ghcr.io/volcengine/openviking:v0.4.10
           command:
             - /bin/sh
             - -c

@@ -1,4 +1,10 @@
 ---
+# STALE (noted at the v0.4.10 bump, IMPR-1063): this test scaffold is pinned
+# to v0.3.14 and its patch-syncdiff initContainer patches 0.3.14-era source
+# (semantic_processor.py). Do NOT apply against the current stack, and do not
+# blind-bump the image tag — the source patch is version-coupled. Rebuild from
+# the live openviking-deployment.yaml if a test instance is needed; deletion
+# candidate alongside ov-console-deployment.yaml.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
