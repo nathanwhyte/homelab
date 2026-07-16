@@ -1,0 +1,160 @@
+{
+  "mode": "multi-model",
+  "num_ctx": 8192,
+  "num_predict": 256,
+  "repeats": 3,
+  "levels": [
+    {
+      "label": "solo:qwen3.6:35b-mlx",
+      "concurrency": 1,
+      "requests_ok": 3,
+      "errors": [],
+      "ttft_s": {
+        "median": 0.319,
+        "mean": 0.283,
+        "min": 0.111,
+        "max": 0.419
+      },
+      "gen_tps_per_req": {
+        "median": 119.946,
+        "mean": 120.131,
+        "min": 118.929,
+        "max": 121.518
+      },
+      "wall_s": {
+        "median": 2.43,
+        "mean": 2.397,
+        "min": 2.211,
+        "max": 2.552
+      },
+      "aggregate_tps": {
+        "median": 105.349,
+        "mean": 107.153,
+        "min": 100.315,
+        "max": 115.794
+      },
+      "prompt_tokens_mean": 62,
+      "tokens_mean": 256,
+      "ps_after": {
+        "name": "qwen2.5-coder:fim-1.5b",
+        "size_gb": 1.48,
+        "size_vram_gb": 1.48,
+        "context_length": 8192
+      }
+    },
+    {
+      "label": "solo:qwen2.5-coder:fim-1.5b",
+      "concurrency": 1,
+      "requests_ok": 3,
+      "errors": [],
+      "ttft_s": {
+        "median": 0.119,
+        "mean": 0.082,
+        "min": 0.0,
+        "max": 0.126
+      },
+      "gen_tps_per_req": {
+        "median": 282.758,
+        "mean": 333520.59,
+        "min": 279.013,
+        "max": 1000000.0
+      },
+      "wall_s": {
+        "median": 1.032,
+        "mean": 0.734,
+        "min": 0.133,
+        "max": 1.037
+      },
+      "aggregate_tps": {
+        "median": 246.83,
+        "mean": 167.477,
+        "min": 7.533,
+        "max": 248.068
+      },
+      "prompt_tokens_mean": 53,
+      "tokens_mean": 171,
+      "ps_after": {
+        "name": "qwen3.6:35b-mlx",
+        "size_gb": 26.07,
+        "size_vram_gb": 26.07,
+        "context_length": 8192
+      }
+    },
+    {
+      "label": "concurrent:qwen3.6:35b-mlx+qwen2.5-coder:fim-1.5b",
+      "concurrency": 2,
+      "requests_ok": 6,
+      "errors": [],
+      "ttft_s": {
+        "median": 0.286,
+        "mean": 0.301,
+        "min": 0.15,
+        "max": 0.487
+      },
+      "gen_tps_per_req": {
+        "median": 155.396,
+        "mean": 156.874,
+        "min": 105.266,
+        "max": 210.25
+      },
+      "wall_s": {
+        "median": 2.074,
+        "mean": 1.918,
+        "min": 0.846,
+        "max": 2.776
+      },
+      "aggregate_tps": {
+        "median": 161.333,
+        "mean": 163.674,
+        "min": 145.236,
+        "max": 184.452
+      },
+      "prompt_tokens_mean": 46,
+      "tokens_mean": 223,
+      "ps_after": {
+        "name": "qwen2.5-coder:fim-1.5b",
+        "size_gb": 1.48,
+        "size_vram_gb": 1.48,
+        "context_length": 8192
+      }
+    },
+    {
+      "label": "burst:qwen3.6:35b-mlx+3xqwen2.5-coder:fim-1.5b",
+      "concurrency": 4,
+      "requests_ok": 12,
+      "errors": [],
+      "ttft_s": {
+        "median": 0.214,
+        "mean": 0.479,
+        "min": 0.112,
+        "max": 1.845
+      },
+      "gen_tps_per_req": {
+        "median": 158.468,
+        "mean": 144.997,
+        "min": 88.485,
+        "max": 186.11
+      },
+      "wall_s": {
+        "median": 2.107,
+        "mean": 2.184,
+        "min": 0.756,
+        "max": 3.323
+      },
+      "aggregate_tps": {
+        "median": 296.755,
+        "mean": 295.172,
+        "min": 280.629,
+        "max": 308.131
+      },
+      "prompt_tokens_mean": 45,
+      "tokens_mean": 228.5,
+      "ps_after": {
+        "name": "qwen2.5-coder:fim-1.5b",
+        "size_gb": 1.48,
+        "size_vram_gb": 1.48,
+        "context_length": 8192
+      }
+    }
+  ]
+}

@@ -1,0 +1,122 @@
+{
+  "mode": "same-model",
+  "num_ctx": 8192,
+  "num_predict": 256,
+  "repeats": 3,
+  "levels": [
+    {
+      "label": "qwen2.5-coder:fim-1.5b",
+      "concurrency": 1,
+      "requests_ok": 3,
+      "errors": [],
+      "ttft_s": {
+        "median": 0.0,
+        "mean": 0.043,
+        "min": 0.0,
+        "max": 0.128
+      },
+      "gen_tps_per_req": {
+        "median": 1000000.0,
+        "mean": 666758.222,
+        "min": 274.667,
+        "max": 1000000.0
+      },
+      "wall_s": {
+        "median": 0.133,
+        "mean": 0.44,
+        "min": 0.127,
+        "max": 1.061
+      },
+      "aggregate_tps": {
+        "median": 7.896,
+        "mean": 85.543,
+        "min": 7.523,
+        "max": 241.209
+      },
+      "prompt_tokens_mean": 42,
+      "tokens_mean": 86,
+      "ps_after": {
+        "name": "qwen3.6:35b-mlx",
+        "size_gb": 25.58,
+        "size_vram_gb": 25.58,
+        "context_length": 8192
+      }
+    },
+    {
+      "label": "qwen2.5-coder:fim-1.5b",
+      "concurrency": 2,
+      "requests_ok": 6,
+      "errors": [],
+      "ttft_s": {
+        "median": 0.136,
+        "mean": 0.122,
+        "min": 0.0,
+        "max": 0.186
+      },
+      "gen_tps_per_req": {
+        "median": 247.566,
+        "mean": 166873.71,
+        "min": 234.888,
+        "max": 1000000.0
+      },
+      "wall_s": {
+        "median": 0.929,
+        "mean": 0.843,
+        "min": 0.165,
+        "max": 1.227
+      },
+      "aggregate_tps": {
+        "median": 321.632,
+        "mean": 315.386,
+        "min": 207.446,
+        "max": 417.081
+      },
+      "prompt_tokens_mean": 41,
+      "tokens_mean": 171,
+      "ps_after": {
+        "name": "qwen3.6:35b-mlx",
+        "size_gb": 25.58,
+        "size_vram_gb": 25.58,
+        "context_length": 8192
+      }
+    },
+    {
+      "label": "qwen2.5-coder:fim-1.5b",
+      "concurrency": 4,
+      "requests_ok": 12,
+      "errors": [],
+      "ttft_s": {
+        "median": 0.182,
+        "mean": 0.551,
+        "min": 0.0,
+        "max": 1.291
+      },
+      "gen_tps_per_req": {
+        "median": 236.645,
+        "mean": 83553.51,
+        "min": 223.687,
+        "max": 1000000.0
+      },
+      "wall_s": {
+        "median": 1.287,
+        "mean": 1.444,
+        "min": 0.168,
+        "max": 2.292
+      },
+      "aggregate_tps": {
+        "median": 387.598,
+        "mean": 379.2,
+        "min": 345.245,
+        "max": 404.757
+      },
+      "prompt_tokens_mean": 42.5,
+      "tokens_mean": 210.8,
+      "ps_after": {
+        "name": "qwen3.6:35b-mlx",
+        "size_gb": 25.58,
+        "size_vram_gb": 25.58,
+        "context_length": 8192
+      }
+    }
+  ]
+}
