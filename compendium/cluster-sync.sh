@@ -20,7 +20,7 @@
 #               Implies waiting for the Job; composes with --follow.
 #
 # Examples:
-#   compendium/cluster-sync.sh --follow
+#   compendium/cluster-sync.sh --follow --heal   # canonical invocation — always include --heal
 #   compendium/cluster-sync.sh --heal
 #   compendium/cluster-sync.sh --follow --heal=3
 #   compendium/cluster-sync.sh -- --include-active --no-wait "bugs/dipdash/BUG-004-*.md"
