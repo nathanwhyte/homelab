@@ -78,6 +78,21 @@ Two findings:
    pairing. For the autocomplete-cohabitation use case, prefer an MoE chat
    partner.
 
+## Leg F — two mid-size MLX models: gemma4:12b + qwen3.5:9b (both dense)
+
+| level          | TTFT med/max (s) | gen/req (tok/s)        | aggregate (tok/s) |
+| -------------- | ---------------- | ---------------------- | ----------------- |
+| solo gemma 12b | 0.16 / 0.18      | 57.7                   | 56                |
+| solo qwen 9b   | 0.15 / 0.16      | 74.1                   | 71                |
+| 1+1 concurrent | 0.23 / 0.24      | gemma ~33–42, qwen ~51 | 68.7              |
+
+**gemma4:12b-mlx is dense** (57.7 tok/s solo, slower than the smaller 9.4B
+qwen) — so the gemma4 family splits: 26b decodes MoE-like at 119 tok/s, 12b is
+a conventional dense model. **Dense+dense cohabitation splits bandwidth
+almost evenly**: each model keeps ~57–69% of its solo rate and the aggregate
+(68.7 tok/s) is barely more than one model alone (sum of solos: 129). TTFT
+stays flat — the cost is pure bandwidth sharing, never queueing.
+
 ## Operational takeaways
 
 1. Chat model + autocomplete model side-by-side is viable on pop: the
