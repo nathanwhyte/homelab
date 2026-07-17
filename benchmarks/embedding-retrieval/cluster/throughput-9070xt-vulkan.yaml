@@ -1,0 +1,102 @@
+# TASK-1136 Phase 2 — embedder throughput on timmy's RX 9070 XT (Vulkan).
+# Runs AFTER the 1080 phase. Vulkan is the IMPR-1068 target backend, so this
+# number is the post-migration state and doubles as a pre-flight for IMPR-1068
+# (validates --flash-attn on under Vulkan/gfx1201, and discrete-card selection).
+#
+# ⚠ VRAM CONTENTION — the 16 GB card already holds the production embedder-qwen
+# (ROCm, ~5 GB) + Ollama (chat/FIM). This bench pod adds a SECOND ~5 GB embedder.
+# Confirm headroom before applying (kubectl exec into an amd pod: amd-smi, or the
+# Grafana VRAM panel). If the card is tight, scale Ollama down for the window —
+# do NOT evict the production embedder (the user requires it stays up while OV
+# is not ready to spin down). This manifest requests NO amd.com/gpu unit (both
+# are claimed by Ollama) and stays privileged for host device access, exactly
+# like the production embedder.
+#
+# GGML_VK_VISIBLE_DEVICES=1 selects the discrete 9070 XT (the iGPU enumerates
+# first under Vulkan) — the same value Ollama uses on this card.
+# Run:      kubectl -n bench logs job/throughput-9070xt -f
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: embedder-vulkan-bench, namespace: bench, labels: { app: embedder-vulkan-bench } }
+spec:
+  replicas: 1
+  strategy: { type: Recreate }
+  selector: { matchLabels: { app: embedder-vulkan-bench } }
+  template:
+    metadata: { labels: { app: embedder-vulkan-bench } }
+    spec:
+      nodeSelector: { kubernetes.io/hostname: timmy, gpu.vendor: amd }
+      securityContext: { fsGroup: 0 }
+      initContainers:
+        - name: fetch
+          image: curlimages/curl:8.12.1
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu; f=/models/Qwen3-Embedding-4B-Q8_0.gguf
+              [ -f "$f" ] || curl -fL --retry 5 --retry-delay 10 \
+                https://huggingface.co/Qwen/Qwen3-Embedding-4B-GGUF/resolve/main/Qwen3-Embedding-4B-Q8_0.gguf -o "$f"
+              ln -sf "$f" /models/current.gguf
+          securityContext: { runAsUser: 0 }
+          volumeMounts: [{ name: models, mountPath: /models }]
+      containers:
+        - name: llamacpp
+          image: ghcr.io/ggml-org/llama.cpp:server-vulkan
+          env: [{ name: GGML_VK_VISIBLE_DEVICES, value: "1" }]
+          command: ["/app/llama-server"]
+          # Identical serving config to the 1080 phase for a fair comparison.
+          # If --flash-attn errors under Vulkan/gfx1201, fall back to "off" and
+          # record it (this is the IMPR-1068 acceptance-criterion #2 unknown).
+          args: ["--model","/models/current.gguf","--host","0.0.0.0","--port","8000","--embedding","--pooling","last","--ctx-size","8192","--n-gpu-layers","999","--parallel","1","--threads","8","--batch-size","4096","--ubatch-size","4096","--split-mode","none","--main-gpu","0","--flash-attn","on","--metrics"]
+          ports: [{ containerPort: 8000, name: http }]
+          securityContext: { privileged: true }
+          startupProbe: { tcpSocket: { port: 8000 }, periodSeconds: 10, failureThreshold: 120 }
+          readinessProbe: { httpGet: { path: /health, port: 8000 }, periodSeconds: 10 }
+          volumeMounts:
+            - { name: models, mountPath: /models }
+            - { name: shm, mountPath: /dev/shm }
+      volumes:
+        - { name: models, emptyDir: {} }
+        - { name: shm, emptyDir: { medium: Memory, sizeLimit: 4Gi } }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: embedder-vulkan-bench, namespace: bench }
+spec: { selector: { app: embedder-vulkan-bench }, ports: [{ port: 8000, targetPort: 8000 }] }
+---
+apiVersion: batch/v1
+kind: Job
+metadata: { name: throughput-9070xt, namespace: bench }
+spec:
+  backoffLimit: 0
+  template:
+    spec:
+      restartPolicy: Never
+      nodeSelector: { kubernetes.io/hostname: manu } # reuses the seeded bench-data corpus node-locally
+      containers:
+        - name: runner
+          image: ghcr.io/astral-sh/uv:python3.12-bookworm
+          workingDir: /app
+          env:
+            - { name: EMBED_URL, value: "http://embedder-vulkan-bench.bench.svc:8000/v1/embeddings" }
+            - { name: BENCH_CORPUS, value: /data/corpus.jsonl }
+            - { name: BENCH_RESULTS, value: /data/results }
+            - { name: BENCH_LABEL, value: 9070xt-vulkan }
+            - { name: BENCH_BATCH, value: "16" }
+            - { name: UV_CACHE_DIR, value: /data/uvcache }
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+              until python3 -c "import urllib.request,sys; urllib.request.urlopen('http://embedder-vulkan-bench.bench.svc:8000/health',timeout=3)" 2>/dev/null; do
+                echo "waiting for embedder-vulkan-bench /health..."; sleep 5
+              done
+              uv run /app/benchmark_throughput.py
+          resources: { requests: { cpu: "2", memory: 2Gi }, limits: { cpu: "4", memory: 6Gi } }
+          volumeMounts:
+            - { name: data, mountPath: /data }
+            - { name: scripts, mountPath: /app }
+      volumes:
+        - { name: data, persistentVolumeClaim: { claimName: bench-data } }
+        - { name: scripts, configMap: { name: throughput-scripts } }

@@ -1,0 +1,39 @@
+# Throughput benchmark shared infra (TASK-1136). Disposable `bench` namespace.
+# The embedder throughput harness (benchmark_throughput.py) measures docs/s,
+# tokens/s and per-batch latency — the speed dimension the retrieval-quality
+# suite never records. Card-specific embedder pods + runner Jobs live in the
+# throughput-<card>-<backend>.yaml siblings.
+#
+# Corpus delivery is tokenless: `corpus-seed` holds the PVC open so the local
+# corpus.jsonl can be `kubectl cp`-ed in once, then reused by every phase Job
+# (all pinned to manu so they share the RWO volume node-locally). See
+# throughput-apply.sh.
+# Teardown: kubectl delete namespace bench
+---
+apiVersion: v1
+kind: Namespace
+metadata: { name: bench }
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata: { name: bench-data, namespace: bench }
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: longhorn-ssd
+  resources: { requests: { storage: 30Gi } }
+---
+# Keeps the PVC mounted on manu so `kubectl cp` can seed /data/corpus.jsonl.
+# Stays running for the lifetime of the benchmark so every phase Job (also on
+# manu) reuses the same corpus node-locally. Trivial footprint.
+apiVersion: v1
+kind: Pod
+metadata: { name: corpus-seed, namespace: bench, labels: { app: corpus-seed } }
+spec:
+  nodeSelector: { kubernetes.io/hostname: manu }
+  containers:
+    - name: seed
+      image: busybox:1.37
+      command: ["/bin/sh", "-c", "mkdir -p /data/results && sleep infinity"]
+      volumeMounts: [{ name: data, mountPath: /data }]
+  volumes:
+    - { name: data, persistentVolumeClaim: { claimName: bench-data } }

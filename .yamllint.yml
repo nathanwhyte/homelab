@@ -60,6 +60,17 @@ rules:
   # in the pre-commit-hooks set. Suppress the yamllint duplicate.
   trailing-spaces: disable
 
+  # Compact single-line flow mappings (`{ name: x, namespace: bench }`) and
+  # inline arg arrays (`["--model", "/x"]` written tersely as `["--model","/x"]`)
+  # are the established style for the terse K8s manifests in benchmarks/
+  # (overnight.yaml et al.). The default rules forbid spaces inside braces and
+  # require a space after every comma; relax both (purely permissive — nothing
+  # that passes today starts failing) so the repo's actual convention lints clean.
+  braces:
+    max-spaces-inside: 1
+  commas:
+    min-spaces-after: 0
+
 ignore: |
   # Generated helm-rendered output, snapshot archives (history of cluster
   # state at a point in time — reformatting would lose the "what it actually

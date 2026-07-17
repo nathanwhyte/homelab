@@ -1,0 +1,97 @@
+# TASK-1136 Phase 1 — embedder throughput on manu's GTX 1080 (CUDA).
+# Isolated bench deployment (fresh name/PVC, does NOT touch the production
+# embedder-qwen wiring). The 1080 is free: the OV VLM (llamacpp-cuda-ov) is
+# pinned to replicas=0 for this benchmark window.
+#
+# Serving config is standardized with the 9070 XT Vulkan phase for a fair
+# cross-card comparison: ctx 8192, --parallel 1, batch/ubatch 4096, flash-attn
+# on, pooling last. (Production 1060 uses batch 512 for its 6 GB; the 1080 has
+# 8 GB, so 4096 should fit. If the pod OOMs/crashloops, drop BOTH cards to 2048.)
+#
+# Prereq: throughput-base.yaml applied, corpus.jsonl seeded, and configmap
+# `throughput-scripts` created — all handled by throughput-apply.sh.
+# Run:      kubectl -n bench logs job/throughput-1080 -f
+# Teardown of this phase only: kubectl -n bench delete -f throughput-1080-cuda.yaml
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: embedder-cuda-bench, namespace: bench, labels: { app: embedder-cuda-bench } }
+spec:
+  replicas: 1
+  strategy: { type: Recreate }
+  selector: { matchLabels: { app: embedder-cuda-bench } }
+  template:
+    metadata: { labels: { app: embedder-cuda-bench } }
+    spec:
+      runtimeClassName: nvidia
+      nodeSelector: { kubernetes.io/hostname: manu }
+      initContainers:
+        - name: fetch
+          image: curlimages/curl:8.12.1
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu; f=/models/Qwen3-Embedding-4B-Q8_0.gguf
+              [ -f "$f" ] || curl -fL --retry 5 --retry-delay 10 \
+                https://huggingface.co/Qwen/Qwen3-Embedding-4B-GGUF/resolve/main/Qwen3-Embedding-4B-Q8_0.gguf -o "$f"
+              ln -sf "$f" /models/current.gguf
+          volumeMounts: [{ name: models, mountPath: /models }]
+      containers:
+        - name: llamacpp
+          image: ghcr.io/ggml-org/llama.cpp:server-cuda
+          command: ["/app/llama-server"]
+          args: ["--model","/models/current.gguf","--host","0.0.0.0","--port","8000","--embedding","--pooling","last","--ctx-size","8192","--n-gpu-layers","999","--parallel","1","--threads","8","--batch-size","4096","--ubatch-size","4096","--split-mode","none","--main-gpu","0","--flash-attn","on","--metrics"]
+          ports: [{ containerPort: 8000, name: http }]
+          resources:
+            requests: { cpu: "500m", memory: 2Gi, nvidia.com/gpu: "1" }
+            limits: { cpu: "4", memory: 8Gi, nvidia.com/gpu: "1" }
+          startupProbe: { tcpSocket: { port: 8000 }, periodSeconds: 10, failureThreshold: 120 }
+          readinessProbe: { httpGet: { path: /health, port: 8000 }, periodSeconds: 10 }
+          volumeMounts:
+            - { name: models, mountPath: /models }
+            - { name: shm, mountPath: /dev/shm }
+      volumes:
+        - { name: models, emptyDir: {} }
+        - { name: shm, emptyDir: { medium: Memory, sizeLimit: 4Gi } }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: embedder-cuda-bench, namespace: bench }
+spec: { selector: { app: embedder-cuda-bench }, ports: [{ port: 8000, targetPort: 8000 }] }
+---
+apiVersion: batch/v1
+kind: Job
+metadata: { name: throughput-1080, namespace: bench }
+spec:
+  backoffLimit: 0
+  template:
+    spec:
+      restartPolicy: Never
+      nodeSelector: { kubernetes.io/hostname: manu } # shares bench-data (RWO) with corpus-seed node-locally
+      containers:
+        - name: runner
+          image: ghcr.io/astral-sh/uv:python3.12-bookworm
+          workingDir: /app
+          env:
+            - { name: EMBED_URL, value: "http://embedder-cuda-bench.bench.svc:8000/v1/embeddings" }
+            - { name: BENCH_CORPUS, value: /data/corpus.jsonl }
+            - { name: BENCH_RESULTS, value: /data/results }
+            - { name: BENCH_LABEL, value: gtx1080-cuda }
+            - { name: BENCH_BATCH, value: "16" }
+            - { name: UV_CACHE_DIR, value: /data/uvcache }
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+              # wait for the embedder to be serving
+              until python3 -c "import urllib.request,sys; urllib.request.urlopen('http://embedder-cuda-bench.bench.svc:8000/health',timeout=3)" 2>/dev/null; do
+                echo "waiting for embedder-cuda-bench /health..."; sleep 5
+              done
+              uv run /app/benchmark_throughput.py
+          resources: { requests: { cpu: "2", memory: 2Gi }, limits: { cpu: "4", memory: 6Gi } }
+          volumeMounts:
+            - { name: data, mountPath: /data }
+            - { name: scripts, mountPath: /app }
+      volumes:
+        - { name: data, persistentVolumeClaim: { claimName: bench-data } }
+        - { name: scripts, configMap: { name: throughput-scripts } }
