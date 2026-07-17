@@ -78,6 +78,9 @@ spec:
             - { name: BENCH_RESULTS, value: /data/results }
             - { name: BENCH_LABEL, value: gtx1080-cuda }
             - { name: BENCH_BATCH, value: "16" }
+            # 0 = full corpus (default). Set to e.g. 200 for a quick validation
+            # pass (~5-7 min on Pascal) before committing to the full ~45-min run.
+            - { name: BENCH_MAX_DOCS, value: "0" }
             - { name: UV_CACHE_DIR, value: /data/uvcache }
           command: ["/bin/sh", "-c"]
           args:
