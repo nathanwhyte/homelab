@@ -70,6 +70,16 @@ spec:
               # `llamacpp-vlm` service (selector vlm-pool=true), which currently
               # round-robins across llamacpp-cuda-ov (manu) and llamacpp-rocm
               # (timmy). Phase 4 will retire the rocm deployment.
+              #
+              # ⚠️ 2026-07-17 (TASK-1136): this hardcodes the LOCAL vlm endpoint,
+              # but llamacpp-cuda-ov is scaled to 0 while the 1080 runs the
+              # embedder throughput benchmark, so `llamacpp-vlm` has NO backend.
+              # The main `openviking` deployment was cloud-routed to
+              # gemma4:31b-cloud for the window (openviking-configmap.yaml), but
+              # this worker init still points local. DO NOT scale this worker up
+              # until llamacpp-cuda-ov is back to replicas=1 — its VLM calls will
+              # fail against the dead local service. Revert both when the
+              # benchmark completes.
               conf['vlm']['api_base'] = 'http://llamacpp-vlm.viking.svc/v1'
               json.dump(conf, open('/config-out/ov.conf', 'w'), indent=2)
               "
