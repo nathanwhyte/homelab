@@ -8,7 +8,9 @@
 #
 # Version pins (bump deliberately, together with a smoke run):
 #   image: python:3.13-slim as of 2026-07-07
-#   openviking CLI: 0.4.7
+#   openviking CLI: 0.4.10 (IMPR-1062 Phase 3: the recovery phases rely on the
+#     0.4.10 `ov status`/durability contracts, and CLI 0.4.10 ↔ server 0.4.10 is
+#     what prod already runs from the Mac; bumped from 0.4.7 2026-07-16)
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -18,7 +20,12 @@ metadata:
     app: compendium-sync
 spec:
   backoffLimit: 0
-  activeDeadlineSeconds: 1800 # BUG-1035: bound a wedged run so it frees the state PVC + guard
+  # BUG-1035: bound a wedged run so it frees the state PVC + guard.
+  # IMPR-1062 Phase 3: the script owns a 2400s journal deadline. Kubernetes
+  # starts this clock before scheduling, image pull, package install, clone, and
+  # journal preparation, so reserve 1200s for that preflight work. The 3600s
+  # ceiling still bounds a pod that hangs outside the script's deadline path.
+  activeDeadlineSeconds: 3600
   ttlSecondsAfterFinished: 86400
   template:
     metadata:
@@ -34,7 +41,7 @@ spec:
             - |
               set -euo pipefail
               apt-get update -qq && apt-get install -y -qq git >/dev/null
-              pip install --quiet openviking==0.4.7
+              pip install --quiet openviking==0.4.10
               # ov CLI requires a config file to exist even when env vars are set
               mkdir -p "$HOME/.openviking"
               printf '{"url":"%s","api_key":"%s","root_api_key":"%s","account":"default","user":"noot","timeout":300.0,"output":"table"}\n' \
