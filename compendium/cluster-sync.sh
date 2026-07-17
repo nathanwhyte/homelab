@@ -5,7 +5,7 @@
 #   compendium/cluster-sync.sh [--follow] [--heal[=N]] [-- <compendium-sync.py sync args>]
 #
 # With no args, runs the canonical manual sync:
-#   sync --changed --yes --state-file /state/compendium-sync-state.json --no-wait
+#   sync --changed --yes --state-file /state/compendium-sync-state.json --no-wait --deadline-seconds 2400
 # deriving the work list from git history since the last-synced commit on the
 # state PVC. The runner only sees pushed origin/main — push first.
 #
@@ -98,7 +98,12 @@ fi
 if [ "$#" -gt 0 ]; then
 	export SYNC_ARGS="$*"
 else
-	export SYNC_ARGS="--changed --yes --state-file /state/compendium-sync-state.json --no-wait"
+	# IMPR-1062 Phase 3: --deadline-seconds 2400 gives the journal a global
+	# monotonic budget that sits UNDER the Job's activeDeadlineSeconds (2700),
+	# so a wedged/contended run parks its journal consistently instead of being
+	# SIGKILLed mid-write. Matches the script's own default; passed explicitly
+	# so the Job's budget is visible at the dispatch site.
+	export SYNC_ARGS="--changed --yes --state-file /state/compendium-sync-state.json --no-wait --deadline-seconds 2400"
 fi
 
 dispatch() {
