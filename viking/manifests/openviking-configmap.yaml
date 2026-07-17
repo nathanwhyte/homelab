@@ -63,11 +63,19 @@ data:
         "max_concurrent": 6
       },
       "vlm": {
-        "provider": "litellm",
-        "model": "openai/current.gguf",
-        "api_key": "sk-no-key-required",
-        "api_base": "http://llamacpp-vlm.viking.svc/v1",
-        "max_concurrent": 4,
-        "timeout": 300
+        "provider": "openai",
+        "model": "gemma4:31b-cloud",
+        "api_key": "${OLLAMA_KEY}",
+        "api_base": "http://chat-ollama.llama.svc.cluster.local:11434/v1",
+        "max_concurrent": 8,
+        "timeout": 120,
+        "backup": {
+          "provider": "litellm",
+          "model": "openai/current.gguf",
+          "api_key": "sk-no-key-required",
+          "api_base": "http://llamacpp-vlm.viking.svc/v1",
+          "max_concurrent": 4,
+          "timeout": 300
+        }
       }
     }
