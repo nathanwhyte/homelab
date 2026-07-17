@@ -1,0 +1,107 @@
+{
+  "label": "gtx1080-cuda",
+  "url": "http://embedder-cuda-bench.bench.svc:8000/v1/embeddings",
+  "model": "current",
+  "config": {
+    "batch_size": 16,
+    "max_chars": 24000,
+    "warmup_batches": 3,
+    "repeat": 1
+  },
+  "corpus": {
+    "docs": 200,
+    "timed_docs": 152
+  },
+  "tokens_estimated": false,
+  "skipped_docs": 0,
+  "totals": {
+    "docs": 152,
+    "tokens": 364232,
+    "wall_s": 417.334,
+    "docs_per_s": 0.36,
+    "tokens_per_s": 872.8
+  },
+  "batch_latency_s": {
+    "mean": 41.7334,
+    "p50": 41.1538,
+    "p95": 83.5068,
+    "max": 83.5068
+  },
+  "per_doc_latency_s": {
+    "mean": 2.7111,
+    "p50": 2.5721,
+    "p95": 5.2192
+  },
+  "per_batch": [
+    {
+      "i": 0,
+      "n": 16,
+      "tokens": 38813,
+      "latency_s": 44.3137,
+      "skipped": 0
+    },
+    {
+      "i": 1,
+      "n": 16,
+      "tokens": 24887,
+      "latency_s": 25.793,
+      "skipped": 0
+    },
+    {
+      "i": 2,
+      "n": 16,
+      "tokens": 43790,
+      "latency_s": 49.4683,
+      "skipped": 0
+    },
+    {
+      "i": 3,
+      "n": 16,
+      "tokens": 65032,
+      "latency_s": 83.5068,
+      "skipped": 0
+    },
+    {
+      "i": 4,
+      "n": 16,
+      "tokens": 42109,
+      "latency_s": 47.9573,
+      "skipped": 0
+    },
+    {
+      "i": 5,
+      "n": 16,
+      "tokens": 30659,
+      "latency_s": 33.6925,
+      "skipped": 0
+    },
+    {
+      "i": 6,
+      "n": 16,
+      "tokens": 28758,
+      "latency_s": 30.4478,
+      "skipped": 0
+    },
+    {
+      "i": 7,
+      "n": 16,
+      "tokens": 38503,
+      "latency_s": 44.5553,
+      "skipped": 0
+    },
+    {
+      "i": 8,
+      "n": 16,
+      "tokens": 36022,
+      "latency_s": 41.1538,
+      "skipped": 0
+    },
+    {
+      "i": 9,
+      "n": 8,
+      "tokens": 15659,
+      "latency_s": 16.4455,
+      "skipped": 0
+    }
+  ]
+}
