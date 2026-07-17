@@ -9,10 +9,19 @@
 #
 # Each model is unloaded before the next loads (KEEP_ALIVE aside, we call
 # `ollama stop`) so the run is isolated. Results land in benchmarks/results/.
+#
+# Remote-target mode (IMPR-1067): point the run at another Ollama host with
+#   FIM_BENCH_HOST=http://192.168.1.19:11434 FIM_BENCH_TARGET=timmy \
+#     ./run-fim-model-matrix.sh
+# The `ollama stop` isolation still works remotely — the CLI honors
+# OLLAMA_HOST, which is derived from FIM_BENCH_HOST. FIM_BENCH_TARGET names
+# the output prefix (ollama-<target>-fim-*, default pop).
 set -euo pipefail
 
-OLLAMA=/opt/homebrew/bin/ollama
-HOST="http://localhost:11434"
+OLLAMA="${OLLAMA:-/opt/homebrew/bin/ollama}"
+HOST="${FIM_BENCH_HOST:-http://localhost:11434}"
+TARGET="${FIM_BENCH_TARGET:-pop}"
+export OLLAMA_HOST="$HOST"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 BENCH="$SCRIPT_DIR/concurrency-bench.py"
 TMPDIR_CFG="$(mktemp -d)"
@@ -21,24 +30,24 @@ trap 'rm -rf "$TMPDIR_CFG"' EXIT
 # model ~ workload ~ stop-tokens (TOML array) ~ slug
 # NB: '~' is the field delimiter (the FIM/stop tokens themselves contain '|').
 MATRIX=(
-  'qwen2.5-coder:1.5b-base~edit_prediction_qwen~["<|endoftext|>","<|fim_pad|>","<|file_sep|>","<|repo_name|>"]~qwen25-coder-1_5b'
-  'qwen2.5-coder:3b-base~edit_prediction_qwen~["<|endoftext|>","<|fim_pad|>","<|file_sep|>","<|repo_name|>"]~qwen25-coder-3b'
-  'qwen2.5-coder:7b-base~edit_prediction_qwen~["<|endoftext|>","<|fim_pad|>","<|file_sep|>","<|repo_name|>"]~qwen25-coder-7b'
-  'deepseek-coder-v2:16b-lite-base-q4_0~edit_prediction_deepseek~["<|EOT|>"]~deepseek-coder-v2-lite'
-  'codegemma:2b~edit_prediction_codegemma~["<|file_separator|>","<end_of_turn>","<eos>"]~codegemma-2b'
-  'codegemma:7b-code~edit_prediction_codegemma~["<|file_separator|>","<end_of_turn>","<eos>"]~codegemma-7b'
-  'starcoder2:3b~edit_prediction_starcoder2~["<|endoftext|>","<file_sep>"]~starcoder2-3b'
-  'starcoder2:7b~edit_prediction_starcoder2~["<|endoftext|>","<file_sep>"]~starcoder2-7b'
-  'codestral:latest~edit_prediction_mistral~["[INST]","[/INST]","[PREFIX]","[MIDDLE]","[SUFFIX]"]~codestral-22b'
+	'qwen2.5-coder:1.5b-base~edit_prediction_qwen~["<|endoftext|>","<|fim_pad|>","<|file_sep|>","<|repo_name|>"]~qwen25-coder-1_5b'
+	'qwen2.5-coder:3b-base~edit_prediction_qwen~["<|endoftext|>","<|fim_pad|>","<|file_sep|>","<|repo_name|>"]~qwen25-coder-3b'
+	'qwen2.5-coder:7b-base~edit_prediction_qwen~["<|endoftext|>","<|fim_pad|>","<|file_sep|>","<|repo_name|>"]~qwen25-coder-7b'
+	'deepseek-coder-v2:16b-lite-base-q4_0~edit_prediction_deepseek~["<|EOT|>"]~deepseek-coder-v2-lite'
+	'codegemma:2b~edit_prediction_codegemma~["<|file_separator|>","<end_of_turn>","<eos>"]~codegemma-2b'
+	'codegemma:7b-code~edit_prediction_codegemma~["<|file_separator|>","<end_of_turn>","<eos>"]~codegemma-7b'
+	'starcoder2:3b~edit_prediction_starcoder2~["<|endoftext|>","<file_sep>"]~starcoder2-3b'
+	'starcoder2:7b~edit_prediction_starcoder2~["<|endoftext|>","<file_sep>"]~starcoder2-7b'
+	'codestral:latest~edit_prediction_mistral~["[INST]","[/INST]","[PREFIX]","[MIDDLE]","[SUFFIX]"]~codestral-22b'
 )
 
 # Clear VRAM before starting.
 for m in $($OLLAMA ps | awk 'NR>1{print $1}'); do $OLLAMA stop "$m" || true; done
 
 for row in "${MATRIX[@]}"; do
-  IFS='~' read -r model workload stops slug <<<"$row"
-  cfg="$TMPDIR_CFG/$slug.toml"
-  cat >"$cfg" <<EOF
+	IFS='~' read -r model workload stops slug <<<"$row"
+	cfg="$TMPDIR_CFG/$slug.toml"
+	cat >"$cfg" <<EOF
 [ollama]
 url = "$HOST"
 model = "$model"
@@ -62,11 +71,11 @@ sample_interval_seconds = 2.0
 
 [output]
 dir = "benchmarks/results"
-prefix = "ollama-pop-fim-$slug"
+prefix = "ollama-$TARGET-fim-$slug"
 EOF
-  echo "=== FIM bench: $model ($workload) ==="
-  uv run --with aiohttp python "$BENCH" --config "$cfg" --no-gpu-sampling || echo "FAILED: $model"
-  $OLLAMA stop "$model" || true   # isolate: unload before next model
+	echo "=== FIM bench: $model ($workload) ==="
+	uv run --with aiohttp python "$BENCH" --config "$cfg" --no-gpu-sampling || echo "FAILED: $model"
+	$OLLAMA stop "$model" || true # isolate: unload before next model
 done
 
-echo "=== FIM matrix done — results in benchmarks/results/ollama-pop-fim-* ==="
+echo "=== FIM matrix done — results in benchmarks/results/ollama-$TARGET-fim-* ==="
