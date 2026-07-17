@@ -37,8 +37,10 @@ data:
       #   service: http://glossary.glossary.svc.cluster.local:4000
       - hostname: llama.nathanwhyte.dev
         service: http://ollama-auth-proxy.llama.svc.cluster.local:80
-      - hostname: hermes.nathanwhyte.dev
-        service: http://hermes-agent.hermes.svc.cluster.local:9119
+      # hermes stack torn down 2026-07-16 (namespace deleted; mem0 was its sole
+      # memory provider and its issues prompted the retirement — see
+      # hermes/RETIRED.md). hermes.nathanwhyte.dev DNS record removal is a
+      # Cloudflare-dashboard action.
       # mem0 stack torn down 2026-07-02 (namespace deleted; pg dump archived in
       # backups/2026-07-02-mem0-teardown/). mem0/api-mem0.nathanwhyte.dev DNS
       # record removal is a Cloudflare-dashboard action.

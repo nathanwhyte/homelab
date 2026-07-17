@@ -7,3 +7,7 @@ the `mem0`/`api-mem0.nathanwhyte.dev` tunnel routes removed. A final
 deployed live (see IMPR-1025). Manifests retained for reference; restoring
 requires re-applying the stack and loading the dump. Orphaned DNS records
 (`mem0`, `api-mem0`) still need deleting in the Cloudflare dashboard.
+
+Hermes itself was retired 2026-07-16 (see [`../hermes/RETIRED.md`](../hermes/RETIRED.md))
+rather than migrated to a new memory provider — OpenViking's knowledge-base
+tooling has since covered the persistent-memory use case both systems targeted.

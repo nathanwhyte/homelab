@@ -73,20 +73,21 @@ S3-compatible object storage engine.
 
 Internal OpenAI-compatible LLM endpoints backed by Ollama and `llama.cpp`.
 
-- **Ollama** (timmy, RX 9070 XT): `ollama.llama.svc:11434` — primary inference for Claude Code, Hermes, and OpenWebUI; hosts gemma4:12b-it-qat (local) and glm-5.1:cloud (remote)
+- **Ollama** (timmy, RX 9070 XT): `ollama.llama.svc:11434` — primary inference for Claude Code and OpenWebUI; hosts gemma4:12b-it-qat (local) and glm-5.1:cloud (remote)
 - **OV VLM** (manu, GTX 1080): `llamacpp-cuda-ov` in viking namespace — **failover only** since the 2026-07-05 cloud cutover (OV's primary VLM is cloud via chat-ollama — `gemma4:31b-cloud`, non-thinking, settled 2026-07-06); replicas=1 during the soak window, retirement candidate
 - **Embedder** (timmy, RX 9070 XT, ROCm): `embedder-qwen.viking.svc:8080` — Qwen3-Embedding-4B Q8_0 (2560-dim) for vector embeddings (Deployment `embedder-qwen`, migrated back to timmy 2026-07-06 after wemby's failing charging cable/port kept hard-dropping the node; co-resides with Ollama on the 9070 XT, ~5 GB; `embedder-qwen-cuda` on wemby retained as `replicas=0` rollback); legacy `embedder-llamacpp` on wemby deleted 2026-07-04 (768-dim rollback path gone); the mem0 stack that pointed at it was torn down 2026-07-02 (see `mem0/TORN-DOWN.md`)
 - Read more in [`llama/README.md`](./llama/README.md) and [`viking/`](./viking/).
 
 ### Hermes
 
-> **Not currently deployed live** (IMPR-1025) — manifests are complete in [`hermes/`](./hermes/), but the mem0
-> memory backend it depends on was torn down 2026-07-02 (see [`mem0/TORN-DOWN.md`](./mem0/TORN-DOWN.md)).
+> **Retired 2026-07-16** — the `hermes` namespace (agent, jump terminal, secrets, PVCs, Cloudflare
+> route) was deleted in full. Its mem0 memory backend was itself torn down 2026-07-02 (see
+> [`mem0/TORN-DOWN.md`](./mem0/TORN-DOWN.md)); OpenViking's knowledge-base tooling has since covered
+> the persistent-memory use case, so the project was retired rather than migrated to a new memory
+> provider. Manifests retained for reference — see [`hermes/RETIRED.md`](./hermes/RETIRED.md).
 
-AI agent with mem0 persistent memory (OpenViking knowledge-base tools), SSH terminal backend, and Cloudflare-exposed dashboard.
+AI agent that used mem0 for persistent memory plus OpenViking knowledge-base tools, an SSH terminal backend, and a Cloudflare-exposed dashboard.
 
-- Agent API on port 8642 (cluster-internal), dashboard on 9119 (exposed at `hermes.nathanwhyte.dev` via Cloudflare tunnel)
-- Uses mem0 as memory provider (mem0-adapter sidecar translates Platform API → OSS API); OpenViking provides knowledge-base tools (`viking_*`)
 - Read more in [`hermes/README.md`](./hermes/README.md).
 
 ### OpenViking

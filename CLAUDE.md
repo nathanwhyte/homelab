@@ -13,7 +13,7 @@
 
 | Node  | Role                            | GPU              | Key workloads                                                                                                                                                                                                                                    |
 | ----- | ------------------------------- | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| manu  | agent                           | GTX 1080 8 GB    | llamacpp-cuda-ov (**VLM failover only** since 2026-07-05 cloud cutover; retirement candidate); hermes-agent (manifests only — not deployed live, IMPR-1025)                                                                                      |
+| manu  | agent                           | GTX 1080 8 GB    | llamacpp-cuda-ov (**VLM failover only** since 2026-07-05 cloud cutover; retirement candidate)                                                                                                                                                    |
 | timmy | server (Control Plane + worker) | RX 9070 XT 16 GB | ollama, openviking, ov-vectordb, **embedder-qwen** (Qwen3-Embedding-4B, ROCm backend, **primary** — migrated back from wemby 2026-07-06; renamed backend-neutral IMPR-1040; 9070 XT shares Ollama + embedder, ~5 GB)                             |
 | wemby | agent                           | GTX 1060 6 GB    | `embedder-qwen-cuda` **rollback (manifest-only: repo has replicas=0, Deployment not applied live)** — was primary 2026-06-29→07-06, moved off after repeated power drops (failing charging cable/port); `embedder-llamacpp` (deleted 2026-07-04) |
 
@@ -29,8 +29,6 @@ ROCm / RDNA4 guardrails for timmy's RX 9070 XT (the 1080 and 1060 are NVIDIA-onl
 | ------------------------- | -------------------- | -------------- | ------------------------------------------------------------------------------------------------------- |
 | harbor-no-limit           | harbor               | buffering      | Unlimited body size for image pushes                                                                    |
 | openviking-https-redirect | viking               | redirectScheme | HTTP → HTTPS, permanent                                                                                 |
-| hermes-lan-only           | hermes               | ipAllowList    | 192.168.1.0/24, 10.42.0.0/16, 10.43.0.0/16                                                              |
-| hermes-https-redirect     | hermes               | redirectScheme | HTTP → HTTPS, permanent                                                                                 |
 | k8s-dashboard-lan-only    | kubernetes-dashboard | ipAllowList    | CRD exists, **not wired to the Ingress** — Traefik CRD provider bug, see external-routes.md (IMPR-1029) |
 | longhorn-lan-only         | longhorn-system      | ipAllowList    | CRD exists, **not wired to the Ingress** — Traefik CRD provider bug, see external-routes.md (IMPR-1029) |
 
@@ -46,24 +44,7 @@ OV endpoint tiers and the full external-routes + Tailscale tables live in [refer
 | openviking-s3-credentials | viking | Garage S3 credentials (injected into openviking config)                                                                                                   |
 | ollama-api-key            | llama  | Bearer token for auth proxy                                                                                                                               |
 | ollama-api-key            | viking | Duplicate of `llama/ollama-api-key` — config-rewrite injects it into OV `vlm.api_key` for the cloud VLM (IDEA-1050; `ollama-api-key.secret.yaml.example`) |
-| hermes-api-server-key     | hermes | Bearer token for Hermes API server                                                                                                                        |
-| hermes-dashboard-token    | hermes | Session token for Hermes dashboard remote gateway                                                                                                         |
-| hermes-jump-ssh-key       | hermes | SSH key for Hermes terminal (hermes-jump host)                                                                                                            |
-| openviking-api-key        | hermes | OV API key for Hermes OV KB tools (duplicated from `viking`; `hermes-openviking-api-key.secret.yaml.example`)                                             |
-| hermes-grafana-token      | hermes | Grafana SA token (unused — Grafana MCP removed; retained for future sidecar)                                                                              |
-| github-access-token       | hermes | GitHub PAT for hermes-jump `gh` CLI (in repo manifest, not mounted in live deployment)                                                                    |
-
-**Hermes agent config** — ConfigMap `hermes-config`. **Manifests-only: Hermes is not deployed live** (IMPR-1025), and its mem0 memory backend was torn down 2026-07-02 (`mem0/TORN-DOWN.md` — namespace deleted, final pg_dump archived; redeploying Hermes requires restoring the mem0 stack or switching memory providers):
-
-- Model: `glm-5.1:cloud` (primary) via `chat-ollama.llama.svc:11434/v1` (reasoning-suppressing shim); `gemma4:12b-it-qat` fallback
-- Memory: `provider: mem0` (Mem0 API server in `mem0` ns, writes PostgreSQL/pgvector); `memory_char_limit: 20000`, `user_char_limit: 12000`
-- Ports: API 8642 (Bearer auth), dashboard 9119 (session-token, tunnel at `hermes.nathanwhyte.dev`); terminal SSH `hermes-jump.hermes.svc:22` (PVC-backed in manifest, not yet applied live)
-- `GATEWAY_ALLOW_ALL_USERS=true`; image `registry.nathanwhyte.dev/homelab/hermes-agent-mem0:fe57dd3` (imagePullPolicy: IfNotPresent, immutable SHA tags — IMPR-1023); s6-overlay supervises gateway + dashboard; `fsGroup: 10000` / `fsGroupChangePolicy: OnRootMismatch`; `revisionHistoryLimit: 1`; `args: ["gateway", "run"]`
-- CLI: `hermes/operator.sh` (`health`, `models`, `ask`, `run`, `logs`, `status`, `config`, `restart`)
-- Delegation: `max_concurrent_children: 5`, `max_spawn_depth: 2`, `child_timeout_seconds: 900`; compression `threshold: 0.75`, `api_max_retries: 3`
-- MCP servers: none currently (K8s MCP stdio incompatible with Hermes; Grafana lacks in-cluster endpoint; OV MCP redundant with bundled memory provider)
-
-**Hermes OV knowledge-base tools** — Env: `OPENVIKING_ENDPOINT=http://openviking.viking.svc.cluster.local:1933` (in-cluster, avoids BasicAuth/WAF), `OPENVIKING_API_KEY` (from duplicated `openviking-api-key`), `OPENVIKING_ACCOUNT=default`, `OPENVIKING_USER=noot` (matches OV `default_user`), `OPENVIKING_AGENT=hermes`. Plugin injects `viking_search`, `viking_read`, `viking_browse`, `viking_remember`, `viking_add_resource`. OV is the knowledge-base provider only; agent memory uses mem0.
+**Hermes** was retired 2026-07-16 — namespace, secrets (`hermes-api-server-key`, `hermes-dashboard-token`, `hermes-jump-ssh-key`, `hermes-grafana-token`, `github-access-token`, the hermes-scoped `openviking-api-key` duplicate), PVCs, and Cloudflare tunnel route deleted; see [`hermes/RETIRED.md`](hermes/RETIRED.md). mem0 (its memory backend) was torn down 2026-07-02 (`mem0/TORN-DOWN.md`); OpenViking's knowledge-base tooling has since covered the persistent-memory use case, so the project was retired rather than migrated to a new provider.
 
 **Production config** — ConfigMap `openviking-standalone-config`:
 

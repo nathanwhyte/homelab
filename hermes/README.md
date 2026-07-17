@@ -1,9 +1,11 @@
 # Hermes Agent on K3s
 
-> **⚠️ Not currently deployed live** (IMPR-1025) — the manifests here are complete, but the mem0
-> memory backend Hermes depends on was torn down 2026-07-02 (see [`../mem0/TORN-DOWN.md`](../mem0/TORN-DOWN.md)).
-> Redeploying requires restoring the mem0 stack or switching memory providers. This README
-> describes the stack as designed/last run.
+> **⚠️ Retired 2026-07-16** — the `hermes` namespace (Services, Ingress, Secrets, PVCs) was
+> deleted in full; see [`RETIRED.md`](RETIRED.md). The mem0 memory backend Hermes depended on
+> was itself torn down 2026-07-02 (see [`../mem0/TORN-DOWN.md`](../mem0/TORN-DOWN.md)) and
+> OpenViking's knowledge-base tooling has since covered the persistent-memory use case, so the
+> project was retired rather than migrated to a new memory provider. Manifests are kept for
+> reference. This README describes the stack as designed/last run.
 
 Hermes runs in the `hermes` namespace as two Deployments:
 

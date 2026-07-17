@@ -24,7 +24,7 @@ Top-level directories generally map to deployed services:
 - `grafana/`: Observability stack (Prometheus/Grafana/Loki/Alloy), with Helm values under `grafana/helm/` and manifests under `grafana/manifests/`. Grafana is provisioned with Prometheus and Loki datasources; Alloy (k8s-monitoring) sends logs to Loki and metrics to Prometheus; Kubernetes and Logs dashboards are provisioned via the stack values.
 - `harbor/`: Harbor registry, Helm values and supporting manifests.
 - `headlamp/`: Headlamp Kubernetes UI — **torn down 2026-07-02** (see `headlamp/TORN-DOWN.md`); manifests retained for reference.
-- `hermes/`: Hermes Agent deployment (agent + jump SSH terminal), ConfigMap, operator helper script. **Manifests only — not deployed live** (IMPR-1025); its mem0 memory backend was torn down 2026-07-02.
+- `hermes/`: Hermes Agent deployment (agent + jump SSH terminal), ConfigMap, operator helper script. **Retired 2026-07-16** — namespace deleted in full (see `hermes/RETIRED.md`); its mem0 memory backend was torn down 2026-07-02, and OpenViking's knowledge-base tooling has since covered the persistent-memory use case. Manifests retained for reference.
 - `llama/`: Ollama and llamacpp LLM serving (chat proxy, auth proxy, cloud LLM counter).
 - `longhorn/`: Longhorn storage, Helm values and supporting manifests.
 - `mem0/`: Mem0 memory stack for Hermes (server, adapter, dashboard, Postgres/pgvector) — **torn down 2026-07-02** (see `mem0/TORN-DOWN.md`); manifests retained for reference.
