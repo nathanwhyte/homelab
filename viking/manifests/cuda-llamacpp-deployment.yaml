@@ -31,7 +31,11 @@ spec:
   # startup; keeping the model warm is cheaper than the round-trip risk.
   # If you ever need the 1080 for something else, scale down manually:
   # `kubectl scale deploy/llamacpp-cuda-ov --replicas=0 -n viking`.
-  replicas: 1
+  #
+  # 2026-07-17 (TASK-1136): pinned to 0 to free the 1080 for the cross-card
+  # embedder throughput benchmark. VLM is offline while this holds. Restore
+  # to `replicas: 1` (and revert this note) when the benchmark completes.
+  replicas: 0
   revisionHistoryLimit: 1
   strategy:
     type: Recreate
