@@ -21,10 +21,11 @@ metadata:
 spec:
   backoffLimit: 0
   # BUG-1035: bound a wedged run so it frees the state PVC + guard.
-  # IMPR-1062 Phase 3: 1800 -> 2700 so it sits ABOVE the script's own
-  # --deadline-seconds (2400); the script parks its journal consistently at its
-  # soft deadline and this hard ceiling only fires if the process itself hangs.
-  activeDeadlineSeconds: 2700
+  # IMPR-1062 Phase 3: the script owns a 2400s journal deadline. Kubernetes
+  # starts this clock before scheduling, image pull, package install, clone, and
+  # journal preparation, so reserve 1200s for that preflight work. The 3600s
+  # ceiling still bounds a pod that hangs outside the script's deadline path.
+  activeDeadlineSeconds: 3600
   ttlSecondsAfterFinished: 86400
   template:
     metadata:

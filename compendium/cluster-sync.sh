@@ -16,8 +16,10 @@
 #               BUG-1039: a killed sync pod leaves stale in-process tree locks in
 #               the long-lived openviking process), restart deploy/openviking to
 #               drop those locks and re-dispatch. Bounded to N restarts (default
-#               2). Restarts ONLY on the lock signature — never on other failures.
-#               Implies waiting for the Job; composes with --follow.
+#               2). Restarts ONLY on an unhandled lock failure — a journal run
+#               that parks cleanly is owned by IMPR-1062 retry orchestration and
+#               never triggers this legacy healer. Implies waiting for the Job;
+#               composes with --follow.
 #
 # Examples:
 #   compendium/cluster-sync.sh --follow --heal   # canonical invocation — always include --heal
@@ -99,10 +101,10 @@ if [ "$#" -gt 0 ]; then
 	export SYNC_ARGS="$*"
 else
 	# IMPR-1062 Phase 3: --deadline-seconds 2400 gives the journal a global
-	# monotonic budget that sits UNDER the Job's activeDeadlineSeconds (2700),
-	# so a wedged/contended run parks its journal consistently instead of being
-	# SIGKILLed mid-write. Matches the script's own default; passed explicitly
-	# so the Job's budget is visible at the dispatch site.
+	# monotonic budget that sits UNDER the Job's activeDeadlineSeconds (3600),
+	# leaving 1200s for scheduling and container preflight before the Python
+	# deadline starts. Matches the script's own default; passed explicitly so the
+	# Job's budget is visible at the dispatch site.
 	export SYNC_ARGS="--changed --yes --state-file /state/compendium-sync-state.json --no-wait --deadline-seconds 2400"
 fi
 
@@ -154,8 +156,21 @@ wait_terminal() {
 # busy` on add-resource, and `Resource is being processed` (a 409 from a delete
 # timing out on the held lock) on a rename/delete — match both.
 lock_failure() {
-	kubectl logs "job/${JOB_NAME}" -n compendium 2>/dev/null |
-		grep -qiE 'Resource is (busy|being processed)|LockAcquisitionError|(Failed to acquire|Timeout waiting for) .*lock'
+	local logs
+	if ! logs=$(kubectl logs "job/${JOB_NAME}" -n compendium 2>/dev/null); then
+		return 1
+	fi
+
+	# IMPR-1062 journal mode owns retry through its deadline. Conflict text in
+	# these logs is attempt history, not proof of an orphaned terminal lock. Once
+	# the journal reports a consistent incomplete/parked outcome, leave OV alone;
+	# the operator can explicitly resume the pinned set with --retry-parked.
+	if grep -qiE 'journal: (deadline reached|run incomplete)' <<<"$logs"; then
+		echo "journal ended consistently with parked work — skipping legacy OV restart; resume with --retry-parked" >&2
+		return 1
+	fi
+
+	grep -qiE 'Resource is (busy|being processed)|LockAcquisitionError|(Failed to acquire|Timeout waiting for) .*lock' <<<"$logs"
 }
 
 restart_ov() {
