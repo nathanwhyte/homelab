@@ -34,7 +34,7 @@ metadata:
   labels:
     app: embedder-qwen-cuda
 spec:
-  replicas: 0 # retired; superseded by embedder-qwen-rocm on timmy 2026-07-06
+  replicas: 1 # embedder home relocated to manu/GTX 1080 (TASK-1136 decision 2026-07-17); NOT yet wired to the embedder-qwen Service — production cutover gated on the retrieval-quality check
   revisionHistoryLimit: 1
   strategy:
     type: Recreate
@@ -48,7 +48,7 @@ spec:
     spec:
       runtimeClassName: nvidia
       nodeSelector:
-        kubernetes.io/hostname: wemby
+        kubernetes.io/hostname: manu
         gpu.vendor: nvidia
       securityContext:
         fsGroup: 0
