@@ -1,0 +1,208 @@
+---
+# Qwen3-Embedding-4B on timmy's RX 9070 XT (Vulkan) — PRIMARY embedder.
+# IMPR-1068: migrated off the ROCm compute runtime onto Vulkan, matching
+# Ollama's 2026-07-06 migration on this same card (llama/ollama-deployment.yaml,
+# INFO-1084). Retires the embedder's last active ROCm coupling: the
+# llama.cpp:server-rocm image, HIP_VISIBLE_DEVICES, and the rocblas hostPath.
+# The box stays AMD RDNA4 — amdgpu driver, AMD device plugin, amd-smi exporter,
+# fan control, and dashboards are unaffected.
+#
+# GPU access stays privileged (NOT the amd.com/gpu device plugin): timmy exposes
+# 2 device-plugin units (iGPU + 9070 XT) and Ollama already claims BOTH, so no
+# free units remain for the embedder. IMPR-1022 de-privileged the other GPU
+# pods; this one stays privileged for exactly that reason.
+#
+# Model args are backend-agnostic and unchanged from the ROCm manifest (TASK-1122
+# backend-invariance: Qwen-4B reproduces the wemby/Metal numbers on this card).
+# Vulkan validated by the IMPR-1068 retrieval-benchmark gate before cutover.
+# Cutover / rollback runbook: viking/docs/2026-07-16-embedder-vulkan-migration-runbook.md
+#
+# IMPR-1040: Deployment is named embedder-qwen (backend-neutral) — backend is
+# expressed via the `backend` label and this manifest filename, so a backend
+# swap is a manifest change, not a resource rename.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: embedder-qwen-model-cache
+  namespace: viking
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: longhorn-ssd
+  resources:
+    requests:
+      storage: 15Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: embedder-qwen
+  namespace: viking
+  labels:
+    app: embedder-qwen
+    backend: vulkan
+spec:
+  replicas: 1 # PRIMARY (Vulkan since IMPR-1068)
+  revisionHistoryLimit: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: embedder-qwen
+  template:
+    metadata:
+      labels:
+        app: embedder-qwen
+        backend: vulkan
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: timmy
+        gpu.vendor: amd
+      securityContext:
+        fsGroup: 0
+      initContainers:
+        - name: model-fetch
+          image: curlimages/curl:8.12.1
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+              model_path="/models/${MODEL_FILE}"
+              if [ -f "${model_path}" ]; then
+                echo "Model already cached: ${model_path}"
+              else
+                echo "Downloading ${MODEL_FILE}..."
+                curl -fL --retry 5 --retry-delay 10 "${MODEL_URL}" -o "${model_path}.tmp"
+                mv "${model_path}.tmp" "${model_path}"
+                echo "Download complete."
+              fi
+              ln -sf "${model_path}" /models/current.gguf
+              echo "Model ready."
+          env:
+            - name: MODEL_FILE
+              value: Qwen3-Embedding-4B-Q8_0.gguf
+            - name: MODEL_URL
+              value: https://huggingface.co/Qwen/Qwen3-Embedding-4B-GGUF/resolve/main/Qwen3-Embedding-4B-Q8_0.gguf
+          securityContext:
+            runAsUser: 0
+            runAsGroup: 0
+          volumeMounts:
+            - name: model-cache
+              mountPath: /models
+      containers:
+        - name: llamacpp
+          image: ghcr.io/ggml-org/llama.cpp:server-vulkan
+          env:
+            # Device selection under Vulkan: the iGPU (PCI 1002:164E) enumerates
+            # FIRST, so index 0 is the iGPU and index 1 is the discrete RX 9070 XT
+            # — the reverse of ROCm's HIP_VISIBLE_DEVICES=0. Same value Ollama
+            # uses on this node (llama/ollama-deployment.yaml). Verify at startup
+            # that the selected Vulkan device is the 9070 XT, not the iGPU.
+            - name: GGML_VK_VISIBLE_DEVICES
+              value: "1"
+          command: ["/app/llama-server"]
+          args:
+            - --model
+            - /models/current.gguf
+            - --host
+            - "0.0.0.0"
+            - --port
+            - "8000"
+            - --embedding
+            - --pooling
+            - last
+            # ctx 8192 / parallel 1 → full 8192 per slot, matching OV's
+            # embedding.max_input_tokens=8192 and the proven prod config.
+            - --ctx-size
+            - "8192"
+            - --n-gpu-layers
+            - "999"
+            - --parallel
+            - "1"
+            - --threads
+            - "8"
+            # batch 4096 (bench-validated on this 9070 XT) for indexing throughput.
+            # Raises transient memory only; 16 GB leaves Ollama ample room. Lower
+            # to 512 if Ollama ever contends for VRAM.
+            - --batch-size
+            - "4096"
+            - --ubatch-size
+            - "4096"
+            - --split-mode
+            - none
+            - --main-gpu
+            - "0"
+            # flash-attn under the Vulkan backend on gfx1201: Ollama runs FA on
+            # this card under Vulkan, so it is expected to work. IMPR-1068 gate:
+            # if llama.cpp Vulkan rejects FA at startup, set this to `off` and
+            # note it in the runbook + IMPR.
+            - --flash-attn
+            - "on"
+            - --metrics
+            # NO --mlock: timmy is the control-plane node; pinning host RAM on it
+            # is disallowed (2026-07-05 incident guardrail). Weights live in VRAM
+            # via --n-gpu-layers 999 regardless, so mlock buys nothing here.
+          ports:
+            - containerPort: 8000
+              name: http
+          resources:
+            requests:
+              cpu: "500m"
+              # 2026-07-06 (IMPR-1038): host-RAM 7d peak 4.5Gi (mmap'd GGUF).
+              memory: 3Gi
+            limits:
+              cpu: "8"
+              memory: 12Gi
+          securityContext:
+            privileged: true
+          startupProbe:
+            tcpSocket:
+              port: 8000
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 120
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            periodSeconds: 20
+            timeoutSeconds: 5
+          volumeMounts:
+            - name: model-cache
+              mountPath: /models
+            - name: shm
+              mountPath: /dev/shm
+      volumes:
+        - name: model-cache
+          persistentVolumeClaim:
+            claimName: embedder-qwen-model-cache
+        - name: shm
+          emptyDir:
+            medium: Memory
+            sizeLimit: 4Gi
+---
+# The live `embedder-qwen` Service selects the deployment on timmy by app label
+# (backend-agnostic), so it is unchanged across the ROCm→Vulkan swap.
+# OV reaches the embedder at embedder-qwen.viking.svc:8080 (unchanged endpoint).
+apiVersion: v1
+kind: Service
+metadata:
+  name: embedder-qwen
+  namespace: viking
+  labels:
+    app: embedder-qwen
+spec:
+  type: ClusterIP
+  selector:
+    app: embedder-qwen
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8000
+      protocol: TCP
