@@ -14,9 +14,14 @@ resources:
   - ov-vectordb-pvc.yaml
   - ov-vectordb-deployment.yaml
   - ov-vectordb-service.yaml
-  # embedder-qwen-rocm-deployment.yaml is primary since 2026-07-06 (embedder-qwen-cuda = replicas=0 rollback, applied manually per runbook)
-  # IMPR-1040: Deployment resource inside is named embedder-qwen (backend-neutral); filename still names the backend.
+  # Embedder: primary is embedder-qwen-cuda (manu/GTX 1080 CUDA) since the
+  # 2026-07-17 cutover (IMPR-1077); embedder-qwen-rocm (timmy/9070 XT) is the
+  # retired replicas=0 rollback. The neutral embedder-qwen Service lives in
+  # embedder-qwen-service.yaml and selects app=embedder-qwen-cuda (IMPR-1040
+  # deviation: selector moved rather than Deployment renamed).
+  - embedder-qwen-cuda-deployment.yaml
   - embedder-qwen-rocm-deployment.yaml
+  - embedder-qwen-service.yaml
   - llamacpp-vlm-service.yaml
   - cuda-llamacpp-deployment.yaml
   - cuda-llamacpp-service.yaml

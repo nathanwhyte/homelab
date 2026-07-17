@@ -1,5 +1,9 @@
 ---
-# Qwen3-Embedding-4B on timmy's RX 9070 XT (ROCm) — PRIMARY embedder.
+# Qwen3-Embedding-4B on timmy's RX 9070 XT (ROCm) — RETIRED rollback (replicas=0).
+# The embedder was relocated to manu's GTX 1080 (CUDA) on 2026-07-17 (IMPR-1077);
+# this deployment is kept at replicas=0 as an instant rollback path. Roll back by
+# scaling this to 1 and repointing the `embedder-qwen` Service selector back to
+# app=embedder-qwen. History below (was primary on timmy 2026-07-06 → 07-17).
 # Migrated back 2026-07-06 from wemby's GTX 1060 (CUDA): wemby's charging
 # cable/port keeps failing → battery drains → the node hard-drops (repeated
 # NodeStatusUnknown flaps overnight 2026-07-05/06). The live OV embedder must
@@ -11,9 +15,9 @@
 # See: benchmarks/embedding-retrieval/BENCHMARK.md.
 #
 # ROCm gfx1201 validated: llama/docs/2026-06-28-rocm-gfx1201-validation-baseline.md
-# The `embedder-qwen` Service (selector app=embedder-qwen, backend=rocm) lives
-# HERE now; embedder-qwen-cuda-deployment.yaml is the replicas=0 rollback (its
-# Service block was removed so there is exactly one `embedder-qwen` Service).
+# The `embedder-qwen` Service now lives in embedder-qwen-service.yaml and selects
+# app=embedder-qwen-cuda (the manu/1080 deployment) — it no longer lives in this
+# file. embedder-qwen-cuda-deployment.yaml is the live primary (replicas=1).
 # Cutover / rollback runbook: viking/docs/2026-07-06-embedder-migration-wemby-to-timmy.md
 #
 # IMPR-1040: Deployment renamed embedder-qwen-rocm -> embedder-qwen so backend/
@@ -41,7 +45,7 @@ metadata:
     app: embedder-qwen
     backend: rocm
 spec:
-  replicas: 1 # PRIMARY (migrated from wemby CUDA 2026-07-06)
+  replicas: 0 # RETIRED rollback — embedder relocated to manu/GTX 1080 CUDA 2026-07-17 (IMPR-1077); scale to 1 + repoint the Service selector to app=embedder-qwen to roll back
   revisionHistoryLimit: 1
   strategy:
     type: Recreate
@@ -187,22 +191,3 @@ spec:
           hostPath:
             path: /opt/rocm-7.2.1/lib/rocblas/library
             type: Directory
----
-# The live `embedder-qwen` Service now selects the ROCm deployment on timmy.
-# OV reaches the embedder at embedder-qwen.viking.svc:8080 (unchanged endpoint).
-apiVersion: v1
-kind: Service
-metadata:
-  name: embedder-qwen
-  namespace: viking
-  labels:
-    app: embedder-qwen
-spec:
-  type: ClusterIP
-  selector:
-    app: embedder-qwen
-  ports:
-    - name: http
-      port: 8080
-      targetPort: 8000
-      protocol: TCP
