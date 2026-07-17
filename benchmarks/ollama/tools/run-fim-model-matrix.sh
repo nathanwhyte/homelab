@@ -29,6 +29,7 @@ MATRIX=(
   'codegemma:7b-code~edit_prediction_codegemma~["<|file_separator|>","<end_of_turn>","<eos>"]~codegemma-7b'
   'starcoder2:3b~edit_prediction_starcoder2~["<|endoftext|>","<file_sep>"]~starcoder2-3b'
   'starcoder2:7b~edit_prediction_starcoder2~["<|endoftext|>","<file_sep>"]~starcoder2-7b'
+  'codestral:latest~edit_prediction_mistral~["[INST]","[/INST]","[PREFIX]","[MIDDLE]","[SUFFIX]"]~codestral-22b'
 )
 
 # Clear VRAM before starting.

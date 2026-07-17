@@ -233,6 +233,12 @@ def edit_prediction_workload(count: int, fim_format: str) -> Workload:
             prompts.append(
                 f"<|fim_prefix|>{prefix}<|fim_suffix|>{suffix}<|fim_middle|>"
             )
+        elif fim_format == "mistral":
+            # Codestral/Mistral PSM (INFO-1005): suffix-then-prefix in the
+            # sentinel order, no raw mode strictly required (native .Suffix
+            # template field works), but raw+markers keeps this comparable
+            # to the other families in the matrix.
+            prompts.append(f"[SUFFIX]{suffix}[PREFIX] {prefix}")
         else:  # zeta / plain continuation (no FIM sentinels)
             prompts.append(prefix)
     return Workload(name=f"edit_prediction_{fim_format}", prompts=prompts)
@@ -262,4 +268,6 @@ def select_workload(name: str, count: int) -> Workload:
         return edit_prediction_workload(count, "starcoder2")
     if name == "edit_prediction_codegemma":
         return edit_prediction_workload(count, "codegemma")
+    if name == "edit_prediction_mistral":
+        return edit_prediction_workload(count, "mistral")
     raise ValueError(f"Unknown workload: {name}")
