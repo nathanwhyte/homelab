@@ -81,6 +81,49 @@ def embed(client: httpx.Client, url: str, model: str, batch: list[str]) -> dict:
     return r.json()
 
 
+def _tokens(resp: dict, texts: list[str]) -> tuple[int, bool]:
+    """Prompt tokens from the usage block; coarse chars/4 estimate if absent."""
+    usage = resp.get("usage") or {}
+    t = usage.get("prompt_tokens") or usage.get("total_tokens")
+    if t is None:
+        return sum(len(x) // 4 for x in texts), True
+    return int(t), False
+
+
+def embed_measured(
+    client: httpx.Client, url: str, model: str, batch: list[str]
+) -> tuple[int, int, int, bool]:
+    """Embed one batch; return (n_ok, tokens, n_skipped, estimated).
+
+    On a 400 (a doc exceeding the server context window even after the char
+    cap), retry the batch doc-by-doc and skip any single doc that still 400s —
+    so one pathological outlier can't abort the whole run. Skips are counted
+    and surfaced in the result JSON.
+    """
+    try:
+        resp = embed(client, url, model, batch)
+        toks, est = _tokens(resp, batch)
+        return len(batch), toks, 0, est
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code != 400:
+            raise
+    n_ok = tokens = skipped = 0
+    estimated = False
+    for text in batch:
+        try:
+            resp = embed(client, url, model, [text])
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 400:
+                skipped += 1
+                continue
+            raise
+        t, est = _tokens(resp, [text])
+        tokens += t
+        estimated = estimated or est
+        n_ok += 1
+    return n_ok, tokens, skipped, estimated
+
+
 def batches(texts: list[str], size: int) -> list[list[str]]:
     return [texts[i : i + size] for i in range(0, len(texts), size)]
 
@@ -99,7 +142,7 @@ def main() -> int:
         "--batch-size", type=int, default=int(os.environ.get("BENCH_BATCH", "16"))
     )
     ap.add_argument(
-        "--max-chars", type=int, default=int(os.environ.get("BENCH_MAX_CHARS", "30000"))
+        "--max-chars", type=int, default=int(os.environ.get("BENCH_MAX_CHARS", "24000"))
     )
     ap.add_argument(
         "--warmup", type=int, default=int(os.environ.get("BENCH_WARMUP", "3"))
@@ -135,9 +178,9 @@ def main() -> int:
 
     client = httpx.Client()
 
-    # --- warmup (excluded from steady-state timing) ---
+    # --- warmup (excluded from steady-state timing; resilient to outliers) ---
     for i in range(min(args.warmup, len(all_batches))):
-        embed(client, args.url, args.model, all_batches[i])
+        embed_measured(client, args.url, args.model, all_batches[i])
     timed = (
         all_batches[args.warmup :] if args.warmup < len(all_batches) else all_batches
     )
@@ -145,18 +188,22 @@ def main() -> int:
 
     per_batch: list[dict] = []
     tokens_estimated = False
+    skipped_docs = 0
     wall_t0 = time.perf_counter()
     for idx, batch in enumerate(timed):
         t0 = time.perf_counter()
-        resp = embed(client, args.url, args.model, batch)
+        n_ok, toks, skipped, est = embed_measured(client, args.url, args.model, batch)
         dt = time.perf_counter() - t0
-        usage = resp.get("usage") or {}
-        toks = usage.get("prompt_tokens") or usage.get("total_tokens")
-        if toks is None:
-            toks = sum(len(t) // 4 for t in batch)  # coarse fallback estimate
-            tokens_estimated = True
+        tokens_estimated = tokens_estimated or est
+        skipped_docs += skipped
         per_batch.append(
-            {"i": idx, "n": len(batch), "tokens": int(toks), "latency_s": round(dt, 4)}
+            {
+                "i": idx,
+                "n": n_ok,
+                "tokens": int(toks),
+                "latency_s": round(dt, 4),
+                "skipped": skipped,
+            }
         )
     wall_s = time.perf_counter() - wall_t0
 
@@ -177,6 +224,7 @@ def main() -> int:
         },
         "corpus": {"docs": len(corpus), "timed_docs": total_docs},
         "tokens_estimated": tokens_estimated,
+        "skipped_docs": skipped_docs,
         "totals": {
             "docs": total_docs,
             "tokens": total_tokens,
@@ -209,6 +257,7 @@ def main() -> int:
         f"\n  RESULT [{args.label}]  "
         f"{t['docs_per_s']} docs/s  {t['tokens_per_s']} tok/s  "
         f"wall={t['wall_s']}s  batch p50={bl['p50']}s p95={bl['p95']}s"
+        + (f"  skipped={skipped_docs}" if skipped_docs else "")
         + ("  (tokens estimated)" if tokens_estimated else "")
     )
     print(f"  wrote {out_path}")
