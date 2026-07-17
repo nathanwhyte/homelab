@@ -11,6 +11,19 @@ Plan: `~/code/compendium/docs/plans/2026-07-16-IMPR-1068-embedder-qwen-vulkan-mi
 - Both manifests use `metadata.name: embedder-qwen` (IMPR-1040), so `kubectl apply` of the Vulkan manifest **reconfigures the existing Deployment in place** — it does not create a second one. `strategy: Recreate` tears down the ROCm pod, then starts the Vulkan pod (clean single-GPU swap).
 - GPU access stays `privileged` (Ollama holds both `amd.com/gpu` device-plugin units; the embedder never used the plugin).
 - Confirm no active OpenViking indexing burst is mid-flight (a brief embedder outage during Recreate stalls the queue; it resumes on Ready).
+- Capture the live ROCm retrieval baseline before changing the embedder. This queries OpenViking without re-embedding the corpus, so the saved result represents ROCm query vectors against the existing ROCm-generated index.
+
+```bash
+cd ~/code/homelab
+export OPENVIKING_KEY="$(kubectl -n viking get secret openviking-api-key \
+  -o jsonpath='{.data.api-key}' | base64 --decode)"
+
+uv run benchmarks/embedding-retrieval/benchmark_openviking.py \
+  --label rocm \
+  --output /tmp/embedder-rocm-baseline.json
+```
+
+The command must complete all frozen ground-truth queries and write the baseline. Any API error exits nonzero; do not cut over without a baseline from the still-running ROCm embedder.
 
 ## Cutover
 
@@ -52,17 +65,20 @@ In `kubectl logs deploy/embedder-qwen -n viking`, confirm:
 
 ### Gate 3 — retrieval quality (go/no-go)
 
-Same model + quant + pooling ⇒ Vulkan embeddings are fp-equivalent to the ROCm baseline, so **no re-index is expected**. This gate proves the stored (ROCm-generated) `ov-vectordb` vectors still retrieve correctly against Vulkan-generated query vectors.
+Same model + quant + pooling should make Vulkan embeddings compatible with the ROCm baseline, so **no re-index is expected**. This gate tests that claim against the unchanged live OpenViking index: the pre-cutover run used ROCm for query embeddings, while this post-cutover run uses Vulkan against the same ROCm-generated corpus vectors.
 
 ```bash
-cd ~/code/homelab/benchmarks/embedding-retrieval
-# Run the retrieval eval against eval_groundtruth_2026-07-04.json and compare
-# recall/nDCG to the ROCm baseline in BENCHMARK.md (see run-all.sh).
-./run-all.sh   # or the documented eval entrypoint
+cd ~/code/homelab
+uv run benchmarks/embedding-retrieval/benchmark_openviking.py \
+  --label vulkan \
+  --output /tmp/embedder-vulkan.json \
+  --baseline /tmp/embedder-rocm-baseline.json
 ```
 
-- **PASS** (no meaningful recall/nDCG regression): migration valid; proceed to soak, then Phase 3.
-- **FAIL**: roll back and investigate before retrying (do NOT proceed to cleanup).
+The evaluator is fail-fast: an OpenViking/API failure, missing baseline, or top-1/top-5 regression greater than one of the 34 positive queries exits nonzero. It does not invoke the historical scratch-pgvector matrix or silently skip the live embedder.
+
+- **PASS** (exit 0; top-1 and top-5 each regress by at most one query): migration valid; preserve both JSON artifacts, proceed to soak, then Phase 3.
+- **FAIL** (nonzero): roll back and investigate before retrying. Do **not** proceed to cleanup or re-index—the failed comparison is evidence that the stored vectors may be backend-incompatible.
 
 ## Rollback
 
