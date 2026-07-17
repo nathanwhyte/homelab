@@ -1,0 +1,27 @@
+---
+# Backend-neutral `embedder-qwen` Service (IMPR-1040). It lives in its own file
+# rather than inside a backend-specific Deployment manifest so backend/node
+# migrations don't move the Service. Selector points at whichever embedder
+# Deployment is live.
+#
+# Since the 2026-07-17 cutover (IMPR-1077) it selects app=embedder-qwen-cuda
+# (the manu/GTX 1080 CUDA deployment). The timmy RX 9070 XT ROCm deployment
+# (embedder-qwen-rocm-deployment.yaml) is retired at replicas=0; to roll back,
+# scale it to 1 and repoint this selector to app=embedder-qwen.
+# OV reaches the embedder at embedder-qwen.viking.svc:8080 (unchanged endpoint).
+apiVersion: v1
+kind: Service
+metadata:
+  name: embedder-qwen
+  namespace: viking
+  labels:
+    app: embedder-qwen
+spec:
+  type: ClusterIP
+  selector:
+    app: embedder-qwen-cuda
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8000
+      protocol: TCP
