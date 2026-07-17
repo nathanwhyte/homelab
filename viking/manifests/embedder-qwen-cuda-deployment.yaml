@@ -16,7 +16,7 @@
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: embedder-qwen-model-cache
+  name: embedder-cuda-model-cache
   namespace: viking
 spec:
   accessModes:
@@ -158,7 +158,7 @@ spec:
       volumes:
         - name: model-cache
           persistentVolumeClaim:
-            claimName: embedder-qwen-model-cache
+            claimName: embedder-cuda-model-cache
         - name: shm
           emptyDir:
             medium: Memory
