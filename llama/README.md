@@ -21,13 +21,13 @@ LLM serving infrastructure in the `llama` namespace.
 
 ### Chat Ollama Proxy
 
-- **Purpose**: Reasoning-suppressing shim (`INJECT_REASONING_NONE=true`) for Hermes; routes to `ollama.llama.svc:11434`
-- **Endpoint**: `http://chat-ollama-proxy.llama.svc:11434`
+- **Purpose**: Reasoning-suppressing shim (`INJECT_REASONING_NONE=true`) routing to `ollama.llama.svc:11434`. **⚠️ Load-bearing — do NOT delete:** originally a Hermes shim, but since Hermes was retired (2026-07-18) this pod is **OpenViking's VLM route** — the `chat-ollama` Service selects `app=chat-ollama-proxy`, and `openviking-configmap.yaml`'s `vlm.api_base` is `http://chat-ollama.llama.svc:11434/v1` (`gemma4:31b-cloud`).
+- **Endpoint**: `http://chat-ollama-proxy.llama.svc:11434` (also reached as `chat-ollama.llama.svc` — same pod)
 - **Deploy**: `llama/chat-ollama-proxy.yaml`
 
 ### Cloud LLM Counter
 
-- **Purpose**: Daily cloud API call usage tracker (`DAILY_CLOUD_CALL_BUDGET=1000000` — effectively uncapped since 2026-07-06; advisory metrics only, nothing enforces it in the request path)
+- **Purpose**: Daily cloud API call usage tracker (`DAILY_CLOUD_CALL_BUDGET=1000000` — effectively uncapped since 2026-07-06; advisory metrics only, nothing enforces it in the request path). Fed by `chat-ollama-proxy`'s `METRICS_PUSH_URL` — its live metrics sink, not a Hermes leftover.
 - **Endpoint**: `http://cloud-llm-counter.llama.svc:80`
 - **Deploy**: `llama/cloud-llm-counter.yaml`
 
