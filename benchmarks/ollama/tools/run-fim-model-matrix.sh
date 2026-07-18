@@ -38,7 +38,10 @@ MATRIX=(
 	'codegemma:7b-code~edit_prediction_codegemma~["<|file_separator|>","<end_of_turn>","<eos>"]~codegemma-7b'
 	'starcoder2:3b~edit_prediction_starcoder2~["<|endoftext|>","<file_sep>"]~starcoder2-3b'
 	'starcoder2:7b~edit_prediction_starcoder2~["<|endoftext|>","<file_sep>"]~starcoder2-7b'
-	'codestral:latest~edit_prediction_mistral~["[INST]","[/INST]","[PREFIX]","[MIDDLE]","[SUFFIX]"]~codestral-22b'
+	# codestral:22b RETIRED as a FIM option 2026-07-18 (INFO-1090): 37.5 tok/s /
+	# TTFT 2.54s on pop — a dense 22B is far too slow for interactive FIM, and
+	# even timmy's ~1.5x lift (~54 tok/s) doesn't rescue it. A larger FIM should
+	# be an MoE (deepseek-coder-v2-lite), not a dense 22B. Do not re-add.
 )
 
 # Clear VRAM before starting.
