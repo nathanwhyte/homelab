@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 # Run the full Vulkan backend + higher-bit quant benchmark matrix on timmy.
-# Assumes the Vulkan Ollama deployment (llama/ollama-deployment-vulkan.yaml)
-# is already applied and the bench-scripts-vulkan ConfigMap is up to date.
+# Benchmarks run against the live `ollama` deployment (llama/ollama-deployment.yaml),
+# which IS the Vulkan backend in production — the separate -vulkan variant was retired
+# 2026-07-17 once prod itself became Vulkan. For a clean single-model, 8-wide bench,
+# set OLLAMA_MAX_LOADED_MODELS=1 and OLLAMA_NUM_PARALLEL=8 on the deployment for the
+# run (prod now defaults to 2 / 4). The bench-scripts-vulkan ConfigMap must be current.
 set -euo pipefail
 
 NS="${NS:-llama}"
@@ -61,7 +64,7 @@ capture_env() {
       kv_cache_type: .spec.template.spec.containers[] | select(.name=="ollama") | .env[] | select(.name=="OLLAMA_KV_CACHE_TYPE") | .value,
       keep_alive: .spec.template.spec.containers[] | select(.name=="ollama") | .env[] | select(.name=="OLLAMA_KEEP_ALIVE") | .value,
       load_timeout: .spec.template.spec.containers[] | select(.name=="ollama") | .env[] | select(.name=="OLLAMA_LOAD_TIMEOUT") | .value,
-      vulkan: .spec.template.spec.containers[] | select(.name=="ollama") | .env[] | select(.name=="OLLAMA_VULKAN") | .value,
+      max_loaded_models: .spec.template.spec.containers[] | select(.name=="ollama") | .env[] | select(.name=="OLLAMA_MAX_LOADED_MODELS") | .value,
       vk_visible_devices: .spec.template.spec.containers[] | select(.name=="ollama") | .env[] | select(.name=="GGML_VK_VISIBLE_DEVICES") | .value,
       image: .spec.template.spec.containers[] | select(.name=="ollama") | .image,
       timestamp: now | todate
