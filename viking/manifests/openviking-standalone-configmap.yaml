@@ -81,7 +81,7 @@ data:
           "dimension": 2560,
           "batch_size": 256
         },
-        "max_concurrent": 6
+        "max_concurrent": 1
       },
       "vlm": {
         "provider": "openai",
