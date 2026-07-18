@@ -6,9 +6,9 @@ LLM serving infrastructure in the `llama` namespace.
 
 ### Ollama (timmy — AMD RX 9070 XT)
 
-- **Models**: gemma4:12b-it-qat (local), glm-5.1:cloud (remote); others available on demand
+- **Models**: gemma4:12b-it-qat (local chat) + qwen2.5-coder:fim (local FIM edit-prediction, co-resident); glm-5.1:cloud (remote fallback); others on demand
 - **Endpoint**: `http://ollama.llama.svc:11434` (ClusterIP) or `192.168.1.19:11434` (LoadBalancer externalIP)
-- **Config**: `OLLAMA_NUM_PARALLEL=6`, `OLLAMA_CONTEXT_LENGTH=16384`, `OLLAMA_MAX_LOADED_MODELS=1`, `OLLAMA_KV_CACHE_TYPE=q4_0`, `OLLAMA_KEEP_ALIVE=3m`
+- **Config**: `OLLAMA_MAX_LOADED_MODELS=2` (chat + FIM co-resident since IMPR-1077 freed the card), `OLLAMA_NUM_PARALLEL=4`, `OLLAMA_CONTEXT_LENGTH=32768`, `OLLAMA_KV_CACHE_TYPE=q4_0`, `OLLAMA_KEEP_ALIVE=-1` (pinned); `CAP_PERFMON` for accurate VRAM packing under Vulkan (the default backend — no explicit `OLLAMA_VULKAN`)
 - **Deploy**: `llama/ollama-deployment.yaml`
 
 ### Ollama Auth Proxy

@@ -30,15 +30,28 @@ spec:
           # on timmy's RX 9070 XT (RDNA4). See INFO-1084 for benchmark findings.
           image: ollama/ollama:0.31.1
           imagePullPolicy: IfNotPresent
+          # CAP_PERFMON: with MAX_LOADED_MODELS=2, Ollama needs real free-VRAM
+          # readings to pack two runners safely; under Vulkan on a de-privileged pod
+          # it otherwise falls back to model-size estimates. PERFMON is a narrow
+          # perf-monitoring capability, not privileged — the pod stays de-privileged
+          # per IMPR-1022 in every other respect. (Requires the llama namespace to
+          # permit added capabilities; verify the pod is admitted on next rollout.)
+          securityContext:
+            capabilities:
+              add: ["PERFMON"]
           command:
             - /bin/bash
             - -c
           args:
+            # Detach model warmup (startup.sh polls until the server answers), then
+            # exec `ollama serve` as PID 1 so it receives SIGTERM directly for a clean
+            # shutdown — simpler and better-behaved than the previous
+            # `serve & … wait $PID` wrapper. startup.sh touches /tmp/startup-complete
+            # when done (the readinessProbe gates on it); if it fails it just exits
+            # in the background without taking down the server (unchanged semantics).
             - |
-              ollama serve &
-              OLLAMA_PID=$!
-              /scripts/startup.sh
-              wait $OLLAMA_PID
+              /scripts/startup.sh &
+              exec ollama serve
           env:
             - name: OLLAMA_HOST
               value: 0.0.0.0
@@ -62,17 +75,28 @@ spec:
             # Allow large model pulls from cluster registry over slow paths.
             - name: OLLAMA_LOAD_TIMEOUT
               value: 15m
-            # 8 slots: matches the benchmark suite's cluster-agentic config
-            # (max_concurrency=8). q4_0 KV keeps 8×32K slots within the 16 GB VRAM
-            # budget for typical agentic prompt lengths. Production Hermes currently
-            # peaks at 5 sub-agents + 1 mem0 extraction, so 8 is generous headroom.
+            # 4 slots (was 8): NUM_PARALLEL is per-resident-model, and with
+            # MAX_LOADED_MODELS=2 that slot KV is now paid for BOTH runners (chat +
+            # FIM) on one 16 GB card. Real local concurrency is low — FIM
+            # edit-prediction is single-editor (~1-2 in flight, tiny Minuet
+            # context_window=1024 slots) and the heavy agentic fan-out is cloud-primary
+            # routed, so the local chat model rarely sees more than a few concurrent
+            # requests. 4 covers a modest agentic burst while halving per-model slot KV
+            # vs 8; a larger local fan-out would queue, acceptable under cloud-primary
+            # routing. (Benchmark runs that want the old 8-wide config set it per-run.)
             - name: OLLAMA_NUM_PARALLEL
-              value: "8"
+              value: "4"
+            # 2 (was 1): the OV embedder was relocated off this card to manu's GTX
+            # 1080 (IMPR-1077, 2026-07-17), freeing ~5 GB, so the 9070 XT is now a
+            # single-tenant Ollama card that can hold two resident runners — chat +
+            # the qwen2.5-coder:fim edit-prediction model — instead of evicting one
+            # for the other under KEEP_ALIVE=-1. Enables IMPR-1067 deliverable 2
+            # (declared FIM residency) and IDEA-1071's cohabitation legs. Caveat:
+            # under Vulkan on a de-privileged pod (IMPR-1022) Ollama packs on
+            # model-size estimates, not real free-VRAM readings (needs CAP_PERFMON);
+            # FIM ≈ 3.4 GB + a 12B-class chat model fits the 16 GB with margin.
             - name: OLLAMA_MAX_LOADED_MODELS
-              value: "1"
-            # Explicitly enable Vulkan (redundant on 0.30+, but harmless).
-            - name: OLLAMA_VULKAN
-              value: "1"
+              value: "2"
             # Device selection: on timmy the Vulkan device order is reversed
             # relative to ROCm, and the iGPU (PCI 1002:164E) is enumerated first.
             # HIP_VISIBLE_DEVICES=0 picked the discrete RX 9070 XT under ROCm;
