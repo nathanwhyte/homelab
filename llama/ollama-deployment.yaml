@@ -74,8 +74,13 @@ spec:
               value: "32768"
             - name: OLLAMA_FLASH_ATTENTION
               value: "1"
+            # q8_0 (was q4_0, ea1cafc): q4_0 was needed when dual-model loading
+            # first landed to fit two runners under 16 GB. IMPR-1083 already
+            # halved NUM_PARALLEL 4->2 for the Zeta+FIM co-load, measured
+            # 11.8/16 GB — 4.2 GB headroom comfortably covers q8_0's larger KV
+            # (near-lossless vs f16, unlike q4_0) for both resident models.
             - name: OLLAMA_KV_CACHE_TYPE
-              value: q4_0
+              value: q8_0
             # Keep the working model resident to avoid reload latency for Hermes/mem0
             # and other always-on cluster services. Trade-off: GPU stays warm and the
             # case fans may spin periodically even when no requests are in flight.

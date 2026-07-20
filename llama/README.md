@@ -6,9 +6,9 @@ LLM serving infrastructure in the `llama` namespace.
 
 ### Ollama (timmy — AMD RX 9070 XT)
 
-- **Models**: gemma4:12b-it-qat (local chat) + qwen2.5-coder:fim (local FIM edit-prediction, co-resident); glm-5.1:cloud (remote fallback); others on demand
+- **Models**: zeta2.1 8.3B + qwen2.5-coder:fim 3B (edit-prediction, co-resident, IMPR-1083); gemma4:12b-it-qat orphaned (Hermes/mem0 retired, no longer warmed); OV's `gemma4:31b-cloud` VLM tag routes through this pod but occupies no local slot
 - **Endpoint**: `http://ollama.llama.svc:11434` (ClusterIP) or `192.168.1.19:11434` (LoadBalancer externalIP)
-- **Config**: `OLLAMA_MAX_LOADED_MODELS=2` (chat + FIM co-resident since IMPR-1077 freed the card), `OLLAMA_NUM_PARALLEL=4`, `OLLAMA_CONTEXT_LENGTH=32768`, `OLLAMA_KV_CACHE_TYPE=q4_0`, `OLLAMA_KEEP_ALIVE=-1` (pinned); `CAP_PERFMON` for accurate VRAM packing under Vulkan (the default backend — no explicit `OLLAMA_VULKAN`)
+- **Config**: `OLLAMA_MAX_LOADED_MODELS=2` (Zeta + FIM co-resident, IMPR-1083), `OLLAMA_NUM_PARALLEL=2`, `OLLAMA_CONTEXT_LENGTH=32768`, `OLLAMA_KV_CACHE_TYPE=q8_0` (bumped from `q4_0` — 4.2 GB headroom at 2 slots covers it), `OLLAMA_KEEP_ALIVE=-1` (pinned); `CAP_PERFMON` for accurate VRAM packing under Vulkan (the default backend — no explicit `OLLAMA_VULKAN`)
 - **Deploy**: `llama/ollama-deployment.yaml`
 
 ### Ollama Auth Proxy
