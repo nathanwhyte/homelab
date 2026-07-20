@@ -75,26 +75,22 @@ spec:
             # Allow large model pulls from cluster registry over slow paths.
             - name: OLLAMA_LOAD_TIMEOUT
               value: 15m
-            # 4 slots (was 8): NUM_PARALLEL is per-resident-model, and with
-            # MAX_LOADED_MODELS=2 that slot KV is now paid for BOTH runners (chat +
-            # FIM) on one 16 GB card. Real local concurrency is low — FIM
-            # edit-prediction is single-editor (~1-2 in flight, tiny Minuet
-            # context_window=1024 slots) and the heavy agentic fan-out is cloud-primary
-            # routed, so the local chat model rarely sees more than a few concurrent
-            # requests. 4 covers a modest agentic burst while halving per-model slot KV
-            # vs 8; a larger local fan-out would queue, acceptable under cloud-primary
-            # routing. (Benchmark runs that want the old 8-wide config set it per-run.)
+            # 2 slots (was 4): this card is now the edit-prediction node
+            # (IMPR-1083) co-loading FIM + Zeta 2.1. NUM_PARALLEL is per-resident-
+            # model, and Zeta is an 8B (~10 GB incl. 4-slot KV at 16k) — at 4 slots
+            # each the two runners do NOT both fit under 16 GB (Zeta evicts FIM,
+            # measured 2026-07-18). Halving to 2 halves each model's KV reservation
+            # so both co-reside with headroom. Edit-prediction is inherently
+            # low-concurrency (~1-2 in flight per editor), so 2 is ample.
             - name: OLLAMA_NUM_PARALLEL
-              value: "4"
-            # 2 (was 1): the OV embedder was relocated off this card to manu's GTX
-            # 1080 (IMPR-1077, 2026-07-17), freeing ~5 GB, so the 9070 XT is now a
-            # single-tenant Ollama card that can hold two resident runners — chat +
-            # the qwen2.5-coder:fim edit-prediction model — instead of evicting one
-            # for the other under KEEP_ALIVE=-1. Enables IMPR-1067 deliverable 2
-            # (declared FIM residency) and IDEA-1071's cohabitation legs. Caveat:
-            # under Vulkan on a de-privileged pod (IMPR-1022) Ollama packs on
-            # model-size estimates, not real free-VRAM readings (needs CAP_PERFMON);
-            # FIM ≈ 3.4 GB + a 12B-class chat model fits the 16 GB with margin.
+              value: "2"
+            # 2: the card holds two resident runners — the qwen2.5-coder:fim and
+            # zeta2.1 edit-prediction models — pinned via KEEP_ALIVE=-1 (IMPR-1083).
+            # gemma4 is orphaned (Hermes/mem0 retired) and no longer warmed. OV's
+            # VLM still routes a *cloud* tag (gemma4:31b-cloud) through this pod via
+            # chat-ollama-proxy — cloud tags don't occupy a local slot, so co-load
+            # is unaffected. Under Vulkan on a de-privileged pod (IMPR-1022) Ollama
+            # packs on estimates unless CAP_PERFMON is set (it is, below).
             - name: OLLAMA_MAX_LOADED_MODELS
               value: "2"
             # Device selection: on timmy the Vulkan device order is reversed

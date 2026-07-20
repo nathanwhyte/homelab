@@ -7,45 +7,80 @@ metadata:
 data:
   startup.sh: |
     #!/bin/bash
-    set -eu
+    set -u
 
-    echo "Waiting for Ollama to be ready..."
+    # Two INDEPENDENT concerns, deliberately decoupled (PR #48 review):
+    #   1. SERVER readiness — the readiness probe gates on /tmp/startup-complete.
+    #      OV's VLM reaches this pod via ollama.llama.svc but only needs the server
+    #      API: it routes the gemma4:31b-cloud *cloud* tag through Ollama's cloud
+    #      passthrough, with NO local runner. So mark Ready as soon as the API
+    #      answers — do NOT wait on local model prep. This keeps OV VLM available
+    #      immediately, even on a cold cache that must download ~10 GB.
+    #   2. LOCAL model init (FIM + Zeta, IMPR-1083) — best-effort, in the
+    #      BACKGROUND, with retry so a transient registry/PVC failure self-heals.
+    #      It NEVER gates readiness. /tmp/models-ready is a SEPARATE signal (both
+    #      edit-prediction tags present), so a Ready-but-models-absent state is
+    #      observable rather than silently hidden.
+
+    echo "Waiting for the Ollama server to accept requests..."
     until ollama list > /dev/null 2>&1; do
       sleep 2
     done
-    echo "Ollama is ready."
-
-    ollama list
-
-    local_models=(
-      "gemma4:12b-it-qat"
-    )
-    warmup_models=(
-      "gemma4:12b-it-qat"
-    )
-    cloud_models=(
-      "glm-5.1:cloud"
-    )
-
-    for model in "${local_models[@]}"; do
-      echo "Pulling ${model}..."
-      ollama pull "${model}"
-    done
-
-    for model in "${cloud_models[@]}"; do
-      echo "Pulling cloud fallback ${model}..."
-      if ! ollama pull "${model}"; then
-        echo "WARN: ${model} pull failed; run ollama signin and retry before enabling Hermes cloud fallback."
-      fi
-    done
-
-    for model in "${warmup_models[@]}"; do
-      echo "Warming up ${model}..."
-      timeout 120s ollama run "${model}" "Return exactly: ok" > /dev/null 2>&1 || true
-    done
-    echo "Warmup complete."
-
+    echo "Ollama server is ready."
     touch /tmp/startup-complete
+
+    prepare_edit_prediction_models() {
+      # gemma4 is orphaned (Hermes/mem0 retired) and no longer warmed. Create the
+      # custom FIM + Zeta tags from Modelfiles if absent (idempotent — the PVC
+      # persists them), then warm BIG-model-first (Zeta ~9.4 GB) so both stay
+      # pinned: loading Zeta while FIM is resident fits in the remainder, but
+      # loading Zeta second can transiently evict FIM.
+      local attempt
+      for attempt in 1 2 3 4 5; do
+        if ! ollama show qwen2.5-coder:fim > /dev/null 2>&1; then
+          ollama pull qwen2.5-coder:3b-base || true
+          printf '%s\n' \
+            'FROM qwen2.5-coder:3b-base' \
+            'PARAMETER num_ctx 16384' \
+            'PARAMETER temperature 0' \
+            'PARAMETER repeat_penalty 1.0' \
+            'PARAMETER stop "<|endoftext|>"' \
+            'PARAMETER stop "<|fim_pad|>"' \
+            'PARAMETER stop "<|file_sep|>"' \
+            'PARAMETER stop "<|repo_name|>"' \
+            > /tmp/fim.Modelfile
+          ollama create qwen2.5-coder:fim -f /tmp/fim.Modelfile || true
+        fi
+        if ! ollama show zeta2.1 > /dev/null 2>&1; then
+          ollama pull hf.co/mradermacher/zeta-2.1-GGUF:Q8_0 || true
+          printf '%s\n' \
+            'FROM hf.co/mradermacher/zeta-2.1-GGUF:Q8_0' \
+            'PARAMETER num_ctx 16384' \
+            'PARAMETER temperature 0' \
+            'PARAMETER repeat_penalty 1.0' \
+            > /tmp/zeta.Modelfile
+          ollama create zeta2.1 -f /tmp/zeta.Modelfile || true
+        fi
+        if ollama show qwen2.5-coder:fim > /dev/null 2>&1 && ollama show zeta2.1 > /dev/null 2>&1; then
+          for model in zeta2.1 qwen2.5-coder:fim; do
+            echo "Warming up ${model}..."
+            timeout 180s ollama run "${model}" "// warmup" > /dev/null 2>&1 || true
+          done
+          touch /tmp/models-ready
+          echo "Edit-prediction models ready (attempt ${attempt})."
+          return 0
+        fi
+        echo "WARN: edit-prediction models incomplete (attempt ${attempt}/5); retrying in 30s..."
+        sleep 30
+      done
+      echo "WARN: edit-prediction models not prepared after 5 attempts; server stays Ready (OV VLM unaffected) — check registry/PVC."
+      return 1
+    }
+
+    # Fire-and-forget: model prep runs alongside `ollama serve` and never blocks
+    # readiness. rm the stale marker first so /tmp/models-ready reflects THIS boot.
+    rm -f /tmp/models-ready
+    prepare_edit_prediction_models &
   ollama-exporter.py: |
     #!/usr/bin/env python3
     """Prometheus exporter for Ollama inference metrics.
