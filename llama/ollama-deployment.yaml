@@ -22,6 +22,17 @@ spec:
       nodeSelector:
         kubernetes.io/hostname: timmy
         gpu.vendor: amd
+      # `exec ollama serve` (see args below) makes ollama PID 1, and ollama has
+      # no child reaper — so the backgrounded /scripts/startup.sh exits into a
+      # zombie that nothing wait()s for. Two accumulate per pod start and sit in
+      # the process table until the pod restarts, which the node MOTD reports as
+      # "There are N zombie processes."  Sharing the process namespace makes the
+      # pause container PID 1 for the pod, and pause reaps. SIGTERM delivery is
+      # unaffected: the kubelet signals each container's main process directly,
+      # not PID 1, so the clean-shutdown property the exec wrapper exists for is
+      # preserved. Trade-off: containers in this pod (ollama, ollama-exporter)
+      # can now see each other's processes in /proc.
+      shareProcessNamespace: true
       securityContext:
         fsGroup: 0
       containers:
