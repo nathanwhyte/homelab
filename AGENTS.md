@@ -77,18 +77,44 @@ When editing files, prefer quick, local checks:
 
 ## Worktree & Branch Conventions
 
-**For multi-file updates and longer-running sessions, use git worktrees.** A worktree gives the session its own isolated working tree backed by a real git branch — safe from interruptions, crash-resilient, and mergeable back into `main` when done. This is the default for any task that touches more than a few files or spans an extended period (manifest refactors, multi-service updates, research docs).
+**`~/code/homelab` is a BARE repository with sibling worktrees — it is not a normal working tree.** (Migrated 2026-07-19; the same layout `~/code/qpendium` uses.) There are no source files at the repo root — only git internals (`HEAD`, `config`, `objects/`, `refs/`, `worktrees/`). Every checkout lives in its own sibling directory:
+
+```text
+~/code/homelab/                          bare root — never edit or run builds here
+├── main/                                the `main` branch  ← default working location
+├── llama-timmy-edit-prediction/         llama/timmy-edit-prediction-node
+└── impr-1068-embedder-vulkan/           worktree-impr-1068-embedder-vulkan
+```
+
+**Consequences for every session:**
+
+- Run `git worktree list` before starting, and work in the worktree that owns your target branch.
+- `main` lives at `~/code/homelab/main/`. **Never switch that worktree to a feature branch.**
+- Paths that used to be `~/code/homelab/<dir>` are now `~/code/homelab/main/<dir>` — e.g. `~/code/homelab/main/compendium/cluster-sync.sh`, `kubectl apply -k ~/code/homelab/main/copyparty/`.
+- Run status, tests, formatting, commits, and rebases from a worktree, never the bare root.
+- Preserve uncommitted changes in every worktree; do not modify unrelated worktrees.
 
 ### Setup
 
-Worktrees live inside the repo's `.worktrees/` directory (already gitignored):
+Worktrees are sibling directories created from the bare root:
 
 ```bash
-cd ~/code/homelab
-git worktree add .worktrees/<slug> -b <branch> origin/main
-cd .worktrees/<slug>
+git -C ~/code/homelab worktree add <slug> -b <branch> origin/main
+cd ~/code/homelab/<slug>
 # Work here...
 ```
+
+Remove one when finished (this deletes the directory, so commit or merge first):
+
+```bash
+git -C ~/code/homelab worktree remove <slug>
+```
+
+**Gotchas:**
+
+- Worktree admin files store **absolute paths**. If the repo directory is ever moved or renamed, every worktree breaks with `prunable`. Fix with `git worktree repair <new-path>…` passing the new paths explicitly — **never** `git worktree prune`, which deletes the admin entries instead of repairing them.
+- Local ignore patterns live in `~/code/homelab/info/exclude` (the bare-repo equivalent of `.git/info/exclude`). They are **not** tracked and are **not** copied by `git clone` — this file carries the `rotated-creds-*.txt` and `**/.claude/*` exclusions, so preserve it in any future repo move.
+- Do not set `extensions.worktreeConfig`. With it enabled, the root's `core.bare = true` leaks into every linked worktree and breaks `git status` ("this operation must be run in a work tree").
 
 ### Branch naming
 
