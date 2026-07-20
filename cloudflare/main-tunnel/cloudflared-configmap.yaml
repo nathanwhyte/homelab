@@ -32,7 +32,10 @@ data:
       # Scaled-to-0 services — uncomment and set domains when ready
       # - hostname: <coach>.nathanwhyte.dev
       #   service: http://credit-coach.coach.svc.cluster.local:3000
-      # equal-risk — has its own tunnel (49357c9c) in equal-risk namespace
+      # equal-risk — has its own tunnel "eqrsk"
+      # (8af1bd26-d09e-4d5e-86ad-aa7c593d4f21, healthy/4 conns) in the
+      # equal-risk namespace; serves risk.nathanwhyte.dev. ID corrected
+      # 2026-07-20 — the 49357c9c noted here previously matches no live tunnel.
       # - hostname: <glossary>.nathanwhyte.dev
       #   service: http://glossary.glossary.svc.cluster.local:4000
       - hostname: llama.nathanwhyte.dev
@@ -44,6 +47,21 @@ data:
       # mem0 stack torn down 2026-07-02 (namespace deleted; pg dump archived in
       # backups/2026-07-02-mem0-teardown/). mem0/api-mem0.nathanwhyte.dev DNS
       # record removal is a Cloudflare-dashboard action.
+      # --- Pending Cloudflare-dashboard DNS removals -----------------------
+      # Verified live 2026-07-20 against the Cloudflare API. Each record below
+      # still resolves and is proxied to THIS tunnel, so requests reach
+      # cloudflared and fall through to the http_status:404 catch-all rather
+      # than failing at DNS. Removal is a dashboard action (not GitOps).
+      #   hermes, mem0, api-mem0, lamp, k8s, longhorn — see notes above
+      #   viking      — ov-console removed; only context.nathanwhyte.dev remains
+      #   ssh-manu, ssh-timmy, ssh-wemby — superseded by the single ssh. entry
+      #                 point below; no ingress rule here has ever matched them
+      # Separately: ollama.nathanwhyte.dev points at tunnel
+      # 376cdea8-6f77-4058-af80-76f2c1f9cd43 ("ollama"), which is DOWN with 0
+      # connectors and is not defined anywhere in this repo — an orphan
+      # predating the llama.nathanwhyte.dev + ollama-auth-proxy route above.
+      # Both that DNS record and the tunnel itself are safe to delete.
+      # ---------------------------------------------------------------------
       # Single break-glass entry point: timmy (control plane). Reach wemby/manu by
       # hopping from timmy (ssh wemby / ssh manu over the tailnet, or ssh -J).
       - hostname: ssh.nathanwhyte.dev
