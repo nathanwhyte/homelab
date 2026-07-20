@@ -1,274 +1,36 @@
-# Cloudflare Tunnel Deployments
-# Consolidated configuration for all namespaces
-
+# Per-namespace Cloudflare Tunnel connectors
+#
+# Almost everything that once lived here was consolidated into the single
+# cluster-wide `homelab` tunnel on 2026-03-28 (see
+# ../main-tunnel/cloudflared-configmap.yaml). The per-service tunnels
+# uploads/grafana/viking/portfolio/ssh-server were deleted that day, and the
+# admin UIs (k8s, longhorn, lamp) came off the public internet entirely under
+# IMPR-1029.
+#
+# Rewritten 2026-07-20 (IMPR-1028): this file previously declared connectors for
+# heaper, garage, kubernetes-dashboard, excalidraw and longhorn-system. None of
+# the five were running — heaper and excalidraw no longer exist as namespaces,
+# and the other three carried no cloudflared Deployment. Their token Secrets
+# (plus coach, glossary, portfolio) referenced tunnels deleted in March and were
+# removed from the cluster the same day.
+#
+# `equal-risk` is the one genuine survivor: it is deliberately NOT part of the
+# consolidated tunnel and keeps its own connector for risk.nathanwhyte.dev.
+#
+# Full topology and history: compendium INFO-1120.
 ---
-# Namespace: heaper
 apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: cloudflared
-  namespace: heaper
+  namespace: equal-risk
 automountServiceAccountToken: false
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: cloudflared
-  namespace: heaper
-spec:
-  replicas: 2
-  selector:
-    matchLabels:
-      app: cloudflared
-  template:
-    metadata:
-      labels:
-        app: cloudflared
-    spec:
-      serviceAccountName: cloudflared
-      affinity:
-        nodeAffinity:
-          requiredDuringSchedulingIgnoredDuringExecution:
-            nodeSelectorTerms:
-              - matchExpressions:
-                  - key: network
-                    operator: NotIn
-                    values:
-                      - wifi
-        podAntiAffinity:
-          requiredDuringSchedulingIgnoredDuringExecution:
-            - labelSelector:
-                matchLabels:
-                  app: cloudflared
-              topologyKey: kubernetes.io/hostname
-      containers:
-        - name: cloudflared
-          # Pinned to the version running in-cluster on 2026-07-02 (IMPR-1023);
-          # bump tag+digest together when upgrading.
-          image: cloudflare/cloudflared:2026.6.1@sha256:6d91c121b803126f7a5344005d17a9324788fc09d305b6e2560ec6040a7ae283
-          args:
-            - tunnel
-            - --no-autoupdate
-            - run
-            - --token-file=/etc/cloudflared/token
-          volumeMounts:
-            - name: tokenfile
-              mountPath: /etc/cloudflared
-              readOnly: true
-      volumes:
-        - name: tokenfile
-          secret:
-            secretName: heaper-cloudflared-token
-            items:
-              - key: TOKEN
-                path: token
-
----
-# Namespace: garage
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  name: cloudflared
-  namespace: garage
-automountServiceAccountToken: false
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: cloudflared
-  namespace: garage
-spec:
-  replicas: 2
-  selector:
-    matchLabels:
-      app: cloudflared
-  template:
-    metadata:
-      labels:
-        app: cloudflared
-    spec:
-      serviceAccountName: cloudflared
-      affinity:
-        nodeAffinity:
-          requiredDuringSchedulingIgnoredDuringExecution:
-            nodeSelectorTerms:
-              - matchExpressions:
-                  - key: network
-                    operator: NotIn
-                    values:
-                      - wifi
-        podAntiAffinity:
-          requiredDuringSchedulingIgnoredDuringExecution:
-            - labelSelector:
-                matchLabels:
-                  app: cloudflared
-              topologyKey: kubernetes.io/hostname
-      containers:
-        - name: cloudflared
-          # Pinned to the version running in-cluster on 2026-07-02 (IMPR-1023);
-          # bump tag+digest together when upgrading.
-          image: cloudflare/cloudflared:2026.6.1@sha256:6d91c121b803126f7a5344005d17a9324788fc09d305b6e2560ec6040a7ae283
-          args:
-            - tunnel
-            - --no-autoupdate
-            - run
-            - --token-file=/etc/cloudflared/token
-          resources:
-            requests:
-              cpu: 10m
-              memory: 32Mi
-            limits:
-              cpu: 100m
-              memory: 128Mi
-          volumeMounts:
-            - name: tokenfile
-              mountPath: /etc/cloudflared
-              readOnly: true
-      volumes:
-        - name: tokenfile
-          secret:
-            secretName: uploads-cloudflared-token
-            items:
-              - key: TOKEN
-                path: token
-
----
-# Namespace: kubernetes-dashboard
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  name: cloudflared
-  namespace: kubernetes-dashboard
-automountServiceAccountToken: false
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: cloudflared
-  namespace: kubernetes-dashboard
-spec:
-  replicas: 2
-  selector:
-    matchLabels:
-      app: cloudflared
-  template:
-    metadata:
-      labels:
-        app: cloudflared
-    spec:
-      affinity:
-        nodeAffinity:
-          requiredDuringSchedulingIgnoredDuringExecution:
-            nodeSelectorTerms:
-              - matchExpressions:
-                  - key: network
-                    operator: NotIn
-                    values:
-                      - wifi
-        podAntiAffinity:
-          requiredDuringSchedulingIgnoredDuringExecution:
-            - labelSelector:
-                matchLabels:
-                  app: cloudflared
-              topologyKey: kubernetes.io/hostname
-      containers:
-        - name: cloudflared
-          # Pinned to the version running in-cluster on 2026-07-02 (IMPR-1023);
-          # bump tag+digest together when upgrading.
-          image: cloudflare/cloudflared:2026.6.1@sha256:6d91c121b803126f7a5344005d17a9324788fc09d305b6e2560ec6040a7ae283
-          args:
-            - tunnel
-            - --no-autoupdate
-            - run
-            - --token-file=/etc/cloudflared/token
-          volumeMounts:
-            - name: tokenfile
-              mountPath: /etc/cloudflared
-              readOnly: true
-      volumes:
-        - name: tokenfile
-          secret:
-            secretName: kubernetes-dashboard-cloudflared-token
-            items:
-              - key: TOKEN
-                path: token
-
----
-# Namespace: excalidraw
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  name: cloudflared
-  namespace: excalidraw
-automountServiceAccountToken: false
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: cloudflared
-  namespace: excalidraw
-spec:
-  replicas: 2
-  selector:
-    matchLabels:
-      app: cloudflared
-  template:
-    metadata:
-      labels:
-        app: cloudflared
-    spec:
-      serviceAccountName: cloudflared
-      affinity:
-        nodeAffinity:
-          requiredDuringSchedulingIgnoredDuringExecution:
-            nodeSelectorTerms:
-              - matchExpressions:
-                  - key: network
-                    operator: NotIn
-                    values:
-                      - wifi
-        podAntiAffinity:
-          requiredDuringSchedulingIgnoredDuringExecution:
-            - labelSelector:
-                matchLabels:
-                  app: cloudflared
-              topologyKey: kubernetes.io/hostname
-      containers:
-        - name: cloudflared
-          # Pinned to the version running in-cluster on 2026-07-02 (IMPR-1023);
-          # bump tag+digest together when upgrading.
-          image: cloudflare/cloudflared:2026.6.1@sha256:6d91c121b803126f7a5344005d17a9324788fc09d305b6e2560ec6040a7ae283
-          args:
-            - tunnel
-            - --no-autoupdate
-            - run
-            - --token-file=/etc/cloudflared/token
-          volumeMounts:
-            - name: tokenfile
-              mountPath: /etc/cloudflared
-              readOnly: true
-      volumes:
-        - name: tokenfile
-          secret:
-            secretName: excalidraw-cloudflared-token
-            items:
-              - key: TOKEN
-                path: token
-
----
-# Namespace: longhorn-system
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  name: cloudflared
-  namespace: longhorn-system
-automountServiceAccountToken: false
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: cloudflared
-  namespace: longhorn-system
+  namespace: equal-risk
 spec:
   replicas: 1
   selector:
@@ -282,14 +44,21 @@ spec:
       serviceAccountName: cloudflared
       containers:
         - name: cloudflared
-          # Pinned to the version running in-cluster on 2026-07-02 (IMPR-1023);
-          # bump tag+digest together when upgrading.
+          # The live pod still runs `cloudflare/cloudflared:latest` — applying
+          # this manifest pins it, per IMPR-1023. Digest matches the main-tunnel
+          # connector; bump tag+digest together when upgrading.
           image: cloudflare/cloudflared:2026.6.1@sha256:6d91c121b803126f7a5344005d17a9324788fc09d305b6e2560ec6040a7ae283
           args:
             - tunnel
             - --no-autoupdate
             - run
             - --token-file=/etc/cloudflared/token
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              memory: 128Mi
           volumeMounts:
             - name: tokenfile
               mountPath: /etc/cloudflared
@@ -297,19 +66,7 @@ spec:
       volumes:
         - name: tokenfile
           secret:
-            secretName: longhorn-cloudflared-token
+            secretName: equal-risk-cloudflared-token
             items:
               - key: TOKEN
                 path: token
-
----
-# Traefik basic auth middleware for Longhorn UI
-# Ingress itself is managed by the Helm chart (see longhorn-values.yaml)
-apiVersion: traefik.io/v1alpha1
-kind: Middleware
-metadata:
-  name: longhorn-auth
-  namespace: longhorn-system
-spec:
-  basicAuth:
-    secret: longhorn-auth-secret
