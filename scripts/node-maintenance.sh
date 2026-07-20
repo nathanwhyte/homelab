@@ -144,13 +144,24 @@ remote_boot_id() {
 	ssh "${SSH_OPTS[@]}" "$1" 'cat /proc/sys/kernel/random/boot_id'
 }
 
+normalize_boot_id() {
+	# Lowercase and strip whitespace so case or formatting differences in a
+	# manually supplied ID cannot defeat (or falsely prove) the comparison.
+	printf '%s' "$1" | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]'
+}
+
+is_valid_boot_id() {
+	[[ $1 =~ ^[[:xdigit:]]{8}-[[:xdigit:]]{4}-[[:xdigit:]]{4}-[[:xdigit:]]{4}-[[:xdigit:]]{12}$ ]]
+}
+
 require_valid_boot_id() {
-	[[ $1 =~ ^[[:xdigit:]]{8}-[[:xdigit:]]{4}-[[:xdigit:]]{4}-[[:xdigit:]]{4}-[[:xdigit:]]{12}$ ]] ||
-		die "invalid previous boot ID '$1'"
+	is_valid_boot_id "$1" || die "invalid previous boot ID '$1'"
 }
 
 wait_for_new_boot() {
-	local node=$1 previous_boot_id=$2 current_boot_id deadline
+	local node=$1 previous_boot_id current_boot_id deadline
+	previous_boot_id=$(normalize_boot_id "$2")
+	require_valid_boot_id "$previous_boot_id"
 	deadline=$((SECONDS + REBOOT_TIMEOUT_SECONDS))
 	log "[$node] waiting for reboot proof (boot ID must change)..."
 	while ((SECONDS < deadline)); do
@@ -158,7 +169,13 @@ wait_for_new_boot() {
 			sleep 10
 			continue
 		}
-		if [[ -n $current_boot_id && $current_boot_id != "$previous_boot_id" ]]; then
+		current_boot_id=$(normalize_boot_id "$current_boot_id")
+		# Malformed output (SSH banners, truncated reads) is not proof — retry.
+		if ! is_valid_boot_id "$current_boot_id"; then
+			sleep 10
+			continue
+		fi
+		if [[ $current_boot_id != "$previous_boot_id" ]]; then
 			log "[$node] reboot verified (boot ID changed)."
 			return 0
 		fi
@@ -183,10 +200,14 @@ wait_for_node_ready() {
 # --- Longhorn -----------------------------------------------------------------
 
 longhorn_unhealthy() {
-	# Prints attached volumes whose robustness is not "healthy"; empty output = all clear.
+	# Prints active volumes that are not stably healthy; empty output = all clear.
+	# Detached volumes are inactive and exempt. Everything else — attaching,
+	# detaching, faulted, or attached-but-degraded — counts as unhealthy so the
+	# gate cannot pass while storage is still in transition.
 	kubectl get volumes.longhorn.io -n longhorn-system -o json |
-		jq -r '.items[] | select(.status.state == "attached" and .status.robustness != "healthy") |
-			"\(.metadata.name)\t\(.status.robustness)"'
+		jq -r '.items[] | select(.status.state != "detached")
+			| select((.status.state == "attached" and .status.robustness == "healthy") | not)
+			| "\(.metadata.name)\t\(.status.state)/\(.status.robustness)"'
 }
 
 wait_longhorn_healthy() {
@@ -348,11 +369,13 @@ cmd_reboot() {
 	if ! kubectl drain "$node" --ignore-daemonsets --delete-emptydir-data --timeout="$DRAIN_TIMEOUT"; then
 		warn "drain incomplete — assessing what is left on $node"
 		local leftovers
+		# Fail closed: every non-terminal pod counts (Running, Pending, Unknown, or
+		# missing phase), not just Running — only Succeeded/Failed are safely done.
 		leftovers=$(kubectl get pods -A -o json --field-selector "spec.nodeName=$node" |
-			jq -r '.items[] | select(.status.phase == "Running")
+			jq -r '.items[] | select((.status.phase // "Unknown") as $p | $p != "Succeeded" and $p != "Failed")
 				| select((.metadata.ownerReferences // []) | any(.kind == "DaemonSet") | not)
 				| select((.metadata.namespace == "longhorn-system" and (.metadata.name | startswith("instance-manager"))) | not)
-				| "\(.metadata.namespace)/\(.metadata.name)"')
+				| "\(.metadata.namespace)/\(.metadata.name) (\(.status.phase // "unknown"))"')
 		[[ -n $leftovers ]] && die "non-Longhorn pods still on $node after drain: $leftovers"
 		warn "only the Longhorn instance-manager remains, pinned by last-replica volumes."
 		warn "single-replica volumes on $node — briefly unavailable during the reboot:"
