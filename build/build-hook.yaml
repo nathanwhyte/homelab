@@ -1,0 +1,195 @@
+# build-hook: webhook-driven CI image builder — RETIRED 2026-07-20
+#
+# NOT APPLIED. Adopted into the repo 2026-07-20 (IMPR-1028) by exporting the
+# live out-of-band Deployments immediately before tearing them down, so the
+# stack stays restorable. See RETIRED.md in this directory for why, and for the
+# restore procedure.
+#
+# What this was: `hook` received authenticated webhook calls, built images with
+# buildkitd (build/buildkitd.yaml), pushed them to registry.nathanwhyte.dev, and
+# restarted the target Deployments — for five projects (build-hook, credit-coach,
+# equal-risk, portfolio, glossary). `tunnel` was its public front door.
+#
+# Why it died: the `build` Cloudflare tunnel (a11f180d) was deleted 2026-03-28
+# during the tunnel consolidation, and nothing repointed the webhook endpoint at
+# the cluster-wide tunnel. `tunnel` spent ~4 months logging
+# "Unauthorized: Tunnel not found" and no push has built anything since.
+#
+# Secrets are referenced by name only and are NOT in this repo:
+#   bearer-tokens-secret   — inbound webhook auth (BEARER_TOKENS)
+#   github-access-token    — repo clone PAT (GITHUB_TOKEN)
+#   registry-credentials   — dockerconfigjson for registry.nathanwhyte.dev
+#   hook-cloudflared-token — token for the DELETED `build` tunnel; worthless
+#
+# hostPath volumes /data/build-cache and /data/build-context remain on whichever
+# node last ran the pod; they are not cleaned up by deleting these workloads.
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: buildx-builder
+  namespace: build
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: buildx-builder
+  namespace: build
+rules:
+  - apiGroups: ["apps"]
+    resources: ["deployments", "replicasets"]
+    verbs: ["create", "get", "list", "watch", "update", "delete"]
+  - apiGroups: [""]
+    resources: ["pods", "services"]
+    verbs: ["create", "get", "list", "watch", "update", "delete"]
+  - apiGroups: [""]
+    resources: ["pods/exec"]
+    verbs: ["create", "get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: buildx-builder
+  namespace: build
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: buildx-builder
+subjects:
+  - kind: ServiceAccount
+    name: buildx-builder
+    namespace: build
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: hook
+  namespace: build
+spec:
+  type: ClusterIP
+  selector:
+    app: hook
+  ports:
+    - name: http
+      port: 3000
+      protocol: TCP
+      targetPort: 3000
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hook
+  namespace: build
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: hook
+  template:
+    metadata:
+      labels:
+        app: hook
+    spec:
+      serviceAccountName: buildx-builder
+      containers:
+        - name: hook
+          # Mutable tag — was never pinned (IMPR-1023 gap). Pin on restore.
+          image: registry.nathanwhyte.dev/build-hook/api:latest
+          ports:
+            - name: http
+              containerPort: 3000
+              protocol: TCP
+          env:
+            - name: BEARER_TOKENS
+              valueFrom:
+                secretKeyRef:
+                  name: bearer-tokens-secret
+                  key: BEARER_TOKENS
+            - name: GITHUB_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: github-access-token
+                  key: GITHUB_TOKEN
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          volumeMounts:
+            - name: config
+              mountPath: /app/config.toml
+              subPath: config.toml
+              readOnly: true
+            - name: cache
+              mountPath: /cache
+            - name: build-context
+              mountPath: /build-context
+            - name: docker-config
+              mountPath: /root/.docker/config.json
+              subPath: .dockerconfigjson
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: hook-config
+        - name: cache
+          hostPath:
+            path: /data/build-cache
+            type: DirectoryOrCreate
+        - name: build-context
+          hostPath:
+            path: /data/build-context
+            type: DirectoryOrCreate
+        - name: docker-config
+          secret:
+            secretName: registry-credentials
+---
+# The public front door. On restore, prefer adding a `hook.nathanwhyte.dev`
+# ingress rule to the cluster-wide tunnel (../cloudflare/main-tunnel/
+# cloudflared-configmap.yaml) pointing at hook.build.svc.cluster.local:3000,
+# rather than recreating a dedicated tunnel — that is what the 2026-03-28
+# consolidation was for. This Deployment is kept only as a record of what ran.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tunnel
+  namespace: build
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: tunnel
+  template:
+    metadata:
+      labels:
+        app: tunnel
+    spec:
+      containers:
+        - name: cloudflared
+          image: cloudflare/cloudflared:latest
+          args:
+            - tunnel
+            - --no-autoupdate
+            - run
+            - --token-file
+            - /etc/cloudflared/token
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
+          volumeMounts:
+            - name: tokenfile
+              mountPath: /etc/cloudflared
+              readOnly: true
+      volumes:
+        - name: tokenfile
+          secret:
+            secretName: hook-cloudflared-token
+            items:
+              - key: TOKEN
+                path: token
