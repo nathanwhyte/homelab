@@ -17,31 +17,50 @@ data:
 
     ollama list
 
-    local_models=(
-      "gemma4:12b-it-qat"
-    )
-    warmup_models=(
-      "gemma4:12b-it-qat"
-    )
-    cloud_models=(
-      "glm-5.1:cloud"
-    )
+    # Edit-prediction node (IMPR-1083): co-load the FIM + Zeta edit-prediction
+    # models; gemma4 is orphaned (Hermes/mem0 retired) and no longer warmed.
+    # Create the custom tags from their Modelfiles if absent (idempotent — the
+    # model-cache PVC persists them across restarts), then warm both so
+    # KEEP_ALIVE=-1 pins them co-resident (fits at NUM_PARALLEL=2).
+    #
+    # DEFENSIVE: every step below is guarded (|| true / if-show) so startup
+    # ALWAYS reaches the /tmp/startup-complete touch. The readiness probe gates
+    # on that file, and OV's VLM reaches this pod via the ollama.llama.svc
+    # endpoint — an incomplete startup would drop the pod and break OV VLM.
 
-    for model in "${local_models[@]}"; do
-      echo "Pulling ${model}..."
-      ollama pull "${model}"
-    done
+    ollama pull qwen2.5-coder:3b-base || true
+    if ! ollama show qwen2.5-coder:fim > /dev/null 2>&1; then
+      printf '%s\n' \
+        'FROM qwen2.5-coder:3b-base' \
+        'PARAMETER num_ctx 16384' \
+        'PARAMETER temperature 0' \
+        'PARAMETER repeat_penalty 1.0' \
+        'PARAMETER stop "<|endoftext|>"' \
+        'PARAMETER stop "<|fim_pad|>"' \
+        'PARAMETER stop "<|file_sep|>"' \
+        'PARAMETER stop "<|repo_name|>"' \
+        > /tmp/fim.Modelfile
+      ollama create qwen2.5-coder:fim -f /tmp/fim.Modelfile || true
+    fi
 
-    for model in "${cloud_models[@]}"; do
-      echo "Pulling cloud fallback ${model}..."
-      if ! ollama pull "${model}"; then
-        echo "WARN: ${model} pull failed; run ollama signin and retry before enabling Hermes cloud fallback."
-      fi
-    done
+    ollama pull hf.co/mradermacher/zeta-2.1-GGUF:Q8_0 || true
+    if ! ollama show zeta2.1 > /dev/null 2>&1; then
+      printf '%s\n' \
+        'FROM hf.co/mradermacher/zeta-2.1-GGUF:Q8_0' \
+        'PARAMETER num_ctx 16384' \
+        'PARAMETER temperature 0' \
+        'PARAMETER repeat_penalty 1.0' \
+        > /tmp/zeta.Modelfile
+      ollama create zeta2.1 -f /tmp/zeta.Modelfile || true
+    fi
 
-    for model in "${warmup_models[@]}"; do
+    # Warm the BIG model (Zeta ~9.4 GB) FIRST, then FIM (~2.4 GB): loading the
+    # large runner while the small one is resident fits in the remainder, but
+    # loading the large one second can transiently evict the small one. Big-first
+    # leaves both pinned (verified 2026-07-18: 11.8/16 GB co-resident).
+    for model in zeta2.1 qwen2.5-coder:fim; do
       echo "Warming up ${model}..."
-      timeout 120s ollama run "${model}" "Return exactly: ok" > /dev/null 2>&1 || true
+      timeout 180s ollama run "${model}" "// warmup" > /dev/null 2>&1 || true
     done
     echo "Warmup complete."
 
