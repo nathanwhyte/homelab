@@ -24,6 +24,38 @@ when break-glass access matters.
 manu and wemby advertise the same routes; Tailscale elects one primary and
 auto-fails-over — mirroring the redundant DNS pair already on those hosts.
 
+### DNS redundancy — measured, not assumed (BUG-1059, 2026-07-21)
+
+The "redundant DNS pair" above was an asserted claim until it was drilled. It
+now holds up, with numbers:
+
+|                        | Baseline (both up) | wemby (primary) stopped |
+| ---------------------- | ------------------ | ----------------------- |
+| Queries answered       | 15/15              | 15/15                   |
+| Median latency         | 20 ms              | 25 ms                   |
+| First query after drop | —                  | 29 ms, answered         |
+
+Topology, verified rather than inferred:
+
+- The router (NETGEAR R7000, `192.168.1.1`) has **both** Pi-holes configured —
+  `wan_dns1_pri` = `192.168.1.9` (wemby), `wan_dns1_sec` = `192.168.1.10` (manu).
+  LAN clients get `192.168.1.1` via DHCP and never talk to a Pi-hole directly.
+- Those `pri`/`sec` field names are **not** a behavioral ordering. The router's
+  dnsmasq runs without `strict-order`, so it queries both upstreams in parallel
+  and takes the first reply. That is why failover costs ~5 ms rather than a
+  timeout per query.
+- Each host runs its **own** `unbound` container on its own private
+  `dns-network` bridge (`FTLCONF_upstream_dns_servers: unbound#53`). The two
+  Pi-holes share no recursive resolver, so unbound is not a hidden single point
+  of failure.
+
+**Tested for resolver-process failure, not whole-host failure.** The drill
+stopped wemby's `pihole` container, which leaves the host up so port 53 is
+closed and dnsmasq gets an immediate ICMP rejection. A crashed or unplugged host
+black-holes packets silently instead. Parallel querying should make that case
+behave identically, but it has not been measured — don't upgrade that to a claim
+without a drill that produces numbers.
+
 Each node joining the tailnet directly gives:
 
 - **Raw SSH** — `ssh <user>@<node>` over the tailnet, or keyless **Tailscale SSH**
