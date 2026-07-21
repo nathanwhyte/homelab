@@ -25,31 +25,100 @@ Not tunneled through Cloudflare at all — no public hostname exists. Reachable
 only from the LAN (`192.168.1.0/24`) or a Tailscale-connected client, via
 Traefik on 192.168.1.19.
 
-> **Status (2026-07-02): still on the Cloudflare tunnel, not cut over yet.**
+> **Status (2026-07-20): cut over. Repo and live now agree.**
+> The live tunnel config was read against the Cloudflare API on 2026-07-20 and
+> serves 9 hostnames plus the `http_status:404` catch-all — neither
+> `k8s.nathanwhyte.dev` nor `longhorn.nathanwhyte.dev` is among them. The
+> earlier note here ("repo has them removed, live cluster does not") described a
+> divergence that no longer exists.
+>
+> The public DNS records for both hosts were **deleted 2026-07-20** (IMPR-1029
+> step 3), along with the other stale entries — `hermes`, `mem0`, `api-mem0`,
+> `lamp`, `viking`, `ssh-manu`, `ssh-timmy`, `ssh-wemby`, `ollama`. Eleven
+> records in total; the zone went from 49 to 38, and the tunnel's catch-all 404
+> stopped being reachable for either host.
+>
+> **`longhorn.nathanwhyte.dev` was subsequently restored** on 2026-07-20
+> (homelab `f77a516`) — but as an unproxied `A → 192.168.1.19`, pointing at
+> Traefik on the LAN rather than back at the tunnel. It is not a reversal of
+> step 3; the tunnel route stays deleted. `k8s.nathanwhyte.dev` has no record.
+>
 > The `ipAllowList` middlewares (`k8s-dashboard-lan-only`, `longhorn-lan-only`)
-> exist as CRD objects but are commented out of both Ingresses — Traefik's
-> `kubernetescrd` provider currently fails to resolve *any* Middleware ref
-> cluster-wide ("middleware ... does not exist"), confirmed against
-> pre-existing middlewares too (`hermes-lan-only`,
-> `viking-openviking-basicauth` — the latter since removed 2026-07-04 with the
-> API-key-only OV auth decision) after a full Traefik restart. Wiring the
-> annotation back in during this session took `longhorn.nathanwhyte.dev`'s
-> Traefik route down (404) even for LAN clients — reverted live. The public
-> `k8s.nathanwhyte.dev`/`longhorn.nathanwhyte.dev` tunnel entries stay in
-> `cloudflare/main-tunnel/cloudflared-configmap.yaml` (repo has them removed,
-> live cluster does not) until this Traefik bug is fixed and the LAN-only
-> path is verified end-to-end.
+> are **wired to both Ingresses since 2026-07-20** (BUG-1031 resolved: the
+> "middleware ... does not exist" failures were caused by referencing
+> middlewares without the namespace prefix — cross-provider refs from Ingress
+> annotations must use `<namespace>-<name>@kubernetescrd`, e.g.
+> `longhorn-system-longhorn-lan-only@kubernetescrd`. The provider was never
+> broken). The refs resolve without error and the routers register with the
+> middleware attached.
+>
+> **But the allowlists do not currently discriminate.** The Traefik Service is
+> `type=LoadBalancer` with `externalTrafficPolicy: Cluster`, so kube-proxy
+> SNATs every incoming connection to a `10.42.x` cluster address before it
+> reaches Traefik — which both middlewares permit via `10.42.0.0/16`. A
+> tailnet-source request (not in any `sourceRange`) returns 200, and no 403s
+> appear in the Traefik logs. Effective IP filtering requires preserving
+> client source IPs (`externalTrafficPolicy: Local` — blocked on a
+> replica/DaemonSet decision, since Traefik is a single replica on timmy and
+> `Local` would stop the other node IPs from serving). Tracked as its own bug.
 
 | Host                       | Backend                           | Auth                         | Notes                                                                                          |
 | -------------------------- | ---------------------------------- | ----------------------------- | ------------------------------------------------------------------------------------------------ |
 | `k8s.nathanwhyte.dev`      | `kubernetes-dashboard-kong-proxy` | ServiceAccount bearer token   | Traefik Ingress (`dashboard/ingress.yaml`)                                                       |
 | `longhorn.nathanwhyte.dev` | `longhorn-frontend`               | —                             | Traefik Ingress (Helm-managed, `longhorn/longhorn-values.yaml`)                                  |
 
-DNS: resolved via **Tailscale Split DNS** — a nameserver rule in the Tailscale
-admin console (`Split DNS` for `nathanwhyte.dev`, or per-host if the tunnel's
-other public hosts on the same zone need to keep resolving publicly) pointing
-to 192.168.1.19. Applies tailnet-wide, on or off LAN, no per-device config.
-Manual step: set up in the Tailscale admin console (not repo-managed).
+### How these are actually reached (corrected 2026-07-20)
+
+The paragraph previously here described Tailscale Split DNS as the resolution
+mechanism. **It was a plan, not a description, and it was never carried out** —
+`tailscale dns status` on 2026-07-20 shows MagicDNS enabled tailnet-wide
+(`tailbca2b8.ts.net`) with **no resolvers configured and an empty Split DNS
+Routes list**. No resolver exists to point such a route at: no Pi-hole, AdGuard,
+dnsmasq or Blocky anywhere, and CoreDNS is ClusterIP-only. This is IMPR-1029
+step 5, never completed — and reading as description is why that went unnoticed.
+
+Current state per host:
+
+| Host | Reachable how | Note |
+| --- | --- | --- |
+| `longhorn.nathanwhyte.dev` | **By name, over HTTPS.** `https://longhorn.nathanwhyte.dev` | Restored 2026-07-20 (homelab `f77a516`): unproxied `A → 192.168.1.19`, Traefik on `websecure` with a cert-manager DNS-01 Let's Encrypt cert (`longhorn-tls`). Off-LAN needs `--accept-routes` for manu's `192.168.1.0/24` route |
+| `longhorn` — second route | `https://timmy.tailbca2b8.ts.net` | `tailscale serve` on timmy → `longhorn-frontend` ClusterIP, tailnet-only (IMPR-1091). Kept alongside the hostname: needs no subnet route and no `--accept-routes` |
+| k8s dashboard | `https://timmy.tailbca2b8.ts.net:8443` | `tailscale serve` → `kubernetes-dashboard-kong-proxy` ClusterIP via `https+insecure://`, real Let's Encrypt cert (IMPR-1091) |
+| `k8s.nathanwhyte.dev` | **Not by name — no DNS record.** Over HTTP by IP only | Record deleted 2026-07-20 (IMPR-1029 step 3) and not restored. The 500 was fixed the same day — Traefik could not verify Kong's self-signed backend cert (no IP SANs); a `ServersTransport` (`dashboard/serverstransport.yaml`) resolved it — but with no record and no TLS on this Ingress, the hostname is unusable in a browser. See below |
+
+To reach the dashboard by hostname you must supply both the name **and** accept
+that TLS will fail, which browsers will not allow on a `.dev` domain. For
+scripted checks use an explicit override rather than a hosts entry:
+
+```sh
+curl --resolve k8s.nathanwhyte.dev:80:192.168.1.19 http://k8s.nathanwhyte.dev/
+```
+
+For interactive use, prefer the `tailscale serve` endpoint above — it has a real
+certificate and needs no DNS at all. Giving the dashboard the same treatment as
+Longhorn (record + cert-manager on `websecure`) is the alternative, and is not
+done.
+
+Two constraints worth knowing before reaching for `/etc/hosts`:
+
+- **`.dev` is HSTS-preloaded**, so browsers force HTTPS and cannot be talked out
+  of it. A hosts entry alone therefore never makes a `.dev` host
+  browser-reachable — name resolution and a valid certificate are both required,
+  and neither substitutes for the other.
+  - **Longhorn now satisfies both** (`websecure` + cert-manager, since
+    `f77a516`), which is exactly why it works by name.
+  - **The dashboard satisfies neither.** Its Ingress is still
+    `router.entrypoints: web` with no `spec.tls`, so port 443 answers with
+    Traefik's default self-signed cert → `ERR_CERT_AUTHORITY_INVALID`, and there
+    is no DNS record either.
+- **`curl` ignores HSTS preload**, so it returns 200 on paths no browser can
+  take. Verify the cert chain, not just the status code.
+
+Options if the `*.nathanwhyte.dev` names are wanted back: cert-manager on the
+Ingresses (a Ready `letsencrypt-prod` ClusterIssuer and DNS-01 already exist), or
+a resolver plus a real Split DNS route. Neither is done. Background:
+`docs/research/2026-07-20-homelab-tunnel-and-ingress-drift-audit.md` in the
+compendium.
 
 ## Tailscale — private external access (PROJ-008)
 
