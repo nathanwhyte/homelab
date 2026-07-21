@@ -7,9 +7,14 @@
 # Kubernetes API (no kubectl in the Job image).
 #
 # Scope is deliberately minimal: get/patch on the ONE named deployment in
-# viking, plus get on pods for post-restart diagnostics. Nothing else — the
-# `kubectl auth can-i` matrix in the IMPR-1062 plan (Phase 4 automated
-# verification) asserts both the allow and the denies.
+# viking. Nothing else — the `kubectl auth can-i` matrix in the IMPR-1062
+# plan (Phase 4 automated verification) asserts both the allow and the
+# denies. The plan's original "+ get pods" rule was dropped in PR #51 review
+# (least privilege): the client makes no Pod API calls (post-restart
+# readiness polls OV's own /health), and `list` cannot be resourceName-
+# scoped, so the rule granted namespace-wide Pod visibility for nothing.
+# `get` on the named deployment stays: resourceName-scoped, and it lets the
+# SA read its own restart's rollout status when diagnosing a heal.
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -26,9 +31,6 @@ rules:
     resources: ["deployments"]
     resourceNames: ["openviking"]
     verbs: ["get", "patch"]
-  - apiGroups: [""]
-    resources: ["pods"]
-    verbs: ["get", "list"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
