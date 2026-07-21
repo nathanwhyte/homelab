@@ -1,0 +1,47 @@
+---
+# RBAC for the in-Job guarded OV heal-restart (IMPR-1062 Phase 4).
+# The compendium-sync Job classifies a wedge (BUG-1039: a new lock handle
+# created during the run that persists across drained-queue polls while still
+# lease-refreshing) and, breaker permitting, rolling-restarts
+# deploy/openviking by PATCHing the kubectl restartedAt annotation via the
+# Kubernetes API (no kubectl in the Job image).
+#
+# Scope is deliberately minimal: get/patch on the ONE named deployment in
+# viking. Nothing else — the `kubectl auth can-i` matrix in the IMPR-1062
+# plan (Phase 4 automated verification) asserts both the allow and the
+# denies. The plan's original "+ get pods" rule was dropped in PR #51 review
+# (least privilege): the client makes no Pod API calls (post-restart
+# readiness polls OV's own /health), and `list` cannot be resourceName-
+# scoped, so the rule granted namespace-wide Pod visibility for nothing.
+# `get` on the named deployment stays: resourceName-scoped, and it lets the
+# SA read its own restart's rollout status when diagnosing a heal.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: compendium-sync
+  namespace: compendium
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: compendium-sync-ov-restart
+  namespace: viking
+rules:
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    resourceNames: ["openviking"]
+    verbs: ["get", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: compendium-sync-ov-restart
+  namespace: viking
+subjects:
+  - kind: ServiceAccount
+    name: compendium-sync
+    namespace: compendium
+roleRef:
+  kind: Role
+  name: compendium-sync-ov-restart
+  apiGroup: rbac.authorization.k8s.io
