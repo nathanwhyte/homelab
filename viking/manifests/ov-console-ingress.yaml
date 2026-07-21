@@ -1,5 +1,27 @@
+# ⚠️ DEAD MANIFEST — ov-console was removed. Verified 2026-07-21: no Ingress, no
+# Service in the viking namespace, and viking.nathanwhyte.dev is NXDOMAIN (its
+# record was among the 11 deleted on 2026-07-20). Nothing here is deployed.
+#
+# ⚠️ AND IF YOU REDEPLOY IT, THE ipAllowList BELOW WILL NOT WORK. It is the same
+# construct, with the same sourceRange, that BUG-1057 proved inert: k3s ServiceLB
+# (klipper-lb) masquerades the client address inside the svclb-traefik pod,
+# beneath kube-proxy, so Traefik sees a node IP (192.168.1.19) as ClientHost on
+# every request — and 192.168.1.0/24 is in the list below, so it matches
+# unconditionally. Measured, not theorised; Traefik logged zero 403s across the
+# whole session. `externalTrafficPolicy: Local` does NOT fix it on this path.
+#
+# The two production copies of this pattern (k8s-dashboard-lan-only,
+# longhorn-lan-only) were DELETED on 2026-07-21 rather than left attached,
+# because an inert allowlist reads as protection in every later review. This one
+# survives only because the manifest it lives in is not deployed.
+#
+# If ov-console ever comes back and needs restricting, use an auth-layer control
+# — Traefik BasicAuth, as Longhorn got in IMPR-1020 — which inspects the
+# Authorization header and is immune to the address rewrite. Do not reach for
+# another CIDR rule, and verify whatever you choose with a NEGATIVE test.
 ---
 # Restrict to local network only
+# (NON-FUNCTIONAL on this ingress path — see the BUG-1057 note above.)
 apiVersion: traefik.io/v1alpha1
 kind: Middleware
 metadata:

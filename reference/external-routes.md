@@ -69,9 +69,14 @@ Traefik on 192.168.1.19.
 > routable (both A records are unproxied and point at the private LAN IP
 > `192.168.1.19`, with no tunnel route), plus tailnet membership for the
 > `tailscale serve` path, plus the dashboard's own ServiceAccount bearer token.
-> **Longhorn's UI has no auth of its own** — LAN reachability is the only
-> control on it, which is the residual risk this removal makes explicit rather
-> than creates.
+>
+> > **Superseded 2026-07-21 (IMPR-1020).** This paragraph originally ended
+> > "**Longhorn's UI has no auth of its own** — LAN reachability is the only
+> > control on it, which is the residual risk this removal makes explicit rather
+> > than creates." That residual was closed the next day: Longhorn now enforces
+> > **BasicAuth** (`longhorn-basicauth`) on **both** of its routes, including the
+> > `tailscale serve` path, which was repointed at Traefik to make that possible.
+> > See the routes table below.
 >
 > Anyone restoring an allowlist here must bypass klipper first, and must verify
 > with a **negative** test — a client outside `sourceRange` actually receiving
@@ -102,9 +107,9 @@ Current state per host:
 | Host | Reachable how | Note |
 | --- | --- | --- |
 | `longhorn.nathanwhyte.dev` | **By name, over HTTPS.** `https://longhorn.nathanwhyte.dev` | Restored 2026-07-20 (homelab `f77a516`): unproxied `A → 192.168.1.19`, Traefik on `websecure` with a cert-manager DNS-01 Let's Encrypt cert (`longhorn-tls`). Off-LAN needs `--accept-routes` for manu's `192.168.1.0/24` route |
-| `longhorn` — second route | `https://timmy.tailbca2b8.ts.net` | `tailscale serve` on timmy → `longhorn-frontend` ClusterIP, tailnet-only (IMPR-1091). Kept alongside the hostname: needs no subnet route and no `--accept-routes` |
+| `longhorn` — second route | `https://timmy.tailbca2b8.ts.net` | `tailscale serve` on timmy → **Traefik** (`https+insecure://10.43.138.211:443`), tailnet-only. Kept alongside the hostname: needs no subnet route and no `--accept-routes`. **Repointed 2026-07-21 (IMPR-1020)** — it previously proxied straight to `longhorn-frontend` ClusterIP, which bypassed Traefik entirely and so served Longhorn with **no auth** even after BasicAuth was added to the hostname route. `longhorn/tailnet-ingress.yaml` gives this Host its own Traefik router carrying the same middleware, since `serve` forwards the original Host header and it would otherwise match no rule |
 | `k8s.nathanwhyte.dev` | **By name, over HTTPS.** `https://k8s.nathanwhyte.dev` | Restored 2026-07-21, same pattern as Longhorn: unproxied `A → 192.168.1.19`, `dashboard/ingress.yaml` moved to `websecure` with a cert-manager DNS-01 Let's Encrypt cert (`k8s-dashboard-tls`). The `kubernetes-dashboard-kong-proxy:443` backend TLS was already handled by `dashboard/serverstransport.yaml` (Kong's self-signed cert has no IP SANs) |
-| k8s dashboard — second route | `https://timmy.tailbca2b8.ts.net:8443` | `tailscale serve` → `kubernetes-dashboard-kong-proxy` ClusterIP via `https+insecure://`, real Let's Encrypt cert (IMPR-1091). Kept alongside the hostname, same reasoning as Longhorn's second route |
+| k8s dashboard — second route | `https://timmy.tailbca2b8.ts.net:8443` | `tailscale serve` → `kubernetes-dashboard-kong-proxy` ClusterIP via `https+insecure://`, real Let's Encrypt cert (IMPR-1091). Kept alongside the hostname for the same convenience reason (no subnet route needed). **Unlike Longhorn's second route, this one still bypasses Traefik** — deliberately: the dashboard enforces its own ServiceAccount bearer token, so a Traefik middleware adds nothing. Verified 2026-07-21 — the root path serves the SPA at 200, but `/api/v1/*` returns `MSG_LOGIN_UNAUTHORIZED_ERROR` without a token. Do not read the root 200 as "unauthenticated" |
 
 Both `*.nathanwhyte.dev` admin hosts now satisfy the two constraints a `.dev`
 domain requires — name resolution and a valid certificate, since HSTS preload
