@@ -71,7 +71,7 @@ Current state per host:
 | Host | Reachable how | Note |
 | --- | --- | --- |
 | `longhorn.nathanwhyte.dev` | **Not by name.** Use `https://timmy.tailbca2b8.ts.net` | `tailscale serve` on timmy → `longhorn-frontend` ClusterIP, real Let's Encrypt cert, tailnet-only (IMPR-1091) |
-| `k8s.nathanwhyte.dev` | Not currently reachable | Traefik returns **500** — it cannot verify Kong's self-signed backend cert (no IP SANs). Kong itself answers 200 over HTTPS |
+| `k8s.nathanwhyte.dev` | **Over HTTP only** — `http://k8s.nathanwhyte.dev` from the LAN or a Tailscale client | Returned 500 until 2026-07-20: Traefik could not verify Kong's self-signed backend cert (no IP SANs). Fixed with a `ServersTransport` (`dashboard/serverstransport.yaml`); now 200. **Not browser-reachable** — see the HSTS note below |
 
 Two constraints worth knowing before reaching for `/etc/hosts`:
 

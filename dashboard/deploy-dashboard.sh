@@ -1,6 +1,15 @@
 #!/usr/bin/env bash
+set -euo pipefail
 
-DASHBOARD_DIR="$HOME/code/homelab/dashboard"
+# Resolve from this script's own location. The repo is bare with sibling
+# worktrees, so a hardcoded ~/code/homelab/dashboard does not exist.
+DASHBOARD_DIR="${DASHBOARD_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
+NAMESPACE="kubernetes-dashboard"
+
+# The upstream kubernetes/dashboard repo was archived; kubernetes.github.io/dashboard
+# now 404s. The chart index moved to the retired namespace, which still carries
+# 7.14.0 (the version deployed here). Verified 2026-07-20.
+CHART_REPO_URL="https://kubernetes-retired.github.io/dashboard"
 
 if [ ! -x "$(command -v "kubectl")" ]; then
 	echo "kubectl not installed."
@@ -17,49 +26,49 @@ if [ ! -x "$(command -v "helm")" ]; then
 	exit 1
 fi
 
+for f in ingress.yaml user.yaml middleware.yaml serverstransport.yaml; do
+	if [ ! -f "$DASHBOARD_DIR/$f" ]; then
+		echo "$f not found in $DASHBOARD_DIR!"
+		exit 1
+	fi
+done
+
 echo "Updating helm repositories..."
-helm repo add kubernetes-dashboard https://kubernetes.github.io/dashboard/ 2>/dev/null || true
+# Not suppressed: a dead repo URL must fail here rather than let the upgrade
+# silently proceed against a stale cached index.
+helm repo add kubernetes-dashboard "$CHART_REPO_URL" --force-update
 helm repo update kubernetes-dashboard
 
-echo "Deploying kubernetes-dashboard..."
+echo -e "\nDeploying kubernetes-dashboard..."
+# The Kong proxy Service needs the ServersTransport annotation, or every request
+# 500s on "x509: cannot validate certificate ... no IP SANs" — Kong serves TLS
+# with a self-signed cert and Traefik dials it by pod IP.
+#
+# Set through chart values (kong.proxy.annotations, available in 7.14.0) so it
+# lands in the Helm-owned Service. A post-upgrade `kubectl annotate` would be
+# stripped by any `helm upgrade` run outside this script, silently restoring the
+# 500 until the script was re-run.
+#
+# The ref is <namespace>-<name>@kubernetescrd — that is how Traefik's
+# kubernetescrd provider namespaces CRDs, so `kong-transport` in namespace
+# `kubernetes-dashboard` is addressed as `kubernetes-dashboard-kong-transport`.
+# It is NOT a bare metadata.name.
 helm upgrade --install kubernetes-dashboard \
 	kubernetes-dashboard/kubernetes-dashboard \
-	--create-namespace --namespace kubernetes-dashboard
+	--create-namespace --namespace "$NAMESPACE" \
+	--set "kong.proxy.annotations.traefik\.ingress\.kubernetes\.io/service\.serverstransport=kubernetes-dashboard-kong-transport@kubernetescrd"
 
 echo -e "\nApplying kubernetes-dashboard manifests..."
-
-if [ ! -f "$DASHBOARD_DIR/ingress.yaml" ]; then
-	echo "ingress.yaml file not found!"
-	exit 1
-fi
-
-if [ ! -f "$DASHBOARD_DIR/user.yaml" ]; then
-	echo "user.yaml file not found!"
-	exit 1
-fi
-
-if [ ! -f "$DASHBOARD_DIR/middleware.yaml" ]; then
-	echo "middleware.yaml file not found!"
-	exit 1
-fi
-
-if [ ! -f "$DASHBOARD_DIR/serverstransport.yaml" ]; then
-	echo "serverstransport.yaml file not found!"
-	exit 1
-fi
-
 kubectl apply -f "$DASHBOARD_DIR/ingress.yaml" -f "$DASHBOARD_DIR/user.yaml" \
 	-f "$DASHBOARD_DIR/middleware.yaml" -f "$DASHBOARD_DIR/serverstransport.yaml"
 
-# The chart's Service must point Traefik at the ServersTransport above, or every
-# request 500s on "x509: cannot validate certificate ... no IP SANs" (Kong
-# serves TLS with a self-signed cert; Traefik dials it by pod IP). The Service is
-# chart-managed and the chart exposes no values hook for this annotation, so it
-# is applied here after the upgrade. Idempotent.
-echo -e "\nPointing the Kong Service at the ServersTransport..."
-kubectl annotate svc kubernetes-dashboard-kong-proxy -n kubernetes-dashboard \
-	'traefik.ingress.kubernetes.io/service.serverstransport=kubernetes-dashboard-kong-transport@kubernetescrd' \
-	--overwrite
+# `kubectl apply` never deletes resources dropped from an input file, so a
+# cluster last deployed before 2026-07-20 still carries this IngressRouteTCP.
+# It declared HostSNI() on `websecure` with no tls: block, which Traefik rejects
+# outright — it routed nothing and only emitted repeating "invalid rule" errors.
+# Idempotent; a no-op on clusters that never had it.
+kubectl delete ingressroutetcp kubernetes-dashboard-tcp -n "$NAMESPACE" \
+	--ignore-not-found
 
 echo -e "\nDone. Reachable over HTTP from the LAN or a Tailscale client, via"
 echo "Traefik on 192.168.1.19 (or timmy's tailnet IP):"

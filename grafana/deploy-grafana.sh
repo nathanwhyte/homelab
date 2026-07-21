@@ -85,6 +85,14 @@ fi
 # tunnel, which has served logs.nathanwhyte.dev ever since; the Deployment and
 # its grafana-cloudflared-token Secret were removed 2026-07-20 after ~4 months
 # of "Unauthorized: Tunnel not found" retries (IMPR-1028, INFO-1120).
+#
+# Dropping manifests/cloudflared.yaml does not remove what a previous run
+# created — `kubectl apply` never deletes resources absent from its input — so
+# clean up explicitly. Idempotent; a no-op where they were never applied.
+echo -e "\nRemoving the retired grafana cloudflared connector, if present..."
+kubectl delete deployment cloudflared -n "$NAMESPACE" --ignore-not-found
+kubectl delete serviceaccount cloudflared -n "$NAMESPACE" --ignore-not-found
+kubectl delete secret grafana-cloudflared-token -n "$NAMESPACE" --ignore-not-found
 
 echo -e "\nApplying other manifests..."
 kubectl apply \

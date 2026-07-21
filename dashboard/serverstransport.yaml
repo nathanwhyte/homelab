@@ -12,16 +12,26 @@
 # Skipping verification is appropriate here: the hop is pod-to-pod inside the
 # cluster, and the certificate is self-signed by design.
 #
-# Referenced from the Service via
+# Referenced from the Kong proxy Service via
 #   traefik.ingress.kubernetes.io/service.serverstransport:
 #     kubernetes-dashboard-kong-transport@kubernetescrd
 #
-# NOTE: the kubernetes-dashboard Service is Helm-managed, so that annotation
-# belongs in the chart values to survive an upgrade — see deploy-dashboard.sh.
+# That ref is <namespace>-<name>@kubernetescrd — how Traefik's kubernetescrd
+# provider namespaces CRDs. `kong-transport` in namespace `kubernetes-dashboard`
+# is addressed as `kubernetes-dashboard-kong-transport`, NOT a bare
+# metadata.name. Same convention as the Middleware refs elsewhere in this repo
+# (e.g. viking-openviking-https-redirect@kubernetescrd).
 #
-# Added 2026-07-20. Whether this resolves at all is the open question: BUG-1031
-# records Traefik's kubernetescrd provider failing to resolve *any* Middleware
-# ref cluster-wide, and ServersTransport goes through the same provider.
+# The Service is Helm-managed. Chart 7.14.0 exposes `kong.proxy.annotations`, so
+# deploy-dashboard.sh sets the annotation through chart values — a post-upgrade
+# `kubectl annotate` would be stripped by any helm upgrade run outside that
+# script, silently restoring the 500.
+#
+# Added 2026-07-20, and it resolves: the dashboard went 500 -> 200 on the first
+# reload with no resolution error. Worth recording because BUG-1031 has Traefik's
+# kubernetescrd provider failing to resolve *any* Middleware ref cluster-wide —
+# ServersTransport goes through the same provider and works, so that bug is
+# Middleware-specific rather than provider-wide.
 ---
 apiVersion: traefik.io/v1alpha1
 kind: ServersTransport
