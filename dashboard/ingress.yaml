@@ -10,11 +10,22 @@ metadata:
   name: kubernetes-dashboard-ingress
   namespace: kubernetes-dashboard
   annotations:
-    traefik.ingress.kubernetes.io/router.entrypoints: web
+    # websecure (not web) so Traefik terminates TLS for this host. Required
+    # because `.dev` is HSTS-preloaded — browsers refuse plain HTTP outright,
+    # same fix applied to longhorn.nathanwhyte.dev (f77a516).
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
     # Cross-provider refs must be namespace-prefixed: <namespace>-<name>@kubernetescrd
     # (BUG-1031 — the unprefixed form silently kills the whole router with a 404)
     traefik.ingress.kubernetes.io/router.middlewares: kubernetes-dashboard-k8s-dashboard-lan-only@kubernetescrd
+    # DNS-01 issuance, so the host does not need to be publicly reachable —
+    # k8s.nathanwhyte.dev resolves to the LAN IP, not the tunnel. Same pattern
+    # as longhorn.nathanwhyte.dev / harbor-tls / openviking-tls.
+    cert-manager.io/cluster-issuer: letsencrypt-prod
 spec:
+  tls:
+    - hosts:
+        - k8s.nathanwhyte.dev
+      secretName: k8s-dashboard-tls
   rules:
     - host: k8s.nathanwhyte.dev
       http:

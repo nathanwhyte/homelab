@@ -70,11 +70,12 @@ kubectl apply -f "$DASHBOARD_DIR/ingress.yaml" -f "$DASHBOARD_DIR/user.yaml" \
 kubectl delete ingressroutetcp kubernetes-dashboard-tcp -n "$NAMESPACE" \
 	--ignore-not-found
 
-echo -e "\nDone. Reachable over HTTP from the LAN or a Tailscale client, via"
+echo -e "\nDone. Reachable over HTTPS from the LAN or a Tailscale client, via"
 echo "Traefik on 192.168.1.19 (or timmy's tailnet IP):"
-echo "  http://k8s.nathanwhyte.dev/#/overview?namespace=kubernetes-dashboard"
+echo "  https://k8s.nathanwhyte.dev/#/overview?namespace=kubernetes-dashboard"
 echo
-echo "NOTE: browsers cannot load that URL. '.dev' is HSTS-preloaded, so they"
-echo "force HTTPS, and nothing serves TLS for this host (the Ingress is on the"
-echo "'web' entrypoint with no spec.tls). curl works; a browser will not."
-echo "See reference/external-routes.md for the options."
+echo "NOTE: this needs a DNS A record — k8s.nathanwhyte.dev -> 192.168.1.19,"
+echo "unproxied — created once by hand in the Cloudflare dashboard (same as"
+echo "longhorn.nathanwhyte.dev, homelab f77a516). Not applied by this script."
+echo "cert-manager issues the TLS cert via DNS-01, so the host does not need to"
+echo "be publicly reachable for that to succeed."
