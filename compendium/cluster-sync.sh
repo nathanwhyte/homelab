@@ -2,14 +2,20 @@
 # Run a compendium→OV sync from inside the cluster — the SINGLE sync writer
 # for the compendium OV namespace (BUG-1034 phase 2).
 #
-#   compendium/cluster-sync.sh [--follow] [--heal] [-- <compendium-sync.py sync args>]
+#   compendium/cluster-sync.sh [--status] [--follow] [--heal] [-- <compendium-sync.py sync args>]
 #
 # With no args, runs the canonical manual sync:
 #   sync --changed --yes --state-file /state/compendium-sync-state.json --no-wait --deadline-seconds 2400
 # deriving the work list from git history since the last-synced commit on the
-# state PVC. The runner only sees pushed origin/main — push first.
+# state PVC. The runner only sees pushed origin/main — push first. The default
+# invocation is dispatch-and-return: come back any time with --status.
 #
 # Flags:
+#   --status    No dispatch. Read the run status file from the state PVC via a
+#               short-lived pod (works after the Job container is gone) and
+#               show recent sync Jobs. terminal:false means the run died
+#               mid-flight (SIGKILL/deadline analysis); a missing file means
+#               the Job likely died before bootstrap — see kubectl logs.
 #   --follow    Stream the Job's logs and wait for it to complete.
 #   --heal      DEPRECATED and read-only (IMPR-1062 Phase 4): healing now lives
 #               INSIDE the Job — correlated wedge detection plus a guarded,
@@ -22,6 +28,7 @@
 #
 # Examples:
 #   compendium/cluster-sync.sh                   # canonical: dispatch and move on
+#   compendium/cluster-sync.sh --status          # how did the last run go?
 #   compendium/cluster-sync.sh --follow
 #   compendium/cluster-sync.sh -- --include-active --no-wait "bugs/dipdash/BUG-004-*.md"
 #
@@ -37,17 +44,56 @@ OV_DEPLOY=openviking
 case "${1:-}" in
 -h | --help)
 	# Print the header docstring (usage + flags + examples) without dispatching a Job.
-	sed -n '2,31p' "$0" | sed 's/^# \{0,1\}//'
+	sed -n '2,38p' "$0" | sed 's/^# \{0,1\}//'
 	exit 0
 	;;
 esac
 
 cd "$(dirname "$0")"
 
+# Read-only status report (IMPR-1062 Phase 5): show recent sync Jobs and the
+# status file the Job checkpoints on the state PVC — via a short-lived
+# PVC-mounted pod, so it works after the Job container is gone. No dispatch,
+# no bootstrap, no overlap check.
+status_report() {
+	echo "recent sync jobs:"
+	kubectl get jobs -n compendium -l app=compendium-sync \
+		--sort-by=.metadata.creationTimestamp -o wide 2>/dev/null | tail -6
+	echo
+	local pod out
+	pod="compendium-sync-status-$$"
+	kubectl delete pod "$pod" -n compendium --ignore-not-found >/dev/null 2>&1
+	kubectl run "$pod" --restart=Never -n compendium --image=busybox:1.36 --overrides='{"spec":{"containers":[{"name":"status","image":"busybox:1.36","command":["sh","-c","if [ -f /state/compendium-sync-status.json ]; then cat /state/compendium-sync-status.json; else echo __NO_STATUS_FILE__; fi"],"volumeMounts":[{"name":"s","mountPath":"/state"}]}],"volumes":[{"name":"s","persistentVolumeClaim":{"claimName":"compendium-sync-state"}}]}}' >/dev/null
+	kubectl wait --for=jsonpath='{.status.phase}'=Succeeded "pod/$pod" -n compendium --timeout=120s >/dev/null 2>&1 || true
+	out=$(kubectl logs "$pod" -n compendium 2>/dev/null)
+	kubectl delete pod "$pod" -n compendium >/dev/null 2>&1 &
+	if [ -z "$out" ]; then
+		echo "status: could not read the state PVC (pod pending or attach failure — a running sync Job may hold the volume; retry after it finishes)" >&2
+		return 1
+	fi
+	if grep -q __NO_STATUS_FILE__ <<<"$out"; then
+		echo "no status file — the Job likely died before bootstrap (or no journal run has happened since Phase 5 shipped); see: kubectl -n compendium logs job/<name>" >&2
+		return 1
+	fi
+	if command -v python3 >/dev/null 2>&1; then
+		printf '%s\n' "$out" | python3 -m json.tool
+	else
+		printf '%s\n' "$out"
+	fi
+	if grep -q '"terminal": false' <<<"$out"; then
+		echo "note: terminal=false — this is a mid-run checkpoint: either a run is live right now, or the last run died mid-flight (SIGKILL/activeDeadline); check the job list above" >&2
+	fi
+}
+
 FOLLOW=0
 HEAL=0
+STATUS=0
 while [ "$#" -gt 0 ]; do
 	case "$1" in
+	--status)
+		STATUS=1
+		shift
+		;;
 	--follow)
 		FOLLOW=1
 		shift
@@ -64,6 +110,11 @@ while [ "$#" -gt 0 ]; do
 	*) break ;;
 	esac
 done
+
+if [ "$STATUS" = 1 ]; then
+	status_report
+	exit $?
+fi
 
 kubectl apply -f namespace.yaml -f state-pvc.yaml -f sync-rbac.yaml >/dev/null
 
@@ -164,6 +215,7 @@ dispatch
 
 # Dispatch-and-return unless we need to observe the outcome.
 if [ "$FOLLOW" = 0 ] && [ "$HEAL" = 0 ]; then
+	echo "dispatched — check later with: compendium/cluster-sync.sh --status"
 	exit 0
 fi
 
