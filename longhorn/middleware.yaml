@@ -1,0 +1,51 @@
+# BasicAuth for the Longhorn UI (IMPR-1020).
+#
+# Longhorn's frontend has NO authentication of its own — before this middleware
+# existed, an unauthenticated GET to longhorn.nathanwhyte.dev returned 200 and a
+# fully usable storage admin console (verified 2026-07-21). That console can
+# detach and delete volumes, so the exposure was data-loss-capable.
+#
+# WHY BASICAUTH WORKS HERE WHEN ipAllowList DID NOT (BUG-1057)
+#
+# This file previously held an `ipAllowList` middleware that filtered nothing.
+# k3s ServiceLB (klipper-lb) masquerades the client address inside the
+# svclb-traefik pod, beneath kube-proxy, so Traefik saw a node IP as ClientHost
+# on every request and the allowlist matched its own 192.168.1.0/24. That
+# middleware was removed 2026-07-21.
+#
+# BasicAuth is immune to that failure: it inspects the Authorization *header*,
+# which klipper does not touch. The source address being rewritten is irrelevant
+# to a header check. This is the reason an auth-layer control was chosen over
+# another network-layer one.
+#
+# CREDENTIALS
+#
+# Secret `longhorn-auth-secret` (key `users`), htpasswd format, bcrypt. The
+# secret is NOT in this repo — .gitignore excludes **/*secret*.yaml. Regenerate:
+#
+#   htpasswd -nbB admin '<password>' > users.txt
+#   kubectl create secret generic longhorn-auth-secret -n longhorn-system \
+#     --from-file=users=users.txt --dry-run=client -o yaml | kubectl apply -f -
+#
+# The pre-2026-07-21 secret held a hash whose password was never recorded
+# anywhere, while deploy-longhorn.sh advertised "Credentials: admin / <see
+# longhorn-auth-secret>" for a UI that was not actually gated. Both were fixed
+# together; see longhorn-auth-secret.yaml.example.
+#
+# VERIFY WITH A NEGATIVE TEST. A 200 with correct credentials proves nothing on
+# its own — that was the BUG-1057 error. The load-bearing check is that a
+# request with NO credentials receives 401:
+#
+#   curl -so /dev/null -w '%{http_code}' https://longhorn.nathanwhyte.dev/  # 401
+#   curl -so /dev/null -w '%{http_code}' -u admin:<pw> \
+#     https://longhorn.nathanwhyte.dev/                                     # 200
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: longhorn-basicauth
+  namespace: longhorn-system
+spec:
+  basicAuth:
+    secret: longhorn-auth-secret
+    realm: Longhorn

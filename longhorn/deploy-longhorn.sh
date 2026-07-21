@@ -50,19 +50,30 @@ else
 	echo "  or create the secret manually in $NAMESPACE."
 fi
 
-# The LAN-only ipAllowList middleware that used to be applied here was removed
-# 2026-07-21 (BUG-1057). It filtered nothing — klipper-lb masquerades the client
-# address before Traefik sees it, so the allowlist matched a node IP on every
-# request. Access control lives at the tailnet/Cloudflare Access layer instead.
+# BasicAuth middleware + the tailnet-hostname Ingress (IMPR-1020).
+#
+# An ipAllowList middleware lived here until 2026-07-21 and filtered nothing —
+# klipper-lb masquerades the client address before Traefik sees it, so it matched
+# a node IP on every request (BUG-1057). It was replaced with BasicAuth, which
+# checks the Authorization header and is therefore immune to that rewrite.
+#
+# tailnet-ingress.yaml gives timmy's tailnet hostname its own router carrying the
+# same middleware. Without it, the `tailscale serve` route reaches Traefik with a
+# Host header that matches no rule and 404s — and before it existed, that route
+# bypassed Traefik entirely and served Longhorn with no auth at all.
+echo -e "\nApplying Longhorn UI BasicAuth middleware and tailnet Ingress..."
+kubectl apply -f "$LONGHORN_DIR/middleware.yaml"
+kubectl apply -f "$LONGHORN_DIR/tailnet-ingress.yaml"
 
 echo -e "\nDone!"
 echo "  Web UI (LAN / tailnet-routed, via Traefik on 192.168.1.19): https://longhorn.nathanwhyte.dev"
-echo "  NOTE: this UI is UNAUTHENTICATED. There is no BasicAuth middleware and no"
-echo "        network-layer allowlist (BUG-1057 — an ipAllowList cannot filter on"
-echo "        this path). The secret 'longhorn-auth-secret' exists but is wired to"
-echo "        nothing; verified 2026-07-21, an unauthenticated GET returns 200."
-echo "        LAN/tailnet reachability is the only control. The host is not"
-echo "        publicly routable (unproxied A record -> private 192.168.1.19)."
+echo "  Auth: BasicAuth via the 'longhorn-basicauth' middleware (IMPR-1020)."
+echo "        Credentials live in secret 'longhorn-auth-secret' (user: admin)."
+echo "        Longhorn has no native auth, so this middleware is the only thing"
+echo "        between a client and a console that can delete volumes."
+echo "        Rotate: see longhorn/longhorn-auth-secret.yaml.example."
+echo "        Verify with the NEGATIVE test (no creds must return 401):"
+echo "          curl -so /dev/null -w '%{http_code}' https://longhorn.nathanwhyte.dev/"
 echo "  Backup target: s3://longhorn-backups@auto/cluster/homelab-k3s/longhorn/"
 
 echo -e "\nCheck status:"

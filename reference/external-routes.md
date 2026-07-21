@@ -85,7 +85,7 @@ Traefik on 192.168.1.19.
 | Host                       | Backend                           | Auth                         | Notes                                                                                          |
 | -------------------------- | ---------------------------------- | ----------------------------- | ------------------------------------------------------------------------------------------------ |
 | `k8s.nathanwhyte.dev`      | `kubernetes-dashboard-kong-proxy` | ServiceAccount bearer token   | Traefik Ingress (`dashboard/ingress.yaml`)                                                       |
-| `longhorn.nathanwhyte.dev` | `longhorn-frontend`               | **none** — unauthenticated    | Traefik Ingress (Helm-managed, `longhorn/longhorn-values.yaml`). `longhorn-auth-secret` exists but is wired to nothing; verified 2026-07-21, unauthenticated GET returns 200 |
+| `longhorn.nathanwhyte.dev` | `longhorn-frontend`               | **BasicAuth** (`longhorn-basicauth`) | Traefik Ingress (Helm-managed, `longhorn/longhorn-values.yaml`). Added 2026-07-21 (IMPR-1020) — Longhorn has no native auth and was returning 200 unauthenticated. Credentials in `longhorn-auth-secret`; negative test verified (no creds → 401). The `tailscale serve` route was repointed at Traefik (`longhorn/tailnet-ingress.yaml`) so it enforces too |
 
 ### How these are actually reached (corrected 2026-07-20)
 

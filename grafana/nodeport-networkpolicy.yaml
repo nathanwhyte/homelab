@@ -1,0 +1,124 @@
+# Restrict the two observability NodePorts to the MacBook only (IMPR-1020).
+#
+# WHAT WAS ACTUALLY EXPOSED (measured 2026-07-21, not inferred)
+#
+#   curl http://100.95.215.105:30909/api/v1/query?query=up  -> live metrics
+#   curl http://100.95.215.105:30909/api/v1/status/config   -> 200, scrape config
+#   curl http://100.95.215.105:31080/loki/api/v1/labels     -> 200
+#
+# Both NodePorts bind every node interface, so any tailnet peer could read
+# metrics, read the Prometheus scrape configuration, and inject arbitrary log
+# lines into Loki. Neither service has authentication of its own
+# (`loki.auth_enabled: false`, Prometheus has none).
+#
+# WHY THE CIDR SET IS THIS NARROW
+#
+# The obvious policy — allow 192.168.1.0/24 + 100.64.0.0/10 — would have been
+# very nearly a no-op. timmy's only non-container interfaces ARE the LAN and the
+# tailnet, so that pair permits everything already able to reach the port; it
+# would have blocked Docker/CNI sources on the node and nothing else, while
+# reading in review as "the NodePorts are locked down."
+#
+# That is the BUG-1057 mistake exactly: a network control that looks like
+# protection without changing who can get in. The stated risk was "any tailnet
+# peer", so the allowlist is narrowed to the only legitimate client — pop, the
+# MacBook whose alloy agent ships these metrics and logs (mac/README.md).
+#
+# DEPENDS ON externalTrafficPolicy: Local on both Services. Under the default
+# `Cluster`, kube-proxy SNATs cross-node traffic to the node IP, this policy
+# would see 192.168.1.19 instead of the client, and it would match nothing (or,
+# if the node IP were allowed, everything). Set in loki-values.yaml and
+# kube-prometheus-stack-values.yaml. Do not revert one without the other.
+#
+# NetworkPolicy enforcement was verified on this cluster before relying on it
+# (deny-all applied to a scratch pod; previously-reachable became unreachable) —
+# k3s enforces via kube-router embedded in the k3s binary, so there is no
+# controller pod to look for and its absence is not evidence it is off.
+#
+# NEGATIVE TEST — the load-bearing check. Verified 2026-07-21 from manu and
+# wemby, over BOTH the LAN and tailnet paths; all four combinations blocked,
+# while pop returned 200:
+#
+#   from manu/wemby:  curl -m5 "http://192.168.1.19:30909/api/v1/query?query=up"    # blocked
+#                     curl -m5 "http://100.95.215.105:31080/loki/api/v1/labels"     # blocked
+#   from pop:         same URLs                                                     # 200
+#
+# DO NOT use timmy as the negative-test source. It is the node hosting these
+# pods, and CNI NetworkPolicy implementations permit node→local-pod traffic so
+# kubelet can run health probes — a shell on timmy still reaches both ports and
+# that is inherent, not a policy failure. It was briefly misread as one here.
+# Anyone with a shell on timmy already has far more than these endpoints.
+#
+# THE CLIENT THIS PROTECTS IS NOT CURRENTLY RUNNING. mac/README.md documents a
+# MacBook→cluster telemetry pipeline, but as of 2026-07-21 pop has no alloy
+# process, no launchd plist, and Prometheus holds no `node="macbook-m5"` series
+# — the pipeline is documented, not live. The allowlist was therefore verified
+# by driving pop's real source addresses with curl, not by observing agent
+# traffic. If the pipeline is revived FROM A DIFFERENT MACHINE, it will be
+# blocked until that host's addresses are added below.
+#
+# WHEN A CLIENT IS ADDED: add its /32s here. If the client list ever grows past
+# a couple of devices, prefer real auth (BasicAuth via Traefik, as Longhorn got)
+# over an ever-widening CIDR list — identity scales, location does not.
+#
+# THREE /32s FOR ONE LAPTOP, DELIBERATELY. pop has two LAN interfaces — en7
+# (192.168.1.6, wired) and en0 (192.168.1.8, wifi) — plus its tailnet address.
+# LAN traffic to timmy was observed leaving via the WIRED interface, so an
+# allowlist built from `ipconfig getifaddr en0` alone would have locked the
+# MacBook out of its own metrics pipeline. Verify against what the receiving pod
+# logs as the source, not against what the client believes its address is.
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: prometheus-nodeport-lockdown
+  namespace: grafana
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: prometheus
+  policyTypes:
+    - Ingress
+  ingress:
+    # pop (the MacBook) — the only legitimate external client
+    - from:
+        - ipBlock:
+            cidr: 100.113.28.62/32 # pop, tailnet (utun7)
+        - ipBlock:
+            cidr: 192.168.1.6/32 # pop, LAN wired (en7) — the path actually used
+        - ipBlock:
+            cidr: 192.168.1.8/32 # pop, LAN wifi (en0) — used if the wire is out
+      ports:
+        - protocol: TCP
+          port: 9090
+    # In-cluster traffic: Grafana queries Prometheus, and the operator scrapes it.
+    # Without this the datasource breaks — the policy is not internet-facing only.
+    - from:
+        - namespaceSelector: {}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: loki-gateway-nodeport-lockdown
+  namespace: grafana
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: gateway
+      app.kubernetes.io/name: loki
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - ipBlock:
+            cidr: 100.113.28.62/32 # pop, tailnet (utun7)
+        - ipBlock:
+            cidr: 192.168.1.6/32 # pop, LAN wired (en7) — the path actually used
+        - ipBlock:
+            cidr: 192.168.1.8/32 # pop, LAN wifi (en0) — used if the wire is out
+      ports:
+        - protocol: TCP
+          port: 8080
+    # In-cluster traffic: Grafana reads logs through the gateway.
+    - from:
+        - namespaceSelector: {}

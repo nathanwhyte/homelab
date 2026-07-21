@@ -1,0 +1,56 @@
+# Ingress for Longhorn's tailnet hostname (IMPR-1020).
+#
+# WHY THIS EXISTS
+#
+# timmy runs `tailscale serve` on :443 for the Longhorn UI (IMPR-1091). It used
+# to proxy straight to `longhorn-frontend` ClusterIP, which bypassed Traefik
+# entirely — so when BasicAuth was added to the longhorn.nathanwhyte.dev Ingress
+# on 2026-07-21, that route was still wide open. Verified at the time: the
+# hostname route returned 401 without credentials while
+# https://timmy.tailbca2b8.ts.net/ returned 200. Two routes, one enforcement
+# point, and the tailnet one was on the wrong side of it.
+#
+# The fix repoints serve at Traefik:
+#
+#   tailscale serve --bg --https=443 https+insecure://10.43.138.211:443
+#
+# `tailscale serve` forwards the original Host header (timmy.tailbca2b8.ts.net),
+# which does NOT match the longhorn.nathanwhyte.dev router — so Traefik would
+# 404 without this Ingress. This manifest gives that Host its own router,
+# carrying the same BasicAuth middleware, so both paths enforce identically.
+#
+# It is a separate file rather than a second host on the Helm-managed Ingress
+# because longhorn-values.yaml's chart takes a single scalar `host`.
+#
+# TLS: `tailscale serve` terminates TLS with its own tailnet cert and connects
+# onward as https+insecure, so Traefik's cert for this host is never validated.
+# No cert-manager annotation here — deliberately. Traefik answers with its
+# default self-signed cert and that is correct for this hop.
+#
+# NEGATIVE TEST — the load-bearing check, and the one BUG-1057 was closed for
+# skipping. BOTH routes must refuse an unauthenticated request:
+#
+#   curl -so /dev/null -w '%{http_code}' https://timmy.tailbca2b8.ts.net/   # 401
+#   curl -so /dev/null -w '%{http_code}' https://longhorn.nathanwhyte.dev/  # 401
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: longhorn-tailnet-ingress
+  namespace: longhorn-system
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    # Namespace-prefixed ref per BUG-1031 — the unprefixed form silently 404s.
+    traefik.ingress.kubernetes.io/router.middlewares: longhorn-system-longhorn-basicauth@kubernetescrd
+spec:
+  rules:
+    - host: timmy.tailbca2b8.ts.net
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: longhorn-frontend
+                port:
+                  number: 80

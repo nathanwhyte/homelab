@@ -28,27 +28,27 @@ alertmanager:
       resolve_timeout: 5m
     inhibit_rules:
       - source_matchers:
-          - 'severity = critical'
+          - "severity = critical"
         target_matchers:
-          - 'severity =~ warning|info'
+          - "severity =~ warning|info"
         equal:
           - namespace
           - alertname
       - source_matchers:
-          - 'severity = warning'
+          - "severity = warning"
         target_matchers:
-          - 'severity = info'
+          - "severity = info"
         equal:
           - namespace
           - alertname
       - source_matchers:
-          - 'alertname = InfoInhibitor'
+          - "alertname = InfoInhibitor"
         target_matchers:
-          - 'severity = info'
+          - "severity = info"
         equal:
           - namespace
       - target_matchers:
-          - 'alertname = InfoInhibitor'
+          - "alertname = InfoInhibitor"
     route:
       group_by:
         - namespace
@@ -56,23 +56,23 @@ alertmanager:
       group_wait: 30s
       group_interval: 5m
       repeat_interval: 1h
-      receiver: 'null'
+      receiver: "null"
       routes:
-        - receiver: 'null'
+        - receiver: "null"
           matchers:
             - alertname = "Watchdog"
         - receiver: slack-homelab
           matchers:
             - alertname = "WembyOnBattery"
     receivers:
-      - name: 'null'
+      - name: "null"
       - name: slack-homelab
         slack_configs:
           - api_url_file: /etc/alertmanager/secrets/alertmanager-slack-webhook/api-url
-            channel: '#cron-homelab'
+            channel: "#cron-homelab"
             send_resolved: true
-            title: '{{ .CommonLabels.alertname }} — {{ .Status }}'
-            text: '<@U0BAEG2AFC4> {{ range .Alerts }}{{ .Annotations.summary }}: {{ .Annotations.description }}{{ end }}'
+            title: "{{ .CommonLabels.alertname }} — {{ .Status }}"
+            text: "<@U0BAEG2AFC4> {{ range .Alerts }}{{ .Annotations.summary }}: {{ .Annotations.description }}{{ end }}"
     templates:
       - /etc/alertmanager/config/*.tmpl
   alertmanagerSpec:
@@ -344,6 +344,15 @@ prometheus:
     nodePort: 30909
     port: 9090
     type: NodePort
+    # Local (not the default Cluster) so the real client IP reaches the
+    # NetworkPolicy in `grafana/nodeport-networkpolicy.yaml` — under `Cluster`,
+    # kube-proxy SNATs cross-node traffic to the node IP and a source-CIDR rule
+    # matches everything while appearing to filter (the BUG-1057 failure mode).
+    # `prometheus-prom-prometheus-0` already runs on timmy, which is where
+    # mac/README.md points the MacBook's remote_write, so Local forwards
+    # correctly today. If that pod is ever rescheduled off timmy, remote-write
+    # breaks — pin it, or repoint the client, rather than reverting to Cluster.
+    externalTrafficPolicy: Local
 prometheus-node-exporter:
   enabled: true
   extraArgs:

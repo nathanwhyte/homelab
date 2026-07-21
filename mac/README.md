@@ -5,12 +5,32 @@ metrics, and the `ollama serve` log from the M5 MacBook into the in-cluster
 Prometheus + Loki, where they appear on the **Ollama & GPU Metrics** and **Mac
 Metrics** Grafana dashboards tagged `node="macbook-m5"`.
 
-The cluster receives via NodePorts already exposed on every node:
+> **This pipeline is NOT currently running** (checked 2026-07-21): pop has no
+> `alloy`/`grafana-agent` process, no launchd plist, and Prometheus holds no
+> `node="macbook-m5"` series. This document describes how to run it, not
+> something that is running. It read as a description of live state, which is
+> how the gap went unnoticed.
+
+The cluster receives via NodePorts exposed on every node:
 
 | Purpose                 | URL                                          |
 | ----------------------- | -------------------------------------------- |
 | Prometheus remote-write | `http://192.168.1.19:30909/api/v1/write`     |
 | Loki push               | `http://192.168.1.19:31080/loki/api/v1/push` |
+
+> **These NodePorts are allowlisted to pop only** (IMPR-1020,
+> `grafana/nodeport-networkpolicy.yaml`). Until 2026-07-21 they were reachable
+> unauthenticated by any tailnet peer, which could read all metrics, read the
+> Prometheus scrape config, and inject arbitrary log lines. A NetworkPolicy now
+> permits only pop's three addresses — `100.113.28.62` (tailnet),
+> `192.168.1.6` (LAN wired), `192.168.1.8` (LAN wifi).
+>
+> Consequences if you change machines: **reviving this pipeline from any other
+> host will silently fail** until that host's addresses are added to the policy.
+> Both Services also carry `externalTrafficPolicy: Local` (the policy cannot see
+> real client IPs otherwise) and `loki-gateway` is pinned to timmy so that the
+> `192.168.1.19` endpoint above keeps working — do not unpin it without
+> repointing these URLs.
 
 ## Architecture
 

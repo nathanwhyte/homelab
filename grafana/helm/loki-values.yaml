@@ -31,10 +31,24 @@ distributor:
 gateway:
   auth_enabled: false
   enabled: true
+  # Pinned to timmy 2026-07-21 (IMPR-1020). The NodePort below is set to
+  # externalTrafficPolicy: Local so the real client IP survives to the
+  # NetworkPolicy (`grafana/nodeport-networkpolicy.yaml`) — under the default
+  # `Cluster`, kube-proxy SNATs cross-node traffic to the node IP and any
+  # source-CIDR rule silently matches everything (the BUG-1057 failure mode).
+  #
+  # `Local` only forwards to a pod on the receiving node, and mac/README.md
+  # points the MacBook at 192.168.1.19 (timmy). This gateway ran on wemby, so
+  # without the pin every push would have been dropped on the floor. It is a
+  # single replica with no HA either way, so pinning costs no availability —
+  # it only makes which-node deterministic, which `Local` requires.
+  nodeSelector:
+    kubernetes.io/hostname: timmy
   service:
     nodePort: 31080
     port: 80
     type: NodePort
+    externalTrafficPolicy: Local
 indexGateway:
   replicas: 0
 ingester:

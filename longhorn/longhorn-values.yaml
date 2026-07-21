@@ -45,26 +45,25 @@ ingress:
     # because `.dev` is HSTS-preloaded — browsers refuse plain HTTP outright,
     # and port 443 previously answered with Traefik's self-signed default cert.
     traefik.ingress.kubernetes.io/router.entrypoints: websecure
-    # There is deliberately NO ipAllowList middleware here (BUG-1057, removed
-    # 2026-07-21). One was attached 2026-07-20 and filtered nothing: k3s
-    # ServiceLB (klipper-lb) masquerades the client address inside the
-    # svclb-traefik pod, a layer beneath kube-proxy, so Traefik only ever sees a
-    # node IP. Measured via access logs — a request from 192.168.1.8 logged as
-    # ClientHost 192.168.1.19 (timmy's node IP), which matched the allowlist's
-    # own 192.168.1.0/24 and passed. `externalTrafficPolicy: Local` does NOT fix
-    # this; it governs kube-proxy's SNAT, which never gets a say.
+    # BasicAuth (IMPR-1020, added 2026-07-21). Longhorn's frontend has NO auth of
+    # its own — before this, an unauthenticated GET returned 200 and a usable
+    # storage admin console that can detach and delete volumes.
     #
-    # It was removed rather than kept-but-labelled because an attached allowlist
-    # reads as protection in every future review. Restoring one requires first
-    # bypassing klipper (MetalLB, or Traefik on hostNetwork/hostPort) AND a
-    # negative test proving an out-of-range client actually receives 403.
-    # Access control that does work: tailnet membership for the `tailscale serve`
-    # route, Cloudflare Access for anything genuinely public. This host is not
-    # publicly routable — its A record points at a private LAN IP.
+    # An `ipAllowList` middleware sat here until 2026-07-21 and filtered nothing:
+    # klipper-lb masquerades the client inside the svclb-traefik pod, beneath
+    # kube-proxy, so Traefik saw a node IP as ClientHost and it matched the
+    # allowlist's own 192.168.1.0/24 (BUG-1057; `externalTrafficPolicy: Local`
+    # does not fix that — it governs kube-proxy's SNAT, which never gets a say).
     #
-    # (The removed ref was namespace-prefixed, `<namespace>-<name>@kubernetescrd`.
-    # That convention is BUG-1031 and still applies to every other cross-provider
-    # ref — see dashboard/serverstransport.yaml, which relies on it.)
+    # BasicAuth is immune to that failure mode: it checks the Authorization
+    # HEADER, which klipper does not rewrite. That is precisely why an auth-layer
+    # control replaced the network-layer one rather than another CIDR rule.
+    #
+    # Namespace-prefixed ref per BUG-1031 (`<namespace>-<name>@kubernetescrd`) —
+    # the unprefixed form silently 404s the whole router.
+    # Credentials: secret `longhorn-auth-secret`, see longhorn/middleware.yaml
+    # and longhorn-auth-secret.yaml.example.
+    traefik.ingress.kubernetes.io/router.middlewares: longhorn-system-longhorn-basicauth@kubernetescrd
     # DNS-01 issuance, so the host does not need to be publicly reachable —
     # longhorn.nathanwhyte.dev is an unproxied A record to 192.168.1.19
     # (timmy's LAN IP, where Traefik listens), not the tunnel. Deliberately NOT
