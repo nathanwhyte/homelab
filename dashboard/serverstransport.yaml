@@ -28,10 +28,17 @@
 # script, silently restoring the 500.
 #
 # Added 2026-07-20, and it resolves: the dashboard went 500 -> 200 on the first
-# reload with no resolution error. Worth recording because BUG-1031 has Traefik's
-# kubernetescrd provider failing to resolve *any* Middleware ref cluster-wide —
-# ServersTransport goes through the same provider and works, so that bug is
-# Middleware-specific rather than provider-wide.
+# reload with no resolution error.
+#
+# That result was briefly misread as evidence that BUG-1031 ("provider cannot
+# resolve any Middleware ref") was Middleware-specific — ServersTransport goes
+# through the same provider and worked, so the CRD kind looked like the variable.
+# It was not. BUG-1031 was a **missing namespace prefix**: the failing refs said
+# `longhorn-lan-only@kubernetescrd` where the provider expects
+# `longhorn-system-longhorn-lan-only@kubernetescrd`. This transport worked from
+# the start because it happened to use the prefixed form. The provider was never
+# broken; both kinds resolve fine when addressed correctly.
+# Root-caused and fixed 2026-07-20 (BUG-1031 resolved, homelab 5cb59df).
 ---
 apiVersion: traefik.io/v1alpha1
 kind: ServersTransport
