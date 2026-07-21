@@ -50,12 +50,16 @@ ingress:
     # `lan-only` in namespace `longhorn` (which does not exist), which read as a
     # provider bug for four months. Root-caused and fixed 2026-07-20, BUG-1031.
     #
-    # NOTE (BUG-1057): this allowlist does not currently filter anything. The
-    # Traefik Service runs `externalTrafficPolicy: Cluster`, so kube-proxy SNATs
-    # every client into 10.42.0.0/16 — which `sourceRange` permits. If BUG-1057
-    # is fixed (switching to `Local`), tailnet clients arriving as 100.64.0.0/10
-    # will start getting 403s unless that range is added to the middleware's
-    # sourceRange in longhorn/middleware.yaml. Change the two together.
+    # NOTE (BUG-1057): this allowlist filters NOTHING, and cannot on this path.
+    # Measured 2026-07-21 via Traefik access logs: a request from 192.168.1.8
+    # was logged as ClientHost 192.168.1.19 — timmy's own node IP. k3s ServiceLB
+    # (klipper-lb) masquerades the client in the svclb-traefik pod, beneath
+    # kube-proxy, so `externalTrafficPolicy: Local` does NOT fix it — an earlier
+    # version of this comment claimed it would, and was wrong. Real filtering
+    # needs MetalLB or Traefik on hostNetwork/hostPort, or drop the middleware
+    # and rely on the access controls that do work (tailnet membership for the
+    # `tailscale serve` route, Cloudflare Access for anything public).
+    # The ref is kept so the wiring stays correct if a mechanism lands later.
     traefik.ingress.kubernetes.io/router.middlewares: longhorn-system-longhorn-lan-only@kubernetescrd
     # DNS-01 issuance, so the host does not need to be publicly reachable —
     # longhorn.nathanwhyte.dev is an unproxied A record to 192.168.1.19

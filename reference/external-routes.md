@@ -52,15 +52,21 @@ Traefik on 192.168.1.19.
 > broken). The refs resolve without error and the routers register with the
 > middleware attached.
 >
-> **But the allowlists do not currently discriminate.** The Traefik Service is
-> `type=LoadBalancer` with `externalTrafficPolicy: Cluster`, so kube-proxy
-> SNATs every incoming connection to a `10.42.x` cluster address before it
-> reaches Traefik — which both middlewares permit via `10.42.0.0/16`. A
-> tailnet-source request (not in any `sourceRange`) returns 200, and no 403s
-> appear in the Traefik logs. Effective IP filtering requires preserving
-> client source IPs (`externalTrafficPolicy: Local` — blocked on a
-> replica/DaemonSet decision, since Traefik is a single replica on timmy and
-> `Local` would stop the other node IPs from serving). Tracked as its own bug.
+> **But the allowlists do not discriminate, and cannot be made to on this
+> path.** Measured 2026-07-21 by enabling Traefik access logs: a request from
+> `192.168.1.8` was logged with `ClientHost: 192.168.1.19` — timmy's own node
+> IP. **k3s ServiceLB (klipper-lb) masquerades the client address in the
+> `svclb-traefik` pod**, a layer beneath kube-proxy. The node IP matches
+> `192.168.1.0/24` in `sourceRange`, so everything passes and the Traefik logs
+> contain zero 403s.
+>
+> `externalTrafficPolicy: Local` **does not fix this** — it governs kube-proxy's
+> SNAT, which never gets a say because klipper has already rewritten the source.
+> An earlier revision of this note proposed exactly that, and was wrong. Real
+> filtering here needs MetalLB, or Traefik on `hostNetwork`/`hostPort` to bypass
+> klipper — or the honest alternative: drop the middlewares and enforce where it
+> demonstrably works (tailnet membership for the `tailscale serve` routes,
+> Cloudflare Access for anything public). Tracked as BUG-1057.
 
 | Host                       | Backend                           | Auth                         | Notes                                                                                          |
 | -------------------------- | ---------------------------------- | ----------------------------- | ------------------------------------------------------------------------------------------------ |
