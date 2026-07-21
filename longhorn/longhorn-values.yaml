@@ -41,10 +41,35 @@ ingress:
   host: longhorn.nathanwhyte.dev
   path: /
   annotations:
-    traefik.ingress.kubernetes.io/router.entrypoints: web
-    # Cross-provider refs must be namespace-prefixed: <namespace>-<name>@kubernetescrd
-    # (BUG-1031 — the unprefixed form silently kills the whole router with a 404)
+    # websecure (not web) so Traefik terminates TLS for this host. Required
+    # because `.dev` is HSTS-preloaded — browsers refuse plain HTTP outright,
+    # and port 443 previously answered with Traefik's self-signed default cert.
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    # Namespace-prefixed ref — `<namespace>-<name>@kubernetescrd`. The old
+    # unprefixed `longhorn-lan-only@kubernetescrd` parsed as middleware
+    # `lan-only` in namespace `longhorn` (which does not exist), which read as a
+    # provider bug for four months. Root-caused and fixed 2026-07-20, BUG-1031.
+    #
+    # NOTE (BUG-1057): this allowlist does not currently filter anything. The
+    # Traefik Service runs `externalTrafficPolicy: Cluster`, so kube-proxy SNATs
+    # every client into 10.42.0.0/16 — which `sourceRange` permits. If BUG-1057
+    # is fixed (switching to `Local`), tailnet clients arriving as 100.64.0.0/10
+    # will start getting 403s unless that range is added to the middleware's
+    # sourceRange in longhorn/middleware.yaml. Change the two together.
     traefik.ingress.kubernetes.io/router.middlewares: longhorn-system-longhorn-lan-only@kubernetescrd
+    # DNS-01 issuance, so the host does not need to be publicly reachable —
+    # longhorn.nathanwhyte.dev is an unproxied A record to 192.168.1.19
+    # (timmy's LAN IP, where Traefik listens), not the tunnel. Deliberately NOT
+    # timmy's tailnet IP: `tailscale serve` binds :443 there and rejects any
+    # other SNI, so the request would never reach Traefik. Off-LAN access rides
+    # manu's 192.168.1.0/24 subnet route and needs `--accept-routes`.
+    # Same pattern as harbor-tls / openviking-tls.
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+  # NB: this chart takes `tls` as a BOOLEAN plus a separate `tlsSecret` name —
+  # not the list-of-hosts form used by a raw Kubernetes Ingress. Passing the
+  # list form silently falls back to the chart default (`longhorn.local-tls`).
+  tls: true
+  tlsSecret: longhorn-tls
 
 # Network policies (k3s)
 networkPolicies:

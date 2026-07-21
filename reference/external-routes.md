@@ -35,8 +35,13 @@ Traefik on 192.168.1.19.
 > The public DNS records for both hosts were **deleted 2026-07-20** (IMPR-1029
 > step 3), along with the other stale entries — `hermes`, `mem0`, `api-mem0`,
 > `lamp`, `viking`, `ssh-manu`, `ssh-timmy`, `ssh-wemby`, `ollama`. Eleven
-> records in total; the zone went from 49 to 38. Neither host resolves publicly
-> any more, so the tunnel's catch-all 404 is no longer reachable for them.
+> records in total; the zone went from 49 to 38, and the tunnel's catch-all 404
+> stopped being reachable for either host.
+>
+> **`longhorn.nathanwhyte.dev` was subsequently restored** on 2026-07-20
+> (homelab `f77a516`) — but as an unproxied `A → 192.168.1.19`, pointing at
+> Traefik on the LAN rather than back at the tunnel. It is not a reversal of
+> step 3; the tunnel route stays deleted. `k8s.nathanwhyte.dev` has no record.
 >
 > The `ipAllowList` middlewares (`k8s-dashboard-lan-only`, `longhorn-lan-only`)
 > are **wired to both Ingresses since 2026-07-20** (BUG-1031 resolved: the
@@ -76,16 +81,36 @@ Current state per host:
 
 | Host | Reachable how | Note |
 | --- | --- | --- |
-| `longhorn.nathanwhyte.dev` | **Not by name.** Use `https://timmy.tailbca2b8.ts.net` | `tailscale serve` on timmy → `longhorn-frontend` ClusterIP, real Let's Encrypt cert, tailnet-only (IMPR-1091) |
-| `k8s.nathanwhyte.dev` | **Over HTTP only** — `http://k8s.nathanwhyte.dev` from the LAN or a Tailscale client | Returned 500 until 2026-07-20: Traefik could not verify Kong's self-signed backend cert (no IP SANs). Fixed with a `ServersTransport` (`dashboard/serverstransport.yaml`); now 200. **Not browser-reachable** — see the HSTS note below |
+| `longhorn.nathanwhyte.dev` | **By name, over HTTPS.** `https://longhorn.nathanwhyte.dev` | Restored 2026-07-20 (homelab `f77a516`): unproxied `A → 192.168.1.19`, Traefik on `websecure` with a cert-manager DNS-01 Let's Encrypt cert (`longhorn-tls`). Off-LAN needs `--accept-routes` for manu's `192.168.1.0/24` route |
+| `longhorn` — second route | `https://timmy.tailbca2b8.ts.net` | `tailscale serve` on timmy → `longhorn-frontend` ClusterIP, tailnet-only (IMPR-1091). Kept alongside the hostname: needs no subnet route and no `--accept-routes` |
+| k8s dashboard | `https://timmy.tailbca2b8.ts.net:8443` | `tailscale serve` → `kubernetes-dashboard-kong-proxy` ClusterIP via `https+insecure://`, real Let's Encrypt cert (IMPR-1091) |
+| `k8s.nathanwhyte.dev` | **Not by name — no DNS record.** Over HTTP by IP only | Record deleted 2026-07-20 (IMPR-1029 step 3) and not restored. The 500 was fixed the same day — Traefik could not verify Kong's self-signed backend cert (no IP SANs); a `ServersTransport` (`dashboard/serverstransport.yaml`) resolved it — but with no record and no TLS on this Ingress, the hostname is unusable in a browser. See below |
+
+To reach the dashboard by hostname you must supply both the name **and** accept
+that TLS will fail, which browsers will not allow on a `.dev` domain. For
+scripted checks use an explicit override rather than a hosts entry:
+
+```sh
+curl --resolve k8s.nathanwhyte.dev:80:192.168.1.19 http://k8s.nathanwhyte.dev/
+```
+
+For interactive use, prefer the `tailscale serve` endpoint above — it has a real
+certificate and needs no DNS at all. Giving the dashboard the same treatment as
+Longhorn (record + cert-manager on `websecure`) is the alternative, and is not
+done.
 
 Two constraints worth knowing before reaching for `/etc/hosts`:
 
 - **`.dev` is HSTS-preloaded**, so browsers force HTTPS and cannot be talked out
-  of it. Both Ingresses declare `router.entrypoints: web` with no `spec.tls`, so
-  port 443 answers with Traefik's default self-signed cert →
-  `ERR_CERT_AUTHORITY_INVALID`. A hosts entry alone does not make either host
-  browser-reachable.
+  of it. A hosts entry alone therefore never makes a `.dev` host
+  browser-reachable — name resolution and a valid certificate are both required,
+  and neither substitutes for the other.
+  - **Longhorn now satisfies both** (`websecure` + cert-manager, since
+    `f77a516`), which is exactly why it works by name.
+  - **The dashboard satisfies neither.** Its Ingress is still
+    `router.entrypoints: web` with no `spec.tls`, so port 443 answers with
+    Traefik's default self-signed cert → `ERR_CERT_AUTHORITY_INVALID`, and there
+    is no DNS record either.
 - **`curl` ignores HSTS preload**, so it returns 200 on paths no browser can
   take. Verify the cert chain, not just the status code.
 
