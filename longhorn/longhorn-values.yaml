@@ -58,7 +58,11 @@ ingress:
     # sourceRange in longhorn/middleware.yaml. Change the two together.
     traefik.ingress.kubernetes.io/router.middlewares: longhorn-system-longhorn-lan-only@kubernetescrd
     # DNS-01 issuance, so the host does not need to be publicly reachable —
-    # longhorn.nathanwhyte.dev resolves to timmy's tailnet IP, not the tunnel.
+    # longhorn.nathanwhyte.dev is an unproxied A record to 192.168.1.19
+    # (timmy's LAN IP, where Traefik listens), not the tunnel. Deliberately NOT
+    # timmy's tailnet IP: `tailscale serve` binds :443 there and rejects any
+    # other SNI, so the request would never reach Traefik. Off-LAN access rides
+    # manu's 192.168.1.0/24 subnet route and needs `--accept-routes`.
     # Same pattern as harbor-tls / openviking-tls.
     cert-manager.io/cluster-issuer: letsencrypt-prod
   # NB: this chart takes `tls` as a BOOLEAN plus a separate `tlsSecret` name —
