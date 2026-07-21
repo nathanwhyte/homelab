@@ -2,7 +2,7 @@
 # Run a compendium→OV sync from inside the cluster — the SINGLE sync writer
 # for the compendium OV namespace (BUG-1034 phase 2).
 #
-#   compendium/cluster-sync.sh [--follow] [--heal[=N]] [-- <compendium-sync.py sync args>]
+#   compendium/cluster-sync.sh [--follow] [--heal] [-- <compendium-sync.py sync args>]
 #
 # With no args, runs the canonical manual sync:
 #   sync --changed --yes --state-file /state/compendium-sync-state.json --no-wait --deadline-seconds 2400
@@ -11,26 +11,24 @@
 #
 # Flags:
 #   --follow    Stream the Job's logs and wait for it to complete.
-#   --heal[=N]  Wait for the Job; if it fails on the OpenViking orphaned-lock
-#               signature (CONFLICT: Resource is busy / LockAcquisitionError —
-#               BUG-1039: a killed sync pod leaves stale in-process tree locks in
-#               the long-lived openviking process), restart deploy/openviking to
-#               drop those locks and re-dispatch. Bounded to N restarts (default
-#               2). Restarts ONLY on an unhandled lock failure — a journal run
-#               that parks cleanly is owned by IMPR-1062 retry orchestration and
-#               never triggers this legacy healer. Implies waiting for the Job;
-#               composes with --follow.
+#   --heal      DEPRECATED and read-only (IMPR-1062 Phase 4): healing now lives
+#               INSIDE the Job — correlated wedge detection plus a guarded,
+#               cooldown-breakered restart of deploy/openviking via the
+#               compendium-sync ServiceAccount (sync-rbac.yaml). This flag
+#               never restarts anything; it waits for the Job and reports the
+#               Job's own heal decision from its logs. A second restart
+#               controller outside the Job's breaker is not acceptable
+#               (IMPR-1062 plan review P1).
 #
 # Examples:
-#   compendium/cluster-sync.sh --follow --heal   # canonical invocation — always include --heal
-#   compendium/cluster-sync.sh --heal
-#   compendium/cluster-sync.sh --follow --heal=3
+#   compendium/cluster-sync.sh                   # canonical: dispatch and move on
+#   compendium/cluster-sync.sh --follow
 #   compendium/cluster-sync.sh -- --include-active --no-wait "bugs/dipdash/BUG-004-*.md"
 #
-# Bootstraps (idempotent): compendium namespace + state PVC, secret
-# compendium-git-token (copied from hermes/github-access-token), secret
-# openviking-api-key (copied from viking/openviking-api-key — Secrets don't
-# cross namespaces).
+# Bootstraps (idempotent): compendium namespace + state PVC + sync RBAC (the
+# in-Job heal's SA/Role/RoleBinding), secret compendium-git-token (copied from
+# hermes/github-access-token), secret openviking-api-key (copied from
+# viking/openviking-api-key — Secrets don't cross namespaces).
 set -euo pipefail
 
 OV_NAMESPACE=viking
@@ -39,7 +37,7 @@ OV_DEPLOY=openviking
 case "${1:-}" in
 -h | --help)
 	# Print the header docstring (usage + flags + examples) without dispatching a Job.
-	sed -n '2,32p' "$0" | sed 's/^# \{0,1\}//'
+	sed -n '2,31p' "$0" | sed 's/^# \{0,1\}//'
 	exit 0
 	;;
 esac
@@ -48,20 +46,15 @@ cd "$(dirname "$0")"
 
 FOLLOW=0
 HEAL=0
-HEAL_MAX=2
 while [ "$#" -gt 0 ]; do
 	case "$1" in
 	--follow)
 		FOLLOW=1
 		shift
 		;;
-	--heal)
+	--heal | --heal=*)
 		HEAL=1
-		shift
-		;;
-	--heal=*)
-		HEAL=1
-		HEAL_MAX="${1#--heal=}"
+		echo "note: --heal is deprecated and read-only — healing runs inside the Job (IMPR-1062 Phase 4); this waits and reports only" >&2
 		shift
 		;;
 	--)
@@ -72,7 +65,7 @@ while [ "$#" -gt 0 ]; do
 	esac
 done
 
-kubectl apply -f namespace.yaml -f state-pvc.yaml >/dev/null
+kubectl apply -f namespace.yaml -f state-pvc.yaml -f sync-rbac.yaml >/dev/null
 
 copy_secret() {
 	local src_ns="$1" src_name="$2" dst_name="$3"
@@ -151,65 +144,43 @@ wait_terminal() {
 	done
 }
 
-# True when ${JOB_NAME}'s logs carry the BUG-1039 orphaned-lock signature. The
-# same orphaned tree lock surfaces two ways depending on the op: `Resource is
-# busy` on add-resource, and `Resource is being processed` (a 409 from a delete
-# timing out on the held lock) on a rename/delete — match both.
-lock_failure() {
+# Read-only heal report (IMPR-1062 Phase 4): surface the Job's OWN wedge-check
+# and heal decisions from its logs. This script never restarts OpenViking —
+# the Job holds the single restart breaker; a wedge that the Job could not
+# clear is resumed by a rerun, not by a second controller here.
+heal_report() {
 	local logs
 	if ! logs=$(kubectl logs "job/${JOB_NAME}" -n compendium 2>/dev/null); then
-		return 1
+		echo "heal report: job logs unavailable" >&2
+		return 0
 	fi
-
-	# IMPR-1062 journal mode owns retry through its deadline. Conflict text in
-	# these logs is attempt history, not proof of an orphaned terminal lock. Once
-	# the journal reports a consistent incomplete/parked outcome, leave OV alone;
-	# the operator can explicitly resume the pinned set with --retry-parked.
-	if grep -qiE 'journal: (deadline reached|run incomplete)' <<<"$logs"; then
-		echo "journal ended consistently with parked work — skipping legacy OV restart; resume with --retry-parked" >&2
-		return 1
+	if grep -E '^(heal:|wedge check:)' <<<"$logs"; then
+		return 0
 	fi
-
-	grep -qiE 'Resource is (busy|being processed)|LockAcquisitionError|(Failed to acquire|Timeout waiting for) .*lock' <<<"$logs"
+	echo "heal report: no wedge-check/heal lines in the job log"
 }
 
-restart_ov() {
-	echo "orphaned-lock failure detected (BUG-1039) — restarting ${OV_DEPLOY} in ${OV_NAMESPACE} to drop stale in-process tree locks" >&2
-	kubectl rollout restart "deploy/${OV_DEPLOY}" -n "${OV_NAMESPACE}"
-	kubectl rollout status "deploy/${OV_DEPLOY}" -n "${OV_NAMESPACE}" --timeout=180s
-}
+dispatch
 
-heal_attempts=0
-while :; do
-	dispatch
+# Dispatch-and-return unless we need to observe the outcome.
+if [ "$FOLLOW" = 0 ] && [ "$HEAL" = 0 ]; then
+	exit 0
+fi
 
-	# Fire-and-forget unless we need to observe the outcome.
-	if [ "$FOLLOW" = 0 ] && [ "$HEAL" = 0 ]; then
-		break
-	fi
+wait_pod_ready
+if [ "$FOLLOW" = 1 ]; then
+	kubectl logs -f "job/${JOB_NAME}" -n compendium || true
+fi
 
-	wait_pod_ready
-	if [ "$FOLLOW" = 1 ]; then
-		kubectl logs -f "job/${JOB_NAME}" -n compendium || true
-	fi
+status=$(wait_terminal)
+if [ "$HEAL" = 1 ]; then
+	heal_report
+fi
+if [ "$status" = complete ]; then
+	echo "sync completed: ${JOB_NAME}"
+	exit 0
+fi
 
-	status=$(wait_terminal)
-	if [ "$status" = complete ]; then
-		echo "sync completed: ${JOB_NAME}"
-		break
-	fi
-
-	# Failed. Self-heal ONLY on the orphaned-lock signature, within the restart budget.
-	if [ "$HEAL" = 1 ] && [ "$heal_attempts" -lt "$HEAL_MAX" ] && lock_failure; then
-		heal_attempts=$((heal_attempts + 1))
-		echo "heal ${heal_attempts}/${HEAL_MAX}: ${JOB_NAME} failed on orphaned OV locks — restarting and retrying" >&2
-		restart_ov
-		continue
-	fi
-
-	echo "job ${JOB_NAME} did not complete cleanly (status: ${status:-unknown}) — inspect: kubectl -n compendium logs job/${JOB_NAME}" >&2
-	if [ "$HEAL" = 1 ] && [ "$heal_attempts" -ge "$HEAL_MAX" ]; then
-		echo "heal budget (${HEAL_MAX} restart(s)) exhausted — orphaned locks may persist; check ${OV_DEPLOY} in ${OV_NAMESPACE}" >&2
-	fi
-	exit 1
-done
+echo "job ${JOB_NAME} did not complete cleanly (status: ${status:-unknown}) — inspect: kubectl -n compendium logs job/${JOB_NAME}" >&2
+echo "a parked journal resumes with a rerun (or -- --retry-parked); wedge healing is owned by the Job (check its 'heal:' log lines) — do NOT restart ${OV_DEPLOY} in ${OV_NAMESPACE} by hand unless the Job's breaker said it declined" >&2
+exit 1
