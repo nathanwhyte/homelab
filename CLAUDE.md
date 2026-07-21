@@ -31,8 +31,8 @@ ROCm / RDNA4 guardrails for timmy's RX 9070 XT (the 1080 and 1060 are NVIDIA-onl
 | ------------------------- | -------------------- | -------------- | ------------------------------------------------------------------------------------------------------- |
 | harbor-no-limit           | harbor               | buffering      | Unlimited body size for image pushes                                                                    |
 | openviking-https-redirect | viking               | redirectScheme | HTTP → HTTPS, permanent                                                                                 |
-| k8s-dashboard-lan-only    | kubernetes-dashboard | ipAllowList    | Wired to the dashboard Ingress 2026-07-20 (BUG-1031 fix: refs must be `<ns>-<name>@kubernetescrd`)      |
-| longhorn-lan-only         | longhorn-system      | ipAllowList    | Wired to the Longhorn Ingress 2026-07-20 (BUG-1031 fix: refs must be `<ns>-<name>@kubernetescrd`)       |
+| k8s-dashboard-lan-only    | kubernetes-dashboard | ipAllowList    | Wired 2026-07-20 (BUG-1031: refs must be `<ns>-<name>@kubernetescrd`) — **not yet enforcing**: kube-proxy SNAT masks client IPs, see external-routes.md |
+| longhorn-lan-only         | longhorn-system      | ipAllowList    | Wired 2026-07-20 (BUG-1031: refs must be `<ns>-<name>@kubernetescrd`) — **not yet enforcing**: kube-proxy SNAT masks client IPs, see external-routes.md |
 
 > OpenViking auth posture is **API-key-only** (IMPR-1007 Phase 4 decision, confirmed 2026-07-04): OV enforces `root_api_key` on every tier, no Traefik BasicAuth layer. The BasicAuth middleware manifest, secret example, and the dangling ingress annotation were removed 2026-07-04 (the Middleware was never deployed live, and the Cloudflare tunnel bypasses Traefik anyway). The `/mcp` path has its own Ingress (`viking/manifests/openviking-mcp-ingress.yaml`) so the native OpenViking MCP endpoint can be reached via Bearer token. `context.nathanwhyte.dev` is also reachable through the Cloudflare tunnel (see [External routes](reference/external-routes.md), marked "both").
 

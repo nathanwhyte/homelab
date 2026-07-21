@@ -44,8 +44,18 @@ Traefik on 192.168.1.19.
 > middlewares without the namespace prefix — cross-provider refs from Ingress
 > annotations must use `<namespace>-<name>@kubernetescrd`, e.g.
 > `longhorn-system-longhorn-lan-only@kubernetescrd`. The provider was never
-> broken). Both hosts now enforce LAN-only source filtering
-> (192.168.1.0/24 + pod/service CIDRs), verified live with curl on both routes.
+> broken). The refs resolve without error and the routers register with the
+> middleware attached.
+>
+> **But the allowlists do not currently discriminate.** The Traefik Service is
+> `type=LoadBalancer` with `externalTrafficPolicy: Cluster`, so kube-proxy
+> SNATs every incoming connection to a `10.42.x` cluster address before it
+> reaches Traefik — which both middlewares permit via `10.42.0.0/16`. A
+> tailnet-source request (not in any `sourceRange`) returns 200, and no 403s
+> appear in the Traefik logs. Effective IP filtering requires preserving
+> client source IPs (`externalTrafficPolicy: Local` — blocked on a
+> replica/DaemonSet decision, since Traefik is a single replica on timmy and
+> `Local` would stop the other node IPs from serving). Tracked as its own bug.
 
 | Host                       | Backend                           | Auth                         | Notes                                                                                          |
 | -------------------------- | ---------------------------------- | ----------------------------- | ------------------------------------------------------------------------------------------------ |
