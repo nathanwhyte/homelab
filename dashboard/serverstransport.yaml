@@ -1,0 +1,32 @@
+# Traefik -> Kong backend transport for the Kubernetes Dashboard.
+#
+# The dashboard's Ingress targets `kubernetes-dashboard-kong-proxy:443`, and
+# Kong serves TLS there with a self-signed certificate. Traefik connects to the
+# backend by pod IP, and Kong's cert carries no IP SANs, so verification fails
+# and every request 500s:
+#
+#   tls: failed to verify certificate: x509: cannot validate certificate for
+#   10.42.2.3 because it doesn't contain any IP SANs
+#
+# Kong itself is healthy — `curl -k https://<clusterIP>:443/` returns 200.
+# Skipping verification is appropriate here: the hop is pod-to-pod inside the
+# cluster, and the certificate is self-signed by design.
+#
+# Referenced from the Service via
+#   traefik.ingress.kubernetes.io/service.serverstransport:
+#     kubernetes-dashboard-kong-transport@kubernetescrd
+#
+# NOTE: the kubernetes-dashboard Service is Helm-managed, so that annotation
+# belongs in the chart values to survive an upgrade — see deploy-dashboard.sh.
+#
+# Added 2026-07-20. Whether this resolves at all is the open question: BUG-1031
+# records Traefik's kubernetescrd provider failing to resolve *any* Middleware
+# ref cluster-wide, and ServersTransport goes through the same provider.
+---
+apiVersion: traefik.io/v1alpha1
+kind: ServersTransport
+metadata:
+  name: kong-transport
+  namespace: kubernetes-dashboard
+spec:
+  insecureSkipVerify: true

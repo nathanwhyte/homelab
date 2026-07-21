@@ -1,18 +1,8 @@
----
-apiVersion: traefik.io/v1alpha1
-kind: IngressRouteTCP
-metadata:
-  name: kubernetes-dashboard-tcp
-  namespace: kubernetes-dashboard
-spec:
-  entryPoints:
-    - websecure
-  routes:
-    - match: HostSNI(`k8s.nathanwhyte.dev`)
-      services:
-        - name: kubernetes-dashboard-kong-proxy
-          port: 443
-
+# An IngressRouteTCP for k8s.nathanwhyte.dev was removed here 2026-07-20. It
+# declared HostSNI() on the `websecure` entrypoint with no `tls:` block, which
+# Traefik rejects outright — "invalid rule: has HostSNI matcher, but no TLS on
+# router" — so it never routed anything and only produced repeating errors in
+# the Traefik log. The Ingress below already serves this host.
 ---
 apiVersion: networking.k8s.io/v1
 kind: Ingress
