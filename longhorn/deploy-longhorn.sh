@@ -3,7 +3,7 @@ set -euo pipefail
 
 LONGHORN_DIR="$(cd "$(dirname "$0")" && pwd)"
 NAMESPACE="longhorn-system"
-CHART_VERSION="1.11.0"
+CHART_VERSION="1.12.0"
 
 if ! command -v kubectl &>/dev/null; then
 	echo "kubectl not installed."
