@@ -41,7 +41,9 @@ Traefik on 192.168.1.19.
 > **`longhorn.nathanwhyte.dev` was subsequently restored** on 2026-07-20
 > (homelab `f77a516`) — but as an unproxied `A → 192.168.1.19`, pointing at
 > Traefik on the LAN rather than back at the tunnel. It is not a reversal of
-> step 3; the tunnel route stays deleted. `k8s.nathanwhyte.dev` has no record.
+> step 3; the tunnel route stays deleted. **`k8s.nathanwhyte.dev` was restored
+> the same way on 2026-07-21** — unproxied `A → 192.168.1.19`, `websecure` +
+> cert-manager on `dashboard/ingress.yaml`, same pattern as Longhorn.
 >
 > The `ipAllowList` middlewares (`k8s-dashboard-lan-only`, `longhorn-lan-only`)
 > are **wired to both Ingresses since 2026-07-20** (BUG-1031 resolved: the
@@ -89,42 +91,31 @@ Current state per host:
 | --- | --- | --- |
 | `longhorn.nathanwhyte.dev` | **By name, over HTTPS.** `https://longhorn.nathanwhyte.dev` | Restored 2026-07-20 (homelab `f77a516`): unproxied `A → 192.168.1.19`, Traefik on `websecure` with a cert-manager DNS-01 Let's Encrypt cert (`longhorn-tls`). Off-LAN needs `--accept-routes` for manu's `192.168.1.0/24` route |
 | `longhorn` — second route | `https://timmy.tailbca2b8.ts.net` | `tailscale serve` on timmy → `longhorn-frontend` ClusterIP, tailnet-only (IMPR-1091). Kept alongside the hostname: needs no subnet route and no `--accept-routes` |
-| k8s dashboard | `https://timmy.tailbca2b8.ts.net:8443` | `tailscale serve` → `kubernetes-dashboard-kong-proxy` ClusterIP via `https+insecure://`, real Let's Encrypt cert (IMPR-1091) |
-| `k8s.nathanwhyte.dev` | **Not by name — no DNS record.** Over HTTP by IP only | Record deleted 2026-07-20 (IMPR-1029 step 3) and not restored. The 500 was fixed the same day — Traefik could not verify Kong's self-signed backend cert (no IP SANs); a `ServersTransport` (`dashboard/serverstransport.yaml`) resolved it — but with no record and no TLS on this Ingress, the hostname is unusable in a browser. See below |
+| `k8s.nathanwhyte.dev` | **By name, over HTTPS.** `https://k8s.nathanwhyte.dev` | Restored 2026-07-21, same pattern as Longhorn: unproxied `A → 192.168.1.19`, `dashboard/ingress.yaml` moved to `websecure` with a cert-manager DNS-01 Let's Encrypt cert (`k8s-dashboard-tls`). The `kubernetes-dashboard-kong-proxy:443` backend TLS was already handled by `dashboard/serverstransport.yaml` (Kong's self-signed cert has no IP SANs) |
+| k8s dashboard — second route | `https://timmy.tailbca2b8.ts.net:8443` | `tailscale serve` → `kubernetes-dashboard-kong-proxy` ClusterIP via `https+insecure://`, real Let's Encrypt cert (IMPR-1091). Kept alongside the hostname, same reasoning as Longhorn's second route |
 
-To reach the dashboard by hostname you must supply both the name **and** accept
-that TLS will fail, which browsers will not allow on a `.dev` domain. For
-scripted checks use an explicit override rather than a hosts entry:
+Both `*.nathanwhyte.dev` admin hosts now satisfy the two constraints a `.dev`
+domain requires — name resolution and a valid certificate, since HSTS preload
+means browsers force HTTPS and cannot be talked out of it:
 
-```sh
-curl --resolve k8s.nathanwhyte.dev:80:192.168.1.19 http://k8s.nathanwhyte.dev/
-```
+- **Longhorn** since `f77a516` (2026-07-20): `websecure` + cert-manager.
+- **k8s dashboard** since 2026-07-21: same treatment, `dashboard/ingress.yaml`.
 
-For interactive use, prefer the `tailscale serve` endpoint above — it has a real
-certificate and needs no DNS at all. Giving the dashboard the same treatment as
-Longhorn (record + cert-manager on `websecure`) is the alternative, and is not
-done.
+`curl` ignores HSTS preload, so it's useful for scripted checks against a host
+that doesn't yet have both — but it will return 200 on paths no browser can
+take, so verify the cert chain, not just the status code, when troubleshooting.
 
-Two constraints worth knowing before reaching for `/etc/hosts`:
-
-- **`.dev` is HSTS-preloaded**, so browsers force HTTPS and cannot be talked out
-  of it. A hosts entry alone therefore never makes a `.dev` host
-  browser-reachable — name resolution and a valid certificate are both required,
-  and neither substitutes for the other.
-  - **Longhorn now satisfies both** (`websecure` + cert-manager, since
-    `f77a516`), which is exactly why it works by name.
-  - **The dashboard satisfies neither.** Its Ingress is still
-    `router.entrypoints: web` with no `spec.tls`, so port 443 answers with
-    Traefik's default self-signed cert → `ERR_CERT_AUTHORITY_INVALID`, and there
-    is no DNS record either.
-- **`curl` ignores HSTS preload**, so it returns 200 on paths no browser can
-  take. Verify the cert chain, not just the status code.
-
-Options if the `*.nathanwhyte.dev` names are wanted back: cert-manager on the
-Ingresses (a Ready `letsencrypt-prod` ClusterIssuer and DNS-01 already exist), or
-a resolver plus a real Split DNS route. Neither is done. Background:
-`docs/research/2026-07-20-homelab-tunnel-and-ingress-drift-audit.md` in the
-compendium.
+One caveat observed 2026-07-21 rolling out the dashboard record: a resolver
+between the client and Cloudflare's authoritative servers (in this case the LAN
+resolver at `192.168.1.1`) can hold a cached `NXDOMAIN` for a name from before
+its record existed. The record itself was live on Cloudflare within
+seconds — `dig @1.1.1.1` and `dig @8.8.8.8` both answered correctly — but
+`192.168.1.1` kept returning `NXDOMAIN` for the SOA negative-cache TTL (~25
+min) before self-correcting. No action needed beyond waiting it out (or
+flushing that resolver's cache directly, if it's reachable). Tailscale's
+`100.100.100.100` was not the cause — `tailscale dns status` confirms no
+tailnet resolvers are configured, so it forwards straight through to
+`192.168.1.1`.
 
 ## Tailscale — private external access (PROJ-008)
 
