@@ -69,6 +69,10 @@ spec:
             # busy-lock retry) would otherwise hide all prior output until exit.
             - name: PYTHONUNBUFFERED
               value: "1"
+            # IMPR-1062 Phase 5: journal run_id + status-file job_name key on
+            # this; without it the script falls back to "local-<epoch>".
+            - name: JOB_NAME
+              value: ${JOB_NAME}
             - name: OPENVIKING_URL
               value: http://openviking.viking.svc.cluster.local:1933
             - name: OPENVIKING_ACCOUNT
