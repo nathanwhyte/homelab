@@ -39,17 +39,13 @@ Traefik on 192.168.1.19.
 > any more, so the tunnel's catch-all 404 is no longer reachable for them.
 >
 > The `ipAllowList` middlewares (`k8s-dashboard-lan-only`, `longhorn-lan-only`)
-> exist as CRD objects but remain commented out of both Ingresses — Traefik's
-> `kubernetescrd` provider fails to resolve *any* Middleware ref cluster-wide
-> ("middleware ... does not exist"), confirmed against pre-existing middlewares
-> too (`hermes-lan-only`, `viking-openviking-basicauth` — the latter since
-> removed 2026-07-04 with the API-key-only OV auth decision) after a full
-> Traefik restart. Wiring the annotation back in took
-> `longhorn.nathanwhyte.dev`'s Traefik route down (404) even for LAN clients —
-> reverted live. Tracked as BUG-1031.
->
-> Consequence: **no IP filtering is active on either host.** What restricts them
-> is that no tunnel ingress rule routes to them, not the middlewares.
+> are **wired to both Ingresses since 2026-07-20** (BUG-1031 resolved: the
+> "middleware ... does not exist" failures were caused by referencing
+> middlewares without the namespace prefix — cross-provider refs from Ingress
+> annotations must use `<namespace>-<name>@kubernetescrd`, e.g.
+> `longhorn-system-longhorn-lan-only@kubernetescrd`. The provider was never
+> broken). Both hosts now enforce LAN-only source filtering
+> (192.168.1.0/24 + pod/service CIDRs), verified live with curl on both routes.
 
 | Host                       | Backend                           | Auth                         | Notes                                                                                          |
 | -------------------------- | ---------------------------------- | ----------------------------- | ------------------------------------------------------------------------------------------------ |

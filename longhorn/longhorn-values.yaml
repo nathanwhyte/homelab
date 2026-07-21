@@ -42,12 +42,9 @@ ingress:
   path: /
   annotations:
     traefik.ingress.kubernetes.io/router.entrypoints: web
-    # traefik.ingress.kubernetes.io/router.middlewares: longhorn-lan-only@kubernetescrd
-    # ^ blocked: Traefik's kubernetescrd provider currently fails to resolve
-    # ANY Middleware CRD ref cluster-wide ("middleware ... does not exist"),
-    # confirmed live 2026-07-02 even for pre-existing middlewares
-    # (hermes-lan-only, viking-openviking-basicauth) after a full Traefik
-    # restart. Re-enable once that's fixed — see the filed bug.
+    # Cross-provider refs must be namespace-prefixed: <namespace>-<name>@kubernetescrd
+    # (BUG-1031 — the unprefixed form silently kills the whole router with a 404)
+    traefik.ingress.kubernetes.io/router.middlewares: longhorn-system-longhorn-lan-only@kubernetescrd
 
 # Network policies (k3s)
 networkPolicies:
