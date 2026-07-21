@@ -21,9 +21,9 @@ Traefik IngressRoutes. In the Notes column below, `CF` = Cloudflare-tunnel-only,
 
 ## LAN / Tailnet-only admin UIs (IMPR-1029)
 
-Not tunneled through Cloudflare at all — no public hostname exists. Reachable
-only from the LAN (`192.168.1.0/24`) or a Tailscale-connected client, via
-Traefik on 192.168.1.19.
+Not tunneled through Cloudflare at all. Their public DNS records are unproxied
+and point at private `192.168.1.19`, so the routes are reachable only from the
+LAN (`192.168.1.0/24`) or a Tailscale-connected client, via Traefik.
 
 > **Status (2026-07-20): cut over. Repo and live now agree.**
 > The live tunnel config was read against the Cloudflare API on 2026-07-20 and
@@ -68,7 +68,8 @@ Traefik on 192.168.1.19.
 > worse than none. What actually gates these hosts: neither is publicly
 > routable (both A records are unproxied and point at the private LAN IP
 > `192.168.1.19`, with no tunnel route), plus tailnet membership for the
-> `tailscale serve` path, plus the dashboard's own ServiceAccount bearer token.
+> `tailscale serve` path, plus Longhorn BasicAuth and the dashboard's own
+> ServiceAccount bearer token.
 >
 > > **Superseded 2026-07-21 (IMPR-1020).** This paragraph originally ended
 > > "**Longhorn's UI has no auth of its own** — LAN reachability is the only
