@@ -32,10 +32,11 @@ Traefik on 192.168.1.19.
 > earlier note here ("repo has them removed, live cluster does not") described a
 > divergence that no longer exists.
 >
-> Both public DNS records still exist and are proxied to the tunnel, so they
-> resolve and then hit the catch-all 404. Their deletion is IMPR-1029 step 3,
-> still outstanding — see the queue in
-> `cloudflare/main-tunnel/cloudflared-configmap.yaml`.
+> The public DNS records for both hosts were **deleted 2026-07-20** (IMPR-1029
+> step 3), along with the other stale entries — `hermes`, `mem0`, `api-mem0`,
+> `lamp`, `viking`, `ssh-manu`, `ssh-timmy`, `ssh-wemby`, `ollama`. Eleven
+> records in total; the zone went from 49 to 38. Neither host resolves publicly
+> any more, so the tunnel's catch-all 404 is no longer reachable for them.
 >
 > The `ipAllowList` middlewares (`k8s-dashboard-lan-only`, `longhorn-lan-only`)
 > exist as CRD objects but remain commented out of both Ingresses — Traefik's
