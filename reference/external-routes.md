@@ -45,35 +45,47 @@ Traefik on 192.168.1.19.
 > the same way on 2026-07-21** — unproxied `A → 192.168.1.19`, `websecure` +
 > cert-manager on `dashboard/ingress.yaml`, same pattern as Longhorn.
 >
-> The `ipAllowList` middlewares (`k8s-dashboard-lan-only`, `longhorn-lan-only`)
-> are **wired to both Ingresses since 2026-07-20** (BUG-1031 resolved: the
-> "middleware ... does not exist" failures were caused by referencing
-> middlewares without the namespace prefix — cross-provider refs from Ingress
-> annotations must use `<namespace>-<name>@kubernetescrd`, e.g.
-> `longhorn-system-longhorn-lan-only@kubernetescrd`. The provider was never
-> broken). The refs resolve without error and the routers register with the
-> middleware attached.
+> **There is no `ipAllowList` on either admin-UI route, deliberately.** The two
+> middlewares (`k8s-dashboard-lan-only`, `longhorn-lan-only`) were wired to both
+> Ingresses on 2026-07-20 and **removed on 2026-07-21** — they filtered nothing,
+> and could not be made to on this path (BUG-1057, resolved).
 >
-> **But the allowlists do not discriminate, and cannot be made to on this
-> path.** Measured 2026-07-21 by enabling Traefik access logs: a request from
+> Measured 2026-07-21 by enabling Traefik access logs: a request from
 > `192.168.1.8` was logged with `ClientHost: 192.168.1.19` — timmy's own node
 > IP. **k3s ServiceLB (klipper-lb) masquerades the client address in the
 > `svclb-traefik` pod**, a layer beneath kube-proxy. The node IP matches
-> `192.168.1.0/24` in `sourceRange`, so everything passes and the Traefik logs
-> contain zero 403s.
+> `192.168.1.0/24` in `sourceRange`, so everything passed and the Traefik logs
+> contained zero 403s.
 >
 > `externalTrafficPolicy: Local` **does not fix this** — it governs kube-proxy's
 > SNAT, which never gets a say because klipper has already rewritten the source.
 > An earlier revision of this note proposed exactly that, and was wrong. Real
-> filtering here needs MetalLB, or Traefik on `hostNetwork`/`hostPort` to bypass
-> klipper — or the honest alternative: drop the middlewares and enforce where it
-> demonstrably works (tailnet membership for the `tailscale serve` routes,
-> Cloudflare Access for anything public). Tracked as BUG-1057.
+> filtering would need MetalLB, or Traefik on `hostNetwork`/`hostPort` to bypass
+> klipper.
+>
+> Removal was chosen over keeping-them-labelled because an attached allowlist
+> reads as protection in every subsequent review — inert defense-in-depth is
+> worse than none. What actually gates these hosts: neither is publicly
+> routable (both A records are unproxied and point at the private LAN IP
+> `192.168.1.19`, with no tunnel route), plus tailnet membership for the
+> `tailscale serve` path, plus the dashboard's own ServiceAccount bearer token.
+> **Longhorn's UI has no auth of its own** — LAN reachability is the only
+> control on it, which is the residual risk this removal makes explicit rather
+> than creates.
+>
+> Anyone restoring an allowlist here must bypass klipper first, and must verify
+> with a **negative** test — a client outside `sourceRange` actually receiving
+> `403`. A passing request proves nothing; that mistake is what let these sit
+> inert for a day (see BUG-1057's verification-method note).
+>
+> The namespace-prefix convention from BUG-1031 (`<namespace>-<name>@kubernetescrd`
+> for cross-provider refs) still applies to every other middleware and
+> ServersTransport ref in this repo — see `dashboard/serverstransport.yaml`.
 
 | Host                       | Backend                           | Auth                         | Notes                                                                                          |
 | -------------------------- | ---------------------------------- | ----------------------------- | ------------------------------------------------------------------------------------------------ |
 | `k8s.nathanwhyte.dev`      | `kubernetes-dashboard-kong-proxy` | ServiceAccount bearer token   | Traefik Ingress (`dashboard/ingress.yaml`)                                                       |
-| `longhorn.nathanwhyte.dev` | `longhorn-frontend`               | —                             | Traefik Ingress (Helm-managed, `longhorn/longhorn-values.yaml`)                                  |
+| `longhorn.nathanwhyte.dev` | `longhorn-frontend`               | **none** — unauthenticated    | Traefik Ingress (Helm-managed, `longhorn/longhorn-values.yaml`). `longhorn-auth-secret` exists but is wired to nothing; verified 2026-07-21, unauthenticated GET returns 200 |
 
 ### How these are actually reached (corrected 2026-07-20)
 

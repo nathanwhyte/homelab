@@ -45,22 +45,26 @@ ingress:
     # because `.dev` is HSTS-preloaded — browsers refuse plain HTTP outright,
     # and port 443 previously answered with Traefik's self-signed default cert.
     traefik.ingress.kubernetes.io/router.entrypoints: websecure
-    # Namespace-prefixed ref — `<namespace>-<name>@kubernetescrd`. The old
-    # unprefixed `longhorn-lan-only@kubernetescrd` parsed as middleware
-    # `lan-only` in namespace `longhorn` (which does not exist), which read as a
-    # provider bug for four months. Root-caused and fixed 2026-07-20, BUG-1031.
+    # There is deliberately NO ipAllowList middleware here (BUG-1057, removed
+    # 2026-07-21). One was attached 2026-07-20 and filtered nothing: k3s
+    # ServiceLB (klipper-lb) masquerades the client address inside the
+    # svclb-traefik pod, a layer beneath kube-proxy, so Traefik only ever sees a
+    # node IP. Measured via access logs — a request from 192.168.1.8 logged as
+    # ClientHost 192.168.1.19 (timmy's node IP), which matched the allowlist's
+    # own 192.168.1.0/24 and passed. `externalTrafficPolicy: Local` does NOT fix
+    # this; it governs kube-proxy's SNAT, which never gets a say.
     #
-    # NOTE (BUG-1057): this allowlist filters NOTHING, and cannot on this path.
-    # Measured 2026-07-21 via Traefik access logs: a request from 192.168.1.8
-    # was logged as ClientHost 192.168.1.19 — timmy's own node IP. k3s ServiceLB
-    # (klipper-lb) masquerades the client in the svclb-traefik pod, beneath
-    # kube-proxy, so `externalTrafficPolicy: Local` does NOT fix it — an earlier
-    # version of this comment claimed it would, and was wrong. Real filtering
-    # needs MetalLB or Traefik on hostNetwork/hostPort, or drop the middleware
-    # and rely on the access controls that do work (tailnet membership for the
-    # `tailscale serve` route, Cloudflare Access for anything public).
-    # The ref is kept so the wiring stays correct if a mechanism lands later.
-    traefik.ingress.kubernetes.io/router.middlewares: longhorn-system-longhorn-lan-only@kubernetescrd
+    # It was removed rather than kept-but-labelled because an attached allowlist
+    # reads as protection in every future review. Restoring one requires first
+    # bypassing klipper (MetalLB, or Traefik on hostNetwork/hostPort) AND a
+    # negative test proving an out-of-range client actually receives 403.
+    # Access control that does work: tailnet membership for the `tailscale serve`
+    # route, Cloudflare Access for anything genuinely public. This host is not
+    # publicly routable — its A record points at a private LAN IP.
+    #
+    # (The removed ref was namespace-prefixed, `<namespace>-<name>@kubernetescrd`.
+    # That convention is BUG-1031 and still applies to every other cross-provider
+    # ref — see dashboard/serverstransport.yaml, which relies on it.)
     # DNS-01 issuance, so the host does not need to be publicly reachable —
     # longhorn.nathanwhyte.dev is an unproxied A record to 192.168.1.19
     # (timmy's LAN IP, where Traefik listens), not the tunnel. Deliberately NOT

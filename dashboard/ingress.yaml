@@ -14,9 +14,22 @@ metadata:
     # because `.dev` is HSTS-preloaded — browsers refuse plain HTTP outright,
     # same fix applied to longhorn.nathanwhyte.dev (f77a516).
     traefik.ingress.kubernetes.io/router.entrypoints: websecure
-    # Cross-provider refs must be namespace-prefixed: <namespace>-<name>@kubernetescrd
-    # (BUG-1031 — the unprefixed form silently kills the whole router with a 404)
-    traefik.ingress.kubernetes.io/router.middlewares: kubernetes-dashboard-k8s-dashboard-lan-only@kubernetescrd
+    # There is deliberately NO ipAllowList middleware here (BUG-1057, removed
+    # 2026-07-21). One was attached 2026-07-20 and filtered nothing: k3s
+    # ServiceLB (klipper-lb) masquerades the client address inside the
+    # svclb-traefik pod, a layer beneath kube-proxy, so Traefik only ever sees a
+    # node IP. Measured via access logs — a request from 192.168.1.8 logged as
+    # ClientHost 192.168.1.19 (timmy's node IP), which matched the allowlist's
+    # own 192.168.1.0/24 and passed. `externalTrafficPolicy: Local` does NOT fix
+    # this; it governs kube-proxy's SNAT, which never gets a say.
+    #
+    # It was removed rather than kept-but-labelled because an attached allowlist
+    # reads as protection in every future review. Restoring one requires first
+    # bypassing klipper (MetalLB, or Traefik on hostNetwork/hostPort) AND a
+    # negative test proving an out-of-range client actually receives 403.
+    # Access control that does work: tailnet membership for the `tailscale serve`
+    # route, Cloudflare Access for anything genuinely public. This host is not
+    # publicly routable — its A record points at a private LAN IP.
     # DNS-01 issuance, so the host does not need to be publicly reachable —
     # k8s.nathanwhyte.dev resolves to the LAN IP, not the tunnel. Same pattern
     # as longhorn.nathanwhyte.dev / harbor-tls / openviking-tls.

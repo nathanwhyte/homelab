@@ -27,12 +27,22 @@ ROCm / RDNA4 guardrails for timmy's RX 9070 XT (the 1080 and 1060 are NVIDIA-onl
 
 ### Middlewares (Traefik CRD)
 
-| Name                      | NS                   | Type           | Detail                                                                                                                                                                                                     |
-| ------------------------- | -------------------- | -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| harbor-no-limit           | harbor               | buffering      | Unlimited body size for image pushes                                                                                                                                                                       |
-| openviking-https-redirect | viking               | redirectScheme | HTTP → HTTPS, permanent                                                                                                                                                                                    |
-| k8s-dashboard-lan-only    | kubernetes-dashboard | ipAllowList    | Wired 2026-07-20 (BUG-1031: refs must be `<ns>-<name>@kubernetescrd`) — **cannot enforce on this path**: k3s ServiceLB (klipper) masquerades client IPs to the node IP; `Local` does not fix it (BUG-1057) |
-| longhorn-lan-only         | longhorn-system      | ipAllowList    | Wired 2026-07-20 (BUG-1031: refs must be `<ns>-<name>@kubernetescrd`) — **cannot enforce on this path**: k3s ServiceLB (klipper) masquerades client IPs to the node IP; `Local` does not fix it (BUG-1057) |
+| Name                      | NS     | Type           | Detail                               |
+| ------------------------- | ------ | -------------- | ------------------------------------ |
+| harbor-no-limit           | harbor | buffering      | Unlimited body size for image pushes |
+| openviking-https-redirect | viking | redirectScheme | HTTP → HTTPS, permanent              |
+
+> **No `ipAllowList` middleware exists on any route, deliberately.**
+> `k8s-dashboard-lan-only` and `longhorn-lan-only` were removed 2026-07-21
+> (BUG-1057 resolved). They filtered nothing: k3s ServiceLB (klipper-lb)
+> masquerades the client address in the `svclb-traefik` pod, beneath kube-proxy,
+> so Traefik logged a node IP (`192.168.1.19`) as `ClientHost` for every request
+> — which matched the allowlist's own `192.168.1.0/24`. Setting
+> `externalTrafficPolicy` to `Local` does **not** fix it (it governs kube-proxy's
+> SNAT, which never gets a say). Real filtering needs MetalLB or Traefik on
+> `hostNetwork`/`hostPort`; anyone adding one back must verify with a **negative**
+> test (out-of-range client actually gets `403`). Details:
+> [reference/external-routes.md](reference/external-routes.md).
 
 > OpenViking auth posture is **API-key-only** (IMPR-1007 Phase 4 decision, confirmed 2026-07-04): OV enforces `root_api_key` on every tier, no Traefik BasicAuth layer. The BasicAuth middleware manifest, secret example, and the dangling ingress annotation were removed 2026-07-04 (the Middleware was never deployed live, and the Cloudflare tunnel bypasses Traefik anyway). The `/mcp` path has its own Ingress (`viking/manifests/openviking-mcp-ingress.yaml`) so the native OpenViking MCP endpoint can be reached via Bearer token. `context.nathanwhyte.dev` is also reachable through the Cloudflare tunnel (see [External routes](reference/external-routes.md), marked "both").
 

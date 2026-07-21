@@ -50,12 +50,19 @@ else
 	echo "  or create the secret manually in $NAMESPACE."
 fi
 
-echo -e "\nApplying Longhorn UI LAN-only middleware..."
-kubectl apply -f "$LONGHORN_DIR/middleware.yaml"
+# The LAN-only ipAllowList middleware that used to be applied here was removed
+# 2026-07-21 (BUG-1057). It filtered nothing — klipper-lb masquerades the client
+# address before Traefik sees it, so the allowlist matched a node IP on every
+# request. Access control lives at the tailnet/Cloudflare Access layer instead.
 
 echo -e "\nDone!"
-echo "  Web UI (Tailscale/LAN only, via Traefik on 192.168.1.19): https://longhorn.nathanwhyte.dev"
-echo "  Credentials: admin / <see longhorn-auth-secret>"
+echo "  Web UI (LAN / tailnet-routed, via Traefik on 192.168.1.19): https://longhorn.nathanwhyte.dev"
+echo "  NOTE: this UI is UNAUTHENTICATED. There is no BasicAuth middleware and no"
+echo "        network-layer allowlist (BUG-1057 — an ipAllowList cannot filter on"
+echo "        this path). The secret 'longhorn-auth-secret' exists but is wired to"
+echo "        nothing; verified 2026-07-21, an unauthenticated GET returns 200."
+echo "        LAN/tailnet reachability is the only control. The host is not"
+echo "        publicly routable (unproxied A record -> private 192.168.1.19)."
 echo "  Backup target: s3://longhorn-backups@auto/cluster/homelab-k3s/longhorn/"
 
 echo -e "\nCheck status:"
