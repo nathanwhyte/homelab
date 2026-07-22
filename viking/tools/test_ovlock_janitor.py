@@ -27,23 +27,45 @@ def _ts(seconds_ago: float) -> datetime.datetime:
 
 
 class StubS3(s3lite.S3Client):
-    """In-memory stand-in; `listings` is consumed one snapshot per list call."""
+    """In-memory stand-in; `listings` is consumed one snapshot per list call.
 
-    def __init__(self, listings, bodies=None, fail_delete=frozenset()):
+    get_object_meta returns the key's mtime from the most recent listing
+    (i.e. "unchanged since pass 2") unless `reacquired` overrides it or
+    `vanished` makes the pre-delete verify fail.
+    """
+
+    def __init__(
+        self,
+        listings,
+        bodies=None,
+        fail_delete=frozenset(),
+        reacquired=None,
+        vanished=frozenset(),
+    ):
         self.listings = list(listings)
         self.bodies = bodies or {}
         self.fail_delete = fail_delete
+        self.reacquired = reacquired or {}
+        self.vanished = vanished
         self.deleted: list[str] = []
+        self.last_snapshot: dict = {}
 
     def list_objects(self, bucket):
-        snapshot = self.listings.pop(0)
+        self.last_snapshot = self.listings.pop(0)
         return [
             {"Key": k, "LastModified": m, "Size": 58, "ETag": '"x"'}
-            for k, m in snapshot.items()
+            for k, m in self.last_snapshot.items()
         ]
 
     def get_object(self, bucket, key):
         return self.bodies.get(key, b"handle-1:123456789:T")
+
+    def get_object_meta(self, bucket, key):
+        if key in self.vanished:
+            raise s3lite.S3Error(f"GET {key}: HTTP 404")
+        mtime = self.reacquired.get(key, self.last_snapshot.get(key))
+        # Header precision is whole seconds
+        return self.get_object(bucket, key), mtime.replace(microsecond=0)
 
     def delete_object(self, bucket, key):
         if key in self.fail_delete:
@@ -155,6 +177,29 @@ class TestRun(unittest.TestCase):
         rc = self._run(make_args(), client)
         self.assertEqual(rc, 0)
         self.assertEqual(client.listings, [])  # no second pass
+
+    def test_reacquired_between_pass2_and_delete_is_skipped(self):
+        snap = {"a/.path.ovlock": _ts(3600), "b/.path.ovlock": _ts(3600)}
+        client = StubS3(
+            [snap, dict(snap)], reacquired={"a/.path.ovlock": _ts(0)}
+        )
+        rc = self._run(make_args(apply=True), client)
+        self.assertEqual(rc, 0)
+        self.assertEqual(client.deleted, ["b/.path.ovlock"])
+
+    def test_vanished_before_delete_is_skipped(self):
+        snap = {"a/.path.ovlock": _ts(3600)}
+        client = StubS3([snap, dict(snap)], vanished={"a/.path.ovlock"})
+        rc = self._run(make_args(apply=True), client)
+        self.assertEqual(rc, 0)
+        self.assertEqual(client.deleted, [])
+
+    def test_mtime_matches_tolerates_subsecond_only(self):
+        base = _ts(1800)
+        self.assertTrue(janitor._mtime_matches(base.replace(microsecond=0), base))
+        self.assertFalse(
+            janitor._mtime_matches(base + datetime.timedelta(seconds=30), base)
+        )
 
     def test_malformed_token_still_classified(self):
         snap = {"a/.path.ovlock": _ts(3600)}

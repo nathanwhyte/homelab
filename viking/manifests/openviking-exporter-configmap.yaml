@@ -584,6 +584,7 @@ data:
     from __future__ import annotations
 
     import datetime
+    import email.utils
     import hashlib
     import hmac
     import urllib.error
@@ -687,10 +688,24 @@ data:
             return req
 
         def _send(self, method: str, path: str, query: dict[str, str]) -> bytes:
+            return self._send_meta(method, path, query)[0]
+
+        def _send_meta(
+            self, method: str, path: str, query: dict[str, str]
+        ) -> tuple[bytes, datetime.datetime | None]:
+            """Like _send, but also returns the parsed Last-Modified header."""
             req = self._signed_request(method, path, query)
             try:
                 with urllib.request.urlopen(req, timeout=self.timeout) as resp:
-                    return resp.read()
+                    body = resp.read()
+                    last_modified = None
+                    header = resp.headers.get("Last-Modified")
+                    if header:
+                        try:
+                            last_modified = email.utils.parsedate_to_datetime(header)
+                        except (TypeError, ValueError):
+                            last_modified = None
+                    return body, last_modified
             except urllib.error.HTTPError as e:
                 raise S3Error(f"{method} {path}: HTTP {e.code} {e.read()[:200]!r}") from e
             except (urllib.error.URLError, OSError) as e:
@@ -732,6 +747,12 @@ data:
 
         def get_object(self, bucket: str, key: str) -> bytes:
             return self._send("GET", f"/{bucket}/{key}", {})
+
+        def get_object_meta(
+            self, bucket: str, key: str
+        ) -> tuple[bytes, datetime.datetime | None]:
+            """Object body plus its Last-Modified (second precision, or None)."""
+            return self._send_meta("GET", f"/{bucket}/{key}", {})
 
         def delete_object(self, bucket: str, key: str) -> None:
             self._send("DELETE", f"/{bucket}/{key}", {})

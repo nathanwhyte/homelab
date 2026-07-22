@@ -16,6 +16,14 @@ removed, without repeating its failure modes:
   restart every mtime freezes, so both health gates skip the run outright;
   once OV is healthy, resumed work re-acquires within minutes — far inside
   the 30-minute threshold.
+- Not delete-racy: Garage has no conditional (If-Match) delete, so each
+  candidate is re-GET'd immediately before deletion and skipped unless its
+  Last-Modified still matches pass 2 — any reacquisition rewrites the object
+  and moves mtime by ~the full dead threshold, so second-precision
+  comparison is unambiguous. Residual window is the GET->DELETE round trip
+  (milliseconds); even a lost race self-heals in <=30s (the new holder's
+  refresh loop rewrites the lock file) unless a second acquirer also lands
+  inside that same sub-second gap.
 
 Report-only for restarts by design: this tool never touches the Kubernetes
 API and never restarts deploy/openviking (single-restart-controller rule,
@@ -70,6 +78,15 @@ def read_token(client: s3lite.S3Client, bucket: str, key: str) -> str:
         return body if body.count(":") == 2 else f"(unexpected body: {body[:60]!r})"
     except s3lite.S3Error as e:
         return f"(unreadable: {e})"
+
+
+def _mtime_matches(
+    current: datetime.datetime, expected: datetime.datetime, tolerance: float = 1.5
+) -> bool:
+    """Second-precision equality: the Last-Modified header has no sub-second
+    part, while ListObjectsV2 timestamps do. A reacquisition moves mtime by
+    ~the dead threshold (30 min), so 1.5s tolerance cannot mask one."""
+    return abs((current - expected).total_seconds()) <= tolerance
 
 
 def classify(
@@ -136,10 +153,24 @@ def run(args: argparse.Namespace, client: s3lite.S3Client, sleep_fn=time.sleep) 
     candidates = dead[: args.max_delete]
     overflow = dead[args.max_delete :]
     failures = 0
+    reacquired = 0
     for key in candidates:
         age = int(now - pass2[key].timestamp())
-        token = read_token(client, args.bucket, key)
         if args.apply:
+            try:
+                body, current_mtime = client.get_object_meta(args.bucket, key)
+            except s3lite.S3Error as e:
+                # Vanished (already released/cleaned) or unreadable: never
+                # delete on unverified state.
+                print(f"skipped (pre-delete verify failed): {key} ({e})")
+                reacquired += 1
+                continue
+            token = body.decode("utf-8", "replace").strip()
+            if current_mtime is None or not _mtime_matches(current_mtime, pass2[key]):
+                print(f"skipped (reacquired between pass 2 and delete): {key} "
+                      f"mtime now {current_mtime} token={token[:80]!r}")
+                reacquired += 1
+                continue
             try:
                 client.delete_object(args.bucket, key)
             except s3lite.S3Error as e:
@@ -148,14 +179,16 @@ def run(args: argparse.Namespace, client: s3lite.S3Client, sleep_fn=time.sleep) 
                 continue
             print(f"deleted dead lease: {key} age={age}s token={token}")
         else:
+            token = read_token(client, args.bucket, key)
             print(f"would delete (dry-run): {key} age={age}s token={token}")
     if overflow:
         print(f"deferred {len(overflow)} candidate(s) beyond --max-delete "
               f"{args.max_delete}; the next run drains them")
     verb = "deleted" if args.apply else "would delete"
     print(f"summary: {len(pass2)} locks | {len(live)} live | {len(fresh)} fresh | "
-          f"{len(dead)} dead ({verb} {len(candidates) - failures}, "
-          f"failed {failures}, deferred {len(overflow)})")
+          f"{len(dead)} dead ({verb} {len(candidates) - failures - reacquired}, "
+          f"reacquired/skipped {reacquired}, failed {failures}, "
+          f"deferred {len(overflow)})")
     return 1 if failures else 0
 
 

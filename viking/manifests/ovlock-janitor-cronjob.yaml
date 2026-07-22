@@ -6,7 +6,9 @@
 # logged and surfaced via the OpenVikingWedgedLockFile alert — never deleted,
 # never "fixed" with a restart. This tool makes zero Kubernetes API calls;
 # deploy/openviking restarts belong exclusively to the IMPR-1062 Phase 4
-# in-Job heal (single-restart-controller rule).
+# in-Job heal (single-restart-controller rule). automountServiceAccountToken
+# is disabled to make that structural: the pod holds no API credentials at
+# all (it needs only DNS, HTTP to OV /health, and S3).
 #
 # SHADOW MODE: args carry no --apply, so every run is a dry-run report.
 # Enable deletion (plan Phase 4, after the >=3-day soak + drills) by adding
@@ -46,6 +48,7 @@ spec:
             app.kubernetes.io/component: ovlock-janitor
         spec:
           restartPolicy: Never
+          automountServiceAccountToken: false
           containers:
             - name: janitor
               image: ghcr.io/volcengine/openviking:v0.4.10
