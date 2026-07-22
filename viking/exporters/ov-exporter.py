@@ -21,6 +21,24 @@ Env:
                        (default: /app/data/viking)
     POLL_INTERVAL      Seconds between polls (default: 15)
     PORT               HTTP port for /metrics (default: 9210)
+
+S3 lock polling (IMPR-1095) — enabled when OVLOCK_S3_BUCKET is set. Under
+`agfs.backend: s3` the `.ovlock` files live in the Garage bucket, not on the
+PVC, so the find-based openviking_lock_path_ovlock_count above is blind there
+(the BUG-1039 269-stale-file drift went unseen). Uses the stdlib s3lite
+module mounted alongside this script; no SDK exists in the OV image.
+
+    OVLOCK_S3_BUCKET               Bucket to scan (e.g. openviking-agfs)
+    OVLOCK_S3_ENDPOINT             S3 endpoint URL
+                                   (default: http://garage.garage.svc.cluster.local:3900)
+    OVLOCK_S3_REGION               SigV4 region (default: garage)
+    AWS_ACCESS_KEY_ID              S3 credentials (openviking-s3-credentials)
+    AWS_SECRET_ACCESS_KEY          S3 credentials
+    OVLOCK_LIVE_WINDOW_SECONDS     mtime age at/below which a lock counts as
+                                   live-refreshing (default: 120 = 4x the 30s
+                                   lease refresh cadence)
+    OVLOCK_DEAD_THRESHOLD_SECONDS  mtime age above which a lock counts as a
+                                   dead lease (default: 1800)
 """
 
 from __future__ import annotations
@@ -31,6 +49,8 @@ import subprocess
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+import s3lite  # mounted/committed alongside this script
 
 # ── Metrics State ────────────────────────────────────────────────────────────
 
@@ -54,6 +74,13 @@ _metrics: dict[str, object] = {
     # AGFS lock count + lifecycle lock count
     "openviking_lock_path_ovlock_count": 0,
     "openviking_lifecycle_lock_active": 0,
+    # S3 bucket-level .ovlock classification (IMPR-1095); values hold their
+    # last good reading when a poll is skipped/fails (poll_ok flags it).
+    "openviking_s3_ovlock_total": 0,
+    "openviking_s3_ovlock_dead": 0,
+    "openviking_s3_ovlock_live_refreshing": 0,
+    "openviking_s3_ovlock_oldest_live_age_seconds": 0.0,
+    "openviking_s3_ovlock_poll_ok": 0,
 }
 
 POLL_TIMEOUT_S = 10
@@ -225,6 +252,63 @@ def poll_ov_status() -> bool:
     return True
 
 
+# Wall-clock timestamp of the first sighting of each live-refreshing lock key,
+# for the oldest_live_age gauge (a wedge's mtime never ages, so its *presence
+# duration* is the only signal that it has outlived plausible work — BUG-1039).
+# Reset on exporter restart: the wedge alert just re-accumulates from zero.
+_s3_first_seen: dict[str, float] = {}
+
+
+def poll_s3_locks(client, bucket: str, live_window: float, dead_threshold: float, ov_up: bool) -> bool:
+    """Classify .ovlock objects in the S3 AGFS bucket by mtime age.
+
+    age = now - LastModified. The lease refresh loop rewrites the object every
+    ~30s while its owner lives, so: age <= live_window -> live-refreshing;
+    age > dead_threshold -> dead lease (refresh loop gone); in between ->
+    fresh/pending (left uncounted in either bucket). Skips classification
+    entirely (poll_ok=0, gauges hold) when OV is down: every lock looks
+    frozen during a restart, and v0.4.10 may be about to resume that work.
+    """
+    if not ov_up:
+        with _lock:
+            _metrics["openviking_s3_ovlock_poll_ok"] = 0
+        return False
+    try:
+        objects = client.list_objects(bucket)
+    except Exception as e:  # noqa: BLE001 - any S3 failure just flags the poll
+        print(f"s3 lock poll failed: {e}", flush=True)
+        with _lock:
+            _metrics["openviking_s3_ovlock_poll_ok"] = 0
+        return False
+
+    now = time.time()
+    total = dead = live = 0
+    live_keys: set[str] = set()
+    for obj in objects:
+        if not s3lite.is_lock_key(obj["Key"]):
+            continue
+        total += 1
+        age = now - obj["LastModified"].timestamp()
+        if age <= live_window:
+            live += 1
+            live_keys.add(obj["Key"])
+            _s3_first_seen.setdefault(obj["Key"], now)
+        elif age > dead_threshold:
+            dead += 1
+    for key in list(_s3_first_seen):
+        if key not in live_keys:
+            del _s3_first_seen[key]
+    oldest_live_age = max((now - t for t in _s3_first_seen.values()), default=0.0)
+
+    with _lock:
+        _metrics["openviking_s3_ovlock_total"] = total
+        _metrics["openviking_s3_ovlock_dead"] = dead
+        _metrics["openviking_s3_ovlock_live_refreshing"] = live
+        _metrics["openviking_s3_ovlock_oldest_live_age_seconds"] = round(oldest_live_age, 1)
+        _metrics["openviking_s3_ovlock_poll_ok"] = 1
+    return True
+
+
 def poll_lock_count(agfs_path: str) -> bool:
     """Count .path.ovlock files under AGFS data root."""
     try:
@@ -355,6 +439,31 @@ def format_metrics() -> str:
             "Count of active lifecycle locks from ov status lock component.",
             _metrics["openviking_lifecycle_lock_active"],
         )
+        gauge(
+            "openviking_s3_ovlock_total",
+            "Count of .ovlock objects in the S3 AGFS bucket.",
+            _metrics["openviking_s3_ovlock_total"],
+        )
+        gauge(
+            "openviking_s3_ovlock_dead",
+            "S3 .ovlock objects whose mtime is older than the dead threshold (lease refresh gone).",
+            _metrics["openviking_s3_ovlock_dead"],
+        )
+        gauge(
+            "openviking_s3_ovlock_live_refreshing",
+            "S3 .ovlock objects with mtime inside the live window (lease actively refreshed).",
+            _metrics["openviking_s3_ovlock_live_refreshing"],
+        )
+        gauge(
+            "openviking_s3_ovlock_oldest_live_age_seconds",
+            "Longest continuous presence of any live-refreshing lock (wedge signal, BUG-1039).",
+            _metrics["openviking_s3_ovlock_oldest_live_age_seconds"],
+        )
+        gauge(
+            "openviking_s3_ovlock_poll_ok",
+            "1 if the last S3 lock poll ran with OV healthy, 0 if skipped or failed.",
+            _metrics["openviking_s3_ovlock_poll_ok"],
+        )
 
     return "\n".join(lines) + "\n"
 
@@ -387,10 +496,21 @@ class MetricsHandler(BaseHTTPRequestHandler):
 # ── Poll Loop ────────────────────────────────────────────────────────────────
 
 
-def poll_loop(agfs_path: str, interval: int) -> None:
+def poll_loop(agfs_path: str, interval: int, s3_cfg: dict | None) -> None:
     while True:
         status_ok = poll_ov_status()
         lock_ok = poll_lock_count(agfs_path)
+        if s3_cfg is not None:
+            # ov status succeeding is the OV-up gate: it talks to the live
+            # server, so a restart window (frozen mtimes everywhere) reads
+            # as not-up and the poll holds its previous classification.
+            poll_s3_locks(
+                s3_cfg["client"],
+                s3_cfg["bucket"],
+                s3_cfg["live_window"],
+                s3_cfg["dead_threshold"],
+                ov_up=status_ok,
+            )
         with _lock:
             _metrics["openviking_up"] = 1 if (status_ok and lock_ok) else 0
             _metrics["openviking_last_poll_unix"] = time.time()
@@ -405,9 +525,33 @@ def main() -> None:
     interval = int(os.environ.get("POLL_INTERVAL", "15"))
     port = int(os.environ.get("PORT", "9210"))
 
-    print(f"ov-exporter starting agfs={agfs_path} interval={interval}s port={port}")
+    s3_cfg: dict | None = None
+    bucket = os.environ.get("OVLOCK_S3_BUCKET", "")
+    if bucket:
+        s3_cfg = {
+            "client": s3lite.S3Client(
+                endpoint=os.environ.get(
+                    "OVLOCK_S3_ENDPOINT", "http://garage.garage.svc.cluster.local:3900"
+                ),
+                region=os.environ.get("OVLOCK_S3_REGION", "garage"),
+                access_key=os.environ["AWS_ACCESS_KEY_ID"],
+                secret_key=os.environ["AWS_SECRET_ACCESS_KEY"],
+            ),
+            "bucket": bucket,
+            "live_window": float(os.environ.get("OVLOCK_LIVE_WINDOW_SECONDS", "120")),
+            "dead_threshold": float(
+                os.environ.get("OVLOCK_DEAD_THRESHOLD_SECONDS", "1800")
+            ),
+        }
 
-    poller = threading.Thread(target=poll_loop, args=(agfs_path, interval), daemon=True)
+    print(
+        f"ov-exporter starting agfs={agfs_path} interval={interval}s port={port} "
+        f"s3_bucket={bucket or '(disabled)'}"
+    )
+
+    poller = threading.Thread(
+        target=poll_loop, args=(agfs_path, interval, s3_cfg), daemon=True
+    )
     poller.start()
 
     server = ThreadingHTTPServer(("0.0.0.0", port), MetricsHandler)

@@ -190,6 +190,23 @@ spec:
               value: "15"
             - name: PORT
               value: "9210"
+            # IMPR-1095: bucket-level .ovlock classification. Under
+            # agfs.backend: s3 the locks live in Garage, so the find-based
+            # AGFS_PATH count above is blind (BUG-1039's 269-file drift).
+            - name: OVLOCK_S3_BUCKET
+              value: openviking-agfs
+            - name: OVLOCK_S3_ENDPOINT
+              value: http://garage.garage.svc.cluster.local:3900
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: openviking-s3-credentials
+                  key: AWS_ACCESS_KEY_ID
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: openviking-s3-credentials
+                  key: AWS_SECRET_ACCESS_KEY
           ports:
             - containerPort: 9210
               name: metrics
