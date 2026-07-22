@@ -1,0 +1,91 @@
+---
+# IMPR-1095: resume-safe janitor for stale .ovlock files in the S3 AGFS
+# bucket. Replaces the blind 300s sidecar IMPR-1007 Phase 3 removed.
+#
+# Report-only for wedges: live-refreshing locks (BUG-1039 signature) are
+# logged and surfaced via the OpenVikingWedgedLockFile alert — never deleted,
+# never "fixed" with a restart. This tool makes zero Kubernetes API calls;
+# deploy/openviking restarts belong exclusively to the IMPR-1062 Phase 4
+# in-Job heal (single-restart-controller rule). automountServiceAccountToken
+# is disabled to make that structural: the pod holds no API credentials at
+# all (it needs only DNS, HTTP to OV /health, and S3).
+#
+# SHADOW MODE: args carry no --apply, so every run is a dry-run report.
+# Enable deletion (plan Phase 4, after the >=3-day soak + drills) by adding
+# "--apply" to the args list.
+#
+# Script + s3lite are mounted from the ovlock-janitor ConfigMap; regenerate
+# via viking/scripts/regen-janitor-configmap.sh. Runs on the OV image
+# (python3 stdlib only — the image has no S3 SDK, hence s3lite).
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: ovlock-janitor
+  namespace: viking
+  labels:
+    app.kubernetes.io/name: openviking
+    app.kubernetes.io/component: ovlock-janitor
+spec:
+  # Offset from hour boundaries; every 6h. Nothing to stagger against in the
+  # viking namespace — the janitor holds no locks and the health gates skip
+  # the run if OV is down mid-sync-restart.
+  schedule: "17 */6 * * *"
+  timeZone: "Etc/UTC"
+  suspend: false
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  startingDeadlineSeconds: 600
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      # Two list passes + 120s sleep + deletions; 15 min is generous.
+      activeDeadlineSeconds: 900
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: openviking
+            app.kubernetes.io/component: ovlock-janitor
+        spec:
+          restartPolicy: Never
+          automountServiceAccountToken: false
+          containers:
+            - name: janitor
+              image: ghcr.io/volcengine/openviking:v0.4.10
+              imagePullPolicy: IfNotPresent
+              command:
+                - python3
+                - /scripts/ovlock-janitor.py
+              env:
+                - name: OVLOCK_S3_BUCKET
+                  value: openviking-agfs
+                - name: OVLOCK_S3_ENDPOINT
+                  value: http://garage.garage.svc.cluster.local:3900
+                - name: OV_HEALTH_URL
+                  value: http://openviking.viking.svc.cluster.local:1933/health
+                - name: AWS_ACCESS_KEY_ID
+                  valueFrom:
+                    secretKeyRef:
+                      name: openviking-s3-credentials
+                      key: AWS_ACCESS_KEY_ID
+                - name: AWS_SECRET_ACCESS_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: openviking-s3-credentials
+                      key: AWS_SECRET_ACCESS_KEY
+              resources:
+                requests:
+                  cpu: 20m
+                  memory: 32Mi
+                limits:
+                  cpu: 200m
+                  memory: 128Mi
+              volumeMounts:
+                - name: scripts
+                  mountPath: /scripts
+                  readOnly: true
+          volumes:
+            - name: scripts
+              configMap:
+                name: ovlock-janitor
+                defaultMode: 0755
