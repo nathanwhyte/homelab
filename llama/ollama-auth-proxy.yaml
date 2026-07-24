@@ -10,12 +10,22 @@ data:
   #   API_KEY       -> owner token (pre-existing key, value unchanged)
   #   JOEL_API_KEY  -> Joel's token (must exist in the Secret before this applies)
   # Add a consumer: new Secret key + map entry + init-container env/sed pair.
-  # Revoke a consumer: remove their map entry (or rotate their Secret key alone).
+  # Revoke a consumer: remove their map entry or rotate their Secret key, THEN
+  # `kubectl -n llama rollout restart deployment/ollama-auth-proxy` and verify
+  # with `kubectl -n llama rollout status deployment/ollama-auth-proxy`.
+  # The config is rendered once by the init container into an emptyDir — a
+  # running pod never re-reads the Secret/ConfigMap, so a revoked token stays
+  # valid until the rollout completes. The restart is part of revocation, not
+  # optional hygiene.
   nginx.conf.template: |
     events {
       worker_connections 128;
     }
     http {
+      # Real token lengths (44+ chars) overflow the default 64-byte map hash
+      # bucket and nginx refuses to start ("could not build map_hash").
+      map_hash_bucket_size 128;
+
       map $http_authorization $auth_user {
         default "";
         "Bearer __TOKEN_NOOT__" "noot";
