@@ -16,11 +16,12 @@ data:
     #      passthrough, with NO local runner. So mark Ready as soon as the API
     #      answers — do NOT wait on local model prep. This keeps OV VLM available
     #      immediately, even on a cold cache that must download ~10 GB.
-    #   2. LOCAL model init (FIM + Zeta, IMPR-1083) — best-effort, in the
-    #      BACKGROUND, with retry so a transient registry/PVC failure self-heals.
-    #      It NEVER gates readiness. /tmp/models-ready is a SEPARATE signal (both
-    #      edit-prediction tags present), so a Ready-but-models-absent state is
-    #      observable rather than silently hidden.
+    #   2. LOCAL model init (DeepSeek FIM — IMPR-1083 node, 2026-07-24 model
+    #      cutover) — best-effort, in the BACKGROUND, with retry so a transient
+    #      registry/PVC failure self-heals. It NEVER gates readiness.
+    #      /tmp/models-ready is a SEPARATE signal (edit-prediction tag present),
+    #      so a Ready-but-models-absent state is observable rather than
+    #      silently hidden.
 
     echo "Waiting for the Ollama server to accept requests..."
     until ollama list > /dev/null 2>&1; do
@@ -30,50 +31,41 @@ data:
     touch /tmp/startup-complete
 
     prepare_edit_prediction_models() {
-      # gemma4 is orphaned (Hermes/mem0 retired) and no longer warmed. Create the
-      # custom FIM + Zeta tags from Modelfiles if absent (idempotent — the PVC
-      # persists them), then warm BIG-model-first (Zeta ~9.4 GB) so both stay
-      # pinned: loading Zeta while FIM is resident fits in the remainder, but
-      # loading Zeta second can transiently evict FIM.
+      # zeta2.1 + qwen2.5-coder:fim RETIRED as warm models 2026-07-24. BUG-1037
+      # closed the Zeta chapter: the open-weights model degenerates below ~3k
+      # prompt tokens while Zed hardcodes its self-hosted excerpt far smaller
+      # (~500-700 tokens) — unfixable client-side. deepseek-coder-v2-lite
+      # benchmarked ~2-3x faster than qwen2.5-coder:14b-base (P50 TTFT 0.59s vs
+      # 1.33s, ~167 vs ~57 tok/s) with identical FIM smoke-test output, so ONE
+      # resident model now serves every FIM client: Zed (prompt_format
+      # "deepseek_coder"), Minuet (suffix FIM via the library template's
+      # {{ .Suffix }} branch), and remote VSCode FIM (TASK-1156). The old tags
+      # stay on the PVC for rollback; they are just no longer warmed.
+      # gemma4 remains orphaned (Hermes/mem0 retired) and is not warmed.
       local attempt
       for attempt in 1 2 3 4 5; do
-        if ! ollama show qwen2.5-coder:fim > /dev/null 2>&1; then
-          ollama pull qwen2.5-coder:3b-base || true
+        if ! ollama show deepseek-coder-v2:fim > /dev/null 2>&1; then
+          ollama pull deepseek-coder-v2:16b-lite-base-q4_0 || true
           printf '%s\n' \
-            'FROM qwen2.5-coder:3b-base' \
+            'FROM deepseek-coder-v2:16b-lite-base-q4_0' \
             'PARAMETER num_ctx 16384' \
             'PARAMETER temperature 0' \
             'PARAMETER repeat_penalty 1.0' \
-            'PARAMETER stop "<|endoftext|>"' \
-            'PARAMETER stop "<|fim_pad|>"' \
-            'PARAMETER stop "<|file_sep|>"' \
-            'PARAMETER stop "<|repo_name|>"' \
+            'PARAMETER stop "<|EOT|>"' \
             > /tmp/fim.Modelfile
-          ollama create qwen2.5-coder:fim -f /tmp/fim.Modelfile || true
+          ollama create deepseek-coder-v2:fim -f /tmp/fim.Modelfile || true
         fi
-        if ! ollama show zeta2.1 > /dev/null 2>&1; then
-          ollama pull hf.co/mradermacher/zeta-2.1-GGUF:Q8_0 || true
-          printf '%s\n' \
-            'FROM hf.co/mradermacher/zeta-2.1-GGUF:Q8_0' \
-            'PARAMETER num_ctx 16384' \
-            'PARAMETER temperature 0' \
-            'PARAMETER repeat_penalty 1.0' \
-            > /tmp/zeta.Modelfile
-          ollama create zeta2.1 -f /tmp/zeta.Modelfile || true
-        fi
-        if ollama show qwen2.5-coder:fim > /dev/null 2>&1 && ollama show zeta2.1 > /dev/null 2>&1; then
-          for model in zeta2.1 qwen2.5-coder:fim; do
-            echo "Warming up ${model}..."
-            timeout 180s ollama run "${model}" "// warmup" > /dev/null 2>&1 || true
-          done
+        if ollama show deepseek-coder-v2:fim > /dev/null 2>&1; then
+          echo "Warming up deepseek-coder-v2:fim..."
+          timeout 180s ollama run deepseek-coder-v2:fim "// warmup" > /dev/null 2>&1 || true
           touch /tmp/models-ready
-          echo "Edit-prediction models ready (attempt ${attempt})."
+          echo "Edit-prediction model ready (attempt ${attempt})."
           return 0
         fi
-        echo "WARN: edit-prediction models incomplete (attempt ${attempt}/5); retrying in 30s..."
+        echo "WARN: edit-prediction model incomplete (attempt ${attempt}/5); retrying in 30s..."
         sleep 30
       done
-      echo "WARN: edit-prediction models not prepared after 5 attempts; server stays Ready (OV VLM unaffected) — check registry/PVC."
+      echo "WARN: edit-prediction model not prepared after 5 attempts; server stays Ready (OV VLM unaffected) — check registry/PVC."
       return 1
     }
 

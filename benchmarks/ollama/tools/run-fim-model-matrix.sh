@@ -13,6 +13,7 @@
 # Remote-target mode (IMPR-1067): point the run at another Ollama host with
 #   FIM_BENCH_HOST=http://192.168.1.19:11434 FIM_BENCH_TARGET=timmy \
 #     ./run-fim-model-matrix.sh
+# Subset mode: FIM_BENCH_ONLY="slug1,slug2" runs only the matching matrix rows.
 # The `ollama stop` isolation still works remotely — the CLI honors
 # OLLAMA_HOST, which is derived from FIM_BENCH_HOST. FIM_BENCH_TARGET names
 # the output prefix (ollama-<target>-fim-*, default pop).
@@ -33,6 +34,7 @@ MATRIX=(
 	'qwen2.5-coder:1.5b-base~edit_prediction_qwen~["<|endoftext|>","<|fim_pad|>","<|file_sep|>","<|repo_name|>"]~qwen25-coder-1_5b'
 	'qwen2.5-coder:3b-base~edit_prediction_qwen~["<|endoftext|>","<|fim_pad|>","<|file_sep|>","<|repo_name|>"]~qwen25-coder-3b'
 	'qwen2.5-coder:7b-base~edit_prediction_qwen~["<|endoftext|>","<|fim_pad|>","<|file_sep|>","<|repo_name|>"]~qwen25-coder-7b'
+	'qwen2.5-coder:14b-base~edit_prediction_qwen~["<|endoftext|>","<|fim_pad|>","<|file_sep|>","<|repo_name|>"]~qwen25-coder-14b'
 	'deepseek-coder-v2:16b-lite-base-q4_0~edit_prediction_deepseek~["<|EOT|>"]~deepseek-coder-v2-lite'
 	'codegemma:2b~edit_prediction_codegemma~["<|file_separator|>","<end_of_turn>","<eos>"]~codegemma-2b'
 	'codegemma:7b-code~edit_prediction_codegemma~["<|file_separator|>","<end_of_turn>","<eos>"]~codegemma-7b'
@@ -47,8 +49,13 @@ MATRIX=(
 # Clear VRAM before starting.
 for m in $($OLLAMA ps | awk 'NR>1{print $1}'); do $OLLAMA stop "$m" || true; done
 
+ONLY="${FIM_BENCH_ONLY:-}"
+
 for row in "${MATRIX[@]}"; do
 	IFS='~' read -r model workload stops slug <<<"$row"
+	if [[ -n "$ONLY" ]] && [[ ",$ONLY," != *",$slug,"* ]]; then
+		continue
+	fi
 	cfg="$TMPDIR_CFG/$slug.toml"
 	cat >"$cfg" <<EOF
 [ollama]
