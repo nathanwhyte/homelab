@@ -119,8 +119,9 @@ Self-hosted file server for media and general file sharing.
 
 ### Syncthing
 
-> **Scaled to 0 since 2026-06-29** — the cluster-side anchor caused duplication in the compendium
-> vault; peers sync directly over Tailscale. Manifests retained (see [`syncthing/README.md`](./syncthing/README.md)).
+> **Torn down 2026-07-25** — namespace deleted (both Services, the scaled-to-0 Deployment, and the
+> 50 GiB `syncthing-data` PVC). The vault syncs through git; no backup was needed. Manifests
+> retained for reference — see [`syncthing/TORN-DOWN.md`](./syncthing/TORN-DOWN.md).
 
 Always-on Syncthing peer for Obsidian/compendium vault sync across MacBook(s), iPad, and phone.
 

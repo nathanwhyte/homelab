@@ -31,7 +31,7 @@ Top-level directories generally map to deployed services:
 - `omnipendium/`: Omnipendium knowledge-base API (FastAPI + Postgres/pgvector) and Slack bot (PROJ-028 stage 1).
 - `openwebui/`: OpenWebUI Helm values, deploy script, and system prompt.
 - `searxng/`: SearXNG metasearch engine (OpenWebUI's web-search backend).
-- `syncthing/`: Syncthing peer for Obsidian/compendium vault sync (IDEA-1024/IDEA-1046) — **scaled to 0 since 2026-06-29** (caused vault duplication; peers sync directly over Tailscale). Manifests + architecture doc under `syncthing/docs/`.
+- `syncthing/`: Syncthing peer for Obsidian/compendium vault sync (IDEA-1024/IDEA-1046) — **torn down 2026-07-25**, namespace and 50 GiB PVC deleted; the vault syncs through git. Manifests + architecture doc retained under `syncthing/`; see `syncthing/TORN-DOWN.md`. Do not re-deploy.
 - `tailscale/`: Tailscale node setup scripts and WireGuard mesh configuration (PROJ-008).
 - `viking/`: OpenViking RAG engine (standalone deployment, embedder, VLM, vectordb, sync tools, docs).
 
