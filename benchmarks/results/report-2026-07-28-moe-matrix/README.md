@@ -179,9 +179,9 @@ same results directory (`qwen3.6:35b-mlx`, `full-warm`, n=3):
 | Time to first assistant token | 30.5s min / **36.1s p50** / 98.7s max |
 | Implied prompt-processing rate | 2,544 / **2,146** / 785 tok/s |
 
-Against ~1500 output tokens at the ~55 tok/s decode measured here, a full turn
-is roughly **53-79% prefill** (p50 ≈ 57%) — dominated by the phase this matrix
-barely exercises.
+Against ~1500 output tokens at the **60.9 tok/s** decode measured for this
+model at `num_predict=16384`, a full turn is roughly **55-80% prefill**
+(p50 ≈ 59%) — dominated by the phase this matrix barely exercises.
 
 **Consequence.** These results rank models on decode throughput during
 agentic generation, which is the right metric for "how fast do tokens come
@@ -196,48 +196,85 @@ The 2026-07-13 report noted the short prompts as a footnote explaining GPU
 utilization. Stating it as a scope boundary on the conclusions is the sharper
 form, and the one that stops the table being over-read.
 
-### OQ-4 — Does MLX serialization make MLX *preferable* single-stream? (OPEN)
+### OQ-4 — Does MLX serialization make MLX *preferable* single-stream?
 
-**Status: open. The laguna rows answer it. Recorded because OQ-1's result
-invites a conclusion it does not support.**
+**Status: split.** The causal question is **RESOLVED — no**. What remains
+**OPEN** is narrower and artifact-level: which of the three laguna builds has
+the highest C=1 decode. Recorded because OQ-1's result invites a conclusion it
+does not support.
 
-OQ-1 establishes that Ollama's MLX runner serializes. It is tempting to read
-that as "MLX is optimized for single-stream work". It is not. The two readings
-must be kept apart:
+**RESOLVED — serialization implies nothing about C=1 performance.** OQ-1 shows
+Ollama's MLX runner has no continuous batching. That is an implementation
+limit, not a design trade for single-stream work, and it carries no information
+about per-stream speed. The absence of batching is a structural disadvantage
+for *scaling and tail latency*; it is not automatically an absolute loss, since
+a sufficiently faster serialized backend could still beat a slower batched one
+at low concurrency.
 
-- **Established — MLX is only *suitable* for single-stream work.** The absence
-  of continuous batching is an implementation limit, not a design trade. A
-  second concurrent request waits out the first. MLX is therefore acceptable
-  where concurrency is never needed and strictly worse where it is.
-- **Not established — that MLX is *faster per stream* than llama.cpp.** That is
-  the claim "better suited" usually implies, and nothing measured so far tests
-  it. The fastest MLX row here (`north-mini` 86.6 tok/s C=1) and fastest GGUF
-  row (`nemotron3` 83.7 tok/s) are different models, so the comparison is void.
-  INFO-1105's 113-122 tok/s for `qwen3.6:35b-mlx` was taken at
-  `num_ctx=8192 / num_predict=256`; the same model runs ~55 tok/s here at 32K,
-  so context length dominates that gap.
+**OPEN — which laguna artifact decodes fastest at C=1.** Nothing measured so
+far bears on it. The fastest MLX row here (`north-mini` 86.6 tok/s C=1) and the
+fastest GGUF row (`nemotron3` 83.7 tok/s) are different models, so that
+comparison is void.
 
-**What answers it.** `laguna-xs-2.1` as `:latest` (GGUF Q4_K_M) vs `:nvfp4` and
-`:mxfp8` (MLX) — same weights, same prompts, same budget. Compare p50 `gen_tps`
-at C=1. This is the only clean backend comparison in the matrix.
+**What the laguna rows can and cannot settle.** They are the best
+same-model-family operational comparison in the matrix, but **not a clean
+backend isolation** — backend and quantization vary together:
 
-**Two things that temper the stakes either way:**
+| Tag | Backend | Quant | On disk |
+|---|---|---|---|
+| `:latest` | llama.cpp | GGUF Q4_K_M | 20 GB |
+| `:nvfp4` | MLX | NVFP4 | 19 GB |
+| `:mxfp8` | MLX | MXFP8 | 39 GB |
 
-1. Batching's payoff on this hardware is modest. INFO-1105 measured GGUF
-   scaling 322 → 388 tok/s (~20%), not the multiples a datacenter GPU shows,
-   because decode here is memory-bandwidth-bound. [[IDEA-1062]] (dropped)
-   reached the same conclusion from the other side: removing queue-wait
-   entirely produced no perceptible speedup, so the simpler single-threaded
-   server was kept.
-2. Single interactive use is unaffected. One Claude Code session issues one
-   request at a time and loses nothing to serialization. It bites only when
-   fanning out parallel agents at a local model — already the operational rule
-   in [[IMPR-1066]] (shipped), which INFO-1105 cross-references.
+So the defensible eventual conclusion is bounded:
 
-**Expect the quant to matter more than the backend.** A 2026-07-28 pre-flight
-probe put `laguna:mxfp8` at ~2 tok/s against `:nvfp4` at ~75 on the same model.
-If that survives proper measurement, "MLX" is not one thing and any
-backend-level conclusion needs stating per quantization.
+> Among these three laguna artifacts, under this short-prompt decode workload,
+> artifact X has the highest C=1 `gen_tps`; GGUF additionally provides C>1
+> scaling. Because backend and quantization differ together, this does not
+> isolate an MLX-versus-llama.cpp effect, and does not establish the best
+> Claude Code daily driver.
+
+**`:nvfp4` cannot be a daily-driver recommendation on speed alone.** Poolside's
+card is explicit: *"This is an experimental NVFP4 MLX build of Laguna XS 2.1,
+published for testing purposes only. It has not been validated for quality or
+correctness and is not an official release. Do not use it in production."*
+([card](https://huggingface.co/poolside/Laguna-XS-2.1-NVFP4-mlx), verified
+2026-07-28). Raw decode speed from that artifact is a measurement, not a
+recommendation.
+
+**"Preferable" needs more than p50 `gen_tps`.** That column establishes only
+*faster short-prompt decode*. Daily-driver preference also needs output
+quality, memory footprint, load time, and long-prompt prefill/TTFT — which is
+exactly the boundary OQ-3 records.
+
+**Prior evidence, scoped.** INFO-1105 measured GGUF scaling 322 → 388 tok/s,
+but that is **C=2→4 on a 1.5B FIM workload**, not C=1→3 on a 33B model, and
+should not be read as the batching headroom expected here — the laguna rows
+supply the relevant measurement. [[IDEA-1062]] (dropped) separately found that
+removing queue-wait produced no perceptible speedup, on the grounds that decode
+is memory-bandwidth-bound.
+
+**Single interactive use is unaffected either way.** One Claude Code session
+issues one request at a time and loses nothing to serialization. It bites when
+fanning out parallel agents at a local model — the operational rule already in
+[[IMPR-1066]] (shipped), which INFO-1105 cross-references.
+
+**The pre-flight mxfp8 number is more likely a fault than a quantization
+effect.** A 2026-07-28 probe put `:mxfp8` at ~2 tok/s against `:nvfp4` at ~75 —
+a ~37x gap against a ~2x weight-size difference, which ordinary quantization
+does not explain. Treat it as a suspected pathological kernel/runtime or CPU
+fallback path until reproduced. If the row confirms it, check runner logs,
+CPU-vs-GPU residency, memory pressure, and output correctness **before**
+interpreting it as a property of MXFP8.
+
+**Correction.** An earlier draft of this section claimed INFO-1105's
+113-122 tok/s for `qwen3.6:35b-mlx` versus this run differed because "context
+length dominates". That is unsupported: INFO-1105 ran `num_ctx=8192 /
+num_predict=256`, while this row averages **4,162 generated tokens** from a
+178-token prompt on a newer Ollama. Generated sequence length, workload shape
+and runtime all changed together; isolating a `num_ctx` effect needs a run that
+varies only that. The same draft quoted this row at ~55 tok/s, which was the
+superseded 2048-budget figure — it is **60.9 tok/s** at 16384.
 
 ### OQ-5 — Large rows run thinking ON; the daily driver runs it OFF (SCOPE BOUNDARY)
 
