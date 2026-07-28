@@ -4,8 +4,9 @@ Re-run of the PROJ-1003 pop matrix on Ollama 0.32.5, with `laguna-xs-2.1`
 restored (its 2026-07-13 macOS/Metal empty-output blocker was fixed upstream by
 `#17291` / `#17237`) and a gemma4:12b MLX quant sweep added.
 
-**This report is a stub. Do not treat it as final until the Open Questions
-section below is resolved.**
+**This report is a stub — the Results section is unwritten.** The Open
+Questions below are resolved (OQ-1), narrowed pending one test (OQ-2), or
+standing scope boundaries to restate in the conclusions (OQ-3).
 
 - **Harness**: `benchmarks/ollama/tools/concurrency-bench.py` (agentic workload,
   `num_ctx=32768`, `num_predict=16384`, `C=1..3`, 3 requests/level, 3 repeats)
@@ -34,9 +35,51 @@ Both are deliberate and both break direct comparability with that table:
 
 ## Open Questions
 
-### OQ-1 — Which models actually benefit from concurrency, and why? (BLOCKING)
+### OQ-1 — Which models actually benefit from concurrency, and why? (RESOLVED)
 
-**Status: unresolved. Must be answered before this report is final.**
+**Status: resolved 2026-07-28 from Ollama v0.32.5 source plus prior local
+measurement. Two distinct mechanisms, not one.**
+
+**1. MLX rows serialize by implementation.** Ollama's MLX runner has a single
+request-consumer loop that calls `runRequest()` synchronously before accepting
+the next request ([v0.32.5 `x/mlxrunner/runner.go` L207-243](https://github.com/ollama/ollama/blob/v0.32.5/x/mlxrunner/runner.go#L207-L243)).
+`OLLAMA_NUM_PARALLEL` governs scheduler admission only; it does not create
+continuous batching on the MLX path. This was already measured locally on
+2026-07-16 and written up in
+[[INFO-1105]](~/code/compendium/info/ollama-serving/INFO-1105-homelab-ollama-concurrency-on-pop-mlx-engine-serializes-llama-cpp-ba.md):
+`qwen3.6:35b-mlx` TTFT stacked 0.37 → 1.41 → 3.61s at 1/2/4 clients with
+aggregate flat, while GGUF `qwen2.5-coder:fim-1.5b` scaled 322 → 388 tok/s.
+
+**2. `nemotron3:33b` is forced to one slot by policy, not architecture.** The
+scheduler overrides `numParallel` to `1` for `nemotron_h`, `nemotron_h_moe` and
+`nemotron_h_omni` — alongside `mllama`, `qwen3vl`, `qwen35`, `qwen3next`,
+`lfm2` and others — logging "model architecture does not currently support
+parallel requests" ([v0.32.5 `server/sched.go` L497-519](https://github.com/ollama/ollama/blob/v0.32.5/server/sched.go#L497-L519),
+verified by direct fetch). Its flat GGUF result is therefore **not** evidence
+that llama.cpp fails to batch hybrid Mamba models. Ordinary GGUF transformers
+remain eligible for batching.
+
+So the 07-13 summary ("MLX lacks batching") was right about MLX and wrong to
+imply a single cause: nemotron3 was flat for an unrelated, explicit reason.
+
+`laguna-xs-2.1:latest` (GGUF) vs its two MLX tags now **quantifies** how much
+llama.cpp batching is worth on this workload, rather than being needed to
+identify the mechanism — so the coverage caveat below is no longer blocking.
+
+**Two claims in the original draft of this section were wrong** and are
+corrected here:
+
+- KV is *not* eagerly pre-allocated for three MLX slots. MLX cache growth is
+  lazy; the eager-preallocation finding in IDEA-1063 concerns the llama.cpp
+  path and should not have been asserted for MLX. The conclusion is unaffected
+  — `server_prefill_s` being flat rules out allocation cost regardless of
+  strategy.
+- Seeing `OLLAMA_NUM_PARALLEL=3` in `ps eww` does **not** prove three effective
+  slots. MLX serializes regardless, and nemotron3 is internally overridden to
+  one.
+
+**Original evidence, retained** — it is what the source explanation has to
+account for, and it does:
 
 The 2026-07-13 report attributed flat concurrency scaling to MLX
 ("MLX continuous-batching limitation; GGUF batching advantage"). The 07-13
@@ -61,52 +104,50 @@ Measurements on 2026-07-28 that constrain the answer — the mechanism is
   which is where KV allocation cost would appear) stays flat across
   concurrency: north-mini 0.059 → 0.092 → 0.119s, nemotron3 0.414 → 0.466 →
   0.458s — while **client-observed TTFT jumps to ~21s**.
-- KV is eagerly pre-allocated for all `NUM_PARALLEL=3` slots at model load,
-  which happens during warmup, before C=1 runs. No new allocation is needed
-  at C=2.
-- `OLLAMA_NUM_PARALLEL=3` verified in effect on the running server
-  (`ps eww`), so this is not a parallelism misconfiguration.
 - TTFT at C>1 lands on one request's solo decode time (north-mini
   1512 tok / 87.1 tps = 17.4s vs ttft 21.1s), i.e. a request's first token
-  arrives as the previous one finishes.
+  arrives as the previous one finishes — the signature of serialization.
 
-**Candidate hypotheses**, none yet confirmed:
+**Coverage note (no longer blocking).** `hermes3:8b`, `qwen3-coder:30b` and the
+plain-GGUF `gemma4:12b` rows were dropped from this matrix, leaving
+`laguna-xs-2.1:latest` as the only plain-GGUF transformer row. That mattered
+while the mechanism was unknown; now it only limits how much batching headroom
+this table can quantify.
 
-1. Backend property — Ollama's MLX runner does not batch, and llama.cpp does.
-   Contradicted as a complete explanation by nemotron3 (GGUF, flat).
-2. Architecture property — hybrid Mamba/SSM layers batch differently from pure
-   transformers, so nemotron3 is flat for its own reason and MLX is flat for
-   another. Would mean two distinct causes producing one symptom.
-3. Something environmental that changed the effective slot count despite
-   `NUM_PARALLEL=3` (e.g. memory-pressure-driven slot reduction on a 64 GB
-   machine at 32K × 3 slots with q8_0 KV).
+### OQ-2 — Is per-request `num_ctx` honored on 0.32.5? (PARTIALLY RESOLVED)
 
-**What resolves it.** The 07-28 matrix contains a near-perfect controlled
-experiment that the 07-13 matrix did not: **`laguna-xs-2.1` runs as three rows
-of the same model on different backends** — `:latest` (GGUF Q4_K_M), `:mxfp8`
-(MLX) and `:nvfp4` (MLX). Same architecture, same weights, same prompts, same
-budget. If the GGUF row scales and the MLX rows do not, hypothesis 1 holds for
-transformers and nemotron3 is explained separately by hypothesis 2. If all
-three are flat, the cause is environmental or backend-wide and hypothesis 3
-needs testing.
-
-**Caveat on coverage.** `hermes3:8b`, `qwen3-coder:30b` and the plain-GGUF
-`gemma4:12b` rows — the three that would otherwise have provided GGUF
-transformer comparators — were dropped from this matrix (the first two models
-were deleted from the machine; the gemma4:12b GGUF pair was scoped out).
-**`laguna-xs-2.1:latest` is therefore the only plain-GGUF transformer row
-left, and OQ-1 depends on it.** If that row is inconclusive, answering OQ-1
-requires re-pulling one of the dropped models rather than re-reading this data.
-
-### OQ-2 — Is per-request `num_ctx` honored on 0.32.5? (non-blocking)
+**Do not remove the `qwen36-claude.Modelfile` workaround on the strength of
+this run.** An earlier draft of this section proposed exactly that; it was
+wrong.
 
 `dotfiles/ollama/qwen36-claude.Modelfile` records that per-request
 `options.num_ctx` was **ignored** on 0.31.1 (verified 2026-07-08), which is why
-that tag bakes `num_ctx` into the Modelfile. On 0.32.5, `ollama ps` reports
-models resident at **32768** during this run while the server default is
-`OLLAMA_CONTEXT_LENGTH=131072` — suggesting the per-request value is now
-honored. If confirmed, the Modelfile comment and the workaround it justifies
-should be revisited.
+that tag bakes `num_ctx` in. This run shows models resident at **32768** while
+the server default is `OLLAMA_CONTEXT_LENGTH=131072`, which looked like
+evidence of a fix. It is not sufficient:
+
+- **There is no relevant change between the releases.** Ollama's option-merging
+  tests are byte-identical in 0.31.1 and 0.32.5 — verified by fetching both
+  copies of `server/routes_options_test.go` and comparing SHA-256
+  (`bc0ce7b28fceecb1`, 6998 bytes, both). They already assert that an explicit
+  request `num_ctx` overrides the Modelfile and the server default.
+- **What this run actually demonstrates is cold-load behaviour.** The requested
+  context becomes a soft context limit when the MLX runner is *first loaded*,
+  and an already-loaded MLX runner deliberately ignores runner-option
+  differences when deciding whether to reload
+  ([v0.32.5 `server/sched.go` L1388-1444](https://github.com/ollama/ollama/blob/v0.32.5/server/sched.go#L1388-L1444)).
+  The matrix runs `ollama stop` before every row, so every measurement here is
+  a cold load. It proves the cold-load path selects 32K; it says nothing about
+  changing context on a resident runner.
+
+**Conclusion.** Direct `options.num_ctx` is honored when selecting the MLX
+runner's cold-load soft context. 0.32.5 does **not** establish reliable dynamic
+resizing of an already-resident MLX runner. Keep the dedicated Modelfile tag
+until a warm-run test says otherwise.
+
+**Decisive test** (post-matrix — running it now would perturb the benchmark):
+32K cold load → request 64K *without* `ollama stop` → `ollama stop` and request
+64K again, checking `/api/ps` after each step.
 
 ### OQ-3 — This matrix measures decode, not prefill (SCOPE BOUNDARY)
 
@@ -128,19 +169,28 @@ memory-bound matrix-**vector** pass with a serial dependency chain, and at
 batch size 1 cannot fill the ALUs. Observed 2026-07-28: the GPU sits ~55%
 under this benchmark, against 90%+ when the same model serves Claude Code.
 
-The daily-driver workload is the opposite shape. Claude Code prefills ~77.4k
-tokens on turn one (PROJ-1003, recorded in
-`dotfiles/ollama/qwen36-claude.Modelfile`). At a plausible 500-1500 tok/s
-prefill rate against ~1500 output tokens at ~55 tok/s, that is **65-85%
-prefill** — dominated by the phase this matrix barely exercises.
+The daily-driver workload is the opposite shape, and this is **measured, not
+estimated** — from `claude-session-pop-qwen36-35b-20260707-184943.json` in this
+same results directory (`qwen3.6:35b-mlx`, `full-warm`, n=3):
+
+| Quantity | Value |
+|---|---|
+| Input tokens per turn | **77,466** (p50) |
+| Time to first assistant token | 30.5s min / **36.1s p50** / 98.7s max |
+| Implied prompt-processing rate | 2,544 / **2,146** / 785 tok/s |
+
+Against ~1500 output tokens at the ~55 tok/s decode measured here, a full turn
+is roughly **53-79% prefill** (p50 ≈ 57%) — dominated by the phase this matrix
+barely exercises.
 
 **Consequence.** These results rank models on decode throughput during
 agentic generation, which is the right metric for "how fast do tokens come
 out". They do **not** rank models for Claude-Code-shaped work, where prefill
 dominates. Two rows could tie here and differ materially in daily use. Any
 conclusion of the form "model X is the best daily driver on pop" is
-unsupported by this data alone, and needs the prefill/TTFT work already
-scoped in PROJ-1003 (TASK-1015, TASK-1107, TASK-1111).
+unsupported by this data alone, and needs the prefill/TTFT work still active
+in PROJ-1003: **TASK-1015** and **TASK-1111**. (TASK-1107 is cancelled and is
+not follow-up work.)
 
 The 2026-07-13 report noted the short prompts as a footnote explaining GPU
 utilization. Stating it as a scope boundary on the conclusions is the sharper
