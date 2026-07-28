@@ -74,6 +74,12 @@ MATRIX=(
 	"gemma4-12b-mxfp8-nothink|gemma4:12b-mxfp8"
 	"gemma4-12b-mlx-bf16-think|gemma4:12b-mlx-bf16"
 	"gemma4-12b-mlx-bf16-nothink|gemma4:12b-mlx-bf16"
+	# --- variance check: row 1 repeated last, identical config ---
+	# north-mini reported 86.6 then 72.1 tok/s across two runs of the same
+	# config (~17%) while nemotron3 moved ~2%. Several models here sit within
+	# 17% of each other, so that swing has to be quantified before the table
+	# can support cross-model ranking.
+	"north-mini-nvfp4-repeat|north-mini-code-1.0:mlx-nvfp4"
 )
 
 log() {
