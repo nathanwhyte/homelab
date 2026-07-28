@@ -22,16 +22,18 @@ MODEL_COOLDOWN="${MODEL_COOLDOWN:-30}"
 # numbers were taken on 0.31.1 and are not comparable to these.
 #
 # Thinking policy: models are scored in their native mode (no `think` key), so
-# the five original configs send byte-identical payloads to 07-13. The four
+# the original configs send byte-identical payloads to 07-13. The four
 # gemma4:12b variants additionally get an explicit think-on/think-off pair to
-# isolate reasoning cost at fixed model size. hermes3:8b and qwen3-coder:30b do
-# not advertise a `thinking` capability, so they get no pair.
+# isolate reasoning cost at fixed model size.
+#
+# hermes3:8b and qwen3-coder:30b were dropped on 2026-07-28: neither advertises
+# a `thinking` capability, and both were removed from this machine. Their
+# configs are kept so the rows can be restored by re-pulling the models and
+# uncommenting them; their 07-13 numbers remain the historical record.
 MATRIX=(
 	# --- native mode, one row each ---
 	"north-mini-nvfp4|north-mini-code-1.0:mlx-nvfp4"
 	"nemotron3-33b|nemotron3:33b"
-	"qwen3-coder-30b|qwen3-coder:30b"
-	"hermes3-8b|hermes3:8b"
 	"qwen36-35b-mlx|qwen3.6:35b-mlx"
 	"gemma4-26b-mxfp8|gemma4:26b-mxfp8"
 	"qwen36-35b-coding-mxfp8|qwen3.6:35b-a3b-coding-mxfp8"
