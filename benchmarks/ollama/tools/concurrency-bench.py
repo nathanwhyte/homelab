@@ -290,6 +290,7 @@ async def run_request(
     api: str = "ollama",
     stop: Optional[list] = None,
     extra_options: Optional[dict] = None,
+    think: Optional[bool] = None,
 ) -> RequestResult:
     if api == "openai_completions":
         return await run_request_openai(
@@ -315,6 +316,10 @@ async def run_request(
         payload["options"]["stop"] = stop
     if raw:
         payload["raw"] = True
+    # `think` is a top-level Ollama API param, not an option. Omitted entirely
+    # when unset so pre-existing configs send byte-identical payloads.
+    if think is not None:
+        payload["think"] = think
     t0 = time.monotonic()
     try:
         async with session.post(
@@ -372,6 +377,7 @@ async def benchmark_level(
     api: str = "ollama",
     stop: Optional[list] = None,
     extra_options: Optional[dict] = None,
+    think: Optional[bool] = None,
 ) -> list[RequestResult]:
     sem = asyncio.Semaphore(concurrency)
 
@@ -389,6 +395,7 @@ async def benchmark_level(
                 api,
                 stop,
                 extra_options,
+                think,
             )
             if validate_tools and result.response_text is not None:
                 expected = expected_tools[prompt_idx] if expected_tools else None
@@ -411,6 +418,7 @@ async def warmup(
     api: str = "ollama",
     stop: Optional[list] = None,
     extra_options: Optional[dict] = None,
+    think: Optional[bool] = None,
 ) -> RequestResult:
     return await run_request(
         session,
@@ -424,6 +432,7 @@ async def warmup(
         api,
         stop,
         extra_options,
+        think,
     )
 
 
@@ -525,6 +534,7 @@ async def main() -> int:
     raw = ollama_cfg.get("raw", False)
     api = ollama_cfg.get("api", "ollama")
     stop = ollama_cfg.get("stop", None)
+    think = ollama_cfg.get("think", None)
 
     workload_name = workload_cfg.get("name", "mixed_mem0")
     max_concurrency = workload_cfg.get("max_concurrency", 6)
@@ -584,6 +594,7 @@ async def main() -> int:
             api,
             stop,
             extra_options,
+            think,
         )
         if warmup_res.error:
             print(f"ERROR during warmup: {warmup_res.error}", file=sys.stderr)
@@ -624,6 +635,7 @@ async def main() -> int:
                     api=api,
                     stop=stop,
                     extra_options=extra_options,
+                    think=think,
                 )
                 repeat_wall = time.monotonic() - repeat_start
                 repeat_tokens = 0
