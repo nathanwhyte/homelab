@@ -41,8 +41,9 @@ MATRIX=(
 	"laguna-mxfp8|laguna-xs-2.1:mxfp8"
 	"laguna-nvfp4|laguna-xs-2.1:nvfp4"
 	# --- gemma4:12b quant sweep, think on/off pairs ---
-	"gemma4-12b-think|gemma4:12b"
-	"gemma4-12b-nothink|gemma4:12b"
+	# The plain GGUF gemma4:12b pair is omitted: the sweep's question is how the
+	# MLX quants compare to each other, and the configs remain if a GGUF
+	# reference row is wanted later.
 	"gemma4-12b-mlx-think|gemma4:12b-mlx"
 	"gemma4-12b-mlx-nothink|gemma4:12b-mlx"
 	"gemma4-12b-mxfp8-think|gemma4:12b-mxfp8"
