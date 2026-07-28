@@ -99,10 +99,14 @@ run_model() {
   fi
 
   log "running ${slug} (${model})"
+  # --tool-validate gives every row an independent usability signal: a model
+  # can emit a full token budget of reasoning and return no answer, which the
+  # throughput columns alone cannot distinguish from real work.
   uv run --with aiohttp python benchmarks/ollama/tools/concurrency-bench.py \
     --config "$config" \
     --output-dir "$OUTPUT_DIR" \
     --no-gpu-sampling \
+    --tool-validate \
     >"$log_file" 2>&1
   log "finished ${slug}; log at ${log_file}"
 

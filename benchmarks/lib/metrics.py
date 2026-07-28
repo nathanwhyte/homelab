@@ -228,14 +228,18 @@ def _sample_amdsmi_once(handle: Any) -> Optional[GpuSample]:
 
     return GpuSample(
         timestamp_ms=_now_ms(),
-        vram_total_bytes=_b((vram_info.get("vram_size") or 0) * 1024 * 1024) if vram_info else None,
+        vram_total_bytes=_b((vram_info.get("vram_size") or 0) * 1024 * 1024)
+        if vram_info
+        else None,
         power_watts=_n(metrics.get("average_socket_power")),
         temp_celsius=_n(metrics.get("temperature_hotspot")),
         temp_mem_celsius=_n(metrics.get("temperature_mem")),
         gpu_util_percent=_n(metrics.get("average_gfx_activity")),
         mem_util_percent=_n(metrics.get("average_umc_activity")),
         fan_rpm=_b(metrics.get("current_fan_speed")),
-        throttle=metrics.get("throttle_status") if metrics.get("throttle_status") is not None else None,
+        throttle=metrics.get("throttle_status")
+        if metrics.get("throttle_status") is not None
+        else None,
         voltage_gfx_mv=_b(metrics.get("voltage_gfx")),
         voltage_mem_mv=_b(metrics.get("voltage_mem")),
         clock_gfx_mhz=_b(metrics.get("current_gfxclk")),
@@ -340,15 +344,23 @@ async def sample_during(
     model_name: Optional[str] = None,
     instance_label: Optional[str] = None,
     use_amdsmi: bool = False,
+    stop_event: Optional[asyncio.Event] = None,
 ):
     """Sample GPU metrics repeatedly during a benchmark window.
 
     Returns one GpuSeries per metric, each containing all samples merged by
     metric name. The caller can use the raw sample list for time-series plots.
+
+    Pass `stop_event` to run this concurrently with the workload and end
+    sampling the moment the workload does: callers cannot know the window
+    length in advance, and sampling *after* the workload measures an idle GPU.
+    Samples collected before the stop are returned normally.
     """
     merged: dict[str, GpuSeries] = {}
     end = time.monotonic() + duration_s
     while time.monotonic() < end:
+        if stop_event is not None and stop_event.is_set():
+            break
         series_list = await sample_all(
             session, prom_url, ollama_url, model_name, instance_label, use_amdsmi
         )
