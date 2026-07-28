@@ -4,9 +4,14 @@ Re-run of the PROJ-1003 pop matrix on Ollama 0.32.5, with `laguna-xs-2.1`
 restored (its 2026-07-13 macOS/Metal empty-output blocker was fixed upstream by
 `#17291` / `#17237`) and a gemma4:12b MLX quant sweep added.
 
-**This report is a stub — the Results section is unwritten.** The Open
-Questions below are resolved (OQ-1), narrowed pending one test (OQ-2), or
-standing scope boundaries to restate in the conclusions (OQ-3).
+**This report is a stub — the Results section is unwritten.** Of the open
+questions below, OQ-1 is resolved, OQ-2 is narrowed pending one test, OQ-4 is
+split (causal half resolved, artifact half open), and OQ-3, OQ-5 and OQ-6 are
+standing scope boundaries that must be restated in the conclusions.
+
+**Read OQ-6 before drawing any MLX-versus-GGUF conclusion** — this workload is
+the regime least favourable to MLX/NVFP4, per Ollama's own published
+measurement conditions.
 
 - **Harness**: `benchmarks/ollama/tools/concurrency-bench.py` (agentic workload,
   `num_ctx=32768`, `num_predict=16384`, `C=1..3`, 3 requests/level, 3 repeats)
@@ -365,3 +370,61 @@ quantify that effect **for Gemma only** — reasoning length and quality effects
 are architecture- and prompt-specific and do not transfer to Qwen. Qwen
 requires its own matched `think=false` row before its interactive latency or
 output behaviour can be compared against its deployed configuration.
+
+### OQ-6 — This workload is the regime where MLX/NVFP4 looks worst (SCOPE BOUNDARY)
+
+**Status: a bound on what the results license, sourced from Ollama's own
+published measurements. Read before drawing any MLX-versus-GGUF conclusion.**
+
+Ollama's MLX posts describe benefits concentrated precisely where this matrix
+has no coverage, and their measurement conditions differ from ours in the way
+that matters most.
+
+**1. The NVFP4 speed claim is measured at a long prompt.**
+[Ollama, 2026-06-11](https://ollama.com/blog/mlx-performance): *"NVFP4
+generates about 20% faster than q4_K_M on the updated engine. Average output
+speed over 10 runs when provided an **8,300-token input prompt**."*
+
+This matrix uses **~180-token** prompts, and measured the opposite direction:
+`laguna:nvfp4` at 67.6 tok/s against `laguna:latest` (q4_K_M) at 73.1 — MLX at
+**0.92x**, where the vendor reports 1.20x. Different model and a ~46x shorter
+prompt, so this is not a refutation of their number; it is evidence that the
+comparison is regime-dependent and that **our regime is the unfavourable one**.
+
+**2. The vendor states the OQ-3 boundary directly.** *"Agent workloads are
+dominated by prompt processing. Every tool call is a new request, and every
+request resends the whole transcript: system prompt, tool definitions, and
+every file read so far."* That is independent confirmation that a
+decode-dominated, short-prompt benchmark does not represent agent use.
+
+**3. The features that make MLX fast for agents are untested here.** Ollama's
+snapshot/prefix-caching system targets exactly the patterns this workload
+lacks — multi-agent handoff, branching and retries, and specifically thinking
+models: *"Reasoning tokens are generated, then dropped from the conversation
+history, so the next request never matches the state the engine just built...
+A snapshot taken right before the response starts gives the next turn
+somewhere to resume from."* Our workload issues independent single-turn
+requests with no conversation state, so every cache-reuse mechanism is inert.
+
+**4. Gemma 4 rows already include MTP, and the vendor warns about synthetic
+benchmarks.** Multi-token prediction is on by default since Ollama 0.31
+([2026-06-29](https://ollama.com/blog/faster-gemma-4-mlx-mtp)), so the
+gemma4 rows here run with it active. Ollama measured *"nearly 90% faster"* on
+the Aider polyglot benchmark and cautioned: *"The benefit from MTP depends
+heavily on the workload, and **a synthetic benchmark can be made to show
+almost any result**."* MTP acceptance depends on how predictable the text is;
+this workload's code-review prose and reasoning output are not obviously in
+the favourable regime, so the gemma4 numbers here may understate MTP's
+real-world contribution.
+
+**Consequence.** This table measures short-prompt, single-turn, cache-cold
+decode. That is a legitimate axis and the numbers on it are sound, but it is
+the regime least favourable to MLX/NVFP4 and it excludes every mechanism
+Ollama built for agent workloads. **Do not read a low MLX row here as "MLX is
+slower" in general** — read it as "MLX is not ahead in this regime". A
+prefill-heavy, multi-turn, cache-warm measurement is required before any
+backend recommendation, and would likely reverse the ordering.
+
+Note the March 2026 post's headline figures (prefill 1154 -> 1810 tok/s,
+decode 58 -> 112 tok/s) compare **Ollama 0.18 to 0.19**, not MLX to llama.cpp
+at a fixed version, and should not be cited as a backend comparison.
