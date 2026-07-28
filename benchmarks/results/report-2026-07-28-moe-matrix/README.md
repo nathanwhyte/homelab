@@ -278,34 +278,59 @@ superseded 2048-budget figure — it is **60.9 tok/s** at 16384.
 
 ### OQ-5 — Large rows run thinking ON; the daily driver runs it OFF (SCOPE BOUNDARY)
 
-**Status: a bound on what the results license. Most likely of the open items
-to cause a wrong model choice, because it affects the column you would
-naturally rank on.**
+**Status: a missing configuration, not merely a caveat.** Addressed by adding
+a `qwen36-35b-mlx-nothink` row (config
+`pop-moe-qwen36-35b-mlx-nothink-agentic.toml`). Until that row exists, the
+matrix contains no measurement of the baseline as deployed.
 
-Per the size rule, every large model in this matrix runs in **native mode with
-no `think` key**, i.e. thinking enabled. For `qwen3.6:35b-mlx` that is not the
-mode it runs in daily use, and cannot be: thinking is **hard-disabled** on both
-client paths (`enable_thinking:false` in Zed, `thinking.type:disabled` through
-pi) because leaving it on garbles output and causes write loops — see
-[[BUG-1024]], "Qwen3.6 local agents garble output and loop on Python/YAML
-writes when thinking is not hard-disabled".
+Per the size rule, every large model here runs in **native mode with no `think`
+key**, i.e. thinking enabled — Ollama's documented default for a model
+advertising the `thinking` capability. For `qwen3.6:35b-mlx` that is not its
+deployed configuration: the exact tag is `enable_thinking: false` in Zed's
+inline assistant (`zed/settings.json`), and Pi's Qwen entries set
+`reasoning: false` (`pi/agent/models.json`). Hard-disabling is also the
+verified mitigation for the empty/garbled output and write-loop behaviour
+tracked under [[BUG-1024]] — which is **still open**, with its Python/YAML
+write-loop acceptance tests incomplete, so thinking is best described as
+*associated with* those failures rather than proven to cause them.
 
-**The row therefore charges a cost the daily driver does not pay.**
-`qwen3.6:35b-mlx` measures `ttfa` = 37.4s at C=1. That is not prefill — the
-agentic prompt is 180 tokens and `server_prefill_s` is ~0.15s, as is
-time-to-first-*output*. At 60.9 tok/s the 37.4s is roughly **2,280 tokens of
-reasoning** emitted before the answer begins (4,162 total, so ~2,280 thinking
-plus ~1,880 answer).
+Note the deployment picture is not uniform: the derived `qwen3.6:claude`
+favourite is configured with `enable_thinking: true`, so "the daily driver
+disables thinking" is true of the specific paths named above, not of every
+Qwen usage on this machine.
+
+**Why the native row cannot stand in.** `qwen3.6:35b-mlx` measures `ttfa` =
+37.4s at C=1. That is not prefill — the agentic prompt is 180 tokens and
+`server_prefill_s` is ~0.11s, as is time-to-first-*output* (0.156s). The gap is
+a reasoning phase; the harness distinguishes first reasoning output from first
+answer content, so this is a real distinction rather than an artifact.
+
+At 60.9 tok/s, 37.4s corresponds to roughly **2,280 token-times of reasoning**
+before the answer begins. Treat that as **inferred, not measured**: the harness
+records only a total `eval_count`, and does not separately tokenize reasoning
+and answer, so the "~2,280 thinking plus ~1,880 answer" split is a derivation
+from rate × time, not two counted quantities.
+
+Thinking changes more than `ttfa` — it also moves total tokens, wall time,
+truncation risk, context consumption, and potentially answer quality. No single
+adjustment recovers the deployed configuration from the native row, which is
+why the matched row is needed rather than a correction factor.
 
 **Do not conflate this with the observed Claude Code slowness.** Sessions do
-feel slow to start, but for a different reason: 77,466 prompt tokens at
-~2,146 tok/s ≈ 36s of *prefill*, with thinking already off (OQ-3, and
-`claude-session-pop-qwen36-35b-20260707-184943.json`). Two distinct mechanisms
-landing within a second of each other — ~37s of reasoning here, ~36s of prefill
-there. The coincidence makes them look like one phenomenon; they are not.
+feel slow to start, but for a different reason: 77,466 prompt tokens reaching
+first assistant output in ~36s — a **prefill-dominated startup**, with thinking
+already off (OQ-3, and `claude-session-pop-qwen36-35b-20260707-184943.json`).
+That artifact measures client-observed time to first assistant output and
+includes ~2.8s of CLI initialisation; it carries no server
+`prompt_eval_duration`, so "36s of pure prefill" would be too exact. The
+distinction from a reasoning phase still holds. Two unrelated mechanisms
+landing within a second of each other — ~37s of reasoning here, ~36s of
+prefill-dominated startup there — which is precisely why they read as one
+phenomenon.
 
-**Consequence.** `ttfa` is the most decision-relevant column for interactive
-use, and for any model whose daily configuration disables thinking, this
-table's `ttfa` overstates the real wait. The four `gemma4:12b` think-pairs are
-the only rows that size that gap directly; read them before ranking any
-large-model row on `ttfa`.
+**Consequence.** Native-mode `ttfa` cannot rank daily-driver configurations
+that disable thinking. The **three** `gemma4:12b` think-pairs (six rows)
+quantify that effect **for Gemma only** — reasoning length and quality effects
+are architecture- and prompt-specific and do not transfer to Qwen. Qwen
+requires its own matched `think=false` row before its interactive latency or
+output behaviour can be compared against its deployed configuration.

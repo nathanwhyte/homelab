@@ -54,6 +54,10 @@ MATRIX=(
 	"laguna-latest|laguna-xs-2.1:latest"
 	"laguna-mxfp8|laguna-xs-2.1:mxfp8"
 	"laguna-nvfp4|laguna-xs-2.1:nvfp4"
+	# --- matched daily-driver config for the baseline ---
+	# qwen3.6:35b-mlx is deployed with thinking disabled, so the native row above
+	# does not represent it. Pairs with qwen36-35b-mlx to isolate thinking.
+	"qwen36-35b-mlx-nothink|qwen3.6:35b-mlx"
 	# --- gemma4:12b quant sweep, think on/off pairs ---
 	# The plain GGUF gemma4:12b pair is omitted: the sweep's question is how the
 	# MLX quants compare to each other, and the configs remain if a GGUF

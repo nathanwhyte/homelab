@@ -1,0 +1,46 @@
+# Pop small-MoE matrix: qwen3.6:35b-mlx THINKING OFF, agentic @ 32K, C=1..3 (PROJ-1003)
+#
+# The matched daily-driver configuration. The native-mode row
+# (pop-moe-qwen36-35b-mlx-agentic.toml) runs thinking enabled, which is not how
+# this model is deployed: the exact tag is `enable_thinking: false` in Zed's
+# inline assistant, and Pi disables reasoning on its Qwen entries. Hard-disable
+# is also the verified mitigation for the empty/garbled output tracked under
+# BUG-1024 (still open).
+#
+# Without this row the matrix has no measurement of the configuration actually
+# in use, and native-mode TTFA cannot be used to rank it. The gemma4:12b
+# think-pairs size the reasoning cost for Gemma only — reasoning length is
+# architecture- and prompt-specific and does not transfer to Qwen.
+#
+# Pairs with pop-moe-qwen36-35b-mlx-agentic.toml. Every other setting is
+# identical, so the pair isolates thinking.
+[ollama]
+url = "http://localhost:11434"
+model = "qwen3.6:35b-mlx"
+num_ctx = 32768
+num_predict = 16384
+temperature = 1.0                         # per-config (shipped Modelfile)
+think = false
+
+[ollama.options]                          # per-config (shipped Modelfile)
+top_p = 0.95
+top_k = 20
+repeat_penalty = 1
+min_p = 0
+presence_penalty = 1.5
+
+[workload]
+name = "agentic"
+max_concurrency = 3
+requests_per_level = 3
+repeats = 3
+cooldown_seconds = 20
+
+[prometheus]
+url = ""
+instance_label = ""
+sample_interval_seconds = 2.0
+
+[output]
+dir = "benchmarks/results"
+prefix = "ollama-pop-moe-qwen36-35b-mlx-nothink-agentic"
