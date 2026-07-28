@@ -2,7 +2,7 @@
 
 Re-run of the PROJ-1003 pop matrix on Ollama 0.32.5, with `laguna-xs-2.1`
 restored (its 2026-07-13 macOS/Metal empty-output blocker was fixed upstream by
-#17291 / #17237) and a gemma4:12b MLX quant sweep added.
+`#17291` / `#17237`) and a gemma4:12b MLX quant sweep added.
 
 **This report is a stub. Do not treat it as final until the Open Questions
 section below is resolved.**
