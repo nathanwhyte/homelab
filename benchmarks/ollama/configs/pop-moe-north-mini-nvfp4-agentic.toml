@@ -4,7 +4,7 @@
 url = "http://localhost:11434"
 model = "north-mini-code-1.0:mlx-nvfp4"
 num_ctx = 32768
-num_predict = 2048
+num_predict = 16384
 temperature = 1.0                         # per-config (shipped Modelfile)
 
 [ollama.options]                          # per-config (shipped Modelfile)

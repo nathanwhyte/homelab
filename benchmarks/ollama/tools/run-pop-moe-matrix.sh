@@ -14,6 +14,20 @@ MODEL_COOLDOWN="${MODEL_COOLDOWN:-30}"
 
 # slug|model — slug maps to configs/pop-moe-<slug>-agentic.toml, model to `ollama stop`.
 #
+# Output budget: num_predict is 16384, up from the 2048 used on 2026-07-13.
+# A first 0.32.5 pass at 2048 showed the cap was the dominant effect rather
+# than a bound: qwen3.6:35b-mlx truncated 7-8 of every 9 requests and its
+# time-to-first-answer (36.9s) matched 2048/55.3tps (37.0s) almost exactly —
+# it reasoned through the entire budget and only began answering at the
+# ceiling, yielding a 22-44% usable rate. north-mini, nemotron3 and gemma4:26b
+# truncated 2-5 of 9. At 2048 those rows measure "how fast can it fill the
+# budget", not "how fast can it answer". 16384 lets every model stop naturally,
+# which makes a truncation a real finding about the model.
+#
+# This deliberately breaks output-budget comparability with the 07-13 table.
+# That table was already incomparable on runtime (0.31.1 vs 0.32.5); this run
+# is internally consistent, and that is the comparison that matters.
+#
 # 2026-07-28 re-run: laguna-xs-2.1 is back. It was dropped on 2026-07-13 for an
 # upstream-acknowledged macOS/Metal empty-output bug; upstream #17291 (Metal
 # inference) shipped in Ollama 0.32.3 and #17237 (Laguna MLX) in 0.32.5, and the
