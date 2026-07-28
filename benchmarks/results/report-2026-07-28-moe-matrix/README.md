@@ -238,3 +238,37 @@ at C=1. This is the only clean backend comparison in the matrix.
 probe put `laguna:mxfp8` at ~2 tok/s against `:nvfp4` at ~75 on the same model.
 If that survives proper measurement, "MLX" is not one thing and any
 backend-level conclusion needs stating per quantization.
+
+### OQ-5 — Large rows run thinking ON; the daily driver runs it OFF (SCOPE BOUNDARY)
+
+**Status: a bound on what the results license. Most likely of the open items
+to cause a wrong model choice, because it affects the column you would
+naturally rank on.**
+
+Per the size rule, every large model in this matrix runs in **native mode with
+no `think` key**, i.e. thinking enabled. For `qwen3.6:35b-mlx` that is not the
+mode it runs in daily use, and cannot be: thinking is **hard-disabled** on both
+client paths (`enable_thinking:false` in Zed, `thinking.type:disabled` through
+pi) because leaving it on garbles output and causes write loops — see
+[[BUG-1024]], "Qwen3.6 local agents garble output and loop on Python/YAML
+writes when thinking is not hard-disabled".
+
+**The row therefore charges a cost the daily driver does not pay.**
+`qwen3.6:35b-mlx` measures `ttfa` = 37.4s at C=1. That is not prefill — the
+agentic prompt is 180 tokens and `server_prefill_s` is ~0.15s, as is
+time-to-first-*output*. At 60.9 tok/s the 37.4s is roughly **2,280 tokens of
+reasoning** emitted before the answer begins (4,162 total, so ~2,280 thinking
+plus ~1,880 answer).
+
+**Do not conflate this with the observed Claude Code slowness.** Sessions do
+feel slow to start, but for a different reason: 77,466 prompt tokens at
+~2,146 tok/s ≈ 36s of *prefill*, with thinking already off (OQ-3, and
+`claude-session-pop-qwen36-35b-20260707-184943.json`). Two distinct mechanisms
+landing within a second of each other — ~37s of reasoning here, ~36s of prefill
+there. The coincidence makes them look like one phenomenon; they are not.
+
+**Consequence.** `ttfa` is the most decision-relevant column for interactive
+use, and for any model whose daily configuration disables thinking, this
+table's `ttfa` overstates the real wait. The four `gemma4:12b` think-pairs are
+the only rows that size that gap directly; read them before ranking any
+large-model row on `ttfa`.
