@@ -195,3 +195,46 @@ not follow-up work.)
 The 2026-07-13 report noted the short prompts as a footnote explaining GPU
 utilization. Stating it as a scope boundary on the conclusions is the sharper
 form, and the one that stops the table being over-read.
+
+### OQ-4 — Does MLX serialization make MLX *preferable* single-stream? (OPEN)
+
+**Status: open. The laguna rows answer it. Recorded because OQ-1's result
+invites a conclusion it does not support.**
+
+OQ-1 establishes that Ollama's MLX runner serializes. It is tempting to read
+that as "MLX is optimized for single-stream work". It is not. The two readings
+must be kept apart:
+
+- **Established — MLX is only *suitable* for single-stream work.** The absence
+  of continuous batching is an implementation limit, not a design trade. A
+  second concurrent request waits out the first. MLX is therefore acceptable
+  where concurrency is never needed and strictly worse where it is.
+- **Not established — that MLX is *faster per stream* than llama.cpp.** That is
+  the claim "better suited" usually implies, and nothing measured so far tests
+  it. The fastest MLX row here (`north-mini` 86.6 tok/s C=1) and fastest GGUF
+  row (`nemotron3` 83.7 tok/s) are different models, so the comparison is void.
+  INFO-1105's 113-122 tok/s for `qwen3.6:35b-mlx` was taken at
+  `num_ctx=8192 / num_predict=256`; the same model runs ~55 tok/s here at 32K,
+  so context length dominates that gap.
+
+**What answers it.** `laguna-xs-2.1` as `:latest` (GGUF Q4_K_M) vs `:nvfp4` and
+`:mxfp8` (MLX) — same weights, same prompts, same budget. Compare p50 `gen_tps`
+at C=1. This is the only clean backend comparison in the matrix.
+
+**Two things that temper the stakes either way:**
+
+1. Batching's payoff on this hardware is modest. INFO-1105 measured GGUF
+   scaling 322 → 388 tok/s (~20%), not the multiples a datacenter GPU shows,
+   because decode here is memory-bandwidth-bound. [[IDEA-1062]] (dropped)
+   reached the same conclusion from the other side: removing queue-wait
+   entirely produced no perceptible speedup, so the simpler single-threaded
+   server was kept.
+2. Single interactive use is unaffected. One Claude Code session issues one
+   request at a time and loses nothing to serialization. It bites only when
+   fanning out parallel agents at a local model — already the operational rule
+   in [[IMPR-1066]] (shipped), which INFO-1105 cross-references.
+
+**Expect the quant to matter more than the backend.** A 2026-07-28 pre-flight
+probe put `laguna:mxfp8` at ~2 tok/s against `:nvfp4` at ~75 on the same model.
+If that survives proper measurement, "MLX" is not one thing and any
+backend-level conclusion needs stating per quantization.
