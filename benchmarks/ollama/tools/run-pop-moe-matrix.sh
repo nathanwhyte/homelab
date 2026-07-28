@@ -50,10 +50,16 @@ MATRIX=(
 	"nemotron3-33b|nemotron3:33b"
 	"qwen36-35b-mlx|qwen3.6:35b-mlx"
 	"gemma4-26b-mxfp8|gemma4:26b-mxfp8"
-	"qwen36-35b-coding-mxfp8|qwen3.6:35b-a3b-coding-mxfp8"
 	"laguna-latest|laguna-xs-2.1:latest"
-	"laguna-mxfp8|laguna-xs-2.1:mxfp8"
 	"laguna-nvfp4|laguna-xs-2.1:nvfp4"
+	# Dropped 2026-07-28 as infeasible, not as a null result:
+	#   qwen36-35b-coding-mxfp8 (37 GB) — every request hit the 300s timeout
+	#   laguna-mxfp8            (39 GB) — measured 1.14 tok/s, so one 16384-token
+	#                                     request needs ~4 hours
+	# Both are MLX mxfp8 at 37-39 GB. Smaller mxfp8 tags are healthy on the same
+	# machine and stay in the matrix (gemma4:26b-mxfp8 27 GB -> 67 tok/s,
+	# gemma4:12b-mxfp8 13 GB -> 42 tok/s), so this is a size effect on 64 GB
+	# unified memory, not a defect in the mxfp8 format. Configs retained.
 	# --- matched daily-driver config for the baseline ---
 	# qwen3.6:35b-mlx is deployed with thinking disabled, so the native row above
 	# does not represent it. Pairs with qwen36-35b-mlx to isolate thinking.

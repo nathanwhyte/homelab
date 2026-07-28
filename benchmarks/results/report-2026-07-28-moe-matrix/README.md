@@ -33,6 +33,37 @@ Both are deliberate and both break direct comparability with that table:
 
 <!-- TODO: fill from the 14 result dirs once the matrix completes. -->
 
+## Finding — large MLX mxfp8 tags are infeasible on this machine
+
+Two rows were dropped mid-run as **infeasible**, which is a result rather than
+a gap:
+
+| Tag | Size | Measured |
+|---|---|---|
+| `gemma4:12b-mxfp8` | 13 GB | 42.1 tok/s ✅ |
+| `gemma4:26b-mxfp8` | 27 GB | 67.3 tok/s ✅ |
+| `qwen3.6:35b-a3b-coding-mxfp8` | 37 GB | every request hit the 300s timeout ❌ |
+| `laguna-xs-2.1:mxfp8` | 39 GB | **1.14 tok/s** ❌ |
+
+At 1.14 tok/s a single 16384-token request needs ~4 hours, so the workload
+cannot complete. For comparison the same model as `:nvfp4` (19 GB) measured
+59.9 tok/s on an identical probe — a ~52x gap.
+
+**This is a size effect, not an mxfp8 defect.** Both healthy mxfp8 tags run
+normally on the same machine and stay in the matrix; only the 37-39 GB tags
+collapse. On 64 GB of unified memory, weights at that size plus KV plus OS
+leave no headroom.
+
+Supporting but **not conclusive**: loading `laguna:mxfp8` took swap-in-use from
+2.5 GB to 8.9 GB and grew the swap file from 4 GB to 10 GB. That probe loaded
+at the 131072 server-default context (52 GB resident), whereas the benchmark
+requested 32768 (39 GB resident), so it overstates the benchmark's own memory
+pressure. A controlled measurement at fixed `num_ctx` is still owed before
+calling swap the mechanism.
+
+Configs for both rows are retained, so either can be restored if a future
+Ollama or a larger machine changes the picture.
+
 ## Open Questions
 
 ### OQ-1 — Which models actually benefit from concurrency, and why? (RESOLVED)
