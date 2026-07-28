@@ -1,0 +1,31 @@
+# Pop small-MoE matrix: gemma4 12b MLX bf16, THINKING OFF, agentic @ 32K, C=1..3 (PROJ-1003)
+# Sampling: shipped Modelfile defaults (see pop-moe-recommended-params.txt)
+# Paired with pop-moe-gemma4-12b-mlx-bf16-think-agentic.toml to isolate reasoning
+# cost at fixed model size. Small models get the think on/off pair; large models do not.
+[ollama]
+url = "http://localhost:11434"
+model = "gemma4:12b-mlx-bf16"
+num_ctx = 32768
+num_predict = 2048
+temperature = 1.0                         # per-config (shipped Modelfile)
+think = false
+
+[ollama.options]                          # per-config (shipped Modelfile)
+top_p = 0.95
+top_k = 64
+
+[workload]
+name = "agentic"
+max_concurrency = 3
+requests_per_level = 3
+repeats = 3
+cooldown_seconds = 20
+
+[prometheus]
+url = ""
+instance_label = ""
+sample_interval_seconds = 2.0
+
+[output]
+dir = "benchmarks/results"
+prefix = "ollama-pop-moe-gemma4-12b-mlx-bf16-nothink-agentic"

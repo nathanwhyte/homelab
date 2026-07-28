@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Pop small-MoE benchmark matrix (PROJ-1003).
-# Pins OLLAMA_NUM_PARALLEL=3 once, then runs the six per-model agentic configs
+# Pins OLLAMA_NUM_PARALLEL=3 once, then runs the per-model agentic configs
 # serially with an explicit `ollama stop` + cooldown between models so only one
 # model is resident at a time. Modeled on run-pop-np-sweep.sh.
 #
@@ -13,15 +13,40 @@ NUM_PARALLEL="${NUM_PARALLEL:-3}"
 MODEL_COOLDOWN="${MODEL_COOLDOWN:-30}"
 
 # slug|model — slug maps to configs/pop-moe-<slug>-agentic.toml, model to `ollama stop`.
-# laguna-xs-2.1 dropped 2026-07-13: upstream-acknowledged macOS/Metal empty-output
-# bug (poolside readme banner); raw:true workaround yields degenerate output. Revisit
-# after the upstream fix. See pop-moe-recommended-params.txt / results report.
+#
+# 2026-07-28 re-run: laguna-xs-2.1 is back. It was dropped on 2026-07-13 for an
+# upstream-acknowledged macOS/Metal empty-output bug; upstream #17291 (Metal
+# inference) shipped in Ollama 0.32.3 and #17237 (Laguna MLX) in 0.32.5, and the
+# model was re-verified generating correctly on pop against 0.32.5. The whole
+# matrix is re-run on 0.32.5 so every row shares one environment — the 07-13
+# numbers were taken on 0.31.1 and are not comparable to these.
+#
+# Thinking policy: models are scored in their native mode (no `think` key), so
+# the five original configs send byte-identical payloads to 07-13. The four
+# gemma4:12b variants additionally get an explicit think-on/think-off pair to
+# isolate reasoning cost at fixed model size. hermes3:8b and qwen3-coder:30b do
+# not advertise a `thinking` capability, so they get no pair.
 MATRIX=(
+  # --- native mode, one row each ---
   "north-mini-nvfp4|north-mini-code-1.0:mlx-nvfp4"
   "nemotron3-33b|nemotron3:33b"
   "qwen3-coder-30b|qwen3-coder:30b"
   "hermes3-8b|hermes3:8b"
   "qwen36-35b-mlx|qwen3.6:35b-mlx"
+  "gemma4-26b-mxfp8|gemma4:26b-mxfp8"
+  "qwen36-35b-coding-mxfp8|qwen3.6:35b-a3b-coding-mxfp8"
+  "laguna-latest|laguna-xs-2.1:latest"
+  "laguna-mxfp8|laguna-xs-2.1:mxfp8"
+  "laguna-nvfp4|laguna-xs-2.1:nvfp4"
+  # --- gemma4:12b quant sweep, think on/off pairs ---
+  "gemma4-12b-think|gemma4:12b"
+  "gemma4-12b-nothink|gemma4:12b"
+  "gemma4-12b-mlx-think|gemma4:12b-mlx"
+  "gemma4-12b-mlx-nothink|gemma4:12b-mlx"
+  "gemma4-12b-mxfp8-think|gemma4:12b-mxfp8"
+  "gemma4-12b-mxfp8-nothink|gemma4:12b-mxfp8"
+  "gemma4-12b-mlx-bf16-think|gemma4:12b-mlx-bf16"
+  "gemma4-12b-mlx-bf16-nothink|gemma4:12b-mlx-bf16"
 )
 
 log() {
