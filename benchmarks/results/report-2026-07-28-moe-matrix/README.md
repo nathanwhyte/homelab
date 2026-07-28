@@ -107,3 +107,41 @@ models resident at **32768** during this run while the server default is
 `OLLAMA_CONTEXT_LENGTH=131072` — suggesting the per-request value is now
 honored. If confirmed, the Modelfile comment and the workaround it justifies
 should be revisited.
+
+### OQ-3 — This matrix measures decode, not prefill (SCOPE BOUNDARY)
+
+**Status: not a question needing new measurement — a limit on what these
+results may be used to claim. Must be stated in the conclusions.**
+
+The agentic workload uses ~180-204 token prompts, so essentially all of each
+request is decode:
+
+| Row | prompt tok | output tok | prefill share of wall | decode share |
+|---|---|---|---|---|
+| `north-mini-code-1.0:mlx-nvfp4` | 180 | 1774 | 0.3% | **99.7%** |
+| `nemotron3:33b` | 204 | 1676 | 2.1% | **97.9%** |
+
+Prefill and decode load the GPU in opposite ways. Prefill consumes the whole
+prompt in one compute-bound matrix-**matrix** pass with high arithmetic
+intensity, and saturates the device. Decode emits one token at a time as a
+memory-bound matrix-**vector** pass with a serial dependency chain, and at
+batch size 1 cannot fill the ALUs. Observed 2026-07-28: the GPU sits ~55%
+under this benchmark, against 90%+ when the same model serves Claude Code.
+
+The daily-driver workload is the opposite shape. Claude Code prefills ~77.4k
+tokens on turn one (PROJ-1003, recorded in
+`dotfiles/ollama/qwen36-claude.Modelfile`). At a plausible 500-1500 tok/s
+prefill rate against ~1500 output tokens at ~55 tok/s, that is **65-85%
+prefill** — dominated by the phase this matrix barely exercises.
+
+**Consequence.** These results rank models on decode throughput during
+agentic generation, which is the right metric for "how fast do tokens come
+out". They do **not** rank models for Claude-Code-shaped work, where prefill
+dominates. Two rows could tie here and differ materially in daily use. Any
+conclusion of the form "model X is the best daily driver on pop" is
+unsupported by this data alone, and needs the prefill/TTFT work already
+scoped in PROJ-1003 (TASK-1015, TASK-1107, TASK-1111).
+
+The 2026-07-13 report noted the short prompts as a footnote explaining GPU
+utilization. Stating it as a scope boundary on the conclusions is the sharper
+form, and the one that stops the table being over-read.
