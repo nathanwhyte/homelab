@@ -15,12 +15,11 @@ import json
 import statistics
 import sys
 import time
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Optional, Union
 
 import tomllib
-
 
 try:
     import aiohttp
@@ -66,6 +65,13 @@ from output import (  # type: ignore[import-not-found]
 from prompts import select_workload  # type: ignore[import-not-found]
 from tool_calls import validate_tool_call  # type: ignore[import-not-found]
 
+# Upper bound for a concurrently-running GPU sampler. The sampler is stopped by
+# event the moment its repeat finishes; this only caps a runaway.
+GPU_SAMPLE_MAX_S = 3600.0
+
+# Ollama accepts `think` as a bool or as a level string ("low"/"medium"/"high").
+ThinkParam = Optional[Union[bool, str]]
+
 
 @dataclass
 class RequestResult:
@@ -75,9 +81,38 @@ class RequestResult:
     gen_tps: float
     tokens: int
     prompt_tokens: int
+    # Time to first *answer* token. For a thinking model Ollama streams
+    # reasoning first, so ttft_s (first output of any kind) can be near zero
+    # while the answer is still seconds away; think on/off latency is only
+    # comparable on ttfa_s.
+    ttfa_s: float = 0.0
     error: Optional[str] = None
     response_text: Optional[str] = None
     tool_validation: Optional[dict[str, Any]] = None
+    # Ollama separates a reasoning model's chain-of-thought (`thinking`) from
+    # its answer (`response`). Without both, a reply that burns its whole token
+    # budget reasoning and returns an empty answer is indistinguishable from a
+    # genuine answer of the same token count.
+    thinking_text: Optional[str] = None
+    done_reason: Optional[str] = None
+    # Server-reported load+prefill, retained alongside the client-observed TTFT
+    # above so the two can be compared (queue time is their difference).
+    server_prefill_s: float = 0.0
+
+    @property
+    def empty_answer(self) -> bool:
+        """Completed, but produced no usable answer text.
+
+        Keyed on stripped content, not token count: a request that returns
+        whitespace with eval_count=0 is just as unusable as one that spent a
+        full budget reasoning, and gating on tokens > 0 would score it usable.
+        """
+        return self.error is None and not (self.response_text or "").strip()
+
+    @property
+    def truncated(self) -> bool:
+        """Hit the num_predict ceiling rather than stopping naturally."""
+        return self.done_reason == "length"
 
 
 @dataclass
@@ -87,6 +122,8 @@ class LevelResult:
     repeats: int
     wall_s: list[float] = field(default_factory=list)
     ttft_s: list[float] = field(default_factory=list)
+    ttfa_s: list[float] = field(default_factory=list)
+    server_prefill_s: list[float] = field(default_factory=list)
     itl_s: list[float] = field(default_factory=list)
     gen_tps: list[float] = field(default_factory=list)
     tokens: list[int] = field(default_factory=list)
@@ -94,6 +131,13 @@ class LevelResult:
     repeat_throughput: list[float] = field(default_factory=list)
     aggregate_tok_s: Optional[float] = None
     tool_validations: list[dict[str, Any]] = field(default_factory=list)
+    # Response-quality accounting. Without these a row can report a healthy
+    # token count while every answer was empty, truncated, or errored.
+    attempted: int = 0
+    errors: list[str] = field(default_factory=list)
+    empty_answers: int = 0
+    truncated_answers: int = 0
+    done_reasons: dict[str, int] = field(default_factory=dict)
 
     def _tool_validation_summary(self) -> Optional[dict[str, Any]]:
         if not self.tool_validations:
@@ -125,16 +169,43 @@ class LevelResult:
             ),
         }
 
+    def _quality_summary(self) -> dict[str, Any]:
+        """Per-level response health.
+
+        `succeeded` counts requests that returned without error; `usable`
+        further excludes replies that produced no answer text. A reasoning
+        model that spends its whole budget thinking lands in the gap.
+        """
+        ok = len(self.tokens)
+        return {
+            "attempted": self.attempted,
+            "succeeded": ok,
+            "failed": len(self.errors),
+            "empty_answers": self.empty_answers,
+            "truncated": self.truncated_answers,
+            "usable": ok - self.empty_answers,
+            "usable_rate": round((ok - self.empty_answers) / self.attempted, 4)
+            if self.attempted
+            else 0.0,
+            "done_reasons": dict(self.done_reasons),
+            "errors": self.errors[:10],
+        }
+
     def to_summary(self) -> dict[str, Any]:
         summary: dict[str, Any] = {
             "concurrency": self.concurrency,
             "requests": self.requests,
             "repeats": self.repeats,
+            "quality": self._quality_summary(),
             "aggregate_tok_s": round(self.aggregate_tok_s, 2)
             if self.aggregate_tok_s is not None
             else None,
             "wall_s": latency_summary(self.wall_s, "wall_s"),
             "ttft_s": latency_summary(self.ttft_s, "ttft_s"),
+            "ttfa_s": latency_summary(self.ttfa_s, "ttfa_s"),
+            "server_prefill_s": latency_summary(
+                self.server_prefill_s, "server_prefill_s"
+            ),
             "itl_s": latency_summary(self.itl_s, "itl_s"),
             "gen_tps": latency_summary(self.gen_tps, "gen_tps"),
             "tokens": {
@@ -165,13 +236,26 @@ class LevelResult:
                 f"{prefix}_mean": d["mean"],
             }
 
+        q = s["quality"]
         row = {
             "concurrency": s["concurrency"],
             "requests": s["requests"],
             "repeats": s["repeats"],
             "aggregate_tok_s": s["aggregate_tok_s"],
+            # Quality travels with throughput into CSV/Markdown so downstream
+            # consumers (plot-bars.py et al.) can gate on it. Plotting
+            # aggregate_tok_s alone lets a row of empty answers render as a
+            # tall bar indistinguishable from real work.
+            "attempted": q["attempted"],
+            "failed": q["failed"],
+            "empty_answers": q["empty_answers"],
+            "truncated": q["truncated"],
+            "usable": q["usable"],
+            "usable_rate": q["usable_rate"],
             **_lat("wall_s"),
             **_lat("ttft_s"),
+            **_lat("ttfa_s"),
+            **_lat("server_prefill_s"),
             **_lat("itl_s"),
             **_lat("gen_tps"),
             "tokens_mean": s["tokens"]["mean"],
@@ -290,7 +374,7 @@ async def run_request(
     api: str = "ollama",
     stop: Optional[list] = None,
     extra_options: Optional[dict] = None,
-    think: Optional[bool] = None,
+    think: ThinkParam = None,
 ) -> RequestResult:
     if api == "openai_completions":
         return await run_request_openai(
@@ -309,7 +393,10 @@ async def run_request(
     payload = {
         "model": model,
         "prompt": prompt,
-        "stream": False,
+        # Streamed so TTFT is the client-observed first-token time (queueing
+        # included) rather than the server's load+prefill total. The final
+        # chunk still carries the same duration/count fields as a unary reply.
+        "stream": True,
         "options": options,
     }
     if stop:
@@ -317,28 +404,87 @@ async def run_request(
     if raw:
         payload["raw"] = True
     # `think` is a top-level Ollama API param, not an option. Omitted entirely
-    # when unset so pre-existing configs send byte-identical payloads.
+    # when unset so configs that don't set it send an unchanged payload.
+    # Ollama accepts a bool or a level string ("low"/"medium"/"high").
     if think is not None:
         payload["think"] = think
+
+    def _failure(exc: str, elapsed: float) -> RequestResult:
+        return RequestResult(
+            wall_s=elapsed,
+            ttft_s=0.0,
+            itl_s=0.0,
+            gen_tps=0.0,
+            tokens=0,
+            prompt_tokens=0,
+            error=exc,
+        )
+
     t0 = time.monotonic()
+    t_first: Optional[float] = None
+    t_first_answer: Optional[float] = None
+    saw_done = False
+    text_parts: list[str] = []
+    thinking_parts: list[str] = []
+    data: dict[str, Any] = {}
     try:
         async with session.post(
             f"{url}/api/generate",
             json=payload,
             timeout=aiohttp.ClientTimeout(total=300),
         ) as resp:
-            data = await resp.json()
+            # Ollama signals failure both by non-2xx status and by an `error`
+            # key in an otherwise-200 body. Neither was previously checked, so
+            # a rejected request scored as a success with zero-valued metrics.
+            if resp.status != 200:
+                body = (await resp.text())[:300]
+                return _failure(f"HTTP {resp.status}: {body}", time.monotonic() - t0)
+            async for line in resp.content:
+                if not line.strip():
+                    continue
+                try:
+                    chunk = json.loads(line)
+                except json.JSONDecodeError as exc:
+                    # A frame we cannot parse means the stream is not what the
+                    # protocol promises. Skipping it silently would let a
+                    # truncated or corrupted response score as a success.
+                    return _failure(
+                        f"malformed stream frame: {exc}", time.monotonic() - t0
+                    )
+                if chunk.get("error"):
+                    return _failure(
+                        f"ollama error: {chunk['error']}", time.monotonic() - t0
+                    )
+                piece = chunk.get("response", "")
+                thought = chunk.get("thinking", "")
+                # Two distinct latencies. `t_first` is the first output of any
+                # kind; `t_first_answer` is the first *answer* token. Ollama
+                # streams reasoning before content, so for a thinking model the
+                # two differ by the whole reasoning phase — collapsing them
+                # would make think-on TTFT look near-zero and render think
+                # on/off latency comparisons meaningless.
+                if (piece or thought) and t_first is None:
+                    t_first = time.monotonic()
+                if piece and t_first_answer is None:
+                    t_first_answer = time.monotonic()
+                if piece:
+                    text_parts.append(piece)
+                if thought:
+                    thinking_parts.append(thought)
+                if chunk.get("done"):
+                    data = chunk
+                    saw_done = True
     except Exception as exc:
-        return RequestResult(
-            wall_s=time.monotonic() - t0,
-            ttft_s=0.0,
-            itl_s=0.0,
-            gen_tps=0.0,
-            tokens=0,
-            prompt_tokens=0,
-            error=str(exc),
-        )
+        return _failure(str(exc), time.monotonic() - t0)
+
     wall = time.monotonic() - t0
+    # A stream that ends without a terminating `done` chunk was cut short. All
+    # the duration/count fields live on that final chunk, so without it the
+    # result would be all zeros yet still read as a successful request.
+    if not saw_done:
+        return _failure("stream ended before a done chunk (premature EOF)", wall)
+    if data.get("error"):
+        return _failure(f"ollama error: {data['error']}", wall)
 
     load_ns = data.get("load_duration", 0) or 0
     prefill_ns = data.get("prompt_eval_duration", 0) or 0
@@ -346,19 +492,23 @@ async def run_request(
     eval_count = data.get("eval_count", 0) or 0
     prompt_count = data.get("prompt_eval_count", 0) or 0
 
-    ttft = (load_ns + prefill_ns) / 1e9
+    ttft = (t_first - t0) if t_first is not None else wall
+    ttfa = (t_first_answer - t0) if t_first_answer is not None else wall
     gen_tps = eval_count / (eval_ns / 1e9) if eval_ns else 0.0
     itl = 1.0 / gen_tps if gen_tps > 0 else 0.0
 
-    response_text = data.get("response", "")
     return RequestResult(
         wall_s=wall,
         ttft_s=ttft,
+        ttfa_s=ttfa,
         itl_s=itl,
         gen_tps=gen_tps,
         tokens=eval_count,
         prompt_tokens=prompt_count,
-        response_text=response_text,
+        response_text="".join(text_parts),
+        thinking_text="".join(thinking_parts) or None,
+        done_reason=data.get("done_reason"),
+        server_prefill_s=(load_ns + prefill_ns) / 1e9,
     )
 
 
@@ -377,7 +527,7 @@ async def benchmark_level(
     api: str = "ollama",
     stop: Optional[list] = None,
     extra_options: Optional[dict] = None,
-    think: Optional[bool] = None,
+    think: ThinkParam = None,
 ) -> list[RequestResult]:
     sem = asyncio.Semaphore(concurrency)
 
@@ -418,7 +568,7 @@ async def warmup(
     api: str = "ollama",
     stop: Optional[list] = None,
     extra_options: Optional[dict] = None,
-    think: Optional[bool] = None,
+    think: ThinkParam = None,
 ) -> RequestResult:
     return await run_request(
         session,
@@ -480,7 +630,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--config",
         type=Path,
-        default=Path("benchmarks/ollama/configs/default.toml"),
+        required=True,
         help="TOML config path",
     )
     parser.add_argument(
@@ -553,6 +703,19 @@ async def main() -> int:
     prompts = workload.prompts
     expected_tools = workload.expected_tools if workload.expected_tools else None
 
+    # Tool validation parses the answer as a {"tool", "arguments"} JSON object.
+    # Applied to a prose workload such as `agentic` it fails every correct
+    # answer, reporting a uniform 0% that reads as a model defect. Only run it
+    # where the workload actually asks for tool calls.
+    if tool_validate and expected_tools is None:
+        print(
+            f"WARNING: workload '{workload_name}' does not emit tool calls; "
+            f"ignoring tool validation (it would score every answer invalid). "
+            f"Use the per-level `quality` block for usability instead.",
+            file=sys.stderr,
+        )
+        tool_validate = False
+
     if args.dry_run:
         print("Dry run; first prompt:")
         print(prompts[0][:200] + "..." if len(prompts[0]) > 200 else prompts[0])
@@ -606,6 +769,9 @@ async def main() -> int:
         )
 
         level_results: list[LevelResult] = []
+        gpu_series_by_level: list[dict[str, Any]] = []
+        run_elapsed_s = 0.0
+        run_tokens = 0
         for level in range(1, max_concurrency + 1):
             print(
                 f"\nBenchmarking concurrency={level} with {requests_per_level} requests "
@@ -615,10 +781,33 @@ async def main() -> int:
             level_res = LevelResult(
                 concurrency=level, requests=len(prompts), repeats=repeats
             )
+            # Per-level bucket, appended to the run-wide list below. Previously
+            # this was rebound each level, so only the final level's samples
+            # ever reached the output file.
             gpu_samples: list[Any] = []
             repeat_start_global = time.monotonic()
 
             for _ in range(repeats):
+                # Sample the GPU *while* the workload runs. Sampling used to be
+                # started after the workload finished, so it measured a post-run
+                # idle GPU and its duration was then counted in the throughput
+                # window — roughly halving reported aggregate throughput.
+                gpu_stop = asyncio.Event()
+                sampler: Optional[asyncio.Task] = None
+                if enable_gpu or use_amdsmi:
+                    sampler = asyncio.create_task(
+                        sample_during(
+                            session,
+                            duration_s=GPU_SAMPLE_MAX_S,
+                            interval_s=sample_interval,
+                            prom_url=prom_url,
+                            ollama_url=url,
+                            model_name=model,
+                            instance_label=prom_instance,
+                            use_amdsmi=use_amdsmi,
+                            stop_event=gpu_stop,
+                        )
+                    )
                 repeat_start = time.monotonic()
                 repeat_results = await benchmark_level(
                     session,
@@ -640,14 +829,26 @@ async def main() -> int:
                 repeat_wall = time.monotonic() - repeat_start
                 repeat_tokens = 0
                 for rr in repeat_results:
+                    level_res.attempted += 1
                     if rr.error:
+                        level_res.errors.append(rr.error)
                         print(
                             f"  Request error at concurrency={level}: {rr.error}",
                             file=sys.stderr,
                         )
                         continue
+                    if rr.done_reason:
+                        level_res.done_reasons[rr.done_reason] = (
+                            level_res.done_reasons.get(rr.done_reason, 0) + 1
+                        )
+                    if rr.empty_answer:
+                        level_res.empty_answers += 1
+                    if rr.truncated:
+                        level_res.truncated_answers += 1
                     level_res.wall_s.append(rr.wall_s)
                     level_res.ttft_s.append(rr.ttft_s)
+                    level_res.ttfa_s.append(rr.ttfa_s)
+                    level_res.server_prefill_s.append(rr.server_prefill_s)
                     level_res.itl_s.append(rr.itl_s)
                     level_res.gen_tps.append(rr.gen_tps)
                     level_res.tokens.append(rr.tokens)
@@ -658,24 +859,25 @@ async def main() -> int:
                 if repeat_wall > 0:
                     level_res.repeat_throughput.append(repeat_tokens / repeat_wall)
 
-                if enable_gpu or use_amdsmi:
-                    series_list = await sample_during(
-                        session,
-                        duration_s=repeat_wall,
-                        interval_s=sample_interval,
-                        prom_url=prom_url,
-                        ollama_url=url,
-                        model_name=model,
-                        instance_label=prom_instance,
-                        use_amdsmi=use_amdsmi,
-                    )
-                    gpu_samples.extend([s.__dict__ for s in series_list])
+                if sampler is not None:
+                    gpu_stop.set()
+                    series_list = await sampler
+                    # asdict() recurses into the nested GpuSample dataclasses.
+                    # __dict__ was shallow, so json.dumps(default=str) wrote the
+                    # samples out as repr strings instead of objects.
+                    gpu_samples.extend([asdict(s) for s in series_list])
 
             total_wall = time.monotonic() - repeat_start_global
             total_tokens = sum(level_res.tokens)
             level_res.aggregate_tok_s = (
                 total_tokens / total_wall if total_wall > 0 else 0.0
             )
+            run_elapsed_s += total_wall
+            run_tokens += total_tokens
+            if gpu_samples:
+                gpu_series_by_level.append(
+                    {"concurrency": level, "series": gpu_samples}
+                )
 
             level_results.append(level_res)
             s = level_res.to_summary()
@@ -716,10 +918,21 @@ async def main() -> int:
         all_validations = [v for r in level_results for v in r.tool_validations]
         summary: dict[str, Any] = {
             "levels": [r.to_summary() for r in level_results],
-            "overall_throughput": throughput_summary(
-                [tok for r in level_results for tok in r.tokens],
-                [w for r in level_results for w in r.wall_s],
-            ),
+            # Elapsed wall clock across all levels, NOT the sum of per-request
+            # wall times. Summing double-counts concurrent requests: two
+            # simultaneous 10-token requests taking 1s scored 10 tok/s instead
+            # of 20. Per-request rates are still reported by throughput_summary
+            # for distribution stats.
+            "overall_throughput": {
+                **throughput_summary(
+                    [tok for r in level_results for tok in r.tokens],
+                    [w for r in level_results for w in r.wall_s],
+                ),
+                "elapsed_s": round(run_elapsed_s, 3),
+                "aggregate_tok_s": round(run_tokens / run_elapsed_s, 2)
+                if run_elapsed_s > 0
+                else 0.0,
+            },
         }
         if all_validations:
             n = len(all_validations)
@@ -759,7 +972,7 @@ async def main() -> int:
             config=config,
             samples=samples_meta,
             summary=summary,
-            gpu_series=gpu_samples or None,
+            gpu_series=gpu_series_by_level or None,
         )
         print(f"\nWrote JSON results to {json_path}")
 

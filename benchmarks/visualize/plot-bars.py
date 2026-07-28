@@ -22,6 +22,11 @@ INK = "#1d1d1f"
 GRAY_TEXT = "#86868b"
 GRID_GRAY = "#d2d2d7"
 
+# Below this share of usable answers, a throughput bar is annotated as suspect.
+# Rows from before the quality columns existed have no usable_rate and are left
+# unannotated rather than assumed bad.
+USABLE_RATE_WARN = 0.9
+
 PALETTE = {
     "purple": "#c4b8f5",
     "green": "#b7f0c9",
@@ -121,7 +126,13 @@ def grid_bar_chart(
             bars[best_idx].set_linewidth(1.4)
 
         for bar, val in zip(bars, values):
-            weight = "bold" if bar is bars[best_idx] else "normal" if best_idx is not None else "normal"
+            weight = (
+                "bold"
+                if bar is bars[best_idx]
+                else "normal"
+                if best_idx is not None
+                else "normal"
+            )
             ax.text(
                 bar.get_x() + bar.get_width() / 2,
                 bar.get_height() + max(values) * 0.02,
@@ -136,7 +147,14 @@ def grid_bar_chart(
         ax.set_ylim(0, max(values) * 1.25)
         ax.set_xticks([])
         style_axes(ax)
-        ax.set_title(panel["title"], fontsize=12.5, fontweight="bold", color=INK, loc="left", pad=14)
+        ax.set_title(
+            panel["title"],
+            fontsize=12.5,
+            fontweight="bold",
+            color=INK,
+            loc="left",
+            pad=14,
+        )
         ax.text(
             0.0,
             1.03,
@@ -195,7 +213,19 @@ def main() -> int:
         ("Cluster agentic (np=8, Vulkan)", "ollama-cluster-vulkan-agentic", 8),
     ]
     labels = [r[0] for r in runs]
-    values = [float(pick(rows, r[1], r[2])["aggregate_tok_s"]) for r in runs]
+    picked = [pick(rows, r[1], r[2]) for r in runs]
+    values = [float(p["aggregate_tok_s"]) for p in picked]
+    # Throughput without usability is a tall bar for work that never happened:
+    # a model can burn its whole budget reasoning and return nothing. Flag any
+    # run whose answers were mostly unusable rather than plotting it bare.
+    labels = [
+        f"{lbl}  ⚠ {float(p['usable_rate']):.0%} usable"
+        if "usable_rate" in p
+        and p["usable_rate"] not in ("", None)
+        and float(p["usable_rate"]) < USABLE_RATE_WARN
+        else lbl
+        for lbl, p in zip(labels, picked)
+    ]
     colors = [PALETTE["green"], PALETTE["purple"], PALETTE["pink"]]
     horizontal_bar_chart(
         outpath=args.report_dir / "peak-throughput.png",
@@ -215,8 +245,18 @@ def main() -> int:
     # Chart C: 3-panel grid at conc=8 (or each run's max), mirroring the
     # multi-benchmark grid layout.
     series = [
-        ("Cluster agentic (np=8, Vulkan)", "ollama-cluster-vulkan-agentic", 8, PALETTE["pink"]),
-        ("Cluster mixed_mem0 (np=8, Vulkan)", "ollama-cluster-vulkan-default", 8, PALETTE["purple"]),
+        (
+            "Cluster agentic (np=8, Vulkan)",
+            "ollama-cluster-vulkan-agentic",
+            8,
+            PALETTE["pink"],
+        ),
+        (
+            "Cluster mixed_mem0 (np=8, Vulkan)",
+            "ollama-cluster-vulkan-default",
+            8,
+            PALETTE["purple"],
+        ),
         ("Pop mixed_mem0 (np=1)", "ollama-pop-np1-default", 1, PALETTE["green"]),
     ]
     series_rows = [pick(rows, run, conc) for _, run, conc, _ in series]
