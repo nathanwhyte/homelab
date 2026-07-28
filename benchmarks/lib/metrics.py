@@ -372,5 +372,15 @@ async def sample_during(
                     gpu=series.gpu,
                 )
             merged[series.metric].samples.extend(series.samples)
+        # Interruptible sleep. A plain asyncio.sleep() would run the full
+        # interval before noticing the stop, and the caller awaits this task
+        # before closing its timing window — so an uninterruptible sleep adds
+        # up to a whole interval of idle time to every measured repeat.
+        if stop_event is not None:
+            try:
+                await asyncio.wait_for(stop_event.wait(), timeout=interval_s)
+                break  # stop_event fired during the interval
+            except asyncio.TimeoutError:
+                continue  # interval elapsed normally, keep sampling
         await asyncio.sleep(interval_s)
     return list(merged.values())

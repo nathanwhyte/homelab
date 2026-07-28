@@ -183,6 +183,77 @@ def test_real_answer_is_not_flagged_empty():
 # --- level accounting ----------------------------------------------------
 
 
+def test_premature_eof_is_an_error():
+    """A stream that never sends `done` was cut short.
+
+    Every duration/count field lives on the final chunk, so without it the
+    result is all zeros — which previously read as a clean success.
+    """
+    s = _StubSession(
+        chunks=[
+            {"response": "partial answ", "done": False},
+        ]
+    )
+    r = _run(s)
+    assert r.error is not None
+    assert "done chunk" in r.error
+
+
+def test_malformed_frame_is_an_error():
+    """An unparseable frame means the stream isn't what the protocol promises."""
+
+    class _BadResponse(_StubResponse):
+        @property
+        def content(self):
+            async def _gen():
+                yield b'{"response": "ok", "done": false}\n'
+                yield b"{not json at all\n"
+
+            return _gen()
+
+    class _BadSession(_StubSession):
+        def post(self, url, json=None, timeout=None):
+            self.payloads.append(json)
+            return _BadResponse(200, [])
+
+    r = _run(_BadSession())
+    assert r.error is not None
+    assert "malformed" in r.error
+
+
+# --- latency semantics ---------------------------------------------------
+
+
+def test_ttft_and_ttfa_differ_for_a_thinking_model():
+    """Reasoning streams before content, so first-output != first-answer.
+
+    Collapsing them made think-on TTFT look near-zero and rendered think
+    on/off latency comparisons meaningless.
+    """
+    s = _StubSession(
+        chunks=[
+            {"thinking": "reasoning first", "done": False},
+            {"response": "the answer", "done": False},
+            _done_chunk(response="", done_reason="stop", eval_count=20),
+        ]
+    )
+    r = _run(s)
+    assert r.ttft_s <= r.ttfa_s, "first answer cannot precede first output"
+    assert r.ttfa_s > 0
+
+
+def test_empty_answer_ignores_token_count():
+    """Whitespace-only answers are unusable even with eval_count == 0."""
+    s = _StubSession(chunks=[_done_chunk(response="   ", eval_count=0)])
+    r = _run(s)
+    assert r.error is None
+    assert r.tokens == 0
+    assert r.empty_answer is True
+
+
+# --- level accounting ----------------------------------------------------
+
+
 def test_failed_requests_are_counted_not_silently_dropped():
     lr = bench.LevelResult(concurrency=2, requests=2, repeats=1)
     lr.attempted = 2

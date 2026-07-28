@@ -27,56 +27,56 @@ MODEL_COOLDOWN="${MODEL_COOLDOWN:-30}"
 # isolate reasoning cost at fixed model size. hermes3:8b and qwen3-coder:30b do
 # not advertise a `thinking` capability, so they get no pair.
 MATRIX=(
-  # --- native mode, one row each ---
-  "north-mini-nvfp4|north-mini-code-1.0:mlx-nvfp4"
-  "nemotron3-33b|nemotron3:33b"
-  "qwen3-coder-30b|qwen3-coder:30b"
-  "hermes3-8b|hermes3:8b"
-  "qwen36-35b-mlx|qwen3.6:35b-mlx"
-  "gemma4-26b-mxfp8|gemma4:26b-mxfp8"
-  "qwen36-35b-coding-mxfp8|qwen3.6:35b-a3b-coding-mxfp8"
-  "laguna-latest|laguna-xs-2.1:latest"
-  "laguna-mxfp8|laguna-xs-2.1:mxfp8"
-  "laguna-nvfp4|laguna-xs-2.1:nvfp4"
-  # --- gemma4:12b quant sweep, think on/off pairs ---
-  "gemma4-12b-think|gemma4:12b"
-  "gemma4-12b-nothink|gemma4:12b"
-  "gemma4-12b-mlx-think|gemma4:12b-mlx"
-  "gemma4-12b-mlx-nothink|gemma4:12b-mlx"
-  "gemma4-12b-mxfp8-think|gemma4:12b-mxfp8"
-  "gemma4-12b-mxfp8-nothink|gemma4:12b-mxfp8"
-  "gemma4-12b-mlx-bf16-think|gemma4:12b-mlx-bf16"
-  "gemma4-12b-mlx-bf16-nothink|gemma4:12b-mlx-bf16"
+	# --- native mode, one row each ---
+	"north-mini-nvfp4|north-mini-code-1.0:mlx-nvfp4"
+	"nemotron3-33b|nemotron3:33b"
+	"qwen3-coder-30b|qwen3-coder:30b"
+	"hermes3-8b|hermes3:8b"
+	"qwen36-35b-mlx|qwen3.6:35b-mlx"
+	"gemma4-26b-mxfp8|gemma4:26b-mxfp8"
+	"qwen36-35b-coding-mxfp8|qwen3.6:35b-a3b-coding-mxfp8"
+	"laguna-latest|laguna-xs-2.1:latest"
+	"laguna-mxfp8|laguna-xs-2.1:mxfp8"
+	"laguna-nvfp4|laguna-xs-2.1:nvfp4"
+	# --- gemma4:12b quant sweep, think on/off pairs ---
+	"gemma4-12b-think|gemma4:12b"
+	"gemma4-12b-nothink|gemma4:12b"
+	"gemma4-12b-mlx-think|gemma4:12b-mlx"
+	"gemma4-12b-mlx-nothink|gemma4:12b-mlx"
+	"gemma4-12b-mxfp8-think|gemma4:12b-mxfp8"
+	"gemma4-12b-mxfp8-nothink|gemma4:12b-mxfp8"
+	"gemma4-12b-mlx-bf16-think|gemma4:12b-mlx-bf16"
+	"gemma4-12b-mlx-bf16-nothink|gemma4:12b-mlx-bf16"
 )
 
 log() {
-  echo "[run-pop-moe-matrix] $*"
+	echo "[run-pop-moe-matrix] $*"
 }
 
 set_num_parallel() {
-  local np="$1"
-  log "updating LaunchAgent OLLAMA_NUM_PARALLEL=${np}"
+	local np="$1"
+	log "updating LaunchAgent OLLAMA_NUM_PARALLEL=${np}"
 
-  /usr/libexec/PlistBuddy -c "Set :EnvironmentVariables:OLLAMA_NUM_PARALLEL ${np}" "$PLIST" ||
-    /usr/libexec/PlistBuddy -c "Add :EnvironmentVariables:OLLAMA_NUM_PARALLEL string ${np}" "$PLIST"
+	/usr/libexec/PlistBuddy -c "Set :EnvironmentVariables:OLLAMA_NUM_PARALLEL ${np}" "$PLIST" ||
+		/usr/libexec/PlistBuddy -c "Add :EnvironmentVariables:OLLAMA_NUM_PARALLEL string ${np}" "$PLIST"
 
-  /usr/libexec/PlistBuddy -c "Set :EnvironmentVariables:OLLAMA_LOAD_TIMEOUT 2m" "$PLIST" 2>/dev/null ||
-    /usr/libexec/PlistBuddy -c "Add :EnvironmentVariables:OLLAMA_LOAD_TIMEOUT string 2m" "$PLIST"
+	/usr/libexec/PlistBuddy -c "Set :EnvironmentVariables:OLLAMA_LOAD_TIMEOUT 2m" "$PLIST" 2>/dev/null ||
+		/usr/libexec/PlistBuddy -c "Add :EnvironmentVariables:OLLAMA_LOAD_TIMEOUT string 2m" "$PLIST"
 
-  launchctl unload "$PLIST" 2>/dev/null || true
-  launchctl load -w "$PLIST"
+	launchctl unload "$PLIST" 2>/dev/null || true
+	launchctl load -w "$PLIST"
 
-  log "waiting for ollama to settle"
-  sleep 5
-  until curl -s http://localhost:11434/api/tags >/dev/null 2>&1; do
-    sleep 2
-  done
+	log "waiting for ollama to settle"
+	sleep 5
+	until curl -s http://localhost:11434/api/tags >/dev/null 2>&1; do
+		sleep 2
+	done
 }
 
 capture_env() {
-  local np="$1"
-  local out="${OUTPUT_DIR}/pop-moe-np${np}-env.json"
-  cat >"$out" <<ENV_EOF
+	local np="$1"
+	local out="${OUTPUT_DIR}/pop-moe-np${np}-env.json"
+	cat >"$out" <<ENV_EOF
 {
   "num_parallel": "${np}",
   "context_length": "$(launchctl getenv OLLAMA_CONTEXT_LENGTH || echo unknown)",
@@ -85,52 +85,53 @@ capture_env() {
   "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 }
 ENV_EOF
-  log "captured env to ${out}"
+	log "captured env to ${out}"
 }
 
 run_model() {
-  local slug="$1" model="$2"
-  local config="benchmarks/ollama/configs/pop-moe-${slug}-agentic.toml"
-  local log_file="${OUTPUT_DIR}/pop-moe-${slug}.log"
+	local slug="$1" model="$2"
+	local config="benchmarks/ollama/configs/pop-moe-${slug}-agentic.toml"
+	local log_file="${OUTPUT_DIR}/pop-moe-${slug}.log"
 
-  if [[ ! -f "$config" ]]; then
-    log "ERROR: config not found: ${config}"
-    exit 1
-  fi
+	if [[ ! -f "$config" ]]; then
+		log "ERROR: config not found: ${config}"
+		exit 1
+	fi
 
-  log "running ${slug} (${model})"
-  # --tool-validate gives every row an independent usability signal: a model
-  # can emit a full token budget of reasoning and return no answer, which the
-  # throughput columns alone cannot distinguish from real work.
-  uv run --with aiohttp python benchmarks/ollama/tools/concurrency-bench.py \
-    --config "$config" \
-    --output-dir "$OUTPUT_DIR" \
-    --no-gpu-sampling \
-    --tool-validate \
-    >"$log_file" 2>&1
-  log "finished ${slug}; log at ${log_file}"
+	log "running ${slug} (${model})"
+	# No --tool-validate here: these configs run the `agentic` workload, which is
+	# prose code-review prompts, not tool calls. The validator parses answers as
+	# {"tool", "arguments"} JSON and would score every correct answer invalid.
+	# Usability comes from the per-level `quality` block (usable_rate,
+	# empty_answers, truncated) instead.
+	uv run --with aiohttp python benchmarks/ollama/tools/concurrency-bench.py \
+		--config "$config" \
+		--output-dir "$OUTPUT_DIR" \
+		--no-gpu-sampling \
+		>"$log_file" 2>&1
+	log "finished ${slug}; log at ${log_file}"
 
-  ollama stop "$model" || log "warning: ollama stop ${model} returned nonzero"
-  log "cooldown ${MODEL_COOLDOWN}s before next model"
-  sleep "$MODEL_COOLDOWN"
+	ollama stop "$model" || log "warning: ollama stop ${model} returned nonzero"
+	log "cooldown ${MODEL_COOLDOWN}s before next model"
+	sleep "$MODEL_COOLDOWN"
 }
 
 main() {
-  mkdir -p "$OUTPUT_DIR"
+	mkdir -p "$OUTPUT_DIR"
 
-  if [[ ! -f "$PLIST" ]]; then
-    log "ERROR: LaunchAgent plist not found at ${PLIST}"
-    exit 1
-  fi
+	if [[ ! -f "$PLIST" ]]; then
+		log "ERROR: LaunchAgent plist not found at ${PLIST}"
+		exit 1
+	fi
 
-  set_num_parallel "$NUM_PARALLEL"
-  capture_env "$NUM_PARALLEL"
+	set_num_parallel "$NUM_PARALLEL"
+	capture_env "$NUM_PARALLEL"
 
-  for entry in "${MATRIX[@]}"; do
-    run_model "${entry%%|*}" "${entry##*|}"
-  done
+	for entry in "${MATRIX[@]}"; do
+		run_model "${entry%%|*}" "${entry##*|}"
+	done
 
-  log "matrix complete; results in ${OUTPUT_DIR}"
+	log "matrix complete; results in ${OUTPUT_DIR}"
 }
 
 main "$@"

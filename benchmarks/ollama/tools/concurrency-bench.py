@@ -81,6 +81,11 @@ class RequestResult:
     gen_tps: float
     tokens: int
     prompt_tokens: int
+    # Time to first *answer* token. For a thinking model Ollama streams
+    # reasoning first, so ttft_s (first output of any kind) can be near zero
+    # while the answer is still seconds away; think on/off latency is only
+    # comparable on ttfa_s.
+    ttfa_s: float = 0.0
     error: Optional[str] = None
     response_text: Optional[str] = None
     tool_validation: Optional[dict[str, Any]] = None
@@ -96,8 +101,13 @@ class RequestResult:
 
     @property
     def empty_answer(self) -> bool:
-        """Generated tokens but produced no answer text (all reasoning)."""
-        return self.error is None and self.tokens > 0 and not (self.response_text or "")
+        """Completed, but produced no usable answer text.
+
+        Keyed on stripped content, not token count: a request that returns
+        whitespace with eval_count=0 is just as unusable as one that spent a
+        full budget reasoning, and gating on tokens > 0 would score it usable.
+        """
+        return self.error is None and not (self.response_text or "").strip()
 
     @property
     def truncated(self) -> bool:
@@ -112,6 +122,8 @@ class LevelResult:
     repeats: int
     wall_s: list[float] = field(default_factory=list)
     ttft_s: list[float] = field(default_factory=list)
+    ttfa_s: list[float] = field(default_factory=list)
+    server_prefill_s: list[float] = field(default_factory=list)
     itl_s: list[float] = field(default_factory=list)
     gen_tps: list[float] = field(default_factory=list)
     tokens: list[int] = field(default_factory=list)
@@ -190,6 +202,10 @@ class LevelResult:
             else None,
             "wall_s": latency_summary(self.wall_s, "wall_s"),
             "ttft_s": latency_summary(self.ttft_s, "ttft_s"),
+            "ttfa_s": latency_summary(self.ttfa_s, "ttfa_s"),
+            "server_prefill_s": latency_summary(
+                self.server_prefill_s, "server_prefill_s"
+            ),
             "itl_s": latency_summary(self.itl_s, "itl_s"),
             "gen_tps": latency_summary(self.gen_tps, "gen_tps"),
             "tokens": {
@@ -220,13 +236,26 @@ class LevelResult:
                 f"{prefix}_mean": d["mean"],
             }
 
+        q = s["quality"]
         row = {
             "concurrency": s["concurrency"],
             "requests": s["requests"],
             "repeats": s["repeats"],
             "aggregate_tok_s": s["aggregate_tok_s"],
+            # Quality travels with throughput into CSV/Markdown so downstream
+            # consumers (plot-bars.py et al.) can gate on it. Plotting
+            # aggregate_tok_s alone lets a row of empty answers render as a
+            # tall bar indistinguishable from real work.
+            "attempted": q["attempted"],
+            "failed": q["failed"],
+            "empty_answers": q["empty_answers"],
+            "truncated": q["truncated"],
+            "usable": q["usable"],
+            "usable_rate": q["usable_rate"],
             **_lat("wall_s"),
             **_lat("ttft_s"),
+            **_lat("ttfa_s"),
+            **_lat("server_prefill_s"),
             **_lat("itl_s"),
             **_lat("gen_tps"),
             "tokens_mean": s["tokens"]["mean"],
@@ -393,6 +422,8 @@ async def run_request(
 
     t0 = time.monotonic()
     t_first: Optional[float] = None
+    t_first_answer: Optional[float] = None
+    saw_done = False
     text_parts: list[str] = []
     thinking_parts: list[str] = []
     data: dict[str, Any] = {}
@@ -413,29 +444,45 @@ async def run_request(
                     continue
                 try:
                     chunk = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
+                except json.JSONDecodeError as exc:
+                    # A frame we cannot parse means the stream is not what the
+                    # protocol promises. Skipping it silently would let a
+                    # truncated or corrupted response score as a success.
+                    return _failure(
+                        f"malformed stream frame: {exc}", time.monotonic() - t0
+                    )
                 if chunk.get("error"):
                     return _failure(
                         f"ollama error: {chunk['error']}", time.monotonic() - t0
                     )
-                # First token the client actually observes. Unlike the
-                # server-reported load+prefill this includes queueing, so TTFT
-                # percentiles can expose concurrency saturation.
                 piece = chunk.get("response", "")
                 thought = chunk.get("thinking", "")
+                # Two distinct latencies. `t_first` is the first output of any
+                # kind; `t_first_answer` is the first *answer* token. Ollama
+                # streams reasoning before content, so for a thinking model the
+                # two differ by the whole reasoning phase — collapsing them
+                # would make think-on TTFT look near-zero and render think
+                # on/off latency comparisons meaningless.
                 if (piece or thought) and t_first is None:
                     t_first = time.monotonic()
+                if piece and t_first_answer is None:
+                    t_first_answer = time.monotonic()
                 if piece:
                     text_parts.append(piece)
                 if thought:
                     thinking_parts.append(thought)
                 if chunk.get("done"):
                     data = chunk
+                    saw_done = True
     except Exception as exc:
         return _failure(str(exc), time.monotonic() - t0)
 
     wall = time.monotonic() - t0
+    # A stream that ends without a terminating `done` chunk was cut short. All
+    # the duration/count fields live on that final chunk, so without it the
+    # result would be all zeros yet still read as a successful request.
+    if not saw_done:
+        return _failure("stream ended before a done chunk (premature EOF)", wall)
     if data.get("error"):
         return _failure(f"ollama error: {data['error']}", wall)
 
@@ -446,12 +493,14 @@ async def run_request(
     prompt_count = data.get("prompt_eval_count", 0) or 0
 
     ttft = (t_first - t0) if t_first is not None else wall
+    ttfa = (t_first_answer - t0) if t_first_answer is not None else wall
     gen_tps = eval_count / (eval_ns / 1e9) if eval_ns else 0.0
     itl = 1.0 / gen_tps if gen_tps > 0 else 0.0
 
     return RequestResult(
         wall_s=wall,
         ttft_s=ttft,
+        ttfa_s=ttfa,
         itl_s=itl,
         gen_tps=gen_tps,
         tokens=eval_count,
@@ -654,6 +703,19 @@ async def main() -> int:
     prompts = workload.prompts
     expected_tools = workload.expected_tools if workload.expected_tools else None
 
+    # Tool validation parses the answer as a {"tool", "arguments"} JSON object.
+    # Applied to a prose workload such as `agentic` it fails every correct
+    # answer, reporting a uniform 0% that reads as a model defect. Only run it
+    # where the workload actually asks for tool calls.
+    if tool_validate and expected_tools is None:
+        print(
+            f"WARNING: workload '{workload_name}' does not emit tool calls; "
+            f"ignoring tool validation (it would score every answer invalid). "
+            f"Use the per-level `quality` block for usability instead.",
+            file=sys.stderr,
+        )
+        tool_validate = False
+
     if args.dry_run:
         print("Dry run; first prompt:")
         print(prompts[0][:200] + "..." if len(prompts[0]) > 200 else prompts[0])
@@ -785,6 +847,8 @@ async def main() -> int:
                         level_res.truncated_answers += 1
                     level_res.wall_s.append(rr.wall_s)
                     level_res.ttft_s.append(rr.ttft_s)
+                    level_res.ttfa_s.append(rr.ttfa_s)
+                    level_res.server_prefill_s.append(rr.server_prefill_s)
                     level_res.itl_s.append(rr.itl_s)
                     level_res.gen_tps.append(rr.gen_tps)
                     level_res.tokens.append(rr.tokens)
