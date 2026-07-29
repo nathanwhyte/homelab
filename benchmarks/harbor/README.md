@@ -60,14 +60,30 @@ quantization, effective sampling, thinking mode, and loaded context.
 1. **One local-model consumer at a time** — never start a Harbor run while a
    PROJ-1003 matrix run (or any other Ollama/MLX consumer) is active. Check:
    `curl -s localhost:11434/api/ps` and `ps aux | grep agentic-coding-bench`.
-2. **Agent sampling override check** (open item): confirm whether Terminus-2
-   sends an explicit `temperature` in requests — if it does, it overrides the
-   Modelfile values above and must be pinned to match the matrix harness.
-3. **Remote host (timmy)**: `OLLAMA_API_BASE=http://<timmy>:11434` is the
-   LiteLLM-standard override but unconfirmed as passed through by Harbor —
-   smoke-test before relying on it.
+2. **Agent sampling override — RESOLVED** (INFO-1129, docs snapshot 2026-07-29):
+   Terminus-2's `temperature` kwarg defaults to **0.7** and overrides Modelfile
+   sampling. Both configs now pin it per model (0.6 qwen/nemotron, 1.0
+   gemma/laguna). Any new config must do the same.
+3. **Remote host (timmy) — RESOLVED**: Terminus-2 accepts an `api_base` kwarg
+   (custom endpoint override, INFO-1129) — prefer it over the unconfirmed
+   `OLLAMA_API_BASE` env pass-through.
 4. Docker Desktop must be running (arm64 Linux containers; hello-world verified
    config-resolves, not yet executed).
+
+Docs-ingest notes (INFO-1128/1129/1130, GUIDE-1075 — snapshot 2026-07-29):
+
+- **BUG-1067 third parser axis**: Terminus-2's `parser_name` kwarg
+  (`"json"`/`"xml"`, default json) selects how the agent parses tool calls out
+  of raw output — independent of the Ollama wire-format split. Include it in
+  any Terminus-2-based tool-call comparison.
+- **Raw-output forensics**: `TrajectoryConfig(raw_content=True)` stores raw
+  (pre-parse) LLM output in trajectories — use for BUG-1067 whitespace
+  evidence through Harbor.
+- **Regrade** (`hb job regrade`) re-verifies completed trials with a fixed
+  verifier without re-running the agent — but only for separate-mode verifiers
+  (`[verifier] environment_mode = "separate"`); worth authoring custom tasks in
+  separate mode from the start.
+- Registered datasets can run directly: `hb run -d terminal-bench/terminal-bench-2-1 -m <model> -a terminus-2`.
 
 ## Next steps (IMPR-1109 adoption sequence)
 
