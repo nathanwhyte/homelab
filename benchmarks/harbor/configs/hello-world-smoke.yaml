@@ -45,6 +45,7 @@ agents:
     model_name: ollama/qwen3.6:coding # 35.1B qwen3_5_moe, nvfp4 (MLX-origin)
     kwargs:
       temperature: 0.6 # match Modelfile
+      max_turns: 20
       model_info: &local_model_info
         max_tokens: 131072 # effective OLLAMA_CONTEXT_LENGTH on pop
         max_input_tokens: 122880
@@ -55,27 +56,32 @@ agents:
     model_name: ollama/qwen3.6:coding-gguf # 36.0B qwen35moe, Q4_K_M
     kwargs:
       temperature: 0.6
+      max_turns: 20
       model_info: *local_model_info
   # -- rest of the primary matrix --
   - name: terminus-2
     model_name: ollama/laguna:coding # 33.4B laguna, nvfp4
     kwargs:
       temperature: 1.0
+      max_turns: 20
       model_info: *local_model_info
   - name: terminus-2
     model_name: ollama/nemotron3:coding # 33.0B nemotron_h_omni, Q4_K_M (native max 131072)
     kwargs:
       temperature: 0.6
+      max_turns: 20
       model_info: *local_model_info
   - name: terminus-2
     model_name: ollama/gemma4:coding-12b # 12.4B gemma4_unified, nvfp4
     kwargs:
       temperature: 1.0
+      max_turns: 20
       model_info: *local_model_info
   - name: terminus-2
     model_name: ollama/gemma4:coding-26b # 26.2B gemma4, mxfp8
     kwargs:
       temperature: 1.0
+      max_turns: 20
       model_info: *local_model_info
 
 datasets:

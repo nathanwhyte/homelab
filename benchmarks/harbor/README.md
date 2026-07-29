@@ -22,7 +22,10 @@ hb view jobs                                              # results viewer, 127.
 | ------------------------------------ | ---------------------------------------------------------------------- |
 | `configs/hello-world-smoke.yaml`     | IMPR-1109 steps 1-2: hello-world once per matrix model, serial         |
 | `configs/gemma4-26b-quant-pair.yaml` | gemma4-26b focus push: nvfp4 vs mxfp8 twins, 3 attempts each           |
+| `configs/tb10-gemma4-26b-pair.yaml`  | TB-2.1 10-task quant pair; carries the 3-series condition history      |
+| `run-metadata-*.txt`                 | Tracked per-series provenance snapshots (one per series, mandatory)    |
 | `tasks/hello-world/`                 | Downloaded via `hb download harbor/hello-world`                        |
+| `tb-2-1/`                            | Downloaded TB-2.1 dataset (gitignored)                                 |
 | `jobs/`                              | Run output (gitignored; trajectories, verifier stdout/stderr, rewards) |
 
 ## Matrix models — verified parameters (2026-07-29)
@@ -60,10 +63,14 @@ quantization, effective sampling, thinking mode, and loaded context.
 1. **One local-model consumer at a time** — never start a Harbor run while a
    PROJ-1003 matrix run (or any other Ollama/MLX consumer) is active. Check:
    `curl -s localhost:11434/api/ps` and `ps aux | grep agentic-coding-bench`.
-2. **Agent sampling override — RESOLVED** (INFO-1129, docs snapshot 2026-07-29):
-   Terminus-2's `temperature` kwarg defaults to **0.7** and overrides Modelfile
-   sampling. Both configs now pin it per model (0.6 qwen/nemotron, 1.0
-   gemma/laguna). Any new config must do the same.
+2. **Agent sampling — pin `temperature` explicitly** (corrected 2026-07-29
+   review): the upstream docs list a 0.7 default, but installed Harbor 0.20.0
+   defines `temperature=None` — unset temperature is NOT forwarded to the
+   model, so the Modelfile value would apply. Explicit pins are still the
+   standard (verified to propagate: LiteLLM 1.94.0 emits
+   `options: {"temperature": ...}` to Ollama) because they make the effective
+   sampling reproducible and independent of Harbor default drift. Pin per
+   model: 0.6 qwen/nemotron, 1.0 gemma/laguna.
 3. **Remote host (timmy) — RESOLVED**: Terminus-2 accepts an `api_base` kwarg
    (custom endpoint override, INFO-1129) — prefer it over the unconfirmed
    `OLLAMA_API_BASE` env pass-through.

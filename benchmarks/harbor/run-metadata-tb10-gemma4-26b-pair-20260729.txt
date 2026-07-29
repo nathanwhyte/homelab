@@ -3,5 +3,5 @@ Wed Jul 29 11:32:36 CDT 2026
 ollama version is 0.32.5
 OLLAMA_CONTEXT_LENGTH=131072 OLLAMA_KV_CACHE_TYPE=q8_0 OLLAMA_NUM_PARALLEL=2
 digests:
-gemma4:coding-26b-nvfp4                                            909b8edeb4c5    17 GB     39 minutes ago    
-gemma4:coding-26b                                                  bf7f309722b2    27 GB     14 hours ago      
+gemma4:coding-26b-nvfp4                                            909b8edeb4c5    17 GB     39 minutes ago
+gemma4:coding-26b                                                  bf7f309722b2    27 GB     14 hours ago

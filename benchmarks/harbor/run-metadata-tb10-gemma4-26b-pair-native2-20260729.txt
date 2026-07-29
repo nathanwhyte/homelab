@@ -1,0 +1,21 @@
+run: tb10-gemma4-26b-pair-native2 (series 3 — native arm64, turn-capped)
+date: 2026-07-29, started ~12:35 CDT
+config: configs/tb10-gemma4-26b-pair.yaml @ homelab dedae6c (sha256 3a24a683ecc37d9a)
+series conditions: force_build=true (native arm64 task images), timeout_multiplier=2.0,
+  max_turns=20 per agent, temperature pinned 1.0 per agent, n_attempts=1 (PILOT —
+  do not rank the quant pair from single attempts)
+stack: harbor 0.20.0, litellm 1.94.0 (uv tool env), ollama 0.32.5,
+  docker 29.6.2, macOS 27.0 arm64 (pop)
+serving env (com.user.ollama-serve.plist): OLLAMA_CONTEXT_LENGTH=131072
+  OLLAMA_KV_CACHE_TYPE=q8_0 OLLAMA_NUM_PARALLEL=2
+temperature propagation: verified statically 2026-07-29 (review) — installed
+  Terminus-2 signature is temperature=None (unset not forwarded); explicit
+  kwarg pins produce options.temperature in the LiteLLM->Ollama payload.
+models:
+gemma4:coding-26b bf7f309722b2 27 GB (mxfp8)
+gemma4:coding-26b-nvfp4 909b8edeb4c5 17 GB (nvfp4, MLX path/MTP)
+known caveats: per-request effective options (num_ctx, think flag) are NOT
+  captured here — provenance gap tracked in IMPR-1109.
+prior series: tb10-gemma4-26b-pair (amd64-emulated, 1.5x, uncapped; abandoned
+  after trial 1) and tb10-gemma4-26b-pair-native (native, uncapped; abandoned
+  after trial 1) — job dirs kept on disk as evidence, untracked.

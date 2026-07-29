@@ -47,6 +47,7 @@ agents:
     model_name: ollama/gemma4:coding-26b # mxfp8, 27.7 GB
     kwargs:
       temperature: 1.0 # match Modelfile / Google's published row
+      max_turns: 20 # mandatory gate — see README (gemma4 completion-signal loop)
       model_info: &local_model_info
         max_tokens: 131072 # effective OLLAMA_CONTEXT_LENGTH on pop
         max_input_tokens: 122880
@@ -57,6 +58,7 @@ agents:
     model_name: ollama/gemma4:coding-26b-nvfp4 # nvfp4, ~17 GB (MTP on MLX path)
     kwargs:
       temperature: 1.0
+      max_turns: 20
       model_info: *local_model_info
 
 datasets:
