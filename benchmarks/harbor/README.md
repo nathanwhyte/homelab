@@ -111,6 +111,18 @@ quantization, effective sampling, thinking mode, and loaded context.
    ranking evidence. Nothink revision note: the series-4 pilot found the cap
    itself bottlenecked polyglot-c-py think-off (still productively iterating
    at 20 turns), which is what motivated the uncapped 4b arm.
+8. **Treat shell readiness as part of the evidence** (BUG-1068, corrected
+   2026-07-29): Terminus-2 calls `send_keys(..., block=False)` and sleeps for
+   the model-selected `duration`; the sleep does not prove the foreground
+   process exited. Before classifying a missing artifact as transport loss,
+   confirm that the observation immediately before the intended command ends
+   at a shell prompt. Never inspect `/logs/agent/recording.cast` or
+   `terminus_2.pane` from inside the trial: they are live terminal outputs and
+   can feed their own output back into themselves. The checked-in configs set
+   `record_terminal_session: false` to remove the proven `recording.cast`
+   feedback trigger while retaining the ATIF trajectory and pane log. This is
+   a mitigation, not the upstream completion-race fix; require a prompt-visible
+   existence/content check before accepting a model's `task_complete`.
 
 Docs-ingest notes (INFO-1128/1129/1130, GUIDE-1075 — snapshot 2026-07-29):
 
@@ -120,7 +132,9 @@ Docs-ingest notes (INFO-1128/1129/1130, GUIDE-1075 — snapshot 2026-07-29):
   any Terminus-2-based tool-call comparison.
 - **Raw-output forensics**: `TrajectoryConfig(raw_content=True)` stores raw
   (pre-parse) LLM output in trajectories — use for BUG-1067 whitespace
-  evidence through Harbor.
+  evidence through Harbor. It is not needed to localize BUG-1068's two
+  preserved trials because their parsed keystrokes are intact and neither
+  intended write was sent from a shell prompt.
 - **Regrade** (`hb job regrade`) re-verifies completed trials with a fixed
   verifier without re-running the agent — but only for separate-mode verifiers
   (`[verifier] environment_mode = "separate"`); worth authoring custom tasks in

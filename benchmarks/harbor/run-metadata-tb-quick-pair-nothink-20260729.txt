@@ -25,12 +25,15 @@ findings:
 - Parser warnings ~1/turn on BOTH quants (mxfp8 20/16, nvfp4 26/12 per trial)
   — quant-independent gemma4 prose-wrapping, zero failed extractions; NOT the
   INFO-1127 MLX format-drop (Terminus-2 never requests response_format).
-- regex-log CORRECTION (2026-07-29 forensics): the 4 nothink 0s are NOT one
-  quality miss — four distinct causes: (t1 mxfp8) unbalanced-paren syntax
-  error; (t2 nvfp4) regex VERIFIED CORRECT but /app/regex.txt never landed —
-  write keystrokes lost; (t3 mxfp8) same lost-write transport failure PLUS a
-  wrong-position IP lookahead; (t4 nvfp4) 3-digit day typo + lazy quantifier
-  (no last-date mechanism). t2/t3 expose a harness transport bug: backslash-
-  heavy echo commands through Terminus-2's keystroke channel can lose the
-  write (t3 showed runaway backslash-duplication "terminal corruption").
-  nvfp4 t2 actually SOLVED the task and lost the reward to transport.
+- regex-log RE-CORRECTION (2026-07-29 prompt/foreground re-audit): the 4
+  nothink 0s are NOT one quality miss — four distinct causes: (t1 mxfp8)
+  unbalanced-paren syntax error; (t2 nvfp4) regex VERIFIED CORRECT but its
+  write was sent while a recursive grep/find still owned the foreground;
+  (t3 mxfp8) the agent cat-ed its own live recording.cast, creating a
+  self-amplifying stream, then sent every later command without a shell
+  prompt; (t4 nvfp4) 3-digit day typo + lazy quantifier (no last-date
+  mechanism). t2/t3 expose a Terminus-2 command-readiness defect, not
+  backslash corruption: Harbor 0.20.0 sends commands block=False after the
+  model-selected duration, and both ~250-character writes are intact in ATIF.
+  They never executed because the shell was not ready. BUG-1068 tracks the
+  upstream completion race and live-log feedback trigger.

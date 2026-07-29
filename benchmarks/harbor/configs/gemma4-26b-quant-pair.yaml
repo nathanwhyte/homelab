@@ -48,6 +48,7 @@ agents:
     kwargs:
       temperature: 1.0 # match Modelfile / Google's published row
       max_turns: 20 # mandatory gate — see README (gemma4 completion-signal loop)
+      record_terminal_session: false # BUG-1068: keep live recording.cast out of the agent-visible feedback path
       model_info: &local_model_info
         max_tokens: 131072 # effective OLLAMA_CONTEXT_LENGTH on pop
         max_input_tokens: 122880
@@ -59,6 +60,7 @@ agents:
     kwargs:
       temperature: 1.0
       max_turns: 20
+      record_terminal_session: false
       model_info: *local_model_info
 
 datasets:
