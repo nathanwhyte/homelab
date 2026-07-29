@@ -13,10 +13,16 @@
 #   hb run -c configs/tb10-gemma4-26b-pair.yaml --print-config   # validate
 #   hb run -c configs/tb10-gemma4-26b-pair.yaml                  # run (gated)
 
-job_name: tb10-gemma4-26b-pair
+# Series history: `tb10-gemma4-26b-pair` (2026-07-29, abandoned after trial 1)
+# ran on prebuilt amd64 images under emulation at 1.5x timeout — trial 1
+# (regex-log, mxfp8) hit AgentTimeoutError at 1350 s yet still scored reward
+# 1.0 (solved by step 6, burned the rest self-verifying; 81.6k thinking-heavy
+# completion tokens). This -native series builds arm64 images locally and runs
+# 2.0x timeouts to give thinking-on local models headroom.
+job_name: tb10-gemma4-26b-pair-native
 jobs_dir: jobs
 n_attempts: 1
-timeout_multiplier: 1.5
+timeout_multiplier: 2.0
 
 orchestrator:
   type: local
@@ -29,9 +35,10 @@ environment:
   # inference native). All 89 TB-2.1 tasks ship environment/Dockerfile on
   # multi-arch bases, so force_build: true builds native arm64 images locally.
   # Keep ONE value per comparison series — emulated vs native task envs are
-  # different conditions. The 2026-07-29 first pass ran false; flip to true
-  # when starting the next full series.
-  force_build: false
+  # different conditions. true = build native arm64 images from each task's
+  # own Dockerfile (600 s build budget each), ignoring the amd64-only pinned
+  # docker_image pulls.
+  force_build: true
   delete: true
 
 # Terminus-2 temperature pinned to gemma4's published 1.0 (default is 0.7 —
