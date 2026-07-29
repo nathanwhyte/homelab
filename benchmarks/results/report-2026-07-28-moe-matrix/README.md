@@ -4,10 +4,11 @@ Re-run of the PROJ-1003 pop matrix on Ollama 0.32.5, with `laguna-xs-2.1`
 restored (its 2026-07-13 macOS/Metal empty-output blocker was fixed upstream by
 `#17291` / `#17237`) and a gemma4:12b MLX quant sweep added.
 
-**Results are complete (14 rows, 378/378 usable).** Of the open
-questions below, OQ-1 is resolved, OQ-2 is narrowed pending one test, OQ-4 is
-split (causal half resolved, artifact half open), and OQ-3, OQ-5 and OQ-6 are
-standing scope boundaries that must be restated in the conclusions.
+**Results are complete (14 rows, 378/378 usable).** Of the open questions
+below, **OQ-1, OQ-4 and OQ-5 are resolved**; OQ-2 is partially resolved (warm
+resize answered, effective context limit still unknown); OQ-3 and OQ-6 are
+standing scope boundaries that must be restated in any conclusions drawn from
+this table.
 
 **Read OQ-6 before drawing any MLX-versus-GGUF conclusion** — on the laguna
 pair MLX prefills 4.6x faster while decoding 8% slower, so end-to-end ordering
@@ -325,14 +326,74 @@ evidence of a fix. It is not sufficient:
   a cold load. It proves the cold-load path selects 32K; it says nothing about
   changing context on a resident runner.
 
-**Conclusion.** Direct `options.num_ctx` is honored when selecting the MLX
-runner's cold-load soft context. 0.32.5 does **not** establish reliable dynamic
-resizing of an already-resident MLX runner. Keep the dedicated Modelfile tag
-until a warm-run test says otherwise.
+### RESOLVED 2026-07-28 — the warm-run test was run
 
-**Decisive test** (post-matrix — running it now would perturb the benchmark):
-32K cold load → request 64K *without* `ollama stop` → `ollama stop` and request
-64K again, checking `/api/ps` after each step.
+`qwen3.6:35b-mlx`, checking `/api/ps` after each step:
+
+| Step | Action | Resident `context_length` | Resized? |
+|---|---|---|---|
+| 1 | Cold load, request `num_ctx=32768` | **32768** | — |
+| 2 | Warm request, `num_ctx=65536`, no stop | **32768** | **no** |
+| 3 | `ollama stop`, cold request `num_ctx=65536` | **65536** | yes |
+| 4 | Warm request *down* to `num_ctx=8192` | **65536** | **no** |
+
+**Per-request `num_ctx` is honored only at cold load.** A resident runner
+ignores it in **both** directions — it neither grows nor shrinks — exactly as
+`sched.go` L1388-1444 predicted.
+
+### The reported `context_length` is not an enforced cap
+
+A first draft of this section claimed the mismatch causes **silent truncation**.
+That was wrong, and the evidence for it was invalid: the four steps above ran
+with `num_predict=4`, so their `done_reason: length` was fully explained by the
+*output* budget and said nothing about context handling.
+
+Tested properly on `gemma4:12b-mlx`, cold-loaded at `num_ctx=8192`, then sent a
+**26,065-token prompt** on a warm request — with a distinct marker at the head
+*and* at the tail:
+
+```text
+prompt_eval_count = 26065      (the whole prompt was evaluated)
+done_reason       = stop
+error             = none
+/api/ps           = gemma4:12b-mlx@8192   (unchanged)
+response          = "HEAD=ALPHA-7731\nTAIL=OMEGA-4482"
+```
+
+**Both markers were recalled.** A prompt 3.2x the reported resident context was
+processed in full, with the tail intact, no error and no truncation. So
+`/api/ps`'s `context_length` on the MLX runner is a **load-time bookkeeping
+value, not a limit on what the runner will process**.
+
+### What this means for the Modelfile workaround
+
+Honestly: **weaker than the previous two justifications, both of which are now
+retired.**
+
+- The original reason — 0.31.1 ignored per-request `num_ctx` outright — is
+  superseded by the cold-load behaviour above.
+- The replacement reason — silent truncation at the resident size — is
+  **disproven** by the marker test.
+
+The workaround is retained, but on narrower grounds: `/api/ps` reports a number
+that does not describe actual behaviour, so the system's real context limit on
+this path is **not established by anything measured here**. What happens under
+memory pressure, at genuinely large contexts, or on the llama.cpp path was not
+tested. A baked value at least makes the *requested* context explicit and
+inspectable rather than dependent on whichever client loaded the runner.
+
+Note also that baking does **not** make the value deterministic on its own: the
+section above establishes that an explicit request `num_ctx` overrides the
+Modelfile at cold load. The tag is deterministic only if its clients omit
+`num_ctx` or send the same value — `CLAUDE_CODE_MAX_CONTEXT_TOKENS` in the
+`oclaudeq` alias is what keeps that true today.
+
+**Still open**, and worth a dedicated test before relying on any of this: what
+the effective context limit actually is on the MLX runner, and whether
+exceeding it degrades quality silently rather than erroring.
+
+All tests on ollama 0.32.5, MLX runner. The llama.cpp (GGUF) path was not
+tested and its reload and context handling may differ.
 
 ### OQ-3 — This matrix measures decode, not prefill (SCOPE BOUNDARY)
 
