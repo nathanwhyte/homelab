@@ -1,7 +1,13 @@
 {
-  "num_parallel": "3",
-  "context_length": "",
-  "keep_alive": "",
-  "load_timeout": "",
-  "timestamp": "2026-07-28T20:08:45Z"
+  "_note": "Regenerated 2026-07-28 after the run. The original capture used 'launchctl getenv', which reads the global launchd environment rather than the LaunchAgent's own EnvironmentVariables, and recorded blank values. These are read from the running server process. num_parallel_effective reflects the post-run restored production value (2); the matrix itself ran at 3, as num_parallel_requested records.",
+  "num_parallel_requested": "3",
+  "num_parallel_effective": "2",
+  "context_length": "131072",
+  "keep_alive": "30m",
+  "load_timeout": "2m",
+  "flash_attention": "1",
+  "kv_cache_type": "q8_0",
+  "max_loaded_models": "1",
+  "ollama_version": "ollama version is 0.32.5",
+  "timestamp": "2026-07-29T01:04:56Z"
 }

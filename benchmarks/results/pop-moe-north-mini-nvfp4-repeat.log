@@ -1,0 +1,11 @@
+swap before repeat: total = 6144.00M  used = 4670.44M  free = 1473.56M  (encrypted)
+  P50 TTFT=37.98s, P95 TTFT=54.65s, P50 ITL=0.016s, aggregate throughput=63.9 tok/s
+=== Ollama Concurrency Benchmark Summary ===
+Conc | Req | P50 TTFT | P95 TTFT |  P50 ITL |  P95 ITL |  Agg tok/s |  P50 gen
+------------------------------------------------------------------------------
+   1 |   3 |     0.12 |     0.23 |    0.015 |    0.015 |      65.77 |     66.1
+   2 |   3 |    31.06 |    34.41 |    0.015 |    0.015 |      64.96 |     65.2
+   3 |   3 |    37.98 |    54.65 |    0.016 |    0.016 |      63.87 |     64.1
+Wrote JSON results to benchmarks/results/ollama-pop-moe-north-mini-nvfp4-repeat-agentic-20260728-183130/results.json
+Wrote CSV summary to benchmarks/results/ollama-pop-moe-north-mini-nvfp4-repeat-agentic-20260728-183130/summary.csv
+Wrote Markdown summary to benchmarks/results/ollama-pop-moe-north-mini-nvfp4-repeat-agentic-20260728-183130/summary.md

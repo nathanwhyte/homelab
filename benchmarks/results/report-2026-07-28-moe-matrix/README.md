@@ -64,11 +64,24 @@ they differ by the reasoning phase. `prefill` is server-reported
 
 ### Read this before ranking anything
 
-**Run-to-run variance is ~8%, and it drifts downward within a run.** The
-`north-mini` config was measured three times: **86.6 -> 72.06 -> 66.07 tok/s**.
-The last two are row 1 and row 14 of *this* run — an 8.3% decline across 2h50m
-of continuous GPU load, monotonic, on a byte-identical config. Thermal
-throttling on a laptop is the obvious candidate; it was not isolated.
+**Observed endpoint drift of 8.3% on an unchanged config.** The `north-mini`
+config ran twice in this matrix — row 1 and row 14, byte-identical apart from
+the output prefix — and measured **72.06 then 66.07 tok/s**, a **-8.3%
+endpoint difference** across 2h50m of continuous GPU load.
+
+Two caveats on how far that goes:
+
+- **Two positions are not a trajectory.** This establishes that the endpoints
+  differ by 8.3%; it does not establish a monotonic decline, a rate, or a
+  general run-to-run variance figure. Intermediate positions were not sampled.
+- **Thermal throttling is a hypothesis, not a measurement.** It is the obvious
+  candidate for a laptop under sustained GPU load, but no thermal or clock data
+  was captured, and nothing rules out an unrelated cause.
+
+A third measurement of **86.6 tok/s** was taken during an earlier pass at this
+config, but that run's result directory was deleted when the matrix was
+restarted under the fixed harness, so it has **no committed artifact** and is
+recorded here as context only — not as a data point.
 
 Consequences:
 
@@ -96,23 +109,58 @@ affects them minimally:
 A **2.6x decode spread** from a 2.4x size spread — consistent with
 bandwidth-bound decode, where bytes moved per token sets the rate.
 
-**2. Thinking costs latency, not throughput.** Across all three pairs decode
-barely moves while time-to-answer changes by one to two orders of magnitude:
+**2. Thinking has a consistent effect on latency and token count, and an
+inconsistent one on throughput.** All **four** matched pairs:
 
-| Model | ttfa on -> off | ratio | tokens on -> off | gen on -> off |
-|---|---|---|---|---|
-| `qwen3.6:35b-mlx` | 40.97 -> 0.173s | **237x** | 3557 -> 908 | 48.73 -> 46.67 |
-| `gemma4:12b-mxfp8` | 14.71 -> 0.314s | 47x | 1462 -> 550 | 47.99 -> 65.93 |
-| `gemma4:12b-mlx` | 11.88 -> 0.236s | 50x | 1430 -> 547 | 70.19 -> 75.61 |
+| Model | ttfa on -> off | ratio | tokens on -> off | ratio | decode on -> off | Δ decode |
+|---|---|---|---|---|---|---|
+| `qwen3.6:35b-mlx` | 40.97 -> 0.173s | **237x** | 3557 -> 908 | 3.9x | 48.73 -> 46.67 | **-4.2%** |
+| `gemma4:12b-mlx-bf16` | 30.48 -> 0.256s | 119x | 1455 -> 561 | 2.6x | 27.34 -> 21.33 | **-22.0%** |
+| `gemma4:12b-mxfp8` | 14.71 -> 0.314s | 47x | 1462 -> 550 | 2.7x | 47.99 -> 65.93 | **+37.4%** |
+| `gemma4:12b-mlx` | 11.88 -> 0.236s | 50x | 1430 -> 547 | 2.6x | 70.19 -> 75.61 | **+7.7%** |
 
-Reasoning consistently costs ~2.6x the tokens. **The deployed qwen3.6 config
-(thinking off) answers in 0.17s, not 41s** — ranking it on its native-mode
+**Consistent:** disabling thinking cuts time-to-first-answer by 47-237x and
+output by 2.6-3.9x, in every pair and in the same direction.
+
+**Not consistent:** decode moves by -22.0%, -4.2%, +7.7% and +37.4% — both
+directions, and two of the four exceed the ~8% drift floor established above.
+Do **not** read this as "thinking is free on throughput". The throughput effect
+is artifact-dependent and this matrix does not explain it; note that the two
+rows that got *faster* with thinking off are also the two whose output shrank
+most relative to their decode rate, so shorter sequences and less KV growth are
+a candidate, unisolated.
+
+**The practical point stands regardless:** the deployed qwen3.6 config
+(thinking off) answers in **0.17s, not 41s** — ranking it on its native-mode
 `ttfa` would be wrong by a factor of 237 (OQ-5).
 
-**3. Only the GGUF row benefits from concurrency.** `laguna:latest` scales
-**1.45x** (72.2 -> 104.9 tok/s at C=2), the sole row to gain materially. Every
-MLX row sits at 1.00-1.07x, and `nemotron3` at 1.01x is policy-pinned to one
-slot. That is OQ-1's mechanism appearing in data.
+**3. The GGUF row gains most from concurrency, but it is not the only row above
+1.0x.** Full ranking by `max(agg) / agg(C=1)`:
+
+| Row | agg C=1/2/3 | scale |
+|---|---|---|
+| `laguna-xs-2.1:latest` (GGUF) | 72.2 / 104.9 / 87.6 | **1.453x** |
+| `gemma4:12b-mlx` [off] | 55.5 / 65.8 / 60.9 | 1.186x |
+| `gemma4:26b-mxfp8` | 73.1 / 76.9 / 78.7 | 1.077x |
+| `gemma4:12b-mlx-bf16` [off] | 21.2 / 21.2 / 22.7 | 1.070x |
+| `qwen3.6:35b-mlx` [off] | 46.3 / 48.6 / 45.9 | 1.050x |
+| *(remaining 9 rows)* | | 1.000-1.016x |
+
+`laguna:latest` at **1.45x** is the largest by a wide margin and the only one
+attributable to llama.cpp batching with confidence. The others need
+qualification rather than dismissal:
+
+- `gemma4:12b-mlx` [off] reaches **1.186x**, but its own twin
+  `gemma4:12b-mxfp8` [off] — same size class, same think setting — sits at
+  **1.000x**. One of those two is noise, and this data cannot say which.
+- The four rows between 1.05x and 1.19x are all short-output rows (547-561
+  tokens for the think-off pair) where `aggregate_tok_s` is computed over
+  fewer tokens and is correspondingly noisier.
+- `nemotron3` at 1.015x is policy-pinned to one slot (OQ-1), so its flatness
+  is explained rather than measured.
+
+So the OQ-1 mechanism is visible — every row that could batch is GGUF, and the
+one clear scaler is GGUF — but "every MLX row is flat" overstates it.
 
 **4. MLX wins prefill, loses decode — on the same weights.** The laguna pair:
 
@@ -316,9 +364,10 @@ same results directory (`qwen3.6:35b-mlx`, `full-warm`, n=3):
 | Time to first assistant token | 30.5s min / **36.1s p50** / 98.7s max |
 | Implied prompt-processing rate | 2,544 / **2,146** / 785 tok/s |
 
-Against ~1500 output tokens at the **60.9 tok/s** decode measured for this
-model at `num_predict=16384`, a full turn is roughly **55-80% prefill**
-(p50 ≈ 59%) — dominated by the phase this matrix barely exercises.
+Against ~1500 output tokens at the **48.73 tok/s** decode finally measured for
+this model (native mode, `num_predict=16384`), a full turn is roughly
+**50-76% prefill** (p50 ≈ 54%) — dominated by the phase this matrix barely
+exercises.
 
 **Consequence.** These results rank models on decode throughput during
 agentic generation, which is the right metric for "how fast do tokens come
@@ -335,10 +384,11 @@ form, and the one that stops the table being over-read.
 
 ### OQ-4 — Does MLX serialization make MLX *preferable* single-stream?
 
-**Status: split.** The causal question is **RESOLVED — no**. What remains
-**OPEN** is narrower and artifact-level: which of the three laguna builds has
-the highest C=1 decode. Recorded because OQ-1's result invites a conclusion it
-does not support.
+**Status: RESOLVED (both halves).** The causal question is **no** —
+serialization implies nothing about C=1 speed. The artifact question was
+answered by the completed laguna rows: `:latest` (GGUF) decodes fastest at
+C=1, so MLX is not ahead on decode here either. Recorded because OQ-1's result
+invites a conclusion it does not support.
 
 **RESOLVED — serialization implies nothing about C=1 performance.** OQ-1 shows
 Ollama's MLX runner has no continuous batching. That is an implementation
@@ -348,10 +398,19 @@ for *scaling and tail latency*; it is not automatically an absolute loss, since
 a sufficiently faster serialized backend could still beat a slower batched one
 at low concurrency.
 
-**OPEN — which laguna artifact decodes fastest at C=1.** Nothing measured so
-far bears on it. The fastest MLX row here (`north-mini` 86.6 tok/s C=1) and the
-fastest GGUF row (`nemotron3` 83.7 tok/s) are different models, so that
-comparison is void.
+**ANSWERED (2026-07-28) — `:latest` decodes fastest at C=1.** Measured:
+
+| laguna tag | decode C=1 | prefill | ttfa | scale |
+|---|---|---|---|---|
+| `:latest` (GGUF q4_K_M) | **73.15** | 0.323s | 0.341s | **1.453x** |
+| `:nvfp4` (MLX) | 67.63 | **0.070s** | **0.116s** | 1.016x |
+| `:mxfp8` (MLX) | *not measurable* — 1.14 tok/s, dropped as infeasible | | | |
+
+GGUF decodes **8% faster** and is the only one of the three that gains from
+concurrency; MLX prefills **4.6x faster** and posts the matrix's lowest `ttfa`.
+The 8% decode gap sits at the ~8% endpoint-drift floor, so treat it as
+directional rather than precise; the 4.6x prefill gap and the 1.45x-vs-1.02x
+scaling gap are both far above it.
 
 **What the laguna rows can and cannot settle.** They are the best
 same-model-family operational comparison in the matrix, but **not a clean
@@ -399,10 +458,12 @@ fanning out parallel agents at a local model — the operational rule already in
 **The pre-flight mxfp8 number is more likely a fault than a quantization
 effect.** A 2026-07-28 probe put `:mxfp8` at ~2 tok/s against `:nvfp4` at ~75 —
 a ~37x gap against a ~2x weight-size difference, which ordinary quantization
-does not explain. Treat it as a suspected pathological kernel/runtime or CPU
-fallback path until reproduced. If the row confirms it, check runner logs,
-CPU-vs-GPU residency, memory pressure, and output correctness **before**
-interpreting it as a property of MXFP8.
+does not explain. **Reproduced 2026-07-28**: a direct probe measured
+`:mxfp8` at **1.14 tok/s** against `:nvfp4` at 59.9 on the same model, and the
+row was dropped as infeasible. The Finding section above attributes it to model
+size on 64 GB unified memory (37-39 GB tags collapse, 13-27 GB tags do not)
+rather than to MXFP8 as a format — but runner logs, CPU-vs-GPU residency and
+output correctness were **not** inspected, so the mechanism remains unisolated.
 
 **Correction.** An earlier draft of this section claimed INFO-1105's
 113-122 tok/s for `qwen3.6:35b-mlx` versus this run differed because "context
@@ -410,15 +471,17 @@ length dominates". That is unsupported: INFO-1105 ran `num_ctx=8192 /
 num_predict=256`, while this row averages **4,162 generated tokens** from a
 178-token prompt on a newer Ollama. Generated sequence length, workload shape
 and runtime all changed together; isolating a `num_ctx` effect needs a run that
-varies only that. The same draft quoted this row at ~55 tok/s, which was the
-superseded 2048-budget figure — it is **60.9 tok/s** at 16384.
+varies only that. The same draft quoted this row at ~55 tok/s, a superseded
+2048-budget figure; the final measured value is **48.73 tok/s** (an
+intermediate 60.9 also circulated and is likewise superseded).
 
 ### OQ-5 — Large rows run thinking ON; the daily driver runs it OFF (SCOPE BOUNDARY)
 
-**Status: a missing configuration, not merely a caveat.** Addressed by adding
-a `qwen36-35b-mlx-nothink` row (config
-`pop-moe-qwen36-35b-mlx-nothink-agentic.toml`). Until that row exists, the
-matrix contains no measurement of the baseline as deployed.
+**Status: RESOLVED — the missing configuration was added and measured.** The
+`qwen36-35b-mlx-nothink` row (config
+`pop-moe-qwen36-35b-mlx-nothink-agentic.toml`) is in the final table. Before it
+existed the matrix contained no measurement of the baseline as deployed; it now
+does, and the gap it exposed was a factor of 237 on `ttfa`.
 
 Per the size rule, every large model here runs in **native mode with no `think`
 key**, i.e. thinking enabled — Ollama's documented default for a model
@@ -436,22 +499,28 @@ favourite is configured with `enable_thinking: true`, so "the daily driver
 disables thinking" is true of the specific paths named above, not of every
 Qwen usage on this machine.
 
-**Why the native row cannot stand in.** `qwen3.6:35b-mlx` measures `ttfa` =
-37.4s at C=1. That is not prefill — the agentic prompt is 180 tokens and
-`server_prefill_s` is ~0.11s, as is time-to-first-*output* (0.156s). The gap is
-a reasoning phase; the harness distinguishes first reasoning output from first
-answer content, so this is a real distinction rather than an artifact.
+**Why the native row cannot stand in — now measured, not argued.** Both rows
+completed; final figures:
 
-At 60.9 tok/s, 37.4s corresponds to roughly **2,280 token-times of reasoning**
-before the answer begins. Treat that as **inferred, not measured**: the harness
-records only a total `eval_count`, and does not separately tokenize reasoning
-and answer, so the "~2,280 thinking plus ~1,880 answer" split is a derivation
-from rate × time, not two counted quantities.
+| `qwen3.6:35b-mlx` | decode C=1 | ttft | ttfa | tokens |
+|---|---|---|---|---|
+| native (thinking on) | 48.73 | 0.174s | **40.97s** | 3557 |
+| `think: false` (deployed) | 46.67 | 0.173s | **0.173s** | 908 |
 
-Thinking changes more than `ttfa` — it also moves total tokens, wall time,
-truncation risk, context consumption, and potentially answer quality. No single
-adjustment recovers the deployed configuration from the native row, which is
-why the matched row is needed rather than a correction factor.
+The 40.97s is not prefill — the agentic prompt is ~178 tokens and
+`server_prefill_s` is 0.116s, as is time-to-first-*output* (0.174s). The gap is
+a reasoning phase, and the harness distinguishes first reasoning output from
+first answer content, so the distinction is real rather than an artifact.
+
+At 48.73 tok/s, 40.97s corresponds to roughly **2,000 token-times of
+reasoning** before the answer begins. Treat that as **inferred, not measured**:
+the harness records only a total `eval_count` and does not separately tokenize
+reasoning and answer, so any thinking/answer split is a derivation from
+rate × time, not two counted quantities.
+
+The matched row also confirms why no correction factor would have worked:
+thinking moved `ttfa` by **237x**, tokens by **3.9x**, and decode by only
+**-4.2%** — three different magnitudes in two directions, from one setting.
 
 **Do not conflate this with the observed Claude Code slowness.** Sessions do
 feel slow to start, but for a different reason: 77,466 prompt tokens reaching
@@ -466,11 +535,17 @@ prefill-dominated startup there — which is precisely why they read as one
 phenomenon.
 
 **Consequence.** Native-mode `ttfa` cannot rank daily-driver configurations
-that disable thinking. The **three** `gemma4:12b` think-pairs (six rows)
-quantify that effect **for Gemma only** — reasoning length and quality effects
-are architecture- and prompt-specific and do not transfer to Qwen. Qwen
-requires its own matched `think=false` row before its interactive latency or
-output behaviour can be compared against its deployed configuration.
+that disable thinking, and the matched row proves the size of the error: 40.97s
+against 0.173s for the same model. The three `gemma4:12b` think-pairs quantify
+the effect for Gemma (47-119x) and Qwen's own pair for Qwen (237x) — the
+spread across models is itself evidence that reasoning length is
+architecture-specific and does not transfer, which is why the matched row was
+required rather than an adjustment borrowed from Gemma.
+
+**Generalisation, now that all four pairs exist:** any model whose deployed
+configuration disables thinking must be ranked on its own `think=false` row.
+Every large row in this table other than `qwen3.6:35b-mlx` still runs native
+only, so the same caveat applies to them, unmeasured.
 
 ### OQ-6 — This workload omits MLX's claimed agent-workload advantages (SCOPE BOUNDARY)
 

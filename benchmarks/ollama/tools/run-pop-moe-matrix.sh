@@ -86,8 +86,29 @@ log() {
 	echo "[run-pop-moe-matrix] $*"
 }
 
+# PlistBuddy rewrites the plist in canonical form, destroying its XML comments —
+# on 2026-07-28 that stripped com.user.ollama-serve.plist from 178 lines to 54,
+# deleting the BUG-1024 / IMPR-1057 rationale it documents as its own canonical
+# source of truth. The file is tracked in dotfiles, so the damage lands in git.
+# Back it up before touching it and restore on exit, including on failure.
+PLIST_BACKUP=""
+restore_plist() {
+	if [[ -n "$PLIST_BACKUP" && -f "$PLIST_BACKUP" ]]; then
+		cp "$PLIST_BACKUP" "$PLIST"
+		rm -f "$PLIST_BACKUP"
+		log "restored original plist (comments and production NUM_PARALLEL)"
+		launchctl bootout "gui/$(id -u)/com.user.ollama-serve" 2>/dev/null || true
+		sleep 2
+		launchctl bootstrap "gui/$(id -u)" "$PLIST" 2>/dev/null || true
+	fi
+}
+trap restore_plist EXIT
+
 set_num_parallel() {
 	local np="$1"
+	PLIST_BACKUP="$(mktemp -t ollama-serve-plist)"
+	cp "$PLIST" "$PLIST_BACKUP"
+	log "backed up plist to ${PLIST_BACKUP} (restored on exit)"
 	log "updating LaunchAgent OLLAMA_NUM_PARALLEL=${np}"
 
 	/usr/libexec/PlistBuddy -c "Set :EnvironmentVariables:OLLAMA_NUM_PARALLEL ${np}" "$PLIST" ||
@@ -106,15 +127,38 @@ set_num_parallel() {
 	done
 }
 
+# Read one OLLAMA_* setting from the *running server process*.
+#
+# `launchctl getenv` reads the global launchd environment, NOT a LaunchAgent's
+# own EnvironmentVariables dict — so it returned empty for every per-agent
+# setting and the 2026-07-28 run committed an env capture with blank
+# context_length, keep_alive and load_timeout. Reading the live process is
+# authoritative: it reflects what the server is actually using, including any
+# drift from the plist on disk.
+server_env() {
+	local key="$1" pid
+	pid="$(pgrep -f 'ollama serve' | head -1)"
+	[[ -n "$pid" ]] || {
+		echo "unknown"
+		return
+	}
+	ps eww "$pid" 2>/dev/null | tr ' ' '\n' | sed -n "s/^${key}=//p" | head -1 | grep . || echo "unset"
+}
+
 capture_env() {
 	local np="$1"
 	local out="${OUTPUT_DIR}/pop-moe-np${np}-env.json"
 	cat >"$out" <<ENV_EOF
 {
-  "num_parallel": "${np}",
-  "context_length": "$(launchctl getenv OLLAMA_CONTEXT_LENGTH || echo unknown)",
-  "keep_alive": "$(launchctl getenv OLLAMA_KEEP_ALIVE || echo unknown)",
-  "load_timeout": "$(launchctl getenv OLLAMA_LOAD_TIMEOUT || echo unknown)",
+  "num_parallel_requested": "${np}",
+  "num_parallel_effective": "$(server_env OLLAMA_NUM_PARALLEL)",
+  "context_length": "$(server_env OLLAMA_CONTEXT_LENGTH)",
+  "keep_alive": "$(server_env OLLAMA_KEEP_ALIVE)",
+  "load_timeout": "$(server_env OLLAMA_LOAD_TIMEOUT)",
+  "flash_attention": "$(server_env OLLAMA_FLASH_ATTENTION)",
+  "kv_cache_type": "$(server_env OLLAMA_KV_CACHE_TYPE)",
+  "max_loaded_models": "$(server_env OLLAMA_MAX_LOADED_MODELS)",
+  "ollama_version": "$(ollama --version 2>/dev/null | head -1)",
   "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 }
 ENV_EOF
