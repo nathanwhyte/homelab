@@ -32,6 +32,7 @@ import hashlib
 import json
 import statistics
 import sys
+import time
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -45,8 +46,30 @@ def _sha256(path: Path) -> str:
         return "unavailable"
 
 
+def _get_json(url: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+    data = json.dumps(payload).encode() if payload is not None else None
+    req = urllib.request.Request(
+        url, data=data, headers={"Content-Type": "application/json"} if data else {}
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=30) as r:
+            return json.loads(r.read())
+    except Exception as e:  # noqa: BLE001 - reported by the caller, never fatal here
+        return {"error": f"{type(e).__name__}: {e}"}
+
+
 DEFAULT_JUDGE = "qwen3.6:subagent"
 DEFAULT_BASE = "http://localhost:11434"
+
+# The exact request settings every judgment is produced under. Named so they
+# can be recorded in the artifact — a score is not attributable to "the judge
+# tag" alone, because tags are mutable.
+JUDGE_OPTIONS: dict[str, Any] = {
+    "temperature": 0,
+    "num_ctx": 16384,
+    "num_predict": 256,
+    "seed": 42,
+}
 
 RUBRIC_SCHEMA = {
     "type": "object",
@@ -123,6 +146,51 @@ def _valid_rubric(parsed: Any) -> bool:
     return isinstance(parsed.get("note", ""), str)
 
 
+def preflight(base: str, judge: str) -> list[str]:
+    """A dead judge must refuse, not report success.
+
+    Before this check, a refused port made every call return None, which was
+    labeled "unparseable", produced an empty-but-valid artifact, and exited 0 —
+    an infrastructure failure dressed up as a completed judgment.
+    """
+    version = _get_json(f"{base}/api/version")
+    if not version.get("version"):
+        return [f"{base} is unreachable: {version.get('error', 'no version returned')}"]
+    show = _get_json(f"{base}/api/show", {"model": judge})
+    if show.get("error"):
+        return [f"judge {judge!r} not available: {show['error']}"]
+    return []
+
+
+def judge_provenance(base: str, judge: str) -> dict[str, Any]:
+    """What, exactly, produced these judgments.
+
+    Mirrors the bench's provenance rationale: a judge tag is mutable, so an
+    artifact naming only the tag is not attributable. The digest, the
+    server-reported parameters, and the fixed request options are what make a
+    judgment reproducible.
+    """
+    show = _get_json(f"{base}/api/show", {"model": judge})
+    effective = {}
+    for line in (show.get("parameters") or "").splitlines():
+        parts = line.split(None, 1)
+        if len(parts) == 2:
+            effective[parts[0]] = parts[1].strip()
+    digest = None
+    for entry in _get_json(f"{base}/api/tags").get("models") or []:
+        if entry.get("name") == judge:
+            digest = entry.get("digest")
+            break
+    return {
+        "judge": judge,
+        "judge_digest": digest,
+        "effective_parameters": effective,
+        "request_options": dict(JUDGE_OPTIONS),
+        "ollama_version": _get_json(f"{base}/api/version").get("version"),
+        "judged_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+    }
+
+
 def judge_one(
     base: str,
     judge: str,
@@ -130,7 +198,14 @@ def judge_one(
     path: str,
     original: str,
     final: str,
-) -> dict[str, Any] | None:
+) -> tuple[dict[str, Any] | None, str | None]:
+    """Return (verdict, infra_error).
+
+    A transport or HTTP failure returns (None, reason) — infrastructure, to be
+    reported as such. A response that arrived but failed validation (malformed
+    JSON, out-of-range scores — the MLX format-drop shape) returns (None, None)
+    and is counted as unparseable. Conflating the two hid dead judges.
+    """
     content = PROMPT.format(
         prompt=task_prompt, path=path, original=original.strip(), final=final.strip()
     )
@@ -143,23 +218,18 @@ def judge_one(
             "think": False,
             "format": RUBRIC_SCHEMA,
             "keep_alive": "10m",
-            "options": {
-                "temperature": 0,
-                "num_ctx": 16384,
-                "num_predict": 256,
-                "seed": 42,
-            },
+            "options": dict(JUDGE_OPTIONS),
         },
     )
     if status != 200:
-        return None
+        return None, f"http {status}: {str(body.get('error'))[:200]}"
     raw = ((body.get("message") or {}).get("content") or "").strip()
     try:
         parsed = json.loads(raw)
     except json.JSONDecodeError:
         # The MLX-drops-`format` failure mode looks exactly like this.
-        return None
-    return parsed if _valid_rubric(parsed) else None
+        return None, None
+    return (parsed, None) if _valid_rubric(parsed) else (None, None)
 
 
 def main() -> int:
@@ -185,6 +255,28 @@ def main() -> int:
             "a single path would have every input overwrite the last"
         )
 
+    # Directory mode maps each input to <out>/<stem>.judged.json, so two inputs
+    # with the same stem (a/same.json, b/same.json) would silently take turns
+    # overwriting one destination. Refuse up front.
+    if args.out and Path(args.out).is_dir():
+        dests: dict[Path, str] = {}
+        for result_path in args.results:
+            dest = Path(args.out) / f"{Path(result_path).stem}.judged.json"
+            if dest in dests:
+                ap.error(
+                    f"{result_path} and {dests[dest]} would both write {dest}; "
+                    "rename an input or judge them into separate directories"
+                )
+            dests[dest] = result_path
+
+    problems = preflight(args.base, args.judge)
+    if problems:
+        for problem in problems:
+            print(f"preflight: {problem}")
+        print("refusing to judge — a judgment the judge never made is not a result")
+        return 2
+    provenance = judge_provenance(args.base, args.judge)
+
     sys.path.insert(0, str(Path(__file__).resolve().parent))
     from coding_tasks import (
         TASKS,
@@ -196,6 +288,7 @@ def main() -> int:
         Path(__file__).resolve().parent / "coding_tasks" / "__init__.py"
     )
 
+    total_transport = 0
     for result_path in args.results:
         path = Path(result_path)
         data = json.loads(path.read_text())
@@ -203,19 +296,30 @@ def main() -> int:
 
         # Judging compares each final file against the fixture's ORIGINAL. If the
         # fixtures moved since the run, that original is the wrong baseline and
-        # the scores are quietly meaningless.
+        # the scores are quietly meaningless. Missing or "unavailable"
+        # provenance fails CLOSED for the same reason: a result that cannot
+        # prove which fixtures produced it cannot be judged against these.
         recorded = (data.get("provenance") or {}).get("fixtures_sha256")
-        mismatched = bool(recorded and recorded != current_fixtures)
+        missing = not recorded or recorded == "unavailable"
+        mismatched = missing or recorded != current_fixtures
         if mismatched and not args.force:
+            reason = (
+                "this result records no usable fixture provenance"
+                if missing
+                else (
+                    f"fixtures changed since this run "
+                    f"(recorded {recorded}, current {current_fixtures})"
+                )
+            )
             print(
                 f"\n=== {model} ({path.name}) ===\n"
-                f"  SKIPPED: fixtures changed since this run "
-                f"(recorded {recorded}, current {current_fixtures}). "
+                f"  SKIPPED: {reason}. "
                 f"Re-run the benchmark, or pass --force to judge anyway."
             )
             continue
         judged: list[dict[str, Any]] = []
         drops = 0
+        transport_errors: list[str] = []
 
         for row in data.get("results", []):
             if not row.get("solved"):
@@ -225,11 +329,14 @@ def main() -> int:
                 continue
             for filename, final_src in (row.get("final_sources") or {}).items():
                 original = task.files.get(filename, "")
-                verdict = judge_one(
+                verdict, infra = judge_one(
                     args.base, args.judge, task.prompt, filename, original, final_src
                 )
                 if verdict is None:
-                    drops += 1
+                    if infra is not None:
+                        transport_errors.append(f"{row['task_id']}/{filename}: {infra}")
+                    else:
+                        drops += 1
                     continue
                 judged.append(
                     {
@@ -250,7 +357,15 @@ def main() -> int:
             means = {}
 
         print(f"\n=== {model} ({path.name}) ===")
-        print(f"judged {len(judged)} solved change(s), {drops} unparseable response(s)")
+        print(
+            f"judged {len(judged)} solved change(s), {drops} unparseable "
+            f"response(s), {len(transport_errors)} transport failure(s)"
+        )
+        if transport_errors:
+            total_transport += len(transport_errors)
+            print("  ⚠ transport/HTTP failures are infrastructure, not judge output:")
+            for line in transport_errors[:5]:
+                print(f"    {line}")
         if means:
             print(f"  means: {means}")
             for j in judged:
@@ -273,7 +388,9 @@ def main() -> int:
             out_path = path.with_suffix(".judged.json")
         # `forced` makes a --force judgment distinguishable from a clean one:
         # without it, judging against mismatched fixtures produced output
-        # byte-identical to a trustworthy run.
+        # byte-identical to a trustworthy run. Source identity and both sides'
+        # provenance ride along so the artifact stands on its own — the input
+        # file can move or be regenerated, and judge tags are mutable.
         out_data: dict[str, Any] = {
             "model": model,
             "judge": args.judge,
@@ -282,8 +399,13 @@ def main() -> int:
                 "in TASK-1169, and the default judge is a sibling of tags under test"
             ),
             "forced": bool(args.force),
+            "source_file": str(path),
+            "source_sha256": _sha256(path),
+            "source_provenance": data.get("provenance"),
+            "judge_provenance": provenance,
             "means": means,
             "unparseable": drops,
+            "transport_errors": transport_errors,
             "judged": judged,
         }
         if mismatched:
@@ -292,6 +414,12 @@ def main() -> int:
         out_path.write_text(json.dumps(out_data, indent=2))
         print(f"  wrote {out_path}")
 
+    if total_transport:
+        print(
+            f"\n⚠ {total_transport} judge call(s) failed at transport; "
+            "the artifacts above are partial, not complete judgments"
+        )
+        return 3
     return 0
 
 
