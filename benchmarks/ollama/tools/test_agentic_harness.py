@@ -1,0 +1,515 @@
+#!/usr/bin/env python3
+"""Unit tests for the agentic-coding harness itself, using scripted responses.
+
+`test_coding_tasks.py` proves the FIXTURES are sound. This proves the HARNESS is,
+without a model or a GPU: `post_chat` is replaced with a queue of canned
+responses, so every branch that a live run would exercise only by luck — a
+malformed tool call, a reserved write, a dead server, a verifier that exits early
+— is covered deterministically in several seconds (the timeout and worker-
+cleanup tests each wait a few seconds).
+
+Every test here corresponds to a defect that was actually present at some point:
+
+  * assistant `thinking` was dropped when rebuilding history between turns
+  * a rejected write to a reserved name still counted as a write
+  * `../../stats.py` silently collapsed to `stats.py` and "succeeded"
+  * a totally unreachable server produced a result file and exit code 0
+  * `raise SystemExit(0)` in the file under test scored every task as solved
+  * >~2 KB of verifier stderr truncated the completion token out of the checked
+    output tail, flipping a real pass to a FAIL
+  * `load_s` recorded the last warm turn's load time instead of the cold load
+  * a non-dict tool-call envelope raised AttributeError out of `run_task`
+  * workers in the child's group survived a clean exit (`getpgid` after reap)
+  * pipe-based capture buffered unbounded output in harness memory, and a
+    worker holding the pipes stalled `communicate()` past its deadline
+
+Run: python3 test_agentic_harness.py
+"""
+
+from __future__ import annotations
+
+import importlib.util
+import os
+import shutil
+import sys
+import tempfile
+import time
+from pathlib import Path
+from typing import Any
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from coding_tasks import CodingTask
+
+
+def _load_bench():
+    path = Path(__file__).resolve().parent / "agentic-coding-bench.py"
+    spec = importlib.util.spec_from_file_location("agentic_coding_bench", path)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules["agentic_coding_bench"] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+BENCH = _load_bench()
+
+TRIVIAL_TASK = CodingTask(
+    task_id="unit-task",
+    tier=1,
+    title="unit test fixture",
+    prompt="Fix it.",
+    files={"target.py": "VALUE = 1\n"},
+    verifier="from target import VALUE\nassert VALUE == 2, VALUE\nprint('OK')\n",
+    target_files=["target.py"],
+    max_turns=4,
+)
+
+FIXED_SOURCE = "VALUE = 2\n"
+
+
+def _tool_call(name: str, arguments: Any) -> dict[str, Any]:
+    return {"function": {"name": name, "arguments": arguments}}
+
+
+def _response(
+    *,
+    content: str = "",
+    calls: list[dict[str, Any]] | None = None,
+    thinking: str | None = None,
+    done_reason: str = "stop",
+    load_duration: int = 0,
+) -> tuple[int, dict[str, Any]]:
+    message: dict[str, Any] = {"role": "assistant", "content": content}
+    if thinking is not None:
+        message["thinking"] = thinking
+    if calls:
+        message["tool_calls"] = calls
+    body: dict[str, Any] = {
+        "message": message,
+        "done_reason": done_reason,
+        "prompt_eval_count": 10,
+        "eval_count": 5,
+    }
+    if load_duration:
+        body["load_duration"] = load_duration
+    return 200, body
+
+
+class ScriptedServer:
+    """Replaces post_chat with a fixed sequence, recording what it was sent."""
+
+    def __init__(self, responses: list[tuple[int, dict[str, Any]]]):
+        self.responses = list(responses)
+        self.requests: list[dict[str, Any]] = []
+
+    def __call__(self, base: str, payload: dict[str, Any], timeout: int):
+        self.requests.append(payload)
+        if not self.responses:
+            return _response(content="done")
+        return self.responses.pop(0)
+
+
+def run_scripted(
+    responses: list[tuple[int, dict[str, Any]]],
+    task: CodingTask = TRIVIAL_TASK,
+) -> tuple[Any, ScriptedServer]:
+    server = ScriptedServer(responses)
+    original = BENCH.post_chat
+    BENCH.post_chat = server
+    try:
+        result = BENCH.run_task(
+            "http://scripted",
+            "unit:model",
+            task,
+            None,
+            4096,
+            30,
+            None,
+            42,
+            1024,
+        )
+    finally:
+        BENCH.post_chat = original
+    return result, server
+
+
+CHECKS: list[tuple[str, Any]] = []
+
+
+def check(name):
+    def register(fn):
+        CHECKS.append((name, fn))
+        return fn
+
+    return register
+
+
+@check("assistant thinking survives into the next turn")
+def test_thinking_preserved():
+    result, server = run_scripted(
+        [
+            _response(
+                thinking="deliberating",
+                calls=[_tool_call("read_file", {"path": "target.py"})],
+            ),
+            _response(content="finished"),
+        ]
+    )
+    second = server.requests[1]["messages"]
+    assistant = [m for m in second if m.get("role") == "assistant"]
+    assert assistant, "assistant turn was not appended to history"
+    assert assistant[0].get("thinking") == "deliberating", (
+        f"thinking dropped between turns: {assistant[0]!r}"
+    )
+    assert result.tool_calls == 1
+
+
+@check("malformed tool calls are counted, not executed")
+def test_malformed_calls_counted():
+    result, _ = run_scripted(
+        [
+            _response(calls=[_tool_call("no_such_tool", {})]),
+            _response(calls=[_tool_call("read_file", {})]),
+            _response(
+                calls=[_tool_call("write_file", {"path": "target.py", "content": 5})]
+            ),
+            _response(content="giving up"),
+        ]
+    )
+    assert result.tool_calls == 3, result.tool_calls
+    assert result.bad_tool_calls == 3, result.bad_tool_detail
+    assert result.wrote_any_file is False
+
+
+@check("a rejected reserved write is not recorded as a write")
+def test_reserved_write_not_counted():
+    result, _ = run_scripted(
+        [
+            _response(
+                calls=[_tool_call("write_file", {"path": "verify.py", "content": "x"})]
+            ),
+            _response(content="done"),
+        ]
+    )
+    assert result.wrote_any_file is False, "refused write counted as a write"
+    assert result.files_written == [], result.files_written
+
+
+@check("directory components are rejected rather than collapsed")
+def test_path_traversal_rejected():
+    result, _ = run_scripted(
+        [
+            _response(
+                calls=[
+                    _tool_call(
+                        "write_file",
+                        {"path": "../../target.py", "content": FIXED_SOURCE},
+                    )
+                ]
+            ),
+            _response(content="done"),
+        ]
+    )
+    assert result.wrote_any_file is False, "../../target.py silently became target.py"
+    assert result.solved is False
+
+
+@check("a solved task is scored from the verifier, and reads are tracked")
+def test_solved_and_read_tracking():
+    result, _ = run_scripted(
+        [
+            _response(calls=[_tool_call("read_file", {"path": "target.py"})]),
+            _response(
+                calls=[
+                    _tool_call(
+                        "write_file", {"path": "target.py", "content": FIXED_SOURCE}
+                    )
+                ]
+            ),
+            _response(content="fixed"),
+        ]
+    )
+    assert result.solved is True, result.verifier_output
+    assert result.files_read == ["target.py"], result.files_read
+    assert result.write_without_read == 0, result.write_without_read
+
+
+@check("writing a file that was never read is flagged")
+def test_write_without_read_flagged():
+    result, _ = run_scripted(
+        [
+            _response(
+                calls=[
+                    _tool_call(
+                        "write_file", {"path": "target.py", "content": FIXED_SOURCE}
+                    )
+                ]
+            ),
+            _response(content="fixed blind"),
+        ]
+    )
+    assert result.solved is True
+    assert result.write_without_read == 1, result.write_without_read
+
+
+@check("SystemExit(0) in the target does not score as solved")
+def test_early_exit_bypass():
+    result, _ = run_scripted(
+        [
+            _response(
+                calls=[
+                    _tool_call(
+                        "write_file",
+                        {"path": "target.py", "content": "raise SystemExit(0)\n"},
+                    )
+                ]
+            ),
+            _response(content="cheated"),
+        ]
+    )
+    assert result.solved is False, "verifier early-exit scored as a pass"
+    assert "without completing" in result.verifier_output
+
+
+@check("truncated turns are recorded")
+def test_truncation_recorded():
+    result, _ = run_scripted([_response(content="x" * 100, done_reason="length")])
+    assert result.truncated_turns == 1, result.truncated_turns
+
+
+@check("transport failure is recorded as an error, not a score")
+def test_transport_failure():
+    server = ScriptedServer([(0, {"error": "ConnectionRefusedError"})])
+    original = BENCH.post_chat
+    BENCH.post_chat = server
+    try:
+        result = BENCH.run_task(
+            "http://scripted",
+            "unit:model",
+            TRIVIAL_TASK,
+            None,
+            4096,
+            30,
+            None,
+            42,
+            1024,
+        )
+    finally:
+        BENCH.post_chat = original
+    assert result.error is not None, "transport failure left error unset"
+    assert result.solved is False
+    assert result.tool_calls == 0
+
+
+@check("preflight rejects an unreachable server")
+def test_preflight_unreachable():
+    problems = BENCH.preflight("http://127.0.0.1:9", "unit:model")
+    assert problems, "preflight passed against a refused port"
+    assert "unreachable" in problems[0]
+
+
+@check("the turn cap is reported")
+def test_turn_cap():
+    responses = [
+        _response(calls=[_tool_call("read_file", {"path": "target.py"})])
+        for _ in range(TRIVIAL_TASK.max_turns)
+    ]
+    result, _ = run_scripted(responses)
+    assert result.hit_turn_cap is True
+    assert result.turns == TRIVIAL_TASK.max_turns
+
+
+@check("run_tests only runs fixture-shipped suites")
+def test_run_tests_scoped_to_fixture():
+    sandbox = Path(tempfile.mkdtemp(prefix="unit-tools-"))
+    try:
+        (sandbox / "test_real.py").write_text("print('fixture suite ran')\n")
+        (sandbox / "test_invented.py").write_text("print('MODEL SUITE RAN')\n")
+        out = BENCH.execute_tool(sandbox, "run_tests", {}, ["test_real.py"])
+        assert "fixture suite ran" in out, out
+        assert "MODEL SUITE RAN" not in out, "a model-authored suite was executed"
+    finally:
+        shutil.rmtree(sandbox, ignore_errors=True)
+
+
+@check("timeouts kill the whole process group")
+def test_timeout_kills_group():
+    sandbox = Path(tempfile.mkdtemp(prefix="unit-timeout-"))
+    try:
+        (sandbox / "spin.py").write_text(
+            "import time\nwhile True:\n    time.sleep(0.1)\n"
+        )
+        code, out = BENCH.run_python(sandbox, "spin.py", timeout=3)
+        assert code == 124, (code, out)
+        assert "timeout" in out
+    finally:
+        shutil.rmtree(sandbox, ignore_errors=True)
+
+
+@check("workers surviving a clean exit are killed with the group")
+def test_worker_killed_after_normal_exit():
+    sandbox = Path(tempfile.mkdtemp(prefix="unit-worker-"))
+    try:
+        (sandbox / "spawn.py").write_text(
+            "import subprocess, sys\n"
+            "p = subprocess.Popen(\n"
+            "    [sys.executable, '-c', 'import time; time.sleep(60)'],\n"
+            "    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,\n"
+            ")\n"
+            "print(p.pid)\n"
+        )
+        code, out = BENCH.run_python(sandbox, "spawn.py", timeout=10)
+        assert code == 0, (code, out)
+        worker_pid = int(out.strip().splitlines()[-1])
+        # The group SIGKILL lands on the way out of run_python; allow a beat
+        # for launchd/init to reap the orphan before calling it a leak.
+        deadline = time.monotonic() + 5
+        alive = True
+        while time.monotonic() < deadline:
+            try:
+                os.kill(worker_pid, 0)
+            except ProcessLookupError:
+                alive = False
+                break
+            time.sleep(0.05)
+        assert not alive, f"worker {worker_pid} outlived run_python's cleanup"
+    finally:
+        shutil.rmtree(sandbox, ignore_errors=True)
+
+
+@check("a worker holding the output cannot stall the timeout")
+def test_timeout_with_output_holding_worker():
+    sandbox = Path(tempfile.mkdtemp(prefix="unit-holder-"))
+    try:
+        # The worker inherits stdout/stderr. With pipe-based capture this kept
+        # communicate() blocked long past its deadline (0.1s took 1.24s in
+        # review); with spooled files the wait is on process exit alone.
+        (sandbox / "hold.py").write_text(
+            "import subprocess, sys, time\n"
+            "subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'])\n"
+            "time.sleep(60)\n"
+        )
+        started = time.monotonic()
+        code, out = BENCH.run_python(sandbox, "hold.py", timeout=2)
+        elapsed = time.monotonic() - started
+        assert code == 124, (code, out)
+        assert "timeout" in out
+        assert elapsed < 8, f"timeout overshot its deadline: {elapsed:.1f}s"
+    finally:
+        shutil.rmtree(sandbox, ignore_errors=True)
+
+
+@check("multi-megabyte output is tail-bounded, keeping the ending")
+def test_large_output_tail_bounded():
+    sandbox = Path(tempfile.mkdtemp(prefix="unit-big-"))
+    try:
+        (sandbox / "big.py").write_text(
+            "import sys\n"
+            "for _ in range(8):\n"
+            "    sys.stdout.write('x' * (1 << 20))\n"
+            "print('THE-END')\n"
+        )
+        code, out = BENCH.run_python(sandbox, "big.py", timeout=30, capture_limit=None)
+        assert code == 0, (code, out[-200:])
+        limit = 2 * BENCH._CAPTURE_CEILING
+        assert len(out) <= limit, f"tail not bounded: {len(out)} > {limit}"
+        assert out.endswith("THE-END"), out[-40:]
+    finally:
+        shutil.rmtree(sandbox, ignore_errors=True)
+
+
+@check("the completion token survives >2KB of verifier stderr")
+def test_token_survives_stderr():
+    # The token is checked against the UNTRUNCATED output; with the old
+    # 2000-char tail, this verifier's stderr sliced it out and a real pass
+    # scored as a FAIL.
+    noisy_task = CodingTask(
+        task_id="unit-noisy",
+        tier=1,
+        title="noisy verifier",
+        prompt="Fix it.",
+        files={"target.py": "VALUE = 1\n"},
+        verifier=(
+            "import sys\n"
+            "from target import VALUE\n"
+            "assert VALUE == 2, VALUE\n"
+            "sys.stderr.write('x' * 4096)\n"
+            "print('OK')\n"
+        ),
+        target_files=["target.py"],
+        max_turns=4,
+    )
+    result, _ = run_scripted(
+        [
+            _response(
+                calls=[
+                    _tool_call(
+                        "write_file", {"path": "target.py", "content": FIXED_SOURCE}
+                    )
+                ]
+            ),
+            _response(content="fixed"),
+        ],
+        task=noisy_task,
+    )
+    assert result.solved is True, result.verifier_output
+
+
+@check("load_s records the cold load, not the last warm turn")
+def test_load_s_cold_load():
+    result, _ = run_scripted(
+        [
+            _response(
+                calls=[_tool_call("read_file", {"path": "target.py"})],
+                load_duration=5_000_000_000,
+            ),
+            _response(content="done", load_duration=12_000_000),
+        ]
+    )
+    assert result.load_s == 5.0, result.load_s
+
+
+@check("a malformed tool-call envelope is a bad call, not a crash")
+def test_malformed_envelope_isolated():
+    responses = [
+        (
+            200,
+            {
+                "message": {
+                    "role": "assistant",
+                    "content": "",
+                    "tool_calls": ["not-a-dict", {"function": "also-not-a-dict"}],
+                },
+                "done_reason": "stop",
+                "prompt_eval_count": 10,
+                "eval_count": 5,
+            },
+        ),
+        _response(content="done"),
+    ]
+    result, _ = run_scripted(responses)
+    assert result.error is None, result.error
+    assert result.tool_calls == 2, result.tool_calls
+    assert result.bad_tool_calls == 2, result.bad_tool_detail
+    assert any("envelope" in d for d in result.bad_tool_detail), result.bad_tool_detail
+
+
+def main() -> int:
+    failures = 0
+    for name, fn in CHECKS:
+        try:
+            fn()
+        except AssertionError as e:
+            print(f"FAIL  {name}\n      {e}")
+            failures += 1
+        except Exception as e:  # noqa: BLE001 - a crashing test is a failing test
+            print(f"ERROR {name}\n      {type(e).__name__}: {e}")
+            failures += 1
+        else:
+            print(f"ok    {name}")
+    print(f"\n{len(CHECKS)} checks, {failures} failure(s)")
+    return 1 if failures else 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
