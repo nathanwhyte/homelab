@@ -1,0 +1,655 @@
+{
+  "model": "qwen3.6:coding",
+  "tiers": [
+    1,
+    2,
+    3
+  ],
+  "think": null,
+  "num_ctx": 32768,
+  "num_predict": 16384,
+  "seed": 42,
+  "repeats": 3,
+  "sandbox_level": "network-write",
+  "provenance": {
+    "model": "qwen3.6:coding",
+    "model_digest": "7a45b00317a8f8997cab783b78fc79a30fa04c8714d44015024bd4c7b2046490",
+    "model_modified_at": "2026-07-28T21:33:59.819367357-05:00",
+    "details": {
+      "family": "qwen3_5_moe",
+      "parameter_size": "35.1B",
+      "quantization_level": "nvfp4"
+    },
+    "capabilities": [
+      "completion",
+      "vision",
+      "thinking",
+      "tools"
+    ],
+    "effective_parameters": {
+      "min_p": "0",
+      "presence_penalty": "0",
+      "repeat_penalty": "1",
+      "temperature": "0.6",
+      "top_k": "20",
+      "top_p": "0.95"
+    },
+    "ollama_version": "0.32.5",
+    "harness_sha256": "52144c13a7fb561b",
+    "fixtures_sha256": "c0a9a54b28ba19d3",
+    "host": "pop.local",
+    "python": "3.14.6",
+    "started_at": "2026-07-29T09:33:08-0500"
+  },
+  "solved": 7,
+  "total": 18,
+  "results": [
+    {
+      "task_id": "t1a-moving-average",
+      "tier": 1,
+      "title": "Off-by-one in a moving average",
+      "solved": false,
+      "verifier_output": "Traceback (most recent call last):\n  File \"/var/folders/3r/c204xb_d2h144mm7fky1vf_r0000gn/T/agentic-t1a-moving-average-8t17tiir/verify.py\", line 3, in <module>\n    runpy.run_path('_verify_body.py', run_name='__main__')\n    ~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<frozen runpy>\", line 294, in run_path\n  File \"<frozen runpy>\", line 98, in _run_module_code\n  File \"<frozen runpy>\", line 88, in _run_code\n  File \"_verify_body.py\", line 1, in <module>\n    from stats import moving_average\n  File \"/private/var/folders/3r/c204xb_d2h144mm7fky1vf_r0000gn/T/agentic-t1a-moving-average-8t17tiir/stats.py\", line 10\n    if window <= 0:\n                   ^\nIndentationError: unindent does not match any outer indentation level",
+      "turns": 4,
+      "hit_turn_cap": false,
+      "tool_calls": 3,
+      "bad_tool_calls": 0,
+      "repeat": 0,
+      "bad_tool_detail": [],
+      "text_tool_attempts": 0,
+      "wrote_any_file": true,
+      "files_written": [
+        "stats.py"
+      ],
+      "files_read": [
+        "stats.py"
+      ],
+      "write_without_read": 0,
+      "ran_tests": 1,
+      "load_s": 4.8,
+      "truncated_turns": 0,
+      "tampered_suites": [],
+      "prompt_tokens": 4366,
+      "output_tokens": 801,
+      "wall_s": 22.8,
+      "error": null,
+      "final_sources": {
+        "stats.py": "\"\"\"Rolling window statistics for pipeline run durations.\"\"\"\n\n\ndef moving_average(values, window):\n     \"\"\"Return the moving average of `values` over `window` samples.\n\n    The result has one entry per full window, so len(result) ==\n    len(values) - window + 1 for a non-empty input.\n     \"\"\"\n    if window <= 0:\n        raise ValueError(\"window must be positive\")\n    out = []\n    for i in range(len(values) - window + 1):\n        chunk = values[i : i + window]\n        out.append(sum(chunk) / window)\n    return out\n"
+      }
+    },
+    {
+      "task_id": "t1b-retry-budget",
+      "tier": 1,
+      "title": "Retry budget goes negative",
+      "solved": false,
+      "verifier_output": "Traceback (most recent call last):\n  File \"/var/folders/3r/c204xb_d2h144mm7fky1vf_r0000gn/T/agentic-t1b-retry-budget-zrro7mdw/verify.py\", line 3, in <module>\n    runpy.run_path('_verify_body.py', run_name='__main__')\n    ~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<frozen runpy>\", line 294, in run_path\n  File \"<frozen runpy>\", line 98, in _run_module_code\n  File \"<frozen runpy>\", line 88, in _run_code\n  File \"_verify_body.py\", line 1, in <module>\n    from budget import RetryBudget\n  File \"/private/var/folders/3r/c204xb_d2h144mm7fky1vf_r0000gn/T/agentic-t1b-retry-budget-zrro7mdw/budget.py\", line 12\n    def __init__(self, limit):\n                              ^\nIndentationError: unindent does not match any outer indentation level",
+      "turns": 4,
+      "hit_turn_cap": false,
+      "tool_calls": 3,
+      "bad_tool_calls": 0,
+      "repeat": 0,
+      "bad_tool_detail": [],
+      "text_tool_attempts": 0,
+      "wrote_any_file": true,
+      "files_written": [
+        "budget.py"
+      ],
+      "files_read": [
+        "budget.py"
+      ],
+      "write_without_read": 0,
+      "ran_tests": 1,
+      "load_s": 0.09,
+      "truncated_turns": 0,
+      "tampered_suites": [],
+      "prompt_tokens": 5004,
+      "output_tokens": 1011,
+      "wall_s": 22.7,
+      "error": null,
+      "final_sources": {
+        "budget.py": "\"\"\"Retry-budget accounting for the ingest scheduler.\"\"\"\n\n\nclass RetryBudget:\n     \"\"\"Tracks how many retries remain for a job.\n\n     `consume` spends one retry and returns True when the spend was allowed.\n    Once the budget is exhausted, further calls return False and must not push\n     `remaining` below zero.\n     \"\"\"\n\n    def __init__(self, limit):\n        self.limit = limit\n        self.used = 0\n\n     @property\n    def remaining(self):\n        return self.limit - self.used\n\n    def consume(self):\n        if self.remaining > 0:\n            self.used += 1\n            return True\n        return False\n\n    def reset(self):\n        self.used = 0\n"
+      }
+    },
+    {
+      "task_id": "t2a-normalize-idempotent",
+      "tier": 2,
+      "title": "Report double-counts a pipeline (cause is not in report.py)",
+      "solved": false,
+      "verifier_output": "Traceback (most recent call last):\n  File \"/var/folders/3r/c204xb_d2h144mm7fky1vf_r0000gn/T/agentic-t2a-normalize-idempotent-25u0yr8t/verify.py\", line 3, in <module>\n    runpy.run_path('_verify_body.py', run_name='__main__')\n    ~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<frozen runpy>\", line 294, in run_path\n  File \"<frozen runpy>\", line 98, in _run_module_code\n  File \"<frozen runpy>\", line 88, in _run_code\n  File \"_verify_body.py\", line 1, in <module>\n    from report import totals_by_name\n  File \"/private/var/folders/3r/c204xb_d2h144mm7fky1vf_r0000gn/T/agentic-t2a-normalize-idempotent-25u0yr8t/report.py\", line 5, in <module>\n    from normalize import normalize_name\n  File \"/private/var/folders/3r/c204xb_d2h144mm7fky1vf_r0000gn/T/agentic-t2a-normalize-idempotent-25u0yr8t/normalize.py\", line 11\n    return name.strip().lower().replace(\"-\", \"_\").replace(\" \", \"_\")\n                                                                   ^\nIndentationError: unindent does not match any outer indentation level",
+      "turns": 5,
+      "hit_turn_cap": false,
+      "tool_calls": 6,
+      "bad_tool_calls": 0,
+      "repeat": 0,
+      "bad_tool_detail": [],
+      "text_tool_attempts": 0,
+      "wrote_any_file": true,
+      "files_written": [
+        "normalize.py"
+      ],
+      "files_read": [
+        "normalize.py",
+        "parser.py",
+        "report.py"
+      ],
+      "write_without_read": 0,
+      "ran_tests": 1,
+      "load_s": 0.12,
+      "truncated_turns": 0,
+      "tampered_suites": [],
+      "prompt_tokens": 23493,
+      "output_tokens": 9872,
+      "wall_s": 221.5,
+      "error": null,
+      "final_sources": {
+        "normalize.py": "\"\"\"Name normalization shared by the parser and the reporter.\"\"\"\n\n\ndef normalize_name(name):\n     \"\"\"Normalize a pipeline name for comparison.\n\n     Names are case-insensitive and may be padded with whitespace. Internal\n     separators are normalized to underscores so \"daily load\", \"daily-load\" and\n     \"Daily_Load\" all compare equal.\n     \"\"\"\n    return name.strip().lower().replace(\"-\", \"_\").replace(\" \", \"_\")\n"
+      }
+    },
+    {
+      "task_id": "t2b-queue-fifo",
+      "tier": 2,
+      "title": "Job queue crashes on equal priorities",
+      "solved": false,
+      "verifier_output": "Traceback (most recent call last):\n  File \"/var/folders/3r/c204xb_d2h144mm7fky1vf_r0000gn/T/agentic-t2b-queue-fifo-juega2ce/verify.py\", line 3, in <module>\n    runpy.run_path('_verify_body.py', run_name='__main__')\n    ~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<frozen runpy>\", line 294, in run_path\n  File \"<frozen runpy>\", line 98, in _run_module_code\n  File \"<frozen runpy>\", line 88, in _run_code\n  File \"_verify_body.py\", line 1, in <module>\n    from scheduler import Job, drain\n  File \"/private/var/folders/3r/c204xb_d2h144mm7fky1vf_r0000gn/T/agentic-t2b-queue-fifo-juega2ce/scheduler.py\", line 3, in <module>\n    from queue_impl import JobQueue\n  File \"/private/var/folders/3r/c204xb_d2h144mm7fky1vf_r0000gn/T/agentic-t2b-queue-fifo-juega2ce/queue_impl.py\", line 14\n    def __init__(self):\n                       ^\nIndentationError: unindent does not match any outer indentation level",
+      "turns": 5,
+      "hit_turn_cap": false,
+      "tool_calls": 5,
+      "bad_tool_calls": 0,
+      "repeat": 0,
+      "bad_tool_detail": [],
+      "text_tool_attempts": 0,
+      "wrote_any_file": true,
+      "files_written": [
+        "queue_impl.py"
+      ],
+      "files_read": [
+        "queue_impl.py",
+        "scheduler.py"
+      ],
+      "write_without_read": 0,
+      "ran_tests": 1,
+      "load_s": 0.12,
+      "truncated_turns": 0,
+      "tampered_suites": [],
+      "prompt_tokens": 6246,
+      "output_tokens": 1001,
+      "wall_s": 23.5,
+      "error": null,
+      "final_sources": {
+        "queue_impl.py": "\"\"\"In-memory job queue with priority ordering.\"\"\"\n\nimport heapq\nimport itertools\n\n\nclass JobQueue:\n     \"\"\"A priority queue of jobs.\n\n    Lower `priority` values are dequeued first. Jobs pushed with equal priority\n    come out in the order they were pushed (FIFO within a priority).\n     \"\"\"\n\n    def __init__(self):\n        self._heap = []\n        self._counter = itertools.count()\n\n    def push(self, job, priority=5):\n        heapq.heappush(self._heap, (priority, next(self._counter), job))\n\n    def pop(self):\n        if not self._heap:\n            return None\n         _, _, job = heapq.heappop(self._heap)\n        return job\n\n    def __len__(self):\n        return len(self._heap)\n"
+      }
+    },
+    {
+      "task_id": "t3a-ttl-cache-lru",
+      "tier": 3,
+      "title": "Add bounded LRU eviction to the TTL cache",
+      "solved": true,
+      "verifier_output": "existing suite OK\nOK",
+      "turns": 4,
+      "hit_turn_cap": false,
+      "tool_calls": 4,
+      "bad_tool_calls": 0,
+      "repeat": 0,
+      "bad_tool_detail": [],
+      "text_tool_attempts": 0,
+      "wrote_any_file": true,
+      "files_written": [
+        "cache.py"
+      ],
+      "files_read": [
+        "cache.py",
+        "test_cache.py"
+      ],
+      "write_without_read": 0,
+      "ran_tests": 1,
+      "load_s": 0.08,
+      "truncated_turns": 0,
+      "tampered_suites": [],
+      "prompt_tokens": 9122,
+      "output_tokens": 2604,
+      "wall_s": 60.2,
+      "error": null,
+      "final_sources": {
+        "cache.py": "\"\"\"A tiny TTL cache used by the metrics collector.\"\"\"\n\nfrom collections import OrderedDict\n\n\nclass TTLCache:\n    \"\"\"Mapping with per-entry expiry.\n\n    `clock` is a zero-argument callable returning a monotonic float, injected so\n    tests can control time.\n    \"\"\"\n\n    def __init__(self, ttl, clock, max_size=None):\n        self.ttl = ttl\n        self.clock = clock\n        self._max_size = max_size\n        self._data = OrderedDict()\n\n    def set(self, key, value):\n        if self._max_size == 0:\n            return\n        if key in self._data:\n            self._data.move_to_end(key)\n            self._data[key] = (value, self.clock())\n        else:\n            if self._max_size is not None and len(self._data) >= self._max_size:\n                self._data.popitem(last=False)\n            self._data[key] = (value, self.clock())\n\n    def get(self, key, default=None):\n        if self._max_size == 0:\n            return default\n        entry = self._data.get(key)\n        if entry is None:\n            return default\n        value, stamp = entry\n        if self.clock() - stamp >= self.ttl:\n            del self._data[key]\n            return default\n        self._data.move_to_end(key)\n        return value\n\n    def __len__(self):\n        return len(self._data)\n"
+      }
+    },
+    {
+      "task_id": "t3b-router-params",
+      "tier": 3,
+      "title": "Add parameterized routes to the router",
+      "solved": true,
+      "verifier_output": "existing suite OK\nOK",
+      "turns": 10,
+      "hit_turn_cap": false,
+      "tool_calls": 10,
+      "bad_tool_calls": 0,
+      "repeat": 0,
+      "bad_tool_detail": [],
+      "text_tool_attempts": 0,
+      "wrote_any_file": true,
+      "files_written": [
+        "router.py"
+      ],
+      "files_read": [
+        "router.py",
+        "test_router.py"
+      ],
+      "write_without_read": 0,
+      "ran_tests": 3,
+      "load_s": 0.12,
+      "truncated_turns": 0,
+      "tampered_suites": [],
+      "prompt_tokens": 62183,
+      "output_tokens": 7907,
+      "wall_s": 188.4,
+      "error": null,
+      "final_sources": {
+        "router.py": "\"\"\"Minimal path router for the internal status service.\"\"\"\n\n\nclass Router:\n    \"\"\"Maps URL paths to handlers.\n\n    Routes are registered with `add`, and `resolve` returns (handler, params)\n    for a path or (None, {}) when nothing matches.\n    \"\"\"\n\n    def __init__(self):\n        self._static_routes = []\n        self._dynamic_routes = []\n\n    def add(self, path, handler):\n        if '<' in path:\n            self._dynamic_routes.append((path, handler))\n        else:\n            self._static_routes.append((path, handler))\n\n    def _parse_dynamic(self, pattern, path):\n        \"\"\"Try to match a dynamic pattern against a path.\n\n        Returns (True, params) if it matches, (False, {}) otherwise.\n        \"\"\"\n        pattern_segments = pattern.split('/')\n        path_segments = path.split('/')\n\n        if len(pattern_segments) != len(path_segments):\n            return False, {}\n\n        params = {}\n        for p_seg, path_seg in zip(pattern_segments, path_segments):\n            if p_seg.startswith('<') and p_seg.endswith('>'):\n                param_name = p_seg[1:-1]\n                if not path_seg:\n                    return False, {}\n                params[param_name] = path_seg\n            else:\n                if p_seg != path_seg:\n                    return False, {}\n\n        return True, params\n\n    def resolve(self, path):\n        # Static routes always win over dynamic routes\n        for route, handler in self._static_routes:\n            if route == path:\n                return handler, {}\n\n        # Then check dynamic routes in registration order\n        for route, handler in self._dynamic_routes:\n            matches, params = self._parse_dynamic(route, path)\n            if matches:\n                return handler, params\n\n        return None, {}\n"
+      }
+    },
+    {
+      "task_id": "t1a-moving-average",
+      "tier": 1,
+      "title": "Off-by-one in a moving average",
+      "solved": false,
+      "verifier_output": "Traceback (most recent call last):\n  File \"/var/folders/3r/c204xb_d2h144mm7fky1vf_r0000gn/T/agentic-t1a-moving-average-k1s7ll8f/verify.py\", line 3, in <module>\n    runpy.run_path('_verify_body.py', run_name='__main__')\n    ~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<frozen runpy>\", line 294, in run_path\n  File \"<frozen runpy>\", line 98, in _run_module_code\n  File \"<frozen runpy>\", line 88, in _run_code\n  File \"_verify_body.py\", line 1, in <module>\n    from stats import moving_average\n  File \"/private/var/folders/3r/c204xb_d2h144mm7fky1vf_r0000gn/T/agentic-t1a-moving-average-k1s7ll8f/stats.py\", line 10\n    if window <= 0:\n                   ^\nIndentationError: unindent does not match any outer indentation level",
+      "turns": 4,
+      "hit_turn_cap": false,
+      "tool_calls": 3,
+      "bad_tool_calls": 0,
+      "repeat": 1,
+      "bad_tool_detail": [],
+      "text_tool_attempts": 0,
+      "wrote_any_file": true,
+      "files_written": [
+        "stats.py"
+      ],
+      "files_read": [
+        "stats.py"
+      ],
+      "write_without_read": 0,
+      "ran_tests": 1,
+      "load_s": 0.12,
+      "truncated_turns": 0,
+      "tampered_suites": [],
+      "prompt_tokens": 4435,
+      "output_tokens": 761,
+      "wall_s": 17.9,
+      "error": null,
+      "final_sources": {
+        "stats.py": "\"\"\"Rolling window statistics for pipeline run durations.\"\"\"\n\n\ndef moving_average(values, window):\n     \"\"\"Return the moving average of `values` over `window` samples.\n\n    The result has one entry per full window, so len(result) ==\n    len(values) - window + 1 for a non-empty input.\n     \"\"\"\n    if window <= 0:\n        raise ValueError(\"window must be positive\")\n    out = []\n    for i in range(len(values) - window + 1):\n        chunk = values[i : i + window]\n        out.append(sum(chunk) / window)\n    return out\n"
+      }
+    },
+    {
+      "task_id": "t1b-retry-budget",
+      "tier": 1,
+      "title": "Retry budget goes negative",
+      "solved": true,
+      "verifier_output": "OK",
+      "turns": 8,
+      "hit_turn_cap": true,
+      "tool_calls": 8,
+      "bad_tool_calls": 0,
+      "repeat": 1,
+      "bad_tool_detail": [],
+      "text_tool_attempts": 0,
+      "wrote_any_file": true,
+      "files_written": [
+        "budget.py"
+      ],
+      "files_read": [
+        "budget.py"
+      ],
+      "write_without_read": 0,
+      "ran_tests": 3,
+      "load_s": 0.12,
+      "truncated_turns": 0,
+      "tampered_suites": [],
+      "prompt_tokens": 12204,
+      "output_tokens": 969,
+      "wall_s": 23.9,
+      "error": null,
+      "final_sources": {
+        "budget.py": "\"\"\"Retry-budget accounting for the ingest scheduler.\"\"\"\n\n\nclass RetryBudget:\n    \"\"\"Tracks how many retries remain for a job.\n\n    `consume` spends one retry and returns True when the spend was allowed.\n    Once the budget is exhausted, further calls return False and must not push\n    `remaining` below zero.\n    \"\"\"\n\n    def __init__(self, limit):\n        self.limit = limit\n        self.used = 0\n\n    @property\n    def remaining(self):\n        return self.limit - self.used\n\n    def consume(self):\n        if self.remaining <= 0:\n            return False\n        self.used += 1\n        return True\n\n    def reset(self):\n        self.used = 0\n"
+      }
+    },
+    {
+      "task_id": "t2a-normalize-idempotent",
+      "tier": 2,
+      "title": "Report double-counts a pipeline (cause is not in report.py)",
+      "solved": false,
+      "verifier_output": "Traceback (most recent call last):\n  File \"/var/folders/3r/c204xb_d2h144mm7fky1vf_r0000gn/T/agentic-t2a-normalize-idempotent-vzj0wq4u/verify.py\", line 3, in <module>\n    runpy.run_path('_verify_body.py', run_name='__main__')\n    ~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<frozen runpy>\", line 294, in run_path\n  File \"<frozen runpy>\", line 98, in _run_module_code\n  File \"<frozen runpy>\", line 88, in _run_code\n  File \"_verify_body.py\", line 1, in <module>\n    from report import totals_by_name\n  File \"/private/var/folders/3r/c204xb_d2h144mm7fky1vf_r0000gn/T/agentic-t2a-normalize-idempotent-vzj0wq4u/report.py\", line 5, in <module>\n    from normalize import normalize_name\n  File \"/private/var/folders/3r/c204xb_d2h144mm7fky1vf_r0000gn/T/agentic-t2a-normalize-idempotent-vzj0wq4u/normalize.py\", line 11\n    return name.strip().lower().replace(\"-\", \"_\").replace(\" \", \"_\")\n                                                                   ^\nIndentationError: unindent does not match any outer indentation level",
+      "turns": 6,
+      "hit_turn_cap": false,
+      "tool_calls": 7,
+      "bad_tool_calls": 0,
+      "repeat": 1,
+      "bad_tool_detail": [],
+      "text_tool_attempts": 0,
+      "wrote_any_file": true,
+      "files_written": [
+        "normalize.py"
+      ],
+      "files_read": [
+        "normalize.py",
+        "parser.py",
+        "report.py"
+      ],
+      "write_without_read": 0,
+      "ran_tests": 1,
+      "load_s": 0.11,
+      "truncated_turns": 0,
+      "tampered_suites": [],
+      "prompt_tokens": 16827,
+      "output_tokens": 4312,
+      "wall_s": 100.8,
+      "error": null,
+      "final_sources": {
+        "normalize.py": "\"\"\"Name normalization shared by the parser and the reporter.\"\"\"\n\n\ndef normalize_name(name):\n     \"\"\"Normalize a pipeline name for comparison.\n\n    Names are case-insensitive and may be padded with whitespace. Internal\n    separators are normalized to underscores so \"daily load\", \"daily-load\" and\n     \"Daily_Load\" all compare equal.\n     \"\"\"\n    return name.strip().lower().replace(\"-\", \"_\").replace(\" \", \"_\")\n"
+      }
+    },
+    {
+      "task_id": "t2b-queue-fifo",
+      "tier": 2,
+      "title": "Job queue crashes on equal priorities",
+      "solved": false,
+      "verifier_output": "Traceback (most recent call last):\n  File \"/var/folders/3r/c204xb_d2h144mm7fky1vf_r0000gn/T/agentic-t2b-queue-fifo-jk15iad9/verify.py\", line 3, in <module>\n    runpy.run_path('_verify_body.py', run_name='__main__')\n    ~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<frozen runpy>\", line 294, in run_path\n  File \"<frozen runpy>\", line 98, in _run_module_code\n  File \"<frozen runpy>\", line 88, in _run_code\n  File \"_verify_body.py\", line 1, in <module>\n    from scheduler import Job, drain\n  File \"/private/var/folders/3r/c204xb_d2h144mm7fky1vf_r0000gn/T/agentic-t2b-queue-fifo-jk15iad9/scheduler.py\", line 3, in <module>\n    from queue_impl import JobQueue\n  File \"/private/var/folders/3r/c204xb_d2h144mm7fky1vf_r0000gn/T/agentic-t2b-queue-fifo-jk15iad9/queue_impl.py\", line 14\n    def __init__(self):\n                       ^\nIndentationError: unindent does not match any outer indentation level",
+      "turns": 6,
+      "hit_turn_cap": false,
+      "tool_calls": 6,
+      "bad_tool_calls": 0,
+      "repeat": 1,
+      "bad_tool_detail": [],
+      "text_tool_attempts": 0,
+      "wrote_any_file": true,
+      "files_written": [
+        "queue_impl.py"
+      ],
+      "files_read": [
+        "queue_impl.py",
+        "scheduler.py"
+      ],
+      "write_without_read": 0,
+      "ran_tests": 2,
+      "load_s": 0.12,
+      "truncated_turns": 0,
+      "tampered_suites": [],
+      "prompt_tokens": 9065,
+      "output_tokens": 1159,
+      "wall_s": 28.3,
+      "error": null,
+      "final_sources": {
+        "queue_impl.py": "\"\"\"In-memory job queue with priority ordering.\"\"\"\n\nimport heapq\nimport itertools\n\n\nclass JobQueue:\n     \"\"\"A priority queue of jobs.\n\n    Lower `priority` values are dequeued first. Jobs pushed with equal priority\n    come out in the order they were pushed (FIFO within a priority).\n     \"\"\"\n\n    def __init__(self):\n        self._heap = []\n        self._counter = itertools.count()\n\n    def push(self, job, priority=5):\n        heapq.heappush(self._heap, (priority, next(self._counter), job))\n\n    def pop(self):\n        if not self._heap:\n            return None\n         _, _, job = heapq.heappop(self._heap)\n        return job\n\n    def __len__(self):\n        return len(self._heap)\n"
+      }
+    },
+    {
+      "task_id": "t3a-ttl-cache-lru",
+      "tier": 3,
+      "title": "Add bounded LRU eviction to the TTL cache",
+      "solved": true,
+      "verifier_output": "existing suite OK\nOK",
+      "turns": 5,
+      "hit_turn_cap": false,
+      "tool_calls": 5,
+      "bad_tool_calls": 0,
+      "repeat": 1,
+      "bad_tool_detail": [],
+      "text_tool_attempts": 0,
+      "wrote_any_file": true,
+      "files_written": [
+        "cache.py"
+      ],
+      "files_read": [
+        "cache.py",
+        "test_cache.py"
+      ],
+      "write_without_read": 0,
+      "ran_tests": 2,
+      "load_s": 0.1,
+      "truncated_turns": 0,
+      "tampered_suites": [],
+      "prompt_tokens": 9909,
+      "output_tokens": 1755,
+      "wall_s": 41.9,
+      "error": null,
+      "final_sources": {
+        "cache.py": "from collections import OrderedDict\n\n\nclass TTLCache:\n    def __init__(self, ttl, clock, max_size=None):\n        self.ttl = ttl\n        self.clock = clock\n        self.max_size = max_size\n        self._data = OrderedDict()\n\n    def set(self, key, value):\n        if self.max_size == 0:\n            return\n\n        if key in self._data:\n            self._data.move_to_end(key)\n            self._data[key] = (value, self.clock())\n        else:\n            self._data[key] = (value, self.clock())\n            if self.max_size is not None and len(self._data) > self.max_size:\n                self._data.popitem(last=False)\n\n    def get(self, key, default=None):\n        if self.max_size == 0:\n            return default\n\n        entry = self._data.get(key)\n        if entry is None:\n            return default\n        value, stamp = entry\n        if self.clock() - stamp >= self.ttl:\n            del self._data[key]\n            return default\n        self._data.move_to_end(key)\n        return value\n\n    def __len__(self):\n        return len(self._data)\n"
+      }
+    },
+    {
+      "task_id": "t3b-router-params",
+      "tier": 3,
+      "title": "Add parameterized routes to the router",
+      "solved": false,
+      "verifier_output": "existing suite OK\nTraceback (most recent call last):\n  File \"/var/folders/3r/c204xb_d2h144mm7fky1vf_r0000gn/T/agentic-t3b-router-params-ga1iwrtu/verify.py\", line 3, in <module>\n    runpy.run_path('_verify_body.py', run_name='__main__')\n    ~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<frozen runpy>\", line 294, in run_path\n  File \"<frozen runpy>\", line 98, in _run_module_code\n  File \"<frozen runpy>\", line 88, in _run_code\n  File \"_verify_body.py\", line 15, in <module>\n    assert handler == \"job_detail\", handler\n           ^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: None",
+      "turns": 2,
+      "hit_turn_cap": false,
+      "tool_calls": 2,
+      "bad_tool_calls": 0,
+      "repeat": 1,
+      "bad_tool_detail": [],
+      "text_tool_attempts": 0,
+      "wrote_any_file": false,
+      "files_written": [],
+      "files_read": [
+        "router.py",
+        "test_router.py"
+      ],
+      "write_without_read": 0,
+      "ran_tests": 0,
+      "load_s": 0.09,
+      "truncated_turns": 0,
+      "tampered_suites": [],
+      "prompt_tokens": 700,
+      "output_tokens": 71,
+      "wall_s": 7.1,
+      "error": "http 500: XML syntax error on line 3: element <function> closed by </parameter>",
+      "final_sources": {
+        "router.py": "\"\"\"Minimal path router for the internal status service.\"\"\"\n\n\nclass Router:\n    \"\"\"Maps URL paths to handlers.\n\n    Routes are registered with `add`, and `resolve` returns (handler, params)\n    for a path or (None, {}) when nothing matches.\n    \"\"\"\n\n    def __init__(self):\n        self._routes = []\n\n    def add(self, path, handler):\n        self._routes.append((path, handler))\n\n    def resolve(self, path):\n        for route, handler in self._routes:\n            if route == path:\n                return handler, {}\n        return None, {}\n"
+      }
+    },
+    {
+      "task_id": "t1a-moving-average",
+      "tier": 1,
+      "title": "Off-by-one in a moving average",
+      "solved": false,
+      "verifier_output": "Traceback (most recent call last):\n  File \"/var/folders/3r/c204xb_d2h144mm7fky1vf_r0000gn/T/agentic-t1a-moving-average-9ow1_xhi/verify.py\", line 3, in <module>\n    runpy.run_path('_verify_body.py', run_name='__main__')\n    ~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<frozen runpy>\", line 294, in run_path\n  File \"<frozen runpy>\", line 98, in _run_module_code\n  File \"<frozen runpy>\", line 88, in _run_code\n  File \"_verify_body.py\", line 1, in <module>\n    from stats import moving_average\n  File \"/private/var/folders/3r/c204xb_d2h144mm7fky1vf_r0000gn/T/agentic-t1a-moving-average-9ow1_xhi/stats.py\", line 10\n    if window <= 0:\n                   ^\nIndentationError: unindent does not match any outer indentation level",
+      "turns": 4,
+      "hit_turn_cap": false,
+      "tool_calls": 3,
+      "bad_tool_calls": 0,
+      "repeat": 2,
+      "bad_tool_detail": [],
+      "text_tool_attempts": 0,
+      "wrote_any_file": true,
+      "files_written": [
+        "stats.py"
+      ],
+      "files_read": [
+        "stats.py"
+      ],
+      "write_without_read": 0,
+      "ran_tests": 1,
+      "load_s": 0.09,
+      "truncated_turns": 0,
+      "tampered_suites": [],
+      "prompt_tokens": 4496,
+      "output_tokens": 838,
+      "wall_s": 19.0,
+      "error": null,
+      "final_sources": {
+        "stats.py": "\"\"\"Rolling window statistics for pipeline run durations.\"\"\"\n\n\ndef moving_average(values, window):\n     \"\"\"Return the moving average of `values` over `window` samples.\n\n    The result has one entry per full window, so len(result) ==\n    len(values) - window + 1 for a non-empty input.\n     \"\"\"\n    if window <= 0:\n        raise ValueError(\"window must be positive\")\n    out = []\n    for i in range(len(values) - window + 1):\n        chunk = values[i : i + window]\n        out.append(sum(chunk) / window)\n    return out\n"
+      }
+    },
+    {
+      "task_id": "t1b-retry-budget",
+      "tier": 1,
+      "title": "Retry budget goes negative",
+      "solved": true,
+      "verifier_output": "OK",
+      "turns": 5,
+      "hit_turn_cap": false,
+      "tool_calls": 4,
+      "bad_tool_calls": 0,
+      "repeat": 2,
+      "bad_tool_detail": [],
+      "text_tool_attempts": 0,
+      "wrote_any_file": true,
+      "files_written": [
+        "budget.py"
+      ],
+      "files_read": [
+        "budget.py"
+      ],
+      "write_without_read": 0,
+      "ran_tests": 1,
+      "load_s": 0.11,
+      "truncated_turns": 0,
+      "tampered_suites": [],
+      "prompt_tokens": 6256,
+      "output_tokens": 880,
+      "wall_s": 21.1,
+      "error": null,
+      "final_sources": {
+        "budget.py": "\"\"\"Retry-budget accounting for the ingest scheduler.\"\"\"\n\n\nclass RetryBudget:\n    \"\"\"Tracks how many retries remain for a job.\n\n    `consume` spends one retry and returns True when the spend was allowed.\n    Once the budget is exhausted, further calls return False and must not push\n    `remaining` below zero.\n    \"\"\"\n\n    def __init__(self, limit):\n        self.limit = limit\n        self.used = 0\n\n    @property\n    def remaining(self):\n        return self.limit - self.used\n\n    def consume(self):\n        if self.remaining <= 0:\n            return False\n        self.used += 1\n        return True\n\n    def reset(self):\n        self.used = 0\n"
+      }
+    },
+    {
+      "task_id": "t2a-normalize-idempotent",
+      "tier": 2,
+      "title": "Report double-counts a pipeline (cause is not in report.py)",
+      "solved": false,
+      "verifier_output": "Traceback (most recent call last):\n  File \"/var/folders/3r/c204xb_d2h144mm7fky1vf_r0000gn/T/agentic-t2a-normalize-idempotent-s73777wh/verify.py\", line 3, in <module>\n    runpy.run_path('_verify_body.py', run_name='__main__')\n    ~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<frozen runpy>\", line 294, in run_path\n  File \"<frozen runpy>\", line 98, in _run_module_code\n  File \"<frozen runpy>\", line 88, in _run_code\n  File \"_verify_body.py\", line 1, in <module>\n    from report import totals_by_name\n  File \"/private/var/folders/3r/c204xb_d2h144mm7fky1vf_r0000gn/T/agentic-t2a-normalize-idempotent-s73777wh/report.py\", line 5, in <module>\n    from normalize import normalize_name\n  File \"/private/var/folders/3r/c204xb_d2h144mm7fky1vf_r0000gn/T/agentic-t2a-normalize-idempotent-s73777wh/normalize.py\", line 11\n    return name.strip().lower().replace(\"-\", \"_\").replace(\" \", \"_\")\n                                                                   ^\nIndentationError: unindent does not match any outer indentation level",
+      "turns": 5,
+      "hit_turn_cap": false,
+      "tool_calls": 6,
+      "bad_tool_calls": 0,
+      "repeat": 2,
+      "bad_tool_detail": [],
+      "text_tool_attempts": 0,
+      "wrote_any_file": true,
+      "files_written": [
+        "normalize.py"
+      ],
+      "files_read": [
+        "normalize.py",
+        "parser.py",
+        "report.py"
+      ],
+      "write_without_read": 0,
+      "ran_tests": 1,
+      "load_s": 0.12,
+      "truncated_turns": 0,
+      "tampered_suites": [],
+      "prompt_tokens": 8995,
+      "output_tokens": 2367,
+      "wall_s": 54.8,
+      "error": null,
+      "final_sources": {
+        "normalize.py": "\"\"\"Name normalization shared by the parser and the reporter.\"\"\"\n\n\ndef normalize_name(name):\n     \"\"\"Normalize a pipeline name for comparison.\n\n    Names are case-insensitive and may be padded with whitespace. Internal\n    separators are normalized to underscores so \"daily load\", \"daily-load\" and\n     \"Daily_Load\" all compare equal.\n     \"\"\"\n    return name.strip().lower().replace(\"-\", \"_\").replace(\" \", \"_\")\n"
+      }
+    },
+    {
+      "task_id": "t2b-queue-fifo",
+      "tier": 2,
+      "title": "Job queue crashes on equal priorities",
+      "solved": false,
+      "verifier_output": "Traceback (most recent call last):\n  File \"/var/folders/3r/c204xb_d2h144mm7fky1vf_r0000gn/T/agentic-t2b-queue-fifo-kx05q6qv/verify.py\", line 3, in <module>\n    runpy.run_path('_verify_body.py', run_name='__main__')\n    ~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<frozen runpy>\", line 294, in run_path\n  File \"<frozen runpy>\", line 98, in _run_module_code\n  File \"<frozen runpy>\", line 88, in _run_code\n  File \"_verify_body.py\", line 1, in <module>\n    from scheduler import Job, drain\n  File \"/private/var/folders/3r/c204xb_d2h144mm7fky1vf_r0000gn/T/agentic-t2b-queue-fifo-kx05q6qv/scheduler.py\", line 3, in <module>\n    from queue_impl import JobQueue\n  File \"/private/var/folders/3r/c204xb_d2h144mm7fky1vf_r0000gn/T/agentic-t2b-queue-fifo-kx05q6qv/queue_impl.py\", line 24\n    _, _, job = heapq.heappop(self._heap)\n                                         ^\nIndentationError: unindent does not match any outer indentation level",
+      "turns": 6,
+      "hit_turn_cap": false,
+      "tool_calls": 6,
+      "bad_tool_calls": 0,
+      "repeat": 2,
+      "bad_tool_detail": [],
+      "text_tool_attempts": 0,
+      "wrote_any_file": true,
+      "files_written": [
+        "queue_impl.py"
+      ],
+      "files_read": [
+        "scheduler.py",
+        "queue_impl.py"
+      ],
+      "write_without_read": 0,
+      "ran_tests": 1,
+      "load_s": 0.1,
+      "truncated_turns": 0,
+      "tampered_suites": [],
+      "prompt_tokens": 8116,
+      "output_tokens": 1075,
+      "wall_s": 25.0,
+      "error": null,
+      "final_sources": {
+        "queue_impl.py": "\"\"\"In-memory job queue with priority ordering.\"\"\"\n\nimport heapq\nimport itertools\n\n\nclass JobQueue:\n    \"\"\"A priority queue of jobs.\n\n    Lower `priority` values are dequeued first. Jobs pushed with equal priority\n    come out in the order they were pushed (FIFO within a priority).\n    \"\"\"\n\n    def __init__(self):\n        self._heap = []\n        self._counter = itertools.count()\n\n    def push(self, job, priority=5):\n        heapq.heappush(self._heap, (priority, next(self._counter), job))\n\n    def pop(self):\n        if not self._heap:\n            return None\n         _, _, job = heapq.heappop(self._heap)\n        return job\n\n    def __len__(self):\n        return len(self._heap)\n"
+      }
+    },
+    {
+      "task_id": "t3a-ttl-cache-lru",
+      "tier": 3,
+      "title": "Add bounded LRU eviction to the TTL cache",
+      "solved": true,
+      "verifier_output": "existing suite OK\nOK",
+      "turns": 5,
+      "hit_turn_cap": false,
+      "tool_calls": 5,
+      "bad_tool_calls": 0,
+      "repeat": 2,
+      "bad_tool_detail": [],
+      "text_tool_attempts": 0,
+      "wrote_any_file": true,
+      "files_written": [
+        "cache.py"
+      ],
+      "files_read": [
+        "cache.py",
+        "test_cache.py"
+      ],
+      "write_without_read": 0,
+      "ran_tests": 2,
+      "load_s": 0.09,
+      "truncated_turns": 0,
+      "tampered_suites": [],
+      "prompt_tokens": 7677,
+      "output_tokens": 938,
+      "wall_s": 22.4,
+      "error": null,
+      "final_sources": {
+        "cache.py": "\"\"\"A tiny TTL cache used by the metrics collector.\"\"\"\n\nfrom collections import OrderedDict\n\n\nclass TTLCache:\n    \"\"\"Mapping with per-entry expiry.\n\n    `clock` is a zero-argument callable returning a monotonic float, injected so\n    tests can control time.\n    \"\"\"\n\n    def __init__(self, ttl, clock, max_size=None):\n        self.ttl = ttl\n        self.clock = clock\n        self._data = OrderedDict()\n        self._max_size = max_size\n\n    def set(self, key, value):\n        if self._max_size == 0:\n            return\n        if key in self._data:\n            self._data.move_to_end(key)\n        self._data[key] = (value, self.clock())\n        if self._max_size is not None and len(self._data) > self._max_size:\n            self._data.popitem(last=False)\n\n    def get(self, key, default=None):\n        if self._max_size == 0:\n            return default\n        entry = self._data.get(key)\n        if entry is None:\n            return default\n        value, stamp = entry\n        if self.clock() - stamp >= self.ttl:\n            del self._data[key]\n            return default\n        self._data.move_to_end(key)\n        return value\n\n    def __len__(self):\n        return len(self._data)\n"
+      }
+    },
+    {
+      "task_id": "t3b-router-params",
+      "tier": 3,
+      "title": "Add parameterized routes to the router",
+      "solved": true,
+      "verifier_output": "existing suite OK\nOK",
+      "turns": 8,
+      "hit_turn_cap": false,
+      "tool_calls": 8,
+      "bad_tool_calls": 0,
+      "repeat": 2,
+      "bad_tool_detail": [],
+      "text_tool_attempts": 0,
+      "wrote_any_file": true,
+      "files_written": [
+        "router.py"
+      ],
+      "files_read": [
+        "router.py",
+        "test_router.py"
+      ],
+      "write_without_read": 0,
+      "ran_tests": 2,
+      "load_s": 0.12,
+      "truncated_turns": 0,
+      "tampered_suites": [],
+      "prompt_tokens": 17799,
+      "output_tokens": 1885,
+      "wall_s": 46.4,
+      "error": null,
+      "final_sources": {
+        "router.py": "\"\"\"Router supporting static and parameterized path segments.\n\nRoutes are registered with `add`, and `resolve` returns (handler, params)\nfor a matching path or (None, {}) when nothing matches.\n\"\"\"\n\n\nclass Router:\n\n    def __init__(self):\n        self._routes = []\n\n    def add(self, path, handler):\n        self._routes.append((path, handler))\n\n    def resolve(self, path):\n        # First pass: try all static routes (no <...> segments)\n        for route, handler in self._routes:\n            if \"<\" not in route:\n                if route == path:\n                    return handler, {}\n\n        # Second pass: try all dynamic routes (has <...> segments)\n        for route, handler in self._routes:\n            if \"<\" in route:\n                route_segments = route.split(\"/\")\n                path_segments = path.split(\"/\")\n                if len(route_segments) != len(path_segments):\n                    continue\n                params = {}\n                match = True\n                for rs, ps in zip(route_segments, path_segments):\n                    if rs.startswith(\"<\") and rs.endswith(\">\"):\n                        # Parameter segment \u2013 must be non-empty\n                        if not ps:\n                            match = False\n                            break\n                        params[rs[1:-1]] = ps\n                    elif rs != ps:\n                        match = False\n                        break\n                if match:\n                    return handler, params\n\n        return None, {}\n"
+      }
+    }
+  ]
+}

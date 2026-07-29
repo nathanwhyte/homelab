@@ -1,0 +1,139 @@
+{
+  "model": "qwen3.6:coding",
+  "judge": "qwen3.6:subagent",
+  "judge_caveat": "advisory only; local-judge precision collapsed out-of-sample in TASK-1169, and the default judge is a sibling of tags under test",
+  "forced": false,
+  "source_file": "agentic-coding-qwen3.6_coding-20260729-094858.json",
+  "source_sha256": "d2afbcbd7640d98b",
+  "source_provenance": {
+    "model": "qwen3.6:coding",
+    "model_digest": "7a45b00317a8f8997cab783b78fc79a30fa04c8714d44015024bd4c7b2046490",
+    "model_modified_at": "2026-07-28T21:33:59.819367357-05:00",
+    "details": {
+      "family": "qwen3_5_moe",
+      "parameter_size": "35.1B",
+      "quantization_level": "nvfp4"
+    },
+    "capabilities": [
+      "completion",
+      "vision",
+      "thinking",
+      "tools"
+    ],
+    "effective_parameters": {
+      "min_p": "0",
+      "presence_penalty": "0",
+      "repeat_penalty": "1",
+      "temperature": "0.6",
+      "top_k": "20",
+      "top_p": "0.95"
+    },
+    "ollama_version": "0.32.5",
+    "harness_sha256": "52144c13a7fb561b",
+    "fixtures_sha256": "c0a9a54b28ba19d3",
+    "host": "pop.local",
+    "python": "3.14.6",
+    "started_at": "2026-07-29T09:33:08-0500"
+  },
+  "judge_provenance": {
+    "judge": "qwen3.6:subagent",
+    "judge_digest": "f44222e3b0ef8a27b0a898998282a52a2ac26a358b272bc623b792722a07ba4a",
+    "effective_parameters": {
+      "top_k": "1",
+      "top_p": "0.95",
+      "min_p": "0",
+      "num_ctx": "32768",
+      "num_predict": "128",
+      "presence_penalty": "0",
+      "repeat_penalty": "1",
+      "temperature": "0"
+    },
+    "request_options": {
+      "temperature": 0,
+      "num_ctx": 16384,
+      "num_predict": 256,
+      "seed": 42
+    },
+    "ollama_version": "0.32.5",
+    "judged_at": "2026-07-29T10:54:09-0500"
+  },
+  "means": {
+    "minimality": 4.43,
+    "root_cause": 5,
+    "contract_kept": 5
+  },
+  "unparseable": 0,
+  "transport_errors": [],
+  "judged": [
+    {
+      "task_id": "t3a-ttl-cache-lru",
+      "tier": 3,
+      "repeat": 0,
+      "file": "cache.py",
+      "minimality": 4,
+      "root_cause": 5,
+      "contract_kept": 5,
+      "note": "Clean implementation using OrderedDict for LRU eviction. Minimal and correct."
+    },
+    {
+      "task_id": "t3b-router-params",
+      "tier": 3,
+      "repeat": 0,
+      "file": "router.py",
+      "minimality": 4,
+      "root_cause": 5,
+      "contract_kept": 5,
+      "note": "Clean separation of static and dynamic routes solves precedence correctly without over-engineering."
+    },
+    {
+      "task_id": "t1b-retry-budget",
+      "tier": 1,
+      "repeat": 1,
+      "file": "budget.py",
+      "minimality": 5,
+      "root_cause": 5,
+      "contract_kept": 5,
+      "note": "Minimal, correct fix preventing negative remaining by checking before incrementing."
+    },
+    {
+      "task_id": "t3a-ttl-cache-lru",
+      "tier": 3,
+      "repeat": 1,
+      "file": "cache.py",
+      "minimality": 4,
+      "root_cause": 5,
+      "contract_kept": 5,
+      "note": "Minimal, correct LRU implementation using OrderedDict. Preserves all contracts."
+    },
+    {
+      "task_id": "t1b-retry-budget",
+      "tier": 1,
+      "repeat": 2,
+      "file": "budget.py",
+      "minimality": 5,
+      "root_cause": 5,
+      "contract_kept": 5,
+      "note": "Minimal, correct fix preventing negative remaining by checking before incrementing."
+    },
+    {
+      "task_id": "t3a-ttl-cache-lru",
+      "tier": 3,
+      "repeat": 2,
+      "file": "cache.py",
+      "minimality": 4,
+      "root_cause": 5,
+      "contract_kept": 5,
+      "note": "Minimal, correct LRU implementation using OrderedDict. No unnecessary changes."
+    },
+    {
+      "task_id": "t3b-router-params",
+      "tier": 3,
+      "repeat": 2,
+      "file": "router.py",
+      "minimality": 5,
+      "root_cause": 5,
+      "contract_kept": 5,
+      "note": "Clean two-pass approach correctly prioritizes static routes over dynamic ones."
+    }
+  ]
+}

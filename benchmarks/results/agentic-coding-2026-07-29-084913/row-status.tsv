@@ -1,0 +1,8 @@
+primary	gemma4:coding-12b	ok
+primary	gemma4:coding-26b	ok
+primary	qwen3.6:coding	FAILED(exit 4)
+primary	qwen3.6:coding-gguf	ok
+primary	nemotron3:coding	FAILED(exit 4)
+primary	laguna:coding	ok
+sensitivity	qwen3.6:coding	ok
+sensitivity	qwen3.6:coding-gguf	ok

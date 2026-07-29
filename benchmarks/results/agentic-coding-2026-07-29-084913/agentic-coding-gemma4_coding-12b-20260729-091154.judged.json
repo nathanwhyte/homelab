@@ -1,0 +1,245 @@
+{
+  "model": "gemma4:coding-12b",
+  "judge": "qwen3.6:subagent",
+  "judge_caveat": "advisory only; local-judge precision collapsed out-of-sample in TASK-1169, and the default judge is a sibling of tags under test",
+  "forced": false,
+  "source_file": "agentic-coding-gemma4_coding-12b-20260729-091154.json",
+  "source_sha256": "58a58e08dbe3fa08",
+  "source_provenance": {
+    "model": "gemma4:coding-12b",
+    "model_digest": "17f521265002ea45c9a4d4b9cda745a0fb25823512530f001badcb29c27d213a",
+    "model_modified_at": "2026-07-28T21:15:55.8396261-05:00",
+    "details": {
+      "family": "gemma4_unified",
+      "parameter_size": "12.4B",
+      "quantization_level": "nvfp4"
+    },
+    "capabilities": [
+      "completion",
+      "tools",
+      "thinking"
+    ],
+    "effective_parameters": {
+      "temperature": "1",
+      "top_k": "64",
+      "top_p": "0.95"
+    },
+    "ollama_version": "0.32.5",
+    "harness_sha256": "52144c13a7fb561b",
+    "fixtures_sha256": "c0a9a54b28ba19d3",
+    "host": "pop.local",
+    "python": "3.14.6",
+    "started_at": "2026-07-29T08:49:14-0500"
+  },
+  "judge_provenance": {
+    "judge": "qwen3.6:subagent",
+    "judge_digest": "f44222e3b0ef8a27b0a898998282a52a2ac26a358b272bc623b792722a07ba4a",
+    "effective_parameters": {
+      "top_k": "1",
+      "top_p": "0.95",
+      "min_p": "0",
+      "num_ctx": "32768",
+      "num_predict": "128",
+      "presence_penalty": "0",
+      "repeat_penalty": "1",
+      "temperature": "0"
+    },
+    "request_options": {
+      "temperature": 0,
+      "num_ctx": 16384,
+      "num_predict": 256,
+      "seed": 42
+    },
+    "ollama_version": "0.32.5",
+    "judged_at": "2026-07-29T10:54:09-0500"
+  },
+  "means": {
+    "minimality": 4.56,
+    "root_cause": 4.56,
+    "contract_kept": 4.83
+  },
+  "unparseable": 0,
+  "transport_errors": [],
+  "judged": [
+    {
+      "task_id": "t1a-moving-average",
+      "tier": 1,
+      "repeat": 0,
+      "file": "stats.py",
+      "minimality": 5,
+      "root_cause": 5,
+      "contract_kept": 5,
+      "note": "Minimal fix: corrected loop range to match docstring contract."
+    },
+    {
+      "task_id": "t1b-retry-budget",
+      "tier": 1,
+      "repeat": 0,
+      "file": "budget.py",
+      "minimality": 5,
+      "root_cause": 5,
+      "contract_kept": 5,
+      "note": "Minimal fix addressing the root cause by checking remaining before incrementing."
+    },
+    {
+      "task_id": "t2a-normalize-idempotent",
+      "tier": 2,
+      "repeat": 0,
+      "file": "normalize.py",
+      "minimality": 5,
+      "root_cause": 5,
+      "contract_kept": 5,
+      "note": "Minimal fix addressing the root cause while preserving idempotency and contract."
+    },
+    {
+      "task_id": "t2b-queue-fifo",
+      "tier": 2,
+      "repeat": 0,
+      "file": "queue_impl.py",
+      "minimality": 5,
+      "root_cause": 5,
+      "contract_kept": 5,
+      "note": "Minimal, correct fix using a monotonic counter to ensure stable sorting and FIFO order."
+    },
+    {
+      "task_id": "t3a-ttl-cache-lru",
+      "tier": 3,
+      "repeat": 0,
+      "file": "cache.py",
+      "minimality": 3,
+      "root_cause": 2,
+      "contract_kept": 4,
+      "note": "LRU eviction relies on insertion order, which is fragile and non-standard for LRU semantics."
+    },
+    {
+      "task_id": "t3b-router-params",
+      "tier": 3,
+      "repeat": 0,
+      "file": "router.py",
+      "minimality": 4,
+      "root_cause": 5,
+      "contract_kept": 5,
+      "note": "Clean, minimal implementation using segment splitting and static priority logic."
+    },
+    {
+      "task_id": "t1a-moving-average",
+      "tier": 1,
+      "repeat": 1,
+      "file": "stats.py",
+      "minimality": 5,
+      "root_cause": 5,
+      "contract_kept": 5,
+      "note": "Minimal fix: corrected loop range to match docstring contract."
+    },
+    {
+      "task_id": "t1b-retry-budget",
+      "tier": 1,
+      "repeat": 1,
+      "file": "budget.py",
+      "minimality": 5,
+      "root_cause": 5,
+      "contract_kept": 5,
+      "note": "Minimal, correct fix addressing the root cause without side effects."
+    },
+    {
+      "task_id": "t2a-normalize-idempotent",
+      "tier": 2,
+      "repeat": 1,
+      "file": "normalize.py",
+      "minimality": 5,
+      "root_cause": 5,
+      "contract_kept": 5,
+      "note": "Minimal fix addressing the root cause while preserving idempotency and contract."
+    },
+    {
+      "task_id": "t2b-queue-fifo",
+      "tier": 2,
+      "repeat": 1,
+      "file": "queue_impl.py",
+      "minimality": 5,
+      "root_cause": 5,
+      "contract_kept": 5,
+      "note": "Minimal, correct fix using counter for stable sorting without altering public API."
+    },
+    {
+      "task_id": "t3a-ttl-cache-lru",
+      "tier": 3,
+      "repeat": 1,
+      "file": "cache.py",
+      "minimality": 2,
+      "root_cause": 2,
+      "contract_kept": 3,
+      "note": "LRU implementation is flawed; relies on insertion order which is not true LRU."
+    },
+    {
+      "task_id": "t3b-router-params",
+      "tier": 3,
+      "repeat": 1,
+      "file": "router.py",
+      "minimality": 4,
+      "root_cause": 5,
+      "contract_kept": 5,
+      "note": "Clean separation of static and dynamic routes effectively solves the priority requirement."
+    },
+    {
+      "task_id": "t1a-moving-average",
+      "tier": 1,
+      "repeat": 2,
+      "file": "stats.py",
+      "minimality": 5,
+      "root_cause": 5,
+      "contract_kept": 5,
+      "note": "Minimal fix: corrected loop range to match docstring contract."
+    },
+    {
+      "task_id": "t1b-retry-budget",
+      "tier": 1,
+      "repeat": 2,
+      "file": "budget.py",
+      "minimality": 5,
+      "root_cause": 5,
+      "contract_kept": 5,
+      "note": "Minimal fix addressing the root cause by checking remaining before incrementing."
+    },
+    {
+      "task_id": "t2a-normalize-idempotent",
+      "tier": 2,
+      "repeat": 2,
+      "file": "normalize.py",
+      "minimality": 5,
+      "root_cause": 5,
+      "contract_kept": 5,
+      "note": "Minimal fix addressing the root cause while preserving idempotency and contract."
+    },
+    {
+      "task_id": "t2b-queue-fifo",
+      "tier": 2,
+      "repeat": 2,
+      "file": "queue_impl.py",
+      "minimality": 5,
+      "root_cause": 5,
+      "contract_kept": 5,
+      "note": "Minimal, correct fix using a monotonic counter to ensure stable sorting and FIFO order."
+    },
+    {
+      "task_id": "t3a-ttl-cache-lru",
+      "tier": 3,
+      "repeat": 2,
+      "file": "cache.py",
+      "minimality": 4,
+      "root_cause": 3,
+      "contract_kept": 5,
+      "note": "Uses dict order for LRU instead of proper linked list; fragile and inefficient."
+    },
+    {
+      "task_id": "t3b-router-params",
+      "tier": 3,
+      "repeat": 2,
+      "file": "router.py",
+      "minimality": 5,
+      "root_cause": 5,
+      "contract_kept": 5,
+      "note": "Clean, minimal implementation that correctly addresses all requirements without unnecessary changes."
+    }
+  ]
+}
