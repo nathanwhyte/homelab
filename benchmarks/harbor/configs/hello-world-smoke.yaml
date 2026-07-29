@@ -1,0 +1,69 @@
+# Harbor hello-world smoke — PROJ-1003 coding-tag matrix models (IMPR-1109 step 1-2)
+#
+# Runs the hello-world task once per model, serially. Based on the official
+# examples/configs/features/ollama-job.yaml from harbor-framework/harbor.
+#
+# Effective Ollama serving config on pop (com.user.ollama-serve.plist):
+#   OLLAMA_CONTEXT_LENGTH=131072  OLLAMA_KV_CACHE_TYPE=q8_0  OLLAMA_NUM_PARALLEL=2
+# The coding tags deliberately do not bake num_ctx, so 131072 is the effective
+# window for every model below (nemotron3's native max is also 131072).
+# Sampling (temperature/top_p/top_k/min_p) is baked per-model in the Modelfiles
+# and applied server-side by Ollama — Harbor's model_info carries token limits
+# and cost accounting only, NOT sampling or quantization (validated 2026-07-29).
+#
+# Usage (from benchmarks/harbor/):
+#   hb run -c configs/hello-world-smoke.yaml            # NOTE: `hb`, not `harbor`
+#   hb run -c configs/hello-world-smoke.yaml --print-config   # validate only
+#
+# ⚠ Pre-run gate: at most ONE local-model consumer at a time. Do not start this
+# while a PROJ-1003 matrix run (or any other Ollama/MLX consumer) is active.
+
+job_name: hello-world-smoke
+jobs_dir: jobs
+n_attempts: 1
+timeout_multiplier: 1.5 # local models are slower than cloud APIs
+
+orchestrator:
+  type: local
+  n_concurrent_trials: 1 # hard cap: one local-model consumer
+
+environment:
+  type: docker
+  force_build: false
+  delete: true
+
+# One agent block per matrix model. LiteLLM's native Ollama support connects to
+# localhost:11434 automatically; for a remote host (timmy) export
+# OLLAMA_API_BASE=http://<host>:11434 first (LiteLLM-standard, unconfirmed as
+# passed through by Harbor — smoke-test before relying on it).
+agents:
+  # -- qwen3.6 twin pair (MLX vs GGUF — BUG-1067 comparison) --
+  - name: terminus-2
+    model_name: ollama/qwen3.6:coding # 35.1B qwen3_5_moe, nvfp4 (MLX-origin)
+    kwargs: &local_model_info
+      model_info:
+        max_tokens: 131072 # effective OLLAMA_CONTEXT_LENGTH on pop
+        max_input_tokens: 122880
+        max_output_tokens: 8192
+        input_cost_per_token: 0.0
+        output_cost_per_token: 0.0
+  - name: terminus-2
+    model_name: ollama/qwen3.6:coding-gguf # 36.0B qwen35moe, Q4_K_M
+    kwargs: *local_model_info
+  # -- rest of the primary matrix --
+  - name: terminus-2
+    model_name: ollama/laguna:coding # 33.4B laguna, nvfp4
+    kwargs: *local_model_info
+  - name: terminus-2
+    model_name: ollama/nemotron3:coding # 33.0B nemotron_h_omni, Q4_K_M (native max 131072)
+    kwargs: *local_model_info
+  - name: terminus-2
+    model_name: ollama/gemma4:coding-12b # 12.4B gemma4_unified, nvfp4
+    kwargs: *local_model_info
+  - name: terminus-2
+    model_name: ollama/gemma4:coding-26b # 26.2B gemma4, mxfp8
+    kwargs: *local_model_info
+
+datasets:
+  - path: tasks
+    task_names: ["hello-world"]
