@@ -351,6 +351,19 @@ def _apply_rlimits() -> None:
             pass
 
 
+# Per-stream ceiling on how much child output is ever read back into harness
+# memory. Output spools to files (RLIMIT_FSIZE bounds those); only these tails
+# are loaded. The completion token is the last thing the verifier wrapper
+# writes to stdout, so it always lands inside the stdout tail.
+_CAPTURE_CEILING = 1 << 20
+
+
+def _read_tail(fileobj: Any, limit: int) -> str:
+    size = os.fstat(fileobj.fileno()).st_size
+    fileobj.seek(max(0, size - limit))
+    return fileobj.read().decode("utf-8", errors="replace")
+
+
 def run_python(
     path: Path,
     script: str,
@@ -360,18 +373,30 @@ def run_python(
 ) -> tuple[int, str]:
     """Run a python script inside the sandbox and return (returncode, output).
 
-    Every child runs in its own session (`os.setsid`) so that a timeout kills the
-    whole process group rather than only the direct child — code under test can
+    Every child runs in its own session (`os.setsid`) so that the whole process
+    group can be killed rather than only the direct child — code under test can
     spawn workers, and `subprocess.run`'s own timeout leaves those orphaned and
-    running after this function returns. A grandchild that itself calls
-    `setsid()` starts a NEW session outside this group and can outlive the run;
-    `killpg` cannot reach it, and defending against that is out of the
+    running after this function returns. The group id is captured BEFORE the
+    first wait: once `communicate()` reaps the direct child, `os.getpgid` on its
+    pid no longer resolves, and same-group workers surviving a clean exit would
+    leak (they did, until this was caught in review). A grandchild that itself
+    calls `setsid()` starts a NEW session outside this group and can outlive the
+    run; `killpg` cannot reach it, and defending against that is out of the
     non-adversarial threat model here.
+
+    stdout/stderr spool to files in the sandbox rather than pipes, for two
+    reasons found in the same review: `communicate()` on pipes buffers the
+    ENTIRE output in harness memory before any truncation (an 8 MB print peaked
+    ~24 MB in the harness, and nothing rlimits the harness), and a worker
+    holding the inherited pipe ends kept `communicate()` blocked past its
+    deadline. With files, the wait is on process exit alone and at most
+    `_CAPTURE_CEILING` per stream is ever read back. The spool files are
+    dot-prefixed, transient, and deleted before the tool loop can observe them.
 
     `stdin_data`, when set, is piped to the child's stdin (`run_verifier` uses
     this to hand over the completion token without it ever touching the sandbox
-    filesystem). `capture_limit` bounds the returned output tail; pass None for
-    the full untruncated output when the caller must search it.
+    filesystem). `capture_limit` slices the combined tail further; pass None for
+    the full (still ceiling-bounded) tail when the caller must search it.
     """
     script_path = path / script
     # -s drops user site-packages; -E ignores inherited PYTHON* variables. NOT -I:
@@ -379,35 +404,58 @@ def run_python(
     # makes every `from stats import ...` in a verifier fail with
     # ModuleNotFoundError regardless of what the model wrote.
     argv = _sandbox_command(path, [sys.executable, "-s", "-E", str(script_path)])
-    proc = subprocess.Popen(
-        argv,
-        cwd=path,
-        stdin=subprocess.PIPE if stdin_data is not None else None,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-        env=_minimal_env(path),
-        preexec_fn=_apply_rlimits,  # noqa: PLW1509 - the point is to bound the child
-        start_new_session=True,
-    )
+    # Named files INSIDE the sandbox on purpose: the child certainly may write
+    # there under every profile, whereas seatbelt's treatment of inherited fds
+    # pointing outside the sandbox is undocumented.
+    cap_out = tempfile.NamedTemporaryFile(dir=path, prefix=".cap-out-", delete=False)
+    cap_err = tempfile.NamedTemporaryFile(dir=path, prefix=".cap-err-", delete=False)
     try:
-        stdout, stderr = proc.communicate(input=stdin_data, timeout=timeout)
-        code = proc.returncode
-    except subprocess.TimeoutExpired:
-        _kill_group(proc)
-        stdout, stderr = proc.communicate()
-        code = 124
-        stderr = (stderr or "") + "\ntimeout"
+        proc = subprocess.Popen(
+            argv,
+            cwd=path,
+            stdin=subprocess.PIPE if stdin_data is not None else None,
+            stdout=cap_out,
+            stderr=cap_err,
+            text=True,
+            env=_minimal_env(path),
+            preexec_fn=_apply_rlimits,  # noqa: PLW1509 - the point is to bound the child
+            start_new_session=True,
+        )
+        # start_new_session makes the child the leader of a fresh group whose
+        # id equals its pid. Retained here, while the pid is guaranteed live.
+        pgid = proc.pid
+        timed_out = False
+        try:
+            proc.communicate(input=stdin_data, timeout=timeout)
+            code = proc.returncode
+        except subprocess.TimeoutExpired:
+            _kill_group(pgid)
+            proc.communicate()
+            code = 124
+            timed_out = True
+        finally:
+            # Even on a clean exit, reap anything the script detached into the
+            # group — by pgid, because proc may already be reaped.
+            _kill_group(pgid)
+        out = (
+            _read_tail(cap_out, _CAPTURE_CEILING)
+            + _read_tail(cap_err, _CAPTURE_CEILING)
+        ).strip()
+        if timed_out:
+            out = (out + "\ntimeout").strip()
     finally:
-        # Even on a clean exit, reap anything the script detached into the group.
-        _kill_group(proc)
-    out = ((stdout or "") + (stderr or "")).strip()
+        for cap in (cap_out, cap_err):
+            cap.close()
+            try:
+                os.unlink(cap.name)
+            except OSError:
+                pass
     return code, out if capture_limit is None else out[-capture_limit:]
 
 
-def _kill_group(proc: subprocess.Popen) -> None:
+def _kill_group(pgid: int) -> None:
     try:
-        os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+        os.killpg(pgid, signal.SIGKILL)
     except (ProcessLookupError, PermissionError):
         pass
 
@@ -805,12 +853,23 @@ def run_task(
                 result.final_sources[name] = path.read_text()
     finally:
         if keep_sandbox is not None:
-            dest = keep_sandbox / f"{model.replace(':', '_')}-{task.task_id}-r{repeat}"
+            dest = keep_sandbox / f"{_fs_name(model)}-{task.task_id}-r{repeat}"
             shutil.rmtree(dest, ignore_errors=True)
             shutil.copytree(sandbox, dest)
         shutil.rmtree(sandbox, ignore_errors=True)
 
     return result
+
+
+def _fs_name(model: str) -> str:
+    """A model tag flattened to a single path component.
+
+    Replacing only `:` was not enough: registry-style ids like
+    `namespace/model:tag` (already used elsewhere in this repo) turned the
+    output filename into a nested, nonexistent path — raising only AFTER the
+    whole run had completed, losing the result.
+    """
+    return model.replace("/", "_").replace(":", "_")
 
 
 def unload(base: str, model: str) -> None:
@@ -975,6 +1034,15 @@ def main() -> int:
             "refusing to run — an empty run is not a result"
         )
         return 2
+    # Same class of hole from the other direction: --repeats 0 ran nothing,
+    # wrote an empty result, and exited 0 — which the matrix wrapper reads as
+    # every row "ok".
+    if args.repeats < 1:
+        print(
+            f"--repeats {args.repeats} runs nothing; it must be >= 1. "
+            "refusing to run — an empty run is not a result"
+        )
+        return 2
     keep = Path(args.keep_sandboxes).expanduser() if args.keep_sandboxes else None
     if keep is not None:
         keep.mkdir(parents=True, exist_ok=True)
@@ -1108,7 +1176,7 @@ def main() -> int:
     out_dir = Path(args.out).expanduser()
     out_dir.mkdir(parents=True, exist_ok=True)
     stamp = time.strftime("%Y%m%d-%H%M%S")
-    out_path = out_dir / f"agentic-coding-{args.model.replace(':', '_')}-{stamp}.json"
+    out_path = out_dir / f"agentic-coding-{_fs_name(args.model)}-{stamp}.json"
     out_path.write_text(
         json.dumps(
             {

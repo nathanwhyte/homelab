@@ -5,8 +5,8 @@
 without a model or a GPU: `post_chat` is replaced with a queue of canned
 responses, so every branch that a live run would exercise only by luck — a
 malformed tool call, a reserved write, a dead server, a verifier that exits early
-— is covered deterministically in a few seconds (the process-group timeout test
-waits ~3s).
+— is covered deterministically in several seconds (the timeout and worker-
+cleanup tests each wait a few seconds).
 
 Every test here corresponds to a defect that was actually present at some point:
 
@@ -19,6 +19,9 @@ Every test here corresponds to a defect that was actually present at some point:
     output tail, flipping a real pass to a FAIL
   * `load_s` recorded the last warm turn's load time instead of the cold load
   * a non-dict tool-call envelope raised AttributeError out of `run_task`
+  * workers in the child's group survived a clean exit (`getpgid` after reap)
+  * pipe-based capture buffered unbounded output in harness memory, and a
+    worker holding the pipes stalled `communicate()` past its deadline
 
 Run: python3 test_agentic_harness.py
 """
@@ -26,9 +29,11 @@ Run: python3 test_agentic_harness.py
 from __future__ import annotations
 
 import importlib.util
+import os
 import shutil
 import sys
 import tempfile
+import time
 from pathlib import Path
 from typing import Any
 
@@ -337,6 +342,78 @@ def test_timeout_kills_group():
         code, out = BENCH.run_python(sandbox, "spin.py", timeout=3)
         assert code == 124, (code, out)
         assert "timeout" in out
+    finally:
+        shutil.rmtree(sandbox, ignore_errors=True)
+
+
+@check("workers surviving a clean exit are killed with the group")
+def test_worker_killed_after_normal_exit():
+    sandbox = Path(tempfile.mkdtemp(prefix="unit-worker-"))
+    try:
+        (sandbox / "spawn.py").write_text(
+            "import subprocess, sys\n"
+            "p = subprocess.Popen(\n"
+            "    [sys.executable, '-c', 'import time; time.sleep(60)'],\n"
+            "    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,\n"
+            ")\n"
+            "print(p.pid)\n"
+        )
+        code, out = BENCH.run_python(sandbox, "spawn.py", timeout=10)
+        assert code == 0, (code, out)
+        worker_pid = int(out.strip().splitlines()[-1])
+        # The group SIGKILL lands on the way out of run_python; allow a beat
+        # for launchd/init to reap the orphan before calling it a leak.
+        deadline = time.monotonic() + 5
+        alive = True
+        while time.monotonic() < deadline:
+            try:
+                os.kill(worker_pid, 0)
+            except ProcessLookupError:
+                alive = False
+                break
+            time.sleep(0.05)
+        assert not alive, f"worker {worker_pid} outlived run_python's cleanup"
+    finally:
+        shutil.rmtree(sandbox, ignore_errors=True)
+
+
+@check("a worker holding the output cannot stall the timeout")
+def test_timeout_with_output_holding_worker():
+    sandbox = Path(tempfile.mkdtemp(prefix="unit-holder-"))
+    try:
+        # The worker inherits stdout/stderr. With pipe-based capture this kept
+        # communicate() blocked long past its deadline (0.1s took 1.24s in
+        # review); with spooled files the wait is on process exit alone.
+        (sandbox / "hold.py").write_text(
+            "import subprocess, sys, time\n"
+            "subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'])\n"
+            "time.sleep(60)\n"
+        )
+        started = time.monotonic()
+        code, out = BENCH.run_python(sandbox, "hold.py", timeout=2)
+        elapsed = time.monotonic() - started
+        assert code == 124, (code, out)
+        assert "timeout" in out
+        assert elapsed < 8, f"timeout overshot its deadline: {elapsed:.1f}s"
+    finally:
+        shutil.rmtree(sandbox, ignore_errors=True)
+
+
+@check("multi-megabyte output is tail-bounded, keeping the ending")
+def test_large_output_tail_bounded():
+    sandbox = Path(tempfile.mkdtemp(prefix="unit-big-"))
+    try:
+        (sandbox / "big.py").write_text(
+            "import sys\n"
+            "for _ in range(8):\n"
+            "    sys.stdout.write('x' * (1 << 20))\n"
+            "print('THE-END')\n"
+        )
+        code, out = BENCH.run_python(sandbox, "big.py", timeout=30, capture_limit=None)
+        assert code == 0, (code, out[-200:])
+        limit = 2 * BENCH._CAPTURE_CEILING
+        assert len(out) <= limit, f"tail not bounded: {len(out)} > {limit}"
+        assert out.endswith("THE-END"), out[-40:]
     finally:
         shutil.rmtree(sandbox, ignore_errors=True)
 
