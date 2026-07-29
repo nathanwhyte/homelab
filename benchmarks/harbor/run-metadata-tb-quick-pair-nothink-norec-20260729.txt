@@ -4,3 +4,17 @@ delta vs run 1: record_terminal_session=false both agents; otherwise frozen
 ollama version is 0.32.5
 gemma4:coding-26b-nvfp4 909b8edeb4c5 17 GB
 gemma4:coding-26b bf7f309722b2 27 GB
+RESULTS (complete, 16m48s total, 6 trials, 1 errored):
+regex-log                mxfp8 0 (15 turns, 174 s)   nvfp4 0 (8 turns, 94 s)
+git-multibranch          mxfp8 1 (14 turns, 234 s)   nvfp4 RuntimeError (13 turns —
+  BUG-1068 second manifestation: SSH authenticity prompt consumed queued
+  commands, C-c recovery killed pane shell + tmux server; loud exception,
+  not silent loss — mitigation working as designed)
+openssl-selfsigned-cert  mxfp8 1 (3 turns, 61 s)     nvfp4 1 (18 turns, 263 s)
+findings:
+- Every scored cell REPRODUCES run 1 exactly (regex-log 0/0, git-multibranch
+  mxfp8 1, openssl 1/1) — the quick suite is a stable diagnostic instrument.
+- git-multibranch mxfp8 is now 3/3 think-off; nvfp4 effort gap persists on
+  openssl (18 turns vs 3) with same outcome.
+- No silent lost writes anywhere; the one failure is explicit and attributed
+  (see BUG-1068 investigation notes).
