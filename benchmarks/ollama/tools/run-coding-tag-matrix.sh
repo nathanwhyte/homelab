@@ -24,11 +24,21 @@ BENCH="$TOOLS_DIR/agentic-coding-bench.py"
 # runs this from the tools directory, where a relative default would have written
 # results to tools/benchmarks/results.
 REPO_ROOT="$(cd "$TOOLS_DIR/../../.." && pwd)"
-RESULTS_DIR="${1:-$REPO_ROOT/benchmarks/results/agentic-coding-$(date +%Y-%m-%d)}"
+# Timestamped to the second, not date-only: a same-day rerun into a date-only
+# directory kept the previous attempt's JSON while truncating only the
+# manifest, so stale and current rows coexisted with a manifest describing
+# only the newest attempt.
+RESULTS_DIR="${1:-$REPO_ROOT/benchmarks/results/agentic-coding-$(date +%Y-%m-%d-%H%M%S)}"
 # Repeats matter more than they look: t1b failed and then passed on consecutive
 # runs with an identical seed, so the MLX path is not deterministic and a
 # single pass is a pilot, not a ranking.
 REPEATS="${REPEATS:-3}"
+# The bench refuses --repeats < 1 too; guard here as well so REPEATS=0 cannot
+# mark every row "ok" and declare the matrix complete.
+if ! [[ $REPEATS =~ ^[0-9]+$ ]] || [ "$REPEATS" -lt 1 ]; then
+	echo "REPEATS=$REPEATS is not a positive integer; refusing" >&2
+	exit 2
+fi
 MANIFEST="$RESULTS_DIR/row-status.tsv"
 FAILED_ROWS=0
 
