@@ -5,8 +5,7 @@ restored (its 2026-07-13 macOS/Metal empty-output blocker was fixed upstream by
 `#17291` / `#17237`) and a gemma4:12b MLX quant sweep added.
 
 **Results are complete (14 rows, 378/378 usable).** Of the open questions
-below, **OQ-1, OQ-4 and OQ-5 are resolved**; OQ-2 is partially resolved (warm
-resize answered, effective context limit still unknown); OQ-3 and OQ-6 are
+below, **OQ-1, OQ-2, OQ-4 and OQ-5 are resolved**; OQ-3 and OQ-6 are
 standing scope boundaries that must be restated in any conclusions drawn from
 this table.
 
@@ -300,7 +299,7 @@ plain-GGUF `gemma4:12b` rows were dropped from this matrix, leaving
 while the mechanism was unknown; now it only limits how much batching headroom
 this table can quantify.
 
-### OQ-2 — Is per-request `num_ctx` honored on 0.32.5? (PARTIALLY RESOLVED)
+### OQ-2 — Is per-request `num_ctx` honored on 0.32.5? (RESOLVED)
 
 **Do not remove the `qwen36-claude.Modelfile` workaround on the strength of
 this run.** An earlier draft of this section proposed exactly that; it was
@@ -365,22 +364,66 @@ processed in full, with the tail intact, no error and no truncation. So
 `/api/ps`'s `context_length` on the MLX runner is a **load-time bookkeeping
 value, not a limit on what the runner will process**.
 
+### RESOLVED 2026-07-28 — the effective limit is the architecture's, enforced with an error
+
+The remaining question was where the real ceiling sits and whether crossing it
+fails loudly. Swept with `benchmarks/ollama/tools/oq2_limit_sweep.py`:
+`gemma4:12b-mlx` cold-loaded at `num_ctx=8192`, then warm requests of growing
+size, each carrying a marker at the **head, middle and tail**. The model's
+architectural context is 262144 (`gemma4_unified.context_length`).
+
+| Prompt sent | `prompt_eval_count` | HTTP | `done_reason` | head/mid/tail recalled | wall |
+|---|---|---|---|---|---|
+| 13,057 | 13,057 | 200 | stop | ✅ / ✅ / ✅ | 27.4s |
+| 26,027 | 26,027 | 200 | stop | ✅ / ✅ / ✅ | 57.2s |
+| 51,977 | 51,977 | 200 | stop | ✅ / ✅ / ✅ | 109.9s |
+| 103,877 | 103,877 | 200 | stop | ✅ / ✅ / ✅ | 253.7s |
+| 199,687 | 199,687 | 200 | stop | ✅ / ✅ / ✅ | 694.3s |
+| 299,487 | — | **400** | — | request rejected | 2.9s |
+
+The 400 body is explicit:
+
+```text
+input length (299487 tokens) exceeds the model's maximum context length (262144 tokens)
+```
+
+Three findings, and they settle the section:
+
+1. **The effective limit is the model's architectural context, not the resident
+   `/api/ps` value.** A runner reporting 8192 evaluated **199,687 tokens** — 24x
+   its reported context — with the tail intact.
+2. **Exceeding it errors; it does not degrade silently.** The rejection is an
+   HTTP 400 in 2.9s, before any evaluation (no `prompt_eval_count`), naming both
+   the input size and the real cap. The failure mode this section once feared —
+   silent truncation — does not exist on this path at any size tested.
+3. **Quality does not decay with size; throughput does.** Every marker came back
+   at every accepted size. What degrades is prefill rate: ~475 tok/s at 13k,
+   ~409 at 104k, **~288 at 200k**. A 200k-token prompt costs 11.5 minutes of
+   prefill on this model. That is a cost argument, not a correctness one.
+
+Note also that the resident value bounds **memory** no more than it bounds
+input: with `/api/ps` reporting 8192, the runner's `size_vram` was observed at
+**18.2 GB** against ~7 GB of weights — the KV cache grows with the prompt
+actually sent.
+
 ### What this means for the Modelfile workaround
 
-Honestly: **weaker than the previous two justifications, both of which are now
-retired.**
+**All three justifications this workaround has ever rested on are now retired.**
 
 - The original reason — 0.31.1 ignored per-request `num_ctx` outright — is
   superseded by the cold-load behaviour above.
 - The replacement reason — silent truncation at the resident size — is
   **disproven** by the marker test.
+- The narrower reason kept in the previous revision — that the real limit was
+  unmeasured, so a baked value hedged against an unknown — is **answered** by
+  the sweep. The limit is 262144, and it is enforced with a clear error.
 
-The workaround is retained, but on narrower grounds: `/api/ps` reports a number
-that does not describe actual behaviour, so the system's real context limit on
-this path is **not established by anything measured here**. What happens under
-memory pressure, at genuinely large contexts, or on the llama.cpp path was not
-tested. A baked value at least makes the *requested* context explicit and
-inspectable rather than dependent on whichever client loaded the runner.
+What is left is not a hedge against a failure mode; it is a **declaration of
+intent**. Baking still changes one real behaviour: at cold load, a client that
+sends no `num_ctx` gets the baked value rather than
+`OLLAMA_CONTEXT_LENGTH=131072`, so the resident size stops depending on which
+client happened to load the runner first. That is worth keeping, and it is the
+only claim the tag should now be documented as making.
 
 Note also that baking does **not** make the value deterministic on its own: the
 section above establishes that an explicit request `num_ctx` overrides the
@@ -388,12 +431,9 @@ Modelfile at cold load. The tag is deterministic only if its clients omit
 `num_ctx` or send the same value — `CLAUDE_CODE_MAX_CONTEXT_TOKENS` in the
 `oclaudeq` alias is what keeps that true today.
 
-**Still open**, and worth a dedicated test before relying on any of this: what
-the effective context limit actually is on the MLX runner, and whether
-exceeding it degrades quality silently rather than erroring.
-
 All tests on ollama 0.32.5, MLX runner. The llama.cpp (GGUF) path was not
-tested and its reload and context handling may differ.
+tested and its reload and context handling may differ; whether its 400 arrives
+at the same boundary is unverified.
 
 ### OQ-3 — This matrix measures decode, not prefill (SCOPE BOUNDARY)
 
