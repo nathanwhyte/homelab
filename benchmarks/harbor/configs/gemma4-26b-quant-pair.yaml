@@ -38,11 +38,16 @@ environment:
   force_build: false
   delete: true
 
+# ⚠ Terminus-2's `temperature` kwarg defaults to 0.7 and overrides Modelfile
+# sampling (INFO-1129) — pinned to gemma4's published 1.0 here. For a remote
+# host (timmy), Terminus-2 also accepts an `api_base` kwarg (preferred over the
+# unconfirmed OLLAMA_API_BASE env pass-through).
 agents:
   - name: terminus-2
     model_name: ollama/gemma4:coding-26b # mxfp8, 27.7 GB
-    kwargs: &local_model_info
-      model_info:
+    kwargs:
+      temperature: 1.0 # match Modelfile / Google's published row
+      model_info: &local_model_info
         max_tokens: 131072 # effective OLLAMA_CONTEXT_LENGTH on pop
         max_input_tokens: 122880
         max_output_tokens: 8192
@@ -50,7 +55,9 @@ agents:
         output_cost_per_token: 0.0
   - name: terminus-2
     model_name: ollama/gemma4:coding-26b-nvfp4 # nvfp4, ~17 GB (MTP on MLX path)
-    kwargs: *local_model_info
+    kwargs:
+      temperature: 1.0
+      model_info: *local_model_info
 
 datasets:
   - path: tasks

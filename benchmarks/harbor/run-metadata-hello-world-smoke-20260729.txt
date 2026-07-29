@@ -1,0 +1,12 @@
+run: hello-world-smoke
+Wed Jul 29 11:09:53 CDT 2026
+ollama version is 0.32.5
+OLLAMA_CONTEXT_LENGTH=131072 OLLAMA_KV_CACHE_TYPE=q8_0 OLLAMA_NUM_PARALLEL=2 (com.user.ollama-serve.plist)
+digests:
+gemma4:coding-26b-nvfp4                                            909b8edeb4c5    17 GB     16 minutes ago    
+qwen3.6:coding-gguf                                                86bb2e39ad6e    23 GB     14 hours ago      
+qwen3.6:coding                                                     7a45b00317a8    21 GB     14 hours ago      
+gemma4:coding-26b                                                  bf7f309722b2    27 GB     14 hours ago      
+gemma4:coding-12b                                                  17f521265002    7.7 GB    14 hours ago      
+laguna:coding                                                      af29123e6f3f    19 GB     15 hours ago      
+nemotron3:coding                                                   fd38c3f76a2c    27 GB     15 hours ago      

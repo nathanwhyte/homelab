@@ -36,12 +36,16 @@ environment:
 # localhost:11434 automatically; for a remote host (timmy) export
 # OLLAMA_API_BASE=http://<host>:11434 first (LiteLLM-standard, unconfirmed as
 # passed through by Harbor — smoke-test before relying on it).
+# ⚠ Terminus-2's own `temperature` kwarg DEFAULTS TO 0.7 and overrides the
+# Modelfile sampling (INFO-1129, docs snapshot 2026-07-29). Each agent block
+# pins it to the model's coding-tag value so runs match the matrix conditions.
 agents:
   # -- qwen3.6 twin pair (MLX vs GGUF — BUG-1067 comparison) --
   - name: terminus-2
     model_name: ollama/qwen3.6:coding # 35.1B qwen3_5_moe, nvfp4 (MLX-origin)
-    kwargs: &local_model_info
-      model_info:
+    kwargs:
+      temperature: 0.6 # match Modelfile
+      model_info: &local_model_info
         max_tokens: 131072 # effective OLLAMA_CONTEXT_LENGTH on pop
         max_input_tokens: 122880
         max_output_tokens: 8192
@@ -49,20 +53,30 @@ agents:
         output_cost_per_token: 0.0
   - name: terminus-2
     model_name: ollama/qwen3.6:coding-gguf # 36.0B qwen35moe, Q4_K_M
-    kwargs: *local_model_info
+    kwargs:
+      temperature: 0.6
+      model_info: *local_model_info
   # -- rest of the primary matrix --
   - name: terminus-2
     model_name: ollama/laguna:coding # 33.4B laguna, nvfp4
-    kwargs: *local_model_info
+    kwargs:
+      temperature: 1.0
+      model_info: *local_model_info
   - name: terminus-2
     model_name: ollama/nemotron3:coding # 33.0B nemotron_h_omni, Q4_K_M (native max 131072)
-    kwargs: *local_model_info
+    kwargs:
+      temperature: 0.6
+      model_info: *local_model_info
   - name: terminus-2
     model_name: ollama/gemma4:coding-12b # 12.4B gemma4_unified, nvfp4
-    kwargs: *local_model_info
+    kwargs:
+      temperature: 1.0
+      model_info: *local_model_info
   - name: terminus-2
     model_name: ollama/gemma4:coding-26b # 26.2B gemma4, mxfp8
-    kwargs: *local_model_info
+    kwargs:
+      temperature: 1.0
+      model_info: *local_model_info
 
 datasets:
   - path: tasks
