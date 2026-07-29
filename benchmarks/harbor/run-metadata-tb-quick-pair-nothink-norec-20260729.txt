@@ -1,0 +1,6 @@
+run: tb-quick-pair-nothink-norec (run 2 — BUG-1068 mitigation active)
+Wed Jul 29 17:57:27 CDT 2026
+delta vs run 1: record_terminal_session=false both agents; otherwise frozen
+ollama version is 0.32.5
+gemma4:coding-26b-nvfp4 909b8edeb4c5 17 GB
+gemma4:coding-26b bf7f309722b2 27 GB

@@ -25,7 +25,11 @@
 #   hb run -c configs/tb-quick-pair.yaml --print-config   # validate
 #   hb run -c configs/tb-quick-pair.yaml                  # run (gates in README)
 
-job_name: tb-quick-pair-nothink
+# Run 2 (`-norec`): BUG-1068 mitigation active (record_terminal_session
+# false, live recording.cast removed from the agent-visible feedback path).
+# Run 1 (`tb-quick-pair-nothink`) predates the mitigation — different
+# conditions, kept as evidence.
+job_name: tb-quick-pair-nothink-norec
 jobs_dir: jobs
 n_attempts: 1
 timeout_multiplier: 2.0
