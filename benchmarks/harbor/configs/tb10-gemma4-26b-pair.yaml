@@ -41,7 +41,10 @@
 # ollama transformations lines 180-184/315-316 and harbor lite_llm.py:308).
 # Conditions otherwise frozen. Thinking-mode is now a series axis: -native2 =
 # think-on evidence, -nothink = think-off.
-job_name: tb10-gemma4-26b-pair-nothink
+# Series 4b (`-nothink-uncapped`): max_turns removed after series-4 pilot
+# showed the cap was the bottleneck on polyglot-c-py (5+ attempts, still
+# iterating). Task timeout (1800s) remains as the safety net.
+job_name: tb10-gemma4-26b-pair-nothink-uncapped
 jobs_dir: jobs
 n_attempts: 1
 timeout_multiplier: 2.0
@@ -70,7 +73,6 @@ agents:
     model_name: ollama/gemma4:coding-26b # mxfp8, 27.7 GB
     kwargs:
       temperature: 1.0
-      max_turns: 20 # loop cap — gemma4 rarely signals task_complete (series-2/3 finding)
       reasoning_effort: none # -> Ollama top-level think:false (series-3 timeout fix)
       model_info: &local_model_info
         max_tokens: 131072
@@ -82,7 +84,6 @@ agents:
     model_name: ollama/gemma4:coding-26b-nvfp4 # nvfp4, ~17 GB (MTP on MLX path)
     kwargs:
       temperature: 1.0
-      max_turns: 20
       reasoning_effort: none
       model_info: *local_model_info
 
