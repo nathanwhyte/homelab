@@ -250,6 +250,44 @@ def drain(jobs):
     ],
     "t3a-ttl-cache-lru": [
         (
+            "truthiness gate: max_size=0 treated as unbounded",
+            {
+                "cache.py": """\
+from collections import OrderedDict
+
+
+class TTLCache:
+    def __init__(self, ttl, clock, max_size=None):
+        self.ttl = ttl
+        self.clock = clock
+        self.max_size = max_size
+        self._data = OrderedDict()
+
+    def set(self, key, value):
+        if key in self._data:
+            del self._data[key]
+        self._data[key] = (value, self.clock())
+        if self.max_size:
+            while len(self._data) > self.max_size:
+                self._data.popitem(last=False)
+
+    def get(self, key, default=None):
+        entry = self._data.get(key)
+        if entry is None:
+            return default
+        value, stamp = entry
+        if self.clock() - stamp >= self.ttl:
+            del self._data[key]
+            return default
+        self._data.move_to_end(key)
+        return value
+
+    def __len__(self):
+        return len(self._data)
+"""
+            },
+        ),
+        (
             "insertion-order eviction: get() does not count as a use",
             {
                 "cache.py": """\
@@ -285,7 +323,7 @@ class TTLCache:
         return len(self._data)
 """
             },
-        )
+        ),
     ],
     "t3b-router-params": [
         (

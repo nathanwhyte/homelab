@@ -477,6 +477,14 @@ c5.set("old", 1)
 clock5.advance(10)
 assert c5.get("old") is None
 
+# max_size=0 is a size like any other: "at most that many entries" means a
+# zero-capacity cache retains nothing. An implementation gating eviction on
+# `if self.max_size:` conflates 0 with None and fails here.
+c6 = TTLCache(ttl=100, clock=FakeClock(), max_size=0)
+c6.set("k", 1)
+assert len(c6) == 0, "max_size=0 must retain nothing"
+assert c6.get("k") is None, "max_size=0 must retain nothing"
+
 print("OK")
 """
 
@@ -672,7 +680,8 @@ TASKS: list[CodingTask] = [
         prompt=(
             "Add an optional `max_size` argument to `TTLCache` in cache.py. When "
             "set, the cache holds at most that many entries and evicts the least "
-            "recently used one to make room. A `get` counts as a use. Overwriting "
+            "recently used one to make room (`max_size=0` therefore retains "
+            "nothing). A `get` counts as a use. Overwriting "
             "an existing key must update it in place rather than growing the "
             "cache. Omitting `max_size` must keep today's unbounded behaviour, "
             "and expiry must keep working exactly as it does now. The existing "
