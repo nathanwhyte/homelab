@@ -1,0 +1,60 @@
+# TB quick pair — 3-task fast-iteration suite for the gemma4-26b quant twins
+#
+# Purpose: ITERATION harness for debugging setup/agent-behavior issues, not
+# ranking. Six trials (~15-30 min per full run under nothink) covering the
+# three failure-mode probes surfaced by the 2026-07-29 tb10 series:
+#   regex-log                stopping behavior + exact regex quality (~2 min)
+#   git-multibranch          proven solvable, quant-sensitive (~3-5 min)
+#   openssl-selfsigned-cert  simple sysadmin, third category, cheap
+# polyglot-c-py deliberately excluded — it is the pathological case (thinking
+# timeouts; still iterating past turn 20 nothink per series 4b); it belongs in
+# the full tb10 ranking runs, not the iteration loop.
+#
+# Conditions inherit series 4b (tb10-gemma4-26b-pair.yaml): nothink, native
+# arm64 builds, 2.0x timeout, temperature pinned, NO max_turns (the 1800 s
+# task timeout is the safety net). If you re-add a cap for tighter wall-clock,
+# note it in the job name — capped vs uncapped are different conditions.
+#
+# Usage (from benchmarks/harbor/; requires tb-2-1/ dataset downloaded):
+#   hb run -c configs/tb-quick-pair.yaml --print-config   # validate
+#   hb run -c configs/tb-quick-pair.yaml                  # run (gates in README)
+
+job_name: tb-quick-pair-nothink
+jobs_dir: jobs
+n_attempts: 1
+timeout_multiplier: 2.0
+
+orchestrator:
+  type: local
+  n_concurrent_trials: 1 # hard cap: one local-model consumer
+
+environment:
+  type: docker
+  force_build: true # native arm64 builds from each task's Dockerfile
+  delete: true
+
+agents:
+  - name: terminus-2
+    model_name: ollama/gemma4:coding-26b # mxfp8, 27.7 GB
+    kwargs:
+      temperature: 1.0 # pin — unset is NOT forwarded (Harbor 0.20.0 temperature=None)
+      reasoning_effort: none # -> Ollama top-level think:false
+      model_info: &local_model_info
+        max_tokens: 131072
+        max_input_tokens: 122880
+        max_output_tokens: 8192
+        input_cost_per_token: 0.0
+        output_cost_per_token: 0.0
+  - name: terminus-2
+    model_name: ollama/gemma4:coding-26b-nvfp4 # nvfp4, ~17 GB (MTP on MLX path)
+    kwargs:
+      temperature: 1.0
+      reasoning_effort: none
+      model_info: *local_model_info
+
+datasets:
+  - path: tb-2-1/terminal-bench-2-1
+    task_names:
+      - regex-log
+      - git-multibranch
+      - openssl-selfsigned-cert
