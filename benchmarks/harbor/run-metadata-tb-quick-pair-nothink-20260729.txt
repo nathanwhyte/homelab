@@ -1,0 +1,29 @@
+run: tb-quick-pair-nothink (diagnostic quick suite, 3 tasks x 2 quants)
+date: 2026-07-29, ~16:1x-16:5x CDT, total runtime 37m24s (user-driven, tmux pane)
+config: configs/tb-quick-pair.yaml @ homelab cd4083f
+series conditions: nothink (reasoning_effort none -> think:false), native arm64
+  builds, 2.0x agent timeout, temperature 1.0, NO max_turns (sanctioned
+  timeout-only diagnostic exception, README gate 7), n_attempts=1
+stack: harbor 0.20.0, litellm 1.94.0, ollama 0.32.5, docker 29.6.2, macOS 27.0 arm64
+models: gemma4:coding-26b bf7f309722b2 (mxfp8) / gemma4:coding-26b-nvfp4 909b8edeb4c5
+results:
+regex-log                mxfp8 0 (16 turns, 189 s, clean self-stop)
+regex-log                nvfp4 0 (12 turns, 105 s, clean self-stop)
+git-multibranch          mxfp8 1 (20 turns, ~8 min, declare+confirm at 20/21)
+git-multibranch          nvfp4 ABORTED by operator at 41 turns mid-debug
+  (RewardFileNotFoundError via container stop; NOT a model failure or pass)
+openssl-selfsigned-cert  mxfp8 1
+openssl-selfsigned-cert  nvfp4 1
+findings:
+- errored-trial metric semantics CONFIRMED: Harbor's default mean counts the
+  errored trial as 0 (nvfp4 shown 0.333 = 1/3 despite scored rate 1/2).
+  Filter exceptions before any mean-based ranking. This closes the survey's
+  previously unverifiable warning (IMPR-1109).
+- No loops, no timeouts, every scored trial self-terminated with proper
+  double mark_task_complete — the regex-log loop pathology was thinking-mode
+  bound; nothink gemma4 signals completion reliably.
+- Parser warnings ~1/turn on BOTH quants (mxfp8 20/16, nvfp4 26/12 per trial)
+  — quant-independent gemma4 prose-wrapping, zero failed extractions; NOT the
+  INFO-1127 MLX format-drop (Terminus-2 never requests response_format).
+- regex-log is a stable dual-quant 0 across 4 nothink trials (2 series) —
+  honest regex-quality miss, good fixed probe for the quick suite.
