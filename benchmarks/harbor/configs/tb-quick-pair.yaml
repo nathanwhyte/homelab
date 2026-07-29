@@ -1,8 +1,11 @@
 # TB quick pair — 3-task fast-iteration suite for the gemma4-26b quant twins
 #
 # Purpose: ITERATION harness for debugging setup/agent-behavior issues, not
-# ranking. Six trials (~15-30 min per full run under nothink) covering the
-# three failure-mode probes surfaced by the 2026-07-29 tb10 series:
+# ranking. Six trials covering the three failure-mode probes surfaced by the
+# 2026-07-29 tb10 series. Runtime envelope: ~15-30 min typical under nothink
+# (observed ~2-5 min/trial on these tasks); worst case is timeout-bound —
+# each of the six serial AGENT phases may run to its 1800 s agent timeout
+# (900 s x 2.0), so agent time alone can reach ~3 h, plus builds/verification.
 #   regex-log                stopping behavior + exact regex quality (~2 min)
 #   git-multibranch          proven solvable, quant-sensitive (~3-5 min)
 #   openssl-selfsigned-cert  simple sysadmin, third category, cheap
@@ -10,10 +13,13 @@
 # timeouts; still iterating past turn 20 nothink per series 4b); it belongs in
 # the full tb10 ranking runs, not the iteration loop.
 #
-# Conditions inherit series 4b (tb10-gemma4-26b-pair.yaml): nothink, native
-# arm64 builds, 2.0x timeout, temperature pinned, NO max_turns (the 1800 s
-# task timeout is the safety net). If you re-add a cap for tighter wall-clock,
-# note it in the job name — capped vs uncapped are different conditions.
+# Conditions (self-contained; matches the tb10 series-4b revision): nothink
+# (reasoning_effort none -> Ollama top-level think:false), native arm64
+# builds, 2.0x timeout, temperature pinned 1.0, NO max_turns — this is the
+# sanctioned timeout-only diagnostic exception to README gate 7 (the 1800 s
+# agent timeout is the safety net). If you re-add a cap for tighter
+# wall-clock, note it in the job name — capped vs uncapped are different
+# conditions.
 #
 # Usage (from benchmarks/harbor/; requires tb-2-1/ dataset downloaded):
 #   hb run -c configs/tb-quick-pair.yaml --print-config   # validate

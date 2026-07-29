@@ -102,6 +102,15 @@ quantization, effective sampling, thinking mode, and loaded context.
    agent stops cleanly and still gets verified; a timeout still scores too
    (series-1 trial 1: AgentTimeoutError with reward 1.0) but wastes the full
    ceiling. `max_turns: 20` is the current standard for local models.
+   **Narrow exception — timeout-only diagnostic harnesses**: a config whose
+   purpose is observing natural stopping behavior (e.g. `tb-quick-pair.yaml`,
+   or a series named `-uncapped`) may omit `max_turns` and rely on the agent
+   timeout alone. Requirements: the omission must be stated in the config
+   header, the job name must distinguish it from capped series (capped vs
+   uncapped are different conditions), and its results are diagnostic, not
+   ranking evidence. Nothink revision note: the series-4 pilot found the cap
+   itself bottlenecked polyglot-c-py think-off (still productively iterating
+   at 20 turns), which is what motivated the uncapped 4b arm.
 
 Docs-ingest notes (INFO-1128/1129/1130, GUIDE-1075 — snapshot 2026-07-29):
 
