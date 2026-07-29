@@ -19,3 +19,12 @@ known caveats: per-request effective options (num_ctx, think flag) are NOT
 prior series: tb10-gemma4-26b-pair (amd64-emulated, 1.5x, uncapped; abandoned
   after trial 1) and tb10-gemma4-26b-pair-native (native, uncapped; abandoned
   after trial 1) — job dirs kept on disk as evidence, untracked.
+FINAL (stopped deliberately 2026-07-29 ~14:45 at 6/20 trials, thinking-on
+  judged non-viable for TB under 30-min ceilings):
+  regex-log        mxfp8 0 (20 turns, capped)   nvfp4 0 (20 turns, capped)
+  git-multibranch  mxfp8 1 (11 turns, clean)    nvfp4 0 (5 turns, confident+wrong)
+  polyglot-c-py    mxfp8 0 (4 turns, timeout)   nvfp4 abandoned mid-trial
+  All failures were stopping-behavior (loop / overconfident stop /
+  think-past-timeout); zero unrecovered parser errors; ~7k completion
+  tokens/turn with thinking on. Successor: tb10-gemma4-26b-pair-nothink
+  (reasoning_effort none -> think:false; otherwise frozen conditions).

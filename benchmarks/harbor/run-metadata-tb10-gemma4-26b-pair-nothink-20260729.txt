@@ -1,0 +1,20 @@
+run: tb10-gemma4-26b-pair-nothink (series 4 — native arm64, turn-capped, thinking OFF)
+date: 2026-07-29, started ~15:0x CDT
+config: configs/tb10-gemma4-26b-pair.yaml (post-review revision; commit at launch
+  recorded in git log — "series 4 nothink")
+series conditions: force_build=true, timeout_multiplier=2.0, max_turns=20,
+  temperature pinned 1.0, reasoning_effort "none" -> Ollama top-level
+  think:false (litellm 1.94.0 ollama transformations 180-184/315-316,
+  harbor lite_llm.py:308 — statically verified), n_attempts=1 (PILOT)
+stack: harbor 0.20.0, litellm 1.94.0, ollama 0.32.5, docker 29.6.2,
+  macOS 27.0 arm64 (pop)
+serving env: OLLAMA_CONTEXT_LENGTH=131072 OLLAMA_KV_CACHE_TYPE=q8_0
+  OLLAMA_NUM_PARALLEL=2
+models:
+gemma4:coding-26b bf7f309722b2 27 GB (mxfp8)
+gemma4:coding-26b-nvfp4 909b8edeb4c5 17 GB (nvfp4, MLX path/MTP)
+delta vs series 3 (-native2): thinking OFF is the ONLY change. Do not compare
+  rewards across the think axis as if same-condition.
+caveats: per-request effective options still not captured (IMPR-1109 gap);
+  think:false effect on gemma4 quality is uncharacterized on TB tasks (the
+  coding matrix sensitivity arm showed qwen gguf 17/18 nothink).

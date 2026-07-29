@@ -29,7 +29,19 @@
 # cleanly and still gets verified/scored, vs an AgentTimeoutError at the
 # ceiling (which, note, also still scores: series-1 trial 1 timed out with
 # reward 1.0).
-job_name: tb10-gemma4-26b-pair-native2
+# Series 3 pilot results (stopped at 6/20 trials, 2026-07-29 ~14:45): mxfp8
+# 1/3 (git-multibranch 1.0 in 11 turns incl. proper double task_complete;
+# regex-log 0 capped; polyglot-c-py 0 timeout at 4 turns), nvfp4 0/2
+# (regex-log 0 capped; git-multibranch 0 — clean 5-turn declare-and-confirm
+# but wrong, overconfident one-shot). Every failure was stopping-behavior
+# (loop / overconfident stop / think-past-timeout); zero unrecovered parser
+# errors. Thinking-on burned ~7k tokens/turn → ~7 min/turn on hard tasks.
+# Series 4 (`-nothink`): reasoning_effort "none" → LiteLLM maps to top-level
+# Ollama think:false (ERR-1004-correct; verified statically in litellm 1.94.0
+# ollama transformations lines 180-184/315-316 and harbor lite_llm.py:308).
+# Conditions otherwise frozen. Thinking-mode is now a series axis: -native2 =
+# think-on evidence, -nothink = think-off.
+job_name: tb10-gemma4-26b-pair-nothink
 jobs_dir: jobs
 n_attempts: 1
 timeout_multiplier: 2.0
@@ -58,7 +70,8 @@ agents:
     model_name: ollama/gemma4:coding-26b # mxfp8, 27.7 GB
     kwargs:
       temperature: 1.0
-      max_turns: 20 # loop cap — gemma4 never signals task_complete (series-2 finding)
+      max_turns: 20 # loop cap — gemma4 rarely signals task_complete (series-2/3 finding)
+      reasoning_effort: none # -> Ollama top-level think:false (series-3 timeout fix)
       model_info: &local_model_info
         max_tokens: 131072
         max_input_tokens: 122880
@@ -70,6 +83,7 @@ agents:
     kwargs:
       temperature: 1.0
       max_turns: 20
+      reasoning_effort: none
       model_info: *local_model_info
 
 datasets:

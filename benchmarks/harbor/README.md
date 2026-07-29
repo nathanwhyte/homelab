@@ -85,7 +85,16 @@ quantization, effective sampling, thinking mode, and loaded context.
    Terminus-2's json parser recovers with "Extra text detected" warnings.
    Count per model/quant at run end; `parser_name: "xml"` is the fallback
    lever (INFO-1129).
-6. **Always set `max_turns`** (2026-07-29 loop finding): Terminus-2 stops only
+6. **Thinking mode is a series axis — control it with `reasoning_effort`**
+   (2026-07-29): Terminus-2's `reasoning_effort` kwarg reaches Ollama as a
+   top-level `think` flag via LiteLLM (`"low"/"medium"/"high"` → true;
+   anything else incl. `"none"` → false — litellm 1.94.0 ollama
+   transformations, verified statically; ERR-1004-correct placement).
+   Thinking-on burned ~7k tokens (~7 min) per turn in the TB pilot and
+   timed out both polyglot-c-py trials at 4 turns/30 min; `-nothink`
+   series runs `reasoning_effort: "none"`. Never mix think modes in one
+   comparison series.
+7. **Always set `max_turns`** (2026-07-29 loop finding): Terminus-2 stops only
    when the model declares `task_complete: true` twice (declare + confirm) or
    a limit binds; default `max_turns` is unlimited. gemma4 never declares
    completion — it solved regex-log at step 1 then looped 20+ turns hunting
