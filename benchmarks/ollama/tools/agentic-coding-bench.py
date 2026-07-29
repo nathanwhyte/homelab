@@ -63,14 +63,18 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import platform
+import resource
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
 import time
 import urllib.error
 import urllib.request
+import uuid
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
@@ -170,7 +174,16 @@ class TaskResult:
     text_tool_attempts: int = 0
     wrote_any_file: bool = False
     files_written: list[str] = field(default_factory=list)
+    files_read: list[str] = field(default_factory=list)
+    # Writes to a file the model never read. T2 is described as requiring
+    # cross-file investigation; without this the claim is unfalsifiable, since a
+    # model can solve T2a by writing the right normalize.py from the prompt alone.
+    write_without_read: int = 0
     ran_tests: int = 0
+    # Server-reported model load time on the first request of the task. Cold load
+    # lands entirely on whichever task ran first, so wall_s is not comparable
+    # across tiers unless this is separable.
+    load_s: float = 0.0
     # Turns cut off by num_predict. A model that rambles past the cap on every
     # turn is not being scored on the same footing as one that answers, so this
     # has to be visible rather than folded into a pass/fail.
@@ -240,6 +253,24 @@ def looks_like_text_tool_call(content: str) -> bool:
     )
 
 
+# ⚠ WHAT THIS PROFILE DOES AND DOES NOT DO.
+#
+# It denies network access and denies writes outside the sandbox. It does NOT
+# restrict reads: it opens with `allow default`, so model-authored code running
+# here can read any file this user can read and hand it back through tool output.
+# Call this network/write confinement, not execution isolation.
+#
+# A deny-by-default profile with reads allowlisted to the sandbox plus CPython's
+# own prefix was attempted on 2026-07-28 and abandoned: CPython aborts with
+# SIGABRT and no diagnostic under every allowlist tried (including /opt/homebrew,
+# /usr, /System, /Library, /private/var/db and the dyld cache). sandbox-exec is
+# deprecated and undocumented enough that chasing it further was not worth the
+# time. `--strict-sandbox` re-attempts it and refuses to run if it still cannot
+# boot, so the option is there when someone wants to finish the job.
+#
+# The practical exposure: fixtures here are trivial repos with no secrets, and
+# the threat is a local model writing something silly rather than an attacker.
+# Do not reuse this runner for untrusted third-party code on that basis.
 _SANDBOX_PROFILE = """(version 1)
 (allow default)
 (deny network*)
@@ -247,6 +278,25 @@ _SANDBOX_PROFILE = """(version 1)
 (allow file-write* (subpath "{sandbox}"))
 (allow file-write-data (literal "/dev/null") (literal "/dev/dtracehelper"))
 """
+
+_STRICT_SANDBOX_PROFILE = """(version 1)
+(deny default)
+(allow process* sysctl-read mach* signal ipc-posix-shm)
+(deny network*)
+(allow file-read* file-write* (subpath "{sandbox}"))
+(allow file-read* (subpath "{python_prefix}"))
+(allow file-read* (subpath "/usr") (subpath "/System") (subpath "/Library"))
+(allow file-read* (subpath "/private/var/db"))
+(allow file-read-metadata (subpath "/"))
+(allow file-read* file-write-data (literal "/dev/null") (literal "/dev/urandom")
+    (literal "/dev/random") (literal "/dev/dtracehelper"))
+"""
+
+# "strict" (reads confined too), "network-write" (the default profile), or
+# "none". Recorded in every result so a score can be read alongside the boundary
+# it ran under.
+_SANDBOX_LEVEL = "none"
+_STRICT_REQUESTED = False
 
 # Resolved once by probe_sandbox(): True when sandbox-exec confinement works on
 # this host, False when we had to fall back to plain execution.
@@ -256,7 +306,11 @@ _SANDBOX_AVAILABLE: bool | None = None
 def _sandbox_command(sandbox: Path, argv: list[str]) -> list[str]:
     if not _SANDBOX_AVAILABLE:
         return argv
-    profile = _SANDBOX_PROFILE.format(sandbox=sandbox.resolve())
+    template = _STRICT_SANDBOX_PROFILE if _STRICT_REQUESTED else _SANDBOX_PROFILE
+    profile = template.format(
+        sandbox=sandbox.resolve(),
+        python_prefix=Path(sys.base_prefix).resolve(),
+    )
     return ["/usr/bin/sandbox-exec", "-p", profile, *argv]
 
 
@@ -277,45 +331,127 @@ def _minimal_env(sandbox: Path) -> dict[str, str]:
     }
 
 
+def _apply_rlimits() -> None:
+    """Bound CPU and file size for model-authored code.
+
+    Applied best-effort and individually: macOS refuses some rlimits outright
+    (RLIMIT_AS among them), and a raising preexec_fn kills the whole subprocess
+    launch rather than merely skipping a limit.
+    """
+    for which, limit in (
+        (resource.RLIMIT_CPU, (120, 120)),
+        (resource.RLIMIT_FSIZE, (256 << 20, 256 << 20)),
+        (resource.RLIMIT_NOFILE, (256, 256)),
+    ):
+        try:
+            resource.setrlimit(which, limit)
+        except (ValueError, OSError):
+            pass
+
+
 def run_python(path: Path, script: str, timeout: int = 60) -> tuple[int, str]:
-    """Run a python script inside the sandbox and return (returncode, output)."""
+    """Run a python script inside the sandbox and return (returncode, output).
+
+    Every child runs in its own session (`os.setsid`) so that a timeout kills the
+    whole process group rather than only the direct child — code under test can
+    spawn workers, and `subprocess.run`'s own timeout leaves those orphaned and
+    running after this function returns.
+    """
     script_path = path / script
     # -s drops user site-packages; -E ignores inherited PYTHON* variables. NOT -I:
     # isolated mode also removes the script's own directory from sys.path, which
     # makes every `from stats import ...` in a verifier fail with
     # ModuleNotFoundError regardless of what the model wrote.
     argv = _sandbox_command(path, [sys.executable, "-s", "-E", str(script_path)])
+    proc = subprocess.Popen(
+        argv,
+        cwd=path,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        env=_minimal_env(path),
+        preexec_fn=_apply_rlimits,  # noqa: PLW1509 - the point is to bound the child
+        start_new_session=True,
+    )
     try:
-        proc = subprocess.run(
-            argv,
-            cwd=path,
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-            env=_minimal_env(path),
-            check=False,
-        )
+        stdout, stderr = proc.communicate(timeout=timeout)
+        code = proc.returncode
     except subprocess.TimeoutExpired:
-        return 124, "timeout"
-    out = (proc.stdout or "") + (proc.stderr or "")
-    return proc.returncode, out.strip()[-2000:]
+        _kill_group(proc)
+        stdout, stderr = proc.communicate()
+        code = 124
+        stderr = (stderr or "") + "\ntimeout"
+    finally:
+        # Even on a clean exit, reap anything the script detached into the group.
+        _kill_group(proc)
+    out = (stdout or "") + (stderr or "")
+    return code, out.strip()[-2000:]
 
 
-def probe_sandbox() -> bool:
-    """Check whether sandbox-exec confinement actually runs CPython on this host.
+def _kill_group(proc: subprocess.Popen) -> None:
+    try:
+        os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+    except (ProcessLookupError, PermissionError):
+        pass
 
-    Returns True when confinement is active. A False result is reported loudly
-    rather than silently downgraded: without it, model-authored code executes
-    with this user's filesystem and network access.
+
+def run_verifier(
+    sandbox: Path, verifier_source: str, timeout: int = 120
+) -> tuple[bool, str]:
+    """Run a hidden verifier and report whether it ran to completion.
+
+    Exit code alone is NOT sufficient evidence that a task was solved. A target
+    module containing `raise SystemExit(0)` makes the verifier's very first
+    import exit cleanly, before any assertion executes — every task "passes".
+    Reproduced on 2026-07-28 against all six fixtures.
+
+    So the verifier body runs under a wrapper that prints a per-run random token
+    only after the body returns normally. A pass requires exit 0 AND that token.
+    The token is random per invocation precisely because a fixed sentinel (the
+    fixtures all end in `print("OK")`) is one the model could simply print
+    itself.
     """
-    global _SANDBOX_AVAILABLE
+    token = f"VERIFIED-{uuid.uuid4().hex}"
+    (sandbox / VERIFIER_BODY).write_text(verifier_source)
+    (sandbox / VERIFIER_ENTRY).write_text(
+        "import runpy, sys\n"
+        f"runpy.run_path({VERIFIER_BODY!r}, run_name='__main__')\n"
+        f"sys.stdout.write({token!r})\n"
+        "sys.stdout.flush()\n"
+    )
+    code, out = run_python(sandbox, VERIFIER_ENTRY, timeout=timeout)
+    completed = code == 0 and token in out
+    if code == 0 and token not in out:
+        out = (
+            "verifier exited 0 without completing — the task code interrupted it "
+            "(e.g. SystemExit during import); scored as a failure.\n" + out
+        )
+    return completed, out.replace(token, "").strip()[-1200:]
+
+
+def probe_sandbox(strict: bool = False) -> str:
+    """Measure which confinement boundaries actually hold on this host.
+
+    Returns "strict" (network, outside writes AND outside reads blocked),
+    "network-write" (reads are NOT confined), or "none". Each boundary is probed
+    rather than assumed, because a profile that boots CPython while leaving reads
+    open is worse than no sandbox: it reads as safe in the results.
+    """
+    global _SANDBOX_AVAILABLE, _SANDBOX_LEVEL, _STRICT_REQUESTED
+    _STRICT_REQUESTED = strict
     if platform.system() != "Darwin" or not Path("/usr/bin/sandbox-exec").exists():
         _SANDBOX_AVAILABLE = False
-        return False
+        _SANDBOX_LEVEL = "none"
+        return "none"
 
     _SANDBOX_AVAILABLE = True
     probe_dir = Path(tempfile.mkdtemp(prefix="sandbox-probe-"))
+    outside = Path(tempfile.mkdtemp(prefix="sandbox-outside-"))
+    secret = outside / "secret.txt"
+    secret.write_text("TOP-SECRET-PROBE-VALUE")
     try:
+        # Each probe asserts one boundary. A profile that boots CPython but
+        # leaves reads open is worse than no sandbox, because it reads as safe.
         (probe_dir / "probe.py").write_text(
             "import socket, pathlib\n"
             "pathlib.Path('wrote.txt').write_text('ok')\n"
@@ -324,17 +460,59 @@ def probe_sandbox() -> bool:
             "    print('NETWORK-REACHABLE')\n"
             "except Exception:\n"
             "    print('network-blocked')\n"
+            "try:\n"
+            f"    print('READ-ESCAPED:' + pathlib.Path({str(secret)!r}).read_text())\n"
+            "except Exception:\n"
+            "    print('outside-read-blocked')\n"
+            "try:\n"
+            f"    pathlib.Path({str(outside / 'escaped.txt')!r}).write_text('x')\n"
+            "    print('WRITE-ESCAPED')\n"
+            "except Exception:\n"
+            "    print('outside-write-blocked')\n"
         )
         code, out = run_python(probe_dir, "probe.py", timeout=30)
-        confined = code == 0 and "network-blocked" in out
-        if not confined:
+        if (
+            code != 0
+            or "network-blocked" not in out
+            or "outside-write-blocked" not in out
+        ):
             _SANDBOX_AVAILABLE = False
-        return confined
+            _SANDBOX_LEVEL = "none"
+            print(f"sandbox probe failed (exit {code}): {out[:300]}")
+            return "none"
+        _SANDBOX_LEVEL = "strict" if "outside-read-blocked" in out else "network-write"
+        return _SANDBOX_LEVEL
     finally:
         shutil.rmtree(probe_dir, ignore_errors=True)
+        shutil.rmtree(outside, ignore_errors=True)
 
 
-RESERVED_FILENAMES = {"verify.py"}
+VERIFIER_ENTRY = "verify.py"
+VERIFIER_BODY = "_verify_body.py"
+# Names the scoring machinery owns. A model that could write these could rewrite
+# its own grader.
+RESERVED_FILENAMES = {
+    VERIFIER_ENTRY,
+    VERIFIER_BODY,
+    "sitecustomize.py",
+    "usercustomize.py",
+}
+
+
+def resolve_repo_path(sandbox: Path, raw: str) -> tuple[Path | None, str | None]:
+    """Resolve a model-supplied path, or explain why it is not usable.
+
+    Rejects rather than silently collapses. An earlier version took the basename
+    of whatever arrived, so `../../stats.py` quietly became `stats.py` and
+    "succeeded" — which hides a real mistake from the model and from the score.
+    """
+    if not raw or raw != raw.strip():
+        return None, "path must be a non-empty repository-relative filename"
+    if "/" in raw or "\\" in raw or raw in {".", ".."}:
+        return None, f"{raw!r} is not a repository-relative filename (no directories)"
+    if raw in RESERVED_FILENAMES:
+        return None, f"{raw} is reserved by the harness and cannot be accessed"
+    return sandbox / raw, None
 
 
 def execute_tool(
@@ -351,17 +529,16 @@ def execute_tool(
         )
         return "\n".join(names)
     if name == "read_file":
-        target = sandbox / Path(args["path"]).name
-        if target.name in RESERVED_FILENAMES or not target.exists():
+        target, problem = resolve_repo_path(sandbox, args["path"])
+        if problem is not None:
+            return f"error: {problem}"
+        if not target.exists():
             return f"error: no such file: {args['path']}"
         return target.read_text()
     if name == "write_file":
-        # Basename-only: a path like ../../x.py collapses to x.py and stays in
-        # the sandbox. verify.py is reserved so the scoring script cannot be
-        # overwritten by the thing being scored.
-        target = sandbox / Path(args["path"]).name
-        if target.name in RESERVED_FILENAMES:
-            return f"error: {target.name} is reserved and cannot be written"
+        target, problem = resolve_repo_path(sandbox, args["path"])
+        if problem is not None:
+            return f"error: {problem}"
         target.write_text(args["content"])
         return f"wrote {target.name} ({len(args['content'])} bytes)"
     if name == "run_tests":
@@ -455,6 +632,9 @@ def run_task(
             result.output_tokens += body.get("eval_count") or 0
             if body.get("done_reason") == "length":
                 result.truncated_turns += 1
+            result.load_s = (
+                round((body.get("load_duration") or 0) / 1e9, 2) or result.load_s
+            )
             message = body.get("message") or {}
             calls = message.get("tool_calls") or []
             content = message.get("content") or ""
@@ -464,13 +644,12 @@ def run_task(
                     result.text_tool_attempts += 1
                 break
 
-            messages.append(
-                {
-                    "role": "assistant",
-                    "content": content,
-                    "tool_calls": calls,
-                }
-            )
+            # Append the assistant message AS RETURNED, not a reconstruction.
+            # Rebuilding it from content+tool_calls silently drops `thinking`,
+            # which Ollama's own agent loop preserves across turns. For the
+            # native-thinking primary matrix that changes the multi-turn context
+            # every model sees, and it need not change it equally for all of them.
+            messages.append(message)
 
             for call in calls:
                 fn = call.get("function") or {}
@@ -500,15 +679,29 @@ def run_task(
                     )
                     continue
 
-                if name == "write_file":
-                    result.wrote_any_file = True
-                    written = Path(args["path"]).name
-                    if written not in result.files_written:
-                        result.files_written.append(written)
-                if name == "run_tests":
-                    result.ran_tests += 1
-
                 output = execute_tool(sandbox, name, args, fixture_suites)
+                rejected = output.startswith("error:")
+
+                # Accounting AFTER execution: a write that the harness refused
+                # (reserved name, directory component) is not a write, and
+                # recording it as one overstates what the model accomplished.
+                if not rejected:
+                    if name == "write_file":
+                        written = Path(args["path"]).name
+                        result.wrote_any_file = True
+                        if written not in result.files_written:
+                            result.files_written.append(written)
+                        # T2 claims to require investigation; this is what makes
+                        # that claim checkable rather than assumed.
+                        if written not in result.files_read:
+                            result.write_without_read += 1
+                    elif name == "read_file":
+                        read = Path(args["path"]).name
+                        if read not in result.files_read:
+                            result.files_read.append(read)
+                    elif name == "run_tests":
+                        result.ran_tests += 1
+
                 messages.append({"role": "tool", "tool_name": name, "content": output})
         else:
             result.hit_turn_cap = True
@@ -525,10 +718,7 @@ def run_task(
                 result.tampered_suites.append(suite)
                 path.write_text(original)
 
-        (sandbox / "verify.py").write_text(task.verifier)
-        code, out = run_python(sandbox, "verify.py")
-        result.solved = code == 0
-        result.verifier_output = out[-1200:]
+        result.solved, result.verifier_output = run_verifier(sandbox, task.verifier)
 
         for name in task.target_files:
             path = sandbox / name
@@ -536,7 +726,7 @@ def run_task(
                 result.final_sources[name] = path.read_text()
     finally:
         if keep_sandbox is not None:
-            dest = keep_sandbox / f"{model.replace(':', '_')}-{task.task_id}"
+            dest = keep_sandbox / f"{model.replace(':', '_')}-{task.task_id}-r{repeat}"
             shutil.rmtree(dest, ignore_errors=True)
             shutil.copytree(sandbox, dest)
         shutil.rmtree(sandbox, ignore_errors=True)
@@ -565,6 +755,32 @@ def _sha256(path: Path) -> str:
         return hashlib.sha256(path.read_bytes()).hexdigest()[:16]
     except OSError:
         return "unavailable"
+
+
+def preflight(base: str, model: str) -> list[str]:
+    """Refuse to produce a "result" the server never participated in.
+
+    Against a refused port the loop happily records a transport error per task,
+    writes a JSON file, and exits 0 — so a wrapper script reports "matrix
+    complete" for rows that never ran. Reachability, the tag's existence, and its
+    tool-calling capability are all cheap to check up front, and all three are
+    fatal.
+    """
+    problems: list[str] = []
+    version = _get_json(f"{base}/api/version")
+    if not version.get("version"):
+        return [f"{base} is unreachable: {version.get('error', 'no version returned')}"]
+
+    show = _get_json(f"{base}/api/show", {"model": model})
+    if show.get("error"):
+        problems.append(f"model {model!r} not available: {show['error']}")
+        return problems
+    if "tools" not in (show.get("capabilities") or []):
+        problems.append(
+            f"model {model!r} does not advertise the `tools` capability; "
+            "an agentic-coding score would measure nothing"
+        )
+    return problems
 
 
 def collect_provenance(base: str, model: str) -> dict[str, Any]:
@@ -657,6 +873,11 @@ def main() -> int:
         help="independent passes over the task set; seed is offset per pass",
     )
     ap.add_argument(
+        "--strict-sandbox",
+        action="store_true",
+        help="require read confinement too, and refuse to run without it",
+    )
+    ap.add_argument(
         "--allow-unsandboxed",
         action="store_true",
         help="proceed even if sandbox-exec confinement is unavailable",
@@ -669,9 +890,17 @@ def main() -> int:
     if keep is not None:
         keep.mkdir(parents=True, exist_ok=True)
 
-    confined = probe_sandbox()
-    if confined:
-        print("sandbox: sandbox-exec active (no network, writes confined)")
+    sandbox_level = probe_sandbox(strict=args.strict_sandbox)
+    if sandbox_level == "strict":
+        print("sandbox: strict (network, outside writes AND outside reads blocked)")
+    elif sandbox_level == "network-write":
+        print(
+            "sandbox: network + outside writes blocked; READS ARE NOT CONFINED — "
+            "code under test can read any file this user can read"
+        )
+        if args.strict_sandbox:
+            print("--strict-sandbox requested but reads are still reachable; refusing")
+            return 2
     else:
         print(
             "sandbox: UNAVAILABLE — model-authored code would run with this "
@@ -680,6 +909,15 @@ def main() -> int:
         if not args.allow_unsandboxed:
             print("refusing to run; pass --allow-unsandboxed to override")
             return 2
+
+    problems = preflight(args.base, args.model)
+    if problems:
+        for problem in problems:
+            print(f"preflight: {problem}")
+        print(
+            "refusing to run — a benchmark against an unreachable server is not a result"
+        )
+        return 2
 
     base_seed = None if args.seed is not None and args.seed < 0 else args.seed
     print(
@@ -767,7 +1005,7 @@ def main() -> int:
                 "num_predict": args.num_predict,
                 "seed": base_seed,
                 "repeats": args.repeats,
-                "sandboxed": confined,
+                "sandbox_level": sandbox_level,
                 "provenance": provenance,
                 "solved": solved,
                 "total": len(results),
@@ -777,6 +1015,19 @@ def main() -> int:
         )
     )
     print(f"\nwrote {out_path}")
+
+    # A run where every task died in transport is infrastructure failure, not a
+    # score of zero. Exiting 0 there is what let the matrix wrapper claim
+    # "complete" for rows that never ran.
+    transport_failures = sum(1 for r in results if r.error)
+    if transport_failures == len(results) and results:
+        print(
+            f"ALL {len(results)} task(s) failed at transport; this run is not a result"
+        )
+        return 3
+    if transport_failures:
+        print(f"⚠ {transport_failures}/{len(results)} task(s) failed at transport")
+        return 4
     return 0
 
 

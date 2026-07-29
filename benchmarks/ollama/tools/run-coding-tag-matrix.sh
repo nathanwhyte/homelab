@@ -18,9 +18,19 @@
 # Usage: ./run-coding-tag-matrix.sh [results_dir]
 set -euo pipefail
 
-RESULTS_DIR="${1:-benchmarks/results/agentic-coding-$(date +%Y-%m-%d)}"
 TOOLS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BENCH="$TOOLS_DIR/agentic-coding-bench.py"
+# Anchored to the repository, not the caller's cwd. The documented invocation
+# runs this from the tools directory, where a relative default would have written
+# results to tools/benchmarks/results.
+REPO_ROOT="$(cd "$TOOLS_DIR/../../.." && pwd)"
+RESULTS_DIR="${1:-$REPO_ROOT/benchmarks/results/agentic-coding-$(date +%Y-%m-%d)}"
+# Repeats matter more than they look: t1b failed and then passed on consecutive
+# runs with an identical seed, so the MLX path is not deterministic and a
+# single pass is a pilot, not a ranking.
+REPEATS="${REPEATS:-3}"
+MANIFEST="$RESULTS_DIR/row-status.tsv"
+FAILED_ROWS=0
 
 PRIMARY_TAGS=(
 	"gemma4:coding-12b"
@@ -37,17 +47,27 @@ SENSITIVITY_TAGS=(
 )
 
 mkdir -p "$RESULTS_DIR"
+: >"$MANIFEST"
 echo "results -> $RESULTS_DIR"
-echo "primary: ${#PRIMARY_TAGS[@]} tags, sensitivity: ${#SENSITIVITY_TAGS[@]} tags"
+echo "primary: ${#PRIMARY_TAGS[@]} tags, sensitivity: ${#SENSITIVITY_TAGS[@]} tags, repeats=$REPEATS"
+if [ "$REPEATS" -lt 2 ]; then
+	echo "NOTE: REPEATS=$REPEATS -- this run is a pilot, not a ranking"
+fi
 
 for tag in "${PRIMARY_TAGS[@]}"; do
 	echo ""
 	echo "================================================================"
 	echo "PRIMARY  $tag  (native thinking default)  $(date +%H:%M:%S)"
 	echo "================================================================"
-	python3 -u "$BENCH" --model "$tag" --tiers 1,2,3 --out "$RESULTS_DIR" || {
-		echo "!! $tag failed; continuing with the remaining tags"
-	}
+	if python3 -u "$BENCH" --model "$tag" --tiers 1,2,3 --repeats "$REPEATS" \
+		--out "$RESULTS_DIR"; then
+		printf 'primary\t%s\tok\n' "$tag" >>"$MANIFEST"
+	else
+		status=$?
+		printf 'primary\t%s\tFAILED(exit %d)\n' "$tag" "$status" >>"$MANIFEST"
+		FAILED_ROWS=$((FAILED_ROWS + 1))
+		echo "!! $tag failed (exit $status); continuing with the remaining tags"
+	fi
 	# Let the machine settle and ensure the next row is a genuine cold load.
 	sleep 20
 done
@@ -57,12 +77,26 @@ for tag in "${SENSITIVITY_TAGS[@]}"; do
 	echo "================================================================"
 	echo "SENSITIVITY  $tag  --no-think  $(date +%H:%M:%S)"
 	echo "================================================================"
-	python3 -u "$BENCH" --model "$tag" --tiers 1,2,3 --no-think \
-		--out "$RESULTS_DIR/no-think" || {
-		echo "!! $tag (no-think) failed; continuing"
-	}
+	if python3 -u "$BENCH" --model "$tag" --tiers 1,2,3 --no-think \
+		--repeats "$REPEATS" --out "$RESULTS_DIR/no-think"; then
+		printf 'sensitivity\t%s\tok\n' "$tag" >>"$MANIFEST"
+	else
+		status=$?
+		printf 'sensitivity\t%s\tFAILED(exit %d)\n' "$tag" "$status" >>"$MANIFEST"
+		FAILED_ROWS=$((FAILED_ROWS + 1))
+		echo "!! $tag (no-think) failed (exit $status); continuing"
+	fi
 	sleep 20
 done
 
 echo ""
-echo "matrix complete $(date +%H:%M:%S); results in $RESULTS_DIR"
+echo "row status:"
+cat "$MANIFEST"
+expected=$((${#PRIMARY_TAGS[@]} + ${#SENSITIVITY_TAGS[@]}))
+actual=$(wc -l <"$MANIFEST" | tr -d ' ')
+echo ""
+if [ "$FAILED_ROWS" -gt 0 ] || [ "$actual" -ne "$expected" ]; then
+	echo "matrix INCOMPLETE $(date +%H:%M:%S): $FAILED_ROWS failed, $actual/$expected rows recorded"
+	exit 1
+fi
+echo "matrix complete $(date +%H:%M:%S); $actual/$expected rows in $RESULTS_DIR"

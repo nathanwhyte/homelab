@@ -28,6 +28,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import statistics
 import sys
@@ -35,6 +36,14 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 from typing import Any
+
+
+def _sha256(path: Path) -> str:
+    try:
+        return hashlib.sha256(path.read_bytes()).hexdigest()[:16]
+    except OSError:
+        return "unavailable"
+
 
 DEFAULT_JUDGE = "qwen3.6:subagent"
 DEFAULT_BASE = "http://localhost:11434"
@@ -94,6 +103,26 @@ def post(
         return 0, {"error": f"{type(e).__name__}: {e}"}
 
 
+def _valid_rubric(parsed: Any) -> bool:
+    """Accept only well-formed rubric objects.
+
+    Checking that three keys exist is not validation: a response carrying
+    minimality=99, root_cause="five", contract_kept=-1 satisfied that and was
+    averaged into the means. Scores outside 1-5 silently distort every aggregate
+    they touch, so they are dropped as unparseable instead.
+    """
+    if not isinstance(parsed, dict):
+        return False
+    axes = ("minimality", "root_cause", "contract_kept")
+    if set(parsed) - {*axes, "note"}:
+        return False
+    for axis in axes:
+        value = parsed.get(axis)
+        if not isinstance(value, int) or isinstance(value, bool) or not 1 <= value <= 5:
+            return False
+    return isinstance(parsed.get("note", ""), str)
+
+
 def judge_one(
     base: str,
     judge: str,
@@ -130,9 +159,7 @@ def judge_one(
     except json.JSONDecodeError:
         # The MLX-drops-`format` failure mode looks exactly like this.
         return None
-    if not all(k in parsed for k in ("minimality", "root_cause", "contract_kept")):
-        return None
-    return parsed
+    return parsed if _valid_rubric(parsed) else None
 
 
 def main() -> int:
@@ -143,9 +170,20 @@ def main() -> int:
     ap.add_argument("--judge", default=DEFAULT_JUDGE)
     ap.add_argument("--base", default=DEFAULT_BASE)
     ap.add_argument(
+        "--force",
+        action="store_true",
+        help="judge even when the result's fixtures_sha256 no longer matches",
+    )
+    ap.add_argument(
         "--out", default=None, help="write judged JSON here (default: alongside input)"
     )
     args = ap.parse_args()
+
+    if args.out and len(args.results) > 1 and not Path(args.out).is_dir():
+        ap.error(
+            "--out with multiple result files must name an existing directory; "
+            "a single path would have every input overwrite the last"
+        )
 
     sys.path.insert(0, str(Path(__file__).resolve().parent))
     from coding_tasks import (
@@ -154,10 +192,27 @@ def main() -> int:
 
     by_id = {t.task_id: t for t in TASKS}
 
+    current_fixtures = _sha256(
+        Path(__file__).resolve().parent / "coding_tasks" / "__init__.py"
+    )
+
     for result_path in args.results:
         path = Path(result_path)
         data = json.loads(path.read_text())
         model = data.get("model")
+
+        # Judging compares each final file against the fixture's ORIGINAL. If the
+        # fixtures moved since the run, that original is the wrong baseline and
+        # the scores are quietly meaningless.
+        recorded = (data.get("provenance") or {}).get("fixtures_sha256")
+        if recorded and recorded != current_fixtures and not args.force:
+            print(
+                f"\n=== {model} ({path.name}) ===\n"
+                f"  SKIPPED: fixtures changed since this run "
+                f"(recorded {recorded}, current {current_fixtures}). "
+                f"Re-run the benchmark, or pass --force to judge anyway."
+            )
+            continue
         judged: list[dict[str, Any]] = []
         drops = 0
 
@@ -208,7 +263,13 @@ def main() -> int:
                 f"MLX-backed, that is INFO-1127 (schema silently dropped), not a model failure"
             )
 
-        out_path = Path(args.out) if args.out else path.with_suffix(".judged.json")
+        if args.out:
+            out_dir = Path(args.out)
+            out_path = (
+                out_dir / f"{path.stem}.judged.json" if out_dir.is_dir() else out_dir
+            )
+        else:
+            out_path = path.with_suffix(".judged.json")
         out_path.write_text(
             json.dumps(
                 {

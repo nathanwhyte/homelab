@@ -385,10 +385,38 @@ def run_verifier(files: dict[str, str], verifier: str) -> tuple[int, str]:
     try:
         for name, content in files.items():
             (sandbox / name).write_text(content)
-        (sandbox / "verify.py").write_text(verifier)
-        return _BENCH.run_python(sandbox, "verify.py")
+        solved, out = _BENCH.run_verifier(sandbox, verifier)
+        return (0 if solved else 1), out
     finally:
         shutil.rmtree(sandbox, ignore_errors=True)
+
+
+def check_early_exit_bypass() -> int:
+    """Every task must reject a target module that exits 0 before asserting.
+
+    `raise SystemExit(0)` in the file under test makes the verifier's first
+    import exit cleanly, so a returncode-only check scores all six tasks as
+    solved without executing a single assertion. This is generic — it needs no
+    knowledge of any task — so it is checked against every fixture rather than
+    listed per-task in WRONG_SOLUTIONS.
+    """
+    failures = 0
+    for task in TASKS:
+        sandbox = Path(tempfile.mkdtemp(prefix="early-exit-"))
+        try:
+            for name, content in task.files.items():
+                (sandbox / name).write_text(content)
+            for name in task.target_files:
+                (sandbox / name).write_text("raise SystemExit(0)\n")
+            solved, _ = _BENCH.run_verifier(sandbox, task.verifier)
+            if solved:
+                print(f"[{task.task_id}] BYPASS: SystemExit(0) scored as solved")
+                failures += 1
+            else:
+                print(f"[{task.task_id}] early-exit bypass rejected")
+        finally:
+            shutil.rmtree(sandbox, ignore_errors=True)
+    return failures
 
 
 def main() -> int:
@@ -430,6 +458,9 @@ def main() -> int:
                 failures += 1
             else:
                 print(f"[{task.task_id}] wrong fix rejected ({label})")
+
+    print()
+    failures += check_early_exit_bypass()
 
     covered = sum(len(v) for v in WRONG_SOLUTIONS.values())
     print(
