@@ -35,6 +35,25 @@ repos:
         language: script
         types: [markdown]
         pass_filenames: true
+      # The two agentic-coding test files are the only guards for the harness's
+      # score-corrupting defect classes (verifier bypass, token truncation,
+      # metric drift) and there is no CI — so they run here, scoped to the
+      # tools dir. Both are hermetic: neither calls probe_sandbox, so they run
+      # unsandboxed identically on macOS and the Linux cluster.
+      - id: agentic-harness-tests
+        name: agentic-coding harness unit tests
+        entry: python3 benchmarks/ollama/tools/test_agentic_harness.py
+        language: system
+        pass_filenames: false
+        files: ^benchmarks/ollama/tools/
+      - id: agentic-coding-fixtures
+        name: agentic-coding fixture self-test
+        entry: python3 benchmarks/ollama/tools/test_coding_tasks.py
+        language: system
+        pass_filenames: false
+        files: ^benchmarks/ollama/tools/
+        # Heavier (runs every fixture verifier several times) -> pre-push.
+        stages: [pre-push]
 
   - repo: https://github.com/adrienverge/yamllint
     rev: v1.35.1
