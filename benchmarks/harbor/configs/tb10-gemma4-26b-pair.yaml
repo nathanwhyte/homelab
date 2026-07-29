@@ -19,7 +19,17 @@
 # 1.0 (solved by step 6, burned the rest self-verifying; 81.6k thinking-heavy
 # completion tokens). This -native series builds arm64 images locally and runs
 # 2.0x timeouts to give thinking-on local models headroom.
-job_name: tb10-gemma4-26b-pair-native
+# Series 2 (`-native`, 2026-07-29, abandoned after trial 1): native arm64 build
+# worked, but gemma4 looped — solved regex-log at step 1, then 20+ filesystem
+# sweeps hunting for a (verifier-side, agent-invisible) test corpus. Root
+# cause: Terminus-2 requires the model to declare "task_complete": true TWICE
+# (declare + confirm, terminus_2.py:509-533); gemma4 never declared once, and
+# the default max_turns is unlimited, so only the timeout stopped it.
+# Series 3 (`-native2`) adds max_turns: 20 per agent — a capped agent stops
+# cleanly and still gets verified/scored, vs an AgentTimeoutError at the
+# ceiling (which, note, also still scores: series-1 trial 1 timed out with
+# reward 1.0).
+job_name: tb10-gemma4-26b-pair-native2
 jobs_dir: jobs
 n_attempts: 1
 timeout_multiplier: 2.0
@@ -48,6 +58,7 @@ agents:
     model_name: ollama/gemma4:coding-26b # mxfp8, 27.7 GB
     kwargs:
       temperature: 1.0
+      max_turns: 20 # loop cap — gemma4 never signals task_complete (series-2 finding)
       model_info: &local_model_info
         max_tokens: 131072
         max_input_tokens: 122880
@@ -58,6 +69,7 @@ agents:
     model_name: ollama/gemma4:coding-26b-nvfp4 # nvfp4, ~17 GB (MTP on MLX path)
     kwargs:
       temperature: 1.0
+      max_turns: 20
       model_info: *local_model_info
 
 datasets:

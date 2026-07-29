@@ -78,6 +78,14 @@ quantization, effective sampling, thinking mode, and loaded context.
    Terminus-2's json parser recovers with "Extra text detected" warnings.
    Count per model/quant at run end; `parser_name: "xml"` is the fallback
    lever (INFO-1129).
+6. **Always set `max_turns`** (2026-07-29 loop finding): Terminus-2 stops only
+   when the model declares `task_complete: true` twice (declare + confirm) or
+   a limit binds; default `max_turns` is unlimited. gemma4 never declares
+   completion — it solved regex-log at step 1 then looped 20+ turns hunting
+   for the verifier-side test corpus (reproduced in both series). A turn-capped
+   agent stops cleanly and still gets verified; a timeout still scores too
+   (series-1 trial 1: AgentTimeoutError with reward 1.0) but wastes the full
+   ceiling. `max_turns: 20` is the current standard for local models.
 
 Docs-ingest notes (INFO-1128/1129/1130, GUIDE-1075 — snapshot 2026-07-29):
 
