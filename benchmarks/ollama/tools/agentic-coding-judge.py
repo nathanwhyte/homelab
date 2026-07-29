@@ -205,7 +205,8 @@ def main() -> int:
         # fixtures moved since the run, that original is the wrong baseline and
         # the scores are quietly meaningless.
         recorded = (data.get("provenance") or {}).get("fixtures_sha256")
-        if recorded and recorded != current_fixtures and not args.force:
+        mismatched = bool(recorded and recorded != current_fixtures)
+        if mismatched and not args.force:
             print(
                 f"\n=== {model} ({path.name}) ===\n"
                 f"  SKIPPED: fixtures changed since this run "
@@ -270,22 +271,25 @@ def main() -> int:
             )
         else:
             out_path = path.with_suffix(".judged.json")
-        out_path.write_text(
-            json.dumps(
-                {
-                    "model": model,
-                    "judge": args.judge,
-                    "judge_caveat": (
-                        "advisory only; local-judge precision collapsed out-of-sample "
-                        "in TASK-1169, and the default judge is a sibling of tags under test"
-                    ),
-                    "means": means,
-                    "unparseable": drops,
-                    "judged": judged,
-                },
-                indent=2,
-            )
-        )
+        # `forced` makes a --force judgment distinguishable from a clean one:
+        # without it, judging against mismatched fixtures produced output
+        # byte-identical to a trustworthy run.
+        out_data: dict[str, Any] = {
+            "model": model,
+            "judge": args.judge,
+            "judge_caveat": (
+                "advisory only; local-judge precision collapsed out-of-sample "
+                "in TASK-1169, and the default judge is a sibling of tags under test"
+            ),
+            "forced": bool(args.force),
+            "means": means,
+            "unparseable": drops,
+            "judged": judged,
+        }
+        if mismatched:
+            out_data["fixtures_recorded"] = recorded
+            out_data["fixtures_current"] = current_fixtures
+        out_path.write_text(json.dumps(out_data, indent=2))
         print(f"  wrote {out_path}")
 
     return 0
