@@ -1,0 +1,61 @@
+# Terminal-Bench 2.1 x 10 tasks — gemma4-26b quant pair (IMPR-1109 step 4)
+#
+# Stratified 10-task subset of terminal-bench/terminal-bench-2-1 (89 tasks,
+# downloaded 2026-07-29 to tb-2-1/): git repair x2, sysadmin x2, text/regex x2,
+# coding x2, db recovery x1, misc x1. Heavy build/GPU tasks (compile-compcert,
+# caffe-cifar-10, qemu-*, torch-*-parallelism) deliberately excluded from the
+# first pass — wall-clock and arm64 risk.
+#
+# First pass: n_attempts 1 per (task, model) = 20 trials. Bump to 3 for the
+# statistical quant comparison once the subset proves stable.
+#
+# Usage (from benchmarks/harbor/):
+#   hb run -c configs/tb10-gemma4-26b-pair.yaml --print-config   # validate
+#   hb run -c configs/tb10-gemma4-26b-pair.yaml                  # run (gated)
+
+job_name: tb10-gemma4-26b-pair
+jobs_dir: jobs
+n_attempts: 1
+timeout_multiplier: 1.5
+
+orchestrator:
+  type: local
+  n_concurrent_trials: 1 # hard cap: one local-model consumer
+
+environment:
+  type: docker
+  force_build: false
+  delete: true
+
+# Terminus-2 temperature pinned to gemma4's published 1.0 (default is 0.7 —
+# INFO-1129); model_info carries limits/cost only.
+agents:
+  - name: terminus-2
+    model_name: ollama/gemma4:coding-26b # mxfp8, 27.7 GB
+    kwargs:
+      temperature: 1.0
+      model_info: &local_model_info
+        max_tokens: 131072
+        max_input_tokens: 122880
+        max_output_tokens: 8192
+        input_cost_per_token: 0.0
+        output_cost_per_token: 0.0
+  - name: terminus-2
+    model_name: ollama/gemma4:coding-26b-nvfp4 # nvfp4, ~17 GB (MTP on MLX path)
+    kwargs:
+      temperature: 1.0
+      model_info: *local_model_info
+
+datasets:
+  - path: tb-2-1/terminal-bench-2-1
+    task_names:
+      - fix-git
+      - git-multibranch
+      - openssl-selfsigned-cert
+      - nginx-request-logging
+      - regex-log
+      - log-summary-date-ranges
+      - filter-js-from-html
+      - polyglot-c-py
+      - sqlite-db-truncate
+      - password-recovery
