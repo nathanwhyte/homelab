@@ -1,0 +1,4 @@
+concurrency,requests,repeats,aggregate_tok_s,attempted,failed,empty_answers,truncated,usable,usable_rate,wall_s_p50,wall_s_p95,wall_s_mean,ttft_s_p50,ttft_s_p95,ttft_s_mean,ttfa_s_p50,ttfa_s_p95,ttfa_s_mean,server_prefill_s_p50,server_prefill_s_p95,server_prefill_s_mean,itl_s_p50,itl_s_p95,itl_s_mean,gen_tps_p50,gen_tps_p95,gen_tps_mean,tokens_mean,tokens_total,prompt_tokens_mean,prompt_tokens_total
+1,3,3,50.48,9,0,0,0,9,1.0,5.6083,27.0997,10.8883,0.314,0.8258,0.381,0.314,0.8258,0.381,0.1489,0.5163,0.2352,0.0152,0.0241,0.0166,65.9274,79.9943,63.8616,549.7,4947,187,1683
+2,3,3,46.21,9,0,0,0,9,1.0,24.3185,34.8664,22.2265,8.9139,27.9415,11.2825,8.9139,27.9415,11.2825,0.1148,0.1517,0.119,0.0177,0.0267,0.0198,56.3596,70.0514,54.127,546.4,4918,187,1683
+3,3,3,49.57,9,0,0,0,9,1.0,28.0545,38.2528,25.6834,10.0521,32.5017,14.5932,10.0521,32.5017,14.5932,0.1684,0.2712,0.1795,0.0184,0.0235,0.0187,54.4348,67.6512,54.9649,568.4,5116,187,1683

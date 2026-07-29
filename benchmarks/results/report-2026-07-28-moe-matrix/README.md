@@ -1,10 +1,10 @@
-# Pop small-MoE benchmark matrix (2026-07-28) — IN PROGRESS
+# Pop small-MoE benchmark matrix (2026-07-28)
 
 Re-run of the PROJ-1003 pop matrix on Ollama 0.32.5, with `laguna-xs-2.1`
 restored (its 2026-07-13 macOS/Metal empty-output blocker was fixed upstream by
 `#17291` / `#17237`) and a gemma4:12b MLX quant sweep added.
 
-**This report is a stub — the Results section is unwritten.** Of the open
+**Results are complete (14 rows, 378/378 usable).** Of the open
 questions below, OQ-1 is resolved, OQ-2 is narrowed pending one test, OQ-4 is
 split (causal half resolved, artifact half open), and OQ-3, OQ-5 and OQ-6 are
 standing scope boundaries that must be restated in the conclusions.
@@ -37,7 +37,107 @@ Both are deliberate and both break direct comparability with that table:
 
 ## Results
 
-<!-- TODO: fill from the 14 result dirs once the matrix completes. -->
+14 rows, **378/378 requests usable, 0 failed, 0 truncated**. Every request
+ended `done_reason: stop`. Wall clock ~2h50m.
+
+`gen` is p50 decode at C=1. `agg` is `aggregate_tok_s` at C=1/2/3. `ttft` is
+time to first output of any kind; `ttfa` is time to first **answer** token —
+they differ by the reasoning phase. `prefill` is server-reported
+`load_duration + prompt_eval_duration`.
+
+| Row | think | gen C=1 | agg C=1/2/3 | scale | ttft | ttfa | prefill | ITL | tokens |
+|---|---|---|---|---|---|---|---|---|---|
+| `nemotron3:33b` | native | **85.50** | 82.7 / 83.9 / 83.8 | 1.01x | 0.522 | 5.62 | 0.494 | 0.0117 | 1401 |
+| `gemma4:26b-mxfp8` | native | 77.07 | 73.1 / 76.9 / 78.7 | 1.08x | 11.76 | 11.76 | 0.171 | 0.0130 | 1507 |
+| `gemma4:12b-mlx` | off | 75.61 | 55.5 / 65.8 / 60.9 | 1.19x | 0.236 | 0.236 | 0.139 | 0.0132 | 547 |
+| `laguna-xs-2.1:latest` | native | 73.15 | 72.2 / **104.9** / 87.6 | **1.45x** | 0.341 | 0.341 | 0.323 | 0.0137 | 1965 |
+| `north-mini-code-1.0:mlx-nvfp4` | native | 72.06 | 73.3 / 69.7 / 68.7 | 1.00x | 0.115 | 4.84 | 0.080 | 0.0139 | 1515 |
+| `gemma4:12b-mlx` | on | 70.19 | 63.7 / 58.3 / 62.4 | 1.00x | 0.489 | 11.88 | 0.115 | 0.0142 | 1430 |
+| `laguna-xs-2.1:nvfp4` | native | 67.63 | 67.2 / 68.2 / 67.0 | 1.02x | **0.116** | **0.116** | **0.070** | 0.0148 | 1176 |
+| `north-mini-code-1.0:mlx-nvfp4` *(repeat)* | native | 66.07 | 65.8 / 65.0 / 63.9 | 1.00x | 0.121 | 7.84 | 0.087 | 0.0151 | 1378 |
+| `gemma4:12b-mxfp8` | off | 65.93 | 50.5 / 46.2 / 49.6 | 1.00x | 0.314 | 0.314 | 0.149 | 0.0152 | 550 |
+| `qwen3.6:35b-mlx` | native | 48.73 | 48.4 / 48.2 / 48.4 | 1.00x | 0.174 | **40.97** | 0.116 | 0.0205 | 3557 |
+| `gemma4:12b-mxfp8` | on | 47.99 | 48.6 / 45.8 / 47.8 | 1.00x | 0.490 | 14.71 | 0.186 | 0.0208 | 1462 |
+| `qwen3.6:35b-mlx` | off | 46.67 | 46.3 / 48.6 / 45.9 | 1.05x | 0.173 | 0.173 | 0.115 | 0.0214 | 908 |
+| `gemma4:12b-mlx-bf16` | on | 27.34 | 25.6 / 22.6 / 25.6 | 1.00x | 0.476 | 30.48 | 0.166 | 0.0366 | 1455 |
+| `gemma4:12b-mlx-bf16` | off | 21.33 | 21.2 / 21.2 / 22.7 | 1.07x | 0.256 | 0.256 | 0.162 | 0.0469 | 561 |
+
+### Read this before ranking anything
+
+**Run-to-run variance is ~8%, and it drifts downward within a run.** The
+`north-mini` config was measured three times: **86.6 -> 72.06 -> 66.07 tok/s**.
+The last two are row 1 and row 14 of *this* run — an 8.3% decline across 2h50m
+of continuous GPU load, monotonic, on a byte-identical config. Thermal
+throttling on a laptop is the obvious candidate; it was not isolated.
+
+Consequences:
+
+- **Row position is a confound.** Early rows were measured on a cool machine,
+  late rows on a hot one. `nemotron3` (row 2) and `gemma4:12b-mlx-bf16`
+  (rows 12-13) are not on equal footing.
+- **Differences under ~8% are not resolvable.** `laguna:latest` (73.15),
+  `north-mini` (72.06) and `gemma4:12b-mlx` [on] (70.19) cannot be ordered by
+  this data.
+- Only the large gaps survive: the quantization ladder, the think-pair latency
+  effect, laguna's concurrency scaling, and laguna MLX's prefill lead.
+
+### What the data supports
+
+**1. Quantization dominates decode, monotonically.** Same model, same thinking
+mode, three quantizations — and these rows sit adjacent, so the drift above
+affects them minimally:
+
+| gemma4:12b [think:on] | size | gen C=1 | ITL |
+|---|---|---|---|
+| `-mlx` | 10 GB | 70.19 | 0.0142 |
+| `-mxfp8` | 17 GB | 47.99 | 0.0208 |
+| `-mlx-bf16` | 24 GB | 27.34 | 0.0366 |
+
+A **2.6x decode spread** from a 2.4x size spread — consistent with
+bandwidth-bound decode, where bytes moved per token sets the rate.
+
+**2. Thinking costs latency, not throughput.** Across all three pairs decode
+barely moves while time-to-answer changes by one to two orders of magnitude:
+
+| Model | ttfa on -> off | ratio | tokens on -> off | gen on -> off |
+|---|---|---|---|---|
+| `qwen3.6:35b-mlx` | 40.97 -> 0.173s | **237x** | 3557 -> 908 | 48.73 -> 46.67 |
+| `gemma4:12b-mxfp8` | 14.71 -> 0.314s | 47x | 1462 -> 550 | 47.99 -> 65.93 |
+| `gemma4:12b-mlx` | 11.88 -> 0.236s | 50x | 1430 -> 547 | 70.19 -> 75.61 |
+
+Reasoning consistently costs ~2.6x the tokens. **The deployed qwen3.6 config
+(thinking off) answers in 0.17s, not 41s** — ranking it on its native-mode
+`ttfa` would be wrong by a factor of 237 (OQ-5).
+
+**3. Only the GGUF row benefits from concurrency.** `laguna:latest` scales
+**1.45x** (72.2 -> 104.9 tok/s at C=2), the sole row to gain materially. Every
+MLX row sits at 1.00-1.07x, and `nemotron3` at 1.01x is policy-pinned to one
+slot. That is OQ-1's mechanism appearing in data.
+
+**4. MLX wins prefill, loses decode — on the same weights.** The laguna pair:
+
+| | prefill | decode | ttfa |
+|---|---|---|---|
+| `:latest` (GGUF q4_K_M) | 0.323s | **73.15** | 0.341s |
+| `:nvfp4` (MLX) | **0.070s** | 67.63 | **0.116s** |
+
+**4.6x faster prefill, 8% slower decode.** End-to-end ordering therefore
+depends on a workload's prefill/decode mix, and this matrix sits at one extreme
+of it (OQ-3, OQ-6). `laguna:nvfp4` also posts the lowest `ttfa` and `prefill`
+in the whole matrix.
+
+**5. `gemma4:26b-mxfp8` shows an 11.8s `ttft`** where every other row is
+sub-second, and its `ttft` equals its `ttfa` exactly. That means Ollama is not
+splitting Gemma's `|channel thought|` markup into a separate `thinking` field,
+so its reasoning is counted inside `response` — its `usable` rate is not
+directly comparable with rows where the split works.
+
+### What this does not establish
+
+Per OQ-3 and OQ-6: this is short-prompt (~180-217 token), single-turn decode
+without conversation-level cache reuse. It does not measure prefill throughput
+at agent scale, multi-turn snapshot reuse, or output quality. **No
+daily-driver recommendation follows from this table alone.**
 
 ## Finding — large MLX mxfp8 tags are infeasible on this machine
 

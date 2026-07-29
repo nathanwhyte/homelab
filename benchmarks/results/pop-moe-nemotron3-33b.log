@@ -1,0 +1,24 @@
+Warming up with 1 request to nemotron3:33b ...
+Warmup complete: wall=28.79s, TTFT=10.24s, ITL=0.012s, gen=85.6 tok/s
+
+Benchmarking concurrency=1 with 3 requests (x3 repeats) ...
+  P50 TTFT=0.52s, P95 TTFT=0.58s, P50 ITL=0.012s, aggregate throughput=82.7 tok/s
+Cooling down for 20s ...
+
+Benchmarking concurrency=2 with 3 requests (x3 repeats) ...
+  P50 TTFT=24.60s, P95 TTFT=29.11s, P50 ITL=0.012s, aggregate throughput=83.9 tok/s
+Cooling down for 20s ...
+
+Benchmarking concurrency=3 with 3 requests (x3 repeats) ...
+  P50 TTFT=23.69s, P95 TTFT=45.29s, P50 ITL=0.012s, aggregate throughput=83.8 tok/s
+
+=== Ollama Concurrency Benchmark Summary ===
+Conc | Req | P50 TTFT | P95 TTFT |  P50 ITL |  P95 ITL |  Agg tok/s |  P50 gen
+------------------------------------------------------------------------------
+   1 |   3 |     0.52 |     0.58 |    0.012 |    0.012 |      82.71 |     85.5
+   2 |   3 |    24.60 |    29.11 |    0.012 |    0.012 |      83.94 |     85.2
+   3 |   3 |    23.69 |    45.29 |    0.012 |    0.012 |      83.84 |     85.4
+
+Wrote JSON results to benchmarks/results/ollama-pop-moe-nemotron3-33b-agentic-20260728-152943/results.json
+Wrote CSV summary to benchmarks/results/ollama-pop-moe-nemotron3-33b-agentic-20260728-152943/summary.csv
+Wrote Markdown summary to benchmarks/results/ollama-pop-moe-nemotron3-33b-agentic-20260728-152943/summary.md
