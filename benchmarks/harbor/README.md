@@ -67,8 +67,17 @@ quantization, effective sampling, thinking mode, and loaded context.
 3. **Remote host (timmy) — RESOLVED**: Terminus-2 accepts an `api_base` kwarg
    (custom endpoint override, INFO-1129) — prefer it over the unconfirmed
    `OLLAMA_API_BASE` env pass-through.
-4. Docker Desktop must be running (arm64 Linux containers; hello-world verified
-   config-resolves, not yet executed).
+4. Docker Desktop must be running. **arm64 finding (2026-07-29)**: TB-2.1
+   prebuilt images are amd64-only and run under Rosetta emulation on pop —
+   functional, but task-side compute is emulated and durations aren't
+   comparable to x86 runs. All 89 TB tasks ship `environment/Dockerfile` on
+   multi-arch bases: set `force_build: true` for native arm64 builds. Never
+   mix pulled/emulated and locally-built/native trials in one comparison
+   series.
+5. **Parser-warning watch**: gemma4 wraps JSON tool calls in prose —
+   Terminus-2's json parser recovers with "Extra text detected" warnings.
+   Count per model/quant at run end; `parser_name: "xml"` is the fallback
+   lever (INFO-1129).
 
 Docs-ingest notes (INFO-1128/1129/1130, GUIDE-1075 — snapshot 2026-07-29):
 

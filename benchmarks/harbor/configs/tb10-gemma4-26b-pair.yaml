@@ -24,6 +24,13 @@ orchestrator:
 
 environment:
   type: docker
+  # ⚠ false = pull TB's prebuilt images, which are amd64-only → Rosetta
+  # emulation on pop (observed 2026-07-29; task compute emulated, model
+  # inference native). All 89 TB-2.1 tasks ship environment/Dockerfile on
+  # multi-arch bases, so force_build: true builds native arm64 images locally.
+  # Keep ONE value per comparison series — emulated vs native task envs are
+  # different conditions. The 2026-07-29 first pass ran false; flip to true
+  # when starting the next full series.
   force_build: false
   delete: true
 
