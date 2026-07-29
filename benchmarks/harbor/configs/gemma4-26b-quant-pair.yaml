@@ -1,0 +1,57 @@
+# gemma4-26b quant-pair deep dive — nvfp4 vs mxfp8 (IMPR-1109)
+#
+# Focus model for the Harbor push: gemma4 26B is the MoE size of the family
+# (26B total / 4B active; 12B and 31B are dense — INFO-1036), has MTP
+# (automatic multi-token prediction on the MLX path, Ollama >= 0.31.1,
+# decode-only speedup), and has been the more stable MLX citizen in the matrix.
+#
+# The pair are true twins: same base weights, same pinned sampling
+# (temp 1.0, top_p 0.95, top_k 64 — Google's single published row), same
+# 131072 effective context; only quantization differs:
+#   gemma4:coding-26b        mxfp8  27.7 GB resident
+#   gemma4:coding-26b-nvfp4  nvfp4  ~17 GB resident
+# ⚠ Do NOT co-load them — two large tags broke pop in the 2026-07-28 matrix.
+#   n_concurrent_trials: 1 keeps trials serial, and Ollama swaps models between
+#   agents, so this config is safe as long as nothing else touches Ollama.
+#
+# Thinking: left at model default (enabled). Terminus-2 drives via LiteLLM;
+# whether a `think` toggle can be routed correctly (top-level, never in
+# `options` — ERR-1004) is an open item before any thinking-off arm is added.
+#
+# Usage (from benchmarks/harbor/):
+#   hb run -c configs/gemma4-26b-quant-pair.yaml --print-config   # validate
+#   hb run -c configs/gemma4-26b-quant-pair.yaml                  # smoke (gated)
+# Escalation after smoke passes: swap the datasets block for a Terminal-Bench
+# subset (hb download terminal-bench/terminal-bench-2-1) per IMPR-1109 step 4.
+
+job_name: gemma4-26b-quant-pair
+jobs_dir: jobs
+n_attempts: 3 # quant comparison needs repeats; keep 1 for the first smoke
+timeout_multiplier: 1.5
+
+orchestrator:
+  type: local
+  n_concurrent_trials: 1 # hard cap: one local-model consumer
+
+environment:
+  type: docker
+  force_build: false
+  delete: true
+
+agents:
+  - name: terminus-2
+    model_name: ollama/gemma4:coding-26b # mxfp8, 27.7 GB
+    kwargs: &local_model_info
+      model_info:
+        max_tokens: 131072 # effective OLLAMA_CONTEXT_LENGTH on pop
+        max_input_tokens: 122880
+        max_output_tokens: 8192
+        input_cost_per_token: 0.0
+        output_cost_per_token: 0.0
+  - name: terminus-2
+    model_name: ollama/gemma4:coding-26b-nvfp4 # nvfp4, ~17 GB (MTP on MLX path)
+    kwargs: *local_model_info
+
+datasets:
+  - path: tasks
+    task_names: ["hello-world"]

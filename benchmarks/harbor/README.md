@@ -18,11 +18,12 @@ hb view jobs                                              # results viewer, 127.
 
 ## Layout
 
-| Path                             | Purpose                                                                |
-| -------------------------------- | ---------------------------------------------------------------------- |
-| `configs/hello-world-smoke.yaml` | IMPR-1109 steps 1-2: hello-world once per matrix model, serial         |
-| `tasks/hello-world/`             | Downloaded via `hb download harbor/hello-world`                        |
-| `jobs/`                          | Run output (gitignored; trajectories, verifier stdout/stderr, rewards) |
+| Path                                 | Purpose                                                                |
+| ------------------------------------ | ---------------------------------------------------------------------- |
+| `configs/hello-world-smoke.yaml`     | IMPR-1109 steps 1-2: hello-world once per matrix model, serial         |
+| `configs/gemma4-26b-quant-pair.yaml` | gemma4-26b focus push: nvfp4 vs mxfp8 twins, 3 attempts each           |
+| `tasks/hello-world/`                 | Downloaded via `hb download harbor/hello-world`                        |
+| `jobs/`                              | Run output (gitignored; trajectories, verifier stdout/stderr, rewards) |
 
 ## Matrix models — verified parameters (2026-07-29)
 
@@ -30,14 +31,22 @@ Effective serving config (`~/.config/ollama/com.user.ollama-serve.plist`):
 `OLLAMA_CONTEXT_LENGTH=131072`, `OLLAMA_KV_CACHE_TYPE=q8_0`, `OLLAMA_NUM_PARALLEL=2`.
 No coding tag bakes `num_ctx`, so **131072 is the effective window for all six**.
 
-| Model tag             | Arch            | Params | Quant              | Sampling (Modelfile, server-side)                 |
-| --------------------- | --------------- | ------ | ------------------ | ------------------------------------------------- |
-| `qwen3.6:coding`      | qwen3_5_moe     | 35.1B  | nvfp4 (MLX-origin) | temp 0.6, top_p 0.95, top_k 20, min_p 0, repeat 1 |
-| `qwen3.6:coding-gguf` | qwen35moe       | 36.0B  | Q4_K_M             | temp 0.6, top_p 0.95, top_k 20, min_p 0, repeat 1 |
-| `laguna:coding`       | laguna          | 33.4B  | nvfp4              | temp 1, top_p 1, top_k 20                         |
-| `nemotron3:coding`    | nemotron_h_omni | 33.0B  | Q4_K_M             | temp 0.6, top_p 0.95                              |
-| `gemma4:coding-12b`   | gemma4_unified  | 12.4B  | nvfp4              | temp 1, top_p 0.95, top_k 64                      |
-| `gemma4:coding-26b`   | gemma4          | 26.2B  | mxfp8              | temp 1, top_p 0.95, top_k 64                      |
+| Model tag                 | Arch            | Params | Quant              | Sampling (Modelfile, server-side)                 |
+| ------------------------- | --------------- | ------ | ------------------ | ------------------------------------------------- |
+| `qwen3.6:coding`          | qwen3_5_moe     | 35.1B  | nvfp4 (MLX-origin) | temp 0.6, top_p 0.95, top_k 20, min_p 0, repeat 1 |
+| `qwen3.6:coding-gguf`     | qwen35moe       | 36.0B  | Q4_K_M             | temp 0.6, top_p 0.95, top_k 20, min_p 0, repeat 1 |
+| `laguna:coding`           | laguna          | 33.4B  | nvfp4              | temp 1, top_p 1, top_k 20                         |
+| `nemotron3:coding`        | nemotron_h_omni | 33.0B  | Q4_K_M             | temp 0.6, top_p 0.95                              |
+| `gemma4:coding-12b`       | gemma4_unified  | 12.4B  | nvfp4              | temp 1, top_p 0.95, top_k 64                      |
+| `gemma4:coding-26b`       | gemma4          | 26.2B  | mxfp8              | temp 1, top_p 0.95, top_k 64                      |
+| `gemma4:coding-26b-nvfp4` | gemma4          | 26.2B  | nvfp4 (~17 GB)     | temp 1, top_p 0.95, top_k 64                      |
+
+The gemma4-26b pair are true quant twins (created 2026-07-29 from
+`gemma4:26b-mxfp8` / `gemma4:26b-mlx`, same pins — see
+`dotfiles/ollama/gemma4-coding-26b-nvfp4.Modelfile`). gemma4 26B is the MoE
+size of the family (26B/4B active); MTP is automatic on the MLX path
+(Ollama >= 0.31.1, decode-only). ⚠ Never co-load the two 26b tags (27.7 GB +
+17 GB on 64 GB); serial trials swap them safely.
 
 Harbor's `model_info` carries **token limits and cost accounting only** — it does
 not record or control quantization, sampling, or `num_ctx` (validated against
