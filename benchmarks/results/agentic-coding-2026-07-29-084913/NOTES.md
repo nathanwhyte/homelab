@@ -7,22 +7,30 @@
 | gemma4:coding-26b | 18/18 | 0/152 | 6 | 4.83 / 5.00 / 5.00 | ceiling, tampers every T3 run |
 | gemma4:coding-12b | 18/18 | 0/106 | 4 | 4.56 / 4.56 / 4.83 | ceiling |
 | qwen3.6:coding-gguf | 18/18 | 1/120 | 0 | 4.78 / 5.00 / 5.00 | ceiling, cleanest discipline |
-| laguna:coding | 13/18 | 24/220 | 4 | 4.46 / 4.77 / 4.92 | all failures whitespace; 11 cap-hits |
-| nemotron3:coding | 8/18 | 22/68 | 0 | 4.75 / 5.00 / 5.00 | tool-name mangling + 5 server 500s |
+| laguna:coding | 13/18 | 24/220 | 4 | 4.46 / 4.77 / 4.92 | all failures whitespace; 11 per-task-cap hits |
+| nemotron3:coding | 8/18 | 22/68 | 0 | 4.75 / 5.00 / 5.00 | tool-name mangling; 5 server 500s (8 verifier passes, 7 error-free) |
 | qwen3.6:coding (MLX) | 7/18 | 0/94 | 0 | 4.43 / 5.00 / 5.00 | BUG-1067 whitespace corruption |
 
+`solved` means the final sandbox passed the verifier — a task can be solved
+AND carry a transport/protocol error (nemotron t1a r0 is both). A future
+harness pass should report `verified_solved` and `clean_solved` separately.
+
 Sensitivity (`--no-think`, NOT part of the ranking): qwen-MLX 9/18 (7×
-IndentationError — thinking excluded as a BUG-1067 factor), qwen-GGUF 17/18
-(one genuine logic miss, zero whitespace).
+IndentationError — thinking is not required for the BUG-1067 defect),
+qwen-GGUF 17/18 (one genuine logic miss, zero whitespace).
 
 Judge: qwen3.6:subagent, 0 unparseable / 0 transport across all 8 files;
 scores compressed at 4.4–5.0, so they order but do not measure (standing
 TASK-1169 caveat; the judge is a sibling of the qwen tags under test).
 
-Headline conclusions: (1) three-way ceiling at 18/18 → T1–T3 no longer ranks
-the top tier, T4 needed (see IMPR-1109 Harbor/Inspect direction);
-(2) BUG-1067 — MLX-path whitespace corruption costs qwen the benchmark,
-GGUF twin perfect, thinking-mode excluded; (3) the tool-discipline spread
+Headline conclusions: (1) three-way ceiling at 18/18 → T1–T3 cannot rank the
+top tier (a benchmark-scope limit, not a verifier defect — it still separates
+weaker tags and tool discipline); T4 needed (see IMPR-1109 Harbor/Inspect
+direction); (2) BUG-1067 — whitespace corruption strongly associated with the
+MLX-origin serving/artifact path (the two qwen artifacts differ in digest,
+reported architecture, parameter count, and quantization — 35.1B nvfp4 vs
+36.0B Q4_K_M — so engine vs conversion/quantization remains unresolved);
+thinking is not required for the defect; (3) the tool-discipline spread
 (0% to 32% bad calls) is the discriminator the harness predicted;
 (4) fixture-suite tampering is real, gemma-heavy, and fully neutralized by
 the restore path.
@@ -36,10 +44,12 @@ post-PR-#61 harness). Harness: `num_predict=16384`, `num_ctx=32768`, seed 42+,
 
 ### gemma4:coding-12b — 18/18 (started 08:49, finished 09:11)
 
-- **Perfect score, and it is clean**: `truncated_turns=0` on all 18 task runs;
-  busiest task emitted 12,092 output tokens against the 16,384 cap (~26%
-  headroom). The 2026-07-28 cap confound (3 failures at 4096, each with exactly
-  one truncated turn) is confirmed resolved — those were cap artifacts, not
+- **Perfect score, and it is clean**: `truncated_turns=0` on all 18 task runs
+  (busiest task accumulated 12,092 output tokens across its turns — note
+  `output_tokens` sums across API turns while `num_predict=16384` is
+  per-request, so no headroom percentage can be read off these two numbers).
+  The 2026-07-28 cap confound (3 failures at 4096, each with exactly one
+  truncated turn) is confirmed resolved — those were cap artifacts, not
   model limits.
 - **Benchmark ceiling concern**: 18/18 means the current tier set no longer
   discriminates at the 12B gemma tier. If the larger tags also ceiling, the
@@ -56,7 +66,8 @@ post-PR-#61 harness). Harness: `num_predict=16384`, `num_ctx=32768`, seed 42+,
 ### gemma4:coding-26b — 18/18 (09:12–09:32)
 
 - **Second ceiling score, also clean**: `truncated_turns=0`, 0 bad calls in 152
-  tool calls, max 10,574 output tokens (~35% headroom). `load_s=4.7` cold.
+  tool calls, max 10,574 accumulated output tokens per task (per-turn cap
+  never hit). `load_s=4.7` cold.
 - **Tamper habit is total at this size**: rewrote the fixture suite on **all
   six** T3 runs (t3a ×3, t3b ×3) vs the 12b's 4-of-6. Recorded and restored;
   no score effect.
@@ -72,9 +83,11 @@ post-PR-#61 harness). Harness: `num_predict=16384`, `num_ctx=32768`, seed 42+,
 - **Inverted difficulty curve**: T1 2/6, T2 0/6, T3 5/6. It aces the hardest
   tier and flunks the trivial one. Hypothesis: short single-file rewrites get
   whitespace-mangled (template or MTP path?), larger from-scratch T3 files
-  survive. The GGUF row is the natural control: same weights, different
-  engine — if the IndentationError vanishes there, this is an MLX-path
-  defect, not a qwen deficiency.
+  survive. The GGUF row is the closest available control — same base weights,
+  different serving artifact AND engine (the artifacts differ in digest,
+  architecture string, parameter count, and quantization), so a clean GGUF
+  row associates the failure with the MLX-origin path without resolving
+  engine vs conversion/quantization.
 - **The "transport" failure is actually a server-side parse 500**: Ollama
   returned `http 500: XML syntax error on line 3: element <function> closed
   by </parameter>` — the model emitted malformed tool-call XML and the
@@ -88,11 +101,13 @@ post-PR-#61 harness). Harness: `num_predict=16384`, `num_ctx=32768`, seed 42+,
 
 ### qwen3.6:coding-gguf — 18/18 (09:49–~09:57)
 
-- **The engine control landed: same base weights, llama.cpp, perfect score.**
+- **The control row landed: same base weights on llama.cpp, perfect score.**
   0 truncated turns, 1 bad call in 120, 0 tampers.
-- Together with the MLX row this isolates the IndentationError collapse to
-  the serving path (with the quantization caveat — the tags are not
-  identically quantized). Filed as **BUG-1067** in the vault, cross-linked to
+- Together with the MLX row this strongly associates the IndentationError
+  collapse with the MLX-origin serving/artifact path — but the two artifacts
+  are genuinely different (digest, reported architecture, 35.1B vs 36.0B
+  parameter count, nvfp4 vs Q4_K_M), so engine vs conversion/quantization
+  remains unresolved. Filed as **BUG-1067** in the vault, cross-linked to
   INFO-1127 (the sibling MLX fidelity defect: dropped `format` schemas).
 
 ### nemotron3:coding — 8/18, row marked FAILED(exit 4) (09:57–10:05)
@@ -103,10 +118,14 @@ post-PR-#61 harness). Harness: `num_predict=16384`, `num_ctx=32768`, seed 42+,
   `write_ file`, plus one hallucinated `execute_code`. This is the
   bad_tool_calls separation the harness docstring predicted.
 - **5 server 500s** (4× the `<function>`/`</parameter>` XML error, 1×
-  `unexpected EOF at line 59`) — each one an instant task loss; the manifest
-  row is `FAILED(exit 4)` with 13/18 tasks reaching verdict. Combined with
-  qwen-MLX's single hit: 6 occurrences across 2 models. Upstream match:
-  ollama#16383 (tool-template violations → 500, engine-agnostic).
+  `unexpected EOF at line 59`). NOT each an instant task loss: t1a r0 is
+  `solved: true` AND carries a 500 — the fix landed in earlier turns, the
+  500 ended the loop, and the verifier still passed (`solved` judges only
+  the final sandbox). So the row is 8 verifier passes, 7 of them error-free.
+  Manifest row is `FAILED(exit 4)`. Combined with qwen-MLX's single hit:
+  6 occurrences across 2 models. ollama#16383 documents qwen tool-template
+  drift causing parser 500s; the nemotron root cause is not established by
+  that issue.
 - No truncation, no tampers.
 
 ### laguna:coding — 13/18 (10:06–10:43)
@@ -127,8 +146,9 @@ post-PR-#61 harness). Harness: `num_predict=16384`, `num_ctx=32768`, seed 42+,
   `shell` tool ×16, `run_tests`/`list_files` with invented args, and two
   angle-bracket-contaminated names (`run_tests<`, `run_tests>`) that smell
   like template bleed.
-- **Turn-cap pressure**: hit the 8-turn cap on 11/18 tasks (most still
-  passing) — laguna grinds; its per-task wall times are the row's cost.
+- **Turn-cap pressure**: hit its per-task turn cap (caps are T1=8, T2=14,
+  T3=20) on 11/18 tasks, most still passing — laguna grinds; its per-task
+  wall times are the row's cost.
 - **4 tamper events (t3b ×2, t3a ×1, +1)** — first non-gemma tamperer;
   "gemma-specific habit" is now "gemma-heavy, not gemma-exclusive".
 
@@ -137,21 +157,21 @@ post-PR-#61 harness). Harness: `num_predict=16384`, `num_ctx=32768`, seed 42+,
 - **qwen3.6:coding-gguf no-think: 17/18, zero IndentationErrors** — the one
   miss is a genuine logic failure (t3b r2, resolve returned None). The
   engine contrast holds in both reasoning modes: GGUF 35/36 solves with 0
-  whitespace failures; MLX 16/36 with 17. Matrix complete 10:53 — 8/8 rows
-  recorded, manifest honestly marks qwen-MLX and nemotron rows
-  FAILED(exit 4) per the 500-taints-row semantics.
+  whitespace failures; MLX 16/36 with 17. Execution finished 10:53 with 8/8
+  rows recorded; matrix status per `row-status.tsv` is incomplete/tainted
+  (two rows exited 4).
 - **qwen3.6:coding (MLX) no-think: 9/18 — the IndentationError persists**
-  (7 of 9 failures; 0 transport) — thinking-mode is EXCLUDED as a BUG-1067
-  factor. The T1 collapse persists too (T1 1/6, T2 4/6, T3 4/6), so the
-  context-conditionality tracks the task, not the reasoning budget. Slightly
-  better than the thinking row's 7/18; same failure class. Logged in the
-  bug's investigation notes.
+  (7 of 9 failures; 0 transport) — thinking is NOT REQUIRED for the BUG-1067
+  defect. It is not excluded as a contributor: whitespace failures moved
+  10 → 7 and solves 7 → 9 with thinking off (direction consistent with a
+  contribution, sample too small to claim one). The T1 collapse persists
+  (T1 1/6, T2 4/6, T3 4/6), so the context-conditionality tracks the task,
+  not the reasoning budget. Logged in the bug's investigation notes.
 - **The t3a `max_size=0` verifier assertion caught its first real model**:
-  one no-think failure is `AssertionError: max_size=0 must retain nothing` —
-  the exact truthiness-gate implementation the PR #61 review predicted
-  (`if self.max_size:` treating 0 as unbounded). The review-added assertion
-  is earning its keep on live traffic.
-- (final counts for both sensitivity rows on completion)
+  two no-think failures (r1, r2) are `AssertionError: max_size=0 must retain
+  nothing` — the exact truthiness-gate implementation the PR #61 review
+  predicted (`if self.max_size:` treating 0 as unbounded). The review-added
+  assertion is earning its keep on live traffic.
 
 ## Cross-run observations
 
@@ -170,17 +190,20 @@ post-PR-#61 harness). Harness: `num_predict=16384`, `num_ctx=32768`, seed 42+,
   XML syntax error on line 3: element <function> closed by </parameter>` hit
   qwen3.6-MLX once and nemotron3:coding 4+ times (mid-row count). When a model
   emits malformed XML tool syntax, the server 500s the whole request instead
-  of surfacing a parseable bad-call — the harness records an error row (and
-  exit 4 taints the row in the manifest), when semantically it's a bad tool
-  call by the model. Two follow-ups: (a) harness could classify this specific
-  500 as a bad call rather than transport; (b) it's an Ollama robustness gap
-  worth an upstream look. Final counts: qwen-MLX 1, nemotron 5 (4× the
-  function/parameter mismatch + 1× unexpected EOF). Upstream: ollama#16383
-  covers the class (model violates tool template → 500), engine-agnostic —
-  so the harness-side reclassification (a) is the actionable half.
-- **The MLX serving path costs qwen3.6 the benchmark** (7/18 vs 18/18 for the
-  GGUF twin; single IndentationError signature; logic in the failed files is
-  correct, whitespace is not). BUG-1067. Practical guidance until root-caused:
-  agentic/code-writing workloads belong on GGUF tags; `-mlx` MTP speed is for
-  prose. The `--no-think` sensitivity rows at the end of this matrix double as
-  a thinking-mode exclusion test for the bug.
+  of surfacing a parseable bad-call. Harness follow-up (revised after
+  review): do NOT fold these into ordinary bad calls — no structured call
+  ever reaches the harness, so removing the row taint would overstate the
+  result. Instead add a distinct `model_protocol_error` classification while
+  RETAINING the error/tainted status, and report `verified_solved` vs
+  `clean_solved` so a solved-with-500 task (nemotron t1a r0) is visible.
+  Final counts: qwen-MLX 1, nemotron 5 (4× the function/parameter mismatch +
+  1× unexpected EOF). Upstream: ollama#16383 documents the class for qwen
+  template drift; the nemotron root cause is not established by it.
+- **The MLX-origin path costs qwen3.6 the benchmark** (7/18 vs 18/18 for the
+  GGUF counterpart; single IndentationError signature; logic in the failed
+  files is correct, whitespace is not). Strongly associated with the
+  serving/artifact path; engine vs conversion/quantization unresolved
+  (different digests, architectures, parameter counts, quants). BUG-1067.
+  Practical guidance until root-caused: agentic/code-writing workloads belong
+  on GGUF tags; `-mlx` MTP speed is for prose. The `--no-think` rows showed
+  thinking is not required for the defect (contribution not excluded).
