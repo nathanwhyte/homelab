@@ -4,10 +4,10 @@ Re-run of the PROJ-1003 pop matrix on Ollama 0.32.5, with `laguna-xs-2.1`
 restored (its 2026-07-13 macOS/Metal empty-output blocker was fixed upstream by
 `#17291` / `#17237`) and a gemma4:12b MLX quant sweep added.
 
-**Results are complete (14 rows, 378/378 usable).** Of the open
-questions below, OQ-1 is resolved, OQ-2 is narrowed pending one test, OQ-4 is
-split (causal half resolved, artifact half open), and OQ-3, OQ-5 and OQ-6 are
-standing scope boundaries that must be restated in the conclusions.
+**Results are complete (14 rows, 378/378 usable).** Of the open questions
+below, **OQ-1, OQ-2, OQ-4 and OQ-5 are resolved**; OQ-3 and OQ-6 are standing
+scope boundaries that must be restated in any conclusions drawn from this
+table.
 
 **Read OQ-6 before drawing any MLX-versus-GGUF conclusion** — on the laguna
 pair MLX prefills 4.6x faster while decoding 8% slower, so end-to-end ordering
@@ -299,7 +299,7 @@ plain-GGUF `gemma4:12b` rows were dropped from this matrix, leaving
 while the mechanism was unknown; now it only limits how much batching headroom
 this table can quantify.
 
-### OQ-2 — Is per-request `num_ctx` honored on 0.32.5? (PARTIALLY RESOLVED)
+### OQ-2 — Is per-request `num_ctx` honored on 0.32.5? (RESOLVED)
 
 **Do not remove the `qwen36-claude.Modelfile` workaround on the strength of
 this run.** An earlier draft of this section proposed exactly that; it was
@@ -325,14 +325,42 @@ evidence of a fix. It is not sufficient:
   a cold load. It proves the cold-load path selects 32K; it says nothing about
   changing context on a resident runner.
 
-**Conclusion.** Direct `options.num_ctx` is honored when selecting the MLX
-runner's cold-load soft context. 0.32.5 does **not** establish reliable dynamic
-resizing of an already-resident MLX runner. Keep the dedicated Modelfile tag
-until a warm-run test says otherwise.
+### RESOLVED 2026-07-28 — the warm-run test was run
 
-**Decisive test** (post-matrix — running it now would perturb the benchmark):
-32K cold load → request 64K *without* `ollama stop` → `ollama stop` and request
-64K again, checking `/api/ps` after each step.
+`qwen3.6:35b-mlx`, checking `/api/ps` after each step:
+
+| Step | Action | Resident `context_length` | Resized? |
+|---|---|---|---|
+| 1 | Cold load, request `num_ctx=32768` | **32768** | — |
+| 2 | Warm request, `num_ctx=65536`, no stop | **32768** | **no** |
+| 3 | `ollama stop`, cold request `num_ctx=65536` | **65536** | yes |
+| 4 | Warm request *down* to `num_ctx=8192` | **65536** | **no** |
+
+**Per-request `num_ctx` is honored only at cold load.** A resident runner
+ignores it in **both** directions — it neither grows nor shrinks — exactly as
+`sched.go` L1388-1444 predicted.
+
+**And it fails silently.** Steps 2 and 4 returned `done_reason: length` with
+`error: none`. A request asking for more context than the resident runner has
+is served at the resident size with **no error and no warning**. If a client
+asks for 98k against a runner resident at 32k, it silently gets 32k — which
+surfaces later as unexplained truncation, not as a configuration error.
+
+**Keep the `qwen36-claude.Modelfile` workaround — but the reason has changed.**
+The original justification (0.31.1 ignored per-request `num_ctx` outright) is
+superseded. The current justification is load-order dependence: on a long-lived
+server the resident context is whatever the *first* request happened to ask
+for, and every later request is silently capped to it. A Modelfile-baked
+`num_ctx` is deterministic regardless of load order, which a per-request option
+cannot be.
+
+**Operational rule this implies:** any client that needs a specific context
+must either bake it into a dedicated tag, or guarantee it issues the first
+request after a load. Checking `/api/ps` is the only way to confirm what you
+actually got.
+
+Test performed on ollama 0.32.5, MLX runner. Not retested on the llama.cpp
+(GGUF) path, where the reload logic may differ.
 
 ### OQ-3 — This matrix measures decode, not prefill (SCOPE BOUNDARY)
 
