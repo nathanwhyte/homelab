@@ -6,7 +6,7 @@
 url = "http://localhost:11434"
 model = "nemotron3:33b"
 num_ctx = 32768
-num_predict = 2048
+num_predict = 16384
 temperature = 0.3                         # harness default (no model rec found)
 
 [workload]

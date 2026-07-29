@@ -1,0 +1,24 @@
+Warming up with 1 request to gemma4:12b-mxfp8 ...
+Warmup complete: wall=9.43s, TTFT=4.11s, ITL=0.015s, gen=66.9 tok/s
+
+Benchmarking concurrency=1 with 3 requests (x3 repeats) ...
+  P50 TTFT=0.31s, P95 TTFT=0.83s, P50 ITL=0.015s, aggregate throughput=50.5 tok/s
+Cooling down for 20s ...
+
+Benchmarking concurrency=2 with 3 requests (x3 repeats) ...
+  P50 TTFT=8.91s, P95 TTFT=27.94s, P50 ITL=0.018s, aggregate throughput=46.2 tok/s
+Cooling down for 20s ...
+
+Benchmarking concurrency=3 with 3 requests (x3 repeats) ...
+  P50 TTFT=10.05s, P95 TTFT=32.50s, P50 ITL=0.018s, aggregate throughput=49.6 tok/s
+
+=== Ollama Concurrency Benchmark Summary ===
+Conc | Req | P50 TTFT | P95 TTFT |  P50 ITL |  P95 ITL |  Agg tok/s |  P50 gen
+------------------------------------------------------------------------------
+   1 |   3 |     0.31 |     0.83 |    0.015 |    0.024 |      50.48 |     65.9
+   2 |   3 |     8.91 |    27.94 |    0.018 |    0.027 |      46.21 |     56.4
+   3 |   3 |    10.05 |    32.50 |    0.018 |    0.024 |      49.57 |     54.4
+
+Wrote JSON results to benchmarks/results/ollama-pop-moe-gemma4-12b-mxfp8-nothink-agentic-20260728-172811/results.json
+Wrote CSV summary to benchmarks/results/ollama-pop-moe-gemma4-12b-mxfp8-nothink-agentic-20260728-172811/summary.csv
+Wrote Markdown summary to benchmarks/results/ollama-pop-moe-gemma4-12b-mxfp8-nothink-agentic-20260728-172811/summary.md

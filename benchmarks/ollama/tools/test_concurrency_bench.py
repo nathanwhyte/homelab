@@ -183,6 +183,38 @@ def test_real_answer_is_not_flagged_empty():
 # --- level accounting ----------------------------------------------------
 
 
+def test_exception_with_empty_message_still_records_an_error():
+    """asyncio.TimeoutError stringifies to "" — a falsy error reads as success.
+
+    This is what scored nine 300s timeouts as usable_rate 1.0 on the
+    qwen3.6:35b-a3b-coding-mxfp8 row: _failure(str(exc)) stored "", and
+    `if rr.error:` skipped it.
+    """
+    import asyncio as _asyncio
+
+    class _TimingOutSession(_StubSession):
+        def post(self, url, json=None, timeout=None):
+            self.payloads.append(json)
+            raise _asyncio.TimeoutError()
+
+    r = _run(_TimingOutSession())
+    assert r.error is not None, "timeout must produce an error"
+    assert r.error != "", "error must not be the empty string"
+    assert bool(r.error), "error must be truthy so downstream checks catch it"
+    assert "TimeoutError" in r.error
+
+
+def test_level_accounting_uses_is_not_none_for_errors():
+    """A hypothetical empty-string error must still count as failed."""
+    lr = bench.LevelResult(concurrency=1, requests=2, repeats=1)
+    lr.attempted = 2
+    lr.errors.append("")  # falsy but present
+    lr.tokens.append(10)
+    q = lr._quality_summary()
+    assert q["failed"] == 1
+    assert q["succeeded"] == 1
+
+
 def test_premature_eof_is_an_error():
     """A stream that never sends `done` was cut short.
 

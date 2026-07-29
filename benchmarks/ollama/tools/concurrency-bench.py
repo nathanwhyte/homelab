@@ -333,7 +333,9 @@ async def run_request_openai(
             gen_tps=0.0,
             tokens=0,
             prompt_tokens=0,
-            error=str(exc),
+            # Type-prefixed: asyncio.TimeoutError stringifies to "", which is
+            # falsy and would be read downstream as "no error".
+            error=f"{type(exc).__name__}: {exc}",
         )
     t_end = time.monotonic()
     wall = t_end - t0
@@ -410,6 +412,9 @@ async def run_request(
         payload["think"] = think
 
     def _failure(exc: str, elapsed: float) -> RequestResult:
+        # Never store a falsy error. asyncio.TimeoutError stringifies to "",
+        # which made `if rr.error:` skip it and score a 300s timeout as a
+        # successful zero-token request.
         return RequestResult(
             wall_s=elapsed,
             ttft_s=0.0,
@@ -417,7 +422,7 @@ async def run_request(
             gen_tps=0.0,
             tokens=0,
             prompt_tokens=0,
-            error=exc,
+            error=exc or "unknown error (exception with empty message)",
         )
 
     t0 = time.monotonic()
@@ -475,7 +480,9 @@ async def run_request(
                     data = chunk
                     saw_done = True
     except Exception as exc:
-        return _failure(str(exc), time.monotonic() - t0)
+        # Include the type: several exceptions of interest here (notably
+        # asyncio.TimeoutError) carry an empty message.
+        return _failure(f"{type(exc).__name__}: {exc}", time.monotonic() - t0)
 
     wall = time.monotonic() - t0
     # A stream that ends without a terminating `done` chunk was cut short. All
@@ -759,7 +766,9 @@ async def main() -> int:
             extra_options,
             think,
         )
-        if warmup_res.error:
+        # `is not None`, not truthiness: an exception with an empty message
+        # would otherwise read as success.
+        if warmup_res.error is not None:
             print(f"ERROR during warmup: {warmup_res.error}", file=sys.stderr)
             return 1
         print(
@@ -830,7 +839,7 @@ async def main() -> int:
                 repeat_tokens = 0
                 for rr in repeat_results:
                     level_res.attempted += 1
-                    if rr.error:
+                    if rr.error is not None:
                         level_res.errors.append(rr.error)
                         print(
                             f"  Request error at concurrency={level}: {rr.error}",

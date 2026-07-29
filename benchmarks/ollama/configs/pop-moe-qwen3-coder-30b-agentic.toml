@@ -4,7 +4,7 @@
 url = "http://localhost:11434"
 model = "qwen3-coder:30b"
 num_ctx = 32768
-num_predict = 2048
+num_predict = 16384
 temperature = 0.7                         # per-config (model recommendation)
 
 [ollama.options]                          # per-config (model recommendation)
