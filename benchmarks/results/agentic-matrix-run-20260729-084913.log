@@ -1,0 +1,699 @@
+results -> /Users/noot/code/homelab/main/benchmarks/results/agentic-coding-2026-07-29-084913
+primary: 6 tags, sensitivity: 2 tags, repeats=3
+
+================================================================
+PRIMARY  gemma4:coding-12b  (native thinking default)  08:49:13
+================================================================
+sandbox: network + outside writes blocked; READS ARE NOT CONFINED — code under test can read any file this user can read
+model=gemma4:coding-12b tiers=[1, 2, 3] tasks=6 think=None seed=42 repeats=3
+digest=17f521265002ea45c9a ollama=0.32.5 params={'temperature': '1', 'top_k': '64', 'top_p': '0.95'}
+
+--- pass 1/3 (seed=42) ---
+
+[T1] t1a-moving-average — Off-by-one in a moving average
+   PASS  turns=5 calls=4 bad=0 tests_run=1 25.9s
+
+[T1] t1b-retry-budget — Retry budget goes negative
+   PASS  turns=5 calls=4 bad=0 tests_run=1 31.9s
+
+[T2] t2a-normalize-idempotent — Report double-counts a pipeline (cause is not in report.py)
+   PASS  turns=8 calls=7 bad=0 tests_run=1 115.3s
+
+[T2] t2b-queue-fifo — Job queue crashes on equal priorities
+   PASS  turns=6 calls=5 bad=0 tests_run=1 24.9s
+
+[T3] t3a-ttl-cache-lru — Add bounded LRU eviction to the TTL cache
+   PASS  turns=9 calls=8 bad=0 tests_run=3 97.6s
+   ⚠ rewrote fixture suite(s): test_cache.py
+
+[T3] t3b-router-params — Add parameterized routes to the router
+   PASS  turns=9 calls=8 bad=0 tests_run=2 138.8s
+   ⚠ rewrote fixture suite(s): test_router.py
+
+--- pass 2/3 (seed=43) ---
+
+[T1] t1a-moving-average — Off-by-one in a moving average
+   PASS  turns=5 calls=4 bad=0 tests_run=1 24.2s
+
+[T1] t1b-retry-budget — Retry budget goes negative
+   PASS  turns=4 calls=3 bad=0 tests_run=0 31.7s
+
+[T2] t2a-normalize-idempotent — Report double-counts a pipeline (cause is not in report.py)
+   PASS  turns=7 calls=6 bad=0 tests_run=1 34.4s
+
+[T2] t2b-queue-fifo — Job queue crashes on equal priorities
+   PASS  turns=6 calls=5 bad=0 tests_run=1 27.7s
+
+[T3] t3a-ttl-cache-lru — Add bounded LRU eviction to the TTL cache
+   PASS  turns=8 calls=7 bad=0 tests_run=2 144.2s
+
+[T3] t3b-router-params — Add parameterized routes to the router
+   PASS  turns=8 calls=7 bad=0 tests_run=2 139.5s
+   ⚠ rewrote fixture suite(s): test_router.py
+
+--- pass 3/3 (seed=44) ---
+
+[T1] t1a-moving-average — Off-by-one in a moving average
+   PASS  turns=5 calls=4 bad=0 tests_run=1 17.6s
+
+[T1] t1b-retry-budget — Retry budget goes negative
+   PASS  turns=4 calls=3 bad=0 tests_run=0 64.3s
+
+[T2] t2a-normalize-idempotent — Report double-counts a pipeline (cause is not in report.py)
+   PASS  turns=9 calls=8 bad=0 tests_run=1 172.1s
+
+[T2] t2b-queue-fifo — Job queue crashes on equal priorities
+   PASS  turns=7 calls=6 bad=0 tests_run=1 28.8s
+
+[T3] t3a-ttl-cache-lru — Add bounded LRU eviction to the TTL cache
+   PASS  turns=12 calls=11 bad=0 tests_run=4 104.0s
+   ⚠ rewrote fixture suite(s): test_cache.py
+
+[T3] t3b-router-params — Add parameterized routes to the router
+   PASS  turns=7 calls=6 bad=0 tests_run=2 136.0s
+
+=== gemma4:coding-12b ===
+solved 18/18
+  T1: 6/6 solved, 0/22 bad calls, 195.6s
+  T2: 6/6 solved, 0/37 bad calls, 403.2s
+  T3: 6/6 solved, 0/47 bad calls, 760.1s
+
+wrote /Users/noot/code/homelab/main/benchmarks/results/agentic-coding-2026-07-29-084913/agentic-coding-gemma4_coding-12b-20260729-091154.json
+
+================================================================
+PRIMARY  gemma4:coding-26b  (native thinking default)  09:12:14
+================================================================
+sandbox: network + outside writes blocked; READS ARE NOT CONFINED — code under test can read any file this user can read
+model=gemma4:coding-26b tiers=[1, 2, 3] tasks=6 think=None seed=42 repeats=3
+digest=bf7f309722b293af480 ollama=0.32.5 params={'temperature': '1', 'top_k': '64', 'top_p': '0.95'}
+
+--- pass 1/3 (seed=42) ---
+
+[T1] t1a-moving-average — Off-by-one in a moving average
+   PASS  turns=8(cap) calls=8 bad=0 tests_run=1 32.1s
+
+[T1] t1b-retry-budget — Retry budget goes negative
+   PASS  turns=6 calls=5 bad=0 tests_run=1 73.4s
+
+[T2] t2a-normalize-idempotent — Report double-counts a pipeline (cause is not in report.py)
+   PASS  turns=12 calls=11 bad=0 tests_run=2 82.5s
+
+[T2] t2b-queue-fifo — Job queue crashes on equal priorities
+   PASS  turns=11 calls=10 bad=0 tests_run=2 60.0s
+
+[T3] t3a-ttl-cache-lru — Add bounded LRU eviction to the TTL cache
+   PASS  turns=8 calls=7 bad=0 tests_run=2 77.0s
+   ⚠ rewrote fixture suite(s): test_cache.py
+
+[T3] t3b-router-params — Add parameterized routes to the router
+   PASS  turns=11 calls=10 bad=0 tests_run=3 74.9s
+   ⚠ rewrote fixture suite(s): test_router.py
+
+--- pass 2/3 (seed=43) ---
+
+[T1] t1a-moving-average — Off-by-one in a moving average
+   PASS  turns=5 calls=4 bad=0 tests_run=0 28.0s
+
+[T1] t1b-retry-budget — Retry budget goes negative
+   PASS  turns=4 calls=3 bad=0 tests_run=0 17.7s
+
+[T2] t2a-normalize-idempotent — Report double-counts a pipeline (cause is not in report.py)
+   PASS  turns=12 calls=11 bad=0 tests_run=3 96.3s
+
+[T2] t2b-queue-fifo — Job queue crashes on equal priorities
+   PASS  turns=13 calls=12 bad=0 tests_run=2 40.9s
+
+[T3] t3a-ttl-cache-lru — Add bounded LRU eviction to the TTL cache
+   PASS  turns=8 calls=7 bad=0 tests_run=2 103.9s
+   ⚠ rewrote fixture suite(s): test_cache.py
+
+[T3] t3b-router-params — Add parameterized routes to the router
+   PASS  turns=9 calls=8 bad=0 tests_run=2 141.4s
+   ⚠ rewrote fixture suite(s): test_router.py
+
+--- pass 3/3 (seed=44) ---
+
+[T1] t1a-moving-average — Off-by-one in a moving average
+   PASS  turns=8 calls=7 bad=0 tests_run=1 33.5s
+
+[T1] t1b-retry-budget — Retry budget goes negative
+   PASS  turns=8(cap) calls=8 bad=0 tests_run=2 38.1s
+
+[T2] t2a-normalize-idempotent — Report double-counts a pipeline (cause is not in report.py)
+   PASS  turns=12 calls=11 bad=0 tests_run=3 96.7s
+
+[T2] t2b-queue-fifo — Job queue crashes on equal priorities
+   PASS  turns=11 calls=10 bad=0 tests_run=2 54.8s
+
+[T3] t3a-ttl-cache-lru — Add bounded LRU eviction to the TTL cache
+   PASS  turns=9 calls=8 bad=0 tests_run=3 92.9s
+   ⚠ rewrote fixture suite(s): test_cache.py
+
+[T3] t3b-router-params — Add parameterized routes to the router
+   PASS  turns=13 calls=12 bad=0 tests_run=4 88.2s
+   ⚠ rewrote fixture suite(s): test_router.py
+
+=== gemma4:coding-26b ===
+solved 18/18
+  T1: 6/6 solved, 0/35 bad calls, 222.8s
+  T2: 6/6 solved, 0/65 bad calls, 431.2s
+  T3: 6/6 solved, 0/52 bad calls, 578.3s
+
+wrote /Users/noot/code/homelab/main/benchmarks/results/agentic-coding-2026-07-29-084913/agentic-coding-gemma4_coding-26b-20260729-093248.json
+
+================================================================
+PRIMARY  qwen3.6:coding  (native thinking default)  09:33:08
+================================================================
+sandbox: network + outside writes blocked; READS ARE NOT CONFINED — code under test can read any file this user can read
+model=qwen3.6:coding tiers=[1, 2, 3] tasks=6 think=None seed=42 repeats=3
+digest=7a45b00317a8f8997ca ollama=0.32.5 params={'min_p': '0', 'presence_penalty': '0', 'repeat_penalty': '1', 'temperature': '0.6', 'top_k': '20', 'top_p': '0.95'}
+
+--- pass 1/3 (seed=42) ---
+
+[T1] t1a-moving-average — Off-by-one in a moving average
+   FAIL  turns=4 calls=3 bad=0 tests_run=1 22.8s
+   verifier: IndentationError: unindent does not match any outer indentation level
+
+[T1] t1b-retry-budget — Retry budget goes negative
+   FAIL  turns=4 calls=3 bad=0 tests_run=1 22.7s
+   verifier: IndentationError: unindent does not match any outer indentation level
+
+[T2] t2a-normalize-idempotent — Report double-counts a pipeline (cause is not in report.py)
+   FAIL  turns=5 calls=6 bad=0 tests_run=1 221.5s
+   verifier: IndentationError: unindent does not match any outer indentation level
+
+[T2] t2b-queue-fifo — Job queue crashes on equal priorities
+   FAIL  turns=5 calls=5 bad=0 tests_run=1 23.5s
+   verifier: IndentationError: unindent does not match any outer indentation level
+
+[T3] t3a-ttl-cache-lru — Add bounded LRU eviction to the TTL cache
+   PASS  turns=4 calls=4 bad=0 tests_run=1 60.2s
+
+[T3] t3b-router-params — Add parameterized routes to the router
+   PASS  turns=10 calls=10 bad=0 tests_run=3 188.4s
+
+--- pass 2/3 (seed=43) ---
+
+[T1] t1a-moving-average — Off-by-one in a moving average
+   FAIL  turns=4 calls=3 bad=0 tests_run=1 17.9s
+   verifier: IndentationError: unindent does not match any outer indentation level
+
+[T1] t1b-retry-budget — Retry budget goes negative
+   PASS  turns=8(cap) calls=8 bad=0 tests_run=3 23.9s
+
+[T2] t2a-normalize-idempotent — Report double-counts a pipeline (cause is not in report.py)
+   FAIL  turns=6 calls=7 bad=0 tests_run=1 100.8s
+   verifier: IndentationError: unindent does not match any outer indentation level
+
+[T2] t2b-queue-fifo — Job queue crashes on equal priorities
+   FAIL  turns=6 calls=6 bad=0 tests_run=2 28.3s
+   verifier: IndentationError: unindent does not match any outer indentation level
+
+[T3] t3a-ttl-cache-lru — Add bounded LRU eviction to the TTL cache
+   PASS  turns=5 calls=5 bad=0 tests_run=2 41.9s
+
+[T3] t3b-router-params — Add parameterized routes to the router
+   FAIL  turns=2 calls=2 bad=0 tests_run=0 7.1s
+   error: http 500: XML syntax error on line 3: element <function> closed by </parameter>
+   verifier: AssertionError: None
+
+--- pass 3/3 (seed=44) ---
+
+[T1] t1a-moving-average — Off-by-one in a moving average
+   FAIL  turns=4 calls=3 bad=0 tests_run=1 19.0s
+   verifier: IndentationError: unindent does not match any outer indentation level
+
+[T1] t1b-retry-budget — Retry budget goes negative
+   PASS  turns=5 calls=4 bad=0 tests_run=1 21.1s
+
+[T2] t2a-normalize-idempotent — Report double-counts a pipeline (cause is not in report.py)
+   FAIL  turns=5 calls=6 bad=0 tests_run=1 54.8s
+   verifier: IndentationError: unindent does not match any outer indentation level
+
+[T2] t2b-queue-fifo — Job queue crashes on equal priorities
+   FAIL  turns=6 calls=6 bad=0 tests_run=1 25.0s
+   verifier: IndentationError: unindent does not match any outer indentation level
+
+[T3] t3a-ttl-cache-lru — Add bounded LRU eviction to the TTL cache
+   PASS  turns=5 calls=5 bad=0 tests_run=2 22.4s
+
+[T3] t3b-router-params — Add parameterized routes to the router
+   PASS  turns=8 calls=8 bad=0 tests_run=2 46.4s
+
+=== qwen3.6:coding ===
+solved 7/18
+  T1: 2/6 solved, 0/24 bad calls, 127.4s
+  T2: 0/6 solved, 0/36 bad calls, 453.9s
+  T3: 5/6 solved, 0/34 bad calls, 366.4s
+
+wrote /Users/noot/code/homelab/main/benchmarks/results/agentic-coding-2026-07-29-084913/agentic-coding-qwen3.6_coding-20260729-094858.json
+⚠ 1/18 task(s) failed at transport
+!! qwen3.6:coding failed (exit 4); continuing with the remaining tags
+
+================================================================
+PRIMARY  qwen3.6:coding-gguf  (native thinking default)  09:49:18
+================================================================
+sandbox: network + outside writes blocked; READS ARE NOT CONFINED — code under test can read any file this user can read
+model=qwen3.6:coding-gguf tiers=[1, 2, 3] tasks=6 think=None seed=42 repeats=3
+digest=86bb2e39ad6e2af94b2 ollama=0.32.5 params={'min_p': '0', 'presence_penalty': '0', 'repeat_penalty': '1', 'temperature': '0.6', 'top_k': '20', 'top_p': '0.95'}
+
+--- pass 1/3 (seed=42) ---
+
+[T1] t1a-moving-average — Off-by-one in a moving average
+   PASS  turns=3 calls=2 bad=0 tests_run=0 23.7s
+
+[T1] t1b-retry-budget — Retry budget goes negative
+   PASS  turns=4 calls=3 bad=0 tests_run=1 16.1s
+
+[T2] t2a-normalize-idempotent — Report double-counts a pipeline (cause is not in report.py)
+   PASS  turns=4 calls=5 bad=0 tests_run=1 36.0s
+
+[T2] t2b-queue-fifo — Job queue crashes on equal priorities
+   PASS  turns=3 calls=3 bad=0 tests_run=0 14.9s
+
+[T3] t3a-ttl-cache-lru — Add bounded LRU eviction to the TTL cache
+   PASS  turns=9 calls=9 bad=0 tests_run=6 57.2s
+
+[T3] t3b-router-params — Add parameterized routes to the router
+   PASS  turns=20(cap) calls=21 bad=1 tests_run=17 33.0s
+   schema: run_tests: unexpected argument 'path'
+
+--- pass 2/3 (seed=43) ---
+
+[T1] t1a-moving-average — Off-by-one in a moving average
+   PASS  turns=3 calls=2 bad=0 tests_run=0 12.3s
+
+[T1] t1b-retry-budget — Retry budget goes negative
+   PASS  turns=3 calls=2 bad=0 tests_run=0 13.4s
+
+[T2] t2a-normalize-idempotent — Report double-counts a pipeline (cause is not in report.py)
+   PASS  turns=3 calls=4 bad=0 tests_run=0 20.5s
+
+[T2] t2b-queue-fifo — Job queue crashes on equal priorities
+   PASS  turns=4 calls=4 bad=0 tests_run=1 15.2s
+
+[T3] t3a-ttl-cache-lru — Add bounded LRU eviction to the TTL cache
+   PASS  turns=5 calls=5 bad=0 tests_run=1 24.1s
+
+[T3] t3b-router-params — Add parameterized routes to the router
+   PASS  turns=20(cap) calls=21 bad=0 tests_run=18 46.1s
+
+--- pass 3/3 (seed=44) ---
+
+[T1] t1a-moving-average — Off-by-one in a moving average
+   PASS  turns=3 calls=2 bad=0 tests_run=0 10.7s
+
+[T1] t1b-retry-budget — Retry budget goes negative
+   PASS  turns=3 calls=2 bad=0 tests_run=0 14.8s
+
+[T2] t2a-normalize-idempotent — Report double-counts a pipeline (cause is not in report.py)
+   PASS  turns=3 calls=4 bad=0 tests_run=0 34.4s
+
+[T2] t2b-queue-fifo — Job queue crashes on equal priorities
+   PASS  turns=4 calls=4 bad=0 tests_run=1 15.8s
+
+[T3] t3a-ttl-cache-lru — Add bounded LRU eviction to the TTL cache
+   PASS  turns=6 calls=6 bad=0 tests_run=3 22.3s
+
+[T3] t3b-router-params — Add parameterized routes to the router
+   PASS  turns=20(cap) calls=21 bad=0 tests_run=18 43.2s
+
+=== qwen3.6:coding-gguf ===
+solved 18/18
+  T1: 6/6 solved, 0/13 bad calls, 91.0s
+  T2: 6/6 solved, 0/24 bad calls, 136.8s
+  T3: 6/6 solved, 1/83 bad calls, 225.9s
+
+wrote /Users/noot/code/homelab/main/benchmarks/results/agentic-coding-2026-07-29-084913/agentic-coding-qwen3.6_coding-gguf-20260729-095653.json
+
+================================================================
+PRIMARY  nemotron3:coding  (native thinking default)  09:57:13
+================================================================
+sandbox: network + outside writes blocked; READS ARE NOT CONFINED — code under test can read any file this user can read
+model=nemotron3:coding tiers=[1, 2, 3] tasks=6 think=None seed=42 repeats=3
+digest=fd38c3f76a2ca5b1ec9 ollama=0.32.5 params={'temperature': '0.6', 'top_p': '0.95'}
+
+--- pass 1/3 (seed=42) ---
+
+[T1] t1a-moving-average — Off-by-one in a moving average
+   PASS  turns=5 calls=4 bad=1 tests_run=1 22.5s
+   error: http 500: XML syntax error on line 3: element <function> closed by </parameter>
+   schema: unknown tool 'write_File'
+
+[T1] t1b-retry-budget — Retry budget goes negative
+   PASS  turns=4 calls=3 bad=1 tests_run=0 11.7s
+   schema: unknown tool 'read_File'
+
+[T2] t2a-normalize-idempotent — Report double-counts a pipeline (cause is not in report.py)
+   FAIL  turns=3 calls=2 bad=0 tests_run=0 6.2s
+   error: http 500: XML syntax error on line 3: element <function> closed by </parameter>
+   verifier: AssertionError: {'daily load': 3, 'daily_load': 9, 'other job': 1}
+
+[T2] t2b-queue-fifo — Job queue crashes on equal priorities
+   FAIL  turns=3 calls=2 bad=1 tests_run=0 4.3s
+   schema: unknown tool 'read_File'
+   verifier: TypeError: '<' not supported between instances of 'Job' and 'Job'
+
+[T3] t3a-ttl-cache-lru — Add bounded LRU eviction to the TTL cache
+   FAIL  turns=6 calls=5 bad=1 tests_run=2 46.3s
+   error: http 500: XML syntax error on line 59: unexpected EOF
+   schema: unknown tool 'read__file'
+   verifier: SyntaxError: invalid syntax
+
+[T3] t3b-router-params — Add parameterized routes to the router
+   PASS  turns=6 calls=5 bad=0 tests_run=2 78.1s
+
+--- pass 2/3 (seed=43) ---
+
+[T1] t1a-moving-average — Off-by-one in a moving average
+   PASS  turns=8 calls=7 bad=3 tests_run=1 19.0s
+   schema: unknown tool 'write_File'; unknown tool 'read_File'; unknown tool 'execute_code'
+
+[T1] t1b-retry-budget — Retry budget goes negative
+   PASS  turns=4 calls=3 bad=0 tests_run=1 17.9s
+
+[T2] t2a-normalize-idempotent — Report double-counts a pipeline (cause is not in report.py)
+   FAIL  turns=2 calls=1 bad=0 tests_run=0 4.7s
+   error: http 500: XML syntax error on line 3: element <function> closed by </parameter>
+   verifier: AssertionError: {'daily load': 3, 'daily_load': 9, 'other job': 1}
+
+[T2] t2b-queue-fifo — Job queue crashes on equal priorities
+   PASS  turns=7 calls=6 bad=2 tests_run=1 25.3s
+   schema: unknown tool 'read_File'; unknown tool 'write_File'
+
+[T3] t3a-ttl-cache-lru — Add bounded LRU eviction to the TTL cache
+   FAIL  turns=5 calls=4 bad=1 tests_run=1 41.1s
+   schema: unknown tool 'read_File'
+   verifier: TypeError: TTLCache.__init__() got an unexpected keyword argument 'max_size'
+
+[T3] t3b-router-params — Add parameterized routes to the router
+   FAIL  turns=2 calls=1 bad=0 tests_run=0 25.3s
+   error: http 500: XML syntax error on line 3: element <function> closed by </parameter>
+   verifier: AssertionError: None
+
+--- pass 3/3 (seed=44) ---
+
+[T1] t1a-moving-average — Off-by-one in a moving average
+   PASS  turns=5 calls=4 bad=1 tests_run=1 12.4s
+   schema: unknown tool 'write_File'
+
+[T1] t1b-retry-budget — Retry budget goes negative
+   PASS  turns=5 calls=4 bad=1 tests_run=1 19.8s
+   schema: unknown tool 'write_File'
+
+[T2] t2a-normalize-idempotent — Report double-counts a pipeline (cause is not in report.py)
+   FAIL  turns=3 calls=2 bad=2 tests_run=0 7.2s
+   schema: unknown tool 'read_File'; unknown tool 'read_File'
+   verifier: AssertionError: {'daily load': 3, 'daily_load': 9, 'other job': 1}
+
+[T2] t2b-queue-fifo — Job queue crashes on equal priorities
+   FAIL  turns=5 calls=4 bad=3 tests_run=0 5.8s
+   schema: unknown tool 'read_File'; unknown tool 'read_File'; unknown tool 'read_File'
+   verifier: TypeError: '<' not supported between instances of 'Job' and 'Job'
+
+[T3] t3a-ttl-cache-lru — Add bounded LRU eviction to the TTL cache
+   FAIL  turns=6 calls=5 bad=1 tests_run=2 58.9s
+   schema: unknown tool 'read_File'
+   verifier: TypeError: TTLCache.__init__() got an unexpected keyword argument 'max_size'. Did you mean 'max_Size'?
+
+[T3] t3b-router-params — Add parameterized routes to the router
+   FAIL  turns=7 calls=6 bad=4 tests_run=0 113.3s
+   schema: unknown tool 'write_ File'; unknown tool 'write_ file'; unknown tool 'write_ file'
+   verifier: AssertionError: None
+
+=== nemotron3:coding ===
+solved 8/18
+  T1: 6/6 solved, 7/25 bad calls, 103.3s
+  T2: 1/6 solved, 8/17 bad calls, 53.5s
+  T3: 1/6 solved, 7/26 bad calls, 363.0s
+
+wrote /Users/noot/code/homelab/main/benchmarks/results/agentic-coding-2026-07-29-084913/agentic-coding-nemotron3_coding-20260729-100555.json
+⚠ 5/18 task(s) failed at transport
+!! nemotron3:coding failed (exit 4); continuing with the remaining tags
+
+================================================================
+PRIMARY  laguna:coding  (native thinking default)  10:06:15
+================================================================
+sandbox: network + outside writes blocked; READS ARE NOT CONFINED — code under test can read any file this user can read
+model=laguna:coding tiers=[1, 2, 3] tasks=6 think=None seed=42 repeats=3
+digest=af29123e6f3f5abbd8e ollama=0.32.5 params={'top_k': '20', 'top_p': '1', 'temperature': '1'}
+
+--- pass 1/3 (seed=42) ---
+
+[T1] t1a-moving-average — Off-by-one in a moving average
+   PASS  turns=4 calls=3 bad=0 tests_run=1 16.7s
+
+[T1] t1b-retry-budget — Retry budget goes negative
+   FAIL  turns=4 calls=3 bad=0 tests_run=0 25.1s
+   verifier: TabError: inconsistent use of tabs and spaces in indentation
+
+[T2] t2a-normalize-idempotent — Report double-counts a pipeline (cause is not in report.py)
+   FAIL  turns=10 calls=9 bad=1 tests_run=1 50.0s
+   schema: run_tests: unexpected argument 'path'
+   verifier: IndentationError: unexpected indent
+
+[T2] t2b-queue-fifo — Job queue crashes on equal priorities
+   PASS  turns=14(cap) calls=14 bad=4 tests_run=2 78.1s
+   schema: unknown tool 'shell'; unknown tool 'shell'; unknown tool 'shell'
+
+[T3] t3a-ttl-cache-lru — Add bounded LRU eviction to the TTL cache
+   PASS  turns=20(cap) calls=20 bad=3 tests_run=7 350.2s
+   schema: unknown tool 'shell'; unknown tool 'shell'; unknown tool 'shell'
+
+[T3] t3b-router-params — Add parameterized routes to the router
+   PASS  turns=20(cap) calls=20 bad=2 tests_run=2 265.7s
+   ⚠ rewrote fixture suite(s): test_router.py
+   schema: unknown tool 'shell'; unknown tool 'shell'
+
+--- pass 2/3 (seed=43) ---
+
+[T1] t1a-moving-average — Off-by-one in a moving average
+   PASS  turns=5 calls=4 bad=1 tests_run=1 20.8s
+   schema: unknown tool 'shell'
+
+[T1] t1b-retry-budget — Retry budget goes negative
+   PASS  turns=5 calls=4 bad=0 tests_run=1 16.3s
+
+[T2] t2a-normalize-idempotent — Report double-counts a pipeline (cause is not in report.py)
+   PASS  turns=14(cap) calls=14 bad=0 tests_run=1 186.8s
+
+[T2] t2b-queue-fifo — Job queue crashes on equal priorities
+   PASS  turns=9 calls=8 bad=2 tests_run=1 29.0s
+   schema: unknown tool 'shell'; unknown tool 'shell'
+
+[T3] t3a-ttl-cache-lru — Add bounded LRU eviction to the TTL cache
+   PASS  turns=20(cap) calls=20 bad=3 tests_run=5 168.1s
+   schema: write_file: missing required argument 'path'; run_tests: unexpected argument 'path'; run_tests: unexpected argument 'path'
+
+[T3] t3b-router-params — Add parameterized routes to the router
+   FAIL  turns=20(cap) calls=20 bad=0 tests_run=6 259.8s
+   ⚠ rewrote fixture suite(s): test_router.py
+   verifier: IndentationError: unindent does not match any outer indentation level
+
+--- pass 3/3 (seed=44) ---
+
+[T1] t1a-moving-average — Off-by-one in a moving average
+   FAIL  turns=5 calls=4 bad=0 tests_run=1 20.6s
+   verifier: IndentationError: unexpected indent
+
+[T1] t1b-retry-budget — Retry budget goes negative
+   PASS  turns=8(cap) calls=8 bad=0 tests_run=4 39.5s
+
+[T2] t2a-normalize-idempotent — Report double-counts a pipeline (cause is not in report.py)
+   PASS  turns=14(cap) calls=15 bad=1 tests_run=1 173.7s
+   schema: unknown tool ''
+
+[T2] t2b-queue-fifo — Job queue crashes on equal priorities
+   FAIL  turns=14(cap) calls=14 bad=4 tests_run=2 60.6s
+   schema: unknown tool 'shell'; unknown tool 'shell'; list_files: unexpected argument 'path'
+   verifier: IndentationError: unexpected indent
+
+[T3] t3a-ttl-cache-lru — Add bounded LRU eviction to the TTL cache
+   PASS  turns=20(cap) calls=20 bad=2 tests_run=4 268.9s
+   ⚠ rewrote fixture suite(s): test_cache.py
+   schema: unknown tool 'run_tests<'; unknown tool 'shell'
+
+[T3] t3b-router-params — Add parameterized routes to the router
+   PASS  turns=20(cap) calls=20 bad=1 tests_run=7 180.5s
+   ⚠ rewrote fixture suite(s): test_router.py
+   schema: unknown tool 'run_tests>'
+
+=== laguna:coding ===
+solved 13/18
+  T1: 4/6 solved, 1/26 bad calls, 139.0s
+  T2: 4/6 solved, 12/74 bad calls, 578.2s
+  T3: 5/6 solved, 11/120 bad calls, 1493.2s
+
+wrote /Users/noot/code/homelab/main/benchmarks/results/agentic-coding-2026-07-29-084913/agentic-coding-laguna_coding-20260729-104307.json
+
+================================================================
+SENSITIVITY  qwen3.6:coding  --no-think  10:43:27
+================================================================
+sandbox: network + outside writes blocked; READS ARE NOT CONFINED — code under test can read any file this user can read
+model=qwen3.6:coding tiers=[1, 2, 3] tasks=6 think=False seed=42 repeats=3
+digest=7a45b00317a8f8997ca ollama=0.32.5 params={'min_p': '0', 'presence_penalty': '0', 'repeat_penalty': '1', 'temperature': '0.6', 'top_k': '20', 'top_p': '0.95'}
+
+--- pass 1/3 (seed=42) ---
+
+[T1] t1a-moving-average — Off-by-one in a moving average
+   FAIL  turns=3 calls=2 bad=0 tests_run=0 10.2s
+   verifier: IndentationError: unindent does not match any outer indentation level
+
+[T1] t1b-retry-budget — Retry budget goes negative
+   FAIL  turns=4 calls=3 bad=0 tests_run=1 8.4s
+   verifier: IndentationError: unindent does not match any outer indentation level
+
+[T2] t2a-normalize-idempotent — Report double-counts a pipeline (cause is not in report.py)
+   PASS  turns=6 calls=7 bad=0 tests_run=1 23.6s
+
+[T2] t2b-queue-fifo — Job queue crashes on equal priorities
+   PASS  turns=5 calls=5 bad=0 tests_run=1 12.8s
+
+[T3] t3a-ttl-cache-lru — Add bounded LRU eviction to the TTL cache
+   PASS  turns=5 calls=5 bad=0 tests_run=2 16.5s
+
+[T3] t3b-router-params — Add parameterized routes to the router
+   PASS  turns=7 calls=7 bad=0 tests_run=3 29.6s
+
+--- pass 2/3 (seed=43) ---
+
+[T1] t1a-moving-average — Off-by-one in a moving average
+   FAIL  turns=3 calls=2 bad=0 tests_run=0 6.7s
+   verifier: IndentationError: unindent does not match any outer indentation level
+
+[T1] t1b-retry-budget — Retry budget goes negative
+   PASS  turns=4 calls=3 bad=0 tests_run=1 8.4s
+
+[T2] t2a-normalize-idempotent — Report double-counts a pipeline (cause is not in report.py)
+   FAIL  turns=6 calls=7 bad=0 tests_run=1 24.4s
+   verifier: IndentationError: unindent does not match any outer indentation level
+
+[T2] t2b-queue-fifo — Job queue crashes on equal priorities
+   PASS  turns=6 calls=6 bad=0 tests_run=2 13.9s
+
+[T3] t3a-ttl-cache-lru — Add bounded LRU eviction to the TTL cache
+   FAIL  turns=7 calls=7 bad=0 tests_run=3 35.4s
+   verifier: AssertionError: max_size=0 must retain nothing
+
+[T3] t3b-router-params — Add parameterized routes to the router
+   PASS  turns=5 calls=5 bad=0 tests_run=2 18.7s
+
+--- pass 3/3 (seed=44) ---
+
+[T1] t1a-moving-average — Off-by-one in a moving average
+   FAIL  turns=3 calls=2 bad=0 tests_run=0 9.9s
+   verifier: IndentationError: unindent does not match any outer indentation level
+
+[T1] t1b-retry-budget — Retry budget goes negative
+   FAIL  turns=5 calls=4 bad=0 tests_run=2 13.4s
+   verifier: IndentationError: unindent does not match any outer indentation level
+
+[T2] t2a-normalize-idempotent — Report double-counts a pipeline (cause is not in report.py)
+   FAIL  turns=4 calls=5 bad=0 tests_run=1 23.5s
+   verifier: IndentationError: unindent does not match any outer indentation level
+
+[T2] t2b-queue-fifo — Job queue crashes on equal priorities
+   PASS  turns=14(cap) calls=15 bad=0 tests_run=12 16.4s
+
+[T3] t3a-ttl-cache-lru — Add bounded LRU eviction to the TTL cache
+   FAIL  turns=5 calls=5 bad=0 tests_run=2 18.4s
+   verifier: AssertionError: max_size=0 must retain nothing
+
+[T3] t3b-router-params — Add parameterized routes to the router
+   PASS  turns=6 calls=6 bad=0 tests_run=2 27.5s
+
+=== qwen3.6:coding ===
+solved 9/18
+  T1: 1/6 solved, 0/16 bad calls, 57.0s
+  T2: 4/6 solved, 0/45 bad calls, 114.6s
+  T3: 4/6 solved, 0/35 bad calls, 146.1s
+
+wrote /Users/noot/code/homelab/main/benchmarks/results/agentic-coding-2026-07-29-084913/no-think/agentic-coding-qwen3.6_coding-20260729-104846.json
+
+================================================================
+SENSITIVITY  qwen3.6:coding-gguf  --no-think  10:49:06
+================================================================
+sandbox: network + outside writes blocked; READS ARE NOT CONFINED — code under test can read any file this user can read
+model=qwen3.6:coding-gguf tiers=[1, 2, 3] tasks=6 think=False seed=42 repeats=3
+digest=86bb2e39ad6e2af94b2 ollama=0.32.5 params={'min_p': '0', 'presence_penalty': '0', 'repeat_penalty': '1', 'temperature': '0.6', 'top_k': '20', 'top_p': '0.95'}
+
+--- pass 1/3 (seed=42) ---
+
+[T1] t1a-moving-average — Off-by-one in a moving average
+   PASS  turns=3 calls=2 bad=0 tests_run=0 16.6s
+
+[T1] t1b-retry-budget — Retry budget goes negative
+   PASS  turns=3 calls=2 bad=0 tests_run=0 5.5s
+
+[T2] t2a-normalize-idempotent — Report double-counts a pipeline (cause is not in report.py)
+   PASS  turns=6 calls=7 bad=0 tests_run=1 17.3s
+
+[T2] t2b-queue-fifo — Job queue crashes on equal priorities
+   PASS  turns=4 calls=4 bad=0 tests_run=1 9.6s
+
+[T3] t3a-ttl-cache-lru — Add bounded LRU eviction to the TTL cache
+   PASS  turns=20(cap) calls=21 bad=0 tests_run=18 26.2s
+
+[T3] t3b-router-params — Add parameterized routes to the router
+   PASS  turns=4 calls=4 bad=0 tests_run=1 13.7s
+
+--- pass 2/3 (seed=43) ---
+
+[T1] t1a-moving-average — Off-by-one in a moving average
+   PASS  turns=3 calls=2 bad=0 tests_run=0 5.6s
+
+[T1] t1b-retry-budget — Retry budget goes negative
+   PASS  turns=3 calls=2 bad=0 tests_run=0 5.8s
+
+[T2] t2a-normalize-idempotent — Report double-counts a pipeline (cause is not in report.py)
+   PASS  turns=5 calls=6 bad=0 tests_run=1 18.2s
+
+[T2] t2b-queue-fifo — Job queue crashes on equal priorities
+   PASS  turns=4 calls=4 bad=0 tests_run=1 10.4s
+
+[T3] t3a-ttl-cache-lru — Add bounded LRU eviction to the TTL cache
+   PASS  turns=5 calls=5 bad=0 tests_run=2 16.9s
+
+[T3] t3b-router-params — Add parameterized routes to the router
+   PASS  turns=4 calls=4 bad=0 tests_run=1 13.7s
+
+--- pass 3/3 (seed=44) ---
+
+[T1] t1a-moving-average — Off-by-one in a moving average
+   PASS  turns=3 calls=2 bad=0 tests_run=0 6.0s
+
+[T1] t1b-retry-budget — Retry budget goes negative
+   PASS  turns=3 calls=2 bad=0 tests_run=0 6.3s
+
+[T2] t2a-normalize-idempotent — Report double-counts a pipeline (cause is not in report.py)
+   PASS  turns=4 calls=5 bad=0 tests_run=0 9.5s
+
+[T2] t2b-queue-fifo — Job queue crashes on equal priorities
+   PASS  turns=3 calls=3 bad=0 tests_run=0 7.7s
+
+[T3] t3a-ttl-cache-lru — Add bounded LRU eviction to the TTL cache
+   PASS  turns=5 calls=5 bad=0 tests_run=2 17.7s
+
+[T3] t3b-router-params — Add parameterized routes to the router
+   FAIL  turns=8 calls=8 bad=0 tests_run=3 34.2s
+   verifier: AssertionError: None
+
+=== qwen3.6:coding-gguf ===
+solved 17/18
+  T1: 6/6 solved, 0/12 bad calls, 45.8s
+  T2: 6/6 solved, 0/29 bad calls, 72.7s
+  T3: 5/6 solved, 0/47 bad calls, 122.4s
+
+wrote /Users/noot/code/homelab/main/benchmarks/results/agentic-coding-2026-07-29-084913/no-think/agentic-coding-qwen3.6_coding-gguf-20260729-105308.json
+
+row status:
+primary	gemma4:coding-12b	ok
+primary	gemma4:coding-26b	ok
+primary	qwen3.6:coding	FAILED(exit 4)
+primary	qwen3.6:coding-gguf	ok
+primary	nemotron3:coding	FAILED(exit 4)
+primary	laguna:coding	ok
+sensitivity	qwen3.6:coding	ok
+sensitivity	qwen3.6:coding-gguf	ok
+
+matrix INCOMPLETE 10:53:28: 2 failed, 8/8 rows recorded

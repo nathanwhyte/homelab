@@ -1,0 +1,659 @@
+{
+  "model": "nemotron3:coding",
+  "tiers": [
+    1,
+    2,
+    3
+  ],
+  "think": null,
+  "num_ctx": 32768,
+  "num_predict": 16384,
+  "seed": 42,
+  "repeats": 3,
+  "sandbox_level": "network-write",
+  "provenance": {
+    "model": "nemotron3:coding",
+    "model_digest": "fd38c3f76a2ca5b1ec94cbd69ba0c7f354c5d5e5a77c435e15c59ed52c666cc1",
+    "model_modified_at": "2026-07-28T20:08:35.288999603-05:00",
+    "details": {
+      "family": "nemotron_h_omni",
+      "parameter_size": "33.0B",
+      "quantization_level": "Q4_K_M"
+    },
+    "capabilities": [
+      "completion",
+      "vision",
+      "tools",
+      "thinking"
+    ],
+    "effective_parameters": {
+      "temperature": "0.6",
+      "top_p": "0.95"
+    },
+    "ollama_version": "0.32.5",
+    "harness_sha256": "52144c13a7fb561b",
+    "fixtures_sha256": "c0a9a54b28ba19d3",
+    "host": "pop.local",
+    "python": "3.14.6",
+    "started_at": "2026-07-29T09:57:14-0500"
+  },
+  "solved": 8,
+  "total": 18,
+  "results": [
+    {
+      "task_id": "t1a-moving-average",
+      "tier": 1,
+      "title": "Off-by-one in a moving average",
+      "solved": true,
+      "verifier_output": "OK",
+      "turns": 5,
+      "hit_turn_cap": false,
+      "tool_calls": 4,
+      "bad_tool_calls": 1,
+      "repeat": 0,
+      "bad_tool_detail": [
+        "unknown tool 'write_File'"
+      ],
+      "text_tool_attempts": 0,
+      "wrote_any_file": true,
+      "files_written": [
+        "stats.py"
+      ],
+      "files_read": [
+        "stats.py"
+      ],
+      "write_without_read": 0,
+      "ran_tests": 1,
+      "load_s": 10.28,
+      "truncated_turns": 0,
+      "tampered_suites": [],
+      "prompt_tokens": 4881,
+      "output_tokens": 645,
+      "wall_s": 22.5,
+      "error": "http 500: XML syntax error on line 3: element <function> closed by </parameter>",
+      "final_sources": {
+        "stats.py": "\"\"\"Rolling window statistics for pipeline run durations.\"\"\"\n\n\ndef moving_average(values, window):\n    \"\"\"Return the moving average of `values` over `window` samples.\n\n    The result has one entry per full window, so len(result) ==\n    len(values) - window + 1 for a non-empty input.\n    \"\"\"\n    if window <= 0:\n        raise ValueError(\"window must be positive\")\n    out = []\n    for i in range(len(values) - window + 1):\n        chunk = values[i : i + window]\n        out.append(sum(chunk) / window)\n    return out"
+      }
+    },
+    {
+      "task_id": "t1b-retry-budget",
+      "tier": 1,
+      "title": "Retry budget goes negative",
+      "solved": true,
+      "verifier_output": "OK",
+      "turns": 4,
+      "hit_turn_cap": false,
+      "tool_calls": 3,
+      "bad_tool_calls": 1,
+      "repeat": 0,
+      "bad_tool_detail": [
+        "unknown tool 'read_File'"
+      ],
+      "text_tool_attempts": 0,
+      "wrote_any_file": true,
+      "files_written": [
+        "budget.py"
+      ],
+      "files_read": [
+        "budget.py"
+      ],
+      "write_without_read": 0,
+      "ran_tests": 0,
+      "load_s": 0.33,
+      "truncated_turns": 0,
+      "tampered_suites": [],
+      "prompt_tokens": 4463,
+      "output_tokens": 763,
+      "wall_s": 11.7,
+      "error": null,
+      "final_sources": {
+        "budget.py": "\"\"\"Retry-budget accounting for the ingest scheduler.\"\"\"\n\nclass RetryBudget:\n    \"\"\"Tracks how many retries remain for a job.\n\n    `consume` spends one retry and returns True when the spend was allowed.\n    Once the budget is exhausted, further calls return False and must not push\n    `remaining` below zero.\n    \"\"\"\n\n    def __init__(self, limit):\n        self.limit = limit\n        self.used = 0\n\n    @property\n    def remaining(self):\n        return self.limit - self.used\n\n    def consume(self):\n        if self.remaining > 0:\n            self.used += 1\n            return True\n        else:\n            return False\n\n    def reset(self):\n        self.used = 0"
+      }
+    },
+    {
+      "task_id": "t2a-normalize-idempotent",
+      "tier": 2,
+      "title": "Report double-counts a pipeline (cause is not in report.py)",
+      "solved": false,
+      "verifier_output": "Traceback (most recent call last):\n  File \"/var/folders/3r/c204xb_d2h144mm7fky1vf_r0000gn/T/agentic-t2a-normalize-idempotent-emixra_x/verify.py\", line 3, in <module>\n    runpy.run_path('_verify_body.py', run_name='__main__')\n    ~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<frozen runpy>\", line 294, in run_path\n  File \"<frozen runpy>\", line 98, in _run_module_code\n  File \"<frozen runpy>\", line 88, in _run_code\n  File \"_verify_body.py\", line 16, in <module>\n    assert totals == {\"daily_load\": 12, \"other_job\": 1}, totals\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: {'daily load': 3, 'daily_load': 9, 'other job': 1}",
+      "turns": 3,
+      "hit_turn_cap": false,
+      "tool_calls": 2,
+      "bad_tool_calls": 0,
+      "repeat": 0,
+      "bad_tool_detail": [],
+      "text_tool_attempts": 0,
+      "wrote_any_file": false,
+      "files_written": [],
+      "files_read": [
+        "normalize.py"
+      ],
+      "write_without_read": 0,
+      "ran_tests": 0,
+      "load_s": 0.32,
+      "truncated_turns": 0,
+      "tampered_suites": [],
+      "prompt_tokens": 1644,
+      "output_tokens": 88,
+      "wall_s": 6.2,
+      "error": "http 500: XML syntax error on line 3: element <function> closed by </parameter>",
+      "final_sources": {
+        "normalize.py": "\"\"\"Name normalization shared by the parser and the reporter.\"\"\"\n\n\ndef normalize_name(name):\n    \"\"\"Normalize a pipeline name for comparison.\n\n    Names are case-insensitive and may be padded with whitespace. Internal\n    separators are normalized to underscores so \"daily load\", \"daily-load\" and\n    \"Daily_Load\" all compare equal.\n    \"\"\"\n    return name.strip().lower().replace(\"-\", \"_\")\n"
+      }
+    },
+    {
+      "task_id": "t2b-queue-fifo",
+      "tier": 2,
+      "title": "Job queue crashes on equal priorities",
+      "solved": false,
+      "verifier_output": "Traceback (most recent call last):\n  File \"/var/folders/3r/c204xb_d2h144mm7fky1vf_r0000gn/T/agentic-t2b-queue-fifo-tk6eqinn/verify.py\", line 3, in <module>\n    runpy.run_path('_verify_body.py', run_name='__main__')\n    ~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<frozen runpy>\", line 294, in run_path\n  File \"<frozen runpy>\", line 98, in _run_module_code\n  File \"<frozen runpy>\", line 88, in _run_code\n  File \"_verify_body.py\", line 8, in <module>\n    names = drain([(Job(\"first\"), 5), (Job(\"second\"), 5), (Job(\"third\"), 5)])\n  File \"/private/var/folders/3r/c204xb_d2h144mm7fky1vf_r0000gn/T/agentic-t2b-queue-fifo-tk6eqinn/scheduler.py\", line 19, in drain\n    queue.push(job, priority)\n    ~~~~~~~~~~^^^^^^^^^^^^^^^\n  File \"/private/var/folders/3r/c204xb_d2h144mm7fky1vf_r0000gn/T/agentic-t2b-queue-fifo-tk6eqinn/queue_impl.py\", line 19, in push\n    heapq.heappush(self._heap, (priority, job))\n    ~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nTypeError: '<' not supported between instances of 'Job' and 'Job'",
+      "turns": 3,
+      "hit_turn_cap": false,
+      "tool_calls": 2,
+      "bad_tool_calls": 1,
+      "repeat": 0,
+      "bad_tool_detail": [
+        "unknown tool 'read_File'"
+      ],
+      "text_tool_attempts": 0,
+      "wrote_any_file": false,
+      "files_written": [],
+      "files_read": [
+        "queue_impl.py"
+      ],
+      "write_without_read": 0,
+      "ran_tests": 0,
+      "load_s": 0.33,
+      "truncated_turns": 0,
+      "tampered_suites": [],
+      "prompt_tokens": 2938,
+      "output_tokens": 216,
+      "wall_s": 4.3,
+      "error": null,
+      "final_sources": {
+        "queue_impl.py": "\"\"\"In-memory job queue with priority ordering.\"\"\"\n\nimport heapq\nimport itertools\n\n\nclass JobQueue:\n    \"\"\"A priority queue of jobs.\n\n    Lower `priority` values are dequeued first. Jobs pushed with equal priority\n    come out in the order they were pushed (FIFO within a priority).\n    \"\"\"\n\n    def __init__(self):\n        self._heap = []\n        self._counter = itertools.count()\n\n    def push(self, job, priority=5):\n        heapq.heappush(self._heap, (priority, job))\n\n    def pop(self):\n        if not self._heap:\n            return None\n        _, job = heapq.heappop(self._heap)\n        return job\n\n    def __len__(self):\n        return len(self._heap)\n"
+      }
+    },
+    {
+      "task_id": "t3a-ttl-cache-lru",
+      "tier": 3,
+      "title": "Add bounded LRU eviction to the TTL cache",
+      "solved": false,
+      "verifier_output": "Traceback (most recent call last):\n  File \"/var/folders/3r/c204xb_d2h144mm7fky1vf_r0000gn/T/agentic-t3a-ttl-cache-lru-_dndjgmt/verify.py\", line 3, in <module>\n    runpy.run_path('_verify_body.py', run_name='__main__')\n    ~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<frozen runpy>\", line 294, in run_path\n  File \"<frozen runpy>\", line 98, in _run_module_code\n  File \"<frozen runpy>\", line 88, in _run_code\n  File \"_verify_body.py\", line 1, in <module>\n    import test_cache\n  File \"/private/var/folders/3r/c204xb_d2h144mm7fky1vf_r0000gn/T/agentic-t3a-ttl-cache-lru-_dndjgmt/test_cache.py\", line 3, in <module>\n    from cache import TTLCache\n  File \"/private/var/folders/3r/c204xb_d2h144mm7fky1vf_r0000gn/T/agentic-t3a-ttl-cache-lru-_dndjgmt/cache.py\", line 12\n    def __init__(self, ttl, clock, max_ size=None):\n                                        ^^^^\nSyntaxError: invalid syntax",
+      "turns": 6,
+      "hit_turn_cap": false,
+      "tool_calls": 5,
+      "bad_tool_calls": 1,
+      "repeat": 0,
+      "bad_tool_detail": [
+        "unknown tool 'read__file'"
+      ],
+      "text_tool_attempts": 0,
+      "wrote_any_file": true,
+      "files_written": [
+        "cache.py"
+      ],
+      "files_read": [
+        "cache.py"
+      ],
+      "write_without_read": 0,
+      "ran_tests": 2,
+      "load_s": 0.33,
+      "truncated_turns": 0,
+      "tampered_suites": [],
+      "prompt_tokens": 11503,
+      "output_tokens": 2946,
+      "wall_s": 46.3,
+      "error": "http 500: XML syntax error on line 59: unexpected EOF",
+      "final_sources": {
+        "cache.py": "\"\"\"A tiny TTL cache used by the metrics collector.\"\"\"\n\nfrom collections import OrderedDict\n\nclass TTLCache:\n    \"\"\"Mapping with per-entry expiry.\n\n    `clock` is a zero-argument callable returning a monotonic float, injected so\n    tests can control time.\n    \"\"\"\n\n    def __init__(self, ttl, clock, max_ size=None):\n        self.ttl = ttl\n        self.clock = clock\n        self.max_size = max_ size\n        self._data = OrderedDict()\n\n    def set(self, key, value):\n        if self.max_size == 0:\n            return\n        if key in self._data:\n            # Move to end (most recent) and update timestamp.\n            self._data.move_to_end(key)\n            # Replace the tuple with new timestamp.\n            old_val, _ = self._data[key]\n            self._data[key] = (value, self.clock())\n        else:\n            if self.max_size is not None and self.max_size > 0 and len(self._data) >= self.max_size:\n                # Evict least recently used entry.\n                self._data.popitem(last=False)\n            self._data[key] = (value, self.clock())\n\n    def get(self, key, default=None):\n        if self.max_size == 0:\n            return default\n        entry = self._data.get(key)\n        if entry is None:\n            return default\n        value, stamp = entry\n        if self.clock() - stamp >= self.ttl:\n            del self._data[key]\n            return default\n        # Key is present and not expired; mark as recently used.\n        self._data.move_to_end(key)\n        return value\n\n    def __len__(self):\n        return len(self._data)"
+      }
+    },
+    {
+      "task_id": "t3b-router-params",
+      "tier": 3,
+      "title": "Add parameterized routes to the router",
+      "solved": true,
+      "verifier_output": "existing suite OK\nOK",
+      "turns": 6,
+      "hit_turn_cap": false,
+      "tool_calls": 5,
+      "bad_tool_calls": 0,
+      "repeat": 0,
+      "bad_tool_detail": [],
+      "text_tool_attempts": 0,
+      "wrote_any_file": true,
+      "files_written": [
+        "router.py"
+      ],
+      "files_read": [
+        "router.py",
+        "test_router.py"
+      ],
+      "write_without_read": 0,
+      "ran_tests": 2,
+      "load_s": 0.35,
+      "truncated_turns": 0,
+      "tampered_suites": [],
+      "prompt_tokens": 22213,
+      "output_tokens": 5953,
+      "wall_s": 78.1,
+      "error": null,
+      "final_sources": {
+        "router.py": "\"\"\"Minimal path router for the internal status service.\"\"\"\n\nclass Router:\n    \"\"\"Maps URL paths to handlers.\n\n    Routes are registered with `add`, and `resolve` returns  (handler, params)\n    for a path or (None, {}) when nothing matches.\n    \"\"\"\n\n    def __init__(self):\n        self._routes = []\n\n    def add(self, path, handler):\n        self._routes.append((path, handler))\n\n    @staticmethod\n    def _is_static(pattern):\n        return '<' not in pattern\n\n    def resolve(self, path):\n        # Check static routes (no parameters) for exact match first.\n        for pattern, handler in self._routes:\n            if self._is_static(pattern) and pattern == path:\n                return handler, {}\n        # Then try dynamic routes in registration order.\n        path_segments = [s for s in path.split('/') if s]\n        for pattern, handler in self._routes:\n            if not self._is_static(pattern):\n                route_segments = [s for s in pattern.split('/') if s]\n                if len(route_segments) != len(path_segments):\n                    continue\n                params = {}\n                match = True\n                for seg_pat, seg_path in zip(route_segments, path_segments):\n                    if '<' in seg_pat and seg_pat.endswith('>'):\n                        name = seg_pat[1:-1]\n                        # Ensure the captured value is non\u2011empty (segment already non\u2011empty)\n                        params[name] = seg_path\n                    else:\n                        if seg_pat != seg_path:\n                            match = False\n                            break\n                if match:\n                    return handler, params\n        return None, {}"
+      }
+    },
+    {
+      "task_id": "t1a-moving-average",
+      "tier": 1,
+      "title": "Off-by-one in a moving average",
+      "solved": true,
+      "verifier_output": "OK",
+      "turns": 8,
+      "hit_turn_cap": false,
+      "tool_calls": 7,
+      "bad_tool_calls": 3,
+      "repeat": 1,
+      "bad_tool_detail": [
+        "unknown tool 'write_File'",
+        "unknown tool 'read_File'",
+        "unknown tool 'execute_code'"
+      ],
+      "text_tool_attempts": 0,
+      "wrote_any_file": true,
+      "files_written": [
+        "stats.py"
+      ],
+      "files_read": [
+        "stats.py"
+      ],
+      "write_without_read": 0,
+      "ran_tests": 1,
+      "load_s": 0.33,
+      "truncated_turns": 0,
+      "tampered_suites": [],
+      "prompt_tokens": 12838,
+      "output_tokens": 1050,
+      "wall_s": 19.0,
+      "error": null,
+      "final_sources": {
+        "stats.py": "\"\"\"Rolling window statistics for pipeline run durations.\"\"\" \n\n\ndef moving_average(values, window): \n    \"\"\"Return the moving average of `values` over `window` samples. \n\n    The result has one entry per full window, so len(result) ==\n    len(values) - window + 1 for a non-empty input.\n    \n    \"\"\"\n    if window <= 0:\n        raise ValueError(\"window must be positive\")\n    out = []\n    for i in range(len(values) - window + 1):\n        chunk = values[i: i + window]\n        out.append(sum(chunk) / window)\n    return out"
+      }
+    },
+    {
+      "task_id": "t1b-retry-budget",
+      "tier": 1,
+      "title": "Retry budget goes negative",
+      "solved": true,
+      "verifier_output": "OK",
+      "turns": 4,
+      "hit_turn_cap": false,
+      "tool_calls": 3,
+      "bad_tool_calls": 0,
+      "repeat": 1,
+      "bad_tool_detail": [],
+      "text_tool_attempts": 0,
+      "wrote_any_file": true,
+      "files_written": [
+        "budget.py"
+      ],
+      "files_read": [
+        "budget.py"
+      ],
+      "write_without_read": 0,
+      "ran_tests": 1,
+      "load_s": 0.36,
+      "truncated_turns": 0,
+      "tampered_suites": [],
+      "prompt_tokens": 5789,
+      "output_tokens": 1268,
+      "wall_s": 17.9,
+      "error": null,
+      "final_sources": {
+        "budget.py": "\"\"\"Retry- budget accounting for the ingest scheduler.\"\"\"\n\nclass RetryBudget:\n    \"\"\"Tracks how many retries remain for a job.\n\n    `consume` spends one retry and returns True when the spend was allowed.\n    Once the budget is exhausted, further calls return False and must not push\n    `remaining` below zero.\n     \"\"\"\n\n    def __init__(self, limit):\n        self.limit = limit\n        self.used = 0\n\n    @property\n    def remaining(self):\n        return self.limit - self.used\n\n    def consume(self):\n        # Only allow consumption if there is at least one retry left.\n        if self.remaining > 0:\n            self.used += 1\n            return True\n        else:\n            return False\n\n    def reset(self):\n        self.used = 0"
+      }
+    },
+    {
+      "task_id": "t2a-normalize-idempotent",
+      "tier": 2,
+      "title": "Report double-counts a pipeline (cause is not in report.py)",
+      "solved": false,
+      "verifier_output": "Traceback (most recent call last):\n  File \"/var/folders/3r/c204xb_d2h144mm7fky1vf_r0000gn/T/agentic-t2a-normalize-idempotent-_epidvwj/verify.py\", line 3, in <module>\n    runpy.run_path('_verify_body.py', run_name='__main__')\n    ~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<frozen runpy>\", line 294, in run_path\n  File \"<frozen runpy>\", line 98, in _run_module_code\n  File \"<frozen runpy>\", line 88, in _run_code\n  File \"_verify_body.py\", line 16, in <module>\n    assert totals == {\"daily_load\": 12, \"other_job\": 1}, totals\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: {'daily load': 3, 'daily_load': 9, 'other job': 1}",
+      "turns": 2,
+      "hit_turn_cap": false,
+      "tool_calls": 1,
+      "bad_tool_calls": 0,
+      "repeat": 1,
+      "bad_tool_detail": [],
+      "text_tool_attempts": 0,
+      "wrote_any_file": false,
+      "files_written": [],
+      "files_read": [
+        "normalize.py"
+      ],
+      "write_without_read": 0,
+      "ran_tests": 0,
+      "load_s": 0.32,
+      "truncated_turns": 0,
+      "tampered_suites": [],
+      "prompt_tokens": 778,
+      "output_tokens": 151,
+      "wall_s": 4.7,
+      "error": "http 500: XML syntax error on line 3: element <function> closed by </parameter>",
+      "final_sources": {
+        "normalize.py": "\"\"\"Name normalization shared by the parser and the reporter.\"\"\"\n\n\ndef normalize_name(name):\n    \"\"\"Normalize a pipeline name for comparison.\n\n    Names are case-insensitive and may be padded with whitespace. Internal\n    separators are normalized to underscores so \"daily load\", \"daily-load\" and\n    \"Daily_Load\" all compare equal.\n    \"\"\"\n    return name.strip().lower().replace(\"-\", \"_\")\n"
+      }
+    },
+    {
+      "task_id": "t2b-queue-fifo",
+      "tier": 2,
+      "title": "Job queue crashes on equal priorities",
+      "solved": true,
+      "verifier_output": "OK",
+      "turns": 7,
+      "hit_turn_cap": false,
+      "tool_calls": 6,
+      "bad_tool_calls": 2,
+      "repeat": 1,
+      "bad_tool_detail": [
+        "unknown tool 'read_File'",
+        "unknown tool 'write_File'"
+      ],
+      "text_tool_attempts": 0,
+      "wrote_any_file": true,
+      "files_written": [
+        "queue_impl.py"
+      ],
+      "files_read": [
+        "scheduler.py",
+        "queue_impl.py"
+      ],
+      "write_without_read": 0,
+      "ran_tests": 1,
+      "load_s": 0.32,
+      "truncated_turns": 0,
+      "tampered_suites": [],
+      "prompt_tokens": 11227,
+      "output_tokens": 1707,
+      "wall_s": 25.3,
+      "error": null,
+      "final_sources": {
+        "queue_impl.py": "\"\"\"In-memory job queue with priority ordering.\n\n    Lower `priority` values are dequeued first. Jobs pushed with equal priority\n    come out in the order they were pushed  (FIFO within a priority).\n\"\"\"\n\nimport heapq\nimport itertools\n\n\nclass JobQueue:\n    \"\"\"A priority queue of jobs.\"\"\"\n\n    def __init__(self):\n        self._heap = []\n        # itertools.count provides an ever-increasing unique tie-breaker.\n        self._counter = itertools.count()\n\n    def push(self, job, priority=5):\n        # Push a tuple (priority, insertion_order, job) so that equal priorities\n        # are ordered by the order of insertion.\n        heapq.heappush(self._heap, (priority, next(self._counter), job))\n\n    def pop(self):\n        if not self._heap:\n            return None\n        _, _, job = heapq.heappop(self._heap)\n        return job\n\n    def __len__(self):\n        return len(self._heap)"
+      }
+    },
+    {
+      "task_id": "t3a-ttl-cache-lru",
+      "tier": 3,
+      "title": "Add bounded LRU eviction to the TTL cache",
+      "solved": false,
+      "verifier_output": "existing suite OK\nTraceback (most recent call last):\n  File \"/var/folders/3r/c204xb_d2h144mm7fky1vf_r0000gn/T/agentic-t3a-ttl-cache-lru-e8k4x6jf/verify.py\", line 3, in <module>\n    runpy.run_path('_verify_body.py', run_name='__main__')\n    ~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<frozen runpy>\", line 294, in run_path\n  File \"<frozen runpy>\", line 98, in _run_module_code\n  File \"<frozen runpy>\", line 88, in _run_code\n  File \"_verify_body.py\", line 20, in <module>\n    cache = TTLCache(ttl=10, clock=clock, max_size=2)\nTypeError: TTLCache.__init__() got an unexpected keyword argument 'max_size'",
+      "turns": 5,
+      "hit_turn_cap": false,
+      "tool_calls": 4,
+      "bad_tool_calls": 1,
+      "repeat": 1,
+      "bad_tool_detail": [
+        "unknown tool 'read_File'"
+      ],
+      "text_tool_attempts": 0,
+      "wrote_any_file": false,
+      "files_written": [],
+      "files_read": [
+        "cache.py",
+        "test_cache.py"
+      ],
+      "write_without_read": 0,
+      "ran_tests": 1,
+      "load_s": 0.29,
+      "truncated_turns": 0,
+      "tampered_suites": [],
+      "prompt_tokens": 12835,
+      "output_tokens": 3076,
+      "wall_s": 41.1,
+      "error": null,
+      "final_sources": {
+        "cache.py": "\"\"\"A tiny TTL cache used by the metrics collector.\"\"\"\n\n\nclass TTLCache:\n    \"\"\"Mapping with per-entry expiry.\n\n    `clock` is a zero-argument callable returning a monotonic float, injected so\n    tests can control time.\n    \"\"\"\n\n    def __init__(self, ttl, clock):\n        self.ttl = ttl\n        self.clock = clock\n        self._data = {}\n\n    def set(self, key, value):\n        self._data[key] = (value, self.clock())\n\n    def get(self, key, default=None):\n        entry = self._data.get(key)\n        if entry is None:\n            return default\n        value, stamp = entry\n        if self.clock() - stamp >= self.ttl:\n            del self._data[key]\n            return default\n        return value\n\n    def __len__(self):\n        return len(self._data)\n"
+      }
+    },
+    {
+      "task_id": "t3b-router-params",
+      "tier": 3,
+      "title": "Add parameterized routes to the router",
+      "solved": false,
+      "verifier_output": "existing suite OK\nTraceback (most recent call last):\n  File \"/var/folders/3r/c204xb_d2h144mm7fky1vf_r0000gn/T/agentic-t3b-router-params-yao_j9zb/verify.py\", line 3, in <module>\n    runpy.run_path('_verify_body.py', run_name='__main__')\n    ~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<frozen runpy>\", line 294, in run_path\n  File \"<frozen runpy>\", line 98, in _run_module_code\n  File \"<frozen runpy>\", line 88, in _run_code\n  File \"_verify_body.py\", line 15, in <module>\n    assert handler == \"job_detail\", handler\n           ^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: None",
+      "turns": 2,
+      "hit_turn_cap": false,
+      "tool_calls": 1,
+      "bad_tool_calls": 0,
+      "repeat": 1,
+      "bad_tool_detail": [],
+      "text_tool_attempts": 0,
+      "wrote_any_file": false,
+      "files_written": [],
+      "files_read": [
+        "test_router.py"
+      ],
+      "write_without_read": 0,
+      "ran_tests": 0,
+      "load_s": 0.31,
+      "truncated_turns": 0,
+      "tampered_suites": [],
+      "prompt_tokens": 791,
+      "output_tokens": 1587,
+      "wall_s": 25.3,
+      "error": "http 500: XML syntax error on line 3: element <function> closed by </parameter>",
+      "final_sources": {
+        "router.py": "\"\"\"Minimal path router for the internal status service.\"\"\"\n\n\nclass Router:\n    \"\"\"Maps URL paths to handlers.\n\n    Routes are registered with `add`, and `resolve` returns (handler, params)\n    for a path or (None, {}) when nothing matches.\n    \"\"\"\n\n    def __init__(self):\n        self._routes = []\n\n    def add(self, path, handler):\n        self._routes.append((path, handler))\n\n    def resolve(self, path):\n        for route, handler in self._routes:\n            if route == path:\n                return handler, {}\n        return None, {}\n"
+      }
+    },
+    {
+      "task_id": "t1a-moving-average",
+      "tier": 1,
+      "title": "Off-by-one in a moving average",
+      "solved": true,
+      "verifier_output": "OK",
+      "turns": 5,
+      "hit_turn_cap": false,
+      "tool_calls": 4,
+      "bad_tool_calls": 1,
+      "repeat": 2,
+      "bad_tool_detail": [
+        "unknown tool 'write_File'"
+      ],
+      "text_tool_attempts": 0,
+      "wrote_any_file": true,
+      "files_written": [
+        "stats.py"
+      ],
+      "files_read": [
+        "stats.py"
+      ],
+      "write_without_read": 0,
+      "ran_tests": 1,
+      "load_s": 0.39,
+      "truncated_turns": 0,
+      "tampered_suites": [],
+      "prompt_tokens": 6329,
+      "output_tokens": 757,
+      "wall_s": 12.4,
+      "error": null,
+      "final_sources": {
+        "stats.py": "\"\"\"Rolling window statistics for pipeline run durations.\"\"\"\n\n\ndef moving_average(values, window):\n    \"\"\"Return the moving average of `values` over `window` samples.\n\n    The result has one entry per full window, so len(result) ==\n    len(values) - window + 1 for a non-empty input.\n    \n    \"\"\"\n    if window <= 0:\n        raise ValueError(\"window must be positive\")\n    out = []\n    for i in range(len(values) - window + 1):\n        chunk = values[i: i + window]\n        out.append(sum(chunk) / window)\n    return out"
+      }
+    },
+    {
+      "task_id": "t1b-retry-budget",
+      "tier": 1,
+      "title": "Retry budget goes negative",
+      "solved": true,
+      "verifier_output": "OK",
+      "turns": 5,
+      "hit_turn_cap": false,
+      "tool_calls": 4,
+      "bad_tool_calls": 1,
+      "repeat": 2,
+      "bad_tool_detail": [
+        "unknown tool 'write_File'"
+      ],
+      "text_tool_attempts": 0,
+      "wrote_any_file": true,
+      "files_written": [
+        "budget.py"
+      ],
+      "files_read": [
+        "budget.py"
+      ],
+      "write_without_read": 0,
+      "ran_tests": 1,
+      "load_s": 0.31,
+      "truncated_turns": 0,
+      "tampered_suites": [],
+      "prompt_tokens": 8570,
+      "output_tokens": 1384,
+      "wall_s": 19.8,
+      "error": null,
+      "final_sources": {
+        "budget.py": "\"\"\"Retry- budget accounting for the ingest scheduler.\"\"\" \n\nclass RetryBudget: \n    \"\"\"Tracks how many retries remain for a job. \n\n    `consume` spends one retry and returns True when the spend was allowed.\n    Once the budget is exhausted, further calls return False and must not push\n    `remaining` below zero. \n     \"\"\" \n\n    def __init__(self, limit): \n        self.limit = limit \n        self.used = 0 \n\n    @property \n    def remaining(self): \n        return self.limit - self.used \n\n    def consume(self): \n        if self.used < self.limit: \n            self.used += 1 \n            return True \n        else: \n            return False \n\n    def reset(self): \n        self.used = 0 "
+      }
+    },
+    {
+      "task_id": "t2a-normalize-idempotent",
+      "tier": 2,
+      "title": "Report double-counts a pipeline (cause is not in report.py)",
+      "solved": false,
+      "verifier_output": "Traceback (most recent call last):\n  File \"/var/folders/3r/c204xb_d2h144mm7fky1vf_r0000gn/T/agentic-t2a-normalize-idempotent-wa10ic8l/verify.py\", line 3, in <module>\n    runpy.run_path('_verify_body.py', run_name='__main__')\n    ~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<frozen runpy>\", line 294, in run_path\n  File \"<frozen runpy>\", line 98, in _run_module_code\n  File \"<frozen runpy>\", line 88, in _run_code\n  File \"_verify_body.py\", line 16, in <module>\n    assert totals == {\"daily_load\": 12, \"other_job\": 1}, totals\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: {'daily load': 3, 'daily_load': 9, 'other job': 1}",
+      "turns": 3,
+      "hit_turn_cap": false,
+      "tool_calls": 2,
+      "bad_tool_calls": 2,
+      "repeat": 2,
+      "bad_tool_detail": [
+        "unknown tool 'read_File'",
+        "unknown tool 'read_File'"
+      ],
+      "text_tool_attempts": 0,
+      "wrote_any_file": false,
+      "files_written": [],
+      "files_read": [],
+      "write_without_read": 0,
+      "ran_tests": 0,
+      "load_s": 0.32,
+      "truncated_turns": 0,
+      "tampered_suites": [],
+      "prompt_tokens": 3063,
+      "output_tokens": 473,
+      "wall_s": 7.2,
+      "error": null,
+      "final_sources": {
+        "normalize.py": "\"\"\"Name normalization shared by the parser and the reporter.\"\"\"\n\n\ndef normalize_name(name):\n    \"\"\"Normalize a pipeline name for comparison.\n\n    Names are case-insensitive and may be padded with whitespace. Internal\n    separators are normalized to underscores so \"daily load\", \"daily-load\" and\n    \"Daily_Load\" all compare equal.\n    \"\"\"\n    return name.strip().lower().replace(\"-\", \"_\")\n"
+      }
+    },
+    {
+      "task_id": "t2b-queue-fifo",
+      "tier": 2,
+      "title": "Job queue crashes on equal priorities",
+      "solved": false,
+      "verifier_output": "Traceback (most recent call last):\n  File \"/var/folders/3r/c204xb_d2h144mm7fky1vf_r0000gn/T/agentic-t2b-queue-fifo-n8fbybwf/verify.py\", line 3, in <module>\n    runpy.run_path('_verify_body.py', run_name='__main__')\n    ~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<frozen runpy>\", line 294, in run_path\n  File \"<frozen runpy>\", line 98, in _run_module_code\n  File \"<frozen runpy>\", line 88, in _run_code\n  File \"_verify_body.py\", line 8, in <module>\n    names = drain([(Job(\"first\"), 5), (Job(\"second\"), 5), (Job(\"third\"), 5)])\n  File \"/private/var/folders/3r/c204xb_d2h144mm7fky1vf_r0000gn/T/agentic-t2b-queue-fifo-n8fbybwf/scheduler.py\", line 19, in drain\n    queue.push(job, priority)\n    ~~~~~~~~~~^^^^^^^^^^^^^^^\n  File \"/private/var/folders/3r/c204xb_d2h144mm7fky1vf_r0000gn/T/agentic-t2b-queue-fifo-n8fbybwf/queue_impl.py\", line 19, in push\n    heapq.heappush(self._heap, (priority, job))\n    ~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nTypeError: '<' not supported between instances of 'Job' and 'Job'",
+      "turns": 5,
+      "hit_turn_cap": false,
+      "tool_calls": 4,
+      "bad_tool_calls": 3,
+      "repeat": 2,
+      "bad_tool_detail": [
+        "unknown tool 'read_File'",
+        "unknown tool 'read_File'",
+        "unknown tool 'read_File'"
+      ],
+      "text_tool_attempts": 0,
+      "wrote_any_file": false,
+      "files_written": [],
+      "files_read": [
+        "queue_impl.py"
+      ],
+      "write_without_read": 0,
+      "ran_tests": 0,
+      "load_s": 0.3,
+      "truncated_turns": 0,
+      "tampered_suites": [],
+      "prompt_tokens": 5194,
+      "output_tokens": 225,
+      "wall_s": 5.8,
+      "error": null,
+      "final_sources": {
+        "queue_impl.py": "\"\"\"In-memory job queue with priority ordering.\"\"\"\n\nimport heapq\nimport itertools\n\n\nclass JobQueue:\n    \"\"\"A priority queue of jobs.\n\n    Lower `priority` values are dequeued first. Jobs pushed with equal priority\n    come out in the order they were pushed (FIFO within a priority).\n    \"\"\"\n\n    def __init__(self):\n        self._heap = []\n        self._counter = itertools.count()\n\n    def push(self, job, priority=5):\n        heapq.heappush(self._heap, (priority, job))\n\n    def pop(self):\n        if not self._heap:\n            return None\n        _, job = heapq.heappop(self._heap)\n        return job\n\n    def __len__(self):\n        return len(self._heap)\n"
+      }
+    },
+    {
+      "task_id": "t3a-ttl-cache-lru",
+      "tier": 3,
+      "title": "Add bounded LRU eviction to the TTL cache",
+      "solved": false,
+      "verifier_output": "existing suite OK\nTraceback (most recent call last):\n  File \"/var/folders/3r/c204xb_d2h144mm7fky1vf_r0000gn/T/agentic-t3a-ttl-cache-lru-pn68e3g4/verify.py\", line 3, in <module>\n    runpy.run_path('_verify_body.py', run_name='__main__')\n    ~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<frozen runpy>\", line 294, in run_path\n  File \"<frozen runpy>\", line 98, in _run_module_code\n  File \"<frozen runpy>\", line 88, in _run_code\n  File \"_verify_body.py\", line 20, in <module>\n    cache = TTLCache(ttl=10, clock=clock, max_size=2)\nTypeError: TTLCache.__init__() got an unexpected keyword argument 'max_size'. Did you mean 'max_Size'?",
+      "turns": 6,
+      "hit_turn_cap": false,
+      "tool_calls": 5,
+      "bad_tool_calls": 1,
+      "repeat": 2,
+      "bad_tool_detail": [
+        "unknown tool 'read_File'"
+      ],
+      "text_tool_attempts": 0,
+      "wrote_any_file": true,
+      "files_written": [
+        "cache.py"
+      ],
+      "files_read": [
+        "cache.py"
+      ],
+      "write_without_read": 0,
+      "ran_tests": 2,
+      "load_s": 0.31,
+      "truncated_turns": 0,
+      "tampered_suites": [],
+      "prompt_tokens": 17727,
+      "output_tokens": 4348,
+      "wall_s": 58.9,
+      "error": null,
+      "final_sources": {
+        "cache.py": "\"\"\"A tiny TTL cache used by the metrics collector.\"\"\"\n\nfrom collections import OrderedDict\n\nclass TTLCache:\n    \"\"\"Mapping with per-entry expiry.\n\n    `clock` is a zero-argument callable returning a monotonic float, injected so\n    tests can control time.\n    \"\"\"\n\n    def __init__(self, ttl, clock, max_Size=None):\n        self.ttl = ttl\n        self.clock = clock\n        self.max_Size = max_Size  # None means unlimited size\n        self._data = OrderedDict()\n\n    def set(self, key, value):\n        if self.max_Size == 0:\n            return\n        stamp = self.clock()\n        if key in self._data:\n            # update existing entry and mark as recently used\n            val, _ = self._data[key]\n            self._data.move_to_end(key)\n            self._data[key] = (value, stamp)\n        else:\n            if self.max_Size is not None and len(self._data) >= self.max_Size:\n                # evict least recently used entry\n                self._data.popitem(last=False)\n            self._data[key] = (value, stamp)\n\n    def get(self, key, default=None):\n        entry = self._data.get(key)\n        if entry is None:\n            return default\n        value, stamp = entry\n        now = self.clock()\n        if now - stamp >= self.ttl:\n            del self._data[key]\n            return default\n        # mark as recently used\n        self._data.move_to_end(key)\n        return value\n\n    def __len__(self):\n        return len(self._data)"
+      }
+    },
+    {
+      "task_id": "t3b-router-params",
+      "tier": 3,
+      "title": "Add parameterized routes to the router",
+      "solved": false,
+      "verifier_output": "existing suite OK\nTraceback (most recent call last):\n  File \"/var/folders/3r/c204xb_d2h144mm7fky1vf_r0000gn/T/agentic-t3b-router-params-ygn_h755/verify.py\", line 3, in <module>\n    runpy.run_path('_verify_body.py', run_name='__main__')\n    ~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<frozen runpy>\", line 294, in run_path\n  File \"<frozen runpy>\", line 98, in _run_module_code\n  File \"<frozen runpy>\", line 88, in _run_code\n  File \"_verify_body.py\", line 15, in <module>\n    assert handler == \"job_detail\", handler\n           ^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: None",
+      "turns": 7,
+      "hit_turn_cap": false,
+      "tool_calls": 6,
+      "bad_tool_calls": 4,
+      "repeat": 2,
+      "bad_tool_detail": [
+        "unknown tool 'write_ File'",
+        "unknown tool 'write_ file'",
+        "unknown tool 'write_ file'",
+        "unknown tool 'write_ file'"
+      ],
+      "text_tool_attempts": 0,
+      "wrote_any_file": false,
+      "files_written": [],
+      "files_read": [
+        "router.py",
+        "test_router.py"
+      ],
+      "write_without_read": 0,
+      "ran_tests": 0,
+      "load_s": 0.33,
+      "truncated_turns": 0,
+      "tampered_suites": [],
+      "prompt_tokens": 47470,
+      "output_tokens": 8558,
+      "wall_s": 113.3,
+      "error": null,
+      "final_sources": {
+        "router.py": "\"\"\"Minimal path router for the internal status service.\"\"\"\n\n\nclass Router:\n    \"\"\"Maps URL paths to handlers.\n\n    Routes are registered with `add`, and `resolve` returns (handler, params)\n    for a path or (None, {}) when nothing matches.\n    \"\"\"\n\n    def __init__(self):\n        self._routes = []\n\n    def add(self, path, handler):\n        self._routes.append((path, handler))\n\n    def resolve(self, path):\n        for route, handler in self._routes:\n            if route == path:\n                return handler, {}\n        return None, {}\n"
+      }
+    }
+  ]
+}

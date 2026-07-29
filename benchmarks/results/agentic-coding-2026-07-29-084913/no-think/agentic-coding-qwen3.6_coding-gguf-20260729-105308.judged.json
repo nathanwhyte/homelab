@@ -1,0 +1,239 @@
+{
+  "model": "qwen3.6:coding-gguf",
+  "judge": "qwen3.6:subagent",
+  "judge_caveat": "advisory only; local-judge precision collapsed out-of-sample in TASK-1169, and the default judge is a sibling of tags under test",
+  "forced": false,
+  "source_file": "no-think/agentic-coding-qwen3.6_coding-gguf-20260729-105308.json",
+  "source_sha256": "20aa0a519ba4330a",
+  "source_provenance": {
+    "model": "qwen3.6:coding-gguf",
+    "model_digest": "86bb2e39ad6e2af94b21bca971e2f1f877563c00bae80ead3a3feac07848eea6",
+    "model_modified_at": "2026-07-28T21:33:59.984315912-05:00",
+    "details": {
+      "family": "qwen35moe",
+      "parameter_size": "36.0B",
+      "quantization_level": "Q4_K_M"
+    },
+    "capabilities": [
+      "completion",
+      "vision",
+      "tools",
+      "thinking"
+    ],
+    "effective_parameters": {
+      "min_p": "0",
+      "presence_penalty": "0",
+      "repeat_penalty": "1",
+      "temperature": "0.6",
+      "top_k": "20",
+      "top_p": "0.95"
+    },
+    "ollama_version": "0.32.5",
+    "harness_sha256": "52144c13a7fb561b",
+    "fixtures_sha256": "c0a9a54b28ba19d3",
+    "host": "pop.local",
+    "python": "3.14.6",
+    "started_at": "2026-07-29T10:49:06-0500"
+  },
+  "judge_provenance": {
+    "judge": "qwen3.6:subagent",
+    "judge_digest": "f44222e3b0ef8a27b0a898998282a52a2ac26a358b272bc623b792722a07ba4a",
+    "effective_parameters": {
+      "top_k": "1",
+      "top_p": "0.95",
+      "min_p": "0",
+      "num_ctx": "32768",
+      "num_predict": "128",
+      "presence_penalty": "0",
+      "repeat_penalty": "1",
+      "temperature": "0"
+    },
+    "request_options": {
+      "temperature": 0,
+      "num_ctx": 16384,
+      "num_predict": 256,
+      "seed": 42
+    },
+    "ollama_version": "0.32.5",
+    "judged_at": "2026-07-29T10:54:09-0500"
+  },
+  "means": {
+    "minimality": 4.71,
+    "root_cause": 5,
+    "contract_kept": 5
+  },
+  "unparseable": 0,
+  "transport_errors": [],
+  "judged": [
+    {
+      "task_id": "t1a-moving-average",
+      "tier": 1,
+      "repeat": 0,
+      "file": "stats.py",
+      "minimality": 5,
+      "root_cause": 5,
+      "contract_kept": 5,
+      "note": "Minimal fix: corrected loop range to match docstring contract."
+    },
+    {
+      "task_id": "t1b-retry-budget",
+      "tier": 1,
+      "repeat": 0,
+      "file": "budget.py",
+      "minimality": 5,
+      "root_cause": 5,
+      "contract_kept": 5,
+      "note": "Minimal, correct fix preventing negative remaining by checking before incrementing."
+    },
+    {
+      "task_id": "t2a-normalize-idempotent",
+      "tier": 2,
+      "repeat": 0,
+      "file": "normalize.py",
+      "minimality": 5,
+      "root_cause": 5,
+      "contract_kept": 5,
+      "note": "Minimal fix addressing the root cause while preserving idempotency and contract."
+    },
+    {
+      "task_id": "t2b-queue-fifo",
+      "tier": 2,
+      "repeat": 0,
+      "file": "queue_impl.py",
+      "minimality": 5,
+      "root_cause": 5,
+      "contract_kept": 5,
+      "note": "Minimal, correct fix using counter for stable sorting without altering API."
+    },
+    {
+      "task_id": "t3a-ttl-cache-lru",
+      "tier": 3,
+      "repeat": 0,
+      "file": "cache.py",
+      "minimality": 4,
+      "root_cause": 5,
+      "contract_kept": 5,
+      "note": "Clean implementation using OrderedDict. Minimal changes, correct logic, no side effects."
+    },
+    {
+      "task_id": "t3b-router-params",
+      "tier": 3,
+      "repeat": 0,
+      "file": "router.py",
+      "minimality": 4,
+      "root_cause": 5,
+      "contract_kept": 5,
+      "note": "Clean, minimal implementation of dynamic routing with correct static priority logic."
+    },
+    {
+      "task_id": "t1a-moving-average",
+      "tier": 1,
+      "repeat": 1,
+      "file": "stats.py",
+      "minimality": 5,
+      "root_cause": 5,
+      "contract_kept": 5,
+      "note": "Minimal fix: corrected loop range to match docstring contract."
+    },
+    {
+      "task_id": "t1b-retry-budget",
+      "tier": 1,
+      "repeat": 1,
+      "file": "budget.py",
+      "minimality": 5,
+      "root_cause": 5,
+      "contract_kept": 5,
+      "note": "Minimal, correct fix preventing negative remaining by checking before incrementing."
+    },
+    {
+      "task_id": "t2a-normalize-idempotent",
+      "tier": 2,
+      "repeat": 1,
+      "file": "normalize.py",
+      "minimality": 5,
+      "root_cause": 5,
+      "contract_kept": 5,
+      "note": "Minimal fix addressing the root cause while preserving idempotency and contract."
+    },
+    {
+      "task_id": "t2b-queue-fifo",
+      "tier": 2,
+      "repeat": 1,
+      "file": "queue_impl.py",
+      "minimality": 5,
+      "root_cause": 5,
+      "contract_kept": 5,
+      "note": "Minimal, correct fix using counter for stable sorting without altering API."
+    },
+    {
+      "task_id": "t3a-ttl-cache-lru",
+      "tier": 3,
+      "repeat": 1,
+      "file": "cache.py",
+      "minimality": 4,
+      "root_cause": 5,
+      "contract_kept": 5,
+      "note": "Clean implementation using OrderedDict for LRU eviction. Minimal changes to existing logic."
+    },
+    {
+      "task_id": "t3b-router-params",
+      "tier": 3,
+      "repeat": 1,
+      "file": "router.py",
+      "minimality": 4,
+      "root_cause": 5,
+      "contract_kept": 5,
+      "note": "Clean, minimal implementation using helper methods. No unnecessary changes."
+    },
+    {
+      "task_id": "t1a-moving-average",
+      "tier": 1,
+      "repeat": 2,
+      "file": "stats.py",
+      "minimality": 5,
+      "root_cause": 5,
+      "contract_kept": 5,
+      "note": "Minimal fix: corrected loop range to match docstring contract."
+    },
+    {
+      "task_id": "t1b-retry-budget",
+      "tier": 1,
+      "repeat": 2,
+      "file": "budget.py",
+      "minimality": 5,
+      "root_cause": 5,
+      "contract_kept": 5,
+      "note": "Minimal, correct fix preventing negative remaining by checking before incrementing."
+    },
+    {
+      "task_id": "t2a-normalize-idempotent",
+      "tier": 2,
+      "repeat": 2,
+      "file": "normalize.py",
+      "minimality": 5,
+      "root_cause": 5,
+      "contract_kept": 5,
+      "note": "Minimal fix addressing the root cause while preserving idempotency and contract."
+    },
+    {
+      "task_id": "t2b-queue-fifo",
+      "tier": 2,
+      "repeat": 2,
+      "file": "queue_impl.py",
+      "minimality": 5,
+      "root_cause": 5,
+      "contract_kept": 5,
+      "note": "Minimal, correct fix using counter for stable sorting without altering API."
+    },
+    {
+      "task_id": "t3a-ttl-cache-lru",
+      "tier": 3,
+      "repeat": 2,
+      "file": "cache.py",
+      "minimality": 4,
+      "root_cause": 5,
+      "contract_kept": 5,
+      "note": "Clean implementation using OrderedDict for LRU eviction. Minimal changes to existing logic."
+    }
+  ]
+}
