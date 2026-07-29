@@ -34,6 +34,15 @@ Anti-cheat measures, because a scored agent loop invites shortcuts:
     the model invented.
   * Writes are confined to the sandbox by basename, and `verify.py` is reserved.
 
+⚠ OUTPUT BUDGET. `--num-predict` defaults to 16384, matching the 2026-07-28
+matrix, and the reason is the same one that run recorded: at 2048 "the cap, not
+the model, was setting the numbers". A first pass here at 4096 reproduced it —
+`gemma4:coding-12b` failed all three of T2a/T3a/T3b with exactly one truncated
+turn each, because a thinking model spends most of its budget reasoning and then
+still has to emit an entire file through `write_file`. Any run where
+`truncated_turns` is nonzero on a failed task is suspect: raise the cap and rerun
+before reading anything into that model's score.
+
 Reproducibility: every run records the seed, the resolved model digest, the
 effective sampling parameters as the server reports them, the Ollama version, and
 SHA-256 hashes of this harness and the fixture module. At temperature 0.6-1.0 a
@@ -613,10 +622,11 @@ def main() -> int:
     ap.add_argument(
         "--num-predict",
         type=int,
-        default=4096,
+        default=16384,
         help=(
-            "per-turn output cap. Unbounded generation lets one rambling model "
-            "consume the whole matrix; 4096 is ~10x a normal tool-call turn here"
+            "per-turn output cap. Must be generous enough that the cap never "
+            "sets the score: a thinking model spends most of a turn reasoning "
+            "and then still has to emit a whole file through write_file"
         ),
     )
     ap.add_argument("--timeout", type=int, default=900, help="per-request seconds")
