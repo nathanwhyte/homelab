@@ -45,6 +45,7 @@ agents:
     kwargs:
       temperature: 1.0 # pin — unset is NOT forwarded (Harbor 0.20.0 temperature=None)
       reasoning_effort: none # -> Ollama top-level think:false
+      record_terminal_session: false # BUG-1068: keep live recording.cast out of the agent-visible feedback path
       model_info: &local_model_info
         max_tokens: 131072
         max_input_tokens: 122880
@@ -56,6 +57,7 @@ agents:
     kwargs:
       temperature: 1.0
       reasoning_effort: none
+      record_terminal_session: false
       model_info: *local_model_info
 
 datasets:

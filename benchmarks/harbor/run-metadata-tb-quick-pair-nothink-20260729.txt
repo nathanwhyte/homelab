@@ -25,20 +25,20 @@ findings:
 - Parser warnings ~1/turn on BOTH quants (mxfp8 20/16, nvfp4 26/12 per trial)
   — quant-independent gemma4 prose-wrapping, zero failed extractions; NOT the
   INFO-1127 MLX format-drop (Terminus-2 never requests response_format).
-- regex-log CORRECTION (2026-07-29 forensics; root cause RE-CORRECTED same
-  day, see BUG-1068): the 4 nothink 0s are NOT one quality miss — four
-  distinct causes: (t1 mxfp8) unbalanced-paren syntax error; (t2 nvfp4)
-  regex VERIFIED CORRECT but /app/regex.txt never landed; (t3 mxfp8) same
-  never-executed write PLUS a wrong-position IP lookahead; (t4 nvfp4)
-  3-digit day typo + lazy quantifier (no last-date mechanism).
-  t2/t3 root cause is a TERMINAL-READINESS RACE, not keystroke transport
-  loss: Harbor 0.20.0 Terminus-2 sends commands with block=False (a minimum
-  sleep, no prompt/exit confirmation), so commands can arrive while the
-  shell is still busy and never execute. t3's "backslash corruption" was a
-  self-amplifying feedback loop from `cat`-ing the live agent-visible
-  recording.cast, not escaping damage — the commands themselves arrived
-  intact (252/255 chars, far below the ~16 KB paste-buffer fallback).
-  The earlier backslash/heredoc framing is disproven. nvfp4 t2 still SOLVED
-  the task and lost the reward — to the readiness race. Tracked: BUG-1068
-  (investigating); local mitigation on homelab branch
-  fix/terminus-command-readiness (live recording disabled in configs).
+- regex-log RE-CORRECTION (2026-07-29 prompt/foreground re-audit; supersedes
+  the earlier keystroke-transport framing, now disproven): the 4 nothink 0s
+  are NOT one quality miss — four distinct causes: (t1 mxfp8)
+  unbalanced-paren syntax error; (t2 nvfp4) regex VERIFIED CORRECT but its
+  write was sent while a recursive grep/find still owned the foreground;
+  (t3 mxfp8) the agent cat-ed its own live recording.cast, creating a
+  self-amplifying stream, then sent every later command without a shell
+  prompt — plus an independent wrong-position IP lookahead; (t4 nvfp4)
+  3-digit day typo + lazy quantifier (no last-date mechanism). t2/t3 expose
+  a Terminus-2 command-readiness defect, not backslash corruption: Harbor
+  0.20.0 sends commands block=False after the model-selected duration, and
+  both ~250-character writes are intact in ATIF (far below the ~16 KB
+  paste-buffer fallback) — they never executed because the shell was not
+  ready. nvfp4 t2 still SOLVED the task and lost the reward to the race.
+  Tracked: BUG-1068 (investigating — upstream completion race + live-log
+  feedback trigger); local mitigation (live recording disabled in the four
+  configs) merged to main via fix/terminus-command-readiness.
