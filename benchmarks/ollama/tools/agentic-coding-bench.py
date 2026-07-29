@@ -81,7 +81,7 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from coding_tasks import CodingTask, tasks_for_tiers
+from coding_tasks import TASKS, CodingTask, tasks_for_tiers
 
 DEFAULT_BASE = "http://localhost:11434"
 
@@ -175,9 +175,11 @@ class TaskResult:
     wrote_any_file: bool = False
     files_written: list[str] = field(default_factory=list)
     files_read: list[str] = field(default_factory=list)
-    # Writes to a file the model never read. T2 is described as requiring
-    # cross-file investigation; without this the claim is unfalsifiable, since a
-    # model can solve T2a by writing the right normalize.py from the prompt alone.
+    # Files the model wrote without ever having read them — counted once per
+    # file (matching files_written semantics), not once per write event. T2 is
+    # described as requiring cross-file investigation; without this the claim is
+    # unfalsifiable, since a model can solve T2a by writing the right
+    # normalize.py from the prompt alone.
     write_without_read: int = 0
     ran_tests: int = 0
     # Server-reported model load time on the first request of the task. Cold load
@@ -349,13 +351,27 @@ def _apply_rlimits() -> None:
             pass
 
 
-def run_python(path: Path, script: str, timeout: int = 60) -> tuple[int, str]:
+def run_python(
+    path: Path,
+    script: str,
+    timeout: int = 60,
+    stdin_data: str | None = None,
+    capture_limit: int | None = 2000,
+) -> tuple[int, str]:
     """Run a python script inside the sandbox and return (returncode, output).
 
     Every child runs in its own session (`os.setsid`) so that a timeout kills the
     whole process group rather than only the direct child — code under test can
     spawn workers, and `subprocess.run`'s own timeout leaves those orphaned and
-    running after this function returns.
+    running after this function returns. A grandchild that itself calls
+    `setsid()` starts a NEW session outside this group and can outlive the run;
+    `killpg` cannot reach it, and defending against that is out of the
+    non-adversarial threat model here.
+
+    `stdin_data`, when set, is piped to the child's stdin (`run_verifier` uses
+    this to hand over the completion token without it ever touching the sandbox
+    filesystem). `capture_limit` bounds the returned output tail; pass None for
+    the full untruncated output when the caller must search it.
     """
     script_path = path / script
     # -s drops user site-packages; -E ignores inherited PYTHON* variables. NOT -I:
@@ -366,6 +382,7 @@ def run_python(path: Path, script: str, timeout: int = 60) -> tuple[int, str]:
     proc = subprocess.Popen(
         argv,
         cwd=path,
+        stdin=subprocess.PIPE if stdin_data is not None else None,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
@@ -374,7 +391,7 @@ def run_python(path: Path, script: str, timeout: int = 60) -> tuple[int, str]:
         start_new_session=True,
     )
     try:
-        stdout, stderr = proc.communicate(timeout=timeout)
+        stdout, stderr = proc.communicate(input=stdin_data, timeout=timeout)
         code = proc.returncode
     except subprocess.TimeoutExpired:
         _kill_group(proc)
@@ -384,8 +401,8 @@ def run_python(path: Path, script: str, timeout: int = 60) -> tuple[int, str]:
     finally:
         # Even on a clean exit, reap anything the script detached into the group.
         _kill_group(proc)
-    out = (stdout or "") + (stderr or "")
-    return code, out.strip()[-2000:]
+    out = ((stdout or "") + (stderr or "")).strip()
+    return code, out if capture_limit is None else out[-capture_limit:]
 
 
 def _kill_group(proc: subprocess.Popen) -> None:
@@ -410,16 +427,35 @@ def run_verifier(
     The token is random per invocation precisely because a fixed sentinel (the
     fixtures all end in `print("OK")`) is one the model could simply print
     itself.
+
+    The token never touches the sandbox filesystem: it is piped to the wrapper
+    over stdin, so `open('verify.py').read()` from in-sandbox code yields the
+    wrapper's source, not the token value. Residual vector, accepted: a target
+    that walks stack frames or `gc` for a `VERIFIED-` string while the wrapper
+    runs could still recover it — that is out of the non-adversarial threat
+    model, consistent with the sandbox honesty note above. The wrapper consumes
+    only the first stdin line; a verifier body that reads stdin sees EOF (none
+    of the fixtures do).
     """
     token = f"VERIFIED-{uuid.uuid4().hex}"
     (sandbox / VERIFIER_BODY).write_text(verifier_source)
     (sandbox / VERIFIER_ENTRY).write_text(
         "import runpy, sys\n"
+        "tok = sys.stdin.readline().strip()\n"
         f"runpy.run_path({VERIFIER_BODY!r}, run_name='__main__')\n"
-        f"sys.stdout.write({token!r})\n"
+        "sys.stdout.write(tok)\n"
         "sys.stdout.flush()\n"
     )
-    code, out = run_python(sandbox, VERIFIER_ENTRY, timeout=timeout)
+    # The token check must run on the UNTRUNCATED output: with the default
+    # 2000-char tail, >~2 KB of verifier stderr sliced the token out and flipped
+    # a real pass to a FAIL. Truncation is applied to the display text below.
+    code, out = run_python(
+        sandbox,
+        VERIFIER_ENTRY,
+        timeout=timeout,
+        stdin_data=token + "\n",
+        capture_limit=None,
+    )
     completed = code == 0 and token in out
     if code == 0 and token not in out:
         out = (
@@ -460,6 +496,15 @@ def probe_sandbox(strict: bool = False) -> str:
             "    print('NETWORK-REACHABLE')\n"
             "except Exception:\n"
             "    print('network-blocked')\n"
+            # Loopback is probed separately because it is the self-help case
+            # this design actually worries about: the Ollama server the harness
+            # is scoring listens on localhost:11434, and "external addresses are
+            # blocked" does not by itself prove the loopback path is.
+            "try:\n"
+            "    socket.create_connection(('127.0.0.1', 11434), timeout=2)\n"
+            "    print('LOOPBACK-REACHABLE')\n"
+            "except Exception:\n"
+            "    print('loopback-blocked')\n"
             "try:\n"
             f"    print('READ-ESCAPED:' + pathlib.Path({str(secret)!r}).read_text())\n"
             "except Exception:\n"
@@ -474,6 +519,7 @@ def probe_sandbox(strict: bool = False) -> str:
         if (
             code != 0
             or "network-blocked" not in out
+            or "loopback-blocked" not in out
             or "outside-write-blocked" not in out
         ):
             _SANDBOX_AVAILABLE = False
@@ -489,6 +535,11 @@ def probe_sandbox(strict: bool = False) -> str:
 
 VERIFIER_ENTRY = "verify.py"
 VERIFIER_BODY = "_verify_body.py"
+# write_file content cap. The tool runs in the harness's own process, which is
+# not rlimited, so an adversarial or malformed call could otherwise hand over an
+# unbounded string. No legitimate fixture file is within orders of magnitude.
+MAX_WRITE_CHARS = 8 << 20
+
 # Names the scoring machinery owns. A model that could write these could rewrite
 # its own grader.
 RESERVED_FILENAMES = {
@@ -539,6 +590,11 @@ def execute_tool(
         target, problem = resolve_repo_path(sandbox, args["path"])
         if problem is not None:
             return f"error: {problem}"
+        if len(args["content"]) > MAX_WRITE_CHARS:
+            return (
+                f"error: content is {len(args['content'])} characters; "
+                f"the limit is {MAX_WRITE_CHARS}"
+            )
         target.write_text(args["content"])
         return f"wrote {target.name} ({len(args['content'])} bytes)"
     if name == "run_tests":
@@ -632,8 +688,11 @@ def run_task(
             result.output_tokens += body.get("eval_count") or 0
             if body.get("done_reason") == "length":
                 result.truncated_turns += 1
-            result.load_s = (
-                round((body.get("load_duration") or 0) / 1e9, 2) or result.load_s
+            # First nonzero wins: the cold load lands on the task's first
+            # request, and a later warm turn's small load_duration must not
+            # overwrite it. (The previous or-order did exactly that.)
+            result.load_s = result.load_s or round(
+                (body.get("load_duration") or 0) / 1e9, 2
             )
             message = body.get("message") or {}
             calls = message.get("tool_calls") or []
@@ -652,7 +711,25 @@ def run_task(
             messages.append(message)
 
             for call in calls:
-                fn = call.get("function") or {}
+                # A malformed envelope (non-dict call, or a `function` that is
+                # not an object) is a bad tool call to record, not an
+                # AttributeError to crash the task on.
+                fn = call.get("function") if isinstance(call, dict) else None
+                if not isinstance(fn, dict):
+                    result.tool_calls += 1
+                    result.bad_tool_calls += 1
+                    if len(result.bad_tool_detail) < 10:
+                        result.bad_tool_detail.append(
+                            f"malformed tool-call envelope: {str(call)[:60]}"
+                        )
+                    messages.append(
+                        {
+                            "role": "tool",
+                            "tool_name": "",
+                            "content": "error: malformed tool-call envelope",
+                        }
+                    )
+                    continue
                 name = fn.get("name") or ""
                 args = fn.get("arguments")
                 if isinstance(args, str):
@@ -691,10 +768,12 @@ def run_task(
                         result.wrote_any_file = True
                         if written not in result.files_written:
                             result.files_written.append(written)
-                        # T2 claims to require investigation; this is what makes
-                        # that claim checkable rather than assumed.
-                        if written not in result.files_read:
-                            result.write_without_read += 1
+                            # T2 claims to require investigation; this is what
+                            # makes that claim checkable rather than assumed.
+                            # Inside the uniqueness guard on purpose: repeated
+                            # blind writes to one target count once.
+                            if written not in result.files_read:
+                                result.write_without_read += 1
                     elif name == "read_file":
                         read = Path(args["path"]).name
                         if read not in result.files_read:
@@ -886,11 +965,30 @@ def main() -> int:
 
     tiers = [int(t) for t in args.tiers.split(",") if t.strip()]
     tasks = tasks_for_tiers(tiers)
+    # An empty selection must refuse, not exit 0: `--tiers 4` (or `--tiers ""`)
+    # otherwise produces a clean 0/0 run that a wrapper reads as "complete" —
+    # the same row-that-never-ran class the exit codes 2/3/4 exist to close.
+    if not tasks:
+        valid = ",".join(str(t) for t in sorted({t.tier for t in TASKS}))
+        print(
+            f"--tiers {args.tiers!r} selects no tasks; valid tiers are {valid}. "
+            "refusing to run — an empty run is not a result"
+        )
+        return 2
     keep = Path(args.keep_sandboxes).expanduser() if args.keep_sandboxes else None
     if keep is not None:
         keep.mkdir(parents=True, exist_ok=True)
 
     sandbox_level = probe_sandbox(strict=args.strict_sandbox)
+    # An explicit strict ask is checked FIRST: --allow-unsandboxed must never
+    # downgrade it. (Previously the "none" branch let that combination run with
+    # no confinement at all, silently.)
+    if args.strict_sandbox and sandbox_level != "strict":
+        print(
+            f"--strict-sandbox requested but only {sandbox_level!r} is achievable; "
+            "refusing (--allow-unsandboxed does not override an explicit strict ask)"
+        )
+        return 2
     if sandbox_level == "strict":
         print("sandbox: strict (network, outside writes AND outside reads blocked)")
     elif sandbox_level == "network-write":
@@ -898,9 +996,6 @@ def main() -> int:
             "sandbox: network + outside writes blocked; READS ARE NOT CONFINED — "
             "code under test can read any file this user can read"
         )
-        if args.strict_sandbox:
-            print("--strict-sandbox requested but reads are still reachable; refusing")
-            return 2
     else:
         print(
             "sandbox: UNAVAILABLE — model-authored code would run with this "
@@ -940,18 +1035,37 @@ def main() -> int:
             print(f"\n--- pass {repeat + 1}/{args.repeats} (seed={seed}) ---")
         for task in tasks:
             print(f"\n[T{task.tier}] {task.task_id} — {task.title}")
-            res = run_task(
-                args.base,
-                args.model,
-                task,
-                args.think,
-                args.num_ctx,
-                args.timeout,
-                keep,
-                seed,
-                args.num_predict,
-                repeat,
-            )
+            try:
+                res = run_task(
+                    args.base,
+                    args.model,
+                    task,
+                    args.think,
+                    args.num_ctx,
+                    args.timeout,
+                    keep,
+                    seed,
+                    args.num_predict,
+                    repeat,
+                )
+            except Exception as e:  # noqa: BLE001 - one task's crash must cost one row, not the batch
+                # Results are only written after the full loop, so an uncaught
+                # exception here would lose every completed row of this tag's
+                # run. Record the crash the same way a transport error is
+                # recorded and keep going.
+                res = TaskResult(
+                    task_id=task.task_id,
+                    tier=task.tier,
+                    title=task.title,
+                    solved=False,
+                    verifier_output="",
+                    turns=0,
+                    hit_turn_cap=False,
+                    tool_calls=0,
+                    bad_tool_calls=0,
+                    repeat=repeat,
+                    error=f"harness crash: {type(e).__name__}: {e}"[:300],
+                )
             results.append(res)
             flag = "PASS" if res.solved else "FAIL"
             print(

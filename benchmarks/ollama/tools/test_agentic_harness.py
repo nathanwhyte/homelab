@@ -5,7 +5,8 @@
 without a model or a GPU: `post_chat` is replaced with a queue of canned
 responses, so every branch that a live run would exercise only by luck — a
 malformed tool call, a reserved write, a dead server, a verifier that exits early
-— is covered deterministically in about a second.
+— is covered deterministically in a few seconds (the process-group timeout test
+waits ~3s).
 
 Every test here corresponds to a defect that was actually present at some point:
 
@@ -14,6 +15,10 @@ Every test here corresponds to a defect that was actually present at some point:
   * `../../stats.py` silently collapsed to `stats.py` and "succeeded"
   * a totally unreachable server produced a result file and exit code 0
   * `raise SystemExit(0)` in the file under test scored every task as solved
+  * >~2 KB of verifier stderr truncated the completion token out of the checked
+    output tail, flipping a real pass to a FAIL
+  * `load_s` recorded the last warm turn's load time instead of the cold load
+  * a non-dict tool-call envelope raised AttributeError out of `run_task`
 
 Run: python3 test_agentic_harness.py
 """
@@ -67,18 +72,22 @@ def _response(
     calls: list[dict[str, Any]] | None = None,
     thinking: str | None = None,
     done_reason: str = "stop",
+    load_duration: int = 0,
 ) -> tuple[int, dict[str, Any]]:
     message: dict[str, Any] = {"role": "assistant", "content": content}
     if thinking is not None:
         message["thinking"] = thinking
     if calls:
         message["tool_calls"] = calls
-    return 200, {
+    body: dict[str, Any] = {
         "message": message,
         "done_reason": done_reason,
         "prompt_eval_count": 10,
         "eval_count": 5,
     }
+    if load_duration:
+        body["load_duration"] = load_duration
+    return 200, body
 
 
 class ScriptedServer:
@@ -330,6 +339,82 @@ def test_timeout_kills_group():
         assert "timeout" in out
     finally:
         shutil.rmtree(sandbox, ignore_errors=True)
+
+
+@check("the completion token survives >2KB of verifier stderr")
+def test_token_survives_stderr():
+    # The token is checked against the UNTRUNCATED output; with the old
+    # 2000-char tail, this verifier's stderr sliced it out and a real pass
+    # scored as a FAIL.
+    noisy_task = CodingTask(
+        task_id="unit-noisy",
+        tier=1,
+        title="noisy verifier",
+        prompt="Fix it.",
+        files={"target.py": "VALUE = 1\n"},
+        verifier=(
+            "import sys\n"
+            "from target import VALUE\n"
+            "assert VALUE == 2, VALUE\n"
+            "sys.stderr.write('x' * 4096)\n"
+            "print('OK')\n"
+        ),
+        target_files=["target.py"],
+        max_turns=4,
+    )
+    result, _ = run_scripted(
+        [
+            _response(
+                calls=[
+                    _tool_call(
+                        "write_file", {"path": "target.py", "content": FIXED_SOURCE}
+                    )
+                ]
+            ),
+            _response(content="fixed"),
+        ],
+        task=noisy_task,
+    )
+    assert result.solved is True, result.verifier_output
+
+
+@check("load_s records the cold load, not the last warm turn")
+def test_load_s_cold_load():
+    result, _ = run_scripted(
+        [
+            _response(
+                calls=[_tool_call("read_file", {"path": "target.py"})],
+                load_duration=5_000_000_000,
+            ),
+            _response(content="done", load_duration=12_000_000),
+        ]
+    )
+    assert result.load_s == 5.0, result.load_s
+
+
+@check("a malformed tool-call envelope is a bad call, not a crash")
+def test_malformed_envelope_isolated():
+    responses = [
+        (
+            200,
+            {
+                "message": {
+                    "role": "assistant",
+                    "content": "",
+                    "tool_calls": ["not-a-dict", {"function": "also-not-a-dict"}],
+                },
+                "done_reason": "stop",
+                "prompt_eval_count": 10,
+                "eval_count": 5,
+            },
+        ),
+        _response(content="done"),
+    ]
+    result, _ = run_scripted(responses)
+    assert result.error is None, result.error
+    assert result.tool_calls == 2, result.tool_calls
+    assert result.bad_tool_calls == 2, result.bad_tool_detail
+    assert any("envelope" in d for d in result.bad_tool_detail), result.bad_tool_detail
 
 
 def main() -> int:

@@ -419,6 +419,48 @@ def check_early_exit_bypass() -> int:
     return failures
 
 
+def check_token_read_bypass() -> int:
+    """The completion token must not be recoverable from inside the sandbox.
+
+    The first token implementation wrote it in cleartext into `verify.py` —
+    the same directory the verifier imports the target from — so module-level
+    code in the target could read that file, print the token, and `os._exit(0)`
+    to forge a pass on every task (PoC-confirmed at e34bfae). The token now
+    arrives over stdin and never touches disk, so this cheat must find nothing
+    and score a FAIL everywhere. Generic like the early-exit bypass, so it is
+    checked against every fixture.
+    """
+    cheat = (
+        "import os, re\n"
+        "for fname in ('verify.py', '_verify_body.py'):\n"
+        "    try:\n"
+        "        text = open(fname).read()\n"
+        "    except OSError:\n"
+        "        continue\n"
+        "    match = re.search(r'VERIFIED-[0-9a-f]+', text)\n"
+        "    if match:\n"
+        "        print(match.group(0))\n"
+        "os._exit(0)\n"
+    )
+    failures = 0
+    for task in TASKS:
+        sandbox = Path(tempfile.mkdtemp(prefix="token-read-"))
+        try:
+            for name, content in task.files.items():
+                (sandbox / name).write_text(content)
+            for name in task.target_files:
+                (sandbox / name).write_text(cheat)
+            solved, _ = _BENCH.run_verifier(sandbox, task.verifier)
+            if solved:
+                print(f"[{task.task_id}] BYPASS: token read from disk forged a pass")
+                failures += 1
+            else:
+                print(f"[{task.task_id}] token-read bypass rejected")
+        finally:
+            shutil.rmtree(sandbox, ignore_errors=True)
+    return failures
+
+
 def main() -> int:
     failures = 0
     for task in TASKS:
@@ -461,6 +503,8 @@ def main() -> int:
 
     print()
     failures += check_early_exit_bypass()
+    print()
+    failures += check_token_read_bypass()
 
     covered = sum(len(v) for v in WRONG_SOLUTIONS.values())
     print(
