@@ -1,0 +1,2 @@
+NAME                 ID              SIZE     PROCESSOR    CONTEXT    UNTIL               
+gemma4:coding-26b    bf7f309722b2    35 GB    100% GPU     131072     29 minutes from now    

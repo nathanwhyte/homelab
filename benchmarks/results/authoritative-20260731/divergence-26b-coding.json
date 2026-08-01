@@ -1,0 +1,14 @@
+{
+  "reference": "gemma4:coding-26b",
+  "reference_is_truth": false,
+  "num_predict": 256,
+  "n_prompts": 24,
+  "results": {
+    "gemma4:coding-26b-nvfp4": {
+      "n": 24,
+      "exact_match": 0.9583333333333334,
+      "first_div_frac": 0.9583333333333334,
+      "edit_ratio": 0.041666666666666664
+    }
+  }
+}

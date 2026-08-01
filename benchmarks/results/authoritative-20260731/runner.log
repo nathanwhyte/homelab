@@ -1,0 +1,24 @@
+[authoritative 23:10:11] output dir: benchmarks/results/authoritative-20260731
+[authoritative 23:10:11] tiers: A B | repeats=3 count=27 cooldown=30s
+[authoritative 23:10:11] ===== TIER A — 2 model(s) @ ctx=131072, 3 repeat(s) =====
+[authoritative 23:10:11] tier A | repeat 0 | ctrl-open | gemma4:12b-mlx @ ctx=32768
+[authoritative 23:16:04] tier A | repeat 1 | m00 | gemma4:coding-26b @ ctx=131072
+[authoritative 23:19:58] tier A | repeat 1 | m01 | gemma4:coding-26b-nvfp4 @ ctx=131072
+[authoritative 23:23:25] tier A | repeat 2 | m00 | gemma4:coding-26b-nvfp4 @ ctx=131072
+[authoritative 23:26:50] tier A | repeat 2 | m01 | gemma4:coding-26b @ ctx=131072
+[authoritative 23:30:32] tier A | repeat 3 | m00 | gemma4:coding-26b @ ctx=131072
+[authoritative 23:34:37] tier A | repeat 3 | m01 | gemma4:coding-26b-nvfp4 @ ctx=131072
+[authoritative 23:37:57] tier A | repeat 0 | ctrl-close | gemma4:12b-mlx @ ctx=32768
+[authoritative 23:43:37] ===== TIER A COMPLETE — safe stopping point =====
+[authoritative 23:43:37] ===== TIER B — 2 model(s) @ ctx=32768, 3 repeat(s) =====
+[authoritative 23:43:37] tier B | repeat 0 | ctrl-open | gemma4:12b-mlx @ ctx=32768
+[authoritative 23:49:15] tier B | repeat 1 | m00 | gemma4:26b-mxfp8 @ ctx=32768
+[authoritative 23:53:11] tier B | repeat 1 | m01 | gemma4:26b-mlx @ ctx=32768
+[authoritative 23:56:37] tier B | repeat 2 | m00 | gemma4:26b-mlx @ ctx=32768
+[authoritative 00:00:01] tier B | repeat 2 | m01 | gemma4:26b-mxfp8 @ ctx=32768
+[authoritative 00:03:44] tier B | repeat 3 | m00 | gemma4:26b-mxfp8 @ ctx=32768
+[authoritative 00:07:23] tier B | repeat 3 | m01 | gemma4:26b-mlx @ ctx=32768
+[authoritative 00:10:48] tier B | repeat 0 | ctrl-close | gemma4:12b-mlx @ ctx=32768
+[authoritative 00:16:17] ===== TIER B COMPLETE — safe stopping point =====
+[authoritative 00:16:17] requested tiers complete; results in benchmarks/results/authoritative-20260731
+[authoritative 00:16:17] summarize: median across repeats per model; ctrl-open vs ctrl-close = drift

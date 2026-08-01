@@ -1,0 +1,35 @@
+[1/27] target=500 actual_prompt_tokens=443 ttft=4.133s prefill=0.620s prefill_tok_s=714.7 decode_tok_s=143.1
+[2/27] target=2000 actual_prompt_tokens=1777 ttft=1.318s prefill=1.155s prefill_tok_s=1538.3 decode_tok_s=115.7
+[3/27] target=8000 actual_prompt_tokens=6398 ttft=4.622s prefill=4.521s prefill_tok_s=1415.1 decode_tok_s=121.0
+[4/27] target=500 actual_prompt_tokens=451 ttft=0.394s prefill=0.307s prefill_tok_s=1468.4 decode_tok_s=124.3
+[5/27] target=2000 actual_prompt_tokens=1777 ttft=1.312s prefill=1.151s prefill_tok_s=1544.3 decode_tok_s=128.8
+[6/27] target=8000 actual_prompt_tokens=6398 ttft=4.613s prefill=4.519s prefill_tok_s=1415.7 decode_tok_s=88.5
+[7/27] target=500 actual_prompt_tokens=451 ttft=0.416s prefill=0.315s prefill_tok_s=1432.5 decode_tok_s=128.9
+[8/27] target=2000 actual_prompt_tokens=1777 ttft=1.291s prefill=1.140s prefill_tok_s=1558.3 decode_tok_s=126.3
+[9/27] target=8000 actual_prompt_tokens=6398 ttft=4.583s prefill=4.498s prefill_tok_s=1422.5 decode_tok_s=104.0
+[10/27] target=500 actual_prompt_tokens=451 ttft=0.404s prefill=0.306s prefill_tok_s=1475.5 decode_tok_s=133.1
+[11/27] target=2000 actual_prompt_tokens=1778 ttft=1.231s prefill=1.142s prefill_tok_s=1556.7 decode_tok_s=145.8
+[12/27] target=8000 actual_prompt_tokens=6399 ttft=4.623s prefill=4.530s prefill_tok_s=1412.7 decode_tok_s=117.5
+[13/27] target=500 actual_prompt_tokens=452 ttft=0.401s prefill=0.305s prefill_tok_s=1480.5 decode_tok_s=137.8
+[14/27] target=2000 actual_prompt_tokens=1778 ttft=1.230s prefill=1.120s prefill_tok_s=1587.2 decode_tok_s=121.1
+[15/27] target=8000 actual_prompt_tokens=6399 ttft=4.591s prefill=4.500s prefill_tok_s=1421.9 decode_tok_s=96.3
+[16/27] target=500 actual_prompt_tokens=452 ttft=0.402s prefill=0.305s prefill_tok_s=1483.6 decode_tok_s=135.5
+[17/27] target=2000 actual_prompt_tokens=1778 ttft=1.311s prefill=1.136s prefill_tok_s=1565.5 decode_tok_s=103.3
+[18/27] target=8000 actual_prompt_tokens=6399 ttft=4.612s prefill=4.521s prefill_tok_s=1415.4 decode_tok_s=142.3
+[19/27] target=500 actual_prompt_tokens=452 ttft=0.409s prefill=0.307s prefill_tok_s=1472.5 decode_tok_s=126.0
+[20/27] target=2000 actual_prompt_tokens=1778 ttft=1.290s prefill=1.147s prefill_tok_s=1550.6 decode_tok_s=157.4
+[21/27] target=8000 actual_prompt_tokens=6398 ttft=4.611s prefill=4.510s prefill_tok_s=1418.6 decode_tok_s=121.5
+[22/27] target=500 actual_prompt_tokens=452 ttft=0.419s prefill=0.320s prefill_tok_s=1413.6 decode_tok_s=121.1
+[23/27] target=2000 actual_prompt_tokens=1778 ttft=1.333s prefill=1.162s prefill_tok_s=1530.7 decode_tok_s=127.7
+[24/27] target=8000 actual_prompt_tokens=6398 ttft=4.525s prefill=4.469s prefill_tok_s=1431.6 decode_tok_s=84.7
+[25/27] target=500 actual_prompt_tokens=452 ttft=0.429s prefill=0.324s prefill_tok_s=1393.2 decode_tok_s=121.7
+[26/27] target=2000 actual_prompt_tokens=1778 ttft=1.319s prefill=1.162s prefill_tok_s=1530.1 decode_tok_s=109.2
+[27/27] target=8000 actual_prompt_tokens=6398 ttft=4.614s prefill=4.512s prefill_tok_s=1418.1 decode_tok_s=121.5
+
+=== Per-prefill-size summary (gemma4:26b-mlx, concurrency=1) ===
+Target tok |  Actual tok (mean) |  TTFT p50 |  TTFT mean | Prefill tok/s (mean) |  Decode tok/s (mean)
+       500 |                451 |     0.409 |      0.823 |               1370.5 |                130.2
+      2000 |               1778 |     1.311 |      1.293 |               1551.3 |                126.1
+      8000 |               6398 |     4.612 |      4.599 |               1419.1 |                110.8
+
+Wrote benchmarks/results/authoritative-20260731/B-r1-m01-gemma4-26b-mlx-ctx32768.json

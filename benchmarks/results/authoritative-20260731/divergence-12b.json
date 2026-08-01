@@ -1,0 +1,14 @@
+{
+  "reference": "gemma4:12b-mlx-bf16",
+  "reference_is_truth": true,
+  "num_predict": 256,
+  "n_prompts": 24,
+  "results": {
+    "gemma4:12b-mlx": {
+      "n": 24,
+      "exact_match": 0.8333333333333334,
+      "first_div_frac": 0.9166666666666666,
+      "edit_ratio": 0.16666666666666666
+    }
+  }
+}

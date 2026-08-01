@@ -1,0 +1,52 @@
+=== tiers done; starting quant-divergence ===
+Fri Jul 31 19:16:56 CDT 2026
+### 12b family (bf16 reference = ground truth)
+reference : gemma4:12b-mlx-bf16
+candidates: gemma4:12b-mxfp8, gemma4:12b-mlx
+prompts   : 24   num_predict=256
+
+=== determinism control (each prompt run twice) ===
+  gemma4:12b-mlx-bf16        OK   [89s]
+  gemma4:12b-mxfp8           NON-DETERMINISTIC (1/4 differed)   [29s]
+  gemma4:12b-mlx             OK   [23s]
+
+=== collecting reference outputs ===
+  24/24 prompts collected
+
+=== gemma4:12b-mlx ===
+  exact match     83.3%  (20/24)
+  first divergence at  91.7% of reference length
+  mean edit ratio 0.1667  (0 = identical)
+
+=== SUMMARY ===
+(distance from reference; lower edit_ratio = closer to gemma4:12b-mlx-bf16)
+  gemma4:12b-mlx             edit_ratio=0.1667  exact=83.3%
+
+wrote benchmarks/results/authoritative-20260731/divergence-12b.json
+[?2026h[?25l[1G⠙ [K[?25h[?2026l[?25l[?2026h[?25l[1G[K[?25h[?2026l[2K[1G[?25h[?2026h[?25l[1G⠙ [K[?25h[?2026l[?25l[?2026h[?25l[1G[K[?25h[?2026l[2K[1G[?25h[?2026h[?25l[1G⠙ [K[?25h[?2026l[?25l[?2026h[?25l[1G[K[?25h[?2026l[2K[1G[?25h### 26b coding twins (NO reference — difference only)
+reference : gemma4:coding-26b
+candidates: gemma4:coding-26b-nvfp4
+prompts   : 24   num_predict=256
+
+=== determinism control (each prompt run twice) ===
+  gemma4:coding-26b          OK   [25s]
+  gemma4:coding-26b-nvfp4    OK   [21s]
+
+=== collecting reference outputs ===
+  24/24 prompts collected
+
+=== gemma4:coding-26b-nvfp4 ===
+  exact match     95.8%  (23/24)
+  first divergence at  95.8% of reference length
+  mean edit ratio 0.0417  (0 = identical)
+
+=== SUMMARY ===
+(difference from peer; lower edit_ratio = closer to gemma4:coding-26b)
+  gemma4:coding-26b-nvfp4    edit_ratio=0.0417  exact=95.8%
+
+  NOTE: no higher-precision reference in this pair. This shows THAT they
+  differ, not which is more faithful. Do not rank quality from it.
+
+wrote benchmarks/results/authoritative-20260731/divergence-26b-coding.json
+[?2026h[?25l[1G⠋ [K[?25h[?2026l[?25l[?2026h[?25l[1G[K[?25h[?2026l[2K[1G[?25h[?2026h[?25l[1G⠋ [K[?25h[?2026l[?25l[?2026h[?25l[1G[K[?25h[?2026l[2K[1G[?25h=== divergence complete ===
+Fri Jul 31 19:27:11 CDT 2026
