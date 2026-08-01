@@ -43,8 +43,10 @@ set -uo pipefail # NOT -e: a failed step must not abandon the remaining steps
 
 cd "$(dirname "$0")/../../.." || exit 1
 
-R="benchmarks/results/authoritative-20260731"
-Q="benchmarks/results"
+# Every rerun gets its own dated results dir — never write into a prior run's
+# directory, whose artifacts back an already-published report.
+R="${OUTPUT_DIR:-benchmarks/results/authoritative-$(date +%Y%m%d)}"
+export OUTPUT_DIR="$R" # run-pop-gemma4-authoritative.sh honors this
 mkdir -p "$R"
 
 log() { echo "[remainder $(date '+%H:%M:%S')] $*"; }
@@ -99,8 +101,8 @@ for t in gemma4:26b-mxfp8 gemma4:31b-nvfp4; do
 	s="${t//:/-}"
 	log "  agentic: $t"
 	uv run --with aiohttp python benchmarks/ollama/tools/agentic-coding-bench.py \
-		--model "$t" --tiers 1,2,3 --out "$Q" \
-		>"$Q/agentic-${s}.log" 2>&1
+		--model "$t" --tiers 1,2,3 --out "$R" \
+		>"$R/agentic-${s}.log" 2>&1
 	rc=$?
 	log "  agentic $t exit=$rc"
 	[ "$rc" -ne 0 ] && step3="failed ($t exit $rc)"
