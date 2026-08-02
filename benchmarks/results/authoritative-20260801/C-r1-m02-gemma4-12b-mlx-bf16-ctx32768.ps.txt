@@ -1,0 +1,2 @@
+NAME                   ID              SIZE     PROCESSOR    CONTEXT    UNTIL               
+gemma4:12b-mlx-bf16    94f530b6fa3f    33 GB    100% GPU     32768      29 minutes from now    

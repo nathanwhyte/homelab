@@ -1,0 +1,10 @@
+reference : gemma4:12b-mlx-bf16
+candidates: gemma4:12b-mxfp8, gemma4:12b-mlx
+prompts   : 24   num_predict=256
+
+=== determinism control (each prompt run twice) ===
+  gemma4:12b-mlx-bf16        NON-DETERMINISTIC (2/12 differed)   [216s]
+  gemma4:12b-mxfp8           NON-DETERMINISTIC (2/12 differed)   [85s]
+  gemma4:12b-mlx             OK   [69s]
+
+REFUSING: reference model is not deterministic; divergence is meaningless.

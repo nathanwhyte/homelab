@@ -1,0 +1,56 @@
+[remainder 16:36:19] === STEP 1/4 — TIER C (12b dense family) ===
+[authoritative 21:36:19] output dir: benchmarks/results/authoritative-20260801
+[authoritative 21:36:19] tiers: C | repeats=3 count=27 cooldown=30s
+[authoritative 21:36:19] ===== TIER C — 3 model(s) @ ctx=32768, 3 repeat(s) =====
+[authoritative 21:36:19] tier C | repeat 0 | ctrl-open | gemma4:12b-mlx @ ctx=32768
+[authoritative 21:42:44] tier C | repeat 1 | m00 | gemma4:12b-mlx @ ctx=32768
+[authoritative 21:49:12] tier C | repeat 1 | m01 | gemma4:12b-mxfp8 @ ctx=32768
+[authoritative 21:55:29] tier C | repeat 1 | m02 | gemma4:12b-mlx-bf16 @ ctx=32768
+[authoritative 22:04:56] tier C | repeat 2 | m00 | gemma4:12b-mxfp8 @ ctx=32768
+[authoritative 22:09:52] tier C | repeat 2 | m01 | gemma4:12b-mlx-bf16 @ ctx=32768
+[authoritative 22:18:20] tier C | repeat 2 | m02 | gemma4:12b-mlx @ ctx=32768
+[authoritative 22:23:53] tier C | repeat 3 | m00 | gemma4:12b-mlx-bf16 @ ctx=32768
+[authoritative 22:33:07] tier C | repeat 3 | m01 | gemma4:12b-mlx @ ctx=32768
+[authoritative 22:39:10] tier C | repeat 3 | m02 | gemma4:12b-mxfp8 @ ctx=32768
+[authoritative 22:44:43] tier C | repeat 0 | ctrl-close | gemma4:12b-mlx @ ctx=32768
+[authoritative 22:50:53] ===== TIER C COMPLETE — safe stopping point =====
+[authoritative 22:50:53] requested tiers complete; results in benchmarks/results/authoritative-20260801
+[authoritative 22:50:53] summarize: median across repeats per model; ctrl-open vs ctrl-close = drift
+[remainder 17:50:53] step 1 tier-C => completed
+[remainder 17:50:53] === STEP 2/4 — determinism characterization (12 probes/model) ===
+reference : gemma4:12b-mlx-bf16
+candidates: gemma4:12b-mxfp8, gemma4:12b-mlx
+prompts   : 24   num_predict=256
+
+=== determinism control (each prompt run twice) ===
+  gemma4:12b-mlx-bf16        NON-DETERMINISTIC (2/12 differed)   [216s]
+  gemma4:12b-mxfp8           NON-DETERMINISTIC (2/12 differed)   [85s]
+  gemma4:12b-mlx             OK   [69s]
+
+REFUSING: reference model is not deterministic; divergence is meaningless.
+[remainder 17:57:03] step 2 determinism => inconclusive (divergence comparison REFUSED; control output still valid)
+[remainder 17:57:23] === STEP 3/4 — agentic quality bench ===
+[remainder 17:57:23]   agentic: gemma4:26b-mxfp8
+[remainder 18:04:24]   agentic gemma4:26b-mxfp8 exit=0
+[remainder 18:04:55]   agentic: gemma4:31b-nvfp4
+[remainder 18:12:50]   agentic gemma4:31b-nvfp4 exit=0
+[remainder 18:13:21] step 3 agentic => completed
+[remainder 18:13:21] === STEP 4/4 — TIER D (31b dense) ===
+[authoritative 23:13:21] output dir: benchmarks/results/authoritative-20260801
+[authoritative 23:13:21] tiers: D | repeats=3 count=27 cooldown=30s
+[authoritative 23:13:21] ===== TIER D — 1 model(s) @ ctx=32768, 3 repeat(s) =====
+[authoritative 23:13:21] tier D | repeat 0 | ctrl-open | gemma4:12b-mlx @ ctx=32768
+[authoritative 23:18:53] tier D | repeat 1 | m00 | gemma4:31b-nvfp4 @ ctx=32768
+[authoritative 23:30:51] tier D | repeat 2 | m00 | gemma4:31b-nvfp4 @ ctx=32768
+[authoritative 23:42:54] tier D | repeat 3 | m00 | gemma4:31b-nvfp4 @ ctx=32768
+[authoritative 23:55:13] tier D | repeat 0 | ctrl-close | gemma4:12b-mlx @ ctx=32768
+[authoritative 00:00:42] ===== TIER D COMPLETE — safe stopping point =====
+[authoritative 00:00:42] requested tiers complete; results in benchmarks/results/authoritative-20260801
+[authoritative 00:00:42] summarize: median across repeats per model; ctrl-open vs ctrl-close = drift
+[remainder 19:00:42] step 4 tier-D => completed
+[remainder 19:00:42] === SUMMARY ===
+[remainder 19:00:42]   step 1 tier-C: completed
+[remainder 19:00:42]   step 2 determinism: inconclusive (divergence comparison REFUSED; control output still valid)
+[remainder 19:00:42]   step 3 agentic: completed
+[remainder 19:00:42]   step 4 tier-D: completed
+[remainder 19:00:42] === FINISHED WITH FAILED OR INCONCLUSIVE STEPS — read statuses above ===

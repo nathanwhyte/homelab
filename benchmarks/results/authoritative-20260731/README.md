@@ -12,6 +12,14 @@ opencode/pi default.** That is the only decision this run supports outright.
 Several other findings are interesting but weaker than they first appeared, and
 two claims made during the investigation are corrected below.
 
+**2026-08-01 rerun** (`../authoritative-20260801/`): tiers C and D, the
+determinism control, and the agentic bench were rerun the same evening under
+the updated tooling. Outcomes are folded into each section below; the short
+version is that the 12b family reproduced within ~1.6% against a clean drift
+control, the tier C -8.1% anomaly did not reproduce, the 31b re-measured at
+~193 prefill (making the original tier D session the outlier), and the agentic
+interaction-efficiency observation reproduced in direction at n=2.
+
 ## Method
 
 | Property        | Choice                                                                     |
@@ -70,26 +78,32 @@ Prefill differences of 2-3% are resolvable. Decode differences under ~15% are
 not, without repeats. Any future comparison must repeat decode and need not
 repeat prefill.
 
-**Tier C is the least trustworthy tier.** Its drift control moved -8.1% on
-prefill against 0.1-1.1% everywhere else. The 12b rows should be treated as
-provisional.
+**Tier C's drift control failed in this run — and the rerun cleared the tier.**
+Its control moved -8.1% on prefill against 0.1-1.1% everywhere else, so the
+12b rows were initially provisional. The 2026-08-01 rerun of the full tier came
+back with a clean control (+1.1% prefill) and reproduced all three 12b models
+within ~1.6% of the numbers above, so the published tier C rows stand.
 
 Tier C coincided with +5.30 GB endpoint swap growth and -8.10% control prefill
-drift; tiers A, B, and D each grew swap by only 0.3-0.9 GB. Memory pressure is
-the leading hypothesis, but the cause is unproven and thermal effects remain
-unexcluded. The runner captured aggregate swap only once, before each row — no
-temperature, frequency, swap-compression, page-in/out, or memory-pressure
-timeline exists. Tier C also ran longer than the other tiers, and its largest
-swap jump followed the 7.7 GB `12b-mlx` row, not the 24 GB bf16 row, which a
-simple residency story would not predict. The control's +3.7% decode movement
-is below this run's own ~15% decode noise floor and carries no signal.
+drift; tiers A, B, and D each grew swap by only 0.3-0.9 GB. Memory pressure was
+the leading hypothesis, but the rerun weakened it: tier C swap grew comparably
+again (+4.2 GB, climbing 3.9 -> 9.7 GB across the tier) with NO drift, so
+endpoint swap growth looks like a property of a three-model tier cycling
+loads on this machine, not the cause of the 07-31 drift. The cause remains
+unidentified and thermal effects remain unexcluded — the runner captured
+aggregate swap only once, before each row; no temperature, frequency,
+swap-compression, page-in/out, or memory-pressure timeline exists. The
+original control's +3.7% decode movement is below this run's own ~15% decode
+noise floor and carries no signal.
 
 **Cross-session variance is much larger than within-tier drift.**
-`gemma4:31b-nvfp4` measured 190.0 prefill / 51.2 decode on 2026-07-31 and
-159.2 / 41.7 in tier D on 2026-08-01 — 16-19% lower — while tier D's own
-internal drift was only -1.1%. Numbers from different sessions should not be
-compared at better than ~20%, regardless of how tight the within-tier error
-bars look.
+`gemma4:31b-nvfp4` has now measured 190.0 prefill / 51.2 decode (2026-07-31),
+159.2 / 41.7 (tier D, 2026-08-01 morning), and 192.9 / 53.9 (rerun, 2026-08-01
+evening, n=3, clean +0.3% control) — a 16-19% spread while every session's own
+internal drift stayed under 4%. Two of three sessions agree at ~190-193, which
+makes the 159.2 session the likely outlier, but nothing measured explains what
+made it slow. Numbers from different sessions should not be compared at better
+than ~20%, regardless of how tight the within-tier error bars look.
 
 ## What the data supports
 
@@ -150,15 +164,15 @@ with 40% error, not a constant. An earlier draft of this analysis reported
 ±14% from four points; adding the 12b family widened it, and tier C's bad drift
 control accounts for part of that.
 
-**This retires the "31b prefill is anomalous" reading.** Its 159-190 tok/s is
+**This retires the "31b prefill is anomalous" reading.** Its 159-193 tok/s is
 simply the price of 31.7B active parameters. Nothing is broken; the model is
 7.9x more expensive per prefill token than the 26B MoE.
 
 ### 4. The 31b dense is disqualified for interactive use
 
-At ~159-190 tok/s prefill, the measured 77,466-token Claude Code turn (07-28
+At ~159-193 tok/s prefill, the measured 77,466-token Claude Code turn (07-28
 report, `claude-session-pop-qwen36-35b-*.json`) needs **7-8 minutes to first
-token**. TTFT at just 8000 tokens is 40.34s against the 26B MoE's 4.64s. No
+token**. TTFT at just 8000 tokens is 33-40s against the 26B MoE's 4.64s. No
 decode advantage exists to offset this — its decode is the slowest in the table.
 
 ## Corrections
@@ -190,22 +204,26 @@ result above, and the monotonic 12b ladder 86.8 > 77.3 > 55.1 as weights grow
 
 ### Greedy decoding is non-deterministic on every gemma4 tag
 
-A 4-probe control on 2026-07-31 flagged only `gemma4:12b-mxfp8`. At 12 probes:
+A 4-probe control on 2026-07-31 flagged only `gemma4:12b-mxfp8`. At 12 probes,
+across two independent runs:
 
 ```text
-gemma4:12b-mlx-bf16   NON-DETERMINISTIC (1/12 differed)
-gemma4:12b-mxfp8      NON-DETERMINISTIC (2/12 differed)
-gemma4:12b-mlx        NON-DETERMINISTIC (1/12 differed)
+                      2026-08-01 morning              2026-08-01 rerun
+gemma4:12b-mlx-bf16   NON-DETERMINISTIC (1/12)        NON-DETERMINISTIC (2/12)
+gemma4:12b-mxfp8      NON-DETERMINISTIC (2/12)        NON-DETERMINISTIC (2/12)
+gemma4:12b-mlx        NON-DETERMINISTIC (1/12)        OK (0/12)
 ```
 
 At `temperature 0`, `top_k 1`, `top_p 1`, fixed seed, **~8-17% of prompts do not
 reproduce**. This is a property of the stack, not of one tag — MTP is the
-obvious suspect and is not confirmed. The single-tag reading was a sampling
-artifact of too few probes.
+obvious suspect and is not confirmed. Which tags flag varies run to run (the
+rerun passed `12b-mlx` clean) while the overall rate stays in the same band,
+which is exactly the stochastic behavior the single-tag reading missed.
 
 Consequence: `quant-divergence.py` correctly **refused** to report the 12b
-fidelity comparison. It is unanswerable on this stack until determinism is
-resolved or speculation can be disabled.
+fidelity comparison, in both runs (the bf16 reference failed its control both
+times). It is unanswerable on this stack until determinism is resolved or
+speculation can be disabled.
 
 ## Quantization fidelity — partial, and weaker than it looks
 
@@ -223,7 +241,7 @@ divergence cannot be attributed to quantization rather than run-to-run noise,
 and neither row is a clean fidelity measurement. There is no bf16 26B locally,
 so that row was never a fidelity test in the first place.
 
-## Quality — tied at the ceiling; one efficiency observation
+## Quality — tied at the ceiling; an efficiency observation (n=2)
 
 `agentic-coding-bench.py`, 6 verifier-scored tasks, tiers 1-3:
 
@@ -238,27 +256,27 @@ This was predicted before the run — at n=6 the standard error on a pass rate i
 Both models tripped the anti-cheat (`rewrote fixture suite(s)`); the harness
 restored the fixtures before verifying, so the scores are valid.
 
-Beneath the tied pass rate, the single repeat shows an interaction-efficiency
-difference:
+Beneath the tied pass rate, both independent six-task runs show the same
+interaction-efficiency difference:
 
-| Metric        | `26b-mxfp8` | `31b-nvfp4` |
-| ------------- | ----------: | ----------: |
-| Solved        |         6/6 |         6/6 |
-| Turns         |          56 |          36 |
-| Tool calls    |          52 |          30 |
-| Server tokens |     180,343 |      72,646 |
-| Wall time     |      479.1s |      513.8s |
+| Metric        | Run 1 `26b-mxfp8` | Run 1 `31b-nvfp4` | Run 2 `26b-mxfp8` | Run 2 `31b-nvfp4` |
+| ------------- | ----------------: | ----------------: | ----------------: | ----------------: |
+| Solved        |               6/6 |               6/6 |               6/6 |               6/6 |
+| Turns         |                56 |                36 |                57 |                42 |
+| Tool calls    |                52 |                30 |                51 |                36 |
+| Server tokens |           180,343 |            72,646 |                 — |                 — |
+| Wall time     |            479.1s |            513.8s |            420.1s |            474.7s |
 
-In one six-task repeat, the 31b consumed fewer model turns, tool calls, and
-aggregate tokens while both models solved 6/6; it was 7.2% slower in wall time.
-This is a hypothesis-generating interaction-efficiency observation, not a
-quality ranking. Turns count model requests until the model stops or hits the
-14-turn cap — not time-to-first-passing-solution — and two 26b tasks hit the
-cap, which inflates its totals mechanically. The harness's own documentation
-requires repeats before publishing any comparison, and this is n=1. And
-architecture, size, and quantization all differ between the two models, so
-none of the three — in particular parameter density — is isolated by this
-pairing.
+In both repeats the 31b consumed fewer model turns and tool calls while both
+models solved 6/6, and was slower in wall time (+7.2%, +13.0%). This is a
+hypothesis-generating interaction-efficiency observation, not a quality
+ranking. Turns count model requests until the model stops or hits the 14-turn
+cap — not time-to-first-passing-solution — and 26b tasks hit the cap in both
+runs, which inflates its totals mechanically. n=2 establishes the direction
+reproduces; it is still far short of the repeat count a published comparison
+needs. And architecture, size, and quantization all differ between the two
+models, so none of the three — in particular parameter density — is isolated
+by this pairing.
 
 **The dense-31b quality hypothesis remains untested.** It was the only axis that
 could have justified the 31b's speed cost, and this instrument cannot address
@@ -292,30 +310,36 @@ elsewhere for an independent check.
 - **Nothing about multi-turn cache reuse.** Prompts are salted to defeat prefix
   caching, which is the opposite of a real agent session's growing transcript
   (07-28 OQ-6).
-- **Nothing about the 12b family with confidence** — tier C's drift control
-  failed.
+- ~~Nothing about the 12b family with confidence~~ — resolved by the 08-01
+  rerun: the family reproduced within ~1.6% against a clean drift control.
 
 ## Open questions
 
 1. **Is MTP the source of the non-determinism?** Would also confirm the
-   > 100%-of-peak decode readings. In Ollama v0.32.5 the documented Modelfile
-   > switch is `draft_num_predict 0` (not `num_draft`), and it is wired into the
-   > llama.cpp server path only — reading the v0.32.5 source, the native MLX
-   > scheduler passes just model and context into its client while the MLX runner
-   > constructs speculation at load time, so the switch appears NOT to reach the
-   > MLX path these tags run on. Verify runtime behavior (e.g. that disabling it
-   > actually changes decode rate) before trusting any MTP-disabled comparison.
-2. **Why did tier C drift -8.1%?** The per-row swap captures have now been
-   examined (see the tier C note above): +5.30 GB endpoint swap growth against
-   0.3-0.9 GB in every other tier makes memory pressure the leading hypothesis,
-   but the cause is unproven and thermal effects remain unexcluded. A rerun
-   needs continuous telemetry — note that on this host
-   `powermetrics --samplers smc` fails with "unrecognized sampler" and
-   `smctemp` is not installed, so it must use supported continuous thermal,
-   power-limit, and frequency sampling instead.
+   above-peak (over 100% of 570 GB/s) decode readings. In Ollama v0.32.5 the
+   documented Modelfile switch is `draft_num_predict 0` (not `num_draft`), and
+   it is wired into the llama.cpp server path only — reading the v0.32.5
+   source, the native MLX scheduler passes just model and context into its
+   client while the MLX runner constructs speculation at load time, so the
+   switch appears NOT to reach the MLX path these tags run on. Verify runtime
+   behavior (e.g. that disabling it actually changes decode rate) before
+   trusting any MTP-disabled comparison.
+2. **Why did tier C drift -8.1%?** Still open, and harder now: the 08-01 rerun
+   came back clean (+1.1%) while swap grew comparably (+4.2 GB vs +5.30 GB), so
+   endpoint swap growth alone does not produce the drift and the
+   memory-pressure hypothesis is weakened. Whatever slowed the 07-31 tier C —
+   like whatever slowed the 159-tok/s tier D session — was transient and left
+   no signature in the captures. Any further chase needs continuous telemetry;
+   note that on this host `powermetrics --samplers smc` fails with
+   "unrecognized sampler" and `smctemp` is not installed, so it must use
+   supported continuous thermal, power-limit, and frequency sampling instead.
 3. **Does the 31b dense win on quality?** Needs an instrument with a real
-   discrimination floor — more tasks, or a graded rubric, not 6 binary outcomes.
+   discrimination floor — more tasks, or a graded rubric, not 6 binary
+   outcomes. The n=2 turn/tool-call efficiency signal above is the concrete
+   hypothesis to test.
 4. **Why is cross-session variance 16-19%** when within-tier drift is under 4%?
+   Now three 31b sessions deep (190 / 159 / 193): the slow session is the
+   outlier, and nothing captured distinguishes it.
 5. **Does `gemma4:31b-mxfp8` reproduce its 9.61 tok/s elsewhere?** Pending the
    independent pull.
 
@@ -329,6 +353,10 @@ authoritative-20260731/
 ├── divergence-12b.json / divergence-26b-coding.json           fidelity (see caveats)
 ├── determinism-12b.log                                        12-probe control
 └── ../agentic-coding-gemma4_{26b-mxfp8,31b-nvfp4}-2026080*.json
+
+../authoritative-20260801/                                     08-01 rerun (C, D,
+    same layout as above, incl. its own remainder.log,          determinism,
+    determinism-12b.log, and agentic JSONs/logs                 agentic)
 ```
 
 Tools: `run-pop-gemma4-authoritative.sh`, `run-pop-overnight-remainder.sh`,

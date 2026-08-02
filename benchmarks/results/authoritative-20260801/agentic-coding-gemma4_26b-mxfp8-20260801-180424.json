@@ -1,0 +1,257 @@
+{
+  "model": "gemma4:26b-mxfp8",
+  "tiers": [
+    1,
+    2,
+    3
+  ],
+  "think": null,
+  "num_ctx": 32768,
+  "num_predict": 16384,
+  "seed": 42,
+  "repeats": 1,
+  "sandbox_level": "network-write",
+  "provenance": {
+    "model": "gemma4:26b-mxfp8",
+    "model_digest": "91109d36dc02a50148a13ec4e3c81df06760d89291ecbe6be810a1c1fb6b0715",
+    "model_modified_at": "2026-07-28T09:32:57.352409408-05:00",
+    "details": {
+      "family": "gemma4",
+      "parameter_size": "26.2B",
+      "quantization_level": "mxfp8"
+    },
+    "capabilities": [
+      "completion",
+      "tools",
+      "thinking"
+    ],
+    "effective_parameters": {
+      "temperature": "1",
+      "top_k": "64",
+      "top_p": "0.95"
+    },
+    "ollama_version": "0.32.5",
+    "harness_sha256": "52144c13a7fb561b",
+    "fixtures_sha256": "c0a9a54b28ba19d3",
+    "host": "Mac.lan",
+    "python": "3.13.13",
+    "started_at": "2026-08-01T17:57:24-0500"
+  },
+  "solved": 6,
+  "total": 6,
+  "results": [
+    {
+      "task_id": "t1a-moving-average",
+      "tier": 1,
+      "title": "Off-by-one in a moving average",
+      "solved": true,
+      "verifier_output": "OK",
+      "turns": 8,
+      "hit_turn_cap": false,
+      "tool_calls": 7,
+      "bad_tool_calls": 0,
+      "repeat": 0,
+      "bad_tool_detail": [],
+      "text_tool_attempts": 0,
+      "wrote_any_file": true,
+      "files_written": [
+        "reproduce_bug.py",
+        "stats.py"
+      ],
+      "files_read": [
+        "stats.py"
+      ],
+      "write_without_read": 1,
+      "ran_tests": 2,
+      "load_s": 4.93,
+      "truncated_turns": 0,
+      "tampered_suites": [],
+      "prompt_tokens": 13939,
+      "output_tokens": 2893,
+      "wall_s": 41.3,
+      "error": null,
+      "final_sources": {
+        "stats.py": "\"\"\"Rolling window statistics for pipeline run durations.\"\"\"\n\n\ndef moving_average(values, window):\n    \"\"\"Return the moving average of `values` over `window` samples.\n\n    The result has one entry per full window, so len(result) ==\n    len(values) - window + 1 for a non-empty input.\n    \"\"\"\n    if window <= 0:\n        raise ValueError(\"window must be positive\")\n    out = []\n    for i in range(len(values) - window + 1):\n        chunk = values[i : i + window]\n        out.append(sum(chunk) / window)\n    return out\n"
+      }
+    },
+    {
+      "task_id": "t1b-retry-budget",
+      "tier": 1,
+      "title": "Retry budget goes negative",
+      "solved": true,
+      "verifier_output": "OK",
+      "turns": 8,
+      "hit_turn_cap": false,
+      "tool_calls": 7,
+      "bad_tool_calls": 0,
+      "repeat": 0,
+      "bad_tool_detail": [],
+      "text_tool_attempts": 0,
+      "wrote_any_file": true,
+      "files_written": [
+        "budget.py",
+        "test_fix.py"
+      ],
+      "files_read": [
+        "budget.py"
+      ],
+      "write_without_read": 1,
+      "ran_tests": 1,
+      "load_s": 0.13,
+      "truncated_turns": 0,
+      "tampered_suites": [],
+      "prompt_tokens": 10983,
+      "output_tokens": 2173,
+      "wall_s": 27.5,
+      "error": null,
+      "final_sources": {
+        "budget.py": "\"\"\"Retry-budget accounting for the ingest scheduler.\"\"\"\n\n\nclass RetryBudget:\n    \"\"\"Tracks how many retries remain for a job.\n\n    `consume` spends one retry and returns True when the spend was allowed.\n    Once the budget is exhausted, further calls return False and must not push\n    `remaining` below zero.\n    \"\"\"\n\n    def __init__(self, limit):\n        self.limit = limit\n        self.used = 0\n\n    @property\n    def remaining(self):\n        return self.limit - self.used\n\n    def consume(self):\n        if self.remaining > 0:\n            self.used += 1\n            return True\n        return False\n\n    def reset(self):\n        self.used = 0\n"
+      }
+    },
+    {
+      "task_id": "t2a-normalize-idempotent",
+      "tier": 2,
+      "title": "Report double-counts a pipeline (cause is not in report.py)",
+      "solved": true,
+      "verifier_output": "OK",
+      "turns": 10,
+      "hit_turn_cap": false,
+      "tool_calls": 9,
+      "bad_tool_calls": 0,
+      "repeat": 0,
+      "bad_tool_detail": [],
+      "text_tool_attempts": 0,
+      "wrote_any_file": true,
+      "files_written": [
+        "reproduce_issue.py",
+        "normalize.py"
+      ],
+      "files_read": [
+        "report.py",
+        "normalize.py",
+        "parser.py"
+      ],
+      "write_without_read": 1,
+      "ran_tests": 1,
+      "load_s": 0.14,
+      "truncated_turns": 0,
+      "tampered_suites": [],
+      "prompt_tokens": 20728,
+      "output_tokens": 7324,
+      "wall_s": 95.1,
+      "error": null,
+      "final_sources": {
+        "normalize.py": "\"\"\"Name normalization shared by the parser and the reporter.\"\"\"\n\n\ndef normalize_name(name):\n    \"\"\"Normalize a pipeline name for comparison.\n\n    Names are case-insensitive and may be padded with whitespace. Internal\n    separators are normalized to underscores so \"daily load\", \"daily-load\" and\n    \"Daily_Load\" all compare equal.\n    \"\"\"\n    return name.strip().lower().replace(\"-\", \"_\").replace(\" \", \"_\")\n"
+      }
+    },
+    {
+      "task_id": "t2b-queue-fifo",
+      "tier": 2,
+      "title": "Job queue crashes on equal priorities",
+      "solved": true,
+      "verifier_output": "OK",
+      "turns": 10,
+      "hit_turn_cap": false,
+      "tool_calls": 9,
+      "bad_tool_calls": 0,
+      "repeat": 0,
+      "bad_tool_detail": [],
+      "text_tool_attempts": 0,
+      "wrote_any_file": true,
+      "files_written": [
+        "repro.py",
+        "queue_impl.py"
+      ],
+      "files_read": [
+        "scheduler.py",
+        "queue_impl.py"
+      ],
+      "write_without_read": 1,
+      "ran_tests": 2,
+      "load_s": 0.1,
+      "truncated_turns": 0,
+      "tampered_suites": [],
+      "prompt_tokens": 17337,
+      "output_tokens": 3137,
+      "wall_s": 42.9,
+      "error": null,
+      "final_sources": {
+        "queue_impl.py": "\"\"\"In-memory job queue with priority ordering.\"\"\"\n\nimport heapq\nimport itertools\n\n\nclass JobQueue:\n    \"\"\"A priority queue of jobs.\n\n    Lower `priority` values are dequeued first. Jobs pushed with equal priority\n    come out in the order they were pushed (FIFO within a priority).\n    \"\"\"\n\n    def __init__(self):\n        self._heap = []\n        self._counter = itertools.count()\n\n    def push(self, job, priority=5):\n        heapq.heappush(self._heap, (priority, next(self._counter), job))\n\n    def pop(self):\n        if not self._heap:\n            return None\n        _, _, job = heapq.heappop(self._heap)\n        return job\n\n    def __len__(self):\n        return len(self._heap)\n"
+      }
+    },
+    {
+      "task_id": "t3a-ttl-cache-lru",
+      "tier": 3,
+      "title": "Add bounded LRU eviction to the TTL cache",
+      "solved": true,
+      "verifier_output": "existing suite OK\nOK",
+      "turns": 10,
+      "hit_turn_cap": false,
+      "tool_calls": 9,
+      "bad_tool_calls": 0,
+      "repeat": 0,
+      "bad_tool_detail": [],
+      "text_tool_attempts": 0,
+      "wrote_any_file": true,
+      "files_written": [
+        "cache.py",
+        "test_cache.py"
+      ],
+      "files_read": [
+        "cache.py",
+        "test_cache.py"
+      ],
+      "write_without_read": 0,
+      "ran_tests": 3,
+      "load_s": 0.12,
+      "truncated_turns": 0,
+      "tampered_suites": [
+        "test_cache.py"
+      ],
+      "prompt_tokens": 43059,
+      "output_tokens": 8685,
+      "wall_s": 109.7,
+      "error": null,
+      "final_sources": {
+        "cache.py": "\"\"\"A tiny TTL cache used by the metrics collector.\"\"\"\n\nfrom collections import OrderedDict\n\n\nclass TTLCache:\n    \"\"\"Mapping with per-entry expiry.\n\n    `clock` is a zero-argument callable returning a monotonic float, injected so\n    tests can control time.\n    \"\"\"\n\n    def __init__(self, ttl, clock, max_size=None):\n        self.ttl = ttl\n        self.clock = clock\n        self.max_size = max_size\n        self._data = OrderedDict()\n\n    def set(self, key, value):\n        if self.max_size is not None and self.max_size <= 0:\n            if key in self._data:\n                del self._data[key]\n            return\n\n        if key in self._data:\n            self._data[key] = (value, self.clock())\n            self._data.move_to_end(key)\n            return\n\n        if self.max_size is not None and len(self._data) >= self.max_size:\n            self._data.popitem(last=False)\n\n        self._data[key] = (value, self.clock())\n\n    def get(self, key, default=None):\n        entry = self._data.get(key)\n        if entry is None:\n            return default\n        value, stamp = entry\n        if self.clock() - stamp >= self.ttl:\n            del self._data[key]\n            return default\n        # Move to end because it's now the most recently used\n        self._data.move_to_end(key)\n        return value\n\n    def __len__(self):\n        return len(self._data)\n"
+      }
+    },
+    {
+      "task_id": "t3b-router-params",
+      "tier": 3,
+      "title": "Add parameterized routes to the router",
+      "solved": true,
+      "verifier_output": "existing suite OK\nOK",
+      "turns": 11,
+      "hit_turn_cap": false,
+      "tool_calls": 10,
+      "bad_tool_calls": 0,
+      "repeat": 0,
+      "bad_tool_detail": [],
+      "text_tool_attempts": 0,
+      "wrote_any_file": true,
+      "files_written": [
+        "router.py",
+        "test_router.py"
+      ],
+      "files_read": [
+        "router.py",
+        "test_router.py"
+      ],
+      "write_without_read": 0,
+      "ran_tests": 4,
+      "load_s": 0.11,
+      "truncated_turns": 0,
+      "tampered_suites": [
+        "test_router.py"
+      ],
+      "prompt_tokens": 42299,
+      "output_tokens": 8121,
+      "wall_s": 103.6,
+      "error": null,
+      "final_sources": {
+        "router.py": "\"\"\"Minimal path router for the internal status service.\"\"\"\n\n\nclass Router:\n    \"\"\"Maps URL paths to handlers.\n\n    Routes are registered with `add`, and `resolve` returns (handler, params)\n    for a path or (None, {}) when nothing matches.\n    \"\"\"\n\n    def __init__(self):\n        self._routes = []\n\n    def add(self, path, handler):\n        self._routes.append((path, handler))\n\n    def resolve(self, path):\n        # 1. Try exact matches first (static)\n        for route, handler in self._routes:\n            if route == path:\n                return handler, {}\n\n        # 2. If no exact match, try dynamic routes\n        path_segments = path.split('/')\n        for route, handler in self._routes:\n            if '<' not in route or '>' not in route:\n                continue\n\n            route_segments = route.split('/')\n            if len(path_segments) != len(route_segments):\n                continue\n\n            params = {}\n            match = True\n            for r_seg, p_seg in zip(route_segments, path_segments):\n                if r_seg.startswith('<') and r_seg.endswith('>'):\n                    param_name = r_seg[1:-1]\n                    if not p_seg:  # Empty segment must not satisfy a parameter\n                        match = False\n                        break\n                    params[param_name] = p_seg\n                elif r_seg != p_seg:\n                    match = False\n                    break\n\n            if match:\n                return handler, params\n\n        return None, {}\n"
+      }
+    }
+  ]
+}

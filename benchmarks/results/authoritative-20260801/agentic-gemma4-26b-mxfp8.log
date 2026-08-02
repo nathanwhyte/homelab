@@ -1,0 +1,31 @@
+sandbox: network + outside writes blocked; READS ARE NOT CONFINED — code under test can read any file this user can read
+model=gemma4:26b-mxfp8 tiers=[1, 2, 3] tasks=6 think=None seed=42 repeats=1
+digest=91109d36dc02a50148a ollama=0.32.5 params={'temperature': '1', 'top_k': '64', 'top_p': '0.95'}
+
+[T1] t1a-moving-average — Off-by-one in a moving average
+   PASS  turns=8 calls=7 bad=0 tests_run=2 41.3s
+
+[T1] t1b-retry-budget — Retry budget goes negative
+   PASS  turns=8 calls=7 bad=0 tests_run=1 27.5s
+
+[T2] t2a-normalize-idempotent — Report double-counts a pipeline (cause is not in report.py)
+   PASS  turns=10 calls=9 bad=0 tests_run=1 95.1s
+
+[T2] t2b-queue-fifo — Job queue crashes on equal priorities
+   PASS  turns=10 calls=9 bad=0 tests_run=2 42.9s
+
+[T3] t3a-ttl-cache-lru — Add bounded LRU eviction to the TTL cache
+   PASS  turns=10 calls=9 bad=0 tests_run=3 109.7s
+   ⚠ rewrote fixture suite(s): test_cache.py
+
+[T3] t3b-router-params — Add parameterized routes to the router
+   PASS  turns=11 calls=10 bad=0 tests_run=4 103.6s
+   ⚠ rewrote fixture suite(s): test_router.py
+
+=== gemma4:26b-mxfp8 ===
+solved 6/6
+  T1: 2/2 solved, 0/14 bad calls, 68.8s
+  T2: 2/2 solved, 0/18 bad calls, 138.0s
+  T3: 2/2 solved, 0/19 bad calls, 213.3s
+
+wrote benchmarks/results/authoritative-20260801/agentic-coding-gemma4_26b-mxfp8-20260801-180424.json
