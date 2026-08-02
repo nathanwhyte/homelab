@@ -6,8 +6,10 @@ agentic-coding harness has 6 tasks; harbor's TB-2.1 subset has 10 tasks at
 n_attempts 3. The standard error on a pass rate at n=6 is ~20%, and ~9% at
 n=30. Neither can resolve a 3% effect, so a "quality comparison" built on them
 reports noise with a straight face. (Live example: harbor measured
-gemma4:coding-26b at 0.667 and coding-26b-nvfp4 at 0.333 on n=3/n=2 — a 2x
-"difference" from five trials.)
+gemma4:coding-26b-mxfp8 at 0.667 and coding-26b-nvfp4 at 0.333 on n=3/n=2 — a
+2x "difference" from five trials. Named gemma4:coding-26b at the time this was
+written, before the 2026-08-02 dotfiles rename repurposed that bare tag as a
+moving daily-driver alias — see the Usage note below.)
 
 WHAT THIS MEASURES INSTEAD. With temperature 0 the model is a deterministic
 function from prompt to text. Quantization perturbs the weights, which
@@ -40,8 +42,13 @@ the script REFUSES to report divergence for any model that fails.
 Usage:
     python3 quant-divergence.py --reference gemma4:12b-mlx-bf16 \\
         --candidates gemma4:12b-mxfp8,gemma4:12b-mlx
-    python3 quant-divergence.py --reference gemma4:coding-26b \\
+    python3 quant-divergence.py --reference gemma4:coding-26b-mxfp8 \\
         --candidates gemma4:coding-26b-nvfp4 --no-reference-is-truth
+
+NOTE (2026-08-02, dotfiles): use the immutable `gemma4:coding-26b-mxfp8` /
+`gemma4:coding-26b-nvfp4` tags above, not the bare `gemma4:coding-26b` — that
+name is now a moving daily-driver alias (currently pointing at nvfp4) and no
+longer identifies the mxfp8 baseline this example was written against.
 """
 
 from __future__ import annotations

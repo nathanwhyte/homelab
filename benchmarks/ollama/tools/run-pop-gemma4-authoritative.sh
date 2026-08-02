@@ -71,7 +71,14 @@ COUNT="${COUNT:-27}"
 CONTROL="gemma4:12b-mlx"
 
 # tier:ctx:model,model,...   (rough per-repeat cost in the comments)
-TIER_A="131072:gemma4:coding-26b,gemma4:coding-26b-nvfp4"          # ~30 min/repeat
+#
+# NOTE (2026-08-02, dotfiles): the bare `gemma4:coding-26b` tag was
+# repurposed as a MOVING daily-driver alias — it now points at nvfp4, not
+# mxfp8 as it did when this script and quant-divergence.py were written. Use
+# the immutable suffixed tags (`-mxfp8`, `-nvfp4`) here, never the bare name,
+# so a future rename on the dotfiles side can't silently flip which model a
+# rerun compares.
+TIER_A="131072:gemma4:coding-26b-mxfp8,gemma4:coding-26b-nvfp4"    # ~30 min/repeat
 TIER_B="32768:gemma4:26b-mxfp8,gemma4:26b-mlx"                     # ~20 min/repeat
 TIER_C="32768:gemma4:12b-mlx,gemma4:12b-mxfp8,gemma4:12b-mlx-bf16" # ~25 min/repeat
 TIER_D="32768:gemma4:31b-nvfp4"                                    # ~35 min/repeat
