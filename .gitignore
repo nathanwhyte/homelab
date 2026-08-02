@@ -93,3 +93,5 @@ benchmarks/results/*
 !benchmarks/results/authoritative-20260801/*.log
 !benchmarks/results/agentic-coding-gemma4_26b-mxfp8-20260801-102000.json
 !benchmarks/results/agentic-coding-gemma4_31b-nvfp4-20260801-102905.json
+!benchmarks/results/prefill-gemma4-31b-nvfp4.json
+!benchmarks/results/prefill-gemma4-31b-nvfp4.log

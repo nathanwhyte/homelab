@@ -15,10 +15,11 @@ two claims made during the investigation are corrected below.
 **2026-08-01 rerun** (`../authoritative-20260801/`): tiers C and D, the
 determinism control, and the agentic bench were rerun the same evening under
 the updated tooling. Outcomes are folded into each section below; the short
-version is that the 12b family reproduced within ~1.6% against a clean drift
-control, the tier C -8.1% anomaly did not reproduce, the 31b re-measured at
-~193 prefill (making the original tier D session the outlier), and the agentic
-interaction-efficiency observation reproduced in direction at n=2.
+version is that the 12b family's prefill and TTFT reproduced within ~1.3%
+against a clean prefill control (decode moved -5 to -13%, inside its ~15%
+noise floor), the tier C -8.1% anomaly did not reproduce, the 31b re-measured
+at 192.6 prefill (making the original tier D session the outlier), and the
+agentic interaction-efficiency observation reproduced in direction at n=2.
 
 ## Method
 
@@ -81,15 +82,19 @@ repeat prefill.
 **Tier C's drift control failed in this run — and the rerun cleared the tier.**
 Its control moved -8.1% on prefill against 0.1-1.1% everywhere else, so the
 12b rows were initially provisional. The 2026-08-01 rerun of the full tier came
-back with a clean control (+1.1% prefill) and reproduced all three 12b models
-within ~1.6% of the numbers above, so the published tier C rows stand.
+back with a clean prefill control (+1.0%) and reproduced all three 12b models
+on prefill and TTFT within ~1.3% of the numbers above (per-model prefill
+deltas +0.7% / +1.3% / -0.7%). Decode moved -6.3% / -5.4% / -13.1% — within
+the ~15% decode noise floor, so it neither confirms nor contradicts. The
+published tier C rows stand on prefill and TTFT.
 
 Tier C coincided with +5.30 GB endpoint swap growth and -8.10% control prefill
 drift; tiers A, B, and D each grew swap by only 0.3-0.9 GB. Memory pressure was
-the leading hypothesis, but the rerun weakened it: tier C swap grew comparably
-again (+4.2 GB, climbing 3.9 -> 9.7 GB across the tier) with NO drift, so
-endpoint swap growth looks like a property of a three-model tier cycling
-loads on this machine, not the cause of the 07-31 drift. The cause remains
+the leading hypothesis, but the rerun weakened it: tier C swap endpoints grew
+comparably again (+4.2 GB, 3.9 -> 8.1 GB, with an interior peak of 9.7 GB that
+receded before the close) with NO drift. Endpoint swap growth alone is
+therefore insufficient to produce the drift; it does not exclude memory
+pressure as a contributor in the 07-31 run. The cause remains
 unidentified and thermal effects remain unexcluded — the runner captured
 aggregate swap only once, before each row; no temperature, frequency,
 swap-compression, page-in/out, or memory-pressure timeline exists. The
@@ -97,13 +102,16 @@ original control's +3.7% decode movement is below this run's own ~15% decode
 noise floor and carries no signal.
 
 **Cross-session variance is much larger than within-tier drift.**
-`gemma4:31b-nvfp4` has now measured 190.0 prefill / 51.2 decode (2026-07-31),
-159.2 / 41.7 (tier D, 2026-08-01 morning), and 192.9 / 53.9 (rerun, 2026-08-01
-evening, n=3, clean +0.3% control) — a 16-19% spread while every session's own
-internal drift stayed under 4%. Two of three sessions agree at ~190-193, which
-makes the 159.2 session the likely outlier, but nothing measured explains what
-made it slow. Numbers from different sessions should not be compared at better
-than ~20%, regardless of how tight the within-tier error bars look.
+`gemma4:31b-nvfp4` has now measured 190.0 prefill / 51.2 decode (2026-07-31
+feasibility probe, `../prefill-gemma4-31b-nvfp4.json`), 159.2 / 41.7 (tier D,
+2026-08-01 morning), and 192.6 / 49.6 (rerun, 2026-08-01 evening, n=3, -0.0%
+prefill control) — a 16-19% spread while every session's own internal
+**prefill** drift stayed within ±1.2% (excluding the failed 07-31 tier C
+control; decode controls are noisier, moving up to +14% in the rerun). Two of
+three sessions agree at ~190-193, which makes the 159.2 session the likely
+outlier, but nothing measured explains what made it slow. Numbers from
+different sessions should not be compared at better than ~20%, regardless of
+how tight the within-tier error bars look.
 
 ## What the data supports
 
@@ -202,7 +210,7 @@ Weight size still drives decode _within a model family_ (the nvfp4-vs-mxfp8
 result above, and the monotonic 12b ladder 86.8 > 77.3 > 55.1 as weights grow
 7.7 -> 13 -> 24 GB). It does not predict an absolute rate.
 
-### Greedy decoding is non-deterministic on every gemma4 tag
+### Greedy decoding does not reproduce reliably on the tested 12b tags
 
 A 4-probe control on 2026-07-31 flagged only `gemma4:12b-mxfp8`. At 12 probes,
 across two independent runs:
@@ -214,11 +222,15 @@ gemma4:12b-mxfp8      NON-DETERMINISTIC (2/12)        NON-DETERMINISTIC (2/12)
 gemma4:12b-mlx        NON-DETERMINISTIC (1/12)        OK (0/12)
 ```
 
-At `temperature 0`, `top_k 1`, `top_p 1`, fixed seed, **~8-17% of prompts do not
-reproduce**. This is a property of the stack, not of one tag — MTP is the
-obvious suspect and is not confirmed. Which tags flag varies run to run (the
-rerun passed `12b-mlx` clean) while the overall rate stays in the same band,
-which is exactly the stochastic behavior the single-tag reading missed.
+At `temperature 0`, `top_k 1`, `top_p 1`, fixed seed, the second run repeated
+the aggregate **4/36** mismatch count; per-tag counts moved from 1/2/1 to
+2/2/0. Repeatability failure is not confined to one tested 12B tag, but its
+cause remains unisolated: only these three 12B tags were probed, and each
+probe pair crosses cold/partial -> warm prefix-cache and persistent MTP
+state, so a shared cause is not established. MTP remains the suspect,
+unconfirmed. (The control also records only aggregate counts — the
+mismatching outputs themselves were not retained; `quant-divergence.py` now
+captures them for future runs.)
 
 Consequence: `quant-divergence.py` correctly **refused** to report the 12b
 fidelity comparison, in both runs (the bf16 reference failed its control both
@@ -236,7 +248,8 @@ Run on 2026-07-31 under the 4-probe control now known to be insufficient:
 
 The 26b twins agreeing on 23 of 24 prompts is not reachable by chance, so the
 quant pair is substantially the same model — enough to say the choice is
-low-stakes. But with ~8-17% per-prompt non-determinism now measured, the single
+low-stakes. But with per-prompt repeatability failure now measured (4/36 in
+both 12-probe runs), the single
 divergence cannot be attributed to quantization rather than run-to-run noise,
 and neither row is a clean fidelity measurement. There is no bf16 26B locally,
 so that row was never a fidelity test in the first place.
@@ -270,13 +283,15 @@ interaction-efficiency difference:
 In both repeats the 31b consumed fewer model turns and tool calls while both
 models solved 6/6, and was slower in wall time (+7.2%, +13.0%). This is a
 hypothesis-generating interaction-efficiency observation, not a quality
-ranking. Turns count model requests until the model stops or hits the 14-turn
-cap — not time-to-first-passing-solution — and 26b tasks hit the cap in both
-runs, which inflates its totals mechanically. n=2 establishes the direction
-reproduces; it is still far short of the repeat count a published comparison
-needs. And architecture, size, and quantization all differ between the two
-models, so none of the three — in particular parameter density — is isolated
-by this pairing.
+ranking. Turns count model requests until the model stops or hits the
+per-tier turn cap — not time-to-first-passing-solution. Two 26b tasks hit
+their cap in run 1, inflating that run's totals mechanically; run 2 had zero
+cap rows for either model (`hit_turn_cap: false` throughout), so the run-2
+direction reproduced without cap inflation — which strengthens the
+observation. n=2 establishes the direction reproduces; it is still far short
+of the repeat count a published comparison needs. And architecture, size, and
+quantization all differ between the two models, so none of the three — in
+particular parameter density — is isolated by this pairing.
 
 **The dense-31b quality hypothesis remains untested.** It was the only axis that
 could have justified the 31b's speed cost, and this instrument cannot address
@@ -310,8 +325,9 @@ elsewhere for an independent check.
 - **Nothing about multi-turn cache reuse.** Prompts are salted to defeat prefix
   caching, which is the opposite of a real agent session's growing transcript
   (07-28 OQ-6).
-- ~~Nothing about the 12b family with confidence~~ — resolved by the 08-01
-  rerun: the family reproduced within ~1.6% against a clean drift control.
+- ~~Nothing about the 12b family with confidence~~ — resolved for prefill and
+  TTFT by the 08-01 rerun (within ~1.3% against a clean prefill control);
+  decode moved -5 to -13%, inside its ~15% noise floor.
 
 ## Open questions
 
@@ -321,13 +337,17 @@ elsewhere for an independent check.
    it is wired into the llama.cpp server path only — reading the v0.32.5
    source, the native MLX scheduler passes just model and context into its
    client while the MLX runner constructs speculation at load time, so the
-   switch appears NOT to reach the MLX path these tags run on. Verify runtime
-   behavior (e.g. that disabling it actually changes decode rate) before
-   trusting any MTP-disabled comparison.
+   switch appears NOT to reach the MLX path these tags run on. The runnable
+   native-MLX discriminator: a top-level `"logprobs": true` request disables
+   speculation on the MLX runner path in v0.32.5
+   (`github.com/ollama/ollama/blob/v0.32.5/x/mlxrunner/speculate.go#L123-L142`).
+   Either way, verify runtime behavior (e.g. that disabling actually changes
+   decode rate) before trusting any MTP-disabled comparison.
 2. **Why did tier C drift -8.1%?** Still open, and harder now: the 08-01 rerun
-   came back clean (+1.1%) while swap grew comparably (+4.2 GB vs +5.30 GB), so
-   endpoint swap growth alone does not produce the drift and the
-   memory-pressure hypothesis is weakened. Whatever slowed the 07-31 tier C —
+   came back clean (+1.0%) while swap endpoints grew comparably (+4.2 GB vs
+   +5.30 GB, interior peak 9.7 GB), so endpoint swap growth alone is
+   insufficient to produce the drift — which weakens but does not exclude
+   memory pressure as a contributor. Whatever slowed the 07-31 tier C —
    like whatever slowed the 159-tok/s tier D session — was transient and left
    no signature in the captures. Any further chase needs continuous telemetry;
    note that on this host `powermetrics --samplers smc` fails with

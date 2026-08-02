@@ -143,15 +143,42 @@ def first_divergence_frac(ref: str, cand: str) -> float:
     return 1.0 if len(ref) == len(cand) else n / len(ref)
 
 
-def check_determinism(url, model, prompts, num_predict, timeout) -> tuple[bool, int]:
-    """Run each prompt twice; every pair must match byte-for-byte."""
-    mismatches = 0
-    for p in prompts:
+def check_determinism(
+    url, model, prompts, num_predict, timeout
+) -> tuple[bool, list[dict]]:
+    """Run each prompt twice; every pair must match byte-for-byte.
+
+    Each mismatch retains the prompt and both outputs so a repeatability
+    failure is auditable afterwards, not just countable.
+    """
+    mismatches = []
+    for i, p in enumerate(prompts):
         a = generate(url, model, p, num_predict, timeout)
         b = generate(url, model, p, num_predict, timeout)
         if a is None or b is None or a != b:
-            mismatches += 1
-    return mismatches == 0, mismatches
+            mismatches.append(
+                {
+                    "prompt_index": i,
+                    "prompt": p,
+                    "request_failed": a is None or b is None,
+                    "first_divergence_frac": (
+                        first_divergence_frac(a, b)
+                        if a is not None and b is not None
+                        else None
+                    ),
+                    "output_a": a,
+                    "output_b": b,
+                }
+            )
+    return not mismatches, mismatches
+
+
+def write_output(path: str | None, payload: dict) -> None:
+    if not path:
+        return
+    with open(path, "w") as f:
+        json.dump(payload, f, indent=2)
+    print(f"\nwrote {path}")
 
 
 def main() -> None:
@@ -180,23 +207,43 @@ def main() -> None:
     print("=== determinism control (each prompt run twice) ===")
     probes = PROMPTS[: args.determinism_probes]
     ok_models = []
+    determinism = {}
     for m in models:
         t0 = time.time()
         ok, bad = check_determinism(args.url, m, probes, args.num_predict, args.timeout)
-        flag = "OK" if ok else f"NON-DETERMINISTIC ({bad}/{len(probes)} differed)"
+        determinism[m] = {"probes": len(probes), "mismatches": bad}
+        flag = "OK" if ok else f"NON-DETERMINISTIC ({len(bad)}/{len(probes)} differed)"
         print(f"  {m:26s} {flag}   [{time.time() - t0:.0f}s]")
+        for mm in bad:
+            where = (
+                "a request failed"
+                if mm["request_failed"]
+                else f"first divergence at {mm['first_divergence_frac'] * 100:.0f}% of output"
+            )
+            print(f"      probe {mm['prompt_index']:2d}: {where}")
         if ok:
             ok_models.append(m)
     print()
 
+    def refusal_payload(reason: str) -> dict:
+        return {
+            "reference": args.reference,
+            "candidates": cands,
+            "num_predict": args.num_predict,
+            "refused": reason,
+            "determinism": determinism,
+        }
+
     if args.reference not in ok_models:
-        print(
-            "REFUSING: reference model is not deterministic; divergence is meaningless."
-        )
+        reason = "reference model is not deterministic; divergence is meaningless"
+        print(f"REFUSING: {reason}.")
+        write_output(args.output, refusal_payload(reason))
         sys.exit(1)
     usable = [c for c in cands if c in ok_models]
     if not usable:
-        print("REFUSING: no candidate passed the determinism control.")
+        reason = "no candidate passed the determinism control"
+        print(f"REFUSING: {reason}.")
+        write_output(args.output, refusal_payload(reason))
         sys.exit(1)
 
     print("=== collecting reference outputs ===")
@@ -279,22 +326,19 @@ def main() -> None:
             "  differ, not which is more faithful. Do not rank quality from it."
         )
 
-    if args.output:
-        with open(args.output, "w") as f:
-            json.dump(
-                {
-                    "reference": args.reference,
-                    "reference_is_truth": not args.no_reference_is_truth,
-                    "num_predict": args.num_predict,
-                    "n_prompts": len(ref_out),
-                    "n_prompts_total": len(PROMPTS),
-                    "complete": not incomplete,
-                    "results": results,
-                },
-                f,
-                indent=2,
-            )
-        print(f"\nwrote {args.output}")
+    write_output(
+        args.output,
+        {
+            "reference": args.reference,
+            "reference_is_truth": not args.no_reference_is_truth,
+            "num_predict": args.num_predict,
+            "n_prompts": len(ref_out),
+            "n_prompts_total": len(PROMPTS),
+            "complete": not incomplete,
+            "determinism": determinism,
+            "results": results,
+        },
+    )
 
     if incomplete:
         print(

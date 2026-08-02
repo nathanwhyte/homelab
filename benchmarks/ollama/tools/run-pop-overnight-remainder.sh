@@ -45,7 +45,7 @@ cd "$(dirname "$0")/../../.." || exit 1
 
 # Every rerun gets its own dated results dir — never write into a prior run's
 # directory, whose artifacts back an already-published report.
-R="${OUTPUT_DIR:-benchmarks/results/authoritative-$(date +%Y%m%d)}"
+R="${OUTPUT_DIR:-benchmarks/results/authoritative-$(date +%Y%m%d-%H%M%S)}"
 export OUTPUT_DIR="$R" # run-pop-gemma4-authoritative.sh honors this
 mkdir -p "$R"
 
