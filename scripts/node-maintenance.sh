@@ -29,7 +29,21 @@ NODES=(wemby manu timmy)
 DRAIN_TIMEOUT=5m # evictions settle in ~2m; the rest would only be spent retrying pinned instance-managers
 REBOOT_TIMEOUT_SECONDS=${REBOOT_TIMEOUT_SECONDS:-600}
 READY_TIMEOUT_SECONDS=${READY_TIMEOUT_SECONDS:-600}
+# Rebooting timmy takes the API server down with it, and a slow POST/initramfs can
+# outlast the node's own boot. Waited-for separately from READY so a late API is not
+# mistaken for a node that failed to come back.
+API_TIMEOUT_SECONDS=${API_TIMEOUT_SECONDS:-600}
+APT_TIMEOUT_SECONDS=${APT_TIMEOUT_SECONDS:-3600}
+APT_LAUNCH_GRACE_SECONDS=${APT_LAUNCH_GRACE_SECONDS:-60}
+APT_REMOTE_LOG=/tmp/node-maintenance-apt.log
 SSH_OPTS=(-o ConnectTimeout=5)
+# ConnectTimeout bounds connection setup only. A server that completes the
+# handshake and then stalls stays stuck forever — Tailscale SSH in check-mode does
+# exactly this, holding the session open while it waits for a browser login
+# (2026-08-07). Every wait loop here is written as "deadline checked between
+# calls", which a single hung call defeats, so each call gets its own hard cap.
+SSH_CMD_TIMEOUT_SECONDS=${SSH_CMD_TIMEOUT_SECONDS:-120}
+TIMEOUT_BIN=$(command -v timeout || command -v gtimeout || true)
 STATE_ROOT=${XDG_STATE_HOME:-"$HOME/.local/state"}
 MAINTENANCE_STATE_DIR=$STATE_ROOT/homelab-node-maintenance
 MAINTENANCE_LOCK_DIR=$MAINTENANCE_STATE_DIR/lock
@@ -45,6 +59,40 @@ die() {
 usage() {
 	sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//'
 	exit 1
+}
+
+run_ssh() {
+	# Every non-interactive SSH call goes through here so it cannot hang forever.
+	local node=$1
+	shift
+	if [[ -n $TIMEOUT_BIN ]]; then
+		"$TIMEOUT_BIN" "$SSH_CMD_TIMEOUT_SECONDS" ssh "${SSH_OPTS[@]}" "$node" "$@"
+	else
+		ssh "${SSH_OPTS[@]}" "$node" "$@"
+	fi
+}
+
+probe_ssh() {
+	# Echoes a remote command's stdout, but only when the remote actually ran it.
+	#
+	# The naive form — out=$(ssh node 'cmd' 2>/dev/null) || true — cannot tell
+	# "command produced no output" from "SSH never connected", so a broken
+	# transport silently becomes an empty, clean-looking result. Every caller here
+	# uses that output to decide whether a node is safe, so it has to fail closed.
+	# Proof of execution is a sentinel the remote prints after the command; no
+	# sentinel means no answer, regardless of exit status.
+	local node=$1 remote_cmd=$2 attempts=${3:-3}
+	local out i
+	for ((i = 1; i <= attempts; i++)); do
+		if out=$(run_ssh "$node" "$remote_cmd; printf '\n__PROBE_OK__\n'" 2>/dev/null) &&
+			[[ $out == *__PROBE_OK__ ]]; then
+			out=${out%__PROBE_OK__}
+			printf '%s' "${out%$'\n'}"
+			return 0
+		fi
+		((i < attempts)) && sleep 5
+	done
+	return 1
 }
 
 require_node() {
@@ -131,7 +179,7 @@ require_reboot_order() {
 	local target=$1 node rc
 	for node in "${NODES[@]}"; do
 		[[ $node == "$target" ]] && return 0
-		if ssh "${SSH_OPTS[@]}" "$node" '[ -f /var/run/reboot-required ]' 2>/dev/null; then
+		if run_ssh "$node" '[ -f /var/run/reboot-required ]' 2>/dev/null; then
 			die "$node still requires reboot; complete nodes in order: ${NODES[*]}"
 		else
 			rc=$?
@@ -141,7 +189,7 @@ require_reboot_order() {
 }
 
 remote_boot_id() {
-	ssh "${SSH_OPTS[@]}" "$1" 'cat /proc/sys/kernel/random/boot_id'
+	run_ssh "$1" 'cat /proc/sys/kernel/random/boot_id'
 }
 
 normalize_boot_id() {
@@ -182,6 +230,20 @@ wait_for_new_boot() {
 		sleep 10
 	done
 	die "[$node] boot ID did not change within ${REBOOT_TIMEOUT_SECONDS}s; leaving the node cordoned"
+}
+
+wait_for_api() {
+	# Every check that shells out to kubectl needs the API server, which lives on
+	# timmy — so the moment timmy reboots, those checks fail for reasons that have
+	# nothing to do with what they are asserting. Block until the API answers again
+	# instead of letting a caller interpret the outage as a real verdict.
+	local deadline
+	deadline=$((SECONDS + API_TIMEOUT_SECONDS))
+	while ((SECONDS < deadline)); do
+		kubectl get --raw=/readyz >/dev/null 2>&1 && return 0
+		sleep 10
+	done
+	die "kubernetes API unreachable after ${API_TIMEOUT_SECONDS}s; leaving the node cordoned"
 }
 
 wait_for_node_ready() {
@@ -230,9 +292,15 @@ wait_longhorn_healthy() {
 
 pdb_preflight() {
 	# Flag pods on this node covered by a PDB that currently allows 0 disruptions.
-	# Longhorn's instance-manager PDBs are expected here (drain waits, not hangs);
-	# app PDBs (equal-risk, phx, portfolio) will hang the drain until the pod is
-	# deleted manually or the PDB is loosened.
+	# Longhorn's instance-manager PDBs are expected here (drain waits, not hangs).
+	#
+	# Only an app PDB that actually selects a pod can hang the drain, which is why
+	# this intersects each selector with pods on the target node rather than
+	# trusting disruptionsAllowed. Verified 2026-08-06: of the three app PDBs, only
+	# portfolio-pdb matches anything — equal-risk-pdb selects app=rails while the
+	# pod is app=equal-risk-rails, and phx-pdb is orphaned (no phx workload exists;
+	# service/phx points at app=portfolio). Both report 0 allowed disruptions purely
+	# because expectedPods is 0, and neither blocks a drain.
 	local node=$1 blocked
 	blocked=$(kubectl get pdb -A -o json | jq -r --arg node "$node" '
 		.items[] | select(.status.disruptionsAllowed == 0) |
@@ -259,15 +327,101 @@ pdb_preflight() {
 
 # --- Commands -----------------------------------------------------------------
 
+launch_remote_apt() {
+	# The upgrade is detached from this SSH session on purpose. Some packages
+	# restart the very transport the command arrived over — upgrading tailscale
+	# bounces tailscaled, which kills the connection — and if the apt chain is
+	# still in that session's process group, the resulting SIGHUP lands mid-dpkg
+	# and leaves packages half-configured (wemby/grafana, 2026-08-06). setsid puts
+	# it in its own session so the work survives losing the link.
+	#
+	# The remote chain announces itself with APT_STARTED before doing any work.
+	# That marker is the only reliable proof the child came up: the launch is
+	# backgrounded ahead of `sleep`, so SSH reports `sleep`'s status and would
+	# return 0 even if setsid, nohup, bash, or the redirection had failed.
+	local node=$1 deadline
+	run_ssh "$node" \
+		"rm -f $APT_REMOTE_LOG; setsid nohup bash -c 'echo APT_STARTED; sudo -n apt update && sudo -n apt full-upgrade -y && sudo -n apt autoremove -y; echo APT_DONE_RC=\$?' >$APT_REMOTE_LOG 2>&1 </dev/null & sleep 1" ||
+		die "[$node] could not start the apt run"
+
+	deadline=$((SECONDS + APT_LAUNCH_GRACE_SECONDS))
+	while ((SECONDS < deadline)); do
+		if probe_ssh "$node" "grep -c APT_STARTED $APT_REMOTE_LOG 2>/dev/null || true" | grep -qx '[1-9][0-9]*'; then
+			return 0
+		fi
+		sleep 5
+	done
+	warn "[$node] launch diagnostics:"
+	probe_ssh "$node" "tail -20 $APT_REMOTE_LOG 2>&1 || true" | sed 's/^/    /' || true
+	die "[$node] apt never started within ${APT_LAUNCH_GRACE_SECONDS}s (no APT_STARTED marker)"
+}
+
+wait_remote_apt() {
+	# Echoes the apt chain's exit code. SSH failures while polling are expected
+	# (that is the transport restarting), so reconnect rather than give up.
+	local node=$1 deadline rc
+	deadline=$((SECONDS + APT_TIMEOUT_SECONDS))
+	while ((SECONDS < deadline)); do
+		# Single attempt per poll: a failure here is usually the transport
+		# restarting under us, and the surrounding loop is already the retry.
+		rc=$(probe_ssh "$node" "sed -n 's/^APT_DONE_RC=//p' $APT_REMOTE_LOG" 1) || {
+			sleep 10
+			continue
+		}
+		if [[ -n $rc ]]; then
+			printf '%s\n' "$rc"
+			return 0
+		fi
+		sleep 10
+	done
+	die "[$node] apt did not finish within ${APT_TIMEOUT_SECONDS}s; inspect $node:$APT_REMOTE_LOG"
+}
+
+report_apt_result() {
+	# A half-configured package does not fail the apt chain's exit code but does
+	# break every later apt run on that node, so surface it explicitly instead of
+	# letting the next cycle discover it. Repair needs unrestricted sudo, which is
+	# deliberately outside this script's NOPASSWD allow-list.
+	#
+	# Both probes below decide whether a node is safe to move on from, so neither
+	# may silently degrade to a reassuring answer when the transport is broken.
+	# probe_ssh proves execution with a sentinel, and the reboot check reports its
+	# verdict as a word rather than an exit status — `[ -f … ]` returning non-zero
+	# is indistinguishable from SSH failing, and both used to print "no reboot
+	# required".
+	local node=$1 broken reboot_state
+	broken=$(probe_ssh "$node" 'dpkg --audit 2>/dev/null || true') ||
+		die "[$node] cannot read dpkg state (SSH failed); refusing to report this node as clean"
+	if [[ -n $broken ]]; then
+		warn "[$node] dpkg reports packages that are not fully configured:"
+		printf '%s\n' "$broken" | sed 's/^/    /'
+		warn "[$node] repair before the next cycle: ssh $node sudo dpkg --configure -a"
+	fi
+
+	reboot_state=$(probe_ssh "$node" \
+		'if [ -f /var/run/reboot-required ]; then echo required; else echo current; fi') ||
+		die "[$node] cannot read reboot-required state (SSH failed); refusing to guess"
+	case $reboot_state in
+	required) log "[$node] *** REBOOT REQUIRED ***" ;;
+	current) log "[$node] no reboot required" ;;
+	*) die "[$node] unexpected reboot-required probe result: '$reboot_state'" ;;
+	esac
+}
+
 cmd_apt() {
 	local targets=("$@")
 	((${#targets[@]})) || targets=("${NODES[@]}")
-	local node
+	local node rc
 	for node in "${targets[@]}"; do
 		require_node "$node"
-		log "[$node] apt update && apt full-upgrade (serial; sudo is interactive)"
-		ssh -t "${SSH_OPTS[@]}" "$node" \
-			'sudo apt update && sudo apt full-upgrade -y && sudo apt autoremove -y && { [ -f /var/run/reboot-required ] && echo "*** REBOOT REQUIRED ***" || echo "no reboot required"; }'
+		log "[$node] apt update + full-upgrade + autoremove (detached; nodes still serial)"
+		launch_remote_apt "$node"
+		rc=$(wait_remote_apt "$node")
+		if [[ $rc != 0 ]]; then
+			run_ssh "$node" "tail -25 $APT_REMOTE_LOG" 2>/dev/null | sed 's/^/    /' || true
+			die "[$node] apt exited $rc; full log at $node:$APT_REMOTE_LOG"
+		fi
+		report_apt_result "$node"
 	done
 	log "apt phase done. Reboot serially with: $0 reboot <node>  (order: ${NODES[*]})"
 }
@@ -280,7 +434,7 @@ cmd_status() {
 	echo
 	local node remote_status state kernel
 	for node in "${NODES[@]}"; do
-		if remote_status=$(ssh "${SSH_OPTS[@]}" "$node" \
+		if remote_status=$(run_ssh "$node" \
 			'if [ -f /var/run/reboot-required ]; then state=required; else state=current; fi; printf "%s\t%s\n" "$state" "$(uname -r)"' 2>/dev/null); then
 			IFS=$'\t' read -r state kernel <<<"$remote_status"
 			if [[ $state == required ]]; then
@@ -307,7 +461,6 @@ cmd_finish() {
 	(($# >= 1 && $# <= 2)) || die "usage: $0 finish <node> [previous-boot-id]"
 	local node=$1 previous_boot_id=${2:-} saved_boot_id
 	require_node "$node"
-	require_only_target_cordoned "$node"
 
 	if [[ -z $previous_boot_id ]]; then
 		previous_boot_id=$(load_cycle_boot_id "$node")
@@ -318,7 +471,15 @@ cmd_finish() {
 	require_valid_boot_id "$previous_boot_id"
 
 	wait_for_new_boot "$node" "$previous_boot_id"
-	log "[$node] SSH is back (kernel: $(ssh "${SSH_OPTS[@]}" "$node" 'uname -r'))"
+	log "[$node] SSH is back (kernel: $(run_ssh "$node" 'uname -r'))"
+
+	# Ordered deliberately: boot proof comes from SSH and works while the API is
+	# down, so it runs first and gives a real diagnosis when a node fails to come
+	# back. Only then wait for the API, because the cordon check below is a kubectl
+	# call — running it during timmy's own reboot aborted the cycle on 2026-08-06
+	# and left the node cordoned. The check still precedes every mutation.
+	wait_for_api
+	require_only_target_cordoned "$node"
 
 	wait_for_node_ready "$node"
 
@@ -395,7 +556,17 @@ cmd_reboot() {
 	fi
 
 	log "[$node] reboot"
-	ssh -t "${SSH_OPTS[@]}" "$node" 'sudo reboot' || warn "SSH disconnected or reboot command returned non-zero; verifying the boot ID"
+	# -t so sudo gets a TTY; bounded because a stalled SSH here would hang the whole
+	# cycle with the node already cordoned and drained. A non-zero result is
+	# expected and harmless — the reboot kills the connection — so the boot-ID
+	# proof below, not this exit status, is what decides whether it worked.
+	if [[ -n $TIMEOUT_BIN ]]; then
+		"$TIMEOUT_BIN" "$SSH_CMD_TIMEOUT_SECONDS" ssh -t "${SSH_OPTS[@]}" "$node" 'sudo reboot' ||
+			warn "SSH disconnected or reboot command returned non-zero; verifying the boot ID"
+	else
+		ssh -t "${SSH_OPTS[@]}" "$node" 'sudo reboot' ||
+			warn "SSH disconnected or reboot command returned non-zero; verifying the boot ID"
+	fi
 
 	cmd_finish "$node" "$boot_id"
 }
