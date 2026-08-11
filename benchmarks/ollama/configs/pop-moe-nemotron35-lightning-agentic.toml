@@ -1,0 +1,33 @@
+# Pop MoE matrix addition: nemotron-3.5-lightning:30b-mlx agentic @ 32K, C=1..3 (PROJ-1003)
+# Sampling: NVIDIA HF card (2026-08-11) recommends Temperature 1.0 / Top_P 0.95
+# universally — including tool calling (unlike Nemotron-3-33B's split rec).
+# The Ollama tag ships exactly these values, so this config records the shipped
+# Modelfile defaults explicitly. See INFO-1140 in the compendium for the
+# first-look numbers this run supersedes.
+# Native mode (thinking on by default, no `think` key) per matrix thinking policy.
+# Requires ollama >= 0.32.9 (Nemotron 3 architecture support).
+[ollama]
+url = "http://localhost:11434"
+model = "nemotron-3.5-lightning:30b-mlx"
+num_ctx = 32768
+num_predict = 16384
+temperature = 1.0                         # per-config (shipped Modelfile = HF card rec)
+
+[ollama.options]                          # per-config (shipped Modelfile = HF card rec)
+top_p = 0.95
+
+[workload]
+name = "agentic"
+max_concurrency = 3
+requests_per_level = 3
+repeats = 3
+cooldown_seconds = 20
+
+[prometheus]
+url = ""
+instance_label = ""
+sample_interval_seconds = 2.0
+
+[output]
+dir = "benchmarks/results"
+prefix = "ollama-pop-moe-nemotron35-lightning-agentic"
