@@ -37,8 +37,9 @@ spec:
         fsGroup: 0
       containers:
         - name: ollama
-          # Vulkan backend is the default in Ollama 0.30+ and is faster than ROCm
-          # on timmy's RX 9070 XT (RDNA4). See INFO-1084 for benchmark findings.
+          # Production uses the Vulkan backend on timmy's RX 9070 XT (RDNA4).
+          # Force it explicitly because the image also ships ROCm runner libraries.
+          # See INFO-1084 for benchmark findings and device-selection details.
           image: ollama/ollama:0.31.1
           imagePullPolicy: IfNotPresent
           # CAP_PERFMON: with MAX_LOADED_MODELS=2, Ollama needs real free-VRAM
@@ -111,6 +112,12 @@ spec:
             # set (it is, below).
             - name: OLLAMA_MAX_LOADED_MODELS
               value: "1"
+            # Enable Vulkan and force the Vulkan runner even when ROCm libraries
+            # are also present in the Ollama image.
+            - name: OLLAMA_VULKAN
+              value: "1"
+            - name: OLLAMA_LLM_LIBRARY
+              value: vulkan
             # Device selection: on timmy the Vulkan device order is reversed
             # relative to ROCm, and the iGPU (PCI 1002:164E) is enumerated first.
             # HIP_VISIBLE_DEVICES=0 picked the discrete RX 9070 XT under ROCm;
