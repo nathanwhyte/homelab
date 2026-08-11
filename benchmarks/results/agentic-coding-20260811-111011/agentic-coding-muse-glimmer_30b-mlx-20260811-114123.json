@@ -1,0 +1,657 @@
+{
+  "model": "muse-glimmer:30b-mlx",
+  "tiers": [
+    1,
+    2,
+    3
+  ],
+  "think": null,
+  "num_ctx": 32768,
+  "num_predict": 16384,
+  "seed": 42,
+  "repeats": 3,
+  "sandbox_level": "network-write",
+  "provenance": {
+    "model": "muse-glimmer:30b-mlx",
+    "model_digest": "ef32a55b4976faa955cbab0462d09bd081351ef5b87d73d8fcd299bf17c111d7",
+    "model_modified_at": "2026-08-11T11:07:21.160161804-05:00",
+    "details": {
+      "family": "muse_glimmer",
+      "parameter_size": "32.3B",
+      "quantization_level": "nvfp4"
+    },
+    "capabilities": [
+      "completion",
+      "vision",
+      "tools",
+      "thinking"
+    ],
+    "effective_parameters": {
+      "draft_num_predict": "15",
+      "temperature": "1",
+      "top_k": "64",
+      "top_p": "0.95"
+    },
+    "ollama_version": "0.32.8",
+    "harness_sha256": "52144c13a7fb561b",
+    "fixtures_sha256": "c0a9a54b28ba19d3",
+    "host": "pop.lan",
+    "python": "3.14.6",
+    "started_at": "2026-08-11T11:10:11-0500"
+  },
+  "solved": 18,
+  "total": 18,
+  "results": [
+    {
+      "task_id": "t1a-moving-average",
+      "tier": 1,
+      "title": "Off-by-one in a moving average",
+      "solved": true,
+      "verifier_output": "OK",
+      "turns": 5,
+      "hit_turn_cap": false,
+      "tool_calls": 4,
+      "bad_tool_calls": 0,
+      "repeat": 0,
+      "bad_tool_detail": [],
+      "text_tool_attempts": 0,
+      "wrote_any_file": true,
+      "files_written": [
+        "stats.py"
+      ],
+      "files_read": [
+        "stats.py"
+      ],
+      "write_without_read": 0,
+      "ran_tests": 1,
+      "load_s": 5.69,
+      "truncated_turns": 0,
+      "tampered_suites": [],
+      "prompt_tokens": 7019,
+      "output_tokens": 1490,
+      "wall_s": 49.0,
+      "error": null,
+      "final_sources": {
+        "stats.py": "\"\"\"Rolling window statistics for pipeline run durations.\"\"\"\n\n\ndef moving_average(values, window):\n    \"\"\"Return the moving average of `values` over `window` samples.\n\n    The result has one entry per full window, so len(result) ==\n    len(values) - window + 1 for a non-empty input.\n    \"\"\"\n    if window <= 0:\n        raise ValueError(\"window must be positive\")\n    out = []\n    for i in range(len(values) - window + 1):\n        chunk = values[i : i + window]\n        out.append(sum(chunk) / window)\n    return out\n"
+      }
+    },
+    {
+      "task_id": "t1b-retry-budget",
+      "tier": 1,
+      "title": "Retry budget goes negative",
+      "solved": true,
+      "verifier_output": "OK",
+      "turns": 6,
+      "hit_turn_cap": false,
+      "tool_calls": 5,
+      "bad_tool_calls": 0,
+      "repeat": 0,
+      "bad_tool_detail": [],
+      "text_tool_attempts": 0,
+      "wrote_any_file": true,
+      "files_written": [
+        "budget.py"
+      ],
+      "files_read": [
+        "budget.py"
+      ],
+      "write_without_read": 0,
+      "ran_tests": 1,
+      "load_s": 0.16,
+      "truncated_turns": 0,
+      "tampered_suites": [],
+      "prompt_tokens": 10655,
+      "output_tokens": 1821,
+      "wall_s": 53.4,
+      "error": null,
+      "final_sources": {
+        "budget.py": "\"\"\"Retry-budget accounting for the ingest scheduler.\"\"\"\n\n\nclass RetryBudget:\n    \"\"\"Tracks how many retries remain for a job.\n\n    `consume` spends one retry and returns True when the spend was allowed.\n    Once the budget is exhausted, further calls return False and must not push\n    `remaining` below zero.\n    \"\"\"\n\n    def __init__(self, limit):\n        self.limit = limit\n        self.used = 0\n\n    @property\n    def remaining(self):\n        return self.limit - self.used\n\n    def consume(self):\n        if self.remaining > 0:\n            self.used += 1\n            return True\n        return False\n\n    def reset(self):\n        self.used = 0\n"
+      }
+    },
+    {
+      "task_id": "t2a-normalize-idempotent",
+      "tier": 2,
+      "title": "Report double-counts a pipeline (cause is not in report.py)",
+      "solved": true,
+      "verifier_output": "OK",
+      "turns": 6,
+      "hit_turn_cap": false,
+      "tool_calls": 7,
+      "bad_tool_calls": 0,
+      "repeat": 0,
+      "bad_tool_detail": [],
+      "text_tool_attempts": 0,
+      "wrote_any_file": true,
+      "files_written": [
+        "normalize.py"
+      ],
+      "files_read": [
+        "normalize.py",
+        "parser.py",
+        "report.py"
+      ],
+      "write_without_read": 0,
+      "ran_tests": 1,
+      "load_s": 0.09,
+      "truncated_turns": 0,
+      "tampered_suites": [],
+      "prompt_tokens": 15649,
+      "output_tokens": 4555,
+      "wall_s": 144.8,
+      "error": null,
+      "final_sources": {
+        "normalize.py": "\"\"\"Name normalization shared by the parser and the reporter.\"\"\"\n\n\ndef normalize_name(name):\n    \"\"\"Normalize a pipeline name for comparison.\n\n    Names are case-insensitive and may be padded with whitespace. Internal\n    separators are normalized to underscores so \"daily load\", \"daily-load\" and\n    \"Daily_Load\" all compare equal.\n    \"\"\"\n    return name.strip().lower().replace(\"-\", \"_\").replace(\" \", \"_\")\n"
+      }
+    },
+    {
+      "task_id": "t2b-queue-fifo",
+      "tier": 2,
+      "title": "Job queue crashes on equal priorities",
+      "solved": true,
+      "verifier_output": "OK",
+      "turns": 6,
+      "hit_turn_cap": false,
+      "tool_calls": 6,
+      "bad_tool_calls": 0,
+      "repeat": 0,
+      "bad_tool_detail": [],
+      "text_tool_attempts": 0,
+      "wrote_any_file": true,
+      "files_written": [
+        "queue_impl.py"
+      ],
+      "files_read": [
+        "scheduler.py",
+        "queue_impl.py"
+      ],
+      "write_without_read": 0,
+      "ran_tests": 1,
+      "load_s": 0.12,
+      "truncated_turns": 0,
+      "tampered_suites": [],
+      "prompt_tokens": 9524,
+      "output_tokens": 1289,
+      "wall_s": 44.5,
+      "error": null,
+      "final_sources": {
+        "queue_impl.py": "\"\"\"In-memory job queue with priority ordering.\"\"\"\n\nimport heapq\nimport itertools\n\n\nclass JobQueue:\n    \"\"\"A priority queue of jobs.\n\n    Lower `priority` values are dequeued first. Jobs pushed with equal priority\n    come out in the order they were pushed (FIFO within a priority).\n    \"\"\"\n\n    def __init__(self):\n        self._heap = []\n        self._counter = itertools.count()\n\n    def push(self, job, priority=5):\n        count = next(self._counter)\n        heapq.heappush(self._heap, (priority, count, job))\n\n    def pop(self):\n        if not self._heap:\n            return None\n        _, _, job = heapq.heappop(self._heap)\n        return job\n\n    def __len__(self):\n        return len(self._heap)\n"
+      }
+    },
+    {
+      "task_id": "t3a-ttl-cache-lru",
+      "tier": 3,
+      "title": "Add bounded LRU eviction to the TTL cache",
+      "solved": true,
+      "verifier_output": "existing suite OK\nOK",
+      "turns": 5,
+      "hit_turn_cap": false,
+      "tool_calls": 5,
+      "bad_tool_calls": 0,
+      "repeat": 0,
+      "bad_tool_detail": [],
+      "text_tool_attempts": 0,
+      "wrote_any_file": true,
+      "files_written": [
+        "cache.py"
+      ],
+      "files_read": [
+        "cache.py",
+        "test_cache.py"
+      ],
+      "write_without_read": 0,
+      "ran_tests": 1,
+      "load_s": 0.12,
+      "truncated_turns": 0,
+      "tampered_suites": [],
+      "prompt_tokens": 11375,
+      "output_tokens": 3632,
+      "wall_s": 110.8,
+      "error": null,
+      "final_sources": {
+        "cache.py": "\"\"\"A tiny TTL cache used by the metrics collector.\"\"\"\n\n\nfrom collections import OrderedDict\n\n\nclass TTLCache:\n    \"\"\"Mapping with per-entry expiry.\n\n    `clock` is a zero-argument callable returning a monotonic float, injected so\n    tests can control time.\n    \"\"\"\n\n    def __init__(self, ttl, clock, max_size=None):\n        self.ttl = ttl\n        self.clock = clock\n        self.max_size = max_size\n        self._data = OrderedDict()\n\n    def set(self, key, value):\n        now = self.clock()\n        if key in self._data:\n            self._data[key] = (value, now)\n            self._data.move_to_end(key)\n            return\n        if self.max_size is not None:\n            if self.max_size == 0:\n                return\n            # evict LRU entries until there is room\n            while len(self._data) >= self.max_size:\n                self._data.popitem(last=False)\n        self._data[key] = (value, now)\n\n    def get(self, key, default=None):\n        entry = self._data.get(key)\n        if entry is None:\n            return default\n        value, stamp = entry\n        if self.clock() - stamp >= self.ttl:\n            del self._data[key]\n            return default\n        # count as use -> update LRU order\n        self._data.move_to_end(key)\n        return value\n\n    def __len__(self):\n        return len(self._data)\n"
+      }
+    },
+    {
+      "task_id": "t3b-router-params",
+      "tier": 3,
+      "title": "Add parameterized routes to the router",
+      "solved": true,
+      "verifier_output": "existing suite OK\nOK",
+      "turns": 6,
+      "hit_turn_cap": false,
+      "tool_calls": 6,
+      "bad_tool_calls": 0,
+      "repeat": 0,
+      "bad_tool_detail": [],
+      "text_tool_attempts": 0,
+      "wrote_any_file": true,
+      "files_written": [
+        "router.py"
+      ],
+      "files_read": [
+        "router.py",
+        "test_router.py"
+      ],
+      "write_without_read": 0,
+      "ran_tests": 2,
+      "load_s": 0.11,
+      "truncated_turns": 0,
+      "tampered_suites": [],
+      "prompt_tokens": 17031,
+      "output_tokens": 4712,
+      "wall_s": 148.0,
+      "error": null,
+      "final_sources": {
+        "router.py": "\"\"\"Minimal path router for the internal status service.\"\"\"\n\n\nclass Router:\n    \"\"\"Maps URL paths to handlers.\n\n    Routes are registered with `add`, and `resolve` returns (handler, params)\n    for a path or (None, {}) when nothing matches.\n    \"\"\"\n\n    def __init__(self):\n        self._routes = []\n\n    def add(self, path, handler):\n        segments = path.split('/')\n        is_static = True\n        for seg in segments:\n            if seg.startswith('<') and seg.endswith('>'):\n                is_static = False\n                break\n        self._routes.append({\n            'path': path,\n            'handler': handler,\n            'segments': segments,\n            'is_static': is_static,\n        })\n\n    def resolve(self, path):\n        path_segments = path.split('/')\n        best_static = None\n        best_dynamic = None\n        for route in self._routes:\n            segs = route['segments']\n            if len(segs) != len(path_segments):\n                continue\n            params = {}\n            matched = True\n            for rs, ps in zip(segs, path_segments):\n                if rs.startswith('<') and rs.endswith('>'):\n                    if ps == '':\n                        matched = False\n                        break\n                    name = rs[1:-1]\n                    params[name] = ps\n                else:\n                    if rs != ps:\n                        matched = False\n                        break\n            if not matched:\n                continue\n            if route['is_static']:\n                if best_static is None:\n                    best_static = (route['handler'], {})\n            else:\n                if best_dynamic is None:\n                    best_dynamic = (route['handler'], params)\n        if best_static is not None:\n            return best_static[0], best_static[1]\n        if best_dynamic is not None:\n            return best_dynamic[0], best_dynamic[1]\n        return None, {}\n"
+      }
+    },
+    {
+      "task_id": "t1a-moving-average",
+      "tier": 1,
+      "title": "Off-by-one in a moving average",
+      "solved": true,
+      "verifier_output": "OK",
+      "turns": 5,
+      "hit_turn_cap": false,
+      "tool_calls": 4,
+      "bad_tool_calls": 0,
+      "repeat": 1,
+      "bad_tool_detail": [],
+      "text_tool_attempts": 0,
+      "wrote_any_file": true,
+      "files_written": [
+        "stats.py"
+      ],
+      "files_read": [
+        "stats.py"
+      ],
+      "write_without_read": 0,
+      "ran_tests": 1,
+      "load_s": 0.11,
+      "truncated_turns": 0,
+      "tampered_suites": [],
+      "prompt_tokens": 8651,
+      "output_tokens": 2031,
+      "wall_s": 57.6,
+      "error": null,
+      "final_sources": {
+        "stats.py": "\"\"\"Rolling window statistics for pipeline run durations.\"\"\"\n\n\ndef moving_average(values, window):\n    \"\"\"Return the moving average of `values` over `window` samples.\n\n    The result has one entry per full window, so len(result) ==\n    len(values) - window + 1 for a non-empty input.\n    \"\"\"\n    if window <= 0:\n        raise ValueError(\"window must be positive\")\n    out = []\n    for i in range(len(values) - window + 1):\n        chunk = values[i : i + window]\n        out.append(sum(chunk) / window)\n    return out\n"
+      }
+    },
+    {
+      "task_id": "t1b-retry-budget",
+      "tier": 1,
+      "title": "Retry budget goes negative",
+      "solved": true,
+      "verifier_output": "OK",
+      "turns": 5,
+      "hit_turn_cap": false,
+      "tool_calls": 4,
+      "bad_tool_calls": 0,
+      "repeat": 1,
+      "bad_tool_detail": [],
+      "text_tool_attempts": 0,
+      "wrote_any_file": true,
+      "files_written": [
+        "budget.py"
+      ],
+      "files_read": [
+        "budget.py"
+      ],
+      "write_without_read": 0,
+      "ran_tests": 1,
+      "load_s": 0.13,
+      "truncated_turns": 0,
+      "tampered_suites": [],
+      "prompt_tokens": 7629,
+      "output_tokens": 1983,
+      "wall_s": 54.5,
+      "error": null,
+      "final_sources": {
+        "budget.py": "\"\"\"Retry-budget accounting for the ingest scheduler.\"\"\"\n\n\nclass RetryBudget:\n    \"\"\"Tracks how many retries remain for a job.\n\n    `consume` spends one retry and returns True when the spend was allowed.\n    Once the budget is exhausted, further calls return False and must not push\n    `remaining` below zero.\n    \"\"\"\n\n    def __init__(self, limit):\n        self.limit = limit\n        self.used = 0\n\n    @property\n    def remaining(self):\n        return self.limit - self.used\n\n    def consume(self):\n        if self.remaining > 0:\n            self.used += 1\n            return True\n        return False\n\n    def reset(self):\n        self.used = 0\n"
+      }
+    },
+    {
+      "task_id": "t2a-normalize-idempotent",
+      "tier": 2,
+      "title": "Report double-counts a pipeline (cause is not in report.py)",
+      "solved": true,
+      "verifier_output": "OK",
+      "turns": 8,
+      "hit_turn_cap": false,
+      "tool_calls": 9,
+      "bad_tool_calls": 0,
+      "repeat": 1,
+      "bad_tool_detail": [],
+      "text_tool_attempts": 0,
+      "wrote_any_file": true,
+      "files_written": [
+        "normalize.py"
+      ],
+      "files_read": [
+        "normalize.py",
+        "parser.py",
+        "report.py"
+      ],
+      "write_without_read": 0,
+      "ran_tests": 2,
+      "load_s": 0.12,
+      "truncated_turns": 0,
+      "tampered_suites": [],
+      "prompt_tokens": 28727,
+      "output_tokens": 4855,
+      "wall_s": 146.9,
+      "error": null,
+      "final_sources": {
+        "normalize.py": "\"\"\"Name normalization shared by the parser and the reporter.\"\"\"\n\nimport re\n\n\ndef normalize_name(name):\n    \"\"\"Normalize a pipeline name for comparison.\n\n    Names are case-insensitive and may be padded with whitespace. Internal\n    separators are normalized to underscores so \"daily load\", \"daily-load\" and\n    \"Daily_Load\" all compare equal.\n    \"\"\"\n    # Strip surrounding whitespace, lower-case, then replace any run of\n    # whitespace or hyphens with a single underscore. This operation is\n    # idempotent: applying it to an already-normalized name leaves it unchanged.\n    normalized = name.strip().lower()\n    normalized = re.sub(r'[\\s-]+', '_', normalized)\n    return normalized\n"
+      }
+    },
+    {
+      "task_id": "t2b-queue-fifo",
+      "tier": 2,
+      "title": "Job queue crashes on equal priorities",
+      "solved": true,
+      "verifier_output": "OK",
+      "turns": 6,
+      "hit_turn_cap": false,
+      "tool_calls": 6,
+      "bad_tool_calls": 0,
+      "repeat": 1,
+      "bad_tool_detail": [],
+      "text_tool_attempts": 0,
+      "wrote_any_file": true,
+      "files_written": [
+        "queue_impl.py"
+      ],
+      "files_read": [
+        "scheduler.py",
+        "queue_impl.py"
+      ],
+      "write_without_read": 0,
+      "ran_tests": 1,
+      "load_s": 0.14,
+      "truncated_turns": 0,
+      "tampered_suites": [],
+      "prompt_tokens": 10208,
+      "output_tokens": 1941,
+      "wall_s": 59.3,
+      "error": null,
+      "final_sources": {
+        "queue_impl.py": "\"\"\"In-memory job queue with priority ordering.\"\"\"\n\nimport heapq\nimport itertools\n\n\nclass JobQueue:\n    \"\"\"A priority queue of jobs.\n\n    Lower `priority` values are dequeued first. Jobs pushed with equal priority\n    come out in the order they were pushed (FIFO within a priority).\n    \"\"\"\n\n    def __init__(self):\n        self._heap = []\n        self._counter = itertools.count()\n\n    def push(self, job, priority=5):\n        heapq.heappush(self._heap, (priority, next(self._counter), job))\n\n    def pop(self):\n        if not self._heap:\n            return None\n        _, _, job = heapq.heappop(self._heap)\n        return job\n\n    def __len__(self):\n        return len(self._heap)\n"
+      }
+    },
+    {
+      "task_id": "t3a-ttl-cache-lru",
+      "tier": 3,
+      "title": "Add bounded LRU eviction to the TTL cache",
+      "solved": true,
+      "verifier_output": "existing suite OK\nOK",
+      "turns": 6,
+      "hit_turn_cap": false,
+      "tool_calls": 6,
+      "bad_tool_calls": 0,
+      "repeat": 1,
+      "bad_tool_detail": [],
+      "text_tool_attempts": 0,
+      "wrote_any_file": true,
+      "files_written": [
+        "cache.py"
+      ],
+      "files_read": [
+        "cache.py",
+        "test_cache.py"
+      ],
+      "write_without_read": 0,
+      "ran_tests": 2,
+      "load_s": 0.14,
+      "truncated_turns": 0,
+      "tampered_suites": [],
+      "prompt_tokens": 18484,
+      "output_tokens": 5047,
+      "wall_s": 155.7,
+      "error": null,
+      "final_sources": {
+        "cache.py": "\"\"\"A tiny TTL cache used by the metrics collector.\"\"\"\n\n\nfrom collections import OrderedDict\n\n\nclass TTLCache:\n    \"\"\"Mapping with per-entry expiry.\n\n    `clock` is a zero-argument callable returning a monotonic float, injected so\n    tests can control time.\n    \"\"\"\n\n    def __init__(self, ttl, clock, max_size=None):\n        self.ttl = ttl\n        self.clock = clock\n        self.max_size = max_size\n        self._data = OrderedDict()\n\n    def set(self, key, value):\n        # No storage when max_size is zero or negative\n        if self.max_size is not None and self.max_size <= 0:\n            # Ensure the cache retains nothing\n            if key in self._data:\n                del self._data[key]\n            return\n\n        if key in self._data:\n            # Update in place and refresh LRU position\n            self._data[key] = (value, self.clock())\n            self._data.move_to_end(key)\n            return\n\n        # New key: evict LRU if needed to make room\n        if self.max_size is not None and len(self._data) >= self.max_size:\n            # Evict least recently used\n            self._data.popitem(last=False)\n\n        self._data[key] = (value, self.clock())\n\n    def get(self, key, default=None):\n        entry = self._data.get(key)\n        if entry is None:\n            return default\n        value, stamp = entry\n        if self.clock() - stamp >= self.ttl:\n            del self._data[key]\n            return default\n        # Count as a use for LRU\n        self._data.move_to_end(key)\n        return value\n\n    def __len__(self):\n        return len(self._data)\n"
+      }
+    },
+    {
+      "task_id": "t3b-router-params",
+      "tier": 3,
+      "title": "Add parameterized routes to the router",
+      "solved": true,
+      "verifier_output": "existing suite OK\nOK",
+      "turns": 6,
+      "hit_turn_cap": false,
+      "tool_calls": 6,
+      "bad_tool_calls": 0,
+      "repeat": 1,
+      "bad_tool_detail": [],
+      "text_tool_attempts": 0,
+      "wrote_any_file": true,
+      "files_written": [
+        "router.py"
+      ],
+      "files_read": [
+        "router.py",
+        "test_router.py"
+      ],
+      "write_without_read": 0,
+      "ran_tests": 2,
+      "load_s": 0.08,
+      "truncated_turns": 0,
+      "tampered_suites": [],
+      "prompt_tokens": 17616,
+      "output_tokens": 4381,
+      "wall_s": 132.1,
+      "error": null,
+      "final_sources": {
+        "router.py": "\"\"\"Minimal path router for the internal status service.\"\"\"\n\n\nclass Router:\n    \"\"\"Maps URL paths to handlers.\n\n    Routes are registered with `add`, and `resolve` returns (handler, params)\n    for a path or (None, {}) when nothing matches.\n    \"\"\"\n\n    def __init__(self):\n        self._routes = []\n\n    def add(self, path, handler):\n        segs = path.split('/')\n        is_static = True\n        for seg in segs:\n            if seg.startswith('<') and seg.endswith('>'):\n                is_static = False\n                break\n        self._routes.append({\n            'path': path,\n            'handler': handler,\n            'segs': segs,\n            'is_static': is_static,\n        })\n\n    def resolve(self, path):\n        req_segs = path.split('/')\n        # First pass: static routes win over dynamic regardless of registration order\n        for entry in self._routes:\n            if entry['is_static'] and len(entry['segs']) == len(req_segs):\n                if entry['segs'] == req_segs:\n                    return entry['handler'], {}\n        # Second pass: dynamic routes\n        for entry in self._routes:\n            if entry['is_static']:\n                continue\n            if len(entry['segs']) != len(req_segs):\n                continue\n            params = {}\n            match = True\n            for r_seg, req_seg in zip(entry['segs'], req_segs):\n                if r_seg.startswith('<') and r_seg.endswith('>'):\n                    # Parameter segment must not be empty\n                    if not req_seg:\n                        match = False\n                        break\n                    param_name = r_seg[1:-1]\n                    params[param_name] = req_seg\n                else:\n                    if r_seg != req_seg:\n                        match = False\n                        break\n            if match:\n                return entry['handler'], params\n        return None, {}\n"
+      }
+    },
+    {
+      "task_id": "t1a-moving-average",
+      "tier": 1,
+      "title": "Off-by-one in a moving average",
+      "solved": true,
+      "verifier_output": "OK",
+      "turns": 5,
+      "hit_turn_cap": false,
+      "tool_calls": 4,
+      "bad_tool_calls": 0,
+      "repeat": 2,
+      "bad_tool_detail": [],
+      "text_tool_attempts": 0,
+      "wrote_any_file": true,
+      "files_written": [
+        "stats.py"
+      ],
+      "files_read": [
+        "stats.py"
+      ],
+      "write_without_read": 0,
+      "ran_tests": 1,
+      "load_s": 0.12,
+      "truncated_turns": 0,
+      "tampered_suites": [],
+      "prompt_tokens": 6595,
+      "output_tokens": 1184,
+      "wall_s": 32.7,
+      "error": null,
+      "final_sources": {
+        "stats.py": "\"\"\"Rolling window statistics for pipeline run durations.\"\"\"\n\n\ndef moving_average(values, window):\n    \"\"\"Return the moving average of `values` over `window` samples.\n\n    The result has one entry per full window, so len(result) ==\n    len(values) - window + 1 for a non-empty input.\n    \"\"\"\n    if window <= 0:\n        raise ValueError(\"window must be positive\")\n    out = []\n    for i in range(len(values) - window + 1):\n        chunk = values[i : i + window]\n        out.append(sum(chunk) / window)\n    return out\n"
+      }
+    },
+    {
+      "task_id": "t1b-retry-budget",
+      "tier": 1,
+      "title": "Retry budget goes negative",
+      "solved": true,
+      "verifier_output": "OK",
+      "turns": 6,
+      "hit_turn_cap": false,
+      "tool_calls": 5,
+      "bad_tool_calls": 0,
+      "repeat": 2,
+      "bad_tool_detail": [],
+      "text_tool_attempts": 0,
+      "wrote_any_file": true,
+      "files_written": [
+        "budget.py"
+      ],
+      "files_read": [
+        "budget.py"
+      ],
+      "write_without_read": 0,
+      "ran_tests": 1,
+      "load_s": 0.13,
+      "truncated_turns": 0,
+      "tampered_suites": [],
+      "prompt_tokens": 10617,
+      "output_tokens": 2198,
+      "wall_s": 64.3,
+      "error": null,
+      "final_sources": {
+        "budget.py": "\"\"\"Retry-budget accounting for the ingest scheduler.\"\"\"\n\n\nclass RetryBudget:\n    \"\"\"Tracks how many retries remain for a job.\n\n    `consume` spends one retry and returns True when the spend was allowed.\n    Once the budget is exhausted, further calls return False and must not push\n    `remaining` below zero.\n    \"\"\"\n\n    def __init__(self, limit):\n        self.limit = limit\n        self.used = 0\n\n    @property\n    def remaining(self):\n        return self.limit - self.used\n\n    def consume(self):\n        if self.remaining > 0:\n            self.used += 1\n            return True\n        return False\n\n    def reset(self):\n        self.used = 0\n"
+      }
+    },
+    {
+      "task_id": "t2a-normalize-idempotent",
+      "tier": 2,
+      "title": "Report double-counts a pipeline (cause is not in report.py)",
+      "solved": true,
+      "verifier_output": "OK",
+      "turns": 6,
+      "hit_turn_cap": false,
+      "tool_calls": 7,
+      "bad_tool_calls": 0,
+      "repeat": 2,
+      "bad_tool_detail": [],
+      "text_tool_attempts": 0,
+      "wrote_any_file": true,
+      "files_written": [
+        "normalize.py"
+      ],
+      "files_read": [
+        "normalize.py",
+        "parser.py",
+        "report.py"
+      ],
+      "write_without_read": 0,
+      "ran_tests": 1,
+      "load_s": 0.14,
+      "truncated_turns": 0,
+      "tampered_suites": [],
+      "prompt_tokens": 15169,
+      "output_tokens": 4443,
+      "wall_s": 133.3,
+      "error": null,
+      "final_sources": {
+        "normalize.py": "\"\"\"Name normalization shared by the parser and the reporter.\"\"\"\n\n\ndef normalize_name(name):\n    \"\"\"Normalize a pipeline name for comparison.\n\n    Names are case-insensitive and may be padded with whitespace. Internal\n    separators are normalized to underscores so \"daily load\", \"daily-load\" and\n    \"Daily_Load\" all compare equal.\n    \"\"\"\n    return name.strip().lower().replace(\" \", \"_\").replace(\"-\", \"_\")\n"
+      }
+    },
+    {
+      "task_id": "t2b-queue-fifo",
+      "tier": 2,
+      "title": "Job queue crashes on equal priorities",
+      "solved": true,
+      "verifier_output": "OK",
+      "turns": 6,
+      "hit_turn_cap": false,
+      "tool_calls": 6,
+      "bad_tool_calls": 0,
+      "repeat": 2,
+      "bad_tool_detail": [],
+      "text_tool_attempts": 0,
+      "wrote_any_file": true,
+      "files_written": [
+        "queue_impl.py"
+      ],
+      "files_read": [
+        "scheduler.py",
+        "queue_impl.py"
+      ],
+      "write_without_read": 0,
+      "ran_tests": 1,
+      "load_s": 0.14,
+      "truncated_turns": 0,
+      "tampered_suites": [],
+      "prompt_tokens": 10085,
+      "output_tokens": 1857,
+      "wall_s": 57.8,
+      "error": null,
+      "final_sources": {
+        "queue_impl.py": "\"\"\"In-memory job queue with priority ordering.\"\"\"\n\nimport heapq\nimport itertools\n\n\nclass JobQueue:\n    \"\"\"A priority queue of jobs.\n\n    Lower `priority` values are dequeued first. Jobs pushed with equal priority\n    come out in the order they were pushed (FIFO within a priority).\n    \"\"\"\n\n    def __init__(self):\n        self._heap = []\n        self._counter = itertools.count()\n\n    def push(self, job, priority=5):\n        heapq.heappush(self._heap, (priority, next(self._counter), job))\n\n    def pop(self):\n        if not self._heap:\n            return None\n        _, _, job = heapq.heappop(self._heap)\n        return job\n\n    def __len__(self):\n        return len(self._heap)\n"
+      }
+    },
+    {
+      "task_id": "t3a-ttl-cache-lru",
+      "tier": 3,
+      "title": "Add bounded LRU eviction to the TTL cache",
+      "solved": true,
+      "verifier_output": "existing suite OK\nOK",
+      "turns": 9,
+      "hit_turn_cap": false,
+      "tool_calls": 9,
+      "bad_tool_calls": 0,
+      "repeat": 2,
+      "bad_tool_detail": [],
+      "text_tool_attempts": 0,
+      "wrote_any_file": true,
+      "files_written": [
+        "cache.py"
+      ],
+      "files_read": [
+        "cache.py",
+        "test_cache.py"
+      ],
+      "write_without_read": 0,
+      "ran_tests": 3,
+      "load_s": 0.15,
+      "truncated_turns": 0,
+      "tampered_suites": [],
+      "prompt_tokens": 40747,
+      "output_tokens": 6506,
+      "wall_s": 206.5,
+      "error": null,
+      "final_sources": {
+        "cache.py": "\"\"\"A tiny TTL cache used by the metrics collector.\"\"\"\n\n\nfrom collections import OrderedDict\n\n\nclass TTLCache:\n    \"\"\"Mapping with per-entry expiry.\n\n    `clock` is a zero-argument callable returning a monotonic float, injected so\n    tests can control time.\n    \"\"\"\n\n    def __init__(self, ttl, clock, max_size=None):\n        self.ttl = ttl\n        self.clock = clock\n        self.max_size = max_size\n        self._data = OrderedDict()\n\n    def set(self, key, value):\n        self._data[key] = (value, self.clock())\n        # update recency\n        self._data.move_to_end(key, last=True)\n        # enforce size limit\n        if self.max_size is not None:\n            while len(self._data) > self.max_size:\n                self._data.popitem(last=False)\n\n    def get(self, key, default=None):\n        entry = self._data.get(key)\n        if entry is None:\n            return default\n        value, stamp = entry\n        if self.clock() - stamp >= self.ttl:\n            del self._data[key]\n            return default\n        # update recency on access\n        self._data.move_to_end(key, last=True)\n        return value\n\n    def __len__(self):\n        return len(self._data)\n"
+      }
+    },
+    {
+      "task_id": "t3b-router-params",
+      "tier": 3,
+      "title": "Add parameterized routes to the router",
+      "solved": true,
+      "verifier_output": "existing suite OK\nOK",
+      "turns": 11,
+      "hit_turn_cap": false,
+      "tool_calls": 11,
+      "bad_tool_calls": 0,
+      "repeat": 2,
+      "bad_tool_detail": [],
+      "text_tool_attempts": 0,
+      "wrote_any_file": true,
+      "files_written": [
+        "test_dynamic.py",
+        "router.py"
+      ],
+      "files_read": [
+        "router.py",
+        "test_router.py",
+        "test_dynamic.py"
+      ],
+      "write_without_read": 1,
+      "ran_tests": 3,
+      "load_s": 0.1,
+      "truncated_turns": 0,
+      "tampered_suites": [],
+      "prompt_tokens": 53344,
+      "output_tokens": 6697,
+      "wall_s": 219.1,
+      "error": null,
+      "final_sources": {
+        "router.py": "\"\"\"Minimal path router for the internal status service.\"\"\"\n\n\nclass Router:\n    \"\"\"Maps URL paths to handlers.\n\n    Routes are registered with `add`, and `resolve` returns (handler, params)\n    for a path or (None, {}) when nothing matches.\n    \"\"\"\n\n    def __init__(self):\n        self._routes = []\n\n    def add(self, path, handler):\n        is_static = '<' not in path\n        self._routes.append({'path': path, 'handler': handler, 'is_static': is_static})\n\n    def resolve(self, path):\n        # Static routes win over dynamic routes regardless of registration order\n        for r in self._routes:\n            if r['is_static']:\n                if r['path'] == path:\n                    return r['handler'], {}\n        # Dynamic routes\n        path_segs = path.split('/')\n        for r in self._routes:\n            if not r['is_static']:\n                if self._match_dynamic(r['path'], path_segs):\n                    params = self._extract_params(r['path'], path_segs)\n                    return r['handler'], params\n        return None, {}\n\n    def _match_dynamic(self, route_path, path_segs):\n        route_segs = route_path.split('/')\n        if len(route_segs) != len(path_segs):\n            return False\n        for rs, ps in zip(route_segs, path_segs):\n            if rs.startswith('<') and rs.endswith('>'):\n                # parameter segment must be non-empty\n                if ps == '':\n                    return False\n                continue\n            if rs != ps:\n                return False\n        return True\n\n    def _extract_params(self, route_path, path_segs):\n        params = {}\n        route_segs = route_path.split('/')\n        for rs, ps in zip(route_segs, path_segs):\n            if rs.startswith('<') and rs.endswith('>'):\n                name = rs[1:-1]\n                params[name] = ps\n        return params\n"
+      }
+    }
+  ]
+}

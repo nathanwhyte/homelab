@@ -4,12 +4,21 @@
 
 | Tag | Solved | Bad calls | Tampers | Style (min/cause/contract) | Note |
 | --- | --- | --- | --- | --- | --- |
+| muse-glimmer:30b-mlx † | 18/18 | 0/110 | 0 | not judged † | ceiling; zero tampers, zero truncations, zero text-tool attempts |
 | gemma4:coding-26b | 18/18 | 0/152 | 6 | 4.83 / 5.00 / 5.00 | ceiling, tampers every T3 run |
 | gemma4:coding-12b | 18/18 | 0/106 | 4 | 4.56 / 4.56 / 4.83 | ceiling |
 | qwen3.6:coding-gguf | 18/18 | 1/120 | 0 | 4.78 / 5.00 / 5.00 | ceiling, cleanest discipline |
 | laguna:coding | 13/18 | 24/220 | 4 | 4.46 / 4.77 / 4.92 | all failures whitespace; 11 per-task-cap hits |
 | nemotron3:coding | 8/18 | 22/68 | 0 | 4.75 / 5.00 / 5.00 | tool-name mangling; 5 server 500s (8 verifier passes, 7 error-free) |
 | qwen3.6:coding (MLX) | 7/18 | 0/94 | 0 | 4.43 / 5.00 / 5.00 | BUG-1067 whitespace corruption |
+
+† muse-glimmer row added 2026-08-11, NOT environment-matched to the rest of
+this table: it ran on Ollama 0.32.8 (the 07-29 rows ran on 0.32.5-era; the
+model requires 0.32.7+), and its style columns are unjudged because the
+`qwen3.6:subagent` judge tag no longer exists on pop (TASK-1178 tracks the
+rebuild). Same harness otherwise: T1–T3, `REPEATS=3`, native thinking,
+`num_predict=16384`, `num_ctx=32768`, seed 42+. Results:
+`benchmarks/results/agentic-coding-20260811-111011/`.
 
 `solved` means the final sandbox passed the verifier — a task can be solved
 AND carry a transport/protocol error (nemotron t1a r0 is both). A future
@@ -42,7 +51,24 @@ post-PR-#61 harness). Harness: `num_predict=16384`, `num_ctx=32768`, seed 42+,
 
 ## Row findings
 
-### gemma4:coding-12b — 18/18 (started 08:49, finished 09:11)
+### muse-glimmer:30b-mlx — 18/18 (2026-08-11, 11:10–11:41, added row — see † caveat)
+
+- **Fourth ceiling score, and the cleanest row in the table**: 0 bad calls in
+  110 tool calls, `truncated_turns=0`, `text_tool_attempts=0`, and — unlike
+  both gemma tags — **zero fixture tampers**. 60,622 output tokens across the
+  row, 1,870 s of task work, `load_s=5.69` cold.
+- **First MLX-engine tag to ceiling**: qwen3.6:coding (MLX) scored 7/18 on
+  BUG-1067 whitespace corruption; this row shows a different model family
+  through the same MLX serving path with zero whitespace failures, which is
+  evidence toward BUG-1067 being artifact/conversion-specific rather than a
+  general MLX-engine defect (engine vs artifact still not fully isolated —
+  different renderer/parser pair, `glimmer` vs `qwen3.5`).
+- **Vendor-default sampling** (temp 1.0, top_p 0.95, top_k 64): no
+  coding-specific row published; `glimmer:coding-30b` was built the same
+  day pinning exactly this row plus baked `num_ctx` (see dotfiles
+  `ollama/glimmer-coding-30b.Modelfile`).
+- **Reinforces the T4 need (IMPR-1109)**: the ceiling group is now four tags
+  wide; T1–T3 cannot rank the top tier at all.
 
 - **Perfect score, and it is clean**: `truncated_turns=0` on all 18 task runs
   (busiest task accumulated 12,092 output tokens across its turns — note
