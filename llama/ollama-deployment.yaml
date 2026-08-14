@@ -40,7 +40,15 @@ spec:
           # Production uses the Vulkan backend on timmy's RX 9070 XT (RDNA4).
           # Force it explicitly because the image also ships ROCm runner libraries.
           # See INFO-1084 for benchmark findings and device-selection details.
-          image: ollama/ollama:0.31.1
+          # :latest (user call, 2026-08-14; was pinned 0.31.1 -> 0.32.9 for
+          # nemotron-3.5-family support). imagePullPolicy stays IfNotPresent on
+          # purpose: the tag resolves to the image last pulled deliberately on the
+          # node, so a pod bounce cannot silently upgrade the server. To upgrade:
+          # pull the new image on timmy, then bounce the pod. The manifest no
+          # longer states the running version — trust /api/version and each
+          # benchmark run's env capture (TASK-1186 rows before 2026-08-14 evening
+          # ran on 0.31.1; later rows on 0.32.9+).
+          image: ollama/ollama:latest
           imagePullPolicy: IfNotPresent
           # CAP_PERFMON: Ollama needs real free-VRAM readings to pack the single
           # resident runner (and any ad-hoc swap) safely; under Vulkan on a
@@ -72,8 +80,12 @@ spec:
             # uses num_ctx=32768). Ollama allocates KV on demand, so this does not
             # pre-allocate 32K worth of cache; it just permits per-request num_ctx up
             # to this value. Production Hermes/mem0 workloads stay at 16K or below.
+            # 65536 (was 32768, TASK-1188/IMPR-1114): NemoHermes checks a >=64000
+            # loaded context at onboarding and on every rebuild (INFO-1142). The
+            # nano-4b candidate's hybrid-Mamba KV makes this nearly free: measured
+            # 7.9 GiB total at 64K ctx, 100% GPU (2026-08-14).
             - name: OLLAMA_CONTEXT_LENGTH
-              value: "32768"
+              value: "65536"
             - name: OLLAMA_FLASH_ATTENTION
               value: "1"
             # q8_0 (was q4_0, ea1cafc): q4_0 was needed when dual-model loading
