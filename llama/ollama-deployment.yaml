@@ -42,12 +42,13 @@ spec:
           # See INFO-1084 for benchmark findings and device-selection details.
           image: ollama/ollama:0.31.1
           imagePullPolicy: IfNotPresent
-          # CAP_PERFMON: with MAX_LOADED_MODELS=2, Ollama needs real free-VRAM
-          # readings to pack two runners safely; under Vulkan on a de-privileged pod
-          # it otherwise falls back to model-size estimates. PERFMON is a narrow
-          # perf-monitoring capability, not privileged — the pod stays de-privileged
-          # per IMPR-1022 in every other respect. (Requires the llama namespace to
-          # permit added capabilities; verify the pod is admitted on next rollout.)
+          # CAP_PERFMON: Ollama needs real free-VRAM readings to pack the single
+          # resident runner (and any ad-hoc swap) safely; under Vulkan on a
+          # de-privileged pod it otherwise falls back to model-size estimates.
+          # PERFMON is a narrow perf-monitoring capability, not privileged — the
+          # pod stays de-privileged per IMPR-1022 in every other respect.
+          # (Requires the llama namespace to permit added capabilities; verify the
+          # pod is admitted on next rollout.)
           securityContext:
             capabilities:
               add: ["PERFMON"]
@@ -76,10 +77,12 @@ spec:
             - name: OLLAMA_FLASH_ATTENTION
               value: "1"
             # q8_0 (was q4_0, ea1cafc): q4_0 was needed when dual-model loading
-            # first landed to fit two runners under 16 GB. IMPR-1083 already
-            # halved NUM_PARALLEL 4->2 for the Zeta+FIM co-load, measured
+            # first landed to fit two runners under 16 GB. That co-load is retired
+            # (BUG-1037, MAX_LOADED_MODELS=1) — the headroom now covers the single
+            # resident model plus ad-hoc swaps. IMPR-1083 already halved
+            # NUM_PARALLEL 4->2 for the Zeta+FIM co-load, measured
             # 11.8/16 GB — 4.2 GB headroom comfortably covers q8_0's larger KV
-            # (near-lossless vs f16, unlike q4_0) for both resident models.
+            # (near-lossless vs f16, unlike q4_0).
             - name: OLLAMA_KV_CACHE_TYPE
               value: q8_0
             # Keep the working model resident to avoid reload latency for Hermes/mem0
@@ -112,8 +115,13 @@ spec:
             # set (it is, below).
             - name: OLLAMA_MAX_LOADED_MODELS
               value: "1"
-            # Enable Vulkan and force the Vulkan runner even when ROCm libraries
-            # are also present in the Ollama image.
+            # Backend selection. These two were set on the live Deployment but
+            # never written back here, so the tracked manifest described a
+            # ROCm-by-default pod while the cluster ran Vulkan — a re-apply from
+            # the repo would have silently switched the backend, and a later
+            # "which backend is this?" question could only be answered by
+            # inspecting the live object. Reconciled 2026-08-11 against the
+            # running Deployment (OLLAMA_VULKAN=1, OLLAMA_LLM_LIBRARY=vulkan).
             - name: OLLAMA_VULKAN
               value: "1"
             - name: OLLAMA_LLM_LIBRARY

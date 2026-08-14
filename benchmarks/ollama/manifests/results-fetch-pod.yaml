@@ -1,0 +1,40 @@
+---
+# Sidecar for retrieving benchmark artifacts off timmy's hostPath.
+#
+# The benchmark and coherence Jobs write to /var/lib/ollama-benchmark/results
+# via a hostPath mount, and the runner used to `kubectl cp` from the Job pod
+# itself. That silently retrieved nothing: `kubectl wait --for=complete` returns
+# only once the pod is Completed, and cp shells into the container to run tar —
+# which is gone. Observed 2026-08-11: the copy reported success and left an
+# empty directory behind.
+#
+# This pod mounts the same hostPath and stays Running, so cp has a live
+# container to talk to. The runner creates it after the Jobs finish and deletes
+# it immediately after the copy.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: ollama-benchmark-results-fetch
+  namespace: llama
+  labels:
+    app: ollama-benchmark-results-fetch
+spec:
+  restartPolicy: Never
+  nodeSelector:
+    kubernetes.io/hostname: timmy
+  # Bounded lifetime so a failed run cannot leave it holding the mount.
+  activeDeadlineSeconds: 900
+  containers:
+    - name: fetch
+      image: busybox:1.36
+      imagePullPolicy: IfNotPresent
+      command: ["sh", "-c", "sleep 900"]
+      volumeMounts:
+        - name: results
+          mountPath: /results
+          readOnly: true
+  volumes:
+    - name: results
+      hostPath:
+        path: /var/lib/ollama-benchmark/results
+        type: DirectoryOrCreate

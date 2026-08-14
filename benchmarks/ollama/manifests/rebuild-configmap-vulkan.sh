@@ -42,6 +42,7 @@ trap 'rm -f "$OUT"' EXIT
 kubectl create configmap bench-scripts-vulkan \
 	--namespace="$NS" \
 	--from-file=concurrency-bench.py=tools/concurrency-bench.py \
+	--from-file=coherence-smoke.py=tools/coherence-smoke.py \
 	--from-file=metrics.py=../lib/metrics.py \
 	--from-file=output.py=../lib/output.py \
 	--from-file=prompts.py=../lib/prompts.py \
@@ -52,6 +53,7 @@ kubectl create configmap bench-scripts-vulkan \
 	--from-file=cluster-vulkan-q6k-default.toml=configs/cluster-vulkan-q6k-default.toml \
 	--from-file=cluster-vulkan-q5km-agentic.toml=configs/cluster-vulkan-q5km-agentic.toml \
 	--from-file=cluster-vulkan-q6k-agentic.toml=configs/cluster-vulkan-q6k-agentic.toml \
+	--from-file=cluster-vulkan-nemotron-nano-bf16-default.toml=configs/cluster-vulkan-nemotron-nano-bf16-default.toml \
 	--dry-run=client -o yaml \
 	>"$OUT"
 

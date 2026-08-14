@@ -2,11 +2,17 @@
 set -euo pipefail
 # Optimal Ollama configuration for timmy (RX 9070 XT, 16GB VRAM, 32GB RAM)
 # Run this script ON timmy after installing Ollama.
+#
+# NOTE: This is the host-level systemd install path. The live production config
+# is the k8s Deployment (llama/ollama-deployment.yaml) — it uses Vulkan
+# (GGML_VK_VISIBLE_DEVICES=1), OLLAMA_KV_CACHE_TYPE=q8_0, OLLAMA_NUM_PARALLEL=2,
+# and OLLAMA_MAX_LOADED_MODELS=1. If you run this script, reconcile the values
+# below with that manifest so the host and cluster configs don't diverge.
 
 echo "=== Configuring Ollama systemd service ==="
 
 sudo mkdir -p /etc/systemd/system/ollama.service.d
-sudo tee /etc/systemd/system/ollama.service.d/override.conf > /dev/null <<'EOF'
+sudo tee /etc/systemd/system/ollama.service.d/override.conf >/dev/null <<'EOF'
 [Service]
 # Listen on all interfaces (so wemby/other nodes can connect)
 Environment="OLLAMA_HOST=0.0.0.0"
@@ -42,7 +48,7 @@ sudo systemctl daemon-reload
 echo "=== Creating optimized Modelfile ==="
 
 # qwen-claude: optimized for ollama launch claude
-cat > /tmp/Modelfile-qwen-claude <<'MODELFILE'
+cat >/tmp/Modelfile-qwen-claude <<'MODELFILE'
 FROM qwen3.5:9b-q4_K_M
 
 # Context: 32K fits easily in VRAM with q4_0 KV + q4_0 model
@@ -69,7 +75,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 sudo mkdir -p /opt/ollama-exporter
 sudo cp "$SCRIPT_DIR/ollama-exporter.py" /opt/ollama-exporter/ollama-exporter.py
 
-sudo tee /etc/systemd/system/ollama-exporter.service > /dev/null <<'EOF'
+sudo tee /etc/systemd/system/ollama-exporter.service >/dev/null <<'EOF'
 [Unit]
 Description=Prometheus exporter for Ollama inference metrics
 After=ollama.service

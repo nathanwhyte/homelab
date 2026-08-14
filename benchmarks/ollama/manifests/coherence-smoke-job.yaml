@@ -1,0 +1,86 @@
+---
+# Fixed-prompt correctness gate, run in-cluster ahead of a throughput Job.
+#
+# Same shape as benchmark-vulkan-job.yaml deliberately: pod-to-pod against
+# ollama.llama.svc, scheduled on timmy, transcript written to the shared
+# hostPath results directory. Running it in-cluster rather than over a
+# kubectl port-forward keeps the request path identical to the one the
+# throughput run measures — no API-server tunnel in between — so a failure
+# here is a property of the model on this backend, not of the tunnel.
+#
+# coherence-smoke.py is stdlib-only, so unlike the benchmark Job this needs no
+# pip install and starts in seconds.
+#
+# ${CONFIG}, ${MODEL} and ${THINK_ARGS} are substituted by
+# run-vulkan-benchmark-jobs.sh before apply. THINK_ARGS may be empty.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ollama-coherence-smoke
+  namespace: llama
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        app: ollama-coherence-smoke
+    spec:
+      restartPolicy: Never
+      nodeSelector:
+        kubernetes.io/hostname: timmy
+      containers:
+        - name: coherence
+          image: python:3.12-slim
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -e
+              mkdir -p /bench/benchmarks/results
+              cp /scripts/coherence-smoke.py /bench/
+              cd /bench
+              echo "=== coherence gate: ${CONFIG} (${MODEL}) ==="
+              # THINK_ARGS is intentionally unquoted: it is either empty or a
+              # short list of --think flags produced by the runner.
+              # shellcheck disable=SC2086
+              set +e
+              python3 coherence-smoke.py \
+                --model "${MODEL}" \
+                --url http://ollama.llama.svc:11434 \
+                ${THINK_ARGS} \
+                --out "/bench/benchmarks/results/coherence-${CONFIG}.json"
+              rc=$?
+              set -e
+              # Echo the transcript into the Job's stdout. `kubectl cp` cannot
+              # read a Completed pod (it shells into the container, which is
+              # gone), so the log is the only retrieval path that works after
+              # the Job finishes — and it must work on the failure path too,
+              # since a failed gate's transcript is the evidence of how it
+              # failed. Printed after the run so rc still gates the exit.
+              echo "=== BEGIN COHERENCE TRANSCRIPT ==="
+              cat "/bench/benchmarks/results/coherence-${CONFIG}.json" || true
+              echo "=== END COHERENCE TRANSCRIPT ==="
+              exit $rc
+          env:
+            - name: CONFIG
+              value: "${CONFIG}"
+            - name: MODEL
+              value: "${MODEL}"
+            - name: THINK_ARGS
+              value: "${THINK_ARGS}"
+          volumeMounts:
+            - name: scripts
+              mountPath: /scripts
+            - name: results
+              mountPath: /bench/benchmarks/results
+      volumes:
+        - name: scripts
+          configMap:
+            name: bench-scripts-vulkan
+            defaultMode: 0755
+        - name: results
+          hostPath:
+            path: /var/lib/ollama-benchmark/results
+            type: DirectoryOrCreate

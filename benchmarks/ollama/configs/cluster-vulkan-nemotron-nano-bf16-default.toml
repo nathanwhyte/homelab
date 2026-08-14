@@ -1,0 +1,47 @@
+# Cluster-side Vulkan backend benchmark for nemotron-3-nano:4b-bf16 on timmy's
+# RX 9070 XT (TASK-1013).
+#
+# Filename note: it MUST start with `cluster-vulkan` — benchmark-vulkan-job.yaml
+# copies configs into the job with `cp /scripts/cluster-vulkan*.toml /bench/`, so
+# a `cluster-nemotron-*.toml` name would never reach the container. The `prefix`
+# below keeps the results named after the model rather than the file family.
+#
+# Sampling policy (recorded deliberately — this deviates from the rest of the
+# cluster-vulkan family, which uses temperature = 0.3):
+#   The shipped nemotron-3-nano:4b-bf16 parameters are temperature = 1 and
+#   top_p = 1. This config uses the model's own defaults so the coherence gate
+#   and the throughput run exercise the sampling the model was tuned for; the
+#   SSM_SCAN correctness question (Vulkan lists that op as partially supported)
+#   is not worth confounding with an off-spec temperature.
+#
+# Thinking policy: `think = false`. This is a throughput run, and the model
+# advertises `thinking` as a capability, so leaving it implicit would silently
+# mix reasoning tokens into the generation-rate figures. Reasoning-on behaviour
+# is covered separately by coherence-smoke.py, which probes both modes.
+
+[ollama]
+url = "http://ollama.llama.svc:11434"
+model = "nemotron-3-nano:4b-bf16"
+num_ctx = 16384
+num_predict = 512
+temperature = 1.0
+think = false
+
+[ollama.options]
+top_p = 1.0
+
+[workload]
+name = "mixed_mem0"
+max_concurrency = 8
+requests_per_level = 8
+repeats = 3
+cooldown_seconds = 15
+
+[prometheus]
+url = "http://prom-prometheus.grafana:9090"
+instance_label = ".*"
+sample_interval_seconds = 2.0
+
+[output]
+dir = "benchmarks/results"
+prefix = "ollama-cluster-nemotron-nano-bf16-default"
