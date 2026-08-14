@@ -581,6 +581,7 @@ data:
         server: dict = field(default_factory=dict)
         wall_s: float = 0.0
         failure: Optional[str] = None
+        attempts: int = 1
 
         @property
         def passed(self) -> bool:
@@ -710,6 +711,18 @@ data:
         parser.add_argument("--temperature", type=float, default=1.0)
         parser.add_argument("--top-p", type=float, default=1.0)
         parser.add_argument(
+            "--attempts",
+            type=int,
+            default=3,
+            help=(
+                "Max sampled attempts per probe; one passing attempt passes the "
+                "probe. At nonzero temperature a single-sample probe is a coin "
+                "flip (qwen3.5:9b answered 17x23 wrong 1-in-3 at temp 0.3, "
+                "2026-08-14, aborting a run) — systematic garbling still fails "
+                "every attempt."
+            ),
+        )
+        parser.add_argument(
             "--timeout",
             type=float,
             default=300.0,
@@ -728,22 +741,26 @@ data:
         results: list[ProbeResult] = []
         for think in think_modes:
             for probe in PROBES:
-                res = run_probe(
-                    args.url,
-                    args.model,
-                    probe,
-                    think,
-                    args.num_ctx,
-                    args.temperature,
-                    args.top_p,
-                    args.timeout,
-                    args.num_predict,
-                )
+                for attempt in range(1, max(1, args.attempts) + 1):
+                    res = run_probe(
+                        args.url,
+                        args.model,
+                        probe,
+                        think,
+                        args.num_ctx,
+                        args.temperature,
+                        args.top_p,
+                        args.timeout,
+                        args.num_predict,
+                    )
+                    res.attempts = attempt
+                    if res.passed:
+                        break
                 results.append(res)
                 status = "PASS" if res.passed else f"FAIL ({res.failure})"
                 print(
                     f"[coherence] think={think!r} {probe.name}: {status} "
-                    f"({res.wall_s:.1f}s)",
+                    f"({res.wall_s:.1f}s, attempt {res.attempts}/{args.attempts})",
                     flush=True,
                 )
 
