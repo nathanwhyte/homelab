@@ -16,7 +16,15 @@
 #                 configuration.
 #
 # Usage: ./run-coding-tag-matrix.sh [results_dir]
+#
+# BENCH_BASE selects the Ollama endpoint (default the local server). For the
+# TASK-1186 timmy rows, run this wrapper on pop with BENCH_BASE pointing at
+# timmy's native Ollama service — the harness sandbox is macOS-only, so the
+# client stays on pop while the model runs remote. The endpoint lands in each
+# result's provenance block (base_url) and in row-status.tsv.
 set -euo pipefail
+
+BENCH_BASE="${BENCH_BASE:-http://localhost:11434}"
 
 TOOLS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BENCH="$TOOLS_DIR/agentic-coding-bench.py"
@@ -59,6 +67,8 @@ SENSITIVITY_TAGS=(
 mkdir -p "$RESULTS_DIR"
 : >"$MANIFEST"
 echo "results -> $RESULTS_DIR"
+echo "endpoint: $BENCH_BASE"
+printf '# endpoint\t%s\n' "$BENCH_BASE" >>"$MANIFEST"
 echo "primary: ${#PRIMARY_TAGS[@]} tags, sensitivity: ${#SENSITIVITY_TAGS[@]} tags, repeats=$REPEATS"
 if [ "$REPEATS" -lt 2 ]; then
 	echo "NOTE: REPEATS=$REPEATS -- this run is a pilot, not a ranking"
@@ -69,7 +79,7 @@ for tag in "${PRIMARY_TAGS[@]}"; do
 	echo "================================================================"
 	echo "PRIMARY  $tag  (native thinking default)  $(date +%H:%M:%S)"
 	echo "================================================================"
-	if python3 -u "$BENCH" --model "$tag" --tiers 1,2,3 --repeats "$REPEATS" \
+	if python3 -u "$BENCH" --model "$tag" --base "$BENCH_BASE" --tiers 1,2,3 --repeats "$REPEATS" \
 		--out "$RESULTS_DIR"; then
 		printf 'primary\t%s\tok\n' "$tag" >>"$MANIFEST"
 	else
@@ -87,7 +97,7 @@ for tag in "${SENSITIVITY_TAGS[@]}"; do
 	echo "================================================================"
 	echo "SENSITIVITY  $tag  --no-think  $(date +%H:%M:%S)"
 	echo "================================================================"
-	if python3 -u "$BENCH" --model "$tag" --tiers 1,2,3 --no-think \
+	if python3 -u "$BENCH" --model "$tag" --base "$BENCH_BASE" --tiers 1,2,3 --no-think \
 		--repeats "$REPEATS" --out "$RESULTS_DIR/no-think"; then
 		printf 'sensitivity\t%s\tok\n' "$tag" >>"$MANIFEST"
 	else
@@ -103,7 +113,8 @@ echo ""
 echo "row status:"
 cat "$MANIFEST"
 expected=$((${#PRIMARY_TAGS[@]} + ${#SENSITIVITY_TAGS[@]}))
-actual=$(wc -l <"$MANIFEST" | tr -d ' ')
+# Comment lines (the endpoint header) don't count toward the row total.
+actual=$(grep -cv '^#' "$MANIFEST" || true)
 echo ""
 if [ "$FAILED_ROWS" -gt 0 ] || [ "$actual" -ne "$expected" ]; then
 	echo "matrix INCOMPLETE $(date +%H:%M:%S): $FAILED_ROWS failed, $actual/$expected rows recorded"

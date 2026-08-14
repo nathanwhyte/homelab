@@ -1,0 +1,334 @@
+# ==== FILE: /Users/noot/code/compendium/guides/tooling/GUIDE-021-compendium-authoring-standard.md ====
+
+---
+id: GUIDE-021
+title: Compendium Authoring Standard
+type: guide
+topic: compendium-authoring
+repos: []
+people: []
+customers: [Compendium]
+themes: [authoring, frontmatter, cross-linking, lifecycle, compaction, skills, workflow]
+domains: [compendium]
+tags:
+  [
+    compendium,
+    authoring-standard,
+    frontmatter,
+    cross-linking,
+    lifecycle,
+    compaction,
+    skill-authoring,
+    workflow-authoring,
+    checklists,
+  ]
+aliases:
+  - "GUIDE-021"
+  - "authoring standard"
+  - "compendium authoring standard"
+  - "authoring invariants"
+  - "A1 A2 A3 A4 A5 A6 A7"
+  - "bulk edit pattern"
+retrieval_summary: Canonical compendium authoring standard — frontmatter, cross-linking, status side-effect, compaction, skill/workflow, and per-artifact checklist invariants any new entry, skill, or workflow must meet.
+source_of_truth: guides/tooling/GUIDE-021-compendium-authoring-standard.md
+date_created: 2026-07-11
+date_updated: 2026-07-31
+last_validated: 2026-07-13
+related:
+  - "[[PROJ-103-compendium-skills-remediation|PROJ-103]]"
+  - "[[GUIDE-022-compendium-shipping-skill-changes-end-to-end|GUIDE-022]]"
+  - "[[GUIDE-1074-other-compendium-deep-dive-runs-primer-lanes-verify-apply|GUIDE-1074 Compendium deep-dive runs — primer, lanes, verify, apply]]"
+ov_mode: pointer
+---
+
+# Compendium Authoring Standard
+
+The canonical authoring standard for the compendium: the invariants any new entry, skill, or workflow must satisfy. It collects the frontmatter, cross-linking, status/lifecycle, compaction, and skill/workflow rules that were previously spread across type specs, templates, and workflow files into one present-tense reference, plus per-artifact checklists to run before you commit. Reference it whenever you write anything new or bring an existing artifact into conformance.
+
+---
+
+# Prerequisites
+
+- Write access to the compendium vault (`~/code/compendium/`).
+- Familiarity with the vault layout and ID allocation — see [`.claude/instructions/vault-structure.md`](../../.claude/instructions/vault-structure.md).
+- The lint script `_scripts/lint-frontmatter.py`, which is the canonical definition of required frontmatter fields.
+- The scaffolding tooling `compendium-new`, `_scripts/next-id.sh`, and `_templates/`.
+
+# Overview
+
+The standard is seven invariant groups. Walk them in order for any new artifact, then run the per-artifact checklist (A6) before committing; A7 governs batch edits.
+
+```text
+A1 Frontmatter → A2 Cross-linking → A3 Status side-effects → A4 Compaction → A5 Skill/workflow rules → A6 Checklists → commit (A7 for bulk edits)
+```
+
+# Steps
+
+## Step A1: Frontmatter schema — single source of truth
+
+- The **canonical required-field definition is `_scripts/lint-frontmatter.py`** (`REQUIRED_KEYS` + `STATUS_ENUMS` + `retrieval_summary` rules). Every doc that lists frontmatter requirements (`frontmatter-required-vs-optional-classification.md`, type specs, templates) must either match it or link to it; no doc re-specifies a conflicting list.
+- `retrieval_summary`: single-line plain scalar, ≤200 chars, non-empty, no `>-`, no double quotes.
+- `tags`: lower-kebab technical facets only — never type tokens (`bug`, `feature`…) or status terms (`fixed`, `shipped`…).
+- Templates (`_templates/*.md`) are the body/section shape; they must not diverge from the lint-enforced field set.
+
+**Gotchas:**
+
+- A frontmatter string value starting with a digit is parsed as a numbered list — use a `>-` folded block scalar to disambiguate (but never in `retrieval_summary`).
+- `guide` and `info-entry` types must **not** carry a `status` key; the lint rejects it.
+
+## Step A2: Cross-linking & index/log invariants
+
+- `related:` is a YAML list of quoted piped wikilinks, one per line: `"[[XXX-NNN-slug|XXX-NNN Title]]"`.
+- **Bidirectionality for peer links; one-directional for hub links.**
+  - _Peer link_ — two items of comparable scope that relate as equals (duplicate, supersedes / superseded-by, promoted-from / promoted-to, same root cause): link **both ways**. Reciprocity is the default.
+  - _Hub / reference link_ — a register, umbrella ticket, parent project, or an entry that cites many items for context links out to many targets **without** each linking back. Do not force reciprocal links onto the targets of a one-to-many hub.
+  - Rule of thumb: if the reverse link would read as noise on the target (every bug back-linking a triage register), it's a hub link — leave it one-directional.
+- Every create/status-change/complete **must** update `index.md` (correct type/status section), committed in the same commit as the entry. There is no `log.md` step (IMPR-1092) — git history is the operations log, so the commit message must name the operation and item ID.
+- Entry files never live at a type root — only `index.md` does.
+- OV references are `viking://…` URIs + `ov_mode`, not wikilinks.
+- **Always write links and paths as they resolve on `main` — never bake in the worktree you happen to be sitting in.** Wikilinks are vault-relative and already main-relative, so they need no adjustment; the trap is _filesystem_ paths. A session working inside `.claude/worktrees/<slug>/` must still write `~/code/compendium/bugs/...`, not `~/code/compendium/.claude/worktrees/<slug>/bugs/...`. The worktree is a temporary staging area; the entry it produces is permanent and will be read from `main`.
+  - Same rule for other repos that use a bare + sibling-worktree layout (`~/code/homelab`, `~/code/qpendium`): reference the `main` worktree — `~/code/homelab/main/viking/manifests/...` — regardless of which sibling worktree the session is in.
+  - This applies to `source_of_truth:` frontmatter, body code blocks, and prose paths alike. A path pinned to a transient worktree is broken the moment that worktree is removed.
+
+## Step A3: Status & lifecycle side-effect checklist
+
+On any status change, in order:
+
+1. set `status`
+2. bump `date_updated`
+3. timestamped body note
+4. (completion only) set completion field, refresh retrieval metadata, run `check-linked-entries.py`, History-consolidation per A4
+5. file move if terminal/backlog
+6. update `index.md`
+7. pre-commit
+8. commit (message names the operation + item ID — the commit is the operations-log record, IMPR-1092)
+9. **manual** OV-sync reminder (never a background push)
+
+`date_updated` tracks **content** changes (status, body, meaning-bearing metadata like cross-links). Mechanical metadata-only migrations — bulk empty-key trims (TASK-1167), schema backfills, formatter sweeps — deliberately do **not** bump it: mass-bumping a thousand entries would blind `check-staleness.py` and `check-closability.py` for months while telling readers nothing about the entries. A content edit that rides along with a mechanical sweep still bumps.
+
+`compendium-status` handles non-terminal transitions only; any terminal target hard-redirects to `compendium-complete`.
+
+## Step A4: Compaction rules
+
+- **Active items**: `# Investigation Notes` / progress logs are strictly **append-only** — never rewrite history mid-flight.
+- **At completion only**: a single **bounded History-consolidation** step is permitted and encouraged — collapse the append-only investigation log into a concise `## History` summary (retain decisions, ruled-out paths, and dates; drop redundant blow-by-blow). This is the documented home for the practice used on BUG-126/083/163. It happens exactly once, at completion, as a named step in `completion.md`.
+- **Rolling files**: none remain. `notes/today.md`/`week.md` and their `rotate-today.py`/`rotate-week.py` rotation were **deleted 2026-07-25** with the personal notes/task OS (PROJ-1011, cancelled); `log.md` and `rotate-log.py` were retired earlier by IMPR-1092 (frozen archives live under `log/`). There are no auto-compaction surfaces in the vault.
+- Health-script "fold candidate" flags are advisory pointers to _info/reference_ entries that may warrant manual consolidation — not a mandate and not an active-item operation.
+
+## Step A5: Skill / workflow authoring rules
+
+- **Path references must resolve on disk.** Instruction/workflow paths are `.claude/instructions/…` (never `.claude/…` shorthand). Script references must name a file that exists in `_scripts/` (not `_scripts/archive/`).
+- **One canonical block per rule.** Shared prose (OV-sync-is-manual, intake discuss-gate, closing clauses, obsidian-cli reference) lives in one file; other skills link to it rather than embedding a copy.
+- **Shared machinery over hand-rolled**: ID allocation = `next-id.sh`; file scaffolding = `compendium-new` + `_templates/`. No skill re-implements these.
+- **Dual skill copies must be swept together.** Every `compendium-*` skill exists twice in dotfiles — `claude/skills/compendium-*` (canonical, symlinked to `~/.claude`) and `hermes/skills/claude/skills/compendium-*` (Hermes bundle). Any skill edit lands in **both** copies in the same change; the Hermes copy is the one that gets silently missed. Confirm parity before commit: `diff -rq ~/code/dotfiles/claude/skills/compendium-<name> ~/code/dotfiles/hermes/skills/claude/skills/compendium-<name>` (or `grep -rl "<edit marker>" ~/code/dotfiles/{claude,hermes}/skills/compendium-*` → expect two paths). Full release flow: [[GUIDE-022-compendium-shipping-skill-changes-end-to-end|GUIDE-022]].
+- **Routing**: the parent `compendium` skill's table names the delegate skill for every intent it can route, or explicitly states "no dedicated sub-skill."
+- **Advisory-first enforcement.** A new lint/health check lands **advisory** (`exit 0`, prints findings but never fails a commit). Run it full-vault, review the count, fix the real violations, and promote it to fatal / pre-commit only once the full-vault baseline is **0**. This is how `date-format` and `index-integrity` graduated; skipping the advisory phase risks blocking every commit on a check with unreviewed false positives.
+- **OV sync is manual (BUG-1034)** — no skill/workflow queues a background sync.
+
+## Step A6: Per-artifact checklists
+
+Run the checklist matching what you authored before committing.
+
+- **New entry**: template-derived frontmatter passing `lint-frontmatter.py`; correct subdir per domain; `related:` reciprocated for peer links (hub/register links may be one-way); `index.md` updated; source archived; committed; manual OV-sync noted.
+- **New skill**: all path/script refs resolve; no duplicated shared blocks (link instead); shared machinery used; trigger phrases deconflicted with the parent router; documentarian/scope boundaries stated.
+- **New workflow**: side-effect checklist (A3) complete; enforcement status of each side effect labeled (script vs manual-lint); commit + manual OV-sync steps present.
+
+## Step A7: Bulk frontmatter edits via subagent
+
+For a batch edit across many items (a backfill, a key rename, a quoting sweep — IMPR-1049's 71-item completion backfill is the model), don't hand-edit serially in the main session. The pattern:
+
+1. **Classify** — script the full list of affected files first (`grep` / `lint-frontmatter.py` output), bucketed by what edit each needs. The list is the contract; no edits outside it.
+2. **Dispatch a subagent per bucket with strict rules inline** — the exact edit rule, the YAML gotchas that apply (single-quote any value containing `#`, `": "`, or a leading digit — see CLAUDE.md), and the instruction to touch nothing else. Subagents own disjoint file sets and return diffs; the orchestrator commits.
+3. **Verify count-to-0** — re-run the classifier after applying; the finding count must be exactly 0. A residual count means a missed file or a rule misfire, not "close enough". `lint-frontmatter.py` enforces the graduated checks fatally at commit either way.
+4. **Never echo data the parent already holds** — a lane never re-transcribes a value it could instead receive verbatim. The parent supplies ground truth (the current value it read) in the lane record; the lane copies it through rather than re-deriving it from memory or a re-read, and the applier compares file ↔ supplied value at apply time rather than trusting the lane's copy (IMPR-1105, TASK-1161's paraphrase-drift lessons — see [[GUIDE-1074-other-compendium-deep-dive-runs-primer-lanes-verify-apply|GUIDE-1074]] Step 5).
+
+# Verification
+
+- Run `uv run python _scripts/lint-frontmatter.py --files <path>` on any new/changed entry and confirm zero findings.
+- For peer links, confirm the back-reference in each linked entry; hub/register one-to-many links need no reciprocal.
+- Confirm `index.md` was updated in the same commit as the entry, and the commit message names the operation + item ID.
+- For skills/workflows, confirm every instruction/script path resolves on disk.
+
+# See Also
+
+- [`.claude/instructions/authoring-standard.md`](../../.claude/instructions/authoring-standard.md) — pointer stub back to this canonical guide
+- [`.claude/instructions/vault-structure.md`](../../.claude/instructions/vault-structure.md) — directory layout, ID allocation, index/log format
+- [[PROJ-103-compendium-skills-remediation|PROJ-103]] — the remediation project this standard graduated from
+
+
+# ==== FILE: /Users/noot/code/compendium/guides/tooling/GUIDE-022-compendium-shipping-skill-changes-end-to-end.md ====
+
+---
+id: GUIDE-022
+title: Shipping a Compendium-Skill Change End-to-End
+type: guide
+topic: compendium-skill-shipping
+repos: [compendium, dotfiles]
+people: []
+customers: [Compendium]
+themes: [skills, workflow, two-repo, timmy, release-flow, dual-copy]
+tags: [compendium, dotfiles, skills, timmy, two-repo, dual-copy, worktree, release-flow, rebase]
+aliases:
+  - "GUIDE-022"
+  - "shipping a skill change"
+  - "compendium skill release flow"
+  - "two-repo skill flow"
+  - "dual-copy sweep"
+domains: [compendium, dotfiles]
+retrieval_summary: End-to-end flow for shipping a compendium-skill change across the vault and dotfiles repos, sweeping both skill copies; shipping ends when both land on main, with the timmy rebase optional.
+source_of_truth: guides/tooling/GUIDE-022-compendium-shipping-skill-changes-end-to-end.md
+date_created: 2026-07-12
+date_updated: 2026-07-31
+last_validated: 2026-07-20
+related:
+  - "[[GUIDE-021-compendium-authoring-standard|GUIDE-021]]"
+  - "[[IMPR-1045-other-streamline-multiwave-compendium-runs|IMPR-1045]]"
+  - "[[IMPR-1070-other-claude-code-tooling-cleanup-prune-unused-mcps-skills-plugins|IMPR-1070]]"
+ov_mode: pointer
+---
+
+# Shipping a Compendium-Skill Change End-to-End
+
+The canonical flow for landing a change to a `compendium-*` skill: which repo each part belongs in, how to sweep **both** skill copies so they don't drift, and where shipping actually ends — both halves on `main`, with the `timmy` homelab node an optional follow-up rather than a gate. Use it whenever you edit a skill under `dotfiles/claude/skills/compendium-*` (or its Hermes twin), or the vault-side instructions/scripts a skill drives.
+
+---
+
+# Prerequisites
+
+- Write access to both repos: `~/code/compendium/` (vault) and `~/code/dotfiles/` (skills).
+- Understanding of the symlink layout: `~/.claude/skills/` is symlinked to `dotfiles/claude/skills/` (see dotfiles `install.sh`), so a merged-and-pulled skill edit is live immediately on the MacBooks without any extra step.
+- Only for the **optional** Step 4 (`timmy`, not required to ship): SSH/local access to the homelab node and familiarity with the `timmy` rebase protocol in dotfiles [`BRANCHES.md`](../../../dotfiles/BRANCHES.md) § "Machine-specific adaptation branch: `timmy`".
+- The dual-copy fact (see Step 1): every `compendium-*` skill exists **twice** in dotfiles.
+
+# Overview
+
+A compendium-skill change has two halves that live in different repos. **Shipping is complete when both land on `main`** — the MacBooks go live automatically from there:
+
+```text
+Edit BOTH skill copies (dotfiles) ─┐
+                                   ├─ merge both PRs → reconcile main → verify live
+Edit instructions/scripts (vault) ─┘
+```
+
+- **Skill body** (`SKILL.md`, prompt text, trigger phrases) → `dotfiles`.
+- **Vault instructions/scripts a skill references** (`.claude/instructions/**`, `_scripts/*.py`, guides, templates) → `compendium`.
+- **Live on the MacBooks** → automatic via the `~/.claude/skills` symlink once `main` is pulled. This is the end of the ship.
+- **`timmy`** → optional follow-up, not part of shipping (Step 4). The homelab node tracks its own adapted branch and is brought current by an ordinary rebase whenever you next need it, which may be long after the change lands.
+
+# Steps
+
+## Step 1: Sweep BOTH skill copies (the dual-copy rule)
+
+Every compendium skill exists **twice** in dotfiles:
+
+- `dotfiles/claude/skills/compendium-*` — the canonical copy, symlinked into `~/.claude/skills/`.
+- `dotfiles/hermes/skills/claude/skills/compendium-*` — the Hermes agent-bundle copy.
+
+**Any edit to a `compendium-*` skill must be applied to both copies in the same change.** The Hermes copy was silently missed in past runs, causing "did I fix both?" churn later. Make the edit in one, then port it to the other, then confirm parity before you commit.
+
+**Confirm parity — per-skill tree diff (authoritative):**
+
+```bash
+diff -rq ~/code/dotfiles/claude/skills/compendium-complete \
+         ~/code/dotfiles/hermes/skills/claude/skills/compendium-complete
+# Expect: no output (trees identical). Any "differ"/"Only in" line = drift to reconcile.
+```
+
+**Confirm a specific edit landed in both — marker grep:**
+
+```bash
+# Replace the marker with a distinctive phrase from your edit.
+grep -rl "retrieval_summary colon rule" \
+  ~/code/dotfiles/claude/skills/compendium-* \
+  ~/code/dotfiles/hermes/skills/claude/skills/compendium-*
+# Expect: two paths (one per copy). One path = you missed a copy.
+```
+
+**Gotchas:**
+
+- Some skills legitimately differ between the two copies (Hermes may carry agent-specific framing). When `diff -rq` shows a pre-existing difference, scope your parity check to the section you edited (the marker grep) rather than forcing whole-tree identity.
+- **Sanctioned divergences** (audited 2026-07-23 — anything outside this list is drift to reconcile):
+  - **Intake tail line** (bug, feature, guide, idea, info, project, task): `claude/skills/` ends with "delegate the finish to a background haiku agent"; the Hermes copy finishes inline ("cross-link, archive source, OV sync, commit"). Deliberate — cluster sessions run local models and do not background-delegate (IMPR-1066).
+  - **`compendium-lint` interpreter**: `claude/skills/` uses `uv run python`; the Hermes copy uses `.venv/bin/python` (cluster nodes run the prepared venv, no `uv`). Maintained deliberately across sweeps (e.g. dotfiles `9ebbd8d`).
+  - **`hermes/skills/bin/compendium-new`** is ~148 lines behind `bin/compendium-new` **by design — do not re-sync it**. It is an archive snapshot from `backup/skills-2026-06-24`, not a live copy: `install.sh` deploys nothing from `hermes/skills/bin/`, and every machine (homelab node included) resolves `compendium-new` through `~/.local/bin` → `dotfiles/bin/`. A parity sync was attempted (dotfiles `77e9f02`) and reverted the same day (`eeef148`); the live script's own header comment repeats the do-not-re-sync rule. Only actively-harmful content (a wrong path, deprecated flags) gets patched in the archive (`4bc9d97`, 2026-07-22) — despite that commit's "separate reconciliation" phrasing, no fuller reconciliation is owed.
+- The canonical copy is the symlinked one; when the two disagree and you must pick, the `claude/skills/` copy is source of truth. (Applied 2026-07-23: the `144fbce` UI-first platform-notes sweep had missed the Hermes bug/feature copies, and `compendium-promote`'s OV-sync note had forked wording — all three re-synced to the `claude/skills/` text.)
+
+## Step 2: Split the change by repo, one worktree per repo
+
+- **Vault half** (instructions, `_scripts/`, guides, templates) → a `compendium` worktree/branch, its own PR. Follow [[GUIDE-021-compendium-authoring-standard|GUIDE-021]] for any new/changed entry.
+- **Skill half** (`SKILL.md` and skill assets, both copies) → a `dotfiles` branch, its own PR.
+
+Keep the two PRs cross-linked (each references the other) so a reviewer sees the whole change. If the change is skill-only or vault-only, you only have one PR — skip the half that doesn't apply.
+
+## Step 3: Merge both PRs, then reconcile `main`
+
+Merge (squash) both PRs. In each local checkout, return to `main` and fast-forward:
+
+```bash
+git checkout main && git pull --ff-only origin main
+```
+
+At this point the change is **already live on the MacBooks** for the skill half: `~/.claude/skills/compendium-*` resolves through the symlink to the freshly-pulled `dotfiles/claude/skills/` tree. No reload, no copy step.
+
+## Step 4 (optional): Bring `timmy` current
+
+> **Not a ship requirement (2026-07-20).** Shipping a skill change is **done at Step 3** — the MacBooks are live via the symlink. The `timmy` rebase is ordinary node maintenance: do it when you next need the homelab node current, not as a gate on landing the change. A skill change may sit on `main` with `timmy` behind it indefinitely; that is an expected steady state, not an unfinished ship.
+>
+> The branch and its rules are unchanged — `timmy` still tracks its own adapted branch and dotfiles [`BRANCHES.md`](../../../dotfiles/BRANCHES.md) remains authoritative for how to rebase it. Only its position in _this_ flow changed, from required step to optional follow-up.
+>
+> Practical consequence: an agent finishing a skill change should not report the work incomplete for want of a `timmy` rebase, and should not attempt one unprompted — the node is often unreachable and the rebase can need conflict resolution a shipping session has no context for.
+
+`timmy` (the Ubuntu homelab node) tracks its own adapted branch, not `main`. When you do want it current, follow the dotfiles [`BRANCHES.md`](../../../dotfiles/BRANCHES.md) rebase protocol:
+
+```bash
+# On timmy (or wherever the timmy branch is checked out):
+git checkout main && git pull origin main      # 1. main current
+git checkout timmy && git rebase main          # 2. replay timmy adaptations onto main
+# 3. resolve any auto-install.sh / install.sh conflicts per BRANCHES.md policy
+git push --force-with-lease origin timmy        # 4. publish rebased branch
+systemctl --user daemon-reload                  # 5. reload units if install.sh re-symlinked
+```
+
+For a **skill-only** change the critical outcome is that `timmy`'s checked-out working tree now contains the updated `dotfiles/claude/skills/`, so the `~/.claude/skills` symlinks resolve to the new content. `daemon-reload` matters only when the rebase touched service-file symlinks (per BRANCHES.md); it is harmless to run regardless.
+
+**Gotchas:**
+
+- `--force-with-lease`, never bare `--force` — `timmy` is rewritten every rebase but a lease guards against clobbering an out-of-band push.
+- Never merge `timmy` into `main`, and never branch shared work off `timmy` (BRANCHES.md rule 1/4). Land on `main` first, then rebase.
+
+## Step 5: Complete the tracking items
+
+If the change was tracked by a vault item (TASK/IMPR/BUG), complete it now — frontmatter, `git mv` if terminal, `index.md`, per [[GUIDE-021-compendium-authoring-standard|GUIDE-021]] A3.
+
+# Verification
+
+- **Dual-copy parity**: `diff -rq` (or the marker grep) reports the two copies in sync for the edited section.
+- **Live on MacBooks**: `readlink ~/.claude/skills/compendium-<name>/SKILL.md` resolves into the dotfiles tree, and the file shows your edit.
+- **`timmy` (only if you ran the optional Step 4)**: after the rebase + force-push, the `timmy` working tree's `claude/skills/compendium-<name>/SKILL.md` contains the edit. Skip this check when you skipped Step 4 — a `timmy` that is behind is not a failed ship.
+- Both PRs merged and each local `main` fast-forwarded.
+
+# Running a Multi-Wave Remediation
+
+When the work is a large sweep rather than a single change (many items/skills across several waves — e.g. PROJ-103), the single-change flow above nests inside a repeatable per-wave cadence. Run each wave as this checklist:
+
+1. **Commit the plan to `main` first.** _(Gotcha that bit us: a worktree branched from `main` only contains the plan if the plan was already committed to `main` — otherwise the worktree can't see it.)_
+2. **One worktree per repo** — a `compendium` worktree and a `dotfiles` worktree, each on its own branch. Never fan out lanes inside the shared main checkout.
+3. **Fan out lanes by _disjoint file-groups_.** Assign each subagent a non-overlapping set of files so no two lanes touch the same file; lanes return diffs, the **orchestrator commits** (subagents don't commit). Disjoint groups are what make the fan-out safe to parallelize.
+4. **Verify each lane before committing** — targeted `grep`/`rg` sweeps for the pattern you changed, then `pre-commit run --files <changed>`. For skill edits, the dual-copy parity check (Step 1 above).
+5. **Per-group commits** — one commit per coherent file-group (see CLAUDE.md § "How to group commits"), not one giant commit and not one-file-per-commit.
+6. **Cross-linked PRs** — one PR per repo, each referencing the other so a reviewer sees the whole wave.
+7. **Merge (squash), then reconcile `main`** — `git checkout main && git pull --ff-only origin main` in each checkout.
+8. **`timmy` rebase — optional**, per Step 4 of the single-change flow above. Not part of shipping; do it when you next want the node current.
+9. **Complete the wave's tracking items** — the TASK/IMPR for the wave (frontmatter, `git mv`, `index.md`), and update the parent project's task list / `status_detail`.
+
+**Cadence conventions (cross-refs):**
+
+- **Advisory-first for any new check** you add mid-wave — land it `exit 0`, review full-vault counts, promote to fatal only at ~0 (GUIDE-021 A5).
+- **No hardcoded point-in-time counts** in wave success criteria — assert reconciliation invariants instead (they don't drift between planning and implementation).
+- **Scope formatters to what the target repo enforces** — do not run `ruff format` in a repo that doesn't enforce ruff (compendium enforces prettier + markdownlint, not ruff).
+
+# See Also
+
+- [[GUIDE-021-compendium-authoring-standard|GUIDE-021]] — authoring invariants (A5 carries the dual-copy skill rule).
+- [[IMPR-1045-other-streamline-multiwave-compendium-runs|IMPR-1045]] — the improvement this guide implements (Phase 1).
+- dotfiles [`BRANCHES.md`](../../../dotfiles/BRANCHES.md) — the canonical `timmy` rebase protocol this guide cross-references.

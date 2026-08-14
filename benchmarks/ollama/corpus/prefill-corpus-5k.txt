@@ -1,0 +1,171 @@
+# ==== FILE: /Users/noot/.claude/CLAUDE.md ====
+
+# Repository — dotfiles
+
+Personal configuration files symlinked into `~/.config/`, `~/.claude/`, and `~/`. See `install.sh` for the full symlink map. Key directories:
+
+| Path        | Symlink target        | Purpose                                                                                                     |
+| ----------- | --------------------- | ----------------------------------------------------------------------------------------------------------- |
+| `claude/`   | `~/.claude/`          | Claude Code config (CLAUDE.md, settings.json, skills, agents, commands)                                     |
+| `zsh/`      | `~/.config/zsh/`      | Shell config (aliases, completions, zvm)                                                                    |
+| `nvim/`     | `~/.config/nvim/`     | Neovim config                                                                                               |
+| `ghostty/`  | `~/.config/ghostty/`  | Terminal config                                                                                             |
+| `starship/` | `~/.config/starship/` | Prompt config                                                                                               |
+| `tmux/`     | `~/.config/tmux/`     | tmux config                                                                                                 |
+| `bat/`      | `~/.config/bat/`      | Bat pager config + Aura theme                                                                               |
+| `zed/`      | `~/.config/zed/`      | Zed editor config (settings, keymap, themes)                                                                |
+| `ollama/`   | `~/.config/ollama/`   | Ollama env config + Modelfiles (Zed edit-prediction models)                                                 |
+| `opencode/` | `~/.config/opencode/` | opencode config — local-model harness (qwen3.6:coding-35b); selective symlink, narrow by default            |
+| `bin/`      | `~/.local/bin/`       | CLI scripts (use-profile, snowq, compendium-new, tsess, claude-fork, ollama-thinking-proxy, backup scripts) |
+
+Other directories (`pi/`, `themes/`, and the per-app configs) are covered in `README.md`.
+
+All config lives on a single `main` branch (IMPR-1010, June 2026). Both the personal MacBook (pop) and the work MacBook pull from `main`. The repo carries work-only tooling (Snowflake, Mage, db-mcp, OpenViking) on every machine — those tools are inert without credentials and network reach, so shipping them to pop costs nothing. The only machine-specific signal is `scutil --get ComputerName` (used in `.zshrc` for runtime conditionals); machine-private overrides go in `~/.claude/settings.local.json` (gitignored). See `BRANCHES.md` for details.
+
+## On-demand reference docs (in `~/.claude/`)
+
+| Doc                              | Load when                                                               |
+| -------------------------------- | ----------------------------------------------------------------------- |
+| [TOOL_USAGE.md](TOOL_USAGE.md)   | Bash-vs-dedicated-tool questions (linked from rules below)              |
+| [FORMATTING.md](FORMATTING.md)   | Formatter rules (linked from rules below)                               |
+| [PR_TEMPLATE.md](PR_TEMPLATE.md) | Writing or editing PR descriptions                                      |
+| [GUARDRAILS.md](GUARDRAILS.md)   | Running or debugging local Qwen agents (canonical Qwen doc)             |
+| [QWEN.md](QWEN.md)               | Qwen homework-model specifics; loaded by hermes stability skill         |
+| [SNOWFLAKE.md](SNOWFLAKE.md)     | Snowflake work (work machine; `snow` is not installed on pop)           |
+| [OPENVIKING.md](OPENVIKING.md)   | OpenViking knowledge-base operations                                    |
+| [PLUGINS.md](PLUGINS.md)         | Plugin/marketplace inventory (repo-only; not symlinked to `~/.claude/`) |
+
+# Behavioral preferences
+
+## Tool usage
+
+- **Never use Bash for file content operations** — no `cat`/`head`/`tail`/`sed`/`awk` reads, no `>`/`>>`/heredoc writes, no `sed -i` edits. Use `Read` (or `ctx_execute_file` when analyzing rather than editing), `Write`, `Edit`, `Grep`, `Glob`. Bash is for git, mkdir, rm, mv, curl, and navigation only. No exceptions for "quick checks", whitespace/encoding inspection, or small snippets. `rg`/`fd` from Bash are acceptable only when the dedicated search tools don't fit. Full rationale and edge cases: [TOOL_USAGE.md](TOOL_USAGE.md).
+- **Never use the built-in `WebFetch` tool** — it dumps raw page bytes into context. Fetch with `ctx_fetch_and_index(url, source)`, query with `ctx_search(queries: [...])`, extract/parse with `ctx_execute` using `fetch()` in the sandbox. Start with context-mode; do not try `WebFetch` first and fall back.
+- **Agents and subagents must use context-mode** — ctx\_\* tools are deferred; load schemas before the first call with `ToolSearch("select:mcp__plugin_context-mode_context-mode__ctx_batch_execute,mcp__plugin_context-mode_context-mode__ctx_search,mcp__plugin_context-mode_context-mode__ctx_execute,mcp__plugin_context-mode_context-mode__ctx_execute_file,mcp__plugin_context-mode_context-mode__ctx_fetch_and_index")`. Prefer `ctx_batch_execute` over Bash for multi-command research, `ctx_execute_file` over Read for file analysis, and `ctx_fetch_and_index` over WebFetch for web content. The `<context_window_protection>` routing block is injected into agent prompts automatically — follow its tool hierarchy.
+
+## Output
+
+- Don't use words like "genuinely" or "honest". For example, if something is "genuinely confusing", just say it's confusing.
+- **Use tables** for structured data, comparisons, or any output with 2+ columns of information; prefer them over bullet lists in those cases.
+- **End-of-task summary**: finish with a short summary (2-4 sentences) of what was done, prefixed with a randomly-chosen emoji from the stamp pool: 🪿 🐘 🐦‍⬛ 🐋 🦉 🐢 🐙 🦎 🦦 🪴 🌵 🌿 🌱. Always use a space between the emoji and the text. The emoji has no fixed meaning — pick one at random each time for visual variety. Example: `🐋 Added the config file and committed as abc1234.`
+- **Section headings use emoji prefixes**: one emoji at the start of the response — a colored-circle type marker optionally combined with a domain emoji. Always use a space between the emoji and the following text. Example: `🔴 ☁️ Cloud deploy failed` (error + cloud), `🟢 📊 Data pipeline succeeded` (success + data). Section headings after the first are plain text (no emoji). Status indicators (✅ ❌ ⚠️ ℹ️ ⏳ ✨ 🔄 🗑️) go inline at line start within sections, also with a space after the emoji.
+- **File paths in output**: for compendium vault files and dotfiles config files, always show the full `~/`-prefixed path so it's copy-pasteable and unambiguous. Example: `~/code/compendium/bugs/mage/BUG-072-mapping-type-null-safety.md`, not just `BUG-072-mapping-type-null-safety.md`. For other project files, the filename alone is fine.
+- **No box-drawing diagrams**: never use Unicode box-drawing characters (┌ ─ ┐ │ └ ┘) — the alignment is brittle. Use nested bullets, indented code blocks, tables, or Mermaid instead. (This bans hand-typed box drawing in chat replies; machine-generated `rich-fmt`/`rich` output displayed in a Bash tool panel is fine — see next rule.)
+- **Colored terminal output via `rich-fmt` / forced color** (full playbook: `~/code/compendium/guides/tooling/GUIDE-023-other-using-rich-and-rich-cli-for-terminal-data-displays-and-repor.md`): Claude Code's Bash tool-output panel renders ANSI color, but captured stdout is a pipe (non-tty), so tools suppress color by default — force emission when the user should see styled output in the panel. `rich-fmt table|panel|tree --data '<json>'` (in `~/.local/bin/`) does this by default at a fixed 100-col width, and supports caller-judged emphasis (cell/header style dicts, `--box`) — use `--file`/stdin instead of inline `--data` for non-trivial payloads; for rich-based Python scripts, run them with `FORCE_COLOR=1`. Scope (per GUIDE-023 Step 8): use this only when (a) relaying a script's own styled/colorized output, (b) the shape is a tree or bordered panel with no markdown equivalent, or (c) showing a live styled render alongside the reply. A plain data table you are composing yourself stays a native markdown table in the reply — never rich-fmt. Use `--no-color` when redirecting to a file or pasting output into a markdown code fence (fences show raw escape codes as garbage).
+- **Formatters are mandatory**: after every `Write` or `Edit`, run the file type's formatter (`uv run ruff format`, `npx prettier --write`, `gofmt -w`, `rustfmt`, `shfmt -w`, `sqlfluff fix`). Never fix indentation or spacing manually — if no formatter exists for the file type, leave it rather than hand-tweaking. Full table and rationale: [FORMATTING.md](FORMATTING.md).
+
+## PR descriptions
+
+Follow the template and principles in [PR_TEMPLATE.md](PR_TEMPLATE.md). Key rules:
+
+- **Never overwrite bot-generated blocks** (CodeRabbit, dependabot — delimited by HTML-comment markers); prepend/append around them.
+- Edit bodies atomically: `gh pr view <N> --json body -q .body` → compose locally → `gh pr edit --body-file`.
+- Omit sections that don't apply rather than padding with "N/A".
+- The PR is a public artifact: don't mention planning/research docs, openviking, or other internal tools.
+- **Never add tags/labels to PRs** unless explicitly asked.
+
+## PR review completeness
+
+When inspecting or addressing PR review feedback, do not treat inline review threads as the complete comment set. For every review submission—especially `coderabbitai`—inspect the full review body for actionable findings that GitHub could not attach inline, including sections labeled `Outside diff range comments` and `Comments failed to post`.
+
+- Treat review-body-only findings as first-class review comments: verify each against the latest PR head and include it in the disposition.
+- Cross-reference inline threads, review bodies, and later review submissions by comment fingerprint when present (`cr-comment:v1:*`), otherwise by file, line, and title. Do not double-count repeated findings.
+- If the user links a specific `#pullrequestreview-<id>`, fetch that exact review submission; do not substitute a flat PR comment listing.
+- Before declaring the review complete, report or internally reconcile counts for inline, outside-diff, and failed-to-post/body-only findings. If a bot summary says comments failed to post, a zero-inline result is not evidence that there are no comments.
+
+## Subagent fan-out — parallelize independent flows
+
+On capable (hosted Claude) sessions, actively fan out to parallel subagents when a flow is parallelizable, instead of grinding serially or dispatching one subagent and idling. This is the encourage-side counterpart to the local-model avoidance rule (IMPR-1066, `local-model-append.md`) — **on a local-model session that rule wins and overrides this section**; there, keep at most one subagent in flight.
+
+### ⚠ Hard cap: one local-model consumer at a time
+
+**This cap keys on what the work _drives_, not on what the session runs.** A hosted session (Opus/Sonnet) fanning out lanes that each call a local model is still N concurrent consumers of one GPU — the session's own model is irrelevant. This is the gap that crashed pop on 2026-07-27 (TASK-1169: several `lane-runner-local.py` subagents against `localhost:11434`, each holding its own KV cache, until RAM gave out).
+
+**At most ONE local-model consumer may be in flight at any moment, across the whole session** — counting main-loop work _and_ subagents together. Never batch-spawn local-model lanes in one message; never start a second while one is running.
+
+A task counts as a local-model consumer if it issues inference to a locally-served model. Recognize it by any of:
+
+| Signal          | Examples                                                                      |
+| --------------- | ----------------------------------------------------------------------------- |
+| Host / endpoint | `localhost:11434`, `127.0.0.1:11434`, `_homelab_ollama_host`, timmy, `:8770`  |
+| Tooling         | `ollama run/serve`, `lane-runner-local.py`, `ollama-thinking-proxy`, `mlx_lm` |
+| Model names     | `qwen*`, `gemma*`, `zeta*`, any Modelfile tag in `dotfiles/ollama/`           |
+| Skills          | `deep-dive-summary-sweep` and any GUIDE-1074 lane run in local mode           |
+
+When several local-model items must be processed, **iterate them sequentially in one lane** — that is what the runners already do internally (`lane-runner-local.py` is "strictly sequential — one Ollama host, no concurrency" by design). Parallelism buys nothing there: requests serialize on the runner anyway, and the only thing that scales is RAM pressure. Fan out around the local call (gather inputs, apply results) but never fan out the call itself.
+
+This cap is not overridden by "be comprehensive", `ultracode`, `Workflow`, or a user asking for speed — if throughput is the goal, say that the local runner is the bottleneck rather than adding lanes.
+
+**Flow patterns worth fanning out** (the shapes the `bg-*` agents, `Workflow` patterns, and GUIDE-021 A7 bulk-edit pattern already target):
+
+| Pattern                    | Example                                                                          |
+| -------------------------- | -------------------------------------------------------------------------------- |
+| Multi-file research/search | Independent sweeps across subsystems, directories, or naming conventions         |
+| Per-item vault edits       | Bulk frontmatter sync, multi-item intake — one lane per item (GUIDE-021 A7)      |
+| Review across dimensions   | Correctness / perf / security lanes over the same immutable diff                 |
+| Multi-source investigation | Each agent probes a different source (code, logs, docs, tickets) blind to others |
+
+**Fan-out-vs-serial heuristic:**
+
+- **Fan out (≥2 subagents)** when subtasks are **independent** — no shared mutable state, no ordering dependency — **and** each is substantial enough to amortize spawn cost.
+- **Stay inline (serial, main loop)** for trivial, tightly coupled, or dependent work, where parallel lanes would mostly duplicate each other or need to be serialized anyway.
+- **Never dispatch one subagent and idle waiting on it** — that's a ~50% throughput loss for work that either needed no subagent (do it inline) or wanted several (fan out ≥2). One-and-idle is the anti-pattern this rule exists to kill.
+- Keep fan-out lanes read-only unless the task is an isolated per-item write (worktree isolation for parallel mutation); dedupe and verify candidate results in the parent before acting on them.
+- **Before fanning out, check whether the lanes call a local model.** If they do, the hard cap above applies and the answer is one sequential lane — no exceptions.
+
+## PR review parallelization
+
+The PR-review case is a specific instance of the fan-out heuristic above. After gathering PR metadata, repository instructions, changed files, and exact base/head SHAs, use parallel subagents whenever the review has independent subsystems or concerns and agent capacity is available.
+
+- Partition heterogeneous PRs by subsystem. Otherwise, use separate lanes for correctness/runtime contracts, tests/edge cases, and security/performance/operational impact.
+- Give each lane the same immutable PR context and a non-overlapping scope. Keep subagents read-only: they must not edit files, post comments, or submit reviews.
+- Require candidate findings to include severity, `file:line`, concrete evidence, and validation performed. While lanes run, use the parent agent for local checks and cross-cutting analysis.
+- Deduplicate and independently verify every candidate against the latest PR head. Drop speculative or stale findings; only the parent agent posts the consolidated review and verdict.
+- Keep small or tightly coupled PRs single-agent when parallel lanes would mostly duplicate work.
+
+## Deep research — start narrow
+
+A full-scope `deep-research` run (6+ dimensions) can consume 3M+ subagent tokens. Stage the scope: targeted lookup (1-2 angles) → focused compare (2-3 options) → dimension deep-dive → full landscape scan (first-time broad surveys only — say so and get confirmation first). Frame `args` around a concrete decision or comparison, never an open-ended question, and never re-run a full scan on a topic already surveyed.
+
+# Tool configuration
+
+## Python / uv
+
+- Run project Python via `uv run ...` (`uv run python`, `uv run pytest`, `uv run alembic`) — global tools lack project deps.
+- Install global Python CLIs via `uv tool install <tool>` (userspace, no sudo). Never `sudo pip install` or `--break-system-packages`.
+
+## AWS
+
+Use the AWS CLI for all AWS interactions; profile `rd` for the dev account. Treat resources as read-only and confirm with the user before any write operation.
+
+## Databases & Snowflake
+
+**READ-ONLY unless explicitly told otherwise.** PostgreSQL / pipeline / customer-data questions → `/db-mcp` skill. Snowflake / `snow sql` / warehouse / stage questions → `/snow` skill.
+
+## Compendium (`~/code/compendium/`)
+
+Canonical persistent record of bugs, features, ideas, projects, and tasks. The legacy personal vault was merged into the work vault in June 2026 via IDEA-034 (flat +1000 ID offset) and is now archived under `~/code/archive/` (the old GitHub repo is marked archived).
+
+Use the compendium skills for item lifecycle work. Obsidian CLI usage and the full operating manual live in `~/code/compendium/CLAUDE.md`. When an item is personal/homelab origin, allocate its ID with `_scripts/next-id.sh <PREFIX> --scope personal` so it lands in the ≥1000 band.
+
+# Branch workflow
+
+Single `main` branch. Commit and push directly; no `work` or `personal` branches. Machine-specific divergence (rare — currently zero tracked files) goes in `~/.claude/settings.local.json` (gitignored, natively merged by Claude Code). Runtime conditionals key on `scutil --get ComputerName` (see `zsh/.zshrc`): pop sources `zsh/.zshrc.pop`, any other machine sources `zsh/.zshrc.workbook`. The TB→Tailscale→LAN ollama host helper `_pop_ollama_host` lives in `.zshrc.workbook` (work machine only); pop uses `_homelab_ollama_host` in `.zshrc.pop`, which targets the homelab node (timmy) via Tailscale→LAN.
+
+## Bare repositories with linked worktrees
+
+`/Users/noot/code/dipdash` and `/Users/noot/code/mage` are **bare** Git repositories that manage sibling worktrees. They are not normal working trees — the repo root holds only git internals (`HEAD`, `config`, `objects/`, `refs/`), and every checkout is a sibling directory beside it, named after the branch/ticket:
+
+```text
+~/code/dipdash/                      bare root — no source files here
+├── main/                            the `main` branch  ← default working location
+└── OWL-NNNNN-<ticket-slug>/         one directory per additional branch
+```
+
+- Run `git worktree list` before starting work and use the worktree that owns the target branch.
+- The `main` branch lives in each repository's `main/` worktree. Never switch that worktree to a feature branch.
+- **Paths are one level deeper than they look**: `~/code/dipdash/main/…`, `~/code/mage/main/…`. A bare `~/code/dipdash/<src-dir>` path is stale.
+- Run status, tests, formatting, commits, rebases, and project-file edits from the appropriate worktree, not the bare root.
+- Preserve uncommitted changes in every worktree and do not modify unrelated worktrees.
+- Create/remove with `git -C <repo> worktree add <slug> -b <branch> origin/main` / `worktree remove <slug>`. If a bare repo's directory is ever moved, worktrees break with `prunable` — repair via `git worktree repair <new-path>…` (never `prune`, which deletes the entries).
+

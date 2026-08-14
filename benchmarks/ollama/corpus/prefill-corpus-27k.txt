@@ -1,0 +1,996 @@
+# ==== FILE: /Users/noot/.claude/CLAUDE.md ====
+
+# Repository — dotfiles
+
+Personal configuration files symlinked into `~/.config/`, `~/.claude/`, and `~/`. See `install.sh` for the full symlink map. Key directories:
+
+| Path        | Symlink target        | Purpose                                                                                                     |
+| ----------- | --------------------- | ----------------------------------------------------------------------------------------------------------- |
+| `claude/`   | `~/.claude/`          | Claude Code config (CLAUDE.md, settings.json, skills, agents, commands)                                     |
+| `zsh/`      | `~/.config/zsh/`      | Shell config (aliases, completions, zvm)                                                                    |
+| `nvim/`     | `~/.config/nvim/`     | Neovim config                                                                                               |
+| `ghostty/`  | `~/.config/ghostty/`  | Terminal config                                                                                             |
+| `starship/` | `~/.config/starship/` | Prompt config                                                                                               |
+| `tmux/`     | `~/.config/tmux/`     | tmux config                                                                                                 |
+| `bat/`      | `~/.config/bat/`      | Bat pager config + Aura theme                                                                               |
+| `zed/`      | `~/.config/zed/`      | Zed editor config (settings, keymap, themes)                                                                |
+| `ollama/`   | `~/.config/ollama/`   | Ollama env config + Modelfiles (Zed edit-prediction models)                                                 |
+| `opencode/` | `~/.config/opencode/` | opencode config — local-model harness (qwen3.6:coding-35b); selective symlink, narrow by default            |
+| `bin/`      | `~/.local/bin/`       | CLI scripts (use-profile, snowq, compendium-new, tsess, claude-fork, ollama-thinking-proxy, backup scripts) |
+
+Other directories (`pi/`, `themes/`, and the per-app configs) are covered in `README.md`.
+
+All config lives on a single `main` branch (IMPR-1010, June 2026). Both the personal MacBook (pop) and the work MacBook pull from `main`. The repo carries work-only tooling (Snowflake, Mage, db-mcp, OpenViking) on every machine — those tools are inert without credentials and network reach, so shipping them to pop costs nothing. The only machine-specific signal is `scutil --get ComputerName` (used in `.zshrc` for runtime conditionals); machine-private overrides go in `~/.claude/settings.local.json` (gitignored). See `BRANCHES.md` for details.
+
+## On-demand reference docs (in `~/.claude/`)
+
+| Doc                              | Load when                                                               |
+| -------------------------------- | ----------------------------------------------------------------------- |
+| [TOOL_USAGE.md](TOOL_USAGE.md)   | Bash-vs-dedicated-tool questions (linked from rules below)              |
+| [FORMATTING.md](FORMATTING.md)   | Formatter rules (linked from rules below)                               |
+| [PR_TEMPLATE.md](PR_TEMPLATE.md) | Writing or editing PR descriptions                                      |
+| [GUARDRAILS.md](GUARDRAILS.md)   | Running or debugging local Qwen agents (canonical Qwen doc)             |
+| [QWEN.md](QWEN.md)               | Qwen homework-model specifics; loaded by hermes stability skill         |
+| [SNOWFLAKE.md](SNOWFLAKE.md)     | Snowflake work (work machine; `snow` is not installed on pop)           |
+| [OPENVIKING.md](OPENVIKING.md)   | OpenViking knowledge-base operations                                    |
+| [PLUGINS.md](PLUGINS.md)         | Plugin/marketplace inventory (repo-only; not symlinked to `~/.claude/`) |
+
+# Behavioral preferences
+
+## Tool usage
+
+- **Never use Bash for file content operations** — no `cat`/`head`/`tail`/`sed`/`awk` reads, no `>`/`>>`/heredoc writes, no `sed -i` edits. Use `Read` (or `ctx_execute_file` when analyzing rather than editing), `Write`, `Edit`, `Grep`, `Glob`. Bash is for git, mkdir, rm, mv, curl, and navigation only. No exceptions for "quick checks", whitespace/encoding inspection, or small snippets. `rg`/`fd` from Bash are acceptable only when the dedicated search tools don't fit. Full rationale and edge cases: [TOOL_USAGE.md](TOOL_USAGE.md).
+- **Never use the built-in `WebFetch` tool** — it dumps raw page bytes into context. Fetch with `ctx_fetch_and_index(url, source)`, query with `ctx_search(queries: [...])`, extract/parse with `ctx_execute` using `fetch()` in the sandbox. Start with context-mode; do not try `WebFetch` first and fall back.
+- **Agents and subagents must use context-mode** — ctx\_\* tools are deferred; load schemas before the first call with `ToolSearch("select:mcp__plugin_context-mode_context-mode__ctx_batch_execute,mcp__plugin_context-mode_context-mode__ctx_search,mcp__plugin_context-mode_context-mode__ctx_execute,mcp__plugin_context-mode_context-mode__ctx_execute_file,mcp__plugin_context-mode_context-mode__ctx_fetch_and_index")`. Prefer `ctx_batch_execute` over Bash for multi-command research, `ctx_execute_file` over Read for file analysis, and `ctx_fetch_and_index` over WebFetch for web content. The `<context_window_protection>` routing block is injected into agent prompts automatically — follow its tool hierarchy.
+
+## Output
+
+- Don't use words like "genuinely" or "honest". For example, if something is "genuinely confusing", just say it's confusing.
+- **Use tables** for structured data, comparisons, or any output with 2+ columns of information; prefer them over bullet lists in those cases.
+- **End-of-task summary**: finish with a short summary (2-4 sentences) of what was done, prefixed with a randomly-chosen emoji from the stamp pool: 🪿 🐘 🐦‍⬛ 🐋 🦉 🐢 🐙 🦎 🦦 🪴 🌵 🌿 🌱. Always use a space between the emoji and the text. The emoji has no fixed meaning — pick one at random each time for visual variety. Example: `🐋 Added the config file and committed as abc1234.`
+- **Section headings use emoji prefixes**: one emoji at the start of the response — a colored-circle type marker optionally combined with a domain emoji. Always use a space between the emoji and the following text. Example: `🔴 ☁️ Cloud deploy failed` (error + cloud), `🟢 📊 Data pipeline succeeded` (success + data). Section headings after the first are plain text (no emoji). Status indicators (✅ ❌ ⚠️ ℹ️ ⏳ ✨ 🔄 🗑️) go inline at line start within sections, also with a space after the emoji.
+- **File paths in output**: for compendium vault files and dotfiles config files, always show the full `~/`-prefixed path so it's copy-pasteable and unambiguous. Example: `~/code/compendium/bugs/mage/BUG-072-mapping-type-null-safety.md`, not just `BUG-072-mapping-type-null-safety.md`. For other project files, the filename alone is fine.
+- **No box-drawing diagrams**: never use Unicode box-drawing characters (┌ ─ ┐ │ └ ┘) — the alignment is brittle. Use nested bullets, indented code blocks, tables, or Mermaid instead. (This bans hand-typed box drawing in chat replies; machine-generated `rich-fmt`/`rich` output displayed in a Bash tool panel is fine — see next rule.)
+- **Colored terminal output via `rich-fmt` / forced color** (full playbook: `~/code/compendium/guides/tooling/GUIDE-023-other-using-rich-and-rich-cli-for-terminal-data-displays-and-repor.md`): Claude Code's Bash tool-output panel renders ANSI color, but captured stdout is a pipe (non-tty), so tools suppress color by default — force emission when the user should see styled output in the panel. `rich-fmt table|panel|tree --data '<json>'` (in `~/.local/bin/`) does this by default at a fixed 100-col width, and supports caller-judged emphasis (cell/header style dicts, `--box`) — use `--file`/stdin instead of inline `--data` for non-trivial payloads; for rich-based Python scripts, run them with `FORCE_COLOR=1`. Scope (per GUIDE-023 Step 8): use this only when (a) relaying a script's own styled/colorized output, (b) the shape is a tree or bordered panel with no markdown equivalent, or (c) showing a live styled render alongside the reply. A plain data table you are composing yourself stays a native markdown table in the reply — never rich-fmt. Use `--no-color` when redirecting to a file or pasting output into a markdown code fence (fences show raw escape codes as garbage).
+- **Formatters are mandatory**: after every `Write` or `Edit`, run the file type's formatter (`uv run ruff format`, `npx prettier --write`, `gofmt -w`, `rustfmt`, `shfmt -w`, `sqlfluff fix`). Never fix indentation or spacing manually — if no formatter exists for the file type, leave it rather than hand-tweaking. Full table and rationale: [FORMATTING.md](FORMATTING.md).
+
+## PR descriptions
+
+Follow the template and principles in [PR_TEMPLATE.md](PR_TEMPLATE.md). Key rules:
+
+- **Never overwrite bot-generated blocks** (CodeRabbit, dependabot — delimited by HTML-comment markers); prepend/append around them.
+- Edit bodies atomically: `gh pr view <N> --json body -q .body` → compose locally → `gh pr edit --body-file`.
+- Omit sections that don't apply rather than padding with "N/A".
+- The PR is a public artifact: don't mention planning/research docs, openviking, or other internal tools.
+- **Never add tags/labels to PRs** unless explicitly asked.
+
+## PR review completeness
+
+When inspecting or addressing PR review feedback, do not treat inline review threads as the complete comment set. For every review submission—especially `coderabbitai`—inspect the full review body for actionable findings that GitHub could not attach inline, including sections labeled `Outside diff range comments` and `Comments failed to post`.
+
+- Treat review-body-only findings as first-class review comments: verify each against the latest PR head and include it in the disposition.
+- Cross-reference inline threads, review bodies, and later review submissions by comment fingerprint when present (`cr-comment:v1:*`), otherwise by file, line, and title. Do not double-count repeated findings.
+- If the user links a specific `#pullrequestreview-<id>`, fetch that exact review submission; do not substitute a flat PR comment listing.
+- Before declaring the review complete, report or internally reconcile counts for inline, outside-diff, and failed-to-post/body-only findings. If a bot summary says comments failed to post, a zero-inline result is not evidence that there are no comments.
+
+## Subagent fan-out — parallelize independent flows
+
+On capable (hosted Claude) sessions, actively fan out to parallel subagents when a flow is parallelizable, instead of grinding serially or dispatching one subagent and idling. This is the encourage-side counterpart to the local-model avoidance rule (IMPR-1066, `local-model-append.md`) — **on a local-model session that rule wins and overrides this section**; there, keep at most one subagent in flight.
+
+### ⚠ Hard cap: one local-model consumer at a time
+
+**This cap keys on what the work _drives_, not on what the session runs.** A hosted session (Opus/Sonnet) fanning out lanes that each call a local model is still N concurrent consumers of one GPU — the session's own model is irrelevant. This is the gap that crashed pop on 2026-07-27 (TASK-1169: several `lane-runner-local.py` subagents against `localhost:11434`, each holding its own KV cache, until RAM gave out).
+
+**At most ONE local-model consumer may be in flight at any moment, across the whole session** — counting main-loop work _and_ subagents together. Never batch-spawn local-model lanes in one message; never start a second while one is running.
+
+A task counts as a local-model consumer if it issues inference to a locally-served model. Recognize it by any of:
+
+| Signal          | Examples                                                                      |
+| --------------- | ----------------------------------------------------------------------------- |
+| Host / endpoint | `localhost:11434`, `127.0.0.1:11434`, `_homelab_ollama_host`, timmy, `:8770`  |
+| Tooling         | `ollama run/serve`, `lane-runner-local.py`, `ollama-thinking-proxy`, `mlx_lm` |
+| Model names     | `qwen*`, `gemma*`, `zeta*`, any Modelfile tag in `dotfiles/ollama/`           |
+| Skills          | `deep-dive-summary-sweep` and any GUIDE-1074 lane run in local mode           |
+
+When several local-model items must be processed, **iterate them sequentially in one lane** — that is what the runners already do internally (`lane-runner-local.py` is "strictly sequential — one Ollama host, no concurrency" by design). Parallelism buys nothing there: requests serialize on the runner anyway, and the only thing that scales is RAM pressure. Fan out around the local call (gather inputs, apply results) but never fan out the call itself.
+
+This cap is not overridden by "be comprehensive", `ultracode`, `Workflow`, or a user asking for speed — if throughput is the goal, say that the local runner is the bottleneck rather than adding lanes.
+
+**Flow patterns worth fanning out** (the shapes the `bg-*` agents, `Workflow` patterns, and GUIDE-021 A7 bulk-edit pattern already target):
+
+| Pattern                    | Example                                                                          |
+| -------------------------- | -------------------------------------------------------------------------------- |
+| Multi-file research/search | Independent sweeps across subsystems, directories, or naming conventions         |
+| Per-item vault edits       | Bulk frontmatter sync, multi-item intake — one lane per item (GUIDE-021 A7)      |
+| Review across dimensions   | Correctness / perf / security lanes over the same immutable diff                 |
+| Multi-source investigation | Each agent probes a different source (code, logs, docs, tickets) blind to others |
+
+**Fan-out-vs-serial heuristic:**
+
+- **Fan out (≥2 subagents)** when subtasks are **independent** — no shared mutable state, no ordering dependency — **and** each is substantial enough to amortize spawn cost.
+- **Stay inline (serial, main loop)** for trivial, tightly coupled, or dependent work, where parallel lanes would mostly duplicate each other or need to be serialized anyway.
+- **Never dispatch one subagent and idle waiting on it** — that's a ~50% throughput loss for work that either needed no subagent (do it inline) or wanted several (fan out ≥2). One-and-idle is the anti-pattern this rule exists to kill.
+- Keep fan-out lanes read-only unless the task is an isolated per-item write (worktree isolation for parallel mutation); dedupe and verify candidate results in the parent before acting on them.
+- **Before fanning out, check whether the lanes call a local model.** If they do, the hard cap above applies and the answer is one sequential lane — no exceptions.
+
+## PR review parallelization
+
+The PR-review case is a specific instance of the fan-out heuristic above. After gathering PR metadata, repository instructions, changed files, and exact base/head SHAs, use parallel subagents whenever the review has independent subsystems or concerns and agent capacity is available.
+
+- Partition heterogeneous PRs by subsystem. Otherwise, use separate lanes for correctness/runtime contracts, tests/edge cases, and security/performance/operational impact.
+- Give each lane the same immutable PR context and a non-overlapping scope. Keep subagents read-only: they must not edit files, post comments, or submit reviews.
+- Require candidate findings to include severity, `file:line`, concrete evidence, and validation performed. While lanes run, use the parent agent for local checks and cross-cutting analysis.
+- Deduplicate and independently verify every candidate against the latest PR head. Drop speculative or stale findings; only the parent agent posts the consolidated review and verdict.
+- Keep small or tightly coupled PRs single-agent when parallel lanes would mostly duplicate work.
+
+## Deep research — start narrow
+
+A full-scope `deep-research` run (6+ dimensions) can consume 3M+ subagent tokens. Stage the scope: targeted lookup (1-2 angles) → focused compare (2-3 options) → dimension deep-dive → full landscape scan (first-time broad surveys only — say so and get confirmation first). Frame `args` around a concrete decision or comparison, never an open-ended question, and never re-run a full scan on a topic already surveyed.
+
+# Tool configuration
+
+## Python / uv
+
+- Run project Python via `uv run ...` (`uv run python`, `uv run pytest`, `uv run alembic`) — global tools lack project deps.
+- Install global Python CLIs via `uv tool install <tool>` (userspace, no sudo). Never `sudo pip install` or `--break-system-packages`.
+
+## AWS
+
+Use the AWS CLI for all AWS interactions; profile `rd` for the dev account. Treat resources as read-only and confirm with the user before any write operation.
+
+## Databases & Snowflake
+
+**READ-ONLY unless explicitly told otherwise.** PostgreSQL / pipeline / customer-data questions → `/db-mcp` skill. Snowflake / `snow sql` / warehouse / stage questions → `/snow` skill.
+
+## Compendium (`~/code/compendium/`)
+
+Canonical persistent record of bugs, features, ideas, projects, and tasks. The legacy personal vault was merged into the work vault in June 2026 via IDEA-034 (flat +1000 ID offset) and is now archived under `~/code/archive/` (the old GitHub repo is marked archived).
+
+Use the compendium skills for item lifecycle work. Obsidian CLI usage and the full operating manual live in `~/code/compendium/CLAUDE.md`. When an item is personal/homelab origin, allocate its ID with `_scripts/next-id.sh <PREFIX> --scope personal` so it lands in the ≥1000 band.
+
+# Branch workflow
+
+Single `main` branch. Commit and push directly; no `work` or `personal` branches. Machine-specific divergence (rare — currently zero tracked files) goes in `~/.claude/settings.local.json` (gitignored, natively merged by Claude Code). Runtime conditionals key on `scutil --get ComputerName` (see `zsh/.zshrc`): pop sources `zsh/.zshrc.pop`, any other machine sources `zsh/.zshrc.workbook`. The TB→Tailscale→LAN ollama host helper `_pop_ollama_host` lives in `.zshrc.workbook` (work machine only); pop uses `_homelab_ollama_host` in `.zshrc.pop`, which targets the homelab node (timmy) via Tailscale→LAN.
+
+## Bare repositories with linked worktrees
+
+`/Users/noot/code/dipdash` and `/Users/noot/code/mage` are **bare** Git repositories that manage sibling worktrees. They are not normal working trees — the repo root holds only git internals (`HEAD`, `config`, `objects/`, `refs/`), and every checkout is a sibling directory beside it, named after the branch/ticket:
+
+```text
+~/code/dipdash/                      bare root — no source files here
+├── main/                            the `main` branch  ← default working location
+└── OWL-NNNNN-<ticket-slug>/         one directory per additional branch
+```
+
+- Run `git worktree list` before starting work and use the worktree that owns the target branch.
+- The `main` branch lives in each repository's `main/` worktree. Never switch that worktree to a feature branch.
+- **Paths are one level deeper than they look**: `~/code/dipdash/main/…`, `~/code/mage/main/…`. A bare `~/code/dipdash/<src-dir>` path is stale.
+- Run status, tests, formatting, commits, rebases, and project-file edits from the appropriate worktree, not the bare root.
+- Preserve uncommitted changes in every worktree and do not modify unrelated worktrees.
+- Create/remove with `git -C <repo> worktree add <slug> -b <branch> origin/main` / `worktree remove <slug>`. If a bare repo's directory is ever moved, worktrees break with `prunable` — repair via `git worktree repair <new-path>…` (never `prune`, which deletes the entries).
+
+(History note: this file has flip-flopped on which repos are bare. As of 2026-07-22, verified with `git rev-parse --is-bare-repository`: dipdash and mage are bare; `~/code/homelab` is a **normal working tree** with `main` checked out at the repo root — no `main/` subdirectory; `~/code/qpendium` and `~/code/repos/zed` no longer exist. Trust `git worktree list` over this history.)
+
+## Switching the session into a worktree (EnterWorktree / ExitWorktree)
+
+Claude Code exposes an `EnterWorktree` tool that moves the **session's** working directory into a worktree persistently — unlike `cd` in the Bash tool, whose effect is reset to the session's launch directory on every call. Use it only when explicitly asked to work in a worktree (that is the tool's own gate).
+
+- **Enter an existing worktree**: `EnterWorktree(path: "<abs path>")`. The path must already appear in `git worktree list` for the repo. This is the right mode for these bare repos: create the worktree first with `git worktree add <sibling-path> <branch>` (or `-b <branch>`), then `EnterWorktree` into it. A `path`-entered worktree is left on disk on exit — never deleted.
+- **Create a fresh worktree**: `EnterWorktree(name: "<name>")` makes a new worktree under `.claude/worktrees/` on a new branch off `origin/<default>`. Avoid this for the bare repos above — their worktrees live as siblings of the bare root, not under `.claude/worktrees/`; use the `git worktree add` + `path` flow instead so the layout stays consistent.
+- **Leave**: `ExitWorktree(action: "keep")` returns the session to the launch directory, leaving the worktree intact (the correct choice for `path`-entered worktrees). `action: "remove"` only deletes worktrees this session created via `EnterWorktree(name:)`, and refuses to drop uncommitted work unless `discard_changes: true`.
+- Never switch a `main/` worktree onto a feature branch to satisfy an enter — add the feature worktree as a sibling and enter that instead. (Doing the former once put the branch on `dipdash/main` and needed manual cleanup.)
+
+Thanks! :)
+
+
+# ==== FILE: /Users/noot/code/compendium/CLAUDE.md ====
+
+# Compendium Operating Manual
+
+You are the editor of a personal work-item knowledge base (the "compendium"). This is the master index — load the relevant sub-file below for your task.
+
+For full context on any sub-file (e.g. Intake workflow needing bug frontmatter), load both files.
+
+---
+
+## Task → File Index
+
+| Task                                                                                                            | Load this file                                                                                                                                                                                                                                                 |
+| --------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Create or update a **bug** (frontmatter, body, lifecycle)                                                       | `.claude/instructions/bugs.md`                                                                                                                                                                                                                                 |
+| Create or update a **feature** (frontmatter, body, lifecycle)                                                   | `.claude/instructions/features.md`                                                                                                                                                                                                                             |
+| Create or update a **task** (frontmatter, body, lifecycle)                                                      | `.claude/instructions/tasks.md`                                                                                                                                                                                                                                |
+| Create or update an **improvement** (frontmatter, body, lifecycle)                                              | `.claude/instructions/improvements.md`                                                                                                                                                                                                                         |
+| Create or update an **info entry** (`INFO-NNN` — Q&A, operational reference)                                    | `.claude/instructions/info.md`                                                                                                                                                                                                                                 |
+| Create or update a **guide** (`GUIDE-NNN` — step-by-step playbooks, operational runbooks)                       | `.claude/instructions/guides.md`                                                                                                                                                                                                                               |
+| Create or update an **error pattern** (signatures, resolutions, agent workflow)                                 | `.claude/instructions/errors.md` + `.claude/instructions/workflows/error-pattern.md`                                                                                                                                                                           |
+| Run **intake** workflow (create new item)                                                                       | `.claude/instructions/workflows/intake.md` + type file                                                                                                                                                                                                         |
+| Run **status transition** (active ↔ active, active ↔ backlog)                                                   | `.claude/instructions/workflows/status-transition.md`                                                                                                                                                                                                          |
+| Run **completion** workflow (active → terminal)                                                                 | `.claude/instructions/workflows/completion.md` + type file                                                                                                                                                                                                     |
+| Run **reopen** workflow (terminal → active)                                                                     | `.claude/instructions/workflows/reopen.md`                                                                                                                                                                                                                     |
+| Run **query** workflow (search vault + OV)                                                                      | `.claude/instructions/workflows/query.md`                                                                                                                                                                                                                      |
+| Run **lint** / health-check / audit                                                                             | `.claude/instructions/workflows/lint.md`                                                                                                                                                                                                                       |
+| **Obsidian CLI** reference                                                                                      | `.claude/instructions/workflows/obsidian-cli.md`                                                                                                                                                                                                               |
+| **Navigate the vault**, understand directory layout, ID allocation, index/log format, cross-vault linking       | `.claude/instructions/vault-structure.md`                                                                                                                                                                                                                      |
+| **Author a new entry / skill / workflow**                                                                       | `guides/tooling/GUIDE-021-compendium-authoring-standard.md` (canonical; `.claude/instructions/authoring-standard.md` is a pointer stub)                                                                                                                        |
+| Maintain **retrieval metadata** for OpenViking search quality                                                   | `docs/vault/retrieval-metadata.md`                                                                                                                                                                                                                             |
+| Create an **implementation plan**                                                                               | `create-plan` skill → writes to `docs/plans/` in the vault                                                                                                                                                                                                     |
+| Create a **research document**                                                                                  | `research-codebase` skill → writes to `docs/research/` in the vault                                                                                                                                                                                            |
+| **Implement** an approved plan                                                                                  | `implement-plan` skill → reads from `docs/plans/` in the vault                                                                                                                                                                                                 |
+| ~~Update notes/today.md or notes/week.md~~ — **retired 2026-07-25**                                             | The daily/weekly notes routine was abandoned (`today.md` last touched 2026-07-03) and PROJ-1011 cancelled. Do not update these pages; `tsess` covers session tracking                                                                                          |
+| **Scaffold a new item** deterministically (allocates ID, writes from `_templates/`, prints the index row)       | `compendium-new --type <type> --title "…"` — shared scaffolding for every intake type incl. `--type improvement`; `-other-` improvements auto-allocate in the personal **1000+** band                                                                          |
+| **Complete an item** with the advisory scaffold                                                                 | `_scripts/complete-item.py <ID> --status <s> --ref <r>` — dry-run by default; `--apply` sets frontmatter (single-quote a `--ref` containing `#`) + `git mv`s (flat for `-other-`, `tasks/completed/<PROJ>/` for tasks) and prints the index edit to hand-apply |
+| **Ship a `compendium-*` skill change end-to-end** (repo split, dual-copy sweep)                                 | `guides/tooling/GUIDE-022-compendium-shipping-skill-changes-end-to-end.md`                                                                                                                                                                                     |
+| **Operate the machine-branch workflow** — guards, compaction PR lifecycle, generated indexes, recovery patterns | `guides/tooling/GUIDE-1072-other-operating-the-machine-branch-workflow-pop-workbook-compactio.md` (operationalizes § Machine-branch topology below)                                                                                                            |
+| **Close out a session** — sweep for landed-but-open items, stale blockers, finished checklists                  | `guides/tooling/GUIDE-024-other-session-close-out-sweep-triage-closable-items-and-stale-bloc.md` — run `uv run python _scripts/check-closability.py --match <topic> --days <N>` before wrapping up; advisory, read-only                                        |
+
+For **info docs** (no dedicated spec file): use the appropriate `_templates/info.md` file for frontmatter structure; lifecycle rules are in `.claude/instructions/vault-structure.md`; Obsidian CLI reference is in `.claude/instructions/workflows/obsidian-cli.md`.
+
+For **guide docs** (`GUIDE-NNN` — step-by-step playbooks and operational runbooks): use `_templates/guide.md` for frontmatter structure and body outline; full spec is in `.claude/instructions/guides.md`; lifecycle rules are in `.claude/instructions/vault-structure.md`.
+
+---
+
+## Quick Reference
+
+**Vault root**: `~/code/compendium/`
+
+**Canonical repo**: This work vault is canonical. The legacy `~/code/personal-compendium/` vault was merged here in June 2026 (IDEA-034) using a flat +1000 ID offset; personal-compendium is now a read-only historical snapshot.
+
+**ID ranges after the merge**:
+
+- Work-origin items use IDs 1–999 (default).
+- Personal / homelab-origin items use IDs 1000+.
+
+**Always allocate through `compendium-new`**, which derives the band from `--repo` (or takes an explicit `--scope work|personal`):
+
+```bash
+compendium-new --type bug --repo homelab --title "..."   # -> BUG-1NNN
+```
+
+`compendium-new` holds an intake lock under the repo's shared Git common dir across the scan→write window; `_scripts/next-id.sh` does the cross-worktree scan but takes no lock. Calling `next-id.sh` directly is a **read-only "what's next?" query** — two concurrent callers can both read the same number before either writes a file.
+
+For directory layout, ID allocation, filename conventions, status lifecycles, subdomain subdirectory rules, index/log format, cross-vault linking → see [`.claude/instructions/vault-structure.md`](.claude/instructions/vault-structure.md).
+
+For retrieval metadata field rules and OpenViking sync commands → see [`docs/vault/retrieval-metadata.md`](docs/vault/retrieval-metadata.md).
+
+---
+
+## Work Context
+
+When starting meaningful work, agents should check in with the user on two items:
+
+1. **Git branch**: "Which branch should this go on?" For multi-file updates and long sessions, a Claude Code worktree branch is created by default; mention the branch name if it differs from `main`. For quick single-item changes, work proceeds directly on `main`.
+2. **ClickUp ticket**: "What ClickUp ticket does this relate to?" Include the ticket ID (e.g., `OWL-19453`) and URL. This is optional but strongly encouraged — it makes searching and cross-referencing much easier later.
+
+## Retired tracking integrations (2026-07-25)
+
+Two task-tracking integrations were torn down; **do not reintroduce either**:
+
+- **Linear** (`nathanwhyte-code` / team `PRO`) — the `linear:` / `linear_url:` frontmatter fields, the cross-linking convention, and the manual status-sync step are removed from templates, instructions, and active items. The remote Linear workspace was deliberately left untouched; it is simply no longer wired to the vault. Completed items keep their `PRO-NNN` references as historical record.
+- **Obsidian Task Board** — the `# Board Card` section and the `#task/status/*` tag vocabulary are retired. Task tracking is the `tsess` tmux-session workflow instead.
+- **The personal notes / task OS** ([[PROJ-1011-other-personal-notes-task-memory-os|PROJ-1011]], cancelled) — including the `notes/today.md` / `notes/week.md` daily-weekly routine, iPadOS vault sync, Apple Pencil capture, and the vision ingestion pipeline. All five child tasks were cancelled; none had delivered.
+- **Syncthing** — no longer used, no pods running; unused manifests remain in `~/code/homelab/main/syncthing/`. The vault syncs via git. [[BUG-1026-homelab-syncthing-compendium-deletes-themes|BUG-1026]] closed `wontfix` as a result.
+
+Both remain in **completed/resolved** entries on purpose: those record how the work was actually tracked at the time, and rewriting them would falsify the history. Only active items were cleaned.
+
+The `linear` / `linear_url` **frontmatter keys are now rejected outright** by `lint-frontmatter.py` (blocking pre-commit check, IMPR-1108) — they moved off the allow-list into `RETIRED_FM_KEYS`, alongside the dead generic-tracker pair `issue_id` / `issue_url`. This was safe to make blocking because the vault reached zero occurrences first: the retirement's last stragglers were 18 entries the work machine scaffolded from pre-retirement templates and re-imported at a compaction, which is exactly what the gate now prevents. Adding the next retired key is one line in that set plus its reason string — but sweep the vault to zero first, or every commit touching a pre-existing carrier fails.
+
+`PRO-NNN` references in entry **bodies** are untouched and remain the historical record; only the frontmatter keys are gated.
+
+## Git Commit Guidance
+
+**Every workflow that writes files must end with a git commit.** This is not optional. If you create, update, move, or delete vault files, you must commit those changes before reporting the workflow as complete. The only exception is read-only operations (query, lint).
+
+### Machine-branch topology (PROJ-1017, live since 2026-07-22)
+
+Each machine commits day-to-day work to its own long-running **machine branch** — `pop` on the personal MacBook, `workbook` on the work MacBook. The shared checkout sits on the machine branch; **sessions never need to reference `main` for routine work** — commit and push whatever branch the shared checkout has checked out. `main` is a curated integration target that only advances via GitHub PRs:
+
+- **Compaction PRs** (the normal path): the machine branch → `main`, merged with a **merge commit** (never squash — squash breaks the ff-only sync and is reserved for ordinary worktree PRs). Trigger is manual at stint boundaries, with an advisory nudge when the branch is ~30 commits or ~7 days ahead of `main`. After the merge, sync the machine branch with `git fetch origin && git merge --ff-only origin/main`. Only the **merged** branch syncs; the other machine's branch keeps diverging until its own compaction PR.
+- **Cluster cron PRs**: the hermes cluster jobs operate on `main` PR-mediated as before — the cluster is a third machine whose stable base is `main`.
+
+Guard rails (best-effort, hook-installed clones only — run `_scripts/install-hooks.sh` once per machine): a pre-commit hook blocks commits made while `main` is checked out (`COMPENDIUM_ALLOW_MAIN=1` overrides for sanctioned main work), and a **raw** git pre-push hook (symlinked into the shared `.git/hooks` by the installer — deliberately not a pre-commit-framework hook, which sees only the first pushed ref) blocks any push that updates or deletes `refs/heads/main`, across every refspec of a multi-ref push and from every linked worktree and checked-out branch. The same push hook also protects the **machine branches** (IMPR-1099): it blocks pushing to the branch this machine does not own, and blocks rewriting (non-fast-forward) or deleting its own — `COMPENDIUM_ALLOW_BRANCH_FORCE=1` overrides for sanctioned repairs, and machine ownership can be declared explicitly with `git config compendium.machineBranch <branch>`. Feature/worktree branches are untouched, force-pushes included. Transitional note: a checkout of `main` uses `main`'s own `.pre-commit-config.yaml`, so the **commit** guard binds on `main` only after the first compaction PR lands the config there; the **push** guard lives in `.git/hooks` and binds regardless of the checked-out branch.
+
+Drift from `main` is **expected state, not a problem**: content merged to `main` by the other machine or cluster jobs arrives at this machine at its next compaction sync. Cross-machine visibility between compactions comes from fetched refs (`git fetch origin <other-branch>` + `git grep` — see the intake dup-check rules and TASK-1153).
+
+### Commit, push, and fetch — commit first, end in a PR or check-in
+
+**Commit first, always.** Never run `git rebase` or `git pull --rebase` with uncommitted changes — rebase refuses on a dirty tree, and stashing around it invites the shared-stash hazards described in the worktree rules. The order is: stage → pre-commit → commit → push.
+
+**On the machine branch and on feature/worktree branches, do NOT routinely rebase onto `origin/main`.** Worktree branches are long-lived; rebasing onto main mid-session replays the entire branch history (repeated conflict resolution for commits that were already resolved once) and rewrites published history, forcing a force-push. Worktree branches base on and merge back into the **machine branch** (the repo's `worktree.baseRef: head` setting handles the base automatically). Instead:
+
+- **After each commit, push immediately**: `git push origin <branch>` (for shared-checkout work that's the machine branch — pushing also protects freshly-allocated IDs via the allocator's remote scan). Don't wait for a batch or an approval gate.
+- **If the push is rejected** because the remote branch moved (another session pushed to the same branch), sync with the branch's own remote — not main: `git pull --rebase origin <branch>`, then push again.
+- **Fetch occasionally for awareness** (`git fetch origin` is cheap), but drift from `main` is information, not a problem to fix on every commit — under the machine-branch topology it resolves at the next compaction PR, not per-commit.
+- **End the session with a PR or a check-in — never an automatic rebase.** At integration time, push the branch and open the PR **as it stands**, then let GitHub report mergeability. Drift from `main` is information to surface in your summary, not something to silently resolve. Rebase only when (a) the user asks, or (b) GitHub reports the PR is not mergeable — and in case (b), check in first rather than resolving unattended. Rationale: an unattended rebase resolves other sessions' `index.md` conflicts with no one watching, and a wrong union silently drops another session's entry. A conflicted PR is a visible, recoverable state; a bad auto-resolution is neither.
+- **If a rebase is sanctioned and the branch was already pushed**, follow it with `git push --force-with-lease` (never bare `--force`), and say so in your summary. When resolving `index.md`, verify the union — every side's entries present — and report the count.
+
+**Commits on `main` are exceptional** (machine-branch topology): the pre-commit guard blocks them by design. When the user explicitly sanctions main work (`COMPENDIUM_ALLOW_MAIN=1`), the old rules apply: commit first, then `git fetch origin` and, if `origin/main` has advanced, `git rebase origin/main` (tree is clean now, so this is safe). Never push `main` directly — the pre-push guard blocks it; `main` advances via PRs. If a truly exceptional direct push is user-sanctioned, `--no-verify` with the sanction recorded in your summary.
+
+### When to commit
+
+- Completing an item (moves to resolved/completed dir)
+- A batch of related frontmatter updates across multiple items (e.g., sync `date_updated` for a sprint)
+- Intake of a new item with its source material
+- Completing a project with all its sub-items
+- A logical group of changes that are closely related
+
+### How to group commits
+
+| What's changed                         | Suggested commit scope                                            |
+| -------------------------------------- | ----------------------------------------------------------------- |
+| Template frontmatter schema changes    | Single commit for all `_templates/` + `.claude/instructions/*.md` |
+| Batch `date_updated` sync (sprint/OWL) | One commit per type (bugs, features, tasks)                       |
+| Intake — new item + source material    | One commit per item + its `_sources/` files                       |
+| Moving completed items to resolved/    | One commit for all items in that batch                            |
+| Cross-link updates, wikilink fixes     | One commit for the batch                                          |
+| Mixed changes across types             | One commit per type                                               |
+
+### Commit message format
+
+`<type>: <short description>`
+
+**Good commit messages:**
+
+- `bugs: add date_updated to 14 active bugs (OWL-19455 batch)`
+- `FEAT-016: add adhoc template research sources`
+- `templates: add release_date, clickup_id/clickup_url frontmatter fields`
+- `bugs/resolved: move completed bugs to resolved directory`
+
+### Pre-commit hooks
+
+Always run `pre-commit run --files $(git diff --name-only --cached)` before committing to ensure markdown and YAML files pass formatting and linting checks.
+
+### Avoid
+
+- Committing unrelated changes together (e.g., a new feature intake + a batch of unrelated bug updates)
+- Over-granular commits (one file per commit when they're clearly related)
+- Rebasing a feature/worktree branch onto `origin/main` — on every commit, _or_ reflexively at PR time. Open the PR as it stands and let GitHub judge mergeability; rebase only when asked or when the PR is actually blocked
+- Resolving another session's `index.md` conflict unattended — a wrong union silently drops their entry. Check in instead
+- Running `git rebase` with uncommitted changes — commit first, always
+
+---
+
+## General Instructions
+
+- Do not upload images to the `_sources` directory, unless otherwise specified.
+- **Plans and research documents must be written to the compendium vault**, not to project directories, `thoughts/`, or any other location. Implementation plans go to `docs/plans/`; design documents go to `docs/design/`; research documents go to `docs/research/`. The `create-plan` and `research-codebase` skills are the only authorized writers for these directories. If the compendium vault is not available, stop and ask the user to ensure `~/code/compendium/` exists before proceeding.
+
+## OpenViking
+
+For retrieval rules, sync commands, and field semantics → see [`docs/vault/retrieval-metadata.md`](docs/vault/retrieval-metadata.md).
+
+---
+
+## Frontmatter YAML Gotchas
+
+Four ways a frontmatter value silently breaks. `_scripts/lint-frontmatter.py` is the source of truth for which checks block commits (its module docstring lists them — unquoted-`#`, colon-space, body-leak, plus schema/status/completion-field/allow-list checks; leading-digit is the one below it does not yet catch) — this prose is belt to that lint's suspenders. Rule of thumb: **single-quote any string value containing `#`, `": "` (colon-space), or a leading digit.**
+
+**1. Unquoted `#` → silent truncation.** An unquoted `" #"` (space-hash) starts a YAML comment, so `completed_in: compendium #69 + dotfiles #37` parses to just `"compendium"` — no error, wrong value. Single-quote it: `completed_in: "compendium #69 + dotfiles #37"`. `_scripts/complete-item.py` now auto-quotes refs, so prefer it for completions.
+
+**2. Colon-space (`": "`) → parse break.** `retrieval_summary: Foo: bar` raises "mapping values are not allowed here" and breaks the whole block. Single-quote the value.
+
+**3. Leading digit → numbered-list misparse.** If a string value begins with a digit (e.g., `8 of 10 questions`), YAML reads it as a numbered list and Obsidian frontmatter rendering breaks. Single-quote it, or for a multi-line field use a `>-` folded block scalar (never for `retrieval_summary`):
+
+````yaml
+status_detail: >-
+8 of 10 design questions decided. 2 remain open for Joel:
+  triggering mechanism (deploy-gate vs on-demand),
+  pipeline automation (full fleet vs smoke suite).
+```text
+
+The `>-` folded block scalar produces a single logical line while avoiding the numeric-list ambiguity. See `.claude/instructions/projects.md` for the full list of fields affected.
+
+**4. Body-leak past a mangled `---`.** If the closing `---` gets mangled, the H1 title and intro get absorbed into the frontmatter as junk keys (hit on PROJ-026/TASK-101), and `lint-frontmatter.py`'s required-key checks still pass. The malformed-key check (**fatal**) now catches it — keep a clean `---` on its own line closing the block.
+
+---
+
+## ⚠ Code Fence Language Tags — HARD RULE
+
+**Every fenced code block MUST have a language tag.** This is the most common pre-commit failure in this vault. Write ` ```sql `, ` ```yaml `, ` ```bash `, ` ```text ` — never bare ` ``` `. The markdownlint MD040 rule blocks commits on bare fences. Fixing them after the fact wastes a tool call every time.
+
+| Write                                         | Don't write |
+| --------------------------------------------- | ----------- |
+| ` ```bash `, ` ```yaml `, ` ```sql `          | ` ``` `     |
+| ` ```text ` (prose, examples, output)         | ` ``` `     |
+| ` ```json `, ` ```python `, ` ```javascript ` | ` ``` `     |
+
+**When in doubt, use ` ```text `.** It is the universal fallback for untyped content.
+
+This rule is also listed as rule 11 in `.claude/instructions/behavioral-rules.md` and is enforced by a pre-commit hook that rejects bare fences before they reach markdownlint.
+
+---
+
+## Worktree & Branch Conventions
+
+**For longer-running compendium updates and research sessions, use Claude Code worktrees.** A worktree gives the session its own isolated working tree backed by a real git branch — safe from interruptions, crash-resilient, and mergeable back into `main` when done. This is the default for any task that touches more than a few files or spans an extended period (multi-item intake batches, project completions, deep research docs, plan creation, skill development).
+
+**Merge back to the machine branch**: Worktree branches base on and merge back into the **machine branch** (`pop`/`workbook`) when they're done — the repo's `worktree.baseRef: head` setting makes `EnterWorktree` branch from it automatically; their content reaches `main` at the next compaction PR (PROJ-1017). Use `EnterWorktree` with `action: "keep"` at the end of a session and let the user review; use `action: "remove"` once the changes are committed and merged, then finish the post-merge cleanup procedure below — merging without cleaning up is an unfinished session.
+
+**When NOT to use a worktree**:
+- Simple single-item edits (one bug fix, one status transition) — just commit directly on the machine branch (`pop`/`workbook`) in the shared checkout.
+- Read-only operations (querying, linting, searching).
+- When the user asks for a specific branch name instead.
+
+For other repositories (dipdash, mage, dotfiles, etc.) that have their own worktree conventions, follow those repos' rules. The restriction above applies only to `~/code/compendium/`.
+
+Branches follow an `OWL-NNN/kebab-slug` format, e.g. `OWL-19576/source-file-names-improvements`.
+
+### Post-merge cleanup is mandatory
+
+A merged branch or worktree left behind is not "done" — stale branches accumulate, confuse later sessions and cron runs, and defeat the one-branch-per-run rules below. Every session that merges a branch cleans up **in the same session**, before reporting the work complete:
+
+1. **Verify the merge actually landed** before deleting anything. For local merges, confirm the merge commit is on **the branch that received the merge** — the machine branch (`pop`/`workbook`) for worktree branches; `main` only for compaction/cron PRs. For PR merges, confirm with `gh pr view <N> --json state,mergedAt`. **Squash-merge caveat**: a squash-merged branch's tip is *never* reachable from `main`, so reachability checks (including `git-guard safe-branch-delete`) refuse even though the content is fully merged — this is the known IMPR-1060 gap. There, the merge evidence is `gh pr list --state merged --head <branch>`, not reachability.
+2. **Remove the worktree**: `ExitWorktree` with `action: "remove"` (or `git worktree remove <path>`), then `git worktree prune`.
+3. **Delete the branch** — local via `git-guard safe-branch-delete <branch>`, remote via `git push origin --delete <branch>`. If `safe-branch-delete` refuses on a branch that step 1 proved squash-merged, deleting anyway is sanctioned **only with that `gh` evidence recorded in your session summary** — say explicitly which branch was deleted and what proved the merge.
+4. **End-of-session sweep**: run `git worktree list` and `git branch --list`. Any leftover branch/worktree you created must be either cleaned up or explicitly reported as intentionally kept (e.g. `EnterWorktree action: "keep"` pending user review) — never left behind silently.
+
+The only branches that may outlive a session are ones the user is still reviewing; name them in your summary so the next session knows they're live, not stale.
+
+### Shipping a `compendium-*` skill change
+
+Skill changes span two repos. The end-to-end flow — the repo split (vault instructions/scripts vs `dotfiles` skills) and the **dual-copy sweep** (every `compendium-*` skill lives twice: `dotfiles/claude/skills/` **and** `dotfiles/hermes/skills/claude/skills/` — edit both, confirm parity with `diff -q`) — is documented in [`GUIDE-022`](guides/tooling/GUIDE-022-compendium-shipping-skill-changes-end-to-end.md). **Shipping ends when both halves land on `main`**; the MacBooks go live from there via the `~/.claude/skills` symlink. Bringing the `timmy` homelab node current is an optional follow-up (GUIDE-022 Step 4), not a gate — a `timmy` that is behind is not an unfinished ship. Authoring invariants, incl. the dual-copy rule and advisory-first check rollout, are in [`GUIDE-021`](guides/tooling/GUIDE-021-compendium-authoring-standard.md) A5.
+
+### Cron job branch isolation
+
+Cron jobs that modify the compendium (vault health scan, link integrity, research sweep, dipdash/mage scans) must follow these rules to prevent branch conflicts. **These jobs run on the hermes cluster against its own clone, where `main` remains the correct base** — cluster jobs integrate PR-mediated into `main`, which is allowed (the machine-branch topology reserves *direct pushes and day-to-day commits* for machine branches; PRs into `main` are the sanctioned advance path). A cron job must **never run on a machine's shared checkout** — flipping that checkout's branch would silently retarget the machine's session commits.
+
+1. **Always `git checkout main && git pull` before creating a branch** (in the cluster clone). Never branch from a stale main.
+2. **Never use `git checkout -b` while another branch is checked out.** Return to main first, pull, then branch.
+3. **One branch per cron run.** If a previous run's branch still exists (e.g. `vault-health-2026-06-29`), delete it before creating a new one: `git branch -D <old-branch>`.
+4. **Schedules are staggered** so no two compendium-modifying jobs run simultaneously:
+   - Vault health scan: Monday 9:00
+   - Vault link integrity: Monday 10:00 (after health scan finishes)
+   - Research sweep: Tuesday 11:00 (different day entirely)
+   - DipDash/Mage health scan: Sunday 6:00
+   - DipDash/Mage refactor sweep: Sunday 7:00
+5. **Clean up after PR merge — in the same run, not "eventually".** Follow the full post-merge cleanup procedure above (verify merge → remove worktree → delete local **and** remote branch → `git checkout main && git pull`). A run that ends with its merged branch still present has not finished; rule 3's pre-run delete is a backstop for crashed runs, not the normal cleanup path.
+
+### Concurrent interactive sessions
+
+Multiple sessions/agents can run against the shared `~/code/compendium` working tree at once — all committing to this machine's branch (`pop`/`workbook`), which the shared checkout keeps checked out. Same-machine contention is unchanged by the machine-branch topology; what the topology removes is **cross-machine** contention (the other machine writes to its own branch, and the curated indexes reconcile at compaction time). Sessions contend on the shared `index.md` files (the hand-maintained `log.md` operations logs were dropped in IMPR-1092 — the operations log is git history now), and a commit in one session can sweep up another's **uncommitted** edits to those files. The procedure:
+
+- **Stage specific files, never `git add -A`,** when another agent may be active — so you neither absorb a neighbor's in-flight edits nor get swept into theirs.
+- **Commit first, reconcile second.** Get your own work committed before any sync operation; never "clean up" the tree to make a sync work — an unexpected dirty path is probably a concurrent session's in-flight work, not yours to discard.
+- **Reconcile, don't force.** If a push is rejected, `git pull --rebase origin <machine-branch>` and re-push; a rebase usually **auto-unions** competing `index.md` edits cleanly — verify the union (both sessions' entries present) after resolving. Never resolve contention with `reset --hard`/`checkout --`/`stash drop` in the shared checkout — the PreToolUse hook blocks these; use the `git-guard` equivalents (next section).
+- **Branch work happens in a worktree.** Needing a clean tree while the shared checkout is dirty is the signal to `git worktree add`, not to clean the shared tree.
+- The durable fix for the remaining `index.md` contention is deterministic index generation — tracked in [[IMPR-1050-other-derived-index-log-generation]].
+
+For bulk frontmatter edits across many items, use the subagent bulk-edit pattern in [[GUIDE-021-compendium-authoring-standard|GUIDE-021]] A7.
+
+### Destructive git operations are guarded (IMPR-1056)
+
+**History surgery happens in a worktree; the shared checkout only advances via commit/pull.** A PreToolUse hook blocks the destructive-command class (`reset --hard`, `clean -f`, `checkout -- <path>`, `restore <path>`, `stash pop|drop`, `branch -D`, bare `push --force`) whenever the command targets `~/code/compendium` — because a concurrent session may hold uncommitted work the command would destroy (the 2026-07-12 incident). When you legitimately need one of these, use the recoverable `git-guard` equivalent (`git-guard clean-tree` / `safe-reset` / `safe-branch-delete`, in `~/.local/bin/`) — its checks test output emptiness and commit reachability, never exit codes — or do the operation on a worktree branch and merge back.
+````
+
+
+# ==== FILE: /Users/noot/code/dotfiles/CLAUDE.md ====
+
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## What this repo is
+
+Personal dotfiles for two MacBooks (pop and work). Each top-level directory symlinks into `~/.config/<dir>` via `install.sh`. Special targets: `claude/` → `~/.claude/`, `home/` → home-directory dotfiles, `pi/` → `~/.pi/`, `hermes/` → selective symlinks into `~/.hermes/`.
+
+## Setup
+
+```bash
+./auto-install.sh   # Homebrew packages, Rust, uv, bun, ollama, Claude CLI
+./install.sh        # Create all symlinks
+```
+
+## Branch workflow
+
+Single `main` branch — commit and push directly. No feature branches except short-lived worktrees. Machine-specific overrides go in `~/.claude/settings.local.json` (gitignored). Runtime machine detection uses `scutil --get ComputerName`.
+
+### Agent and cron edit isolation
+
+Agents and cron jobs must follow these rules when editing this repo:
+
+1. **No branching in the main worktree** (hard rule). If an agent needs a branch, it creates a worktree (`git worktree add .worktrees/agent-<slug> -b <branch> origin/main`). No `git checkout -b` or `git switch` inside the main tree.
+2. **Worktree if main is dirty** (conditional rule). Before editing, run `git diff --quiet` as a pre-flight check. If main has uncommitted tracked changes (from the user or another agent), create a short-lived worktree instead of editing in place. If main is clean, edit directly on `main`. When multiple agents edit a clean `main` simultaneously, each must stage only its own files (`git add <specific files>`) — never `git add -A` or `git add .`.
+3. **Cron jobs always use worktrees** (hard rule). Autonomous edits with no human present must be fully isolated. No exceptions.
+
+Worktree naming: `.worktrees/agent-<slug>` or `.worktrees/cron-<slug>`. Remove the worktree immediately after commit/merge — do not leave them around.
+
+See `~/.hermes/skills/devops/git-parallel-work/SKILL.md` for the full worktree protocol (merge ordering, rebase discipline, PR supersession).
+
+**Default to a worktree for anything beyond a quick edit.** Beyond the hard/conditional rules above, treat a worktree as the default — not just the dirty-tree fallback — for any task that touches more than a few files or spans an extended period (multi-file config sweeps, skill development, long research sessions). Simple single-file edits and read-only operations (searching, linting) still proceed directly on `main` when it's clean.
+
+## Tests
+
+```bash
+./tests/run.sh              # Run all test suites
+./tests/test-snowq.sh       # Snowflake query wrapper tests
+```
+
+`tests/run.sh` runs every `tests/test-*.sh` file and exits nonzero if any fails.
+
+## Git hooks
+
+A pre-push hook blocks non-fast-forward pushes to `main`. Install with:
+
+```bash
+ln -sf ../../scripts/git-hooks/pre-push .git/hooks/pre-push
+```
+
+## General rules for editing live configs
+
+Several directories in this repo are symlinked to live runtime locations (`~/.config/<name>`, `~/.hermes/`, `~/.claude/`, etc.). An edit here is an edit to a running tool's config. Follow these rules:
+
+1. **Know what's live.** Before editing any file under `hermes/`, `claude/`, or `obsidian/`, check whether it's symlinked to a runtime path. Run `ls -la ~/.hermes/config.yaml ~/.claude/settings.json ~/code/compendium/.obsidian/` to see what's live.
+
+2. **Only perform mass reformatting with explicit permission.** Do not run `pre-commit run --all-files`, `yq -i -P`, `prettier --write`, or any bulk formatter on `hermes/config.yaml`, `claude/settings.json`, or `obsidian/*.yaml` unless the user explicitly asks for it. These files have specific formatting requirements (YAML single-document, JSON with comments, etc.) that bulk formatters don't respect. The 2026-06-29 config corruption started when a bulk format pass appended unrelated YAML into `hermes/config.yaml`.
+
+3. **No bulk renames or restructures of symlinked directories.** `hermes/skills/`, `claude/skills/`, and `obsidian/` are all symlinked to live locations. Renaming or moving files there breaks running agents, cron jobs, and Obsidian plugins.
+
+4. **Validate before committing.** For YAML configs: `uv run --with pyyaml python3 -c "import yaml; yaml.safe_load(open('path/to/file.yaml').read())"` (system `python3` has no PyYAML). For JSON configs: `python3 -c "import json; json.load(open('path/to/file.json'))"`. If validation fails, revert — do not commit broken configs.
+
+5. **Prefer targeted edits over wholesale replacements.** When adding a setting, add only the new key. When changing a value, change only that line. Avoid reformatting surrounding content.
+
+### Symlink mapping (`install.sh`)
+
+The install script loops over top-level directories and symlinks each to `~/.config/<name>`, skipping: `.git`, `home`, `pi`, `hermes`, `.claude`, and script files. Then it handles special cases:
+
+| Source                                              | Target                | Notes                                                    |
+| --------------------------------------------------- | --------------------- | -------------------------------------------------------- |
+| `zsh/.zshenv`                                       | `~/.zshenv`           | ZSH bootstrap                                            |
+| `tmux/tmux.conf`                                    | `~/.tmux.conf`        | Legacy path                                              |
+| `pi/`                                               | `~/.pi/`              | Pi Coding Agent                                          |
+| `claude/{CLAUDE.md,settings.json,...}`              | `~/.claude/`          | Individual file symlinks, not whole-dir                  |
+| `hermes/{config.yaml,SOUL.md,hooks,skins,skills/*}` | `~/.hermes/`          | Selective — runtime state stays in real `~/.hermes/`     |
+| `opencode/{opencode.jsonc,tui.json,AGENTS.md}`      | `~/.config/opencode/` | Selective — opencode writes plugin `node_modules/` there |
+| `opencode/{themes,commands,agents}/`                | `~/.config/opencode/` | Whole-dir symlinks — opencode only reads from these      |
+| `bin/*`                                             | `~/.local/bin/`       | CLI scripts on PATH                                      |
+
+### Neovim (`nvim/`)
+
+Fully-owned config on the **lazy.nvim** plugin manager — no distribution. Entry point: `init.lua` → `config/lazy.lua` (the owned bootstrap: options before setup, `LazyFile` event, VeryLazy keymap/autocmd loading, format/root engines, colorscheme). Historically built on LazyVim (pinned v15.12.0); PROJ-1022 (completed 2026-08-08) vendored every spec, keymap, option, autocmd, and util helper into the repo and removed the dependency. Many files carry "LazyVim v15.12.0" provenance comments — that is history, not a live coupling.
+
+| Path                                        | Purpose                                                             |
+| ------------------------------------------- | ------------------------------------------------------------------- |
+| `lua/config/lazy.lua`                       | Owned bootstrap (ordering-sensitive — see its numbered steps)       |
+| `lua/config/options.lua`                    | Full owned options (ported defaults + deliberate overrides last)    |
+| `lua/config/keymaps.lua`                    | Full owned keymaps (ported defaults + owned overrides last)         |
+| `lua/config/autocmds.lua`                   | Auto-commands (ported groups + owned groups)                        |
+| `lua/config/colors.lua` / `colors_oled.lua` | Colorscheme setup (Aura OLED default)                               |
+| `lua/util/`                                 | Owned util namespace (`_G.Util`): format/root/pick/cmp/lsp/ts/icons |
+| `lua/plugins/*.lua`                         | One file per plugin or plugin group (~50 files)                     |
+
+Key decisions: format-on-save disabled globally (`vim.g.autoformat = false`), snacks picker (hardwired in `lua/util/pick.lua`), NeoTree explorer, luarocks disabled, `stylua.toml` for Lua formatting. **Glyph rule**: nerd-font PUA glyphs in specs (icons, dashboard keys, fillchars) never survive agent retyping — copy byte-exactly by script/git and byte-compare after.
+
+**Deliberately-retained dormant plugin.** `nvim/lua/plugins/data-viewer.lua` pins `VidocqH/data-viewer.nvim` to commit `40ddf37`, whose upstream has had no commits since 2023-11-03 and no tags ever. This is intentional, not neglect: it was reviewed on 2026-08-06, verified working on nvim 0.12.4 for both csv and sqlite, and is 715 lines of pure Lua with no build step and no shell/eval surface. It is pinned so an upstream resurrection can't ship unreviewed code. Its one known liability — eight `nvim_*_option` calls deprecated since nvim 0.10 — will break `:DataViewer` outright whenever Neovim removes them; the fix is a mechanical swap to `nvim_set_option_value`/`nvim_get_option_value` in a fork. Full rationale is in the plugin file's header comment. Do not remove it as a stale dependency without reading that.
+
+### ZSH (`zsh/`)
+
+`.zshenv` bootstraps Homebrew and sets `ZDOTDIR` to `~/.config/zsh`. `.zshrc` contains everything: PATH setup, aliases, plugin sourcing, completions.
+
+Key aliases: `ls`→`eza`, `cat`→`bat`, `man`→`batman`, `grep` with color, `python`→`python3`. Git aliases: `glog`, `gloga`, `gstat`, `gcheck`, `gdiff`, `gpush`. Navigation: `y()` wraps yazi with directory-change-on-exit.
+
+Plugins (sourced from Homebrew): zsh-vi-mode, zsh-syntax-highlighting, zsh-autosuggestions, fzf-tab. NVM is lazy-loaded for faster shell startup.
+
+Machine-specific runtime: `.zshrc.pop` and `.zshrc.workbook` are sourced conditionally based on `scutil --get ComputerName`; `.zshrc.workbook` contains the `_pop_ollama_host` helper that probes Thunderbolt → Tailscale → LAN for ollama connectivity (speed-tier principle: fastest link first).
+
+### Profile switching
+
+Two theme profiles — **work** (Aura Dark) and **personal** (One Dark):
+
+```bash
+use-profile work      # or: use-profile personal
+```
+
+Updates `~/.dotfiles-profile` marker and Zed's theme key. Nvim does not read the profile — its colorscheme is hardcoded in `nvim/lua/plugins/colorscheme.lua`.
+
+### Claude Code config (`claude/`)
+
+Houses the global `CLAUDE.md`, reference docs (`TOOL_USAGE.md`, `FORMATTING.md`, `PR_TEMPLATE.md`, `QWEN.md`, `GUARDRAILS.md`, `SNOWFLAKE.md`, `OPENVIKING.md`, `PLUGINS.md`), MCP server configs (`.mcp.json`), hooks, skills (~33 SKILL.md files), commands (commit, daily_report, describe_pr, iterate_plan, index_thoughts), and agents. The `db-mcp/` subdirectory is a uv Python project for database MCP servers. `settings.json` is the primary Claude Code settings file.
+
+### opencode (`opencode/`)
+
+The local-model coding harness. `opencode.jsonc`, `tui.json`, `AGENTS.md` and the `themes/`, `commands/`, `agents/` directories are symlinked into the real `~/.config/opencode/` (opencode writes plugin `node_modules/` there, so the directory is never replaced). `model` and `small_model` both pin `qwen3.6:coding-35b` as of
+2026-08-03, converging opencode with Pi's explicit `piq()` local entrypoint
+and local Claude Code on one tag. Bare Pi is deliberately cloud-default as of
+2026-08-11 and does not hold or evict a local runner. The 2026-08-01
+no-pin/picker arrangement was
+reversed because picking a different tag evicts the resident model and its
+MLX prefix trie — measured at a ~31s penalty on the next session of the
+losing harness (IDEA-1085). `ocg()` still reaches `gemma4:coding-26b`
+explicitly.
+
+Parity with the Claude Code config is deliberate, and stops in three specific places:
+
+| Claude Code                         | opencode                                    | Note                                                        |
+| ----------------------------------- | ------------------------------------------- | ----------------------------------------------------------- |
+| `theme: custom:aura`                | `theme: aura` → `opencode/themes/aura.json` | Hand port — the two theme schemas share no key names        |
+| `commands/*.md`                     | `commands/*.md` (`commit`, `describe_pr`)   | Commands cost **zero prefill** until invoked, unlike skills |
+| `agents/*.md` subagents             | `agents/review.md` as a **primary** agent   | `permission.task` stays denied; primaries are unaffected    |
+| `preferredNotifChannel: ghostty`    | `tui.json` → `attention.enabled`            | Off by default upstream; a local turn runs for minutes      |
+| `editorMode: vim`                   | —                                           | No counterpart: "vim" appears 0× in the tui schema          |
+| On-demand docs (`TOOL_USAGE.md`, …) | —                                           | `instructions` is **always** injected; see below            |
+
+Three more traps, on top of the six recorded below:
+
+7. **`tui.json` is a second config file**, with its own schema — `theme`, keybinds, `attention`, `diff_style`. Keys put in the wrong file load without complaint and do nothing. **`theme` is the one that bites**: with `"theme": "aura"` in `opencode.jsonc`, `opencode debug config` reports `theme: null`. It is plain JSON; only `opencode.jsonc` takes comments.
+8. **Never add `instructions`.** It looks like the analog of the on-demand reference-doc table in `claude/CLAUDE.md`, but every listed file is injected into every prefill — the exact cost this config exists to avoid, with no lazy-load alternative while `permission.skill` is denied.
+9. **The three config files merge, they do not shadow.** opencode loads `config.json`, `opencode.json`, then `opencode.jsonc` and later wins on conflicts (each gets a `loading path=` line in `~/.local/share/opencode/log/opencode.log`). An earlier comment in `install.sh` claimed a stray `opencode.json` would win outright — wrong, but the split is still how the claude-mem `plugin` key went untracked. Keep every authored key in `opencode.jsonc`.
+
+10. **`plugins/`, `commands/`, `agents/` and `themes/` are auto-discovered** — a file dropped in `~/.config/opencode/plugins/` is picked up with **no config key naming it**. `opencode debug config` lists `plugins/claude-mem.js` with no `plugin` key present at all. Deleting the file, not removing a key, is what unregisters a plugin.
+
+The claude-mem plugin **works** (verified 2026-07-30). It previously failed every startup with `Plugin export is not a function`; the obvious suspect was the `@opencode-ai/plugin` 1.16.2 pin against a 1.18.x runtime, but that was wrong — reinstalling the plugin fixed it with the pin unchanged. It was a stale build artifact.
+
+11. **`opencode run` blocks on stdin when stdin is an open pipe.** Any non-interactive caller that leaves stdin open — the Claude Code Bash tool, a cron job, CI — hangs forever with **zero output and no error**, even though the model finished. Measured 2026-07-30: identical prompts took 12s with `</dev/null` and never returned without it. The session is written to the DB either way, so `opencode debug config`-style forensics show a completed turn while the process sits there.
+
+    **Always redirect stdin for scripted runs:** `opencode run "…" </dev/null`. Diagnose a suspected hang by checking whether it ever opened a socket to the model (`lsof -nP -iTCP:11434`) — if not, it never reached inference.
+
+12. **A tool-level `deny` is not a capability deny while `bash` is reachable.** The `review` agent originally paired `edit: deny` with `bash: allow`. Told to delete a function, the model hit `Model tried to call unavailable tool 'edit'` and then ran `sed -i` to do it anyway — successfully, then reported it as done. Any read-only agent must pattern-scope `bash` (`"*": deny` plus an explicit allowlist), not merely deny the write tools. Re-verified after the fix: the bypass is refused and the model says so.
+
+Verifying this config, in decreasing order of how much they prove:
+
+| Command                                             | Proves                                                         |
+| --------------------------------------------------- | -------------------------------------------------------------- |
+| `opencode debug config` — **see the warning below** | Resolved config — the only way to catch a silently-dropped key |
+| `opencode agent list`                               | Agents registered                                              |
+| `opencode run "…" </dev/null`                       | Plugins actually load (see the false negatives below)          |
+
+All are headless — none costs a model call.
+
+⚠ **`opencode debug config` prints resolved secrets.** It expands `${VAR}` from the
+environment, so `mcp.*.headers.Authorization` and any credential env var appear in
+full in its output — and therefore in any captured agent transcript or CI log.
+Never run it bare where output is recorded. Pipe it through a redactor:
+
+```bash
+opencode debug config | python3 -c 'import json,sys,re; print(re.sub(r"(Bearer |\"[A-Z_]*KEY\": \")[^\"]+", r"\1[REDACTED]", sys.stdin.read()))'
+```
+
+⚠ **Plugin-load checks give false negatives.** `opencode serve` and a direct
+`bun -e 'await import(...)'` both succeed against a plugin that opencode rejects,
+because the loader validates **every** module export, not just `default`. Use a
+real `run`, and note a _healthy_ load emits no log line — an empty grep proves
+nothing on its own.
+
+Narrow by default, the same way `lclaude()` is for Claude Code — prefill is the scarce resource on a local 26B. Measured on opencode 1.18.9 by pointing the shipped config at a mock OpenAI-compatible server and capturing its outbound HTTP body (2026-07-29): **~17.8k → ~7.4k tokens, 58.3% smaller**.
+
+| Trim                                    | Saves         | Where            |
+| --------------------------------------- | ------------- | ---------------- |
+| `permission: {skill: "deny"}`           | ~4.6k tok     | `opencode.jsonc` |
+| `permission: {task: "deny"}`            | ~964 tok      | `opencode.jsonc` |
+| `OPENCODE_DISABLE_CLAUDE_CODE_PROMPT=1` | ~5.4k tok     | `zsh/.zshrc`     |
+| All 10 MCP servers `enabled: false`     | schema + init | `opencode.jsonc` |
+
+Six things here are easy to break and were established by measurement, not docs:
+
+1. **Thinking suppression needs camelCase `options.reasoningEffort: "none"`** — opencode translates it to `reasoning_effort` in the body, the only field Ollama 0.32.5 honors on `/v1/chat/completions` (the surface opencode uses). Snake_case `reasoning_effort` in config is silently dropped.
+2. **`"reasoning": true` is required, but only safe when paired with an explicit effort.** On its own it makes opencode inject `reasoning_effort: "low"` — thinking ON. Alongside `options.reasoningEffort` it's both safe and necessary: without it opencode _discards_ the response's reasoning field, so asking for thinking costs 3.5–5.5× the completion tokens and displays nothing.
+3. **A `permission` deny removes the tool's schema from the request**, not just the ability to call it — that is why the denies above are a prefill lever. Same technique as `claude/settings-local-model.json`.
+4. **`~/.config/opencode/AGENTS.md` does NOT displace `~/.claude/CLAUDE.md`** despite opencode's docs saying it takes precedence. Measured additive; only the env var drops it.
+5. **The schema key names are singular.** The config page's schema index lists section headings (`permissions`, `mcp-servers`, `formatters`, `sharing`, `models`); the literal keys are `permission`, `mcp`, `formatter`, `share`, `model`. A config written from that index loads without complaint and does nothing.
+6. **`formatter` omitted means all formatters off**, and `formatter: true` is conditional per built-in — each fails silently when its requirement is unmet. Prettier only activates when the project has prettier in `package.json`, so it does **not** fire in this repo; `opencode/AGENTS.md` still carries the formatter rule for markdown/JSON here.
+
+`small_model` is deliberately the same model as `model`: with `OLLAMA_MAX_LOADED_MODELS=1`, a different small model evicts and reloads the resident 27 GB primary on every session-title generation.
+
+**Permissions are fully permissive** — the equivalent of Claude Code's `--dangerously-skip-permissions`, matching how `lclaude()` runs. Two guards are therefore disarmed on purpose: `.env` reads (opencode's default denies them) and `external_directory` (which had caught the 26B retyping a path as `/Users/noat/...`). Both restore in one line; see the comments in `opencode.jsonc`. The only remaining denies are `skill`/`task`, which are prefill levers, not safety settings.
+
+Shell surface in `zsh/.zshrc`: the two `OPENCODE_DISABLE_CLAUDE_CODE_*` env flags, plus `oc` (interactive; now opens on the pinned `qwen3.6:coding-35b` rather than the picker), `ocr` (one-shot via `ollama launch`), `ocg` (pinned to `gemma4:coding-26b`), and `occ`/`ocm`/`ocstat`. The model-switch, thinking-debug, and warmup aliases were trimmed 2026-08-01; thinking checks go through `opencode run --thinking 'say OK' </dev/null` (a `run`-only flag — the TUI has no equivalent, so there is no `ocr` form) and `--variant low|medium|high|max` to turn thinking on per invocation.
+
+Full per-surface thinking matrix: `claude/GUARDRAILS.md` §1. Vault entries: INFO-1134 (thinking matrix), INFO-1135/INFO-1136 (opencode config + extensibility), GUIDE-1076 (setup procedure).
+
+### Hermes (`hermes/`)
+
+Config for the Hermes AI agent. Only authored config is tracked (config.yaml, SOUL.md, hooks, skins, skill definitions). Runtime state (state.db, sessions, logs, secrets) lives in the real `~/.hermes/` directory, never in git.
+
+**⚠️ CRITICAL: `hermes/config.yaml` is a live runtime config.** It is symlinked to `~/.hermes/config.yaml` which Hermes reads on every turn. Non-Hermes agents (Claude Code, Codex, etc.) must follow these rules:
+
+1. **Never run `hermes config set`, `hermes doctor --fix`, or any Hermes CLI command.** These mutate the live config and can break the running Hermes instance. Only Hermes itself should invoke these.
+
+2. **Never append unrelated YAML documents to `hermes/config.yaml`.** The file must contain exactly one YAML document. A second `---` separator followed by unrelated content (pre-commit config, GitHub PR sections, etc.) makes the file unparseable by `yaml.safe_load()`, causing Hermes to fall back to defaults and lose all provider/auxiliary config. This is what caused the 2026-06-29 config corruption (commit `1147dfd`).
+
+3. **Only make targeted, minimal edits to `hermes/config.yaml` when explicitly asked.** Do not reformat, reflow, or restructure the file. The Hermes config parser is sensitive to YAML formatting changes (personality strings, empty-value quoting, etc.).
+
+4. **Validate YAML before and after any edit.** Run `uv run --with pyyaml python3 -c "import yaml; yaml.safe_load(open('hermes/config.yaml').read())"` (system `python3` has no PyYAML) to confirm the file parses as a single document. If it fails, revert your change immediately.
+
+5. **`hermes/skills/` is also a live symlink target.** Do not mass-edit, rename, or restructure skill directories unless you are a Hermes agent or explicitly asked. Cron jobs depend on skill names resolving directly in `~/.hermes/skills/`.
+
+### Bin scripts (`bin/`)
+
+| Script                   | Purpose                                              |
+| ------------------------ | ---------------------------------------------------- |
+| `use-profile`            | Theme profile switcher                               |
+| `macbook-backup.sh`      | Backup via copyparty (LAN/Tailscale)                 |
+| `compendium-new`         | Create new compendium entries                        |
+| `snowq`                  | Snowflake query wrapper                              |
+| `u2c.py`                 | Utility script                                       |
+| `slack-tool.py`          | Slack CLI helper                                     |
+| `ollama-dev`             | Foreground `ollama serve` with plist env (pop)       |
+| `lclaude-prewarm-verify` | Validate the single cache record produced by `clw()` |
+
+`ollama-dev` boots out `com.user.ollama-serve`, runs the server in your terminal with the env read **from the tracked plist** (never a second copy, so nothing can drift), and bootstraps the agent back on exit. Use it when iterating on `OLLAMA_*` values or when you want live logs; the managed agent stays the answer for normal use. Note that applying a plist edit to the launchd agent requires `launchctl bootout` + `bootstrap` — `kickstart -k` reuses launchd's cached job definition and silently does not re-read the plist (verified 2026-08-03, see `claude/GUARDRAILS.md`).
+
+On pop, `clw` manually prewarms lclaude's interactive prefix under a real PTY. It contains tool calls with an env-gated, fail-closed deny-all hook; serializes shots with a kernel-released lock; refuses to start while an Ollama client is connected; and exits on the Stop-hook signal. Verification pins both Ollama log inodes and requires exactly one successful public Claude request plus one consistent prefix-cache record with separate `total`/`matched`/`cached`/`left` values.
+
+`tests/lclaude-prewarm-parity.py` is the no-inference integration gate. It runs the tracked `lclaude()` wrapper through a mocked `ollama launch` executable, points the installed Claude Code binary at a localhost mock endpoint, asserts the 31-tool surface, compares normal and prewarm bodies after removing only the per-session metadata ID, and exercises settings-dispatched denial of a real `Read` tool call. The Ollama launcher executable itself is mocked deliberately so this gate cannot issue inference; launcher-internal environment translation remains outside this offline proof.
+
+### Formatting
+
+Lua files: `stylua` (config in `nvim/stylua.toml`). Shell scripts: `shfmt`. No other formatters apply within this repo — the global CLAUDE.md formatter rules are for use in other projects.
+
+
+# ==== FILE: /Users/noot/code/homelab/main/CLAUDE.md ====
+
+# Homelab project
+
+3-node K3s cluster running AI/RAG workloads. See [AGENTS.md](AGENTS.md) for repo conventions and safety rules. See [HARDWARE.md](HARDWARE.md) for node specs. See [GPU_AND_AI_REVIEW.md](GPU_AND_AI_REVIEW.md) for design decisions, benchmarks, and architecture history.
+
+**Reference tables** (kept out of this file so the SessionStart hook stays under the 40k char cap) — `Read` them when needed:
+
+- [Service routing](reference/service-routing.md) — endpoints, ports, namespaces, per-service notes
+- [LLM configuration](reference/llm-config.md) — model, ctx-size, slots, role, manifest path
+- [External routes](reference/external-routes.md) — public hosts, auth, ingress type + Tailscale node table
+- [Compendium index](reference/compendium-index.md) — OV sync targets, legacy personal-compendium archive pointer
+
+## Cluster topology
+
+| Node  | Role                            | GPU              | Key GPU / AI workloads                                                                                                                                                                                                                                                             |
+| ----- | ------------------------------- | ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| manu  | agent                           | GTX 1080 8 GB    | **embedder-qwen-cuda** (Qwen3-Embedding-4B, CUDA backend, **primary embedder** since the 2026-07-17 cutover — IMPR-1077; own `embedder-cuda-model-cache` PVC, ~5.7 GB at batch 512); llamacpp-cuda-ov (**VLM failover only** since 2026-07-05 cloud cutover; retirement candidate) |
+| timmy | server (Control Plane + worker) | RX 9070 XT 16 GB | ollama, openviking, ov-vectordb, **embedder-qwen** (Qwen3-Embedding-4B, ROCm backend, **rollback only** — retained `replicas=1` during the cutover soak, scaling to 0 afterward; was primary until the 2026-07-17 move to manu/1080, IMPR-1077; renamed backend-neutral IMPR-1040) |
+| wemby | agent                           | GTX 1060 6 GB    | **no GPU workloads** — `embedder-qwen-cuda` relocated to manu 2026-07-17 (IMPR-1077); `embedder-llamacpp` deleted 2026-07-04. The 1060 is idle; wemby is **not** an idle node (see below)                                                                                          |
+
+> **This table covers GPU/AI workloads only** — it is not a full inventory, and an empty cell does not mean an idle node. Non-GPU services are spread across all three: wemby carries the largest share (glossary, copyparty, searxng, cert-manager, harbor core/portal, the k8s dashboard, the ollama auth + chat proxies, equal-risk, coach, yt-dlp gateway), timmy adds portfolio and the omnipendium stack alongside ollama/openviking, and manu adds the Postgres instances, buildkit, harbor registry/jobservice, and the GPU-operator + monitoring stacks. Check `kubectl get pods -A -o wide` before assuming a node can be drained; endpoints are in [reference/service-routing.md](reference/service-routing.md).
+
+## AMD / RDNA4 guardrails
+
+ROCm / RDNA4 guardrails for timmy's RX 9070 XT (the 1080 and 1060 are NVIDIA-only) live in [HARDWARE.md](HARDWARE.md#amd-rdna4-guardrails-timmys-rx-9070-xt).
+
+## Network / Ingress
+
+### Middlewares (Traefik CRD)
+
+| Name                      | NS     | Type           | Detail                               |
+| ------------------------- | ------ | -------------- | ------------------------------------ |
+| harbor-no-limit           | harbor | buffering      | Unlimited body size for image pushes |
+| openviking-https-redirect | viking | redirectScheme | HTTP → HTTPS, permanent              |
+
+> **No `ipAllowList` middleware exists on any route, deliberately.**
+> `k8s-dashboard-lan-only` and `longhorn-lan-only` were removed 2026-07-21
+> (BUG-1057 resolved). They filtered nothing: k3s ServiceLB (klipper-lb)
+> masquerades the client address in the `svclb-traefik` pod, beneath kube-proxy,
+> so Traefik logged a node IP (`192.168.1.19`) as `ClientHost` for every request
+> — which matched the allowlist's own `192.168.1.0/24`. Setting
+> `externalTrafficPolicy` to `Local` does **not** fix it (it governs kube-proxy's
+> SNAT, which never gets a say). Real filtering needs MetalLB or Traefik on
+> `hostNetwork`/`hostPort`; anyone adding one back must verify with a **negative**
+> test (out-of-range client actually gets `403`). Details:
+> [reference/external-routes.md](reference/external-routes.md).
+
+> OpenViking auth posture is **API-key-only** (IMPR-1007 Phase 4 decision, confirmed 2026-07-04): OV enforces `root_api_key` on every tier, no Traefik BasicAuth layer. The BasicAuth middleware manifest, secret example, and the dangling ingress annotation were removed 2026-07-04 (the Middleware was never deployed live, and the Cloudflare tunnel bypasses Traefik anyway). The `/mcp` path has its own Ingress (`viking/manifests/openviking-mcp-ingress.yaml`) so the native OpenViking MCP endpoint can be reached via Bearer token. `context.nathanwhyte.dev` is also reachable through the Cloudflare tunnel (see [External routes](reference/external-routes.md), marked "both").
+
+OV endpoint tiers and the full external-routes + Tailscale tables live in [reference/external-routes.md](reference/external-routes.md).
+
+## Secrets and config
+
+| Secret                    | NS     | Purpose                                                                                                                                                   |
+| ------------------------- | ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| openviking-api-key        | viking | OV API key (injected into coordinator, merge, workers)                                                                                                    |
+| openviking-s3-credentials | viking | Garage S3 credentials (injected into openviking config)                                                                                                   |
+| ollama-api-key            | llama  | Bearer token for auth proxy                                                                                                                               |
+| ollama-api-key            | viking | Duplicate of `llama/ollama-api-key` — config-rewrite injects it into OV `vlm.api_key` for the cloud VLM (IDEA-1050; `ollama-api-key.secret.yaml.example`) |
+
+**Hermes** was retired 2026-07-16 — namespace, secrets (`hermes-api-server-key`, `hermes-dashboard-token`, `hermes-jump-ssh-key`, `hermes-grafana-token`, `github-access-token`, the hermes-scoped `openviking-api-key` duplicate), PVCs, and Cloudflare tunnel route deleted; see [`hermes/RETIRED.md`](hermes/RETIRED.md). mem0 (its memory backend) was torn down 2026-07-02 (`mem0/TORN-DOWN.md`); OpenViking's knowledge-base tooling has since covered the persistent-memory use case, so the project was retired rather than migrated to a new provider.
+
+**Production config** — ConfigMap `openviking-standalone-config`:
+
+- `agfs.backend: s3` (Garage bucket `openviking-agfs`) + `vectordb.backend: http` (`ov-vectordb.viking.svc.cluster.local:5000`)
+- Tuning: `server.workers=2`, `embedding.batch_size=256`, `vlm.max_concurrent=8` (raised 4→8 2026-07-06 for resync throughput), `embedding.max_concurrent=6`
+- VLM: **cloud primary** via `http://chat-ollama.llama.svc:11434/v1` (llama-ns cloud routing, Bearer from `ollama-api-key`) — `gemma4:31b-cloud` (non-thinking; settled 2026-07-06 after `qwen3.5:cloud` + `reasoning_effort` crashlooped OV v0.4.7, which doesn't recognize that config field — `reasoning_effort` must stay unset for any model here). `vlm.backup` = local `http://llamacpp-vlm.viking.svc/v1` (selector `vlm-pool: "true"` → `llamacpp-cuda-ov`), automatic failover on 429/5xx/timeout (IDEA-1050, 2026-07-05)
+- v0.4.10 posture (IMPR-1032, image bumped to v0.4.10 by IMPR-1063 on 2026-07-16): `git.enabled: false` (blocks silent `.ovgit` writes to Garage), `server.public_base_url: https://context.nathanwhyte.dev`, `temp_upload.default_mode: local`, native metrics on (`server.observability.metrics` + prometheus exporter; `/metrics` on 1933 is cluster-internal only — bypasses auth). Target-state reference: compendium INFO-1088
+- Auth: `server.auth_mode = "trusted"` (set 2026-06-23). Trusted mode still requires `root_api_key` on every request (host `0.0.0.0` non-localhost) and trusts `X-OpenViking-Account`/`X-OpenViking-User` headers — so root key + identity headers work for tenant-scoped data APIs (the pattern `compendium-sync.py` and local OV MCP rely on)
+- Cutover + rollback procedure: `viking/docs/2026-06-03-ov-prod-cutover-agfs-s3-vectordb-http.md`
+
+ConfigMap `openviking-config` is retained for workers if scaled back up (`agfs.backend: s3`). InitContainers inject S3 creds only when `agfs.backend == "s3"`. Reconciled with `openviking-standalone-config` on 2026-07-02 (IMPR-1024): 2560-dim Qwen embedder, `vectordb.backend: http`, `max_input_tokens: 8192`, VLM at `llamacpp-vlm.viking.svc`, `auth_mode: trusted`; only `server.workers: 1` intentionally differs (per-worker instances). Repo manifest updated — re-apply the ConfigMap before scaling workers back up (the live copy may still be stale).
+
+## Failover
+
+Parallel indexing (coordinator/worker/merge trio) was removed at the 2026-06-03 single-instance cutover; manifests retained. Restore: `kubectl apply` `ov-coordinator`/`ov-merge`/`ov-worker`, then `kubectl scale statefulset ov-worker --replicas=3 -n viking && kubectl scale deployment ov-coordinator --replicas=1 -n viking` (shared `openviking-config`, `agfs.backend: s3` + S3 creds). If timmy goes down, reschedule `openviking` (nodeSelector `timmy`) on another node with PVC access (Longhorn replicates).
+
+## OpenViking knowledge base
+
+See [OPENVIKING.md](viking/OPENVIKING.md) for the organization guide (L0/L1/L2 tiers, directory rules, what to index). See ~/code/CLAUDE.md for the save/search workflow rules. Indexed-compendium table: [reference/compendium-index.md](reference/compendium-index.md).
+
+### Stack implementation report
+
+Full reference (components, access patterns, data flow, OV internals, parallel design, architecture diagram): [viking/docs/2026-06-04-openviking-stack-implementation-report.md](viking/docs/2026-06-04-openviking-stack-implementation-report.md).
+
+**Summary:** Hierarchical RAG engine — AGFS `viking://` tree with auto-generated L0/L1/L2 indices; single-instance in `viking` ns; fronted at `context.nathanwhyte.dev` (API + `/mcp` + `/studio/` built-in web console; the separate `viking.nathanwhyte.dev` ov-console was removed). Since 2026-06-03 the tree lives in S3/Garage (`agfs:s3`) and embeddings in `ov-vectordb` (`vectordb:http`). Embedder = Qwen3-Embedding-4B (**manu GTX 1080, CUDA, since the 2026-07-17 cutover** — IMPR-1077, `embedder-qwen-cuda` Deployment on its own `embedder-cuda-model-cache` PVC; the neutral `embedder-qwen` Service selects `app=embedder-qwen-cuda`, a cosmetic deviation from IMPR-1040's backend-neutral naming; the timmy RX 9070 XT ROCm `embedder-qwen` Deployment is retained `replicas=1` as rollback through the soak, then scaled to 0. Prior homes: wemby CUDA 2026-06-29→07-06, timmy ROCm 2026-07-06→07-17; runbook `viking/docs/2026-07-06-embedder-migration-wemby-to-timmy.md`); VLM = cloud via llama-ns Ollama routing since 2026-07-05, `gemma4:31b-cloud` (non-thinking, settled 2026-07-06); manu Qwen3-8B demoted to `vlm.backup` failover.
+
+### VLM scaling (steady-state: failover standby)
+
+Since the 2026-07-05 cloud cutover the local VLM (`llamacpp-cuda-ov`) is a `vlm.backup` failover target, still `replicas=1` during the soak window; retire it (freeing manu's 1080) once the cloud path has soaked without failover incidents. Pre-cutover history + rationale: `GPU_AND_AI_REVIEW.md`. Manual control: `viking/tools/ov-vlm.sh up|down|status` (`down` drains the OV index queue first); `ov-vlm.sh run -- <cmd>` is an alias for "just run the command" (kept for compatibility).
+
+### Image pipeline (MacBook local)
+
+`img-pipeline.sh generate|understand|up|down|status` wraps two local AI visual services on the MacBook M5 Max. Full sub-command reference + config: `~/code/robots/media/CLAUDE.md` and `img-pipeline.conf`. The Qwen3.6-27B model uses `/no_think` by default to suppress thinking tokens; pass `--raw` to include them.
+
+
+# ==== FILE: /Users/noot/code/homelab/main/AGENTS.md ====
+
+# AGENTS
+
+This repo contains Kubernetes manifests, Helm values, and small deploy scripts for a personal homelab cluster.
+
+## Ground rules (safety first)
+
+- **Do not apply changes to a live cluster unless explicitly asked.** Avoid running `kubectl apply`, `helm install/upgrade`, or anything that mutates cluster state unless the user requests it.
+- **Do not introduce or commit secrets.**
+  - Prefer referencing existing `Secret` resources (by name) rather than inlining secret material.
+  - If a manifest must reference a secret key/token/cert, add a placeholder and document what’s required.
+  - The repo ignores common sensitive patterns (see `.gitignore`), but still treat all credentials as out-of-scope.
+- **Don’t change global tooling config** (git config, shell config, etc.) unless asked.
+
+## Repo layout
+
+Top-level directories generally map to deployed services:
+
+- `cloudflare/`: Cloudflare tunnel manifests (main tunnel, per-namespace tunnels, Access config).
+- `compendium/`: In-cluster compendium vault sync — `cluster-sync.sh`, sync Job template, state PVC, namespace.
+- `copyparty/`: Copyparty file server (media NFS PV, Longhorn HDD storage class, snapshot policy).
+- `dashboard/`: Kubernetes Dashboard manifests and tunnel/ingress config.
+- `garage/`: Garage (S3-compatible object storage), values and a `manager/` subfolder for the garage manager manifests/config.
+- `gpu/`: NVIDIA GPU Operator Helm values; GPU nodes are labeled `gpu=true`.
+- `grafana/`: Observability stack (Prometheus/Grafana/Loki/Alloy), with Helm values under `grafana/helm/` and manifests under `grafana/manifests/`. Grafana is provisioned with Prometheus and Loki datasources; Alloy (k8s-monitoring) sends logs to Loki and metrics to Prometheus; Kubernetes and Logs dashboards are provisioned via the stack values.
+- `harbor/`: Harbor registry, Helm values and supporting manifests.
+- `headlamp/`: Headlamp Kubernetes UI — **torn down 2026-07-02** (see `headlamp/TORN-DOWN.md`); manifests retained for reference.
+- `hermes/`: Hermes Agent deployment (agent + jump SSH terminal), ConfigMap, operator helper script. **Retired 2026-07-16** — namespace deleted in full (see `hermes/RETIRED.md`); its mem0 memory backend was torn down 2026-07-02, and OpenViking's knowledge-base tooling has since covered the persistent-memory use case. Manifests retained for reference.
+- `llama/`: Ollama and llamacpp LLM serving (chat proxy, auth proxy, cloud LLM counter).
+- `longhorn/`: Longhorn storage, Helm values and supporting manifests.
+- `mem0/`: Mem0 memory stack for Hermes (server, adapter, dashboard, Postgres/pgvector) — **torn down 2026-07-02** (see `mem0/TORN-DOWN.md`); manifests retained for reference.
+- `omnipendium/`: Omnipendium knowledge-base API (FastAPI + Postgres/pgvector) and Slack bot (PROJ-028 stage 1).
+- `openwebui/`: OpenWebUI Helm values, deploy script, and system prompt.
+- `searxng/`: SearXNG metasearch engine (OpenWebUI's web-search backend).
+- `syncthing/`: Syncthing peer for Obsidian/compendium vault sync (IDEA-1024/IDEA-1046) — **torn down 2026-07-25**, namespace and 50 GiB PVC deleted; the vault syncs through git. Manifests + architecture doc retained under `syncthing/`; see `syncthing/TORN-DOWN.md`. Do not re-deploy.
+- `tailscale/`: Tailscale node setup scripts and WireGuard mesh configuration (PROJ-008).
+- `viking/`: OpenViking RAG engine (standalone deployment, embedder, VLM, vectordb, sync tools, docs).
+
+Supporting (non-service) directories:
+
+- `_scripts/`, `scripts/`: repo lint helpers (`check-bare-fences.sh`) and ops scripts (`rotated-creds.sh`).
+- `backlog/`: parked service configs not yet deployed (e.g. nanochat).
+- `benchmarks/`: LLM benchmarking harnesses + results — Ollama/MLX edit-prediction (`ollama/`), embedding retrieval quality (`embedding-retrieval/`), Claude Code session-start latency (`claude-session/`), shared `lib/`, plots (`visualize/`), raw output (`results/`).
+- `build/`: BuildKit daemon config for image builds.
+- `k8s/`, `kube-system/`: cluster-wide odds and ends — CoreDNS custom ConfigMap; k3s datastore backup CronJob + crictl image prune.
+- `mac/`: MacBook → cluster telemetry (Alloy, exporters, launchd units, pf rules) shipping Ollama/GPU/hardware metrics into the in-cluster stack.
+- `media/`: yt-dlp tooling.
+- `network/`: LAN device report and network docs.
+- `reference/`: on-demand reference tables linked from `CLAUDE.md` (service routing, LLM config, external routes, compendium index).
+- `reports/`: one-off investigation reports.
+
+Each service folder typically includes:
+
+- `deploy-*.sh`: an opinionated deploy script for that service
+- `*-values.yaml`: Helm values (when deployed via Helm)
+- `namespace.yaml`, `rbac.yaml`, `ingress.yaml`, `cloudflared.yaml`, etc.: supporting Kubernetes manifests
+
+## Editing conventions
+
+- **YAML style**
+  - Keep indentation consistent (2 spaces).
+  - Prefer explicit names/namespaces and stable labels/selectors.
+  - Avoid large refactors/renames unless necessary; keep diffs reviewable.
+- **Helm values**
+  - Keep values files focused on overrides; prefer chart defaults where reasonable.
+  - When adding configuration, include a short comment explaining _why_ (especially for security, persistence, ingress, or resource limits).
+- **Scripts**
+  - Keep deploy scripts idempotent where possible.
+  - Avoid embedding tokens/credentials in scripts; require env vars or pre-created secrets instead.
+
+## Minimal validation (when making changes)
+
+When editing files, prefer quick, local checks:
+
+- `bash -n <script>` for shell scripts (syntax check)
+- If available: `shellcheck <script>` and/or `yamllint <file>`
+- Keep manifests syntactically valid YAML (don’t rely on cluster-side validation)
+
+## Worktree & Branch Conventions
+
+**`~/code/homelab` is a BARE repository with sibling worktrees — it is not a normal working tree.** (Migrated 2026-07-19; the same layout `~/code/qpendium` uses.) There are no source files at the repo root — only git internals (`HEAD`, `config`, `objects/`, `refs/`, `worktrees/`). Every checkout lives in its own sibling directory:
+
+```text
+~/code/homelab/                          bare root — never edit or run builds here
+├── main/                                the `main` branch  ← default working location
+├── llama-timmy-edit-prediction/         llama/timmy-edit-prediction-node
+└── impr-1068-embedder-vulkan/           worktree-impr-1068-embedder-vulkan
+```
+
+**Consequences for every session:**
+
+- Run `git worktree list` before starting, and work in the worktree that owns your target branch.
+- `main` lives at `~/code/homelab/main/`. **Never switch that worktree to a feature branch.**
+- Paths that used to be `~/code/homelab/<dir>` are now `~/code/homelab/main/<dir>` — e.g. `~/code/homelab/main/compendium/cluster-sync.sh`, `kubectl apply -k ~/code/homelab/main/copyparty/`.
+- Run status, tests, formatting, commits, and rebases from a worktree, never the bare root.
+- Preserve uncommitted changes in every worktree; do not modify unrelated worktrees.
+
+### Setup
+
+Worktrees are sibling directories created from the bare root:
+
+```bash
+git -C ~/code/homelab worktree add <slug> -b <branch> origin/main
+cd ~/code/homelab/<slug>
+# Work here...
+```
+
+Remove one when finished (this deletes the directory, so commit or merge first):
+
+```bash
+git -C ~/code/homelab worktree remove <slug>
+```
+
+**Gotchas:**
+
+- Worktree admin files store **absolute paths**. If the repo directory is ever moved or renamed, every worktree breaks with `prunable`. Fix with `git worktree repair <new-path>…` passing the new paths explicitly — **never** `git worktree prune`, which deletes the admin entries instead of repairing them.
+- Local ignore patterns live in `~/code/homelab/info/exclude` (the bare-repo equivalent of `.git/info/exclude`). They are **not** tracked and are **not** copied by `git clone` — this file carries the `rotated-creds-*.txt` and `**/.claude/*` exclusions, so preserve it in any future repo move.
+- Do not set `extensions.worktreeConfig`. With it enabled, the root's `core.bare = true` leaks into every linked worktree and breaks `git status` ("this operation must be run in a work tree").
+
+### Branch naming
+
+Follow the existing `type/description` convention used in this repo:
+
+- `docs/drift-fix-<date>` — documentation corrections and drift fixes
+- `feat/<short-description>` — new features or services
+- `fix/<short-description>` — bug fixes
+- `scan/<description>` — scan or audit outputs
+
+All PRs target `main` directly.
+
+### When to use a worktree
+
+- Multi-file changes (manifest updates across services, config refactors)
+- Long-running sessions that might be interrupted
+- Parallel work on the same repo (one worktree per branch, never share)
+
+### When NOT to use a worktree
+
+- Simple single-file edits (one manifest tweak, one values override) — just commit on `main` directly.
+- Read-only operations (querying, linting, searching, `kubectl get`).
+- When the user asks for a specific branch name instead.
+
+### Cleanup
+
+After a PR merges or is closed:
+
+```bash
+cd ~/code/homelab
+git worktree remove .worktrees/<slug>
+git branch -d <branch>
+```
+
+Never leave orphaned worktrees — they lock branches and waste disk space. If a directory was deleted manually, run `git worktree prune` before adding new worktrees.
+
+### Parallel work rules
+
+- **One worktree per branch.** Never check out the same branch in two worktrees.
+- **Rebase before push.** Always `git fetch origin main && git rebase origin/main` before pushing.
+- **Clean up after merge.** Remove the worktree and delete the local branch when the PR is done.
+- See the `git-parallel-work` skill for the full protocol (merge ordering, YAML conflict avoidance, post-merge cascade, cron PR supersession).
+
+## Change hygiene
+
+- Keep changes scoped to the service you're touching.
+- Update `README.md` only when adding/removing services or materially changing how deployments work.
+
+
+# ==== FILE: /Users/noot/code/dotfiles/opencode/AGENTS.md ====
+
+# Global rules — opencode
+
+Deliberately short. opencode injects this file into the system prompt of every
+session, and the default model here is a local 26B where prefill is the scarcest
+resource. If a rule is not worth paying tokens for on every single turn, it does
+not belong in this file.
+
+This file does **not** displace `~/.claude/CLAUDE.md` on its own — opencode's docs
+claim it takes precedence, but measured behaviour is additive, and both were in
+the prompt until `OPENCODE_DISABLE_CLAUDE_CODE_PROMPT=1` was set in
+`zsh/.zshrc`. That env var is what drops CLAUDE.md's ~5.4k tokens of

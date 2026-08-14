@@ -961,6 +961,10 @@ def collect_provenance(base: str, model: str) -> dict[str, Any]:
         "ollama_version": _get_json(f"{base}/api/version").get("version"),
         "harness_sha256": _sha256(here),
         "fixtures_sha256": _sha256(here.parent / "coding_tasks" / "__init__.py"),
+        # base_url is the SERVER endpoint; host below is only the client machine
+        # running this harness — with a remote --base they differ (TASK-1186).
+        "base_url": base,
+        "proxy_bypassed": True,
         "host": platform.node(),
         "python": platform.python_version(),
         "started_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),

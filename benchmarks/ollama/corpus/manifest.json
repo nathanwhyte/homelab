@@ -1,0 +1,196 @@
+{
+  "built_at": "2026-08-14T11:07:52-0500",
+  "chars_per_token_estimate": 4,
+  "tiers": {
+    "5k": {
+      "file": "prefill-corpus-5k.txt",
+      "target_tokens": 5000,
+      "est_tokens": 4968,
+      "bytes": 20091,
+      "sha256": "7c8e6b3d8d9062ad104e87494a5ad7f440ae4f46bff1929836841455cb8a9a74",
+      "sources": [
+        {
+          "path": "/Users/noot/.claude/CLAUDE.md",
+          "bytes": 22109,
+          "sha256": "319ec4cd688dd56a53b33c86596965a3d44cad8dbd42ea943e17cf6fef668669"
+        }
+      ]
+    },
+    "27k": {
+      "file": "prefill-corpus-27k.txt",
+      "target_tokens": 27000,
+      "est_tokens": 26985,
+      "bytes": 108621,
+      "sha256": "bfa5491e69c7f1b23a47b2acc8dabe16a019660181b16347b48c225a8a5eb47e",
+      "sources": [
+        {
+          "path": "/Users/noot/.claude/CLAUDE.md",
+          "bytes": 22109,
+          "sha256": "319ec4cd688dd56a53b33c86596965a3d44cad8dbd42ea943e17cf6fef668669"
+        },
+        {
+          "path": "/Users/noot/code/compendium/CLAUDE.md",
+          "bytes": 36860,
+          "sha256": "b8a5b6b4161522fe607fa5553cf3c216544bc6890d05a2bdeda4d715e1bffb07"
+        },
+        {
+          "path": "/Users/noot/code/dotfiles/CLAUDE.md",
+          "bytes": 26083,
+          "sha256": "555e0fef3e19996e9532f3615e94cd183f0a782aa94d0d03aa513a5f626c4675"
+        },
+        {
+          "path": "/Users/noot/code/homelab/main/CLAUDE.md",
+          "bytes": 12660,
+          "sha256": "84e776da4759aa26f4b2b72a32fa57fdb9b3746552e6cb58f35279d3ffbaf739"
+        },
+        {
+          "path": "/Users/noot/code/homelab/main/AGENTS.md",
+          "bytes": 9958,
+          "sha256": "711ef4c3443f06692892c3f5e616977b098b18f41b6d905b550084789ba5d79b"
+        },
+        {
+          "path": "/Users/noot/code/dotfiles/opencode/AGENTS.md",
+          "bytes": 5319,
+          "sha256": "90357037807d3b7aca2c8dfcbeb6abd2e27e15264583bd5624fdd2a029b19b81"
+        }
+      ]
+    },
+    "77k": {
+      "file": "prefill-corpus-77k.txt",
+      "target_tokens": 77000,
+      "est_tokens": 70127,
+      "bytes": 282279,
+      "sha256": "476524f8b2fe682f3d29c5f839a0f994fa4d18e56638523d03e38bdb8c845557",
+      "sources": [
+        {
+          "path": "/Users/noot/.claude/CLAUDE.md",
+          "bytes": 22109,
+          "sha256": "319ec4cd688dd56a53b33c86596965a3d44cad8dbd42ea943e17cf6fef668669"
+        },
+        {
+          "path": "/Users/noot/code/compendium/CLAUDE.md",
+          "bytes": 36860,
+          "sha256": "b8a5b6b4161522fe607fa5553cf3c216544bc6890d05a2bdeda4d715e1bffb07"
+        },
+        {
+          "path": "/Users/noot/code/dotfiles/CLAUDE.md",
+          "bytes": 26083,
+          "sha256": "555e0fef3e19996e9532f3615e94cd183f0a782aa94d0d03aa513a5f626c4675"
+        },
+        {
+          "path": "/Users/noot/code/homelab/main/CLAUDE.md",
+          "bytes": 12660,
+          "sha256": "84e776da4759aa26f4b2b72a32fa57fdb9b3746552e6cb58f35279d3ffbaf739"
+        },
+        {
+          "path": "/Users/noot/code/homelab/main/AGENTS.md",
+          "bytes": 9958,
+          "sha256": "711ef4c3443f06692892c3f5e616977b098b18f41b6d905b550084789ba5d79b"
+        },
+        {
+          "path": "/Users/noot/code/dotfiles/opencode/AGENTS.md",
+          "bytes": 5319,
+          "sha256": "90357037807d3b7aca2c8dfcbeb6abd2e27e15264583bd5624fdd2a029b19b81"
+        },
+        {
+          "path": "/Users/noot/.claude/GUARDRAILS.md",
+          "bytes": 31050,
+          "sha256": "a143efd5cee476ca0f3620871576adf42f826e9b30840f06c6722362b1cd3e10"
+        },
+        {
+          "path": "/Users/noot/.claude/QWEN.md",
+          "bytes": 12305,
+          "sha256": "99733386563c82ceb254372e2d12ccd5baf86f6326a7628ad94936e5a1934c99"
+        },
+        {
+          "path": "/Users/noot/.claude/TOOL_USAGE.md",
+          "bytes": 4314,
+          "sha256": "cd92b9e3b91a7b53af14c5e2bfcf1b3f4ddde0e70043b50f99f1d08f9c9e255a"
+        },
+        {
+          "path": "/Users/noot/code/compendium/.claude/instructions/vault-structure.md",
+          "bytes": 35017,
+          "sha256": "7906b4a4810e4b189b0aca03c91f47b6d6916fceadac67fbb5a7f80eb1763742"
+        },
+        {
+          "path": "/Users/noot/code/compendium/.claude/instructions/bugs.md",
+          "bytes": 10738,
+          "sha256": "6065ad231af389bfaa075872e5207cc927178a601a6279b776228a6292e78d6e"
+        },
+        {
+          "path": "/Users/noot/code/compendium/.claude/instructions/features.md",
+          "bytes": 4701,
+          "sha256": "3fa9f3e2279faa6ee89daeae0e97c207a01689c7972eb2f8cc84a5116683dad0"
+        },
+        {
+          "path": "/Users/noot/code/compendium/.claude/instructions/tasks.md",
+          "bytes": 5652,
+          "sha256": "1a6718a1710c88cd290e7a277262e9c9669a92c96331a4b365bacab346bf4027"
+        },
+        {
+          "path": "/Users/noot/code/compendium/.claude/instructions/improvements.md",
+          "bytes": 4786,
+          "sha256": "5f60540aec0cf2431bdcbecd141b3b4f89ce673cb73655e2b8fba5725d0dc74b"
+        },
+        {
+          "path": "/Users/noot/code/compendium/.claude/instructions/projects.md",
+          "bytes": 5091,
+          "sha256": "807eadd7db408a28e4881fb8f6ab198ec0896b3f32ac2d26b9da58ca0b420a5e"
+        },
+        {
+          "path": "/Users/noot/code/compendium/.claude/instructions/info.md",
+          "bytes": 14092,
+          "sha256": "b4d136073149e6bbeadf25b7628398378d4c7f1dbfa40e12d325f15afe9c235e"
+        },
+        {
+          "path": "/Users/noot/code/compendium/.claude/instructions/guides.md",
+          "bytes": 6154,
+          "sha256": "19da9ec0a4df7d71413f625daab979d060cb5b271ebd73171bfc77c801155140"
+        },
+        {
+          "path": "/Users/noot/code/compendium/.claude/instructions/errors.md",
+          "bytes": 7900,
+          "sha256": "948abb271cf709e97bc12ed8db8740d619fb66f5f2485b61b8edf176f3aed7ba"
+        },
+        {
+          "path": "/Users/noot/code/dotfiles/opencode/commands/compendium.md",
+          "bytes": 7635,
+          "sha256": "5a5a96ae95e35a2f6c5c0b93a0fcbbc1c0ee73b40a0d3d10940d1e3442fc0799"
+        },
+        {
+          "path": "/Users/noot/code/dotfiles/opencode/commands/compendium-compact.md",
+          "bytes": 7043,
+          "sha256": "da156943c70046dc9f1ea220f03a5036f556f3baa5bf1bdc6ad2c3c0d0f807af"
+        },
+        {
+          "path": "/Users/noot/code/dotfiles/opencode/commands/compendium-complete.md",
+          "bytes": 6655,
+          "sha256": "838758412c2764a925099ee19eba71f303bba206407cda0feed071c212d73f5d"
+        },
+        {
+          "path": "/Users/noot/code/dotfiles/opencode/commands/compendium-lint.md",
+          "bytes": 4573,
+          "sha256": "3616783f12de6dd666a18667b00de5651acb8bac499c4a76b16783cc3afb7306"
+        }
+      ]
+    }
+  },
+  "append_payload": {
+    "file": "append-payload.txt",
+    "est_tokens": 6629,
+    "bytes": 26709,
+    "sha256": "dcfd4628f13c121c4e57e65061463eda2e9a595c5fe89a59f665d4901d4e23da",
+    "sources": [
+      {
+        "path": "/Users/noot/code/compendium/guides/tooling/GUIDE-021-compendium-authoring-standard.md",
+        "bytes": 13138,
+        "sha256": "43bcea6104329d429265404030e41c8087f0c67ce9209787aea868728708fc11"
+      },
+      {
+        "path": "/Users/noot/code/compendium/guides/tooling/GUIDE-022-compendium-shipping-skill-changes-end-to-end.md",
+        "bytes": 13344,
+        "sha256": "e2a8c952f76b5cc58c2994d35528cf72459c99eaf0c24db39525a2feb1a5a368"
+      }
+    ]
+  }
+}
