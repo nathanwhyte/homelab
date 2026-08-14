@@ -66,7 +66,8 @@ from their run artifacts; nothing is estimated.
    trend with ±13% level noise, not a monotone ladder.
    qwen3.5's serialization is the sharpest signal in the set: ITL is 0.0119 s
    and per-request `gen_tps` ~84.2 identical to four decimals at **every**
-   concurrency level, on both workloads.
+   concurrency level, on both workloads. **But "serializes" is an observation,
+   not a diagnosis — see finding 8 for what is and isn't established.**
 2. **qwen3.5:9b wins solo latency** (79.6 tok/s single-stream, sub-second
    TTFT vs gemma4's ~9–12s) but serializes, and only ~46–63% of its answers
    were usable under these workloads — solo-latency pick, wrong for
@@ -100,6 +101,36 @@ from their run artifacts; nothing is estimated.
    rows for think-capable models need `think = false` in the config or a
    larger `num_predict`, with the choice recorded.
 
+8. **Why the two flat models serialize — one answer is settled, one is not.**
+   The mechanism is unambiguous from the data: batching trades per-request
+   latency for aggregate throughput, and gemma4 shows exactly that (ITL
+   0.0168 → 0.0473 s, per-request generation 59.4 → 21.1 tok/s, aggregate
+   58.1 → 126.2). qwen3.5 and nemotron instead hold ITL constant to four
+   decimals across all eight levels, and their aggregate equals their
+   single-stream rate. The queue arithmetic confirms strict FIFO: for
+   qwen3.5 mixed, 512 tokens at 84.17 tok/s predicts **6.08 s** of added wait
+   per concurrent request, and observed P50 TTFT increments are +5.94, +6.17,
+   +6.17 s. nemotron matches its own prediction (~5.3 s) too; gemma4's
+   increments (~1.4–3.5 s) fall far below its serialized prediction of 8.5 s,
+   because its requests overlap.
+   - **nemotron-3-nano — settled.** `nemotron_h` is a hybrid Mamba/SSM
+     architecture; SSM layers carry per-sequence recurrent state rather than a
+     KV cache that concatenates along a batch dimension, and llama.cpp's
+     SSM_SCAN path handles one sequence at a time. Serializes on **both**
+     backends (pop MLX per INFO-1140, timmy Vulkan here) — an architecture
+     property, not a Vulkan one.
+   - **qwen3.5:9b — NOT established.** It is a dense transformer and should
+     batch; gemma4 proves this Vulkan path can. The leading suspect is silent
+     slot reduction (32K ctx × 8 slots is a large KV budget even at q8_0), but
+     **no artifact in the bundle can discriminate**: `cluster-vulkan-env.json`
+     and the backend-proof logs confirm `OLLAMA_NUM_PARALLEL=8` was *requested*,
+     yet the backend-proof capture records the ollama server's startup env
+     before the model loads, so the llama.cpp runner's actual `n_parallel` /
+     `n_ctx_per_seq` is recorded **nowhere** in the evidence. Treat the
+     qwen3.5 rows' scaling conclusion as **provisional** until the runner slot
+     count is captured — if the runner took fewer than 8 slots, the rows
+     measure a config artifact and must be re-run.
+
 ## Cross-host notes (vs pop, M5 Max)
 
 - No same-model pairing with pop's `qwen3.6:35b-mlx` daily driver exists — the
@@ -117,6 +148,8 @@ from their run artifacts; nothing is estimated.
 | Item | Status |
 | --- | --- |
 | **8K-ctx throughput ladder** (the task's pass 1) | not yet run — the rows above are 16K mixed / 32K agentic; the contract's `num_ctx=8192` ladder is still owed for every row |
+| **qwen3.5 runner slot-count probe** | **owed first — gates finding 8.** Load `qwen3.5:9b-q4_K_M` at 32K with `OLLAMA_NUM_PARALLEL=8` and capture the llama.cpp runner's `n_parallel` / `n_ctx_per_seq` after the model is resident. Minutes, not a re-run. If < 8 slots, the qwen3.5 rows are invalid and must be re-measured |
+| **Harness: capture runner parallelism** | `backend-proof-*-load.log` records the server startup env only; add a post-load capture of the runner's slot count so every future row proves the parallelism it actually got |
 | **gemma4 re-gate at benchmarked sampling** | owed — both gemma4 rows were gated at the pre-`09a03ea` default (temp 1.0 / top_p 1.0) but benchmarked at temp 0.3; re-run `coherence-smoke.py` at 0.3 for `cluster-vulkan-default` and `cluster-vulkan-agentic` |
 | **`think = false` mixed reruns** (gemma4, qwen3.5) | owed — needed before the mixed usable column is comparable across rows (nemotron already ran `think = false`) |
 | **Scored agentic pass** (`agentic-coding-bench.py` @ 32K) | not yet run — executes from pop with `--base` (macOS-only sandbox); distinct from the canned agentic workload above |
