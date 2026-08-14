@@ -1,0 +1,140 @@
+{
+  "model": "gemma4:12b-it-qat",
+  "url": "http://ollama.llama.svc:11434",
+  "timestamp": "2026-08-14T19:47:05Z",
+  "sampling": {
+    "num_ctx": 16384,
+    "temperature": 1.0,
+    "top_p": 1.0,
+    "num_predict_override": 4096
+  },
+  "think_modes": [
+    true
+  ],
+  "summary": {
+    "total": 4,
+    "passed": 4
+  },
+  "probes": [
+    {
+      "name": "fizzbuzz",
+      "think": true,
+      "passed": true,
+      "failure": null,
+      "request": {
+        "model": "gemma4:12b-it-qat",
+        "prompt": "Print the numbers 1 to 15, one per line. Replace multiples of 3 with Fizz, multiples of 5 with Buzz, and multiples of both with FizzBuzz. Output only the list.",
+        "stream": false,
+        "options": {
+          "num_ctx": 16384,
+          "num_predict": 4096,
+          "temperature": 1.0,
+          "top_p": 1.0
+        },
+        "think": true
+      },
+      "response": "1\n2\nFizz\n4\nBuzz\nFizz\n7\n8\nFizz\nBuzz\n11\nFizz\n13\n14\nFizzBuzz",
+      "thinking": "*   Task: Print numbers from 1 to 15.\n    *   Format: One number/word per line.\n    *   Rule 1: Replace multiples of 3 with \"Fizz\".\n    *   Rule 2: Replace multiples of 5 with \"Buzz\".\n    *   Rule 3: Replace multiples of both (3 and 5) with \"FizzBuzz\".\n    *   Constraint: Output only the list.\n\n    *   1 -> 1\n    *   2 -> 2\n    *   3 -> Fizz (multiple of 3)\n    *   4 -> 4\n    *   5 -> Buzz (multiple of 5)\n    *   6 -> Fizz (multiple of 3)\n    *   7 -> 7\n    *   8 -> 8\n    *   9 -> Fizz (multiple of 3)\n    *   10 -> Buzz (multiple of 5)\n    *   11 -> 11\n    *   12 -> Fizz (multiple of 3)\n    *   13 -> 13\n    *   14 -> 14\n    *   15 -> FizzBuzz (multiple of 3 and 5)\n\n    1\n    2\n    Fizz\n    4\n    Buzz\n    Fizz\n    7\n    8\n    Fizz\n    Buzz\n    11\n    Fizz\n    13\n    14\n    FizzBuzz",
+      "done_reason": "stop",
+      "server": {
+        "total_duration": 77580521066,
+        "load_duration": 71706102355,
+        "prompt_eval_count": 58,
+        "prompt_eval_duration": 105453000,
+        "eval_count": 350,
+        "eval_duration": 5766858000
+      },
+      "wall_s": 77.594
+    },
+    {
+      "name": "arithmetic",
+      "think": true,
+      "passed": true,
+      "failure": null,
+      "request": {
+        "model": "gemma4:12b-it-qat",
+        "prompt": "What is 17 multiplied by 23? Reply with only the number.",
+        "stream": false,
+        "options": {
+          "num_ctx": 16384,
+          "num_predict": 4096,
+          "temperature": 1.0,
+          "top_p": 1.0
+        },
+        "think": true
+      },
+      "response": "391",
+      "thinking": "*   Task: Multiply 17 by 23.\n    *   Constraint: Reply *only* with the number.\n\n    *   Calculation: $17 \\times 23$\n    *   Long multiplication method:\n        *   $10 \\times 23 = 230$\n        *   $7 \\times 23 = 7 \\times (20 + 3) = 140 + 21 = 161$\n        *   Sum: $230 + 161$\n        *   $230 + 160 = 390$\n        *   $390 + 1 = 391$\n    *   Alternative method (Mental): $(20 - 3) \\times 23 = 20 \\times 23 - 3 \\times 23 = 460 - 69$\n        *   $460 - 60 = 400$\n        *   $400 - 9 = 391$\n    *   Alternative method (FOIL-like): $(10 + 7) \\times (20 + 3) = 10(20) + 10(3) + 7(20) + 7(3)$\n        *   $200 + 30 + 140 + 21 = 230 + 161 = 391$.\n\n    *   The result is 391.\n    *   The user requested \"only the number\".",
+      "done_reason": "stop",
+      "server": {
+        "total_duration": 6512185421,
+        "load_duration": 377012761,
+        "prompt_eval_count": 33,
+        "prompt_eval_duration": 73641000,
+        "eval_count": 366,
+        "eval_duration": 6020548000
+      },
+      "wall_s": 6.516
+    },
+    {
+      "name": "ordered-recall",
+      "think": true,
+      "passed": true,
+      "failure": null,
+      "request": {
+        "model": "gemma4:12b-it-qat",
+        "prompt": "List the seven days of the week in order, comma-separated, with no other text.",
+        "stream": false,
+        "options": {
+          "num_ctx": 16384,
+          "num_predict": 4096,
+          "temperature": 1.0,
+          "top_p": 1.0
+        },
+        "think": true
+      },
+      "response": "Monday, Tuesday, Wednesday, Thursday, Friday, Saturday, Sunday",
+      "thinking": "*   Task: List the seven days of the week in order.\n    *   Format: Comma-separated.\n    *   Constraint: No other text.\n\n    1. Monday\n    2. Tuesday\n    3. Wednesday\n    4. Thursday\n    5. Friday\n    6. Saturday\n    7. Sunday\n\n    Monday, Tuesday, Wednesday, Thursday, Friday, Saturday, Sunday\n\n    *Wait*, some people consider the week to start on Sunday. However, \"in order\" usually implies the standard calendar sequence or Monday-Sunday/Sunday-Saturday. Most common western convention in a list is Monday-Sunday or Sunday-Saturday. Let's stick to Monday-Sunday as it's conventional for lists unless specified.\n\n    Let me double-check: \"List the seven days of the week in order\".\n    Monday, Tuesday, Wednesday, Thursday, Friday, Saturday, Sunday\n\n    Check constraints:\n    - Seven days? Yes.\n    - In order? Yes (Chronological).\n    - Comma-separated? Yes.\n    - No other text? Yes.\n\n    Monday, Tuesday, Wednesday, Thursday, Friday, Saturday, Sunday",
+      "done_reason": "stop",
+      "server": {
+        "total_duration": 4838074640,
+        "load_duration": 365392885,
+        "prompt_eval_count": 35,
+        "prompt_eval_duration": 62841000,
+        "eval_count": 265,
+        "eval_duration": 4371825000
+      },
+      "wall_s": 4.842
+    },
+    {
+      "name": "prose",
+      "think": true,
+      "passed": true,
+      "failure": null,
+      "request": {
+        "model": "gemma4:12b-it-qat",
+        "prompt": "In one paragraph of three or four sentences, explain what a hash table is and why lookups are fast.",
+        "stream": false,
+        "options": {
+          "num_ctx": 16384,
+          "num_predict": 4096,
+          "temperature": 1.0,
+          "top_p": 1.0
+        },
+        "think": true
+      },
+      "response": "A hash table is a data structure that stores information in key-value pairs by mapping each unique key to a specific location using a mathematical algorithm called a hash function. When you provide a key for retrieval, the hash function converts it into an index for an underlying array, allowing the system to pinpoint exactly where the corresponding value is stored. This makes lookups incredibly fast because the computer can jump directly to the correct memory address in nearly constant time instead of scanning through every item sequentially.",
+      "thinking": "*   Topic: Hash tables and why lookups are fast.\n    *   Format: One paragraph of 3-4 sentences.\n\n    *   What is a hash table? A data structure that stores key-value pairs.\n    *   How does it work? It uses a \"hash function\" to map keys to specific indices in an array.\n    *   Why are lookups fast? Because the index can be calculated directly, providing constant time (average case) complexity ($O(1)$), bypassing the need to search through every element.\n\n    A hash table is a data structure that stores information in key-value pairs by using a unique identifier called a key. To locate a value, the system applies a mathematical function known as a hash function to the key, which converts it into a specific numerical index for an underlying array. Lookups are exceptionally fast because this process allows the computer to jump directly to the correct memory location instead of searching through every item sequentially. This achieves a near-constant time complexity, making it one of the most efficient ways to retrieve data.\n\n    *   Sentence 1: A hash table is a data structure that stores information in key-value pairs by using a unique identifier called a key.\n    *   Sentence 2: It works by applying a mathematical \"hash function\" to each key, which maps it directly to a specific index within an underlying array.\n    *   Sentence 3: Lookups are fast because this mapping allows the computer to instantly jump to the correct memory location rather than searching through every element sequentially.\n    *   Sentence 4 (Optional/Combine): This approach achieves near-constant time complexity for data retrieval, making it highly efficient for large datasets.\n\n    *Let's keep it to 3 solid sentences or a concise 4.*\n\n    *Version:*\n    A hash table is a data structure that stores information in key-value pairs by mapping each unique key to a specific location using a mathematical algorithm called a hash function. When you provide a key, the hash function converts it into an index for an underlying array, allowing the system to pinpoint exactly where the corresponding value is stored. This makes lookups incredibly fast because the computer can jump directly to the correct memory address in nearly constant time instead of scanning through every item.\n\n    1. A hash table... (Sentence 1)\n    2. When you provides... (Sentence 2)\n    3. This makes lookups... (Sentence 3)\n\n    *Count: 3 sentences.* Perfect.",
+      "done_reason": "stop",
+      "server": {
+        "total_duration": 10811237441,
+        "load_duration": 365340968,
+        "prompt_eval_count": 38,
+        "prompt_eval_duration": 85354000,
+        "eval_count": 626,
+        "eval_duration": 10348086000
+      },
+      "wall_s": 10.817
+    }
+  ]
+}
