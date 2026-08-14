@@ -1,0 +1,25 @@
+# Cluster-side Vulkan agentic benchmark: qwen3.5:9b-q4_K_M on timmy's RX 9070 XT
+# (TASK-1186 row 5). Mirrors cluster-vulkan-agentic.toml.
+
+[ollama]
+url = "http://ollama.llama.svc:11434"
+model = "qwen3.5:9b-q4_K_M"
+num_ctx = 32768
+num_predict = 2048
+temperature = 0.3
+
+[workload]
+name = "agentic"
+max_concurrency = 8
+requests_per_level = 8
+repeats = 3
+cooldown_seconds = 20
+
+[prometheus]
+url = "http://prom-prometheus.grafana:9090"
+instance_label = ".*"
+sample_interval_seconds = 2.0
+
+[output]
+dir = "benchmarks/results"
+prefix = "ollama-cluster-vulkan-qwen35-9b-agentic"

@@ -1,0 +1,54 @@
+WARNING: Running pip as the 'root' user can result in broken permissions and conflicting behaviour with the system package manager, possibly rendering your system unusable. It is recommended to use a virtual environment instead: https://pip.pypa.io/warnings/venv. Use the --root-user-action option if you know what you are doing and want to suppress this warning.
+
+[notice] A new release of pip is available: 25.0.1 -> 26.2.1
+[notice] To update, run: pip install --upgrade pip
+=== running benchmark: cluster-vulkan-qwen35-9b-default ===
+Warming up with 1 request to qwen3.5:9b-q4_K_M ...
+Warmup complete: wall=6.61s, TTFT=0.48s, ITL=0.012s, gen=83.6 tok/s
+
+Benchmarking concurrency=1 with 8 requests (x3 repeats) ...
+  P50 TTFT=0.35s, P95 TTFT=0.36s, P50 ITL=0.012s, aggregate throughput=79.6 tok/s
+Cooling down for 15s ...
+
+Benchmarking concurrency=2 with 8 requests (x3 repeats) ...
+  P50 TTFT=6.29s, P95 TTFT=6.57s, P50 ITL=0.012s, aggregate throughput=82.3 tok/s
+Cooling down for 15s ...
+
+Benchmarking concurrency=3 with 8 requests (x3 repeats) ...
+  P50 TTFT=12.46s, P95 TTFT=12.72s, P50 ITL=0.012s, aggregate throughput=82.4 tok/s
+Cooling down for 15s ...
+
+Benchmarking concurrency=4 with 8 requests (x3 repeats) ...
+  P50 TTFT=18.63s, P95 TTFT=18.95s, P50 ITL=0.012s, aggregate throughput=82.2 tok/s
+Cooling down for 15s ...
+
+Benchmarking concurrency=5 with 8 requests (x3 repeats) ...
+  P50 TTFT=21.91s, P95 TTFT=25.17s, P50 ITL=0.012s, aggregate throughput=82.1 tok/s
+Cooling down for 15s ...
+
+Benchmarking concurrency=6 with 8 requests (x3 repeats) ...
+  P50 TTFT=21.46s, P95 TTFT=31.15s, P50 ITL=0.012s, aggregate throughput=82.0 tok/s
+Cooling down for 15s ...
+
+Benchmarking concurrency=7 with 8 requests (x3 repeats) ...
+  P50 TTFT=22.03s, P95 TTFT=37.41s, P50 ITL=0.012s, aggregate throughput=82.2 tok/s
+Cooling down for 15s ...
+
+Benchmarking concurrency=8 with 8 requests (x3 repeats) ...
+  P50 TTFT=21.63s, P95 TTFT=43.52s, P50 ITL=0.012s, aggregate throughput=82.2 tok/s
+
+=== Ollama Concurrency Benchmark Summary ===
+Conc | Req | P50 TTFT | P95 TTFT |  P50 ITL |  P95 ITL |  Agg tok/s |  P50 gen
+------------------------------------------------------------------------------
+   1 |   8 |     0.35 |     0.36 |    0.012 |    0.012 |      79.62 |     84.2
+   2 |   8 |     6.29 |     6.57 |    0.012 |    0.012 |      82.32 |     84.3
+   3 |   8 |    12.46 |    12.72 |    0.012 |    0.012 |      82.36 |     84.3
+   4 |   8 |    18.63 |    18.95 |    0.012 |    0.012 |      82.16 |     84.1
+   5 |   8 |    21.91 |    25.17 |    0.012 |    0.012 |      82.14 |     84.1
+   6 |   8 |    21.46 |    31.15 |    0.012 |    0.012 |      82.01 |     83.9
+   7 |   8 |    22.03 |    37.41 |    0.012 |    0.012 |       82.2 |     84.1
+   8 |   8 |    21.63 |    43.52 |    0.012 |    0.012 |      82.25 |     84.2
+
+Wrote JSON results to benchmarks/results/ollama-cluster-vulkan-qwen35-9b-default-20260814-182426/results.json
+Wrote CSV summary to benchmarks/results/ollama-cluster-vulkan-qwen35-9b-default-20260814-182426/summary.csv
+Wrote Markdown summary to benchmarks/results/ollama-cluster-vulkan-qwen35-9b-default-20260814-182426/summary.md

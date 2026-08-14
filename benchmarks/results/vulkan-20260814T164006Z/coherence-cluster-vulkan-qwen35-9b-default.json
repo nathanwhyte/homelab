@@ -1,0 +1,139 @@
+{
+  "model": "qwen3.5:9b-q4_K_M",
+  "url": "http://ollama.llama.svc:11434",
+  "timestamp": "2026-08-14T17:56:45Z",
+  "sampling": {
+    "num_ctx": 16384,
+    "temperature": 1.0,
+    "top_p": 1.0
+  },
+  "think_modes": [
+    false
+  ],
+  "summary": {
+    "total": 4,
+    "passed": 2
+  },
+  "probes": [
+    {
+      "name": "fizzbuzz",
+      "think": false,
+      "passed": true,
+      "failure": null,
+      "request": {
+        "model": "qwen3.5:9b-q4_K_M",
+        "prompt": "Print the numbers 1 to 15, one per line. Replace multiples of 3 with Fizz, multiples of 5 with Buzz, and multiples of both with FizzBuzz. Output only the list.",
+        "stream": false,
+        "options": {
+          "num_ctx": 16384,
+          "num_predict": 512,
+          "temperature": 1.0,
+          "top_p": 1.0
+        },
+        "think": false
+      },
+      "response": "1  \n2  \nFizz  \n4  \nBuzz  \nFizz  \n7  \n8  \nFizz  \nBuzz  \n11  \nFizz  \n13  \n14  \nFizzBuzz",
+      "thinking": null,
+      "done_reason": "stop",
+      "server": {
+        "total_duration": 10942987391,
+        "load_duration": 10380315825,
+        "prompt_eval_count": 56,
+        "prompt_eval_duration": 153548000,
+        "eval_count": 34,
+        "eval_duration": 407745000
+      },
+      "wall_s": 10.956
+    },
+    {
+      "name": "arithmetic",
+      "think": false,
+      "passed": false,
+      "failure": "does not contain 391",
+      "request": {
+        "model": "qwen3.5:9b-q4_K_M",
+        "prompt": "What is 17 multiplied by 23? Reply with only the number.",
+        "stream": false,
+        "options": {
+          "num_ctx": 16384,
+          "num_predict": 128,
+          "temperature": 1.0,
+          "top_p": 1.0
+        },
+        "think": false
+      },
+      "response": "406",
+      "thinking": null,
+      "done_reason": "stop",
+      "server": {
+        "total_duration": 424871551,
+        "load_duration": 270153071,
+        "prompt_eval_count": 29,
+        "prompt_eval_duration": 69157000,
+        "eval_count": 4,
+        "eval_duration": 36969000
+      },
+      "wall_s": 0.428
+    },
+    {
+      "name": "ordered-recall",
+      "think": false,
+      "passed": false,
+      "failure": "days are not in order",
+      "request": {
+        "model": "qwen3.5:9b-q4_K_M",
+        "prompt": "List the seven days of the week in order, comma-separated, with no other text.",
+        "stream": false,
+        "options": {
+          "num_ctx": 16384,
+          "num_predict": 128,
+          "temperature": 1.0,
+          "top_p": 1.0
+        },
+        "think": false
+      },
+      "response": "Sunday, Monday, Tuesday, Wednesday, Thursday, Friday, Saturday",
+      "thinking": null,
+      "done_reason": "stop",
+      "server": {
+        "total_duration": 520767588,
+        "load_duration": 258336418,
+        "prompt_eval_count": 30,
+        "prompt_eval_duration": 56473000,
+        "eval_count": 14,
+        "eval_duration": 156716000
+      },
+      "wall_s": 0.524
+    },
+    {
+      "name": "prose",
+      "think": false,
+      "passed": true,
+      "failure": null,
+      "request": {
+        "model": "qwen3.5:9b-q4_K_M",
+        "prompt": "In one paragraph of three or four sentences, explain what a hash table is and why lookups are fast.",
+        "stream": false,
+        "options": {
+          "num_ctx": 16384,
+          "num_predict": 512,
+          "temperature": 1.0,
+          "top_p": 1.0
+        },
+        "think": false
+      },
+      "response": "A hash table is a data structure that stores key-value pairs using an array-like collection with access by calculated indices rather than direct search. Lookups are exceptionally fast because the algorithm computes a specific index from a given key via a hashing function, allowing immediate retrieval without iterating through other elements in most cases. This method transforms what could be a slow linear scan into nearly constant time operations for read and write tasks under typical conditions.",
+      "thinking": null,
+      "done_reason": "stop",
+      "server": {
+        "total_duration": 1373393300,
+        "load_duration": 262975682,
+        "prompt_eval_count": 34,
+        "prompt_eval_duration": 57537000,
+        "eval_count": 85,
+        "eval_duration": 1004699000
+      },
+      "wall_s": 1.377
+    }
+  ]
+}

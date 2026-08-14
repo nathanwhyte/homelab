@@ -1,0 +1,139 @@
+{
+  "model": "nemotron-3-nano:4b-bf16",
+  "url": "http://ollama.llama.svc:11434",
+  "timestamp": "2026-08-11T21:26:49Z",
+  "sampling": {
+    "num_ctx": 16384,
+    "temperature": 1.0,
+    "top_p": 1.0
+  },
+  "think_modes": [
+    false
+  ],
+  "summary": {
+    "total": 4,
+    "passed": 4
+  },
+  "probes": [
+    {
+      "name": "fizzbuzz",
+      "think": false,
+      "passed": true,
+      "failure": null,
+      "request": {
+        "model": "nemotron-3-nano:4b-bf16",
+        "prompt": "Print the numbers 1 to 15, one per line. Replace multiples of 3 with Fizz, multiples of 5 with Buzz, and multiples of both with FizzBuzz. Output only the list.",
+        "stream": false,
+        "options": {
+          "num_ctx": 16384,
+          "num_predict": 512,
+          "temperature": 1.0,
+          "top_p": 1.0
+        },
+        "think": false
+      },
+      "response": "1  \n2  \nFizz  \n4  \nBuzz  \nFizz  \n7  \n8  \nFizz  \nBuzz  \n11  \nFizz  \n13  \n14  \nFizzBuzz",
+      "thinking": null,
+      "done_reason": "stop",
+      "server": {
+        "total_duration": 178401763575,
+        "load_duration": 177504127766,
+        "prompt_eval_count": 62,
+        "prompt_eval_duration": 138781000,
+        "eval_count": 56,
+        "eval_duration": 756310000
+      },
+      "wall_s": 178.417
+    },
+    {
+      "name": "arithmetic",
+      "think": false,
+      "passed": true,
+      "failure": null,
+      "request": {
+        "model": "nemotron-3-nano:4b-bf16",
+        "prompt": "What is 17 multiplied by 23? Reply with only the number.",
+        "stream": false,
+        "options": {
+          "num_ctx": 16384,
+          "num_predict": 128,
+          "temperature": 1.0,
+          "top_p": 1.0
+        },
+        "think": false
+      },
+      "response": "391",
+      "thinking": null,
+      "done_reason": "stop",
+      "server": {
+        "total_duration": 374491733,
+        "load_duration": 189231930,
+        "prompt_eval_count": 34,
+        "prompt_eval_duration": 66147999,
+        "eval_count": 4,
+        "eval_duration": 42255000
+      },
+      "wall_s": 0.378
+    },
+    {
+      "name": "ordered-recall",
+      "think": false,
+      "passed": true,
+      "failure": null,
+      "request": {
+        "model": "nemotron-3-nano:4b-bf16",
+        "prompt": "List the seven days of the week in order, comma-separated, with no other text.",
+        "stream": false,
+        "options": {
+          "num_ctx": 16384,
+          "num_predict": 128,
+          "temperature": 1.0,
+          "top_p": 1.0
+        },
+        "think": false
+      },
+      "response": "Monday,Tuesday,Wednesday,Thursday,Friday,Saturday,Sunday",
+      "thinking": null,
+      "done_reason": "stop",
+      "server": {
+        "total_duration": 497781087,
+        "load_duration": 190965506,
+        "prompt_eval_count": 37,
+        "prompt_eval_duration": 55506000,
+        "eval_count": 14,
+        "eval_duration": 178827000
+      },
+      "wall_s": 0.501
+    },
+    {
+      "name": "prose",
+      "think": false,
+      "passed": true,
+      "failure": null,
+      "request": {
+        "model": "nemotron-3-nano:4b-bf16",
+        "prompt": "In one paragraph of three or four sentences, explain what a hash table is and why lookups are fast.",
+        "stream": false,
+        "options": {
+          "num_ctx": 16384,
+          "num_predict": 512,
+          "temperature": 1.0,
+          "top_p": 1.0
+        },
+        "think": false
+      },
+      "response": "A hash table is a data structure that stores key-value pairs using an array and converts each key into an index through a process called hashing, which helps distribute keys evenly across the slots. This arrangement allows for constant-time lookup because the hash function quickly determines the precise location where the desired value is stored or could be found. Even with many different keys, collisions are minimized by techniques like chaining or open addressing, so searches typically take only O(1) time on average.",
+      "thinking": null,
+      "done_reason": "stop",
+      "server": {
+        "total_duration": 1648301039,
+        "load_duration": 191833520,
+        "prompt_eval_count": 39,
+        "prompt_eval_duration": 57695000,
+        "eval_count": 97,
+        "eval_duration": 1325640000
+      },
+      "wall_s": 1.652
+    }
+  ]
+}

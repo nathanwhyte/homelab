@@ -1,0 +1,139 @@
+{
+  "model": "gemma4:12b-it-qat",
+  "url": "http://ollama.llama.svc:11434",
+  "timestamp": "2026-08-14T17:01:22Z",
+  "sampling": {
+    "num_ctx": 16384,
+    "temperature": 1.0,
+    "top_p": 1.0
+  },
+  "think_modes": [
+    false
+  ],
+  "summary": {
+    "total": 4,
+    "passed": 4
+  },
+  "probes": [
+    {
+      "name": "fizzbuzz",
+      "think": false,
+      "passed": true,
+      "failure": null,
+      "request": {
+        "model": "gemma4:12b-it-qat",
+        "prompt": "Print the numbers 1 to 15, one per line. Replace multiples of 3 with Fizz, multiples of 5 with Buzz, and multiples of both with FizzBuzz. Output only the list.",
+        "stream": false,
+        "options": {
+          "num_ctx": 16384,
+          "num_predict": 512,
+          "temperature": 1.0,
+          "top_p": 1.0
+        },
+        "think": false
+      },
+      "response": "1\n2\nFizz\n4\nBuzz\nFizz\n7\n8\nFizz\nBuzz\n11\nFizz\n13\n14\nFizzBuzz",
+      "thinking": null,
+      "done_reason": "stop",
+      "server": {
+        "total_duration": 1437157054,
+        "load_duration": 339014370,
+        "prompt_eval_count": 55,
+        "prompt_eval_duration": 87729000,
+        "eval_count": 34,
+        "eval_duration": 550966000
+      },
+      "wall_s": 1.449
+    },
+    {
+      "name": "arithmetic",
+      "think": false,
+      "passed": true,
+      "failure": null,
+      "request": {
+        "model": "gemma4:12b-it-qat",
+        "prompt": "What is 17 multiplied by 23? Reply with only the number.",
+        "stream": false,
+        "options": {
+          "num_ctx": 16384,
+          "num_predict": 128,
+          "temperature": 1.0,
+          "top_p": 1.0
+        },
+        "think": false
+      },
+      "response": "391",
+      "thinking": null,
+      "done_reason": "stop",
+      "server": {
+        "total_duration": 478313697,
+        "load_duration": 355051599,
+        "prompt_eval_count": 30,
+        "prompt_eval_duration": 62571000,
+        "eval_count": 4,
+        "eval_duration": 51557000
+      },
+      "wall_s": 0.481
+    },
+    {
+      "name": "ordered-recall",
+      "think": false,
+      "passed": true,
+      "failure": null,
+      "request": {
+        "model": "gemma4:12b-it-qat",
+        "prompt": "List the seven days of the week in order, comma-separated, with no other text.",
+        "stream": false,
+        "options": {
+          "num_ctx": 16384,
+          "num_predict": 128,
+          "temperature": 1.0,
+          "top_p": 1.0
+        },
+        "think": false
+      },
+      "response": "Monday, Tuesday, Wednesday, Thursday, Friday, Saturday, Sunday",
+      "thinking": null,
+      "done_reason": "stop",
+      "server": {
+        "total_duration": 649155276,
+        "load_duration": 352533355,
+        "prompt_eval_count": 32,
+        "prompt_eval_duration": 63341000,
+        "eval_count": 14,
+        "eval_duration": 218611000
+      },
+      "wall_s": 0.652
+    },
+    {
+      "name": "prose",
+      "think": false,
+      "passed": true,
+      "failure": null,
+      "request": {
+        "model": "gemma4:12b-it-qat",
+        "prompt": "In one paragraph of three or four sentences, explain what a hash table is and why lookups are fast.",
+        "stream": false,
+        "options": {
+          "num_ctx": 16384,
+          "num_predict": 512,
+          "temperature": 1.0,
+          "top_p": 1.0
+        },
+        "think": false
+      },
+      "response": "A hash table is a data structure that stores key-value pairs by using a mathematical function, known as a hash function, to map each unique key to a specific numerical index in an array. Instead of searching through every element sequentially, the hash function allows the system to jump directly to the intended memory location. This makes lookups extremely fast because they typically occur in constant time, O(1), regardless of how much data is stored in the table.",
+      "thinking": null,
+      "done_reason": "stop",
+      "server": {
+        "total_duration": 1927039838,
+        "load_duration": 356450205,
+        "prompt_eval_count": 35,
+        "prompt_eval_duration": 38727000,
+        "eval_count": 92,
+        "eval_duration": 1520836000
+      },
+      "wall_s": 1.931
+    }
+  ]
+}

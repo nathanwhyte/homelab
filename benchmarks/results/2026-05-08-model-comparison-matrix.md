@@ -59,7 +59,7 @@ Decode tok/s is single-stream, no batching, from each source record's own method
 
 | Workload | Default | Why |
 |---|---|---|
-| Anything you'd use ChatGPT for | `qwen3.6:35b` (MoE, 122 tok/s, timmy) | Fastest quality-per-token at any latency budget |
+| Anything you'd use ChatGPT for | ~~`qwen3.6:35b` (timmy)~~ **HISTORICAL (2026-08-14)** — the tag is no longer on timmy's PVC and the official GGUF is ~24 GB, which cannot have been a fully-GPU-resident 16 GB result; the old 122 tok/s figure is unaudited. No timmy chat default is re-recommended until the TASK-1186 matrix completes; interim: `gemma4:12b-it-qat` (57 tok/s solo, scales under concurrency) or `qwen3.5:9b-q4_K_M` (80 tok/s solo, serializes) per the timmy matrix | See `2026-08-14-timmy-9070xt-comparison-matrix.md` |
 | Agentic coding (multi-step tool loop) | `qwen3.6:coding-gguf`; `gemma4:coding-12b` for quality-per-GB (7.7 GB) | Both 18/18 on the hidden-verifier matrix. qwen-gguf has the cleanest conduct (1 bad call in 120, zero fixture tampering); `gemma4:coding-26b` also 18/18 with the top style scores but rewrote the fixture test suite in every T3 run — a habit to know about near tests. Supersedes the pre-`:coding`-tag `gemma4:e4b-mlx` row |
 | Code-writing / schema-constrained output (engine rule, not a model pick) | GGUF-served tags only | The MLX path silently drops `format` JSON schemas (`INFO-1127`) and is associated with whitespace corruption in tool-call file content (`BUG-1067`) — reserve `-mlx`/MTP speed for prose and chat |
 | Low-latency classification/parsing | `gemma4:e2b-mlx` (dense, 5.1B, 183 tok/s, pop) | Fastest; quality is fine for short outputs |

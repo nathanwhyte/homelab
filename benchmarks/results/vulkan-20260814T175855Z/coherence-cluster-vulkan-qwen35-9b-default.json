@@ -1,0 +1,140 @@
+{
+  "model": "qwen3.5:9b-q4_K_M",
+  "url": "http://ollama.llama.svc:11434",
+  "timestamp": "2026-08-14T18:02:18Z",
+  "sampling": {
+    "num_ctx": 16384,
+    "temperature": 0.3,
+    "top_p": 1.0,
+    "num_predict_override": null
+  },
+  "think_modes": [
+    false
+  ],
+  "summary": {
+    "total": 4,
+    "passed": 4
+  },
+  "probes": [
+    {
+      "name": "fizzbuzz",
+      "think": false,
+      "passed": true,
+      "failure": null,
+      "request": {
+        "model": "qwen3.5:9b-q4_K_M",
+        "prompt": "Print the numbers 1 to 15, one per line. Replace multiples of 3 with Fizz, multiples of 5 with Buzz, and multiples of both with FizzBuzz. Output only the list.",
+        "stream": false,
+        "options": {
+          "num_ctx": 16384,
+          "num_predict": 512,
+          "temperature": 0.3,
+          "top_p": 1.0
+        },
+        "think": false
+      },
+      "response": "1\n2\nFizz\n4\nBuzz\nFizz\n7\n8\nFizz\nBuzz\n11\nFizz\n13\n14\nFizzBuzz",
+      "thinking": null,
+      "done_reason": "stop",
+      "server": {
+        "total_duration": 178299966938,
+        "load_duration": 177722374595,
+        "prompt_eval_count": 56,
+        "prompt_eval_duration": 167434000,
+        "eval_count": 34,
+        "eval_duration": 408284000
+      },
+      "wall_s": 178.314
+    },
+    {
+      "name": "arithmetic",
+      "think": false,
+      "passed": true,
+      "failure": null,
+      "request": {
+        "model": "qwen3.5:9b-q4_K_M",
+        "prompt": "What is 17 multiplied by 23? Reply with only the number.",
+        "stream": false,
+        "options": {
+          "num_ctx": 16384,
+          "num_predict": 128,
+          "temperature": 0.3,
+          "top_p": 1.0
+        },
+        "think": false
+      },
+      "response": "391",
+      "thinking": null,
+      "done_reason": "stop",
+      "server": {
+        "total_duration": 414407686,
+        "load_duration": 260147637,
+        "prompt_eval_count": 29,
+        "prompt_eval_duration": 68896000,
+        "eval_count": 4,
+        "eval_duration": 36901000
+      },
+      "wall_s": 0.418
+    },
+    {
+      "name": "ordered-recall",
+      "think": false,
+      "passed": true,
+      "failure": null,
+      "request": {
+        "model": "qwen3.5:9b-q4_K_M",
+        "prompt": "List the seven days of the week in order, comma-separated, with no other text.",
+        "stream": false,
+        "options": {
+          "num_ctx": 16384,
+          "num_predict": 128,
+          "temperature": 0.3,
+          "top_p": 1.0
+        },
+        "think": false
+      },
+      "response": "Sunday, Monday, Tuesday, Wednesday, Thursday, Friday, Saturday",
+      "thinking": null,
+      "done_reason": "stop",
+      "server": {
+        "total_duration": 526641101,
+        "load_duration": 265189661,
+        "prompt_eval_count": 30,
+        "prompt_eval_duration": 56271000,
+        "eval_count": 14,
+        "eval_duration": 156809000
+      },
+      "wall_s": 0.529
+    },
+    {
+      "name": "prose",
+      "think": false,
+      "passed": true,
+      "failure": null,
+      "request": {
+        "model": "qwen3.5:9b-q4_K_M",
+        "prompt": "In one paragraph of three or four sentences, explain what a hash table is and why lookups are fast.",
+        "stream": false,
+        "options": {
+          "num_ctx": 16384,
+          "num_predict": 512,
+          "temperature": 0.3,
+          "top_p": 1.0
+        },
+        "think": false
+      },
+      "response": "A hash table is a data structure that stores key-value pairs by using a hash function to compute an index into an array where the value should be stored. Lookups are extremely fast because the hash function directly determines the location of any given key, eliminating the need for sequential searching or comparisons required in other structures like lists or trees. This allows retrieval operations to run in constant time on average, making them significantly more efficient than linear search methods which scale with the size of the dataset.",
+      "thinking": null,
+      "done_reason": "stop",
+      "server": {
+        "total_duration": 1511857154,
+        "load_duration": 252378761,
+        "prompt_eval_count": 34,
+        "prompt_eval_duration": 57214000,
+        "eval_count": 97,
+        "eval_duration": 1153849000
+      },
+      "wall_s": 1.515
+    }
+  ]
+}

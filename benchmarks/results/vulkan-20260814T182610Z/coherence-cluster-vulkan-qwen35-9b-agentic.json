@@ -1,0 +1,140 @@
+{
+  "model": "qwen3.5:9b-q4_K_M",
+  "url": "http://ollama.llama.svc:11434",
+  "timestamp": "2026-08-14T18:29:25Z",
+  "sampling": {
+    "num_ctx": 16384,
+    "temperature": 0.3,
+    "top_p": 1.0,
+    "num_predict_override": null
+  },
+  "think_modes": [
+    false
+  ],
+  "summary": {
+    "total": 4,
+    "passed": 4
+  },
+  "probes": [
+    {
+      "name": "fizzbuzz",
+      "think": false,
+      "passed": true,
+      "failure": null,
+      "request": {
+        "model": "qwen3.5:9b-q4_K_M",
+        "prompt": "Print the numbers 1 to 15, one per line. Replace multiples of 3 with Fizz, multiples of 5 with Buzz, and multiples of both with FizzBuzz. Output only the list.",
+        "stream": false,
+        "options": {
+          "num_ctx": 16384,
+          "num_predict": 512,
+          "temperature": 0.3,
+          "top_p": 1.0
+        },
+        "think": false
+      },
+      "response": "1  \n2  \nFizz  \n4  \nBuzz  \nFizz  \n7  \n8  \nFizz  \nBuzz  \n11  \nFizz  \n13  \n14  \nFizzBuzz",
+      "thinking": null,
+      "done_reason": "stop",
+      "server": {
+        "total_duration": 177927358656,
+        "load_duration": 177349099371,
+        "prompt_eval_count": 56,
+        "prompt_eval_duration": 165782000,
+        "eval_count": 34,
+        "eval_duration": 410018000
+      },
+      "wall_s": 177.94
+    },
+    {
+      "name": "arithmetic",
+      "think": false,
+      "passed": true,
+      "failure": null,
+      "request": {
+        "model": "qwen3.5:9b-q4_K_M",
+        "prompt": "What is 17 multiplied by 23? Reply with only the number.",
+        "stream": false,
+        "options": {
+          "num_ctx": 16384,
+          "num_predict": 128,
+          "temperature": 0.3,
+          "top_p": 1.0
+        },
+        "think": false
+      },
+      "response": "391",
+      "thinking": null,
+      "done_reason": "stop",
+      "server": {
+        "total_duration": 298307017,
+        "load_duration": 241757730,
+        "prompt_eval_count": 29,
+        "prompt_eval_duration": 18092000,
+        "eval_count": 4,
+        "eval_duration": 37409000
+      },
+      "wall_s": 0.301
+    },
+    {
+      "name": "ordered-recall",
+      "think": false,
+      "passed": true,
+      "failure": null,
+      "request": {
+        "model": "qwen3.5:9b-q4_K_M",
+        "prompt": "List the seven days of the week in order, comma-separated, with no other text.",
+        "stream": false,
+        "options": {
+          "num_ctx": 16384,
+          "num_predict": 128,
+          "temperature": 0.3,
+          "top_p": 1.0
+        },
+        "think": false
+      },
+      "response": "Sunday, Monday, Tuesday, Wednesday, Thursday, Friday, Saturday",
+      "thinking": null,
+      "done_reason": "stop",
+      "server": {
+        "total_duration": 504333715,
+        "load_duration": 242485008,
+        "prompt_eval_count": 30,
+        "prompt_eval_duration": 53727000,
+        "eval_count": 14,
+        "eval_duration": 156737000
+      },
+      "wall_s": 0.507
+    },
+    {
+      "name": "prose",
+      "think": false,
+      "passed": true,
+      "failure": null,
+      "request": {
+        "model": "qwen3.5:9b-q4_K_M",
+        "prompt": "In one paragraph of three or four sentences, explain what a hash table is and why lookups are fast.",
+        "stream": false,
+        "options": {
+          "num_ctx": 16384,
+          "num_predict": 512,
+          "temperature": 0.3,
+          "top_p": 1.0
+        },
+        "think": false
+      },
+      "response": "A hash table is a data structure that stores key-value pairs by using a hash function to compute an index into an array where the value should be placed. Lookups are extremely fast because the same hash function determines both the insertion location and the retrieval position, allowing direct access in constant time under ideal conditions. This efficiency relies on minimizing collisions through good hashing strategies or techniques like chaining and open addressing when multiple keys map to the same index. Consequently, retrieving a specific element typically requires only one calculation rather than searching sequentially through all stored items.",
+      "thinking": null,
+      "done_reason": "stop",
+      "server": {
+        "total_duration": 1648057672,
+        "load_duration": 261772813,
+        "prompt_eval_count": 34,
+        "prompt_eval_duration": 54591000,
+        "eval_count": 108,
+        "eval_duration": 1285716000
+      },
+      "wall_s": 1.651
+    }
+  ]
+}

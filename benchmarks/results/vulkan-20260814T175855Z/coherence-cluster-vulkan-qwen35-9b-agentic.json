@@ -1,0 +1,140 @@
+{
+  "model": "qwen3.5:9b-q4_K_M",
+  "url": "http://ollama.llama.svc:11434",
+  "timestamp": "2026-08-14T18:24:42Z",
+  "sampling": {
+    "num_ctx": 16384,
+    "temperature": 0.3,
+    "top_p": 1.0,
+    "num_predict_override": null
+  },
+  "think_modes": [
+    false
+  ],
+  "summary": {
+    "total": 4,
+    "passed": 3
+  },
+  "probes": [
+    {
+      "name": "fizzbuzz",
+      "think": false,
+      "passed": true,
+      "failure": null,
+      "request": {
+        "model": "qwen3.5:9b-q4_K_M",
+        "prompt": "Print the numbers 1 to 15, one per line. Replace multiples of 3 with Fizz, multiples of 5 with Buzz, and multiples of both with FizzBuzz. Output only the list.",
+        "stream": false,
+        "options": {
+          "num_ctx": 16384,
+          "num_predict": 512,
+          "temperature": 0.3,
+          "top_p": 1.0
+        },
+        "think": false
+      },
+      "response": "1\n2\nFizz\n4\nBuzz\nFizz\n7\n8\nFizz\nBuzz\n11\nFizz\n13\n14\nFizzBuzz",
+      "thinking": null,
+      "done_reason": "stop",
+      "server": {
+        "total_duration": 775607024,
+        "load_duration": 254955166,
+        "prompt_eval_count": 56,
+        "prompt_eval_duration": 69124000,
+        "eval_count": 34,
+        "eval_duration": 391897000
+      },
+      "wall_s": 0.787
+    },
+    {
+      "name": "arithmetic",
+      "think": false,
+      "passed": false,
+      "failure": "does not contain 391",
+      "request": {
+        "model": "qwen3.5:9b-q4_K_M",
+        "prompt": "What is 17 multiplied by 23? Reply with only the number.",
+        "stream": false,
+        "options": {
+          "num_ctx": 16384,
+          "num_predict": 128,
+          "temperature": 0.3,
+          "top_p": 1.0
+        },
+        "think": false
+      },
+      "response": "3986",
+      "thinking": null,
+      "done_reason": "stop",
+      "server": {
+        "total_duration": 410949299,
+        "load_duration": 252520737,
+        "prompt_eval_count": 29,
+        "prompt_eval_duration": 57288000,
+        "eval_count": 5,
+        "eval_duration": 48784000
+      },
+      "wall_s": 0.414
+    },
+    {
+      "name": "ordered-recall",
+      "think": false,
+      "passed": true,
+      "failure": null,
+      "request": {
+        "model": "qwen3.5:9b-q4_K_M",
+        "prompt": "List the seven days of the week in order, comma-separated, with no other text.",
+        "stream": false,
+        "options": {
+          "num_ctx": 16384,
+          "num_predict": 128,
+          "temperature": 0.3,
+          "top_p": 1.0
+        },
+        "think": false
+      },
+      "response": "Sunday, Monday, Tuesday, Wednesday, Thursday, Friday, Saturday",
+      "thinking": null,
+      "done_reason": "stop",
+      "server": {
+        "total_duration": 510716181,
+        "load_duration": 247180503,
+        "prompt_eval_count": 30,
+        "prompt_eval_duration": 56366000,
+        "eval_count": 14,
+        "eval_duration": 157010000
+      },
+      "wall_s": 0.513
+    },
+    {
+      "name": "prose",
+      "think": false,
+      "passed": true,
+      "failure": null,
+      "request": {
+        "model": "qwen3.5:9b-q4_K_M",
+        "prompt": "In one paragraph of three or four sentences, explain what a hash table is and why lookups are fast.",
+        "stream": false,
+        "options": {
+          "num_ctx": 16384,
+          "num_predict": 512,
+          "temperature": 0.3,
+          "top_p": 1.0
+        },
+        "think": false
+      },
+      "response": "A hash table is a data structure that stores key-value pairs by using a hash function to compute an index for each key in an underlying array. Lookups are exceptionally fast because the hash function directly determines where a value resides, allowing access in constant time on average without needing to search through other elements. This efficiency relies on minimizing collisions\u2014situations where different keys map to the same index\u2014and managing them effectively when they occur. Consequently, retrieving data from a hash table is significantly quicker than searching linear structures like arrays or linked lists for large datasets.",
+      "thinking": null,
+      "done_reason": "stop",
+      "server": {
+        "total_duration": 1651558758,
+        "load_duration": 244280309,
+        "prompt_eval_count": 34,
+        "prompt_eval_duration": 56284000,
+        "eval_count": 110,
+        "eval_duration": 1305645000
+      },
+      "wall_s": 1.655
+    }
+  ]
+}

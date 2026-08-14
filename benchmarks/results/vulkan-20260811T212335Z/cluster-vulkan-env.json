@@ -1,0 +1,13 @@
+{
+  "num_parallel": "8",
+  "context_length": "32768",
+  "kv_cache_type": "q8_0",
+  "keep_alive": "-1",
+  "load_timeout": "15m",
+  "max_loaded_models": "1",
+  "vk_visible_devices": "1",
+  "image": "ollama/ollama:0.31.1",
+  "timestamp": "2026-08-11T21:23:47Z",
+  "vulkan": "1",
+  "llm_library": "vulkan"
+}

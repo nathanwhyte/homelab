@@ -659,6 +659,14 @@ data:
             # A reasoning model that burns its whole budget thinking lands here.
             result.failure = "empty answer"
             return result
+        # A literal think tag in the answer text means the server's thinking
+        # separation broke — the one true garbling signal probe checks can miss,
+        # since content checkers only look for their expected substrings
+        # (qwen3.5:9b leaked '</think>' plus a stray token and still "passed" the
+        # weekday probe on 2026-08-14).
+        if "<think>" in result.response or "</think>" in result.response:
+            result.failure = "think-tag leak in response text"
+            return result
         result.failure = probe.check(result.response)
         return result
 
@@ -784,6 +792,7 @@ data:
                     "name": r.name,
                     "think": r.think,
                     "passed": r.passed,
+                    "attempts": r.attempts,
                     "failure": r.failure,
                     "request": r.request,
                     "response": r.response,
