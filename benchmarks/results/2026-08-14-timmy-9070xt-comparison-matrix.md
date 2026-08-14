@@ -13,8 +13,18 @@ from their run artifacts; nothing is estimated.
 > restored). "mixed" = `mixed_mem0` @ 16K ctx / 512 predict; "agentic" =
 > the concurrency harness's canned agentic workload @ 32K ctx / 2048 predict —
 > NOT the `agentic-coding-bench.py` scored pass, which is separate and pending.
-> Every config passed a coherence gate at its benchmarked sampling before its
-> throughput job ran.
+> Every config passed a coherence gate before its throughput job ran, but **not
+> every gate ran at its row's benchmarked sampling**: the gate only began
+> inheriting config sampling partway through the day (commit `09a03ea`). Only
+> the two qwen3.5 rows were gated at their benchmarked temperature (0.3); the
+> two gemma4 rows were gated at the pre-fix default (temp 1.0 / top_p 1.0) and
+> benchmarked at 0.3, and nemotron matches only incidentally (gate and config
+> are both temp 1.0). Re-gating the gemma4 rows at 0.3 is owed — see the
+> pending ledger.
+>
+> **Sampling differs across rows.** gemma4 and qwen3.5 ran at temp 0.3 with
+> `think` unset (server default); nemotron ran at temp 1.0 with `think = false`
+> explicitly. That matters most for the usable column — see the caveat below.
 >
 > **Read the usable column before the throughput column.** Aggregate tok/s
 > counts every generated token, thinking included. On the mixed workload's
@@ -22,6 +32,13 @@ from their run artifacts; nothing is estimated.
 > reasoning: its mixed rows are valid **decode-rate** measurements but produced
 > almost no complete answers. Rows with usable_rate 1.0 are the only ones that
 > support end-to-end serving conclusions.
+>
+> **The usable column is not like-for-like *across* rows.** nemotron's mixed
+> 24/24 was measured with `think = false`; gemma4's mixed 4/24 was measured with
+> thinking on, on the same 512-token cap. That gap is substantially a config
+> difference, not a model property — compare usable rates only within a row's
+> concurrency sweep, or between rows that share a think posture, until the
+> `think = false` reruns in finding 7 land.
 
 ## Throughput (current harness, 2026-08-14 unless noted)
 
@@ -42,6 +59,14 @@ from their run artifacts; nothing is estimated.
    as serving capacity. qwen3.5 and nemotron-nano both show the serialization
    signature (flat aggregate, constant ITL, TTFT growing with queue depth);
    gemma4 remains the only model measured that scales under concurrency.
+   **The gemma4 curves are noisy, not smooth** — the table samples C=1/2/4/8
+   and hides level-to-level reversals of up to ~13%: agentic dips to 103.5 at
+   C=6 from 119.0 at C=5, and mixed dips to 142.9 at C=7 from 149.9 at C=6.
+   The 2.2× and 3.3× endpoints are real, but treat the shape as an upward
+   trend with ±13% level noise, not a monotone ladder.
+   qwen3.5's serialization is the sharpest signal in the set: ITL is 0.0119 s
+   and per-request `gen_tps` ~84.2 identical to four decimals at **every**
+   concurrency level, on both workloads.
 2. **qwen3.5:9b wins solo latency** (79.6 tok/s single-stream, sub-second
    TTFT vs gemma4's ~9–12s) but serializes, and only ~46–63% of its answers
    were usable under these workloads — solo-latency pick, wrong for
@@ -53,9 +78,11 @@ from their run artifacts; nothing is estimated.
    version, and ROCm→Vulkan backend since July), so it is a then-vs-now
    observation, not evidence that any single layer "got faster".
 4. **Thinking-mode coherence at a real budget is qualified, not clean**
-   (`coherence-think-budget-20260814/`, `--think true --num-predict 4096`):
-   gemma4 passed 4/4 on first attempts — genuinely clean. qwen3.5 passed 4/4
-   only via best-of-3 retries, and its "passing" weekday answer contains a
+   (`coherence-think-budget-20260814/`, `--think true --num-predict 4096`, run
+   at **temp 1.0 / top_p 1.0** — a worst-case sampling point, not the 0.3 the
+   throughput rows used): gemma4 passed 4/4 on first attempts — clean.
+   qwen3.5 passed 4/4 only via retries (attempts 1/2/2/3), and its "passing"
+   weekday answer contains a
    **literal `</think>` leak plus a stray token** that the checker's
    substring matching missed — a thinking-separation defect, now caught by a
    dedicated think-tag-leak check in the gate. Conclusion: no *systematic*
@@ -90,6 +117,8 @@ from their run artifacts; nothing is estimated.
 | Item | Status |
 | --- | --- |
 | **8K-ctx throughput ladder** (the task's pass 1) | not yet run — the rows above are 16K mixed / 32K agentic; the contract's `num_ctx=8192` ladder is still owed for every row |
+| **gemma4 re-gate at benchmarked sampling** | owed — both gemma4 rows were gated at the pre-`09a03ea` default (temp 1.0 / top_p 1.0) but benchmarked at temp 0.3; re-run `coherence-smoke.py` at 0.3 for `cluster-vulkan-default` and `cluster-vulkan-agentic` |
+| **`think = false` mixed reruns** (gemma4, qwen3.5) | owed — needed before the mixed usable column is comparable across rows (nemotron already ran `think = false`) |
 | **Scored agentic pass** (`agentic-coding-bench.py` @ 32K) | not yet run — executes from pop with `--base` (macOS-only sandbox); distinct from the canned agentic workload above |
 | Prefill pass (real-payload corpus, cold + warm-prefix) | corpus committed (`benchmarks/ollama/corpus/`), runs from pop over LAN |
 | `gemma4:coding-12b` anchor | **excluded** — built `FROM gemma4:12b-mlx`, cannot run on timmy; replaced by the pop-side `gemma4:12b-it-qat` anchor ladder (pending) |
@@ -101,17 +130,43 @@ from their run artifacts; nothing is estimated.
 
 ## Sources
 
-Exact artifacts backing each row (tracked in git; the enclosing `pod/` fetch
-directories also contain stale co-copied artifacts from the shared results
-volume — trust only the timestamped paths below):
+Exact artifacts backing each row, all tracked in git and rooted at
+`benchmarks/results/`. Two layout facts matter for auditing:
 
-| Row | Artifact |
+- **The run directories hold only `results.json`, `summary.csv`, `summary.md`.**
+  The coherence, provenance, env, and backend-proof artifacts live one level up,
+  in the enclosing `vulkan-<TS>/` fetch directory — not in the run dir.
+- **Each fetch's `pod/` subdirectory carries co-copied artifacts from earlier
+  runs** (byte-identical copies, verified by checksum — not divergent data, just
+  redundant). Prefer the top-level `vulkan-<TS>/` path for a run's own gate,
+  provenance, and env; use the `pod/<run-dir>/` path for its `results.json`.
+
+| Row | `results.json` | Coherence gate (top-level in the same fetch) | Provenance / backend proof |
+| --- | --- | --- | --- |
+| gemma4 mixed | `vulkan-20260814T164006Z/pod/ollama-cluster-vulkan-default-20260814-170111/results.json` | `vulkan-20260814T164006Z/coherence-cluster-vulkan-default.json` (16:43:30Z, 4/4, temp 1.0) | `vulkan-20260814T164006Z/model-provenance-cluster-vulkan-default.txt`, `backend-proof-cluster-vulkan-default{,-load}.log` |
+| gemma4 agentic | `vulkan-20260814T164006Z/pod/ollama-cluster-vulkan-agentic-20260814-175618/results.json` | `vulkan-20260814T164006Z/coherence-cluster-vulkan-agentic.json` (17:01:22Z, 4/4, temp 1.0) | `vulkan-20260814T164006Z/model-provenance-cluster-vulkan-agentic.txt`, `backend-proof-cluster-vulkan-agentic{,-load}.log` |
+| qwen3.5 mixed | `vulkan-20260814T175855Z/pod/ollama-cluster-vulkan-qwen35-9b-default-20260814-182426/results.json` | `vulkan-20260814T175855Z/coherence-cluster-vulkan-qwen35-9b-default.json` (18:02:18Z, 4/4, temp 0.3) | `vulkan-20260814T175855Z/model-provenance-cluster-vulkan-qwen35-9b-default.txt`, `backend-proof-cluster-vulkan-qwen35-9b-default{,-load}.log` |
+| qwen3.5 agentic | `vulkan-20260814T182610Z/pod/ollama-cluster-vulkan-qwen35-9b-agentic-20260814-194422/results.json` | `vulkan-20260814T182610Z/coherence-cluster-vulkan-qwen35-9b-agentic.json` (18:29:25Z, 4/4, temp 0.3) | `vulkan-20260814T182610Z/model-provenance-cluster-vulkan-qwen35-9b-agentic.txt`, `backend-proof-cluster-vulkan-qwen35-9b-agentic{,-load}.log` |
+| nemotron bf16 mixed | `vulkan-20260811T212335Z/pod/ollama-cluster-nemotron-nano-bf16-default-20260811-214623/results.json` | `vulkan-20260811T212335Z/coherence-cluster-vulkan-nemotron-nano-bf16-default.json` (2026-08-11 21:26:49Z, 4/4, temp 1.0) | `vulkan-20260811T212335Z/model-provenance-cluster-vulkan-nemotron-nano-bf16-default.txt`, `backend-proof-cluster-vulkan-nemotron-nano-bf16-default{,-load}.log` |
+
+Each fetch directory also has its own `cluster-vulkan-env.json`.
+
+### Superseded coherence gates in the bundle — do not read these as row evidence
+
+Three gate transcripts in the tracked bundle **failed** and were re-run; they
+share filenames with the passing gates above and are distinguished only by
+fetch directory and internal timestamp. They are kept for audit history:
+
+| Superseded artifact | Result | Superseded by |
+| --- | --- | --- |
+| `vulkan-20260814T163454Z/coherence-cluster-vulkan-default.json` (16:38:37Z) | 5/8 — 3 empty answers under `think=true`, no `num_predict` override | 16:43:30Z gate above |
+| `vulkan-20260814T164006Z/coherence-cluster-vulkan-qwen35-9b-default.json` (17:56:45Z) | 2/4 — arithmetic wrong, days out of order; ran at pre-fix temp 1.0 | 18:02:18Z gate above (temp 0.3) |
+| `vulkan-20260814T175855Z/coherence-cluster-vulkan-qwen35-9b-agentic.json` (18:24:42Z) | 3/4 — arithmetic wrong | 18:29:25Z gate above |
+
+The qwen3.5 pair is itself evidence for finding 5: the same probe set failed at
+temp 1.0 and passed at the benchmarked 0.3.
+
+| Other | Artifact |
 | --- | --- |
-| gemma4 mixed | `vulkan-20260814T164006Z/pod/ollama-cluster-vulkan-default-20260814-170111/results.json` |
-| gemma4 agentic | `vulkan-20260814T164006Z/pod/ollama-cluster-vulkan-agentic-20260814-175618/results.json` |
-| qwen3.5 mixed | `vulkan-20260814T175855Z/pod/ollama-cluster-vulkan-qwen35-9b-default-20260814-182426/results.json` |
-| qwen3.5 agentic | `vulkan-20260814T182610Z/pod/ollama-cluster-vulkan-qwen35-9b-agentic-20260814-194422/results.json` |
-| nemotron bf16 mixed | `vulkan-20260811T212335Z/pod/ollama-cluster-nemotron-nano-bf16-default-20260811-214623/results.json` |
-| env / provenance / coherence per run | `cluster-vulkan-env.json`, `model-provenance-*.txt`, `coherence-*.json`, `backend-proof-*.log` in each run dir |
-| Think-budget transcripts | `coherence-think-budget-20260814/{gemma12bqat,qwen35-9b}.json` |
+| Think-budget transcripts | `coherence-think-budget-20260814/{gemma12bqat,qwen35-9b}.json` — note the **per-probe attempt counts are only in the sibling `.log` files** (gemma 1/1/1/1, qwen 1/2/2/3); the JSONs predate the attempts field. Both JSONs also still record `passed: true` for the leaking qwen weekday probe — they predate the think-tag-leak check (`benchmarks/ollama/tools/coherence-smoke.py:253`) and were not re-run against the hardened gate |
 | Vault records | TASK-1186 (methodology, selection), TASK-1013 (nemotron), INFO-1047 (July baseline), INFO-1140 (nemotron_h serialization on pop) |
