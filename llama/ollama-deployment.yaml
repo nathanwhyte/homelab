@@ -80,12 +80,17 @@ spec:
             # uses num_ctx=32768). Ollama allocates KV on demand, so this does not
             # pre-allocate 32K worth of cache; it just permits per-request num_ctx up
             # to this value. Production Hermes/mem0 workloads stay at 16K or below.
-            # 65536 (was 32768, TASK-1188/IMPR-1114): NemoHermes checks a >=64000
-            # loaded context at onboarding and on every rebuild (INFO-1142). The
-            # nano-4b candidate's hybrid-Mamba KV makes this nearly free: measured
-            # 7.9 GiB total at 64K ctx, 100% GPU (2026-08-14).
+            # 131072 (was 32768 -> 65536 -> 131072, TASK-1188/IMPR-1114): NemoHermes
+            # checks a >=64000 loaded context at onboarding and on every rebuild
+            # (INFO-1142); 128K gives long-running agent tasks real room. The
+            # nano-4b tenant's hybrid-Mamba KV makes this nearly free: measured
+            # 7.9 GiB @64K and 8.68 GiB @128K, both 100% GPU (2026-08-14).
+            # Models with Modelfile-baked num_ctx (the FIM tags) are unaffected;
+            # benchmark configs always set num_ctx explicitly. Background/fork
+            # agents use the nemotron-3-nano:agent-bg tag (baked num_ctx 16384)
+            # so they never allocate the full window.
             - name: OLLAMA_CONTEXT_LENGTH
-              value: "65536"
+              value: "131072"
             - name: OLLAMA_FLASH_ATTENTION
               value: "1"
             # q8_0 (was q4_0, ea1cafc): q4_0 was needed when dual-model loading
