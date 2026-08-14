@@ -1,0 +1,60 @@
+=== PROVENANCE ===
+Lines below were read from the ollama container log of pod
+ollama-6d855bc45f-tbkcv (ns llama) on 2026-08-14 during the slot probe, via:
+  kubectl -n llama logs <pod> -c ollama --tail=6000 |
+    grep -Ei 'n_seq_max|^llama_context: n_ctx +=|new slot, n_ctx|loaded runners'
+
+They are TRANSCRIBED, not a re-capture: restoring the deployment to
+NUM_PARALLEL=2 rolled the pod, so the original container log no longer exists.
+The probe is reproducible from the README's Reproduction section; future runs
+capture these lines automatically via capture_backend_proof().
+
+=== deepseek-coder-v2:fim @ num_ctx=16384 (startup warm, control) ===
+llama_context: n_seq_max             = 8
+llama_context: n_ctx                 = 131072
+llama_context: n_batch               = 512
+llama_context: n_ubatch              = 512
+slot   load_model: id  0 | task -1 | new slot, n_ctx = 16384
+slot   load_model: id  1 | task -1 | new slot, n_ctx = 16384
+slot   load_model: id  2 | task -1 | new slot, n_ctx = 16384
+slot   load_model: id  3 | task -1 | new slot, n_ctx = 16384
+slot   load_model: id  4 | task -1 | new slot, n_ctx = 16384
+slot   load_model: id  5 | task -1 | new slot, n_ctx = 16384
+slot   load_model: id  6 | task -1 | new slot, n_ctx = 16384
+slot   load_model: id  7 | task -1 | new slot, n_ctx = 16384
+time=2026-08-14T21:50:21.661Z level=INFO source=sched.go:728 msg="loaded runners" count=1
+
+=== qwen3.5:9b-q4_K_M @ num_ctx=32768 (agentic-row condition) ===
+llama_context: n_seq_max             = 1
+llama_context: n_ctx                 = 32768
+slot   load_model: id  0 | task -1 | new slot, n_ctx = 32768
+time=2026-08-14T21:53:26.726Z level=INFO source=sched.go:728 msg="loaded runners" count=1
+
+=== qwen3.5:9b-q4_K_M @ num_ctx=16384 (mixed-row condition) ===
+llama_context: n_seq_max             = 1
+llama_context: n_ctx                 = 16384
+slot   load_model: id  0 | task -1 | new slot, n_ctx = 16384
+time=2026-08-14T21:54:13.812Z level=INFO source=sched.go:728 msg="loaded runners" count=1
+
+=== gemma4:12b-it-qat @ num_ctx=32768 (agentic-row condition — the model that scaled) ===
+llama_context: n_seq_max             = 8
+llama_context: n_ctx                 = 262144
+slot   load_model: id  0 | task -1 | new slot, n_ctx = 32768
+slot   load_model: id  1 | task -1 | new slot, n_ctx = 32768
+slot   load_model: id  2 | task -1 | new slot, n_ctx = 32768
+slot   load_model: id  3 | task -1 | new slot, n_ctx = 32768
+slot   load_model: id  4 | task -1 | new slot, n_ctx = 32768
+slot   load_model: id  5 | task -1 | new slot, n_ctx = 32768
+slot   load_model: id  6 | task -1 | new slot, n_ctx = 32768
+slot   load_model: id  7 | task -1 | new slot, n_ctx = 32768
+time=2026-08-14T21:54:27.774Z level=INFO source=sched.go:728 msg="loaded runners" count=1
+
+=== nemotron-3-nano:4b-bf16 @ num_ctx=16384 (mixed-row condition) ===
+llama_context: n_seq_max             = 1
+llama_context: n_ctx                 = 16384
+slot   load_model: id  0 | task -1 | new slot, n_ctx = 16384
+
+=== post-restore verification (pod ollama-8675d9445c-czwcb, NUM_PARALLEL=2) ===
+llama_context: n_seq_max             = 2
+slot   load_model: id  0 | task -1 | new slot, n_ctx = 16384
+slot   load_model: id  1 | task -1 | new slot, n_ctx = 16384

@@ -279,6 +279,13 @@ capture_env() {
 # Persist the runner lines the server logged while loading the model. The env
 # vars above state the *intent*; these lines are the evidence that the Vulkan
 # path engaged on the discrete GPU and how many layers were offloaded.
+#
+# The parallelism half of the pattern exists because OLLAMA_NUM_PARALLEL is a
+# *request*, not a guarantee: the runner can silently load with fewer slots than
+# asked for when the KV budget (num_ctx x slots) does not fit. Without
+# `n_seq_max`/`n_ctx_per_seq`/`--parallel` in the artifact, a flat scaling curve
+# cannot be told apart from a model that simply never got its slots — which is
+# exactly the ambiguity that left the 2026-08-14 qwen3.5 rows provisional.
 capture_backend_proof() {
 	local config="$1" pod out
 	out="${OUTPUT_DIR}/backend-proof-${config}.log"
@@ -288,7 +295,7 @@ capture_backend_proof() {
 		return 0
 	fi
 	kubectl logs -n "$NS" "$pod" -c ollama --tail=4000 2>/dev/null |
-		grep -Ei 'ggml_vulkan|vulkan|rocm|hipblas|gfx[0-9]+|library=|offload|Radeon' \
+		grep -Ei 'ggml_vulkan|vulkan|rocm|hipblas|gfx[0-9]+|library=|offload|Radeon|n_seq_max|n_ctx_per_seq|n_ctx[ =]|n_parallel|--parallel|--ctx-size|n_batch|n_ubatch|KV self|kv_cache|starting llama server' \
 			>"$out" || true
 	if [ -s "$out" ]; then
 		log "backend proof for ${config} written to ${out}"

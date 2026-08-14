@@ -1,0 +1,144 @@
+{
+  "model": "gemma4:12b-it-qat",
+  "url": "http://localhost:11499",
+  "timestamp": "2026-08-14T21:57:31Z",
+  "sampling": {
+    "num_ctx": 16384,
+    "temperature": 0.3,
+    "top_p": 1.0,
+    "num_predict_override": null
+  },
+  "think_modes": [
+    false
+  ],
+  "summary": {
+    "total": 4,
+    "passed": 4
+  },
+  "probes": [
+    {
+      "name": "fizzbuzz",
+      "think": false,
+      "passed": true,
+      "attempts": 1,
+      "failure": null,
+      "request": {
+        "model": "gemma4:12b-it-qat",
+        "prompt": "Print the numbers 1 to 15, one per line. Replace multiples of 3 with Fizz, multiples of 5 with Buzz, and multiples of both with FizzBuzz. Output only the list.",
+        "stream": false,
+        "options": {
+          "num_ctx": 16384,
+          "num_predict": 512,
+          "temperature": 0.3,
+          "top_p": 1.0
+        },
+        "think": false
+      },
+      "response": "1\n2\nFizz\n4\nBuzz\nFizz\n7\n8\nFizz\nBuzz\n11\nFizz\n13\n14\nFizzBuzz",
+      "thinking": null,
+      "done_reason": "stop",
+      "server": {
+        "total_duration": 57130522033,
+        "load_duration": 56494470973,
+        "prompt_eval_count": 55,
+        "prompt_eval_duration": 105435000,
+        "eval_count": 34,
+        "eval_duration": 529052000
+      },
+      "wall_s": 57.152
+    },
+    {
+      "name": "arithmetic",
+      "think": false,
+      "passed": true,
+      "attempts": 1,
+      "failure": null,
+      "request": {
+        "model": "gemma4:12b-it-qat",
+        "prompt": "What is 17 multiplied by 23? Reply with only the number.",
+        "stream": false,
+        "options": {
+          "num_ctx": 16384,
+          "num_predict": 128,
+          "temperature": 0.3,
+          "top_p": 1.0
+        },
+        "think": false
+      },
+      "response": "391",
+      "thinking": null,
+      "done_reason": "stop",
+      "server": {
+        "total_duration": 501234062,
+        "load_duration": 370841046,
+        "prompt_eval_count": 30,
+        "prompt_eval_duration": 73387000,
+        "eval_count": 4,
+        "eval_duration": 49177000
+      },
+      "wall_s": 0.506
+    },
+    {
+      "name": "ordered-recall",
+      "think": false,
+      "passed": true,
+      "attempts": 1,
+      "failure": null,
+      "request": {
+        "model": "gemma4:12b-it-qat",
+        "prompt": "List the seven days of the week in order, comma-separated, with no other text.",
+        "stream": false,
+        "options": {
+          "num_ctx": 16384,
+          "num_predict": 128,
+          "temperature": 0.3,
+          "top_p": 1.0
+        },
+        "think": false
+      },
+      "response": "Monday, Tuesday, Wednesday, Thursday, Friday, Saturday, Sunday",
+      "thinking": null,
+      "done_reason": "stop",
+      "server": {
+        "total_duration": 645638216,
+        "load_duration": 366524256,
+        "prompt_eval_count": 32,
+        "prompt_eval_duration": 63258000,
+        "eval_count": 14,
+        "eval_duration": 209138000
+      },
+      "wall_s": 0.65
+    },
+    {
+      "name": "prose",
+      "think": false,
+      "passed": true,
+      "attempts": 1,
+      "failure": null,
+      "request": {
+        "model": "gemma4:12b-it-qat",
+        "prompt": "In one paragraph of three or four sentences, explain what a hash table is and why lookups are fast.",
+        "stream": false,
+        "options": {
+          "num_ctx": 16384,
+          "num_predict": 512,
+          "temperature": 0.3,
+          "top_p": 1.0
+        },
+        "think": false
+      },
+      "response": "A hash table is a data structure that stores information in key-value pairs by using a mathematical function, known as a hash function, to map each key to a specific index in an array. Because the hash function directly calculates the memory location of the data, the computer can jump straight to the desired entry rather than searching through the entire list sequentially. This mechanism allows for near-instantaneous lookups, typically achieving a constant time complexity of O(1) regardless of how much data is stored.",
+      "thinking": null,
+      "done_reason": "stop",
+      "server": {
+        "total_duration": 2027154519,
+        "load_duration": 360418791,
+        "prompt_eval_count": 35,
+        "prompt_eval_duration": 63142000,
+        "eval_count": 101,
+        "eval_duration": 1596531000
+      },
+      "wall_s": 2.033
+    }
+  ]
+}

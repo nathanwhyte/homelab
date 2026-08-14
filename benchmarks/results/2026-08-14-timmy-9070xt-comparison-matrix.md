@@ -46,9 +46,17 @@ from their run artifacts; nothing is estimated.
 | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | --- | --- |
 | `gemma4:12b-it-qat` | Q4 QAT | agentic 32K | 58.1 | 65.4 | 92.4 | **126.2** | 11.8s | **24/24 → 24/24, zero truncation** | **Scales 2.2× — the clean scaling result** |
 | `gemma4:12b-it-qat` | Q4 QAT | mixed | 57.0 | 73.3 | 125.0 | 186.8 | 9.0s | 4/24 → 1/24 (all `length`; thinking ate the 512 cap) | Scales 3.3× — **decode-rate only, answers unusable** |
-| `qwen3.5:9b-q4_K_M` | Q4_K_M | mixed | 79.6 | 82.3 | 82.2 | 82.2 | 0.35s | 11/24 → 12/24 (mostly `length`) | Flat — serializes |
-| `qwen3.5:9b-q4_K_M` | Q4_K_M | agentic 32K | 82.8 | 83.6 | 83.5 | 83.5 | 0.41s | 13/24 → 14/24 (P95 TTFT 160s @ C=8) | Flat — serializes |
-| `nemotron-3-nano:4b-bf16` | BF16 | mixed (2026-08-11) | 68.8 | 70.8 | 70.7 | 70.7 | 0.32s | 24/24 → 24/24 (9–12 truncated, 0 empty) | Flat — `nemotron_h` serializes on Vulkan too |
+| `qwen3.5:9b-q4_K_M` | Q4_K_M | mixed | 79.6 | 82.3 | 82.2 | 82.2 | 0.35s | 11/24 → 12/24 (mostly `length`) | ⚠️ **INVALID — ran on 1 slot** |
+| `qwen3.5:9b-q4_K_M` | Q4_K_M | agentic 32K | 82.8 | 83.6 | 83.5 | 83.5 | 0.41s | 13/24 → 14/24 (P95 TTFT 160s @ C=8) | ⚠️ **INVALID — ran on 1 slot** |
+| `nemotron-3-nano:4b-bf16` | BF16 | mixed (2026-08-11) | 68.8 | 70.8 | 70.7 | 70.7 | 0.32s | 24/24 → 24/24 (9–12 truncated, 0 empty) | ⚠️ **INVALID — ran on 1 slot** |
+
+> ⚠️ **The three rows marked INVALID are not concurrency measurements.** The
+> 2026-08-14 slot probe (`slot-probe-20260814/`) established that `qwen3.5` and
+> `nemotron-nano` were loaded with `n_seq_max = 1` — a single slot — while
+> `NUM_PARALLEL=8` was set. A one-slot runner cannot batch by construction, so
+> their flat curves measure the harness, not the model. Their **C=1 columns and
+> TTFT figures remain valid** (every row used one slot at C=1); everything at
+> C≥2 must be re-measured. See finding 8.
 
 ## Findings
 
@@ -56,9 +64,12 @@ from their run artifacts; nothing is estimated.
    usable, zero-truncation answers at every level.** The mixed 3.3× figure is
    real decode-rate scaling but its answers were 96% empty/truncated at C=8
    (thinking + the 512-token cap) — quote it only as a decode ceiling, never
-   as serving capacity. qwen3.5 and nemotron-nano both show the serialization
-   signature (flat aggregate, constant ITL, TTFT growing with queue depth);
-   gemma4 remains the only model measured that scales under concurrency.
+   as serving capacity. ~~qwen3.5 and nemotron-nano both show the serialization
+   signature; gemma4 remains the only model measured that scales under
+   concurrency.~~ **RETRACTED 2026-08-14** — the other two were never given more
+   than one slot, so they had no opportunity to batch. gemma4's own scaling
+   stands (verified 8 slots), but **"the only model that scales" is not a
+   supported claim**; it is untested for every other row. See finding 8.
    **The gemma4 curves are noisy, not smooth** — the table samples C=1/2/4/8
    and hides level-to-level reversals of up to ~13%: agentic dips to 103.5 at
    C=6 from 119.0 at C=5, and mixed dips to 142.9 at C=7 from 149.9 at C=6.
@@ -69,9 +80,11 @@ from their run artifacts; nothing is estimated.
    concurrency level, on both workloads. **But "serializes" is an observation,
    not a diagnosis — see finding 8 for what is and isn't established.**
 2. **qwen3.5:9b wins solo latency** (79.6 tok/s single-stream, sub-second
-   TTFT vs gemma4's ~9–12s) but serializes, and only ~46–63% of its answers
-   were usable under these workloads — solo-latency pick, wrong for
-   multi-session serving, and check output-budget fit before relying on it.
+   TTFT vs gemma4's ~9–12s) and only ~46–63% of its answers were usable under
+   these workloads — solo-latency pick; check output-budget fit before relying
+   on it. **The "wrong for multi-session serving" half of this finding is
+   withdrawn**: it rested on the flat curve, which the slot probe showed was a
+   one-slot artifact. Its multi-session behavior is simply unmeasured.
 3. **vs July (INFO-1047), like-for-like**: ~+21% aggregate (47.0 → 56.95
    C=1) or ~+17% per-request generation (51.3 → 60.1). The earlier "+12%"
    compared aggregate against per-request speed — wrong pairing. The delta is
@@ -113,23 +126,35 @@ from their run artifacts; nothing is estimated.
    +6.17 s. nemotron matches its own prediction (~5.3 s) too; gemma4's
    increments (~1.4–3.5 s) fall far below its serialized prediction of 8.5 s,
    because its requests overlap.
-   - **nemotron-3-nano — settled.** `nemotron_h` is a hybrid Mamba/SSM
-     architecture; SSM layers carry per-sequence recurrent state rather than a
-     KV cache that concatenates along a batch dimension, and llama.cpp's
-     SSM_SCAN path handles one sequence at a time. Serializes on **both**
-     backends (pop MLX per INFO-1140, timmy Vulkan here) — an architecture
-     property, not a Vulkan one.
-   - **qwen3.5:9b — NOT established.** It is a dense transformer and should
-     batch; gemma4 proves this Vulkan path can. The leading suspect is silent
-     slot reduction (32K ctx × 8 slots is a large KV budget even at q8_0), but
-     **no artifact in the bundle can discriminate**: `cluster-vulkan-env.json`
-     and the backend-proof logs confirm `OLLAMA_NUM_PARALLEL=8` was *requested*,
-     yet the backend-proof capture records the ollama server's startup env
-     before the model loads, so the llama.cpp runner's actual `n_parallel` /
-     `n_ctx_per_seq` is recorded **nowhere** in the evidence. Treat the
-     qwen3.5 rows' scaling conclusion as **provisional** until the runner slot
-     count is captured — if the runner took fewer than 8 slots, the rows
-     measure a config artifact and must be re-run.
+   **RESOLVED 2026-08-14 by direct probe** (`slot-probe-20260814/`): the cause
+   is slot allocation, not model behavior. Loading each model at its row's
+   `num_ctx` under the benchmark posture and reading the runner's `n_seq_max`:
+
+   | Model | `num_ctx` | `n_seq_max` | Scaled? |
+   | --- | ---: | ---: | --- |
+   | `deepseek-coder-v2:fim` (control) | 16384 | **8** | n/a |
+   | `gemma4:12b-it-qat` | 32768 | **8** | yes — 2.2× |
+   | `qwen3.5:9b-q4_K_M` | 32768 | **1** | no |
+   | `qwen3.5:9b-q4_K_M` | 16384 | **1** | no |
+   | `nemotron-3-nano:4b-bf16` | 16384 | **1** | no |
+
+   Slot count correlates perfectly with observed scaling. Every "serializing"
+   model had exactly one slot; a one-slot runner cannot batch, which alone
+   explains the flat aggregate, the four-decimal-constant ITL, and the FIFO
+   queue arithmetic — no model property is needed.
+
+   - **This is not a simple VRAM ceiling.** `gemma4:12b-it-qat` is the *larger*
+     model (8.0 GB resident vs qwen3.5's 6.1 GB) and got 8 slots at the *larger*
+     context — 262144 total KV tokens versus the 16384 qwen3.5 received.
+     Whatever caps qwen3.5 and nemotron at `n_seq_max = 1` is model-specific
+     scheduler behavior; diagnosing it is separate follow-up work.
+   - **nemotron's SSM explanation is now unsupported *by this row*.** The
+     `nemotron_h` hybrid-Mamba serialization argument retains independent
+     support from the pop MLX result (INFO-1140), but the timmy Vulkan row
+     cannot corroborate it — a one-slot runner looks identical.
+   - **What survives:** all C=1 figures, TTFT, single-stream decode rates, and
+     the coherence/quality findings. Every row used one slot at C=1 regardless,
+     so solo numbers are unaffected.
 
 ## Cross-host notes (vs pop, M5 Max)
 
@@ -140,17 +165,21 @@ from their run artifacts; nothing is estimated.
 - pop's MLX path does not continuous-batch (aggregate ≈ single-stream); timmy's
   llama.cpp/Vulkan path demonstrably does — for gemma4-class models the dGPU
   wins multi-session workloads even where pop wins single-stream decode.
-- nemotron family serializes on **both** backends (pop 0.32.9 MLX and timmy
-  Vulkan GGUF): excellent single-stream, unsuitable for fan-out.
+- nemotron family serializes on pop's MLX path (INFO-1140). The timmy Vulkan
+  row **cannot corroborate that** — it ran on one slot (slot probe, 2026-08-14),
+  so it is silent on whether `nemotron_h` batches under Vulkan. Excellent
+  single-stream on both; fan-out behavior on Vulkan is unmeasured.
 
 ## Pending rows and passes (TASK-1186)
 
 | Item | Status |
 | --- | --- |
 | **8K-ctx throughput ladder** (the task's pass 1) | not yet run — the rows above are 16K mixed / 32K agentic; the contract's `num_ctx=8192` ladder is still owed for every row |
-| **qwen3.5 runner slot-count probe** | **owed first — gates finding 8.** Load `qwen3.5:9b-q4_K_M` at 32K with `OLLAMA_NUM_PARALLEL=8` and capture the llama.cpp runner's `n_parallel` / `n_ctx_per_seq` after the model is resident. Minutes, not a re-run. If < 8 slots, the qwen3.5 rows are invalid and must be re-measured |
-| **Harness: capture runner parallelism** | `backend-proof-*-load.log` records the server startup env only; add a post-load capture of the runner's slot count so every future row proves the parallelism it actually got |
-| **gemma4 re-gate at benchmarked sampling** | owed — both gemma4 rows were gated at the pre-`09a03ea` default (temp 1.0 / top_p 1.0) but benchmarked at temp 0.3; re-run `coherence-smoke.py` at 0.3 for `cluster-vulkan-default` and `cluster-vulkan-agentic` |
+| ~~qwen3.5 runner slot-count probe~~ | ✅ **done 2026-08-14** — `slot-probe-20260814/`. Result: 1 slot for qwen3.5 (both contexts) and nemotron, 8 for gemma4. Three rows invalidated |
+| ~~Harness: capture runner parallelism~~ | ✅ **done 2026-08-14** — `capture_backend_proof()`'s grep widened to keep `n_seq_max` / `n_ctx_per_seq` / `new slot`, which it previously discarded. Future rows prove the parallelism they received |
+| ~~gemma4 re-gate at benchmarked sampling~~ | ✅ **done 2026-08-14** — `coherence-regate-20260814/`, temp 0.3 / top_p 1.0, **4/4 first attempt, no think-tag leaks**. The gemma4 rows' precondition now holds at their benchmarked sampling |
+| **Re-measure the 3 invalidated rows at 8 real slots** | **owed** — qwen3.5 mixed + agentic, nemotron bf16 mixed. Must assert `n_seq_max == 8` from the runner log before the numbers count; if the scheduler still caps at 1, that cap is the finding and the rows should be labeled `np=1` rather than presented as scaling curves |
+| **Diagnose the `n_seq_max = 1` cap** | owed — why does a 6.1 GB model at 16K get one slot when a 8.0 GB model at 32K gets eight? Not a VRAM ceiling; likely scheduler KV estimation. Blocks trusting any future multi-slot row |
 | **`think = false` mixed reruns** (gemma4, qwen3.5) | owed — needed before the mixed usable column is comparable across rows (nemotron already ran `think = false`) |
 | **Scored agentic pass** (`agentic-coding-bench.py` @ 32K) | not yet run — executes from pop with `--base` (macOS-only sandbox); distinct from the canned agentic workload above |
 | Prefill pass (real-payload corpus, cold + warm-prefix) | corpus committed (`benchmarks/ollama/corpus/`), runs from pop over LAN |
@@ -201,5 +230,7 @@ temp 1.0 and passed at the benchmarked 0.3.
 
 | Other | Artifact |
 | --- | --- |
+| Runner slot probe (settles finding 8) | `slot-probe-20260814/README.md` + `runner-slot-lines.log` — note the runner lines are **transcribed**, not a re-capture: restoring the deployment rolled the pod and destroyed the original container log. Reproduction steps are in the README, and `capture_backend_proof()` now records these lines automatically |
+| gemma4 re-gate at temp 0.3 | `coherence-regate-20260814/coherence-gemma4-12b-it-qat-temp0.3.json` — 4/4, all first attempt, attempt counts present, no think-tag leaks. Gate ran at `NUM_PARALLEL=2` over a port-forward (a coherence check, not a throughput run — slot count is irrelevant to it) |
 | Think-budget transcripts | `coherence-think-budget-20260814/{gemma12bqat,qwen35-9b}.json` — note the **per-probe attempt counts are only in the sibling `.log` files** (gemma 1/1/1/1, qwen 1/2/2/3); the JSONs predate the attempts field. Both JSONs also still record `passed: true` for the leaking qwen weekday probe — they predate the think-tag-leak check (`benchmarks/ollama/tools/coherence-smoke.py:253`) and were not re-run against the hardened gate |
 | Vault records | TASK-1186 (methodology, selection), TASK-1013 (nemotron), INFO-1047 (July baseline), INFO-1140 (nemotron_h serialization on pop) |
