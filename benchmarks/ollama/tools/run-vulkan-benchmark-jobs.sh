@@ -366,7 +366,18 @@ run_coherence_gate() {
 		think_flags="--think ${think}"
 	fi
 
-	log "running coherence gate Job for ${config} (model=${model}${think:+, think=${think}})"
+	# The gate must probe the sampling the throughput run uses. Its built-in
+	# defaults (temperature 1.0 / top_p 1.0) failed qwen3.5's arithmetic probe
+	# on 2026-08-14 while the benchmarked temperature 0.3 was never exercised.
+	# config_value cannot see through inline comments — keep the sampling lines
+	# in cluster configs bare (`temperature = 0.3`, no trailing comment).
+	local temp topp
+	temp=$(config_value "$config" temperature)
+	topp=$(config_value "$config" top_p)
+	[ -n "$temp" ] && think_flags="${think_flags} --temperature ${temp}"
+	[ -n "$topp" ] && think_flags="${think_flags} --top-p ${topp}"
+
+	log "running coherence gate Job for ${config} (model=${model}${think:+, think=${think}}${temp:+, temp=${temp}}${topp:+, top_p=${topp}})"
 	kubectl delete job ollama-coherence-smoke -n "$NS" --ignore-not-found=true
 	# `|` as the sed delimiter: model tags contain `/` and `:`.
 	sed -e "s|\${CONFIG}|${config}|g" \

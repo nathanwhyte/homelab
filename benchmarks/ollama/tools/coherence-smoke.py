@@ -71,7 +71,12 @@ def _check_weekdays(text: str) -> Optional[str]:
         if idx < 0:
             return f"missing {day}"
         positions.append(idx)
-    if positions != sorted(positions):
+    # Accept any rotation of the weekly cycle: Monday-first and Sunday-first
+    # are both correct orderings (qwen3.5 answered Sunday-first on 2026-08-14
+    # and was failed for it), and cyclic order is what the probe is testing.
+    by_position = [day for _, day in sorted(zip(positions, DAYS))]
+    rotations = [DAYS[i:] + DAYS[:i] for i in range(len(DAYS))]
+    if by_position not in rotations:
         return "days are not in order"
     return None
 
