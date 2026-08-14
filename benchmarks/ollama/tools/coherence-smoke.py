@@ -188,6 +188,7 @@ def run_probe(
     temperature: float,
     top_p: float,
     timeout: float,
+    num_predict: Optional[int] = None,
 ) -> ProbeResult:
     payload: dict[str, Any] = {
         "model": model,
@@ -197,7 +198,7 @@ def run_probe(
         "stream": False,
         "options": {
             "num_ctx": num_ctx,
-            "num_predict": probe.num_predict,
+            "num_predict": num_predict or probe.num_predict,
             "temperature": temperature,
             "top_p": top_p,
         },
@@ -276,6 +277,17 @@ def main() -> int:
         ),
     )
     parser.add_argument("--num-ctx", type=int, default=16384)
+    parser.add_argument(
+        "--num-predict",
+        type=int,
+        default=None,
+        help=(
+            "Override every probe's per-probe num_predict. Raise this when "
+            "probing thinking modes: reasoning shares the budget with the "
+            "answer, and the 128-512 probe defaults leave a thinking model no "
+            "room to answer (observed 2026-08-14 with gemma4:12b-it-qat)."
+        ),
+    )
     parser.add_argument("--temperature", type=float, default=1.0)
     parser.add_argument("--top-p", type=float, default=1.0)
     parser.add_argument(
@@ -306,6 +318,7 @@ def main() -> int:
                 args.temperature,
                 args.top_p,
                 args.timeout,
+                args.num_predict,
             )
             results.append(res)
             status = "PASS" if res.passed else f"FAIL ({res.failure})"
@@ -324,6 +337,7 @@ def main() -> int:
             "num_ctx": args.num_ctx,
             "temperature": args.temperature,
             "top_p": args.top_p,
+            "num_predict_override": args.num_predict,
         },
         "think_modes": think_modes,
         "summary": {"total": len(results), "passed": passed},
