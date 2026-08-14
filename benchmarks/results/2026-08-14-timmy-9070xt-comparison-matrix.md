@@ -143,6 +143,17 @@ from their run artifacts; nothing is estimated.
    explains the flat aggregate, the four-decimal-constant ITL, and the FIFO
    queue arithmetic — no model property is needed.
 
+   **Re-run on a verified-empty GPU (same result).** The first pass loaded each
+   model just after evicting the pinned FIM model, so a not-yet-released
+   allocation could in principle have capped the slots. The probe was repeated
+   with the scheduler's VRAM accounting captured per load: all five loads report
+   `available="15.4 GiB" free="15.9 GiB"` — a free card every time — and the
+   slot counts are identical. Ordering rules it out independently too: gemma4,
+   which got 8 slots, was loaded *between* two models that got 1. Further, the
+   fitter reports `no changes needed` for both the 8-slot and 1-slot loads —
+   nothing was reduced to fit, so `n_seq_max = 1` is chosen upstream in Ollama's
+   scheduler, before llama.cpp's parameter fitting runs.
+
    - **This is not a simple VRAM ceiling.** `gemma4:12b-it-qat` is the *larger*
      model (8.0 GB resident vs qwen3.5's 6.1 GB) and got 8 slots at the *larger*
      context — 262144 total KV tokens versus the 16384 qwen3.5 received.

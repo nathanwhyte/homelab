@@ -31,6 +31,48 @@ one. A single-slot runner cannot batch by construction, so the flat aggregate,
 the ITL constant to four decimals, and the strict-FIFO queue arithmetic are all
 fully explained by slot allocation — no model property is required.
 
+## Clean re-run — co-residency confound ruled out
+
+The first pass loaded each model shortly after evicting the pinned FIM model
+(`MAX_LOADED_MODELS=1`, `KEEP_ALIVE=Forever`, so `deepseek-coder-v2:fim` keeps
+re-warming). Eviction is asynchronous and the scheduler sizes slots against free
+VRAM *at load time*, so a not-yet-released allocation could in principle have
+capped the slot count. The probe was therefore re-run and the scheduler's own
+VRAM accounting captured per load (`clean-rerun/ollama-pod-full.log`, pod
+`ollama-6d855bc45f-khd6s`).
+
+**Every one of the five loads reports the same device state:**
+
+```text
+msg="gpu memory" id=0 library=Vulkan available="15.4 GiB" free="15.9 GiB" minimum="457.0 MiB" overhead="0 B"
+```
+
+That is a free 16 GB card at each load — nothing was co-resident. Results are
+identical to the first pass:
+
+| # | Load | `n_seq_max` | `n_ctx` | Slots |
+| --- | --- | ---: | ---: | --- |
+| 1 | `deepseek-coder-v2:fim` @16K (startup warm) | **8** | 131072 | 8 × 16384 |
+| 2 | `qwen3.5:9b-q4_K_M` @32K | **1** | 32768 | 1 × 32768 |
+| 3 | `gemma4:12b-it-qat` @32K | **8** | 262144 | 8 × 32768 |
+| 4 | `nemotron-3-nano:4b-bf16` @16K | **1** | 16384 | 1 × 16384 |
+| 5 | `qwen3.5:9b-q4_K_M` @16K | **1** | 16384 | 1 × 16384 |
+
+Ordering also argues against a residual-memory explanation independently of the
+VRAM lines: the model that received **8** slots (gemma4) was loaded *between*
+two models that received **1**. A lingering allocation would have penalised the
+middle load, not spared it.
+
+### The cap is set before the fitting step, not by it
+
+For the loads that got 8 slots the fitter reports it had room to spare, e.g.
+gemma4: `projected to use 5567 MiB of device memory vs. 16185 MiB of free device
+memory` … `will leave 10617 >= 1919 MiB of free device memory, no changes
+needed`. The qwen3.5 loads report the same "no changes needed" outcome — yet
+arrive at the context construction with `n_seq_max` already equal to 1. Nothing
+was reduced to make anything fit; the single-slot value is chosen upstream, in
+Ollama's scheduler, before llama.cpp's parameter fitting runs.
+
 ## Why this is not simply "the KV did not fit"
 
 `gemma4:12b-it-qat` is the **larger** model (8.0 GB resident vs qwen3.5's 6.1 GB)
@@ -71,3 +113,15 @@ kubectl -n llama set env deploy/ollama OLLAMA_NUM_PARALLEL=2 OLLAMA_CONTEXT_LENG
 in `capture_backend_proof` was widened to keep `n_seq_max` / `n_ctx_per_seq` /
 `new slot`, which it previously discarded. Every future row proves the
 parallelism it actually received.
+
+## Artifact provenance
+
+- `clean-rerun/ollama-pod-full.log` — the **authoritative** evidence: a real
+  `kubectl logs` capture of pod `ollama-6d855bc45f-khd6s`, taken *before* the
+  restore rollout, containing all five loads with their per-load VRAM
+  accounting.
+- `runner-slot-lines.log` — first pass, **transcribed** from the session rather
+  than re-captured: that probe's restore rolled the pod and destroyed its
+  container log before it was saved. Retained because it is an independent
+  replication (different pod, different load order, same result); prefer the
+  clean-rerun log when auditing.
