@@ -1,0 +1,30 @@
+# TASK-1186 row 9: nemotron-3-nano:4b-q8_0 — quant pair against the bf16 row.
+# Mirrors cluster-vulkan-nemotron-nano-bf16-default.toml (shipped sampling,
+# think=false for clean throughput). VERSION GATE: needs ollama >= 0.32.9.
+
+[ollama]
+url = "http://ollama.llama.svc:11434"
+model = "nemotron-3-nano:4b-q8_0"
+num_ctx = 16384
+num_predict = 512
+temperature = 1.0
+think = false
+
+[ollama.options]
+top_p = 1.0
+
+[workload]
+name = "mixed_mem0"
+max_concurrency = 8
+requests_per_level = 8
+repeats = 3
+cooldown_seconds = 15
+
+[prometheus]
+url = "http://prom-prometheus.grafana:9090"
+instance_label = ".*"
+sample_interval_seconds = 2.0
+
+[output]
+dir = "benchmarks/results"
+prefix = "ollama-cluster-nemotron-nano-q8-default"

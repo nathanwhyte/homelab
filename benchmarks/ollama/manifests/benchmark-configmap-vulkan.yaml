@@ -54,6 +54,75 @@ data:
     [output]
     dir = "benchmarks/results"
     prefix = "ollama-cluster-vulkan-default"
+  cluster-vulkan-nemotron-nano-bf16-agentic-nothink.toml: |
+    # TASK-1186 row 8 / TASK-1013: nemotron-3-nano:4b-bf16, THINKING OFF, agentic
+    # @ 32K, C=1..3 — the nothink half of the pair, isolating reasoning cost
+    # (pop measured thinking at ~4x output tokens / ~6x wall on this family).
+    # Sampling: Temperature 1.0 / Top_P 0.95, as shipped.
+    # Run with BENCH_NUM_PARALLEL=3. VERSION GATE: needs ollama >= 0.32.9.
+
+    [ollama]
+    url = "http://ollama.llama.svc:11434"
+    model = "nemotron-3-nano:4b-bf16"
+    num_ctx = 32768
+    num_predict = 16384
+    temperature = 1.0
+    think = false
+
+    [ollama.options]
+    top_p = 0.95
+
+    [workload]
+    name = "agentic"
+    max_concurrency = 3
+    requests_per_level = 3
+    repeats = 3
+    cooldown_seconds = 20
+
+    [prometheus]
+    url = "http://prom-prometheus.grafana:9090"
+    instance_label = ".*"
+    sample_interval_seconds = 2.0
+
+    [output]
+    dir = "benchmarks/results"
+    prefix = "ollama-cluster-nemotron-nano-bf16-agentic-nothink"
+  cluster-vulkan-nemotron-nano-bf16-agentic.toml: |
+    # TASK-1186 row 8 / TASK-1013: nemotron-3-nano:4b-bf16, NATIVE THINKING,
+    # agentic @ 32K, C=1..3 — mirrors pop's nemotron-3.5-lightning pair
+    # (pop-moe-nemotron35-lightning-agentic.toml) parameter-for-parameter so the
+    # timmy row is directly comparable to the INFO-1140 record.
+    # Sampling: NVIDIA HF card rec Temperature 1.0 / Top_P 0.95, as shipped.
+    # Run the runner with BENCH_NUM_PARALLEL=3 for this family (pop ran NP=3).
+    # VERSION GATE: nemotron 3 architecture needs ollama >= 0.32.9 — the pod image
+    # must be bumped before this config can run; the coherence gate fails closed
+    # on an unsupported server.
+
+    [ollama]
+    url = "http://ollama.llama.svc:11434"
+    model = "nemotron-3-nano:4b-bf16"
+    num_ctx = 32768
+    num_predict = 16384
+    temperature = 1.0
+
+    [ollama.options]
+    top_p = 0.95
+
+    [workload]
+    name = "agentic"
+    max_concurrency = 3
+    requests_per_level = 3
+    repeats = 3
+    cooldown_seconds = 20
+
+    [prometheus]
+    url = "http://prom-prometheus.grafana:9090"
+    instance_label = ".*"
+    sample_interval_seconds = 2.0
+
+    [output]
+    dir = "benchmarks/results"
+    prefix = "ollama-cluster-nemotron-nano-bf16-agentic"
   cluster-vulkan-nemotron-nano-bf16-default.toml: |
     # Cluster-side Vulkan backend benchmark for nemotron-3-nano:4b-bf16 on timmy's
     # RX 9070 XT (TASK-1013).
@@ -102,6 +171,69 @@ data:
     [output]
     dir = "benchmarks/results"
     prefix = "ollama-cluster-nemotron-nano-bf16-default"
+  cluster-vulkan-nemotron-nano-q8-agentic-nothink.toml: |
+    # TASK-1186 row 9: nemotron-3-nano:4b-q8_0, THINKING OFF, agentic @ 32K,
+    # C=1..3 — quant pair against the bf16 agentic-nothink row.
+    # Sampling: Temperature 1.0 / Top_P 0.95, as shipped.
+    # Run with BENCH_NUM_PARALLEL=3. VERSION GATE: needs ollama >= 0.32.9.
+
+    [ollama]
+    url = "http://ollama.llama.svc:11434"
+    model = "nemotron-3-nano:4b-q8_0"
+    num_ctx = 32768
+    num_predict = 16384
+    temperature = 1.0
+    think = false
+
+    [ollama.options]
+    top_p = 0.95
+
+    [workload]
+    name = "agentic"
+    max_concurrency = 3
+    requests_per_level = 3
+    repeats = 3
+    cooldown_seconds = 20
+
+    [prometheus]
+    url = "http://prom-prometheus.grafana:9090"
+    instance_label = ".*"
+    sample_interval_seconds = 2.0
+
+    [output]
+    dir = "benchmarks/results"
+    prefix = "ollama-cluster-nemotron-nano-q8-agentic-nothink"
+  cluster-vulkan-nemotron-nano-q8-default.toml: |
+    # TASK-1186 row 9: nemotron-3-nano:4b-q8_0 — quant pair against the bf16 row.
+    # Mirrors cluster-vulkan-nemotron-nano-bf16-default.toml (shipped sampling,
+    # think=false for clean throughput). VERSION GATE: needs ollama >= 0.32.9.
+
+    [ollama]
+    url = "http://ollama.llama.svc:11434"
+    model = "nemotron-3-nano:4b-q8_0"
+    num_ctx = 16384
+    num_predict = 512
+    temperature = 1.0
+    think = false
+
+    [ollama.options]
+    top_p = 1.0
+
+    [workload]
+    name = "mixed_mem0"
+    max_concurrency = 8
+    requests_per_level = 8
+    repeats = 3
+    cooldown_seconds = 15
+
+    [prometheus]
+    url = "http://prom-prometheus.grafana:9090"
+    instance_label = ".*"
+    sample_interval_seconds = 2.0
+
+    [output]
+    dir = "benchmarks/results"
+    prefix = "ollama-cluster-nemotron-nano-q8-default"
   cluster-vulkan-q5km-agentic.toml: |
     # Vulkan Q5_K_M agentic benchmark. VRAM watch item: Q5_K_M weights plus 32K
     # context at np=8 may approach the 16 GB ceiling. If the run fails to load,
@@ -226,6 +358,59 @@ data:
     [output]
     dir = "benchmarks/results"
     prefix = "ollama-cluster-vulkan-q6k-default"
+  cluster-vulkan-qwen35-9b-agentic.toml: |
+    # Cluster-side Vulkan agentic benchmark: qwen3.5:9b-q4_K_M on timmy's RX 9070 XT
+    # (TASK-1186 row 5). Mirrors cluster-vulkan-agentic.toml.
+
+    [ollama]
+    url = "http://ollama.llama.svc:11434"
+    model = "qwen3.5:9b-q4_K_M"
+    num_ctx = 32768
+    num_predict = 2048
+    temperature = 0.3
+
+    [workload]
+    name = "agentic"
+    max_concurrency = 8
+    requests_per_level = 8
+    repeats = 3
+    cooldown_seconds = 20
+
+    [prometheus]
+    url = "http://prom-prometheus.grafana:9090"
+    instance_label = ".*"
+    sample_interval_seconds = 2.0
+
+    [output]
+    dir = "benchmarks/results"
+    prefix = "ollama-cluster-vulkan-qwen35-9b-agentic"
+  cluster-vulkan-qwen35-9b-default.toml: |
+    # Cluster-side Vulkan benchmark: qwen3.5:9b-q4_K_M on timmy's RX 9070 XT
+    # (TASK-1186 row 5 — fast generalist, 6.6 GB, already on the PVC).
+    # Mirrors cluster-vulkan-default.toml; distinct prefix keeps results separable.
+
+    [ollama]
+    url = "http://ollama.llama.svc:11434"
+    model = "qwen3.5:9b-q4_K_M"
+    num_ctx = 16384
+    num_predict = 512
+    temperature = 0.3
+
+    [workload]
+    name = "mixed_mem0"
+    max_concurrency = 8
+    requests_per_level = 8
+    repeats = 3
+    cooldown_seconds = 15
+
+    [prometheus]
+    url = "http://prom-prometheus.grafana:9090"
+    instance_label = ".*"
+    sample_interval_seconds = 2.0
+
+    [output]
+    dir = "benchmarks/results"
+    prefix = "ollama-cluster-vulkan-qwen35-9b-default"
   coherence-smoke.py: |
     #!/usr/bin/env python3
     """Fixed-prompt coherence gate for a model on a given Ollama backend.

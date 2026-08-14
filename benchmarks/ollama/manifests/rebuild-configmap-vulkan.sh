@@ -54,6 +54,12 @@ kubectl create configmap bench-scripts-vulkan \
 	--from-file=cluster-vulkan-q5km-agentic.toml=configs/cluster-vulkan-q5km-agentic.toml \
 	--from-file=cluster-vulkan-q6k-agentic.toml=configs/cluster-vulkan-q6k-agentic.toml \
 	--from-file=cluster-vulkan-nemotron-nano-bf16-default.toml=configs/cluster-vulkan-nemotron-nano-bf16-default.toml \
+	--from-file=cluster-vulkan-qwen35-9b-default.toml=configs/cluster-vulkan-qwen35-9b-default.toml \
+	--from-file=cluster-vulkan-qwen35-9b-agentic.toml=configs/cluster-vulkan-qwen35-9b-agentic.toml \
+	--from-file=cluster-vulkan-nemotron-nano-bf16-agentic.toml=configs/cluster-vulkan-nemotron-nano-bf16-agentic.toml \
+	--from-file=cluster-vulkan-nemotron-nano-bf16-agentic-nothink.toml=configs/cluster-vulkan-nemotron-nano-bf16-agentic-nothink.toml \
+	--from-file=cluster-vulkan-nemotron-nano-q8-default.toml=configs/cluster-vulkan-nemotron-nano-q8-default.toml \
+	--from-file=cluster-vulkan-nemotron-nano-q8-agentic-nothink.toml=configs/cluster-vulkan-nemotron-nano-q8-agentic-nothink.toml \
 	--dry-run=client -o yaml \
 	>"$OUT"
 
