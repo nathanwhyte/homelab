@@ -1,0 +1,39 @@
+# Pop matrix: qwen3.8 27b Q4_K_M GGUF agentic @ 32K, C=1..3 (PROJ-1003, TASK-1189)
+# Format pair to pop-qwen38-27b-mlx-agentic.toml. Both tags are 18 GB, so
+# unlike most MLX-vs-GGUF rows in the 2026-05-08 matrix the delta here is the
+# serving path and quant format alone, NOT weight size. Everything below must
+# stay byte-identical to the MLX config except `model` and `prefix`.
+#
+# This is the llama.cpp-served side of the pair, and the one expected to retain
+# capabilities the MLX runner lacks: per INFO-1127, Ollama's MLX runner drops
+# the `format` JSON-schema constraint entirely and is text-only (ollama#16700),
+# so the vision path on qwen3.8:27b-mlx is expected dead despite the tag
+# advertising Text + Image. If that holds, this config's tag is the only one of
+# the pair that is actually a VLM, and the two rows are comparable on decode
+# throughput but NOT on capability.
+[ollama]
+url = "http://localhost:11434"
+model = "qwen3.8:27b-q4_K_M"
+num_ctx = 32768
+num_predict = 16384
+temperature = 1.0                         # Qwen3.8 thinking-mode recommendation
+
+[ollama.options]                          # Qwen3.8 thinking-mode recommendation
+top_p = 0.95
+top_k = 20
+
+[workload]
+name = "agentic"
+max_concurrency = 3
+requests_per_level = 3
+repeats = 3
+cooldown_seconds = 20
+
+[prometheus]
+url = ""
+instance_label = ""
+sample_interval_seconds = 2.0
+
+[output]
+dir = "benchmarks/results"
+prefix = "ollama-pop-qwen38-27b-gguf-agentic"
