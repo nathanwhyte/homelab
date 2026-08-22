@@ -18,14 +18,26 @@ Corpus modes (--mode):
 
   cold        salt at the FRONT of the prompt so the slot cache cannot
               shortcut any prefix — measures turn-one context ingestion.
-  warm-prefix send the bare tier text once to warm the cache (unmeasured),
-              then repeatedly append a freshly-salted file-read payload
-              (--append-file) and measure suffix-only prefill. This is the
+  warm-prefix send the bare tier text once to warm the cache, then
+              repeatedly append a freshly-salted file-read payload (resolved
+              from the manifest) and measure suffix-only prefill. This is the
               mid-session "agent reads files not in the initial load" case.
-              Relies on prompt_eval_count excluding cached prefix tokens;
-              each row reports prefix_cached=True only when the evaluated
-              count is under half the estimated total, so a silent cache
-              miss is visible, and the run FAILS if every warm row missed.
+              Relies on prompt_eval_count excluding cached prefix tokens.
+              Cache hits are decided by MEASURED accounting: the warmup
+              request supplies prefix_tokens, a small salted probe supplies
+              suffix_tokens, and a row is a hit only when
+              (prefix+suffix) - evaluated covers >= CACHE_HIT_FRACTION of the
+              measured prefix. The run FAILS only if NO tier hit anywhere;
+              a single missed tier is reported and skipped, not fatal.
+
+              This replaced a `evaluated < 0.5 * manifest_estimate` heuristic
+              that was unsound for the 5k tier (a perfect hit there still
+              evaluates ~57% of the prompt) and aborted the whole run on the
+              first tier every time.
+
+  NOTE: neither mode exercises a CANCELLED prefill. For ollama#17901-style
+  restore-point behavior use prefill-cancel-resume.py, which is the only
+  probe here that interrupts a prefill and resumes it.
 
 Cache-collision gotcha (found 2026-07-07, benchmarking qwen3.6:35b-mlx):
 byte-identical prompts across runs let Ollama/llama.cpp slot caching skip
@@ -55,6 +67,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "lib"))
 from prompts import _EP_PREFILL_TOKENS, _ep_code_context, _ep_split  # noqa: E402
 
 CHARS_PER_TOKEN = 4  # must match build-prefill-corpus.py
+
+
+# A warm row counts as a prefix-cache hit only when the server skipped at least
+# this fraction of the MEASURED prefix. Not a fraction of the whole prompt, and
+# not a fraction of a manifest estimate — see the accounting note in run_corpus.
+CACHE_HIT_FRACTION = 0.9
 
 
 class BenchError(RuntimeError):
@@ -190,7 +208,25 @@ async def run_corpus(session, args, server_meta):
         num_ctx = max(args.num_ctx, need)
         rows = []
         if args.mode == "warm-prefix":
-            await run_one(
+            # MEASURED cached-token accounting (replaces the old
+            # `prompt_tokens < 0.5 * est_total` heuristic, which was unsound).
+            #
+            # That heuristic compared evaluated tokens against half of a
+            # MANIFEST ESTIMATE of the whole prompt. For the 5k tier the
+            # estimates are prefix=4968 / suffix=6629, so a PERFECT prefix hit
+            # still evaluates the 6629-token suffix — 57% of the total — and
+            # was classified as a miss. Since the tiers are walked smallest
+            # first and the abort lived inside this loop, the probe aborted on
+            # tier one on every run and never reached 27k/77k.
+            #
+            # Instead, measure both halves against the server's own
+            # prompt_eval_count and compare like with like:
+            #   prefix_tokens  <- warmup request (tier text alone)
+            #   suffix_tokens  <- salted append payload alone
+            #   cached_tokens  <- (prefix + suffix) - evaluated
+            # A hit means we actually skipped ~the whole prefix, not that we
+            # happened to land under an arbitrary fraction of a guess.
+            warm = await run_one(
                 session,
                 args.url,
                 args.model,
@@ -200,7 +236,32 @@ async def run_corpus(session, args, server_meta):
                 args.temperature,
                 f"{name} warmup",
             )
-            print(f"[{name}] prefix warmed (~{tier_est} tok, num_ctx={num_ctx})")
+            prefix_tokens = warm["prompt_tokens"]
+            # Guard the guard: if the warmup itself came back mostly cached,
+            # prefix_tokens is an undercount and every later hit ratio is
+            # inflated. Only the first warmup of a given tier text is cold.
+            if prefix_tokens < 0.5 * tier_est:
+                raise BenchError(
+                    f"{name}: warmup evaluated only {prefix_tokens} tokens against an estimated "
+                    f"{tier_est} — the prefix was already cached, so measured prefix_tokens would "
+                    "understate the real prefix. Restart the server or evict the model first."
+                )
+            suffix_probe = await run_one(
+                session,
+                args.url,
+                args.model,
+                _salt(f"suffix probe {name}") + append_text,
+                num_ctx,
+                8,
+                args.temperature,
+                f"{name} suffix probe",
+            )
+            suffix_tokens = suffix_probe["prompt_tokens"]
+            expected_full = prefix_tokens + suffix_tokens
+            print(
+                f"[{name}] prefix warmed: measured prefix={prefix_tokens} tok, "
+                f"suffix={suffix_tokens} tok, expected full={expected_full} tok, num_ctx={num_ctx}"
+            )
             for i in range(args.repeats):
                 prompt = text + "\n" + _salt(f"append {name} {i}") + append_text
                 r = await run_one(
@@ -213,18 +274,31 @@ async def run_corpus(session, args, server_meta):
                     args.temperature,
                     f"{name} warm r{i}",
                 )
-                r["est_total_tokens"] = tier_est + append_est
-                r["prefix_cached"] = r["prompt_tokens"] < 0.5 * r["est_total_tokens"]
+                r["measured_prefix_tokens"] = prefix_tokens
+                r["measured_suffix_tokens"] = suffix_tokens
+                r["expected_full_tokens"] = expected_full
+                r["cached_tokens"] = expected_full - r["prompt_tokens"]
+                r["cached_frac_of_prefix"] = (
+                    r["cached_tokens"] / prefix_tokens if prefix_tokens else 0.0
+                )
+                r["prefix_cached"] = r["cached_frac_of_prefix"] >= CACHE_HIT_FRACTION
                 rows.append(r)
                 print(
-                    f"[{name} r{i}] evaluated={r['prompt_tokens']} (est total {r['est_total_tokens']}) "
-                    f"prefix_cached={r['prefix_cached']} suffix_prefill_tok_s={r['prefill_tok_s']:.1f} "
-                    f"ttft={r['ttft_s']:.3f}s"
+                    f"[{name} r{i}] evaluated={r['prompt_tokens']} of {expected_full} "
+                    f"cached={r['cached_tokens']} ({r['cached_frac_of_prefix']:.1%} of prefix) "
+                    f"prefix_cached={r['prefix_cached']} "
+                    f"suffix_prefill_tok_s={r['prefill_tok_s']:.1f} ttft={r['ttft_s']:.3f}s"
                 )
+            # Record the miss and keep going. The old code raised here, inside
+            # the tier loop, which threw away every remaining tier — and with
+            # the broken classifier that meant losing the whole run to tier
+            # one. Fail-closed now happens once, after all tiers, in
+            # run_corpus's caller-visible return.
             if not any(r["prefix_cached"] for r in rows):
-                raise BenchError(
-                    f"{name}: every warm-prefix row evaluated the full prompt — the prefix cache "
-                    "never hit, so this measured cold prefill under a warm label. Aborting."
+                print(
+                    f"[{name}] WARNING: no warm row hit the prefix cache — this tier measured "
+                    "cold prefill under a warm label and is not comparable.",
+                    file=sys.stderr,
                 )
         else:
             for i in range(args.repeats):
@@ -246,6 +320,24 @@ async def run_corpus(session, args, server_meta):
                     f"decode_tok_s={r['decode_tok_s']:.1f}"
                 )
         buckets[name] = rows
+
+    if args.mode == "warm-prefix":
+        hit_tiers = [
+            name
+            for name, rows in buckets.items()
+            if any(r.get("prefix_cached") for r in rows)
+        ]
+        if not hit_tiers:
+            raise BenchError(
+                "every warm-prefix row in every tier evaluated the full prompt — the prefix cache "
+                "never hit, so this measured cold prefill under a warm label. Aborting."
+            )
+        missed = [n for n in buckets if n not in hit_tiers]
+        if missed:
+            print(
+                f"\nNOTE: tiers with no cache hit (not comparable): {', '.join(missed)}",
+                file=sys.stderr,
+            )
 
     summary = [summarize(name, rows) for name, rows in buckets.items()]
     print_summary(args.model, args.mode, summary)
