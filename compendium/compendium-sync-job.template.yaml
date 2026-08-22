@@ -13,10 +13,11 @@
 #     what prod already runs from the Mac; bumped from 0.4.7 2026-07-16)
 #   The pip install below ALSO ships the in-process SyncHTTPClient (the 0.4.10
 #     wheel vendors openviking_cli) — the IMPR-1071 SDK transport needs NO extra
-#     pin. Since Phase 2 (BUG-1042 fix, verified live 2026-07-17) the default
-#     transport is --client=sdk: pointers are written as PLAIN FILES. The ov CLI
-#     install is retained only as the one-release rollback lever
-#     (OV_SYNC_CLIENT=cli or SYNC_ARGS "--client cli").
+#     pin. The SDK is the ONLY transport (IMPR-1081 retired the --client=cli
+#     rollback lever 2026-08-21 after the soak); pointers are written as PLAIN
+#     FILES. The ov CLI install is retained for MANAGEMENT operations only —
+#     the `ov language en` preflight, `ov rm` deletes, and the observer/status
+#     calls the recovery phases rely on — never as a write transport.
 apiVersion: batch/v1
 kind: Job
 metadata:
