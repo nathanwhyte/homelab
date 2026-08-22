@@ -27,12 +27,13 @@
 
 set -euo pipefail
 
-if [[ $# -ne 4 ]]; then
+# Accepts one arm (2 args) or two (4 args). A single arm is useful when the
+# other version's numbers already exist, or when only one binary is built yet
+# — the arms are independent runs, not a paired measurement.
+if [[ $# -ne 2 && $# -ne 4 ]]; then
 	sed -n '20,27p' "$0" >&2
 	exit 2
 fi
-
-LABEL_A="$1" PREFIX_A="$2" LABEL_B="$3" PREFIX_B="$4"
 
 BENCH_DIR="$HOME/code/homelab/main/benchmarks"
 TOOLS="$BENCH_DIR/ollama/tools"
@@ -70,6 +71,18 @@ wait_healthy() {
 # numbers. The harness's own cooldown_seconds covers within-run spacing.
 ARM_COOLDOWN="${ARM_COOLDOWN:-120}"
 
+cool() {
+	echo "==> cooldown ${ARM_COOLDOWN}s"
+	sleep "$ARM_COOLDOWN"
+}
+
+# Evict between probes so each one starts from the same residency state.
+# MAX_LOADED_MODELS=1 would evict on the next load anyway, but an explicit
+# stop keeps the eviction out of the measured window.
+unload() {
+	ollama stop "$1" || echo "warning: ollama stop $1 returned nonzero" >&2
+}
+
 run_arm() {
 	local label="$1" prefix="$2"
 	local bin="$prefix/bin/ollama"
@@ -100,59 +113,67 @@ run_arm() {
 		return 1
 	fi
 
+	# There is no pyproject.toml in homelab/main, so every harness invocation
+	# must carry `--with aiohttp` exactly as run-pop-qwen38-matrix.sh does.
+	# `--no-gpu-sampling` matches that runner too: these configs set an empty
+	# [prometheus] url, so sampling would have nothing to scrape.
+
 	# --- Probe 1: MLX agentic (the surface the rc changed) -------------------
 	echo "==> [$label] MLX agentic"
-	uv run python "$TOOLS/concurrency-bench.py" \
+	uv run --with aiohttp python "$TOOLS/concurrency-bench.py" \
 		--config "$CONFIGS/pop-qwen38-27b-mlx-agentic.toml" \
-		--output-dir "$arm_out" 2>&1 | tee "$arm_out/mlx-agentic.log"
-
-	echo "==> cooldown ${ARM_COOLDOWN}s"
-	sleep "$ARM_COOLDOWN"
+		--output-dir "$arm_out" \
+		--no-gpu-sampling 2>&1 | tee "$arm_out/mlx-agentic.log"
+	unload qwen3.8:27b-mlx
+	cool
 
 	# --- Probe 2: GGUF agentic (control; expected flat) ----------------------
 	echo "==> [$label] GGUF agentic"
-	uv run python "$TOOLS/concurrency-bench.py" \
+	uv run --with aiohttp python "$TOOLS/concurrency-bench.py" \
 		--config "$CONFIGS/pop-qwen38-27b-gguf-agentic.toml" \
-		--output-dir "$arm_out" 2>&1 | tee "$arm_out/gguf-agentic.log"
-
-	echo "==> cooldown ${ARM_COOLDOWN}s"
-	sleep "$ARM_COOLDOWN"
+		--output-dir "$arm_out" \
+		--no-gpu-sampling 2>&1 | tee "$arm_out/gguf-agentic.log"
+	unload qwen3.8:27b-q4_K_M
+	cool
 
 	# --- Probe 3: prefill curve, warm-prefix ---------------------------------
 	# The load-bearing probe for ollama#17901. warm-prefix reports prefix_cached
 	# per row and fails the run if every warm row missed, so a prefix-cache
 	# behavior change is visible rather than averaged away.
 	echo "==> [$label] prefill warm-prefix (MLX)"
-	uv run python "$TOOLS/prefill-size-breakdown.py" \
+	uv run --with aiohttp python "$TOOLS/prefill-size-breakdown.py" \
 		--model qwen3.8:27b-mlx \
 		--corpus-dir "$CORPUS" \
 		--mode warm-prefix \
 		--output "$arm_out/prefill-warm-prefix.json" 2>&1 |
 		tee "$arm_out/prefill-warm-prefix.log"
-
-	echo "==> cooldown ${ARM_COOLDOWN}s"
-	sleep "$ARM_COOLDOWN"
+	unload qwen3.8:27b-mlx
+	cool
 
 	# --- Probe 4: prefill curve, cold ----------------------------------------
 	echo "==> [$label] prefill cold (MLX)"
-	uv run python "$TOOLS/prefill-size-breakdown.py" \
+	uv run --with aiohttp python "$TOOLS/prefill-size-breakdown.py" \
 		--model qwen3.8:27b-mlx \
 		--corpus-dir "$CORPUS" \
 		--mode cold \
 		--output "$arm_out/prefill-cold.json" 2>&1 |
 		tee "$arm_out/prefill-cold.log"
+	unload qwen3.8:27b-mlx
 
 	echo "==> ARM $label complete"
 }
 
 cd "$HOME/code/homelab/main"
 
-run_arm "$LABEL_A" "$PREFIX_A"
-echo "==> inter-arm cooldown ${ARM_COOLDOWN}s"
-sleep "$ARM_COOLDOWN"
-run_arm "$LABEL_B" "$PREFIX_B"
+run_arm "$1" "$2"
+
+if [[ $# -eq 4 ]]; then
+	echo "==> inter-arm cooldown ${ARM_COOLDOWN}s"
+	sleep "$ARM_COOLDOWN"
+	run_arm "$3" "$4"
+fi
 
 echo
 echo "=============================================================="
-echo "Both arms complete. Results: $OUT"
+echo "Run complete. Results: $OUT"
 echo "=============================================================="
