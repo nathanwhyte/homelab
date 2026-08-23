@@ -22,18 +22,22 @@ Corpus modes (--mode):
               repeatedly append a freshly-salted file-read payload (resolved
               from the manifest) and measure suffix-only prefill. This is the
               mid-session "agent reads files not in the initial load" case.
-              Relies on prompt_eval_count excluding cached prefix tokens.
-              Cache hits are decided by MEASURED accounting: the warmup
-              request supplies prefix_tokens, a small salted probe supplies
-              suffix_tokens, and a row is a hit only when
-              (prefix+suffix) - evaluated covers >= CACHE_HIT_FRACTION of the
-              measured prefix. The run FAILS only if NO tier hit anywhere;
-              a single missed tier is reported and skipped, not fatal.
+              Cache hits are decided by measured PREFILL DURATION, not by
+              token count: this engine reports the full prompt_eval_count
+              even on a total cache hit (pop, 2026-08-23: 117.8s -> 0.082s
+              with the count unchanged). The warmup supplies the cold prefill
+              rate, a salted probe supplies the suffix token count, and a row
+              is a hit when it skipped at least CACHE_HIT_PREFIX_REUSE of the
+              prefix's own prefill time (normalized per tier, because the
+              achievable whole-prompt ratio differs by tier: 0.60 on 5k vs
+              0.10 on 77k).
+              The run FAILS only if NO tier hit anywhere; a single missed
+              tier is reported and skipped, not fatal.
 
-              This replaced a `evaluated < 0.5 * manifest_estimate` heuristic
-              that was unsound for the 5k tier (a perfect hit there still
-              evaluates ~57% of the prompt) and aborted the whole run on the
-              first tier every time.
+              This replaced an `evaluated < 0.5 * manifest_estimate`
+              heuristic that was both unsatisfiable on the 5k tier (a perfect
+              hit there still evaluates ~57% of the prompt) and blind by
+              construction, and that aborted the whole run on tier one.
 
   NOTE: neither mode exercises a CANCELLED prefill. For ollama#17901-style
   restore-point behavior use prefill-cancel-resume.py, which is the only
@@ -69,14 +73,52 @@ from prompts import _EP_PREFILL_TOKENS, _ep_code_context, _ep_split  # noqa: E40
 CHARS_PER_TOKEN = 4  # must match build-prefill-corpus.py
 
 
-# A warm row counts as a prefix-cache hit only when the server skipped at least
-# this fraction of the MEASURED prefix. Not a fraction of the whole prompt, and
-# not a fraction of a manifest estimate — see the accounting note in run_corpus.
-CACHE_HIT_FRACTION = 0.9
+# A warm row counts as a hit when at least this fraction of the PREFIX's
+# prefill time was skipped.
+#
+# Two earlier attempts failed structurally, both for the same reason — the
+# threshold was applied to a quantity whose achievable range depends on the
+# tier:
+#   1. `evaluated < 0.5 * est_total` (token-based). Best case on 5k is 57% of
+#      the prompt, so a perfect hit could never pass.
+#   2. `prefill_s <= 0.5 * predicted_cold_s` (duration-based, but whole-prompt).
+#      Best case is suffix/(prefix+suffix) = 0.60 on 5k, 0.22 on 27k, 0.10 on
+#      77k — so again unreachable on 5k while trivial on 77k.
+#
+# Normalizing by the prefix's own prefill time makes the metric mean the same
+# thing on every tier: "how much of the prefix did we avoid re-computing".
+CACHE_HIT_PREFIX_REUSE = 0.5
+
+# Cold prefill rates measured on pop sit at 686-907 tok/s across the tiers. A
+# warmup reporting far above that did not prefill cold, so anything derived
+# from its rate is meaningless. Deliberately generous: this is a sanity
+# ceiling, not a performance assertion.
+MAX_PLAUSIBLE_COLD_RATE = 5000
 
 
 class BenchError(RuntimeError):
     pass
+
+
+async def evict(model: str) -> None:
+    """Drop the model so the next request prefills cold.
+
+    Required, not optional: the warmup must be genuinely cold or the cold
+    prefill RATE it measures is garbage, and every prediction derived from it
+    is garbage too. This cannot be detected after the fact — prompt_eval_count
+    does not drop on a cache hit on this engine, so a "was the warmup cached?"
+    check based on token counts can never fire. Guaranteeing coldness by
+    eviction is the only reliable route.
+    """
+    proc = await asyncio.create_subprocess_exec(
+        "ollama",
+        "stop",
+        model,
+        stdout=asyncio.subprocess.DEVNULL,
+        stderr=asyncio.subprocess.DEVNULL,
+    )
+    await proc.wait()
+    await asyncio.sleep(2)
 
 
 def _salt(tag: str) -> str:
@@ -208,24 +250,36 @@ async def run_corpus(session, args, server_meta):
         num_ctx = max(args.num_ctx, need)
         rows = []
         if args.mode == "warm-prefix":
-            # MEASURED cached-token accounting (replaces the old
-            # `prompt_tokens < 0.5 * est_total` heuristic, which was unsound).
+            # MEASURED, DURATION-BASED cache detection.
             #
-            # That heuristic compared evaluated tokens against half of a
-            # MANIFEST ESTIMATE of the whole prompt. For the 5k tier the
-            # estimates are prefix=4968 / suffix=6629, so a PERFECT prefix hit
-            # still evaluates the 6629-token suffix — 57% of the total — and
-            # was classified as a miss. Since the tiers are walked smallest
-            # first and the abort lived inside this loop, the probe aborted on
-            # tier one on every run and never reached 27k/77k.
+            # Two premises had to be replaced here. The original code used
+            # `prompt_eval_count < 0.5 * manifest_estimate`, which was both
+            # (a) unsatisfiable on the 5k tier — a perfect hit still evaluates
+            # ~57% of that prompt, and the abort lived inside the tier loop so
+            # tier one killed every run — and (b) built on the false premise
+            # that prompt_eval_count excludes cached tokens. It does not: on
+            # pop 2026-08-23 an uninterrupted repeat collapsed prefill from
+            # 117.8s to 0.082s while the count stayed at 64552 both times.
             #
-            # Instead, measure both halves against the server's own
-            # prompt_eval_count and compare like with like:
-            #   prefix_tokens  <- warmup request (tier text alone)
-            #   suffix_tokens  <- salted append payload alone
-            #   cached_tokens  <- (prefix + suffix) - evaluated
-            # A hit means we actually skipped ~the whole prefix, not that we
-            # happened to land under an arbitrary fraction of a guess.
+            # So: measure the cold prefill RATE from the warmup, predict how
+            # long a full cold prefill of prefix+suffix would take, and call a
+            # row a hit when it came in far under that.
+            # Suffix probe FIRST, then evict, then the warmup. Running the
+            # suffix probe after the warmup risks evicting the very prefix we
+            # just warmed (one slot, different prompt), and running the warmup
+            # without an eviction lets a previous tier or a previous run leave
+            # it warm — which silently inflates the measured cold rate.
+            suffix_probe = await run_one(
+                session,
+                args.url,
+                args.model,
+                _salt(f"suffix probe {name}") + append_text,
+                num_ctx,
+                8,
+                args.temperature,
+                f"{name} suffix probe",
+            )
+            await evict(args.model)
             warm = await run_one(
                 session,
                 args.url,
@@ -237,30 +291,23 @@ async def run_corpus(session, args, server_meta):
                 f"{name} warmup",
             )
             prefix_tokens = warm["prompt_tokens"]
-            # Guard the guard: if the warmup itself came back mostly cached,
-            # prefix_tokens is an undercount and every later hit ratio is
-            # inflated. Only the first warmup of a given tier text is cold.
-            if prefix_tokens < 0.5 * tier_est:
+            cold_rate = warm["prefill_tok_s"]
+            if cold_rate <= 0:
+                raise BenchError(f"{name}: warmup reported a zero prefill rate")
+            if cold_rate > MAX_PLAUSIBLE_COLD_RATE:
                 raise BenchError(
-                    f"{name}: warmup evaluated only {prefix_tokens} tokens against an estimated "
-                    f"{tier_est} — the prefix was already cached, so measured prefix_tokens would "
-                    "understate the real prefix. Restart the server or evict the model first."
+                    f"{name}: warmup reported {cold_rate:.0f} tok/s, above the plausible "
+                    f"cold ceiling of {MAX_PLAUSIBLE_COLD_RATE} tok/s for this machine — the "
+                    "warmup itself hit a cache despite the eviction, so its rate cannot be "
+                    "used as a cold baseline."
                 )
-            suffix_probe = await run_one(
-                session,
-                args.url,
-                args.model,
-                _salt(f"suffix probe {name}") + append_text,
-                num_ctx,
-                8,
-                args.temperature,
-                f"{name} suffix probe",
-            )
             suffix_tokens = suffix_probe["prompt_tokens"]
             expected_full = prefix_tokens + suffix_tokens
+            predicted_cold_s = expected_full / cold_rate
             print(
-                f"[{name}] prefix warmed: measured prefix={prefix_tokens} tok, "
-                f"suffix={suffix_tokens} tok, expected full={expected_full} tok, num_ctx={num_ctx}"
+                f"[{name}] prefix warmed: measured prefix={prefix_tokens} tok "
+                f"@ {cold_rate:.0f} tok/s, suffix={suffix_tokens} tok, "
+                f"predicted full cold prefill={predicted_cold_s:.2f}s, num_ctx={num_ctx}"
             )
             for i in range(args.repeats):
                 prompt = text + "\n" + _salt(f"append {name} {i}") + append_text
@@ -277,17 +324,25 @@ async def run_corpus(session, args, server_meta):
                 r["measured_prefix_tokens"] = prefix_tokens
                 r["measured_suffix_tokens"] = suffix_tokens
                 r["expected_full_tokens"] = expected_full
-                r["cached_tokens"] = expected_full - r["prompt_tokens"]
-                r["cached_frac_of_prefix"] = (
-                    r["cached_tokens"] / prefix_tokens if prefix_tokens else 0.0
+                r["cold_prefill_rate_tok_s"] = round(cold_rate, 1)
+                r["predicted_cold_prefill_s"] = round(predicted_cold_s, 3)
+                r["prefill_duration_ratio"] = (
+                    r["prefill_s"] / predicted_cold_s if predicted_cold_s > 0 else 1.0
                 )
-                r["prefix_cached"] = r["cached_frac_of_prefix"] >= CACHE_HIT_FRACTION
+                prefix_cold_s = prefix_tokens / cold_rate
+                r["prefix_cold_s"] = round(prefix_cold_s, 3)
+                r["prefix_reuse_frac"] = (
+                    (predicted_cold_s - r["prefill_s"]) / prefix_cold_s
+                    if prefix_cold_s > 0
+                    else 0.0
+                )
+                r["prefix_cached"] = r["prefix_reuse_frac"] >= CACHE_HIT_PREFIX_REUSE
                 rows.append(r)
                 print(
-                    f"[{name} r{i}] evaluated={r['prompt_tokens']} of {expected_full} "
-                    f"cached={r['cached_tokens']} ({r['cached_frac_of_prefix']:.1%} of prefix) "
-                    f"prefix_cached={r['prefix_cached']} "
-                    f"suffix_prefill_tok_s={r['prefill_tok_s']:.1f} ttft={r['ttft_s']:.3f}s"
+                    f"[{name} r{i}] prefill={r['prefill_s']:.2f}s of predicted "
+                    f"{predicted_cold_s:.2f}s — reused {r['prefix_reuse_frac']:.0%} of the "
+                    f"{prefix_cold_s:.2f}s prefix, prefix_cached={r['prefix_cached']} "
+                    f"(evaluated={r['prompt_tokens']}, ttft={r['ttft_s']:.3f}s)"
                 )
             # Record the miss and keep going. The old code raised here, inside
             # the tier loop, which threw away every remaining tier — and with

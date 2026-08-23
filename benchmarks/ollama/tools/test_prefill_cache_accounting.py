@@ -24,7 +24,7 @@ TOOLS = Path(__file__).resolve().parent
 CORPUS = TOOLS.parent / "corpus"
 GATE = TOOLS / "bench-quality-gate.py"
 
-CACHE_HIT_FRACTION = 0.9
+CACHE_HIT_DURATION_RATIO = 0.5
 
 
 def _old_classifier(evaluated: int, est_total: int) -> bool:
@@ -32,9 +32,15 @@ def _old_classifier(evaluated: int, est_total: int) -> bool:
     return evaluated < 0.5 * est_total
 
 
-def _new_classifier(evaluated: int, prefix_tokens: int, suffix_tokens: int) -> bool:
-    cached = (prefix_tokens + suffix_tokens) - evaluated
-    return (cached / prefix_tokens if prefix_tokens else 0.0) >= CACHE_HIT_FRACTION
+def _new_classifier(prefill_s: float, predicted_cold_s: float) -> bool:
+    """Duration-based, matching prefill-size-breakdown.py.
+
+    Token-based detection is impossible on this engine: measured on pop
+    2026-08-23, an uninterrupted repeat collapsed prefill 117.8s -> 0.082s
+    while prompt_eval_count stayed at 64552 in both requests.
+    """
+    ratio = prefill_s / predicted_cold_s if predicted_cold_s > 0 else 1.0
+    return ratio <= CACHE_HIT_DURATION_RATIO
 
 
 def _manifest() -> dict:
@@ -54,30 +60,30 @@ def test_old_classifier_was_unsatisfiable_on_the_5k_tier():
     assert not _old_classifier(perfect_hit_evaluated, prefix + suffix)
 
 
-def test_new_classifier_accepts_a_perfect_hit_on_every_tier():
-    m = _manifest()
-    suffix = m["append_payload"]["est_tokens"]
-    for tier, meta in m["tiers"].items():
-        prefix = meta["est_tokens"]
-        assert _new_classifier(suffix, prefix, suffix), (
-            f"{tier} perfect hit misclassified"
-        )
+def test_new_classifier_accepts_a_measured_cache_hit():
+    """Real numbers from the pop 2026-08-23 shakeout."""
+    assert _new_classifier(prefill_s=0.082, predicted_cold_s=117.813)
 
 
 def test_new_classifier_rejects_a_full_cold_prefill():
-    m = _manifest()
-    suffix = m["append_payload"]["est_tokens"]
-    for tier, meta in m["tiers"].items():
-        prefix = meta["est_tokens"]
-        # Nothing reused: the server evaluated the whole prompt.
-        assert not _new_classifier(prefix + suffix, prefix, suffix), tier
+    """Cancelled arm on 0.32.15: resumed prefill matched the cold one."""
+    assert not _new_classifier(prefill_s=128.898, predicted_cold_s=125.218)
 
 
-def test_new_classifier_rejects_a_partial_hit_below_threshold():
-    prefix, suffix = 10_000, 5_000
-    # Only half the prefix reused -> 50% < 90% threshold.
-    evaluated = suffix + prefix // 2
-    assert not _new_classifier(evaluated, prefix, suffix)
+def test_token_counts_cannot_detect_reuse_on_this_engine():
+    """Pin the false premise that made the old classifier unfixable.
+
+    Both the cold and the fully-cached request reported 64552 evaluated
+    tokens, so ANY token-difference test yields zero regardless of the cache.
+    """
+    cold_eval, cached_eval = 64552, 64552
+    assert cold_eval - cached_eval == 0
+
+
+def test_new_classifier_rejects_a_marginal_speedup():
+    # 60% of predicted cold is faster, but not the >1000x collapse a real
+    # prefix-cache hit produces on this engine.
+    assert not _new_classifier(prefill_s=70.0, predicted_cold_s=117.0)
 
 
 def _run_gate(payload: dict, *args: str) -> subprocess.CompletedProcess:

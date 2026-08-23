@@ -11,17 +11,24 @@ unfixed server look identical under that probe.
 This probe interrupts a prefill and then resumes it, which is the only shape
 that can observe the fix.
 
-THE MEASUREMENT. For one large prompt P, per trial:
+THE MEASUREMENT. Each trial uses its own freshly-salted prompt P, and the
+model is evicted BEFORE the trial but never during it (an eviction inside the
+trial destroys the very cache being measured):
 
-  cold      P sent front-salted so nothing can be reused. Establishes the
-            full evaluated-token count and cold TTFT for this prompt shape.
-  cancelled P sent, then the HTTP request aborted mid-prefill (before any
-            token is emitted). Nothing is measured from this request; it
-            exists to leave the server holding a partial prefill.
-  resumed   P sent again immediately. THIS is the measured row.
+  cancelled arm
+    1. P sent, then aborted mid-prefill before any token is emitted. Nothing
+       is measured; it exists to leave the server holding a partial prefill.
+    2. P sent again. THIS is the measured row. Any reuse comes from a restore
+       point that survived the cancellation.
+    3. evict, then P sent once more, fully cold — the same-prompt reference
+       for both evaluated tokens and output text.
 
-  control   the same three-step shape with the cancellation step SKIPPED, so
-            the resumed row has an uninterrupted sibling to compare against.
+  control arm
+    1. P sent to completion. This is the same-prompt cold reference.
+    2. P sent again. Reuse here comes from an ordinary completed-prefill
+       cache and is the UPPER BOUND: if the control shows no reuse, the
+       server has no usable prefix cache at all and the cancelled arm's
+       number carries no information.
 
 INTERPRETATION.
 
@@ -30,9 +37,21 @@ INTERPRETATION.
   to the control's second request. A server that discards them re-evaluates
   the whole prompt, so resumed ~= cold.
 
-  The headline metric is evaluated tokens (prompt_eval_count), not wall time:
-  token counts are exact and are not perturbed by thermal drift, which at ~8%
-  on this machine would swamp a timing-only comparison.
+  The headline metric is PREFILL DURATION, not evaluated tokens.
+
+  Measured on pop 2026-08-23 against 0.32.15 (qwen3.8:27b-mlx, 77k tier):
+  an uninterrupted repeat of the same prompt collapsed prefill from 117.8s to
+  0.082s while prompt_eval_count stayed at 64552 in BOTH requests. This
+  engine does not subtract cached tokens from prompt_eval_count — a cache hit
+  is visible only as a duration collapse. (The same effect is what produced
+  the "absurd 100k+ tok/s" prefill rates noted on 2026-07-07: the count stays
+  full while the duration goes to ~0.)
+
+  Token counts are still recorded, as a diagnostic and to catch a prompt that
+  changed length unexpectedly, but they cannot detect reuse on this engine.
+
+  Thermal drift (~8% on this machine) is not a threat to this comparison: the
+  signal here is a 1400x duration ratio, not a few percent.
 
 CORRECTNESS, NOT ONLY SPEED. A resumed prefill that reuses a STALE restore
 point could be fast and wrong. Every trial therefore runs at temperature 0
@@ -181,28 +200,45 @@ async def cancel_midprefill(
 
 
 async def one_trial(session, args, base_text, seed, cancelled: bool, idx: int):
+    """One trial: cancel-then-resume, or an uninterrupted control.
+
+    STRUCTURE (and why it is not "cold, evict, resume"):
+
+    An earlier revision measured a cold leg, EVICTED, then resumed. That
+    guaranteed 0% reuse in every arm — including the control — because
+    `ollama stop` drops the model and its whole cache, so there was nothing
+    left to reuse and the probe could not observe #17901 even in principle.
+    The 2026-08-23 shakeout showed exactly that: reused=0.0% on both arms.
+
+    The eviction therefore happens BEFORE a trial, never inside it:
+
+      cancelled: fresh prompt -> cancel mid-prefill -> resend the same prompt.
+                 Any reuse comes from a restore point that survived the
+                 cancellation, which is the thing #17901 changes.
+      control:   fresh prompt -> send it to completion -> resend it.
+                 Reuse here comes from an ordinary completed-prefill cache and
+                 is the upper bound: if the control shows no reuse, the server
+                 has no usable prefix cache at all and the cancelled arm's
+                 number means nothing.
+
+    Each arm gets a SAME-PROMPT cold reference, so reuse and output equality
+    are always measured against the identical prompt:
+
+      control:   the first (completed) send is the reference.
+      cancelled: after the resumed send, the model is evicted and the same
+                 prompt is sent once more, fully cold. A run-level reference
+                 would not do here — every trial carries its own salt, so a
+                 cross-trial text comparison would differ for legitimate
+                 reasons and make the divergence check meaningless.
+    """
     tag = "cancelled" if cancelled else "control"
-    # Front salt makes the cold leg genuinely cold; the same salted prompt is
-    # then reused for the cancel and resume legs so all three legs share one
-    # prompt identity.
     prompt = _salt(f"cancel-resume {tag} {idx}") + base_text
 
-    cold = await run_streaming(
-        session,
-        args.url,
-        args.model,
-        prompt,
-        args.num_ctx,
-        args.num_predict,
-        seed,
-        f"{tag}#{idx} cold",
-    )
-
-    # Evict so the resume leg cannot ride the cold leg's own completed cache;
-    # what we want to measure is recovery from an INTERRUPTED prefill.
+    # Clean residency state for the trial as a whole. Nothing is evicted once
+    # the trial has started.
     await evict(args.url, args.model)
 
-    landed = True
+    first = None
     if cancelled:
         landed = await cancel_midprefill(
             session,
@@ -220,6 +256,17 @@ async def one_trial(session, args, base_text, seed, cancelled: bool, idx: int):
                 file=sys.stderr,
             )
             return None
+    else:
+        first = await run_streaming(
+            session,
+            args.url,
+            args.model,
+            prompt,
+            args.num_ctx,
+            args.num_predict,
+            seed,
+            f"{tag}#{idx} first",
+        )
 
     resumed = await run_streaming(
         session,
@@ -232,25 +279,57 @@ async def one_trial(session, args, base_text, seed, cancelled: bool, idx: int):
         f"{tag}#{idx} resumed",
     )
 
-    reused = cold["prompt_tokens"] - resumed["prompt_tokens"]
+    if first is not None:
+        baseline = first
+    else:
+        # Same-prompt cold reference for the cancelled arm.
+        await evict(args.url, args.model)
+        baseline = await run_streaming(
+            session,
+            args.url,
+            args.model,
+            prompt,
+            args.num_ctx,
+            args.num_predict,
+            seed,
+            f"{tag}#{idx} verify-cold",
+        )
+
+    cold_tokens = baseline["prompt_tokens"]
+    # Reuse is measured in TIME, because prompt_eval_count does not drop on a
+    # cache hit on this engine (see the module docstring).
+    cold_prefill = baseline["prefill_s"]
+    reused_frac = (
+        1.0 - (resumed["prefill_s"] / cold_prefill) if cold_prefill > 0 else 0.0
+    )
+    token_delta = cold_tokens - resumed["prompt_tokens"]
     row = {
         "trial": idx,
         "arm": tag,
-        "cold_prompt_tokens": cold["prompt_tokens"],
+        "cold_prompt_tokens": cold_tokens,
         "resumed_prompt_tokens": resumed["prompt_tokens"],
-        "reused_tokens": reused,
-        "reused_frac": reused / cold["prompt_tokens"] if cold["prompt_tokens"] else 0.0,
-        "cold_ttft_s": round(cold["ttft_s"], 3),
+        "token_delta": token_delta,
+        "reused_frac": reused_frac,
+        "prefill_speedup_x": (
+            round(cold_prefill / resumed["prefill_s"], 1)
+            if resumed["prefill_s"] > 0
+            else None
+        ),
+        "cold_ttft_s": round(baseline["ttft_s"], 3),
         "resumed_ttft_s": round(resumed["ttft_s"], 3),
-        "cold_prefill_s": round(cold["prefill_s"], 3),
+        "cold_prefill_s": round(baseline["prefill_s"], 3),
         "resumed_prefill_s": round(resumed["prefill_s"], 3),
-        "output_divergence": cold["text"] != resumed["text"],
+        # Same prompt, same seed, temperature 0: any text difference means the
+        # resumed answer changed, which is the failure mode worth catching —
+        # a fast reuse of a STALE restore point.
+        "output_divergence": baseline["text"] != resumed["text"],
+        "divergence_reference": "trial-first" if first else "trial-verify-cold",
     }
     print(
-        f"[{tag}#{idx}] cold_eval={row['cold_prompt_tokens']} "
-        f"resumed_eval={row['resumed_prompt_tokens']} "
-        f"reused={row['reused_tokens']} ({row['reused_frac']:.1%}) "
-        f"ttft {row['cold_ttft_s']:.3f}s -> {row['resumed_ttft_s']:.3f}s "
+        f"[{tag}#{idx}] prefill {row['cold_prefill_s']:.2f}s -> "
+        f"{row['resumed_prefill_s']:.2f}s "
+        f"(reused {row['reused_frac']:.1%}, {row['prefill_speedup_x']}x) "
+        f"eval_tok {row['cold_prompt_tokens']}->{row['resumed_prompt_tokens']} "
         f"divergence={row['output_divergence']}"
     )
     return row
@@ -279,6 +358,12 @@ def summarize(rows):
             "n": len(arm_rows),
             "reused_frac_mean": round(
                 statistics.mean(r["reused_frac"] for r in arm_rows), 4
+            ),
+            "cold_prefill_s_mean": round(
+                statistics.mean(r["cold_prefill_s"] for r in arm_rows), 3
+            ),
+            "resumed_prefill_s_mean": round(
+                statistics.mean(r["resumed_prefill_s"] for r in arm_rows), 3
             ),
             "resumed_eval_mean": round(
                 statistics.mean(r["resumed_prompt_tokens"] for r in arm_rows), 1
@@ -329,10 +414,9 @@ async def amain(args):
     print("\n=== cancel/resume summary ===")
     for arm, s in summary.items():
         print(
-            f"{arm:>10}: n={s['n']} cold_eval={s['cold_eval_mean']:.0f} "
-            f"resumed_eval={s['resumed_eval_mean']:.0f} "
+            f"{arm:>10}: n={s['n']} prefill {s['cold_prefill_s_mean']:.2f}s -> "
+            f"{s['resumed_prefill_s_mean']:.3f}s "
             f"reused={s['reused_frac_mean']:.1%} "
-            f"resumed_ttft={s['resumed_ttft_mean']:.3f}s "
             f"divergences={s['divergences']}"
         )
 
