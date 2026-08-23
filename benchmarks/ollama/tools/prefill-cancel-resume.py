@@ -70,6 +70,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import hashlib
 import json
 import os
 import statistics
@@ -324,6 +325,31 @@ async def one_trial(session, args, base_text, seed, cancelled: bool, idx: int):
         # a fast reuse of a STALE restore point.
         "output_divergence": baseline["text"] != resumed["text"],
         "divergence_reference": "trial-first" if first else "trial-verify-cold",
+        # Capture enough to CHARACTERIZE a divergence, not merely detect one.
+        # The first run of this probe (2026-08-23) flagged 2 of 3 control
+        # trials as divergent and left nothing to inspect, so the question
+        # "is this real or is greedy MLX decode simply not bit-reproducible
+        # across cache states?" could not be answered from the artifact.
+        "baseline_text_sha256": hashlib.sha256(baseline["text"].encode()).hexdigest()[
+            :16
+        ],
+        "resumed_text_sha256": hashlib.sha256(resumed["text"].encode()).hexdigest()[
+            :16
+        ],
+        "baseline_text_head": baseline["text"][:400],
+        "resumed_text_head": resumed["text"][:400],
+        "first_diff_char_index": next(
+            (
+                i
+                for i, (a, b) in enumerate(zip(baseline["text"], resumed["text"]))
+                if a != b
+            ),
+            min(len(baseline["text"]), len(resumed["text"]))
+            if baseline["text"] != resumed["text"]
+            else None,
+        ),
+        "baseline_gen_tokens": baseline["gen_tokens"],
+        "resumed_gen_tokens": resumed["gen_tokens"],
     }
     print(
         f"[{tag}#{idx}] prefill {row['cold_prefill_s']:.2f}s -> "
