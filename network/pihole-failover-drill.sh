@@ -30,7 +30,12 @@ readonly RESOLVERS=("$WEMBY" "$MANU" "$TIMMY")
 fingerprint() {
 	case "$1" in
 	172.18.0.3) echo "wemby ($WEMBY)" ;;
-	172.19.0.2) echo "manu ($MANU)" ;;
+	# manu moved 172.19.0.2 -> .0.3 when compose recreated its network during the
+	# PROJ-1018 Phase 0 rollout (2026-08-24). Both are accepted: the address is
+	# assigned by Docker at network-create time and will shift again on any
+	# recreate. If a fingerprint comes back UNKNOWN, re-read it with
+	# `dig +short @<ip> pi.hole` rather than assuming the host is down.
+	172.19.0.2 | 172.19.0.3) echo "manu ($MANU)" ;;
 	172.20.0.3) echo "timmy ($TIMMY)" ;;
 	*) echo "" ;;
 	esac
