@@ -1,0 +1,110 @@
+services:
+  pihole:
+    container_name: pihole
+    # Pinned (IMPR-1023). 2026.07.2 == what :latest resolved to on 2026-07-25.
+    image: pihole/pihole:2026.07.2
+    ports:
+      # DNS Ports
+      - "53:53/tcp"
+      - "53:53/udp"
+      # Default HTTP Port
+      - "8008:80/tcp"
+      # Default HTTPs Port. FTL will generate a self-signed certificate
+      - "7443:443/tcp"
+    environment:
+      # Set the appropriate timezone for your location (https://en.wikipedia.org/wiki/List_of_tz_database_time_zones), e.g:
+      TZ: "America/Chicago"
+      # Web UI password. Kept OUT of the repo (AGENTS.md: do not commit secrets) —
+      # set it in an untracked .env alongside this file. See ../.env.example.
+      FTLCONF_webserver_api_password: "${PIHOLE_WEBSERVER_API_PASSWORD:?set PIHOLE_WEBSERVER_API_PASSWORD in .env}"
+      # If using Docker's default `bridge` network setting the dns listening mode should be set to 'ALL'
+      FTLCONF_dns_listeningMode: "ALL"
+      # Configure Pi-hole to forward DNS queries to Unbound.
+      # NOTE: the v6 key is `dns.upstreams`, so the env var must be
+      # FTLCONF_dns_upstreams. manu/wemby still use the v5-era
+      # FTLCONF_upstream_dns_servers, which v6 silently ignores — they only
+      # resolve via unbound because their pihole-data volumes carry the setting
+      # from earlier manual config. On this fresh volume the old name left
+      # Pi-hole defaulting to 8.8.8.8/8.8.4.4.
+      FTLCONF_dns_upstreams: "unbound#53"
+      # PROJ-1018 Phase 0 — the private record set, version-controlled here.
+      #
+      # This is the ONLY mechanism that survives a deliberate pihole-data volume
+      # rebuild: the value lives in this file, not in the volume's pihole.toml.
+      # UI-added records and API writes both land in the volume and are lost.
+      #
+      # MUST be byte-identical across wemby/manu/timmy — clients pick a resolver
+      # arbitrarily, so a two-of-three rollout yields intermittent failures
+      # (INFO-1124 answer-identically invariant).
+      #
+      # WARNING: setting this as an env var makes dns.hosts READ-ONLY in the web
+      # UI. That is intended (reproducible-from-git), but a one-off record added
+      # through the UI will silently fail to stick. Edit here instead.
+      FTLCONF_dns_hosts: "192.168.1.19 registry.nathanwhyte.dev;192.168.1.19 k8s.nathanwhyte.dev;192.168.1.19 longhorn.nathanwhyte.dev"
+    depends_on:
+      - unbound
+    networks:
+      - dns-network
+    volumes:
+      # For persisting Pi-hole's databases and common configuration file
+      - pihole-data:/etc/pihole
+    cap_add:
+      # See https://github.com/pi-hole/docker-pi-hole#note-on-capabilities
+      # Optional, if Pi-hole should get some more processing time
+      - SYS_NICE
+    restart: unless-stopped
+
+  pihole-exporter:
+    container_name: pihole-exporter
+    # Digest-pinned (IMPR-1023): upstream's :latest (2026-05-03) is NEWER than its
+    # highest version tag v1.2.0 (2025-07-29), so pinning to v1.2.0 would downgrade.
+    image: ekofr/pihole-exporter@sha256:a890cc731a39da719ba19cfd717427d93366cd36307f069d495f37a1373ccffc
+    env_file:
+      - pihole-exporter.env
+    ports:
+      - "9617:9617"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5k"
+        max-file: "5"
+    healthcheck:
+      test:
+        ["CMD", "wget", "--tries=1", "--spider", "http://exporter:9617/metrics"]
+      interval: 300s
+      retries: 5
+      timeout: 10s
+    networks:
+      logs:
+    restart: always
+
+  unbound:
+    container_name: unbound
+    # alpinelinux/unbound — Alpine's own packaging, unbound 1.25.1 (2026-07-19),
+    # replacing the dormant mvance image (1.22.0, last built 2024-10-19).
+    # Deliberately unpinned: this repo publishes only `latest`-style tags, so there
+    # is no version tag to pin. Its entrypoint runs `unbound-anchor -a
+    # /etc/unbound/root.key`, so the DNSSEC trust anchor is created and maintained
+    # automatically. Config path is /etc/unbound, NOT mvance's /opt/unbound/etc/unbound.
+    image: alpinelinux/unbound:latest
+    volumes:
+      # Unbound config + state. The entrypoint chowns this directory to the
+      # in-container `unbound` user, which on the host shows as uid 101.
+      - ./unbound:/etc/unbound
+    networks:
+      - dns-network
+    restart: unless-stopped
+    # Unbound runs as recursive resolver, no external ports needed
+    # Pi-hole will connect to it via Docker network
+
+networks:
+  logs:
+    external: true
+  dns-network:
+    driver: bridge
+
+volumes:
+  # Local to timmy. manu/wemby reference a pre-existing external
+  # `deployments_pihole-data` volume; this node had none to adopt, so compose
+  # creates and owns it (`pihole_pihole-data`).
+  pihole-data:
