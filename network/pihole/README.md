@@ -54,13 +54,12 @@ A clean checkout **cannot** stand these stacks up on its own. `docker compose
 config -q` fails from the repo alone. Each host additionally needs, present only
 on the host:
 
-| Missing from the repo                     | Needed by    | Why not mirrored                                    |
-| ----------------------------------------- | ------------ | --------------------------------------------------- |
-| `.env`                                    | all three    | Contains the web UI password                        |
-| `pihole-exporter.env`                     | wemby, timmy | Contains a Pi-hole password                         |
-| `./unbound/` config dir                   | all three    | Includes `root.key` and per-host tuning             |
-| external network `logs`                   | wemby, timmy | Created by another compose project                  |
-| external volume `deployments_pihole-data` | wemby, manu  | Pre-existing; compose will not create it (BUG-1079) |
+| Missing from the repo   | Needed by    | Why not mirrored                        |
+| ----------------------- | ------------ | --------------------------------------- |
+| `.env`                  | all three    | Contains the web UI password            |
+| `pihole-exporter.env`   | wemby, timmy | Contains a Pi-hole password             |
+| `./unbound/` config dir | all three    | Includes `root.key` and per-host tuning |
+| external network `logs` | wemby, timmy | Created by another compose project      |
 
 What version control gives you here is **the record set and the pins**, not a
 turnkey rebuild. Treat this as configuration-of-record, not a disaster-recovery
@@ -126,13 +125,16 @@ Then re-run the invariant check. If the records come back without any manual
 step, Phase 0 is done. Budget ~1 hour of resolver cache before judging any
 record change from a LAN client — see PROJ-1018 on the cache floor.
 
-To exercise reproducibility on wemby or manu without the trap, back the volume up
-first and be ready to restore it:
+To keep the query statistics across a rebuild, back the volume up first:
 
 ```bash
-ssh <host> 'docker run --rm -v deployments_pihole-data:/src -v /tmp:/dst alpine \
+ssh <host> 'docker run --rm -v pihole_pihole-data:/src -v /tmp:/dst alpine \
   tar czf /dst/pihole-data-backup.tgz -C /src .'
 ```
+
+ℹ️ wemby and manu also still hold their pre-migration `deployments_pihole-data`
+volumes, retained as BUG-1079 rollback. Remove them once you are satisfied:
+`docker volume rm deployments_pihole-data`.
 
 ## Related
 
@@ -141,4 +143,4 @@ ssh <host> 'docker run --rm -v deployments_pihole-data:/src -v /tmp:/dst alpine 
 - `INFO-1124` — the resolver trio, versions, and the unversioned-config risk
 - `BUG-1078` — pop's public-name queries go to the router's unfiltered IPv6 resolver (ad filtering ~8% effective). Does **not** affect internal names and gates nothing here.
 - `pihole-failover-drill.sh` in `../` — failover drill, run from timmy or manu. Its `--stop` path is **untested**; the 2026-08-24 drill was run inline over SSH, not through the script.
-- `BUG-1079` — wemby/manu cannot recover from a `pihole-data` volume loss
+- `BUG-1079` — ✅ fixed 2026-08-25; wemby/manu converted to compose-owned volumes, so all three self-heal
