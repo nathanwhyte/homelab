@@ -75,16 +75,36 @@ for ip in 192.168.1.9 192.168.1.10 192.168.1.19; do
 done
 ```
 
-Volume-rebuild reproducibility — the criterion Phase 0 exists to satisfy. On
-**one** host only, during a quiet window, with the other two serving:
+Volume-rebuild reproducibility — the criterion Phase 0 exists to satisfy.
+
+🛑 **Run this on timmy and nowhere else.**
+
+`timmy` owns its volume through compose (`pihole_pihole-data`), so compose
+recreates it. **wemby and manu declare `pihole-data` as `external: true`**
+(`deployments_pihole-data`) — Docker will not create an external volume, so
+`docker compose up` **fails** after you remove it and that host stays down until
+you recreate the volume by hand and restore its contents. Removing it also
+destroys query history and gravity on a host that cannot self-heal.
 
 ```bash
-ssh <host> 'cd <compose-dir> && docker compose down && docker volume rm <volume> && docker compose up -d'
+# timmy ONLY — during a quiet window, with the other two resolvers serving
+ssh timmy 'cd /home/noot/deployments/pihole \
+  && docker compose down \
+  && docker volume rm pihole_pihole-data \
+  && docker compose up -d'
 ```
 
 Then re-run the invariant check. If the records come back without any manual
 step, Phase 0 is done. Budget ~1 hour of resolver cache before judging any
 record change from a LAN client — see PROJ-1018 on the cache floor.
+
+To exercise reproducibility on wemby or manu without the trap, back the volume up
+first and be ready to restore it:
+
+```bash
+ssh <host> 'docker run --rm -v deployments_pihole-data:/src -v /tmp:/dst alpine \
+  tar czf /dst/pihole-data-backup.tgz -C /src .'
+```
 
 ## Related
 

@@ -58,13 +58,23 @@ row() { printf '%-34s %s\n' "$1" "$2"; }
 
 # --- restore trap -----------------------------------------------------------
 restore() {
+	local rc=$?
 	if [[ -n "$STOPPED_HOST" ]]; then
 		log "RESTORING pihole on $STOPPED_HOST"
-		ssh "$(ssh_host "$STOPPED_HOST")" 'docker start pihole' &&
-			echo "restarted" || echo "!! MANUAL RESTART REQUIRED: ssh $STOPPED_HOST docker start pihole"
-		sleep 5
-		verify_all_up
+		if ssh "$(ssh_host "$STOPPED_HOST")" 'docker start pihole'; then
+			echo "restarted"
+			sleep 5
+			verify_all_up
+		else
+			# A failed restore must NOT exit 0. The whole point of the trap is that
+			# a resolver never stays down silently; converting this to a friendly
+			# message made the failure invisible to any caller or wrapper.
+			echo "!! RESTORE FAILED — resolver is STILL DOWN on $STOPPED_HOST"
+			echo "!! Recover with: ssh $(ssh_host "$STOPPED_HOST") docker start pihole"
+			exit 90
+		fi
 	fi
+	exit $rc
 }
 trap restore EXIT INT TERM
 
@@ -109,7 +119,13 @@ check_invariant() {
 		for ip in "${RESOLVERS[@]}"; do
 			answers+=("$(dig +short +time=2 +tries=1 @"$ip" "$name" 2>/dev/null | head -1)")
 		done
-		if [[ "${answers[0]}" == "${answers[1]}" && "${answers[1]}" == "${answers[2]}" ]]; then
+		# An empty answer is NOT agreement. Three resolvers all failing to answer
+		# compare equal as "" and would otherwise pass this gate — which is the
+		# exact condition that must block the drill, not clear it.
+		if [[ -z "${answers[0]}" || -z "${answers[1]}" || -z "${answers[2]}" ]]; then
+			row "$name" "NO ANSWER from at least one resolver: [${answers[*]}]"
+			failed=1
+		elif [[ "${answers[0]}" == "${answers[1]}" && "${answers[1]}" == "${answers[2]}" ]]; then
 			row "$name" "OK  all three -> ${answers[0]}"
 		else
 			row "$name" "MISMATCH  ${answers[*]}"
@@ -174,7 +190,12 @@ Linux) (resolvectl status 2>/dev/null || cat /etc/resolv.conf) | head -20 ;;
 esac
 
 verify_all_up
-check_invariant || echo "!! Invariant already broken BEFORE the drill — fix before proceeding."
+
+# A failed preflight must BLOCK the stop phase, not warn about it. Previously
+# this was `check_invariant || echo ...`, which let a drill proceed to take a
+# live resolver down on top of an already-broken resolver set.
+PREFLIGHT_OK=1
+check_invariant || PREFLIGHT_OK=0
 
 measure "BASELINE (all three resolvers up)"
 
@@ -185,6 +206,13 @@ if [[ "${1:-}" == "--stop" ]]; then
 		exit 1
 	}
 
+	if ((PREFLIGHT_OK == 0)); then
+		echo "!! ABORT: the answer-identically preflight FAILED."
+		echo "!! Taking a resolver down now would compound an existing fault."
+		echo "!! Fix the resolver set first, then re-run."
+		exit 2
+	fi
+
 	log "STOPPING pihole on $target"
 	read -rp "This takes a live resolver down. Type the hostname to confirm: " confirm
 	[[ "$confirm" == "$target" ]] || {
@@ -192,11 +220,16 @@ if [[ "${1:-}" == "--stop" ]]; then
 		exit 1
 	}
 
+	# Set STOPPED_HOST *before* issuing the stop. If the SSH connection drops
+	# after the container stops but before ssh returns, the old ordering left
+	# STOPPED_HOST unset and the trap silently skipped restoration, stranding a
+	# resolver down. Arming first means the trap always has a recovery target;
+	# a spurious restore of a still-running container is harmless.
+	STOPPED_HOST="$target"
 	ssh "$(ssh_host "$target")" 'docker stop pihole' || {
-		echo "stop failed"
+		echo "stop command failed or connection dropped — trap will attempt restore"
 		exit 1
 	}
-	STOPPED_HOST="$target"
 	sleep 3
 
 	measure "$target STOPPED"
