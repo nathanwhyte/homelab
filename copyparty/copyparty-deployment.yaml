@@ -35,6 +35,17 @@ spec:
         runAsUser: 1000
         runAsGroup: 1000
         fsGroup: 1000
+        # BUG-1081: without this, fsGroupChangePolicy defaults to `Always` and the
+        # kubelet recursively chowns EVERY file on the 200Gi PVC at each mount.
+        # Measured 2026-08-25: ~1,600 files/sec, 7m20s of full downtime for a
+        # routine restart, and the volume is RWO so the old pod is torn down
+        # first — there is no overlap. Cost scales with file COUNT, not data
+        # size, on an HDD-backed volume, so it worsens as the archive grows.
+        #
+        # `OnRootMismatch` compares only the volume's top-level directory against
+        # what fsGroup requires and skips the walk when it already matches —
+        # which it will on every restart after the first.
+        fsGroupChangePolicy: OnRootMismatch
         seccompProfile:
           type: RuntimeDefault
       containers:
