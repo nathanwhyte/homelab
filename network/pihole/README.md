@@ -15,9 +15,12 @@ DNS. Until 2026-08-24 the compose files existed only on the hosts, alongside
 Per-host differences are real, not drift to be normalised away:
 
 - **manu has no `pihole-exporter`**; wemby and timmy do.
-- **timmy's `pihole-data` volume is compose-owned** (`pihole_pihole-data`).
-  wemby and manu attach a pre-existing external volume,
-  `deployments_pihole-data`.
+- ~~**timmy's `pihole-data` volume is compose-owned**; wemby and manu attach a
+  pre-existing external volume.~~ **Resolved 2026-08-25 (BUG-1079)** — all three
+  are now compose-owned as `pihole_pihole-data`. wemby and manu were migrated
+  with their query history copied across; their old `deployments_pihole-data`
+  volumes are retained untouched as rollback and can be removed once you are
+  satisfied.
 
 ## The private record set
 
@@ -96,22 +99,28 @@ done
 
 Volume-rebuild reproducibility — the criterion Phase 0 exists to satisfy.
 
-🛑 **Run this on timmy and nowhere else.**
+✅ **Safe on all three hosts as of 2026-08-25 (BUG-1079).** Every host now owns
+its volume through compose (`pihole_pihole-data`), so compose recreates it. This
+was previously timmy-only: wemby and manu declared the volume `external: true`,
+and Docker never creates an external volume, so removing it made
+`docker compose up` **fail** until someone recreated it by hand.
 
-`timmy` owns its volume through compose (`pihole_pihole-data`), so compose
-recreates it. **wemby and manu declare `pihole-data` as `external: true`**
-(`deployments_pihole-data`) — Docker will not create an external volume, so
-`docker compose up` **fails** after you remove it and that host stays down until
-you recreate the volume by hand and restore its contents. Removing it also
-destroys query history and gravity on a host that cannot self-heal.
+⚠️ It still destroys **query history and gravity** on the host you run it on.
+Gravity rebuilds itself; the FTL query database does not. Back it up first if you
+care about the statistics — see the backup recipe below.
 
 ```bash
-# timmy ONLY — during a quiet window, with the other two resolvers serving
-ssh timmy 'cd /home/noot/deployments/pihole \
+# any host — during a quiet window, with the other two resolvers serving
+ssh <host> 'cd <compose-dir> \
   && docker compose down \
   && docker volume rm pihole_pihole-data \
   && docker compose up -d'
 ```
+
+Exercised on wemby 2026-08-25: the volume was destroyed and compose recreated it,
+with the three internal records restored from `FTLCONF_dns_hosts` at TTL 0 and
+filtering active — the criterion PROJ-1018 Phase 0 could previously only satisfy
+on timmy.
 
 Then re-run the invariant check. If the records come back without any manual
 step, Phase 0 is done. Budget ~1 hour of resolver cache before judging any

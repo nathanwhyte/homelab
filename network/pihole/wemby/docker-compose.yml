@@ -103,6 +103,11 @@ networks:
     driver: bridge
 
 volumes:
+  # BUG-1079: previously `external: true` pointing at `deployments_pihole-data`,
+  # a volume left over from a retired compose project. Docker never creates an
+  # external volume, so losing it meant `docker compose up` FAILED rather than
+  # recreating — a volume loss was a manual-recovery outage, and the PROJ-1018
+  # volume-rebuild criterion could only be exercised on timmy. Now compose-owned
+  # (`pihole_pihole-data`), matching timmy. Data migrated 2026-08-25; the old
+  # volume is retained untouched as rollback.
   pihole-data:
-    external: true
-    name: deployments_pihole-data
