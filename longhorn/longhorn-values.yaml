@@ -64,8 +64,12 @@ ingress:
     # Credentials: secret `longhorn-auth-secret`, see longhorn/middleware.yaml
     # and longhorn-auth-secret.yaml.example.
     traefik.ingress.kubernetes.io/router.middlewares: longhorn-system-longhorn-basicauth@kubernetescrd
-    # DNS-01 issuance, so the host does not need to be publicly reachable —
-    # longhorn.nathanwhyte.dev is an unproxied A record to 192.168.1.19
+    # DNS-01 issuance, so the host does not need to be publicly reachable.
+    # NOTE 2026-08-24 (PROJ-1018): the public A record was DELETED. The name now
+    # resolves only via the Pi-hole local records (network/pihole/) on LAN and
+    # Tailscale split DNS off-LAN. DNS-01 is unaffected — it creates a temporary
+    # TXT record via the Cloudflare API and never needed the A record.
+    # It previously resolved to 192.168.1.19
     # (timmy's LAN IP, where Traefik listens), not the tunnel. Deliberately NOT
     # timmy's tailnet IP: `tailscale serve` binds :443 there and rejects any
     # other SNI, so the request would never reach Traefik. Off-LAN access rides

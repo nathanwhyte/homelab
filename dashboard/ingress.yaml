@@ -29,10 +29,12 @@ metadata:
     # negative test proving an out-of-range client actually receives 403.
     # Access control that does work: tailnet membership for the `tailscale serve`
     # route, Cloudflare Access for anything genuinely public. This host is not
-    # publicly routable — its A record points at a private LAN IP.
-    # DNS-01 issuance, so the host does not need to be publicly reachable —
-    # k8s.nathanwhyte.dev resolves to the LAN IP, not the tunnel. Same pattern
-    # as longhorn.nathanwhyte.dev / harbor-tls / openviking-tls.
+    # publicly routable. NOTE 2026-08-24 (PROJ-1018): it has no public A record
+    # at all any more — that record was deleted. k8s.nathanwhyte.dev resolves
+    # via the Pi-hole local records (network/pihole/) on LAN and Tailscale
+    # split DNS off-LAN. DNS-01 issuance is unaffected; it uses a temporary
+    # TXT record via the Cloudflare API. Same pattern as
+    # longhorn.nathanwhyte.dev / harbor-tls / openviking-tls.
     cert-manager.io/cluster-issuer: letsencrypt-prod
 spec:
   tls:

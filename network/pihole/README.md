@@ -6,11 +6,11 @@ DNS. Until 2026-08-24 the compose files existed only on the hosts, alongside
 
 ## Host map
 
-| Host  | Resolver IP    | Compose path on host                   | Notes                                           |
-| ----- | -------------- | -------------------------------------- | ----------------------------------------------- |
-| wemby | `192.168.1.9`  | `/home/natew/code/deployments/pihole/` | Different user (`natew`), not `noot`            |
-| manu  | `192.168.1.10` | `/home/noot/deployments/pihole/`       | Docker socket unreachable to `noot` — see below |
-| timmy | `192.168.1.19` | `/home/noot/deployments/pihole/`       | Control plane; also the target of every record  |
+| Host  | Resolver IP    | Compose path on host                   | Notes                                          |
+| ----- | -------------- | -------------------------------------- | ---------------------------------------------- |
+| wemby | `192.168.1.9`  | `/home/natew/code/deployments/pihole/` | Different user (`natew`), not `noot`           |
+| manu  | `192.168.1.10` | `/home/noot/deployments/pihole/`       | Docker access fixed 2026-08-24 — see below     |
+| timmy | `192.168.1.19` | `/home/noot/deployments/pihole/`       | Control plane; also the target of every record |
 
 Per-host differences are real, not drift to be normalised away:
 

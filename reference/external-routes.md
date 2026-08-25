@@ -21,9 +21,13 @@ Traefik IngressRoutes. In the Notes column below, `CF` = Cloudflare-tunnel-only,
 
 ## LAN / Tailnet-only admin UIs (IMPR-1029)
 
-Not tunneled through Cloudflare at all. Their public DNS records are unproxied
-and point at private `192.168.1.19`, so the routes are reachable only from the
-LAN (`192.168.1.0/24`) or a Tailscale-connected client, via Traefik.
+Not tunneled through Cloudflare at all. ⚠️ **Updated 2026-08-24 (PROJ-1018):
+they no longer have public DNS records either.** The unproxied A records that
+used to point at private `192.168.1.19` were deleted; these names now resolve
+only via Pi-hole local records on LAN and Tailscale split DNS on the tailnet.
+Reachable, as before, only from the LAN (`192.168.1.0/24`) or a
+Tailscale-connected client, via Traefik — but now the *name* is private too, not
+just the address it pointed to.
 
 > **Status (2026-07-20): cut over. Repo and live now agree.**
 > The live tunnel config was read against the Cloudflare API on 2026-07-20 and
@@ -66,8 +70,10 @@ LAN (`192.168.1.0/24`) or a Tailscale-connected client, via Traefik.
 > Removal was chosen over keeping-them-labelled because an attached allowlist
 > reads as protection in every subsequent review — inert defense-in-depth is
 > worse than none. What actually gates these hosts: neither is publicly
-> routable (both A records are unproxied and point at the private LAN IP
-> `192.168.1.19`, with no tunnel route), plus tailnet membership for the
+> routable (~~both A records are unproxied and point at the private LAN IP
+> `192.168.1.19`, with no tunnel route~~ — **as of 2026-08-24 there are no public
+> A records at all; they were deleted, so the names are unresolvable off
+> LAN/tailnet as well as unroutable**), plus tailnet membership for the
 > `tailscale serve` path, plus Longhorn BasicAuth and the dashboard's own
 > ServiceAccount bearer token.
 >
@@ -93,23 +99,53 @@ LAN (`192.168.1.0/24`) or a Tailscale-connected client, via Traefik.
 | `k8s.nathanwhyte.dev`      | `kubernetes-dashboard-kong-proxy` | ServiceAccount bearer token   | Traefik Ingress (`dashboard/ingress.yaml`)                                                       |
 | `longhorn.nathanwhyte.dev` | `longhorn-frontend`               | **BasicAuth** (`longhorn-basicauth`) | Traefik Ingress (Helm-managed, `longhorn/longhorn-values.yaml`). Added 2026-07-21 (IMPR-1020) — Longhorn has no native auth and was returning 200 unauthenticated. Credentials in `longhorn-auth-secret`; negative test verified (no creds → 401). The `tailscale serve` route was repointed at Traefik (`longhorn/tailnet-ingress.yaml`) so it enforces too |
 
-### How these are actually reached (corrected 2026-07-20)
+### How these are actually reached (corrected 2026-08-25)
+
+**Current state.** `registry`, `k8s`, and `longhorn.nathanwhyte.dev` have **no
+public DNS records** — all three were deleted 2026-08-24 (PROJ-1018 Phases 3/4).
+They resolve by two paths only:
+
+| Path                | Mechanism                                                          |
+| ------------------- | ------------------------------------------------------------------ |
+| On LAN              | Pi-hole local records — `FTLCONF_dns_hosts`, see `network/pihole/`  |
+| Off-LAN, on tailnet | Tailscale **split DNS** — nine per-host routes (3 names × 3 Pi-holes) |
+
+Neither path is public. A device that is neither on the LAN nor on the tailnet
+cannot resolve these names at all, by design.
+
+⚠️ The split-DNS path is **configured but not yet validated from a genuinely
+off-LAN device.** Treat off-LAN resolution as unproven until someone runs
+`dig +short registry.nathanwhyte.dev` from a phone on cellular.
+
+Global Nameservers remain **unset** and "Override DNS servers" is **off** — this
+is split DNS, not a global override, so remote ad-blocking is unaffected
+(IDEA-1027 remains unimplemented).
+
+<details>
+<summary>Superseded 2026-07-20 text — kept because its lesson still applies</summary>
 
 The paragraph previously here described Tailscale Split DNS as the resolution
 mechanism. **It was a plan, not a description, and it was never carried out** —
-`tailscale dns status` on 2026-07-20 shows MagicDNS enabled tailnet-wide
+`tailscale dns status` on 2026-07-20 showed MagicDNS enabled tailnet-wide
 (`tailbca2b8.ts.net`) with **no resolvers configured and an empty Split DNS
-Routes list**. No resolver exists to point such a route at: no Pi-hole, AdGuard,
-dnsmasq or Blocky anywhere, and CoreDNS is ClusterIP-only. This is IMPR-1029
+Routes list**. No resolver existed to point such a route at: no Pi-hole, AdGuard,
+dnsmasq or Blocky anywhere, and CoreDNS is ClusterIP-only. This was IMPR-1029
 step 5, never completed — and reading as description is why that went unnoticed.
+
+Both halves of that snapshot are now false: Pi-hole runs on all three hosts, and
+the split-DNS routes exist. **The lesson survives the facts** — this file
+describes what *is*, and a plan written in the present tense is how the original
+error happened.
+
+</details>
 
 Current state per host:
 
 | Host | Reachable how | Note |
 | --- | --- | --- |
-| `longhorn.nathanwhyte.dev` | **By name, over HTTPS.** `https://longhorn.nathanwhyte.dev` | Restored 2026-07-20 (homelab `f77a516`): unproxied `A → 192.168.1.19`, Traefik on `websecure` with a cert-manager DNS-01 Let's Encrypt cert (`longhorn-tls`). Off-LAN needs `--accept-routes` for manu's `192.168.1.0/24` route |
+| `longhorn.nathanwhyte.dev` | **By name, over HTTPS.** `https://longhorn.nathanwhyte.dev` | ⚠️ **A record deleted 2026-08-24 (PROJ-1018)** — resolves via Pi-hole local records on LAN, Tailscale split DNS off-LAN. Historical: restored 2026-07-20 (homelab `f77a516`) as unproxied `A → 192.168.1.19`, Traefik on `websecure` with a cert-manager DNS-01 Let's Encrypt cert (`longhorn-tls`). Off-LAN needs `--accept-routes` for manu's `192.168.1.0/24` route |
 | `longhorn` — second route | `https://timmy.tailbca2b8.ts.net` | `tailscale serve` on timmy → **Traefik** (`https+insecure://10.43.138.211:443`), tailnet-only. Kept alongside the hostname: needs no subnet route and no `--accept-routes`. **Repointed 2026-07-21 (IMPR-1020)** — it previously proxied straight to `longhorn-frontend` ClusterIP, which bypassed Traefik entirely and so served Longhorn with **no auth** even after BasicAuth was added to the hostname route. `longhorn/tailnet-ingress.yaml` gives this Host its own Traefik router carrying the same middleware, since `serve` forwards the original Host header and it would otherwise match no rule |
-| `k8s.nathanwhyte.dev` | **By name, over HTTPS.** `https://k8s.nathanwhyte.dev` | Restored 2026-07-21, same pattern as Longhorn: unproxied `A → 192.168.1.19`, `dashboard/ingress.yaml` moved to `websecure` with a cert-manager DNS-01 Let's Encrypt cert (`k8s-dashboard-tls`). The `kubernetes-dashboard-kong-proxy:443` backend TLS was already handled by `dashboard/serverstransport.yaml` (Kong's self-signed cert has no IP SANs) |
+| `k8s.nathanwhyte.dev` | **By name, over HTTPS.** `https://k8s.nathanwhyte.dev` | ⚠️ **A record deleted 2026-08-24 (PROJ-1018)** — resolves via Pi-hole local records on LAN, Tailscale split DNS off-LAN. Historical: restored 2026-07-21, same pattern as Longhorn — unproxied `A → 192.168.1.19`, `dashboard/ingress.yaml` moved to `websecure` with a cert-manager DNS-01 Let's Encrypt cert (`k8s-dashboard-tls`). The `kubernetes-dashboard-kong-proxy:443` backend TLS was already handled by `dashboard/serverstransport.yaml` (Kong's self-signed cert has no IP SANs) |
 | k8s dashboard — second route | `https://timmy.tailbca2b8.ts.net:8443` | `tailscale serve` → `kubernetes-dashboard-kong-proxy` ClusterIP via `https+insecure://`, real Let's Encrypt cert (IMPR-1091). Kept alongside the hostname for the same convenience reason (no subnet route needed). **Unlike Longhorn's second route, this one still bypasses Traefik** — deliberately: the dashboard enforces its own ServiceAccount bearer token, so a Traefik middleware adds nothing. Verified 2026-07-21 — the root path serves the SPA at 200, but `/api/v1/*` returns `MSG_LOGIN_UNAUTHORIZED_ERROR` without a token. Do not read the root 200 as "unauthenticated" |
 
 Both `*.nathanwhyte.dev` admin hosts now satisfy the two constraints a `.dev`

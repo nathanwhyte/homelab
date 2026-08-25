@@ -141,11 +141,28 @@ for replicated persistent storage.
 
 ### Pi-hole
 
-> **Not currently deployed.** Network-wide ad and tracker blocking — planned for future deployment.
+Network-wide ad and tracker blocking, **deployed on all three hosts** — wemby
+(`192.168.1.9`), manu (`192.168.1.10`), timmy (`192.168.1.19`). Each is an
+independent instance; clients receive all three, so **all three must answer
+identically**.
+
+Since 2026-08-24 the compose files and the internal DNS record set are
+version-controlled here: [`network/pihole/`](network/pihole/README.md). Internal
+names (`registry`, `k8s`, `longhorn.nathanwhyte.dev`) are served from
+`FTLCONF_dns_hosts` in each host's compose file — **not** from public DNS, which
+no longer carries them.
 
 ### Unbound
 
-> **Not currently deployed.** In-house DNS resolution for speed and privacy — planned for future deployment.
+In-house recursive DNS, **deployed alongside each Pi-hole** on its own private
+`dns-network` bridge. Pi-hole forwards to it as `unbound#53`. The three do not
+share a recursive resolver, so unbound is not a hidden single point of failure.
+Full recursion from the root hints with local DNSSEC validation — no public
+upstream resolver is in the path.
+
+See [`network/pihole/README.md`](network/pihole/README.md) for the operating
+procedure and [`tailscale/README.md`](tailscale/README.md) for the measured DNS
+failover behaviour.
 
 ### Cloudflare Tunnel
 
