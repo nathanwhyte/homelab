@@ -41,14 +41,32 @@ the UI will silently fail to stick. Edit the compose file instead.
 untracked `.env` next to its compose file — see `.env.example`. `docker compose`
 will refuse to start with a clear error if it is missing.
 
-`pihole-exporter.env` (wemby, timmy) also lives only on the hosts and is not
-mirrored here.
+`pihole-exporter.env` (wemby, timmy) also lives only on the hosts. Upstream's
+schema includes a Pi-hole password, so it is a secret too — `.gitignore` now
+matches it by name, and the live copies are mode `600`.
+
+## ⚠️ This directory is not a complete, self-contained deployment
+
+A clean checkout **cannot** stand these stacks up on its own. `docker compose
+config -q` fails from the repo alone. Each host additionally needs, present only
+on the host:
+
+| Missing from the repo                     | Needed by    | Why not mirrored                                    |
+| ----------------------------------------- | ------------ | --------------------------------------------------- |
+| `.env`                                    | all three    | Contains the web UI password                        |
+| `pihole-exporter.env`                     | wemby, timmy | Contains a Pi-hole password                         |
+| `./unbound/` config dir                   | all three    | Includes `root.key` and per-host tuning             |
+| external network `logs`                   | wemby, timmy | Created by another compose project                  |
+| external volume `deployments_pihole-data` | wemby, manu  | Pre-existing; compose will not create it (BUG-1079) |
+
+What version control gives you here is **the record set and the pins**, not a
+turnkey rebuild. Treat this as configuration-of-record, not a disaster-recovery
+artifact, until those gaps are closed.
 
 ## Deploying a change
 
-Not yet exercised end to end — the records were added on 2026-08-24 and have not
-been rolled out. Intended procedure, one host at a time so two resolvers always
-remain up:
+Exercised end to end on 2026-08-24: all three hosts took this rollout and now
+serve the records locally. One host at a time, so two resolvers always remain up:
 
 ```bash
 # from the repo
@@ -56,9 +74,10 @@ scp network/pihole/<host>/docker-compose.yml <host>:<compose-dir>/docker-compose
 ssh <host> 'cd <compose-dir> && docker compose up -d'
 ```
 
-⚠️ **manu may not work this way.** Its Docker socket is unreachable to `noot`
-(INFO-1124), so `docker compose` there may need `sudo` or a different account.
-The Pi-hole v6 HTTP API is the read-only fallback for verification.
+ℹ️ **manu needed a one-time fix first.** `noot` was not in its `docker` group
+(the group had zero members), so compose could not run. Resolved 2026-08-24 with
+`sudo usermod -aG docker noot` plus re-login. Note the `docker` group is
+root-equivalent — that is a deliberate posture change, recorded in INFO-1124.
 
 ## Verifying
 
@@ -111,5 +130,6 @@ ssh <host> 'docker run --rm -v deployments_pihole-data:/src -v /tmp:/dst alpine 
 - `PROJ-1018` — hostname resolution migration; Phase 0 is this directory
 - `TASK-1159` — Phases 0/3/4 execution and acceptance criteria
 - `INFO-1124` — the resolver trio, versions, and the unversioned-config risk
-- `BUG-1078` — pop is served by the router's IPv6 resolver, not these; gates Phases 3–5
-- `pihole-failover-drill.sh` in `../` — failover drill, run from timmy or manu
+- `BUG-1078` — pop's public-name queries go to the router's unfiltered IPv6 resolver (ad filtering ~8% effective). Does **not** affect internal names and gates nothing here.
+- `pihole-failover-drill.sh` in `../` — failover drill, run from timmy or manu. Its `--stop` path is **untested**; the 2026-08-24 drill was run inline over SSH, not through the script.
+- `BUG-1079` — wemby/manu cannot recover from a `pihole-data` volume loss

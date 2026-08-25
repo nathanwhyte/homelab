@@ -135,8 +135,18 @@ check_invariant() {
 	return $failed
 }
 
-# Measure default-path resolution (no @server) — this is what a real client does,
-# and the only way to observe client-side failover behaviour.
+# Measure default-path resolution (no @server).
+#
+# ⚠️ CAVEAT, and it is a real limit on what this drill proves: on macOS, `dig`
+# talks to the resolvers in the system config directly and does NOT go through
+# the OS hostname-resolution path. Tailscale split-DNS routes, MagicDNS
+# interception and macOS's own resolver selection are therefore invisible here.
+# On macOS, corroborate any conclusion about what a *real application* sees with:
+#
+#   dscacheutil -q host -a name <fqdn>
+#
+# On Linux (systemd-resolved) `dig` against the stub is a closer proxy, but
+# `resolvectl query <fqdn>` is still the authoritative view.
 measure() {
 	local phase="$1"
 	local answered=0 timeouts=0
@@ -175,9 +185,18 @@ print(f"median {statistics.median(v):.0f} ms | mean {statistics.mean(v):.0f} ms 
 	# Partial-failure check: does the client still resolve INTERNAL names, or only
 	# public ones? The unfiltered IPv6 router resolver in pop's list can answer
 	# public names while every internal name dies — a mode BUG-1059 never saw.
+	#
+	# `dig +short | head -1` prints ";; communications error ..." as its first
+	# stdout line when a resolver refuses, hiding a subsequent successful answer.
+	# Filter those lines out rather than reporting a false failure.
 	for name in "${INTERNAL_NAMES[@]}"; do
-		row "  $name" "$(dig +short +time=3 +tries=1 "$name" 2>&1 | head -1 || echo 'FAILED')"
+		row "  $name" "$(dig +short +time=3 +tries=1 "$name" 2>/dev/null | grep -v '^;;' | head -1 || echo 'FAILED')"
 	done
+	# Native-path corroboration — what an application actually sees.
+	if [[ "$(uname -s)" == "Darwin" ]]; then
+		row "  native (dscacheutil)" \
+			"$(dscacheutil -q host -a name "${INTERNAL_NAMES[0]}" 2>/dev/null | awk '/ip_address/{print $2; exit}')"
+	fi
 	row "  doubleclick.net (filtering?)" "$(dig +short +time=3 +tries=1 doubleclick.net 2>&1 | head -1)"
 }
 

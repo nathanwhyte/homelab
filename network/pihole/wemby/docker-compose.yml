@@ -67,12 +67,12 @@ services:
       options:
         max-size: "5k"
         max-file: "5"
-    healthcheck:
-      test:
-        ["CMD", "wget", "--tries=1", "--spider", "http://exporter:9617/metrics"]
-      interval: 300s
-      retries: 5
-      timeout: 10s
+    # No healthcheck: the ekofr/pihole-exporter image is distroless — no shell, no
+    # wget, no curl — so every exec-based probe fails and the container reports
+    # `unhealthy` while serving correctly. The previous probe was doubly broken:
+    # it called an absent `wget`, against host `exporter`, which is not a service
+    # name here. Health is observed by Prometheus scraping :9617/metrics, which
+    # returns 200.
     networks:
       logs:
     restart: always
