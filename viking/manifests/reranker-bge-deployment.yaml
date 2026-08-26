@@ -1,0 +1,181 @@
+---
+# bge-reranker-v2-m3 on wemby's GTX 1060 (CUDA) — the rerank stage OpenViking
+# has been missing since deployment (BUG-1016 / TASK-1125).
+#
+# Why this exists: OV's HierarchicalRetriever picks its mode from whether a
+# rerank client could be built —
+#
+#     mode = RetrieverMode.QUICK if not self._rerank_client else RetrieverMode.THINKING
+#
+# and RerankConfig.is_available() was False, because ov.conf set only
+# `rerank.threshold` with no provider or credentials. Every OV search since
+# deployment has therefore run vector-only QUICK, while the retriever's own
+# GLOBAL_SEARCH_TOPK = 10 is commented "more candidates = better rerank
+# precision" — the architecture assumes this stage exists.
+#
+# Node choice: wemby's 1060 has been idle since the embedder moved to manu's
+# 1080 on 2026-07-17 (IMPR-1077). This leaves manu's 1080 for embeddings and
+# timmy's RX 9070 XT for ollama, so the three GPUs stay one-workload-each.
+#
+# Model: bge-reranker-v2-m3 (568M) is the cross-encoder llama.cpp's reranking
+# path is best tested against. FP16 at 1.16 GB is small enough on a 6 GB card
+# that quantizing buys nothing.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: reranker-model-cache
+  namespace: viking
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: longhorn-ssd
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: reranker-bge
+  namespace: viking
+  labels:
+    app: reranker-bge
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: reranker-bge
+  template:
+    metadata:
+      labels:
+        app: reranker-bge
+    spec:
+      runtimeClassName: nvidia
+      nodeSelector:
+        kubernetes.io/hostname: wemby
+        gpu.vendor: nvidia
+      securityContext:
+        fsGroup: 0
+      initContainers:
+        - name: model-fetch
+          image: curlimages/curl:8.12.1
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+              model_path="/models/${MODEL_FILE}"
+              if [ -f "${model_path}" ]; then
+                echo "Model already cached: ${model_path}"
+              else
+                echo "Downloading ${MODEL_FILE}..."
+                curl -fL --retry 5 --retry-delay 10 "${MODEL_URL}" -o "${model_path}.tmp"
+                mv "${model_path}.tmp" "${model_path}"
+                echo "Download complete."
+              fi
+              ln -sf "${model_path}" /models/current.gguf
+              echo "Model ready."
+          env:
+            - name: MODEL_FILE
+              value: bge-reranker-v2-m3-FP16.gguf
+            - name: MODEL_URL
+              value: https://huggingface.co/gpustack/bge-reranker-v2-m3-GGUF/resolve/main/bge-reranker-v2-m3-FP16.gguf
+          securityContext:
+            runAsUser: 0
+            runAsGroup: 0
+          volumeMounts:
+            - name: model-cache
+              mountPath: /models
+      containers:
+        - name: llamacpp
+          image: ghcr.io/ggml-org/llama.cpp:server-cuda
+          command: ["/app/llama-server"]
+          args:
+            - --model
+            - /models/current.gguf
+            - --host
+            - "0.0.0.0"
+            - --port
+            - "8000"
+            # --reranking exposes /rerank and /v1/rerank; rank pooling is what
+            # makes the model emit a single relevance score per (query, doc)
+            # pair rather than an embedding.
+            - --reranking
+            - --pooling
+            - rank
+            # 1060 has 6 GB; FP16 weights are ~1.16 GB, so 8192 ctx (the model's
+            # native limit) leaves ample KV headroom even at parallel=1.
+            - --ctx-size
+            - "8192"
+            - --n-gpu-layers
+            - "999"
+            - --parallel
+            - "1"
+            - --threads
+            - "4"
+            - --batch-size
+            - "512"
+            - --ubatch-size
+            - "512"
+            - --split-mode
+            - none
+            - --main-gpu
+            - "0"
+            - --flash-attn
+            - "on"
+            - --metrics
+          ports:
+            - containerPort: 8000
+              name: http
+          resources:
+            requests:
+              cpu: "500m"
+              memory: 1Gi
+              nvidia.com/gpu: "1"
+            limits:
+              cpu: "4"
+              memory: 4Gi
+              nvidia.com/gpu: "1"
+          # BUG-1049 posture, applied from the start rather than retrofitted:
+          # single-replica GPU inference whose /health shares a process with
+          # the work that makes it slow. No readinessProbe (no second replica
+          # exists to absorb traffic, so ejection only turns "slow" into
+          # "down"), and TCP-only liveness so a loaded model is never asked to
+          # answer HTTP promptly. startupProbe carries the model-load budget.
+          startupProbe:
+            tcpSocket:
+              port: 8000
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 60
+          livenessProbe:
+            tcpSocket:
+              port: 8000
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 10
+          volumeMounts:
+            - name: model-cache
+              mountPath: /models
+      volumes:
+        - name: model-cache
+          persistentVolumeClaim:
+            claimName: reranker-model-cache
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: reranker
+  namespace: viking
+  labels:
+    app: reranker-bge
+spec:
+  type: ClusterIP
+  selector:
+    app: reranker-bge
+  ports:
+    - name: http
+      port: 8000
+      targetPort: 8000
