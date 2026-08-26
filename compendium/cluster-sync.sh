@@ -33,9 +33,20 @@
 #   compendium/cluster-sync.sh -- --include-active --no-wait "bugs/dipdash/BUG-004-*.md"
 #
 # Bootstraps (idempotent): compendium namespace + state PVC + sync RBAC (the
-# in-Job heal's SA/Role/RoleBinding), secret compendium-git-token (copied from
-# hermes/github-access-token), secret openviking-api-key (copied from
+# in-Job heal's SA/Role/RoleBinding), secret openviking-api-key (copied from
 # viking/openviking-api-key — Secrets don't cross namespaces).
+#
+# Secret compendium-git-token is NOT bootstrapped: it holds a GitHub PAT that
+# the compendium namespace owns outright, with no cluster source to copy from
+# (it used to be copied from hermes/github-access-token, retired 2026-07-16 —
+# see hermes/RETIRED.md and BUG-1085). On a fresh cluster or after the secret is
+# lost, provision it by hand before running this script:
+#
+#   kubectl create secret generic compendium-git-token -n compendium \
+#       --from-literal=GITHUB_TOKEN=<github-pat>
+#
+# The PAT needs read/write on the compendium repo. The Job reads it as the
+# GITHUB_TOKEN env var (compendium-sync-job.template.yaml).
 set -euo pipefail
 
 OV_NAMESPACE=viking
@@ -44,7 +55,7 @@ OV_DEPLOY=openviking
 case "${1:-}" in
 -h | --help)
 	# Print the header docstring (usage + flags + examples) without dispatching a Job.
-	sed -n '2,38p' "$0" | sed 's/^# \{0,1\}//'
+	sed -n '2,49p' "$0" | sed 's/^# \{0,1\}//'
 	exit 0
 	;;
 esac
@@ -121,13 +132,42 @@ kubectl apply -f namespace.yaml -f state-pvc.yaml -f sync-rbac.yaml >/dev/null
 copy_secret() {
 	local src_ns="$1" src_name="$2" dst_name="$3"
 	if ! kubectl get secret "$dst_name" -n compendium >/dev/null 2>&1; then
+		# Preflight the source. Without this the missing-source case pipes an
+		# empty stream into python3 and dies on a JSONDecodeError that names
+		# neither the namespace nor the secret (BUG-1085).
+		if ! kubectl get secret "$src_name" -n "$src_ns" >/dev/null 2>&1; then
+			echo "error: cannot bootstrap compendium/$dst_name — source secret $src_ns/$src_name does not exist." >&2
+			echo "       Recreate $src_ns/$src_name, or provision compendium/$dst_name directly, then re-run." >&2
+			exit 1
+		fi
 		echo "creating compendium/$dst_name from $src_ns/$src_name"
 		kubectl get secret "$src_name" -n "$src_ns" -o json |
 			python3 -c "import json,sys; s=json.load(sys.stdin); s['metadata']={'name':'$dst_name','namespace':'compendium'}; print(json.dumps(s))" |
 			kubectl apply -f -
 	fi
 }
-copy_secret hermes github-access-token compendium-git-token
+
+# compendium-git-token is NOT copied from anywhere: it holds a GitHub PAT the
+# compendium namespace owns outright. Its old source, hermes/github-access-token,
+# died with the hermes namespace on 2026-07-16 and went unnoticed because the
+# create-if-absent guard never entered the broken branch (BUG-1085).
+require_secret() {
+	local name="$1"
+	shift
+	if ! kubectl get secret "$name" -n compendium >/dev/null 2>&1; then
+		echo "error: secret compendium/$name is missing and has no cluster source to copy from." >&2
+		echo "       It holds a GitHub PAT with read/write on the compendium repo; provision it by hand:" >&2
+		echo >&2
+		printf '         %s\n' "$@" >&2
+		echo >&2
+		echo "       Then re-run this script. See BUG-1085 and hermes/RETIRED.md." >&2
+		exit 1
+	fi
+}
+
+require_secret compendium-git-token \
+	"kubectl create secret generic compendium-git-token -n compendium \\" \
+	"    --from-literal=GITHUB_TOKEN=<github-pat>"
 copy_secret viking openviking-api-key openviking-api-key
 
 # Refuse to overlap: the compendium OV namespace is single-writer (BUG-1034/BUG-1035).
