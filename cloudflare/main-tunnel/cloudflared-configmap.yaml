@@ -75,4 +75,19 @@ data:
       # tradeoffs and the path to upgrade to Cloudflare Access if wanted.
       - hostname: files.nathanwhyte.dev
         service: http://copyparty.copyparty.svc.cluster.local:80
+      # build-hook CI webhook endpoint. Restored 2026-08-26 after retirement on
+      # 2026-07-20 (build/HISTORY.md). Deliberately routed through THIS
+      # cluster-wide tunnel rather than the dedicated `build` tunnel it used to
+      # have — that tunnel (a11f180d) was deleted in the 2026-03-28
+      # consolidation, and nothing repointed the endpoint, which is what caused
+      # the four-month silent outage. Note the hostname changed: the old
+      # endpoint was build.nathanwhyte.dev.
+      #
+      # POST /{project} requires a bearer token; GET /health is public. A
+      # triggered build runs on privileged buildkitd in the `build` namespace
+      # alongside the GitHub PAT and registry credentials, so write access to
+      # any configured GitHub repo is equivalent to code execution there — see
+      # BUG-1088. The token bounds who can trigger a build, not what it can do.
+      - hostname: hook.nathanwhyte.dev
+        service: http://hook.build.svc.cluster.local:3000
       - service: http_status:404

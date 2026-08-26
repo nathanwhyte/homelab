@@ -1,7 +1,54 @@
-# build-hook CI — RETIRED 2026-07-20
+# build-hook CI — RETIRED 2026-07-20, RESTORED 2026-08-26
+
+**This file is now history, not current state.** The stack is deployed and
+serving at `hook.nathanwhyte.dev`. Everything below the "Restore" section
+describes the retired period and is kept because it explains how the pipeline
+decayed.
+
+## Restored 2026-08-26
+
+Triggered by a credit-coach push failing CI against the dead
+`build.nathanwhyte.dev` — the first push to that repo's `main` since February,
+and so the first thing to exercise the outage.
+
+What the restore actually required, beyond re-applying the manifests:
+
+| Step | Detail |
+| ---- | ------ |
+| Auth audit | `build-hook` PR #2 / BUG-1088 — no bypass found; fixed three fail-quietly and timing defects |
+| Token rotation | All five tokens in `bearer-tokens-secret` replaced, plus the `BEARER_TOKEN` Actions secret in each of the four consuming repos |
+| **Registry permissions** | `robot$builder` had **pull-only** on `build-hook/api` — see below |
+| Image | Rebuilt from the hardened source and **pinned by digest** `sha256:95b9213f…`, closing the IMPR-1023 gap; it ran `:latest` throughout its previous life |
+| Public route | `hook.nathanwhyte.dev` on the **cluster-wide** tunnel, plus a proxied CNAME. The dedicated `tunnel` Deployment was deleted from `build-hook.yaml` |
+| Consumers | Workflows in all four repos repointed off `build.nathanwhyte.dev` (PRs, unmerged — merging one triggers that service's first automated deploy since March) |
+
+### It had decayed at two independent layers
+
+The account below blames the tunnel deletion, and that was real, but it was not
+the only break. `robot$builder` — the registry credential the builder uses —
+holds **pull only** on `build-hook/api`. A triggered build would have cloned,
+built, and then failed at the push.
+
+So repointing the tunnel in July would **not** have produced a working
+pipeline. This second break had presumably never been exercised, which is
+consistent with the commit history: across all five configured repos, only two
+pushes happened during the entire four-month outage window.
+
+That matters for how the "unnoticed for four months" reasoning below should be
+read. It was not evidence that the pipeline was unwanted; nobody was pushing to
+four of the five repos, and the one that did push twice would have failed at a
+second layer regardless.
+
+The restore used `robot$claude` (push/pull/delete on `build-hook/api`) to
+publish the image. `robot$builder` is still pull-only and **still cannot push**
+— if the pipeline is ever expected to build itself, that needs fixing.
+
+---
+
+## Original retirement record (2026-07-20)
 
 The webhook-driven image builder in the `build` namespace was torn down on
-2026-07-20. Manifests are retained in this directory; nothing is applied.
+2026-07-20. Manifests were retained in this directory; nothing was applied.
 
 ## What it was
 

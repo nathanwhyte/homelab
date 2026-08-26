@@ -1,25 +1,34 @@
-# build-hook: webhook-driven CI image builder — RETIRED 2026-07-20
+# build-hook: webhook-driven CI image builder
 #
-# NOT APPLIED. Adopted into the repo 2026-07-20 (IMPR-1028) by exporting the
-# live out-of-band Deployments immediately before tearing them down, so the
-# stack stays restorable. See RETIRED.md in this directory for why, and for the
-# restore procedure.
+# Retired 2026-07-20, RESTORED 2026-08-26. See HISTORY.md for the full history.
 #
-# What this was: `hook` received authenticated webhook calls, built images with
-# buildkitd (build/buildkitd.yaml), pushed them to registry.nathanwhyte.dev, and
-# restarted the target Deployments — for five projects (build-hook, credit-coach,
-# equal-risk, portfolio, glossary). `tunnel` was its public front door.
+# `hook` receives authenticated webhook calls, builds images with buildkitd
+# (build/buildkitd.yaml), pushes them to registry.nathanwhyte.dev, and restarts
+# the target Deployments — for five projects (build-hook, credit-coach,
+# equal-risk, portfolio, glossary), configured in the `hook-config` ConfigMap.
 #
-# Why it died: the `build` Cloudflare tunnel (a11f180d) was deleted 2026-03-28
-# during the tunnel consolidation, and nothing repointed the webhook endpoint at
-# the cluster-wide tunnel. `tunnel` spent ~4 months logging
-# "Unauthorized: Tunnel not found" and no push has built anything since.
+# It had decayed at TWO independent layers, which is why a restore is more than
+# re-applying this file:
+#   1. The `build` Cloudflare tunnel (a11f180d) was deleted 2026-03-28 during
+#      the consolidation, and nothing repointed the webhook endpoint. Fixed by
+#      an ingress rule on the cluster-wide tunnel — see the note at the bottom.
+#   2. The `robot$builder` registry account had PULL-ONLY access to
+#      build-hook/api, so a build would have run to completion and then failed
+#      at the push. Discovered 2026-08-26; a build robot that cannot push had
+#      presumably never been exercised.
 #
 # Secrets are referenced by name only and are NOT in this repo:
-#   bearer-tokens-secret   — inbound webhook auth (BEARER_TOKENS)
+#   bearer-tokens-secret   — inbound webhook auth (BEARER_TOKENS); rotated
+#                            2026-08-26, five tokens, one per project
 #   github-access-token    — repo clone PAT (GITHUB_TOKEN)
 #   registry-credentials   — dockerconfigjson for registry.nathanwhyte.dev
-#   hook-cloudflared-token — token for the DELETED `build` tunnel; worthless
+#
+# SECURITY (BUG-1088): builds run on buildkitd with privileged: true, in a
+# namespace holding both the GitHub PAT and the registry credentials. Write
+# access to any of the five configured GitHub repos is therefore equivalent to
+# code execution here. The bearer token bounds *who can trigger* a build; it
+# does not bound what a build can do. GitHub repo permissions are the real
+# perimeter.
 #
 # hostPath volumes /data/build-cache and /data/build-context remain on whichever
 # node last ran the pod; they are not cleaned up by deleting these workloads.
@@ -93,8 +102,11 @@ spec:
       serviceAccountName: buildx-builder
       containers:
         - name: hook
-          # Mutable tag — was never pinned (IMPR-1023 gap). Pin on restore.
-          image: registry.nathanwhyte.dev/build-hook/api:latest
+          # Pinned by digest (IMPR-1023). This is the auth-hardened build from
+          # build-hook 293d712 / BUG-1088: tokens loaded once at startup with a
+          # constant-time compare, and a refusal to start without them.
+          # Tag for humans: auth-hardening-293d712
+          image: registry.nathanwhyte.dev/build-hook/api@sha256:95b9213f2ae098fc2093b40585e3dd735d018a7f2d32fcbf937296ac4057648e
           ports:
             - name: http
               containerPort: 3000
@@ -145,51 +157,18 @@ spec:
         - name: docker-config
           secret:
             secretName: registry-credentials
----
-# The public front door. On restore, prefer adding a `hook.nathanwhyte.dev`
-# ingress rule to the cluster-wide tunnel (../cloudflare/main-tunnel/
-# cloudflared-configmap.yaml) pointing at hook.build.svc.cluster.local:3000,
-# rather than recreating a dedicated tunnel — that is what the 2026-03-28
-# consolidation was for. This Deployment is kept only as a record of what ran.
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: tunnel
-  namespace: build
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: tunnel
-  template:
-    metadata:
-      labels:
-        app: tunnel
-    spec:
-      containers:
-        - name: cloudflared
-          image: cloudflare/cloudflared:latest
-          args:
-            - tunnel
-            - --no-autoupdate
-            - run
-            - --token-file
-            - /etc/cloudflared/token
-          resources:
-            requests:
-              cpu: 50m
-              memory: 64Mi
-            limits:
-              cpu: 200m
-              memory: 256Mi
-          volumeMounts:
-            - name: tokenfile
-              mountPath: /etc/cloudflared
-              readOnly: true
-      volumes:
-        - name: tokenfile
-          secret:
-            secretName: hook-cloudflared-token
-            items:
-              - key: TOKEN
-                path: token
+#
+# The dedicated `tunnel` Deployment that used to be here has been REMOVED as
+# part of the 2026-08-26 restore. It ran cloudflared against tunnel a11f180d,
+# which was deleted on 2026-03-28 during the consolidation into the
+# cluster-wide `homelab` tunnel; its `hook-cloudflared-token` secret was
+# deleted at retirement and the token is worthless. Recreating it would rebuild
+# exactly the fragility that caused the original four-month outage.
+#
+# The public front door is instead an ingress rule on the cluster-wide tunnel:
+#
+#   - hostname: hook.nathanwhyte.dev
+#     service: http://hook.build.svc.cluster.local:3000
+#
+# in ../cloudflare/main-tunnel/cloudflared-configmap.yaml, plus a proxied CNAME.
+# Git history holds the old Deployment if it is ever needed as a reference.
