@@ -104,12 +104,22 @@ spec:
       serviceAccountName: buildx-builder
       containers:
         - name: hook
-          # Pinned by digest (IMPR-1023). Built from build-hook f24141a on main
-          # (PR #2 / BUG-1088): bearer tokens loaded once at startup, stored and
-          # compared as fixed-length SHA-256 digests in constant time, and a
-          # refusal to start without them.
-          # Tags for humans: main-f24141a, auth-hardening-db5bd52
-          image: registry.nathanwhyte.dev/build-hook/api@sha256:881344b471d77e9da4acfa13a538c78f11e919748ee8a252c3bd04fa761a7a2d
+          # Mutable :latest ON PURPOSE, reversing the digest pin added earlier
+          # on 2026-08-26. The two are incompatible here: hook-config has this
+          # pipeline build itself and then `rollout restart` deploy/hook, and a
+          # restart against a pinned digest brings the pod back on the SAME
+          # image — so pinning silently turned the self-build into a no-op.
+          # Deploy-by-restart requires a mutable tag.
+          #
+          # This reopens the IMPR-1023 gap for this one Deployment, knowingly.
+          # :latest was repointed at the hardened build
+          # (sha256:881344b4…, build-hook f24141a) before this change, so
+          # switching back does not regress to the pre-hardening March image.
+          image: registry.nathanwhyte.dev/build-hook/api:latest
+          # Required for deploy-by-restart to mean anything: with IfNotPresent
+          # a rollout restart reuses the cached layer and never sees the newly
+          # built image.
+          imagePullPolicy: Always
           ports:
             - name: http
               containerPort: 3000
