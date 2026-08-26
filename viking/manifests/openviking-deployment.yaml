@@ -116,18 +116,29 @@ spec:
             limits:
               cpu: "12"
               memory: 8Gi
+          # BUG-1049: no runtime readinessProbe, deliberately.
+          #
+          # /ready shares the process with semantic indexing. Under a full
+          # re-index it exceeded its 10s timeout, 3 strikes marked the pod
+          # NotReady, and the kubelet pulled it from the openviking Service —
+          # a full outage, because this is single-replica. Ejection then
+          # deepened the overload that caused it (flap loop).
+          #
+          # Readiness ejection only helps when OTHER replicas absorb the
+          # traffic. With one replica it converts "slow" into "down". Serving
+          # slowly is strictly better here.
+          #
+          # The startupProbe below is the sole gate on joining the Service, so
+          # its budget is sized to worst-case boot (Garage + vectordb
+          # reconnect): 3s x 20 = 60s, was 3s x 10 = 30s.
           startupProbe:
             httpGet:
               path: /health
               port: 1933
             periodSeconds: 3
-            failureThreshold: 10
-          readinessProbe:
-            httpGet:
-              path: /ready
-              port: 1933
-            periodSeconds: 10
-            timeoutSeconds: 10
+            failureThreshold: 20
+          # Liveness stays conservative and TCP-only — it never touches the
+          # indexing path. 30s x 10 ~= 5min before a restart.
           livenessProbe:
             tcpSocket:
               port: 1933
@@ -217,18 +228,23 @@ spec:
             limits:
               cpu: 100m
               memory: 128Mi
+          # BUG-1049: the exporter's readinessProbe is removed too, for a
+          # reason that is easy to miss — a Pod is Ready only if EVERY
+          # container is Ready, so this sidecar gated membership of the same
+          # openviking Service as the main container. Worse, it scraped
+          # /metrics off OpenViking, so it went slow at exactly the moments
+          # OpenViking did: a second ejection path perfectly correlated with
+          # the first. Removing only the main container's probe would have
+          # left this one still able to pull the pod out of its own Service.
+          #
+          # Its /health startupProbe and livenessProbe are unchanged; they
+          # check the exporter itself, not OpenViking.
           startupProbe:
             httpGet:
               path: /health
               port: 9210
             periodSeconds: 3
             failureThreshold: 30
-          readinessProbe:
-            httpGet:
-              path: /metrics
-              port: 9210
-            periodSeconds: 15
-            timeoutSeconds: 5
           livenessProbe:
             httpGet:
               path: /health
