@@ -102,11 +102,12 @@ spec:
       serviceAccountName: buildx-builder
       containers:
         - name: hook
-          # Pinned by digest (IMPR-1023). This is the auth-hardened build from
-          # build-hook 293d712 / BUG-1088: tokens loaded once at startup with a
-          # constant-time compare, and a refusal to start without them.
-          # Tag for humans: auth-hardening-293d712
-          image: registry.nathanwhyte.dev/build-hook/api@sha256:95b9213f2ae098fc2093b40585e3dd735d018a7f2d32fcbf937296ac4057648e
+          # Pinned by digest (IMPR-1023). Built from build-hook f24141a on main
+          # (PR #2 / BUG-1088): bearer tokens loaded once at startup, stored and
+          # compared as fixed-length SHA-256 digests in constant time, and a
+          # refusal to start without them.
+          # Tags for humans: main-f24141a, auth-hardening-db5bd52
+          image: registry.nathanwhyte.dev/build-hook/api@sha256:881344b471d77e9da4acfa13a538c78f11e919748ee8a252c3bd04fa761a7a2d
           ports:
             - name: http
               containerPort: 3000
