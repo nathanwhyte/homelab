@@ -129,24 +129,28 @@ spec:
           # privileged dropped (IMPR-1022): runtimeClassName nvidia + the
           # nvidia.com/gpu resource inject the GPU; verify with nvidia-smi in
           # the pod on next rollout.
+          # BUG-1049: single-replica GPU inference. /health shares the process
+          # with embedding work, so it goes slow exactly when the embedder is
+          # busiest — which is when OpenViking most needs it.
           startupProbe:
             tcpSocket:
               port: 8000
             periodSeconds: 10
             timeoutSeconds: 5
             failureThreshold: 120
-          readinessProbe:
-            httpGet:
-              path: /health
-              port: 8000
-            periodSeconds: 10
-            timeoutSeconds: 5
+          # readinessProbe removed — no second replica exists to absorb the
+          # traffic, so ejection only converts "slow" into "down".
+          #
+          # livenessProbe was http /health, restarting the pod after ~75s of
+          # slow health. Restarting a GPU embedder mid-batch is expensive
+          # (model reload from the cache PVC) and drops in-flight work. TCP-only
+          # with a ~5min budget still catches a genuinely wedged process.
           livenessProbe:
-            httpGet:
-              path: /health
+            tcpSocket:
               port: 8000
-            periodSeconds: 20
+            periodSeconds: 30
             timeoutSeconds: 5
+            failureThreshold: 10
           volumeMounts:
             - name: model-cache
               mountPath: /models

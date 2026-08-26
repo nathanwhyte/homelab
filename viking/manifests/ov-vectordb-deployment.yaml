@@ -31,22 +31,31 @@ spec:
           ports:
             - name: http
               containerPort: 5000
+          # BUG-1049: single-replica service on OpenViking's indexing path.
+          # startupProbe gates joining the Service; nothing tears it out or
+          # restarts it afterwards for being slow.
           startupProbe:
             httpGet:
               path: /health
               port: 5000
             periodSeconds: 3
             failureThreshold: 20
-          readinessProbe:
-            httpGet:
-              path: /health
-              port: 5000
-            periodSeconds: 10
+          # readinessProbe removed — with one replica, ejecting it from its own
+          # Service turns "slow" into "down" for OpenViking, which is the only
+          # caller.
+          #
+          # livenessProbe was http /health with the DEFAULT 1s timeout and 3
+          # failures — a restart after ~48s of slow /health. That is worse than
+          # the readiness ejection this bug is about: a restart mid-index drops
+          # in-flight work rather than just delaying it. Now TCP-only with a
+          # ~5min budget, matching openviking's: it catches a wedged process
+          # without ever asking a loaded one to answer HTTP promptly.
           livenessProbe:
-            httpGet:
-              path: /health
+            tcpSocket:
               port: 5000
-            periodSeconds: 15
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 10
           lifecycle:
             preStop:
               exec:
