@@ -22,26 +22,49 @@ What the restore actually required, beyond re-applying the manifests:
 | Public route | `hook.nathanwhyte.dev` on the **cluster-wide** tunnel, plus a proxied CNAME. The dedicated `tunnel` Deployment was deleted from `build-hook.yaml` |
 | Consumers | Workflows in all four repos repointed off `build.nathanwhyte.dev` (PRs, unmerged — merging one triggers that service's first automated deploy since March) |
 
-### It had decayed at two independent layers
+### The pipeline never worked
 
-The account below blames the tunnel deletion, and that was real, but it was not
-the only break. `robot$builder` — the registry credential the builder uses —
-holds **pull only** on `build-hook/api`. A triggered build would have cloned,
-built, and then failed at the push.
+This section replaces an earlier claim of mine that the stack "decayed at two
+independent layers." That was wrong, and so was an intermediate claim that
+`robot$builder` was a pull-only account. The truth is worse and simpler.
 
-So repointing the tunnel in July would **not** have produced a working
-pipeline. This second break had presumably never been exercised, which is
-consistent with the commit history: across all five configured repos, only two
-pushes happened during the entire four-month outage window.
+**`robot$builder` never existed.** Harbor's `robot` table has only ever held
+three rows: `omnipendium+omnipendium-pull` (2026-07-03), `claude` (2026-08-26),
+and `build-hook-pusher` (2026-08-26, created for this restore). There is no
+`create robot` event for `builder` in the audit log and no `delete robot` event
+either.
 
-That matters for how the "unnoticed for four months" reasoning below should be
-read. It was not evidence that the pipeline was unwanted; nobody was pushing to
-four of the five repos, and the one that did push twice would have failed at a
-second layer regardless.
+It *appeared* to authenticate because every Harbor project here is **public**,
+so the token service grants `pull` to anyone. Anonymous requests, the
+`robot$builder` credential, and outright nonsense credentials all received
+byte-identical `['pull']` grants. The credential was never validated; it was
+being ignored.
 
-The restore used `robot$claude` (push/pull/delete on `build-hook/api`) to
-publish the image. `robot$builder` is still pull-only and **still cannot push**
-— if the pipeline is ever expected to build itself, that needs fixing.
+**The audit log settles what actually happened.** Across its full 418-entry
+history from 2026-03-15:
+
+| Account | Pushes | First | Last |
+| ------- | -----: | ----- | ---- |
+| `admin` | 108 | 2026-03-15 | 2026-07-06 |
+| `robot$claude` | 6 | 2026-08-26 | 2026-08-26 |
+
+`robot$builder` has no push, no login, no event of any kind. `admin` is the
+only account that has ever logged in. **Every image in these repositories was
+pushed by hand.** The build-hook pipeline has never successfully pushed
+anything.
+
+So the tunnel deletion on 2026-03-28 broke inbound webhooks on a pipeline whose
+outbound push had never functioned. The retirement note below says it "had
+already been non-functional for roughly four months" — the accurate statement
+is that it was **never functional**, deployed with a registry credential for an
+account that was never created. That also explains why nobody noticed: there was
+no working state to lose.
+
+Fixed 2026-08-26 by creating `robot$build-hook-pusher` — push+pull on exactly
+the five configured projects, verified to have no push anywhere else — and
+wiring it into `build/registry-credentials`. A real authenticated push was
+confirmed against the audit log, the first the registry has recorded from a
+robot account.
 
 ---
 

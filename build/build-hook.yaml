@@ -7,15 +7,17 @@
 # the target Deployments — for five projects (build-hook, credit-coach,
 # equal-risk, portfolio, glossary), configured in the `hook-config` ConfigMap.
 #
-# It had decayed at TWO independent layers, which is why a restore is more than
-# re-applying this file:
+# This pipeline NEVER successfully pushed an image. Two separate things were
+# broken, and a restore is more than re-applying this file:
 #   1. The `build` Cloudflare tunnel (a11f180d) was deleted 2026-03-28 during
 #      the consolidation, and nothing repointed the webhook endpoint. Fixed by
 #      an ingress rule on the cluster-wide tunnel — see the note at the bottom.
-#   2. The `robot$builder` registry account had PULL-ONLY access to
-#      build-hook/api, so a build would have run to completion and then failed
-#      at the push. Discovered 2026-08-26; a build robot that cannot push had
-#      presumably never been exercised.
+#   2. The registry credential named `robot$builder` NEVER EXISTED in Harbor.
+#      It seemed to work only because every project here is public, so the
+#      token service grants `pull` to anyone — anonymous, that credential, and
+#      nonsense credentials all got identical grants. The audit log shows all
+#      108 historical pushes were made by `admin` by hand, and that no robot
+#      account ever logged in. Fixed by creating robot$build-hook-pusher.
 #
 # Secrets are referenced by name only and are NOT in this repo:
 #   bearer-tokens-secret   — inbound webhook auth (BEARER_TOKENS); rotated
