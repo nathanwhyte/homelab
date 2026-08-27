@@ -27,9 +27,26 @@ metadata:
 data:
   # --- ollama-pop.homelab.local — pop's native MLX ollama (FEAT-1021) ---
   #
-  # pop's LAN IP is router-reserved (192.168.1.6) so this A record is
+  # pop's LAN IP is router-reserved (192.168.1.119) so this A record is
   # stable. Pods reach pop's ollama as
   # `http://ollama-pop.homelab.local:11434` from any namespace.
+  #
+  # ⚠ The reservation is against pop's WIRED adapter — the USB 2.5G LAN on
+  # en13, MAC 00:05:1b:51:89:63 — not its Wi-Fi (en0, fc:b2:14:d7:65:a8).
+  # pop holds an address on both interfaces at once, so "pop's IP" is
+  # ambiguous: on 2026-08-27 en0 was on .198 while en13 held .119. Reserving
+  # the Wi-Fi MAC instead would make the two interfaces fight over .119.
+  #
+  # Was 192.168.1.6 until 2026-08-27. That address was described here as
+  # router-reserved, but the reservation had lapsed — GFiber restricts
+  # reservations to a higher range, and nothing on pop held .6 any more, so
+  # every pod resolving this name had been pointed at a dead address. The
+  # lesson is that a comment asserting "reserved" is not evidence the
+  # reservation exists; the router is the source of truth.
+  #
+  # If this drifts again, pop's Tailscale address (100.113.28.62) is stable
+  # by construction and immune to DHCP entirely — at the cost of routing
+  # cluster→pop traffic over the tailnet instead of the LAN.
   #
   # Why DNS (not a Service+Endpoints): one ConfigMap key, no kube-proxy,
   # no stale Endpoints subset when pop sleeps. The Service+Endpoints
@@ -37,7 +54,7 @@ data:
   ollama-pop.server: |
     ollama-pop.homelab.local {
       hosts {
-        192.168.1.6 ollama-pop.homelab.local
+        192.168.1.119 ollama-pop.homelab.local
         ttl 60
         reload 15s
       }

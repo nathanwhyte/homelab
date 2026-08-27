@@ -61,12 +61,24 @@
 # a couple of devices, prefer real auth (BasicAuth via Traefik, as Longhorn got)
 # over an ever-widening CIDR list — identity scales, location does not.
 #
-# THREE /32s FOR ONE LAPTOP, DELIBERATELY. pop has two LAN interfaces — en7
-# (192.168.1.6, wired) and en0 (192.168.1.8, wifi) — plus its tailnet address.
-# LAN traffic to timmy was observed leaving via the WIRED interface, so an
-# allowlist built from `ipconfig getifaddr en0` alone would have locked the
-# MacBook out of its own metrics pipeline. Verify against what the receiving pod
-# logs as the source, not against what the client believes its address is.
+# THREE /32s FOR ONE LAPTOP, DELIBERATELY. pop has two LAN interfaces — en13
+# (192.168.1.119, USB 2.5G wired) and en0 (192.168.1.198, wifi) — plus its
+# tailnet address. LAN traffic to timmy was observed leaving via the WIRED
+# interface, so an allowlist built from `ipconfig getifaddr en0` alone would
+# have locked the MacBook out of its own metrics pipeline. Verify against what
+# the receiving pod logs as the source, not against what the client believes
+# its address is.
+#
+# ⚠ ONLY THE WIRED /32 IS ANCHORED. The GFiber reservation covers en13's MAC
+# (00:05:1b:51:89:63) at .119; the Wi-Fi address is an ordinary DHCP lease and
+# WILL drift. Re-check it when the wireless path starts getting refused —
+# a silently-changed lease presents as "metrics stopped", not as an error here.
+#
+# These were 192.168.1.6 (en7) and .8 until 2026-08-27, both stale: the old
+# wired adapter is gone and the .6 reservation had lapsed under GFiber's
+# restricted reservation range. The policy had been failing closed against
+# pop's real addresses — silently, because a NetworkPolicy denial looks like a
+# network timeout from the client side.
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -85,9 +97,9 @@ spec:
         - ipBlock:
             cidr: 100.113.28.62/32 # pop, tailnet (utun7)
         - ipBlock:
-            cidr: 192.168.1.6/32 # pop, LAN wired (en7) — the path actually used
+            cidr: 192.168.1.119/32 # pop, LAN wired (en13) — the path actually used
         - ipBlock:
-            cidr: 192.168.1.8/32 # pop, LAN wifi (en0) — used if the wire is out
+            cidr: 192.168.1.198/32 # pop, LAN wifi (en0) — used if the wire is out
       ports:
         - protocol: TCP
           port: 9090
@@ -113,9 +125,9 @@ spec:
         - ipBlock:
             cidr: 100.113.28.62/32 # pop, tailnet (utun7)
         - ipBlock:
-            cidr: 192.168.1.6/32 # pop, LAN wired (en7) — the path actually used
+            cidr: 192.168.1.119/32 # pop, LAN wired (en13) — the path actually used
         - ipBlock:
-            cidr: 192.168.1.8/32 # pop, LAN wifi (en0) — used if the wire is out
+            cidr: 192.168.1.198/32 # pop, LAN wifi (en0) — used if the wire is out
       ports:
         - protocol: TCP
           port: 8080
