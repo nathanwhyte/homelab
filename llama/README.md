@@ -9,7 +9,7 @@ LLM serving infrastructure in the `llama` namespace.
 - **Models**: deepseek-coder-v2:fim (16B-lite MoE Q4, ~13 GB — the single edit-prediction model since the 2026-07-24 cutover; serves Zed `deepseek_coder` FIM, Minuet suffix-FIM, and remote VSCode FIM). zeta2.1 + qwen2.5-coder:fim retired from the warm list (BUG-1037: open-weights Zeta degenerates below ~3k prompt tokens vs Zed's hardcoded ~500-token self-hosted excerpts; tags kept on the PVC for rollback). gemma4:12b-it-qat orphaned (Hermes/mem0 retired, no longer warmed); OV's `gemma4:31b-cloud` VLM tag routes through this pod but occupies no local slot
 - **Endpoint**: `http://ollama.llama.svc:11434` (ClusterIP) or `192.168.1.19:11434` (LoadBalancer externalIP)
 - **Backend**: Vulkan on the discrete RX 9070 XT (`OLLAMA_VULKAN=1`, `OLLAMA_LLM_LIBRARY=vulkan`, `GGML_VK_VISIBLE_DEVICES=1`)
-- **Config**: `OLLAMA_MAX_LOADED_MODELS=1` (dropped from 2 at the 2026-07-24 cutover — one pinned runner, no co-load), `OLLAMA_NUM_PARALLEL=2`, `OLLAMA_CONTEXT_LENGTH=32768`, `OLLAMA_KV_CACHE_TYPE=q8_0` (bumped from `q4_0` — 4.2 GB headroom at 2 slots covers it), `OLLAMA_KEEP_ALIVE=-1` (pinned); `CAP_PERFMON` for accurate VRAM packing under Vulkan
+- **Config**: `OLLAMA_MAX_LOADED_MODELS=1` (dropped from 2 at the 2026-07-24 cutover — one pinned runner, no co-load), `OLLAMA_NUM_PARALLEL=2`, `OLLAMA_CONTEXT_LENGTH=131072` (TASK-1188/IMPR-1114; KV allocated on demand), `OLLAMA_KV_CACHE_TYPE=q8_0` (bumped from `q4_0` — 4.2 GB headroom at 2 slots covers it), `OLLAMA_KEEP_ALIVE=-1` (pinned); `CAP_PERFMON` for accurate VRAM packing under Vulkan
 - **Deploy**: `llama/ollama-deployment.yaml`
 
 ### Ollama Auth Proxy
