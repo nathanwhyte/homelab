@@ -1,0 +1,2268 @@
+{
+ "model": "ornith-1.5:9b",
+ "ollama": "0.33.1",
+ "think": false,
+ "temperature": 0.0,
+ "num_ctx": 16384,
+ "repeats": 3,
+ "load_s": 8.666510124996421,
+ "summary": [
+  {
+   "id": "BUG-152",
+   "mode": "overlength",
+   "verdict": "report",
+   "proposed": null,
+   "reason": "The summary and body agree on the outcome (platform UI rendering bug, OWL-19704); the summary is already one line, \u2264200 chars, and contains no forbidden sequences, so no repair is needed.",
+   "wall": 2.4230476660013665,
+   "prompt_tokens": 4050,
+   "eval_tokens": 79,
+   "decode_tps": 85.04399142670447,
+   "thinking_chars": 0,
+   "raw": "{\n  \"id\": \"BUG-152\",\n  \"proposed_summary\": null,\n  \"reason\": \"The summary and body agree on the outcome (platform UI rendering bug, OWL-19704); the summary is already one line, \u2264200 chars, and contains no forbidden sequences, so no repair is needed.\"\n}",
+   "json_ok": true,
+   "attempt_details": [
+    {
+     "wall": 2.4230476660013665,
+     "prompt_tokens": 4050,
+     "eval_tokens": 79,
+     "decode_tps": 85.04399142670447,
+     "thinking_chars": 0,
+     "raw": "{\n  \"id\": \"BUG-152\",\n  \"proposed_summary\": null,\n  \"reason\": \"The summary and body agree on the outcome (platform UI rendering bug, OWL-19704); the summary is already one line, \u2264200 chars, and contains no forbidden sequences, so no repair is needed.\"\n}",
+     "json_ok": true,
+     "proposed": null,
+     "reason": "The summary and body agree on the outcome (platform UI rendering bug, OWL-19704); the summary is already one line, \u2264200 chars, and contains no forbidden sequences, so no repair is needed.",
+     "verdict": "report"
+    },
+    {
+     "wall": 1.0054489590111189,
+     "prompt_tokens": 4050,
+     "eval_tokens": 79,
+     "decode_tps": 85.30534454180773,
+     "thinking_chars": 0,
+     "raw": "{\n  \"id\": \"BUG-152\",\n  \"proposed_summary\": null,\n  \"reason\": \"The summary and body agree on the outcome (platform UI rendering bug, OWL-19704); the summary is already one line, \u2264200 chars, and contains no forbidden sequences, so no repair is needed.\"\n}",
+     "json_ok": true,
+     "proposed": null,
+     "reason": "The summary and body agree on the outcome (platform UI rendering bug, OWL-19704); the summary is already one line, \u2264200 chars, and contains no forbidden sequences, so no repair is needed.",
+     "verdict": "report"
+    },
+    {
+     "wall": 0.9899292910122313,
+     "prompt_tokens": 4050,
+     "eval_tokens": 79,
+     "decode_tps": 85.42295174143878,
+     "thinking_chars": 0,
+     "raw": "{\n  \"id\": \"BUG-152\",\n  \"proposed_summary\": null,\n  \"reason\": \"The summary and body agree on the outcome (platform UI rendering bug, OWL-19704); the summary is already one line, \u2264200 chars, and contains no forbidden sequences, so no repair is needed.\"\n}",
+     "json_ok": true,
+     "proposed": null,
+     "reason": "The summary and body agree on the outcome (platform UI rendering bug, OWL-19704); the summary is already one line, \u2264200 chars, and contains no forbidden sequences, so no repair is needed.",
+     "verdict": "report"
+    }
+   ]
+  },
+  {
+   "id": "INFO-1113",
+   "mode": "quoted",
+   "verdict": "report",
+   "proposed": null,
+   "reason": "The current summary and body agree on the outcome (a reference for the .claude/ config surface), so a repair is not warranted; report instead.",
+   "wall": 1.3393104579881765,
+   "prompt_tokens": 4329,
+   "eval_tokens": 55,
+   "decode_tps": 85.49014609488783,
+   "thinking_chars": 0,
+   "raw": "{\"id\": \"INFO-1113\", \"proposed_summary\": null, \"reason\": \"The current summary and body agree on the outcome (a reference for the .claude/ config surface), so a repair is not warranted; report instead.\"}",
+   "json_ok": true,
+   "attempt_details": [
+    {
+     "wall": 1.3393104579881765,
+     "prompt_tokens": 4329,
+     "eval_tokens": 55,
+     "decode_tps": 85.49014609488783,
+     "thinking_chars": 0,
+     "raw": "{\"id\": \"INFO-1113\", \"proposed_summary\": null, \"reason\": \"The current summary and body agree on the outcome (a reference for the .claude/ config surface), so a repair is not warranted; report instead.\"}",
+     "json_ok": true,
+     "proposed": null,
+     "reason": "The current summary and body agree on the outcome (a reference for the .claude/ config surface), so a repair is not warranted; report instead.",
+     "verdict": "report"
+    },
+    {
+     "wall": 0.7254365410044556,
+     "prompt_tokens": 4329,
+     "eval_tokens": 55,
+     "decode_tps": 85.26603001364258,
+     "thinking_chars": 0,
+     "raw": "{\"id\": \"INFO-1113\", \"proposed_summary\": null, \"reason\": \"The current summary and body agree on the outcome (a reference for the .claude/ config surface), so a repair is not warranted; report instead.\"}",
+     "json_ok": true,
+     "proposed": null,
+     "reason": "The current summary and body agree on the outcome (a reference for the .claude/ config surface), so a repair is not warranted; report instead.",
+     "verdict": "report"
+    },
+    {
+     "wall": 0.7112742919998709,
+     "prompt_tokens": 4329,
+     "eval_tokens": 55,
+     "decode_tps": 85.55450988932357,
+     "thinking_chars": 0,
+     "raw": "{\"id\": \"INFO-1113\", \"proposed_summary\": null, \"reason\": \"The current summary and body agree on the outcome (a reference for the .claude/ config surface), so a repair is not warranted; report instead.\"}",
+     "json_ok": true,
+     "proposed": null,
+     "reason": "The current summary and body agree on the outcome (a reference for the .claude/ config surface), so a repair is not warranted; report instead.",
+     "verdict": "report"
+    }
+   ]
+  },
+  {
+   "id": "BUG-205",
+   "mode": "colon-space",
+   "verdict": "report",
+   "proposed": null,
+   "reason": "Status is already fixed (2026-07-24, PR #1093 merged); the entry was updated within the last 48 hours, so per the skill I must report instead of edit.",
+   "wall": 1.5700526669970714,
+   "prompt_tokens": 4557,
+   "eval_tokens": 70,
+   "decode_tps": 85.18053405761124,
+   "thinking_chars": 0,
+   "raw": "{\"id\": \"BUG-205\", \"proposed_summary\": null, \"reason\": \"Status is already fixed (2026-07-24, PR #1093 merged); the entry was updated within the last 48 hours, so per the skill I must report instead of edit.\"}",
+   "json_ok": true,
+   "attempt_details": [
+    {
+     "wall": 1.5700526669970714,
+     "prompt_tokens": 4557,
+     "eval_tokens": 70,
+     "decode_tps": 85.18053405761124,
+     "thinking_chars": 0,
+     "raw": "{\"id\": \"BUG-205\", \"proposed_summary\": null, \"reason\": \"Status is already fixed (2026-07-24, PR #1093 merged); the entry was updated within the last 48 hours, so per the skill I must report instead of edit.\"}",
+     "json_ok": true,
+     "proposed": null,
+     "reason": "Status is already fixed (2026-07-24, PR #1093 merged); the entry was updated within the last 48 hours, so per the skill I must report instead of edit.",
+     "verdict": "report"
+    },
+    {
+     "wall": 0.893516832991736,
+     "prompt_tokens": 4557,
+     "eval_tokens": 70,
+     "decode_tps": 85.28015750026803,
+     "thinking_chars": 0,
+     "raw": "{\"id\": \"BUG-205\", \"proposed_summary\": null, \"reason\": \"Status is already fixed (2026-07-24, PR #1093 merged); the entry was updated within the last 48 hours, so per the skill I must report instead of edit.\"}",
+     "json_ok": true,
+     "proposed": null,
+     "reason": "Status is already fixed (2026-07-24, PR #1093 merged); the entry was updated within the last 48 hours, so per the skill I must report instead of edit.",
+     "verdict": "report"
+    },
+    {
+     "wall": 0.8911573749937816,
+     "prompt_tokens": 4557,
+     "eval_tokens": 70,
+     "decode_tps": 84.70146364129172,
+     "thinking_chars": 0,
+     "raw": "{\"id\": \"BUG-205\", \"proposed_summary\": null, \"reason\": \"Status is already fixed (2026-07-24, PR #1093 merged); the entry was updated within the last 48 hours, so per the skill I must report instead of edit.\"}",
+     "json_ok": true,
+     "proposed": null,
+     "reason": "Status is already fixed (2026-07-24, PR #1093 merged); the entry was updated within the last 48 hours, so per the skill I must report instead of edit.",
+     "verdict": "report"
+    }
+   ]
+  },
+  {
+   "id": "IMPR-1008",
+   "mode": "leading-digit",
+   "verdict": "report",
+   "proposed": null,
+   "reason": "The summary and body disagree about the outcome: the summary asserts trusted mode is the steady state with user-key hardening deferred, but the body's latest update (2026-07-04) states v0.4.7 is stage",
+   "wall": 1.8138842500047758,
+   "prompt_tokens": 4106,
+   "eval_tokens": 103,
+   "decode_tps": 85.25749003604818,
+   "thinking_chars": 0,
+   "raw": "{\"id\": \"IMPR-1008\", \"proposed_summary\": null, \"reason\": \"The summary and body disagree about the outcome: the summary asserts trusted mode is the steady state with user-key hardening deferred, but the body's latest update (2026-07-04) states v0.4.7 is staged and the deferred hardening steps are now un-deferred pending re-test, so the outcome is unclear and needs a human.\"}",
+   "json_ok": true,
+   "attempt_details": [
+    {
+     "wall": 1.8138842500047758,
+     "prompt_tokens": 4106,
+     "eval_tokens": 103,
+     "decode_tps": 85.25749003604818,
+     "thinking_chars": 0,
+     "raw": "{\"id\": \"IMPR-1008\", \"proposed_summary\": null, \"reason\": \"The summary and body disagree about the outcome: the summary asserts trusted mode is the steady state with user-key hardening deferred, but the body's latest update (2026-07-04) states v0.4.7 is staged and the deferred hardening steps are now un-deferred pending re-test, so the outcome is unclear and needs a human.\"}",
+     "json_ok": true,
+     "proposed": null,
+     "reason": "The summary and body disagree about the outcome: the summary asserts trusted mode is the steady state with user-key hardening deferred, but the body's latest update (2026-07-04) states v0.4.7 is stage",
+     "verdict": "report"
+    },
+    {
+     "wall": 1.281821000011405,
+     "prompt_tokens": 4106,
+     "eval_tokens": 103,
+     "decode_tps": 85.48264079945358,
+     "thinking_chars": 0,
+     "raw": "{\"id\": \"IMPR-1008\", \"proposed_summary\": null, \"reason\": \"The summary and body disagree about the outcome: the summary asserts trusted mode is the steady state with user-key hardening deferred, but the body's latest update (2026-07-04) states v0.4.7 is staged and the deferred hardening steps are now un-deferred pending re-test, so the outcome is unclear and needs a human.\"}",
+     "json_ok": true,
+     "proposed": null,
+     "reason": "The summary and body disagree about the outcome: the summary asserts trusted mode is the steady state with user-key hardening deferred, but the body's latest update (2026-07-04) states v0.4.7 is stage",
+     "verdict": "report"
+    },
+    {
+     "wall": 1.2729344999970635,
+     "prompt_tokens": 4106,
+     "eval_tokens": 103,
+     "decode_tps": 85.50030962733486,
+     "thinking_chars": 0,
+     "raw": "{\"id\": \"IMPR-1008\", \"proposed_summary\": null, \"reason\": \"The summary and body disagree about the outcome: the summary asserts trusted mode is the steady state with user-key hardening deferred, but the body's latest update (2026-07-04) states v0.4.7 is staged and the deferred hardening steps are now un-deferred pending re-test, so the outcome is unclear and needs a human.\"}",
+     "json_ok": true,
+     "proposed": null,
+     "reason": "The summary and body disagree about the outcome: the summary asserts trusted mode is the steady state with user-key hardening deferred, but the body's latest update (2026-07-04) states v0.4.7 is stage",
+     "verdict": "report"
+    }
+   ]
+  },
+  {
+   "id": "IDEA-023",
+   "mode": "overlength",
+   "verdict": "pass",
+   "violations": [],
+   "missing_tokens": [],
+   "proposed": "Pattern for deleting redundant CLI syntax docs (covered by --help) and debugging MCP parameter forwarding via a local HTTP proxy that logs request bodies",
+   "reason": "Current summary is 211 chars and contains ': ' (\"--help\") and starts with a digit (\"- see\"); rewrite keeps all IDs, PRs, dates, versions, and tokens while staying one line under 200 chars with no forb",
+   "wall": 1.610465584002668,
+   "prompt_tokens": 3401,
+   "eval_tokens": 108,
+   "decode_tps": 85.29491902905951,
+   "thinking_chars": 0,
+   "raw": "{\"id\": \"IDEA-023\", \"proposed_summary\": \"Pattern for deleting redundant CLI syntax docs (covered by --help) and debugging MCP parameter forwarding via a local HTTP proxy that logs request bodies\", \"reason\": \"Current summary is 211 chars and contains ': ' (\\\"--help\\\") and starts with a digit (\\\"- see\\\"); rewrite keeps all IDs, PRs, dates, versions, and tokens while staying one line under 200 chars with no forbidden sequences.\"}",
+   "json_ok": true,
+   "attempt_details": [
+    {
+     "wall": 1.610465584002668,
+     "prompt_tokens": 3401,
+     "eval_tokens": 108,
+     "decode_tps": 85.29491902905951,
+     "thinking_chars": 0,
+     "raw": "{\"id\": \"IDEA-023\", \"proposed_summary\": \"Pattern for deleting redundant CLI syntax docs (covered by --help) and debugging MCP parameter forwarding via a local HTTP proxy that logs request bodies\", \"reason\": \"Current summary is 211 chars and contains ': ' (\\\"--help\\\") and starts with a digit (\\\"- see\\\"); rewrite keeps all IDs, PRs, dates, versions, and tokens while staying one line under 200 chars with no forbidden sequences.\"}",
+     "json_ok": true,
+     "proposed": "Pattern for deleting redundant CLI syntax docs (covered by --help) and debugging MCP parameter forwarding via a local HTTP proxy that logs request bodies",
+     "reason": "Current summary is 211 chars and contains ': ' (\"--help\") and starts with a digit (\"- see\"); rewrite keeps all IDs, PRs, dates, versions, and tokens while staying one line under 200 chars with no forb",
+     "violations": [],
+     "missing_tokens": [],
+     "verdict": "pass"
+    },
+    {
+     "wall": 1.3234842910023872,
+     "prompt_tokens": 3401,
+     "eval_tokens": 108,
+     "decode_tps": 85.85506075835457,
+     "thinking_chars": 0,
+     "raw": "{\"id\": \"IDEA-023\", \"proposed_summary\": \"Pattern for deleting redundant CLI syntax docs (covered by --help) and debugging MCP parameter forwarding via a local HTTP proxy that logs request bodies\", \"reason\": \"Current summary is 211 chars and contains ': ' (\\\"--help\\\") and starts with a digit (\\\"- see\\\"); rewrite keeps all IDs, PRs, dates, versions, and tokens while staying one line under 200 chars with no forbidden sequences.\"}",
+     "json_ok": true,
+     "proposed": "Pattern for deleting redundant CLI syntax docs (covered by --help) and debugging MCP parameter forwarding via a local HTTP proxy that logs request bodies",
+     "reason": "Current summary is 211 chars and contains ': ' (\"--help\") and starts with a digit (\"- see\"); rewrite keeps all IDs, PRs, dates, versions, and tokens while staying one line under 200 chars with no forb",
+     "violations": [],
+     "missing_tokens": [],
+     "verdict": "pass"
+    },
+    {
+     "wall": 1.3223722910042852,
+     "prompt_tokens": 3401,
+     "eval_tokens": 108,
+     "decode_tps": 85.75627906681287,
+     "thinking_chars": 0,
+     "raw": "{\"id\": \"IDEA-023\", \"proposed_summary\": \"Pattern for deleting redundant CLI syntax docs (covered by --help) and debugging MCP parameter forwarding via a local HTTP proxy that logs request bodies\", \"reason\": \"Current summary is 211 chars and contains ': ' (\\\"--help\\\") and starts with a digit (\\\"- see\\\"); rewrite keeps all IDs, PRs, dates, versions, and tokens while staying one line under 200 chars with no forbidden sequences.\"}",
+     "json_ok": true,
+     "proposed": "Pattern for deleting redundant CLI syntax docs (covered by --help) and debugging MCP parameter forwarding via a local HTTP proxy that logs request bodies",
+     "reason": "Current summary is 211 chars and contains ': ' (\"--help\") and starts with a digit (\"- see\"); rewrite keeps all IDs, PRs, dates, versions, and tokens while staying one line under 200 chars with no forb",
+     "violations": [],
+     "missing_tokens": [],
+     "verdict": "pass"
+    }
+   ]
+  },
+  {
+   "id": "INFO-092",
+   "mode": "quoted",
+   "verdict": "pass",
+   "violations": [],
+   "missing_tokens": [],
+   "proposed": "Head-to-head comparison of OpenViking and Mem0 as the DipDash KB context layer \u2014 OpenViking wins on structured filesystem-paradigm content while Mem0 wins on operational memory, with a hybrid option.",
+   "reason": "Current summary is 200 chars and passes all schema rules; no repair needed, so proposed_summary is null and this entry should be reported rather than edited.",
+   "wall": 1.852006834000349,
+   "prompt_tokens": 4390,
+   "eval_tokens": 98,
+   "decode_tps": 85.04390174478846,
+   "thinking_chars": 0,
+   "raw": "{\"id\": \"INFO-092\", \"proposed_summary\": \"Head-to-head comparison of OpenViking and Mem0 as the DipDash KB context layer \u2014 OpenViking wins on structured filesystem-paradigm content while Mem0 wins on operational memory, with a hybrid option.\", \"reason\": \"Current summary is 200 chars and passes all schema rules; no repair needed, so proposed_summary is null and this entry should be reported rather than edited.\"}",
+   "json_ok": true,
+   "attempt_details": [
+    {
+     "wall": 1.852006834000349,
+     "prompt_tokens": 4390,
+     "eval_tokens": 98,
+     "decode_tps": 85.04390174478846,
+     "thinking_chars": 0,
+     "raw": "{\"id\": \"INFO-092\", \"proposed_summary\": \"Head-to-head comparison of OpenViking and Mem0 as the DipDash KB context layer \u2014 OpenViking wins on structured filesystem-paradigm content while Mem0 wins on operational memory, with a hybrid option.\", \"reason\": \"Current summary is 200 chars and passes all schema rules; no repair needed, so proposed_summary is null and this entry should be reported rather than edited.\"}",
+     "json_ok": true,
+     "proposed": "Head-to-head comparison of OpenViking and Mem0 as the DipDash KB context layer \u2014 OpenViking wins on structured filesystem-paradigm content while Mem0 wins on operational memory, with a hybrid option.",
+     "reason": "Current summary is 200 chars and passes all schema rules; no repair needed, so proposed_summary is null and this entry should be reported rather than edited.",
+     "violations": [],
+     "missing_tokens": [],
+     "verdict": "pass"
+    },
+    {
+     "wall": 1.233407083011116,
+     "prompt_tokens": 4390,
+     "eval_tokens": 98,
+     "decode_tps": 85.24971206474804,
+     "thinking_chars": 0,
+     "raw": "{\"id\": \"INFO-092\", \"proposed_summary\": \"Head-to-head comparison of OpenViking and Mem0 as the DipDash KB context layer \u2014 OpenViking wins on structured filesystem-paradigm content while Mem0 wins on operational memory, with a hybrid option.\", \"reason\": \"Current summary is 200 chars and passes all schema rules; no repair needed, so proposed_summary is null and this entry should be reported rather than edited.\"}",
+     "json_ok": true,
+     "proposed": "Head-to-head comparison of OpenViking and Mem0 as the DipDash KB context layer \u2014 OpenViking wins on structured filesystem-paradigm content while Mem0 wins on operational memory, with a hybrid option.",
+     "reason": "Current summary is 200 chars and passes all schema rules; no repair needed, so proposed_summary is null and this entry should be reported rather than edited.",
+     "violations": [],
+     "missing_tokens": [],
+     "verdict": "pass"
+    },
+    {
+     "wall": 1.215635000000475,
+     "prompt_tokens": 4390,
+     "eval_tokens": 98,
+     "decode_tps": 85.40297568368132,
+     "thinking_chars": 0,
+     "raw": "{\"id\": \"INFO-092\", \"proposed_summary\": \"Head-to-head comparison of OpenViking and Mem0 as the DipDash KB context layer \u2014 OpenViking wins on structured filesystem-paradigm content while Mem0 wins on operational memory, with a hybrid option.\", \"reason\": \"Current summary is 200 chars and passes all schema rules; no repair needed, so proposed_summary is null and this entry should be reported rather than edited.\"}",
+     "json_ok": true,
+     "proposed": "Head-to-head comparison of OpenViking and Mem0 as the DipDash KB context layer \u2014 OpenViking wins on structured filesystem-paradigm content while Mem0 wins on operational memory, with a hybrid option.",
+     "reason": "Current summary is 200 chars and passes all schema rules; no repair needed, so proposed_summary is null and this entry should be reported rather than edited.",
+     "violations": [],
+     "missing_tokens": [],
+     "verdict": "pass"
+    }
+   ]
+  },
+  {
+   "id": "IDEA-013",
+   "mode": "colon-space",
+   "verdict": "pass",
+   "violations": [],
+   "missing_tokens": [],
+   "proposed": "Evaluate replacing Mage orchestration while preserving dbt, Snowflake, DipDash, and ECS infrastructure.",
+   "reason": "Current summary is 131 chars and already schema-valid; no repair needed.",
+   "wall": 1.30419375000929,
+   "prompt_tokens": 4095,
+   "eval_tokens": 60,
+   "decode_tps": 85.802048952929,
+   "thinking_chars": 0,
+   "raw": "{\"id\": \"IDEA-013\", \"proposed_summary\": \"Evaluate replacing Mage orchestration while preserving dbt, Snowflake, DipDash, and ECS infrastructure.\", \"reason\": \"Current summary is 131 chars and already schema-valid; no repair needed.\"}",
+   "json_ok": true,
+   "attempt_details": [
+    {
+     "wall": 1.30419375000929,
+     "prompt_tokens": 4095,
+     "eval_tokens": 60,
+     "decode_tps": 85.802048952929,
+     "thinking_chars": 0,
+     "raw": "{\"id\": \"IDEA-013\", \"proposed_summary\": \"Evaluate replacing Mage orchestration while preserving dbt, Snowflake, DipDash, and ECS infrastructure.\", \"reason\": \"Current summary is 131 chars and already schema-valid; no repair needed.\"}",
+     "json_ok": true,
+     "proposed": "Evaluate replacing Mage orchestration while preserving dbt, Snowflake, DipDash, and ECS infrastructure.",
+     "reason": "Current summary is 131 chars and already schema-valid; no repair needed.",
+     "violations": [],
+     "missing_tokens": [],
+     "verdict": "pass"
+    },
+    {
+     "wall": 0.7725548750022426,
+     "prompt_tokens": 4095,
+     "eval_tokens": 60,
+     "decode_tps": 85.64943685495267,
+     "thinking_chars": 0,
+     "raw": "{\"id\": \"IDEA-013\", \"proposed_summary\": \"Evaluate replacing Mage orchestration while preserving dbt, Snowflake, DipDash, and ECS infrastructure.\", \"reason\": \"Current summary is 131 chars and already schema-valid; no repair needed.\"}",
+     "json_ok": true,
+     "proposed": "Evaluate replacing Mage orchestration while preserving dbt, Snowflake, DipDash, and ECS infrastructure.",
+     "reason": "Current summary is 131 chars and already schema-valid; no repair needed.",
+     "violations": [],
+     "missing_tokens": [],
+     "verdict": "pass"
+    },
+    {
+     "wall": 0.7677242500067223,
+     "prompt_tokens": 4095,
+     "eval_tokens": 60,
+     "decode_tps": 85.59042414334684,
+     "thinking_chars": 0,
+     "raw": "{\"id\": \"IDEA-013\", \"proposed_summary\": \"Evaluate replacing Mage orchestration while preserving dbt, Snowflake, DipDash, and ECS infrastructure.\", \"reason\": \"Current summary is 131 chars and already schema-valid; no repair needed.\"}",
+     "json_ok": true,
+     "proposed": "Evaluate replacing Mage orchestration while preserving dbt, Snowflake, DipDash, and ECS infrastructure.",
+     "reason": "Current summary is 131 chars and already schema-valid; no repair needed.",
+     "violations": [],
+     "missing_tokens": [],
+     "verdict": "pass"
+    }
+   ]
+  },
+  {
+   "id": "BUG-185",
+   "mode": "leading-digit",
+   "verdict": "report",
+   "proposed": null,
+   "reason": "The summary and body disagree on the outcome: the summary asserts SET_TO_BLANK is silently ignored, but the body's Verification section leaves the outcome unresolved (needs a decision to apply it or r",
+   "wall": 1.2545149589859648,
+   "prompt_tokens": 3416,
+   "eval_tokens": 78,
+   "decode_tps": 85.79602764392008,
+   "thinking_chars": 0,
+   "raw": "{\"id\": \"BUG-185\", \"proposed_summary\": null, \"reason\": \"The summary and body disagree on the outcome: the summary asserts SET_TO_BLANK is silently ignored, but the body's Verification section leaves the outcome unresolved (needs a decision to apply it or remove the option), so the outcome is unclear and I must report rather than edit.\"}",
+   "json_ok": true,
+   "attempt_details": [
+    {
+     "wall": 1.2545149589859648,
+     "prompt_tokens": 3416,
+     "eval_tokens": 78,
+     "decode_tps": 85.79602764392008,
+     "thinking_chars": 0,
+     "raw": "{\"id\": \"BUG-185\", \"proposed_summary\": null, \"reason\": \"The summary and body disagree on the outcome: the summary asserts SET_TO_BLANK is silently ignored, but the body's Verification section leaves the outcome unresolved (needs a decision to apply it or remove the option), so the outcome is unclear and I must report rather than edit.\"}",
+     "json_ok": true,
+     "proposed": null,
+     "reason": "The summary and body disagree on the outcome: the summary asserts SET_TO_BLANK is silently ignored, but the body's Verification section leaves the outcome unresolved (needs a decision to apply it or r",
+     "verdict": "report"
+    },
+    {
+     "wall": 0.9789532919967314,
+     "prompt_tokens": 3416,
+     "eval_tokens": 78,
+     "decode_tps": 85.61587450029965,
+     "thinking_chars": 0,
+     "raw": "{\"id\": \"BUG-185\", \"proposed_summary\": null, \"reason\": \"The summary and body disagree on the outcome: the summary asserts SET_TO_BLANK is silently ignored, but the body's Verification section leaves the outcome unresolved (needs a decision to apply it or remove the option), so the outcome is unclear and I must report rather than edit.\"}",
+     "json_ok": true,
+     "proposed": null,
+     "reason": "The summary and body disagree on the outcome: the summary asserts SET_TO_BLANK is silently ignored, but the body's Verification section leaves the outcome unresolved (needs a decision to apply it or r",
+     "verdict": "report"
+    },
+    {
+     "wall": 0.9723943749995669,
+     "prompt_tokens": 3416,
+     "eval_tokens": 78,
+     "decode_tps": 85.94539382272991,
+     "thinking_chars": 0,
+     "raw": "{\"id\": \"BUG-185\", \"proposed_summary\": null, \"reason\": \"The summary and body disagree on the outcome: the summary asserts SET_TO_BLANK is silently ignored, but the body's Verification section leaves the outcome unresolved (needs a decision to apply it or remove the option), so the outcome is unclear and I must report rather than edit.\"}",
+     "json_ok": true,
+     "proposed": null,
+     "reason": "The summary and body disagree on the outcome: the summary asserts SET_TO_BLANK is silently ignored, but the body's Verification section leaves the outcome unresolved (needs a decision to apply it or r",
+     "verdict": "report"
+    }
+   ]
+  },
+  {
+   "id": "INFO-038",
+   "mode": "overlength",
+   "verdict": "report",
+   "proposed": null,
+   "reason": "The current summary and body disagree about the outcome: the summary asserts a Phase 3 backfill maps stage_2_type to data_type, but the body only mentions Mage Phase 0 changes and variant_name, with n",
+   "wall": 1.2773740829870803,
+   "prompt_tokens": 3098,
+   "eval_tokens": 89,
+   "decode_tps": 85.95711802202047,
+   "thinking_chars": 0,
+   "raw": "{\"id\": \"INFO-038\", \"proposed_summary\": null, \"reason\": \"The current summary and body disagree about the outcome: the summary asserts a Phase 3 backfill maps stage_2_type to data_type, but the body only mentions Mage Phase 0 changes and variant_name, with no Phase 3 backfill outcome stated, so the summary and body cannot be reconciled without inventing facts.\"}",
+   "json_ok": true,
+   "attempt_details": [
+    {
+     "wall": 1.2773740829870803,
+     "prompt_tokens": 3098,
+     "eval_tokens": 89,
+     "decode_tps": 85.95711802202047,
+     "thinking_chars": 0,
+     "raw": "{\"id\": \"INFO-038\", \"proposed_summary\": null, \"reason\": \"The current summary and body disagree about the outcome: the summary asserts a Phase 3 backfill maps stage_2_type to data_type, but the body only mentions Mage Phase 0 changes and variant_name, with no Phase 3 backfill outcome stated, so the summary and body cannot be reconciled without inventing facts.\"}",
+     "json_ok": true,
+     "proposed": null,
+     "reason": "The current summary and body disagree about the outcome: the summary asserts a Phase 3 backfill maps stage_2_type to data_type, but the body only mentions Mage Phase 0 changes and variant_name, with n",
+     "verdict": "report"
+    },
+    {
+     "wall": 1.1107022499927552,
+     "prompt_tokens": 3098,
+     "eval_tokens": 89,
+     "decode_tps": 85.37833635035432,
+     "thinking_chars": 0,
+     "raw": "{\"id\": \"INFO-038\", \"proposed_summary\": null, \"reason\": \"The current summary and body disagree about the outcome: the summary asserts a Phase 3 backfill maps stage_2_type to data_type, but the body only mentions Mage Phase 0 changes and variant_name, with no Phase 3 backfill outcome stated, so the summary and body cannot be reconciled without inventing facts.\"}",
+     "json_ok": true,
+     "proposed": null,
+     "reason": "The current summary and body disagree about the outcome: the summary asserts a Phase 3 backfill maps stage_2_type to data_type, but the body only mentions Mage Phase 0 changes and variant_name, with n",
+     "verdict": "report"
+    },
+    {
+     "wall": 1.1033567499980563,
+     "prompt_tokens": 3098,
+     "eval_tokens": 89,
+     "decode_tps": 85.58153131322456,
+     "thinking_chars": 0,
+     "raw": "{\"id\": \"INFO-038\", \"proposed_summary\": null, \"reason\": \"The current summary and body disagree about the outcome: the summary asserts a Phase 3 backfill maps stage_2_type to data_type, but the body only mentions Mage Phase 0 changes and variant_name, with no Phase 3 backfill outcome stated, so the summary and body cannot be reconciled without inventing facts.\"}",
+     "json_ok": true,
+     "proposed": null,
+     "reason": "The current summary and body disagree about the outcome: the summary asserts a Phase 3 backfill maps stage_2_type to data_type, but the body only mentions Mage Phase 0 changes and variant_name, with n",
+     "verdict": "report"
+    }
+   ]
+  },
+  {
+   "id": "IMPR-1012",
+   "mode": "quoted",
+   "verdict": "report",
+   "proposed": null,
+   "reason": "The item was dropped as moot on 2026-07-25 (board removed entirely); the summary and body agree on the outcome, so per the skill I must report, not edit.",
+   "wall": 1.4480658339889487,
+   "prompt_tokens": 4281,
+   "eval_tokens": 68,
+   "decode_tps": 85.73366584547263,
+   "thinking_chars": 0,
+   "raw": "{\"id\": \"IMPR-1012\", \"proposed_summary\": null, \"reason\": \"The item was dropped as moot on 2026-07-25 (board removed entirely); the summary and body agree on the outcome, so per the skill I must report, not edit.\"}",
+   "json_ok": true,
+   "attempt_details": [
+    {
+     "wall": 1.4480658339889487,
+     "prompt_tokens": 4281,
+     "eval_tokens": 68,
+     "decode_tps": 85.73366584547263,
+     "thinking_chars": 0,
+     "raw": "{\"id\": \"IMPR-1012\", \"proposed_summary\": null, \"reason\": \"The item was dropped as moot on 2026-07-25 (board removed entirely); the summary and body agree on the outcome, so per the skill I must report, not edit.\"}",
+     "json_ok": true,
+     "proposed": null,
+     "reason": "The item was dropped as moot on 2026-07-25 (board removed entirely); the summary and body agree on the outcome, so per the skill I must report, not edit.",
+     "verdict": "report"
+    },
+    {
+     "wall": 0.8696895420143846,
+     "prompt_tokens": 4281,
+     "eval_tokens": 68,
+     "decode_tps": 85.47298613703583,
+     "thinking_chars": 0,
+     "raw": "{\"id\": \"IMPR-1012\", \"proposed_summary\": null, \"reason\": \"The item was dropped as moot on 2026-07-25 (board removed entirely); the summary and body agree on the outcome, so per the skill I must report, not edit.\"}",
+     "json_ok": true,
+     "proposed": null,
+     "reason": "The item was dropped as moot on 2026-07-25 (board removed entirely); the summary and body agree on the outcome, so per the skill I must report, not edit.",
+     "verdict": "report"
+    },
+    {
+     "wall": 0.8594490000104997,
+     "prompt_tokens": 4281,
+     "eval_tokens": 68,
+     "decode_tps": 85.87897127095826,
+     "thinking_chars": 0,
+     "raw": "{\"id\": \"IMPR-1012\", \"proposed_summary\": null, \"reason\": \"The item was dropped as moot on 2026-07-25 (board removed entirely); the summary and body agree on the outcome, so per the skill I must report, not edit.\"}",
+     "json_ok": true,
+     "proposed": null,
+     "reason": "The item was dropped as moot on 2026-07-25 (board removed entirely); the summary and body agree on the outcome, so per the skill I must report, not edit.",
+     "verdict": "report"
+    }
+   ]
+  },
+  {
+   "id": "BUG-199",
+   "mode": "colon-space",
+   "verdict": "fail",
+   "violations": [
+    "colon-space"
+   ],
+   "missing_tokens": [],
+   "proposed": "PATCH rejected ACCO Liberty Claims saves: stored asf_model had no matching template - fixed via prod data correction plus PR 1089 scoping the check to real changes",
+   "reason": "Current summary is 201 chars (one over the 200 limit); dropping the trailing 'ful' fragment from the truncated body excerpt restores it to 199 chars without losing any fact.",
+   "wall": 1.9090387920005014,
+   "prompt_tokens": 4395,
+   "eval_tokens": 102,
+   "decode_tps": 84.61114129645837,
+   "thinking_chars": 0,
+   "raw": "{\"id\": \"BUG-199\", \"proposed_summary\": \"PATCH rejected ACCO Liberty Claims saves: stored asf_model had no matching template - fixed via prod data correction plus PR 1089 scoping the check to real changes\", \"reason\": \"Current summary is 201 chars (one over the 200 limit); dropping the trailing 'ful' fragment from the truncated body excerpt restores it to 199 chars without losing any fact.\"}",
+   "json_ok": true,
+   "attempt_details": [
+    {
+     "wall": 1.9090387920005014,
+     "prompt_tokens": 4395,
+     "eval_tokens": 102,
+     "decode_tps": 84.61114129645837,
+     "thinking_chars": 0,
+     "raw": "{\"id\": \"BUG-199\", \"proposed_summary\": \"PATCH rejected ACCO Liberty Claims saves: stored asf_model had no matching template - fixed via prod data correction plus PR 1089 scoping the check to real changes\", \"reason\": \"Current summary is 201 chars (one over the 200 limit); dropping the trailing 'ful' fragment from the truncated body excerpt restores it to 199 chars without losing any fact.\"}",
+     "json_ok": true,
+     "proposed": "PATCH rejected ACCO Liberty Claims saves: stored asf_model had no matching template - fixed via prod data correction plus PR 1089 scoping the check to real changes",
+     "reason": "Current summary is 201 chars (one over the 200 limit); dropping the trailing 'ful' fragment from the truncated body excerpt restores it to 199 chars without losing any fact.",
+     "violations": [
+      "colon-space"
+     ],
+     "missing_tokens": [],
+     "verdict": "fail"
+    },
+    {
+     "wall": 1.2689011669863248,
+     "prompt_tokens": 4395,
+     "eval_tokens": 102,
+     "decode_tps": 85.37701064952654,
+     "thinking_chars": 0,
+     "raw": "{\"id\": \"BUG-199\", \"proposed_summary\": \"PATCH rejected ACCO Liberty Claims saves: stored asf_model had no matching template - fixed via prod data correction plus PR 1089 scoping the check to real changes\", \"reason\": \"Current summary is 201 chars (one over the 200 limit); dropping the trailing 'ful' fragment from the truncated body excerpt restores it to 199 chars without losing any fact.\"}",
+     "json_ok": true,
+     "proposed": "PATCH rejected ACCO Liberty Claims saves: stored asf_model had no matching template - fixed via prod data correction plus PR 1089 scoping the check to real changes",
+     "reason": "Current summary is 201 chars (one over the 200 limit); dropping the trailing 'ful' fragment from the truncated body excerpt restores it to 199 chars without losing any fact.",
+     "violations": [
+      "colon-space"
+     ],
+     "missing_tokens": [],
+     "verdict": "fail"
+    },
+    {
+     "wall": 1.2608463749929797,
+     "prompt_tokens": 4395,
+     "eval_tokens": 102,
+     "decode_tps": 85.46027479667576,
+     "thinking_chars": 0,
+     "raw": "{\"id\": \"BUG-199\", \"proposed_summary\": \"PATCH rejected ACCO Liberty Claims saves: stored asf_model had no matching template - fixed via prod data correction plus PR 1089 scoping the check to real changes\", \"reason\": \"Current summary is 201 chars (one over the 200 limit); dropping the trailing 'ful' fragment from the truncated body excerpt restores it to 199 chars without losing any fact.\"}",
+     "json_ok": true,
+     "proposed": "PATCH rejected ACCO Liberty Claims saves: stored asf_model had no matching template - fixed via prod data correction plus PR 1089 scoping the check to real changes",
+     "reason": "Current summary is 201 chars (one over the 200 limit); dropping the trailing 'ful' fragment from the truncated body excerpt restores it to 199 chars without losing any fact.",
+     "violations": [
+      "colon-space"
+     ],
+     "missing_tokens": [],
+     "verdict": "fail"
+    }
+   ]
+  },
+  {
+   "id": "IMPR-1079",
+   "mode": "leading-digit",
+   "verdict": "report",
+   "proposed": null,
+   "reason": "The summary and body agree on the outcome (add guidance for capable agents to fan out subagents on parallelizable flows, the encourage-side counterpart to IMPR-1066's local-model avoidance), and the c",
+   "wall": 1.6415229169942904,
+   "prompt_tokens": 3831,
+   "eval_tokens": 95,
+   "decode_tps": 85.44133597871702,
+   "thinking_chars": 0,
+   "raw": "{\"id\": \"IMPR-1079\", \"proposed_summary\": null, \"reason\": \"The summary and body agree on the outcome (add guidance for capable agents to fan out subagents on parallelizable flows, the encourage-side counterpart to IMPR-1066's local-model avoidance), and the current summary is already a single-line plain scalar under 200 chars with no schema violations, so there is nothing to repair.\"}",
+   "json_ok": true,
+   "attempt_details": [
+    {
+     "wall": 1.6415229169942904,
+     "prompt_tokens": 3831,
+     "eval_tokens": 95,
+     "decode_tps": 85.44133597871702,
+     "thinking_chars": 0,
+     "raw": "{\"id\": \"IMPR-1079\", \"proposed_summary\": null, \"reason\": \"The summary and body agree on the outcome (add guidance for capable agents to fan out subagents on parallelizable flows, the encourage-side counterpart to IMPR-1066's local-model avoidance), and the current summary is already a single-line plain scalar under 200 chars with no schema violations, so there is nothing to repair.\"}",
+     "json_ok": true,
+     "proposed": null,
+     "reason": "The summary and body agree on the outcome (add guidance for capable agents to fan out subagents on parallelizable flows, the encourage-side counterpart to IMPR-1066's local-model avoidance), and the c",
+     "verdict": "report"
+    },
+    {
+     "wall": 1.194429041002877,
+     "prompt_tokens": 3831,
+     "eval_tokens": 95,
+     "decode_tps": 85.37883036394749,
+     "thinking_chars": 0,
+     "raw": "{\"id\": \"IMPR-1079\", \"proposed_summary\": null, \"reason\": \"The summary and body agree on the outcome (add guidance for capable agents to fan out subagents on parallelizable flows, the encourage-side counterpart to IMPR-1066's local-model avoidance), and the current summary is already a single-line plain scalar under 200 chars with no schema violations, so there is nothing to repair.\"}",
+     "json_ok": true,
+     "proposed": null,
+     "reason": "The summary and body agree on the outcome (add guidance for capable agents to fan out subagents on parallelizable flows, the encourage-side counterpart to IMPR-1066's local-model avoidance), and the c",
+     "verdict": "report"
+    },
+    {
+     "wall": 1.1733072499919217,
+     "prompt_tokens": 3831,
+     "eval_tokens": 95,
+     "decode_tps": 85.66700783176803,
+     "thinking_chars": 0,
+     "raw": "{\"id\": \"IMPR-1079\", \"proposed_summary\": null, \"reason\": \"The summary and body agree on the outcome (add guidance for capable agents to fan out subagents on parallelizable flows, the encourage-side counterpart to IMPR-1066's local-model avoidance), and the current summary is already a single-line plain scalar under 200 chars with no schema violations, so there is nothing to repair.\"}",
+     "json_ok": true,
+     "proposed": null,
+     "reason": "The summary and body agree on the outcome (add guidance for capable agents to fan out subagents on parallelizable flows, the encourage-side counterpart to IMPR-1066's local-model avoidance), and the c",
+     "verdict": "report"
+    }
+   ]
+  },
+  {
+   "id": "BUG-1076",
+   "mode": "overlength",
+   "verdict": "report",
+   "proposed": null,
+   "reason": "The summary and body disagree about the outcome: the summary claims the fix was correcting the selector and scaling to 2 replicas, but the body explicitly states a selector fix alone would create a ha",
+   "wall": 1.6868007919983938,
+   "prompt_tokens": 4459,
+   "eval_tokens": 81,
+   "decode_tps": 85.33232198729497,
+   "thinking_chars": 0,
+   "raw": "{\"id\": \"BUG-1076\", \"proposed_summary\": null, \"reason\": \"The summary and body disagree about the outcome: the summary claims the fix was correcting the selector and scaling to 2 replicas, but the body explicitly states a selector fix alone would create a hard drain deadlock and never records any replica change, so the outcome is unclear and must be reported.\"}",
+   "json_ok": true,
+   "attempt_details": [
+    {
+     "wall": 1.6868007919983938,
+     "prompt_tokens": 4459,
+     "eval_tokens": 81,
+     "decode_tps": 85.33232198729497,
+     "thinking_chars": 0,
+     "raw": "{\"id\": \"BUG-1076\", \"proposed_summary\": null, \"reason\": \"The summary and body disagree about the outcome: the summary claims the fix was correcting the selector and scaling to 2 replicas, but the body explicitly states a selector fix alone would create a hard drain deadlock and never records any replica change, so the outcome is unclear and must be reported.\"}",
+     "json_ok": true,
+     "proposed": null,
+     "reason": "The summary and body disagree about the outcome: the summary claims the fix was correcting the selector and scaling to 2 replicas, but the body explicitly states a selector fix alone would create a ha",
+     "verdict": "report"
+    },
+    {
+     "wall": 1.0271201669966104,
+     "prompt_tokens": 4459,
+     "eval_tokens": 81,
+     "decode_tps": 85.27904672765348,
+     "thinking_chars": 0,
+     "raw": "{\"id\": \"BUG-1076\", \"proposed_summary\": null, \"reason\": \"The summary and body disagree about the outcome: the summary claims the fix was correcting the selector and scaling to 2 replicas, but the body explicitly states a selector fix alone would create a hard drain deadlock and never records any replica change, so the outcome is unclear and must be reported.\"}",
+     "json_ok": true,
+     "proposed": null,
+     "reason": "The summary and body disagree about the outcome: the summary claims the fix was correcting the selector and scaling to 2 replicas, but the body explicitly states a selector fix alone would create a ha",
+     "verdict": "report"
+    },
+    {
+     "wall": 1.0280021670041606,
+     "prompt_tokens": 4459,
+     "eval_tokens": 81,
+     "decode_tps": 84.4184403224159,
+     "thinking_chars": 0,
+     "raw": "{\"id\": \"BUG-1076\", \"proposed_summary\": null, \"reason\": \"The summary and body disagree about the outcome: the summary claims the fix was correcting the selector and scaling to 2 replicas, but the body explicitly states a selector fix alone would create a hard drain deadlock and never records any replica change, so the outcome is unclear and must be reported.\"}",
+     "json_ok": true,
+     "proposed": null,
+     "reason": "The summary and body disagree about the outcome: the summary claims the fix was correcting the selector and scaling to 2 replicas, but the body explicitly states a selector fix alone would create a ha",
+     "verdict": "report"
+    }
+   ]
+  },
+  {
+   "id": "BUG-155",
+   "mode": "quoted",
+   "verdict": "pass",
+   "violations": [],
+   "missing_tokens": [],
+   "proposed": "Pipeline trigger redirect was inconsistently slow with no loading indicator, letting users interrupt navigation - fixed by keeping the modal open with a loading overlay during the trigger.",
+   "reason": "Current summary is 231 chars (over 200) and contains a colon-space; rewrite preserves every ID, PR, date, and fact while fitting the schema.",
+   "wall": 1.390684042009525,
+   "prompt_tokens": 3387,
+   "eval_tokens": 90,
+   "decode_tps": 85.88950029488728,
+   "thinking_chars": 0,
+   "raw": "{\"id\": \"BUG-155\", \"proposed_summary\": \"Pipeline trigger redirect was inconsistently slow with no loading indicator, letting users interrupt navigation - fixed by keeping the modal open with a loading overlay during the trigger.\", \"reason\": \"Current summary is 231 chars (over 200) and contains a colon-space; rewrite preserves every ID, PR, date, and fact while fitting the schema.\"}",
+   "json_ok": true,
+   "attempt_details": [
+    {
+     "wall": 1.390684042009525,
+     "prompt_tokens": 3387,
+     "eval_tokens": 90,
+     "decode_tps": 85.88950029488728,
+     "thinking_chars": 0,
+     "raw": "{\"id\": \"BUG-155\", \"proposed_summary\": \"Pipeline trigger redirect was inconsistently slow with no loading indicator, letting users interrupt navigation - fixed by keeping the modal open with a loading overlay during the trigger.\", \"reason\": \"Current summary is 231 chars (over 200) and contains a colon-space; rewrite preserves every ID, PR, date, and fact while fitting the schema.\"}",
+     "json_ok": true,
+     "proposed": "Pipeline trigger redirect was inconsistently slow with no loading indicator, letting users interrupt navigation - fixed by keeping the modal open with a loading overlay during the trigger.",
+     "reason": "Current summary is 231 chars (over 200) and contains a colon-space; rewrite preserves every ID, PR, date, and fact while fitting the schema.",
+     "violations": [],
+     "missing_tokens": [],
+     "verdict": "pass"
+    },
+    {
+     "wall": 1.1130132919934113,
+     "prompt_tokens": 3387,
+     "eval_tokens": 90,
+     "decode_tps": 86.03375773467381,
+     "thinking_chars": 0,
+     "raw": "{\"id\": \"BUG-155\", \"proposed_summary\": \"Pipeline trigger redirect was inconsistently slow with no loading indicator, letting users interrupt navigation - fixed by keeping the modal open with a loading overlay during the trigger.\", \"reason\": \"Current summary is 231 chars (over 200) and contains a colon-space; rewrite preserves every ID, PR, date, and fact while fitting the schema.\"}",
+     "json_ok": true,
+     "proposed": "Pipeline trigger redirect was inconsistently slow with no loading indicator, letting users interrupt navigation - fixed by keeping the modal open with a loading overlay during the trigger.",
+     "reason": "Current summary is 231 chars (over 200) and contains a colon-space; rewrite preserves every ID, PR, date, and fact while fitting the schema.",
+     "violations": [],
+     "missing_tokens": [],
+     "verdict": "pass"
+    },
+    {
+     "wall": 1.1146088750101626,
+     "prompt_tokens": 3387,
+     "eval_tokens": 90,
+     "decode_tps": 85.68751856562902,
+     "thinking_chars": 0,
+     "raw": "{\"id\": \"BUG-155\", \"proposed_summary\": \"Pipeline trigger redirect was inconsistently slow with no loading indicator, letting users interrupt navigation - fixed by keeping the modal open with a loading overlay during the trigger.\", \"reason\": \"Current summary is 231 chars (over 200) and contains a colon-space; rewrite preserves every ID, PR, date, and fact while fitting the schema.\"}",
+     "json_ok": true,
+     "proposed": "Pipeline trigger redirect was inconsistently slow with no loading indicator, letting users interrupt navigation - fixed by keeping the modal open with a loading overlay during the trigger.",
+     "reason": "Current summary is 231 chars (over 200) and contains a colon-space; rewrite preserves every ID, PR, date, and fact while fitting the schema.",
+     "violations": [],
+     "missing_tokens": [],
+     "verdict": "pass"
+    }
+   ]
+  },
+  {
+   "id": "BUG-042",
+   "mode": "colon-space",
+   "verdict": "report",
+   "proposed": null,
+   "reason": "The current summary and body disagree about the outcome: the summary asserts the page is broken, but the body's Fix and Verification sections state the issue may already be resolved by the Apr 28 rele",
+   "wall": 1.3437413750070846,
+   "prompt_tokens": 3541,
+   "eval_tokens": 82,
+   "decode_tps": 85.10161340205116,
+   "thinking_chars": 0,
+   "raw": "{\"id\": \"BUG-042\", \"proposed_summary\": null, \"reason\": \"The current summary and body disagree about the outcome: the summary asserts the page is broken, but the body's Fix and Verification sections state the issue may already be resolved by the Apr 28 release of BUG-016's fix, so the outcome is unclear and needs a human.\"}",
+   "json_ok": true,
+   "attempt_details": [
+    {
+     "wall": 1.3437413750070846,
+     "prompt_tokens": 3541,
+     "eval_tokens": 82,
+     "decode_tps": 85.10161340205116,
+     "thinking_chars": 0,
+     "raw": "{\"id\": \"BUG-042\", \"proposed_summary\": null, \"reason\": \"The current summary and body disagree about the outcome: the summary asserts the page is broken, but the body's Fix and Verification sections state the issue may already be resolved by the Apr 28 release of BUG-016's fix, so the outcome is unclear and needs a human.\"}",
+     "json_ok": true,
+     "proposed": null,
+     "reason": "The current summary and body disagree about the outcome: the summary asserts the page is broken, but the body's Fix and Verification sections state the issue may already be resolved by the Apr 28 rele",
+     "verdict": "report"
+    },
+    {
+     "wall": 1.0218345419998514,
+     "prompt_tokens": 3541,
+     "eval_tokens": 82,
+     "decode_tps": 85.8414027741429,
+     "thinking_chars": 0,
+     "raw": "{\"id\": \"BUG-042\", \"proposed_summary\": null, \"reason\": \"The current summary and body disagree about the outcome: the summary asserts the page is broken, but the body's Fix and Verification sections state the issue may already be resolved by the Apr 28 release of BUG-016's fix, so the outcome is unclear and needs a human.\"}",
+     "json_ok": true,
+     "proposed": null,
+     "reason": "The current summary and body disagree about the outcome: the summary asserts the page is broken, but the body's Fix and Verification sections state the issue may already be resolved by the Apr 28 rele",
+     "verdict": "report"
+    },
+    {
+     "wall": 1.0185977920045843,
+     "prompt_tokens": 3541,
+     "eval_tokens": 82,
+     "decode_tps": 85.77253333361227,
+     "thinking_chars": 0,
+     "raw": "{\"id\": \"BUG-042\", \"proposed_summary\": null, \"reason\": \"The current summary and body disagree about the outcome: the summary asserts the page is broken, but the body's Fix and Verification sections state the issue may already be resolved by the Apr 28 release of BUG-016's fix, so the outcome is unclear and needs a human.\"}",
+     "json_ok": true,
+     "proposed": null,
+     "reason": "The current summary and body disagree about the outcome: the summary asserts the page is broken, but the body's Fix and Verification sections state the issue may already be resolved by the Apr 28 rele",
+     "verdict": "report"
+    }
+   ]
+  },
+  {
+   "id": "INFO-035",
+   "mode": "leading-digit",
+   "verdict": "fail",
+   "violations": [
+    "count-dropped"
+   ],
+   "missing_tokens": [],
+   "proposed": "Exporter iterates only over mapping_type.unique() present in current data; never truncates tables for absent mapping types; appends on every run; TEST__ and non-prefix schemas independently managed",
+   "reason": "Current summary is 211 chars (over 200) and contains ': ' (\"TEST__ prefix and non-prefix\"), so it fails the schema; the rewrite removes the colon-space and stays under 200 while preserving every fact.",
+   "wall": 1.531292667001253,
+   "prompt_tokens": 3008,
+   "eval_tokens": 113,
+   "decode_tps": 85.69682133046969,
+   "thinking_chars": 0,
+   "raw": "{\"id\": \"INFO-035\", \"proposed_summary\": \"Exporter iterates only over mapping_type.unique() present in current data; never truncates tables for absent mapping types; appends on every run; TEST__ and non-prefix schemas independently managed\", \"reason\": \"Current summary is 211 chars (over 200) and contains ': ' (\\\"TEST__ prefix and non-prefix\\\"), so it fails the schema; the rewrite removes the colon-space and stays under 200 while preserving every fact.\"}",
+   "json_ok": true,
+   "attempt_details": [
+    {
+     "wall": 1.531292667001253,
+     "prompt_tokens": 3008,
+     "eval_tokens": 113,
+     "decode_tps": 85.69682133046969,
+     "thinking_chars": 0,
+     "raw": "{\"id\": \"INFO-035\", \"proposed_summary\": \"Exporter iterates only over mapping_type.unique() present in current data; never truncates tables for absent mapping types; appends on every run; TEST__ and non-prefix schemas independently managed\", \"reason\": \"Current summary is 211 chars (over 200) and contains ': ' (\\\"TEST__ prefix and non-prefix\\\"), so it fails the schema; the rewrite removes the colon-space and stays under 200 while preserving every fact.\"}",
+     "json_ok": true,
+     "proposed": "Exporter iterates only over mapping_type.unique() present in current data; never truncates tables for absent mapping types; appends on every run; TEST__ and non-prefix schemas independently managed",
+     "reason": "Current summary is 211 chars (over 200) and contains ': ' (\"TEST__ prefix and non-prefix\"), so it fails the schema; the rewrite removes the colon-space and stays under 200 while preserving every fact.",
+     "violations": [
+      "count-dropped"
+     ],
+     "missing_tokens": [],
+     "verdict": "fail"
+    },
+    {
+     "wall": 1.3880171669879928,
+     "prompt_tokens": 3008,
+     "eval_tokens": 113,
+     "decode_tps": 85.64830079076879,
+     "thinking_chars": 0,
+     "raw": "{\"id\": \"INFO-035\", \"proposed_summary\": \"Exporter iterates only over mapping_type.unique() present in current data; never truncates tables for absent mapping types; appends on every run; TEST__ and non-prefix schemas independently managed\", \"reason\": \"Current summary is 211 chars (over 200) and contains ': ' (\\\"TEST__ prefix and non-prefix\\\"), so it fails the schema; the rewrite removes the colon-space and stays under 200 while preserving every fact.\"}",
+     "json_ok": true,
+     "proposed": "Exporter iterates only over mapping_type.unique() present in current data; never truncates tables for absent mapping types; appends on every run; TEST__ and non-prefix schemas independently managed",
+     "reason": "Current summary is 211 chars (over 200) and contains ': ' (\"TEST__ prefix and non-prefix\"), so it fails the schema; the rewrite removes the colon-space and stays under 200 while preserving every fact.",
+     "violations": [
+      "count-dropped"
+     ],
+     "missing_tokens": [],
+     "verdict": "fail"
+    },
+    {
+     "wall": 1.3939054170041345,
+     "prompt_tokens": 3008,
+     "eval_tokens": 113,
+     "decode_tps": 85.12350063993286,
+     "thinking_chars": 0,
+     "raw": "{\"id\": \"INFO-035\", \"proposed_summary\": \"Exporter iterates only over mapping_type.unique() present in current data; never truncates tables for absent mapping types; appends on every run; TEST__ and non-prefix schemas independently managed\", \"reason\": \"Current summary is 211 chars (over 200) and contains ': ' (\\\"TEST__ prefix and non-prefix\\\"), so it fails the schema; the rewrite removes the colon-space and stays under 200 while preserving every fact.\"}",
+     "json_ok": true,
+     "proposed": "Exporter iterates only over mapping_type.unique() present in current data; never truncates tables for absent mapping types; appends on every run; TEST__ and non-prefix schemas independently managed",
+     "reason": "Current summary is 211 chars (over 200) and contains ': ' (\"TEST__ prefix and non-prefix\"), so it fails the schema; the rewrite removes the colon-space and stays under 200 while preserving every fact.",
+     "violations": [
+      "count-dropped"
+     ],
+     "missing_tokens": [],
+     "verdict": "fail"
+    }
+   ]
+  },
+  {
+   "id": "INFO-002",
+   "mode": "overlength",
+   "verdict": "report",
+   "proposed": null,
+   "reason": "The current summary is already a single-line plain scalar under 200 chars with no schema violations, so there is nothing to repair.",
+   "wall": 1.2087352090020431,
+   "prompt_tokens": 4127,
+   "eval_tokens": 51,
+   "decode_tps": 85.97959417631549,
+   "thinking_chars": 0,
+   "raw": "{\"id\": \"INFO-002\", \"proposed_summary\": null, \"reason\": \"The current summary is already a single-line plain scalar under 200 chars with no schema violations, so there is nothing to repair.\"}",
+   "json_ok": true,
+   "attempt_details": [
+    {
+     "wall": 1.2087352090020431,
+     "prompt_tokens": 4127,
+     "eval_tokens": 51,
+     "decode_tps": 85.97959417631549,
+     "thinking_chars": 0,
+     "raw": "{\"id\": \"INFO-002\", \"proposed_summary\": null, \"reason\": \"The current summary is already a single-line plain scalar under 200 chars with no schema violations, so there is nothing to repair.\"}",
+     "json_ok": true,
+     "proposed": null,
+     "reason": "The current summary is already a single-line plain scalar under 200 chars with no schema violations, so there is nothing to repair.",
+     "verdict": "report"
+    },
+    {
+     "wall": 0.6770200000028126,
+     "prompt_tokens": 4127,
+     "eval_tokens": 51,
+     "decode_tps": 85.83387610637341,
+     "thinking_chars": 0,
+     "raw": "{\"id\": \"INFO-002\", \"proposed_summary\": null, \"reason\": \"The current summary is already a single-line plain scalar under 200 chars with no schema violations, so there is nothing to repair.\"}",
+     "json_ok": true,
+     "proposed": null,
+     "reason": "The current summary is already a single-line plain scalar under 200 chars with no schema violations, so there is nothing to repair.",
+     "verdict": "report"
+    },
+    {
+     "wall": 0.6584673750039656,
+     "prompt_tokens": 4127,
+     "eval_tokens": 51,
+     "decode_tps": 86.14501076812634,
+     "thinking_chars": 0,
+     "raw": "{\"id\": \"INFO-002\", \"proposed_summary\": null, \"reason\": \"The current summary is already a single-line plain scalar under 200 chars with no schema violations, so there is nothing to repair.\"}",
+     "json_ok": true,
+     "proposed": null,
+     "reason": "The current summary is already a single-line plain scalar under 200 chars with no schema violations, so there is nothing to repair.",
+     "verdict": "report"
+    }
+   ]
+  },
+  {
+   "id": "BUG-1034",
+   "mode": "quoted",
+   "verdict": "pass",
+   "violations": [],
+   "missing_tokens": [],
+   "proposed": "FIXED 2026-07-08 \u2014 cross-machine ID collisions overwrote OV pointers; fixed by remote-aware next-id.sh, duplicate-ID pre-commit guard, in-cluster single-writer manual sync, provenance overlap check",
+   "reason": "current_summary already satisfies the schema (single line, no quotes, no ': ', no space-then-#, no leading digit, within 200 chars) and drops no tokens, so no repair is needed",
+   "wall": 2.114672209005221,
+   "prompt_tokens": 4467,
+   "eval_tokens": 117,
+   "decode_tps": 84.90153236381106,
+   "thinking_chars": 0,
+   "raw": "{\"id\": \"BUG-1034\", \"proposed_summary\": \"FIXED 2026-07-08 \u2014 cross-machine ID collisions overwrote OV pointers; fixed by remote-aware next-id.sh, duplicate-ID pre-commit guard, in-cluster single-writer manual sync, provenance overlap check\", \"reason\": \"current_summary already satisfies the schema (single line, no quotes, no ': ', no space-then-#, no leading digit, within 200 chars) and drops no tokens, so no repair is needed\"}",
+   "json_ok": true,
+   "attempt_details": [
+    {
+     "wall": 2.114672209005221,
+     "prompt_tokens": 4467,
+     "eval_tokens": 117,
+     "decode_tps": 84.90153236381106,
+     "thinking_chars": 0,
+     "raw": "{\"id\": \"BUG-1034\", \"proposed_summary\": \"FIXED 2026-07-08 \u2014 cross-machine ID collisions overwrote OV pointers; fixed by remote-aware next-id.sh, duplicate-ID pre-commit guard, in-cluster single-writer manual sync, provenance overlap check\", \"reason\": \"current_summary already satisfies the schema (single line, no quotes, no ': ', no space-then-#, no leading digit, within 200 chars) and drops no tokens, so no repair is needed\"}",
+     "json_ok": true,
+     "proposed": "FIXED 2026-07-08 \u2014 cross-machine ID collisions overwrote OV pointers; fixed by remote-aware next-id.sh, duplicate-ID pre-commit guard, in-cluster single-writer manual sync, provenance overlap check",
+     "reason": "current_summary already satisfies the schema (single line, no quotes, no ': ', no space-then-#, no leading digit, within 200 chars) and drops no tokens, so no repair is needed",
+     "violations": [],
+     "missing_tokens": [],
+     "verdict": "pass"
+    },
+    {
+     "wall": 1.449074042000575,
+     "prompt_tokens": 4467,
+     "eval_tokens": 117,
+     "decode_tps": 85.41505144614253,
+     "thinking_chars": 0,
+     "raw": "{\"id\": \"BUG-1034\", \"proposed_summary\": \"FIXED 2026-07-08 \u2014 cross-machine ID collisions overwrote OV pointers; fixed by remote-aware next-id.sh, duplicate-ID pre-commit guard, in-cluster single-writer manual sync, provenance overlap check\", \"reason\": \"current_summary already satisfies the schema (single line, no quotes, no ': ', no space-then-#, no leading digit, within 200 chars) and drops no tokens, so no repair is needed\"}",
+     "json_ok": true,
+     "proposed": "FIXED 2026-07-08 \u2014 cross-machine ID collisions overwrote OV pointers; fixed by remote-aware next-id.sh, duplicate-ID pre-commit guard, in-cluster single-writer manual sync, provenance overlap check",
+     "reason": "current_summary already satisfies the schema (single line, no quotes, no ': ', no space-then-#, no leading digit, within 200 chars) and drops no tokens, so no repair is needed",
+     "violations": [],
+     "missing_tokens": [],
+     "verdict": "pass"
+    },
+    {
+     "wall": 1.4387206669925945,
+     "prompt_tokens": 4467,
+     "eval_tokens": 117,
+     "decode_tps": 85.22541028386618,
+     "thinking_chars": 0,
+     "raw": "{\"id\": \"BUG-1034\", \"proposed_summary\": \"FIXED 2026-07-08 \u2014 cross-machine ID collisions overwrote OV pointers; fixed by remote-aware next-id.sh, duplicate-ID pre-commit guard, in-cluster single-writer manual sync, provenance overlap check\", \"reason\": \"current_summary already satisfies the schema (single line, no quotes, no ': ', no space-then-#, no leading digit, within 200 chars) and drops no tokens, so no repair is needed\"}",
+     "json_ok": true,
+     "proposed": "FIXED 2026-07-08 \u2014 cross-machine ID collisions overwrote OV pointers; fixed by remote-aware next-id.sh, duplicate-ID pre-commit guard, in-cluster single-writer manual sync, provenance overlap check",
+     "reason": "current_summary already satisfies the schema (single line, no quotes, no ': ', no space-then-#, no leading digit, within 200 chars) and drops no tokens, so no repair is needed",
+     "violations": [],
+     "missing_tokens": [],
+     "verdict": "pass"
+    }
+   ]
+  },
+  {
+   "id": "INFO-095",
+   "mode": "colon-space",
+   "verdict": "report",
+   "proposed": null,
+   "reason": "The current summary and body disagree about the outcome: the summary asserts the loader 'fixed' the structure, but the body only describes the structure and mapping without any fix, so the outcome is ",
+   "wall": 1.2359524159983266,
+   "prompt_tokens": 3647,
+   "eval_tokens": 70,
+   "decode_tps": 86.04117192992807,
+   "thinking_chars": 0,
+   "raw": "{\"id\": \"INFO-095\", \"proposed_summary\": null, \"reason\": \"The current summary and body disagree about the outcome: the summary asserts the loader 'fixed' the structure, but the body only describes the structure and mapping without any fix, so the outcome is unclear and I must report rather than edit.\"}",
+   "json_ok": true,
+   "attempt_details": [
+    {
+     "wall": 1.2359524159983266,
+     "prompt_tokens": 3647,
+     "eval_tokens": 70,
+     "decode_tps": 86.04117192992807,
+     "thinking_chars": 0,
+     "raw": "{\"id\": \"INFO-095\", \"proposed_summary\": null, \"reason\": \"The current summary and body disagree about the outcome: the summary asserts the loader 'fixed' the structure, but the body only describes the structure and mapping without any fix, so the outcome is unclear and I must report rather than edit.\"}",
+     "json_ok": true,
+     "proposed": null,
+     "reason": "The current summary and body disagree about the outcome: the summary asserts the loader 'fixed' the structure, but the body only describes the structure and mapping without any fix, so the outcome is ",
+     "verdict": "report"
+    },
+    {
+     "wall": 0.8884589999943273,
+     "prompt_tokens": 3647,
+     "eval_tokens": 70,
+     "decode_tps": 85.53985424008837,
+     "thinking_chars": 0,
+     "raw": "{\"id\": \"INFO-095\", \"proposed_summary\": null, \"reason\": \"The current summary and body disagree about the outcome: the summary asserts the loader 'fixed' the structure, but the body only describes the structure and mapping without any fix, so the outcome is unclear and I must report rather than edit.\"}",
+     "json_ok": true,
+     "proposed": null,
+     "reason": "The current summary and body disagree about the outcome: the summary asserts the loader 'fixed' the structure, but the body only describes the structure and mapping without any fix, so the outcome is ",
+     "verdict": "report"
+    },
+    {
+     "wall": 0.879252250000718,
+     "prompt_tokens": 3647,
+     "eval_tokens": 70,
+     "decode_tps": 85.94145177211273,
+     "thinking_chars": 0,
+     "raw": "{\"id\": \"INFO-095\", \"proposed_summary\": null, \"reason\": \"The current summary and body disagree about the outcome: the summary asserts the loader 'fixed' the structure, but the body only describes the structure and mapping without any fix, so the outcome is unclear and I must report rather than edit.\"}",
+     "json_ok": true,
+     "proposed": null,
+     "reason": "The current summary and body disagree about the outcome: the summary asserts the loader 'fixed' the structure, but the body only describes the structure and mapping without any fix, so the outcome is ",
+     "verdict": "report"
+    }
+   ]
+  },
+  {
+   "id": "INFO-1149",
+   "mode": "leading-digit",
+   "verdict": "fail",
+   "violations": [
+    "count-dropped"
+   ],
+   "missing_tokens": [],
+   "proposed": "DeepSeek-V4-Flash-0731 (284B total/13B active MoE) fits a 256GB Mac Studio only at Q4_K_M/Q3_K_M; FP16/Q8 do not",
+   "reason": "Current summary is 211 chars and starts with a digit; rewritten as a single line under 200 chars that preserves every ID, PR/date/version token and the outcome.",
+   "wall": 2.080244083001162,
+   "prompt_tokens": 4514,
+   "eval_tokens": 114,
+   "decode_tps": 85.1002839662107,
+   "thinking_chars": 0,
+   "raw": "{\"id\": \"INFO-1149\", \"proposed_summary\": \"DeepSeek-V4-Flash-0731 (284B total/13B active MoE) fits a 256GB Mac Studio only at Q4_K_M/Q3_K_M; FP16/Q8 do not\", \"reason\": \"Current summary is 211 chars and starts with a digit; rewritten as a single line under 200 chars that preserves every ID, PR/date/version token and the outcome.\"}",
+   "json_ok": true,
+   "attempt_details": [
+    {
+     "wall": 2.080244083001162,
+     "prompt_tokens": 4514,
+     "eval_tokens": 114,
+     "decode_tps": 85.1002839662107,
+     "thinking_chars": 0,
+     "raw": "{\"id\": \"INFO-1149\", \"proposed_summary\": \"DeepSeek-V4-Flash-0731 (284B total/13B active MoE) fits a 256GB Mac Studio only at Q4_K_M/Q3_K_M; FP16/Q8 do not\", \"reason\": \"Current summary is 211 chars and starts with a digit; rewritten as a single line under 200 chars that preserves every ID, PR/date/version token and the outcome.\"}",
+     "json_ok": true,
+     "proposed": "DeepSeek-V4-Flash-0731 (284B total/13B active MoE) fits a 256GB Mac Studio only at Q4_K_M/Q3_K_M; FP16/Q8 do not",
+     "reason": "Current summary is 211 chars and starts with a digit; rewritten as a single line under 200 chars that preserves every ID, PR/date/version token and the outcome.",
+     "violations": [
+      "count-dropped"
+     ],
+     "missing_tokens": [],
+     "verdict": "fail"
+    },
+    {
+     "wall": 1.4119510409946088,
+     "prompt_tokens": 4514,
+     "eval_tokens": 114,
+     "decode_tps": 85.15444326921353,
+     "thinking_chars": 0,
+     "raw": "{\"id\": \"INFO-1149\", \"proposed_summary\": \"DeepSeek-V4-Flash-0731 (284B total/13B active MoE) fits a 256GB Mac Studio only at Q4_K_M/Q3_K_M; FP16/Q8 do not\", \"reason\": \"Current summary is 211 chars and starts with a digit; rewritten as a single line under 200 chars that preserves every ID, PR/date/version token and the outcome.\"}",
+     "json_ok": true,
+     "proposed": "DeepSeek-V4-Flash-0731 (284B total/13B active MoE) fits a 256GB Mac Studio only at Q4_K_M/Q3_K_M; FP16/Q8 do not",
+     "reason": "Current summary is 211 chars and starts with a digit; rewritten as a single line under 200 chars that preserves every ID, PR/date/version token and the outcome.",
+     "violations": [
+      "count-dropped"
+     ],
+     "missing_tokens": [],
+     "verdict": "fail"
+    },
+    {
+     "wall": 1.410192042007111,
+     "prompt_tokens": 4514,
+     "eval_tokens": 114,
+     "decode_tps": 84.85337485690296,
+     "thinking_chars": 0,
+     "raw": "{\"id\": \"INFO-1149\", \"proposed_summary\": \"DeepSeek-V4-Flash-0731 (284B total/13B active MoE) fits a 256GB Mac Studio only at Q4_K_M/Q3_K_M; FP16/Q8 do not\", \"reason\": \"Current summary is 211 chars and starts with a digit; rewritten as a single line under 200 chars that preserves every ID, PR/date/version token and the outcome.\"}",
+     "json_ok": true,
+     "proposed": "DeepSeek-V4-Flash-0731 (284B total/13B active MoE) fits a 256GB Mac Studio only at Q4_K_M/Q3_K_M; FP16/Q8 do not",
+     "reason": "Current summary is 211 chars and starts with a digit; rewritten as a single line under 200 chars that preserves every ID, PR/date/version token and the outcome.",
+     "violations": [
+      "count-dropped"
+     ],
+     "missing_tokens": [],
+     "verdict": "fail"
+    }
+   ]
+  }
+ ],
+ "fence": [
+  {
+   "label": "bash",
+   "orig_tag": "bash",
+   "path": "bugs/resolved/mage/BUG-082-mage-dbt-notes-model-references-message-column-prefix.md",
+   "verdict": "fail",
+   "tag": "text",
+   "wall": 1.0835244999907445,
+   "prompt_tokens": 2512,
+   "eval_tokens": 7,
+   "raw": "{\"tag\": \"text\"}",
+   "attempt_details": [
+    {
+     "wall": 1.0835244999907445,
+     "prompt_tokens": 2512,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"text\"}",
+     "tag": "text",
+     "verdict": "fail"
+    },
+    {
+     "wall": 0.1337497920030728,
+     "prompt_tokens": 2512,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"text\"}",
+     "tag": "text",
+     "verdict": "fail"
+    },
+    {
+     "wall": 0.1306750420044409,
+     "prompt_tokens": 2512,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"text\"}",
+     "tag": "text",
+     "verdict": "fail"
+    }
+   ]
+  },
+  {
+   "label": "bash",
+   "orig_tag": "bash",
+   "path": "guides/tooling/GUIDE-1001-homelab-using-openviking-mcp.md",
+   "verdict": "pass",
+   "tag": "bash",
+   "wall": 0.5043102089985041,
+   "prompt_tokens": 2492,
+   "eval_tokens": 7,
+   "raw": "{\"tag\": \"bash\"}",
+   "attempt_details": [
+    {
+     "wall": 0.5043102089985041,
+     "prompt_tokens": 2492,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"bash\"}",
+     "tag": "bash",
+     "verdict": "pass"
+    },
+    {
+     "wall": 0.1425235830101883,
+     "prompt_tokens": 2492,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"bash\"}",
+     "tag": "bash",
+     "verdict": "pass"
+    },
+    {
+     "wall": 0.13634324999293312,
+     "prompt_tokens": 2492,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"bash\"}",
+     "tag": "bash",
+     "verdict": "pass"
+    }
+   ]
+  },
+  {
+   "label": "bash",
+   "orig_tag": "bash",
+   "path": "info/knowledge-base/INFO-1006-homelab-lact-rx9070xt-profile-toggle.md",
+   "verdict": "pass",
+   "tag": "bash",
+   "wall": 0.5365680000104476,
+   "prompt_tokens": 2522,
+   "eval_tokens": 7,
+   "raw": "{\"tag\": \"bash\"}",
+   "attempt_details": [
+    {
+     "wall": 0.5365680000104476,
+     "prompt_tokens": 2522,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"bash\"}",
+     "tag": "bash",
+     "verdict": "pass"
+    },
+    {
+     "wall": 0.14262158299970906,
+     "prompt_tokens": 2522,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"bash\"}",
+     "tag": "bash",
+     "verdict": "pass"
+    },
+    {
+     "wall": 0.1328260419977596,
+     "prompt_tokens": 2522,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"bash\"}",
+     "tag": "bash",
+     "verdict": "pass"
+    }
+   ]
+  },
+  {
+   "label": "bash",
+   "orig_tag": "bash",
+   "path": "ideas/other/IDEA-046-other-compendium-agent-lookup-layer.md",
+   "verdict": "pass",
+   "tag": "bash",
+   "wall": 0.5493485830083955,
+   "prompt_tokens": 2526,
+   "eval_tokens": 7,
+   "raw": "{\"tag\": \"bash\"}",
+   "attempt_details": [
+    {
+     "wall": 0.5493485830083955,
+     "prompt_tokens": 2526,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"bash\"}",
+     "tag": "bash",
+     "verdict": "pass"
+    },
+    {
+     "wall": 0.1353413329925388,
+     "prompt_tokens": 2526,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"bash\"}",
+     "tag": "bash",
+     "verdict": "pass"
+    },
+    {
+     "wall": 0.1392592079937458,
+     "prompt_tokens": 2526,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"bash\"}",
+     "tag": "bash",
+     "verdict": "pass"
+    }
+   ]
+  },
+  {
+   "label": "bash",
+   "orig_tag": "bash",
+   "path": "guides/tooling/GUIDE-1010-homelab-cf-cli-r2-access.md",
+   "verdict": "pass",
+   "tag": "bash",
+   "wall": 0.607040999995661,
+   "prompt_tokens": 2661,
+   "eval_tokens": 7,
+   "raw": "{\"tag\": \"bash\"}",
+   "attempt_details": [
+    {
+     "wall": 0.607040999995661,
+     "prompt_tokens": 2661,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"bash\"}",
+     "tag": "bash",
+     "verdict": "pass"
+    },
+    {
+     "wall": 0.1523461249889806,
+     "prompt_tokens": 2661,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"bash\"}",
+     "tag": "bash",
+     "verdict": "pass"
+    },
+    {
+     "wall": 0.14102991700929124,
+     "prompt_tokens": 2661,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"bash\"}",
+     "tag": "bash",
+     "verdict": "pass"
+    }
+   ]
+  },
+  {
+   "label": "yaml",
+   "orig_tag": "yaml",
+   "path": "bugs/resolved/mage/BUG-265-mage-mage-dbt-blocks-fetch-entire-models-into-memory-for-discarde.md",
+   "verdict": "fail",
+   "tag": "text",
+   "wall": 0.5090295419940958,
+   "prompt_tokens": 2505,
+   "eval_tokens": 7,
+   "raw": "{\"tag\": \"text\"}",
+   "attempt_details": [
+    {
+     "wall": 0.5090295419940958,
+     "prompt_tokens": 2505,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"text\"}",
+     "tag": "text",
+     "verdict": "fail"
+    },
+    {
+     "wall": 0.13692787499167025,
+     "prompt_tokens": 2505,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"text\"}",
+     "tag": "text",
+     "verdict": "fail"
+    },
+    {
+     "wall": 0.13082999999460299,
+     "prompt_tokens": 2505,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"text\"}",
+     "tag": "text",
+     "verdict": "fail"
+    }
+   ]
+  },
+  {
+   "label": "yaml",
+   "orig_tag": "yaml",
+   "path": "info/ollama-networking/INFO-1075-homelab-external-ollama-transport-variants-coredns-direct-dns-sideca.md",
+   "verdict": "pass",
+   "tag": "yaml",
+   "wall": 0.5477527500042925,
+   "prompt_tokens": 2529,
+   "eval_tokens": 7,
+   "raw": "{\"tag\": \"yaml\"}",
+   "attempt_details": [
+    {
+     "wall": 0.5477527500042925,
+     "prompt_tokens": 2529,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"yaml\"}",
+     "tag": "yaml",
+     "verdict": "pass"
+    },
+    {
+     "wall": 0.13653945800615475,
+     "prompt_tokens": 2529,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"yaml\"}",
+     "tag": "yaml",
+     "verdict": "pass"
+    },
+    {
+     "wall": 0.1337897079938557,
+     "prompt_tokens": 2529,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"yaml\"}",
+     "tag": "yaml",
+     "verdict": "pass"
+    }
+   ]
+  },
+  {
+   "label": "yaml",
+   "orig_tag": "yaml",
+   "path": "bugs/resolved/homelab/BUG-1031-homelab-traefik-kubernetescrd-provider-fails-to-resolve-any-middlewa.md",
+   "verdict": "pass",
+   "tag": "yaml",
+   "wall": 0.5046189170097932,
+   "prompt_tokens": 2486,
+   "eval_tokens": 7,
+   "raw": "{\"tag\": \"yaml\"}",
+   "attempt_details": [
+    {
+     "wall": 0.5046189170097932,
+     "prompt_tokens": 2486,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"yaml\"}",
+     "tag": "yaml",
+     "verdict": "pass"
+    },
+    {
+     "wall": 0.1409020419960143,
+     "prompt_tokens": 2486,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"yaml\"}",
+     "tag": "yaml",
+     "verdict": "pass"
+    },
+    {
+     "wall": 0.1350934999936726,
+     "prompt_tokens": 2486,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"yaml\"}",
+     "tag": "yaml",
+     "verdict": "pass"
+    }
+   ]
+  },
+  {
+   "label": "yaml",
+   "orig_tag": "yaml",
+   "path": "info/homelab/INFO-1060-Hermes-Agent-local-CLI-setup-guide.md",
+   "verdict": "pass",
+   "tag": "yaml",
+   "wall": 0.5801635000098031,
+   "prompt_tokens": 2585,
+   "eval_tokens": 7,
+   "raw": "{\"tag\": \"yaml\"}",
+   "attempt_details": [
+    {
+     "wall": 0.5801635000098031,
+     "prompt_tokens": 2585,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"yaml\"}",
+     "tag": "yaml",
+     "verdict": "pass"
+    },
+    {
+     "wall": 0.13834016599867027,
+     "prompt_tokens": 2585,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"yaml\"}",
+     "tag": "yaml",
+     "verdict": "pass"
+    },
+    {
+     "wall": 0.1337023749947548,
+     "prompt_tokens": 2585,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"yaml\"}",
+     "tag": "yaml",
+     "verdict": "pass"
+    }
+   ]
+  },
+  {
+   "label": "yaml",
+   "orig_tag": "yaml",
+   "path": "bugs/resolved/homelab/BUG-1017-openviking-queue-issues.md",
+   "verdict": "pass",
+   "tag": "yaml",
+   "wall": 0.5020802920043934,
+   "prompt_tokens": 2509,
+   "eval_tokens": 7,
+   "raw": "{\"tag\": \"yaml\"}",
+   "attempt_details": [
+    {
+     "wall": 0.5020802920043934,
+     "prompt_tokens": 2509,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"yaml\"}",
+     "tag": "yaml",
+     "verdict": "pass"
+    },
+    {
+     "wall": 0.13699933300085831,
+     "prompt_tokens": 2509,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"yaml\"}",
+     "tag": "yaml",
+     "verdict": "pass"
+    },
+    {
+     "wall": 0.13518954199389555,
+     "prompt_tokens": 2509,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"yaml\"}",
+     "tag": "yaml",
+     "verdict": "pass"
+    }
+   ]
+  },
+  {
+   "label": "json",
+   "orig_tag": "json",
+   "path": "bugs/resolved/BUG-1006-homelab-openviking-fs-api-tenant-headers-missing.md",
+   "verdict": "pass",
+   "tag": "json",
+   "wall": 0.49848287500208244,
+   "prompt_tokens": 2516,
+   "eval_tokens": 7,
+   "raw": "{\"tag\": \"json\"}",
+   "attempt_details": [
+    {
+     "wall": 0.49848287500208244,
+     "prompt_tokens": 2516,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"json\"}",
+     "tag": "json",
+     "verdict": "pass"
+    },
+    {
+     "wall": 0.1390125840116525,
+     "prompt_tokens": 2516,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"json\"}",
+     "tag": "json",
+     "verdict": "pass"
+    },
+    {
+     "wall": 0.13261829099792521,
+     "prompt_tokens": 2516,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"json\"}",
+     "tag": "json",
+     "verdict": "pass"
+    }
+   ]
+  },
+  {
+   "label": "json",
+   "orig_tag": "json",
+   "path": "info/knowledge-base/INFO-1005-robots-fim-token-formats-psm-spm.md",
+   "verdict": "pass",
+   "tag": "json",
+   "wall": 0.5107065000047442,
+   "prompt_tokens": 2515,
+   "eval_tokens": 7,
+   "raw": "{\"tag\": \"json\"}",
+   "attempt_details": [
+    {
+     "wall": 0.5107065000047442,
+     "prompt_tokens": 2515,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"json\"}",
+     "tag": "json",
+     "verdict": "pass"
+    },
+    {
+     "wall": 0.14607700001215562,
+     "prompt_tokens": 2515,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"json\"}",
+     "tag": "json",
+     "verdict": "pass"
+    },
+    {
+     "wall": 0.13583233300596476,
+     "prompt_tokens": 2515,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"json\"}",
+     "tag": "json",
+     "verdict": "pass"
+    }
+   ]
+  },
+  {
+   "label": "json",
+   "orig_tag": "json",
+   "path": "info/opencode/INFO-1135-dotfiles-opencode-configuration-providers-and-permissions.md",
+   "verdict": "pass",
+   "tag": "json",
+   "wall": 0.5699872080003843,
+   "prompt_tokens": 2557,
+   "eval_tokens": 7,
+   "raw": "{\"tag\": \"json\"}",
+   "attempt_details": [
+    {
+     "wall": 0.5699872080003843,
+     "prompt_tokens": 2557,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"json\"}",
+     "tag": "json",
+     "verdict": "pass"
+    },
+    {
+     "wall": 0.1389029580022907,
+     "prompt_tokens": 2557,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"json\"}",
+     "tag": "json",
+     "verdict": "pass"
+    },
+    {
+     "wall": 0.13654420799866784,
+     "prompt_tokens": 2557,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"json\"}",
+     "tag": "json",
+     "verdict": "pass"
+    }
+   ]
+  },
+  {
+   "label": "json",
+   "orig_tag": "json",
+   "path": "info/other/INFO-1109-other-claude-code-interactive-mode-and-terminal-ux.md",
+   "verdict": "pass",
+   "tag": "json",
+   "wall": 0.49906566699792165,
+   "prompt_tokens": 2480,
+   "eval_tokens": 7,
+   "raw": "{\"tag\": \"json\"}",
+   "attempt_details": [
+    {
+     "wall": 0.49906566699792165,
+     "prompt_tokens": 2480,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"json\"}",
+     "tag": "json",
+     "verdict": "pass"
+    },
+    {
+     "wall": 0.13691008399473503,
+     "prompt_tokens": 2480,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"json\"}",
+     "tag": "json",
+     "verdict": "pass"
+    },
+    {
+     "wall": 0.13819379099004436,
+     "prompt_tokens": 2480,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"json\"}",
+     "tag": "json",
+     "verdict": "pass"
+    }
+   ]
+  },
+  {
+   "label": "json",
+   "orig_tag": "json",
+   "path": "info/opencode/INFO-1135-dotfiles-opencode-configuration-providers-and-permissions.md",
+   "verdict": "pass",
+   "tag": "json",
+   "wall": 0.5426151669962564,
+   "prompt_tokens": 2522,
+   "eval_tokens": 7,
+   "raw": "{\"tag\": \"json\"}",
+   "attempt_details": [
+    {
+     "wall": 0.5426151669962564,
+     "prompt_tokens": 2522,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"json\"}",
+     "tag": "json",
+     "verdict": "pass"
+    },
+    {
+     "wall": 0.13828633399680257,
+     "prompt_tokens": 2522,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"json\"}",
+     "tag": "json",
+     "verdict": "pass"
+    },
+    {
+     "wall": 0.13408387500385288,
+     "prompt_tokens": 2522,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"json\"}",
+     "tag": "json",
+     "verdict": "pass"
+    }
+   ]
+  },
+  {
+   "label": "python",
+   "orig_tag": "python",
+   "path": "bugs/resolved/dipdash/BUG-192-dipdash-fail-sensor-race-prevents-failure-category-write-to-pipeline.md",
+   "verdict": "pass",
+   "tag": "python",
+   "wall": 0.5541455420025159,
+   "prompt_tokens": 2542,
+   "eval_tokens": 7,
+   "raw": "{\"tag\": \"python\"}",
+   "attempt_details": [
+    {
+     "wall": 0.5541455420025159,
+     "prompt_tokens": 2542,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"python\"}",
+     "tag": "python",
+     "verdict": "pass"
+    },
+    {
+     "wall": 0.13864249999460299,
+     "prompt_tokens": 2542,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"python\"}",
+     "tag": "python",
+     "verdict": "pass"
+    },
+    {
+     "wall": 0.13539925000804942,
+     "prompt_tokens": 2542,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"python\"}",
+     "tag": "python",
+     "verdict": "pass"
+    }
+   ]
+  },
+  {
+   "label": "python",
+   "orig_tag": "python",
+   "path": "errors/mage/ERR-004-mage-lookup-export-empty-acl-json-crash.md",
+   "verdict": "pass",
+   "tag": "python",
+   "wall": 0.5006002500012983,
+   "prompt_tokens": 2473,
+   "eval_tokens": 7,
+   "raw": "{\"tag\": \"python\"}",
+   "attempt_details": [
+    {
+     "wall": 0.5006002500012983,
+     "prompt_tokens": 2473,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"python\"}",
+     "tag": "python",
+     "verdict": "pass"
+    },
+    {
+     "wall": 0.13711958299973048,
+     "prompt_tokens": 2473,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"python\"}",
+     "tag": "python",
+     "verdict": "pass"
+    },
+    {
+     "wall": 0.1315946250106208,
+     "prompt_tokens": 2473,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"python\"}",
+     "tag": "python",
+     "verdict": "pass"
+    }
+   ]
+  },
+  {
+   "label": "python",
+   "orig_tag": "python",
+   "path": "bugs/mage/BUG-291-mage-poll-for-answers-completion-normalized-dataframe-metadata-de.md",
+   "verdict": "pass",
+   "tag": "python",
+   "wall": 0.5048716669989517,
+   "prompt_tokens": 2494,
+   "eval_tokens": 7,
+   "raw": "{\"tag\": \"python\"}",
+   "attempt_details": [
+    {
+     "wall": 0.5048716669989517,
+     "prompt_tokens": 2494,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"python\"}",
+     "tag": "python",
+     "verdict": "pass"
+    },
+    {
+     "wall": 0.1381245420052437,
+     "prompt_tokens": 2494,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"python\"}",
+     "tag": "python",
+     "verdict": "pass"
+    },
+    {
+     "wall": 0.13501116700354032,
+     "prompt_tokens": 2494,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"python\"}",
+     "tag": "python",
+     "verdict": "pass"
+    }
+   ]
+  },
+  {
+   "label": "python",
+   "orig_tag": "python",
+   "path": "improvements/mage/IMPR-109-mage-surface-api-response-detail-on-submission-failure.md",
+   "verdict": "pass",
+   "tag": "python",
+   "wall": 0.557439374999376,
+   "prompt_tokens": 2539,
+   "eval_tokens": 7,
+   "raw": "{\"tag\": \"python\"}",
+   "attempt_details": [
+    {
+     "wall": 0.557439374999376,
+     "prompt_tokens": 2539,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"python\"}",
+     "tag": "python",
+     "verdict": "pass"
+    },
+    {
+     "wall": 0.14049941599660087,
+     "prompt_tokens": 2539,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"python\"}",
+     "tag": "python",
+     "verdict": "pass"
+    },
+    {
+     "wall": 0.13473712498671375,
+     "prompt_tokens": 2539,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"python\"}",
+     "tag": "python",
+     "verdict": "pass"
+    }
+   ]
+  },
+  {
+   "label": "python",
+   "orig_tag": "python",
+   "path": "bugs/resolved/dipdash/BUG-170-dipdash-s3-pagination-missing-file-refresh-lambda.md",
+   "verdict": "pass",
+   "tag": "python",
+   "wall": 0.5666848749970086,
+   "prompt_tokens": 2554,
+   "eval_tokens": 7,
+   "raw": "{\"tag\": \"python\"}",
+   "attempt_details": [
+    {
+     "wall": 0.5666848749970086,
+     "prompt_tokens": 2554,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"python\"}",
+     "tag": "python",
+     "verdict": "pass"
+    },
+    {
+     "wall": 0.14009079099923838,
+     "prompt_tokens": 2554,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"python\"}",
+     "tag": "python",
+     "verdict": "pass"
+    },
+    {
+     "wall": 0.1318949580017943,
+     "prompt_tokens": 2554,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"python\"}",
+     "tag": "python",
+     "verdict": "pass"
+    }
+   ]
+  },
+  {
+   "label": "sql",
+   "orig_tag": "sql",
+   "path": "bugs/resolved/mage/BUG-082-mage-dbt-notes-model-references-message-column-prefix.md",
+   "verdict": "pass",
+   "tag": "sql",
+   "wall": 0.5014620830042986,
+   "prompt_tokens": 2477,
+   "eval_tokens": 7,
+   "raw": "{\"tag\": \"sql\"}",
+   "attempt_details": [
+    {
+     "wall": 0.5014620830042986,
+     "prompt_tokens": 2477,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"sql\"}",
+     "tag": "sql",
+     "verdict": "pass"
+    },
+    {
+     "wall": 0.1357268749998184,
+     "prompt_tokens": 2477,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"sql\"}",
+     "tag": "sql",
+     "verdict": "pass"
+    },
+    {
+     "wall": 0.13152808300219476,
+     "prompt_tokens": 2477,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"sql\"}",
+     "tag": "sql",
+     "verdict": "pass"
+    }
+   ]
+  },
+  {
+   "label": "sql",
+   "orig_tag": "sql",
+   "path": "errors/mage/ERR-005-mage-to-datetime-macro-returns-error-string.md",
+   "verdict": "pass",
+   "tag": "sql",
+   "wall": 0.5299696250003763,
+   "prompt_tokens": 2518,
+   "eval_tokens": 7,
+   "raw": "{\"tag\": \"sql\"}",
+   "attempt_details": [
+    {
+     "wall": 0.5299696250003763,
+     "prompt_tokens": 2518,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"sql\"}",
+     "tag": "sql",
+     "verdict": "pass"
+    },
+    {
+     "wall": 0.1382980419875821,
+     "prompt_tokens": 2518,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"sql\"}",
+     "tag": "sql",
+     "verdict": "pass"
+    },
+    {
+     "wall": 0.1322002909873845,
+     "prompt_tokens": 2518,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"sql\"}",
+     "tag": "sql",
+     "verdict": "pass"
+    }
+   ]
+  },
+  {
+   "label": "sql",
+   "orig_tag": "sql",
+   "path": "info/platform-api/INFO-080-aclaimant-company-ident-resolution-chain.md",
+   "verdict": "pass",
+   "tag": "sql",
+   "wall": 0.565887874996406,
+   "prompt_tokens": 2563,
+   "eval_tokens": 7,
+   "raw": "{\"tag\": \"sql\"}",
+   "attempt_details": [
+    {
+     "wall": 0.565887874996406,
+     "prompt_tokens": 2563,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"sql\"}",
+     "tag": "sql",
+     "verdict": "pass"
+    },
+    {
+     "wall": 0.13884970899380278,
+     "prompt_tokens": 2563,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"sql\"}",
+     "tag": "sql",
+     "verdict": "pass"
+    },
+    {
+     "wall": 0.13817799999378622,
+     "prompt_tokens": 2563,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"sql\"}",
+     "tag": "sql",
+     "verdict": "pass"
+    }
+   ]
+  },
+  {
+   "label": "sql",
+   "orig_tag": "sql",
+   "path": "bugs/resolved/dipdash/BUG-279-dipdash-sandbox-and-prod-liberty-pipelines-run-different-configurations.md",
+   "verdict": "pass",
+   "tag": "sql",
+   "wall": 0.5787985419883626,
+   "prompt_tokens": 2580,
+   "eval_tokens": 7,
+   "raw": "{\"tag\": \"sql\"}",
+   "attempt_details": [
+    {
+     "wall": 0.5787985419883626,
+     "prompt_tokens": 2580,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"sql\"}",
+     "tag": "sql",
+     "verdict": "pass"
+    },
+    {
+     "wall": 0.14131679199635983,
+     "prompt_tokens": 2580,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"sql\"}",
+     "tag": "sql",
+     "verdict": "pass"
+    },
+    {
+     "wall": 0.13414770799863618,
+     "prompt_tokens": 2580,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"sql\"}",
+     "tag": "sql",
+     "verdict": "pass"
+    }
+   ]
+  },
+  {
+   "label": "sql",
+   "orig_tag": "sql",
+   "path": "bugs/mage/BUG-065-mage-fuzzy-company-name-suffix-stripping-broken.md",
+   "verdict": "pass",
+   "tag": "sql",
+   "wall": 0.5722448339947732,
+   "prompt_tokens": 2563,
+   "eval_tokens": 7,
+   "raw": "{\"tag\": \"sql\"}",
+   "attempt_details": [
+    {
+     "wall": 0.5722448339947732,
+     "prompt_tokens": 2563,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"sql\"}",
+     "tag": "sql",
+     "verdict": "pass"
+    },
+    {
+     "wall": 0.1460428749996936,
+     "prompt_tokens": 2563,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"sql\"}",
+     "tag": "sql",
+     "verdict": "pass"
+    },
+    {
+     "wall": 0.1361743340094108,
+     "prompt_tokens": 2563,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"sql\"}",
+     "tag": "sql",
+     "verdict": "pass"
+    }
+   ]
+  },
+  {
+   "label": "text",
+   "orig_tag": "text",
+   "path": "bugs/dipdash/BUG-304-dipdash-fixed-width-upload-dry-run-omits-the-overlap-the-upload-intr.md",
+   "verdict": "pass",
+   "tag": "text",
+   "wall": 0.5038057920028223,
+   "prompt_tokens": 2490,
+   "eval_tokens": 7,
+   "raw": "{\"tag\": \"text\"}",
+   "attempt_details": [
+    {
+     "wall": 0.5038057920028223,
+     "prompt_tokens": 2490,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"text\"}",
+     "tag": "text",
+     "verdict": "pass"
+    },
+    {
+     "wall": 0.14275154200731777,
+     "prompt_tokens": 2490,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"text\"}",
+     "tag": "text",
+     "verdict": "pass"
+    },
+    {
+     "wall": 0.1323547089996282,
+     "prompt_tokens": 2490,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"text\"}",
+     "tag": "text",
+     "verdict": "pass"
+    }
+   ]
+  },
+  {
+   "label": "text",
+   "orig_tag": "text",
+   "path": "bugs/resolved/dipdash/BUG-158-dipdash-sync-customer-schemas-uuid-violation.md",
+   "verdict": "pass",
+   "tag": "text",
+   "wall": 0.5517189160018461,
+   "prompt_tokens": 2532,
+   "eval_tokens": 7,
+   "raw": "{\"tag\": \"text\"}",
+   "attempt_details": [
+    {
+     "wall": 0.5517189160018461,
+     "prompt_tokens": 2532,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"text\"}",
+     "tag": "text",
+     "verdict": "pass"
+    },
+    {
+     "wall": 0.13653129199519753,
+     "prompt_tokens": 2532,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"text\"}",
+     "tag": "text",
+     "verdict": "pass"
+    },
+    {
+     "wall": 0.13398020800377708,
+     "prompt_tokens": 2532,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"text\"}",
+     "tag": "text",
+     "verdict": "pass"
+    }
+   ]
+  },
+  {
+   "label": "text",
+   "orig_tag": "text",
+   "path": "bugs/resolved/homelab/BUG-1031-homelab-traefik-kubernetescrd-provider-fails-to-resolve-any-middlewa.md",
+   "verdict": "fail",
+   "tag": "yaml",
+   "wall": 0.5042611249955371,
+   "prompt_tokens": 2478,
+   "eval_tokens": 7,
+   "raw": "{\"tag\": \"yaml\"}",
+   "attempt_details": [
+    {
+     "wall": 0.5042611249955371,
+     "prompt_tokens": 2478,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"yaml\"}",
+     "tag": "yaml",
+     "verdict": "fail"
+    },
+    {
+     "wall": 0.1387268340040464,
+     "prompt_tokens": 2478,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"yaml\"}",
+     "tag": "yaml",
+     "verdict": "fail"
+    },
+    {
+     "wall": 0.13136183300230186,
+     "prompt_tokens": 2478,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"yaml\"}",
+     "tag": "yaml",
+     "verdict": "fail"
+    }
+   ]
+  },
+  {
+   "label": "text",
+   "orig_tag": "text",
+   "path": "guides/tooling/GUIDE-1064-obsidian-task-board-plugin-config.md",
+   "verdict": "pass",
+   "tag": "text",
+   "wall": 0.5004964169929735,
+   "prompt_tokens": 2479,
+   "eval_tokens": 7,
+   "raw": "{\"tag\": \"text\"}",
+   "attempt_details": [
+    {
+     "wall": 0.5004964169929735,
+     "prompt_tokens": 2479,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"text\"}",
+     "tag": "text",
+     "verdict": "pass"
+    },
+    {
+     "wall": 0.1374048750003567,
+     "prompt_tokens": 2479,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"text\"}",
+     "tag": "text",
+     "verdict": "pass"
+    },
+    {
+     "wall": 0.13189983399934135,
+     "prompt_tokens": 2479,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"text\"}",
+     "tag": "text",
+     "verdict": "pass"
+    }
+   ]
+  },
+  {
+   "label": "text",
+   "orig_tag": "text",
+   "path": "ideas/other/IDEA-107-other-omnipendium-agent-submission-markdown-outbox.md",
+   "verdict": "pass",
+   "tag": "text",
+   "wall": 0.5019711250060936,
+   "prompt_tokens": 2471,
+   "eval_tokens": 7,
+   "raw": "{\"tag\": \"text\"}",
+   "attempt_details": [
+    {
+     "wall": 0.5019711250060936,
+     "prompt_tokens": 2471,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"text\"}",
+     "tag": "text",
+     "verdict": "pass"
+    },
+    {
+     "wall": 0.14014070900157094,
+     "prompt_tokens": 2471,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"text\"}",
+     "tag": "text",
+     "verdict": "pass"
+    },
+    {
+     "wall": 0.14472525000746828,
+     "prompt_tokens": 2471,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"text\"}",
+     "tag": "text",
+     "verdict": "pass"
+    }
+   ]
+  }
+ ],
+ "fact_token_verify_output": "[]\n",
+ "score": {
+  "summary_pass": 5,
+  "summary_report": 12,
+  "summary_fail": 3,
+  "summary_error": 0,
+  "summary_n": 20,
+  "summary_json_ok": 20,
+  "summary_token_loss": 0,
+  "summary_schema_fail": 3,
+  "summary_hallucination": 0,
+  "fence_pass": 27,
+  "fence_n": 30,
+  "wall_p50": 1.5506726669991622,
+  "decode_tps_p50": 85.386828983006,
+  "load_s": 8.666510124996421
+ }
+}

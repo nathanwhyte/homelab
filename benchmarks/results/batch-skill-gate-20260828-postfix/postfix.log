@@ -1,0 +1,159 @@
+model=qwen3.5:9b-q4_K_M ollama=0.33.1 think=False temperature=0.0
+  summary BUG-152    overlength     -> pass   [] [] 2.7s
+  summary INFO-1113  quoted         -> pass   [] [] 2.6s
+  summary BUG-205    colon-space    -> pass   [] [] 2.7s
+  summary IMPR-1008  leading-digit  -> fail   ['leading-digit'] [] 2.9s
+  summary IDEA-023   overlength     -> pass   [] [] 2.2s
+  summary INFO-092   quoted         -> pass   [] [] 2.0s
+  summary IDEA-013   colon-space    -> pass   [] [] 1.7s
+  summary BUG-185    leading-digit  -> pass   [] [] 1.6s
+  summary INFO-038   overlength     -> pass   [] [] 1.7s
+  summary IMPR-1012  quoted         -> pass   [] [] 2.1s
+  summary BUG-199    colon-space    -> fail   ['colon-space'] [] 1.9s
+  summary IMPR-1079  leading-digit  -> fail   ['leading-digit'] [] 1.6s
+  summary BUG-1076   overlength     -> pass   [] [] 2.1s
+  summary BUG-155    quoted         -> pass   [] [] 1.5s
+  summary BUG-042    colon-space    -> pass   [] [] 1.7s
+  summary INFO-035   leading-digit  -> pass   [] [] 1.4s
+  summary INFO-002   overlength     -> fail   [] ['backtick:`asfdip`'] 1.6s
+  summary BUG-1034   quoted         -> pass   [] [] 2.2s
+  summary INFO-095   colon-space    -> fail   ['colon-space'] [] 1.5s
+  summary INFO-1149  leading-digit  -> pass   [] [] 2.0s
+  fence   bash    (bash      ) -> text fail
+  fence   bash    (bash      ) -> bash pass
+  fence   bash    (bash      ) -> bash pass
+  fence   bash    (bash      ) -> bash pass
+  fence   bash    (bash      ) -> bash pass
+  fence   yaml    (yaml      ) -> yaml pass
+  fence   yaml    (yaml      ) -> yaml pass
+  fence   yaml    (yaml      ) -> yaml pass
+  fence   yaml    (yaml      ) -> yaml pass
+  fence   yaml    (yaml      ) -> yaml pass
+  fence   json    (json      ) -> json pass
+  fence   json    (json      ) -> json pass
+  fence   json    (json      ) -> json pass
+  fence   json    (json      ) -> json pass
+  fence   json    (json      ) -> json pass
+  fence   python  (python    ) -> python pass
+  fence   python  (python    ) -> python pass
+  fence   python  (python    ) -> python pass
+  fence   python  (python    ) -> python pass
+  fence   python  (python    ) -> python pass
+  fence   sql     (sql       ) -> text fail
+  fence   sql     (sql       ) -> sql pass
+  fence   sql     (sql       ) -> sql pass
+  fence   sql     (sql       ) -> sql pass
+  fence   sql     (sql       ) -> sql pass
+  fence   text    (text      ) -> text pass
+  fence   text    (text      ) -> text pass
+  fence   text    (text      ) -> yaml fail
+  fence   text    (text      ) -> bash fail
+  fence   text    (text      ) -> text pass
+qwen3.5:9b-q4_K_M            summary pass 15/20 (report 0, token-loss 1, schema 4, halluc 0, bad-json 0) | fence 26/30 | wall p50 2.0s decode 82 tok/s load 8.9s
+re-warmed deepseek-coder-v2:fim load
+model=gemma4:e4b-it-qat ollama=0.33.1 think=False temperature=0.0
+  summary BUG-152    overlength     -> pass   [] [] 1.8s
+  summary INFO-1113  quoted         -> pass   [] [] 1.7s
+  summary BUG-205    colon-space    -> pass   [] [] 2.2s
+  summary IMPR-1008  leading-digit  -> fail   ['leading-digit'] [] 1.8s
+  summary IDEA-023   overlength     -> pass   [] [] 1.3s
+  summary INFO-092   quoted         -> fail   ['colon-space'] [] 1.4s
+  summary IDEA-013   colon-space    -> pass   [] [] 1.0s
+  summary BUG-185    leading-digit  -> fail   ['leading-digit'] [] 1.2s
+  summary INFO-038   overlength     -> fail   ['colon-space'] [] 1.3s
+  summary IMPR-1012  quoted         -> pass   [] [] 1.2s
+  summary BUG-199    colon-space    -> fail   ['colon-space'] [] 1.3s
+  summary IMPR-1079  leading-digit  -> pass   [] [] 1.2s
+  summary BUG-1076   overlength     -> pass   [] [] 1.6s
+  summary BUG-155    quoted         -> pass   [] [] 0.9s
+  summary BUG-042    colon-space    -> pass   [] [] 1.0s
+  summary INFO-035   leading-digit  -> pass   [] [] 0.9s
+  summary INFO-002   overlength     -> pass   [] [] 1.1s
+  summary BUG-1034   quoted         -> pass   [] [] 1.5s
+  summary INFO-095   colon-space    -> pass   [] [] 1.2s
+  summary INFO-1149  leading-digit  -> fail   ['leading-digit'] [] 1.3s
+  fence   bash    (bash      ) -> sql fail
+  fence   bash    (bash      ) -> bash pass
+  fence   bash    (bash      ) -> bash pass
+  fence   bash    (bash      ) -> bash pass
+  fence   bash    (bash      ) -> bash pass
+  fence   yaml    (yaml      ) -> yaml pass
+  fence   yaml    (yaml      ) -> yaml pass
+  fence   yaml    (yaml      ) -> yaml pass
+  fence   yaml    (yaml      ) -> yaml pass
+  fence   yaml    (yaml      ) -> yaml pass
+  fence   json    (json      ) -> yaml fail
+  fence   json    (json      ) -> json pass
+  fence   json    (json      ) -> json pass
+  fence   json    (json      ) -> json pass
+  fence   json    (json      ) -> json pass
+  fence   python  (python    ) -> python pass
+  fence   python  (python    ) -> python pass
+  fence   python  (python    ) -> python pass
+  fence   python  (python    ) -> python pass
+  fence   python  (python    ) -> python pass
+  fence   sql     (sql       ) -> text fail
+  fence   sql     (sql       ) -> sql pass
+  fence   sql     (sql       ) -> sql pass
+  fence   sql     (sql       ) -> sql pass
+  fence   sql     (sql       ) -> sql pass
+  fence   text    (text      ) -> text pass
+  fence   text    (text      ) -> text pass
+  fence   text    (text      ) -> yaml fail
+  fence   text    (text      ) -> text pass
+  fence   text    (text      ) -> text pass
+gemma4:e4b-it-qat            summary pass 14/20 (report 0, token-loss 0, schema 6, halluc 0, bad-json 0) | fence 26/30 | wall p50 1.3s decode 104 tok/s load 9.9s
+re-warmed deepseek-coder-v2:fim load
+model=ornith-1.5:9b ollama=0.33.1 think=False temperature=0.0
+  summary BUG-152    overlength     -> report   2.4s
+  summary INFO-1113  quoted         -> report   1.3s
+  summary BUG-205    colon-space    -> report   1.6s
+  summary IMPR-1008  leading-digit  -> report   1.8s
+  summary IDEA-023   overlength     -> pass   [] [] 1.6s
+  summary INFO-092   quoted         -> pass   [] [] 1.9s
+  summary IDEA-013   colon-space    -> pass   [] [] 1.3s
+  summary BUG-185    leading-digit  -> report   1.2s
+  summary INFO-038   overlength     -> report   1.3s
+  summary IMPR-1012  quoted         -> report   1.5s
+  summary BUG-199    colon-space    -> fail   ['colon-space'] [] 1.9s
+  summary IMPR-1079  leading-digit  -> report   1.6s
+  summary BUG-1076   overlength     -> report   1.7s
+  summary BUG-155    quoted         -> pass   [] [] 1.4s
+  summary BUG-042    colon-space    -> report   1.3s
+  summary INFO-035   leading-digit  -> pass   [] [] 1.5s
+  summary INFO-002   overlength     -> report   1.2s
+  summary BUG-1034   quoted         -> pass   [] [] 2.1s
+  summary INFO-095   colon-space    -> report   1.2s
+  summary INFO-1149  leading-digit  -> pass   [] [] 2.1s
+  fence   bash    (bash      ) -> text fail
+  fence   bash    (bash      ) -> bash pass
+  fence   bash    (bash      ) -> bash pass
+  fence   bash    (bash      ) -> bash pass
+  fence   bash    (bash      ) -> bash pass
+  fence   yaml    (yaml      ) -> text fail
+  fence   yaml    (yaml      ) -> yaml pass
+  fence   yaml    (yaml      ) -> yaml pass
+  fence   yaml    (yaml      ) -> yaml pass
+  fence   yaml    (yaml      ) -> yaml pass
+  fence   json    (json      ) -> json pass
+  fence   json    (json      ) -> json pass
+  fence   json    (json      ) -> json pass
+  fence   json    (json      ) -> json pass
+  fence   json    (json      ) -> json pass
+  fence   python  (python    ) -> python pass
+  fence   python  (python    ) -> python pass
+  fence   python  (python    ) -> python pass
+  fence   python  (python    ) -> python pass
+  fence   python  (python    ) -> python pass
+  fence   sql     (sql       ) -> sql pass
+  fence   sql     (sql       ) -> sql pass
+  fence   sql     (sql       ) -> sql pass
+  fence   sql     (sql       ) -> sql pass
+  fence   sql     (sql       ) -> sql pass
+  fence   text    (text      ) -> text pass
+  fence   text    (text      ) -> text pass
+  fence   text    (text      ) -> yaml fail
+  fence   text    (text      ) -> text pass
+  fence   text    (text      ) -> text pass
+ornith-1.5:9b                summary pass 7/20 (report 12, token-loss 0, schema 1, halluc 0, bad-json 0) | fence 27/30 | wall p50 1.6s decode 85 tok/s load 9.6s
+re-warmed deepseek-coder-v2:fim load

@@ -1,4 +1,13 @@
-# Batch-skill gate — post-fix rerun (2026-08-28)
+# Batch-skill gate — post-fix rerun (2026-08-28) — SUPERSEDED
+
+> **Superseded by [`../batch-skill-gate-20260828-postfix2/`](../batch-skill-gate-20260828-postfix2/).**
+> The summary scores below are inflated by a defect in the gate's leading-digit
+> oracle: it checked only ID/PR/date/version/backtick tokens, so a model that
+> deleted the `2 items -` (with a trailing space) prefix — dropping the count, itself a fact — scored a
+> pass. Fixed in homelab `94c5a8a`; the corrected rerun puts both editors back at
+> 12/20 (no change from the pre-fix run) and every model at 0/5 on leading-digit.
+> Also note `--repeats 3` did not repeat the fence set in this run.
+> Kept as evidence of the defect, not as a result.
 
 Rerun of the IDEA-1090 partner gate after the two skill-text fixes in
 `compendium-batch-summary-repair` (fact-preserving rewrites for the

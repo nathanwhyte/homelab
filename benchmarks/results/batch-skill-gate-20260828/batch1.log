@@ -1,0 +1,21 @@
+=== gemma4:e4b-it-qat 19:20:06
+  fence   text    (text      ) -> yaml fail
+  fence   text    (text      ) -> text pass
+  fence   text    (text      ) -> text pass
+gemma4:e4b-it-qat            summary pass 12/20 (report 0, token-loss 0, schema 8, halluc 0, bad-json 0) | fence 26/30 | wall p50 1.2s decode 104 tok/s load 16.4s
+=== qwen3.5:9b-q4_K_M 19:20:54
+  fence   text    (text      ) -> yaml fail
+  fence   text    (text      ) -> bash fail
+  fence   text    (text      ) -> text pass
+qwen3.5:9b-q4_K_M            summary pass 13/20 (report 1, token-loss 0, schema 6, halluc 0, bad-json 0) | fence 26/30 | wall p50 1.9s decode 82 tok/s load 9.8s
+=== nemotron-3-nano:4b-bf16 19:21:58
+  fence   text    (text      ) -> yaml fail
+  fence   text    (text      ) -> bash fail
+  fence   text    (text      ) -> text pass
+nemotron-3-nano:4b-bf16      summary pass 14/20 (report 0, token-loss 4, schema 3, halluc 0, bad-json 0) | fence 18/30 | wall p50 1.6s decode 74 tok/s load 8.0s
+=== gemma4:12b-it-qat 19:22:51
+  fence   text    (text      ) -> yaml fail
+  fence   text    (text      ) -> text pass
+  fence   text    (text      ) -> text pass
+gemma4:12b-it-qat            summary pass 13/20 (report 0, token-loss 1, schema 6, halluc 0, bad-json 0) | fence 27/30 | wall p50 2.6s decode 60 tok/s load 11.6s
+batch1 done 19:24:12

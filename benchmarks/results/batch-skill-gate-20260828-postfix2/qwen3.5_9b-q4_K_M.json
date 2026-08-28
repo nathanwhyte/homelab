@@ -1,0 +1,2404 @@
+{
+ "model": "qwen3.5:9b-q4_K_M",
+ "ollama": "0.33.1",
+ "think": false,
+ "temperature": 0.0,
+ "num_ctx": 16384,
+ "repeats": 3,
+ "load_s": 11.185650708008325,
+ "summary": [
+  {
+   "id": "BUG-152",
+   "mode": "overlength",
+   "verdict": "pass",
+   "violations": [],
+   "missing_tokens": [],
+   "proposed": "Date-typed standard fields display as raw Clojure inst literals instead of formatted dates on platform claim detail pages - a platform UI rendering bug, filed as OWL-19704 for the platform team - see ",
+   "reason": "The original summary exceeds 200 characters and contains a colon followed by a space; rewriting around the fact while removing filler to meet schema constraints.",
+   "wall": 2.6933442080044188,
+   "prompt_tokens": 4050,
+   "eval_tokens": 98,
+   "decode_tps": 78.95037888125702,
+   "thinking_chars": 0,
+   "raw": "{\"id\": \"BUG-152\", \"proposed_summary\": \"Date-typed standard fields display as raw Clojure inst literals instead of formatted dates on platform claim detail pages - a platform UI rendering bug, filed as OWL-19704 for the platform team - see \", \"reason\": \"The original summary exceeds 200 characters and contains a colon followed by a space; rewriting around the fact while removing filler to meet schema constraints.\"}",
+   "json_ok": true,
+   "attempt_details": [
+    {
+     "wall": 2.6933442080044188,
+     "prompt_tokens": 4050,
+     "eval_tokens": 98,
+     "decode_tps": 78.95037888125702,
+     "thinking_chars": 0,
+     "raw": "{\"id\": \"BUG-152\", \"proposed_summary\": \"Date-typed standard fields display as raw Clojure inst literals instead of formatted dates on platform claim detail pages - a platform UI rendering bug, filed as OWL-19704 for the platform team - see \", \"reason\": \"The original summary exceeds 200 characters and contains a colon followed by a space; rewriting around the fact while removing filler to meet schema constraints.\"}",
+     "json_ok": true,
+     "proposed": "Date-typed standard fields display as raw Clojure inst literals instead of formatted dates on platform claim detail pages - a platform UI rendering bug, filed as OWL-19704 for the platform team - see ",
+     "reason": "The original summary exceeds 200 characters and contains a colon followed by a space; rewriting around the fact while removing filler to meet schema constraints.",
+     "violations": [],
+     "missing_tokens": [],
+     "verdict": "pass"
+    },
+    {
+     "wall": 1.299450207996415,
+     "prompt_tokens": 4050,
+     "eval_tokens": 98,
+     "decode_tps": 80.01802855173901,
+     "thinking_chars": 0,
+     "raw": "{\"id\": \"BUG-152\", \"proposed_summary\": \"Date-typed standard fields display as raw Clojure inst literals instead of formatted dates on platform claim detail pages - a platform UI rendering bug, filed as OWL-19704 for the platform team - see \", \"reason\": \"The original summary exceeds 200 characters and contains a colon followed by a space; rewriting around the fact while removing filler to meet schema constraints.\"}",
+     "json_ok": true,
+     "proposed": "Date-typed standard fields display as raw Clojure inst literals instead of formatted dates on platform claim detail pages - a platform UI rendering bug, filed as OWL-19704 for the platform team - see ",
+     "reason": "The original summary exceeds 200 characters and contains a colon followed by a space; rewriting around the fact while removing filler to meet schema constraints.",
+     "violations": [],
+     "missing_tokens": [],
+     "verdict": "pass"
+    },
+    {
+     "wall": 1.3036257500061765,
+     "prompt_tokens": 4050,
+     "eval_tokens": 98,
+     "decode_tps": 79.2934147628156,
+     "thinking_chars": 0,
+     "raw": "{\"id\": \"BUG-152\", \"proposed_summary\": \"Date-typed standard fields display as raw Clojure inst literals instead of formatted dates on platform claim detail pages - a platform UI rendering bug, filed as OWL-19704 for the platform team - see \", \"reason\": \"The original summary exceeds 200 characters and contains a colon followed by a space; rewriting around the fact while removing filler to meet schema constraints.\"}",
+     "json_ok": true,
+     "proposed": "Date-typed standard fields display as raw Clojure inst literals instead of formatted dates on platform claim detail pages - a platform UI rendering bug, filed as OWL-19704 for the platform team - see ",
+     "reason": "The original summary exceeds 200 characters and contains a colon followed by a space; rewriting around the fact while removing filler to meet schema constraints.",
+     "violations": [],
+     "missing_tokens": [],
+     "verdict": "pass"
+    }
+   ]
+  },
+  {
+   "id": "INFO-1113",
+   "mode": "quoted",
+   "verdict": "pass",
+   "violations": [],
+   "missing_tokens": [],
+   "proposed": "How Claude Code loads .claude/, CLAUDE.md, settings.json/settings.local.json, permission rules and modes, auto mode, and the /context /doctor /hooks /mcp debug workflow",
+   "reason": "Summary already meets IMPR-1105 schema (single line, \u2264200 chars, no forbidden patterns); no repair needed.",
+   "wall": 2.623006791007356,
+   "prompt_tokens": 4329,
+   "eval_tokens": 93,
+   "decode_tps": 82.4780302472656,
+   "thinking_chars": 0,
+   "raw": "{\"id\": \"INFO-1113\", \"proposed_summary\": \"How Claude Code loads .claude/, CLAUDE.md, settings.json/settings.local.json, permission rules and modes, auto mode, and the /context /doctor /hooks /mcp debug workflow\", \"reason\": \"Summary already meets IMPR-1105 schema (single line, \u2264200 chars, no forbidden patterns); no repair needed.\"}",
+   "json_ok": true,
+   "attempt_details": [
+    {
+     "wall": 2.623006791007356,
+     "prompt_tokens": 4329,
+     "eval_tokens": 93,
+     "decode_tps": 82.4780302472656,
+     "thinking_chars": 0,
+     "raw": "{\"id\": \"INFO-1113\", \"proposed_summary\": \"How Claude Code loads .claude/, CLAUDE.md, settings.json/settings.local.json, permission rules and modes, auto mode, and the /context /doctor /hooks /mcp debug workflow\", \"reason\": \"Summary already meets IMPR-1105 schema (single line, \u2264200 chars, no forbidden patterns); no repair needed.\"}",
+     "json_ok": true,
+     "proposed": "How Claude Code loads .claude/, CLAUDE.md, settings.json/settings.local.json, permission rules and modes, auto mode, and the /context /doctor /hooks /mcp debug workflow",
+     "reason": "Summary already meets IMPR-1105 schema (single line, \u2264200 chars, no forbidden patterns); no repair needed.",
+     "violations": [],
+     "missing_tokens": [],
+     "verdict": "pass"
+    },
+    {
+     "wall": 1.1998723750002682,
+     "prompt_tokens": 4329,
+     "eval_tokens": 93,
+     "decode_tps": 82.49807726255412,
+     "thinking_chars": 0,
+     "raw": "{\"id\": \"INFO-1113\", \"proposed_summary\": \"How Claude Code loads .claude/, CLAUDE.md, settings.json/settings.local.json, permission rules and modes, auto mode, and the /context /doctor /hooks /mcp debug workflow\", \"reason\": \"Summary already meets IMPR-1105 schema (single line, \u2264200 chars, no forbidden patterns); no repair needed.\"}",
+     "json_ok": true,
+     "proposed": "How Claude Code loads .claude/, CLAUDE.md, settings.json/settings.local.json, permission rules and modes, auto mode, and the /context /doctor /hooks /mcp debug workflow",
+     "reason": "Summary already meets IMPR-1105 schema (single line, \u2264200 chars, no forbidden patterns); no repair needed.",
+     "violations": [],
+     "missing_tokens": [],
+     "verdict": "pass"
+    },
+    {
+     "wall": 1.195468666992383,
+     "prompt_tokens": 4329,
+     "eval_tokens": 93,
+     "decode_tps": 82.56384715567548,
+     "thinking_chars": 0,
+     "raw": "{\"id\": \"INFO-1113\", \"proposed_summary\": \"How Claude Code loads .claude/, CLAUDE.md, settings.json/settings.local.json, permission rules and modes, auto mode, and the /context /doctor /hooks /mcp debug workflow\", \"reason\": \"Summary already meets IMPR-1105 schema (single line, \u2264200 chars, no forbidden patterns); no repair needed.\"}",
+     "json_ok": true,
+     "proposed": "How Claude Code loads .claude/, CLAUDE.md, settings.json/settings.local.json, permission rules and modes, auto mode, and the /context /doctor /hooks /mcp debug workflow",
+     "reason": "Summary already meets IMPR-1105 schema (single line, \u2264200 chars, no forbidden patterns); no repair needed.",
+     "violations": [],
+     "missing_tokens": [],
+     "verdict": "pass"
+    }
+   ]
+  },
+  {
+   "id": "BUG-205",
+   "mode": "colon-space",
+   "verdict": "pass",
+   "violations": [],
+   "missing_tokens": [],
+   "proposed": "Sync Customer Schemas run fails with NotNullViolation on Ad-Hoc pipeline_groups insert missing uuid; migration a1b2c3d4e5f6 made uuid NOT NULL.",
+   "reason": "Removed trailing colon-space and filler 'details in body' to meet IMPR-1105 schema (\u2264200 chars, no ': ', single line).",
+   "wall": 2.7271607909933664,
+   "prompt_tokens": 4557,
+   "eval_tokens": 94,
+   "decode_tps": 82.29379058331415,
+   "thinking_chars": 0,
+   "raw": "{\"id\": \"BUG-205\", \"proposed_summary\": \"Sync Customer Schemas run fails with NotNullViolation on Ad-Hoc pipeline_groups insert missing uuid; migration a1b2c3d4e5f6 made uuid NOT NULL.\", \"reason\": \"Removed trailing colon-space and filler 'details in body' to meet IMPR-1105 schema (\u2264200 chars, no ': ', single line).\"}",
+   "json_ok": true,
+   "attempt_details": [
+    {
+     "wall": 2.7271607909933664,
+     "prompt_tokens": 4557,
+     "eval_tokens": 94,
+     "decode_tps": 82.29379058331415,
+     "thinking_chars": 0,
+     "raw": "{\"id\": \"BUG-205\", \"proposed_summary\": \"Sync Customer Schemas run fails with NotNullViolation on Ad-Hoc pipeline_groups insert missing uuid; migration a1b2c3d4e5f6 made uuid NOT NULL.\", \"reason\": \"Removed trailing colon-space and filler 'details in body' to meet IMPR-1105 schema (\u2264200 chars, no ': ', single line).\"}",
+     "json_ok": true,
+     "proposed": "Sync Customer Schemas run fails with NotNullViolation on Ad-Hoc pipeline_groups insert missing uuid; migration a1b2c3d4e5f6 made uuid NOT NULL.",
+     "reason": "Removed trailing colon-space and filler 'details in body' to meet IMPR-1105 schema (\u2264200 chars, no ': ', single line).",
+     "violations": [],
+     "missing_tokens": [],
+     "verdict": "pass"
+    },
+    {
+     "wall": 1.2080457499978365,
+     "prompt_tokens": 4557,
+     "eval_tokens": 94,
+     "decode_tps": 82.38647319284394,
+     "thinking_chars": 0,
+     "raw": "{\"id\": \"BUG-205\", \"proposed_summary\": \"Sync Customer Schemas run fails with NotNullViolation on Ad-Hoc pipeline_groups insert missing uuid; migration a1b2c3d4e5f6 made uuid NOT NULL.\", \"reason\": \"Removed trailing colon-space and filler 'details in body' to meet IMPR-1105 schema (\u2264200 chars, no ': ', single line).\"}",
+     "json_ok": true,
+     "proposed": "Sync Customer Schemas run fails with NotNullViolation on Ad-Hoc pipeline_groups insert missing uuid; migration a1b2c3d4e5f6 made uuid NOT NULL.",
+     "reason": "Removed trailing colon-space and filler 'details in body' to meet IMPR-1105 schema (\u2264200 chars, no ': ', single line).",
+     "violations": [],
+     "missing_tokens": [],
+     "verdict": "pass"
+    },
+    {
+     "wall": 1.206344165999326,
+     "prompt_tokens": 4557,
+     "eval_tokens": 94,
+     "decode_tps": 82.65218553481239,
+     "thinking_chars": 0,
+     "raw": "{\"id\": \"BUG-205\", \"proposed_summary\": \"Sync Customer Schemas run fails with NotNullViolation on Ad-Hoc pipeline_groups insert missing uuid; migration a1b2c3d4e5f6 made uuid NOT NULL.\", \"reason\": \"Removed trailing colon-space and filler 'details in body' to meet IMPR-1105 schema (\u2264200 chars, no ': ', single line).\"}",
+     "json_ok": true,
+     "proposed": "Sync Customer Schemas run fails with NotNullViolation on Ad-Hoc pipeline_groups insert missing uuid; migration a1b2c3d4e5f6 made uuid NOT NULL.",
+     "reason": "Removed trailing colon-space and filler 'details in body' to meet IMPR-1105 schema (\u2264200 chars, no ': ', single line).",
+     "violations": [],
+     "missing_tokens": [],
+     "verdict": "pass"
+    }
+   ]
+  },
+  {
+   "id": "IMPR-1008",
+   "mode": "leading-digit",
+   "verdict": "fail",
+   "violations": [
+    "leading-digit"
+   ],
+   "missing_tokens": [],
+   "proposed": "2 items - OpenViking v0.4.4 multi-tenant auth migration \u2014 v0.4.4 rejects root and user keys for tenant data, so auth_mode=trusted with identity headers is the steady state; user-key hardening deferred",
+   "reason": "The current summary contains a colon followed by a space ('\u2014') which violates IMPR-1105 schema rules; rewriting to use an em-dash or hyphen fixes this while preserving all facts.",
+   "wall": 2.883145332991262,
+   "prompt_tokens": 4106,
+   "eval_tokens": 118,
+   "decode_tps": 81.62322305205832,
+   "thinking_chars": 0,
+   "raw": "{\"id\": \"IMPR-1008\", \"proposed_summary\": \"2 items - OpenViking v0.4.4 multi-tenant auth migration \u2014 v0.4.4 rejects root and user keys for tenant data, so auth_mode=trusted with identity headers is the steady state; user-key hardening deferred\", \"reason\": \"The current summary contains a colon followed by a space ('\u2014') which violates IMPR-1105 schema rules; rewriting to use an em-dash or hyphen fixes this while preserving all facts.\"}",
+   "json_ok": true,
+   "attempt_details": [
+    {
+     "wall": 2.883145332991262,
+     "prompt_tokens": 4106,
+     "eval_tokens": 118,
+     "decode_tps": 81.62322305205832,
+     "thinking_chars": 0,
+     "raw": "{\"id\": \"IMPR-1008\", \"proposed_summary\": \"2 items - OpenViking v0.4.4 multi-tenant auth migration \u2014 v0.4.4 rejects root and user keys for tenant data, so auth_mode=trusted with identity headers is the steady state; user-key hardening deferred\", \"reason\": \"The current summary contains a colon followed by a space ('\u2014') which violates IMPR-1105 schema rules; rewriting to use an em-dash or hyphen fixes this while preserving all facts.\"}",
+     "json_ok": true,
+     "proposed": "2 items - OpenViking v0.4.4 multi-tenant auth migration \u2014 v0.4.4 rejects root and user keys for tenant data, so auth_mode=trusted with identity headers is the steady state; user-key hardening deferred",
+     "reason": "The current summary contains a colon followed by a space ('\u2014') which violates IMPR-1105 schema rules; rewriting to use an em-dash or hyphen fixes this while preserving all facts.",
+     "violations": [
+      "leading-digit"
+     ],
+     "missing_tokens": [],
+     "verdict": "fail"
+    },
+    {
+     "wall": 1.519591959004174,
+     "prompt_tokens": 4106,
+     "eval_tokens": 118,
+     "decode_tps": 81.57041012634427,
+     "thinking_chars": 0,
+     "raw": "{\"id\": \"IMPR-1008\", \"proposed_summary\": \"2 items - OpenViking v0.4.4 multi-tenant auth migration \u2014 v0.4.4 rejects root and user keys for tenant data, so auth_mode=trusted with identity headers is the steady state; user-key hardening deferred\", \"reason\": \"The current summary contains a colon followed by a space ('\u2014') which violates IMPR-1105 schema rules; rewriting to use an em-dash or hyphen fixes this while preserving all facts.\"}",
+     "json_ok": true,
+     "proposed": "2 items - OpenViking v0.4.4 multi-tenant auth migration \u2014 v0.4.4 rejects root and user keys for tenant data, so auth_mode=trusted with identity headers is the steady state; user-key hardening deferred",
+     "reason": "The current summary contains a colon followed by a space ('\u2014') which violates IMPR-1105 schema rules; rewriting to use an em-dash or hyphen fixes this while preserving all facts.",
+     "violations": [
+      "leading-digit"
+     ],
+     "missing_tokens": [],
+     "verdict": "fail"
+    },
+    {
+     "wall": 1.5206802920001792,
+     "prompt_tokens": 4106,
+     "eval_tokens": 118,
+     "decode_tps": 81.43659677842345,
+     "thinking_chars": 0,
+     "raw": "{\"id\": \"IMPR-1008\", \"proposed_summary\": \"2 items - OpenViking v0.4.4 multi-tenant auth migration \u2014 v0.4.4 rejects root and user keys for tenant data, so auth_mode=trusted with identity headers is the steady state; user-key hardening deferred\", \"reason\": \"The current summary contains a colon followed by a space ('\u2014') which violates IMPR-1105 schema rules; rewriting to use an em-dash or hyphen fixes this while preserving all facts.\"}",
+     "json_ok": true,
+     "proposed": "2 items - OpenViking v0.4.4 multi-tenant auth migration \u2014 v0.4.4 rejects root and user keys for tenant data, so auth_mode=trusted with identity headers is the steady state; user-key hardening deferred",
+     "reason": "The current summary contains a colon followed by a space ('\u2014') which violates IMPR-1105 schema rules; rewriting to use an em-dash or hyphen fixes this while preserving all facts.",
+     "violations": [
+      "leading-digit"
+     ],
+     "missing_tokens": [],
+     "verdict": "fail"
+    }
+   ]
+  },
+  {
+   "id": "IDEA-023",
+   "mode": "overlength",
+   "verdict": "pass",
+   "violations": [],
+   "missing_tokens": [],
+   "proposed": "Pattern for consolidating redundant agent-facing documentation files and method for debugging MCP parameter forwarding issues using a local HTTP proxy.",
+   "reason": "The current summary is already compliant with IMPR-1105 (single line, \u2264200 chars, no forbidden characters) and contains all required facts; no repair needed.",
+   "wall": 2.1945481250004377,
+   "prompt_tokens": 3401,
+   "eval_tokens": 84,
+   "decode_tps": 82.706307931338,
+   "thinking_chars": 0,
+   "raw": "{\"id\": \"IDEA-023\", \"proposed_summary\": \"Pattern for consolidating redundant agent-facing documentation files and method for debugging MCP parameter forwarding issues using a local HTTP proxy.\", \"reason\": \"The current summary is already compliant with IMPR-1105 (single line, \u2264200 chars, no forbidden characters) and contains all required facts; no repair needed.\"}",
+   "json_ok": true,
+   "attempt_details": [
+    {
+     "wall": 2.1945481250004377,
+     "prompt_tokens": 3401,
+     "eval_tokens": 84,
+     "decode_tps": 82.706307931338,
+     "thinking_chars": 0,
+     "raw": "{\"id\": \"IDEA-023\", \"proposed_summary\": \"Pattern for consolidating redundant agent-facing documentation files and method for debugging MCP parameter forwarding issues using a local HTTP proxy.\", \"reason\": \"The current summary is already compliant with IMPR-1105 (single line, \u2264200 chars, no forbidden characters) and contains all required facts; no repair needed.\"}",
+     "json_ok": true,
+     "proposed": "Pattern for consolidating redundant agent-facing documentation files and method for debugging MCP parameter forwarding issues using a local HTTP proxy.",
+     "reason": "The current summary is already compliant with IMPR-1105 (single line, \u2264200 chars, no forbidden characters) and contains all required facts; no repair needed.",
+     "violations": [],
+     "missing_tokens": [],
+     "verdict": "pass"
+    },
+    {
+     "wall": 1.075573499998427,
+     "prompt_tokens": 3401,
+     "eval_tokens": 84,
+     "decode_tps": 82.79141098247779,
+     "thinking_chars": 0,
+     "raw": "{\"id\": \"IDEA-023\", \"proposed_summary\": \"Pattern for consolidating redundant agent-facing documentation files and method for debugging MCP parameter forwarding issues using a local HTTP proxy.\", \"reason\": \"The current summary is already compliant with IMPR-1105 (single line, \u2264200 chars, no forbidden characters) and contains all required facts; no repair needed.\"}",
+     "json_ok": true,
+     "proposed": "Pattern for consolidating redundant agent-facing documentation files and method for debugging MCP parameter forwarding issues using a local HTTP proxy.",
+     "reason": "The current summary is already compliant with IMPR-1105 (single line, \u2264200 chars, no forbidden characters) and contains all required facts; no repair needed.",
+     "violations": [],
+     "missing_tokens": [],
+     "verdict": "pass"
+    },
+    {
+     "wall": 1.069438791993889,
+     "prompt_tokens": 3401,
+     "eval_tokens": 84,
+     "decode_tps": 83.0816979920934,
+     "thinking_chars": 0,
+     "raw": "{\"id\": \"IDEA-023\", \"proposed_summary\": \"Pattern for consolidating redundant agent-facing documentation files and method for debugging MCP parameter forwarding issues using a local HTTP proxy.\", \"reason\": \"The current summary is already compliant with IMPR-1105 (single line, \u2264200 chars, no forbidden characters) and contains all required facts; no repair needed.\"}",
+     "json_ok": true,
+     "proposed": "Pattern for consolidating redundant agent-facing documentation files and method for debugging MCP parameter forwarding issues using a local HTTP proxy.",
+     "reason": "The current summary is already compliant with IMPR-1105 (single line, \u2264200 chars, no forbidden characters) and contains all required facts; no repair needed.",
+     "violations": [],
+     "missing_tokens": [],
+     "verdict": "pass"
+    }
+   ]
+  },
+  {
+   "id": "INFO-092",
+   "mode": "quoted",
+   "verdict": "pass",
+   "violations": [],
+   "missing_tokens": [],
+   "proposed": "Head-to-head comparison of OpenViking and Mem0 for the DipDash KB context/memory layer \u2014 OpenViking wins on structured filesystem-paradigm content while Mem0 wins on operational memory, with a hybrid.",
+   "reason": "Rewritten to remove quoted block scalar format, ensure single-line plain YAML scalar under 200 characters, and avoid forbidden character sequences like ': ' or '#', while preserving all original facts",
+   "wall": 2.0488814580021426,
+   "prompt_tokens": 4390,
+   "eval_tokens": 104,
+   "decode_tps": 80.6845776084781,
+   "thinking_chars": 0,
+   "raw": "{\"id\": \"INFO-092\", \"proposed_summary\": \"Head-to-head comparison of OpenViking and Mem0 for the DipDash KB context/memory layer \u2014 OpenViking wins on structured filesystem-paradigm content while Mem0 wins on operational memory, with a hybrid.\", \"reason\": \"Rewritten to remove quoted block scalar format, ensure single-line plain YAML scalar under 200 characters, and avoid forbidden character sequences like ': ' or '#', while preserving all original facts.\"}",
+   "json_ok": true,
+   "attempt_details": [
+    {
+     "wall": 2.0488814580021426,
+     "prompt_tokens": 4390,
+     "eval_tokens": 104,
+     "decode_tps": 80.6845776084781,
+     "thinking_chars": 0,
+     "raw": "{\"id\": \"INFO-092\", \"proposed_summary\": \"Head-to-head comparison of OpenViking and Mem0 for the DipDash KB context/memory layer \u2014 OpenViking wins on structured filesystem-paradigm content while Mem0 wins on operational memory, with a hybrid.\", \"reason\": \"Rewritten to remove quoted block scalar format, ensure single-line plain YAML scalar under 200 characters, and avoid forbidden character sequences like ': ' or '#', while preserving all original facts.\"}",
+     "json_ok": true,
+     "proposed": "Head-to-head comparison of OpenViking and Mem0 for the DipDash KB context/memory layer \u2014 OpenViking wins on structured filesystem-paradigm content while Mem0 wins on operational memory, with a hybrid.",
+     "reason": "Rewritten to remove quoted block scalar format, ensure single-line plain YAML scalar under 200 characters, and avoid forbidden character sequences like ': ' or '#', while preserving all original facts",
+     "violations": [],
+     "missing_tokens": [],
+     "verdict": "pass"
+    },
+    {
+     "wall": 1.3539917090092786,
+     "prompt_tokens": 4390,
+     "eval_tokens": 104,
+     "decode_tps": 81.15021060040232,
+     "thinking_chars": 0,
+     "raw": "{\"id\": \"INFO-092\", \"proposed_summary\": \"Head-to-head comparison of OpenViking and Mem0 for the DipDash KB context/memory layer \u2014 OpenViking wins on structured filesystem-paradigm content while Mem0 wins on operational memory, with a hybrid.\", \"reason\": \"Rewritten to remove quoted block scalar format, ensure single-line plain YAML scalar under 200 characters, and avoid forbidden character sequences like ': ' or '#', while preserving all original facts.\"}",
+     "json_ok": true,
+     "proposed": "Head-to-head comparison of OpenViking and Mem0 for the DipDash KB context/memory layer \u2014 OpenViking wins on structured filesystem-paradigm content while Mem0 wins on operational memory, with a hybrid.",
+     "reason": "Rewritten to remove quoted block scalar format, ensure single-line plain YAML scalar under 200 characters, and avoid forbidden character sequences like ': ' or '#', while preserving all original facts",
+     "violations": [],
+     "missing_tokens": [],
+     "verdict": "pass"
+    },
+    {
+     "wall": 1.3496086249942891,
+     "prompt_tokens": 4390,
+     "eval_tokens": 104,
+     "decode_tps": 81.1820734369914,
+     "thinking_chars": 0,
+     "raw": "{\"id\": \"INFO-092\", \"proposed_summary\": \"Head-to-head comparison of OpenViking and Mem0 for the DipDash KB context/memory layer \u2014 OpenViking wins on structured filesystem-paradigm content while Mem0 wins on operational memory, with a hybrid.\", \"reason\": \"Rewritten to remove quoted block scalar format, ensure single-line plain YAML scalar under 200 characters, and avoid forbidden character sequences like ': ' or '#', while preserving all original facts.\"}",
+     "json_ok": true,
+     "proposed": "Head-to-head comparison of OpenViking and Mem0 for the DipDash KB context/memory layer \u2014 OpenViking wins on structured filesystem-paradigm content while Mem0 wins on operational memory, with a hybrid.",
+     "reason": "Rewritten to remove quoted block scalar format, ensure single-line plain YAML scalar under 200 characters, and avoid forbidden character sequences like ': ' or '#', while preserving all original facts",
+     "violations": [],
+     "missing_tokens": [],
+     "verdict": "pass"
+    }
+   ]
+  },
+  {
+   "id": "IDEA-013",
+   "mode": "colon-space",
+   "verdict": "pass",
+   "violations": [],
+   "missing_tokens": [],
+   "proposed": "Evaluate replacing Mage orchestration while preserving dbt, Snowflake, DipDash, and ECS infrastructure.",
+   "reason": "The current summary is already compliant with IMPR-1105 (single line, \u2264200 chars, no forbidden patterns) and contains all key facts from the body; no repair needed.",
+   "wall": 1.6929429580050055,
+   "prompt_tokens": 4095,
+   "eval_tokens": 84,
+   "decode_tps": 82.13664800339498,
+   "thinking_chars": 0,
+   "raw": "{\"id\": \"IDEA-013\", \"proposed_summary\": \"Evaluate replacing Mage orchestration while preserving dbt, Snowflake, DipDash, and ECS infrastructure.\", \"reason\": \"The current summary is already compliant with IMPR-1105 (single line, \u2264200 chars, no forbidden patterns) and contains all key facts from the body; no repair needed.\"}",
+   "json_ok": true,
+   "attempt_details": [
+    {
+     "wall": 1.6929429580050055,
+     "prompt_tokens": 4095,
+     "eval_tokens": 84,
+     "decode_tps": 82.13664800339498,
+     "thinking_chars": 0,
+     "raw": "{\"id\": \"IDEA-013\", \"proposed_summary\": \"Evaluate replacing Mage orchestration while preserving dbt, Snowflake, DipDash, and ECS infrastructure.\", \"reason\": \"The current summary is already compliant with IMPR-1105 (single line, \u2264200 chars, no forbidden patterns) and contains all key facts from the body; no repair needed.\"}",
+     "json_ok": true,
+     "proposed": "Evaluate replacing Mage orchestration while preserving dbt, Snowflake, DipDash, and ECS infrastructure.",
+     "reason": "The current summary is already compliant with IMPR-1105 (single line, \u2264200 chars, no forbidden patterns) and contains all key facts from the body; no repair needed.",
+     "violations": [],
+     "missing_tokens": [],
+     "verdict": "pass"
+    },
+    {
+     "wall": 1.0834576670022216,
+     "prompt_tokens": 4095,
+     "eval_tokens": 84,
+     "decode_tps": 83.00428064933062,
+     "thinking_chars": 0,
+     "raw": "{\"id\": \"IDEA-013\", \"proposed_summary\": \"Evaluate replacing Mage orchestration while preserving dbt, Snowflake, DipDash, and ECS infrastructure.\", \"reason\": \"The current summary is already compliant with IMPR-1105 (single line, \u2264200 chars, no forbidden patterns) and contains all key facts from the body; no repair needed.\"}",
+     "json_ok": true,
+     "proposed": "Evaluate replacing Mage orchestration while preserving dbt, Snowflake, DipDash, and ECS infrastructure.",
+     "reason": "The current summary is already compliant with IMPR-1105 (single line, \u2264200 chars, no forbidden patterns) and contains all key facts from the body; no repair needed.",
+     "violations": [],
+     "missing_tokens": [],
+     "verdict": "pass"
+    },
+    {
+     "wall": 1.0809436249983264,
+     "prompt_tokens": 4095,
+     "eval_tokens": 84,
+     "decode_tps": 82.94305662937192,
+     "thinking_chars": 0,
+     "raw": "{\"id\": \"IDEA-013\", \"proposed_summary\": \"Evaluate replacing Mage orchestration while preserving dbt, Snowflake, DipDash, and ECS infrastructure.\", \"reason\": \"The current summary is already compliant with IMPR-1105 (single line, \u2264200 chars, no forbidden patterns) and contains all key facts from the body; no repair needed.\"}",
+     "json_ok": true,
+     "proposed": "Evaluate replacing Mage orchestration while preserving dbt, Snowflake, DipDash, and ECS infrastructure.",
+     "reason": "The current summary is already compliant with IMPR-1105 (single line, \u2264200 chars, no forbidden patterns) and contains all key facts from the body; no repair needed.",
+     "violations": [],
+     "missing_tokens": [],
+     "verdict": "pass"
+    }
+   ]
+  },
+  {
+   "id": "BUG-185",
+   "mode": "leading-digit",
+   "verdict": "fail",
+   "violations": [
+    "count-dropped"
+   ],
+   "missing_tokens": [],
+   "proposed": "SET_TO_BLANK on business validations is silently ignored in matching because only asf_INTRINSIC_validations applies it; business validations are read only for SUSPEND_ROW/FAIL_PIPELINE filtering.",
+   "reason": "Rewritten to meet IMPR-1105 schema (\u2264200 chars, no forbidden patterns) while preserving all facts about the two validation paths and the matching behavior.",
+   "wall": 1.6040784579963656,
+   "prompt_tokens": 3416,
+   "eval_tokens": 97,
+   "decode_tps": 83.0576162977881,
+   "thinking_chars": 0,
+   "raw": "{\"id\": \"BUG-185\", \"proposed_summary\": \"SET_TO_BLANK on business validations is silently ignored in matching because only asf_INTRINSIC_validations applies it; business validations are read only for SUSPEND_ROW/FAIL_PIPELINE filtering.\", \"reason\": \"Rewritten to meet IMPR-1105 schema (\u2264200 chars, no forbidden patterns) while preserving all facts about the two validation paths and the matching behavior.\"}",
+   "json_ok": true,
+   "attempt_details": [
+    {
+     "wall": 1.6040784579963656,
+     "prompt_tokens": 3416,
+     "eval_tokens": 97,
+     "decode_tps": 83.0576162977881,
+     "thinking_chars": 0,
+     "raw": "{\"id\": \"BUG-185\", \"proposed_summary\": \"SET_TO_BLANK on business validations is silently ignored in matching because only asf_INTRINSIC_validations applies it; business validations are read only for SUSPEND_ROW/FAIL_PIPELINE filtering.\", \"reason\": \"Rewritten to meet IMPR-1105 schema (\u2264200 chars, no forbidden patterns) while preserving all facts about the two validation paths and the matching behavior.\"}",
+     "json_ok": true,
+     "proposed": "SET_TO_BLANK on business validations is silently ignored in matching because only asf_INTRINSIC_validations applies it; business validations are read only for SUSPEND_ROW/FAIL_PIPELINE filtering.",
+     "reason": "Rewritten to meet IMPR-1105 schema (\u2264200 chars, no forbidden patterns) while preserving all facts about the two validation paths and the matching behavior.",
+     "violations": [
+      "count-dropped"
+     ],
+     "missing_tokens": [],
+     "verdict": "fail"
+    },
+    {
+     "wall": 1.236783333006315,
+     "prompt_tokens": 3416,
+     "eval_tokens": 97,
+     "decode_tps": 82.78018532520666,
+     "thinking_chars": 0,
+     "raw": "{\"id\": \"BUG-185\", \"proposed_summary\": \"SET_TO_BLANK on business validations is silently ignored in matching because only asf_INTRINSIC_validations applies it; business validations are read only for SUSPEND_ROW/FAIL_PIPELINE filtering.\", \"reason\": \"Rewritten to meet IMPR-1105 schema (\u2264200 chars, no forbidden patterns) while preserving all facts about the two validation paths and the matching behavior.\"}",
+     "json_ok": true,
+     "proposed": "SET_TO_BLANK on business validations is silently ignored in matching because only asf_INTRINSIC_validations applies it; business validations are read only for SUSPEND_ROW/FAIL_PIPELINE filtering.",
+     "reason": "Rewritten to meet IMPR-1105 schema (\u2264200 chars, no forbidden patterns) while preserving all facts about the two validation paths and the matching behavior.",
+     "violations": [
+      "count-dropped"
+     ],
+     "missing_tokens": [],
+     "verdict": "fail"
+    },
+    {
+     "wall": 1.2255473749974044,
+     "prompt_tokens": 3416,
+     "eval_tokens": 97,
+     "decode_tps": 83.18811147549982,
+     "thinking_chars": 0,
+     "raw": "{\"id\": \"BUG-185\", \"proposed_summary\": \"SET_TO_BLANK on business validations is silently ignored in matching because only asf_INTRINSIC_validations applies it; business validations are read only for SUSPEND_ROW/FAIL_PIPELINE filtering.\", \"reason\": \"Rewritten to meet IMPR-1105 schema (\u2264200 chars, no forbidden patterns) while preserving all facts about the two validation paths and the matching behavior.\"}",
+     "json_ok": true,
+     "proposed": "SET_TO_BLANK on business validations is silently ignored in matching because only asf_INTRINSIC_validations applies it; business validations are read only for SUSPEND_ROW/FAIL_PIPELINE filtering.",
+     "reason": "Rewritten to meet IMPR-1105 schema (\u2264200 chars, no forbidden patterns) while preserving all facts about the two validation paths and the matching behavior.",
+     "violations": [
+      "count-dropped"
+     ],
+     "missing_tokens": [],
+     "verdict": "fail"
+    }
+   ]
+  },
+  {
+   "id": "INFO-038",
+   "mode": "overlength",
+   "verdict": "pass",
+   "violations": [],
+   "missing_tokens": [],
+   "proposed": "data_type enum with 9 valid values, _derive_mapping_type() helper logic, source_file_name_id FK on column_mappings, DATA_TYPE_TO_AREAS mapping for per-tab field visibility, Phase 3 backfill logic - FE",
+   "reason": "Rewritten to meet IMPR-1105 schema (\u2264200 chars, no forbidden patterns) while preserving all facts and truncating the trailing investigation history note.",
+   "wall": 1.7015889169997536,
+   "prompt_tokens": 3098,
+   "eval_tokens": 106,
+   "decode_tps": 77.37384413696047,
+   "thinking_chars": 0,
+   "raw": "{\"id\": \"INFO-038\", \"proposed_summary\": \"data_type enum with 9 valid values, _derive_mapping_type() helper logic, source_file_name_id FK on column_mappings, DATA_TYPE_TO_AREAS mapping for per-tab field visibility, Phase 3 backfill logic - FE\", \"reason\": \"Rewritten to meet IMPR-1105 schema (\u2264200 chars, no forbidden patterns) while preserving all facts and truncating the trailing investigation history note.\"}",
+   "json_ok": true,
+   "attempt_details": [
+    {
+     "wall": 1.7015889169997536,
+     "prompt_tokens": 3098,
+     "eval_tokens": 106,
+     "decode_tps": 77.37384413696047,
+     "thinking_chars": 0,
+     "raw": "{\"id\": \"INFO-038\", \"proposed_summary\": \"data_type enum with 9 valid values, _derive_mapping_type() helper logic, source_file_name_id FK on column_mappings, DATA_TYPE_TO_AREAS mapping for per-tab field visibility, Phase 3 backfill logic - FE\", \"reason\": \"Rewritten to meet IMPR-1105 schema (\u2264200 chars, no forbidden patterns) while preserving all facts and truncating the trailing investigation history note.\"}",
+     "json_ok": true,
+     "proposed": "data_type enum with 9 valid values, _derive_mapping_type() helper logic, source_file_name_id FK on column_mappings, DATA_TYPE_TO_AREAS mapping for per-tab field visibility, Phase 3 backfill logic - FE",
+     "reason": "Rewritten to meet IMPR-1105 schema (\u2264200 chars, no forbidden patterns) while preserving all facts and truncating the trailing investigation history note.",
+     "violations": [],
+     "missing_tokens": [],
+     "verdict": "pass"
+    },
+    {
+     "wall": 1.4191303340048762,
+     "prompt_tokens": 3098,
+     "eval_tokens": 106,
+     "decode_tps": 77.21867089183922,
+     "thinking_chars": 0,
+     "raw": "{\"id\": \"INFO-038\", \"proposed_summary\": \"data_type enum with 9 valid values, _derive_mapping_type() helper logic, source_file_name_id FK on column_mappings, DATA_TYPE_TO_AREAS mapping for per-tab field visibility, Phase 3 backfill logic - FE\", \"reason\": \"Rewritten to meet IMPR-1105 schema (\u2264200 chars, no forbidden patterns) while preserving all facts and truncating the trailing investigation history note.\"}",
+     "json_ok": true,
+     "proposed": "data_type enum with 9 valid values, _derive_mapping_type() helper logic, source_file_name_id FK on column_mappings, DATA_TYPE_TO_AREAS mapping for per-tab field visibility, Phase 3 backfill logic - FE",
+     "reason": "Rewritten to meet IMPR-1105 schema (\u2264200 chars, no forbidden patterns) while preserving all facts and truncating the trailing investigation history note.",
+     "violations": [],
+     "missing_tokens": [],
+     "verdict": "pass"
+    },
+    {
+     "wall": 1.4024130000034347,
+     "prompt_tokens": 3098,
+     "eval_tokens": 106,
+     "decode_tps": 77.89226471024813,
+     "thinking_chars": 0,
+     "raw": "{\"id\": \"INFO-038\", \"proposed_summary\": \"data_type enum with 9 valid values, _derive_mapping_type() helper logic, source_file_name_id FK on column_mappings, DATA_TYPE_TO_AREAS mapping for per-tab field visibility, Phase 3 backfill logic - FE\", \"reason\": \"Rewritten to meet IMPR-1105 schema (\u2264200 chars, no forbidden patterns) while preserving all facts and truncating the trailing investigation history note.\"}",
+     "json_ok": true,
+     "proposed": "data_type enum with 9 valid values, _derive_mapping_type() helper logic, source_file_name_id FK on column_mappings, DATA_TYPE_TO_AREAS mapping for per-tab field visibility, Phase 3 backfill logic - FE",
+     "reason": "Rewritten to meet IMPR-1105 schema (\u2264200 chars, no forbidden patterns) while preserving all facts and truncating the trailing investigation history note.",
+     "violations": [],
+     "missing_tokens": [],
+     "verdict": "pass"
+    }
+   ]
+  },
+  {
+   "id": "IMPR-1012",
+   "mode": "quoted",
+   "verdict": "pass",
+   "violations": [],
+   "missing_tokens": [],
+   "proposed": "Tightened Task Board tag/scan hygiene and QuickAdd dedup by dropping 2026-07-25 when the board was torn out entirely, achieving the goal by subtraction.",
+   "reason": "Rewritten to meet IMPR-1105 schema (single line, \u2264200 chars, no quoted/block scalar, no ': ' or '#', no leading digit) while preserving all facts.",
+   "wall": 2.0512921670015203,
+   "prompt_tokens": 4281,
+   "eval_tokens": 107,
+   "decode_tps": 79.97016440221554,
+   "thinking_chars": 0,
+   "raw": "{\"id\": \"IMPR-1012\", \"proposed_summary\": \"Tightened Task Board tag/scan hygiene and QuickAdd dedup by dropping 2026-07-25 when the board was torn out entirely, achieving the goal by subtraction.\", \"reason\": \"Rewritten to meet IMPR-1105 schema (single line, \u2264200 chars, no quoted/block scalar, no ': ' or '#', no leading digit) while preserving all facts.\"}",
+   "json_ok": true,
+   "attempt_details": [
+    {
+     "wall": 2.0512921670015203,
+     "prompt_tokens": 4281,
+     "eval_tokens": 107,
+     "decode_tps": 79.97016440221554,
+     "thinking_chars": 0,
+     "raw": "{\"id\": \"IMPR-1012\", \"proposed_summary\": \"Tightened Task Board tag/scan hygiene and QuickAdd dedup by dropping 2026-07-25 when the board was torn out entirely, achieving the goal by subtraction.\", \"reason\": \"Rewritten to meet IMPR-1105 schema (single line, \u2264200 chars, no quoted/block scalar, no ': ' or '#', no leading digit) while preserving all facts.\"}",
+     "json_ok": true,
+     "proposed": "Tightened Task Board tag/scan hygiene and QuickAdd dedup by dropping 2026-07-25 when the board was torn out entirely, achieving the goal by subtraction.",
+     "reason": "Rewritten to meet IMPR-1105 schema (single line, \u2264200 chars, no quoted/block scalar, no ': ' or '#', no leading digit) while preserving all facts.",
+     "violations": [],
+     "missing_tokens": [],
+     "verdict": "pass"
+    },
+    {
+     "wall": 1.386509792006109,
+     "prompt_tokens": 4281,
+     "eval_tokens": 107,
+     "decode_tps": 80.49573334998416,
+     "thinking_chars": 0,
+     "raw": "{\"id\": \"IMPR-1012\", \"proposed_summary\": \"Tightened Task Board tag/scan hygiene and QuickAdd dedup by dropping 2026-07-25 when the board was torn out entirely, achieving the goal by subtraction.\", \"reason\": \"Rewritten to meet IMPR-1105 schema (single line, \u2264200 chars, no quoted/block scalar, no ': ' or '#', no leading digit) while preserving all facts.\"}",
+     "json_ok": true,
+     "proposed": "Tightened Task Board tag/scan hygiene and QuickAdd dedup by dropping 2026-07-25 when the board was torn out entirely, achieving the goal by subtraction.",
+     "reason": "Rewritten to meet IMPR-1105 schema (single line, \u2264200 chars, no quoted/block scalar, no ': ' or '#', no leading digit) while preserving all facts.",
+     "violations": [],
+     "missing_tokens": [],
+     "verdict": "pass"
+    },
+    {
+     "wall": 1.394786375007243,
+     "prompt_tokens": 4281,
+     "eval_tokens": 107,
+     "decode_tps": 79.71588365057026,
+     "thinking_chars": 0,
+     "raw": "{\"id\": \"IMPR-1012\", \"proposed_summary\": \"Tightened Task Board tag/scan hygiene and QuickAdd dedup by dropping 2026-07-25 when the board was torn out entirely, achieving the goal by subtraction.\", \"reason\": \"Rewritten to meet IMPR-1105 schema (single line, \u2264200 chars, no quoted/block scalar, no ': ' or '#', no leading digit) while preserving all facts.\"}",
+     "json_ok": true,
+     "proposed": "Tightened Task Board tag/scan hygiene and QuickAdd dedup by dropping 2026-07-25 when the board was torn out entirely, achieving the goal by subtraction.",
+     "reason": "Rewritten to meet IMPR-1105 schema (single line, \u2264200 chars, no quoted/block scalar, no ': ' or '#', no leading digit) while preserving all facts.",
+     "violations": [],
+     "missing_tokens": [],
+     "verdict": "pass"
+    }
+   ]
+  },
+  {
+   "id": "BUG-199",
+   "mode": "colon-space",
+   "verdict": "fail",
+   "violations": [
+    "colon-space"
+   ],
+   "missing_tokens": [],
+   "proposed": "PATCH configuration rejected ACCO Liberty Claims saves: stored asf_model had no matching template - fixed via prod data correction plus PR 1089 scoping the check to real changes",
+   "reason": "Current summary already meets IMPR-1105 schema (single line, \u2264200 chars, no forbidden patterns) and preserves all facts; no repair needed.",
+   "wall": 1.9213214159972267,
+   "prompt_tokens": 4395,
+   "eval_tokens": 95,
+   "decode_tps": 82.29361843307753,
+   "thinking_chars": 0,
+   "raw": "{\"id\": \"BUG-199\", \"proposed_summary\": \"PATCH configuration rejected ACCO Liberty Claims saves: stored asf_model had no matching template - fixed via prod data correction plus PR 1089 scoping the check to real changes\", \"reason\": \"Current summary already meets IMPR-1105 schema (single line, \u2264200 chars, no forbidden patterns) and preserves all facts; no repair needed.\"}",
+   "json_ok": true,
+   "attempt_details": [
+    {
+     "wall": 1.9213214159972267,
+     "prompt_tokens": 4395,
+     "eval_tokens": 95,
+     "decode_tps": 82.29361843307753,
+     "thinking_chars": 0,
+     "raw": "{\"id\": \"BUG-199\", \"proposed_summary\": \"PATCH configuration rejected ACCO Liberty Claims saves: stored asf_model had no matching template - fixed via prod data correction plus PR 1089 scoping the check to real changes\", \"reason\": \"Current summary already meets IMPR-1105 schema (single line, \u2264200 chars, no forbidden patterns) and preserves all facts; no repair needed.\"}",
+     "json_ok": true,
+     "proposed": "PATCH configuration rejected ACCO Liberty Claims saves: stored asf_model had no matching template - fixed via prod data correction plus PR 1089 scoping the check to real changes",
+     "reason": "Current summary already meets IMPR-1105 schema (single line, \u2264200 chars, no forbidden patterns) and preserves all facts; no repair needed.",
+     "violations": [
+      "colon-space"
+     ],
+     "missing_tokens": [],
+     "verdict": "fail"
+    },
+    {
+     "wall": 1.210946999999578,
+     "prompt_tokens": 4395,
+     "eval_tokens": 95,
+     "decode_tps": 82.44416577352153,
+     "thinking_chars": 0,
+     "raw": "{\"id\": \"BUG-199\", \"proposed_summary\": \"PATCH configuration rejected ACCO Liberty Claims saves: stored asf_model had no matching template - fixed via prod data correction plus PR 1089 scoping the check to real changes\", \"reason\": \"Current summary already meets IMPR-1105 schema (single line, \u2264200 chars, no forbidden patterns) and preserves all facts; no repair needed.\"}",
+     "json_ok": true,
+     "proposed": "PATCH configuration rejected ACCO Liberty Claims saves: stored asf_model had no matching template - fixed via prod data correction plus PR 1089 scoping the check to real changes",
+     "reason": "Current summary already meets IMPR-1105 schema (single line, \u2264200 chars, no forbidden patterns) and preserves all facts; no repair needed.",
+     "violations": [
+      "colon-space"
+     ],
+     "missing_tokens": [],
+     "verdict": "fail"
+    },
+    {
+     "wall": 1.201002082991181,
+     "prompt_tokens": 4395,
+     "eval_tokens": 95,
+     "decode_tps": 82.67454772671103,
+     "thinking_chars": 0,
+     "raw": "{\"id\": \"BUG-199\", \"proposed_summary\": \"PATCH configuration rejected ACCO Liberty Claims saves: stored asf_model had no matching template - fixed via prod data correction plus PR 1089 scoping the check to real changes\", \"reason\": \"Current summary already meets IMPR-1105 schema (single line, \u2264200 chars, no forbidden patterns) and preserves all facts; no repair needed.\"}",
+     "json_ok": true,
+     "proposed": "PATCH configuration rejected ACCO Liberty Claims saves: stored asf_model had no matching template - fixed via prod data correction plus PR 1089 scoping the check to real changes",
+     "reason": "Current summary already meets IMPR-1105 schema (single line, \u2264200 chars, no forbidden patterns) and preserves all facts; no repair needed.",
+     "violations": [
+      "colon-space"
+     ],
+     "missing_tokens": [],
+     "verdict": "fail"
+    }
+   ]
+  },
+  {
+   "id": "IMPR-1079",
+   "mode": "leading-digit",
+   "verdict": "fail",
+   "violations": [
+    "leading-digit"
+   ],
+   "missing_tokens": [],
+   "proposed": "2 items - Behavioral guidance for capable agents to recognize parallelizable flows and fan out subagents \u2014 the encourage-side counterpart to IMPR-1066's local-model avoidance.",
+   "reason": "Removed 'the' before 'encourage-side' to fix ': ' sequence violation while preserving all facts.",
+   "wall": 1.601983417000156,
+   "prompt_tokens": 3831,
+   "eval_tokens": 85,
+   "decode_tps": 82.28182007386003,
+   "thinking_chars": 0,
+   "raw": "{\n\"id\": \"IMPR-1079\",\n\"proposed_summary\": \"2 items - Behavioral guidance for capable agents to recognize parallelizable flows and fan out subagents \u2014 the encourage-side counterpart to IMPR-1066's local-model avoidance.\",\n\"reason\": \"Removed 'the' before 'encourage-side' to fix ': ' sequence violation while preserving all facts.\"\n}",
+   "json_ok": true,
+   "attempt_details": [
+    {
+     "wall": 1.601983417000156,
+     "prompt_tokens": 3831,
+     "eval_tokens": 85,
+     "decode_tps": 82.28182007386003,
+     "thinking_chars": 0,
+     "raw": "{\n\"id\": \"IMPR-1079\",\n\"proposed_summary\": \"2 items - Behavioral guidance for capable agents to recognize parallelizable flows and fan out subagents \u2014 the encourage-side counterpart to IMPR-1066's local-model avoidance.\",\n\"reason\": \"Removed 'the' before 'encourage-side' to fix ': ' sequence violation while preserving all facts.\"\n}",
+     "json_ok": true,
+     "proposed": "2 items - Behavioral guidance for capable agents to recognize parallelizable flows and fan out subagents \u2014 the encourage-side counterpart to IMPR-1066's local-model avoidance.",
+     "reason": "Removed 'the' before 'encourage-side' to fix ': ' sequence violation while preserving all facts.",
+     "violations": [
+      "leading-digit"
+     ],
+     "missing_tokens": [],
+     "verdict": "fail"
+    },
+    {
+     "wall": 1.0823356670007342,
+     "prompt_tokens": 3831,
+     "eval_tokens": 85,
+     "decode_tps": 82.8183977660468,
+     "thinking_chars": 0,
+     "raw": "{\n\"id\": \"IMPR-1079\",\n\"proposed_summary\": \"2 items - Behavioral guidance for capable agents to recognize parallelizable flows and fan out subagents \u2014 the encourage-side counterpart to IMPR-1066's local-model avoidance.\",\n\"reason\": \"Removed 'the' before 'encourage-side' to fix ': ' sequence violation while preserving all facts.\"\n}",
+     "json_ok": true,
+     "proposed": "2 items - Behavioral guidance for capable agents to recognize parallelizable flows and fan out subagents \u2014 the encourage-side counterpart to IMPR-1066's local-model avoidance.",
+     "reason": "Removed 'the' before 'encourage-side' to fix ': ' sequence violation while preserving all facts.",
+     "violations": [
+      "leading-digit"
+     ],
+     "missing_tokens": [],
+     "verdict": "fail"
+    },
+    {
+     "wall": 1.0703062079992378,
+     "prompt_tokens": 3831,
+     "eval_tokens": 85,
+     "decode_tps": 83.21381545133706,
+     "thinking_chars": 0,
+     "raw": "{\n\"id\": \"IMPR-1079\",\n\"proposed_summary\": \"2 items - Behavioral guidance for capable agents to recognize parallelizable flows and fan out subagents \u2014 the encourage-side counterpart to IMPR-1066's local-model avoidance.\",\n\"reason\": \"Removed 'the' before 'encourage-side' to fix ': ' sequence violation while preserving all facts.\"\n}",
+     "json_ok": true,
+     "proposed": "2 items - Behavioral guidance for capable agents to recognize parallelizable flows and fan out subagents \u2014 the encourage-side counterpart to IMPR-1066's local-model avoidance.",
+     "reason": "Removed 'the' before 'encourage-side' to fix ': ' sequence violation while preserving all facts.",
+     "violations": [
+      "leading-digit"
+     ],
+     "missing_tokens": [],
+     "verdict": "fail"
+    }
+   ]
+  },
+  {
+   "id": "BUG-1076",
+   "mode": "overlength",
+   "verdict": "pass",
+   "violations": [],
+   "missing_tokens": [],
+   "proposed": "equal-risk-pdb selected app=rails while pods are app=equal-risk-rails, so it governed nothing; fixed by correcting the selector and scaling to 2 replicas, since a PDB cannot protect one replica.",
+   "reason": "The current summary is already compliant with IMPR-1105 (single line, \u2264200 chars, no forbidden patterns) and preserves all facts.",
+   "wall": 2.070178041991312,
+   "prompt_tokens": 4459,
+   "eval_tokens": 104,
+   "decode_tps": 82.49097358385207,
+   "thinking_chars": 0,
+   "raw": "{\n\"id\": \"BUG-1076\",\n\"proposed_summary\": \"equal-risk-pdb selected app=rails while pods are app=equal-risk-rails, so it governed nothing; fixed by correcting the selector and scaling to 2 replicas, since a PDB cannot protect one replica.\",\n\"reason\": \"The current summary is already compliant with IMPR-1105 (single line, \u2264200 chars, no forbidden patterns) and preserves all facts.\"\n}",
+   "json_ok": true,
+   "attempt_details": [
+    {
+     "wall": 2.070178041991312,
+     "prompt_tokens": 4459,
+     "eval_tokens": 104,
+     "decode_tps": 82.49097358385207,
+     "thinking_chars": 0,
+     "raw": "{\n\"id\": \"BUG-1076\",\n\"proposed_summary\": \"equal-risk-pdb selected app=rails while pods are app=equal-risk-rails, so it governed nothing; fixed by correcting the selector and scaling to 2 replicas, since a PDB cannot protect one replica.\",\n\"reason\": \"The current summary is already compliant with IMPR-1105 (single line, \u2264200 chars, no forbidden patterns) and preserves all facts.\"\n}",
+     "json_ok": true,
+     "proposed": "equal-risk-pdb selected app=rails while pods are app=equal-risk-rails, so it governed nothing; fixed by correcting the selector and scaling to 2 replicas, since a PDB cannot protect one replica.",
+     "reason": "The current summary is already compliant with IMPR-1105 (single line, \u2264200 chars, no forbidden patterns) and preserves all facts.",
+     "violations": [],
+     "missing_tokens": [],
+     "verdict": "pass"
+    },
+    {
+     "wall": 1.3198513749957783,
+     "prompt_tokens": 4459,
+     "eval_tokens": 104,
+     "decode_tps": 82.13740482130771,
+     "thinking_chars": 0,
+     "raw": "{\n\"id\": \"BUG-1076\",\n\"proposed_summary\": \"equal-risk-pdb selected app=rails while pods are app=equal-risk-rails, so it governed nothing; fixed by correcting the selector and scaling to 2 replicas, since a PDB cannot protect one replica.\",\n\"reason\": \"The current summary is already compliant with IMPR-1105 (single line, \u2264200 chars, no forbidden patterns) and preserves all facts.\"\n}",
+     "json_ok": true,
+     "proposed": "equal-risk-pdb selected app=rails while pods are app=equal-risk-rails, so it governed nothing; fixed by correcting the selector and scaling to 2 replicas, since a PDB cannot protect one replica.",
+     "reason": "The current summary is already compliant with IMPR-1105 (single line, \u2264200 chars, no forbidden patterns) and preserves all facts.",
+     "violations": [],
+     "missing_tokens": [],
+     "verdict": "pass"
+    },
+    {
+     "wall": 1.3150571669975761,
+     "prompt_tokens": 4459,
+     "eval_tokens": 104,
+     "decode_tps": 82.26123478859259,
+     "thinking_chars": 0,
+     "raw": "{\n\"id\": \"BUG-1076\",\n\"proposed_summary\": \"equal-risk-pdb selected app=rails while pods are app=equal-risk-rails, so it governed nothing; fixed by correcting the selector and scaling to 2 replicas, since a PDB cannot protect one replica.\",\n\"reason\": \"The current summary is already compliant with IMPR-1105 (single line, \u2264200 chars, no forbidden patterns) and preserves all facts.\"\n}",
+     "json_ok": true,
+     "proposed": "equal-risk-pdb selected app=rails while pods are app=equal-risk-rails, so it governed nothing; fixed by correcting the selector and scaling to 2 replicas, since a PDB cannot protect one replica.",
+     "reason": "The current summary is already compliant with IMPR-1105 (single line, \u2264200 chars, no forbidden patterns) and preserves all facts.",
+     "violations": [],
+     "missing_tokens": [],
+     "verdict": "pass"
+    }
+   ]
+  },
+  {
+   "id": "BUG-155",
+   "mode": "quoted",
+   "verdict": "pass",
+   "violations": [],
+   "missing_tokens": [],
+   "proposed": "Pipeline trigger redirect was inconsistently slow with no loading indicator, letting users interrupt navigation - fixed by keeping the modal open with a loading overlay during the trigger.",
+   "reason": "The current summary already satisfies all IMPR-1105 schema constraints (single line, \u2264200 chars, no forbidden patterns) and accurately reflects the body's outcome.",
+   "wall": 1.4767175410088385,
+   "prompt_tokens": 3387,
+   "eval_tokens": 90,
+   "decode_tps": 83.13573201473903,
+   "thinking_chars": 0,
+   "raw": "{\"id\": \"BUG-155\", \"proposed_summary\": \"Pipeline trigger redirect was inconsistently slow with no loading indicator, letting users interrupt navigation - fixed by keeping the modal open with a loading overlay during the trigger.\", \"reason\": \"The current summary already satisfies all IMPR-1105 schema constraints (single line, \u2264200 chars, no forbidden patterns) and accurately reflects the body's outcome.\"}",
+   "json_ok": true,
+   "attempt_details": [
+    {
+     "wall": 1.4767175410088385,
+     "prompt_tokens": 3387,
+     "eval_tokens": 90,
+     "decode_tps": 83.13573201473903,
+     "thinking_chars": 0,
+     "raw": "{\"id\": \"BUG-155\", \"proposed_summary\": \"Pipeline trigger redirect was inconsistently slow with no loading indicator, letting users interrupt navigation - fixed by keeping the modal open with a loading overlay during the trigger.\", \"reason\": \"The current summary already satisfies all IMPR-1105 schema constraints (single line, \u2264200 chars, no forbidden patterns) and accurately reflects the body's outcome.\"}",
+     "json_ok": true,
+     "proposed": "Pipeline trigger redirect was inconsistently slow with no loading indicator, letting users interrupt navigation - fixed by keeping the modal open with a loading overlay during the trigger.",
+     "reason": "The current summary already satisfies all IMPR-1105 schema constraints (single line, \u2264200 chars, no forbidden patterns) and accurately reflects the body's outcome.",
+     "violations": [],
+     "missing_tokens": [],
+     "verdict": "pass"
+    },
+    {
+     "wall": 1.1257318749994738,
+     "prompt_tokens": 3387,
+     "eval_tokens": 90,
+     "decode_tps": 83.23622440486099,
+     "thinking_chars": 0,
+     "raw": "{\"id\": \"BUG-155\", \"proposed_summary\": \"Pipeline trigger redirect was inconsistently slow with no loading indicator, letting users interrupt navigation - fixed by keeping the modal open with a loading overlay during the trigger.\", \"reason\": \"The current summary already satisfies all IMPR-1105 schema constraints (single line, \u2264200 chars, no forbidden patterns) and accurately reflects the body's outcome.\"}",
+     "json_ok": true,
+     "proposed": "Pipeline trigger redirect was inconsistently slow with no loading indicator, letting users interrupt navigation - fixed by keeping the modal open with a loading overlay during the trigger.",
+     "reason": "The current summary already satisfies all IMPR-1105 schema constraints (single line, \u2264200 chars, no forbidden patterns) and accurately reflects the body's outcome.",
+     "violations": [],
+     "missing_tokens": [],
+     "verdict": "pass"
+    },
+    {
+     "wall": 1.1279719169979217,
+     "prompt_tokens": 3387,
+     "eval_tokens": 90,
+     "decode_tps": 82.80445819202906,
+     "thinking_chars": 0,
+     "raw": "{\"id\": \"BUG-155\", \"proposed_summary\": \"Pipeline trigger redirect was inconsistently slow with no loading indicator, letting users interrupt navigation - fixed by keeping the modal open with a loading overlay during the trigger.\", \"reason\": \"The current summary already satisfies all IMPR-1105 schema constraints (single line, \u2264200 chars, no forbidden patterns) and accurately reflects the body's outcome.\"}",
+     "json_ok": true,
+     "proposed": "Pipeline trigger redirect was inconsistently slow with no loading indicator, letting users interrupt navigation - fixed by keeping the modal open with a loading overlay during the trigger.",
+     "reason": "The current summary already satisfies all IMPR-1105 schema constraints (single line, \u2264200 chars, no forbidden patterns) and accurately reflects the body's outcome.",
+     "violations": [],
+     "missing_tokens": [],
+     "verdict": "pass"
+    }
+   ]
+  },
+  {
+   "id": "BUG-042",
+   "mode": "colon-space",
+   "verdict": "pass",
+   "violations": [],
+   "missing_tokens": [],
+   "proposed": "Notifications page blank for coworx-gb-loss-run due to frontend crash after loading pipeline data; related to BUG-016 fix in Apr 28 release.",
+   "reason": "Rewritten to meet IMPR-1105 schema (\u2264200 chars, single-line scalar, no forbidden patterns) while preserving all facts and the BUG-016 reference.",
+   "wall": 1.6484550830064109,
+   "prompt_tokens": 3541,
+   "eval_tokens": 97,
+   "decode_tps": 83.15045947058016,
+   "thinking_chars": 0,
+   "raw": "{\"id\": \"BUG-042\", \"proposed_summary\": \"Notifications page blank for coworx-gb-loss-run due to frontend crash after loading pipeline data; related to BUG-016 fix in Apr 28 release.\", \"reason\": \"Rewritten to meet IMPR-1105 schema (\u2264200 chars, single-line scalar, no forbidden patterns) while preserving all facts and the BUG-016 reference.\"}",
+   "json_ok": true,
+   "attempt_details": [
+    {
+     "wall": 1.6484550830064109,
+     "prompt_tokens": 3541,
+     "eval_tokens": 97,
+     "decode_tps": 83.15045947058016,
+     "thinking_chars": 0,
+     "raw": "{\"id\": \"BUG-042\", \"proposed_summary\": \"Notifications page blank for coworx-gb-loss-run due to frontend crash after loading pipeline data; related to BUG-016 fix in Apr 28 release.\", \"reason\": \"Rewritten to meet IMPR-1105 schema (\u2264200 chars, single-line scalar, no forbidden patterns) while preserving all facts and the BUG-016 reference.\"}",
+     "json_ok": true,
+     "proposed": "Notifications page blank for coworx-gb-loss-run due to frontend crash after loading pipeline data; related to BUG-016 fix in Apr 28 release.",
+     "reason": "Rewritten to meet IMPR-1105 schema (\u2264200 chars, single-line scalar, no forbidden patterns) while preserving all facts and the BUG-016 reference.",
+     "violations": [],
+     "missing_tokens": [],
+     "verdict": "pass"
+    },
+    {
+     "wall": 1.2150658750033472,
+     "prompt_tokens": 3541,
+     "eval_tokens": 97,
+     "decode_tps": 83.01922965001832,
+     "thinking_chars": 0,
+     "raw": "{\"id\": \"BUG-042\", \"proposed_summary\": \"Notifications page blank for coworx-gb-loss-run due to frontend crash after loading pipeline data; related to BUG-016 fix in Apr 28 release.\", \"reason\": \"Rewritten to meet IMPR-1105 schema (\u2264200 chars, single-line scalar, no forbidden patterns) while preserving all facts and the BUG-016 reference.\"}",
+     "json_ok": true,
+     "proposed": "Notifications page blank for coworx-gb-loss-run due to frontend crash after loading pipeline data; related to BUG-016 fix in Apr 28 release.",
+     "reason": "Rewritten to meet IMPR-1105 schema (\u2264200 chars, single-line scalar, no forbidden patterns) while preserving all facts and the BUG-016 reference.",
+     "violations": [],
+     "missing_tokens": [],
+     "verdict": "pass"
+    },
+    {
+     "wall": 1.2069538329960778,
+     "prompt_tokens": 3541,
+     "eval_tokens": 97,
+     "decode_tps": 83.15808695249616,
+     "thinking_chars": 0,
+     "raw": "{\"id\": \"BUG-042\", \"proposed_summary\": \"Notifications page blank for coworx-gb-loss-run due to frontend crash after loading pipeline data; related to BUG-016 fix in Apr 28 release.\", \"reason\": \"Rewritten to meet IMPR-1105 schema (\u2264200 chars, single-line scalar, no forbidden patterns) while preserving all facts and the BUG-016 reference.\"}",
+     "json_ok": true,
+     "proposed": "Notifications page blank for coworx-gb-loss-run due to frontend crash after loading pipeline data; related to BUG-016 fix in Apr 28 release.",
+     "reason": "Rewritten to meet IMPR-1105 schema (\u2264200 chars, single-line scalar, no forbidden patterns) while preserving all facts and the BUG-016 reference.",
+     "violations": [],
+     "missing_tokens": [],
+     "verdict": "pass"
+    }
+   ]
+  },
+  {
+   "id": "INFO-035",
+   "mode": "leading-digit",
+   "verdict": "fail",
+   "violations": [
+    "count-dropped"
+   ],
+   "missing_tokens": [],
+   "proposed": "Exporter iterates only over mapping_type.unique() present in current data; never truncates tables for absent mapping types; appends on every run; TEST__ and non-prefix schemas independently managed",
+   "reason": "Rewrote to single-line plain scalar \u2264200 chars, removed leading digit '2', replaced ': ' with ' - ', kept all fact tokens.",
+   "wall": 1.3599387910071528,
+   "prompt_tokens": 3008,
+   "eval_tokens": 91,
+   "decode_tps": 82.89154870561659,
+   "thinking_chars": 0,
+   "raw": "{\"id\": \"INFO-035\", \"proposed_summary\": \"Exporter iterates only over mapping_type.unique() present in current data; never truncates tables for absent mapping types; appends on every run; TEST__ and non-prefix schemas independently managed\", \"reason\": \"Rewrote to single-line plain scalar \u2264200 chars, removed leading digit '2', replaced ': ' with ' - ', kept all fact tokens.\"}",
+   "json_ok": true,
+   "attempt_details": [
+    {
+     "wall": 1.3599387910071528,
+     "prompt_tokens": 3008,
+     "eval_tokens": 91,
+     "decode_tps": 82.89154870561659,
+     "thinking_chars": 0,
+     "raw": "{\"id\": \"INFO-035\", \"proposed_summary\": \"Exporter iterates only over mapping_type.unique() present in current data; never truncates tables for absent mapping types; appends on every run; TEST__ and non-prefix schemas independently managed\", \"reason\": \"Rewrote to single-line plain scalar \u2264200 chars, removed leading digit '2', replaced ': ' with ' - ', kept all fact tokens.\"}",
+     "json_ok": true,
+     "proposed": "Exporter iterates only over mapping_type.unique() present in current data; never truncates tables for absent mapping types; appends on every run; TEST__ and non-prefix schemas independently managed",
+     "reason": "Rewrote to single-line plain scalar \u2264200 chars, removed leading digit '2', replaced ': ' with ' - ', kept all fact tokens.",
+     "violations": [
+      "count-dropped"
+     ],
+     "missing_tokens": [],
+     "verdict": "fail"
+    },
+    {
+     "wall": 1.1396428329899209,
+     "prompt_tokens": 3008,
+     "eval_tokens": 91,
+     "decode_tps": 83.25046405272408,
+     "thinking_chars": 0,
+     "raw": "{\"id\": \"INFO-035\", \"proposed_summary\": \"Exporter iterates only over mapping_type.unique() present in current data; never truncates tables for absent mapping types; appends on every run; TEST__ and non-prefix schemas independently managed\", \"reason\": \"Rewrote to single-line plain scalar \u2264200 chars, removed leading digit '2', replaced ': ' with ' - ', kept all fact tokens.\"}",
+     "json_ok": true,
+     "proposed": "Exporter iterates only over mapping_type.unique() present in current data; never truncates tables for absent mapping types; appends on every run; TEST__ and non-prefix schemas independently managed",
+     "reason": "Rewrote to single-line plain scalar \u2264200 chars, removed leading digit '2', replaced ': ' with ' - ', kept all fact tokens.",
+     "violations": [
+      "count-dropped"
+     ],
+     "missing_tokens": [],
+     "verdict": "fail"
+    },
+    {
+     "wall": 1.1436776659975294,
+     "prompt_tokens": 3008,
+     "eval_tokens": 91,
+     "decode_tps": 82.53796065932411,
+     "thinking_chars": 0,
+     "raw": "{\"id\": \"INFO-035\", \"proposed_summary\": \"Exporter iterates only over mapping_type.unique() present in current data; never truncates tables for absent mapping types; appends on every run; TEST__ and non-prefix schemas independently managed\", \"reason\": \"Rewrote to single-line plain scalar \u2264200 chars, removed leading digit '2', replaced ': ' with ' - ', kept all fact tokens.\"}",
+     "json_ok": true,
+     "proposed": "Exporter iterates only over mapping_type.unique() present in current data; never truncates tables for absent mapping types; appends on every run; TEST__ and non-prefix schemas independently managed",
+     "reason": "Rewrote to single-line plain scalar \u2264200 chars, removed leading digit '2', replaced ': ' with ' - ', kept all fact tokens.",
+     "violations": [
+      "count-dropped"
+     ],
+     "missing_tokens": [],
+     "verdict": "fail"
+    }
+   ]
+  },
+  {
+   "id": "INFO-002",
+   "mode": "overlength",
+   "verdict": "fail",
+   "violations": [],
+   "missing_tokens": [
+    "backtick:`asfdip`"
+   ],
+   "proposed": "Permanent staging QA pipeline in the asfdip tenant for exercising mage routing, dbt changes, and SFF rollouts against the claim archetype without provisioning new state.",
+   "reason": "Removed trailing dash and space before 'see' to fix schema violation (space followed by hash sign) while preserving all facts.",
+   "wall": 1.647689999997965,
+   "prompt_tokens": 4127,
+   "eval_tokens": 80,
+   "decode_tps": 82.67828020909337,
+   "thinking_chars": 0,
+   "raw": "{\"id\": \"INFO-002\", \"proposed_summary\": \"Permanent staging QA pipeline in the asfdip tenant for exercising mage routing, dbt changes, and SFF rollouts against the claim archetype without provisioning new state.\", \"reason\": \"Removed trailing dash and space before 'see' to fix schema violation (space followed by hash sign) while preserving all facts.\"}",
+   "json_ok": true,
+   "attempt_details": [
+    {
+     "wall": 1.647689999997965,
+     "prompt_tokens": 4127,
+     "eval_tokens": 80,
+     "decode_tps": 82.67828020909337,
+     "thinking_chars": 0,
+     "raw": "{\"id\": \"INFO-002\", \"proposed_summary\": \"Permanent staging QA pipeline in the asfdip tenant for exercising mage routing, dbt changes, and SFF rollouts against the claim archetype without provisioning new state.\", \"reason\": \"Removed trailing dash and space before 'see' to fix schema violation (space followed by hash sign) while preserving all facts.\"}",
+     "json_ok": true,
+     "proposed": "Permanent staging QA pipeline in the asfdip tenant for exercising mage routing, dbt changes, and SFF rollouts against the claim archetype without provisioning new state.",
+     "reason": "Removed trailing dash and space before 'see' to fix schema violation (space followed by hash sign) while preserving all facts.",
+     "violations": [],
+     "missing_tokens": [
+      "backtick:`asfdip`"
+     ],
+     "verdict": "fail"
+    },
+    {
+     "wall": 1.0239153330039699,
+     "prompt_tokens": 4127,
+     "eval_tokens": 80,
+     "decode_tps": 82.67546057982368,
+     "thinking_chars": 0,
+     "raw": "{\"id\": \"INFO-002\", \"proposed_summary\": \"Permanent staging QA pipeline in the asfdip tenant for exercising mage routing, dbt changes, and SFF rollouts against the claim archetype without provisioning new state.\", \"reason\": \"Removed trailing dash and space before 'see' to fix schema violation (space followed by hash sign) while preserving all facts.\"}",
+     "json_ok": true,
+     "proposed": "Permanent staging QA pipeline in the asfdip tenant for exercising mage routing, dbt changes, and SFF rollouts against the claim archetype without provisioning new state.",
+     "reason": "Removed trailing dash and space before 'see' to fix schema violation (space followed by hash sign) while preserving all facts.",
+     "violations": [],
+     "missing_tokens": [
+      "backtick:`asfdip`"
+     ],
+     "verdict": "fail"
+    },
+    {
+     "wall": 1.022570208995603,
+     "prompt_tokens": 4127,
+     "eval_tokens": 80,
+     "decode_tps": 82.66384231872078,
+     "thinking_chars": 0,
+     "raw": "{\"id\": \"INFO-002\", \"proposed_summary\": \"Permanent staging QA pipeline in the asfdip tenant for exercising mage routing, dbt changes, and SFF rollouts against the claim archetype without provisioning new state.\", \"reason\": \"Removed trailing dash and space before 'see' to fix schema violation (space followed by hash sign) while preserving all facts.\"}",
+     "json_ok": true,
+     "proposed": "Permanent staging QA pipeline in the asfdip tenant for exercising mage routing, dbt changes, and SFF rollouts against the claim archetype without provisioning new state.",
+     "reason": "Removed trailing dash and space before 'see' to fix schema violation (space followed by hash sign) while preserving all facts.",
+     "violations": [],
+     "missing_tokens": [
+      "backtick:`asfdip`"
+     ],
+     "verdict": "fail"
+    }
+   ]
+  },
+  {
+   "id": "BUG-1034",
+   "mode": "quoted",
+   "verdict": "pass",
+   "violations": [],
+   "missing_tokens": [],
+   "proposed": "FIXED 2026-07-08 \u2014 cross-machine ID collisions overwrote OV pointers; fixed by remote-aware next-id.sh, duplicate-ID pre-commit guard, in-cluster single-writer manual sync, provenance overlap check",
+   "reason": "The current summary is already compliant with IMPR-1105 (single line, \u2264200 chars, no forbidden patterns) and preserves all facts from the body excerpt.",
+   "wall": 2.2030413749889703,
+   "prompt_tokens": 4467,
+   "eval_tokens": 115,
+   "decode_tps": 82.38188228990113,
+   "thinking_chars": 0,
+   "raw": "{\n\"id\": \"BUG-1034\",\n\"proposed_summary\": \"FIXED 2026-07-08 \u2014 cross-machine ID collisions overwrote OV pointers; fixed by remote-aware next-id.sh, duplicate-ID pre-commit guard, in-cluster single-writer manual sync, provenance overlap check\",\n\"reason\": \"The current summary is already compliant with IMPR-1105 (single line, \u2264200 chars, no forbidden patterns) and preserves all facts from the body excerpt.\"\n}",
+   "json_ok": true,
+   "attempt_details": [
+    {
+     "wall": 2.2030413749889703,
+     "prompt_tokens": 4467,
+     "eval_tokens": 115,
+     "decode_tps": 82.38188228990113,
+     "thinking_chars": 0,
+     "raw": "{\n\"id\": \"BUG-1034\",\n\"proposed_summary\": \"FIXED 2026-07-08 \u2014 cross-machine ID collisions overwrote OV pointers; fixed by remote-aware next-id.sh, duplicate-ID pre-commit guard, in-cluster single-writer manual sync, provenance overlap check\",\n\"reason\": \"The current summary is already compliant with IMPR-1105 (single line, \u2264200 chars, no forbidden patterns) and preserves all facts from the body excerpt.\"\n}",
+     "json_ok": true,
+     "proposed": "FIXED 2026-07-08 \u2014 cross-machine ID collisions overwrote OV pointers; fixed by remote-aware next-id.sh, duplicate-ID pre-commit guard, in-cluster single-writer manual sync, provenance overlap check",
+     "reason": "The current summary is already compliant with IMPR-1105 (single line, \u2264200 chars, no forbidden patterns) and preserves all facts from the body excerpt.",
+     "violations": [],
+     "missing_tokens": [],
+     "verdict": "pass"
+    },
+    {
+     "wall": 1.4502327919908566,
+     "prompt_tokens": 4467,
+     "eval_tokens": 115,
+     "decode_tps": 82.5976160173297,
+     "thinking_chars": 0,
+     "raw": "{\n\"id\": \"BUG-1034\",\n\"proposed_summary\": \"FIXED 2026-07-08 \u2014 cross-machine ID collisions overwrote OV pointers; fixed by remote-aware next-id.sh, duplicate-ID pre-commit guard, in-cluster single-writer manual sync, provenance overlap check\",\n\"reason\": \"The current summary is already compliant with IMPR-1105 (single line, \u2264200 chars, no forbidden patterns) and preserves all facts from the body excerpt.\"\n}",
+     "json_ok": true,
+     "proposed": "FIXED 2026-07-08 \u2014 cross-machine ID collisions overwrote OV pointers; fixed by remote-aware next-id.sh, duplicate-ID pre-commit guard, in-cluster single-writer manual sync, provenance overlap check",
+     "reason": "The current summary is already compliant with IMPR-1105 (single line, \u2264200 chars, no forbidden patterns) and preserves all facts from the body excerpt.",
+     "violations": [],
+     "missing_tokens": [],
+     "verdict": "pass"
+    },
+    {
+     "wall": 1.4504784579912666,
+     "prompt_tokens": 4467,
+     "eval_tokens": 115,
+     "decode_tps": 82.09823089020897,
+     "thinking_chars": 0,
+     "raw": "{\n\"id\": \"BUG-1034\",\n\"proposed_summary\": \"FIXED 2026-07-08 \u2014 cross-machine ID collisions overwrote OV pointers; fixed by remote-aware next-id.sh, duplicate-ID pre-commit guard, in-cluster single-writer manual sync, provenance overlap check\",\n\"reason\": \"The current summary is already compliant with IMPR-1105 (single line, \u2264200 chars, no forbidden patterns) and preserves all facts from the body excerpt.\"\n}",
+     "json_ok": true,
+     "proposed": "FIXED 2026-07-08 \u2014 cross-machine ID collisions overwrote OV pointers; fixed by remote-aware next-id.sh, duplicate-ID pre-commit guard, in-cluster single-writer manual sync, provenance overlap check",
+     "reason": "The current summary is already compliant with IMPR-1105 (single line, \u2264200 chars, no forbidden patterns) and preserves all facts from the body excerpt.",
+     "violations": [],
+     "missing_tokens": [],
+     "verdict": "pass"
+    }
+   ]
+  },
+  {
+   "id": "INFO-095",
+   "mode": "colon-space",
+   "verdict": "fail",
+   "violations": [
+    "colon-space"
+   ],
+   "missing_tokens": [],
+   "proposed": "Liberty RiskTrac fixed-width file record type prefixes (WC VB EM WP VH VC) and how they map to source_file_names table entries: details in body",
+   "reason": "Current summary is 138 characters, single-line, unquoted, contains no forbidden patterns, and preserves all facts; no repair needed.",
+   "wall": 1.5135588749981252,
+   "prompt_tokens": 3647,
+   "eval_tokens": 85,
+   "decode_tps": 83.10162644547945,
+   "thinking_chars": 0,
+   "raw": "{\"id\": \"INFO-095\", \"proposed_summary\": \"Liberty RiskTrac fixed-width file record type prefixes (WC VB EM WP VH VC) and how they map to source_file_names table entries: details in body\", \"reason\": \"Current summary is 138 characters, single-line, unquoted, contains no forbidden patterns, and preserves all facts; no repair needed.\"}",
+   "json_ok": true,
+   "attempt_details": [
+    {
+     "wall": 1.5135588749981252,
+     "prompt_tokens": 3647,
+     "eval_tokens": 85,
+     "decode_tps": 83.10162644547945,
+     "thinking_chars": 0,
+     "raw": "{\"id\": \"INFO-095\", \"proposed_summary\": \"Liberty RiskTrac fixed-width file record type prefixes (WC VB EM WP VH VC) and how they map to source_file_names table entries: details in body\", \"reason\": \"Current summary is 138 characters, single-line, unquoted, contains no forbidden patterns, and preserves all facts; no repair needed.\"}",
+     "json_ok": true,
+     "proposed": "Liberty RiskTrac fixed-width file record type prefixes (WC VB EM WP VH VC) and how they map to source_file_names table entries: details in body",
+     "reason": "Current summary is 138 characters, single-line, unquoted, contains no forbidden patterns, and preserves all facts; no repair needed.",
+     "violations": [
+      "colon-space"
+     ],
+     "missing_tokens": [],
+     "verdict": "fail"
+    },
+    {
+     "wall": 1.0752084999985527,
+     "prompt_tokens": 3647,
+     "eval_tokens": 85,
+     "decode_tps": 82.73802513094509,
+     "thinking_chars": 0,
+     "raw": "{\"id\": \"INFO-095\", \"proposed_summary\": \"Liberty RiskTrac fixed-width file record type prefixes (WC VB EM WP VH VC) and how they map to source_file_names table entries: details in body\", \"reason\": \"Current summary is 138 characters, single-line, unquoted, contains no forbidden patterns, and preserves all facts; no repair needed.\"}",
+     "json_ok": true,
+     "proposed": "Liberty RiskTrac fixed-width file record type prefixes (WC VB EM WP VH VC) and how they map to source_file_names table entries: details in body",
+     "reason": "Current summary is 138 characters, single-line, unquoted, contains no forbidden patterns, and preserves all facts; no repair needed.",
+     "violations": [
+      "colon-space"
+     ],
+     "missing_tokens": [],
+     "verdict": "fail"
+    },
+    {
+     "wall": 1.065912792008021,
+     "prompt_tokens": 3647,
+     "eval_tokens": 85,
+     "decode_tps": 82.97070255686421,
+     "thinking_chars": 0,
+     "raw": "{\"id\": \"INFO-095\", \"proposed_summary\": \"Liberty RiskTrac fixed-width file record type prefixes (WC VB EM WP VH VC) and how they map to source_file_names table entries: details in body\", \"reason\": \"Current summary is 138 characters, single-line, unquoted, contains no forbidden patterns, and preserves all facts; no repair needed.\"}",
+     "json_ok": true,
+     "proposed": "Liberty RiskTrac fixed-width file record type prefixes (WC VB EM WP VH VC) and how they map to source_file_names table entries: details in body",
+     "reason": "Current summary is 138 characters, single-line, unquoted, contains no forbidden patterns, and preserves all facts; no repair needed.",
+     "violations": [
+      "colon-space"
+     ],
+     "missing_tokens": [],
+     "verdict": "fail"
+    }
+   ]
+  },
+  {
+   "id": "INFO-1149",
+   "mode": "leading-digit",
+   "verdict": "fail",
+   "violations": [
+    "count-dropped"
+   ],
+   "missing_tokens": [],
+   "proposed": "DeepSeek-V4-Flash-0731 (284B total/13B active MoE) fits 256GB Mac Studio at Q3-Q4 quant; FP16/Q8 do not fit",
+   "reason": "Rewritten to be a single-line scalar \u2264200 chars, removing the leading count and quotes while preserving all facts.",
+   "wall": 2.0036249170079827,
+   "prompt_tokens": 4514,
+   "eval_tokens": 97,
+   "decode_tps": 82.2361449051741,
+   "thinking_chars": 0,
+   "raw": "{\"id\": \"INFO-1149\", \"proposed_summary\": \"DeepSeek-V4-Flash-0731 (284B total/13B active MoE) fits 256GB Mac Studio at Q3-Q4 quant; FP16/Q8 do not fit\", \"reason\": \"Rewritten to be a single-line scalar \u2264200 chars, removing the leading count and quotes while preserving all facts.\"}",
+   "json_ok": true,
+   "attempt_details": [
+    {
+     "wall": 2.0036249170079827,
+     "prompt_tokens": 4514,
+     "eval_tokens": 97,
+     "decode_tps": 82.2361449051741,
+     "thinking_chars": 0,
+     "raw": "{\"id\": \"INFO-1149\", \"proposed_summary\": \"DeepSeek-V4-Flash-0731 (284B total/13B active MoE) fits 256GB Mac Studio at Q3-Q4 quant; FP16/Q8 do not fit\", \"reason\": \"Rewritten to be a single-line scalar \u2264200 chars, removing the leading count and quotes while preserving all facts.\"}",
+     "json_ok": true,
+     "proposed": "DeepSeek-V4-Flash-0731 (284B total/13B active MoE) fits 256GB Mac Studio at Q3-Q4 quant; FP16/Q8 do not fit",
+     "reason": "Rewritten to be a single-line scalar \u2264200 chars, removing the leading count and quotes while preserving all facts.",
+     "violations": [
+      "count-dropped"
+     ],
+     "missing_tokens": [],
+     "verdict": "fail"
+    },
+    {
+     "wall": 1.2333540420077043,
+     "prompt_tokens": 4514,
+     "eval_tokens": 97,
+     "decode_tps": 82.48032801661171,
+     "thinking_chars": 0,
+     "raw": "{\"id\": \"INFO-1149\", \"proposed_summary\": \"DeepSeek-V4-Flash-0731 (284B total/13B active MoE) fits 256GB Mac Studio at Q3-Q4 quant; FP16/Q8 do not fit\", \"reason\": \"Rewritten to be a single-line scalar \u2264200 chars, removing the leading count and quotes while preserving all facts.\"}",
+     "json_ok": true,
+     "proposed": "DeepSeek-V4-Flash-0731 (284B total/13B active MoE) fits 256GB Mac Studio at Q3-Q4 quant; FP16/Q8 do not fit",
+     "reason": "Rewritten to be a single-line scalar \u2264200 chars, removing the leading count and quotes while preserving all facts.",
+     "violations": [
+      "count-dropped"
+     ],
+     "missing_tokens": [],
+     "verdict": "fail"
+    },
+    {
+     "wall": 1.2241502499964554,
+     "prompt_tokens": 4514,
+     "eval_tokens": 97,
+     "decode_tps": 82.6204832361336,
+     "thinking_chars": 0,
+     "raw": "{\"id\": \"INFO-1149\", \"proposed_summary\": \"DeepSeek-V4-Flash-0731 (284B total/13B active MoE) fits 256GB Mac Studio at Q3-Q4 quant; FP16/Q8 do not fit\", \"reason\": \"Rewritten to be a single-line scalar \u2264200 chars, removing the leading count and quotes while preserving all facts.\"}",
+     "json_ok": true,
+     "proposed": "DeepSeek-V4-Flash-0731 (284B total/13B active MoE) fits 256GB Mac Studio at Q3-Q4 quant; FP16/Q8 do not fit",
+     "reason": "Rewritten to be a single-line scalar \u2264200 chars, removing the leading count and quotes while preserving all facts.",
+     "violations": [
+      "count-dropped"
+     ],
+     "missing_tokens": [],
+     "verdict": "fail"
+    }
+   ]
+  }
+ ],
+ "fence": [
+  {
+   "label": "bash",
+   "orig_tag": "bash",
+   "path": "bugs/resolved/mage/BUG-082-mage-dbt-notes-model-references-message-column-prefix.md",
+   "verdict": "fail",
+   "tag": "text",
+   "wall": 1.0436638749961276,
+   "prompt_tokens": 2512,
+   "eval_tokens": 7,
+   "raw": "{\"tag\": \"text\"}",
+   "attempt_details": [
+    {
+     "wall": 1.0436638749961276,
+     "prompt_tokens": 2512,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"text\"}",
+     "tag": "text",
+     "verdict": "fail"
+    },
+    {
+     "wall": 0.11487354199925903,
+     "prompt_tokens": 2512,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"text\"}",
+     "tag": "text",
+     "verdict": "fail"
+    },
+    {
+     "wall": 0.11682008299976587,
+     "prompt_tokens": 2512,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"text\"}",
+     "tag": "text",
+     "verdict": "fail"
+    }
+   ]
+  },
+  {
+   "label": "bash",
+   "orig_tag": "bash",
+   "path": "guides/tooling/GUIDE-1001-homelab-using-openviking-mcp.md",
+   "verdict": "pass",
+   "tag": "bash",
+   "wall": 0.4608244169940008,
+   "prompt_tokens": 2492,
+   "eval_tokens": 7,
+   "raw": "{\"tag\": \"bash\"}",
+   "attempt_details": [
+    {
+     "wall": 0.4608244169940008,
+     "prompt_tokens": 2492,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"bash\"}",
+     "tag": "bash",
+     "verdict": "pass"
+    },
+    {
+     "wall": 0.11743162499624304,
+     "prompt_tokens": 2492,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"bash\"}",
+     "tag": "bash",
+     "verdict": "pass"
+    },
+    {
+     "wall": 0.1120212910027476,
+     "prompt_tokens": 2492,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"bash\"}",
+     "tag": "bash",
+     "verdict": "pass"
+    }
+   ]
+  },
+  {
+   "label": "bash",
+   "orig_tag": "bash",
+   "path": "info/knowledge-base/INFO-1006-homelab-lact-rx9070xt-profile-toggle.md",
+   "verdict": "pass",
+   "tag": "bash",
+   "wall": 0.4912181249965215,
+   "prompt_tokens": 2522,
+   "eval_tokens": 7,
+   "raw": "{\"tag\": \"bash\"}",
+   "attempt_details": [
+    {
+     "wall": 0.4912181249965215,
+     "prompt_tokens": 2522,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"bash\"}",
+     "tag": "bash",
+     "verdict": "pass"
+    },
+    {
+     "wall": 0.11912799999117851,
+     "prompt_tokens": 2522,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"bash\"}",
+     "tag": "bash",
+     "verdict": "pass"
+    },
+    {
+     "wall": 0.11454412501188926,
+     "prompt_tokens": 2522,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"bash\"}",
+     "tag": "bash",
+     "verdict": "pass"
+    }
+   ]
+  },
+  {
+   "label": "bash",
+   "orig_tag": "bash",
+   "path": "ideas/other/IDEA-046-other-compendium-agent-lookup-layer.md",
+   "verdict": "pass",
+   "tag": "bash",
+   "wall": 0.4870879999944009,
+   "prompt_tokens": 2526,
+   "eval_tokens": 7,
+   "raw": "{\"tag\": \"bash\"}",
+   "attempt_details": [
+    {
+     "wall": 0.4870879999944009,
+     "prompt_tokens": 2526,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"bash\"}",
+     "tag": "bash",
+     "verdict": "pass"
+    },
+    {
+     "wall": 0.11877712501154747,
+     "prompt_tokens": 2526,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"bash\"}",
+     "tag": "bash",
+     "verdict": "pass"
+    },
+    {
+     "wall": 0.11249895900255069,
+     "prompt_tokens": 2526,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"bash\"}",
+     "tag": "bash",
+     "verdict": "pass"
+    }
+   ]
+  },
+  {
+   "label": "bash",
+   "orig_tag": "bash",
+   "path": "guides/tooling/GUIDE-1010-homelab-cf-cli-r2-access.md",
+   "verdict": "pass",
+   "tag": "bash",
+   "wall": 0.5428902919957181,
+   "prompt_tokens": 2661,
+   "eval_tokens": 7,
+   "raw": "{\"tag\": \"bash\"}",
+   "attempt_details": [
+    {
+     "wall": 0.5428902919957181,
+     "prompt_tokens": 2661,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"bash\"}",
+     "tag": "bash",
+     "verdict": "pass"
+    },
+    {
+     "wall": 0.11795712501043454,
+     "prompt_tokens": 2661,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"bash\"}",
+     "tag": "bash",
+     "verdict": "pass"
+    },
+    {
+     "wall": 0.11423412500880659,
+     "prompt_tokens": 2661,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"bash\"}",
+     "tag": "bash",
+     "verdict": "pass"
+    }
+   ]
+  },
+  {
+   "label": "yaml",
+   "orig_tag": "yaml",
+   "path": "bugs/resolved/mage/BUG-265-mage-mage-dbt-blocks-fetch-entire-models-into-memory-for-discarde.md",
+   "verdict": "pass",
+   "tag": "yaml",
+   "wall": 0.4577150410041213,
+   "prompt_tokens": 2505,
+   "eval_tokens": 7,
+   "raw": "{\"tag\": \"yaml\"}",
+   "attempt_details": [
+    {
+     "wall": 0.4577150410041213,
+     "prompt_tokens": 2505,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"yaml\"}",
+     "tag": "yaml",
+     "verdict": "pass"
+    },
+    {
+     "wall": 0.11575399999856018,
+     "prompt_tokens": 2505,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"yaml\"}",
+     "tag": "yaml",
+     "verdict": "pass"
+    },
+    {
+     "wall": 0.11274770800082479,
+     "prompt_tokens": 2505,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"yaml\"}",
+     "tag": "yaml",
+     "verdict": "pass"
+    }
+   ]
+  },
+  {
+   "label": "yaml",
+   "orig_tag": "yaml",
+   "path": "info/ollama-networking/INFO-1075-homelab-external-ollama-transport-variants-coredns-direct-dns-sideca.md",
+   "verdict": "pass",
+   "tag": "yaml",
+   "wall": 0.48780412499036174,
+   "prompt_tokens": 2529,
+   "eval_tokens": 7,
+   "raw": "{\"tag\": \"yaml\"}",
+   "attempt_details": [
+    {
+     "wall": 0.48780412499036174,
+     "prompt_tokens": 2529,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"yaml\"}",
+     "tag": "yaml",
+     "verdict": "pass"
+    },
+    {
+     "wall": 0.11717287500505336,
+     "prompt_tokens": 2529,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"yaml\"}",
+     "tag": "yaml",
+     "verdict": "pass"
+    },
+    {
+     "wall": 0.11520079200272448,
+     "prompt_tokens": 2529,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"yaml\"}",
+     "tag": "yaml",
+     "verdict": "pass"
+    }
+   ]
+  },
+  {
+   "label": "yaml",
+   "orig_tag": "yaml",
+   "path": "bugs/resolved/homelab/BUG-1031-homelab-traefik-kubernetescrd-provider-fails-to-resolve-any-middlewa.md",
+   "verdict": "pass",
+   "tag": "yaml",
+   "wall": 0.4562687909929082,
+   "prompt_tokens": 2486,
+   "eval_tokens": 7,
+   "raw": "{\"tag\": \"yaml\"}",
+   "attempt_details": [
+    {
+     "wall": 0.4562687909929082,
+     "prompt_tokens": 2486,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"yaml\"}",
+     "tag": "yaml",
+     "verdict": "pass"
+    },
+    {
+     "wall": 0.11826754199864808,
+     "prompt_tokens": 2486,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"yaml\"}",
+     "tag": "yaml",
+     "verdict": "pass"
+    },
+    {
+     "wall": 0.11363887500192504,
+     "prompt_tokens": 2486,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"yaml\"}",
+     "tag": "yaml",
+     "verdict": "pass"
+    }
+   ]
+  },
+  {
+   "label": "yaml",
+   "orig_tag": "yaml",
+   "path": "info/homelab/INFO-1060-Hermes-Agent-local-CLI-setup-guide.md",
+   "verdict": "pass",
+   "tag": "yaml",
+   "wall": 0.5296889580058632,
+   "prompt_tokens": 2585,
+   "eval_tokens": 7,
+   "raw": "{\"tag\": \"yaml\"}",
+   "attempt_details": [
+    {
+     "wall": 0.5296889580058632,
+     "prompt_tokens": 2585,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"yaml\"}",
+     "tag": "yaml",
+     "verdict": "pass"
+    },
+    {
+     "wall": 0.11866687500150874,
+     "prompt_tokens": 2585,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"yaml\"}",
+     "tag": "yaml",
+     "verdict": "pass"
+    },
+    {
+     "wall": 0.11176654200244229,
+     "prompt_tokens": 2585,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"yaml\"}",
+     "tag": "yaml",
+     "verdict": "pass"
+    }
+   ]
+  },
+  {
+   "label": "yaml",
+   "orig_tag": "yaml",
+   "path": "bugs/resolved/homelab/BUG-1017-openviking-queue-issues.md",
+   "verdict": "pass",
+   "tag": "yaml",
+   "wall": 0.456268458001432,
+   "prompt_tokens": 2509,
+   "eval_tokens": 7,
+   "raw": "{\"tag\": \"yaml\"}",
+   "attempt_details": [
+    {
+     "wall": 0.456268458001432,
+     "prompt_tokens": 2509,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"yaml\"}",
+     "tag": "yaml",
+     "verdict": "pass"
+    },
+    {
+     "wall": 0.11642299999948591,
+     "prompt_tokens": 2509,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"yaml\"}",
+     "tag": "yaml",
+     "verdict": "pass"
+    },
+    {
+     "wall": 0.1115657500049565,
+     "prompt_tokens": 2509,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"yaml\"}",
+     "tag": "yaml",
+     "verdict": "pass"
+    }
+   ]
+  },
+  {
+   "label": "json",
+   "orig_tag": "json",
+   "path": "bugs/resolved/BUG-1006-homelab-openviking-fs-api-tenant-headers-missing.md",
+   "verdict": "pass",
+   "tag": "json",
+   "wall": 0.4782732500025304,
+   "prompt_tokens": 2516,
+   "eval_tokens": 7,
+   "raw": "{\"tag\": \"json\"}",
+   "attempt_details": [
+    {
+     "wall": 0.4782732500025304,
+     "prompt_tokens": 2516,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"json\"}",
+     "tag": "json",
+     "verdict": "pass"
+    },
+    {
+     "wall": 0.11728966599912383,
+     "prompt_tokens": 2516,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"json\"}",
+     "tag": "json",
+     "verdict": "pass"
+    },
+    {
+     "wall": 0.11190829100087285,
+     "prompt_tokens": 2516,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"json\"}",
+     "tag": "json",
+     "verdict": "pass"
+    }
+   ]
+  },
+  {
+   "label": "json",
+   "orig_tag": "json",
+   "path": "info/knowledge-base/INFO-1005-robots-fim-token-formats-psm-spm.md",
+   "verdict": "pass",
+   "tag": "json",
+   "wall": 0.5109637919958914,
+   "prompt_tokens": 2515,
+   "eval_tokens": 7,
+   "raw": "{\"tag\": \"json\"}",
+   "attempt_details": [
+    {
+     "wall": 0.5109637919958914,
+     "prompt_tokens": 2515,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"json\"}",
+     "tag": "json",
+     "verdict": "pass"
+    },
+    {
+     "wall": 0.11614916699181776,
+     "prompt_tokens": 2515,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"json\"}",
+     "tag": "json",
+     "verdict": "pass"
+    },
+    {
+     "wall": 0.11247054100385867,
+     "prompt_tokens": 2515,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"json\"}",
+     "tag": "json",
+     "verdict": "pass"
+    }
+   ]
+  },
+  {
+   "label": "json",
+   "orig_tag": "json",
+   "path": "info/opencode/INFO-1135-dotfiles-opencode-configuration-providers-and-permissions.md",
+   "verdict": "pass",
+   "tag": "json",
+   "wall": 0.5043200420041103,
+   "prompt_tokens": 2557,
+   "eval_tokens": 7,
+   "raw": "{\"tag\": \"json\"}",
+   "attempt_details": [
+    {
+     "wall": 0.5043200420041103,
+     "prompt_tokens": 2557,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"json\"}",
+     "tag": "json",
+     "verdict": "pass"
+    },
+    {
+     "wall": 0.1196751670067897,
+     "prompt_tokens": 2557,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"json\"}",
+     "tag": "json",
+     "verdict": "pass"
+    },
+    {
+     "wall": 0.11351358299725689,
+     "prompt_tokens": 2557,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"json\"}",
+     "tag": "json",
+     "verdict": "pass"
+    }
+   ]
+  },
+  {
+   "label": "json",
+   "orig_tag": "json",
+   "path": "info/other/INFO-1109-other-claude-code-interactive-mode-and-terminal-ux.md",
+   "verdict": "pass",
+   "tag": "json",
+   "wall": 0.45476516599592287,
+   "prompt_tokens": 2480,
+   "eval_tokens": 7,
+   "raw": "{\"tag\": \"json\"}",
+   "attempt_details": [
+    {
+     "wall": 0.45476516599592287,
+     "prompt_tokens": 2480,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"json\"}",
+     "tag": "json",
+     "verdict": "pass"
+    },
+    {
+     "wall": 0.11675299999478739,
+     "prompt_tokens": 2480,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"json\"}",
+     "tag": "json",
+     "verdict": "pass"
+    },
+    {
+     "wall": 0.11803337499441113,
+     "prompt_tokens": 2480,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"json\"}",
+     "tag": "json",
+     "verdict": "pass"
+    }
+   ]
+  },
+  {
+   "label": "json",
+   "orig_tag": "json",
+   "path": "info/opencode/INFO-1135-dotfiles-opencode-configuration-providers-and-permissions.md",
+   "verdict": "pass",
+   "tag": "json",
+   "wall": 0.4905467919888906,
+   "prompt_tokens": 2522,
+   "eval_tokens": 7,
+   "raw": "{\"tag\": \"json\"}",
+   "attempt_details": [
+    {
+     "wall": 0.4905467919888906,
+     "prompt_tokens": 2522,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"json\"}",
+     "tag": "json",
+     "verdict": "pass"
+    },
+    {
+     "wall": 0.11586575000546873,
+     "prompt_tokens": 2522,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"json\"}",
+     "tag": "json",
+     "verdict": "pass"
+    },
+    {
+     "wall": 0.11172937499941327,
+     "prompt_tokens": 2522,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"json\"}",
+     "tag": "json",
+     "verdict": "pass"
+    }
+   ]
+  },
+  {
+   "label": "python",
+   "orig_tag": "python",
+   "path": "bugs/resolved/dipdash/BUG-192-dipdash-fail-sensor-race-prevents-failure-category-write-to-pipeline.md",
+   "verdict": "pass",
+   "tag": "python",
+   "wall": 0.5040889170049923,
+   "prompt_tokens": 2542,
+   "eval_tokens": 7,
+   "raw": "{\"tag\": \"python\"}",
+   "attempt_details": [
+    {
+     "wall": 0.5040889170049923,
+     "prompt_tokens": 2542,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"python\"}",
+     "tag": "python",
+     "verdict": "pass"
+    },
+    {
+     "wall": 0.12083645899838302,
+     "prompt_tokens": 2542,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"python\"}",
+     "tag": "python",
+     "verdict": "pass"
+    },
+    {
+     "wall": 0.11460025000269525,
+     "prompt_tokens": 2542,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"python\"}",
+     "tag": "python",
+     "verdict": "pass"
+    }
+   ]
+  },
+  {
+   "label": "python",
+   "orig_tag": "python",
+   "path": "errors/mage/ERR-004-mage-lookup-export-empty-acl-json-crash.md",
+   "verdict": "pass",
+   "tag": "python",
+   "wall": 0.45505425000737887,
+   "prompt_tokens": 2473,
+   "eval_tokens": 7,
+   "raw": "{\"tag\": \"python\"}",
+   "attempt_details": [
+    {
+     "wall": 0.45505425000737887,
+     "prompt_tokens": 2473,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"python\"}",
+     "tag": "python",
+     "verdict": "pass"
+    },
+    {
+     "wall": 0.11833833300624974,
+     "prompt_tokens": 2473,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"python\"}",
+     "tag": "python",
+     "verdict": "pass"
+    },
+    {
+     "wall": 0.1144017500046175,
+     "prompt_tokens": 2473,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"python\"}",
+     "tag": "python",
+     "verdict": "pass"
+    }
+   ]
+  },
+  {
+   "label": "python",
+   "orig_tag": "python",
+   "path": "bugs/mage/BUG-291-mage-poll-for-answers-completion-normalized-dataframe-metadata-de.md",
+   "verdict": "pass",
+   "tag": "python",
+   "wall": 0.45626241600257345,
+   "prompt_tokens": 2494,
+   "eval_tokens": 7,
+   "raw": "{\"tag\": \"python\"}",
+   "attempt_details": [
+    {
+     "wall": 0.45626241600257345,
+     "prompt_tokens": 2494,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"python\"}",
+     "tag": "python",
+     "verdict": "pass"
+    },
+    {
+     "wall": 0.11756562499795109,
+     "prompt_tokens": 2494,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"python\"}",
+     "tag": "python",
+     "verdict": "pass"
+    },
+    {
+     "wall": 0.11269220800022595,
+     "prompt_tokens": 2494,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"python\"}",
+     "tag": "python",
+     "verdict": "pass"
+    }
+   ]
+  },
+  {
+   "label": "python",
+   "orig_tag": "python",
+   "path": "improvements/mage/IMPR-109-mage-surface-api-response-detail-on-submission-failure.md",
+   "verdict": "pass",
+   "tag": "python",
+   "wall": 0.48958808300085366,
+   "prompt_tokens": 2539,
+   "eval_tokens": 7,
+   "raw": "{\"tag\": \"python\"}",
+   "attempt_details": [
+    {
+     "wall": 0.48958808300085366,
+     "prompt_tokens": 2539,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"python\"}",
+     "tag": "python",
+     "verdict": "pass"
+    },
+    {
+     "wall": 0.11817666700517293,
+     "prompt_tokens": 2539,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"python\"}",
+     "tag": "python",
+     "verdict": "pass"
+    },
+    {
+     "wall": 0.1111274169961689,
+     "prompt_tokens": 2539,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"python\"}",
+     "tag": "python",
+     "verdict": "pass"
+    }
+   ]
+  },
+  {
+   "label": "python",
+   "orig_tag": "python",
+   "path": "bugs/resolved/dipdash/BUG-170-dipdash-s3-pagination-missing-file-refresh-lambda.md",
+   "verdict": "pass",
+   "tag": "python",
+   "wall": 0.5123161659867037,
+   "prompt_tokens": 2554,
+   "eval_tokens": 7,
+   "raw": "{\"tag\": \"python\"}",
+   "attempt_details": [
+    {
+     "wall": 0.5123161659867037,
+     "prompt_tokens": 2554,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"python\"}",
+     "tag": "python",
+     "verdict": "pass"
+    },
+    {
+     "wall": 0.1167681250080932,
+     "prompt_tokens": 2554,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"python\"}",
+     "tag": "python",
+     "verdict": "pass"
+    },
+    {
+     "wall": 0.11242262499581557,
+     "prompt_tokens": 2554,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"python\"}",
+     "tag": "python",
+     "verdict": "pass"
+    }
+   ]
+  },
+  {
+   "label": "sql",
+   "orig_tag": "sql",
+   "path": "bugs/resolved/mage/BUG-082-mage-dbt-notes-model-references-message-column-prefix.md",
+   "verdict": "fail",
+   "tag": "text",
+   "wall": 0.4560381249903003,
+   "prompt_tokens": 2477,
+   "eval_tokens": 7,
+   "raw": "{\"tag\": \"text\"}",
+   "attempt_details": [
+    {
+     "wall": 0.4560381249903003,
+     "prompt_tokens": 2477,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"text\"}",
+     "tag": "text",
+     "verdict": "fail"
+    },
+    {
+     "wall": 0.11768037499859929,
+     "prompt_tokens": 2477,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"text\"}",
+     "tag": "text",
+     "verdict": "fail"
+    },
+    {
+     "wall": 0.11318708398903254,
+     "prompt_tokens": 2477,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"text\"}",
+     "tag": "text",
+     "verdict": "fail"
+    }
+   ]
+  },
+  {
+   "label": "sql",
+   "orig_tag": "sql",
+   "path": "errors/mage/ERR-005-mage-to-datetime-macro-returns-error-string.md",
+   "verdict": "pass",
+   "tag": "sql",
+   "wall": 0.5421002910006791,
+   "prompt_tokens": 2518,
+   "eval_tokens": 7,
+   "raw": "{\"tag\": \"sql\"}",
+   "attempt_details": [
+    {
+     "wall": 0.5421002910006791,
+     "prompt_tokens": 2518,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"sql\"}",
+     "tag": "sql",
+     "verdict": "pass"
+    },
+    {
+     "wall": 0.11809116699441802,
+     "prompt_tokens": 2518,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"sql\"}",
+     "tag": "sql",
+     "verdict": "pass"
+    },
+    {
+     "wall": 0.1206465839932207,
+     "prompt_tokens": 2518,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"sql\"}",
+     "tag": "sql",
+     "verdict": "pass"
+    }
+   ]
+  },
+  {
+   "label": "sql",
+   "orig_tag": "sql",
+   "path": "info/platform-api/INFO-080-aclaimant-company-ident-resolution-chain.md",
+   "verdict": "pass",
+   "tag": "sql",
+   "wall": 0.5040906250069384,
+   "prompt_tokens": 2563,
+   "eval_tokens": 7,
+   "raw": "{\"tag\": \"sql\"}",
+   "attempt_details": [
+    {
+     "wall": 0.5040906250069384,
+     "prompt_tokens": 2563,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"sql\"}",
+     "tag": "sql",
+     "verdict": "pass"
+    },
+    {
+     "wall": 0.11751395800092723,
+     "prompt_tokens": 2563,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"sql\"}",
+     "tag": "sql",
+     "verdict": "pass"
+    },
+    {
+     "wall": 0.11382741699344479,
+     "prompt_tokens": 2563,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"sql\"}",
+     "tag": "sql",
+     "verdict": "pass"
+    }
+   ]
+  },
+  {
+   "label": "sql",
+   "orig_tag": "sql",
+   "path": "bugs/resolved/dipdash/BUG-279-dipdash-sandbox-and-prod-liberty-pipelines-run-different-configurations.md",
+   "verdict": "pass",
+   "tag": "sql",
+   "wall": 0.5297704999975394,
+   "prompt_tokens": 2580,
+   "eval_tokens": 7,
+   "raw": "{\"tag\": \"sql\"}",
+   "attempt_details": [
+    {
+     "wall": 0.5297704999975394,
+     "prompt_tokens": 2580,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"sql\"}",
+     "tag": "sql",
+     "verdict": "pass"
+    },
+    {
+     "wall": 0.1179521250014659,
+     "prompt_tokens": 2580,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"sql\"}",
+     "tag": "sql",
+     "verdict": "pass"
+    },
+    {
+     "wall": 0.11247891699895263,
+     "prompt_tokens": 2580,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"sql\"}",
+     "tag": "sql",
+     "verdict": "pass"
+    }
+   ]
+  },
+  {
+   "label": "sql",
+   "orig_tag": "sql",
+   "path": "bugs/mage/BUG-065-mage-fuzzy-company-name-suffix-stripping-broken.md",
+   "verdict": "pass",
+   "tag": "sql",
+   "wall": 0.5153863330051536,
+   "prompt_tokens": 2563,
+   "eval_tokens": 7,
+   "raw": "{\"tag\": \"sql\"}",
+   "attempt_details": [
+    {
+     "wall": 0.5153863330051536,
+     "prompt_tokens": 2563,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"sql\"}",
+     "tag": "sql",
+     "verdict": "pass"
+    },
+    {
+     "wall": 0.11727866700675804,
+     "prompt_tokens": 2563,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"sql\"}",
+     "tag": "sql",
+     "verdict": "pass"
+    },
+    {
+     "wall": 0.11650550000194926,
+     "prompt_tokens": 2563,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"sql\"}",
+     "tag": "sql",
+     "verdict": "pass"
+    }
+   ]
+  },
+  {
+   "label": "text",
+   "orig_tag": "text",
+   "path": "bugs/dipdash/BUG-304-dipdash-fixed-width-upload-dry-run-omits-the-overlap-the-upload-intr.md",
+   "verdict": "pass",
+   "tag": "text",
+   "wall": 0.4575572500034468,
+   "prompt_tokens": 2490,
+   "eval_tokens": 7,
+   "raw": "{\"tag\": \"text\"}",
+   "attempt_details": [
+    {
+     "wall": 0.4575572500034468,
+     "prompt_tokens": 2490,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"text\"}",
+     "tag": "text",
+     "verdict": "pass"
+    },
+    {
+     "wall": 0.11859495799581055,
+     "prompt_tokens": 2490,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"text\"}",
+     "tag": "text",
+     "verdict": "pass"
+    },
+    {
+     "wall": 0.1128010000102222,
+     "prompt_tokens": 2490,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"text\"}",
+     "tag": "text",
+     "verdict": "pass"
+    }
+   ]
+  },
+  {
+   "label": "text",
+   "orig_tag": "text",
+   "path": "bugs/resolved/dipdash/BUG-158-dipdash-sync-customer-schemas-uuid-violation.md",
+   "verdict": "pass",
+   "tag": "text",
+   "wall": 0.4895033329958096,
+   "prompt_tokens": 2532,
+   "eval_tokens": 7,
+   "raw": "{\"tag\": \"text\"}",
+   "attempt_details": [
+    {
+     "wall": 0.4895033329958096,
+     "prompt_tokens": 2532,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"text\"}",
+     "tag": "text",
+     "verdict": "pass"
+    },
+    {
+     "wall": 0.11887975000718143,
+     "prompt_tokens": 2532,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"text\"}",
+     "tag": "text",
+     "verdict": "pass"
+    },
+    {
+     "wall": 0.11114262499904726,
+     "prompt_tokens": 2532,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"text\"}",
+     "tag": "text",
+     "verdict": "pass"
+    }
+   ]
+  },
+  {
+   "label": "text",
+   "orig_tag": "text",
+   "path": "bugs/resolved/homelab/BUG-1031-homelab-traefik-kubernetescrd-provider-fails-to-resolve-any-middlewa.md",
+   "verdict": "fail",
+   "tag": "yaml",
+   "wall": 0.45865058300842065,
+   "prompt_tokens": 2478,
+   "eval_tokens": 7,
+   "raw": "{\"tag\": \"yaml\"}",
+   "attempt_details": [
+    {
+     "wall": 0.45865058300842065,
+     "prompt_tokens": 2478,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"yaml\"}",
+     "tag": "yaml",
+     "verdict": "fail"
+    },
+    {
+     "wall": 0.12188729199988302,
+     "prompt_tokens": 2478,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"yaml\"}",
+     "tag": "yaml",
+     "verdict": "fail"
+    },
+    {
+     "wall": 0.11370425000495743,
+     "prompt_tokens": 2478,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"yaml\"}",
+     "tag": "yaml",
+     "verdict": "fail"
+    }
+   ]
+  },
+  {
+   "label": "text",
+   "orig_tag": "text",
+   "path": "guides/tooling/GUIDE-1064-obsidian-task-board-plugin-config.md",
+   "verdict": "fail",
+   "tag": "bash",
+   "wall": 0.45722150000801776,
+   "prompt_tokens": 2479,
+   "eval_tokens": 7,
+   "raw": "{\"tag\": \"bash\"}",
+   "attempt_details": [
+    {
+     "wall": 0.45722150000801776,
+     "prompt_tokens": 2479,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"bash\"}",
+     "tag": "bash",
+     "verdict": "fail"
+    },
+    {
+     "wall": 0.11857400000735652,
+     "prompt_tokens": 2479,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"bash\"}",
+     "tag": "bash",
+     "verdict": "fail"
+    },
+    {
+     "wall": 0.11238649999722838,
+     "prompt_tokens": 2479,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"bash\"}",
+     "tag": "bash",
+     "verdict": "fail"
+    }
+   ]
+  },
+  {
+   "label": "text",
+   "orig_tag": "text",
+   "path": "ideas/other/IDEA-107-other-omnipendium-agent-submission-markdown-outbox.md",
+   "verdict": "pass",
+   "tag": "text",
+   "wall": 0.45550249998632353,
+   "prompt_tokens": 2471,
+   "eval_tokens": 7,
+   "raw": "{\"tag\": \"text\"}",
+   "attempt_details": [
+    {
+     "wall": 0.45550249998632353,
+     "prompt_tokens": 2471,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"text\"}",
+     "tag": "text",
+     "verdict": "pass"
+    },
+    {
+     "wall": 0.11694416600221302,
+     "prompt_tokens": 2471,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"text\"}",
+     "tag": "text",
+     "verdict": "pass"
+    },
+    {
+     "wall": 0.11174604200641625,
+     "prompt_tokens": 2471,
+     "eval_tokens": 7,
+     "raw": "{\"tag\": \"text\"}",
+     "tag": "text",
+     "verdict": "pass"
+    }
+   ]
+  }
+ ],
+ "fact_token_verify_output": "[]\n",
+ "score": {
+  "summary_pass": 12,
+  "summary_report": 0,
+  "summary_fail": 8,
+  "summary_error": 0,
+  "summary_n": 20,
+  "summary_json_ok": 20,
+  "summary_token_loss": 1,
+  "summary_schema_fail": 7,
+  "summary_hallucination": 0,
+  "fence_pass": 26,
+  "fence_n": 30,
+  "wall_p50": 1.9624731665026047,
+  "decode_tps_p50": 82.33783643660763,
+  "load_s": 11.185650708008325
+ }
+}

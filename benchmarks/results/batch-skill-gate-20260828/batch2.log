@@ -1,0 +1,11 @@
+=== ornith-1.5:9b 19:24:19
+  fence   text    (text      ) -> yaml fail
+  fence   text    (text      ) -> text pass
+  fence   text    (text      ) -> text pass
+ornith-1.5:9b                summary pass 6/20 (report 13, token-loss 0, schema 1, halluc 0, bad-json 0) | fence 27/30 | wall p50 1.6s decode 85 tok/s load 8.9s
+=== lfm2.5:latest 19:25:08
+  fence   text    (text      ) -> bash fail
+  fence   text    (text      ) -> bash fail
+lfm2.5:latest                summary pass 1/20 (report 19, token-loss 0, schema 0, halluc 0, bad-json 0) | fence 9/30 | wall p50 0.5s decode 265 tok/s load 7.0s
+re-warmed deepseek-coder-v2:fim load
+batch2 done 19:25:39
