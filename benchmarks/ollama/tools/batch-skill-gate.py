@@ -132,6 +132,15 @@ def tokens(s: str) -> set[str]:
     return out
 
 
+def count_preserved(s: str) -> bool:
+    """The leading-digit corruption prepends '2 items - '; the count is a fact
+    and must survive as '2'/'two' + 'items', never be dropped. Tied to the
+    literal prefix in corrupt(..., 'leading-digit')."""
+    has_num = bool(re.search(r"\b(?:2|two)\b", s or ""))
+    has_noun = bool(re.search(r"\bitems\b", s or ""))
+    return has_num and has_noun
+
+
 def corrupt(summary: str, mode: str) -> str:
     if mode == "overlength":
         filler = (
@@ -444,7 +453,7 @@ def cmd_run(a):
             body=c["body_excerpt"],
         )
         row = {"id": c["id"], "mode": c["mode"], "attempts": []}
-        for _ in range(a.repeats):
+        for attempt_idx in range(a.repeats):
             attempt = {}
             try:
                 r = chat(
@@ -477,13 +486,15 @@ def cmd_run(a):
                     attempt["verdict"] = "report"
                 else:
                     viol = summary_violations(prop)
+                    if c["mode"] == "leading-digit" and not count_preserved(prop):
+                        viol.append("count-dropped")
                     missing = sorted(set(c["required_tokens"]) - tokens(prop))
                     attempt["violations"] = viol
                     attempt["missing_tokens"] = missing
                     attempt["verdict"] = "pass" if not viol and not missing else "fail"
                     proposals.append(
                         {
-                            "id": c["id"],
+                            "id": f"{c['id']}#{attempt_idx}",
                             "path": c["path"],
                             "current_summary": c["current_summary"],
                             "proposed_summary": prop,
@@ -501,8 +512,11 @@ def cmd_run(a):
     flagged, ftv_out = fact_token_verify(vault, proposals) if proposals else ([], "")
     flagged_ids = {f.get("id") for f in flagged if isinstance(f, dict)}
     for row in results["summary"]:
-        for attempt in row["attempts"]:
-            if attempt.get("verdict") == "pass" and row["id"] in flagged_ids:
+        for attempt_idx, attempt in enumerate(row["attempts"]):
+            if (
+                attempt.get("verdict") == "pass"
+                and f"{row['id']}#{attempt_idx}" in flagged_ids
+            ):
                 attempt["verdict"] = "fail"
                 attempt.setdefault("violations", []).append("fact-token-verify")
         verdicts = [
@@ -540,32 +554,63 @@ def cmd_run(a):
 
     for c in cases["fence_cases"]:
         user = FENCE_USER.format(content=c["content"])
-        row = {"label": c["label"], "orig_tag": c["orig_tag"], "path": c["path"]}
-        try:
-            r = chat(
-                host,
-                model,
-                sys_fence,
-                user,
-                FENCE_SCHEMA,
-                a.think,
-                a.temperature,
-                a.num_ctx,
+        row = {
+            "label": c["label"],
+            "orig_tag": c["orig_tag"],
+            "path": c["path"],
+            "attempts": [],
+        }
+        for _ in range(a.repeats):
+            attempt = {}
+            try:
+                r = chat(
+                    host,
+                    model,
+                    sys_fence,
+                    user,
+                    FENCE_SCHEMA,
+                    a.think,
+                    a.temperature,
+                    a.num_ctx,
+                )
+                content = r["message"]["content"]
+                attempt.update(
+                    wall=r["_wall"],
+                    prompt_tokens=r.get("prompt_eval_count"),
+                    eval_tokens=r.get("eval_count"),
+                    raw=content[:200],
+                )
+                tag = json.loads(content).get("tag")
+                attempt["tag"] = tag
+                attempt["verdict"] = "pass" if tag == c["label"] else "fail"
+            except json.JSONDecodeError:
+                attempt.update(verdict="fail", tag=None, violations=["invalid-json"])
+            except Exception as e:  # noqa: BLE001
+                attempt.update(verdict="error", error=str(e)[:200])
+            row["attempts"].append(attempt)
+        verdicts = [
+            "fail" if a.get("verdict") == "error" else a.get("verdict", "error")
+            for a in row["attempts"]
+        ]
+        row["verdict"] = majority(verdicts)
+        for attempt in row["attempts"]:
+            canon = (
+                "fail" if attempt.get("verdict") == "error" else attempt.get("verdict")
             )
-            content = r["message"]["content"]
-            row.update(
-                wall=r["_wall"],
-                prompt_tokens=r.get("prompt_eval_count"),
-                eval_tokens=r.get("eval_count"),
-                raw=content[:200],
-            )
-            tag = json.loads(content).get("tag")
-            row["tag"] = tag
-            row["verdict"] = "pass" if tag == c["label"] else "fail"
-        except json.JSONDecodeError:
-            row.update(verdict="fail", tag=None, violations=["invalid-json"])
-        except Exception as e:  # noqa: BLE001
-            row.update(verdict="error", error=str(e)[:200])
+            if canon == row["verdict"]:
+                for k in (
+                    "tag",
+                    "wall",
+                    "prompt_tokens",
+                    "eval_tokens",
+                    "raw",
+                    "violations",
+                    "error",
+                ):
+                    if k in attempt:
+                        row[k] = attempt[k]
+                break
+        row["attempt_details"] = row.pop("attempts")
         results["fence"].append(row)
         print(
             f"  fence   {c['label']:7s} ({c['orig_tag']:10s}) -> {row.get('tag')} {row['verdict']}"
@@ -683,6 +728,8 @@ def main():
     p.add_argument("--out", default=str(DEFAULT_OUT))
     p.set_defaults(fn=cmd_report)
     a = ap.parse_args()
+    if getattr(a, "repeats", 1) < 1:
+        ap.error("--repeats must be >= 1")
     a.fn(a)
 
 
