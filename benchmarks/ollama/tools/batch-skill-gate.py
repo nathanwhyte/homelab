@@ -94,6 +94,15 @@ def git_show(vault: Path, path: str) -> str:
     ).stdout
 
 
+def skill_commit(vault: Path) -> str:
+    return subprocess.run(
+        ["git", "-C", str(vault), "rev-parse", "--short", SKILL_BRANCH],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+
+
 def summary_violations(s: str) -> list[str]:
     v = []
     if not isinstance(s, str) or not s.strip():
@@ -151,89 +160,104 @@ def cmd_build(a):
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
     rnd = random.Random(20260828)
-
-    # --- summary cases from real records (build-lane-records.py, the skill's ground-truth command)
-    records = []
-    for type_dir in ["bugs", "improvements", "ideas", "info"]:
-        tmp = out / f"records-{type_dir}.json"
-        subprocess.run(
-            [
-                "uv",
-                "run",
-                "python",
-                "_scripts/build-lane-records.py",
-                "--type-dir",
-                type_dir,
-                "--output",
-                str(tmp),
-            ],
-            cwd=vault,
-            check=True,
-            capture_output=True,
-            text=True,
-        )
-        d = json.load(open(tmp))
-        recs = d.get("records", d) if isinstance(d, dict) else d
-        records += [
-            r for r in recs if r.get("summary") and not summary_violations(r["summary"])
-        ]
-        tmp.unlink()
-    rnd.shuffle(records)
     modes = ["overlength", "quoted", "colon-space", "leading-digit"]
-    summary_cases = []
-    for i, r in enumerate(records[: a.n_summary]):
-        mode = modes[i % len(modes)]
-        current = corrupt(r["summary"], mode)
-        summary_cases.append(
-            {
-                "id": r["id"],
-                "path": r["path"],
-                "title": r["title"],
-                "mode": mode,
-                "original_summary": r["summary"],
-                "current_summary": current,
-                "required_tokens": sorted(tokens(current)),
-                "body_excerpt": r["body_excerpt"][: a.excerpt_chars],
-            }
-        )
 
-    # --- fence cases from real tagged fences
-    fence_cases = []
-    per_class = {c: [] for c in FENCE_TAGS}
-    files = [
-        p
-        for d in ["bugs", "info", "ideas", "improvements", "tasks", "guides", "errors"]
-        for p in glob.glob(str(vault / d / "**" / "*.md"), recursive=True)
-    ]
-    rnd.shuffle(files)
-    fence_rx = re.compile(r"^```([a-zA-Z0-9_+-]+)\s*\n(.*?)^```\s*$", re.S | re.M)
-    for p in files:
-        try:
-            text = open(p, encoding="utf-8").read()
-        except Exception:
-            continue
-        for m in fence_rx.finditer(text):
-            lang = m.group(1).lower()
-            if lang not in FENCE_CLASSES:
-                continue
-            cls = FENCE_CLASSES[lang]
-            body = m.group(2).strip("\n")
-            lines = body.splitlines()
-            if len(lines) < 2 or len(body) < 40:
-                continue
-            per_class[cls].append(
+    if a.from_cases:
+        src = json.load(open(a.from_cases))
+        summary_cases = src["summary_cases"]
+        fence_cases = src["fence_cases"]
+    else:
+        # --- summary cases from real records (build-lane-records.py, the skill's ground-truth command)
+        records = []
+        for type_dir in ["bugs", "improvements", "ideas", "info"]:
+            tmp = out / f"records-{type_dir}.json"
+            subprocess.run(
+                [
+                    "uv",
+                    "run",
+                    "python",
+                    "_scripts/build-lane-records.py",
+                    "--type-dir",
+                    type_dir,
+                    "--output",
+                    str(tmp),
+                ],
+                cwd=vault,
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            d = json.load(open(tmp))
+            recs = d.get("records", d) if isinstance(d, dict) else d
+            records += [
+                r
+                for r in recs
+                if r.get("summary") and not summary_violations(r["summary"])
+            ]
+            tmp.unlink()
+        rnd.shuffle(records)
+        summary_cases = []
+        for i, r in enumerate(records[: a.n_summary]):
+            mode = modes[i % len(modes)]
+            current = corrupt(r["summary"], mode)
+            summary_cases.append(
                 {
-                    "path": os.path.relpath(p, vault),
-                    "orig_tag": lang,
-                    "label": cls,
-                    "content": "\n".join(lines[:30]),
+                    "id": r["id"],
+                    "path": r["path"],
+                    "title": r["title"],
+                    "mode": mode,
+                    "original_summary": r["summary"],
+                    "current_summary": current,
+                    "required_tokens": sorted(tokens(current)),
+                    "body_excerpt": r["body_excerpt"][: a.excerpt_chars],
                 }
             )
-    per = max(1, a.n_fence // len(FENCE_TAGS))
-    for cls in FENCE_TAGS:
-        pool = per_class[cls]
-        rnd.shuffle(pool)
-        fence_cases += pool[:per]
+
+        # --- fence cases from real tagged fences
+        fence_cases = []
+        per_class = {c: [] for c in FENCE_TAGS}
+        files = [
+            p
+            for d in [
+                "bugs",
+                "info",
+                "ideas",
+                "improvements",
+                "tasks",
+                "guides",
+                "errors",
+            ]
+            for p in glob.glob(str(vault / d / "**" / "*.md"), recursive=True)
+        ]
+        rnd.shuffle(files)
+        fence_rx = re.compile(r"^```([a-zA-Z0-9_+-]+)\s*\n(.*?)^```\s*$", re.S | re.M)
+        for p in files:
+            try:
+                text = open(p, encoding="utf-8").read()
+            except Exception:
+                continue
+            for m in fence_rx.finditer(text):
+                lang = m.group(1).lower()
+                if lang not in FENCE_CLASSES:
+                    continue
+                cls = FENCE_CLASSES[lang]
+                body = m.group(2).strip("\n")
+                lines = body.splitlines()
+                if len(lines) < 2 or len(body) < 40:
+                    continue
+                per_class[cls].append(
+                    {
+                        "path": os.path.relpath(p, vault),
+                        "orig_tag": lang,
+                        "label": cls,
+                        "content": "\n".join(lines[:30]),
+                    }
+                )
+        per = max(1, a.n_fence // len(FENCE_TAGS))
+        for cls in FENCE_TAGS:
+            pool = per_class[cls]
+            rnd.shuffle(pool)
+            fence_cases += pool[:per]
 
     # --- skill texts (system prompts), verbatim from the branch
     skills = {
@@ -243,10 +267,12 @@ def cmd_build(a):
         ),
         "fence": git_show(vault, f"{SKILL_DIR}/compendium-batch-fence-repair/SKILL.md"),
     }
+    sc = skill_commit(vault)
     cases = {
         "built": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "vault": str(vault),
         "skill_branch": SKILL_BRANCH,
+        "skill_commit": sc,
         "skills": skills,
         "summary_cases": summary_cases,
         "fence_cases": fence_cases,
@@ -256,7 +282,8 @@ def cmd_build(a):
         f"built {len(summary_cases)} summary cases "
         f"({', '.join(f'{m}={sum(1 for c in summary_cases if c['mode'] == m)}' for m in modes)}) "
         f"and {len(fence_cases)} fence cases "
-        f"({', '.join(f'{c}={sum(1 for f in fence_cases if f['label'] == c)}' for c in FENCE_TAGS)}) -> {out / 'cases.json'}"
+        f"({', '.join(f'{c}={sum(1 for f in fence_cases if f['label'] == c)}' for c in FENCE_TAGS)}) "
+        f"skill {sc} -> {out / 'cases.json'}"
     )
 
 
@@ -365,6 +392,16 @@ def fact_token_verify(vault, proposals):
     return flagged, (r.stdout + r.stderr)[-800:]
 
 
+def majority(verdicts: list[str]) -> str:
+    order = {"fail": 0, "report": 1, "pass": 2}
+    counts: dict[str, int] = {}
+    for v in verdicts:
+        counts[v] = counts.get(v, 0) + 1
+    best = max(counts.values())
+    top = [v for v, n in counts.items() if n == best]
+    return min(top, key=lambda v: order[v])  # ties -> worse outcome
+
+
 def cmd_run(a):
     out = Path(a.out)
     cases = json.load(open(out / "cases.json"))
@@ -391,6 +428,8 @@ def cmd_run(a):
         "ollama": ver,
         "think": a.think,
         "temperature": a.temperature,
+        "num_ctx": a.num_ctx,
+        "repeats": a.repeats,
         "load_s": load_s,
         "summary": [],
         "fence": [],
@@ -404,65 +443,99 @@ def cmd_run(a):
             current=c["current_summary"],
             body=c["body_excerpt"],
         )
-        row = {"id": c["id"], "mode": c["mode"]}
-        try:
-            r = chat(
-                host,
-                model,
-                sys_summary,
-                user,
-                SUMMARY_SCHEMA,
-                a.think,
-                a.temperature,
-                a.num_ctx,
-            )
-            content = r["message"]["content"]
-            row.update(
-                wall=r["_wall"],
-                prompt_tokens=r.get("prompt_eval_count"),
-                eval_tokens=r.get("eval_count"),
-                decode_tps=(r.get("eval_count") or 0)
-                / max(r.get("eval_duration", 1), 1)
-                * 1e9,
-                thinking_chars=len(r["message"].get("thinking") or ""),
-                raw=content[:600],
-            )
-            obj = json.loads(content)
-            prop = obj.get("proposed_summary")
-            row["json_ok"] = True
-            row["proposed"] = prop
-            row["reason"] = str(obj.get("reason", ""))[:200]
-            if prop is None:
-                row["verdict"] = "report"
-            else:
-                viol = summary_violations(prop)
-                missing = sorted(set(c["required_tokens"]) - tokens(prop))
-                row["violations"] = viol
-                row["missing_tokens"] = missing
-                row["verdict"] = "pass" if not viol and not missing else "fail"
-                proposals.append(
-                    {
-                        "id": c["id"],
-                        "path": c["path"],
-                        "current_summary": c["current_summary"],
-                        "proposed_summary": prop,
-                    }
+        row = {"id": c["id"], "mode": c["mode"], "attempts": []}
+        for _ in range(a.repeats):
+            attempt = {}
+            try:
+                r = chat(
+                    host,
+                    model,
+                    sys_summary,
+                    user,
+                    SUMMARY_SCHEMA,
+                    a.think,
+                    a.temperature,
+                    a.num_ctx,
                 )
-        except json.JSONDecodeError:
-            row.update(json_ok=False, verdict="fail", violations=["invalid-json"])
-        except Exception as e:  # noqa: BLE001
-            row.update(json_ok=False, verdict="error", error=str(e)[:200])
+                content = r["message"]["content"]
+                attempt.update(
+                    wall=r["_wall"],
+                    prompt_tokens=r.get("prompt_eval_count"),
+                    eval_tokens=r.get("eval_count"),
+                    decode_tps=(r.get("eval_count") or 0)
+                    / max(r.get("eval_duration", 1), 1)
+                    * 1e9,
+                    thinking_chars=len(r["message"].get("thinking") or ""),
+                    raw=content[:600],
+                )
+                obj = json.loads(content)
+                prop = obj.get("proposed_summary")
+                attempt["json_ok"] = True
+                attempt["proposed"] = prop
+                attempt["reason"] = str(obj.get("reason", ""))[:200]
+                if prop is None:
+                    attempt["verdict"] = "report"
+                else:
+                    viol = summary_violations(prop)
+                    missing = sorted(set(c["required_tokens"]) - tokens(prop))
+                    attempt["violations"] = viol
+                    attempt["missing_tokens"] = missing
+                    attempt["verdict"] = "pass" if not viol and not missing else "fail"
+                    proposals.append(
+                        {
+                            "id": c["id"],
+                            "path": c["path"],
+                            "current_summary": c["current_summary"],
+                            "proposed_summary": prop,
+                        }
+                    )
+            except json.JSONDecodeError:
+                attempt.update(
+                    json_ok=False, verdict="fail", violations=["invalid-json"]
+                )
+            except Exception as e:  # noqa: BLE001
+                attempt.update(json_ok=False, verdict="error", error=str(e)[:200])
+            row["attempts"].append(attempt)
         results["summary"].append(row)
-        print(
-            f"  summary {c['id']:10s} {c['mode']:14s} -> {row['verdict']:6s} {row.get('violations', '')} {row.get('missing_tokens', '')} {row.get('wall', 0):.1f}s"
-        )
 
     flagged, ftv_out = fact_token_verify(vault, proposals) if proposals else ([], "")
     flagged_ids = {f.get("id") for f in flagged if isinstance(f, dict)}
     for row in results["summary"]:
-        if row.get("verdict") == "pass" and row["id"] in flagged_ids:
-            row["verdict"] = "fail"
-            row.setdefault("violations", []).append("fact-token-verify")
+        for attempt in row["attempts"]:
+            if attempt.get("verdict") == "pass" and row["id"] in flagged_ids:
+                attempt["verdict"] = "fail"
+                attempt.setdefault("violations", []).append("fact-token-verify")
+        verdicts = [
+            "fail" if a.get("verdict") == "error" else a.get("verdict", "error")
+            for a in row["attempts"]
+        ]
+        row["verdict"] = majority(verdicts)
+        for attempt in row["attempts"]:
+            canon = (
+                "fail" if attempt.get("verdict") == "error" else attempt.get("verdict")
+            )
+            if canon == row["verdict"]:
+                for k in (
+                    "violations",
+                    "missing_tokens",
+                    "proposed",
+                    "reason",
+                    "wall",
+                    "prompt_tokens",
+                    "eval_tokens",
+                    "decode_tps",
+                    "thinking_chars",
+                    "raw",
+                    "json_ok",
+                    "error",
+                ):
+                    if k in attempt:
+                        row[k] = attempt[k]
+                break
+        row["attempt_details"] = row.pop("attempts")
+        print(
+            f"  summary {row['id']:10s} {row['mode']:14s} -> {row['verdict']:6s} {row.get('violations', '')} {row.get('missing_tokens', '')} {row.get('wall', 0):.1f}s"
+        )
     results["fact_token_verify_output"] = ftv_out
 
     for c in cases["fence_cases"]:
@@ -581,6 +654,12 @@ def main():
     b.add_argument("--n-summary", type=int, default=20)
     b.add_argument("--n-fence", type=int, default=30)
     b.add_argument("--excerpt-chars", type=int, default=6000)
+    b.add_argument(
+        "--from-cases",
+        default=None,
+        help="reuse summary_cases/fence_cases verbatim from an earlier "
+        "cases.json; only the skill texts are re-captured from the branch",
+    )
     b.set_defaults(fn=cmd_build)
     r = sub.add_parser("run")
     r.add_argument("--model", required=True)
@@ -591,6 +670,13 @@ def main():
     )
     r.add_argument("--temperature", type=float, default=0.0)
     r.add_argument("--num-ctx", type=int, default=16384)
+    r.add_argument(
+        "--repeats",
+        type=int,
+        default=1,
+        help="run each case N times; per-case verdict = majority "
+        "(ties resolve to the worse outcome)",
+    )
     r.add_argument("--no-rewarm", action="store_true")
     r.set_defaults(fn=cmd_run)
     p = sub.add_parser("report")
