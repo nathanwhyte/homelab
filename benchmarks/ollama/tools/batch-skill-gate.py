@@ -7,8 +7,8 @@ and real vault items as input, framework-free, and scores the model's core
 judgment with the vault's own rules:
 
   summary   retrieval_summary repair — corrupt a real compliant summary in one
-            of four schema-breaking ways (over-length / double-quoted /
-            colon-space / leading digit), ask the model to repair it per the
+            of three schema-breaking ways (over-length / double-quoted /
+            colon-space), ask the model to repair it per the
             skill's edit rule, score: IMPR-1105 schema, every ID/PR/date/
             version/backtick token of the current summary preserved, and
             `_scripts/fact-token-verify.py` finds nothing hallucinated.
@@ -132,15 +132,6 @@ def tokens(s: str) -> set[str]:
     return out
 
 
-def count_preserved(s: str) -> bool:
-    """The leading-digit corruption prepends '2 items - '; the count is a fact
-    and must survive as '2'/'two' + 'items', never be dropped. Tied to the
-    literal prefix in corrupt(..., 'leading-digit')."""
-    has_num = bool(re.search(r"\b(?:2|two)\b", s or ""))
-    has_noun = bool(re.search(r"\bitems\b", s or ""))
-    return has_num and has_noun
-
-
 def corrupt(summary: str, mode: str) -> str:
     if mode == "overlength":
         filler = (
@@ -158,8 +149,6 @@ def corrupt(summary: str, mode: str) -> str:
         if " - " in summary:
             return summary.replace(" - ", ": ", 1)
         return summary + ": details in body"
-    if mode == "leading-digit":
-        return "2 items - " + summary
     raise ValueError(mode)
 
 
@@ -169,12 +158,27 @@ def cmd_build(a):
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
     rnd = random.Random(20260828)
-    modes = ["overlength", "quoted", "colon-space", "leading-digit"]
+    # leading-digit was dropped 2026-08-28: the corruption prepends "2 items - ",
+    # which pits the schema's "no leading digit" rule against "keep every fact".
+    # Measured 0/5 for every candidate on the corrected count-preserving oracle
+    # (batch-skill-gate-20260828-postfix2) — models either keep the digit or drop
+    # the count, and a skill-text fix telling them to reorder or spell it out
+    # changed nothing. It measures a model-capability gap, not batch-repair skill.
+    modes = ["overlength", "quoted", "colon-space"]
 
     if a.from_cases:
         src = json.load(open(a.from_cases))
         summary_cases = src["summary_cases"]
         fence_cases = src["fence_cases"]
+        # Pinned files built before 2026-08-28 still carry leading-digit cases;
+        # drop them so a --from-cases replay matches a fresh build.
+        dropped = [c for c in summary_cases if c["mode"] not in modes]
+        if dropped:
+            summary_cases = [c for c in summary_cases if c["mode"] in modes]
+            print(
+                f"dropped {len(dropped)} retired-mode case(s) from {a.from_cases}: "
+                f"{sorted({c['mode'] for c in dropped})}"
+            )
     else:
         # --- summary cases from real records (build-lane-records.py, the skill's ground-truth command)
         records = []
@@ -486,8 +490,6 @@ def cmd_run(a):
                     attempt["verdict"] = "report"
                 else:
                     viol = summary_violations(prop)
-                    if c["mode"] == "leading-digit" and not count_preserved(prop):
-                        viol.append("count-dropped")
                     missing = sorted(set(c["required_tokens"]) - tokens(prop))
                     attempt["violations"] = viol
                     attempt["missing_tokens"] = missing
@@ -696,7 +698,9 @@ def main():
     b = sub.add_parser("build")
     b.add_argument("--vault", default=str(DEFAULT_VAULT))
     b.add_argument("--out", default=str(DEFAULT_OUT))
-    b.add_argument("--n-summary", type=int, default=20)
+    # 21 = 7 per mode across the three corruption modes (was 20 = 5 x 4 before
+    # leading-digit was dropped); keep it a multiple of len(modes).
+    b.add_argument("--n-summary", type=int, default=21)
     b.add_argument("--n-fence", type=int, default=30)
     b.add_argument("--excerpt-chars", type=int, default=6000)
     b.add_argument(

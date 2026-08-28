@@ -62,10 +62,17 @@ ornith 4→5.
 
 The skill-text fix is **not** the lever for the leading-digit conflict. The
 models cannot reorder or spell out a leading count even when told to; the
-conflict is a capability gap, not an instruction gap. The leading-digit
-corruption should be dropped from the gate (or the skill should accept a
-leading digit as a valid repair) rather than re-litigated with more prompt
-edits.
+conflict is a capability gap, not an instruction gap.
+
+**Acted on: the leading-digit corruption was dropped from the gate** (same-day
+follow-up). `batch-skill-gate.py` now builds three corruption modes
+(over-length / double-quoted / colon-space) at `--n-summary 21` (7 per mode),
+and a `--from-cases` replay of a pre-drop `cases.json` filters the retired mode
+out with a notice so pinned rebuilds match a fresh build. This run is therefore
+the **last** to carry leading-digit cases; future summary scores are out of 21
+and are not comparable to the /20 figures above. The underlying question — what
+a repair should do with a count that is both a fact and a schema violation —
+belongs to the skill and the IMPR-1105 schema, not to a partner-model gate.
 
 ## Deployment `num_ctx` guidance
 
