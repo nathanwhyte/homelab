@@ -1,0 +1,38 @@
+{
+ "qwen3.5:9b-q4_K_M": [
+  [
+   "qwen2.5-coder:fim",
+   2.56,
+   16384
+  ],
+  [
+   "qwen3.5:9b-q4_K_M",
+   5.38,
+   16384
+  ]
+ ],
+ "gemma4:e4b-it-qat": [
+  [
+   "qwen2.5-coder:fim",
+   2.56,
+   16384
+  ],
+  [
+   "gemma4:e4b-it-qat",
+   3.07,
+   16384
+  ]
+ ],
+ "gemma4:12b-it-qat": [
+  [
+   "qwen2.5-coder:fim",
+   2.56,
+   16384
+  ],
+  [
+   "gemma4:12b-it-qat",
+   7.48,
+   16384
+  ]
+ ]
+}

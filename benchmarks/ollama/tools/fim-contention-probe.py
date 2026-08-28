@@ -34,6 +34,11 @@ import urllib.request
 
 HOST = os.environ.get("OLLAMA_HOST", "http://192.168.1.19:11434").rstrip("/")
 MODEL = os.environ.get("FIM_MODEL", "deepseek-coder-v2:fim")
+# Background load model. Defaults to the FIM tag (same-runner contention, the
+# original probe). Set to a different tag for the two-runner cohabitation leg
+# (IDEA-1090 option B): the FIM runner and the partner runner then share only
+# the GPU, not slots.
+BG_MODEL = os.environ.get("BG_MODEL", MODEL)
 REPS = int(sys.argv[1]) if len(sys.argv) > 1 else 8
 PREFIX_CHARS = 2048
 BG_TOKENS = 400
@@ -54,7 +59,13 @@ end
 SUFFIX = "\n  return result\nend\n"
 BIG_PROMPT = (CODE * 400)[:24000]  # ~8-10k tokens of prefill per request
 
-SUMMARY = {"host": HOST, "model": MODEL, "reps": REPS, "conditions": {}}
+SUMMARY = {
+    "host": HOST,
+    "model": MODEL,
+    "bg_model": BG_MODEL,
+    "reps": REPS,
+    "conditions": {},
+}
 
 
 def post(path, body):
@@ -107,11 +118,20 @@ class BgGen(threading.Thread):
             else:
                 prompt = f"-- {time.time_ns()}\n-- A long, well-commented Lua module implementing an LRU cache with tests.\n"
                 npred = BG_TOKENS
+            options = {"num_predict": npred, "temperature": 0.7}
+            # A loaded runner is keyed by num_ctx. Tags with a baked num_ctx
+            # (deepseek-coder-v2:fim) reuse the resident runner; a partner tag
+            # without one would be RELOADED at OLLAMA_CONTEXT_LENGTH (131072 on
+            # timmy) on its first request — a 5–15 s stall that also evicts the
+            # FIM runner. Pin it via BG_NUM_CTX for the cohabitation leg.
+            if os.environ.get("BG_NUM_CTX"):
+                options["num_ctx"] = int(os.environ["BG_NUM_CTX"])
             body = {
-                "model": MODEL,
+                "model": BG_MODEL,
                 "prompt": prompt,
                 "stream": True,
-                "options": {"num_predict": npred, "temperature": 0.7},
+                "options": options,
+                "keep_alive": "15m",
             }
             t0 = time.perf_counter()
             r = post("/api/generate", body)
@@ -191,7 +211,7 @@ def main():
         "version"
     ]
     SUMMARY["ollama_version"] = ver
-    print(f"host={HOST} model={MODEL} ollama={ver} reps={REPS}")
+    print(f"host={HOST} fim={MODEL} bg={BG_MODEL} ollama={ver} reps={REPS}")
     fim_probe()  # warm
     run_condition("A idle", 0)
     run_condition("B 1-bg-decode", 1)

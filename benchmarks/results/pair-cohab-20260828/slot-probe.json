@@ -1,0 +1,26 @@
+{
+ "qwen3.5:9b-q4_K_M": [
+  "llama_context: n_ctx_seq             = 16384",
+  "slot   load_model: id  0 | task -1 | new slot, n_ctx = 16384",
+  "slot   load_model: id  1 | task -1 | new slot, n_ctx = 16384",
+  "llama_context: n_seq_max             = 1",
+  "llama_context: n_ctx_seq             = 16384",
+  "slot   load_model: id  0 | task -1 | new slot, n_ctx = 16384"
+ ],
+ "gemma4:e4b-it-qat": [
+  "llama_context: n_ctx_seq             = 16384",
+  "slot   load_model: id  0 | task -1 | new slot, n_ctx = 16384",
+  "llama_context: n_seq_max             = 2",
+  "llama_context: n_ctx_seq             = 16384",
+  "slot   load_model: id  0 | task -1 | new slot, n_ctx = 16384",
+  "slot   load_model: id  1 | task -1 | new slot, n_ctx = 16384"
+ ],
+ "gemma4:12b-it-qat": [
+  "slot   load_model: id  0 | task -1 | new slot, n_ctx = 16384",
+  "slot   load_model: id  1 | task -1 | new slot, n_ctx = 16384",
+  "llama_context: n_seq_max             = 2",
+  "llama_context: n_ctx_seq             = 16384",
+  "slot   load_model: id  0 | task -1 | new slot, n_ctx = 16384",
+  "slot   load_model: id  1 | task -1 | new slot, n_ctx = 16384"
+ ]
+}
