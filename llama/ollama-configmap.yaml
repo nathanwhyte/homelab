@@ -56,8 +56,23 @@ data:
           ollama create deepseek-coder-v2:fim -f /tmp/fim.Modelfile || true
         fi
         if ollama show deepseek-coder-v2:fim > /dev/null 2>&1; then
-          echo "Warming up deepseek-coder-v2:fim..."
-          timeout 180s ollama run deepseek-coder-v2:fim "// warmup" > /dev/null 2>&1 || true
+          echo "Warming up deepseek-coder-v2:fim (load-only)..."
+          # Load-only warm via /api/generate with an EMPTY prompt (Ollama loads the
+          # model and returns done_reason "load" without generating). The previous
+          # `ollama run … "// warmup"` generated on the BASE model, which has no
+          # chat template and no natural stop: on 0.33.1 (2026-08-28) it ran for
+          # 2m39s after the restart, holding one of the two runner slots the whole
+          # time and serialising every concurrent request (it contaminated the
+          # first 0.33.1 contention baseline — IDEA-1090). The image ships no
+          # curl/wget/python, so the POST goes over bash's /dev/tcp.
+          warm_load_only() {
+            local body='{"model":"deepseek-coder-v2:fim","keep_alive":-1}'
+            exec 3<>/dev/tcp/127.0.0.1/11434 || return 1
+            printf 'POST /api/generate HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Type: application/json\r\nContent-Length: %d\r\nConnection: close\r\n\r\n%s' "${#body}" "$body" >&3
+            timeout 180s cat <&3 > /dev/null
+            exec 3>&-
+          }
+          warm_load_only || true
           touch /tmp/models-ready
           echo "Edit-prediction model ready (attempt ${attempt})."
           return 0
