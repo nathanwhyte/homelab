@@ -95,6 +95,8 @@ benchmarks/results/*
 !benchmarks/results/agentic-coding-gemma4_31b-nvfp4-20260801-102905.json
 !benchmarks/results/prefill-gemma4-31b-nvfp4.json
 !benchmarks/results/prefill-gemma4-31b-nvfp4.log
+# IDEA-1090 FIM-vs-agent contention baseline on 0.33.1 (README + 2 logs + 2 json summaries)
+!benchmarks/results/fim-contention-20260828-v0.33.1/
 
 # Pi-hole stack secrets (PROJ-1018). pihole-exporter.env carries a Pi-hole
 # password per upstream's schema and is NOT matched by the bare `.env` rule above.
