@@ -1,0 +1,37 @@
+# agentpair:fim — the FIM half of timmy's paired agent posture (IDEA-1090).
+#
+# Byte-for-byte the measured qwen2.5-coder:fim recipe (INFO-1090 pick, BUG-1037
+# era), retagged into the `agentpair` namespace so every consumer — the
+# deployment warm hook, Zed, Minuet, the batch-agent harness — pins the PAIR by
+# one name and a half can be swapped with `ollama cp` + one string.
+#
+# Measured 2026-08-28 on Ollama 0.33.1 / RX 9070 XT (Vulkan), resident alone:
+# 2.56 GiB @16K; TTFT p50 0.074 s (1 KiB prefix) / 0.271 s (6 KiB); 7/8 FIM
+# smoke. Cohabiting with agentpair:agent under a ~9k-token-prefill agent load:
+# FIM TTFT p95 <= 0.30 s (benchmarks/results/pair-cohab-20260828).
+#
+# REFERENCE COPY. The tag on timmy is built by llama/ollama-configmap.yaml's
+# startup.sh (prepare_agent_pair) from this same text; keep the two identical.
+# Requires: ollama pull qwen2.5-coder:3b-base
+# Build:    ollama create agentpair:fim -f agentpair-fim.Modelfile
+
+FROM qwen2.5-coder:3b-base
+
+# Base weights (not instruct) for clean fill-in-the-middle output; the library
+# template's {{ .Suffix }} branch is what Minuet and Zed's deepseek/qwen
+# prompt_format drive.
+TEMPLATE "{{- if .Suffix }}<|fim_prefix|>{{ .Prompt }}<|fim_suffix|>{{ .Suffix }}<|fim_middle|>{{ else }}{{ .Prompt }}{{ end }}"
+
+# num_ctx baked so no caller can trigger a reload at OLLAMA_CONTEXT_LENGTH
+# (131072): a runner is keyed by num_ctx, and the reload costs 5-15 s and can
+# evict the co-resident agent runner (pre-flight S13).
+PARAMETER num_ctx 16384
+PARAMETER temperature 0
+# code is legitimately repetitive
+PARAMETER repeat_penalty 1.0
+# explicit FIM stops fix the Qwen2.5-Coder "doesn't stop in FIM" bug
+# (INFO-1005; llama.cpp #9606)
+PARAMETER stop "<|endoftext|>"
+PARAMETER stop "<|fim_pad|>"
+PARAMETER stop "<|file_sep|>"
+PARAMETER stop "<|repo_name|>"

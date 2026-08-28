@@ -1,0 +1,29 @@
+# agentpair:agent-gemma4-e4b — alternate agent half for timmy's paired posture
+# (IDEA-1090). Swap in with: ollama cp agentpair:agent-gemma4-e4b agentpair:agent
+#
+# Tied with qwen3.5:9b on the 2026-08-28 gate (12/20 summary repairs, zero
+# dropped fact tokens, zero hallucinations, 26/30 fences) and the fastest
+# editor (1.2 s wall, 104 tok/s). Cohabiting with agentpair:fim: 3.07 GiB @16K
+# (pair 5.6 GiB), FIM TTFT p95 <= 0.25 s under its ~9k-token prefill load.
+# Unlike qwen3.5 it is NOT on Ollama's parallel blocklist — gets 2 slots under
+# OLLAMA_NUM_PARALLEL=2 — so it is the half to pick if a second lane is ever
+# wanted. Caveats: IDEA-1084 (gemma4 Go parser drops long tool calls) matters
+# only with native tool calling; on /api/generate gemma4 streams nothing until
+# completion (ERR-1004 family) — drive it through /api/chat.
+#
+# REFERENCE COPY. The tag on timmy is built by llama/ollama-configmap.yaml's
+# startup.sh (prepare_agent_pair) from this same text; keep the two identical.
+# Requires: ollama pull gemma4:e4b-it-qat
+# Build:    ollama create agentpair:agent-gemma4-e4b -f agentpair-agent-gemma4-e4b.Modelfile
+
+FROM gemma4:e4b-it-qat
+
+# RENDERER / PARSER inherited (gemma4) — never restated, same rule as
+# agentpair-agent.Modelfile. `think` is per-request (think:false in the gate).
+
+PARAMETER num_ctx 16384
+# The gate's sampling: temperature 0 on gemma4's single published row
+# (top_p 0.95, top_k 64), pinned completely.
+PARAMETER temperature 0
+PARAMETER top_p 0.95
+PARAMETER top_k 64

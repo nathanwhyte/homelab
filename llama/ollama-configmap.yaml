@@ -84,10 +84,64 @@ data:
       return 1
     }
 
+    prepare_agent_pair() {
+      # IDEA-1090 paired tags (2026-08-28): the FIM half + the batch-agent half
+      # of the two-runner posture, built here so they exist after every restart
+      # and kept byte-identical to the reference copies in llama/ollama/
+      # agentpair-*.Modelfile. BUILD-IF-MISSING ONLY — nothing here is warmed
+      # or pinned: deepseek-coder-v2:fim stays the resident FIM model and
+      # MAX_LOADED_MODELS stays 1 until the FIM-quality re-check clears the
+      # switch (IDEA-1090 step 6). Measured on 0.33.1: agentpair:fim 2.56 GiB
+      # @16K, agentpair:agent 5.38 GiB @16K, pair FIM TTFT p95 <= 0.30 s under
+      # a ~9k-token-prefill agent load (benchmarks/results/pair-cohab-20260828).
+      # num_ctx is baked on both halves so no caller reloads a runner at
+      # OLLAMA_CONTEXT_LENGTH (a 5-15 s stall that evicts the other half).
+      if ! ollama show agentpair:fim > /dev/null 2>&1; then
+        ollama pull qwen2.5-coder:3b-base || true
+        printf '%s\n' \
+          'FROM qwen2.5-coder:3b-base' \
+          'TEMPLATE "{{- if .Suffix }}<|fim_prefix|>{{ .Prompt }}<|fim_suffix|>{{ .Suffix }}<|fim_middle|>{{ else }}{{ .Prompt }}{{ end }}"' \
+          'PARAMETER num_ctx 16384' \
+          'PARAMETER temperature 0' \
+          'PARAMETER repeat_penalty 1.0' \
+          'PARAMETER stop "<|endoftext|>"' \
+          'PARAMETER stop "<|fim_pad|>"' \
+          'PARAMETER stop "<|file_sep|>"' \
+          'PARAMETER stop "<|repo_name|>"' \
+          > /tmp/agentpair-fim.Modelfile
+        ollama create agentpair:fim -f /tmp/agentpair-fim.Modelfile || true
+      fi
+      if ! ollama show agentpair:agent > /dev/null 2>&1; then
+        ollama pull qwen3.5:9b-q4_K_M || true
+        printf '%s\n' \
+          'FROM qwen3.5:9b-q4_K_M' \
+          'PARAMETER num_ctx 16384' \
+          'PARAMETER temperature 0' \
+          'PARAMETER top_p 0.95' \
+          'PARAMETER top_k 20' \
+          'PARAMETER presence_penalty 1.5' \
+          > /tmp/agentpair-agent.Modelfile
+        ollama create agentpair:agent -f /tmp/agentpair-agent.Modelfile || true
+      fi
+      if ! ollama show agentpair:agent-gemma4-e4b > /dev/null 2>&1; then
+        ollama pull gemma4:e4b-it-qat || true
+        printf '%s\n' \
+          'FROM gemma4:e4b-it-qat' \
+          'PARAMETER num_ctx 16384' \
+          'PARAMETER temperature 0' \
+          'PARAMETER top_p 0.95' \
+          'PARAMETER top_k 64' \
+          > /tmp/agentpair-agent-gemma4-e4b.Modelfile
+        ollama create agentpair:agent-gemma4-e4b -f /tmp/agentpair-agent-gemma4-e4b.Modelfile || true
+      fi
+      echo "agentpair tags present: $(ollama list 2>/dev/null | grep -c '^agentpair:')/3"
+    }
+
     # Fire-and-forget: model prep runs alongside `ollama serve` and never blocks
     # readiness. rm the stale marker first so /tmp/models-ready reflects THIS boot.
     rm -f /tmp/models-ready
     prepare_edit_prediction_models &
+    prepare_agent_pair &
   ollama-exporter.py: |
     #!/usr/bin/env python3
     """Prometheus exporter for Ollama inference metrics.

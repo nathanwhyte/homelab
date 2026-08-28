@@ -1,0 +1,41 @@
+# agentpair:agent — the agent half of timmy's paired posture (IDEA-1090).
+#
+# Lead partner from the 2026-08-28 gate on the real compendium batch skills:
+# qwen3.5:9b-q4_K_M — 12/20 summary repairs with ZERO dropped fact tokens and
+# zero hallucinations, 26/30 fence tags, one correct report-instead-of-edit;
+# tied with gemma4:e4b on fidelity, preferred for tools + a correct refusal.
+# Cohabiting with agentpair:fim as a second runner (5.38 GiB @16K, pair
+# 7.9 GiB): FIM TTFT p95 <= 0.30 s under this model's ~9k-token prefill load
+# (benchmarks/results/pair-cohab-20260828).
+#
+# KNOWN CAP: Ollama's server/sched.go forces numParallel=1 for the qwen35
+# family (a stale guard for llama.cpp#20222, fixed upstream; ollama#17144
+# unblocks it, unmerged as of 2026-08-26). One slot regardless of
+# OLLAMA_NUM_PARALLEL — fine for the single-lane batch agent, not for two
+# lanes. agentpair:agent-gemma4-e4b keeps the two-lane option.
+#
+# THINKING is not suppressed here and cannot be (a Modelfile cannot set think;
+# GUARDRAILS.md §1): callers send `think: false` on /api/chat. The gate ran
+# with think:false, temperature 0, num_ctx 16384 — that is what is pinned.
+#
+# REFERENCE COPY. The tag on timmy is built by llama/ollama-configmap.yaml's
+# startup.sh (prepare_agent_pair) from this same text; keep the two identical.
+# Requires: ollama pull qwen3.5:9b-q4_K_M
+# Build:    ollama create agentpair:agent -f agentpair-agent.Modelfile
+
+FROM qwen3.5:9b-q4_K_M
+
+# RENDERER / PARSER deliberately inherited (qwen3.5) — restating them would
+# freeze this tag against upstream renderer fixes (same call as
+# dotfiles/ollama/qwen36-coding-35b.Modelfile).
+
+# num_ctx baked: a runner is keyed by num_ctx, and a request without one
+# reloads at OLLAMA_CONTEXT_LENGTH=131072 (5-15 s, evicts the FIM runner at
+# 128K KV) — pre-flight S13. 16K is what the gate and the cohabitation leg used.
+PARAMETER num_ctx 16384
+# The gate's sampling: temperature 0 on top of the tag's shipped row, pinned
+# completely so a base-tag revision cannot move benchmarked behaviour.
+PARAMETER temperature 0
+PARAMETER top_p 0.95
+PARAMETER top_k 20
+PARAMETER presence_penalty 1.5
