@@ -1,0 +1,254 @@
+[
+ {
+  "id": "BUG-104",
+  "label": "follow-up-needed",
+  "lane": "staleness",
+  "votes": [
+   "follow-up-needed",
+   "follow-up-needed",
+   "follow-up-needed"
+  ],
+  "verdict": "follow-up-needed",
+  "raw": "{\"id\": \"BUG-104\", \"verdict\": \"follow-up-needed\", \"reason\": \"status is fix-ready but the verification section is explicitly marked as empty\"}",
+  "raws": [
+   "{\"id\": \"BUG-104\", \"verdict\": \"follow-up-needed\", \"reason\": \"status is fix-ready but the verification section is explicitly marked as empty\"}",
+   "{\"id\": \"BUG-104\", \"verdict\": \"follow-up-needed\", \"reason\": \"status is fix-ready but the verification section is explicitly marked as empty\"}",
+   "{\"id\": \"BUG-104\", \"verdict\": \"follow-up-needed\", \"reason\": \"status is fix-ready but the verification section is explicitly marked as empty\"}"
+  ],
+  "wall": 3.06,
+  "json_ok": true,
+  "outcome": "correct",
+  "pass": true
+ },
+ {
+  "id": "BUG-132",
+  "label": "follow-up-needed",
+  "lane": "staleness",
+  "votes": [
+   "follow-up-needed",
+   "follow-up-needed",
+   "follow-up-needed"
+  ],
+  "verdict": "follow-up-needed",
+  "raw": "{\"id\": \"BUG-132\", \"verdict\": \"follow-up-needed\", \"reason\": \"status is 'open' and the Fix section explicitly states 'Not started.'\"}",
+  "raws": [
+   "{\"id\": \"BUG-132\", \"verdict\": \"follow-up-needed\", \"reason\": \"status is 'open' and the Fix section explicitly states 'Not started.'\"}",
+   "{\"id\": \"BUG-132\", \"verdict\": \"follow-up-needed\", \"reason\": \"status is 'open' and the Fix section explicitly states 'Not started.'\"}",
+   "{\"id\": \"BUG-132\", \"verdict\": \"follow-up-needed\", \"reason\": \"status is 'open' and the Fix section explicitly states 'Not started.'\"}"
+  ],
+  "wall": 2.79,
+  "json_ok": true,
+  "outcome": "correct",
+  "pass": true
+ },
+ {
+  "id": "BUG-138",
+  "label": "follow-up-needed",
+  "lane": "staleness",
+  "votes": [
+   "follow-up-needed",
+   "follow-up-needed",
+   "follow-up-needed"
+  ],
+  "verdict": "follow-up-needed",
+  "raw": "{\"id\": \"BUG-138\", \"verdict\": \"follow-up-needed\", \"reason\": \"an unchecked verification box remains: - [ ] Verify existing pipelines with underscore-based `schema_suffix` are unaffected\"}",
+  "raws": [
+   "{\"id\": \"BUG-138\", \"verdict\": \"follow-up-needed\", \"reason\": \"an unchecked verification box remains: - [ ] Verify existing pipelines with underscore-based `schema_suffix` are unaffected\"}",
+   "{\"id\": \"BUG-138\", \"verdict\": \"follow-up-needed\", \"reason\": \"an unchecked verification box remains: - [ ] Verify existing pipelines with underscore-based `schema_suffix` are unaffected\"}",
+   "{\"id\": \"BUG-138\", \"verdict\": \"follow-up-needed\", \"reason\": \"an unchecked verification box remains: - [ ] Verify existing pipelines with underscore-based `schema_suffix` are unaffected\"}"
+  ],
+  "wall": 3.2,
+  "json_ok": true,
+  "outcome": "correct",
+  "pass": true
+ },
+ {
+  "id": "BUG-052",
+  "label": "unclear",
+  "lane": "staleness",
+  "votes": [
+   "unclear",
+   "unclear",
+   "unclear"
+  ],
+  "verdict": "unclear",
+  "raw": "{\"id\": \"BUG-052\", \"verdict\": \"unclear\", \"reason\": \"the tail contains only code references and no visible fix state or verification checklist\"}",
+  "raws": [
+   "{\"id\": \"BUG-052\", \"verdict\": \"unclear\", \"reason\": \"the tail contains only code references and no visible fix state or verification checklist\"}",
+   "{\"id\": \"BUG-052\", \"verdict\": \"unclear\", \"reason\": \"the tail contains only code references and no visible fix state or verification checklist\"}",
+   "{\"id\": \"BUG-052\", \"verdict\": \"unclear\", \"reason\": \"the tail contains only code references and no visible fix state or verification checklist\"}"
+  ],
+  "wall": 2.63,
+  "json_ok": true,
+  "outcome": "correct",
+  "pass": true
+ },
+ {
+  "id": "BUG-152",
+  "label": "follow-up-needed",
+  "lane": "staleness",
+  "votes": [
+   "follow-up-needed",
+   "follow-up-needed",
+   "follow-up-needed"
+  ],
+  "verdict": "follow-up-needed",
+  "raw": "{\"id\": \"BUG-152\", \"verdict\": \"follow-up-needed\", \"reason\": \"the verification section is explicitly marked as 'To be determined — pending fix approach selection'\"}",
+  "raws": [
+   "{\"id\": \"BUG-152\", \"verdict\": \"follow-up-needed\", \"reason\": \"the verification section is explicitly marked as 'To be determined — pending fix approach selection'\"}",
+   "{\"id\": \"BUG-152\", \"verdict\": \"follow-up-needed\", \"reason\": \"the verification section is explicitly marked as 'To be determined — pending fix approach selection'\"}",
+   "{\"id\": \"BUG-152\", \"verdict\": \"follow-up-needed\", \"reason\": \"the verification section is explicitly marked as 'To be determined — pending fix approach selection'\"}"
+  ],
+  "wall": 2.95,
+  "json_ok": true,
+  "outcome": "correct",
+  "pass": true
+ },
+ {
+  "id": "FEAT-1002",
+  "label": "fine",
+  "lane": "staleness",
+  "votes": [
+   "fine",
+   "fine",
+   "fine"
+  ],
+  "verdict": "fine",
+  "raw": "{\"id\": \"FEAT-1002\", \"verdict\": \"fine\", \"reason\": \"the record is shipped and all checklist items are marked as completed\"}",
+  "raws": [
+   "{\"id\": \"FEAT-1002\", \"verdict\": \"fine\", \"reason\": \"the record is shipped and all checklist items are marked as completed\"}",
+   "{\"id\": \"FEAT-1002\", \"verdict\": \"fine\", \"reason\": \"the record is shipped and all checklist items are marked as completed\"}",
+   "{\"id\": \"FEAT-1002\", \"verdict\": \"fine\", \"reason\": \"the record is shipped and all checklist items are marked as completed\"}"
+  ],
+  "wall": 2.58,
+  "json_ok": true,
+  "outcome": "correct",
+  "pass": true
+ },
+ {
+  "id": "FEAT-1005",
+  "label": "fine",
+  "lane": "staleness",
+  "votes": [
+   "fine",
+   "fine",
+   "fine"
+  ],
+  "verdict": "fine",
+  "raw": "{\"id\": \"FEAT-1005\", \"verdict\": \"fine\", \"reason\": \"the record shows the final follow-up (2→4) was completed in TASK-1010 on the same day.\"}",
+  "raws": [
+   "{\"id\": \"FEAT-1005\", \"verdict\": \"fine\", \"reason\": \"the record shows the final follow-up (2→4) was completed in TASK-1010 on the same day.\"}",
+   "{\"id\": \"FEAT-1005\", \"verdict\": \"fine\", \"reason\": \"the record shows the final follow-up (2→4) was completed in TASK-1010 on the same day.\"}",
+   "{\"id\": \"FEAT-1005\", \"verdict\": \"fine\", \"reason\": \"the record shows the final follow-up (2→4) was completed in TASK-1010 on the same day.\"}"
+  ],
+  "wall": 3.31,
+  "json_ok": true,
+  "outcome": "correct",
+  "pass": true
+ },
+ {
+  "id": "FEAT-1010",
+  "label": "fine",
+  "lane": "staleness",
+  "votes": [
+   "fine",
+   "fine",
+   "fine"
+  ],
+  "verdict": "fine",
+  "raw": "{\"id\": \"FEAT-1010\", \"verdict\": \"fine\", \"reason\": \"the status is shipped and the tail contains only references and source links with no open tasks\"}",
+  "raws": [
+   "{\"id\": \"FEAT-1010\", \"verdict\": \"fine\", \"reason\": \"the status is shipped and the tail contains only references and source links with no open tasks\"}",
+   "{\"id\": \"FEAT-1010\", \"verdict\": \"fine\", \"reason\": \"the status is shipped and the tail contains only references and source links with no open tasks\"}",
+   "{\"id\": \"FEAT-1010\", \"verdict\": \"fine\", \"reason\": \"the status is shipped and the tail contains only references and source links with no open tasks\"}"
+  ],
+  "wall": 2.84,
+  "json_ok": true,
+  "outcome": "correct",
+  "pass": true
+ },
+ {
+  "id": "FEAT-029",
+  "label": "follow-up-needed",
+  "lane": "staleness",
+  "votes": [
+   "follow-up-needed",
+   "follow-up-needed",
+   "follow-up-needed"
+  ],
+  "verdict": "follow-up-needed",
+  "raw": "{\"id\": \"FEAT-029\", \"verdict\": \"follow-up-needed\", \"reason\": \"unchecked boxes remain for PR merge and sandbox verification\"}",
+  "raws": [
+   "{\"id\": \"FEAT-029\", \"verdict\": \"follow-up-needed\", \"reason\": \"unchecked boxes remain for PR merge and sandbox verification\"}",
+   "{\"id\": \"FEAT-029\", \"verdict\": \"follow-up-needed\", \"reason\": \"unchecked boxes remain for PR merge and sandbox verification\"}",
+   "{\"id\": \"FEAT-029\", \"verdict\": \"follow-up-needed\", \"reason\": \"unchecked boxes remain for PR merge and sandbox verification\"}"
+  ],
+  "wall": 2.54,
+  "json_ok": true,
+  "outcome": "correct",
+  "pass": true
+ },
+ {
+  "id": "FEAT-1014",
+  "label": "fine",
+  "lane": "staleness",
+  "votes": [
+   "fine",
+   "fine",
+   "fine"
+  ],
+  "verdict": "fine",
+  "raw": "{\"id\": \"FEAT-1014\", \"verdict\": \"fine\", \"reason\": \"the record is shipped and the tail shows a closed loop with validation notes from 2026-06-11\"}",
+  "raws": [
+   "{\"id\": \"FEAT-1014\", \"verdict\": \"fine\", \"reason\": \"the record is shipped and the tail shows a closed loop with validation notes from 2026-06-11\"}",
+   "{\"id\": \"FEAT-1014\", \"verdict\": \"fine\", \"reason\": \"the record is shipped and the tail shows a closed loop with validation notes from 2026-06-11\"}",
+   "{\"id\": \"FEAT-1014\", \"verdict\": \"fine\", \"reason\": \"the record is shipped and the tail shows a closed loop with validation notes from 2026-06-11\"}"
+  ],
+  "wall": 3.29,
+  "json_ok": true,
+  "outcome": "correct",
+  "pass": true
+ },
+ {
+  "id": "FEAT-042",
+  "label": "fine",
+  "lane": "staleness",
+  "votes": [
+   "fine",
+   "fine",
+   "fine"
+  ],
+  "verdict": "fine",
+  "raw": "{\"id\": \"FEAT-042\", \"verdict\": \"fine\", \"reason\": \"the record is shipped and all acceptance criteria checkboxes are marked as completed\"}",
+  "raws": [
+   "{\"id\": \"FEAT-042\", \"verdict\": \"fine\", \"reason\": \"the record is shipped and all acceptance criteria checkboxes are marked as completed\"}",
+   "{\"id\": \"FEAT-042\", \"verdict\": \"fine\", \"reason\": \"the record is shipped and all acceptance criteria checkboxes are marked as completed\"}",
+   "{\"id\": \"FEAT-042\", \"verdict\": \"fine\", \"reason\": \"the record is shipped and all acceptance criteria checkboxes are marked as completed\"}"
+  ],
+  "wall": 2.56,
+  "json_ok": true,
+  "outcome": "correct",
+  "pass": true
+ },
+ {
+  "id": "FEAT-1017",
+  "label": "fine",
+  "lane": "staleness",
+  "votes": [
+   "fine",
+   "fine",
+   "fine"
+  ],
+  "verdict": "fine",
+  "raw": "{\"id\": \"FEAT-1017\", \"verdict\": \"fine\", \"reason\": \"the record is marked shipped and the tail contains only related links and sources with no open tasks.\"}",
+  "raws": [
+   "{\"id\": \"FEAT-1017\", \"verdict\": \"fine\", \"reason\": \"the record is marked shipped and the tail contains only related links and sources with no open tasks.\"}",
+   "{\"id\": \"FEAT-1017\", \"verdict\": \"fine\", \"reason\": \"the record is marked shipped and the tail contains only related links and sources with no open tasks.\"}",
+   "{\"id\": \"FEAT-1017\", \"verdict\": \"fine\", \"reason\": \"the record is marked shipped and the tail contains only related links and sources with no open tasks.\"}"
+  ],
+  "wall": 2.91,
+  "json_ok": true,
+  "outcome": "correct",
+  "pass": true
+ }
+]

@@ -1,5 +1,5 @@
 {
- "built": "2026-08-31T03:49:43Z",
+ "built": "2026-08-31T13:11:45Z",
  "note": "triage lanes v1: all 23 live stale-blocker findings (check-closability) + 12 age-flagged items (check-staleness), labels adjudicated by hand",
  "blocker_cases": [
   {
@@ -252,8 +252,8 @@
    "target_id": "BUG-217",
    "target_status": "fixed",
    "context": "- **UI Save blocker — unrelated to this fix:** the DipDash \"Save Changes\" gate flags `company_aclaimant_id` as a required-but-unmapped field. It's **`auto_gener",
-   "label": "not-a-blocker",
-   "note": "re-adjudicated after loop 1: the excerpt explicitly frames the blocker as 'unrelated to this fix' — the explicit-denial rule applies (was: unclear)"
+   "label": "unclear",
+   "note": "restored after the 2026-08-31 review: BUG-217 is absent from the excerpt, and the skill's top rule mandates unclear when the target id is not visible — the loop-1 relabel to not-a-blocker contradicted the pinned contract"
   }
  ],
  "staleness_cases": [
@@ -302,8 +302,8 @@
    "title": "Overnight tab session expiry causes silent UI failures",
    "tail": "oss all envs (prod/sandbox/staging), JWKS per-request fetching, zero axios interceptors, pipeline_groups as observed example\n\n# Code References\n\n- `web/src/main.tsx:11` — `QueryClient` with zero config (all defaults)\n- `web/src/main.tsx:77-83` — `KindeProvider` with `isDangerouslyUseLocalStorage: true`\n- `web/src/App.tsx:376-384` — axios `Authorization: Bearer` header setup\n- `web/src/App.tsx:925-940` — `<Authenticated>` route guard (nav-only, not API)\n- `web/src/App.tsx:903` — Refine `dataProvider` (no 401 handling)\n- `web/src/context/*.tsx` — all 7 context providers using `useList`\n- `node_modules/@refine-auth/kinde-react/dist/hooks/useAuthProvider.js` — `check()` / `getToken()` implementation\n- `api/app/dependencies/__init__.py:53-57` — `get_header_authorization` returns raw Bearer token, no caching\n- `api/app/dependencies/__init__.py:60-83` — `__decode_token` hits Kinde JWKS on every call (no JWK caching)\n- `api/app/dependencies/__init__.py:86-123` — `__get_auth` makes 2 additional Kinde round-trips per dipdash-frontend request\n- `api/app/dependencies/__init__.py:143-162` — `get_user_permissions` another full POST+GET to Kinde per request\n- `web/src/components/containers/pipelineGroups/hooks/usePipelineGroupsData.ts:52-93` — example React Query useList call that triggers 401\n",
    "path": "bugs/dipdash/BUG-052-dipdash-overnight-tab-session-expiry.md",
-   "label": "fine",
-   "note": "parked investigation record; nothing owed in the text"
+   "label": "unclear",
+   "note": "relabeled after the 2026-08-31 review: the full entry marks Fix and Verification 'Under investigation' just above the 1300-char window — with the supplied tail (file inventory only) the honest verdict is unclear; the original fine was a confident false negative"
   },
   {
    "id": "BUG-152",
