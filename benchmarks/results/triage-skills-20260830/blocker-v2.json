@@ -1,0 +1,485 @@
+[
+ {
+  "id": "BUG-097->PROJ-017#0",
+  "label": "not-a-blocker",
+  "lane": "blocker",
+  "votes": [
+   "not-a-blocker",
+   "not-a-blocker",
+   "not-a-blocker"
+  ],
+  "verdict": "not-a-blocker",
+  "raw": "{\"id\": \"BUG-097->PROJ-017#0\", \"verdict\": \"not-a-blocker\", \"reason\": \"the target is a parent project, not a dependency blocking this item\"}",
+  "raws": [
+   "{\"id\": \"BUG-097->PROJ-017#0\", \"verdict\": \"not-a-blocker\", \"reason\": \"the target is a parent project, not a dependency blocking this item\"}",
+   "{\"id\": \"BUG-097->PROJ-017#0\", \"verdict\": \"not-a-blocker\", \"reason\": \"the target is a parent project, not a dependency blocking this item\"}",
+   "{\"id\": \"BUG-097->PROJ-017#0\", \"verdict\": \"not-a-blocker\", \"reason\": \"the target is a parent project, not a dependency blocking this item\"}"
+  ],
+  "wall": 3.49,
+  "json_ok": true,
+  "outcome": "correct",
+  "pass": true
+ },
+ {
+  "id": "BUG-154->PROJ-108#0",
+  "label": "not-a-blocker",
+  "lane": "blocker",
+  "votes": [
+   "not-a-blocker",
+   "not-a-blocker",
+   "not-a-blocker"
+  ],
+  "verdict": "not-a-blocker",
+  "raw": "{\"id\": \"BUG-154->PROJ-108#0\", \"verdict\": \"not-a-blocker\", \"reason\": \"the context explicitly states the target is not a dependency\"}",
+  "raws": [
+   "{\"id\": \"BUG-154->PROJ-108#0\", \"verdict\": \"not-a-blocker\", \"reason\": \"the context explicitly states the target is not a dependency\"}",
+   "{\"id\": \"BUG-154->PROJ-108#0\", \"verdict\": \"not-a-blocker\", \"reason\": \"the context explicitly states the target is not a dependency\"}",
+   "{\"id\": \"BUG-154->PROJ-108#0\", \"verdict\": \"not-a-blocker\", \"reason\": \"the context explicitly states the target is not a dependency\"}"
+  ],
+  "wall": 2.96,
+  "json_ok": true,
+  "outcome": "correct",
+  "pass": true
+ },
+ {
+  "id": "BUG-154->BUG-220#1",
+  "label": "not-a-blocker",
+  "lane": "blocker",
+  "votes": [
+   "not-a-blocker",
+   "not-a-blocker",
+   "not-a-blocker"
+  ],
+  "verdict": "not-a-blocker",
+  "raw": "{\"id\": \"BUG-154->BUG-220#1\", \"verdict\": \"not-a-blocker\", \"reason\": \"the context explicitly states the target is a same-family/theme link, not a dependency\"}",
+  "raws": [
+   "{\"id\": \"BUG-154->BUG-220#1\", \"verdict\": \"not-a-blocker\", \"reason\": \"the context explicitly states the target is a same-family/theme link, not a dependency\"}",
+   "{\"id\": \"BUG-154->BUG-220#1\", \"verdict\": \"not-a-blocker\", \"reason\": \"the context explicitly states the target is a same-family/theme link, not a dependency\"}",
+   "{\"id\": \"BUG-154->BUG-220#1\", \"verdict\": \"not-a-blocker\", \"reason\": \"the context explicitly states the target is a same-family/theme link, not a dependency\"}"
+  ],
+  "wall": 3.28,
+  "json_ok": true,
+  "outcome": "correct",
+  "pass": true
+ },
+ {
+  "id": "BUG-177->BUG-176#0",
+  "label": "not-a-blocker",
+  "lane": "blocker",
+  "votes": [
+   "not-a-blocker",
+   "not-a-blocker",
+   "not-a-blocker"
+  ],
+  "verdict": "not-a-blocker",
+  "raw": "{\"id\": \"BUG-177->BUG-176#0\", \"verdict\": \"not-a-blocker\", \"reason\": \"the text explicitly states 'Not blocked by' the target\"}",
+  "raws": [
+   "{\"id\": \"BUG-177->BUG-176#0\", \"verdict\": \"not-a-blocker\", \"reason\": \"the text explicitly states 'Not blocked by' the target\"}",
+   "{\"id\": \"BUG-177->BUG-176#0\", \"verdict\": \"not-a-blocker\", \"reason\": \"the text explicitly states 'Not blocked by' the target\"}",
+   "{\"id\": \"BUG-177->BUG-176#0\", \"verdict\": \"not-a-blocker\", \"reason\": \"the text explicitly states 'Not blocked by' the target\"}"
+  ],
+  "wall": 2.94,
+  "json_ok": true,
+  "outcome": "correct",
+  "pass": true
+ },
+ {
+  "id": "BUG-241->BUG-240#0",
+  "label": "not-a-blocker",
+  "lane": "blocker",
+  "votes": [
+   "not-a-blocker",
+   "not-a-blocker",
+   "not-a-blocker"
+  ],
+  "verdict": "not-a-blocker",
+  "raw": "{\"id\": \"BUG-241->BUG-240#0\", \"verdict\": \"not-a-blocker\", \"reason\": \"described as a 'sibling' blocker, not a dependency of this item\"}",
+  "raws": [
+   "{\"id\": \"BUG-241->BUG-240#0\", \"verdict\": \"not-a-blocker\", \"reason\": \"described as a 'sibling' blocker, not a dependency of this item\"}",
+   "{\"id\": \"BUG-241->BUG-240#0\", \"verdict\": \"not-a-blocker\", \"reason\": \"described as a 'sibling' blocker, not a dependency of this item\"}",
+   "{\"id\": \"BUG-241->BUG-240#0\", \"verdict\": \"not-a-blocker\", \"reason\": \"described as a 'sibling' blocker, not a dependency of this item\"}"
+  ],
+  "wall": 3.08,
+  "json_ok": true,
+  "outcome": "correct",
+  "pass": true
+ },
+ {
+  "id": "BUG-243->BUG-240#0",
+  "label": "not-a-blocker",
+  "lane": "blocker",
+  "votes": [
+   "not-a-blocker",
+   "not-a-blocker",
+   "not-a-blocker"
+  ],
+  "verdict": "not-a-blocker",
+  "raw": "{\"id\": \"BUG-243->BUG-240#0\", \"verdict\": \"not-a-blocker\", \"reason\": \"The context describes a workaround/process involving BUG-240, but does not state that BUG-243 is blocked by it.\"}",
+  "raws": [
+   "{\"id\": \"BUG-243->BUG-240#0\", \"verdict\": \"not-a-blocker\", \"reason\": \"The context describes a workaround/process involving BUG-240, but does not state that BUG-243 is blocked by it.\"}",
+   "{\"id\": \"BUG-243->BUG-240#0\", \"verdict\": \"not-a-blocker\", \"reason\": \"The context describes a workaround/process involving BUG-240, but does not state that BUG-243 is blocked by it.\"}",
+   "{\"id\": \"BUG-243->BUG-240#0\", \"verdict\": \"not-a-blocker\", \"reason\": \"The context describes a workaround/process involving BUG-240, but does not state that BUG-243 is blocked by it.\"}"
+  ],
+  "wall": 3.83,
+  "json_ok": true,
+  "outcome": "correct",
+  "pass": true
+ },
+ {
+  "id": "BUG-243->BUG-247#1",
+  "label": "not-a-blocker",
+  "lane": "blocker",
+  "votes": [
+   "not-a-blocker",
+   "not-a-blocker",
+   "not-a-blocker"
+  ],
+  "verdict": "not-a-blocker",
+  "raw": "{\"id\": \"BUG-243->BUG-247#1\", \"verdict\": \"not-a-blocker\", \"reason\": \"text explicitly states 'Not blocked by BUG-247'\"}",
+  "raws": [
+   "{\"id\": \"BUG-243->BUG-247#1\", \"verdict\": \"not-a-blocker\", \"reason\": \"text explicitly states 'Not blocked by BUG-247'\"}",
+   "{\"id\": \"BUG-243->BUG-247#1\", \"verdict\": \"not-a-blocker\", \"reason\": \"text explicitly states 'Not blocked by BUG-247'\"}",
+   "{\"id\": \"BUG-243->BUG-247#1\", \"verdict\": \"not-a-blocker\", \"reason\": \"text explicitly states 'Not blocked by BUG-247'\"}"
+  ],
+  "wall": 3.03,
+  "json_ok": true,
+  "outcome": "correct",
+  "pass": true
+ },
+ {
+  "id": "BUG-263->BUG-206#0",
+  "label": "not-a-blocker",
+  "lane": "blocker",
+  "votes": [
+   "not-a-blocker",
+   "not-a-blocker",
+   "not-a-blocker"
+  ],
+  "verdict": "not-a-blocker",
+  "raw": "{\"id\": \"BUG-263->BUG-206#0\", \"verdict\": \"not-a-blocker\", \"reason\": \"the text states BUG-263 is the cause of a blocker for BUG-206, which is the inverted direction\"}",
+  "raws": [
+   "{\"id\": \"BUG-263->BUG-206#0\", \"verdict\": \"not-a-blocker\", \"reason\": \"the text states BUG-263 is the cause of a blocker for BUG-206, which is the inverted direction\"}",
+   "{\"id\": \"BUG-263->BUG-206#0\", \"verdict\": \"not-a-blocker\", \"reason\": \"the text states BUG-263 is the cause of a blocker for BUG-206, which is the inverted direction\"}",
+   "{\"id\": \"BUG-263->BUG-206#0\", \"verdict\": \"not-a-blocker\", \"reason\": \"the text states BUG-263 is the cause of a blocker for BUG-206, which is the inverted direction\"}"
+  ],
+  "wall": 3.69,
+  "json_ok": true,
+  "outcome": "correct",
+  "pass": true
+ },
+ {
+  "id": "BUG-264->BUG-206#0",
+  "label": "not-a-blocker",
+  "lane": "blocker",
+  "votes": [
+   "not-a-blocker",
+   "not-a-blocker",
+   "not-a-blocker"
+  ],
+  "verdict": "not-a-blocker",
+  "raw": "{\"id\": \"BUG-264->BUG-206#0\", \"verdict\": \"not-a-blocker\", \"reason\": \"the text describes BUG-264 as the cause of a blocker for BUG-206, not a blocker of BUG-264\"}",
+  "raws": [
+   "{\"id\": \"BUG-264->BUG-206#0\", \"verdict\": \"not-a-blocker\", \"reason\": \"the text describes BUG-264 as the cause of a blocker for BUG-206, not a blocker of BUG-264\"}",
+   "{\"id\": \"BUG-264->BUG-206#0\", \"verdict\": \"not-a-blocker\", \"reason\": \"the text describes BUG-264 as the cause of a blocker for BUG-206, not a blocker of BUG-264\"}",
+   "{\"id\": \"BUG-264->BUG-206#0\", \"verdict\": \"not-a-blocker\", \"reason\": \"the text describes BUG-264 as the cause of a blocker for BUG-206, not a blocker of BUG-264\"}"
+  ],
+  "wall": 3.86,
+  "json_ok": true,
+  "outcome": "correct",
+  "pass": true
+ },
+ {
+  "id": "FEAT-010->BUG-1018#0",
+  "label": "still-blocking",
+  "lane": "blocker",
+  "votes": [
+   "still-blocking",
+   "still-blocking",
+   "still-blocking"
+  ],
+  "verdict": "still-blocking",
+  "raw": "{\"id\": \"FEAT-010->BUG-1018#0\", \"verdict\": \"still-blocking\", \"reason\": \"target is named as a blocker but was closed as 'wontfix' without resolving the obstacle\"}",
+  "raws": [
+   "{\"id\": \"FEAT-010->BUG-1018#0\", \"verdict\": \"still-blocking\", \"reason\": \"target is named as a blocker but was closed as 'wontfix' without resolving the obstacle\"}",
+   "{\"id\": \"FEAT-010->BUG-1018#0\", \"verdict\": \"still-blocking\", \"reason\": \"target is named as a blocker but was closed as 'wontfix' without resolving the obstacle\"}",
+   "{\"id\": \"FEAT-010->BUG-1018#0\", \"verdict\": \"still-blocking\", \"reason\": \"target is named as a blocker but was closed as 'wontfix' without resolving the obstacle\"}"
+  ],
+  "wall": 3.23,
+  "json_ok": true,
+  "outcome": "correct",
+  "pass": true
+ },
+ {
+  "id": "FEAT-1011->TASK-1032#0",
+  "label": "not-a-blocker",
+  "lane": "blocker",
+  "votes": [
+   "not-a-blocker",
+   "not-a-blocker",
+   "not-a-blocker"
+  ],
+  "verdict": "not-a-blocker",
+  "raw": "{\"id\": \"FEAT-1011->TASK-1032#0\", \"verdict\": \"not-a-blocker\", \"reason\": \"the text indicates the target is blocked by this item, not the other way around\"}",
+  "raws": [
+   "{\"id\": \"FEAT-1011->TASK-1032#0\", \"verdict\": \"not-a-blocker\", \"reason\": \"the text indicates the target is blocked by this item, not the other way around\"}",
+   "{\"id\": \"FEAT-1011->TASK-1032#0\", \"verdict\": \"not-a-blocker\", \"reason\": \"the text indicates the target is blocked by this item, not the other way around\"}",
+   "{\"id\": \"FEAT-1011->TASK-1032#0\", \"verdict\": \"not-a-blocker\", \"reason\": \"the text indicates the target is blocked by this item, not the other way around\"}"
+  ],
+  "wall": 3.31,
+  "json_ok": true,
+  "outcome": "correct",
+  "pass": true
+ },
+ {
+  "id": "IDEA-1027->PROJ-1018#0",
+  "label": "lifted",
+  "lane": "blocker",
+  "votes": [
+   "lifted",
+   "lifted",
+   "lifted"
+  ],
+  "verdict": "lifted",
+  "raw": "{\"id\": \"IDEA-1027->PROJ-1018#0\", \"verdict\": \"lifted\", \"reason\": \"The text states PROJ-1018 disproved the blocker, and the target is completed.\"}",
+  "raws": [
+   "{\"id\": \"IDEA-1027->PROJ-1018#0\", \"verdict\": \"lifted\", \"reason\": \"The text states PROJ-1018 disproved the blocker, and the target is completed.\"}",
+   "{\"id\": \"IDEA-1027->PROJ-1018#0\", \"verdict\": \"lifted\", \"reason\": \"The text states PROJ-1018 disproved the blocker, and the target is completed.\"}",
+   "{\"id\": \"IDEA-1027->PROJ-1018#0\", \"verdict\": \"lifted\", \"reason\": \"The text states PROJ-1018 disproved the blocker, and the target is completed.\"}"
+  ],
+  "wall": 3.36,
+  "json_ok": true,
+  "outcome": "correct",
+  "pass": true
+ },
+ {
+  "id": "IDEA-1052->IDEA-1051#0",
+  "label": "not-a-blocker",
+  "lane": "blocker",
+  "votes": [
+   "not-a-blocker",
+   "not-a-blocker",
+   "not-a-blocker"
+  ],
+  "verdict": "not-a-blocker",
+  "raw": "{\"id\": \"IDEA-1052->IDEA-1051#0\", \"verdict\": \"not-a-blocker\", \"reason\": \"the target is described as a sibling, not a blocker of this item\"}",
+  "raws": [
+   "{\"id\": \"IDEA-1052->IDEA-1051#0\", \"verdict\": \"not-a-blocker\", \"reason\": \"the target is described as a sibling, not a blocker of this item\"}",
+   "{\"id\": \"IDEA-1052->IDEA-1051#0\", \"verdict\": \"not-a-blocker\", \"reason\": \"the target is described as a sibling, not a blocker of this item\"}",
+   "{\"id\": \"IDEA-1052->IDEA-1051#0\", \"verdict\": \"not-a-blocker\", \"reason\": \"the target is described as a sibling, not a blocker of this item\"}"
+  ],
+  "wall": 3.15,
+  "json_ok": true,
+  "outcome": "correct",
+  "pass": true
+ },
+ {
+  "id": "IDEA-1052->IDEA-1053#1",
+  "label": "not-a-blocker",
+  "lane": "blocker",
+  "votes": [
+   "not-a-blocker",
+   "not-a-blocker",
+   "not-a-blocker"
+  ],
+  "verdict": "not-a-blocker",
+  "raw": "{\"id\": \"IDEA-1052->IDEA-1053#1\", \"verdict\": \"not-a-blocker\", \"reason\": \"the target is described as a sibling, not a blocker of this item\"}",
+  "raws": [
+   "{\"id\": \"IDEA-1052->IDEA-1053#1\", \"verdict\": \"not-a-blocker\", \"reason\": \"the target is described as a sibling, not a blocker of this item\"}",
+   "{\"id\": \"IDEA-1052->IDEA-1053#1\", \"verdict\": \"not-a-blocker\", \"reason\": \"the target is described as a sibling, not a blocker of this item\"}",
+   "{\"id\": \"IDEA-1052->IDEA-1053#1\", \"verdict\": \"not-a-blocker\", \"reason\": \"the target is described as a sibling, not a blocker of this item\"}"
+  ],
+  "wall": 3.15,
+  "json_ok": true,
+  "outcome": "correct",
+  "pass": true
+ },
+ {
+  "id": "IMPR-008->FEAT-020#0",
+  "label": "lifted",
+  "lane": "blocker",
+  "votes": [
+   "lifted",
+   "lifted",
+   "lifted"
+  ],
+  "verdict": "lifted",
+  "raw": "{\"id\": \"IMPR-008->FEAT-020#0\", \"verdict\": \"lifted\", \"reason\": \"explicitly named as a foundational prerequisite and is shipped\"}",
+  "raws": [
+   "{\"id\": \"IMPR-008->FEAT-020#0\", \"verdict\": \"lifted\", \"reason\": \"explicitly named as a foundational prerequisite and is shipped\"}",
+   "{\"id\": \"IMPR-008->FEAT-020#0\", \"verdict\": \"lifted\", \"reason\": \"explicitly named as a foundational prerequisite and is shipped\"}",
+   "{\"id\": \"IMPR-008->FEAT-020#0\", \"verdict\": \"lifted\", \"reason\": \"explicitly named as a foundational prerequisite and is shipped\"}"
+  ],
+  "wall": 2.82,
+  "json_ok": true,
+  "outcome": "correct",
+  "pass": true
+ },
+ {
+  "id": "TASK-042->TASK-035#0",
+  "label": "lifted",
+  "lane": "blocker",
+  "votes": [
+   "lifted",
+   "lifted",
+   "lifted"
+  ],
+  "verdict": "lifted",
+  "raw": "{\"id\": \"TASK-042->TASK-035#0\", \"verdict\": \"lifted\", \"reason\": \"explicitly named as a prerequisite, and the target is done\"}",
+  "raws": [
+   "{\"id\": \"TASK-042->TASK-035#0\", \"verdict\": \"lifted\", \"reason\": \"explicitly named as a prerequisite, and the target is done\"}",
+   "{\"id\": \"TASK-042->TASK-035#0\", \"verdict\": \"lifted\", \"reason\": \"explicitly named as a prerequisite, and the target is done\"}",
+   "{\"id\": \"TASK-042->TASK-035#0\", \"verdict\": \"lifted\", \"reason\": \"explicitly named as a prerequisite, and the target is done\"}"
+  ],
+  "wall": 2.83,
+  "json_ok": true,
+  "outcome": "correct",
+  "pass": true
+ },
+ {
+  "id": "TASK-094->TASK-091#0",
+  "label": "lifted",
+  "lane": "blocker",
+  "votes": [
+   "lifted",
+   "lifted",
+   "lifted"
+  ],
+  "verdict": "lifted",
+  "raw": "{\"id\": \"TASK-094->TASK-091#0\", \"verdict\": \"lifted\", \"reason\": \"explicitly 'Blocked on' the target, which is done\"}",
+  "raws": [
+   "{\"id\": \"TASK-094->TASK-091#0\", \"verdict\": \"lifted\", \"reason\": \"explicitly 'Blocked on' the target, which is done\"}",
+   "{\"id\": \"TASK-094->TASK-091#0\", \"verdict\": \"lifted\", \"reason\": \"explicitly 'Blocked on' the target, which is done\"}",
+   "{\"id\": \"TASK-094->TASK-091#0\", \"verdict\": \"lifted\", \"reason\": \"explicitly 'Blocked on' the target, which is done\"}"
+  ],
+  "wall": 2.76,
+  "json_ok": true,
+  "outcome": "correct",
+  "pass": true
+ },
+ {
+  "id": "TASK-094->TASK-093#1",
+  "label": "lifted",
+  "lane": "blocker",
+  "votes": [
+   "lifted",
+   "lifted",
+   "lifted"
+  ],
+  "verdict": "lifted",
+  "raw": "{\"id\": \"TASK-094->TASK-093#1\", \"verdict\": \"lifted\", \"reason\": \"explicitly 'Blocked on' the target, which is done\"}",
+  "raws": [
+   "{\"id\": \"TASK-094->TASK-093#1\", \"verdict\": \"lifted\", \"reason\": \"explicitly 'Blocked on' the target, which is done\"}",
+   "{\"id\": \"TASK-094->TASK-093#1\", \"verdict\": \"lifted\", \"reason\": \"explicitly 'Blocked on' the target, which is done\"}",
+   "{\"id\": \"TASK-094->TASK-093#1\", \"verdict\": \"lifted\", \"reason\": \"explicitly 'Blocked on' the target, which is done\"}"
+  ],
+  "wall": 2.75,
+  "json_ok": true,
+  "outcome": "correct",
+  "pass": true
+ },
+ {
+  "id": "TASK-1025->IDEA-1009#0",
+  "label": "lifted",
+  "lane": "blocker",
+  "votes": [
+   "lifted",
+   "lifted",
+   "lifted"
+  ],
+  "verdict": "lifted",
+  "raw": "{\"id\": \"TASK-1025->IDEA-1009#0\", \"verdict\": \"lifted\", \"reason\": \"explicitly 'Blocked on' the target, which is shipped\"}",
+  "raws": [
+   "{\"id\": \"TASK-1025->IDEA-1009#0\", \"verdict\": \"lifted\", \"reason\": \"explicitly 'Blocked on' the target, which is shipped\"}",
+   "{\"id\": \"TASK-1025->IDEA-1009#0\", \"verdict\": \"lifted\", \"reason\": \"explicitly 'Blocked on' the target, which is shipped\"}",
+   "{\"id\": \"TASK-1025->IDEA-1009#0\", \"verdict\": \"lifted\", \"reason\": \"explicitly 'Blocked on' the target, which is shipped\"}"
+  ],
+  "wall": 2.94,
+  "json_ok": true,
+  "outcome": "correct",
+  "pass": true
+ },
+ {
+  "id": "TASK-1131->TASK-1127#0",
+  "label": "not-a-blocker",
+  "lane": "blocker",
+  "votes": [
+   "not-a-blocker",
+   "not-a-blocker",
+   "not-a-blocker"
+  ],
+  "verdict": "not-a-blocker",
+  "raw": "{\"id\": \"TASK-1131->TASK-1127#0\", \"verdict\": \"not-a-blocker\", \"reason\": \"TASK-1127 is cited as a source of stale numbers, not as a blocker for this task\"}",
+  "raws": [
+   "{\"id\": \"TASK-1131->TASK-1127#0\", \"verdict\": \"not-a-blocker\", \"reason\": \"TASK-1127 is cited as a source of stale numbers, not as a blocker for this task\"}",
+   "{\"id\": \"TASK-1131->TASK-1127#0\", \"verdict\": \"not-a-blocker\", \"reason\": \"TASK-1127 is cited as a source of stale numbers, not as a blocker for this task\"}",
+   "{\"id\": \"TASK-1131->TASK-1127#0\", \"verdict\": \"not-a-blocker\", \"reason\": \"TASK-1127 is cited as a source of stale numbers, not as a blocker for this task\"}"
+  ],
+  "wall": 3.58,
+  "json_ok": true,
+  "outcome": "correct",
+  "pass": true
+ },
+ {
+  "id": "TASK-1193->TASK-1192#0",
+  "label": "lifted",
+  "lane": "blocker",
+  "votes": [
+   "lifted",
+   "lifted",
+   "lifted"
+  ],
+  "verdict": "lifted",
+  "raw": "{\"id\": \"TASK-1193->TASK-1192#0\", \"verdict\": \"lifted\", \"reason\": \"explicitly 'Blocked by' the target, which is done\"}",
+  "raws": [
+   "{\"id\": \"TASK-1193->TASK-1192#0\", \"verdict\": \"lifted\", \"reason\": \"explicitly 'Blocked by' the target, which is done\"}",
+   "{\"id\": \"TASK-1193->TASK-1192#0\", \"verdict\": \"lifted\", \"reason\": \"explicitly 'Blocked by' the target, which is done\"}",
+   "{\"id\": \"TASK-1193->TASK-1192#0\", \"verdict\": \"lifted\", \"reason\": \"explicitly 'Blocked by' the target, which is done\"}"
+  ],
+  "wall": 2.88,
+  "json_ok": true,
+  "outcome": "correct",
+  "pass": true
+ },
+ {
+  "id": "TASK-157->IDEA-045#0",
+  "label": "not-a-blocker",
+  "lane": "blocker",
+  "votes": [
+   "not-a-blocker",
+   "not-a-blocker",
+   "not-a-blocker"
+  ],
+  "verdict": "not-a-blocker",
+  "raw": "{\"id\": \"TASK-157->IDEA-045#0\", \"verdict\": \"not-a-blocker\", \"reason\": \"The target is mentioned as a related item/context, not as a blocker or prerequisite for this task.\"}",
+  "raws": [
+   "{\"id\": \"TASK-157->IDEA-045#0\", \"verdict\": \"not-a-blocker\", \"reason\": \"The target is mentioned as a related item/context, not as a blocker or prerequisite for this task.\"}",
+   "{\"id\": \"TASK-157->IDEA-045#0\", \"verdict\": \"not-a-blocker\", \"reason\": \"The target is mentioned as a related item/context, not as a blocker or prerequisite for this task.\"}",
+   "{\"id\": \"TASK-157->IDEA-045#0\", \"verdict\": \"not-a-blocker\", \"reason\": \"The target is mentioned as a related item/context, not as a blocker or prerequisite for this task.\"}"
+  ],
+  "wall": 3.42,
+  "json_ok": true,
+  "outcome": "correct",
+  "pass": true
+ },
+ {
+  "id": "TASK-253->BUG-217#0",
+  "label": "unclear",
+  "lane": "blocker",
+  "votes": [
+   "lifted",
+   "lifted",
+   "lifted"
+  ],
+  "verdict": "lifted",
+  "raw": "{\"id\": \"TASK-253->BUG-217#0\", \"verdict\": \"lifted\", \"reason\": \"The target is identified as the source of a 'gate' (blocker) and is now fixed.\"}",
+  "raws": [
+   "{\"id\": \"TASK-253->BUG-217#0\", \"verdict\": \"lifted\", \"reason\": \"The target is identified as the source of a 'gate' (blocker) and is now fixed.\"}",
+   "{\"id\": \"TASK-253->BUG-217#0\", \"verdict\": \"lifted\", \"reason\": \"The target is identified as the source of a 'gate' (blocker) and is now fixed.\"}",
+   "{\"id\": \"TASK-253->BUG-217#0\", \"verdict\": \"lifted\", \"reason\": \"The target is identified as the source of a 'gate' (blocker) and is now fixed.\"}"
+  ],
+  "wall": 3.26,
+  "json_ok": true,
+  "outcome": "wrong",
+  "pass": false
+ }
+]

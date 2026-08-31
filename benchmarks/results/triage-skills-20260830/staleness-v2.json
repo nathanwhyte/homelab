@@ -1,0 +1,254 @@
+[
+ {
+  "id": "BUG-104",
+  "label": "follow-up-needed",
+  "lane": "staleness",
+  "votes": [
+   "follow-up-needed",
+   "follow-up-needed",
+   "follow-up-needed"
+  ],
+  "verdict": "follow-up-needed",
+  "raw": "{\"id\": \"BUG-104\", \"verdict\": \"follow-up-needed\", \"reason\": \"status is fix-ready but the Verification section is explicitly marked as empty (no fix applied)\"}",
+  "raws": [
+   "{\"id\": \"BUG-104\", \"verdict\": \"follow-up-needed\", \"reason\": \"status is fix-ready but the Verification section is explicitly marked as empty (no fix applied)\"}",
+   "{\"id\": \"BUG-104\", \"verdict\": \"follow-up-needed\", \"reason\": \"status is fix-ready but the Verification section is explicitly marked as (empty — no fix applied)\"}",
+   "{\"id\": \"BUG-104\", \"verdict\": \"follow-up-needed\", \"reason\": \"status is fix-ready but the Verification section is explicitly marked as (empty — no fix applied)\"}"
+  ],
+  "wall": 3.93,
+  "json_ok": true,
+  "outcome": "correct",
+  "pass": true
+ },
+ {
+  "id": "BUG-132",
+  "label": "follow-up-needed",
+  "lane": "staleness",
+  "votes": [
+   "follow-up-needed",
+   "follow-up-needed",
+   "follow-up-needed"
+  ],
+  "verdict": "follow-up-needed",
+  "raw": "{\"id\": \"BUG-132\", \"verdict\": \"follow-up-needed\", \"reason\": \"the Fix section is 'Not started' and the Verification section is 'Pending' with specific suggested checks.\"}",
+  "raws": [
+   "{\"id\": \"BUG-132\", \"verdict\": \"follow-up-needed\", \"reason\": \"the Fix section is 'Not started' and the Verification section is 'Pending' with specific suggested checks.\"}",
+   "{\"id\": \"BUG-132\", \"verdict\": \"follow-up-needed\", \"reason\": \"the Fix section is 'Not started' and the Verification section is 'Pending' with specific suggested checks.\"}",
+   "{\"id\": \"BUG-132\", \"verdict\": \"follow-up-needed\", \"reason\": \"the Fix section is 'Not started' and the Verification section is 'Pending' with specific suggested checks.\"}"
+  ],
+  "wall": 3.9,
+  "json_ok": true,
+  "outcome": "correct",
+  "pass": true
+ },
+ {
+  "id": "BUG-138",
+  "label": "follow-up-needed",
+  "lane": "staleness",
+  "votes": [
+   "follow-up-needed",
+   "follow-up-needed",
+   "follow-up-needed"
+  ],
+  "verdict": "follow-up-needed",
+  "raw": "{\"id\": \"BUG-138\", \"verdict\": \"follow-up-needed\", \"reason\": \"three checkboxes in the Verification section remain unchecked.\"}",
+  "raws": [
+   "{\"id\": \"BUG-138\", \"verdict\": \"follow-up-needed\", \"reason\": \"three checkboxes in the Verification section remain unchecked.\"}",
+   "{\"id\": \"BUG-138\", \"verdict\": \"follow-up-needed\", \"reason\": \"three checkboxes in the Verification section remain unchecked.\"}",
+   "{\"id\": \"BUG-138\", \"verdict\": \"follow-up-needed\", \"reason\": \"three checkboxes in the Verification section remain unchecked.\"}"
+  ],
+  "wall": 2.93,
+  "json_ok": true,
+  "outcome": "correct",
+  "pass": true
+ },
+ {
+  "id": "BUG-052",
+  "label": "follow-up-needed",
+  "lane": "staleness",
+  "votes": [
+   "follow-up-needed",
+   "follow-up-needed",
+   "follow-up-needed"
+  ],
+  "verdict": "follow-up-needed",
+  "raw": "{\"id\": \"BUG-052\", \"verdict\": \"follow-up-needed\", \"reason\": \"the Fix and Verification sections both explicitly state 'Under investigation.'\"}",
+  "raws": [
+   "{\"id\": \"BUG-052\", \"verdict\": \"follow-up-needed\", \"reason\": \"the Fix and Verification sections both explicitly state 'Under investigation.'\"}",
+   "{\"id\": \"BUG-052\", \"verdict\": \"follow-up-needed\", \"reason\": \"the Fix and Verification sections both explicitly state 'Under investigation.'\"}",
+   "{\"id\": \"BUG-052\", \"verdict\": \"follow-up-needed\", \"reason\": \"the Fix and Verification sections both explicitly state 'Under investigation.'\"}"
+  ],
+  "wall": 3.37,
+  "json_ok": true,
+  "outcome": "correct",
+  "pass": true
+ },
+ {
+  "id": "BUG-152",
+  "label": "follow-up-needed",
+  "lane": "staleness",
+  "votes": [
+   "follow-up-needed",
+   "follow-up-needed",
+   "follow-up-needed"
+  ],
+  "verdict": "follow-up-needed",
+  "raw": "{\"id\": \"BUG-152\", \"verdict\": \"follow-up-needed\", \"reason\": \"the Verification section is marked 'To be determined — pending fix approach selection'\"}",
+  "raws": [
+   "{\"id\": \"BUG-152\", \"verdict\": \"follow-up-needed\", \"reason\": \"the Verification section is marked 'To be determined — pending fix approach selection'\"}",
+   "{\"id\": \"BUG-152\", \"verdict\": \"follow-up-needed\", \"reason\": \"the Verification section is marked 'To be determined — pending fix approach selection'\"}",
+   "{\"id\": \"BUG-152\", \"verdict\": \"follow-up-needed\", \"reason\": \"the Verification section is marked 'To be determined — pending fix approach selection'\"}"
+  ],
+  "wall": 3.52,
+  "json_ok": true,
+  "outcome": "correct",
+  "pass": true
+ },
+ {
+  "id": "FEAT-1002",
+  "label": "fine",
+  "lane": "staleness",
+  "votes": [
+   "fine",
+   "fine",
+   "fine"
+  ],
+  "verdict": "fine",
+  "raw": "{\"id\": \"FEAT-1002\", \"verdict\": \"fine\", \"reason\": \"the record is shipped and all checklist items are marked as completed\"}",
+  "raws": [
+   "{\"id\": \"FEAT-1002\", \"verdict\": \"fine\", \"reason\": \"the record is shipped and all checklist items are marked as completed\"}",
+   "{\"id\": \"FEAT-1002\", \"verdict\": \"fine\", \"reason\": \"the record is shipped and all checklist items are marked as completed\"}",
+   "{\"id\": \"FEAT-1002\", \"verdict\": \"fine\", \"reason\": \"the record is shipped and all checklist items are marked as completed\"}"
+  ],
+  "wall": 2.95,
+  "json_ok": true,
+  "outcome": "correct",
+  "pass": true
+ },
+ {
+  "id": "FEAT-1005",
+  "label": "fine",
+  "lane": "staleness",
+  "votes": [
+   "fine",
+   "fine",
+   "fine"
+  ],
+  "verdict": "fine",
+  "raw": "{\"id\": \"FEAT-1005\", \"verdict\": \"fine\", \"reason\": \"the record is shipped and all tasks/follow-ups are explicitly marked as complete or closed.\"}",
+  "raws": [
+   "{\"id\": \"FEAT-1005\", \"verdict\": \"fine\", \"reason\": \"the record is shipped and all tasks/follow-ups are explicitly marked as complete or closed.\"}",
+   "{\"id\": \"FEAT-1005\", \"verdict\": \"fine\", \"reason\": \"the record is shipped and all tasks/follow-ups are explicitly marked as complete or closed.\"}",
+   "{\"id\": \"FEAT-1005\", \"verdict\": \"fine\", \"reason\": \"the record is shipped and all tasks/follow-ups are explicitly marked as complete or closed.\"}"
+  ],
+  "wall": 3.34,
+  "json_ok": true,
+  "outcome": "correct",
+  "pass": true
+ },
+ {
+  "id": "FEAT-1010",
+  "label": "fine",
+  "lane": "staleness",
+  "votes": [
+   "fine",
+   "fine",
+   "fine"
+  ],
+  "verdict": "fine",
+  "raw": "{\"id\": \"FEAT-1010\", \"verdict\": \"fine\", \"reason\": \"all checkboxes are marked [x] and post-ship fixes/features are documented as completed\"}",
+  "raws": [
+   "{\"id\": \"FEAT-1010\", \"verdict\": \"fine\", \"reason\": \"all checkboxes are marked [x] and post-ship fixes/features are documented as completed\"}",
+   "{\"id\": \"FEAT-1010\", \"verdict\": \"fine\", \"reason\": \"all checkboxes are marked [x] and post-ship fixes/features are documented as completed\"}",
+   "{\"id\": \"FEAT-1010\", \"verdict\": \"fine\", \"reason\": \"all checkboxes are marked [x] and post-ship fixes/features are documented as completed\"}"
+  ],
+  "wall": 3.61,
+  "json_ok": true,
+  "outcome": "correct",
+  "pass": true
+ },
+ {
+  "id": "FEAT-029",
+  "label": "follow-up-needed",
+  "lane": "staleness",
+  "votes": [
+   "follow-up-needed",
+   "follow-up-needed",
+   "follow-up-needed"
+  ],
+  "verdict": "follow-up-needed",
+  "raw": "{\"id\": \"FEAT-029\", \"verdict\": \"follow-up-needed\", \"reason\": \"an unchecked verification box remains: [ ] Verify on sandbox with empty Conagra file\"}",
+  "raws": [
+   "{\"id\": \"FEAT-029\", \"verdict\": \"follow-up-needed\", \"reason\": \"an unchecked verification box remains: [ ] Verify on sandbox with empty Conagra file\"}",
+   "{\"id\": \"FEAT-029\", \"verdict\": \"follow-up-needed\", \"reason\": \"an unchecked verification box remains: [ ] Verify on sandbox with empty Conagra file\"}",
+   "{\"id\": \"FEAT-029\", \"verdict\": \"follow-up-needed\", \"reason\": \"an unchecked verification box remains: [ ] Verify on sandbox with empty Conagra file\"}"
+  ],
+  "wall": 3.39,
+  "json_ok": true,
+  "outcome": "correct",
+  "pass": true
+ },
+ {
+  "id": "FEAT-1014",
+  "label": "fine",
+  "lane": "staleness",
+  "votes": [
+   "fine",
+   "fine",
+   "fine"
+  ],
+  "verdict": "fine",
+  "raw": "{\"id\": \"FEAT-1014\", \"verdict\": \"fine\", \"reason\": \"the record is marked shipped and all checklist items are completed\"}",
+  "raws": [
+   "{\"id\": \"FEAT-1014\", \"verdict\": \"fine\", \"reason\": \"the record is marked shipped and all checklist items are completed\"}",
+   "{\"id\": \"FEAT-1014\", \"verdict\": \"fine\", \"reason\": \"the record is marked shipped and all checklist items are completed\"}",
+   "{\"id\": \"FEAT-1014\", \"verdict\": \"fine\", \"reason\": \"the record is marked shipped and all checklist items are completed\"}"
+  ],
+  "wall": 2.94,
+  "json_ok": true,
+  "outcome": "correct",
+  "pass": true
+ },
+ {
+  "id": "FEAT-042",
+  "label": "fine",
+  "lane": "staleness",
+  "votes": [
+   "fine",
+   "fine",
+   "fine"
+  ],
+  "verdict": "fine",
+  "raw": "{\"id\": \"FEAT-042\", \"verdict\": \"fine\", \"reason\": \"the record is shipped and all acceptance criteria checkboxes are marked as completed\"}",
+  "raws": [
+   "{\"id\": \"FEAT-042\", \"verdict\": \"fine\", \"reason\": \"the record is shipped and all acceptance criteria checkboxes are marked as completed\"}",
+   "{\"id\": \"FEAT-042\", \"verdict\": \"fine\", \"reason\": \"the record is shipped and all acceptance criteria checkboxes are marked as completed\"}",
+   "{\"id\": \"FEAT-042\", \"verdict\": \"fine\", \"reason\": \"the record is shipped and all acceptance criteria checkboxes are marked as completed\"}"
+  ],
+  "wall": 2.97,
+  "json_ok": true,
+  "outcome": "correct",
+  "pass": true
+ },
+ {
+  "id": "FEAT-1017",
+  "label": "follow-up-needed",
+  "lane": "staleness",
+  "votes": [
+   "follow-up-needed",
+   "follow-up-needed",
+   "follow-up-needed"
+  ],
+  "verdict": "follow-up-needed",
+  "raw": "{\"id\": \"FEAT-1017\", \"verdict\": \"follow-up-needed\", \"reason\": \"multiple unchecked boxes remain in the tail, including 'Verify unattended SSH auth' and 'Confirm storage location'.\"}",
+  "raws": [
+   "{\"id\": \"FEAT-1017\", \"verdict\": \"follow-up-needed\", \"reason\": \"multiple unchecked boxes remain in the tail, including 'Verify unattended SSH auth' and 'Confirm storage location'.\"}",
+   "{\"id\": \"FEAT-1017\", \"verdict\": \"follow-up-needed\", \"reason\": \"multiple unchecked checkboxes remain in the tail (SSH auth, storage location, backup targets, cron, and manifests)\"}",
+   "{\"id\": \"FEAT-1017\", \"verdict\": \"follow-up-needed\", \"reason\": \"multiple unchecked checkboxes remain in the tail (SSH auth, storage location, backup targets, cron, and manifests)\"}"
+  ],
+  "wall": 3.8,
+  "json_ok": true,
+  "outcome": "correct",
+  "pass": true
+ }
+]
