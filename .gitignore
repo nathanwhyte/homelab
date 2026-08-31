@@ -107,6 +107,8 @@ benchmarks/results/*
 !benchmarks/results/triage-skills-20260830/
 # IDEA-1093 compaction.triage measurement loops (README + cases + per-loop json)
 !benchmarks/results/compaction-triage-20260831/
+# IDEA-1091 injection probes across all five proposer lanes (README + per-lane json + reports)
+!benchmarks/results/injection-probes-20260831/
 
 # Pi-hole stack secrets (PROJ-1018). pihole-exporter.env carries a Pi-hole
 # password per upstream's schema and is NOT matched by the bare `.env` rule above.
