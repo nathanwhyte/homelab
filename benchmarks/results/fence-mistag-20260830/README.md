@@ -25,8 +25,20 @@ Wall p50 ≈ 1.0 s (e4b) / 1.8 s (12b) / 1.9 s (qwen) per call.
 
 - The selector/model division of labour holds: the v1 hard class (language fragments, F04/F20) never reaches the model any more, and the reviewed false positives — which the old classifier got wrong — were all read correctly by both gemma tags.
 - `agentpair:agent-gemma4-12b` (run 2026-08-30, same window pattern) has the best posture of the three: it acts on all 3 real retags and reports on everything else — it discriminates, where e4b commits everywhere and qwen reports everywhere. No id mangle. Its only miss is the same ambiguous case (`yaml` instead of `report`), which no model has passed. Caveats: the 12b tag exists on timmy but is not yet in the homelab recipes/configmap (built for the pair-VRAM probe), and its keep-path behaviour is report-heavy — fine for the metric (both are non-writes) but it hands more items to the human report than e4b would.
-- `agentpair:agent-gemma4-e4b` stays the proposer pick. Its only miss is the one genuinely ambiguous case, where it commits (`yaml`) instead of reporting; the draft-PR gate (which caught the eight 3a wrong swaps) is the backstop for exactly this.
+- `agentpair:agent-gemma4-e4b` was the pass-1 pick on score alone (superseded by pass 2 below). Its miss is the one genuinely ambiguous case, where it commits (`yaml`) instead of reporting; the draft-PR gate (which caught the eight 3a wrong swaps) is the backstop for exactly this.
 - qwen fails safe but inert: 12/15 reports, 1/3 retags found — consistent with its v1 refuser pattern.
 - gemma mis-echoed one long path-based id by a single character (BUG-1042, `payloads` → `payload`); production declines a wrong id echo, so the failure is safe but wastes the case. If it recurs at scale, shorter ids are the fix.
 
-Files: `cases.json` (seeded case set), `agentpair_agent-gemma4-e4b.json`, `agentpair_agent.json` (per-case rows incl. raw replies). Run dirs with `meta.json`/`report.md`: `~/code/compendium-runs/shadow-agentpair_agent-gemma4-e4b-20260831T023522Z`, `~/code/compendium-runs/shadow-agentpair_agent-20260831T023555Z`.
+## Pass 2 — skill reworded for the mapping/sentence split (same night)
+
+One rule added to `fence.propose` ("Half a mapping, half sentences is neither" — key-value lines above imperative bullets go to `report`, with an invented example so IMPR-1021:212 stays informative), same 15 cases, `*-pass2.json`:
+
+| Tag                          | pass      | Δ pass-1 | retags (3) | ambiguous (1) | wrong writes    |
+| ---------------------------- | --------- | -------- | ---------- | ------------- | --------------- |
+| `agentpair:agent-gemma4-12b` | **15/15** | +1       | 3/3        | reported      | 0               |
+| `agentpair:agent` (qwen3.5)  | 13/15     | +1       | 1/3        | reported      | 0               |
+| `agentpair:agent-gemma4-e4b` | 12/15     | −1       | 3/3        | still `yaml`  | 2 (IDEA-1035 ↯) |
+
+The rewording splits the field by posture. gemma4-12b, which already discriminated, now clears the set: every retag found, everything else reported, the ambiguous case reported with the new rule's own reasoning. qwen also gains the ambiguous case (and one retag came back as an empty reply — serving noise, not a wrong write). e4b, the commit-everywhere model, got worse: it still retags the ambiguous case and now also retags IDEA-1035's bullet list `yaml` — the new "keys don't decide" rule apparently primed it to see mappings. **The skill text is now tuned for a discriminating proposer; the pick is `agentpair:agent-gemma4-12b`**, with the caveat that it is not yet in the homelab recipes/configmap.
+
+Files: `cases.json` (seeded case set), per-model `*.json` (pass 1) and `*-pass2.json` (per-case rows incl. raw replies). Run dirs with `meta.json`/`report.md` under `~/code/compendium-runs/shadow-agentpair_*` (pass 1: `T023522Z`/`T023555Z`/`T024131Z`; pass 2: `T025628Z`/`T025716Z`/`T025748Z`).
