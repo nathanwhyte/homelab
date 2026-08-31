@@ -46,6 +46,16 @@ The tweak round the full-vault run and the review both pointed at: `check-closab
 
 Also in this round (runner-side, `batch-run.py`): staleness sweeps always skip `cancelled`/`dropped`/`wontfix`; triage manifests accept `statuses` (scope the sweep to statuses where a text-vs-status mismatch is a finding — the full-vault run's ~140 backlog flags were rule-faithful noise) and `votes` (1–5, default 3; the 398-item run was unanimous everywhere, so 1 is reasonable for large sweeps); reports collapse `fine`/`not-a-blocker` rows to counts. 77 tests.
 
-Label-audit tally across all rounds: the model has now corrected the labeler three times (FEAT-029, FEAT-1017, and TASK-253's first wrong relabel was the labeler chasing the model); the labeler corrected the model's evidence twice (BUG-052 windows). The excerpt, not the model, has been the weakest component in every disputed case.
+Label-audit tally across all rounds: the model has corrected the labeler three times (FEAT-029, FEAT-1017, and TASK-253's first wrong relabel was the labeler chasing the model); the labeler corrected the model's evidence twice (BUG-052 windows). The excerpt has been the failing component in most disputed cases — but not all: TASK-253 is a genuine model failure mode, three unanimous confident verdicts against an ambiguous case at every window size. Report-only framing bounds its cost; it does not remove it.
+
+### v2 corrections (2026-08-31, second review)
+
+A follow-up review sustained three P2s against the first v2 cut; all fixed and re-measured (scores unchanged, now on exact production record shapes):
+
+1. **Excerpt lift prioritisation** — `_staleness_excerpt` clipped lifted lines in document order, which hid every unchecked box for FEAT-020/FEAT-031/TASK-1050 behind checked ones. Unchecked `- [ ]` lines now survive the cap first; verified on all three named items (5/5, 2/2, 2/2 unchecked boxes visible).
+2. **Prefix-id window bug** — `_blocker_context` used substring search, so `TASK-25` could resolve inside `TASK-253` and centre the window on the wrong id. Now a boundary-anchored match; regression test added.
+3. **Production-exact benchmark records** — the corpus carried lowercase `type` where production uppercases it. Aligned and re-measured: blocker 22/23, staleness 12/12, identical scores, now a true exact-input pin.
+
+Also fixed: the TASK-253 corpus note contradicted its own v2 context (it said BUG-217 was absent; the wider window shows it — the note now carries the real ambiguity rationale), and the archived result files gained their missing trailing newlines. Final measured run: `…T160558Z`.
 
 Files: `cases.json` / `cases-v2.json` (records + labels + adjudication notes), `{blocker,staleness}-loop{1,2,3}.json`, `{blocker,staleness}-postreview.json`, `{blocker,staleness}-v2.json` (per-case rows incl. votes and raw replies). Run dirs: `~/code/compendium-runs/shadow-agentpair_agent-gemma4-12b-20260831T{034639,034820,034944,131146,143755,144031}Z`.

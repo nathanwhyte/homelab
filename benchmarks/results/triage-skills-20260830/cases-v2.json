@@ -1,5 +1,5 @@
 {
- "built": "2026-08-31T14:40:22Z",
+ "built": "2026-08-31T16:04:56Z",
  "note": "triage lanes v2 (widened evidence windows, 2026-08-31): all 23 live stale-blocker findings (check-closability) + 12 age-flagged items (check-staleness), labels adjudicated by hand",
  "blocker_cases": [
   {
@@ -253,13 +253,13 @@
    "target_status": "fixed",
    "context": "… ine maps it; run 24557 mapped fine with `include_company_join: false` and no `company_aclaimant_id` column — so it blocks only the UI Save button, not the run. Full reconciliation + recommendation in BUG-217 Investigation Notes (2026-07-22): map `company_aclaimant_id → company_info.id` to clear the gate (expect null on the main pipeline until the company join is wired — FEAT-038), or bypass the UI …",
    "label": "unclear",
-   "note": "restored after the 2026-08-31 review: BUG-217 is absent from the excerpt, and the skill's top rule mandates unclear when the target id is not visible — the loop-1 relabel to not-a-blocker contradicted the pinned contract"
+   "note": "v2 window: BUG-217 is now visible as the home of the gate's fix recommendation, but whether that recommendation landed is not — genuinely ambiguous, and every window size has produced a different confident reading (not-a-blocker at 160 chars, lifted at 400); labeled unclear"
   }
  ],
  "staleness_cases": [
   {
    "id": "BUG-104",
-   "type": "bug",
+   "type": "BUG",
    "status": "fix-ready",
    "date_updated": "2026-06-18",
    "age_days": 73,
@@ -271,7 +271,7 @@
   },
   {
    "id": "BUG-132",
-   "type": "bug",
+   "type": "BUG",
    "status": "open",
    "date_updated": "2026-06-18",
    "age_days": 73,
@@ -283,7 +283,7 @@
   },
   {
    "id": "BUG-138",
-   "type": "bug",
+   "type": "BUG",
    "status": "investigating",
    "date_updated": "2026-06-18",
    "age_days": 73,
@@ -295,7 +295,7 @@
   },
   {
    "id": "BUG-052",
-   "type": "bug",
+   "type": "BUG",
    "status": "open",
    "date_updated": "2026-06-18",
    "age_days": 73,
@@ -307,7 +307,7 @@
   },
   {
    "id": "BUG-152",
-   "type": "bug",
+   "type": "BUG",
    "status": "open",
    "date_updated": "2026-06-18",
    "age_days": 73,
@@ -319,7 +319,7 @@
   },
   {
    "id": "FEAT-1002",
-   "type": "feature",
+   "type": "FEATURE",
    "status": "shipped",
    "date_updated": "2026-05-10",
    "age_days": 112,
@@ -331,7 +331,7 @@
   },
   {
    "id": "FEAT-1005",
-   "type": "feature",
+   "type": "FEATURE",
    "status": "shipped",
    "date_updated": "2026-06-04",
    "age_days": 87,
@@ -343,7 +343,7 @@
   },
   {
    "id": "FEAT-1010",
-   "type": "feature",
+   "type": "FEATURE",
    "status": "shipped",
    "date_updated": "2026-06-08",
    "age_days": 83,
@@ -355,7 +355,7 @@
   },
   {
    "id": "FEAT-029",
-   "type": "feature",
+   "type": "FEATURE",
    "status": "shipped",
    "date_updated": "2026-06-18",
    "age_days": 73,
@@ -367,7 +367,7 @@
   },
   {
    "id": "FEAT-1014",
-   "type": "feature",
+   "type": "FEATURE",
    "status": "shipped",
    "date_updated": "2026-06-11",
    "age_days": 80,
@@ -379,7 +379,7 @@
   },
   {
    "id": "FEAT-042",
-   "type": "feature",
+   "type": "FEATURE",
    "status": "shipped",
    "date_updated": "2026-06-18",
    "age_days": 73,
@@ -391,7 +391,7 @@
   },
   {
    "id": "FEAT-1017",
-   "type": "feature",
+   "type": "FEATURE",
    "status": "shipped",
    "date_updated": "2026-06-24",
    "age_days": 67,

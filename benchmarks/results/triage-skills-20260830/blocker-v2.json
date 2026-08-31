@@ -15,7 +15,7 @@
    "{\"id\": \"BUG-097->PROJ-017#0\", \"verdict\": \"not-a-blocker\", \"reason\": \"the target is a parent project, not a dependency blocking this item\"}",
    "{\"id\": \"BUG-097->PROJ-017#0\", \"verdict\": \"not-a-blocker\", \"reason\": \"the target is a parent project, not a dependency blocking this item\"}"
   ],
-  "wall": 3.49,
+  "wall": 3.51,
   "json_ok": true,
   "outcome": "correct",
   "pass": true
@@ -36,7 +36,7 @@
    "{\"id\": \"BUG-154->PROJ-108#0\", \"verdict\": \"not-a-blocker\", \"reason\": \"the context explicitly states the target is not a dependency\"}",
    "{\"id\": \"BUG-154->PROJ-108#0\", \"verdict\": \"not-a-blocker\", \"reason\": \"the context explicitly states the target is not a dependency\"}"
   ],
-  "wall": 2.96,
+  "wall": 2.95,
   "json_ok": true,
   "outcome": "correct",
   "pass": true
@@ -78,7 +78,7 @@
    "{\"id\": \"BUG-177->BUG-176#0\", \"verdict\": \"not-a-blocker\", \"reason\": \"the text explicitly states 'Not blocked by' the target\"}",
    "{\"id\": \"BUG-177->BUG-176#0\", \"verdict\": \"not-a-blocker\", \"reason\": \"the text explicitly states 'Not blocked by' the target\"}"
   ],
-  "wall": 2.94,
+  "wall": 2.95,
   "json_ok": true,
   "outcome": "correct",
   "pass": true
@@ -99,7 +99,7 @@
    "{\"id\": \"BUG-241->BUG-240#0\", \"verdict\": \"not-a-blocker\", \"reason\": \"described as a 'sibling' blocker, not a dependency of this item\"}",
    "{\"id\": \"BUG-241->BUG-240#0\", \"verdict\": \"not-a-blocker\", \"reason\": \"described as a 'sibling' blocker, not a dependency of this item\"}"
   ],
-  "wall": 3.08,
+  "wall": 3.05,
   "json_ok": true,
   "outcome": "correct",
   "pass": true
@@ -162,7 +162,7 @@
    "{\"id\": \"BUG-263->BUG-206#0\", \"verdict\": \"not-a-blocker\", \"reason\": \"the text states BUG-263 is the cause of a blocker for BUG-206, which is the inverted direction\"}",
    "{\"id\": \"BUG-263->BUG-206#0\", \"verdict\": \"not-a-blocker\", \"reason\": \"the text states BUG-263 is the cause of a blocker for BUG-206, which is the inverted direction\"}"
   ],
-  "wall": 3.69,
+  "wall": 3.67,
   "json_ok": true,
   "outcome": "correct",
   "pass": true
@@ -183,7 +183,7 @@
    "{\"id\": \"BUG-264->BUG-206#0\", \"verdict\": \"not-a-blocker\", \"reason\": \"the text describes BUG-264 as the cause of a blocker for BUG-206, not a blocker of BUG-264\"}",
    "{\"id\": \"BUG-264->BUG-206#0\", \"verdict\": \"not-a-blocker\", \"reason\": \"the text describes BUG-264 as the cause of a blocker for BUG-206, not a blocker of BUG-264\"}"
   ],
-  "wall": 3.86,
+  "wall": 3.87,
   "json_ok": true,
   "outcome": "correct",
   "pass": true
@@ -225,7 +225,7 @@
    "{\"id\": \"FEAT-1011->TASK-1032#0\", \"verdict\": \"not-a-blocker\", \"reason\": \"the text indicates the target is blocked by this item, not the other way around\"}",
    "{\"id\": \"FEAT-1011->TASK-1032#0\", \"verdict\": \"not-a-blocker\", \"reason\": \"the text indicates the target is blocked by this item, not the other way around\"}"
   ],
-  "wall": 3.31,
+  "wall": 3.33,
   "json_ok": true,
   "outcome": "correct",
   "pass": true
@@ -246,7 +246,7 @@
    "{\"id\": \"IDEA-1027->PROJ-1018#0\", \"verdict\": \"lifted\", \"reason\": \"The text states PROJ-1018 disproved the blocker, and the target is completed.\"}",
    "{\"id\": \"IDEA-1027->PROJ-1018#0\", \"verdict\": \"lifted\", \"reason\": \"The text states PROJ-1018 disproved the blocker, and the target is completed.\"}"
   ],
-  "wall": 3.36,
+  "wall": 3.37,
   "json_ok": true,
   "outcome": "correct",
   "pass": true
@@ -267,7 +267,7 @@
    "{\"id\": \"IDEA-1052->IDEA-1051#0\", \"verdict\": \"not-a-blocker\", \"reason\": \"the target is described as a sibling, not a blocker of this item\"}",
    "{\"id\": \"IDEA-1052->IDEA-1051#0\", \"verdict\": \"not-a-blocker\", \"reason\": \"the target is described as a sibling, not a blocker of this item\"}"
   ],
-  "wall": 3.15,
+  "wall": 3.16,
   "json_ok": true,
   "outcome": "correct",
   "pass": true
@@ -288,7 +288,7 @@
    "{\"id\": \"IDEA-1052->IDEA-1053#1\", \"verdict\": \"not-a-blocker\", \"reason\": \"the target is described as a sibling, not a blocker of this item\"}",
    "{\"id\": \"IDEA-1052->IDEA-1053#1\", \"verdict\": \"not-a-blocker\", \"reason\": \"the target is described as a sibling, not a blocker of this item\"}"
   ],
-  "wall": 3.15,
+  "wall": 3.19,
   "json_ok": true,
   "outcome": "correct",
   "pass": true
@@ -330,7 +330,7 @@
    "{\"id\": \"TASK-042->TASK-035#0\", \"verdict\": \"lifted\", \"reason\": \"explicitly named as a prerequisite, and the target is done\"}",
    "{\"id\": \"TASK-042->TASK-035#0\", \"verdict\": \"lifted\", \"reason\": \"explicitly named as a prerequisite, and the target is done\"}"
   ],
-  "wall": 2.83,
+  "wall": 2.85,
   "json_ok": true,
   "outcome": "correct",
   "pass": true
@@ -351,7 +351,7 @@
    "{\"id\": \"TASK-094->TASK-091#0\", \"verdict\": \"lifted\", \"reason\": \"explicitly 'Blocked on' the target, which is done\"}",
    "{\"id\": \"TASK-094->TASK-091#0\", \"verdict\": \"lifted\", \"reason\": \"explicitly 'Blocked on' the target, which is done\"}"
   ],
-  "wall": 2.76,
+  "wall": 2.75,
   "json_ok": true,
   "outcome": "correct",
   "pass": true
@@ -372,7 +372,7 @@
    "{\"id\": \"TASK-094->TASK-093#1\", \"verdict\": \"lifted\", \"reason\": \"explicitly 'Blocked on' the target, which is done\"}",
    "{\"id\": \"TASK-094->TASK-093#1\", \"verdict\": \"lifted\", \"reason\": \"explicitly 'Blocked on' the target, which is done\"}"
   ],
-  "wall": 2.75,
+  "wall": 2.74,
   "json_ok": true,
   "outcome": "correct",
   "pass": true
@@ -393,7 +393,7 @@
    "{\"id\": \"TASK-1025->IDEA-1009#0\", \"verdict\": \"lifted\", \"reason\": \"explicitly 'Blocked on' the target, which is shipped\"}",
    "{\"id\": \"TASK-1025->IDEA-1009#0\", \"verdict\": \"lifted\", \"reason\": \"explicitly 'Blocked on' the target, which is shipped\"}"
   ],
-  "wall": 2.94,
+  "wall": 2.93,
   "json_ok": true,
   "outcome": "correct",
   "pass": true
@@ -414,7 +414,7 @@
    "{\"id\": \"TASK-1131->TASK-1127#0\", \"verdict\": \"not-a-blocker\", \"reason\": \"TASK-1127 is cited as a source of stale numbers, not as a blocker for this task\"}",
    "{\"id\": \"TASK-1131->TASK-1127#0\", \"verdict\": \"not-a-blocker\", \"reason\": \"TASK-1127 is cited as a source of stale numbers, not as a blocker for this task\"}"
   ],
-  "wall": 3.58,
+  "wall": 3.59,
   "json_ok": true,
   "outcome": "correct",
   "pass": true
