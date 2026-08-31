@@ -1,0 +1,477 @@
+{
+ "built": "2026-08-31T16:37:09Z",
+ "note": "compaction.triage corpus v1: the compaction-triage-top20-01 run's 20 records, upgraded with fence_langs, labels adjudicated by hand from the full sources",
+ "compaction_cases": [
+  {
+   "id": "TASK-304",
+   "path": "tasks/PROJ-104/TASK-304-other-build-conagra-travelers-loss-run-claims-pipeline.md",
+   "type": "task",
+   "status": "in-progress",
+   "score": 28.0,
+   "signals": [
+    "size(963L)",
+    "chronological(10 dated headings)",
+    "empty-sections(2)",
+    "section-sprawl(64)"
+   ],
+   "body_lines": 963,
+   "sections": 64,
+   "dated_headings": 10,
+   "empty_sections": 2,
+   "fence_lines": 7,
+   "outline": "# TASK-304 — Build ConAgra Travelers loss-run/claims pipeline (2L)\n# Description (23L)\n# Acceptance Criteria (81L)\n# Notes (0L)\n## 2026-08-08 — Both pipelines live; full 29,835-claim load completed (6L)\n### Three fixes were needed between `testing_validation` and a working load (12L)\n### The cost: 7,982 fabricated close dates — needs disclosure (9L)\n### `success-with-postprod-failures` was a false alarm (10L)\n### Async creation is the operational reality (8L)\n### Config changes applied directly to prod Postgres (8L)\n### Source-file correction (6L)\n## 2026-08-07 (pm) — 2001 cutoff answered; locations, name split, external-id fix (0L)\n### Dave's cutoff rule — the load is 861 claims (18L)\n### Jim's question — is there a claim-type field? (10L)\n### Kelly's location mappings — two files, two different join keys (14L)\n### `policy_external_id` was wrong — it matched nothing (11L)\n### Claimant name split — the Liberty trick does not transfer (23L)\n### Input map — Kelly is iterating, two gaps remain (16L)\n### State of the prod config after today (5L)\n## 2026-08-07 — Kelly's crosswalk lands; prod `testing_validation` green (26610 / 26611) (2L)\n### Retraction: all 89 policies were already on the platform (11L)\n### Kelly's `Travelers Policy Mapping.xlsx` — verified before use (9L)\n### Changes applied to both pipelines (15L)\n### Import failure worth remembering: `lookups.submitted_by` (14L)\n### Results — `biz05` fell as predicted (11L)\n### Accepted: `biz10_policy_period_of_unusual_length` on nearly every row (19L)\n## 2026-08-06 — ⚠️ RETRACTED — Platform-side policy check claiming 84 of 89 genuinely missing (26L)\n## 2026-08-06 — `testing_validation` PASSES both pipelines (runs 3270 / 3272) (21L)\n### Promotion artifact, and a cross-session reconciliation (22L)\n### Prod is gated on decisions, not config (18L)\n## 2026-08-06 — `testing_validation` suspends every row: `claim_reported_date` unmapped (9L)\n### Cause 1 — `CLAIM_REPORTED_DATE` is `SUSPEND_ROW` required and was never mapped (16L)\n### Cause 2 — IHF's absent breakouts fail the financial-bucket checks (13L)\n### Cause 3 — 1,222 IHF claims close before they occur (source corruption, not ours) (6L)\n### What passed, and one corroboration (8L)\n### Severity correction — four of the five failing checks are `FAIL_PIPELINE` (11L)\n### `biz15` does not read the `*_reserves` fields at all (13L)\n### Fix applied — five validation overrides, all deliberate waivers (17L)\n### Precedent check — Liberty and Broadspire waive nothing financial (35L)\n### `valuation_date`: three precedents, and `MAYBE_REPORTED_DATE` is metadata (22L)\n### Residual difference from Broadspire worth noting (4L)\n## 2026-08-06 — `testing_mapping` green in sandbox (run 3232); two pipelines, not one (4L)\n### The importer is delete-then-insert — the clone's sharpest edge (11L)\n### Four bugs found before it went green (13L)\n### Run 3232 validation (20L)\n### Decision: two single-file pipelines, not one `multi_excel` with two `file_type`s (30L)\n### Config values worth reusing (7L)\n### Open (29L)\n## 2026-08-06 — Policy data delivered; build scoped to two files, accepting IHF lossiness (18L)\n### What the two-file scope gives up (19L)\n… (outline truncated)",
+   "fence_langs": {
+    "sql": 2,
+    "text": 1
+   },
+   "label": "not-worth-it",
+   "note": "relabeled loop 1: an in-progress item is not-worth-it NOW — the assessor re-flags it when it closes; 'unclear' wrongly sent live logs to the human pile (was: unclear)"
+  },
+  {
+   "id": "TASK-305",
+   "path": "tasks/PROJ-104/TASK-305-mage-liberty-august-load-and-recurring-source-feed-shape.md",
+   "type": "task",
+   "status": "in-progress",
+   "score": 28.0,
+   "signals": [
+    "size(695L)",
+    "chronological(10 dated headings)",
+    "empty-sections(2)",
+    "section-sprawl(41)"
+   ],
+   "body_lines": 695,
+   "sections": 41,
+   "dated_headings": 10,
+   "empty_sections": 2,
+   "fence_lines": 76,
+   "outline": "# TASK-305 — Load Liberty Mutual August 08/01/2026 loss run and settle the recurring source-feed shape (4L)\n# Description (17L)\n# Acceptance Criteria (0L)\n## The August load (54L)\n## The recurring-feed decision (25L)\n## Ingestion robustness (12L)\n# Notes (0L)\n## 2026-08-05 — Intake: the three August per-line files profiled (12L)\n### 1. The mixed-valuation-vintage problem is resolved for this delivery (4L)\n### 2. The August auto export is narrower than July's — 5 claims short, and that is new (29L)\n### 2b. The deeper cause — this is the Claim Listing report, not the ISL report (36L)\n### 3. Preamble depth is unstable, and prod's `skip_rows` would silently drop 8 claims (55L)\n### 4. Recommendation on Tom's question (8L)\n## 2026-08-05 — Data-quality pass on the file contents, and prod reconciliation (4L)\n### Critical columns — one real gap (11L)\n### The data itself is clean (15L)\n### This delivery is the same data (11L)\n### Prod reconciliation — 574 confirmed, and the 5 missing claims named (28L)\n### The attribution loss is already live in prod — and not where the report predicted (25L)\n## 2026-08-05 — Policy crosswalk built and validated: the missing columns are derivable (55L)\n## 2026-08-05 — \"The policies are already attached, so can we just update financials?\" (39L)\n## 2026-08-05 — Sent to Tom (13L)\n## 2026-08-06 — Tom is attempting to combine the three files; holding (17L)\n## 2026-08-06 — LOADED: prod run 26497 complete, valuation_date advanced (7L)\n### Platform state after the upsert (8L)\n### Financials — identical to the July cutover run, to the cent (16L)\n### The sandbox rehearsal was not a valid gate (6L)\n### Follow-ups filed (9L)\n## 2026-08-06 — UNBLOCKED: the ALL LINES export arrived and clears all five checks (11L)\n### Contents (9L)\n### Policy attachment verified end to end (13L)\n### `valuation_date` — derived from the preamble cell, not the filename (9L)\n### Next (3L)\n## 2026-08-05 — Decision: proceed with the load, via an assembled ALL LINES-shaped file (5L)\n### Why an assembled file rather than claim-keyed lookups (19L)\n### Provenance handling (4L)\n### Superseded (3L)\n## 2026-08-05 — Slack draft to Jim and Kelly (superseded, see the decision above) (40L)\n# Verification (10L)\n# Related (6L)\n# Sources (2L)",
+   "fence_langs": {
+    "text": 61,
+    "json": 7
+   },
+   "label": "not-worth-it",
+   "note": "relabeled loop 1: in-progress = not worth compacting now (was: unclear)"
+  },
+  {
+   "id": "PROJ-104",
+   "path": "projects/PROJ-104-other-conagra-deploy-ramp-up-coordination.md",
+   "type": "project",
+   "status": "in-progress",
+   "score": 26.9,
+   "signals": [
+    "size(418L)",
+    "chronological(27 dated headings)",
+    "empty-sections(3)",
+    "section-sprawl(54)"
+   ],
+   "body_lines": 418,
+   "sections": 54,
+   "dated_headings": 27,
+   "empty_sections": 3,
+   "fence_lines": 0,
+   "outline": "# PROJ-104 — Conagra Deploy Ramp-Up Coordination (2L)\n# Overview (2L)\n# Goals (3L)\n# Scope boundary (1L)\n# Task List (0L)\n## Carrier pipeline builds (18L)\n## Liberty pipeline build details (tracked in TASK-239) (5L)\n## Broadspire open questions (3L)\n## Load-sequence & data-cutoff rules (4L)\n## Data gaps raised with ConAgra (Tom, 2026-07-28) (5L)\n## Locations mapping (1L)\n## Carrier/source scope confirmations (5L)\n## Coordination / admin logistics (6L)\n# Risks & Blockers (8L)\n# Notes (0L)\n## 2026-08-05 — Liberty's first post-cutover delivery; Tom asks about a recurring ALL CLAIMS feed (29L)\n## 2026-08-03 — Liberty complete at 574/574; two of the four \"blockers\" were never real (23L)\n## 2026-07-31 — Broadspire/Liberty/Zurich transaction files delivered — later loads (8L)\n## 2026-07-31 — \"All Other Than Sedgwick\" file deduped down to 8,703 claims; final for eventual load (2L)\n## 2026-07-31 — Broadspire is live in production (5L)\n## 2026-07-31 — Liberty Mutual: ALL LINES source-file decision, prod clearing submission (22L)\n## 2026-07-29 — Broadspire locations crosswalk and policy list received (12L)\n## 2026-07-28 — Tom's readiness questions answered (Broadspire / Liberty) (7L)\n## 2026-07-14 — Intake (1L)\n## 2026-07-14 — Tom's Slack thread: non-Sedgwick ConAgra data sources (3 sources) (21L)\n## 2026-07-14 — Local Dropbox sync located; structural analysis of source files (34L)\n## 2026-07-14 — Notion tracking setup: carrier detail page + ConAgra Research Log database (2L)\n# Related (0L)\n## 2026-07-16 — Decision: agentic build phase in dev/staging, manual at platform submission (1L)\n## 2026-07-15 — Notes from Jim: ConAgra loading scope (1L)\n### Historical cutoff (2L)\n### Sedgwick accounts (3 accounts where Sedgwick holds ConAgra data) (7L)\n### Reserve-change transactions (5L)\n### Other datasets — alternative TPAs / carriers (3L)\n### Liberty Mutual (4L)\n### Recurring vs adhoc pipeline strategy (11L)\n### File-specific notes and locations mapping (2L)\n### Joel's AI pipeline builder (1L)\n### Action items captured (5L)\n### Unrelated — platform pipeline concurrency (1L)\n## 2026-07-15 — Notion cadence doc reviewed (4L)\n## 2026-07-15 — Zurich and Broadspire loss-run files downloaded locally (3L)\n## 2026-07-15 — Zurich and Broadspire structural analysis complete (4L)\n## 2026-07-15 — Liberty Mutual source-file annotations (8L)\n## 2026-07-23 — Broadspire source files confirmed correct (reviewed with Jim) (1L)\n## 2026-07-23 — Transaction/payment data confirmed for all three carriers (Tom) (1L)\n## 2026-07-24 — Tom's non-Sedgwick load-plan sequencing (finalizing Notion details) (9L)\n## 2026-07-24 — \"All Other\" vs latest loss-run reconciliation (all 3 carriers) (10L)\n## 2026-07-27 — Tom: end-of-week audit deadline; transactional history switches to bulk upload (5L)\n## 2026-07-28 — Tom's ConAgra call: Liberty/Zurich data gaps escalated, Broadspire now priority #1 (8L)\n## 2026-07-28 — ConAgra confirms: no self-service report fixes; use \"All Claims Report\" as interim source (3L)\n## 2026-07-16 — Confirmed: all three non-Sedgwick sources are claim-only payloads (for now) (1L)\n# Related (31L)\n# Sources (4L)",
+   "fence_langs": {},
+   "label": "not-worth-it",
+   "note": "relabeled loop 1: in-progress standup log = not worth compacting now (was: unclear)"
+  },
+  {
+   "id": "TASK-312",
+   "path": "tasks/completed/PROJ-110/TASK-312-mage-prototype-a-duckdb-writer-on-a-branch-cut-from-the-current-d.md",
+   "type": "task",
+   "status": "done",
+   "score": 24.6,
+   "signals": [
+    "size(382L)",
+    "chronological(11 dated headings)",
+    "empty-sections(2)",
+    "section-sprawl(30)"
+   ],
+   "body_lines": 382,
+   "sections": 30,
+   "dated_headings": 11,
+   "empty_sections": 2,
+   "fence_lines": 4,
+   "outline": "# TASK-312 — Prototype a DuckDB writer on a branch cut from the current deployed mage commit (2L)\n# Description (8L)\n# Acceptance Criteria (9L)\n# Notes (0L)\n## 2026-08-06 — Filed (2L)\n## 2026-08-07 — Deployed baseline frozen and exact-base prototype reconstructed (18L)\n## 2026-08-07 — Decision: prototype on `main`, not on the deployed commit (30L)\n## 2026-08-07 — Stage-1 writer completed and repaired (`e92b9f9c`) (24L)\n## 2026-08-07 — The mirror broke an unrelated pipeline; gated behind a flag (`7365051a`) (19L)\n## 2026-08-07 — The whole-frame `register()` inherits the BUG-246 memory profile; streaming is needed (37L)\n## 2026-08-07 — Measured runs, parity result, and cost (0L)\n### What was measured (13L)\n### Parity — no writer defects, but the verifier exits nonzero (29L)\n### Cost — runtime free, memory not (23L)\n### Measurement limitations (8L)\n### Branch disposition (4L)\n## 2026-08-07 — Review response: coverage gaps closed, and one was hiding a divergence (7L)\n### The coverage gap was concealing a real divergence (17L)\n## 2026-08-07 — Controlled pair (runs 43 / 47): two earlier conclusions overturned (4L)\n### The memory cost was an artifact — there isn't one (13L)\n### One real divergence, mechanism not yet identified (13L)\n### Verifier verdict (4L)\n### Status (3L)\n## 2026-08-07 — Post-fix run 51: zero writer defects, raw values compared (19L)\n### What this prototype actually established (4L)\n## 2026-08-07 — Verifier loose ends closed (`263f38c6`) (11L)\n# Verification (22L)\n## Pending (2L)\n# Related (6L)\n# Sources (1L)",
+   "fence_langs": {
+    "python": 2
+   },
+   "label": "chronological-collapse",
+   "note": "done; 11 dated headings chronicle a finished prototype"
+  },
+  {
+   "id": "TASK-320",
+   "path": "tasks/PROJ-104/TASK-320-dipdash-load-the-2-held-back-conagra-all-other-claims-rows-c540c8481.md",
+   "type": "task",
+   "status": "todo",
+   "score": 20.8,
+   "signals": [
+    "size(452L)",
+    "chronological(6 dated headings)",
+    "empty-sections(1)",
+    "section-sprawl(23)"
+   ],
+   "body_lines": 452,
+   "sections": 23,
+   "dated_headings": 6,
+   "empty_sections": 1,
+   "fence_lines": 3,
+   "outline": "# TASK-320 — Load the 2 held-back ConAgra All Other Claims rows (C540C8481165, JY18J0252439) (4L)\n# Description (22L)\n# Acceptance Criteria (36L)\n# Notes (13L)\n## Prod config gap — the actual cause of the undetermined setup (15L)\n### Fix: add 3 lookup rows for `WLRC43960908` (13L)\n### ✅ Applied to prod — 2026-08-19 (24L)\n### Drafted and rehearsed on a clone — 2026-08-18 (29L)\n### Systemic: `fail_missing_lookups: false` (6L)\n### Confirmed needing no change (9L)\n### Source file inspected — the row data is NOT recoverable from it (14L)\n### `JY18J0252439`'s policy identified by elimination — already configured (11L)\n### Expected `experience period` values (6L)\n### `lob code` — derived, 2026-08-18 (55L)\n### Normalization — same treatment as the other 96 (decided 2026-08-18) (16L)\n### Source file recovered — both rows normalized in full (39L)\n### `occurrence number` — Jim's ruling, 2026-08-18 (24L)\n### Load mechanics — upload a full-replacement file under a NEW key (35L)\n# Verification (0L)\n## Prod run 28324 — `C540C8481165` loaded 2026-08-19 (19L)\n## Platform state — authoritative, via `prod-ro-replica_east` (25L)\n## The postprod failure is spurious — [[BUG-267-mage-postprod-validation-runs-against-an-incomplete-fivetran-snap|BUG-267]] (11L)\n# Related (3L)",
+   "fence_langs": {
+    "text": 1
+   },
+   "label": "not-worth-it",
+   "note": "todo; small sections each carry a distinct finding — the entry's index, not sprawl"
+  },
+  {
+   "id": "PROJ-110",
+   "path": "projects/PROJ-110-mage-migrate-mage-pipeline-storage-from-snowflake-to-per-run-duck.md",
+   "type": "project",
+   "status": "proposed",
+   "score": 20.4,
+   "signals": [
+    "size(276L)",
+    "chronological(15 dated headings)",
+    "empty-sections(1)",
+    "section-sprawl(30)"
+   ],
+   "body_lines": 276,
+   "sections": 30,
+   "dated_headings": 15,
+   "empty_sections": 1,
+   "fence_lines": 0,
+   "outline": "# PROJ-110 — Migrate Mage pipeline storage from Snowflake to per-run DuckDB archives (2L)\n# Overview (2L)\n# Goals (7L)\n# Task List (14L)\n# Known DuckDB Issues (1L)\n## Parameterized Queries in Relational API (1L)\n## Numpy Import Multithreading (1L)\n## EXPLAIN Renders Newlines (1L)\n## Crashes on Windows (1L)\n## `DESCRIBE` and `SUMMARIZE` Return Empty Tables in Jupyter (1L)\n## Protobuf Error for JupySQL in IPython (1L)\n# Risks & Blockers (5L)\n# Notes (0L)\n## 2026-08-01 — Project created (1L)\n## 2026-08-03 — Code quality as we go (1L)\n## 2026-08-03 — Task-297: better Mage block testing (1L)\n## 2026-08-03 — Why file-based DuckDB instead of in-memory? (6L)\n## 2026-08-03 — File granularity: db-per-run is the default; db-per-container is not the fallback (14L)\n## 2026-08-05 — DECISION: db-per-run, ratified against per-block execution (61L)\n## 2026-08-03 — Single-writer lock is a developer-workflow hazard, not just an architecture constraint (9L)\n## 2026-08-03 — Prior art: schema-per-run and pipeline caching already exist for Snowflake (6L)\n## 2026-08-04 — mage-ai bumped to 0.9.79 (1L)\n## 2026-08-04 — Investigate whether the stage 1 / stage 2 split is needed (2L)\n## 2026-08-20 — Three new items filed from the technical sync (1L)\n## 2026-08-20 — Cache-key funnel and dependency-completeness reaffirmed; no design change (1L)\n## 2026-08-06 — Connection pooling: a reader question, not a writer one (29L)\n## 2026-08-06 — In-memory DuckDB with deferred writes: the memory worry argues against it, not for it (29L)\n## 2026-08-06 — There is no DuckDB write-queue extension; upstream's answer is Quack or DuckLake (33L)\n# Related (12L)\n# Sources (2L)",
+   "fence_langs": {},
+   "label": "not-worth-it",
+   "note": "relabeled loop 3: proposed items are live in this vault (dated notes get appended while proposed) — not closed, so not worth compacting now (was: chronological-collapse)"
+  },
+  {
+   "id": "BUG-1016",
+   "path": "bugs/resolved/homelab/BUG-1016-homelab-ov-search-low-precision.md",
+   "type": "bug",
+   "status": "fixed",
+   "score": 20.0,
+   "signals": [
+    "size(361L)",
+    "chronological(8 dated headings)",
+    "section-sprawl(23)"
+   ],
+   "body_lines": 361,
+   "sections": 23,
+   "dated_headings": 8,
+   "empty_sections": 0,
+   "fence_lines": 27,
+   "outline": "# BUG-1016: OpenViking semantic search low precision (7L)\n## Problem (13L)\n## Root Cause (17L)\n## Evidence (6L)\n## Impact (5L)\n## Possible Fixes (8L)\n## 2026-07-04 — Premises updated; new levers from the OV docs audit (7L)\n## 2026-07-06 — TASK-1122 benchmark numbers (formal re-run complete) (4L)\n## 2026-08-26 — the reranker was never active, and it is not a one-line config fix (2L)\n### 1. OV has been running vector-only QUICK mode the whole time (32L)\n### 2. Wiring it is NOT just a config change (17L)\n### 2026-08-26 — reranker deployed; wiring blocked on threshold scale (28L)\n### 2026-08-26 — measured: the reranker makes retrieval WORSE, at any threshold (21L)\n### The baseline in this entry is stale (5L)\n### What this rules out, and what it points at (12L)\n### 2026-08-26 — failure decomposition, and two tweaks that DO measure (22L)\n#### Synthetic-chunk contamination is real but is not what it looked like (13L)\n#### The two tweaks worth doing, in value order (10L)\n#### Two corpus findings while measuring (5L)\n### 2026-08-27 — tweak 1 shipped: exact-ID routing, 0/5 → 5/5 (36L)\n### 2026-08-27 — end-to-end re-run: the projection is now a measurement (31L)\n### What this means for closure (29L)\n## Reproduction (3L)\n# These queries all return wrong entries: (4L)",
+   "fence_langs": {
+    "python": 21
+   },
+   "label": "chronological-collapse",
+   "note": "fixed; 8 dated headings of closed investigation"
+  },
+  {
+   "id": "TASK-327",
+   "path": "tasks/PROJ-113/TASK-327-dipdash-document-the-replay-setup-and-decide-adopt-or-drop.md",
+   "type": "task",
+   "status": "todo",
+   "score": 19.6,
+   "signals": [
+    "size(404L)",
+    "chronological(7 dated headings)",
+    "section-sprawl(26)"
+   ],
+   "body_lines": 404,
+   "sections": 26,
+   "dated_headings": 7,
+   "empty_sections": 0,
+   "fence_lines": 0,
+   "outline": "# TASK-327 — Document the Replay setup and decide adopt or drop (2L)\n# Description (22L)\n## Evidence already on the table (2026-08-19) (28L)\n# Evidence for the decision — first real per-PR attempt, 2026-08-20 (9L)\n## What actually blocked it — not instruction quality (12L)\n## What Replay did well, and should count in its favour (10L)\n## Vendor confirmation, 2026-08-20 — this changes the shape of the decision (18L)\n## Final state, 2026-08-20 — project paused, three bugs acknowledged (16L)\n### What this does and does not decide (8L)\n### State changed outside the vault (14L)\n### Kept deliberately, not reverted (14L)\n## The strongest argument against adoption, found 2026-08-20 — there is no contract (29L)\n## Blocker ownership, corrected 2026-08-20 — three of five are ours (38L)\n### What this does to the decision (15L)\n## One leg of the deferral is probably ours (11L)\n## Reading for the decision (11L)\n## Position — the spec burden should merge with IDEA-021, and the trial proves why (17L)\n## Cost/benefit, with the numbers we now have (12L)\n# Acceptance Criteria (34L)\n# Upstream documentation read — 2026-08-19 snapshot (14L)\n## Gotchas already on the record, before the trial starts (12L)\n## One scope correction for the \"per mode\" decision (4L)\n# Notes (15L)\n# Verification (2L)\n# Related (7L)\n# Sources (4L)",
+   "fence_langs": {},
+   "label": "not-worth-it",
+   "note": "todo; headings encode a decision record ('What this does and does not decide') — load-bearing"
+  },
+  {
+   "id": "TASK-269",
+   "path": "tasks/completed/PROJ-104/TASK-269-mage-liberty-broadspire-loaded-by-eod-friday-delivery-tracker.md",
+   "type": "task",
+   "status": "done",
+   "score": 19.2,
+   "signals": [
+    "size(290L)",
+    "chronological(9 dated headings)",
+    "section-sprawl(21)"
+   ],
+   "body_lines": 290,
+   "sections": 21,
+   "dated_headings": 9,
+   "empty_sections": 0,
+   "fence_lines": 0,
+   "outline": "# TASK-269 — Liberty + Broadspire loaded by EOD Friday — delivery tracker (2L)\n# Description (7L)\n## Scope boundary — this task vs. TASK-268 (4L)\n# Current State — measured 2026-07-30 ~11:00am CST (1L)\n## Broadspire (`pipeline_uuid: broadspire_loss_run_birds_eye`) — target: prod by 1:00pm CST today (8L)\n## Liberty Mutual (`pipeline_uuid: liberty_loss_run`) — target: EOD Friday (45L)\n## Zurich — deferred, and hard-blocked on the carrier (18L)\n## Historical transactions — deferred (1L)\n# Risks (6L)\n# Status Log (1L)\n## 2026-08-03 — Liberty complete at 574/574; every rejection class closed (26L)\n## 2026-08-01 12:20am CST — Liberty settles at 551/574; both pipeline defects fixed (19L)\n## 2026-07-31 6:15pm CST — Both carriers live in prod on the Friday deadline; Liberty loading with 42 known rejections (34L)\n## 2026-07-30 1:20pm CST — AL/GL runs resolved to failures; AUTO bucket gap is now a blocker (27L)\n## 2026-07-30 1:00pm CST — Liberty unblocked; transform fix applied to sandbox; AL/GL runs submitted (20L)\n## 2026-07-30 12:45pm CST — Broadspire clears stage 2; Kelly's workbooks verified; submission gate still shut (22L)\n### Two open items found in the verification (9L)\n### Submission is gated, and the current config trips a known bug (11L)\n## 2026-07-30 11:15am CST — Tom's carrier-file update folded in (5L)\n## 2026-07-30 11:00am CST — Intake (1L)\n# Related (2L)",
+   "fence_langs": {},
+   "label": "chronological-collapse",
+   "note": "done; 9 dated Status Log headings"
+  },
+  {
+   "id": "INFO-137",
+   "path": "info/tooling/INFO-137-dipdash-replay-qa-loopqa-mcp-tool-surface-login-mode-budget.md",
+   "type": "info-entry",
+   "status": "",
+   "score": 18.5,
+   "signals": [
+    "size(590L)",
+    "chronological(3 dated headings)",
+    "empty-sections(3)",
+    "section-sprawl(45)"
+   ],
+   "body_lines": 590,
+   "sections": 45,
+   "dated_headings": 3,
+   "empty_sections": 3,
+   "fence_lines": 19,
+   "outline": "# INFO-137 — Replay QA loopqa MCP — tool surface, login_mode, and budget controls (2L)\n# Answer (0L)\n## Setup (7L)\n## Two different Replay MCPs (5L)\n## The three things that will bite you (0L)\n### 1. `login_mode` defaults to `create` — it will try to register an account (8L)\n### 2. Prose is guidance, not enforcement (5L)\n### 3. An uncapped project can spend the whole account balance (1L)\n## Credit guidance (the number the public pricing FAQ won't give you) (6L)\n## Cost, throughput, and fencing controls (14L)\n## Concept model (28L)\n## Tool list (27) (13L)\n## Not available via MCP (5L)\n## Observed behavior from a real run (20L)\n## The MCP is not the whole control plane — it cannot start a run (30L)\n## Documentation coverage — this server is undocumented, and that is the finding (17L)\n# Observed behaviour corrections — 2026-08-20 (3L)\n## 1. `entrypoint_url` is accepted but IGNORED by explorations — **vendor-confirmed bug** (19L)\n## 1b. There is no supported way to test a deep authenticated page (10L)\n## 1c. Runs that do not reach their goal are recorded as `passed` (14L)\n## 2. `browser_session_persistence_enabled` exists and IS settable via MCP (8L)\n## 3. `wontfix` triggers the journey retry, not just `fixed` (5L)\n## 4. Run outcome vocabulary is wider than documented (6L)\n### 4b. Two more outcome values, and a run that is `in-progress` with a resolved outcome (23L)\n### 4c. `started_at` is enqueue time, not execution time (8L)\n### 4d. `bugs_found_count` and `bug_titles` overstate durable findings (9L)\n### 4e. `status: failed` means \"found a bug\", not \"the run broke\" (17L)\n### 4f. Stale journeys carry stale premises, and new guidance does not correct them (12L)\n## 5. Credits ARE visible — in the app, per task (8L)\n## 6. ~~The recording browser cannot render some DipDash routes~~ — RETRACTED 2026-08-20 (21L)\n### Original text, retained (0L)\n## ~~6. The recording browser cannot render some DipDash routes~~ (7L)\n# Public-surface findings — 2026-08-20 (3L)\n## 7. There is no published response contract — verified twice (24L)\n## 8. Project state is `active` or `paused` — there is no archive (18L)\n## 9. `budget` defaults to 20, and it is cumulative — confirmed from the spec (18L)\n## 10. Recording browser is Chromium 108, and the rebase is stalled (14L)\n## 11. Session seeding does not exist; login is form-driving only (9L)\n## 12. API keys: two namespaces, and the source-map failure is expected behaviour (18L)\n## 13. There is no public issue tracker for Replay QA (5L)\n## 14. The in-dashboard AI agent is not a reliable source — verify everything it says (46L)\n## 15. Our account is a project `member`, not owner — and that blocks operating a run (29L)\n# Context (21L)\n# See Also (7L)\n# Sources (2L)",
+   "fence_langs": {
+    "text": 12,
+    "bash": 1
+   },
+   "label": "not-worth-it",
+   "note": "reference doc — numbered gotchas and tool lists are navigational structure"
+  },
+  {
+   "id": "BUG-030",
+   "path": "bugs/mage/BUG-030-mage-adhoc-loss-run-space-columns-unquoted.md",
+   "type": "bug",
+   "status": "fix-ready",
+   "score": 17.7,
+   "signals": [
+    "size(235L)",
+    "chronological(4 dated headings)",
+    "log-bulk(86 fenced lines)",
+    "empty-sections(3)",
+    "section-sprawl(24)"
+   ],
+   "body_lines": 235,
+   "sections": 24,
+   "dated_headings": 4,
+   "empty_sections": 3,
+   "fence_lines": 86,
+   "outline": "# BUG-030 — adhoc_loss_run Template Space-containing Column Inputs Cause Dbt SQL Compilation Error (2L)\n# Problem (22L)\n# Root Cause (0L)\n# 1. Template Data Uses Display Names with Spaces; Raw Tables Use Underscores (7L)\n# 2. `adapter.quote()` Does NOT Double-quote Space-containing Identifiers (13L)\n# 3. `check_source_columns` Guard is Bypassed or Insufficient (20L)\n# 4. Why `noquote=True` is Present on Some Rows (5L)\n# History (0L)\n# 2026-08-13 — CORRECTION: the JLL failure was misattributed to this bug (20L)\n# 2026-08-13 — Second JLL recurrence; symptom cleared by config, template still unfixed (SUPERSEDED — see correction above) (45L)\n# Fix (0L)\n# Immediate Fix (template Data correction) (12L)\n# Code Fix (defense-in-depth) (11L)\n# Verification (5L)\n# Snowflake Column Casing Convention (confirmed 2026-05-21) (6L)\n# 2026-08-05 — Regression: JLL `aig_gle` (reopened) (1L)\n## Why the template reached a pipeline that never asked for it (2L)\n## Why PR #655 did not prevent it (15L)\n## New finding — header normalization is the underlying defect (10L)\n## JLL resolution applied (does not close this bug) (3L)\n## Also observed (2L)\n## Remaining work (4L)\n# Related (5L)\n# Sources (1L)",
+   "fence_langs": {
+    "sql": 19,
+    "jinja": 16,
+    "text": 13,
+    "bash": 9,
+    "python": 5
+   },
+   "label": "not-worth-it",
+   "note": "fence bulk is jinja/SQL/python contracts (fence_langs shows it), and fix-ready; nothing safely condenses"
+  },
+  {
+   "id": "ERR-058",
+   "path": "errors/mage/ERR-058-mage-pipeline-answer-submission-silently-deletes-unmapped-inciden.md",
+   "type": "error-signature",
+   "status": "active",
+   "score": 15.8,
+   "signals": [
+    "size(225L)",
+    "chronological(6 dated headings)",
+    "log-bulk(81 fenced lines)",
+    "section-sprawl(20)"
+   ],
+   "body_lines": 225,
+   "sections": 20,
+   "dated_headings": 6,
+   "empty_sections": 0,
+   "fence_lines": 81,
+   "outline": "# ERR-058 — Pipeline Answer Submission Silently Deletes Unmapped Incident-Level Answers (1L)\n## Pattern (7L)\n# first-order — in the input map, nulled by the submission (3L)\n# cascade — NOT in the input map, pruned because their relevance rule (0L)\n# is gated on incident-type (31L)\n### Two ways to overcount (9L)\n## Context (2L)\n### It is the payload shape, not the nulls (2026-08-07) (16L)\n### The deletion cascades beyond the input map (2026-08-07) (21L)\n### The trigger is the `multiclaim` flag, not the mappings (8L)\n### How much is at risk: read the input map, not the ASF (10L)\n## Occurrences (5L)\n### Other customers elevated on 2026-08-06 — separate issues, not this one (15L)\n## Recovery (CIC, 2026-08-06) (1L)\n### 1. Stop further deletion (7L)\n### 2. Capture the deleted rows before the replica ages them out (20L)\n### 3. Restore (10L)\n### 4. Verify (3L)\n### Not required (5L)\n## Status (9L)\n### The restore was a full undo of run 26509, not the re-insert planned above (2026-08-11) (5L)\n### Fix status as of 2026-08-18 — stalled (7L)\n## Related (7L)",
+   "fence_langs": {
+    "sql": 46,
+    "text": 18,
+    "json": 3
+   },
+   "label": "not-worth-it",
+   "note": "active; fence bulk is SQL-dominant contracts per fence_langs"
+  },
+  {
+   "id": "IDEA-1090",
+   "path": "ideas/homelab/IDEA-1090-homelab-serve-a-long-running-compendium-batch-agent-on-the-9070-xt-w.md",
+   "type": "idea",
+   "status": "proposed",
+   "score": 15.5,
+   "signals": [
+    "chronological(7 dated headings)",
+    "empty-sections(2)",
+    "section-sprawl(20)"
+   ],
+   "body_lines": 147,
+   "sections": 20,
+   "dated_headings": 7,
+   "empty_sections": 2,
+   "fence_lines": 0,
+   "outline": "# IDEA-1090 — Serve a long-running compendium batch agent on the 9070 XT without breaking inline FIM (2L)\n# Idea (0L)\n## Why (1L)\n## What is live today (2026-08-28) (7L)\n## Measured: FIM under load on the shared deepseek runner (13L)\n### Re-baseline on 0.33.1 (2026-08-28, clean run) (8L)\n## Defect found: post-restart warm-up holds a runner slot (6L)\n## Prior art: small FIM + chat partner as two runners (IDEA-1071, 2026-07-18) (1L)\n## Options (6L)\n### Scripted swap (1L)\n### Partner shortlist for option B (user-selected 2026-08-28) (8L)\n## Partner gate on the real batch skills (2026-08-28, Ollama 0.33.1) (12L)\n## Recommended pairing (2026-08-28) (0L)\n## Pair measured (2026-08-28, Ollama 0.33.1, two runners) (23L)\n## Retry sweep first (Ollama 0.32.13 → 0.33.x) (9L)\n## Proposed sequence (6L)\n# Open Questions (9L)\n# Notes (9L)\n# Related (5L)\n# Sources (1L)",
+   "fence_langs": {},
+   "label": "not-worth-it",
+   "note": "relabeled loop 3: proposed = live; IDEA-1090 itself received dated notes on 08-28 while proposed — the original chronological-collapse label used source knowledge the record cannot show (was: chronological-collapse)"
+  },
+  {
+   "id": "IDEA-1086",
+   "path": "ideas/completed/dotfiles/IDEA-1086-dotfiles-prewarm-pi-s-system-prompt-prefix-at-model-load-and-extend-k.md",
+   "type": "idea",
+   "status": "shipped",
+   "score": 15.3,
+   "signals": [
+    "size(193L)",
+    "chronological(9 dated headings)",
+    "empty-sections(1)",
+    "section-sprawl(14)"
+   ],
+   "body_lines": 193,
+   "sections": 14,
+   "dated_headings": 9,
+   "empty_sections": 1,
+   "fence_lines": 0,
+   "outline": "# IDEA-1086 — Prewarm harness system-prompt prefixes at model load and extend keep-alive (2L)\n# Idea (original glimmer framing — superseded by \"Qwen adaptation\" below) (19L)\n# Offline gate results (2026-08-11, Claude Code 2.1.228, mock endpoint — no model runs) (13L)\n# PTY implementation results (2026-08-11, no model runs) (13L)\n# Review hardening results (2026-08-12, no model runs) (28L)\n# Live validation (2026-08-12 — the one authorized model run) (16L)\n# Independent benchmark confirmation (2026-08-24) (12L)\n# Open Questions (8L)\n# Qwen adaptation (2026-08-11, revised same day after review) (47L)\n## Status notes (0L)\n### 2026-08-11 — status: proposed → in-progress (5L)\n### 2026-08-13 — keep_alive raised to 4h (6L)\n### 2026-08-12 — status: in-progress (7L)\n# Related (3L)",
+   "fence_langs": {},
+   "label": "chronological-collapse",
+   "note": "shipped; 9 dated headings"
+  },
+  {
+   "id": "BUG-246",
+   "path": "bugs/resolved/mage/BUG-246-mage-mage-prod-oom-from-249k-row-hris-batch-export-to-dipdash.md",
+   "type": "bug",
+   "status": "fixed",
+   "score": 15.0,
+   "signals": [
+    "size(160L)",
+    "chronological(10 dated headings)",
+    "section-sprawl(18)"
+   ],
+   "body_lines": 160,
+   "sections": 18,
+   "dated_headings": 10,
+   "empty_sections": 0,
+   "fence_lines": 0,
+   "outline": "# BUG-246 — Mage Prod OOM from 249K-Row HRIS Batch Export to DIPDash (2L)\n# Problem (6L)\n# Root Cause (11L)\n# Investigation Notes (1L)\n## 2026-07-27 — status: open → investigating (13L)\n# Fix (11L)\n## 2026-07-29 — Same pattern elsewhere in the repo (10L)\n### `submit_answers_to_api` — deferred, needs a design decision (10L)\n## 2026-07-29 — Full-scale local replay results (10L)\n## 2026-07-29 — A second, larger OOM source found during verification: [[BUG-265-mage-mage-dbt-blocks-fetch-entire-models-into-memory-for-discarde|BUG-265]] (5L)\n## 2026-07-31 — File-chunking stopgap evaluated pending PR #714/#715 (13L)\n## 2026-08-03 — Amie can do platform-side bulk loads instead; file-chunking workaround deprioritized (2L)\n# Verification (7L)\n## 2026-07-29 — Clean-slate run on the merged configuration (10L)\n## 2026-08-11 — Staging QA (PR #714 + PR #715) (12L)\n## 2026-08-11 — Prod deployment confirmed (6L)\n## 2026-08-11 — Live production verification (run 27080) (6L)\n# Related (7L)",
+   "fence_langs": {},
+   "label": "chronological-collapse",
+   "note": "fixed; 10 dated headings over 160 lines"
+  },
+  {
+   "id": "BUG-156",
+   "path": "bugs/resolved/robots/BUG-156-robots-lora-loading-crashes-with-indexerror-under-transformers-5-x.md",
+   "type": "bug",
+   "status": "fixed",
+   "score": 14.5,
+   "signals": [
+    "log-bulk(83 fenced lines)",
+    "empty-sections(2)",
+    "section-sprawl(17)"
+   ],
+   "body_lines": 126,
+   "sections": 17,
+   "dated_headings": 0,
+   "empty_sections": 2,
+   "fence_lines": 83,
+   "outline": "# BUG-156 — LoRA loading crashes with IndexError under transformers 5.x (2L)\n## Problem (6L)\n## Root Cause (0L)\n### Issue 1 — `CLIPTextModel.text_model` wrapper removed (2L)\n### Issue 2 — Meta tensors after `from_single_file` (1L)\n### Issue 3 — LoRA `IndexError` in `get_peft_kwargs()` (7L)\n### Issue 4 — `PIL.PngInfo` import path moved (1L)\n## Investigation Notes (1L)\n## Fix (1L)\n### Issue 1 — `CLIPTextModel.text_model` property shim (6L)\n### Issue 2 — `_materialize_text_encoder()` helper (11L)\n### Issue 3 — `_patch_lora_for_transformers5x()` LoRA loader wrapper (55L)\n### Issue 4 — `PIL` import path (1L)\n# Before (1L)\n# After (2L)\n# Verification (6L)\n# Related (1L)\n# Related Slack Messages (0L)\n# Sources (3L)",
+   "fence_langs": {
+    "python": 72,
+    "text": 1
+   },
+   "label": "not-worth-it",
+   "note": "fixed, but fence bulk is a python patch (76 of 83 fence lines) — contracts, not logs; 0 dated headings"
+  },
+  {
+   "id": "TASK-253",
+   "path": "tasks/PROJ-004/TASK-253-mage-apply-surgical-trailing-middle-initial-strip-to-claimant-fir.md",
+   "type": "task",
+   "status": "in-progress",
+   "score": 14.5,
+   "signals": [
+    "chronological(9 dated headings)",
+    "empty-sections(1)",
+    "section-sprawl(16)"
+   ],
+   "body_lines": 109,
+   "sections": 16,
+   "dated_headings": 9,
+   "empty_sections": 1,
+   "fence_lines": 22,
+   "outline": "# TASK-253 — Apply surgical trailing-middle-initial strip to claimant_first_name in DipDash mappings across CIC + LIBERTY_RISKTRAC family (2L)\n# Description (13L)\n# Acceptance Criteria (13L)\n# Notes (0L)\n## 2026-07-31 — Add a NULLIF empty-string guard while editing these mappings ([[BUG-272-mage-empty-string-claimant-first-name-for-entity-claimants-reject|BUG-272]]) (29L)\n## 2026-07-21 — Created (1L)\n## 2026-07-21 — Script vs. fix: what \"done\" means (10L)\n## 2026-07-22 — Source-of-truth enumeration + clone validation (6L)\n## 2026-07-22 — Cross-linked to TASK-254 (local regression harness) (1L)\n## 2026-07-22 — Plan per Joel: offer config, defer code (2L)\n## 2026-07-22 — Validated in testing_mapping (Jake's run 24557) + UI Save-gate blocker (4L)\n## 2026-07-27 — CIC's main pipeline confirmed deployed; family rollout still open (1L)\n## 2026-07-23 — Expectation-setting for the full run: fix is preventive, expect ~0 rescues (3L)\n# Verification (1L)\n# Related (5L)\n# Sources (2L)",
+   "fence_langs": {
+    "sql": 11,
+    "text": 5
+   },
+   "label": "not-worth-it",
+   "note": "relabeled loop 1: in-progress = not worth compacting now (was: unclear)"
+  },
+  {
+   "id": "IMPR-1091",
+   "path": "improvements/completed/homelab/IMPR-1091-homelab-expose-admin-uis-over-the-tailnet-with-tailscale-serve-inste.md",
+   "type": "improvement",
+   "status": "shipped",
+   "score": 14.4,
+   "signals": [
+    "size(335L)",
+    "chronological(5 dated headings)",
+    "section-sprawl(19)"
+   ],
+   "body_lines": 335,
+   "sections": 19,
+   "dated_headings": 5,
+   "empty_sections": 0,
+   "fence_lines": 11,
+   "outline": "# IMPR-1091 — Expose admin UIs over the tailnet with `tailscale serve` (7L)\n## Why not `/etc/hosts` (4L)\n## Why not split DNS (52L)\n## Proposed change (2L)\n# on timmy (4L)\n### Why it fits (17L)\n### Verified prerequisites (2026-07-20) (17L)\n## Implementation (shipped 2026-07-20) (5L)\n### Verified from pop (9L)\n### The finding that forced this (16L)\n### Prerequisites that turned out to be real (6L)\n### Update 2026-07-20 — this alternative was subsequently taken as well (12L)\n### The alternative as originally assessed: cert-manager on the existing Ingress (33L)\n## Operational posture (30L)\n## Second endpoint: k8s dashboard (2026-07-20) (3L)\n# on timmy (18L)\n## Open questions (remaining after shipping) (18L)\n## Security note (32L)\n## Relationship to IDEA-1032 (5L)\n## Acceptance (10L)\n## ⚠️ Superseded 2026-08-24 by PROJ-1018 (14L)",
+   "fence_langs": {
+    "sh": 7
+   },
+   "label": "not-worth-it",
+   "note": "shipped; 19 sections of substantive reasoning, not accretion"
+  },
+  {
+   "id": "BUG-1040",
+   "path": "bugs/resolved/BUG-1040-dotfiles-mcat-kitty-graphics-images-don-t-render-in-tmux-until-scroll.md",
+   "type": "bug",
+   "status": "fixed",
+   "score": 14.3,
+   "signals": [
+    "size(312L)",
+    "chronological(4 dated headings)",
+    "empty-sections(1)",
+    "section-sprawl(33)"
+   ],
+   "body_lines": 312,
+   "sections": 33,
+   "dated_headings": 4,
+   "empty_sections": 1,
+   "fence_lines": 20,
+   "outline": "# BUG-1040 — mcat/Kitty-graphics images don't render in tmux at realistic sizes (2L)\n# Problem (2L)\n# Root Cause (3L)\n# Investigation Notes (11L)\n# ⚠️ NOT fixed — a wrong conclusion, corrected (2026-08-26) (16L)\n## ✅ RESOLVED 2026-08-26 — `input-buffer-size`, and the \"second defect\" never existed (4L)\n### One root cause, not two (6L)\n### Retracting the \"two independent defects\" claim (12L)\n### The measurement that did hold up (7L)\n### Scope of the fix (5L)\n## ⚠️ 2026-08-26 (late) — PARTLY RETRACTED: transport confirmed, \"diacritic mangling\" was not real (3L)\n### Retracted: the U+0610 -> U+06D6 \"substitution\" (5L)\n### Unproven: the \"mark loss\" (3.00 -> 2.37 marks per cell) (6L)\n### ✅ Confirmed and measured: the transport failure is real (14L)\n### But rendering still fails with transport repaired (5L)\n## (superseded) original diacritic-mangling section (5L)\n### The measurement (9L)\n### And the surviving mark is the WRONG one (10L)\n### Why this fits everything the failed theories did not (9L)\n### Caveat (5L)\n## ❌ 2026-08-26 (late) — the DCS-overflow diagnosis is also disproven (22L)\n### The `a=q` finding is retracted as well (11L)\n### What is actually known (3L)\n### The experiment nobody has run (12L)\n# What this pass did establish (0L)\n## Transmission is not the failure point — the root cause above is wrong (13L)\n## ❌ RETRACTED: \"mcat truncates the image id\" (22L)\n## Environment at re-test (2L)\n# Fix (15L)\n# Verification (17L)\n## Mechanism, pinned to source (15L)\n# Related (7L)\n# Sources (1L)",
+   "fence_langs": {
+    "text": 10,
+    "bash": 2
+   },
+   "label": "section-merge",
+   "note": "fixed; 33 sections re-litigate one theme (the retracted second defect) — merge into the resolution account"
+  },
+  {
+   "id": "BUG-292",
+   "path": "bugs/dipdash/BUG-292-dipdash-single-file-upload-queues-duplicate-auto-run-pipeline-runs-v.md",
+   "type": "bug",
+   "status": "open",
+   "score": 13.9,
+   "signals": [
+    "size(176L)",
+    "chronological(6 dated headings)",
+    "empty-sections(1)",
+    "section-sprawl(23)"
+   ],
+   "body_lines": 176,
+   "sections": 23,
+   "dated_headings": 6,
+   "empty_sections": 1,
+   "fence_lines": 4,
+   "outline": "# BUG-292 — Single file upload queues duplicate auto-run pipeline runs via lambda async retries; failure emails silently dropped (Conagra Sedgwick) (4L)\n# Problem (4L)\n# Root Cause (0L)\n## Duplicate runs — non-idempotent lambda + AWS async retry (11L)\n## This is chronic, not a one-off — every batch delivery is amplified (found 2026-08-17) (15L)\n## The duplicates stall and cancel production runs (found 2026-08-20) (16L)\n## CloudWatch settles the mechanism, and it is not Conagra-specific (2026-08-20, Peopleease/CCMSI) (1L)\n### Live config verified against the deployed function (6L)\n### A non-Conagra batch, amplified identically (1L)\n### AWS async retries reuse the same `aws_request_id` — measured (8L)\n### The Lambda 30s budget is not the driver — the 10s client timeout is (8L)\n### New consequence — events exhaust their retries and are silently dropped (17L)\n## Chunked / multipart upload ruled out (Joel Friedman's hypothesis, tested 2026-08-17) (4L)\n## Each duplicate run is its own lambda invocation, not a server-side fan-out (8L)\n## The 08-14 19:38 wave was a second delivery, not more retries (1L)\n## New defect found while reading the handler (2026-08-17) — NARROWED 2026-08-20 (4L)\n## Missing failure emails — two-switch gate + stale config + silent send losses (8L)\n## Latent adjacent hazard (not causal today) — CORRECTED 2026-08-17 (4L)\n# Investigation Notes (8L)\n# Fix (14L)\n# Verification (1L)\n# Related (9L)\n# Sources (1L)",
+   "fence_langs": {
+    "bash": 2
+   },
+   "label": "not-worth-it",
+   "note": "open; each small section is a distinct evidenced finding — the index of an active investigation"
+  }
+ ]
+}

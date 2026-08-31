@@ -1,0 +1,342 @@
+[
+ {
+  "id": "TASK-304",
+  "label": "not-worth-it",
+  "lane": "compaction",
+  "votes": [
+   "not-worth-it"
+  ],
+  "verdict": "not-worth-it",
+  "raw": "{\"id\": \"TASK-304\", \"verdict\": \"not-worth-it\", \"reason\": \"status is active; record is a live log being appended to\"}",
+  "raws": [
+   "{\"id\": \"TASK-304\", \"verdict\": \"not-worth-it\", \"reason\": \"status is active; record is a live log being appended to\"}"
+  ],
+  "wall": 2.16,
+  "json_ok": true,
+  "outcome": "correct",
+  "pass": true
+ },
+ {
+  "id": "TASK-305",
+  "label": "not-worth-it",
+  "lane": "compaction",
+  "votes": [
+   "not-worth-it"
+  ],
+  "verdict": "not-worth-it",
+  "raw": "{\"id\": \"TASK-305\", \"verdict\": \"not-worth-it\", \"reason\": \"item is in-progress; do not compact live logs/indices\"}",
+  "raws": [
+   "{\"id\": \"TASK-305\", \"verdict\": \"not-worth-it\", \"reason\": \"item is in-progress; do not compact live logs/indices\"}"
+  ],
+  "wall": 1.99,
+  "json_ok": true,
+  "outcome": "correct",
+  "pass": true
+ },
+ {
+  "id": "PROJ-104",
+  "label": "not-worth-it",
+  "lane": "compaction",
+  "votes": [
+   "not-worth-it"
+  ],
+  "verdict": "not-worth-it",
+  "raw": "{\"id\": \"PROJ-104\", \"verdict\": \"not-worth-it\", \"reason\": \"item status is in-progress; record is live and being actively appended to\"}",
+  "raws": [
+   "{\"id\": \"PROJ-104\", \"verdict\": \"not-worth-it\", \"reason\": \"item status is in-progress; record is live and being actively appended to\"}"
+  ],
+  "wall": 1.57,
+  "json_ok": true,
+  "outcome": "correct",
+  "pass": true
+ },
+ {
+  "id": "TASK-312",
+  "label": "chronological-collapse",
+  "lane": "compaction",
+  "votes": [
+   "chronological-collapse"
+  ],
+  "verdict": "chronological-collapse",
+  "raw": "{\"id\": \"TASK-312\", \"verdict\": \"chronological-collapse\", \"reason\": \"11 dated headings with short narrative increments (2-37L) suitable for a single History section\"}",
+  "raws": [
+   "{\"id\": \"TASK-312\", \"verdict\": \"chronological-collapse\", \"reason\": \"11 dated headings with short narrative increments (2-37L) suitable for a single History section\"}"
+  ],
+  "wall": 1.42,
+  "json_ok": true,
+  "outcome": "correct",
+  "pass": true
+ },
+ {
+  "id": "TASK-320",
+  "label": "not-worth-it",
+  "lane": "compaction",
+  "votes": [
+   "not-worth-it"
+  ],
+  "verdict": "not-worth-it",
+  "raw": "{\"id\": \"TASK-320\", \"verdict\": \"not-worth-it\", \"reason\": \"item is in 'todo' status and represents an active investigation/work-in-progress\"}",
+  "raws": [
+   "{\"id\": \"TASK-320\", \"verdict\": \"not-worth-it\", \"reason\": \"item is in 'todo' status and represents an active investigation/work-in-progress\"}"
+  ],
+  "wall": 1.34,
+  "json_ok": true,
+  "outcome": "correct",
+  "pass": true
+ },
+ {
+  "id": "PROJ-110",
+  "label": "chronological-collapse",
+  "lane": "compaction",
+  "votes": [
+   "chronological-collapse"
+  ],
+  "verdict": "chronological-collapse",
+  "raw": "{\"id\": \"PROJ-110\", \"verdict\": \"chronological-collapse\", \"reason\": \"15 dated headings with narrative content (e.g., decisions, sync notes) can be collapsed into a single History section\"}",
+  "raws": [
+   "{\"id\": \"PROJ-110\", \"verdict\": \"chronological-collapse\", \"reason\": \"15 dated headings with narrative content (e.g., decisions, sync notes) can be collapsed into a single History section\"}"
+  ],
+  "wall": 1.49,
+  "json_ok": true,
+  "outcome": "correct",
+  "pass": true
+ },
+ {
+  "id": "BUG-1016",
+  "label": "chronological-collapse",
+  "lane": "compaction",
+  "votes": [
+   "chronological-collapse"
+  ],
+  "verdict": "chronological-collapse",
+  "raw": "{\"id\": \"BUG-1016\", \"verdict\": \"chronological-collapse\", \"reason\": \"8 dated headings with short narrative increments (2-36L) following a fixed status; suitable for a single History section.\"}",
+  "raws": [
+   "{\"id\": \"BUG-1016\", \"verdict\": \"chronological-collapse\", \"reason\": \"8 dated headings with short narrative increments (2-36L) following a fixed status; suitable for a single History section.\"}"
+  ],
+  "wall": 1.4,
+  "json_ok": true,
+  "outcome": "correct",
+  "pass": true
+ },
+ {
+  "id": "TASK-327",
+  "label": "not-worth-it",
+  "lane": "compaction",
+  "votes": [
+   "not-worth-it"
+  ],
+  "verdict": "not-worth-it",
+  "raw": "{\"id\": \"TASK-327\", \"verdict\": \"not-worth-it\", \"reason\": \"item status is 'todo', meaning it is still being worked and is a live log/index\"}",
+  "raws": [
+   "{\"id\": \"TASK-327\", \"verdict\": \"not-worth-it\", \"reason\": \"item status is 'todo', meaning it is still being worked and is a live log/index\"}"
+  ],
+  "wall": 1.28,
+  "json_ok": true,
+  "outcome": "correct",
+  "pass": true
+ },
+ {
+  "id": "TASK-269",
+  "label": "chronological-collapse",
+  "lane": "compaction",
+  "votes": [
+   "chronological-collapse"
+  ],
+  "verdict": "chronological-collapse",
+  "raw": "{\"id\": \"TASK-269\", \"verdict\": \"chronological-collapse\", \"reason\": \"9 dated headings in Status Log with ~20 lines each; one History section replaces them\"}",
+  "raws": [
+   "{\"id\": \"TASK-269\", \"verdict\": \"chronological-collapse\", \"reason\": \"9 dated headings in Status Log with ~20 lines each; one History section replaces them\"}"
+  ],
+  "wall": 1.33,
+  "json_ok": true,
+  "outcome": "correct",
+  "pass": true
+ },
+ {
+  "id": "INFO-137",
+  "label": "not-worth-it",
+  "lane": "compaction",
+  "votes": [
+   "not-worth-it"
+  ],
+  "verdict": "not-worth-it",
+  "raw": "{\"id\": \"INFO-137\", \"verdict\": \"not-worth-it\", \"reason\": \"Reference doc structure with numbered findings and navigational headings is a consulted index.\"}",
+  "raws": [
+   "{\"id\": \"INFO-137\", \"verdict\": \"not-worth-it\", \"reason\": \"Reference doc structure with numbered findings and navigational headings is a consulted index.\"}"
+  ],
+  "wall": 1.42,
+  "json_ok": true,
+  "outcome": "correct",
+  "pass": true
+ },
+ {
+  "id": "BUG-030",
+  "label": "not-worth-it",
+  "lane": "compaction",
+  "votes": [
+   "not-worth-it"
+  ],
+  "verdict": "not-worth-it",
+  "raw": "{\"id\": \"BUG-030\", \"verdict\": \"not-worth-it\", \"reason\": \"Status is fix-ready (active) and contains distinct investigation findings/index\"}",
+  "raws": [
+   "{\"id\": \"BUG-030\", \"verdict\": \"not-worth-it\", \"reason\": \"Status is fix-ready (active) and contains distinct investigation findings/index\"}"
+  ],
+  "wall": 1.3,
+  "json_ok": true,
+  "outcome": "correct",
+  "pass": true
+ },
+ {
+  "id": "ERR-058",
+  "label": "not-worth-it",
+  "lane": "compaction",
+  "votes": [
+   "not-worth-it"
+  ],
+  "verdict": "not-worth-it",
+  "raw": "{\"id\": \"ERR-058\", \"verdict\": \"not-worth-it\", \"reason\": \"item status is active; also contains high-value SQL/JSON code fences and distinct investigation findings\"}",
+  "raws": [
+   "{\"id\": \"ERR-058\", \"verdict\": \"not-worth-it\", \"reason\": \"item status is active; also contains high-value SQL/JSON code fences and distinct investigation findings\"}"
+  ],
+  "wall": 1.28,
+  "json_ok": true,
+  "outcome": "correct",
+  "pass": true
+ },
+ {
+  "id": "IDEA-1090",
+  "label": "chronological-collapse",
+  "lane": "compaction",
+  "votes": [
+   "chronological-collapse"
+  ],
+  "verdict": "chronological-collapse",
+  "raw": "{\"id\": \"IDEA-1090\", \"verdict\": \"chronological-collapse\", \"reason\": \"7 dated headings representing a sequence of measurements and tests; one history/log section would suffice.\"}",
+  "raws": [
+   "{\"id\": \"IDEA-1090\", \"verdict\": \"chronological-collapse\", \"reason\": \"7 dated headings representing a sequence of measurements and tests; one history/log section would suffice.\"}"
+  ],
+  "wall": 1.27,
+  "json_ok": true,
+  "outcome": "correct",
+  "pass": true
+ },
+ {
+  "id": "IDEA-1086",
+  "label": "chronological-collapse",
+  "lane": "compaction",
+  "votes": [
+   "chronological-collapse"
+  ],
+  "verdict": "chronological-collapse",
+  "raw": "{\"id\": \"IDEA-1086\", \"verdict\": \"chronological-collapse\", \"reason\": \"9 dated headings representing a sequence of test results and status updates; one History section replaces them\"}",
+  "raws": [
+   "{\"id\": \"IDEA-1086\", \"verdict\": \"chronological-collapse\", \"reason\": \"9 dated headings representing a sequence of test results and status updates; one History section replaces them\"}"
+  ],
+  "wall": 1.21,
+  "json_ok": true,
+  "outcome": "correct",
+  "pass": true
+ },
+ {
+  "id": "BUG-246",
+  "label": "chronological-collapse",
+  "lane": "compaction",
+  "votes": [
+   "chronological-collapse"
+  ],
+  "verdict": "chronological-collapse",
+  "raw": "{\"id\": \"BUG-246\", \"verdict\": \"chronological-collapse\", \"reason\": \"10 dated headings representing a linear progression of investigation and verification steps\"}",
+  "raws": [
+   "{\"id\": \"BUG-246\", \"verdict\": \"chronological-collapse\", \"reason\": \"10 dated headings representing a linear progression of investigation and verification steps\"}"
+  ],
+  "wall": 1.17,
+  "json_ok": true,
+  "outcome": "correct",
+  "pass": true
+ },
+ {
+  "id": "BUG-156",
+  "label": "not-worth-it",
+  "lane": "compaction",
+  "votes": [
+   "not-worth-it"
+  ],
+  "verdict": "not-worth-it",
+  "raw": "{\"id\": \"BUG-156\", \"verdict\": \"not-worth-it\", \"reason\": \"The entry is a structured investigation with distinct findings; merging would destroy the index.\"}",
+  "raws": [
+   "{\"id\": \"BUG-156\", \"verdict\": \"not-worth-it\", \"reason\": \"The entry is a structured investigation with distinct findings; merging would destroy the index.\"}"
+  ],
+  "wall": 1.18,
+  "json_ok": true,
+  "outcome": "correct",
+  "pass": true
+ },
+ {
+  "id": "TASK-253",
+  "label": "not-worth-it",
+  "lane": "compaction",
+  "votes": [
+   "not-worth-it"
+  ],
+  "verdict": "not-worth-it",
+  "raw": "{\"id\": \"TASK-253\", \"verdict\": \"not-worth-it\", \"reason\": \"item status is in-progress; do not compact live logs\"}",
+  "raws": [
+   "{\"id\": \"TASK-253\", \"verdict\": \"not-worth-it\", \"reason\": \"item status is in-progress; do not compact live logs\"}"
+  ],
+  "wall": 1.16,
+  "json_ok": true,
+  "outcome": "correct",
+  "pass": true
+ },
+ {
+  "id": "IMPR-1091",
+  "label": "not-worth-it",
+  "lane": "compaction",
+  "votes": [
+   "not-worth-it"
+  ],
+  "verdict": "not-worth-it",
+  "raw": "{\"id\": \"IMPR-1091\", \"verdict\": \"not-worth-it\", \"reason\": \"shipped improvement with distinct investigation findings and specific security/operational notes\"}",
+  "raws": [
+   "{\"id\": \"IMPR-1091\", \"verdict\": \"not-worth-it\", \"reason\": \"shipped improvement with distinct investigation findings and specific security/operational notes\"}"
+  ],
+  "wall": 1.16,
+  "json_ok": true,
+  "outcome": "correct",
+  "pass": true
+ },
+ {
+  "id": "BUG-1040",
+  "label": "section-merge",
+  "lane": "compaction",
+  "votes": [
+   "not-worth-it"
+  ],
+  "verdict": "not-worth-it",
+  "raw": "{\"id\": \"BUG-1040\", \"verdict\": \"not-worth-it\", \"reason\": \"The outline shows a complex investigation with distinct findings and retractions; merging would destroy the index of the logic.\"}",
+  "raws": [
+   "{\"id\": \"BUG-1040\", \"verdict\": \"not-worth-it\", \"reason\": \"The outline shows a complex investigation with distinct findings and retractions; merging would destroy the index of the logic.\"}"
+  ],
+  "wall": 1.42,
+  "json_ok": true,
+  "outcome": "wrong",
+  "pass": false
+ },
+ {
+  "id": "BUG-292",
+  "label": "not-worth-it",
+  "lane": "compaction",
+  "votes": [
+   "not-worth-it"
+  ],
+  "verdict": "not-worth-it",
+  "raw": "{\"id\": \"BUG-292\", \"verdict\": \"not-worth-it\", \"reason\": \"status is open; item is live and being actively worked\"}",
+  "raws": [
+   "{\"id\": \"BUG-292\", \"verdict\": \"not-worth-it\", \"reason\": \"status is open; item is live and being actively worked\"}"
+  ],
+  "wall": 1.22,
+  "json_ok": true,
+  "outcome": "correct",
+  "pass": true
+ }
+]

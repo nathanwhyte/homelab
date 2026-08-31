@@ -1,0 +1,342 @@
+[
+ {
+  "id": "TASK-304",
+  "label": "unclear",
+  "lane": "compaction",
+  "votes": [
+   "not-worth-it"
+  ],
+  "verdict": "not-worth-it",
+  "raw": "{\"id\": \"TASK-304\", \"verdict\": \"not-worth-it\", \"reason\": \"Active task with high-density investigation notes; merging would destroy the chronological audit trail of specific fixes and decisions.\"}",
+  "raws": [
+   "{\"id\": \"TASK-304\", \"verdict\": \"not-worth-it\", \"reason\": \"Active task with high-density investigation notes; merging would destroy the chronological audit trail of specific fixes and decisions.\"}"
+  ],
+  "wall": 2.28,
+  "json_ok": true,
+  "outcome": "wrong",
+  "pass": false
+ },
+ {
+  "id": "TASK-305",
+  "label": "unclear",
+  "lane": "compaction",
+  "votes": [
+   "not-worth-it"
+  ],
+  "verdict": "not-worth-it",
+  "raw": "{\"id\": \"TASK-305\", \"verdict\": \"not-worth-it\", \"reason\": \"Active task with high-density investigation steps; headings serve as a critical index of distinct findings.\"}",
+  "raws": [
+   "{\"id\": \"TASK-305\", \"verdict\": \"not-worth-it\", \"reason\": \"Active task with high-density investigation steps; headings serve as a critical index of distinct findings.\"}"
+  ],
+  "wall": 2.03,
+  "json_ok": true,
+  "outcome": "wrong",
+  "pass": false
+ },
+ {
+  "id": "PROJ-104",
+  "label": "unclear",
+  "lane": "compaction",
+  "votes": [
+   "unclear"
+  ],
+  "verdict": "unclear",
+  "raw": "{\"id\": \"PROJ-104\", \"verdict\": \"unclear\", \"reason\": \"Active project with dense, multi-fact dated logs; collapsing risks losing specific context for ongoing coordination.\"}",
+  "raws": [
+   "{\"id\": \"PROJ-104\", \"verdict\": \"unclear\", \"reason\": \"Active project with dense, multi-fact dated logs; collapsing risks losing specific context for ongoing coordination.\"}"
+  ],
+  "wall": 1.59,
+  "json_ok": true,
+  "outcome": "correct",
+  "pass": true
+ },
+ {
+  "id": "TASK-312",
+  "label": "chronological-collapse",
+  "lane": "compaction",
+  "votes": [
+   "chronological-collapse"
+  ],
+  "verdict": "chronological-collapse",
+  "raw": "{\"id\": \"TASK-312\", \"verdict\": \"chronological-collapse\", \"reason\": \"11 dated headings on a 'done' task with short narrative increments (4-37L) suitable for a single history section\"}",
+  "raws": [
+   "{\"id\": \"TASK-312\", \"verdict\": \"chronological-collapse\", \"reason\": \"11 dated headings on a 'done' task with short narrative increments (4-37L) suitable for a single history section\"}"
+  ],
+  "wall": 1.51,
+  "json_ok": true,
+  "outcome": "correct",
+  "pass": true
+ },
+ {
+  "id": "TASK-320",
+  "label": "not-worth-it",
+  "lane": "compaction",
+  "votes": [
+   "not-worth-it"
+  ],
+  "verdict": "not-worth-it",
+  "raw": "{\"id\": \"TASK-320\", \"verdict\": \"not-worth-it\", \"reason\": \"The sections represent a distinct sequence of investigation findings and technical steps for a complex task.\"}",
+  "raws": [
+   "{\"id\": \"TASK-320\", \"verdict\": \"not-worth-it\", \"reason\": \"The sections represent a distinct sequence of investigation findings and technical steps for a complex task.\"}"
+  ],
+  "wall": 1.32,
+  "json_ok": true,
+  "outcome": "correct",
+  "pass": true
+ },
+ {
+  "id": "PROJ-110",
+  "label": "chronological-collapse",
+  "lane": "compaction",
+  "votes": [
+   "chronological-collapse"
+  ],
+  "verdict": "chronological-collapse",
+  "raw": "{\"id\": \"PROJ-110\", \"verdict\": \"chronological-collapse\", \"reason\": \"15 dated headings with narrative content (some 30L+) could be consolidated into a single History section\"}",
+  "raws": [
+   "{\"id\": \"PROJ-110\", \"verdict\": \"chronological-collapse\", \"reason\": \"15 dated headings with narrative content (some 30L+) could be consolidated into a single History section\"}"
+  ],
+  "wall": 1.44,
+  "json_ok": true,
+  "outcome": "correct",
+  "pass": true
+ },
+ {
+  "id": "BUG-1016",
+  "label": "chronological-collapse",
+  "lane": "compaction",
+  "votes": [
+   "chronological-collapse"
+  ],
+  "verdict": "chronological-collapse",
+  "raw": "{\"id\": \"BUG-1016\", \"verdict\": \"chronological-collapse\", \"reason\": \"8 dated headings on a fixed bug record with short narrative increments (2-36L) suitable for a history summary\"}",
+  "raws": [
+   "{\"id\": \"BUG-1016\", \"verdict\": \"chronological-collapse\", \"reason\": \"8 dated headings on a fixed bug record with short narrative increments (2-36L) suitable for a history summary\"}"
+  ],
+  "wall": 1.37,
+  "json_ok": true,
+  "outcome": "correct",
+  "pass": true
+ },
+ {
+  "id": "TASK-327",
+  "label": "not-worth-it",
+  "lane": "compaction",
+  "votes": [
+   "not-worth-it"
+  ],
+  "verdict": "not-worth-it",
+  "raw": "{\"id\": \"TASK-327\", \"verdict\": \"not-worth-it\", \"reason\": \"Dense investigation record with distinct findings; merging would destroy the index of evidence.\"}",
+  "raws": [
+   "{\"id\": \"TASK-327\", \"verdict\": \"not-worth-it\", \"reason\": \"Dense investigation record with distinct findings; merging would destroy the index of evidence.\"}"
+  ],
+  "wall": 1.21,
+  "json_ok": true,
+  "outcome": "correct",
+  "pass": true
+ },
+ {
+  "id": "TASK-269",
+  "label": "chronological-collapse",
+  "lane": "compaction",
+  "votes": [
+   "chronological-collapse"
+  ],
+  "verdict": "chronological-collapse",
+  "raw": "{\"id\": \"TASK-269\", \"verdict\": \"chronological-collapse\", \"reason\": \"9 dated headings in a 'Status Log' section on a 'done' task; can be collapsed into a single history summary.\"}",
+  "raws": [
+   "{\"id\": \"TASK-269\", \"verdict\": \"chronological-collapse\", \"reason\": \"9 dated headings in a 'Status Log' section on a 'done' task; can be collapsed into a single history summary.\"}"
+  ],
+  "wall": 1.45,
+  "json_ok": true,
+  "outcome": "correct",
+  "pass": true
+ },
+ {
+  "id": "INFO-137",
+  "label": "not-worth-it",
+  "lane": "compaction",
+  "votes": [
+   "not-worth-it"
+  ],
+  "verdict": "not-worth-it",
+  "raw": "{\"id\": \"INFO-137\", \"verdict\": \"not-worth-it\", \"reason\": \"Reference doc structure with distinct findings; merging would destroy the index of specific technical facts.\"}",
+  "raws": [
+   "{\"id\": \"INFO-137\", \"verdict\": \"not-worth-it\", \"reason\": \"Reference doc structure with distinct findings; merging would destroy the index of specific technical facts.\"}"
+  ],
+  "wall": 1.46,
+  "json_ok": true,
+  "outcome": "correct",
+  "pass": true
+ },
+ {
+  "id": "BUG-030",
+  "label": "not-worth-it",
+  "lane": "compaction",
+  "votes": [
+   "not-worth-it"
+  ],
+  "verdict": "not-worth-it",
+  "raw": "{\"id\": \"BUG-030\", \"verdict\": \"not-worth-it\", \"reason\": \"High section count (24) represents a detailed investigation index of distinct findings and root causes.\"}",
+  "raws": [
+   "{\"id\": \"BUG-030\", \"verdict\": \"not-worth-it\", \"reason\": \"High section count (24) represents a detailed investigation index of distinct findings and root causes.\"}"
+  ],
+  "wall": 1.35,
+  "json_ok": true,
+  "outcome": "correct",
+  "pass": true
+ },
+ {
+  "id": "ERR-058",
+  "label": "not-worth-it",
+  "lane": "compaction",
+  "votes": [
+   "not-worth-it"
+  ],
+  "verdict": "not-worth-it",
+  "raw": "{\"id\": \"ERR-058\", \"verdict\": \"not-worth-it\", \"reason\": \"Active error signature with distinct investigation steps and specific recovery actions; structure is a functional index.\"}",
+  "raws": [
+   "{\"id\": \"ERR-058\", \"verdict\": \"not-worth-it\", \"reason\": \"Active error signature with distinct investigation steps and specific recovery actions; structure is a functional index.\"}"
+  ],
+  "wall": 1.25,
+  "json_ok": true,
+  "outcome": "correct",
+  "pass": true
+ },
+ {
+  "id": "IDEA-1090",
+  "label": "chronological-collapse",
+  "lane": "compaction",
+  "votes": [
+   "not-worth-it"
+  ],
+  "verdict": "not-worth-it",
+  "raw": "{\"id\": \"IDEA-1090\", \"verdict\": \"not-worth-it\", \"reason\": \"The outline shows a structured investigation with distinct findings (measurements, defects, options) rather than repetitive log sprawl.\"}",
+  "raws": [
+   "{\"id\": \"IDEA-1090\", \"verdict\": \"not-worth-it\", \"reason\": \"The outline shows a structured investigation with distinct findings (measurements, defects, options) rather than repetitive log sprawl.\"}"
+  ],
+  "wall": 1.36,
+  "json_ok": true,
+  "outcome": "wrong",
+  "pass": false
+ },
+ {
+  "id": "IDEA-1086",
+  "label": "chronological-collapse",
+  "lane": "compaction",
+  "votes": [
+   "chronological-collapse"
+  ],
+  "verdict": "chronological-collapse",
+  "raw": "{\"id\": \"IDEA-1086\", \"verdict\": \"chronological-collapse\", \"reason\": \"9 dated headings on a shipped item with short narrative increments (5-28L) suitable for a history table\"}",
+  "raws": [
+   "{\"id\": \"IDEA-1086\", \"verdict\": \"chronological-collapse\", \"reason\": \"9 dated headings on a shipped item with short narrative increments (5-28L) suitable for a history table\"}"
+  ],
+  "wall": 1.3,
+  "json_ok": true,
+  "outcome": "correct",
+  "pass": true
+ },
+ {
+  "id": "BUG-246",
+  "label": "chronological-collapse",
+  "lane": "compaction",
+  "votes": [
+   "chronological-collapse"
+  ],
+  "verdict": "chronological-collapse",
+  "raw": "{\"id\": \"BUG-246\", \"verdict\": \"chronological-collapse\", \"reason\": \"10 dated headings on a fixed bug; many are short narrative increments (2-13L) suitable for a history log\"}",
+  "raws": [
+   "{\"id\": \"BUG-246\", \"verdict\": \"chronological-collapse\", \"reason\": \"10 dated headings on a fixed bug; many are short narrative increments (2-13L) suitable for a history log\"}"
+  ],
+  "wall": 1.37,
+  "json_ok": true,
+  "outcome": "correct",
+  "pass": true
+ },
+ {
+  "id": "BUG-156",
+  "label": "not-worth-it",
+  "lane": "compaction",
+  "votes": [
+   "not-worth-it"
+  ],
+  "verdict": "not-worth-it",
+  "raw": "{\"id\": \"BUG-156\", \"verdict\": \"not-worth-it\", \"reason\": \"High fence_lines are dominated by python (code), and sections represent a distinct investigation sequence.\"}",
+  "raws": [
+   "{\"id\": \"BUG-156\", \"verdict\": \"not-worth-it\", \"reason\": \"High fence_lines are dominated by python (code), and sections represent a distinct investigation sequence.\"}"
+  ],
+  "wall": 1.22,
+  "json_ok": true,
+  "outcome": "correct",
+  "pass": true
+ },
+ {
+  "id": "TASK-253",
+  "label": "unclear",
+  "lane": "compaction",
+  "votes": [
+   "not-worth-it"
+  ],
+  "verdict": "not-worth-it",
+  "raw": "{\"id\": \"TASK-253\", \"verdict\": \"not-worth-it\", \"reason\": \"Active task with distinct investigation steps and code-heavy fences (SQL) that serve as a functional index.\"}",
+  "raws": [
+   "{\"id\": \"TASK-253\", \"verdict\": \"not-worth-it\", \"reason\": \"Active task with distinct investigation steps and code-heavy fences (SQL) that serve as a functional index.\"}"
+  ],
+  "wall": 1.31,
+  "json_ok": true,
+  "outcome": "wrong",
+  "pass": false
+ },
+ {
+  "id": "IMPR-1091",
+  "label": "not-worth-it",
+  "lane": "compaction",
+  "votes": [
+   "not-worth-it"
+  ],
+  "verdict": "not-worth-it",
+  "raw": "{\"id\": \"IMPR-1091\", \"verdict\": \"not-worth-it\", \"reason\": \"High section count (19) represents a dense investigation/decision record with distinct findings; merging would destroy the index.\"}",
+  "raws": [
+   "{\"id\": \"IMPR-1091\", \"verdict\": \"not-worth-it\", \"reason\": \"High section count (19) represents a dense investigation/decision record with distinct findings; merging would destroy the index.\"}"
+  ],
+  "wall": 1.34,
+  "json_ok": true,
+  "outcome": "correct",
+  "pass": true
+ },
+ {
+  "id": "BUG-1040",
+  "label": "section-merge",
+  "lane": "compaction",
+  "votes": [
+   "section-merge"
+  ],
+  "verdict": "section-merge",
+  "raw": "{\"id\": \"BUG-1040\", \"verdict\": \"section-merge\", \"reason\": \"33 sections with high sprawl; many sibling sub-headings under 2026-08-26 dates can be merged into thematic summaries\"}",
+  "raws": [
+   "{\"id\": \"BUG-1040\", \"verdict\": \"section-merge\", \"reason\": \"33 sections with high sprawl; many sibling sub-headings under 2026-08-26 dates can be merged into thematic summaries\"}"
+  ],
+  "wall": 1.53,
+  "json_ok": true,
+  "outcome": "correct",
+  "pass": true
+ },
+ {
+  "id": "BUG-292",
+  "label": "not-worth-it",
+  "lane": "compaction",
+  "votes": [
+   "not-worth-it"
+  ],
+  "verdict": "not-worth-it",
+  "raw": "{\"id\": \"BUG-292\", \"verdict\": \"not-worth-it\", \"reason\": \"High section count (23) represents a detailed investigation sequence of distinct findings; merging would destroy the index.\"}",
+  "raws": [
+   "{\"id\": \"BUG-292\", \"verdict\": \"not-worth-it\", \"reason\": \"High section count (23) represents a detailed investigation sequence of distinct findings; merging would destroy the index.\"}"
+  ],
+  "wall": 1.39,
+  "json_ok": true,
+  "outcome": "correct",
+  "pass": true
+ }
+]
