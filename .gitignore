@@ -101,6 +101,8 @@ benchmarks/results/*
 !benchmarks/results/batch-skill-gate-20260828/
 # IDEA-1090 pairing measurements: slot probes, 3B FIM side, FIM+partner cohabitation (run.py + logs + json)
 !benchmarks/results/pair-cohab-20260828/
+# IDEA-1091 fence.propose v2 mistag gate (README + cases + per-model json)
+!benchmarks/results/fence-mistag-20260830/
 
 # Pi-hole stack secrets (PROJ-1018). pihole-exporter.env carries a Pi-hole
 # password per upstream's schema and is NOT matched by the bare `.env` rule above.
