@@ -1,0 +1,30 @@
+# agentpair:agent-gemma4-12b — the production agent half of timmy's paired
+# posture since the 2026-08-30 switch (IDEA-1090 step 6 / IDEA-1091 phase 3b).
+#
+# Best proposer on both fence corpora: 28/30 on the v1 bare-fence gate and
+# 15/15 on the v2 mistag gate (fence-mistag-20260830, reworded skill) — it
+# discriminates, acting on every real retag and reporting everything else,
+# where e4b commits everywhere and qwen reports everywhere. Cohabiting with
+# agentpair:fim (3B): pair 10.67 GiB idle / 10.78 peak under proposer traffic,
+# 5.1 GiB free, FIM TTFT p95 0.37 s (2026-08-28 pair-VRAM probe). Roughly 2x
+# e4b's wall per batch (63 s vs 29 s for 50 cases) — fine for batch work.
+# Caveats: IDEA-1084 (gemma4 Go parser drops long tool calls) matters only
+# with native tool calling; on /api/generate gemma4 streams nothing until
+# completion (ERR-1004 family) — drive it through /api/chat.
+#
+# REFERENCE COPY. The tag on timmy is built by llama/ollama-configmap.yaml's
+# startup.sh (prepare_agent_pair) from this same text; keep the two identical.
+# Requires: ollama pull gemma4:12b-it-qat
+# Build:    ollama create agentpair:agent-gemma4-12b -f agentpair-agent-gemma4-12b.Modelfile
+
+FROM gemma4:12b-it-qat
+
+# RENDERER / PARSER inherited (gemma4) — never restated, same rule as
+# agentpair-agent.Modelfile. `think` is per-request (think:false in the gate).
+
+PARAMETER num_ctx 16384
+# The gate's sampling: temperature 0 on gemma4's single published row
+# (top_p 0.95, top_k 64), pinned completely.
+PARAMETER temperature 0
+PARAMETER top_p 0.95
+PARAMETER top_k 64
