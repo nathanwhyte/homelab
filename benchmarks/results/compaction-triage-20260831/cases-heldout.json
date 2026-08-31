@@ -1,0 +1,724 @@
+{
+ "built": "2026-08-31T16:43:09Z",
+ "note": "compaction.triage HELD-OUT cohort: assess candidates ranked 21-50, labels adjudicated with the frozen (post-loop-4) rules BEFORE the model ran; no rule or label adjustments after scoring",
+ "compaction_cases": [
+  {
+   "id": "IMPR-1021",
+   "path": "improvements/homelab/IMPR-1021-homelab-back-up-k3s-datastore-off-timmy.md",
+   "type": "improvement",
+   "status": "in-progress",
+   "score": 13.8,
+   "signals": [
+    "size(234L)",
+    "log-bulk(200 fenced lines)",
+    "empty-sections(1)",
+    "section-sprawl(13)"
+   ],
+   "body_lines": 234,
+   "sections": 13,
+   "dated_headings": 0,
+   "empty_sections": 1,
+   "fence_lines": 200,
+   "fence_langs": {
+    "yaml": 155,
+    "text": 37
+   },
+   "outline": "# IMPR-1021 — Back up K3s datastore off timmy (control-plane SPOF mitigation) (2L)\n# Current Behavior (14L)\n# Proposed Improvement (1L)\n## Step 1: Create K3s Snapshot ConfigMap & CronJob (131L)\n## Step 2: Configure S3 Storage Path (8L)\n## Step 3: Document Restore Procedure (2L)\n# K3s Datastore Restore Procedure (0L)\n## Prerequisites (3L)\n## Steps (17L)\n## Step 4: Add Monitoring Alert (23L)\n# Impact (0L)\n## Risk Mitigation (5L)\n## Resource Impact (4L)\n## Assumptions (4L)\n# Related (2L)\n# Sources (2L)",
+   "label": "not-worth-it",
+   "note": "in-progress — live"
+  },
+  {
+   "id": "IMPR-1029",
+   "path": "improvements/completed/homelab/IMPR-1029-homelab-move-k8s-longhorn-admin-uis-to-tailscale-only.md",
+   "type": "improvement",
+   "status": "shipped",
+   "score": 13.7,
+   "signals": [
+    "size(309L)",
+    "chronological(5 dated headings)",
+    "empty-sections(1)",
+    "section-sprawl(16)"
+   ],
+   "body_lines": 309,
+   "sections": 16,
+   "dated_headings": 5,
+   "empty_sections": 1,
+   "fence_lines": 6,
+   "fence_langs": {
+    "text": 1,
+    "sh": 1
+   },
+   "outline": "# IMPR-1029 — Move k8s dashboard and Longhorn UIs off the Cloudflare tunnel to Tailscale-only (2L)\n# Current Behavior (25L)\n# Proposed Improvement (36L)\n## Status notes (0L)\n### 2026-07-02 — status: proposed → in-progress (blocked) (27L)\n## Considered alternatives (9L)\n# Impact (5L)\n# Related (17L)\n# Completion (2026-07-21) (10L)\n## Step 4 was abandoned — the plan's belt-and-suspenders never worked (19L)\n## Acceptance criterion 1 was restated, not met as written (15L)\n## The hostname was restored 2026-07-20 (13L)\n### Why the LAN IP, and two failure modes worth recognising again (61L)\n# Live verification (2026-07-20) (35L)\n# Sources (4L)\n## ⚠️ Superseded 2026-08-24 by PROJ-1018 (15L)",
+   "label": "chronological-collapse",
+   "note": "shipped; dated completion/verification/superseded sections own ~195 of 309 lines"
+  },
+  {
+   "id": "GUIDE-1067",
+   "path": "guides/tooling/GUIDE-1067-dotfiles-tsess-tmux-session-overview-usage.md",
+   "type": "guide",
+   "status": "",
+   "score": 13.0,
+   "signals": [
+    "size(359L)",
+    "chronological(4 dated headings)",
+    "empty-sections(1)",
+    "section-sprawl(25)"
+   ],
+   "body_lines": 359,
+   "sections": 25,
+   "dated_headings": 4,
+   "empty_sections": 1,
+   "fence_lines": 72,
+   "fence_langs": {
+    "bash": 36,
+    "text": 12
+   },
+   "outline": "# tsess — tmux session overview with compendium linking (2L)\n# Prerequisites (6L)\n# Overview (2L)\n# Steps (0L)\n## Step 1: Run it (14L)\n## Step 2: Name sessions or windows after item IDs to link them (6L)\n## Step 3: Use the landing session for homeless work (5L)\n## Step 4: Pipe it when you need plain text (4L)\n### Color scheme (46L)\n## Step 5: Resolve the current context with `tsess whoami` (IDEA-1073) (6L)\n## Step 6: Rename to the convention with `tsess stamp` (IDEA-1075) (8L)\n## Step 7: Read the `PR` column ([[IDEA-1077-dotfiles-surface-pr-numbers-in-tsess-and-tmux-window-names|IDEA-1077]]) (8L)\n### The same PR, as a badge in the tmux window list ([[TASK-1143-dotfiles-surface-pr-ids-in-the-tmux-window-title|TASK-1143]]) (29L)\n### Item badge — vault status/priority pill ([[TASK-1142-dotfiles-colored-status-priority-icons-in-the-session-title|TASK-1142]], dotfiles [#46](https://github.com/nathanwhyte/dotfiles/pull/46)) (21L)\n## Step 8: Search sessions with `tsess find` ([[TASK-1140-dotfiles-tsess-find-search-window-titles-and-pane-content-across-sess|TASK-1140]]) (16L)\n## Step 9: Fork a session into its own pane with `claude-fork` / `/tfork` ([[TASK-1146-dotfiles-split-a-tmux-pane-when-a-claude-session-is-forked|TASK-1146]]) (40L)\n## Step 10: Keep the overview live with `tsess watch` ([[TASK-1191-dotfiles-tsess-watch-live-re-rendering-session-overview|TASK-1191]]) (15L)\n## Step 11: The Python/rich implementation ([[IMPR-1076-dotfiles-port-tsess-to-python-libtmux|IMPR-1076]], cut over 2026-08-24) (12L)\n# install.sh runs `uv sync --project ~/code/dotfiles/tsess-py` for you; by hand if uv was missing: (46L)\n## Step 12: Jump to an item with `tsess go` ([[TASK-1192-dotfiles-tsess-go-jump-to-the-session-or-window-linked-to-an-item|TASK-1192]], dotfiles [#51](https://github.com/nathanwhyte/dotfiles/pull/51)) (13L)\n# Performance ([[TASK-1141-dotfiles-tsess-performance-batch-lookups-and-caching-for-list-render|TASK-1141]], 2026-07-21) (2L)\n# Width detection — fixed (was: `tput cols` limitation, 2026-07-17) (2L)\n# Fixed — `tsess stamp` ambient-context targeting ([[BUG-1044-dotfiles-tsess-mutating-commands-target-ambient-tmux-context-instead|BUG-1044]], fixed 2026-07-20) (11L)\n# Verification (14L)\n# Related (4L)\n# Sources (1L)",
+   "label": "not-worth-it",
+   "note": "reference doc — steps are navigational structure"
+  },
+  {
+   "id": "BUG-104",
+   "path": "bugs/mage/BUG-104-mage-dbt-block-sql-exception-none-swallows-real-error.md",
+   "type": "bug",
+   "status": "fix-ready",
+   "score": 12.9,
+   "signals": [
+    "log-bulk(81 fenced lines)",
+    "empty-sections(2)",
+    "section-sprawl(19)"
+   ],
+   "body_lines": 156,
+   "sections": 19,
+   "dated_headings": 2,
+   "empty_sections": 2,
+   "fence_lines": 81,
+   "fence_langs": {
+    "python": 47,
+    "text": 9,
+    "dockerfile": 3
+   },
+   "outline": "# BUG-104 — Mage dbt block_sql.py raises Exception(None) — swallows real dbt error (2L)\n# Problem (10L)\n## Example: Staging run 4919 (2026-05-21) (7L)\n# Root Cause (1L)\n## 1. dbt's `postflight` decorator (`dbt/cli/requires.py:183-184`) (6L)\n## 2. `dbtRunner.invoke()` (`dbt/cli/main.py:73-76`) (6L)\n## 3. Mage's `block_sql.py:418` (9L)\n## Why exception is None (1L)\n## Where the real error lives (5L)\n##       # e.g. \"model.data_driven_map_columns_to_asf: Database Error: invalid identifier '...'\" (2L)\n# Investigation notes (0L)\n## 2026-05-21 — Investigation notes (17L)\n# Fix (1L)\n## File 1: `dbt_cli.py` — add `get_error_message()` method (10L)\n##   # exception is None — extract from node results (15L)\n## File 2: `block_sql.py` — use `get_error_message()` at two call sites (3L)\n## Before: (1L)\n## After: (4L)\n## Before: (1L)\n## After: (2L)\n## Deployment (7L)\n## Patch mage_ai to surface dbt node-level errors instead of Exception(None) (0L)\n## PYTHONPATH=/home/src takes precedence over base image site-packages (3L)\n## What changes after the fix (5L)\n## Why this approach vs alternatives (6L)\n# Verification (0L)\n# (empty — no fix applied) (5L)",
+   "label": "not-worth-it",
+   "note": "fix-ready — live"
+  },
+  {
+   "id": "PROJ-1018",
+   "path": "projects/completed/PROJ-1018-homelab-homelab-hostname-resolution-migration.md",
+   "type": "project",
+   "status": "completed",
+   "score": 12.9,
+   "signals": [
+    "size(396L)",
+    "chronological(4 dated headings)",
+    "section-sprawl(16)"
+   ],
+   "body_lines": 396,
+   "sections": 16,
+   "dated_headings": 4,
+   "empty_sections": 0,
+   "fence_lines": 3,
+   "fence_langs": {
+    "bash": 1
+   },
+   "outline": "# PROJ-1018 — Homelab hostname resolution migration (2L)\n# Overview (9L)\n## The three anti-patterns being retired (11L)\n# Goals (6L)\n# Task List (6L)\n# Phases (15L)\n## Phase 0 — mechanism decided, scope larger than filed (2026-08-24) (29L)\n# Risks & Blockers (88L)\n# Open question — does Phase 5 partly fix BUG-1078? (2026-08-24) (21L)\n## Standing rule for DNS verification in this homelab (5L)\n# Proposed order (revised 2026-08-24) (18L)\n## Remaining open items when this project closes (14L)\n# Notes (119L)\n# Completion — 2026-08-25 (29L)\n# Related (7L)\n# Sources (1L)",
+   "label": "not-worth-it",
+   "note": "completed but the bulk is two large substantive sections (Risks 88L, Notes 119L) — long because it says a lot"
+  },
+  {
+   "id": "IDEA-026",
+   "path": "ideas/other/IDEA-026-other-evaluate-ai-driven-qa-tools-meticulous-sentry-seer-checkly.md",
+   "type": "idea",
+   "status": "proposed",
+   "score": 12.6,
+   "signals": [
+    "size(423L)",
+    "section-sprawl(43)"
+   ],
+   "body_lines": 423,
+   "sections": 43,
+   "dated_headings": 1,
+   "empty_sections": 0,
+   "fence_lines": 16,
+   "fence_langs": {
+    "ts": 14
+   },
+   "outline": "# IDEA-026 — Evaluate AI-driven QA Tools — Meticulous, Sentry Seer, Checkly, Replay QA (2L)\n# Idea (10L)\n# Open Questions (11L)\n# Replay QA — trial outcome, 2026-08-20 (5L)\n## Verdict by mode (7L)\n## What the trial actually established (17L)\n## Replay QA vs. Meticulous — position (13L)\n## Cost, measured (6L)\n## Governance — resolved for our use, unresolved in general (10L)\n## One process lesson, applicable to every tool in this entry (7L)\n# Meticulous AI — Full Research Report (1L)\n## What It Is (1L)\n## How It Works (Core Architecture) (4L)\n## Setup (3 Steps, ~20 min) (11L)\n## Key Capabilities (7L)\n## Performance & Safety (4L)\n## Customer Evidence (7L)\n## Contrast with Sentry Seer & Checkly (8L)\n# Sentry Seer — Full Research Report (1L)\n## What It Is (2) (1L)\n## Three Capabilities (3L)\n## How Autofix Works (3-step flow) (3L)\n## Key Technical Details (8L)\n## Contrast with Meticulous (10L)\n## Fit for DipDash/Mage (10L)\n## Key Documentation (7L)\n# Contrast with Sentry Seer & Checkly (2) (8L)\n## Fit for DipDash/Mage (2) (9L)\n## Key Documentation (2) (12L)\n# Replay QA — Full Research Report (1L)\n## What It Is (3) (5L)\n## Three Usage Modes (6L)\n## How It Works (Core Architecture) (3) (6L)\n## Setup — Playwright + GitHub Actions (25L)\n## Two MCP Servers, Not One (16L)\n## Replay MCP — Time-Travel Debugging For Coding Agents (12L)\n## Pricing (18L)\n## Fit for DipDash/Mage (3) (14L)\n## Empirical Results — A Real Run Against DipDash Staging (41L)\n## Suggested Evaluation Path (4L)\n## Key Documentation (3) (17L)\n# Related Items (5L)\n# Sources (7L)",
+   "label": "not-worth-it",
+   "note": "proposed — live"
+  },
+  {
+   "id": "BUG-032",
+   "path": "bugs/resolved/mage/BUG-032-mage-call-my-macro-dbt-compile-hardening.md",
+   "type": "bug",
+   "status": "fixed",
+   "score": 12.5,
+   "signals": [
+    "chronological(4 dated headings)",
+    "empty-sections(3)",
+    "section-sprawl(26)"
+   ],
+   "body_lines": 138,
+   "sections": 26,
+   "dated_headings": 4,
+   "empty_sections": 3,
+   "fence_lines": 11,
+   "fence_langs": {
+    "jinja": 5
+   },
+   "outline": "# BUG-032 — Mage call_my_macro Dbt Compile Hardening Gaps (2L)\n# Problem (4L)\n# Root Cause (5L)\n# Investigation Notes (5L)\n# Fix (1L)\n# Addition 1 — `use_macro` Parameter Silently Dropped (HIGH severity) (7L)\n# Addition 2 — `to_text` Fallback is Fully Silent (MEDIUM severity) (8L)\n# Addition 3 — `asf_` Fallback Fires Silently (MEDIUM severity) (6L)\n# Addition 4 — No Test Coverage for Any `call_my_macro` Scenario (HIGH severity) (11L)\n# Addition 5 — `asf_` Fallback → `to_text` Cascade is Implicit (LOW severity) (8L)\n# Verification (0L)\n# Staging Test Results (2026-04-23) (9L)\n# Remaining Verification (post-Additions 1–5) (6L)\n# QA Audit — 2026-04-27 (0L)\n# PR #655 Config backwards Compatibility Audit (1L)\n## Data Cleanliness (6L)\n## `use_macro` Field is Vestigial (1L)\n## Edge Cases Confirmed Safe (7L)\n## Baseline Staging Run (1L)\n## Future Watch (1L)\n# Staging QA — 2026-04-27 (PRs #655 + #656) (0L)\n# OWL-19478 Fixes Verified (10L)\n# Remaining Work (Additions 1–5) (7L)\n# Release Status (2026-04-27) (1L)\n# Sources (4L)\n# Status Notes (1L)",
+   "label": "section-merge",
+   "note": "fixed; a dozen tiny QA/staging/status sections re-litigate one theme (are the Additions verified) — merge into one verification account. LOWER CONFIDENCE: not-worth-it defensible"
+  },
+  {
+   "id": "BUG-265",
+   "path": "bugs/resolved/mage/BUG-265-mage-mage-dbt-blocks-fetch-entire-models-into-memory-for-discarde.md",
+   "type": "bug",
+   "status": "fixed",
+   "score": 12.5,
+   "signals": [
+    "size(180L)",
+    "chronological(5 dated headings)",
+    "empty-sections(1)",
+    "section-sprawl(21)"
+   ],
+   "body_lines": 180,
+   "sections": 21,
+   "dated_headings": 5,
+   "empty_sections": 1,
+   "fence_lines": 34,
+   "fence_langs": {
+    "python": 17,
+    "yaml": 8,
+    "text": 3
+   },
+   "outline": "# BUG-265 — Mage dbt Blocks Fetch Entire Models Into Memory for Discarded Downstream DataFrames (2L)\n# Problem (9L)\n# Root Cause (2L)\n# preview path -- editor only (3L)\n# pipeline-run path (22L)\n## Scope (6L)\n## Confirmed in prod (7L)\n# Investigation Notes (2L)\n## 2026-07-29 — status: open → fix-ready (4L)\n# Fix (3L)\n## Implementation plan (0L)\n### 1. New file: `data_ingestion_automation/monkey_patches.py` (9L)\n### 2. Import the patch early (1L)\n### 3. Add `limit: 1000` to dbt block configs (~40 blocks) (22L)\n### YAML change format (1L)\n# Before: (2L)\n# After: (4L)\n### Why this approach over the alternatives (5L)\n# Verification (5L)\n## 2026-07-29 — Local run 7: first full green replay of the incident file (24L)\n## 2026-08-11 — Staging QA (PR #715) (4L)\n## 2026-08-11 — Prod deployment confirmed (5L)\n## 2026-08-11 — Live production verification (run 27080) (3L)\n# Related (5L)\n# Sources (5L)",
+   "label": "chronological-collapse",
+   "note": "fixed; dated status/verification chain merges into the resolution. LOWER CONFIDENCE: yield ~20%, not-worth-it defensible"
+  },
+  {
+   "id": "BUG-243",
+   "path": "bugs/mage/BUG-243-mage-ghost-answer-bundles-in-sandbox-fivetran-sync-notes-matching.md",
+   "type": "bug",
+   "status": "fix-ready",
+   "score": 12.3,
+   "signals": [
+    "size(200L)",
+    "chronological(6 dated headings)",
+    "log-bulk(58 fenced lines)",
+    "section-sprawl(17)"
+   ],
+   "body_lines": 200,
+   "sections": 17,
+   "dated_headings": 6,
+   "empty_sections": 0,
+   "fence_lines": 58,
+   "fence_langs": {
+    "sql": 44,
+    "text": 2
+   },
+   "outline": "# BUG-243 — Ghost answer-bundles in sandbox Fivetran sync — notes matching emits model-ids the platform deleted, per-bundle not-found errors fail the run (3L)\n# Problem (5L)\n# Root Cause (7L)\n## Scope — the ghost pool is ~21,714 rows, not 47 (measured 2026-07-25) (7L)\n### Production is affected too (measured 2026-07-28) (12L)\n### Prod platform-side ground truth (measured 2026-07-28) (22L)\n### Platform-side lookup mechanism (read from source 2026-08-18) (17L)\n### CIC instance — sandbox run 3296 onward (2026-08-17) (2L)\n### An at-risk classifier (not a validated predictor) (12L)\n#### Exact queries, so the numbers above are reproducible (55L)\n# History (3L)\n# Fix (6L)\n# Verification (5L)\n## 🔴 CONFIRMED STILL LIVE — sandbox run 2767 (2026-07-28) (8L)\n### The classifier is now validated at ID level (12L)\n# Related (6L)\n# Sources (1L)",
+   "label": "not-worth-it",
+   "note": "fix-ready — live"
+  },
+  {
+   "id": "INFO-1123",
+   "path": "info/cluster-networking/INFO-1123-homelab-homelab-network-speed-baseline-inter-node-iperf3-matrix-and.md",
+   "type": "info-entry",
+   "status": "",
+   "score": 12.2,
+   "signals": [
+    "size(450L)",
+    "empty-sections(1)",
+    "section-sprawl(20)"
+   ],
+   "body_lines": 450,
+   "sections": 20,
+   "dated_headings": 2,
+   "empty_sections": 1,
+   "fence_lines": 18,
+   "fence_langs": {
+    "bash": 14
+   },
+   "outline": "# INFO-1123 --- Homelab Network Speed Baseline (2026-07-25) (4L)\n# Answer (18L)\n## Inter-node cluster throughput (25L)\n## pop to cluster, and pop to internet (12L)\n## pop path comparison — wired vs Wi-Fi vs the service itself (50L)\n## Re-measurement — the shortfall is single-stream latency, not hops (40L)\n### Isolating it — ping from timmy, near-side stack held constant (35L)\n# Context (0L)\n## The external number was a floor — the plan speed is now measured at 3 Gbps (22L)\n## The intermediate gear — now inventoried (22L)\n### Thunderbolt bridge — link is up, peer is not (38L)\n## Multi-stream retransmits are cluster-wide, not timmy-specific (12L)\n## Longhorn survived the saturation tier this time (13L)\n## Cluster topology drift found and corrected (9L)\n## pop's wired path is a removable adapter (9L)\n## Reproducing this measurement (9L)\n# 1. Stand up iperf3 servers on every node, on the host network (port 5301) (1L)\n# 2. Client runs inside the source node's pod, targeting the dest node's host IP (2L)\n# 3. External test from pop (1L)\n# 4. Tear down (8L)\n## What would actually move these numbers (19L)\n### Ceiling stack — what \"the right adapter\" actually buys (38L)\n### Planned upgrade (vault owner, 2026-07-26) — adapter half done 2026-08-04 (34L)\n# See Also (5L)",
+   "label": "not-worth-it",
+   "note": "reference doc — measurement answer doc"
+  },
+  {
+   "id": "BUG-1077",
+   "path": "bugs/resolved/homelab/BUG-1077-homelab-ollama-mlx-prefix-cache-hit-returns-different-text-than-a-co.md",
+   "type": "bug",
+   "status": "wontfix",
+   "score": 12.1,
+   "signals": [
+    "size(283L)",
+    "chronological(4 dated headings)",
+    "section-sprawl(25)"
+   ],
+   "body_lines": 283,
+   "sections": 25,
+   "dated_headings": 4,
+   "empty_sections": 0,
+   "fence_lines": 13,
+   "fence_langs": {
+    "bash": 5,
+    "text": 4
+   },
+   "outline": "# BUG-1077 — Ollama MLX prefix-cache hit returns different text than a cold prefill of the same prompt (3L)\n# Summary (6L)\n# Environment (7L)\n# Observed (8L)\n# Hypotheses (8L)\n# Why it is not yet conclusive (6L)\n## 2026-08-24 cache-path check on Ollama 0.33.0-rc2 (13L)\n# 2026-08-26 — Reproduced on 0.33.0-rc2 with evidence capture (11L)\n## The divergence is wholesale, not one late token (20L)\n## Bearing of the tracked upstream changes (11L)\n# 2026-08-27 — RESOLVED by measurement: a genuine MLX prefix-cache defect (9L)\n## The cold-repeat control is what settles it (20L)\n## Both original hypotheses were wrong — they were a false dichotomy (15L)\n## Character of the divergence (4L)\n## Why this is `wontfix` here (8L)\n## 2026-08-27 (earlier) — paused for the night; environment cleared for a clean resume (3L)\n### Environment questions from \"Next steps\" are now answered (8L)\n### The stability probe now exists (9L)\n### ⚠ Operational lesson: a second local-model consumer will kill the run (17L)\n### State left behind (5L)\n### Resume order (6L)\n# Next steps (37L)\n# Verification (17L)\n# Impact (4L)\n# Related (3L)",
+   "label": "chronological-collapse",
+   "note": "wontfix; dated investigation chronicle owns ~120 of 283 lines"
+  },
+  {
+   "id": "IDEA-059",
+   "path": "ideas/omnipendium/IDEA-059-omnipendium-compendium-api-backend.md",
+   "type": "idea",
+   "status": "proposed",
+   "score": 12.1,
+   "signals": [
+    "size(182L)",
+    "log-bulk(87 fenced lines)",
+    "empty-sections(1)",
+    "section-sprawl(19)"
+   ],
+   "body_lines": 182,
+   "sections": 19,
+   "dated_headings": 0,
+   "empty_sections": 1,
+   "fence_lines": 87,
+   "fence_langs": {
+    "sql": 39,
+    "text": 38,
+    "bash": 2
+   },
+   "outline": "# IDEA-059 — Compendium API Backend with Database Storage and HTML Page Renderer (2L)\n# Idea (8L)\n# Core Principles (0L)\n## 1. Database is source of truth (1L)\n## 2. Merged backend, isolated read views (1L)\n## 3. HTML pages as primary read path (CQRS write model) (1L)\n## 4. Domain-specific, not generic (5L)\n## 5. Obsidian vault export as stretch goal (2L)\n# Architecture (21L)\n# Data Model (Sketch) (44L)\n# API Endpoints (Sketch) (1L)\n# CRUD (4L)\n# Query (3L)\n# Vault export (stretch goal) (2L)\n# Audit (2L)\n# Health (4L)\n# Scope Design (10L)\n# Vault Export (Stretch Goal) (14L)\n## HTML Page Renderer (Primary Read Path) (8L)\n# Open Questions (8L)\n## Resolved Decisions (6L)\n# Migration Strategy (6L)\n# Related (4L)\n# Sources (1L)",
+   "label": "not-worth-it",
+   "note": "proposed — live"
+  },
+  {
+   "id": "GUIDE-009",
+   "path": "guides/local-dev/GUIDE-009-dipdash-and-mage-env-vars-for-regression-testing.md",
+   "type": "guide",
+   "status": "",
+   "score": 12.0,
+   "signals": [
+    "size(319L)",
+    "empty-sections(3)",
+    "section-sprawl(26)"
+   ],
+   "body_lines": 319,
+   "sections": 26,
+   "dated_headings": 2,
+   "empty_sections": 3,
+   "fence_lines": 118,
+   "fence_langs": {
+    "bash": 69,
+    "text": 21,
+    "sql": 7
+   },
+   "outline": "# GUIDE-009 — DipDash and Mage Environment Variables for Regression Testing (2L)\n# DipDash (`api/.env`) (0L)\n## Required for All Runs (12L)\n## Required for Snowflake Queries (6L)\n## Required for AWS S3 (File Upload/Download) (8L)\n## Required for Platform API Submission (3L)\n## Feature-Specific (Optional for Core Regression) (28L)\n# Mage (`.env` + `.snowflake.env`) (0L)\n## Required for All Runs (13L)\n## Required for Snowflake/dbt (9L)\n## Required for Platform API Submission (6L)\n## Feature-Specific (Optional for Core Regression) (9L)\n## Mage Secret Fallback (Env Vars) (3L)\n# What Breaks When Vars Are Missing (0L)\n## DipDash won't start (1L)\n## Mage won't start (1L)\n## Pipeline runs fail silently (1L)\n## Platform submission returns 401 (1L)\n## File upload/download fails (1L)\n## Mage S3 reads fail with `InvalidToken` while your own AWS commands work (16L)\n# write AccessKeyId / SecretAccessKey / SessionToken into mage .env, then: (3L)\n## Mage postprod/Platform-DB work fails on a port that was never valid (19L)\n# Worktree Env File Setup (2L)\n# DipDash — copy from main worktree (1L)\n# Mage — copy both files (2L)\n# Verify key vars are present (4L)\n# Validation Script (3L)\n# check-regression-env.sh — verify critical env vars are present and non-empty (2L)\n# DipDash critical vars (11L)\n# Mage critical vars (10L)\n# Mage .snowflake.env (sourced separately) (14L)\n# Session pitfalls — 2026-07-23 (OWL-19859 conagra notes) (50L)\n# FEAT-108 session pitfalls — 2026-07-24 (conagra claims+notes, use_legacy_date_formatting) (26L)\n# See Also (8L)",
+   "label": "not-worth-it",
+   "note": "reference doc — env-var reference"
+  },
+  {
+   "id": "TASK-325",
+   "path": "tasks/PROJ-113/TASK-325-dipdash-configure-dipdash-source-maps-for-replay.md",
+   "type": "task",
+   "status": "in-progress",
+   "score": 12.0,
+   "signals": [
+    "size(280L)",
+    "chronological(5 dated headings)",
+    "section-sprawl(17)"
+   ],
+   "body_lines": 280,
+   "sections": 17,
+   "dated_headings": 5,
+   "empty_sections": 0,
+   "fence_lines": 22,
+   "fence_langs": {
+    "js": 9,
+    "ts": 3,
+    "bash": 2
+   },
+   "outline": "# TASK-325 — Configure DipDash source maps for Replay (2L)\n# Description (30L)\n# Acceptance Criteria (17L)\n# Upstream documentation read — 2026-08-19 snapshot (2L)\n## The Next.js snippet does not apply to DipDash (11L)\n## \"React, which DipDash already satisfies\" needs a version caveat (29L)\n## Private path: the Webpack plugin is not available to us (14L)\n## Environment note (3L)\n# Notes (6L)\n## 2026-08-19 — status: todo → in-progress (38L)\n## 2026-08-19 — status: in-progress → blocked (25L)\n## 2026-08-19 — status: blocked → in-progress (local targets unblocked) (41L)\n## 2026-08-20 — the private path was never a blocker; it was the wrong product's credential (24L)\n### Decision (7L)\n# Verification (5L)\n# Related (5L)\n# Sources (4L)",
+   "label": "not-worth-it",
+   "note": "in-progress — live"
+  },
+  {
+   "id": "GUIDE-1013",
+   "path": "guides/tooling/GUIDE-1013-hermes-porting-cluster-to-local.md",
+   "type": "guide",
+   "status": "",
+   "score": 11.8,
+   "signals": [
+    "size(252L)",
+    "empty-sections(4)",
+    "section-sprawl(25)"
+   ],
+   "body_lines": 252,
+   "sections": 25,
+   "dated_headings": 0,
+   "empty_sections": 4,
+   "fence_lines": 110,
+   "fence_langs": {
+    "bash": 53,
+    "text": 39
+   },
+   "outline": "# GUIDE-1013: Porting Hermes from K3s Cluster to Local MacBook (0L)\n# Status: Draft — under revision (0L)\n# Goal (1L)\n# Scope (5L)\n## Current official Ollama path versus this migration (3L)\n# Architecture Comparison (17L)\n# Prerequisites (8L)\n# Step 1: Install Hermes on the MacBook (9L)\n# Step 2: Copy the PVC from the Cluster (10L)\n# Step 3: Extract Cluster Secrets to Local `.env` (19L)\n# HERMES_GRAFANA_TOKEN=${HERMES_GRAFANA_TOKEN} (7L)\n# Step 4: Transform `config.yaml` (18L)\n# Step 5: Reconcile Skills (11L)\n# Step 6: Verify and Adapt Cron Jobs (14L)\n# Step 7: Configure Integrations (0L)\n## OpenViking (5L)\n## Ollama (5L)\n## Slack, Linear, GitHub (2L)\n# Step 8: Session Data and Memories (11L)\n# Step 9: Verify the Local Install (10L)\n# Step 10: Decommission the Cluster Hermes (Optional) (5L)\n# Common Pitfalls (10L)\n# File Layout Reference (0L)\n## Cluster (PVC at `/opt/data/`) (27L)\n## Local (macOS at `~/.hermes/`) (17L)\n# Sources (12L)",
+   "label": "not-worth-it",
+   "note": "reference doc, and a live draft"
+  },
+  {
+   "id": "INFO-1120",
+   "path": "info/homelab/INFO-1120-homelab-cloudflare-tunnel-topology-and-consolidation-history.md",
+   "type": "info-entry",
+   "status": "",
+   "score": 11.6,
+   "signals": [
+    "size(325L)",
+    "chronological(4 dated headings)",
+    "empty-sections(1)",
+    "section-sprawl(18)"
+   ],
+   "body_lines": 325,
+   "sections": 18,
+   "dated_headings": 4,
+   "empty_sections": 1,
+   "fence_lines": 6,
+   "fence_langs": {
+    "bash": 4
+   },
+   "outline": "# INFO-1120 --- Cloudflare tunnel topology and consolidation history (2L)\n# Answer (1L)\n## Live tunnels (6L)\n## What the cluster-wide tunnel serves (12L)\n## The 2026-03-28 consolidation (17L)\n## The `ollama` orphan (4L)\n# Context (0L)\n## Why a hostname can resolve but 404 (19L)\n### Post-cleanup state (59L)\n## `registry.nathanwhyte.dev` — the one hostname a router swap breaks (13L)\n### The 2026-07-25 router swap: what broke, and what is inferred (9L)\n### Was there a port-forward before? — inference, not a verified fact (18L)\n### Wider blast radius: the cluster is running on cached layers (45L)\n# distinguishes \"no port-forward\" from \"service down\" in one shot (8L)\n### Superseded 2026-07-26 — fixed by DNS, not by a port-forward (51L)\n## Cloudflare Access surface (verified 2026-07-20) (16L)\n## Repo-vs-live drift (19L)\n## Checking this yourself (1L)\n# See Also (6L)",
+   "label": "not-worth-it",
+   "note": "reference doc — topology answer doc"
+  },
+  {
+   "id": "TASK-299",
+   "path": "tasks/PROJ-110/TASK-299-mage-design-cross-run-reuse-for-per-run-duckdb-artifacts-immutabl.md",
+   "type": "task",
+   "status": "in-progress",
+   "score": 11.3,
+   "signals": [
+    "size(193L)",
+    "chronological(5 dated headings)",
+    "empty-sections(1)",
+    "section-sprawl(17)"
+   ],
+   "body_lines": 193,
+   "sections": 17,
+   "dated_headings": 5,
+   "empty_sections": 1,
+   "fence_lines": 20,
+   "fence_langs": {
+    "text": 16
+   },
+   "outline": "# TASK-299 — Design cross-run reuse for per-run DuckDB artifacts (immutable-parent cache) (2L)\n# Description (23L)\n# Prior Art — the Snowflake schema-per-run and caching design (PROJ-022 / FEAT-013 / INFO-023) (20L)\n# Acceptance Criteria (11L)\n# Notes (0L)\n## 2026-08-03 — Reuse mechanisms, verified against duckdb 1.5.5 (15L)\n## 2026-08-05 — Decision: one warm parent, materialized stage hits, self-contained children (1L)\n### Current-state verification and inherited design boundary (3L)\n### Cache units and keys (24L)\n### Lookup, invalidation, and reuse (9L)\n### `_PIPELINE_CACHE` mapping and lifecycle (8L)\n### Sealing and verification implications (2L)\n## 2026-08-03 — Proposed layering (5L)\n## 2026-08-20 — Discussion pass: two-tier mapping-state funnel, no-cross-customer confirmed, dependency-completeness gate filed (5L)\n## 2026-08-05 — Lookup-stage parity proven on a real sealed pair (30L)\n# Verification (2L)\n# Related (16L)",
+   "label": "not-worth-it",
+   "note": "in-progress — live"
+  },
+  {
+   "id": "BUG-015",
+   "path": "bugs/resolved/dipdash/BUG-015-dipdash-schema-suffix-unsettable-higginbotham-policy.md",
+   "type": "bug",
+   "status": "fixed",
+   "score": 11.0,
+   "signals": [
+    "chronological(5 dated headings)",
+    "empty-sections(1)",
+    "section-sprawl(24)"
+   ],
+   "body_lines": 154,
+   "sections": 24,
+   "dated_headings": 5,
+   "empty_sections": 1,
+   "fence_lines": 21,
+   "fence_langs": {
+    "sql": 9,
+    "python": 4,
+    "text": 3
+   },
+   "outline": "# BUG-015 — `schema_suffix` Required + Non-editable + Empty-value Filter Strands Policy Pipelines (2L)\n# Problem (14L)\n# Root Cause (15L)\n## Prod/migration Divergence (new Finding, 2026-04-17) (9L)\n## The _apparent_ \"designed\" Populate Path — `/policy_group/` — is Not Mounted (3L)\n## How `schema_suffix` is Actually Populated Today (all Reachable paths) (7L)\n## Evidence This Was a Wizard-create, Not an Import (6L)\n# Investigation Notes (6L)\n# Fix (0L)\n## Immediate Unblock (Amie, Blocked now) (13L)\n## Architectural Fixes (follow-up PRs, Not Applied yet) (5L)\n## Potential Follow-up: Auto-derive Other Non-editable Required Fields (1L)\n## Latent Ergonomics (not Fixed here) (1L)\n## Second Confirmed Instance: asfdip/template_test (2026-05-06) (6L)\n## Third Confirmed Instance: conagra/sedgwick_conagra_transaction_history (2026-05-12) (7L)\n## Fourth Confirmed Instance: cic/helmsman policy variant (2026-05-29) (7L)\n# Resolution (PR #1050, OWL-19668, merged 2026-07-17) (5L)\n## Verification (3L)\n## Follow-ups still open (not closed by this PR) (2L)\n## Original verification criteria (pre-fix) (2L)\n# Related (12L)\n# Related Slack Messages (2L)\n# Sources (1L)\n# PR History (1L)",
+   "label": "not-worth-it",
+   "note": "fixed; undated distinct-finding index, low-yield merges only"
+  },
+  {
+   "id": "FEAT-023",
+   "path": "features/dipdash/FEAT-023-dipdash-surface-pipeline-failures.md",
+   "type": "feature",
+   "status": "proposed",
+   "score": 11.0,
+   "signals": [
+    "empty-sections(4)",
+    "section-sprawl(20)"
+   ],
+   "body_lines": 104,
+   "sections": 20,
+   "dated_headings": 1,
+   "empty_sections": 4,
+   "fence_lines": 0,
+   "fence_langs": {},
+   "outline": "# FEAT-023 — Surface All Pipeline Failure Modes in DipDash (2L)\n# Context (0L)\n# What Already Exists (10L)\n# What's Actually Broken — 8 Identified Gaps (10L)\n# Failure Mode Matrix (revised) (9L)\n# Approach (0L)\n# Phase 1 — Close the Invisibility Gaps (Gaps 1, 2, 3) (0L)\n# 1a. Register Runs at Trigger Time (DipDash-side) (1L)\n# 1b. Timeout Watchdog for Stale \"running\" Records (1L)\n# 1c. Surface Trigger Failures in UI (1L)\n# Phase 2 — Surface Errors Prominently (Gap 4) (2L)\n# 2b. Show Error Inline on Primary Surfaces (4L)\n# Phase 3 — Expand Outcome Coverage (Gap 7) (1L)\n# Phase 4 — Surface Platform Upsert Failures (Gap 8, RD-186) (1L)\n# Tasks (9L)\n# Acceptance Criteria (7L)\n# Investigation Notes (0L)\n# 2026-05-06 — Codebase Research (14L)\n# Related (8L)\n# Sources (4L)",
+   "label": "not-worth-it",
+   "note": "proposed — live"
+  },
+  {
+   "id": "FEAT-012",
+   "path": "features/mage/FEAT-012-mage-owl-19176-notes-messages-asf.md",
+   "type": "feature",
+   "status": "review",
+   "score": 11.0,
+   "signals": [
+    "chronological(8 dated headings)",
+    "section-sprawl(14)"
+   ],
+   "body_lines": 152,
+   "sections": 14,
+   "dated_headings": 8,
+   "empty_sections": 0,
+   "fence_lines": 0,
+   "fence_langs": {},
+   "outline": "# FEAT-012 — Add notes/messages to ASF for Pipelines (OWL-19176) (2L)\n# Context (13L)\n# Approach (24L)\n# Tasks (21L)\n# QA Testing Plan (14L)\n# 2026-04-22 — Status Transition (3L)\n# 2026-05-11 — PR Rebase + CI Fix (6L)\n# 2026-05-13 — Functional Area Rename (Joel's Review) (7L)\n# 2026-05-13 — Validation Scoping & Integration Testing (6L)\n# 2026-05-14 — Staging QA Execution + Wizard Bugs Discovered (5L)\n# 2026-06-25 — Peoplease Notes Demo Pipeline (Dev) (18L)\n# 2026-07-23 — RFC-3339 Serialization Contract + UTC Invariant (BUG-236) (3L)\n# 2026-07-23 — Missed step: run generate_asf_macros.py when adding ASF fields (Joel) (3L)\n# Acceptance Criteria (13L)",
+   "label": "not-worth-it",
+   "note": "review — still being worked (status not in either enumerated list; the not-closed principle governs)"
+  },
+  {
+   "id": "GUIDE-1063",
+   "path": "guides/tooling/GUIDE-1063-personal-notes-task-os-walkthrough.md",
+   "type": "guide",
+   "status": "",
+   "score": 11.0,
+   "signals": [
+    "size(221L)",
+    "empty-sections(4)",
+    "section-sprawl(24)"
+   ],
+   "body_lines": 221,
+   "sections": 24,
+   "dated_headings": 0,
+   "empty_sections": 4,
+   "fence_lines": 83,
+   "fence_langs": {
+    "markdown": 50,
+    "yaml": 14,
+    "text": 5,
+    "bash": 2
+   },
+   "outline": "# Personal Notes / Task OS (18L)\n# Prerequisites (9L)\n# Overview (7L)\n# Your First Week (0L)\n## Day 1 (Tuesday) — Set Up + First Capture (0L)\n### Morning: Create your INBOX template (5L)\n## Tasks (1L)\n## Ideas (4L)\n### Capture with QuickAdd (7L)\n### Afternoon: Set up your TASK BOARD (13L)\n## Day 2–5 (Wed–Sat) — Daily Routine (0L)\n### Each Morning (5 min): Review + Plan (2L)\n# Today — 2026-06-xx (0L)\n## Daily Routine Check-in (3L)\n## This Week's Priorities (5L)\n## Today's Sessions (3L)\n## Blockers (5L)\n### During the Day — Capture as You Go (5L)\n### Afternoon — Board Triage (2 min) (8L)\n### End of Day — Review (2 min) (8L)\n## Sunday — Weekly Review (2L)\n# Week of YYYY-MM-DD (0L)\n## Review Previous Week (3L)\n## This Week's Focus (3L)\n## Weekly Reflections (8L)\n# How This Fits Into Claude Code + Hermes + Copilot Sessions (0L)\n## In Claude Code Sessions (14L)\n## In Hermes (Chat) Sessions (20L)\n## In Obsidian Copilot Sessions (1L)\n### Free tier features useful for the workflow (3L)\n### Plus tier (agent mode) (4L)\n### Using Copilot with the notes workflow (5L)\n# First Week Checklist (10L)\n# Tips for Staying Consistent (6L)\n# See Also (4L)",
+   "label": "not-worth-it",
+   "note": "reference doc — onboarding guide"
+  },
+  {
+   "id": "PROJ-027",
+   "path": "projects/homelab/PROJ-027-other-kb-homelab-deployment.md",
+   "type": "project",
+   "status": "proposed",
+   "score": 11.0,
+   "signals": [
+    "empty-sections(5)",
+    "section-sprawl(23)"
+   ],
+   "body_lines": 141,
+   "sections": 23,
+   "dated_headings": 1,
+   "empty_sections": 5,
+   "fence_lines": 0,
+   "fence_langs": {},
+   "outline": "# PROJ-027 — Knowledge Base: Build and Deploy (0L)\n# Approach: Build first, abstract later (2L)\n# Architecture (0L)\n## Homelab stack (phases 1-3) (9L)\n## AWS stack (phase 4) (10L)\n# Pain Points — Revised (after IMPR-003 OV investigation 2026-06-14) (0L)\n## Resolved (OV handles natively) (3L)\n## Narrowed (3L)\n## Still real (2L)\n## OV vs pgvector capability comparison (12L)\n# Phases (0L)\n## Phase 1: K3s — RAG exploration (days) (17L)\n## Phase 2: K3s — Interaction surface + chunk helper (1-2 weeks) (9L)\n## Phase 3: K3s — Multi-source ingestion test (2-4 weeks) (2L)\n## Phase 4: AWS — Lift and deploy (11L)\n# Repo: omnipendium (3L)\n# Tasks (0L)\n## Phase 1 — K3s RAG exploration (7L)\n## Phase 2 — Interaction surface + chunk helper (7L)\n## Phase 3 — Multi-source ingestion (2L)\n## Phase 4 — AWS lift and deploy (7L)\n# Open Questions (7L)\n# Related (5L)",
+   "label": "not-worth-it",
+   "note": "proposed — live"
+  },
+  {
+   "id": "TASK-1139",
+   "path": "tasks/completed/PROJ-1015/TASK-1139-dotfiles-investigate-independent-color-and-status-styling-for-the-ses.md",
+   "type": "task",
+   "status": "done",
+   "score": 11.0,
+   "signals": [
+    "size(241L)",
+    "chronological(3 dated headings)",
+    "empty-sections(1)",
+    "section-sprawl(24)"
+   ],
+   "body_lines": 241,
+   "sections": 24,
+   "dated_headings": 3,
+   "empty_sections": 1,
+   "fence_lines": 27,
+   "fence_langs": {
+    "text": 16,
+    "bash": 3
+   },
+   "outline": "# TASK-1139 — Investigate independent color and status styling for the session ID segment in tsess (2L)\n# Description (4L)\n# Acceptance Criteria (9L)\n# Findings (2026-07-22) (1L)\n## 1. The tsess table is a free surface — padding is already safe (17L)\n## 2. Gotcha — `ID_PATTERN` is `^`-anchored (5L)\n## 3. Colour the ID by STATUS, not TYPE (5L)\n## 4. Icon vocabulary — derive from vault status, don't hand-maintain (11L)\n## 5. tmux status line is a _separate_ surface — and belongs to TASK-1142 (15L)\n# Glyph gutter — evaluated and rejected (2026-07-22) (2L)\n## 1. Signal density — measured across 656 open vault items (11L)\n## 2. Width cost — the gutter is unaffordable exactly where it would help (12L)\n## 3. The reframe — variant C already shipped the gutter's main job (4L)\n## 4. Measured alternative — priority as a zero-width attribute (16L)\n# Recommendation (19L)\n# Implementation (2026-07-22) (6L)\n## Post-ship review fix (`dotfiles@7fc1840`) (18L)\n## Testing (11L)\n# Board Card (1L)\n# Notes (0L)\n## History (5L)\n# Verification (38L)\n# Related (4L)\n# Sources (1L)",
+   "label": "not-worth-it",
+   "note": "done; numbered findings are the entry's index"
+  },
+  {
+   "id": "BUG-245",
+   "path": "bugs/resolved/dipdash/BUG-245-pipeline-ui-shows-passed-while-backend-still-processing.md",
+   "type": "bug",
+   "status": "fixed",
+   "score": 10.9,
+   "signals": [
+    "size(298L)",
+    "empty-sections(1)",
+    "section-sprawl(23)"
+   ],
+   "body_lines": 298,
+   "sections": 23,
+   "dated_headings": 2,
+   "empty_sections": 1,
+   "fence_lines": 43,
+   "fence_langs": {
+    "python": 29,
+    "text": 6
+   },
+   "outline": "# BUG-245 — Pipeline UI Shows \"Passed\" State While Backend Is Still Processing Stage 3 (2L)\n# Plan and Research (3L)\n# Symptom (1L)\n## Variant A — premature \"passed\" that later self-corrects (original report) (9L)\n## Variant B — results list disagrees with the results page (sandbox run 2675) (17L)\n## Variant D — sensor crashes before notifying; UI stuck at \"running\" (sandbox run 2737 / fail_sensor run 2740) (3L)\n# Root Cause (1L)\n## 1. `fail_notification_sensor` can assert success before the source pipeline reaches its terminal stage (1L)\n### 1a. The exact stage-1 run completes while asynchronous stage 2 is still running (7L)\n### 1b. The former resolver could match a stale completed sibling run (21L)\n## 2. Validation-result ingest marks the run `completed`/`success` with no stage guard (23L)\n## 3. Nothing reconciles `status` once a failure arrives on an already-`completed` row (variant B) (5L)\n## 4. `fail_notification_sensor` crashes in the error-enrichment branch before it can notify dipdash — ✅ FIXED 2026-08-11 (tracked as [[BUG-255-mage-fail-notification-sensor-crashes-before-sending-the-failure|BUG-255]]) (11L)\n## 5. `trigger_fail_sensor` does not forward `raw_data_table_name` or `pipeline_status` to the sensor — still open (15L)\n## Contributing factors (11L)\n# Investigation Notes (46L)\n# Reproduction (26L)\n# Fix (29L)\n# Verification (0L)\n## Outcome verification — staging, 2026-08-21/22 (basis for `fixed`) (18L)\n### Known limits of this verification — read before trusting `fixed` (6L)\n## Original root-cause verification (pre-fix) (14L)\n# Related (6L)",
+   "label": "not-worth-it",
+   "note": "fixed; variant/root-cause taxonomy is the index"
+  },
+  {
+   "id": "BUG-247",
+   "path": "bugs/resolved/mage/BUG-247-mage-poll-for-answers-completion-crashes-with-keyerror-inputs-on.md",
+   "type": "bug",
+   "status": "fixed",
+   "score": 10.9,
+   "signals": [
+    "size(195L)",
+    "chronological(5 dated headings)",
+    "empty-sections(1)",
+    "section-sprawl(16)"
+   ],
+   "body_lines": 195,
+   "sections": 16,
+   "dated_headings": 5,
+   "empty_sections": 1,
+   "fence_lines": 22,
+   "fence_langs": {
+    "python": 8,
+    "text": 6
+   },
+   "outline": "# BUG-247 — `poll_for_answers_completion` crashes with `KeyError: 'inputs'` on notes submission (2L)\n# Problem (14L)\n## This is also failing in production (16L)\n# Root Cause (15L)\n## Confirmed mechanism (2026-07-25, codebase research) (18L)\n# Investigation Notes (13L)\n## Relationship to BUG-203 (2026-07-25) — independent, not blocking (11L)\n## Why this surfaced now (2026-07-25) (17L)\n# Fix (9L)\n## Shipped — PR [#710](https://github.com/aclaimant/data-ingestion-automation/pull/710) (11L)\n# Verification (0L)\n## Status at close (2026-07-27) (11L)\n## Verified locally against the real payload (2026-07-26) (21L)\n## Still pending — sandbox, then prod (11L)\n# Related (8L)\n# Sources (2L)",
+   "label": "chronological-collapse",
+   "note": "fixed; dated investigation/verification sections own ~90 of 195 lines"
+  },
+  {
+   "id": "IDEA-068",
+   "path": "ideas/omnipendium/IDEA-068-omnipendium-report-generation-and-summaries.md",
+   "type": "idea",
+   "status": "proposed",
+   "score": 10.8,
+   "signals": [
+    "size(163L)",
+    "log-bulk(59 fenced lines)",
+    "empty-sections(2)",
+    "section-sprawl(19)"
+   ],
+   "body_lines": 163,
+   "sections": 19,
+   "dated_headings": 0,
+   "empty_sections": 2,
+   "fence_lines": 59,
+   "fence_langs": {
+    "text": 53
+   },
+   "outline": "# IDEA-109 — Omnipendium Report Generation and Entry Summaries (2L)\n# Idea (1L)\n## Mode 1: Ad-hoc entry assembly (internal) (7L)\n## Mode 2: Shareable static reports (external) (8L)\n# Architecture (22L)\n## API sketch (1L)\n# Generate a report (19L)\n# List past reports (1L)\n# Get report metadata (1L)\n# Delete a report ( revoke shared URL ) (2L)\n## Report formats (0L)\n### Single-page (\"single\") (7L)\n### Collection (\"collection\") (5L)\n## Storage backends (5L)\n## LLM summary generation (6L)\n# Report lifecycle (19L)\n# Dependencies (6L)\n# Implementation phases (0L)\n## Phase A — Internal assembly (no storage, no sharing) (5L)\n## Phase B — Storage + sharing (5L)\n## Phase C — Collection format + polish (5L)\n# Open questions (7L)\n# Related (6L)",
+   "label": "not-worth-it",
+   "note": "proposed — live"
+  },
+  {
+   "id": "IDEA-040",
+   "path": "ideas/other/IDEA-040-other-scalable-dipdash-knowledge-base-platform.md",
+   "type": "idea",
+   "status": "proposed",
+   "score": 10.8,
+   "signals": [
+    "size(172L)",
+    "empty-sections(3)",
+    "section-sprawl(33)"
+   ],
+   "body_lines": 172,
+   "sections": 33,
+   "dated_headings": 1,
+   "empty_sections": 3,
+   "fence_lines": 14,
+   "fence_langs": {
+    "yaml": 12
+   },
+   "outline": "# IDEA-040 — Agent-friendly Knowledge Base Platform (2L)\n# Core Principles (0L)\n## 1. Agent-friendly: Retrieval first (1L)\n## 2. Markdown/plain-text files as the durable layer (1L)\n## 3. Append-only audit log as source of truth (5L)\n## 4. Decoupled retrieval + generation (4L)\n## 5. URI-based content addressing (2L)\n# What We Learned from Building (OV exploration + IMPR-003, 2026-06-14) (1L)\n## Resolved by OV (5L)\n## Narrowed (real but smaller) (5L)\n## Still real (3L)\n## Decisions that emerged (5L)\n## OV vs pgvector capability comparison (from IMPR-003) (8L)\n## Score distribution observed (7L)\n# Content Schema (0L)\n## Entry types and frontmatter (1L)\n### Common fields (all entry types) (14L)\n### Type-specific fields (12L)\n# Chunking Spec (1L)\n## Current OV chunking behavior (verified in IMPR-003) (5L)\n## Desired chunking properties (6L)\n# Build Progression (14L)\n# Quality Benchmarks (1L)\n## Evaluation dimensions (7L)\n## Test question categories (from compendium content) (6L)\n# Open Questions (10L)\n# Related (0L)\n## Consumers (query the KB) (4L)\n## Writers (feed the KB) (2L)\n## Complements (different query modality) (1L)\n## Foundational (1L)\n## Project (1L)\n# Sources (4L)",
+   "label": "not-worth-it",
+   "note": "proposed — live"
+  },
+  {
+   "id": "TASK-326",
+   "path": "tasks/PROJ-113/TASK-326-other-replay-auth-data-handling-and-credit-economics-read.md",
+   "type": "task",
+   "status": "in-progress",
+   "score": 10.8,
+   "signals": [
+    "size(274L)",
+    "chronological(4 dated headings)",
+    "section-sprawl(18)"
+   ],
+   "body_lines": 274,
+   "sections": 18,
+   "dated_headings": 4,
+   "empty_sections": 0,
+   "fence_lines": 9,
+   "fence_langs": {
+    "text": 5
+   },
+   "outline": "# TASK-326 — Replay auth, data-handling, and credit-economics read (2L)\n# Description (24L)\n## Update 2026-08-19 — the MCP tool surface answered two of the three (25L)\n# Update 2026-08-20 — the data-handling question is answered, in the negative (45L)\n## Credit model — closed (17L)\n## Go/no-go — decided 2026-08-20, staging only (6L)\n### The verdict (22L)\n## The contract discrepancy, refined (5L)\n# Acceptance Criteria (17L)\n# Upstream documentation read — 2026-08-19 snapshot (6L)\n## 1. Authentication — still unanswered, and the docs never address it (11L)\n## 2. Data handling — answered on access and control, silent on retention and redaction (27L)\n## 3. Credit economics — the documentation is completely silent (7L)\n## Contract discrepancies found while reading (11L)\n# Notes (20L)\n# Verification (2L)\n# Related (4L)\n# Sources (5L)",
+   "label": "not-worth-it",
+   "note": "in-progress — live"
+  },
+  {
+   "id": "ERR-014",
+   "path": "errors/mage/ERR-014-mage-unguarded-secret-lookup-customer-slug-missing.md",
+   "type": "error-signature",
+   "status": "resolved",
+   "score": 10.6,
+   "signals": [
+    "chronological(3 dated headings)",
+    "log-bulk(54 fenced lines)",
+    "empty-sections(2)",
+    "section-sprawl(16)"
+   ],
+   "body_lines": 133,
+   "sections": 16,
+   "dated_headings": 3,
+   "empty_sections": 2,
+   "fence_lines": 54,
+   "fence_langs": {
+    "python": 29,
+    "bash": 5,
+    "text": 4
+   },
+   "outline": "# ERR-014 — KeyError '<customer_slug>' from unguarded secret lookup in stage-2 exporters (2L)\n# Why this error is confusing (4L)\n# Pattern (10L)\n# ... (1L)\n# kwargs['customer_slug'] == 'cic' → KeyError: 'cic' (13L)\n# Root Cause (2L)\n# submit_answers_to_api.py:18 (4L)\n# submit_answers_to_api.py:65 (12L)\n# Fix Guidance (0L)\n## Option A: Provision the secret (data fix — recommended for prod) (5L)\n# Add to the aclaimant-api secret: (5L)\n## Option B: Guard the dict lookup (code fix — prevents future crashes) (2L)\n# Shared helper (e.g. ingest/secrets.py): (12L)\n# Before (lines 65 in submit_answers_to_api, 53 in poll_for_answers_completion, 32 in submit_policies_to_api): (1L)\n# After (all three files): (4L)\n## Option C: Skip the block for unprovisioned customers (6L)\n# Acceptance Criteria (5L)\n# Future Consideration (1L)\n# Incidents (0L)\n## 2026-05-26 — Sandbox (run 1822) (3L)\n## 2026-08-13 — Sandbox (results UI, `ecladv`) (3L)\n## 2026-07-06 — Production (runs 23071–23109) (10L)\n# Bugs (1L)\n## Sources (3L)",
+   "label": "not-worth-it",
+   "note": "resolved; ERR entries are lookup reference docs"
+  },
+  {
+   "id": "IDEA-1063",
+   "path": "ideas/completed/homelab/IDEA-1063-homelab-ollama-default-context-inversion.md",
+   "type": "idea",
+   "status": "shipped",
+   "score": 10.5,
+   "signals": [
+    "chronological(7 dated headings)",
+    "empty-sections(1)",
+    "section-sprawl(13)"
+   ],
+   "body_lines": 90,
+   "sections": 13,
+   "dated_headings": 7,
+   "empty_sections": 1,
+   "fence_lines": 5,
+   "fence_langs": {
+    "text": 3
+   },
+   "outline": "# IDEA-1063 — Invert Ollama Context Defaults: High Server Default, Per-Model Modelfile Caps (2L)\n# Completion (1L)\n# Idea (17L)\n# Key Finding — KV cache is eagerly pre-allocated (2026-07-08, web research) (5L)\n# Key Finding — Q8_0 KV quantization halves the footprint and works on pop today (2026-07-08, web research) (6L)\n# Key Finding — Migration order is forced by load-time allocation (2026-07-08) (8L)\n# Key Finding — Cap-below VERIFIED on pop (2026-07-09) (9L)\n# Decision — single-consumer tuning pass + q8_0 locked in (2026-07-09) (5L)\n# Open Questions (0L)\n## Official default-context finding (2026-07-16) (5L)\n## Status note — migration step 3 still outstanding (2026-08-05) (6L)\n# Related (4L)\n# Sources (9L)",
+   "label": "chronological-collapse",
+   "note": "shipped; 7 dated finding/status sections own ~44 of 90 lines. LOWER CONFIDENCE: small absolute yield"
+  }
+ ]
+}

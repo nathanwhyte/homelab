@@ -24,4 +24,12 @@ Final labels: 14 `not-worth-it`, 5 `chronological-collapse` (all on `done`/`fixe
 - **Untested paths:** `unclear`, `log-condense`, and `empty-section-removal` have zero positive cases — the fence-heavy candidates all turned out to be contracts, and the final rules leave `unclear` for missing/contradictory statuses only. The next corpus (candidates 21–50) should be sampled to exercise them before those verdicts are trusted.
 - Contamination note: the corpus records are the same 20 the exploratory run scored, and the loop adjusted rules against them — this is a fitted training set, not a held-out eval. The honest claim is "the rules encode the adjudications"; the next assess cohort is the real test.
 
-Files: `cases.json` (records + labels + full adjudication history in notes), `compaction-loop{1..4}.json` (per-case rows incl. votes and raw replies). Run dirs: `~/code/compendium-runs/shadow-agentpair_agent-gemma4-12b-20260831T{163314,163443,163533,163709}Z`; exploratory run: `~/code/compendium-runs/compaction-triage-top20-01/`.
+## Held-out test — assess cohort 21–50 (2026-08-31, `cases-heldout.json`)
+
+The fitted-corpus caveat answered: 30 fresh candidates (assess ranks 21–50), labels adjudicated with the **frozen** post-loop-4 rules _before_ the model ran, one scored pass, no rule or label adjustments after. Result: **30/30, repeats 3, unanimous on every case** — including all three labels flagged lower-confidence in the adjudication notes (BUG-032 `section-merge` on the QA re-litigation tail, BUG-265 and IDEA-1063 boundary-yield collapses), which the model matched independently.
+
+Cohort split: 24 `not-worth-it` (13 live items, 6 reference docs, 5 closed-but-substantive incl. PROJ-1018's two large legitimate sections), 5 `chronological-collapse` (IMPR-1029, BUG-265, BUG-1077, BUG-247, IDEA-1063 — all closed), 1 `section-merge` (BUG-032). Combined with the fitted top-20, the assessor's top 50 yields **12 human-reviewable compaction candidates, every one a closed item**.
+
+Still untested even here: `unclear`, `log-condense`, and `empty-section-removal` drew zero positive cases across both cohorts — the vault's real distribution just doesn't produce them in the top 50. They remain untrusted paths; if a future sweep surfaces one, spot-check it before acting.
+
+Files: `cases.json` / `cases-heldout.json` (records + labels + full adjudication history in notes), `compaction-loop{1..4}.json`, `compaction-heldout.json` (per-case rows incl. votes and raw replies). Run dirs: `~/code/compendium-runs/shadow-agentpair_agent-gemma4-12b-20260831T{163314,163443,163533,163709,164314}Z`; exploratory run: `~/code/compendium-runs/compaction-triage-top20-01/`.

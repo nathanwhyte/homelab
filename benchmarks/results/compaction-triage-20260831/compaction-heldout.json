@@ -1,0 +1,632 @@
+[
+ {
+  "id": "IMPR-1021",
+  "label": "not-worth-it",
+  "lane": "compaction",
+  "votes": [
+   "not-worth-it",
+   "not-worth-it",
+   "not-worth-it"
+  ],
+  "verdict": "not-worth-it",
+  "raw": "{\"id\": \"IMPR-1021\", \"verdict\": \"not-worth-it\", \"reason\": \"status is in-progress; record is live and not eligible for compaction\"}",
+  "raws": [
+   "{\"id\": \"IMPR-1021\", \"verdict\": \"not-worth-it\", \"reason\": \"status is in-progress; record is live and not eligible for compaction\"}",
+   "{\"id\": \"IMPR-1021\", \"verdict\": \"not-worth-it\", \"reason\": \"status is in-progress; record is live and not eligible for compaction\"}",
+   "{\"id\": \"IMPR-1021\", \"verdict\": \"not-worth-it\", \"reason\": \"status is in-progress; record is live and not eligible for compaction\"}"
+  ],
+  "wall": 2.81,
+  "json_ok": true,
+  "outcome": "correct",
+  "pass": true
+ },
+ {
+  "id": "IMPR-1029",
+  "label": "chronological-collapse",
+  "lane": "compaction",
+  "votes": [
+   "chronological-collapse",
+   "chronological-collapse",
+   "chronological-collapse"
+  ],
+  "verdict": "chronological-collapse",
+  "raw": "{\"id\": \"IMPR-1029\", \"verdict\": \"chronological-collapse\", \"reason\": \"5 dated headings and a sequence of status/verification notes on a shipped item\"}",
+  "raws": [
+   "{\"id\": \"IMPR-1029\", \"verdict\": \"chronological-collapse\", \"reason\": \"5 dated headings and a sequence of status/verification notes on a shipped item\"}",
+   "{\"id\": \"IMPR-1029\", \"verdict\": \"chronological-collapse\", \"reason\": \"5 dated headings and a sequence of status/verification notes on a shipped item\"}",
+   "{\"id\": \"IMPR-1029\", \"verdict\": \"chronological-collapse\", \"reason\": \"5 dated headings and a sequence of status/verification notes on a shipped item\"}"
+  ],
+  "wall": 2.87,
+  "json_ok": true,
+  "outcome": "correct",
+  "pass": true
+ },
+ {
+  "id": "GUIDE-1067",
+  "label": "not-worth-it",
+  "lane": "compaction",
+  "votes": [
+   "not-worth-it",
+   "not-worth-it",
+   "not-worth-it"
+  ],
+  "verdict": "not-worth-it",
+  "raw": "{\"id\": \"GUIDE-1067\", \"verdict\": \"not-worth-it\", \"reason\": \"Reference doc structure with numbered steps and specific tool instructions is load-bearing.\"}",
+  "raws": [
+   "{\"id\": \"GUIDE-1067\", \"verdict\": \"not-worth-it\", \"reason\": \"Reference doc structure with numbered steps and specific tool instructions is load-bearing.\"}",
+   "{\"id\": \"GUIDE-1067\", \"verdict\": \"not-worth-it\", \"reason\": \"Reference doc structure with numbered steps and specific tool instructions is load-bearing.\"}",
+   "{\"id\": \"GUIDE-1067\", \"verdict\": \"not-worth-it\", \"reason\": \"Reference doc structure with numbered steps and specific tool instructions is load-bearing.\"}"
+  ],
+  "wall": 3.2,
+  "json_ok": true,
+  "outcome": "correct",
+  "pass": true
+ },
+ {
+  "id": "BUG-104",
+  "label": "not-worth-it",
+  "lane": "compaction",
+  "votes": [
+   "not-worth-it",
+   "not-worth-it",
+   "not-worth-it"
+  ],
+  "verdict": "not-worth-it",
+  "raw": "{\"id\": \"BUG-104\", \"verdict\": \"not-worth-it\", \"reason\": \"item is in fix-ready status; do not compact live records\"}",
+  "raws": [
+   "{\"id\": \"BUG-104\", \"verdict\": \"not-worth-it\", \"reason\": \"item is in fix-ready status; do not compact live records\"}",
+   "{\"id\": \"BUG-104\", \"verdict\": \"not-worth-it\", \"reason\": \"item is in fix-ready status; do not compact active/open records\"}",
+   "{\"id\": \"BUG-104\", \"verdict\": \"not-worth-it\", \"reason\": \"item is in fix-ready status; do not compact active/open records\"}"
+  ],
+  "wall": 2.92,
+  "json_ok": true,
+  "outcome": "correct",
+  "pass": true
+ },
+ {
+  "id": "PROJ-1018",
+  "label": "not-worth-it",
+  "lane": "compaction",
+  "votes": [
+   "not-worth-it",
+   "not-worth-it",
+   "not-worth-it"
+  ],
+  "verdict": "not-worth-it",
+  "raw": "{\"id\": \"PROJ-1018\", \"verdict\": \"not-worth-it\", \"reason\": \"The entry is a structured project record with distinct sections (Goals, Risks, Phases) that serve as a functional index.\"}",
+  "raws": [
+   "{\"id\": \"PROJ-1018\", \"verdict\": \"not-worth-it\", \"reason\": \"The entry is a structured project record with distinct sections (Goals, Risks, Phases) that serve as a functional index.\"}",
+   "{\"id\": \"PROJ-1018\", \"verdict\": \"not-worth-it\", \"reason\": \"The entry is a structured project record with distinct sections (Goals, Risks, Phases) that serve as a functional index.\"}",
+   "{\"id\": \"PROJ-1018\", \"verdict\": \"not-worth-it\", \"reason\": \"The entry is a structured project record with distinct sections (Goals, Risks, Phases) that serve as a functional index.\"}"
+  ],
+  "wall": 3.34,
+  "json_ok": true,
+  "outcome": "correct",
+  "pass": true
+ },
+ {
+  "id": "IDEA-026",
+  "label": "not-worth-it",
+  "lane": "compaction",
+  "votes": [
+   "not-worth-it",
+   "not-worth-it",
+   "not-worth-it"
+  ],
+  "verdict": "not-worth-it",
+  "raw": "{\"id\": \"IDEA-026\", \"verdict\": \"not-worth-it\", \"reason\": \"status is 'proposed'; item is live and not eligible for compaction\"}",
+  "raws": [
+   "{\"id\": \"IDEA-026\", \"verdict\": \"not-worth-it\", \"reason\": \"status is 'proposed'; item is live and not eligible for compaction\"}",
+   "{\"id\": \"IDEA-026\", \"verdict\": \"not-worth-it\", \"reason\": \"status is 'proposed' (live item) and structure is a research report/guide\"}",
+   "{\"id\": \"IDEA-026\", \"verdict\": \"not-worth-it\", \"reason\": \"status is 'proposed' (live item) and structure is a research report/guide\"}"
+  ],
+  "wall": 2.98,
+  "json_ok": true,
+  "outcome": "correct",
+  "pass": true
+ },
+ {
+  "id": "BUG-032",
+  "label": "section-merge",
+  "lane": "compaction",
+  "votes": [
+   "section-merge",
+   "section-merge",
+   "section-merge"
+  ],
+  "verdict": "section-merge",
+  "raw": "{\"id\": \"BUG-032\", \"verdict\": \"section-merge\", \"reason\": \"multiple 'Addition' and 'Verification' sections repeating the same theme of regression findings and testing\"}",
+  "raws": [
+   "{\"id\": \"BUG-032\", \"verdict\": \"section-merge\", \"reason\": \"multiple 'Addition' and 'Verification' sections repeating the same theme of regression findings and testing\"}",
+   "{\"id\": \"BUG-032\", \"verdict\": \"section-merge\", \"reason\": \"multiple 'Addition' and 'Verification' sections repeating the same theme of regression findings and testing\"}",
+   "{\"id\": \"BUG-032\", \"verdict\": \"section-merge\", \"reason\": \"multiple 'Addition' and 'Verification' sections repeating the same theme of regression findings and testing\"}"
+  ],
+  "wall": 2.93,
+  "json_ok": true,
+  "outcome": "correct",
+  "pass": true
+ },
+ {
+  "id": "BUG-265",
+  "label": "chronological-collapse",
+  "lane": "compaction",
+  "votes": [
+   "chronological-collapse",
+   "chronological-collapse",
+   "chronological-collapse"
+  ],
+  "verdict": "chronological-collapse",
+  "raw": "{\"id\": \"BUG-265\", \"verdict\": \"chronological-collapse\", \"reason\": \"5 dated headings for status/verification updates can be summarized in a single history section\"}",
+  "raws": [
+   "{\"id\": \"BUG-265\", \"verdict\": \"chronological-collapse\", \"reason\": \"5 dated headings for status/verification updates can be summarized in a single history section\"}",
+   "{\"id\": \"BUG-265\", \"verdict\": \"chronological-collapse\", \"reason\": \"5 dated headings for verification/status updates can be collapsed into a single history section\"}",
+   "{\"id\": \"BUG-265\", \"verdict\": \"chronological-collapse\", \"reason\": \"5 dated headings for verification/status updates can be collapsed into a single history section\"}"
+  ],
+  "wall": 2.84,
+  "json_ok": true,
+  "outcome": "correct",
+  "pass": true
+ },
+ {
+  "id": "BUG-243",
+  "label": "not-worth-it",
+  "lane": "compaction",
+  "votes": [
+   "not-worth-it",
+   "not-worth-it",
+   "not-worth-it"
+  ],
+  "verdict": "not-worth-it",
+  "raw": "{\"id\": \"BUG-243\", \"verdict\": \"not-worth-it\", \"reason\": \"item is in fix-ready status; do not compact live records\"}",
+  "raws": [
+   "{\"id\": \"BUG-243\", \"verdict\": \"not-worth-it\", \"reason\": \"item is in fix-ready status; do not compact live records\"}",
+   "{\"id\": \"BUG-243\", \"verdict\": \"not-worth-it\", \"reason\": \"item is in fix-ready status; do not compact live records\"}",
+   "{\"id\": \"BUG-243\", \"verdict\": \"not-worth-it\", \"reason\": \"item is in fix-ready status; do not compact live records\"}"
+  ],
+  "wall": 2.72,
+  "json_ok": true,
+  "outcome": "correct",
+  "pass": true
+ },
+ {
+  "id": "INFO-1123",
+  "label": "not-worth-it",
+  "lane": "compaction",
+  "votes": [
+   "not-worth-it",
+   "not-worth-it",
+   "not-worth-it"
+  ],
+  "verdict": "not-worth-it",
+  "raw": "{\"id\": \"INFO-1123\", \"verdict\": \"not-worth-it\", \"reason\": \"INFO-type entry with distinct findings and technical steps; structure is the content.\"}",
+  "raws": [
+   "{\"id\": \"INFO-1123\", \"verdict\": \"not-worth-it\", \"reason\": \"INFO-type entry with distinct findings and technical steps; structure is the content.\"}",
+   "{\"id\": \"INFO-1123\", \"verdict\": \"not-worth-it\", \"reason\": \"INFO-type entry with distinct findings and a reference-style structure\"}",
+   "{\"id\": \"INFO-1123\", \"verdict\": \"not-worth-it\", \"reason\": \"INFO-type entry with distinct findings and a reference-style structure\"}"
+  ],
+  "wall": 2.87,
+  "json_ok": true,
+  "outcome": "correct",
+  "pass": true
+ },
+ {
+  "id": "BUG-1077",
+  "label": "chronological-collapse",
+  "lane": "compaction",
+  "votes": [
+   "chronological-collapse",
+   "chronological-collapse",
+   "chronological-collapse"
+  ],
+  "verdict": "chronological-collapse",
+  "raw": "{\"id\": \"BUG-1077\", \"verdict\": \"chronological-collapse\", \"reason\": \"4 dated headings with narrative increments (repro, measurement, resume) can be collapsed into a single history section\"}",
+  "raws": [
+   "{\"id\": \"BUG-1077\", \"verdict\": \"chronological-collapse\", \"reason\": \"4 dated headings with narrative increments (repro, measurement, resume) can be collapsed into a single history section\"}",
+   "{\"id\": \"BUG-1077\", \"verdict\": \"chronological-collapse\", \"reason\": \"4 dated headings with narrative increments (repro, measurement, resume) can be collapsed into a single history section\"}",
+   "{\"id\": \"BUG-1077\", \"verdict\": \"chronological-collapse\", \"reason\": \"4 dated headings with narrative increments (repro, measurement, resume) can be collapsed into a single history section\"}"
+  ],
+  "wall": 3.22,
+  "json_ok": true,
+  "outcome": "correct",
+  "pass": true
+ },
+ {
+  "id": "IDEA-059",
+  "label": "not-worth-it",
+  "lane": "compaction",
+  "votes": [
+   "not-worth-it",
+   "not-worth-it",
+   "not-worth-it"
+  ],
+  "verdict": "not-worth-it",
+  "raw": "{\"id\": \"IDEA-059\", \"verdict\": \"not-worth-it\", \"reason\": \"status is 'proposed'; item is live and not eligible for compaction\"}",
+  "raws": [
+   "{\"id\": \"IDEA-059\", \"verdict\": \"not-worth-it\", \"reason\": \"status is 'proposed'; item is live and not eligible for compaction\"}",
+   "{\"id\": \"IDEA-059\", \"verdict\": \"not-worth-it\", \"reason\": \"status is 'proposed'; item is live and not eligible for compaction\"}",
+   "{\"id\": \"IDEA-059\", \"verdict\": \"not-worth-it\", \"reason\": \"status is 'proposed'; item is live and not eligible for compaction\"}"
+  ],
+  "wall": 2.72,
+  "json_ok": true,
+  "outcome": "correct",
+  "pass": true
+ },
+ {
+  "id": "GUIDE-009",
+  "label": "not-worth-it",
+  "lane": "compaction",
+  "votes": [
+   "not-worth-it",
+   "not-worth-it",
+   "not-worth-it"
+  ],
+  "verdict": "not-worth-it",
+  "raw": "{\"id\": \"GUIDE-009\", \"verdict\": \"not-worth-it\", \"reason\": \"Reference doc structure with numbered gotchas and navigational headings is load-bearing\"}",
+  "raws": [
+   "{\"id\": \"GUIDE-009\", \"verdict\": \"not-worth-it\", \"reason\": \"Reference doc structure with numbered gotchas and navigational headings is load-bearing\"}",
+   "{\"id\": \"GUIDE-009\", \"verdict\": \"not-worth-it\", \"reason\": \"Reference doc structure with numbered gotchas and navigational headings is intended for consultation.\"}",
+   "{\"id\": \"GUIDE-009\", \"verdict\": \"not-worth-it\", \"reason\": \"Reference doc structure with numbered gotchas and navigational headings is intended for consultation.\"}"
+  ],
+  "wall": 3.02,
+  "json_ok": true,
+  "outcome": "correct",
+  "pass": true
+ },
+ {
+  "id": "TASK-325",
+  "label": "not-worth-it",
+  "lane": "compaction",
+  "votes": [
+   "not-worth-it",
+   "not-worth-it",
+   "not-worth-it"
+  ],
+  "verdict": "not-worth-it",
+  "raw": "{\"id\": \"TASK-325\", \"verdict\": \"not-worth-it\", \"reason\": \"item is currently in-progress\"}",
+  "raws": [
+   "{\"id\": \"TASK-325\", \"verdict\": \"not-worth-it\", \"reason\": \"item is currently in-progress\"}",
+   "{\"id\": \"TASK-325\", \"verdict\": \"not-worth-it\", \"reason\": \"item is currently in-progress\"}",
+   "{\"id\": \"TASK-325\", \"verdict\": \"not-worth-it\", \"reason\": \"item is currently in-progress\"}"
+  ],
+  "wall": 2.39,
+  "json_ok": true,
+  "outcome": "correct",
+  "pass": true
+ },
+ {
+  "id": "GUIDE-1013",
+  "label": "not-worth-it",
+  "lane": "compaction",
+  "votes": [
+   "not-worth-it",
+   "not-worth-it",
+   "not-worth-it"
+  ],
+  "verdict": "not-worth-it",
+  "raw": "{\"id\": \"GUIDE-1013\", \"verdict\": \"not-worth-it\", \"reason\": \"Reference doc structure with numbered steps and navigational headings is load-bearing.\"}",
+  "raws": [
+   "{\"id\": \"GUIDE-1013\", \"verdict\": \"not-worth-it\", \"reason\": \"Reference doc structure with numbered steps and navigational headings is load-bearing.\"}",
+   "{\"id\": \"GUIDE-1013\", \"verdict\": \"not-worth-it\", \"reason\": \"Reference doc structure with numbered steps and navigational headings is intended for consultation.\"}",
+   "{\"id\": \"GUIDE-1013\", \"verdict\": \"not-worth-it\", \"reason\": \"Reference doc structure with numbered steps and navigational headings is intended for consultation.\"}"
+  ],
+  "wall": 2.93,
+  "json_ok": true,
+  "outcome": "correct",
+  "pass": true
+ },
+ {
+  "id": "INFO-1120",
+  "label": "not-worth-it",
+  "lane": "compaction",
+  "votes": [
+   "not-worth-it",
+   "not-worth-it",
+   "not-worth-it"
+  ],
+  "verdict": "not-worth-it",
+  "raw": "{\"id\": \"INFO-1120\", \"verdict\": \"not-worth-it\", \"reason\": \"INFO-type entry with distinct findings and navigational headings; structure is its content.\"}",
+  "raws": [
+   "{\"id\": \"INFO-1120\", \"verdict\": \"not-worth-it\", \"reason\": \"INFO-type entry with distinct findings and navigational headings; structure is its content.\"}",
+   "{\"id\": \"INFO-1120\", \"verdict\": \"not-worth-it\", \"reason\": \"Reference doc structure with distinct findings and navigational headings\"}",
+   "{\"id\": \"INFO-1120\", \"verdict\": \"not-worth-it\", \"reason\": \"Reference doc structure with distinct findings and navigational headings\"}"
+  ],
+  "wall": 2.72,
+  "json_ok": true,
+  "outcome": "correct",
+  "pass": true
+ },
+ {
+  "id": "TASK-299",
+  "label": "not-worth-it",
+  "lane": "compaction",
+  "votes": [
+   "not-worth-it",
+   "not-worth-it",
+   "not-worth-it"
+  ],
+  "verdict": "not-worth-it",
+  "raw": "{\"id\": \"TASK-299\", \"verdict\": \"not-worth-it\", \"reason\": \"item is in-progress\"}",
+  "raws": [
+   "{\"id\": \"TASK-299\", \"verdict\": \"not-worth-it\", \"reason\": \"item is in-progress\"}",
+   "{\"id\": \"TASK-299\", \"verdict\": \"not-worth-it\", \"reason\": \"item is in-progress\"}",
+   "{\"id\": \"TASK-299\", \"verdict\": \"not-worth-it\", \"reason\": \"item is in-progress\"}"
+  ],
+  "wall": 2.33,
+  "json_ok": true,
+  "outcome": "correct",
+  "pass": true
+ },
+ {
+  "id": "BUG-015",
+  "label": "not-worth-it",
+  "lane": "compaction",
+  "votes": [
+   "not-worth-it",
+   "not-worth-it",
+   "not-worth-it"
+  ],
+  "verdict": "not-worth-it",
+  "raw": "{\"id\": \"BUG-015\", \"verdict\": \"not-worth-it\", \"reason\": \"Closed bug with distinct investigation findings and specific evidence instances; merging would destroy the index.\"}",
+  "raws": [
+   "{\"id\": \"BUG-015\", \"verdict\": \"not-worth-it\", \"reason\": \"Closed bug with distinct investigation findings and specific evidence instances; merging would destroy the index.\"}",
+   "{\"id\": \"BUG-015\", \"verdict\": \"not-worth-it\", \"reason\": \"Closed bug with distinct investigation findings and specific evidence instances; merging would destroy the index.\"}",
+   "{\"id\": \"BUG-015\", \"verdict\": \"not-worth-it\", \"reason\": \"Closed bug with distinct investigation findings and specific evidence instances; merging would destroy the index.\"}"
+  ],
+  "wall": 2.98,
+  "json_ok": true,
+  "outcome": "correct",
+  "pass": true
+ },
+ {
+  "id": "FEAT-023",
+  "label": "not-worth-it",
+  "lane": "compaction",
+  "votes": [
+   "not-worth-it",
+   "not-worth-it",
+   "not-worth-it"
+  ],
+  "verdict": "not-worth-it",
+  "raw": "{\"id\": \"FEAT-023\", \"verdict\": \"not-worth-it\", \"reason\": \"item is in 'proposed' status; do not compact live records\"}",
+  "raws": [
+   "{\"id\": \"FEAT-023\", \"verdict\": \"not-worth-it\", \"reason\": \"item is in 'proposed' status; do not compact live records\"}",
+   "{\"id\": \"FEAT-023\", \"verdict\": \"not-worth-it\", \"reason\": \"item is in 'proposed' status; do not compact live work\"}",
+   "{\"id\": \"FEAT-023\", \"verdict\": \"not-worth-it\", \"reason\": \"item is in 'proposed' status; do not compact live work\"}"
+  ],
+  "wall": 2.77,
+  "json_ok": true,
+  "outcome": "correct",
+  "pass": true
+ },
+ {
+  "id": "FEAT-012",
+  "label": "not-worth-it",
+  "lane": "compaction",
+  "votes": [
+   "not-worth-it",
+   "not-worth-it",
+   "not-worth-it"
+  ],
+  "verdict": "not-worth-it",
+  "raw": "{\"id\": \"FEAT-012\", \"verdict\": \"not-worth-it\", \"reason\": \"status is 'review' (not closed)\"}",
+  "raws": [
+   "{\"id\": \"FEAT-012\", \"verdict\": \"not-worth-it\", \"reason\": \"status is 'review' (not closed)\"}",
+   "{\"id\": \"FEAT-012\", \"verdict\": \"not-worth-it\", \"reason\": \"status is 'review' (not closed)\"}",
+   "{\"id\": \"FEAT-012\", \"verdict\": \"not-worth-it\", \"reason\": \"status is 'review' (not closed)\"}"
+  ],
+  "wall": 2.59,
+  "json_ok": true,
+  "outcome": "correct",
+  "pass": true
+ },
+ {
+  "id": "GUIDE-1063",
+  "label": "not-worth-it",
+  "lane": "compaction",
+  "votes": [
+   "not-worth-it",
+   "not-worth-it",
+   "not-worth-it"
+  ],
+  "verdict": "not-worth-it",
+  "raw": "{\"id\": \"GUIDE-1063\", \"verdict\": \"not-worth-it\", \"reason\": \"Reference doc structure with navigational headings and specific workflow details\"}",
+  "raws": [
+   "{\"id\": \"GUIDE-1063\", \"verdict\": \"not-worth-it\", \"reason\": \"Reference doc structure with navigational headings and specific workflow details\"}",
+   "{\"id\": \"GUIDE-1063\", \"verdict\": \"not-worth-it\", \"reason\": \"Reference doc structure with navigational headings and specific workflow details\"}",
+   "{\"id\": \"GUIDE-1063\", \"verdict\": \"not-worth-it\", \"reason\": \"Reference doc structure with navigational headings and specific workflow details\"}"
+  ],
+  "wall": 2.73,
+  "json_ok": true,
+  "outcome": "correct",
+  "pass": true
+ },
+ {
+  "id": "PROJ-027",
+  "label": "not-worth-it",
+  "lane": "compaction",
+  "votes": [
+   "not-worth-it",
+   "not-worth-it",
+   "not-worth-it"
+  ],
+  "verdict": "not-worth-it",
+  "raw": "{\"id\": \"PROJ-027\", \"verdict\": \"not-worth-it\", \"reason\": \"item is in 'proposed' status; do not compact live records\"}",
+  "raws": [
+   "{\"id\": \"PROJ-027\", \"verdict\": \"not-worth-it\", \"reason\": \"item is in 'proposed' status; do not compact live records\"}",
+   "{\"id\": \"PROJ-027\", \"verdict\": \"not-worth-it\", \"reason\": \"item status is 'proposed', which is a live record\"}",
+   "{\"id\": \"PROJ-027\", \"verdict\": \"not-worth-it\", \"reason\": \"item status is 'proposed', which is a live record\"}"
+  ],
+  "wall": 2.72,
+  "json_ok": true,
+  "outcome": "correct",
+  "pass": true
+ },
+ {
+  "id": "TASK-1139",
+  "label": "not-worth-it",
+  "lane": "compaction",
+  "votes": [
+   "not-worth-it",
+   "not-worth-it",
+   "not-worth-it"
+  ],
+  "verdict": "not-worth-it",
+  "raw": "{\"id\": \"TASK-1139\", \"verdict\": \"not-worth-it\", \"reason\": \"The outline shows a sequence of distinct findings and technical evaluations; merging would destroy the investigation's index.\"}",
+  "raws": [
+   "{\"id\": \"TASK-1139\", \"verdict\": \"not-worth-it\", \"reason\": \"The outline shows a sequence of distinct findings and technical evaluations; merging would destroy the investigation's index.\"}",
+   "{\"id\": \"TASK-1139\", \"verdict\": \"not-worth-it\", \"reason\": \"The outline shows a sequence of distinct findings and technical evaluations; merging would destroy the investigation's index.\"}",
+   "{\"id\": \"TASK-1139\", \"verdict\": \"not-worth-it\", \"reason\": \"The outline shows a sequence of distinct findings and technical evaluations; merging would destroy the investigation's index.\"}"
+  ],
+  "wall": 3.25,
+  "json_ok": true,
+  "outcome": "correct",
+  "pass": true
+ },
+ {
+  "id": "BUG-245",
+  "label": "not-worth-it",
+  "lane": "compaction",
+  "votes": [
+   "not-worth-it",
+   "not-worth-it",
+   "not-worth-it"
+  ],
+  "verdict": "not-worth-it",
+  "raw": "{\"id\": \"BUG-245\", \"verdict\": \"not-worth-it\", \"reason\": \"The outline shows a sequence of distinct findings and investigation steps (Variants A/B/D, Root Causes 1-5) that form a necessary index.\"}",
+  "raws": [
+   "{\"id\": \"BUG-245\", \"verdict\": \"not-worth-it\", \"reason\": \"The outline shows a sequence of distinct findings and investigation steps (Variants A/B/D, Root Causes 1-5) that form a necessary index.\"}",
+   "{\"id\": \"BUG-245\", \"verdict\": \"not-worth-it\", \"reason\": \"The outline shows a sequence of distinct findings and investigation steps (Variants A/B/D, Root Causes 1-5) that form a necessary index.\"}",
+   "{\"id\": \"BUG-245\", \"verdict\": \"not-worth-it\", \"reason\": \"The outline shows a sequence of distinct findings and investigation steps (Variants A/B/D, Root Causes 1-5) that form a necessary index.\"}"
+  ],
+  "wall": 3.82,
+  "json_ok": true,
+  "outcome": "correct",
+  "pass": true
+ },
+ {
+  "id": "BUG-247",
+  "label": "chronological-collapse",
+  "lane": "compaction",
+  "votes": [
+   "chronological-collapse",
+   "chronological-collapse",
+   "chronological-collapse"
+  ],
+  "verdict": "chronological-collapse",
+  "raw": "{\"id\": \"BUG-247\", \"verdict\": \"chronological-collapse\", \"reason\": \"5 dated headings in investigation/verification sections can be collapsed into a single history log\"}",
+  "raws": [
+   "{\"id\": \"BUG-247\", \"verdict\": \"chronological-collapse\", \"reason\": \"5 dated headings in investigation/verification sections can be collapsed into a single history log\"}",
+   "{\"id\": \"BUG-247\", \"verdict\": \"chronological-collapse\", \"reason\": \"5 dated headings in investigation/verification sections can be collapsed into a single history log\"}",
+   "{\"id\": \"BUG-247\", \"verdict\": \"chronological-collapse\", \"reason\": \"5 dated headings in investigation/verification sections can be collapsed into a single history log\"}"
+  ],
+  "wall": 2.8,
+  "json_ok": true,
+  "outcome": "correct",
+  "pass": true
+ },
+ {
+  "id": "IDEA-068",
+  "label": "not-worth-it",
+  "lane": "compaction",
+  "votes": [
+   "not-worth-it",
+   "not-worth-it",
+   "not-worth-it"
+  ],
+  "verdict": "not-worth-it",
+  "raw": "{\"id\": \"IDEA-068\", \"verdict\": \"not-worth-it\", \"reason\": \"item is in 'proposed' status; do not compact live records\"}",
+  "raws": [
+   "{\"id\": \"IDEA-068\", \"verdict\": \"not-worth-it\", \"reason\": \"item is in 'proposed' status; do not compact live records\"}",
+   "{\"id\": \"IDEA-068\", \"verdict\": \"not-worth-it\", \"reason\": \"status is 'proposed', which is a live item and ineligible for compaction\"}",
+   "{\"id\": \"IDEA-068\", \"verdict\": \"not-worth-it\", \"reason\": \"status is 'proposed', which is a live item and ineligible for compaction\"}"
+  ],
+  "wall": 2.76,
+  "json_ok": true,
+  "outcome": "correct",
+  "pass": true
+ },
+ {
+  "id": "IDEA-040",
+  "label": "not-worth-it",
+  "lane": "compaction",
+  "votes": [
+   "not-worth-it",
+   "not-worth-it",
+   "not-worth-it"
+  ],
+  "verdict": "not-worth-it",
+  "raw": "{\"id\": \"IDEA-040\", \"verdict\": \"not-worth-it\", \"reason\": \"status is 'proposed'; item is live and not eligible for compaction\"}",
+  "raws": [
+   "{\"id\": \"IDEA-040\", \"verdict\": \"not-worth-it\", \"reason\": \"status is 'proposed'; item is live and not eligible for compaction\"}",
+   "{\"id\": \"IDEA-040\", \"verdict\": \"not-worth-it\", \"reason\": \"status is 'proposed'; item is live and not eligible for compaction\"}",
+   "{\"id\": \"IDEA-040\", \"verdict\": \"not-worth-it\", \"reason\": \"status is 'proposed'; item is live and not eligible for compaction\"}"
+  ],
+  "wall": 2.8,
+  "json_ok": true,
+  "outcome": "correct",
+  "pass": true
+ },
+ {
+  "id": "TASK-326",
+  "label": "not-worth-it",
+  "lane": "compaction",
+  "votes": [
+   "not-worth-it",
+   "not-worth-it",
+   "not-worth-it"
+  ],
+  "verdict": "not-worth-it",
+  "raw": "{\"id\": \"TASK-326\", \"verdict\": \"not-worth-it\", \"reason\": \"item is in-progress\"}",
+  "raws": [
+   "{\"id\": \"TASK-326\", \"verdict\": \"not-worth-it\", \"reason\": \"item is in-progress\"}",
+   "{\"id\": \"TASK-326\", \"verdict\": \"not-worth-it\", \"reason\": \"item is in-progress\"}",
+   "{\"id\": \"TASK-326\", \"verdict\": \"not-worth-it\", \"reason\": \"item is in-progress\"}"
+  ],
+  "wall": 2.31,
+  "json_ok": true,
+  "outcome": "correct",
+  "pass": true
+ },
+ {
+  "id": "ERR-014",
+  "label": "not-worth-it",
+  "lane": "compaction",
+  "votes": [
+   "not-worth-it",
+   "not-worth-it",
+   "not-worth-it"
+  ],
+  "verdict": "not-worth-it",
+  "raw": "{\"id\": \"ERR-014\", \"verdict\": \"not-worth-it\", \"reason\": \"The entry is a structured investigation with distinct findings (Options A, B, C) and specific code examples that serve as an index.\"}",
+  "raws": [
+   "{\"id\": \"ERR-014\", \"verdict\": \"not-worth-it\", \"reason\": \"The entry is a structured investigation with distinct findings (Options A, B, C) and specific code examples that serve as an index.\"}",
+   "{\"id\": \"ERR-014\", \"verdict\": \"not-worth-it\", \"reason\": \"The entry is a structured investigation with distinct findings (Options A, B, C) and specific code examples that serve as an index.\"}",
+   "{\"id\": \"ERR-014\", \"verdict\": \"not-worth-it\", \"reason\": \"The entry is a structured investigation with distinct findings (Options A, B, C) and specific code examples that serve as an index.\"}"
+  ],
+  "wall": 3.48,
+  "json_ok": true,
+  "outcome": "correct",
+  "pass": true
+ },
+ {
+  "id": "IDEA-1063",
+  "label": "chronological-collapse",
+  "lane": "compaction",
+  "votes": [
+   "chronological-collapse",
+   "chronological-collapse",
+   "chronological-collapse"
+  ],
+  "verdict": "chronological-collapse",
+  "raw": "{\"id\": \"IDEA-1063\", \"verdict\": \"chronological-collapse\", \"reason\": \"7 dated headings representing a research/decision timeline can be collapsed into a single history section\"}",
+  "raws": [
+   "{\"id\": \"IDEA-1063\", \"verdict\": \"chronological-collapse\", \"reason\": \"7 dated headings representing a research/decision timeline can be collapsed into a single history section\"}",
+   "{\"id\": \"IDEA-1063\", \"verdict\": \"chronological-collapse\", \"reason\": \"7 dated headings representing a research/decision timeline can be collapsed into a single history section\"}",
+   "{\"id\": \"IDEA-1063\", \"verdict\": \"chronological-collapse\", \"reason\": \"7 dated headings representing a research/decision timeline can be collapsed into a single history section\"}"
+  ],
+  "wall": 2.93,
+  "json_ok": true,
+  "outcome": "correct",
+  "pass": true
+ }
+]
