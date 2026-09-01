@@ -10,20 +10,20 @@ A single Pod running `syncthing/syncthing`, backed by a 50 Gi `longhorn-nvme` PV
 
 **Current status: scaled down (replicas=0) as of 2026-06-29.** The cluster anchor was causing duplication issues in the compendium vault; peers are syncing directly over Tailscale without it.
 
-| Piece | Detail |
-| --- | --- |
-| Image | `docker.io/syncthing/syncthing:1.27.12` (TODO: digest-pin before first deploy) |
-| Node | `timmy` (pinned via `nodeSelector`). Timmy has the largest NVMe disk (2 TB) and is where `longhorn-nvme` placed the replica; the pin colocates the engine with the replica. |
-| Storage | PVC `syncthing-data`, 50 Gi `longhorn-nvme` (RWO, **single-replica NVMe**). Single replica is acceptable here because every paired peer (MacBook, iPad, phone) also holds the vault — the cluster anchor is one of N copies. |
-| Snapshots | `syncthing-data-snap-daily` Longhorn RecurringJob, 04:30 daily, 7-day retention |
-| Identity | Syncthing device ID generated on first start, persists in `/var/syncthing/config/cert.pem` |
+| Piece     | Detail                                                                                                                                                                                                                       |
+| --------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Image     | `docker.io/syncthing/syncthing:1.27.12` (TODO: digest-pin before first deploy)                                                                                                                                               |
+| Node      | `timmy` (pinned via `nodeSelector`). Timmy has the largest NVMe disk (2 TB) and is where `longhorn-nvme` placed the replica; the pin colocates the engine with the replica.                                                  |
+| Storage   | PVC `syncthing-data`, 50 Gi `longhorn-nvme` (RWO, **single-replica NVMe**). Single replica is acceptable here because every paired peer (MacBook, iPad, phone) also holds the vault — the cluster anchor is one of N copies. |
+| Snapshots | `syncthing-data-snap-daily` Longhorn RecurringJob, 04:30 daily, 7-day retention                                                                                                                                              |
+| Identity  | Syncthing device ID generated on first start, persists in `/var/syncthing/config/cert.pem`                                                                                                                                   |
 
 ## Services
 
-| Service | Type | Port | Reachability |
-| --- | --- | --- | --- |
-| `syncthing-gui` | ClusterIP | 80 → 8384 | In-cluster only (port-forward for setup) |
-| `syncthing-sync` | NodePort | 22000 TCP/UDP → `32200`, 21027 UDP → `32127` | LAN (`192.168.1.19:32200`), Tailscale (`100.95.215.105:32200` for the direct path to timmy where the pod runs; other tailnet IPs work via cluster networking) |
+| Service          | Type      | Port                                         | Reachability                                                                                                                                                  |
+| ---------------- | --------- | -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `syncthing-gui`  | ClusterIP | 80 → 8384                                    | In-cluster only (port-forward for setup)                                                                                                                      |
+| `syncthing-sync` | NodePort  | 22000 TCP/UDP → `32200`, 21027 UDP → `32127` | LAN (`192.168.1.19:32200`), Tailscale (`100.95.215.105:32200` for the direct path to timmy where the pod runs; other tailnet IPs work via cluster networking) |
 
 GUI is intentionally ClusterIP-only on first deploy because there is no password until the user sets one through the web UI. Once the GUI password is configured, follow-up work can add a Tailscale NodePort or Cloudflare-Access-gated Ingress for off-cluster admin access.
 
@@ -35,7 +35,7 @@ iCloud Drive is intentionally not in this design (work MacBook cannot sync via i
 
 ## Initial bring-up
 
-The manifests do not get applied automatically — `kubectl apply` is a deliberate, user-driven step. See `~/code/homelab/AGENTS.md`.
+The manifests do not get applied automatically — `kubectl apply` is a deliberate, user-driven step. See `~/code/homelab/main/CLAUDE.md`.
 
 ```bash
 # from the worktree, dry-run first
@@ -68,7 +68,7 @@ For each peer device (MacBook, iPad, phone):
 
 For the vault folders, configure **File Versioning** in the GUI (per folder, Advanced tab). `Staggered` versioning is a sensible default — keeps recent edits frequently and older edits less so. Versioning is the first line of defense against accidental deletes propagating from a peer; the daily Longhorn snapshot is the backstop.
 
-## What this does *not* cover
+## What this does _not_ cover
 
 - **Codebases and config files** — not vault-shaped; use the rsync-over-SSH-via-Tailscale pattern or `git pull` cron, per IDEA-1024.
 - **GUI off-cluster access** — deferred until after first setup (need a password set first).
