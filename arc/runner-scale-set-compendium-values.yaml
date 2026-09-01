@@ -1,0 +1,55 @@
+# Helm values for the compendium runner scale set (IDEA-1094).
+# Release: compendium / namespace: arc-runners.
+#
+# One scale set per repo. Workflows target it with `runs-on: homelab-arc`
+# (runnerScaleSetName below, shared across repos so every private repo's
+# workflow uses the same label).
+#
+# PRIVATE REPOS ONLY — never add a scale set for nathanwhyte/homelab (public):
+# a self-hosted runner on a public repo executes fork-PR code on the cluster.
+
+githubConfigUrl: https://github.com/nathanwhyte/compendium
+
+# Secret in arc-runners holding github_token (see
+# github-config-secret.yaml.example). Shared by all scale sets.
+githubConfigSecret: github-config-secret
+
+runnerScaleSetName: homelab-arc
+
+# Scale-to-zero: no runner pods exist between jobs. vault-checks runs three
+# parallel jobs (test / lint / formatting), so allow that many concurrent pods.
+minRunners: 0
+maxRunners: 3
+
+# No containerMode: vault-checks runs plain steps only (no `container:` jobs,
+# no docker builds), so jobs execute directly in the runner container —
+# no privileged pods, no dind.
+
+template:
+  spec:
+    # Runner pods stay off timmy (control plane, heaviest memory load).
+    # manu/wemby both have headroom; let the scheduler pick between them.
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+            - matchExpressions:
+                - key: kubernetes.io/hostname
+                  operator: NotIn
+                  values:
+                    - timmy
+    containers:
+      - name: runner
+        # Custom image with uv/node/make preinstalled — built by
+        # images/runner/build-push.sh, hosted in Harbor project `ci`.
+        image: registry.nathanwhyte.dev/ci/actions-runner:latest
+        # Overriding the container REPLACES the chart default wholesale, so the
+        # runner entrypoint must be restated.
+        command: ["/home/runner/run.sh"]
+        resources:
+          requests:
+            cpu: 250m
+            memory: 512Mi
+          limits:
+            cpu: "2"
+            memory: 2Gi

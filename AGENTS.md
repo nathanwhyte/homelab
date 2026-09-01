@@ -15,6 +15,7 @@ This repo contains Kubernetes manifests, Helm values, and small deploy scripts f
 
 Top-level directories generally map to deployed services:
 
+- `arc/`: Self-hosted GitHub Actions runners — actions-runner-controller (gha-runner-scale-set) Helm values, deploy script, custom runner image (IDEA-1094). **Private repos only** — see `arc/ARC.md`.
 - `cloudflare/`: Cloudflare tunnel manifests (main tunnel, per-namespace tunnels, Access config).
 - `compendium/`: In-cluster compendium vault sync — `cluster-sync.sh`, sync Job template, state PVC, namespace.
 - `copyparty/`: Copyparty file server (media NFS PV, Longhorn HDD storage class, snapshot policy).

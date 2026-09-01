@@ -1,0 +1,30 @@
+# Helm values for gha-runner-scale-set-controller (IDEA-1094).
+# Release: arc / namespace: arc-systems.
+#
+# The controller is a single lightweight reconciler; one replica is plenty for
+# a handful of repos. Runner scale sets are separate releases (see
+# runner-scale-set-compendium-values.yaml).
+
+replicaCount: 1
+
+# Modest footprint — the controller idles; listeners are created per scale set
+# and inherit their own defaults.
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    cpu: 500m
+    memory: 256Mi
+
+# Keep the controller off the control-plane node (timmy already carries the
+# heaviest memory load — ollama + openviking).
+affinity:
+  nodeAffinity:
+    requiredDuringSchedulingIgnoredDuringExecution:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: NotIn
+              values:
+                - timmy
