@@ -14,7 +14,7 @@ services:
     environment:
       # Set the appropriate timezone for your location (https://en.wikipedia.org/wiki/List_of_tz_database_time_zones), e.g:
       TZ: "America/Chicago"
-      # Web UI password. Kept OUT of the repo (AGENTS.md: do not commit secrets) —
+      # Web UI password. Kept OUT of the repo (CLAUDE.md: do not commit secrets) —
       # set it in an untracked .env alongside this file. See ../.env.example.
       FTLCONF_webserver_api_password: "${PIHOLE_WEBSERVER_API_PASSWORD:?set PIHOLE_WEBSERVER_API_PASSWORD in .env}"
       # If using Docker's default `bridge` network setting the dns listening mode should be set to 'ALL'

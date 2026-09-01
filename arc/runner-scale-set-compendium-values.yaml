@@ -1,0 +1,102 @@
+# Helm values for the compendium runner scale set (IDEA-1094).
+# Release: compendium / namespace: arc-runners.
+#
+# One scale set per repo, each with a UNIQUE runnerScaleSetName: the chart
+# names the AutoscalingRunnerSet and its service accounts after the scale-set
+# name, so two releases sharing a name in one namespace collide on Helm
+# ownership (PR #63 review). Workflows in the compendium repo target this one
+# with `runs-on: homelab-arc-compendium`; a future repo gets its own release
+# and `homelab-arc-<repo>` name.
+#
+# PRIVATE REPOS ONLY — never add a scale set for nathanwhyte/homelab (public):
+# a self-hosted runner on a public repo executes fork-PR code on the cluster.
+
+githubConfigUrl: https://github.com/nathanwhyte/compendium
+
+# Secret in arc-runners holding github_token (see
+# github-config-secret.yaml.example). Shared by all scale sets.
+githubConfigSecret: github-config-secret
+
+runnerScaleSetName: homelab-arc-compendium
+
+# Pin the controller explicitly: chart autodetection requires exactly one
+# controller deployment to be discoverable and fails rendering otherwise
+# (bit us in `helm template` / --diff preflights).
+controllerServiceAccount:
+  namespace: arc-systems
+  name: arc-gha-rs-controller
+
+# Scale-to-zero: no runner pods exist between jobs. vault-checks runs three
+# parallel jobs (test / lint / formatting), so allow that many concurrent pods.
+minRunners: 0
+maxRunners: 3
+
+# No containerMode: vault-checks runs plain steps only (no `container:` jobs,
+# no docker builds), so jobs execute directly in the runner container —
+# no privileged pods, no dind.
+
+# The listener pod is created in the CONTROLLER's namespace (arc-systems) and
+# is NOT covered by template.spec below — it needs its own template to stay
+# off timmy.
+listenerTemplate:
+  spec:
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+            - matchExpressions:
+                - key: kubernetes.io/hostname
+                  operator: NotIn
+                  values:
+                    - timmy
+    containers:
+      # Merged onto the chart's listener container by name.
+      - name: listener
+        resources:
+          requests:
+            cpu: 10m
+            memory: 32Mi
+          limits:
+            cpu: 200m
+            memory: 128Mi
+
+template:
+  spec:
+    # Runner pods stay off timmy (control plane, heaviest memory load).
+    # manu/wemby both have headroom; let the scheduler pick between them.
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+            - matchExpressions:
+                - key: kubernetes.io/hostname
+                  operator: NotIn
+                  values:
+                    - timmy
+    containers:
+      - name: runner
+        # Custom image with uv/node/make preinstalled — built by
+        # images/runner/build-push.sh, hosted in Harbor project `ci`.
+        image: registry.nathanwhyte.dev/ci/actions-runner:latest
+        # Overriding the container REPLACES the chart default wholesale, so the
+        # runner entrypoint must be restated.
+        command: ["/home/runner/run.sh"]
+        # The upstream runner image gives uid 1001 passwordless sudo, so
+        # workflow code could otherwise become container-root. Lock the
+        # container down: no escalation (breaks sudo — vault-checks doesn't
+        # use it), no capabilities, default seccomp (PR #63 review).
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 1001
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop: ["ALL"]
+          seccompProfile:
+            type: RuntimeDefault
+        resources:
+          requests:
+            cpu: 250m
+            memory: 512Mi
+          limits:
+            cpu: "2"
+            memory: 2Gi

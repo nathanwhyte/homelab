@@ -1,0 +1,55 @@
+# Egress isolation for runner pods (IDEA-1094, PR #63 review P1).
+#
+# Private-repo-only prevents fork-PR execution, but a compromised action or
+# dependency inside a legitimate job would otherwise have free egress to the
+# whole LAN and cluster (Kubernetes allows all egress by default; k3s enforces
+# NetworkPolicy via its embedded kube-router controller). Runner jobs get DNS
+# plus the public internet (GitHub, package registries) and nothing private.
+#
+# Scope: arc-runners only — the pods that execute workflow code. The
+# controller and listener (arc-systems) keep default egress; they talk to the
+# K8s API and GitHub and never run untrusted code.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: runner-egress
+  namespace: arc-runners
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    # Cluster DNS.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # Public internet only: GitHub (Actions service, git-over-https), package
+    # registries. Every private/link-local range is excluded — that covers the
+    # LAN (192.168.0.0/16), the cluster pod/service CIDRs (10.42/10.43 fall
+    # inside 10.0.0.0/8), and the metadata range.
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+              - 169.254.0.0/16
+    # Model-in-the-loop CI (the IDEA-1094 LAN win) is an explicit opt-in, not a
+    # default: uncomment to let jobs reach timmy's Ollama, and keep such jobs
+    # serialized (one-local-model-consumer rule — see ARC.md).
+    # - to:
+    #     - ipBlock:
+    #         cidr: 192.168.1.19/32
+    #   ports:
+    #     - protocol: TCP
+    #       port: 11434

@@ -1,0 +1,19 @@
+# Namespaces for actions-runner-controller (IDEA-1094).
+#
+# Upstream's recommended split: the controller-manager lives in arc-systems,
+# runner scale sets (listener + ephemeral runner pods) and their GitHub config
+# secret live in arc-runners. Keeping them separate means the runner namespace
+# never holds anything but short-lived job pods and the one registration secret.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: arc-systems
+  labels:
+    app.kubernetes.io/part-of: actions-runner-controller
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: arc-runners
+  labels:
+    app.kubernetes.io/part-of: actions-runner-controller
