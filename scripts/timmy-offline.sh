@@ -20,9 +20,9 @@
 #
 # The power-off itself is deliberately manual (needs a TTY for sudo):
 #   ssh -t timmy sudo shutdown -h now
-# or, for a Windows session (GRUB entry from /etc/grub.d/40_custom, boots
-# Windows exactly once and returns to Ubuntu on the following reboot):
-#   ssh -t timmy 'sudo grub-reboot "Windows Boot Manager" && sudo reboot'
+# or, for a Windows session (os-prober entry — Windows shares the Ubuntu ESP on
+# nvme0n1p1; boots Windows exactly once, the following reboot returns to Ubuntu):
+#   ssh -t timmy 'sudo grub-reboot "Windows Boot Manager (on /dev/nvme0n1p1)" && sudo reboot'
 
 set -euo pipefail
 
