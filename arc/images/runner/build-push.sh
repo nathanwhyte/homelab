@@ -27,7 +27,14 @@ fi
 echo "Building $REF (linux/amd64)..."
 # :latest is what the scale-set values reference (so values stay stable);
 # the date tag exists for rollback.
+#
+# --builder desktop-linux: the Mac's selected buildx builder is the in-cluster
+# buildkitd (tcp://buildkitd.build.svc...), which is unreachable from outside
+# the cluster and whose registry credential can't push to the ci project. The
+# Docker Desktop docker-driver builder emulates amd64 and pushes with the
+# keychain login. (Not "default" — that name collides with the docker context.)
 docker buildx build \
+	--builder "${BUILDX_BUILDER:-desktop-linux}" \
 	--platform linux/amd64 \
 	--push \
 	-t "$REF" \
