@@ -41,15 +41,14 @@ spec:
           # Force it explicitly because the image also ships ROCm runner libraries.
           # See INFO-1084 for benchmark findings and device-selection details.
           # :latest (user call, 2026-08-14; was pinned 0.31.1 -> 0.32.9 for
-          # nemotron-3.5-family support). imagePullPolicy stays IfNotPresent on
-          # purpose: the tag resolves to the image last pulled deliberately on the
-          # node, so a pod bounce cannot silently upgrade the server. To upgrade:
-          # pull the new image on timmy, then bounce the pod. The manifest no
+          # nemotron-3.5-family support). imagePullPolicy is set to Always:
+          # the tag resolves to the latest remote image on every pod bounce.
+          # To upgrade, simply bounce the pod; the manifest no
           # longer states the running version — trust /api/version and each
           # benchmark run's env capture (TASK-1186 rows before 2026-08-14 evening
           # ran on 0.31.1; later rows on 0.32.9+).
           image: ollama/ollama:latest
-          imagePullPolicy: IfNotPresent
+          imagePullPolicy: Always
           # CAP_PERFMON: Ollama needs real free-VRAM readings to pack the single
           # resident runner (and any ad-hoc swap) safely; under Vulkan on a
           # de-privileged pod it otherwise falls back to model-size estimates.
