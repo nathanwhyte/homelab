@@ -16,13 +16,13 @@ data:
     #      passthrough, with NO local runner. So mark Ready as soon as the API
     #      answers — do NOT wait on local model prep. This keeps OV VLM available
     #      immediately, even on a cold cache that must download ~10 GB.
-    #   2. LOCAL model init (the agentpair posture — 2026-08-30 cutover:
-    #      agentpair:fim + agentpair:agent-gemma4-12b warmed and pinned,
-    #      MAX_LOADED_MODELS=2) — best-effort, in the BACKGROUND, with retry so
+    #   2. LOCAL model init (single-tenant DeepSeek FIM — IMPR-1083 node, the
+    #      2026-07-24 model cutover, restored 2026-09-04 after the agentpair
+    #      pair was rolled back) — best-effort, in the BACKGROUND, with retry so
     #      a transient registry/PVC failure self-heals. It NEVER gates
-    #      readiness. /tmp/models-ready is a SEPARATE signal (FIM half warmed),
-    #      so a Ready-but-models-absent state is observable rather than
-    #      silently hidden.
+    #      readiness. /tmp/models-ready is a SEPARATE signal (edit-prediction
+    #      tag warmed), so a Ready-but-models-absent state is observable rather
+    #      than silently hidden.
 
     echo "Waiting for the Ollama server to accept requests..."
     until ollama list > /dev/null 2>&1; do
@@ -48,15 +48,19 @@ data:
     }
 
     prepare_edit_prediction_models() {
-      # deepseek-coder-v2:fim RETIRED as the warm model 2026-08-30 (was the
-      # single tenant since 2026-07-24, IMPR-1083): the agentpair posture
-      # replaces it — agentpair:fim (qwen2.5-coder:3b, 2.56 GiB @16K) serves
-      # every FIM client (Zed prompt_format "qwen", Minuet suffix FIM via the
-      # tag's {{ .Suffix }} template, remote VSCode FIM TASK-1156) and leaves
-      # room for the batch-agent half. The deepseek tag is still BUILT here so
-      # rollback is one warm call, but it is no longer warmed or pinned.
-      # History: zeta2.1 + qwen2.5-coder:fim retired 2026-07-24 (BUG-1037);
-      # gemma4 remains orphaned (Hermes/mem0 retired) and is not warmed.
+      # deepseek-coder-v2:fim is the SOLE resident model again (restored
+      # 2026-09-04; it was the single tenant 2026-07-24 -> 08-30 before the
+      # agentpair cutover). It serves every FIM client: Zed (prompt_format
+      # "deepseek_coder"), Minuet (suffix FIM via the library template's
+      # {{ .Suffix }} branch), and remote VSCode FIM (TASK-1156). It
+      # benchmarked ~2-3x faster than qwen2.5-coder:14b-base (P50 TTFT 0.59s
+      # vs 1.33s, ~167 vs ~57 tok/s) with identical FIM smoke-test output.
+      # History: zeta2.1 + qwen2.5-coder:fim retired 2026-07-24 (BUG-1037) —
+      # Zeta degenerates below ~3k prompt tokens while Zed hardcodes its
+      # self-hosted excerpt far smaller (~500-700 tokens), unfixable
+      # client-side. The agentpair:* tags stay on the PVC, built but unwarmed
+      # (see prepare_agent_pair). gemma4 remains orphaned (Hermes/mem0
+      # retired) and is not warmed.
       local attempt
       for attempt in 1 2 3 4 5; do
         if ! ollama show deepseek-coder-v2:fim > /dev/null 2>&1; then
@@ -71,29 +75,34 @@ data:
           ollama create deepseek-coder-v2:fim -f /tmp/fim.Modelfile || true
         fi
         if ollama show deepseek-coder-v2:fim > /dev/null 2>&1; then
-          echo "Rollback FIM tag present (deepseek-coder-v2:fim, not warmed) (attempt ${attempt})."
+          echo "Warming up deepseek-coder-v2:fim (load-only)..."
+          warm_load_only deepseek-coder-v2:fim || true
+          touch /tmp/models-ready
+          echo "Edit-prediction model ready (attempt ${attempt})."
           return 0
         fi
-        echo "WARN: rollback FIM tag incomplete (attempt ${attempt}/5); retrying in 30s..."
+        echo "WARN: edit-prediction model incomplete (attempt ${attempt}/5); retrying in 30s..."
         sleep 30
       done
-      echo "WARN: rollback FIM tag not prepared after 5 attempts; server stays Ready (OV VLM unaffected) — check registry/PVC."
+      echo "WARN: edit-prediction model not prepared after 5 attempts; server stays Ready (OV VLM unaffected) — check registry/PVC."
       return 1
     }
 
     prepare_agent_pair() {
-      # IDEA-1090 paired tags (2026-08-28; PRODUCTION since 2026-08-30): the
-      # FIM half + the batch-agent half of the two-runner posture, built here
-      # so they exist after every restart and kept byte-identical to the
-      # reference copies in llama/ollama/agentpair-*.Modelfile. The resident
-      # pair (MAX_LOADED_MODELS=2, both load-only warmed, keep_alive -1) is
-      # agentpair:fim + agentpair:agent-gemma4-12b — measured on 0.33.1:
-      # 10.67 GiB idle / 10.78 peak under proposer traffic, 5.1 GiB free, FIM
-      # TTFT p95 0.37 s (2026-08-28 pair-VRAM probe; gemma4-12b picked on the
-      # fence-mistag-20260830 gate, 15/15). The other agent tags are
-      # build-if-missing only, never warmed. num_ctx is baked on every half so
-      # no caller reloads a runner at OLLAMA_CONTEXT_LENGTH (a 5-15 s stall
-      # that evicts the other half).
+      # IDEA-1090 paired tags (2026-08-28; production 2026-08-30 -> 09-04):
+      # the FIM half + the batch-agent halves of the two-runner posture, built
+      # here so they exist after every restart and kept byte-identical to the
+      # reference copies in llama/ollama/agentpair-*.Modelfile.
+      # BUILD-IF-MISSING ONLY since the 2026-09-04 rollback — nothing here is
+      # warmed or pinned: deepseek-coder-v2:fim is the sole resident model
+      # again and MAX_LOADED_MODELS is back to 1, so re-entering the pair
+      # posture means raising that cap AND warming both halves, not just
+      # calling a tag. Measured while resident on 0.33.1: agentpair:fim
+      # 2.56 GiB @16K + agentpair:agent-gemma4-12b 7.48 GiB @16K, 10.78 GiB
+      # peak with 5.1 GiB free, FIM TTFT p95 0.37 s (2026-08-28 pair-VRAM
+      # probe; gemma4-12b picked on the fence-mistag-20260830 gate, 15/15).
+      # num_ctx is baked on every half so no caller reloads a runner at
+      # OLLAMA_CONTEXT_LENGTH (a 5-15 s stall that evicts the resident model).
       if ! ollama show agentpair:fim > /dev/null 2>&1; then
         ollama pull qwen2.5-coder:3b-base || true
         printf '%s\n' \
@@ -143,20 +152,10 @@ data:
           > /tmp/agentpair-agent-gemma4-12b.Modelfile
         ollama create agentpair:agent-gemma4-12b -f /tmp/agentpair-agent-gemma4-12b.Modelfile || true
       fi
-      echo "agentpair tags present: $(ollama list 2>/dev/null | grep -c '^agentpair:')/4"
-
-      # Warm the production pair, FIM half first so edit prediction is back
-      # before the ~7.5 GiB agent half loads. /tmp/models-ready keys on the
-      # FIM half, matching what the old single-tenant marker meant.
-      if ollama show agentpair:fim > /dev/null 2>&1; then
-        echo "Warming up agentpair:fim (load-only)..."
-        warm_load_only agentpair:fim || true
-        touch /tmp/models-ready
-      fi
-      if ollama show agentpair:agent-gemma4-12b > /dev/null 2>&1; then
-        echo "Warming up agentpair:agent-gemma4-12b (load-only)..."
-        warm_load_only agentpair:agent-gemma4-12b || true
-      fi
+      # No denominator: ad-hoc probe tags (e.g. agentpair:fim-7b from the
+      # 2026-08-28 pair-VRAM probe) live alongside the 4 built above, so a
+      # "n/4" reading over-counts and reads like a failure.
+      echo "agentpair tags present (built, not warmed): $(ollama list 2>/dev/null | grep -c '^agentpair:')"
     }
 
     # Fire-and-forget: model prep runs alongside `ollama serve` and never blocks

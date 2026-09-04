@@ -120,19 +120,21 @@ spec:
             # workload — raise only with a measured need.
             - name: OLLAMA_NUM_PARALLEL
               value: "2"
-            # 2 (was 1): the 2026-08-30 agentpair cutover pins TWO runners —
-            # agentpair:fim (2.56 GiB) + agentpair:agent-gemma4-12b (7.48 GiB),
-            # measured 10.78 GiB peak on the card with 5.1 GiB free
-            # (benchmarks/results/pair-cohab-20260828 + fence-mistag-20260830).
-            # Any THIRD ad-hoc load still evicts a pinned half — clients must
-            # pin the pair by name (agentpair:*); deepseek-coder-v2:fim stays
-            # on the PVC as the rollback tag, unwarmed. OV's VLM still routes a
-            # *cloud* tag (gemma4:31b-cloud) through this pod via
-            # chat-ollama-proxy — cloud tags don't occupy a local slot. Under
-            # Vulkan on a de-privileged pod (IMPR-1022) Ollama packs on
-            # estimates unless CAP_PERFMON is set (it is, below).
+            # 1 (was 2): the 2026-08-30 agentpair cutover raised this to pin
+            # two runners; rolled back 2026-09-04 to the single-tenant posture
+            # — only ONE runner is warmed and pinned (deepseek-coder-v2:fim,
+            # ~13 GB, KEEP_ALIVE=-1). At ~13/16 GB there is no room for a
+            # second runner anyway; capping at 1 makes an ad-hoc load an
+            # explicit swap instead of a silent eviction fight. The
+            # agentpair:* tags stay on the PVC, built but unwarmed — calling
+            # one evicts the FIM model, so re-entering the pair posture means
+            # raising this cap again. OV's VLM still routes a *cloud* tag
+            # (gemma4:31b-cloud) through this pod via chat-ollama-proxy —
+            # cloud tags don't occupy a local slot. Under Vulkan on a
+            # de-privileged pod (IMPR-1022) Ollama packs on estimates unless
+            # CAP_PERFMON is set (it is, below).
             - name: OLLAMA_MAX_LOADED_MODELS
-              value: "2"
+              value: "1"
             # Backend selection. These two were set on the live Deployment but
             # never written back here, so the tracked manifest described a
             # ROCm-by-default pod while the cluster ran Vulkan — a re-apply from
