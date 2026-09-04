@@ -136,7 +136,18 @@ singleBinary:
     # reconstruction recorded the wrong class — the live PVC (storage-loki-0) is
     # longhorn-hdd. Any mismatch here makes every helm upgrade fail on the
     # immutable volumeClaimTemplates (the 07-06 10:46 failed release, and ours).
-    storageClass: longhorn-hdd
+    #
+    # 2026-09-04 (IMPR-1122): longhorn-hdd -> longhorn-observability. loki-0 is
+    # pinned to timmy (nodeSelector above) but longhorn-hdd selects hdd-tagged
+    # disks, which timmy does not have — so the replica sat on manu and every
+    # write crossed the network. The new class is node-local and single-replica.
+    #
+    # Size stays 10Gi. The volume hit 89% not because 24h of logs is large but
+    # because retention was never enforced (BUG-1096 — the compactor block above
+    # was missing, so retention_period was inert and every chunk since 2026-07-06
+    # was still on disk). With retention actually running, 24h at homelab ingest
+    # is ~1-2Gi, so 10Gi is already generous; do not size up.
+    storageClass: longhorn-observability
   replicas: 1
   resources:
     limits:

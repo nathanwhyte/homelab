@@ -1,0 +1,64 @@
+# Node-local, single-replica, snapshot-free storage for disposable observability data.
+#
+# Why this exists (IMPR-1122, 2026-09-04):
+#
+# Prometheus, Loki and Alertmanager are all hard-pinned to timmy via
+# `nodeSelector: kubernetes.io/hostname: timmy`, but they were using
+# `longhorn-hdd` / `longhorn-hdd-2x`, which carry `diskSelector: "hdd"`.
+# timmy has NO hdd-tagged disk — it is a single WD Green SN3000 2TB NVMe
+# tagged `nvme,ssd` (HARDWARE.md). So a timmy-local replica was impossible and
+# every read/write crossed the network to manu/wemby. The Prometheus volume
+# reported `Scheduled: False — LocalReplicaSchedulingFailure, tags not fulfilled`
+# permanently, and `dataLocality: best-effort` kept retrying a placement that
+# could never succeed, leaving an orphan replica with rebuildRetryCount=5.
+#
+# `longhorn-hdd-2x` was written for copyparty's media volume on wemby
+# (copyparty/storageclass-longhorn-hdd-2x.yaml); the observability stack
+# borrowed it and the fit was never right.
+#
+# The 2-replica part was worse than just slow. Longhorn mints a system snapshot
+# around every replica rebuild, and each timmy reboot (BUG-1095 — physical power
+# button plus deliberate Windows dual-boot sessions, so these will keep
+# happening) fails ~14 replicas cluster-wide and triggers those rebuilds. That is
+# what produced a 41.51 GiB snapshot chain over 1.93 GiB of live TSDB — a ~21x
+# bloat multiple that at one point pushed actualSize to 132% of the 30 GiB spec.
+#
+# numberOfReplicas: 1 removes the mechanism entirely. This is undocumented
+# upstream but was confirmed empirically on 2026-09-04: of the 15 system
+# snapshots created cluster-wide that day, ALL 15 came from 2-replica volumes and
+# ZERO from single-replica ones, despite every attached volume riding through the
+# same node reboots. storage-loki-0 (1 replica) has never had a snapshot at all.
+#
+# Single replica is the right trade here because this data is disposable —
+# 3d of metrics and 24h of logs, explicitly acceptable to lose.
+#
+# CAUTION: `dataLocality: strict-local` requires numberOfReplicas: 1 (any other
+# value fails volume creation) and pins the replica to the workload's node. It is
+# only safe because all three workloads carry a hard nodeSelector for timmy. If
+# that pin is ever removed, revisit this class first — a displaced strict-local
+# replica is marked Stopped and the recovery path is not documented upstream.
+#
+# NOTE: snapshotDataIntegrity, snapshotMaxCount and snapshotMaxSize are NOT
+# valid StorageClass parameters in Longhorn v1.12 — they exist only as global
+# Settings and Volume CR fields. Do not add them here; they are silently ignored.
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: longhorn-observability
+provisioner: driver.longhorn.io
+# Delete, not Retain: these volumes are meant to be recreatable at will, and
+# Retain leaves Released PVs to clean up by hand on every migration.
+reclaimPolicy: Delete
+allowVolumeExpansion: true
+volumeBindingMode: Immediate
+parameters:
+  numberOfReplicas: "1"
+  dataLocality: "strict-local"
+  # timmy's only disk is tagged nvme,ssd. Deliberately NOT `hdd`.
+  diskSelector: "nvme"
+  staleReplicaTimeout: "30"
+  # Let fstrim reclaim the snapshot chain on these volumes without flipping the
+  # global remove-snapshots-during-filesystem-trim, which would retroactively
+  # mark deliberate prewipe-*/system-backup-* snapshots cluster-wide as removed.
+  unmapMarkSnapChainRemoved: "enabled"
+  fsType: "ext4"
