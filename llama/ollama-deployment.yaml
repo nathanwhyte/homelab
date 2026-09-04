@@ -144,12 +144,19 @@ spec:
               value: "1"
             - name: OLLAMA_LLM_LIBRARY
               value: vulkan
-            # Device selection: on timmy the Vulkan device order is reversed
-            # relative to ROCm, and the iGPU (PCI 1002:164E) is enumerated first.
-            # HIP_VISIBLE_DEVICES=0 picked the discrete RX 9070 XT under ROCm;
-            # under Vulkan we need GGML_VK_VISIBLE_DEVICES to exclude the iGPU.
+            # Device selection: Vulkan/RADV enumerates in PCI order on timmy, so
+            # the discrete RX 9070 XT (PCI 03:00.0, renderD128) is device 0 and
+            # the Raphael iGPU (PCI 13:00.0, renderD129) is device 1 — the SAME
+            # order as ROCm, not reversed.
+            #
+            # Corrected 2026-09-04: this was "1" (the iGPU) from 2026-08-11 until
+            # now. Ollama selected the iGPU, then dropped it as integrated, and
+            # fell back to CPU — `ollama ps` showed 100% CPU for both agentpair
+            # models with `inference compute ... library=cpu` in the logs. Verify
+            # after any change to this value with `ollama ps`; a wrong index fails
+            # silently as a CPU fallback, not an error.
             - name: GGML_VK_VISIBLE_DEVICES
-              value: "1"
+              value: "0"
           ports:
             - containerPort: 11434
               name: http

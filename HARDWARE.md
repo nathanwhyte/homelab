@@ -81,15 +81,30 @@ MacBook Pro (M4 Pro) used as a secondary development/Ollama host. Runs macOS 25.
 
 ## AMD / RDNA4 guardrails (timmy's RX 9070 XT)
 
-Timmy's RX 9070 XT (`gfx1201`) runs Ollama **and** `embedder-qwen` (Qwen3-Embedding-4B, ROCm backend, primary since 2026-07-06 — migrated back from wemby CUDA after wemby's power kept dropping; `embedder-qwen-cuda` on wemby is the replicas=0 rollback). The card hosts both (~5 GB embedder incl. KV alongside Ollama). Rules for maintaining the ROCm serving path (apply to both Ollama and `embedder-qwen`):
+Timmy's RX 9070 XT (`gfx1201`) serves Ollama over **Vulkan/RADV**. ROCm was removed
+from the host on 2026-09-04 (IMPR-1088): all 66 ROCm packages plus `amdgpu-dkms`
+were purged, and the kernel driver is now the **in-tree** `amdgpu`, not the ROCm
+DKMS build that broke kernel 7.0 in BUG-1052. `embedder-qwen` (the ROCm-image
+Deployment on this node) is `replicas=0` and is not the embedder — the primary is
+`embedder-qwen-cuda` on **manu**'s GTX 1080 since 2026-07-17 (IMPR-1077).
 
-| Rule                       | Detail                                                                                                                                                                                                                                                     |
-| -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| GPU visibility             | `HIP_VISIBLE_DEVICES=0` is mandatory in all ROCm manifests. Prevents iGPU (`gfx1036`) selection.                                                                                                                                                           |
-| `HSA_OVERRIDE_GFX_VERSION` | Do NOT set. The 9070 XT is natively `gfx1201`; overriding masks real compatibility failures.                                                                                                                                                               |
-| rocBLAS hostPath           | Mount `/opt/rocm-7.2.1/lib/rocblas/library` only. Do NOT mount hipBLASLt (`/opt/rocm-7.2.1/lib/hipblaslt/library`) without a version-aligned benchmark.                                                                                                    |
-| `ROCBLAS_USE_HIPBLASLT`    | Do NOT set. Benchmarked 2026-06-28: no performance difference, no warnings to suppress.                                                                                                                                                                    |
-| Image upgrades             | Before bumping any ROCm image tag, run the gfx1201 validation commands in `llama/docs/2026-06-28-rocm-gfx1201-validation-baseline.md`.                                                                                                                     |
-| vLLM                       | Experimental only — use a separate manifest/branch, not production Ollama. Verify `torch.cuda.is_available()` and `torch.cuda.device_count()` inside the container. For PyTorch/vLLM, also set `CUDA_VISIBLE_DEVICES=0` alongside `HIP_VISIBLE_DEVICES=0`. |
-| ROCm tooling               | Prefer `amd-smi` over legacy `rocm-smi`; prefer `rocprofv3` over legacy `rocprof`.                                                                                                                                                                         |
-| Host ROCm                  | Current baseline is ROCm 7.2.1. Do not upgrade without a benchmark justification.                                                                                                                                                                          |
+Rules for the current Vulkan serving path:
+
+| Rule                       | Detail                                                                                                                                                                                                                                                                                                                                   |
+| -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| GPU visibility             | `GGML_VK_VISIBLE_DEVICES=0` selects the discrete card. Vulkan/RADV enumerates in **PCI order**, so the 9070 XT (`03:00.0`, `renderD128`) is device 0 and the Raphael iGPU (`13:00.0`, `renderD129`) is device 1 — the same order as ROCm, **not** reversed. A wrong index fails **silently as a CPU fallback**, not an error (BUG-1094). |
+| Verify after any change    | `ollama ps` must show `100% GPU`, and the logs must show `library=Vulkan … description="AMD Radeon RX 9070 XT (RADV GFX1201)" type=discrete`. `ollama ps` alone cannot distinguish backends — always confirm in the logs.                                                                                                                |
+| Vulkan implementation      | RADV from stock Ubuntu `mesa-vulkan-drivers` (owns `/usr/share/vulkan/icd.d/radeon_icd.json`). AMD ships no alternative — upstream removed the `amdvlk` and `pro` options, leaving `--vulkan=radv` only.                                                                                                                                 |
+| VRAM reporting             | Ollama needs root or `cap_perfmon` to read real available VRAM; without it, it falls back to approximate model sizes for scheduling. The in-cluster pod has it — if logs start showing round approximations rather than figures like `available="15.4 GiB"`, that capability was lost.                                                   |
+| Kernel driver              | In-tree `amdgpu` only. Do **not** reinstall `amdgpu-dkms` — it is the BUG-1052 mechanism and is what pinned this node off the HWE kernel track.                                                                                                                                                                                          |
+| `HSA_OVERRIDE_GFX_VERSION` | Do NOT set. The 9070 XT is natively `gfx1201`; overriding masks real compatibility failures.                                                                                                                                                                                                                                             |
+| vLLM                       | Experimental only — use a separate manifest/branch, not production Ollama. Needs ROCm, which is no longer installed; reinstating it would reintroduce the DKMS kernel pin. INFO-1071 recommends holding until native gfx1201 FP8 kernels land.                                                                                           |
+
+**If ROCm is ever reinstated** (it would re-pin this node off the HWE track), the
+pre-2026-09-04 rules were: `HIP_VISIBLE_DEVICES=0` mandatory in every ROCm
+manifest; mount `/opt/rocm-7.2.1/lib/rocblas/library` only, never hipBLASLt,
+without a version-aligned benchmark; do not set `ROCBLAS_USE_HIPBLASLT`
+(benchmarked 2026-06-28, no difference); run the gfx1201 validation commands in
+`llama/docs/2026-06-28-rocm-gfx1201-validation-baseline.md` before bumping any
+ROCm image tag; prefer `amd-smi`/`rocprofv3` over `rocm-smi`/`rocprof`; baseline
+was ROCm 7.2.1.
