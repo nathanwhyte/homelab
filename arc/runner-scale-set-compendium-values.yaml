@@ -28,7 +28,7 @@ controllerServiceAccount:
 
 # Scale-to-zero: no runner pods exist between jobs. vault-checks runs three
 # parallel jobs (test / lint / formatting), so allow that many concurrent pods.
-minRunners: 0
+minRunners: 1
 maxRunners: 5
 
 # No containerMode: vault-checks runs plain steps only (no `container:` jobs,
