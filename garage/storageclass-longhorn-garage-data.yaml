@@ -1,0 +1,46 @@
+# Node-local data storage for Garage's own 3x-replicated object store.
+#
+# Why this exists (2026-09-04):
+#
+# Garage runs 3 nodes with `replication_factor = 3` and reports
+# "Zone redundancy: maximum" across dc1/dc2/dc3. But all three `data-garage-*`
+# volumes had their single Longhorn replica scheduled onto **timmy's NVMe** —
+# the pods were correctly spread across manu/timmy/wemby by podAntiAffinity,
+# while `longhorn-ssd` (no dataLocality set, i.e. `disabled`) let Longhorn place
+# every replica wherever it liked, and it chose one disk for all three.
+#
+# So the redundancy was illusory at the storage layer: losing timmy's NVMe would
+# have taken all three "zones" at once. It also meant garage-0 (on manu) and
+# garage-2 (on wemby) did every read and write over the network to timmy.
+#
+# `dataLocality: best-effort` co-locates each Garage node's data with its own
+# pod, restoring real per-node redundancy.
+#
+# WHY NOT strict-local: the Garage StatefulSet has podAntiAffinity (one pod per
+# host) but NO nodeSelector, so garage-N is not pinned to a specific node and may
+# reschedule anywhere. A strict-local replica left behind on the old node would be
+# marked Stopped, with no documented recovery path. best-effort migrates the
+# replica with the pod instead of hard-failing — the right trade when the
+# application already replicates its own data.
+#
+# numberOfReplicas: 1 is deliberate. Garage keeps 3 copies itself; Longhorn
+# replication on top would store 3x3 = 9 copies of every object.
+#
+# diskSelector "ssd" matches all three nodes (manu default-disk is tagged ssd;
+# timmy and wemby are tagged nvme,ssd), so this class can follow a Garage pod to
+# any host in the cluster.
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: longhorn-garage-data
+provisioner: driver.longhorn.io
+reclaimPolicy: Delete
+allowVolumeExpansion: true
+volumeBindingMode: Immediate
+parameters:
+  numberOfReplicas: "1"
+  dataLocality: "best-effort"
+  diskSelector: "ssd"
+  staleReplicaTimeout: "30"
+  unmapMarkSnapChainRemoved: "enabled"
+  fsType: "ext4"

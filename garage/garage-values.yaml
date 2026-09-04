@@ -64,9 +64,29 @@ persistence:
     # found by the k3s-datastore-backup test run). PVCs expanded live to 5Gi.
     size: 5Gi
   data:
-    # Use custom Longhorn StorageClass for data
-    storageClass: "longhorn-ssd"
-    size: 100Gi
+    # 2026-09-04: longhorn-ssd -> longhorn-garage-data.
+    #
+    # longhorn-ssd sets no dataLocality, so Longhorn scheduled all three
+    # data-garage-* replicas onto timmy's NVMe even though the pods are spread
+    # across manu/timmy/wemby. Garage reported "Zone redundancy: maximum" while
+    # every zone's bytes sat on one disk. The new class uses
+    # dataLocality: best-effort so each node's data follows its own pod.
+    # See storageclass-longhorn-garage-data.yaml for why not strict-local.
+    storageClass: "longhorn-garage-data"
+    # 2026-09-04: 100Gi -> 50Gi. The 2026-03-22 doubling (0ab75aa) was a
+    # preemptive expansion ahead of a full codebase re-index that never
+    # materialised at that scale. Actual contents across ALL buckets are ~1.5 GiB
+    # (k3s-backups 1.5 GiB / 39 objects; openviking-agfs 6.3 MiB / 2593 objects;
+    # filestore 586 kiB), landing at ~4.5 GiB per node.
+    #
+    # 50Gi also matches what Garage itself already believes: `garage layout show`
+    # has declared 50.0 GB capacity per node all along — the layout was never
+    # re-assigned after the PVC doubled, so the extra 50Gi was never usable by
+    # Garage anyway. This makes the PVC and the layout agree again.
+    #
+    # Longhorn cannot shrink in place, so changing this requires recreating each
+    # volume; do it one node at a time and let Garage resync from the other two.
+    size: 50Gi
 
 # Deployment configuration
 deployment:
