@@ -57,6 +57,22 @@ loki:
   auth_enabled: false
   commonConfig:
     replication_factor: 1
+  # 2026-09-04 (BUG-1096): retention_period below is INERT without this block.
+  # Loki only deletes chunks when the compactor runs with retention_enabled;
+  # without it the 24h limit is accepted and silently ignored, so storage-loki-0
+  # grew to 8.70 GiB of 9.75 GiB (89%) holding every chunk since the volume was
+  # created. Confirmed live: loki_boltdb_shipper_compactor_running was 1 (the
+  # compactor was compacting) while
+  # loki_compactor_apply_retention_last_successful_run_timestamp_seconds was 0
+  # — retention had never once run.
+  #
+  # NOTE: the top-level `compactor:` key (replicas: 0) is the distributed-mode
+  # Deployment and is correctly disabled for singleBinary. This block is Loki's
+  # *config*, which is a different thing despite the identical name.
+  compactor:
+    working_directory: /var/loki/compactor
+    retention_enabled: true
+    delete_request_store: filesystem
   ingester:
     chunk_encoding: snappy
     chunk_idle_period: 30m
