@@ -57,6 +57,22 @@ loki:
   auth_enabled: false
   commonConfig:
     replication_factor: 1
+  # 2026-09-04 (BUG-1096): retention_period below is INERT without this block.
+  # Loki only deletes chunks when the compactor runs with retention_enabled;
+  # without it the 24h limit is accepted and silently ignored, so storage-loki-0
+  # grew to 8.70 GiB of 9.75 GiB (89%) holding every chunk since the volume was
+  # created. Confirmed live: loki_boltdb_shipper_compactor_running was 1 (the
+  # compactor was compacting) while
+  # loki_compactor_apply_retention_last_successful_run_timestamp_seconds was 0
+  # — retention had never once run.
+  #
+  # NOTE: the top-level `compactor:` key (replicas: 0) is the distributed-mode
+  # Deployment and is correctly disabled for singleBinary. This block is Loki's
+  # *config*, which is a different thing despite the identical name.
+  compactor:
+    working_directory: /var/loki/compactor
+    retention_enabled: true
+    delete_request_store: filesystem
   ingester:
     chunk_encoding: snappy
     chunk_idle_period: 30m
@@ -120,7 +136,18 @@ singleBinary:
     # reconstruction recorded the wrong class — the live PVC (storage-loki-0) is
     # longhorn-hdd. Any mismatch here makes every helm upgrade fail on the
     # immutable volumeClaimTemplates (the 07-06 10:46 failed release, and ours).
-    storageClass: longhorn-hdd
+    #
+    # 2026-09-04 (IMPR-1122): longhorn-hdd -> longhorn-observability. loki-0 is
+    # pinned to timmy (nodeSelector above) but longhorn-hdd selects hdd-tagged
+    # disks, which timmy does not have — so the replica sat on manu and every
+    # write crossed the network. The new class is node-local and single-replica.
+    #
+    # Size stays 10Gi. The volume hit 89% not because 24h of logs is large but
+    # because retention was never enforced (BUG-1096 — the compactor block above
+    # was missing, so retention_period was inert and every chunk since 2026-07-06
+    # was still on disk). With retention actually running, 24h at homelab ingest
+    # is ~1-2Gi, so 10Gi is already generous; do not size up.
+    storageClass: longhorn-observability
   replicas: 1
   resources:
     limits:

@@ -92,8 +92,12 @@ alertmanager:
             - ReadWriteOnce
           resources:
             requests:
-              storage: 10Gi
-          storageClassName: longhorn-hdd
+              # 2026-09-04 (IMPR-1122): 10Gi -> 2Gi on longhorn-observability.
+              # Alertmanager was using 0.0 GiB of 10Gi. Moved off longhorn-hdd
+              # because that class selects hdd-tagged disks, which timmy does not
+              # have, so this volume lived on manu while the pod ran on timmy.
+              storage: 2Gi
+          storageClassName: longhorn-observability
     secrets:
       - alertmanager-slack-webhook
   enabled: true
@@ -335,8 +339,18 @@ prometheus:
               # 2026-07-06: 100Gi -> 30Gi. Volume recreated blank (historical
               # data dropped by choice during the wemby reboot cycle); 7d
               # retention at 60s scrapes needs well under 30Gi.
-              storage: 30Gi
-          storageClassName: longhorn-hdd-2x
+              #
+              # 2026-09-04 (IMPR-1122): 30Gi -> 12Gi, and off longhorn-hdd-2x.
+              # Measured steady state at 3d/60s: 4,374 samples/s over 242,765
+              # active series at ~1.90 B/sample = 2.75 GiB of blocks (allowing
+              # for the 7h12m max-block-duration retention overshoot), plus
+              # ~0.50 GiB head+WAL and a ~0.55 GiB compaction transient = 3.25
+              # GiB steady / 3.80 GiB peak. 12Gi is 3.6x steady, 3.1x peak.
+              # 30Gi was ~9x — and it never held metrics anyway: the volume sat
+              # at 94% because of rebuild snapshots, not TSDB (see the class
+              # comment in manifests/storageclass-longhorn-observability.yaml).
+              storage: 12Gi
+          storageClassName: longhorn-observability
     tsdb:
       outOfOrderTimeWindow: 5m
     version: v3.7.3

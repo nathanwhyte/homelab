@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 
-GARAGE_DIR="$HOME/code/homelab/garage"
+# Derive from the script's own location, matching deploy-grafana.sh. The previous
+# hardcoded "$HOME/code/homelab/garage" broke when the repo became bare with
+# sibling worktrees — that path no longer exists, so the script exited before
+# reaching any of its work.
+GARAGE_DIR="${GARAGE_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
 NAMESPACE="garage"
 
 if [ ! -x "$(command -v "kubectl")" ]; then
@@ -37,6 +41,17 @@ if [ ! -f "$GARAGE_DIR/cloudflared.yaml" ]; then
     echo "cloudflared.yaml file not found!"
     exit 1
 fi
+
+# The StorageClass must exist BEFORE the Helm release: the data
+# volumeClaimTemplate requests `longhorn-garage-data`, and a PVC naming a class
+# that does not exist stays Pending indefinitely rather than failing loudly.
+if [ ! -f "$GARAGE_DIR/storageclass-longhorn-garage-data.yaml" ]; then
+    echo "storageclass-longhorn-garage-data.yaml file not found!"
+    exit 1
+fi
+
+echo -e "\nApplying longhorn-garage-data StorageClass..."
+kubectl apply -f "$GARAGE_DIR/storageclass-longhorn-garage-data.yaml"
 
 helm upgrade --install garage \
     "$CHART_DIR" \
