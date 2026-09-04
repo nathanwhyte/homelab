@@ -47,6 +47,18 @@ if [ ! -f "$GRAFANA_DIR/helm/loki-values.yaml" ]; then
 	exit 1
 fi
 
+# The StorageClass must exist BEFORE the Helm releases: all three observability
+# volumeClaimTemplates request `longhorn-observability`, and a PVC naming a class
+# that does not exist stays Pending indefinitely rather than failing loudly.
+# Applying it here keeps a fresh/rebuilt cluster working without manual steps.
+if [ ! -f "$GRAFANA_DIR/manifests/storageclass-longhorn-observability.yaml" ]; then
+	echo "storageclass-longhorn-observability.yaml file not found!"
+	exit 1
+fi
+
+echo -e "\nApplying longhorn-observability StorageClass..."
+kubectl apply -f "$GRAFANA_DIR/manifests/storageclass-longhorn-observability.yaml"
+
 echo -e "\nDeploying kube-prometheus-stack..."
 helm upgrade --install kube-prometheus-stack \
 	oci://ghcr.io/prometheus-community/charts/kube-prometheus-stack \

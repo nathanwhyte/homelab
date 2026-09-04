@@ -13,8 +13,21 @@
 # have taken all three "zones" at once. It also meant garage-0 (on manu) and
 # garage-2 (on wemby) did every read and write over the network to timmy.
 #
-# `dataLocality: best-effort` co-locates each Garage node's data with its own
-# pod, restoring real per-node redundancy.
+# `dataLocality: best-effort` asks Longhorn to co-locate each Garage node's data
+# with its own pod, which spreads the replicas across hosts instead of stacking
+# them on one.
+#
+# It is best-effort, NOT a guarantee: Longhorn falls back to a remote replica
+# when it cannot place one locally, and the volume then reports
+# `Scheduled: False, LocalReplicaSchedulingFailure` while continuing to serve.
+# That is the live state for `data-garage-0` as of 2026-09-04 — its pod is on
+# wemby, whose `default-disk` is `schedulable=False` (55.4 GiB free against the
+# 58.2 GiB its 25%-minimum-available gate requires), so its replica sits on manu.
+#
+# Current placement is therefore two hosts, not three: data-garage-0 and -2 on
+# manu, -1 on timmy. That removes the single-disk failure domain this class was
+# added to fix, but full per-node isolation is UNFINISHED and depends on freeing
+# space on wemby's default-disk.
 #
 # WHY NOT strict-local: the Garage StatefulSet has podAntiAffinity (one pod per
 # host) but NO nodeSelector, so garage-N is not pinned to a specific node and may
