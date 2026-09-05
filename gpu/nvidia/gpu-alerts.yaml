@@ -1,0 +1,101 @@
+# BUG-1102 — alert when a GPU node comes back without its GPU.
+#
+# WHY THIS EXISTS
+#
+# On 2026-09-05 manu crashed (BUG-1101) and rebooted with `nvidia.com/gpu: 0`.
+# The GPU Operator rebuilds the NVIDIA kernel module from source on every driver
+# container start — there is no host-installed driver and no dkms — and the
+# rebuild needs to reach Canonical's archive. Connectivity to that archive is
+# intermittent from this network, so the rebuild failed repeatedly: the driver
+# container restarted 20 times before one attempt got through.
+#
+# For roughly four hours the cluster had a node advertising the GPU resource with
+# zero of it. `viking/embedder-qwen-cuda` is pinned to manu by nodeSelector, so it
+# sat Pending the whole time, and with no embedder every `ov find` returned
+# [INTERNAL] Internal server error. OpenViking retrieval was fully down.
+#
+# Nothing alerted. It was found by hand, hours late, while investigating why
+# OpenViking searches were failing — and it recovered on its own before anyone
+# acted, which is the worst shape for a recurring fault: invisible both going
+# down and coming back.
+#
+# WHAT THIS DOES AND DELIBERATELY DOES NOT DO
+#
+# These rules make the failure visible. They do NOT fix it — the underlying
+# fragility is that the module is rebuilt from the network on every boot, and
+# closing that needs either a host-installed driver with dkms, precompiled driver
+# images, or a local package mirror. See BUG-1102's Fix section. Detection is the
+# cheap half and is worth having regardless of which durable fix is chosen.
+#
+# Deliberately keyed on `nvidia.com/gpu` capacity rather than driver pod health:
+# the driver pod reported `Running` and `ready=true` on manu throughout, because
+# it succeeds at "start, fail to build, wait, restart". Pod readiness was not the
+# signal; absent capacity was.
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: nvidia-gpu-alerts
+  namespace: gpu-operator
+  labels:
+    app: nvidia-gpu
+  annotations:
+    homelab.nathanwhyte.dev/bug: "BUG-1102"
+spec:
+  groups:
+    - name: nvidia-gpu.rules
+      rules:
+        # The exact BUG-1102 signature. kube-state-metrics keeps reporting the
+        # series with value 0 when the device plugin is up but finds no device,
+        # so `== 0` matches while `absent()` would not.
+        - alert: NvidiaGpuCapacityLost
+          expr: kube_node_status_capacity{resource="nvidia_com_gpu"} == 0
+          for: 10m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Node {{ $labels.node }} advertises nvidia.com/gpu but has 0 of it"
+            description: >-
+              {{ $labels.node }} is running the NVIDIA device plugin but reports zero
+              usable GPUs — almost always the driver kernel module failing to rebuild
+              after a reboot (BUG-1102). GPU workloads pinned to this node will sit
+              Pending indefinitely. Check
+              `kubectl -n gpu-operator logs -l app=nvidia-driver-daemonset --tail=40`
+              for a run that stops at "Updating the package cache"; that is the
+              archive.ubuntu.com fetch failing. The container recovers only by
+              restarting until an attempt succeeds.
+
+        # The catastrophic case: no GPU anywhere. Separate from the per-node alert
+        # because losing the last one takes out embedding and inference entirely,
+        # not just the workloads pinned to one node.
+        - alert: NvidiaNoGpuInCluster
+          expr: sum(kube_node_status_capacity{resource="nvidia_com_gpu"}) == 0
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "No usable GPU anywhere in the cluster"
+            description: >-
+              Total nvidia.com/gpu capacity across all nodes is zero. Both GPU nodes
+              rebuild their driver module from the network on every boot, so a shared
+              network fault or a simultaneous reboot can take out both at once.
+              OpenViking embedding, retrieval and any local inference are down while
+              this holds.
+
+        # Catches the failure earlier than capacity does: the driver container
+        # restarts in a loop while the rebuild keeps failing. manu logged 20
+        # restarts before succeeding.
+        - alert: NvidiaDriverRestartLoop
+          expr: >-
+            increase(kube_pod_container_status_restarts_total{namespace="gpu-operator",
+            container="nvidia-driver-ctr"}[30m]) > 3
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "NVIDIA driver container on {{ $labels.pod }} restarted >3 times in 30m"
+            description: >-
+              The driver container is failing to build or load the kernel module and
+              retrying. Each cycle re-runs `apt-get update`; if the archive is
+              unreachable it will keep looping. This usually precedes — or is
+              concurrent with — NvidiaGpuCapacityLost on the same node.
