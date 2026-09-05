@@ -125,7 +125,27 @@ mig:
   strategy: single
 
 driver:
-  enabled: true
+  # BUG-1102 — the NVIDIA driver is installed on the HOST with dkms, not managed
+  # by the operator. Do not flip this back to true without reading
+  # gpu/nvidia/HOST-DRIVER-MIGRATION.md first.
+  #
+  # The operator rebuilt the kernel module from Canonical's archive on every
+  # driver container start, with no host driver and no dkms to fall back on. When
+  # manu rebooted on 2026-09-05 the rebuild failed repeatedly — 20 restarts before
+  # one got through — and the node ran for an hour with nvidia.com/gpu: 0 while
+  # embedder-qwen-cuda sat Pending and OpenViking retrieval was down.
+  #
+  # Host state as of 2026-09-05, both nodes on nvidia-driver-580-server
+  # 580.173.02-0ubuntu0.24.04.1 with Secure Boot disabled:
+  #   manu   dkms built for 6.17.0-35-generic
+  #   wemby  dkms built for 6.8.0-{88,138,139}-generic
+  # manu was rebooted to verify: it came back with nvidia.com/gpu: 1 from
+  # /lib/modules/.../updates/dkms/nvidia.ko.zst, no container and no network.
+  #
+  # The `version` field below is now inert. It reads 580.105.08 while the last
+  # operator-managed container image was 580.126.20 — pre-existing drift, left
+  # documented rather than silently corrected. Reconcile it before any rollback.
+  enabled: false
   nvidiaDriverCRD:
     enabled: false
     deployDefaultCR: true
