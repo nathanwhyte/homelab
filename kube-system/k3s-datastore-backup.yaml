@@ -16,9 +16,38 @@
 #        kubectl -n kube-system create secret generic k3s-backup-s3-credentials \
 #          --from-literal=ACCESS_KEY_ID=... --from-literal=SECRET_ACCESS_KEY=...
 #
-# Restore sketch (full procedure to document after first verified backup):
-#   stop k3s on the replacement node, restore state.db to
-#   /var/lib/rancher/k3s/server/db/, restore token + tls/, start k3s.
+# ---------------------------------------------------------------------------
+# RESTORE — verified by drill on 2026-09-05 (IMPR-1126).
+# Full drill record: k3s-datastore-restore-drill-2026-09-05.md (this directory).
+#
+# ⚠ DO NOT RESTORE tls-<date>.tar.gz. The earlier restore sketch in this file
+# said "restore state.db, token and tls/" — that procedure does not work. k3s
+# only writes server/cred/*.kubeconfig when it (re)generates the matching leaf
+# client cert; restoring a complete tls/ makes every leaf cert already-present,
+# so nothing is regenerated, no kubeconfigs are written, and k3s dies with
+#   failed to start controllers: failed to create new server context:
+#   stat /var/lib/rancher/k3s/server/cred/supervisor.kubeconfig: no such file
+# ...after the apiserver has already come up, which makes it look like a
+# datastore problem when it is not.
+#
+# The procedure that works, on a clean replacement control-plane node:
+#   1. systemctl stop k3s   (and make sure nothing else holds the data dir)
+#   2. rm -rf /var/lib/rancher/k3s/server        # start from nothing
+#   3. install -D -m600 state-<date>.db /var/lib/rancher/k3s/server/db/state.db
+#   4. install -D -m600 token-<date>   /var/lib/rancher/k3s/server/token
+#   5. systemctl start k3s
+# k3s reads the bootstrap blob out of state.db (it is encrypted with the token),
+# rehydrates server-ca / client-ca / request-header-ca / service.key / passwd /
+# ipsec.psk byte-for-byte, regenerates the leaf certs and the kubeconfigs, and
+# serves the restored cluster. Because the CAs and the service-account signing
+# key are unchanged, existing agent nodes and existing ServiceAccount tokens
+# stay valid.
+#
+# tls-<date>.tar.gz is therefore redundant for restore — every byte of CA
+# material in it is already inside state.db. It is kept as an independent copy
+# (~15 KB/night) for the case where the datastore is unreadable and the CA
+# material has to be recovered by hand; it is NOT an input to the normal path.
+# ---------------------------------------------------------------------------
 ---
 apiVersion: batch/v1
 kind: CronJob
@@ -30,12 +59,19 @@ spec:
   schedule: "30 3 * * *"
   timeZone: America/Chicago
   concurrencyPolicy: Forbid
-  successfulJobsHistoryLimit: 1
-  failedJobsHistoryLimit: 2
+  # History limits are the only durable record of a failure: pod Events expire
+  # in an hour and Loki retention is 24h (BUG-1096), so by the time anyone
+  # looks, the Job object's status.conditions is all that is left. Both 2026
+  # failures were diagnosed from exactly that (IMPR-1126) — and the previous
+  # failedJobsHistoryLimit of 2 was one eviction away from losing it.
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 10
   jobTemplate:
     spec:
       # Give up rather than pile on retries against the control-plane disk.
       backoffLimit: 1
+      # The containers self-limit below this (600s watchdog) so that a stall
+      # produces a traceback in the pod log instead of a bare DeadlineExceeded.
       activeDeadlineSeconds: 900
       template:
         spec:
@@ -45,24 +81,56 @@ spec:
           initContainers:
             - name: snapshot
               image: python:3.12-slim
+              imagePullPolicy: IfNotPresent
+              # Copies the tail of the container log into the pod's
+              # status.containerStatuses[].state.terminated.message, which
+              # survives on the Pod object after the container is gone.
+              terminationMessagePolicy: FallbackToLogsOnError
               # Root needed to read the root-owned k3s server dir.
               securityContext:
                 runAsUser: 0
               command: ["python3", "-c"]
               args:
                 - |
-                  import shutil, sqlite3, subprocess, time
+                  import faulthandler, os, shutil, sqlite3, subprocess, sys, time
+
+                  # If any phase wedges, dump every thread's stack to stderr and
+                  # exit, rather than sitting silent until activeDeadlineSeconds
+                  # kills the Job with nothing but "DeadlineExceeded".
+                  faulthandler.dump_traceback_later(600, exit=True)
+
+                  t0 = time.monotonic()
+
+                  def phase(msg):
+                      print(f"[+{time.monotonic() - t0:7.1f}s] {msg}", flush=True)
+
                   stamp = time.strftime("%Y-%m-%d")
+                  phase(f"start stamp={stamp}")
+                  src_size = os.path.getsize("/server/db/state.db")
+                  phase(f"source state.db bytes={src_size}")
+
                   # Online backup: consistent even while kine is writing (WAL).
+                  # pages=-1 (the default) copies in ONE step and must not be
+                  # changed to an incremental value — an incremental backup
+                  # restarts from the beginning whenever the source is written,
+                  # and kine writes continuously.
                   src = sqlite3.connect("file:/server/db/state.db?mode=ro", uri=True)
                   dst = sqlite3.connect(f"/backup/state-{stamp}.db")
                   src.backup(dst)
                   dst.close(); src.close()
+                  out_size = os.path.getsize(f"/backup/state-{stamp}.db")
+                  phase(f"backup done bytes={out_size}")
+
                   shutil.copy("/server/token", f"/backup/token-{stamp}")
+                  phase("token copied")
+
                   subprocess.run(
                       ["tar", "czf", f"/backup/tls-{stamp}.tar.gz", "-C", "/server", "tls"],
                       check=True)
-                  print("snapshot complete:", stamp)
+                  phase("tls archived")
+
+                  faulthandler.cancel_dump_traceback_later()
+                  print("snapshot complete:", stamp, flush=True)
               volumeMounts:
                 - name: k3s-server
                   mountPath: /server
@@ -72,15 +140,25 @@ spec:
           containers:
             - name: upload
               image: rclone/rclone:1.67
+              imagePullPolicy: IfNotPresent
+              terminationMessagePolicy: FallbackToLogsOnError
               command: ["/bin/sh", "-c"]
               args:
                 - |
                   set -eu
-                  rclone copy /backup garage:k3s-backups/timmy/ --s3-no-check-bucket
-                  # Retention: keep 14 days.
-                  rclone delete garage:k3s-backups/timmy/ --min-age 14d
-                  echo "upload + prune complete"
-                  rclone ls garage:k3s-backups/timmy/ | tail -5
+                  log() { echo "[$(date -u +%H:%M:%S)] $*"; }
+                  log "staged for upload:"
+                  ls -l /backup
+                  # --timeout/--contimeout turn a wedged Garage into a non-zero
+                  # exit with an error in the log, instead of a silent stall
+                  # that only surfaces as the Job's DeadlineExceeded.
+                  RC="rclone --timeout 120s --contimeout 30s --low-level-retries 3 --retries 2"
+                  log "copy -> garage:k3s-backups/timmy/"
+                  $RC copy /backup garage:k3s-backups/timmy/ --s3-no-check-bucket
+                  log "prune (retention: keep 14 days)"
+                  $RC delete garage:k3s-backups/timmy/ --min-age 14d
+                  log "upload + prune complete"
+                  $RC ls garage:k3s-backups/timmy/ | tail -5
               env:
                 - name: RCLONE_CONFIG_GARAGE_TYPE
                   value: s3
