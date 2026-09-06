@@ -52,7 +52,7 @@ ROCm / RDNA4 guardrails for timmy's RX 9070 XT (the 1080 and 1060 are NVIDIA-onl
 > `hostNetwork`/`hostPort`; anyone adding one back must verify with a **negative**
 > test (out-of-range client actually gets `403`). Details:
 > [reference/external-routes.md](reference/external-routes.md).
-
+>
 > OpenViking auth posture is **API-key-only** (IMPR-1007 Phase 4 decision, confirmed 2026-07-04): OV enforces `root_api_key` on every tier, no Traefik BasicAuth layer. The BasicAuth middleware manifest, secret example, and the dangling ingress annotation were removed 2026-07-04 (the Middleware was never deployed live, and the Cloudflare tunnel bypasses Traefik anyway). The `/mcp` path has its own Ingress (`viking/manifests/openviking-mcp-ingress.yaml`) so the native OpenViking MCP endpoint can be reached via Bearer token. `context.nathanwhyte.dev` is also reachable through the Cloudflare tunnel (see [External routes](reference/external-routes.md), marked "both").
 
 OV endpoint tiers and the full external-routes + Tailscale tables live in [reference/external-routes.md](reference/external-routes.md).
@@ -85,7 +85,7 @@ Parallel indexing (coordinator/worker/merge trio) was removed at the 2026-06-03 
 
 ## OpenViking knowledge base
 
-See [OPENVIKING.md](viking/OPENVIKING.md) for the organization guide (L0/L1/L2 tiers, directory rules, what to index). See ~/code/CLAUDE.md for the save/search workflow rules. Indexed-compendium table: [reference/compendium-index.md](reference/compendium-index.md).
+See [openviking.md](viking/openviking.md) for the organization guide (L0/L1/L2 tiers, directory rules, what to index). See ~/code/CLAUDE.md for the save/search workflow rules. Indexed-compendium table: [reference/compendium-index.md](reference/compendium-index.md).
 
 ### Stack implementation report
 
@@ -105,7 +105,7 @@ Since the 2026-07-05 cloud cutover the local VLM (`llamacpp-cuda-ov`) is a `vlm.
 
 Top-level directories generally map to deployed services:
 
-- `arc/`: Self-hosted GitHub Actions runners — actions-runner-controller (gha-runner-scale-set) Helm values, deploy script, custom runner image (IDEA-1094). **Private repos only** — see `arc/ARC.md`.
+- `arc/`: Self-hosted GitHub Actions runners — actions-runner-controller (gha-runner-scale-set) Helm values, deploy script, custom runner image (IDEA-1094). **Private repos only** — see `arc/arc.md`.
 - `cloudflare/`: Cloudflare tunnel manifests (main tunnel, per-namespace tunnels, Access config).
 - `compendium/`: In-cluster compendium vault sync — `cluster-sync.sh`, sync Job template, state PVC, namespace.
 - `copyparty/`: Copyparty file server (media NFS PV, Longhorn HDD storage class, snapshot policy).
@@ -157,6 +157,10 @@ Each service folder typically includes:
 - **Scripts**
   - Keep deploy scripts idempotent where possible.
   - Avoid embedding tokens/credentials in scripts; require env vars or pre-created secrets instead.
+- **Markdown filenames**
+  - Nested markdown files are lowercase-kebab (e.g. `longhorn/alerting.md`).
+  - Uppercase/title-case is reserved for: repo-root entry points (`README.md`, `HARDWARE.md`, `GPU_AND_AI_REVIEW.md`, `LICENSE.md`), agent-instruction files matched by basename at any depth (`CLAUDE.md`, `AGENTS.md`), `README.md` anywhere, and the lifecycle markers `TORN-DOWN.md` / `RETIRED.md`.
+  - Vendored trees follow upstream casing.
 
 ## Minimal validation (when making changes)
 

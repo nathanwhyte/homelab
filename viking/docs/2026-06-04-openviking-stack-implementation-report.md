@@ -151,7 +151,7 @@ OV does **not** do flat top-k vector search. `search()` runs:
 **Implication:** a well-named, well-abstracted parent directory amplifies all
 of its children's scores; a UUID-named directory with no abstract makes its
 children effectively invisible. This is why the OV organization guide
-(`viking/OPENVIKING.md`) is strict about directory hygiene.
+(`viking/openviking.md`) is strict about directory hygiene.
 
 `find()`/`glob()` are filename-pattern tools (e.g. `**/*.md`); `search()` is
 content/semantic retrieval. Use the right one.
@@ -328,7 +328,7 @@ Key prod values (`openviking-standalone-config`):
 | `server.port`                      | 1933                              |                                                                                                                                                                                                                                                                                                |
 | `embedding.dense.model`            | `nomic-embed-text-v1.5`           | via embedder service                                                                                                                                                                                                                                                                           |
 | `embedding.dense.batch_size`       | 128                               |                                                                                                                                                                                                                                                                                                |
-| `embedding.max_input_tokens`       | **1900**                          | mandatory guardrail — see [OPENVIKING.md §Critical tuning](../OPENVIKING.md). `nomic-embed-text-v1.5` reports `n_ctx: 2048` to llama.cpp regardless of `--ctx-size`; OV only truncates when this is set, so without it long docs overflow the 2048 slot (commit `6830a18`).                    |
+| `embedding.max_input_tokens`       | **1900**                          | mandatory guardrail — see [openviking.md §Critical tuning](../openviking.md). `nomic-embed-text-v1.5` reports `n_ctx: 2048` to llama.cpp regardless of `--ctx-size`; OV only truncates when this is set, so without it long docs overflow the 2048 slot (commit `6830a18`).                    |
 | `embedding.max_concurrent`         | **4**                             | bumped from 2 on 2026-06-04 (TASK-010); FEAT-004 proved 4 safe                                                                                                                                                                                                                                 |
 | `vlm.provider` / `model`           | `litellm` / `openai/current.gguf` | → `llamacpp-vlm` (generic) → `llamacpp-cuda-ov`                                                                                                                                                                                                                                                |
 | `vlm.max_concurrent`               | **2**                             | matches VLM server's `--parallel 2`. Was 4 on 2026-06-04 (TASK-010); reverted to 2 in IDEA-009 Phase 3 (2026-06-06) because the CUDA VLM only has 2 slots and over-commit caused every request to time out at 60s × 3 retries, stalling the queue. Drain rate with 2/2 is ~1 L0/min sustained. |
@@ -565,7 +565,7 @@ was wiped during cutover (step 3.1), a rollback requires re-ingest from source
 
 - `viking/manifests/*` (deployments, services, ingress, configmaps, PVCs)
 - `viking/images/{ov-coordinator,ov-merge,ov-consolidate}/*.py`
-- `viking/OPENVIKING.md` (organization guide)
+- `viking/openviking.md` (organization guide)
 - `viking/docs/2026-06-03-ov-prod-cutover-agfs-s3-vectordb-http.md`
 - `viking/docs/2026-06-01-openviking-parallelization-cross-reference.md`
 - `viking/docs/2026-05-07-ov-indexing-perf-design.md`

@@ -6,7 +6,7 @@
 #   1. gha-runner-scale-set-controller  -> release `arc`, ns arc-systems
 #   2. gha-runner-scale-set (per repo)  -> release `compendium`, ns arc-runners
 #
-# Prereqs (one-time, documented in ARC.md):
+# Prereqs (one-time, documented in arc.md):
 #   - arc/github-config-secret.yaml applied (copy the .example, fill the PAT)
 #   - Harbor project `ci` exists and the runner image is pushed
 #     (images/runner/build-push.sh)
@@ -14,13 +14,13 @@
 # NOTE: this script INSTALLS and re-applies values at one pinned chart
 # version. It deliberately refuses in-place chart VERSION bumps: Helm does not
 # upgrade CRDs, so ARC upgrades require the uninstall/reinstall procedure in
-# ARC.md § "Chart upgrades".
+# arc.md § "Chart upgrades".
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 
-# Controller and scale-set chart versions must match (ARC.md § Chart upgrades).
+# Controller and scale-set chart versions must match (arc.md § Chart upgrades).
 CHART_VERSION="${ARC_CHART_VERSION:-0.14.2}"
 CONTROLLER_CHART="oci://ghcr.io/actions/actions-runner-controller-charts/gha-runner-scale-set-controller"
 SCALE_SET_CHART="oci://ghcr.io/actions/actions-runner-controller-charts/gha-runner-scale-set"
@@ -37,7 +37,7 @@ Usage: $0 [--diff]
   -h, --help   Show this help.
 
 Chart version is pinned via \$ARC_CHART_VERSION (default: $CHART_VERSION).
-Version BUMPS are refused — follow ARC.md § "Chart upgrades" instead.
+Version BUMPS are refused — follow arc.md § "Chart upgrades" instead.
 EOF
 }
 
@@ -109,13 +109,13 @@ fi
 # --- Version-skew guard: refuse in-place chart version bumps. -----------------
 # Helm does not upgrade ARC's CRDs, so `helm upgrade` across chart versions
 # leaves the controller and CRDs skewed. Upgrades = uninstall scale sets, then
-# the controller, then reinstall at the new version (ARC.md § Chart upgrades).
+# the controller, then reinstall at the new version (arc.md § Chart upgrades).
 INSTALLED_VERSION="$(helm get metadata arc -n arc-systems 2>/dev/null | awk '/^VERSION:/ {print $2}' || true)"
 if [ -n "$INSTALLED_VERSION" ] && [ "$INSTALLED_VERSION" != "$CHART_VERSION" ]; then
 	cat >&2 <<EOF
 ERROR: controller release 'arc' is installed at chart $INSTALLED_VERSION but
 this run targets $CHART_VERSION. ARC cannot be upgraded in place (Helm does
-not upgrade CRDs). Follow ARC.md § "Chart upgrades":
+not upgrade CRDs). Follow arc.md § "Chart upgrades":
 
   1. helm uninstall <every scale set> -n arc-runners
   2. helm uninstall arc -n arc-systems
@@ -134,7 +134,7 @@ kubectl apply -f "$SCRIPT_DIR/network-policies.yaml"
 # The scale set cannot register without a usable GitHub credential; fail fast
 # with instructions rather than letting the listener crashloop on an empty or
 # placeholder token. This script's secret format supports PATs only (a GitHub
-# App credential uses different keys — see ARC.md).
+# App credential uses different keys — see arc.md).
 GITHUB_TOKEN_B64="$(kubectl get secret github-config-secret -n arc-runners -o jsonpath='{.data.github_token}' 2>/dev/null || true)"
 GITHUB_TOKEN="$(printf '%s' "$GITHUB_TOKEN_B64" | base64 -d 2>/dev/null || true)"
 if [ -z "$GITHUB_TOKEN" ]; then
@@ -160,7 +160,7 @@ case "$GITHUB_TOKEN" in
 github_pat_* | ghp_*) ;;
 *)
 	echo "ERROR: github_token doesn't look like a GitHub PAT (expected github_pat_* or ghp_*)." >&2
-	echo "For a GitHub App credential, use the app secret keys instead — see ARC.md." >&2
+	echo "For a GitHub App credential, use the app secret keys instead — see arc.md." >&2
 	exit 2
 	;;
 esac

@@ -33,11 +33,11 @@ retrieval_summary: OpenViking pointer indexing for Compendium knowledge-base ret
 ---
 ```
 
-| Value | v1 behavior |
-|---|---|
+| Value     | v1 behavior                                                                          |
+| --------- | ------------------------------------------------------------------------------------ |
 | `pointer` | Sync to OV with the pointer payload format below. **Default** when field is missing. |
-| `none` | Never sync. Use for transient notes, scratch entries, daily logs. |
-| `full` | **Reserved.** Pattern #2 placeholder; treated as `pointer` in v1. |
+| `none`    | Never sync. Use for transient notes, scratch entries, daily logs.                    |
+| `full`    | **Reserved.** Pattern #2 placeholder; treated as `pointer` in v1.                    |
 
 Default-on-missing is intentional: the bulk of existing entries should
 become discoverable without per-file edits.
@@ -96,9 +96,9 @@ cause / Fix) become reliable match anchors.
 
 ## OV addressing
 
-| Field | Value |
-|---|---|
-| `name` | Lowercase entry ID — `idea-042`, `bug-117`, `runbook-003` |
+| Field        | Value                                                                                         |
+| ------------ | --------------------------------------------------------------------------------------------- |
+| `name`       | Lowercase entry ID — `idea-042`, `bug-117`, `runbook-003`                                     |
 | `target_dir` | `viking://resources/compendium/<vault-subdir>/` (mirrors `~/code/compendium/<vault-subdir>/`) |
 
 Same `name` is used regardless of `ov_mode`, so a future flip
@@ -212,7 +212,7 @@ After bulk changes:
   namespace only when reconciling ghosts, removed files, or corrupted
   state.
 
-See `~/code/homelab/viking/COMPENDIUM_OV_SPEC.md` for the full spec.
+See `~/code/homelab/viking/docs/compendium-ov-spec.md` for the full spec.
 ```
 
 ## Script spec — `compendium-sync.py`
@@ -223,12 +223,12 @@ in `~/code/compendium/`.
 
 **Modes:**
 
-| Mode | Args | Behavior |
-|---|---|---|
-| `stats` | none | Count eligible entries and summarize payload sizes |
-| `preview` | `<path>` to single `.md` | Print the computed pointer payload |
-| `plan` | optional paths or filters such as `--limit`, `--type`, `--repo` | Print selected target URIs without syncing |
-| `sync` | optional paths or filters plus `--dry-run`, `--no-wait`, `--delete-path`, deprecated `--update` | Add or refresh selected resources; optionally remove old pointer URIs for moved files |
+| Mode      | Args                                                                                            | Behavior                                                                              |
+| --------- | ----------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| `stats`   | none                                                                                            | Count eligible entries and summarize payload sizes                                    |
+| `preview` | `<path>` to single `.md`                                                                        | Print the computed pointer payload                                                    |
+| `plan`    | optional paths or filters such as `--limit`, `--type`, `--repo`                                 | Print selected target URIs without syncing                                            |
+| `sync`    | optional paths or filters plus `--dry-run`, `--no-wait`, `--delete-path`, deprecated `--update` | Add or refresh selected resources; optionally remove old pointer URIs for moved files |
 
 **Implementation notes (defer to a separate plan doc):**
 

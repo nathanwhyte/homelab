@@ -115,7 +115,7 @@ fi
 # chart only re-renders the harbor-core K8s Secret. If we run without an
 # override, the chart re-applies harbor-values.yaml's literal "<CHANGE_ME>"
 # placeholder and silently overwrites whatever the operator rotated it to.
-# See harbor/HARBOR-RUNBOOK.md § "Auth: admin password" for the algorithm,
+# See harbor/harbor-runbook.md § "Auth: admin password" for the algorithm,
 # reset procedure, and the "DB and Secret can drift" gotcha this gate exists
 # to prevent. The --diff and --dry-run preflight paths are intentionally
 # exempt (they should work against unmodified values without a password);
@@ -132,7 +132,7 @@ overwrite the Secret back to the value in harbor-values.yaml (still the
 literal placeholder "<CHANGE_ME>") and you'll be locked out.
 
 To rotate: pick a new password, run the DB UPDATE procedure in
-harbor/HARBOR-RUNBOOK.md § "Auth: admin password", then re-run this
+harbor/harbor-runbook.md § "Auth: admin password", then re-run this
 script with the same password:
 
   ./harbor/deploy-harbor.sh --admin-password '\$NEW_PW'

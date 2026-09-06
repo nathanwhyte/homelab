@@ -4,7 +4,7 @@ Four-lever attribution benchmark for OpenViking / omnipendium retrieval. Validat
 the Qwen3-Embedding-4B choice for OV, picks omnipendium's embedder, and closes
 BUG-1016 with lever-level evidence.
 
-> **📄 The consolidated plan, methodology & results live in [`BENCHMARK.md`](BENCHMARK.md).**
+> **📄 The consolidated plan, methodology & results live in [`benchmark.md`](benchmark.md).**
 > This README is a quick status/usage index. Compendium implementation plan (phased,
 > task-tracking): `~/code/compendium/docs/plans/2026-07-04-TASK-1122-embedding-model-benchmark.md`.
 

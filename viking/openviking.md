@@ -103,7 +103,7 @@ Cross-project agent instructions and shared configuration. Agents can `viking_se
 ```text
 viking://resources/config/
   ├── global-claude-instructions    ← ~/.claude/CLAUDE.md
-  ├── openviking-guide              ← viking/OPENVIKING.md (this file)
+  ├── openviking-guide              ← viking/openviking.md (this file)
   └── {agent-name}/                 ← per-agent configs if needed
 ```
 

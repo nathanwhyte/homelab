@@ -3,20 +3,20 @@
 ## Status & scope
 
 Test plan for validating the **pointer index** workflow defined in
-[`COMPENDIUM_OV_SPEC.md`](./COMPENDIUM_OV_SPEC.md). Exercises sync,
+[`compendium-ov-spec.md`](./compendium-ov-spec.md). Exercises sync,
 search, and ranking against a controlled corpus of faux entries.
 Pattern #2 (full-content) is out of scope and explicitly deferred.
 
 ## Setup state (already complete)
 
-| Item | Status |
-|---|---|
-| Worktree at `~/code/compendium/.worktrees/ov-test` | Created |
-| Branch `ov-test` checked out in worktree | Done |
-| `.worktrees/` added to `.gitignore` and committed on `main` | Done |
-| Entry directories wiped (`bugs/`, `ideas/`, `features/`, `tasks/`, `projects/`, `plans/`, `info/`) | Done — 161 files removed |
-| Structural files preserved (CLAUDE.md, README.md, dashboard.md, DATAVIEW.md, `_templates/`, `_briefs/`, `_inbox/`, `_scripts/`, `_sources/`, `_verification-reports/`, `docs/`) | Kept |
-| Wipe committed on `ov-test` branch | Commit `d128c15` |
+| Item                                                                                                                                                                            | Status                   |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------ |
+| Worktree at `~/code/compendium/.worktrees/ov-test`                                                                                                                              | Created                  |
+| Branch `ov-test` checked out in worktree                                                                                                                                        | Done                     |
+| `.worktrees/` added to `.gitignore` and committed on `main`                                                                                                                     | Done                     |
+| Entry directories wiped (`bugs/`, `ideas/`, `features/`, `tasks/`, `projects/`, `plans/`, `info/`)                                                                              | Done — 161 files removed |
+| Structural files preserved (CLAUDE.md, README.md, dashboard.md, DATAVIEW.md, `_templates/`, `_briefs/`, `_inbox/`, `_scripts/`, `_sources/`, `_verification-reports/`, `docs/`) | Kept                     |
+| Wipe committed on `ov-test` branch                                                                                                                                              | Commit `d128c15`         |
 
 Stale state to be reset by the subagent population step:
 
@@ -25,7 +25,7 @@ Stale state to be reset by the subagent population step:
 ## Phase 1 — Populate faux entries
 
 **Driver:** the prompt at
-[`COMPENDIUM_OV_TEST_PROMPT.md`](./COMPENDIUM_OV_TEST_PROMPT.md),
+[`compendium-ov-test-prompt.md`](./compendium-ov-test-prompt.md),
 dispatched as a `general-purpose` subagent.
 
 **Expected output:** 60 entries across 7 directories, with a structured
@@ -46,7 +46,7 @@ report listing entry counts, `ov_mode` distribution (missing / pointer
 
 The trap list returned by the subagent becomes the primary input to
 Phase 3 — record it verbatim in a follow-up note (e.g.,
-`COMPENDIUM_OV_TEST_TRAPS.md`) so test queries can target them
+`compendium-ov-test-traps.md`) so test queries can target them
 deterministically.
 
 ## Phase 2 — Sync to OpenViking
@@ -55,7 +55,7 @@ deterministically.
 implementation plan). For Phase 2 to run, the skill must:
 
 - Parse YAML frontmatter; default `ov_mode = pointer` when missing
-- Build payload per the format in `COMPENDIUM_OV_SPEC.md` §"Indexed
+- Build payload per the format in `compendium-ov-spec.md` §"Indexed
   payload format"
 - Upsert via `viking_add_text` with **isolated target_dir**:
   `viking://resources/compendium-test/<vault-subdir>/`
@@ -92,7 +92,7 @@ implementation plan). For Phase 2 to run, the skill must:
 This is the agent-side test: given a "find our work related to X"
 prompt, does the workflow return the right markdown content?
 
-**Workflow under test (from `COMPENDIUM_OV_SPEC.md` §"Search workflow"):**
+**Workflow under test (from `compendium-ov-spec.md` §"Search workflow"):**
 
 1. `viking_find(query, scope="compendium-test")`
 2. Parse `[ov_mode: pointer]` header in each hit
@@ -106,42 +106,42 @@ human tester (or a sandbox session) with the workflow above.
 
 **Direct-match probes** (sanity — must work):
 
-| Query | Expected behavior |
-|---|---|
-| "show me work on session expiry" | Top hit is the auth/session entry; agent reads its markdown |
+| Query                                 | Expected behavior                                                                 |
+| ------------------------------------- | --------------------------------------------------------------------------------- |
+| "show me work on session expiry"      | Top hit is the auth/session entry; agent reads its markdown                       |
 | "find the duplicate row creation bug" | Surfaces the BUG entry on duplicate creation (not the IDEA/TASK on similar topic) |
-| "what's the deployment runbook" | Surfaces the relevant INFO or RUNBOOK entry |
+| "what's the deployment runbook"       | Surfaces the relevant INFO or RUNBOOK entry                                       |
 
 **Synonym probes** (semantic > keyword):
 
-| Query | Expected behavior |
-|---|---|
+| Query                         | Expected behavior                                                                         |
+| ----------------------------- | ----------------------------------------------------------------------------------------- |
 | "credential rolling strategy" | Should surface the entry actually titled "auth token rotation" (synonym pair from prompt) |
-| "ETL race condition" | Should find pipeline race-condition entries even if they don't say "ETL" |
+| "ETL race condition"          | Should find pipeline race-condition entries even if they don't say "ETL"                  |
 
 **Disambiguation probes** (near-duplicates):
 
-| Query | Expected behavior |
-|---|---|
-| Run trap pair query A → returns both near-duplicates → agent reads both and notes the difference | Verifies that pointer payload's headings + TL;DR carry enough signal to differentiate |
-| Run trap pair query B (keyword trap: "deletion") → returns the destructive-op AND cleanup entries | Verifies semantic ranking handles polysemy |
+| Query                                                                                             | Expected behavior                                                                     |
+| ------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| Run trap pair query A → returns both near-duplicates → agent reads both and notes the difference  | Verifies that pointer payload's headings + TL;DR carry enough signal to differentiate |
+| Run trap pair query B (keyword trap: "deletion") → returns the destructive-op AND cleanup entries | Verifies semantic ranking handles polysemy                                            |
 
 **Cross-type probes:**
 
-| Query | Expected behavior |
-|---|---|
+| Query                                                          | Expected behavior                                    |
+| -------------------------------------------------------------- | ---------------------------------------------------- |
 | Pick the topic that appears across IDEA + BUG + TASK + PROJECT | All four surface; agent presents the cross-type view |
 
 **Exclusion probes:**
 
-| Query | Expected behavior |
-|---|---|
+| Query                                                     | Expected behavior                              |
+| --------------------------------------------------------- | ---------------------------------------------- |
 | Topic where entries with `ov_mode: none` should be hidden | None of the excluded entries appear in results |
 
 **Negative-space probes:**
 
-| Query | Expected behavior |
-|---|---|
+| Query                                            | Expected behavior                                                                           |
+| ------------------------------------------------ | ------------------------------------------------------------------------------------------- |
 | Query a thematic cluster missing from the corpus | Returns weak / zero hits — agent reports "nothing strongly related" rather than fabricating |
 
 ### Pass criteria
@@ -158,11 +158,11 @@ human tester (or a sandbox session) with the workflow above.
 
 Capture for each query in Phase 3:
 
-| Metric | How to measure |
-|---|---|
-| OV chunk tokens returned | Length of `viking_find` response body |
-| Markdown file tokens read | Size of the Read call output |
-| Total tokens consumed for the answer | Sum of above |
+| Metric                               | How to measure                        |
+| ------------------------------------ | ------------------------------------- |
+| OV chunk tokens returned             | Length of `viking_find` response body |
+| Markdown file tokens read            | Size of the Read call output          |
+| Total tokens consumed for the answer | Sum of above                          |
 
 **Comparison baseline:** for the same query, simulate the
 "no-OV" path — `grep` for likely keywords across the worktree,
@@ -214,7 +214,7 @@ future prototypes).
    or do we need section first-sentences too?
 2. How often does the agent need to Read the full markdown vs answering
    from the OV chunk alone? If <30%, the payload is over-rich; if
-   >80%, OV is doing very little work.
+   > 80%, OV is doing very little work.
 3. Does the `[ov_mode: pointer]` header convention parse cleanly in
    practice, or does it need a more structured format (JSON frontmatter)?
 4. Are 6 entry types too many for stable ranking, or does the

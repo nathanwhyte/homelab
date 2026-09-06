@@ -127,7 +127,7 @@ mig:
 driver:
   # BUG-1102 — the NVIDIA driver is installed on the HOST with dkms, not managed
   # by the operator. Do not flip this back to true without reading
-  # gpu/nvidia/HOST-DRIVER-MIGRATION.md first.
+  # gpu/nvidia/host-driver-migration.md first.
   #
   # The operator rebuilt the kernel module from Canonical's archive on every
   # driver container start, with no host driver and no dkms to fall back on. When

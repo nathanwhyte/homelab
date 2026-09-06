@@ -13,14 +13,14 @@ and so the first thing to exercise the outage.
 
 What the restore actually required, beyond re-applying the manifests:
 
-| Step | Detail |
-| ---- | ------ |
-| Auth audit | `build-hook` PR #2 / BUG-1088 — no bypass found; fixed three fail-quietly and timing defects |
-| Token rotation | All five tokens in `bearer-tokens-secret` replaced, plus the `BEARER_TOKEN` Actions secret in each of the four consuming repos |
-| **Registry permissions** | `robot$builder` had **pull-only** on `build-hook/api` — see below |
-| Image | Rebuilt from the hardened source and **pinned by digest** `sha256:95b9213f…`, closing the IMPR-1023 gap; it ran `:latest` throughout its previous life |
-| Public route | `hook.nathanwhyte.dev` on the **cluster-wide** tunnel, plus a proxied CNAME. The dedicated `tunnel` Deployment was deleted from `build-hook.yaml` |
-| Consumers | Workflows in all four repos repointed off `build.nathanwhyte.dev` (PRs, unmerged — merging one triggers that service's first automated deploy since March) |
+| Step                     | Detail                                                                                                                                                     |
+| ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Auth audit               | `build-hook` PR #2 / BUG-1088 — no bypass found; fixed three fail-quietly and timing defects                                                               |
+| Token rotation           | All five tokens in `bearer-tokens-secret` replaced, plus the `BEARER_TOKEN` Actions secret in each of the four consuming repos                             |
+| **Registry permissions** | `robot$builder` had **pull-only** on `build-hook/api` — see below                                                                                          |
+| Image                    | Rebuilt from the hardened source and **pinned by digest** `sha256:95b9213f…`, closing the IMPR-1023 gap; it ran `:latest` throughout its previous life     |
+| Public route             | `hook.nathanwhyte.dev` on the **cluster-wide** tunnel, plus a proxied CNAME. The dedicated `tunnel` Deployment was deleted from `build-hook.yaml`          |
+| Consumers                | Workflows in all four repos repointed off `build.nathanwhyte.dev` (PRs, unmerged — merging one triggers that service's first automated deploy since March) |
 
 ### The pipeline never worked
 
@@ -34,7 +34,7 @@ and `build-hook-pusher` (2026-08-26, created for this restore). There is no
 `create robot` event for `builder` in the audit log and no `delete robot` event
 either.
 
-It *appeared* to authenticate because every Harbor project here is **public**,
+It _appeared_ to authenticate because every Harbor project here is **public**,
 so the token service grants `pull` to anyone. Anonymous requests, the
 `robot$builder` credential, and outright nonsense credentials all received
 byte-identical `['pull']` grants. The credential was never validated; it was
@@ -43,10 +43,10 @@ being ignored.
 **The audit log settles what actually happened.** Across its full 418-entry
 history from 2026-03-15:
 
-| Account | Pushes | First | Last |
-| ------- | -----: | ----- | ---- |
-| `admin` | 108 | 2026-03-15 | 2026-07-06 |
-| `robot$claude` | 6 | 2026-08-26 | 2026-08-26 |
+| Account        | Pushes | First      | Last       |
+| -------------- | -----: | ---------- | ---------- |
+| `admin`        |    108 | 2026-03-15 | 2026-07-06 |
+| `robot$claude` |      6 | 2026-08-26 | 2026-08-26 |
 
 `robot$builder` has no push, no login, no event of any kind. `admin` is the
 only account that has ever logged in. **Every image in these repositories was
@@ -154,4 +154,4 @@ never audited.
 
 - INFO-1120 — Cloudflare tunnel topology and consolidation history
 - IMPR-1028 — repo-vs-live drift reconciliation, which surfaced this
-- `harbor/HARBOR.md` — the registry these images were pushed to
+- `harbor/harbor.md` — the registry these images were pushed to

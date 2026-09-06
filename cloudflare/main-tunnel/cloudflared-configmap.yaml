@@ -76,7 +76,7 @@ data:
       - hostname: files.nathanwhyte.dev
         service: http://copyparty.copyparty.svc.cluster.local:80
       # build-hook CI webhook endpoint. Restored 2026-08-26 after retirement on
-      # 2026-07-20 (build/HISTORY.md). Deliberately routed through THIS
+      # 2026-07-20 (build/history.md). Deliberately routed through THIS
       # cluster-wide tunnel rather than the dedicated `build` tunnel it used to
       # have — that tunnel (a11f180d) was deleted in the 2026-03-28
       # consolidation, and nothing repointed the endpoint, which is what caused

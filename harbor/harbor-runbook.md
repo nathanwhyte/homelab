@@ -77,7 +77,7 @@ kubectl describe pvc <name> -n harbor   # look at Events
 # Longhorn auto-replicates; usually a few minutes to reschedule.
 ```
 
-The May 2026 RWX→RWO migration that produced the pre-created `harbor-registry-rwo` and `harbor-jobservice-rwo` claims is documented in `harbor/RWO-MIGRATION.md`. The migration manifests in `harbor/rwo-migrators.yaml` are **frozen paper trail** — do not re-apply.
+The May 2026 RWX→RWO migration that produced the pre-created `harbor-registry-rwo` and `harbor-jobservice-rwo` claims is documented in `harbor/rwo-migration.md`. The migration manifests in `harbor/rwo-migrators.yaml` are **frozen paper trail** — do not re-apply.
 
 ## Probe-timeout patch (chart 1.18.3 AND 1.19.1)
 
@@ -120,7 +120,7 @@ Trivy downloads the vulnerability database on first scan after a restart. ~500 M
 
 GC is run from the web UI: **Administration → Garbage Collection → New**. Schedule it, or click "Run Now". The registry is read-only during execution.
 
-CLI equivalent via `harbor-cli`: `harbor-cli gc list` / `harbor-cli gc create` — see `harbor/HARBOR-CLI.md`.
+CLI equivalent via `harbor-cli`: `harbor-cli gc list` / `harbor-cli gc create` — see `harbor/harbor-cli.md`.
 
 ## Database maintenance
 
@@ -166,15 +166,15 @@ As of 2026-06-10, the in-repo values file intentionally pins them at v2.14.3 (on
 
 ## Common failure modes
 
-| Symptom | Check |
-|---|---|
-| `harbor-core` CrashLoopBackOff after upgrade | Probe-timeout patch not re-applied (see above) |
-| `harbor-registry` stuck Pending | PVC `harbor-registry-rwo` not Bound; check Longhorn replica status |
-| Push fails with 413 / "request entity too large" | Traefik middleware `harbor-no-limit` missing; `kubectl apply -f harbor/harbor-middleware.yaml` |
-| Cert not issuing | `kubectl describe certificate harbor-tls -n harbor`; cert-manager logs; Cloudflare API token present in `cert-manager` namespace |
-| Trivy scans failing | `kubectl logs -n harbor -l component=trivy`; check internet egress |
-| Image pull from another host fails with x509 | Cert rotation; check `kubectl get certificate -n harbor` |
-| Helm upgrade hangs | Check that all `existingClaim` references still resolve to Bound PVCs |
+| Symptom                                          | Check                                                                                                                            |
+| ------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------- |
+| `harbor-core` CrashLoopBackOff after upgrade     | Probe-timeout patch not re-applied (see above)                                                                                   |
+| `harbor-registry` stuck Pending                  | PVC `harbor-registry-rwo` not Bound; check Longhorn replica status                                                               |
+| Push fails with 413 / "request entity too large" | Traefik middleware `harbor-no-limit` missing; `kubectl apply -f harbor/harbor-middleware.yaml`                                   |
+| Cert not issuing                                 | `kubectl describe certificate harbor-tls -n harbor`; cert-manager logs; Cloudflare API token present in `cert-manager` namespace |
+| Trivy scans failing                              | `kubectl logs -n harbor -l component=trivy`; check internet egress                                                               |
+| Image pull from another host fails with x509     | Cert rotation; check `kubectl get certificate -n harbor`                                                                         |
+| Helm upgrade hangs                               | Check that all `existingClaim` references still resolve to Bound PVCs                                                            |
 
 ## Auth: admin password
 
@@ -230,7 +230,7 @@ curl -sS -u "admin:$NEW_PW" "https://registry.nathanwhyte.dev/api/v2.0/users/cur
 1. Update only the K8s Secret via `deploy-harbor.sh --admin-password` (no DB `UPDATE` first).
 2. Let the chart's startup migration hash the new Secret value into the DB row.
 
-That flips the gotcha on its head: the chart *is* the canonical source for the admin password, and the DB `UPDATE` workaround from TASK-050 is only needed when the Secret has drifted to the chart's `<CHANGE_ME>` placeholder. As of this writing the chart's "ensure admin exists" migration (chart 1.19.1) re-hashes on every restart that re-initializes the password field, which means `--admin-password` alone is enough. **Verify after the rotation:**
+That flips the gotcha on its head: the chart _is_ the canonical source for the admin password, and the DB `UPDATE` workaround from TASK-050 is only needed when the Secret has drifted to the chart's `<CHANGE_ME>` placeholder. As of this writing the chart's "ensure admin exists" migration (chart 1.19.1) re-hashes on every restart that re-initializes the password field, which means `--admin-password` alone is enough. **Verify after the rotation:**
 
 ```bash
 # After deploy-harbor.sh --admin-password $NEW_PW
@@ -243,7 +243,7 @@ If they don't match, the migration didn't run (or ran before the Secret update l
 
 ### Public pull — implications
 
-Because the distribution layer issues valid pull tokens to anyone for public projects, **any image pushed to a public project on `registry.nathanwhyte.dev` is world-readable**. As of 2026-06-11, all 9 projects (`build-hook`, `coach`, `equal-risk`, `glossary`, `homelab`, `library`, `portfolio`, `robots`, `viking`) are public. This was the **intended** design (see `HARBOR.md` "Project creation: Open... public pull is anonymous, push always requires auth"), but worth being explicit about:
+Because the distribution layer issues valid pull tokens to anyone for public projects, **any image pushed to a public project on `registry.nathanwhyte.dev` is world-readable**. As of 2026-06-11, all 9 projects (`build-hook`, `coach`, `equal-risk`, `glossary`, `homelab`, `library`, `portfolio`, `robots`, `viking`) are public. This was the **intended** design (see `harbor.md` "Project creation: Open... public pull is anonymous, push always requires auth"), but worth being explicit about:
 
 - Don't push secrets, internal configs, or proprietary code to a project that's public
 - The credit-coach source repo is private on GitHub; the corresponding Harbor project `coach` is also public — verify that's still your intent before pushing new images
@@ -334,8 +334,8 @@ Unlike `HARBOR_ADMIN_PASSWORD` (which only writes the DB on first install), `sec
 
 ## See also
 
-- `harbor/HARBOR.md` — one-page index
-- `harbor/HARBOR-CLI.md` — `harbor-cli` workflows
-- `harbor/RWO-MIGRATION.md` — May 2026 RWX→RWO migration runbook (frozen)
+- `harbor/harbor.md` — one-page index
+- `harbor/harbor-cli.md` — `harbor-cli` workflows
+- `harbor/rwo-migration.md` — May 2026 RWX→RWO migration runbook (frozen)
 - `harbor/deploy-harbor.sh` — install / upgrade
 - `~/code/archive/personal-compendium/docs/plans/2026-06-10-IDEA-021-harbor-refresh-and-upgrade.md` — 2.15.1 upgrade plan (archived)
