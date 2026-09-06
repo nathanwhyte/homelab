@@ -2,6 +2,9 @@
 # Cloudflare is currently the source of truth; the token connector does not
 # consume this file. Keep it with the connector so a fresh clone contains the
 # routing needed to recreate the tunnel deliberately.
+# Reference only: applying it creates an inert ConfigMap that nothing reads.
+# Do not apply it expecting to change routing; edit the tunnel in Cloudflare
+# and then update this record to match.
 apiVersion: v1
 kind: ConfigMap
 metadata:

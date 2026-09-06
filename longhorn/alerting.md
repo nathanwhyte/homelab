@@ -14,11 +14,13 @@ bash /path/to/homelab/longhorn/deploy-storage-alerts.sh --dry-run
 bash /path/to/homelab/longhorn/deploy-storage-alerts.sh
 ```
 
-This applies the monitor, rules and storage AlertmanagerConfig, then patches
-`prom-alertmanager`'s matcher strategy to
+This applies the monitor, rules and storage AlertmanagerConfig, then re-asserts
+`prom-alertmanager`'s matcher strategy as
 `OnNamespaceExceptForAlertmanagerNamespace`. It performs no Helm operations.
-The same strategy is recorded in the stack's Helm values, and the Grafana
-deploy script calls this script after installing the monitoring CRDs.
+The strategy is already set in the stack's Helm values, so the patch is an
+idempotent safety net for clusters where the values have not been re-applied,
+not a new requirement. The Grafana deploy script calls this script after
+installing the monitoring CRDs.
 
 The routing object lives in `grafana` so it can reference the existing
 `alertmanager-slack-webhook` Secret's `api-url` key. It matches
@@ -57,19 +59,19 @@ four intentionally detached volumes. Native metrics carry `pvc_namespace` and
 
 ## Signals and thresholds
 
-| Alert | Signal | Hold |
-| --- | --- | --- |
-| LonghornVolumeFaulted | `longhorn_volume_robustness{state="faulted"} == 1` | Immediate |
-| LonghornVolumeDegraded | Labeled degraded robustness | 15m |
-| LonghornVolumeSpaceHigh | Actual replica bytes / configured bytes > 85% | 15m |
-| LonghornReplicaFailed | Replica state `error` | 5m |
-| LonghornVolumeRebuildChurn | Six changes in rebuilding replica count in 30m | Immediate |
-| LonghornEngineStateChurn | Four changes in engine running state in 30m | Immediate |
-| LonghornInstanceManagerRestarting | At least three container restarts in 30m | Immediate |
-| LonghornMetricsUnavailable | Successful targets fewer than desired manager pods | 5m |
-| StoragePodNotReady | Pending/Running PVC-backed pod not Ready | 15m |
-| StoragePVCNotBound | Claim Pending or Lost | 10m |
-| StorageContainerRestarting | PVC-backed container restarts at least three times in 30m | Immediate |
+| Alert                             | Signal                                                    | Hold      |
+| --------------------------------- | --------------------------------------------------------- | --------- |
+| LonghornVolumeFaulted             | `longhorn_volume_robustness{state="faulted"} == 1`        | Immediate |
+| LonghornVolumeDegraded            | Labeled degraded robustness                               | 15m       |
+| LonghornVolumeSpaceHigh           | Actual replica bytes / configured bytes > 85%             | 15m       |
+| LonghornReplicaFailed             | Replica state `error`                                     | 5m        |
+| LonghornVolumeRebuildChurn        | Six changes in rebuilding replica count in 30m            | Immediate |
+| LonghornEngineStateChurn          | Four changes in engine running state in 30m               | Immediate |
+| LonghornInstanceManagerRestarting | At least three container restarts in 30m                  | Immediate |
+| LonghornMetricsUnavailable        | Successful targets fewer than desired manager pods        | 5m        |
+| StoragePodNotReady                | Pending/Running PVC-backed pod not Ready                  | 15m       |
+| StoragePVCNotBound                | Claim Pending or Lost                                     | 10m       |
+| StorageContainerRestarting        | PVC-backed container restarts at least three times in 30m | Immediate |
 
 The 15-minute degradation hold is an initial threshold, not a measured rebuild
 SLO. A routine node reboot and rebuild must still be observed before calling the

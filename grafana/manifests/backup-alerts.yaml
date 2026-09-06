@@ -68,8 +68,8 @@ spec:
             description: "The newest R2 backup object for {{ $labels.app }} is older than 2x its declared interval. Either the backup job is failing (BUG-1014) or there is no backup job at all (BUG-1086). Check the freshness exporter and the backup CronJob."
         - alert: BackupFreshnessExporterDown
           expr: |
-            (max(backup_freshness_up{namespace="grafana", job="backup-freshness-exporter"}) == 0)
-            or (max(up{namespace="grafana", job="backup-freshness-exporter"}) == 0)
+            (max by (namespace, job) (backup_freshness_up{namespace="grafana", job="backup-freshness-exporter"}) == 0)
+            or (max by (namespace, job) (up{namespace="grafana", job="backup-freshness-exporter"}) == 0)
             or absent(up{namespace="grafana", job="backup-freshness-exporter"})
             or absent(backup_freshness_up{namespace="grafana", job="backup-freshness-exporter"})
           for: 30m

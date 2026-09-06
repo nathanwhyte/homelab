@@ -58,7 +58,7 @@ tests:
       - eval_time: 31m
         alertname: BackupFreshnessExporterDown
         exp_alerts:
-          - exp_labels: {severity: warning, alertgroup: backup}
+          - exp_labels: {namespace: grafana, job: backup-freshness-exporter, severity: warning, alertgroup: backup}
             exp_annotations:
               summary: Backup freshness exporter is failing
               description: The exporter cannot list R2, cannot be scraped, or has no scrape target. Check grafana/backup-freshness-exporter, its ServiceMonitor and R2 credentials. Freshness coverage is unavailable.

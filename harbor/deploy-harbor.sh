@@ -117,9 +117,10 @@ fi
 # placeholder and silently overwrites whatever the operator rotated it to.
 # See harbor/HARBOR-RUNBOOK.md § "Auth: admin password" for the algorithm,
 # reset procedure, and the "DB and Secret can drift" gotcha this gate exists
-# to prevent. The --diff preflight path is intentionally exempt (it should
-# work against unmodified values without a password).
-if [ "$HELM_DIFF" -eq 0 ] && [ -z "$ADMIN_PASSWORD" ]; then
+# to prevent. The --diff and --dry-run preflight paths are intentionally
+# exempt (they should work against unmodified values without a password);
+# both exit above, so only real deploys reach this gate.
+if [ -z "$ADMIN_PASSWORD" ]; then
 	cat >&2 <<EOF
 ERROR: --admin-password (or \$HARBOR_ADMIN_PASSWORD) is required.
 

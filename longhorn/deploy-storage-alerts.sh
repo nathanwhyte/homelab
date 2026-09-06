@@ -21,7 +21,8 @@ fi
 kubectl apply "${dry_run[@]}" -f "$LONGHORN_DIR/servicemonitor.yaml"
 kubectl apply "${dry_run[@]}" -f "$LONGHORN_DIR/alerts.yaml"
 kubectl apply "${dry_run[@]}" -f "$GRAFANA_DIR/manifests/storage-alert-routing.yaml"
-# Match the Helm values, preserving namespace isolation outside grafana.
+# Re-assert the strategy already set in the Helm values (idempotent merge
+# patch), preserving namespace isolation outside grafana.
 kubectl -n grafana patch alertmanager prom-alertmanager --type=merge \
 	"${dry_run[@]}" \
 	-p '{"spec":{"alertmanagerConfigMatcherStrategy":{"type":"OnNamespaceExceptForAlertmanagerNamespace"}}}'
