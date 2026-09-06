@@ -29,6 +29,15 @@ exports `+Inf` and fires the freshness alert — this is what catches BUG-1086.
 > The exact R2 prefixes must match the upload target of each database's backup
 > job. Confirm them against the actual backup CronJobs before relying on this
 > list — the list is the contract, the prefixes are the wiring.
+>
+> **Reviewer note — verify R2 via the Cloudflare MCP.** The `DECLARED` prefixes
+> and the R2 bucket name are asserted, not confirmed (this lane had no cluster
+> or R2 access). Before merge, use the `cloudflare-api` MCP server to list the
+> R2 bucket and confirm (a) the bucket name and (b) the object key prefixes
+> match what the backup CronJobs actually upload. The exporter's `rclone
+> lsjson r2:<prefix>` will silently report `+Inf` (and fire a false freshness
+> alert) if the prefix is wrong, so this is a correctness check, not a
+> formality.
 
 Other backup targets exist but are **not** in this declared list yet:
 
