@@ -7,7 +7,7 @@
 
 ## Build command
 
-```
+```bash
 docker buildx build --builder=desktop-linux --platform=linux/amd64 \
   -t yt-dlp-crossbuild-test media/yt-dlp/docker/
 ```
@@ -41,7 +41,7 @@ the dropped-deps list does not break the build:
 
 Net: the "dropped" Python deps (mutagen, pycryptodome, certifi) are still
 present in the image because `yt-dlp[default]` declares them as extras. The
-drop only removed the *explicit* individual `pip install` lines, not the
+drop only removed the _explicit_ individual `pip install` lines, not the
 packages themselves. This is a documentation nuance, not a build failure.
 
 ## Build detail

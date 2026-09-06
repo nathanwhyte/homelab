@@ -9,9 +9,11 @@
 #     list of databases catches a missing job.
 #
 # SECONDARY (backup.job.rules): kube-state-metrics signals on the backup
-# CronJobs themselves. Cheap and fast, but blind to a missing CronJob. Scoped
-# by the `backup: "true"` label — backup CronJobs must carry it (see
-# grafana/backup-alerts.md).
+# CronJobs themselves. Cheap and fast, but blind to a missing CronJob. Matched
+# by name (`cronjob="postgres-backup"` / `job_name=~"postgres-backup-.*"`):
+# kube-state-metrics does not expose Kubernetes labels on status series
+# unless `metricLabelsAllowlist` is configured (it is not), so a
+# `{backup="true"}` matcher would silently match nothing.
 #
 # PRIMARY (backup.freshness.rules): a freshness gauge exported by
 # grafana/backup-freshness-exporter.py, which lists R2 objects for each
@@ -30,23 +32,29 @@ spec:
     - name: backup.job.rules
       rules:
         - alert: BackupCronJobFailed
-          expr: kube_job_status_failed{backup="true"} == 1
+          # Failed Jobs are retained by failedJobsHistoryLimit, so without the
+          # start-time window a 10-day-old failure that has since recovered
+          # would fire forever. Scope to Jobs started in the last 24h.
+          expr: |
+            (kube_job_status_failed{job_name=~"postgres-backup-.*"} > 0)
+              and on (namespace, job_name)
+            (time() - kube_job_status_start_time < 86400)
           for: 5m
           labels:
             severity: critical
             alertgroup: backup
           annotations:
-            summary: "Backup job {{ $labels.job }} failed in {{ $labels.namespace }}"
-            description: "A backup Job has failed (kube_job_status_failed == 1). Check `kubectl -n {{ $labels.namespace }} describe job {{ $labels.job }}` and the pod logs. This is the BUG-1014 signature: pg_dump succeeded but the upload step failed."
+            summary: "Backup job {{ $labels.job_name }} failed in {{ $labels.namespace }}"
+            description: "A backup Job started in the last 24h has failed ({{ $labels.reason }}). Check `kubectl -n {{ $labels.namespace }} describe job {{ $labels.job_name }}` and the pod logs. This is the BUG-1014 signature: pg_dump succeeded but the upload step failed."
         - alert: BackupCronJobLastSuccessStale
-          expr: time() - kube_cronjob_status_last_successful_time{backup="true"} > 172800
+          expr: time() - kube_cronjob_status_last_successful_time{cronjob="postgres-backup"} > 172800
           for: 1h
           labels:
             severity: critical
             alertgroup: backup
           annotations:
-            summary: "Backup CronJob {{ $labels.cronjob }} has not succeeded in 2 days"
-            description: "kube_cronjob_status_last_successful_time is more than 48h old (or 0 — never succeeded). The backup is silently failing or suspended. Check the CronJob's job history: `kubectl -n {{ $labels.namespace }} get jobs`."
+            summary: "Backup CronJob {{ $labels.cronjob }} in {{ $labels.namespace }} has not succeeded in 2 days"
+            description: "kube_cronjob_status_last_successful_time is more than 48h old. The backup is silently failing or suspended. Check the CronJob's job history: `kubectl -n {{ $labels.namespace }} get jobs`."
     - name: backup.freshness.rules
       rules:
         - alert: BackupFreshnessStale
@@ -66,7 +74,7 @@ spec:
             alertgroup: backup
           annotations:
             summary: "Backup freshness exporter is failing"
-            description: "backup_freshness_up == 0 — the freshness exporter could not list R2 objects (rclone missing, R2 credentials broken, or network). The freshness alerts are flying blind while this fires."
+            description: "backup_freshness_up == 0 — the freshness exporter could not list R2 objects (rclone missing, R2 credentials broken, or network). The per-app freshness series are withheld while this fires, so BackupFreshnessStale stays quiet; the freshness alerts are flying blind."
         - alert: BackupFreshnessExporterStale
           expr: time() - backup_freshness_last_run_timestamp_seconds > 43200
           for: 1h
