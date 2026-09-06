@@ -1,6 +1,6 @@
 # build-hook: webhook-driven CI image builder
 #
-# Retired 2026-07-20, RESTORED 2026-08-26. See HISTORY.md for the full history.
+# Retired 2026-07-20, RESTORED 2026-08-26. See history.md for the full history.
 #
 # `hook` receives authenticated webhook calls, builds images with buildkitd
 # (build/buildkitd.yaml), pushes them to registry.nathanwhyte.dev, and restarts

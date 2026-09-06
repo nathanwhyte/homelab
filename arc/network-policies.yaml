@@ -46,7 +46,7 @@ spec:
               - 169.254.0.0/16
     # Model-in-the-loop CI (the IDEA-1094 LAN win) is an explicit opt-in, not a
     # default: uncomment to let jobs reach timmy's Ollama, and keep such jobs
-    # serialized (one-local-model-consumer rule — see ARC.md).
+    # serialized (one-local-model-consumer rule — see arc.md).
     # - to:
     #     - ipBlock:
     #         cidr: 192.168.1.19/32

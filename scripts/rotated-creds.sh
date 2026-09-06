@@ -59,7 +59,7 @@ umask 077
 
 {
 	printf 'Rotated cluster credentials — generated %s\n\n' "$DATE"
-	printf 'Source: TASK-050 follow-up sweep (homelab/HARBOR-RUNBOOK.md,\n'
+	printf 'Source: TASK-050 follow-up sweep (homelab/harbor-runbook.md,\n'
 	printf '        homelab/grafana/reset-admin-password.sh)\n\n'
 
 	printf '== Harbor ==\n'
@@ -121,7 +121,7 @@ umask 077
 	echo '        "value":"<base64-of-new-pw>"}]'\'''
 	echo '  and restart the deployment.'
 	printf -- '- secretKey is safe to rotate again at any time (signing-key\n'
-	printf '  invalidation only). Procedure is in harbor/HARBOR-RUNBOOK.md\n'
+	printf '  invalidation only). Procedure is in harbor/harbor-runbook.md\n'
 	printf '  § "Auth: secretKey".\n\n'
 
 	printf 'Delete this file after uploading:\n'

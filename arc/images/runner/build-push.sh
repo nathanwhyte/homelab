@@ -6,7 +6,7 @@
 # all three cluster nodes are amd64. Requires a prior
 # `docker login registry.nathanwhyte.dev` with an account that can push to the
 # `ci` project (create the project + a robot account in the Harbor UI first;
-# see ../../ARC.md).
+# see ../../arc.md).
 
 set -euo pipefail
 

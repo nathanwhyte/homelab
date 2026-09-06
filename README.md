@@ -53,7 +53,7 @@ Container image registry with a nice web interface.
 
 - Deployed using [Harbor's official helm chart](https://github.com/goharbor/harbor-helm)
 - Public image repositories for images used in the cluster.
-- Read more in the Harbor [README](./harbor/HARBOR.md).
+- Read more in the Harbor [README](./harbor/harbor.md).
 
 ### OpenWebUI
 
@@ -104,7 +104,7 @@ Hierarchical RAG engine with auto-generated L0/L1/L2 semantic indices over a fil
 - S3-backed file storage (Garage), HTTP vector DB, embedder on timmy (RX 9070 XT, ROCm, since 2026-07-06), cloud VLM primary via chat-ollama (manu CUDA as failover since 2026-07-05)
 - API + web console at `context.nathanwhyte.dev` (console at `/studio/`, root-key login; the old `viking.nathanwhyte.dev` ov-console was removed)
 - Endpoint tiers: in-cluster `openviking.viking.svc:1933` · LAN `192.168.1.19:31933` · Tailscale `100.95.215.105:31933` · public `context.nathanwhyte.dev` (Cloudflare tunnel)
-- Read more in [`viking/OPENVIKING.md`](./viking/OPENVIKING.md).
+- Read more in [`viking/openviking.md`](./viking/openviking.md).
 
 ### Tailscale
 

@@ -10,31 +10,31 @@ NVIDIA_GPU_DIR="${NVIDIA_GPU_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}
 NAMESPACE="gpu-operator"
 
 if [ ! -x "$(command -v "kubectl")" ]; then
-  echo "kubectl not installed."
-  exit 1
+	echo "kubectl not installed."
+	exit 1
 fi
 
 if ! kubectl cluster-info >/dev/null 2>&1; then
-  echo "kubectl not connected to a cluster."
-  exit 1
+	echo "kubectl not connected to a cluster."
+	exit 1
 fi
 
 if [ ! -x "$(command -v "helm")" ]; then
-  echo "helm not installed."
-  exit 1
+	echo "helm not installed."
+	exit 1
 fi
 
 if [ ! -f "$NVIDIA_GPU_DIR/values.yaml" ]; then
-  echo "values.yaml not found!"
-  exit 1
+	echo "values.yaml not found!"
+	exit 1
 fi
 
 # Check that GPU nodes have expected labels
 for node in manu wemby; do
-  if ! kubectl get node "$node" --show-labels 2>/dev/null | grep -q "gpu.vendor=nvidia"; then
-    echo "WARNING: Node '$node' does not have label gpu.vendor=nvidia"
-    echo "  kubectl label node $node gpu=true gpu.vendor=nvidia"
-  fi
+	if ! kubectl get node "$node" --show-labels 2>/dev/null | grep -q "gpu.vendor=nvidia"; then
+		echo "WARNING: Node '$node' does not have label gpu.vendor=nvidia"
+		echo "  kubectl label node $node gpu=true gpu.vendor=nvidia"
+	fi
 done
 
 echo "Updating helm repositories..."
@@ -47,10 +47,10 @@ echo -e "\nDeploying NVIDIA GPU Operator..."
 # secret was purged 2026-07-06. Live resources are annotated to this name, so a
 # plain "gpu-operator" release here would collide with ownership metadata.
 helm upgrade --install gpu-operator-1774050554 nvidia/gpu-operator \
-  --version v26.3.3 \
-  --create-namespace \
-  --namespace "$NAMESPACE" \
-  -f "$NVIDIA_GPU_DIR/values.yaml"
+	--version v26.3.3 \
+	--create-namespace \
+	--namespace "$NAMESPACE" \
+	-f "$NVIDIA_GPU_DIR/values.yaml"
 
 echo -e "\nWaiting for GPU operator rollout..."
 kubectl rollout status deployment/gpu-operator -n "$NAMESPACE" --timeout=180s || true
@@ -70,4 +70,4 @@ echo ""
 echo "Driver is host-installed via dkms (BUG-1102) — the operator no longer manages"
 echo "it. If a node reports nvidia.com/gpu: 0, check the HOST first:"
 echo "  ssh <node> 'dkms status; nvidia-smi; modinfo nvidia | head -2'"
-echo "See gpu/nvidia/HOST-DRIVER-MIGRATION.md."
+echo "See gpu/nvidia/host-driver-migration.md."

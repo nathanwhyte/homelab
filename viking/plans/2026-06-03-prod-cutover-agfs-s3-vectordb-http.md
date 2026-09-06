@@ -24,19 +24,19 @@ a follow-up).
 
 ## Current state (verified 2026-06-03 17:12 CDT)
 
-| Component | State | Notes |
-|---|---|---|
-| `openviking` Deployment | 1/1 on timmy, healthy, 24d uptime | Single-instance, Recreate strategy |
-| `openviking-standalone-config` | `agfs: local`, `vectordb: local`, `server.workers: 1`, `vlm.max_concurrent: 1`, `embedding.max_concurrent: 1` | The config the Deployment uses |
-| `openviking-config` | `agfs: s3` (Garage `openviking-agfs`), `vectordb: local` | The experimental config; was used for the 2026-06-03 partial cutover. Not referenced by the active Deployment. |
-| `openviking-data` PVC | 10Gi, 93Mi used, contains `viking/default/resources/{compendium,bugs,homelab,dipdash,dotfiles,personal-compendium}` and `viking/_system` | Longhorn SSD, single replica |
-| `ov-vectordb` Deployment | 0/0 (scaled to 0 after 2026-06-03 rollback) | Image `ghcr.io/volcengine/openviking:v0.3.14`, command `python -m openviking.storage.vectordb.service.server_fastapi`, `VIKINGDB_PERSIST_PATH=/data/vikingdb` |
-| `ov-vectordb-data` PVC | 10Gi, bound | Was empty after the 2026-06-03 cleanup |
-| `openviking-s3-credentials` secret | exists, owner: openviking Deployment | Required by the config-rewrite init container when `agfs.backend: s3` |
-| `openviking-agfs` S3 bucket | exists, ID `10b909dc265b2913`, created 2026-05-07 | Used by the experimental config; empty on the cutover path because we're wiping everything |
-| Test stack (`openviking-test`, `ov-vectordb-test`, `openviking-agfs-test` bucket) | all running (68min uptime) | To be torn down in Phase 0 |
-| `viking/tools/index-homelab.py` and `viking/tools/index-projects.py` | `temp_path` → `temp_file_id` already fixed in commit `ba59efd` | Will be used by the follow-up sync, not this plan |
-| Production search | working (10 results for "GPU fan control") | Goes offline during the cutover window |
+| Component                                                                         | State                                                                                                                                    | Notes                                                                                                                                                         |
+| --------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `openviking` Deployment                                                           | 1/1 on timmy, healthy, 24d uptime                                                                                                        | Single-instance, Recreate strategy                                                                                                                            |
+| `openviking-standalone-config`                                                    | `agfs: local`, `vectordb: local`, `server.workers: 1`, `vlm.max_concurrent: 1`, `embedding.max_concurrent: 1`                            | The config the Deployment uses                                                                                                                                |
+| `openviking-config`                                                               | `agfs: s3` (Garage `openviking-agfs`), `vectordb: local`                                                                                 | The experimental config; was used for the 2026-06-03 partial cutover. Not referenced by the active Deployment.                                                |
+| `openviking-data` PVC                                                             | 10Gi, 93Mi used, contains `viking/default/resources/{compendium,bugs,homelab,dipdash,dotfiles,personal-compendium}` and `viking/_system` | Longhorn SSD, single replica                                                                                                                                  |
+| `ov-vectordb` Deployment                                                          | 0/0 (scaled to 0 after 2026-06-03 rollback)                                                                                              | Image `ghcr.io/volcengine/openviking:v0.3.14`, command `python -m openviking.storage.vectordb.service.server_fastapi`, `VIKINGDB_PERSIST_PATH=/data/vikingdb` |
+| `ov-vectordb-data` PVC                                                            | 10Gi, bound                                                                                                                              | Was empty after the 2026-06-03 cleanup                                                                                                                        |
+| `openviking-s3-credentials` secret                                                | exists, owner: openviking Deployment                                                                                                     | Required by the config-rewrite init container when `agfs.backend: s3`                                                                                         |
+| `openviking-agfs` S3 bucket                                                       | exists, ID `10b909dc265b2913`, created 2026-05-07                                                                                        | Used by the experimental config; empty on the cutover path because we're wiping everything                                                                    |
+| Test stack (`openviking-test`, `ov-vectordb-test`, `openviking-agfs-test` bucket) | all running (68min uptime)                                                                                                               | To be torn down in Phase 0                                                                                                                                    |
+| `viking/tools/index-homelab.py` and `viking/tools/index-projects.py`              | `temp_path` → `temp_file_id` already fixed in commit `ba59efd`                                                                           | Will be used by the follow-up sync, not this plan                                                                                                             |
+| Production search                                                                 | working (10 results for "GPU fan control")                                                                                               | Goes offline during the cutover window                                                                                                                        |
 
 ## Desired end state
 
@@ -96,8 +96,7 @@ kubectl -n viking get deploy openviking-test ov-vectordb-test
   content. A separate "compendium sync" plan will re-populate the
   knowledge base from the source corpora. Until that runs, search
   returns nothing.
-- **Bumping `vlm.max_concurrent` or `embedding.max_concurrent` from
-  1.** The validation ran at `max_concurrent: 1` and the
+- **Bumping `vlm.max_concurrent` or `embedding.max_concurrent` from 1.** The validation ran at `max_concurrent: 1` and the
   cutover stays at those values. The concurrency bump is a follow-up
   that needs separate load-testing against the embedder on manu
   (CUDA, 8 parallel slots) and the ROCm VLM on timmy.
@@ -222,15 +221,15 @@ kubectl -n garage exec garage-0 -c garage -- /garage bucket list | grep test
 **File:** `viking/manifests/openviking-standalone-configmap.yaml`
 **Changes:** three edits in the `ov.conf` JSON
 
-| Field | Before | After |
-|---|---|---|
-| `storage.agfs.backend` | `"local"` | `"s3"` |
-| `storage.agfs` | `{ "backend": "local" }` | full S3 block (see below) |
-| `storage.vectordb.backend` | `"local"` | `"http"` |
-| `storage.vectordb.url` | (absent) | `"http://ov-vectordb.viking.svc.cluster.local:5000"` |
-| `storage.vectordb.name` | `"context"` | unchanged (the test configmap used `"context-test"` to avoid colliding; prod gets the real collection name) |
-| `storage.vectordb.dimension` | `768` | unchanged |
-| `storage.vectordb` (rest) | (no other fields) | (no other fields; the `http` adapter does not need `host`/`port`; it only needs `url` per the v0.3.14 schema) |
+| Field                        | Before                   | After                                                                                                         |
+| ---------------------------- | ------------------------ | ------------------------------------------------------------------------------------------------------------- |
+| `storage.agfs.backend`       | `"local"`                | `"s3"`                                                                                                        |
+| `storage.agfs`               | `{ "backend": "local" }` | full S3 block (see below)                                                                                     |
+| `storage.vectordb.backend`   | `"local"`                | `"http"`                                                                                                      |
+| `storage.vectordb.url`       | (absent)                 | `"http://ov-vectordb.viking.svc.cluster.local:5000"`                                                          |
+| `storage.vectordb.name`      | `"context"`              | unchanged (the test configmap used `"context-test"` to avoid colliding; prod gets the real collection name)   |
+| `storage.vectordb.dimension` | `768`                    | unchanged                                                                                                     |
+| `storage.vectordb` (rest)    | (no other fields)        | (no other fields; the `http` adapter does not need `host`/`port`; it only needs `url` per the v0.3.14 schema) |
 
 The `storage.agfs.s3` block is identical to what
 `viking/manifests/openviking-configmap.yaml` already has:
@@ -634,17 +633,17 @@ The document describes (in this order):
 2. **Rollback steps** (the inverse of the cutover, in order):
 
    a. Edit `viking/manifests/openviking-standalone-configmap.yaml`:
-      - `storage.agfs.backend: "s3"` → `"local"`
-      - Delete the `storage.agfs.s3` block
-      - `storage.vectordb.backend: "http"` → `"local"`
-      - Delete `storage.vectordb.url`
-   b. `kubectl apply -f viking/manifests/openviking-standalone-configmap.yaml`
-   c. `kubectl -n viking scale deploy ov-vectordb --replicas=0`
-   d. `kubectl -n viking delete pod -l app=openviking`
-   e. Wait for ready, probe `/ready`. (The openviking pod will
-      come back with an empty local AGFS — exactly the same state
-      as if the cutover had been a clean wipe of `local`, which
-      the old data was anyway at 2026-06-03.)
+   - `storage.agfs.backend: "s3"` → `"local"`
+   - Delete the `storage.agfs.s3` block
+   - `storage.vectordb.backend: "http"` → `"local"`
+   - Delete `storage.vectordb.url`
+     b. `kubectl apply -f viking/manifests/openviking-standalone-configmap.yaml`
+     c. `kubectl -n viking scale deploy ov-vectordb --replicas=0`
+     d. `kubectl -n viking delete pod -l app=openviking`
+     e. Wait for ready, probe `/ready`. (The openviking pod will
+     come back with an empty local AGFS — exactly the same state
+     as if the cutover had been a clean wipe of `local`, which
+     the old data was anyway at 2026-06-03.)
 
 3. **What rollback does NOT recover** — the 93Mi of pre-cutover
    content. That data was destroyed in Phase 3 step 3.1. The
@@ -788,15 +787,15 @@ documented, and verifiable.
 These tasks are **deliberately not** in this plan, but they
 become possible / necessary once the cutover is done.
 
-| Task | Why it's a follow-up | Reference |
-|---|---|---|
-| **Sync the compendium into the new openviking** | The 93Mi wipe in Phase 3 means search returns 0. The compendium and the other source corpora need to be re-ingested. | Separate plan, not yet drafted |
-| **Bump `vlm.max_concurrent` and `embedding.max_concurrent` to 4** | The non-prod validation ran at `max_concurrent: 1`; the cutover keeps that. Multi-concurrency is the next unlock. The validation hypothesis (sibling writes don't serialize) holds at any concurrency. | TBD; needs load test against embedder-llamacpp on manu |
-| **Scale up the `ov-worker` StatefulSet** | The 2026-05-07 design doc (`viking/docs/2026-05-07-ov-indexing-perf-design.md`) describes the worker pool. Multi-replica workers with shared `agfs:s3` is now safe. | TBD; depends on the concurrency bump |
-| **Remove the experimental `openviking-config` ConfigMap** | It's the historical record of the 2026-06-03 partial cutover. Once we're confident the cutover is stable for a week, this ConfigMap can be deleted. | Cleanup, not blocking |
-| **Delete the experimental parallel stack** (`ov-coordinator`, `ov-merge`, `ov-worker` Deployments/StatefulSet) | Scaled to 0/0 since 2026-05-09. They were workarounds for `local` VectorDB; the cutover makes them unnecessary. | Cleanup, not blocking |
-| **Update the test plan (`viking/docs/COMPENDIUM_OV_TEST_PLAN.md`)** | The "what we learned" section needs to absorb the 2026-06-03 cutover result. | Documentation |
-| **Bring the GPU design doc up to date** (`viking/docs/2026-05-07-ov-indexing-perf-design.md` and `viking/docs/2026-06-01-openviking-parallelization-cross-reference.md`) | Both were written when the `local` VectorDB was assumed. The conclusions stand but the framing is now "single-instance is fine; we're done with parallelization workarounds." | Documentation |
+| Task                                                                                                                                                                     | Why it's a follow-up                                                                                                                                                                                   | Reference                                              |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------ |
+| **Sync the compendium into the new openviking**                                                                                                                          | The 93Mi wipe in Phase 3 means search returns 0. The compendium and the other source corpora need to be re-ingested.                                                                                   | Separate plan, not yet drafted                         |
+| **Bump `vlm.max_concurrent` and `embedding.max_concurrent` to 4**                                                                                                        | The non-prod validation ran at `max_concurrent: 1`; the cutover keeps that. Multi-concurrency is the next unlock. The validation hypothesis (sibling writes don't serialize) holds at any concurrency. | TBD; needs load test against embedder-llamacpp on manu |
+| **Scale up the `ov-worker` StatefulSet**                                                                                                                                 | The 2026-05-07 design doc (`viking/docs/2026-05-07-ov-indexing-perf-design.md`) describes the worker pool. Multi-replica workers with shared `agfs:s3` is now safe.                                    | TBD; depends on the concurrency bump                   |
+| **Remove the experimental `openviking-config` ConfigMap**                                                                                                                | It's the historical record of the 2026-06-03 partial cutover. Once we're confident the cutover is stable for a week, this ConfigMap can be deleted.                                                    | Cleanup, not blocking                                  |
+| **Delete the experimental parallel stack** (`ov-coordinator`, `ov-merge`, `ov-worker` Deployments/StatefulSet)                                                           | Scaled to 0/0 since 2026-05-09. They were workarounds for `local` VectorDB; the cutover makes them unnecessary.                                                                                        | Cleanup, not blocking                                  |
+| **Update the test plan (`viking/docs/compendium-ov-test-plan.md`)**                                                                                                      | The "what we learned" section needs to absorb the 2026-06-03 cutover result.                                                                                                                           | Documentation                                          |
+| **Bring the GPU design doc up to date** (`viking/docs/2026-05-07-ov-indexing-perf-design.md` and `viking/docs/2026-06-01-openviking-parallelization-cross-reference.md`) | Both were written when the `local` VectorDB was assumed. The conclusions stand but the framing is now "single-instance is fine; we're done with parallelization workarounds."                          | Documentation                                          |
 
 ## References
 
@@ -828,15 +827,15 @@ become possible / necessary once the cutover is done.
 
 ## Risk register
 
-| Risk | Likelihood | Impact | Mitigation |
-|---|---|---|---|
-| ConfigMap syntax error in Phase 2 → pydantic validation fails at pod startup | Low | openviking pod CrashLoopBackOff | Phase 2 pauses for human review; rollback path is one ConfigMap edit |
-| `openviking-agfs` bucket has stale data from a prior run (e.g. the 2026-05-09 migration) | Low | confusion about which content is the "real" content; search returns mixed results | Inspect the bucket with `s3 list_objects_v2` before cutover; if non-empty, decide whether to wipe it (likely yes, given we're wiping the local AGFS too) |
-| `openviking-agfs` S3 credentials are wrong | Low | AGFS connection fails at startup, `/ready` reports `agfs: unreachable` | Confirmed working in the test stack (which uses the same secret and the same endpoint); Phase 3 step 3.4 catches this with a readiness check |
-| ov-vectordb pod takes longer than 120s to become ready | Low | Phase 3 step 3.2 stalls | Longhorn SSD PVCs typically attach in <30s; the 120s timeout is generous; bump to 300s if needed |
-| Rollback path is needed but the data was already wiped | Certain if rollback is needed after Phase 3.1 | the 93Mi of pre-cutover content is gone | Phase 5 step 5.1 documents this and prescribes the Longhorn snapshot for pre-cutover restore |
-| Smoke test in Phase 4 doesn't return any search results within the 5-minute poll | Low | unclear whether the cutover worked | The OV log will show whether the doc is in the semantic queue and whether the VLM/embedding completed. If the doc was committed (`/api/v1/resources` 200) but search returns 0, the VLM queue is just slow — the poll handles up to 5 minutes. If search still returns 0, the embedding pipeline is broken and the cutover has failed in a subtle way. |
-| The test stack is still running in Phase 1 because the cluster has other operators | Low | the tear-down command fails | All test resources have `app: openviking-test` / `app: ov-vectordb-test` labels; `kubectl delete` is scoped to those resources and won't touch production |
+| Risk                                                                                     | Likelihood                                    | Impact                                                                            | Mitigation                                                                                                                                                                                                                                                                                                                                             |
+| ---------------------------------------------------------------------------------------- | --------------------------------------------- | --------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| ConfigMap syntax error in Phase 2 → pydantic validation fails at pod startup             | Low                                           | openviking pod CrashLoopBackOff                                                   | Phase 2 pauses for human review; rollback path is one ConfigMap edit                                                                                                                                                                                                                                                                                   |
+| `openviking-agfs` bucket has stale data from a prior run (e.g. the 2026-05-09 migration) | Low                                           | confusion about which content is the "real" content; search returns mixed results | Inspect the bucket with `s3 list_objects_v2` before cutover; if non-empty, decide whether to wipe it (likely yes, given we're wiping the local AGFS too)                                                                                                                                                                                               |
+| `openviking-agfs` S3 credentials are wrong                                               | Low                                           | AGFS connection fails at startup, `/ready` reports `agfs: unreachable`            | Confirmed working in the test stack (which uses the same secret and the same endpoint); Phase 3 step 3.4 catches this with a readiness check                                                                                                                                                                                                           |
+| ov-vectordb pod takes longer than 120s to become ready                                   | Low                                           | Phase 3 step 3.2 stalls                                                           | Longhorn SSD PVCs typically attach in <30s; the 120s timeout is generous; bump to 300s if needed                                                                                                                                                                                                                                                       |
+| Rollback path is needed but the data was already wiped                                   | Certain if rollback is needed after Phase 3.1 | the 93Mi of pre-cutover content is gone                                           | Phase 5 step 5.1 documents this and prescribes the Longhorn snapshot for pre-cutover restore                                                                                                                                                                                                                                                           |
+| Smoke test in Phase 4 doesn't return any search results within the 5-minute poll         | Low                                           | unclear whether the cutover worked                                                | The OV log will show whether the doc is in the semantic queue and whether the VLM/embedding completed. If the doc was committed (`/api/v1/resources` 200) but search returns 0, the VLM queue is just slow — the poll handles up to 5 minutes. If search still returns 0, the embedding pipeline is broken and the cutover has failed in a subtle way. |
+| The test stack is still running in Phase 1 because the cluster has other operators       | Low                                           | the tear-down command fails                                                       | All test resources have `app: openviking-test` / `app: ov-vectordb-test` labels; `kubectl delete` is scoped to those resources and won't touch production                                                                                                                                                                                              |
 
 ## Implementation note (per the create_plan skill)
 

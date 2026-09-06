@@ -12,7 +12,7 @@
 # co-reside with Ollama (~5 GB embedder incl. KV; bench proved two embedders +
 # Ollama co-resided fine). Backend-invariance validated by TASK-1122: Qwen-4B
 # on this exact 9070 XT reproduced the wemby/Metal numbers exactly (55.9/73.5).
-# See: benchmarks/embedding-retrieval/BENCHMARK.md.
+# See: benchmarks/embedding-retrieval/benchmark.md.
 #
 # ROCm gfx1201 validated: llama/docs/2026-06-28-rocm-gfx1201-validation-baseline.md
 # The `embedder-qwen` Service now lives in embedder-qwen-service.yaml and selects
