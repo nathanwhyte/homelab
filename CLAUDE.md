@@ -157,6 +157,10 @@ Each service folder typically includes:
 - **Scripts**
   - Keep deploy scripts idempotent where possible.
   - Avoid embedding tokens/credentials in scripts; require env vars or pre-created secrets instead.
+- **Markdown filenames**
+  - Nested markdown files are lowercase-kebab (e.g. `longhorn/alerting.md`).
+  - Uppercase/title-case is reserved for: repo-root entry points (`README.md`, `HARDWARE.md`, `GPU_AND_AI_REVIEW.md`, `LICENSE.md`), agent-instruction files matched by basename at any depth (`CLAUDE.md`, `AGENTS.md`), `README.md` anywhere, and the lifecycle markers `TORN-DOWN.md` / `RETIRED.md`.
+  - Vendored trees follow upstream casing.
 
 ## Minimal validation (when making changes)
 
