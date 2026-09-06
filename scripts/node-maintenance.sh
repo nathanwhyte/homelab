@@ -7,7 +7,7 @@
 #
 # Phase 2 (disruptive, one node per invocation — agents first, timmy last):
 #   node-maintenance.sh reboot <node>       preflight → cordon → drain → reboot → uncordon → health gate
-#   node-maintenance.sh reboot <node> --no-reboot   stop after drain (reboot manually, then: finish <node>)
+#   node-maintenance.sh reboot <node> [--no-reboot] [--spin-down] [--override-memory]
 #   node-maintenance.sh finish <node> [previous-boot-id]
 #                                             verify reboot → wait for Ready → uncordon → health gate
 #
@@ -16,12 +16,12 @@
 # kubectl outages. The Longhorn health gate at the end of each cycle must pass
 # before starting the next node, or a later drain can strand the last replica.
 #
-# TODO(memory preflight): draining a node reschedules its workloads onto the
-# others; on 2026-07-20 wemby's drain OOM-froze timmy (Ollama model cache +
-# OpenViking already resident). Before draining, spin down memory-heavy
-# services that can sit out the window (llama/ollama, viking OV + vectordb),
-# and add a preflight comparing the target node's pod memory against
-# allocatable-minus-used headroom on the remaining nodes.
+# Memory preflight (IMPR-1089): draining a node reschedules its workloads onto
+# the others; on 2026-07-20 wemby's drain OOM-froze timmy (Ollama model cache +
+# OpenViking already resident). `reboot` now runs a memory-headroom preflight
+# (blocking unless --override-memory) and, with --spin-down, scales the
+# memory-heavy services (llama/ollama, viking/openviking, viking/ov-vectordb)
+# to 0 before the drain and restores them in `finish`.
 
 set -euo pipefail
 
@@ -48,6 +48,8 @@ STATE_ROOT=${XDG_STATE_HOME:-"$HOME/.local/state"}
 MAINTENANCE_STATE_DIR=$STATE_ROOT/homelab-node-maintenance
 MAINTENANCE_LOCK_DIR=$MAINTENANCE_STATE_DIR/lock
 LOCK_HELD=0
+# Overridable so tests can stub cluster reads/writes without a live cluster.
+KUBECTL=${KUBECTL:-kubectl}
 
 log() { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33mWARN:\033[0m %s\n' "$*"; }
@@ -325,6 +327,185 @@ pdb_preflight() {
 	fi
 }
 
+# --- Memory headroom preflight (IMPR-1089) -----------------------------------
+
+# Convert a Kubernetes memory quantity ("6Gi", "512Mi", "1000") to bytes.
+# Integer quantities only — this cluster's requests are whole Gi/Mi, and a
+# fractional request would be mis-parsed (documented limitation, not silent).
+mem_quantity_to_bytes() {
+	local q=$1 num unit
+	num=${q//[^0-9]/}
+	unit=${q//[0-9]/}
+	case $unit in
+	Ki) printf '%d\n' "$((num * 1024))" ;;
+	Mi) printf '%d\n' "$((num * 1024 * 1024))" ;;
+	Gi) printf '%d\n' "$((num * 1024 * 1024 * 1024))" ;;
+	Ti) printf '%d\n' "$((num * 1024 * 1024 * 1024 * 1024))" ;;
+	'') printf '%d\n' "$num" ;;
+	*) printf '0\n' ;;
+	esac
+}
+
+human_bytes() {
+	local b=$1
+	if ((b >= 1073741824)); then
+		printf '%dGi' "$((b / 1073741824))"
+	elif ((b >= 1048576)); then
+		printf '%dMi' "$((b / 1048576))"
+	elif ((b >= 1024)); then
+		printf '%dKi' "$((b / 1024))"
+	else
+		printf '%dB' "$b"
+	fi
+}
+
+# Pure decision, no cluster access: given the target node's pod memory (bytes)
+# and the remaining nodes' total headroom (bytes), print pass/warn/block.
+#   pass  — rescheduled pods fit comfortably
+#   warn  — they fit but consume most of the headroom (tight)
+#   block — they clearly will not fit
+# MEMORY_HEADROOM_WARN_PCT (default 80) sets the "tight" threshold.
+memory_headroom_verdict() {
+	local target_mem=$1 headroom=$2
+	local warn_pct=${MEMORY_HEADROOM_WARN_PCT:-80}
+	if ((target_mem > headroom)); then
+		printf 'block\n'
+	elif ((target_mem * 100 > headroom * warn_pct)); then
+		printf 'warn\n'
+	else
+		printf 'pass\n'
+	fi
+}
+
+# Sum the memory requests of pods scheduled on a node (bytes). Pods without a
+# request contribute 0 — the scheduler treats them the same way, so this is the
+# conservative scheduling signal (requests, not live usage, decide placement).
+node_pod_memory_bytes() {
+	local node=$1 q quantities total=0
+	quantities=$($KUBECTL get pods -A -o json --field-selector "spec.nodeName=$node" |
+		jq -r '.items[].spec.containers[].resources.requests.memory // "0"') || return 1
+	while IFS= read -r q; do
+		[[ -n $q ]] && total=$((total + $(mem_quantity_to_bytes "$q")))
+	done <<<"$quantities"
+	printf '%d\n' "$total"
+}
+
+# Total allocatable-minus-requested memory headroom across every node except
+# the target (bytes). A node with no allocatable/requested data contributes 0.
+remaining_headroom_bytes() {
+	local node=$1
+	local nodes pods
+	nodes=$($KUBECTL get nodes -o json) || return 1
+	pods=$($KUBECTL get pods -A -o json) || return 1
+	jq -n --arg node "$node" --argjson nodes "$nodes" --argjson pods "$pods" '
+		def tobytes:
+			if . == null or . == "" then 0
+			else
+				(capture("^(?<n>[0-9]+)(?<u>[KMGTP]i)?$") as $m
+				 | ($m.n | tonumber) as $n
+				 | if $m.u == "Ki" then $n*1024
+				   elif $m.u == "Mi" then $n*1024*1024
+				   elif $m.u == "Gi" then $n*1024*1024*1024
+				   elif $m.u == "Ti" then $n*1024*1024*1024*1024
+				   else $n end)
+			end;
+		($pods.items
+		 | map(select((.spec.nodeName // "") != ""))
+		 | group_by(.spec.nodeName)
+		 | map({key: .[0].spec.nodeName,
+		        value: ([.[].spec.containers[].resources.requests.memory // "0" | tobytes] | add)})
+		 | from_entries) as $req
+		| [$nodes.items[]
+		   | select(.metadata.name != $node)
+		   | ((.status.allocatable.memory | tobytes) - ($req[.metadata.name] // 0))]
+		| add
+	'
+}
+
+# Orchestrator: gather the target node's pod memory and the remaining nodes'
+# headroom, then pass/warn/block. On block, abort unless override is set.
+memory_headroom_preflight() {
+	local node=$1 override=${2:-0}
+	local target_mem headroom verdict
+	target_mem=$(node_pod_memory_bytes "$node") || die "cannot read pod memory on $node"
+	headroom=$(remaining_headroom_bytes "$node") || die "cannot read remaining-node headroom"
+	verdict=$(memory_headroom_verdict "$target_mem" "$headroom")
+	log "[$node] memory preflight: target pods request $(human_bytes "$target_mem"), remaining headroom $(human_bytes "$headroom")"
+	case $verdict in
+	pass) log "[$node] memory headroom OK." ;;
+	warn) warn "[$node] memory headroom is TIGHT — rescheduled pods will consume most of the remaining capacity. Consider --spin-down." ;;
+	block)
+		if ((override)); then
+			warn "[$node] memory headroom INSUFFICIENT but --override-memory given; proceeding."
+		else
+			die "[$node] memory preflight BLOCKED: target pods request $(human_bytes "$target_mem") but remaining nodes have only $(human_bytes "$headroom") headroom. Re-run with --spin-down and/or --override-memory."
+		fi
+		;;
+	esac
+}
+
+# --- Pre-drain spin-down / restore (IMPR-1089) --------------------------------
+
+# Memory-heavy services that can sit out a maintenance window. Each entry is
+# "namespace/deployment". Scaled to 0 before the drain, restored after.
+MEMORY_HEAVY_SERVICES=(
+	llama/ollama
+	viking/openviking
+	viking/ov-vectordb
+)
+
+spin_down_state_file() {
+	printf '%s/spin-down-replicas\n' "$MAINTENANCE_STATE_DIR"
+}
+
+# Record each service's current replica count, then scale it to 0. The recorded
+# counts are what restore_memory_services reads back, so a prior replica count
+# is always restored without manual intervention.
+spin_down_memory_services() {
+	local svc ns name replicas saved_svc saved_replicas state
+	mkdir -p "$MAINTENANCE_STATE_DIR"
+	state=$(spin_down_state_file)
+	touch "$state" || return 1
+	for svc in "${MEMORY_HEAVY_SERVICES[@]}"; do
+		ns=${svc%%/*}
+		name=${svc#*/}
+		# A retry must retain the count saved before the first scale attempt.
+		replicas=
+		while IFS=$'\t' read -r saved_svc saved_replicas; do
+			if [[ $saved_svc == "$svc" ]]; then
+				replicas=$saved_replicas
+				break
+			fi
+		done <"$state"
+		if [[ -z $replicas ]]; then
+			replicas=$($KUBECTL get deployment "$name" -n "$ns" -o jsonpath='{.spec.replicas}') || return 1
+			[[ $replicas =~ ^[0-9]+$ ]] || die "invalid replica count for $svc"
+			printf '%s\t%s\n' "$svc" "$replicas" >>"$state" || return 1
+		fi
+		[[ $replicas =~ ^[0-9]+$ ]] || die "invalid saved replica count for $svc"
+		if ((replicas > 0)); then
+			log "spin-down: scaling $svc to 0 (was $replicas)"
+			$KUBECTL scale deployment "$name" -n "$ns" --replicas=0 || return 1
+		fi
+	done
+}
+
+# Restore each service to the replica count recorded before the drain. No-op
+# when no spin-down happened (state file absent).
+restore_memory_services() {
+	local svc ns name replicas
+	[[ -s $(spin_down_state_file) ]] || return 0
+	while IFS=$'\t' read -r svc replicas; do
+		ns=${svc%%/*}
+		name=${svc#*/}
+		if ((replicas > 0)); then
+			log "restore: scaling $svc back to $replicas"
+			$KUBECTL scale deployment "$name" -n "$ns" --replicas="$replicas" || return 1
+		fi
+	done <"$(spin_down_state_file)"
+	rm -f "$(spin_down_state_file)"
+}
+
 # --- Commands -----------------------------------------------------------------
 
 launch_remote_apt() {
@@ -483,6 +664,10 @@ cmd_finish() {
 
 	wait_for_node_ready "$node"
 
+	# Restore desired replicas while still cordoned: a failed scale keeps finish
+	# retryable. Pods pinned to this node can schedule once it is uncordoned.
+	restore_memory_services || return 1
+
 	log "[$node] uncordon"
 	kubectl uncordon "$node"
 
@@ -492,20 +677,28 @@ cmd_finish() {
 }
 
 cmd_reboot() {
-	(($# >= 1 && $# <= 2)) || die "usage: $0 reboot <node> [--no-reboot]"
+	(($# >= 1 && $# <= 4)) || die "usage: $0 reboot <node> [--no-reboot] [--spin-down] [--override-memory]"
 	local node=$1 boot_id
-	local do_reboot=1
-	case ${2:-} in
-	"") ;;
-	--no-reboot) do_reboot=0 ;;
-	*) die "unknown reboot option '$2'" ;;
-	esac
+	local do_reboot=1 spin_down=0 override_memory=0
+	shift
+	while (($#)); do
+		case $1 in
+		--no-reboot) do_reboot=0 ;;
+		--spin-down) spin_down=1 ;;
+		--override-memory) override_memory=1 ;;
+		*) die "unknown reboot option '$1'" ;;
+		esac
+		shift
+	done
 	require_node "$node"
 	require_no_cordoned_nodes
 	require_reboot_order "$node"
 
 	log "[$node] preflight: PDB check"
 	pdb_preflight "$node"
+
+	log "[$node] preflight: memory headroom"
+	memory_headroom_preflight "$node" "$override_memory"
 
 	log "[$node] preflight: no active sync Jobs in the compendium namespace"
 	local active
@@ -517,6 +710,11 @@ cmd_reboot() {
 	boot_id=$(remote_boot_id "$node") || die "cannot read the current boot ID from $node"
 	[[ -n $boot_id ]] || die "empty boot ID returned by $node"
 	require_valid_boot_id "$boot_id"
+
+	if ((spin_down)); then
+		log "[$node] pre-drain spin-down of memory-heavy services"
+		spin_down_memory_services || return 1
+	fi
 
 	log "[$node] cordon"
 	kubectl cordon "$node"
@@ -548,7 +746,7 @@ cmd_reboot() {
 				| "    \(.metadata.name)  \(.status.kubernetesStatus.namespace)/\(.status.kubernetesStatus.pvcName)  \(.status.state)"'
 	fi
 
-	if ((!do_reboot)); then
+	if ((! do_reboot)); then
 		log "[$node] --no-reboot: stopping before restart. Node is cordoned and drained."
 		log "[$node] next: ssh $node sudo reboot   (or: kubectl uncordon $node to back out)"
 		log "[$node] then: $0 finish $node   (saved previous boot ID: $boot_id)"
