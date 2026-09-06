@@ -19,19 +19,29 @@ list in `grafana/backup-freshness-exporter.py`, **not** the CronJobs that
 happen to exist. A database that is declared but has no backup objects in R2
 exports `+Inf` and fires the freshness alert — this is what catches BUG-1086.
 
-| app         | schedule (UTC)     | backup CronJob today               | freshness threshold (2x) |
-| ----------- | ------------------ | ---------------------------------- | ------------------------ |
-| coach       | nightly 07:00      | `coach/postgres-backup`            | 48h                      |
-| equal-risk  | nightly 05:00      | `equal-risk/postgres-backup`       | 48h                      |
-| glossary    | nightly (intended) | **none** — alerts until one exists | 48h                      |
-| omnipendium | nightly (intended) | **none** — alerts until one exists | 48h                      |
+| app        | schedule (UTC) | backup CronJob today         | freshness threshold (2x) |
+| ---------- | -------------- | ---------------------------- | ------------------------ |
+| coach      | nightly 07:00  | `coach/postgres-backup`      | 48h                      |
+| equal-risk | nightly 05:00  | `equal-risk/postgres-backup` | 48h                      |
 
-glossary and omnipendium each run a postgres workload (`glossary/postgres`,
-`omnipendium/omnipendium-db`) with no backup job. They are declared on purpose:
-`BackupFreshnessStale` will fire for both from the first exporter run and stay
-firing until a backup job lands objects in R2. That is the BUG-1086 case doing
-its job, not a false alarm — silence the alert by creating the backup, not by
-removing the entry.
+Declare a database when it is meant to be backed up **now** — including when
+its backup is supposed to be running and is not. That case is the whole point:
+a missing CronJob produces no failing Job and no kube-state-metrics signal, so
+only a check against a declared list catches it (BUG-1086).
+
+Do **not** declare a backup that is merely planned. A declared database with
+no objects in R2 exports `+Inf` and fires a critical alert that can never
+resolve, because nothing is coming to clear it. That is not the BUG-1086 case
+doing its job; it is noise on the one channel that has to stay trustworthy
+(BUG-1104). Declare a database in the same change that ships its CronJob and
+credentials.
+
+Two workloads run postgres and are deliberately absent from the list:
+
+- **glossary** (`glossary/postgres`) — never backed up by design; its data is
+  rebuildable. It is not an oversight, so do not add it back.
+- **omnipendium** (`omnipendium/omnipendium-db`) — backup is planned, not
+  shipped (TASK-1117). It gets declared as part of that work.
 
 ### R2 layout (verified 2026-09-06)
 
@@ -46,7 +56,7 @@ backups/cluster/homelab-k3s/rebuild-exports/<YYYY-MM-DD>/postgres/<app>/<app>-<t
 There is no per-app prefix to list, so the exporter lists `rebuild-exports/`
 once (recursive, a few dozen objects) and groups by the `postgres/<app>/` path
 segment. Verified with the Cloudflare API: coach and equal-risk have objects
-under this layout through 2026-09-06; glossary and omnipendium have none.
+under this layout through 2026-09-06 (39 and 33 objects respectively).
 
 Other backup targets exist but are **not** in this declared list yet:
 
