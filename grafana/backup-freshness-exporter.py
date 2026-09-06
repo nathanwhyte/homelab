@@ -184,16 +184,19 @@ def render(newest, last_run, now=None):
     return header + "\n".join(lines) + "\n"
 
 
-def serve():
-    state = [None, 0.0]
-    lock = threading.Lock()
+def _refresh_once(state, lock):
+    """Run one collect() cycle and swap it into `state` atomically under `lock`.
 
-    def refresh():
-        while True:
-            sample = collect()
-            with lock:
-                state[:] = sample
-            time.sleep(300)
+    Split out of `serve()`'s refresh loop so a single iteration can be driven
+    directly in tests without waiting on `time.sleep(300)`.
+    """
+    sample = collect()
+    with lock:
+        state[:] = sample
+
+
+def _make_handler(state, lock):
+    """Build a Handler bound to the given state/lock, for `serve()` and tests."""
 
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self):
@@ -211,9 +214,21 @@ def serve():
         def log_message(self, *_args):
             pass
 
+    return Handler
+
+
+def serve():
+    state = [None, 0.0]
+    lock = threading.Lock()
+
+    def refresh():
+        while True:
+            _refresh_once(state, lock)
+            time.sleep(300)
+
     threading.Thread(target=refresh, daemon=True).start()
     ThreadingHTTPServer(
-        ("0.0.0.0", int(os.environ.get("PORT", "9811"))), Handler
+        ("0.0.0.0", int(os.environ.get("PORT", "9811"))), _make_handler(state, lock)
     ).serve_forever()
 
 
