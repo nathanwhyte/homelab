@@ -26,16 +26,19 @@ environment (RCLONE_CONFIG_R2_*). The `yt-dlp/r2-credentials` secret already
 carries exactly those keys for the weekly media backup; copy it into the
 namespace that runs this exporter, or export the same variables on a host.
 
-Output is Prometheus text format on stdout (or a file given as argv[1]),
-suitable for a node-exporter textfile collector.
+Output is Prometheus text format on stdout (or a file given as argv[1]).
+With --serve, expose /metrics on port 9811 and refresh the listing every 5m.
 """
 
 from __future__ import annotations
 
 import datetime
 import json
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+import os
 import subprocess
 import sys
+import threading
 import time
 
 # ── DECLARED BACKUP LIST ──────────────────────────────────────────────────
@@ -70,50 +73,63 @@ def list_backup_tree() -> list[dict]:
     """All file objects under BACKUP_ROOT, as rclone lsjson dicts (Path, ModTime, ...)."""
     target = f"{R2_REMOTE}:{R2_BUCKET}/{BACKUP_ROOT}"
     proc = subprocess.run(
-        ["rclone", "lsjson", target, "--files-only", "--recursive", "--no-mimetype"],
+        ["rclone", "lsjson", target, "--files-only", "--recursive", "--no-mimetype",
+         "--retries", "1", "--low-level-retries", "1", "--contimeout", "10s", "--timeout", "30s"],
         capture_output=True,
         text=True,
         check=False,
+        timeout=120,
     )
     if proc.returncode != 0:
         raise RuntimeError(
             f"rclone lsjson failed for {target!r}: {proc.stderr.strip()}"
         )
-    return json.loads(proc.stdout or "[]")
+    objects = json.loads(proc.stdout)
+    if not isinstance(objects, list) or not all(isinstance(obj, dict) for obj in objects):
+        raise ValueError("Expected an object listing array")
+    for obj in objects:
+        if not isinstance(obj.get("Path"), str) or not isinstance(obj.get("Size"), (int, float)):
+            raise ValueError("Invalid object metadata")
+        _parse_rfc3339(obj["ModTime"])
+    return objects
 
 
 def newest_modtime(objects: list[dict], segment: str) -> float | None:
     """Newest ModTime (unix seconds) among objects whose path contains `/<segment>`, or None."""
     needle = f"/{segment}"
-    times = [_parse_rfc3339(obj["ModTime"]) for obj in objects if needle in obj["Path"]]
+    # A newer checksum/manifest must not hide an old or absent database dump.
+    times = [_parse_rfc3339(obj["ModTime"]) for obj in objects
+             if needle in "/" + obj["Path"] and obj["Path"].endswith(".pgdump")
+             and obj.get("Size", 0) > 0]
     return max(times) if times else None
 
 
-def main() -> int:
-    now = time.time()
-    lines: list[str] = []
-    up = 1
-
+def collect():
+    """Validate the complete listing before publishing a successful sample."""
     try:
         objects = list_backup_tree()
-    except Exception as exc:  # noqa: BLE001 — any listing failure is a failure
-        # Emit only the exporter-health series: per-app +Inf here would fire
-        # four false BackupFreshnessStale criticals on top of ExporterDown.
-        print(f"# WARNING: {exc}", file=sys.stderr)
-        up = 0
-        objects = None
+        newest = {entry["app"]: newest_modtime(objects, entry["segment"]) for entry in DECLARED}
+        return newest, time.time()
+    except Exception as exc:
+        # Do not log provider output, which may contain credential details.
+        print(f"Backup listing failed: {type(exc).__name__}", file=sys.stderr, flush=True)
+        return None, time.time()
 
-    if objects is not None:
+
+def render(newest, last_run, now=None):
+    now = time.time() if now is None else now
+    lines: list[str] = []
+    if newest is not None:
         for entry in DECLARED:
             app = entry["app"]
             max_age = entry["interval_hours"] * 3600 * 2  # 2x interval
-            newest = newest_modtime(objects, entry["segment"])
-            age = "+Inf" if newest is None else f"{now - newest:.3f}"
+            timestamp = newest[app]
+            age = "+Inf" if timestamp is None else f"{max(0, now - timestamp):.3f}"
             lines.append(f'backup_freshness_seconds{{app="{app}"}} {age}')
             lines.append(f'backup_freshness_max_age_seconds{{app="{app}"}} {max_age}')
 
-    lines.append(f"backup_freshness_up {up}")
-    lines.append(f"backup_freshness_last_run_timestamp_seconds {now:.3f}")
+    lines.append(f"backup_freshness_up {int(newest is not None)}")
+    lines.append(f"backup_freshness_last_run_timestamp_seconds {last_run:.3f}")
 
     header = (
         "# HELP backup_freshness_seconds Age in seconds of the newest R2 backup object per declared database.\n"
@@ -126,7 +142,45 @@ def main() -> int:
         "# TYPE backup_freshness_last_run_timestamp_seconds gauge\n"
     )
 
-    output = header + "\n".join(lines) + "\n"
+    return header + "\n".join(lines) + "\n"
+
+
+def serve():
+    state = [None, 0.0]
+    lock = threading.Lock()
+
+    def refresh():
+        while True:
+            sample = collect()
+            with lock:
+                state[:] = sample
+            time.sleep(300)
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            if self.path not in ("/metrics", "/healthz"):
+                self.send_error(404)
+                return
+            with lock:
+                body = render(*state).encode() if self.path == "/metrics" else b"ok\n"
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain; version=0.0.4")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *_args):
+            pass
+
+    threading.Thread(target=refresh, daemon=True).start()
+    ThreadingHTTPServer(("0.0.0.0", int(os.environ.get("PORT", "9811"))), Handler).serve_forever()
+
+
+def main() -> int:
+    if sys.argv[1:] == ["--serve"]:
+        serve()
+        return 0
+    output = render(*collect())
     if len(sys.argv) > 1:
         with open(sys.argv[1], "w") as fh:
             fh.write(output)

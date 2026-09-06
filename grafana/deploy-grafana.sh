@@ -138,6 +138,7 @@ kubectl apply \
 
 # May also be run independently to avoid touching the Helm releases.
 bash "$GRAFANA_DIR/../longhorn/deploy-storage-alerts.sh"
+bash "$GRAFANA_DIR/deploy-backup-alerts.sh"
 
 echo -e "\nDone! Visit:"
 echo "  https://logs.nathanwhyte.dev/            (public, via the homelab tunnel)"

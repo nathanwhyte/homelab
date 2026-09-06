@@ -1,0 +1,28 @@
+# Requires OnNamespaceExceptForAlertmanagerNamespace on prom-alertmanager.
+# Keeping this in grafana lets it reference the existing webhook Secret.
+apiVersion: monitoring.coreos.com/v1alpha1
+kind: AlertmanagerConfig
+metadata:
+  name: backup-alert-routing
+  namespace: grafana
+spec:
+  route:
+    receiver: slack-homelab
+    matchers:
+      - name: alertgroup
+        value: backup
+        matchType: "="
+    groupBy: [namespace, alertname]
+    groupWait: 30s
+    groupInterval: 5m
+    repeatInterval: 1h
+  receivers:
+    - name: slack-homelab
+      slackConfigs:
+        - apiURL:
+            name: alertmanager-slack-webhook
+            key: api-url
+          channel: "#cron-homelab"
+          sendResolved: true
+          title: "{{ .CommonLabels.alertname }} — {{ .Status }}"
+          text: "<@U0BAEG2AFC4> {{ range .Alerts }}{{ .Annotations.summary }}: {{ .Annotations.description }}{{ end }}"

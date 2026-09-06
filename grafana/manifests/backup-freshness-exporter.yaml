@@ -1,0 +1,111 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backup-freshness-exporter
+  namespace: grafana
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: backup-freshness-exporter
+  template:
+    metadata:
+      labels:
+        app: backup-freshness-exporter
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        fsGroup: 65534
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        - name: rclone
+          image: rclone/rclone:1.68
+          command: [sh, -c, "cp /usr/local/bin/rclone /tools/rclone"]
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          resources:
+            requests: {cpu: 10m, memory: 32Mi}
+            limits: {cpu: 100m, memory: 128Mi}
+          volumeMounts:
+            - name: tools
+              mountPath: /tools
+      containers:
+        - name: exporter
+          image: python:3.12.12-alpine
+          command: [python3, /app/backup-freshness-exporter.py, --serve]
+          env:
+            - name: PATH
+              value: /tools:/usr/local/bin:/usr/bin:/bin
+            - name: RCLONE_CONFIG
+              value: /dev/null
+          envFrom:
+            - secretRef:
+                name: backup-freshness-r2-credentials
+          ports:
+            - name: metrics
+              containerPort: 9811
+          readinessProbe:
+            httpGet: {path: /healthz, port: metrics}
+          livenessProbe:
+            httpGet: {path: /healthz, port: metrics}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          resources:
+            requests: {cpu: 25m, memory: 64Mi}
+            limits: {cpu: 250m, memory: 256Mi}
+          volumeMounts:
+            - name: script
+              mountPath: /app
+              readOnly: true
+            - name: tools
+              mountPath: /tools
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: script
+          configMap:
+            name: backup-freshness-exporter
+        - name: tools
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: backup-freshness-exporter
+  namespace: grafana
+  labels:
+    app: backup-freshness-exporter
+spec:
+  selector:
+    app: backup-freshness-exporter
+  ports:
+    - name: metrics
+      port: 9811
+      targetPort: metrics
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: backup-freshness-exporter
+  namespace: grafana
+spec:
+  selector:
+    matchLabels:
+      app: backup-freshness-exporter
+  endpoints:
+    - port: metrics
+      interval: 30s
+      scrapeTimeout: 10s
