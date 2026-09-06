@@ -64,6 +64,11 @@ alertmanager:
         - receiver: slack-homelab
           matchers:
             - alertname = "WembyOnBattery"
+        # IMPR-1118: backup alerts (BackupCronJobFailed, BackupFreshnessStale,
+        # etc.) carry `alertgroup: backup` and route to the same Slack receiver.
+        - receiver: slack-homelab
+          matchers:
+            - alertgroup = "backup"
     receivers:
       - name: "null"
       - name: slack-homelab

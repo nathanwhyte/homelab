@@ -1,0 +1,86 @@
+# Backup alerts (IMPR-1118).
+#
+# Two tiers, because a job-failure alert alone is not enough:
+#   - BUG-1014: equal-risk postgres backup ran every night for 5 months but the
+#     upload step failed — the Job failed, so a job-failure alert would have
+#     caught it.
+#   - BUG-1086: coach postgres had NO CronJob at all — nothing to fail, so a
+#     job-failure alert is blind. Only a freshness check against a DECLARED
+#     list of databases catches a missing job.
+#
+# SECONDARY (backup.job.rules): kube-state-metrics signals on the backup
+# CronJobs themselves. Cheap and fast, but blind to a missing CronJob. Matched
+# by name (`cronjob="postgres-backup"` / `job_name=~"postgres-backup-.*"`):
+# kube-state-metrics does not expose Kubernetes labels on status series
+# unless `metricLabelsAllowlist` is configured (it is not), so a
+# `{backup="true"}` matcher would silently match nothing.
+#
+# PRIMARY (backup.freshness.rules): a freshness gauge exported by
+# grafana/backup-freshness-exporter.py, which lists R2 objects for each
+# DECLARED database and reports the age of the newest backup. Catches both a
+# failing job and a missing job.
+#
+# The cluster Prometheus has empty rule/serviceMonitor selectors, so no extra
+# labels are required (same as garage/manifests/garage-alerts.yaml).
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: backup-alerts
+  namespace: grafana
+spec:
+  groups:
+    - name: backup.job.rules
+      rules:
+        - alert: BackupCronJobFailed
+          # Failed Jobs are retained by failedJobsHistoryLimit, so without the
+          # start-time window a 10-day-old failure that has since recovered
+          # would fire forever. Scope to Jobs started in the last 24h.
+          expr: |
+            (kube_job_status_failed{job_name=~"postgres-backup-.*"} > 0)
+              and on (namespace, job_name)
+            (time() - kube_job_status_start_time < 86400)
+          for: 5m
+          labels:
+            severity: critical
+            alertgroup: backup
+          annotations:
+            summary: "Backup job {{ $labels.job_name }} failed in {{ $labels.namespace }}"
+            description: "A backup Job started in the last 24h has failed ({{ $labels.reason }}). Check `kubectl -n {{ $labels.namespace }} describe job {{ $labels.job_name }}` and the pod logs. This is the BUG-1014 signature: pg_dump succeeded but the upload step failed."
+        - alert: BackupCronJobLastSuccessStale
+          expr: time() - kube_cronjob_status_last_successful_time{cronjob="postgres-backup"} > 172800
+          for: 1h
+          labels:
+            severity: critical
+            alertgroup: backup
+          annotations:
+            summary: "Backup CronJob {{ $labels.cronjob }} in {{ $labels.namespace }} has not succeeded in 2 days"
+            description: "kube_cronjob_status_last_successful_time is more than 48h old. The backup is silently failing or suspended. Check the CronJob's job history: `kubectl -n {{ $labels.namespace }} get jobs`."
+    - name: backup.freshness.rules
+      rules:
+        - alert: BackupFreshnessStale
+          expr: backup_freshness_seconds > backup_freshness_max_age_seconds
+          for: 1h
+          labels:
+            severity: critical
+            alertgroup: backup
+          annotations:
+            summary: "Backup for {{ $labels.app }} is stale ({{ $value }}s old)"
+            description: "The newest R2 backup object for {{ $labels.app }} is older than 2x its declared interval. Either the backup job is failing (BUG-1014) or there is no backup job at all (BUG-1086). Check the freshness exporter and the backup CronJob."
+        - alert: BackupFreshnessExporterDown
+          expr: backup_freshness_up == 0
+          for: 30m
+          labels:
+            severity: warning
+            alertgroup: backup
+          annotations:
+            summary: "Backup freshness exporter is failing"
+            description: "backup_freshness_up == 0 — the freshness exporter could not list R2 objects (rclone missing, R2 credentials broken, or network). The per-app freshness series are withheld while this fires, so BackupFreshnessStale stays quiet; the freshness alerts are flying blind."
+        - alert: BackupFreshnessExporterStale
+          expr: time() - backup_freshness_last_run_timestamp_seconds > 43200
+          for: 1h
+          labels:
+            severity: warning
+            alertgroup: backup
+          annotations:
+            summary: "Backup freshness exporter has not run in 12h"
+            description: "The freshness exporter's last run was more than 12h ago — its CronJob is suspended, failing, or deleted. The freshness gauges are frozen and will not reflect new backups."

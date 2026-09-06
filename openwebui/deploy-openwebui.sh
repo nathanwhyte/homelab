@@ -2,7 +2,8 @@
 set -euo pipefail
 
 NAMESPACE="openwebui"
-VALUES="$HOME/code/homelab/openwebui/helm/values.yaml"
+OPENWEBUI_DIR="${OPENWEBUI_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
+VALUES="$OPENWEBUI_DIR/helm/values.yaml"
 
 echo "Deploying Open WebUI to namespace: $NAMESPACE"
 

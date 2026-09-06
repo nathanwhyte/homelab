@@ -93,6 +93,11 @@ if [ ! -f "$GRAFANA_DIR/manifests/node-power-alerts.yaml" ]; then
 	exit 1
 fi
 
+if [ ! -f "$GRAFANA_DIR/manifests/backup-alerts.yaml" ]; then
+	echo "backup-alerts.yaml file not found!"
+	exit 1
+fi
+
 # The grafana namespace no longer runs its own cloudflared connector. Its tunnel
 # was deleted 2026-03-28 in the consolidation into the cluster-wide `homelab`
 # tunnel, which has served logs.nathanwhyte.dev ever since; the Deployment and
@@ -111,7 +116,8 @@ echo -e "\nApplying other manifests..."
 kubectl apply \
 	-f "$GRAFANA_DIR/manifests/pvc-rwx.yaml" \
 	-f "$GRAFANA_DIR/manifests/rbac.yaml" \
-	-f "$GRAFANA_DIR/manifests/node-power-alerts.yaml"
+	-f "$GRAFANA_DIR/manifests/node-power-alerts.yaml" \
+	-f "$GRAFANA_DIR/manifests/backup-alerts.yaml"
 
 echo -e "\nDone! Visit:"
 echo "  https://logs.nathanwhyte.dev/            (public, via the homelab tunnel)"
