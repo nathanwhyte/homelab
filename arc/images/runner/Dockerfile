@@ -36,6 +36,13 @@ RUN curl -fsSL https://deb.nodesource.com/setup_24.x | bash - \
     && apt-get install -y --no-install-recommends nodejs \
     && rm -rf /var/lib/apt/lists/*
 
+# prettier, global: the batch runner (and its e2e suite in make test) formats
+# with `npx prettier`, and npx resolves a global install without touching the
+# npm cache — verified in this image, no ~/.npm/_npx download. Without it,
+# every ephemeral pod fetched prettier from the registry on first use
+# (IMPR-1131). Pin exact; bump deliberately.
+RUN npm install -g prettier@3.9.6 && npm cache clean --force
+
 # GitHub CLI — the compendium batch-runner e2e tests (make test) shell out to
 # `gh`; ubuntu-latest ships it, so the custom image must too.
 RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
