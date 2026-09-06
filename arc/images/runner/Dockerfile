@@ -9,8 +9,10 @@
 #   - node         (pre-commit's markdownlint-cli2 hook is language: node;
 #                   a system node avoids a nodeenv download on every ephemeral pod)
 #   - make, build tools
-# setup-uv / setup-python actions still work on top of this; pre-installing uv
-# just makes the ephemeral pods cheap when caches miss.
+#   - CPython 3.12  (uv-managed; replaces actions/setup-python, which had to
+#                   download the interpreter on every ephemeral pod — IMPR-1131)
+# setup-uv still works on top of this; pre-installing uv just makes the
+# ephemeral pods cheap when caches miss.
 # Pin the runner release: it determines which Node runtimes JS actions get
 # (Node 20 is removed from the runner on 2026-09-23 — self-hosted doesn't
 # sidestep that, but the pin controls when we take the jump).
@@ -51,3 +53,16 @@ RUN curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=/usr/local/b
 # Must end as the runner user (uid 1001); entrypoint /home/runner/run.sh and
 # /home/runner/externals (bundled Node runtimes) come from the base image.
 USER runner
+
+# CPython, uv-managed, installed as the runner user into uv's default
+# UV_PYTHON_INSTALL_DIR (/home/runner/.local/share/uv/python — the same path
+# setup-uv exports at job time, so `uv run` finds it with no action step).
+# Replaces actions/setup-python in vault-checks: ephemeral pods have no tool
+# cache, so that action re-downloaded and re-installed CPython on every job
+# (~15s/job, compendium IMPR-1131). Bump PYTHON_VERSION together with the
+# vault's .python-version.
+ARG PYTHON_VERSION=3.12
+RUN uv python install "${PYTHON_VERSION}"
+# Fail loudly if a job asks for a Python this image does not carry, instead of
+# silently re-introducing a per-job download.
+ENV UV_PYTHON_DOWNLOADS=never
