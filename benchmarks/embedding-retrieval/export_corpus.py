@@ -17,7 +17,17 @@ import os
 import re
 from pathlib import Path
 
-ITEM_DIRS = ["bugs", "features", "ideas", "improvements", "projects", "tasks", "info", "errors", "guides"]
+ITEM_DIRS = [
+    "bugs",
+    "features",
+    "ideas",
+    "improvements",
+    "projects",
+    "tasks",
+    "info",
+    "errors",
+    "guides",
+]
 ID_RE = re.compile(r"^([A-Z]+-\d+)-", re.ASCII)
 
 

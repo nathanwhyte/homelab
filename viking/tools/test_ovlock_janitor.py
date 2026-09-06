@@ -180,9 +180,7 @@ class TestRun(unittest.TestCase):
 
     def test_reacquired_between_pass2_and_delete_is_skipped(self):
         snap = {"a/.path.ovlock": _ts(3600), "b/.path.ovlock": _ts(3600)}
-        client = StubS3(
-            [snap, dict(snap)], reacquired={"a/.path.ovlock": _ts(0)}
-        )
+        client = StubS3([snap, dict(snap)], reacquired={"a/.path.ovlock": _ts(0)})
         rc = self._run(make_args(apply=True), client)
         self.assertEqual(rc, 0)
         self.assertEqual(client.deleted, ["b/.path.ovlock"])

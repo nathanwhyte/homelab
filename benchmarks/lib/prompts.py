@@ -226,9 +226,7 @@ def edit_prediction_workload(count: int, fim_format: str) -> Workload:
                 f"<|fim_prefix|>{prefix}<|fim_suffix|>{suffix}<|fim_middle|>"
             )
         elif fim_format == "starcoder2":
-            prompts.append(
-                f"<fim_prefix>{prefix}<fim_suffix>{suffix}<fim_middle>"
-            )
+            prompts.append(f"<fim_prefix>{prefix}<fim_suffix>{suffix}<fim_middle>")
         elif fim_format == "codegemma":
             prompts.append(
                 f"<|fim_prefix|>{prefix}<|fim_suffix|>{suffix}<|fim_middle|>"

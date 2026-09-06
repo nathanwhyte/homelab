@@ -9,6 +9,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 
 # Import via importlib to handle the hyphenated filename.
 import importlib.util
+
 _spec = importlib.util.spec_from_file_location(
     "mac_gpu_exporter",
     os.path.join(os.path.dirname(__file__), "mac-gpu-exporter.py"),

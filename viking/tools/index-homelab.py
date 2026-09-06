@@ -30,11 +30,23 @@ DEFAULT_REPO = "/home/natew/code/homelab"
 TARGET_BASE = "viking://resources/projects/homelab"
 
 INDEXABLE_EXTENSIONS = {
-    ".yaml", ".yml", ".md", ".sh", ".py", ".json", ".toml", ".conf",
+    ".yaml",
+    ".yml",
+    ".md",
+    ".sh",
+    ".py",
+    ".json",
+    ".toml",
+    ".conf",
 }
 
 SKIP_DIRS = {
-    ".git", "node_modules", "__pycache__", ".claude", "vendor", "charts",
+    ".git",
+    "node_modules",
+    "__pycache__",
+    ".claude",
+    "vendor",
+    "charts",
 }
 
 # Vendored helm chart path to skip entirely
@@ -155,7 +167,9 @@ async def create_directories(
         async with semaphore:
             try:
                 resp = await client.post(
-                    "/api/v1/fs/mkdir", json={"uri": uri}, headers=headers,
+                    "/api/v1/fs/mkdir",
+                    json={"uri": uri},
+                    headers=headers,
                 )
                 data = resp.json()
                 if data.get("status") == "ok":
@@ -245,7 +259,8 @@ async def index_files(
     start = time.monotonic()
 
     async with httpx.AsyncClient(
-        base_url=coordinator, timeout=None,
+        base_url=coordinator,
+        timeout=None,
     ) as client:
         # Phase 1: directories
         dirs = collect_dirs(files, repo_path)
@@ -293,7 +308,8 @@ async def verify(coordinator: str, api_key: str) -> tuple[int, int]:
 
     print("\n=== Verification ===")
     async with httpx.AsyncClient(
-        base_url=coordinator, timeout=None,
+        base_url=coordinator,
+        timeout=None,
     ) as client:
         for query, expected in VERIFICATION_QUERIES:
             try:
@@ -392,7 +408,11 @@ async def main() -> None:
 
     # Index
     indexed, errors, elapsed = await index_files(
-        args.coordinator, args.api_key, files, repo, args.concurrency,
+        args.coordinator,
+        args.api_key,
+        files,
+        repo,
+        args.concurrency,
     )
 
     # Summary

@@ -77,7 +77,11 @@ def parse_powermetrics(output: str) -> dict:
 
     Missing fields default to 0. Values in mW are converted to W.
     """
-    result = {k: 0.0 for k in _metrics if k not in ("mac_thermal_pressure", "mac_gpu_exporter_up")}
+    result = {
+        k: 0.0
+        for k in _metrics
+        if k not in ("mac_thermal_pressure", "mac_gpu_exporter_up")
+    }
     result["mac_thermal_pressure"] = 0
 
     for name, pattern in _PATTERNS.items():
@@ -142,8 +146,14 @@ _HELP = {
     "mac_gpu_utilization_percent": ("gauge", "GPU HW active residency in percent."),
     "mac_gpu_freq_mhz": ("gauge", "GPU HW active frequency in MHz."),
     "mac_ane_power_watts": ("gauge", "Apple Neural Engine power in watts."),
-    "mac_cpu_package_power_watts": ("gauge", "Combined SoC power (CPU + GPU + ANE) in watts."),
-    "mac_thermal_pressure": ("gauge", "Thermal pressure: 0=Nominal,1=Fair,2=Serious,3=Critical."),
+    "mac_cpu_package_power_watts": (
+        "gauge",
+        "Combined SoC power (CPU + GPU + ANE) in watts.",
+    ),
+    "mac_thermal_pressure": (
+        "gauge",
+        "Thermal pressure: 0=Nominal,1=Fair,2=Serious,3=Critical.",
+    ),
     "mac_gpu_exporter_up": ("gauge", "1 if last powermetrics invocation succeeded."),
 }
 
@@ -189,12 +199,21 @@ class MetricsHandler(BaseHTTPRequestHandler):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Prometheus exporter for Apple Silicon GPU/SoC")
-    parser.add_argument("--port", type=int, default=9112, help="Listen port (default 9112)")
-    parser.add_argument("--interval", type=int, default=5, help="Sample interval seconds (default 5)")
+    parser = argparse.ArgumentParser(
+        description="Prometheus exporter for Apple Silicon GPU/SoC"
+    )
+    parser.add_argument(
+        "--port", type=int, default=9112, help="Listen port (default 9112)"
+    )
+    parser.add_argument(
+        "--interval", type=int, default=5, help="Sample interval seconds (default 5)"
+    )
     args = parser.parse_args()
 
-    print(f"mac-gpu-exporter starting on :{args.port}, sampling every {args.interval}s", flush=True)
+    print(
+        f"mac-gpu-exporter starting on :{args.port}, sampling every {args.interval}s",
+        flush=True,
+    )
 
     sampler = threading.Thread(target=sample_loop, args=(args.interval,), daemon=True)
     sampler.start()

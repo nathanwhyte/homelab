@@ -293,9 +293,9 @@ def cmd_build(a):
     json.dump(cases, open(out / "cases.json", "w"), indent=1)
     print(
         f"built {len(summary_cases)} summary cases "
-        f"({', '.join(f'{m}={sum(1 for c in summary_cases if c['mode'] == m)}' for m in modes)}) "
+        f"({', '.join(f'{m}={sum(1 for c in summary_cases if c["mode"] == m)}' for m in modes)}) "
         f"and {len(fence_cases)} fence cases "
-        f"({', '.join(f'{c}={sum(1 for f in fence_cases if f['label'] == c)}' for c in FENCE_TAGS)}) "
+        f"({', '.join(f'{c}={sum(1 for f in fence_cases if f["label"] == c)}' for c in FENCE_TAGS)}) "
         f"skill {sc} -> {out / 'cases.json'}"
     )
 

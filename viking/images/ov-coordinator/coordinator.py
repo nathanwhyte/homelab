@@ -95,6 +95,7 @@ def _use_merged() -> bool:
 # Background health monitor
 # ---------------------------------------------------------------------------
 
+
 async def _health_loop():
     global merged_healthy, merged_stale
     async with httpx.AsyncClient(timeout=120) as client:
@@ -150,17 +151,30 @@ app = FastAPI(title="OV Coordinator", lifespan=lifespan)
 # HTTP helpers
 # ---------------------------------------------------------------------------
 
-async def _forward_json(client: httpx.AsyncClient, method: str, worker: str,
-                        path: str, body: bytes | None, query: str) -> httpx.Response:
+
+async def _forward_json(
+    client: httpx.AsyncClient,
+    method: str,
+    worker: str,
+    path: str,
+    body: bytes | None,
+    query: str,
+) -> httpx.Response:
     url = f"{worker}{path}"
     if query:
         url = f"{url}?{query}"
     return await client.request(method, url, content=body, headers=HEADERS)
 
 
-async def _forward_raw(client: httpx.AsyncClient, method: str, worker: str,
-                       path: str, body: bytes | None, query: str,
-                       content_type: str) -> httpx.Response:
+async def _forward_raw(
+    client: httpx.AsyncClient,
+    method: str,
+    worker: str,
+    path: str,
+    body: bytes | None,
+    query: str,
+    content_type: str,
+) -> httpx.Response:
     """Forward non-JSON requests (e.g. multipart uploads)."""
     url = f"{worker}{path}"
     if query:
@@ -173,9 +187,12 @@ def _build_response(resp: httpx.Response, partial: bool = False) -> Response:
     headers = {}
     if partial:
         headers["X-OV-Partial"] = "true"
-    return Response(content=resp.content, status_code=resp.status_code,
-                    media_type=resp.headers.get("content-type", "application/json"),
-                    headers=headers)
+    return Response(
+        content=resp.content,
+        status_code=resp.status_code,
+        media_type=resp.headers.get("content-type", "application/json"),
+        headers=headers,
+    )
 
 
 def _error(status: int, msg: str) -> Response:
@@ -187,8 +204,10 @@ def _error(status: int, msg: str) -> Response:
 # Fan-out helpers
 # ---------------------------------------------------------------------------
 
-async def _fanout_search(client: httpx.AsyncClient, path: str, body: bytes,
-                         query: str) -> Response:
+
+async def _fanout_search(
+    client: httpx.AsyncClient, path: str, body: bytes, query: str
+) -> Response:
     """Fan out to all healthy workers, merge results by score, dedup by URI."""
     targets = healthy_workers()
     if not targets:
@@ -222,7 +241,9 @@ async def _fanout_search(client: httpx.AsyncClient, path: str, body: bytes,
                     merged[uri] = item
 
     # Sort by score descending
-    sorted_items = sorted(merged.values(), key=lambda x: x.get("score", 0), reverse=True)
+    sorted_items = sorted(
+        merged.values(), key=lambda x: x.get("score", 0), reverse=True
+    )
 
     # Rebuild sectioned response
     out: dict[str, list] = {"resources": [], "memories": [], "skills": []}
@@ -230,19 +251,26 @@ async def _fanout_search(client: httpx.AsyncClient, path: str, body: bytes,
         sec = item.pop("_section", "resources")
         out[sec].append(item)
 
-    body_out = json.dumps({
-        "status": "ok",
-        "result": {"total": len(merged), **out},
-    })
+    body_out = json.dumps(
+        {
+            "status": "ok",
+            "result": {"total": len(merged), **out},
+        }
+    )
     headers = {}
     if partial:
         headers["X-OV-Partial"] = "true"
-    return Response(content=body_out, status_code=200,
-                    media_type="application/json", headers=headers)
+    return Response(
+        content=body_out,
+        status_code=200,
+        media_type="application/json",
+        headers=headers,
+    )
 
 
-async def _fanout_merge_list(client: httpx.AsyncClient, method: str, path: str,
-                             body: bytes | None, query: str) -> Response:
+async def _fanout_merge_list(
+    client: httpx.AsyncClient, method: str, path: str, body: bytes | None, query: str
+) -> Response:
     """Fan out, merge list results (find/grep). Same dedup logic as search."""
     targets = healthy_workers()
     if not targets:
@@ -274,7 +302,9 @@ async def _fanout_merge_list(client: httpx.AsyncClient, method: str, path: str,
                     item["_section"] = section
                     merged[uri] = item
 
-    sorted_items = sorted(merged.values(), key=lambda x: x.get("score", 0), reverse=True)
+    sorted_items = sorted(
+        merged.values(), key=lambda x: x.get("score", 0), reverse=True
+    )
 
     out: dict[str, list] = {}
     for item in sorted_items:
@@ -283,12 +313,17 @@ async def _fanout_merge_list(client: httpx.AsyncClient, method: str, path: str,
 
     body_out = json.dumps({"status": "ok", "result": {"total": len(merged), **out}})
     headers = {"X-OV-Partial": "true"} if partial else {}
-    return Response(content=body_out, status_code=200,
-                    media_type="application/json", headers=headers)
+    return Response(
+        content=body_out,
+        status_code=200,
+        media_type="application/json",
+        headers=headers,
+    )
 
 
-async def _fanout_first(client: httpx.AsyncClient, method: str, path: str,
-                        body: bytes | None, query: str) -> Response:
+async def _fanout_first(
+    client: httpx.AsyncClient, method: str, path: str, body: bytes | None, query: str
+) -> Response:
     """Fan out to all workers, return first non-empty successful result."""
     targets = healthy_workers()
     if not targets:
@@ -316,8 +351,9 @@ async def _fanout_first(client: httpx.AsyncClient, method: str, path: str,
     return _error(404, "no result from any worker")
 
 
-async def _broadcast(client: httpx.AsyncClient, method: str, path: str,
-                     body: bytes | None, query: str) -> Response:
+async def _broadcast(
+    client: httpx.AsyncClient, method: str, path: str, body: bytes | None, query: str
+) -> Response:
     """Send to ALL workers, return first success."""
     targets = healthy_workers()
     if not targets:
@@ -339,6 +375,7 @@ async def _broadcast(client: httpx.AsyncClient, method: str, path: str,
 # ---------------------------------------------------------------------------
 # Route dispatcher
 # ---------------------------------------------------------------------------
+
 
 @app.get("/health")
 async def health():
@@ -369,9 +406,14 @@ async def ready():
     )
 
 
-async def _hash_route_forward(client: httpx.AsyncClient, body: bytes,
-                              field: str, full_path: str, query: str,
-                              method: str) -> Response:
+async def _hash_route_forward(
+    client: httpx.AsyncClient,
+    body: bytes,
+    field: str,
+    full_path: str,
+    query: str,
+    method: str,
+) -> Response:
     """Parse body JSON, hash-route by field, forward to owning worker."""
     try:
         data = json.loads(body)
@@ -411,7 +453,9 @@ async def proxy(request: Request, path: str):
         else:
             target = _round_robin()
         logger.debug("temp_upload -> %s (route_key=%s)", target, route_key or "none")
-        r = await _forward_raw(client, method, target, full_path, body, query, content_type)
+        r = await _forward_raw(
+            client, method, target, full_path, body, query, content_type
+        )
         if r.status_code < 400:
             try:
                 data = r.json()
@@ -443,10 +487,21 @@ async def proxy(request: Request, path: str):
         if stored:
             original_worker, original_body, original_ct = stored
             if original_worker != target:
-                logger.debug("re-uploading temp %s from %s to %s", temp_path, original_worker, target)
-                reup = await _forward_raw(client, "POST", target,
-                                          "/api/v1/resources/temp_upload",
-                                          original_body, "", original_ct)
+                logger.debug(
+                    "re-uploading temp %s from %s to %s",
+                    temp_path,
+                    original_worker,
+                    target,
+                )
+                reup = await _forward_raw(
+                    client,
+                    "POST",
+                    target,
+                    "/api/v1/resources/temp_upload",
+                    original_body,
+                    "",
+                    original_ct,
+                )
                 if reup.status_code < 400:
                     try:
                         new_temp = reup.json().get("result", {}).get("temp_path", "")
@@ -473,7 +528,9 @@ async def proxy(request: Request, path: str):
     if full_path == "/api/v1/search/search" and method == "POST":
         if _use_merged():
             try:
-                r = await _forward_json(client, method, MERGED_URL, full_path, body, query)
+                r = await _forward_json(
+                    client, method, MERGED_URL, full_path, body, query
+                )
                 if r.status_code == 200:
                     return _build_response(r)
             except Exception:
@@ -483,18 +540,29 @@ async def proxy(request: Request, path: str):
     if full_path in ("/api/v1/search/find", "/api/v1/search/grep") and method == "POST":
         if _use_merged():
             try:
-                r = await _forward_json(client, method, MERGED_URL, full_path, body, query)
+                r = await _forward_json(
+                    client, method, MERGED_URL, full_path, body, query
+                )
                 if r.status_code == 200:
                     return _build_response(r)
             except Exception:
                 logger.debug("merged find/grep failed, falling back to fan-out")
         return await _fanout_merge_list(client, method, full_path, body, query)
 
-    if full_path in ("/api/v1/content/read", "/api/v1/content/abstract",
-                     "/api/v1/content/overview") and method == "GET":
+    if (
+        full_path
+        in (
+            "/api/v1/content/read",
+            "/api/v1/content/abstract",
+            "/api/v1/content/overview",
+        )
+        and method == "GET"
+    ):
         if _use_merged():
             try:
-                r = await _forward_json(client, method, MERGED_URL, full_path, body, query)
+                r = await _forward_json(
+                    client, method, MERGED_URL, full_path, body, query
+                )
                 if r.status_code == 200:
                     data = r.json()
                     if data.get("status") == "ok" and data.get("result"):

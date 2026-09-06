@@ -259,7 +259,9 @@ def poll_ov_status() -> bool:
 _s3_first_seen: dict[str, float] = {}
 
 
-def poll_s3_locks(client, bucket: str, live_window: float, dead_threshold: float, ov_up: bool) -> bool:
+def poll_s3_locks(
+    client, bucket: str, live_window: float, dead_threshold: float, ov_up: bool
+) -> bool:
     """Classify .ovlock objects in the S3 AGFS bucket by mtime age.
 
     age = now - LastModified. The lease refresh loop rewrites the object every
@@ -304,7 +306,9 @@ def poll_s3_locks(client, bucket: str, live_window: float, dead_threshold: float
         _metrics["openviking_s3_ovlock_total"] = total
         _metrics["openviking_s3_ovlock_dead"] = dead
         _metrics["openviking_s3_ovlock_live_refreshing"] = live
-        _metrics["openviking_s3_ovlock_oldest_live_age_seconds"] = round(oldest_live_age, 1)
+        _metrics["openviking_s3_ovlock_oldest_live_age_seconds"] = round(
+            oldest_live_age, 1
+        )
         _metrics["openviking_s3_ovlock_poll_ok"] = 1
     return True
 

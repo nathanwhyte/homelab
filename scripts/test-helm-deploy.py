@@ -14,53 +14,104 @@ from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
-spec = importlib.util.spec_from_file_location("helm_deploy", ROOT / "scripts/helm-deploy.py")
+spec = importlib.util.spec_from_file_location(
+    "helm_deploy", ROOT / "scripts/helm-deploy.py"
+)
 deploy = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(deploy)
 
 
 class VersionTests(unittest.TestCase):
     def rows(self, chart="my-chart-1.2.3-rc.1+build.2", status="deployed"):
-        return json.dumps([dict(name="release", namespace="ns", chart=chart, status=status)])
+        return json.dumps(
+            [dict(name="release", namespace="ns", chart=chart, status=status)]
+        )
 
     def test_prerelease_and_build_suffix_survive(self):
         with patch.object(deploy, "output", return_value=self.rows()):
-            self.assertEqual(deploy.installed_version("release", "ns", "my-chart"), "1.2.3-rc.1+build.2")
+            self.assertEqual(
+                deploy.installed_version("release", "ns", "my-chart"),
+                "1.2.3-rc.1+build.2",
+            )
 
     def test_v_prefix_survives(self):
         with patch.object(deploy, "output", return_value=self.rows("my-chart-v26.3.3")):
-            self.assertEqual(deploy.installed_version("release", "ns", "my-chart"), "v26.3.3")
+            self.assertEqual(
+                deploy.installed_version("release", "ns", "my-chart"), "v26.3.3"
+            )
 
     def test_only_empty_array_is_first_install(self):
         with patch.object(deploy, "output", return_value="[]"):
             self.assertIsNone(deploy.installed_version("release", "ns", "my-chart"))
-        for result in ("", "null", "{}", "[{}]", self.rows(status="failed"), self.rows(status="pending-upgrade"), self.rows("different-1.2.3")):
-            with self.subTest(result=result), patch.object(deploy, "output", return_value=result):
+        for result in (
+            "",
+            "null",
+            "{}",
+            "[{}]",
+            self.rows(status="failed"),
+            self.rows(status="pending-upgrade"),
+            self.rows("different-1.2.3"),
+        ):
+            with (
+                self.subTest(result=result),
+                patch.object(deploy, "output", return_value=result),
+            ):
                 with self.assertRaises(ValueError):
                     deploy.installed_version("release", "ns", "my-chart")
 
     def test_lookup_error_never_runs_upgrade(self):
-        with patch.object(deploy, "output", side_effect=subprocess.CalledProcessError(1, "helm list")), patch.object(deploy.subprocess, "run") as run:
+        with (
+            patch.object(
+                deploy,
+                "output",
+                side_effect=subprocess.CalledProcessError(1, "helm list"),
+            ),
+            patch.object(deploy.subprocess, "run") as run,
+        ):
             with self.assertRaises(subprocess.CalledProcessError):
                 deploy.main(["release", "ns", "repo/my-chart"])
             run.assert_not_called()
 
     def test_local_mismatch_never_runs_upgrade(self):
         with tempfile.TemporaryDirectory() as directory:
-            with patch.object(deploy, "output", side_effect=["name: my-chart\nversion: 9.0.0\n", self.rows()]), patch.object(deploy.subprocess, "run") as run:
+            with (
+                patch.object(
+                    deploy,
+                    "output",
+                    side_effect=["name: my-chart\nversion: 9.0.0\n", self.rows()],
+                ),
+                patch.object(deploy.subprocess, "run") as run,
+            ):
                 with self.assertRaisesRegex(ValueError, "version mismatch"):
                     deploy.main(["release", "ns", directory])
                 run.assert_not_called()
 
     def test_resolved_remote_mismatch_never_runs_upgrade(self):
-        with patch.object(deploy, "output", side_effect=[self.rows(), "name: my-chart\nversion: 9.0.0\n"]), patch.object(deploy.subprocess, "run") as run:
+        with (
+            patch.object(
+                deploy,
+                "output",
+                side_effect=[self.rows(), "name: my-chart\nversion: 9.0.0\n"],
+            ),
+            patch.object(deploy.subprocess, "run") as run,
+        ):
             with self.assertRaisesRegex(ValueError, "version mismatch"):
                 deploy.main(["release", "ns", "repo/my-chart"])
             run.assert_not_called()
 
     def test_first_install_resolves_once_then_pins(self):
-        with patch.object(deploy, "output", side_effect=["[]", "name: my-chart\nversion: '1.2.3'\n"]), patch.object(deploy.subprocess, "run") as run, contextlib.redirect_stdout(io.StringIO()):
-            deploy.main(["release", "ns", "repo/my-chart", "--dry-run", "-f", "values.yaml"])
+        with (
+            patch.object(
+                deploy,
+                "output",
+                side_effect=["[]", "name: my-chart\nversion: '1.2.3'\n"],
+            ),
+            patch.object(deploy.subprocess, "run") as run,
+            contextlib.redirect_stdout(io.StringIO()),
+        ):
+            deploy.main(
+                ["release", "ns", "repo/my-chart", "--dry-run", "-f", "values.yaml"]
+            )
             argv = run.call_args.args[0]
             self.assertEqual(argv[argv.index("--version") + 1], "1.2.3")
             self.assertIn("--dry-run=server", argv)
@@ -68,14 +119,30 @@ class VersionTests(unittest.TestCase):
             self.assertEqual(run.call_args.kwargs["stdout"], subprocess.DEVNULL)
 
     def test_no_competing_flags(self):
-        for flag in ("--version=9.9.9", "--namespace=other", "--dry-run=none", "--kube-context=other"):
+        for flag in (
+            "--version=9.9.9",
+            "--namespace=other",
+            "--dry-run=none",
+            "--kube-context=other",
+        ):
             with self.subTest(flag=flag), patch.object(deploy, "output") as output:
                 with self.assertRaises(ValueError):
                     deploy.main(["release", "ns", "repo/my-chart", "--dry-run", flag])
                 output.assert_not_called()
 
     def test_diff_is_pinned_and_suppresses_secrets(self):
-        with patch.object(deploy, "output", side_effect=[self.rows("my-chart-1.2.3"), "name: my-chart\nversion: 1.2.3\n"]), patch.object(deploy.subprocess, "run") as run, contextlib.redirect_stdout(io.StringIO()):
+        with (
+            patch.object(
+                deploy,
+                "output",
+                side_effect=[
+                    self.rows("my-chart-1.2.3"),
+                    "name: my-chart\nversion: 1.2.3\n",
+                ],
+            ),
+            patch.object(deploy.subprocess, "run") as run,
+            contextlib.redirect_stdout(io.StringIO()),
+        ):
             deploy.main(["release", "ns", "repo/my-chart", "--diff"])
             argv = run.call_args.args[0]
             self.assertEqual(argv[:3], ["helm", "diff", "upgrade"])
@@ -83,7 +150,95 @@ class VersionTests(unittest.TestCase):
             self.assertIn("--suppress-secrets", argv)
 
 
-FAKE_HELM = r'''#!/usr/bin/env python3
+class ChartLocalityTests(unittest.TestCase):
+    """A chart ref is local only when it says so explicitly (absolute, or
+    `./`/`../`-prefixed); everything else is remote regardless of what
+    happens to exist on disk at that name."""
+
+    def rows(self, chart="my-chart-1.2.3-rc.1+build.2", status="deployed"):
+        return json.dumps(
+            [dict(name="release", namespace="ns", chart=chart, status=status)]
+        )
+
+    def test_absolute_path_is_local(self):
+        with tempfile.TemporaryDirectory() as directory:
+            self.assertTrue(deploy.is_local_chart_ref(directory))
+            with (
+                patch.object(
+                    deploy,
+                    "output",
+                    side_effect=["name: my-chart\nversion: 1.2.3\n", "[]"],
+                ),
+                patch.object(deploy.subprocess, "run") as run,
+                contextlib.redirect_stdout(io.StringIO()),
+            ):
+                deploy.main(["release", "ns", directory, "--dry-run"])
+                argv = run.call_args.args[0]
+                self.assertIn(directory, argv)
+                self.assertEqual(argv[argv.index("--version") + 1], "1.2.3")
+
+    def test_dot_slash_relative_path_is_local(self):
+        self.assertTrue(deploy.is_local_chart_ref("./mychart"))
+        self.assertTrue(deploy.is_local_chart_ref("../mychart"))
+        with tempfile.TemporaryDirectory() as directory:
+            (Path(directory) / "mychart").mkdir()
+            cwd = os.getcwd()
+            os.chdir(directory)
+            try:
+                with (
+                    patch.object(
+                        deploy,
+                        "output",
+                        side_effect=["name: mychart\nversion: 1.2.3\n", "[]"],
+                    ),
+                    patch.object(deploy.subprocess, "run") as run,
+                    contextlib.redirect_stdout(io.StringIO()),
+                ):
+                    deploy.main(["release", "ns", "./mychart", "--dry-run"])
+                    argv = run.call_args.args[0]
+                    self.assertIn("./mychart", argv)
+            finally:
+                os.chdir(cwd)
+
+    def test_missing_local_path_errors_before_any_helm_call(self):
+        with tempfile.TemporaryDirectory() as directory:
+            missing = str(Path(directory) / "does-not-exist")
+            with (
+                patch.object(deploy, "output") as output,
+                patch.object(deploy.subprocess, "run") as run,
+            ):
+                with self.assertRaisesRegex(ValueError, "does not exist"):
+                    deploy.main(["release", "ns", missing])
+                output.assert_not_called()
+                run.assert_not_called()
+
+    def test_remote_looking_ref_that_exists_as_a_directory_stays_remote(self):
+        self.assertFalse(deploy.is_local_chart_ref("repo/my-chart"))
+        with tempfile.TemporaryDirectory() as directory:
+            (Path(directory) / "repo" / "my-chart").mkdir(parents=True)
+            cwd = os.getcwd()
+            os.chdir(directory)
+            try:
+                with (
+                    patch.object(
+                        deploy,
+                        "output",
+                        side_effect=[
+                            self.rows("my-chart-1.2.3"),
+                            "name: my-chart\nversion: 1.2.3\n",
+                        ],
+                    ),
+                    patch.object(deploy.subprocess, "run") as run,
+                    contextlib.redirect_stdout(io.StringIO()),
+                ):
+                    deploy.main(["release", "ns", "repo/my-chart"])
+                    argv = run.call_args.args[0]
+                    self.assertIn("repo/my-chart", argv)
+            finally:
+                os.chdir(cwd)
+
+
+FAKE_HELM = r"""#!/usr/bin/env python3
 import json, os, sys
 from pathlib import Path
 args = sys.argv[1:]
@@ -102,7 +257,7 @@ elif args[0] == 'upgrade':
     assert args[args.index('--version')+1] == versions[release], args
 else:
     sys.exit('unexpected Helm command: '+str(args))
-'''
+"""
 
 
 class ScriptDryRunTests(unittest.TestCase):
@@ -113,17 +268,42 @@ class ScriptDryRunTests(unittest.TestCase):
             binary.mkdir()
             (binary / "helm").write_text(FAKE_HELM)
             (binary / "helm").chmod(0o755)
-            (binary / "kubectl").write_text("#!/bin/sh\necho 'kubectl must not run during Helm dry-run' >&2\nexit 99\n")
+            (binary / "kubectl").write_text(
+                "#!/bin/sh\necho 'kubectl must not run during Helm dry-run' >&2\nexit 99\n"
+            )
             (binary / "kubectl").chmod(0o755)
             chart = directory / "garage"
             chart.mkdir()
-            environment = dict(os.environ, PATH=str(binary)+os.pathsep+os.environ["PATH"], TEST_LOG=str(directory/"commands.jsonl"), GARAGE_CHART_DIR=str(chart))
-            scripts = ("grafana/deploy-grafana.sh", "harbor/deploy-harbor.sh", "openwebui/deploy-openwebui.sh", "dashboard/deploy-dashboard.sh", "headlamp/deploy-headlamp.sh", "garage/deploy-garage.sh")
+            environment = dict(
+                os.environ,
+                PATH=str(binary) + os.pathsep + os.environ["PATH"],
+                TEST_LOG=str(directory / "commands.jsonl"),
+                GARAGE_CHART_DIR=str(chart),
+            )
+            scripts = (
+                "grafana/deploy-grafana.sh",
+                "harbor/deploy-harbor.sh",
+                "openwebui/deploy-openwebui.sh",
+                "dashboard/deploy-dashboard.sh",
+                "headlamp/deploy-headlamp.sh",
+                "garage/deploy-garage.sh",
+            )
             for script in scripts:
                 with self.subTest(script=script):
-                    result = subprocess.run(["/bin/bash", str(ROOT/script), "--dry-run"], cwd=directory, env=environment, text=True, capture_output=True)
-                    self.assertEqual(result.returncode, 0, result.stdout+result.stderr)
-            commands = [json.loads(line) for line in (directory/"commands.jsonl").read_text().splitlines()]
+                    result = subprocess.run(
+                        ["/bin/bash", str(ROOT / script), "--dry-run"],
+                        cwd=directory,
+                        env=environment,
+                        text=True,
+                        capture_output=True,
+                    )
+                    self.assertEqual(
+                        result.returncode, 0, result.stdout + result.stderr
+                    )
+            commands = [
+                json.loads(line)
+                for line in (directory / "commands.jsonl").read_text().splitlines()
+            ]
             self.assertEqual(sum(c[0] == "upgrade" for c in commands), 8)
 
 
