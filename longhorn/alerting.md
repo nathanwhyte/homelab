@@ -96,6 +96,33 @@ filesystem usage, snapshots and retention; it is not authorization to delete
 snapshots or a retained model cache. The initial rules identified
 `viking/llama-cuda-model-cache` at 91.55%, an intentionally retained warm cache.
 
+### Quick fix: bump the volume size
+
+For volumes with a **small, stable footprint** — an LLM model cache (weights
+are fixed once downloaded), a config volume, a slow-growing database — the
+cheapest fix for a sustained `LonghornVolumeSpaceHigh` is expansion, not
+snapshot surgery. It sidesteps the delete→purge→trim sequence (IMPR-1123) and
+never touches data.
+
+Criteria: volume ≤ ~50 GiB, content grows slowly or not at all, and the extra
+capacity is cheap (a few GiB). Do NOT use this for volumes that grow
+unboundedly (Prometheus, Loki, media) — expansion just delays the next alert
+and masks the real problem; right-size or reclaim instead.
+
+Procedure:
+
+1. Confirm expansion is enabled: `kubectl get sc <class> -o jsonpath='{.allowVolumeExpansion}'` → `true`.
+2. Pick a target where actualSize/specSize clears 85% with margin (e.g. 9.16 GiB actual → 12 GiB yields 76%).
+3. Bump the manifest request (source of truth), then patch the live PVC:
+   `kubectl patch pvc <name> -n <ns> --type=merge -p '{"spec":{"resources":{"requests":{"storage":"12Gi"}}}}'`
+4. Verify: PVC capacity (`kubectl get pvc`), Longhorn `spec.size`
+   (`kubectl -n longhorn-system get volume <vol>`), and the alert clearing.
+   For RWO volumes Longhorn attaches transiently to grow the filesystem, then
+   detaches again.
+
+Example: 2026-09-06 — `viking/llama-cuda-model-cache` (10 GiB, 91.5%, cached
+Qwen3-8B weights) expanded to 12 GiB → 76.3%, alert resolved.
+
 ## Monitoring dependency
 
 Both native and kube-state-metrics rules execute inside the same Prometheus,

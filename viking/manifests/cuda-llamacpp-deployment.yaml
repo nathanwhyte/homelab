@@ -10,7 +10,10 @@ spec:
   storageClassName: longhorn-ssd
   resources:
     requests:
-      storage: 10Gi
+      # 12Gi (was 10Gi, 2026-09-06): warm cache holds Qwen3-8B-IQ4_XS.gguf at
+      # ~9.16 GiB; 10Gi sat at 91.5% actual size and tripped
+      # LonghornVolumeSpaceHigh (85% threshold). 12Gi gives 76% headroom.
+      storage: 12Gi
 ---
 apiVersion: apps/v1
 kind: Deployment
