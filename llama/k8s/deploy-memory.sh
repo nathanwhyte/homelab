@@ -2,7 +2,7 @@
 
 set -euo pipefail
 
-LLAMA_DIR="$HOME/code/homelab/llama"
+LLAMA_DIR="${LLAMA_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 MEMORY_DIR="$LLAMA_DIR/memory"
 NAMESPACE="llama"
 
