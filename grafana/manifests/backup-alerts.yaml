@@ -1,0 +1,78 @@
+# Backup alerts (IMPR-1118).
+#
+# Two tiers, because a job-failure alert alone is not enough:
+#   - BUG-1014: equal-risk postgres backup ran every night for 5 months but the
+#     upload step failed — the Job failed, so a job-failure alert would have
+#     caught it.
+#   - BUG-1086: coach postgres had NO CronJob at all — nothing to fail, so a
+#     job-failure alert is blind. Only a freshness check against a DECLARED
+#     list of databases catches a missing job.
+#
+# SECONDARY (backup.job.rules): kube-state-metrics signals on the backup
+# CronJobs themselves. Cheap and fast, but blind to a missing CronJob. Scoped
+# by the `backup: "true"` label — backup CronJobs must carry it (see
+# grafana/backup-alerts.md).
+#
+# PRIMARY (backup.freshness.rules): a freshness gauge exported by
+# grafana/backup-freshness-exporter.py, which lists R2 objects for each
+# DECLARED database and reports the age of the newest backup. Catches both a
+# failing job and a missing job.
+#
+# The cluster Prometheus has empty rule/serviceMonitor selectors, so no extra
+# labels are required (same as garage/manifests/garage-alerts.yaml).
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: backup-alerts
+  namespace: grafana
+spec:
+  groups:
+    - name: backup.job.rules
+      rules:
+        - alert: BackupCronJobFailed
+          expr: kube_job_status_failed{backup="true"} == 1
+          for: 5m
+          labels:
+            severity: critical
+            alertgroup: backup
+          annotations:
+            summary: "Backup job {{ $labels.job }} failed in {{ $labels.namespace }}"
+            description: "A backup Job has failed (kube_job_status_failed == 1). Check `kubectl -n {{ $labels.namespace }} describe job {{ $labels.job }}` and the pod logs. This is the BUG-1014 signature: pg_dump succeeded but the upload step failed."
+        - alert: BackupCronJobLastSuccessStale
+          expr: time() - kube_cronjob_status_last_successful_time{backup="true"} > 172800
+          for: 1h
+          labels:
+            severity: critical
+            alertgroup: backup
+          annotations:
+            summary: "Backup CronJob {{ $labels.cronjob }} has not succeeded in 2 days"
+            description: "kube_cronjob_status_last_successful_time is more than 48h old (or 0 — never succeeded). The backup is silently failing or suspended. Check the CronJob's job history: `kubectl -n {{ $labels.namespace }} get jobs`."
+    - name: backup.freshness.rules
+      rules:
+        - alert: BackupFreshnessStale
+          expr: backup_freshness_seconds > backup_freshness_max_age_seconds
+          for: 1h
+          labels:
+            severity: critical
+            alertgroup: backup
+          annotations:
+            summary: "Backup for {{ $labels.app }} is stale ({{ $value }}s old)"
+            description: "The newest R2 backup object for {{ $labels.app }} is older than 2x its declared interval. Either the backup job is failing (BUG-1014) or there is no backup job at all (BUG-1086). Check the freshness exporter and the backup CronJob."
+        - alert: BackupFreshnessExporterDown
+          expr: backup_freshness_up == 0
+          for: 30m
+          labels:
+            severity: warning
+            alertgroup: backup
+          annotations:
+            summary: "Backup freshness exporter is failing"
+            description: "backup_freshness_up == 0 — the freshness exporter could not list R2 objects (rclone missing, R2 credentials broken, or network). The freshness alerts are flying blind while this fires."
+        - alert: BackupFreshnessExporterStale
+          expr: time() - backup_freshness_last_run_timestamp_seconds > 43200
+          for: 1h
+          labels:
+            severity: warning
+            alertgroup: backup
+          annotations:
+            summary: "Backup freshness exporter has not run in 12h"
+            description: "The freshness exporter's last run was more than 12h ago — its CronJob is suspended, failing, or deleted. The freshness gauges are frozen and will not reflect new backups."
