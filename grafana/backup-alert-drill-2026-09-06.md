@@ -42,9 +42,10 @@ CronJob and its credentials were not edited. No successful test upload occurred.
   simulated clock. Live companion tests establish signal evaluation and routing,
   not an uninterrupted wall-clock test of those production durations.
 - The user's Slack screenshot confirms all four firing alert names and resolved
-  messages for freshness, exporter Down and the failed Job. A resolved message
-  for the frozen-worker alert is not visible in that screenshot; all test alerts
-  had cleared from Alertmanager by 17:29:36Z, with ten notifications and no errors.
+  messages for freshness, exporter Down and the failed Job. The user also
+  confirmed receipt of the final frozen-worker message: `[1-minute drill]
+  Backup freshness exporter has not run in 12h`. All test alerts had cleared
+  from Alertmanager by 17:29:36Z, with ten notifications and no errors.
 - A healthy-night soak is still pending. Glossary and omnipendium are expected to
   alert after the production one-hour delay until backups are implemented; they
   are known coverage gaps, not noise to silence by deleting declarations.
