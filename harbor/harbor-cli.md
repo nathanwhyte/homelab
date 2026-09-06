@@ -86,7 +86,7 @@ docker login registry.nathanwhyte.dev \
 
 ## Audit: who else pushes to this Harbor?
 
-**Verified 2026-06-10** (results now in `HARBOR.md`'s "External consumers" row). Each pull namespace maps to a project, but only some have their source repos on this machine.
+**Verified 2026-06-10** (results now in `harbor.md`'s "External consumers" row). Each pull namespace maps to a project, but only some have their source repos on this machine.
 
 | Harbor image | Cluster ns | Source repo (GitHub) | Stack | Local path |
 |---|---|---|---|---|
@@ -124,7 +124,7 @@ grep -rn 'registry\.nathanwhyte\.dev' ~/code/ \
 
 ## See also
 
-- `harbor/HARBOR.md` — one-page index
-- `harbor/HARBOR-RUNBOOK.md` — operational procedures
+- `harbor/harbor.md` — one-page index
+- `harbor/harbor-runbook.md` — operational procedures
 - [goharbor.io/cli-docs](https://goharbor.io/cli-docs/) — full CLI reference
 - [goharbor/harbor-cli](https://github.com/goharbor/harbor-cli) — source

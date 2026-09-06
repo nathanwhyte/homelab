@@ -154,4 +154,4 @@ never audited.
 
 - INFO-1120 — Cloudflare tunnel topology and consolidation history
 - IMPR-1028 — repo-vs-live drift reconciliation, which surfaced this
-- `harbor/HARBOR.md` — the registry these images were pushed to
+- `harbor/harbor.md` — the registry these images were pushed to

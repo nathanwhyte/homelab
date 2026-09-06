@@ -212,7 +212,7 @@ After bulk changes:
   namespace only when reconciling ghosts, removed files, or corrupted
   state.
 
-See `~/code/homelab/viking/COMPENDIUM_OV_SPEC.md` for the full spec.
+See `~/code/homelab/viking/docs/compendium-ov-spec.md` for the full spec.
 ```
 
 ## Script spec — `compendium-sync.py`
