@@ -53,9 +53,13 @@ RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
     && apt-get install -y --no-install-recommends gh \
     && rm -rf /var/lib/apt/lists/*
 
-# uv, system-wide: installer defaults target $HOME/.local/bin, which is NOT on
-# the runner's job-time PATH (jobs inherit the runner env, not shell rc files).
-RUN curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=/usr/local/bin sh
+# uv + uvx, system-wide and pinned to a release via the official image (IMPR-1131):
+# astral.sh's install.sh fetches an unversioned "latest", so copy the static
+# binaries instead — reproducible, offline-buildable, and version-controlled by
+# the tag. /bin is on the runner's job-time PATH; the installer default
+# $HOME/.local/bin is NOT (jobs inherit the runner env, not shell rc files).
+# Needs BuildKit: COPY --from=<image> is not supported by the legacy builder.
+COPY --from=ghcr.io/astral-sh/uv:0.12.10 /uv /uvx /bin/
 
 # Must end as the runner user (uid 1001); entrypoint /home/runner/run.sh and
 # /home/runner/externals (bundled Node runtimes) come from the base image.
