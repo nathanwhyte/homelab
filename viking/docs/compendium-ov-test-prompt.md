@@ -45,15 +45,15 @@ for that entry type. Faux entries must follow these templates faithfully
 
 Generate **60 faux entries** with this distribution:
 
-| Type | Count | Subdirectory layout |
-|---|---|---|
-| ideas | 15 | 12 in `ideas/`, 3 in `ideas/completed/` |
-| bugs | 15 | 6 in `bugs/active/`, 9 in `bugs/resolved/` |
-| tasks | 12 | 9 in `tasks/`, 3 in `tasks/completed/` |
-| features | 8 | 6 in `features/`, 2 in `features/completed/` |
-| projects | 5 | flat in `projects/` |
-| info | 3 | flat in `info/` |
-| plans | 2 | flat in `plans/`, date-prefixed (`YYYY-MM-DD-...`) |
+| Type     | Count | Subdirectory layout                                |
+| -------- | ----- | -------------------------------------------------- |
+| ideas    | 15    | 12 in `ideas/`, 3 in `ideas/completed/`            |
+| bugs     | 15    | 6 in `bugs/active/`, 9 in `bugs/resolved/`         |
+| tasks    | 12    | 9 in `tasks/`, 3 in `tasks/completed/`             |
+| features | 8     | 6 in `features/`, 2 in `features/completed/`       |
+| projects | 5     | flat in `projects/`                                |
+| info     | 3     | flat in `info/`                                    |
+| plans    | 2     | flat in `plans/`, date-prefixed (`YYYY-MM-DD-...`) |
 
 Use sequential numbering per type starting at 001 (e.g.,
 `IDEA-001`, `BUG-001`). Filenames: `{TYPE}-{NNN}-{kebab-slug}.md`.
@@ -65,11 +65,11 @@ For `plans/`, use the existing date convention without IDs:
 To exercise the Pattern #1 sync resolver across all states, distribute
 the `ov_mode` frontmatter field as follows:
 
-| State | Approx % | Behavior under sync |
-|---|---|---|
-| Field missing entirely | ~80% (~48 entries) | Defaults to `pointer` — synced to OV |
-| `ov_mode: pointer` (explicit) | ~15% (~9 entries) | Synced to OV |
-| `ov_mode: none` | ~5% (~3 entries) | Skipped by sync |
+| State                         | Approx %           | Behavior under sync                  |
+| ----------------------------- | ------------------ | ------------------------------------ |
+| Field missing entirely        | ~80% (~48 entries) | Defaults to `pointer` — synced to OV |
+| `ov_mode: pointer` (explicit) | ~15% (~9 entries)  | Synced to OV                         |
+| `ov_mode: none`               | ~5% (~3 entries)   | Skipped by sync                      |
 
 Place the `ov_mode: none` entries in obvious draft / scratch contexts
 (e.g., one in `ideas/`, one in `tasks/`, one in `bugs/active/`) so
@@ -100,14 +100,14 @@ Design entries so the test plan can probe these failure modes:
 
 **Required ranking traps — produce all of these explicitly:**
 
-| Trap type | Example | Purpose |
-|---|---|---|
-| **Near-duplicate ideas** | Two IDEA entries proposing similar caching strategies, ~70% topic overlap, different framing | Tests whether OV can disambiguate or returns both |
-| **Near-duplicate bugs** | Two BUG entries on similar symptom but different root causes (e.g., both "duplicate row creation" — one race condition, one schema bug) | Tests whether the body text differentiates |
-| **Keyword trap** | One entry uses "deletion" for a destructive operation, another uses "deletion" for a cleanup task — same word, different semantic intent | Tests embedding quality vs naive keyword match |
-| **Synonym pair** | One entry talks about "auth token rotation," another about "credential rolling" — different vocabulary, same concept | Tests whether semantic search bridges synonyms |
-| **Cross-type spread** | One topic (e.g., snowflake schema cleanup) gets representation across IDEA, BUG, TASK, and PROJECT | Tests whether queries surface the most-relevant type |
-| **Negative space** | At least 2 thematic clusters above should NOT have a feature/runbook entry | Tests whether queries about those topics return appropriate "weak" hits rather than false confidence |
+| Trap type                | Example                                                                                                                                  | Purpose                                                                                              |
+| ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| **Near-duplicate ideas** | Two IDEA entries proposing similar caching strategies, ~70% topic overlap, different framing                                             | Tests whether OV can disambiguate or returns both                                                    |
+| **Near-duplicate bugs**  | Two BUG entries on similar symptom but different root causes (e.g., both "duplicate row creation" — one race condition, one schema bug)  | Tests whether the body text differentiates                                                           |
+| **Keyword trap**         | One entry uses "deletion" for a destructive operation, another uses "deletion" for a cleanup task — same word, different semantic intent | Tests embedding quality vs naive keyword match                                                       |
+| **Synonym pair**         | One entry talks about "auth token rotation," another about "credential rolling" — different vocabulary, same concept                     | Tests whether semantic search bridges synonyms                                                       |
+| **Cross-type spread**    | One topic (e.g., snowflake schema cleanup) gets representation across IDEA, BUG, TASK, and PROJECT                                       | Tests whether queries surface the most-relevant type                                                 |
+| **Negative space**       | At least 2 thematic clusters above should NOT have a feature/runbook entry                                                               | Tests whether queries about those topics return appropriate "weak" hits rather than false confidence |
 
 After populating, **list every trap pair** in the report so the test
 plan can target them.
@@ -117,7 +117,7 @@ plan can target them.
 Embedding quality depends on real semantic content. Each entry needs:
 
 - **First paragraph (TL;DR)**: 2–4 sentences, plain English,
-  describes the entry's *aboutness*. This is the primary ranking
+  describes the entry's _aboutness_. This is the primary ranking
   surface for Pattern #1.
 - **Section bodies**: short but realistic — 3–6 sentences per
   template-mandated section. Reference plausible technologies, error

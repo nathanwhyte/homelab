@@ -9,14 +9,14 @@ Pattern #2 (full-content) is out of scope and explicitly deferred.
 
 ## Setup state (already complete)
 
-| Item | Status |
-|---|---|
-| Worktree at `~/code/compendium/.worktrees/ov-test` | Created |
-| Branch `ov-test` checked out in worktree | Done |
-| `.worktrees/` added to `.gitignore` and committed on `main` | Done |
-| Entry directories wiped (`bugs/`, `ideas/`, `features/`, `tasks/`, `projects/`, `plans/`, `info/`) | Done — 161 files removed |
-| Structural files preserved (CLAUDE.md, README.md, dashboard.md, DATAVIEW.md, `_templates/`, `_briefs/`, `_inbox/`, `_scripts/`, `_sources/`, `_verification-reports/`, `docs/`) | Kept |
-| Wipe committed on `ov-test` branch | Commit `d128c15` |
+| Item                                                                                                                                                                            | Status                   |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------ |
+| Worktree at `~/code/compendium/.worktrees/ov-test`                                                                                                                              | Created                  |
+| Branch `ov-test` checked out in worktree                                                                                                                                        | Done                     |
+| `.worktrees/` added to `.gitignore` and committed on `main`                                                                                                                     | Done                     |
+| Entry directories wiped (`bugs/`, `ideas/`, `features/`, `tasks/`, `projects/`, `plans/`, `info/`)                                                                              | Done — 161 files removed |
+| Structural files preserved (CLAUDE.md, README.md, dashboard.md, DATAVIEW.md, `_templates/`, `_briefs/`, `_inbox/`, `_scripts/`, `_sources/`, `_verification-reports/`, `docs/`) | Kept                     |
+| Wipe committed on `ov-test` branch                                                                                                                                              | Commit `d128c15`         |
 
 Stale state to be reset by the subagent population step:
 
@@ -106,42 +106,42 @@ human tester (or a sandbox session) with the workflow above.
 
 **Direct-match probes** (sanity — must work):
 
-| Query | Expected behavior |
-|---|---|
-| "show me work on session expiry" | Top hit is the auth/session entry; agent reads its markdown |
+| Query                                 | Expected behavior                                                                 |
+| ------------------------------------- | --------------------------------------------------------------------------------- |
+| "show me work on session expiry"      | Top hit is the auth/session entry; agent reads its markdown                       |
 | "find the duplicate row creation bug" | Surfaces the BUG entry on duplicate creation (not the IDEA/TASK on similar topic) |
-| "what's the deployment runbook" | Surfaces the relevant INFO or RUNBOOK entry |
+| "what's the deployment runbook"       | Surfaces the relevant INFO or RUNBOOK entry                                       |
 
 **Synonym probes** (semantic > keyword):
 
-| Query | Expected behavior |
-|---|---|
+| Query                         | Expected behavior                                                                         |
+| ----------------------------- | ----------------------------------------------------------------------------------------- |
 | "credential rolling strategy" | Should surface the entry actually titled "auth token rotation" (synonym pair from prompt) |
-| "ETL race condition" | Should find pipeline race-condition entries even if they don't say "ETL" |
+| "ETL race condition"          | Should find pipeline race-condition entries even if they don't say "ETL"                  |
 
 **Disambiguation probes** (near-duplicates):
 
-| Query | Expected behavior |
-|---|---|
-| Run trap pair query A → returns both near-duplicates → agent reads both and notes the difference | Verifies that pointer payload's headings + TL;DR carry enough signal to differentiate |
-| Run trap pair query B (keyword trap: "deletion") → returns the destructive-op AND cleanup entries | Verifies semantic ranking handles polysemy |
+| Query                                                                                             | Expected behavior                                                                     |
+| ------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| Run trap pair query A → returns both near-duplicates → agent reads both and notes the difference  | Verifies that pointer payload's headings + TL;DR carry enough signal to differentiate |
+| Run trap pair query B (keyword trap: "deletion") → returns the destructive-op AND cleanup entries | Verifies semantic ranking handles polysemy                                            |
 
 **Cross-type probes:**
 
-| Query | Expected behavior |
-|---|---|
+| Query                                                          | Expected behavior                                    |
+| -------------------------------------------------------------- | ---------------------------------------------------- |
 | Pick the topic that appears across IDEA + BUG + TASK + PROJECT | All four surface; agent presents the cross-type view |
 
 **Exclusion probes:**
 
-| Query | Expected behavior |
-|---|---|
+| Query                                                     | Expected behavior                              |
+| --------------------------------------------------------- | ---------------------------------------------- |
 | Topic where entries with `ov_mode: none` should be hidden | None of the excluded entries appear in results |
 
 **Negative-space probes:**
 
-| Query | Expected behavior |
-|---|---|
+| Query                                            | Expected behavior                                                                           |
+| ------------------------------------------------ | ------------------------------------------------------------------------------------------- |
 | Query a thematic cluster missing from the corpus | Returns weak / zero hits — agent reports "nothing strongly related" rather than fabricating |
 
 ### Pass criteria
@@ -158,11 +158,11 @@ human tester (or a sandbox session) with the workflow above.
 
 Capture for each query in Phase 3:
 
-| Metric | How to measure |
-|---|---|
-| OV chunk tokens returned | Length of `viking_find` response body |
-| Markdown file tokens read | Size of the Read call output |
-| Total tokens consumed for the answer | Sum of above |
+| Metric                               | How to measure                        |
+| ------------------------------------ | ------------------------------------- |
+| OV chunk tokens returned             | Length of `viking_find` response body |
+| Markdown file tokens read            | Size of the Read call output          |
+| Total tokens consumed for the answer | Sum of above                          |
 
 **Comparison baseline:** for the same query, simulate the
 "no-OV" path — `grep` for likely keywords across the worktree,
@@ -214,7 +214,7 @@ future prototypes).
    or do we need section first-sentences too?
 2. How often does the agent need to Read the full markdown vs answering
    from the OV chunk alone? If <30%, the payload is over-rich; if
-   >80%, OV is doing very little work.
+   > 80%, OV is doing very little work.
 3. Does the `[ov_mode: pointer]` header convention parse cleanly in
    practice, or does it need a more structured format (JSON frontmatter)?
 4. Are 6 entry types too many for stable ranking, or does the
