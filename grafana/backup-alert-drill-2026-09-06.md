@@ -41,8 +41,10 @@ CronJob and its credentials were not edited. No successful test upload occurred.
 - Full 30-minute Down and 12h-plus-one-hour Stale timing were tested with promtool's
   simulated clock. Live companion tests establish signal evaluation and routing,
   not an uninterrupted wall-clock test of those production durations.
-- Slack counters and receiver selection establish successful transport; human
-  confirmation of displayed firing/resolved messages is recorded separately.
+- The user's Slack screenshot confirms all four firing alert names and resolved
+  messages for freshness, exporter Down and the failed Job. A resolved message
+  for the frozen-worker alert is not visible in that screenshot; all test alerts
+  had cleared from Alertmanager by 17:29:36Z, with ten notifications and no errors.
 - A healthy-night soak is still pending. Glossary and omnipendium are expected to
   alert after the production one-hour delay until backups are implemented; they
   are known coverage gaps, not noise to silence by deleting declarations.
