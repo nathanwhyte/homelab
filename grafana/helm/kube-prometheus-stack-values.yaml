@@ -20,7 +20,7 @@
 # restart the grafana pod so the reload sidecar picks up the new value.
 
 alertmanager:
-  # Alertmanager only sends the wemby AC-power alert to Slack. The Slack
+  # Alertmanager sends power, backup and storage alerts to Slack. The Slack
   # incoming-webhook URL must be provided out-of-band as Secret
   # `alertmanager-slack-webhook` with key `api-url` in the grafana namespace.
   config:
@@ -81,6 +81,10 @@ alertmanager:
     templates:
       - /etc/alertmanager/config/*.tmpl
   alertmanagerSpec:
+    # Central routing in grafana may match workload namespaces; configurations
+    # in every other namespace retain the operator's namespace isolation.
+    alertmanagerConfigMatcherStrategy:
+      type: OnNamespaceExceptForAlertmanagerNamespace
     nodeSelector:
       kubernetes.io/hostname: timmy
     resources:

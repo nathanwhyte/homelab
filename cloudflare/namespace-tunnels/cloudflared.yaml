@@ -18,6 +18,9 @@
 # consolidated tunnel and keeps its own connector for risk.nathanwhyte.dev.
 #
 # Full topology and history: compendium INFO-1120.
+# The `eqrsk` provider-side ingress is recorded in `eqrsk-routing.yaml`.
+# This token connector is the active deployment; Cloudflare remains the source
+# of truth for its routing until an intentional config-file migration.
 ---
 apiVersion: v1
 kind: ServiceAccount

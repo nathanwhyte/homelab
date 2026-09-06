@@ -1,0 +1,113 @@
+rule_files:
+  - backup-alerts.rules.yaml  # Replaced with a temporary path by test-backup-alerts.py.
+evaluation_interval: 1m
+tests:
+  - interval: 1m
+    input_series:
+      - series: 'up{namespace="grafana",job="backup-freshness-exporter"}'
+        values: '1x100'
+      - series: 'backup_freshness_up{namespace="grafana",job="backup-freshness-exporter"}'
+        values: '1x100'
+      - series: 'backup_freshness_last_run_timestamp_seconds{namespace="grafana",job="backup-freshness-exporter"}'
+        values: '0+60x100'
+      - series: 'backup_freshness_seconds{app="healthy"}'
+        values: '3600x100'
+      - series: 'backup_freshness_max_age_seconds{app="healthy"}'
+        values: '172800x100'
+    alert_rule_test:
+      - {eval_time: 90m, alertname: BackupFreshnessStale, exp_alerts: []}
+      - {eval_time: 90m, alertname: BackupFreshnessExporterDown, exp_alerts: []}
+      - {eval_time: 90m, alertname: BackupFreshnessExporterStale, exp_alerts: []}
+  # A declared database with no Kubernetes job series must still alert.
+  - interval: 1m
+    input_series:
+      - series: 'backup_freshness_seconds{app="missing"}'
+        values: '+Inf+0x90'
+      - series: 'backup_freshness_max_age_seconds{app="missing"}'
+        values: '172800x90'
+    alert_rule_test:
+      - eval_time: 61m
+        alertname: BackupFreshnessStale
+        exp_alerts:
+          - exp_labels: {app: missing, severity: critical, alertgroup: backup}
+            exp_annotations:
+              summary: Backup for missing is stale (+Infs old)
+              description: The newest R2 backup object for missing is older than 2x its declared interval. Either the backup job is failing (BUG-1014) or there is no backup job at all (BUG-1086). Check the freshness exporter and the backup CronJob.
+  - interval: 1m
+    input_series:
+      - series: 'kube_job_status_failed{namespace="kube-system",job_name="k3s-datastore-backup-drill"}'
+        values: '1x10'
+      - series: 'kube_job_status_start_time{namespace="kube-system",job_name="k3s-datastore-backup-drill"}'
+        values: '0x10'
+    alert_rule_test:
+      - eval_time: 6m
+        alertname: BackupCronJobFailed
+        exp_alerts:
+          - exp_labels: {namespace: kube-system, job_name: k3s-datastore-backup-drill, severity: critical, alertgroup: backup}
+            exp_annotations:
+              summary: Backup job k3s-datastore-backup-drill failed in kube-system
+              description: "A backup Job started in the last 24h has failed (). Check `kubectl -n kube-system describe job k3s-datastore-backup-drill` and the pod logs. This is the BUG-1014 signature: pg_dump succeeded but the upload step failed."
+  # No target at all must alert; an absent metric is not a zero metric.
+  - interval: 1m
+    input_series:
+      - series: 'up{namespace="grafana",job="backup-freshness-exporter"}'
+        values: '1x40'
+      - series: 'backup_freshness_up{namespace="grafana",job="backup-freshness-exporter"}'
+        values: '0x40'
+    alert_rule_test:
+      - eval_time: 31m
+        alertname: BackupFreshnessExporterDown
+        exp_alerts:
+          - exp_labels: {namespace: grafana, job: backup-freshness-exporter, severity: warning, alertgroup: backup}
+            exp_annotations:
+              summary: Backup freshness exporter is failing
+              description: The exporter cannot list R2, cannot be scraped, or has no scrape target. Check grafana/backup-freshness-exporter, its ServiceMonitor and R2 credentials. Freshness coverage is unavailable.
+  - interval: 1m
+    input_series:
+      - series: 'up{namespace="grafana",job="backup-freshness-exporter"}'
+        values: '1x40'
+    alert_rule_test:
+      - eval_time: 31m
+        alertname: BackupFreshnessExporterDown
+        exp_alerts:
+          - exp_labels: {namespace: grafana, job: backup-freshness-exporter, severity: warning, alertgroup: backup}
+            exp_annotations:
+              summary: Backup freshness exporter is failing
+              description: The exporter cannot list R2, cannot be scraped, or has no scrape target. Check grafana/backup-freshness-exporter, its ServiceMonitor and R2 credentials. Freshness coverage is unavailable.
+  - interval: 1m
+    alert_rule_test:
+      - eval_time: 31m
+        alertname: BackupFreshnessExporterDown
+        exp_alerts:
+          - exp_labels:
+              namespace: grafana
+              job: backup-freshness-exporter
+              severity: warning
+              alertgroup: backup
+            exp_annotations:
+              summary: Backup freshness exporter is failing
+              description: The exporter cannot list R2, cannot be scraped, or has no scrape target. Check grafana/backup-freshness-exporter, its ServiceMonitor and R2 credentials. Freshness coverage is unavailable.
+  # A healthy HTTP server with a frozen refresh worker must alert as stale.
+  - interval: 1m
+    input_series:
+      - series: 'up{namespace="grafana",job="backup-freshness-exporter"}'
+        values: '1x800'
+      - series: 'backup_freshness_up{namespace="grafana",job="backup-freshness-exporter"}'
+        values: '1x800'
+      - series: 'backup_freshness_last_run_timestamp_seconds{namespace="grafana",job="backup-freshness-exporter"}'
+        values: '0x800'
+    alert_rule_test:
+      - eval_time: 782m
+        alertname: BackupFreshnessExporterStale
+        exp_alerts:
+          - exp_labels:
+              namespace: grafana
+              job: backup-freshness-exporter
+              severity: warning
+              alertgroup: backup
+            exp_annotations:
+              summary: Backup freshness exporter has not run in 12h
+              description: The freshness exporter's last completed listing attempt was more than 12h ago. Its HTTP endpoint may still be serving while the refresh worker is stalled. Check the deployment and logs.
+      - eval_time: 782m
+        alertname: BackupFreshnessExporterDown
+        exp_alerts: []

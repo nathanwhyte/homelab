@@ -1,0 +1,1375 @@
+{
+  "observations": [
+    {
+      "observed_at": "2026-09-06T17:18:50.922493+00:00",
+      "rules": [
+        {
+          "name": "BackupFreshnessStaleDrill",
+          "health": "unknown",
+          "state": "inactive",
+          "lastError": null,
+          "alerts": []
+        },
+        {
+          "name": "BackupFreshnessExporterDownDrill",
+          "health": "unknown",
+          "state": "inactive",
+          "lastError": null,
+          "alerts": []
+        },
+        {
+          "name": "BackupFreshnessExporterStaleDrill",
+          "health": "unknown",
+          "state": "inactive",
+          "lastError": null,
+          "alerts": []
+        },
+        {
+          "name": "BackupFreshnessStale",
+          "health": "ok",
+          "state": "pending",
+          "lastError": null,
+          "alerts": [
+            {
+              "labels": {
+                "alertgroup": "backup",
+                "alertname": "BackupFreshnessStale",
+                "app": "glossary",
+                "container": "exporter",
+                "endpoint": "metrics",
+                "instance": "10.42.0.132:9811",
+                "job": "backup-freshness-exporter",
+                "namespace": "grafana",
+                "pod": "backup-freshness-exporter-7649c4ff67-v6dnb",
+                "service": "backup-freshness-exporter",
+                "severity": "critical"
+              },
+              "annotations": {
+                "description": "The newest R2 backup object for glossary is older than 2x its declared interval. Either the backup job is failing (BUG-1014) or there is no backup job at all (BUG-1086). Check the freshness exporter and the backup CronJob.",
+                "summary": "Backup for glossary is stale (+Infs old)"
+              },
+              "state": "pending",
+              "activeAt": "2026-09-06T17:17:13.987043896Z",
+              "value": "+Inf"
+            },
+            {
+              "labels": {
+                "alertgroup": "backup",
+                "alertname": "BackupFreshnessStale",
+                "app": "omnipendium",
+                "container": "exporter",
+                "endpoint": "metrics",
+                "instance": "10.42.0.132:9811",
+                "job": "backup-freshness-exporter",
+                "namespace": "grafana",
+                "pod": "backup-freshness-exporter-7649c4ff67-v6dnb",
+                "service": "backup-freshness-exporter",
+                "severity": "critical"
+              },
+              "annotations": {
+                "description": "The newest R2 backup object for omnipendium is older than 2x its declared interval. Either the backup job is failing (BUG-1014) or there is no backup job at all (BUG-1086). Check the freshness exporter and the backup CronJob.",
+                "summary": "Backup for omnipendium is stale (+Infs old)"
+              },
+              "state": "pending",
+              "activeAt": "2026-09-06T17:17:13.987043896Z",
+              "value": "+Inf"
+            }
+          ]
+        },
+        {
+          "name": "BackupFreshnessExporterDown",
+          "health": "ok",
+          "state": "inactive",
+          "lastError": null,
+          "alerts": []
+        },
+        {
+          "name": "BackupFreshnessExporterStale",
+          "health": "ok",
+          "state": "inactive",
+          "lastError": null,
+          "alerts": []
+        },
+        {
+          "name": "BackupCronJobFailed",
+          "health": "ok",
+          "state": "pending",
+          "lastError": null,
+          "alerts": [
+            {
+              "labels": {
+                "alertgroup": "backup",
+                "alertname": "BackupCronJobFailed",
+                "container": "kube-state-metrics",
+                "endpoint": "http",
+                "instance": "10.42.4.123:8080",
+                "job": "kube-state-metrics",
+                "job_name": "postgres-backup-alert-drill",
+                "namespace": "coach",
+                "pod": "kube-prometheus-stack-kube-state-metrics-dcd9c7c48-v8wv9",
+                "reason": "BackoffLimitExceeded",
+                "service": "kube-prometheus-stack-kube-state-metrics",
+                "severity": "critical"
+              },
+              "annotations": {
+                "description": "A backup Job started in the last 24h has failed (BackoffLimitExceeded). Check `kubectl -n coach describe job postgres-backup-alert-drill` and the pod logs. This is the BUG-1014 signature: pg_dump succeeded but the upload step failed.",
+                "summary": "Backup job postgres-backup-alert-drill failed in coach"
+              },
+              "state": "pending",
+              "activeAt": "2026-09-06T17:18:40.724300968Z",
+              "value": "1e+00"
+            }
+          ]
+        },
+        {
+          "name": "BackupCronJobLastSuccessStale",
+          "health": "ok",
+          "state": "inactive",
+          "lastError": null,
+          "alerts": []
+        }
+      ],
+      "alertmanager": [],
+      "slack_counters": [
+        "alertmanager_notifications_failed_total{integration=\"slack\",reason=\"clientError\"} 0",
+        "alertmanager_notifications_failed_total{integration=\"slack\",reason=\"contextCanceled\"} 0",
+        "alertmanager_notifications_failed_total{integration=\"slack\",reason=\"contextDeadlineExceeded\"} 0",
+        "alertmanager_notifications_failed_total{integration=\"slack\",reason=\"other\"} 0",
+        "alertmanager_notifications_failed_total{integration=\"slack\",reason=\"serverError\"} 0",
+        "alertmanager_notifications_total{integration=\"slack\"} 3"
+      ]
+    },
+    {
+      "observed_at": "2026-09-06T17:20:04.053195+00:00",
+      "rules": [
+        {
+          "name": "BackupFreshnessStaleDrill",
+          "health": "ok",
+          "state": "firing",
+          "lastError": null,
+          "alerts": [
+            {
+              "labels": {
+                "alertgroup": "backup",
+                "alertname": "BackupFreshnessStaleDrill",
+                "app": "omnipendium",
+                "container": "exporter",
+                "drill": "backup-alert-drill",
+                "endpoint": "metrics",
+                "instance": "10.42.0.132:9811",
+                "job": "backup-freshness-exporter",
+                "namespace": "grafana",
+                "pod": "backup-freshness-exporter-7649c4ff67-v6dnb",
+                "service": "backup-freshness-exporter",
+                "severity": "critical"
+              },
+              "annotations": {
+                "description": "The newest R2 backup object for omnipendium is older than 2x its declared interval. Either the backup job is failing (BUG-1014) or there is no backup job at all (BUG-1086). Check the freshness exporter and the backup CronJob.",
+                "summary": "[1-minute drill] Backup for omnipendium is stale (+Infs old)"
+              },
+              "state": "firing",
+              "activeAt": "2026-09-06T17:18:54.064244906Z",
+              "value": "+Inf"
+            },
+            {
+              "labels": {
+                "alertgroup": "backup",
+                "alertname": "BackupFreshnessStaleDrill",
+                "app": "glossary",
+                "container": "exporter",
+                "drill": "backup-alert-drill",
+                "endpoint": "metrics",
+                "instance": "10.42.0.132:9811",
+                "job": "backup-freshness-exporter",
+                "namespace": "grafana",
+                "pod": "backup-freshness-exporter-7649c4ff67-v6dnb",
+                "service": "backup-freshness-exporter",
+                "severity": "critical"
+              },
+              "annotations": {
+                "description": "The newest R2 backup object for glossary is older than 2x its declared interval. Either the backup job is failing (BUG-1014) or there is no backup job at all (BUG-1086). Check the freshness exporter and the backup CronJob.",
+                "summary": "[1-minute drill] Backup for glossary is stale (+Infs old)"
+              },
+              "state": "firing",
+              "activeAt": "2026-09-06T17:18:54.064244906Z",
+              "value": "+Inf"
+            }
+          ]
+        },
+        {
+          "name": "BackupFreshnessExporterDownDrill",
+          "health": "ok",
+          "state": "inactive",
+          "lastError": null,
+          "alerts": []
+        },
+        {
+          "name": "BackupFreshnessExporterStaleDrill",
+          "health": "ok",
+          "state": "inactive",
+          "lastError": null,
+          "alerts": []
+        },
+        {
+          "name": "BackupFreshnessStale",
+          "health": "ok",
+          "state": "pending",
+          "lastError": null,
+          "alerts": [
+            {
+              "labels": {
+                "alertgroup": "backup",
+                "alertname": "BackupFreshnessStale",
+                "app": "omnipendium",
+                "container": "exporter",
+                "endpoint": "metrics",
+                "instance": "10.42.0.132:9811",
+                "job": "backup-freshness-exporter",
+                "namespace": "grafana",
+                "pod": "backup-freshness-exporter-7649c4ff67-v6dnb",
+                "service": "backup-freshness-exporter",
+                "severity": "critical"
+              },
+              "annotations": {
+                "description": "The newest R2 backup object for omnipendium is older than 2x its declared interval. Either the backup job is failing (BUG-1014) or there is no backup job at all (BUG-1086). Check the freshness exporter and the backup CronJob.",
+                "summary": "Backup for omnipendium is stale (+Infs old)"
+              },
+              "state": "pending",
+              "activeAt": "2026-09-06T17:17:13.987043896Z",
+              "value": "+Inf"
+            },
+            {
+              "labels": {
+                "alertgroup": "backup",
+                "alertname": "BackupFreshnessStale",
+                "app": "glossary",
+                "container": "exporter",
+                "endpoint": "metrics",
+                "instance": "10.42.0.132:9811",
+                "job": "backup-freshness-exporter",
+                "namespace": "grafana",
+                "pod": "backup-freshness-exporter-7649c4ff67-v6dnb",
+                "service": "backup-freshness-exporter",
+                "severity": "critical"
+              },
+              "annotations": {
+                "description": "The newest R2 backup object for glossary is older than 2x its declared interval. Either the backup job is failing (BUG-1014) or there is no backup job at all (BUG-1086). Check the freshness exporter and the backup CronJob.",
+                "summary": "Backup for glossary is stale (+Infs old)"
+              },
+              "state": "pending",
+              "activeAt": "2026-09-06T17:17:13.987043896Z",
+              "value": "+Inf"
+            }
+          ]
+        },
+        {
+          "name": "BackupFreshnessExporterDown",
+          "health": "ok",
+          "state": "inactive",
+          "lastError": null,
+          "alerts": []
+        },
+        {
+          "name": "BackupFreshnessExporterStale",
+          "health": "ok",
+          "state": "inactive",
+          "lastError": null,
+          "alerts": []
+        },
+        {
+          "name": "BackupCronJobFailed",
+          "health": "ok",
+          "state": "pending",
+          "lastError": null,
+          "alerts": [
+            {
+              "labels": {
+                "alertgroup": "backup",
+                "alertname": "BackupCronJobFailed",
+                "container": "kube-state-metrics",
+                "endpoint": "http",
+                "instance": "10.42.4.123:8080",
+                "job": "kube-state-metrics",
+                "job_name": "postgres-backup-alert-drill",
+                "namespace": "coach",
+                "pod": "kube-prometheus-stack-kube-state-metrics-dcd9c7c48-v8wv9",
+                "reason": "BackoffLimitExceeded",
+                "service": "kube-prometheus-stack-kube-state-metrics",
+                "severity": "critical"
+              },
+              "annotations": {
+                "description": "A backup Job started in the last 24h has failed (BackoffLimitExceeded). Check `kubectl -n coach describe job postgres-backup-alert-drill` and the pod logs. This is the BUG-1014 signature: pg_dump succeeded but the upload step failed.",
+                "summary": "Backup job postgres-backup-alert-drill failed in coach"
+              },
+              "state": "pending",
+              "activeAt": "2026-09-06T17:18:40.724300968Z",
+              "value": "1e+00"
+            }
+          ]
+        },
+        {
+          "name": "BackupCronJobLastSuccessStale",
+          "health": "ok",
+          "state": "inactive",
+          "lastError": null,
+          "alerts": []
+        }
+      ],
+      "alertmanager": [
+        {
+          "annotations": {
+            "description": "The newest R2 backup object for glossary is older than 2x its declared interval. Either the backup job is failing (BUG-1014) or there is no backup job at all (BUG-1086). Check the freshness exporter and the backup CronJob.",
+            "summary": "[1-minute drill] Backup for glossary is stale (+Infs old)"
+          },
+          "endsAt": "2026-09-06T17:23:54.064Z",
+          "fingerprint": "3c9f5019a763d0ee",
+          "receivers": [
+            {
+              "name": "grafana/backup-alert-routing/slack-homelab"
+            }
+          ],
+          "startsAt": "2026-09-06T17:19:54.064Z",
+          "status": {
+            "inhibitedBy": [],
+            "mutedBy": [],
+            "silencedBy": [],
+            "state": "active"
+          },
+          "updatedAt": "2026-09-06T17:19:54.065Z",
+          "generatorURL": "http://prom-prometheus.grafana:9090/graph?g0.expr=backup_freshness_seconds+%3E+backup_freshness_max_age_seconds&g0.tab=1",
+          "labels": {
+            "alertgroup": "backup",
+            "alertname": "BackupFreshnessStaleDrill",
+            "app": "glossary",
+            "cluster": "k8s",
+            "container": "exporter",
+            "drill": "backup-alert-drill",
+            "endpoint": "metrics",
+            "instance": "10.42.0.132:9811",
+            "job": "backup-freshness-exporter",
+            "namespace": "grafana",
+            "pod": "backup-freshness-exporter-7649c4ff67-v6dnb",
+            "prometheus": "grafana/prom-prometheus",
+            "service": "backup-freshness-exporter",
+            "severity": "critical"
+          }
+        },
+        {
+          "annotations": {
+            "description": "The newest R2 backup object for omnipendium is older than 2x its declared interval. Either the backup job is failing (BUG-1014) or there is no backup job at all (BUG-1086). Check the freshness exporter and the backup CronJob.",
+            "summary": "[1-minute drill] Backup for omnipendium is stale (+Infs old)"
+          },
+          "endsAt": "2026-09-06T17:23:54.064Z",
+          "fingerprint": "d229305481e52027",
+          "receivers": [
+            {
+              "name": "grafana/backup-alert-routing/slack-homelab"
+            }
+          ],
+          "startsAt": "2026-09-06T17:19:54.064Z",
+          "status": {
+            "inhibitedBy": [],
+            "mutedBy": [],
+            "silencedBy": [],
+            "state": "active"
+          },
+          "updatedAt": "2026-09-06T17:19:54.065Z",
+          "generatorURL": "http://prom-prometheus.grafana:9090/graph?g0.expr=backup_freshness_seconds+%3E+backup_freshness_max_age_seconds&g0.tab=1",
+          "labels": {
+            "alertgroup": "backup",
+            "alertname": "BackupFreshnessStaleDrill",
+            "app": "omnipendium",
+            "cluster": "k8s",
+            "container": "exporter",
+            "drill": "backup-alert-drill",
+            "endpoint": "metrics",
+            "instance": "10.42.0.132:9811",
+            "job": "backup-freshness-exporter",
+            "namespace": "grafana",
+            "pod": "backup-freshness-exporter-7649c4ff67-v6dnb",
+            "prometheus": "grafana/prom-prometheus",
+            "service": "backup-freshness-exporter",
+            "severity": "critical"
+          }
+        }
+      ],
+      "slack_counters": [
+        "alertmanager_notifications_failed_total{integration=\"slack\",reason=\"clientError\"} 0",
+        "alertmanager_notifications_failed_total{integration=\"slack\",reason=\"contextCanceled\"} 0",
+        "alertmanager_notifications_failed_total{integration=\"slack\",reason=\"contextDeadlineExceeded\"} 0",
+        "alertmanager_notifications_failed_total{integration=\"slack\",reason=\"other\"} 0",
+        "alertmanager_notifications_failed_total{integration=\"slack\",reason=\"serverError\"} 0",
+        "alertmanager_notifications_total{integration=\"slack\"} 3"
+      ]
+    },
+    {
+      "observed_at": "2026-09-06T17:23:10.196364+00:00",
+      "rules": [
+        {
+          "name": "BackupFreshnessStaleDrill",
+          "health": "ok",
+          "state": "inactive",
+          "lastError": null,
+          "alerts": []
+        },
+        {
+          "name": "BackupFreshnessExporterDownDrill",
+          "health": "ok",
+          "state": "firing",
+          "lastError": null,
+          "alerts": [
+            {
+              "labels": {
+                "alertgroup": "backup",
+                "alertname": "BackupFreshnessExporterDownDrill",
+                "drill": "backup-alert-drill",
+                "job": "backup-freshness-exporter",
+                "namespace": "grafana",
+                "severity": "warning"
+              },
+              "annotations": {
+                "description": "The exporter cannot list R2, cannot be scraped, or has no scrape target. Check grafana/backup-freshness-exporter, its ServiceMonitor and R2 credentials. Freshness coverage is unavailable.",
+                "summary": "[1-minute drill] Backup freshness exporter is failing"
+              },
+              "state": "firing",
+              "activeAt": "2026-09-06T17:21:54.064244906Z",
+              "value": "1e+00"
+            }
+          ]
+        },
+        {
+          "name": "BackupFreshnessExporterStaleDrill",
+          "health": "ok",
+          "state": "firing",
+          "lastError": null,
+          "alerts": [
+            {
+              "labels": {
+                "alertgroup": "backup",
+                "alertname": "BackupFreshnessExporterStaleDrill",
+                "container": "fixture",
+                "drill": "backup-alert-drill",
+                "endpoint": "metrics",
+                "instance": "10.42.0.138:9811",
+                "job": "backup-freshness-fixture",
+                "namespace": "grafana",
+                "pod": "backup-freshness-fixture-59fb7b465f-qngcm",
+                "service": "backup-freshness-fixture",
+                "severity": "warning"
+              },
+              "annotations": {
+                "description": "The freshness exporter's last completed listing attempt was more than 12h ago. Its HTTP endpoint may still be serving while the refresh worker is stalled. Check the deployment and logs.",
+                "summary": "[1-minute drill] Backup freshness exporter has not run in 12h"
+              },
+              "state": "firing",
+              "activeAt": "2026-09-06T17:21:09.064244906Z",
+              "value": "4.7092224334955215e+04"
+            }
+          ]
+        },
+        {
+          "name": "BackupFreshnessStale",
+          "health": "ok",
+          "state": "inactive",
+          "lastError": null,
+          "alerts": []
+        },
+        {
+          "name": "BackupFreshnessExporterDown",
+          "health": "ok",
+          "state": "pending",
+          "lastError": null,
+          "alerts": [
+            {
+              "labels": {
+                "alertgroup": "backup",
+                "alertname": "BackupFreshnessExporterDown",
+                "job": "backup-freshness-exporter",
+                "namespace": "grafana",
+                "severity": "warning"
+              },
+              "annotations": {
+                "description": "The exporter cannot list R2, cannot be scraped, or has no scrape target. Check grafana/backup-freshness-exporter, its ServiceMonitor and R2 credentials. Freshness coverage is unavailable.",
+                "summary": "Backup freshness exporter is failing"
+              },
+              "state": "pending",
+              "activeAt": "2026-09-06T17:21:43.987043896Z",
+              "value": "1e+00"
+            }
+          ]
+        },
+        {
+          "name": "BackupFreshnessExporterStale",
+          "health": "ok",
+          "state": "inactive",
+          "lastError": null,
+          "alerts": []
+        },
+        {
+          "name": "BackupCronJobFailed",
+          "health": "ok",
+          "state": "pending",
+          "lastError": null,
+          "alerts": [
+            {
+              "labels": {
+                "alertgroup": "backup",
+                "alertname": "BackupCronJobFailed",
+                "container": "kube-state-metrics",
+                "endpoint": "http",
+                "instance": "10.42.4.123:8080",
+                "job": "kube-state-metrics",
+                "job_name": "postgres-backup-alert-drill",
+                "namespace": "coach",
+                "pod": "kube-prometheus-stack-kube-state-metrics-dcd9c7c48-v8wv9",
+                "reason": "BackoffLimitExceeded",
+                "service": "kube-prometheus-stack-kube-state-metrics",
+                "severity": "critical"
+              },
+              "annotations": {
+                "description": "A backup Job started in the last 24h has failed (BackoffLimitExceeded). Check `kubectl -n coach describe job postgres-backup-alert-drill` and the pod logs. This is the BUG-1014 signature: pg_dump succeeded but the upload step failed.",
+                "summary": "Backup job postgres-backup-alert-drill failed in coach"
+              },
+              "state": "pending",
+              "activeAt": "2026-09-06T17:18:40.724300968Z",
+              "value": "1e+00"
+            }
+          ]
+        },
+        {
+          "name": "BackupCronJobLastSuccessStale",
+          "health": "ok",
+          "state": "inactive",
+          "lastError": null,
+          "alerts": []
+        }
+      ],
+      "alertmanager": [
+        {
+          "annotations": {
+            "description": "The exporter cannot list R2, cannot be scraped, or has no scrape target. Check grafana/backup-freshness-exporter, its ServiceMonitor and R2 credentials. Freshness coverage is unavailable.",
+            "summary": "[1-minute drill] Backup freshness exporter is failing"
+          },
+          "endsAt": "2026-09-06T17:26:54.064Z",
+          "fingerprint": "92d4086988d7bc23",
+          "receivers": [
+            {
+              "name": "grafana/backup-alert-routing/slack-homelab"
+            }
+          ],
+          "startsAt": "2026-09-06T17:22:54.064Z",
+          "status": {
+            "inhibitedBy": [],
+            "mutedBy": [],
+            "silencedBy": [],
+            "state": "active"
+          },
+          "updatedAt": "2026-09-06T17:22:54.065Z",
+          "generatorURL": "http://prom-prometheus.grafana:9090/graph?g0.expr=%28max%28backup_freshness_up%7Bjob%3D%22backup-freshness-exporter%22%2Cnamespace%3D%22grafana%22%7D%29+%3D%3D+0%29+or+%28max%28up%7Bjob%3D%22backup-freshness-exporter%22%2Cnamespace%3D%22grafana%22%7D%29+%3D%3D+0%29+or+absent%28up%7Bjob%3D%22backup-freshness-exporter%22%2Cnamespace%3D%22grafana%22%7D%29&g0.tab=1",
+          "labels": {
+            "alertgroup": "backup",
+            "alertname": "BackupFreshnessExporterDownDrill",
+            "cluster": "k8s",
+            "drill": "backup-alert-drill",
+            "job": "backup-freshness-exporter",
+            "namespace": "grafana",
+            "prometheus": "grafana/prom-prometheus",
+            "severity": "warning"
+          }
+        },
+        {
+          "annotations": {
+            "description": "The freshness exporter's last completed listing attempt was more than 12h ago. Its HTTP endpoint may still be serving while the refresh worker is stalled. Check the deployment and logs.",
+            "summary": "[1-minute drill] Backup freshness exporter has not run in 12h"
+          },
+          "endsAt": "2026-09-06T17:26:09.064Z",
+          "fingerprint": "9d14e5b02a91d20f",
+          "receivers": [
+            {
+              "name": "grafana/backup-alert-routing/slack-homelab"
+            }
+          ],
+          "startsAt": "2026-09-06T17:22:09.064Z",
+          "status": {
+            "inhibitedBy": [],
+            "mutedBy": [],
+            "silencedBy": [],
+            "state": "active"
+          },
+          "updatedAt": "2026-09-06T17:22:09.065Z",
+          "generatorURL": "http://prom-prometheus.grafana:9090/graph?g0.expr=time%28%29+-+backup_freshness_last_run_timestamp_seconds%7Bjob%3D%22backup-freshness-fixture%22%2Cnamespace%3D%22grafana%22%7D+%3E+43200&g0.tab=1",
+          "labels": {
+            "alertgroup": "backup",
+            "alertname": "BackupFreshnessExporterStaleDrill",
+            "cluster": "k8s",
+            "container": "fixture",
+            "drill": "backup-alert-drill",
+            "endpoint": "metrics",
+            "instance": "10.42.0.138:9811",
+            "job": "backup-freshness-fixture",
+            "namespace": "grafana",
+            "pod": "backup-freshness-fixture-59fb7b465f-qngcm",
+            "prometheus": "grafana/prom-prometheus",
+            "service": "backup-freshness-fixture",
+            "severity": "warning"
+          }
+        }
+      ],
+      "slack_counters": [
+        "alertmanager_notifications_failed_total{integration=\"slack\",reason=\"clientError\"} 0",
+        "alertmanager_notifications_failed_total{integration=\"slack\",reason=\"contextCanceled\"} 0",
+        "alertmanager_notifications_failed_total{integration=\"slack\",reason=\"contextDeadlineExceeded\"} 0",
+        "alertmanager_notifications_failed_total{integration=\"slack\",reason=\"other\"} 0",
+        "alertmanager_notifications_failed_total{integration=\"slack\",reason=\"serverError\"} 0",
+        "alertmanager_notifications_total{integration=\"slack\"} 5"
+      ]
+    },
+    {
+      "observed_at": "2026-09-06T17:23:51.852639+00:00",
+      "rules": [
+        {
+          "name": "BackupFreshnessStaleDrill",
+          "health": "ok",
+          "state": "inactive",
+          "lastError": null,
+          "alerts": []
+        },
+        {
+          "name": "BackupFreshnessExporterDownDrill",
+          "health": "ok",
+          "state": "firing",
+          "lastError": null,
+          "alerts": [
+            {
+              "labels": {
+                "alertgroup": "backup",
+                "alertname": "BackupFreshnessExporterDownDrill",
+                "drill": "backup-alert-drill",
+                "job": "backup-freshness-exporter",
+                "namespace": "grafana",
+                "severity": "warning"
+              },
+              "annotations": {
+                "description": "The exporter cannot list R2, cannot be scraped, or has no scrape target. Check grafana/backup-freshness-exporter, its ServiceMonitor and R2 credentials. Freshness coverage is unavailable.",
+                "summary": "[1-minute drill] Backup freshness exporter is failing"
+              },
+              "state": "firing",
+              "activeAt": "2026-09-06T17:21:54.064244906Z",
+              "value": "1e+00"
+            }
+          ]
+        },
+        {
+          "name": "BackupFreshnessExporterStaleDrill",
+          "health": "ok",
+          "state": "firing",
+          "lastError": null,
+          "alerts": [
+            {
+              "labels": {
+                "alertgroup": "backup",
+                "alertname": "BackupFreshnessExporterStaleDrill",
+                "container": "fixture",
+                "drill": "backup-alert-drill",
+                "endpoint": "metrics",
+                "instance": "10.42.0.138:9811",
+                "job": "backup-freshness-fixture",
+                "namespace": "grafana",
+                "pod": "backup-freshness-fixture-59fb7b465f-qngcm",
+                "service": "backup-freshness-fixture",
+                "severity": "warning"
+              },
+              "annotations": {
+                "description": "The freshness exporter's last completed listing attempt was more than 12h ago. Its HTTP endpoint may still be serving while the refresh worker is stalled. Check the deployment and logs.",
+                "summary": "[1-minute drill] Backup freshness exporter has not run in 12h"
+              },
+              "state": "firing",
+              "activeAt": "2026-09-06T17:21:09.064244906Z",
+              "value": "4.7122224334955215e+04"
+            }
+          ]
+        },
+        {
+          "name": "BackupFreshnessStale",
+          "health": "ok",
+          "state": "inactive",
+          "lastError": null,
+          "alerts": []
+        },
+        {
+          "name": "BackupFreshnessExporterDown",
+          "health": "ok",
+          "state": "pending",
+          "lastError": null,
+          "alerts": [
+            {
+              "labels": {
+                "alertgroup": "backup",
+                "alertname": "BackupFreshnessExporterDown",
+                "job": "backup-freshness-exporter",
+                "namespace": "grafana",
+                "severity": "warning"
+              },
+              "annotations": {
+                "description": "The exporter cannot list R2, cannot be scraped, or has no scrape target. Check grafana/backup-freshness-exporter, its ServiceMonitor and R2 credentials. Freshness coverage is unavailable.",
+                "summary": "Backup freshness exporter is failing"
+              },
+              "state": "pending",
+              "activeAt": "2026-09-06T17:21:43.987043896Z",
+              "value": "1e+00"
+            }
+          ]
+        },
+        {
+          "name": "BackupFreshnessExporterStale",
+          "health": "ok",
+          "state": "inactive",
+          "lastError": null,
+          "alerts": []
+        },
+        {
+          "name": "BackupCronJobFailed",
+          "health": "ok",
+          "state": "firing",
+          "lastError": null,
+          "alerts": [
+            {
+              "labels": {
+                "alertgroup": "backup",
+                "alertname": "BackupCronJobFailed",
+                "container": "kube-state-metrics",
+                "endpoint": "http",
+                "instance": "10.42.4.123:8080",
+                "job": "kube-state-metrics",
+                "job_name": "postgres-backup-alert-drill",
+                "namespace": "coach",
+                "pod": "kube-prometheus-stack-kube-state-metrics-dcd9c7c48-v8wv9",
+                "reason": "BackoffLimitExceeded",
+                "service": "kube-prometheus-stack-kube-state-metrics",
+                "severity": "critical"
+              },
+              "annotations": {
+                "description": "A backup Job started in the last 24h has failed (BackoffLimitExceeded). Check `kubectl -n coach describe job postgres-backup-alert-drill` and the pod logs. This is the BUG-1014 signature: pg_dump succeeded but the upload step failed.",
+                "summary": "Backup job postgres-backup-alert-drill failed in coach"
+              },
+              "state": "firing",
+              "activeAt": "2026-09-06T17:18:40.724300968Z",
+              "value": "1e+00"
+            }
+          ]
+        },
+        {
+          "name": "BackupCronJobLastSuccessStale",
+          "health": "ok",
+          "state": "inactive",
+          "lastError": null,
+          "alerts": []
+        }
+      ],
+      "alertmanager": [
+        {
+          "annotations": {
+            "description": "A backup Job started in the last 24h has failed (BackoffLimitExceeded). Check `kubectl -n coach describe job postgres-backup-alert-drill` and the pod logs. This is the BUG-1014 signature: pg_dump succeeded but the upload step failed.",
+            "summary": "Backup job postgres-backup-alert-drill failed in coach"
+          },
+          "endsAt": "2026-09-06T17:27:40.724Z",
+          "fingerprint": "46a1ad2dde965268",
+          "receivers": [
+            {
+              "name": "grafana/backup-alert-routing/slack-homelab"
+            }
+          ],
+          "startsAt": "2026-09-06T17:23:40.724Z",
+          "status": {
+            "inhibitedBy": [],
+            "mutedBy": [],
+            "silencedBy": [],
+            "state": "active"
+          },
+          "updatedAt": "2026-09-06T17:23:40.726Z",
+          "generatorURL": "http://prom-prometheus.grafana:9090/graph?g0.expr=%28kube_job_status_failed%7Bjob_name%3D~%22%28postgres-backup%7Ck3s-datastore-backup%7Cyt-dlp-r2-backup%29-.%2A%22%7D+%3E+0%29+and+on+%28namespace%2C+job_name%29+%28time%28%29+-+kube_job_status_start_time+%3C+86400%29&g0.tab=1",
+          "labels": {
+            "alertgroup": "backup",
+            "alertname": "BackupCronJobFailed",
+            "cluster": "k8s",
+            "container": "kube-state-metrics",
+            "endpoint": "http",
+            "instance": "10.42.4.123:8080",
+            "job": "kube-state-metrics",
+            "job_name": "postgres-backup-alert-drill",
+            "namespace": "coach",
+            "pod": "kube-prometheus-stack-kube-state-metrics-dcd9c7c48-v8wv9",
+            "prometheus": "grafana/prom-prometheus",
+            "reason": "BackoffLimitExceeded",
+            "service": "kube-prometheus-stack-kube-state-metrics",
+            "severity": "critical"
+          }
+        },
+        {
+          "annotations": {
+            "description": "The exporter cannot list R2, cannot be scraped, or has no scrape target. Check grafana/backup-freshness-exporter, its ServiceMonitor and R2 credentials. Freshness coverage is unavailable.",
+            "summary": "[1-minute drill] Backup freshness exporter is failing"
+          },
+          "endsAt": "2026-09-06T17:26:54.064Z",
+          "fingerprint": "92d4086988d7bc23",
+          "receivers": [
+            {
+              "name": "grafana/backup-alert-routing/slack-homelab"
+            }
+          ],
+          "startsAt": "2026-09-06T17:22:54.064Z",
+          "status": {
+            "inhibitedBy": [],
+            "mutedBy": [],
+            "silencedBy": [],
+            "state": "active"
+          },
+          "updatedAt": "2026-09-06T17:22:54.065Z",
+          "generatorURL": "http://prom-prometheus.grafana:9090/graph?g0.expr=%28max%28backup_freshness_up%7Bjob%3D%22backup-freshness-exporter%22%2Cnamespace%3D%22grafana%22%7D%29+%3D%3D+0%29+or+%28max%28up%7Bjob%3D%22backup-freshness-exporter%22%2Cnamespace%3D%22grafana%22%7D%29+%3D%3D+0%29+or+absent%28up%7Bjob%3D%22backup-freshness-exporter%22%2Cnamespace%3D%22grafana%22%7D%29&g0.tab=1",
+          "labels": {
+            "alertgroup": "backup",
+            "alertname": "BackupFreshnessExporterDownDrill",
+            "cluster": "k8s",
+            "drill": "backup-alert-drill",
+            "job": "backup-freshness-exporter",
+            "namespace": "grafana",
+            "prometheus": "grafana/prom-prometheus",
+            "severity": "warning"
+          }
+        },
+        {
+          "annotations": {
+            "description": "The freshness exporter's last completed listing attempt was more than 12h ago. Its HTTP endpoint may still be serving while the refresh worker is stalled. Check the deployment and logs.",
+            "summary": "[1-minute drill] Backup freshness exporter has not run in 12h"
+          },
+          "endsAt": "2026-09-06T17:27:24.064Z",
+          "fingerprint": "9d14e5b02a91d20f",
+          "receivers": [
+            {
+              "name": "grafana/backup-alert-routing/slack-homelab"
+            }
+          ],
+          "startsAt": "2026-09-06T17:22:09.064Z",
+          "status": {
+            "inhibitedBy": [],
+            "mutedBy": [],
+            "silencedBy": [],
+            "state": "active"
+          },
+          "updatedAt": "2026-09-06T17:23:24.065Z",
+          "generatorURL": "http://prom-prometheus.grafana:9090/graph?g0.expr=time%28%29+-+backup_freshness_last_run_timestamp_seconds%7Bjob%3D%22backup-freshness-fixture%22%2Cnamespace%3D%22grafana%22%7D+%3E+43200&g0.tab=1",
+          "labels": {
+            "alertgroup": "backup",
+            "alertname": "BackupFreshnessExporterStaleDrill",
+            "cluster": "k8s",
+            "container": "fixture",
+            "drill": "backup-alert-drill",
+            "endpoint": "metrics",
+            "instance": "10.42.0.138:9811",
+            "job": "backup-freshness-fixture",
+            "namespace": "grafana",
+            "pod": "backup-freshness-fixture-59fb7b465f-qngcm",
+            "prometheus": "grafana/prom-prometheus",
+            "service": "backup-freshness-fixture",
+            "severity": "warning"
+          }
+        }
+      ],
+      "slack_counters": [
+        "alertmanager_notifications_failed_total{integration=\"slack\",reason=\"clientError\"} 0",
+        "alertmanager_notifications_failed_total{integration=\"slack\",reason=\"contextCanceled\"} 0",
+        "alertmanager_notifications_failed_total{integration=\"slack\",reason=\"contextDeadlineExceeded\"} 0",
+        "alertmanager_notifications_failed_total{integration=\"slack\",reason=\"other\"} 0",
+        "alertmanager_notifications_failed_total{integration=\"slack\",reason=\"serverError\"} 0",
+        "alertmanager_notifications_total{integration=\"slack\"} 6"
+      ]
+    },
+    {
+      "observed_at": "2026-09-06T17:24:55.029738+00:00",
+      "rules": [
+        {
+          "name": "BackupFreshnessStaleDrill",
+          "health": "ok",
+          "state": "pending",
+          "lastError": null,
+          "alerts": [
+            {
+              "labels": {
+                "alertgroup": "backup",
+                "alertname": "BackupFreshnessStaleDrill",
+                "app": "glossary",
+                "container": "exporter",
+                "drill": "backup-alert-drill",
+                "endpoint": "metrics",
+                "instance": "10.42.4.158:9811",
+                "job": "backup-freshness-exporter",
+                "namespace": "grafana",
+                "pod": "backup-freshness-exporter-7649c4ff67-874ls",
+                "service": "backup-freshness-exporter",
+                "severity": "critical"
+              },
+              "annotations": {
+                "description": "The newest R2 backup object for glossary is older than 2x its declared interval. Either the backup job is failing (BUG-1014) or there is no backup job at all (BUG-1086). Check the freshness exporter and the backup CronJob.",
+                "summary": "[1-minute drill] Backup for glossary is stale (+Infs old)"
+              },
+              "state": "pending",
+              "activeAt": "2026-09-06T17:24:24.064244906Z",
+              "value": "+Inf"
+            },
+            {
+              "labels": {
+                "alertgroup": "backup",
+                "alertname": "BackupFreshnessStaleDrill",
+                "app": "omnipendium",
+                "container": "exporter",
+                "drill": "backup-alert-drill",
+                "endpoint": "metrics",
+                "instance": "10.42.4.158:9811",
+                "job": "backup-freshness-exporter",
+                "namespace": "grafana",
+                "pod": "backup-freshness-exporter-7649c4ff67-874ls",
+                "service": "backup-freshness-exporter",
+                "severity": "critical"
+              },
+              "annotations": {
+                "description": "The newest R2 backup object for omnipendium is older than 2x its declared interval. Either the backup job is failing (BUG-1014) or there is no backup job at all (BUG-1086). Check the freshness exporter and the backup CronJob.",
+                "summary": "[1-minute drill] Backup for omnipendium is stale (+Infs old)"
+              },
+              "state": "pending",
+              "activeAt": "2026-09-06T17:24:24.064244906Z",
+              "value": "+Inf"
+            }
+          ]
+        },
+        {
+          "name": "BackupFreshnessExporterDownDrill",
+          "health": "ok",
+          "state": "inactive",
+          "lastError": null,
+          "alerts": []
+        },
+        {
+          "name": "BackupFreshnessExporterStaleDrill",
+          "health": "ok",
+          "state": "firing",
+          "lastError": null,
+          "alerts": [
+            {
+              "labels": {
+                "alertgroup": "backup",
+                "alertname": "BackupFreshnessExporterStaleDrill",
+                "container": "fixture",
+                "drill": "backup-alert-drill",
+                "endpoint": "metrics",
+                "instance": "10.42.0.138:9811",
+                "job": "backup-freshness-fixture",
+                "namespace": "grafana",
+                "pod": "backup-freshness-fixture-59fb7b465f-qngcm",
+                "service": "backup-freshness-fixture",
+                "severity": "warning"
+              },
+              "annotations": {
+                "description": "The freshness exporter's last completed listing attempt was more than 12h ago. Its HTTP endpoint may still be serving while the refresh worker is stalled. Check the deployment and logs.",
+                "summary": "[1-minute drill] Backup freshness exporter has not run in 12h"
+              },
+              "state": "firing",
+              "activeAt": "2026-09-06T17:21:09.064244906Z",
+              "value": "4.7197224334955215e+04"
+            }
+          ]
+        },
+        {
+          "name": "BackupFreshnessStale",
+          "health": "ok",
+          "state": "pending",
+          "lastError": null,
+          "alerts": [
+            {
+              "labels": {
+                "alertgroup": "backup",
+                "alertname": "BackupFreshnessStale",
+                "app": "glossary",
+                "container": "exporter",
+                "endpoint": "metrics",
+                "instance": "10.42.4.158:9811",
+                "job": "backup-freshness-exporter",
+                "namespace": "grafana",
+                "pod": "backup-freshness-exporter-7649c4ff67-874ls",
+                "service": "backup-freshness-exporter",
+                "severity": "critical"
+              },
+              "annotations": {
+                "description": "The newest R2 backup object for glossary is older than 2x its declared interval. Either the backup job is failing (BUG-1014) or there is no backup job at all (BUG-1086). Check the freshness exporter and the backup CronJob.",
+                "summary": "Backup for glossary is stale (+Infs old)"
+              },
+              "state": "pending",
+              "activeAt": "2026-09-06T17:24:43.987043896Z",
+              "value": "+Inf"
+            },
+            {
+              "labels": {
+                "alertgroup": "backup",
+                "alertname": "BackupFreshnessStale",
+                "app": "omnipendium",
+                "container": "exporter",
+                "endpoint": "metrics",
+                "instance": "10.42.4.158:9811",
+                "job": "backup-freshness-exporter",
+                "namespace": "grafana",
+                "pod": "backup-freshness-exporter-7649c4ff67-874ls",
+                "service": "backup-freshness-exporter",
+                "severity": "critical"
+              },
+              "annotations": {
+                "description": "The newest R2 backup object for omnipendium is older than 2x its declared interval. Either the backup job is failing (BUG-1014) or there is no backup job at all (BUG-1086). Check the freshness exporter and the backup CronJob.",
+                "summary": "Backup for omnipendium is stale (+Infs old)"
+              },
+              "state": "pending",
+              "activeAt": "2026-09-06T17:24:43.987043896Z",
+              "value": "+Inf"
+            }
+          ]
+        },
+        {
+          "name": "BackupFreshnessExporterDown",
+          "health": "ok",
+          "state": "inactive",
+          "lastError": null,
+          "alerts": []
+        },
+        {
+          "name": "BackupFreshnessExporterStale",
+          "health": "ok",
+          "state": "inactive",
+          "lastError": null,
+          "alerts": []
+        },
+        {
+          "name": "BackupCronJobFailed",
+          "health": "ok",
+          "state": "firing",
+          "lastError": null,
+          "alerts": [
+            {
+              "labels": {
+                "alertgroup": "backup",
+                "alertname": "BackupCronJobFailed",
+                "container": "kube-state-metrics",
+                "endpoint": "http",
+                "instance": "10.42.4.123:8080",
+                "job": "kube-state-metrics",
+                "job_name": "postgres-backup-alert-drill",
+                "namespace": "coach",
+                "pod": "kube-prometheus-stack-kube-state-metrics-dcd9c7c48-v8wv9",
+                "reason": "BackoffLimitExceeded",
+                "service": "kube-prometheus-stack-kube-state-metrics",
+                "severity": "critical"
+              },
+              "annotations": {
+                "description": "A backup Job started in the last 24h has failed (BackoffLimitExceeded). Check `kubectl -n coach describe job postgres-backup-alert-drill` and the pod logs. This is the BUG-1014 signature: pg_dump succeeded but the upload step failed.",
+                "summary": "Backup job postgres-backup-alert-drill failed in coach"
+              },
+              "state": "firing",
+              "activeAt": "2026-09-06T17:18:40.724300968Z",
+              "value": "1e+00"
+            }
+          ]
+        },
+        {
+          "name": "BackupCronJobLastSuccessStale",
+          "health": "ok",
+          "state": "inactive",
+          "lastError": null,
+          "alerts": []
+        }
+      ],
+      "alertmanager": [
+        {
+          "annotations": {
+            "description": "A backup Job started in the last 24h has failed (BackoffLimitExceeded). Check `kubectl -n coach describe job postgres-backup-alert-drill` and the pod logs. This is the BUG-1014 signature: pg_dump succeeded but the upload step failed.",
+            "summary": "Backup job postgres-backup-alert-drill failed in coach"
+          },
+          "endsAt": "2026-09-06T17:27:40.724Z",
+          "fingerprint": "46a1ad2dde965268",
+          "receivers": [
+            {
+              "name": "grafana/backup-alert-routing/slack-homelab"
+            }
+          ],
+          "startsAt": "2026-09-06T17:23:40.724Z",
+          "status": {
+            "inhibitedBy": [],
+            "mutedBy": [],
+            "silencedBy": [],
+            "state": "active"
+          },
+          "updatedAt": "2026-09-06T17:23:40.726Z",
+          "generatorURL": "http://prom-prometheus.grafana:9090/graph?g0.expr=%28kube_job_status_failed%7Bjob_name%3D~%22%28postgres-backup%7Ck3s-datastore-backup%7Cyt-dlp-r2-backup%29-.%2A%22%7D+%3E+0%29+and+on+%28namespace%2C+job_name%29+%28time%28%29+-+kube_job_status_start_time+%3C+86400%29&g0.tab=1",
+          "labels": {
+            "alertgroup": "backup",
+            "alertname": "BackupCronJobFailed",
+            "cluster": "k8s",
+            "container": "kube-state-metrics",
+            "endpoint": "http",
+            "instance": "10.42.4.123:8080",
+            "job": "kube-state-metrics",
+            "job_name": "postgres-backup-alert-drill",
+            "namespace": "coach",
+            "pod": "kube-prometheus-stack-kube-state-metrics-dcd9c7c48-v8wv9",
+            "prometheus": "grafana/prom-prometheus",
+            "reason": "BackoffLimitExceeded",
+            "service": "kube-prometheus-stack-kube-state-metrics",
+            "severity": "critical"
+          }
+        },
+        {
+          "annotations": {
+            "description": "The freshness exporter's last completed listing attempt was more than 12h ago. Its HTTP endpoint may still be serving while the refresh worker is stalled. Check the deployment and logs.",
+            "summary": "[1-minute drill] Backup freshness exporter has not run in 12h"
+          },
+          "endsAt": "2026-09-06T17:28:39.064Z",
+          "fingerprint": "9d14e5b02a91d20f",
+          "receivers": [
+            {
+              "name": "grafana/backup-alert-routing/slack-homelab"
+            }
+          ],
+          "startsAt": "2026-09-06T17:22:09.064Z",
+          "status": {
+            "inhibitedBy": [],
+            "mutedBy": [],
+            "silencedBy": [],
+            "state": "active"
+          },
+          "updatedAt": "2026-09-06T17:24:39.065Z",
+          "generatorURL": "http://prom-prometheus.grafana:9090/graph?g0.expr=time%28%29+-+backup_freshness_last_run_timestamp_seconds%7Bjob%3D%22backup-freshness-fixture%22%2Cnamespace%3D%22grafana%22%7D+%3E+43200&g0.tab=1",
+          "labels": {
+            "alertgroup": "backup",
+            "alertname": "BackupFreshnessExporterStaleDrill",
+            "cluster": "k8s",
+            "container": "fixture",
+            "drill": "backup-alert-drill",
+            "endpoint": "metrics",
+            "instance": "10.42.0.138:9811",
+            "job": "backup-freshness-fixture",
+            "namespace": "grafana",
+            "pod": "backup-freshness-fixture-59fb7b465f-qngcm",
+            "prometheus": "grafana/prom-prometheus",
+            "service": "backup-freshness-fixture",
+            "severity": "warning"
+          }
+        }
+      ],
+      "slack_counters": [
+        "alertmanager_notifications_failed_total{integration=\"slack\",reason=\"clientError\"} 0",
+        "alertmanager_notifications_failed_total{integration=\"slack\",reason=\"contextCanceled\"} 0",
+        "alertmanager_notifications_failed_total{integration=\"slack\",reason=\"contextDeadlineExceeded\"} 0",
+        "alertmanager_notifications_failed_total{integration=\"slack\",reason=\"other\"} 0",
+        "alertmanager_notifications_failed_total{integration=\"slack\",reason=\"serverError\"} 0",
+        "alertmanager_notifications_total{integration=\"slack\"} 7"
+      ]
+    },
+    {
+      "observed_at": "2026-09-06T17:29:36.051932+00:00",
+      "rules": [
+        {
+          "name": "BackupFreshnessStale",
+          "health": "ok",
+          "state": "pending",
+          "lastError": null,
+          "alerts": [
+            {
+              "labels": {
+                "alertgroup": "backup",
+                "alertname": "BackupFreshnessStale",
+                "app": "glossary",
+                "container": "exporter",
+                "endpoint": "metrics",
+                "instance": "10.42.4.158:9811",
+                "job": "backup-freshness-exporter",
+                "namespace": "grafana",
+                "pod": "backup-freshness-exporter-7649c4ff67-874ls",
+                "service": "backup-freshness-exporter",
+                "severity": "critical"
+              },
+              "annotations": {
+                "description": "The newest R2 backup object for glossary is older than 2x its declared interval. Either the backup job is failing (BUG-1014) or there is no backup job at all (BUG-1086). Check the freshness exporter and the backup CronJob.",
+                "summary": "Backup for glossary is stale (+Infs old)"
+              },
+              "state": "pending",
+              "activeAt": "2026-09-06T17:24:43.987043896Z",
+              "value": "+Inf"
+            },
+            {
+              "labels": {
+                "alertgroup": "backup",
+                "alertname": "BackupFreshnessStale",
+                "app": "omnipendium",
+                "container": "exporter",
+                "endpoint": "metrics",
+                "instance": "10.42.4.158:9811",
+                "job": "backup-freshness-exporter",
+                "namespace": "grafana",
+                "pod": "backup-freshness-exporter-7649c4ff67-874ls",
+                "service": "backup-freshness-exporter",
+                "severity": "critical"
+              },
+              "annotations": {
+                "description": "The newest R2 backup object for omnipendium is older than 2x its declared interval. Either the backup job is failing (BUG-1014) or there is no backup job at all (BUG-1086). Check the freshness exporter and the backup CronJob.",
+                "summary": "Backup for omnipendium is stale (+Infs old)"
+              },
+              "state": "pending",
+              "activeAt": "2026-09-06T17:24:43.987043896Z",
+              "value": "+Inf"
+            }
+          ]
+        },
+        {
+          "name": "BackupFreshnessExporterDown",
+          "health": "ok",
+          "state": "inactive",
+          "lastError": null,
+          "alerts": []
+        },
+        {
+          "name": "BackupFreshnessExporterStale",
+          "health": "ok",
+          "state": "inactive",
+          "lastError": null,
+          "alerts": []
+        },
+        {
+          "name": "BackupCronJobFailed",
+          "health": "ok",
+          "state": "inactive",
+          "lastError": null,
+          "alerts": []
+        },
+        {
+          "name": "BackupCronJobLastSuccessStale",
+          "health": "ok",
+          "state": "inactive",
+          "lastError": null,
+          "alerts": []
+        }
+      ],
+      "alertmanager": [],
+      "slack_counters": [
+        "alertmanager_notifications_failed_total{integration=\"slack\",reason=\"clientError\"} 0",
+        "alertmanager_notifications_failed_total{integration=\"slack\",reason=\"contextCanceled\"} 0",
+        "alertmanager_notifications_failed_total{integration=\"slack\",reason=\"contextDeadlineExceeded\"} 0",
+        "alertmanager_notifications_failed_total{integration=\"slack\",reason=\"other\"} 0",
+        "alertmanager_notifications_failed_total{integration=\"slack\",reason=\"serverError\"} 0",
+        "alertmanager_notifications_total{integration=\"slack\"} 10"
+      ]
+    }
+  ],
+  "final": {
+    "verified_at": "2026-09-06T17:26:03.631348+00:00",
+    "samples": [
+      {
+        "metric": {
+          "__name__": "backup_freshness_seconds",
+          "app": "coach",
+          "container": "exporter",
+          "endpoint": "metrics",
+          "instance": "10.42.4.158:9811",
+          "job": "backup-freshness-exporter",
+          "namespace": "grafana",
+          "pod": "backup-freshness-exporter-7649c4ff67-874ls",
+          "service": "backup-freshness-exporter"
+        },
+        "value": [
+          1788715562.84,
+          "37536.86"
+        ]
+      },
+      {
+        "metric": {
+          "__name__": "backup_freshness_seconds",
+          "app": "equal-risk",
+          "container": "exporter",
+          "endpoint": "metrics",
+          "instance": "10.42.4.158:9811",
+          "job": "backup-freshness-exporter",
+          "namespace": "grafana",
+          "pod": "backup-freshness-exporter-7649c4ff67-874ls",
+          "service": "backup-freshness-exporter"
+        },
+        "value": [
+          1788715562.84,
+          "44735.045"
+        ]
+      },
+      {
+        "metric": {
+          "__name__": "backup_freshness_seconds",
+          "app": "glossary",
+          "container": "exporter",
+          "endpoint": "metrics",
+          "instance": "10.42.4.158:9811",
+          "job": "backup-freshness-exporter",
+          "namespace": "grafana",
+          "pod": "backup-freshness-exporter-7649c4ff67-874ls",
+          "service": "backup-freshness-exporter"
+        },
+        "value": [
+          1788715562.84,
+          "+Inf"
+        ]
+      },
+      {
+        "metric": {
+          "__name__": "backup_freshness_seconds",
+          "app": "omnipendium",
+          "container": "exporter",
+          "endpoint": "metrics",
+          "instance": "10.42.4.158:9811",
+          "job": "backup-freshness-exporter",
+          "namespace": "grafana",
+          "pod": "backup-freshness-exporter-7649c4ff67-874ls",
+          "service": "backup-freshness-exporter"
+        },
+        "value": [
+          1788715562.84,
+          "+Inf"
+        ]
+      }
+    ],
+    "exporter_up": [
+      {
+        "metric": {
+          "__name__": "backup_freshness_up",
+          "container": "exporter",
+          "endpoint": "metrics",
+          "instance": "10.42.4.158:9811",
+          "job": "backup-freshness-exporter",
+          "namespace": "grafana",
+          "pod": "backup-freshness-exporter-7649c4ff67-874ls",
+          "service": "backup-freshness-exporter"
+        },
+        "value": [
+          1788715562.843,
+          "1"
+        ]
+      }
+    ],
+    "chart_versions_and_revisions": {
+      "kube-prometheus-stack": [
+        "kube-prometheus-stack-87.17.0",
+        "20"
+      ],
+      "k8s-monitoring": [
+        "k8s-monitoring-3.8.4",
+        "2"
+      ],
+      "loki": [
+        "loki-7.1.0",
+        "14"
+      ]
+    },
+    "credential_file_mode": "0o600",
+    "drill_objects_remaining": 0,
+    "live_expressions_evaluated": 5
+  }
+}

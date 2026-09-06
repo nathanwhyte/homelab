@@ -3,20 +3,34 @@ set -euo pipefail
 
 HEADLAMP_DIR="${HEADLAMP_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
 NAMESPACE="headlamp"
+HELM_DEPLOY="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/scripts/helm-deploy.py"
+
+case "${1:-}" in
+--dry-run)
+	[[ $# -eq 1 ]] || exit 2
+	python3 "$HELM_DEPLOY" headlamp "$NAMESPACE" headlamp/headlamp --dry-run -f "$HEADLAMP_DIR/values.yaml"
+	exit 0
+	;;
+"") [[ $# -eq 0 ]] || exit 2 ;;
+*)
+	echo "Usage: $0 [--dry-run]" >&2
+	exit 2
+	;;
+esac
 
 if [ ! -x "$(command -v "kubectl")" ]; then
-    echo "kubectl not installed."
-    exit 1
+	echo "kubectl not installed."
+	exit 1
 fi
 
-if ! kubectl cluster-info > /dev/null 2>&1; then
-    echo "kubectl not connected to a cluster."
-    exit 1
+if ! kubectl cluster-info >/dev/null 2>&1; then
+	echo "kubectl not connected to a cluster."
+	exit 1
 fi
 
 if [ ! -x "$(command -v "helm")" ]; then
-    echo "helm not installed."
-    exit 1
+	echo "helm not installed."
+	exit 1
 fi
 
 echo "Updating helm repositories..."
@@ -24,26 +38,25 @@ helm repo add headlamp https://kubernetes-sigs.github.io/headlamp/ 2>/dev/null |
 helm repo update headlamp
 
 echo -e "\nDeploying Headlamp..."
-helm upgrade --install headlamp headlamp/headlamp \
-    --create-namespace \
-    --namespace "$NAMESPACE" \
-    -f "$HEADLAMP_DIR/values.yaml"
+python3 "$HELM_DEPLOY" headlamp "$NAMESPACE" headlamp/headlamp \
+	--create-namespace \
+	-f "$HEADLAMP_DIR/values.yaml"
 
 echo -e "\nApplying Headlamp manifests..."
 
 if [ -f "$HEADLAMP_DIR/cloudflared.secret.yaml" ]; then
-    kubectl apply -f "$HEADLAMP_DIR/cloudflared.secret.yaml"
+	kubectl apply -f "$HEADLAMP_DIR/cloudflared.secret.yaml"
 else
-    echo "cloudflared.secret.yaml not found."
-    echo "Create this file and apply it, or manually create the cloudflare secret."
+	echo "cloudflared.secret.yaml not found."
+	echo "Create this file and apply it, or manually create the cloudflare secret."
 fi
 
 if [ -f "$HEADLAMP_DIR/cloudflared.yaml" ]; then
-    kubectl apply -f "$HEADLAMP_DIR/cloudflared.yaml"
+	kubectl apply -f "$HEADLAMP_DIR/cloudflared.yaml"
 fi
 
 if [ -f "$HEADLAMP_DIR/user.yaml" ]; then
-    kubectl apply -f "$HEADLAMP_DIR/user.yaml"
+	kubectl apply -f "$HEADLAMP_DIR/user.yaml"
 fi
 
 echo -e "\nDone!"

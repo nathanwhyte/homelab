@@ -19,19 +19,29 @@ list in `grafana/backup-freshness-exporter.py`, **not** the CronJobs that
 happen to exist. A database that is declared but has no backup objects in R2
 exports `+Inf` and fires the freshness alert — this is what catches BUG-1086.
 
-| app         | schedule (UTC)     | backup CronJob today               | freshness threshold (2x) |
-| ----------- | ------------------ | ---------------------------------- | ------------------------ |
-| coach       | nightly 07:00      | `coach/postgres-backup`            | 48h                      |
-| equal-risk  | nightly 05:00      | `equal-risk/postgres-backup`       | 48h                      |
-| glossary    | nightly (intended) | **none** — alerts until one exists | 48h                      |
-| omnipendium | nightly (intended) | **none** — alerts until one exists | 48h                      |
+| app        | schedule (UTC) | backup CronJob today         | freshness threshold (2x) |
+| ---------- | -------------- | ---------------------------- | ------------------------ |
+| coach      | nightly 07:00  | `coach/postgres-backup`      | 48h                      |
+| equal-risk | nightly 05:00  | `equal-risk/postgres-backup` | 48h                      |
 
-glossary and omnipendium each run a postgres workload (`glossary/postgres`,
-`omnipendium/omnipendium-db`) with no backup job. They are declared on purpose:
-`BackupFreshnessStale` will fire for both from the first exporter run and stay
-firing until a backup job lands objects in R2. That is the BUG-1086 case doing
-its job, not a false alarm — silence the alert by creating the backup, not by
-removing the entry.
+Declare a database when it is meant to be backed up **now** — including when
+its backup is supposed to be running and is not. That case is the whole point:
+a missing CronJob produces no failing Job and no kube-state-metrics signal, so
+only a check against a declared list catches it (BUG-1086).
+
+Do **not** declare a backup that is merely planned. A declared database with
+no objects in R2 exports `+Inf` and fires a critical alert that can never
+resolve, because nothing is coming to clear it. That is not the BUG-1086 case
+doing its job; it is noise on the one channel that has to stay trustworthy
+(BUG-1104). Declare a database in the same change that ships its CronJob and
+credentials.
+
+Two workloads run postgres and are deliberately absent from the list:
+
+- **glossary** (`glossary/postgres`) — never backed up by design; its data is
+  rebuildable. It is not an oversight, so do not add it back.
+- **omnipendium** (`omnipendium/omnipendium-db`) — backup is planned, not
+  shipped (TASK-1117). It gets declared as part of that work.
 
 ### R2 layout (verified 2026-09-06)
 
@@ -46,7 +56,7 @@ backups/cluster/homelab-k3s/rebuild-exports/<YYYY-MM-DD>/postgres/<app>/<app>-<t
 There is no per-app prefix to list, so the exporter lists `rebuild-exports/`
 once (recursive, a few dozen objects) and groups by the `postgres/<app>/` path
 segment. Verified with the Cloudflare API: coach and equal-risk have objects
-under this layout through 2026-09-06; glossary and omnipendium have none.
+under this layout through 2026-09-06 (39 and 33 objects respectively).
 
 Other backup targets exist but are **not** in this declared list yet:
 
@@ -65,14 +75,14 @@ backup CronJob is called `postgres-backup` in its app's namespace, and its Jobs
 are `postgres-backup-<id>`.
 
 - `BackupCronJobFailed` —
-  `kube_job_status_failed{job_name=~"postgres-backup-.*"} > 0`, restricted with
+  `kube_job_status_failed{job_name=~"(postgres-backup|k3s-datastore-backup|yt-dlp-r2-backup)-.*"} > 0`, restricted with
   `and on (namespace, job_name) (time() - kube_job_status_start_time < 86400)`
   to Jobs started in the last 24h. Failed Jobs are retained by
   `failedJobsHistoryLimit` (four are visible in Prometheus right now, the oldest
   from 2026-08-26), so without the window a long-recovered failure would fire
   forever.
 - `BackupCronJobLastSuccessStale` —
-  `time() - kube_cronjob_status_last_successful_time{cronjob="postgres-backup"} > 172800`.
+  `time() - kube_cronjob_status_last_successful_time{cronjob=~"postgres-backup|k3s-datastore-backup"} > 172800`.
   Fires when a backup CronJob has not succeeded in 48h (2x nightly).
 
 Why not a `backup: "true"` label? kube-state-metrics only exposes Kubernetes
@@ -90,14 +100,13 @@ backup. Catches both a failing job and a missing job.
 - `BackupFreshnessStale` —
   `backup_freshness_seconds > backup_freshness_max_age_seconds`. The newest R2
   backup is older than 2x its interval (or absent → `+Inf`).
-- `BackupFreshnessExporterDown` — `backup_freshness_up == 0`. The exporter
-  could not list R2 (rclone missing, credentials broken, network). The per-app
+- `BackupFreshnessExporterDown` — failed listing, failed scrape, absent target
+  or absent health metric. For a listing error (credentials or network), per-app
   series are withheld in this state so `BackupFreshnessStale` does not also
   fire four criticals for what is one exporter problem.
 - `BackupFreshnessExporterStale` —
   `time() - backup_freshness_last_run_timestamp_seconds > 43200`. The exporter
-  has not run in 12h (its CronJob is suspended/failing/deleted), so the gauges
-  are frozen.
+  has not run in 12h (its refresh worker is stalled), even if the HTTP endpoint still responds.
 
 ## How the freshness gauge is produced
 
@@ -105,8 +114,8 @@ backup. Catches both a failing job and a missing job.
 
 1. Runs one recursive `rclone lsjson` of
    `r2:homelab/backups/cluster/homelab-k3s/rebuild-exports/`.
-2. For each `DECLARED` entry, takes the newest `ModTime` among objects whose
-   path contains `/postgres/<app>/`.
+2. For each `DECLARED` entry, takes the newest `ModTime` among nonempty `.pgdump` objects whose
+   path contains `/postgres/<app>/`; checksum and manifest sidecars do not count.
 3. Emits Prometheus text format:
    - `backup_freshness_seconds{app="..."}` — age of the newest backup (`+Inf`
      if none).
@@ -114,40 +123,63 @@ backup. Catches both a failing job and a missing job.
    - `backup_freshness_up` — 1 if the listing succeeded.
    - `backup_freshness_last_run_timestamp_seconds` — unix time of the run.
 
-### Credentials
+### Credentials and deployment
 
-The exporter uses rclone with a remote named `r2`, configured from
-`RCLONE_CONFIG_R2_*` environment variables. The postgres backup jobs do **not**
-use rclone — they run a boto3 script fed by `S3_PROVIDER_*` keys from each
-app's `r2-backup-credentials` secret — so that secret is the wrong shape. The
-weekly `yt-dlp/yt-dlp-r2-backup` CronJob does use rclone, via `envFrom` on the
-`yt-dlp/r2-credentials` secret, which carries exactly the seven
-`RCLONE_CONFIG_R2_*` keys the exporter needs. Copy that secret into the
-namespace that runs the exporter (or export the same variables on a host).
+The exporter reads `grafana/backup-freshness-r2-credentials`. Credentials are
+provisioned separately from an owner-only JSON file, outside this repository:
+`~/code/keys/homelab-backup-freshness-r2.json`. Its keys are the
+`RCLONE_CONFIG_R2_*` environment variable names and its values are plain strings.
+On 2026-09-06 the user authorized exporting the existing `yt-dlp/r2-credentials`
+values to this file. The file is mode 600; the provisioning script never prints
+values and sends the Secret through stdin with server-side apply. Treat both the
+local file and Kubernetes Secret as credential copies when rotating R2 access.
 
-### Scheduling
+```bash
+python3 grafana/provision-backup-credentials.py --dry-run
+python3 grafana/provision-backup-credentials.py
+bash grafana/deploy-backup-alerts.sh --dry-run
+bash grafana/deploy-backup-alerts.sh
+```
 
-The script is meant to run periodically and feed a node-exporter textfile
-collector (node-exporter already runs with `--collector.textfile`). The
-wiring is a follow-up: a CronJob (e.g. every 6h) that runs the script and
-writes its output into a directory shared with node-exporter's textfile
-collector, which requires mounting that directory into both the CronJob and
-node-exporter. The `BackupFreshnessExporterStale` rule guards against the
-exporter silently stopping (a frozen textfile would otherwise keep serving
-stale-but-fresh-looking values).
+An optional positional path selects a different credential JSON file. Reprovision
+and redeploy after rotation so the pod reloads its environment. The existing R2
+credentials have backup write access; this exporter only lists objects. A separate
+read-only R2 key would reduce its access and can be supplied through the same file.
 
-## Applying
+### Scheduling and scrape health
 
-`grafana/deploy-grafana.sh` applies `manifests/backup-alerts.yaml` alongside
-the other grafana-namespace manifests. The PrometheusRule needs no extra
-labels — the cluster Prometheus has empty rule selectors (same as
-`garage/manifests/garage-alerts.yaml`).
+`manifests/backup-freshness-exporter.yaml` runs a Deployment with an HTTP metrics
+endpoint and ServiceMonitor. No node-exporter hostPath or persistent volume is
+needed. An init container copies the existing rclone 1.68 binary into an emptyDir;
+the Python container refreshes R2 every five minutes, with a 120-second subprocess
+deadline. It runs without a Kubernetes API token, as non-root, with read-only root
+filesystems and bounded resources. HTTP probes check process availability, not R2
+availability, so a credential outage remains visible instead of restart-looping.
 
-## Routing
+The refresh worker atomically replaces its sample after each completed attempt.
+Failed listings withhold database samples and report `backup_freshness_up 0`.
+The HTTP handler computes ages from object timestamps, so age keeps increasing
+between refreshes; the last-run timestamp changes only after a listing attempt.
+The Down rule covers failed listing, failed scrape, missing target and missing
+health metric. The Stale rule separately detects a serving process whose refresh
+worker has not completed an attempt for 12 hours.
 
-Alerts carry `alertgroup: backup` and route to the existing `slack-homelab`
-receiver, which posts to `#cron-homelab` via the `alertmanager-slack-webhook`
-secret (key `api-url`) in the `grafana` namespace. The route matcher is added
-in `grafana/helm/kube-prometheus-stack-values.yaml`
-(`alertmanager.config.route.routes`). No new secret is created — the existing
-one is referenced.
+### Routing
+
+`manifests/backup-alert-routing.yaml` routes `alertgroup=backup` through the same
+`alertmanager-slack-webhook` Secret and `#cron-homelab` channel as storage alerts,
+including resolved notifications. `deploy-backup-alerts.sh` applies this route and
+its namespace matcher strategy directly, without any Helm upgrade. The main
+Grafana deploy script invokes this standalone script too.
+
+### Verification
+
+```bash
+python3 grafana/test-backup-freshness-exporter.py
+uv run --with pyyaml python grafana/test-backup-alerts.py /path/to/promtool
+```
+
+The exporter tests cover absent backups, sidecars, empty dumps, failed listings,
+malformed data, timeouts and a frozen refresh sample. Prometheus rule tests cover
+production-duration missing-target and stale-worker detection. Live drill evidence
+and remaining manual verification are recorded in `backup-alert-drill-2026-09-06.md`.

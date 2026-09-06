@@ -1,0 +1,23 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: longhorn
+  namespace: longhorn-system
+  labels:
+    release: kube-prometheus-stack
+spec:
+  namespaceSelector:
+    matchNames:
+      - longhorn-system
+  selector:
+    matchLabels:
+      app: longhorn-manager
+      app.kubernetes.io/instance: longhorn
+  endpoints:
+    - port: manager
+      path: /metrics
+      interval: 60s
+      scrapeTimeout: 10s
+      # Preserve Longhorn's workload namespace and node labels, rather than
+      # replacing them with the manager pod's namespace/node.
+      honorLabels: true

@@ -7,10 +7,11 @@
 > project was retired rather than migrated to a new memory provider. Manifests are kept for
 > reference. This README describes the stack as designed/last run.
 
-Hermes runs in the `hermes` namespace as two Deployments:
+Hermes last ran in the `hermes` namespace as two Deployments; the namespace was
+deleted on 2026-07-16 and these manifests are retained for historical reference:
 
-- `hermes-agent` — Hermes Agent runtime, currently running `hermes gateway run`
-- `hermes-jump` — constrained SSH terminal backend used by Hermes for shell/tool execution
+- `hermes-agent` — retired Hermes Agent runtime (formerly `hermes gateway run`)
+- `hermes-jump` — retired constrained SSH terminal backend used by Hermes
 
 ## Persistent storage
 

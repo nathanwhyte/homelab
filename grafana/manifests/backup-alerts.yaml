@@ -36,7 +36,7 @@ spec:
           # start-time window a 10-day-old failure that has since recovered
           # would fire forever. Scope to Jobs started in the last 24h.
           expr: |
-            (kube_job_status_failed{job_name=~"postgres-backup-.*"} > 0)
+            (kube_job_status_failed{job_name=~"(postgres-backup|k3s-datastore-backup|yt-dlp-r2-backup)-.*"} > 0)
               and on (namespace, job_name)
             (time() - kube_job_status_start_time < 86400)
           for: 5m
@@ -47,7 +47,7 @@ spec:
             summary: "Backup job {{ $labels.job_name }} failed in {{ $labels.namespace }}"
             description: "A backup Job started in the last 24h has failed ({{ $labels.reason }}). Check `kubectl -n {{ $labels.namespace }} describe job {{ $labels.job_name }}` and the pod logs. This is the BUG-1014 signature: pg_dump succeeded but the upload step failed."
         - alert: BackupCronJobLastSuccessStale
-          expr: time() - kube_cronjob_status_last_successful_time{cronjob="postgres-backup"} > 172800
+          expr: time() - kube_cronjob_status_last_successful_time{cronjob=~"postgres-backup|k3s-datastore-backup"} > 172800
           for: 1h
           labels:
             severity: critical
@@ -67,20 +67,24 @@ spec:
             summary: "Backup for {{ $labels.app }} is stale ({{ $value }}s old)"
             description: "The newest R2 backup object for {{ $labels.app }} is older than 2x its declared interval. Either the backup job is failing (BUG-1014) or there is no backup job at all (BUG-1086). Check the freshness exporter and the backup CronJob."
         - alert: BackupFreshnessExporterDown
-          expr: backup_freshness_up == 0
+          expr: |
+            (max by (namespace, job) (backup_freshness_up{namespace="grafana", job="backup-freshness-exporter"}) == 0)
+            or (max by (namespace, job) (up{namespace="grafana", job="backup-freshness-exporter"}) == 0)
+            or absent(up{namespace="grafana", job="backup-freshness-exporter"})
+            or absent(backup_freshness_up{namespace="grafana", job="backup-freshness-exporter"})
           for: 30m
           labels:
             severity: warning
             alertgroup: backup
           annotations:
             summary: "Backup freshness exporter is failing"
-            description: "backup_freshness_up == 0 — the freshness exporter could not list R2 objects (rclone missing, R2 credentials broken, or network). The per-app freshness series are withheld while this fires, so BackupFreshnessStale stays quiet; the freshness alerts are flying blind."
+            description: "The exporter cannot list R2, cannot be scraped, or has no scrape target. Check grafana/backup-freshness-exporter, its ServiceMonitor and R2 credentials. Freshness coverage is unavailable."
         - alert: BackupFreshnessExporterStale
-          expr: time() - backup_freshness_last_run_timestamp_seconds > 43200
+          expr: time() - backup_freshness_last_run_timestamp_seconds{namespace="grafana", job="backup-freshness-exporter"} > 43200
           for: 1h
           labels:
             severity: warning
             alertgroup: backup
           annotations:
             summary: "Backup freshness exporter has not run in 12h"
-            description: "The freshness exporter's last run was more than 12h ago — its CronJob is suspended, failing, or deleted. The freshness gauges are frozen and will not reflect new backups."
+            description: "The freshness exporter's last completed listing attempt was more than 12h ago. Its HTTP endpoint may still be serving while the refresh worker is stalled. Check the deployment and logs."
