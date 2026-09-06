@@ -150,6 +150,94 @@ class VersionTests(unittest.TestCase):
             self.assertIn("--suppress-secrets", argv)
 
 
+class ChartLocalityTests(unittest.TestCase):
+    """A chart ref is local only when it says so explicitly (absolute, or
+    `./`/`../`-prefixed); everything else is remote regardless of what
+    happens to exist on disk at that name."""
+
+    def rows(self, chart="my-chart-1.2.3-rc.1+build.2", status="deployed"):
+        return json.dumps(
+            [dict(name="release", namespace="ns", chart=chart, status=status)]
+        )
+
+    def test_absolute_path_is_local(self):
+        with tempfile.TemporaryDirectory() as directory:
+            self.assertTrue(deploy.is_local_chart_ref(directory))
+            with (
+                patch.object(
+                    deploy,
+                    "output",
+                    side_effect=["name: my-chart\nversion: 1.2.3\n", "[]"],
+                ),
+                patch.object(deploy.subprocess, "run") as run,
+                contextlib.redirect_stdout(io.StringIO()),
+            ):
+                deploy.main(["release", "ns", directory, "--dry-run"])
+                argv = run.call_args.args[0]
+                self.assertIn(directory, argv)
+                self.assertEqual(argv[argv.index("--version") + 1], "1.2.3")
+
+    def test_dot_slash_relative_path_is_local(self):
+        self.assertTrue(deploy.is_local_chart_ref("./mychart"))
+        self.assertTrue(deploy.is_local_chart_ref("../mychart"))
+        with tempfile.TemporaryDirectory() as directory:
+            (Path(directory) / "mychart").mkdir()
+            cwd = os.getcwd()
+            os.chdir(directory)
+            try:
+                with (
+                    patch.object(
+                        deploy,
+                        "output",
+                        side_effect=["name: mychart\nversion: 1.2.3\n", "[]"],
+                    ),
+                    patch.object(deploy.subprocess, "run") as run,
+                    contextlib.redirect_stdout(io.StringIO()),
+                ):
+                    deploy.main(["release", "ns", "./mychart", "--dry-run"])
+                    argv = run.call_args.args[0]
+                    self.assertIn("./mychart", argv)
+            finally:
+                os.chdir(cwd)
+
+    def test_missing_local_path_errors_before_any_helm_call(self):
+        with tempfile.TemporaryDirectory() as directory:
+            missing = str(Path(directory) / "does-not-exist")
+            with (
+                patch.object(deploy, "output") as output,
+                patch.object(deploy.subprocess, "run") as run,
+            ):
+                with self.assertRaisesRegex(ValueError, "does not exist"):
+                    deploy.main(["release", "ns", missing])
+                output.assert_not_called()
+                run.assert_not_called()
+
+    def test_remote_looking_ref_that_exists_as_a_directory_stays_remote(self):
+        self.assertFalse(deploy.is_local_chart_ref("repo/my-chart"))
+        with tempfile.TemporaryDirectory() as directory:
+            (Path(directory) / "repo" / "my-chart").mkdir(parents=True)
+            cwd = os.getcwd()
+            os.chdir(directory)
+            try:
+                with (
+                    patch.object(
+                        deploy,
+                        "output",
+                        side_effect=[
+                            self.rows("my-chart-1.2.3"),
+                            "name: my-chart\nversion: 1.2.3\n",
+                        ],
+                    ),
+                    patch.object(deploy.subprocess, "run") as run,
+                    contextlib.redirect_stdout(io.StringIO()),
+                ):
+                    deploy.main(["release", "ns", "repo/my-chart"])
+                    argv = run.call_args.args[0]
+                    self.assertIn("repo/my-chart", argv)
+            finally:
+                os.chdir(cwd)
+
+
 FAKE_HELM = r"""#!/usr/bin/env python3
 import json, os, sys
 from pathlib import Path

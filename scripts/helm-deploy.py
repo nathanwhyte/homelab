@@ -19,6 +19,14 @@ def output(args):
     return subprocess.check_output(args, text=True)
 
 
+def is_local_chart_ref(chart):
+    """A chart ref names a local path only if it says so explicitly: absolute,
+    or starting with `./` or `../`. Anything else — e.g. `harbor/harbor` or
+    `grafana/loki` — is a repo/alias ref, even if a same-named directory
+    happens to exist in the current working directory."""
+    return Path(chart).is_absolute() or chart.startswith(("./", "../"))
+
+
 def metadata_scalar(text, field, pattern):
     # Helm serializes chart metadata as YAML. Accept only a simple scalar;
     # reject exotic YAML instead of interpreting it or guessing a version.
@@ -105,7 +113,9 @@ def main(argv=None):
             "Version, namespace, context and dry-run flags are owned by helm-deploy.py"
         )
 
-    local = Path(chart).exists()
+    local = is_local_chart_ref(chart)
+    if local and not Path(chart).exists():
+        raise ValueError(f"Local chart path does not exist: {chart}")
     metadata = output(["helm", "show", "chart", chart]) if local else None
     chart_name = (
         metadata_scalar(metadata, "name", r"[a-z0-9][a-z0-9.-]*")

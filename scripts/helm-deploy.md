@@ -24,20 +24,27 @@ Garage checkout is absent. The helper rejects a local chart whose version differ
 from the deployed version; Helm's `--version` cannot select different local files.
 Matching version metadata alone does not prove identical chart contents.
 
+A chart argument is treated as local only when it is an absolute path or
+starts with `./` or `../`; such a path must exist or the helper exits
+non-zero with a clear error. Any other ref — `harbor/harbor`, `grafana/loki`,
+a bare chart name — goes through the remote repo/alias path regardless of
+whether a same-named directory happens to exist in the current working
+directory.
+
 ## Verification on 2026-09-06
 
 All six scripts passed live server-side dry-runs using Helm `v4.2.4`.
 Installed chart versions and release revisions were unchanged afterward:
 
-| Namespace/release | Chart version | Revision before/after |
-| --- | --- | --- |
-| grafana/kube-prometheus-stack | 87.17.0 | 20 / 20 |
-| grafana/k8s-monitoring | 3.8.4 | 2 / 2 |
-| grafana/loki | 7.1.0 | 14 / 14 |
-| harbor/harbor | 1.19.1 | 5 / 5 |
-| openwebui/open-webui | 15.2.0 | 7 / 7 |
-| kubernetes-dashboard/kubernetes-dashboard | 7.14.0 | 2 / 2 |
-| garage/garage | 0.9.2 | 2 / 2 |
+| Namespace/release                         | Chart version | Revision before/after |
+| ----------------------------------------- | ------------- | --------------------- |
+| grafana/kube-prometheus-stack             | 87.17.0       | 20 / 20               |
+| grafana/k8s-monitoring                    | 3.8.4         | 2 / 2                 |
+| grafana/loki                              | 7.1.0         | 14 / 14               |
+| harbor/harbor                             | 1.19.1        | 5 / 5                 |
+| openwebui/open-webui                      | 15.2.0        | 7 / 7                 |
+| kubernetes-dashboard/kubernetes-dashboard | 7.14.0        | 2 / 2                 |
+| garage/garage                             | 0.9.2         | 2 / 2                 |
 
 Headlamp remains retired and absent: its first-install simulation resolved
 `0.45.0` using temporary Helm repository settings and created no release.
