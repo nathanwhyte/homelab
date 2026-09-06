@@ -6,7 +6,7 @@ set -euo pipefail
 # deeper than the old hardcoded "$HOME/code/homelab/gpu/nvidia", which has been
 # failing with "values.yaml not found!" since that conversion. Self-relative also
 # means the script works from any worktree and from any cwd.
-NVIDIA_GPU_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+NVIDIA_GPU_DIR="${NVIDIA_GPU_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
 NAMESPACE="gpu-operator"
 
 if [ ! -x "$(command -v "kubectl")" ]; then

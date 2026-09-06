@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-AMD_GPU_DIR="$HOME/code/homelab/gpu/amd"
+AMD_GPU_DIR="${AMD_GPU_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
 
 if [ ! -x "$(command -v "kubectl")" ]; then
     echo "kubectl not installed."

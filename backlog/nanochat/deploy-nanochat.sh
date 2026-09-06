@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-NANOCHAT_DIR="$HOME/code/homelab/nanochat"
+NANOCHAT_DIR="${NANOCHAT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
 
 if [ ! -x "$(command -v "kubectl")" ]; then
 	echo "kubectl not installed."

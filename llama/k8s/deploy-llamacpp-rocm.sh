@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-LLAMA_DIR="$HOME/code/homelab/llama"
+LLAMA_DIR="${LLAMA_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 NAMESPACE="llama"
 
 if [ ! -x "$(command -v "kubectl")" ]; then
