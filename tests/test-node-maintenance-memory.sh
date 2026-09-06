@@ -23,6 +23,7 @@ STUB_PODS=$TMPDIR_TEST/pods.json
 cat >"$TMPDIR_TEST/kubectl" <<'STUB'
 #!/usr/bin/env bash
 # $STUB_LOG, $STUB_NODES, $STUB_PODS, $STUB_REPLICAS are exported by the harness.
+set -euo pipefail
 case "$1" in
 get)
   case "$2" in
@@ -34,6 +35,11 @@ get)
       [[ $a == spec.nodeName=* ]] && node=${a#spec.nodeName=}
     done
     if [[ -n $node ]]; then
+      [[ ${STUB_FAIL_TARGET:-0} == 0 ]] || exit 1
+      if [[ ${STUB_MALFORMED_TARGET:-0} == 1 ]]; then
+        printf 'invalid json\n'
+        exit 0
+      fi
       jq --arg n "$node" '{items: [.items[] | select(.spec.nodeName == $n)]}' "$STUB_PODS"
     else
       cat "$STUB_PODS"
@@ -65,7 +71,10 @@ scale)
     *) name=$1; shift ;;
     esac
   done
+  [[ ${STUB_FAIL_SCALE:-} != "$ns/$name=$replicas" ]] || exit 1
   echo "$ns/$name -> $replicas" >>"$STUB_LOG"
+  sed "s|^$ns/$name=.*|$ns/$name=$replicas|" "$STUB_REPLICAS" >"$STUB_REPLICAS.next"
+  mv "$STUB_REPLICAS.next" "$STUB_REPLICAS"
   ;;
 esac
 STUB
@@ -94,7 +103,7 @@ JSON
 
 export KUBECTL=$TMPDIR_TEST/kubectl
 export STUB_LOG STUB_NODES STUB_PODS
-export MAINTENANCE_STATE_DIR=$TMPDIR_TEST/state
+export XDG_STATE_HOME=$TMPDIR_TEST/state
 
 # Source the script under test (its main() is guarded, so this only defines
 # functions and variables).
@@ -103,11 +112,19 @@ source "$REPO_ROOT/scripts/node-maintenance.sh"
 
 PASS=0
 FAIL=0
-ok() { printf 'ok   %s\n' "$1"; PASS=$((PASS + 1)); }
-bad() { printf 'FAIL %s\n' "$1"; FAIL=$((FAIL + 1)); }
+ok() {
+	printf 'ok   %s\n' "$1"
+	PASS=$((PASS + 1))
+}
+bad() {
+	printf 'FAIL %s\n' "$1"
+	FAIL=$((FAIL + 1))
+}
 assert_eq() { # desc expected actual
 	if [[ $2 == "$3" ]]; then ok "$1"; else bad "$1 (expected '$2', got '$3')"; fi
 }
+
+assert_eq "state stays in the fixture" "$TMPDIR_TEST/state/homelab-node-maintenance" "$MAINTENANCE_STATE_DIR"
 
 # --- mem_quantity_to_bytes ---------------------------------------------------
 assert_eq "6Gi -> bytes" "$((6 * 1024 * 1024 * 1024))" "$(mem_quantity_to_bytes 6Gi)"
@@ -126,6 +143,30 @@ assert_eq "wemby pod memory = 20Gi" "$((20 * 1024 * 1024 * 1024))" "$(node_pod_m
 # --- remaining_headroom_bytes (stubbed kubectl) ------------------------------
 # manu: 64Gi - 30Gi = 34Gi; timmy: 64Gi - 20Gi = 44Gi; total 78Gi.
 assert_eq "remaining headroom = 78Gi" "$((78 * 1024 * 1024 * 1024))" "$(remaining_headroom_bytes wemby)"
+
+# Unscheduled Pending pods reserve no capacity on any node.
+jq '.items += [{"status":{"phase":"Pending"},"spec":{"containers":[{"resources":{"requests":{"memory":"1Gi"}}}]}}]' "$STUB_PODS" >"$STUB_PODS.next"
+mv "$STUB_PODS.next" "$STUB_PODS"
+assert_eq "Pending pod does not break headroom" "$((78 * 1024 * 1024 * 1024))" "$(remaining_headroom_bytes wemby)"
+
+for override in 0 1; do
+	if (
+		export STUB_FAIL_TARGET=1
+		memory_headroom_preflight wemby "$override"
+	) >/dev/null 2>&1; then
+		bad "failed target read passed with override=$override"
+	else
+		ok "failed target read blocks with override=$override"
+	fi
+done
+if (
+	export STUB_MALFORMED_TARGET=1
+	memory_headroom_preflight wemby 0
+) >/dev/null 2>&1; then
+	bad "malformed target JSON passed"
+else
+	ok "malformed target JSON blocks"
+fi
 
 # --- memory_headroom_preflight (orchestrator) --------------------------------
 # 20Gi target vs 78Gi headroom -> pass (no abort).
@@ -204,6 +245,64 @@ if [[ -s $STUB_LOG ]]; then
 	bad "restore should be a no-op with no prior spin-down"
 else
 	ok "restore is a no-op with no prior spin-down"
+fi
+
+# A partial spin-down followed by a retry must preserve the original counts.
+export STUB_FAIL_SCALE=viking/openviking=0
+if spin_down_memory_services >/dev/null 2>&1; then
+	bad "partial spin-down should fail"
+else
+	ok "partial spin-down propagates scale failure"
+fi
+assert_eq "first deployment really stopped" "llama/ollama=0" "$(grep '^llama/ollama=' "$STUB_REPLICAS")"
+unset STUB_FAIL_SCALE
+spin_down_memory_services
+restore_memory_services
+assert_eq "retry restores original Ollama replicas" "llama/ollama=1" "$(grep '^llama/ollama=' "$STUB_REPLICAS")"
+
+# Exercise finish itself, keeping every cluster/SSH surface stubbed. The scale
+# stub persists replica changes, so a retry observes actual partial recovery.
+spin_down_memory_services
+touch "$TMPDIR_TEST/cordoned"
+export STUB_FAIL_SCALE=viking/openviking=1
+finish_fixture() (
+	wait_for_new_boot() { :; }
+	run_ssh() { :; }
+	wait_for_api() { :; }
+	wait_for_node_ready() { :; }
+	wait_longhorn_healthy() { :; }
+	cordoned_nodes() {
+		if [[ -e $TMPDIR_TEST/cordoned ]]; then printf 'wemby\n'; fi
+	}
+	kubectl() {
+		[[ $1 == uncordon ]] || return 1
+		rm "$TMPDIR_TEST/cordoned"
+	}
+	cmd_finish wemby 12345678-1234-1234-1234-123456789abc
+)
+if finish_fixture >/dev/null 2>&1; then
+	bad "finish should fail on partial restoration"
+else
+	ok "finish propagates restore failure"
+fi
+if [[ -e $TMPDIR_TEST/cordoned && -s $(spin_down_state_file) ]]; then
+	ok "failed finish retains cordon and recovery state"
+else
+	bad "failed finish discarded recovery prerequisites"
+fi
+unset STUB_FAIL_SCALE
+if finish_fixture >/dev/null 2>&1; then
+	ok "finish retry completes"
+else
+	bad "finish retry failed"
+fi
+for svc in llama/ollama viking/openviking viking/ov-vectordb; do
+	assert_eq "finish restored $svc" "$svc=1" "$(grep "^$svc=" "$STUB_REPLICAS")"
+done
+if [[ ! -e $TMPDIR_TEST/cordoned && ! -e $(spin_down_state_file) ]]; then
+	ok "successful finish clears cordon and recovery state"
+else
+	bad "successful finish left stale state"
 fi
 
 echo

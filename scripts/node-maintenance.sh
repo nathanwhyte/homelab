@@ -381,11 +381,12 @@ memory_headroom_verdict() {
 # request contribute 0 — the scheduler treats them the same way, so this is the
 # conservative scheduling signal (requests, not live usage, decide placement).
 node_pod_memory_bytes() {
-	local node=$1 q total=0
+	local node=$1 q quantities total=0
+	quantities=$($KUBECTL get pods -A -o json --field-selector "spec.nodeName=$node" |
+		jq -r '.items[].spec.containers[].resources.requests.memory // "0"') || return 1
 	while IFS= read -r q; do
 		[[ -n $q ]] && total=$((total + $(mem_quantity_to_bytes "$q")))
-	done < <($KUBECTL get pods -A -o json --field-selector "spec.nodeName=$node" |
-		jq -r '.items[].spec.containers[].resources.requests.memory // "0"')
+	done <<<"$quantities"
 	printf '%d\n' "$total"
 }
 
@@ -394,8 +395,8 @@ node_pod_memory_bytes() {
 remaining_headroom_bytes() {
 	local node=$1
 	local nodes pods
-	nodes=$($KUBECTL get nodes -o json)
-	pods=$($KUBECTL get pods -A -o json)
+	nodes=$($KUBECTL get nodes -o json) || return 1
+	pods=$($KUBECTL get pods -A -o json) || return 1
 	jq -n --arg node "$node" --argjson nodes "$nodes" --argjson pods "$pods" '
 		def tobytes:
 			if . == null or . == "" then 0
@@ -409,6 +410,7 @@ remaining_headroom_bytes() {
 				   else $n end)
 			end;
 		($pods.items
+		 | map(select((.spec.nodeName // "") != ""))
 		 | group_by(.spec.nodeName)
 		 | map({key: .[0].spec.nodeName,
 		        value: ([.[].spec.containers[].resources.requests.memory // "0" | tobytes] | add)})
@@ -460,18 +462,30 @@ spin_down_state_file() {
 # counts are what restore_memory_services reads back, so a prior replica count
 # is always restored without manual intervention.
 spin_down_memory_services() {
-	local svc ns name replicas
+	local svc ns name replicas saved_svc saved_replicas state
 	mkdir -p "$MAINTENANCE_STATE_DIR"
-	: >"$(spin_down_state_file)"
+	state=$(spin_down_state_file)
+	touch "$state" || return 1
 	for svc in "${MEMORY_HEAVY_SERVICES[@]}"; do
 		ns=${svc%%/*}
 		name=${svc#*/}
-		replicas=$($KUBECTL get deployment "$name" -n "$ns" -o jsonpath='{.spec.replicas}' 2>/dev/null) || replicas=0
-		[[ -n $replicas ]] || replicas=0
-		printf '%s\t%s\n' "$svc" "$replicas" >>"$(spin_down_state_file)"
+		# A retry must retain the count saved before the first scale attempt.
+		replicas=
+		while IFS=$'\t' read -r saved_svc saved_replicas; do
+			if [[ $saved_svc == "$svc" ]]; then
+				replicas=$saved_replicas
+				break
+			fi
+		done <"$state"
+		if [[ -z $replicas ]]; then
+			replicas=$($KUBECTL get deployment "$name" -n "$ns" -o jsonpath='{.spec.replicas}') || return 1
+			[[ $replicas =~ ^[0-9]+$ ]] || die "invalid replica count for $svc"
+			printf '%s\t%s\n' "$svc" "$replicas" >>"$state" || return 1
+		fi
+		[[ $replicas =~ ^[0-9]+$ ]] || die "invalid saved replica count for $svc"
 		if ((replicas > 0)); then
 			log "spin-down: scaling $svc to 0 (was $replicas)"
-			$KUBECTL scale deployment "$name" -n "$ns" --replicas=0
+			$KUBECTL scale deployment "$name" -n "$ns" --replicas=0 || return 1
 		fi
 	done
 }
@@ -486,7 +500,7 @@ restore_memory_services() {
 		name=${svc#*/}
 		if ((replicas > 0)); then
 			log "restore: scaling $svc back to $replicas"
-			$KUBECTL scale deployment "$name" -n "$ns" --replicas="$replicas"
+			$KUBECTL scale deployment "$name" -n "$ns" --replicas="$replicas" || return 1
 		fi
 	done <"$(spin_down_state_file)"
 	rm -f "$(spin_down_state_file)"
@@ -650,10 +664,12 @@ cmd_finish() {
 
 	wait_for_node_ready "$node"
 
+	# Restore desired replicas while still cordoned: a failed scale keeps finish
+	# retryable. Pods pinned to this node can schedule once it is uncordoned.
+	restore_memory_services || return 1
+
 	log "[$node] uncordon"
 	kubectl uncordon "$node"
-
-	restore_memory_services
 
 	wait_longhorn_healthy
 	clear_cycle_state "$node"
@@ -697,7 +713,7 @@ cmd_reboot() {
 
 	if ((spin_down)); then
 		log "[$node] pre-drain spin-down of memory-heavy services"
-		spin_down_memory_services
+		spin_down_memory_services || return 1
 	fi
 
 	log "[$node] cordon"
@@ -730,7 +746,7 @@ cmd_reboot() {
 				| "    \(.metadata.name)  \(.status.kubernetesStatus.namespace)/\(.status.kubernetesStatus.pvcName)  \(.status.state)"'
 	fi
 
-	if ((!do_reboot)); then
+	if ((! do_reboot)); then
 		log "[$node] --no-reboot: stopping before restart. Node is cordoned and drained."
 		log "[$node] next: ssh $node sudo reboot   (or: kubectl uncordon $node to back out)"
 		log "[$node] then: $0 finish $node   (saved previous boot ID: $boot_id)"
