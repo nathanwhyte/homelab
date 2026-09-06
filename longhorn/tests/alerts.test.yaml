@@ -1,0 +1,162 @@
+# Extract alerts.yaml's spec to longhorn-rules.yaml before running promtool.
+rule_files: [longhorn-rules.yaml]
+evaluation_interval: 1m
+tests:
+  - name: degradation waits fifteen minutes and resolves
+    interval: 1m
+    input_series:
+      - series: 'longhorn_volume_robustness{volume="scratch",pvc="scratch",pvc_namespace="drill",state="degraded"}'
+        values: '0x4 1x20 0x5'
+    promql_expr_test:
+      - expr: count(ALERTS{alertname="LonghornVolumeDegraded",alertstate="firing"}) or vector(0)
+        eval_time: 19m
+        exp_samples: [{labels: '{}', value: 0}]
+      - expr: count(ALERTS{alertname="LonghornVolumeDegraded",alertstate="firing"})
+        eval_time: 20m
+        exp_samples: [{labels: '{}', value: 1}]
+      - expr: count(ALERTS{alertname="LonghornVolumeDegraded"}) or vector(0)
+        eval_time: 26m
+        exp_samples: [{labels: '{}', value: 0}]
+  - name: short rebuild and detached unknown never fire
+    interval: 1m
+    input_series:
+      - series: 'longhorn_volume_robustness{volume="scratch",state="degraded"}'
+        values: '1x9 0x20'
+      - series: 'longhorn_volume_robustness{volume="standby",state="unknown"}'
+        values: '1x30'
+    promql_expr_test:
+      - expr: count(ALERTS{alertname=~"LonghornVolumeDegraded|LonghornVolumeFaulted",alertstate="firing"}) or vector(0)
+        eval_time: 16m
+        exp_samples: [{labels: '{}', value: 0}]
+  - name: fault is immediate and duplicate scrapes collapse
+    interval: 1m
+    input_series:
+      - series: 'longhorn_volume_robustness{volume="broken",state="faulted",instance="a"}'
+        values: '1x1'
+      - series: 'longhorn_volume_robustness{volume="broken",state="faulted",instance="b"}'
+        values: '1x1'
+    promql_expr_test:
+      - expr: count(ALERTS{alertname="LonghornVolumeFaulted",alertstate="firing",severity="critical",alertgroup="storage"})
+        eval_time: 0m
+        exp_samples: [{labels: '{}', value: 1}]
+  - name: capacity threshold and hold window
+    interval: 1m
+    input_series:
+      - series: 'longhorn_volume_actual_size_bytes{volume="high"}'
+        values: '86x20'
+      - series: 'longhorn_volume_capacity_bytes{volume="high"}'
+        values: '100x20'
+      - series: 'longhorn_volume_actual_size_bytes{volume="boundary"}'
+        values: '85x20'
+      - series: 'longhorn_volume_capacity_bytes{volume="boundary"}'
+        values: '100x20'
+    promql_expr_test:
+      - expr: count(ALERTS{alertname="LonghornVolumeSpaceHigh",alertstate="firing"}) or vector(0)
+        eval_time: 14m
+        exp_samples: [{labels: '{}', value: 0}]
+      - expr: count(ALERTS{alertname="LonghornVolumeSpaceHigh",alertstate="firing",volume="high"})
+        eval_time: 15m
+        exp_samples: [{labels: '{}', value: 1}]
+      - expr: count(ALERTS{alertname="LonghornVolumeSpaceHigh",volume="boundary"}) or vector(0)
+        eval_time: 20m
+        exp_samples: [{labels: '{}', value: 0}]
+  - name: init blocked PVC pod alerts once and completed jobs are excluded
+    interval: 1m
+    input_series:
+      - series: 'kube_pod_status_ready{namespace="test",pod="init",condition="true"}'
+        values: '0x20'
+      - series: 'kube_pod_status_phase{namespace="test",pod="init",phase="Pending"}'
+        values: '1x20'
+      - series: 'kube_pod_spec_volumes_persistentvolumeclaims_info{namespace="test",pod="init",persistentvolumeclaim="one"}'
+        values: '1x20'
+      - series: 'kube_pod_spec_volumes_persistentvolumeclaims_info{namespace="test",pod="init",persistentvolumeclaim="two"}'
+        values: '1x20'
+      - series: 'kube_pod_status_ready{namespace="test",pod="backup",condition="true"}'
+        values: '0x20'
+      - series: 'kube_pod_status_phase{namespace="test",pod="backup",phase="Succeeded"}'
+        values: '1x20'
+      - series: 'kube_pod_status_phase{namespace="test",pod="backup",phase="Running"}'
+        values: '0x20'
+      - series: 'kube_pod_spec_volumes_persistentvolumeclaims_info{namespace="test",pod="backup",persistentvolumeclaim="one"}'
+        values: '1x20'
+    promql_expr_test:
+      - expr: count(ALERTS{alertname="StoragePodNotReady",alertstate="firing"})
+        eval_time: 15m
+        exp_samples: [{labels: '{}', value: 1}]
+      - expr: count(ALERTS{alertname="StoragePodNotReady",pod="backup"}) or vector(0)
+        eval_time: 20m
+        exp_samples: [{labels: '{}', value: 0}]
+  - name: pending and lost claims alert but bound claims do not
+    interval: 1m
+    input_series:
+      - series: 'kube_persistentvolumeclaim_status_phase{namespace="test",persistentvolumeclaim="pending",phase="Pending"}'
+        values: '1x15'
+      - series: 'kube_persistentvolumeclaim_status_phase{namespace="test",persistentvolumeclaim="lost",phase="Lost"}'
+        values: '1x15'
+      - series: 'kube_persistentvolumeclaim_status_phase{namespace="test",persistentvolumeclaim="bound",phase="Pending"}'
+        values: '0x15'
+    promql_expr_test:
+      - expr: count(ALERTS{alertname="StoragePVCNotBound",alertstate="firing"})
+        eval_time: 10m
+        exp_samples: [{labels: '{}', value: 2}]
+  - name: missing scrape targets and completely absent job both alert
+    interval: 1m
+    input_series:
+      - series: 'kube_daemonset_status_desired_number_scheduled{namespace="longhorn-system",daemonset="longhorn-manager"}'
+        values: '3x20'
+      - series: 'up{job="longhorn-backend",instance="a"}'
+        values: '1x9 stale _x10'
+      - series: 'up{job="longhorn-backend",instance="b"}'
+        values: '1x9 stale _x10'
+    promql_expr_test:
+      - expr: count(ALERTS{alertname="LonghornMetricsUnavailable",alertstate="firing"})
+        eval_time: 5m
+        exp_samples: [{labels: '{}', value: 1}]
+      - expr: count(ALERTS{alertname="LonghornMetricsUnavailable",alertstate="firing"})
+        eval_time: 16m
+        exp_samples: [{labels: '{}', value: 1}]
+  - name: failed replica and sampled engine churn
+    interval: 1m
+    input_series:
+      - series: 'longhorn_replica_state{volume="broken",replica="r1",node="n1",state="error"}'
+        values: '1x15'
+      - series: 'longhorn_engine_state{volume="broken",engine="e1",node="n1",state="running"}'
+        values: '1 0 1 0 1 1x10'
+    promql_expr_test:
+      - expr: count(ALERTS{alertname="LonghornReplicaFailed",alertstate="firing"})
+        eval_time: 5m
+        exp_samples: [{labels: '{}', value: 1}]
+      - expr: count(ALERTS{alertname="LonghornEngineStateChurn",alertstate="firing"})
+        eval_time: 5m
+        exp_samples: [{labels: '{}', value: 1}]
+  - name: rebuild gaps become zero and three cycles trigger churn
+    interval: 1m
+    input_series:
+      - series: 'longhorn_volume_capacity_bytes{volume="churn"}'
+        values: '100x20'
+      - series: 'longhorn_engine_replica_mode{volume="churn",replica="r1",mode="WO"}'
+        values: '_ 1 stale 1 stale 1 stale _x14'
+    promql_expr_test:
+      - expr: count(ALERTS{alertname="LonghornVolumeRebuildChurn",alertstate="firing"})
+        eval_time: 7m
+        exp_samples: [{labels: '{}', value: 1}]
+  - name: restart churn is limited to PVC workloads and instance managers
+    interval: 1m
+    input_series:
+      - series: 'kube_pod_container_status_restarts_total{namespace="test",pod="db",container="db"}'
+        values: '0+1x20'
+      - series: 'kube_pod_spec_volumes_persistentvolumeclaims_info{namespace="test",pod="db",persistentvolumeclaim="one"}'
+        values: '1x20'
+      - series: 'kube_pod_spec_volumes_persistentvolumeclaims_info{namespace="test",pod="db",persistentvolumeclaim="two"}'
+        values: '1x20'
+      - series: 'kube_pod_container_status_restarts_total{namespace="test",pod="stateless",container="app"}'
+        values: '0+1x20'
+      - series: 'kube_pod_container_status_restarts_total{namespace="longhorn-system",pod="instance-manager-test",container="instance-manager"}'
+        values: '0+1x20'
+    promql_expr_test:
+      - expr: count(ALERTS{alertname="StorageContainerRestarting",alertstate="firing"})
+        eval_time: 10m
+        exp_samples: [{labels: '{}', value: 1}]
+      - expr: count(ALERTS{alertname="LonghornInstanceManagerRestarting",alertstate="firing"})
+        eval_time: 10m
+        exp_samples: [{labels: '{}', value: 1}]

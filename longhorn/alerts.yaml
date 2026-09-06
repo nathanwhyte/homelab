@@ -1,0 +1,135 @@
+# Metric names and labels verified against Longhorn v1.12.0 live, 2026-09-06.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: longhorn-alerts
+  namespace: longhorn-system
+  labels:
+    release: kube-prometheus-stack
+spec:
+  groups:
+    - name: longhorn.rules
+      rules:
+        - alert: LonghornVolumeFaulted
+          expr: max by (volume, pvc, pvc_namespace) (longhorn_volume_robustness{state="faulted"}) == 1
+          labels:
+            severity: critical
+            alertgroup: storage
+            namespace: longhorn-system
+          annotations:
+            summary: "Longhorn volume {{ $labels.volume }} is faulted"
+            description: "PVC {{ $labels.pvc_namespace }}/{{ $labels.pvc }} has lost usable replicas. Inspect the volume and engine before restarting or recreating workloads."
+        - alert: LonghornVolumeDegraded
+          expr: max by (volume, pvc, pvc_namespace) (longhorn_volume_robustness{state="degraded"}) == 1
+          for: 15m
+          labels:
+            severity: warning
+            alertgroup: storage
+            namespace: longhorn-system
+          annotations:
+            summary: "Longhorn volume {{ $labels.volume }} degraded for 15m"
+            description: "PVC {{ $labels.pvc_namespace }}/{{ $labels.pvc }} has reduced redundancy. Check replica rebuild progress, node readiness and disk scheduling."
+        - alert: LonghornVolumeSpaceHigh
+          expr: |
+            max by (volume, pvc, pvc_namespace) (longhorn_volume_actual_size_bytes)
+            / max by (volume, pvc, pvc_namespace) (longhorn_volume_capacity_bytes) > 0.85
+          for: 15m
+          labels:
+            severity: warning
+            alertgroup: storage
+            namespace: longhorn-system
+          annotations:
+            summary: "Longhorn volume {{ $labels.volume }} exceeds 85% actual size"
+            description: "PVC {{ $labels.pvc_namespace }}/{{ $labels.pvc }} actual/capacity ratio is {{ $value }}. Actual size includes snapshot blocks; compare filesystem usage before choosing expansion or reclaim."
+        - alert: LonghornReplicaFailed
+          expr: max by (volume, replica, node) (longhorn_replica_state{state="error"}) == 1
+          for: 5m
+          labels:
+            severity: warning
+            alertgroup: storage
+            namespace: longhorn-system
+          annotations:
+            summary: "Longhorn replica {{ $labels.replica }} is in error"
+            description: "Replica on {{ $labels.node }} for {{ $labels.volume }} has been in error for 5m. Inspect engine and replica logs for rebuild failures."
+        # WO exists only while rebuilding; fill healthy volumes with zero so
+        # changes() sees transitions instead of ignoring gaps between rebuilds.
+        - record: longhorn:volume_rebuilding:count
+          expr: |
+            sum by (volume) (longhorn_engine_replica_mode{mode="WO"} == 1)
+            or on (volume) (0 * max by (volume) (longhorn_volume_capacity_bytes))
+        - alert: LonghornVolumeRebuildChurn
+          expr: changes(longhorn:volume_rebuilding:count[30m]) >= 6
+          labels:
+            severity: warning
+            alertgroup: storage
+            namespace: longhorn-system
+          annotations:
+            summary: "Longhorn volume {{ $labels.volume }} has repeated rebuild transitions"
+            description: "At least six sampled changes in rebuilding replica count in 30m. Inspect repeated rebuild attempts; changes between scrapes can be missed."
+        - alert: LonghornEngineStateChurn
+          expr: max by (volume, engine, node) (changes(longhorn_engine_state{state="running"}[30m])) >= 4
+          labels:
+            severity: warning
+            alertgroup: storage
+            namespace: longhorn-system
+          annotations:
+            summary: "Longhorn engine {{ $labels.engine }} repeatedly changes running state"
+            description: "At least four running-state transitions in 30m on {{ $labels.node }}. Inspect its instance-manager; sub-scrape restarts may be missed."
+        - alert: LonghornInstanceManagerRestarting
+          expr: max by (namespace, pod, container) (increase(kube_pod_container_status_restarts_total{namespace="longhorn-system",pod=~"instance-manager-.*"}[30m])) >= 3
+          labels:
+            severity: warning
+            alertgroup: storage
+          annotations:
+            summary: "Longhorn instance-manager {{ $labels.pod }} repeatedly restarts"
+            description: "At least three container restarts in 30m. Check node events and instance-manager logs; all engines in this pod may be affected."
+        - alert: LonghornMetricsUnavailable
+          expr: |
+            (sum(up{job="longhorn-backend"}) or vector(0))
+            < scalar(max(kube_daemonset_status_desired_number_scheduled{namespace="longhorn-system",daemonset="longhorn-manager"}))
+          for: 5m
+          labels:
+            severity: warning
+            alertgroup: storage
+            namespace: longhorn-system
+          annotations:
+            summary: "Longhorn metrics are missing from one or more managers"
+            description: "Fewer successful scrapes than desired manager pods for 5m. Native volume alerts may be blind; check ServiceMonitor targets and manager health."
+    - name: storage.workload.rules
+      rules:
+        - alert: StoragePodNotReady
+          # Includes init-blocked Pending pods, excludes completed backup Jobs.
+          # Deduplicate PVC joins: a pod may mount multiple claims.
+          expr: |
+            (max by (namespace, pod) (kube_pod_status_ready{condition="true"}) == 0)
+            and on (namespace, pod)
+            (max by (namespace, pod) (kube_pod_status_phase{phase=~"Pending|Running"}) == 1)
+            and on (namespace, pod)
+            max by (namespace, pod) (kube_pod_spec_volumes_persistentvolumeclaims_info)
+          for: 15m
+          labels:
+            severity: warning
+            alertgroup: storage
+          annotations:
+            summary: "PVC-backed pod {{ $labels.namespace }}/{{ $labels.pod }} not Ready for 15m"
+            description: "Check init containers, volume attachment, mount errors and application readiness. This symptom does not by itself prove a storage fault."
+        - alert: StoragePVCNotBound
+          expr: max by (namespace, persistentvolumeclaim) (kube_persistentvolumeclaim_status_phase{phase=~"Pending|Lost"}) == 1
+          for: 10m
+          labels:
+            severity: warning
+            alertgroup: storage
+          annotations:
+            summary: "PVC {{ $labels.namespace }}/{{ $labels.persistentvolumeclaim }} not Bound for 10m"
+            description: "Check provisioning events, storage class topology, replica scheduling and disk headroom."
+        - alert: StorageContainerRestarting
+          expr: |
+            (max by (namespace, pod, container) (increase(kube_pod_container_status_restarts_total[30m])) >= 3)
+            and on (namespace, pod)
+            max by (namespace, pod) (kube_pod_spec_volumes_persistentvolumeclaims_info)
+          labels:
+            severity: warning
+            alertgroup: storage
+          annotations:
+            summary: "PVC-backed container {{ $labels.namespace }}/{{ $labels.pod }}/{{ $labels.container }} repeatedly restarts"
+            description: "At least three restarts in 30m. Check application logs and mount health before changing storage."

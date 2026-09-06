@@ -119,6 +119,9 @@ kubectl apply \
 	-f "$GRAFANA_DIR/manifests/node-power-alerts.yaml" \
 	-f "$GRAFANA_DIR/manifests/backup-alerts.yaml"
 
+# May also be run independently to avoid touching the Helm releases.
+bash "$GRAFANA_DIR/../longhorn/deploy-storage-alerts.sh"
+
 echo -e "\nDone! Visit:"
 echo "  https://logs.nathanwhyte.dev/            (public, via the homelab tunnel)"
 echo "  k8s dashboard: LAN/tailnet only since IMPR-1029 — see reference/external-routes.md"
