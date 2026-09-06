@@ -55,11 +55,6 @@ if [ ! -f "$GARAGE_DIR/garage-values.yaml" ]; then
 	exit 1
 fi
 
-if [ ! -f "$GARAGE_DIR/cloudflared.yaml" ]; then
-	echo "cloudflared.yaml file not found!"
-	exit 1
-fi
-
 # The StorageClass must exist BEFORE the Helm release: the data
 # volumeClaimTemplate requests `longhorn-garage-data`, and a PVC naming a class
 # that does not exist stays Pending indefinitely rather than failing loudly.
@@ -75,16 +70,6 @@ python3 "$HELM_DEPLOY" garage "$NAMESPACE" \
 	"$CHART_DIR" \
 	--create-namespace \
 	-f "$GARAGE_DIR/garage-values.yaml"
-
-if [ ! -f "$GARAGE_DIR/cloudflared.secret.yaml" ]; then
-	echo "cloudflared.secret.yaml file not found!"
-	echo "Create this file and apply it, or manually create the cloudflare secret."
-else
-	kubectl apply -f "$GARAGE_DIR/cloudflared.secret.yaml"
-fi
-
-echo -e "\nApplying cloudflared manifest..."
-kubectl apply -f "$GARAGE_DIR/cloudflared.yaml"
 
 echo -e "\nDeploying Garage Manager..."
 

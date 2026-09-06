@@ -22,4 +22,7 @@ S3-compatible object storage running on the K3s cluster. Based on [Garage](https
 
 ## Cloudflare tunnel
 
-`garage/cloudflared.yaml` — Cloudflare Tunnel configuration for external S3 access (used by Longhorn backup to R2).
+The former `garage/cloudflared.yaml` connector is retired and is not applied.
+Garage's active S3 endpoint is cluster-internal at `garage.garage.svc:3900`;
+Longhorn's external backup path uses its R2 gateway. The retained file is only a
+historical reference and must not be used to recreate a tunnel.

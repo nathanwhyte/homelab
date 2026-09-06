@@ -1,0 +1,22 @@
+# Recorded provider-side configuration for the active `eqrsk` tunnel.
+# Cloudflare is currently the source of truth; the token connector does not
+# consume this file. Keep it with the connector so a fresh clone contains the
+# routing needed to recreate the tunnel deliberately.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: eqrsk-routing-reference
+  namespace: equal-risk
+  labels:
+    homelab.nathanwhyte.dev/reference: cloudflare-tunnel
+data:
+  tunnel-id: 8af1bd26-d09e-4d5e-86ad-aa7c593d4f21
+  config.yaml: |
+    ingress:
+      - hostname: risk.nathanwhyte.dev
+        service: http://rails.equal-risk.svc.cluster.local:3000
+      - hostname: equalriskportfolio.com
+        service: http://rails.equal-risk.svc.cluster.local:3000
+      - hostname: www.equalriskportfolio.com
+        service: http://rails.equal-risk.svc.cluster.local:3000
+      - service: http_status:404

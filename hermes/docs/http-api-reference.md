@@ -1,6 +1,8 @@
 # Hermes HTTP API reference
 
-**Live-verified** against `hermes-agent` running in the `hermes` namespace on 2026-06-09. Runtime: `version: 0.16.0`, `release_date: 2026.6.5`.
+**Historical reference:** this was live-verified against `hermes-agent` in the
+`hermes` namespace on 2026-06-09. Hermes and that namespace were retired and
+deleted on 2026-07-16; these API notes are not a deployment or availability claim.
 
 This document covers the two HTTP surfaces the Hermes container exposes inside the pod: the **API server** (port 8642, OpenAI-compatible chat completions) and the **Dashboard** (port 9119, web UI + REST API). The Hermes gateway itself (`gateway run`) is not HTTP-addressable; that path uses SSH to `hermes-jump` via `hermes/operator.sh`.
 
