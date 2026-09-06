@@ -11,6 +11,13 @@ registry, and much more.
 >
 > ~ Me, circa Today
 
+## Deployment scripts
+
+Grafana, Harbor, OpenWebUI, Dashboard, Headlamp and Garage reuse each release's
+deployed Helm chart version when applying values. Use `--dry-run` to simulate
+their Helm operations before deploying. See [version reuse and verification](scripts/helm-deploy.md)
+for first-install behavior, Garage's local chart requirement and test evidence.
+
 ## Services
 
 ### Kubernetes Dashboard

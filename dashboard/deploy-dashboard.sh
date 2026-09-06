@@ -5,6 +5,21 @@ set -euo pipefail
 # worktrees, so a hardcoded ~/code/homelab/dashboard does not exist.
 DASHBOARD_DIR="${DASHBOARD_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
 NAMESPACE="kubernetes-dashboard"
+HELM_DEPLOY="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/scripts/helm-deploy.py"
+
+case "${1:-}" in
+--dry-run)
+	[[ $# -eq 1 ]] || exit 2
+	python3 "$HELM_DEPLOY" kubernetes-dashboard "$NAMESPACE" kubernetes-dashboard/kubernetes-dashboard \
+		--dry-run --set "kong.proxy.annotations.traefik\.ingress\.kubernetes\.io/service\.serverstransport=kubernetes-dashboard-kong-transport@kubernetescrd"
+	exit 0
+	;;
+"") [[ $# -eq 0 ]] || exit 2 ;;
+*)
+	echo "Usage: $0 [--dry-run]" >&2
+	exit 2
+	;;
+esac
 
 # The upstream kubernetes/dashboard repo was archived; kubernetes.github.io/dashboard
 # now 404s. The chart index moved to the retired namespace, which still carries
@@ -53,9 +68,9 @@ echo -e "\nDeploying kubernetes-dashboard..."
 # kubernetescrd provider namespaces CRDs, so `kong-transport` in namespace
 # `kubernetes-dashboard` is addressed as `kubernetes-dashboard-kong-transport`.
 # It is NOT a bare metadata.name.
-helm upgrade --install kubernetes-dashboard \
+python3 "$HELM_DEPLOY" kubernetes-dashboard "$NAMESPACE" \
 	kubernetes-dashboard/kubernetes-dashboard \
-	--create-namespace --namespace "$NAMESPACE" \
+	--create-namespace \
 	--set "kong.proxy.annotations.traefik\.ingress\.kubernetes\.io/service\.serverstransport=kubernetes-dashboard-kong-transport@kubernetescrd"
 
 echo -e "\nApplying kubernetes-dashboard manifests..."

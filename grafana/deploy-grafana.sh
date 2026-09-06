@@ -3,6 +3,26 @@ set -euo pipefail
 
 GRAFANA_DIR="${GRAFANA_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
 NAMESPACE="grafana"
+HELM_DEPLOY="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/scripts/helm-deploy.py"
+
+case "${1:-}" in
+--dry-run)
+	[[ $# -eq 1 ]] || exit 2
+	python3 "$HELM_DEPLOY" kube-prometheus-stack "$NAMESPACE" \
+		oci://ghcr.io/prometheus-community/charts/kube-prometheus-stack \
+		--dry-run -f "$GRAFANA_DIR/helm/kube-prometheus-stack-values.yaml"
+	python3 "$HELM_DEPLOY" k8s-monitoring "$NAMESPACE" grafana/k8s-monitoring \
+		--dry-run -f "$GRAFANA_DIR/helm/k8s-monitoring-values.yaml"
+	python3 "$HELM_DEPLOY" loki "$NAMESPACE" grafana/loki \
+		--dry-run -f "$GRAFANA_DIR/helm/loki-values.yaml"
+	exit 0
+	;;
+"") [[ $# -eq 0 ]] || exit 2 ;;
+*)
+	echo "Usage: $0 [--dry-run]" >&2
+	exit 2
+	;;
+esac
 
 if [ ! -x "$(command -v "kubectl")" ]; then
 	echo "kubectl not installed."
@@ -60,22 +80,19 @@ echo -e "\nApplying longhorn-observability StorageClass..."
 kubectl apply -f "$GRAFANA_DIR/manifests/storageclass-longhorn-observability.yaml"
 
 echo -e "\nDeploying kube-prometheus-stack..."
-helm upgrade --install kube-prometheus-stack \
+python3 "$HELM_DEPLOY" kube-prometheus-stack "$NAMESPACE" \
 	oci://ghcr.io/prometheus-community/charts/kube-prometheus-stack \
 	--create-namespace \
-	--namespace "$NAMESPACE" \
 	-f "$GRAFANA_DIR/helm/kube-prometheus-stack-values.yaml"
 
 echo -e "\nDeploying k8s-monitoring..."
-helm upgrade --install k8s-monitoring \
+python3 "$HELM_DEPLOY" k8s-monitoring "$NAMESPACE" \
 	grafana/k8s-monitoring \
-	-n "$NAMESPACE" \
 	-f "$GRAFANA_DIR/helm/k8s-monitoring-values.yaml"
 
 echo -e "\nDeploying loki..."
-helm upgrade --install loki \
+python3 "$HELM_DEPLOY" loki "$NAMESPACE" \
 	grafana/loki \
-	-n "$NAMESPACE" \
 	-f "$GRAFANA_DIR/helm/loki-values.yaml"
 
 if [ ! -f "$GRAFANA_DIR/manifests/rbac.yaml" ]; then

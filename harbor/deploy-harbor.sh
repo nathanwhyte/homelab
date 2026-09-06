@@ -13,20 +13,23 @@ VALUES_FILE="$HARBOR_DIR/harbor-values.yaml"
 TIMEOUT="10m"
 SKIP_PROBE_PATCH=0
 HELM_DIFF=0
+DRY_RUN=0
+HELM_DEPLOY="$REPO_ROOT/scripts/helm-deploy.py"
 ADMIN_PASSWORD="${HARBOR_ADMIN_PASSWORD:-}"
 
 usage() {
 	cat <<EOF
-Usage: $0 [--skip-probe-patch] [--diff] [--admin-password <pw>]
+Usage: $0 [--skip-probe-patch] [--diff | --dry-run] [--admin-password <pw>]
+
+  --dry-run             Server-side Helm simulation only; no manifest applies or probe patch.
 
   --skip-probe-patch    Skip the automatic re-apply of the chart-v1.18.3
                         liveness/readiness probe-timeout patch after helm upgrade.
                         Use this once chart >= 1.19.0 is in place and the
                         upstream timeout no longer needs overriding.
   --diff                Run \`helm diff upgrade\` instead of \`helm upgrade\`.
-                        Requires the helm-diff plugin. Exits 0 if the diff
-                        matches expectations (or the in-repo file is already
-                        in sync), 1 otherwise.
+                        Requires the helm-diff plugin. No manifest applies;
+                        propagates plugin errors. Review the diff yourself.
   --admin-password <pw> Pass a real password to the chart's
                         \`harborAdminPassword\` value via \`--set\`. Keeps the
                         secret out of git. If omitted, falls back to
@@ -59,6 +62,10 @@ while [ $# -gt 0 ]; do
 		usage
 		exit 0
 		;;
+	--dry-run)
+		DRY_RUN=1
+		shift
+		;;
 	*)
 		echo "Unknown flag: $1" >&2
 		usage >&2
@@ -66,6 +73,26 @@ while [ $# -gt 0 ]; do
 		;;
 	esac
 done
+
+if [ "$DRY_RUN" -eq 1 ] && [ "$HELM_DIFF" -eq 1 ]; then
+	echo "Choose --dry-run or --diff" >&2
+	exit 2
+fi
+
+# Both preflight modes exit before namespace/storage applies or probe patches.
+if [ "$DRY_RUN" -eq 1 ] || [ "$HELM_DIFF" -eq 1 ]; then
+	HELM_PREFLIGHT_ARGS=(-f "$VALUES_FILE")
+	if [ -n "$ADMIN_PASSWORD" ]; then
+		HELM_PREFLIGHT_ARGS+=(--set "harborAdminPassword=$ADMIN_PASSWORD")
+	fi
+	if [ "$DRY_RUN" -eq 1 ]; then
+		HELM_PREFLIGHT_ARGS+=(--dry-run)
+	else
+		HELM_PREFLIGHT_ARGS+=(--diff)
+	fi
+	python3 "$HELM_DEPLOY" "$RELEASE_NAME" "$NAMESPACE" "$CHART_REF" "${HELM_PREFLIGHT_ARGS[@]}"
+	exit 0
+fi
 
 if [ ! -x "$(command -v "kubectl")" ]; then
 	echo "kubectl not installed."
@@ -151,35 +178,13 @@ kubectl apply -f "$HARBOR_DIR/letsencrypt-issuer.yaml"
 kubectl apply -f "$HARBOR_DIR/harbor-middleware.yaml"
 kubectl apply -f "$HARBOR_DIR/rwo-pvcs.yaml"
 
-# helm-diff preflight: warn (but do not fail) if the plugin is missing or the
-# diff is non-empty. Non-zero diffs are normal during intentional upgrades,
-# so this is informational, not a hard gate.
-if [ "$HELM_DIFF" -eq 1 ]; then
-	if ! helm plugin list 2>/dev/null | grep -q '^diff\s'; then
-		echo "ERROR: --diff requested but the helm-diff plugin is not installed." >&2
-		echo "  Install with: helm plugin install https://github.com/databus23/helm-diff" >&2
-		exit 1
-	fi
-	echo -e "\nRunning helm diff upgrade (informational)..."
-	HELM_SET_ARGS=()
-	if [ -n "$ADMIN_PASSWORD" ]; then
-		HELM_SET_ARGS+=(--set "harborAdminPassword=$ADMIN_PASSWORD")
-	fi
-	helm diff upgrade "$RELEASE_NAME" "$CHART_REF" \
-		--namespace "$NAMESPACE" \
-		-f "$VALUES_FILE" \
-		"${HELM_SET_ARGS[@]}" || true
-	exit 0
-fi
-
 HELM_SET_ARGS=()
 if [ -n "$ADMIN_PASSWORD" ]; then
 	HELM_SET_ARGS+=(--set "harborAdminPassword=$ADMIN_PASSWORD")
 fi
 
-helm upgrade --install "$RELEASE_NAME" \
+python3 "$HELM_DEPLOY" "$RELEASE_NAME" "$NAMESPACE" \
 	"$CHART_REF" \
-	--namespace "$NAMESPACE" \
 	--create-namespace \
 	--wait \
 	--timeout "$TIMEOUT" \

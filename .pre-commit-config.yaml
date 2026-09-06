@@ -28,6 +28,12 @@ repos:
 
   - repo: local
     hooks:
+      - id: helm-deploy-tests
+        name: Helm deployment version safety tests
+        entry: python3 scripts/test-helm-deploy.py
+        language: system
+        pass_filenames: false
+        files: ^(scripts/(test-)?helm-deploy\.py|(?:grafana|harbor|openwebui|dashboard|headlamp|garage)/deploy-[^/]+\.sh)$
       - id: bare-code-fences
         name: Check for bare code fences (MD040)
         description: Reject commits with bare ``` fences that lack a language tag.
