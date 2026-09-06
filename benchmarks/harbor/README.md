@@ -25,7 +25,7 @@ hb view jobs                                              # results viewer, 127.
 | `configs/tb10-gemma4-26b-pair.yaml`  | TB-2.1 10-task quant pair; carries the 3-series condition history      |
 | `run-metadata-*.txt`                 | Tracked per-series provenance snapshots (one per series, mandatory)    |
 | `instructions/bug-1068-readiness.md` | Prompt-visible existence/content gate appended to every task           |
-| `check-config-policy.py`             | Rejects configs that omit safety gates or exceed one local consumer    |
+| `check-config-policy.py`             | Rejects configs that omit safety gates or run concurrent trials        |
 | `tasks/hello-world/`                 | Downloaded via `hb download harbor/hello-world`                        |
 | `tb-2-1/`                            | Downloaded TB-2.1 dataset (gitignored)                                 |
 | `jobs/`                              | Run output (gitignored; trajectories, verifier stdout/stderr, rewards) |
@@ -64,8 +64,11 @@ quantization, effective sampling, thinking mode, and loaded context.
 
 Run `./check-config-policy.py` before Harbor's own `--print-config` validation.
 The checker covers every tracked config, so adding a config without the shared
-BUG-1068 instruction, disabled live recording, or the one-consumer cap fails
-mechanically rather than relying on this checklist being remembered.
+BUG-1068 instruction, disabled live recording, or `n_concurrent_trials: 1`
+fails mechanically rather than relying on this checklist being remembered.
+Note the checker enforces the single-consumer cap *within* a config only; the
+cross-process GPU check is still the manual `curl localhost:11434/api/ps` step
+below.
 
 1. **One local-model consumer at a time** — never start a Harbor run while a
    PROJ-1003 matrix run (or any other Ollama/MLX consumer) is active. Check:

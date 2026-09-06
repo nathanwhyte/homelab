@@ -27,8 +27,12 @@ spec:
               test -s "$source"
               if test -e "$target"; then
                 cmp "$source" "$target"
-                echo "target already contains the same last-synced state"
-                exit 0
+                if ! test -f /source/compendium-sync-status.json || test -f /target/compendium-sync-status.json; then
+                  echo "target already contains the same last-synced state"
+                  exit 0
+                fi
+                # State matches but the status-file copy was interrupted — fall
+                # through to retry it rather than leaving the migration half-done.
               fi
               umask 077
               cp "$source" "${target}.tmp"

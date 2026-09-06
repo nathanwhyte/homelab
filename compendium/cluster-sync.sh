@@ -48,6 +48,12 @@
 #
 # The PAT needs read/write on the compendium repo. The Job reads it as the
 # GITHUB_TOKEN env var (compendium-sync-job.template.yaml).
+#
+# Concurrency note: the active-Job overlap check and the dispatch apply below
+# are check-then-act with no lock, so two concurrent invocations can both
+# dispatch. The RWO state volume makes the second pod stall on attach rather
+# than corrupt, so this is a nuisance, not a data hazard — but do not rely on
+# it for mutual exclusion.
 set -euo pipefail
 
 OV_NAMESPACE=viking
