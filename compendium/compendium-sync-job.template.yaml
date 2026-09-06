@@ -3,7 +3,7 @@
 # Clones the vault from GitHub and runs _scripts/compendium-sync.py against the
 # in-cluster OV service. This is the SINGLE sync writer for the compendium OV
 # namespace (BUG-1034 phase 2): it only sees pushed origin/main, and the
-# last-synced state lives on the compendium-sync-state PVC.
+# last-synced state lives on the compendium-sync-state-v2 PVC.
 # ${JOB_NAME} and ${SYNC_ARGS} are substituted by the runner (envsubst).
 #
 # Version pins (bump deliberately, together with a smoke run):
@@ -26,7 +26,13 @@ metadata:
   labels:
     app: compendium-sync
 spec:
-  backoffLimit: 0
+  completions: 1
+  parallelism: 1
+  # Retry transient pod/node loss, but never replace a merely terminating pod:
+  # Failed waits for a terminal phase before replacement, preserving the
+  # single-writer contract across retries (in addition to the RWO state claim).
+  backoffLimit: 3
+  podReplacementPolicy: Failed
   # BUG-1035: bound a wedged run so it frees the state PVC + guard.
   # IMPR-1062 Phase 3: the script owns a 2400s journal deadline. Kubernetes
   # starts this clock before scheduling, image pull, package install, clone, and
@@ -102,4 +108,4 @@ spec:
       volumes:
         - name: sync-state
           persistentVolumeClaim:
-            claimName: compendium-sync-state
+            claimName: compendium-sync-state-v2

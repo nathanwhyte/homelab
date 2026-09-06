@@ -38,6 +38,7 @@ kubectl wait --for=condition=ready pod -l app=longhorn-manager \
 
 echo -e "\nApplying custom storage classes..."
 kubectl apply -f "$LONGHORN_DIR/storage.yaml"
+kubectl apply -f "$LONGHORN_DIR/compendium-sync-storage-class.yaml"
 
 if [ -f "$LONGHORN_DIR/r2-backup-target.secret.yaml" ]; then
 	echo -e "\nApplying R2 backup target secret..."
@@ -85,6 +86,7 @@ echo -e "\nStorage classes:"
 echo "  longhorn       (default, 1 replica)"
 echo "  longhorn-hdd   (HDD, ethernet nodes, 1 replica)"
 echo "  longhorn-ssd   (SSD, 1 replica)"
+echo "  longhorn-compendium-sync (SSD, 2 replicas, retained)"
 echo "  longhorn-nvme  (NVMe, 1 replica)"
 echo "  longhorn-ethernet (ethernet nodes, 1 replica)"
 echo "  longhorn-db    (SSD, 3 replicas)"

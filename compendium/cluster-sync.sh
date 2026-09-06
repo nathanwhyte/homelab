@@ -7,8 +7,9 @@
 # With no args, runs the canonical manual sync:
 #   sync --changed --yes --state-file /state/compendium-sync-state.json --no-wait --deadline-seconds 2400
 # deriving the work list from git history since the last-synced commit on the
-# state PVC. The runner only sees pushed origin/main — push first. The default
-# invocation is dispatch-and-return: come back any time with --status.
+# compendium-sync-state-v2 PVC. The runner only sees pushed origin/main — push
+# first. The default invocation is dispatch-and-return: come back any time with
+# --status.
 #
 # Flags:
 #   --status    No dispatch. Read the run status file from the state PVC via a
@@ -74,7 +75,7 @@ status_report() {
 	local pod out
 	pod="compendium-sync-status-$$"
 	kubectl delete pod "$pod" -n compendium --ignore-not-found >/dev/null 2>&1
-	kubectl run "$pod" --restart=Never -n compendium --image=busybox:1.36 --overrides='{"spec":{"containers":[{"name":"status","image":"busybox:1.36","command":["sh","-c","if [ -f /state/compendium-sync-status.json ]; then cat /state/compendium-sync-status.json; else echo __NO_STATUS_FILE__; fi"],"volumeMounts":[{"name":"s","mountPath":"/state"}]}],"volumes":[{"name":"s","persistentVolumeClaim":{"claimName":"compendium-sync-state"}}]}}' >/dev/null
+	kubectl run "$pod" --restart=Never -n compendium --image=busybox:1.36 --overrides='{"spec":{"containers":[{"name":"status","image":"busybox:1.36","command":["sh","-c","if [ -f /state/compendium-sync-status.json ]; then cat /state/compendium-sync-status.json; else echo __NO_STATUS_FILE__; fi"],"volumeMounts":[{"name":"s","mountPath":"/state"}]}],"volumes":[{"name":"s","persistentVolumeClaim":{"claimName":"compendium-sync-state-v2"}}]}}' >/dev/null
 	kubectl wait --for=jsonpath='{.status.phase}'=Succeeded "pod/$pod" -n compendium --timeout=120s >/dev/null 2>&1 || true
 	out=$(kubectl logs "$pod" -n compendium 2>/dev/null)
 	kubectl delete pod "$pod" -n compendium >/dev/null 2>&1 &
@@ -127,7 +128,28 @@ if [ "$STATUS" = 1 ]; then
 	exit $?
 fi
 
-kubectl apply -f namespace.yaml -f state-pvc.yaml -f sync-rbac.yaml >/dev/null
+kubectl apply -f namespace.yaml -f sync-rbac.yaml >/dev/null
+
+# BUG-1101: storageClassName is immutable on the legacy claim, so bootstrap a
+# distinct claim only after the dedicated two-replica class has been installed.
+if ! kubectl get storageclass longhorn-compendium-sync >/dev/null 2>&1; then
+	echo "error: StorageClass longhorn-compendium-sync is missing." >&2
+	echo "       Apply longhorn/compendium-sync-storage-class.yaml, then follow compendium/state-migration.md." >&2
+	exit 1
+fi
+kubectl apply -f state-pvc.yaml >/dev/null
+
+# Existing clusters must copy and verify the last-synced JSON before the first
+# v2 writer starts. A fresh cluster has no legacy claim and needs no migration.
+if kubectl get pvc compendium-sync-state -n compendium >/dev/null 2>&1; then
+	migration_complete=$(kubectl get job compendium-sync-state-migrate-v1-to-v2 -n compendium \
+		-o jsonpath='{.status.conditions[?(@.type=="Complete")].status}' 2>/dev/null || true)
+	if [ "$migration_complete" != "True" ]; then
+		echo "error: legacy PVC compendium-sync-state exists, but its verified v2 migration is not complete." >&2
+		echo "       Follow compendium/state-migration.md before dispatching a sync Job." >&2
+		exit 1
+	fi
+fi
 
 copy_secret() {
 	local src_ns="$1" src_name="$2" dst_name="$3"
