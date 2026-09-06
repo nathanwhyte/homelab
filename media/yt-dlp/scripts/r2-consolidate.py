@@ -25,6 +25,7 @@ Usage:
     # apply with custom parallelism (default 8)
     uv run media/yt-dlp/scripts/r2-consolidate.py --apply --concurrency 16
 """
+
 import argparse
 import concurrent.futures
 import datetime
@@ -42,7 +43,9 @@ import xml.etree.ElementTree as ET
 from collections import defaultdict
 
 AK = os.environ.get("R2_AK", "252fd0b63874b32278a38ae39cff877b")
-SK = os.environ.get("R2_SK", "4999254a6b3cb663b35238b256a9f39153cb44501832f3c03378c2ef7ddfeeea")
+SK = os.environ.get(
+    "R2_SK", "4999254a6b3cb663b35238b256a9f39153cb44501832f3c03378c2ef7ddfeeea"
+)
 SESSION_TOKEN = os.environ.get("R2_SESSION_TOKEN", "")
 ACCOUNT_ID = os.environ.get("R2_ACCOUNT_ID", "e9f17cd063113cea9c2e73c302971066")
 BUCKET = os.environ.get("R2_BUCKET", "homelab")
@@ -57,6 +60,7 @@ NEW_BASE = OLD_BASE + "YouTube/"
 
 
 # ---------- SigV4 signer (UNSIGNED-PAYLOAD, TLS 1.3) ----------
+
 
 def sigv4(canonical_query: str) -> tuple[str, str]:
     now = datetime.datetime.now(datetime.timezone.utc)
@@ -116,7 +120,12 @@ def canonical_query_string(params: dict[str, str]) -> str:
     )
 
 
-def sigv4_for_method(method: str, canonical_uri: str, canonical_query: str, extra_signed_headers: dict[str, str] | None = None) -> tuple[str, str]:
+def sigv4_for_method(
+    method: str,
+    canonical_uri: str,
+    canonical_query: str,
+    extra_signed_headers: dict[str, str] | None = None,
+) -> tuple[str, str]:
     """Sign a request where the body is UNSIGNED-PAYLOAD.
 
     `extra_signed_headers` is a dict of header-name -> value pairs (e.g. `x-amz-copy-source`)
@@ -231,7 +240,9 @@ def request(method: str, key: str, params: dict[str, str] | None = None):
     return urllib.request.urlopen(req)
 
 
-def list_v2(prefix: str, with_delim: bool = False, continuation_token: str | None = None):
+def list_v2(
+    prefix: str, with_delim: bool = False, continuation_token: str | None = None
+):
     params: dict[str, str] = {"list-type": "2", "max-keys": "1000"}
     if with_delim:
         params["delimiter"] = "/"
@@ -258,7 +269,9 @@ def drain_keys(prefix: str) -> list[tuple[str, int]]:
             )
         # `IsTruncated` is a child element, not an attribute — `root.get("IsTruncated")`
         # always returns None. Use `findtext` against the S3 namespace.
-        is_truncated = (root.findtext("s3:IsTruncated", "false", NS) or "false").strip().lower()
+        is_truncated = (
+            (root.findtext("s3:IsTruncated", "false", NS) or "false").strip().lower()
+        )
         if is_truncated == "true":
             token_el = root.find("s3:NextContinuationToken", NS)
             token = token_el.text if token_el is not None else None
@@ -272,6 +285,7 @@ def drain_keys(prefix: str) -> list[tuple[str, int]]:
 
 # ---------- mutation helpers ----------
 
+
 def copy_object(src_key: str, dst_key: str) -> int:
     """Server-side copy. Returns the HTTP status code."""
     _take_token()
@@ -282,7 +296,9 @@ def copy_object(src_key: str, dst_key: str) -> int:
     canonical_uri = "/" + urllib.parse.quote(dst_key, safe="/")
     copy_source = f"/{BUCKET}/{urllib.parse.quote(src_key, safe='/')}"
     auth, amz_date = sigv4_for_method(
-        "PUT", canonical_uri, canonical_query,
+        "PUT",
+        canonical_uri,
+        canonical_query,
         extra_signed_headers={"x-amz-copy-source": copy_source},
     )
     url = f"https://{HOST}{canonical_uri}"
@@ -354,18 +370,22 @@ def head_object(key: str) -> int:
 
 # (source_prefix, target_relative_under_NEW_BASE | None, action)
 SOURCES = [
-    (OLD_BASE + "YouTube/Essential/",                  "Essential/", "KEEP"),
-    (OLD_BASE + "YouTube/Gotta Keep These Somewhere/", "Gotta Keep These Somewhere/", "KEEP"),
-    (OLD_BASE + "YouTube/Nice/",                       "Nice/", "KEEP"),
-    (OLD_BASE + "YouTube/Study/",                      "Study/", "KEEP"),
-    (OLD_BASE + "YouTube/Ugh/",                        "Ugh/", "KEEP"),
-    (OLD_BASE + "YouTube/Wow/",                        "Wow/", "KEEP"),
-    (OLD_BASE + "Kasey's Playlists/",                  "Kasey's Playlists/", "RENAME"),
-    (OLD_BASE + "Youtube/Essential/",                  None, "DELETE"),
+    (OLD_BASE + "YouTube/Essential/", "Essential/", "KEEP"),
+    (
+        OLD_BASE + "YouTube/Gotta Keep These Somewhere/",
+        "Gotta Keep These Somewhere/",
+        "KEEP",
+    ),
+    (OLD_BASE + "YouTube/Nice/", "Nice/", "KEEP"),
+    (OLD_BASE + "YouTube/Study/", "Study/", "KEEP"),
+    (OLD_BASE + "YouTube/Ugh/", "Ugh/", "KEEP"),
+    (OLD_BASE + "YouTube/Wow/", "Wow/", "KEEP"),
+    (OLD_BASE + "Kasey's Playlists/", "Kasey's Playlists/", "RENAME"),
+    (OLD_BASE + "Youtube/Essential/", None, "DELETE"),
     (OLD_BASE + "Youtube/Gotta Keep These Somewhere/", None, "DELETE"),
-    (OLD_BASE + "Youtube/Nice/",                       None, "DELETE"),
-    (OLD_BASE + "Youtube/Study/",                      None, "DELETE"),
-    (OLD_BASE + "runs/",                               None, "DELETE"),
+    (OLD_BASE + "Youtube/Nice/", None, "DELETE"),
+    (OLD_BASE + "Youtube/Study/", None, "DELETE"),
+    (OLD_BASE + "runs/", None, "DELETE"),
 ]
 
 
@@ -376,7 +396,7 @@ def build_plan() -> list[dict]:
             if action == "KEEP":
                 plan.append({"action": "KEEP", "src": key, "dst": key, "size": size})
             elif action == "RENAME":
-                dst = NEW_BASE + target_rel + key[len(source):]
+                dst = NEW_BASE + target_rel + key[len(source) :]
                 plan.append({"action": "RENAME", "src": key, "dst": dst, "size": size})
             elif action == "DELETE":
                 plan.append({"action": "DELETE", "src": key, "dst": None, "size": size})
@@ -395,10 +415,10 @@ def print_plan(plan: list[dict]) -> None:
         if not items:
             continue
         total = sum(p["size"] for p in items)
-        print(f"\n{action}: {len(items)} objects, {total/1e9:.3f} GB")
+        print(f"\n{action}: {len(items)} objects, {total / 1e9:.3f} GB")
         for p in items[:3]:
             if p["action"] == "DELETE":
-                print(f"  {p['src']}  ({p['size']/1e6:.1f} MB)")
+                print(f"  {p['src']}  ({p['size'] / 1e6:.1f} MB)")
             else:
                 print(f"  {p['src']}\n    -> {p['dst']}")
         if len(items) > 3:
@@ -475,8 +495,12 @@ def apply_plan(plan: list[dict], concurrency: int) -> None:
     print(f"\nPhase 2: DELETE  ({len(deletes)} objects, concurrency={concurrency})")
     run_parallel(do_delete, deletes, concurrency)
 
-    print(f"\nDone. RENAME applied: {rename_done[0]}, skipped (already done): {rename_skipped[0]}.")
-    print(f"      DELETE  applied: {delete_done[0]}, skipped (already done): {delete_skipped[0]}.")
+    print(
+        f"\nDone. RENAME applied: {rename_done[0]}, skipped (already done): {rename_skipped[0]}."
+    )
+    print(
+        f"      DELETE  applied: {delete_done[0]}, skipped (already done): {delete_skipped[0]}."
+    )
 
 
 def run_parallel(fn, items, concurrency):
@@ -513,14 +537,18 @@ def verify_post_state() -> None:
         elif action == "DELETE":
             leftover = drain_keys(source)
             if leftover:
-                print(f"  DELETE {source}  ->  STILL HAS {len(leftover)} objects!  (FAIL)")
+                print(
+                    f"  DELETE {source}  ->  STILL HAS {len(leftover)} objects!  (FAIL)"
+                )
             else:
                 print(f"  DELETE {source}  ->  empty  (OK)")
 
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--apply", action="store_true", help="Actually mutate. Default is dry-run.")
+    ap.add_argument(
+        "--apply", action="store_true", help="Actually mutate. Default is dry-run."
+    )
     ap.add_argument(
         "--concurrency",
         type=int,

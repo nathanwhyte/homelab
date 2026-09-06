@@ -27,7 +27,10 @@ def post(path, payload, timeout=600):
 def ps():
     with urllib.request.urlopen(f"{BASE}/api/ps", timeout=30) as r:
         j = json.loads(r.read())
-    return ",".join(f"{m['name']}@{m.get('context_length')}" for m in j.get("models", [])) or "(none)"
+    return (
+        ",".join(f"{m['name']}@{m.get('context_length')}" for m in j.get("models", []))
+        or "(none)"
+    )
 
 
 def stop():
@@ -42,8 +45,17 @@ stop()
 print("start ps:", ps())
 
 print("[A] COLD load at num_ctx=8192")
-post("/api/generate", {"model": M, "prompt": "hi", "stream": False, "think": False,
-                       "keep_alive": "5m", "options": {"num_ctx": 8192, "num_predict": 8}})
+post(
+    "/api/generate",
+    {
+        "model": M,
+        "prompt": "hi",
+        "stream": False,
+        "think": False,
+        "keep_alive": "5m",
+        "options": {"num_ctx": 8192, "num_predict": 8},
+    },
+)
 print("   ps:", ps())
 
 filler = "The quick brown fox jumps over the lazy dog. " * 2600
@@ -54,8 +66,17 @@ prompt = (
 )
 
 print(f"\n[B] WARM request, prompt far exceeds resident 8192")
-s, b = post("/api/generate", {"model": M, "prompt": prompt, "stream": False, "think": False,
-                              "keep_alive": "5m", "options": {"num_ctx": 65536, "num_predict": 64}})
+s, b = post(
+    "/api/generate",
+    {
+        "model": M,
+        "prompt": prompt,
+        "stream": False,
+        "think": False,
+        "keep_alive": "5m",
+        "options": {"num_ctx": 65536, "num_predict": 64},
+    },
+)
 resp = (b.get("response") or "").strip()
 print(f"   http={s} done_reason={b.get('done_reason')} error={b.get('error', 'none')}")
 print(f"   prompt_eval_count={b.get('prompt_eval_count')}")

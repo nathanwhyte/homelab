@@ -1,0 +1,10 @@
+# Formatting only — no lint rules enabled. The repo's Python files had never
+# been run through a formatter before IMPR-1118's bug-fix commit picked up
+# ~45 cosmetic `ruff format` lines alongside the actual fix. This config lets
+# `ruff format .` be run repo-wide as its own change instead of leaking into
+# unrelated diffs going forward.
+target-version = "py312"  # matches the uv-managed CPython baked into the ARC runner image (#68)
+line-length = 88
+
+[format]
+# Defaults.

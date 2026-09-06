@@ -31,25 +31,65 @@ SCENARIOS: tuple[Scenario, ...] = (
     Scenario(
         name="resolved-peoplease-duplicate",
         description="Resolved bug lookup for duplicate peoplease locations.",
-        command=["ov", "find", "-u", TARGET, "-n", "5", "duplicate company info peoplease locations"],
+        command=[
+            "ov",
+            "find",
+            "-u",
+            TARGET,
+            "-n",
+            "5",
+            "duplicate company info peoplease locations",
+        ],
         expect_any=("bugs/resolved/bug-005.md", "peoplease_locations"),
     ),
     Scenario(
         name="semantic-column-mapping",
         description="Semantic lookup spanning pipeline references and bug reports.",
-        command=["ov", "find", "-u", TARGET, "-n", "5", "column mapping macro calculated columns"],
-        expect_any=("info/pipeline-column-mappings.md", "bugs/bug-046.md", "pipeline-calculated-columns.md"),
+        command=[
+            "ov",
+            "find",
+            "-u",
+            TARGET,
+            "-n",
+            "5",
+            "column mapping macro calculated columns",
+        ],
+        expect_any=(
+            "info/pipeline-column-mappings.md",
+            "bugs/bug-046.md",
+            "pipeline-calculated-columns.md",
+        ),
     ),
     Scenario(
         name="cross-type-policy-extension",
         description="Cross-type lookup across tasks and reference docs.",
-        command=["ov", "find", "-u", TARGET, "-n", "5", "policy extension stage 1 column mappings"],
-        expect_any=("tasks/task-035.md", "tasks/task-032.md", "info/pipeline-column-mappings.md"),
+        command=[
+            "ov",
+            "find",
+            "-u",
+            TARGET,
+            "-n",
+            "5",
+            "policy extension stage 1 column mappings",
+        ],
+        expect_any=(
+            "tasks/task-035.md",
+            "tasks/task-032.md",
+            "info/pipeline-column-mappings.md",
+        ),
     ),
     Scenario(
         name="snowflake-lookup-crash",
         description="Fuzzy lookup for a resolved Snowflake lookup crash.",
-        command=["ov", "find", "-u", TARGET, "-n", "5", "snowflake crash lookup column spaces"],
+        command=[
+            "ov",
+            "find",
+            "-u",
+            TARGET,
+            "-n",
+            "5",
+            "snowflake crash lookup column spaces",
+        ],
         expect_any=("bugs/resolved/bug-044.md",),
     ),
     Scenario(
@@ -94,12 +134,16 @@ def run_scenario(scenario: Scenario) -> bool:
     print(scenario.description)
     print("$ " + " ".join(scenario.command))
 
-    result = subprocess.run(scenario.command, capture_output=True, text=True, timeout=120)
+    result = subprocess.run(
+        scenario.command, capture_output=True, text=True, timeout=120
+    )
     output = "\n".join(part for part in (result.stdout, result.stderr) if part)
     if output.strip():
         print(output.rstrip())
 
-    exit_ok = result.returncode == 0 if scenario.should_succeed else result.returncode != 0
+    exit_ok = (
+        result.returncode == 0 if scenario.should_succeed else result.returncode != 0
+    )
     content_ok = any(expected in output for expected in scenario.expect_any)
     passed = exit_ok and content_ok
 
@@ -117,7 +161,9 @@ def run_scenario(scenario: Scenario) -> bool:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--list", action="store_true", help="List scenario names")
-    parser.add_argument("--run", nargs="+", metavar="NAME", help="Run scenario names, or 'all'")
+    parser.add_argument(
+        "--run", nargs="+", metavar="NAME", help="Run scenario names, or 'all'"
+    )
     args = parser.parse_args()
 
     if args.list:

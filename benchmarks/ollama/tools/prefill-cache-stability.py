@@ -112,16 +112,28 @@ async def main_async(args) -> int:
         print(f"server version: {server_version}")
 
         cold = await one_request(
-            session, args.url, args.model, prompt, num_ctx,
-            args.num_predict, args.seed, "cold",
+            session,
+            args.url,
+            args.model,
+            prompt,
+            num_ctx,
+            args.num_predict,
+            args.seed,
+            "cold",
         )
         print(f"  cold      prefill={cold['prefill_s']:.2f}s sha={cold['sha256'][:12]}")
         rows.append(cold)
 
         for i in range(args.repeats):
             hit = await one_request(
-                session, args.url, args.model, prompt, num_ctx,
-                args.num_predict, args.seed, f"hit{i}",
+                session,
+                args.url,
+                args.model,
+                prompt,
+                num_ctx,
+                args.num_predict,
+                args.seed,
+                f"hit{i}",
             )
             speedup = cold["prefill_s"] / hit["prefill_s"] if hit["prefill_s"] else None
             print(
@@ -133,7 +145,9 @@ async def main_async(args) -> int:
 
     hits = rows[1:]
     # Guard: an unconfirmed hit makes every downstream comparison meaningless.
-    not_hits = [h["label"] for h in hits if (h.get("speedup_vs_cold") or 0) < args.min_speedup]
+    not_hits = [
+        h["label"] for h in hits if (h.get("speedup_vs_cold") or 0) < args.min_speedup
+    ]
     hit_hashes = {h["sha256"] for h in hits}
     hits_agree = len(hit_hashes) == 1
     hits_match_cold = hits_agree and hits[0]["sha256"] == cold["sha256"]
@@ -178,13 +192,21 @@ def main() -> int:
     ap.add_argument("--model", required=True)
     ap.add_argument("--corpus-dir", required=True)
     ap.add_argument("--tier", default="77k")
-    ap.add_argument("--repeats", type=int, default=4, help="cache-hit requests after the cold one")
-    ap.add_argument("--num-ctx", type=int, default=8192, help="floor; raised to fit the tier")
+    ap.add_argument(
+        "--repeats", type=int, default=4, help="cache-hit requests after the cold one"
+    )
+    ap.add_argument(
+        "--num-ctx", type=int, default=8192, help="floor; raised to fit the tier"
+    )
     ap.add_argument("--num-predict", type=int, default=64)
     ap.add_argument("--seed", type=int, default=42)
     ap.add_argument("--timeout", type=float, default=1800)
-    ap.add_argument("--min-speedup", type=float, default=10.0,
-                    help="a repeat slower than cold/this is not treated as a cache hit")
+    ap.add_argument(
+        "--min-speedup",
+        type=float,
+        default=10.0,
+        help="a repeat slower than cold/this is not treated as a cache hit",
+    )
     ap.add_argument("--output")
     return asyncio.run(main_async(ap.parse_args()))
 

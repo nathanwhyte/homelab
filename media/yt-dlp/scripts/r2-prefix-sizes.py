@@ -17,6 +17,7 @@ Usage:
     # 3. export R2_AK=... R2_SK=... R2_ACCOUNT_ID=...
     # 4. uv run scripts/r2-prefix-sizes.py
 """
+
 import datetime
 import hashlib
 import hmac
@@ -46,9 +47,7 @@ def sigv4(canonical_query: str) -> tuple[str, str]:
     date_stamp = amz_date[:8]
     canonical_uri = f"/{BUCKET}"
     canonical_headers = (
-        f"host:{HOST}\n"
-        f"x-amz-content-sha256:UNSIGNED-PAYLOAD\n"
-        f"x-amz-date:{amz_date}\n"
+        f"host:{HOST}\nx-amz-content-sha256:UNSIGNED-PAYLOAD\nx-amz-date:{amz_date}\n"
     )
     canonical_request = "\n".join(
         [
@@ -85,7 +84,9 @@ def sigv4(canonical_query: str) -> tuple[str, str]:
     )
 
 
-def list_v2(prefix: str = "", with_delim: bool = True, continuation_token: str | None = None):
+def list_v2(
+    prefix: str = "", with_delim: bool = True, continuation_token: str | None = None
+):
     time.sleep(1.0)  # avoid sigv4 replay protection on identical-second requests
     params: dict[str, str] = {"list-type": "2", "max-keys": "1000"}
     if with_delim:
@@ -130,9 +131,7 @@ def drain(prefix: str) -> tuple[int, int]:
 def main():
     print(f"Listing R2 bucket `{BUCKET}` (account {ACCOUNT_ID}) media subtree:\n")
     root = list_v2(MEDIA_PREFIX)
-    sub_prefixes = [
-        p.text for p in root.findall("s3:CommonPrefixes/s3:Prefix", NS)
-    ]
+    sub_prefixes = [p.text for p in root.findall("s3:CommonPrefixes/s3:Prefix", NS)]
     grand_total = 0
     grand_objs = 0
     for sp in sub_prefixes:
@@ -140,9 +139,9 @@ def main():
         grand_total += size
         grand_objs += objs
         label = sp.replace(MEDIA_PREFIX, "")
-        print(f"  {label:<50} {size/1e9:>8.3f} GB   {objs:>6} objs")
+        print(f"  {label:<50} {size / 1e9:>8.3f} GB   {objs:>6} objs")
     print()
-    print(f"  TOTAL: {grand_total/1e9:.3f} GB / {grand_objs} objects")
+    print(f"  TOTAL: {grand_total / 1e9:.3f} GB / {grand_objs} objects")
 
 
 if __name__ == "__main__":

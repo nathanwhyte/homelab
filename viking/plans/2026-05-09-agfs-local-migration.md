@@ -138,17 +138,17 @@ Changes from `openviking-config`:
 
 ```python
 # BEFORE (crashes if s3 block is absent)
-conf['storage']['agfs']['s3']['access_key'] = os.environ['S3_ACCESS_KEY']
-conf['storage']['agfs']['s3']['secret_key'] = os.environ['S3_SECRET_KEY']
+conf["storage"]["agfs"]["s3"]["access_key"] = os.environ["S3_ACCESS_KEY"]
+conf["storage"]["agfs"]["s3"]["secret_key"] = os.environ["S3_SECRET_KEY"]
 
 # AFTER (conditional, skips when backend != s3)
-agfs = conf.get('storage', {}).get('agfs', {})
-if agfs.get('backend', 'local') == 's3':
-    agfs.setdefault('s3', {})
-    agfs['s3']['access_key'] = os.environ['S3_ACCESS_KEY']
-    agfs['s3']['secret_key'] = os.environ['S3_SECRET_KEY']
+agfs = conf.get("storage", {}).get("agfs", {})
+if agfs.get("backend", "local") == "s3":
+    agfs.setdefault("s3", {})
+    agfs["s3"]["access_key"] = os.environ["S3_ACCESS_KEY"]
+    agfs["s3"]["secret_key"] = os.environ["S3_SECRET_KEY"]
 else:
-    agfs.pop('s3', None)
+    agfs.pop("s3", None)
 ```
 
 **`ov-worker` StatefulSet** (`ov-worker-statefulset.yaml`): Same change in `config-gen`.

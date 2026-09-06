@@ -21,9 +21,9 @@ ACTIVE_STATUSES = {"todo", "open", "proposed", "in-progress", "investigating", "
 
 # Terminal directories and their required frontmatter fields
 TERMINAL_DIRS = {
-    "bugs/resolved":      {"prefix": "BUG",  "required_field": "fixed_in"},
+    "bugs/resolved": {"prefix": "BUG", "required_field": "fixed_in"},
     "features/completed": {"prefix": "FEAT", "required_field": "completed_in"},
-    "ideas/completed":     {"prefix": "IDEA", "required_field": "completed_in"},
+    "ideas/completed": {"prefix": "IDEA", "required_field": "completed_in"},
 }
 
 # Active directories (should NOT be in OV)
@@ -37,21 +37,21 @@ ACTIVE_DIRS = [
 
 
 def parse_frontmatter(content):
-    match = re.match(r'^---\s*\n(.*?)\n---\s*\n', content, re.DOTALL)
+    match = re.match(r"^---\s*\n(.*?)\n---\s*\n", content, re.DOTALL)
     if not match:
         return None, content
-    return match.group(1), content[match.end():]
+    return match.group(1), content[match.end() :]
 
 
 def get_field(frontmatter, field):
-    match = re.search(rf'^{field}:\s*(.+)$', frontmatter, re.MULTILINE)
+    match = re.search(rf"^{field}:\s*(.+)$", frontmatter, re.MULTILINE)
     if not match:
         return None
     return match.group(1).strip()
 
 
 def get_status(frontmatter):
-    status = get_field(frontmatter, 'status')
+    status = get_field(frontmatter, "status")
     if status:
         # Strip quotes
         return status.strip('"').strip("'")
@@ -59,20 +59,20 @@ def get_status(frontmatter):
 
 
 def entry_id_from_stem(stem):
-    match = re.match(r'^([A-Z]+-\d+)', stem)
+    match = re.match(r"^([A-Z]+-\d+)", stem)
     return match.group(1) if match else stem
 
 
 def ov_name_for_stem(stem):
     eid = entry_id_from_stem(stem)
-    if re.match(r'^\d{4}-\d{2}-\d{2}-', eid):
+    if re.match(r"^\d{4}-\d{2}-\d{2}-", eid):
         return eid
     return eid.lower()
 
 
 def ov_segment(seg):
     """Casing rule for one URI path segment — same as ov_name (IMPR-1055)."""
-    if re.match(r'^\d{4}-\d{2}-\d{2}-', seg):
+    if re.match(r"^\d{4}-\d{2}-\d{2}-", seg):
         return seg
     return seg.lower()
 
@@ -93,19 +93,18 @@ def ov_uri_for(subdir, stem, target_base=OV_TARGET_BASE):
 def ov_ls(uri):
     """List an OV directory. Returns list of entry names or empty list."""
     result = subprocess.run(
-        ['ov', 'ls', uri],
-        capture_output=True, text=True, timeout=15
+        ["ov", "ls", uri], capture_output=True, text=True, timeout=15
     )
     if result.returncode != 0:
         return []
     entries = []
     uri_prefix = uri.rstrip("/") + "/"
-    for line in result.stdout.strip().split('\n'):
+    for line in result.stdout.strip().split("\n"):
         line = line.strip()
         if not line:
             continue
         # ov ls output: "[d] dirname" or "[f] filename"
-        match = re.match(r'\[[df]\]\s+(.+)', line)
+        match = re.match(r"\[[df]\]\s+(.+)", line)
         if match:
             entries.append(match.group(1).strip())
             continue
@@ -123,7 +122,7 @@ def local_terminal_files(subdir):
         return {}
     files = {}
     for fn in os.listdir(full_dir):
-        if fn.endswith('.md'):
+        if fn.endswith(".md"):
             stem = fn[:-3]  # Remove .md
             files[stem] = os.path.join(full_dir, fn)
     return files
@@ -136,7 +135,7 @@ def local_active_files(subdir):
         return {}
     files = {}
     for fn in os.listdir(full_dir):
-        if fn.endswith('.md') and not fn.startswith('_'):
+        if fn.endswith(".md") and not fn.startswith("_"):
             stem = fn[:-3]
             files[stem] = os.path.join(full_dir, fn)
     return files
@@ -152,19 +151,21 @@ def check_structure():
         # Normalize OV entry names (they're lowercase, may have .md suffix stripped)
         ov_names = set()
         for entry in ov_entries:
-            name = entry.replace('.md', '').strip()
+            name = entry.replace(".md", "").strip()
             ov_names.add(name)
 
         for stem, filepath in local_files.items():
             ov_name = ov_name_for_stem(stem)
             if ov_name not in ov_names:
-                issues.append({
-                    'type': 'missing_in_ov',
-                    'item': stem,
-                    'subdir': subdir,
-                    'local_path': filepath,
-                    'expected_uri': ov_uri_for(subdir, stem),
-                })
+                issues.append(
+                    {
+                        "type": "missing_in_ov",
+                        "item": stem,
+                        "subdir": subdir,
+                        "local_path": filepath,
+                        "expected_uri": ov_uri_for(subdir, stem),
+                    }
+                )
 
     return issues
 
@@ -178,14 +179,16 @@ def check_stale():
 
         ov_entries = ov_ls(f"{OV_TARGET_BASE}/{subdir}")
         for entry in ov_entries:
-            name = entry.replace('.md', '').strip().lower()
+            name = entry.replace(".md", "").strip().lower()
             if name not in local_stems:
-                issues.append({
-                    'type': 'ghost_in_ov',
-                    'item': name,
-                    'subdir': subdir,
-                    'uri': ov_uri_for(subdir, name),
-                })
+                issues.append(
+                    {
+                        "type": "ghost_in_ov",
+                        "item": name,
+                        "subdir": subdir,
+                        "uri": ov_uri_for(subdir, name),
+                    }
+                )
 
     return issues
 
@@ -196,29 +199,33 @@ def check_required_fields():
     for subdir, meta in TERMINAL_DIRS.items():
         local_files = local_terminal_files(subdir)
         for stem, filepath in local_files.items():
-            with open(filepath, 'r') as f:
+            with open(filepath, "r") as f:
                 content = f.read()
             frontmatter, _ = parse_frontmatter(content)
             if frontmatter is None:
-                issues.append({
-                    'type': 'missing_frontmatter',
-                    'item': stem,
-                    'subdir': subdir,
-                    'local_path': filepath,
-                    'detail': 'no frontmatter found',
-                })
+                issues.append(
+                    {
+                        "type": "missing_frontmatter",
+                        "item": stem,
+                        "subdir": subdir,
+                        "local_path": filepath,
+                        "detail": "no frontmatter found",
+                    }
+                )
                 continue
 
-            required = meta['required_field']
+            required = meta["required_field"]
             value = get_field(frontmatter, required)
             if not value:
-                issues.append({
-                    'type': 'missing_field',
-                    'item': stem,
-                    'subdir': subdir,
-                    'local_path': filepath,
-                    'detail': f'missing required field: {required}',
-                })
+                issues.append(
+                    {
+                        "type": "missing_field",
+                        "item": stem,
+                        "subdir": subdir,
+                        "local_path": filepath,
+                        "detail": f"missing required field: {required}",
+                    }
+                )
 
     return issues
 
@@ -231,7 +238,7 @@ def check_active_not_in_ov():
         local_files = local_active_files(subdir)
         for stem, filepath in local_files.items():
             # Read frontmatter to check status
-            with open(filepath, 'r') as f:
+            with open(filepath, "r") as f:
                 content = f.read()
             frontmatter, _ = parse_frontmatter(content)
             if frontmatter is None:
@@ -243,18 +250,19 @@ def check_active_not_in_ov():
             # Active item by sync policy — check if it exists in OV
             ov_uri = ov_uri_for(subdir, stem)
             result = subprocess.run(
-                ['ov', 'stat', ov_uri],
-                capture_output=True, text=True, timeout=10
+                ["ov", "stat", ov_uri], capture_output=True, text=True, timeout=10
             )
             if result.returncode == 0:
-                issues.append({
-                    'type': 'active_in_ov',
-                    'item': stem,
-                    'subdir': subdir,
-                    'local_path': filepath,
-                    'uri': ov_uri,
-                    'detail': f'active item (status: {status}) found in OV',
-                })
+                issues.append(
+                    {
+                        "type": "active_in_ov",
+                        "item": stem,
+                        "subdir": subdir,
+                        "local_path": filepath,
+                        "uri": ov_uri,
+                        "detail": f"active item (status: {status}) found in OV",
+                    }
+                )
 
     return issues
 
@@ -286,11 +294,13 @@ def run_checks():
     print("| Type | Item | Dir | Detail |")
     print("|------|------|-----|--------|")
     for issue in all_issues:
-        print(f"| {issue['type']} | {issue['item']} | {issue['subdir']} | {issue.get('detail', '—')} |")
+        print(
+            f"| {issue['type']} | {issue['item']} | {issue['subdir']} | {issue.get('detail', '—')} |"
+        )
 
     print(f"\n**Total: {len(all_issues)} issues**")
     return 1
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     sys.exit(run_checks())

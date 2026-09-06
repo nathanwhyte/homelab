@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """AMD GPU Prometheus exporter — sysfs + amdsmi metrics for RDNA4 GPUs."""
+
 import http.server
 import os
 import glob
@@ -201,7 +202,11 @@ def collect_metrics():
     defs = [
         ("amdgpu_utilization_percent", "gauge", "GPU utilization percentage"),
         ("amdgpu_temperature_celsius", "gauge", "GPU edge temperature in Celsius"),
-        ("amdgpu_junction_temperature_celsius", "gauge", "GPU junction (hotspot) temperature in Celsius"),
+        (
+            "amdgpu_junction_temperature_celsius",
+            "gauge",
+            "GPU junction (hotspot) temperature in Celsius",
+        ),
         ("amdgpu_vram_used_bytes", "gauge", "VRAM used in bytes"),
         ("amdgpu_vram_total_bytes", "gauge", "VRAM total in bytes"),
         ("amdgpu_power_watts", "gauge", "Current power draw in watts"),
@@ -228,7 +233,9 @@ def collect_metrics():
                 lines.append(f"amdgpu_temperature_celsius{{{lbl}}} {int(val) / 1000}")
             val = read_file(os.path.join(hwmon, "temp2_input"))
             if val:
-                lines.append(f"amdgpu_junction_temperature_celsius{{{lbl}}} {int(val) / 1000}")
+                lines.append(
+                    f"amdgpu_junction_temperature_celsius{{{lbl}}} {int(val) / 1000}"
+                )
 
         val = read_file(os.path.join(dev, "mem_info_vram_used"))
         if val:
@@ -248,7 +255,10 @@ def collect_metrics():
             if val:
                 lines.append(f"amdgpu_fan_rpm{{{lbl}}} {val}")
 
-        for sysfs_file, metric in [("pp_dpm_sclk", "amdgpu_clock_gpu_mhz"), ("pp_dpm_mclk", "amdgpu_clock_mem_mhz")]:
+        for sysfs_file, metric in [
+            ("pp_dpm_sclk", "amdgpu_clock_gpu_mhz"),
+            ("pp_dpm_mclk", "amdgpu_clock_mem_mhz"),
+        ]:
             content = read_file(os.path.join(dev, sysfs_file))
             if content:
                 for ln in content.splitlines():
@@ -256,7 +266,9 @@ def collect_metrics():
                         for part in ln.split():
                             if "mhz" in part.lower():
                                 try:
-                                    lines.append(f'{metric}{{{lbl}}} {float(part.lower().replace("mhz", ""))}')
+                                    lines.append(
+                                        f"{metric}{{{lbl}}} {float(part.lower().replace('mhz', ''))}"
+                                    )
                                 except ValueError:
                                     pass
                                 break

@@ -102,7 +102,9 @@ def consolidate(primary: str, workers: list[str]):
     already = other_uris & primary_uris
 
     if not missing:
-        print(f"Consolidated 0 URIs to worker-0 ({len(already)} already present, 0 new)")
+        print(
+            f"Consolidated 0 URIs to worker-0 ({len(already)} already present, 0 new)"
+        )
         return
 
     print(f"Need to reindex {len(missing)} URIs on worker-0 ...")

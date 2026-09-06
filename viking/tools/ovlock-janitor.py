@@ -48,7 +48,9 @@ import time
 import urllib.error
 import urllib.request
 
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "exporters"))
+sys.path.insert(
+    0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "exporters")
+)
 import s3lite  # noqa: E402 - same dir in-pod, ../exporters in-repo
 
 
@@ -120,7 +122,9 @@ def classify(
 
 def run(args: argparse.Namespace, client: s3lite.S3Client, sleep_fn=time.sleep) -> int:
     if not ov_healthy(args.health_url):
-        print("skipped: OV unhealthy at pass 1 — every lock looks frozen during a restart")
+        print(
+            "skipped: OV unhealthy at pass 1 — every lock looks frozen during a restart"
+        )
         return 0
     pass1 = list_locks(client, args.bucket)
     print(f"pass 1: {len(pass1)} lock object(s)")
@@ -140,8 +144,10 @@ def run(args: argparse.Namespace, client: s3lite.S3Client, sleep_fn=time.sleep) 
     dead, live, fresh = classify(pass1, pass2, now, args.dead_threshold)
 
     for key in live:
-        print(f"live-refreshing (heal/operator territory, never deleted): {key} "
-              f"token={read_token(client, args.bucket, key)}")
+        print(
+            f"live-refreshing (heal/operator territory, never deleted): {key} "
+            f"token={read_token(client, args.bucket, key)}"
+        )
     for key in fresh:
         age = int(now - pass2[key].timestamp())
         print(f"fresh (frozen {age}s < threshold {int(args.dead_threshold)}s): {key}")
@@ -167,8 +173,10 @@ def run(args: argparse.Namespace, client: s3lite.S3Client, sleep_fn=time.sleep) 
                 continue
             token = body.decode("utf-8", "replace").strip()
             if current_mtime is None or not _mtime_matches(current_mtime, pass2[key]):
-                print(f"skipped (reacquired between pass 2 and delete): {key} "
-                      f"mtime now {current_mtime} token={token[:80]!r}")
+                print(
+                    f"skipped (reacquired between pass 2 and delete): {key} "
+                    f"mtime now {current_mtime} token={token[:80]!r}"
+                )
                 reacquired += 1
                 continue
             try:
@@ -182,32 +190,63 @@ def run(args: argparse.Namespace, client: s3lite.S3Client, sleep_fn=time.sleep) 
             token = read_token(client, args.bucket, key)
             print(f"would delete (dry-run): {key} age={age}s token={token}")
     if overflow:
-        print(f"deferred {len(overflow)} candidate(s) beyond --max-delete "
-              f"{args.max_delete}; the next run drains them")
+        print(
+            f"deferred {len(overflow)} candidate(s) beyond --max-delete "
+            f"{args.max_delete}; the next run drains them"
+        )
     verb = "deleted" if args.apply else "would delete"
-    print(f"summary: {len(pass2)} locks | {len(live)} live | {len(fresh)} fresh | "
-          f"{len(dead)} dead ({verb} {len(candidates) - failures - reacquired}, "
-          f"reacquired/skipped {reacquired}, failed {failures}, "
-          f"deferred {len(overflow)})")
+    print(
+        f"summary: {len(pass2)} locks | {len(live)} live | {len(fresh)} fresh | "
+        f"{len(dead)} dead ({verb} {len(candidates) - failures - reacquired}, "
+        f"reacquired/skipped {reacquired}, failed {failures}, "
+        f"deferred {len(overflow)})"
+    )
     return 1 if failures else 0
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--apply", action="store_true",
-                        help="Actually delete dead leases. Default is dry-run.")
-    parser.add_argument("--bucket", default=os.environ.get("OVLOCK_S3_BUCKET", "openviking-agfs"))
-    parser.add_argument("--endpoint", default=os.environ.get(
-        "OVLOCK_S3_ENDPOINT", "http://garage.garage.svc.cluster.local:3900"))
-    parser.add_argument("--region", default=os.environ.get("OVLOCK_S3_REGION", "garage"))
-    parser.add_argument("--health-url", default=os.environ.get(
-        "OV_HEALTH_URL", "http://openviking.viking.svc.cluster.local:1933/health"))
-    parser.add_argument("--pass-interval", type=float, default=120.0,
-                        help="Seconds between list passes (default 120 = 4x refresh cadence)")
-    parser.add_argument("--dead-threshold", type=float, default=1800.0,
-                        help="mtime age (s) above which a frozen lock is a dead lease")
-    parser.add_argument("--max-delete", type=int, default=100,
-                        help="Deletion cap per run; excess deferred to the next run")
+    parser.add_argument(
+        "--apply",
+        action="store_true",
+        help="Actually delete dead leases. Default is dry-run.",
+    )
+    parser.add_argument(
+        "--bucket", default=os.environ.get("OVLOCK_S3_BUCKET", "openviking-agfs")
+    )
+    parser.add_argument(
+        "--endpoint",
+        default=os.environ.get(
+            "OVLOCK_S3_ENDPOINT", "http://garage.garage.svc.cluster.local:3900"
+        ),
+    )
+    parser.add_argument(
+        "--region", default=os.environ.get("OVLOCK_S3_REGION", "garage")
+    )
+    parser.add_argument(
+        "--health-url",
+        default=os.environ.get(
+            "OV_HEALTH_URL", "http://openviking.viking.svc.cluster.local:1933/health"
+        ),
+    )
+    parser.add_argument(
+        "--pass-interval",
+        type=float,
+        default=120.0,
+        help="Seconds between list passes (default 120 = 4x refresh cadence)",
+    )
+    parser.add_argument(
+        "--dead-threshold",
+        type=float,
+        default=1800.0,
+        help="mtime age (s) above which a frozen lock is a dead lease",
+    )
+    parser.add_argument(
+        "--max-delete",
+        type=int,
+        default=100,
+        help="Deletion cap per run; excess deferred to the next run",
+    )
     args = parser.parse_args()
 
     client = s3lite.S3Client(

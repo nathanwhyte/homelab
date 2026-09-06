@@ -163,7 +163,9 @@ class S3Client:
                     {
                         "Key": contents.findtext(f"{ns}Key"),
                         "LastModified": datetime.datetime.fromisoformat(
-                            contents.findtext(f"{ns}LastModified").replace("Z", "+00:00")
+                            contents.findtext(f"{ns}LastModified").replace(
+                                "Z", "+00:00"
+                            )
                         ),
                         "Size": int(contents.findtext(f"{ns}Size") or 0),
                         "ETag": contents.findtext(f"{ns}ETag"),

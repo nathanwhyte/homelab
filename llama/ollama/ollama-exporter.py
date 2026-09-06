@@ -24,22 +24,22 @@ _metrics = {
     # From /api/ps polling
     "ollama_up": 0,
     "ollama_models_loaded": 0,
-    "ollama_model_vram_bytes": {},       # {model: bytes}
-    "ollama_model_size_bytes": {},       # {model: bytes}
-    "ollama_model_expires_at": {},       # {model: unix timestamp}
-    "ollama_model_context_length": {},   # {model: max context tokens}
+    "ollama_model_vram_bytes": {},  # {model: bytes}
+    "ollama_model_size_bytes": {},  # {model: bytes}
+    "ollama_model_expires_at": {},  # {model: unix timestamp}
+    "ollama_model_context_length": {},  # {model: max context tokens}
     # From /api/chat response tracking (updated via /push endpoint)
-    "ollama_request_total": {},          # {model: count}
-    "ollama_gen_tokens_total": {},       # {model: count}
-    "ollama_prompt_tokens_total": {},    # {model: count}
-    "ollama_gen_duration_seconds": {},   # {model: total seconds}
-    "ollama_prompt_duration_seconds": {},# {model: total seconds}
-    "ollama_request_duration_seconds": {},# {model: total seconds}
+    "ollama_request_total": {},  # {model: count}
+    "ollama_gen_tokens_total": {},  # {model: count}
+    "ollama_prompt_tokens_total": {},  # {model: count}
+    "ollama_gen_duration_seconds": {},  # {model: total seconds}
+    "ollama_prompt_duration_seconds": {},  # {model: total seconds}
+    "ollama_request_duration_seconds": {},  # {model: total seconds}
     # Latest per-model snapshot
-    "ollama_gen_tokens_per_sec": {},     # {model: latest tok/s}
+    "ollama_gen_tokens_per_sec": {},  # {model: latest tok/s}
     "ollama_prompt_tokens_per_sec": {},  # {model: latest tok/s}
-    "ollama_last_request_seconds": {},   # {model: last wall time}
-    "ollama_last_prompt_tokens": {},     # {model: prompt tokens in last request}
+    "ollama_last_request_seconds": {},  # {model: last wall time}
+    "ollama_last_prompt_tokens": {},  # {model: prompt tokens in last request}
 }
 
 
@@ -103,6 +103,7 @@ def poll_ps(ollama_url):
                 if expires:
                     try:
                         from datetime import datetime
+
                         dt = datetime.fromisoformat(expires.replace("Z", "+00:00"))
                         _metrics["ollama_model_expires_at"][name] = dt.timestamp()
                     except Exception:
@@ -114,7 +115,14 @@ def poll_ps(ollama_url):
             _metrics["ollama_models_loaded"] = 0
 
 
-def push_request_metrics(model, eval_count, eval_duration_ns, prompt_count, prompt_duration_ns, total_duration_ns):
+def push_request_metrics(
+    model,
+    eval_count,
+    eval_duration_ns,
+    prompt_count,
+    prompt_duration_ns,
+    total_duration_ns,
+):
     """Record metrics from a completed /api/chat response."""
     with _lock:
         _metrics["ollama_request_total"].setdefault(model, 0)
@@ -140,9 +148,13 @@ def push_request_metrics(model, eval_count, eval_duration_ns, prompt_count, prom
         _metrics["ollama_request_duration_seconds"][model] += total_sec
 
         if eval_sec > 0:
-            _metrics["ollama_gen_tokens_per_sec"][model] = round(eval_count / eval_sec, 1)
+            _metrics["ollama_gen_tokens_per_sec"][model] = round(
+                eval_count / eval_sec, 1
+            )
         if prompt_sec > 0:
-            _metrics["ollama_prompt_tokens_per_sec"][model] = round(prompt_count / prompt_sec, 1)
+            _metrics["ollama_prompt_tokens_per_sec"][model] = round(
+                prompt_count / prompt_sec, 1
+            )
         _metrics["ollama_last_request_seconds"][model] = round(total_sec, 3)
         _metrics["ollama_last_prompt_tokens"][model] = prompt_count
 
@@ -167,28 +179,101 @@ def format_metrics():
             lines.append(f'{name}{{model="{lv}"}} {v}')
 
     with _lock:
-        gauge("ollama_up", "Whether Ollama is reachable (1=up, 0=down).", _metrics["ollama_up"])
-        gauge("ollama_models_loaded", "Number of models currently loaded.", _metrics["ollama_models_loaded"])
-        gauge("ollama_model_vram_bytes", "VRAM used by model in bytes.", _metrics["ollama_model_vram_bytes"], labels=True)
-        gauge("ollama_model_size_bytes", "Total model size in bytes.", _metrics["ollama_model_size_bytes"], labels=True)
-        gauge("ollama_model_expires_at", "Unix timestamp when model will be unloaded.", _metrics["ollama_model_expires_at"], labels=True)
-        gauge("ollama_model_context_length", "Configured context window length in tokens.", _metrics["ollama_model_context_length"], labels=True)
-        gauge("ollama_gen_tokens_per_sec", "Latest generation speed in tokens/sec.", _metrics["ollama_gen_tokens_per_sec"], labels=True)
-        gauge("ollama_prompt_tokens_per_sec", "Latest prompt processing speed in tokens/sec.", _metrics["ollama_prompt_tokens_per_sec"], labels=True)
-        gauge("ollama_last_request_seconds", "Wall time of last request in seconds.", _metrics["ollama_last_request_seconds"], labels=True)
-        gauge("ollama_last_prompt_tokens", "Prompt token count from the most recent request.", _metrics["ollama_last_prompt_tokens"], labels=True)
+        gauge(
+            "ollama_up",
+            "Whether Ollama is reachable (1=up, 0=down).",
+            _metrics["ollama_up"],
+        )
+        gauge(
+            "ollama_models_loaded",
+            "Number of models currently loaded.",
+            _metrics["ollama_models_loaded"],
+        )
+        gauge(
+            "ollama_model_vram_bytes",
+            "VRAM used by model in bytes.",
+            _metrics["ollama_model_vram_bytes"],
+            labels=True,
+        )
+        gauge(
+            "ollama_model_size_bytes",
+            "Total model size in bytes.",
+            _metrics["ollama_model_size_bytes"],
+            labels=True,
+        )
+        gauge(
+            "ollama_model_expires_at",
+            "Unix timestamp when model will be unloaded.",
+            _metrics["ollama_model_expires_at"],
+            labels=True,
+        )
+        gauge(
+            "ollama_model_context_length",
+            "Configured context window length in tokens.",
+            _metrics["ollama_model_context_length"],
+            labels=True,
+        )
+        gauge(
+            "ollama_gen_tokens_per_sec",
+            "Latest generation speed in tokens/sec.",
+            _metrics["ollama_gen_tokens_per_sec"],
+            labels=True,
+        )
+        gauge(
+            "ollama_prompt_tokens_per_sec",
+            "Latest prompt processing speed in tokens/sec.",
+            _metrics["ollama_prompt_tokens_per_sec"],
+            labels=True,
+        )
+        gauge(
+            "ollama_last_request_seconds",
+            "Wall time of last request in seconds.",
+            _metrics["ollama_last_request_seconds"],
+            labels=True,
+        )
+        gauge(
+            "ollama_last_prompt_tokens",
+            "Prompt token count from the most recent request.",
+            _metrics["ollama_last_prompt_tokens"],
+            labels=True,
+        )
 
-        counter("ollama_request_total", "Total number of completed requests.", _metrics["ollama_request_total"])
-        counter("ollama_gen_tokens_total", "Total generated tokens.", _metrics["ollama_gen_tokens_total"])
-        counter("ollama_prompt_tokens_total", "Total prompt tokens processed.", _metrics["ollama_prompt_tokens_total"])
-        counter("ollama_gen_duration_seconds_total", "Total generation time in seconds.", _metrics["ollama_gen_duration_seconds"])
-        counter("ollama_prompt_duration_seconds_total", "Total prompt processing time in seconds.", _metrics["ollama_prompt_duration_seconds"])
-        counter("ollama_request_duration_seconds_total", "Total request wall time in seconds.", _metrics["ollama_request_duration_seconds"])
+        counter(
+            "ollama_request_total",
+            "Total number of completed requests.",
+            _metrics["ollama_request_total"],
+        )
+        counter(
+            "ollama_gen_tokens_total",
+            "Total generated tokens.",
+            _metrics["ollama_gen_tokens_total"],
+        )
+        counter(
+            "ollama_prompt_tokens_total",
+            "Total prompt tokens processed.",
+            _metrics["ollama_prompt_tokens_total"],
+        )
+        counter(
+            "ollama_gen_duration_seconds_total",
+            "Total generation time in seconds.",
+            _metrics["ollama_gen_duration_seconds"],
+        )
+        counter(
+            "ollama_prompt_duration_seconds_total",
+            "Total prompt processing time in seconds.",
+            _metrics["ollama_prompt_duration_seconds"],
+        )
+        counter(
+            "ollama_request_duration_seconds_total",
+            "Total request wall time in seconds.",
+            _metrics["ollama_request_duration_seconds"],
+        )
 
     return "\n".join(lines) + "\n"
 
 
 # ── HTTP Handler ─────────────────────────────────────────────────────────────
+
 
 class MetricsHandler(BaseHTTPRequestHandler):
     def do_GET(self):
@@ -232,6 +317,7 @@ class MetricsHandler(BaseHTTPRequestHandler):
 
 # ── Polling Thread ───────────────────────────────────────────────────────────
 
+
 def poll_loop(ollama_url, interval):
     while True:
         poll_ps(ollama_url)
@@ -240,11 +326,16 @@ def poll_loop(ollama_url, interval):
 
 # ── Main ─────────────────────────────────────────────────────────────────────
 
+
 def main():
     parser = argparse.ArgumentParser(description="Prometheus exporter for Ollama")
-    parser.add_argument("--ollama", default="http://localhost:11434", help="Ollama API URL")
+    parser.add_argument(
+        "--ollama", default="http://localhost:11434", help="Ollama API URL"
+    )
     parser.add_argument("--port", type=int, default=9111, help="Exporter listen port")
-    parser.add_argument("--interval", type=int, default=15, help="Poll interval in seconds")
+    parser.add_argument(
+        "--interval", type=int, default=15, help="Poll interval in seconds"
+    )
     args = parser.parse_args()
 
     print(f"ollama-exporter starting")
@@ -253,7 +344,9 @@ def main():
     print(f"  Push:    http://0.0.0.0:{args.port}/push")
     print(f"  Poll:    every {args.interval}s")
 
-    poller = threading.Thread(target=poll_loop, args=(args.ollama, args.interval), daemon=True)
+    poller = threading.Thread(
+        target=poll_loop, args=(args.ollama, args.interval), daemon=True
+    )
     poller.start()
 
     server = ThreadingHTTPServer(("0.0.0.0", args.port), MetricsHandler)

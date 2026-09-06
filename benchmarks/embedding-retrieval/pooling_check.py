@@ -23,7 +23,9 @@ INSTRUCT = "Instruct: Given a web search query, retrieve relevant passages that 
 
 
 def embed(text):
-    r = httpx.post(f"{HOST}/api/embed", json={"model": MODEL, "input": [text]}, timeout=60)
+    r = httpx.post(
+        f"{HOST}/api/embed", json={"model": MODEL, "input": [text]}, timeout=60
+    )
     r.raise_for_status()
     return r.json()["embeddings"][0]
 
@@ -43,6 +45,9 @@ print(f"dim={len(q)}")
 print(f"matching  cos = {m:.3f}   (card: ~0.75)")
 print(f"non-match cos = {n:.3f}   (card: ~0.11)")
 gap = m - n
-verdict = "OK — last-token pooling looks correct" if (m > 0.6 and gap > 0.25) else \
-          "SUSPECT — pooling likely wrong (mean?); gap too small. Use llama.cpp --pooling last."
+verdict = (
+    "OK — last-token pooling looks correct"
+    if (m > 0.6 and gap > 0.25)
+    else "SUSPECT — pooling likely wrong (mean?); gap too small. Use llama.cpp --pooling last."
+)
 print(f"gap = {gap:.3f}  ->  {verdict}")

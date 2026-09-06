@@ -9,7 +9,7 @@ LABEL_RE = re.compile(r"[^a-zA-Z0-9_:]")
 
 def label_value(value):
     value = str(value or "unknown")
-    return value.replace("\\", r"\\").replace('"', r'\"').replace("\n", " ")
+    return value.replace("\\", r"\\").replace('"', r"\"").replace("\n", " ")
 
 
 def dsn():
@@ -55,9 +55,21 @@ def query_metrics():
                 ]
 
                 groups = [
-                    ("mem0_memories_by_user", "user_id", "coalesce(payload->>'user_id','unknown')"),
-                    ("mem0_memories_by_agent", "agent_id", "coalesce(payload->>'agent_id','unknown')"),
-                    ("mem0_memories_by_role", "role", "coalesce(payload->>'role','unknown')"),
+                    (
+                        "mem0_memories_by_user",
+                        "user_id",
+                        "coalesce(payload->>'user_id','unknown')",
+                    ),
+                    (
+                        "mem0_memories_by_agent",
+                        "agent_id",
+                        "coalesce(payload->>'agent_id','unknown')",
+                    ),
+                    (
+                        "mem0_memories_by_role",
+                        "role",
+                        "coalesce(payload->>'role','unknown')",
+                    ),
                 ]
                 for metric, label, expr in groups:
                     lines += [
@@ -68,7 +80,9 @@ def query_metrics():
                         f"select {expr} as label, count(*)::bigint from public.memories group by 1 order by 2 desc, 1"
                     )
                     for value, count in cur.fetchall():
-                        lines.append(f'{metric}{{{label}="{label_value(value)}"}} {count}')
+                        lines.append(
+                            f'{metric}{{{label}="{label_value(value)}"}} {count}'
+                        )
 
                 lines += [
                     "# HELP mem0_memory_metadata_key_total Stored mem0 memories containing each metadata key",
@@ -84,7 +98,9 @@ def query_metrics():
                     """
                 )
                 for key, count in cur.fetchall():
-                    lines.append(f'mem0_memory_metadata_key_total{{key="{label_value(key)}"}} {count}')
+                    lines.append(
+                        f'mem0_memory_metadata_key_total{{key="{label_value(key)}"}} {count}'
+                    )
     except Exception as exc:
         lines += [
             "mem0_exporter_up 0",

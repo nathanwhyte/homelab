@@ -133,7 +133,9 @@ async def merge_cycle(client: httpx.AsyncClient):
         if not await check_merged_health(client):
             state.healthy = False
             state.last_error = "merged instance unreachable"
-            logger.warning("Merged instance at %s is unreachable, skipping cycle", MERGED_URL)
+            logger.warning(
+                "Merged instance at %s is unreachable, skipping cycle", MERGED_URL
+            )
             return
 
         # List URIs across all workers
@@ -176,7 +178,9 @@ async def merge_cycle(client: httpx.AsyncClient):
             ok = await reindex_uri(client, uri)
             if ok:
                 state.items_reindexed += 1
-                logger.info("Reindexed %s (%d/%d)", uri, state.items_reindexed, len(missing))
+                logger.info(
+                    "Reindexed %s (%d/%d)", uri, state.items_reindexed, len(missing)
+                )
             else:
                 state.errors.append(f"reindex {uri}")
             state.items_remaining -= 1
