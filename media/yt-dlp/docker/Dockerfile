@@ -29,6 +29,7 @@
 #   docker buildx build --platform=linux/amd64 \
 #     -t nathanwhyte/yt-dlp:2026.06.10-yt-dlp \
 #     --push media/yt-dlp/docker/
+# Mac/p4 cross-build verified 2026-09-06 (linux/amd64, dropped-deps list)
 # Push:
 #   (handled by --push above; or `docker push` after a plain `docker build`)
 FROM python:3.12-alpine
