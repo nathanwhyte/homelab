@@ -79,12 +79,13 @@ The sampled API evidence is retained in
 [`tests/evidence/2026-09-06-drill.json`](tests/evidence/2026-09-06-drill.json).
 The additional successful notification after resolution is consistent with the
 resolved message; the counter is integration-wide and does not contain its
-payload. Human confirmation of that message remains separate from this receipt.
+payload. The user subsequently confirmed the resolved Slack message and pasted
+its text identifying this exact scratch volume, completing the delivery evidence.
 
 ## Limits and follow-up
 
-- The user confirmed the two firing notifications. Confirmation of the resolved
-  Slack message remains a manual acceptance step.
+- The user confirmed the two firing notifications and the scratch volume's
+  resolved Slack message.
 - A routine node reboot/rebuild must still be observed to assess the 15-minute
   hold. The scratch scheduling failure and transient unit fixture do not prove
   that a real large-volume rebuild fits that window.
