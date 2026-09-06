@@ -33,6 +33,8 @@ job_name: tb-quick-pair-nothink-norec
 jobs_dir: jobs
 n_attempts: 1
 timeout_multiplier: 2.0
+extra_instruction_paths:
+  - instructions/bug-1068-readiness.md # prompt-visible completion gate
 
 orchestrator:
   type: local

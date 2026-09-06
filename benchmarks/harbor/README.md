@@ -24,6 +24,8 @@ hb view jobs                                              # results viewer, 127.
 | `configs/gemma4-26b-quant-pair.yaml` | gemma4-26b focus push: nvfp4 vs mxfp8 twins, 3 attempts each           |
 | `configs/tb10-gemma4-26b-pair.yaml`  | TB-2.1 10-task quant pair; carries the 3-series condition history      |
 | `run-metadata-*.txt`                 | Tracked per-series provenance snapshots (one per series, mandatory)    |
+| `instructions/bug-1068-readiness.md` | Prompt-visible existence/content gate appended to every task           |
+| `check-config-policy.py`             | Rejects configs that omit safety gates or run concurrent trials        |
 | `tasks/hello-world/`                 | Downloaded via `hb download harbor/hello-world`                        |
 | `tb-2-1/`                            | Downloaded TB-2.1 dataset (gitignored)                                 |
 | `jobs/`                              | Run output (gitignored; trajectories, verifier stdout/stderr, rewards) |
@@ -59,6 +61,14 @@ run: Ollama version, manifest digest (`ollama show <tag>` / `ollama list`),
 quantization, effective sampling, thinking mode, and loaded context.
 
 ## Pre-run gates
+
+Run `./check-config-policy.py` before Harbor's own `--print-config` validation.
+The checker covers every tracked config, so adding a config without the shared
+BUG-1068 instruction, disabled live recording, or `n_concurrent_trials: 1`
+fails mechanically rather than relying on this checklist being remembered.
+Note the checker enforces the single-consumer cap *within* a config only; the
+cross-process GPU check is still the manual `curl localhost:11434/api/ps` step
+below.
 
 1. **One local-model consumer at a time** — never start a Harbor run while a
    PROJ-1003 matrix run (or any other Ollama/MLX consumer) is active. Check:
@@ -121,8 +131,14 @@ quantization, effective sampling, thinking mode, and loaded context.
    can feed their own output back into themselves. The checked-in configs set
    `record_terminal_session: false` to remove the proven `recording.cast`
    feedback trigger while retaining the ATIF trajectory and pane log. This is
-   a mitigation, not the upstream completion-race fix; require a prompt-visible
+   a mitigation, not the upstream completion-race fix. Every config must list
+   `instructions/bug-1068-readiness.md` under `extra_instruction_paths`; Harbor
+   appends it to each task prompt, requiring a fresh prompt-visible
    existence/content check before accepting a model's `task_complete`.
+   `./check-config-policy.py` rejects tracked configs that omit this field.
+   Upstream commit `dfeeecd` / open PR #1324 addresses #273's distinct
+   `block=True` embedded-newline/stdin-drain hang; it does not address the
+   observed `block=False` prompt-readiness/shared-stdin race.
 
 Docs-ingest notes (INFO-1128/1129/1130, GUIDE-1075 — snapshot 2026-07-29):
 

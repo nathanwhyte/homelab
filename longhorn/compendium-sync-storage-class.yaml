@@ -1,0 +1,20 @@
+---
+kind: StorageClass
+apiVersion: storage.k8s.io/v1
+metadata:
+  name: longhorn-compendium-sync
+provisioner: driver.longhorn.io
+allowVolumeExpansion: true
+# The sync baseline is tiny but operationally important. Retain the PV if the
+# replacement PVC is deleted accidentally so the JSON can still be recovered.
+reclaimPolicy: Retain
+volumeBindingMode: Immediate
+parameters:
+  # manu, timmy, and wemby currently have schedulable ssd-tagged disks. Two
+  # replicas are fully placeable across distinct nodes and tolerate one node
+  # loss without tripling storage for a tiny, reconstructible JSON baseline.
+  numberOfReplicas: "2"
+  staleReplicaTimeout: "2880"
+  fromBackup: ""
+  fsType: "ext4"
+  diskSelector: "ssd"

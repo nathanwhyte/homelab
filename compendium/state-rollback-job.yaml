@@ -1,0 +1,57 @@
+---
+# One-shot rollback copy from v2 to the preserved legacy claim. Follow
+# state-migration.md and stop all sync Jobs first. The current legacy JSON is
+# retained as *.pre-rollback before the newer v2 baseline replaces it.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: compendium-sync-state-rollback-v2-to-v1
+  namespace: compendium
+spec:
+  backoffLimit: 0
+  activeDeadlineSeconds: 600
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        app: compendium-sync-state-migration
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: rollback
+          image: busybox:1.36
+          command: ["sh", "-ceu"]
+          args:
+            - |
+              source=/source/compendium-sync-state.json
+              target=/target/compendium-sync-state.json
+              test -s "$source"
+              umask 077
+              if test -e "$target"; then
+                cp "$target" "${target}.pre-rollback"
+              fi
+              cp "$source" "${target}.tmp"
+              cmp "$source" "${target}.tmp"
+              mv "${target}.tmp" "$target"
+              sync
+              sha256sum "$source" "$target"
+              if test -f /source/compendium-sync-status.json; then
+                cp /source/compendium-sync-status.json /target/compendium-sync-status.json.tmp
+                cmp /source/compendium-sync-status.json /target/compendium-sync-status.json.tmp
+                mv /target/compendium-sync-status.json.tmp /target/compendium-sync-status.json
+                sync
+              fi
+          volumeMounts:
+            - name: source
+              mountPath: /source
+              readOnly: true
+            - name: target
+              mountPath: /target
+      volumes:
+        - name: source
+          persistentVolumeClaim:
+            claimName: compendium-sync-state-v2
+            readOnly: true
+        - name: target
+          persistentVolumeClaim:
+            claimName: compendium-sync-state

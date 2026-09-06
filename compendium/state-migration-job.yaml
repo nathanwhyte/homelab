@@ -1,0 +1,62 @@
+---
+# One-shot, forward-only copy from the legacy single-replica claim to v2.
+# The source is mounted read-only so rollback remains possible. Follow
+# state-migration.md; never run this while a compendium-sync Job is active.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: compendium-sync-state-migrate-v1-to-v2
+  namespace: compendium
+spec:
+  backoffLimit: 0
+  activeDeadlineSeconds: 600
+  template:
+    metadata:
+      labels:
+        app: compendium-sync-state-migration
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: migrate
+          image: busybox:1.36
+          command: ["sh", "-ceu"]
+          args:
+            - |
+              source=/source/compendium-sync-state.json
+              target=/target/compendium-sync-state.json
+              test -s "$source"
+              if test -e "$target"; then
+                cmp "$source" "$target"
+                if ! test -f /source/compendium-sync-status.json || test -f /target/compendium-sync-status.json; then
+                  echo "target already contains the same last-synced state"
+                  exit 0
+                fi
+                # State matches but the status-file copy was interrupted — fall
+                # through to retry it rather than leaving the migration half-done.
+              fi
+              umask 077
+              cp "$source" "${target}.tmp"
+              cmp "$source" "${target}.tmp"
+              mv "${target}.tmp" "$target"
+              sync
+              sha256sum "$source" "$target"
+              if test -f /source/compendium-sync-status.json; then
+                cp /source/compendium-sync-status.json /target/compendium-sync-status.json.tmp
+                cmp /source/compendium-sync-status.json /target/compendium-sync-status.json.tmp
+                mv /target/compendium-sync-status.json.tmp /target/compendium-sync-status.json
+                sync
+              fi
+          volumeMounts:
+            - name: source
+              mountPath: /source
+              readOnly: true
+            - name: target
+              mountPath: /target
+      volumes:
+        - name: source
+          persistentVolumeClaim:
+            claimName: compendium-sync-state
+            readOnly: true
+        - name: target
+          persistentVolumeClaim:
+            claimName: compendium-sync-state-v2

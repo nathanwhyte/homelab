@@ -1,18 +1,20 @@
 ---
-# Persistent state for the compendium→OV sync runner (BUG-1034 phase 2).
+# Replacement persistent state for the compendium→OV sync runner (BUG-1101).
 # Holds exactly one small JSON file: the last-synced commit SHA that
 # `compendium-sync.py sync --changed` reads and advances. Keeping it on a PVC
 # makes the cluster the single writer of record — no per-machine state drift.
-# The vault checkout itself stays ephemeral (fresh --depth 1 clone per Job).
+# This is a NEW claim because storageClassName/accessModes on the existing
+# compendium-sync-state claim are immutable. Migrate before changing writers;
+# see state-migration.md. The vault checkout itself stays ephemeral.
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: compendium-sync-state
+  name: compendium-sync-state-v2
   namespace: compendium
 spec:
   accessModes:
     - ReadWriteOnce
-  storageClassName: longhorn-ssd
+  storageClassName: longhorn-compendium-sync
   resources:
     requests:
       storage: 1Gi
