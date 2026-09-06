@@ -22,6 +22,8 @@ job_name: hello-world-smoke
 jobs_dir: jobs
 n_attempts: 1
 timeout_multiplier: 1.5 # local models are slower than cloud APIs
+extra_instruction_paths:
+  - instructions/bug-1068-readiness.md # prompt-visible completion gate
 
 orchestrator:
   type: local

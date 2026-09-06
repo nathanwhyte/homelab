@@ -1,0 +1,3 @@
+# BUG-1068 completion-readiness gate
+
+Before reporting task completion, run a new foreground shell command that visibly verifies the required output files. The command must print each required file's existence and relevant content (or an equally strong task-specific check), then return to a visible shell prompt. Inspect that command's output and confirm it matches the task. If the prompt is not visible, or a file is absent or wrong, wait or repair the result and run the verification again. Do not treat an earlier write command, elapsed time, or lack of terminal output as proof. Only send `task_complete` after this prompt-visible verification succeeds.

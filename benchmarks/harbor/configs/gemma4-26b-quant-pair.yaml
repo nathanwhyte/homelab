@@ -28,6 +28,8 @@ job_name: gemma4-26b-quant-pair
 jobs_dir: jobs
 n_attempts: 3 # quant comparison needs repeats; keep 1 for the first smoke
 timeout_multiplier: 1.5
+extra_instruction_paths:
+  - instructions/bug-1068-readiness.md # prompt-visible completion gate
 
 orchestrator:
   type: local
