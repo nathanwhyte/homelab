@@ -9,8 +9,10 @@
 #   - node         (pre-commit's markdownlint-cli2 hook is language: node;
 #                   a system node avoids a nodeenv download on every ephemeral pod)
 #   - make, build tools
-# setup-uv / setup-python actions still work on top of this; pre-installing uv
-# just makes the ephemeral pods cheap when caches miss.
+#   - CPython 3.12  (uv-managed; replaces actions/setup-python, which had to
+#                   download the interpreter on every ephemeral pod — IMPR-1131)
+# setup-uv still works on top of this; pre-installing uv just makes the
+# ephemeral pods cheap when caches miss.
 # Pin the runner release: it determines which Node runtimes JS actions get
 # (Node 20 is removed from the runner on 2026-09-23 — self-hosted doesn't
 # sidestep that, but the pin controls when we take the jump).
@@ -34,6 +36,13 @@ RUN curl -fsSL https://deb.nodesource.com/setup_24.x | bash - \
     && apt-get install -y --no-install-recommends nodejs \
     && rm -rf /var/lib/apt/lists/*
 
+# prettier, global: the batch runner (and its e2e suite in make test) formats
+# with `npx prettier`, and npx resolves a global install without touching the
+# npm cache — verified in this image, no ~/.npm/_npx download. Without it,
+# every ephemeral pod fetched prettier from the registry on first use
+# (IMPR-1131). Pin exact; bump deliberately.
+RUN npm install -g prettier@3.9.6 && npm cache clean --force
+
 # GitHub CLI — the compendium batch-runner e2e tests (make test) shell out to
 # `gh`; ubuntu-latest ships it, so the custom image must too.
 RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
@@ -44,10 +53,27 @@ RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
     && apt-get install -y --no-install-recommends gh \
     && rm -rf /var/lib/apt/lists/*
 
-# uv, system-wide: installer defaults target $HOME/.local/bin, which is NOT on
-# the runner's job-time PATH (jobs inherit the runner env, not shell rc files).
-RUN curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=/usr/local/bin sh
+# uv + uvx, system-wide and pinned to a release via the official image (IMPR-1131):
+# astral.sh's install.sh fetches an unversioned "latest", so copy the static
+# binaries instead — reproducible, offline-buildable, and version-controlled by
+# the tag. /bin is on the runner's job-time PATH; the installer default
+# $HOME/.local/bin is NOT (jobs inherit the runner env, not shell rc files).
+# Needs BuildKit: COPY --from=<image> is not supported by the legacy builder.
+COPY --from=ghcr.io/astral-sh/uv:0.12.10 /uv /uvx /bin/
 
 # Must end as the runner user (uid 1001); entrypoint /home/runner/run.sh and
 # /home/runner/externals (bundled Node runtimes) come from the base image.
 USER runner
+
+# CPython, uv-managed, installed as the runner user into uv's default
+# UV_PYTHON_INSTALL_DIR (/home/runner/.local/share/uv/python — the same path
+# setup-uv exports at job time, so `uv run` finds it with no action step).
+# Replaces actions/setup-python in vault-checks: ephemeral pods have no tool
+# cache, so that action re-downloaded and re-installed CPython on every job
+# (~15s/job, compendium IMPR-1131). Bump PYTHON_VERSION together with the
+# vault's .python-version.
+ARG PYTHON_VERSION=3.12
+RUN uv python install "${PYTHON_VERSION}"
+# Fail loudly if a job asks for a Python this image does not carry, instead of
+# silently re-introducing a per-job download.
+ENV UV_PYTHON_DOWNLOADS=never

@@ -64,8 +64,10 @@ never get a scale set**. Check before adding one:
 5. **Cut a workflow over** — in compendium's `.github/workflows/vault-checks.yml`,
    change each job's `runs-on: ubuntu-latest` to `runs-on: homelab-arc-compendium`.
    Push a branch and watch the run before merging. `actions/checkout`,
-   `setup-uv`, `setup-python`, and `cache` all work self-hosted; the custom
-   image bakes in uv/node/make so cache misses stay cheap. Note the runner
+   `setup-uv`, and `cache` all work self-hosted; the custom image bakes in
+   uv/node/make and a uv-managed CPython, so `setup-python` is unnecessary (it
+   would re-download the interpreter every job — see the tool-cache note
+   below) and cache misses stay cheap. Note the runner
    container blocks `sudo` and privilege escalation — vault-checks doesn't use
    either, but any future workflow step that does will fail by design.
 
@@ -105,9 +107,16 @@ gh workflow run "vault checks" -R nathanwhyte/compendium         # workflow_disp
   take each jump. Don't fall far behind — the Actions service enforces a
   minimum runner version.
 - **Disk / tool-cache hygiene is ours now**: ephemeral pods start clean each
-  job (no tool-cache persistence), which is why the image pre-bakes uv/node.
-  If job setup time ever matters, a PVC-backed `/opt/hostedtoolcache` is the
-  next lever.
+  job (no tool-cache persistence), which is why the image pre-bakes uv/node
+  and, since IMPR-1131, a uv-managed CPython (`PYTHON_VERSION` build arg).
+  `actions/setup-python` on ARC re-downloaded the interpreter every job
+  (~15s) because `$RUNNER_TOOL_CACHE` is empty in a fresh pod; vault-checks no
+  longer uses it. The image sets `UV_PYTHON_DOWNLOADS=never`, so a job that
+  needs a Python the image lacks fails loudly — bump the build arg and the
+  vault's `.python-version` together. GitHub's cache service (`actions/cache`,
+  `setup-uv` `enable-cache`) works unchanged on self-hosted and is the right
+  tool for per-repo state (uv cache, pre-commit envs); a PVC-backed
+  `/opt/hostedtoolcache` was rejected as heavier than the image bake.
 - **Model-in-the-loop CI (the homelab-specific win)**: runner pods sit next to
   timmy's Ollama (`http://192.168.1.19:11434`), so the IDEA-1091
   measured-skill regression suites can run in CI — impossible from
