@@ -397,7 +397,10 @@ remaining_headroom_bytes() {
 	local nodes pods
 	nodes=$($KUBECTL get nodes -o json) || return 1
 	pods=$($KUBECTL get pods -A -o json) || return 1
-	jq -n --arg node "$node" --argjson nodes "$nodes" --argjson pods "$pods" '
+	# pods JSON goes in via stdin, not --argjson: a full-cluster pod list blows
+	# past ARG_MAX on macOS ("Argument list too long") once the cluster has
+	# enough pods (seen 2026-09-06). nodes stays --argjson — node counts are small.
+	printf '%s' "$pods" | jq --arg node "$node" --argjson nodes "$nodes" '
 		def tobytes:
 			if . == null or . == "" then 0
 			else
@@ -409,7 +412,7 @@ remaining_headroom_bytes() {
 				   elif $m.u == "Ti" then $n*1024*1024*1024*1024
 				   else $n end)
 			end;
-		($pods.items
+		(.items
 		 | map(select((.spec.nodeName // "") != ""))
 		 | group_by(.spec.nodeName)
 		 | map({key: .[0].spec.nodeName,
@@ -697,6 +700,15 @@ cmd_reboot() {
 	log "[$node] preflight: PDB check"
 	pdb_preflight "$node"
 
+	# Spin-down must run before the memory-headroom preflight: it is the mechanism
+	# that frees headroom on the remaining nodes (scaling down ollama/openviking/
+	# ov-vectordb), so checking headroom first made --spin-down unable to ever help
+	# (it always ran too late to affect the verdict it was meant to fix — 2026-09-06).
+	if ((spin_down)); then
+		log "[$node] pre-drain spin-down of memory-heavy services"
+		spin_down_memory_services || return 1
+	fi
+
 	log "[$node] preflight: memory headroom"
 	memory_headroom_preflight "$node" "$override_memory"
 
@@ -710,11 +722,6 @@ cmd_reboot() {
 	boot_id=$(remote_boot_id "$node") || die "cannot read the current boot ID from $node"
 	[[ -n $boot_id ]] || die "empty boot ID returned by $node"
 	require_valid_boot_id "$boot_id"
-
-	if ((spin_down)); then
-		log "[$node] pre-drain spin-down of memory-heavy services"
-		spin_down_memory_services || return 1
-	fi
 
 	log "[$node] cordon"
 	kubectl cordon "$node"
