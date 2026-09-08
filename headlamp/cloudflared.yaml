@@ -39,7 +39,12 @@ spec:
               topologyKey: kubernetes.io/hostname
       containers:
         - name: cloudflared
-          image: cloudflare/cloudflared:latest
+          # Pinned (IMPR-1023) to the same version used by every other
+          # in-repo cloudflared manifest (cloudflare-system, equal-risk).
+          # This tunnel has no live headlamp namespace/deployment as of
+          # 2026-09-08, so there is no running imageID to confirm against;
+          # pinned for repo-standard consistency ahead of first deploy.
+          image: cloudflare/cloudflared:2026.6.1@sha256:6d91c121b803126f7a5344005d17a9324788fc09d305b6e2560ec6040a7ae283
           args:
             - tunnel
             - --no-autoupdate
