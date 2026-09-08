@@ -1,6 +1,6 @@
 # Reapply values without upgrading charts
 
-Grafana, Harbor, OpenWebUI, Dashboard, Headlamp and Garage use
+Grafana, Harbor, OpenWebUI, Dashboard and Garage use
 `scripts/helm-deploy.py`. Python 3 and Helm are required. The helper queries the
 release in its namespace and explicitly passes its deployed chart version to
 Helm. Lookup failures, unexpected chart identities and non-deployed release
@@ -12,7 +12,7 @@ and reviewed values. Subsequent deploy-script runs reuse the resulting version.
 Version reuse does not establish chart content integrity or make values changes
 safe automatically.
 
-Each of these six scripts accepts `--dry-run`. This runs server-side Helm
+Each of these five scripts accepts `--dry-run`. This runs server-side Helm
 simulation and exits before Kubernetes manifest applies, probe patches or
 rollout operations. It checks the Helm releases only, not those later operations.
 Rendered output is suppressed because chart NOTES and ConfigMaps may contain
@@ -33,7 +33,8 @@ directory.
 
 ## Verification on 2026-09-06
 
-All six scripts passed live server-side dry-runs using Helm `v4.2.4`.
+All six scripts then present passed live server-side dry-runs using Helm `v4.2.4`
+(Headlamp's script has since been removed, 2026-09-08).
 Installed chart versions and release revisions were unchanged afterward:
 
 | Namespace/release                         | Chart version | Revision before/after |
@@ -46,15 +47,15 @@ Installed chart versions and release revisions were unchanged afterward:
 | kubernetes-dashboard/kubernetes-dashboard | 7.14.0        | 2 / 2                 |
 | garage/garage                             | 0.9.2         | 2 / 2                 |
 
-Headlamp remains retired and absent: its first-install simulation resolved
-`0.45.0` using temporary Helm repository settings and created no release.
-Garage used upstream tag `v2.2.0`, commit
+Headlamp was retired and absent at the time: its first-install simulation resolved
+`0.45.0` using temporary Helm repository settings and created no release; the script
+and manifests were deleted on 2026-09-08. Garage used upstream tag `v2.2.0`, commit
 `582b168b6a985108c68aca45effae1d73203d6c3`, chart `script/helm/garage` (`0.9.2`)
 from a temporary checkout. NVIDIA's existing `v26.3.3` pin equals the deployed
 chart; that script was not deployed.
 
 Run `python3 scripts/test-helm-deploy.py` for hermetic regression tests. They cover
 lookup errors, version identity, prerelease versions, local-chart mismatches,
-first-install selection, dry-run and diff flags, and all six script entry points
+first-install selection, dry-run and diff flags, and all five script entry points
 from an unrelated working directory with a kubectl stub that rejects every call.
 These tests do not exercise real upgrades or establish application health.

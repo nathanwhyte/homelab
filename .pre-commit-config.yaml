@@ -44,7 +44,7 @@ repos:
         entry: python3 scripts/test-helm-deploy.py
         language: system
         pass_filenames: false
-        files: ^(scripts/(test-)?helm-deploy\.py|(?:grafana|harbor|openwebui|dashboard|headlamp|garage)/deploy-[^/]+\.sh)$
+        files: ^(scripts/(test-)?helm-deploy\.py|(?:grafana|harbor|openwebui|dashboard|garage)/deploy-[^/]+\.sh)$
       - id: bare-code-fences
         name: Check for bare code fences (MD040)
         description: Reject commits with bare ``` fences that lack a language tag.

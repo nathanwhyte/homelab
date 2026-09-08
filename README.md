@@ -13,7 +13,7 @@ registry, and much more.
 
 ## Deployment scripts
 
-Grafana, Harbor, OpenWebUI, Dashboard, Headlamp and Garage reuse each release's
+Grafana, Harbor, OpenWebUI, Dashboard and Garage reuse each release's
 deployed Helm chart version when applying values. Use `--dry-run` to simulate
 their Helm operations before deploying. See [version reuse and verification](scripts/helm-deploy.md)
 for first-install behavior, Garage's local chart requirement and test evidence.
@@ -25,11 +25,7 @@ for first-install behavior, Garage's local chart requirement and test evidence.
 Kubernetes' own dashboard for cluster management.
 
 - Deployed using [the official guide](https://kubernetes.io/docs/tasks/access-application-cluster/web-ui-dashboard/).
-
-### Headlamp
-
-> **Torn down 2026-07-02.** A modern, extensible Kubernetes UI alternative to the official
-> dashboard. Manifests retained for reference — see [`headlamp/TORN-DOWN.md`](./headlamp/TORN-DOWN.md).
+- Headlamp was trialled as an alternative UI, torn down 2026-07-02, and its manifests removed 2026-09-08; the official dashboard is the one that stays.
 
 ### Longhorn
 

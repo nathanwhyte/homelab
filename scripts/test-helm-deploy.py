@@ -244,10 +244,10 @@ from pathlib import Path
 args = sys.argv[1:]
 with open(os.environ['TEST_LOG'], 'a') as log:
     log.write(json.dumps(args)+'\n')
-versions = {'kube-prometheus-stack': '87.17.0', 'k8s-monitoring': '3.8.4', 'loki': '7.1.0', 'harbor': '1.19.1', 'open-webui': '15.2.0', 'kubernetes-dashboard': '7.14.0', 'garage': '0.9.2', 'headlamp': '0.44.0'}
+versions = {'kube-prometheus-stack': '87.17.0', 'k8s-monitoring': '3.8.4', 'loki': '7.1.0', 'harbor': '1.19.1', 'open-webui': '15.2.0', 'kubernetes-dashboard': '7.14.0', 'garage': '0.9.2'}
 if args[0] == 'list':
     release = args[args.index('--filter')+1].strip('^$').replace('\\-', '-')
-    print('[]' if release == 'headlamp' else json.dumps([dict(name=release, namespace=args[args.index('--namespace')+1], status='deployed', chart=release+'-'+versions[release])]))
+    print(json.dumps([dict(name=release, namespace=args[args.index('--namespace')+1], status='deployed', chart=release+'-'+versions[release])]))
 elif args[:2] == ['show', 'chart']:
     name = Path(args[2]).name
     print('name: '+name+'\nversion: '+versions[name])
@@ -261,7 +261,7 @@ else:
 
 
 class ScriptDryRunTests(unittest.TestCase):
-    def test_all_six_scripts_from_unrelated_directory(self):
+    def test_all_five_scripts_from_unrelated_directory(self):
         with tempfile.TemporaryDirectory() as directory:
             directory = Path(directory)
             binary = directory / "bin"
@@ -285,7 +285,6 @@ class ScriptDryRunTests(unittest.TestCase):
                 "harbor/deploy-harbor.sh",
                 "openwebui/deploy-openwebui.sh",
                 "dashboard/deploy-dashboard.sh",
-                "headlamp/deploy-headlamp.sh",
                 "garage/deploy-garage.sh",
             )
             for script in scripts:
@@ -304,7 +303,9 @@ class ScriptDryRunTests(unittest.TestCase):
                 json.loads(line)
                 for line in (directory / "commands.jsonl").read_text().splitlines()
             ]
-            self.assertEqual(sum(c[0] == "upgrade" for c in commands), 8)
+            # grafana runs three Helm upgrades (kube-prometheus-stack, k8s-monitoring,
+            # loki); the other four scripts run one each.
+            self.assertEqual(sum(c[0] == "upgrade" for c in commands), 7)
 
 
 if __name__ == "__main__":
