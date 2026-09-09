@@ -1,0 +1,24 @@
+[Unit]
+Description=Ollama post-start model preparation (edit-prediction warm, agentpair tags)
+# PartOf: stopping/restarting ollama.service restarts this unit too, so the
+# warm re-runs after every daemon restart — the host equivalent of the retired
+# pod's `startup.sh & exec ollama serve` (IMPR-1075).
+After=ollama.service
+Requires=ollama.service
+PartOf=ollama.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+User=ollama
+Group=ollama
+RuntimeDirectory=ollama
+Environment="OLLAMA_URL=http://127.0.0.1:11434"
+Environment="READY_MARKER=/run/ollama/models-ready"
+Environment="MODELFILE_DIR=/opt/ollama-host/modelfiles"
+ExecStart=/opt/ollama-host/ollama-warm.sh
+# Model pulls on a cold store can take a while; never let systemd kill a pull.
+TimeoutStartSec=45min
+
+[Install]
+WantedBy=multi-user.target

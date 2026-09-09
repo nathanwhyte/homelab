@@ -20,8 +20,10 @@
 # the others; on 2026-07-20 wemby's drain OOM-froze timmy (Ollama model cache +
 # OpenViking already resident). `reboot` now runs a memory-headroom preflight
 # (blocking unless --override-memory) and, with --spin-down, scales the
-# memory-heavy services (llama/ollama, viking/openviking, viking/ov-vectordb)
-# to 0 before the drain and restores them in `finish`.
+# memory-heavy services (viking/openviking, viking/ov-vectordb) to 0 before
+# the drain and restores them in `finish`. Ollama left the list in IMPR-1075:
+# it runs on timmy's host under systemd now, not as a pod, so a drain never
+# reschedules it and a spin-down could not reach it anyway.
 
 set -euo pipefail
 
@@ -452,7 +454,6 @@ memory_headroom_preflight() {
 # Memory-heavy services that can sit out a maintenance window. Each entry is
 # "namespace/deployment". Scaled to 0 before the drain, restored after.
 MEMORY_HEAVY_SERVICES=(
-	llama/ollama
 	viking/openviking
 	viking/ov-vectordb
 )

@@ -1,0 +1,63 @@
+# In-cluster name for the HOST Ollama daemon on timmy (IMPR-1075).
+#
+# Since the 2026-09 cutover Ollama runs on timmy's host under systemd
+# (llama/host/), not as a pod. This Service has NO selector: the EndpointSlice
+# below hands `ollama.llama.svc:11434` (and :9111 for the exporter) to the
+# node's LAN address, so every consumer keeps its URL unchanged:
+#   - openviking / reranker / embedder configs (viking/manifests)
+#   - omnipendium, hermes, chat-ollama-proxy -> ollama.llama.svc:11434
+#   - grafana static scrape target ollama.llama.svc:9111
+# LAN and Tailscale clients hit the host socket directly (192.168.1.19:11434,
+# 100.95.215.105:11434) — the old LoadBalancer/externalIPs stanza is gone on
+# purpose: klipper's svclb held host port 11434 and made the host daemon's bind
+# fail with EADDRINUSE. Apply this BEFORE restarting ollama.service on timmy.
+#
+# Replaces the Service half of the retired llama/ollama-deployment.yaml.
+apiVersion: v1
+kind: Service
+metadata:
+  name: ollama
+  namespace: llama
+  labels:
+    app: ollama
+    homelab.nathanwhyte.dev/backend: host-systemd
+spec:
+  type: ClusterIP
+  # No selector: endpoints are managed by the EndpointSlice below, not by pods.
+  ports:
+    - name: http
+      port: 11434
+      protocol: TCP
+      targetPort: 11434
+    - name: metrics
+      port: 9111
+      protocol: TCP
+      targetPort: 9111
+---
+apiVersion: discovery.k8s.io/v1
+kind: EndpointSlice
+metadata:
+  # Name must be unique in the namespace; the service-name label is what binds
+  # it to the Service above.
+  name: ollama-timmy-host
+  namespace: llama
+  labels:
+    kubernetes.io/service-name: ollama
+    app: ollama
+    homelab.nathanwhyte.dev/backend: host-systemd
+addressType: IPv4
+ports:
+  - name: http
+    port: 11434
+    protocol: TCP
+  - name: metrics
+    port: 9111
+    protocol: TCP
+endpoints:
+  # timmy's LAN address (enp9s0). If timmy's IP ever changes, this is the one
+  # place the cluster learns about it.
+  - addresses:
+      - 192.168.1.19
+    nodeName: timmy
+    conditions:
+      ready: true

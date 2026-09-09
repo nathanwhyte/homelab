@@ -1,0 +1,122 @@
+# Cluster-side model jobs against the HOST Ollama daemon (IMPR-1075).
+#
+# The daemon lives on timmy under systemd; its lifecycle (restart, upgrade,
+# drop-in edits) is llama/host/install-host-ollama.sh over SSH and stays out of
+# the cluster on purpose (no privileged pod — IMPR-1022). Everything that is
+# just an HTTP call to the API runs from here, unprivileged, through the
+# selector-less Service in llama/ollama-service.yaml.
+#
+#   ollama-warm  — every 15 min: load-only warm of the resident edit-prediction
+#                  tag with keep_alive=-1. Idempotent; a no-op while the model
+#                  is already resident, a self-heal if the daemon restarted and
+#                  the host-side ollama-warm.service missed (or if the tag was
+#                  evicted by an ad-hoc call to another model).
+#   ollama-pull  — suspended template. Run one-off:
+#                    kubectl -n llama create job --from=cronjob/ollama-pull pull-$(date +%s)
+#                  after editing MODEL in the env, or override on the fly:
+#                    kubectl -n llama create job --from=cronjob/ollama-pull pull-x \
+#                      --dry-run=client -o yaml | yq '.spec.template.spec.containers[0].env[0].value="gemma4:12b-it-qat"' | kubectl apply -f -
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: ollama-warm
+  namespace: llama
+  labels:
+    app: ollama
+    homelab.nathanwhyte.dev/backend: host-systemd
+spec:
+  schedule: "*/15 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      activeDeadlineSeconds: 600
+      template:
+        metadata:
+          labels:
+            app: ollama
+            job: ollama-warm
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: warm
+              image: curlimages/curl:8.11.1
+              env:
+                - name: OLLAMA_URL
+                  value: http://ollama.llama.svc:11434
+                - name: MODEL
+                  value: deepseek-coder-v2:fim
+              command:
+                - sh
+                - -ec
+                - |
+                  if curl -fsS -m 5 "$OLLAMA_URL/api/ps" | grep -q "\"name\":\"$MODEL\""; then
+                    echo "$MODEL already resident"; exit 0
+                  fi
+                  echo "warming $MODEL (load-only)"
+                  curl -fsS -m 300 -X POST "$OLLAMA_URL/api/generate" \
+                    -H 'Content-Type: application/json' \
+                    -d "{\"model\":\"$MODEL\",\"keep_alive\":-1}"
+                  echo
+              resources:
+                requests:
+                  cpu: 10m
+                  memory: 16Mi
+                limits:
+                  cpu: 100m
+                  memory: 64Mi
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: ollama-pull
+  namespace: llama
+  labels:
+    app: ollama
+    homelab.nathanwhyte.dev/backend: host-systemd
+spec:
+  # Never fires on its own — a template for `kubectl create job --from=`.
+  suspend: true
+  schedule: "0 0 31 2 *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      # Large pulls over slow paths; matches OLLAMA_LOAD_TIMEOUT's spirit.
+      activeDeadlineSeconds: 5400
+      template:
+        metadata:
+          labels:
+            app: ollama
+            job: ollama-pull
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: pull
+              image: curlimages/curl:8.11.1
+              env:
+                - name: OLLAMA_URL
+                  value: http://ollama.llama.svc:11434
+                - name: MODEL
+                  value: deepseek-coder-v2:16b-lite-base-q4_0
+              command:
+                - sh
+                - -ec
+                - |
+                  echo "pulling $MODEL via $OLLAMA_URL"
+                  curl -fsS -N -m 5400 -X POST "$OLLAMA_URL/api/pull" \
+                    -H 'Content-Type: application/json' \
+                    -d "{\"model\":\"$MODEL\",\"stream\":true}" \
+                    | grep -E '"status":"(success|error)' | tail -1 | tee /dev/stderr \
+                    | grep -q '"success"'
+              resources:
+                requests:
+                  cpu: 10m
+                  memory: 16Mi
+                limits:
+                  cpu: 100m
+                  memory: 64Mi
