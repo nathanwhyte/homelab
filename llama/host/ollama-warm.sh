@@ -109,7 +109,12 @@ if ! wait_for_server; then
 	exit 1
 fi
 log "server ready ($(curl -fsS -m 3 "$OLLAMA_URL/api/version"))"
+# Both preparations run concurrently, as the pod's startup.sh did (`… &`), so
+# a cold agentpair build never queues behind the FIM retry loop. Only the
+# edit-prediction result decides the unit's exit status.
 warm_status=0
+prepare_agent_pair &
+agent_pair_pid=$!
 prepare_edit_prediction_model || warm_status=$?
-prepare_agent_pair
+wait "$agent_pair_pid" || log "WARN: agentpair preparation exited non-zero (tags may be missing)"
 exit "$warm_status"

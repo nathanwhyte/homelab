@@ -23,6 +23,18 @@
 # them with `cp /scripts/cluster-vulkan*.toml`.
 set -euo pipefail
 
+# RETIRED PATH (IMPR-1075, 2026-09): Ollama runs on timmy's host under systemd.
+# This script patches, rolls out, snapshots, and env-captures `deployment/ollama`,
+# none of which exist any more; run unguarded it would burn the GPU on the Jobs
+# and then die in capture_env. Set the benchmark config in
+# llama/host/ollama.service.d/homelab.conf (MAX_LOADED_MODELS / NUM_PARALLEL),
+# rerun `sudo llama/host/install-host-ollama.sh` on timmy, and run the Jobs
+# directly against ollama.llama.svc.
+if [[ ${SWEEP_ALLOW_RETIRED:-0} != 1 ]]; then
+	echo "run-vulkan-benchmark-jobs.sh: retired — no ollama Deployment to patch (IMPR-1075); see llama/host/README.md" >&2
+	exit 2
+fi
+
 NS="${NS:-llama}"
 DEPLOY="${DEPLOY:-ollama}"
 SVC="${SVC:-ollama}"

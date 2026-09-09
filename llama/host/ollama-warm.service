@@ -17,8 +17,11 @@ Environment="OLLAMA_URL=http://127.0.0.1:11434"
 Environment="READY_MARKER=/run/ollama/models-ready"
 Environment="MODELFILE_DIR=/opt/ollama-host/modelfiles"
 ExecStart=/opt/ollama-host/ollama-warm.sh
-# Model pulls on a cold store can take a while; never let systemd kill a pull.
-TimeoutStartSec=45min
+# A cold store pulls the FIM base plus four agentpair bases (~15 GB+) and the
+# FIM retry loop alone can run ~27 min; the pod's startup.sh had no bound and a
+# SIGKILL mid-pull leaves *-partial blobs behind. Unbounded on purpose — the
+# script's own per-request timeouts and retry cap terminate it.
+TimeoutStartSec=infinity
 
 [Install]
 WantedBy=multi-user.target

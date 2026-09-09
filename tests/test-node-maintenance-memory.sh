@@ -141,8 +141,25 @@ assert_eq "pass at exactly 80% threshold" "pass" "$(memory_headroom_verdict 80 1
 assert_eq "wemby pod memory = 20Gi" "$((20 * 1024 * 1024 * 1024))" "$(node_pod_memory_bytes wemby)"
 
 # --- remaining_headroom_bytes (stubbed kubectl) ------------------------------
-# manu: 64Gi - 30Gi = 34Gi; timmy: 64Gi - 20Gi = 44Gi; total 78Gi.
+# manu: 64Gi - 30Gi = 34Gi; timmy: 64Gi - 20Gi = 44Gi; total 78Gi (no host reservation).
+HOST_MEMORY_RESERVATIONS=""
 assert_eq "remaining headroom = 78Gi" "$((78 * 1024 * 1024 * 1024))" "$(remaining_headroom_bytes wemby)"
+
+# Host reservations (IMPR-1075): timmy's host Ollama unit is invisible to pod
+# accounting, so its MemoryMax comes off timmy's allocatable. 78Gi - 16Gi = 62Gi.
+HOST_MEMORY_RESERVATIONS="timmy=16Gi"
+assert_eq "host reservation lowers headroom to 62Gi" "$((62 * 1024 * 1024 * 1024))" "$(remaining_headroom_bytes wemby)"
+# A reservation on the drain target itself must not count (that node is leaving).
+HOST_MEMORY_RESERVATIONS="wemby=16Gi"
+assert_eq "reservation on the target node is ignored" "$((78 * 1024 * 1024 * 1024))" "$(remaining_headroom_bytes wemby)"
+HOST_MEMORY_RESERVATIONS="timmy=16Gi manu=2Gi"
+assert_eq "multiple reservations subtract per node" "$((60 * 1024 * 1024 * 1024))" "$(remaining_headroom_bytes wemby)"
+if (HOST_MEMORY_RESERVATIONS="timmy" remaining_headroom_bytes wemby) >/dev/null 2>&1; then
+	bad "malformed reservation entry should fail"
+else
+	ok "malformed reservation entry fails closed"
+fi
+HOST_MEMORY_RESERVATIONS=""
 
 # Unscheduled Pending pods reserve no capacity on any node.
 jq '.items += [{"status":{"phase":"Pending"},"spec":{"containers":[{"resources":{"requests":{"memory":"1Gi"}}}]}}]' "$STUB_PODS" >"$STUB_PODS.next"
@@ -206,14 +223,14 @@ fi
 # --- spin-down / restore symmetry --------------------------------------------
 export STUB_REPLICAS=$TMPDIR_TEST/replicas
 cat >"$STUB_REPLICAS" <<'REPLICAS'
-llama/ollama=1
 viking/openviking=1
 viking/ov-vectordb=1
 REPLICAS
 
 spin_down_memory_services
-# All three should have been scaled to 0.
-for svc in llama/ollama viking/openviking viking/ov-vectordb; do
+# Both should have been scaled to 0 (llama/ollama left the list in IMPR-1075:
+# it is a host systemd unit now, not a Deployment).
+for svc in viking/openviking viking/ov-vectordb; do
 	if grep -q "^$svc -> 0$" "$STUB_LOG"; then
 		ok "spin-down scaled $svc to 0"
 	else
@@ -222,8 +239,8 @@ for svc in llama/ollama viking/openviking viking/ov-vectordb; do
 done
 
 restore_memory_services
-# All three should have been restored to 1.
-for svc in llama/ollama viking/openviking viking/ov-vectordb; do
+# Both should have been restored to 1.
+for svc in viking/openviking viking/ov-vectordb; do
 	if grep -q "^$svc -> 1$" "$STUB_LOG"; then
 		ok "restore scaled $svc back to 1"
 	else
@@ -248,17 +265,17 @@ else
 fi
 
 # A partial spin-down followed by a retry must preserve the original counts.
-export STUB_FAIL_SCALE=viking/openviking=0
+export STUB_FAIL_SCALE=viking/ov-vectordb=0
 if spin_down_memory_services >/dev/null 2>&1; then
 	bad "partial spin-down should fail"
 else
 	ok "partial spin-down propagates scale failure"
 fi
-assert_eq "first deployment really stopped" "llama/ollama=0" "$(grep '^llama/ollama=' "$STUB_REPLICAS")"
+assert_eq "first deployment really stopped" "viking/openviking=0" "$(grep '^viking/openviking=' "$STUB_REPLICAS")"
 unset STUB_FAIL_SCALE
 spin_down_memory_services
 restore_memory_services
-assert_eq "retry restores original Ollama replicas" "llama/ollama=1" "$(grep '^llama/ollama=' "$STUB_REPLICAS")"
+assert_eq "retry restores original openviking replicas" "viking/openviking=1" "$(grep '^viking/openviking=' "$STUB_REPLICAS")"
 
 # Exercise finish itself, keeping every cluster/SSH surface stubbed. The scale
 # stub persists replica changes, so a retry observes actual partial recovery.
@@ -296,7 +313,7 @@ if finish_fixture >/dev/null 2>&1; then
 else
 	bad "finish retry failed"
 fi
-for svc in llama/ollama viking/openviking viking/ov-vectordb; do
+for svc in viking/openviking viking/ov-vectordb; do
 	assert_eq "finish restored $svc" "$svc=1" "$(grep "^$svc=" "$STUB_REPLICAS")"
 done
 if [[ ! -e $TMPDIR_TEST/cordoned && ! -e $(spin_down_state_file) ]]; then

@@ -23,7 +23,11 @@
 # memory-heavy services (viking/openviking, viking/ov-vectordb) to 0 before
 # the drain and restores them in `finish`. Ollama left the list in IMPR-1075:
 # it runs on timmy's host under systemd now, not as a pod, so a drain never
-# reschedules it and a spin-down could not reach it anyway.
+# reschedules it. Its RAM is still real: HOST_MEMORY_RESERVATIONS subtracts
+# the unit's MemoryMax from timmy's headroom so the preflight stays honest,
+# and freeing it for a tight drain is a manual `ssh timmy sudo systemctl stop
+# ollama` (the unit is not on the spin-down list because non-interactive sudo
+# on the nodes is scoped to apt/reboot).
 
 set -euo pipefail
 
@@ -392,17 +396,41 @@ node_pod_memory_bytes() {
 	printf '%d\n' "$total"
 }
 
+# Host-side memory that Kubernetes cannot see. Each entry is "node=<quantity>"
+# and is subtracted from that node's allocatable before headroom is computed.
+# timmy's Ollama runs as a host systemd unit since IMPR-1075 (no pod, so no
+# requests) with MemoryMax=16G in llama/host/ollama.service.d/homelab.conf —
+# without this the preflight would count the resident model's RAM as free and
+# re-create the 2026-07-20 OOM freeze it exists to prevent. Keep in sync with
+# the drop-in. Override with HOST_MEMORY_RESERVATIONS="timmy=16Gi manu=0".
+HOST_MEMORY_RESERVATIONS=${HOST_MEMORY_RESERVATIONS-timmy=16Gi}
+
+host_reservations_json() {
+	# "timmy=16Gi manu=2Gi" -> {"timmy":17179869184,"manu":2147483648}
+	local entry node qty json=""
+	for entry in $HOST_MEMORY_RESERVATIONS; do
+		[[ $entry == *=* ]] || die "invalid HOST_MEMORY_RESERVATIONS entry (want node=quantity): $entry"
+		node=${entry%%=*}
+		qty=${entry#*=}
+		[[ -n $node && $qty =~ ^[0-9]+([KMGTP]i)?$ ]] || die "invalid HOST_MEMORY_RESERVATIONS entry: $entry"
+		json+="${json:+,}\"$node\":$(mem_quantity_to_bytes "$qty")"
+	done
+	printf '{%s}\n' "$json"
+}
+
 # Total allocatable-minus-requested memory headroom across every node except
-# the target (bytes). A node with no allocatable/requested data contributes 0.
+# the target (bytes), less any host reservation. A node with no
+# allocatable/requested data contributes 0.
 remaining_headroom_bytes() {
 	local node=$1
-	local nodes pods
+	local nodes pods reservations
 	nodes=$($KUBECTL get nodes -o json) || return 1
 	pods=$($KUBECTL get pods -A -o json) || return 1
+	reservations=$(host_reservations_json) || return 1
 	# pods JSON goes in via stdin, not --argjson: a full-cluster pod list blows
 	# past ARG_MAX on macOS ("Argument list too long") once the cluster has
 	# enough pods (seen 2026-09-06). nodes stays --argjson — node counts are small.
-	printf '%s' "$pods" | jq --arg node "$node" --argjson nodes "$nodes" '
+	printf '%s' "$pods" | jq --arg node "$node" --argjson nodes "$nodes" --argjson reserved "$reservations" '
 		def tobytes:
 			if . == null or . == "" then 0
 			else
@@ -422,7 +450,9 @@ remaining_headroom_bytes() {
 		 | from_entries) as $req
 		| [$nodes.items[]
 		   | select(.metadata.name != $node)
-		   | ((.status.allocatable.memory | tobytes) - ($req[.metadata.name] // 0))]
+		   | ((.status.allocatable.memory | tobytes)
+		      - ($req[.metadata.name] // 0)
+		      - ($reserved[.metadata.name] // 0))]
 		| add
 	'
 }

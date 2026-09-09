@@ -86,7 +86,7 @@ LoadBalancer Service; the host daemon cannot bind `0.0.0.0:11434` until that is 
    kubectl -n llama run -it --rm probe --image=curlimages/curl:8.11.1 --restart=Never -- -fsS http://ollama.llama.svc:11434/api/ps
    kubectl -n llama delete deployment ollama
    kubectl -n llama delete configmap ollama-startup
-   kubectl apply -f llama/ollama-jobs.yaml
+   kubectl apply -f llama/ollama-jobs.yaml -f llama/ollama-gpu-hold.yaml
    ```
 
    Keep `llama-model-cache` (PVC) for a week as rollback, then delete it and `llama/pvc.yaml`.
@@ -107,6 +107,17 @@ LoadBalancer Service; the host daemon cannot bind `0.0.0.0:11434` until that is 
 
 Node maintenance: `scripts/node-maintenance.sh --spin-down` no longer scales `llama/ollama`
 (there is no Deployment); the daemon rides through drains and stops with the host on reboot.
+Its RAM is still counted: the preflight subtracts `HOST_MEMORY_RESERVATIONS` (default
+`timmy=16Gi`, the drop-in's `MemoryMax`) from timmy's headroom, so keep the two in sync. To
+free that memory for a tight drain, `ssh timmy sudo systemctl stop ollama` by hand first —
+the nodes' non-interactive sudo is scoped to apt/reboot, so the script cannot do it for you.
+
+GPU exclusion: the retired pod's `amd.com/gpu: "2"` request was the only thing keeping other
+AMD-GPU pods (`gpu/amd/rocm-test-pod.yaml`, the nanochat training Job, the embedding
+benchmark) off the card. `llama/ollama-gpu-hold.yaml` restores that guard with a pause
+container holding both device-plugin slots; apply it with the Service and jobs. To lend the
+GPU to a cluster workload on purpose: `sudo systemctl stop ollama`, scale `ollama-gpu-hold`
+to 0, run the workload, reverse both.
 
 ## Rollback
 

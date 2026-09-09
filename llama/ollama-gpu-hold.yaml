@@ -1,0 +1,50 @@
+# Scheduler-level GPU reservation for the HOST Ollama daemon on timmy (IMPR-1075).
+#
+# The retired pod requested `amd.com/gpu: "2"` — both device-plugin slots on
+# timmy — which was the cluster's only mutual-exclusion guard for the RX 9070 XT
+# ("nothing else schedules AMD GPUs"). The host daemon claims no device-plugin
+# resource, so without this any `amd.com/gpu` requester (gpu/amd/rocm-test-pod.yaml,
+# backlog/nanochat/train-rocm-job.yaml, the embedding benchmark) would be
+# scheduled onto the GPU the daemon already occupies and either OOM it or push
+# Ollama into a silent CPU fallback.
+#
+# This Deployment holds both slots with a pause container so such pods stay
+# Pending, exactly as they did while the ollama pod owned the GPU. To hand the
+# GPU to a cluster workload deliberately: stop the host daemon
+# (`sudo systemctl stop ollama` on timmy), scale this to 0, run the workload,
+# then reverse. It uses no CPU, memory, or VRAM of its own.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ollama-gpu-hold
+  namespace: llama
+  labels:
+    app: ollama-gpu-hold
+    homelab.nathanwhyte.dev/backend: host-systemd
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: ollama-gpu-hold
+  template:
+    metadata:
+      labels:
+        app: ollama-gpu-hold
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: timmy
+        gpu.vendor: amd
+      priorityClassName: system-cluster-critical
+      containers:
+        - name: hold
+          image: registry.k8s.io/pause:3.10
+          resources:
+            requests:
+              cpu: 1m
+              memory: 4Mi
+              amd.com/gpu: "2"
+            limits:
+              cpu: 10m
+              memory: 16Mi
+              amd.com/gpu: "2"
