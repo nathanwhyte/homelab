@@ -30,30 +30,57 @@ LoadBalancer Service; the host daemon cannot bind `0.0.0.0:11434` until that is 
    ```bash
    sudo llama/host/install-host-ollama.sh --check          # see current state
    sudo llama/host/install-host-ollama.sh --sync-models    # rsync PVC models -> /usr/share/ollama/.ollama/models
+   sudo systemctl stop ollama                            # stops only the old host daemon
+   sudo llama/host/install-host-ollama.sh --sync-identity  # preserve the pod's cloud sign-in identity
    ```
 
-   This step will stop at "refusing to restart" if svclb still owns the port — expected.
+   `--sync-models` only copies models and exits successfully. It never installs a binary,
+   writes units, or restarts anything. Pause model pulls/creates during the copy; partial
+   downloads are excluded. Compare `/api/tags` names and digests before retiring the pod.
+   The daemon's cloud identity (`.ollama/id_ed25519`) is separate from the model store.
+   `--sync-identity` requires the host daemon to be stopped, backs up its previous identity
+   under a private `/var/backups/ollama-identity.*` directory, and copies the pod identity
+   with mode 0600. Do this while the PVC is still mounted. A loopback cloud probe before
+   removing ServiceLB DNAT can actually reach the pod; verify host authentication only
+   after cutover. Model copying alone caused cloud 401s during the first live deployment.
+
+   Save the live Deployment, ConfigMap, and Service for rollback in a private directory.
+   Use those snapshots to preserve the deployed image/config, rather than pulling `latest`.
 
 2. **Swap the Service** so the cluster name points at the host and svclb releases the port:
 
    ```bash
    kubectl apply -f llama/ollama-service.yaml
+   # The legacy Endpoints object otherwise recreates mirrored pod slices.
+   kubectl -n llama delete endpoints ollama --ignore-not-found
+   kubectl -n llama delete endpointslice -l 'kubernetes.io/service-name=ollama,endpointslice.kubernetes.io/managed-by=endpointslice-controller.k8s.io'
+   kubectl -n llama delete endpointslice -l 'kubernetes.io/service-name=ollama,endpointslice.kubernetes.io/managed-by=endpointslicemirroring-controller.k8s.io'
    kubectl -n llama get endpointslices -l kubernetes.io/service-name=ollama   # ollama-timmy-host -> 192.168.1.19
    kubectl -n kube-system get pods | grep svclb-ollama                        # should be gone
    ```
 
-   From this moment `ollama.llama.svc` resolves to `192.168.1.19:11434` and nothing answers
-   there until step 3 — a gap of the seconds it takes to run the next command. Do it now.
+   This starts a maintenance gap. Verify the Service has no selector or external IPs.
+   Only `ollama-timmy-host` should remain. Host ports use DNAT rules,
+   which are invisible to `ss`; the installer checks both Kubernetes state and host NAT.
 
-3. **Bring the host daemon up on all interfaces**:
+3. **Release the pod's GPU, then bring the host daemon up**:
 
    ```bash
+   kubectl -n llama scale deployment ollama --replicas=0
+   kubectl -n llama wait --for=delete pod -l app=ollama --timeout=120s
    sudo llama/host/install-host-ollama.sh        # restarts ollama.service with the drop-in
    journalctl -fu ollama-warm                      # watch the FIM warm
    curl -s http://192.168.1.19:11434/api/tags | head -c 300
    ```
 
-4. **Retire the pod** once consumers are verified:
+   Never warm the host while the pod runner still holds the GPU. The installer fails
+   before mutations if the old pod, ServiceLB pods, or old external DNAT rules remain.
+   Warmup runs asynchronously; API readiness does not prove model readiness. Check
+   `systemctl status ollama-warm`, `/api/ps`, a bounded FIM completion, and journal
+   evidence naming Vulkan and the RX 9070 XT. Verify LAN, Tailscale, cluster DNS, the
+   chat proxy's cloud route, and the Prometheus scrape before continuing.
+
+4. **Retire the Deployment** once consumers are verified:
 
    ```bash
    kubectl -n llama run -it --rm probe --image=curlimages/curl:8.11.1 --restart=Never -- -fsS http://ollama.llama.svc:11434/api/ps
@@ -69,28 +96,36 @@ LoadBalancer Service; the host daemon cannot bind `0.0.0.0:11434` until that is 
 
 ## Day-to-day
 
-| Task                          | Command (on timmy unless noted)                                                                 |
-| ----------------------------- | ----------------------------------------------------------------------------------------------- |
-| Restart the daemon            | `sudo systemctl restart ollama` (warm re-runs via `PartOf`)                                     |
-| Change an env value           | edit `homelab.conf` in the repo, `sudo llama/host/install-host-ollama.sh`                       |
-| Upgrade Ollama                | bump `OLLAMA_VERSION` in the install script, run it (that is the pin)                           |
-| Pull a model from the cluster | `kubectl -n llama create job --from=cronjob/ollama-pull pull-$(date +%s)` after setting `MODEL` |
-| Is the FIM model resident?    | `curl -s 192.168.1.19:11434/api/ps` or `cat /run/ollama/models-ready`                           |
-| Metrics                       | `curl -s 192.168.1.19:9111/metrics`; Grafana scrapes `ollama.llama.svc:9111`                    |
+| Task                          | Command (on timmy unless noted)                                                                                        |
+| ----------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| Restart the daemon            | `sudo systemctl restart ollama` (warm re-runs via `PartOf`)                                                            |
+| Change an env value           | edit `homelab.conf` in the repo, `sudo llama/host/install-host-ollama.sh`                                              |
+| Upgrade Ollama                | bump `OLLAMA_VERSION` in the install script, run it (that is the pin)                                                  |
+| Pull a model from the cluster | `kubectl -n llama create job --from=cronjob/ollama-pull pull-$(date +%s)` after setting `MODEL`                        |
+| Is the FIM model resident?    | `curl -s 192.168.1.19:11434/api/ps`; `/run/ollama/models-ready` records successful startup warm, not current residency |
+| Metrics                       | `curl -s 192.168.1.19:9111/metrics`; Grafana scrapes `ollama.llama.svc:9111`                                           |
 
 Node maintenance: `scripts/node-maintenance.sh --spin-down` no longer scales `llama/ollama`
 (there is no Deployment); the daemon rides through drains and stops with the host on reboot.
 
 ## Rollback
 
-Stop the host units first (`sudo systemctl disable --now ollama ollama-warm`), then restore the
-pod and its LoadBalancer Service from the pre-cutover commit:
+Suspend/delete the model CronJobs and finish/delete any active model Jobs first so they
+cannot warm the rollback pod unexpectedly. Stop all host units, then restore the saved
+ConfigMap and Deployment (initially at zero replicas) and their LoadBalancer Service:
 
 ```bash
-git show <pre-cutover-sha>:llama/ollama-deployment.yaml | kubectl apply -f -
-git show <pre-cutover-sha>:llama/ollama-configmap.yaml | kubectl apply -f -
+kubectl -n llama delete cronjob ollama-warm ollama-pull --ignore-not-found
+sudo systemctl disable --now ollama-warm ollama-exporter ollama
+# Remove the dependency that would otherwise start warmup on a later manual start.
+sudo rm /etc/systemd/system/ollama.service.d/homelab.conf
+sudo systemctl daemon-reload
+kubectl apply -f <snapshot-dir>/configmap.json -f <snapshot-dir>/deployment.json -f <snapshot-dir>/service.json
 kubectl -n llama delete endpointslice ollama-timmy-host
+kubectl -n llama scale deployment ollama --replicas=1
+kubectl -n llama rollout status deployment/ollama --timeout=300s
 ```
 
 The order is the mirror of the cutover: the svclb bind fails while the host daemon still holds
 `0.0.0.0:11434`.
+Verify the pod's local FIM, cloud route, metrics, and LoadBalancer access after rollback.

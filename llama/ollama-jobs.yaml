@@ -9,8 +9,9 @@
 #   ollama-warm  — every 15 min: load-only warm of the resident edit-prediction
 #                  tag with keep_alive=-1. Idempotent; a no-op while the model
 #                  is already resident, a self-heal if the daemon restarted and
-#                  the host-side ollama-warm.service missed (or if the tag was
-#                  evicted by an ad-hoc call to another model).
+#                  the host-side ollama-warm.service missed). Any resident
+#                  model is left alone; suspend this CronJob for benchmarks
+#                  that deliberately unload between requests.
 #   ollama-pull  — suspended template. Run one-off:
 #                    kubectl -n llama create job --from=cronjob/ollama-pull pull-$(date +%s)
 #                  after editing MODEL in the env, or override on the fly:
@@ -52,13 +53,16 @@ spec:
                 - sh
                 - -ec
                 - |
-                  if curl -fsS -m 5 "$OLLAMA_URL/api/ps" | grep -q "\"name\":\"$MODEL\""; then
-                    echo "$MODEL already resident"; exit 0
+                  # Fail on API errors; leave any resident model alone so an
+                  # operator's benchmark or ad-hoc model is never evicted.
+                  resident=$(curl -fsS -m 5 "$OLLAMA_URL/api/ps")
+                  if printf '%s' "$resident" | grep -q '"name"[[:space:]]*:'; then
+                    echo "a model is already resident; skipping warm"; exit 0
                   fi
                   echo "warming $MODEL (load-only)"
                   curl -fsS -m 300 -X POST "$OLLAMA_URL/api/generate" \
                     -H 'Content-Type: application/json' \
-                    -d "{\"model\":\"$MODEL\",\"keep_alive\":-1}"
+                    -d "{\"model\":\"$MODEL\",\"keep_alive\":-1,\"stream\":false}"
                   echo
               resources:
                 requests:
@@ -108,11 +112,11 @@ spec:
                 - -ec
                 - |
                   echo "pulling $MODEL via $OLLAMA_URL"
-                  curl -fsS -N -m 5400 -X POST "$OLLAMA_URL/api/pull" \
+                  result=$(curl -fsS -m 5300 -X POST "$OLLAMA_URL/api/pull" \
                     -H 'Content-Type: application/json' \
-                    -d "{\"model\":\"$MODEL\",\"stream\":true}" \
-                    | grep -E '"status":"(success|error)' | tail -1 | tee /dev/stderr \
-                    | grep -q '"success"'
+                    -d "{\"model\":\"$MODEL\",\"stream\":false}")
+                  printf '%s\n' "$result"
+                  printf '%s' "$result" | grep -Eq '"status"[[:space:]]*:[[:space:]]*"success"'
               resources:
                 requests:
                   cpu: 10m

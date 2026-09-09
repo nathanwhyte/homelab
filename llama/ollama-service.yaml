@@ -43,6 +43,7 @@ metadata:
   namespace: llama
   labels:
     kubernetes.io/service-name: ollama
+    endpointslice.kubernetes.io/managed-by: homelab-host
     app: ollama
     homelab.nathanwhyte.dev/backend: host-systemd
 addressType: IPv4

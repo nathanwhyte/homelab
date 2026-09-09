@@ -109,6 +109,7 @@ if ! wait_for_server; then
 	exit 1
 fi
 log "server ready ($(curl -fsS -m 3 "$OLLAMA_URL/api/version"))"
-prepare_edit_prediction_model
+warm_status=0
+prepare_edit_prediction_model || warm_status=$?
 prepare_agent_pair
-exit 0
+exit "$warm_status"
