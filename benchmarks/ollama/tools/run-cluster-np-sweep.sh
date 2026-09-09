@@ -7,6 +7,15 @@
 # Run from the repo root (the worktree containing benchmarks/).
 set -euo pipefail
 
+# RETIRED PATH (IMPR-1075, 2026-09): Ollama runs on timmy's host under systemd,
+# so there is no `deployment/ollama` to patch. Sweep NUM_PARALLEL by editing
+# OLLAMA_NUM_PARALLEL in llama/host/ollama.service.d/homelab.conf and rerunning
+# `sudo llama/host/install-host-ollama.sh` on timmy between runs.
+if [[ ${SWEEP_ALLOW_RETIRED:-0} != 1 ]]; then
+  echo "run-cluster-np-sweep.sh: retired — no ollama Deployment to patch (IMPR-1075); see llama/host/README.md" >&2
+  exit 2
+fi
+
 NS="${NS:-llama}"
 OUTPUT_DIR="${OUTPUT_DIR:-benchmarks/results}"
 NP_VALUES=(1 3 6 8)

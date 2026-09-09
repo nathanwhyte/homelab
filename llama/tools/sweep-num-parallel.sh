@@ -4,6 +4,12 @@
 # This script mutates the live Ollama Deployment. Run only when the cluster can
 # tolerate a ~60-90s Ollama restart between benchmark runs.
 #
+# RETIRED PATH (IMPR-1075, 2026-09): Ollama runs on timmy's host now, so there
+# is no Deployment to patch. To sweep NUM_PARALLEL today, edit
+# OLLAMA_NUM_PARALLEL in llama/host/ollama.service.d/homelab.conf, rerun
+# `sudo llama/host/install-host-ollama.sh` on timmy, and run the benchmark
+# directly. The script below is kept for the record and refuses to run.
+#
 # Usage:
 #   llama/tools/sweep-num-parallel.sh [NP_VALUES...]
 #
@@ -21,6 +27,12 @@
 
 set -euo pipefail
 
+if [[ ${SWEEP_ALLOW_RETIRED:-0} != 1 ]]; then
+	echo "sweep-num-parallel.sh: retired — Ollama runs on timmy's host (IMPR-1075), there is no Deployment to patch." >&2
+	echo "Edit OLLAMA_NUM_PARALLEL in llama/host/ollama.service.d/homelab.conf and rerun install-host-ollama.sh instead." >&2
+	exit 2
+fi
+
 NAMESPACE="${NAMESPACE:-llama}"
 DEPLOYMENT="${DEPLOYMENT:-ollama}"
 KUBECTL="${KUBECTL:-kubectl}"
@@ -35,41 +47,41 @@ OUTDIR="${OUTPUT_DIR}/${TIMESTAMP}"
 mkdir -p "${OUTDIR}"
 
 log() {
-  echo "[$(date +%H:%M:%S)] $*"
+	echo "[$(date +%H:%M:%S)] $*"
 }
 
 current_num_parallel() {
-  ${KUBECTL} get deployment "${DEPLOYMENT}" -n "${NAMESPACE}" -o jsonpath='{.spec.template.spec.containers[?(@.name=="ollama")].env[?(@.name=="OLLAMA_NUM_PARALLEL")].value}'
+	${KUBECTL} get deployment "${DEPLOYMENT}" -n "${NAMESPACE}" -o jsonpath='{.spec.template.spec.containers[?(@.name=="ollama")].env[?(@.name=="OLLAMA_NUM_PARALLEL")].value}'
 }
 
 set_num_parallel() {
-  local target="$1"
-  log "Patching ${DEPLOYMENT}/${NAMESPACE} OLLAMA_NUM_PARALLEL -> ${target}"
-  ${KUBECTL} set env deployment "${DEPLOYMENT}" -n "${NAMESPACE}" "OLLAMA_NUM_PARALLEL=${target}"
+	local target="$1"
+	log "Patching ${DEPLOYMENT}/${NAMESPACE} OLLAMA_NUM_PARALLEL -> ${target}"
+	${KUBECTL} set env deployment "${DEPLOYMENT}" -n "${NAMESPACE}" "OLLAMA_NUM_PARALLEL=${target}"
 }
 
 wait_for_rollout() {
-  log "Waiting for rollout to complete ..."
-  ${KUBECTL} rollout status deployment "${DEPLOYMENT}" -n "${NAMESPACE}" --timeout=300s
+	log "Waiting for rollout to complete ..."
+	${KUBECTL} rollout status deployment "${DEPLOYMENT}" -n "${NAMESPACE}" --timeout=300s
 }
 
 restore_num_parallel() {
-  local original="$1"
-  log "Restoring OLLAMA_NUM_PARALLEL -> ${original}"
-  set_num_parallel "${original}"
-  wait_for_rollout
+	local original="$1"
+	log "Restoring OLLAMA_NUM_PARALLEL -> ${original}"
+	set_num_parallel "${original}"
+	wait_for_rollout
 }
 
 run_benchmark() {
-  local np="$1"
-  local json_out="${OUTDIR}/np-${np}.json"
-  local csv_out="${OUTDIR}/np-${np}.csv"
-  log "Running benchmark for NUM_PARALLEL=${np}"
-  # shellcheck disable=SC2086
-  uv run --with aiohttp python "${BENCHMARK_PY}" \
-    --output-json "${json_out}" \
-    --output-csv "${csv_out}" \
-    ${BENCHMARK_ARGS}
+	local np="$1"
+	local json_out="${OUTDIR}/np-${np}.json"
+	local csv_out="${OUTDIR}/np-${np}.csv"
+	log "Running benchmark for NUM_PARALLEL=${np}"
+	# shellcheck disable=SC2086
+	uv run --with aiohttp python "${BENCHMARK_PY}" \
+		--output-json "${json_out}" \
+		--output-csv "${csv_out}" \
+		${BENCHMARK_ARGS}
 }
 
 ORIGINAL_NP="$(current_num_parallel)"
@@ -80,9 +92,9 @@ log "Output directory: ${OUTDIR}"
 trap 'restore_num_parallel "${ORIGINAL_NP}"' EXIT
 
 for np in ${NP_VALUES}; do
-  set_num_parallel "${np}"
-  wait_for_rollout
-  run_benchmark "${np}"
+	set_num_parallel "${np}"
+	wait_for_rollout
+	run_benchmark "${np}"
 done
 
 log "All sweeps complete. Results in ${OUTDIR}"
