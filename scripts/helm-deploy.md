@@ -1,6 +1,6 @@
 # Reapply values without upgrading charts
 
-Grafana, Harbor, OpenWebUI, Dashboard and Garage use
+Grafana, Harbor, OpenWebUI, Dashboard, Garage and Longhorn use
 `scripts/helm-deploy.py`. Python 3 and Helm are required. The helper queries the
 release in its namespace and explicitly passes its deployed chart version to
 Helm. Lookup failures, unexpected chart identities and non-deployed release
@@ -12,7 +12,7 @@ and reviewed values. Subsequent deploy-script runs reuse the resulting version.
 Version reuse does not establish chart content integrity or make values changes
 safe automatically.
 
-Each of these five scripts accepts `--dry-run`. This runs server-side Helm
+Each of these six scripts accepts `--dry-run`. This runs server-side Helm
 simulation and exits before Kubernetes manifest applies, probe patches or
 rollout operations. It checks the Helm releases only, not those later operations.
 Rendered output is suppressed because chart NOTES and ConfigMaps may contain
@@ -56,6 +56,30 @@ chart; that script was not deployed.
 
 Run `python3 scripts/test-helm-deploy.py` for hermetic regression tests. They cover
 lookup errors, version identity, prerelease versions, local-chart mismatches,
-first-install selection, dry-run and diff flags, and all five script entry points
+first-install selection, dry-run and diff flags, and all six script entry points
 from an unrelated working directory with a kubectl stub that rejects every call.
 These tests do not exercise real upgrades or establish application health.
+
+## Longhorn adoption on 2026-09-10 (IMPR-1094)
+
+`longhorn/deploy-longhorn.sh` was the last near-miss script still carrying a
+hardcoded pin. It had held `CHART_VERSION="1.11.0"` while `1.12.0` was live, so
+running it as written would have issued `helm upgrade --version 1.11.0` against
+32 attached volumes. Longhorn does not support downgrades, which makes that a
+data-integrity risk rather than a downtime one; it was caught only because the
+version was checked by hand first.
+
+Verified live against the deployed release (`longhorn-1.12.0`, revision 8):
+
+```text
+longhorn-system/longhorn: reusing deployed chart longhorn 1.12.0
+longhorn-system/longhorn: server dry-run passed; chart version 1.12.0
+```
+
+The release was still `longhorn-1.12.0` at revision 8 afterwards — the dry-run
+changed nothing. The version is now read from the cluster instead of the file,
+so the pin cannot go stale again.
+
+`gpu/nvidia/deploy-nvidia-gpu.sh` still hardcodes `--version v26.3.3` and has
+never been cross-checked against live `helm list -n gpu-operator`. It is the one
+remaining pinned script.
