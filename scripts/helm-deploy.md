@@ -1,6 +1,6 @@
 # Reapply values without upgrading charts
 
-Grafana, Harbor, OpenWebUI, Dashboard, Garage and Longhorn use
+Grafana, Harbor, OpenWebUI, Dashboard, Garage, Longhorn and NVIDIA use
 `scripts/helm-deploy.py`. Python 3 and Helm are required. The helper queries the
 release in its namespace and explicitly passes its deployed chart version to
 Helm. Lookup failures, unexpected chart identities and non-deployed release
@@ -12,7 +12,7 @@ and reviewed values. Subsequent deploy-script runs reuse the resulting version.
 Version reuse does not establish chart content integrity or make values changes
 safe automatically.
 
-Each of these six scripts accepts `--dry-run`. This runs server-side Helm
+Each of these seven scripts accepts `--dry-run`. This runs server-side Helm
 simulation and exits before Kubernetes manifest applies, probe patches or
 rollout operations. It checks the Helm releases only, not those later operations.
 Rendered output is suppressed because chart NOTES and ConfigMaps may contain
@@ -30,6 +30,12 @@ non-zero with a clear error. Any other ref — `harbor/harbor`, `grafana/loki`,
 a bare chart name — goes through the remote repo/alias path regardless of
 whether a same-named directory happens to exist in the current working
 directory.
+
+A release name need not equal its chart name. NVIDIA's release is
+`gpu-operator-1774050554`, a generated name kept because live resources are
+annotated to it; the helper matches on chart identity (`gpu-operator-<version>`
+in the `helm list` row), so the two differing is fine. The test stub models this
+with a release-to-chart map rather than assuming the names agree.
 
 ## Verification on 2026-09-06
 
@@ -56,7 +62,7 @@ chart; that script was not deployed.
 
 Run `python3 scripts/test-helm-deploy.py` for hermetic regression tests. They cover
 lookup errors, version identity, prerelease versions, local-chart mismatches,
-first-install selection, dry-run and diff flags, and all six script entry points
+first-install selection, dry-run and diff flags, and all seven script entry points
 from an unrelated working directory with a kubectl stub that rejects every call.
 These tests do not exercise real upgrades or establish application health.
 
@@ -83,3 +89,28 @@ so the pin cannot go stale again.
 `gpu/nvidia/deploy-nvidia-gpu.sh` still hardcodes `--version v26.3.3` and has
 never been cross-checked against live `helm list -n gpu-operator`. It is the one
 remaining pinned script.
+
+## NVIDIA adoption on 2026-09-10 (IMPR-1148)
+
+The remaining pinned script is migrated; no homelab deploy script now decides a
+chart version from a file.
+
+Unlike Longhorn, this pin was **not** wrong. The cross-check the IMPR-1094 TODO
+asked for was done first: the script's `v26.3.3` equalled the live release
+(`gpu-operator-1774050554`, chart `gpu-operator-v26.3.3`, deployed, revision 5),
+so running it as written would have re-applied the version it was already on.
+It was migrated because nothing kept that true, and because upstream had already
+moved to `v26.7.0` — leaving the pin as both "what is deployed" and "what we
+would like deployed" at once.
+
+The blast radius is why it mattered more than its size suggests: `values.yaml`
+sets `driver.enabled: false` under a warning not to flip it back, because
+[BUG-1102] moved the NVIDIA driver to a host dkms install after the operator's
+container rebuild cost manu its GPU for an hour. An unreviewed chart move on this
+release is the one that could quietly reintroduce operator-managed drivers.
+
+Moving the release from `v26.3.3` to `v26.7.0` is deliberately **not** part of
+this change. It is a chart upgrade on a GPU-serving release with a post-BUG-1102
+values contract and wants its own review of the upstream changelog, particularly
+anything touching `driver.*`. The migration does not perform it: `helm-deploy.py`
+reuses whatever is deployed.

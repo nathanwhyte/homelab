@@ -8,6 +8,40 @@ set -euo pipefail
 # means the script works from any worktree and from any cwd.
 NVIDIA_GPU_DIR="${NVIDIA_GPU_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
 NAMESPACE="gpu-operator"
+HELM_DEPLOY="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/scripts/helm-deploy.py"
+
+# Release name is historical: the original March 2026 "gpu-operator" release got
+# stuck uninstalling and was replaced by this generated name; the stuck release
+# secret was purged 2026-07-06. Live resources are annotated to this name, so a
+# plain "gpu-operator" release here would collide with ownership metadata.
+# helm-deploy.py matches on chart identity (gpu-operator-<version>) rather than
+# release name, so the mismatch between the two is fine.
+RELEASE="gpu-operator-1774050554"
+
+# IMPR-1148: no --version here on purpose. This script was the last one deciding
+# a chart version from a file. The pin matched live (v26.3.3) when it was checked,
+# but nothing kept it that way — deploy-longhorn.sh also matched until it didn't,
+# and would have downgraded 32 attached volumes. helm-deploy.py reads the deployed
+# chart version and passes it back explicitly, making this an "apply my values"
+# tool. Upgrading the chart is a separate, deliberate Helm operation — and on this
+# release an especially deliberate one, because values.yaml sets
+# driver.enabled: false (BUG-1102) and an unreviewed chart move could reintroduce
+# operator-managed drivers.
+case "${1:-}" in
+--dry-run)
+	[[ $# -eq 1 ]] || exit 2
+	# Repositories must already be configured — see scripts/helm-deploy.md.
+	# Adding them here would make the simulation mutate local Helm state.
+	python3 "$HELM_DEPLOY" "$RELEASE" "$NAMESPACE" nvidia/gpu-operator \
+		--dry-run -f "$NVIDIA_GPU_DIR/values.yaml"
+	exit 0
+	;;
+"") [[ $# -eq 0 ]] || exit 2 ;;
+*)
+	echo "Usage: $0 [--dry-run]" >&2
+	exit 2
+	;;
+esac
 
 if [ ! -x "$(command -v "kubectl")" ]; then
 	echo "kubectl not installed."
@@ -41,15 +75,9 @@ echo "Updating helm repositories..."
 helm repo add nvidia https://helm.ngc.nvidia.com/nvidia
 helm repo update nvidia
 
-echo -e "\nDeploying NVIDIA GPU Operator..."
-# Release name is historical: the original March 2026 "gpu-operator" release got
-# stuck uninstalling and was replaced by this generated name; the stuck release
-# secret was purged 2026-07-06. Live resources are annotated to this name, so a
-# plain "gpu-operator" release here would collide with ownership metadata.
-helm upgrade --install gpu-operator-1774050554 nvidia/gpu-operator \
-	--version v26.3.3 \
+echo -e "\nDeploying NVIDIA GPU Operator (reusing the installed chart version)..."
+python3 "$HELM_DEPLOY" "$RELEASE" "$NAMESPACE" nvidia/gpu-operator \
 	--create-namespace \
-	--namespace "$NAMESPACE" \
 	-f "$NVIDIA_GPU_DIR/values.yaml"
 
 echo -e "\nWaiting for GPU operator rollout..."
