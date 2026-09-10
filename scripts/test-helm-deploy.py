@@ -244,24 +244,28 @@ from pathlib import Path
 args = sys.argv[1:]
 with open(os.environ['TEST_LOG'], 'a') as log:
     log.write(json.dumps(args)+'\n')
-versions = {'kube-prometheus-stack': '87.17.0', 'k8s-monitoring': '3.8.4', 'loki': '7.1.0', 'harbor': '1.19.1', 'open-webui': '15.2.0', 'kubernetes-dashboard': '7.14.0', 'garage': '0.9.2', 'longhorn': '1.12.0'}
+versions = {'kube-prometheus-stack': '87.17.0', 'k8s-monitoring': '3.8.4', 'loki': '7.1.0', 'harbor': '1.19.1', 'open-webui': '15.2.0', 'kubernetes-dashboard': '7.14.0', 'garage': '0.9.2', 'longhorn': '1.12.0', 'gpu-operator': 'v26.3.3'}
+# Release name is not always the chart name: the NVIDIA release carries a
+# generated suffix (IMPR-1148), and helm-deploy.py matches on chart identity.
+charts = {'gpu-operator-1774050554': 'gpu-operator'}
 if args[0] == 'list':
     release = args[args.index('--filter')+1].strip('^$').replace('\\-', '-')
-    print(json.dumps([dict(name=release, namespace=args[args.index('--namespace')+1], status='deployed', chart=release+'-'+versions[release])]))
+    chart = charts.get(release, release)
+    print(json.dumps([dict(name=release, namespace=args[args.index('--namespace')+1], status='deployed', chart=chart+'-'+versions[chart])]))
 elif args[:2] == ['show', 'chart']:
     name = Path(args[2]).name
     print('name: '+name+'\nversion: '+versions[name])
 elif args[0] == 'upgrade':
     assert '--dry-run=server' in args and '--hide-secret' in args, args
     release = args[2]
-    assert args[args.index('--version')+1] == versions[release], args
+    assert args[args.index('--version')+1] == versions[charts.get(release, release)], args
 else:
     sys.exit('unexpected Helm command: '+str(args))
 """
 
 
 class ScriptDryRunTests(unittest.TestCase):
-    def test_all_six_scripts_from_unrelated_directory(self):
+    def test_all_seven_scripts_from_unrelated_directory(self):
         with tempfile.TemporaryDirectory() as directory:
             directory = Path(directory)
             binary = directory / "bin"
@@ -287,6 +291,7 @@ class ScriptDryRunTests(unittest.TestCase):
                 "dashboard/deploy-dashboard.sh",
                 "garage/deploy-garage.sh",
                 "longhorn/deploy-longhorn.sh",
+                "gpu/nvidia/deploy-nvidia-gpu.sh",
             )
             for script in scripts:
                 with self.subTest(script=script):
@@ -305,8 +310,8 @@ class ScriptDryRunTests(unittest.TestCase):
                 for line in (directory / "commands.jsonl").read_text().splitlines()
             ]
             # grafana runs three Helm upgrades (kube-prometheus-stack, k8s-monitoring,
-            # loki); the other five scripts run one each.
-            self.assertEqual(sum(c[0] == "upgrade" for c in commands), 8)
+            # loki); the other six scripts run one each.
+            self.assertEqual(sum(c[0] == "upgrade" for c in commands), 9)
 
 
 if __name__ == "__main__":
