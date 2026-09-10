@@ -5,6 +5,14 @@
 ## Ground rules (safety first)
 
 - **Do not apply changes to a live cluster unless explicitly asked.** Avoid running `kubectl apply`, `helm install/upgrade`, or anything that mutates cluster state unless the user requests it.
+- **Apply the object you changed, never the whole file.** Being asked to deploy a change is not permission to reconcile everything in the same manifest. A multi-document file often declares objects the cluster deliberately does not run, so `kubectl apply -f <file>` **creates** them as a side effect — and the giveaway is `created` rather than `configured` in the output.
+
+  Before applying, `kubectl diff -f <target>` and read it: every `+` you did not intend is an object you are about to bring into existence. If the file holds more than the object you changed, narrow the target (a `-f` on a single-object file, `-l` on a selector) or accept only what the diff shows and revert the rest immediately.
+
+  This happened on 2026-09-10 (IMPR-1087): a one-env-var change to the portfolio Deployment was applied as `kubectl apply -f k8s.yaml`, which created a `cloudflared` Deployment and ServiceAccount the cluster had never run. Its secret does not exist, so it sat in `FailedMount` until both objects were deleted. Nothing was lost, but the tunnel could as easily have come **up** and duplicated a live one.
+
+  The rule generalizes past this repo: **a manifest can be ahead of live on purpose.** § OpenViking already documents exactly that — the parallel-indexing trio was removed at the 2026-06-03 cutover with its "manifests retained" — so a blanket apply there would resurrect a decommissioned topology. Treat "in the repo" and "meant to be running" as separate facts, and let the diff tell you which you are looking at. The inverse hazard, live being ahead of the repo, is the hardcoded-chart-version class in compendium IMPR-1094.
+
 - **Do not introduce or commit secrets.**
   - Prefer referencing existing `Secret` resources (by name) rather than inlining secret material.
   - If a manifest must reference a secret key/token/cert, add a placeholder and document what’s required.
