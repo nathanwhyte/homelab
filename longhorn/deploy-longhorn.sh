@@ -1,9 +1,31 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-LONGHORN_DIR="$(cd "$(dirname "$0")" && pwd)"
+LONGHORN_DIR="${LONGHORN_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
 NAMESPACE="longhorn-system"
-CHART_VERSION="1.12.0"
+HELM_DEPLOY="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/scripts/helm-deploy.py"
+
+# IMPR-1094: no CHART_VERSION here on purpose. This script pinned 1.11.0 while
+# 1.12.0 was live, and running it as written would have issued a downgrade
+# against 32 attached volumes — Longhorn does not support downgrades, so that is
+# a data-integrity risk, not a downtime one. helm-deploy.py reads the deployed
+# chart version and passes it back explicitly, making this an "apply my values"
+# tool. Upgrading the chart is a separate, deliberate Helm operation.
+case "${1:-}" in
+--dry-run)
+	[[ $# -eq 1 ]] || exit 2
+	# Repositories must already be configured — see scripts/helm-deploy.md.
+	# Adding them here would make the simulation mutate local Helm state.
+	python3 "$HELM_DEPLOY" longhorn "$NAMESPACE" longhorn/longhorn \
+		--dry-run -f "$LONGHORN_DIR/longhorn-values.yaml"
+	exit 0
+	;;
+"") [[ $# -eq 0 ]] || exit 2 ;;
+*)
+	echo "Usage: $0 [--dry-run]" >&2
+	exit 2
+	;;
+esac
 
 if ! command -v kubectl &>/dev/null; then
 	echo "kubectl not installed."
@@ -20,16 +42,20 @@ if ! command -v helm &>/dev/null; then
 	exit 1
 fi
 
-echo "Deploying Longhorn v${CHART_VERSION} via Helm..."
+if [ ! -f "$LONGHORN_DIR/longhorn-values.yaml" ]; then
+	echo "longhorn-values.yaml not found in $LONGHORN_DIR!"
+	exit 1
+fi
+
+echo "Deploying Longhorn via Helm (reusing the installed chart version)..."
 
 # Ensure repo is available
 helm repo add longhorn https://charts.longhorn.io 2>/dev/null || true
 helm repo update longhorn
 
 # Install or upgrade Longhorn
-helm upgrade --install longhorn longhorn/longhorn \
-	--namespace "$NAMESPACE" --create-namespace \
-	--version "$CHART_VERSION" \
+python3 "$HELM_DEPLOY" longhorn "$NAMESPACE" longhorn/longhorn \
+	--create-namespace \
 	-f "$LONGHORN_DIR/longhorn-values.yaml"
 
 echo -e "\nWaiting for Longhorn Manager to be ready..."

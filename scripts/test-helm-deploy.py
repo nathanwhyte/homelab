@@ -244,7 +244,7 @@ from pathlib import Path
 args = sys.argv[1:]
 with open(os.environ['TEST_LOG'], 'a') as log:
     log.write(json.dumps(args)+'\n')
-versions = {'kube-prometheus-stack': '87.17.0', 'k8s-monitoring': '3.8.4', 'loki': '7.1.0', 'harbor': '1.19.1', 'open-webui': '15.2.0', 'kubernetes-dashboard': '7.14.0', 'garage': '0.9.2'}
+versions = {'kube-prometheus-stack': '87.17.0', 'k8s-monitoring': '3.8.4', 'loki': '7.1.0', 'harbor': '1.19.1', 'open-webui': '15.2.0', 'kubernetes-dashboard': '7.14.0', 'garage': '0.9.2', 'longhorn': '1.12.0'}
 if args[0] == 'list':
     release = args[args.index('--filter')+1].strip('^$').replace('\\-', '-')
     print(json.dumps([dict(name=release, namespace=args[args.index('--namespace')+1], status='deployed', chart=release+'-'+versions[release])]))
@@ -261,7 +261,7 @@ else:
 
 
 class ScriptDryRunTests(unittest.TestCase):
-    def test_all_five_scripts_from_unrelated_directory(self):
+    def test_all_six_scripts_from_unrelated_directory(self):
         with tempfile.TemporaryDirectory() as directory:
             directory = Path(directory)
             binary = directory / "bin"
@@ -286,6 +286,7 @@ class ScriptDryRunTests(unittest.TestCase):
                 "openwebui/deploy-openwebui.sh",
                 "dashboard/deploy-dashboard.sh",
                 "garage/deploy-garage.sh",
+                "longhorn/deploy-longhorn.sh",
             )
             for script in scripts:
                 with self.subTest(script=script):
@@ -304,8 +305,8 @@ class ScriptDryRunTests(unittest.TestCase):
                 for line in (directory / "commands.jsonl").read_text().splitlines()
             ]
             # grafana runs three Helm upgrades (kube-prometheus-stack, k8s-monitoring,
-            # loki); the other four scripts run one each.
-            self.assertEqual(sum(c[0] == "upgrade" for c in commands), 7)
+            # loki); the other five scripts run one each.
+            self.assertEqual(sum(c[0] == "upgrade" for c in commands), 8)
 
 
 if __name__ == "__main__":
