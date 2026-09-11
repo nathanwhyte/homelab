@@ -1,6 +1,6 @@
 # Homelab project
 
-3-node K3s cluster running AI/RAG workloads. This file is the canonical home for repo conventions and safety rules (`AGENTS.md` just points here). See [HARDWARE.md](HARDWARE.md) for node specs. See [GPU_AND_AI_REVIEW.md](GPU_AND_AI_REVIEW.md) for design decisions, benchmarks, and architecture history.
+3-node K3s cluster running AI/RAG workloads. This file is the canonical home for repo conventions and safety rules. **Mirror rule:** pi and Codex load [`AGENTS.md`](AGENTS.md) instead of this file and never see it unless they choose to read it; any change here to a ground rule, the bare-repo/worktree contract, or the editing and validation conventions must be mirrored in `AGENTS.md` in the same commit. See [HARDWARE.md](HARDWARE.md) for node specs. See [GPU_AND_AI_REVIEW.md](GPU_AND_AI_REVIEW.md) for design decisions, benchmarks, and architecture history.
 
 ## Ground rules (safety first)
 
