@@ -24,10 +24,12 @@ the two in step.
 
 ## Repo layout and git
 
-- **`~/code/homelab` is a bare repo.** Never edit or run commands at the root.
-  `main` lives at `~/code/homelab/main/`; every other branch is a sibling
-  worktree. Run `git worktree list` first and work in the worktree that owns
-  your branch. Repo paths are `~/code/homelab/main/<dir>`.
+- **`~/code/homelab` is a bare repo.** Run status, tests, formatting, commits,
+  and rebases from a worktree; use the bare root only for worktree
+  administration (`git -C ~/code/homelab worktree …`). `main` lives at
+  `~/code/homelab/main/`; every other branch is a sibling worktree. Run
+  `git worktree list` first and work in the worktree that owns your branch.
+  Repo paths are `~/code/homelab/main/<dir>`.
 - **Never switch the `main/` worktree to another branch.** New work:
   `git -C ~/code/homelab worktree add <slug> -b <type>/<desc> origin/main`,
   then `cd ~/code/homelab/<slug>`. Branch types: `feat/`, `fix/`, `docs/`,
