@@ -85,6 +85,52 @@ TOKEN_RES = {
 
 
 # ----------------------------------------------------------------------------- helpers
+def vault_script(vault: Path, name: str) -> str:
+    """`_scripts/<name>` relative to the vault, flat or one group directory deep.
+
+    The vault groups `_scripts/` by concern (compendium IMPR-1149):
+    build-lane-records.py and fact-token-verify.py both moved into
+    `_scripts/batch/`, which left the hard-coded flat paths here raising
+    on the first subprocess call. Resolved by name so the remaining group
+    moves need no edit, and returned relative because these run with
+    `cwd=vault`.
+    """
+    scripts = vault / "_scripts"
+    if (scripts / name).is_file():
+        return f"_scripts/{name}"
+    for candidate in sorted(scripts.glob(f"*/{name}")):
+        if candidate.is_file():
+            return f"_scripts/{candidate.parent.name}/{name}"
+    raise SystemExit(f"vault script not found under {scripts}: {name}")
+
+
+def require_skill_branch(vault: Path) -> None:
+    """Fail with the decision, not with a raw git error.
+
+    SKILL_BRANCH is the branch whose SKILL.md text gets measured, so it is not
+    a detail this tool may pick on its own: the rollout table treats any change
+    to a skill text as invalidating the prior phase's approval. `idea-batch-agent`
+    was merged and deleted, which makes every run here die inside `git show`
+    with a message about a bad revision — true, but it hides the actual choice.
+    """
+    probe = subprocess.run(
+        ["git", "-C", str(vault), "rev-parse", "--verify", "--quiet", SKILL_BRANCH],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if probe.returncode == 0:
+        return
+    raise SystemExit(
+        f"skill branch '{SKILL_BRANCH}' does not exist in {vault}.\n"
+        "  This gate measures the SKILL.md text on a pinned branch, and that\n"
+        "  branch has since been merged and deleted. Repointing it at `main`\n"
+        "  would silently measure DIFFERENT skill text than the scores on file,\n"
+        "  so it is a deliberate choice, not a default: set SKILL_BRANCH to the\n"
+        "  ref you mean to score, and re-measure rather than comparing across it."
+    )
+
+
 def git_show(vault: Path, path: str) -> str:
     return subprocess.run(
         ["git", "-C", str(vault), "show", f"{SKILL_BRANCH}:{path}"],
@@ -155,6 +201,7 @@ def corrupt(summary: str, mode: str) -> str:
 # ----------------------------------------------------------------------------- build
 def cmd_build(a):
     vault = Path(a.vault)
+    require_skill_branch(vault)
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
     rnd = random.Random(20260828)
@@ -189,7 +236,7 @@ def cmd_build(a):
                     "uv",
                     "run",
                     "python",
-                    "_scripts/build-lane-records.py",
+                    vault_script(vault, "build-lane-records.py"),
                     "--type-dir",
                     type_dir,
                     "--output",
@@ -386,7 +433,7 @@ def fact_token_verify(vault, proposals):
             "uv",
             "run",
             "python",
-            "_scripts/fact-token-verify.py",
+            vault_script(vault, "fact-token-verify.py"),
             "--from-json",
             str(tmp),
             "--json",
