@@ -85,6 +85,11 @@ python3 "$HELM_DEPLOY" kube-prometheus-stack "$NAMESPACE" \
 	--create-namespace \
 	-f "$GRAFANA_DIR/helm/kube-prometheus-stack-values.yaml"
 
+# Apply after kube-prometheus-stack so the generated Prometheus PVC exists for
+# the direct recurring-job labels. This is intentionally scoped to Prometheus;
+# the Longhorn default recurring-job group applies to every volume.
+bash "$GRAFANA_DIR/apply-prometheus-filesystem-trim.sh"
+
 echo -e "\nDeploying k8s-monitoring..."
 python3 "$HELM_DEPLOY" k8s-monitoring "$NAMESPACE" \
 	grafana/k8s-monitoring \
