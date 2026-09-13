@@ -43,9 +43,14 @@ spec:
             # signal that points at trim/snapshot review, not proven capacity
             # pressure -- so it must not reach Slack as an actionable warning.
             # Real capacity pressure is KubePersistentVolumeFillingUp, which now
-            # routes to the same `storage` receiver. Severity `info` also lets
-            # InfoInhibitor suppress it when a real storage alert fires for the
-            # same namespace.
+            # routes to the same `storage` receiver.
+            #
+            # Note the `info` severity is also what the chart's InfoInhibitor
+            # suppresses: that rule fires per namespace when a namespace has info
+            # alerts but no warning/critical sibling, and then inhibits them. So
+            # this alert is regularly inhibited while longhorn-system is otherwise
+            # quiet. It remains firing in Prometheus; review the expression
+            # directly rather than relying on it appearing in Alertmanager.
             severity: info
             alertgroup: storage
             namespace: longhorn-system

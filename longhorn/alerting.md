@@ -22,12 +22,43 @@ idempotent safety net for clusters where the values have not been re-applied,
 not a new requirement. The Grafana deploy script calls this script after
 installing the monitoring CRDs.
 
+### Rolling out an alert change
+
+The rules, the routing config and the Helm values are applied by **two
+different scripts**, in this order:
+
+```bash
+# 1. Helm values (kube-prometheus-stack; carries defaultRules and, since
+#    2026-09-13, the additionalRuleGroupLabels that route the chart's
+#    kubernetesStorage rules). Runs Helm, then calls the script below.
+bash /path/to/homelab/grafana/deploy-grafana.sh
+
+# 2. PrometheusRule + AlertmanagerConfig (no Helm). Called by step 1, but run
+#    it alone when only the rules or routing changed.
+bash /path/to/homelab/longhorn/deploy-storage-alerts.sh
+```
+
+A change to `longhorn/alerts.yaml` or `grafana/manifests/storage-alert-routing.yaml`
+needs only step 2. A change to
+`grafana/helm/kube-prometheus-stack-values.yaml` needs step 1 (Helm) — step 2
+applies no values and will not pick it up. Both are needed when a change spans
+them, as the 2026-09-13 signal split did.
+
 The routing object lives in `grafana` so it can reference the existing
 `alertmanager-slack-webhook` Secret's `api-url` key. It matches
 `alertgroup="storage"` across workload namespaces and sends firing and resolved
 notifications to `#cron-homelab`, using the same webhook as the power alert.
-Other namespaces retain namespace-scoped AlertmanagerConfig routing.
+It excludes `severity="info"`, so the informational `LonghornVolumeSpaceHigh`
+stays out of Slack while the actionable `KubePersistentVolumeFillingUp` reaches
+it. Other namespaces retain namespace-scoped AlertmanagerConfig routing.
 The installed CRD must support this matcher strategy; server dry-run validates it.
+
+Note that the chart's `kubernetesStorage` group applies the `alertgroup: storage`
+label to all five of its rules — `KubePersistentVolumeFillingUp` (critical and
+warning), `KubePersistentVolumeInodesFillingUp` (critical and warning) and
+`KubePersistentVolumeErrors` (critical). All five now page `#cron-homelab`,
+where previously none did. `KubePersistentVolumeErrors` in particular is new
+coverage: it fires on a PV whose phase or reason indicates failure.
 
 As of the initial deployment, the existing Garage rules do **not** route to
 Slack: the previous loaded configuration matched only `WembyOnBattery` and sent
