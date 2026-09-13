@@ -63,7 +63,8 @@ four intentionally detached volumes. Native metrics carry `pvc_namespace` and
 | --------------------------------- | --------------------------------------------------------- | --------- |
 | LonghornVolumeFaulted             | `longhorn_volume_robustness{state="faulted"} == 1`        | Immediate |
 | LonghornVolumeDegraded            | Labeled degraded robustness                               | 15m       |
-| LonghornVolumeSpaceHigh           | Actual replica bytes / configured bytes > 85%             | 15m       |
+| LonghornVolumeSpaceHigh           | Actual replica bytes / configured bytes > 85% (info)      | 15m       |
+| KubePersistentVolumeFillingUp     | Free filesystem bytes / capacity < 3% or < 15% + 4d trend | 1m / 1h   |
 | LonghornReplicaFailed             | Replica state `error`                                     | 5m        |
 | LonghornVolumeRebuildChurn        | Six changes in rebuilding replica count in 30m            | Immediate |
 | LonghornEngineStateChurn          | Four changes in engine running state in 30m               | Immediate |
@@ -96,18 +97,83 @@ filesystem usage, snapshots and retention; it is not authorization to delete
 snapshots or a retained model cache. The initial rules identified
 `viking/llama-cuda-model-cache` at 91.55%, an intentionally retained warm cache.
 
-### Quick fix: bump the volume size
+### Two capacity signals, two different questions
+
+Storage capacity is covered by two alerts that measure different things. Knowing
+which one fired is the whole diagnosis:
+
+| Alert                         | Measures                                | Means                              |
+| ----------------------------- | --------------------------------------- | ---------------------------------- |
+| `KubePersistentVolumeFillingUp` | Live filesystem bytes vs capacity (kubelet) | The application is genuinely running out of room |
+| `LonghornVolumeSpaceHigh`     | Longhorn allocated bytes vs configured size | Allocation accounting drifted above the live footprint |
+
+`KubePersistentVolumeFillingUp` is actionable: the filesystem is nearly full and
+the workload will fail. It routes to `#cron-homelab` at `warning`/`critical`.
+
+`LonghornVolumeSpaceHigh` is deliberately `severity: info` and is filtered out
+of the Slack route. `longhorn_volume_actual_size_bytes` counts allocated replica
+blocks — including blocks whose filesystem entries were deleted but never
+discarded — so it can approach 100% while the filesystem is nearly empty. On
+2026-09-13 it read 93.8% for the Prometheus PVC, whose ext4 filesystem held only
+2.78 GiB of 11.71 GiB (23.7%) with zero snapshots. It remains in Prometheus for
+dashboards and review; it is not a page.
+
+### First response: compare live usage against allocation
+
+Before changing anything, answer "is the filesystem actually full?":
+
+```bash
+# Live usage as the workload sees it
+kubectl -n <namespace> exec <pod> -- df -h <mount>
+# The same thing from Prometheus, as the actionable alert measures it
+# kubelet_volume_stats_used_bytes / kubelet_volume_stats_capacity_bytes{namespace="<ns>",persistentvolumeclaim="<pvc>"}
+# Longhorn's allocated view, as the informational alert measures it
+# longhorn_volume_actual_size_bytes{volume="<volume>"} / longhorn_volume_capacity_bytes{volume="<volume>"}
+```
+
+If live usage is high and rising, the workload genuinely needs space — expand it
+(below) or reclaim data. If live usage is low but Longhorn allocation is high,
+the gap is deleted-but-undiscarded blocks: **trim, do not expand.** Expansion
+raises Longhorn's denominator while the un-discarded blocks remain, so the ratio
+never fixes the cause and the alert recurs.
+
+### Reclaim: free the un-discarded blocks
+
+Invoke Longhorn's safe whole-filesystem FITRIM path — non-destructive, no data
+touched:
+
+```bash
+# Via the Longhorn UI (Volume > ... > Trim Filesystem) or the manager API.
+# Do NOT run fstrim inside the workload container: application containers
+# normally have CapEff 0 and the call fails silently on permissions.
+```
+
+A scheduled job is preferable to a manual trim for volumes with continuous
+delete churn; `grafana/manifests/prometheus-filesystem-trim.yaml` is the
+existing example. Do not enable the global
+`remove-snapshots-during-filesystem-trim` setting to achieve this — it
+retroactively marks preceding snapshot chains as removed cluster-wide and would
+endanger deliberate rollback snapshots.
+
+### Expand: only for genuinely full, stable footprints
+
+Expansion is appropriate only once the first-response check above shows the
+filesystem itself is under pressure (live usage near capacity), or the volume is
+a model cache whose content is genuinely close to its size. It is never the fix
+for a low-usage volume whose Longhorn allocation drifted — trim those instead.
 
 For volumes with a **small, stable footprint** — an LLM model cache (weights
-are fixed once downloaded), a config volume, a slow-growing database — the
-cheapest fix for a sustained `LonghornVolumeSpaceHigh` is expansion, not
-snapshot surgery. It sidesteps the delete→purge→trim sequence (IMPR-1123) and
-never touches data.
+are fixed once downloaded), a config volume, a slow-growing database — expansion
+is cheaper than reclaim surgery. It sidesteps the delete→purge→trim sequence
+(IMPR-1123) and never touches data.
 
-Criteria: volume ≤ ~50 GiB, content grows slowly or not at all, and the extra
-capacity is cheap (a few GiB). Do NOT use this for volumes that grow
-unboundedly (Prometheus, Loki, media) — expansion just delays the next alert
-and masks the real problem; right-size or reclaim instead.
+Criteria: live usage confirmed high, volume ≤ ~50 GiB, content grows slowly or
+not at all, and the extra capacity is cheap (a few GiB). Do NOT use this for
+volumes that grow unboundedly (Prometheus, Loki, media) — expansion just delays
+the next alert and masks the real problem; right-size or reclaim instead.
+
+Note that expansion is irreversible: a PVC can grow but never shrink, so a bump
+made for an accounting artifact permanently consumes capacity.
 
 Procedure:
 

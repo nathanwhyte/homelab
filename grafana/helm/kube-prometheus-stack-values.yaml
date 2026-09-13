@@ -116,6 +116,18 @@ defaultRules:
     node: true
     nodeExporterAlerting: true
     nodeExporterRecording: true
+  # 2026-09-13: the chart's kubelet-backed storage rules (KubePersistentVolumeFillingUp
+  # / InodesFillingUp) ship enabled but carry only `severity`, with no `alertgroup`.
+  # Both Alertmanager routes that reach Slack select on `alertgroup` (backup,
+  # storage), so these fired into the `null` receiver and were invisible. They are
+  # the REAL-usage counterpart to LonghornVolumeSpaceHigh: they read
+  # kubelet_volume_stats_available_bytes / capacity (<3% or <15% + 4-day
+  # prediction), not Longhorn allocated bytes. Labelling the group puts genuine
+  # capacity pressure in Slack, which is what lets LonghornVolumeSpaceHigh be
+  # demoted to `info` without losing coverage.
+  additionalRuleGroupLabels:
+    kubernetesStorage:
+      alertgroup: storage
 fullnameOverride: prom
 global:
   rbac:

@@ -12,6 +12,16 @@ spec:
       - name: alertgroup
         value: storage
         matchType: "="
+      # 2026-09-13: alertgroup=storage now spans two signals with different
+      # trustworthiness. KubePersistentVolumeFillingUp measures live filesystem
+      # usage and is actionable. LonghornVolumeSpaceHigh measures allocated
+      # replica bytes (including deleted-but-undiscarded blocks) and fired at
+      # 93.8% for a volume that was 23.7% full -- informational, not a page.
+      # Exclude info here so the demotion is real in Slack; the alert still
+      # exists in Prometheus for dashboards and trim review.
+      - name: severity
+        value: info
+        matchType: "!="
     groupBy: [namespace, alertname]
     groupWait: 30s
     groupInterval: 5m

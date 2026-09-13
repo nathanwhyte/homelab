@@ -35,12 +35,23 @@ spec:
             / max by (volume, pvc, pvc_namespace) (longhorn_volume_capacity_bytes) > 0.85
           for: 15m
           labels:
-            severity: warning
+            # Deliberately `info`, not `warning`: this expression measures Longhorn
+            # allocated size (actual_size includes deleted-but-undiscarded blocks),
+            # NOT live filesystem usage. On 2026-09-13 it read 0.938 for the
+            # Prometheus PVC whose ext4 filesystem held only 2.78 GiB of 11.71 GiB
+            # (23.7%) with zero snapshots. It is an allocation-accounting drift
+            # signal that points at trim/snapshot review, not proven capacity
+            # pressure -- so it must not reach Slack as an actionable warning.
+            # Real capacity pressure is KubePersistentVolumeFillingUp, which now
+            # routes to the same `storage` receiver. Severity `info` also lets
+            # InfoInhibitor suppress it when a real storage alert fires for the
+            # same namespace.
+            severity: info
             alertgroup: storage
             namespace: longhorn-system
           annotations:
-            summary: "Longhorn volume {{ $labels.volume }} exceeds 85% actual size"
-            description: "PVC {{ $labels.pvc_namespace }}/{{ $labels.pvc }} actual/capacity ratio is {{ $value }}. Actual size includes snapshot blocks; compare filesystem usage before choosing expansion or reclaim."
+            summary: "Longhorn volume {{ $labels.volume }} allocation exceeds 85% of configured size"
+            description: "PVC {{ $labels.pvc_namespace }}/{{ $labels.pvc }} actual/capacity ratio is {{ $value }}. This counts allocated replica bytes, including deleted-but-undiscarded blocks, so it is NOT proof of capacity pressure. Compare live filesystem usage (kubelet_volume_stats_used_bytes) first; if usage is low, the fix is a filesystem trim (see longhorn/alerting.md), not expansion."
         - alert: LonghornReplicaFailed
           expr: max by (volume, replica, node) (longhorn_replica_state{state="error"}) == 1
           for: 5m

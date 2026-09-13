@@ -60,6 +60,13 @@ tests:
       - expr: count(ALERTS{alertname="LonghornVolumeSpaceHigh",volume="boundary"}) or vector(0)
         eval_time: 20m
         exp_samples: [{labels: '{}', value: 0}]
+      # The allocation ratio is an accounting-drift signal, not a capacity page.
+      # Asserting the label keeps it out of the Slack route
+      # (grafana/manifests/storage-alert-routing.yaml excludes severity=info) so a
+      # future edit cannot silently re-promote it to a paging warning.
+      - expr: count(ALERTS{alertname="LonghornVolumeSpaceHigh",alertstate="firing",severity="info",alertgroup="storage"})
+        eval_time: 15m
+        exp_samples: [{labels: '{}', value: 1}]
   - name: init blocked PVC pod alerts once and completed jobs are excluded
     interval: 1m
     input_series:
