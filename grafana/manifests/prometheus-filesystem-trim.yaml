@@ -1,0 +1,23 @@
+# Weekly whole-filesystem discard for Prometheus' disposable Longhorn volume.
+#
+# Prometheus retention deletes old TSDB blocks, but an ext4 delete alone does
+# not deallocate the corresponding Longhorn replica-image blocks. This job
+# invokes Longhorn's safe whole-filesystem FITRIM path so actualSize reflects
+# live usage rather than accumulating deleted blocks. It is deliberately a
+# direct job, not a `default` group member: every volume inherits that group.
+apiVersion: longhorn.io/v1beta2
+kind: RecurringJob
+metadata:
+  name: prometheus-filesystem-trim-weekly
+  namespace: longhorn-system
+spec:
+  # Sunday 03:30 local cluster time: well before the 04:00/04:30 snapshot jobs.
+  cron: "30 3 * * 0"
+  task: filesystem-trim
+  groups: []
+  # Longhorn ignores retention for filesystem-trim jobs and stores it as 0.
+  retain: 0
+  concurrency: 1
+  labels:
+    ns: grafana
+    pvc: prometheus-prom-prometheus-db-prometheus-prom-prometheus-0
