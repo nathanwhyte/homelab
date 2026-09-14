@@ -82,22 +82,37 @@ gh workflow run "vault checks" -R nathanwhyte/compendium         # workflow_disp
 
 ## Operational notes
 
-- **Capacity and placement**: `maxRunners: 8` with `minRunners: 1` (one pod
-  stays warm so the first job of a burst skips a cold start; the chart default
-  is 0, scale to zero). vault-checks runs four parallel jobs per push
-  (`script suites (unit)` ∥ `script suites (e2e)`, `lint`, `formatting`), and a
-  run peaks at 4–5 pods because the e2e lane holds its pod while the other
-  lanes finish — so 8 covers two concurrent runs. Runner pods are spread across
-  manu and wemby by a soft `topologySpreadConstraint` (`maxSkew: 1`,
-  `whenUnsatisfiable: ScheduleAnyway`) — without it they all land on wemby,
-  because the runner image is cached only there and `ImageLocality` outweighs
-  the resource-fit scores that favour the emptier manu. Verify placement after a
-  values change:
+- **Capacity and placement**: `maxRunners: 8` with `minRunners: 4`. vault-checks
+  runs four parallel jobs per push (`script suites (unit)` ∥ `script suites
+  (e2e)`, `lint`, `formatting`), and a run peaks at 4–5 pods because the e2e
+  lane holds its pod while the other lanes finish — so 8 covers two concurrent
+  runs. Four warm runners (not 1) means a push starts immediately: pods need
+  create → schedule → pull → register before GitHub can assign a job, and with
+  one warm pod the rest of the run queues behind that lead time. Runner pods are
+  spread across manu and wemby by a soft `topologySpreadConstraint`
+  (`maxSkew: 1`, `whenUnsatisfiable: ScheduleAnyway`) — without it they all land
+  on wemby, because the runner image is cached only there and `ImageLocality`
+  outweighs the resource-fit scores that favour the emptier manu. Verify
+  placement after a values change:
 
   ```bash
   kubectl get pods -n arc-runners \
     -o custom-columns=NAME:.metadata.name,NODE:.spec.nodeName
   ```
+
+- **Measured runner footprint** (1h Prometheus sample, 49 pods; see the comment
+  block on `resources` in `runner-scale-set-compendium-values.yaml`): idle
+  ~37 MiB / ~4m CPU, median ~425 MiB / ~333m, peak 736 MiB / 1.14 cores.
+  Requests are 512Mi/500m and limits 2Gi/2 — the 2-core CPU limit was already
+  right (57% peak, 2.8% CFS throttling), while the memory limit came down from
+  the 4Gi BUG-1099 set for a `pre-commit --all-files` spike that
+  `PRE_COMMIT_NO_CONCURRENCY=1` (IMPR-1131) has since removed.
+- **Cold start is ~1s, not the bottleneck**: `container_start_time_seconds`
+  minus `kube_pod_created` measured a median of 1.0s (max 26s, and the 26s
+  cases pulled the 679MB runner image on a node that lacked it). `imagePullPolicy`
+  is `Always`, but layers are node-cached so the normal path is a fast manifest
+  check. The cost of a fresh pod is therefore lead time before GitHub can assign
+  a job, not pull time — which is what `minRunners` covers.
 
 - **Egress isolation** (`network-policies.yaml`, enforced by k3s's embedded
   kube-router NetworkPolicy controller): runner pods in `arc-runners` can

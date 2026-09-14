@@ -26,8 +26,14 @@ controllerServiceAccount:
   namespace: arc-systems
   name: arc-gha-rs-controller
 
-# minRunners: 1 keeps one runner pod warm so the first job of a burst skips a
-# cold start; the chart's own default is 0 (scale to zero when idle).
+# minRunners: 4 — measured cold start is ~1s for a pod whose node already has
+# the runner image, so the penalty for NOT keeping one warm is small. The
+# reason to keep four is capacity lead time, not cold start: a pod needs
+# create -> schedule -> pull -> register before GitHub can hand it a job, and
+# with 1 warm pod the remaining lanes of a run queue behind that. Four covers a
+# full vault-checks run's parallel jobs (script suites unit ∥ e2e, lint,
+# formatting), so a push starts immediately instead of waiting for the set to
+# grow. Cost is four idle pods (~37 MiB and ~4m CPU each between jobs).
 #
 # maxRunners: 8 — vault-checks runs FOUR parallel jobs per push, so 8 is
 # exactly two concurrent full runs' worth of work. Verified live at 7 with two
@@ -36,7 +42,7 @@ controllerServiceAccount:
 # per-run demand is 4–5 pods (a run's e2e lane holds its pod while the other
 # lanes finish), so 8 covers two runs and absorbs the +1 that overshoot would
 # otherwise queue behind.
-minRunners: 1
+minRunners: 4
 maxRunners: 8
 
 # No containerMode: vault-checks runs plain steps only (no `container:` jobs,
@@ -122,10 +128,29 @@ template:
             drop: ["ALL"]
           seccompProfile:
             type: RuntimeDefault
+        # Right-sized from a 1h Prometheus sample (49 runner pods,
+        # container_memory_working_set_bytes / container_cpu_usage_seconds_total
+        # + container_cpu_cfs_*), cross-checked against `kubectl top`:
+        #   memory  idle ~37Mi, median 425Mi, PEAK 736Mi  (limit was 4Gi = 5.6x)
+        #   CPU     idle ~4m,   median 333m, PEAK 1.14 cores (limit 57% used)
+        #   CFS throttling 2.8% of periods.
+        #
+        # Memory limit 4Gi was set by BUG-1099 for a `pre-commit --all-files`
+        # spike on a 1827-file vault (~2GB). IMPR-1131 then added
+        # PRE_COMMIT_NO_CONCURRENCY=1, which removed the os.cpu_count()
+        # fan-out that caused it — observed peak is now 736Mi. 2Gi keeps 2.7x
+        # headroom over the worst pod while halving worst-case node exposure:
+        # with the spread constraint pinning 4 pods per node, 4x4Gi was 103%
+        # of allocatable; 4x2Gi is 50%.
+        #
+        # CPU request was under-provisioned: median 333m against a 250m
+        # request, so runners routinely exceed what the scheduler reserved.
+        # 500m matches the p90 (560m). The 2-core limit is left alone — peak
+        # was 1.14 cores with only 2.8% throttling, so it is already correct.
         resources:
           requests:
-            cpu: 250m
-            memory: 1Gi
+            cpu: 500m
+            memory: 512Mi
           limits:
             cpu: "2"
-            memory: 4Gi
+            memory: 2Gi
