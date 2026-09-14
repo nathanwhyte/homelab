@@ -111,8 +111,31 @@ spec:
               # operations in one pod. Keep memory capped so timmy still has
               # headroom for model runtime caches and node-level services.
               # 2026-07-06 (IMPR-1038): 4Gi -> 2Gi; 7d peak 1.4Gi, limit keeps burst room.
-              cpu: "4"
-              memory: 2Gi
+              #
+              # 2026-09-14 (BUG-1130): cpu 4 -> 500m, memory 2Gi -> 3Gi.
+              # Prometheus, 2d window ending 17:00Z (before the manu clock cap
+              # and the incident-response scale-downs, neither of which touches
+              # this pod — it is pinned to timmy):
+              #   CPU     peak 101m, p99 52m, p95 21m, mean 13m
+              #   memory  peak 2606Mi
+              # The 4-core request was never measured: IMPR-1038 right-sized
+              # memory on the line above and CPU was out of its scope. It
+              # reserved half of timmy's 8 schedulable cores on a node running
+              # at 3%, which blocked runner placement there. 500m keeps ~5x
+              # headroom over peak and matches the other viking deployments.
+              #
+              # Memory moves the other way: IMPR-1038's 2Gi was correct against
+              # a 1.4Gi peak in July, but the footprint has grown ~80% since and
+              # the pod now sits above its own request, making it an eviction
+              # candidate under node pressure. 3Gi restores ~18% headroom.
+              #
+              # Limits unchanged — burst room for indexing is still wanted, and
+              # nothing here was measured against them. Prometheus retention is
+              # 3d, so no bulk-sync run is guaranteed to be inside the window;
+              # re-check CPU after a full compendium sync before trusting 500m
+              # as a long-term floor.
+              cpu: 500m
+              memory: 3Gi
             limits:
               cpu: "12"
               memory: 8Gi
