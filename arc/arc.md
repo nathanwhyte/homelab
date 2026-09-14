@@ -82,9 +82,22 @@ gh workflow run "vault checks" -R nathanwhyte/compendium         # workflow_disp
 
 ## Operational notes
 
-- **Scale-to-zero is the chart default** (`minRunners`/`maxRunners` unset →
-  scale down to 0 when idle). We set `maxRunners: 3` to match vault-checks'
-  three parallel jobs and protect the cluster.
+- **Capacity and placement**: `maxRunners: 7` with `minRunners: 1` (one pod
+  stays warm so the first job of a burst skips a cold start; the chart default
+  is 0, scale to zero). vault-checks runs four parallel jobs per push
+  (`script suites (unit)` ∥ `script suites (e2e)`, `lint`, `formatting`), and
+  concurrent pushes from open writer branches multiply that against the one
+  shared cap. Runner pods are spread across manu and wemby by a soft
+  `topologySpreadConstraint` (`maxSkew: 1`, `whenUnsatisfiable: ScheduleAnyway`)
+  — without it they all land on wemby, because the runner image is cached only
+  there and `ImageLocality` outweighs the resource-fit scores that favour the
+  emptier manu. Verify placement after a values change:
+
+  ```bash
+  kubectl get pods -n arc-runners \
+    -o custom-columns=NAME:.metadata.name,NODE:.spec.nodeName
+  ```
+
 - **Egress isolation** (`network-policies.yaml`, enforced by k3s's embedded
   kube-router NetworkPolicy controller): runner pods in `arc-runners` can
   reach cluster DNS and the public internet, and nothing in RFC1918 /
