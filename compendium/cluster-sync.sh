@@ -33,6 +33,14 @@
 #   compendium/cluster-sync.sh --follow
 #   compendium/cluster-sync.sh -- --include-active --no-wait "bugs/dipdash/BUG-004-*.md"
 #
+# This is the MANUAL path. compendium-sync-cronjob.yaml (IMPR-1154) dispatches
+# the same Job on a schedule; it ships suspended, so until someone unsuspends it
+# this script is the only thing that runs a sync. The two share a pod spec that
+# check-sync-spec-parity.py asserts stays equivalent — change the Job template
+# here and you must change the CronJob too. Once the CronJob is live, a manual
+# dispatch can collide with a scheduled one: the RWO state claim makes the
+# second pod stall rather than corrupt, and --status shows which run wrote last.
+#
 # Bootstraps (idempotent): compendium namespace + state PVC + sync RBAC (the
 # in-Job heal's SA/Role/RoleBinding), secret openviking-api-key (copied from
 # viking/openviking-api-key — Secrets don't cross namespaces).

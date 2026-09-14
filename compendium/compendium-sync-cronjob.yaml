@@ -1,0 +1,156 @@
+# Bounded reconciliation trigger for the compendium -> OpenViking sync
+# (IMPR-1154). Lands SUSPENDED; see compendium docs/plans/2026-09-13-IMPR-1154-*.
+#
+# Why a CronJob rather than a merge-dispatched GitHub Actions workflow:
+#
+#   * Trigger latency is swamped by delivery latency. The 2026-09-14 backlog run
+#     took 16m03s for 254 operations, ten minutes of it polling an ingestion
+#     queue that had climbed to 1268 pending. Firing 2 minutes after a merge
+#     instead of within 15 does not change when anything becomes searchable.
+#   * `--changed` coalesces by construction. Its work list is watermark->HEAD, so
+#     one run sweeps every revision landed since the last. A per-merge trigger
+#     would mint a Job per revision (main took 71 commits in the 24h to
+#     2026-09-14, 14 in its busiest hour), most finding nothing to deliver and
+#     stalling on the RWO attach behind the first.
+#   * concurrencyPolicy: Forbid is real mutual exclusion, enforced by the
+#     controller. cluster-sync.sh documents its own active-Job probe as
+#     check-then-act with no lock.
+#   * No CI dependency. On 2026-09-14 the ARC scale set sat at min=0 max=0
+#     against committed values of 4/8, five runs queued and unnoticed.
+#
+# The pod spec below MIRRORS compendium-sync-job.template.yaml. They must stay
+# byte-equivalent in image digest, serviceAccountName, env, volume and
+# resources; the only deliberate differences are JOB_NAME (downward API here,
+# envsubst there), SYNC_ARGS (fixed here, operator-overridable there), and
+# backoffLimit. Change one, change the other.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: compendium-sync
+  namespace: compendium
+  labels:
+    app: compendium-sync
+spec:
+  # Offset off the :00/:15/:30/:45 crowd (llama/ollama-warm runs */15) so a
+  # sync does not contend with unrelated cluster work on the quarter hour.
+  schedule: "7,22,37,52 * * * *"
+  timeZone: Etc/UTC
+  # Landed off. Unsuspend only after the Phase 2 drills:
+  #   kubectl patch cronjob compendium-sync -n compendium -p '{"spec":{"suspend":false}}'
+  suspend: true
+  # The single-writer contract. Forbid is what makes this safe to run on a short
+  # interval: a run that overruns its slot blocks the next rather than racing it
+  # for the RWO state claim.
+  concurrencyPolicy: Forbid
+  # A missed slot (controller restart, node pressure) is retried for 10 minutes,
+  # then skipped — the next slot is only 15 minutes out and --changed is
+  # cumulative, so nothing is lost by giving up.
+  startingDeadlineSeconds: 600
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    metadata:
+      labels:
+        app: compendium-sync
+    spec:
+      completions: 1
+      parallelism: 1
+      # Lower than the manual template's 3: a scheduled run that fails has its
+      # next attempt 15 minutes away, and --changed re-derives the same work
+      # from the unadvanced watermark. Retrying hard in-place mostly delays the
+      # failure becoming visible.
+      backoffLimit: 1
+      # Never replace a merely terminating pod — Failed waits for a terminal
+      # phase, preserving the single-writer contract across retries.
+      podReplacementPolicy: Failed
+      # Matches the manual template: the script owns a 2400s journal deadline;
+      # this bounds a pod that hangs outside that path, leaving 1200s for
+      # scheduling, image pull, package install and clone.
+      activeDeadlineSeconds: 3600
+      template:
+        metadata:
+          labels:
+            app: compendium-sync
+        spec:
+          restartPolicy: Never
+          # IMPR-1062 Phase 4: the SA carries the narrowly-scoped
+          # cross-namespace permission (sync-rbac.yaml) for the in-Job guarded
+          # OV heal-restart.
+          serviceAccountName: compendium-sync
+          containers:
+            - name: sync
+              image: python:3.13-slim@sha256:eb43ff125d8d58d7449dcba7d336c23bcac412f526d861db493b9994d8010280
+              command: ["bash", "-c"]
+              args:
+                - |
+                  set -euo pipefail
+                  apt-get update -qq && apt-get install -y -qq git >/dev/null
+                  pip install --quiet openviking==0.4.10
+                  # ov CLI requires a config file to exist even when env vars are set
+                  mkdir -p "$HOME/.openviking"
+                  printf '{"url":"%s","api_key":"%s","root_api_key":"%s","account":"default","user":"noot","timeout":300.0,"output":"table"}\n' \
+                    "$OPENVIKING_URL" "$OPENVIKING_KEY" "$OPENVIKING_KEY" > "$HOME/.openviking/ovcli.conf"
+                  # compendium-sync.py resolves the vault at ~/code/compendium.
+                  # Blobless clone (NOT --depth 1): --changed needs full history to
+                  # resolve the baseline SHA and run git diff; blobs fetch lazily so
+                  # only HEAD's files are downloaded at checkout.
+                  git clone --filter=blob:none "https://x-access-token:${GITHUB_TOKEN}@github.com/nathanwhyte/compendium.git" "$HOME/code/compendium"
+                  cd "$HOME/code/compendium"
+                  echo "vault at $(git rev-parse --short HEAD); running: sync ${SYNC_ARGS}"
+                  python3 _scripts/compendium-sync.py sync ${SYNC_ARGS}
+              env:
+                # Stream Python stdout line-by-line to the container log instead of
+                # block-buffering (BUG-1039 follow-up): a long-running entry (e.g. a
+                # busy-lock retry) would otherwise hide all prior output until exit.
+                - name: PYTHONUNBUFFERED
+                  value: "1"
+                # IMPR-1062 Phase 5: journal run_id + status-file job_name key on
+                # this. The manual template gets it from envsubst; a CronJob has no
+                # such substitution, so read the controller-set label instead. The
+                # receipt then names the real Job, exactly as a manual dispatch does.
+                - name: JOB_NAME
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: metadata.labels['batch.kubernetes.io/job-name']
+                # The canonical dispatch arguments, fixed here because a scheduled
+                # run has no operator to pass them. --deadline-seconds 2400 sits
+                # under activeDeadlineSeconds above.
+                - name: SYNC_ARGS
+                  value: >-
+                    --changed --yes
+                    --state-file /state/compendium-sync-state.json
+                    --no-wait --deadline-seconds 2400
+                # BUG-1121: makes the mounted claim the default for every mode, so
+                # state and the run's terminal receipt land on the PVC rather than
+                # a filesystem that dies with the pod.
+                - name: OV_SYNC_STATE
+                  value: /state/compendium-sync-state.json
+                - name: OPENVIKING_URL
+                  value: http://openviking.viking.svc.cluster.local:1933
+                - name: OPENVIKING_ACCOUNT
+                  value: default
+                - name: OPENVIKING_USER
+                  value: noot
+                - name: OPENVIKING_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: openviking-api-key
+                      key: api-key
+                - name: GITHUB_TOKEN
+                  valueFrom:
+                    secretKeyRef:
+                      name: compendium-git-token
+                      key: GITHUB_TOKEN
+              volumeMounts:
+                - name: sync-state
+                  mountPath: /state
+              resources:
+                requests:
+                  cpu: 100m
+                  memory: 256Mi
+                limits:
+                  memory: 1Gi
+          volumes:
+            - name: sync-state
+              persistentVolumeClaim:
+                claimName: compendium-sync-state-v2
