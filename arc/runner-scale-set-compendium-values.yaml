@@ -135,6 +135,31 @@ template:
         #   CPU     idle ~4m,   median 333m, PEAK 1.14 cores (limit 57% used)
         #   CFS throttling 2.8% of periods.
         #
+        # 2026-09-14 refresh (IMPR-1166), 2d sample ending 18:10Z. Values below
+        # are UNCHANGED — per-pod sizing still holds:
+        #   CPU     per-pod p90 522m against the 500m request; peak 739m
+        #   memory  per-pod peak 809Mi (was 736Mi, crept ~10%)
+        # What HAS drifted is aggregate, which nothing here bounds:
+        #   fleet peak 12.86 cores against 8 x 500m = 4 cores reserved (3.2x)
+        #   per node   wemby 8.45 of 12 allocatable, manu 6.77 of 16
+        #   CFS throttling 24.2% peak / 5.1% median (was 2.8% — ~9x)
+        # maxRunners bounds pod count and the 2-core limit bounds one pod, but
+        # the sum across concurrent pods on a node is unconstrained. IMPR-1166
+        # weighs the candidate mechanisms (lower per-pod limit, a LimitRange or
+        # ResourceQuota in arc-runners, or a larger request so scheduler fit
+        # caps placement) and is gated on measuring the vault-checks e2e-lane
+        # latency regression first. Do not change the values below until it
+        # lands: raising the CPU request would reserve headroom the pods do not
+        # use at p90 and would cut how many runners fit, for no measured gain.
+        #
+        # Reproducing: aggregate server-side or the query returns megabytes of
+        # per-series data, e.g.
+        #   max(max_over_time(rate(container_cpu_usage_seconds_total{
+        #     namespace="arc-runners",container="runner"}[5m])[2d:5m]))
+        # Note manu's CPU was capped to 1550 MHz at 2026-09-14T17:04Z for a
+        # cooling fault (BUG-1101); CPU-time figures sampled on manu after that
+        # point read high for identical work.
+        #
         # Memory limit 4Gi was set by BUG-1099 for a `pre-commit --all-files`
         # spike on a 1827-file vault (~2GB). IMPR-1131 then added
         # PRE_COMMIT_NO_CONCURRENCY=1, which removed the os.cpu_count()
