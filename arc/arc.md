@@ -100,13 +100,23 @@ gh workflow run "vault checks" -R nathanwhyte/compendium         # workflow_disp
     -o custom-columns=NAME:.metadata.name,NODE:.spec.nodeName
   ```
 
-- **Measured runner footprint** (1h Prometheus sample, 49 pods; see the comment
-  block on `resources` in `runner-scale-set-compendium-values.yaml`): idle
-  ~37 MiB / ~4m CPU, median ~425 MiB / ~333m, peak 736 MiB / 1.14 cores.
-  Requests are 512Mi/500m and limits 2Gi/2 — the 2-core CPU limit was already
-  right (57% peak, 2.8% CFS throttling), while the memory limit came down from
-  the 4Gi BUG-1099 set for a `pre-commit --all-files` spike that
-  `PRE_COMMIT_NO_CONCURRENCY=1` (IMPR-1131) has since removed.
+- **Measured runner footprint** (see the comment block on `resources` in
+  `runner-scale-set-compendium-values.yaml`, which is the source of truth and
+  carries the query forms). Original 1h sample over 49 pods: idle ~37 MiB / ~4m
+  CPU, median ~425 MiB / ~333m, peak 736 MiB / 1.14 cores. Re-measured
+  2026-09-14 over 2 days: **peak 809 MiB / 739m per pod, p90 CPU 522m**.
+  Requests are 512Mi/500m and limits 2Gi/2 — per-pod sizing still holds at the
+  refreshed numbers, and the memory limit came down from the 4Gi BUG-1099 set
+  for a `pre-commit --all-files` spike that `PRE_COMMIT_NO_CONCURRENCY=1`
+  (IMPR-1131) has since removed. What the refresh did change is CFS throttling,
+  now 15.2% peak as a deduplicated fleet ratio against the 2.8% the 1h sample
+  recorded; bounding aggregate per-node burn is tracked in IMPR-1166 and is not
+  a per-pod sizing question.
+  - Deduplicate before summing. Two ServiceMonitors (`prom-kubelet` and
+    `kube-prometheus-stack-kubelet`) scrape the same kubelet cAdvisor endpoint
+    and both carry `job="kubelet"`, so every container series exists twice and
+    `sum()` doubles. Use an inner `max by (pod)`. `max`/`quantile` are unaffected,
+    which is why the per-pod figures above needed no correction.
 - **Cold start is ~1s, not the bottleneck**: `container_start_time_seconds`
   minus `kube_pod_created` measured a median of 1.0s (max 26s, and the 26s
   cases pulled the 679MB runner image on a node that lacked it). `imagePullPolicy`
