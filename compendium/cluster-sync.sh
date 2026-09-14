@@ -101,6 +101,15 @@ status_report() {
 	if grep -q '"terminal": false' <<<"$out"; then
 		echo "note: terminal=false — this is a mid-run checkpoint: either a run is live right now, or the last run died mid-flight (SIGKILL/activeDeadline); check the job list above" >&2
 	fi
+	# BUG-1121: every mode now leaves a terminal receipt naming itself, so read
+	# "mode" before trusting "phase" — a bulk or legacy record describes that run,
+	# not the journal. "outstanding_run" is a journal run the record's own run did
+	# not own: it survives until a journaled run finishes it or --abandon-run
+	# clears it. Terminal phases: done, incomplete, diverged, idle (no run in
+	# progress), skipped (nothing attempted), refused (stopped before any work).
+	if grep -q '"outstanding_run": "' <<<"$out"; then
+		echo "note: outstanding_run is set — a journal run is still pinned in the state file and was NOT resolved by the run this record describes; finish it with a --changed run (or --retry-parked), or clear it with --abandon-run" >&2
+	fi
 }
 
 FOLLOW=0
@@ -210,6 +219,10 @@ if [ -n "$running" ]; then
 fi
 
 if [ "$#" -gt 0 ]; then
+	# A custom arg string replaces the default whole, so it usually carries no
+	# --state-file. The Job template sets OV_SYNC_STATE to the mounted claim, so
+	# the state file and the run's terminal receipt (BUG-1121) still land on the
+	# PVC; passing --state-file explicitly still overrides it.
 	export SYNC_ARGS="$*"
 else
 	# IMPR-1062 Phase 3: --deadline-seconds 2400 gives the journal a global
