@@ -51,11 +51,20 @@ are willing to watch temperatures, change `Environment=CAP_KHZ=` in the unit and
 
 ## Install
 
+Copy the files over, then run the installer with a real terminal:
+
 ```bash
-ssh -t manu-lan 'bash -s' < cpu/install-cpu-freq-cap.sh
+scp cpu/cpu-freq-cap cpu/cpu-freq-cap.service cpu/install-cpu-freq-cap.sh manu-lan:/tmp/
+ssh -t manu-lan 'bash /tmp/install-cpu-freq-cap.sh'
 ```
 
-`ssh -t` because `sudo` on `manu` needs a password. Idempotent.
+Idempotent — re-running re-installs and restarts the unit.
+
+**Do not pipe the installer over stdin.** `ssh -t host 'bash -s' < script` fails
+twice over: the script arrives without its sibling files, and ssh will not
+allocate a pty when stdin is a redirect ("Pseudo-terminal will not be allocated
+because stdin is not a terminal"), so `sudo` has no terminal to prompt on and
+the run dies at the first privileged step. `sudo` on `manu` needs a password.
 
 ## Operate
 
