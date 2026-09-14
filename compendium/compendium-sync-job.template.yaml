@@ -80,6 +80,15 @@ spec:
             # this; without it the script falls back to "local-<epoch>".
             - name: JOB_NAME
               value: ${JOB_NAME}
+            # BUG-1121: the default dispatch passes --state-file explicitly, but
+            # a custom `cluster-sync.sh -- <args>` run replaces SYNC_ARGS whole,
+            # so a bulk run would otherwise fall back to the script default
+            # (~/.openviking/...) inside the container — writing its state and
+            # its terminal receipt to a filesystem that dies with the pod, and
+            # reading no journal from the PVC. This makes the mounted claim the
+            # default for every mode; an explicit --state-file still wins.
+            - name: OV_SYNC_STATE
+              value: /state/compendium-sync-state.json
             - name: OPENVIKING_URL
               value: http://openviking.viking.svc.cluster.local:1933
             - name: OPENVIKING_ACCOUNT
