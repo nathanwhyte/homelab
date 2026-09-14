@@ -29,12 +29,15 @@ controllerServiceAccount:
 # minRunners: 1 keeps one runner pod warm so the first job of a burst skips a
 # cold start; the chart's own default is 0 (scale to zero when idle).
 #
-# maxRunners: 7 — vault-checks runs FOUR parallel jobs per push (script suites
-# unit ∥ e2e, lint, formatting), and concurrent pushes from open writer branches
-# multiply that against a single cap, so 5 queued work. Seven pods fit manu +
-# wemby with the spread constraint below (≈4 each at 1Gi requested).
+# maxRunners: 8 — vault-checks runs FOUR parallel jobs per push, so 8 is
+# exactly two concurrent full runs' worth of work. Verified live at 7 with two
+# overlapping runs: the listener reported `assigned job=7 decision=7 max=7`
+# (saturated, queueing) and the pods split 4 manu / 4 wemby. Observed peak
+# per-run demand is 4–5 pods (a run's e2e lane holds its pod while the other
+# lanes finish), so 8 covers two runs and absorbs the +1 that overshoot would
+# otherwise queue behind.
 minRunners: 1
-maxRunners: 7
+maxRunners: 8
 
 # No containerMode: vault-checks runs plain steps only (no `container:` jobs,
 # no docker builds), so jobs execute directly in the runner container —

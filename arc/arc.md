@@ -82,16 +82,17 @@ gh workflow run "vault checks" -R nathanwhyte/compendium         # workflow_disp
 
 ## Operational notes
 
-- **Capacity and placement**: `maxRunners: 7` with `minRunners: 1` (one pod
+- **Capacity and placement**: `maxRunners: 8` with `minRunners: 1` (one pod
   stays warm so the first job of a burst skips a cold start; the chart default
   is 0, scale to zero). vault-checks runs four parallel jobs per push
-  (`script suites (unit)` ∥ `script suites (e2e)`, `lint`, `formatting`), and
-  concurrent pushes from open writer branches multiply that against the one
-  shared cap. Runner pods are spread across manu and wemby by a soft
-  `topologySpreadConstraint` (`maxSkew: 1`, `whenUnsatisfiable: ScheduleAnyway`)
-  — without it they all land on wemby, because the runner image is cached only
-  there and `ImageLocality` outweighs the resource-fit scores that favour the
-  emptier manu. Verify placement after a values change:
+  (`script suites (unit)` ∥ `script suites (e2e)`, `lint`, `formatting`), and a
+  run peaks at 4–5 pods because the e2e lane holds its pod while the other
+  lanes finish — so 8 covers two concurrent runs. Runner pods are spread across
+  manu and wemby by a soft `topologySpreadConstraint` (`maxSkew: 1`,
+  `whenUnsatisfiable: ScheduleAnyway`) — without it they all land on wemby,
+  because the runner image is cached only there and `ImageLocality` outweighs
+  the resource-fit scores that favour the emptier manu. Verify placement after a
+  values change:
 
   ```bash
   kubectl get pods -n arc-runners \
