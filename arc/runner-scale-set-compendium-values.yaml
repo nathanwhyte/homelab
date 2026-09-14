@@ -26,10 +26,15 @@ controllerServiceAccount:
   namespace: arc-systems
   name: arc-gha-rs-controller
 
-# Scale-to-zero: no runner pods exist between jobs. vault-checks runs three
-# parallel jobs (test / lint / formatting), so allow that many concurrent pods.
+# minRunners: 1 keeps one runner pod warm so the first job of a burst skips a
+# cold start; the chart's own default is 0 (scale to zero when idle).
+#
+# maxRunners: 7 — vault-checks runs FOUR parallel jobs per push (script suites
+# unit ∥ e2e, lint, formatting), and concurrent pushes from open writer branches
+# multiply that against a single cap, so 5 queued work. Seven pods fit manu +
+# wemby with the spread constraint below (≈4 each at 1Gi requested).
 minRunners: 1
-maxRunners: 5
+maxRunners: 7
 
 # No containerMode: vault-checks runs plain steps only (no `container:` jobs,
 # no docker builds), so jobs execute directly in the runner container —
@@ -63,7 +68,6 @@ listenerTemplate:
 template:
   spec:
     # Runner pods stay off timmy (control plane, heaviest memory load).
-    # manu/wemby both have headroom; let the scheduler pick between them.
     affinity:
       nodeAffinity:
         requiredDuringSchedulingIgnoredDuringExecution:
@@ -73,6 +77,28 @@ template:
                   operator: NotIn
                   values:
                     - timmy
+
+    # Without this every runner pod lands on wemby. The runner image (679MB) is
+    # cached only on wemby, and ImageLocality (weight 1) then outweighs the
+    # resource-fit scores that favour the emptier manu (manu ~62 vs wemby ~38
+    # before locality), so the scheduler sees a two-node eligible set and picks
+    # one of them until it fills. The image is pulled on first use regardless;
+    # the spread is what actually uses manu's headroom instead of stacking all
+    # CI on the cluster's slowest CPU (i7-8750H vs manu's Ryzen 7 1700).
+    #
+    # maxSkew 1 on the hostname: PodTopologySpread carries weight 2, so it wins
+    # over ImageLocality's 1 and flips the decision. ScheduleAnyway (not
+    # DoNotSchedule) is deliberate — skew is a preference, and a hard constraint
+    # would leave runners Pending rather than let them pile up on whichever node
+    # has room.
+    topologySpreadConstraints:
+      - maxSkew: 1
+        topologyKey: kubernetes.io/hostname
+        whenUnsatisfiable: ScheduleAnyway
+        labelSelector:
+          matchLabels:
+            app.kubernetes.io/component: runner
+
     containers:
       - name: runner
         # Custom image with uv/node/make preinstalled — built by
