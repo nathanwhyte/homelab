@@ -22,12 +22,43 @@ idempotent safety net for clusters where the values have not been re-applied,
 not a new requirement. The Grafana deploy script calls this script after
 installing the monitoring CRDs.
 
+### Rolling out an alert change
+
+The rules, the routing config and the Helm values are applied by **two
+different scripts**, in this order:
+
+```bash
+# 1. Helm values (kube-prometheus-stack; carries defaultRules and, since
+#    2026-09-13, the additionalRuleGroupLabels that route the chart's
+#    kubernetesStorage rules). Runs Helm, then calls the script below.
+bash /path/to/homelab/grafana/deploy-grafana.sh
+
+# 2. PrometheusRule + AlertmanagerConfig (no Helm). Called by step 1, but run
+#    it alone when only the rules or routing changed.
+bash /path/to/homelab/longhorn/deploy-storage-alerts.sh
+```
+
+A change to `longhorn/alerts.yaml` or `grafana/manifests/storage-alert-routing.yaml`
+needs only step 2. A change to
+`grafana/helm/kube-prometheus-stack-values.yaml` needs step 1 (Helm) — step 2
+applies no values and will not pick it up. Both are needed when a change spans
+them, as the 2026-09-13 signal split did.
+
 The routing object lives in `grafana` so it can reference the existing
 `alertmanager-slack-webhook` Secret's `api-url` key. It matches
 `alertgroup="storage"` across workload namespaces and sends firing and resolved
 notifications to `#cron-homelab`, using the same webhook as the power alert.
-Other namespaces retain namespace-scoped AlertmanagerConfig routing.
+It excludes `severity="info"`, so the informational `LonghornVolumeSpaceHigh`
+stays out of Slack while the actionable `KubePersistentVolumeFillingUp` reaches
+it. Other namespaces retain namespace-scoped AlertmanagerConfig routing.
 The installed CRD must support this matcher strategy; server dry-run validates it.
+
+Note that the chart's `kubernetesStorage` group applies the `alertgroup: storage`
+label to all five of its rules — `KubePersistentVolumeFillingUp` (critical and
+warning), `KubePersistentVolumeInodesFillingUp` (critical and warning) and
+`KubePersistentVolumeErrors` (critical). All five now page `#cron-homelab`,
+where previously none did. `KubePersistentVolumeErrors` in particular is new
+coverage: it fires on a PV whose phase or reason indicates failure.
 
 As of the initial deployment, the existing Garage rules do **not** route to
 Slack: the previous loaded configuration matched only `WembyOnBattery` and sent
@@ -63,7 +94,8 @@ four intentionally detached volumes. Native metrics carry `pvc_namespace` and
 | --------------------------------- | --------------------------------------------------------- | --------- |
 | LonghornVolumeFaulted             | `longhorn_volume_robustness{state="faulted"} == 1`        | Immediate |
 | LonghornVolumeDegraded            | Labeled degraded robustness                               | 15m       |
-| LonghornVolumeSpaceHigh           | Actual replica bytes / configured bytes > 85%             | 15m       |
+| LonghornVolumeSpaceHigh           | Actual replica bytes / configured bytes > 85% (info)      | 15m       |
+| KubePersistentVolumeFillingUp     | Free filesystem bytes / capacity < 3% or < 15% + 4d trend | 1m / 1h   |
 | LonghornReplicaFailed             | Replica state `error`                                     | 5m        |
 | LonghornVolumeRebuildChurn        | Six changes in rebuilding replica count in 30m            | Immediate |
 | LonghornEngineStateChurn          | Four changes in engine running state in 30m               | Immediate |
@@ -96,18 +128,113 @@ filesystem usage, snapshots and retention; it is not authorization to delete
 snapshots or a retained model cache. The initial rules identified
 `viking/llama-cuda-model-cache` at 91.55%, an intentionally retained warm cache.
 
-### Quick fix: bump the volume size
+### Two capacity signals, two different questions
+
+Storage capacity is covered by two alerts that measure different things. Knowing
+which one fired is the whole diagnosis:
+
+| Alert                         | Measures                                | Means                              |
+| ----------------------------- | --------------------------------------- | ---------------------------------- |
+| `KubePersistentVolumeFillingUp` | Live filesystem bytes vs capacity (kubelet) | The application is genuinely running out of room |
+| `LonghornVolumeSpaceHigh`     | Longhorn allocated bytes vs configured size | Allocation accounting drifted above the live footprint |
+
+`KubePersistentVolumeFillingUp` is actionable: the filesystem is nearly full and
+the workload will fail. It routes to `#cron-homelab` at `warning`/`critical`.
+
+`LonghornVolumeSpaceHigh` is deliberately `severity: info` and is filtered out
+of the Slack route. `longhorn_volume_actual_size_bytes` counts allocated replica
+blocks — including blocks whose filesystem entries were deleted but never
+discarded — so it can approach 100% while the filesystem is nearly empty. On
+2026-09-13 it read 93.8% for the Prometheus PVC, whose ext4 filesystem held only
+2.78 GiB of 11.71 GiB (23.7%) with zero snapshots. It remains in Prometheus for
+dashboards and review; it is not a page.
+
+### First response: compare live usage against allocation
+
+Before changing anything, answer "is the filesystem actually full?":
+
+```bash
+# Live usage as the workload sees it
+kubectl -n <namespace> exec <pod> -- df -h <mount>
+# The same thing from Prometheus, as the actionable alert measures it
+# kubelet_volume_stats_used_bytes / kubelet_volume_stats_capacity_bytes{namespace="<ns>",persistentvolumeclaim="<pvc>"}
+# Longhorn's allocated view, as the informational alert measures it
+# longhorn_volume_actual_size_bytes{volume="<volume>"} / longhorn_volume_capacity_bytes{volume="<volume>"}
+```
+
+If live usage is high and rising, the workload genuinely needs space — expand it
+(below) or reclaim data.
+
+If live usage is low but Longhorn allocation is high, **do not conclude
+"undiscarded blocks" yet.** Two different causes produce an identical gap, and
+only one of them is fixable by trim:
+
+```bash
+# How many snapshots does the volume hold, and how much do they account for?
+kubectl -n longhorn-system get snapshots.longhorn.io \
+  -l longhornvolume=<volume> \
+  -o custom-columns=NAME:.metadata.name,SIZE:.status.size,READY:.status.readyToUse
+# Backing-disk headroom on the node that holds the replica
+# longhorn_disk_usage_bytes / longhorn_disk_capacity_bytes
+```
+
+| Snapshots | Meaning | Action |
+| --------- | ------- | ------ |
+| None, or negligible size | Gap is deleted-but-undiscarded blocks | **Trim** (below) |
+| Present and material | Blocks are retained *by* the snapshots | Trim will not reclaim them — review retention and delete snapshots you have explicitly authorised, then trim |
+
+Longhorn's own [trim documentation](https://longhorn.io/docs/1.12.0/nodes-and-volumes/volumes/trim-filesystem/)
+is explicit that a filesystem trim cannot reclaim space held by a valid
+snapshot. Running one against a snapshot-driven gap is a no-op that looks like a
+failed remediation.
+
+In neither case is expansion the answer: it raises Longhorn's denominator while
+the retained or un-discarded blocks remain, so the ratio never fixes the cause
+and the alert recurs.
+
+Check the backing disk as well as the volume. Snapshots and undiscarded blocks
+consume space on the node's underlying disk, which per-PVC filesystem usage
+cannot see at all — see Longhorn's
+[space consumption guideline](https://longhorn.io/kb/space-consumption-guideline/).
+`LonghornDiskSpaceHigh` covers that layer.
+
+### Reclaim: free the un-discarded blocks
+
+Invoke Longhorn's safe whole-filesystem FITRIM path — non-destructive, no data
+touched:
+
+```bash
+# Via the Longhorn UI (Volume > ... > Trim Filesystem) or the manager API.
+# Do NOT run fstrim inside the workload container: application containers
+# normally have CapEff 0 and the call fails silently on permissions.
+```
+
+A scheduled job is preferable to a manual trim for volumes with continuous
+delete churn; `grafana/manifests/prometheus-filesystem-trim.yaml` is the
+existing example. Do not enable the global
+`remove-snapshots-during-filesystem-trim` setting to achieve this — it
+retroactively marks preceding snapshot chains as removed cluster-wide and would
+endanger deliberate rollback snapshots.
+
+### Expand: only for genuinely full, stable footprints
+
+Expansion is appropriate only once the first-response check above shows the
+filesystem itself is under pressure (live usage near capacity), or the volume is
+a model cache whose content is genuinely close to its size. It is never the fix
+for a low-usage volume whose Longhorn allocation drifted — trim those instead.
 
 For volumes with a **small, stable footprint** — an LLM model cache (weights
-are fixed once downloaded), a config volume, a slow-growing database — the
-cheapest fix for a sustained `LonghornVolumeSpaceHigh` is expansion, not
-snapshot surgery. It sidesteps the delete→purge→trim sequence (IMPR-1123) and
-never touches data.
+are fixed once downloaded), a config volume, a slow-growing database — expansion
+is cheaper than reclaim surgery. It sidesteps the delete→purge→trim sequence
+(IMPR-1123) and never touches data.
 
-Criteria: volume ≤ ~50 GiB, content grows slowly or not at all, and the extra
-capacity is cheap (a few GiB). Do NOT use this for volumes that grow
-unboundedly (Prometheus, Loki, media) — expansion just delays the next alert
-and masks the real problem; right-size or reclaim instead.
+Criteria: live usage confirmed high, volume ≤ ~50 GiB, content grows slowly or
+not at all, and the extra capacity is cheap (a few GiB). Do NOT use this for
+volumes that grow unboundedly (Prometheus, Loki, media) — expansion just delays
+the next alert and masks the real problem; right-size or reclaim instead.
+
+Note that expansion is irreversible: a PVC can grow but never shrink, so a bump
+made for an accounting artifact permanently consumes capacity.
 
 Procedure:
 
