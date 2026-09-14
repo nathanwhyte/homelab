@@ -1,0 +1,36 @@
+[Unit]
+# TEMPORARY mitigation for manu's cooling fault (BUG-1101). manu's CPU trips its
+# internal thermal limit under sustained load — 84-88 C die against a 42 C
+# motherboard with the cooler fan already at 2577 RPM, i.e. heat is not crossing
+# into the heatsink. Capping the clock cuts heat generation enough to keep the
+# node alive until the cooler is repasted/reseated.
+#
+# This is NOT a power cap. Zen 1 exposes no writable RAPL constraint on this
+# platform (/sys/class/powercap/intel-rapl:0 has no constraint_*_power_limit_uw
+# and reads enabled=0), so scaling_max_freq is the only lever. Power falls out
+# of it indirectly: P scales with frequency and with voltage squared, and the
+# lower P-state drops both.
+#
+# REMOVE THIS ONCE THE COOLER IS FIXED. It costs roughly half the CPU's peak
+# throughput. `systemctl disable --now cpu-freq-cap` restores full clocks
+# immediately; it does not need a reboot.
+Description=Temporary CPU frequency cap (cooling fault mitigation, BUG-1101)
+Documentation=https://github.com/nathanwhyte/homelab/blob/main/cpu/README.md
+After=multi-user.target
+ConditionPathExists=/sys/devices/system/cpu/cpu0/cpufreq/scaling_max_freq
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+
+# Target P-state in kHz. acpi-cpufreq on this CPU offers exactly three:
+# 3100000 (full), 2250000, 1550000. The value must be one of them — a request
+# between P-states is silently rounded DOWN by the governor, which is how an
+# earlier `cpupower --max 2200MHz` landed on 1550000 rather than 2250000.
+Environment=CAP_KHZ=1550000
+
+ExecStart=/usr/local/sbin/cpu-freq-cap apply
+ExecStop=/usr/local/sbin/cpu-freq-cap restore
+
+[Install]
+WantedBy=multi-user.target

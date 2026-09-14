@@ -1,0 +1,94 @@
+#!/usr/bin/env bash
+# Apply or restore a CPU frequency cap across every CPU.
+#
+# Installed to /usr/local/sbin/cpu-freq-cap and driven by cpu-freq-cap.service.
+# Temporary mitigation for manu's cooling fault (BUG-1101) — see cpu/README.md.
+#
+#   cpu-freq-cap apply     cap every CPU at $CAP_KHZ
+#   cpu-freq-cap restore   return every CPU to its hardware maximum
+#   cpu-freq-cap status    print per-CPU current/max, no changes
+set -euo pipefail
+shopt -s nullglob
+
+# nullglob so a host with no cpufreq policies yields an empty array and trips
+# the explicit check in write_all, rather than iterating over a literal glob.
+CPUFREQ_DIRS=(/sys/devices/system/cpu/cpu*/cpufreq)
+REF=/sys/devices/system/cpu/cpu0/cpufreq
+
+die() {
+	echo "cpu-freq-cap: $*" >&2
+	exit 1
+}
+
+# Refuse rather than write a value the governor would silently round down —
+# that rounding is exactly how an earlier attempt landed two P-states low.
+validate_cap() {
+	local want="$1" avail
+	[[ "$want" =~ ^[0-9]+$ ]] || die "CAP_KHZ must be an integer in kHz, got '$want'"
+
+	# scaling_available_frequencies is absent on some drivers (e.g. amd-pstate
+	# in active mode). Fall back to a range check against the hardware limits.
+	if [[ -r "$REF/scaling_available_frequencies" ]]; then
+		avail=$(<"$REF/scaling_available_frequencies")
+		for f in $avail; do
+			[[ "$f" == "$want" ]] && return 0
+		done
+		die "CAP_KHZ=$want is not an available P-state. Available: $avail"
+	fi
+
+	local lo hi
+	lo=$(<"$REF/cpuinfo_min_freq")
+	hi=$(<"$REF/cpuinfo_max_freq")
+	((want >= lo && want <= hi)) ||
+		die "CAP_KHZ=$want outside hardware range ${lo}-${hi}"
+	echo "cpu-freq-cap: no scaling_available_frequencies; accepted $want on range check" >&2
+}
+
+write_all() {
+	local value="$1" n=0
+	for d in "${CPUFREQ_DIRS[@]}"; do
+		[[ -w "$d/scaling_max_freq" ]] || die "$d/scaling_max_freq not writable (need root)"
+		echo "$value" >"$d/scaling_max_freq"
+		n=$((n + 1))
+	done
+	((n > 0)) || die "no cpufreq policies found"
+	echo "cpu-freq-cap: set scaling_max_freq=$value on $n CPUs"
+}
+
+# Verify the kernel actually took the value. A silently-rounded or rejected
+# write would otherwise leave the node uncapped while the unit reports success.
+verify() {
+	local want="$1" got
+	got=$(<"$REF/scaling_max_freq")
+	[[ "$got" == "$want" ]] ||
+		die "verification failed: asked for $want, kernel reports $got"
+	echo "cpu-freq-cap: verified $got"
+}
+
+case "${1:-}" in
+apply)
+	: "${CAP_KHZ:?CAP_KHZ must be set (see cpu-freq-cap.service)}"
+	validate_cap "$CAP_KHZ"
+	write_all "$CAP_KHZ"
+	verify "$CAP_KHZ"
+	;;
+restore)
+	max=$(<"$REF/cpuinfo_max_freq")
+	write_all "$max"
+	verify "$max"
+	;;
+status)
+	printf '%-8s %-12s %-12s %s\n' CPU CUR_KHZ MAX_KHZ HW_MAX_KHZ
+	for d in "${CPUFREQ_DIRS[@]}"; do
+		cpu=$(basename "$(dirname "$d")")
+		printf '%-8s %-12s %-12s %s\n' \
+			"$cpu" \
+			"$(<"$d/scaling_cur_freq")" \
+			"$(<"$d/scaling_max_freq")" \
+			"$(<"$d/cpuinfo_max_freq")"
+	done
+	;;
+*)
+	die "usage: cpu-freq-cap {apply|restore|status}"
+	;;
+esac
