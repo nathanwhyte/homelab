@@ -37,9 +37,14 @@
 # the same Job on a schedule; it ships suspended, so until someone unsuspends it
 # this script is the only thing that runs a sync. The two share a pod spec that
 # check-sync-spec-parity.py asserts stays equivalent — change the Job template
-# here and you must change the CronJob too. Once the CronJob is live, a manual
-# dispatch can collide with a scheduled one: the RWO state claim makes the
-# second pod stall rather than corrupt, and --status shows which run wrote last.
+# here and you must change the CronJob too.
+#
+# Once the CronJob is live, a manual dispatch CAN coincide with a scheduled one:
+# the CronJob's concurrencyPolicy: Forbid governs only Jobs it owns, and this
+# script's own overlap probe is skipped inside the pod. What serializes them is
+# OV_SYNC_LOCK on the shared /state claim — flock when both pods land on one
+# node, the ReadWriteOnce attach when they do not. The loser exits non-zero
+# naming the holder; --status then shows which run wrote last.
 #
 # Bootstraps (idempotent): compendium namespace + state PVC + sync RBAC (the
 # in-Job heal's SA/Role/RoleBinding), secret openviking-api-key (copied from

@@ -67,6 +67,11 @@ spec:
       # this bounds a pod that hangs outside that path, leaving 1200s for
       # scheduling, image pull, package install and clone.
       activeDeadlineSeconds: 3600
+      # Matches the manual template. The history limits above cap how many
+      # finished Jobs the CronJob keeps; this bounds how long any one of them
+      # lingers. Keeping both identical means a Job looks the same in
+      # `kubectl get jobs` however it was dispatched.
+      ttlSecondsAfterFinished: 86400
       template:
         metadata:
           labels:
@@ -125,6 +130,32 @@ spec:
                 # a filesystem that dies with the pod.
                 - name: OV_SYNC_STATE
                   value: /state/compendium-sync-state.json
+                # The cross-pod single-writer guard, and the reason this CronJob
+                # is safe to run alongside a manual cluster-sync.sh dispatch.
+                #
+                # concurrencyPolicy: Forbid only governs Jobs this CronJob owns —
+                # a manually dispatched Job is invisible to it. The script's own
+                # guards do not close that gap either: its flock defaults to
+                # ~/.openviking/compendium-sync.lock, which is private to each
+                # pod's filesystem, and check_cluster_sync_active() returns early
+                # when KUBERNETES_SERVICE_HOST is set, on the premise that
+                # cluster-sync.sh already guarded the dispatch — a premise the
+                # CronJob controller does not satisfy.
+                #
+                # ReadWriteOnce is per-NODE, not per-pod: two pods scheduled to
+                # the same node both mount this claim happily. So without this,
+                # a scheduled run and a manual run could write the journal and
+                # watermark concurrently.
+                #
+                # Pointing the lock at the shared claim closes it from both
+                # directions: same node, the two pods bind-mount one filesystem
+                # so flock serializes on a single inode; different nodes, the RWO
+                # attach refuses the second pod. The loser exits non-zero with
+                # the holder named (BUG-1035 path); for a scheduled run that is
+                # the right outcome, since the next slot is minutes away and
+                # --changed re-derives the same work.
+                - name: OV_SYNC_LOCK
+                  value: /state/compendium-sync.lock
                 - name: OPENVIKING_URL
                   value: http://openviking.viking.svc.cluster.local:1933
                 - name: OPENVIKING_ACCOUNT

@@ -89,6 +89,16 @@ spec:
             # default for every mode; an explicit --state-file still wins.
             - name: OV_SYNC_STATE
               value: /state/compendium-sync-state.json
+            # The cross-pod single-writer guard. The script's flock defaults to
+            # ~/.openviking/compendium-sync.lock — private to each pod — and its
+            # check_cluster_sync_active() probe returns early in-cluster, so
+            # neither serializes two Jobs. ReadWriteOnce is per-node, so two pods
+            # on one node can both mount this claim. Putting the lock ON the
+            # claim makes flock the guard when they share a node, and the RWO
+            # attach the guard when they do not. Must stay identical to the
+            # CronJob's value (IMPR-1154); check-sync-spec-parity.py asserts it.
+            - name: OV_SYNC_LOCK
+              value: /state/compendium-sync.lock
             - name: OPENVIKING_URL
               value: http://openviking.viking.svc.cluster.local:1933
             - name: OPENVIKING_ACCOUNT
