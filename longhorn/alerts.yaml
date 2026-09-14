@@ -42,8 +42,11 @@ spec:
             # (23.7%) with zero snapshots. It is an allocation-accounting drift
             # signal that points at trim/snapshot review, not proven capacity
             # pressure -- so it must not reach Slack as an actionable warning.
-            # Real capacity pressure is KubePersistentVolumeFillingUp, which now
-            # routes to the same `storage` receiver.
+            # Real capacity pressure is covered by two routed warnings, so this
+            # demotion removes no coverage: KubePersistentVolumeFillingUp for
+            # the filesystem a workload sees, and LonghornDiskSpaceHigh (below)
+            # for the backing disk, which is where snapshots and undiscarded
+            # blocks actually consume space. Both route to `storage`.
             #
             # Note the `info` severity is also what the chart's InfoInhibitor
             # suppresses: that rule fires per namespace when a namespace has info
@@ -57,6 +60,31 @@ spec:
           annotations:
             summary: "Longhorn volume {{ $labels.volume }} allocation exceeds 85% of configured size"
             description: "PVC {{ $labels.pvc_namespace }}/{{ $labels.pvc }} actual/capacity ratio is {{ $value }}. This counts allocated replica bytes, including deleted-but-undiscarded blocks, so it is NOT proof of capacity pressure. Compare live filesystem usage (kubelet_volume_stats_used_bytes) first; if usage is low, the fix is a filesystem trim (see longhorn/alerting.md), not expansion."
+        # Backing-disk capacity, which nothing else covers. Demoting
+        # LonghornVolumeSpaceHigh to `info` removes the only routed signal that
+        # moved when snapshots or undiscarded blocks consumed real storage:
+        # kubelet PVC stats measure the filesystem a workload sees and are blind
+        # to both. The chart's NodeFilesystemAlmostOutOfSpace / -SpaceFillingUp
+        # would cover the host disk, but they carry no `alertgroup` label, so
+        # they match no route in storage-alert-routing.yaml and fall through to
+        # the default `null` receiver. This rule measures the Longhorn disk
+        # directly and is labelled to route.
+        #
+        # warning, not info: unlike the per-volume allocation ratio, this is
+        # physical space on a real disk. There is no accounting artefact here --
+        # if it is 85% full, 85% of it is gone.
+        - alert: LonghornDiskSpaceHigh
+          expr: |
+            max by (node, disk) (longhorn_disk_usage_bytes)
+            / max by (node, disk) (longhorn_disk_capacity_bytes) > 0.85
+          for: 15m
+          labels:
+            severity: warning
+            alertgroup: storage
+            namespace: longhorn-system
+          annotations:
+            summary: "Longhorn disk {{ $labels.disk }} on {{ $labels.node }} is over 85% consumed"
+            description: "Backing disk {{ $labels.disk }} on node {{ $labels.node }} is at {{ $value }} of capacity. This is physical space, including snapshots and undiscarded blocks that per-PVC filesystem stats cannot see. Check snapshot retention before trimming (see longhorn/alerting.md); a full backing disk stops replica scheduling and rebuilds on this node."
         - alert: LonghornReplicaFailed
           expr: max by (volume, replica, node) (longhorn_replica_state{state="error"}) == 1
           for: 5m

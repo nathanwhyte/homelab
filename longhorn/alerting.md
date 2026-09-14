@@ -163,10 +163,40 @@ kubectl -n <namespace> exec <pod> -- df -h <mount>
 ```
 
 If live usage is high and rising, the workload genuinely needs space — expand it
-(below) or reclaim data. If live usage is low but Longhorn allocation is high,
-the gap is deleted-but-undiscarded blocks: **trim, do not expand.** Expansion
-raises Longhorn's denominator while the un-discarded blocks remain, so the ratio
-never fixes the cause and the alert recurs.
+(below) or reclaim data.
+
+If live usage is low but Longhorn allocation is high, **do not conclude
+"undiscarded blocks" yet.** Two different causes produce an identical gap, and
+only one of them is fixable by trim:
+
+```bash
+# How many snapshots does the volume hold, and how much do they account for?
+kubectl -n longhorn-system get snapshots.longhorn.io \
+  -l longhornvolume=<volume> \
+  -o custom-columns=NAME:.metadata.name,SIZE:.status.size,READY:.status.readyToUse
+# Backing-disk headroom on the node that holds the replica
+# longhorn_disk_usage_bytes / longhorn_disk_capacity_bytes
+```
+
+| Snapshots | Meaning | Action |
+| --------- | ------- | ------ |
+| None, or negligible size | Gap is deleted-but-undiscarded blocks | **Trim** (below) |
+| Present and material | Blocks are retained *by* the snapshots | Trim will not reclaim them — review retention and delete snapshots you have explicitly authorised, then trim |
+
+Longhorn's own [trim documentation](https://longhorn.io/docs/1.12.0/nodes-and-volumes/volumes/trim-filesystem/)
+is explicit that a filesystem trim cannot reclaim space held by a valid
+snapshot. Running one against a snapshot-driven gap is a no-op that looks like a
+failed remediation.
+
+In neither case is expansion the answer: it raises Longhorn's denominator while
+the retained or un-discarded blocks remain, so the ratio never fixes the cause
+and the alert recurs.
+
+Check the backing disk as well as the volume. Snapshots and undiscarded blocks
+consume space on the node's underlying disk, which per-PVC filesystem usage
+cannot see at all — see Longhorn's
+[space consumption guideline](https://longhorn.io/kb/space-consumption-guideline/).
+`LonghornDiskSpaceHigh` covers that layer.
 
 ### Reclaim: free the un-discarded blocks
 

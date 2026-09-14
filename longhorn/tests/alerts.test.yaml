@@ -167,3 +167,21 @@ tests:
       - expr: count(ALERTS{alertname="LonghornInstanceManagerRestarting",alertstate="firing"})
         eval_time: 10m
         exp_samples: [{labels: '{}', value: 1}]
+  - name: backing-disk capacity fires as a routable warning, not info
+    interval: 1m
+    input_series:
+      - series: 'longhorn_disk_usage_bytes{node="n1",disk="default-disk"}'
+        values: '90x30'
+      - series: 'longhorn_disk_capacity_bytes{node="n1",disk="default-disk"}'
+        values: '100x30'
+      - series: 'longhorn_disk_usage_bytes{node="n2",disk="default-disk"}'
+        values: '50x30'
+      - series: 'longhorn_disk_capacity_bytes{node="n2",disk="default-disk"}'
+        values: '100x30'
+    promql_expr_test:
+      - expr: count(ALERTS{alertname="LonghornDiskSpaceHigh",alertstate="firing"})
+        eval_time: 20m
+        exp_samples: [{labels: '{}', value: 1}]
+      - expr: count(ALERTS{alertname="LonghornDiskSpaceHigh",alertstate="firing",severity="warning",alertgroup="storage"})
+        eval_time: 20m
+        exp_samples: [{labels: '{}', value: 1}]
