@@ -121,8 +121,15 @@ spec:
               # The 4-core request was never measured: IMPR-1038 right-sized
               # memory on the line above and CPU was out of its scope. It
               # reserved half of timmy's 8 schedulable cores on a node running
-              # at 3%, which blocked runner placement there. 500m keeps ~5x
-              # headroom over peak and matches the other viking deployments.
+              # at 3%, leaving ~1219m of request budget for everything else.
+              # 500m keeps ~5x headroom over peak and matches the other viking
+              # deployments.
+              #
+              # This frees reservation; it does not change what can land on
+              # timmy. CI runners are excluded from the node by a required
+              # nodeAffinity in arc/runner-scale-set-compendium-values.yaml, so
+              # they were never eligible here regardless of budget. Moving them
+              # would be a separate, deliberate decision about that affinity.
               #
               # Memory moves the other way: IMPR-1038's 2Gi was correct against
               # a 1.4Gi peak in July, but the footprint has grown ~80% since and

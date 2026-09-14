@@ -140,9 +140,32 @@ template:
         #   CPU     per-pod p90 522m against the 500m request; peak 739m
         #   memory  per-pod peak 809Mi (was 736Mi, crept ~10%)
         # What HAS drifted is aggregate, which nothing here bounds:
-        #   fleet peak 12.86 cores against 8 x 500m = 4 cores reserved (3.2x)
-        #   per node   wemby 8.45 of 12 allocatable, manu 6.77 of 16
-        #   CFS throttling 24.2% peak / 5.1% median (was 2.8% — ~9x)
+        #   fleet peak 6.43 cores, deduplicated (see the scrape note below)
+        #   per node   wemby 4.35 of 12 allocatable, manu 3.39 of 16
+        #   CFS throttling 15.2% peak as a deduplicated fleet ratio (the old
+        #     2.8% above is from the 1h sample and is not like-for-like)
+        # Restricting further to pods in Running state drops the fleet peak to
+        # ~3.42 cores; the 6.43 figure still counts series from pods that had
+        # terminated. Treat 3.42-6.43 as the band, not 6.43 as a point value.
+        #
+        # Do NOT compare these against "8 x 500m = 4 cores reserved". The peak
+        # predates the 250m -> 500m request change, so the contemporaneous
+        # reservation was smaller, and mixing the two produces a ratio that
+        # describes no configuration that ever ran.
+        #
+        # Scrape duplication — this bit us. Two ServiceMonitors scrape the same
+        # kubelet cAdvisor endpoint, service="prom-kubelet" and
+        # service="kube-prometheus-stack-kubelet", BOTH carrying job="kubelet".
+        # Every container series therefore exists twice (verified: 10 series for
+        # 5 runner pods), so filtering on job= does not deduplicate and any
+        # sum() over these metrics doubles. An earlier revision of this comment
+        # claimed 12.86 fleet cores and 8.45/6.77 per node; those were exactly
+        # 2x. max() and quantile() are unaffected, which is why the per-pod
+        # numbers above needed no correction. Deduplicate with an inner
+        # max by (pod) before summing:
+        #   max_over_time(sum(max by (pod) (rate(
+        #     container_cpu_usage_seconds_total{namespace="arc-runners",
+        #     container="runner"}[5m])))[2d:5m])
         # maxRunners bounds pod count and the 2-core limit bounds one pod, but
         # the sum across concurrent pods on a node is unconstrained. IMPR-1166
         # weighs the candidate mechanisms (lower per-pod limit, a LimitRange or
@@ -159,6 +182,10 @@ template:
         # Note manu's CPU was capped to 1550 MHz at 2026-09-14T17:04Z for a
         # cooling fault (BUG-1101); CPU-time figures sampled on manu after that
         # point read high for identical work.
+        #
+        # The duplicate kubelet scrape is itself worth fixing — two
+        # ServiceMonitors for one endpoint doubles cardinality on every
+        # container metric in the cluster, not just these. Not addressed here.
         #
         # Memory limit 4Gi was set by BUG-1099 for a `pre-commit --all-files`
         # spike on a 1827-file vault (~2GB). IMPR-1131 then added
