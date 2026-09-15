@@ -70,6 +70,7 @@ spec:
     spec:
       backoffLimit: 1
       activeDeadlineSeconds: 14400 # 4h hard cap
+      ttlSecondsAfterFinished: 172800
       template:
         metadata:
           labels:
