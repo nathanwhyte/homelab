@@ -1,0 +1,92 @@
+# Extract openviking-alerts.yaml's spec to openviking-rules.yaml before running promtool.
+# BUG-1138: the queue alert must distinguish a backlog that is draining (healthy)
+# from one that has stopped moving (a stall). Depth alone cannot do that.
+rule_files: [openviking-rules.yaml]
+evaluation_interval: 1m
+tests:
+  - name: a draining sync burst never fires
+    # The 2026-09-15 12:37-13:21 CDT regression case, scaled down: pending goes
+    # deep and then falls while processed climbs the whole time. This is the exact
+    # shape that fired the retired rule 17 times.
+    interval: 1m
+    input_series:
+      - series: 'openviking_queue_pending{queue="total"}'
+        values: "74 441 1052 2473 2100 1600 1100 600 328 87 0x10"
+      - series: 'openviking_queue_processed_total{queue="total"}'
+        values: "100+60x19"
+    promql_expr_test:
+      - expr: count(ALERTS{alertname="OpenVikingQueueNotDraining",alertstate="firing"}) or vector(0)
+        eval_time: 25m
+        exp_samples: [{ labels: "{}", value: 0 }]
+
+  - name: a deep queue with no progress fires after the hold
+    # processed_total is flat, so increase(...[15m]) is 0 as soon as the window
+    # holds two samples — at ~1m, NOT at 15m. The `for: 15m` hold is therefore
+    # what supplies the "sustained" part of the signal, and it is why this fires
+    # at ~16m rather than ~6m. This case failed at `for: 5m`, which is how that
+    # was discovered; do not shorten the hold without re-running it.
+    interval: 1m
+    input_series:
+      - series: 'openviking_queue_pending{queue="total"}'
+        values: "600x30"
+      - series: 'openviking_queue_processed_total{queue="total"}'
+        values: "4102x30"
+    promql_expr_test:
+      - expr: count(ALERTS{alertname="OpenVikingQueueNotDraining",alertstate="firing"}) or vector(0)
+        eval_time: 14m
+        exp_samples: [{ labels: "{}", value: 0 }]
+      - expr: count(ALERTS{alertname="OpenVikingQueueNotDraining",alertstate="firing"})
+        eval_time: 18m
+        exp_samples: [{ labels: "{}", value: 1 }]
+
+  - name: a slow drain is not a stall
+    # Draining at roughly 1 item/min. Depth stays well above the threshold for the
+    # whole window, but processed advances, so this must stay silent. Under the
+    # retired depth-based rule this fired.
+    interval: 1m
+    input_series:
+      - series: 'openviking_queue_pending{queue="total"}'
+        values: "300-1x29"
+      - series: 'openviking_queue_processed_total{queue="total"}'
+        values: "1000+1x29"
+    promql_expr_test:
+      - expr: count(ALERTS{alertname="OpenVikingQueueNotDraining",alertstate="firing"}) or vector(0)
+        eval_time: 28m
+        exp_samples: [{ labels: "{}", value: 0 }]
+
+  - name: an empty queue with no progress never fires
+    # Nothing pending means nothing to process. Flat processed is correct here and
+    # must not alert, which is what the pending > 5 conjunct is for.
+    interval: 1m
+    input_series:
+      - series: 'openviking_queue_pending{queue="total"}'
+        values: "0x30"
+      - series: 'openviking_queue_processed_total{queue="total"}'
+        values: "4102x30"
+    promql_expr_test:
+      - expr: count(ALERTS{alertname="OpenVikingQueueNotDraining",alertstate="firing"}) or vector(0)
+        eval_time: 25m
+        exp_samples: [{ labels: "{}", value: 0 }]
+
+  - name: the native series are not counted and cannot resurrect the double-count
+    # The retired rule's bare sum() spanned both scrape targets. These native-side
+    # series (capitalized queue names, no `total`) exist alongside the exporter's
+    # and must contribute nothing: the selector is queue="total", which the native
+    # endpoint never emits. If someone reintroduces a sum(), this test fails.
+    interval: 1m
+    input_series:
+      - series: 'openviking_queue_pending{queue="total"}'
+        values: "0x30"
+      - series: 'openviking_queue_processed_total{queue="total"}'
+        values: "4102x30"
+      - series: 'openviking_queue_pending{queue="Embedding",container="openviking"}'
+        values: "600x30"
+      - series: 'openviking_queue_processed_total{queue="Embedding",container="openviking"}'
+        values: "3759x30"
+    promql_expr_test:
+      - expr: count(ALERTS{alertname="OpenVikingQueueNotDraining",alertstate="firing"}) or vector(0)
+        eval_time: 25m
+        exp_samples: [{ labels: "{}", value: 0 }]
+      - expr: openviking_queue_pending{queue="total"}
+        eval_time: 25m
+        exp_samples: [{ labels: 'openviking_queue_pending{queue="total"}', value: 0 }]
