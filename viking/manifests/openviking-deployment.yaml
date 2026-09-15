@@ -161,12 +161,37 @@ spec:
           # The startupProbe below is the sole gate on joining the Service, so
           # its budget is sized to worst-case boot (Garage + vectordb
           # reconnect): 3s x 20 = 60s, was 3s x 10 = 30s.
+          #
+          # WIDENED 2026-09-15 to 3s x 40 = 120s for the v0.4.20 upgrade
+          # (IMPR-1152, decision D4). REVERT TO 20 AFTER THE 24h GATE.
+          #
+          # Why. With no readinessProbe, this probe alone decides Ready, and
+          # when its budget runs out the kubelet KILLS the container. The
+          # measured baseline is 13s scheduled->Ready, but that is a
+          # same-version restart against a warm index and says nothing about
+          # how long the v0.4.20 binary takes to first-start against the
+          # existing volume. If that exceeds 60s the cutover turns a ~35s
+          # outage into a CrashLoopBackOff, mid-window, with a rollback to run
+          # at the same time. 120s costs nothing when the start is fast.
+          #
+          # The rehearsal measured the new version booting in 10-11s against a
+          # fully restored collection, which is reassuring but not proof: the
+          # test deployment carries a readinessProbe and failureThreshold 30
+          # where this one has neither, so it is not the same gate.
+          #
+          # Landed AHEAD of the image bump rather than in the same commit as
+          # D4 originally specified. On v0.4.10, which starts in 13s, a wider
+          # budget is a no-op; landing it early keeps the cutover commit to
+          # the image tag alone, which is the commit worth keeping small. The
+          # cost is that failure detection for the CURRENT version is slower
+          # in the pathological case - acceptable, since a server that hangs
+          # past 60s is better given another minute than killed.
           startupProbe:
             httpGet:
               path: /health
               port: 1933
             periodSeconds: 3
-            failureThreshold: 20
+            failureThreshold: 40
           # Liveness stays conservative and TCP-only — it never touches the
           # indexing path. 30s x 10 ~= 5min before a restart.
           livenessProbe:
