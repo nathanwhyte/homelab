@@ -49,6 +49,15 @@ alertmanager:
           - namespace
       - target_matchers:
           - "alertname = InfoInhibitor"
+    # BUG-1129: delivery is fail-OPEN. The default receiver is Slack, and
+    # silence is an explicit act. The previous default was `null` with an
+    # allowlist keyed on `alertgroup` — a label only locally-authored rules
+    # set — so 169 of 194 live label sets, including 40 criticals, were
+    # discarded without a trace. manu crashed twice on 2026-09-14 and
+    # KubeNodeNotReady, KubeletDown and KubeNodeUnreachable all went to null.
+    #
+    # The ordering rule for anyone editing this: a new alert rule needs NO
+    # routing change to be delivered. Only suppression needs an entry here.
     route:
       group_by:
         - namespace
@@ -56,19 +65,44 @@ alertmanager:
       group_wait: 30s
       group_interval: 5m
       repeat_interval: 1h
-      receiver: "null"
+      receiver: slack-homelab
       routes:
+        # Plumbing, not signal. Watchdog fires forever by design (it proves
+        # Alertmanager is alive); InfoInhibitor exists only to suppress others.
         - receiver: "null"
           matchers:
             - alertname = "Watchdog"
+        - receiver: "null"
+          matchers:
+            - alertname = "InfoInhibitor"
+        # Already delivered above by the alertgroup-matched AlertmanagerConfig
+        # CRs, which the operator merges ahead of these routes with
+        # `continue: true`. Terminating here keeps them to ONE Slack message
+        # instead of two (`alertgroup=backup` double-posted before this).
+        #
+        # This list must name every alertgroup that has its own routing CR in
+        # grafana/manifests/*-alert-routing.yaml. check-alert-routing.sh fails
+        # if an alertgroup here has no CR — otherwise a stale entry here would
+        # silence a group, which is exactly the class of bug BUG-1129 was.
+        - receiver: "null"
+          matchers:
+            - alertgroup =~ "backup|hardware|storage"
+        # `info` is recorded in Prometheus for dashboards and queries, and is
+        # not worth a notification. This is the one severity we drop, and it is
+        # dropped deliberately rather than by omission.
+        - receiver: "null"
+          matchers:
+            - severity = "info"
+        # Critical pages faster and repeats more often than the 1h default.
         - receiver: slack-homelab
           matchers:
-            - alertname = "WembyOnBattery"
-        # IMPR-1118: backup alerts (BackupCronJobFailed, BackupFreshnessStale,
-        # etc.) carry `alertgroup: backup` and route to the same Slack receiver.
-        - receiver: slack-homelab
-          matchers:
-            - alertgroup = "backup"
+            - severity = "critical"
+          group_wait: 10s
+          repeat_interval: 30m
+        # Everything else — every warning, and every rule that sets no
+        # `alertgroup` at all — falls through to the default receiver above.
+        # WembyOnBattery used to need its own `alertname` matcher here; it is
+        # delivered by the default now, which is the point of the change.
     receivers:
       - name: "null"
       - name: slack-homelab
@@ -132,6 +166,20 @@ fullnameOverride: prom
 global:
   rbac:
     create: true
+# BUG-1129: k3s runs the scheduler, proxy and controller-manager inside the
+# single server process and publishes no per-component metrics endpoint. The
+# chart assumes upstream kubeadm and ships a Service + ServiceMonitor for each;
+# all three have had `ENDPOINTS: <none>` for their entire 180-day life, so
+# KubeSchedulerDown / KubeProxyDown / KubeControllerManagerDown fired
+# permanently from 2026-09-09. They were invisible only because routing dropped
+# them. Disabling is the documented k3s posture and must stay ahead of the
+# fail-open route above — otherwise the flip delivers these three first.
+kubeControllerManager:
+  enabled: false
+kubeProxy:
+  enabled: false
+kubeScheduler:
+  enabled: false
 grafana:
   additionalDataSources:
     - access: proxy
