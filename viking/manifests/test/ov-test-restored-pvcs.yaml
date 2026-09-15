@@ -1,0 +1,87 @@
+---
+# REHEARSAL ONLY — statically-bound PVCs for step 1.3.2. DO NOT MERGE.
+#
+# These replace the dynamic openviking-test-pvc.yaml / ov-test-vectordb-pvc.yaml
+# for the duration of the rehearsal, and are deliberately NOT in
+# kustomization.yaml's resource list — they are applied on their own after the
+# Longhorn restore reports restoreRequired: false.
+#
+# Why static. The dynamic manifests ask the storage class for a NEW empty
+# volume. The rehearsal needs the volumes restored from the 1.2.2 production
+# backups; a candidate booted against a blank corpus proves nothing about the
+# upgrade. So each PVC binds by name to a PV whose csi volumeHandle is the
+# restored Longhorn volume.
+#
+# Sizes are 10Gi because a Longhorn restore must match the source volume, and
+# both production PVCs are 10Gi. storageClassName is deliberately "" — an empty
+# string means "do not provision, use the PV I named" — and volumeName pins the
+# binding so the claim cannot drift onto some other available PV.
+#
+# persistentVolumeReclaimPolicy is Delete: these are throwaway restores of a
+# throwaway rehearsal, and leaving Retain behind would strand two 10Gi volumes
+# that the teardown would not reclaim.
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: ov-test-data-restore-20260915
+spec:
+  capacity:
+    storage: 10Gi
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Delete
+  storageClassName: ""
+  claimRef:
+    namespace: viking
+    name: openviking-test-data
+  csi:
+    driver: driver.longhorn.io
+    fsType: ext4
+    volumeHandle: ov-test-data-restore-20260915
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: openviking-test-data
+  namespace: viking
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: ""
+  volumeName: ov-test-data-restore-20260915
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: ov-test-vdb-restore-20260915
+spec:
+  capacity:
+    storage: 10Gi
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Delete
+  storageClassName: ""
+  claimRef:
+    namespace: viking
+    name: ov-vectordb-test-data
+  csi:
+    driver: driver.longhorn.io
+    fsType: ext4
+    volumeHandle: ov-test-vdb-restore-20260915
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ov-vectordb-test-data
+  namespace: viking
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: ""
+  volumeName: ov-test-vdb-restore-20260915
+  resources:
+    requests:
+      storage: 10Gi

@@ -27,9 +27,17 @@ spec:
           command: ["python", "-m", "openviking.storage.vectordb.service.server_fastapi"]
           env:
             - name: VIKINGDB_PERSIST_PATH
-              # Distinct path so we never collide with the production
-              # ov-vectordb's /data/vikingdb. Service container creates it.
-              value: /data/test/vikingdb
+              # MUST match production's path. This claim binds
+              # ov-test-vdb-restore-20260915, a restore of production's vectordb
+              # volume, where the collection lives at /data/vikingdb/default/context.
+              # There is no collision to avoid: it is a separate volume from the
+              # production ov-vectordb's. Pointing this at a "distinct" path made
+              # the service create an empty collection beside the restored one, so
+              # every semantic-retrieval check returned total:0 against a corpus
+              # that was sitting right there. Same failure mode as the dynamic-PVC
+              # problem in 1.3.4 — the rehearsal appears to pass while proving
+              # nothing.
+              value: /data/vikingdb
           ports:
             - name: http
               containerPort: 5000
