@@ -144,10 +144,30 @@ template:
     # must still count as a topology domain. Under Honor it would drop out of
     # the domain set, leaving timmy as the only domain, trivially satisfying
     # maxSkew and re-opening the all-8-on-timmy path this change closes.
+    #
+    # minDomains 2 closes the remaining case, which nodeTaintsPolicy does not:
+    # wemby REMOVED from the cluster rather than cordoned. With one real domain
+    # the global minimum is timmy's own count, so skew is identically 0 and the
+    # constraint stops binding — all 8 runners land, 12000m of limits on an
+    # 8-core control plane (150%). minDomains makes the scheduler treat the
+    # absent domain as holding 0 pods, so a 2nd pod on timmy computes skew 2 >
+    # maxSkew 1 and is refused. timmy caps at 1 until a second domain returns.
+    #
+    # That is a deliberately harsh degradation — CI nearly stops — and it is the
+    # same trade as DoNotSchedule above: recoverable slowness beats an
+    # unrecoverable control plane. Requires whenUnsatisfiable DoNotSchedule
+    # (the field is ignored under ScheduleAnyway) and k8s >= 1.30 for GA; this
+    # cluster runs k3s v1.36.2.
+    #
+    # THIS is the binding bound on timmy, not the CPU request below. With two
+    # domains and maxSkew 1, 8 pods admit only a 4/4 split, whatever the node's
+    # spare CPU happens to be. The request is defense in depth against this
+    # block being weakened or removed, not the primary mechanism.
     topologySpreadConstraints:
       - maxSkew: 1
         topologyKey: kubernetes.io/hostname
         whenUnsatisfiable: DoNotSchedule
+        minDomains: 2
         nodeAffinityPolicy: Honor
         nodeTaintsPolicy: Ignore
         labelSelector:
@@ -271,12 +291,15 @@ template:
         # degradation. 1000m is ~2x the 522m p90; that overshoot is the price
         # of the bound and is deliberate.
         #
-        # Caveat, stated rather than hidden: this bound is computed against
-        # timmy's CURRENT non-runner reservations. If other workloads there
-        # shrink by more than ~280m, a 5th runner becomes admissible and the
-        # 2-core reserve narrows. That residual is exactly what IMPR-1166's
-        # real subject — a per-node aggregate bound via LimitRange or
-        # ResourceQuota — would close for good; it remains open.
+        # Correction (2026-09-15): an earlier revision of this comment called
+        # the reservation-sensitivity above "the" residual — if other workloads
+        # on timmy shrink by ~280m, a 5th runner becomes admissible. That is
+        # true of the request bound in isolation and irrelevant in practice:
+        # the topologySpreadConstraint above caps timmy at 4 whatever the spare
+        # CPU is, because 8 pods across 2 domains at maxSkew 1 admit only a 4/4
+        # split. The request loosening to 5 cannot be reached while the spread
+        # holds. The genuine residual was the one-domain case, now closed by
+        # minDomains 2 — see that block.
         #
         # Memory stays at 2Gi: 4 x 2Gi = 8Gi against timmy's 31Gi (9038Mi in
         # use), and per-pod peak is 809Mi.
