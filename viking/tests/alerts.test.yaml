@@ -19,12 +19,34 @@ tests:
         eval_time: 25m
         exp_samples: [{ labels: "{}", value: 0 }]
 
-  - name: a deep queue with no progress fires after the hold
-    # processed_total is flat, so increase(...[15m]) is 0 as soon as the window
-    # holds two samples — at ~1m, NOT at 15m. The `for: 15m` hold is therefore
-    # what supplies the "sustained" part of the signal, and it is why this fires
-    # at ~16m rather than ~6m. This case failed at `for: 5m`, which is how that
-    # was discovered; do not shorten the hold without re-running it.
+  - name: stall immediately after a completion fires in about 20m, not 30
+    # THE case that matters, and the one this suite originally missed. A queue
+    # that has been working and then wedges keeps its last increment inside the
+    # 15m range until it ages out, so the expression only turns true at ~15m.
+    # Any `for` is added ON TOP of that.
+    #
+    # With the old `for: 15m` this fired at 32m — for an alert whose summary
+    # claims 15. Codex caught it on homelab #99; `for: 5m` gives ~20m.
+    # Raising the hold again re-breaks this case.
+    interval: 1m
+    input_series:
+      - series: 'openviking_queue_pending{queue="total"}'
+        values: "600x40"
+      - series: 'openviking_queue_processed_total{queue="total"}'
+        values: "100 101 102 102x38"
+    promql_expr_test:
+      - expr: count(ALERTS{alertname="OpenVikingQueueNotDraining",alertstate="firing"}) or vector(0)
+        eval_time: 16m
+        exp_samples: [{ labels: "{}", value: 0 }]
+      - expr: count(ALERTS{alertname="OpenVikingQueueNotDraining",alertstate="firing"})
+        eval_time: 24m
+        exp_samples: [{ labels: "{}", value: 1 }]
+
+  - name: a cold start with a backlog is debounced, not paged
+    # processed_total flat from the FIRST sample — the shape after a pod restart
+    # that comes back with a backlog and has not completed anything yet.
+    # increase() is 0 immediately here, so this is what `for` actually guards.
+    # It is NOT a model of a real stall; the case above is.
     interval: 1m
     input_series:
       - series: 'openviking_queue_pending{queue="total"}'
@@ -33,10 +55,10 @@ tests:
         values: "4102x30"
     promql_expr_test:
       - expr: count(ALERTS{alertname="OpenVikingQueueNotDraining",alertstate="firing"}) or vector(0)
-        eval_time: 14m
+        eval_time: 4m
         exp_samples: [{ labels: "{}", value: 0 }]
       - expr: count(ALERTS{alertname="OpenVikingQueueNotDraining",alertstate="firing"})
-        eval_time: 18m
+        eval_time: 8m
         exp_samples: [{ labels: "{}", value: 1 }]
 
   - name: a slow drain is not a stall

@@ -112,14 +112,25 @@ spec:
         # and falling is a healthy sync burst; deep and FLAT is the real stall.
         # increase() handles the counter reset across a pod restart.
         #
-        # `for: 15m` is load-bearing, and not for the reason it looks like.
-        # increase(...[15m]) over a flat counter evaluates to 0 as soon as the
-        # window holds two samples — it does NOT wait 15m — so without a long
-        # `for` this fires roughly 6 minutes into any gap between completions.
-        # Embedding drains serially (max_concurrent 1, IMPR-1074) and one large
-        # VLM summary can hold the queue quiet for minutes, so the hold is what
-        # supplies the "sustained" part of the signal. Proven by the promtool
-        # case in viking/tests/alerts.test.yaml, which failed at `for: 5m`.
+        # `for` is DELIBERATELY SHORT. increase(...[15m]) == 0 already means "no
+        # completion in the last 15 minutes" — that IS the sustained condition, so
+        # a long `for` stacks a second wait on top of it.
+        #
+        # This was `for: 15m` and it was wrong (Codex P2 on homelab #99). In the
+        # realistic case — the queue stalls right after processing something — the
+        # last increment stays inside the 15m range until it ages out, so the
+        # expression only becomes true at ~15m and the hold then added 15m more.
+        # Measured: 32 minutes to fire, for an alert whose summary says 15.
+        #
+        # The earlier justification was an artifact of the test fixture: its
+        # counter was flat from the first sample, so increase() was 0 immediately
+        # and the alert looked far twitchier than it is. A counter that has been
+        # moving does not behave that way. See the "stall immediately after a
+        # completion" case in viking/tests/alerts.test.yaml, which pins ~20m.
+        #
+        # What `for` still earns: warm-up. After a pod restart the series can
+        # reappear with a backlog and no completion yet, where increase() is 0 and
+        # nothing is wrong. 5m covers that without doubling detection latency.
         #
         # requeued_total is deliberately NOT a required conjunct: a hard wedge can
         # leave processed AND requeued both flat, and requiring requeued to climb
@@ -127,7 +138,7 @@ spec:
         # slowness, which is why the description tells the operator to read it.
         - alert: OpenVikingQueueNotDraining
           expr: openviking_queue_pending{queue="total"} > 5 and increase(openviking_queue_processed_total{queue="total"}[15m]) == 0
-          for: 15m
+          for: 5m
           labels:
             severity: warning
           annotations:
