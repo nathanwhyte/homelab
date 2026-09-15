@@ -82,6 +82,75 @@ ssh -t manu-lan 'sudo systemctl disable --now cpu-freq-cap'
 `ExecStop` restores every CPU to `cpuinfo_max_freq`, so full clocks come back
 immediately without a reboot.
 
+## Temperature alerting
+
+The cap keeps `manu` alive; it does not tell anyone when cooling degrades
+again. `cpu/alerts.yaml` adds that, with **per-node thresholds**:
+
+| node | CPU | Tjmax | p99 | 3d peak | condition |
+| ---- | --- | ----- | --- | ------- | --------- |
+| manu | Ryzen 7 1700 | 95 | 67.9\* | 110 | absolute — warn 80, crit 90 |
+| timmy | Ryzen 7 7800X3D | 89 | 50.1 | 65.3 | hot **and** idle — warn only |
+| wemby | Core i7-8750H | 100 | 80.0 | 96 | absolute — warn 92, crit 97 |
+
+\* under the 1550 MHz cap. Revisit manu's thresholds when the cooler is
+repasted and the cap comes off.
+
+**timmy cannot use an absolute threshold at all**, and this took two attempts
+to get right. The 7800X3D is an X3D part: AMD caps it at 89 °C and it is
+*designed* to sit there under sustained load, holding the ceiling by
+throttling. So 89 °C on timmy is the expected result of working hard.
+
+That makes any absolute threshold self-defeating. Below 89 it pages every time
+the machine does real work; above 89 it never fires, because the chip throttles
+rather than exceeding its own limit. An earlier revision used 85/88 and hit
+both failure modes at once — a constant 89 °C fired critical in 3 minutes and
+warning in 11, paging for the exact operation this file calls normal.
+
+The discriminator is temperature **relative to load**. A 7800X3D at 89 °C under
+full load is healthy; at 89 °C while idle it has a cooling problem, because
+nothing is producing that heat. Hence `NodeCPUCoolingDegraded`: above 85 °C
+*and* under 25% utilization for 15 minutes.
+
+timmy gets no critical, deliberately. A meaningful critical would have to
+predict a thermal trip, and this chip throttles instead of tripping — there is
+no temperature above its ceiling to alert on. If it ever does trip, the
+evidence is the firmware reset reason on the next boot, which is after the fact
+by construction.
+
+A single global threshold is not viable: `wemby` is a laptop whose p99 is 80 °C,
+which is the same temperature that means "manu is about to trip". Any threshold
+low enough to protect manu pre-cap would page continuously on wemby — there is
+a unit test asserting exactly that.
+
+Deploy:
+
+```bash
+cpu/deploy-cpu-alerts.sh            # or --dry-run
+```
+
+Both objects are required. The rule alone carries `alertgroup: hardware`, which
+matches no route until `grafana/manifests/hardware-alert-routing.yaml` exists —
+until then it is discarded by the default `null` receiver.
+
+Run the rule tests with the pinned Prometheus image:
+
+```bash
+uv run --with pyyaml python cpu/tests/check-alerts.py --promtool /path/to/promtool
+```
+
+Two implementation notes worth keeping, both learned the hard way on
+2026-09-14:
+
+- **k10temp surfaces as a PCI path, not a driver name.** On AMD nodes the chip
+  label is `pci0000:00_0000:00:18_3`. A selector containing `k10temp` matches
+  nothing, which is why the data looked absent during the incident.
+- **`instance` is the node-exporter pod IP and changes when that pod
+  restarts.** manu had three distinct `instance` values across the incident
+  window. The rules join through `kube_pod_info` to get a stable `node` label;
+  anything keyed on `instance` loses the node across the very event it exists
+  to catch.
+
 ## What this does not do
 
 - It does not fix the cooler. The gradient is unchanged; the node simply
