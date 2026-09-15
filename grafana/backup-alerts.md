@@ -167,10 +167,19 @@ worker has not completed an attempt for 12 hours.
 ### Routing
 
 `manifests/backup-alert-routing.yaml` routes `alertgroup=backup` through the same
-`alertmanager-slack-webhook` Secret and `#cron-homelab` channel as storage alerts,
+`alertmanager-slack-bot-token` Secret and `#cron-homelab` channel as storage alerts,
 including resolved notifications. `deploy-backup-alerts.sh` applies this route and
 its namespace matcher strategy directly, without any Helm upgrade. The main
 Grafana deploy script invokes this standalone script too.
+
+Since IMPR-1173 the transport is a bot token posting to `chat.postMessage`, not an
+incoming webhook — so `channel:` is a request parameter the receiver actually
+honours, rather than decoration over a destination fixed when the webhook was
+minted (that was BUG-1135). `deploy-backup-alerts.sh` fails fast if
+`alertmanager-slack-bot-token` is absent: the CR would otherwise pass server
+dry-run and fail at operator reconcile, leaving the receiver silently unbuilt.
+The retired `alertmanager-slack-webhook` Secret is no longer referenced by
+anything.
 
 ### Verification
 

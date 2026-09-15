@@ -45,12 +45,11 @@ helm repo update grafana
 
 echo -e "\nDeploying Grafana monitoring stack components..."
 
-if ! kubectl get secret alertmanager-slack-webhook -n "$NAMESPACE" >/dev/null 2>&1; then
-	echo "alertmanager-slack-webhook secret not found in namespace $NAMESPACE."
-	echo "Create it with an incoming-webhook URL for #cron-homelab before deploying:"
-	echo "  kubectl create secret generic alertmanager-slack-webhook -n $NAMESPACE --from-literal=api-url='<slack-webhook-url>'"
-	exit 1
-fi
+# IMPR-1173: the guard that required `alertmanager-slack-webhook` is gone. It
+# outlived its Secret: no receiver has referenced that Secret since Phase 2, but
+# the guard still exited 1 without it — so retiring the Secret, which the plan
+# called cleanup that "gates nothing", would in fact have broken every deploy.
+# Requiring a credential nothing consumes is how a retirement stalls silently.
 
 # IMPR-1173: the bot-token transport. The three *-alert-routing.yaml CRs resolve
 # this Secret through apiURL + httpConfig.authorization, and the base receiver

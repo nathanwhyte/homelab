@@ -161,11 +161,15 @@ alertmanager:
               storage: 2Gi
           storageClassName: longhorn-observability
     secrets:
-      - alertmanager-slack-webhook
       # IMPR-1173: bot-token transport. The CR receivers resolve it via
       # apiURL/httpConfig.authorization; the base receiver inherits it through
-      # the global slack_app_token_file set in Phase 2. Both Secrets are present
-      # during the transition and alertmanager-slack-webhook is retired in Phase 3.
+      # the global slack_app_token_file set in Phase 2.
+      #
+      # `alertmanager-slack-webhook` was listed here too, "retained until Phase 3".
+      # It is dropped now, because keeping it mounted made the Secret impossible to
+      # delete: a mounted-but-absent Secret stops the Alertmanager pod from
+      # starting. No receiver has referenced that Secret since Phase 2, so the
+      # mount was pinning a dependency nothing used.
       - alertmanager-slack-bot-token
   enabled: true
 defaultRules:

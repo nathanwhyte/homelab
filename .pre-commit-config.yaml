@@ -53,7 +53,11 @@ repos:
         entry: uv run --no-project --with pyyaml python3 grafana/test-slack-transport.py
         language: system
         pass_filenames: false
-        files: ^grafana/(test-)?check-slack-transport\.(sh|py|test\.yaml)$
+        # The driver is `test-slack-transport.py`, NOT `test-check-slack-transport.py`.
+        # An earlier `(test-)?check-slack-transport` filter matched a file that does
+        # not exist, so edits to the driver itself skipped the hook and could weaken
+        # the fixtures silently. Name all three files literally.
+        files: ^grafana/(check-slack-transport\.(sh|test\.yaml)|test-slack-transport\.py)$
       - id: bare-code-fences
         name: Check for bare code fences (MD040)
         description: Reject commits with bare ``` fences that lack a language tag.
