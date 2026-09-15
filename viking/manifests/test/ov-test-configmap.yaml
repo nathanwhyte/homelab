@@ -4,9 +4,11 @@ kind: ConfigMap
 metadata:
   name: openviking-test-config
   namespace: viking
-  labels:
-    app: ov-test
 data:
+  # git.enabled is forced off: v0.4.6+ defaults it on and inherits the Garage
+  # S3 backend from storage.agfs, which would silently start writing .ovgit
+  # object trees to the openviking-agfs bucket at the v0.4.7 bump. Opt in
+  # deliberately if VikingFS snapshots are ever wanted (IMPR-1032).
   ov.conf: |
     {
       "default_account": "default",
@@ -15,12 +17,12 @@ data:
         "workspace": "/app/data",
         "transaction": {
           "lock_timeout": 30.0,
-          "lock_expire": 300.0
+          "lock_expire": 60.0
         },
         "vectordb": {
           "backend": "http",
-          "name": "context-test",
-          "dimension": 768,
+          "name": "context",
+          "dimension": 2560,
           "url": "http://ov-vectordb-test.viking.svc.cluster.local:5000"
         },
         "agfs": {
@@ -35,6 +37,9 @@ data:
           }
         }
       },
+      "git": {
+        "enabled": false
+      },
       "code": {
         "code_summary_mode": "ast"
       },
@@ -44,29 +49,54 @@ data:
       "server": {
         "host": "0.0.0.0",
         "port": 1933,
-        "workers": 1,
-        "root_api_key": "${API_KEY}"
+        "workers": 2,
+        "root_api_key": "${API_KEY}",
+        "auth_mode": "trusted",
+        "public_base_url": "http://openviking-test.viking.svc.cluster.local:1933",
+        "temp_upload": {
+          "default_mode": "local"
+        },
+        "observability": {
+          "metrics": {
+            "enabled": true,
+            "exporters": {
+              "prometheus": {
+                "enabled": true
+              }
+            }
+          }
+        }
       },
       "log": {
         "level": "INFO",
         "output": "stdout"
       },
       "embedding": {
+        "max_input_tokens": 8192,
         "dense": {
           "provider": "openai",
-          "model": "nomic-embed-text-v1.5",
-          "api_key": "sk-no-key-required",
-          "api_base": "http://embedder-llamacpp.viking.svc.cluster.local:8080/v1",
-          "dimension": 768,
-          "batch_size": 128
+          "model": "qwen3-embedding-4b",
+          "api_key": "sk-no-...ired",
+          "api_base": "http://embedder-qwen.viking.svc.cluster.local:8080/v1",
+          "dimension": 2560,
+          "batch_size": 256
         },
         "max_concurrent": 1
       },
       "vlm": {
-        "provider": "litellm",
-        "model": "openai/current.gguf",
-        "api_key": "sk-no-key-required",
-        "api_base": "http://llamacpp-vlm.viking.svc/v1",
-        "max_concurrent": 1
+        "provider": "openai",
+        "model": "gemma4:31b-cloud",
+        "api_key": "${OLLAMA_KEY}",
+        "api_base": "http://chat-ollama.llama.svc.cluster.local:11434/v1",
+        "max_concurrent": 8,
+        "timeout": 120,
+        "backup": {
+          "provider": "litellm",
+          "model": "openai/current.gguf",
+          "api_key": "sk-no-...ired",
+          "api_base": "http://llamacpp-vlm.viking.svc/v1",
+          "max_concurrent": 3,
+          "timeout": 600
+        }
       }
     }

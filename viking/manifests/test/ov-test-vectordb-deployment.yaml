@@ -23,7 +23,7 @@ spec:
       terminationGracePeriodSeconds: 15
       containers:
         - name: ov-vectordb-test
-          image: ghcr.io/volcengine/openviking:v0.3.14
+          image: ghcr.io/volcengine/openviking:v0.4.20@sha256:b9827753d035f4157b5b318865907fd18f738924ad6398c86feb1182f209825b
           command: ["python", "-m", "openviking.storage.vectordb.service.server_fastapi"]
           env:
             - name: VIKINGDB_PERSIST_PATH
