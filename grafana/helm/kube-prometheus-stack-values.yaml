@@ -20,12 +20,26 @@
 # restart the grafana pod so the reload sidecar picks up the new value.
 
 alertmanager:
-  # Alertmanager sends power, backup and storage alerts to Slack. The Slack
-  # incoming-webhook URL must be provided out-of-band as Secret
-  # `alertmanager-slack-webhook` with key `api-url` in the grafana namespace.
+  # IMPR-1173: Alertmanager delivers to Slack as @newtbot over chat.postMessage.
+  # Secret `alertmanager-slack-bot-token` (namespace grafana) carries key
+  # `bot-token` (the xoxb token) and key `api-url`
+  # (https://slack.com/api/chat.postMessage). The base receiver inherits the
+  # token through the global slack_app_token_file below; the three
+  # *-alert-routing.yaml CRs reference the same Secret via apiURL and
+  # httpConfig.authorization.
+  #
+  # `alertmanager-slack-webhook` is retained only until BUG-1135's minted
+  # webhook is retired; no receiver uses it after IMPR-1173.
   config:
     global:
       resolve_timeout: 5m
+      # IMPR-1173: the base receiver authenticates as @newtbot and posts to
+      # chat.postMessage, so its `channel` below is authoritative rather than a
+      # label on a webhook bound elsewhere. This file is the mounted
+      # alertmanager-slack-bot-token key `bot-token`, re-read at send time, so a
+      # rotation takes effect without a restart (unlike the CR receivers, whose
+      # api_url is inlined by the operator at reconcile).
+      slack_app_token_file: /etc/alertmanager/secrets/alertmanager-slack-bot-token/bot-token
     inhibit_rules:
       - source_matchers:
           - "severity = critical"
@@ -107,7 +121,12 @@ alertmanager:
       - name: "null"
       - name: slack-homelab
         slack_configs:
-          - api_url_file: /etc/alertmanager/secrets/alertmanager-slack-webhook/api-url
+          - # IMPR-1173: no api_url/api_url_file. The operator's global app token
+            # supplies both the credential and api_url (= slack_app_url,
+            # chat.postMessage). Keep api_url_file as well and the receiver
+            # carries two transports, and api_url wins — it would silently leave
+            # the webhook rather than inherit deliberately. Verified by running
+            # Alertmanager 0.33.1 against a local sink.
             channel: "#cron-homelab"
             send_resolved: true
             title: "{{ .CommonLabels.alertname }} — {{ .Status }}"
@@ -143,6 +162,11 @@ alertmanager:
           storageClassName: longhorn-observability
     secrets:
       - alertmanager-slack-webhook
+      # IMPR-1173: bot-token transport. The CR receivers resolve it via
+      # apiURL/httpConfig.authorization; the base receiver inherits it through
+      # the global slack_app_token_file set in Phase 2. Both Secrets are present
+      # during the transition and alertmanager-slack-webhook is retired in Phase 3.
+      - alertmanager-slack-bot-token
   enabled: true
 defaultRules:
   create: true

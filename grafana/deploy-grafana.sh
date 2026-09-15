@@ -52,6 +52,19 @@ if ! kubectl get secret alertmanager-slack-webhook -n "$NAMESPACE" >/dev/null 2>
 	exit 1
 fi
 
+# IMPR-1173: the bot-token transport. The three *-alert-routing.yaml CRs resolve
+# this Secret through apiURL + httpConfig.authorization, and the base receiver
+# inherits it via the global slack_app_token_file. Missing here means the CRs pass
+# server dry-run but fail at operator reconcile, so fail fast with the value.
+if ! kubectl get secret alertmanager-slack-bot-token -n "$NAMESPACE" >/dev/null 2>&1; then
+	echo "alertmanager-slack-bot-token secret not found in namespace $NAMESPACE."
+	echo "Create it with the @newtbot bot token and the chat.postMessage endpoint:"
+	echo "  kubectl create secret generic alertmanager-slack-bot-token -n $NAMESPACE \\"
+	echo "    --from-literal=bot-token='<xoxb-token>' \\"
+	echo "    --from-literal=api-url='https://slack.com/api/chat.postMessage'"
+	exit 1
+fi
+
 if [ ! -f "$GRAFANA_DIR/helm/kube-prometheus-stack-values.yaml" ]; then
 	echo "kube-prometheus-stack-values.yaml file not found!"
 	exit 1

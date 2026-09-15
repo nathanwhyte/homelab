@@ -78,21 +78,50 @@ A quoted loop variable reproduces the wrong form silently. amtool does warn
 (`unexpected severity: expected a comma or close brace`) but prints `null` after
 it, so the result is easy to read and the warning easy to skip.
 
-### The `channel:` field is a lie for modern Slack webhooks
+### The `channel:` field was a lie for modern Slack webhooks — fixed by IMPR-1173
 
-`slack_configs.channel` is **ignored**. A Slack incoming webhook is bound to the
-channel chosen when the webhook was created, and the override only ever worked
-for legacy webhooks. Alertmanager gets HTTP 200 `ok` and counts a success
+**Resolved 2026-09-15.** This section is retained because it documents the failure
+class, but the transport it describes is no longer in use.
+
+`slack_configs.channel` **used to be ignored**. A Slack incoming webhook is bound
+to the channel chosen when the webhook was created, and the override only ever
+worked for legacy webhooks. Alertmanager got HTTP 200 `ok` and counted a success
 regardless of where the message actually landed.
 
-This is not theoretical: on 2026-09-15 the config said `#cron-homelab` and every
+That was not theoretical: on 2026-09-15 the config said `#cron-homelab` and every
 alert was arriving in `#hermes-noise`, because the webhook had been rebound. The
 routing metrics were perfect and the channel was silent.
 
-**So `alertmanager_notifications_total` increasing is not evidence of delivery.**
-The only proof is looking in the channel. `check-alert-routing.sh` deliberately
-does not claim to verify this half — it proves an alert reaches a receiver, not
-that the receiver's webhook points anywhere useful.
+**All four receivers now post to `https://slack.com/api/chat.postMessage` with a
+bot token**, where `channel` is a request parameter. The three
+`AlertmanagerConfig` CRs carry it in `httpConfig.authorization`; the base receiver
+inherits it through the chart's global `slack_app_token_file`:
+
+| Receiver                       | Transport                                                |
+| ------------------------------ | -------------------------------------------------------- |
+| base `slack-homelab`           | global `slack_app_token_file` -> `chat.postMessage`      |
+| `backup-alert-routing`         | `apiURL` + `httpConfig.authorization` (Bearer)           |
+| `hardware-alert-routing`       | same                                                     |
+| `storage-alert-routing`        | same                                                     |
+
+Both credentials live in Secret `alertmanager-slack-bot-token` (namespace
+`grafana`): key `bot-token` (the `@newtbot` token) and key `api-url` (the endpoint
+literal — the CRD's `apiURL` is a `SecretKeySelector`, not an inline URL).
+
+`check-slack-transport.sh` now fails if any receiver is ever put back on a
+`hooks.slack.com` webhook while still carrying a `channel` field, which is exactly
+the state that let this run for six days:
+
+```bash
+./grafana/check-slack-transport.sh
+```
+
+**`alertmanager_notifications_total` increasing is still not evidence of
+delivery.** It never was, and the new transport does not change that: the counter
+proves a POST was attempted, not where it landed. `check-alert-routing.sh` proves
+an alert _routes_ to a receiver; `check-slack-transport.sh` proves the receiver's
+destination is _knowable_. Neither proves a message arrived. Only the channel
+does.
 
 To verify end to end:
 
@@ -100,11 +129,14 @@ To verify end to end:
 kubectl -n grafana exec alertmanager-prom-alertmanager-0 -c alertmanager -- amtool \
   --alertmanager.url=http://localhost:9093 alert add \
   'alertname="RoutingProbe"' 'severity="critical"' 'namespace="grafana"' \
-  --annotation='summary="synthetic routing probe"'
+  --annotation='summary="synthetic routing probe, expecting this in #cron-homelab"'
 ```
 
 then read the channel. Quote each label and annotation; the unquoted form hits
-the same parser trap as above and the alert is silently not created.
+the same parser trap as above and the alert is silently not created. **Name the
+expected channel inside the probe text** — a probe that does not say where it
+should arrive asks "did you see it", not "where did you see it", and both answers
+are "yes" for a mis-delivered alert.
 
 ## Node-down testing
 
