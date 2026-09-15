@@ -101,7 +101,7 @@ spec:
           # override) is gone as of the v0.4.7 bump (IMPR-1032 Phase B).
           # v0.4.10 bump: IMPR-1063 (no data migration in the 0.4.7→0.4.10
           # range; rollback is a pure tag revert).
-          image: ghcr.io/volcengine/openviking:v0.4.10
+          image: ghcr.io/volcengine/openviking:v0.4.20
           ports:
             - containerPort: 1933
               name: http
@@ -222,7 +222,7 @@ spec:
           # `ov language en` runs once at container start to clear v0.4.x's
           # first-run language gate (the gate persists state under
           # ~/.openviking/, which is the container's HOME).
-          image: ghcr.io/volcengine/openviking:v0.4.10
+          image: ghcr.io/volcengine/openviking:v0.4.20
           command:
             - /bin/sh
             - -c

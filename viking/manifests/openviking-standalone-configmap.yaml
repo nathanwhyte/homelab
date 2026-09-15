@@ -15,10 +15,6 @@ data:
       "default_user": "noot",
       "storage": {
         "workspace": "/app/data",
-        "transaction": {
-          "lock_timeout": 30.0,
-          "lock_expire": 60.0
-        },
         "vectordb": {
           "backend": "http",
           "name": "context",
@@ -27,6 +23,10 @@ data:
         },
         "agfs": {
           "backend": "s3",
+          "pathlock": {
+            "lock_timeout_secs": 30.0,
+            "lock_expire_secs": 60.0
+          },
           "s3": {
             "bucket": "openviking-agfs",
             "endpoint": "http://garage.garage.svc.cluster.local:3900",
@@ -39,9 +39,6 @@ data:
       },
       "git": {
         "enabled": false
-      },
-      "code": {
-        "code_summary_mode": "ast"
       },
       "rerank": {
         "threshold": 0.2

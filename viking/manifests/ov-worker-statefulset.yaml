@@ -130,7 +130,7 @@ spec:
           # be applied against 0.4.x data. Re-apply openviking-configmap.yaml
           # before any scale-up (existing rule). .path.ovlock wipe removed for
           # the same reason as the main deployment (IMPR-1062 spike).
-          image: ghcr.io/volcengine/openviking:v0.4.10
+          image: ghcr.io/volcengine/openviking:v0.4.20
           ports:
             - containerPort: 1933
               name: http
