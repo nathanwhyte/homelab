@@ -214,19 +214,45 @@ For personal-band entries (IDs ≥ 1000) in the unified vault, set `COMPENDIUM_R
 
 ### CLI commands
 
-| Task                           | Command                                                | When                                                               |
-| ------------------------------ | ------------------------------------------------------ | ------------------------------------------------------------------ |
-| Reindex single resource        | `ov reindex viking://resources/homelab/gpu/thermal.md` | After editing content                                              |
-| Force regenerate all abstracts | `ov reindex viking://resources/homelab/ -r`            | After reorganizing directories                                     |
-| Wait for completion            | `ov reindex <uri> --wait`                              | After bulk changes, before searching                               |
-| Remove stale content           | `ov rm viking://resources/volcengine/`                 | When content is no longer relevant                                 |
-| Move/rename                    | `ov mv viking://old/path viking://new/path`            | Restructuring without losing abstracts                             |
-| Check L0 abstracts             | `ov abstract viking://resources/homelab/gpu/`          | Verify abstracts are populated (not `[.abstract.md is not ready]`) |
-| Check L1 overviews             | `ov overview viking://resources/homelab/gpu/`          | Verify overviews exist                                             |
-| Full tree audit                | `ov tree viking://resources/ -L 3`                     | Monthly or after major restructuring                               |
-| List directory                 | `ov ls viking://resources/homelab/`                    | Quick check of contents                                            |
-| Read file content              | `ov read viking://resources/homelab/gpu/assessment.md` | View L2 full content                                               |
-| Search content                 | `ov grep "pattern" viking://resources/homelab/`        | Pattern search within resources                                    |
+| Task                           | Command                                                | When                                                                                                    |
+| ------------------------------ | ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------- |
+| Reindex single resource        | `ov reindex viking://resources/homelab/gpu/thermal.md` | After editing content                                                                                   |
+| Force regenerate all abstracts | `ov reindex viking://resources/homelab/ -r`            | After reorganizing directories                                                                          |
+| Wait for completion            | `ov reindex <uri> --wait`                              | After bulk changes, before searching                                                                    |
+| Remove stale content           | `ov rm viking://resources/volcengine/`                 | When content is no longer relevant                                                                      |
+| Move/rename                    | `ov mv viking://old/path viking://new/path`            | ⚠️ **DESTRUCTIVE on v0.4.20 — see the warning below.** Restructuring without losing abstracts (v0.4.10) |
+| Check L0 abstracts             | `ov abstract viking://resources/homelab/gpu/`          | Verify abstracts are populated (not `[.abstract.md is not ready]`)                                      |
+| Check L1 overviews             | `ov overview viking://resources/homelab/gpu/`          | Verify overviews exist                                                                                  |
+| Full tree audit                | `ov tree viking://resources/ -L 3`                     | Monthly or after major restructuring                                                                    |
+
+> ⚠️ **`ov cp` and `ov mv` delete data on v0.4.20. Do not use them after the upgrade.**
+>
+> Measured on the v0.4.20 rehearsal candidate against a restored production
+> corpus (2026-09-15): `ov mv` onto an existing target returns `500 INTERNAL`,
+> **deletes the pre-existing target**, and leaves the source in place. The
+> upgrade plan predicted "overwrite, not failure" — the real behaviour is worse
+> than that, and worse than the v0.4.10 behaviour this table was written for.
+>
+> Cause: `copy_uri_mapping` raises `Failed to fetch complete vector records`
+> when the source is still half-indexed. That is easy to hit, because
+> `ov write --wait` returns a client-side timeout and exit 1 **while the write
+> actually lands** — so a script that moves a file it just wrote, and that
+> trusts exit status, hits exactly this window.
+>
+> Two consequences worth remembering beyond `mv` itself:
+>
+> - **`ov` exit status is not a reliable write signal under `--wait`.** Verify
+>   the read-back instead. (`_scripts/compendium-sync.py` already does this —
+>   it excludes `--wait` from retry and verifies after.)
+> - Nothing in this estate calls `cp`/`mv` from code; this table row is the only
+>   place it is recommended, which is why the warning lives here.
+>
+> On the deployed v0.4.10 server the old behaviour still applies. This warning
+> takes effect at cutover.
+
+| List directory | `ov ls viking://resources/homelab/` | Quick check of contents |
+| Read file content | `ov read viking://resources/homelab/gpu/assessment.md` | View L2 full content |
+| Search content | `ov grep "pattern" viking://resources/homelab/` | Pattern search within resources |
 
 ### API reindex (programmatic)
 
