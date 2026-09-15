@@ -31,14 +31,20 @@ controllerServiceAccount:
 # reason to keep four is capacity lead time, not cold start: a pod needs
 # create -> schedule -> pull -> register before GitHub can hand it a job, and
 # with 1 warm pod the remaining lanes of a run queue behind that. Four covers a
-# full vault-checks run's parallel jobs (script suites unit ∥ e2e, lint,
-# formatting), so a push starts immediately instead of waiting for the set to
-# grow. Cost is four idle pods (~37 MiB and ~4m CPU each between jobs).
+# full vault-checks run's parallel jobs (script suites unit ∥ e2e, merge-ids,
+# lint), so a push starts immediately instead of waiting for the set to grow.
+# Cost is four idle pods (~37 MiB and ~4m CPU each between jobs).
+#
+# The `formatting` job this comment used to name was deleted on 2026-09-15 —
+# its two ruff steps were already covered by `make lint`. The count is still
+# four per branch push because merge-ids takes the freed slot; on main, where
+# merge-ids is skipped, a run needs three.
 #
 # maxRunners: 8 — vault-checks runs FOUR parallel jobs per push, so 8 is
 # exactly two concurrent full runs' worth of work. Verified live at 7 with two
 # overlapping runs: the listener reported `assigned job=7 decision=7 max=7`
-# (saturated, queueing) and the pods split 4 manu / 4 wemby. Observed peak
+# (saturated, queueing) and the pods split 4 manu / 4 wemby — that split
+# predates the 2026-09-15 move to wemby + timmy. Observed peak
 # per-run demand is 4–5 pods (a run's e2e lane holds its pod while the other
 # lanes finish), so 8 covers two runs and absorbs the +1 that overshoot would
 # otherwise queue behind.
@@ -50,8 +56,13 @@ maxRunners: 8
 # no privileged pods, no dind.
 
 # The listener pod is created in the CONTROLLER's namespace (arc-systems) and
-# is NOT covered by template.spec below — it needs its own template to stay
-# off timmy.
+# is NOT covered by template.spec below — it needs its own template to carry
+# the same node exclusion.
+#
+# Excludes manu, not timmy, since 2026-09-15 (see the runner template below for
+# the full rationale). The listener is a singleton and the scale set stops
+# entirely if it cannot schedule, so it is left eligible for both surviving
+# nodes rather than pinned to wemby alone.
 listenerTemplate:
   spec:
     affinity:
@@ -62,7 +73,7 @@ listenerTemplate:
                 - key: kubernetes.io/hostname
                   operator: NotIn
                   values:
-                    - timmy
+                    - manu
     containers:
       # Merged onto the chart's listener container by name.
       - name: listener
@@ -76,7 +87,26 @@ listenerTemplate:
 
 template:
   spec:
-    # Runner pods stay off timmy (control plane, heaviest memory load).
+    # Runner pods stay off MANU (2026-09-15). This inverts the previous rule,
+    # which excluded timmy as the control plane; the reasoning changed because
+    # the hardware did.
+    #
+    # manu took a cooling fault on 2026-09-14 (BUG-1101): two thermal shutdowns
+    # at 16:05Z and 16:50Z, die temp 84-88C, and its CPU has been capped to
+    # 1550 MHz since 17:04Z as mitigation. That cap is still in force — a live
+    # read on 2026-09-15 showed 1.42 GHz. A Ryzen 7 1700 held at ~52% of base
+    # clock is not the 16-core node the old comment reasoned about: it is worth
+    # roughly 8 effective cores, so manu + wemby was ~20 effective cores and
+    # wemby + timmy is 20 at full clock. Excluding manu is therefore close to
+    # throughput-neutral while keeping sustained CI load off a node with a known
+    # cooling defect — and CI load was named in IMPR-1166 as an aggravator of
+    # that fault, though not its root cause.
+    #
+    # Putting runners on timmy (control plane) is a deliberate, reviewed
+    # trade-off, not an oversight. The protection that makes it safe is the
+    # lowered per-pod CPU limit below — see the resources block. Revisit this
+    # whole decision when manu's cooler is repaired and the 1550 MHz cap is
+    # lifted: the old manu + wemby split is better for the control plane.
     affinity:
       nodeAffinity:
         requiredDuringSchedulingIgnoredDuringExecution:
@@ -85,25 +115,41 @@ template:
                 - key: kubernetes.io/hostname
                   operator: NotIn
                   values:
-                    - timmy
+                    - manu
 
     # Without this every runner pod lands on wemby. The runner image (679MB) is
     # cached only on wemby, and ImageLocality (weight 1) then outweighs the
-    # resource-fit scores that favour the emptier manu (manu ~62 vs wemby ~38
-    # before locality), so the scheduler sees a two-node eligible set and picks
-    # one of them until it fills. The image is pulled on first use regardless;
-    # the spread is what actually uses manu's headroom instead of stacking all
-    # CI on the cluster's slowest CPU (i7-8750H vs manu's Ryzen 7 1700).
+    # resource-fit scores favouring an emptier node, so the scheduler picks
+    # wemby until it fills. That was true when the pair was manu + wemby and is
+    # true now for wemby + timmy: timmy has never pulled the image, so its
+    # locality score is 0 and every pod would stack on wemby without this.
     #
     # maxSkew 1 on the hostname: PodTopologySpread carries weight 2, so it wins
-    # over ImageLocality's 1 and flips the decision. ScheduleAnyway (not
-    # DoNotSchedule) is deliberate — skew is a preference, and a hard constraint
-    # would leave runners Pending rather than let them pile up on whichever node
-    # has room.
+    # over ImageLocality's 1 and flips the decision.
+    #
+    # ScheduleAnyway -> DoNotSchedule (2026-09-15). The old comment argued that
+    # a soft constraint was better because a hard one "would leave runners
+    # Pending rather than let them pile up on whichever node has room". That
+    # reasoning was sound while the pool was two worker nodes. It is wrong now
+    # that one of the two IS the control plane: ScheduleAnyway expresses a
+    # preference, so with wemby unavailable or full, all 8 runners could legally
+    # land on timmy. At a 1500m limit that is 12 CPU of limits on an 8-core
+    # control plane — the exact failure this placement was supposed to prevent,
+    # arriving precisely during degraded operation.
+    #
+    # Pending runners are the correct outcome there. CI slowing down is
+    # recoverable; starving kube-apiserver and etcd is not.
+    #
+    # nodeTaintsPolicy Ignore is load-bearing, not decoration: a cordoned wemby
+    # must still count as a topology domain. Under Honor it would drop out of
+    # the domain set, leaving timmy as the only domain, trivially satisfying
+    # maxSkew and re-opening the all-8-on-timmy path this change closes.
     topologySpreadConstraints:
       - maxSkew: 1
         topologyKey: kubernetes.io/hostname
-        whenUnsatisfiable: ScheduleAnyway
+        whenUnsatisfiable: DoNotSchedule
+        nodeAffinityPolicy: Honor
+        nodeTaintsPolicy: Ignore
         labelSelector:
           matchLabels:
             app.kubernetes.io/component: runner
@@ -195,14 +241,55 @@ template:
         # with the spread constraint pinning 4 pods per node, 4x4Gi was 103%
         # of allocatable; 4x2Gi is 50%.
         #
-        # CPU request was under-provisioned: median 333m against a 250m
-        # request, so runners routinely exceed what the scheduler reserved.
-        # 500m matches the p90 (560m). The 2-core limit is left alone — peak
-        # was 1.14 cores with only 2.8% throttling, so it is already correct.
+        # CPU LIMIT 2 -> 1500m and REQUEST 500m -> 1000m (2026-09-15), both
+        # forced by the placement change above. Together they are what makes
+        # runners-on-timmy safe; neither is sufficient alone.
+        #
+        # The limit bounds one pod. timmy has 8 cores, so 4 runners at the old
+        # 2-core limit is 8 cores — 100% of the control plane, starving
+        # kube-apiserver and etcd and with them every other workload
+        # (OpenViking, Grafana, Longhorn). At 1500m four pods cap at 6 cores
+        # and leave 2. 1500m is still above every measured peak (739m per-pod
+        # in the 2d IMPR-1166 sample, 1.14 cores in the older 1h sample), so
+        # it is 1.3x the worst observation, not a squeeze.
+        #
+        # The REQUEST is what makes "four pods" true rather than hoped for.
+        # A per-pod limit says nothing about how many pods land on a node, and
+        # the spread constraint above is only one of the two bounds — so the
+        # request is sized so that CPU admission independently caps timmy at
+        # four, and would do so even if the spread were satisfied some other
+        # way. Measured 2026-09-15:
+        #
+        #   timmy  8000m allocatable - 3281m already requested = 4719m free
+        #          floor(4719 / 1000) = 4 pods; a 5th needs 5000m and is refused
+        #   wemby 12000m allocatable - 6875m non-runner requests = 5125m free
+        #          floor(5125 / 1000) = 5 pods
+        #
+        # 4 + 5 = 9 >= maxRunners 8, so the healthy case loses no capacity —
+        # the reservation costs nothing operationally. With wemby unavailable,
+        # timmy admits 4 and the rest stay Pending, which is the intended
+        # degradation. 1000m is ~2x the 522m p90; that overshoot is the price
+        # of the bound and is deliberate.
+        #
+        # Caveat, stated rather than hidden: this bound is computed against
+        # timmy's CURRENT non-runner reservations. If other workloads there
+        # shrink by more than ~280m, a 5th runner becomes admissible and the
+        # 2-core reserve narrows. That residual is exactly what IMPR-1166's
+        # real subject — a per-node aggregate bound via LimitRange or
+        # ResourceQuota — would close for good; it remains open.
+        #
+        # Memory stays at 2Gi: 4 x 2Gi = 8Gi against timmy's 31Gi (9038Mi in
+        # use), and per-pod peak is 809Mi.
+        #
+        # This deliberately moves ahead of IMPR-1166, which says not to touch
+        # these values until the e2e-lane latency regression is measured. That
+        # gate assumed the pool was manu + wemby, where an unbounded aggregate
+        # only risked CI slowness. With the control plane in the pool the
+        # downside is cluster-wide, so bounding it first is the safer order.
         resources:
           requests:
-            cpu: 500m
+            cpu: 1000m
             memory: 512Mi
           limits:
-            cpu: "2"
+            cpu: 1500m
             memory: 2Gi
