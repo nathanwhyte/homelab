@@ -1,0 +1,48 @@
+[Unit]
+# Caps the GTX 1080 on manu at 150 W (default 198 W, range 90-238 W).
+#
+# Part of the BUG-1101 cooling-fault mitigation, alongside cpu-freq-cap.service.
+# manu's cooler is not transferring heat — 84-88 C die against a 42 C board with
+# the fan already at 2577 RPM — so the strategy is to generate less heat until
+# it is repasted.
+#
+# Why this is nearly free. Measured over 3 days, the card is above 50 W for
+# 0.52% of the time and averages 11.3 W against a 10.3 W idle. It is an
+# embedding server that sits parked between compendium syncs. Capping it costs
+# throughput only during that 0.5%, and only on the tail of each burst.
+#
+# Why it is worth doing at all, given that duty cycle: the bursts are
+# CORRELATED with CPU load. A sync drives the embedder and CI at the same
+# moment, so the GPU's ~210 W lands exactly when the CPU is already hot. This
+# clips the worst coincident spikes rather than reducing any average.
+#
+# Persistence mode is enabled first and deliberately. Without it the driver
+# unloads when no client holds the device, and the power limit resets with it —
+# the cap would silently lapse the first time the embedder idled out.
+#
+# REMOVE WITH THE CPU CAP once the cooler is fixed:
+#   systemctl disable --now nvidia-power-cap
+# ExecStop restores the 198 W default, so no reboot is needed.
+Description=Cap GTX 1080 power draw (cooling fault mitigation, BUG-1101)
+Documentation=https://github.com/nathanwhyte/homelab/blob/main/gpu/nvidia/README.md
+After=multi-user.target
+ConditionPathExists=/usr/bin/nvidia-smi
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+
+# Watts. Must lie within the card's supported range — nvidia-smi rejects a
+# value outside it rather than clamping, so a bad number fails loudly here.
+Environment=CAP_WATTS=150
+
+ExecStart=/usr/bin/nvidia-smi --persistence-mode=1
+ExecStart=/bin/sh -c '/usr/bin/nvidia-smi --power-limit=${CAP_WATTS}'
+# Read back rather than trusting the write: a rejected limit would otherwise
+# leave the unit green with the card uncapped.
+ExecStart=/bin/sh -c 'test "$(/usr/bin/nvidia-smi --query-gpu=power.limit --format=csv,noheader,nounits | cut -d. -f1)" -eq "${CAP_WATTS}"'
+
+ExecStop=/bin/sh -c '/usr/bin/nvidia-smi --power-limit=198'
+
+[Install]
+WantedBy=multi-user.target
