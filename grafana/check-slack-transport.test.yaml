@@ -1,0 +1,89 @@
+# Fixtures for grafana/check-slack-transport.sh — BUG-1135 / IMPR-1173.
+#
+# Consumed by the `slack-transport-tests` pre-commit hook. Each document is a
+# rendered Alertmanager config, and the test asserts the exit code the checker
+# must produce for it. A check that cannot be shown failing proves nothing, so
+# the first document reproduces the exact pre-fix state that let BUG-1135 run for
+# six days: two receivers pointing at a `hooks.slack.com` webhook while carrying
+# `channel: '#cron-homelab'` — every layer reporting success, delivery going to
+# `#hermes-noise`.
+#
+# expected: fail
+---
+global:
+  resolve_timeout: 5m
+  slack_app_token_file: /etc/alertmanager/secrets/alertmanager-slack-bot-token/bot-token
+route:
+  receiver: slack-homelab
+  routes:
+    - receiver: grafana/storage-alert-routing/slack-homelab
+      matchers:
+        - alertgroup="storage"
+receivers:
+  - name: "null"
+  - name: slack-homelab
+    slack_configs:
+      - api_url_file: /etc/alertmanager/secrets/alertmanager-slack-webhook/api-url
+        channel: '#cron-homelab'
+        send_resolved: true
+  - name: grafana/storage-alert-routing/slack-homelab
+    slack_configs:
+      - api_url: https://hooks.slack.com/services/T00000000/B00000000/EXAMPLEfakeForFixtureOnly
+        channel: '#cron-homelab'
+        send_resolved: true
+
+# expected: pass
+# Post-IMPR-1173: the three CR receivers post to chat.postMessage with an explicit
+# token, and the base receiver inherits the global slack_app_token_file. No
+# receiver both uses a webhook and claims a channel.
+---
+global:
+  resolve_timeout: 5m
+  slack_app_token: xoxb-not-a-real-token
+  slack_app_url: https://slack.com/api/chat.postMessage
+route:
+  receiver: slack-homelab
+  routes:
+    - receiver: grafana/storage-alert-routing/slack-homelab
+      matchers:
+        - alertgroup="storage"
+receivers:
+  - name: "null"
+  - name: slack-homelab
+    slack_configs:
+      - channel: '#cron-homelab'
+        send_resolved: true
+  - name: grafana/storage-alert-routing/slack-homelab
+    slack_configs:
+      - api_url: https://slack.com/api/chat.postMessage
+        app_url: https://slack.com/api/chat.postMessage
+        app_token: xoxb-not-a-real-token
+        channel: '#cron-homelab'
+        send_resolved: true
+
+# expected: pass
+# A webhook receiver with NO channel field is honest — the URL decides and the
+# config does not claim otherwise. Must not be reported as lying.
+---
+global:
+  resolve_timeout: 5m
+route:
+  receiver: slack-homelab
+receivers:
+  - name: slack-homelab
+    slack_configs:
+      - api_url: https://hooks.slack.com/services/T00000000/B00000000/EXAMPLEfakeForFixtureOnlyNoChannel
+        send_resolved: true
+
+# expected: fail
+# An unresolvable transport must fail loudly rather than be assumed healthy.
+---
+global:
+  resolve_timeout: 5m
+route:
+  receiver: slack-homelab
+receivers:
+  - name: slack-homelab
+    slack_configs:
+      - channel: '#cron-homelab'
+        send_resolved: true

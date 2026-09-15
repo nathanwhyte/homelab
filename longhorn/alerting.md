@@ -44,10 +44,18 @@ needs only step 2. A change to
 applies no values and will not pick it up. Both are needed when a change spans
 them, as the 2026-09-13 signal split did.
 
-The routing object lives in `grafana` so it can reference the existing
-`alertmanager-slack-webhook` Secret's `api-url` key. It matches
+The routing object lives in `grafana` so it can reference the
+`alertmanager-slack-bot-token` Secret's `api-url` and `bot-token` keys. It matches
 `alertgroup="storage"` across workload namespaces and sends firing and resolved
-notifications to `#cron-homelab`, using the same webhook as the power alert.
+notifications to `#cron-homelab`, using the same transport as the power alert.
+
+Since IMPR-1173 that transport is a bot token posting to `chat.postMessage`, not
+an incoming webhook, so `channel:` is honoured per delivery rather than being
+fixed when a webhook was minted — the defect behind BUG-1135.
+`deploy-storage-alerts.sh` fails fast if the Secret is missing, because the CR
+would otherwise pass server dry-run and then fail at operator reconcile with the
+receiver silently unbuilt. The old `alertmanager-slack-webhook` Secret is retired
+and referenced by nothing.
 It excludes `severity="info"`, so the informational `LonghornVolumeSpaceHigh`
 stays out of Slack while the actionable `KubePersistentVolumeFillingUp` reaches
 it. Other namespaces retain namespace-scoped AlertmanagerConfig routing.

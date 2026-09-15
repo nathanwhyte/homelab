@@ -45,6 +45,19 @@ repos:
         language: system
         pass_filenames: false
         files: ^(scripts/(test-)?helm-deploy\.py|(?:grafana|harbor|openwebui|dashboard|garage)/deploy-[^/]+\.sh)$
+      # BUG-1135 / IMPR-1173: guards the class where a Slack receiver's
+      # `channel` field is a lie because the transport ignores it. Fixture-driven,
+      # so it also proves the checker can fail.
+      - id: slack-transport-tests
+        name: Slack transport check fixtures
+        entry: uv run --no-project --with pyyaml python3 grafana/test-slack-transport.py
+        language: system
+        pass_filenames: false
+        # The driver is `test-slack-transport.py`, NOT `test-check-slack-transport.py`.
+        # An earlier `(test-)?check-slack-transport` filter matched a file that does
+        # not exist, so edits to the driver itself skipped the hook and could weaken
+        # the fixtures silently. Name all three files literally.
+        files: ^grafana/(check-slack-transport\.(sh|test\.yaml)|test-slack-transport\.py)$
       - id: bare-code-fences
         name: Check for bare code fences (MD040)
         description: Reject commits with bare ``` fences that lack a language tag.

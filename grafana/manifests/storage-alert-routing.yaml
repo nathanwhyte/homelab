@@ -29,9 +29,20 @@ spec:
   receivers:
     - name: slack-homelab
       slackConfigs:
-        - apiURL:
-            name: alertmanager-slack-webhook
+        - # IMPR-1173: the endpoint literal lives in the Secret because the CRD's
+          # apiURL is a SecretKeySelector, not an inline URL. Posting to
+          # chat.postMessage makes `channel` a per-delivery parameter; the
+          # incoming-webhook transport ignored it and bound the destination at
+          # webhook-creation time (BUG-1135).
+          apiURL:
+            name: alertmanager-slack-bot-token
             key: api-url
+          httpConfig:
+            authorization:
+              type: Bearer
+              credentials:
+                name: alertmanager-slack-bot-token
+                key: bot-token
           channel: "#cron-homelab"
           sendResolved: true
           title: "{{ .CommonLabels.alertname }} — {{ .Status }}"
