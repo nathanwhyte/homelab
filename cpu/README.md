@@ -151,6 +151,21 @@ Two implementation notes worth keeping, both learned the hard way on
   anything keyed on `instance` loses the node across the very event it exists
   to catch.
 
+## Why `verify` polls
+
+`cpu-freq-cap apply` writes `scaling_max_freq` then reads it back, and the read
+is a bounded poll (up to 2 s) rather than a single read.
+
+cpufreq applies the write through the policy asynchronously, so an immediate
+read can still return the previous value. `systemctl restart` makes that likely:
+`ExecStop` uncaps to `cpuinfo_max_freq` and `ExecStart` recaps milliseconds
+later. A single read caught the uncapped 3100000 and failed the unit — while the
+cap had in fact applied. First install never hit it, because there was no
+preceding write to race with.
+
+The GPU cap does not need this: `nvidia-smi --power-limit` is synchronous and
+reports the transition it made, so its read-back is reliable as a single check.
+
 ## What this does not do
 
 - It does not fix the cooler. The gradient is unchanged; the node simply

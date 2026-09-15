@@ -57,12 +57,24 @@ write_all() {
 
 # Verify the kernel actually took the value. A silently-rounded or rejected
 # write would otherwise leave the node uncapped while the unit reports success.
+#
+# Poll rather than read once. cpufreq applies a scaling_max_freq write through
+# the policy asynchronously, so an immediate read can still return the previous
+# value. `systemctl restart` makes that likely: ExecStop uncaps and ExecStart
+# recaps milliseconds later, and a single read caught the uncapped value and
+# failed the unit even though the cap had in fact applied. First install never
+# hit it because there was no preceding write to race with.
 verify() {
-	local want="$1" got
-	got=$(<"$REF/scaling_max_freq")
-	[[ "$got" == "$want" ]] ||
-		die "verification failed: asked for $want, kernel reports $got"
-	echo "cpu-freq-cap: verified $got"
+	local want="$1" got attempt=0
+	while ((attempt++ < 40)); do
+		got=$(<"$REF/scaling_max_freq")
+		if [[ "$got" == "$want" ]]; then
+			echo "cpu-freq-cap: verified $got"
+			return 0
+		fi
+		sleep 0.05
+	done
+	die "verification failed: asked for $want, kernel still reports $got after 2s"
 }
 
 case "${1:-}" in
