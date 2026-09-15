@@ -87,21 +87,36 @@ immediately without a reboot.
 The cap keeps `manu` alive; it does not tell anyone when cooling degrades
 again. `cpu/alerts.yaml` adds that, with **per-node thresholds**:
 
-| node | CPU | Tjmax | p99 | 3d peak | warn | crit |
-| ---- | --- | ----- | --- | ------- | ---- | ---- |
-| manu | Ryzen 7 1700 | 95 | 67.9\* | 110 | 80 | 90 |
-| timmy | Ryzen 7 7800X3D | 89 | 50.1 | 65.3 | 85 | 88 |
-| wemby | Core i7-8750H | 100 | 80.0 | 96 | 92 | 97 |
+| node | CPU | Tjmax | p99 | 3d peak | condition |
+| ---- | --- | ----- | --- | ------- | --------- |
+| manu | Ryzen 7 1700 | 95 | 67.9\* | 110 | absolute — warn 80, crit 90 |
+| timmy | Ryzen 7 7800X3D | 89 | 50.1 | 65.3 | hot **and** idle — warn only |
+| wemby | Core i7-8750H | 100 | 80.0 | 96 | absolute — warn 92, crit 97 |
 
 \* under the 1550 MHz cap. Revisit manu's thresholds when the cooler is
 repasted and the cap comes off.
 
-`timmy` is an X3D part, which is why its numbers look inverted: AMD caps the
-7800X3D at 89 °C and it is *designed* to run there under sustained load, so
-89 °C is normal rather than a fault. Its thresholds sit just under that
-ceiling. A generic 80/90 would page during ordinary heavy load **and** put the
-critical above the point the chip already throttles itself at — noisy and
-unreachable at the same time.
+**timmy cannot use an absolute threshold at all**, and this took two attempts
+to get right. The 7800X3D is an X3D part: AMD caps it at 89 °C and it is
+*designed* to sit there under sustained load, holding the ceiling by
+throttling. So 89 °C on timmy is the expected result of working hard.
+
+That makes any absolute threshold self-defeating. Below 89 it pages every time
+the machine does real work; above 89 it never fires, because the chip throttles
+rather than exceeding its own limit. An earlier revision used 85/88 and hit
+both failure modes at once — a constant 89 °C fired critical in 3 minutes and
+warning in 11, paging for the exact operation this file calls normal.
+
+The discriminator is temperature **relative to load**. A 7800X3D at 89 °C under
+full load is healthy; at 89 °C while idle it has a cooling problem, because
+nothing is producing that heat. Hence `NodeCPUCoolingDegraded`: above 85 °C
+*and* under 25% utilization for 15 minutes.
+
+timmy gets no critical, deliberately. A meaningful critical would have to
+predict a thermal trip, and this chip throttles instead of tripping — there is
+no temperature above its ceiling to alert on. If it ever does trip, the
+evidence is the firmware reset reason on the next boot, which is after the fact
+by construction.
 
 A single global threshold is not viable: `wemby` is a laptop whose p99 is 80 °C,
 which is the same temperature that means "manu is about to trip". Any threshold

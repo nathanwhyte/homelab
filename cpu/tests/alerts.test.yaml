@@ -93,3 +93,66 @@ tests:
       - expr: count(ALERTS{alertstate="firing",alertgroup="hardware",severity="critical"})
         eval_time: 25m
         exp_samples: [{ labels: "{}", value: 1 }]
+
+  # REGRESSION (review of 3a35886): timmy sitting at its 89 C design ceiling
+  # under real load is healthy and must produce nothing. The previous 85/88
+  # absolute thresholds fired critical here in 3m and warning in 11m — paging
+  # for the exact operation the file calls normal.
+  #
+  # idle counter climbs 6 per minute = 0.1/s  ->  utilization 0.9
+  - name: timmy at 89C under full load stays silent
+    interval: 1m
+    input_series:
+      - series: 'node_hwmon_temp_celsius{chip="pci0000:00_0000:00:18_3",sensor="temp1",namespace="grafana",pod="node-exporter-timmy"}'
+        values: "89x40"
+      - series: 'node_cpu_seconds_total{mode="idle",namespace="grafana",pod="node-exporter-timmy"}'
+        values: "0+6x40"
+      - series: 'kube_pod_info{namespace="grafana",pod="node-exporter-timmy",node="timmy"}'
+        values: "1x40"
+    promql_expr_test:
+      - expr: count(ALERTS{alertstate="firing"})
+        eval_time: 35m
+        exp_samples: []
+      - expr: node:cpu_utilization:rate5m{node="timmy"}
+        eval_time: 20m
+        exp_samples:
+          [{ labels: 'node:cpu_utilization:rate5m{node="timmy"}', value: 0.9 }]
+
+  # ... but the same temperature with the machine idle is a cooling fault.
+  # idle counter climbs 57 per minute = 0.95/s  ->  utilization 0.05
+  - name: timmy hot while idle fires NodeCPUCoolingDegraded
+    interval: 1m
+    input_series:
+      - series: 'node_hwmon_temp_celsius{chip="pci0000:00_0000:00:18_3",sensor="temp1",namespace="grafana",pod="node-exporter-timmy"}'
+        values: "89x40"
+      - series: 'node_cpu_seconds_total{mode="idle",namespace="grafana",pod="node-exporter-timmy"}'
+        values: "0+57x40"
+      - series: 'kube_pod_info{namespace="grafana",pod="node-exporter-timmy",node="timmy"}'
+        values: "1x40"
+    promql_expr_test:
+      - expr: count(ALERTS{alertname="NodeCPUCoolingDegraded",alertstate="firing",node="timmy"})
+        eval_time: 35m
+        exp_samples: [{ labels: "{}", value: 1 }]
+      # Not before the 15m hold.
+      - expr: count(ALERTS{alertname="NodeCPUCoolingDegraded",alertstate="firing",node="timmy"})
+        eval_time: 12m
+        exp_samples: []
+      # timmy must never produce the absolute-threshold alerts.
+      - expr: count(ALERTS{alertname=~"NodeCPUTemperature.*",alertstate="firing",node="timmy"})
+        eval_time: 35m
+        exp_samples: []
+
+  # timmy idle and cool — the ordinary case — stays silent.
+  - name: timmy idle and cool stays silent
+    interval: 1m
+    input_series:
+      - series: 'node_hwmon_temp_celsius{chip="pci0000:00_0000:00:18_3",sensor="temp1",namespace="grafana",pod="node-exporter-timmy"}'
+        values: "50x40"
+      - series: 'node_cpu_seconds_total{mode="idle",namespace="grafana",pod="node-exporter-timmy"}'
+        values: "0+57x40"
+      - series: 'kube_pod_info{namespace="grafana",pod="node-exporter-timmy",node="timmy"}'
+        values: "1x40"
+    promql_expr_test:
+      - expr: count(ALERTS{alertstate="firing"})
+        eval_time: 35m
+        exp_samples: []

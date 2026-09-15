@@ -7,23 +7,40 @@
 # shutdown — and nothing alerted, because no rule evaluated the series. The gap
 # was alerting, not instrumentation.
 #
-# Thresholds are PER NODE, deliberately. A single global threshold is not
-# viable here: wemby is an i7-8750H laptop whose p99 is 80 C and whose normal
-# loaded range overlaps the temperature that means "manu is about to trip".
+# Thresholds are PER NODE, and the two AMD nodes are NOT treated alike.
 #
-#   node   CPU                  Tjmax   p99     3d peak   warn  crit
-#   manu   Ryzen 7 1700          95     67.9*   110       80    90
-#   timmy  Ryzen 7 7800X3D       89     50.1     65.3     85    88
-#   wemby  Core i7-8750H        100     80.0     96       92    97
+#   node   CPU                  Tjmax   p99     3d peak   condition
+#   manu   Ryzen 7 1700          95     67.9*   110       absolute: warn 80, crit 90
+#   wemby  Core i7-8750H        100     80.0     96       absolute: warn 92, crit 97
+#   timmy  Ryzen 7 7800X3D       89     50.1     65.3     hot AND idle (see below)
 #
 #   * manu's p99 is measured under the 1550 MHz cap from cpu-freq-cap.service.
 #     Revisit its thresholds when the cooler is repasted and the cap comes off.
 #
-#   timmy is an X3D part: AMD caps it at 89 C and it is DESIGNED to sit there
-#   under sustained load, so 89 C is normal operation rather than a fault. Its
-#   thresholds sit just under that ceiling — a generic 80/90 would both page
-#   during ordinary heavy load and set a critical above the point the chip
-#   already throttles itself at, i.e. noisy and unreachable at once.
+# WHY TIMMY IS DIFFERENT, AND WHY AN ABSOLUTE THRESHOLD CANNOT WORK FOR IT.
+#
+# The 7800X3D is an X3D part: AMD caps it at 89 C and it is designed to sit
+# there under sustained load, holding the ceiling by throttling. So on timmy,
+# 89 C is the expected result of working hard — not a fault.
+#
+# That makes any absolute threshold self-defeating. Set it below 89 and it
+# pages every time the machine does real work. Set it above 89 and it never
+# fires, because the chip throttles rather than exceeding its own limit. An
+# earlier revision of this file used 85/88 and hit both failure modes at once:
+# a constant 89 C — the temperature the comment itself called normal — fired
+# critical in 3 minutes and warning in 11.
+#
+# The discriminator is not temperature. It is temperature RELATIVE TO LOAD.
+# A 7800X3D at 89 C under full load is healthy. A 7800X3D at 89 C while
+# largely idle has a cooling problem, because nothing is producing that heat.
+# timmy therefore alerts on hot-while-idle, and has no absolute threshold.
+#
+# timmy also gets no critical. A meaningful critical would have to predict a
+# thermal trip, and this chip throttles instead of tripping — there is no
+# temperature above its ceiling to alert on. If it ever does trip, the evidence
+# is the firmware reset reason on the next boot, which is after the fact by
+# construction. Inventing an unreachable critical to fill the column would be
+# worse than leaving it empty.
 apiVersion: monitoring.coreos.com/v1
 kind: PrometheusRule
 metadata:
@@ -45,7 +62,8 @@ spec:
         # Chip selection: k10temp (AMD) surfaces as a PCI path, not a driver
         # name — hence the pci0000:...18_3 matcher rather than something
         # containing "k10temp", which matches nothing. temp1 is the package
-        # sensor on both vendors; coretemp temp2+ are per-core and redundant.
+        # sensor on both vendors (Tctl on AMD); coretemp temp2+ and AMD's
+        # Tccd1 are per-die and redundant here.
         - record: node:cpu_temperature_celsius
           expr: |
             max by (node) (
@@ -57,10 +75,22 @@ spec:
               kube_pod_info{namespace="grafana"}
             )
 
+        # Same join, so the two series share a `node` label and can be combined
+        # with `and on (node)`.
+        - record: node:cpu_utilization:rate5m
+          expr: |
+            1 - avg by (node) (
+              rate(node_cpu_seconds_total{mode="idle"}[5m])
+              * on (namespace, pod) group_left (node)
+              kube_pod_info{namespace="grafana"}
+            )
+
+        # manu and wemby: absolute thresholds are meaningful, because neither
+        # is designed to run at its ceiling. Reaching it means something is
+        # wrong.
         - alert: NodeCPUTemperatureHigh
           expr: |
             node:cpu_temperature_celsius{node="manu"}  > 80
-            or node:cpu_temperature_celsius{node="timmy"} > 85
             or node:cpu_temperature_celsius{node="wemby"} > 92
           for: 10m
           labels:
@@ -76,7 +106,6 @@ spec:
         - alert: NodeCPUTemperatureCritical
           expr: |
             node:cpu_temperature_celsius{node="manu"}  > 90
-            or node:cpu_temperature_celsius{node="timmy"} > 88
             or node:cpu_temperature_celsius{node="wemby"} > 97
           for: 2m
           labels:
@@ -85,3 +114,27 @@ spec:
           annotations:
             summary: "CPU on {{ $labels.node }} is near its thermal trip point"
             description: "{{ $labels.node }} CPU package temperature is {{ $value }} C, close to Tjmax. A firmware thermal trip halts the CPU with no OS warning and no teardown — the node simply stops. Shed load now."
+
+        # timmy: heat without work. 85 C is unremarkable for this chip under
+        # load, so temperature alone says nothing; paired with utilization
+        # below 25% it says the cooler is not removing heat that nothing is
+        # generating.
+        #
+        # 15m rather than 10m: utilization is a 5m rate, so a burst ending just
+        # as the window opens can leave the average low while the die is still
+        # shedding real heat. The longer hold outlasts that.
+        #
+        # warning, not critical: an X3D throttles rather than tripping, so this
+        # is "cooling is degrading, look at it" — not "the node is about to
+        # stop".
+        - alert: NodeCPUCoolingDegraded
+          expr: |
+            node:cpu_temperature_celsius{node="timmy"} > 85
+            and on (node) node:cpu_utilization:rate5m{node="timmy"} < 0.25
+          for: 15m
+          labels:
+            severity: warning
+            alertgroup: hardware
+          annotations:
+            summary: "CPU on {{ $labels.node }} is hot while largely idle"
+            description: "{{ $labels.node }} CPU package temperature is {{ $value }} C with CPU utilization under 25% for 15m. This chip is designed to sit at its 89 C ceiling under load, so temperature alone is not a fault — but heat without work is. Check fan speed, dust, and cooler seating."
