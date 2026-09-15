@@ -125,17 +125,31 @@ template:
     # locality score is 0 and every pod would stack on wemby without this.
     #
     # maxSkew 1 on the hostname: PodTopologySpread carries weight 2, so it wins
-    # over ImageLocality's 1 and flips the decision. ScheduleAnyway (not
-    # DoNotSchedule) is deliberate — skew is a preference, and a hard constraint
-    # would leave runners Pending rather than let them pile up on whichever node
-    # has room.
+    # over ImageLocality's 1 and flips the decision.
     #
-    # Even spread now means up to 4 of 8 runners land on the control plane, so
-    # the per-pod CPU limit is what bounds their aggregate there, not this.
+    # ScheduleAnyway -> DoNotSchedule (2026-09-15). The old comment argued that
+    # a soft constraint was better because a hard one "would leave runners
+    # Pending rather than let them pile up on whichever node has room". That
+    # reasoning was sound while the pool was two worker nodes. It is wrong now
+    # that one of the two IS the control plane: ScheduleAnyway expresses a
+    # preference, so with wemby unavailable or full, all 8 runners could legally
+    # land on timmy. At a 1500m limit that is 12 CPU of limits on an 8-core
+    # control plane — the exact failure this placement was supposed to prevent,
+    # arriving precisely during degraded operation.
+    #
+    # Pending runners are the correct outcome there. CI slowing down is
+    # recoverable; starving kube-apiserver and etcd is not.
+    #
+    # nodeTaintsPolicy Ignore is load-bearing, not decoration: a cordoned wemby
+    # must still count as a topology domain. Under Honor it would drop out of
+    # the domain set, leaving timmy as the only domain, trivially satisfying
+    # maxSkew and re-opening the all-8-on-timmy path this change closes.
     topologySpreadConstraints:
       - maxSkew: 1
         topologyKey: kubernetes.io/hostname
-        whenUnsatisfiable: ScheduleAnyway
+        whenUnsatisfiable: DoNotSchedule
+        nodeAffinityPolicy: Honor
+        nodeTaintsPolicy: Ignore
         labelSelector:
           matchLabels:
             app.kubernetes.io/component: runner
@@ -227,37 +241,54 @@ template:
         # with the spread constraint pinning 4 pods per node, 4x4Gi was 103%
         # of allocatable; 4x2Gi is 50%.
         #
-        # CPU request was under-provisioned: median 333m against a 250m
-        # request, so runners routinely exceed what the scheduler reserved.
-        # 500m matches the p90 (560m). Requests are unchanged.
+        # CPU LIMIT 2 -> 1500m and REQUEST 500m -> 1000m (2026-09-15), both
+        # forced by the placement change above. Together they are what makes
+        # runners-on-timmy safe; neither is sufficient alone.
         #
-        # CPU LIMIT 2 -> 1500m (2026-09-15), forced by the placement change
-        # above. This is the protection that makes runners-on-timmy safe.
+        # The limit bounds one pod. timmy has 8 cores, so 4 runners at the old
+        # 2-core limit is 8 cores — 100% of the control plane, starving
+        # kube-apiserver and etcd and with them every other workload
+        # (OpenViking, Grafana, Longhorn). At 1500m four pods cap at 6 cores
+        # and leave 2. 1500m is still above every measured peak (739m per-pod
+        # in the 2d IMPR-1166 sample, 1.14 cores in the older 1h sample), so
+        # it is 1.3x the worst observation, not a squeeze.
         #
-        # timmy has 8 cores. With maxSkew 1 and maxRunners 8, up to 4 runners
-        # land there, and at the old 2-core limit that is 4 x 2 = 8 cores —
-        # exactly 100% of the control plane's CPU. Four simultaneous e2e lanes
-        # could then starve kube-apiserver and etcd, which every other workload
-        # in the cluster depends on (OpenViking, Grafana, Longhorn). At 1500m
-        # the same four pods cap at 6 cores and leave 2 for the control plane.
+        # The REQUEST is what makes "four pods" true rather than hoped for.
+        # A per-pod limit says nothing about how many pods land on a node, and
+        # the spread constraint above is only one of the two bounds — so the
+        # request is sized so that CPU admission independently caps timmy at
+        # four, and would do so even if the spread were satisfied some other
+        # way. Measured 2026-09-15:
         #
-        # 1500m is still above every measured peak: 739m per-pod in the 2d
-        # IMPR-1166 sample and 1.14 cores in the older 1h sample, so this is
-        # 1.3x the worst observation, not a squeeze. Memory stays at 2Gi —
-        # 4 x 2Gi = 8Gi against timmy's 31Gi (10.6Gi in use) is comfortable,
-        # and per-pod peak is 809Mi.
+        #   timmy  8000m allocatable - 3281m already requested = 4719m free
+        #          floor(4719 / 1000) = 4 pods; a 5th needs 5000m and is refused
+        #   wemby 12000m allocatable - 6875m non-runner requests = 5125m free
+        #          floor(5125 / 1000) = 5 pods
+        #
+        # 4 + 5 = 9 >= maxRunners 8, so the healthy case loses no capacity —
+        # the reservation costs nothing operationally. With wemby unavailable,
+        # timmy admits 4 and the rest stay Pending, which is the intended
+        # degradation. 1000m is ~2x the 522m p90; that overshoot is the price
+        # of the bound and is deliberate.
+        #
+        # Caveat, stated rather than hidden: this bound is computed against
+        # timmy's CURRENT non-runner reservations. If other workloads there
+        # shrink by more than ~280m, a 5th runner becomes admissible and the
+        # 2-core reserve narrows. That residual is exactly what IMPR-1166's
+        # real subject — a per-node aggregate bound via LimitRange or
+        # ResourceQuota — would close for good; it remains open.
+        #
+        # Memory stays at 2Gi: 4 x 2Gi = 8Gi against timmy's 31Gi (9038Mi in
+        # use), and per-pod peak is 809Mi.
         #
         # This deliberately moves ahead of IMPR-1166, which says not to touch
         # these values until the e2e-lane latency regression is measured. That
         # gate assumed the pool was manu + wemby, where an unbounded aggregate
         # only risked CI slowness. With the control plane in the pool the
         # downside is cluster-wide, so bounding it first is the safer order.
-        # IMPR-1166's actual subject — a per-node aggregate bound via
-        # LimitRange or ResourceQuota — is still open and still the better
-        # long-term mechanism than a per-pod limit.
         resources:
           requests:
-            cpu: 500m
+            cpu: 1000m
             memory: 512Mi
           limits:
             cpu: 1500m
