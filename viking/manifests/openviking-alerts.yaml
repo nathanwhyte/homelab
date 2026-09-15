@@ -28,14 +28,22 @@ spec:
           annotations:
             summary: "OpenViking reports stale locks for 10m"
             description: "Potentially stale lock handles — the ERR-1014 signature (poisoned lock_handoff / abandoned client handle). Remedy: kubectl rollout restart deploy/openviking -n viking after the queue drains."
-        - alert: OpenVikingNativeQueueNotDraining
-          expr: sum(openviking_queue_pending) > 5 and (sum(openviking_queue_pending) - sum(openviking_queue_pending offset 15m)) >= 0
-          for: 15m
-          labels:
-            severity: warning
-          annotations:
-            summary: "OpenViking queue pending not decreasing over 15m (native metrics)"
-            description: "Total pending is above 5 and has not fallen in 15m — indexing is stalled (VLM saturation, lock contention, or a poisoned message; see ERR-1014)."
+        # BUG-1138: OpenVikingNativeQueueNotDraining was retired here, not fixed.
+        # It had two defects. Its bare sum() spanned BOTH scrape targets — the
+        # native /metrics on the openviking container and the ov-exporter sidecar,
+        # both selected by the same ServiceMonitor — and the exporter emits
+        # per-queue series AND its own `total`, so the exporter was already
+        # double-counted before the native series was added: measured 2026-09-15,
+        # sum() = 427 against a true depth of 139. And it alerted on DEPTH, which
+        # any legitimate compendium-sync burst exceeds by design — one delivered
+        # job holds hundreds of items. It fired 13:07-13:21 CDT on 2026-09-15
+        # while the queue drained itself to zero, and told the operator to
+        # `rollout restart`, which would have aborted the drain.
+        #
+        # The stall signature lives in OpenVikingQueueNotDraining below, which
+        # selects the exporter's `total` series directly and needs no sum() at
+        # all. The native endpoint cannot express it: it emits no requeued_total,
+        # so it cannot distinguish a poisoned message from a slow one.
         - alert: OpenVikingQueueErrors
           expr: sum(increase(openviking_queue_errors_total[15m])) > 0
           for: 0m
@@ -91,11 +99,48 @@ spec:
           annotations:
             summary: "OpenViking has >20 stale .path.ovlock files for 5m"
             description: "Stale subtree lifecycle locks are accumulating in AGFS. GH #2015 was fixed in v0.4.4 and the lock-cleanup sidecar removed (IMPR-1007 Phase 3) — accumulation now signals a regression or crashed writes; clean up manually with: find /app/data/viking -name '.path.ovlock' -delete. NOTE: this rule counts the local filesystem only — under agfs.backend: s3 it is blind and superseded by OpenVikingS3LocksAccumulating (IMPR-1095)."
+        # BUG-1138: alert on STALLED PROGRESS, not on depth.
+        #
+        # `queue="total"` is unique to ov-exporter — the native endpoint emits
+        # capitalized queue names (Embedding, Semantic, ExternalParse,
+        # SessionCommit) and no `total` — so this selector matches exactly one
+        # series and needs no sum(). Do not wrap it in one: a bare
+        # sum(openviking_queue_pending) spans both scrape targets and triple-counts
+        # (see the retired rule above).
+        #
+        # The conjunct is what makes this mean "stuck" rather than "busy". Deep
+        # and falling is a healthy sync burst; deep and FLAT is the real stall.
+        # increase() handles the counter reset across a pod restart.
+        #
+        # `for` is DELIBERATELY SHORT. increase(...[15m]) == 0 already means "no
+        # completion in the last 15 minutes" — that IS the sustained condition, so
+        # a long `for` stacks a second wait on top of it.
+        #
+        # This was `for: 15m` and it was wrong (Codex P2 on homelab #99). In the
+        # realistic case — the queue stalls right after processing something — the
+        # last increment stays inside the 15m range until it ages out, so the
+        # expression only becomes true at ~15m and the hold then added 15m more.
+        # Measured: 32 minutes to fire, for an alert whose summary says 15.
+        #
+        # The earlier justification was an artifact of the test fixture: its
+        # counter was flat from the first sample, so increase() was 0 immediately
+        # and the alert looked far twitchier than it is. A counter that has been
+        # moving does not behave that way. See the "stall immediately after a
+        # completion" case in viking/tests/alerts.test.yaml, which pins ~20m.
+        #
+        # What `for` still earns: warm-up. After a pod restart the series can
+        # reappear with a backlog and no completion yet, where increase() is 0 and
+        # nothing is wrong. 5m covers that without doubling detection latency.
+        #
+        # requeued_total is deliberately NOT a required conjunct: a hard wedge can
+        # leave processed AND requeued both flat, and requiring requeued to climb
+        # would miss it. It is the discriminator between ERR-1014 and plain
+        # slowness, which is why the description tells the operator to read it.
         - alert: OpenVikingQueueNotDraining
-          expr: openviking_queue_pending{queue="total"} > 5 and delta(openviking_queue_pending{queue="total"}[15m]) >= 0
-          for: 15m
+          expr: openviking_queue_pending{queue="total"} > 5 and increase(openviking_queue_processed_total{queue="total"}[15m]) == 0
+          for: 5m
           labels:
             severity: warning
           annotations:
-            summary: "OpenViking total queue pending not decreasing over 15m"
-            description: "Queue depth is above 5 and has not fallen in 15m — indexing is stalled (VLM saturation or lock contention)."
+            summary: "OpenViking queue has made no progress in 15m"
+            description: "Pending is above 5 and processed_total has not advanced in 15m — work is not moving, which is a stall rather than a backlog. CHECK THE DRAIN RATE FIRST: `ov status --output json`. A deep queue that is falling is a healthy compendium-sync burst and needs nothing. Restart only if pending is flat AND requeued_total is climbing, which is the ERR-1014 poisoned-message signature; a rollout restart mid-drain aborts in-flight work for nothing."
