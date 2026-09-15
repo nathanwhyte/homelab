@@ -82,6 +82,53 @@ ssh -t manu-lan 'sudo systemctl disable --now cpu-freq-cap'
 `ExecStop` restores every CPU to `cpuinfo_max_freq`, so full clocks come back
 immediately without a reboot.
 
+## Temperature alerting
+
+The cap keeps `manu` alive; it does not tell anyone when cooling degrades
+again. `cpu/alerts.yaml` adds that, with **per-node thresholds**:
+
+| node | CPU | Tjmax | p99 | 3d peak | warn | crit |
+| ---- | --- | ----- | --- | ------- | ---- | ---- |
+| manu | Ryzen 7 1700 | 95 | 67.9\* | 110 | 80 | 90 |
+| wemby | i7-8750H | 100 | 80.0 | 96 | 92 | 97 |
+| timmy | AMD | 95 | 50.1 | 65.3 | 80 | 90 |
+
+\* under the 1550 MHz cap. Revisit manu's thresholds when the cooler is
+repasted and the cap comes off.
+
+A single global threshold is not viable: `wemby` is a laptop whose p99 is 80 °C,
+which is the same temperature that means "manu is about to trip". Any threshold
+low enough to protect manu pre-cap would page continuously on wemby — there is
+a unit test asserting exactly that.
+
+Deploy:
+
+```bash
+cpu/deploy-cpu-alerts.sh            # or --dry-run
+```
+
+Both objects are required. The rule alone carries `alertgroup: hardware`, which
+matches no route until `grafana/manifests/hardware-alert-routing.yaml` exists —
+until then it is discarded by the default `null` receiver.
+
+Run the rule tests with the pinned Prometheus image:
+
+```bash
+uv run --with pyyaml python cpu/tests/check-alerts.py --promtool /path/to/promtool
+```
+
+Two implementation notes worth keeping, both learned the hard way on
+2026-09-14:
+
+- **k10temp surfaces as a PCI path, not a driver name.** On AMD nodes the chip
+  label is `pci0000:00_0000:00:18_3`. A selector containing `k10temp` matches
+  nothing, which is why the data looked absent during the incident.
+- **`instance` is the node-exporter pod IP and changes when that pod
+  restarts.** manu had three distinct `instance` values across the incident
+  window. The rules join through `kube_pod_info` to get a stable `node` label;
+  anything keyed on `instance` loses the node across the very event it exists
+  to catch.
+
 ## What this does not do
 
 - It does not fix the cooler. The gradient is unchanged; the node simply

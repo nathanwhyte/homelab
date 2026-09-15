@@ -1,0 +1,81 @@
+---
+# CPU package temperature alerting.
+#
+# manu shut down twice on 2026-09-14 with the AMD firmware reset reason
+# [0x00080a00]: internal CPU thermal limit was tripped. Prometheus had recorded
+# the whole run-up — a 110 C peak, and 91 C ninety seconds before the first
+# shutdown — and nothing alerted, because no rule evaluated the series. The gap
+# was alerting, not instrumentation.
+#
+# Thresholds are PER NODE, deliberately. A single global threshold is not
+# viable here: wemby is an i7-8750H laptop whose p99 is 80 C and whose normal
+# loaded range overlaps the temperature that means "manu is about to trip".
+#
+#   node   CPU            Tjmax   p99     3d peak   warn  crit
+#   manu   Ryzen 7 1700    95     67.9*   110       80    90
+#   wemby  i7-8750H       100     80.0     96       92    97
+#   timmy  AMD             95     50.1     65.3     80    90
+#
+#   * manu's p99 is measured under the 1550 MHz cap from cpu-freq-cap.service.
+#     Revisit its thresholds when the cooler is repasted and the cap comes off.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: cpu-alerts
+  namespace: grafana
+  labels:
+    release: kube-prometheus-stack
+spec:
+  groups:
+    - name: cpu-temperature
+      rules:
+        # node_hwmon_temp_celsius carries no `node` label — only `instance`,
+        # which is the node-exporter POD IP and therefore changes whenever that
+        # pod restarts. manu had three different instance values across the
+        # 2026-09-14 incident window, so any rule keyed on instance would have
+        # silently lost the node across the very event it exists to catch.
+        # Join through kube_pod_info to get a stable node name.
+        #
+        # Chip selection: k10temp (AMD) surfaces as a PCI path, not a driver
+        # name — hence the pci0000:...18_3 matcher rather than something
+        # containing "k10temp", which matches nothing. temp1 is the package
+        # sensor on both vendors; coretemp temp2+ are per-core and redundant.
+        - record: node:cpu_temperature_celsius
+          expr: |
+            max by (node) (
+              node_hwmon_temp_celsius{
+                chip=~"pci0000:00_0000:00:18_3|platform_coretemp_0",
+                sensor="temp1"
+              }
+              * on (namespace, pod) group_left (node)
+              kube_pod_info{namespace="grafana"}
+            )
+
+        - alert: NodeCPUTemperatureHigh
+          expr: |
+            node:cpu_temperature_celsius{node="manu"}  > 80
+            or node:cpu_temperature_celsius{node="timmy"} > 80
+            or node:cpu_temperature_celsius{node="wemby"} > 92
+          for: 10m
+          labels:
+            severity: warning
+            alertgroup: hardware
+          annotations:
+            summary: "CPU on {{ $labels.node }} has been above its warning threshold for 10m"
+            description: "{{ $labels.node }} CPU package temperature is {{ $value }} C. Sustained heat at this level means cooling is degrading — check fan speed and the die-to-board gradient before it reaches the trip point. See cpu/README.md."
+
+        # Short `for:` deliberately. At 91 C on 2026-09-14 there were 105
+        # seconds left before the trip; a 10m hold here would fire after the
+        # shutdown it is meant to pre-empt.
+        - alert: NodeCPUTemperatureCritical
+          expr: |
+            node:cpu_temperature_celsius{node="manu"}  > 90
+            or node:cpu_temperature_celsius{node="timmy"} > 90
+            or node:cpu_temperature_celsius{node="wemby"} > 97
+          for: 2m
+          labels:
+            severity: critical
+            alertgroup: hardware
+          annotations:
+            summary: "CPU on {{ $labels.node }} is near its thermal trip point"
+            description: "{{ $labels.node }} CPU package temperature is {{ $value }} C, close to Tjmax. A firmware thermal trip halts the CPU with no OS warning and no teardown — the node simply stops. Shed load now."

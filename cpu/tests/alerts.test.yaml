@@ -1,0 +1,95 @@
+---
+# Extract alerts.yaml's spec to cpu-rules.yaml before running promtool.
+# Driven by cpu/tests/check-alerts.py.
+rule_files:
+  - cpu-rules.yaml
+
+evaluation_interval: 1m
+
+tests:
+  # The point of the whole item: replaying manu's run-up must fire before the
+  # shutdown. manu crossed 80 C well before 16:05:49Z and 91 C at 16:04:00Z.
+  - name: manu run-up fires warning then critical
+    interval: 1m
+    input_series:
+      - series: 'node_hwmon_temp_celsius{chip="pci0000:00_0000:00:18_3",sensor="temp1",namespace="grafana",pod="node-exporter-manu"}'
+        values: "70+2x25"
+      - series: 'kube_pod_info{namespace="grafana",pod="node-exporter-manu",node="manu"}'
+        values: "1x25"
+    promql_expr_test:
+      - expr: count(ALERTS{alertname="NodeCPUTemperatureHigh",alertstate="firing",node="manu"})
+        eval_time: 20m
+        exp_samples: [{ labels: "{}", value: 1 }]
+      - expr: count(ALERTS{alertname="NodeCPUTemperatureCritical",alertstate="firing",node="manu"})
+        eval_time: 16m
+        exp_samples: [{ labels: "{}", value: 1 }]
+      - expr: count(ALERTS{alertname="NodeCPUTemperatureHigh",alertstate="firing",node="manu"})
+        eval_time: 5m
+        exp_samples: []
+
+  # wemby's p99 is 80 C. A global threshold low enough to protect manu would
+  # page continuously here; its own threshold must not.
+  - name: wemby at its normal loaded temperature stays quiet
+    interval: 1m
+    input_series:
+      - series: 'node_hwmon_temp_celsius{chip="platform_coretemp_0",sensor="temp1",namespace="grafana",pod="node-exporter-wemby"}'
+        values: "85x30"
+      - series: 'kube_pod_info{namespace="grafana",pod="node-exporter-wemby",node="wemby"}'
+        values: "1x30"
+    promql_expr_test:
+      - expr: count(ALERTS{alertname="NodeCPUTemperatureHigh",alertstate="firing"})
+        eval_time: 25m
+        exp_samples: []
+      - expr: count(ALERTS{alertname="NodeCPUTemperatureCritical",alertstate="firing"})
+        eval_time: 25m
+        exp_samples: []
+
+  # ... but wemby genuinely approaching its own Tjmax still pages.
+  - name: wemby above its own threshold fires
+    interval: 1m
+    input_series:
+      - series: 'node_hwmon_temp_celsius{chip="platform_coretemp_0",sensor="temp1",namespace="grafana",pod="node-exporter-wemby"}'
+        values: "95x30"
+      - series: 'kube_pod_info{namespace="grafana",pod="node-exporter-wemby",node="wemby"}'
+        values: "1x30"
+    promql_expr_test:
+      - expr: count(ALERTS{alertname="NodeCPUTemperatureHigh",alertstate="firing",node="wemby"})
+        eval_time: 25m
+        exp_samples: [{ labels: "{}", value: 1 }]
+
+  # The instance label churns when the exporter pod restarts; the node label
+  # must survive it. Same node, two different pods across the window.
+  - name: node identity survives an exporter pod restart
+    interval: 1m
+    input_series:
+      - series: 'node_hwmon_temp_celsius{chip="pci0000:00_0000:00:18_3",sensor="temp1",namespace="grafana",pod="node-exporter-manu-old"}'
+        values: "95x12 _x20"
+      - series: 'kube_pod_info{namespace="grafana",pod="node-exporter-manu-old",node="manu"}'
+        values: "1x12 _x20"
+      - series: 'node_hwmon_temp_celsius{chip="pci0000:00_0000:00:18_3",sensor="temp1",namespace="grafana",pod="node-exporter-manu-new"}'
+        values: "_x14 95x18"
+      - series: 'kube_pod_info{namespace="grafana",pod="node-exporter-manu-new",node="manu"}'
+        values: "_x14 1x18"
+    promql_expr_test:
+      - expr: count by (node) (node:cpu_temperature_celsius{node="manu"})
+        eval_time: 5m
+        exp_samples: [{ labels: '{node="manu"}', value: 1 }]
+      - expr: count by (node) (node:cpu_temperature_celsius{node="manu"})
+        eval_time: 25m
+        exp_samples: [{ labels: '{node="manu"}', value: 1 }]
+
+  # Both alerts must carry alertgroup=hardware or they route to null.
+  - name: alerts carry the routing label
+    interval: 1m
+    input_series:
+      - series: 'node_hwmon_temp_celsius{chip="pci0000:00_0000:00:18_3",sensor="temp1",namespace="grafana",pod="node-exporter-manu"}'
+        values: "99x30"
+      - series: 'kube_pod_info{namespace="grafana",pod="node-exporter-manu",node="manu"}'
+        values: "1x30"
+    promql_expr_test:
+      - expr: count(ALERTS{alertstate="firing",alertgroup="hardware",severity="warning"})
+        eval_time: 25m
+        exp_samples: [{ labels: "{}", value: 1 }]
+      - expr: count(ALERTS{alertstate="firing",alertgroup="hardware",severity="critical"})
+        eval_time: 25m
+        exp_samples: [{ labels: "{}", value: 1 }]
