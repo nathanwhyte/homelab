@@ -90,11 +90,18 @@ again. `cpu/alerts.yaml` adds that, with **per-node thresholds**:
 | node | CPU | Tjmax | p99 | 3d peak | warn | crit |
 | ---- | --- | ----- | --- | ------- | ---- | ---- |
 | manu | Ryzen 7 1700 | 95 | 67.9\* | 110 | 80 | 90 |
-| wemby | i7-8750H | 100 | 80.0 | 96 | 92 | 97 |
-| timmy | AMD | 95 | 50.1 | 65.3 | 80 | 90 |
+| timmy | Ryzen 7 7800X3D | 89 | 50.1 | 65.3 | 85 | 88 |
+| wemby | Core i7-8750H | 100 | 80.0 | 96 | 92 | 97 |
 
 \* under the 1550 MHz cap. Revisit manu's thresholds when the cooler is
 repasted and the cap comes off.
+
+`timmy` is an X3D part, which is why its numbers look inverted: AMD caps the
+7800X3D at 89 °C and it is *designed* to run there under sustained load, so
+89 °C is normal rather than a fault. Its thresholds sit just under that
+ceiling. A generic 80/90 would page during ordinary heavy load **and** put the
+critical above the point the chip already throttles itself at — noisy and
+unreachable at the same time.
 
 A single global threshold is not viable: `wemby` is a laptop whose p99 is 80 °C,
 which is the same temperature that means "manu is about to trip". Any threshold

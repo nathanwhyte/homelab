@@ -11,13 +11,19 @@
 # viable here: wemby is an i7-8750H laptop whose p99 is 80 C and whose normal
 # loaded range overlaps the temperature that means "manu is about to trip".
 #
-#   node   CPU            Tjmax   p99     3d peak   warn  crit
-#   manu   Ryzen 7 1700    95     67.9*   110       80    90
-#   wemby  i7-8750H       100     80.0     96       92    97
-#   timmy  AMD             95     50.1     65.3     80    90
+#   node   CPU                  Tjmax   p99     3d peak   warn  crit
+#   manu   Ryzen 7 1700          95     67.9*   110       80    90
+#   timmy  Ryzen 7 7800X3D       89     50.1     65.3     85    88
+#   wemby  Core i7-8750H        100     80.0     96       92    97
 #
 #   * manu's p99 is measured under the 1550 MHz cap from cpu-freq-cap.service.
 #     Revisit its thresholds when the cooler is repasted and the cap comes off.
+#
+#   timmy is an X3D part: AMD caps it at 89 C and it is DESIGNED to sit there
+#   under sustained load, so 89 C is normal operation rather than a fault. Its
+#   thresholds sit just under that ceiling — a generic 80/90 would both page
+#   during ordinary heavy load and set a critical above the point the chip
+#   already throttles itself at, i.e. noisy and unreachable at once.
 apiVersion: monitoring.coreos.com/v1
 kind: PrometheusRule
 metadata:
@@ -54,7 +60,7 @@ spec:
         - alert: NodeCPUTemperatureHigh
           expr: |
             node:cpu_temperature_celsius{node="manu"}  > 80
-            or node:cpu_temperature_celsius{node="timmy"} > 80
+            or node:cpu_temperature_celsius{node="timmy"} > 85
             or node:cpu_temperature_celsius{node="wemby"} > 92
           for: 10m
           labels:
@@ -70,7 +76,7 @@ spec:
         - alert: NodeCPUTemperatureCritical
           expr: |
             node:cpu_temperature_celsius{node="manu"}  > 90
-            or node:cpu_temperature_celsius{node="timmy"} > 90
+            or node:cpu_temperature_celsius{node="timmy"} > 88
             or node:cpu_temperature_celsius{node="wemby"} > 97
           for: 2m
           labels:
