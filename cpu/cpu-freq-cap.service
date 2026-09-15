@@ -16,7 +16,13 @@
 # immediately; it does not need a reboot.
 Description=Temporary CPU frequency cap (cooling fault mitigation, BUG-1101)
 Documentation=https://github.com/nathanwhyte/homelab/blob/main/cpu/README.md
-After=multi-user.target
+# Same ordering fix as nvidia-power-cap.service, and for the same reason:
+# k3s-agent is Before=multi-user.target and WantedBy=multi-user.target, so
+# workloads start before that target is reached, and its infinite start timeout
+# means a stalled k3s would defer this cap indefinitely. Order before the thing
+# that starts the load instead.
+After=sysinit.target
+Before=k3s-agent.service
 ConditionPathExists=/sys/devices/system/cpu/cpu0/cpufreq/scaling_max_freq
 
 [Service]

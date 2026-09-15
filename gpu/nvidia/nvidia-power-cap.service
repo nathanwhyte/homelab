@@ -25,7 +25,21 @@
 # ExecStop restores the 198 W default, so no reboot is needed.
 Description=Cap GTX 1080 power draw (cooling fault mitigation, BUG-1101)
 Documentation=https://github.com/nathanwhyte/homelab/blob/main/gpu/nvidia/README.md
-After=multi-user.target
+# Ordering matters more than it looks. An earlier revision used
+# After=multi-user.target, which is wrong twice over on this host:
+#
+#   k3s-agent.service is Before=multi-user.target and WantedBy=multi-user.target,
+#   so workloads start BEFORE that target is reached — the cap would apply after
+#   the embedder was already running. And k3s-agent is Type=notify with
+#   TimeoutStartUSec=infinity, so a stalled k3s start blocks multi-user.target
+#   forever, which would defer the thermal mitigation indefinitely on exactly
+#   the node that cannot afford it. manu took 43 minutes to reach Ready during
+#   the 2026-09-14 incident.
+#
+# So: order before the thing that starts GPU workloads, and after the local
+# filesystems and module load that nvidia-smi needs.
+After=systemd-modules-load.service local-fs.target
+Before=k3s-agent.service
 ConditionPathExists=/usr/bin/nvidia-smi
 
 [Service]

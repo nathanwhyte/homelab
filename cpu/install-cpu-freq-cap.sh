@@ -49,7 +49,21 @@ sudo install -m 0644 "$SRC_DIR/cpu-freq-cap.service" \
 sudo systemctl daemon-reload
 
 echo "=== Enabling ==="
-sudo systemctl enable --now cpu-freq-cap
+# enable --now does NOT restart an already-active oneshot, so a rerun after
+# changing CAP_KHZ would skip the apply and still report success. Restart
+# explicitly, then check.
+sudo systemctl enable cpu-freq-cap
+sudo systemctl restart cpu-freq-cap
+
+echo "=== Verifying the cap actually applied ==="
+want=$(systemctl show cpu-freq-cap -p Environment --value | tr ' ' '\n' |
+	sed -n 's/^CAP_KHZ=//p')
+got=$(cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_max_freq)
+if [[ "$got" != "$want" ]]; then
+	echo "FAILED: unit asks for ${want} kHz, cpu0 reports ${got} kHz" >&2
+	exit 1
+fi
+echo "  scaling_max_freq ${got} matches the unit's CAP_KHZ=${want}"
 
 echo "=== After ==="
 sudo /usr/local/sbin/cpu-freq-cap status | head -5

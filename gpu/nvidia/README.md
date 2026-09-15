@@ -48,6 +48,29 @@ numbers are true and they point different ways.
   is enforced as a rolling average; brief instantaneous excursions above it are
   expected and DCGM samples them.
 
+### Boot ordering
+
+Both cap units order **`Before=k3s-agent.service`**, not `After=multi-user.target`.
+The latter is wrong twice over on this host, and an earlier revision used it:
+
+- `k3s-agent` is itself `Before=multi-user.target` and `WantedBy=multi-user.target`,
+  so workloads start *before* that target is reached — the cap would land after
+  the embedder was already running.
+- `k3s-agent` is `Type=notify` with `TimeoutStartUSec=infinity`, so a stalled
+  k3s start blocks `multi-user.target` indefinitely, deferring the thermal
+  mitigation on exactly the node that cannot afford it. manu took 43 minutes to
+  reach Ready during the 2026-09-14 incident.
+
+`cpu-freq-cap.service` carried the same defect and is fixed in the same change.
+
+### Reinstalling
+
+Both installers `systemctl restart` after `enable`, then read the value back
+and fail if it does not match the unit's configured target. `enable --now` does
+not restart an already-active oneshot, so without this a rerun after changing
+the wattage — or after the limit drifted — would skip the apply and still
+report success.
+
 ### Remove
 
 ```bash

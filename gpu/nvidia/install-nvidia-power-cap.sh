@@ -37,7 +37,21 @@ sudo install -m 0644 "$SRC_DIR/nvidia-power-cap.service" \
 sudo systemctl daemon-reload
 
 echo "=== Enabling ==="
-sudo systemctl enable --now nvidia-power-cap
+# enable --now does NOT restart a oneshot that is already active, so a rerun
+# after changing CAP_WATTS — or after the limit drifted — would skip both the
+# apply and the check below and still print "Installed." Restart explicitly.
+sudo systemctl enable nvidia-power-cap
+sudo systemctl restart nvidia-power-cap
+
+echo "=== Verifying the cap actually applied ==="
+want=$(systemctl show nvidia-power-cap -p Environment --value | tr ' ' '\n' |
+	sed -n 's/^CAP_WATTS=//p')
+got=$(nvidia-smi --query-gpu=power.limit --format=csv,noheader,nounits | cut -d. -f1)
+if [[ "$got" != "$want" ]]; then
+	echo "FAILED: unit asks for ${want}W, card reports ${got}W" >&2
+	exit 1
+fi
+echo "  power limit ${got}W matches the unit's CAP_WATTS=${want}"
 
 echo "=== After ==="
 nvidia-smi --query-gpu=name,power.limit,power.draw,persistence_mode --format=csv
