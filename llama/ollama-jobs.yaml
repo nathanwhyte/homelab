@@ -34,6 +34,7 @@ spec:
     spec:
       backoffLimit: 1
       activeDeadlineSeconds: 600
+      ttlSecondsAfterFinished: 172800
       template:
         metadata:
           labels:
@@ -92,6 +93,7 @@ spec:
       backoffLimit: 0
       # Large pulls over slow paths; matches OLLAMA_LOAD_TIMEOUT's spirit.
       activeDeadlineSeconds: 5400
+      ttlSecondsAfterFinished: 172800
       template:
         metadata:
           labels:

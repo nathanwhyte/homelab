@@ -41,6 +41,7 @@ spec:
       backoffLimit: 1
       # Two list passes + 120s sleep + deletions; 15 min is generous.
       activeDeadlineSeconds: 900
+      ttlSecondsAfterFinished: 172800
       template:
         metadata:
           labels:
