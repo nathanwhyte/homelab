@@ -25,9 +25,22 @@ After=sysinit.target
 Before=k3s-agent.service
 ConditionPathExists=/sys/devices/system/cpu/cpu0/cpufreq/scaling_max_freq
 
+# BUG-1137: a failed apply/restart used to leave manu permanently uncapped —
+# the unit went to `failed` and stayed there with no retry. Explicit burst
+# limits here, wider than the systemd defaults (10s/5), so RestartSec=5s
+# below gets more than two attempts before the unit gives up and goes
+# start-limit-hit, which would reproduce the same terminal-failure bug one
+# layer down.
+StartLimitIntervalSec=60s
+StartLimitBurst=10
+
 [Service]
 Type=oneshot
 RemainAfterExit=yes
+
+# BUG-1137: retry a failed apply/restart instead of leaving manu uncapped.
+Restart=on-failure
+RestartSec=5s
 
 # Target P-state in kHz. acpi-cpufreq on this CPU offers exactly three:
 # 3100000 (full), 2250000, 1550000. The value must be one of them — a request

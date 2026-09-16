@@ -138,3 +138,40 @@ spec:
           annotations:
             summary: "CPU on {{ $labels.node }} is hot while largely idle"
             description: "{{ $labels.node }} CPU package temperature is {{ $value }} C with CPU utilization under 25% for 15m. This chip is designed to sit at its 89 C ceiling under load, so temperature alone is not a fault — but heat without work is. Check fan speed, dust, and cooler seating."
+
+    # BUG-1137: manu's cpu-freq-cap.service (see cpu/README.md) can fail its
+    # apply and leave the CPU uncapped, running hot under the exact load the
+    # cap exists to prevent. node_cpu_scaling_frequency_hertz tracks the
+    # CURRENT frequency and fluctuates with load even while capped, so it
+    # cannot tell "uncapped" from "capped but busy". scaling_max_freq is the
+    # cap itself, exported as node_cpu_scaling_frequency_max_hertz.
+    - name: cpu-freq-cap
+      rules:
+        # Same instance-churn problem as node_hwmon_temp_celsius: this metric
+        # carries `cpu`, not `node`. Join through kube_pod_info for a stable
+        # node label, same as the temperature rules above.
+        - record: node:cpu_scaling_frequency_max_hertz
+          expr: |
+            max by (node) (
+              node_cpu_scaling_frequency_max_hertz
+              * on (namespace, pod) group_left (node)
+              kube_pod_info{namespace="grafana"}
+            )
+
+        # CAP_KHZ=1550000 in cpu-freq-cap.service is 1.55e9 Hz. Alert well
+        # above that — 2e9 Hz is past both of manu's other P-states rounding
+        # down to the cap (see the service file's P-state comment), so this
+        # only fires on a genuine uncap, not on a boundary rounding artifact.
+        # Short `for:` because Restart=on-failure (BUG-1137) now retries a
+        # failed apply within RestartSec=5s — a real uncap should still be
+        # visible past a brief restart window, but this must not compete with
+        # that self-heal on every transient restart.
+        - alert: NodeCPUFreqCapOff
+          expr: node:cpu_scaling_frequency_max_hertz{node="manu"} > 2e9
+          for: 1m
+          labels:
+            severity: warning
+            alertgroup: hardware
+          annotations:
+            summary: "CPU frequency cap is off on {{ $labels.node }}"
+            description: "{{ $labels.node }} is running at {{ $value }} Hz, above the 1.55 GHz cooling-fault cap (BUG-1101). cpu-freq-cap.service has failed to apply or restore the cap — check `systemctl status cpu-freq-cap` on {{ $labels.node }} before load drives it back toward its thermal trip point."
