@@ -56,11 +56,15 @@ prepare_edit_prediction_model() {
 	# deepseek-coder-v2:fim is the sole resident model (restored 2026-09-04):
 	# Zed (prompt_format "deepseek_coder"), Minuet suffix FIM, remote VSCode
 	# FIM (TASK-1156). ~2-3x faster than qwen2.5-coder:14b-base (BUG-1037).
+	# num_ctx 8192 pairs with OLLAMA_NUM_PARALLEL=4 (4.5 GiB KV); at 16384 the
+	# runner would need 9 GiB of KV and would not fit the card (IDEA-1105).
+	# create_if_missing never rebuilds an existing tag: after changing this
+	# recipe, `ollama rm` the tag (or re-create it) before restarting.
 	local attempt mf
 	mf=$(mktemp)
 	printf '%s\n' \
 		'FROM deepseek-coder-v2:16b-lite-base-q4_0' \
-		'PARAMETER num_ctx 16384' \
+		'PARAMETER num_ctx 8192' \
 		'PARAMETER temperature 0' \
 		'PARAMETER repeat_penalty 1.0' \
 		'PARAMETER stop "<|EOT|>"' \

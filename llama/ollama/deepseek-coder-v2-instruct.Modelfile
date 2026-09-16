@@ -8,9 +8,10 @@
 # spilled ~31 GiB to host RAM, and the kernel OOM-killed the daemon at the
 # ollama.service MemoryMax=16G (2026-09-16, twice; TASK-1216 / IDEA-1105).
 #
-# num_ctx 16384 matches deepseek-coder-v2:fim: 4.6 GiB KV + 8.2 GiB weights, which
-# fits the 16 GiB card alone. OLLAMA_MAX_LOADED_MODELS=1, so loading this tag
-# evicts the FIM runner — schedule any load test outside editing hours.
+# num_ctx 8192 matches deepseek-coder-v2:fim and pairs with OLLAMA_NUM_PARALLEL=4:
+# 4 x 8192 slots = 4.5 GiB q8_0 KV + 8.2 GiB weights, which fits the 16 GiB card
+# alone. Budget is 3 summarize requests + 1 FIM; keep VLM prompts under ~7k
+# tokens. OLLAMA_MAX_LOADED_MODELS=1, so loading this tag evicts the FIM runner.
 #
 # Template and stops (User:/Assistant:) are inherited from the library tag.
 # Requires: ollama pull deepseek-coder-v2:16b-lite-instruct-q4_0
@@ -19,4 +20,4 @@
 FROM deepseek-coder-v2:16b-lite-instruct-q4_0
 
 # num_ctx baked so the runner never inherits the 131072 server default (see above).
-PARAMETER num_ctx 16384
+PARAMETER num_ctx 8192
