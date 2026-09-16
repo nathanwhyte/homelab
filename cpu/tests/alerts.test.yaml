@@ -156,3 +156,35 @@ tests:
       - expr: count(ALERTS{alertstate="firing"})
         eval_time: 35m
         exp_samples: []
+
+  # BUG-1137: manu stuck uncapped (a failed apply/restart, or a genuinely
+  # missing cap) must page — this is the case that produced the 99-second
+  # uncapped window with no alert.
+  - name: manu uncapped fires NodeCPUFreqCapOff
+    interval: 1m
+    input_series:
+      - series: 'node_cpu_scaling_frequency_max_hertz{cpu="0",namespace="grafana",pod="node-exporter-manu"}'
+        values: "3100000000x10"
+      - series: 'kube_pod_info{namespace="grafana",pod="node-exporter-manu",node="manu"}'
+        values: "1x10"
+    promql_expr_test:
+      - expr: count(ALERTS{alertname="NodeCPUFreqCapOff",alertstate="firing",node="manu"})
+        eval_time: 5m
+        exp_samples: [{ labels: "{}", value: 1 }]
+      # Not before the 1m hold.
+      - expr: count(ALERTS{alertname="NodeCPUFreqCapOff",alertstate="firing",node="manu"})
+        eval_time: 0m
+        exp_samples: []
+
+  # manu correctly capped at 1.55 GHz stays silent.
+  - name: manu capped stays silent
+    interval: 1m
+    input_series:
+      - series: 'node_cpu_scaling_frequency_max_hertz{cpu="0",namespace="grafana",pod="node-exporter-manu"}'
+        values: "1550000000x10"
+      - series: 'kube_pod_info{namespace="grafana",pod="node-exporter-manu",node="manu"}'
+        values: "1x10"
+    promql_expr_test:
+      - expr: count(ALERTS{alertname="NodeCPUFreqCapOff",alertstate="firing",node="manu"})
+        eval_time: 8m
+        exp_samples: []
