@@ -13,6 +13,7 @@ Conditions:
   F 1-bg-vlm          one looping OpenViking-shaped summarize request (/api/chat,
                       system + ~4k-token markdown document -> abstract)
   G 2-bg-vlm          two such loops (3 in flight > NUM_PARALLEL=2 -> FIM queues)
+  H 3-bg-vlm          three such loops (the 3 VLM + 1 FIM budget at NUM_PARALLEL=4)
 
 F/G answer "can one resident model serve FIM and the OV VLM role at once?"
 (IDEA-1105). Two deepseek-coder-v2 16B-lite tags cannot co-reside on the 16 GB
@@ -304,6 +305,7 @@ CONDITIONS = {
     "E": ("E 2-bg-8k-prefill", 2, "prefill"),
     "F": ("F 1-bg-vlm", 1, "vlm"),
     "G": ("G 2-bg-vlm", 2, "vlm"),
+    "H": ("H 3-bg-vlm", 3, "vlm"),
 }
 
 
