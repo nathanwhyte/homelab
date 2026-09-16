@@ -1,0 +1,22 @@
+# deepseek-coder-v2:instruct — the chat/instruct sibling of deepseek-coder-v2:fim
+# on timmy's RX 9070 XT, with a baked context so it can load at all.
+#
+# Why this tag exists: the library tag deepseek-coder-v2:16b-lite-instruct-q4_0
+# has no num_ctx, so it inherits OLLAMA_CONTEXT_LENGTH=131072. With
+# OLLAMA_NUM_PARALLEL=2 ollama launched `llama-server -c 262144 -np 2`, a 36.7 GiB
+# q8_0 KV cache. llama.cpp's fit step put only 10 of 28 layers on the GPU and
+# spilled ~31 GiB to host RAM, and the kernel OOM-killed the daemon at the
+# ollama.service MemoryMax=16G (2026-09-16, twice; TASK-1216 / IDEA-1105).
+#
+# num_ctx 16384 matches deepseek-coder-v2:fim: 4.6 GiB KV + 8.2 GiB weights, which
+# fits the 16 GiB card alone. OLLAMA_MAX_LOADED_MODELS=1, so loading this tag
+# evicts the FIM runner — schedule any load test outside editing hours.
+#
+# Template and stops (User:/Assistant:) are inherited from the library tag.
+# Requires: ollama pull deepseek-coder-v2:16b-lite-instruct-q4_0
+# Build:    ollama create deepseek-coder-v2:instruct -f deepseek-coder-v2-instruct.Modelfile
+
+FROM deepseek-coder-v2:16b-lite-instruct-q4_0
+
+# num_ctx baked so the runner never inherits the 131072 server default (see above).
+PARAMETER num_ctx 16384
