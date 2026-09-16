@@ -1,14 +1,21 @@
 #!/usr/bin/env bash
 # Manual control for the OpenViking VLM (llamacpp-cuda-ov).
 #
-# The VLM (Qwen3-8B on manu's GTX 1080) holds ~9 GB resident and is used by
+# The VLM (Qwen3-8B on manu's GTX 1080) held ~9 GB resident and was used by
 # OpenViking for L0 abstract / L1 overview generation during indexing, and by
-# the `viking.nathanwhyte.dev` console / MCP for any write path that needs
-# the model. As of 2026-06-11 the VLM is steady-state replicas=1, always on:
-# the 1080 is VLM-exclusive (embedder on wemby/1060, hermes-agent is CPU-only),
-# cold model load from the cached Longhorn PVC is ~40s, and a premature
-# scale-down can cut off in-flight L0 jobs (this exact failure was hit on
-# 2026-06-10, requiring a manual scale-back-up to recover).
+# the `viking.nathanwhyte.dev` console / MCP for any write path that needed
+# the model. As of 2026-06-11 through 2026-07-17 the VLM ran steady-state
+# replicas=1, always on: the 1080 was VLM-exclusive (embedder on wemby/1060,
+# hermes-agent is CPU-only), cold model load from the cached Longhorn PVC is
+# ~40s, and a premature scale-down can cut off in-flight L0 jobs (this exact
+# failure was hit on 2026-06-10, requiring a manual scale-back-up to
+# recover).
+#
+# IMPR-1077 (2026-09) permanently reassigned the 1080 to the primary
+# embedder, so this Deployment now stays pinned at replicas=0 for good —
+# there is no GPU left for it to scale back up onto. `vlm.backup` failover
+# to this pod was removed from the OV config in BUG-1145; OV falls straight
+# through to its cloud primary (`gemma4:31b-cloud`) with no local fallback.
 #
 # This script exists for manual override -- e.g. releasing the GPU if
 # something else ever needs the 1080, or as a safety net if the VLM pod

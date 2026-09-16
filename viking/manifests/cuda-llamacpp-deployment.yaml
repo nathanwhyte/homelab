@@ -36,8 +36,10 @@ spec:
   # `kubectl scale deploy/llamacpp-cuda-ov --replicas=0 -n viking`.
   #
   # 2026-07-17 (TASK-1136): pinned to 0 to free the 1080 for the cross-card
-  # embedder throughput benchmark. VLM is offline while this holds. Restore
-  # to `replicas: 1` (and revert this note) when the benchmark completes.
+  # embedder throughput benchmark. IMPR-1077 (2026-09) reassigned the 1080 to
+  # the primary embedder permanently, so this deployment stays at 0 for good
+  # — there is no GPU left for it to come back to. VLM fallback now goes
+  # through vlm.backup removal (BUG-1145) instead of waiting on this pod.
   replicas: 0
   revisionHistoryLimit: 1
   strategy:
