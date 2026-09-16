@@ -9,6 +9,16 @@ data:
   # S3 backend from storage.agfs, which would silently start writing .ovgit
   # object trees to the openviking-agfs bucket at the v0.4.7 bump. Opt in
   # deliberately if VikingFS snapshots are ever wanted (IMPR-1032).
+  #
+  # There is deliberately NO AGFS path-lock timeout configured. Both spellings
+  # are dead as of v0.4.20, verified against the running server:
+  #   storage.transaction.lock_timeout / lock_expire   (the pre-v0.4.19 keys)
+  #   storage.agfs.pathlock.lock_timeout_secs / _secs  (their documented successor)
+  # The second pair still logs "is deprecated and ignored; the runtime wait
+  # timeout is fixed at 0.0 seconds" on every start. Re-adding either spelling
+  # buys nothing and re-introduces the warning. The 0.0s wait is the live
+  # behaviour and is tracked separately — it is the reason BUG-1039's orphaned
+  # tree locks matter and why raising embedding concurrency needs its own gate.
   ov.conf: |
     {
       "default_account": "default",
@@ -23,10 +33,6 @@ data:
         },
         "agfs": {
           "backend": "s3",
-          "pathlock": {
-            "lock_timeout_secs": 30.0,
-            "lock_expire_secs": 60.0
-          },
           "s3": {
             "bucket": "openviking-agfs",
             "endpoint": "http://garage.garage.svc.cluster.local:3900",
