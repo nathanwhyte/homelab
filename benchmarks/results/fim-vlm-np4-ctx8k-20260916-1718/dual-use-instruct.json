@@ -1,0 +1,138 @@
+{
+  "host": "http://192.168.1.19:11434",
+  "model": "deepseek-coder-v2:instruct",
+  "bg_model": "deepseek-coder-v2:instruct",
+  "reps": 8,
+  "conditions": {
+    "A idle": {
+      "fim_ttft_p50": 0.23172568751033396,
+      "fim_ttft_p95": 0.23554349999176338,
+      "fim_ttft_max": 0.23554349999176338,
+      "fim_full_p50": 0.6229312290088274,
+      "fim_sample": " data:gmatch(\"[^\\n]+\") do\n    local k, v = line:match(\"^(%w+)%s*=%s*(.+)$\")\n    if k then cfg[k] = v end\n  end\n  return cfg\nend\n\nlocal function parse_config(",
+      "bg": []
+    },
+    "B 1-bg-decode": {
+      "fim_ttft_p50": 0.24182491702958941,
+      "fim_ttft_p95": 0.2763570839888416,
+      "fim_ttft_max": 0.2763570839888416,
+      "fim_full_p50": 0.7558430000208318,
+      "fim_sample": " data:gmatch(\"[^\\n]+\") do\n    local k, v = line:match(\"^(%w+)%s*=%s*(.+)$\")\n    if k then cfg[k] = v end\n  end\n  return cfg\nend\n\nlocal function parse_config(",
+      "bg": [
+        {
+          "runs": 5,
+          "ttft_p50": 0.12026041699573398,
+          "prefill_p50": 0.054552,
+          "prompt_tokens": 49,
+          "decode_p50": 125.15021937269077,
+          "wall_p50": 3.336831583001185,
+          "sample": " Below is a Lua module that implements an LRU (Least Recently Used) cache. The module includes detailed comments to explain each part of the code, as well as a set of tests to ensure it works correctly.\n\n```lua\n-- LRU Cache Module\n-- This module implements a least recently used (LRU) cache.\n-- The cache has a maximum size, and when the size is exceeded, the least recently used item is removed.\n\nlocal LRUCache = {}\nLRUCache.__index = LRUCache\n\n-- Function to create a new LRUCache instance\nfunction LRUCache:new(maxSize)\n    local o = {\n        maxSize = maxSize or 10,  -- Default maximum size is 10\n        size = 0,\n        cache = {},\n        order = {}\n    }\n    setmetatable(o, self)\n    return o\nend\n\n-- Function to get the value for a given key, updating the order\nfunction LRUCache:get(key)\n    if self.cache[key] then\n        -- Move the key to the end of the order list to indicate it was recently used\n        table.remove(self.order, table.indexOf(self.order, key))\n        table.insert(self.order, key)\n        return self.cache[key]\n    else\n        return nil\n    end\nend\n\n-- Function to set a value for a given key, updating the order and size\nfunction LRUCache:set(key, value)\n    if self.cache[key] then\n        -- Update the value if the key already exists\n        self.cache[key] = value\n        -- Move the key to the end of the order list to indicate it was recently used\n        table.remove(self.order, table.indexOf(self."
+        }
+      ]
+    },
+    "D 1-bg-8k-prefill": {
+      "fim_ttft_p50": 0.23062237500562333,
+      "fim_ttft_p95": 0.26303895795717835,
+      "fim_ttft_max": 0.26303895795717835,
+      "fim_full_p50": 0.6166226249770261,
+      "fim_sample": " data:gmatch(\"[^\\n]+\") do\n    local k, v = line:match(\"^(%w+)%s*=%s*(.+)$\")\n    if k then cfg[k] = v end\n  end\n  return cfg\nend\n\nlocal function parse_config(",
+      "bg": []
+    },
+    "F 1-bg-vlm": {
+      "fim_ttft_p50": 0.4853439790022094,
+      "fim_ttft_p95": 1.458996000001207,
+      "fim_ttft_max": 1.458996000001207,
+      "fim_full_p50": 2.146680666512111,
+      "fim_sample": " data:gmatch(\"[^\\n]+\") do\n    local k, v = line:match(\"^(%w+)%s*=%s*(.+)$\")\n    if k then cfg[k] = v end\n  end\n  return cfg\nend\n\nlocal function parse_config(",
+      "bg": [
+        {
+          "runs": 10,
+          "ttft_p50": 1.548954062483972,
+          "prefill_p50": 1.148231,
+          "prompt_tokens": 5229,
+          "decode_p50": 113.48264364279879,
+          "wall_p50": 2.5198316875030287,
+          "sample": " The document outlines the configuration and status of ollama serving on the RX 9070 XT, detailing the settings, reasoning behind the decisions, and current status of the system. Key decisions include baking num_ctx for every tag served on Timmy, setting OLLAMA_NUM_PARALLEL to 2, and using q8_0 for the KV cache type. The status is open, with follow-up actions planned to reclaim VRAM by lowering num_ctx to 8192."
+        }
+      ]
+    },
+    "G 2-bg-vlm": {
+      "fim_ttft_p50": 0.2802953540231101,
+      "fim_ttft_p95": 1.3506714579998516,
+      "fim_ttft_max": 1.3506714579998516,
+      "fim_full_p50": 3.6957681250059977,
+      "fim_sample": " data:gmatch(\"[^\\n]+\") do\n    local k, v = line:match(\"^(%w+)%s*=%s*(.+)$\")\n    if k then cfg[k] = v end\n  end\n  return cfg\nend\n\nlocal function parse_config(",
+      "bg": [
+        {
+          "runs": 7,
+          "ttft_p50": 1.7043710830039345,
+          "prefill_p50": 1.247177,
+          "prompt_tokens": 5229,
+          "decode_p50": 41.39962836612676,
+          "wall_p50": 4.643063959025312,
+          "sample": " The document outlines the configuration and status of ollama serving on the RX 9070 XT, detailing the settings, reasoning behind the decisions, and current status of the system. Key decisions include baking num_ctx for every tag served on timmy, setting OLLAMA_NUM_PARALLEL to 2, and using q8_0 for KV cache type. The status is open, with follow-up actions planned to reclaim VRAM by lowering num_ctx to 8192."
+        },
+        {
+          "runs": 7,
+          "ttft_p50": 1.6224292499828152,
+          "prefill_p50": 1.193469,
+          "prompt_tokens": 5229,
+          "decode_p50": 41.68761495438184,
+          "wall_p50": 4.712252583994996,
+          "sample": " The document provides detailed information on the configuration and serving posture of ollama on the RX 9070 XT, including the settings for OLLAMA_NUM_PARALLEL, OLLAMA_KV_CACHE_TYPE, and OLLAMA_MAX_LOADED_MODELS. Key decisions include baking num_ctx for every tag served on timmy to prevent OOM-kills, and the status is open to follow up on reclaiming VRAM by lowering num_ctx."
+        }
+      ]
+    },
+    "H 3-bg-vlm": {
+      "fim_ttft_p50": 0.32206222898093984,
+      "fim_ttft_p95": 1.536973082984332,
+      "fim_ttft_max": 1.536973082984332,
+      "fim_full_p50": 3.7447925834858324,
+      "fim_sample": " data:gmatch(\"[^\\n]+\") do\n    local k, v = line:match(\"^(%w+)%s*=%s*(.+)$\")\n    if k then cfg[k] = v end\n  end\n  return cfg\nend\n\nlocal function parse_config(",
+      "bg": [
+        {
+          "runs": 6,
+          "ttft_p50": 1.6812680209986866,
+          "prefill_p50": 1.2638425,
+          "prompt_tokens": 5229,
+          "decode_p50": 23.649098714028245,
+          "wall_p50": 6.997370728960959,
+          "sample": " The document outlines the configuration and status of ollama serving on the RX 9070 XT, detailing the settings for the FIM runner, such as OLLAMA_NUM_PARALLEL, OLLAMA_KV_CACHE_TYPE, and OLLAMA_MAX_LOADED_MODELS. Key decisions include baking num_ctx for every tag served on Timmy to prevent OOM-kills, with the current status being open follow-ups to reclaim VRAM by lowering num_ctx to 8192."
+        },
+        {
+          "runs": 6,
+          "ttft_p50": 1.6895637290144805,
+          "prefill_p50": 1.222664,
+          "prompt_tokens": 5229,
+          "decode_p50": 23.37191758636645,
+          "wall_p50": 6.315850666520419,
+          "sample": " The document outlines the configuration and status of ollama serving on the RX 9070 XT, detailing the settings, reasoning behind the decisions, and current status of the system. Key decisions include baking num_ctx for every tag served on timmy, setting OLLAMA_NUM_PARALLEL to 2, and using q8_0 for the KV cache type. The status is open, with follow-up actions planned to reclaim VRAM by lowering num_ctx to 8192."
+        },
+        {
+          "runs": 6,
+          "ttft_p50": 1.7213889579870738,
+          "prefill_p50": 1.2333034999999999,
+          "prompt_tokens": 5229,
+          "decode_p50": 28.691026674451166,
+          "wall_p50": 6.45523989549838,
+          "sample": " The document provides detailed information on the configuration settings and current status of ollama serving posture on the RX 9070 XT, specifically tailored for Timmy. Key decisions include setting OLLAMA_NUM_PARALLEL to 2, OLLAMA_KV_CACHE_TYPE to q8_0, and OLLAMA_MAX_LOADED_MODELS to 1. Each section outlines the current memory and cache settings, the reasoning behind these settings, and the status of follow-up actions to reclaim VRAM by lowering num_ctx to 8192."
+        }
+      ]
+    }
+  },
+  "ollama_version": "0.34.1",
+  "conditions_run": [
+    "A",
+    "B",
+    "D",
+    "F",
+    "G",
+    "H"
+  ],
+  "loaded_after": [
+    [
+      "deepseek-coder-v2:instruct",
+      13684367686
+    ]
+  ]
+}

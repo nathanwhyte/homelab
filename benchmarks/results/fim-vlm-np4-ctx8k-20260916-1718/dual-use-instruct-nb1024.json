@@ -1,0 +1,82 @@
+{
+  "host": "http://192.168.1.19:11434",
+  "model": "deepseek-coder-v2:instruct-nb1024",
+  "bg_model": "deepseek-coder-v2:instruct-nb1024",
+  "reps": 8,
+  "conditions": {
+    "A idle": {
+      "fim_ttft_p50": 0.20245564600918442,
+      "fim_ttft_p95": 0.20906024996656924,
+      "fim_ttft_max": 0.20906024996656924,
+      "fim_full_p50": 0.6011958125163801,
+      "fim_sample": " data:gmatch(\"[^\\n]+\") do\n    local k, v = line:match(\"^(%w+)%s*=%s*(.+)$\")\n    if k then cfg[k] = v end\n  end\n  return cfg\nend\n\nlocal function parse_config(",
+      "bg": []
+    },
+    "F 1-bg-vlm": {
+      "fim_ttft_p50": 0.8031445415108465,
+      "fim_ttft_p95": 1.4623730409657583,
+      "fim_ttft_max": 1.4623730409657583,
+      "fim_full_p50": 1.8556294789887033,
+      "fim_sample": " data:gmatch(\"[^\\n]+\") do\n    local k, v = line:match(\"^(%w+)%s*=%s*(.+)$\")\n    if k then cfg[k] = v end\n  end\n  return cfg\nend\n\nlocal function parse_config(",
+      "bg": [
+        {
+          "runs": 10,
+          "ttft_p50": 1.425405000016326,
+          "prefill_p50": 1.027224,
+          "prompt_tokens": 5229,
+          "decode_p50": 124.10998206254553,
+          "wall_p50": 2.2912823329970706,
+          "sample": " The document outlines the configuration and status of ollama serving on the RX 9070 XT, detailing the settings, reasoning behind the decisions, and current status of the system. Key decisions include baking num_ctx for every tag served on Timmy, setting OLLAMA_NUM_PARALLEL to 2, and using q8_0 for KV cache type. The status is open, with follow-up actions planned to reclaim VRAM by lowering num_ctx to 8192."
+        }
+      ]
+    },
+    "H 3-bg-vlm": {
+      "fim_ttft_p50": 0.2382284789928235,
+      "fim_ttft_p95": 1.176410667016171,
+      "fim_ttft_max": 1.176410667016171,
+      "fim_full_p50": 3.6329595830175094,
+      "fim_sample": " data:gmatch(\"[^\\n]+\") do\n    local k, v = line:match(\"^(%w+)%s*=%s*(.+)$\")\n    if k then cfg[k] = v end\n  end\n  return cfg\nend\n\nlocal function parse_config(",
+      "bg": [
+        {
+          "runs": 6,
+          "ttft_p50": 1.6097074580029584,
+          "prefill_p50": 1.1141645,
+          "prompt_tokens": 5229,
+          "decode_p50": 27.692203131671764,
+          "wall_p50": 6.162415250000777,
+          "sample": " The document outlines the configuration and status of ollama serving on the RX 9070 XT, detailing the settings, reasoning behind the decisions, and current status of the system. Key decisions include setting OLLAMA_NUM_PARALLEL to 2, OLLAMA_KV_CACHE_TYPE to q8_0, and OLLAMA_MAX_LOADED_MODELS to 1. The current status is open follow-ups to reclaim VRAM by lowering num_ctx to 8192."
+        },
+        {
+          "runs": 6,
+          "ttft_p50": 1.401419583009556,
+          "prefill_p50": 0.985095,
+          "prompt_tokens": 5229,
+          "decode_p50": 26.076268113210677,
+          "wall_p50": 5.902604083006736,
+          "sample": " The document outlines the configuration and status of ollama serving on the RX 9070 XT, detailing the settings, reasoning behind the decisions, and current status of the system. Key decisions include baking num_ctx for every tag served on timmy, setting OLLAMA_NUM_PARALLEL to 2, and using q8_0 for KV cache type. The status is open, with follow-up actions planned to reclaim VRAM by lowering num_ctx to 8192."
+        },
+        {
+          "runs": 6,
+          "ttft_p50": 1.4428484165109694,
+          "prefill_p50": 1.0003685,
+          "prompt_tokens": 5229,
+          "decode_p50": 27.859161783598033,
+          "wall_p50": 5.992098854505457,
+          "sample": " The document provides detailed information on the configuration settings and current status of ollama serving posture on the RX 9070 XT, including the use of systemd units, pinned runners, and KV cache settings. Key decisions include baking a fixed number of context slots (num_ctx) for each tag served on Timmy, setting the number of parallel requests (OLLAMA_NUM_PARALLEL) to 2, and using a near-lossless KV cache type (OLLAMA_KV_CACHE_TYPE) to reduce memory usage. The current status is that follow-up actions are planned to reclaim VRAM by lowering num_ctx to 8192."
+        }
+      ]
+    }
+  },
+  "ollama_version": "0.34.1",
+  "conditions_run": [
+    "A",
+    "F",
+    "H"
+  ],
+  "loaded_after": [
+    [
+      "deepseek-coder-v2:instruct-nb1024",
+      13772584385
+    ]
+  ]
+}
