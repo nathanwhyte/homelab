@@ -1,0 +1,111 @@
+{
+  "host": "http://192.168.1.19:11434",
+  "model": "deepseek-coder-v2:instruct",
+  "bg_model": "deepseek-coder-v2:instruct",
+  "reps": 8,
+  "conditions": {
+    "A idle": {
+      "fim_ttft_p50": 0.23504787500132807,
+      "fim_ttft_p95": 0.2367497090017423,
+      "fim_ttft_max": 0.2367497090017423,
+      "fim_full_p50": 0.66655970850843,
+      "fim_sample": " data:gmatch(\"[^\\n]+\") do\n    local k, v = line:match(\"^(%w+)%s*=%s*(.+)$\")\n    if k then cfg[k] = v end\n  end\n  return cfg\nend\n\nlocal function parse_config(",
+      "bg": []
+    },
+    "B 1-bg-decode": {
+      "fim_ttft_p50": 0.25169958351762034,
+      "fim_ttft_p95": 0.2659928749781102,
+      "fim_ttft_max": 0.2659928749781102,
+      "fim_full_p50": 0.7358250205288641,
+      "fim_sample": " data:gmatch(\"[^\\n]+\") do\n    local k, v = line:match(\"^(%w+)%s*=%s*(.+)$\")\n    if k then cfg[k] = v end\n  end\n  return cfg\nend\n\nlocal function parse_config(",
+      "bg": [
+        {
+          "runs": 5,
+          "ttft_p50": 0.1248705830075778,
+          "prefill_p50": 0.054967,
+          "prompt_tokens": 49,
+          "decode_p50": 137.10542344495886,
+          "wall_p50": 3.011776999977883,
+          "sample": " Sure! Below is a Lua module implementing an LRU (Least Recently Used) cache with detailed comments and test cases. This module includes a basic LRU cache implementation and a way to test it.\n\n```lua\n-- LRUCache.lua - A simple LRU Cache implementation in Lua\n\n-- Create a new LRU cache\nlocal LRUCache = {}\nLRUCache.__index = LRUCache\n\n-- Initialize the LRU cache with a given capacity\nfunction LRUCache:new(capacity)\n    local cache = {\n        capacity = capacity,\n        size = 0,\n        head = nil,\n        tail = nil,\n        map = {}\n    }\n    setmetatable(cache, self)\n    return cache\nend\n\n-- Node structure for the doubly linked list\nlocal Node = {}\nNode.__index = Node\n\nfunction Node:new(key, value)\n    local node = {\n        key = key,\n        value = value,\n        prev = nil,\n        next = nil\n    }\n    setmetatable(node, self)\n    return node\nend\n\n-- Get the value for a given key, updating the LRU order\nfunction LRUCache:get(key)\n    local node = self.map[key]\n    if node then\n        -- Move the node to the front of the list (most recently used)\n        self:remove(node)\n        self:add(node.key, node.value)\n        return node.value\n    else\n        return nil\n    end\nend\n\n-- Set a key-value pair in the cache, updating the LRU order if necessary\nfunction LRUCache:set(key, value)\n    if self.map[key] then\n        -- Update the value and move the node to the front\n        local"
+        }
+      ]
+    },
+    "D 1-bg-8k-prefill": {
+      "fim_ttft_p50": 0.37227274948963895,
+      "fim_ttft_p95": 2.9783210839959793,
+      "fim_ttft_max": 2.9783210839959793,
+      "fim_full_p50": 2.0783320624905173,
+      "fim_sample": " data:gmatch(\"[^\\n]+\") do\n    local k, v = line:match(\"^(%w+)%s*=%s*(.+)$\")\n    if k then cfg[k] = v end\n  end\n  return cfg\nend\n\nlocal function parse_config(",
+      "bg": [
+        {
+          "runs": 5,
+          "ttft_p50": 3.0471667500096373,
+          "prefill_p50": 2.224859,
+          "prompt_tokens": 9829,
+          "decode_p50": 95.16884861642046,
+          "wall_p50": 5.171892707992811,
+          "sample": " The provided Lua code defines a function `parse_config` that reads a configuration file specified by `path`, parses it line by line, and returns a table containing the key-value pairs. Each line in the configuration file is expected to be in the format `key = value`.\n\nHere's a breakdown of the function:\n\n1. **Opening the File**: The function opens the specified file in read-only mode using `io.open(path, \"r\")`. The `assert` function is used to ensure that the file is successfully opened.\n\n2. **Reading the File**: The entire content of the file is read using the `read(\"*a\")` method, which reads the file as a single string.\n\n3. **Closing the File**: After reading the file, it is closed using `f:close()`.\n\n4. **Parsing the Content**: The function then iterates over each line in the file using `data"
+        }
+      ]
+    },
+    "F 1-bg-vlm": {
+      "fim_ttft_p50": 0.9281471874855924,
+      "fim_ttft_p95": 1.6872226659907028,
+      "fim_ttft_max": 1.6872226659907028,
+      "fim_full_p50": 2.0481391670182347,
+      "fim_sample": " data:gmatch(\"[^\\n]+\") do\n    local k, v = line:match(\"^(%w+)%s*=%s*(.+)$\")\n    if k then cfg[k] = v end\n  end\n  return cfg\nend\n\nlocal function parse_config(",
+      "bg": [
+        {
+          "runs": 10,
+          "ttft_p50": 1.7009992915263865,
+          "prefill_p50": 1.1139899999999998,
+          "prompt_tokens": 5229,
+          "decode_p50": 123.03058176930779,
+          "wall_p50": 2.629202208481729,
+          "sample": " The document outlines the configuration and status of ollama serving on the RX 9070 XT, detailing the settings, reasoning behind the decisions, and current status of the system. Key decisions include setting OLLAMA_NUM_PARALLEL to 2, OLLAMA_KV_CACHE_TYPE to q8_0, and OLLAMA_MAX_LOADED_MODELS to 1. The status is open, with follow-up actions planned to reclaim VRAM by lowering num_ctx to 8192."
+        }
+      ]
+    },
+    "G 2-bg-vlm": {
+      "fim_ttft_p50": 2.1490060005162377,
+      "fim_ttft_p95": 2.4361392080318183,
+      "fim_ttft_max": 2.4361392080318183,
+      "fim_full_p50": 4.177885604003677,
+      "fim_sample": " data:gmatch(\"[^\\n]+\") do\n    local k, v = line:match(\"^(%w+)%s*=%s*(.+)$\")\n    if k then cfg[k] = v end\n  end\n  return cfg\nend\n\nlocal function parse_config(",
+      "bg": [
+        {
+          "runs": 9,
+          "ttft_p50": 2.361840666970238,
+          "prefill_p50": 1.143856,
+          "prompt_tokens": 5229,
+          "decode_p50": 51.918244532624264,
+          "wall_p50": 4.6950044999830425,
+          "sample": " The document outlines the configuration and status of ollama serving on the RX 9070 XT, detailing the settings, reasoning behind the decisions, and current status of the system. Key decisions include baking num_ctx for every tag served on Timmy, setting OLLAMA_NUM_PARALLEL to 2, and using q8_0 for the KV cache type. The status is open, with follow-up actions planned to reclaim VRAM by lowering num_ctx to 8192."
+        },
+        {
+          "runs": 9,
+          "ttft_p50": 2.974375291960314,
+          "prefill_p50": 1.172207,
+          "prompt_tokens": 5229,
+          "decode_p50": 67.54940046595841,
+          "wall_p50": 4.66144862503279,
+          "sample": " The document provides detailed information on the configuration and serving posture of ollama for the RX 9070 XT, specifically addressing the memory management and model loading settings. Key decisions include setting OLLAMA_NUM_PARALLEL to 2, OLLAMA_KV_CACHE_TYPE to q8_0, and OLLAMA_MAX_LOADED_MODELS to 1. These settings are based on the prediction of 1-2 requests per editor and the need to manage memory efficiently. The status is open, with follow-up actions planned to lower num_ctx to reclaim VRAM."
+        }
+      ]
+    }
+  },
+  "ollama_version": "0.34.1",
+  "conditions_run": [
+    "A",
+    "B",
+    "D",
+    "F",
+    "G"
+  ],
+  "loaded_after": [
+    [
+      "deepseek-coder-v2:instruct",
+      13692756294
+    ]
+  ]
+}
