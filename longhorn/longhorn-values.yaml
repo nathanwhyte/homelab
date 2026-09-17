@@ -26,6 +26,21 @@ defaultSettings:
   # After shrinking from five Longhorn nodes to three, keep future volumes
   # minimally rebalanced without the churn of best-effort balancing.
   replicaAutoBalance: "least-effort"
+  # 30 min (chart default 600 s). How long Longhorn waits, after a replica
+  # fails, before building a REPLACEMENT elsewhere — which is also how long the
+  # failed replica has to come back and be reused with a delta resync. A node
+  # maintenance cycle (drain, reboot, Ready) keeps a replica down for ~5-15 min,
+  # well past 600 s, so every cycle used to re-copy whole replicas: copyparty's
+  # 48 GiB over HDD dominated the Longhorn gate at 20-45 min per node
+  # (GUIDE-1070, IDEA-1105 session 2026-09-17). Reuse needs the interval, not
+  # just fastReplicaRebuild.
+  #
+  # The trade is patience on a genuinely dead node: a replacement replica waits
+  # 30 min. That costs nothing for the volumes this protects — copyparty's
+  # replicas are pinned to the only two `hdd` disks (manu, wemby), and wemby's
+  # NVMe disk sits under the 25% free-space minimum, so a replacement has
+  # nowhere to go anyway.
+  replicaReplenishmentWaitInterval: "1800"
 
 # Default backup target for manual off-cluster backups to Cloudflare R2.
 # Credentials live in the longhorn-r2-backup-target secret.
