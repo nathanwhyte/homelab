@@ -11,7 +11,8 @@
 # What "install" does, idempotently:
 #   1. Check the cutover preconditions, then verify /usr/local/bin/ollama is
 #      exactly OLLAMA_VERSION (replacing the retired Deployment's latest tag). If not,
-#      install that release with the upstream installer. Never floats.
+#      install that release's base tarball (sha256-verified; no ROCm). Never floats.
+#      A fresh host also gets the ollama user and the base ollama.service unit.
 #   2. Copy llama/host/ollama.service.d/homelab.conf to the drop-in dir.
 #   3. Copy ollama-warm.sh + the agentpair Modelfiles to /opt/ollama-host and
 #      install ollama-warm.service (PartOf=ollama.service).
@@ -69,6 +70,56 @@ installed_version() {
 	}
 	# An online --version reports the SERVER version, not necessarily this binary.
 	OLLAMA_HOST=http://127.0.0.1:1 "$OLLAMA_BIN" --version 2>&1 | awk '/client version is/ {print $NF}'
+}
+
+# The pinned release's BASE tarball, not the upstream install.sh (IDEA-1105).
+# install.sh adds the 1 GB ROCm tarball on any AMD GPU (timmy serves Vulkan,
+# which ships in the base ollama-linux-amd64 tarball; the ROCm one holds only
+# rocm_v7_2) and rewrites + restarts ollama.service, while this script owns the
+# unit, the drop-in, and the single restart in step 5. Download and verify fully
+# before replacing anything. The dotfiles `timmy` branch's auto-install.sh does
+# the same with OLLAMA_LINUX_VERSION — keep the two pins equal.
+install_release_tarball() {
+	local version=$1 arch url tmp want got
+	case $(uname -m) in
+	x86_64) arch=amd64 ;;
+	aarch64 | arm64) arch=arm64 ;;
+	*) die "unsupported arch $(uname -m)" ;;
+	esac
+	command -v zstd >/dev/null 2>&1 || apt-get install -y zstd
+	url=https://github.com/ollama/ollama/releases/download/v$version
+	tmp=$(mktemp -d)
+	curl -fsSL -o "$tmp/ollama.tar.zst" "$url/ollama-linux-$arch.tar.zst" || die "download failed: $url/ollama-linux-$arch.tar.zst"
+	curl -fsSL -o "$tmp/sha256sum.txt" "$url/sha256sum.txt" || die "download failed: $url/sha256sum.txt"
+	want=$(awk -v f="ollama-linux-$arch.tar.zst" '$2 == f || $2 == "./" f || $2 == "*" f {print $1}' "$tmp/sha256sum.txt")
+	got=$(sha256sum "$tmp/ollama.tar.zst" | awk '{print $1}')
+	[[ -n $want && $want == "$got" ]] || die "ollama-linux-$arch.tar.zst sha256 mismatch (want '${want:-missing}', got '$got'); install unchanged"
+	rm -rf /usr/local/lib/ollama
+	zstd -dc "$tmp/ollama.tar.zst" | tar -xf - -C /usr/local
+	rm -rf "$tmp"
+}
+
+# Base unit for a FRESH host only (the upstream installer used to create it).
+# An existing unit is left alone; homelab.conf carries every setting that matters.
+ensure_base_unit() {
+	[[ -f /etc/systemd/system/ollama.service ]] && return 0
+	log "writing base /etc/systemd/system/ollama.service"
+	cat >/etc/systemd/system/ollama.service <<EOF
+[Unit]
+Description=Ollama Service
+After=network-online.target
+
+[Service]
+ExecStart=$OLLAMA_BIN serve
+User=$OLLAMA_USER
+Group=$OLLAMA_USER
+Restart=always
+RestartSec=3
+Environment="PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+
+[Install]
+WantedBy=default.target
+EOF
 }
 
 cutover_preflight() {
@@ -143,11 +194,15 @@ fi
 # --- 2. Fail closed BEFORE any install/restart -------------------------------
 cutover_preflight
 if [[ $(installed_version) != "$OLLAMA_VERSION" ]]; then
-	log "installing ollama $OLLAMA_VERSION"
-	curl -fsSL https://ollama.com/install.sh | OLLAMA_VERSION=$OLLAMA_VERSION sh
+	log "installing ollama $OLLAMA_VERSION (base tarball, no ROCm) over $(installed_version)"
+	install_release_tarball "$OLLAMA_VERSION"
 	[[ $(installed_version) == "$OLLAMA_VERSION" ]] || die "install did not produce $OLLAMA_VERSION"
 fi
-id "$OLLAMA_USER" >/dev/null 2>&1 || die "user $OLLAMA_USER missing (the upstream installer creates it)"
+if ! id "$OLLAMA_USER" >/dev/null 2>&1; then
+	log "creating system user $OLLAMA_USER"
+	useradd -r -s /bin/false -U -m -d "$(dirname "$(dirname "$MODELS_DIR")")" "$OLLAMA_USER"
+fi
+ensure_base_unit
 for grp in video render; do
 	id -nG "$OLLAMA_USER" | tr ' ' '\n' | grep -qx "$grp" || usermod -aG "$grp" "$OLLAMA_USER"
 done
