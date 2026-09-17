@@ -151,6 +151,18 @@ id "$OLLAMA_USER" >/dev/null 2>&1 || die "user $OLLAMA_USER missing (the upstrea
 for grp in video render; do
 	id -nG "$OLLAMA_USER" | tr ' ' '\n' | grep -qx "$grp" || usermod -aG "$grp" "$OLLAMA_USER"
 done
+# The drop-in's OLLAMA_NUM_PARALLEL and the FIM recipe's num_ctx share one VRAM
+# budget. Migrate an existing FIM tag to the repo recipe against the RUNNING
+# daemon before the restart below applies the new slot count, so no client can
+# load a 16384-context tag into 4 slots (IDEA-1105). Uses the repo copy of the
+# warm script, which loads nothing in this mode.
+if curl -fsS -m 3 http://127.0.0.1:11434/api/version >/dev/null 2>&1; then
+	log "reconciling the FIM tag's num_ctx before restart"
+	OLLAMA_URL=http://127.0.0.1:11434 "$SRC/ollama-warm.sh" --reconcile-only ||
+		die "FIM tag does not match the recipe's num_ctx; refusing to restart into the new slot count"
+else
+	log "WARN: ollama API not answering; ollama-warm reconciles the FIM tag after restart"
+fi
 
 # --- 3. Units, drop-in, warm script, Modelfiles -------------------------------
 install -d -m 0755 "$DROPIN_DIR" "$HOST_DIR" "$HOST_DIR/modelfiles"
