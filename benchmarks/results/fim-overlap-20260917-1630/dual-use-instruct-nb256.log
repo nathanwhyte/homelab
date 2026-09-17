@@ -1,0 +1,18 @@
+host=http://192.168.1.19:11434 fim=deepseek-coder-v2:instruct-nb256 bg=deepseek-coder-v2:instruct-nb256 ollama=0.34.1 reps=30
+A idle             FIM ttft p50=0.32s p90=0.37s p95=0.40s max=0.40s | >0.5s 0% >1s 0% | full-64tok p50=0.75s
+    overlap idle     n= 30 ttft p50=0.32s max=0.40s
+    fim sample: ' data:gmatch("[^\\n]+") do\n    local k, v = line:match("^(%w+)%s*=%s*(.+)$")\n    if k then cfg[k] = v end\n  end\n  return cfg\nend\n\nlocal function parse_config('
+F 1-bg-vlm         FIM ttft p50=0.55s p90=2.05s p95=2.15s max=2.19s | >0.5s 50% >1s 40% | full-64tok p50=2.20s
+    overlap decode   n=  3 ttft p50=0.37s max=0.42s
+    overlap prefill  n= 27 ttft p50=0.74s max=2.19s
+    bg0: 32 runs | ttft p50=2.08s prefill p50=1.67s (5229 tok) decode p50=117.2 tok/s wall p50=3.2s
+    fim sample: ' data:gmatch("[^\\n]+") do\n    local k, v = line:match("^(%w+)%s*=%s*(.+)$")\n    if k then cfg[k] = v end\n  end\n  return cfg\nend\n\nlocal function parse_config('
+H 3-bg-vlm         FIM ttft p50=0.65s p90=3.14s p95=4.21s max=4.68s | >0.5s 63% >1s 37% | full-64tok p50=5.07s
+    overlap decode   n=  7 ttft p50=0.40s max=0.43s
+    overlap prefill  n= 23 ttft p50=0.78s max=4.68s
+    bg0: 23 runs | ttft p50=2.40s prefill p50=1.93s (5229 tok) decode p50=20.4 tok/s wall p50=7.9s
+    bg1: 22 runs | ttft p50=2.71s prefill p50=1.87s (5229 tok) decode p50=21.2 tok/s wall p50=8.1s
+    bg2: 22 runs | ttft p50=2.66s prefill p50=2.10s (5229 tok) decode p50=22.0 tok/s wall p50=8.2s
+    fim sample: ' data:gmatch("[^\\n]+") do\n    local k, v = line:match("^(%w+)%s*=%s*(.+)$")\n    if k then cfg[k] = v end\n  end\n  return cfg\nend\n\nlocal function parse_config('
+
+loaded after: [('deepseek-coder-v2:instruct-nb256', 13640254094)]
