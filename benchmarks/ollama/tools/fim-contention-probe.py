@@ -354,6 +354,26 @@ def overlap(a0, a1, b0, b1):
     return max(0.0, min(a1, b1) - max(a0, b0))
 
 
+def union_len(spans):
+    """Total length covered by [start, end] spans, counting overlap ONCE.
+
+    Summing raw intersections double-counts concurrent background requests:
+    three simultaneous 4 s prefills inside a 10 s wait sum to 12 s, which is
+    120% of the wait, not the 40% actually spent with at least one prefill
+    running. Every "fraction of the wait spent with ..." figure merges first.
+    """
+    merged = 0.0
+    end = None
+    for s, e in sorted(spans):
+        if end is None or s > end:
+            merged += e - s
+            end = e
+        elif e > end:
+            merged += e - end
+            end = e
+    return merged
+
+
 def attribute(fim, bg_runs):
     """Classify one FIM request's wait against concurrent background work.
 
@@ -368,15 +388,20 @@ def attribute(fim, bg_runs):
     if w1 is None:
         return None
     span = max(1e-9, w1 - w0)
-    prefill_s = decode_s = 0.0
+    pre_spans, dec_spans = [], []
     n_prefill = n_decode = 0
     for r in bg_runs:
         p = overlap(w0, w1, r["t_start"], r["t_first"])
         d = overlap(w0, w1, r["t_first"], r["t_end"])
-        prefill_s += p
-        decode_s += d
-        n_prefill += p > 0
-        n_decode += d > 0
+        if p > 0:
+            pre_spans.append((max(w0, r["t_start"]), min(w1, r["t_first"])))
+            n_prefill += 1
+        if d > 0:
+            dec_spans.append((max(w0, r["t_first"]), min(w1, r["t_end"])))
+            n_decode += 1
+    # Merged, so concurrent background requests are not counted more than once.
+    prefill_s = union_len(pre_spans)
+    decode_s = union_len(dec_spans)
     if n_prefill:
         phase = "prefill"
     elif n_decode:
@@ -385,11 +410,13 @@ def attribute(fim, bg_runs):
         phase = "idle"
     return {
         "phase": phase,
+        # Merged durations: seconds of the wait with AT LEAST ONE background
+        # request in that phase, not the sum across requests.
         "prefill_overlap_s": prefill_s,
         "decode_overlap_s": decode_s,
         # Fraction of the wait spent with at least one summarize prefill in
-        # flight. Near 1.0 across slow samples points at prompt-scheduling
-        # interference; near 0 with a slow wait points elsewhere.
+        # flight. Bounded by construction now that spans are merged; the cap is
+        # kept only against float drift.
         "prefill_frac": min(1.0, prefill_s / span),
         "n_bg_prefill": n_prefill,
         "n_bg_decode": n_decode,
@@ -524,6 +551,27 @@ def main():
         "models"
     ]
     SUMMARY["loaded_after"] = [(m["name"], m.get("size_vram")) for m in ps]
+    # Effective serving configuration, so a result bundle is self-describing:
+    # which parameters (num_batch, num_ctx, ...) this tag actually carried, and
+    # what the runner reported for context and VRAM. Without this a reader
+    # cannot independently establish which batch size produced which numbers.
+    SUMMARY["runner"] = {
+        "ps": [
+            {k: m.get(k) for k in ("name", "size_vram", "context_length", "expires_at")}
+            for m in ps
+        ]
+    }
+    for tag in dict.fromkeys([MODEL, BG_MODEL]):
+        try:
+            show = json.loads(
+                post("/api/show", {"model": tag, "verbose": False}).read()
+            )
+            SUMMARY["runner"][tag] = {
+                "parameters": show.get("parameters"),
+                "details": show.get("details"),
+            }
+        except (urllib.error.URLError, OSError, ValueError) as exc:
+            SUMMARY["runner"][tag] = {"error": f"{type(exc).__name__}: {exc}"}
     print("\nloaded after:", SUMMARY["loaded_after"])
     invalid = [k for k, v in SUMMARY["conditions"].items() if not v["valid"]]
     SUMMARY["valid"] = not invalid

@@ -1344,9 +1344,9 @@
           "total": 3.4894210419988667,
           "overlap": {
             "phase": "prefill",
-            "prefill_overlap_s": 3.021709666998504,
-            "decode_overlap_s": 4.940861458002473,
-            "prefill_frac": 1.0,
+            "prefill_overlap_s": 2.4242519170002197,
+            "decode_overlap_s": 2.6541903750003257,
+            "prefill_frac": 0.9133677598389762,
             "n_bg_prefill": 2,
             "n_bg_decode": 3
           }
@@ -1359,8 +1359,8 @@
           "total": 5.806954208001116,
           "overlap": {
             "phase": "prefill",
-            "prefill_overlap_s": 1.435092458003055,
-            "decode_overlap_s": 0.9101092500059167,
+            "prefill_overlap_s": 0.7817931250028778,
+            "decode_overlap_s": 0.7817931250028778,
             "prefill_frac": 1.0,
             "n_bg_prefill": 2,
             "n_bg_decode": 2
@@ -1374,8 +1374,8 @@
           "total": 6.549585332999413,
           "overlap": {
             "phase": "prefill",
-            "prefill_overlap_s": 3.707181124998897,
-            "decode_overlap_s": 3.5960983329969167,
+            "prefill_overlap_s": 2.4344659999987925,
+            "decode_overlap_s": 2.4344659999987925,
             "prefill_frac": 1.0,
             "n_bg_prefill": 2,
             "n_bg_decode": 3
@@ -1390,7 +1390,7 @@
           "overlap": {
             "phase": "decode",
             "prefill_overlap_s": 0.0,
-            "decode_overlap_s": 1.214450624993333,
+            "decode_overlap_s": 0.40481687499777763,
             "prefill_frac": 0.0,
             "n_bg_prefill": 0,
             "n_bg_decode": 3
@@ -1405,7 +1405,7 @@
           "overlap": {
             "phase": "prefill",
             "prefill_overlap_s": 0.4922568330002832,
-            "decode_overlap_s": 0.9845136660005664,
+            "decode_overlap_s": 0.4922568330002832,
             "prefill_frac": 1.0,
             "n_bg_prefill": 1,
             "n_bg_decode": 2
@@ -1420,7 +1420,7 @@
           "overlap": {
             "phase": "prefill",
             "prefill_overlap_s": 1.9447273750010936,
-            "decode_overlap_s": 4.6534128739949665,
+            "decode_overlap_s": 2.1993800829986867,
             "prefill_frac": 0.8842161434642103,
             "n_bg_prefill": 1,
             "n_bg_decode": 3
@@ -1435,7 +1435,7 @@
           "overlap": {
             "phase": "prefill",
             "prefill_overlap_s": 0.696313917000225,
-            "decode_overlap_s": 1.39262783400045,
+            "decode_overlap_s": 0.696313917000225,
             "prefill_frac": 1.0,
             "n_bg_prefill": 1,
             "n_bg_decode": 2
@@ -1450,7 +1450,7 @@
           "overlap": {
             "phase": "prefill",
             "prefill_overlap_s": 0.38708329200017033,
-            "decode_overlap_s": 0.7741665840003407,
+            "decode_overlap_s": 0.38708329200017033,
             "prefill_frac": 1.0,
             "n_bg_prefill": 1,
             "n_bg_decode": 2
@@ -1465,7 +1465,7 @@
           "overlap": {
             "phase": "prefill",
             "prefill_overlap_s": 0.5135522920027142,
-            "decode_overlap_s": 1.0271045840054285,
+            "decode_overlap_s": 0.5135522920027142,
             "prefill_frac": 1.0,
             "n_bg_prefill": 1,
             "n_bg_decode": 2
@@ -1480,7 +1480,7 @@
           "overlap": {
             "phase": "prefill",
             "prefill_overlap_s": 1.6078035829996224,
-            "decode_overlap_s": 3.9444194169955153,
+            "decode_overlap_s": 1.8507409999983793,
             "prefill_frac": 0.8687350542301869,
             "n_bg_prefill": 1,
             "n_bg_decode": 3
@@ -1495,7 +1495,7 @@
           "overlap": {
             "phase": "decode",
             "prefill_overlap_s": 0.0,
-            "decode_overlap_s": 1.1802091260069574,
+            "decode_overlap_s": 0.3934030420023191,
             "prefill_frac": 0.0,
             "n_bg_prefill": 0,
             "n_bg_decode": 3
@@ -1509,9 +1509,9 @@
           "total": 4.112402208000276,
           "overlap": {
             "phase": "prefill",
-            "prefill_overlap_s": 3.1121440419992723,
-            "decode_overlap_s": 6.494296665998263,
-            "prefill_frac": 0.9718778721152922,
+            "prefill_overlap_s": 2.9669152919996122,
+            "decode_overlap_s": 3.2021966249994875,
+            "prefill_frac": 0.926525019993139,
             "n_bg_prefill": 2,
             "n_bg_decode": 4
           }
@@ -1524,7 +1524,7 @@
           "total": 5.53346587499982,
           "overlap": {
             "phase": "prefill",
-            "prefill_overlap_s": 1.4582900820023497,
+            "prefill_overlap_s": 0.7291450410011748,
             "decode_overlap_s": 0.7291450410011748,
             "prefill_frac": 1.0,
             "n_bg_prefill": 2,
@@ -1539,8 +1539,8 @@
           "total": 6.961362250000093,
           "overlap": {
             "phase": "prefill",
-            "prefill_overlap_s": 5.124028500998975,
-            "decode_overlap_s": 4.286693251000543,
+            "prefill_overlap_s": 3.1369933339992713,
+            "decode_overlap_s": 3.0275430840010813,
             "prefill_frac": 1.0,
             "n_bg_prefill": 3,
             "n_bg_decode": 3
@@ -1555,7 +1555,7 @@
           "overlap": {
             "phase": "decode",
             "prefill_overlap_s": 0.0,
-            "decode_overlap_s": 1.1845617479921202,
+            "decode_overlap_s": 0.3948539159973734,
             "prefill_frac": 0.0,
             "n_bg_prefill": 0,
             "n_bg_decode": 3
@@ -1570,7 +1570,7 @@
           "overlap": {
             "phase": "prefill",
             "prefill_overlap_s": 0.5937578329976532,
-            "decode_overlap_s": 1.1875156659953063,
+            "decode_overlap_s": 0.5937578329976532,
             "prefill_frac": 1.0,
             "n_bg_prefill": 1,
             "n_bg_decode": 2
@@ -1584,8 +1584,8 @@
           "total": 6.559456667000632,
           "overlap": {
             "phase": "prefill",
-            "prefill_overlap_s": 7.343694626000797,
-            "decode_overlap_s": 5.298752582002635,
+            "prefill_overlap_s": 4.214190750000853,
+            "decode_overlap_s": 4.214190750000853,
             "prefill_frac": 1.0,
             "n_bg_prefill": 3,
             "n_bg_decode": 3
@@ -1600,7 +1600,7 @@
           "overlap": {
             "phase": "prefill",
             "prefill_overlap_s": 0.5025602920031815,
-            "decode_overlap_s": 1.005120584006363,
+            "decode_overlap_s": 0.5025602920031815,
             "prefill_frac": 1.0,
             "n_bg_prefill": 1,
             "n_bg_decode": 2
@@ -1615,7 +1615,7 @@
           "overlap": {
             "phase": "decode",
             "prefill_overlap_s": 0.0,
-            "decode_overlap_s": 1.173887876993831,
+            "decode_overlap_s": 0.39129595899794367,
             "prefill_frac": 0.0,
             "n_bg_prefill": 0,
             "n_bg_decode": 3
@@ -1629,8 +1629,8 @@
           "total": 4.304179792001378,
           "overlap": {
             "phase": "prefill",
-            "prefill_overlap_s": 0.7785180840037356,
-            "decode_overlap_s": 1.2527861669987033,
+            "prefill_overlap_s": 0.6771014170008129,
+            "decode_overlap_s": 0.6771014170008129,
             "prefill_frac": 1.0,
             "n_bg_prefill": 2,
             "n_bg_decode": 2
@@ -1644,8 +1644,8 @@
           "total": 6.928770582999277,
           "overlap": {
             "phase": "prefill",
-            "prefill_overlap_s": 8.207961208001507,
-            "decode_overlap_s": 5.831056082999567,
+            "prefill_overlap_s": 4.679744832999859,
+            "decode_overlap_s": 4.679744832999859,
             "prefill_frac": 1.0,
             "n_bg_prefill": 3,
             "n_bg_decode": 3
@@ -1660,7 +1660,7 @@
           "overlap": {
             "phase": "prefill",
             "prefill_overlap_s": 0.6227532500015514,
-            "decode_overlap_s": 1.2455065000031027,
+            "decode_overlap_s": 0.6227532500015514,
             "prefill_frac": 1.0,
             "n_bg_prefill": 1,
             "n_bg_decode": 2
@@ -1675,7 +1675,7 @@
           "overlap": {
             "phase": "decode",
             "prefill_overlap_s": 0.0,
-            "decode_overlap_s": 1.283746623001207,
+            "decode_overlap_s": 0.4279155410004023,
             "prefill_frac": 0.0,
             "n_bg_prefill": 0,
             "n_bg_decode": 3
@@ -1689,8 +1689,8 @@
           "total": 5.364839874997415,
           "overlap": {
             "phase": "prefill",
-            "prefill_overlap_s": 3.327846291998867,
-            "decode_overlap_s": 4.095065541991062,
+            "prefill_overlap_s": 2.4743495419970714,
+            "decode_overlap_s": 2.4743495419970714,
             "prefill_frac": 1.0,
             "n_bg_prefill": 2,
             "n_bg_decode": 3
@@ -1705,7 +1705,7 @@
           "overlap": {
             "phase": "prefill",
             "prefill_overlap_s": 1.3692686249996768,
-            "decode_overlap_s": 3.4838158739985374,
+            "decode_overlap_s": 1.6176948329994048,
             "prefill_frac": 0.8464319703988203,
             "n_bg_prefill": 1,
             "n_bg_decode": 3
@@ -1720,7 +1720,7 @@
           "overlap": {
             "phase": "decode",
             "prefill_overlap_s": 0.0,
-            "decode_overlap_s": 1.2301282500047819,
+            "decode_overlap_s": 0.41004275000159396,
             "prefill_frac": 0.0,
             "n_bg_prefill": 0,
             "n_bg_decode": 3
@@ -1735,7 +1735,7 @@
           "overlap": {
             "phase": "prefill",
             "prefill_overlap_s": 2.0152998749981634,
-            "decode_overlap_s": 4.737730751996423,
+            "decode_overlap_s": 2.2510102089981956,
             "prefill_frac": 0.895286865844587,
             "n_bg_prefill": 1,
             "n_bg_decode": 3
@@ -1750,7 +1750,7 @@
           "overlap": {
             "phase": "prefill",
             "prefill_overlap_s": 0.38684941600149614,
-            "decode_overlap_s": 0.7736988320029923,
+            "decode_overlap_s": 0.38684941600149614,
             "prefill_frac": 1.0,
             "n_bg_prefill": 1,
             "n_bg_decode": 2
@@ -1765,7 +1765,7 @@
           "overlap": {
             "phase": "prefill",
             "prefill_overlap_s": 0.47228804100086563,
-            "decode_overlap_s": 0.9445760820017313,
+            "decode_overlap_s": 0.47228804100086563,
             "prefill_frac": 1.0,
             "n_bg_prefill": 1,
             "n_bg_decode": 2
@@ -1780,7 +1780,7 @@
           "overlap": {
             "phase": "decode",
             "prefill_overlap_s": 0.0,
-            "decode_overlap_s": 1.1960296260040195,
+            "decode_overlap_s": 0.39867654200133984,
             "prefill_frac": 0.0,
             "n_bg_prefill": 0,
             "n_bg_decode": 3
