@@ -1,0 +1,55 @@
+small  nb512   c1: 10/10 ok in  21.8s
+small  nb512   c2: 10/10 ok in  17.3s
+small  nb512   c3: 10/10 ok in  14.5s
+small  nb2048  c1: 10/10 ok in  19.3s
+small  nb2048  c2: 10/10 ok in  16.4s
+small  nb2048  c3: 10/10 ok in  13.6s
+small  nb2048  c1: 10/10 ok in  19.3s
+small  nb2048  c2: 10/10 ok in  16.7s
+small  nb2048  c3: 10/10 ok in  13.4s
+small  nb512   c1: 10/10 ok in  19.4s
+small  nb512   c2: 10/10 ok in  17.7s
+small  nb512   c3: 10/10 ok in  15.6s
+  small  nb512   c1: prompt 1416 tok | prefill p50 0.26s (5322 tok/s) | decode p50 156 tok/s | wall p50 2.00s p95 2.27s | 29.2/min | vram 13684367686
+  small  nb512   c2: prompt 1416 tok | prefill p50 0.34s (4062 tok/s) | decode p50 85 tok/s | wall p50 3.77s p95 4.32s | 34.3/min | vram 13684367686
+  small  nb512   c3: prompt 1416 tok | prefill p50 0.39s (3591 tok/s) | decode p50 81 tok/s | wall p50 4.01s p95 5.58s | 39.9/min | vram 13684367686
+  small  nb2048  c1: prompt 1416 tok | prefill p50 0.21s (6773 tok/s) | decode p50 163 tok/s | wall p50 1.92s p95 2.06s | 31.1/min | vram 13949028269
+  small  nb2048  c2: prompt 1416 tok | prefill p50 0.32s (4370 tok/s) | decode p50 85 tok/s | wall p50 3.54s p95 3.96s | 36.2/min | vram 13949028269
+  small  nb2048  c3: prompt 1416 tok | prefill p50 0.39s (3570 tok/s) | decode p50 93 tok/s | wall p50 3.46s p95 5.13s | 44.4/min | vram 13949028269
+medium nb512   c1: 10/10 ok in  26.4s
+medium nb512   c2: 10/10 ok in  23.4s
+medium nb512   c3: 10/10 ok in  20.8s
+medium nb2048  c1: 10/10 ok in  23.8s
+medium nb2048  c2: 10/10 ok in  21.5s
+medium nb2048  c3: 10/10 ok in  18.7s
+medium nb2048  c1: 10/10 ok in  24.0s
+medium nb2048  c2: 10/10 ok in  21.6s
+medium nb2048  c3: 10/10 ok in  18.7s
+medium nb512   c1: 10/10 ok in  25.2s
+medium nb512   c2: 10/10 ok in  22.2s
+medium nb512   c3: 10/10 ok in  19.8s
+  medium nb512   c1: prompt 3198 tok | prefill p50 0.63s (5056 tok/s) | decode p50 152 tok/s | wall p50 2.55s p95 2.80s | 23.2/min | vram 13684367686
+  medium nb512   c2: prompt 3198 tok | prefill p50 0.71s (4444 tok/s) | decode p50 72 tok/s | wall p50 4.35s p95 5.64s | 26.3/min | vram 13684367686
+  medium nb512   c3: prompt 3198 tok | prefill p50 0.80s (4036 tok/s) | decode p50 61 tok/s | wall p50 6.21s p95 8.20s | 29.6/min | vram 13684367686
+  medium nb2048  c1: prompt 3198 tok | prefill p50 0.47s (6722 tok/s) | decode p50 154 tok/s | wall p50 2.40s p95 2.45s | 25.1/min | vram 13949028269
+  medium nb2048  c2: prompt 3198 tok | prefill p50 0.68s (4718 tok/s) | decode p50 79 tok/s | wall p50 4.51s p95 4.85s | 27.8/min | vram 13949028269
+  medium nb2048  c3: prompt 3198 tok | prefill p50 0.65s (4914 tok/s) | decode p50 79 tok/s | wall p50 4.94s p95 6.15s | 32.1/min | vram 13949028269
+large  nb512   c1: 10/10 ok in  37.9s
+large  nb512   c2: 10/10 ok in  38.3s
+large  nb512   c3: 10/10 ok in  35.4s
+large  nb2048  c1: 10/10 ok in  33.5s
+large  nb2048  c2: 10/10 ok in  36.2s
+large  nb2048  c3: 10/10 ok in  29.4s
+large  nb2048  c1: 10/10 ok in  35.3s
+large  nb2048  c2: 10/10 ok in  32.5s
+large  nb2048  c3: 10/10 ok in  28.8s
+large  nb512   c1: 10/10 ok in  36.1s
+large  nb512   c2: 10/10 ok in  34.6s
+large  nb512   c3: 10/10 ok in  33.0s
+  large  nb512   c1: prompt 6865 tok | prefill p50 1.40s (4896 tok/s) | decode p50 135 tok/s | wall p50 3.74s p95 3.94s | 16.2/min | vram 13684367686
+  large  nb512   c2: prompt 6865 tok | prefill p50 1.80s (3789 tok/s) | decode p50 56 tok/s | wall p50 7.43s p95 8.83s | 16.5/min | vram 13684367686
+  large  nb512   c3: prompt 6865 tok | prefill p50 1.67s (3969 tok/s) | decode p50 37 tok/s | wall p50 10.13s p95 13.02s | 17.6/min | vram 13684367686
+  large  nb2048  c1: prompt 6865 tok | prefill p50 1.11s (6176 tok/s) | decode p50 136 tok/s | wall p50 3.50s p95 3.81s | 17.5/min | vram 13949028269
+  large  nb2048  c2: prompt 6865 tok | prefill p50 1.32s (4828 tok/s) | decode p50 60 tok/s | wall p50 6.49s p95 10.48s | 17.5/min | vram 13949028269
+  large  nb2048  c3: prompt 6865 tok | prefill p50 1.37s (5119 tok/s) | decode p50 42 tok/s | wall p50 8.65s p95 11.26s | 20.6/min | vram 13949028269
+restored deepseek-coder-v2:fim: [('deepseek-coder-v2:fim', 8192)]
