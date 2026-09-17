@@ -1,0 +1,13 @@
+host=http://192.168.1.19:11434 fim=deepseek-coder-v2:instruct bg=deepseek-coder-v2:instruct ollama=0.34.1 reps=30
+A idle             FIM ttft p50=0.04s p90=0.04s p95=0.08s max=0.09s | >0.5s 0% >1s 0% | full-64tok p50=0.43s
+    overlap idle     n= 30 ttft p50=0.04s max=0.09s
+    fim sample: 'data:gmatch("[^\\n]+") do\n    local k, v = line:match("^(%w+)%s*=%s*(.+)$")\n    if k then cfg[k] = v end\n  end\n  return cfg\nend\n\nlocal function parse_config('
+H 3-bg-vlm         FIM ttft p50=0.24s p90=1.00s p95=1.67s max=1.78s | >0.5s 30% >1s 13% | full-64tok p50=3.57s
+    overlap decode   n=  7 ttft p50=0.06s max=0.07s
+    overlap prefill  n= 23 ttft p50=0.34s max=1.78s
+    bg0: 23 runs | ttft p50=1.73s prefill p50=1.28s (5229 tok) decode p50=25.6 tok/s wall p50=6.2s
+    bg1: 22 runs | ttft p50=1.68s prefill p50=1.25s (5229 tok) decode p50=24.6 tok/s wall p50=6.2s
+    bg2: 23 runs | ttft p50=1.64s prefill p50=1.21s (5229 tok) decode p50=24.9 tok/s wall p50=6.3s
+    fim sample: ' data:gmatch("[^\\n]+") do\n    local k, v = line:match("^(%w+)%s*=%s*(.+)$")\n    if k then cfg[k] = v end\n  end\n  return cfg\nend\n\nlocal function parse_config('
+
+loaded after: [('deepseek-coder-v2:instruct', 13684367686)]
