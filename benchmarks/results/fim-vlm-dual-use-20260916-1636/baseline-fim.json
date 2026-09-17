@@ -1,0 +1,26 @@
+{
+  "host": "http://192.168.1.19:11434",
+  "model": "deepseek-coder-v2:fim",
+  "bg_model": "deepseek-coder-v2:fim",
+  "reps": 8,
+  "conditions": {
+    "A idle": {
+      "fim_ttft_p50": 0.24498845846392214,
+      "fim_ttft_p95": 0.28763566695852205,
+      "fim_ttft_max": 0.28763566695852205,
+      "fim_full_p50": 0.6556536669959314,
+      "fim_sample": " data:gmatch(\"[^\\n]+\") do\n    local k, v = line:match(\"^(%w+)%s*=%s*(.+)$\")\n    if k then cfg[k] = v end\n  end\n  return cfg\nend\n\nlocal function parse_config(",
+      "bg": []
+    }
+  },
+  "ollama_version": "0.34.1",
+  "conditions_run": [
+    "A"
+  ],
+  "loaded_after": [
+    [
+      "deepseek-coder-v2:fim",
+      13692756294
+    ]
+  ]
+}

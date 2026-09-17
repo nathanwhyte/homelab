@@ -1,0 +1,18 @@
+host=http://192.168.1.19:11434 fim=deepseek-coder-v2:instruct bg=deepseek-coder-v2:instruct ollama=0.34.1 reps=8
+A idle             FIM ttft p50=0.24s p95=0.24s max=0.24s | full-64tok p50=0.67s max=0.68s
+    fim sample: ' data:gmatch("[^\\n]+") do\n    local k, v = line:match("^(%w+)%s*=%s*(.+)$")\n    if k then cfg[k] = v end\n  end\n  return cfg\nend\n\nlocal function parse_config('
+B 1-bg-decode      FIM ttft p50=0.25s p95=0.27s max=0.27s | full-64tok p50=0.74s max=0.81s
+    bg0: 5 runs | ttft p50=0.12s prefill p50=0.05s (49 tok) decode p50=137.1 tok/s wall p50=3.0s
+    fim sample: ' data:gmatch("[^\\n]+") do\n    local k, v = line:match("^(%w+)%s*=%s*(.+)$")\n    if k then cfg[k] = v end\n  end\n  return cfg\nend\n\nlocal function parse_config('
+D 1-bg-8k-prefill  FIM ttft p50=0.37s p95=2.98s max=2.98s | full-64tok p50=2.08s max=3.67s
+    bg0: 5 runs | ttft p50=3.05s prefill p50=2.22s (9829 tok) decode p50=95.2 tok/s wall p50=5.2s
+    fim sample: ' data:gmatch("[^\\n]+") do\n    local k, v = line:match("^(%w+)%s*=%s*(.+)$")\n    if k then cfg[k] = v end\n  end\n  return cfg\nend\n\nlocal function parse_config('
+F 1-bg-vlm         FIM ttft p50=0.93s p95=1.69s max=1.69s | full-64tok p50=2.05s max=2.27s
+    bg0: 10 runs | ttft p50=1.70s prefill p50=1.11s (5229 tok) decode p50=123.0 tok/s wall p50=2.6s
+    fim sample: ' data:gmatch("[^\\n]+") do\n    local k, v = line:match("^(%w+)%s*=%s*(.+)$")\n    if k then cfg[k] = v end\n  end\n  return cfg\nend\n\nlocal function parse_config('
+G 2-bg-vlm         FIM ttft p50=2.15s p95=2.44s max=2.44s | full-64tok p50=4.18s max=4.47s
+    bg0: 9 runs | ttft p50=2.36s prefill p50=1.14s (5229 tok) decode p50=51.9 tok/s wall p50=4.7s
+    bg1: 9 runs | ttft p50=2.97s prefill p50=1.17s (5229 tok) decode p50=67.5 tok/s wall p50=4.7s
+    fim sample: ' data:gmatch("[^\\n]+") do\n    local k, v = line:match("^(%w+)%s*=%s*(.+)$")\n    if k then cfg[k] = v end\n  end\n  return cfg\nend\n\nlocal function parse_config('
+
+loaded after: [('deepseek-coder-v2:instruct', 13692756294)]

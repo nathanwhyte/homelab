@@ -1,0 +1,82 @@
+{
+  "host": "http://192.168.1.19:11434",
+  "model": "deepseek-coder-v2:instruct-nb2048",
+  "bg_model": "deepseek-coder-v2:instruct-nb2048",
+  "reps": 8,
+  "conditions": {
+    "A idle": {
+      "fim_ttft_p50": 0.20663831249112263,
+      "fim_ttft_p95": 0.21223233302589506,
+      "fim_ttft_max": 0.21223233302589506,
+      "fim_full_p50": 0.596339645475382,
+      "fim_sample": " data:gmatch(\"[^\\n]+\") do\n    local k, v = line:match(\"^(%w+)%s*=%s*(.+)$\")\n    if k then cfg[k] = v end\n  end\n  return cfg\nend\n\nlocal function parse_config(",
+      "bg": []
+    },
+    "F 1-bg-vlm": {
+      "fim_ttft_p50": 0.5506366670015268,
+      "fim_ttft_p95": 1.3883773330016993,
+      "fim_ttft_max": 1.3883773330016993,
+      "fim_full_p50": 1.7806331670144573,
+      "fim_sample": " data:gmatch(\"[^\\n]+\") do\n    local k, v = line:match(\"^(%w+)%s*=%s*(.+)$\")\n    if k then cfg[k] = v end\n  end\n  return cfg\nend\n\nlocal function parse_config(",
+      "bg": [
+        {
+          "runs": 10,
+          "ttft_p50": 1.380152020487003,
+          "prefill_p50": 0.9795795,
+          "prompt_tokens": 5229,
+          "decode_p50": 123.54478177103546,
+          "wall_p50": 2.269833041995298,
+          "sample": " The document outlines the configuration and status of ollama serving on the RX 9070 XT, detailing the settings, reasoning behind the decisions, and current status of the system. Key decisions include baking num_ctx for every tag served on timmy, setting OLLAMA_NUM_PARALLEL to 2, and using q8_0 for the KV cache type. The status is open, with follow-up actions planned to reclaim VRAM by lowering num_ctx to 8192."
+        }
+      ]
+    },
+    "H 3-bg-vlm": {
+      "fim_ttft_p50": 0.23001620851573534,
+      "fim_ttft_p95": 1.27265937498305,
+      "fim_ttft_max": 1.27265937498305,
+      "fim_full_p50": 3.9948541874764487,
+      "fim_sample": " data:gmatch(\"[^\\n]+\") do\n    local k, v = line:match(\"^(%w+)%s*=%s*(.+)$\")\n    if k then cfg[k] = v end\n  end\n  return cfg\nend\n\nlocal function parse_config(",
+      "bg": [
+        {
+          "runs": 7,
+          "ttft_p50": 1.8689661670359783,
+          "prefill_p50": 0.913566,
+          "prompt_tokens": 5229,
+          "decode_p50": 38.103835883847786,
+          "wall_p50": 5.688491500040982,
+          "sample": " The document provides detailed information on the configuration and serving posture of ollama on the RX 9070 XT, detailing the settings, reasoning behind the decisions, and the current status of the project. Key decisions include setting OLLAMA_NUM_PARALLEL to 2, OLLAMA_KV_CACHE_TYPE to q8_0, and OLLAMA_MAX_LOADED_MODELS to 1. The status is open, with follow-ups planned to reclaim VRAM by lowering num_ctx to 8192."
+        },
+        {
+          "runs": 7,
+          "ttft_p50": 1.4762579999514855,
+          "prefill_p50": 0.988831,
+          "prompt_tokens": 5229,
+          "decode_p50": 28.666354328880107,
+          "wall_p50": 5.503817791992333,
+          "sample": " The document provides detailed information on the configuration and serving posture of ollama on the RX 9070 XT, with a focus on the settings and decisions made for each section. Key decisions include baking num_ctx for every tag served on timmy, setting OLLAMA_NUM_PARALLEL to 2, and using q8_0 for KV cache type. The status for each section is open, with follow-up actions planned to reclaim VRAM by lowering num_ctx to 8192."
+        },
+        {
+          "runs": 7,
+          "ttft_p50": 1.2996483329916373,
+          "prefill_p50": 0.856051,
+          "prompt_tokens": 5229,
+          "decode_p50": 28.673012960201856,
+          "wall_p50": 5.458430583006702,
+          "sample": " The document provides detailed information on the configuration settings and serving posture of ollama for the RX 9070 XT, specifically tailored for the Timmy system. Key decisions include setting OLLAMA_NUM_PARALLEL to 2, OLLAMA_KV_CACHE_TYPE to q8_0, and OLLAMA_MAX_LOADED_MODELS to 1. These settings are based on the prediction of 1-2 requests per editor and the need to manage memory efficiently. The current status is that follow-up actions are planned to lower num_ctx to reclaim VRAM, addressing the OOM-killed issues experienced with tags without baked context."
+        }
+      ]
+    }
+  },
+  "ollama_version": "0.34.1",
+  "conditions_run": [
+    "A",
+    "F",
+    "H"
+  ],
+  "loaded_after": [
+    [
+      "deepseek-coder-v2:instruct-nb2048",
+      13949028269
+    ]
+  ]
+}
