@@ -67,10 +67,24 @@ over 0.5 s), while H degrades it (p50 0.46 s, max 1.82 s, 30% over 1 s). Large
 prefills are what hurt FIM; decode contention is not the driver. Run B/C
 alongside F/G/H so that control is present in the results.
 
+*** JUDGE ON COMPLETION LATENCY, NOT TTFT. ***
+
+minuet's OpenAI backend invokes its completion callback only after the request
+exits (openai_base.lua), even with streaming enabled, so the editor shows
+nothing until the WHOLE completion arrives; nvim/lua/plugins/minuet.lua sets
+max_tokens 64, which this probe matches. `fim_full_*` and `frac_full_over_*` are
+therefore the acceptance fields, and `fim_ttft_*` is a diagnostic. Scoring TTFT
+is how the 2026-09-17 runs called a configuration acceptable at 0.08 s while
+30/30 completions were past a second.
+
 Thresholds come from INFO-1091: ~200-500 ms "feels instant", >1 s "feels
-broken". `frac_over_0_5s` / `frac_over_1_0s` report against those directly.
-(IDEA-1105 previously cited "INFO-1090 p95 <= 0.30 s"; that is a misquote of the
-INFO-1091 band and INFO-1090 states no such budget.)
+broken". (IDEA-1105 previously cited "INFO-1090 p95 <= 0.30 s"; INFO-1090 states
+no budget -- that figure is a MEASURED worst case from IDEA-1090's two-runner
+matrix.)
+
+Prefer FIM_PROMPTS with a capture from capture-minuet-prompts.lua over any
+FIM_SALT setting for an acceptance claim: salt placement guesses at cache
+behaviour, a captured sequence is the behaviour.
 
 First run (0.32.13, 2026-08-28) is archived in the compendium under
 _sources/2026-08/2026-08-28_fim-chat-contention-probe-timmy.md.
@@ -182,6 +196,26 @@ else:
 # overstates the problem by whatever the cache would have saved.
 FIM_SALT = os.environ.get("FIM_SALT", "head")
 
+# Replay REAL prompts captured from the installed editor instead of synthesising
+# one. capture-minuet-prompts.lua drives minuet's own get_context() against a
+# real buffer while characters are inserted, and writes {"prefix","suffix"}
+# JSONL. Prefer this over FIM_SALT for any acceptance claim: salt placement is a
+# guess about cache behaviour, a captured sequence is the behaviour.
+#
+# Measured 2026-09-17 against minuet at context_window=1024: consecutive prompts
+# share a MEAN OF 0.2 LEADING CHARACTERS (max 3) on a ~768-char prefix, because
+# the window slides with the cursor. The prefix cache is effectively never
+# reusable for this client, which is why FIM_SALT=head -- not tail -- is the
+# faithful synthetic default.
+FIM_PROMPTS = os.environ.get("FIM_PROMPTS")
+_PROMPTS = []
+if FIM_PROMPTS:
+    with open(FIM_PROMPTS) as fh:
+        _PROMPTS = [json.loads(line) for line in fh if line.strip()]
+    if not _PROMPTS:
+        raise SystemExit(f"{FIM_PROMPTS} contained no prompts")
+_prompt_i = 0
+
 SUMMARY = {
     "host": HOST,
     "model": MODEL,
@@ -203,21 +237,28 @@ def post(path, body):
 
 
 def fim_probe():
-    salt = f"-- {time.time_ns()}\n"
-    body_text = (CODE * (PREFIX_CHARS // len(CODE) + 1))[:PREFIX_CHARS]
-    if FIM_SALT == "head":
-        prefix = salt + body_text
-    elif FIM_SALT == "tail":
-        # Stable leading context, salt immediately before the cursor.
-        prefix = body_text + salt
-    elif FIM_SALT == "none":
-        prefix = body_text
+    global _prompt_i
+    if _PROMPTS:
+        rec = _PROMPTS[_prompt_i % len(_PROMPTS)]
+        _prompt_i += 1
+        prefix, suffix = rec["prefix"], rec.get("suffix", "")
     else:
-        raise SystemExit(f"FIM_SALT must be head|tail|none, got {FIM_SALT!r}")
+        salt = f"-- {time.time_ns()}\n"
+        body_text = (CODE * (PREFIX_CHARS // len(CODE) + 1))[:PREFIX_CHARS]
+        if FIM_SALT == "head":
+            prefix = salt + body_text
+        elif FIM_SALT == "tail":
+            # Stable leading context, salt immediately before the cursor.
+            prefix = body_text + salt
+        elif FIM_SALT == "none":
+            prefix = body_text
+        else:
+            raise SystemExit(f"FIM_SALT must be head|tail|none, got {FIM_SALT!r}")
+        suffix = SUFFIX
     body = {
         "model": MODEL,
         "prompt": prefix,
-        "suffix": SUFFIX,
+        "suffix": suffix,
         "max_tokens": 64,
         "temperature": 0,
         "stream": True,
@@ -498,10 +539,18 @@ def run_condition(label, n_bg, kind="decode"):
         "fim_ttft_max": max(ttfts),
         "fim_full_p50": statistics.median(totals),
         "fim_sample": fim_sample,
-        # Fraction of probes over the INFO-1091 perceptual thresholds:
-        # ~200-500 ms "feels instant", >1 s "feels broken".
+        # TTFT thresholds. Kept for diagnosis, but see the acceptance fields
+        # below -- these are NOT what a non-streaming client experiences.
         "frac_over_0_5s": sum(t > 0.5 for t in ttfts) / len(ttfts),
         "frac_over_1_0s": sum(t > 1.0 for t in ttfts) / len(ttfts),
+        # ACCEPTANCE METRIC. minuet's OpenAI backend fires its callback only
+        # after the request exits (openai_base.lua), even with streaming on, so
+        # the editor waits for the WHOLE completion. Judge against these.
+        "fim_full_p90": q(totals, 0.90),
+        "fim_full_p95": q(totals, 0.95),
+        "fim_full_max": max(totals),
+        "frac_full_over_1_0s": sum(t > 1.0 for t in totals) / len(totals),
+        "frac_full_over_2_0s": sum(t > 2.0 for t in totals) / len(totals),
         # RAW per-request samples: t_start/t_first/t_end offsets from T0, plus
         # the overlap attribution. This is the whole point of the rerun -- every
         # percentile above is recomputable from here, and the distribution can
@@ -513,11 +562,14 @@ def run_condition(label, n_bg, kind="decode"):
         },
         "bg": [],
     }
+    # Completion latency leads: it is what the editor waits for. TTFT follows
+    # as a diagnostic. Reporting TTFT first is how the 2026-09-17 runs came to
+    # call a configuration acceptable while 30/30 completions were past a second.
     print(
-        f"{label:18s} FIM ttft p50={row['fim_ttft_p50']:.2f}s p90={row['fim_ttft_p90']:.2f}s "
-        f"p95={row['fim_ttft_p95']:.2f}s max={row['fim_ttft_max']:.2f}s "
-        f"| >0.5s {row['frac_over_0_5s']:.0%} >1s {row['frac_over_1_0s']:.0%} "
-        f"| full-64tok p50={row['fim_full_p50']:.2f}s"
+        f"{label:18s} FIM full p50={row['fim_full_p50']:.2f}s p95={row['fim_full_p95']:.2f}s "
+        f"max={row['fim_full_max']:.2f}s | >1s {row['frac_full_over_1_0s']:.0%} "
+        f">2s {row['frac_full_over_2_0s']:.0%}   [ttft p50={row['fim_ttft_p50']:.2f}s "
+        f"p95={row['fim_ttft_p95']:.2f}s]"
         + ("" if row["valid"] else "  INVALID: background load not sustained")
     )
     for ph, st in row["ttft_by_phase"].items():
