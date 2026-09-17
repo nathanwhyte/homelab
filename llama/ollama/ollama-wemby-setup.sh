@@ -45,8 +45,12 @@ Environment="OLLAMA_FLASH_ATTENTION=1"
 # script) saves more but is not worth the loss for the small models 6 GB holds.
 Environment="OLLAMA_KV_CACHE_TYPE=q8_0"
 
-# One request slot: each extra slot allocates another context's KV cache.
-Environment="OLLAMA_NUM_PARALLEL=1"
+# Two concurrent requests per loaded model. Ollama allocates KV cache for
+# context x slots up front, so the default context is pinned at 4096: two
+# slots reserve an 8192-token cache (q8_0), small enough for the 6 GB card.
+# A request that sets a larger num_ctx still gets it, at 2x that cost.
+Environment="OLLAMA_NUM_PARALLEL=2"
+Environment="OLLAMA_CONTEXT_LENGTH=4096"
 
 # One model at a time: 6 GB cannot hold two alongside anything else.
 Environment="OLLAMA_MAX_LOADED_MODELS=1"
