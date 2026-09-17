@@ -28,6 +28,9 @@ kind: Deployment
 metadata: { name: embedder-1060-bench, namespace: bench, labels: { app: embedder-1060-bench } }
 spec:
   replicas: 1
+  # First run of a quant downloads its GGUF in the init container; the default
+  # 600s deadline fails the rollout mid-download on a 4.3 GB file.
+  progressDeadlineSeconds: 3600
   strategy: { type: Recreate }
   selector: { matchLabels: { app: embedder-1060-bench } }
   template:
@@ -38,6 +41,9 @@ spec:
       initContainers:
         - name: fetch
           image: curlimages/curl:8.12.1
+          # curlimages runs as curl_user; the fresh PVC root is root-owned, so
+          # mkdir /data/models fails without root (production manifest does the same).
+          securityContext: { runAsUser: 0, runAsGroup: 0 }
           command: ["/bin/sh", "-c"]
           args:
             - |
