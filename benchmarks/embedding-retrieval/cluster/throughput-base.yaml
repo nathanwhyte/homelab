@@ -22,6 +22,8 @@ spec:
   storageClassName: longhorn-ssd
   resources: { requests: { storage: 30Gi } }
 ---
+# throughput-apply.sh --node rewrites this hostname (manu here) to the GPU node
+# under test, e.g. wemby for throughput-1060-cuda.yaml.
 # Keeps the PVC mounted on manu so `kubectl cp` can seed /data/corpus.jsonl.
 # Stays running for the lifetime of the benchmark so every phase Job (also on
 # manu) reuses the same corpus node-locally. Trivial footprint.
