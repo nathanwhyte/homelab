@@ -19,7 +19,7 @@ IDEA-1105, second run. Same probe and VLM workload as `fim-vlm-dual-use-20260916
 | `instruct` / 2048 | F 1 VLM loop | 0.55 s | 1.39 s | 1.78 s |
 | `instruct` / 2048 | H 3 VLM loops | 0.23 s | 1.27 s | 3.99 s |
 
-Condition D (~9.8k-token prefill loop) did not run: its prompt exceeds the 8192-token slot, and Ollama rejected it with HTTP 400 in 36 ms rather than truncating it.
+Condition D (~9.8k-token prefill loop) did not run: its prompt exceeds the 8192-token slot, and Ollama rejected it with HTTP 400 in 36 ms rather than truncating it. **Its FIM numbers in `dual-use-instruct.json`/`.log` were measured with no background load and are not valid for condition D** — this run predates the probe's `valid`/`invalid_reasons` fields, which now mark such a condition invalid and fail the run.
 
 ## Results — VLM throughput
 

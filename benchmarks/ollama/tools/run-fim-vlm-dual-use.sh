@@ -21,7 +21,9 @@
 #   benchmarks/ollama/tools/run-fim-vlm-dual-use.sh [REPS]
 # Env: OLLAMA_HOST (default http://192.168.1.19:11434), OUTPUT_DIR,
 #      DUAL_CONDITIONS (default A,B,D,F,G,H), NUM_BATCH_VARIANTS (default none),
-#      SWEEP_CONDITIONS (default A,F,H), VLM_DOC, VLM_TOKENS.
+#      SWEEP_CONDITIONS (default A,F,H), VLM_DOC, VLM_TOKENS, PROBE (probe
+#      path; override for testing). The probe exits non-zero when a condition's
+#      background load was not sustained, which stops the run (cleanup still runs).
 set -euo pipefail
 
 REPS="${1:-8}"
@@ -32,7 +34,7 @@ DUAL_CONDITIONS="${DUAL_CONDITIONS:-A,B,D,F,G,H}"
 NUM_BATCH_VARIANTS="${NUM_BATCH_VARIANTS:-}"
 SWEEP_CONDITIONS="${SWEEP_CONDITIONS:-A,F,H}"
 OUTPUT_DIR="${OUTPUT_DIR:-benchmarks/results/fim-vlm-dual-use-$(date +%Y%m%d-%H%M)}"
-PROBE="benchmarks/ollama/tools/fim-contention-probe.py"
+PROBE="${PROBE:-benchmarks/ollama/tools/fim-contention-probe.py}"
 TEMP_TAGS=()
 
 log() {
@@ -44,7 +46,9 @@ api() {
 }
 
 cleanup() {
-  for tag in "${TEMP_TAGS[@]}"; do
+  # ${arr[@]+...}: Bash 3.2 (macOS /bin/bash) treats "${arr[@]}" on an EMPTY
+  # array as unbound under set -u, which aborted cleanup before FIM was restored.
+  for tag in ${TEMP_TAGS[@]+"${TEMP_TAGS[@]}"}; do
     log "deleting temporary tag ${tag}"
     curl -fsS -m 30 -X DELETE "${OLLAMA_HOST}/api/delete" -d "{\"model\":\"${tag}\"}" || true
   done

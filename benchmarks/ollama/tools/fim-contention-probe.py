@@ -45,6 +45,7 @@ import statistics
 import sys
 import threading
 import time
+import urllib.error
 import urllib.request
 
 HOST = os.environ.get("OLLAMA_HOST", "http://192.168.1.19:11434").rstrip("/")
@@ -153,6 +154,10 @@ class BgGen(threading.Thread):
 
     kind: "decode" (short prompt, long output), "prefill" (~9.8k-token prompt),
     or "vlm" (OV-shaped summarize over /api/chat).
+
+    A failed request (HTTP error, streamed {"error": ...}, bad JSON) stops the
+    worker and is kept in `error`; run_condition marks the condition invalid
+    rather than reporting FIM latency measured without the requested load.
     """
 
     def __init__(self, kind):
@@ -161,8 +166,23 @@ class BgGen(threading.Thread):
         self.stop = False
         self.runs = []
         self.sample = None
+        self.error = None
 
     def run(self):
+        try:
+            self.loop()
+        # HTTPError/URLError, socket timeouts (OSError), bad JSON (ValueError),
+        # and streamed {"error": ...} (RuntimeError): recorded, surfaced by
+        # run_condition.
+        except (urllib.error.URLError, OSError, ValueError, RuntimeError) as exc:
+            detail = (
+                exc.read().decode(errors="replace")[:200]
+                if hasattr(exc, "read")
+                else ""
+            )
+            self.error = f"{type(exc).__name__}: {exc} {detail}".strip()
+
+    def loop(self):
         while not self.stop:
             if self.kind == "vlm":
                 self.run_vlm()
@@ -220,6 +240,8 @@ class BgGen(threading.Thread):
         text = []
         for line in r:
             d = json.loads(line)
+            if d.get("error"):
+                raise RuntimeError(f"{path} stream error: {d['error']}")
             if first is None:
                 first = time.perf_counter()
             chunk = d.get(field) or ""
@@ -262,7 +284,16 @@ def run_condition(label, n_bg, kind="decode"):
         b.stop = True
     for b in bgs:
         b.join()
+    # The FIM numbers only mean "under load" if every requested background
+    # worker stayed healthy and completed at least one request.
+    invalid = [
+        f"bg{i}: {b.error or 'no completed runs'}"
+        for i, b in enumerate(bgs)
+        if b.error or not b.runs
+    ]
     row = {
+        "valid": not invalid,
+        "invalid_reasons": invalid,
         "fim_ttft_p50": statistics.median(ttfts),
         "fim_ttft_p95": q(ttfts, 0.95),
         "fim_ttft_max": max(ttfts),
@@ -273,11 +304,13 @@ def run_condition(label, n_bg, kind="decode"):
     print(
         f"{label:18s} FIM ttft p50={row['fim_ttft_p50']:.2f}s p95={row['fim_ttft_p95']:.2f}s "
         f"max={row['fim_ttft_max']:.2f}s | full-64tok p50={row['fim_full_p50']:.2f}s max={max(totals):.2f}s"
+        + ("" if row["valid"] else "  INVALID: background load not sustained")
     )
     for i, b in enumerate(bgs):
         rs = b.runs
         if not rs:
-            print(f"    bg{i}: no completed runs")
+            row["bg"].append({"runs": 0, "error": b.error})
+            print(f"    bg{i}: no completed runs{f' ({b.error})' if b.error else ''}")
             continue
         s = {
             "runs": len(rs),
@@ -287,6 +320,7 @@ def run_condition(label, n_bg, kind="decode"):
             "decode_p50": statistics.median(r["eval_tps"] for r in rs),
             "wall_p50": statistics.median(r["wall"] for r in rs),
             "sample": b.sample,
+            "error": b.error,
         }
         row["bg"].append(s)
         print(
@@ -325,9 +359,15 @@ def main():
     ]
     SUMMARY["loaded_after"] = [(m["name"], m.get("size_vram")) for m in ps]
     print("\nloaded after:", SUMMARY["loaded_after"])
+    invalid = [k for k, v in SUMMARY["conditions"].items() if not v["valid"]]
+    SUMMARY["valid"] = not invalid
     if os.environ.get("PROBE_JSON"):
         with open(os.environ["PROBE_JSON"], "w") as f:
             json.dump(SUMMARY, f, indent=2)
+    if invalid:
+        # Results are still written for diagnosis, but the run fails.
+        print(f"INVALID conditions: {', '.join(invalid)}", file=sys.stderr)
+        sys.exit(1)
 
 
 if __name__ == "__main__":
