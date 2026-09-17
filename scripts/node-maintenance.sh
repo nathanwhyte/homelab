@@ -49,6 +49,12 @@ SSH_OPTS=(-o ConnectTimeout=5)
 # (2026-08-07). Every wait loop here is written as "deadline checked between
 # calls", which a single hung call defeats, so each call gets its own hard cap.
 SSH_CMD_TIMEOUT_SECONDS=${SSH_CMD_TIMEOUT_SECONDS:-120}
+# SSH goes to "<node><suffix>", defaulting to the LAN aliases (wemby-lan, manu-lan,
+# timmy-lan: passphraseless ~/.ssh/homelab-lan key, GUIDE-1070). They bypass
+# Tailscale SSH check-mode, which otherwise blocks every call, and they survive an
+# apt upgrade that restarts tailscaled. NODE_SSH_SUFFIX= (empty) restores the
+# Tailscale aliases. Node names for kubectl and arguments are unchanged.
+NODE_SSH_SUFFIX=${NODE_SSH_SUFFIX--lan}
 TIMEOUT_BIN=$(command -v timeout || command -v gtimeout || true)
 STATE_ROOT=${XDG_STATE_HOME:-"$HOME/.local/state"}
 MAINTENANCE_STATE_DIR=$STATE_ROOT/homelab-node-maintenance
@@ -71,12 +77,12 @@ usage() {
 
 run_ssh() {
 	# Every non-interactive SSH call goes through here so it cannot hang forever.
-	local node=$1
+	local host=$1$NODE_SSH_SUFFIX
 	shift
 	if [[ -n $TIMEOUT_BIN ]]; then
-		"$TIMEOUT_BIN" "$SSH_CMD_TIMEOUT_SECONDS" ssh "${SSH_OPTS[@]}" "$node" "$@"
+		"$TIMEOUT_BIN" "$SSH_CMD_TIMEOUT_SECONDS" ssh "${SSH_OPTS[@]}" "$host" "$@"
 	else
-		ssh "${SSH_OPTS[@]}" "$node" "$@"
+		ssh "${SSH_OPTS[@]}" "$host" "$@"
 	fi
 }
 
