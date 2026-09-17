@@ -616,7 +616,7 @@ report_apt_result() {
 	if [[ -n $broken ]]; then
 		warn "[$node] dpkg reports packages that are not fully configured:"
 		printf '%s\n' "$broken" | sed 's/^/    /'
-		warn "[$node] repair before the next cycle: ssh $node sudo dpkg --configure -a"
+		warn "[$node] repair before the next cycle: ssh -t $node$NODE_SSH_SUFFIX sudo dpkg --configure -a"
 	fi
 
 	reboot_state=$(probe_ssh "$node" \
@@ -792,7 +792,7 @@ cmd_reboot() {
 
 	if ((! do_reboot)); then
 		log "[$node] --no-reboot: stopping before restart. Node is cordoned and drained."
-		log "[$node] next: ssh $node sudo reboot   (or: kubectl uncordon $node to back out)"
+		log "[$node] next: ssh -t $node$NODE_SSH_SUFFIX sudo reboot   (or: kubectl uncordon $node to back out)"
 		log "[$node] then: $0 finish $node   (saved previous boot ID: $boot_id)"
 		return 0
 	fi
@@ -802,11 +802,15 @@ cmd_reboot() {
 	# cycle with the node already cordoned and drained. A non-zero result is
 	# expected and harmless — the reboot kills the connection — so the boot-ID
 	# proof below, not this exit status, is what decides whether it worked.
+	# Same <node>$NODE_SSH_SUFFIX target as run_ssh: this call bypassed it, so after
+	# #118 the reboot still went to the Tailscale alias and hung on check-mode with
+	# the node already drained (2026-09-17, wemby).
+	local host=$node$NODE_SSH_SUFFIX
 	if [[ -n $TIMEOUT_BIN ]]; then
-		"$TIMEOUT_BIN" "$SSH_CMD_TIMEOUT_SECONDS" ssh -t "${SSH_OPTS[@]}" "$node" 'sudo reboot' ||
+		"$TIMEOUT_BIN" "$SSH_CMD_TIMEOUT_SECONDS" ssh -t "${SSH_OPTS[@]}" "$host" 'sudo reboot' ||
 			warn "SSH disconnected or reboot command returned non-zero; verifying the boot ID"
 	else
-		ssh -t "${SSH_OPTS[@]}" "$node" 'sudo reboot' ||
+		ssh -t "${SSH_OPTS[@]}" "$host" 'sudo reboot' ||
 			warn "SSH disconnected or reboot command returned non-zero; verifying the boot ID"
 	fi
 
