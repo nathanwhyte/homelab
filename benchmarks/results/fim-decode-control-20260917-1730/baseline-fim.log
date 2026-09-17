@@ -1,0 +1,6 @@
+host=http://192.168.1.19:11434 fim=deepseek-coder-v2:fim bg=deepseek-coder-v2:fim ollama=0.34.1 reps=30
+A idle             FIM ttft p50=0.23s p90=0.24s p95=0.24s max=0.25s | >0.5s 0% >1s 0% | full-64tok p50=0.63s
+    overlap idle     n= 30 ttft p50=0.23s max=0.25s
+    fim sample: ' data:gmatch("[^\\n]+") do\n    local k, v = line:match("^(%w+)%s*=%s*(.+)$")\n    if k then cfg[k] = v end\n  end\n  return cfg\nend\n\nlocal function parse_config('
+
+loaded after: [('deepseek-coder-v2:fim', 13684367686)]

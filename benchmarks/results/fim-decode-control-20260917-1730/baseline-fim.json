@@ -1,0 +1,493 @@
+{
+  "host": "http://192.168.1.19:11434",
+  "model": "deepseek-coder-v2:fim",
+  "bg_model": "deepseek-coder-v2:fim",
+  "reps": 30,
+  "conditions": {
+    "A idle": {
+      "valid": true,
+      "invalid_reasons": [],
+      "reps": 30,
+      "fim_ttft_p50": 0.23438241700205253,
+      "fim_ttft_p90": 0.2363747500021418,
+      "fim_ttft_p95": 0.23712716599766281,
+      "fim_ttft_p99": 0.24881425000057789,
+      "fim_ttft_max": 0.24881425000057789,
+      "fim_full_p50": 0.6298116665002453,
+      "fim_sample": " data:gmatch(\"[^\\n]+\") do\n    local k, v = line:match(\"^(%w+)%s*=%s*(.+)$\")\n    if k then cfg[k] = v end\n  end\n  return cfg\nend\n\nlocal function parse_config(",
+      "frac_over_0_5s": 0.0,
+      "frac_over_1_0s": 0.0,
+      "fim_samples": [
+        {
+          "t_start": 0.5978966669972579,
+          "t_first": 0.8467109169978357,
+          "t_end": 1.2393829169996025,
+          "ttft": 0.24881425000057789,
+          "total": 0.6414862500023446,
+          "overlap": {
+            "phase": "idle",
+            "prefill_overlap_s": 0.0,
+            "decode_overlap_s": 0.0,
+            "prefill_frac": 0.0,
+            "n_bg_prefill": 0,
+            "n_bg_decode": 0
+          }
+        },
+        {
+          "t_start": 2.7117594169976655,
+          "t_first": 2.9483099589997437,
+          "t_end": 3.330939749997924,
+          "ttft": 0.23655054200207815,
+          "total": 0.6191803330002585,
+          "overlap": {
+            "phase": "idle",
+            "prefill_overlap_s": 0.0,
+            "decode_overlap_s": 0.0,
+            "prefill_frac": 0.0,
+            "n_bg_prefill": 0,
+            "n_bg_decode": 0
+          }
+        },
+        {
+          "t_start": 5.063321208999696,
+          "t_first": 5.300448374997359,
+          "t_end": 5.768932666996989,
+          "ttft": 0.23712716599766281,
+          "total": 0.7056114579972927,
+          "overlap": {
+            "phase": "idle",
+            "prefill_overlap_s": 0.0,
+            "decode_overlap_s": 0.0,
+            "prefill_frac": 0.0,
+            "n_bg_prefill": 0,
+            "n_bg_decode": 0
+          }
+        },
+        {
+          "t_start": 7.17052374999912,
+          "t_first": 7.403441791997466,
+          "t_end": 7.817245499998535,
+          "ttft": 0.23291804199834587,
+          "total": 0.6467217499994149,
+          "overlap": {
+            "phase": "idle",
+            "prefill_overlap_s": 0.0,
+            "decode_overlap_s": 0.0,
+            "prefill_frac": 0.0,
+            "n_bg_prefill": 0,
+            "n_bg_decode": 0
+          }
+        },
+        {
+          "t_start": 9.185973708998063,
+          "t_first": 9.419210499996552,
+          "t_end": 9.819702624998172,
+          "ttft": 0.2332367909984896,
+          "total": 0.6337289160001092,
+          "overlap": {
+            "phase": "idle",
+            "prefill_overlap_s": 0.0,
+            "decode_overlap_s": 0.0,
+            "prefill_frac": 0.0,
+            "n_bg_prefill": 0,
+            "n_bg_decode": 0
+          }
+        },
+        {
+          "t_start": 11.184428374999698,
+          "t_first": 11.418440333996841,
+          "t_end": 11.816840333998698,
+          "ttft": 0.23401195899714367,
+          "total": 0.6324119589990005,
+          "overlap": {
+            "phase": "idle",
+            "prefill_overlap_s": 0.0,
+            "decode_overlap_s": 0.0,
+            "prefill_frac": 0.0,
+            "n_bg_prefill": 0,
+            "n_bg_decode": 0
+          }
+        },
+        {
+          "t_start": 13.324011124997924,
+          "t_first": 13.560385875000065,
+          "t_end": 13.961503958998946,
+          "ttft": 0.2363747500021418,
+          "total": 0.6374928340010229,
+          "overlap": {
+            "phase": "idle",
+            "prefill_overlap_s": 0.0,
+            "decode_overlap_s": 0.0,
+            "prefill_frac": 0.0,
+            "n_bg_prefill": 0,
+            "n_bg_decode": 0
+          }
+        },
+        {
+          "t_start": 14.81315229199754,
+          "t_first": 15.048187666998274,
+          "t_end": 15.457221708998986,
+          "ttft": 0.23503537500073435,
+          "total": 0.6440694170014467,
+          "overlap": {
+            "phase": "idle",
+            "prefill_overlap_s": 0.0,
+            "decode_overlap_s": 0.0,
+            "prefill_frac": 0.0,
+            "n_bg_prefill": 0,
+            "n_bg_decode": 0
+          }
+        },
+        {
+          "t_start": 16.151779583997268,
+          "t_first": 16.385419624999486,
+          "t_end": 16.781492583999352,
+          "ttft": 0.2336400410022179,
+          "total": 0.6297130000020843,
+          "overlap": {
+            "phase": "idle",
+            "prefill_overlap_s": 0.0,
+            "decode_overlap_s": 0.0,
+            "prefill_frac": 0.0,
+            "n_bg_prefill": 0,
+            "n_bg_decode": 0
+          }
+        },
+        {
+          "t_start": 17.09496770899932,
+          "t_first": 17.327415041996574,
+          "t_end": 17.706055624999863,
+          "ttft": 0.2324473329972534,
+          "total": 0.6110879160005425,
+          "overlap": {
+            "phase": "idle",
+            "prefill_overlap_s": 0.0,
+            "decode_overlap_s": 0.0,
+            "prefill_frac": 0.0,
+            "n_bg_prefill": 0,
+            "n_bg_decode": 0
+          }
+        },
+        {
+          "t_start": 19.032021958999394,
+          "t_first": 19.267927916996996,
+          "t_end": 19.66396462499688,
+          "ttft": 0.23590595799760194,
+          "total": 0.6319426659974852,
+          "overlap": {
+            "phase": "idle",
+            "prefill_overlap_s": 0.0,
+            "decode_overlap_s": 0.0,
+            "prefill_frac": 0.0,
+            "n_bg_prefill": 0,
+            "n_bg_decode": 0
+          }
+        },
+        {
+          "t_start": 21.29979099999764,
+          "t_first": 21.53435933399669,
+          "t_end": 21.9256215839996,
+          "ttft": 0.23456833399905008,
+          "total": 0.6258305840019602,
+          "overlap": {
+            "phase": "idle",
+            "prefill_overlap_s": 0.0,
+            "decode_overlap_s": 0.0,
+            "prefill_frac": 0.0,
+            "n_bg_prefill": 0,
+            "n_bg_decode": 0
+          }
+        },
+        {
+          "t_start": 22.259236916997907,
+          "t_first": 22.4920482919988,
+          "t_end": 22.860628041999007,
+          "ttft": 0.23281137500089244,
+          "total": 0.6013911250011006,
+          "overlap": {
+            "phase": "idle",
+            "prefill_overlap_s": 0.0,
+            "decode_overlap_s": 0.0,
+            "prefill_frac": 0.0,
+            "n_bg_prefill": 0,
+            "n_bg_decode": 0
+          }
+        },
+        {
+          "t_start": 24.470035249996727,
+          "t_first": 24.705741124998895,
+          "t_end": 25.107850333999522,
+          "ttft": 0.2357058750021679,
+          "total": 0.6378150840027956,
+          "overlap": {
+            "phase": "idle",
+            "prefill_overlap_s": 0.0,
+            "decode_overlap_s": 0.0,
+            "prefill_frac": 0.0,
+            "n_bg_prefill": 0,
+            "n_bg_decode": 0
+          }
+        },
+        {
+          "t_start": 25.4275153339986,
+          "t_first": 25.659193374998722,
+          "t_end": 26.084621416997834,
+          "ttft": 0.2316780410001229,
+          "total": 0.6571060829992348,
+          "overlap": {
+            "phase": "idle",
+            "prefill_overlap_s": 0.0,
+            "decode_overlap_s": 0.0,
+            "prefill_frac": 0.0,
+            "n_bg_prefill": 0,
+            "n_bg_decode": 0
+          }
+        },
+        {
+          "t_start": 27.30258212499757,
+          "t_first": 27.53653199999826,
+          "t_end": 27.919593208996957,
+          "ttft": 0.23394987500068964,
+          "total": 0.6170110839993868,
+          "overlap": {
+            "phase": "idle",
+            "prefill_overlap_s": 0.0,
+            "decode_overlap_s": 0.0,
+            "prefill_frac": 0.0,
+            "n_bg_prefill": 0,
+            "n_bg_decode": 0
+          }
+        },
+        {
+          "t_start": 28.818177583998477,
+          "t_first": 29.053847416998906,
+          "t_end": 29.45138091699846,
+          "ttft": 0.2356698330004292,
+          "total": 0.6332033329999831,
+          "overlap": {
+            "phase": "idle",
+            "prefill_overlap_s": 0.0,
+            "decode_overlap_s": 0.0,
+            "prefill_frac": 0.0,
+            "n_bg_prefill": 0,
+            "n_bg_decode": 0
+          }
+        },
+        {
+          "t_start": 30.539379374997225,
+          "t_first": 30.77383970899973,
+          "t_end": 31.168156374998944,
+          "ttft": 0.234460334002506,
+          "total": 0.628777000001719,
+          "overlap": {
+            "phase": "idle",
+            "prefill_overlap_s": 0.0,
+            "decode_overlap_s": 0.0,
+            "prefill_frac": 0.0,
+            "n_bg_prefill": 0,
+            "n_bg_decode": 0
+          }
+        },
+        {
+          "t_start": 32.880139083998074,
+          "t_first": 33.11324662499828,
+          "t_end": 33.50047533399993,
+          "ttft": 0.23310754100020858,
+          "total": 0.6203362500018557,
+          "overlap": {
+            "phase": "idle",
+            "prefill_overlap_s": 0.0,
+            "decode_overlap_s": 0.0,
+            "prefill_frac": 0.0,
+            "n_bg_prefill": 0,
+            "n_bg_decode": 0
+          }
+        },
+        {
+          "t_start": 34.639721916999406,
+          "t_first": 34.875125749997096,
+          "t_end": 35.26706312499664,
+          "ttft": 0.2354038329976902,
+          "total": 0.6273412079972331,
+          "overlap": {
+            "phase": "idle",
+            "prefill_overlap_s": 0.0,
+            "decode_overlap_s": 0.0,
+            "prefill_frac": 0.0,
+            "n_bg_prefill": 0,
+            "n_bg_decode": 0
+          }
+        },
+        {
+          "t_start": 36.424381083998014,
+          "t_first": 36.65806520899787,
+          "t_end": 37.04229837499952,
+          "ttft": 0.23368412499985425,
+          "total": 0.617917291001504,
+          "overlap": {
+            "phase": "idle",
+            "prefill_overlap_s": 0.0,
+            "decode_overlap_s": 0.0,
+            "prefill_frac": 0.0,
+            "n_bg_prefill": 0,
+            "n_bg_decode": 0
+          }
+        },
+        {
+          "t_start": 38.71117066699662,
+          "t_first": 38.94607916699897,
+          "t_end": 39.33566599999904,
+          "ttft": 0.23490850000234786,
+          "total": 0.6244953330024146,
+          "overlap": {
+            "phase": "idle",
+            "prefill_overlap_s": 0.0,
+            "decode_overlap_s": 0.0,
+            "prefill_frac": 0.0,
+            "n_bg_prefill": 0,
+            "n_bg_decode": 0
+          }
+        },
+        {
+          "t_start": 39.700840292000066,
+          "t_first": 39.932988333999674,
+          "t_end": 40.37060041699806,
+          "ttft": 0.2321480419996078,
+          "total": 0.6697601249979925,
+          "overlap": {
+            "phase": "idle",
+            "prefill_overlap_s": 0.0,
+            "decode_overlap_s": 0.0,
+            "prefill_frac": 0.0,
+            "n_bg_prefill": 0,
+            "n_bg_decode": 0
+          }
+        },
+        {
+          "t_start": 41.1940627499971,
+          "t_first": 41.42899516699981,
+          "t_end": 41.819557291997626,
+          "ttft": 0.23493241700271028,
+          "total": 0.6254945420005242,
+          "overlap": {
+            "phase": "idle",
+            "prefill_overlap_s": 0.0,
+            "decode_overlap_s": 0.0,
+            "prefill_frac": 0.0,
+            "n_bg_prefill": 0,
+            "n_bg_decode": 0
+          }
+        },
+        {
+          "t_start": 43.25906758399651,
+          "t_first": 43.495339666998916,
+          "t_end": 43.922662999997556,
+          "ttft": 0.23627208300240454,
+          "total": 0.6635954160010442,
+          "overlap": {
+            "phase": "idle",
+            "prefill_overlap_s": 0.0,
+            "decode_overlap_s": 0.0,
+            "prefill_frac": 0.0,
+            "n_bg_prefill": 0,
+            "n_bg_decode": 0
+          }
+        },
+        {
+          "t_start": 44.75864283400006,
+          "t_first": 44.99278070899891,
+          "t_end": 45.402297458997054,
+          "ttft": 0.23413787499885075,
+          "total": 0.6436546249969979,
+          "overlap": {
+            "phase": "idle",
+            "prefill_overlap_s": 0.0,
+            "decode_overlap_s": 0.0,
+            "prefill_frac": 0.0,
+            "n_bg_prefill": 0,
+            "n_bg_decode": 0
+          }
+        },
+        {
+          "t_start": 46.73058724999646,
+          "t_first": 46.96293479199812,
+          "t_end": 47.359369958998286,
+          "ttft": 0.23234754200166208,
+          "total": 0.6287827090018254,
+          "overlap": {
+            "phase": "idle",
+            "prefill_overlap_s": 0.0,
+            "decode_overlap_s": 0.0,
+            "prefill_frac": 0.0,
+            "n_bg_prefill": 0,
+            "n_bg_decode": 0
+          }
+        },
+        {
+          "t_start": 48.7165285839983,
+          "t_first": 48.95237866699972,
+          "t_end": 49.3464389169967,
+          "ttft": 0.23585008300142363,
+          "total": 0.6299103329984064,
+          "overlap": {
+            "phase": "idle",
+            "prefill_overlap_s": 0.0,
+            "decode_overlap_s": 0.0,
+            "prefill_frac": 0.0,
+            "n_bg_prefill": 0,
+            "n_bg_decode": 0
+          }
+        },
+        {
+          "t_start": 51.01640320899969,
+          "t_first": 51.249546041999565,
+          "t_end": 51.639422499996726,
+          "ttft": 0.23314283299987437,
+          "total": 0.6230192909970356,
+          "overlap": {
+            "phase": "idle",
+            "prefill_overlap_s": 0.0,
+            "decode_overlap_s": 0.0,
+            "prefill_frac": 0.0,
+            "n_bg_prefill": 0,
+            "n_bg_decode": 0
+          }
+        },
+        {
+          "t_start": 53.27475966699785,
+          "t_first": 53.50906416699945,
+          "t_end": 53.89840558399737,
+          "ttft": 0.23430450000159908,
+          "total": 0.6236459169995214,
+          "overlap": {
+            "phase": "idle",
+            "prefill_overlap_s": 0.0,
+            "decode_overlap_s": 0.0,
+            "prefill_frac": 0.0,
+            "n_bg_prefill": 0,
+            "n_bg_decode": 0
+          }
+        }
+      ],
+      "ttft_by_phase": {
+        "idle": {
+          "n": 30,
+          "p50": 0.23438241700205253,
+          "max": 0.24881425000057789
+        }
+      },
+      "bg": []
+    }
+  },
+  "ollama_version": "0.34.1",
+  "conditions_run": [
+    "A"
+  ],
+  "loaded_after": [
+    [
+      "deepseek-coder-v2:fim",
+      13684367686
+    ]
+  ],
+  "valid": true
+}
