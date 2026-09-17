@@ -157,19 +157,38 @@ the daemon OOM-killed. Decision: every tag served on timmy bakes num_ctx.
 Status: open follow-up to reclaim VRAM by lowering num_ctx to 8192.
 
 """
+VLM_SECTIONS = int(os.environ.get("VLM_SECTIONS", "20"))  # 20 -> ~5.2k tokens
 if os.environ.get("VLM_DOC"):
     with open(os.environ["VLM_DOC"]) as f:
         VLM_DOC = f.read()
 else:
     VLM_DOC = "# Timmy inference notes\n\n" + "".join(
-        DOC_SECTION.format(n=n) for n in range(1, 21)
-    )  # ~4k tokens
+        DOC_SECTION.format(n=n) for n in range(1, VLM_SECTIONS + 1)
+    )
+
+# Where the per-request salt goes in the FIM prefix. This decides whether the
+# prefix cache can be used, and the default deliberately forbids it.
+#
+#   head  salt first, so NOTHING of the prefix is reusable. A worst case, and
+#         the right default for isolating contention (INFO-1145 / INFO-1090).
+#   tail  stable prefix, salt just before the cursor. This is what an editor
+#         actually produces: the file above the cursor barely changes between
+#         keystrokes, so the long common prefix is cache-eligible while each
+#         request stays distinct.
+#   none  byte-identical requests. Unrealistically favourable -- an upper bound,
+#         not a scenario.
+#
+# Measuring only `head` and calling the result "FIM latency under load"
+# overstates the problem by whatever the cache would have saved.
+FIM_SALT = os.environ.get("FIM_SALT", "head")
 
 SUMMARY = {
     "host": HOST,
     "model": MODEL,
     "bg_model": BG_MODEL,
     "reps": REPS,
+    "fim_salt": FIM_SALT,
+    "vlm_sections": VLM_SECTIONS,
     "conditions": {},
 }
 
@@ -185,7 +204,16 @@ def post(path, body):
 
 def fim_probe():
     salt = f"-- {time.time_ns()}\n"
-    prefix = salt + (CODE * (PREFIX_CHARS // len(CODE) + 1))[:PREFIX_CHARS]
+    body_text = (CODE * (PREFIX_CHARS // len(CODE) + 1))[:PREFIX_CHARS]
+    if FIM_SALT == "head":
+        prefix = salt + body_text
+    elif FIM_SALT == "tail":
+        # Stable leading context, salt immediately before the cursor.
+        prefix = body_text + salt
+    elif FIM_SALT == "none":
+        prefix = body_text
+    else:
+        raise SystemExit(f"FIM_SALT must be head|tail|none, got {FIM_SALT!r}")
     body = {
         "model": MODEL,
         "prompt": prefix,
