@@ -100,7 +100,7 @@ LoadBalancer Service; the host daemon cannot bind `0.0.0.0:11434` until that is 
 | ----------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
 | Restart the daemon            | `sudo systemctl restart ollama` (warm re-runs via `PartOf`)                                                            |
 | Change an env value           | edit `homelab.conf` in the repo, `sudo llama/host/install-host-ollama.sh`                                              |
-| Upgrade Ollama                | bump `OLLAMA_VERSION` in the install script, run it (that is the pin)                                                  |
+| Upgrade Ollama                | bump `OLLAMA_VERSION` in the install script (and `OLLAMA_LINUX_VERSION` in dotfiles `timmy` `auto-install.sh`), run it — it installs the base tarball, never ROCm |
 | Pull a model from the cluster | `kubectl -n llama create job --from=cronjob/ollama-pull pull-$(date +%s)` after setting `MODEL`                        |
 | Is the FIM model resident?    | `curl -s 192.168.1.19:11434/api/ps`; `/run/ollama/models-ready` records successful startup warm, not current residency |
 | Metrics                       | `curl -s 192.168.1.19:9111/metrics`; Grafana scrapes `ollama.llama.svc:9111`                                           |
