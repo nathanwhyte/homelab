@@ -49,11 +49,7 @@ kubectl -n bench create configmap throughput-scripts \
 
 echo
 echo "ready. run a phase:"
-if [ "$node" = "wemby" ]; then
-  echo "  $here/cluster/throughput-1060-run.sh Q8_0"
-  echo "  $here/cluster/throughput-1060-run.sh Q4_K_M"
-else
-  echo "  kubectl apply -f $here/cluster/throughput-1080-cuda.yaml"
-  echo "  kubectl -n bench logs job/throughput-1080 -f"
-fi
+echo "  $here/cluster/throughput-cuda-run.sh --node $node Q8_0 --max-docs 200   # quick pass"
+echo "  $here/cluster/throughput-cuda-run.sh --node $node Q8_0"
+echo "  $here/cluster/throughput-cuda-run.sh --node $node Q4_K_M"
 echo "fetch results:  kubectl -n bench cp corpus-seed:/data/results ./results-throughput"

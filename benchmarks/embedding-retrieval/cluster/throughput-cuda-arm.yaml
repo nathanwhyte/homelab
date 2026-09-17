@@ -1,43 +1,44 @@
-# Embedder throughput on wemby's GTX 1060 (CUDA), one quant arm per run.
-# Follows TASK-1136 (which measured only manu's GTX 1080: 894 tok/s). manu is
-# thermally restricted, so this measures the 1060 as the OpenViking embedder
-# host, and adds a Q4_K_M arm next to production Q8_0.
+# Embedder throughput on one CUDA node, one quant arm per run (TASK-1217).
+# TASK-1136 measured manu's GTX 1080 at 894 tok/s (July, no power cap, batch
+# 4096). This template measures a card at the PRODUCTION embedder config and
+# adds a Q4_K_M arm next to Q8_0.
 #
-# TEMPLATE: not directly appliable. throughput-1060-run.sh substitutes
-#   __QUANT__   GGUF quant tag (Q8_0 | Q4_K_M)
-#   __UBATCH__  batch/ubatch size (default 512 = the production 1060 config)
-#   __LABEL__   result label, e.g. gtx1060-cuda-q8_0-ub512
+# History: first written for wemby's GTX 1060. That run hard-powered-off wemby
+# ~5 min into full load (GPU 84-85 C, 5,631 / 6,144 MiB; power-cable fault
+# suspected), so the 1060 is out and the template is now node-parameterized.
+#
+# TEMPLATE: not directly appliable. throughput-cuda-run.sh substitutes
+#   __NODE__     kubernetes.io/hostname of the GPU node (manu | wemby)
+#   __QUANT__    GGUF quant tag (Q8_0 | Q4_K_M)
+#   __UBATCH__   batch/ubatch size (default 512 = production embedder-qwen-cuda)
+#   __LABEL__    result label, e.g. gtx1080-cuda-q8_0-ub512
 #   __MAX_DOCS__ doc cap; 0 = full corpus, 200 = quick validation pass
 #
-# Serving args mirror the production 1060 config (viking/manifests/
-# embedder-qwen-cuda-deployment.yaml before the IMPR-1077 move): ctx 8192,
-# --parallel 1, batch/ubatch 512, flash-attn on, pooling last. Holding batch
-# fixed makes the quant the only variable between arms. Note the 1080 run used
-# batch 4096, so a 1060-vs-1080 comparison carries that difference.
+# Serving args mirror viking/manifests/embedder-qwen-cuda-deployment.yaml:
+# ctx 8192, --parallel 1, batch/ubatch 512, flash-attn on, pooling last,
+# --threads 4. Holding batch fixed makes the quant the only variable between
+# arms.
 #
 # Models are cached on the bench-data PVC (/data/models), so a rerun or the
-# second arm does not re-download. The PVC is RWO and pinned to wemby by
-# `throughput-apply.sh --node wemby`; this Deployment and the Job share it
+# second arm does not re-download. The PVC is RWO and pinned to the node by
+# `throughput-apply.sh --node <node>`; this Deployment and the Job share it
 # node-locally.
-#
-# Prereq: reranker-bge (viking) holds wemby's only GPU and must be at
-# replicas=0 for the run window. The run script checks and refuses otherwise.
 ---
 apiVersion: apps/v1
 kind: Deployment
-metadata: { name: embedder-1060-bench, namespace: bench, labels: { app: embedder-1060-bench } }
+metadata: { name: embedder-cuda-arm, namespace: bench, labels: { app: embedder-cuda-arm } }
 spec:
   replicas: 1
   # First run of a quant downloads its GGUF in the init container; the default
   # 600s deadline fails the rollout mid-download on a 4.3 GB file.
   progressDeadlineSeconds: 3600
   strategy: { type: Recreate }
-  selector: { matchLabels: { app: embedder-1060-bench } }
+  selector: { matchLabels: { app: embedder-cuda-arm } }
   template:
-    metadata: { labels: { app: embedder-1060-bench } }
+    metadata: { labels: { app: embedder-cuda-arm } }
     spec:
       runtimeClassName: nvidia
-      nodeSelector: { kubernetes.io/hostname: wemby }
+      nodeSelector: { kubernetes.io/hostname: __NODE__ }
       initContainers:
         - name: fetch
           image: curlimages/curl:8.12.1
@@ -71,24 +72,24 @@ spec:
 ---
 apiVersion: v1
 kind: Service
-metadata: { name: embedder-1060-bench, namespace: bench }
-spec: { selector: { app: embedder-1060-bench }, ports: [{ port: 8000, targetPort: 8000 }] }
+metadata: { name: embedder-cuda-arm, namespace: bench }
+spec: { selector: { app: embedder-cuda-arm }, ports: [{ port: 8000, targetPort: 8000 }] }
 ---
 apiVersion: batch/v1
 kind: Job
-metadata: { name: throughput-1060, namespace: bench }
+metadata: { name: throughput-cuda-arm, namespace: bench }
 spec:
   backoffLimit: 0
   template:
     spec:
       restartPolicy: Never
-      nodeSelector: { kubernetes.io/hostname: wemby } # shares bench-data (RWO) node-locally
+      nodeSelector: { kubernetes.io/hostname: __NODE__ } # shares bench-data (RWO) node-locally
       containers:
         - name: runner
           image: ghcr.io/astral-sh/uv:python3.12-bookworm
           workingDir: /app
           env:
-            - { name: EMBED_URL, value: "http://embedder-1060-bench.bench.svc:8000/v1/embeddings" }
+            - { name: EMBED_URL, value: "http://embedder-cuda-arm.bench.svc:8000/v1/embeddings" }
             - { name: BENCH_CORPUS, value: /data/corpus.jsonl }
             - { name: BENCH_RESULTS, value: /data/results }
             - { name: BENCH_LABEL, value: __LABEL__ }
@@ -100,8 +101,8 @@ spec:
           args:
             - |
               set -eu
-              until python3 -c "import urllib.request; urllib.request.urlopen('http://embedder-1060-bench.bench.svc:8000/health',timeout=3)" 2>/dev/null; do
-                echo "waiting for embedder-1060-bench /health..."; sleep 5
+              until python3 -c "import urllib.request; urllib.request.urlopen('http://embedder-cuda-arm.bench.svc:8000/health',timeout=3)" 2>/dev/null; do
+                echo "waiting for embedder-cuda-arm /health..."; sleep 5
               done
               uv run /app/benchmark_throughput.py
           resources: { requests: { cpu: "1", memory: 1Gi }, limits: { cpu: "2", memory: 4Gi } }
