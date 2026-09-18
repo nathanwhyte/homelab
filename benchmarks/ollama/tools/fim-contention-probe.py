@@ -90,6 +90,7 @@ First run (0.32.13, 2026-08-28) is archived in the compendium under
 _sources/2026-08/2026-08-28_fim-chat-contention-probe-timmy.md.
 """
 
+import collections
 import json
 import math
 import os
@@ -267,17 +268,33 @@ def fim_probe():
     r = post("/v1/completions", body)
     t_first = None
     text = []
+    # Chunk count and finish_reason separate "the model is faster" from "the
+    # model wrote less". Completion latency is tokens x per-token cost, so two
+    # tags can differ 2x on wall time at identical speed if one stops early.
+    # Without this the comparison cannot be interpreted at all.
+    chunks = 0
+    finish_reason = None
     for line in r:
         if line.startswith(b"data: ") and b"[DONE]" not in line:
             if t_first is None:
                 t_first = now()
             choices = json.loads(line[6:]).get("choices") or [{}]
-            text.append(choices[0].get("text", ""))
+            piece = choices[0].get("text", "")
+            if piece:
+                chunks += 1
+            if choices[0].get("finish_reason"):
+                finish_reason = choices[0]["finish_reason"]
+            text.append(piece)
     t_end = now()
+    body_text_out = "".join(text)
     return {
         "t_start": t_start,
         "t_first": t_first,
         "t_end": t_end,
+        # Streamed content chunks ~ tokens generated for this server.
+        "chunks": chunks,
+        "text_chars": len(body_text_out),
+        "finish_reason": finish_reason,
         "ttft": None if t_first is None else t_first - t_start,
         "total": t_end - t_start,
         "text": "".join(text),
@@ -551,6 +568,33 @@ def run_condition(label, n_bg, kind="decode"):
         "fim_full_max": max(totals),
         "frac_full_over_1_0s": sum(t > 1.0 for t in totals) / len(totals),
         "frac_full_over_2_0s": sum(t > 2.0 for t in totals) / len(totals),
+        # Output volume, so a completion-latency difference between two tags can
+        # be attributed to speed or to length.
+        "chunks_p50": statistics.median(s["chunks"] for s in samples),
+        # CONFOUNDED -- kept only because it is easy to compute and easy to
+        # misread, so it is named and warned about rather than omitted. It
+        # divides fixed prefill/overhead by the token count, which penalises
+        # whichever tag writes LESS. It made :instruct look 60% slower per token
+        # than :fim when the two decode at the same rate. Do not compare tags
+        # with it; use decode_ms_per_tok_p50.
+        "sec_per_chunk_p50_CONFOUNDED": statistics.median(
+            s["total"] / s["chunks"] for s in samples if s["chunks"]
+        ),
+        # Decode rate with prefill removed: (total - ttft) / tokens. This is the
+        # like-for-like speed comparison between two tags.
+        "decode_ms_per_tok_p50": 1000
+        * statistics.median(
+            (s["total"] - s["ttft"]) / s["chunks"]
+            for s in samples
+            if s["chunks"] and s["ttft"] is not None
+        ),
+        "finish_reasons": dict(
+            sorted(
+                collections.Counter(
+                    s.get("finish_reason") or "none" for s in samples
+                ).items()
+            )
+        ),
         # RAW per-request samples: t_start/t_first/t_end offsets from T0, plus
         # the overlap attribution. This is the whole point of the rerun -- every
         # percentile above is recomputable from here, and the distribution can
@@ -568,8 +612,9 @@ def run_condition(label, n_bg, kind="decode"):
     print(
         f"{label:18s} FIM full p50={row['fim_full_p50']:.2f}s p95={row['fim_full_p95']:.2f}s "
         f"max={row['fim_full_max']:.2f}s | >1s {row['frac_full_over_1_0s']:.0%} "
-        f">2s {row['frac_full_over_2_0s']:.0%}   [ttft p50={row['fim_ttft_p50']:.2f}s "
-        f"p95={row['fim_ttft_p95']:.2f}s]"
+        f">2s {row['frac_full_over_2_0s']:.0%} | {row['chunks_p50']:.0f} tok "
+        f"@ {row['decode_ms_per_tok_p50']:.0f}ms/tok decode {row['finish_reasons']}"
+        f"   [ttft p50={row['fim_ttft_p50']:.2f}s]"
         + ("" if row["valid"] else "  INVALID: background load not sustained")
     )
     for ph, st in row["ttft_by_phase"].items():
