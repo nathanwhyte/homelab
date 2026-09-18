@@ -154,14 +154,14 @@ re-measure** (Phase 4) — pgvector-entry ≠ OV-chunked.
    dips — exactly what a reranker would then promote (Phase 4 hypothesis).
    **Note (2026-09-18):** the `reranker-bge` deployment on wemby was retired —
    never wired into `ov.conf`, never served a request, and unable to touch the
-   exact-ID wall in finding 1. The "-17.6pp" result sometimes cited against
-   reranking is **confounded and should not be reused**: OV compared the
-   cross-encoder's raw logits (-8 to -11) against `rerank.threshold: 0.2`, so
-   every document fell below threshold and the ranking carried no signal. The
-   recorded calibration was separable (relevant -8.03 to -2.55, irrelevant
-   -11.02 to -9.20). This hypothesis is **untested, not disproven**; re-testing
-   it needs score normalisation first, and a node other than wemby, whose card
-   has an unresolved hard power-off under sustained load.
+   exact-ID wall in finding 1. The Phase 4 reranker hypothesis was **tested and
+   failed**, so read it as closed rather than pending: BUG-1016 measured the
+   frozen set at 20.6% top-1 / 32.4% top-5 against a 38.2% baseline, and it did
+   so at **calibrated thresholds (-9.0 and -12.0)** after the raw-logit-vs-
+   `threshold: 0.2` mismatch was identified and corrected — so the result is not
+   a threshold artifact. Latency was 20-36 s/query, which rules it out for
+   interactive search independently of ranking quality. Any future reranking
+   work should start from a different model class, not from re-running this one.
 5. **Qwen3-0.6B underperforms both the 4B and nomic@2048** (50.0 vs 55.9, a
    two-query gap): the small Qwen is not a free efficiency win; the 4B carries
    Qwen's case.
