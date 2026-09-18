@@ -1,0 +1,172 @@
+{
+  "arm": "qwen",
+  "fim_model": "qwen2.5-coder:fim",
+  "bg_model": null,
+  "reps": 30,
+  "metric": "completion latency (time to last token)",
+  "p50": 0.2,
+  "p95": 0.494,
+  "max": 0.557,
+  "over_1s": 0.0,
+  "over_2s": 0.0,
+  "samples": [
+    {
+      "i": 0,
+      "full_s": 0.557,
+      "words": 26
+    },
+    {
+      "i": 1,
+      "full_s": 0.197,
+      "words": 13
+    },
+    {
+      "i": 2,
+      "full_s": 0.478,
+      "words": 33
+    },
+    {
+      "i": 3,
+      "full_s": 0.48,
+      "words": 33
+    },
+    {
+      "i": 4,
+      "full_s": 0.146,
+      "words": 3
+    },
+    {
+      "i": 5,
+      "full_s": 0.151,
+      "words": 7
+    },
+    {
+      "i": 6,
+      "full_s": 0.366,
+      "words": 27
+    },
+    {
+      "i": 7,
+      "full_s": 0.206,
+      "words": 13
+    },
+    {
+      "i": 8,
+      "full_s": 0.221,
+      "words": 13
+    },
+    {
+      "i": 9,
+      "full_s": 0.1,
+      "words": 1
+    },
+    {
+      "i": 10,
+      "full_s": 0.406,
+      "words": 32
+    },
+    {
+      "i": 11,
+      "full_s": 0.194,
+      "words": 12
+    },
+    {
+      "i": 12,
+      "full_s": 0.185,
+      "words": 12
+    },
+    {
+      "i": 13,
+      "full_s": 0.195,
+      "words": 14
+    },
+    {
+      "i": 14,
+      "full_s": 0.203,
+      "words": 14
+    },
+    {
+      "i": 15,
+      "full_s": 0.207,
+      "words": 14
+    },
+    {
+      "i": 16,
+      "full_s": 0.195,
+      "words": 14
+    },
+    {
+      "i": 17,
+      "full_s": 0.193,
+      "words": 12
+    },
+    {
+      "i": 18,
+      "full_s": 0.156,
+      "words": 8
+    },
+    {
+      "i": 19,
+      "full_s": 0.159,
+      "words": 8
+    },
+    {
+      "i": 20,
+      "full_s": 0.189,
+      "words": 12
+    },
+    {
+      "i": 21,
+      "full_s": 0.444,
+      "words": 41
+    },
+    {
+      "i": 22,
+      "full_s": 0.194,
+      "words": 14
+    },
+    {
+      "i": 23,
+      "full_s": 0.186,
+      "words": 13
+    },
+    {
+      "i": 24,
+      "full_s": 0.196,
+      "words": 13
+    },
+    {
+      "i": 25,
+      "full_s": 0.48,
+      "words": 26
+    },
+    {
+      "i": 26,
+      "full_s": 0.493,
+      "words": 1
+    },
+    {
+      "i": 27,
+      "full_s": 0.494,
+      "words": 1
+    },
+    {
+      "i": 28,
+      "full_s": 0.488,
+      "words": 1
+    },
+    {
+      "i": 29,
+      "full_s": 0.484,
+      "words": 1
+    }
+  ],
+  "bg_requests": 0,
+  "bg_errors": 0,
+  "bg_wall_p50": null,
+  "sample_text": {
+    "i": 0,
+    "full_s": 0.557,
+    "words": 26
+  }
+}

@@ -1,0 +1,59 @@
+# gemma4:vlm — the summarizer half of timmy's OpenViking/editor pair (IDEA-1105).
+#
+# OpenViking's `vlm` config slot is not one prompt. It drives, for a
+# compendium-shaped corpus:
+#
+#   semantic.document_summary     documentation files   60-180 words, plain text
+#   semantic.file_summary         other non-code files  50-150 words, plain text
+#   semantic.code_summary         code files            80-200 words, plain text
+#   semantic.overview_generation  directory L1 overview 400-800 words, structured
+#   vision.*  (7 templates)       images, pages, tables JSON, requires an image
+#
+# Measured 2026-09-18 against those exact templates, pulled from the running
+# openviking pod, on the same corpus (deepseek-coder-v2:instruct for contrast):
+#
+#   role                deepseek                     this tag
+#   code_summary        1/6 in band, markdown 5/6    6/6 in band, 0 markdown
+#   file_summary        2/6 in band, markdown 3/6    6/6 in band, 0 markdown
+#   document_summary    1/7 in band, markdown 5/7    7/7 in band, 0 markdown
+#   vision.*            refused (not multimodal)     accepted and described
+#
+# The short-form gap is instruction-following, not comprehension: deepseek is a
+# CODE model being asked to summarise documents, and no prompt-level remedy fixed
+# it (a system instruction to obey the contract made it WORSE, 0/7; a corrective
+# retry naming the exact violation still reached only 2/7).
+#
+# KNOWN LIMITATION, and it is OpenViking's, not this model's:
+# semantic.overview_generation asks for 400-800 words PLUS one H3 subsection per
+# entry, while storage caps the result at semantic.overview_max_chars = 4000.
+# A compliant 800-word overview is already ~5200 chars. Both models lose most of
+# their overview to _enforce_size_limits -- this tag keeps 36% of its output and
+# 9 of 14 resolving links. Raising overview_max_chars or shrinking the template's
+# target is the fix; changing models is not.
+#
+# TWO OPERATIONAL FACTS THIS TAG DEPENDS ON:
+#  1. gemma4 is a THINKING model. Without `think: false` it spends the whole
+#     token budget in a `thinking` field and returns EMPTY content. OV reaches it
+#     through chat-ollama-proxy, whose INJECT_REASONING_NONE=true supplies that
+#     suppression -- so the proxy is LOAD-BEARING on this path, not optional.
+#  2. On /api/generate gemma4 streams nothing until completion (ERR-1004
+#     family). Drive it through /api/chat. OV is provider "openai" and calls
+#     /v1/chat/completions, so it is on the safe path -- keep it there.
+#
+# Recipe is the retired agentpair:agent-gemma4-12b unchanged: its sampling is
+# gemma4's single published row and needs no adjustment for this workload.
+#
+# Requires: ollama pull gemma4:12b-it-qat
+# Build:    ollama create gemma4:vlm -f gemma4-vlm.Modelfile
+
+FROM gemma4:12b-it-qat
+
+# RENDERER / PARSER inherited (gemma4) — never restated. `think` is per-request.
+
+# 16384 holds an OV document_summary prompt (a ~5.5k-token entry plus the ~250
+# token template) with room for a batched overview_generation, whose input is
+# semantic.overview_batch_size (50) file summaries.
+PARAMETER num_ctx 16384
+PARAMETER temperature 0
+PARAMETER top_p 0.95
+PARAMETER top_k 64

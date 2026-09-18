@@ -1,0 +1,172 @@
+{
+  "arm": "cohab",
+  "fim_model": "qwen2.5-coder:fim",
+  "bg_model": "gemma4:vlm",
+  "reps": 30,
+  "metric": "completion latency (time to last token)",
+  "p50": 0.28,
+  "p95": 0.837,
+  "max": 1.054,
+  "over_1s": 0.033,
+  "over_2s": 0.0,
+  "samples": [
+    {
+      "i": 0,
+      "full_s": 0.805,
+      "words": 26
+    },
+    {
+      "i": 1,
+      "full_s": 0.239,
+      "words": 13
+    },
+    {
+      "i": 2,
+      "full_s": 1.054,
+      "words": 33
+    },
+    {
+      "i": 3,
+      "full_s": 0.809,
+      "words": 33
+    },
+    {
+      "i": 4,
+      "full_s": 0.546,
+      "words": 3
+    },
+    {
+      "i": 5,
+      "full_s": 0.148,
+      "words": 7
+    },
+    {
+      "i": 6,
+      "full_s": 0.521,
+      "words": 27
+    },
+    {
+      "i": 7,
+      "full_s": 0.677,
+      "words": 13
+    },
+    {
+      "i": 8,
+      "full_s": 0.07,
+      "words": 1
+    },
+    {
+      "i": 9,
+      "full_s": 0.054,
+      "words": 1
+    },
+    {
+      "i": 10,
+      "full_s": 0.819,
+      "words": 40
+    },
+    {
+      "i": 11,
+      "full_s": 0.249,
+      "words": 12
+    },
+    {
+      "i": 12,
+      "full_s": 0.242,
+      "words": 12
+    },
+    {
+      "i": 13,
+      "full_s": 0.241,
+      "words": 14
+    },
+    {
+      "i": 14,
+      "full_s": 0.281,
+      "words": 14
+    },
+    {
+      "i": 15,
+      "full_s": 0.279,
+      "words": 13
+    },
+    {
+      "i": 16,
+      "full_s": 0.272,
+      "words": 14
+    },
+    {
+      "i": 17,
+      "full_s": 0.179,
+      "words": 8
+    },
+    {
+      "i": 18,
+      "full_s": 0.792,
+      "words": 8
+    },
+    {
+      "i": 19,
+      "full_s": 0.178,
+      "words": 8
+    },
+    {
+      "i": 20,
+      "full_s": 0.252,
+      "words": 12
+    },
+    {
+      "i": 21,
+      "full_s": 0.64,
+      "words": 34
+    },
+    {
+      "i": 22,
+      "full_s": 0.186,
+      "words": 14
+    },
+    {
+      "i": 23,
+      "full_s": 0.276,
+      "words": 13
+    },
+    {
+      "i": 24,
+      "full_s": 0.212,
+      "words": 11
+    },
+    {
+      "i": 25,
+      "full_s": 0.804,
+      "words": 26
+    },
+    {
+      "i": 26,
+      "full_s": 0.799,
+      "words": 1
+    },
+    {
+      "i": 27,
+      "full_s": 0.837,
+      "words": 1
+    },
+    {
+      "i": 28,
+      "full_s": 0.797,
+      "words": 1
+    },
+    {
+      "i": 29,
+      "full_s": 0.565,
+      "words": 1
+    }
+  ],
+  "bg_requests": 9,
+  "bg_errors": 0,
+  "bg_wall_p50": 5.01,
+  "sample_text": {
+    "i": 0,
+    "full_s": 0.805,
+    "words": 26
+  }
+}

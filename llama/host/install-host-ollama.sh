@@ -224,6 +224,9 @@ install -d -m 0755 "$DROPIN_DIR" "$HOST_DIR" "$HOST_DIR/modelfiles"
 install -m 0644 "$SRC/ollama.service.d/homelab.conf" "$DROPIN_DIR/homelab.conf"
 install -m 0755 "$SRC/ollama-warm.sh" "$HOST_DIR/ollama-warm.sh"
 install -m 0644 "$REPO_DIR"/llama/ollama/agentpair-*.Modelfile "$HOST_DIR/modelfiles/"
+# IDEA-1105 OpenViking/editor pair; build-if-missing only, see prepare_ov_pair.
+install -m 0644 "$REPO_DIR"/llama/ollama/qwen2.5-coder-fim.Modelfile \
+	"$REPO_DIR"/llama/ollama/gemma4-vlm.Modelfile "$HOST_DIR/modelfiles/"
 install -m 0644 "$SRC/ollama-warm.service" /etc/systemd/system/ollama-warm.service
 
 # --- 4. Exporter (same script the pod sidecar ran) ----------------------------

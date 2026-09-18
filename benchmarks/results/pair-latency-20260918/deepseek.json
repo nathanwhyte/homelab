@@ -1,0 +1,172 @@
+{
+  "arm": "deepseek",
+  "fim_model": "deepseek-coder-v2:instruct",
+  "bg_model": null,
+  "reps": 30,
+  "metric": "completion latency (time to last token)",
+  "p50": 0.236,
+  "p95": 0.508,
+  "max": 0.532,
+  "over_1s": 0.0,
+  "over_2s": 0.0,
+  "samples": [
+    {
+      "i": 0,
+      "full_s": 0.181,
+      "words": 8
+    },
+    {
+      "i": 1,
+      "full_s": 0.216,
+      "words": 9
+    },
+    {
+      "i": 2,
+      "full_s": 0.221,
+      "words": 9
+    },
+    {
+      "i": 3,
+      "full_s": 0.22,
+      "words": 8
+    },
+    {
+      "i": 4,
+      "full_s": 0.206,
+      "words": 7
+    },
+    {
+      "i": 5,
+      "full_s": 0.264,
+      "words": 8
+    },
+    {
+      "i": 6,
+      "full_s": 0.268,
+      "words": 8
+    },
+    {
+      "i": 7,
+      "full_s": 0.21,
+      "words": 7
+    },
+    {
+      "i": 8,
+      "full_s": 0.268,
+      "words": 8
+    },
+    {
+      "i": 9,
+      "full_s": 0.271,
+      "words": 8
+    },
+    {
+      "i": 10,
+      "full_s": 0.362,
+      "words": 21
+    },
+    {
+      "i": 11,
+      "full_s": 0.238,
+      "words": 8
+    },
+    {
+      "i": 12,
+      "full_s": 0.357,
+      "words": 21
+    },
+    {
+      "i": 13,
+      "full_s": 0.247,
+      "words": 8
+    },
+    {
+      "i": 14,
+      "full_s": 0.234,
+      "words": 10
+    },
+    {
+      "i": 15,
+      "full_s": 0.227,
+      "words": 8
+    },
+    {
+      "i": 16,
+      "full_s": 0.231,
+      "words": 8
+    },
+    {
+      "i": 17,
+      "full_s": 0.234,
+      "words": 8
+    },
+    {
+      "i": 18,
+      "full_s": 0.312,
+      "words": 10
+    },
+    {
+      "i": 19,
+      "full_s": 0.217,
+      "words": 10
+    },
+    {
+      "i": 20,
+      "full_s": 0.219,
+      "words": 8
+    },
+    {
+      "i": 21,
+      "full_s": 0.207,
+      "words": 8
+    },
+    {
+      "i": 22,
+      "full_s": 0.221,
+      "words": 10
+    },
+    {
+      "i": 23,
+      "full_s": 0.503,
+      "words": 42
+    },
+    {
+      "i": 24,
+      "full_s": 0.212,
+      "words": 9
+    },
+    {
+      "i": 25,
+      "full_s": 0.504,
+      "words": 33
+    },
+    {
+      "i": 26,
+      "full_s": 0.532,
+      "words": 37
+    },
+    {
+      "i": 27,
+      "full_s": 0.508,
+      "words": 38
+    },
+    {
+      "i": 28,
+      "full_s": 0.269,
+      "words": 1
+    },
+    {
+      "i": 29,
+      "full_s": 0.5,
+      "words": 29
+    }
+  ],
+  "bg_requests": 0,
+  "bg_errors": 0,
+  "bg_wall_p50": null,
+  "sample_text": {
+    "i": 0,
+    "full_s": 0.181,
+    "words": 8
+  }
+}

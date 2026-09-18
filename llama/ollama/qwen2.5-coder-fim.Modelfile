@@ -1,0 +1,66 @@
+# qwen2.5-coder:fim — the FIM half of timmy's OpenViking/editor pair (IDEA-1105).
+#
+# Supersedes deepseek-coder-v2:instruct as the editor's completion model. The
+# deepseek tag served FIM well (8/8 smoke) but was carried as a DUAL-USE tag so
+# one runner could also be OpenViking's summarizer, and it fails every OV output
+# contract: 1/7 in-band on document_summary, markdown in 5/7, and no vision.
+# Splitting the roles retires that compromise -- see gemma4-vlm.Modelfile.
+#
+# Same recipe as the retired agentpair:fim (INFO-1090 pick, BUG-1037 era), with
+# ONE deliberate change: num_ctx 16384 -> 8192.
+#
+# Measured 2026-09-18 on Ollama 0.34.1 / RX 9070 XT (Vulkan), alone on the card:
+#
+#   num_ctx  resident  processor
+#   4096     2.4 GB    100% GPU
+#   8192     2.7 GB    100% GPU   <- this file
+#   16384    3.6 GB    100% GPU   (agentpair:fim)
+#
+# 8192 buys back 0.9 GB of KV, which now matters because a second model is
+# co-resident. The 30 real Minuet prompts captured from the installed editor are
+# 284 tokens at BOTH p50 and max, so 8192 is ~29x the largest prompt this client
+# actually sends; 4096 was rejected as only 0.3 GB better for half the margin,
+# since a client reconfigured with a wider window would get a hard HTTP 400
+# rather than a slow completion.
+#
+# Completion latency (NOT TTFT -- minuet's OpenAI callback fires only on the full
+# response, so time-to-last-token is what the editor shows), 30 captured prompts.
+# Raw samples: benchmarks/results/pair-latency-20260918/{deepseek,qwen,cohab}.json,
+# each recording the tag it actually ran against.
+#
+#   deepseek-coder-v2:instruct solo   p50 0.236 s  p95 0.508 s  0% over 1 s
+#   qwen2.5-coder:fim solo            p50 0.200 s  p95 0.494 s  0% over 1 s
+#   qwen2.5-coder:fim + gemma4:vlm, the latter under real OV summarize load
+#                                     p50 0.280 s  p95 0.837 s  3% over 1 s
+#
+# Pair resident together: 11.8 / 16 GB, no eviction across the run. For contrast
+# the dual-use posture (one runner serving FIM *and* summarize) put 73% of
+# completions past a second under a single summarizer.
+#
+# The predecessor agentpair:fim recipe, identical but for num_ctx 16384, measured
+# 0.224 s solo and 0.355 s cohabiting -- so the 8192 change buys latency as well
+# as the 0.9 GB, rather than trading one for the other.
+#
+# Requires: ollama pull qwen2.5-coder:3b-base
+# Build:    ollama create qwen2.5-coder:fim -f qwen2.5-coder-fim.Modelfile
+
+FROM qwen2.5-coder:3b-base
+
+# Base weights (not instruct) for clean fill-in-the-middle output; the library
+# template's {{ .Suffix }} branch is what Minuet and Zed's deepseek/qwen
+# prompt_format drive.
+TEMPLATE "{{- if .Suffix }}<|fim_prefix|>{{ .Prompt }}<|fim_suffix|>{{ .Suffix }}<|fim_middle|>{{ else }}{{ .Prompt }}{{ end }}"
+
+# num_ctx baked so no caller can trigger a reload at OLLAMA_CONTEXT_LENGTH
+# (131072): a runner is keyed by num_ctx, and the reload costs 5-15 s and can
+# evict the co-resident VLM runner.
+PARAMETER num_ctx 8192
+PARAMETER temperature 0
+# code is legitimately repetitive
+PARAMETER repeat_penalty 1.0
+# explicit FIM stops fix the Qwen2.5-Coder "doesn't stop in FIM" bug
+# (INFO-1005; llama.cpp #9606)
+PARAMETER stop "<|endoftext|>"
+PARAMETER stop "<|fim_pad|>"
+PARAMETER stop "<|file_sep|>"
+PARAMETER stop "<|repo_name|>"
