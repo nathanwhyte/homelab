@@ -1,0 +1,107 @@
+{
+  "label": "gtx1080-cuda-q8_0-ub512-quick200",
+  "url": "http://embedder-cuda-arm.bench.svc:8000/v1/embeddings",
+  "model": "Qwen3-Embedding-4B-Q8_0",
+  "config": {
+    "batch_size": 16,
+    "max_chars": 24000,
+    "warmup_batches": 3,
+    "repeat": 1
+  },
+  "corpus": {
+    "docs": 200,
+    "timed_docs": 152
+  },
+  "tokens_estimated": false,
+  "skipped_docs": 0,
+  "totals": {
+    "docs": 152,
+    "tokens": 364232,
+    "wall_s": 469.025,
+    "docs_per_s": 0.32,
+    "tokens_per_s": 776.6
+  },
+  "batch_latency_s": {
+    "mean": 46.9025,
+    "p50": 46.3251,
+    "p95": 93.3256,
+    "max": 93.3256
+  },
+  "per_doc_latency_s": {
+    "mean": 3.0486,
+    "p50": 2.8953,
+    "p95": 5.8328
+  },
+  "per_batch": [
+    {
+      "i": 0,
+      "n": 16,
+      "tokens": 38813,
+      "latency_s": 49.7641,
+      "skipped": 0
+    },
+    {
+      "i": 1,
+      "n": 16,
+      "tokens": 24887,
+      "latency_s": 28.9827,
+      "skipped": 0
+    },
+    {
+      "i": 2,
+      "n": 16,
+      "tokens": 43790,
+      "latency_s": 55.7141,
+      "skipped": 0
+    },
+    {
+      "i": 3,
+      "n": 16,
+      "tokens": 65032,
+      "latency_s": 93.3256,
+      "skipped": 0
+    },
+    {
+      "i": 4,
+      "n": 16,
+      "tokens": 42109,
+      "latency_s": 53.9371,
+      "skipped": 0
+    },
+    {
+      "i": 5,
+      "n": 16,
+      "tokens": 30659,
+      "latency_s": 37.97,
+      "skipped": 0
+    },
+    {
+      "i": 6,
+      "n": 16,
+      "tokens": 28758,
+      "latency_s": 34.2895,
+      "skipped": 0
+    },
+    {
+      "i": 7,
+      "n": 16,
+      "tokens": 38503,
+      "latency_s": 49.9695,
+      "skipped": 0
+    },
+    {
+      "i": 8,
+      "n": 16,
+      "tokens": 36022,
+      "latency_s": 46.3251,
+      "skipped": 0
+    },
+    {
+      "i": 9,
+      "n": 8,
+      "tokens": 15659,
+      "latency_s": 18.7473,
+      "skipped": 0
+    }
+  ]
+}
