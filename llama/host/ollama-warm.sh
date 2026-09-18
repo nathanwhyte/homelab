@@ -53,6 +53,16 @@ INSTRUCT_BASE=deepseek-coder-v2:16b-lite-instruct-q4_0
 # runner would need 9 GiB of KV and would not fit the card (IDEA-1105). Keep in
 # step with the drop-in: changing either one alone breaks the VRAM budget.
 FIM_NUM_CTX=8192
+# IDEA-1105 OpenViking/editor pair. Not resident by default; see prepare_ov_pair.
+# The FIM half sits at 8192 like the deepseek tag above (2.7 GiB vs 3.6 at
+# 16384); the VLM half needs 16384 to hold an OV entry plus a batched
+# overview_generation over semantic.overview_batch_size summaries.
+OV_FIM_TAG=qwen2.5-coder:fim
+OV_FIM_BASE=qwen2.5-coder:3b-base
+OV_FIM_NUM_CTX=8192
+OV_VLM_TAG=gemma4:vlm
+OV_VLM_BASE=gemma4:12b-it-qat
+OV_VLM_NUM_CTX=16384
 # Which tag stays pinned for edit prediction. :instruct since 2026-09-18 — both
 # tags decode at the same speed (170 vs 160 tok/s, identical TTFT) and measure
 # the same through the real minuet stack (28% vs 30% empty after filtering,
@@ -126,37 +136,50 @@ write_instruct_modelfile() {
 }
 
 reconcile_tag() {
-	# $1 tag, $2 base, $3 modelfile writer. Build when missing, and REBUILD when
-	# an existing tag's num_ctx differs from the recipe: create_if_missing alone
-	# would keep a 16384 tag from the 2-slot posture, and 16384 x 4 slots
-	# overflows the card. Loads nothing. Non-zero unless the tag ends at
-	# FIM_NUM_CTX.
-	local tag=$1 base=$2 writer=$3 mf current
+	# $1 tag, $2 base, $3 modelfile writer, $4 wanted num_ctx (default
+	# FIM_NUM_CTX). Build when missing, and REBUILD when an existing tag's
+	# num_ctx differs from the recipe: create_if_missing alone would keep a
+	# 16384 tag from the 2-slot posture, and 16384 x 4 slots overflows the card.
+	# Loads nothing. Non-zero unless the tag ends at the wanted num_ctx.
+	local tag=$1 base=$2 writer=$3 want=${4:-$FIM_NUM_CTX} mf current
 	current=$(tag_num_ctx "$tag")
-	if [[ $current == "$FIM_NUM_CTX" ]]; then
+	if [[ $current == "$want" ]]; then
 		return 0
 	fi
 	mf=$(mktemp)
 	"$writer" "$mf"
 	if [[ -n $current ]] || ollama show "$tag" >/dev/null 2>&1; then
-		log "rebuilding $tag: num_ctx ${current:-unset} -> $FIM_NUM_CTX"
+		log "rebuilding $tag: num_ctx ${current:-unset} -> $want"
 		ollama create "$tag" -f "$mf" >/dev/null || true
 	else
 		create_if_missing "$tag" "$base" "$mf"
 	fi
 	rm -f "$mf"
 	current=$(tag_num_ctx "$tag")
-	[[ $current == "$FIM_NUM_CTX" ]] || {
-		log "WARN: $tag num_ctx is ${current:-unset}, want $FIM_NUM_CTX"
+	[[ $current == "$want" ]] || {
+		log "WARN: $tag num_ctx is ${current:-unset}, want $want"
 		return 1
 	}
 }
 
 reconcile_one() {
 	# Reconcile a single tag by name, picking its base and recipe.
+	local dir
+	dir=${MODELFILE_DIR:-/opt/ollama-host/modelfiles}
 	case $1 in
 	"$FIM_TAG") reconcile_tag "$FIM_TAG" "$FIM_BASE" write_fim_modelfile ;;
 	"$INSTRUCT_TAG") reconcile_tag "$INSTRUCT_TAG" "$INSTRUCT_BASE" write_instruct_modelfile ;;
+	# The OV pair is reconcilable by name so RESIDENT_TAG can point at
+	# $OV_FIM_TAG without this failing "no recipe for tag" — adopting the pair
+	# is one variable change, not a code change.
+	"$OV_FIM_TAG")
+		OV_RECIPE="$dir/qwen2.5-coder-fim.Modelfile" \
+			reconcile_tag "$OV_FIM_TAG" "$OV_FIM_BASE" copy_modelfile "$OV_FIM_NUM_CTX"
+		;;
+	"$OV_VLM_TAG")
+		OV_RECIPE="$dir/gemma4-vlm.Modelfile" \
+			reconcile_tag "$OV_VLM_TAG" "$OV_VLM_BASE" copy_modelfile "$OV_VLM_NUM_CTX"
+		;;
 	*)
 		log "ERROR: no recipe for tag $1"
 		return 1
@@ -260,26 +283,47 @@ prepare_agent_pair() {
 	create_if_missing agentpair:agent-gemma4-12b gemma4:12b-it-qat "$dir/agentpair-agent-gemma4-12b.Modelfile"
 }
 
+copy_modelfile() {
+	# reconcile_tag writer that emits a reference Modelfile verbatim, so the
+	# checked-in recipe in llama/ollama/ stays the single source of truth rather
+	# than being restated as a heredoc the way write_fim_modelfile must be.
+	cat "$OV_RECIPE" >"$1"
+}
+
 prepare_ov_pair() {
-	# IDEA-1105 OpenViking/editor pair. BUILD-IF-MISSING ONLY, same contract as
-	# prepare_agent_pair: nothing here is warmed and RESIDENT_TAG is unchanged,
-	# so building these cannot alter what is loaded. Adopting the pair is a
-	# separate, deliberate change — point RESIDENT_TAG at qwen2.5-coder:fim,
-	# warm gemma4:vlm alongside it, and keep OLLAMA_MAX_LOADED_MODELS at 2.
+	# IDEA-1105 OpenViking/editor pair. Warms NOTHING and leaves RESIDENT_TAG
+	# alone, so running this cannot change what is loaded — same contract as
+	# prepare_agent_pair. Adopting the pair is a separate, deliberate change:
+	# point RESIDENT_TAG at $OV_FIM_TAG, warm $OV_VLM_TAG alongside it, and keep
+	# OLLAMA_MAX_LOADED_MODELS at 2.
+	#
+	# RECONCILES rather than create-if-missing. qwen2.5-coder:fim is a name this
+	# repo has used before at num_ctx 16384 (the agentpair/IDEA-1071 recipe), and
+	# create_if_missing returns early on any existing tag — so a host carrying
+	# the old tag would silently keep 16384 and never get the 0.9 GB this recipe
+	# is here to save. Same class of miss as the 2-slot tag in #110.
 	local dir
 	dir=${MODELFILE_DIR:-/opt/ollama-host/modelfiles}
 	[[ -d $dir ]] || {
 		log "WARN: $dir missing; ov-pair tags not built"
 		return 0
 	}
-	create_if_missing qwen2.5-coder:fim qwen2.5-coder:3b-base "$dir/qwen2.5-coder-fim.Modelfile"
-	create_if_missing gemma4:vlm gemma4:12b-it-qat "$dir/gemma4-vlm.Modelfile"
+	OV_RECIPE="$dir/qwen2.5-coder-fim.Modelfile" \
+		reconcile_tag "$OV_FIM_TAG" "$OV_FIM_BASE" copy_modelfile "$OV_FIM_NUM_CTX" ||
+		log "WARN: $OV_FIM_TAG not reconciled"
+	OV_RECIPE="$dir/gemma4-vlm.Modelfile" \
+		reconcile_tag "$OV_VLM_TAG" "$OV_VLM_BASE" copy_modelfile "$OV_VLM_NUM_CTX" ||
+		log "WARN: $OV_VLM_TAG not reconciled"
 }
 
 mode=warm
 case ${1:-} in
 "") ;;
 --reconcile-only) mode=reconcile ;;
+# Build/reconcile the IDEA-1105 OV pair and stop. Loads nothing and does not
+# touch RESIDENT_TAG, so it is safe to run against a live daemon; it is also the
+# seam the pair's regression tests drive.
+--ov-pair-only) mode=ovpair ;;
 *)
 	log "ERROR: unknown argument: $1"
 	exit 2
@@ -299,6 +343,11 @@ log "server ready ($(curl -fsS -m 3 "$OLLAMA_URL/api/version"))"
 if [[ $mode == reconcile ]]; then
 	reconcile_all_strict || exit 1
 	log "$FIM_TAG and $INSTRUCT_TAG num_ctx match the recipe ($FIM_NUM_CTX); resident=$RESIDENT_TAG"
+	exit 0
+fi
+if [[ $mode == ovpair ]]; then
+	prepare_ov_pair
+	log "$OV_FIM_TAG=$(tag_num_ctx "$OV_FIM_TAG") $OV_VLM_TAG=$(tag_num_ctx "$OV_VLM_TAG")"
 	exit 0
 fi
 # Both preparations run concurrently, as the pod's startup.sh did (`… &`), so

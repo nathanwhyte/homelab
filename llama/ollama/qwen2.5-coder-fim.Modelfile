@@ -24,14 +24,22 @@
 # rather than a slow completion.
 #
 # Completion latency (NOT TTFT -- minuet's OpenAI callback fires only on the full
-# response, so time-to-last-token is what the editor shows), 30 captured prompts:
+# response, so time-to-last-token is what the editor shows), 30 captured prompts.
+# Raw samples: benchmarks/results/pair-latency-20260918/{deepseek,qwen,cohab}.json,
+# each recording the tag it actually ran against.
 #
 #   deepseek-coder-v2:instruct solo   p50 0.236 s  p95 0.508 s  0% over 1 s
-#   this tag, solo                    p50 0.224 s  p95 0.577 s  0% over 1 s
-#   this tag, gemma4:vlm under real OV summarize load
-#                                     p50 0.355 s  p95 0.925 s  3% over 1 s
+#   qwen2.5-coder:fim solo            p50 0.200 s  p95 0.494 s  0% over 1 s
+#   qwen2.5-coder:fim + gemma4:vlm, the latter under real OV summarize load
+#                                     p50 0.280 s  p95 0.837 s  3% over 1 s
 #
-# Pair resident together: 11.8 / 16 GB, no eviction across the run.
+# Pair resident together: 11.8 / 16 GB, no eviction across the run. For contrast
+# the dual-use posture (one runner serving FIM *and* summarize) put 73% of
+# completions past a second under a single summarizer.
+#
+# The predecessor agentpair:fim recipe, identical but for num_ctx 16384, measured
+# 0.224 s solo and 0.355 s cohabiting -- so the 8192 change buys latency as well
+# as the 0.9 GB, rather than trading one for the other.
 #
 # Requires: ollama pull qwen2.5-coder:3b-base
 # Build:    ollama create qwen2.5-coder:fim -f qwen2.5-coder-fim.Modelfile
