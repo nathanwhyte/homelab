@@ -26,10 +26,22 @@ OLLAMA_URL=${OLLAMA_URL:-http://127.0.0.1:11434}
 READY_MARKER=${READY_MARKER:-/run/ollama/models-ready}
 FIM_TAG=deepseek-coder-v2:fim
 FIM_BASE=deepseek-coder-v2:16b-lite-base-q4_0
+INSTRUCT_TAG=deepseek-coder-v2:instruct
+INSTRUCT_BASE=deepseek-coder-v2:16b-lite-instruct-q4_0
 # num_ctx 8192 pairs with OLLAMA_NUM_PARALLEL=4 (4.5 GiB KV); at 16384 the
 # runner would need 9 GiB of KV and would not fit the card (IDEA-1105). Keep in
 # step with the drop-in: changing either one alone breaks the VRAM budget.
 FIM_NUM_CTX=8192
+# Which tag stays pinned for edit prediction. :instruct since 2026-09-18 — both
+# tags decode at the same speed (170 vs 160 tok/s, identical TTFT) and measure
+# the same through the real minuet stack (28% vs 30% empty after filtering,
+# comparable lengths); it was adopted on the quality of its completions, judged
+# in the editor. dotfiles nvim/lua/plugins/minuet.lua and zed/settings.json name
+# this tag, and OLLAMA_MAX_LOADED_MODELS=1 means a request for the OTHER tag
+# evicts this one and pays a ~5 s reload -- so change all three together.
+# Both tags are reconciled below, so rolling back is: set this to $FIM_TAG,
+# re-run, and flip the two dotfiles entries.
+RESIDENT_TAG=${RESIDENT_TAG:-$INSTRUCT_TAG}
 export OLLAMA_HOST=$OLLAMA_URL
 
 log() { printf '%s ollama-warm: %s\n' "$(date -Is)" "$*"; }
@@ -78,41 +90,65 @@ write_fim_modelfile() {
 		>"$1"
 }
 
-reconcile_fim_tag() {
-	# Build the FIM tag if missing, and REBUILD it when an existing tag's
-	# num_ctx differs from the recipe: create_if_missing alone would keep a
-	# 16384 tag from the 2-slot posture, and 16384 x 4 slots overflows the card.
-	# Loads nothing. Returns non-zero unless the tag ends up at FIM_NUM_CTX.
-	local mf current
-	current=$(tag_num_ctx "$FIM_TAG")
+write_instruct_modelfile() {
+	# Template and stops come from the library instruct tag; only num_ctx is
+	# baked. A tag WITHOUT a baked num_ctx inherits OLLAMA_CONTEXT_LENGTH
+	# (131072 here), projects ~36 GiB of KV, spills to host memory and gets the
+	# daemon OOM-killed by the cgroup ceiling -- that is how the first instruct
+	# load failed on 2026-09-16 (IDEA-1105). Every tag served here bakes it.
+	printf '%s\n' \
+		"FROM $INSTRUCT_BASE" \
+		"PARAMETER num_ctx $FIM_NUM_CTX" \
+		>"$1"
+}
+
+reconcile_tag() {
+	# $1 tag, $2 base, $3 modelfile writer. Build when missing, and REBUILD when
+	# an existing tag's num_ctx differs from the recipe: create_if_missing alone
+	# would keep a 16384 tag from the 2-slot posture, and 16384 x 4 slots
+	# overflows the card. Loads nothing. Non-zero unless the tag ends at
+	# FIM_NUM_CTX.
+	local tag=$1 base=$2 writer=$3 mf current
+	current=$(tag_num_ctx "$tag")
 	if [[ $current == "$FIM_NUM_CTX" ]]; then
 		return 0
 	fi
 	mf=$(mktemp)
-	write_fim_modelfile "$mf"
-	if [[ -n $current ]] || ollama show "$FIM_TAG" >/dev/null 2>&1; then
-		log "rebuilding $FIM_TAG: num_ctx ${current:-unset} -> $FIM_NUM_CTX"
-		ollama create "$FIM_TAG" -f "$mf" >/dev/null || true
+	"$writer" "$mf"
+	if [[ -n $current ]] || ollama show "$tag" >/dev/null 2>&1; then
+		log "rebuilding $tag: num_ctx ${current:-unset} -> $FIM_NUM_CTX"
+		ollama create "$tag" -f "$mf" >/dev/null || true
 	else
-		create_if_missing "$FIM_TAG" "$FIM_BASE" "$mf"
+		create_if_missing "$tag" "$base" "$mf"
 	fi
 	rm -f "$mf"
-	current=$(tag_num_ctx "$FIM_TAG")
+	current=$(tag_num_ctx "$tag")
 	[[ $current == "$FIM_NUM_CTX" ]] || {
-		log "WARN: $FIM_TAG num_ctx is ${current:-unset}, want $FIM_NUM_CTX"
+		log "WARN: $tag num_ctx is ${current:-unset}, want $FIM_NUM_CTX"
 		return 1
 	}
 }
 
+reconcile_fim_tag() {
+	# Reconcile BOTH tags, so the resident one is ready and the other stays a
+	# one-command rollback. Only the resident tag's result gates the unit.
+	reconcile_tag "$FIM_TAG" "$FIM_BASE" write_fim_modelfile ||
+		[[ $RESIDENT_TAG != "$FIM_TAG" ]] || return 1
+	reconcile_tag "$INSTRUCT_TAG" "$INSTRUCT_BASE" write_instruct_modelfile ||
+		[[ $RESIDENT_TAG != "$INSTRUCT_TAG" ]] || return 1
+	return 0
+}
+
 prepare_edit_prediction_model() {
-	# deepseek-coder-v2:fim is the sole resident model (restored 2026-09-04):
-	# Zed (prompt_format "deepseek_coder"), Minuet suffix FIM, remote VSCode
-	# FIM (TASK-1156). ~2-3x faster than qwen2.5-coder:14b-base (BUG-1037).
+	# $RESIDENT_TAG is the sole resident model: Zed, Minuet suffix FIM, and the
+	# remote VSCode FIM client (TASK-1156) all request it BY NAME, and
+	# OLLAMA_MAX_LOADED_MODELS=1 means a request for any other tag evicts it.
+	# ~2-3x faster than qwen2.5-coder:14b-base (BUG-1037).
 	local attempt
 	for attempt in 1 2 3 4 5; do
 		if reconcile_fim_tag; then
-			log "warming $FIM_TAG (load-only)"
-			if warm_load_only "$FIM_TAG"; then
+			log "warming $RESIDENT_TAG (load-only)"
+			if warm_load_only "$RESIDENT_TAG"; then
 				touch "$READY_MARKER"
 				log "edit-prediction model ready (attempt $attempt)"
 				return 0
@@ -164,7 +200,7 @@ fi
 log "server ready ($(curl -fsS -m 3 "$OLLAMA_URL/api/version"))"
 if [[ $mode == reconcile ]]; then
 	reconcile_fim_tag || exit 1
-	log "$FIM_TAG num_ctx matches the recipe ($FIM_NUM_CTX)"
+	log "$FIM_TAG and $INSTRUCT_TAG num_ctx match the recipe ($FIM_NUM_CTX); resident=$RESIDENT_TAG"
 	exit 0
 fi
 # Both preparations run concurrently, as the pod's startup.sh did (`… &`), so
