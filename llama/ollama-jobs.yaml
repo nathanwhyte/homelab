@@ -60,7 +60,7 @@ spec:
                   # resident, so it normally never fires -- but if the host-side
                   # warm unit fails, a stale value here silently re-pins the
                   # WRONG tag within 15 minutes and reverts the editor's model.
-                  value: deepseek-coder-v2:instruct
+                  value: qwen2.5-coder:fim
               command:
                 - sh
                 - -ec
