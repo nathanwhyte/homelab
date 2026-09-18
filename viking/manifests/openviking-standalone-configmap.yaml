@@ -92,7 +92,7 @@ data:
       },
       "vlm": {
         "provider": "openai",
-        "model": "gemma4:31b-cloud",
+        "model": "gemma4:vlm",
         "api_key": "${OLLAMA_KEY}",
         "api_base": "http://chat-ollama.llama.svc.cluster.local:11434/v1",
         "max_concurrent": 1,
