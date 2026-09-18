@@ -92,9 +92,12 @@ spec:
             - --embedding
             - --pooling
             - last
-            # GTX 1060 has 6 GB VRAM; Qwen3-Embedding-4B Q8_0 ≈ 4 GB weights,
-            # leaving ~2 GB for KV cache. 8192 ctx / 1 slot keeps KV ~580 MB.
-            # parallel=1 means no slot multiplication; batch reduced to fit.
+            # Batch 2048 measured on this card 2026-09-17 (TASK-1217, at the
+            # 150 W power cap): 822 tok/s vs 788 at 512 (+4.3%), peak 6,655 of
+            # 8,192 MiB so ~1.5 GB spare. 4096 measured 822 tok/s too — same
+            # speed for 1.3 GB more VRAM (233 MiB spare), so 2048 is the knee.
+            # The 512 that stood here was sized for the retired 1060's 6 GB.
+            # parallel=1 means no slot multiplication.
             - --ctx-size
             - "8192"
             - --n-gpu-layers
@@ -104,9 +107,9 @@ spec:
             - --threads
             - "4"
             - --batch-size
-            - "512"
+            - "2048"
             - --ubatch-size
-            - "512"
+            - "2048"
             - --split-mode
             - none
             - --main-gpu
