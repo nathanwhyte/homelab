@@ -12,6 +12,11 @@
 #                  the host-side ollama-warm.service missed). Any resident
 #                  model is left alone; suspend this CronJob for benchmarks
 #                  that deliberately unload between requests.
+#                  Its MODEL is one of FOUR places naming the resident tag —
+#                  with llama/host/ollama-warm.sh (RESIDENT_TAG) and dotfiles
+#                  nvim/lua/plugins/minuet.lua + zed/settings.json. They must
+#                  agree: OLLAMA_MAX_LOADED_MODELS=1, so a request for any other
+#                  tag evicts the resident one and pays a ~5 s reload.
 #   ollama-pull  — suspended template. Run one-off:
 #                    kubectl -n llama create job --from=cronjob/ollama-pull pull-$(date +%s)
 #                  after editing MODEL in the env, or override on the fly:
@@ -49,7 +54,13 @@ spec:
                 - name: OLLAMA_URL
                   value: http://ollama.llama.svc:11434
                 - name: MODEL
-                  value: deepseek-coder-v2:fim
+                  # MUST match RESIDENT_TAG in llama/host/ollama-warm.sh and the
+                  # model named by dotfiles nvim/lua/plugins/minuet.lua and
+                  # zed/settings.json. This job skips while any model is
+                  # resident, so it normally never fires -- but if the host-side
+                  # warm unit fails, a stale value here silently re-pins the
+                  # WRONG tag within 15 minutes and reverts the editor's model.
+                  value: deepseek-coder-v2:instruct
               command:
                 - sh
                 - -ec
