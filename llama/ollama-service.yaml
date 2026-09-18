@@ -4,7 +4,7 @@
 # (llama/host/), not as a pod. This Service has NO selector: the EndpointSlice
 # below hands `ollama.llama.svc:11434` (and :9111 for the exporter) to the
 # node's LAN address, so every consumer keeps its URL unchanged:
-#   - openviking / reranker / embedder configs (viking/manifests)
+#   - openviking / embedder configs (viking/manifests)
 #   - omnipendium, hermes, chat-ollama-proxy -> ollama.llama.svc:11434
 #   - grafana static scrape target ollama.llama.svc:9111
 # LAN and Tailscale clients hit the host socket directly (192.168.1.19:11434,

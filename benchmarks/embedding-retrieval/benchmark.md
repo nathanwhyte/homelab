@@ -152,6 +152,16 @@ re-measure** (Phase 4) — pgvector-entry ≠ OV-chunked.
    single query): the generic Qwen instruction prefix already captures the gain.
 4. **bge-m3 hybrid wins recall** (top-5 82.3%, best of all) even where its top-1
    dips — exactly what a reranker would then promote (Phase 4 hypothesis).
+   **Note (2026-09-18):** the `reranker-bge` deployment on wemby was retired —
+   never wired into `ov.conf`, never served a request, and unable to touch the
+   exact-ID wall in finding 1. The Phase 4 reranker hypothesis was **tested and
+   failed**, so read it as closed rather than pending: BUG-1016 measured the
+   frozen set at 20.6% top-1 / 32.4% top-5 against a 38.2% baseline, and it did
+   so at **calibrated thresholds (-9.0 and -12.0)** after the raw-logit-vs-
+   `threshold: 0.2` mismatch was identified and corrected — so the result is not
+   a threshold artifact. Latency was 20-36 s/query, which rules it out for
+   interactive search independently of ranking quality. Any future reranking
+   work should start from a different model class, not from re-running this one.
 5. **Qwen3-0.6B underperforms both the 4B and nomic@2048** (50.0 vs 55.9, a
    two-query gap): the small Qwen is not a free efficiency win; the 4B carries
    Qwen's case.

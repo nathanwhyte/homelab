@@ -8,8 +8,9 @@
 #
 # Why this exists on top of node-maintenance.sh: three Longhorn volumes are
 # attached on manu/wemby but their ONLY replica lives on timmy's disk
-# (garage/data-garage-0, garage/data-garage-2, viking/reranker-model-cache,
-# viking/embedder-cuda-model-cache as of 2026-09-02). Powering timmy off while
+# (garage/data-garage-0, garage/data-garage-2,
+# viking/embedder-cuda-model-cache as of 2026-09-18; viking/reranker-model-cache
+# went with the reranker's retirement). Powering timmy off while
 # those pods run yanks the iSCSI backing device out from under them — the exact
 # LMDB-corruption path from BUG-1033. `down` scales those workloads to zero so
 # every such volume detaches cleanly before the drain; `up` restores the saved
@@ -41,7 +42,6 @@ READY_TIMEOUT_SECONDS=${READY_TIMEOUT_SECONDS:-600}
 # Format: kind/namespace/name
 PARKED=(
 	statefulset/garage/garage
-	deployment/viking/reranker-bge
 	deployment/viking/embedder-qwen-cuda
 	deployment/omnipendium/omnipendium-db
 	deployment/llama/cloud-llm-counter
