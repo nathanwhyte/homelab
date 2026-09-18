@@ -72,7 +72,11 @@ OV_VLM_NUM_CTX=16384
 # evicts this one and pays a ~5 s reload -- so change all three together.
 # Both tags are reconciled below, so rolling back is: set this to $FIM_TAG,
 # re-run, and flip the two dotfiles entries.
-RESIDENT_TAG=${RESIDENT_TAG:-$INSTRUCT_TAG}
+# $OV_FIM_TAG since 2026-09-18 (IDEA-1105). Rolling back is: set this to
+# $INSTRUCT_TAG, drop OLLAMA_MAX_LOADED_MODELS to 1 in the drop-in, re-run, and
+# flip the two dotfiles entries — all four together, or the clients and the host
+# disagree about which tag is resident.
+RESIDENT_TAG=${RESIDENT_TAG:-$OV_FIM_TAG}
 # Cap on best-effort standby reconciliation (a cold store can pull ~9 GB).
 STANDBY_TIMEOUT=${STANDBY_TIMEOUT:-600}
 export OLLAMA_HOST=$OLLAMA_URL
@@ -188,11 +192,14 @@ reconcile_one() {
 }
 
 standby_tag() {
-	if [[ $RESIDENT_TAG == "$FIM_TAG" ]]; then
-		printf '%s' "$INSTRUCT_TAG"
-	else
-		printf '%s' "$FIM_TAG"
-	fi
+	# The tag a rollback would make resident, kept reconciled so the flip is one
+	# variable rather than a cold ~9 GB pull. Under the OV pair posture that is
+	# the deepseek tag the editors used before 2026-09-18.
+	case $RESIDENT_TAG in
+	"$FIM_TAG") printf '%s' "$INSTRUCT_TAG" ;;
+	"$OV_FIM_TAG") printf '%s' "$INSTRUCT_TAG" ;;
+	*) printf '%s' "$FIM_TAG" ;;
+	esac
 }
 
 reconcile_all_strict() {
@@ -264,6 +271,23 @@ prepare_edit_prediction_model() {
 	done
 	log "WARN: edit-prediction model not prepared after 5 attempts; server stays up — check registry/model store"
 	return 1
+}
+
+warm_ov_vlm() {
+	# Pin OpenViking's summarizer beside the resident FIM tag. Runs AFTER
+	# prepare_edit_prediction_model so a slow VLM load can never delay edit
+	# prediction, and best-effort: OV degrades to missing abstracts, while a
+	# failed autocomplete is what the user feels. Needs
+	# OLLAMA_MAX_LOADED_MODELS=2 — at 1 this warm simply evicts the tag that was
+	# just pinned, which is why the drop-in and this function move together.
+	[[ $RESIDENT_TAG == "$OV_FIM_TAG" ]] || return 0
+	if reconcile_one "$OV_VLM_TAG"; then
+		log "warming $OV_VLM_TAG (OpenViking summarizer)"
+		warm_load_only "$OV_VLM_TAG" ||
+			log "WARN: $OV_VLM_TAG did not warm; OpenViking will generate no abstracts until it does"
+	else
+		log "WARN: $OV_VLM_TAG not reconciled; skipping warm"
+	fi
 }
 
 prepare_agent_pair() {
@@ -359,6 +383,10 @@ agent_pair_pid=$!
 prepare_ov_pair &
 ov_pair_pid=$!
 prepare_edit_prediction_model || warm_status=$?
+# After edit prediction, never before it: a slow VLM load must not delay the tag
+# the editor is waiting on. Does not gate warm_status — OV losing its summarizer
+# is degraded abstracts, not a broken editor.
+warm_ov_vlm
 # Standby reconciliation runs AFTER the resident tag is warm, so a cold-store
 # `ollama pull` for the rollback tag cannot delay edit prediction. Best-effort
 # and bounded; its result never gates the unit.

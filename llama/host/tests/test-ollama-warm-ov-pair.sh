@@ -97,6 +97,30 @@ run_prepare
 check "rebuilds qwen (16384 -> 8192)" y "create qwen2.5-coder:fim"
 check "rebuilds gemma (8192 -> 16384)" y "create gemma4:vlm"
 
+echo "test 5: the adoption points agree across files"
+# The hazard this guards is real and was caught in review: the live host had
+# MAX_LOADED_MODELS=2 while the tracked drop-in still said 1, so reapplying the
+# repo's own config would have silently restored single-model capacity and
+# undone co-residency. Four places encode the posture and must not drift.
+REPO=$(cd "$(dirname "$SCRIPT")/../.." && pwd) # llama/host -> llama -> repo root
+agree() { # $1 label, $2 file, $3 grep pattern
+	if grep -qE -- "$3" "$REPO/$2" 2>/dev/null; then
+		echo "  PASS  $1"
+		pass=$((pass + 1))
+	else
+		echo "  FAIL  $1 ($2 does not match /$3/)"
+		fail=$((fail + 1))
+	fi
+}
+agree "drop-in allows two resident models" \
+	"llama/host/ollama.service.d/homelab.conf" '^Environment="OLLAMA_MAX_LOADED_MODELS=2"'
+agree "RESIDENT_TAG defaults to the OV FIM tag" \
+	"llama/host/ollama-warm.sh" '^RESIDENT_TAG=\$\{RESIDENT_TAG:-\$OV_FIM_TAG\}'
+agree "recovery CronJob re-pins the same tag" \
+	"llama/ollama-jobs.yaml" '^ +value: qwen2\.5-coder:fim$'
+agree "OV_FIM_TAG is the tag the editors request" \
+	"llama/host/ollama-warm.sh" '^OV_FIM_TAG=qwen2\.5-coder:fim$'
+
 echo
 echo "passed=$pass failed=$fail"
 [[ $fail -eq 0 ]]
