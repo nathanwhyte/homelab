@@ -63,6 +63,8 @@ FIM_NUM_CTX=8192
 # Both tags are reconciled below, so rolling back is: set this to $FIM_TAG,
 # re-run, and flip the two dotfiles entries.
 RESIDENT_TAG=${RESIDENT_TAG:-$INSTRUCT_TAG}
+# Cap on best-effort standby reconciliation (a cold store can pull ~9 GB).
+STANDBY_TIMEOUT=${STANDBY_TIMEOUT:-600}
 export OLLAMA_HOST=$OLLAMA_URL
 
 log() { printf '%s ollama-warm: %s\n' "$(date -Is)" "$*"; }
@@ -150,14 +152,71 @@ reconcile_tag() {
 	}
 }
 
-reconcile_fim_tag() {
-	# Reconcile BOTH tags, so the resident one is ready and the other stays a
-	# one-command rollback. Only the resident tag's result gates the unit.
-	reconcile_tag "$FIM_TAG" "$FIM_BASE" write_fim_modelfile ||
-		[[ $RESIDENT_TAG != "$FIM_TAG" ]] || return 1
-	reconcile_tag "$INSTRUCT_TAG" "$INSTRUCT_BASE" write_instruct_modelfile ||
-		[[ $RESIDENT_TAG != "$INSTRUCT_TAG" ]] || return 1
-	return 0
+reconcile_one() {
+	# Reconcile a single tag by name, picking its base and recipe.
+	case $1 in
+	"$FIM_TAG") reconcile_tag "$FIM_TAG" "$FIM_BASE" write_fim_modelfile ;;
+	"$INSTRUCT_TAG") reconcile_tag "$INSTRUCT_TAG" "$INSTRUCT_BASE" write_instruct_modelfile ;;
+	*)
+		log "ERROR: no recipe for tag $1"
+		return 1
+		;;
+	esac
+}
+
+standby_tag() {
+	if [[ $RESIDENT_TAG == "$FIM_TAG" ]]; then
+		printf '%s' "$INSTRUCT_TAG"
+	else
+		printf '%s' "$FIM_TAG"
+	fi
+}
+
+reconcile_all_strict() {
+	# EVERY servable tag must match the recipe. --reconcile-only is the
+	# installer's gate (install-host-ollama.sh) before it restarts into a new
+	# OLLAMA_NUM_PARALLEL, and the hazard it exists to catch is a tag left at
+	# num_ctx 16384: 16384 x 4 slots overflows the card. A stale client can
+	# still request the STANDBY tag, so letting the standby fail here would let
+	# an unsafe tag through the gate. Best-effort belongs in the boot path, not
+	# in installation.
+	local rc=0
+	reconcile_one "$RESIDENT_TAG" || rc=1
+	reconcile_one "$(standby_tag)" || rc=1
+	return "$rc"
+}
+
+run_bounded() {
+	# $1 seconds, rest command. The standby path can hit an unbounded
+	# `ollama pull` on a cold store, and the unit runs with
+	# TimeoutStartSec=infinity -- so a stalled download must not be able to hold
+	# up anything. Used only for best-effort work.
+	local secs=$1 pid waited=0
+	shift
+	"$@" &
+	pid=$!
+	while kill -0 "$pid" 2>/dev/null && ((waited < secs)); do
+		sleep 1
+		waited=$((waited + 1))
+	done
+	if kill -0 "$pid" 2>/dev/null; then
+		log "WARN: '$*' exceeded ${secs}s; terminating"
+		kill -TERM "$pid" 2>/dev/null || true
+		return 1
+	fi
+	wait "$pid"
+}
+
+prepare_standby_tag() {
+	# Best-effort, and deliberately AFTER the resident tag is warm: keeping a
+	# rollback tag ready must never delay edit prediction.
+	local tag
+	tag=$(standby_tag)
+	if run_bounded "$STANDBY_TIMEOUT" reconcile_one "$tag"; then
+		log "standby tag $tag ready at num_ctx $FIM_NUM_CTX"
+	else
+		log "WARN: standby tag $tag not reconciled; rollback would need a rebuild"
+	fi
 }
 
 prepare_edit_prediction_model() {
@@ -167,7 +226,9 @@ prepare_edit_prediction_model() {
 	# ~2-3x faster than qwen2.5-coder:14b-base (BUG-1037).
 	local attempt
 	for attempt in 1 2 3 4 5; do
-		if reconcile_fim_tag; then
+		# ONLY the resident tag gates warming. Reconciling the standby here
+		# would put a possible `ollama pull` in front of edit prediction.
+		if reconcile_one "$RESIDENT_TAG"; then
 			log "warming $RESIDENT_TAG (load-only)"
 			if warm_load_only "$RESIDENT_TAG"; then
 				touch "$READY_MARKER"
@@ -220,7 +281,7 @@ if ! wait_for_server; then
 fi
 log "server ready ($(curl -fsS -m 3 "$OLLAMA_URL/api/version"))"
 if [[ $mode == reconcile ]]; then
-	reconcile_fim_tag || exit 1
+	reconcile_all_strict || exit 1
 	log "$FIM_TAG and $INSTRUCT_TAG num_ctx match the recipe ($FIM_NUM_CTX); resident=$RESIDENT_TAG"
 	exit 0
 fi
@@ -231,5 +292,9 @@ warm_status=0
 prepare_agent_pair &
 agent_pair_pid=$!
 prepare_edit_prediction_model || warm_status=$?
+# Standby reconciliation runs AFTER the resident tag is warm, so a cold-store
+# `ollama pull` for the rollback tag cannot delay edit prediction. Best-effort
+# and bounded; its result never gates the unit.
+prepare_standby_tag
 wait "$agent_pair_pid" || log "WARN: agentpair preparation exited non-zero (tags may be missing)"
 exit "$warm_status"
