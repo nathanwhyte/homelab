@@ -1,0 +1,6 @@
+host=http://192.168.1.19:11434 fim=deepseek-coder-v2:fim bg=deepseek-coder-v2:fim ollama=0.34.1 reps=30
+A idle             FIM full p50=0.55s p95=0.66s max=0.75s | >1s 0% >2s 0%   [ttft p50=0.13s p95=0.15s]
+    overlap idle     n= 30 ttft p50=0.13s max=0.20s
+    fim sample: "\n    # If we're not in the middle of a background request, we're idle."
+
+loaded after: [('deepseek-coder-v2:fim', 13684367686)]

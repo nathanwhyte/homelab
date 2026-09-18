@@ -1,0 +1,13 @@
+host=http://192.168.1.19:11434 fim=deepseek-coder-v2:instruct bg=deepseek-coder-v2:instruct ollama=0.34.1 reps=30
+A idle             FIM full p50=0.26s p95=0.54s max=0.57s | >1s 0% >2s 0%   [ttft p50=0.12s p95=0.16s]
+    overlap idle     n= 30 ttft p50=0.12s max=0.18s
+    fim sample: "\n    # If we have no overlap, then we're idle."
+H 3-bg-vlm         FIM full p50=1.71s p95=4.84s max=4.87s | >1s 67% >2s 37%   [ttft p50=0.25s p95=3.06s]
+    overlap decode   n=  5 ttft p50=0.14s max=0.15s
+    overlap prefill  n= 25 ttft p50=0.27s max=4.06s
+    bg0: 16 runs | ttft p50=1.73s prefill p50=1.30s (5229 tok) decode p50=27.8 tok/s wall p50=6.2s
+    bg1: 15 runs | ttft p50=1.73s prefill p50=1.31s (5229 tok) decode p50=29.8 tok/s wall p50=6.4s
+    bg2: 15 runs | ttft p50=1.78s prefill p50=1.28s (5229 tok) decode p50=26.8 tok/s wall p50=6.1s
+    fim sample: "\n    # If we have no overlap, then we're idle."
+
+loaded after: [('deepseek-coder-v2:instruct', 13684367686)]
