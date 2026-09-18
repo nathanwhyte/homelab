@@ -260,6 +260,22 @@ prepare_agent_pair() {
 	create_if_missing agentpair:agent-gemma4-12b gemma4:12b-it-qat "$dir/agentpair-agent-gemma4-12b.Modelfile"
 }
 
+prepare_ov_pair() {
+	# IDEA-1105 OpenViking/editor pair. BUILD-IF-MISSING ONLY, same contract as
+	# prepare_agent_pair: nothing here is warmed and RESIDENT_TAG is unchanged,
+	# so building these cannot alter what is loaded. Adopting the pair is a
+	# separate, deliberate change — point RESIDENT_TAG at qwen2.5-coder:fim,
+	# warm gemma4:vlm alongside it, and keep OLLAMA_MAX_LOADED_MODELS at 2.
+	local dir
+	dir=${MODELFILE_DIR:-/opt/ollama-host/modelfiles}
+	[[ -d $dir ]] || {
+		log "WARN: $dir missing; ov-pair tags not built"
+		return 0
+	}
+	create_if_missing qwen2.5-coder:fim qwen2.5-coder:3b-base "$dir/qwen2.5-coder-fim.Modelfile"
+	create_if_missing gemma4:vlm gemma4:12b-it-qat "$dir/gemma4-vlm.Modelfile"
+}
+
 mode=warm
 case ${1:-} in
 "") ;;
@@ -291,10 +307,13 @@ fi
 warm_status=0
 prepare_agent_pair &
 agent_pair_pid=$!
+prepare_ov_pair &
+ov_pair_pid=$!
 prepare_edit_prediction_model || warm_status=$?
 # Standby reconciliation runs AFTER the resident tag is warm, so a cold-store
 # `ollama pull` for the rollback tag cannot delay edit prediction. Best-effort
 # and bounded; its result never gates the unit.
 prepare_standby_tag
 wait "$agent_pair_pid" || log "WARN: agentpair preparation exited non-zero (tags may be missing)"
+wait "$ov_pair_pid" || log "WARN: ov-pair preparation exited non-zero (tags may be missing)"
 exit "$warm_status"
