@@ -1,25 +1,46 @@
 #!/usr/bin/env bash
 # Post-start model preparation for the host Ollama daemon on timmy (IMPR-1075).
 #
-# Port of the retired pod's startup.sh (llama/ollama-configmap.yaml, PR #48):
-# wait for the API, build the edit-prediction tag if it is missing, load it
-# with keep_alive=-1, and build (never warm) the agentpair:* tags so they exist
-# after every restart. Runs from ollama-warm.service (PartOf=ollama.service), so
-# every daemon restart re-runs it; the in-cluster CronJob in
-# llama/ollama-jobs.yaml re-asserts the warm every 15 minutes on top of this.
+# DESPITE THE NAME, warming is the incidental half. The load-bearing job is
+# RECONCILIATION: guaranteeing every tag this host serves exists with a baked
+# num_ctx before anything can request it.
+#
+# Why that matters. OLLAMA_KEEP_ALIVE=-1 is set globally, so a model loaded by
+# any request stays resident forever — the warm call only moves the ~5 s cold
+# load off a user's first keystroke after a restart. But OLLAMA_CONTEXT_LENGTH
+# is 131072 and the unit's MemoryMax is 16G, so a tag WITHOUT a baked num_ctx
+# projects ~36 GiB of KV, spills into host memory, and the cgroup OOM-kills the
+# whole daemon. "It will load on first request" is true, and that is precisely
+# the hazard: what loads must already have num_ctx baked. This is not
+# hypothetical — it is the 2026-09-16 crash in IDEA-1105.
+#
+# Reconciliation also catches DRIFT, not just absence: the 16384 -> 8192
+# migration would otherwise have left 16384 x 4 slots and overflowed the card,
+# which is why install-host-ollama.sh runs --reconcile-only BEFORE restarting
+# into a new drop-in.
+#
+# Port of the retired pod's startup.sh (llama/ollama-configmap.yaml, PR #48).
+# Runs from ollama-warm.service (PartOf=ollama.service), so every daemon restart
+# re-runs it. The in-cluster CronJob in llama/ollama-jobs.yaml re-asserts the
+# pin every 15 minutes, but SKIPS whenever any model is already resident — it is
+# eviction recovery, not a competing pinner. Its MODEL must name the same tag as
+# RESIDENT_TAG below, or a failed warm unit silently reverts the resident tag
+# within 15 minutes.
 #
 # Two independent concerns, kept apart on purpose:
 #   1. SERVER readiness is the daemon's own business — this script never gates
 #      it, and a failure here leaves the API serving (OV's cloud VLM route
 #      through ollama.llama.svc needs only the API, no local runner).
-#   2. LOCAL model prep is best-effort with retry, and /run/ollama/models-ready
-#      is a separate observable signal for "the edit-prediction tag is warm".
+#   2. LOCAL model prep is best-effort with retry. /run/ollama/models-ready is
+#      written as an observable signal; nothing outside this script reads it.
 #
-#   ollama-warm.sh                   wait, reconcile + warm the FIM tag, build agentpair tags
-#   ollama-warm.sh --reconcile-only  wait, rebuild the FIM tag if its num_ctx drifted
-#                                    from the recipe, load nothing; exit 1 if it
-#                                    cannot be made to match (install-host-ollama.sh
-#                                    runs this BEFORE restarting into the new drop-in)
+#   ollama-warm.sh                   wait, reconcile both tags, pin RESIDENT_TAG,
+#                                    build the agentpair:* tags (never warm them)
+#   ollama-warm.sh --reconcile-only  wait, rebuild either tag whose num_ctx drifted
+#                                    from the recipe, load nothing; exit 1 if the
+#                                    resident tag cannot be made to match
+#                                    (install-host-ollama.sh runs this BEFORE
+#                                    restarting into the new drop-in)
 set -u
 
 OLLAMA_URL=${OLLAMA_URL:-http://127.0.0.1:11434}
