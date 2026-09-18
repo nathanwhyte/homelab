@@ -5,17 +5,23 @@
 # "FIM and VLM at the same time" means ONE resident runner serving both. This
 # runs fim-contention-probe.py in up to three legs:
 #
-#   baseline  deepseek-coder-v2:fim       A (FIM alone) — today's serving tag
+#   baseline  $BASELINE_TAG               A (FIM alone) — the pre-dual-use tag
 #   dual-use  deepseek-coder-v2:instruct  A,B,D,F,G,H — FIM alone, under decode,
 #             under prefill, under 1, 2 and 3 OV-shaped summarize loops
 #   num_batch deepseek-coder-v2:instruct-nb<N>, one temporary tag per value in
 #             NUM_BATCH_VARIANTS (e.g. "1024 2048"), SWEEP_CONDITIONS only;
 #             the tags are deleted on exit
 #
-# Loading any instruct tag evicts FIM (OLLAMA_MAX_LOADED_MODELS=1), so editor
-# autocomplete is down for the dual-use and num_batch legs. The EXIT trap
-# re-pins deepseek-coder-v2:fim with keep_alive -1 (which evicts the instruct
-# runner), pass or fail.
+# Loading a benchmark tag evicts what the editor uses, so autocomplete is down
+# for the dual-use and num_batch legs. The EXIT trap restores $RESIDENT_TAG with
+# keep_alive -1, pass or fail.
+#
+# RESIDENT_TAG is NOT hardcoded, and must not be. It was deepseek-coder-v2:fim,
+# then :instruct (homelab #127), and is qwen2.5-coder:fim since the OV pair
+# landed (#130/#132) -- each time a hardcoded restore silently re-pinned a stale
+# tag, leaving the editor to pay a reload on its next completion (BUG-1154).
+# The default tracks RESIDENT_TAG in llama/host/ollama-warm.sh, which is the
+# source of truth; override the env var for a host on another posture.
 #
 # Run from the repo root on any LAN/Tailscale host:
 #   benchmarks/ollama/tools/run-fim-vlm-dual-use.sh [REPS]
@@ -28,7 +34,13 @@ set -euo pipefail
 
 REPS="${1:-8}"
 export OLLAMA_HOST="${OLLAMA_HOST:-http://192.168.1.19:11434}"
-FIM_TAG="deepseek-coder-v2:fim"
+# What cleanup() restores. Keep in step with RESIDENT_TAG in
+# llama/host/ollama-warm.sh -- this is only its benchmark-side mirror.
+RESIDENT_TAG="${RESIDENT_TAG:-qwen2.5-coder:fim}"
+# The historical FIM tag the baseline leg measures. Deliberately separate from
+# RESIDENT_TAG: the baseline is about the OLD serving tag, not what is pinned.
+BASELINE_TAG="${BASELINE_TAG:-deepseek-coder-v2:fim}"
+FIM_TAG="$BASELINE_TAG"
 DUAL_TAG="deepseek-coder-v2:instruct"
 DUAL_CONDITIONS="${DUAL_CONDITIONS:-A,B,D,F,G,H}"
 NUM_BATCH_VARIANTS="${NUM_BATCH_VARIANTS:-}"
@@ -52,8 +64,8 @@ cleanup() {
     log "deleting temporary tag ${tag}"
     curl -fsS -m 30 -X DELETE "${OLLAMA_HOST}/api/delete" -d "{\"model\":\"${tag}\"}" || true
   done
-  log "restoring ${FIM_TAG} (re-pin keep_alive -1)"
-  api /api/generate "{\"model\":\"${FIM_TAG}\",\"keep_alive\":-1,\"stream\":false}" >/dev/null
+  log "restoring ${RESIDENT_TAG} (re-pin keep_alive -1)"
+  api /api/generate "{\"model\":\"${RESIDENT_TAG}\",\"keep_alive\":-1,\"stream\":false}" >/dev/null
   curl -fsS -m 10 "${OLLAMA_HOST}/api/ps" | python3 -c 'import sys,json; print([(m["name"], m["context_length"], m["expires_at"]) for m in json.load(sys.stdin)["models"]])'
 }
 
