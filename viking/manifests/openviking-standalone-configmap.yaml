@@ -88,7 +88,8 @@ data:
       },
       "semantic": {
         "overview_max_chars": 12000,
-        "abstract_max_chars": 256
+        "abstract_max_chars": 256,
+        "overview_sample_limit": 105
       },
       "vlm": {
         "provider": "openai",
