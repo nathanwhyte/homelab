@@ -183,10 +183,38 @@ spec:
                   - /bin/sh
                   - -c
                   - sleep 5
+          # BUG-1155: point OV's PromptManager at an override directory so the
+          # semantic overview template can be shrunk without forking the image.
+          # PromptManager._resolve_templates_dir honours this env var above
+          # config.prompts.templates_dir, and _resolve_template_path falls back
+          # PER FILE to the bundled directory — so the override ConfigMap holds
+          # only overview_generation.yaml and every other template is untouched.
+          #
+          # Deliberately wired as an env var rather than a prompts.templates_dir
+          # key in openviking-standalone-configmap.yaml: that ConfigMap also
+          # carries vlm.model and semantic.overview_max_chars, and re-applying
+          # the whole document from a stale branch is what silently reverted the
+          # VLM to a cloud tag for half an hour on 2026-09-18.
+          #
+          # Rollback without touching any ConfigMap:
+          #   kubectl set env deployment/openviking -n viking \
+          #     OPENVIKING_PROMPT_TEMPLATES_DIR-
+          env:
+            - name: OPENVIKING_PROMPT_TEMPLATES_DIR
+              value: /etc/openviking/prompts
           volumeMounts:
             - name: config-out
               mountPath: /app/.openviking/ov.conf
               subPath: ov.conf
+              readOnly: true
+            # Directory mount, NOT subPath: a subPath mount never receives
+            # ConfigMap updates. PromptManager caches parsed templates in-process
+            # with no file watch either way, so a template edit still needs a
+            # pod restart — but this removes one of the two staleness traps.
+            # /etc/openviking/prompts does not exist in the image, so nothing is
+            # shadowed.
+            - name: prompt-overrides
+              mountPath: /etc/openviking/prompts/semantic
               readOnly: true
             - name: data
               mountPath: /app/data
@@ -298,6 +326,11 @@ spec:
           configMap:
             name: openviking-exporter
             defaultMode: 0755
+        # BUG-1155: overview_generation.yaml only; every other prompt template
+        # resolves to the bundled copy via PromptManager's per-file fallback.
+        - name: prompt-overrides
+          configMap:
+            name: openviking-prompt-overrides
         - name: data
           persistentVolumeClaim:
             claimName: openviking-data

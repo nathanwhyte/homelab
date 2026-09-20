@@ -1,0 +1,183 @@
+---
+# BUG-1155: override for OpenViking's semantic overview template.
+#
+# WHY THIS EXISTS
+#
+# The shipped template asks for one H3 subsection per entry with no length bound,
+# and `_enforce_size_limits` then TAIL-CUTS the result at
+# semantic.overview_max_chars. Because the per-entry Detailed Description is
+# emitted after Quick Navigation and costs ~746 chars uncapped against ~103 for a
+# navigation link, the elaboration crowds out the link list — and the link list is
+# the part an agent routes by. A 17-entry directory (tasks/backlog) consumed the
+# entire 12,000-char budget.
+#
+# This override makes Quick Navigation complete by construction and the Detailed
+# Description explicitly sacrificial. It needs no upstream code change: truncation
+# is a pure tail cut, so document order alone decides what survives.
+#
+# WHAT IS PRESERVED, AND WHY
+#
+#   * Brief Description stays the FIRST prose block after the H1.
+#     _extract_abstract_from_overview skips leading '#' lines then collects to the
+#     first '##'. Moving Quick Navigation above the prose would make the stored L0
+#     abstract become the link list — silent retrieval degradation, no error.
+#   * The `### [title](placeholder)` H3 shape per entry is kept.
+#     _parse_overview_md is a summary-reuse cache: the stored H3 body is fed back
+#     as that file's input summary on the next incremental generation. Dropping the
+#     shape forces re-summarisation of every file in every touched directory. It
+#     also makes the shrink a RATCHET, which is why the body is capped at one
+#     sentence rather than one clause.
+#   * Everything above "Output in Markdown format" is byte-identical to the
+#     shipped template except one added instruction to copy link placeholders
+#     verbatim (four corrupted placeholders were found in live overviews).
+#
+# WHAT CHANGED
+#
+#   * "Total length: 400-800 words" DELETED, not lowered. At-cap overviews measure
+#     1,108-1,514 words against it — the model overshoots 1.4-1.9x, so tightening a
+#     number it ignores is not a lever. Per-section structural rules are.
+#   * Quick Navigation: "Decision Tree style" -> a flat, mandatory one-line-per-entry
+#     list. The decision-tree framing invited prose with bare filenames, producing
+#     zero link targets while Detailed Description still had H3 links — exactly the
+#     "0 nav links / 9-14 detail sections" shape seen in the audit.
+#   * Directory Coverage moved below Quick Navigation (~150 chars of budget).
+#   * Detailed Description bodies capped at one sentence, <=30 words (~180 chars vs
+#     a 746 uncapped median).
+#
+# DEPLOYMENT
+#
+# Mounted at /etc/openviking/prompts/semantic by openviking-deployment.yaml, which
+# sets OPENVIKING_PROMPT_TEMPLATES_DIR=/etc/openviking/prompts. PromptManager falls
+# back PER FILE to the bundled directory, so this one file is the entire override.
+# Changing it requires a pod restart: PromptManager caches parsed templates
+# in-process and does not watch the filesystem.
+#
+# Validated in-pod before first apply: PromptTemplate.model_validate passes, the
+# override resolves, document_summary still falls back to bundled, and the rendered
+# prompt carries the new structure with llm_config preserved.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: openviking-prompt-overrides
+  namespace: viking
+  labels:
+    app: openviking
+data:
+  overview_generation.yaml: |
+    metadata:
+      id: "semantic.overview_generation"
+      name: "Directory Overview Generation"
+      description: "Generate overview (L1) for a directory based on file summaries and child directory abstracts"
+      version: "1.0.0"
+      language: "en"
+      category: "semantic"
+
+    variables:
+      - name: "dir_name"
+        type: "string"
+        description: "Directory name"
+        required: true
+
+      - name: "file_summaries"
+        type: "string"
+        description: "List of files and their summaries in the directory, format: '- filename: summary'"
+        default: ""
+
+      - name: "children_abstracts"
+        type: "string"
+        description: "List of subdirectories and their abstracts, format: '- dirname/: abstract'"
+        default: ""
+
+      - name: "output_language"
+        type: "string"
+        description: "Language code for output (e.g., 'en', 'zh-CN', 'ja', 'ko', 'ru', 'ar')"
+        required: true
+
+      - name: "directory_coverage"
+        type: "string"
+        description: "Directory scale and sample coverage statement"
+        default: ""
+
+    template: |
+      Output Language: {{ output_language }}
+      Write the entire overview consistently in {{ output_language }}; do not mix languages in headings, paragraphs, or list items.
+      Translate or rewrite all source summaries into {{ output_language }}; do not copy source text in another language.
+
+      Generate an overview document based on the following directory content:
+
+      [Directory Name]
+      {{ dir_name }}
+
+      [Directory Scale and Coverage]
+      {{ directory_coverage }}
+
+      [Files and Their Summaries in Directory]
+      {{ file_summaries }}
+
+      Note: Each entry above carries a compact link placeholder in the form
+      "(link: viking://input_sample_fN)" for files and "(link: viking://input_sample_cN)"
+      for subdirectories. When you reference an entry, write a normal Markdown link
+      using its placeholder as the URL, e.g. [display title](viking://input_sample_f1).
+      Use a natural display title (typically the entry's name); do not print the raw
+      placeholder text and do not repeat the name outside the link.
+      Some entries may be code structure skeletons (showing imports, classes, functions)
+      rather than prose summaries — treat them as structural descriptions of the file.
+
+      [Subdirectories and Their Summaries]
+      {{ children_abstracts }}
+
+      Relationship rules:
+      - Treat child directories as parts of the same repository unless the summaries clearly show they are independent projects.
+      - Do not describe every child directory as an independent project by default.
+      - When the summaries indicate a code repository, explain how subdirectories relate to the whole repo, such as services, libraries, apps, modules, or support folders.
+
+      Faithfulness rules:
+      - Describe only what the provided summaries state; do not invent entities, facts, or relationships not present in them.
+      - When the coverage statement above indicates that only a sample of direct entries is shown, you MAY generalize from the sampled entries to characterize the directory as a whole (e.g. "the directory primarily covers X, Y, Z"), but such generalization must use hedging language such as "the sample shows", "primarily covers", "appears to contain", and must not claim that every entry has been examined.
+      - Never describe specific content of entries that are not listed in the summaries above.
+      - Before output, remove any named entity absent from the provided summaries—including organization, company, product, and brand names—and any unstated ownership, affiliation, or other relationship; never fill gaps with outside knowledge.
+
+      Copy each link placeholder exactly as written above, character for character,
+      including the full "viking://" scheme; never shorten, abbreviate, or re-spell it.
+
+      Output in Markdown format, strictly following this structure and this order.
+      The Quick Navigation list is the most important part of this document: it is
+      how a reader finds an entry. Write it in full before writing any Detailed
+      Description subsection, and never shorten or omit it to make room.
+
+      1. **Title** (H1): Directory name
+
+      2. **{{ "简要描述" if output_language == "zh-CN" else "Brief Description" }}** (plain text paragraph, 35-60 words):
+         - Immediately following the title, as the first prose in the document
+         - Explain what this is, what it's about, and what it covers; when sampled, use hedging language to generalize from the sampled entries.
+         - Include core keywords from the provided summaries for easy searching
+         - Do not include entry counts, sample counts, unsampled counts, or other coverage statistics; keep this paragraph useful as a standalone retrieval abstract.
+         - One paragraph only; no list, no sub-headings
+
+      3. **{{ "快速导航" if output_language == "zh-CN" else "Quick Navigation" }}** (H2): a flat list, one line per entry
+         - Emit exactly one line for EVERY entry listed above, in the order given.
+           This list must be complete. Do not group, cluster, summarise, or skip entries.
+         - Each line is exactly: `- [display title](placeholder) — <description>`
+           where <description> is at most 8 words. Example:
+           `- [bug-049.md](viking://input_sample_f1) — Mage mapping type null safety`
+         - No decision-tree prose, no questions, no sub-bullets, no nested lists
+         - When sampled, introduce the list with one sentence noting that these are
+           representative entries and the full directory contains more
+
+      4. **{{ "目录覆盖" if output_language == "zh-CN" else "Directory Coverage" }}** (H2): one sentence
+         - State the total number of direct entries and whether all entries are represented.
+         - When sampled, state how many entries were sampled and how many were not individually examined.
+
+      5. **{{ "详细说明" if output_language == "zh-CN" else "Detailed Description" }}** (H2):
+         - When sampled, begin with a one-sentence note stating that the following subsections cover only the sampled entries (X of Y), not the full directory.
+         - One H3 subsection per entry, in the same order as Quick Navigation. The H3
+           heading is a Markdown link to the entry using its placeholder,
+           e.g. ### [display title](viking://input_sample_f1)
+         - Under each heading write exactly one sentence, at most 30 words, drawn from
+           that entry's summary above. No bullets, no second sentence.
+         - Do not restate the Quick Navigation list here.
+         - If the document is getting long, stop after the last entry you can cover in
+           full. Never drop or abbreviate Quick Navigation to make room here.
+
+    llm_config:
+      temperature: 0.0
