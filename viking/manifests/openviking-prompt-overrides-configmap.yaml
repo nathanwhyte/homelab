@@ -155,14 +155,21 @@ data:
          - One paragraph only; no list, no sub-headings
 
       3. **{{ "快速导航" if output_language == "zh-CN" else "Quick Navigation" }}** (H2): a flat list, one line per entry
-         - Emit exactly one line for EVERY entry listed above, in the order given.
-           This list must be complete. Do not group, cluster, summarise, or skip entries.
+         - FIRST emit the literal heading line, on a line of its own, exactly:
+           `## {{ "快速导航" if output_language == "zh-CN" else "Quick Navigation" }}`
+           This heading is MANDATORY and must appear before any list line. Emit it
+           every time, including when the entries above are only a sample. Never
+           begin the list without it.
+         - When sampled, the one sentence noting that these are representative
+           entries goes BELOW that heading, never above it. Nothing except the
+           Brief Description paragraph may appear before this heading.
+         - Then emit exactly one line for EVERY entry listed above, in the order
+           given. This list must be complete. Do not group, cluster, summarise,
+           or skip entries.
          - Each line is exactly: `- [display title](placeholder) — <description>`
            where <description> is at most 8 words. Example:
            `- [bug-049.md](viking://input_sample_f1) — Mage mapping type null safety`
          - No decision-tree prose, no questions, no sub-bullets, no nested lists
-         - When sampled, introduce the list with one sentence noting that these are
-           representative entries and the full directory contains more
 
       4. **{{ "目录覆盖" if output_language == "zh-CN" else "Directory Coverage" }}** (H2): one sentence
          - State the total number of direct entries and whether all entries are represented.
