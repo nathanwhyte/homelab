@@ -69,16 +69,44 @@ FROM gemma4:12b-it-qat
 #
 #   journalctl -u ollama | grep -o "n_tokens = [0-9]*, truncated = [0-9]*"
 #
-# WHAT IS ESTABLISHED vs INFERRED. Established: 36 requests lost content at the
-# 16384 boundary, and nothing surfaced upstream -- zero OpenViking errors and
-# zero finish_reason lines across the whole run, because OV's text-completion
-# path discards finish_reason. Not established: whether the drop happened at
-# prompt assembly or at generation stop. Ollama's own input-truncation warning
-# ("truncating input") never fired, so the loss was recorded at the llama.cpp
-# slot level rather than by ollama's wrapper; this tag's multimodal projector
-# also makes the pinned llama-server disable generation-time context shifting
-# and stop at capacity instead (b10864 tools/server/server-context.cpp:1174).
-# Either path loses content at the same boundary, which is what the raise fixes.
+# IT IS A GENERATION-CAPACITY STOP, AND CONTENT WAS LOST. Review raised the
+# right objection: `truncated = 1` alone does not prove loss, because an EOS
+# arriving at the boundary sets STOP_TYPE_EOS while leaving the flag set
+# (b10864 tools/server/server-context.cpp:1952). The journal records no stop
+# reason at all -- `stop type`, `stopped_eos` and `stopped_limit` are absent --
+# so the flag cannot settle it. Joining the release lines to
+# `slot print_timing` on task id does:
+#
+#   50 truncated tasks with both counts (12h window)
+#   prompt tokens       8,474 - 13,666     <- all WELL under 16384
+#   generated tokens    2,717 -  7,909
+#   prompt + generated  16,378 - 16,383, mean 16,383
+#   exactly 16,383      44 of 50
+#
+# The prompts are nowhere near the limit; the TOTAL is pinned at the ceiling
+# across prompts that vary by 5,000 tokens. Natural EOS would scatter those
+# totals the way the 7,055 untruncated releases scatter (p50 1,496, p99 9,344,
+# max 16,378). Forty-four exact landings on n_ctx-1 is a hard limit, not a
+# coincidence. This also resolves the prompt-vs-generation question the earlier
+# comment hedged on: prompt assembly was never the issue -- generation ran into
+# the wall, exactly as the non-shifting capacity path predicts.
+#
+# Nothing surfaced upstream: OpenViking's text-completion path returns message
+# content and drops finish_reason (openviking/models/vlm/backends/openai_vlm.py,
+# models/vlm/base.py), so a length-limited response never becomes an error.
+# That is a source fact; the zero finish_reason lines in the log prove nothing
+# on their own, and neither do the zero "truncating input" matches -- that
+# string exists in v0.34.1, but its warning path is only one of several and the
+# chat path logs truncation at Debug level (ollama server/prompt.go).
+#
+# ATTRIBUTION IS BY EXCLUSION AND CONDITIONAL. Ollama launches a runner with
+# NumCtx x numParallel and llama.cpp divides it per sequence, so the 8K FIM
+# runner cannot produce a 16,383-token sequence -- these are the 16K runner's.
+# But the journal retains no runner-start or n_ctx lines (both models have been
+# pinned since before the window), so "only gemma4:vlm and qwen2.5-coder:fim
+# were live" is taken from the deployment's steady state, not proven from this
+# log. Nor does it prove every caller was OpenViking. And 50/7,105 is a
+# host-wide slot-release fraction, not an OpenViking failure rate.
 #
 # AN EARLIER VERSION OF THIS COMMENT GOT BOTH DIRECTIONS WRONG. First it
 # asserted the overflow from "60000 + 12000 chars ~= 18000 tokens", which is not
@@ -107,14 +135,24 @@ FROM gemma4:12b-it-qat
 # Weights are ~7 GB, the card is 16 GB, and qwen2.5-coder:fim (2.73 GB) is the
 # other resident tag, so the delta fits comfortably.
 #
-# 32768 IS NOT PROVEN SUFFICIENT, only proven larger than the wall being hit.
-# Truncation destroys the evidence of how big those 36 requests really were --
-# a request clipped to 16383 reports 16383, not its original size -- so the
-# true distribution above the ceiling is unknown and unknowable from this run.
-# What the raise guarantees is that the same requests no longer clip at 16384.
-# Re-read the same journal counter after the reload: if `truncated = 1` still
-# appears, it will now sit at 32767 and 65536 is affordable at roughly another
-# +0.6 GB. Treat that check as part of deploying this change, not optional.
+# 32768 IS VERY LIKELY SUFFICIENT, THOUGH NOT PROVEN. The unknown is the
+# CONTINUATION that would have been generated with more room, not a destroyed
+# original prompt -- the prompts are recoverable and top out at 13,666 tokens.
+# At 32768 those same requests get ~19,000 tokens of generation headroom
+# against an overview target of ~3,000, and the largest generation actually
+# observed was 7,909 before it hit the wall. That is a lower bound on what the
+# model wanted, not an upper bound, so sufficiency stays unproven.
+#
+# VERIFY AFTER THE RELOAD, with an ABSOLUTE window -- `--since "9 hours ago"`
+# slides and will re-count today's 16,383 events:
+#
+#   journalctl -u ollama --since "<exact post-reload timestamp>" \
+#     | grep -o "n_tokens = [0-9]*, truncated = [0-9]*"
+#
+# A clean result is zero truncated=1. If they reappear they will sit at 32,767,
+# and 65,536 costs a FURTHER ~1.14 GB (3.35 GB total KV at 4 slots) -- not the
+# "+0.6 GB" an earlier version of this comment claimed, which wrongly repeated
+# the 16K->32K delta instead of computing the 32K->64K one.
 #
 # NOT independently confirmed: `ollama ps` reports 8.74 GB loaded against a
 # 7.15 GB tag, but on-disk tag size is not resident weights and the residual
