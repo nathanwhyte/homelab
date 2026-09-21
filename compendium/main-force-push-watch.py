@@ -1,0 +1,186 @@
+#!/usr/bin/env python3
+"""Poll GitHub for force-pushes to the compendium's `main`, from outside it.
+
+Compendium BUG-1160: on 2026-09-21 a force-push rewound `main` past four merged
+PRs. GitHub kept reporting all four as MERGED — they were; their commits simply
+stopped being reachable — and nothing raised an error. The loss surfaced an hour
+later, by accident, as a failed `git merge --ff-only`.
+
+The compendium repo now carries its own alarm (`.github/workflows/
+main-integrity.yml`), and that alarm has a structural hole this job exists to
+cover: for a `push` event GitHub reads the workflow definitions **from the
+pushed revision**, so a force-push targeting a commit older than the workflow
+deletes the alarm in the same operation that causes the loss. The 2026-09-21
+incident is exactly that shape — its target predates the file — so replaying it
+would produce no in-repo alarm at all.
+
+A detector that lives on the branch being rewritten cannot close that. This one
+lives in the homelab repo, runs on the cluster, and reads the repository
+activity API — which records `force_push` events regardless of what the branch
+contains. Rewinding compendium's `main` cannot remove it.
+
+HOW IT REPORTS: by failing. A non-zero exit fails the Job, which surfaces
+through the existing KubeJobFailed alerting path. That is deliberate — it reuses
+a path already proven to deliver, rather than adding another Slack webhook whose
+channel binding can silently drift (BUG-1135).
+
+STATELESS BY DESIGN. It holds no PVC and remembers nothing; each run asks the
+API for force_push events inside a lookback window. Consequences worth knowing:
+
+  * A force-push alerts on every run whose window still contains it — roughly
+    LOOKBACK_MINUTES/schedule times — then ages out on its own. Repeated alarms
+    during an incident are the correct failure direction.
+  * A force-push is missed entirely if the cluster is down for the whole window.
+    The window is deliberately several times the schedule interval so one
+    missed run does not lose the event.
+
+Environment:
+  GITHUB_TOKEN       required; needs read access to the repository
+  WATCH_REPO         owner/repo (default nathanwhyte/compendium)
+  WATCH_REF          default refs/heads/main
+  LOOKBACK_MINUTES   default 90
+
+Exit codes:
+  0  no force-push in the window
+  1  force-push found; the report names the dropped commits and their PRs
+  2  could not reach the API, or no token — the watch did not run, which is
+     NOT the same as "nothing happened" and must not read as all-clear
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import sys
+import urllib.error
+import urllib.parse
+import urllib.request
+from datetime import UTC, datetime, timedelta
+
+API = "https://api.github.com"
+REPO = os.environ.get("WATCH_REPO", "nathanwhyte/compendium")
+REF = os.environ.get("WATCH_REF", "refs/heads/main")
+LOOKBACK = int(os.environ.get("LOOKBACK_MINUTES", "90"))
+TOKEN = os.environ.get("GITHUB_TOKEN", "")
+
+
+def api(path: str, **params: str) -> object:
+    url = f"{API}{path}"
+    if params:
+        url = f"{url}?{urllib.parse.urlencode(params)}"
+    request = urllib.request.Request(
+        url,
+        headers={
+            "Authorization": f"Bearer {TOKEN}",
+            "Accept": "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28",
+            "User-Agent": "compendium-main-force-push-watch",
+        },
+    )
+    with urllib.request.urlopen(request, timeout=30) as response:
+        return json.load(response)
+
+
+def dropped_commits(before: str, after: str) -> list[dict] | None:
+    """Commits reachable from `before` but not `after`, via the compare API.
+
+    `compare/{after}...{before}` returns the commits on the `before` side since
+    the merge base — the ones the rewind orphaned. Doing this over the API
+    rather than a clone matters: after a rewind those objects are reachable
+    from no ref, so a fresh clone would not have them.
+
+    None means the comparison could not be made (one endpoint already
+    reclaimed), which is reported rather than silently treated as "nothing".
+    """
+    try:
+        payload = api(f"/repos/{REPO}/compare/{after}...{before}")
+    except urllib.error.HTTPError:
+        return None
+    return payload.get("commits", []) if isinstance(payload, dict) else None
+
+
+def main() -> int:
+    if not TOKEN:
+        print("GITHUB_TOKEN is not set; the watch did not run.", file=sys.stderr)
+        return 2
+
+    cutoff = datetime.now(UTC) - timedelta(minutes=LOOKBACK)
+    try:
+        events = api(
+            f"/repos/{REPO}/activity",
+            ref=REF,
+            activity_type="force_push",
+            per_page="30",
+        )
+    except (urllib.error.URLError, TimeoutError, OSError) as exc:
+        print(f"cannot reach the activity API: {exc}", file=sys.stderr)
+        return 2
+
+    if not isinstance(events, list):
+        print(f"unexpected activity payload: {type(events).__name__}", file=sys.stderr)
+        return 2
+
+    recent = []
+    for event in events:
+        stamp = event.get("timestamp", "")
+        try:
+            when = datetime.fromisoformat(stamp)
+        except ValueError:
+            continue
+        if when >= cutoff:
+            recent.append((when, event))
+
+    if not recent:
+        print(
+            f"no force-push to {REF} on {REPO} in the last {LOOKBACK} minutes "
+            f"({len(events)} historical event(s) known)."
+        )
+        return 0
+
+    print(f"FORCE-PUSH TO {REF} ON {REPO} — {len(recent)} in the last {LOOKBACK} min.")
+    print()
+    print(
+        "This is the failure compendium BUG-1160 records: merged PRs stop being\n"
+        "reachable from the branch while GitHub still reports them as MERGED, and\n"
+        "nothing else raises an error."
+    )
+    print()
+
+    for when, event in sorted(recent):
+        before = event.get("before", "")
+        after = event.get("after", "")
+        actor = (event.get("actor") or {}).get("login", "unknown")
+        print(f"  {when.isoformat()}  by {actor}")
+        print(f"    {before[:9]} -> {after[:9]}")
+
+        commits = dropped_commits(before, after)
+        if commits is None:
+            print(
+                "    could not compare the two tips — one may already have been "
+                "reclaimed.\n"
+                "    Recover from the merged PRs' own merge commits instead."
+            )
+        elif not commits:
+            print("    no commits dropped (a rewrite that kept the same content).")
+        else:
+            print(f"    {len(commits)} commit(s) no longer reachable:")
+            # The compare API returns oldest-first, which is also the order
+            # they must be replayed in — a later commit cherry-picked before
+            # the one it builds on conflicts (compendium BUG-1160 review).
+            for commit in commits:
+                sha = commit.get("sha", "")
+                subject = (commit.get("commit", {}).get("message", "")).split("\n")[0]
+                print(f"      {sha[:9]}  {subject}")
+            print()
+            print("    Recover by cherry-picking onto the current tip, in this order,")
+            print("    then land it as a PR — never by force-pushing a correction:")
+            for commit in commits:
+                print(f"      git cherry-pick {commit.get('sha', '')}")
+        print()
+
+    print("Full procedure: compendium BUG-1160 § Shipped / Verification.")
+    return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -1,0 +1,128 @@
+# Out-of-repo watch for force-pushes to the compendium's `main`.
+#
+# Compendium BUG-1160: a force-push rewound `main` past four merged PRs and
+# nothing raised an error — GitHub still reported all four as MERGED, because
+# they were; their commits had just stopped being reachable. It was found an
+# hour later by a failed `git merge --ff-only`.
+#
+# The compendium repo has its own alarm now (.github/workflows/
+# main-integrity.yml), with a hole this job exists to cover: for a `push` event
+# GitHub reads the workflow definitions FROM THE PUSHED REVISION, so a rewind
+# to a commit older than that workflow deletes the alarm in the same operation
+# that causes the loss. The 2026-09-21 incident is exactly that shape. A
+# detector living on the branch being rewritten cannot close it; this one lives
+# in a different repository, on the cluster, and reads the repository activity
+# API — which records force_push regardless of what the branch contains.
+#
+# HOW IT ALERTS: by failing. A non-zero exit fails the Job and surfaces through
+# the existing KubeJobFailed path. Deliberate — that path is already proven to
+# deliver, where a fresh Slack webhook can silently drift off its channel
+# (BUG-1135). The pod logs carry the full report and the cherry-pick list.
+#
+# The script is stateless: no PVC, no watermark. See its docstring for what
+# that costs (repeat alarms during an incident; a miss only if the cluster is
+# down for a whole lookback window).
+#
+# Script is mounted from the main-force-push-watch ConfigMap; regenerate with
+# compendium/regen-force-push-watch-configmap.sh after editing the .py and
+# commit both together.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: main-force-push-watch
+  namespace: compendium
+  labels:
+    app: main-force-push-watch
+spec:
+  # Every 30 min, offset off both the :00/:15/:30/:45 crowd (llama/ollama-warm
+  # is */15) and compendium-sync's 7,22,37,52.
+  schedule: "11,41 * * * *"
+  timeZone: Etc/UTC
+  # Lands ON. Unlike compendium-sync this job writes nothing, holds no lock and
+  # makes no Kubernetes API call — there is nothing to drill before trusting it,
+  # and a suspended alarm is not an alarm.
+  suspend: false
+  # A run takes seconds. Forbid only guards against a pathological API hang,
+  # which activeDeadlineSeconds already bounds.
+  concurrencyPolicy: Forbid
+  # A missed slot is retried for 5 minutes then skipped: the next slot is 30
+  # minutes out and the 90-minute lookback still covers the gap.
+  startingDeadlineSeconds: 300
+  successfulJobsHistoryLimit: 3
+  # Deliberately higher than the success limit. A failed Job here IS the
+  # incident record, and IMPR-1172's 48h reaper will clear it; keeping several
+  # means a burst of alarms stays inspectable in `kubectl get jobs`.
+  failedJobsHistoryLimit: 5
+  jobTemplate:
+    metadata:
+      labels:
+        app: main-force-push-watch
+    spec:
+      completions: 1
+      parallelism: 1
+      # No retry. A failure is either the alarm itself (retrying would re-report
+      # the same force-push) or the API being unreachable (retrying inside the
+      # same slot is unlikely to help, and the next slot is 30 min away).
+      backoffLimit: 0
+      activeDeadlineSeconds: 300
+      # Two days, so a weekend incident is still on the cluster come Monday.
+      ttlSecondsAfterFinished: 172800
+      template:
+        metadata:
+          labels:
+            app: main-force-push-watch
+        spec:
+          restartPolicy: Never
+          # It reads one external API and nothing else. No cluster credentials.
+          automountServiceAccountToken: false
+          containers:
+            - name: watch
+              # Same digest as compendium-sync. The script is stdlib-only, so
+              # nothing is installed at runtime.
+              image: python:3.13-slim@sha256:eb43ff125d8d58d7449dcba7d336c23bcac412f526d861db493b9994d8010280
+              imagePullPolicy: IfNotPresent
+              command:
+                - python3
+                - /scripts/main-force-push-watch.py
+              env:
+                - name: WATCH_REPO
+                  value: nathanwhyte/compendium
+                - name: WATCH_REF
+                  value: refs/heads/main
+                # Three schedule slots. One missed run still catches the event.
+                - name: LOOKBACK_MINUTES
+                  value: "90"
+                # Same secret compendium-sync uses; needs only read access.
+                #   kubectl create secret generic compendium-git-token \
+                #     -n compendium --from-literal=GITHUB_TOKEN=<github-pat>
+                - name: GITHUB_TOKEN
+                  valueFrom:
+                    secretKeyRef:
+                      name: compendium-git-token
+                      key: GITHUB_TOKEN
+              volumeMounts:
+                - name: scripts
+                  mountPath: /scripts
+                  readOnly: true
+              resources:
+                requests:
+                  cpu: 10m
+                  memory: 64Mi
+                limits:
+                  memory: 128Mi
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: ["ALL"]
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65534
+            runAsGroup: 65534
+            seccompProfile:
+              type: RuntimeDefault
+          volumes:
+            - name: scripts
+              configMap:
+                name: main-force-push-watch
+                defaultMode: 0o555
