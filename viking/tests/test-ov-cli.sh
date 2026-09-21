@@ -241,7 +241,9 @@ run "ov status shows queue" ov status --expect "queue"
 skip "ov wait with timeout" "hangs indefinitely through external HTTPS proxy (known Traefik long-poll issue)"
 
 # ov version
-run "ov version prints version" ov version --expect "0.3"
+# Matches both lines of the 0.4.x output ("CLI: 0.4.21" / "Server: v0.4.20");
+# the old "0.3" expectation predates the v0.4 cutover and could not pass.
+run "ov version prints version" ov version --expect "0.4"
 
 # ═══════════════════════════════════════════════════════════════
 # Section 2: Browsing & Navigation
@@ -519,7 +521,7 @@ skip "ov rm -r deletes directory" "returns CONFLICT during VLM processing (known
 section "11. Global Options"
 
 run "ov find with JSON output" ov find test -o json -n 1
-run "ov find with compact output" ov find test -c -n 1
+run "ov find with compact output" ov find test -c true -n 1
 
 # ═══════════════════════════════════════════════════════════════
 # Cleanup
