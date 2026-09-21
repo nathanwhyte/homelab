@@ -26,6 +26,9 @@ resources:
   - cuda-llamacpp-deployment.yaml
   - cuda-llamacpp-service.yaml
   - openviking-pvc.yaml
+  # BUG-1155: semantic overview template override. Holds ONE file; PromptManager
+  # falls back per file to the bundled templates for everything else.
+  - openviking-prompt-overrides-configmap.yaml
   - openviking-deployment.yaml
   - openviking-service.yaml
   - openviking-nodeport-service.yaml
