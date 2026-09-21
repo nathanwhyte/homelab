@@ -1,0 +1,42 @@
+# Source for /etc/sudoers.d/homelab-deploy, installed by
+# llama/host/install-sudo-deploy.sh. Do not copy it into place by hand.
+#
+# THE INSTALLED NAME HAS NO DOT, AND MUST NOT. sudo SILENTLY IGNORES any file in
+# /etc/sudoers.d whose name contains '.' or ends in '~' -- installing this as
+# "homelab-deploy.sudoers" would parse, validate, and grant nothing. The
+# installer checks `sudo -l -U noot` afterwards for exactly that reason.
+#
+# What noot may run as root, without a password, and nothing else:
+#
+#   HOMELAB_OLLAMA_DEPLOY  deploy what is on GitHub main. The wrapper keeps a
+#                          root-owned checkout reset to origin/main; noot's own
+#                          ~/code/homelab is never an input. Exact argument
+#                          forms only -- "" means no arguments.
+#   HOMELAB_OLLAMA_UNITS   start/stop/restart ollama, start/restart ollama-warm
+#                          (stop is the drain / GPU-lending step README.md
+#                          documents as manual). Their unit files
+#                          and drop-ins are root:root and not writable by noot,
+#                          so restarting them runs nothing noot controls.
+#
+# No SETENV and no env_keep additions: with the host's default env_reset,
+# REPO_DIR and GIT_* cannot reach the wrapper. Journal reads need no rule --
+# noot is in the adm group.
+Cmnd_Alias HOMELAB_OLLAMA_DEPLOY = \
+	/usr/local/sbin/homelab-ollama-deploy.sh "", \
+	/usr/local/sbin/homelab-ollama-deploy.sh --check, \
+	/usr/local/sbin/homelab-ollama-deploy.sh --sync-models, \
+	/usr/local/sbin/homelab-ollama-deploy.sh --sync-identity
+
+Cmnd_Alias HOMELAB_OLLAMA_UNITS = \
+	/usr/bin/systemctl restart ollama, \
+	/usr/bin/systemctl restart ollama.service, \
+	/usr/bin/systemctl stop ollama, \
+	/usr/bin/systemctl stop ollama.service, \
+	/usr/bin/systemctl start ollama, \
+	/usr/bin/systemctl start ollama.service, \
+	/usr/bin/systemctl restart ollama-warm, \
+	/usr/bin/systemctl restart ollama-warm.service, \
+	/usr/bin/systemctl start ollama-warm, \
+	/usr/bin/systemctl start ollama-warm.service
+
+noot ALL=(root) NOPASSWD: HOMELAB_OLLAMA_DEPLOY, HOMELAB_OLLAMA_UNITS
