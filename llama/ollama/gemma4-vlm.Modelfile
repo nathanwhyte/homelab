@@ -25,11 +25,19 @@
 #
 # KNOWN LIMITATION, and it is OpenViking's, not this model's:
 # semantic.overview_generation asks for 400-800 words PLUS one H3 subsection per
-# entry, while storage caps the result at semantic.overview_max_chars = 4000.
+# entry, while storage caps the result at semantic.overview_max_chars.
 # A compliant 800-word overview is already ~5200 chars. Both models lose most of
 # their overview to _enforce_size_limits -- this tag keeps 36% of its output and
 # 9 of 14 resolving links. Raising overview_max_chars or shrinking the template's
 # target is the fix; changing models is not.
+#
+# RESOLVED 2026-09-18/21 (BUG-1155): overview_max_chars was raised 4000 -> 12000
+# and the overview_generation template was overridden per-entry (homelab #136)
+# with a terminal-period rule and a 5-word gloss cap (#139), because the flat
+# nav list had no sentence boundaries and _truncate_generated_text discarded the
+# WHOLE list once it passed the cap. bugs/dipdash went 458 chars / 0 targets to
+# 11851 chars / 105 targets. The paragraph above is kept as the record of why
+# those keys moved; do not re-derive it from the stale 4000 figure.
 #
 # TWO OPERATIONAL FACTS THIS TAG DEPENDS ON:
 #  1. gemma4 is a THINKING model. Without `think: false` it spends the whole
@@ -50,10 +58,114 @@ FROM gemma4:12b-it-qat
 
 # RENDERER / PARSER inherited (gemma4) — never restated. `think` is per-request.
 
-# 16384 holds an OV document_summary prompt (a ~5.5k-token entry plus the ~250
-# token template) with room for a batched overview_generation, whose input is
-# semantic.overview_batch_size (50) file summaries.
-PARAMETER num_ctx 16384
+# 32768, raised from 16384 on 2026-09-21 after the BUG-1155 cold ingest.
+#
+# THE OVERFLOW IS DEMONSTRATED. During the 2026-09-21 cold ingest the ollama
+# daemon logged 6,221 llama.cpp slot releases, of which 36 carry `truncated = 1`
+# and EVERY ONE of those sits at exactly `n_tokens = 16383` -- num_ctx minus
+# one, the context wall. The highest non-truncated release is 16368, and 44
+# releases exceed 15,000 tokens, so this is a population pressing against the
+# ceiling rather than one outlier. Window: 02:06Z to 08:28Z.
+#
+#   journalctl -u ollama | grep -o "n_tokens = [0-9]*, truncated = [0-9]*"
+#
+# IT IS A GENERATION-CAPACITY STOP, AND CONTENT WAS LOST. Review raised the
+# right objection: `truncated = 1` alone does not prove loss, because an EOS
+# arriving at the boundary sets STOP_TYPE_EOS while leaving the flag set
+# (b10864 tools/server/server-context.cpp:1952). The journal records no stop
+# reason at all -- `stop type`, `stopped_eos` and `stopped_limit` are absent --
+# so the flag cannot settle it. Joining the release lines to
+# `slot print_timing` on task id does:
+#
+#   50 truncated tasks with both counts (12h window)
+#   prompt tokens       8,474 - 13,666     <- all WELL under 16384
+#   generated tokens    2,717 -  7,909
+#   prompt + generated  16,378 - 16,383, mean 16,383
+#   exactly 16,383      44 of 50
+#
+# The prompts are nowhere near the limit; the TOTAL is pinned at the ceiling
+# across prompts that vary by 5,000 tokens. Natural EOS would scatter those
+# totals the way the 7,055 untruncated releases scatter (p50 1,496, p99 9,344,
+# max 16,378). Forty-four exact landings on n_ctx-1 is a hard limit, not a
+# coincidence. This also resolves the prompt-vs-generation question the earlier
+# comment hedged on: prompt assembly was never the issue -- generation ran into
+# the wall, exactly as the non-shifting capacity path predicts.
+#
+# Nothing surfaced upstream: OpenViking's text-completion path returns message
+# content and drops finish_reason (openviking/models/vlm/backends/openai_vlm.py,
+# models/vlm/base.py), so a length-limited response never becomes an error.
+# That is a source fact; the zero finish_reason lines in the log prove nothing
+# on their own, and neither do the zero "truncating input" matches -- that
+# string exists in v0.34.1, but its warning path is only one of several and the
+# chat path logs truncation at Debug level (ollama server/prompt.go).
+#
+# ATTRIBUTION IS BY EXCLUSION AND CONDITIONAL. Ollama launches a runner with
+# NumCtx x numParallel and llama.cpp divides it per sequence, so the 8K FIM
+# runner cannot produce a 16,383-token sequence -- these are the 16K runner's.
+# But the journal retains no runner-start or n_ctx lines (both models have been
+# pinned since before the window), so "only gemma4:vlm and qwen2.5-coder:fim
+# were live" is taken from the deployment's steady state, not proven from this
+# log. Nor does it prove every caller was OpenViking. And 50/7,105 is a
+# host-wide slot-release fraction, not an OpenViking failure rate.
+#
+# AN EARLIER VERSION OF THIS COMMENT GOT BOTH DIRECTIONS WRONG. First it
+# asserted the overflow from "60000 + 12000 chars ~= 18000 tokens", which is not
+# a context requirement at all: max_overview_prompt_chars bounds SUMMARY STRINGS
+# before the template is added, overview_max_chars truncates the STORED overview
+# AFTER generation and link expansion without capping completion tokens
+# (max_tokens is unset), and 4 chars/token was an estimate presented as a
+# measurement. Review then correctly refuted that reasoning, and the comment
+# over-corrected to "headroom, no overflow observed" -- while the evidence sat
+# unread in the daemon's own journal. The lesson is the reading, not the
+# arithmetic: measure the thing, do not derive it from config keys.
+#
+# WHY THE RAISE IS AFFORDABLE, with the corrected arithmetic:
+#
+#   40 of 48 layers   sliding window 1024, kv_heads 8, k/v len 256
+#    8 of 48 layers   full attention,      kv_heads 1, k/v len 512
+#
+# q8_0 stores 34 bytes per 32 values, so full-attention KV is 8.5 KiB/token/
+# slot (not 8.0), and the pinned allocator pads SWA cells by n_ubatch (512)
+# plus 256-cell rounding -- 1536 cells per slot, not a flat 1024
+# (llama.cpp b10864 src/llama-kv-cache-iswa.cpp:69).
+#
+#   num_ctx 16384 x 4 slots -> ~1.64 GB KV
+#   num_ctx 32768 x 4 slots -> ~2.21 GB KV      (+0.57 GB)
+#
+# Weights are ~7 GB, the card is 16 GB, and qwen2.5-coder:fim (2.73 GB) is the
+# other resident tag, so the delta fits comfortably.
+#
+# 32768 IS VERY LIKELY SUFFICIENT, THOUGH NOT PROVEN. The unknown is the
+# CONTINUATION that would have been generated with more room, not a destroyed
+# original prompt -- the prompts are recoverable and top out at 13,666 tokens.
+# At 32768 those same requests get ~19,000 tokens of generation headroom
+# against an overview target of ~3,000, and the largest generation actually
+# observed was 7,909 before it hit the wall. That is a lower bound on what the
+# model wanted, not an upper bound, so sufficiency stays unproven.
+#
+# VERIFY AFTER THE RELOAD, with an ABSOLUTE window -- `--since "9 hours ago"`
+# slides and will re-count today's 16,383 events:
+#
+#   journalctl -u ollama --since "<exact post-reload timestamp>" \
+#     | grep -o "n_tokens = [0-9]*, truncated = [0-9]*"
+#
+# A clean result is zero truncated=1. If they reappear they will sit at 32,767,
+# and 65,536 costs a FURTHER ~1.14 GB (3.35 GB total KV at 4 slots) -- not the
+# "+0.6 GB" an earlier version of this comment claimed, which wrongly repeated
+# the 16K->32K delta instead of computing the 32K->64K one.
+#
+# NOT independently confirmed: `ollama ps` reports 8.74 GB loaded against a
+# 7.15 GB tag, but on-disk tag size is not resident weights and the residual
+# includes other buffers, so that subtraction does NOT validate the KV figure.
+# The deployed allocation is unverified until the daemon's startup allocation
+# log is read after the reload.
+#
+# DO NOT reconcile these numbers against the "4 slots x num_ctx 8192 = 4.5 GiB
+# q8_0 KV" line in llama/host/ollama.service.d/homelab.conf -- that figure
+# (IMPR-1083) sized a dense model with no sliding window and many more kv
+# heads. Both are right for their model. Any future tag change here must
+# re-derive KV from ITS OWN /api/show shape and the allocator's padding rules.
+PARAMETER num_ctx 32768
 PARAMETER temperature 0
 PARAMETER top_p 0.95
 PARAMETER top_k 64
