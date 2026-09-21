@@ -8,7 +8,7 @@ OV is for **knowledge artifacts** — decisions, debugging insights, architectur
 
 Knowledge enters OV through two paths:
 
-1. **Automatic**: Session commits extract memories into `viking://user/noot/memories/` and `viking://agent/default/memories/` (a user or agent path with no id segment is rejected since v0.4.17)
+1. **Automatic**: Session commits extract memories into `viking://user/noot/memories/` (the same path without the `noot` user-id segment is rejected as `INVALID_URI` since v0.4.17). Agent-scoped extraction has not been observed on this deployment, so no agent destination is given here
 2. **Manual**: Agents add notable findings via `viking_add_text` during normal work
 
 ### Before adding anything, ask three questions
@@ -292,7 +292,7 @@ After `session.commit()`, OV runs async memory extraction:
 
 1. Session messages are archived
 2. VLM analyzes conversation for memorable insights
-3. Extracted memories are stored in `viking://user/noot/memories/` (observed 2026-09-21: `events/<yyyy>/<mm>/<dd>/` and `preferences/user/`) or `viking://agent/default/memories/` (not yet demonstrated by a live write)
+3. Extracted memories are stored in `viking://user/noot/memories/` (observed 2026-09-21: `events/<yyyy>/<mm>/<dd>/` and `preferences/user/`). No agent-scoped destination has been demonstrated by a live write
 4. Poll task status until `completed`
 
 ### `viking_add_text` vs `viking_session_commit`

@@ -193,9 +193,12 @@ wait_for_pending() {
   # items in-flight during normal operation. We only care that nothing is queued.
   # The queue table is only in --verbose output (v0.4.20); plain `ov status`
   # prints a summary with no TOTAL row, and an empty parse used to read as
-  # "0 pending", so the helper returned at once without waiting. It now fails
-  # closed: no parsable TOTAL row is "not drained". The queue table is the
-  # first table printed, so the first TOTAL match is the right one.
+  # "0 pending", so the helper returned at once without waiting. Now an
+  # unparsable TOTAL row counts as "not drained" and the helper returns 1 at the
+  # timeout. This is still a best-effort wait: every caller continues on
+  # failure (`|| true` or a warning), and a zero pending count is not proof that
+  # processing finished — tests that need completion check read-back instead.
+  # The queue table is the first table printed, so the first TOTAL match is it.
   # Usage: wait_for_pending [max_seconds]
   local max_sec="${1:-30}"
   local elapsed=0
