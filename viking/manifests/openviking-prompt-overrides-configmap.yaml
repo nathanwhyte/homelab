@@ -40,6 +40,34 @@
 #     list. The decision-tree framing invited prose with bare filenames, producing
 #     zero link targets while Detailed Description still had H3 links — exactly the
 #     "0 nav links / 9-14 detail sections" shape seen in the audit.
+#
+# 2026-09-21 CORRECTION — the nav lines MUST end with a period, and the gloss is
+# capped at 5 words rather than 8. The first version of this override got this
+# wrong and broke the largest directory in the vault.
+#
+# _truncate_generated_text cuts at the LAST SENTENCE BOUNDARY before the limit.
+# A flat list whose lines carry no terminal punctuation contains no boundaries, so
+# once the list alone pushes past overview_max_chars the only boundary left is the
+# end of the Brief Description — and the whole list is discarded rather than
+# trimmed. bugs/dipdash grew 103 -> 105 entries, crossed that threshold, and its
+# stored overview collapsed to 465 chars with ZERO links (it had been 28/103).
+# That 465 is exactly the length of the H1 + Brief Description + heading block.
+#
+# Measured against the installed truncator, 105 entries at overview_max_chars 12000:
+#
+#     gloss   trailing period   links kept
+#     8 words       no              0      <- the live failure
+#     8 words      YES            102      graceful
+#     5 words       no            105      complete (but only until the next entry)
+#     5 words      YES            105      complete, and degrades gracefully after
+#
+# So the period is the load-bearing fix: it gives truncation somewhere to cut
+# INSIDE the list, turning total loss into per-entry loss at any future size. The
+# 5-word cap is the margin that keeps it from triggering at today's sizes. At 130
+# entries the period is the difference between 117 links and none.
+#
+# This is why "Quick Navigation survives truncation by construction" was too strong
+# a claim: order alone does not save the list, punctuation does.
 #   * Directory Coverage moved below Quick Navigation (~150 chars of budget).
 #   * Detailed Description bodies capped at one sentence, <=30 words (~180 chars vs
 #     a 746 uncapped median).
@@ -166,9 +194,10 @@ data:
          - Then emit exactly one line for EVERY entry listed above, in the order
            given. This list must be complete. Do not group, cluster, summarise,
            or skip entries.
-         - Each line is exactly: `- [display title](placeholder) — <description>`
-           where <description> is at most 8 words. Example:
-           `- [bug-049.md](viking://input_sample_f1) — Mage mapping type null safety`
+         - Each line is exactly: `- [display title](placeholder) — <description>.`
+           where <description> is at most 5 words and the line ENDS WITH A PERIOD.
+           The trailing period is required on every line. Example:
+           `- [bug-049.md](viking://input_sample_f1) — Mage mapping null safety.`
          - No decision-tree prose, no questions, no sub-bullets, no nested lists
 
       4. **{{ "目录覆盖" if output_language == "zh-CN" else "Directory Coverage" }}** (H2): one sentence
