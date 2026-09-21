@@ -10,6 +10,9 @@ and `llama/ollama-jobs.yaml` (CronJobs that talk to the daemon over HTTP).
 | `ollama.service.d/homelab.conf`   | `/etc/systemd/system/ollama.service.d/`             | The env the pod used to carry (bind, ctx, KV, Vulkan, …)                |
 | `ollama-warm.sh` + `.service`     | `/opt/ollama-host/`, `/etc/systemd/system/`         | Post-start: build + load-only warm of the FIM tag, build agentpair tags |
 | `install-host-ollama.sh`          | run from a repo checkout, with sudo                 | Pins the binary, installs the above, reconciles the exporter            |
+| `homelab-ollama-deploy.sh`        | `/usr/local/sbin/` (root:root 0755)                 | Passwordless deploy of **GitHub main** only — see below                 |
+| `homelab-deploy.sudoers`          | `/etc/sudoers.d/homelab-deploy` (0440, no dot)      | Grants noot that wrapper plus ollama start/stop/restart, nothing else   |
+| `install-sudo-deploy.sh`          | run once, with sudo, from `/opt/homelab-src`        | Installs the two above; validates sudoers before and after              |
 | `llama/ollama/ollama-exporter.py` | `/opt/ollama-exporter/` (`ollama-exporter.service`) | Prometheus metrics on `:9111`, scraped as `ollama.llama.svc:9111`       |
 
 Why host instead of pod: single owner of `11434` (no klipper DNAT arbitration), real VRAM
@@ -104,6 +107,44 @@ LoadBalancer Service; the host daemon cannot bind `0.0.0.0:11434` until that is 
 | Pull a model from the cluster | `kubectl -n llama create job --from=cronjob/ollama-pull pull-$(date +%s)` after setting `MODEL`                        |
 | Is the FIM model resident?    | `curl -s 192.168.1.19:11434/api/ps`; `/run/ollama/models-ready` records successful startup warm, not current residency |
 | Metrics                       | `curl -s 192.168.1.19:9111/metrics`; Grafana scrapes `ollama.llama.svc:9111`                                           |
+
+### Passwordless deploys
+
+`install-host-ollama.sh` needs root, which used to mean a password prompt on every config
+change — so an agent session could prepare a change but never land it. A NOPASSWD rule on
+`~/code/homelab/llama/host/install-host-ollama.sh` would fix the prompt and open a hole: that
+file, and every drop-in and script it copies into `/etc/systemd` and `/opt/ollama-host`, is
+owned by noot. Anything that can edit noot's home — any agent running as noot — could change
+them and get root on the next passwordless run.
+
+So the grant covers a wrapper that deploys **only what is on GitHub main**:
+
+```bash
+sudo homelab-ollama-deploy.sh            # == install-host-ollama.sh, from main
+sudo homelab-ollama-deploy.sh --check    # (and --sync-models / --sync-identity)
+sudo systemctl restart ollama            # start / stop / restart, ollama-warm start / restart
+```
+
+It keeps a root-owned checkout at `/opt/homelab-src`, resets it to `origin/main` from the
+public remote on every run, refuses if that tree has been made writable by anyone else, and
+runs the installer from there with `REPO_DIR` pinned. `~/code/homelab` is never read. Getting
+code deployed without a password now means getting it merged. Every run appends the deployed
+sha to `/var/log/homelab-deploy.log`.
+
+**One-time setup** (and again only to change the wrapper or the grant — the privilege
+definition deliberately does not self-update, so it stays behind a human password):
+
+```bash
+sudo git clone https://github.com/nathanwhyte/homelab.git /opt/homelab-src
+sudo /opt/homelab-src/llama/host/install-sudo-deploy.sh
+```
+
+The bootstrap refuses to run from a user-writable tree, so running it from `~/code/homelab`
+fails on purpose. It validates the fragment with `visudo -cf` before installing, re-validates
+the whole config after (rolling back if that fails — a bad include can break sudo entirely),
+and confirms with `sudo -l -U noot` that the grant is live, because sudo silently ignores any
+`sudoers.d` file whose name contains a dot. `--check` reports state; `--uninstall` removes it.
+Tests: `bash llama/host/tests/test-homelab-ollama-deploy.sh llama/host`.
 
 Node maintenance: `scripts/node-maintenance.sh --spin-down` no longer scales `llama/ollama`
 (there is no Deployment); the daemon rides through drains and stops with the host on reboot.
