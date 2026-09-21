@@ -25,11 +25,19 @@
 #
 # KNOWN LIMITATION, and it is OpenViking's, not this model's:
 # semantic.overview_generation asks for 400-800 words PLUS one H3 subsection per
-# entry, while storage caps the result at semantic.overview_max_chars = 4000.
+# entry, while storage caps the result at semantic.overview_max_chars.
 # A compliant 800-word overview is already ~5200 chars. Both models lose most of
 # their overview to _enforce_size_limits -- this tag keeps 36% of its output and
 # 9 of 14 resolving links. Raising overview_max_chars or shrinking the template's
 # target is the fix; changing models is not.
+#
+# RESOLVED 2026-09-18/21 (BUG-1155): overview_max_chars was raised 4000 -> 12000
+# and the overview_generation template was overridden per-entry (homelab #136)
+# with a terminal-period rule and a 5-word gloss cap (#139), because the flat
+# nav list had no sentence boundaries and _truncate_generated_text discarded the
+# WHOLE list once it passed the cap. bugs/dipdash went 458 chars / 0 targets to
+# 11851 chars / 105 targets. The paragraph above is kept as the record of why
+# those keys moved; do not re-derive it from the stale 4000 figure.
 #
 # TWO OPERATIONAL FACTS THIS TAG DEPENDS ON:
 #  1. gemma4 is a THINKING model. Without `think: false` it spends the whole
@@ -50,10 +58,46 @@ FROM gemma4:12b-it-qat
 
 # RENDERER / PARSER inherited (gemma4) — never restated. `think` is per-request.
 
-# 16384 holds an OV document_summary prompt (a ~5.5k-token entry plus the ~250
-# token template) with room for a batched overview_generation, whose input is
-# semantic.overview_batch_size (50) file summaries.
-PARAMETER num_ctx 16384
+# 32768, raised from 16384 on 2026-09-21 after the BUG-1155 cold ingest.
+#
+# 16384 was sized against overview_max_chars = 4000. That key is now 12000, and
+# the arithmetic no longer closes:
+#
+#   max_overview_prompt_chars  60000 chars ~= 15000 tokens   (code default, unset)
+#   overview_max_chars output  12000 chars ~=  3000 tokens
+#                                      total ~= 18000  >  16384
+#
+# So a single-batch directory near the prompt budget overflows the window, and
+# even a 50-entry batch (~55000 chars ~= 13750 tokens, plus output) grazes it.
+# Nothing in the 2026-09-21 run logged a context error, because ollama shifts
+# context silently rather than failing -- which is exactly why this is worth
+# fixing on arithmetic rather than waiting for a symptom.
+#
+# The raise is cheap because of gemma4's attention shape, measured from
+# /api/show on the running host:
+#
+#   40 of 48 layers   sliding window 1024, kv_heads 8, k/v len 256  -> KV FIXED
+#    8 of 48 layers   full attention,       kv_heads 1, k/v len 512  -> KV scales
+#
+# Only the 8 global layers scale with num_ctx, and they carry ONE kv head each,
+# so KV costs ~8 KiB/token/slot. With OLLAMA_KV_CACHE_TYPE=q8_0 and
+# OLLAMA_NUM_PARALLEL=4 on the host:
+#
+#   num_ctx 16384 x 4 slots -> 1.21 GB KV
+#   num_ctx 32768 x 4 slots -> 1.74 GB KV      (+0.53 GB)
+#
+# CONFIRMED against the running host, not just derived: `ollama ps` reports this
+# tag at 8.74 GB loaded against 7.15 GB of weights, i.e. 1.59 GB of KV plus
+# runner overhead at 4 x 16384 -- the 1.21 GB above plus ~0.38 GB. After the
+# raise expect ~9.3 GB, and ~12.0/16 GB once qwen2.5-coder:fim (2.73 GB) is
+# resident. 65536 would also fit (2.82 GB KV) but buys nothing the budget needs.
+#
+# DO NOT reconcile this against the "4 slots x num_ctx 8192 = 4.5 GiB q8_0 KV"
+# line in llama/host/ollama.service.d/homelab.conf -- that figure (IMPR-1083)
+# sized a dense model with no sliding window and many more kv heads, and is ~15x
+# per token what gemma4 actually costs. Both numbers are right for their model.
+# Any future tag change here must re-derive KV from ITS OWN /api/show shape.
+PARAMETER num_ctx 32768
 PARAMETER temperature 0
 PARAMETER top_p 0.95
 PARAMETER top_k 64
