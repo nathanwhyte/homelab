@@ -1,6 +1,6 @@
 # OpenViking Organization Guide
 
-This project uses [OpenViking](https://github.com/volcengine/OpenViking) (v0.4.10) as a persistent knowledge base for AI agents.
+This project uses [OpenViking](https://github.com/volcengine/OpenViking) (v0.4.20) as a persistent knowledge base for AI agents.
 
 ## Core principle: Progressive addition, not bulk indexing
 
@@ -8,7 +8,7 @@ OV is for **knowledge artifacts** — decisions, debugging insights, architectur
 
 Knowledge enters OV through two paths:
 
-1. **Automatic**: Session commits extract memories into `user/memories/` and `agent/memories/`
+1. **Automatic**: Session commits extract memories into `viking://user/noot/memories/` and `viking://agent/default/memories/` (a user or agent path with no id segment is rejected since v0.4.17)
 2. **Manual**: Agents add notable findings via `viking_add_text` during normal work
 
 ### Before adding anything, ask three questions
@@ -247,8 +247,8 @@ For personal-band entries (IDs ≥ 1000) in the unified vault, set `COMPENDIUM_R
 > - Nothing in this estate calls `cp`/`mv` from code; this table row is the only
 >   place it is recommended, which is why the warning lives here.
 >
-> On the deployed v0.4.10 server the old behaviour still applies. This warning
-> takes effect at cutover.
+> Production has run v0.4.20 since the 2026-09-15 cutover, so this warning is
+> in effect now (compendium BUG-1141).
 
 | List directory | `ov ls viking://resources/homelab/` | Quick check of contents |
 | Read file content | `ov read viking://resources/homelab/gpu/assessment.md` | View L2 full content |
@@ -292,7 +292,7 @@ After `session.commit()`, OV runs async memory extraction:
 
 1. Session messages are archived
 2. VLM analyzes conversation for memorable insights
-3. Extracted memories are stored in `viking://user/memories/` or `viking://agent/memories/`
+3. Extracted memories are stored in `viking://user/noot/memories/` (observed 2026-09-21: `events/<yyyy>/<mm>/<dd>/` and `preferences/user/`) or `viking://agent/default/memories/` (not yet demonstrated by a live write)
 4. Poll task status until `completed`
 
 ### `viking_add_text` vs `viking_session_commit`

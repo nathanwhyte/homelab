@@ -188,20 +188,25 @@ wait_for_ready() {
 }
 
 wait_for_pending() {
-  # Polls ov status until the TOTAL row shows 0 pending items.
+  # Polls ov status --verbose until the queue table's TOTAL row shows 0 pending.
   # Note: InProgress is intentionally NOT checked — OV workers always have
   # items in-flight during normal operation. We only care that nothing is queued.
+  # The queue table is only in --verbose output (v0.4.20); plain `ov status`
+  # prints a summary with no TOTAL row, and an empty parse used to read as
+  # "0 pending", so the helper returned at once without waiting. It now fails
+  # closed: no parsable TOTAL row is "not drained". The queue table is the
+  # first table printed, so the first TOTAL match is the right one.
   # Usage: wait_for_pending [max_seconds]
   local max_sec="${1:-30}"
   local elapsed=0
 
   while [[ $elapsed -lt $max_sec ]]; do
     local status
-    status=$($OV status 2>&1)
-    # Parse Pending column from TOTAL row — awk exits 0 if Pending == 0
+    status=$($OV status --verbose 2>&1)
+    # Parse Pending column from the first TOTAL row
     local pending
-    pending=$(echo "$status" | awk -F'|' '/TOTAL/{gsub(/ /,"",$3); print $3+0; exit}')
-    if [[ "$pending" -eq 0 ]]; then
+    pending=$(echo "$status" | awk -F'|' '/\| *TOTAL/{gsub(/ /,"",$3); print $3; exit}')
+    if [[ "$pending" =~ ^[0-9]+$ && "$pending" -eq 0 ]]; then
       return 0
     fi
     sleep 3
@@ -352,7 +357,8 @@ skip "ov add-resource with --to" "multipart upload fails through kubectl port-fo
 # then test `ov write --append` against the already-processed test-read.md from
 # Section 3. This covers both write paths without lock contention.
 
-# Create imported.md for relation tests in Section 6
+# Create imported.md — this is the suite's `ov write --mode create` coverage.
+# (It was also the fixture for the Relations section, removed below.)
 # If the dir is still locked (SECT3_READ_OK=false), skip all write-into-dir tests.
 SECT5_IMPORTED_OK=false
 if $SECT3_READ_OK; then
@@ -360,13 +366,13 @@ if $SECT3_READ_OK; then
   # "resource is busy" because the probe write's VLM processing re-locks the
   # dir. This is a known OV behavior — VLM holds a directory-level lock during
   # semantic processing of ANY child. The `run` helper retries 20×5s.
-  run "ov write imported.md for relation tests" ov write "${TEST_DIR}imported.md" --content "# Write Test\n\nContent for testing ov link relations." --mode create
+  run "ov write --mode create (imported.md)" ov write "${TEST_DIR}imported.md" --content "# Write Test\n\nContent for testing ov write --mode create." --mode create
   # Check if the write actually succeeded (run helper may have retried past failures)
   if $OV stat "${TEST_DIR}imported.md" &>/dev/null; then
     SECT5_IMPORTED_OK=true
   fi
 else
-  skip "ov write imported.md for relation tests" "parent dir still locked from VLM processing"
+  skip "ov write --mode create (imported.md)" "parent dir still locked from VLM processing"
 fi
 
 # ov write — append to an already-processed file
@@ -399,17 +405,11 @@ run "ov add-memory JSON message" ov add-memory '{"role":"user","content":"Test m
 # ═══════════════════════════════════════════════════════════════
 # Section 6: Relations
 # ═══════════════════════════════════════════════════════════════
-section "6. Relations (Links)"
+section "6. Relations (Links) — removed upstream"
 
-if $SECT5_IMPORTED_OK; then
-  run "ov link creates relation" ov link "${TEST_DIR}test-read.md" "${TEST_DIR}imported.md" --reason test-link
-  run "ov relations lists links" ov relations "${TEST_DIR}test-read.md"
-  run "ov unlink removes relation" ov unlink "${TEST_DIR}test-read.md" "${TEST_DIR}imported.md"
-else
-  skip "ov link creates relation" "imported.md not created (VLM lock)"
-  skip "ov relations lists links" "imported.md not created (VLM lock)"
-  skip "ov unlink removes relation" "imported.md not created (VLM lock)"
-fi
+# The relations commands (link, relations, unlink) were removed upstream in
+# OpenViking v0.4.16 and nothing replaced them, so this section has no tests.
+# Do not restore it: the commands no longer exist in the CLI. (IMPR-1153, D16.)
 
 # ═══════════════════════════════════════════════════════════════
 # Section 7: Export & Import
@@ -476,14 +476,16 @@ fi
 # ═══════════════════════════════════════════════════════════════
 section "9. Reindexing"
 
-# reindex -r triggers VLM regeneration; fails with INTERNAL if resources are mid-processing
+# reindex --mode semantic_and_vectors triggers VLM regeneration; fails with INTERNAL
+# if resources are mid-processing. (v0.4.20 has no -r flag: recursion is
+# --recursive <true|false>, and --wait takes <true|false>.)
 echo -e "  ${CYAN}Draining pending items before reindex tests...${NC}"
 wait_for_pending 30 2>/dev/null || true
 
 # Known server bugs: reindex returns INTERNAL error when VLM is processing
 # other resources in the cluster. This is not a test script issue.
 skip "ov reindex on file" "returns INTERNAL server error (known OV server bug)"
-skip "ov reindex with regenerate" "returns INTERNAL server error (known OV server bug)"
+skip "ov reindex --mode semantic_and_vectors" "returns INTERNAL server error (known OV server bug); --mode replaced the old regenerate flag"
 # ov reindex --wait blocks until processing completes — skip to avoid long hangs
 skip "ov reindex with wait" "blocks indefinitely under VLM load; use fire-and-forget reindex instead"
 

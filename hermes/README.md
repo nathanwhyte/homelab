@@ -291,7 +291,7 @@ Hermes writes to namespaces that don't overlap with compendium-sync:
 | Writer                    | Namespace                                                         |
 | ------------------------- | ----------------------------------------------------------------- |
 | Hermes built-in mirror    | `viking://resources/patterns/`, `viking://resources/preferences/` |
-| Hermes session extraction | `viking://user/memories/`, `viking://agent/memories/`             |
+| Hermes session extraction | `viking://user/noot/memories/`, `viking://agent/default/memories/` |
 | Work compendium-sync      | `viking://resources/compendium/`                                  |
 | Personal compendium-sync  | `viking://resources/personal/`                                    |
 | Homelab index scripts     | `viking://resources/projects/homelab/`                            |
