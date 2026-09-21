@@ -60,43 +60,56 @@ FROM gemma4:12b-it-qat
 
 # 32768, raised from 16384 on 2026-09-21 after the BUG-1155 cold ingest.
 #
-# 16384 was sized against overview_max_chars = 4000. That key is now 12000, and
-# the arithmetic no longer closes:
+# HEADROOM, NOT A FIX FOR A DEMONSTRATED OVERFLOW. 16384 was sized when
+# semantic.overview_max_chars was 4000; that key is 12000 now and the prompt
+# budget has grown with it. No overflow has been observed, and the first
+# version of this comment claimed one on arithmetic that does not hold:
 #
-#   max_overview_prompt_chars  60000 chars ~= 15000 tokens   (code default, unset)
-#   overview_max_chars output  12000 chars ~=  3000 tokens
-#                                      total ~= 18000  >  16384
+#   * max_overview_prompt_chars bounds SUMMARY STRINGS before the template is
+#     added. It bounds neither the rendered batch prompt nor the merge prompt.
+#   * overview_max_chars truncates the STORED overview after generation and
+#     link expansion. It does not cap completion tokens; max_tokens is unset.
+#   * 4 chars/token is an estimate, not a measured ratio for text this dense in
+#     identifiers and viking:// placeholders.
 #
-# So a single-batch directory near the prompt budget overflows the window, and
-# even a 50-entry batch (~55000 chars ~= 13750 tokens, plus output) grazes it.
-# Nothing in the 2026-09-21 run logged a context error, because ollama shifts
-# context silently rather than failing -- which is exactly why this is worth
-# fixing on arithmetic rather than waiting for a symptom.
+# Nor is "ollama shifts context silently" the mechanism. Oversized INPUT emits
+# a truncation warning (ollama llm/llama_server.go:280), and because this tag
+# carries a multimodal projector the pinned llama-server DISABLES
+# generation-time context shifting and stops at capacity instead
+# (llama.cpp b10864 tools/server/server-context.cpp:1174). What hides a
+# length-limited response is downstream: OpenViking's text-completion path
+# discards finish_reason, so it never becomes a pod error. Absence of OV errors
+# still cannot rule context loss in or out -- the evidence to look for is
+# daemon truncation warnings or request token counts, neither of which was
+# available here.
 #
-# The raise is cheap because of gemma4's attention shape, measured from
-# /api/show on the running host:
+# WHY THE RAISE IS AFFORDABLE, with the corrected arithmetic:
 #
-#   40 of 48 layers   sliding window 1024, kv_heads 8, k/v len 256  -> KV FIXED
-#    8 of 48 layers   full attention,       kv_heads 1, k/v len 512  -> KV scales
+#   40 of 48 layers   sliding window 1024, kv_heads 8, k/v len 256
+#    8 of 48 layers   full attention,      kv_heads 1, k/v len 512
 #
-# Only the 8 global layers scale with num_ctx, and they carry ONE kv head each,
-# so KV costs ~8 KiB/token/slot. With OLLAMA_KV_CACHE_TYPE=q8_0 and
-# OLLAMA_NUM_PARALLEL=4 on the host:
+# q8_0 stores 34 bytes per 32 values, so full-attention KV is 8.5 KiB/token/
+# slot (not 8.0), and the pinned allocator pads SWA cells by n_ubatch (512)
+# plus 256-cell rounding -- 1536 cells per slot, not a flat 1024
+# (llama.cpp b10864 src/llama-kv-cache-iswa.cpp:69).
 #
-#   num_ctx 16384 x 4 slots -> 1.21 GB KV
-#   num_ctx 32768 x 4 slots -> 1.74 GB KV      (+0.53 GB)
+#   num_ctx 16384 x 4 slots -> ~1.64 GB KV
+#   num_ctx 32768 x 4 slots -> ~2.21 GB KV      (+0.57 GB)
 #
-# CONFIRMED against the running host, not just derived: `ollama ps` reports this
-# tag at 8.74 GB loaded against 7.15 GB of weights, i.e. 1.59 GB of KV plus
-# runner overhead at 4 x 16384 -- the 1.21 GB above plus ~0.38 GB. After the
-# raise expect ~9.3 GB, and ~12.0/16 GB once qwen2.5-coder:fim (2.73 GB) is
-# resident. 65536 would also fit (2.82 GB KV) but buys nothing the budget needs.
+# Weights are ~7 GB, the card is 16 GB, and qwen2.5-coder:fim (2.73 GB) is the
+# other resident tag, so the delta fits comfortably.
 #
-# DO NOT reconcile this against the "4 slots x num_ctx 8192 = 4.5 GiB q8_0 KV"
-# line in llama/host/ollama.service.d/homelab.conf -- that figure (IMPR-1083)
-# sized a dense model with no sliding window and many more kv heads, and is ~15x
-# per token what gemma4 actually costs. Both numbers are right for their model.
-# Any future tag change here must re-derive KV from ITS OWN /api/show shape.
+# NOT independently confirmed: `ollama ps` reports 8.74 GB loaded against a
+# 7.15 GB tag, but on-disk tag size is not resident weights and the residual
+# includes other buffers, so that subtraction does NOT validate the KV figure.
+# The deployed allocation is unverified until the daemon's startup allocation
+# log is read after the reload.
+#
+# DO NOT reconcile these numbers against the "4 slots x num_ctx 8192 = 4.5 GiB
+# q8_0 KV" line in llama/host/ollama.service.d/homelab.conf -- that figure
+# (IMPR-1083) sized a dense model with no sliding window and many more kv
+# heads. Both are right for their model. Any future tag change here must
+# re-derive KV from ITS OWN /api/show shape and the allocator's padding rules.
 PARAMETER num_ctx 32768
 PARAMETER temperature 0
 PARAMETER top_p 0.95
