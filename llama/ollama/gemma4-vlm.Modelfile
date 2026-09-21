@@ -60,28 +60,36 @@ FROM gemma4:12b-it-qat
 
 # 32768, raised from 16384 on 2026-09-21 after the BUG-1155 cold ingest.
 #
-# HEADROOM, NOT A FIX FOR A DEMONSTRATED OVERFLOW. 16384 was sized when
-# semantic.overview_max_chars was 4000; that key is 12000 now and the prompt
-# budget has grown with it. No overflow has been observed, and the first
-# version of this comment claimed one on arithmetic that does not hold:
+# THE OVERFLOW IS DEMONSTRATED. During the 2026-09-21 cold ingest the ollama
+# daemon logged 6,221 llama.cpp slot releases, of which 36 carry `truncated = 1`
+# and EVERY ONE of those sits at exactly `n_tokens = 16383` -- num_ctx minus
+# one, the context wall. The highest non-truncated release is 16368, and 44
+# releases exceed 15,000 tokens, so this is a population pressing against the
+# ceiling rather than one outlier. Window: 02:06Z to 08:28Z.
 #
-#   * max_overview_prompt_chars bounds SUMMARY STRINGS before the template is
-#     added. It bounds neither the rendered batch prompt nor the merge prompt.
-#   * overview_max_chars truncates the STORED overview after generation and
-#     link expansion. It does not cap completion tokens; max_tokens is unset.
-#   * 4 chars/token is an estimate, not a measured ratio for text this dense in
-#     identifiers and viking:// placeholders.
+#   journalctl -u ollama | grep -o "n_tokens = [0-9]*, truncated = [0-9]*"
 #
-# Nor is "ollama shifts context silently" the mechanism. Oversized INPUT emits
-# a truncation warning (ollama llm/llama_server.go:280), and because this tag
-# carries a multimodal projector the pinned llama-server DISABLES
-# generation-time context shifting and stops at capacity instead
-# (llama.cpp b10864 tools/server/server-context.cpp:1174). What hides a
-# length-limited response is downstream: OpenViking's text-completion path
-# discards finish_reason, so it never becomes a pod error. Absence of OV errors
-# still cannot rule context loss in or out -- the evidence to look for is
-# daemon truncation warnings or request token counts, neither of which was
-# available here.
+# WHAT IS ESTABLISHED vs INFERRED. Established: 36 requests lost content at the
+# 16384 boundary, and nothing surfaced upstream -- zero OpenViking errors and
+# zero finish_reason lines across the whole run, because OV's text-completion
+# path discards finish_reason. Not established: whether the drop happened at
+# prompt assembly or at generation stop. Ollama's own input-truncation warning
+# ("truncating input") never fired, so the loss was recorded at the llama.cpp
+# slot level rather than by ollama's wrapper; this tag's multimodal projector
+# also makes the pinned llama-server disable generation-time context shifting
+# and stop at capacity instead (b10864 tools/server/server-context.cpp:1174).
+# Either path loses content at the same boundary, which is what the raise fixes.
+#
+# AN EARLIER VERSION OF THIS COMMENT GOT BOTH DIRECTIONS WRONG. First it
+# asserted the overflow from "60000 + 12000 chars ~= 18000 tokens", which is not
+# a context requirement at all: max_overview_prompt_chars bounds SUMMARY STRINGS
+# before the template is added, overview_max_chars truncates the STORED overview
+# AFTER generation and link expansion without capping completion tokens
+# (max_tokens is unset), and 4 chars/token was an estimate presented as a
+# measurement. Review then correctly refuted that reasoning, and the comment
+# over-corrected to "headroom, no overflow observed" -- while the evidence sat
+# unread in the daemon's own journal. The lesson is the reading, not the
+# arithmetic: measure the thing, do not derive it from config keys.
 #
 # WHY THE RAISE IS AFFORDABLE, with the corrected arithmetic:
 #
@@ -98,6 +106,15 @@ FROM gemma4:12b-it-qat
 #
 # Weights are ~7 GB, the card is 16 GB, and qwen2.5-coder:fim (2.73 GB) is the
 # other resident tag, so the delta fits comfortably.
+#
+# 32768 IS NOT PROVEN SUFFICIENT, only proven larger than the wall being hit.
+# Truncation destroys the evidence of how big those 36 requests really were --
+# a request clipped to 16383 reports 16383, not its original size -- so the
+# true distribution above the ceiling is unknown and unknowable from this run.
+# What the raise guarantees is that the same requests no longer clip at 16384.
+# Re-read the same journal counter after the reload: if `truncated = 1` still
+# appears, it will now sit at 32767 and 65536 is affordable at roughly another
+# +0.6 GB. Treat that check as part of deploying this change, not optional.
 #
 # NOT independently confirmed: `ollama ps` reports 8.74 GB loaded against a
 # 7.15 GB tag, but on-disk tag size is not resident weights and the residual
