@@ -18,5 +18,18 @@ resources:
   - ov-test-vectordb-deployment.yaml
   - ov-test-vectordb-service.yaml
   - ov-test-configmap.yaml
-  # ov-test-bucket-setup.yaml is NOT in this bundle; it's a one-shot Job
-  # and should be applied separately (see ov-test-validate.sh).
+# IMPR-1185: the navigation patch, mounted on PYTHONPATH by openviking-test.
+# disableNameSuffixHash keeps the name stable so a `kubectl set env … PYTHONPATH-`
+# rollback and the Deployment's volume reference stay simple; a patch change
+# needs a rollout restart.
+configMapGenerator:
+  - name: ov-nav-patch
+    files:
+      - nav-patch/sitecustomize.py
+      - nav-patch/ov_nav_patch.py
+    options:
+      disableNameSuffixHash: true
+      labels:
+        app: openviking-test
+# The test bucket openviking-agfs-test exists in Garage (created 2026-09-15) and is
+# readable by the same key as prod's bucket; empty it before a fresh canary.
