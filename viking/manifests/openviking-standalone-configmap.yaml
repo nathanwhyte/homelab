@@ -87,7 +87,7 @@ data:
         "max_concurrent": 1
       },
       "semantic": {
-        "overview_max_chars": 12000,
+        "overview_max_chars": 20000,
         "abstract_max_chars": 256,
         "overview_sample_limit": 105
       },
