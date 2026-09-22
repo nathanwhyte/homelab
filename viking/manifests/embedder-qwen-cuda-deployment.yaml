@@ -92,59 +92,47 @@ spec:
             - --embedding
             - --pooling
             - last
-            # Two slots since 2026-09-22 (IDEA-1100 recall latency, embedder
-            # slot serialization): with one slot a ~300-token recall query
-            # waits behind whichever 3–8k-token overview chunk is in flight —
-            # measured 2026-09-22 on live pilot sessions: recall p50 310 ms but
-            # p95 3.4 s, and OV logged 5–12 s "embedding slow call"s about once
-            # per 5 min (task sizes p50 287, p90 3,534, p99 6,912, max 7,655
-            # tokens). A second slot lets a short request join the batch
-            # beside a long one — but only in one order: this llama.cpp build
-            # (b11011) visits slots in fixed order and fills each ubatch from
-            # the first pending prompt, so a long prompt already in slot 0
-            # still holds a short prompt in slot 1 for its ~14 ubatches; the
-            # reverse order interleaves. Treat the gain as order-dependent
-            # until measured under mixed load in both orders (2026-09-22
-            # Codex review of homelab #156). --parallel N divides --ctx-size
-            # between slots (kv_unified=false), and each slot must be >= OV's
-            # embedding.max_input_tokens (8192) or chunks above it are
-            # rejected with "exceeds available context size" (the IDEA-1042
-            # cutover lesson in viking/openviking.md) — hence 16384 for two
-            # 8k slots. OV's embedding.max_concurrent stays 1: that semaphore
-            # is per event loop (queue worker and API/recall loop each get
-            # one in-flight request), so 1 already allows one background
-            # embed plus one recall embed; raising it would let indexing take
-            # both slots and reserve nothing for recall (IMPR-1074's pairing
-            # rule was about not exceeding the slot count, not matching it).
+            # Batch 2048 measured on this card 2026-09-17 (TASK-1217, at the
+            # 150 W power cap): 822 tok/s vs 788 at 512 (+4.3%), peak 6,655 of
+            # 8,192 MiB so ~1.5 GB spare. 4096 measured 822 tok/s too — same
+            # speed for 1.3 GB more VRAM (233 MiB spare), so 2048 is the knee.
+            # The 512 that stood here was sized for the retired 1060's 6 GB.
             #
-            # VRAM (MiB): each 8,192-token f16 slot's KV is 1,152 MiB
-            # (Qwen3-4B GGUF header: 36 layers × 8 KV heads × 128 dim × K+V
-            # × 2 bytes = 147,456 B/token). Measured peaks on this card
-            # (TASK-1217 CSVs, one slot): batch 2048 → 6,655 MiB, batch 512 →
-            # 5,677 MiB, so dropping the batch buffer pays for the second
-            # slot: expected two-slot peak ≈ 6,829 MiB (−4% tok/s, 788 vs
-            # 822). Verify with nvidia-smi under sustained load after rollout;
-            # back out if it exceeds ~7,500 MiB (692 MiB spare). Three f16
-            # slots (~7,981 MiB) do not fit; more slots need q8_0 KV
-            # (--cache-type-k/-v q8_0, 612 MiB/slot) and a retrieval-quality
-            # check first. The cuda-llamacpp VLM-failover pod that used to
-            # share this card is not deployed (checked 2026-09-22).
+            # One slot, on purpose (2026-09-22, IDEA-1100 recall-latency
+            # experiments, homelab #156 + ~/ov-pilot-20260921/06-trial/
+            # embedder-exp/): the pilot's recall p95 of 3.4 s is a ~300-token
+            # query waiting behind a 7.6k-token overview chunk (12.45 s alone
+            # vs 332 ms). Two slots did not change that on this llama.cpp
+            # build (b11011 fills each ubatch from the first pending slot, so
+            # the long prompt finishes first — 12.6 s in every slot/KV
+            # variant), cost 4–5 GB of extra host RSS per slot and −4% tok/s,
+            # and q4_0 KV drifted the vectors (cosine min 0.984; q8_0 was
+            # 0.9995, inside the f16 noise floor). If slots ever return, each
+            # slot must be >= OV's embedding.max_input_tokens (8192) — the
+            # IDEA-1042 lesson in viking/openviking.md — and q8_0 KV is the
+            # free choice. The fix for the tail is a faster model (TASK-1218),
+            # not concurrency.
             #
-            # Back-out (all four, in one apply): --ctx-size 8192, --parallel 1,
-            # --batch-size 2048, --ubatch-size 2048. No ConfigMap change is
-            # part of this rollout.
+            # --cache-ram 0: this build keeps a host-RAM prompt cache (default
+            # 8192 MiB) that saves an idle slot's KV state whenever a slot is
+            # reassigned. An embedding server never reuses a prefix, so the
+            # cache is dead weight — and it is what pushed host RSS to
+            # 9.4 GB at two slots (OOMKilled at the 6Gi limit). Off, the
+            # server's host RSS stays near its one-slot baseline (2.4 GB).
             - --ctx-size
-            - "16384"
+            - "8192"
             - --n-gpu-layers
             - "999"
             - --parallel
-            - "2"
+            - "1"
             - --threads
             - "4"
             - --batch-size
-            - "512"
+            - "2048"
             - --ubatch-size
-            - "512"
+            - "2048"
+            - --cache-ram
+            - "0"
             - --split-mode
             - none
             - --main-gpu
