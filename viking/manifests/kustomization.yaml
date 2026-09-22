@@ -9,6 +9,7 @@ resources:
   - openviking-configmap.yaml
   - openviking-standalone-configmap.yaml
   - openviking-exporter-configmap.yaml
+  - openviking-nav-patch-configmap.yaml
   - openviking-dashboard-configmap.yaml
   - openviking-native-dashboard-configmap.yaml
   - ov-vectordb-pvc.yaml
