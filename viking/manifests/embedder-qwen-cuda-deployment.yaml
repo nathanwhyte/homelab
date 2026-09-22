@@ -98,26 +98,41 @@ spec:
             # measured 2026-09-22 on live pilot sessions: recall p50 310 ms but
             # p95 3.4 s, and OV logged 5–12 s "embedding slow call"s about once
             # per 5 min (task sizes p50 287, p90 3,534, p99 6,912, max 7,655
-            # tokens). continuous batching lets the short request run beside
-            # the long one. --parallel N divides --ctx-size between slots
-            # (kv_unified=false), and the per-slot ctx must stay equal to OV's
-            # embedding.max_input_tokens (8192) or chunks above it are rejected
-            # with "exceeds available context size" (see viking/openviking.md,
-            # the IDEA-1042 cutover lesson) — hence 16384 for two 8k slots.
-            # OV's embedding.max_concurrent moves to 2 in the same change
-            # (IMPR-1074: the client-side semaphore must match the slot count,
-            # or requests serialize before llama.cpp ever sees them).
+            # tokens). A second slot lets a short request join the batch
+            # beside a long one — but only in one order: this llama.cpp build
+            # (b11011) visits slots in fixed order and fills each ubatch from
+            # the first pending prompt, so a long prompt already in slot 0
+            # still holds a short prompt in slot 1 for its ~14 ubatches; the
+            # reverse order interleaves. Treat the gain as order-dependent
+            # until measured under mixed load in both orders (2026-09-22
+            # Codex review of homelab #156). --parallel N divides --ctx-size
+            # between slots (kv_unified=false), and each slot must be >= OV's
+            # embedding.max_input_tokens (8192) or chunks above it are
+            # rejected with "exceeds available context size" (the IDEA-1042
+            # cutover lesson in viking/openviking.md) — hence 16384 for two
+            # 8k slots. OV's embedding.max_concurrent stays 1: that semaphore
+            # is per event loop (queue worker and API/recall loop each get
+            # one in-flight request), so 1 already allows one background
+            # embed plus one recall embed; raising it would let indexing take
+            # both slots and reserve nothing for recall (IMPR-1074's pairing
+            # rule was about not exceeding the slot count, not matching it).
             #
-            # VRAM: the second slot's KV cache costs ~1.2 GB (Qwen3-4B: 36
-            # layers × 8 KV heads × 128 dim × f16 ≈ 147 KB/token × 8192). The
-            # card has 8,192 MiB and ran at 6,655 MiB peak with batch 2048
-            # (TASK-1217, 2026-09-17: 2048 → 822 tok/s, 512 → 788 tok/s, +4.3%;
-            # 4096 same speed for +1.3 GB), so the batch buffer is what pays
-            # for the slot: 512 gives the KV its room at a 4% throughput cost.
-            # Expected peak ≈ 6.8–6.9 GB; verify with nvidia-smi after rollout
-            # and back out to parallel 1 / ctx 8192 / batch 2048 if it exceeds
-            # ~7.5 GB. The cuda-llamacpp VLM-failover pod that used to share
-            # this card is not deployed (checked 2026-09-22).
+            # VRAM (MiB): each 8,192-token f16 slot's KV is 1,152 MiB
+            # (Qwen3-4B GGUF header: 36 layers × 8 KV heads × 128 dim × K+V
+            # × 2 bytes = 147,456 B/token). Measured peaks on this card
+            # (TASK-1217 CSVs, one slot): batch 2048 → 6,655 MiB, batch 512 →
+            # 5,677 MiB, so dropping the batch buffer pays for the second
+            # slot: expected two-slot peak ≈ 6,829 MiB (−4% tok/s, 788 vs
+            # 822). Verify with nvidia-smi under sustained load after rollout;
+            # back out if it exceeds ~7,500 MiB (692 MiB spare). Three f16
+            # slots (~7,981 MiB) do not fit; more slots need q8_0 KV
+            # (--cache-type-k/-v q8_0, 612 MiB/slot) and a retrieval-quality
+            # check first. The cuda-llamacpp VLM-failover pod that used to
+            # share this card is not deployed (checked 2026-09-22).
+            #
+            # Back-out (all four, in one apply): --ctx-size 8192, --parallel 1,
+            # --batch-size 2048, --ubatch-size 2048. No ConfigMap change is
+            # part of this rollout.
             - --ctx-size
             - "16384"
             - --n-gpu-layers
