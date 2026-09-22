@@ -128,10 +128,13 @@ For the next wipe/resync, use the local AGFS path:
 3. Keep the old Ollama deployment scaled to zero while using the ROCm llama.cpp
    backend.
 4. Wipe the `openviking-data` PVC once.
-5. Resync with the default active-item exclusion.
+5. Resync with `--include-active`. The default `--exclude-active` filter is for
+   incremental syncs; on a rebuild from empty storage it silently omits every
+   active entry (BUG-1173, 2026-09-21: 820 of 2,285 sync-eligible entries
+   dropped, none of them reported as an error).
 
 In either path, start with a small waited batch before the full run:
 
 ```bash
-python3 viking/tools/compendium-sync.py sync --limit 5
+python3 viking/tools/compendium-sync.py sync --include-active --limit 5
 ```

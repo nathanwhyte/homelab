@@ -23,7 +23,7 @@ LLM serving infrastructure in the `llama` namespace.
 
 ### Chat Ollama Proxy
 
-- **Purpose**: Reasoning-suppressing shim (`INJECT_REASONING_NONE=true`) routing to `ollama.llama.svc:11434`. **⚠️ Load-bearing — do NOT delete:** originally a Hermes shim, but since Hermes was retired (2026-07-18) this pod is **OpenViking's VLM route** — the `chat-ollama` Service selects `app=chat-ollama-proxy`, and `openviking-configmap.yaml`'s `vlm.api_base` is `http://chat-ollama.llama.svc:11434/v1` (`gemma4:31b-cloud`).
+- **Purpose**: Reasoning-suppressing shim (`INJECT_REASONING_NONE=true`) routing to `ollama.llama.svc:11434`. **⚠️ Load-bearing — do NOT delete:** originally a Hermes shim, but since Hermes was retired (2026-07-18) this pod is **OpenViking's VLM route** — the `chat-ollama` Service selects `app=chat-ollama-proxy`, and `openviking-standalone-configmap.yaml`'s `vlm.api_base` is `http://chat-ollama.llama.svc.cluster.local:11434/v1` (`gemma4:vlm`, the local tag on timmy's host daemon since homelab #131, 2026-09-18; the shim's `reasoning_effort: none` injection is load-bearing for it — see the header comment in `llama/chat-ollama-proxy.yaml`).
 - **Endpoint**: `http://chat-ollama-proxy.llama.svc:11434` (also reached as `chat-ollama.llama.svc` — same pod)
 - **Deploy**: `llama/chat-ollama-proxy.yaml`
 

@@ -15,8 +15,11 @@
 #                  Its MODEL is one of FOUR places naming the resident tag —
 #                  with llama/host/ollama-warm.sh (RESIDENT_TAG) and dotfiles
 #                  nvim/lua/plugins/minuet.lua + zed/settings.json. They must
-#                  agree: OLLAMA_MAX_LOADED_MODELS=1, so a request for any other
-#                  tag evicts the resident one and pays a ~5 s reload.
+#                  agree: OLLAMA_MAX_LOADED_MODELS=2 holds this tag plus
+#                  gemma4:vlm (OpenViking's summarizer), so a request for any
+#                  THIRD tag evicts one of them and pays a cold reload. This
+#                  job re-pins only the FIM half; an evicted gemma4:vlm is
+#                  reloaded by OpenViking's next call, not by this CronJob.
 #   ollama-pull  — suspended template. Run one-off:
 #                    kubectl -n llama create job --from=cronjob/ollama-pull pull-$(date +%s)
 #                  after editing MODEL in the env, or override on the fly:

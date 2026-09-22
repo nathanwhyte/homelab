@@ -69,6 +69,17 @@ Do not run this without an explicit go-ahead because it deletes/recreates live w
    - `/health` and `/ready` return success from inside the pod
    - `hermes mcp test openviking` succeeds after Hermes sees the endpoint
 6. Only after verification, decide whether to remove retired rollback manifests/resources.
+7. Re-ingest the vault through the single writer, and pass `--include-active`
+   in `SYNC_ARGS` (for example `--include-active --limit 0 --order small-first
+   --batch-size 100 --wait-drain --yes --max-errors 10`). A bulk `sync` without
+   it selects only non-active entries — the 2026-09-21 rebuild omitted 820 of
+   2,285 that way (BUG-1173) and reported `Done` with no error. The bulk path is
+   not bounded by `--deadline-seconds`, so dispatch it as a one-off Job with a
+   large `activeDeadlineSeconds` (the manual template's 3600 s is far too short)
+   and with the CronJob suspended. Afterwards run
+   `uv run python _scripts/compendium-sync.py reconcile` from the vault: it must
+   report `missing 0` and no `COVERAGE INCOMPLETE` before the rebuild counts as
+   done.
 
 ## Not included yet
 

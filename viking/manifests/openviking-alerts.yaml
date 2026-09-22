@@ -45,7 +45,7 @@ spec:
         # all. The native endpoint cannot express it: it emits no requeued_total,
         # so it cannot distinguish a poisoned message from a slow one.
         - alert: OpenVikingQueueErrors
-          expr: sum(increase(openviking_queue_errors_total[15m])) > 0
+          expr: increase(openviking_queue_errors_total{queue="total"}[15m]) > 0
           for: 0m
           labels:
             severity: warning
@@ -62,7 +62,7 @@ spec:
             severity: warning
           annotations:
             summary: ">20 dead-lease .ovlock files in openviking-agfs for 15m"
-            description: "Dead lock files are accumulating in the S3 AGFS bucket — the ovlock-janitor CronJob is failing, suspended, or misclassifying. Check its latest run logs (kubectl -n viking logs job/<latest ovlock-janitor job>) before any manual cleanup (IMPR-1095)."
+            description: "Dead lock files are accumulating in the S3 AGFS bucket. The ovlock-janitor CronJob runs in SHADOW MODE (no --apply in ovlock-janitor-cronjob.yaml, IMPR-1095 Phase 4 not flipped), so it reports dead leases but deletes nothing — read its latest run logs (kubectl -n viking logs job/<latest ovlock-janitor job>) to see which keys it would delete, then either flip --apply or clean up by hand from that list (IMPR-1095)."
         - alert: OpenVikingWedgedLockFile
           expr: openviking_s3_ovlock_oldest_live_age_seconds > 2700
           for: 5m
@@ -91,14 +91,12 @@ spec:
           annotations:
             summary: "OpenViking exporter reports OV unreachable for 5m"
             description: "ov-exporter's last poll cycle failed (ov status or lock count). OV may be down or the exporter lost its API key."
-        - alert: OpenVikingLocksAccumulating
-          expr: openviking_lock_path_ovlock_count > 20
-          for: 5m
-          labels:
-            severity: warning
-          annotations:
-            summary: "OpenViking has >20 stale .path.ovlock files for 5m"
-            description: "Stale subtree lifecycle locks are accumulating in AGFS. GH #2015 was fixed in v0.4.4 and the lock-cleanup sidecar removed (IMPR-1007 Phase 3) — accumulation now signals a regression or crashed writes; clean up manually with: find /app/data/viking -name '.path.ovlock' -delete. NOTE: this rule counts the local filesystem only — under agfs.backend: s3 it is blind and superseded by OpenVikingS3LocksAccumulating (IMPR-1095)."
+        # OpenVikingLocksAccumulating (openviking_lock_path_ovlock_count > 20)
+        # was retired 2026-09-21: it counted .path.ovlock files on the PVC with
+        # find, and under agfs.backend: s3 the locks live in the Garage bucket,
+        # so the gauge is permanently 0 and the rule could never fire. The
+        # bucket-level OpenVikingS3LocksAccumulating above (IMPR-1095) is the
+        # live rule; the exporter still exports the PVC count for reference.
         # BUG-1138: alert on STALLED PROGRESS, not on depth.
         #
         # `queue="total"` is unique to ov-exporter — the native endpoint emits

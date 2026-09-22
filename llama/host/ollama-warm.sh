@@ -29,8 +29,9 @@
 #
 # Two independent concerns, kept apart on purpose:
 #   1. SERVER readiness is the daemon's own business — this script never gates
-#      it, and a failure here leaves the API serving (OV's cloud VLM route
-#      through ollama.llama.svc needs only the API, no local runner).
+#      it, and a failure here leaves the API serving. OV's VLM is the LOCAL
+#      gemma4:vlm runner since 2026-09-18 (warm_ov_vlm below), so a failure
+#      here degrades OV to missing abstracts until its next call reloads it.
 #   2. LOCAL model prep is best-effort with retry. /run/ollama/models-ready is
 #      written as an observable signal; nothing outside this script reads it.
 #
