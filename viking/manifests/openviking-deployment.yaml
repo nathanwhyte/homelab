@@ -204,6 +204,14 @@ spec:
           env:
             - name: OPENVIKING_PROMPT_TEMPLATES_DIR
               value: /etc/openviking/prompts
+            # BUG-1176 (same loader, same ConfigMap): ov_extract_patch.py makes a degraded
+            # memory extraction (empty/unparseable LLM output after the loop's own retry)
+            # a retryable Phase 2 failure — 5 retries, 15–120 s backoff — instead of an
+            # empty memory_diff.json recorded as success; a run that still fails gets
+            # .failed.json and a failed task. Guarded on v0.4.20 + the ExtractLoop.run
+            # source sha256; OV_EXTRACT_PATCH=0 turns it off alone. Grep the pod log for
+            # "ov-extract-patch: applied" (twice per worker) after any change.
+            #
             # IMPR-1185: sitecustomize.py on this path installs a post-import wrapper
             # around SemanticProcessor._generate_overview that builds Quick Navigation
             # and Directory Coverage in code from the child inventory (the model writes

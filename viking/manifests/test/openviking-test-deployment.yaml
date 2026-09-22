@@ -5,7 +5,8 @@
 #
 # Differences from prod, all deliberate:
 #   * PYTHONPATH=/ov-nav-patch + the ov-nav-patch ConfigMap: sitecustomize.py installs
-#     the deterministic Quick Navigation wrapper (nav-patch/ov_nav_patch.py). Guarded
+#     the deterministic Quick Navigation wrapper (nav-patch/ov_nav_patch.py) and the
+#     BUG-1176 extraction-retry wrapper (nav-patch/ov_extract_patch.py). Each is guarded
 #     on openviking v0.4.20 + a source hash; otherwise stock behaviour, logged.
 #   * No ov-exporter sidecar, no NodePort/ingress; ClusterIP only.
 #   * Own PVC, own vectordb, own S3 bucket (see ov-test-configmap.yaml).
