@@ -1,0 +1,53 @@
+# Replacement claims for OpenViking's state volumes, selecting `longhorn-ov`
+# (2 replicas, best-effort locality — see ../storageclass-longhorn-ov.yaml).
+#
+# NOT part of the kustomization and NOT applied by deploy-openviking.sh: the live
+# claims of the same names are bound to `longhorn-ssd`, and a PVC's
+# storageClassName is immutable, so `kubectl apply` of this file against a
+# namespace that still holds them is rejected by the API server. Use it only
+# when the claim is being re-provisioned:
+#
+#   1. Scale the consumer to zero (`kubectl -n viking scale deploy/openviking
+#      --replicas=0`, likewise ov-vectordb) and take a Longhorn snapshot/backup
+#      of the old volume.
+#   2. Delete the old claim (its PV is `Delete`-reclaimed under longhorn-ssd —
+#      restore FROM the backup, do not expect the PV to survive), or restore the
+#      backup into a new Longhorn volume and create a PV/PVC pair for it.
+#   3. `kubectl apply -f viking/manifests/restore/ov-claims-longhorn-ov.yaml`
+#      (or, for a backup restore, set `fromBackup` on a copy of this claim's
+#      class as compendium/state-migration.md does for the sync state).
+#   4. Read back with `viking/scripts/ov-volume-locality.sh openviking-data
+#      ov-vectordb-data` — it prints replicas per node and the locality setting
+#      and exits non-zero until every volume is healthy.
+#   5. Scale the consumers back up and check the OV queue observer
+#      (`/api/v1/observer/queue` → is_healthy) before declaring done.
+#
+# Same names, sizes and access modes as the live manifests; only the class differs.
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: openviking-data
+  namespace: viking
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+  storageClassName: longhorn-ov
+  volumeMode: Filesystem
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ov-vectordb-data
+  namespace: viking
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: longhorn-ov
+  volumeMode: Filesystem
+  resources:
+    requests:
+      storage: 10Gi

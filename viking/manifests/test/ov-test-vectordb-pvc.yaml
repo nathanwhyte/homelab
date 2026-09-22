@@ -10,6 +10,11 @@ metadata:
   annotations:
     # 1 replica: test data is throwaway; don't double the storage cost.
     longhorn.io/number-of-replicas: "1"
+    # LIVE Longhorn Volume setting applied on 2026-09-22 with
+    # viking/scripts/ov-volume-locality.sh together with the prod pair (see
+    # ../openviking-pvc.yaml): best-effort locality only, still 1 replica —
+    # throwaway data.
+    homelab.nathanwhyte.dev/longhorn-data-locality: best-effort
 spec:
   accessModes:
     - ReadWriteOnce
