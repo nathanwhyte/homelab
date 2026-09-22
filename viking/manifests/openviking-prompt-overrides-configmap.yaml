@@ -72,6 +72,18 @@
 #   * Detailed Description bodies capped at one sentence, <=30 words (~180 chars vs
 #     a 746 uncapped median).
 #
+# 2026-09-22 (IMPR-1185) — PROSE ONLY. The Quick Navigation and Directory Coverage
+# sections are no longer requested. The ov-nav-patch (openviking-nav-patch
+# ConfigMap) builds both in code from the child inventory and discards any model
+# H2 with those headings, so asking for them only spent output tokens. The model
+# now writes the H1, the Brief Description and the Detailed Description; the patch
+# places the prose around its code-built sections. The 2026-09-21 period/gloss
+# notes above describe the retired model-built list and are kept as history.
+#
+# NEVER apply this template without the nav patch live (PYTHONPATH=/ov-nav-patch
+# and "ov-nav-patch: applied" in the pod log). On stock code it stores overviews
+# with no navigation at all. Rolling the patch back means rolling this back first.
+#
 # DEPLOYMENT
 #
 # Mounted at /etc/openviking/prompts/semantic by openviking-deployment.yaml, which
@@ -169,9 +181,8 @@ data:
       including the full "viking://" scheme; never shorten, abbreviate, or re-spell it.
 
       Output in Markdown format, strictly following this structure and this order.
-      The Quick Navigation list is the most important part of this document: it is
-      how a reader finds an entry. Write it in full before writing any Detailed
-      Description subsection, and never shorten or omit it to make room.
+      Do not write a navigation list, link list, table of contents, or directory
+      coverage section; one is added automatically. Write only the three parts below.
 
       1. **Title** (H1): Directory name
 
@@ -182,38 +193,16 @@ data:
          - Do not include entry counts, sample counts, unsampled counts, or other coverage statistics; keep this paragraph useful as a standalone retrieval abstract.
          - One paragraph only; no list, no sub-headings
 
-      3. **{{ "快速导航" if output_language == "zh-CN" else "Quick Navigation" }}** (H2): a flat list, one line per entry
-         - FIRST emit the literal heading line, on a line of its own, exactly:
-           `## {{ "快速导航" if output_language == "zh-CN" else "Quick Navigation" }}`
-           This heading is MANDATORY and must appear before any list line. Emit it
-           every time, including when the entries above are only a sample. Never
-           begin the list without it.
-         - When sampled, the one sentence noting that these are representative
-           entries goes BELOW that heading, never above it. Nothing except the
-           Brief Description paragraph may appear before this heading.
-         - Then emit exactly one line for EVERY entry listed above, in the order
-           given. This list must be complete. Do not group, cluster, summarise,
-           or skip entries.
-         - Each line is exactly: `- [display title](placeholder) — <description>.`
-           where <description> is at most 5 words and the line ENDS WITH A PERIOD.
-           The trailing period is required on every line. Example:
-           `- [bug-049.md](viking://input_sample_f1) — Mage mapping null safety.`
-         - No decision-tree prose, no questions, no sub-bullets, no nested lists
-
-      4. **{{ "目录覆盖" if output_language == "zh-CN" else "Directory Coverage" }}** (H2): one sentence
-         - State the total number of direct entries and whether all entries are represented.
-         - When sampled, state how many entries were sampled and how many were not individually examined.
-
-      5. **{{ "详细说明" if output_language == "zh-CN" else "Detailed Description" }}** (H2):
+      3. **{{ "详细说明" if output_language == "zh-CN" else "Detailed Description" }}** (H2):
          - When sampled, begin with a one-sentence note stating that the following subsections cover only the sampled entries (X of Y), not the full directory.
-         - One H3 subsection per entry, in the same order as Quick Navigation. The H3
-           heading is a Markdown link to the entry using its placeholder,
+         - One H3 subsection per entry, in the order given above. The H3 heading is a
+           Markdown link to the entry using its placeholder,
            e.g. ### [display title](viking://input_sample_f1)
          - Under each heading write exactly one sentence, at most 30 words, drawn from
            that entry's summary above. No bullets, no second sentence.
-         - Do not restate the Quick Navigation list here.
          - If the document is getting long, stop after the last entry you can cover in
-           full. Never drop or abbreviate Quick Navigation to make room here.
+           full.
+         - No other H2 section may follow this one.
 
     llm_config:
       temperature: 0.0
