@@ -15,8 +15,12 @@ off switch; a patch failure never breaks the import):
                         Phase 2 failure instead of an empty ``memory_diff.json``
                         recorded as success (``ExtractLoop.run`` + the session's
                         Phase 2 retry classifier and budget).
+  * ov_chatlog_patch  — BUG-1177: ChatLog speaker labels follow the turn's role
+                        (assistant turns read ``assistant``) and tool-only turns no
+                        longer render as empty lines (``MessageRange._speaker_for`` +
+                        ``_format_contiguous_group``).
 
-Rollback of one patch: its env switch (``OV_EXTRACT_PATCH=0``; ``OV_NAV_PATCH=0``
+Rollback of one patch: its env switch (``OV_EXTRACT_PATCH=0``, ``OV_CHATLOG_PATCH=0``; ``OV_NAV_PATCH=0``
 only after the model-built overview template is restored, see the Deployment).
 Rollback of everything: remove PYTHONPATH from the Deployment
 (``kubectl set env … PYTHONPATH-``), again only after that template restore.
@@ -34,6 +38,7 @@ TARGETS = {
         "apply_extract_loop",
     ),
     "openviking.session.session": ("ov_extract_patch", "apply_session"),
+    "openviking.session.memory.memory_updater": ("ov_chatlog_patch", "apply"),
 }
 
 
