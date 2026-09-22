@@ -107,7 +107,7 @@ def nav_targets(overview: str) -> set[str]:
 
 
 BOILERPLATE_GLOSS = re.compile(
-    r"^(?:this |bug report|technical bug report|document)", re.IGNORECASE
+    r"^(?:this |bug report|technical bug report|document\b)", re.IGNORECASE
 )
 DANGLING_TAIL = re.compile(
     r"\b(?:a|an|and|as|at|by|due|during|for|from|in|into|its|of|on|or|that|the|to|"
@@ -248,9 +248,19 @@ def main() -> int:
         with httpx.Client(
             base_url=f"http://127.0.0.1:{LOCAL_PORT}", headers=headers, timeout=120
         ) as c:
-            h = c.get("/health")
-            log(f"test instance /health -> {h.status_code}")
-            if h.status_code != 200:
+            # A port-forward opened right after a rollout can attach to the terminating
+            # pod; retry for up to a minute before calling the instance unhealthy.
+            status = None
+            for _ in range(12):
+                try:
+                    status = c.get("/health").status_code
+                    if status == 200:
+                        break
+                except httpx.TransportError as exc:
+                    status = f"transport error: {exc!r}"
+                time.sleep(5)
+            log(f"test instance /health -> {status}")
+            if status != 200:
                 log("ABORT: test instance not healthy")
                 return 2
             t0 = time.monotonic()
