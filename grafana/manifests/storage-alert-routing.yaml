@@ -22,11 +22,32 @@ spec:
       - name: severity
         value: info
         matchType: "!="
-    groupBy: [namespace, alertname]
+    groupBy: [namespace, persistentvolumeclaim, alertname]
     groupWait: 30s
     groupInterval: 5m
     repeatInterval: 1h
+    routes:
+      # Send genuine PVC pressure to both the gated resolver and Slack. The
+      # resolver independently rechecks filesystem use, scope, cap, cooldown,
+      # StorageClass support, and Longhorn disk headroom before any decision.
+      - receiver: capacity-auto-resolver
+        matchers:
+          - name: alertname
+            value: KubePersistentVolumeFillingUp
+            matchType: "="
+        continue: true
+      - receiver: slack-homelab
   receivers:
+    - name: capacity-auto-resolver
+      webhookConfigs:
+        - url: http://capacity-auto-resolver.grafana.svc:8080/alerts
+          sendResolved: false
+          httpConfig:
+            authorization:
+              type: Bearer
+              credentials:
+                name: capacity-auto-resolver-token
+                key: token
     - name: slack-homelab
       slackConfigs:
         - # IMPR-1173: the endpoint literal lives in the Secret because the CRD's

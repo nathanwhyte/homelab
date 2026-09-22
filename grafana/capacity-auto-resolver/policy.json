@@ -1,0 +1,19 @@
+{
+  "mode": "dry-run",
+  "minimumUsagePercent": 85,
+  "cooldownHours": 24,
+  "headroom": {
+    "minimumFreeBytes": 21474836480,
+    "minimumFreePercent": 25,
+    "maximumScheduledPercent": 80
+  },
+  "allowlist": [
+    {
+      "namespace": "viking",
+      "persistentVolumeClaim": "llama-cuda-model-cache",
+      "storageClass": "longhorn-ssd",
+      "increment": "4Gi",
+      "maximumSize": "20Gi"
+    }
+  ]
+}

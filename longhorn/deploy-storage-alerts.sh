@@ -31,6 +31,10 @@ if ! kubectl get secret alertmanager-slack-bot-token -n grafana >/dev/null 2>&1;
 	exit 1
 fi
 
+# Deploy the authenticated webhook before routing alerts to it. This is
+# dry-run-only under the committed policy and Deployment mutation switch.
+bash "$GRAFANA_DIR/capacity-auto-resolver/deploy.sh" "${1:-}"
+
 # Additive monitoring only: no Helm invocation or stateful workload restart.
 kubectl apply "${dry_run[@]}" -f "$LONGHORN_DIR/servicemonitor.yaml"
 kubectl apply "${dry_run[@]}" -f "$LONGHORN_DIR/alerts.yaml"
