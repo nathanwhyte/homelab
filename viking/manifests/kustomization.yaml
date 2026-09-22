@@ -12,6 +12,11 @@ resources:
   - openviking-nav-patch-configmap.yaml
   - openviking-dashboard-configmap.yaml
   - openviking-native-dashboard-configmap.yaml
+  # BUG-1101 drill: the class a re-provisioned OV claim must select (2 replicas,
+  # best-effort locality). The live claims below stay on longhorn-ssd — PVC class
+  # is immutable — with the same settings patched onto their Longhorn Volumes by
+  # viking/scripts/ov-volume-locality.sh. Restore-time claims: restore/ (not here).
+  - storageclass-longhorn-ov.yaml
   - ov-vectordb-pvc.yaml
   - ov-vectordb-deployment.yaml
   - ov-vectordb-service.yaml

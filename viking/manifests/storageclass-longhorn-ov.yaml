@@ -1,0 +1,56 @@
+# Storage for OpenViking's own state: the sqlite/queue volume (openviking-data)
+# and the vector index (ov-vectordb-data).
+#
+# Why this exists (2026-09-22, BUG-1101 drill):
+#
+# Both claims were provisioned on `longhorn-ssd` (1 replica, dataLocality
+# disabled), which lets Longhorn put the single replica on any ssd-tagged disk.
+# By the manu node-unavailability drill the replicas were on manu's disk while
+# both pods run on timmy (the Deployments nodeSelect timmy). Stopping k3s-agent
+# on manu faulted both volumes 5m51s later; ov-vectordb hit EIO on index flush,
+# OpenViking logged "database disk image is malformed" on every queue worker
+# (495 records, 17:30:51-17:31:24Z), and /health returned 200 in every sample
+# taken during the window. Unlike Garage, OV does not replicate its own data,
+# so one Longhorn replica on the wrong node is one copy behind a dead link.
+#
+# This class is what a re-provisioned OV claim should select:
+#
+# - numberOfReplicas 2: survives the loss of one node's disk. `longhorn-ssd`
+#   volumes run at 1, and the `longhorn.io/number-of-replicas: "2"` annotation
+#   the old PVC manifests carried is not read by the Longhorn CSI driver
+#   (v1.12.0 takes replica count and locality from the class parameters only).
+# - dataLocality best-effort: asks Longhorn to keep one replica on the node the
+#   volume is attached to, so the pod's own reads and writes do not cross the
+#   network. It is best-effort, not a guarantee: when local scheduling fails the
+#   volume keeps a remote replica and reports LocalReplicaSchedulingFailure
+#   (see garage/storageclass-longhorn-garage-data.yaml for the same caveat).
+#   Redundancy comes from the second replica, not from locality.
+# - diskSelector ssd: matches manu default-disk and the timmy/wemby nvme disks,
+#   so the second replica can land on any node.
+#
+# The LIVE claims still say `storageClassName: longhorn-ssd` — a PVC's class is
+# immutable, and a StorageClass parameter is read at provisioning time only. The
+# equivalent settings were applied to their Longhorn Volume CRs by hand on
+# 2026-09-22 with viking/scripts/ov-volume-locality.sh (dataLocality
+# best-effort at 17:43:45Z; numberOfReplicas 2 at 18:05Z, second replica built on
+# manu). Re-run that script after any restore to confirm the read-back. When a
+# claim is re-provisioned (namespace rebuild, restore from snapshot/backup into
+# a new claim), use viking/manifests/restore/ov-claims-longhorn-ov.yaml so the
+# new claim selects this class instead of inheriting `longhorn-ssd`'s defaults.
+#
+# The ov-test pair (openviking-test-data, ov-vectordb-test-data) stays on
+# `longhorn-ssd` with 1 replica: throwaway data, only the locality patch applied.
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: longhorn-ov
+provisioner: driver.longhorn.io
+reclaimPolicy: Retain
+allowVolumeExpansion: true
+volumeBindingMode: Immediate
+parameters:
+  numberOfReplicas: "2"
+  dataLocality: "best-effort"
+  diskSelector: "ssd"
+  staleReplicaTimeout: "2880"
+  fsType: "ext4"

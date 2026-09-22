@@ -5,12 +5,17 @@ metadata:
   name: ov-vectordb-data
   namespace: viking
   annotations:
-    # Intent only: not read by the Longhorn CSI driver; the live volume runs at 1 replica.
+    # Not read by the Longhorn CSI driver; intent only. The live Volume was raised
+    # to 2 replicas by hand on 2026-09-22 — see openviking-pvc.yaml.
     longhorn.io/number-of-replicas: "2"
-    # Live volume setting, applied by hand on 2026-09-22 (see openviking-pvc.yaml
-    # for the drill finding and the patch command). The index flush hit EIO within
-    # a minute of the volume faulting while the pod itself kept running.
+    # LIVE Longhorn Volume settings applied on 2026-09-22 with
+    # viking/scripts/ov-volume-locality.sh (dataLocality best-effort, 2 replicas);
+    # the claim's own class `longhorn-ssd` cannot express them. During the manu
+    # drill the index flush hit EIO within a minute of the volume faulting while
+    # the pod kept running. Re-provision with storageclass-longhorn-ov.yaml via
+    # restore/ov-claims-longhorn-ov.yaml.
     homelab.nathanwhyte.dev/longhorn-data-locality: best-effort
+    homelab.nathanwhyte.dev/longhorn-live-replicas: "2"
 spec:
   accessModes:
     - ReadWriteOnce

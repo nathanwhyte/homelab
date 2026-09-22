@@ -5,21 +5,25 @@ metadata:
   name: openviking-data
   namespace: viking
   annotations:
-    # Intent only: this annotation is not read by the Longhorn CSI driver, and the
-    # live volume runs at the class default of 1 replica (BUG-1101 audit, 2026-09-05).
+    # Not read by the Longhorn CSI driver (v1.12.0 takes replica count from the
+    # class only); kept as a statement of intent. The live Volume was raised to 2
+    # replicas by hand on 2026-09-22 — see below.
     longhorn.io/number-of-replicas: "2"
-    # Live volume setting, applied by hand on 2026-09-22 and NOT expressed by
-    # `longhorn-ssd` (dataLocality: disabled). During the manu node drill
-    # (BUG-1129 / BUG-1101) this volume's only replica turned out to sit on manu's
-    # disk while the pod runs on timmy; Longhorn faulted it at T0+6 min and OV
-    # served "database disk image is malformed" for 18 min while /health stayed 200.
-    # best-effort locality keeps the replica on the node the pod is attached to:
-    #   kubectl -n longhorn-system patch volumes.longhorn.io <pv-name> \
-    #     --type merge -p '{"spec":{"dataLocality":"best-effort"}}'
-    # (pv-name from `kubectl -n viking get pvc openviking-data -o jsonpath='{.spec.volumeName}'`).
-    # A StorageClass parameter is immutable after provisioning, so a re-provisioned
-    # claim should use a class that sets it — `longhorn-garage-data` is the model.
+    # LIVE Longhorn Volume settings that this claim's class (`longhorn-ssd`: 1
+    # replica, locality disabled) does not express and cannot be changed to
+    # express — a PVC's class is immutable. Applied on 2026-09-22 with
+    # viking/scripts/ov-volume-locality.sh after the manu node drill (BUG-1101)
+    # found this volume's only replica on manu's disk while the pod runs on timmy:
+    # Longhorn faulted it 5m51s after k3s-agent stopped, OV logged "database disk
+    # image is malformed" on every queue worker (17:30:51–17:31:24Z), and /health
+    # returned 200 in every sample taken during the ~18 min until recovery.
+    #   dataLocality best-effort — one replica on the attached node when Longhorn
+    #     can place it there (not a guarantee; watch LocalReplicaSchedulingFailure)
+    #   numberOfReplicas 2 — the redundancy; the second replica is on another node
+    # The class a re-provisioned claim must select is storageclass-longhorn-ov.yaml;
+    # the restore-time claim is restore/ov-claims-longhorn-ov.yaml.
     homelab.nathanwhyte.dev/longhorn-data-locality: best-effort
+    homelab.nathanwhyte.dev/longhorn-live-replicas: "2"
 spec:
   accessModes:
     - ReadWriteOnce
