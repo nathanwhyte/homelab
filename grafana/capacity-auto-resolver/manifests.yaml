@@ -139,11 +139,20 @@ spec:
                 secretKeyRef:
                   name: capacity-auto-resolver-token
                   key: token
-            - name: SLACK_WEBHOOK_URL
+            # Same bot-token transport and channel as the slack-homelab
+            # Alertmanager receiver (IMPR-1173); the old webhook Secret is gone.
+            - name: SLACK_API_URL
               valueFrom:
                 secretKeyRef:
-                  name: alertmanager-slack-webhook
+                  name: alertmanager-slack-bot-token
                   key: api-url
+            - name: SLACK_BOT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: alertmanager-slack-bot-token
+                  key: bot-token
+            - name: SLACK_CHANNEL
+              value: "#cron-homelab"
             - name: CAPACITY_RESOLVER_POLICY
               value: /etc/resolver/policy.json
             # Enabling policy mode alone is intentionally insufficient. Both

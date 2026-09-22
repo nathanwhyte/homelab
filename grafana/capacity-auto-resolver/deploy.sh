@@ -3,9 +3,15 @@ set -euo pipefail
 
 RESOLVER_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 NAMESPACE="grafana"
-dry_run=()
+# Never an empty array: macOS /usr/bin/env bash is 3.2, where "${a[@]}" of an
+# empty array under `set -u` aborts with "unbound variable".
+dry_run=(--dry-run=none)
+live=1
 case "${1:-}" in
---dry-run) dry_run=(--dry-run=server) ;;
+--dry-run)
+	dry_run=(--dry-run=server)
+	live=0
+	;;
 "") ;;
 *)
 	echo "Usage: $0 [--dry-run]" >&2
@@ -26,8 +32,8 @@ done
 
 python3 -m json.tool "$RESOLVER_DIR/policy.json" >/dev/null
 
-if ((${#dry_run[@]} == 0)); then
-	for secret in capacity-auto-resolver-token alertmanager-slack-webhook; do
+if ((live)); then
+	for secret in capacity-auto-resolver-token alertmanager-slack-bot-token; do
 		if ! kubectl -n "$NAMESPACE" get secret "$secret" >/dev/null 2>&1; then
 			echo "Required Secret $NAMESPACE/$secret does not exist." >&2
 			if [[ "$secret" == "capacity-auto-resolver-token" ]]; then
@@ -52,7 +58,7 @@ apply_configmap capacity-auto-resolver-source resolver.py "$RESOLVER_DIR/resolve
 apply_configmap capacity-auto-resolver-policy policy.json "$RESOLVER_DIR/policy.json"
 kubectl apply "${dry_run[@]}" -f "$RESOLVER_DIR/manifests.yaml"
 
-if ((${#dry_run[@]} == 0)); then
+if ((live)); then
 	# ConfigMap updates do not change the pod template, so restart explicitly.
 	kubectl -n "$NAMESPACE" rollout restart deployment/capacity-auto-resolver
 	kubectl -n "$NAMESPACE" rollout status deployment/capacity-auto-resolver \

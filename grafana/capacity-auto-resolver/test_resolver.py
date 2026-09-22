@@ -671,6 +671,84 @@ class RepositorySafetyContractTests(unittest.TestCase):
         self.assertNotIn("prom-kube-prometheus-stack-prometheus", manifests)
         self.assertNotIn('resources: ["persistentvolumeclaims"]\n    verbs:', manifests)
 
+    def test_slack_transport_matches_the_live_bot_token_secret(self) -> None:
+        """IMPR-1173 retired alertmanager-slack-webhook; referencing it would
+        leave the pod in CreateContainerConfigError and make deploy.sh refuse."""
+        directory = Path(__file__).parent
+        manifests = (directory / "manifests.yaml").read_text(encoding="utf-8")
+        deploy = (directory / "deploy.sh").read_text(encoding="utf-8")
+
+        self.assertNotIn("alertmanager-slack-webhook", manifests + deploy)
+        self.assertIn("name: alertmanager-slack-bot-token", manifests)
+        self.assertIn("alertmanager-slack-bot-token", deploy)
+
+    def test_deploy_script_never_expands_an_empty_array(self) -> None:
+        """macOS bash 3.2 aborts on an empty "${a[@]}" under set -u."""
+        deploy = (Path(__file__).parent / "deploy.sh").read_text(encoding="utf-8")
+
+        self.assertNotRegex(deploy, r"(?m)^dry_run=\(\)")
+        self.assertIn("dry_run=(--dry-run=none)", deploy)
+
+
+class SlackNotifierTests(unittest.TestCase):
+    def decision(self):
+        return resolver_module.Decision(
+            outcome="would-expand",
+            reason="dry-run",
+            namespace="viking",
+            pvc="llama-cuda-model-cache",
+        )
+
+    def post(self, body: bytes, status: int = 200):
+        response = mock.MagicMock()
+        response.status = status
+        response.read.return_value = body
+        response.__enter__.return_value = response
+        notifier = resolver_module.SlackNotifier(
+            "https://slack.test/api/chat.postMessage", "xoxb-test", "#cron-homelab"
+        )
+        with mock.patch.object(
+            resolver_module.urllib.request, "urlopen", return_value=response
+        ) as urlopen:
+            notifier.notify(self.decision(), "proposed")
+        return urlopen.call_args.args[0]
+
+    def test_posts_to_the_channel_with_the_bot_token(self) -> None:
+        request = self.post(b'{"ok": true, "ts": "1.2"}')
+
+        self.assertEqual(request.full_url, "https://slack.test/api/chat.postMessage")
+        self.assertEqual(request.get_header("Authorization"), "Bearer xoxb-test")
+        payload = json.loads(request.data)
+        self.assertEqual(payload["channel"], "#cron-homelab")
+        self.assertIn("decision=would-expand", payload["text"])
+
+    def test_ok_false_on_http_200_is_a_failure(self) -> None:
+        """chat.postMessage rejects with HTTP 200; only `ok` tells."""
+        with self.assertRaisesRegex(
+            resolver_module.NotificationError, "channel_not_found"
+        ):
+            self.post(b'{"ok": false, "error": "channel_not_found"}')
+
+    def test_non_json_body_is_a_failure(self) -> None:
+        with self.assertRaises(resolver_module.NotificationError):
+            self.post(b"ok")
+
+    def test_http_error_status_is_a_failure(self) -> None:
+        with self.assertRaisesRegex(resolver_module.NotificationError, "HTTP 500"):
+            self.post(b'{"ok": true}', status=500)
+
+    def test_transport_error_is_a_failure(self) -> None:
+        notifier = resolver_module.SlackNotifier("https://x", "t", "#c")
+        with (
+            mock.patch.object(
+                resolver_module.urllib.request,
+                "urlopen",
+                side_effect=urllib.error.URLError("refused"),
+            ),
+            self.assertRaises(resolver_module.NotificationError),
+        ):
+            notifier.notify(self.decision(), "proposed")
+
 
 class WebhookTests(unittest.TestCase):
     def setUp(self) -> None:

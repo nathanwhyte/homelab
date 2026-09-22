@@ -804,8 +804,19 @@ class PrometheusUsageProvider:
 
 
 class SlackNotifier:
-    def __init__(self, webhook_url: str) -> None:
-        self.webhook_url = webhook_url
+    """Post audit messages through chat.postMessage with the homelab bot.
+
+    IMPR-1173 retired the incoming-webhook transport: a webhook binds its
+    destination when it is created and ignores `channel` (BUG-1135). This uses
+    the same Secret and channel as the `slack-homelab` Alertmanager receiver.
+    chat.postMessage answers HTTP 200 even when it rejects a message, so the
+    JSON `ok` field is the only success signal.
+    """
+
+    def __init__(self, api_url: str, bot_token: str, channel: str) -> None:
+        self.api_url = api_url
+        self.bot_token = bot_token
+        self.channel = channel
 
     def notify(self, decision: Decision, phase: str) -> None:
         usage = (
@@ -830,22 +841,32 @@ class SlackNotifier:
             f"headroom={headroom}: {details}"
         )
         request = urllib.request.Request(
-            self.webhook_url,
-            data=json.dumps({"text": text}).encode(),
-            headers={"Content-Type": "application/json"},
+            self.api_url,
+            data=json.dumps({"channel": self.channel, "text": text}).encode(),
+            headers={
+                "Content-Type": "application/json; charset=utf-8",
+                "Authorization": f"Bearer {self.bot_token}",
+            },
             method="POST",
         )
         try:
             with urllib.request.urlopen(request, timeout=10) as response:
-                response_body = response.read().decode(errors="replace").strip()
+                response_body = response.read().decode(errors="replace")
                 if response.status // 100 != 2:
                     raise NotificationError(f"Slack returned HTTP {response.status}")
-                if response_body not in {"", "ok"}:
-                    raise NotificationError("Slack rejected the notification")
         except NotificationError:
             raise
         except urllib.error.URLError as exc:
             raise NotificationError(f"Slack notification failed: {exc}") from exc
+        try:
+            result = json.loads(response_body)
+        except ValueError as exc:
+            raise NotificationError("Slack returned a non-JSON response") from exc
+        if not isinstance(result, dict) or result.get("ok") is not True:
+            error = result.get("error") if isinstance(result, dict) else None
+            raise NotificationError(
+                f"Slack rejected the notification: {error or 'unknown error'}"
+            )
 
 
 class ResolverHTTPServer(ThreadingHTTPServer):
@@ -940,7 +961,9 @@ def main() -> int:
             os.environ.get("CAPACITY_RESOLVER_POLICY", "/etc/resolver/policy.json")
         )
         webhook_token = os.environ["ALERTMANAGER_WEBHOOK_TOKEN"]
-        slack_webhook = os.environ["SLACK_WEBHOOK_URL"]
+        slack_api_url = os.environ["SLACK_API_URL"]
+        slack_bot_token = os.environ["SLACK_BOT_TOKEN"]
+        slack_channel = os.environ.get("SLACK_CHANNEL", "#cron-homelab")
         if len(webhook_token) < 32:
             raise ValueError(
                 "ALERTMANAGER_WEBHOOK_TOKEN must be at least 32 characters"
@@ -955,7 +978,7 @@ def main() -> int:
                     "http://prom-prometheus.grafana.svc:9090",
                 )
             ),
-            notifier=SlackNotifier(slack_webhook),
+            notifier=SlackNotifier(slack_api_url, slack_bot_token, slack_channel),
             mutation_enabled=mutation_enabled,
         )
         server = make_server(("0.0.0.0", 8080), resolver, webhook_token)

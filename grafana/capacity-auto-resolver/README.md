@@ -49,9 +49,10 @@ consumers during rollout.
 
 ## Secrets
 
-The existing `grafana/alertmanager-slack-webhook` Secret supplies the audit
-webhook. Create a separate random bearer token shared by Alertmanager and the
-resolver:
+Audit messages go through the existing `grafana/alertmanager-slack-bot-token`
+Secret (`api-url`, `bot-token`): the same `chat.postMessage` transport and
+`#cron-homelab` channel as the `slack-homelab` receiver (IMPR-1173). Create a
+separate random bearer token shared by Alertmanager and the resolver:
 
 ```bash
 kubectl -n grafana create secret generic capacity-auto-resolver-token \
