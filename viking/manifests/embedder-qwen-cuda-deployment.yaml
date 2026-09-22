@@ -92,24 +92,44 @@ spec:
             - --embedding
             - --pooling
             - last
-            # Batch 2048 measured on this card 2026-09-17 (TASK-1217, at the
-            # 150 W power cap): 822 tok/s vs 788 at 512 (+4.3%), peak 6,655 of
-            # 8,192 MiB so ~1.5 GB spare. 4096 measured 822 tok/s too — same
-            # speed for 1.3 GB more VRAM (233 MiB spare), so 2048 is the knee.
-            # The 512 that stood here was sized for the retired 1060's 6 GB.
-            # parallel=1 means no slot multiplication.
+            # Two slots since 2026-09-22 (IDEA-1100 recall latency, embedder
+            # slot serialization): with one slot a ~300-token recall query
+            # waits behind whichever 3–8k-token overview chunk is in flight —
+            # measured 2026-09-22 on live pilot sessions: recall p50 310 ms but
+            # p95 3.4 s, and OV logged 5–12 s "embedding slow call"s about once
+            # per 5 min (task sizes p50 287, p90 3,534, p99 6,912, max 7,655
+            # tokens). continuous batching lets the short request run beside
+            # the long one. --parallel N divides --ctx-size between slots
+            # (kv_unified=false), and the per-slot ctx must stay equal to OV's
+            # embedding.max_input_tokens (8192) or chunks above it are rejected
+            # with "exceeds available context size" (see viking/openviking.md,
+            # the IDEA-1042 cutover lesson) — hence 16384 for two 8k slots.
+            # OV's embedding.max_concurrent moves to 2 in the same change
+            # (IMPR-1074: the client-side semaphore must match the slot count,
+            # or requests serialize before llama.cpp ever sees them).
+            #
+            # VRAM: the second slot's KV cache costs ~1.2 GB (Qwen3-4B: 36
+            # layers × 8 KV heads × 128 dim × f16 ≈ 147 KB/token × 8192). The
+            # card has 8,192 MiB and ran at 6,655 MiB peak with batch 2048
+            # (TASK-1217, 2026-09-17: 2048 → 822 tok/s, 512 → 788 tok/s, +4.3%;
+            # 4096 same speed for +1.3 GB), so the batch buffer is what pays
+            # for the slot: 512 gives the KV its room at a 4% throughput cost.
+            # Expected peak ≈ 6.8–6.9 GB; verify with nvidia-smi after rollout
+            # and back out to parallel 1 / ctx 8192 / batch 2048 if it exceeds
+            # ~7.5 GB. The cuda-llamacpp VLM-failover pod that used to share
+            # this card is not deployed (checked 2026-09-22).
             - --ctx-size
-            - "8192"
+            - "16384"
             - --n-gpu-layers
             - "999"
             - --parallel
-            - "1"
+            - "2"
             - --threads
             - "4"
             - --batch-size
-            - "2048"
+            - "512"
             - --ubatch-size
-            - "2048"
+            - "512"
             - --split-mode
             - none
             - --main-gpu

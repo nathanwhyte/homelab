@@ -84,7 +84,7 @@ data:
           "dimension": 2560,
           "batch_size": 256
         },
-        "max_concurrent": 1
+        "max_concurrent": 2
       },
       "semantic": {
         "overview_max_chars": 20000,
