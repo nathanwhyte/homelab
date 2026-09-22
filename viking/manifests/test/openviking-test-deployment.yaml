@@ -1,10 +1,20 @@
 ---
-# STALE (noted at the v0.4.10 bump, IMPR-1063): this test scaffold is pinned
-# to v0.3.14 and its patch-syncdiff initContainer patches 0.3.14-era source
-# (semantic_processor.py). Do NOT apply against the current stack, and do not
-# blind-bump the image tag — the source patch is version-coupled. Rebuild from
-# the live openviking-deployment.yaml if a test instance is needed; deletion
-# candidate alongside ov-console-deployment.yaml.
+# OpenViking TEST instance, rebuilt 2026-09-21 from openviking-deployment.yaml for
+# the IMPR-1185 navigation-patch canary. Replaces the stale v0.3.14 scaffold (and
+# its version-coupled patch-syncdiff initContainer).
+#
+# Differences from prod, all deliberate:
+#   * PYTHONPATH=/ov-nav-patch + the ov-nav-patch ConfigMap: sitecustomize.py installs
+#     the deterministic Quick Navigation wrapper (nav-patch/ov_nav_patch.py). Guarded
+#     on openviking v0.4.20 + a source hash; otherwise stock behaviour, logged.
+#   * No ov-exporter sidecar, no NodePort/ingress; ClusterIP only.
+#   * Own PVC, own vectordb, own S3 bucket (see ov-test-configmap.yaml).
+# It reuses prod's openviking-prompt-overrides ConfigMap, so the canary runs the
+# production template.
+#
+# Rollback of the patch without touching anything else:
+#   kubectl set env deployment/openviking-test -n viking PYTHONPATH-
+# Teardown: kubectl delete -k viking/manifests/test/
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -28,8 +38,6 @@ spec:
       nodeSelector:
         kubernetes.io/hostname: timmy
       initContainers:
-        # Mirrors prod: rewrite API key + inject S3 creds (we use the same
-        # secret name `openviking-s3-credentials` to avoid creating a copy).
         - name: config-rewrite
           image: python:3.12-slim
           command:
@@ -41,6 +49,9 @@ spec:
               import json, os
               conf = json.load(open('/config-template/ov.conf'))
               conf['server']['root_api_key'] = os.environ['API_KEY']
+              vlm = conf.get('vlm', {})
+              if vlm.get('api_key') == '\${OLLAMA_KEY}':
+                  vlm['api_key'] = os.environ.get('OLLAMA_KEY', '')
               agfs = conf.get('storage', {}).get('agfs', {})
               if agfs.get('backend', 'local') == 's3':
                   agfs.setdefault('s3', {})
@@ -68,6 +79,12 @@ spec:
                   name: openviking-s3-credentials
                   key: AWS_SECRET_ACCESS_KEY
                   optional: true
+            - name: OLLAMA_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: ollama-api-key
+                  key: API_KEY
+                  optional: true
           volumeMounts:
             - name: config-template
               mountPath: /config-template
@@ -79,93 +96,30 @@ spec:
             - /bin/sh
             - -c
           args:
-            - echo "Cleaning stale temp files..."; find /app/data/temp -type f -mtime +1 -delete 2>/dev/null || true; find /app/data/temp -type d -empty -delete 2>/dev/null || true; find /app/data/viking/default/temp -type d -empty -delete 2>/dev/null || true; echo "Removing stale locks..."; rm -f /app/data/.openviking.pid; rm -f /app/data/vectordb/context/store/LOCK; find /app/data/viking -name '.path.ovlock' -delete 2>/dev/null || true; echo "Done."
+            - echo "Cleaning stale temp files..."; find /app/data/temp -type f -mtime +1 -delete 2>/dev/null || true; find /app/data/temp -type d -empty -delete 2>/dev/null || true; rm -f /app/data/.openviking.pid; rm -f /app/data/vectordb/context/store/LOCK; echo "Done."
           volumeMounts:
             - name: data
               mountPath: /app/data
-        # SyncDiff retry patch — same as prod. Cheap to apply and avoids
-        # the 500 Internal Server Error on the first build_index.
-        - name: patch-syncdiff
-          image: ghcr.io/volcengine/openviking:v0.3.14
-          command:
-            - /bin/sh
-            - -c
-          args:
-            - |
-              echo "Patching semantic_processor.py with SyncDiff retry logic..."
-              python3 << 'PATCH_EOF'
-              import re
-              path = "/app/.venv/lib/python3.13/site-packages/openviking/storage/queuefs/semantic_processor.py"
-              with open(path) as f:
-                  content = f.read()
-              pattern = re.compile(
-                  r'[ \t]+try:\s+'
-                  r'await\s+viking_fs\._mv_vector_store_l0_l1\(\s+'
-                  r'root_dir,\s+target_dir,\s+ctx=ctx,\s+lock_handle=lock_handle,\s+\)\s+'
-                  r'except\s+Exception\s+as\s+e:\s+'
-                  r'logger\.error\([\s\S]+?Failed to move L0/L1[\s\S]+?\)',
-                  re.DOTALL
-              )
-              replacement = (
-                  '            import asyncio as _asyncio\n'
-                  '            max_retries = 3\n'
-                  '            for attempt in range(max_retries + 1):\n'
-                  '                try:\n'
-                  '                    await viking_fs._mv_vector_store_l0_l1(\n'
-                  '                        root_dir,\n'
-                  '                        target_dir,\n'
-                  '                        ctx=ctx,\n'
-                  '                        lock_handle=lock_handle,\n'
-                  '                    )\n'
-                  '                    break\n'
-                  '                except Exception as e:\n'
-                  '                    if attempt < max_retries:\n'
-                  '                        delay = 2 ** attempt\n'
-                  '                        logger.warning(\n'
-                  '                            f"[SyncDiff] Retry {attempt+1}/{max_retries} "\n'
-                  '                            f"L0/L1 move after lock contention ({delay}s): {root_dir}"\n'
-                  '                        )\n'
-                  '                        await _asyncio.sleep(delay)\n'
-                  '                    else:\n'
-                  '                        logger.error(\n'
-                  '                            f"[SyncDiff] Failed to move L0/L1 index after "\n'
-                  '                            f"{max_retries+1} attempts: {root_dir} -> {target_dir}, error={e}"\n'
-                  '                        )'
-              )
-              if pattern.search(content):
-                  content = pattern.sub(replacement, content)
-                  with open(path, 'w') as f:
-                      f.write(content)
-                  print("Patch applied successfully")
-              else:
-                  print("WARNING: Patch target not found")
-              PATCH_EOF
-              echo "Patch complete."
       containers:
         - name: openviking-test
-          image: ghcr.io/volcengine/openviking:v0.3.14
+          image: ghcr.io/volcengine/openviking:v0.4.20
           ports:
             - containerPort: 1933
               name: http
           resources:
             requests:
-              cpu: "1"
-              memory: 2Gi
+              cpu: 250m
+              memory: 1Gi
             limits:
               cpu: "4"
-              memory: 6Gi
+              memory: 4Gi
+          # No readinessProbe, as prod (BUG-1049): startupProbe gates Service membership.
           startupProbe:
             httpGet:
               path: /health
               port: 1933
             periodSeconds: 3
             failureThreshold: 30
-          readinessProbe:
-            httpGet:
-              path: /ready
-              port: 1933
-            periodSeconds: 10
-            timeoutSeconds: 10
           livenessProbe:
             tcpSocket:
               port: 1933
@@ -180,25 +134,46 @@ spec:
                   - /bin/sh
                   - -c
                   - sleep 5
+          env:
+            - name: OPENVIKING_PROMPT_TEMPLATES_DIR
+              value: /etc/openviking/prompts
+            # IMPR-1185: sitecustomize.py on this path installs the nav patch.
+            - name: PYTHONPATH
+              value: /ov-nav-patch
+            # Opt-in capture of each directory's real overview inputs, for tuning
+            # the nav glosses offline. Test instance only; drop before prod.
+            - name: OV_NAV_PATCH_DUMP
+              value: /app/data/navdump
           volumeMounts:
             - name: config-out
               mountPath: /app/.openviking/ov.conf
               subPath: ov.conf
               readOnly: true
+            - name: prompt-overrides
+              mountPath: /etc/openviking/prompts/semantic
+              readOnly: true
+            - name: nav-patch
+              mountPath: /ov-nav-patch
+              readOnly: true
             - name: data
               mountPath: /app/data
-      # No TTL sidecar in this revision: the cluster's image registry
-      # can't pull kubectl, and a self-deletion sidecar isn't worth the
-      # complexity for a 1-shot test. The operator is expected to
-      # `kubectl delete -k viking/manifests/test/` when done; the test
-      # docs and validate.sh print a reminder. To add a TTL later,
-      # use a `python:3-alpine` image with an in-cluster API call.
       volumes:
         - name: config-template
           configMap:
             name: openviking-test-config
         - name: config-out
           emptyDir: {}
+        - name: prompt-overrides
+          configMap:
+            name: openviking-prompt-overrides
+        - name: nav-patch
+          configMap:
+            name: ov-nav-patch
+            items:
+              - key: sitecustomize.py
+                path: sitecustomize.py
+              - key: ov_nav_patch.py
+                path: ov_nav_patch.py
         - name: data
           persistentVolumeClaim:
             claimName: openviking-test-data

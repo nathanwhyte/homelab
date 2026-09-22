@@ -1,4 +1,12 @@
 ---
+# Test-instance ov.conf, rebuilt 2026-09-21 from openviking-standalone-configmap.yaml
+# (IMPR-1185 canary). Same shape as prod, with three deliberate differences:
+#   * agfs bucket  openviking-agfs-test   (prod: openviking-agfs)
+#   * vectordb     ov-vectordb-test, collection context-test   (prod: ov-vectordb / context)
+#   * no public_base_url and no prometheus exporter
+# The embedder and the VLM are the SAME services prod uses (qwen3-embedding-4b on
+# manu, gemma4:vlm via chat-ollama on timmy). Test generation therefore shares
+# timmy's single VLM slot with prod; keep canary runs short and serial.
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -13,14 +21,10 @@ data:
       "default_user": "noot",
       "storage": {
         "workspace": "/app/data",
-        "transaction": {
-          "lock_timeout": 30.0,
-          "lock_expire": 300.0
-        },
         "vectordb": {
           "backend": "http",
           "name": "context-test",
-          "dimension": 768,
+          "dimension": 2560,
           "url": "http://ov-vectordb-test.viking.svc.cluster.local:5000"
         },
         "agfs": {
@@ -35,8 +39,8 @@ data:
           }
         }
       },
-      "code": {
-        "code_summary_mode": "ast"
+      "git": {
+        "enabled": false
       },
       "rerank": {
         "threshold": 0.2
@@ -44,29 +48,40 @@ data:
       "server": {
         "host": "0.0.0.0",
         "port": 1933,
-        "workers": 1,
-        "root_api_key": "${API_KEY}"
+        "workers": 2,
+        "root_api_key": "${API_KEY}",
+        "auth_mode": "trusted",
+        "temp_upload": {
+          "default_mode": "local"
+        }
       },
       "log": {
         "level": "INFO",
         "output": "stdout"
       },
       "embedding": {
+        "max_input_tokens": 8192,
         "dense": {
           "provider": "openai",
-          "model": "nomic-embed-text-v1.5",
+          "model": "qwen3-embedding-4b",
           "api_key": "sk-no-key-required",
-          "api_base": "http://embedder-llamacpp.viking.svc.cluster.local:8080/v1",
-          "dimension": 768,
-          "batch_size": 128
+          "api_base": "http://embedder-qwen.viking.svc.cluster.local:8080/v1",
+          "dimension": 2560,
+          "batch_size": 256
         },
         "max_concurrent": 1
       },
+      "semantic": {
+        "overview_max_chars": 20000,
+        "abstract_max_chars": 256,
+        "overview_sample_limit": 105
+      },
       "vlm": {
-        "provider": "litellm",
-        "model": "openai/current.gguf",
-        "api_key": "sk-no-key-required",
-        "api_base": "http://llamacpp-vlm.viking.svc/v1",
-        "max_concurrent": 1
+        "provider": "openai",
+        "model": "gemma4:vlm",
+        "api_key": "${OLLAMA_KEY}",
+        "api_base": "http://chat-ollama.llama.svc.cluster.local:11434/v1",
+        "max_concurrent": 1,
+        "timeout": 600
       }
     }
