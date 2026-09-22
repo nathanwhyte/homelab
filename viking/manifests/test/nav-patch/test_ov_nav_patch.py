@@ -183,6 +183,111 @@ def test_sampled_directory_states_the_gap():
     assert "12 are listed above and 143 were not individually examined" in out
 
 
+# First sentences of REAL v0.4.20 file summaries and child abstracts, captured on
+# ov-test with OV_NAV_PATCH_DUMP (bugs/resolved, 2026-09-22). Each pins one framing
+# the summarizer uses in front of the part that tells entries apart.
+REAL_GLOSSES = [
+    (
+        "bug-1002.md",
+        (
+            "This document is a bug report and resolution log for BUG-1002, which details a "
+            "network timeout issue during large Compendium to OpenViking data backfills."
+        ),
+        "network timeout issue during large Compendium to OpenViking data backfills",
+    ),
+    (
+        "bug-1006.md",
+        (
+            "This document is a bug report (BUG-1006) detailing a technical issue where the "
+            "OpenViking FS API rejected client requests due to missing tenant headers."
+        ),
+        "technical issue where the OpenViking FS API rejected client requests",
+    ),
+    (
+        "bug-1009.md",
+        (
+            "This document is a bug report and resolution log for a rendering corruption issue "
+            "involving Claude Code when used within a tmux session under the Ghostty terminal."
+        ),
+        "rendering corruption issue involving Claude Code when used within a tmux session",
+    ),
+    (
+        "bug-1070.md",
+        (
+            "This document is a bug report (BUG-1070) detailing the identification, root cause "
+            "analysis, and resolution of an orphaned git conflict marker committed within a "
+            "specific guide."
+        ),
+        "orphaned git conflict marker committed within a specific guide",
+    ),
+    (
+        "bug-000.md",
+        (
+            "This document serves as a meta-entry triage register for internal DipDash bug "
+            "reports that were dismissed, identified as configuration issues, or confirmed as "
+            "already fixed."
+        ),
+        "meta-entry triage register for internal DipDash bug reports that were dismissed",
+    ),
+    (
+        "robots",
+        (
+            "This directory contains technical documentation and bug reports related to AI "
+            "image generation."
+        ),
+        "AI image generation",
+    ),
+]
+
+
+def test_gloss_extracts_the_distinguishing_phrase_from_real_summaries():
+    for name, summary, expected in REAL_GLOSSES:
+        got = nav.gloss(summary, nav.MAX_GLOSS_WORDS, name)
+        assert got == expected, (name, got)
+
+
+def test_gloss_never_starts_with_boilerplate_or_ends_dangling():
+    for name, summary, _ in REAL_GLOSSES:
+        for words in (12, 8, 5, 3, 1):
+            got = nav.gloss(summary, words, name)
+            assert not got.lower().startswith(("this ", "bug report", "document")), got
+            assert not got or got.split()[-1].lower() not in nav.DANGLING, (words, got)
+            assert len(got.split()) <= words, (words, got)
+
+
+def test_gloss_drops_a_name_only_abstract():
+    assert nav.gloss("dipdash", 12, "dipdash") == ""
+    assert nav.gloss("dipdash.", 12, "dipdash/") == ""
+    fs, cs = [], [{"name": "dipdash", "abstract": "dipdash"}]
+    line = nav.build_nav(P, DIR, fs, cs, 0, 1, 12).splitlines()[-1]
+    assert line == f"- [dipdash/]({P._markdown_link_target(DIR, 'dipdash')}).", line
+
+
+def test_dump_inputs_is_opt_in_and_never_raises(tmp=None):
+    import json
+    import os
+    import tempfile
+
+    os.environ.pop("OV_NAV_PATCH_DUMP", None)
+    nav.dump_inputs(
+        DIR, files(2), [], 2, 0, "raw", "out"
+    )  # disabled: no error, no file
+    with tempfile.TemporaryDirectory() as d:
+        os.environ["OV_NAV_PATCH_DUMP"] = d
+        try:
+            nav.dump_inputs(DIR, files(2), children(1), 2, 1, "raw", "out")
+            dumped = []
+            for f in os.listdir(d):
+                with open(os.path.join(d, f)) as fh:
+                    dumped.append(json.load(fh))
+            assert len(dumped) == 1 and dumped[0]["dir_uri"] == DIR
+            assert dumped[0]["total_children"] == 1 and dumped[0]["out"] == "out"
+            os.environ["OV_NAV_PATCH_DUMP"] = "/proc/forbidden/navdump"
+            nav.dump_inputs(DIR, files(1), [], 1, 0, "raw", "out")  # must not raise
+        finally:
+            os.environ.pop("OV_NAV_PATCH_DUMP", None)
+
+
 def test_guard_rejects_changed_source():
     fake = types.SimpleNamespace(
         SemanticProcessor=type(

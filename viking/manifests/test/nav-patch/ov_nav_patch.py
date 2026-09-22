@@ -101,13 +101,97 @@ def _clean(text: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 
-def gloss(summary: str, words: int) -> str:
-    """First sentence of a summary, clipped to ``words`` words, no trailing punctuation."""
+# Stock framing the summarizer puts in front of the part that distinguishes an entry,
+# measured on real v0.4.20 inputs (54 of 55 bugs/resolved summaries open with
+# "This document is a bug report and resolution … for BUG-NNNN, which <verb> …").
+PAYLOAD_AFTER = re.compile(
+    r"^This (?:document|file|entry|report|directory)\b.*?"
+    r"(?:,?\s+(?:which|that)\s+(?:details?|identif(?:y|ies)|address(?:es)?|document(?:s)?|"
+    r"describes?|explains?|covers?|records?|tracks?|captures?|outlines?|proposes?|"
+    r"summari[sz]es?|specif(?:y|ies)|defines?|investigates?|analy[sz]es?)"
+    r"|\s+(?:detailing|describing|documenting|regarding|concerning|addressing|covering|"
+    r"outlining|analy[sz]ing|investigating)"
+    r"|\s+(?:log|record|summary|report|analysis|post-mortem)\s+(?:for|of|on)(?=\s+(?:a|an)\s)"
+    r"|\s+(?:related to|relating to|focused on|focusing on|about|on the topic of))\s+(.+)$",
+    re.IGNORECASE,
+)
+SELF_ID = re.compile(r"\s*\(\s*[A-Z]+-\d+\s*\)")
+PROCESS_NOUN = (
+    r"(?:identification|investigation|analysis|root cause analysis|resolution|diagnosis|"
+    r"fix|remediation|triage|discovery)"
+)
+PROCESS_LEAD = re.compile(
+    rf"^(?:the\s+)?{PROCESS_NOUN}(?:\s*,\s*(?:and\s+)?{PROCESS_NOUN}|\s+and\s+{PROCESS_NOUN})*"
+    r"\s+(?:of|for)\s+",
+    re.IGNORECASE,
+)
+LEAD_IN = re.compile(
+    r"^This (?:document|file|entry|report|directory)\s+"
+    r"(?:is|serves as|contains|provides|describes|documents|captures|records)\s+",
+    re.IGNORECASE,
+)
+LEADING_ARTICLE = re.compile(r"^(?:a|an|the)\s+", re.IGNORECASE)
+DANGLING = {
+    "a",
+    "an",
+    "and",
+    "as",
+    "at",
+    "by",
+    "due",
+    "during",
+    "for",
+    "from",
+    "in",
+    "into",
+    "its",
+    "of",
+    "on",
+    "or",
+    "that",
+    "the",
+    "their",
+    "to",
+    "where",
+    "which",
+    "named",
+    "called",
+    "while",
+    "with",
+    "within",
+}
+MIN_CLAUSE_WORDS = 4
+
+
+def gloss(summary: str, words: int, name: str | None = None) -> str:
+    """The distinguishing phrase of a summary, clipped at a clause boundary.
+
+    Takes the first sentence, drops the summarizer's stock framing ("This document
+    is a bug report … for BUG-NNNN, which details …"), clips to ``words`` words at
+    the last comma inside the limit when there is one, and strips dangling function
+    words. Returns "" when nothing is left or the gloss would only repeat ``name``.
+    """
     if words <= 0:
         return ""
-    first = SENTENCE_END.split(_clean(summary), maxsplit=1)[0]
-    clipped = " ".join(first.split()[:words])
-    return clipped.rstrip(" .;:,!?。？！—-")
+    first = SENTENCE_END.split(_clean(summary), maxsplit=1)[0].rstrip(" .;:,!?。？！")
+    first = SELF_ID.sub("", first)
+    m = PAYLOAD_AFTER.match(first)
+    text = m.group(1) if m else LEAD_IN.sub("", first)
+    text = PROCESS_LEAD.sub("", LEADING_ARTICLE.sub("", text).strip())
+    text = LEADING_ARTICLE.sub("", text).strip()
+    tokens = text.split()
+    if len(tokens) > words:
+        cut = tokens[:words]
+        commas = [i for i, t in enumerate(cut) if t.endswith(",")]
+        if commas and commas[-1] + 1 >= MIN_CLAUSE_WORDS:
+            cut = cut[: commas[-1] + 1]
+        tokens = cut
+    while tokens and tokens[-1].lower().strip(",;:") in DANGLING:
+        tokens.pop()
+    out = " ".join(tokens).rstrip(" .;:,!?。？！—-")
+    if name and out.lower().strip() in {name.lower().strip("/"), name.lower()}:
+        return ""
+    return out
 
 
 def build_nav(
@@ -122,11 +206,11 @@ def build_nav(
     lines = ["## Quick Navigation", ""]
     for item in file_summaries:
         target = processor._markdown_link_target(dir_uri, item["name"])
-        g = gloss(item.get("summary", ""), words)
+        g = gloss(item.get("summary", ""), words, item["name"])
         lines.append(f"- [{item['name']}]({target})" + (f" — {g}." if g else "."))
     for item in children_abstracts:
         target = processor._markdown_link_target(dir_uri, item["name"])
-        g = gloss(item.get("abstract", ""), words)
+        g = gloss(item.get("abstract", ""), words, item["name"])
         lines.append(f"- [{item['name']}/]({target})" + (f" — {g}." if g else "."))
     missing = (total_files + total_children) - (
         len(file_summaries) + len(children_abstracts)

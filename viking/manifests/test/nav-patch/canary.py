@@ -106,6 +106,37 @@ def nav_targets(overview: str) -> set[str]:
     return set(re.findall(r"\]\((viking://[^)\s]+)\)", block))
 
 
+BOILERPLATE_GLOSS = re.compile(
+    r"^(?:this |bug report|technical bug report|document)", re.IGNORECASE
+)
+DANGLING_TAIL = re.compile(
+    r"\b(?:a|an|and|as|at|by|due|during|for|from|in|into|its|of|on|or|that|the|to|"
+    r"where|which|while|with|within|named|called)$",
+    re.IGNORECASE,
+)
+
+
+def gloss_quality(overview: str) -> dict:
+    """Informational counts over Quick Navigation glosses (not part of pass/fail)."""
+    m = re.search(
+        r"^## Quick Navigation\n(.*?)(?=^## |\Z)", overview, re.DOTALL | re.MULTILINE
+    )
+    glosses = []
+    for line in (m.group(1) if m else "").splitlines():
+        g = re.match(r"^- \[([^\]]+)\]\([^)]*\)(?: — (.*?))?\.$", line)
+        if g:
+            glosses.append((g.group(1), g.group(2) or ""))
+    return {
+        "nav_lines": len(glosses),
+        "gloss_empty": sum(not g for _, g in glosses),
+        "gloss_boilerplate": sum(bool(BOILERPLATE_GLOSS.match(g)) for _, g in glosses),
+        "gloss_dangling": sum(bool(DANGLING_TAIL.search(g)) for _, g in glosses if g),
+        "gloss_name_only": sum(
+            g.lower() == n.lower().rstrip("/") for n, g in glosses if g
+        ),
+    }
+
+
 def children(c: httpx.Client, uri: str) -> set[str]:
     res = ok(
         c.get(
@@ -124,11 +155,54 @@ def children(c: httpx.Client, uri: str) -> set[str]:
     return kids
 
 
+def regenerate(c: httpx.Client, timeout: int) -> None:
+    """ADMIN-reindex each directory (semantic_and_vectors, recursive=false), serially.
+
+    The reindex rebuilds a directory's overview without deleting anything first, and
+    its work may not go through the observer queue, so wait on each task's own
+    status rather than on queue depth. One directory at a time keeps a single gemma
+    consumer in flight.
+    """
+    admin = {"X-OpenViking-Role": "ADMIN"}
+    for d in DIRS:
+        res = ok(
+            c.post(
+                "/api/v1/content/reindex",
+                headers=admin,
+                json={
+                    "uri": f"{ROOT}/{d}",
+                    "mode": "semantic_and_vectors",
+                    "recursive": False,
+                    "wait": False,
+                },
+            )
+        )
+        task = res.get("task_id")
+        log(f"reindex {d}: task {task} {res.get('status')}")
+        t0 = time.monotonic()
+        status = None
+        while task and time.monotonic() - t0 < timeout:
+            r = c.get(f"/api/v1/tasks/{task}", headers=admin)
+            body = r.json() if r.status_code == 200 else {}
+            status = (body.get("result") or {}).get("status")
+            if status not in (None, "accepted", "pending", "queued", "running"):
+                break
+            time.sleep(30)
+        log(
+            f"reindex {d}: task finished status={status} after {int(time.monotonic() - t0)} s"
+        )
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--vault", required=True, type=Path)
     ap.add_argument("--out", required=True, type=Path)
     ap.add_argument("--settle-timeout", type=int, default=5400)
+    ap.add_argument(
+        "--regenerate",
+        action="store_true",
+        help="entries already exist: ADMIN-reindex each directory instead of seeding",
+    )
     args = ap.parse_args()
     args.out.mkdir(parents=True, exist_ok=True)
 
@@ -153,20 +227,23 @@ def main() -> int:
             if h.status_code != 200:
                 log("ABORT: test instance not healthy")
                 return 2
-            fx = fixtures(args.vault)
-            log(f"seeding {len(fx)} entries into {ROOT}/{{{','.join(DIRS)}}}")
-            for i, (uri, content) in enumerate(fx, 1):
-                parent = uri.rsplit("/", 1)[0]
-                c.post("/api/v1/fs/mkdir", json={"uri": parent})
-                ok(
-                    c.post(
-                        "/api/v1/content/write",
-                        json={"uri": uri, "content": content, "mode": "create"},
-                    )
-                )
-                if i % 25 == 0:
-                    log(f"  wrote {i}/{len(fx)}")
             t0 = time.monotonic()
+            if args.regenerate:
+                regenerate(c, args.settle_timeout)
+            else:
+                fx = fixtures(args.vault)
+                log(f"seeding {len(fx)} entries into {ROOT}/{{{','.join(DIRS)}}}")
+                for i, (uri, content) in enumerate(fx, 1):
+                    parent = uri.rsplit("/", 1)[0]
+                    c.post("/api/v1/fs/mkdir", json={"uri": parent})
+                    ok(
+                        c.post(
+                            "/api/v1/content/write",
+                            json={"uri": uri, "content": content, "mode": "create"},
+                        )
+                    )
+                    if i % 25 == 0:
+                        log(f"  wrote {i}/{len(fx)}")
             log("seeded; waiting for semantic generation to settle")
 
             stable = 0
@@ -212,6 +289,7 @@ def main() -> int:
                     and not ab.lstrip().startswith("-")
                     and "viking://" not in ab,
                     "has_detail": "## Detailed Description" in ov,
+                    **gloss_quality(ov),
                 }
                 passed = (
                     not missing
