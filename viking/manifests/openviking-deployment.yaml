@@ -204,6 +204,16 @@ spec:
           env:
             - name: OPENVIKING_PROMPT_TEMPLATES_DIR
               value: /etc/openviking/prompts
+            # BUG-1176 (same loader, same ConfigMap): ov_extract_patch.py makes a degraded
+            # memory extraction (empty/unparseable LLM output after the loop's own retry)
+            # a retryable Phase 2 failure — up to 6 attempts, sleeps 15–120 s (+jitter),
+            # ~6–7 min of backoff in all — instead of an empty memory_diff.json recorded
+            # as success; a run that still fails gets .failed.json and a failed task. The
+            # session-extraction loop only; streaming merge loops are logged, not raised.
+            # Guarded on v0.4.20 + the ExtractLoop.run source sha256, and the session half
+            # applies only after the loop half did. Grep the pod log for
+            # "ov-extract-patch: applied" (twice per worker) after any change.
+            #
             # IMPR-1185: sitecustomize.py on this path installs a post-import wrapper
             # around SemanticProcessor._generate_overview that builds Quick Navigation
             # and Directory Coverage in code from the child inventory (the model writes
@@ -219,7 +229,9 @@ spec:
             # template in that ConfigMap (see its header) BEFORE bumping the image or
             # rolling this back, and grep the pod log for "NOT applied" after any change.
             #
-            # Rollback of the patch alone (only after the template is restored):
+            # Rollback: OV_EXTRACT_PATCH=0 disables the extraction patch alone;
+            # OV_NAV_PATCH=0 disables the navigation patch alone (restore the model-built
+            # template first); removing PYTHONPATH disables BOTH (template restore first):
             #   kubectl set env deployment/openviking -n viking PYTHONPATH-
             - name: PYTHONPATH
               value: /ov-nav-patch
@@ -364,6 +376,8 @@ spec:
                 path: sitecustomize.py
               - key: ov_nav_patch.py
                 path: ov_nav_patch.py
+              - key: ov_extract_patch.py
+                path: ov_extract_patch.py
         - name: data
           persistentVolumeClaim:
             claimName: openviking-data
