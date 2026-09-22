@@ -288,13 +288,12 @@ When active, the OpenViking provider:
 
 Hermes writes to namespaces that don't overlap with compendium-sync:
 
-| Writer                    | Namespace                                                         |
-| ------------------------- | ----------------------------------------------------------------- |
-| Hermes built-in mirror    | `viking://resources/patterns/`, `viking://resources/preferences/` |
-| Hermes session extraction | `viking://user/noot/memories/` (agent-scoped destination not demonstrated) |
-| Work compendium-sync      | `viking://resources/compendium/`                                  |
-| Personal compendium-sync  | `viking://resources/personal/`                                    |
-| Homelab index scripts     | `viking://resources/projects/homelab/`                            |
+| Writer                            | Namespace                                                                                                                                                                                                                        |
+| --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Hermes built-in mirror            | `viking://resources/patterns/`, `viking://resources/preferences/` — not verified by a live write or source read (IMPR-1177, 2026-09-22)                                                                                          |
+| Hermes session extraction         | `viking://user/noot/memories/` (agent-scoped destination not demonstrated)                                                                                                                                                       |
+| Compendium-sync (work + personal) | `viking://resources/compendium/` — personal-band entries (IDs ≥ 1000) sync here too since the IDEA-034 vault merge; the former `viking://resources/personal/` target was retired and is no longer a live destination (IMPR-1177) |
+| Homelab index scripts             | `viking://resources/projects/homelab/`                                                                                                                                                                                           |
 
 No coordination mechanism is needed — idempotent upsert semantics mean concurrent writes converge.
 
