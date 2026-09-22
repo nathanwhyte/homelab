@@ -11,19 +11,32 @@ four memories.
 
 This wrapper changes two things, both inside the existing Phase 2 machinery:
 
-  * ``ExtractLoop.run`` — when the loop returns errors and no upserts, raise
+  * ``ExtractLoop.run`` — when the *session extraction* loop (context provider exactly
+    ``SessionExtractContextProvider``) returns errors and no upserts, raise
     ``ExtractionDegradedError`` instead of returning. ``extract_long_term_memories`` runs with
     ``strict_extract_errors=True`` in the commit path, so the error reaches
     ``_run_retryable_phase2_step`` and is retried by ``retry_async``; if every retry fails the
     archive gets ``.failed.json`` (stage ``memory_extraction``) and the task fails — visible,
-    exact, and re-drivable — instead of an empty diff recorded as success.
+    exact, and re-drivable — instead of an empty diff recorded as success. The streaming
+    memory updater's merge loops (``PatchMergeContextProvider``, ``max_iterations=1``) are
+    left returning: they run after append-only events have already been written, and a
+    whole-step retry there would regenerate and duplicate those events. A degraded merge
+    is logged, not raised.
   * ``openviking.session.session`` — ``is_retryable_api_error`` also returns True for
     ``ExtractionDegradedError``, and the Phase 2 retry constants are widened from
-    3 × (1 s … 8 s) to 5 × (15 s … 120 s) so a short VLM contention window is ridden out.
-    Both are module globals the nested retry helper reads at call time.
+    3 retries × (1 s … 8 s) to 5 retries × (15 s … 120 s): ``retry_async`` makes up to
+    6 attempts with 5 capped, jittered sleeps (about 345–420 s of sleeping in all, no
+    overall deadline), plus the extraction's own LLM time per attempt. Both are module
+    globals the nested retry helper reads at call time. This half applies only after the
+    loop half applied in the same process, so the guard governs both.
 
 Also logs, at WARNING, an extraction that parsed fine but produced zero operations, with the
 loop's last failure kind, so a future zero window is diagnosable from the pod log alone.
+That parsed-empty outcome is indistinguishable from "nothing to extract" and is NOT raised.
+
+Scope of the claim: this protects against a demonstrated source-code defect (an exhausted
+retry becomes a successful empty diff). Whether the 2026-09-22 zero runs took this path or
+returned a parsed empty program is not established by the INFO log; see BUG-1176.
 
 Guarded: applies only to openviking ``v0.4.20`` whose ``ExtractLoop.run`` source hashes to
 ``EXPECTED_RUN_SHA256``; otherwise it logs "NOT applied" and stock behaviour stays.
@@ -46,6 +59,10 @@ DEFAULT_BASE_DELAY_SECONDS = 15.0
 DEFAULT_MAX_DELAY_SECONDS = 120.0
 
 logger = logging.getLogger("ov_extract_patch")
+SESSION_PROVIDER = (
+    "SessionExtractContextProvider"  # exact class; subclasses are merge loops
+)
+_state = {"loop_applied": False}
 
 
 class ExtractionDegradedError(RuntimeError):
@@ -77,7 +94,17 @@ def wrap_run(orig):
         upserts = getattr(operations, "upsert_operations", None) or []
         errors = list(getattr(operations, "errors", None) or [])
         kind = getattr(self, "_last_llm_failure_kind", None) or "unknown"
+        provider = type(getattr(self, "context_provider", None)).__name__
         if errors and not upserts:
+            if provider != SESSION_PROVIDER:
+                logger.warning(
+                    "ov-extract-patch: degraded %s loop (failure_kind=%s: %s); returned as-is "
+                    "because a retry here would duplicate already-appended events",
+                    provider,
+                    kind,
+                    errors[0][:200],
+                )
+                return operations, tools_used
             logger.warning(
                 "ov-extract-patch: extraction degraded (failure_kind=%s, %d error(s): %s); "
                 "raising for Phase 2 retry instead of recording an empty diff",
@@ -153,6 +180,7 @@ def apply_extract_loop(module) -> bool:
         )
         return False
     cls.run = wrap_run(orig)
+    _state["loop_applied"] = True
     logger.warning("ov-extract-patch: applied to ExtractLoop.run (pid %d)", os.getpid())
     return True
 
@@ -172,6 +200,13 @@ def apply_session(module) -> bool:
     )
     if getattr(orig, "_ov_extract_patch", False):
         return True
+    if not _state["loop_applied"]:
+        logger.warning(
+            "ov-extract-patch: NOT applied to session retry — the ExtractLoop half was not "
+            "applied in this process (guard failed or extract_loop not imported first); "
+            "stock retry budget kept"
+        )
+        return False
     if (
         version != EXPECTED_VERSION
         or orig is None

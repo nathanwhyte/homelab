@@ -175,6 +175,8 @@ spec:
                 path: sitecustomize.py
               - key: ov_nav_patch.py
                 path: ov_nav_patch.py
+              - key: ov_extract_patch.py
+                path: ov_extract_patch.py
         - name: data
           persistentVolumeClaim:
             claimName: openviking-test-data

@@ -26,8 +26,21 @@ class Ops:
         return bool(self.errors)
 
 
+class SessionExtractContextProvider:  # name is what the wrapper keys on
+    pass
+
+
+class PatchMergeContextProvider(SessionExtractContextProvider):
+    pass
+
+
 class Loop:
     _last_llm_failure_kind = None
+    context_provider = SessionExtractContextProvider()
+
+
+class MergeLoop(Loop):
+    context_provider = PatchMergeContextProvider()
 
 
 def make(result):
@@ -38,10 +51,22 @@ def make(result):
 
 
 class WrapRunTests(unittest.TestCase):
-    def run_wrapped(self, result, kind=None):
-        loop = Loop()
+    def run_wrapped(self, result, kind=None, loop_cls=Loop):
+        loop = loop_cls()
         loop._last_llm_failure_kind = kind
         return asyncio.run(make(result)(loop))
+
+    def test_merge_loop_errors_only_is_returned_not_raised(self):
+        ops = Ops(errors=["merge program unparseable"])
+        with self.assertLogs("ov_extract_patch", level="WARNING") as logs:
+            got, _ = self.run_wrapped((ops, []), kind="parse_error", loop_cls=MergeLoop)
+        self.assertIs(got, ops)
+        self.assertTrue(
+            any(
+                "PatchMergeContextProvider" in m and "duplicate" in m
+                for m in logs.output
+            )
+        )
 
     def test_errors_only_raises_degraded(self):
         ops = Ops(
@@ -111,6 +136,31 @@ class RetryClassifierTests(unittest.TestCase):
 
 
 class ApplyGuardTests(unittest.TestCase):
+    def setUp(self):
+        ep._state["loop_applied"] = True
+
+    def tearDown(self):
+        ep._state["loop_applied"] = False
+
+    def test_apply_session_refuses_without_loop_half(self):
+        import types
+
+        ep._state["loop_applied"] = False
+        fake_openviking = types.ModuleType("openviking")
+        fake_openviking.__version__ = ep.EXPECTED_VERSION
+        sys.modules["openviking"] = fake_openviking
+        try:
+            mod = types.SimpleNamespace(
+                is_retryable_api_error=lambda e: False,
+                _MEMORY_EXTRACTION_MAX_RETRIES=3,
+                _MEMORY_EXTRACTION_RETRY_BASE_DELAY_SECONDS=1.0,
+                _MEMORY_EXTRACTION_RETRY_MAX_DELAY_SECONDS=8.0,
+            )
+            self.assertFalse(ep.apply_session(mod))
+            self.assertEqual(mod._MEMORY_EXTRACTION_MAX_RETRIES, 3)
+        finally:
+            del sys.modules["openviking"]
+
     def test_apply_session_refuses_wrong_version(self):
         import types
 

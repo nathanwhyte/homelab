@@ -16,8 +16,10 @@ off switch; a patch failure never breaks the import):
                         recorded as success (``ExtractLoop.run`` + the session's
                         Phase 2 retry classifier and budget).
 
+Rollback of one patch: its env switch (``OV_EXTRACT_PATCH=0``; ``OV_NAV_PATCH=0``
+only after the model-built overview template is restored, see the Deployment).
 Rollback of everything: remove PYTHONPATH from the Deployment
-(``kubectl set env … PYTHONPATH-``). Rollback of one patch: its env switch.
+(``kubectl set env … PYTHONPATH-``), again only after that template restore.
 """
 
 import importlib.abc
