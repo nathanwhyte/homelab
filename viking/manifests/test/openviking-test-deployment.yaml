@@ -140,6 +140,10 @@ spec:
             # IMPR-1185: sitecustomize.py on this path installs the nav patch.
             - name: PYTHONPATH
               value: /ov-nav-patch
+            # Opt-in capture of each directory's real overview inputs, for tuning
+            # the nav glosses offline. Test instance only; drop before prod.
+            - name: OV_NAV_PATCH_DUMP
+              value: /app/data/navdump
           volumeMounts:
             - name: config-out
               mountPath: /app/.openviking/ov.conf

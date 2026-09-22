@@ -225,6 +225,42 @@ def _source_hash(func) -> str | None:
         return None
 
 
+def dump_inputs(
+    dir_uri, file_summaries, children_abstracts, total_files, total_children, raw, out
+) -> None:
+    """Opt-in capture of one generation's real inputs, for tuning the glosses offline.
+
+    Writes nothing unless OV_NAV_PATCH_DUMP names a directory, and never raises:
+    a dump failure must not affect the overview that is returned.
+    """
+    target = os.environ.get("OV_NAV_PATCH_DUMP")
+    if not target:
+        return
+    try:
+        import json
+        import time
+
+        os.makedirs(target, exist_ok=True)
+        slug = re.sub(r"[^A-Za-z0-9]+", "_", dir_uri)[-120:]
+        path = os.path.join(target, f"{slug}-{time.time_ns()}-{os.getpid()}.json")
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump(
+                {
+                    "dir_uri": dir_uri,
+                    "file_summaries": list(file_summaries),
+                    "children_abstracts": list(children_abstracts),
+                    "total_files": total_files,
+                    "total_children": total_children,
+                    "raw": raw,
+                    "out": out,
+                },
+                fh,
+                ensure_ascii=False,
+            )
+    except Exception:
+        logger.exception("ov-nav-patch: input dump failed for %s", dir_uri)
+
+
 def apply(module) -> bool:
     """Patch ``module.SemanticProcessor._generate_overview`` in place; True if applied."""
     if os.environ.get("OV_NAV_PATCH", "1") == "0":
@@ -266,7 +302,7 @@ def apply(module) -> bool:
         )
         try:
             cap = module.get_openviking_config().semantic.overview_max_chars
-            return assemble(
+            out = assemble(
                 self,
                 raw,
                 dir_uri,
@@ -281,6 +317,16 @@ def apply(module) -> bool:
                 "ov-nav-patch: assemble failed for %s; returning stock output", dir_uri
             )
             return raw
+        dump_inputs(
+            dir_uri,
+            file_summaries,
+            children_abstracts,
+            total_files,
+            total_children,
+            raw,
+            out,
+        )
+        return out
 
     _generate_overview._ov_nav_patch = True
     _generate_overview.__wrapped__ = orig
