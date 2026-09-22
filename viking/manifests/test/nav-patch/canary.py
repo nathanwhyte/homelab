@@ -158,38 +158,64 @@ def children(c: httpx.Client, uri: str) -> set[str]:
 def regenerate(c: httpx.Client, timeout: int) -> None:
     """ADMIN-reindex each directory (semantic_and_vectors, recursive=false), serially.
 
-    The reindex rebuilds a directory's overview without deleting anything first, and
-    its work may not go through the observer queue, so wait on each task's own
-    status rather than on queue depth. One directory at a time keeps a single gemma
+    The reindex rebuilds a directory's overview without deleting anything first. Its
+    work does not go through the observer queue, and its task record stays "running"
+    after the work finishes (seen 2026-09-22: done at 00:54Z, record frozen at
+    00:40Z; compendium IMPR-1062 records the same zombie-task behaviour). So
+    completion is read from the stored overview itself: its sidecar modTime must
+    move past the pre-reindex value. One directory at a time keeps a single gemma
     consumer in flight.
     """
     admin = {"X-OpenViking-Role": "ADMIN"}
-    for d in DIRS:
-        res = ok(
-            c.post(
-                "/api/v1/content/reindex",
-                headers=admin,
-                json={
-                    "uri": f"{ROOT}/{d}",
-                    "mode": "semantic_and_vectors",
-                    "recursive": False,
-                    "wait": False,
-                },
-            )
+
+    def overview_state(d: str) -> tuple:
+        uri = f"{ROOT}/{d}/.overview.md"
+        st = c.get("/api/v1/fs/stat", params={"uri": uri})
+        mtime = (
+            (st.json().get("result") or {}).get("modTime")
+            if st.status_code == 200
+            else None
         )
+        body = c.get("/api/v1/content/read", params={"uri": uri})
+        return mtime, hash(body.text) if body.status_code == 200 else None
+
+    for d in DIRS:
+        before = overview_state(d)
+        log(f"reindex {d}: pre-reindex overview state modTime={before[0]}")
+        r = c.post(
+            "/api/v1/content/reindex",
+            headers=admin,
+            json={
+                "uri": f"{ROOT}/{d}",
+                "mode": "semantic_and_vectors",
+                "recursive": False,
+                "wait": False,
+            },
+        )
+        if r.status_code == 409 and "reindex in progress" in r.text:
+            # The zombie task record from an earlier reindex also blocks new ones on
+            # the same URI. The overview it produced is still checked below; the
+            # report records its modTime so the reader can judge whether it
+            # post-dates the patch deploy.
+            log(
+                f"reindex {d}: SKIPPED, 409 'reindex in progress' (zombie task record); "
+                f"checking the existing overview, modTime={before[0]}"
+            )
+            continue
+        res = ok(r)
         task = res.get("task_id")
         log(f"reindex {d}: task {task} {res.get('status')}")
         t0 = time.monotonic()
-        status = None
-        while task and time.monotonic() - t0 < timeout:
-            r = c.get(f"/api/v1/tasks/{task}", headers=admin)
-            body = r.json() if r.status_code == 200 else {}
-            status = (body.get("result") or {}).get("status")
-            if status not in (None, "accepted", "pending", "queued", "running"):
-                break
+        now = before
+        while time.monotonic() - t0 < timeout:
             time.sleep(30)
+            now = overview_state(d)
+            if now[0] != before[0] or (now[1] != before[1] and now[1] is not None):
+                break
+        changed = now != before
         log(
-            f"reindex {d}: task finished status={status} after {int(time.monotonic() - t0)} s"
+            f"reindex {d}: overview {'rewritten' if changed else 'NOT rewritten'} "
+            f"(modTime {before[0]} -> {now[0]}) after {int(time.monotonic() - t0)} s"
         )
 
 
