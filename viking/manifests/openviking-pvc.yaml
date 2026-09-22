@@ -5,8 +5,21 @@ metadata:
   name: openviking-data
   namespace: viking
   annotations:
-    # 2 replicas for data redundancy across nodes
+    # Intent only: this annotation is not read by the Longhorn CSI driver, and the
+    # live volume runs at the class default of 1 replica (BUG-1101 audit, 2026-09-05).
     longhorn.io/number-of-replicas: "2"
+    # Live volume setting, applied by hand on 2026-09-22 and NOT expressed by
+    # `longhorn-ssd` (dataLocality: disabled). During the manu node drill
+    # (BUG-1129 / BUG-1101) this volume's only replica turned out to sit on manu's
+    # disk while the pod runs on timmy; Longhorn faulted it at T0+6 min and OV
+    # served "database disk image is malformed" for 18 min while /health stayed 200.
+    # best-effort locality keeps the replica on the node the pod is attached to:
+    #   kubectl -n longhorn-system patch volumes.longhorn.io <pv-name> \
+    #     --type merge -p '{"spec":{"dataLocality":"best-effort"}}'
+    # (pv-name from `kubectl -n viking get pvc openviking-data -o jsonpath='{.spec.volumeName}'`).
+    # A StorageClass parameter is immutable after provisioning, so a re-provisioned
+    # claim should use a class that sets it — `longhorn-garage-data` is the model.
+    homelab.nathanwhyte.dev/longhorn-data-locality: best-effort
 spec:
   accessModes:
     - ReadWriteOnce

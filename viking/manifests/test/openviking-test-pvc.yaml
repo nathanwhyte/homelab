@@ -9,6 +9,9 @@ metadata:
     component: openviking-test
   annotations:
     longhorn.io/number-of-replicas: "1"
+    # Live volume setting, applied by hand on 2026-09-22 together with the prod
+    # pair (see ../openviking-pvc.yaml): keeps the replica on the pod's node.
+    homelab.nathanwhyte.dev/longhorn-data-locality: best-effort
 spec:
   accessModes:
     - ReadWriteOnce

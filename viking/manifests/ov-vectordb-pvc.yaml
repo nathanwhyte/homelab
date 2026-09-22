@@ -5,7 +5,12 @@ metadata:
   name: ov-vectordb-data
   namespace: viking
   annotations:
+    # Intent only: not read by the Longhorn CSI driver; the live volume runs at 1 replica.
     longhorn.io/number-of-replicas: "2"
+    # Live volume setting, applied by hand on 2026-09-22 (see openviking-pvc.yaml
+    # for the drill finding and the patch command). The index flush hit EIO within
+    # a minute of the volume faulting while the pod itself kept running.
+    homelab.nathanwhyte.dev/longhorn-data-locality: best-effort
 spec:
   accessModes:
     - ReadWriteOnce
