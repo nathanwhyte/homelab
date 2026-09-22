@@ -1,6 +1,20 @@
 ---
 # Primary copyparty storage. Houses the MacBook backup tree plus future
 # user uploads. 200 Gi to start, expandable in-place (allowVolumeExpansion).
+#
+# recurring-job.longhorn.io/* labels (IMPR-1009, 2026-09-22): direct,
+# single-volume attachment to the copyparty-files-snap-daily RecurringJob
+# in snapshot-policy.yaml. That job has `groups: []` on purpose -- the
+# cluster's `default` recurring-job group holds every PVC, so assigning via
+# `groups: ["default"]` would snapshot all of them daily, not just this
+# one. `source: enabled` plus the per-job label is the same pattern already
+# live on the grafana/prometheus PVC for prometheus-filesystem-trim-weekly
+# (also `groups: []`) on this same Longhorn v1.12.0 -- confirmed by reading
+# that PVC's and its Volume's labels, and by the job's own cron-pod log
+# line (`Got volumes from label
+# recurring-job.longhorn.io/<job>=enabled` / `Found 0 volumes`) which is
+# exactly what copyparty-files-snap-daily logged on all 91 of its prior
+# daily runs before this label existed.
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
@@ -9,6 +23,8 @@ metadata:
   labels:
     app.kubernetes.io/name: copyparty
     app.kubernetes.io/component: storage
+    recurring-job.longhorn.io/source: enabled
+    recurring-job.longhorn.io/copyparty-files-snap-daily: enabled
 spec:
   accessModes:
     - ReadWriteOnce

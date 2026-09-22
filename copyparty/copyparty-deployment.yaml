@@ -60,22 +60,28 @@ spec:
           command:
             - /bin/sh
             - -c
-          # Volume spec:
-          #   /srv/files -> URL /files with rwmd granted to ${USER} only.
-          #       u2c.py needs w/m/d for sync semantics (incl. --dr delete-
-          #       remote); the MacBook backup script relies on delete to
-          #       mirror Mac-side rms.
-          #   /srv/media -> URL /media with r granted to ${USER} only.
-          #       NFS mount is RO at mount level too; belt and braces.
+          # Volume spec: /srv/files and /srv/media both use `A` (admin) ACL,
+          # granted only to ${USER} -- single-owner instance, intentional
+          # (TASK-1083 changed both from rwmd/r to A on request). `A` grants
+          # read/write/move/delete/get/dots/uadmin (not upGet or html).
+          #   /srv/files: u2c.py needs w/m for sync semantics. `d` (delete)
+          #       is granted by `A` but not exercised by the backup path --
+          #       macbook-backup.sh dropped --dr in dotfiles 6e3f9e6, so
+          #       deletes are not mirrored and the backup is append-only;
+          #       `d` is kept only for manual admin cleanup via the browser.
+          #   /srv/media: additionally RO at the NFS mount level (belt and
+          #       braces) regardless of the ACL.
           # We do NOT pass `-s` (copyparty's safety profile). `-s` bundles
           # --no-thumb --no-mtag-ff --dotpart --no-robots --force-js; the
           # first two disable thumbnails and ffprobe tag-reading, which would
           # defeat the whole point of running the `iv` image. Instead we keep
           # only the non-disabling pieces of `-s`: --dotpart (hide in-flight
-          # u2c uploads from listings), --no-robots (no public hostname
-          # anyway), --force-js (rich JS browser UI). `-s` deliberately
-          # excludes --no-mv/--no-del (those are in -ss), so omitting it
-          # keeps write/move/delete on /files intact for u2c sync semantics.
+          # u2c uploads from listings), --no-robots (files.nathanwhyte.dev is
+          # public via the main Cloudflare tunnel -- keep it out of search
+          # indexes regardless), --force-js (rich JS browser UI). `-s`
+          # deliberately excludes --no-mv/--no-del (those are in -ss), so
+          # omitting it keeps write/move/delete on /files intact for u2c sync
+          # semantics.
           # The yt-dlp /media videos carry --embed-thumbnail covers (mkv
           # attachments), so video thumbs extract the embedded cover cheaply
           # rather than decoding a frame; /files may hold raw images/video
@@ -88,22 +94,80 @@ spec:
           # to a PVC if cold regen of the media library gets annoying.
           # Server-side accidental-rm safety: copyparty has no built-in
           # retention. Longhorn RecurringJob snapshots on copyparty-files
-          # PVC handle point-in-time recovery (see snapshot-policy.yaml).
+          # PVC handle point-in-time recovery (see snapshot-policy.yaml) --
+          # FIXED (IMPR-1009, 2026-09-22): the RecurringJob's own cron pod
+          # logs showed `Got volumes from label
+          # recurring-job.longhorn.io/copyparty-files-snap-daily=enabled` /
+          # `Found 0 volumes` on every one of its 91 daily firings -- its
+          # `groups: []` means it only ever matches by direct per-job label,
+          # and the copyparty-files PVC never carried one (it only had the
+          # unrelated `recurring-job-group.longhorn.io/default` label, which
+          # this job's empty `groups` never reads). Deliberately NOT fixed
+          # with `groups: ["default"]` -- that group holds every PVC in the
+          # cluster, so the job would start snapshotting all of them. Fixed
+          # instead by labeling copyparty-files.yaml directly with
+          # `recurring-job.longhorn.io/source: enabled` and
+          # `recurring-job.longhorn.io/copyparty-files-snap-daily: enabled`,
+          # the same pattern already proven live on this exact Longhorn
+          # v1.12.0 by the grafana/prometheus PVC and its
+          # prometheus-filesystem-trim-weekly job (identical `groups: []`
+          # shape). See files-pvc.yaml for the label and IMPR-1009 Findings
+          # for the confirm-after-apply steps.
+          # IMPR-1009: the account password used to be expanded straight into
+          # this container's argv via `-a "${USER}:${PASSWORD}"`, which put
+          # the plaintext value in `ps` / `/proc/<pid>/cmdline` for the pod's
+          # whole lifetime. The command below instead writes a small config
+          # file from the same Secret and passes it with `-c`, so the
+          # password only ever touches a file this container owns -- never
+          # argv. Verified 2026-09-22 against this exact image (v1.20.16):
+          # an ephemeral `-c <file>`-only account, no `-a`, logged in fine
+          # over both HTTP Basic and copyparty's native `?pw=`. Still
+          # plaintext on disk (mode 600, single-user container, single
+          # replica) -- see copyparty-accounts.secret.yaml.example for why
+          # --ah-alg argon2 hashing is not enabled yet.
+          # --xff-src trusts the pod-CIDR ranges of the 3 nodes cloudflared's
+          # podAntiAffinity spreads it across one-per-node (manu/timmy/wemby),
+          # confirmed via `kubectl get nodes -o jsonpath='{.spec.podCIDR}'`
+          # -> 10.42.0.0/24 (wemby), 10.42.2.0/24 (timmy), 10.42.4.0/24
+          # (manu). Not a single stable IP: k8s reassigns cloudflared's pod
+          # IP on every restart/reschedule, and it can land on any of the 3
+          # nodes. This is narrower than the previous blanket `10.42.0.0/16`
+          # (drops the always-unused `10.43.0.0/16` Service CIDR entirely --
+          # ClusterIPs are virtual and never appear as a packet's source
+          # address), but is still "any pod on any node in this cluster" in
+          # practice, since these 3 ranges are the cluster's *entire*
+          # allocated pod-CIDR space and no NetworkPolicy restricts who can
+          # reach the copyparty Service. Accepted as a single-owner-homelab
+          # tradeoff; update this list (and re-check `podCIDR`) if a 4th node
+          # is ever added.
+          # --vc-url/--vc-age turn on copyparty's advisory feed (checks
+          # api.copyparty.eu every 6h, no --vc-exit -- non-disruptive) since
+          # this instance is internet-reachable. Confirmed supported by the
+          # deployed v1.20.16 (`--help` lists --vc-url/--vc-age/--vc-sev/
+          # --vc-exit).
           args:
             - |
               set -eu
+              umask 077
+              # Written fresh on every container start; heredoc content flows
+              # through the shell's own fd, never through a subprocess argv.
+              cat > /cfg/copyparty-accounts.conf <<CPCFG
+              [accounts]
+                ${USER}: ${PASSWORD}
+              CPCFG
               exec python3 -m copyparty \
                 -i 0.0.0.0 -p 3923 \
                 -v "/srv/files:files:A,${USER}" \
                 -v "/srv/media:media:A,${USER}" \
-                -a "${USER}:${PASSWORD}" \
+                -c /cfg/copyparty-accounts.conf \
                 -e2d \
                 --hist=/cfg \
                 --dotpart --no-robots --force-js --no-reload \
                 --acao "https://files.nathanwhyte.dev,http://100.95.215.105:31920,http://192.168.1.19:31920" \
                 --xff-hdr cf-connecting-ip \
-                --xff-src "10.42.0.0/16,10.43.0.0/16" \
+                --xff-src "10.42.0.0/24,10.42.2.0/24,10.42.4.0/24" \
                 --rproxy 1 \
+                --vc-url https://api.copyparty.eu/advisories --vc-age 6 \
                 -q
           env:
             - name: USER

@@ -7,5 +7,14 @@ resources:
   - files-pvc.yaml
   - media-nfs-pv.yaml
   - copyparty-deployment.yaml
+  - snapshot-policy.yaml
 # copyparty-accounts.secret.yaml is created out-of-band (kubectl apply),
 # .example tracked for shape only. Same pattern as files/, viking/, hermes/.
+#
+# snapshot-policy.yaml is a longhorn.io/v1beta2 RecurringJob in the
+# longhorn-system namespace (not copyparty) -- kustomize renders resources
+# regardless of namespace, and this repo has no `namespace:` override here,
+# so including it does not force copyparty's namespace onto it. Longhorn's
+# RecurringJob CRD already exists live (Longhorn itself is deployed
+# separately), so re-applying this via `kubectl apply -k copyparty/` is a
+# same-object reconcile, not a CRD-ordering hazard (IMPR-1009 item 1).
