@@ -118,7 +118,9 @@ PAYLOAD_AFTER = re.compile(
     r"introduces?|establish(?:es)?|ensures?|implements?|adds?|enables?|supports?|"
     r"(?:aims?|aimed|seeks?|sought) to)"
     r"|\s+(?:detailing|describing|documenting|regarding|concerning|addressing|covering|"
-    r"outlining|analy[sz]ing|investigating)"
+    r"outlining|analy[sz]ing|investigating|identifying|explaining|tracking|proposing|"
+    r"reporting|summari[sz]ing|specifying|defining|highlighting|examining|evaluating|"
+    r"recording|capturing|presenting)"
     r"|\s+(?:log|record|summary|report|analysis|post-mortem)\s+(?:for|of|on)(?=\s+(?:a|an)\s)"
     r"|\s+(?:related to|relating to|focused on|focusing on|about|on the topic of))\s+(.+)$",
     re.IGNORECASE,
@@ -145,7 +147,8 @@ SECOND_LEAD_IN = re.compile(
 # "feature specification and implementation record for …" — measured on real
 # features/completed summaries, 2026-09-22.
 DOC_TYPE_LEAD = re.compile(
-    r"^(?:technical\s+)?(?:feature|bug|design|implementation)\s+"
+    r"^(?:(?:technical|proposed)\s+)?"
+    r"(?:feature|bug|design|implementation|improvement|enhancement)\s+"
     r"(?:request|specification|spec|report|record|design)"
     r"(?:\s+and\s+(?:[\w-]+\s+){0,2}?(?:record|guide|analysis|design|file|registry|log|"
     r"summary|report|research file))?\s+(?:for|of|on)\s+",
@@ -183,6 +186,10 @@ DANGLING = {
     "within",
 }
 MIN_CLAUSE_WORDS = 4
+# past participles that, when a clip lands on them, leave a dangling "… caused" /
+# "… triggered"; short or noun-like "-ed" words (bed, red, need, seed) excluded
+PARTICIPLE_TAIL = re.compile(r"^[a-z]{3,}(?<![eo]e)(?<!ne)ed$")
+AUXILIARY = {"is", "are", "was", "were", "be", "been", "being", "get", "got", "gets"}
 
 
 def _phrase(sentence: str) -> str:
@@ -222,14 +229,32 @@ def gloss(summary: str, words: int, name: str | None = None) -> str:
         if second and not _weak(second):
             text = second
     tokens = text.split()
-    if len(tokens) > words:
+    truncated = len(tokens) > words
+    if truncated:
         cut = tokens[:words]
         commas = [i for i, t in enumerate(cut) if t.endswith(",")]
         if commas and commas[-1] + 1 >= MIN_CLAUSE_WORDS:
             cut = cut[: commas[-1] + 1]
         tokens = cut
-    while tokens and tokens[-1].lower().strip(",;:") in DANGLING:
-        tokens.pop()
+    while tokens:
+        last = tokens[-1].lower().strip(",;:")
+        if last in DANGLING:
+            tokens.pop()
+        elif truncated and len(tokens) > 1 and tokens[-2].lower() == "to":
+            # a clipped "to <verb>" ("… optimizing the write path to handle") reads as
+            # an unfinished clause; drop both words
+            del tokens[-2:]
+        elif (
+            truncated
+            and len(tokens) > MIN_CLAUSE_WORDS
+            and PARTICIPLE_TAIL.match(last)
+            and tokens[-2].lower() not in AUXILIARY  # "that were dismissed" is complete
+        ):
+            # a clipped trailing participle ("… outage in the system caused") promises
+            # an agent or object that was cut off
+            tokens.pop()
+        else:
+            break
     out = " ".join(tokens).rstrip(" .;:,!?。？！—-")
     if name and out.lower().strip() in {name.lower().strip("/"), name.lower()}:
         return ""
