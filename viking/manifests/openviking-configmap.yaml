@@ -63,7 +63,8 @@ data:
         "max_concurrent": 1
       },
       "semantic": {
-        "overview_max_chars": 12000,
+        "overview_max_chars": 20000,
+        "overview_sample_limit": 105,
         "abstract_max_chars": 256
       },
       "vlm": {
@@ -72,6 +73,6 @@ data:
         "api_key": "${OLLAMA_KEY}",
         "api_base": "http://chat-ollama.llama.svc.cluster.local:11434/v1",
         "max_concurrent": 1,
-        "timeout": 120
+        "timeout": 600
       }
     }
