@@ -97,18 +97,26 @@ def split_sections(text: str) -> tuple[str, list[tuple[str, str]]]:
 
 
 def _clean(text: str) -> str:
-    text = re.sub(r"[#*_`>\[\]]", "", text or "")
+    text = re.sub(r"[#*`>\[\]]", "", text or "")
+    # emphasis underscores only; keep identifiers such as source_file_names intact
+    text = re.sub(r"(?<!\w)_+|_+(?!\w)", "", text)
     return re.sub(r"\s+", " ", text).strip()
 
 
 # Stock framing the summarizer puts in front of the part that distinguishes an entry,
 # measured on real v0.4.20 inputs (54 of 55 bugs/resolved summaries open with
 # "This document is a bug report and resolution … for BUG-NNNN, which <verb> …").
+SUBJECT = (
+    r"This (?:[\w-]+\s+){0,2}?"
+    r"(?:document|documentation|file|entry|report|directory|specification)"
+)
 PAYLOAD_AFTER = re.compile(
-    r"^This (?:document|file|entry|report|directory)\b.*?"
+    rf"^{SUBJECT}\b.*?"
     r"(?:,?\s+(?:which|that)\s+(?:details?|identif(?:y|ies)|address(?:es)?|document(?:s)?|"
     r"describes?|explains?|covers?|records?|tracks?|captures?|outlines?|proposes?|"
-    r"summari[sz]es?|specif(?:y|ies)|defines?|investigates?|analy[sz]es?)"
+    r"summari[sz]es?|specif(?:y|ies)|defines?|investigates?|analy[sz]es?|"
+    r"introduces?|establish(?:es)?|ensures?|implements?|adds?|enables?|supports?|"
+    r"(?:aims?|aimed|seeks?|sought) to)"
     r"|\s+(?:detailing|describing|documenting|regarding|concerning|addressing|covering|"
     r"outlining|analy[sz]ing|investigating)"
     r"|\s+(?:log|record|summary|report|analysis|post-mortem)\s+(?:for|of|on)(?=\s+(?:a|an)\s)"
@@ -118,7 +126,7 @@ PAYLOAD_AFTER = re.compile(
 SELF_ID = re.compile(r"\s*\(\s*[A-Z]+-\d+\s*\)")
 PROCESS_NOUN = (
     r"(?:identification|investigation|analysis|root cause analysis|resolution|diagnosis|"
-    r"fix|remediation|triage|discovery)"
+    r"fix|remediation|triage|discovery|implementation|development)"
 )
 PROCESS_LEAD = re.compile(
     rf"^(?:the\s+)?{PROCESS_NOUN}(?:\s*,\s*(?:and\s+)?{PROCESS_NOUN}|\s+and\s+{PROCESS_NOUN})*"
@@ -126,10 +134,24 @@ PROCESS_LEAD = re.compile(
     re.IGNORECASE,
 )
 LEAD_IN = re.compile(
-    r"^This (?:document|file|entry|report|directory)\s+"
+    rf"^{SUBJECT}\s+"
     r"(?:is|serves as|contains|provides|describes|documents|captures|records)\s+",
     re.IGNORECASE,
 )
+SECOND_LEAD_IN = re.compile(
+    r"^(?:The (?:primary |main )?(?:purpose|goal|aim) (?:of \S+ )?is to|It (?:details|describes|covers))\s+",
+    re.IGNORECASE,
+)
+# "feature specification and implementation record for …" — measured on real
+# features/completed summaries, 2026-09-22.
+DOC_TYPE_LEAD = re.compile(
+    r"^(?:technical\s+)?(?:feature|bug|design|implementation)\s+"
+    r"(?:request|specification|spec|report|record|design)"
+    r"(?:\s+and\s+(?:[\w-]+\s+){0,2}?(?:record|guide|analysis|design|file|registry|log|"
+    r"summary|report|research file))?\s+(?:for|of|on)\s+",
+    re.IGNORECASE,
+)
+ENDS_WITH_ID = re.compile(r"\b[A-Z]+-\d+$")
 LEADING_ARTICLE = re.compile(r"^(?:a|an|the)\s+", re.IGNORECASE)
 DANGLING = {
     "a",
@@ -163,6 +185,26 @@ DANGLING = {
 MIN_CLAUSE_WORDS = 4
 
 
+def _phrase(sentence: str) -> str:
+    """One sentence with the summarizer's framing removed (not yet clipped)."""
+    s = SELF_ID.sub("", sentence.rstrip(" .;:,!?。？！"))
+    m = PAYLOAD_AFTER.match(s)
+    text = m.group(1) if m else LEAD_IN.sub("", s)
+    text = LEADING_ARTICLE.sub("", text).strip()
+    text = DOC_TYPE_LEAD.sub("", text)
+    text = PROCESS_LEAD.sub("", LEADING_ARTICLE.sub("", text).strip())
+    return LEADING_ARTICLE.sub("", text).strip()
+
+
+def _weak(text: str) -> bool:
+    """A phrase that names only the document type or points back at its own ID."""
+    return (
+        not text
+        or bool(ENDS_WITH_ID.search(text))
+        or bool(DOC_TYPE_LEAD.match(text + " for "))
+    )
+
+
 def gloss(summary: str, words: int, name: str | None = None) -> str:
     """The distinguishing phrase of a summary, clipped at a clause boundary.
 
@@ -173,12 +215,12 @@ def gloss(summary: str, words: int, name: str | None = None) -> str:
     """
     if words <= 0:
         return ""
-    first = SENTENCE_END.split(_clean(summary), maxsplit=1)[0].rstrip(" .;:,!?。？！")
-    first = SELF_ID.sub("", first)
-    m = PAYLOAD_AFTER.match(first)
-    text = m.group(1) if m else LEAD_IN.sub("", first)
-    text = PROCESS_LEAD.sub("", LEADING_ARTICLE.sub("", text).strip())
-    text = LEADING_ARTICLE.sub("", text).strip()
+    sentences = SENTENCE_END.split(_clean(summary), maxsplit=2)
+    text = _phrase(sentences[0])
+    if _weak(text) and len(sentences) > 1:
+        second = _phrase(SECOND_LEAD_IN.sub("", sentences[1].strip()))
+        if second and not _weak(second):
+            text = second
     tokens = text.split()
     if len(tokens) > words:
         cut = tokens[:words]

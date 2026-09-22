@@ -237,7 +237,45 @@ REAL_GLOSSES = [
         ),
         "AI image generation",
     ),
+    # features/completed framings (captured 2026-09-22): a doc-type lead-in, "which
+    # aims to …" verbs, and identifiers that must keep their underscores.
+    (
+        "feat-020.md",
+        (
+            "This document is a technical feature specification for FEAT-020, which aims "
+            "to establish source_file_names as the single source of truth for file_type "
+            "within the dipdash system."
+        ),
+        "establish source_file_names as the single source of truth for file_type",
+    ),
+    (
+        "feat-021.md",
+        (
+            "This document is a feature specification and research file for FEAT-021, "
+            "which aimed to support creating and onboarding new company pipelines via the "
+            "Platform API."
+        ),
+        "support creating and onboarding new company pipelines via the Platform API",
+    ),
+    (
+        "feat-1014.md",
+        (
+            "This document is a feature specification and implementation record for "
+            "FEAT-1014, which introduces a tool to sync yt-dlp media from a K3s cluster to "
+            "a local archive."
+        ),
+        "tool to sync yt-dlp media from a K3s cluster to a local",
+    ),
 ]
+
+
+def test_gloss_falls_back_to_the_second_sentence_when_the_first_is_only_a_doc_type():
+    summary = (
+        "This document is a technical feature specification for FEAT-777. "
+        "The primary purpose is to remove duplicated file_type fields from the loader."
+    )
+    got = nav.gloss(summary, nav.MAX_GLOSS_WORDS, "feat-777.md")
+    assert got == "remove duplicated file_type fields from the loader", got
 
 
 def test_gloss_extracts_the_distinguishing_phrase_from_real_summaries():
