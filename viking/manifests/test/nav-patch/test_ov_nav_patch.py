@@ -278,6 +278,63 @@ def test_gloss_falls_back_to_the_second_sentence_when_the_first_is_only_a_doc_ty
     assert got == "remove duplicated file_type fields from the loader", got
 
 
+# Open-item framings seen in PROD after the 2026-09-22 rollout (bugs/homelab,
+# improvements/homelab). Reconstructed from the stored glosses, not captured raw:
+# "bug report identifying …" and "proposed improvement specification for …".
+OPEN_ITEM_GLOSSES = [
+    (
+        "bug-1153.md",
+        (
+            "This document is a bug report identifying a service outage in the OpenViking "
+            "system caused by exhausted Ollama Cloud session quota and a missing backup."
+        ),
+        "service outage in the OpenViking system caused by exhausted Ollama Cloud session",
+    ),
+    (
+        "impr-1175.md",
+        (
+            "This document is a proposed improvement specification for optimizing the "
+            "OpenViking write path to handle claude-mem scale volume with a fast cloud VLM."
+        ),
+        "optimizing the OpenViking write path to handle claude-mem scale volume",
+    ),
+    (
+        "bug-1121.md",
+        (
+            "This document is a bug report identifying an issue where a successful bulk "
+            "compendium-sync fails to update the sync state file."
+        ),
+        "issue where a successful bulk compendium-sync fails to update the sync state",
+    ),
+]
+
+
+def test_gloss_handles_open_item_framings():
+    for name, summary, expected in OPEN_ITEM_GLOSSES:
+        got = nav.gloss(summary, nav.MAX_GLOSS_WORDS, name)
+        assert got == expected, (name, got)
+
+
+def test_gloss_clip_never_ends_on_to_verb_or_bare_participle():
+    to_verb = (
+        "This document is a bug report identifying an effort to rebalance the storage "
+        "tier so the vector index can handle much larger nightly import batches."
+    )
+    got = nav.gloss(to_verb, 9, "x.md")
+    assert got.split()[-2:-1] != ["to"], got
+    participle = (
+        "This document is a bug report identifying a service outage in the platform "
+        "caused by a stale credential cache on the gateway."
+    )
+    for words in (7, 8):
+        got = nav.gloss(participle, words, "x.md")
+        assert not got.endswith("caused"), (words, got)
+    # a real noun ending in -ed is kept
+    assert nav.gloss("This document covers the shared seed.", 12, "x.md").endswith(
+        "seed"
+    )
+
+
 def test_gloss_extracts_the_distinguishing_phrase_from_real_summaries():
     for name, summary, expected in REAL_GLOSSES:
         got = nav.gloss(summary, nav.MAX_GLOSS_WORDS, name)
