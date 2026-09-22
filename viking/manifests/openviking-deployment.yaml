@@ -235,6 +235,12 @@ spec:
             #   kubectl set env deployment/openviking -n viking PYTHONPATH-
             - name: PYTHONPATH
               value: /ov-nav-patch
+            # BUG-1177 ChatLog speaker patch (ov_chatlog_patch.py): shipped OFF in prod
+            # until the IDEA-1100 A1 boundary (2026-09-29T04:30Z) so week-A archives and
+            # week-B recall bodies stay uniform. The boundary PR removes this entry;
+            # rendering only, so the patch needs no template coupling.
+            - name: OV_CHATLOG_PATCH
+              value: "0"
           volumeMounts:
             - name: config-out
               mountPath: /app/.openviking/ov.conf
@@ -378,6 +384,8 @@ spec:
                 path: ov_nav_patch.py
               - key: ov_extract_patch.py
                 path: ov_extract_patch.py
+              - key: ov_chatlog_patch.py
+                path: ov_chatlog_patch.py
         - name: data
           persistentVolumeClaim:
             claimName: openviking-data
