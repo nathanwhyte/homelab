@@ -508,6 +508,73 @@ class ResolverSafetyTests(unittest.TestCase):
             "completed",
         )
 
+    def _strand_a_pending_audit(self):
+        """An active expansion whose completion notice failed to deliver."""
+        instance, kube, _, _ = self.make_resolver(
+            mode="active", mutation_enabled=True, notifier=FakeNotifier(fail_on_call=2)
+        )
+        with self.assertRaises(resolver_module.NotificationError):
+            instance.process_alert(firing_alert())
+        state = kube.pvc["metadata"]["annotations"][
+            "capacity-resolver.homelab/notification-state"
+        ]
+        self.assertEqual((state, len(kube.patches)), ("pending", 1))
+        return kube
+
+    def test_reconciler_completes_a_stranded_audit_without_any_alert(self) -> None:
+        """Expansion resolves the alert, so no replay would ever arrive."""
+        kube = self._strand_a_pending_audit()
+        notifier = FakeNotifier()
+        instance, _, _, usage = self.make_resolver(
+            mode="active", mutation_enabled=True, kube=kube, notifier=notifier
+        )
+
+        decisions = instance.reconcile_pending_audits()
+
+        self.assertEqual(
+            [(d.outcome, d.reason) for d in decisions], [("expand", "patch-accepted")]
+        )
+        self.assertEqual([m["phase"] for m in notifier.messages], ["completed"])
+        self.assertEqual(len(kube.patches), 2)
+        self.assertNotIn(
+            "/spec/resources/requests/storage",
+            [operation["path"] for operation in kube.patches[1][2]],
+        )
+        usage.assert_not_called()
+        # Idempotent: nothing pending, so a second pass sends and patches nothing.
+        self.assertEqual(instance.reconcile_pending_audits(), [])
+        self.assertEqual((len(notifier.messages), len(kube.patches)), (1, 2))
+
+    def test_reconciler_loop_survives_a_failed_pass(self) -> None:
+        resolver = mock.Mock()
+        resolver.reconcile_pending_audits.side_effect = RuntimeError("API down")
+        stop = threading.Event()
+        stop.set()
+
+        with self.assertLogs("capacity-auto-resolver", level="ERROR"):
+            resolver_module.run_audit_reconciler(resolver, 300, stop)
+
+        resolver.reconcile_pending_audits.assert_called_once()
+
+    def test_pending_audit_is_not_acknowledged_with_either_switch_off(self) -> None:
+        """The acknowledgment is a PVC patch too, so it needs both switches."""
+        kube = self._strand_a_pending_audit()
+        for mode, enabled in [("dry-run", True), ("active", False)]:
+            with self.subTest(mode=mode, mutation_enabled=enabled):
+                instance, _, notifier, _ = self.make_resolver(
+                    mode=mode, mutation_enabled=enabled, kube=kube
+                )
+
+                replay = instance.process_alert(firing_alert())
+
+                self.assertEqual(
+                    (replay.outcome, replay.reason),
+                    ("refuse", "pending-audit-mutation-disabled"),
+                )
+                self.assertEqual(instance.reconcile_pending_audits(), [])
+                self.assertEqual(len(kube.patches), 1)
+                self.assertNotIn("completed", [m["phase"] for m in notifier.messages])
+
     def test_completed_alert_fingerprint_is_ignored_as_duplicate(self) -> None:
         instance, kube, _, _ = self.make_resolver(mode="active", mutation_enabled=True)
         instance.process_alert(firing_alert())
@@ -748,6 +815,20 @@ class DenylistAndPolicyValidationTests(unittest.TestCase):
             "missing denylist": lambda p: p.pop("denylist"),
             "empty denylist": lambda p: p.update(denylist=[]),
             "blank deny rule": lambda p: p["denylist"].append({"namespace": "x"}),
+            # Codex review of #158: str(None) == "None" loaded as a dead rule.
+            "null deny selector": lambda p: p["denylist"].append(
+                {"namespace": "*", "persistentVolumeClaim": None}
+            ),
+            "numeric deny selector": lambda p: p["denylist"].append(
+                {"namespace": 7, "persistentVolumeClaim": "*"}
+            ),
+            "whitespace deny selector": lambda p: p["denylist"].append(
+                {"namespace": "*", "persistentVolumeClaim": "  "}
+            ),
+            "null allowlist namespace": lambda p: p["allowlist"][0].update(
+                namespace=None
+            ),
+            "numeric increment": lambda p: p["allowlist"][0].update(increment=4),
             "unknown mode": lambda p: p.update(mode="live"),
             "usage above 100": lambda p: p.update(minimumUsagePercent=101),
             "zero cooldown": lambda p: p.update(cooldownHours=0),

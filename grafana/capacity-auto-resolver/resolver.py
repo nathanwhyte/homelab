@@ -19,6 +19,7 @@ import os
 import re
 import ssl
 import sys
+import threading
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -136,15 +137,12 @@ class Policy:
         for item in raw_denylist:
             if not isinstance(item, dict):
                 raise TypeError("each denylist entry must be an object")
-            rule = DenyRule(
-                namespace=str(item.get("namespace", "")),
-                pvc=str(item.get("persistentVolumeClaim", "")),
-            )
-            if not rule.namespace or not rule.pvc:
-                raise ValueError(
-                    "denylist entries need namespace and persistentVolumeClaim"
+            denylist.append(
+                DenyRule(
+                    namespace=_required_str(item, "namespace", "denylist entry"),
+                    pvc=_required_str(item, "persistentVolumeClaim", "denylist entry"),
                 )
-            denylist.append(rule)
+            )
 
         raw_allowlist = value.get("allowlist")
         if not isinstance(raw_allowlist, list):
@@ -153,31 +151,14 @@ class Policy:
         for item in raw_allowlist:
             if not isinstance(item, dict):
                 raise TypeError("each allowlist entry must be an object")
-            required = {
-                "namespace",
-                "persistentVolumeClaim",
-                "storageClass",
-                "increment",
-                "maximumSize",
-            }
-            missing = sorted(required - item.keys())
-            if missing:
-                raise ValueError(f"allowlist entry missing: {', '.join(missing)}")
+            where = "allowlist entry"
             volume_policy = VolumePolicy(
-                namespace=str(item["namespace"]),
-                pvc=str(item["persistentVolumeClaim"]),
-                storage_class=str(item["storageClass"]),
-                increment_bytes=parse_quantity(str(item["increment"])),
-                maximum_bytes=parse_quantity(str(item["maximumSize"])),
+                namespace=_required_str(item, "namespace", where),
+                pvc=_required_str(item, "persistentVolumeClaim", where),
+                storage_class=_required_str(item, "storageClass", where),
+                increment_bytes=parse_quantity(_required_str(item, "increment", where)),
+                maximum_bytes=parse_quantity(_required_str(item, "maximumSize", where)),
             )
-            if not all(
-                (
-                    volume_policy.namespace,
-                    volume_policy.pvc,
-                    volume_policy.storage_class,
-                )
-            ):
-                raise ValueError("allowlist identity fields cannot be empty")
             if volume_policy.increment_bytes >= volume_policy.maximum_bytes:
                 raise ValueError("allowlist increment must be smaller than maximumSize")
             key = (volume_policy.namespace, volume_policy.pvc)
@@ -252,6 +233,18 @@ class Notifier(Protocol):
     def notify(self, decision: Decision, phase: str) -> None: ...
 
 
+def _required_str(item: dict[str, Any], key: str, where: str) -> str:
+    """A policy field that must be a real, non-blank string.
+
+    `str()` coercion turned an explicit null into the literal "None", a
+    selector that loads fine and can never match (Codex review of #158).
+    """
+    value = item.get(key)
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"{where} {key} must be a non-blank string")
+    return value
+
+
 def parse_quantity(value: str) -> int:
     match = QUANTITY_RE.fullmatch(value)
     if not match:
@@ -305,6 +298,7 @@ class Resolver:
         self.notifier = notifier
         self.mutation_enabled = mutation_enabled
         self.clock = clock or (lambda: datetime.now(UTC))
+        self._audit_lock = threading.Lock()
 
     def process_payload(self, payload: dict[str, Any]) -> list[Decision]:
         alerts = payload.get("alerts")
@@ -422,30 +416,7 @@ class Resolver:
             and last_target == decision.old_size
         ):
             if notification_state == "pending":
-                decision.outcome = "expand"
-                decision.reason = "patch-accepted"
-                decision.old_size = str(
-                    annotations.get(
-                        f"{ANNOTATION_PREFIX}/last-previous-size", "unknown"
-                    )
-                )
-                decision.new_size = str(last_target)
-                try:
-                    decision.usage_percent = float(
-                        annotations[f"{ANNOTATION_PREFIX}/last-usage-percent"]
-                    )
-                except (KeyError, TypeError, ValueError) as exc:
-                    raise ExternalServiceError(
-                        "pending audit is missing its measured usage"
-                    ) from exc
-                decision.headroom_allowed = True
-                decision.headroom_details = [
-                    "previous expansion approved; completing audit notification"
-                ]
-                self.notifier.notify(decision, "completed")
-                self._mark_notification_completed(namespace, pvc_name, resource_version)
-                self._log_decision(decision)
-                return decision
+                return self._complete_pending_audit(namespace, pvc_name, volume_policy)
             if notification_state == "completed":
                 decision.outcome = "ignore"
                 decision.reason = "duplicate-alert"
@@ -591,6 +562,97 @@ class Resolver:
         self._mark_notification_completed(namespace, pvc_name, patched_resource_version)
         self._log_decision(decision)
         return decision
+
+    @property
+    def mutation_allowed(self) -> bool:
+        """Both switches, exactly as for an expansion: every PVC patch needs both."""
+        return self.policy.mode == "active" and self.mutation_enabled
+
+    def reconcile_pending_audits(self) -> list[Decision]:
+        """Complete any pending completion audit without waiting for an alert.
+
+        An expansion usually resolves the alert that caused it, and the route
+        does not send resolved notifications. A completion notice whose Slack
+        delivery failed would otherwise stay pending forever, because a later
+        alert episode has a different startsAt (Codex review of homelab#158).
+        `main()` runs this at startup and on an interval.
+        """
+        if not self.mutation_allowed:
+            return []
+        decisions: list[Decision] = []
+        for (namespace, pvc_name), volume_policy in self.policy.allowlist.items():
+            pvc = self.kubernetes.get_pvc(namespace, pvc_name)
+            annotations = pvc.get("metadata", {}).get("annotations")
+            if (
+                isinstance(annotations, dict)
+                and annotations.get(f"{ANNOTATION_PREFIX}/notification-state")
+                == "pending"
+            ):
+                decisions.append(
+                    self._complete_pending_audit(namespace, pvc_name, volume_policy)
+                )
+        return decisions
+
+    def _complete_pending_audit(
+        self, namespace: str, pvc_name: str, volume_policy: VolumePolicy
+    ) -> Decision:
+        """Send a stranded completion notice, then mark the audit completed.
+
+        The acknowledgment is itself a PVC patch, so it needs both mutation
+        switches (Codex review of homelab#158). The PVC is re-read under a lock
+        so the alert-replay path and the reconciler cannot both send it.
+        """
+        decision = Decision(
+            outcome="refuse",
+            reason="verification-incomplete",
+            namespace=namespace,
+            pvc=pvc_name,
+            maximum_size=format_quantity(volume_policy.maximum_bytes),
+        )
+        if not self.mutation_allowed:
+            return self._finish_refusal(decision, "pending-audit-mutation-disabled")
+        with self._audit_lock:
+            pvc = self.kubernetes.get_pvc(namespace, pvc_name)
+            metadata = pvc.get("metadata", {})
+            annotations = metadata.get("annotations")
+            if (
+                not isinstance(annotations, dict)
+                or annotations.get(f"{ANNOTATION_PREFIX}/notification-state")
+                != "pending"
+            ):
+                decision.outcome = "ignore"
+                decision.reason = "audit-already-completed"
+                return decision
+            resource_version = str(metadata.get("resourceVersion", ""))
+            if not resource_version:
+                raise ExternalServiceError("PVC resourceVersion is missing")
+            decision.outcome = "expand"
+            decision.reason = "patch-accepted"
+            decision.volume = (
+                str(pvc.get("spec", {}).get("volumeName", "")) or "unknown"
+            )
+            decision.old_size = str(
+                annotations.get(f"{ANNOTATION_PREFIX}/last-previous-size", "unknown")
+            )
+            decision.new_size = str(
+                annotations.get(f"{ANNOTATION_PREFIX}/last-target", "unknown")
+            )
+            try:
+                decision.usage_percent = float(
+                    annotations[f"{ANNOTATION_PREFIX}/last-usage-percent"]
+                )
+            except (KeyError, TypeError, ValueError) as exc:
+                raise ExternalServiceError(
+                    "pending audit is missing its measured usage"
+                ) from exc
+            decision.headroom_allowed = True
+            decision.headroom_details = [
+                "previous expansion approved; completing audit notification"
+            ]
+            self.notifier.notify(decision, "completed")
+            self._mark_notification_completed(namespace, pvc_name, resource_version)
+            self._log_decision(decision)
+            return decision
 
     def _mark_notification_completed(
         self, namespace: str, pvc_name: str, resource_version: str
@@ -1002,6 +1064,20 @@ def env_bool(name: str, default: bool = False) -> bool:
     raise ValueError(f"{name} must be true or false")
 
 
+def run_audit_reconciler(
+    resolver: Resolver, interval_seconds: float, stop: threading.Event
+) -> None:
+    """Retry stranded completion audits at startup and then on an interval."""
+    while True:
+        try:
+            for decision in resolver.reconcile_pending_audits():
+                LOG.info("pending-audit reconcile: %s", decision.reason)
+        except Exception:  # a background loop must survive any single failure
+            LOG.exception("pending-audit reconcile failed; retrying next interval")
+        if stop.wait(interval_seconds):
+            return
+
+
 def main() -> int:
     logging.basicConfig(
         level=os.environ.get("LOG_LEVEL", "INFO"),
@@ -1020,6 +1096,11 @@ def main() -> int:
                 "ALERTMANAGER_WEBHOOK_TOKEN must be at least 32 characters"
             )
         mutation_enabled = env_bool("CAPACITY_RESOLVER_MUTATION_ENABLED", False)
+        audit_interval = float(
+            os.environ.get("CAPACITY_RESOLVER_AUDIT_RECONCILE_SECONDS", "300")
+        )
+        if not math.isfinite(audit_interval) or audit_interval <= 0:
+            raise ValueError("CAPACITY_RESOLVER_AUDIT_RECONCILE_SECONDS must be > 0")
         resolver = Resolver(
             policy=policy,
             kubernetes=InClusterKubernetesClient(),
@@ -1043,11 +1124,22 @@ def main() -> int:
         mutation_enabled,
         len(policy.allowlist),
     )
+    stop = threading.Event()
+    if resolver.mutation_allowed:
+        # Nothing can be pending while either switch is off, so dry-run makes
+        # no extra API calls.
+        threading.Thread(
+            target=run_audit_reconciler,
+            args=(resolver, audit_interval, stop),
+            name="audit-reconciler",
+            daemon=True,
+        ).start()
     try:
         server.serve_forever()
     except KeyboardInterrupt:
         pass
     finally:
+        stop.set()
         server.server_close()
     return 0
 

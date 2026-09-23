@@ -46,10 +46,15 @@ time, previous and target sizes, Alertmanager fingerprint and `startsAt` episode
 identity, and completion-audit state. RFC 6902 `test` operations verify both the
 current PVC `resourceVersion` and old storage request immediately before
 `replace`, so a concurrent update fails rather than racing. If the PVC patch
-succeeds but the completion Slack request fails, the persisted `pending` marker
-lets Alertmanager's retry finish the audit notification without authorizing a
-second expansion. A `Recreate` Deployment prevents overlapping webhook
-consumers during rollout.
+succeeds but the completion Slack request fails, the PVC keeps a `pending`
+marker. Two paths can finish that audit notification without authorizing a
+second expansion: a replay of the same alert, and a background reconciler that
+checks the allowlisted PVCs at startup and every
+`CAPACITY_RESOLVER_AUDIT_RECONCILE_SECONDS` (default 300). The reconciler is
+needed because an expansion usually resolves its alert, so no replay may ever
+arrive. Completing the audit is itself a PVC patch, so, like an expansion, it
+requires both `mode: active` and the mutation switch. A `Recreate` Deployment
+prevents overlapping webhook consumers during rollout.
 
 ## Secrets
 
