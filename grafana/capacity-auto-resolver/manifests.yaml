@@ -1,0 +1,232 @@
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: capacity-auto-resolver
+  namespace: grafana
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: capacity-auto-resolver-pvc
+  namespace: viking
+rules:
+  # Mutation is constrained to the one PVC in policy.json. Add a separate,
+  # equally narrow Role rule whenever the source-controlled allowlist grows.
+  - apiGroups: [""]
+    resources: ["persistentvolumeclaims"]
+    resourceNames: ["llama-cuda-model-cache"]
+    verbs: ["get", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: capacity-auto-resolver-pvc
+  namespace: viking
+subjects:
+  - kind: ServiceAccount
+    name: capacity-auto-resolver
+    namespace: grafana
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: capacity-auto-resolver-pvc
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: capacity-auto-resolver-storage-class
+rules:
+  - apiGroups: ["storage.k8s.io"]
+    resources: ["storageclasses"]
+    resourceNames: ["longhorn-ssd"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: capacity-auto-resolver-storage-class
+subjects:
+  - kind: ServiceAccount
+    name: capacity-auto-resolver
+    namespace: grafana
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: capacity-auto-resolver-storage-class
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: capacity-auto-resolver-longhorn-read
+  namespace: longhorn-system
+# None of these three rules can use resourceNames. The Longhorn volume name is
+# the PV name Longhorn generated at provisioning, replica names are generated
+# per rebuild, and node names come from wherever the replicas are placed at
+# alert time. All three are read-only and confined to longhorn-system. The PVC
+# patch right, the only mutating grant, is pinned by resourceNames above.
+rules:
+  - apiGroups: ["longhorn.io"]
+    resources: ["volumes"]
+    verbs: ["get"]
+  # The label selector limits the replica list to the resolved volume.
+  - apiGroups: ["longhorn.io"]
+    resources: ["replicas"]
+    verbs: ["list"]
+  - apiGroups: ["longhorn.io"]
+    resources: ["nodes"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: capacity-auto-resolver-longhorn-read
+  namespace: longhorn-system
+subjects:
+  - kind: ServiceAccount
+    name: capacity-auto-resolver
+    namespace: grafana
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: capacity-auto-resolver-longhorn-read
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: capacity-auto-resolver
+  namespace: grafana
+spec:
+  selector:
+    app.kubernetes.io/name: capacity-auto-resolver
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: capacity-auto-resolver
+  namespace: grafana
+spec:
+  replicas: 1
+  # Never run two webhook consumers during rollout. The PVC annotation and
+  # resourceVersion precondition provide additional replay/race protection.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: capacity-auto-resolver
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: capacity-auto-resolver
+    spec:
+      serviceAccountName: capacity-auto-resolver
+      automountServiceAccountToken: true
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: resolver
+          image: python:3.12.12-alpine
+          imagePullPolicy: IfNotPresent
+          command: ["python3", "/app/resolver.py"]
+          env:
+            - name: ALERTMANAGER_WEBHOOK_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: capacity-auto-resolver-token
+                  key: token
+            # Same bot-token transport and channel as the slack-homelab
+            # Alertmanager receiver (IMPR-1173); the old webhook Secret is gone.
+            - name: SLACK_API_URL
+              valueFrom:
+                secretKeyRef:
+                  name: alertmanager-slack-bot-token
+                  key: api-url
+            - name: SLACK_BOT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: alertmanager-slack-bot-token
+                  key: bot-token
+            - name: SLACK_CHANNEL
+              value: "#cron-homelab"
+            - name: CAPACITY_RESOLVER_POLICY
+              value: /etc/resolver/policy.json
+            # Enabling policy mode alone is intentionally insufficient. Both
+            # this switch and policy.json must explicitly opt into mutation.
+            - name: CAPACITY_RESOLVER_MUTATION_ENABLED
+              value: "false"
+            - name: PROMETHEUS_URL
+              value: http://prom-prometheus.grafana.svc:9090
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 2
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 30
+            timeoutSeconds: 2
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: source
+              mountPath: /app
+              readOnly: true
+            - name: policy
+              mountPath: /etc/resolver
+              readOnly: true
+      volumes:
+        - name: source
+          configMap:
+            name: capacity-auto-resolver-source
+        - name: policy
+          configMap:
+            name: capacity-auto-resolver-policy
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: capacity-auto-resolver-ingress
+  namespace: grafana
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: capacity-auto-resolver
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: grafana
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: alertmanager
+      ports:
+        - protocol: TCP
+          port: 8080
