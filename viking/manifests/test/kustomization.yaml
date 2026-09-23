@@ -29,6 +29,7 @@ configMapGenerator:
       - nav-patch/ov_nav_patch.py
       - nav-patch/ov_extract_patch.py
       - nav-patch/ov_chatlog_patch.py
+      - nav-patch/ov_s3_cache_patch.py
     options:
       disableNameSuffixHash: true
       labels:
