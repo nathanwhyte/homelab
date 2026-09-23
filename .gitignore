@@ -32,6 +32,7 @@ kubeconfig
 .cursor/
 .vscode/
 .idea/
+.serena/
 *.swp
 *.swo
 *~
