@@ -2,8 +2,8 @@
 # timmy-offline.sh — take timmy out of the cluster cleanly for a planned outage
 # (Windows dual-boot session, live-USB disk work) and bring it back.
 #
-#   timmy-offline.sh down    park cross-node Garage/model-cache volumes, then cordon + drain timmy
-#   timmy-offline.sh up      finish the node-maintenance cycle, restore the parked workloads
+#   timmy-offline.sh down    park cross-node volumes, spin down memory-heavy services, cordon + drain
+#   timmy-offline.sh up      finish the node-maintenance cycle, restore the parked + spun-down workloads
 #   timmy-offline.sh status  what is parked, what is cordoned, Longhorn health
 #
 # Why this exists on top of node-maintenance.sh: three Longhorn volumes are
@@ -15,6 +15,15 @@
 # LMDB-corruption path from BUG-1033. `down` scales those workloads to zero so
 # every such volume detaches cleanly before the drain; `up` restores the saved
 # replica counts after timmy is Ready and Longhorn is healthy.
+#
+# `down` also passes --spin-down to node-maintenance.sh, which scales the
+# memory-heavy services (viking/openviking, viking/ov-vectordb) to 0 *before*
+# that script's memory-headroom preflight runs. Without it the preflight weighs
+# timmy's evicted pods against manu/wemby's free memory with nothing freed and
+# blocks the drain outright, so the documented `down` path cannot drain timmy on
+# a loaded cluster — BUG-1105's spin-down ordering fix only helps a caller that
+# opts in. `up` restores the recorded replica counts along with the parked
+# workloads, via node-maintenance.sh finish -> restore_memory_services.
 #
 # timmy is the only control plane, so between `down` and `up` there is no API
 # server — manu and wemby keep running what they already have, nothing else.
@@ -196,8 +205,10 @@ cmd_down() {
 		warn "$NODE is already cordoned — re-draining directly instead of via node-maintenance.sh"
 		redrain
 	else
-		log "cordon + drain via node-maintenance.sh (no reboot)"
-		"$SCRIPT_DIR/node-maintenance.sh" reboot "$NODE" --no-reboot
+		log "cordon + drain via node-maintenance.sh (no reboot, pre-drain spin-down)"
+		# --spin-down is required here, not optional: it frees headroom for the
+		# pods evicted from timmy before the memory-headroom preflight runs.
+		"$SCRIPT_DIR/node-maintenance.sh" reboot "$NODE" --no-reboot --spin-down
 	fi
 	# The drain itself can create new orphans: any unpinned pod evicted from timmy
 	# lands on another node and re-attaches its timmy-only volume from there. Check
