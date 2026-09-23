@@ -10,6 +10,7 @@ CAPACITY_RESOLVER_MUTATION_ENABLED=true environment switch.
 
 from __future__ import annotations
 
+import fnmatch
 import hmac
 import json
 import logging
@@ -69,12 +70,33 @@ class VolumePolicy:
 
 
 @dataclass(frozen=True)
+class DenyRule:
+    """A namespace/PVC glob pair that can never be expanded (IMPR-1156 gate 2).
+
+    Unbounded-growth workloads (Prometheus, Loki, media, databases, object
+    storage) must be refused even if a later allowlist edit names one.
+    """
+
+    namespace: str
+    pvc: str
+
+    def matches(self, namespace: str, pvc: str) -> bool:
+        return fnmatch.fnmatchcase(namespace, self.namespace) and fnmatch.fnmatchcase(
+            pvc, self.pvc
+        )
+
+
+@dataclass(frozen=True)
 class Policy:
     mode: str
     minimum_usage_percent: float
     cooldown: timedelta
     headroom: HeadroomPolicy
     allowlist: dict[tuple[str, str], VolumePolicy]
+    denylist: tuple[DenyRule, ...]
+
+    def denied(self, namespace: str, pvc: str) -> DenyRule | None:
+        return next((r for r in self.denylist if r.matches(namespace, pvc)), None)
 
     @classmethod
     def from_dict(cls, value: dict[str, Any]) -> Policy:
@@ -104,6 +126,25 @@ class Policy:
             raise ValueError("minimumFreePercent must be in [0, 100)")
         if not 0 < maximum_scheduled_percent <= 100:
             raise ValueError("maximumScheduledPercent must be in (0, 100]")
+
+        # Required, not defaulted: a policy that omits the deny-list must not
+        # load, or a volume could be admitted by omission.
+        raw_denylist = value.get("denylist")
+        if not isinstance(raw_denylist, list) or not raw_denylist:
+            raise TypeError("denylist must be a non-empty array")
+        denylist: list[DenyRule] = []
+        for item in raw_denylist:
+            if not isinstance(item, dict):
+                raise TypeError("each denylist entry must be an object")
+            rule = DenyRule(
+                namespace=str(item.get("namespace", "")),
+                pvc=str(item.get("persistentVolumeClaim", "")),
+            )
+            if not rule.namespace or not rule.pvc:
+                raise ValueError(
+                    "denylist entries need namespace and persistentVolumeClaim"
+                )
+            denylist.append(rule)
 
         raw_allowlist = value.get("allowlist")
         if not isinstance(raw_allowlist, list):
@@ -142,6 +183,12 @@ class Policy:
             key = (volume_policy.namespace, volume_policy.pvc)
             if key in allowlist:
                 raise ValueError(f"duplicate allowlist entry: {key[0]}/{key[1]}")
+            for rule in denylist:
+                if rule.matches(*key):
+                    raise ValueError(
+                        f"allowlist entry {key[0]}/{key[1]} matches denylist "
+                        f"rule {rule.namespace}/{rule.pvc}"
+                    )
             allowlist[key] = volume_policy
 
         return cls(
@@ -154,6 +201,7 @@ class Policy:
                 maximum_scheduled_percent=maximum_scheduled_percent,
             ),
             allowlist=allowlist,
+            denylist=tuple(denylist),
         )
 
     @classmethod
@@ -315,6 +363,9 @@ class Resolver:
                 "invalid-alert-start-time", namespace=namespace, pvc=pvc_name
             )
 
+        # Gate 2: the deny-list is consulted before the allowlist.
+        if self.policy.denied(namespace, pvc_name) is not None:
+            return self._refuse("deny-listed", namespace=namespace, pvc=pvc_name)
         volume_policy = self.policy.allowlist.get((namespace, pvc_name))
         if volume_policy is None:
             return self._refuse("not-allowlisted", namespace=namespace, pvc=pvc_name)

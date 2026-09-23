@@ -7,6 +7,21 @@
     "minimumFreePercent": 25,
     "maximumScheduledPercent": 80
   },
+  "denylist": [
+    { "namespace": "grafana", "persistentVolumeClaim": "*" },
+    { "namespace": "garage", "persistentVolumeClaim": "*" },
+    { "namespace": "harbor", "persistentVolumeClaim": "*" },
+    { "namespace": "yt-dlp", "persistentVolumeClaim": "*" },
+    { "namespace": "copyparty", "persistentVolumeClaim": "*" },
+    { "namespace": "viking", "persistentVolumeClaim": "openviking-*" },
+    { "namespace": "*", "persistentVolumeClaim": "*vectordb*" },
+    { "namespace": "*", "persistentVolumeClaim": "*postgres*" },
+    { "namespace": "*", "persistentVolumeClaim": "*database*" },
+    { "namespace": "*", "persistentVolumeClaim": "*db-data*" },
+    { "namespace": "*", "persistentVolumeClaim": "*redis*" },
+    { "namespace": "*", "persistentVolumeClaim": "*prometheus*" },
+    { "namespace": "*", "persistentVolumeClaim": "*loki*" }
+  ],
   "allowlist": [
     {
       "namespace": "viking",

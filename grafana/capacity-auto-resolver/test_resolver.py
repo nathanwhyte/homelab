@@ -39,6 +39,10 @@ def base_policy(mode: str = "dry-run") -> dict:
             "minimumFreePercent": 25,
             "maximumScheduledPercent": 80,
         },
+        "denylist": [
+            {"namespace": "grafana", "persistentVolumeClaim": "*"},
+            {"namespace": "*", "persistentVolumeClaim": "*postgres*"},
+        ],
         "allowlist": [
             {
                 "namespace": "viking",
@@ -327,8 +331,10 @@ class ResolverSafetyTests(unittest.TestCase):
         instance, kube, notifier, usage = self.make_resolver()
         kube.get_pvc = mock.Mock(side_effect=AssertionError("must not query PVC"))
 
+        # Neither deny-listed nor allowlisted, so this exercises the allowlist
+        # miss itself (a grafana/* PVC would now stop at the deny-list first).
         decision = instance.process_alert(
-            firing_alert(namespace="grafana", pvc="prometheus-db")
+            firing_alert(namespace="llama", pvc="llama-model-cache")
         )
 
         self.assertEqual(decision.outcome, "refuse")
@@ -671,6 +677,24 @@ class RepositorySafetyContractTests(unittest.TestCase):
         self.assertNotIn("prom-kube-prometheus-stack-prometheus", manifests)
         self.assertNotIn('resources: ["persistentvolumeclaims"]\n    verbs:', manifests)
 
+    def test_committed_denylist_covers_unbounded_growth_volumes(self) -> None:
+        policy = resolver_module.Policy.from_file(Path(__file__).parent / "policy.json")
+        for namespace, pvc in [
+            ("grafana", "prometheus-prom-prometheus-db-prometheus-prom-prometheus-0"),
+            ("grafana", "storage-loki-0"),
+            ("yt-dlp", "media"),
+            ("copyparty", "copyparty-files"),
+            ("garage", "data-garage-0"),
+            ("harbor", "database-data-harbor-database-0"),
+            ("coach", "postgres-data"),
+            ("omnipendium", "omnipendium-db-data"),
+            ("viking", "openviking-data"),
+            ("viking", "ov-vectordb-data"),
+        ]:
+            with self.subTest(pvc=f"{namespace}/{pvc}"):
+                self.assertIsNotNone(policy.denied(namespace, pvc))
+        self.assertIsNone(policy.denied("viking", "llama-cuda-model-cache"))
+
     def test_slack_transport_matches_the_live_bot_token_secret(self) -> None:
         """IMPR-1173 retired alertmanager-slack-webhook; referencing it would
         leave the pod in CreateContainerConfigError and make deploy.sh refuse."""
@@ -688,6 +712,61 @@ class RepositorySafetyContractTests(unittest.TestCase):
 
         self.assertNotRegex(deploy, r"(?m)^dry_run=\(\)")
         self.assertIn("dry_run=(--dry-run=none)", deploy)
+
+
+class DenylistAndPolicyValidationTests(unittest.TestCase):
+    """Gate 2 and the config guards: a bad policy must refuse to load."""
+
+    def test_denied_pvc_is_refused_before_the_allowlist_lookup(self) -> None:
+        kube = mock.Mock()
+        notifier = FakeNotifier()
+        instance = resolver_module.Resolver(
+            policy=resolver_module.Policy.from_dict(base_policy()),
+            kubernetes=kube,
+            usage_provider=mock.Mock(return_value=99.0),
+            notifier=notifier,
+            mutation_enabled=True,
+            clock=lambda: NOW,
+        )
+
+        decision = instance.process_alert(
+            firing_alert(namespace="grafana", pvc="storage-loki-0")
+        )
+
+        self.assertEqual((decision.outcome, decision.reason), ("refuse", "deny-listed"))
+        kube.get_pvc.assert_not_called()
+        kube.patch_pvc.assert_not_called()
+
+    def test_allowlisting_a_denied_pvc_fails_to_load(self) -> None:
+        policy = base_policy()
+        policy["allowlist"][0]["namespace"] = "grafana"
+        with self.assertRaisesRegex(ValueError, "matches denylist"):
+            resolver_module.Policy.from_dict(policy)
+
+    def test_invalid_policies_fail_to_load(self) -> None:
+        cases = {
+            "missing denylist": lambda p: p.pop("denylist"),
+            "empty denylist": lambda p: p.update(denylist=[]),
+            "blank deny rule": lambda p: p["denylist"].append({"namespace": "x"}),
+            "unknown mode": lambda p: p.update(mode="live"),
+            "usage above 100": lambda p: p.update(minimumUsagePercent=101),
+            "zero cooldown": lambda p: p.update(cooldownHours=0),
+            "free percent 100": lambda p: p["headroom"].update(minimumFreePercent=100),
+            "scheduled 0": lambda p: p["headroom"].update(maximumScheduledPercent=0),
+            "increment at cap": lambda p: p["allowlist"][0].update(increment="20Gi"),
+            "decimal unit": lambda p: p["allowlist"][0].update(maximumSize="20G"),
+            "empty identity": lambda p: p["allowlist"][0].update(storageClass=""),
+            "missing field": lambda p: p["allowlist"][0].pop("maximumSize"),
+            "duplicate entry": lambda p: p["allowlist"].append(
+                copy.deepcopy(p["allowlist"][0])
+            ),
+        }
+        for name, mutate in cases.items():
+            with self.subTest(name):
+                policy = base_policy()
+                mutate(policy)
+                with self.assertRaises((TypeError, ValueError)):
+                    resolver_module.Policy.from_dict(policy)
 
 
 class SlackNotifierTests(unittest.TestCase):

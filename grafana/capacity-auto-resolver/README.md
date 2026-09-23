@@ -10,6 +10,9 @@ The initial rollout is deliberately incapable of mutation:
 - `policy.json` is in `dry-run` mode.
 - `CAPACITY_RESOLVER_MUTATION_ENABLED` is `false` in `manifests.yaml`.
 - The exact allowlist contains only `viking/llama-cuda-model-cache`.
+- A required deny-list (Prometheus, Loki, media, databases, object storage,
+  OpenViking data) is checked first, and a policy that allowlists a denied PVC
+  refuses to load.
 - That PVC can grow by 4Gi at a time and never beyond 20Gi.
 
 Both the policy mode and the independent Deployment switch must be changed in a
@@ -20,7 +23,8 @@ reviewed commit before a PVC patch can occur.
 For each firing alert, the resolver evaluates these gates in order:
 
 1. The alert name is exactly `KubePersistentVolumeFillingUp`.
-2. The namespace/PVC tuple appears in the static allowlist.
+2. The namespace/PVC tuple matches no deny-list rule, and then appears in the
+   static allowlist.
 3. A fresh Prometheus query reports at least 85% live filesystem use.
 4. The PVC is Bound and no earlier resize is still converging.
 5. The cooldown annotation is absent or at least 24 hours old.
@@ -60,6 +64,13 @@ kubectl -n grafana create secret generic capacity-auto-resolver-token \
 ```
 
 The token value must not be committed.
+
+Create this Secret **before** the next real run of
+`longhorn/deploy-storage-alerts.sh`: that script now deploys the resolver first
+and stops if the token is missing. That is deliberate. The storage-alert route
+reads the same token, and without it the AlertmanagerConfig passes server
+dry-run but its receiver is never built (the same reason IMPR-1173's Slack
+guard fails fast). A `--dry-run` run does not check Secrets.
 
 ## Validate and deploy
 
