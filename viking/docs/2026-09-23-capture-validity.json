@@ -1,0 +1,2759 @@
+{
+  "generated_at": "2026-09-23T23:54:06.460183+00:00",
+  "scope": "Group A; content bodies remain in private local receipts",
+  "receipts": {
+    "patched-control.json": {
+      "private_receipt_sha256": "8363d38f34b8848b0166bfcebb14451bdd71ea0fb5f196d4d6e5d3e0897669cf",
+      "run": "e045e88e41",
+      "actor": "capture-validity-20260923",
+      "count": 1,
+      "passed": true,
+      "sessions": [
+        {
+          "id": "capture-check-e045e88e41-0",
+          "accepted": true,
+          "input_sha256": "960ae12108842ae8fdfe47dbf5b59e62f557cd7c53b653527b6b39212c88858b",
+          "input_count": 4,
+          "commit": {
+            "http": 200,
+            "response": {
+              "status": "ok",
+              "result": {
+                "session_id": "capture-check-e045e88e41-0",
+                "status": "accepted",
+                "task_id": "fffe7d98-47d3-4604-b226-bd4da72c9311",
+                "archive_uri": "viking://user/capture-validity-20260923/sessions/capture-check-e045e88e41-0/history/archive_001",
+                "archived": true,
+                "trace_id": "",
+                "estimated_active_tokens": 0,
+                "budget_exceeded": false
+              }
+            },
+            "seconds": 3.439
+          },
+          "task": {
+            "task_id": "fffe7d98-47d3-4604-b226-bd4da72c9311",
+            "status": "completed",
+            "created_at": 1790205102.5761116,
+            "updated_at": 1790205119.8844557,
+            "error": null
+          },
+          "artifacts": {
+            "messages.jsonl": {
+              "http": 200,
+              "sha256": "fd44df83aefad73167e997fa389b8d117ca0576c88a9da6c064e81527c6bbe28",
+              "count": 4,
+              "exact_input": true
+            },
+            ".done": {
+              "http": 200,
+              "sha256": "fb3f4d1aa4b2654f3cc27f81cdfd0521a398abb65031a1fb990e0a7ca8987dde"
+            },
+            ".failed.json": {
+              "http": 404
+            },
+            "memory_diff.json": {
+              "http": 200,
+              "sha256": "afc43bb60978c6167fdb23256667909a0bfb6964ada53e946c6c0a8b1edcd15e",
+              "operation_counts": {
+                "adds": 1,
+                "updates": 0,
+                "deletes": 0
+              },
+              "memory_reads": [
+                {
+                  "uri": "viking://user/capture-validity-20260923/peers/github.com-nathanwhyte-compendium/memories/events/2026/09/23/capture_acceptance_approval.md",
+                  "http": 200,
+                  "sha256": "a36ede987fda3797be6e096bb90584309c8d54e0737e928120e7369ed81ae972",
+                  "bytes": 633
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "patched-burst20-verified.json": {
+      "private_receipt_sha256": "6e454389560fbcfbca28ff111d3ae45bc22328c4df7443815dfac72356f0898e",
+      "run": "33698ad581",
+      "actor": "capture-validity-20260923",
+      "count": 20,
+      "passed": true,
+      "sessions": [
+        {
+          "id": "capture-check-33698ad581-0",
+          "accepted": true,
+          "captured": true,
+          "extraction_succeeded": false,
+          "visible_failure": true,
+          "input_sha256": "be8fef9422b83513a36553a1d7d9bc16ab071f3c8f47e266946635c0047b36de",
+          "input_count": 4,
+          "commit": {
+            "http": 200,
+            "response": {
+              "status": "ok",
+              "result": {
+                "session_id": "capture-check-33698ad581-0",
+                "status": "accepted",
+                "task_id": "18c757a8-641e-4f3c-bc70-e5f042d2d07f",
+                "archive_uri": "viking://user/capture-validity-20260923/sessions/capture-check-33698ad581-0/history/archive_001",
+                "archived": true,
+                "trace_id": "",
+                "estimated_active_tokens": 0,
+                "budget_exceeded": false
+              }
+            },
+            "seconds": 38.514
+          },
+          "task": {
+            "task_id": "18c757a8-641e-4f3c-bc70-e5f042d2d07f",
+            "status": "failed",
+            "created_at": 1790205245.7399833,
+            "updated_at": 1790207054.7898402,
+            "error": "memory extraction degraded: failure_kind=parse_error: Final response could not be parsed as operations after 4 iterations (failure_kind=parse_error)"
+          },
+          "artifacts": {
+            "messages.jsonl": {
+              "http": 200,
+              "sha256": "1507374aa6efd0558220ce0620a38db0e656fd2f03b5358ec7e80c4f4260b59f",
+              "count": 4,
+              "exact_input": true
+            },
+            ".done": {
+              "http": 404
+            },
+            ".failed.json": {
+              "http": 200,
+              "sha256": "a83d707d02fe4875b81f2f469ed18388eb175a0cc73682ddbc8b8915d3b895fe",
+              "failure": {
+                "stage": "memory_extraction",
+                "error": "memory extraction degraded: failure_kind=parse_error: Final response could not be parsed as operations after 4 iterations (failure_kind=parse_error)",
+                "failed_at": "2026-09-23T23:44:14.129Z",
+                "skipped": true,
+                "completed_memory_steps": {}
+              }
+            },
+            "memory_diff.json": {
+              "http": 404
+            }
+          }
+        },
+        {
+          "id": "capture-check-33698ad581-1",
+          "accepted": true,
+          "captured": true,
+          "extraction_succeeded": false,
+          "visible_failure": true,
+          "input_sha256": "b04d4c15d0a2b88112f84ec4f32b29374e9e7a1c5de70b1c6c57b846b4a3e128",
+          "input_count": 4,
+          "commit": {
+            "http": 200,
+            "response": {
+              "status": "ok",
+              "result": {
+                "session_id": "capture-check-33698ad581-1",
+                "status": "accepted",
+                "task_id": "77e4b6c1-78f2-4a10-a024-111d8da1e055",
+                "archive_uri": "viking://user/capture-validity-20260923/sessions/capture-check-33698ad581-1/history/archive_001",
+                "archived": true,
+                "trace_id": "",
+                "estimated_active_tokens": 0,
+                "budget_exceeded": false
+              }
+            },
+            "seconds": 34.509
+          },
+          "task": {
+            "task_id": "77e4b6c1-78f2-4a10-a024-111d8da1e055",
+            "status": "failed",
+            "created_at": 1790205232.375774,
+            "updated_at": 1790206545.6155295,
+            "error": "memory extraction degraded: failure_kind=parse_error: Final response could not be parsed as operations after 4 iterations (failure_kind=parse_error)"
+          },
+          "artifacts": {
+            "messages.jsonl": {
+              "http": 200,
+              "sha256": "f6668195f60e9c6b2cc72e7779a0fa5c9e1b559725c37907503bf7533f4f26a8",
+              "count": 4,
+              "exact_input": true
+            },
+            ".done": {
+              "http": 404
+            },
+            ".failed.json": {
+              "http": 200,
+              "sha256": "bab2940a9b062e7381d72726894559f5cfd9d186bc31ee239bd4c01ff7e14f82",
+              "failure": {
+                "stage": "memory_extraction",
+                "error": "memory extraction degraded: failure_kind=parse_error: Final response could not be parsed as operations after 4 iterations (failure_kind=parse_error)",
+                "failed_at": "2026-09-23T23:35:44.980Z",
+                "skipped": true,
+                "completed_memory_steps": {}
+              }
+            },
+            "memory_diff.json": {
+              "http": 404
+            }
+          }
+        },
+        {
+          "id": "capture-check-33698ad581-2",
+          "accepted": true,
+          "captured": true,
+          "extraction_succeeded": false,
+          "visible_failure": true,
+          "input_sha256": "01d91ba7a9aa7ab1bbc140df7dddf701bf494e00e207db661f5efd09d4fae28d",
+          "input_count": 4,
+          "commit": {
+            "http": 200,
+            "response": {
+              "status": "ok",
+              "result": {
+                "session_id": "capture-check-33698ad581-2",
+                "status": "accepted",
+                "task_id": "766c0bf4-4bf2-4776-a741-e107aa11a139",
+                "archive_uri": "viking://user/capture-validity-20260923/sessions/capture-check-33698ad581-2/history/archive_001",
+                "archived": true,
+                "trace_id": "",
+                "estimated_active_tokens": 0,
+                "budget_exceeded": false
+              }
+            },
+            "seconds": 47.748
+          },
+          "task": {
+            "task_id": "766c0bf4-4bf2-4776-a741-e107aa11a139",
+            "status": "failed",
+            "created_at": 1790205233.272971,
+            "updated_at": 1790206689.081391,
+            "error": "memory extraction degraded: failure_kind=parse_error: Final response could not be parsed as operations after 4 iterations (failure_kind=parse_error)"
+          },
+          "artifacts": {
+            "messages.jsonl": {
+              "http": 200,
+              "sha256": "a3542412f9e1ea4c0aa612da00f23f3fea98d5f12c465e8d92b111b8181932c3",
+              "count": 4,
+              "exact_input": true
+            },
+            ".done": {
+              "http": 404
+            },
+            ".failed.json": {
+              "http": 200,
+              "sha256": "aea7038d63b13f1beab7ed566dc270aabddc44d81dbee4c23be80c8d13891f86",
+              "failure": {
+                "stage": "memory_extraction",
+                "error": "memory extraction degraded: failure_kind=parse_error: Final response could not be parsed as operations after 4 iterations (failure_kind=parse_error)",
+                "failed_at": "2026-09-23T23:38:08.585Z",
+                "skipped": true,
+                "completed_memory_steps": {}
+              }
+            },
+            "memory_diff.json": {
+              "http": 404
+            }
+          }
+        },
+        {
+          "id": "capture-check-33698ad581-3",
+          "accepted": true,
+          "captured": true,
+          "extraction_succeeded": false,
+          "visible_failure": true,
+          "input_sha256": "20b59f6ca66044980b5a11f3a256e15a445949406aa03b6ca6c7e8f8d75de02f",
+          "input_count": 4,
+          "commit": {
+            "http": 200,
+            "response": {
+              "status": "ok",
+              "result": {
+                "session_id": "capture-check-33698ad581-3",
+                "status": "accepted",
+                "task_id": "2669aa9e-1ada-4aa6-bda8-2309463202e5",
+                "archive_uri": "viking://user/capture-validity-20260923/sessions/capture-check-33698ad581-3/history/archive_001",
+                "archived": true,
+                "trace_id": "",
+                "estimated_active_tokens": 0,
+                "budget_exceeded": false
+              }
+            },
+            "seconds": 35.795
+          },
+          "task": {
+            "task_id": "2669aa9e-1ada-4aa6-bda8-2309463202e5",
+            "status": "failed",
+            "created_at": 1790205230.146462,
+            "updated_at": 1790205927.5840583,
+            "error": "memory extraction degraded: failure_kind=parse_error: Final response could not be parsed as operations after 4 iterations (failure_kind=parse_error)"
+          },
+          "artifacts": {
+            "messages.jsonl": {
+              "http": 200,
+              "sha256": "30d07947cbddc4ab08d4bc1a8bcce29d413d9dee0902aef1b1f7e4c6fa3c153c",
+              "count": 4,
+              "exact_input": true
+            },
+            ".done": {
+              "http": 404
+            },
+            ".failed.json": {
+              "http": 200,
+              "sha256": "4e45b930069647592eb1d8dc8dcff0bc983bfc8d3d0edc86b81fd42cd941f768",
+              "failure": {
+                "stage": "memory_extraction",
+                "error": "memory extraction degraded: failure_kind=parse_error: Final response could not be parsed as operations after 4 iterations (failure_kind=parse_error)",
+                "failed_at": "2026-09-23T23:25:26.913Z",
+                "skipped": true,
+                "completed_memory_steps": {}
+              }
+            },
+            "memory_diff.json": {
+              "http": 404
+            }
+          }
+        },
+        {
+          "id": "capture-check-33698ad581-4",
+          "accepted": true,
+          "captured": true,
+          "extraction_succeeded": true,
+          "visible_failure": false,
+          "input_sha256": "4c2ac97a3c4e9d0c54f262413f7ec714bdd1046fa3d5f52cf6ed193f5f6e3bdb",
+          "input_count": 4,
+          "commit": {
+            "http": 200,
+            "response": {
+              "status": "ok",
+              "result": {
+                "session_id": "capture-check-33698ad581-4",
+                "status": "accepted",
+                "task_id": "e0f3a8f3-a60b-4c98-84f6-de46cba657b3",
+                "archive_uri": "viking://user/capture-validity-20260923/sessions/capture-check-33698ad581-4/history/archive_001",
+                "archived": true,
+                "trace_id": "",
+                "estimated_active_tokens": 0,
+                "budget_exceeded": false
+              }
+            },
+            "seconds": 34.232
+          },
+          "task": {
+            "task_id": "e0f3a8f3-a60b-4c98-84f6-de46cba657b3",
+            "status": "completed",
+            "created_at": 1790205232.2489545,
+            "updated_at": 1790206066.858459,
+            "error": null
+          },
+          "artifacts": {
+            "messages.jsonl": {
+              "http": 200,
+              "sha256": "2037361048dcebccd35b3d0f6f9dcd57033bc6f16486d81f136063c0489084e5",
+              "count": 4,
+              "exact_input": true
+            },
+            ".done": {
+              "http": 200,
+              "sha256": "38dd6d6c08fac521d72244495f58a59d4f5e77231c9a24a48f504c7661a34c93"
+            },
+            ".failed.json": {
+              "http": 404
+            },
+            "memory_diff.json": {
+              "http": 200,
+              "sha256": "766978639bb10cd70ddf29dea3d8852e00788eeff5b0553cd8d0abfe936aeec6",
+              "operation_counts": {
+                "adds": 0,
+                "updates": 1,
+                "deletes": 0
+              },
+              "memory_reads": [
+                {
+                  "uri": "viking://user/capture-validity-20260923/peers/github.com-nathanwhyte-compendium/memories/events/2026/09/23/capture_acceptance_approval.md",
+                  "http": 200,
+                  "sha256": "8388560debd63c5a3a5d978376f4a841543eb816403ff3201546fc76f8b3756a",
+                  "bytes": 633
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": "capture-check-33698ad581-5",
+          "accepted": true,
+          "captured": true,
+          "extraction_succeeded": false,
+          "visible_failure": true,
+          "input_sha256": "9183dfe3eb15f5b62e327e2b91079fd713ec05efd142640c7ccc0272f172e444",
+          "input_count": 4,
+          "commit": {
+            "http": 200,
+            "response": {
+              "status": "ok",
+              "result": {
+                "session_id": "capture-check-33698ad581-5",
+                "status": "accepted",
+                "task_id": "f6b47d91-9aef-4ec8-bcbd-b8e7372fa9d7",
+                "archive_uri": "viking://user/capture-validity-20260923/sessions/capture-check-33698ad581-5/history/archive_001",
+                "archived": true,
+                "trace_id": "",
+                "estimated_active_tokens": 0,
+                "budget_exceeded": false
+              }
+            },
+            "seconds": 42.259
+          },
+          "task": {
+            "task_id": "f6b47d91-9aef-4ec8-bcbd-b8e7372fa9d7",
+            "status": "failed",
+            "created_at": 1790205230.8805795,
+            "updated_at": 1790206369.6574879,
+            "error": "memory extraction degraded: failure_kind=parse_error: Final response could not be parsed as operations after 4 iterations (failure_kind=parse_error)"
+          },
+          "artifacts": {
+            "messages.jsonl": {
+              "http": 200,
+              "sha256": "ab795afdc3ee22a45727dad774602ebfec1fd6c3cd7cf4cd2fe534a56513cf02",
+              "count": 4,
+              "exact_input": true
+            },
+            ".done": {
+              "http": 404
+            },
+            ".failed.json": {
+              "http": 200,
+              "sha256": "70acbcbc7b06185a6c201f02d8b66ce682113034e9ba6be0ab4e4048bf52f00c",
+              "failure": {
+                "stage": "memory_extraction",
+                "error": "memory extraction degraded: failure_kind=parse_error: Final response could not be parsed as operations after 4 iterations (failure_kind=parse_error)",
+                "failed_at": "2026-09-23T23:32:48.996Z",
+                "skipped": true,
+                "completed_memory_steps": {}
+              }
+            },
+            "memory_diff.json": {
+              "http": 404
+            }
+          }
+        },
+        {
+          "id": "capture-check-33698ad581-6",
+          "accepted": true,
+          "captured": true,
+          "extraction_succeeded": false,
+          "visible_failure": true,
+          "input_sha256": "1ebd93b412044504e36be76b832d7ff57e0a70206356b460c246426aa8956b83",
+          "input_count": 4,
+          "commit": {
+            "http": 200,
+            "response": {
+              "status": "ok",
+              "result": {
+                "session_id": "capture-check-33698ad581-6",
+                "status": "accepted",
+                "task_id": "2ddd7b07-d495-4ce2-bb35-484bfa65e3d3",
+                "archive_uri": "viking://user/capture-validity-20260923/sessions/capture-check-33698ad581-6/history/archive_001",
+                "archived": true,
+                "trace_id": "",
+                "estimated_active_tokens": 0,
+                "budget_exceeded": false
+              }
+            },
+            "seconds": 32.83
+          },
+          "task": {
+            "task_id": "2ddd7b07-d495-4ce2-bb35-484bfa65e3d3",
+            "status": "failed",
+            "created_at": 1790205229.056584,
+            "updated_at": 1790205931.688131,
+            "error": "memory extraction degraded: failure_kind=parse_error: Final response could not be parsed as operations after 4 iterations (failure_kind=parse_error)"
+          },
+          "artifacts": {
+            "messages.jsonl": {
+              "http": 200,
+              "sha256": "5380213268390fad71aa92cd3c799e41830855d390ce535ede08a05d13a19523",
+              "count": 4,
+              "exact_input": true
+            },
+            ".done": {
+              "http": 404
+            },
+            ".failed.json": {
+              "http": 200,
+              "sha256": "ca75fd1d45603731965b962daf992e4c98f16f48b2ac17412b752ff5966a0fab",
+              "failure": {
+                "stage": "memory_extraction",
+                "error": "memory extraction degraded: failure_kind=parse_error: Final response could not be parsed as operations after 4 iterations (failure_kind=parse_error)",
+                "failed_at": "2026-09-23T23:25:31.218Z",
+                "skipped": true,
+                "completed_memory_steps": {}
+              }
+            },
+            "memory_diff.json": {
+              "http": 404
+            }
+          }
+        },
+        {
+          "id": "capture-check-33698ad581-7",
+          "accepted": true,
+          "captured": true,
+          "extraction_succeeded": true,
+          "visible_failure": false,
+          "input_sha256": "cc161de5888ee684852a0cc2ec907fa467dd5c88ff721ab0cfae5bfe274e7ba0",
+          "input_count": 4,
+          "commit": {
+            "http": 200,
+            "response": {
+              "status": "ok",
+              "result": {
+                "session_id": "capture-check-33698ad581-7",
+                "status": "accepted",
+                "task_id": "ec3614e7-2f51-4632-8a5d-f5b6abe39bfa",
+                "archive_uri": "viking://user/capture-validity-20260923/sessions/capture-check-33698ad581-7/history/archive_001",
+                "archived": true,
+                "trace_id": "",
+                "estimated_active_tokens": 0,
+                "budget_exceeded": false
+              }
+            },
+            "seconds": 34.994
+          },
+          "task": {
+            "task_id": "ec3614e7-2f51-4632-8a5d-f5b6abe39bfa",
+            "status": "completed",
+            "created_at": 1790205232.414881,
+            "updated_at": 1790206146.6789448,
+            "error": null
+          },
+          "artifacts": {
+            "messages.jsonl": {
+              "http": 200,
+              "sha256": "2ef96cf3c707bd5017efcfe1a1eaffe27efbd3c8234b9e839d9b6e20ca703d26",
+              "count": 4,
+              "exact_input": true
+            },
+            ".done": {
+              "http": 200,
+              "sha256": "4e044f2542c110a79afd7abcbba4062ad52904d3f7197e36e8063c04b778571d"
+            },
+            ".failed.json": {
+              "http": 404
+            },
+            "memory_diff.json": {
+              "http": 200,
+              "sha256": "fb464ef7c82d476de70bbb0a5fb248c9e82e14171b00e5dff4b9f158fee959b6",
+              "operation_counts": {
+                "adds": 0,
+                "updates": 1,
+                "deletes": 0
+              },
+              "memory_reads": [
+                {
+                  "uri": "viking://user/capture-validity-20260923/peers/github.com-nathanwhyte-compendium/memories/events/2026/09/23/capture_acceptance_approval.md",
+                  "http": 200,
+                  "sha256": "8388560debd63c5a3a5d978376f4a841543eb816403ff3201546fc76f8b3756a",
+                  "bytes": 633
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": "capture-check-33698ad581-8",
+          "accepted": true,
+          "captured": true,
+          "extraction_succeeded": false,
+          "visible_failure": true,
+          "input_sha256": "c191b2fd5e98bad881cd2e99d2f5c7db891c03671668429034a05c1913cf3b2c",
+          "input_count": 4,
+          "commit": {
+            "http": 200,
+            "response": {
+              "status": "ok",
+              "result": {
+                "session_id": "capture-check-33698ad581-8",
+                "status": "accepted",
+                "task_id": "70ca24df-0cd8-4f2b-977b-cb3a8a2960a3",
+                "archive_uri": "viking://user/capture-validity-20260923/sessions/capture-check-33698ad581-8/history/archive_001",
+                "archived": true,
+                "trace_id": "",
+                "estimated_active_tokens": 0,
+                "budget_exceeded": false
+              }
+            },
+            "seconds": 34.17
+          },
+          "task": {
+            "task_id": "70ca24df-0cd8-4f2b-977b-cb3a8a2960a3",
+            "status": "failed",
+            "created_at": 1790205231.4205468,
+            "updated_at": 1790206568.5237203,
+            "error": "memory extraction degraded: failure_kind=parse_error: Final response could not be parsed as operations after 4 iterations (failure_kind=parse_error)"
+          },
+          "artifacts": {
+            "messages.jsonl": {
+              "http": 200,
+              "sha256": "f6aa1230d19675aadf218493b1797b0ef56086df11eddef01231aad2af1f0786",
+              "count": 4,
+              "exact_input": true
+            },
+            ".done": {
+              "http": 404
+            },
+            ".failed.json": {
+              "http": 200,
+              "sha256": "b972f50cc1cab44d37678f890e3074727ab281b2a010453a0351953cb96919d8",
+              "failure": {
+                "stage": "memory_extraction",
+                "error": "memory extraction degraded: failure_kind=parse_error: Final response could not be parsed as operations after 4 iterations (failure_kind=parse_error)",
+                "failed_at": "2026-09-23T23:36:07.891Z",
+                "skipped": true,
+                "completed_memory_steps": {}
+              }
+            },
+            "memory_diff.json": {
+              "http": 404
+            }
+          }
+        },
+        {
+          "id": "capture-check-33698ad581-9",
+          "accepted": true,
+          "captured": true,
+          "extraction_succeeded": false,
+          "visible_failure": true,
+          "input_sha256": "484012f510cdf60cdd6a4a8540aa4d86f6169be0da30ade3a7c704ae91544003",
+          "input_count": 4,
+          "commit": {
+            "http": 200,
+            "response": {
+              "status": "ok",
+              "result": {
+                "session_id": "capture-check-33698ad581-9",
+                "status": "accepted",
+                "task_id": "51a451d6-33e1-4efe-89fc-4bdcfd82f4b5",
+                "archive_uri": "viking://user/capture-validity-20260923/sessions/capture-check-33698ad581-9/history/archive_001",
+                "archived": true,
+                "trace_id": "",
+                "estimated_active_tokens": 0,
+                "budget_exceeded": false
+              }
+            },
+            "seconds": 31.146
+          },
+          "task": {
+            "task_id": "51a451d6-33e1-4efe-89fc-4bdcfd82f4b5",
+            "status": "failed",
+            "created_at": 1790205228.7486784,
+            "updated_at": 1790205926.7922418,
+            "error": "memory extraction degraded: failure_kind=parse_error: Final response could not be parsed as operations after 4 iterations (failure_kind=parse_error)"
+          },
+          "artifacts": {
+            "messages.jsonl": {
+              "http": 200,
+              "sha256": "e62bb1fce5ff5f16354c450fdc39d11610a5b74a07c391f30323621c83a9d703",
+              "count": 4,
+              "exact_input": true
+            },
+            ".done": {
+              "http": 404
+            },
+            ".failed.json": {
+              "http": 200,
+              "sha256": "227996546216ad2a977df19d7554b5c0c12629d30e74e18d1723c523d8110bb3",
+              "failure": {
+                "stage": "memory_extraction",
+                "error": "memory extraction degraded: failure_kind=parse_error: Final response could not be parsed as operations after 4 iterations (failure_kind=parse_error)",
+                "failed_at": "2026-09-23T23:25:25.966Z",
+                "skipped": true,
+                "completed_memory_steps": {}
+              }
+            },
+            "memory_diff.json": {
+              "http": 404
+            }
+          }
+        },
+        {
+          "id": "capture-check-33698ad581-10",
+          "accepted": true,
+          "captured": true,
+          "extraction_succeeded": false,
+          "visible_failure": true,
+          "input_sha256": "ebbd5bb42b8a5b3718eb5290ece83af167760749e85b20fa3965b4dc472a953a",
+          "input_count": 4,
+          "commit": {
+            "http": 200,
+            "response": {
+              "status": "ok",
+              "result": {
+                "session_id": "capture-check-33698ad581-10",
+                "status": "accepted",
+                "task_id": "e07b7f5c-f4ba-495e-b841-286b661531b6",
+                "archive_uri": "viking://user/capture-validity-20260923/sessions/capture-check-33698ad581-10/history/archive_001",
+                "archived": true,
+                "trace_id": "",
+                "estimated_active_tokens": 0,
+                "budget_exceeded": false
+              }
+            },
+            "seconds": 33.927
+          },
+          "task": {
+            "task_id": "e07b7f5c-f4ba-495e-b841-286b661531b6",
+            "status": "failed",
+            "created_at": 1790205231.0064938,
+            "updated_at": 1790206535.7603588,
+            "error": "memory extraction degraded: failure_kind=parse_error: Final response could not be parsed as operations after 4 iterations (failure_kind=parse_error)"
+          },
+          "artifacts": {
+            "messages.jsonl": {
+              "http": 200,
+              "sha256": "67eff4b99c67639c33b7858e77b7f34797b58635eaa7cb1fd95188e7bfed7fd1",
+              "count": 4,
+              "exact_input": true
+            },
+            ".done": {
+              "http": 404
+            },
+            ".failed.json": {
+              "http": 200,
+              "sha256": "06c152c0d03bef2d12de9a047c40d805d818e22fab0b5a1ccb46edebfaed9d36",
+              "failure": {
+                "stage": "memory_extraction",
+                "error": "memory extraction degraded: failure_kind=parse_error: Final response could not be parsed as operations after 4 iterations (failure_kind=parse_error)",
+                "failed_at": "2026-09-23T23:35:35.199Z",
+                "skipped": true,
+                "completed_memory_steps": {}
+              }
+            },
+            "memory_diff.json": {
+              "http": 404
+            }
+          }
+        },
+        {
+          "id": "capture-check-33698ad581-11",
+          "accepted": true,
+          "captured": true,
+          "extraction_succeeded": false,
+          "visible_failure": true,
+          "input_sha256": "be715d2749ce7d68a367cff17e3fda9f8f9dfd09ce4b895fdfd7763a7d8b177d",
+          "input_count": 4,
+          "commit": {
+            "http": 200,
+            "response": {
+              "status": "ok",
+              "result": {
+                "session_id": "capture-check-33698ad581-11",
+                "status": "accepted",
+                "task_id": "ebd41d33-1b01-4878-9174-e012c8803ace",
+                "archive_uri": "viking://user/capture-validity-20260923/sessions/capture-check-33698ad581-11/history/archive_001",
+                "archived": true,
+                "trace_id": "",
+                "estimated_active_tokens": 0,
+                "budget_exceeded": false
+              }
+            },
+            "seconds": 30.85
+          },
+          "task": {
+            "task_id": "ebd41d33-1b01-4878-9174-e012c8803ace",
+            "status": "failed",
+            "created_at": 1790205228.367488,
+            "updated_at": 1790205897.1694922,
+            "error": "memory extraction degraded: failure_kind=parse_error: Final response could not be parsed as operations after 4 iterations (failure_kind=parse_error)"
+          },
+          "artifacts": {
+            "messages.jsonl": {
+              "http": 200,
+              "sha256": "f34a9d18338c02967a1546d8e24b8d8fc7a7c22f893ed6fcebaebf18cba69427",
+              "count": 4,
+              "exact_input": true
+            },
+            ".done": {
+              "http": 404
+            },
+            ".failed.json": {
+              "http": 200,
+              "sha256": "c219611a5da48c23e3c156a5e7560004abacf57cd7c7cc0ae3a4a620eec1062c",
+              "failure": {
+                "stage": "memory_extraction",
+                "error": "memory extraction degraded: failure_kind=parse_error: Final response could not be parsed as operations after 4 iterations (failure_kind=parse_error)",
+                "failed_at": "2026-09-23T23:24:56.720Z",
+                "skipped": true,
+                "completed_memory_steps": {}
+              }
+            },
+            "memory_diff.json": {
+              "http": 404
+            }
+          }
+        },
+        {
+          "id": "capture-check-33698ad581-12",
+          "accepted": true,
+          "captured": true,
+          "extraction_succeeded": false,
+          "visible_failure": true,
+          "input_sha256": "608610d3df14cdeb347fa93d6bc0f59e531bb983fa59d69b1fd643f214ae1b55",
+          "input_count": 4,
+          "commit": {
+            "http": 200,
+            "response": {
+              "status": "ok",
+              "result": {
+                "session_id": "capture-check-33698ad581-12",
+                "status": "accepted",
+                "task_id": "456c636b-2463-41c9-9209-e139f6e423ba",
+                "archive_uri": "viking://user/capture-validity-20260923/sessions/capture-check-33698ad581-12/history/archive_001",
+                "archived": true,
+                "trace_id": "",
+                "estimated_active_tokens": 0,
+                "budget_exceeded": false
+              }
+            },
+            "seconds": 32.564
+          },
+          "task": {
+            "task_id": "456c636b-2463-41c9-9209-e139f6e423ba",
+            "status": "failed",
+            "created_at": 1790205228.4525378,
+            "updated_at": 1790205841.974883,
+            "error": "memory extraction degraded: failure_kind=parse_error: Final response could not be parsed as operations after 4 iterations (failure_kind=parse_error)"
+          },
+          "artifacts": {
+            "messages.jsonl": {
+              "http": 200,
+              "sha256": "c8cf7265c4101d953cadc18ec274a1cabc2ce8177eb8e392bd08ced5059cf072",
+              "count": 4,
+              "exact_input": true
+            },
+            ".done": {
+              "http": 404
+            },
+            ".failed.json": {
+              "http": 200,
+              "sha256": "ae98ac081a2798183a4aa8136296ed91300d066528c5690a4a7aaf46f678b1f7",
+              "failure": {
+                "stage": "memory_extraction",
+                "error": "memory extraction degraded: failure_kind=parse_error: Final response could not be parsed as operations after 4 iterations (failure_kind=parse_error)",
+                "failed_at": "2026-09-23T23:24:01.370Z",
+                "skipped": true,
+                "completed_memory_steps": {}
+              }
+            },
+            "memory_diff.json": {
+              "http": 404
+            }
+          }
+        },
+        {
+          "id": "capture-check-33698ad581-13",
+          "accepted": true,
+          "captured": true,
+          "extraction_succeeded": false,
+          "visible_failure": true,
+          "input_sha256": "e009b96b8efbd4003ea1540a1990c5ca100c1fc9f171ebf108129d189ee1fe31",
+          "input_count": 4,
+          "commit": {
+            "http": 200,
+            "response": {
+              "status": "ok",
+              "result": {
+                "session_id": "capture-check-33698ad581-13",
+                "status": "accepted",
+                "task_id": "931815e9-5434-4471-994a-cd4b3298f399",
+                "archive_uri": "viking://user/capture-validity-20260923/sessions/capture-check-33698ad581-13/history/archive_001",
+                "archived": true,
+                "trace_id": "",
+                "estimated_active_tokens": 0,
+                "budget_exceeded": false
+              }
+            },
+            "seconds": 35.258
+          },
+          "task": {
+            "task_id": "931815e9-5434-4471-994a-cd4b3298f399",
+            "status": "failed",
+            "created_at": 1790205232.9116633,
+            "updated_at": 1790206678.4944983,
+            "error": "memory extraction degraded: failure_kind=parse_error: Final response could not be parsed as operations after 4 iterations (failure_kind=parse_error)"
+          },
+          "artifacts": {
+            "messages.jsonl": {
+              "http": 200,
+              "sha256": "a74eb35376bf48c481fd71a3e4017f43b14f0b630d32740ffc3e8d75d1f0e782",
+              "count": 4,
+              "exact_input": true
+            },
+            ".done": {
+              "http": 404
+            },
+            ".failed.json": {
+              "http": 200,
+              "sha256": "cc11c9e68d7d0b8ee505c3c5b95f8cf261b108a512077b9b26e194cb813bb66b",
+              "failure": {
+                "stage": "memory_extraction",
+                "error": "memory extraction degraded: failure_kind=parse_error: Final response could not be parsed as operations after 4 iterations (failure_kind=parse_error)",
+                "failed_at": "2026-09-23T23:37:57.910Z",
+                "skipped": true,
+                "completed_memory_steps": {}
+              }
+            },
+            "memory_diff.json": {
+              "http": 404
+            }
+          }
+        },
+        {
+          "id": "capture-check-33698ad581-14",
+          "accepted": true,
+          "captured": true,
+          "extraction_succeeded": false,
+          "visible_failure": true,
+          "input_sha256": "ff14529c5aa82621c33fcc3820842ba029f73343d5ec4979976a124eacfad094",
+          "input_count": 4,
+          "commit": {
+            "http": 200,
+            "response": {
+              "status": "ok",
+              "result": {
+                "session_id": "capture-check-33698ad581-14",
+                "status": "accepted",
+                "task_id": "f24c0f79-d321-49c9-bb9c-d8cad4aab4fc",
+                "archive_uri": "viking://user/capture-validity-20260923/sessions/capture-check-33698ad581-14/history/archive_001",
+                "archived": true,
+                "trace_id": "",
+                "estimated_active_tokens": 0,
+                "budget_exceeded": false
+              }
+            },
+            "seconds": 32.771
+          },
+          "task": {
+            "task_id": "f24c0f79-d321-49c9-bb9c-d8cad4aab4fc",
+            "status": "failed",
+            "created_at": 1790205230.8806677,
+            "updated_at": 1790206487.3478954,
+            "error": "memory extraction degraded: failure_kind=parse_error: Final response could not be parsed as operations after 4 iterations (failure_kind=parse_error)"
+          },
+          "artifacts": {
+            "messages.jsonl": {
+              "http": 200,
+              "sha256": "d809f257f8beda9ce4d2cba9cf22f8f7083e165ee6e6c92caaff0d6b18920907",
+              "count": 4,
+              "exact_input": true
+            },
+            ".done": {
+              "http": 404
+            },
+            ".failed.json": {
+              "http": 200,
+              "sha256": "40a965ef100aaf71155fa541f58048b0473ac7db622b3ee7c084c8c46a2553d9",
+              "failure": {
+                "stage": "memory_extraction",
+                "error": "memory extraction degraded: failure_kind=parse_error: Final response could not be parsed as operations after 4 iterations (failure_kind=parse_error)",
+                "failed_at": "2026-09-23T23:34:46.853Z",
+                "skipped": true,
+                "completed_memory_steps": {}
+              }
+            },
+            "memory_diff.json": {
+              "http": 404
+            }
+          }
+        },
+        {
+          "id": "capture-check-33698ad581-15",
+          "accepted": true,
+          "captured": true,
+          "extraction_succeeded": false,
+          "visible_failure": true,
+          "input_sha256": "d7a19db798f5f210b4455277496c39de12fe8beae29489a64d5fb80fcef644f3",
+          "input_count": 4,
+          "commit": {
+            "http": 200,
+            "response": {
+              "status": "ok",
+              "result": {
+                "session_id": "capture-check-33698ad581-15",
+                "status": "accepted",
+                "task_id": "0801edc0-10df-49c9-8882-2850b867924c",
+                "archive_uri": "viking://user/capture-validity-20260923/sessions/capture-check-33698ad581-15/history/archive_001",
+                "archived": true,
+                "trace_id": "",
+                "estimated_active_tokens": 0,
+                "budget_exceeded": false
+              }
+            },
+            "seconds": 31.102
+          },
+          "task": {
+            "task_id": "0801edc0-10df-49c9-8882-2850b867924c",
+            "status": "failed",
+            "created_at": 1790205228.5415964,
+            "updated_at": 1790205921.6817617,
+            "error": "memory extraction degraded: failure_kind=parse_error: Final response could not be parsed as operations after 4 iterations (failure_kind=parse_error)"
+          },
+          "artifacts": {
+            "messages.jsonl": {
+              "http": 200,
+              "sha256": "cec216a80ada05747812b74e75bd382e8dd085037fa4b7bf785558b26e7299ae",
+              "count": 4,
+              "exact_input": true
+            },
+            ".done": {
+              "http": 404
+            },
+            ".failed.json": {
+              "http": 200,
+              "sha256": "77d7ecdfdb28a875e0766aa3620449054b82a29115263c03368744e4f0714980",
+              "failure": {
+                "stage": "memory_extraction",
+                "error": "memory extraction degraded: failure_kind=parse_error: Final response could not be parsed as operations after 4 iterations (failure_kind=parse_error)",
+                "failed_at": "2026-09-23T23:25:21.212Z",
+                "skipped": true,
+                "completed_memory_steps": {}
+              }
+            },
+            "memory_diff.json": {
+              "http": 404
+            }
+          }
+        },
+        {
+          "id": "capture-check-33698ad581-16",
+          "accepted": true,
+          "captured": true,
+          "extraction_succeeded": false,
+          "visible_failure": true,
+          "input_sha256": "e86d8cddd01233f2ddc38cf110b00bb653cbcfbede9073067c74905f54060a4e",
+          "input_count": 4,
+          "commit": {
+            "http": 200,
+            "response": {
+              "status": "ok",
+              "result": {
+                "session_id": "capture-check-33698ad581-16",
+                "status": "accepted",
+                "task_id": "fd50fbbe-1ca3-47f6-a481-bfe3334f4059",
+                "archive_uri": "viking://user/capture-validity-20260923/sessions/capture-check-33698ad581-16/history/archive_001",
+                "archived": true,
+                "trace_id": "",
+                "estimated_active_tokens": 0,
+                "budget_exceeded": false
+              }
+            },
+            "seconds": 41.091
+          },
+          "task": {
+            "task_id": "fd50fbbe-1ca3-47f6-a481-bfe3334f4059",
+            "status": "failed",
+            "created_at": 1790205230.444448,
+            "updated_at": 1790205912.9487095,
+            "error": "memory extraction degraded: failure_kind=parse_error: Final response could not be parsed as operations after 4 iterations (failure_kind=parse_error)"
+          },
+          "artifacts": {
+            "messages.jsonl": {
+              "http": 200,
+              "sha256": "85695d9cba516d84ab49fed41eb0428c40f8c203e5d830c3480db7f657f0cf72",
+              "count": 4,
+              "exact_input": true
+            },
+            ".done": {
+              "http": 404
+            },
+            ".failed.json": {
+              "http": 200,
+              "sha256": "186b7abe108ef482f3edcca6e10557050b9a392e2b833301c9e3b083a0a7c3e9",
+              "failure": {
+                "stage": "memory_extraction",
+                "error": "memory extraction degraded: failure_kind=parse_error: Final response could not be parsed as operations after 4 iterations (failure_kind=parse_error)",
+                "failed_at": "2026-09-23T23:25:12.490Z",
+                "skipped": true,
+                "completed_memory_steps": {}
+              }
+            },
+            "memory_diff.json": {
+              "http": 404
+            }
+          }
+        },
+        {
+          "id": "capture-check-33698ad581-17",
+          "accepted": true,
+          "captured": true,
+          "extraction_succeeded": false,
+          "visible_failure": true,
+          "input_sha256": "799f3b716a435a05a5005a59a655dcd3eb6610e7ffb3e4e70ea2d6e080cf2697",
+          "input_count": 4,
+          "commit": {
+            "http": 200,
+            "response": {
+              "status": "ok",
+              "result": {
+                "session_id": "capture-check-33698ad581-17",
+                "status": "accepted",
+                "task_id": "0e763a10-164e-4d8c-abed-340074c46593",
+                "archive_uri": "viking://user/capture-validity-20260923/sessions/capture-check-33698ad581-17/history/archive_001",
+                "archived": true,
+                "trace_id": "",
+                "estimated_active_tokens": 0,
+                "budget_exceeded": false
+              }
+            },
+            "seconds": 32.503
+          },
+          "task": {
+            "task_id": "0e763a10-164e-4d8c-abed-340074c46593",
+            "status": "failed",
+            "created_at": 1790205230.880735,
+            "updated_at": 1790206540.5811193,
+            "error": "memory extraction degraded: failure_kind=parse_error: Final response could not be parsed as operations after 4 iterations (failure_kind=parse_error)"
+          },
+          "artifacts": {
+            "messages.jsonl": {
+              "http": 200,
+              "sha256": "3e3b12decf53243df4093fbf9d60070ceffb738c5f3556af9003dc1a607c07f9",
+              "count": 4,
+              "exact_input": true
+            },
+            ".done": {
+              "http": 404
+            },
+            ".failed.json": {
+              "http": 200,
+              "sha256": "ccd554149f897513dde965126515f7470a29e80689a3534d6118740a48f18141",
+              "failure": {
+                "stage": "memory_extraction",
+                "error": "memory extraction degraded: failure_kind=parse_error: Final response could not be parsed as operations after 4 iterations (failure_kind=parse_error)",
+                "failed_at": "2026-09-23T23:35:39.937Z",
+                "skipped": true,
+                "completed_memory_steps": {}
+              }
+            },
+            "memory_diff.json": {
+              "http": 404
+            }
+          }
+        },
+        {
+          "id": "capture-check-33698ad581-18",
+          "accepted": true,
+          "captured": true,
+          "extraction_succeeded": false,
+          "visible_failure": true,
+          "input_sha256": "8bc7640cfee7dca1cf8e982bf02fb82a663d979c14cb1d9223c5874312c77416",
+          "input_count": 4,
+          "commit": {
+            "http": 200,
+            "response": {
+              "status": "ok",
+              "result": {
+                "session_id": "capture-check-33698ad581-18",
+                "status": "accepted",
+                "task_id": "afd5ceaf-7262-40d4-b051-22bceb769119",
+                "archive_uri": "viking://user/capture-validity-20260923/sessions/capture-check-33698ad581-18/history/archive_001",
+                "archived": true,
+                "trace_id": "",
+                "estimated_active_tokens": 0,
+                "budget_exceeded": false
+              }
+            },
+            "seconds": 41.124
+          },
+          "task": {
+            "task_id": "afd5ceaf-7262-40d4-b051-22bceb769119",
+            "status": "failed",
+            "created_at": 1790205233.318938,
+            "updated_at": 1790206985.9078546,
+            "error": "memory extraction degraded: failure_kind=parse_error: Final response could not be parsed as operations after 4 iterations (failure_kind=parse_error)"
+          },
+          "artifacts": {
+            "messages.jsonl": {
+              "http": 200,
+              "sha256": "6260b8c5d318c94a32762821ed633335d66d59c9bf6cc8b699714160eedd2d16",
+              "count": 4,
+              "exact_input": true
+            },
+            ".done": {
+              "http": 404
+            },
+            ".failed.json": {
+              "http": 200,
+              "sha256": "4c7d51aad73201b8abaaa9751ce9b4ded55f76178a66eb140e125a6ff69bf748",
+              "failure": {
+                "stage": "memory_extraction",
+                "error": "memory extraction degraded: failure_kind=parse_error: Final response could not be parsed as operations after 4 iterations (failure_kind=parse_error)",
+                "failed_at": "2026-09-23T23:43:05.435Z",
+                "skipped": true,
+                "completed_memory_steps": {}
+              }
+            },
+            "memory_diff.json": {
+              "http": 404
+            }
+          }
+        },
+        {
+          "id": "capture-check-33698ad581-19",
+          "accepted": true,
+          "captured": true,
+          "extraction_succeeded": true,
+          "visible_failure": false,
+          "input_sha256": "083796977ebd9f51562c3d262cf493162259121e5291fdcbb60f4b16a6bdcb84",
+          "input_count": 4,
+          "commit": {
+            "http": 200,
+            "response": {
+              "status": "ok",
+              "result": {
+                "session_id": "capture-check-33698ad581-19",
+                "status": "accepted",
+                "task_id": "c377b7c9-d587-4a88-b175-36ec195214b9",
+                "archive_uri": "viking://user/capture-validity-20260923/sessions/capture-check-33698ad581-19/history/archive_001",
+                "archived": true,
+                "trace_id": "",
+                "estimated_active_tokens": 0,
+                "budget_exceeded": false
+              }
+            },
+            "seconds": 35.497
+          },
+          "task": {
+            "task_id": "c377b7c9-d587-4a88-b175-36ec195214b9",
+            "status": "completed",
+            "created_at": 1790205228.7516348,
+            "updated_at": 1790205738.781049,
+            "error": null
+          },
+          "artifacts": {
+            "messages.jsonl": {
+              "http": 200,
+              "sha256": "1ff5819b2c9e38af69802267b7c1c5ae96e63ddfd17a8f818f96187514e3159d",
+              "count": 4,
+              "exact_input": true
+            },
+            ".done": {
+              "http": 200,
+              "sha256": "8c891cd73f6282821e784bb432930f9e8c61ccff908f75dae792c42af5009367"
+            },
+            ".failed.json": {
+              "http": 404
+            },
+            "memory_diff.json": {
+              "http": 200,
+              "sha256": "20352b9ec17b71f6ffa33551eaf32bc0fa614fab187262e2ae04a15878dcd7b5",
+              "operation_counts": {
+                "adds": 0,
+                "updates": 1,
+                "deletes": 0
+              },
+              "memory_reads": [
+                {
+                  "uri": "viking://user/capture-validity-20260923/peers/github.com-nathanwhyte-compendium/memories/events/2026/09/23/capture_acceptance_approval.md",
+                  "http": 200,
+                  "sha256": "8388560debd63c5a3a5d978376f4a841543eb816403ff3201546fc76f8b3756a",
+                  "bytes": 633
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "production-burst20.json": {
+      "private_receipt_sha256": "3343e9eb1d47568f5fe37a9d6ae36b9acdffa82bf94d418d01130ae760d3b102",
+      "run": "8b53d1f645",
+      "actor": "capture-validity-prod-20260923",
+      "count": 20,
+      "passed": true,
+      "sessions": [
+        {
+          "id": "capture-check-8b53d1f645-0",
+          "accepted": true,
+          "captured": true,
+          "extraction_succeeded": false,
+          "visible_failure": true,
+          "input_sha256": "2f79e1a413de9a7a0fc3816808f687662b25e9b240d26225537429e035f075d6",
+          "input_count": 4,
+          "commit": {
+            "http": 200,
+            "response": {
+              "status": "ok",
+              "result": {
+                "session_id": "capture-check-8b53d1f645-0",
+                "status": "accepted",
+                "task_id": "2da642e6-7ace-4801-b8d7-160333889b54",
+                "archive_uri": "viking://user/capture-validity-prod-20260923/sessions/capture-check-8b53d1f645-0/history/archive_001",
+                "archived": true,
+                "trace_id": "",
+                "estimated_active_tokens": 0,
+                "budget_exceeded": false
+              }
+            },
+            "seconds": 35.478
+          },
+          "task": {
+            "task_id": "2da642e6-7ace-4801-b8d7-160333889b54",
+            "status": "failed",
+            "created_at": 1790205719.2519734,
+            "updated_at": 1790206386.9591565,
+            "error": "memory extraction degraded: failure_kind=parse_error: Final response could not be parsed as operations after 4 iterations (failure_kind=parse_error)"
+          },
+          "artifacts": {
+            "messages.jsonl": {
+              "http": 200,
+              "sha256": "6d5d7297779699c08e74efc9e2979d560db94be4040aa174a202b6d593ff70f5",
+              "count": 4,
+              "exact_input": true
+            },
+            ".done": {
+              "http": 404
+            },
+            ".failed.json": {
+              "http": 200,
+              "sha256": "0c86d24937370029a67ac0f6cda3de12367011b13c48e215f277be09dd007fd9",
+              "failure": {
+                "stage": "memory_extraction",
+                "error": "memory extraction degraded: failure_kind=parse_error: Final response could not be parsed as operations after 4 iterations (failure_kind=parse_error)",
+                "failed_at": "2026-09-23T23:33:06.366Z",
+                "skipped": true,
+                "completed_memory_steps": {}
+              }
+            },
+            "memory_diff.json": {
+              "http": 404
+            }
+          }
+        },
+        {
+          "id": "capture-check-8b53d1f645-1",
+          "accepted": true,
+          "captured": true,
+          "extraction_succeeded": false,
+          "visible_failure": true,
+          "input_sha256": "72d765c81daf5801cc8cd7ee18d13d25f205c8c8f60eab527010ddc205d61f70",
+          "input_count": 4,
+          "commit": {
+            "http": 200,
+            "response": {
+              "status": "ok",
+              "result": {
+                "session_id": "capture-check-8b53d1f645-1",
+                "status": "accepted",
+                "task_id": "77c893b2-3bb5-4328-b27f-fa0c6f1740c7",
+                "archive_uri": "viking://user/capture-validity-prod-20260923/sessions/capture-check-8b53d1f645-1/history/archive_001",
+                "archived": true,
+                "trace_id": "",
+                "estimated_active_tokens": 0,
+                "budget_exceeded": false
+              }
+            },
+            "seconds": 27.602
+          },
+          "task": {
+            "task_id": "77c893b2-3bb5-4328-b27f-fa0c6f1740c7",
+            "status": "failed",
+            "created_at": 1790205717.6684098,
+            "updated_at": 1790206380.5521598,
+            "error": "memory extraction degraded: failure_kind=parse_error: Final response could not be parsed as operations after 4 iterations (failure_kind=parse_error)"
+          },
+          "artifacts": {
+            "messages.jsonl": {
+              "http": 200,
+              "sha256": "867f361950cfc11c249606e505f260cf02868356ddd8fc446c646b7dc27be289",
+              "count": 4,
+              "exact_input": true
+            },
+            ".done": {
+              "http": 404
+            },
+            ".failed.json": {
+              "http": 200,
+              "sha256": "f204d856d9cdf0ef0e68b7517d17aaf69ef89ee59f46482743d937b6d44f29ed",
+              "failure": {
+                "stage": "memory_extraction",
+                "error": "memory extraction degraded: failure_kind=parse_error: Final response could not be parsed as operations after 4 iterations (failure_kind=parse_error)",
+                "failed_at": "2026-09-23T23:32:59.906Z",
+                "skipped": true,
+                "completed_memory_steps": {}
+              }
+            },
+            "memory_diff.json": {
+              "http": 404
+            }
+          }
+        },
+        {
+          "id": "capture-check-8b53d1f645-2",
+          "accepted": true,
+          "captured": true,
+          "extraction_succeeded": false,
+          "visible_failure": true,
+          "input_sha256": "e1f5988d7b9b323da9c07b199713374056d3f55d3e6f16343da8519c84b31362",
+          "input_count": 4,
+          "commit": {
+            "http": 200,
+            "response": {
+              "status": "ok",
+              "result": {
+                "session_id": "capture-check-8b53d1f645-2",
+                "status": "accepted",
+                "task_id": "138f99d3-0a78-428a-82c6-d032f1974452",
+                "archive_uri": "viking://user/capture-validity-prod-20260923/sessions/capture-check-8b53d1f645-2/history/archive_001",
+                "archived": true,
+                "trace_id": "",
+                "estimated_active_tokens": 0,
+                "budget_exceeded": false
+              }
+            },
+            "seconds": 38.87
+          },
+          "task": {
+            "task_id": "138f99d3-0a78-428a-82c6-d032f1974452",
+            "status": "failed",
+            "created_at": 1790205719.2519457,
+            "updated_at": 1790206470.7490833,
+            "error": "memory extraction degraded: failure_kind=parse_error: Final response could not be parsed as operations after 4 iterations (failure_kind=parse_error)"
+          },
+          "artifacts": {
+            "messages.jsonl": {
+              "http": 200,
+              "sha256": "8cccbb40f675344288fde8d8c4d22c9c5eabedc223c36742a46f7e61a5c56a43",
+              "count": 4,
+              "exact_input": true
+            },
+            ".done": {
+              "http": 404
+            },
+            ".failed.json": {
+              "http": 200,
+              "sha256": "10b18b27a60304bb73027132bfca0f6506931c3fe2cb76a35cc839e8a79b4ccf",
+              "failure": {
+                "stage": "memory_extraction",
+                "error": "memory extraction degraded: failure_kind=parse_error: Final response could not be parsed as operations after 4 iterations (failure_kind=parse_error)",
+                "failed_at": "2026-09-23T23:34:30.023Z",
+                "skipped": true,
+                "completed_memory_steps": {}
+              }
+            },
+            "memory_diff.json": {
+              "http": 404
+            }
+          }
+        },
+        {
+          "id": "capture-check-8b53d1f645-3",
+          "accepted": true,
+          "captured": true,
+          "extraction_succeeded": false,
+          "visible_failure": true,
+          "input_sha256": "2188ad99d456059ad01501ccb37e85bdf4da5a7c71c8273e06b448d506b59f02",
+          "input_count": 4,
+          "commit": {
+            "http": 200,
+            "response": {
+              "status": "ok",
+              "result": {
+                "session_id": "capture-check-8b53d1f645-3",
+                "status": "accepted",
+                "task_id": "e4a22e10-6ffa-4218-be5c-b763eb252b0b",
+                "archive_uri": "viking://user/capture-validity-prod-20260923/sessions/capture-check-8b53d1f645-3/history/archive_001",
+                "archived": true,
+                "trace_id": "",
+                "estimated_active_tokens": 0,
+                "budget_exceeded": false
+              }
+            },
+            "seconds": 34.151
+          },
+          "task": {
+            "task_id": "e4a22e10-6ffa-4218-be5c-b763eb252b0b",
+            "status": "failed",
+            "created_at": 1790205720.1453705,
+            "updated_at": 1790206444.8796732,
+            "error": "memory extraction degraded: failure_kind=parse_error: Final response could not be parsed as operations after 4 iterations (failure_kind=parse_error)"
+          },
+          "artifacts": {
+            "messages.jsonl": {
+              "http": 200,
+              "sha256": "a99a5840b7e40338eee2c5ea0fd253d482c2e185ec097c7499847f70fd01ebb1",
+              "count": 4,
+              "exact_input": true
+            },
+            ".done": {
+              "http": 404
+            },
+            ".failed.json": {
+              "http": 200,
+              "sha256": "77912e8879d7dad8ccc9d929cb39599e0721b813aaeca8e9e5026493b913107e",
+              "failure": {
+                "stage": "memory_extraction",
+                "error": "memory extraction degraded: failure_kind=parse_error: Final response could not be parsed as operations after 4 iterations (failure_kind=parse_error)",
+                "failed_at": "2026-09-23T23:34:04.341Z",
+                "skipped": true,
+                "completed_memory_steps": {}
+              }
+            },
+            "memory_diff.json": {
+              "http": 404
+            }
+          }
+        },
+        {
+          "id": "capture-check-8b53d1f645-4",
+          "accepted": true,
+          "captured": true,
+          "extraction_succeeded": false,
+          "visible_failure": true,
+          "input_sha256": "e10f848202e02ea9c1a42965d9ef56245d0357962621a80eb4b2c61d81a1980e",
+          "input_count": 4,
+          "commit": {
+            "http": 200,
+            "response": {
+              "status": "ok",
+              "result": {
+                "session_id": "capture-check-8b53d1f645-4",
+                "status": "accepted",
+                "task_id": "4dfdf330-9fe3-4fc7-bb1c-bd4e8e394b20",
+                "archive_uri": "viking://user/capture-validity-prod-20260923/sessions/capture-check-8b53d1f645-4/history/archive_001",
+                "archived": true,
+                "trace_id": "",
+                "estimated_active_tokens": 0,
+                "budget_exceeded": false
+              }
+            },
+            "seconds": 40.496
+          },
+          "task": {
+            "task_id": "4dfdf330-9fe3-4fc7-bb1c-bd4e8e394b20",
+            "status": "failed",
+            "created_at": 1790205722.0587301,
+            "updated_at": 1790206989.385253,
+            "error": "memory extraction degraded: failure_kind=parse_error: Final response could not be parsed as operations after 4 iterations (failure_kind=parse_error)"
+          },
+          "artifacts": {
+            "messages.jsonl": {
+              "http": 200,
+              "sha256": "bbedb78598d502ae0d8fc6e077077460871188529955488eb00a17952f4142c7",
+              "count": 4,
+              "exact_input": true
+            },
+            ".done": {
+              "http": 404
+            },
+            ".failed.json": {
+              "http": 200,
+              "sha256": "62f8e716cc37cb0c0d25eb1dff171c5da10ea3cb09ef458766da3f828ca5bb20",
+              "failure": {
+                "stage": "memory_extraction",
+                "error": "memory extraction degraded: failure_kind=parse_error: Final response could not be parsed as operations after 4 iterations (failure_kind=parse_error)",
+                "failed_at": "2026-09-23T23:43:08.878Z",
+                "skipped": true,
+                "completed_memory_steps": {}
+              }
+            },
+            "memory_diff.json": {
+              "http": 404
+            }
+          }
+        },
+        {
+          "id": "capture-check-8b53d1f645-5",
+          "accepted": true,
+          "captured": true,
+          "extraction_succeeded": false,
+          "visible_failure": true,
+          "input_sha256": "e399a9bb102130ed0dd2d863c0df8562aa28729d02bacaa337642ee0b2bb3d4d",
+          "input_count": 4,
+          "commit": {
+            "http": 200,
+            "response": {
+              "status": "ok",
+              "result": {
+                "session_id": "capture-check-8b53d1f645-5",
+                "status": "accepted",
+                "task_id": "bebafcde-f3c0-4046-98b2-621afdde376c",
+                "archive_uri": "viking://user/capture-validity-prod-20260923/sessions/capture-check-8b53d1f645-5/history/archive_001",
+                "archived": true,
+                "trace_id": "",
+                "estimated_active_tokens": 0,
+                "budget_exceeded": false
+              }
+            },
+            "seconds": 39.087
+          },
+          "task": {
+            "task_id": "bebafcde-f3c0-4046-98b2-621afdde376c",
+            "status": "failed",
+            "created_at": 1790205722.0586915,
+            "updated_at": 1790206428.5467982,
+            "error": "memory extraction degraded: failure_kind=parse_error: Final response could not be parsed as operations after 4 iterations (failure_kind=parse_error)"
+          },
+          "artifacts": {
+            "messages.jsonl": {
+              "http": 200,
+              "sha256": "5917cf5ee6f01112ad9cbc219c272cce7479e948ba79e218cd6bca2403df00c1",
+              "count": 4,
+              "exact_input": true
+            },
+            ".done": {
+              "http": 404
+            },
+            ".failed.json": {
+              "http": 200,
+              "sha256": "a75fd3ed70da49e29a96cdd3a5dfe702eabbd71cb7107a1cbba7c99cc13ab471",
+              "failure": {
+                "stage": "memory_extraction",
+                "error": "memory extraction degraded: failure_kind=parse_error: Final response could not be parsed as operations after 4 iterations (failure_kind=parse_error)",
+                "failed_at": "2026-09-23T23:33:46.766Z",
+                "skipped": true,
+                "completed_memory_steps": {}
+              }
+            },
+            "memory_diff.json": {
+              "http": 404
+            }
+          }
+        },
+        {
+          "id": "capture-check-8b53d1f645-6",
+          "accepted": true,
+          "captured": true,
+          "extraction_succeeded": false,
+          "visible_failure": true,
+          "input_sha256": "cc3c24f4d3c44bcbf1a7c1463de295e2117062b252b028d824516355402453a3",
+          "input_count": 4,
+          "commit": {
+            "http": 200,
+            "response": {
+              "status": "ok",
+              "result": {
+                "session_id": "capture-check-8b53d1f645-6",
+                "status": "accepted",
+                "task_id": "f8dccb74-7d0c-41ec-a2f6-c29a2d757581",
+                "archive_uri": "viking://user/capture-validity-prod-20260923/sessions/capture-check-8b53d1f645-6/history/archive_001",
+                "archived": true,
+                "trace_id": "",
+                "estimated_active_tokens": 0,
+                "budget_exceeded": false
+              }
+            },
+            "seconds": 40.588
+          },
+          "task": {
+            "task_id": "f8dccb74-7d0c-41ec-a2f6-c29a2d757581",
+            "status": "failed",
+            "created_at": 1790205722.9244964,
+            "updated_at": 1790206980.9439375,
+            "error": "memory extraction degraded: failure_kind=parse_error: Final response could not be parsed as operations after 4 iterations (failure_kind=parse_error)"
+          },
+          "artifacts": {
+            "messages.jsonl": {
+              "http": 200,
+              "sha256": "3c5fdee8c79c37f0976ca71fad62525b39cb8d55a402c6a71e1a36d5c26a5461",
+              "count": 4,
+              "exact_input": true
+            },
+            ".done": {
+              "http": 404
+            },
+            ".failed.json": {
+              "http": 200,
+              "sha256": "a8debbae6ba2631b4ea38b7c251f70962ab11c24b09841375e50f08ed8311eff",
+              "failure": {
+                "stage": "memory_extraction",
+                "error": "memory extraction degraded: failure_kind=parse_error: Final response could not be parsed as operations after 4 iterations (failure_kind=parse_error)",
+                "failed_at": "2026-09-23T23:43:00.383Z",
+                "skipped": true,
+                "completed_memory_steps": {}
+              }
+            },
+            "memory_diff.json": {
+              "http": 404
+            }
+          }
+        },
+        {
+          "id": "capture-check-8b53d1f645-7",
+          "accepted": true,
+          "captured": true,
+          "extraction_succeeded": false,
+          "visible_failure": true,
+          "input_sha256": "1340e7309bf2c089518672e670d0111f2746a4152f8873649c5b0bac38a6a92d",
+          "input_count": 4,
+          "commit": {
+            "http": 200,
+            "response": {
+              "status": "ok",
+              "result": {
+                "session_id": "capture-check-8b53d1f645-7",
+                "status": "accepted",
+                "task_id": "14662c5b-430d-4124-8527-5629a906af8c",
+                "archive_uri": "viking://user/capture-validity-prod-20260923/sessions/capture-check-8b53d1f645-7/history/archive_001",
+                "archived": true,
+                "trace_id": "",
+                "estimated_active_tokens": 0,
+                "budget_exceeded": false
+              }
+            },
+            "seconds": 41.416
+          },
+          "task": {
+            "task_id": "14662c5b-430d-4124-8527-5629a906af8c",
+            "status": "failed",
+            "created_at": 1790205728.181598,
+            "updated_at": 1790207049.5062113,
+            "error": "memory extraction degraded: failure_kind=parse_error: Final response could not be parsed as operations after 4 iterations (failure_kind=parse_error)"
+          },
+          "artifacts": {
+            "messages.jsonl": {
+              "http": 200,
+              "sha256": "e6a14c127b68217105181bb5a618209ddfede29a33255fe954c35f432dd71590",
+              "count": 4,
+              "exact_input": true
+            },
+            ".done": {
+              "http": 404
+            },
+            ".failed.json": {
+              "http": 200,
+              "sha256": "62f014d7a22964f4a63ca13f94acb21be6cf88f9f08b261c98bcf178c2078f9a",
+              "failure": {
+                "stage": "memory_extraction",
+                "error": "memory extraction degraded: failure_kind=parse_error: Final response could not be parsed as operations after 4 iterations (failure_kind=parse_error)",
+                "failed_at": "2026-09-23T23:44:08.961Z",
+                "skipped": true,
+                "completed_memory_steps": {}
+              }
+            },
+            "memory_diff.json": {
+              "http": 404
+            }
+          }
+        },
+        {
+          "id": "capture-check-8b53d1f645-8",
+          "accepted": true,
+          "captured": true,
+          "extraction_succeeded": true,
+          "visible_failure": false,
+          "input_sha256": "f3a75e62468cc88ec94afd846180a443dd3c3787131c180f9068244c8c55b578",
+          "input_count": 4,
+          "commit": {
+            "http": 200,
+            "response": {
+              "status": "ok",
+              "result": {
+                "session_id": "capture-check-8b53d1f645-8",
+                "status": "accepted",
+                "task_id": "2d1c37fe-a582-4bd2-b04b-b866da11a35d",
+                "archive_uri": "viking://user/capture-validity-prod-20260923/sessions/capture-check-8b53d1f645-8/history/archive_001",
+                "archived": true,
+                "trace_id": "",
+                "estimated_active_tokens": 0,
+                "budget_exceeded": false
+              }
+            },
+            "seconds": 36.987
+          },
+          "task": {
+            "task_id": "2d1c37fe-a582-4bd2-b04b-b866da11a35d",
+            "status": "completed",
+            "created_at": 1790205717.9666822,
+            "updated_at": 1790205801.6987815,
+            "error": null
+          },
+          "artifacts": {
+            "messages.jsonl": {
+              "http": 200,
+              "sha256": "4f32dfe6b5d543fdfa1ffdf56d5db9f99fdbd518d2a831936e308d050692c81f",
+              "count": 4,
+              "exact_input": true
+            },
+            ".done": {
+              "http": 200,
+              "sha256": "52f269957a94723b6f88a55c7450c956f682e098e00199f4687c0cc4783e8aac"
+            },
+            ".failed.json": {
+              "http": 404
+            },
+            "memory_diff.json": {
+              "http": 200,
+              "sha256": "09fa204aa3d4fb8c15614e8ea783a364524c5bc3c9ec8ddae73c32fcf6955522",
+              "operation_counts": {
+                "adds": 1,
+                "updates": 0,
+                "deletes": 0
+              },
+              "memory_reads": [
+                {
+                  "uri": "viking://user/capture-validity-prod-20260923/peers/github.com-nathanwhyte-compendium/memories/events/2026/09/23/capture_acceptance_approval.md",
+                  "http": 200,
+                  "sha256": "cf2a9cc6b1eb81d2a670096ff4eaff9e0e85b7ba801f7f1c1b97f9affad557d2",
+                  "bytes": 635
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": "capture-check-8b53d1f645-9",
+          "accepted": true,
+          "captured": true,
+          "extraction_succeeded": true,
+          "visible_failure": false,
+          "input_sha256": "1e5f9b8ef24abaa58a25682b1eabc6cbc96f3fe471e6207c842b412d2a1d09a1",
+          "input_count": 4,
+          "commit": {
+            "http": 200,
+            "response": {
+              "status": "ok",
+              "result": {
+                "session_id": "capture-check-8b53d1f645-9",
+                "status": "accepted",
+                "task_id": "71260107-9e6a-42b9-b46d-2f36a1c0de77",
+                "archive_uri": "viking://user/capture-validity-prod-20260923/sessions/capture-check-8b53d1f645-9/history/archive_001",
+                "archived": true,
+                "trace_id": "",
+                "estimated_active_tokens": 0,
+                "budget_exceeded": false
+              }
+            },
+            "seconds": 32.184
+          },
+          "task": {
+            "task_id": "71260107-9e6a-42b9-b46d-2f36a1c0de77",
+            "status": "completed",
+            "created_at": 1790205717.139592,
+            "updated_at": 1790205810.433515,
+            "error": null
+          },
+          "artifacts": {
+            "messages.jsonl": {
+              "http": 200,
+              "sha256": "090b0b46be27b59f91d7715027294eeddb9c3255ca809513c1c368af70e6ea6c",
+              "count": 4,
+              "exact_input": true
+            },
+            ".done": {
+              "http": 200,
+              "sha256": "9e8d765ec1109ed2fd8d7b154dabfb586876ce1ea949cf82102760df7c3e341b"
+            },
+            ".failed.json": {
+              "http": 404
+            },
+            "memory_diff.json": {
+              "http": 200,
+              "sha256": "a585adcf5a810a4587fe1835e481a487f928e5a193bfe82ac2ec586e8375fe58",
+              "operation_counts": {
+                "adds": 1,
+                "updates": 0,
+                "deletes": 0
+              },
+              "memory_reads": [
+                {
+                  "uri": "viking://user/capture-validity-prod-20260923/peers/github.com-nathanwhyte-compendium/memories/events/2026/09/23/capture_acceptance_approval.md",
+                  "http": 200,
+                  "sha256": "cf2a9cc6b1eb81d2a670096ff4eaff9e0e85b7ba801f7f1c1b97f9affad557d2",
+                  "bytes": 635
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": "capture-check-8b53d1f645-10",
+          "accepted": true,
+          "captured": true,
+          "extraction_succeeded": false,
+          "visible_failure": true,
+          "input_sha256": "fffd64d0cf62c79bc73024b35052aff95dc1ef13d28d4ef2877505f4fb4c6df9",
+          "input_count": 4,
+          "commit": {
+            "http": 200,
+            "response": {
+              "status": "ok",
+              "result": {
+                "session_id": "capture-check-8b53d1f645-10",
+                "status": "accepted",
+                "task_id": "a8cfd1a2-9a3b-4dfd-b836-c18534ba6df7",
+                "archive_uri": "viking://user/capture-validity-prod-20260923/sessions/capture-check-8b53d1f645-10/history/archive_001",
+                "archived": true,
+                "trace_id": "",
+                "estimated_active_tokens": 0,
+                "budget_exceeded": false
+              }
+            },
+            "seconds": 42.291
+          },
+          "task": {
+            "task_id": "a8cfd1a2-9a3b-4dfd-b836-c18534ba6df7",
+            "status": "failed",
+            "created_at": 1790205731.3517103,
+            "updated_at": 1790207439.4497223,
+            "error": "memory extraction degraded: failure_kind=parse_error: Final response could not be parsed as operations after 4 iterations (failure_kind=parse_error)"
+          },
+          "artifacts": {
+            "messages.jsonl": {
+              "http": 200,
+              "sha256": "69b305ac2b061db7d7f5477f8278defb3a56a12f81db902824517e799f335924",
+              "count": 4,
+              "exact_input": true
+            },
+            ".done": {
+              "http": 404
+            },
+            ".failed.json": {
+              "http": 200,
+              "sha256": "914bfb7ac6432be844cdf979247e86d60e7d753049626c74b7f5aad80cfe3e1b",
+              "failure": {
+                "stage": "memory_extraction",
+                "error": "memory extraction degraded: failure_kind=parse_error: Final response could not be parsed as operations after 4 iterations (failure_kind=parse_error)",
+                "failed_at": "2026-09-23T23:50:38.878Z",
+                "skipped": true,
+                "completed_memory_steps": {}
+              }
+            },
+            "memory_diff.json": {
+              "http": 404
+            }
+          }
+        },
+        {
+          "id": "capture-check-8b53d1f645-11",
+          "accepted": true,
+          "captured": true,
+          "extraction_succeeded": false,
+          "visible_failure": true,
+          "input_sha256": "77b19cbcfafbec09af542f8fe3ccbd138ee2bcb5a894e766dea4898065ad9ae9",
+          "input_count": 4,
+          "commit": {
+            "http": 200,
+            "response": {
+              "status": "ok",
+              "result": {
+                "session_id": "capture-check-8b53d1f645-11",
+                "status": "accepted",
+                "task_id": "5e45116d-3d2b-4af9-8d16-97fa064f448c",
+                "archive_uri": "viking://user/capture-validity-prod-20260923/sessions/capture-check-8b53d1f645-11/history/archive_001",
+                "archived": true,
+                "trace_id": "",
+                "estimated_active_tokens": 0,
+                "budget_exceeded": false
+              }
+            },
+            "seconds": 38.204
+          },
+          "task": {
+            "task_id": "5e45116d-3d2b-4af9-8d16-97fa064f448c",
+            "status": "failed",
+            "created_at": 1790205720.1454203,
+            "updated_at": 1790206447.711839,
+            "error": "memory extraction degraded: failure_kind=parse_error: Final response could not be parsed as operations after 4 iterations (failure_kind=parse_error)"
+          },
+          "artifacts": {
+            "messages.jsonl": {
+              "http": 200,
+              "sha256": "0c98f471003963cb7d02714cfd3e6aeb965b9a0c130ac52f996edc60389878ba",
+              "count": 4,
+              "exact_input": true
+            },
+            ".done": {
+              "http": 404
+            },
+            ".failed.json": {
+              "http": 200,
+              "sha256": "520a0f133f1045c64e408e61a7222b71ad03e4e4648459663f037e36535c95db",
+              "failure": {
+                "stage": "memory_extraction",
+                "error": "memory extraction degraded: failure_kind=parse_error: Final response could not be parsed as operations after 4 iterations (failure_kind=parse_error)",
+                "failed_at": "2026-09-23T23:34:07.163Z",
+                "skipped": true,
+                "completed_memory_steps": {}
+              }
+            },
+            "memory_diff.json": {
+              "http": 404
+            }
+          }
+        },
+        {
+          "id": "capture-check-8b53d1f645-12",
+          "accepted": true,
+          "captured": true,
+          "extraction_succeeded": true,
+          "visible_failure": false,
+          "input_sha256": "67d338846b0450fd9c8a098e067ac8f1eab3f1a931282de7a75201f5c02e4f35",
+          "input_count": 4,
+          "commit": {
+            "http": 200,
+            "response": {
+              "status": "ok",
+              "result": {
+                "session_id": "capture-check-8b53d1f645-12",
+                "status": "accepted",
+                "task_id": "09db1702-fbd8-421f-a86c-d3ab197c6b86",
+                "archive_uri": "viking://user/capture-validity-prod-20260923/sessions/capture-check-8b53d1f645-12/history/archive_001",
+                "archived": true,
+                "trace_id": "",
+                "estimated_active_tokens": 0,
+                "budget_exceeded": false
+              }
+            },
+            "seconds": 30.909
+          },
+          "task": {
+            "task_id": "09db1702-fbd8-421f-a86c-d3ab197c6b86",
+            "status": "completed",
+            "created_at": 1790205719.2518983,
+            "updated_at": 1790205806.1711998,
+            "error": null
+          },
+          "artifacts": {
+            "messages.jsonl": {
+              "http": 200,
+              "sha256": "e14fcefa4274125caf40e670d7fa432f7a7d21221da4cc20b36df28070a8e7a0",
+              "count": 4,
+              "exact_input": true
+            },
+            ".done": {
+              "http": 200,
+              "sha256": "2e00100c43e07c9a49abe6a5ee836312941880275565ed11212b6973a2366e1a"
+            },
+            ".failed.json": {
+              "http": 404
+            },
+            "memory_diff.json": {
+              "http": 200,
+              "sha256": "c23d65eecba87404d28cc20610d0036f6602fb683fd13db94bb06639ce2bfa44",
+              "operation_counts": {
+                "adds": 1,
+                "updates": 0,
+                "deletes": 0
+              },
+              "memory_reads": [
+                {
+                  "uri": "viking://user/capture-validity-prod-20260923/peers/github.com-nathanwhyte-compendium/memories/events/2026/09/23/capture_acceptance_approval.md",
+                  "http": 200,
+                  "sha256": "cf2a9cc6b1eb81d2a670096ff4eaff9e0e85b7ba801f7f1c1b97f9affad557d2",
+                  "bytes": 635
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": "capture-check-8b53d1f645-13",
+          "accepted": true,
+          "captured": true,
+          "extraction_succeeded": false,
+          "visible_failure": true,
+          "input_sha256": "1dc7063e3916766a44ed8f41c441a9f96a414ef6532a10a074420fc007d259c4",
+          "input_count": 4,
+          "commit": {
+            "http": 200,
+            "response": {
+              "status": "ok",
+              "result": {
+                "session_id": "capture-check-8b53d1f645-13",
+                "status": "accepted",
+                "task_id": "e40c2d21-68f4-4cc0-99ad-ff269dea42e3",
+                "archive_uri": "viking://user/capture-validity-prod-20260923/sessions/capture-check-8b53d1f645-13/history/archive_001",
+                "archived": true,
+                "trace_id": "",
+                "estimated_active_tokens": 0,
+                "budget_exceeded": false
+              }
+            },
+            "seconds": 44.002
+          },
+          "task": {
+            "task_id": "e40c2d21-68f4-4cc0-99ad-ff269dea42e3",
+            "status": "failed",
+            "created_at": 1790205724.2012832,
+            "updated_at": 1790206996.2080033,
+            "error": "memory extraction degraded: failure_kind=parse_error: Final response could not be parsed as operations after 4 iterations (failure_kind=parse_error)"
+          },
+          "artifacts": {
+            "messages.jsonl": {
+              "http": 200,
+              "sha256": "824fb03f60ab183530b0b3ad52cc1db090fc9ddd4c6cf4e0d14617bdc51a726e",
+              "count": 4,
+              "exact_input": true
+            },
+            ".done": {
+              "http": 404
+            },
+            ".failed.json": {
+              "http": 200,
+              "sha256": "47bc31a811ccc490c2e3bee5d1647e6ab94f67225408619ee1e5f9d6932393f6",
+              "failure": {
+                "stage": "memory_extraction",
+                "error": "memory extraction degraded: failure_kind=parse_error: Final response could not be parsed as operations after 4 iterations (failure_kind=parse_error)",
+                "failed_at": "2026-09-23T23:43:15.528Z",
+                "skipped": true,
+                "completed_memory_steps": {}
+              }
+            },
+            "memory_diff.json": {
+              "http": 404
+            }
+          }
+        },
+        {
+          "id": "capture-check-8b53d1f645-14",
+          "accepted": true,
+          "captured": true,
+          "extraction_succeeded": false,
+          "visible_failure": true,
+          "input_sha256": "f8f59cfa8cbfc7688f644df30736a911b47ee24d9c4a19ddf3075dcca010f0c2",
+          "input_count": 4,
+          "commit": {
+            "http": 200,
+            "response": {
+              "status": "ok",
+              "result": {
+                "session_id": "capture-check-8b53d1f645-14",
+                "status": "accepted",
+                "task_id": "36adc01b-5fe0-43cd-9bc1-0d1bbb4b97f2",
+                "archive_uri": "viking://user/capture-validity-prod-20260923/sessions/capture-check-8b53d1f645-14/history/archive_001",
+                "archived": true,
+                "trace_id": "",
+                "estimated_active_tokens": 0,
+                "budget_exceeded": false
+              }
+            },
+            "seconds": 42.034
+          },
+          "task": {
+            "task_id": "36adc01b-5fe0-43cd-9bc1-0d1bbb4b97f2",
+            "status": "failed",
+            "created_at": 1790205728.3442678,
+            "updated_at": 1790207029.8034396,
+            "error": "memory extraction degraded: failure_kind=parse_error: Final response could not be parsed as operations after 4 iterations (failure_kind=parse_error)"
+          },
+          "artifacts": {
+            "messages.jsonl": {
+              "http": 200,
+              "sha256": "61bdc60ff86a57a08a02095fe00dde0baf7f1efbc9ea5d1c548d58673976ecae",
+              "count": 4,
+              "exact_input": true
+            },
+            ".done": {
+              "http": 404
+            },
+            ".failed.json": {
+              "http": 200,
+              "sha256": "b75f0d00a6e65969678bc2bd1b0ae5792fdcf006b79444659d96e5fd07f78530",
+              "failure": {
+                "stage": "memory_extraction",
+                "error": "memory extraction degraded: failure_kind=parse_error: Final response could not be parsed as operations after 4 iterations (failure_kind=parse_error)",
+                "failed_at": "2026-09-23T23:43:49.180Z",
+                "skipped": true,
+                "completed_memory_steps": {}
+              }
+            },
+            "memory_diff.json": {
+              "http": 404
+            }
+          }
+        },
+        {
+          "id": "capture-check-8b53d1f645-15",
+          "accepted": true,
+          "captured": true,
+          "extraction_succeeded": false,
+          "visible_failure": true,
+          "input_sha256": "32db4f47c812e1f51c48d011bb8d1a18a80cc8ff950f46fd36b48c3a49962cbc",
+          "input_count": 4,
+          "commit": {
+            "http": 200,
+            "response": {
+              "status": "ok",
+              "result": {
+                "session_id": "capture-check-8b53d1f645-15",
+                "status": "accepted",
+                "task_id": "2fd1136f-c52e-4aa2-8ac7-45c8d3ff1825",
+                "archive_uri": "viking://user/capture-validity-prod-20260923/sessions/capture-check-8b53d1f645-15/history/archive_001",
+                "archived": true,
+                "trace_id": "",
+                "estimated_active_tokens": 0,
+                "budget_exceeded": false
+              }
+            },
+            "seconds": 41.841
+          },
+          "task": {
+            "task_id": "2fd1136f-c52e-4aa2-8ac7-45c8d3ff1825",
+            "status": "failed",
+            "created_at": 1790205724.206384,
+            "updated_at": 1790207020.5714324,
+            "error": "memory extraction degraded: failure_kind=parse_error: Final response could not be parsed as operations after 4 iterations (failure_kind=parse_error)"
+          },
+          "artifacts": {
+            "messages.jsonl": {
+              "http": 200,
+              "sha256": "cc058bff099304cae0b2c656e3647c14df92daf61b346c119f2995b2c0fc5397",
+              "count": 4,
+              "exact_input": true
+            },
+            ".done": {
+              "http": 404
+            },
+            ".failed.json": {
+              "http": 200,
+              "sha256": "883944b9de6fe4a2084765eb559731bfa82fcd0a1512960b8c476f4773e56ca1",
+              "failure": {
+                "stage": "memory_extraction",
+                "error": "memory extraction degraded: failure_kind=parse_error: Final response could not be parsed as operations after 4 iterations (failure_kind=parse_error)",
+                "failed_at": "2026-09-23T23:43:39.929Z",
+                "skipped": true,
+                "completed_memory_steps": {}
+              }
+            },
+            "memory_diff.json": {
+              "http": 404
+            }
+          }
+        },
+        {
+          "id": "capture-check-8b53d1f645-16",
+          "accepted": true,
+          "captured": true,
+          "extraction_succeeded": false,
+          "visible_failure": true,
+          "input_sha256": "989868f954c32dc031864913cae57f55b77f7f250758f18061f75bc3f78c4331",
+          "input_count": 4,
+          "commit": {
+            "http": 200,
+            "response": {
+              "status": "ok",
+              "result": {
+                "session_id": "capture-check-8b53d1f645-16",
+                "status": "accepted",
+                "task_id": "760079ee-772d-4c24-96c4-dfaad11546bc",
+                "archive_uri": "viking://user/capture-validity-prod-20260923/sessions/capture-check-8b53d1f645-16/history/archive_001",
+                "archived": true,
+                "trace_id": "",
+                "estimated_active_tokens": 0,
+                "budget_exceeded": false
+              }
+            },
+            "seconds": 45.376
+          },
+          "task": {
+            "task_id": "760079ee-772d-4c24-96c4-dfaad11546bc",
+            "status": "failed",
+            "created_at": 1790205724.2062974,
+            "updated_at": 1790207020.8311245,
+            "error": "memory extraction degraded: failure_kind=parse_error: Final response could not be parsed as operations after 4 iterations (failure_kind=parse_error)"
+          },
+          "artifacts": {
+            "messages.jsonl": {
+              "http": 200,
+              "sha256": "a88790f16752fcc461294577f26f82af1c34eaa2a87b1bd41226b3cd300b4a58",
+              "count": 4,
+              "exact_input": true
+            },
+            ".done": {
+              "http": 404
+            },
+            ".failed.json": {
+              "http": 200,
+              "sha256": "41205440dce2072f9b38cbb1ce2ae00bf233c25d0eac1911715378894f2e3bc0",
+              "failure": {
+                "stage": "memory_extraction",
+                "error": "memory extraction degraded: failure_kind=parse_error: Final response could not be parsed as operations after 4 iterations (failure_kind=parse_error)",
+                "failed_at": "2026-09-23T23:43:39.982Z",
+                "skipped": true,
+                "completed_memory_steps": {}
+              }
+            },
+            "memory_diff.json": {
+              "http": 404
+            }
+          }
+        },
+        {
+          "id": "capture-check-8b53d1f645-17",
+          "accepted": true,
+          "captured": true,
+          "extraction_succeeded": false,
+          "visible_failure": true,
+          "input_sha256": "f00dcb272af97de9910c02d2cb97e628f37f28d21009648043f9946fef331a4f",
+          "input_count": 4,
+          "commit": {
+            "http": 200,
+            "response": {
+              "status": "ok",
+              "result": {
+                "session_id": "capture-check-8b53d1f645-17",
+                "status": "accepted",
+                "task_id": "f2ea7b17-fe9a-4960-83c3-58a74cf3e06b",
+                "archive_uri": "viking://user/capture-validity-prod-20260923/sessions/capture-check-8b53d1f645-17/history/archive_001",
+                "archived": true,
+                "trace_id": "",
+                "estimated_active_tokens": 0,
+                "budget_exceeded": false
+              }
+            },
+            "seconds": 40.105
+          },
+          "task": {
+            "task_id": "f2ea7b17-fe9a-4960-83c3-58a74cf3e06b",
+            "status": "failed",
+            "created_at": 1790205724.2011595,
+            "updated_at": 1790206979.6372418,
+            "error": "memory extraction degraded: failure_kind=parse_error: Final response could not be parsed as operations after 4 iterations (failure_kind=parse_error)"
+          },
+          "artifacts": {
+            "messages.jsonl": {
+              "http": 200,
+              "sha256": "b17f96282e093dcd4f89ba361a1d18b40bad0540b2c2708d082f1c66c2728f3a",
+              "count": 4,
+              "exact_input": true
+            },
+            ".done": {
+              "http": 404
+            },
+            ".failed.json": {
+              "http": 200,
+              "sha256": "237999557069a61b1ede90980800d3f5406d0b0b371d15b9e8f8e2d43cb89933",
+              "failure": {
+                "stage": "memory_extraction",
+                "error": "memory extraction degraded: failure_kind=parse_error: Final response could not be parsed as operations after 4 iterations (failure_kind=parse_error)",
+                "failed_at": "2026-09-23T23:42:59.007Z",
+                "skipped": true,
+                "completed_memory_steps": {}
+              }
+            },
+            "memory_diff.json": {
+              "http": 404
+            }
+          }
+        },
+        {
+          "id": "capture-check-8b53d1f645-18",
+          "accepted": true,
+          "captured": true,
+          "extraction_succeeded": false,
+          "visible_failure": true,
+          "input_sha256": "2e6573ff086992209857360839261ede888ce9feb72c0c1f338e2c2fdd0d2c2e",
+          "input_count": 4,
+          "commit": {
+            "http": 200,
+            "response": {
+              "status": "ok",
+              "result": {
+                "session_id": "capture-check-8b53d1f645-18",
+                "status": "accepted",
+                "task_id": "0027b8ee-e25b-4656-ad05-57c4f5501259",
+                "archive_uri": "viking://user/capture-validity-prod-20260923/sessions/capture-check-8b53d1f645-18/history/archive_001",
+                "archived": true,
+                "trace_id": "",
+                "estimated_active_tokens": 0,
+                "budget_exceeded": false
+              }
+            },
+            "seconds": 33.963
+          },
+          "task": {
+            "task_id": "0027b8ee-e25b-4656-ad05-57c4f5501259",
+            "status": "failed",
+            "created_at": 1790205719.2172003,
+            "updated_at": 1790206451.85083,
+            "error": "memory extraction degraded: failure_kind=parse_error: Final response could not be parsed as operations after 4 iterations (failure_kind=parse_error)"
+          },
+          "artifacts": {
+            "messages.jsonl": {
+              "http": 200,
+              "sha256": "c6c45f2f713a32c8cc10c37eb1f9577b2acfbaaab5808c95eb0355e322c2b1b0",
+              "count": 4,
+              "exact_input": true
+            },
+            ".done": {
+              "http": 404
+            },
+            ".failed.json": {
+              "http": 200,
+              "sha256": "e99295f887c428db7dc4df9afc97318c9390ccbebab6a7b96e1137f1ea67680a",
+              "failure": {
+                "stage": "memory_extraction",
+                "error": "memory extraction degraded: failure_kind=parse_error: Final response could not be parsed as operations after 4 iterations (failure_kind=parse_error)",
+                "failed_at": "2026-09-23T23:34:11.255Z",
+                "skipped": true,
+                "completed_memory_steps": {}
+              }
+            },
+            "memory_diff.json": {
+              "http": 404
+            }
+          }
+        },
+        {
+          "id": "capture-check-8b53d1f645-19",
+          "accepted": true,
+          "captured": true,
+          "extraction_succeeded": false,
+          "visible_failure": true,
+          "input_sha256": "31f782eda885639c3613d0915f4d12aa1a5b8a98dc2ea88f40a66ee81edfd631",
+          "input_count": 4,
+          "commit": {
+            "http": 200,
+            "response": {
+              "status": "ok",
+              "result": {
+                "session_id": "capture-check-8b53d1f645-19",
+                "status": "accepted",
+                "task_id": "fcfbaba4-1d99-4c5d-9375-8b3fe56adc6b",
+                "archive_uri": "viking://user/capture-validity-prod-20260923/sessions/capture-check-8b53d1f645-19/history/archive_001",
+                "archived": true,
+                "trace_id": "",
+                "estimated_active_tokens": 0,
+                "budget_exceeded": false
+              }
+            },
+            "seconds": 32.567
+          },
+          "task": {
+            "task_id": "fcfbaba4-1d99-4c5d-9375-8b3fe56adc6b",
+            "status": "failed",
+            "created_at": 1790205718.8707764,
+            "updated_at": 1790206406.8911176,
+            "error": "memory extraction degraded: failure_kind=parse_error: Final response could not be parsed as operations after 4 iterations (failure_kind=parse_error)"
+          },
+          "artifacts": {
+            "messages.jsonl": {
+              "http": 200,
+              "sha256": "e192ff2cb4602d29c2f19b157ea4869d15376a55589bf0fbf9b059c2a89ab038",
+              "count": 4,
+              "exact_input": true
+            },
+            ".done": {
+              "http": 404
+            },
+            ".failed.json": {
+              "http": 200,
+              "sha256": "6afa7646bda5e670aa02978a8ff5013f8308ff0b3c31a9186a02d4670671bdce",
+              "failure": {
+                "stage": "memory_extraction",
+                "error": "memory extraction degraded: failure_kind=parse_error: Final response could not be parsed as operations after 4 iterations (failure_kind=parse_error)",
+                "failed_at": "2026-09-23T23:33:26.284Z",
+                "skipped": true,
+                "completed_memory_steps": {}
+              }
+            },
+            "memory_diff.json": {
+              "http": 404
+            }
+          }
+        }
+      ]
+    },
+    "real-archive-verified.json": {
+      "private_receipt_sha256": "0e3e939f6a1fde738492871b36b5826fac2e3cd483489c928672ddccea526f26",
+      "run": "f4d5d35fc9",
+      "actor": "capture-validity-20260923",
+      "count": 1,
+      "source": {
+        "uri": "viking://user/noot-pilot/sessions/cc-aab24907-3116-4441-bfe8-5aca67bda12e/history/archive_002/messages.jsonl",
+        "sha256": "c4574c602d5da18be22fe71ba83c613a3a058fbcf4e716037a4e84e5285c2ca8",
+        "bytes": 108517,
+        "messages": 73
+      },
+      "passed": false,
+      "sessions": [
+        {
+          "id": "capture-check-f4d5d35fc9-0",
+          "accepted": false,
+          "captured": true,
+          "extraction_succeeded": false,
+          "visible_failure": false,
+          "input_sha256": "9a4a057b3603c4dba433dacbec89ed25d4e7b633c6499f159fbd2aba96cf5b78",
+          "input_count": 73,
+          "commit": {
+            "http": 200,
+            "response": {
+              "status": "ok",
+              "result": {
+                "session_id": "capture-check-f4d5d35fc9-0",
+                "status": "accepted",
+                "task_id": "0b5cccb9-4eed-404d-9813-85121cf49abf",
+                "archive_uri": "viking://user/capture-validity-20260923/sessions/capture-check-f4d5d35fc9-0/history/archive_001",
+                "archived": true,
+                "trace_id": "",
+                "estimated_active_tokens": 0,
+                "budget_exceeded": false
+              }
+            },
+            "seconds": 16.516
+          },
+          "task": {
+            "task_id": "0b5cccb9-4eed-404d-9813-85121cf49abf",
+            "status": "completed",
+            "created_at": 1790205291.3307545,
+            "updated_at": 1790206607.9404628,
+            "error": null
+          },
+          "artifacts": {
+            "messages.jsonl": {
+              "http": 200,
+              "sha256": "d4202e364eaff0803379ab19b78ba05fda7776f369946df8c3fe34be0e008075",
+              "count": 73,
+              "exact_input": true,
+              "comparison_excludes": [
+                "tool_output_group_id (regenerated server group identity)"
+              ]
+            },
+            ".done": {
+              "http": 200,
+              "sha256": "93e3072ce49b1c1045bbbe8025a0368aa79f7ca78a54d6838ab196beaf2f8a54"
+            },
+            ".failed.json": {
+              "http": 404
+            },
+            "memory_diff.json": {
+              "http": 200,
+              "sha256": "b2ea0339041ba48f4c978d05f9fa03b558c36345ad962b2846d5fa160b9b5b7c",
+              "operation_counts": {
+                "adds": 0,
+                "updates": 0,
+                "deletes": 0
+              },
+              "memory_reads": []
+            }
+          }
+        }
+      ]
+    },
+    "parent-finish.json": {
+      "private_receipt_sha256": "1280b24e9879118df8275a4dd3074ec833fff2288750e60bba1aeaa17bd7c360",
+      "session": "cc-a818851a-f961-4054-b435-c229eb435e98",
+      "passed": true,
+      "exact_61": true,
+      "live_after_empty": true,
+      "sha256_before": "5282f76e544133ea3fe0c0352c5fc210f41dffbae4d0bffa7f46b7ef95e380ec",
+      "task": {
+        "task_id": "f04c3c3a-d3fc-4361-8fe4-011f94ee7d22",
+        "status": "completed",
+        "created_at": 1790205588.7676866,
+        "updated_at": 1790205661.102917,
+        "error": null
+      },
+      "artifacts": {
+        "messages.jsonl": {
+          "http": 200,
+          "sha256": "5282f76e544133ea3fe0c0352c5fc210f41dffbae4d0bffa7f46b7ef95e380ec",
+          "bytes": 59838
+        },
+        ".done": {
+          "http": 200,
+          "sha256": "1cf7db1512440a8b839843055296a8ae26128cce0cf214fd9a1a1c32bd94ae48",
+          "bytes": 2750
+        },
+        ".failed.json": {
+          "http": 404
+        },
+        "memory_diff.json": {
+          "http": 200,
+          "sha256": "d36000fe27c524a82d2cc84793a7aaead7b9031077eb1c6197be4d994c58b536",
+          "bytes": 9240,
+          "operation_counts": {
+            "adds": 1,
+            "updates": 1,
+            "deletes": 0
+          }
+        }
+      }
+    },
+    "fresh-pilot-finish.json": {
+      "private_receipt_sha256": "7f3d7155b97bed32c6fd28b1f6127cb89df1b7b63e8474bf9d695fa594e58cb6",
+      "session": "cc-e3dc5178-1d6d-40c6-bab9-1dea6d4de0f3",
+      "archive": "viking://user/noot-pilot/sessions/cc-e3dc5178-1d6d-40c6-bab9-1dea6d4de0f3/history/archive_001",
+      "task_id": "e506d8cf-e8e4-4e7a-92bb-5ec5613ed0a8",
+      "passed": true,
+      "exact_queued_messages": true,
+      "unique_message_ids": 4,
+      "task": {
+        "task_id": "e506d8cf-e8e4-4e7a-92bb-5ec5613ed0a8",
+        "status": "completed",
+        "created_at": 1790205582.4740906,
+        "updated_at": 1790205613.687646,
+        "error": null
+      },
+      "artifacts": {
+        "messages.jsonl": {
+          "http": 200,
+          "sha256": "4921586a2f3f35e680b696fa4e88fe363d6980fe13be8a9632170f31263e6cde",
+          "bytes": 1980
+        },
+        ".done": {
+          "http": 200,
+          "sha256": "6de10c7178e1e13184188ad73283202559c17f125fd434155f7ad95db4e1278f",
+          "bytes": 470
+        },
+        ".failed.json": {
+          "http": 404
+        },
+        "memory_diff.json": {
+          "http": 200,
+          "sha256": "44f53c7d158add966549fcb42679e247fdaf84f8d1440559c1f842f874ed8c9a",
+          "bytes": 1404,
+          "operation_counts": {
+            "adds": 1,
+            "updates": 0,
+            "deletes": 0
+          }
+        }
+      },
+      "memory_reads": [
+        {
+          "uri": "viking://user/noot-pilot/peers/github.com-nathanwhyte-compendium/memories/events/2026/09/23/BUG-1179 fixture approval.md",
+          "http": 200,
+          "sha256": "5057b235dca962fd20ab42ce900edeeafa0e203d03634afb7af708d019a66a5a",
+          "bytes": 699
+        }
+      ]
+    },
+    "fresh-finish-fixed.json": {
+      "private_receipt_sha256": "02527a832824934cdb49ac8053dc62f7d69441fb03159d94c0050503c6f8410b",
+      "session": "cc-66be3cc4-7986-4432-835b-78ce822734cf",
+      "task_id": "28431686-c1e7-4515-ad64-4b27ca486944",
+      "passed": true,
+      "expected_count": 2,
+      "actual_count": 2,
+      "unique_ids": 2,
+      "exact_transcript_text": true,
+      "live_empty": true,
+      "explicit_stranded_recovery": false,
+      "task": {
+        "task_id": "28431686-c1e7-4515-ad64-4b27ca486944",
+        "status": "completed",
+        "created_at": 1790207034.3971543,
+        "updated_at": 1790207060.082475,
+        "error": null
+      },
+      "artifacts": {
+        "messages.jsonl": {
+          "http": 200,
+          "sha256": "f39d9772fb8fb1823df89ecc75f8bcf0a7ffe3eace56d47359111715948cc5e7",
+          "bytes": 833
+        },
+        ".done": {
+          "http": 200,
+          "sha256": "ef8760f383695c169c5d708c9d4d0f3ca3cabb856067859d01026bf484e8cc62",
+          "bytes": 390
+        },
+        ".failed.json": {
+          "http": 404
+        },
+        "memory_diff.json": {
+          "http": 200,
+          "sha256": "20f075efb96241bd665c1badeb8ff370d22d90e6f4d35506805bd7db44dbe378",
+          "bytes": 1343,
+          "operation_counts": {
+            "adds": 1,
+            "updates": 0,
+            "deletes": 0
+          }
+        }
+      },
+      "memory_reads": [
+        {
+          "uri": "viking://user/noot-pilot/peers/github.com-nathanwhyte-compendium/memories/events/2026/09/23/synthetic_bug_1179_finish_order.md",
+          "http": 200,
+          "sha256": "27beda6e1e0c2b4cd4adce0df7d2b346a84f4c22431f9ad57f807ed91786498a",
+          "bytes": 635
+        }
+      ]
+    },
+    "recall-fixture-recovered.json": {
+      "private_receipt_sha256": "bff688b7d83aec5e78d3a636d9fa31f93e62d5f9803363714ef4c5ad74a6376a",
+      "session": "cc-ec45728a-e0a2-4b8f-b19a-3fae928c8bcb",
+      "task_id": "3227274d-988d-48fc-b80a-ac4a00b0b57b",
+      "passed": true,
+      "expected_count": 2,
+      "actual_count": 2,
+      "unique_ids": 2,
+      "exact_transcript_text": true,
+      "live_empty": true,
+      "explicit_stranded_recovery": true,
+      "task": {
+        "task_id": "3227274d-988d-48fc-b80a-ac4a00b0b57b",
+        "status": "completed",
+        "created_at": 1790207116.4634752,
+        "updated_at": 1790207135.5369394,
+        "error": null
+      },
+      "artifacts": {
+        "messages.jsonl": {
+          "http": 200,
+          "sha256": "a4ad950477a332619c5c58816d2a082a3849adf596600089839577d08f0537cb",
+          "bytes": 1382
+        },
+        ".done": {
+          "http": 200,
+          "sha256": "7f5a35f7b7f6ca324e0c6083ccaeac53c56566a845502ba765cc53588635f336",
+          "bytes": 390
+        },
+        ".failed.json": {
+          "http": 404
+        },
+        "memory_diff.json": {
+          "http": 200,
+          "sha256": "b7860a843df194e28abd963fffde73ea3c65f2c3058c9dbea91545a0898d04bd",
+          "bytes": 445,
+          "operation_counts": {
+            "adds": 0,
+            "updates": 0,
+            "deletes": 0
+          }
+        }
+      },
+      "memory_reads": []
+    },
+    "parent-h1-after.json": {
+      "private_receipt_sha256": "9fae727d11175b52ecd747bb65f7e077dcd084fda218749a652fa601bd5f901b",
+      "session_id": "cc-a818851a-f961-4054-b435-c229eb435e98",
+      "pass": true,
+      "prompts": {
+        "transcript": 17,
+        "matched": 17,
+        "rate": 1.0
+      },
+      "tool_calls": {
+        "transcript": 344,
+        "matched": 344,
+        "rate": 1.0
+      },
+      "ov_messages": 815,
+      "misses": []
+    },
+    "fresh-finish-fixed-h1.json": {
+      "private_receipt_sha256": "c63f0a26fee9536d41091742e994f5ebbbd7160923f58013ecdaac5d745be4b6",
+      "session_id": "cc-66be3cc4-7986-4432-835b-78ce822734cf",
+      "pass": true,
+      "prompts": {
+        "transcript": 1,
+        "matched": 1,
+        "rate": 1.0
+      },
+      "tool_calls": {
+        "transcript": 0,
+        "matched": 0,
+        "rate": 1.0
+      },
+      "ov_messages": 2,
+      "misses": []
+    }
+  },
+  "production-extraction.log": {
+    "private_log_sha256": "64fb80ca3bda522ebab446793ee65f57cac6ffe2e967e1c23f33714e1fe000bf"
+  },
+  "test-extraction.log": {
+    "private_log_sha256": "cd02ffffaa73305e98595c3adb43ba6fc6fc28aecdb5b764bb91088f0b8691c3"
+  }
+}
