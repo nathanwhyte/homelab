@@ -8,6 +8,8 @@ the entrypoint's helper interpreters are unaffected.
 Patches (each guarded on the installed version + a source hash, each with its own
 off switch; a patch failure never breaks the import):
 
+  * ov_s3_cache_patch — BUG-1174: disable process-local S3 metadata caches so a
+                        worker sees directories created by another worker.
   * ov_nav_patch      — IMPR-1185: deterministic Quick Navigation in directory
                         overviews (``SemanticProcessor._generate_overview``).
   * ov_extract_patch  — BUG-1176: a degraded memory extraction (empty/unparseable
@@ -20,7 +22,7 @@ off switch; a patch failure never breaks the import):
                         longer render as empty lines (``MessageRange._speaker_for`` +
                         ``_format_contiguous_group``).
 
-Rollback of one patch: its env switch (``OV_EXTRACT_PATCH=0``, ``OV_CHATLOG_PATCH=0``; ``OV_NAV_PATCH=0``
+Rollback of one patch: its env switch (``OV_S3_CACHE_PATCH=0``, ``OV_EXTRACT_PATCH=0``, ``OV_CHATLOG_PATCH=0``; ``OV_NAV_PATCH=0``
 only after the model-built overview template is restored, see the Deployment).
 Rollback of everything: remove PYTHONPATH from the Deployment
 (``kubectl set env … PYTHONPATH-``), again only after that template restore.
@@ -32,6 +34,7 @@ import sys
 
 # target module -> (patch module, apply function name)
 TARGETS = {
+    "openviking.utils.agfs_utils": ("ov_s3_cache_patch", "apply"),
     "openviking.storage.queuefs.semantic_processor": ("ov_nav_patch", "apply"),
     "openviking.session.memory.extract_loop": (
         "ov_extract_patch",

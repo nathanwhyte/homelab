@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Regenerate viking/manifests/openviking-nav-patch-configmap.yaml (prod) from the
 # canonical sources in viking/manifests/test/nav-patch/ (IMPR-1185 nav patch,
-# BUG-1176 extract patch and BUG-1177 ChatLog patch, one loader). The test stack
-# builds its own ConfigMap (ov-nav-patch) from the same four files via its
+# BUG-1176 extract, BUG-1177 ChatLog and BUG-1174 S3 cache patches, one loader).
+# The test stack builds its own ConfigMap (ov-nav-patch) from the same five files via its
 # kustomization, so prod and test cannot drift as long as this is re-run after any
 # edit and the result is committed with it. `--check` exits non-zero when the
 # committed manifest is stale.
@@ -18,6 +18,7 @@ render() {
 		--from-file=ov_nav_patch.py="$SRC/ov_nav_patch.py" \
 		--from-file=ov_extract_patch.py="$SRC/ov_extract_patch.py" \
 		--from-file=ov_chatlog_patch.py="$SRC/ov_chatlog_patch.py" \
+		--from-file=ov_s3_cache_patch.py="$SRC/ov_s3_cache_patch.py" \
 		--dry-run=client -o yaml
 }
 
