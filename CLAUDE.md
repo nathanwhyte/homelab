@@ -230,6 +230,32 @@ Follow the existing `type/description` convention used in this repo:
 
 All PRs target `main` directly.
 
+### PR labels
+
+Every agent PR carries two kinds of label, applied as part of opening it. Nothing checks either, so a missing one is silent. The compendium's `band:`, `kind:`, `second-pass:`, and `reviewed:` labels do **not** apply here.
+
+| Label               | Says                                  | How many                            |
+| ------------------- | ------------------------------------- | ----------------------------------- |
+| `changes:<service>` | which service or stack the PR changes | one per service touched, usually 1  |
+| `session:<name>`    | which agent session is working the PR | one per session that has touched it |
+
+**`changes:<service>`** — name the service a reader would filter by, which is not always the directory: `viking/` is `changes:openviking`, `llama/` is `changes:ollama` or `changes:llama-cpp` by what the PR touches; most others match their directory (`changes:grafana`, `changes:longhorn`, `changes:garage`, `changes:arc`, `changes:cloudflare`, `changes:kube-system`, `changes:benchmarks`). Lowercase, hyphens for spaces. The vocabulary is open: reuse an existing label when one fits (`gh label list --search changes:`), otherwise create it, then apply:
+
+```bash
+gh label create "changes:openviking" --color 1d76db --description "PR changes the OpenViking stack" --force
+gh pr edit <PR> --add-label "changes:openviking"
+```
+
+`--force` makes the create idempotent. A PR that touches two services carries both labels; repo-wide housekeeping (CI, `_scripts/`, this file) is `changes:repo`.
+
+**`session:<name>`** — stamped with the compendium helper, pointed at this repo. It reads the tmux window name (`-t "$TMUX_PANE"`), slugifies it, creates the label on demand, and adds it without replacing another session's label:
+
+```bash
+uv run --no-project python ~/code/compendium/_scripts/batch/pr-labels.py --repo nathanwhyte/homelab session <PR> --apply
+```
+
+Outside tmux (`$TMUX_PANE` unset — background forks, cluster jobs) pass `--name "<session name>"`; the helper fails rather than guessing. `--repo` comes **before** the subcommand. A second session that picks up the PR — including one that only reviews it — adds its own label. The label is a live signal for an open PR, not provenance; reclaim orphans with `pr-labels.py --repo nathanwhyte/homelab sessions --prune --apply`, which deletes only `session:*` labels no open PR carries.
+
 ### When to use a worktree
 
 - Multi-file changes (manifest updates across services, config refactors)

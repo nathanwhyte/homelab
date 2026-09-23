@@ -37,6 +37,12 @@ the two in step.
 - **PRs target `main` and are squash-merged** (the only strategy the repo
   allows). `git fetch origin main && git rebase origin/main` before pushing;
   never force-push `main`.
+- **Label every PR when you open it:** `changes:<service>` for what it changes
+  (`changes:openviking`, `changes:grafana`; `gh label create … --force` if
+  new) and the session stamp,
+  `uv run --no-project python ~/code/compendium/_scripts/batch/pr-labels.py --repo nathanwhyte/homelab session <PR> --apply`
+  (add `--name "<session>"` outside tmux). No other labels. Full rules:
+  `CLAUDE.md` § PR labels.
 - **Clean up after merge:** `git -C ~/code/homelab worktree remove <slug>` and
   delete the local branch. If a worktree directory was moved, use
   `git worktree repair <path>`, **never** `git worktree prune`.
