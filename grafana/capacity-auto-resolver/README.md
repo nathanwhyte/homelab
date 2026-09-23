@@ -60,15 +60,20 @@ prevents overlapping webhook consumers during rollout.
 
 Audit messages go through the existing `grafana/alertmanager-slack-bot-token`
 Secret (`api-url`, `bot-token`): the same `chat.postMessage` transport and
-`#cron-homelab` channel as the `slack-homelab` receiver (IMPR-1173). Create a
-separate random bearer token shared by Alertmanager and the resolver:
+`#cron-homelab` channel as the `slack-homelab` receiver (IMPR-1173). A separate
+random bearer token is shared by Alertmanager and the resolver. Create it, or
+rotate it later, with the wizard:
 
 ```bash
-kubectl -n grafana create secret generic capacity-auto-resolver-token \
-  --from-literal=token="$(openssl rand -hex 32)"
+grafana/capacity-auto-resolver/setup-token.sh
 ```
 
-The token value must not be committed.
+The wizard checks the kube context (`tailnet`), generates a 64-character hex
+token with `openssl`, and hands it to `kubectl` on stdin, so the value is never
+displayed, passed in argv, or written to disk. Then it verifies the stored key's
+length. On a rotation it offers to restart a deployed resolver, which keeps the
+old token until it restarts; Alertmanager's operator picks up the new one by
+itself. The token value must never be committed.
 
 Create this Secret **before** the next real run of
 `longhorn/deploy-storage-alerts.sh`: that script now deploys the resolver first
