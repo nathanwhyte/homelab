@@ -32,15 +32,35 @@ Guarded: applies only to openviking ``v0.4.20`` whose ``apply_operations`` and
 ``_apply_upsert`` sources hash to the expected values; otherwise it logs "NOT applied" and
 stock behaviour stays. A failure inside the guard logs and falls through to the stock
 body. Disable at runtime with ``OV_MEMORY_GUARD=0``.
+
+**Echo guard** (``apply_echo_guard``, same module, ``OV_ECHO_GUARD=0``). The collision
+came from an echo: recalled memory text pasted into a user turn was extracted again as new
+facts. User-memory extraction already leaves tool calls and results out of its prompt
+(``include_tool_parts_in_conversation = False``), so the agent's own ``read``/``search``
+calls cannot echo; only text in a turn can. ``ExtractContext`` holds the one message list
+that both the extraction prompt (``session_extract_context_provider.py``, ``[idx]`` lines)
+and the ``events`` ChatLog (``read_message_ranges``) index into. The echo guard wraps
+``ExtractContext.__init__`` and, in each **user** text part, cuts from the first line that
+is unmistakably rendered OpenViking recall output to the end of the part:
+
+  * a Claude Code render of an OpenViking MCP call (``⏺ plugin:openviking-memory:…``)
+  * a search-result line (``- [memory 68%] viking://…``)
+  * a memory body's ChatLog header (``# 2026-09-24 (Thursday) ChatLog:``)
+
+and removes any ``<openviking-context …>`` block. The cut is replaced by a one-line
+placeholder, so every message keeps its place and ``ranges`` still line up. Assistant
+turns are left alone.
 """
 
 from __future__ import annotations
 
+import dataclasses
 import functools
 import hashlib
 import inspect
 import logging
 import os
+import re
 
 EXPECTED_VERSION = "v0.4.20"
 EXPECTED_APPLY_SHA256 = (
@@ -242,5 +262,115 @@ def apply(module) -> bool:
     logger.warning(
         "ov-memory-guard: applied to MemoryUpdater.apply_operations (pid %d)",
         os.getpid(),
+    )
+    return True
+
+
+# --- Echo guard -------------------------------------------------------------------------
+
+EXPECTED_EXTRACT_INIT_SHA256 = (
+    "194316aaa85ed0cdacdb638dc6982db93fdb19d78dd840b775f2eaad4c96fcf3"
+)
+RECALL_LINE = re.compile(
+    r"^(?:"
+    r"\s*⏺ plugin:openviking-memory:openviking - "  # Claude Code render of an OV MCP call
+    r"|\s*-\s*\[(?:memory|resource|skill) \d+%\] viking://"  # a search-result line
+    r"|# \d{4}-\d{2}-\d{2} \([A-Z][a-z]+\) ChatLog:\s*$"  # a memory body's ChatLog header
+    r")",
+    re.MULTILINE,
+)
+CONTEXT_BLOCK = re.compile(
+    r"<openviking-context\b[^>]*>.*?</openviking-context>", re.DOTALL
+)
+PASTE_PLACEHOLDER = "[pasted OpenViking recall output omitted]"
+CONTEXT_PLACEHOLDER = "[recalled OpenViking context omitted]"
+
+
+def strip_recall_text(text: str) -> str:
+    """User text with rendered OpenViking recall output removed; unchanged otherwise."""
+    if not text:
+        return text
+    out = CONTEXT_BLOCK.sub(CONTEXT_PLACEHOLDER, text)
+    match = RECALL_LINE.search(out)
+    if match:
+        kept = out[: match.start()].rstrip()
+        out = f"{kept}\n\n{PASTE_PLACEHOLDER}" if kept else PASTE_PLACEHOLDER
+    return out
+
+
+def strip_recall_message(message, text_part_cls):
+    """A copy of a user message with recall output removed from its text parts."""
+    if getattr(message, "role", None) != "user":
+        return message
+    parts = list(getattr(message, "parts", None) or [])
+    changed = False
+    new_parts = []
+    for part in parts:
+        if isinstance(part, text_part_cls) and part.text:
+            stripped = strip_recall_text(part.text)
+            if stripped != part.text:
+                changed = True
+                part = text_part_cls(stripped)
+        new_parts.append(part)
+    if not changed:
+        return message
+    return dataclasses.replace(message, parts=new_parts)
+
+
+def wrap_extract_init(module, orig):
+    @functools.wraps(orig)
+    def __init__(self, messages, chunk_meta=None, *, split_long_text_messages=True):
+        if chunk_meta is None and isinstance(messages, list):
+            try:
+                cleaned = [strip_recall_message(m, module.TextPart) for m in messages]
+                stripped = sum(1 for a, b in zip(messages, cleaned) if a is not b)
+                if stripped:
+                    logger.warning(
+                        "ov-echo-guard: removed recalled OpenViking output from %d "
+                        "user message(s) before extraction",
+                        stripped,
+                    )
+                messages = cleaned
+            except Exception:
+                logger.exception("ov-echo-guard: strip failed; messages left unchanged")
+        orig(
+            self,
+            messages,
+            chunk_meta,
+            split_long_text_messages=split_long_text_messages,
+        )
+
+    __init__._ov_echo_guard = True
+    return __init__
+
+
+def apply_echo_guard(module) -> bool:
+    """Patch ``module.ExtractContext.__init__`` in place; True if applied."""
+    if os.environ.get("OV_ECHO_GUARD", "1") == "0":
+        logger.warning("ov-echo-guard: disabled by OV_ECHO_GUARD=0")
+        return False
+    import openviking
+
+    version = getattr(openviking, "__version__", None)
+    cls = getattr(module, "ExtractContext", None)
+    orig = cls.__dict__.get("__init__") if cls is not None else None
+    if getattr(orig, "_ov_echo_guard", False):
+        return True
+    digest = _source_hash(orig) if orig else None
+    if (
+        version != EXPECTED_VERSION
+        or digest != EXPECTED_EXTRACT_INIT_SHA256
+        or not hasattr(module, "TextPart")
+    ):
+        logger.warning(
+            "ov-echo-guard: NOT applied to ExtractContext (version=%r init_sha256=%s); "
+            "extraction sees pasted recall output",
+            version,
+            digest,
+        )
+        return False
+    cls.__init__ = wrap_extract_init(module, orig)
+    logger.warning(
+        "ov-echo-guard: applied to ExtractContext.__init__ (pid %d)", os.getpid()
     )
     return True

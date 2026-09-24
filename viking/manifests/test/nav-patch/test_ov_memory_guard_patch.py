@@ -9,6 +9,7 @@ and read a summary back through the real ``MemoryFileUtils``.
 """
 
 import asyncio
+import dataclasses
 import importlib.util
 import os
 import sys
@@ -256,7 +257,11 @@ class LoaderTests(unittest.TestCase):
         )
         self.assertEqual(
             entries,
-            [("ov_chatlog_patch", "apply"), ("ov_memory_guard_patch", "apply")],
+            [
+                ("ov_chatlog_patch", "apply"),
+                ("ov_memory_guard_patch", "apply"),
+                ("ov_memory_guard_patch", "apply_echo_guard"),
+            ],
         )
 
     def test_single_pair_targets_still_load(self):
@@ -264,6 +269,91 @@ class LoaderTests(unittest.TestCase):
             sitecustomize._entries(("ov_nav_patch", "apply")),
             [("ov_nav_patch", "apply")],
         )
+
+
+# The first lines of the real BUG-1180 paste (session bc765214, message 0), shortened.
+PASTE = (
+    "❯ what did we look at regarding the Kinde CLI?\n\n"
+    "⏺ plugin:openviking-memory:openviking - read (MCP)(uris: "
+    '["viking://user/noot-pilot/peers/p/memories/events/2026/09/24/kinde-cli_installation.md"])\n'
+    "# Summary\nInstalled kinde-cli v0.1.20 via Homebrew.\n"
+    "# 2026-09-24 (Thursday) ChatLog:\n**p**: let's look into kinde-cli\n"
+    "- [memory 68%] viking://user/noot-pilot/peers/p/memories/events/2026/09/24/x.md\n"
+    "    # Summary\nDetermined that manage needs an M2M app.\n"
+)
+
+
+class EchoStripTests(unittest.TestCase):
+    def test_paste_is_cut_at_the_first_recall_line(self):
+        self.assertEqual(
+            mg.strip_recall_text(PASTE),
+            "❯ what did we look at regarding the Kinde CLI?\n\n" + mg.PASTE_PLACEHOLDER,
+        )
+
+    def test_each_marker_alone_triggers_the_cut(self):
+        for line in (
+            "⏺ plugin:openviking-memory:openviking - search (MCP)(query: x)",
+            "- [resource 66%] viking://resources/compendium/tasks/a.md",
+            "# 2026-09-22 (Tuesday) ChatLog:",
+        ):
+            got = mg.strip_recall_text(f"keep this\n{line}\ndrop this")
+            self.assertEqual(got, f"keep this\n\n{mg.PASTE_PLACEHOLDER}", line)
+
+    def test_a_paste_with_nothing_before_it_becomes_the_placeholder(self):
+        text = "# 2026-09-24 (Thursday) ChatLog:\n**p**: hi"
+        self.assertEqual(mg.strip_recall_text(text), mg.PASTE_PLACEHOLDER)
+
+    def test_ordinary_user_text_is_untouched(self):
+        for text in (
+            "look at viking://user/noot-pilot/memories/events/2026/09/24/x.md",
+            "the header is `# 2026-09-22 (Tuesday) ChatLog:` in the body",
+            "we saw [memory 68%] in the output",
+            "",
+        ):
+            self.assertEqual(mg.strip_recall_text(text), text)
+
+    def test_injected_context_block_is_removed_and_the_rest_kept(self):
+        text = (
+            'before <openviking-context n="2">\nrecalled\n</openviking-context> after'
+        )
+        self.assertEqual(
+            mg.strip_recall_text(text), f"before {mg.CONTEXT_PLACEHOLDER} after"
+        )
+
+
+@dataclasses.dataclass
+class FakeText:
+    text: str = ""
+
+
+@dataclasses.dataclass
+class FakeTool:
+    output: str = ""
+
+
+@dataclasses.dataclass
+class FakeMessage:
+    id: str
+    role: str
+    parts: list
+
+
+class EchoMessageTests(unittest.TestCase):
+    def test_user_message_copy_is_stripped_and_other_parts_kept(self):
+        tool = FakeTool("⏺ plugin:openviking-memory:openviking - read")
+        msg = FakeMessage("m1", "user", [FakeText(PASTE), tool])
+        got = mg.strip_recall_message(msg, FakeText)
+        self.assertIsNot(got, msg)
+        self.assertEqual(msg.parts[0].text, PASTE, "the original is not mutated")
+        self.assertTrue(got.parts[0].text.endswith(mg.PASTE_PLACEHOLDER))
+        self.assertIs(got.parts[1], tool)
+
+    def test_assistant_and_clean_messages_are_returned_as_is(self):
+        for msg in (
+            FakeMessage("a", "assistant", [FakeText(PASTE)]),
+            FakeMessage("u", "user", [FakeText("merge them")]),
+        ):
+            self.assertIs(mg.strip_recall_message(msg, FakeText), msg)
 
 
 try:
@@ -302,6 +392,29 @@ class Installed(unittest.TestCase):
             mg._existing(installed, FakeFS({uri: content}), uri, None)
         )
         self.assertEqual(mg._summary(existing), "Attempted login.")
+
+    def test_echo_guard_applied_on_import(self):
+        init = installed.ExtractContext.__init__
+        self.assertTrue(getattr(init, "_ov_echo_guard", False))
+        self.assertEqual(
+            mg._source_hash(init.__wrapped__), mg.EXPECTED_EXTRACT_INIT_SHA256
+        )
+
+    def test_extract_context_strips_the_paste_and_keeps_indices(self):
+        from openviking.message import Message
+
+        msgs = [
+            Message(id="u0", role="user", parts=[installed.TextPart(PASTE)]),
+            Message(id="a1", role="assistant", parts=[installed.TextPart("Here.")]),
+            Message(id="u2", role="user", parts=[installed.TextPart("merge them")]),
+        ]
+        ctx = installed.ExtractContext(msgs)
+        self.assertEqual([m.id for m in ctx.messages], ["u0", "a1", "u2"])
+        self.assertTrue(ctx.messages[0].parts[0].text.endswith(mg.PASTE_PLACEHOLDER))
+        self.assertIn(PASTE, msgs[0].parts[0].text, "session messages untouched")
+        chatlog = ctx.read_message_ranges("0-2").pretty_print()
+        self.assertNotIn("kinde-cli_installation", chatlog)
+        self.assertIn("merge them", chatlog)
 
 
 if __name__ == "__main__":
