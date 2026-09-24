@@ -137,6 +137,134 @@ def gloss_quality(overview: str) -> dict:
     }
 
 
+def h3_bodies(overview: str) -> dict[str, str]:
+    """Phase 2: entry name -> the H3 body the summary cache will reuse."""
+    out: dict[str, str] = {}
+    for m in re.finditer(
+        r"^### \[([^\]]+)\]\([^)]*\)\n\n(?!###)(.*)$", overview, re.MULTILINE
+    ):
+        out[m.group(1).rstrip("/")] = m.group(2).strip()
+    for m in re.finditer(r"^### \[([^\]]+)\]\([^)]*\)$", overview, re.MULTILINE):
+        out.setdefault(m.group(1).rstrip("/"), "")
+    return out
+
+
+def vlm_calls(c: httpx.Client) -> int:
+    text = c.get("/metrics").text
+    return int(
+        sum(
+            float(v)
+            for v in re.findall(
+                r"^openviking_vlm_calls_total\{[^}]*\} (\S+)$", text, re.MULTILINE
+            )
+        )
+    )
+
+
+def settle(c: httpx.Client, timeout: int) -> int:
+    """Wait until the Semantic queue has read 0 pending three minutes running."""
+    t0 = time.monotonic()
+    stable = 0
+    while time.monotonic() - t0 < timeout:
+        q = c.get("/api/v1/observer/queue").text
+        pending = [int(x) for x in re.findall(r"Semantic[\w-]*\s*\|\s*(\d+)\s*\|", q)]
+        stable = stable + 1 if pending and sum(pending) == 0 else 0
+        if stable >= 3:
+            break
+        time.sleep(60)
+    return int(time.monotonic() - t0)
+
+
+def touch_one(c: httpx.Client, vault: Path, timeout: int, before: dict) -> dict:
+    """Phase 2 cache check: add one new entry per directory and count VLM calls.
+
+    Every sibling is unchanged, so each should come back from its parent's H3 cache.
+    The regeneration then costs one file summary per new entry plus one brief per
+    regenerated directory, and no re-summary of any sibling.
+    """
+    seeded = {u for u, _ in fixtures(vault)}
+    extra = []
+    for rel in DIRS:
+        repo_dir = vault / rel.split("/")[0]
+        pick = next(
+            p
+            for p in sorted(repo_dir.rglob("*.md"))
+            if p.name != "index.md"
+            and "resolved" not in p.parts
+            and "completed" not in p.parts
+            and entry_uri(rel, p) not in seeded
+        )
+        extra.append((entry_uri(rel, pick), pick.read_text()))
+    calls0 = vlm_calls(c)
+    since = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    for uri, content in extra:
+        ok(
+            c.post(
+                "/api/v1/content/write",
+                json={"uri": uri, "content": content, "mode": "create"},
+            )
+        )
+        log(f"touch-one: wrote {uri}")
+    time.sleep(90)
+    waited = settle(c, timeout)
+    calls = vlm_calls(c) - calls0
+    logs = subprocess.run(
+        [
+            "kubectl",
+            "-n",
+            NS,
+            "logs",
+            "deploy/openviking-test",
+            "-c",
+            "openviking-test",
+            f"--since-time={since}",
+        ],
+        capture_output=True,
+        check=True,
+    ).stdout.decode("utf-8", "replace")
+    regenerated = set(
+        re.findall(
+            r"Processing semantic generation for (viking://resources/[^\s),']*)", logs
+        )
+    )
+    unchanged = {}
+    for d in DIRS:
+        ov = ok(c.get("/api/v1/content/overview", params={"uri": f"{ROOT}/{d}"}))
+        now = h3_bodies(ov)
+        prev = before.get(d, {})
+        unchanged[d] = {
+            "siblings": len(prev),
+            # one more entry shrinks every body's budget, so a sibling may come back
+            # re-clipped: a prefix of its cached body, never new text
+            "bodies_identical": sum(
+                1
+                for k, v in prev.items()
+                if now.get(k) and (now[k] == v or v.startswith(now[k].rstrip(".")))
+            ),
+            "new_entry_cached": all(
+                bool(now.get(u.rsplit("/", 1)[1]))
+                for u, _ in extra
+                if u.startswith(f"{ROOT}/{d}/")
+            ),
+        }
+    file_summaries = calls - len(regenerated)
+    result = {
+        "new_entries": len(extra),
+        "vlm_calls": calls,
+        "directories_regenerated": sorted(regenerated),
+        "file_summary_calls": file_summaries,
+        "settled_after_s": waited,
+        "per_dir": unchanged,
+        "pass": file_summaries <= len(extra)
+        and all(
+            v["bodies_identical"] == v["siblings"] and v["new_entry_cached"]
+            for v in unchanged.values()
+        ),
+    }
+    log(f"touch-one: {json.dumps(result)}")
+    return result
+
+
 def children(c: httpx.Client, uri: str) -> set[str]:
     res = ok(
         c.get(
@@ -229,6 +357,11 @@ def main() -> int:
         action="store_true",
         help="entries already exist: ADMIN-reindex each directory instead of seeding",
     )
+    ap.add_argument(
+        "--phase2",
+        action="store_true",
+        help="also check the phase 2 layout (every file cached in an H3) and run the touch-one cache check",
+    )
     args = ap.parse_args()
     args.out.mkdir(parents=True, exist_ok=True)
 
@@ -307,6 +440,7 @@ def main() -> int:
             log(f"settled after {int(time.monotonic() - t0)} s (stable={stable})")
 
             failed = False
+            before_bodies: dict[str, dict[str, str]] = {}
             for d in DIRS:
                 uri = f"{ROOT}/{d}"
                 ov = ok(c.get("/api/v1/content/overview", params={"uri": uri}))
@@ -333,12 +467,40 @@ def main() -> int:
                     and checks["under_cap"]
                     and checks["abstract_is_prose"]
                 )
+                if args.phase2:
+                    bodies = h3_bodies(ov)
+                    files = {k.rsplit("/", 1)[1] for k in kids if k.endswith(".md")}
+                    checks.update(
+                        {
+                            "files": len(files),
+                            "files_cached": sum(1 for f in files if bodies.get(f)),
+                            "body_median": sorted(
+                                len(bodies.get(f, "")) for f in files
+                            )[len(files) // 2]
+                            if files
+                            else 0,
+                            "coverage_below": "are listed below" in ov
+                            or "all of them are listed below" in ov,
+                            "abstract": ab[:200],
+                        }
+                    )
+                    passed = (
+                        passed
+                        and checks["files_cached"] == checks["files"]
+                        and checks["coverage_below"]
+                    )
+                    before_bodies[d] = bodies
                 failed |= not passed
                 report["dirs"][d] = {**checks, "pass": passed}
                 (args.out / f"overview-{d.replace('/', '_')}.md").write_text(ov)
                 log(
                     f"{d}: {'PASS' if passed else 'FAIL'} {json.dumps({k: v for k, v in checks.items() if k != 'missing_from_nav'})} missing={missing[:10]}"
                 )
+
+            if args.phase2:
+                touch = touch_one(c, args.vault, args.settle_timeout, before_bodies)
+                report["touch_one"] = touch
+                failed |= not touch["pass"]
 
         logs = subprocess.run(
             [
@@ -359,6 +521,9 @@ def main() -> int:
             "applied": logs.count("ov-nav-patch: applied"),
             "not_applied": logs.count("ov-nav-patch: NOT applied"),
             "assemble_failed": logs.count("ov-nav-patch: assemble failed"),
+            "phase2_on": logs.count("phase 2 on"),
+            "phase2_failed": logs.count("ov-nav-patch: phase 2 failed"),
+            "brief_failed": logs.count("ov-nav-patch: brief generation failed"),
             "batched_events": len(
                 re.findall(r"Generating overview for \S+ in \d+ batches", logs)
             ),
@@ -371,6 +536,10 @@ def main() -> int:
             and counts["not_applied"] == 0
             and counts["assemble_failed"] == 0
         )
+        if args.phase2:
+            patch_ok = (
+                patch_ok and counts["phase2_on"] >= 1 and counts["phase2_failed"] == 0
+            )
         failed |= not patch_ok
         report["result"] = "FAIL" if failed else "PASS"
         log(f"RESULT: {report['result']}")
