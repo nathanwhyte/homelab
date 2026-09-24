@@ -24,7 +24,10 @@ off switch; a patch failure never breaks the import):
   * ov_memory_guard_patch — BUG-1180: an ``add_only`` memory write (events,
                         trajectories) never replaces an existing memory; an exact
                         duplicate is dropped and a collision goes to a free sibling
-                        path (``MemoryUpdater.apply_operations``).
+                        path (``MemoryUpdater.apply_operations``); its echo
+                        guard cuts pasted OpenViking recall output from user
+                        turns before extraction (``ExtractContext.__init__``,
+                        ``OV_ECHO_GUARD=0``).
 
 Rollback of one patch: its env switch (``OV_S3_CACHE_PATCH=0``, ``OV_EXTRACT_PATCH=0``, ``OV_CHATLOG_PATCH=0``, ``OV_MEMORY_GUARD=0``; ``OV_NAV_PATCH=0``
 only after the model-built overview template is restored, see the Deployment).
@@ -48,6 +51,7 @@ TARGETS = {
     "openviking.session.memory.memory_updater": [
         ("ov_chatlog_patch", "apply"),
         ("ov_memory_guard_patch", "apply"),
+        ("ov_memory_guard_patch", "apply_echo_guard"),
     ],
 }
 
