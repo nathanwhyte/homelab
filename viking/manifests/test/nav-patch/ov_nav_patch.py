@@ -29,6 +29,11 @@ Guarded: applies only to openviking ``v0.4.20`` whose ``_generate_overview`` sou
 hashes to ``EXPECTED_SOURCE_SHA256``; otherwise it logs and leaves stock behaviour.
 Model failures (the stock placeholder strings) are passed through unchanged.
 Disable at runtime with ``OV_NAV_PATCH=0``.
+
+Phase 2 (see the section of that name below) replaces this layout for directories
+under ``viking://resources/``: code writes the H1, the coverage and one H3 per entry,
+and the model writes only the brief, under ``max_tokens``. ``OV_NAV_PHASE2=0`` keeps
+Phase 1 everywhere.
 """
 
 from __future__ import annotations
@@ -231,11 +236,25 @@ def gloss(summary: str, words: int, name: str | None = None) -> str:
     tokens = text.split()
     truncated = len(tokens) > words
     if truncated:
-        cut = tokens[:words]
-        commas = [i for i, t in enumerate(cut) if t.endswith(",")]
-        if commas and commas[-1] + 1 >= MIN_CLAUSE_WORDS:
-            cut = cut[: commas[-1] + 1]
-        tokens = cut
+        tokens = _clause_cut(tokens[:words])
+    tokens = _trim_tail(tokens, truncated)
+    out = " ".join(tokens).rstrip(" .;:,!?。？！—-")
+    if name and out.lower().strip() in {name.lower().strip("/"), name.lower()}:
+        return ""
+    return out
+
+
+def _clause_cut(cut: list[str]) -> list[str]:
+    """Prefer ending at the last comma inside ``cut`` when that keeps a real clause."""
+    commas = [i for i, t in enumerate(cut) if t.endswith(",")]
+    if commas and commas[-1] + 1 >= MIN_CLAUSE_WORDS:
+        return cut[: commas[-1] + 1]
+    return cut
+
+
+def _trim_tail(tokens: list[str], truncated: bool) -> list[str]:
+    """Drop dangling function words, and after a clip a ``to <verb>`` or bare participle."""
+    tokens = list(tokens)
     while tokens:
         last = tokens[-1].lower().strip(",;:")
         if last in DANGLING:
@@ -255,10 +274,7 @@ def gloss(summary: str, words: int, name: str | None = None) -> str:
             tokens.pop()
         else:
             break
-    out = " ".join(tokens).rstrip(" .;:,!?。？！—-")
-    if name and out.lower().strip() in {name.lower().strip("/"), name.lower()}:
-        return ""
-    return out
+    return tokens
 
 
 def build_nav(
@@ -287,17 +303,19 @@ def build_nav(
     return "\n".join(lines)
 
 
-def build_coverage(total_files: int, total_children: int, provided: int) -> str:
+def build_coverage(
+    total_files: int, total_children: int, provided: int, where: str = "above"
+) -> str:
     total = total_files + total_children
     if provided >= total:
         sentence = (
             f"Total direct entries: {total} ({total_files} files, {total_children} subdirectories); "
-            "all of them are listed above."
+            f"all of them are listed {where}."
         )
     else:
         sentence = (
             f"Total direct entries: {total} ({total_files} files, {total_children} subdirectories); "
-            f"{provided} are listed above and {total - provided} were not individually examined."
+            f"{provided} are listed {where} and {total - provided} were not individually examined."
         )
     return f"## Directory Coverage\n\n{sentence}"
 
@@ -369,6 +387,359 @@ def assemble(
     return fixed
 
 
+# --- Phase 2: the model writes only the brief --------------------------------------
+#
+# Every ``### [name](uri)`` body in a stored overview is also OpenViking's only
+# per-file summary store: ``SemanticDagExecutor._read_existing_summary`` parses the
+# parent's overview and reuses the body for an unchanged file instead of calling the
+# VLM. Phase 1 kept the model's Detailed Description, whose H3 bodies paraphrase the
+# input (~150 of ~1,100 chars) and cover only the entries that fit after the nav.
+# Phase 2 builds one H3 per entry from the input summaries, which is both the
+# navigation and a complete cache, and asks the model for the brief alone.
+#
+#     # <dir>                      code H1
+#     <brief>                      model prose, 2-4 sentences (the L0 abstract)
+#     ## Directory Coverage        code, counts; "listed below"
+#     ## Quick Navigation          code, one H3 per entry with the clipped summary
+#
+# Scoped by URI prefix (default ``viking://resources/``): memory directories share
+# ``_generate_overview`` and keep Phase 1. ``OV_NAV_PHASE2=0`` turns it off at runtime.
+
+PHASE2_DEFAULT_PREFIXES = "viking://resources/"
+BRIEF_MAX_TOKENS = 768
+BRIEF_MAX_CHARS = 1200
+BRIEF_GLOSS_WORDS = 20
+MAX_BODY_CHARS = 500
+MIN_BODY_CHARS = 40
+CONTENTS_HEADING = "## Quick Navigation"
+TERMINAL = " .;:,!?。？！—-"
+BRIEF_LABEL = re.compile(
+    r"^(?:brief description|description|overview|summary)\s*[:：]\s*", re.IGNORECASE
+)
+MARKDOWN_LINK = re.compile(r"\[([^\]]*)\]\([^)]*\)")
+# Sentences that describe the document's layout rather than its subject ("The file
+# covers the problem description, root cause analysis, …"), measured on real
+# summaries; they spend a body's budget and tell entries apart by nothing.
+STRUCTURE_SENTENCE = re.compile(
+    r"^(?:The|This|It)\b(?:\s+[\w-]+){0,3}?\s+(?:is structured|is organized|is divided|"
+    r"consists of|covers the (?:problem|context|metadata|background)|"
+    r"includes (?:a |the )?(?:metadata|sections?|a header))",
+    re.IGNORECASE,
+)
+
+BRIEF_PROMPT = """Output Language: {output_language}
+Write only in {output_language}.
+
+You are writing the opening paragraph of an overview for the directory "{dir_name}". A complete list of its entries, each with a link and a summary, is added automatically after your text. Do not list the entries, and write no headings, links, bullet points or tables.
+
+Write 2 to 4 sentences of plain prose about what the directory holds as a whole: its main subjects, the themes that recur, and how the entries relate. The first sentence says what the directory holds and is used on its own as the directory's one-line abstract, so keep it under 200 characters.
+
+Describe only what the entries below state; do not invent facts.{coverage_hint}
+
+[Entries]
+{entries}
+"""
+
+
+def phase2_enabled(dir_uri: str) -> bool:
+    if os.environ.get("OV_NAV_PHASE2", "1") == "0":
+        return False
+    prefixes = tuple(
+        p.strip()
+        for p in os.environ.get(
+            "OV_NAV_PHASE2_PREFIXES", PHASE2_DEFAULT_PREFIXES
+        ).split(",")
+        if p.strip()
+    )
+    return bool(prefixes) and dir_uri.startswith(prefixes)
+
+
+def _as_sentence(text: str) -> str:
+    text = text.strip().rstrip(TERMINAL)
+    return f"{text[0].upper()}{text[1:]}." if text else ""
+
+
+def _is_name(text: str, name: str | None) -> bool:
+    return bool(name) and text.lower().strip() in {
+        name.lower().strip("/"),
+        name.lower(),
+    }
+
+
+def clip_body(text: str, budget: int) -> str:
+    """Clip to ``budget`` chars, preferring a sentence end, else a clause boundary.
+
+    A text already within ``budget`` comes back unchanged, so re-clipping a cached
+    body at the same budget is a no-op.
+    """
+    if len(text) <= budget:
+        return text
+    if budget < MIN_BODY_CHARS:
+        return ""
+    ends = [m.end() for m in re.finditer(r"[.!?。？！](?=\s|$)", text[:budget])]
+    if ends and ends[-1] >= budget // 2:
+        return text[: ends[-1]].strip()
+    tokens: list[str] = []
+    for token in text.split():
+        if len(" ".join(tokens + [token])) + 1 > budget:
+            break
+        tokens.append(token)
+    tokens = _trim_tail(_clause_cut(tokens), truncated=True)
+    return _as_sentence(" ".join(tokens))
+
+
+def entry_body(summary: str, budget: int, name: str | None = None) -> str:
+    """The cached summary body for one entry: framing stripped, clipped to ``budget``.
+
+    Idempotent: ``entry_body(entry_body(s, b), b) == entry_body(s, b)``, so a body
+    read back from the cache and rebuilt on the next regeneration does not drift.
+    """
+    if budget <= 0:
+        return ""
+    sentences = [s for s in SENTENCE_END.split(_clean(summary)) if s.strip()]
+    first = ""
+    while sentences and (not first or _is_name(first, name)):
+        first = _phrase(SECOND_LEAD_IN.sub("", sentences.pop(0).strip()))
+    if _is_name(first, name):
+        first = ""
+    if _weak(first) and sentences:
+        second = _phrase(SECOND_LEAD_IN.sub("", sentences[0].strip()))
+        if second and not _weak(second):
+            first = second
+            sentences.pop(0)
+    parts = [_as_sentence(first)] + [
+        _as_sentence(s) for s in sentences if not STRUCTURE_SENTENCE.match(s.strip())
+    ]
+    return clip_body(" ".join(p for p in parts if p), min(budget, MAX_BODY_CHARS))
+
+
+def _contents_entries(processor, dir_uri, file_summaries, children_abstracts):
+    entries = []
+    for item in file_summaries:
+        target = processor._markdown_link_target(dir_uri, item["name"])
+        entries.append(
+            (f"### [{item['name']}]({target})", item.get("summary", ""), item["name"])
+        )
+    for item in children_abstracts:
+        target = processor._markdown_link_target(dir_uri, item["name"])
+        entries.append(
+            (f"### [{item['name']}/]({target})", item.get("abstract", ""), item["name"])
+        )
+    return entries
+
+
+def build_contents(
+    processor, dir_uri: str, file_summaries, children_abstracts, space: int
+) -> str:
+    """One H3 per entry, bodies sized so the whole block fits in ``space`` chars."""
+    entries = _contents_entries(processor, dir_uri, file_summaries, children_abstracts)
+    if not entries:
+        return ""
+    fixed = len(CONTENTS_HEADING) + sum(len(h) + 4 for h, _, _ in entries)
+    budget = (space - fixed) // len(entries)
+    while True:
+        blocks = [CONTENTS_HEADING]
+        for heading, summary, name in entries:
+            body = entry_body(summary, budget, name)
+            blocks.append(f"{heading}\n\n{body}" if body else heading)
+        text = "\n\n".join(blocks)
+        if len(text) <= space or budget < MIN_BODY_CHARS:
+            return text
+        budget -= max(1, (len(text) - space) // len(entries) + 1)
+
+
+def build_brief_prompt(
+    dir_uri: str,
+    file_summaries,
+    children_abstracts,
+    total_files: int,
+    total_children: int,
+    output_language: str,
+) -> str:
+    lines = []
+    for item in file_summaries:
+        g = gloss(item.get("summary", ""), BRIEF_GLOSS_WORDS, item["name"])
+        lines.append(f"- {item['name']}" + (f": {g}" if g else ""))
+    for item in children_abstracts:
+        g = gloss(item.get("abstract", ""), BRIEF_GLOSS_WORDS, item["name"])
+        lines.append(f"- {item['name']}/ (subdirectory)" + (f": {g}" if g else ""))
+    total = total_files + total_children
+    provided = len(file_summaries) + len(children_abstracts)
+    hint = (
+        f" Only {provided} of the {total} entries are shown; hedge any generalization"
+        ' ("the sample shows …").'
+        if provided < total
+        else ""
+    )
+    return BRIEF_PROMPT.format(
+        output_language=output_language,
+        dir_name=dir_uri.rstrip("/").split("/")[-1],
+        coverage_hint=hint,
+        entries="\n".join(lines) or "None",
+    )
+
+
+def sanitize_brief(processor, raw: str) -> str:
+    """Plain prose from the model's reply: no headings, lists, tables or links.
+
+    The brief is the prose before the first heading that follows some prose, so a
+    leading H1 or "## Brief Description" is skipped and anything the model wrote in
+    later sections is dropped.
+    """
+    kept: list[str] = []
+    for line in (raw or "").splitlines():
+        stripped = line.strip()
+        if stripped.startswith("#"):
+            if kept:
+                break
+            continue
+        if (
+            stripped
+            and not stripped.startswith(("|", ">", "```"))
+            and not re.match(r"^(?:[-*+]|\d+[.)])\s", stripped)
+        ):
+            kept.append(stripped)
+    text = " ".join(kept)
+    text = MARKDOWN_LINK.sub(r"\1", text)
+    text = re.sub(r"\S*viking://\S*", "", text).replace("**", "")
+    text = BRIEF_LABEL.sub("", re.sub(r"\s+", " ", text).strip())
+    if any(marker in text for marker in FAILURE_MARKERS):
+        return ""
+    if text and text[-1] not in ".!?。？！":
+        ends = [m.end() for m in re.finditer(r"[.!?。？！](?=\s|$)", text)]
+        text = text[: ends[-1]] if ends else ""  # cut off by max_tokens mid-sentence
+    return processor._truncate_generated_text(text.strip(), BRIEF_MAX_CHARS)
+
+
+def assemble_contents(
+    processor,
+    raw_brief: str,
+    dir_uri: str,
+    file_summaries,
+    children_abstracts,
+    total_files: int | None,
+    total_children: int | None,
+    cap: int,
+) -> str:
+    """Pure transform: model brief + inputs into the Phase 2 layout, within ``cap``."""
+    total_files = len(file_summaries) if total_files is None else total_files
+    total_children = (
+        len(children_abstracts) if total_children is None else total_children
+    )
+    provided = len(file_summaries) + len(children_abstracts)
+    brief = sanitize_brief(processor, raw_brief)
+    name = dir_uri.rstrip("/").split("/")[-1]
+    head = (
+        f"# {name}\n\n{brief}"
+        if brief
+        else fallback_head(dir_uri, total_files, total_children)
+    )
+    coverage = build_coverage(total_files, total_children, provided, where="below")
+    fixed = f"{head}\n\n{coverage}"
+    contents = build_contents(
+        processor,
+        dir_uri,
+        file_summaries,
+        children_abstracts,
+        cap - len(fixed) - 2,
+    )
+    return f"{fixed}\n\n{contents}" if contents else fixed
+
+
+def _accepts_max_tokens(func) -> bool:
+    try:
+        return "max_tokens" in inspect.signature(func).parameters
+    except (TypeError, ValueError):
+        return False
+
+
+def _output_language(config, text: str) -> str:
+    try:
+        from openviking.session.memory.utils.language import resolve_output_language
+
+        return resolve_output_language(text, config=config)
+    except Exception:  # noqa: BLE001 — language detection is best-effort
+        return "en"
+
+
+async def generate_brief_overview(
+    module, processor, dir_uri, file_summaries, children_abstracts, tf, tc
+):
+    """Phase 2 replacement body. Returns None when the VLM is unavailable."""
+    import contextlib
+
+    config = module.get_openviking_config()
+    vlm = config.vlm
+    if not vlm.is_available():
+        return None
+    tf = len(file_summaries) if tf is None else tf
+    tc = len(children_abstracts) if tc is None else tc
+    language = _output_language(
+        config,
+        "\n".join(
+            [x.get("summary", "") for x in file_summaries]
+            + [x.get("abstract", "") for x in children_abstracts]
+        )
+        or dir_uri,
+    )
+    prompt = build_brief_prompt(
+        dir_uri, file_summaries, children_abstracts, tf, tc, language
+    )
+    kwargs = (
+        {"max_tokens": BRIEF_MAX_TOKENS}
+        if _accepts_max_tokens(vlm.get_completion_async)
+        else {}
+    )
+    stage = getattr(module, "bind_telemetry_stage", None)
+    raw = ""
+    try:
+        with stage("resource_summarize") if stage else contextlib.nullcontext():
+            raw = await vlm.get_completion_async(prompt, **kwargs)
+    except Exception:
+        logger.exception(
+            "ov-nav-patch: brief generation failed for %s; code brief used", dir_uri
+        )
+    cap = config.semantic.overview_max_chars
+    return assemble_contents(
+        processor,
+        raw if isinstance(raw, str) else "",
+        dir_uri,
+        file_summaries,
+        children_abstracts,
+        tf,
+        tc,
+        cap,
+    )
+
+
+def phase2_self_check(cls) -> bool:
+    """Round-trip a Phase 2 overview through the installed parsers.
+
+    Phase 2 relies on ``_parse_overview_md`` keying linked H3s to the entry name and
+    on ``_extract_abstract_from_overview`` returning the brief; if either no longer
+    holds, Phase 2 stays off and Phase 1 is used.
+    """
+    try:
+        p = object.__new__(cls)
+        fs = [
+            {"name": "a.md", "summary": "Alpha entry about caching. It has detail."},
+            {"name": "b c.md", "summary": "Beta entry."},
+        ]
+        cs = [{"name": "sub", "abstract": "Subdirectory with archived entries."}]
+        doc = assemble_contents(
+            p, "Brief prose.", "viking://resources/x/d", fs, cs, None, None, 20000
+        )
+        cache = p._parse_overview_md(doc)
+        return (
+            cache.get("a.md") == "Alpha entry about caching. It has detail."
+            and cache.get("b c.md") == "Beta entry."
+            and p._extract_abstract_from_overview(doc) == "Brief prose."
+        )
+    except Exception:
+        logger.exception("ov-nav-patch: phase 2 self-check raised")
+        return False
+
+
 def _source_hash(func) -> str | None:
     try:
         return hashlib.sha256(inspect.getsource(func).encode()).hexdigest()
@@ -433,6 +804,10 @@ def apply(module) -> bool:
         )
         return False
 
+    phase2_ok = phase2_self_check(cls)
+    if not phase2_ok:
+        logger.warning("ov-nav-patch: phase 2 self-check failed; phase 1 only")
+
     async def _generate_overview(
         self,
         dir_uri,
@@ -442,6 +817,34 @@ def apply(module) -> bool:
         total_files=None,
         total_children=None,
     ):
+        if phase2_ok and phase2_enabled(dir_uri):
+            try:
+                out = await generate_brief_overview(
+                    module,
+                    self,
+                    dir_uri,
+                    file_summaries,
+                    children_abstracts,
+                    total_files,
+                    total_children,
+                )
+            except Exception:
+                logger.exception(
+                    "ov-nav-patch: phase 2 failed for %s; falling back to phase 1",
+                    dir_uri,
+                )
+                out = None
+            if out is not None:
+                dump_inputs(
+                    dir_uri,
+                    file_summaries,
+                    children_abstracts,
+                    total_files,
+                    total_children,
+                    "",
+                    out,
+                )
+                return out
         raw = await orig(
             self,
             dir_uri,
@@ -483,7 +886,8 @@ def apply(module) -> bool:
     _generate_overview.__wrapped__ = orig
     cls._generate_overview = _generate_overview
     logger.warning(
-        "ov-nav-patch: applied to SemanticProcessor._generate_overview (pid %s)",
+        "ov-nav-patch: applied to SemanticProcessor._generate_overview (pid %s, phase 2 %s)",
         os.getpid(),
+        "on" if phase2_ok else "off",
     )
     return True

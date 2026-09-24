@@ -413,6 +413,7 @@ def test_guard_accepts_installed_v0420_and_wraps():
 
 def test_wrapper_end_to_end_with_stubbed_model():
     import asyncio
+    import os
 
     fs, cs = files(7), children(2)
     orig = sp.SemanticProcessor._generate_overview
@@ -421,6 +422,7 @@ def test_wrapper_end_to_end_with_stubbed_model():
         return model_output(f, c, drop_nav_tail=5)
 
     fake_orig.__qualname__ = orig.__qualname__
+    os.environ["OV_NAV_PHASE2"] = "0"  # this test pins the phase 1 layout
     try:
         assert nav.apply(sp) is True
         wrapper = sp.SemanticProcessor._generate_overview
@@ -445,6 +447,177 @@ def test_wrapper_end_to_end_with_stubbed_model():
         assert wrapper is not None
     finally:
         sp.SemanticProcessor._generate_overview = orig
+        os.environ.pop("OV_NAV_PHASE2", None)
+
+
+# --- Phase 2 --------------------------------------------------------------------------
+
+
+def real_files(n):
+    """n entries built from the real summaries, padded to real length (~1,100 chars)."""
+    out = []
+    for i in range(n):
+        name, summary, _ = REAL_GLOSSES[i % len(REAL_GLOSSES)]
+        tail = (
+            " The fix changed the loader and added a regression test for the case."
+            " Verification ran against staging and production data."
+        ) * 6
+        out.append({"name": f"{i:03d}-{name}", "summary": summary + tail})
+    return out
+
+
+def h3_targets(text):
+    import re
+
+    heading = re.compile(r"^### \[[^\]]*\]\((viking://[^)\s]+)\)$", re.MULTILINE)
+    return set(heading.findall(text))
+
+
+def test_phase2_contents_link_every_entry_and_fill_the_cache():
+    fs, cs = real_files(87), children(6)
+    out = nav.assemble_contents(P, "Resolved bugs.", DIR, fs, cs, None, None, CAP)
+    assert len(out) <= CAP, len(out)
+    assert P._truncate_generated_text(out, CAP) == out
+    assert h3_targets(out) == targets(fs, cs)
+    cache = P._parse_overview_md(out)
+    for x in fs:
+        body = cache.get(x["name"], "")
+        assert len(body) >= 60, (x["name"], body)
+        assert not body.lower().startswith("this document"), body
+        assert "Total direct entries" not in body
+    assert P._extract_abstract_from_overview(out) == "Resolved bugs."
+    assert out.index("## Directory Coverage") < out.index(nav.CONTENTS_HEADING)
+    assert "all of them are listed below." in out
+
+
+def test_phase2_bodies_are_stable_when_fed_back_from_the_cache():
+    fs, cs = real_files(87), children(6)
+    first = nav.assemble_contents(P, "Brief.", DIR, fs, cs, None, None, CAP)
+    cache = P._parse_overview_md(first)
+    again = [{"name": x["name"], "summary": cache[x["name"]]} for x in fs]
+    second = nav.assemble_contents(P, "Brief.", DIR, again, cs, None, None, CAP)
+    assert second == first
+
+
+def test_phase2_entry_body_is_idempotent_on_real_summaries():
+    for name, summary, _ in REAL_GLOSSES + OPEN_ITEM_GLOSSES:
+        for budget in (60, 120, 250, 500):
+            once = nav.entry_body(summary, budget, name)
+            assert len(once) <= budget, (budget, once)
+            assert nav.entry_body(once, budget, name) == once, (budget, once)
+            assert not once or once.split()[-1].lower().rstrip(".") not in nav.DANGLING
+
+
+def test_phase2_body_drops_sentences_about_the_document_layout():
+    summary = (
+        "This document is a bug report and resolution log for BUG-1001, which details an "
+        "incorrect refresh path in the OpenViking system. The file covers the problem "
+        "description, root cause analysis, investigation notes, and the fix. The refresh "
+        "now reads the canonical revision watermark."
+    )
+    body = nav.entry_body(summary, 500, "bug-1001.md")
+    assert body == (
+        "Incorrect refresh path in the OpenViking system. "
+        "The refresh now reads the canonical revision watermark."
+    ), body
+
+
+def test_phase2_small_directory_keeps_whole_summaries_up_to_the_body_cap():
+    fs = real_files(3)
+    out = nav.assemble_contents(P, "Brief.", DIR, fs, [], None, None, CAP)
+    cache = P._parse_overview_md(out)
+    assert all(
+        nav.MAX_BODY_CHARS - 80 <= len(b) <= nav.MAX_BODY_CHARS for b in cache.values()
+    ), [len(b) for b in cache.values()]
+
+
+def test_phase2_sampled_directory_states_the_gap():
+    fs, cs = real_files(10), children(2)
+    out = nav.assemble_contents(P, "Brief.", DIR, fs, cs, 150, 5, CAP)
+    assert "12 are listed below and 143 were not individually examined" in out
+
+
+def test_phase2_brief_is_sanitized_to_prose():
+    raw = (
+        "# resolved\n\n## Brief Description\n\n"
+        "**Brief Description:** Resolved bugs across repos, with fixes.\n"
+        "- a stray bullet\n| a | b |\n"
+        "They share root causes in [the loader](viking://resources/x/l).\n\n"
+        "## Quick Navigation\n\n- [bug-1.md](viking://resources/x/bug-1.md) — gloss.\n\n"
+        "Prose the model wrote after a later heading."
+    )
+    out = nav.assemble_contents(P, raw, DIR, files(2), [], None, None, CAP)
+    abstract = P._extract_abstract_from_overview(out)
+    assert abstract.startswith("Resolved bugs across repos, with fixes."), abstract
+    head = out[: out.index("## Directory Coverage")]
+    assert "viking://" not in head and "|" not in head and "**" not in head, head
+    assert "stray bullet" not in head and "the loader" in head, head
+    assert "later heading" not in out, "prose after a heading is not brief"
+    assert out.startswith("# resolved\n\n")
+
+
+def test_phase2_failed_or_cut_off_brief_gets_code_brief():
+    for raw in ("", "[Directory overview is not generated]", "Resolved bugs across"):
+        out = nav.assemble_contents(P, raw, DIR, files(3), children(1), None, None, CAP)
+        abstract = P._extract_abstract_from_overview(out)
+        assert abstract.startswith("Directory resolved with 3 files"), (raw, abstract)
+
+
+def test_phase2_scope_is_resources_only():
+    import os
+
+    assert nav.phase2_enabled("viking://resources/compendium/bugs")
+    assert not nav.phase2_enabled("viking://user/noot-pilot/memories/events")
+    os.environ["OV_NAV_PHASE2"] = "0"
+    try:
+        assert not nav.phase2_enabled("viking://resources/compendium/bugs")
+    finally:
+        os.environ.pop("OV_NAV_PHASE2", None)
+
+
+def test_phase2_self_check_passes_on_installed_v0420():
+    assert nav.phase2_self_check(sp.SemanticProcessor)
+
+
+def test_phase2_wrapper_calls_model_for_brief_only_with_max_tokens():
+    import asyncio
+
+    fs, cs = real_files(12), children(2)
+    calls = []
+
+    class FakeVLM:
+        def is_available(self):
+            return True
+
+        async def get_completion_async(self, prompt="", max_tokens=None):
+            calls.append((prompt, max_tokens))
+            return "# ignored\n\nResolved bugs across repos.\n\n## Detailed Description\n\n### [x](y)\n\nz."
+
+    async def stock(self, dir_uri, f, c, llm_sem=None, tf=None, tc=None):
+        raise AssertionError("phase 2 must not call the stock generator")
+
+    shim_cls = type("SemanticProcessor", (sp.SemanticProcessor,), {})
+    shim_cls._generate_overview = stock
+    shim = types.SimpleNamespace(
+        SemanticProcessor=shim_cls,
+        get_openviking_config=lambda: types.SimpleNamespace(
+            vlm=FakeVLM(), semantic=types.SimpleNamespace(overview_max_chars=CAP)
+        ),
+    )
+    saved = nav.EXPECTED_SOURCE_SHA256
+    nav.EXPECTED_SOURCE_SHA256 = nav._source_hash(stock)
+    try:
+        assert nav.apply(shim) is True
+        out = asyncio.run(shim_cls._generate_overview(P, DIR, fs, cs))
+    finally:
+        nav.EXPECTED_SOURCE_SHA256 = saved
+    assert len(calls) == 1 and calls[0][1] == nav.BRIEF_MAX_TOKENS
+    prompt = calls[0][0]
+    assert "Verification ran against staging" not in prompt, "full summaries leaked"
+    assert all(x["name"] in prompt for x in fs + cs)
+    assert h3_targets(out) == targets(fs, cs)
+    assert P._extract_abstract_from_overview(out) == "Resolved bugs across repos."
+    assert "### [x](y)" not in out
 
 
 if __name__ == "__main__":
