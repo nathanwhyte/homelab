@@ -389,13 +389,18 @@ def assemble(
 
 # --- Phase 2: the model writes only the brief --------------------------------------
 #
-# Every ``### [name](uri)`` body in a stored overview is also OpenViking's only
-# per-file summary store: ``SemanticDagExecutor._read_existing_summary`` parses the
-# parent's overview and reuses the body for an unchanged file instead of calling the
-# VLM. Phase 1 kept the model's Detailed Description, whose H3 bodies paraphrase the
-# input (~150 of ~1,100 chars) and cover only the entries that fit after the nav.
-# Phase 2 builds one H3 per entry from the input summaries, which is both the
-# navigation and a complete cache, and asks the model for the brief alone.
+# Phase 1 kept the model's Detailed Description, whose H3 bodies paraphrase the input
+# (~150 of ~1,100 chars) and cover only the entries that fit after the nav. Phase 2
+# builds one H3 per entry from the input summaries, so every child gets a link and a
+# real summary, and asks the model for the brief alone: the prompt carries glosses, so
+# no directory takes the batched merge path (BUG-1172), and the reply is capped.
+#
+# The H3 bodies are also what ``SemanticDagExecutor._read_existing_summary`` reuses for
+# an unchanged file, but only when no freshness debt is pending. A refresh caused by a
+# new or changed child has debt pending, and stock v0.4.20 then re-summarizes every
+# sampled file (``regenerate_sampled_summary``); the IMPR-1185 canary measured 0 of 58
+# sibling inputs from the cache on that path. The bodies are kept idempotent under
+# re-clip so the paths that do read them see stable text.
 #
 #     # <dir>                      code H1
 #     <brief>                      model prose, 2-4 sentences (the L0 abstract)
