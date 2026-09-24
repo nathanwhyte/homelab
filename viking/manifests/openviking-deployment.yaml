@@ -387,6 +387,8 @@ spec:
                 path: ov_chatlog_patch.py
               - key: ov_s3_cache_patch.py
                 path: ov_s3_cache_patch.py
+              - key: ov_memory_guard_patch.py
+                path: ov_memory_guard_patch.py
         - name: data
           persistentVolumeClaim:
             claimName: openviking-data
