@@ -21,8 +21,15 @@ off switch; a patch failure never breaks the import):
                         (assistant turns read ``assistant``) and tool-only turns no
                         longer render as empty lines (``MessageRange._speaker_for`` +
                         ``_format_contiguous_group``).
+  * ov_memory_guard_patch — BUG-1180: an ``add_only`` memory write (events,
+                        trajectories) never replaces an existing memory; an exact
+                        duplicate is dropped and a collision goes to a free sibling
+                        path (``MemoryUpdater.apply_operations``); its echo
+                        guard cuts pasted OpenViking recall output from user
+                        turns before extraction (``ExtractContext.__init__``,
+                        ``OV_ECHO_GUARD=0``).
 
-Rollback of one patch: its env switch (``OV_S3_CACHE_PATCH=0``, ``OV_EXTRACT_PATCH=0``, ``OV_CHATLOG_PATCH=0``; ``OV_NAV_PATCH=0``
+Rollback of one patch: its env switch (``OV_S3_CACHE_PATCH=0``, ``OV_EXTRACT_PATCH=0``, ``OV_CHATLOG_PATCH=0``, ``OV_MEMORY_GUARD=0``; ``OV_NAV_PATCH=0``
 only after the model-built overview template is restored, see the Deployment).
 Rollback of everything: remove PYTHONPATH from the Deployment
 (``kubectl set env … PYTHONPATH-``), again only after that template restore.
@@ -41,29 +48,38 @@ TARGETS = {
         "apply_extract_loop",
     ),
     "openviking.session.session": ("ov_extract_patch", "apply_session"),
-    "openviking.session.memory.memory_updater": ("ov_chatlog_patch", "apply"),
+    "openviking.session.memory.memory_updater": [
+        ("ov_chatlog_patch", "apply"),
+        ("ov_memory_guard_patch", "apply"),
+        ("ov_memory_guard_patch", "apply_echo_guard"),
+    ],
 }
 
 
+def _entries(entry):
+    """A target maps to one ``(patch, apply)`` pair or a list of them, applied in order."""
+    return [entry] if isinstance(entry, tuple) else list(entry)
+
+
 class _PatchingLoader(importlib.abc.Loader):
-    def __init__(self, loader, patch_module, apply_name):
+    def __init__(self, loader, entries):
         self._loader = loader
-        self._patch_module = patch_module
-        self._apply_name = apply_name
+        self._entries = entries
 
     def create_module(self, spec):
         return self._loader.create_module(spec)
 
     def exec_module(self, module):
         self._loader.exec_module(module)
-        try:
-            patch = __import__(self._patch_module)
-            getattr(patch, self._apply_name)(module)
-        except Exception as exc:  # noqa: BLE001 — a patch failure must never break the import
-            print(
-                f"{self._patch_module}: install failed for {module.__name__}: {exc!r}",
-                file=sys.stderr,
-            )
+        for patch_module, apply_name in self._entries:
+            try:
+                patch = __import__(patch_module)
+                getattr(patch, apply_name)(module)
+            except Exception as exc:  # noqa: BLE001 — a patch failure must never break the import
+                print(
+                    f"{patch_module}: install failed for {module.__name__}: {exc!r}",
+                    file=sys.stderr,
+                )
 
 
 class _Finder(importlib.abc.MetaPathFinder):
@@ -73,7 +89,7 @@ class _Finder(importlib.abc.MetaPathFinder):
             return None
         spec = importlib.machinery.PathFinder.find_spec(fullname, path)
         if spec is not None and spec.loader is not None:
-            spec.loader = _PatchingLoader(spec.loader, *entry)
+            spec.loader = _PatchingLoader(spec.loader, _entries(entry))
         return spec
 
 
