@@ -2,8 +2,28 @@
 # Test-instance ov.conf, rebuilt 2026-09-21 from openviking-standalone-configmap.yaml
 # (IMPR-1185 canary). Same shape as prod, with three deliberate differences:
 #   * agfs bucket  openviking-agfs-test   (prod: openviking-agfs)
-#   * vectordb     ov-vectordb-test, collection context-test   (prod: ov-vectordb / context)
+#   * vectordb     ov-vectordb-test, collection context_test   (prod: ov-vectordb / context)
 #   * no public_base_url and no prometheus exporter
+#
+# 2026-09-25 (ov-test-vectordb-repair): two test-only fixes so memory records are
+# writable and readable again —
+#   * collection renamed context-test -> context_test: the vectordb service's
+#     validate_name_str rejects hyphens ("name can only contain letters, numbers
+#     and underscore"), so every CreateVikingdbCollection call for "context-test"
+#     failed server-side (error code 1000004) while the client logged a false
+#     "Created collection" success. The collection never existed on disk
+#     (confirmed: no context-test/ dir under /data/test/vikingdb/default/,
+#     ListVikingdbCollection returned an empty list), so no write was ever
+#     actually persisted or readable. Prod's collection name "context" has no
+#     hyphen and is unaffected — this is a test-config-only defect.
+#   * embedding.max_input_tokens lowered 8192 -> 7000: OpenViking's local
+#     truncation heuristic (utils/embedding_input.py, ~4 chars/token, CJK-aware)
+#     undercounts markdown-heavy compendium content relative to the actual
+#     qwen3-embedding-4b BPE tokenizer by 5-13% in observed failures (n_prompt_tokens
+#     9038/9282/8598 against embedder ctx-size 8192), tripping the embedding
+#     circuit breaker and stalling the (max_concurrent=1) embedding queue behind
+#     it. Prod uses the identical value/heuristic/endpoint, so this is a
+#     test-side safety margin, not a shared-embedder fix.
 # The embedder and the VLM are the SAME services prod uses (qwen3-embedding-4b on
 # manu, gemma4:vlm via chat-ollama on timmy). Test generation therefore shares
 # timmy's single VLM slot with prod; keep canary runs short and serial.
@@ -23,7 +43,7 @@ data:
         "workspace": "/app/data",
         "vectordb": {
           "backend": "http",
-          "name": "context-test",
+          "name": "context_test",
           "dimension": 2560,
           "url": "http://ov-vectordb-test.viking.svc.cluster.local:5000"
         },
@@ -60,7 +80,7 @@ data:
         "output": "stdout"
       },
       "embedding": {
-        "max_input_tokens": 8192,
+        "max_input_tokens": 7000,
         "dense": {
           "provider": "openai",
           "model": "qwen3-embedding-4b",
