@@ -48,6 +48,10 @@ TARGETS = {
         "apply_extract_loop",
     ),
     "openviking.session.session": ("ov_extract_patch", "apply_session"),
+    "openviking.session.memory.streaming_memory_updater": (
+        "ov_memory_guard_patch",
+        "apply_streaming",
+    ),
     "openviking.session.memory.memory_updater": [
         ("ov_chatlog_patch", "apply"),
         ("ov_memory_guard_patch", "apply"),
