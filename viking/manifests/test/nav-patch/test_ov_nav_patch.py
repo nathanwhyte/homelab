@@ -561,6 +561,22 @@ def test_phase2_long_names_never_rely_on_the_stock_cut():
         assert stated.startswith(f"{len(links)} are listed below"), (len(links), stated)
 
 
+def test_phase2_coverage_length_never_pushes_past_the_cap():
+    # Codex P2 round 2: 105 sampled entries of mostly 78-char names plus one 120-char
+    # name overflowed by one character, and the stock cut then removed every link.
+    import re
+
+    names = [f"{i:03d}-" + "x" * 71 + ".md" for i in range(104)] + ["y" * 117 + ".md"]
+    fs = [{"name": n, "summary": "S."} for n in names]
+    for total in (105, 999, 1000):
+        out = nav.assemble_contents(P, "Brief.", DIR, fs, [], total, 0, CAP)
+        assert len(out) <= CAP, (total, len(out))
+        assert P._truncate_generated_text(out, CAP) == out
+        links = re.findall(r"\]\((viking://[^)\s]+)\)", out)
+        stated = re.search(r"subdirectories\); (\d+|all)", out).group(1)
+        assert links and (stated == "all" or int(stated) == len(links)), (total, stated)
+
+
 def test_phase2_contents_tiers_degrade_in_order():
     fs = files(5)
     headings = [h for h, _, _ in nav._contents_entries(P, DIR, fs, [])]

@@ -660,21 +660,27 @@ def assemble_contents(
         if brief
         else fallback_head(dir_uri, total_files, total_children)
     )
-    # Reserve the longest coverage sentence (the "N are listed below and M were not…"
-    # form), build the list, then state how many entries it really holds.
-    reserve = len(build_coverage(total_files, total_children, 0, where="below"))
-    contents, listed = build_contents(
-        processor,
-        dir_uri,
-        file_summaries,
-        children_abstracts,
-        cap - len(head) - reserve - 4,
+    # Reserve the longest coverage sentence any listed count can produce (digit counts
+    # vary: "105 … 894" is longer than "0 … 999", Codex P2 round 2), build the list, then
+    # state how many entries it really holds. The loop is a backstop: the result must
+    # never depend on the stock tail-cut, which removes links from the end.
+    reserve = max(
+        len(build_coverage(total_files, total_children, k, where="below"))
+        for k in range(provided + 1)
     )
-    coverage = build_coverage(
-        total_files, total_children, min(listed, provided), where="below"
-    )
-    fixed = f"{head}\n\n{coverage}"
-    return f"{fixed}\n\n{contents}" if contents else fixed
+    space = cap - len(head) - reserve - 4
+    while True:
+        contents, listed = build_contents(
+            processor, dir_uri, file_summaries, children_abstracts, space
+        )
+        coverage = build_coverage(
+            total_files, total_children, min(listed, provided), where="below"
+        )
+        fixed = f"{head}\n\n{coverage}"
+        out = f"{fixed}\n\n{contents}" if contents else fixed
+        if len(out) <= cap or space <= 0:
+            return out
+        space -= len(out) - cap
 
 
 def _accepts_max_tokens(func) -> bool:
