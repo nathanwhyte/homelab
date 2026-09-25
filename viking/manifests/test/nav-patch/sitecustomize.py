@@ -28,8 +28,15 @@ off switch; a patch failure never breaks the import):
                         guard cuts pasted OpenViking recall output from user
                         turns before extraction (``ExtractContext.__init__``,
                         ``OV_ECHO_GUARD=0``).
+  * ov_event_abstract_patch — IMPR-1200: an ``events`` memory's vector record
+                        stores its ``# Summary`` as the abstract instead of the
+                        whole body; the embedding text is unchanged
+                        (``EmbeddingMsgConverter.from_context``). Its reindex hook
+                        makes ``/api/v1/content/reindex`` embed an event's write-path
+                        text instead of the raw body (``ReindexExecutor._upsert_context``,
+                        ``OV_EVENT_REINDEX_PATCH=0``), so the backfill runs in-server.
 
-Rollback of one patch: its env switch (``OV_S3_CACHE_PATCH=0``, ``OV_EXTRACT_PATCH=0``, ``OV_CHATLOG_PATCH=0``, ``OV_MEMORY_GUARD=0``; ``OV_NAV_PATCH=0``
+Rollback of one patch: its env switch (``OV_S3_CACHE_PATCH=0``, ``OV_EXTRACT_PATCH=0``, ``OV_CHATLOG_PATCH=0``, ``OV_MEMORY_GUARD=0``, ``OV_EVENT_ABSTRACT_PATCH=0``; ``OV_NAV_PATCH=0``
 only after the model-built overview template is restored, see the Deployment).
 Rollback of everything: remove PYTHONPATH from the Deployment
 (``kubectl set env … PYTHONPATH-``), again only after that template restore.
@@ -57,6 +64,14 @@ TARGETS = {
         ("ov_memory_guard_patch", "apply"),
         ("ov_memory_guard_patch", "apply_echo_guard"),
     ],
+    "openviking.storage.queuefs.embedding_msg_converter": (
+        "ov_event_abstract_patch",
+        "apply",
+    ),
+    "openviking.service.reindex_executor": (
+        "ov_event_abstract_patch",
+        "apply_reindex",
+    ),
 }
 
 

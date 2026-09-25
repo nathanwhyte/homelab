@@ -389,6 +389,8 @@ spec:
                 path: ov_s3_cache_patch.py
               - key: ov_memory_guard_patch.py
                 path: ov_memory_guard_patch.py
+              - key: ov_event_abstract_patch.py
+                path: ov_event_abstract_patch.py
         - name: data
           persistentVolumeClaim:
             claimName: openviking-data
