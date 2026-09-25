@@ -180,16 +180,25 @@ data:
     at line 525) — a Summary-only abstract would then be the rerank input instead of the
     full body, and that tradeoff should be re-evaluated before rerank is turned on.
 
-    Existing records pick the Summary up on ``POST /api/v1/content/reindex``, but that
-    endpoint's embedding text is the raw file body (comment and links included), not the
-    write-path text — see ``viking/scripts/ov-event-abstract-backfill.py`` for a backfill
-    that reuses ``MemoryUpdater._vectorize_memories`` instead, so the embedding text
-    matches what a fresh write would produce; the same tool's ``--restore`` reverts to the
-    full-body abstract independent of the ``OV_EVENT_ABSTRACT_PATCH`` switch.
+    Backfill through reindex (``apply_reindex``): stock ``POST /api/v1/content/reindex``
+    embeds the raw file body for a memory (``ReindexExecutor._reindex_memory_vectors`` →
+    ``_upsert_context(vector_text=body)``): MEMORY_FIELDS comment, links and all, not the
+    write-path text. That would silently change every event's embedding on a backfill. This
+    patch also wraps ``ReindexExecutor._upsert_context`` and, for a level-2 memory record
+    under ``/memories/events/``, replaces ``vector_text`` with exactly what
+    ``MemoryUpdater._vectorize_memories`` would embed (``write_path_embedding_text``: links
+    stripped, 50 KB cap, the memory type's ``embedding_template`` rendered the same way). So
+    existing records are backfilled by the live server itself, in its own process, with
+    ``POST /api/v1/content/reindex {"uri": "<…/memories/events>", "mode": "vectors_only"}``;
+    no second process is involved. A template that references ``extract_context`` (which
+    reindex cannot reproduce) leaves the stock ``vector_text`` and logs it. The standalone
+    ``viking/scripts/ov-event-abstract-backfill.py`` stays as the reviewed fallback and the
+    ``--restore`` path.
 
-    Guarded: applies only to openviking ``v0.4.20`` whose ``from_context`` source hashes to
+    Guarded: each hook applies only to openviking ``v0.4.20`` whose target source hashes to
     the expected value; otherwise it logs "NOT applied" and stock behaviour stays. Disable
-    at runtime with ``OV_EVENT_ABSTRACT_PATCH=0``.
+    at runtime with ``OV_EVENT_ABSTRACT_PATCH=0`` (both hooks) or
+    ``OV_EVENT_REINDEX_PATCH=0`` (the reindex hook only).
     """
 
     import functools
@@ -201,6 +210,9 @@ data:
 
     EXPECTED_VERSION = "v0.4.20"
     EXPECTED_SHA256 = "fb15c3af326be29f826a870a8e6284e1663c122089769ae5df1c74c1e5bc6081"
+    EXPECTED_UPSERT_CONTEXT_SHA256 = (
+        "ddfd3f03e673f1b396caef3d549d4efacc97a64fc78e9a30c21c8297a48feaad"
+    )
     logger = logging.getLogger("ov_event_abstract_patch")
 
     # Mirrors extract_summary_section in retrieve/context_assembler/tiers.py (v0.4.20), the
@@ -300,6 +312,128 @@ data:
         converter.from_context = staticmethod(summary_abstract(original))
         logger.warning(
             "ov-event-abstract: applied; events abstracts store the Summary (pid %d)",
+            os.getpid(),
+        )
+        return True
+
+
+    def is_event_upsert(kwargs):
+        """A reindex ``_upsert_context`` call for a level-2 events memory file with a body."""
+        uri = str(kwargs.get("uri") or "")
+        level = kwargs.get("level")
+        level = getattr(level, "value", level)
+        return (
+            kwargs.get("context_type") == "memory"
+            and level == _DETAIL_LEVEL
+            and "/memories/events/" in uri
+            and uri.endswith(".md")
+            and isinstance(kwargs.get("vector_text"), str)
+            and bool(kwargs.get("vector_text"))
+        )
+
+
+    _REGISTRY = None
+
+
+    def _events_schema():
+        global _REGISTRY
+        if _REGISTRY is None:
+            from openviking.session.memory.memory_type_registry import (
+                create_default_registry,
+            )
+
+            _REGISTRY = create_default_registry()
+        return _REGISTRY.get("events")
+
+
+    def write_path_embedding_text(body, uri, schema=None):
+        """What ``MemoryUpdater._vectorize_memories`` embeds for this file body.
+
+        Mirrors ``memory_updater.py`` v0.4.20 lines 1440-1471: parse the file, strip links,
+        cap at 50 KB, then render the memory type's ``embedding_template`` with the file's
+        fields plus ``content`` when every variable is present. Returns ``None`` when the
+        template needs ``extract_context``, which a reindex cannot supply; the caller then
+        leaves the stock text alone.
+        """
+        schema = _events_schema() if schema is None else schema
+        template = getattr(schema, "embedding_template", None) or ""
+        if "extract_context" in template:
+            return None
+
+        from openviking.session.memory.memory_updater import MemoryUpdater
+        from openviking.session.memory.utils.link_renderer import LinkRenderer
+        from openviking.session.memory.utils.memory_file_utils import MemoryFileUtils
+        from openviking.session.memory.utils.template_utils import TemplateUtils
+        from openviking.session.memory.utils.uri import render_template
+
+        mf = MemoryFileUtils.read(body, uri=uri)
+        abstract = MemoryUpdater._truncate_memory_abstract(
+            LinkRenderer.strip_all_links(mf.content or "")
+        )
+        if not template:
+            return abstract
+        template_vars = dict(mf.extra_fields)
+        template_vars["content"] = abstract
+        if TemplateUtils.find_missing_variables(template, template_vars):
+            return abstract
+        try:
+            return render_template(template, template_vars, extract_context=None)
+        except Exception:  # noqa: BLE001 — the write path falls back to plain content too
+            return abstract
+
+
+    def write_path_upsert(original):
+        @functools.wraps(original)
+        async def _upsert_context(self, **kwargs):
+            if is_event_upsert(kwargs):
+                try:
+                    text = write_path_embedding_text(kwargs["vector_text"], kwargs["uri"])
+                except Exception:  # noqa: BLE001 — never block a reindex on the rewrite
+                    logger.exception(
+                        "ov-event-reindex: write-path text failed for %s; stock body kept",
+                        kwargs.get("uri"),
+                    )
+                    text = None
+                if text is None:
+                    logger.warning(
+                        "ov-event-reindex: %s kept the stock reindex text",
+                        kwargs.get("uri"),
+                    )
+                elif text:
+                    kwargs["vector_text"] = text
+            return await original(self, **kwargs)
+
+        _upsert_context._ov_event_reindex_patch = True
+        return _upsert_context
+
+
+    def apply_reindex(module):
+        """Patch ``module.ReindexExecutor._upsert_context``; True if applied."""
+        if os.environ.get("OV_EVENT_ABSTRACT_PATCH", "1") == "0":
+            logger.warning("ov-event-reindex: disabled by OV_EVENT_ABSTRACT_PATCH=0")
+            return False
+        if os.environ.get("OV_EVENT_REINDEX_PATCH", "1") == "0":
+            logger.warning("ov-event-reindex: disabled by OV_EVENT_REINDEX_PATCH=0")
+            return False
+        import openviking
+
+        cls = getattr(module, "ReindexExecutor", None)
+        original = cls.__dict__.get("_upsert_context") if cls is not None else None
+        if getattr(original, "_ov_event_reindex_patch", False):
+            return True
+        try:
+            digest = hashlib.sha256(inspect.getsource(original).encode()).hexdigest()
+        except (OSError, TypeError):
+            digest = None
+        version = getattr(openviking, "__version__", None)
+        if version != EXPECTED_VERSION or digest != EXPECTED_UPSERT_CONTEXT_SHA256:
+            logger.warning(
+                "ov-event-reindex: NOT applied (version=%r sha256=%s)", version, digest
+            )
+            return False
+        cls._upsert_context = write_path_upsert(original)
+        logger.warning(
+            "ov-event-reindex: applied; events reindex embeds write-path text (pid %d)",
             os.getpid(),
         )
         return True
@@ -2280,7 +2414,10 @@ data:
       * ov_event_abstract_patch — IMPR-1200: an ``events`` memory's vector record
                             stores its ``# Summary`` as the abstract instead of the
                             whole body; the embedding text is unchanged
-                            (``EmbeddingMsgConverter.from_context``).
+                            (``EmbeddingMsgConverter.from_context``). Its reindex hook
+                            makes ``/api/v1/content/reindex`` embed an event's write-path
+                            text instead of the raw body (``ReindexExecutor._upsert_context``,
+                            ``OV_EVENT_REINDEX_PATCH=0``), so the backfill runs in-server.
 
     Rollback of one patch: its env switch (``OV_S3_CACHE_PATCH=0``, ``OV_EXTRACT_PATCH=0``, ``OV_CHATLOG_PATCH=0``, ``OV_MEMORY_GUARD=0``, ``OV_EVENT_ABSTRACT_PATCH=0``; ``OV_NAV_PATCH=0``
     only after the model-built overview template is restored, see the Deployment).
@@ -2313,6 +2450,10 @@ data:
         "openviking.storage.queuefs.embedding_msg_converter": (
             "ov_event_abstract_patch",
             "apply",
+        ),
+        "openviking.service.reindex_executor": (
+            "ov_event_abstract_patch",
+            "apply_reindex",
         ),
     }
 

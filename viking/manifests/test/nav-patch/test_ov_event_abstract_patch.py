@@ -264,6 +264,161 @@ class Installed(unittest.TestCase):
             finally:
                 converter.from_context = original
 
+    def test_reindex_hook_source_hash_matches(self):
+        from openviking.service.reindex_executor import ReindexExecutor
+
+        digest = ea.hashlib.sha256(
+            ea.inspect.getsource(ReindexExecutor._upsert_context).encode()
+        ).hexdigest()
+        self.assertEqual(digest, ea.EXPECTED_UPSERT_CONTEXT_SHA256)
+
+    def test_reindex_text_equals_the_write_path_text(self):
+        """The reindex rewrite must embed exactly what MemoryUpdater._vectorize_memories
+        enqueues for the same stored file: run the real updater on a fake store and
+        compare its message with write_path_embedding_text on the same body."""
+        from openviking.session.memory.memory_type_registry import (
+            create_default_registry,
+        )
+        from openviking.session.memory.memory_updater import (
+            MemoryUpdater,
+            MemoryUpdateResult,
+        )
+
+        try:
+            registry = create_default_registry()
+        except Exception as exc:  # noqa: BLE001 — needs the image's config
+            self.skipTest(f"no OpenViking config here: {exc!r}")
+        stored = (
+            "---\nevent_name: kinde_login_attempts\ngoal: log in to the dev tenant\n---\n"
+            + BODY.replace("needs --domain", "needs --domain, see [docs](viking://x/y)")
+        )
+
+        class FS:
+            async def read_file(self, uri, ctx=None):
+                return stored
+
+        captured = []
+
+        class DB:
+            async def enqueue_embedding_msg(self, msg):
+                captured.append(msg)
+                return True
+
+        updater = MemoryUpdater(registry=registry, vikingdb=DB())
+        updater._viking_fs = FS()
+        result = MemoryUpdateResult()
+        result.add_edited(EVENT_URI)
+        import asyncio
+
+        asyncio.run(
+            updater._vectorize_memories(
+                result,
+                ctx=types.SimpleNamespace(user=None, account_id="default"),
+                uri_memory_type_map={EVENT_URI: "events"},
+            )
+        )
+        self.assertEqual(len(captured), 1)
+        self.assertEqual(
+            ea.write_path_embedding_text(
+                stored, EVENT_URI, schema=registry.get("events")
+            ),
+            captured[0].message,
+        )
+
+
+class ReindexHookTests(unittest.TestCase):
+    def _kwargs(self, **over):
+        kw = {
+            "uri": EVENT_URI,
+            "parent_uri": EVENT_URI.rsplit("/", 1)[0],
+            "abstract": BODY,
+            "vector_text": "RAW BODY <!-- MEMORY_FIELDS -->",
+            "is_leaf": True,
+            "context_type": "memory",
+            "level": types.SimpleNamespace(value=2),
+            "ctx": None,
+        }
+        kw.update(over)
+        return kw
+
+    def _run(self, kwargs, rewrite):
+        seen = {}
+
+        async def original(self_, **kw):
+            seen.update(kw)
+            return "done"
+
+        wrapped = ea.write_path_upsert(original)
+        with patch.object(ea, "write_path_embedding_text", rewrite):
+            import asyncio
+
+            self.assertEqual(asyncio.run(wrapped(object(), **kwargs)), "done")
+        return seen
+
+    def test_event_upsert_gets_write_path_text(self):
+        seen = self._run(self._kwargs(), lambda body, uri: "WRITE PATH TEXT")
+        self.assertEqual(seen["vector_text"], "WRITE PATH TEXT")
+        self.assertEqual(seen["abstract"], BODY)
+
+    def test_other_records_untouched(self):
+        for over in (
+            {"uri": EVENT_URI.replace("/events/2026/09/24/", "/entities/tools/")},
+            {"context_type": "resource"},
+            {"level": types.SimpleNamespace(value=1)},
+            {"vector_text": ""},
+            {"vector_text": None},
+        ):
+            kw = self._kwargs(**over)
+            seen = self._run(kw, lambda body, uri: "WRITE PATH TEXT")
+            self.assertEqual(seen["vector_text"], kw["vector_text"], over)
+
+    def test_unreproducible_template_or_failure_keeps_stock_text(self):
+        seen = self._run(self._kwargs(), lambda body, uri: None)
+        self.assertEqual(seen["vector_text"], "RAW BODY <!-- MEMORY_FIELDS -->")
+
+        def boom(body, uri):
+            raise RuntimeError("parse failed")
+
+        seen = self._run(self._kwargs(), boom)
+        self.assertEqual(seen["vector_text"], "RAW BODY <!-- MEMORY_FIELDS -->")
+
+    def test_extract_context_template_is_refused(self):
+        schema = types.SimpleNamespace(
+            embedding_template="{{ extract_context.x }} {{ content }}"
+        )
+        self.assertIsNone(
+            ea.write_path_embedding_text("# Summary\nx", EVENT_URI, schema=schema)
+        )
+
+    def test_apply_reindex_guards_switches_and_idempotence(self):
+        class Executor:
+            async def _upsert_context(self, **kwargs):
+                return kwargs
+
+        module = types.SimpleNamespace(ReindexExecutor=Executor)
+        original = Executor.__dict__["_upsert_context"]
+        digest = ea.hashlib.sha256(ea.inspect.getsource(original).encode()).hexdigest()
+        ov = types.SimpleNamespace(__version__="v0.4.99")
+        with (
+            patch.dict(sys.modules, {"openviking": ov}),
+            patch.dict(os.environ, {}, clear=True),
+        ):
+            self.assertFalse(ea.apply_reindex(module))
+            ov.__version__ = ea.EXPECTED_VERSION
+            self.assertFalse(ea.apply_reindex(module))  # source drift
+            with patch.object(ea, "EXPECTED_UPSERT_CONTEXT_SHA256", digest):
+                for env in (
+                    {"OV_EVENT_ABSTRACT_PATCH": "0"},
+                    {"OV_EVENT_REINDEX_PATCH": "0"},
+                ):
+                    with patch.dict(os.environ, env):
+                        self.assertFalse(ea.apply_reindex(module))
+                self.assertIs(Executor.__dict__["_upsert_context"], original)
+                self.assertTrue(ea.apply_reindex(module))
+                installed = Executor.__dict__["_upsert_context"]
+                self.assertTrue(ea.apply_reindex(module))
+                self.assertIs(Executor.__dict__["_upsert_context"], installed)
+
 
 if __name__ == "__main__":
     unittest.main()
