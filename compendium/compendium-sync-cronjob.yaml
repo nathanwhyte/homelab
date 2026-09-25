@@ -35,9 +35,15 @@ spec:
   # sync does not contend with unrelated cluster work on the quarter hour.
   schedule: "7,22,37,52 * * * *"
   timeZone: Etc/UTC
-  # Landed off. Unsuspend only after the Phase 2 drills:
-  #   kubectl patch cronjob compendium-sync -n compendium -p '{"spec":{"suspend":false}}'
-  suspend: true
+  # Live since the Phase 2 drills (unsuspended 2026-09-14 22:28Z, IMPR-1154).
+  # This file must match the cluster: it landed `true` in #92 and was only
+  # flipped with kubectl, so any `kubectl apply` of this manifest would have
+  # silently stopped the sync. Pause/rollback control:
+  #   kubectl patch cronjob compendium-sync -n compendium -p '{"spec":{"suspend":true}}'
+  # A short pause (a recovery, a drill) is patched and patched back. A pause
+  # meant to outlast the session changes this field too, so the file keeps
+  # matching the cluster.
+  suspend: false
   # The single-writer contract. Forbid is what makes this safe to run on a short
   # interval: a run that overruns its slot blocks the next rather than racing it
   # for the RWO state claim.
