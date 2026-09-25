@@ -537,6 +537,44 @@ def test_phase2_sampled_directory_states_the_gap():
     assert "12 are listed below and 143 were not individually examined" in out
 
 
+def test_phase2_long_names_never_rely_on_the_stock_cut():
+    # Codex P2: 105 long names made the headings alone exceed the cap; the stock
+    # size limit then cut every link while coverage still said "all listed below".
+    import re
+
+    long = [
+        {"name": f"{i:03d}-" + "very-long-entry-name-" * 8 + ".md", "summary": "S."}
+        for i in range(105)
+    ]
+    out = nav.assemble_contents(P, "Brief.", DIR, long, [], None, None, CAP)
+    assert len(out) <= CAP, len(out)
+    assert P._truncate_generated_text(out, CAP) == out
+    links = re.findall(r"\]\((viking://[^)\s]+)\)", out)
+    m = re.search(
+        r"Total direct entries: 105 \(105 files, 0 subdirectories\); (.+)", out
+    )
+    assert links and m, out[:300]
+    stated = m.group(1)
+    if len(links) == 105:
+        assert stated.startswith("all of them are listed below"), stated
+    else:
+        assert stated.startswith(f"{len(links)} are listed below"), (len(links), stated)
+
+
+def test_phase2_contents_tiers_degrade_in_order():
+    fs = files(5)
+    headings = [h for h, _, _ in nav._contents_entries(P, DIR, fs, [])]
+    headings_only = "\n\n".join([nav.CONTENTS_HEADING, *headings])
+    full, n = nav.build_contents(P, DIR, fs, [], 5000)
+    assert n == 5 and full.count("### [") == 5 and len(full) > len(headings_only)
+    bare, n = nav.build_contents(P, DIR, fs, [], len(headings_only))
+    assert (n, bare) == (5, headings_only), bare
+    bullet = len(headings[0].removeprefix("### ")) + 2
+    tight = len(nav.CONTENTS_HEADING) + 2 + 2 * (bullet + 1)
+    cut, n = nav.build_contents(P, DIR, fs, [], tight)
+    assert n == 2 and len(cut) <= tight and cut.count("- [") == 2, (n, cut)
+
+
 def test_phase2_brief_is_sanitized_to_prose():
     raw = (
         "# resolved\n\n## Brief Description\n\n"

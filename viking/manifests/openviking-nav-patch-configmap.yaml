@@ -1286,22 +1286,43 @@ data:
 
     def build_contents(
         processor, dir_uri: str, file_summaries, children_abstracts, space: int
-    ) -> str:
-        """One H3 per entry, bodies sized so the whole block fits in ``space`` chars."""
+    ) -> tuple[str, int]:
+        """``(block, entries_listed)``: the entry list, always within ``space`` chars.
+
+        Tiers, each tried only when the one before cannot fit: one H3 per entry with a
+        summary body sized to the space; H3s without bodies; a compact ``- [name](uri)``
+        list; that list cut to what fits. Headings alone can exceed the cap (105 long file
+        names), and the stock size limit would then cut every link away (Codex P2,
+        2026-09-24), so the result never relies on it.
+        """
         entries = _contents_entries(processor, dir_uri, file_summaries, children_abstracts)
         if not entries:
-            return ""
+            return "", 0
         fixed = len(CONTENTS_HEADING) + sum(len(h) + 4 for h, _, _ in entries)
         budget = (space - fixed) // len(entries)
-        while True:
+        while budget >= MIN_BODY_CHARS:
             blocks = [CONTENTS_HEADING]
             for heading, summary, name in entries:
                 body = entry_body(summary, budget, name)
                 blocks.append(f"{heading}\n\n{body}" if body else heading)
             text = "\n\n".join(blocks)
-            if len(text) <= space or budget < MIN_BODY_CHARS:
-                return text
+            if len(text) <= space:
+                return text, len(entries)
             budget -= max(1, (len(text) - space) // len(entries) + 1)
+        text = "\n\n".join([CONTENTS_HEADING] + [h for h, _, _ in entries])
+        if len(text) <= space:
+            return text, len(entries)
+        lines = [f"- {h.removeprefix('### ')}" for h, _, _ in entries]
+        listed: list[str] = []
+        used = len(CONTENTS_HEADING) + 2
+        for line in lines:
+            if used + len(line) + 1 > space:
+                break
+            listed.append(line)
+            used += len(line) + 1
+        if not listed:
+            return "", 0
+        return "\n\n".join([CONTENTS_HEADING, "\n".join(listed)]), len(listed)
 
 
     def build_brief_prompt(
@@ -1390,15 +1411,20 @@ data:
             if brief
             else fallback_head(dir_uri, total_files, total_children)
         )
-        coverage = build_coverage(total_files, total_children, provided, where="below")
-        fixed = f"{head}\n\n{coverage}"
-        contents = build_contents(
+        # Reserve the longest coverage sentence (the "N are listed below and M were not…"
+        # form), build the list, then state how many entries it really holds.
+        reserve = len(build_coverage(total_files, total_children, 0, where="below"))
+        contents, listed = build_contents(
             processor,
             dir_uri,
             file_summaries,
             children_abstracts,
-            cap - len(fixed) - 2,
+            cap - len(head) - reserve - 4,
         )
+        coverage = build_coverage(
+            total_files, total_children, min(listed, provided), where="below"
+        )
+        fixed = f"{head}\n\n{coverage}"
         return f"{fixed}\n\n{contents}" if contents else fixed
 
 
