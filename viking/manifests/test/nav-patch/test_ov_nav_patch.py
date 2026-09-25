@@ -562,19 +562,24 @@ def test_phase2_long_names_never_rely_on_the_stock_cut():
 
 
 def test_phase2_coverage_length_never_pushes_past_the_cap():
-    # Codex P2 round 2: 105 sampled entries of mostly 78-char names plus one 120-char
-    # name overflowed by one character, and the stock cut then removed every link.
+    # Codex P2 round 2, fixture from round 3: 104 names of 78 chars plus one of 120, a
+    # 218-char brief, 999 total entries in viking://resources/x/d. Before the fix this
+    # assembled to 20,001 chars (checked against 9de9664 in the v0.4.20 image), and the
+    # stock cut then removed every link while coverage still claimed 105 were listed.
     import re
 
-    names = [f"{i:03d}-" + "x" * 71 + ".md" for i in range(104)] + ["y" * 117 + ".md"]
+    names = [f"{i:03d}-" + "n" * 71 + ".md" for i in range(104)] + ["z" * 117 + ".md"]
     fs = [{"name": n, "summary": "S."} for n in names]
-    for total in (105, 999, 1000):
-        out = nav.assemble_contents(P, "Brief.", DIR, fs, [], total, 0, CAP)
-        assert len(out) <= CAP, (total, len(out))
-        assert P._truncate_generated_text(out, CAP) == out
-        links = re.findall(r"\]\((viking://[^)\s]+)\)", out)
-        stated = re.search(r"subdirectories\); (\d+|all)", out).group(1)
-        assert links and (stated == "all" or int(stated) == len(links)), (total, stated)
+    brief = "B" * 217 + "."
+    out = nav.assemble_contents(P, brief, "viking://resources/x/d", fs, [], 999, 0, CAP)
+    assert len(out) <= CAP, len(out)
+    assert P._truncate_generated_text(out, CAP) == out
+    links = re.findall(r"\]\((viking://[^)\s]+)\)", out)
+    stated = re.search(r"subdirectories\); (\d+) are listed below", out)
+    assert links and stated and int(stated.group(1)) == len(links), (
+        len(links),
+        out[-300:],
+    )
 
 
 def test_phase2_contents_tiers_degrade_in_order():
