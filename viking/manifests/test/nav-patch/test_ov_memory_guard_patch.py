@@ -87,10 +87,12 @@ def ops(*items, links=(), replacements=None):
     )
 
 
-def run(fs, operations, tags=None):
-    return asyncio.run(
-        mg.guard_add_only(FAKE_MODULE, fs, Registry(), operations, None, tags)
+def run(fs, operations, tags=None, **kw):
+    """``(dropped, diverted)``; the reservation list is checked where it matters."""
+    dropped, diverted, _ = asyncio.run(
+        mg.guard_add_only(FAKE_MODULE, fs, Registry(), operations, None, tags, **kw)
     )
+    return dropped, diverted
 
 
 def stored(summary, name="x", ranges="0-3"):
@@ -185,6 +187,65 @@ class GuardSemantics(unittest.TestCase):
         run(FakeFS({target: stored("other")}), batch)
         self.assertEqual(batch.delete_replacements[f"{BASE}/old.md"], f"{BASE}/x_2.md")
 
+    def test_a_duplicate_found_at_a_sibling_takes_its_references_along(self):
+        # Codex P1 (round 2): the event is already at x_2.md; links and replacements
+        # that named x.md (another event) must follow to x_2.md.
+        target, entity = f"{BASE}/x.md", "viking://user/u/memories/entities/e.md"
+        link = types.SimpleNamespace(from_uri=entity, to_uri=target)
+        batch = ops(
+            op("x", "mine"), links=[link], replacements={f"{BASE}/old.md": target}
+        )
+        fs = FakeFS({target: stored("other"), f"{BASE}/x_2.md": stored("mine")})
+        dropped, _ = run(fs, batch)
+        self.assertEqual(dropped, [(target, f"{BASE}/x_2.md")])
+        self.assertEqual(link.to_uri, f"{BASE}/x_2.md")
+        self.assertEqual(batch.delete_replacements[f"{BASE}/old.md"], f"{BASE}/x_2.md")
+
+    def test_another_extraction_of_an_identical_event_is_kept(self):
+        # Codex P1 (round 2): identity includes source_extraction_id, which stock
+        # attaches before the guard; only a replay of the same extraction is a duplicate.
+        def with_source(extraction):
+            o = op("x", "Attempted login.")
+            o.memory_fields["source_extraction_id"] = extraction
+            return o
+
+        stored_a = (
+            "summary: Attempted login.\nevent_name: x\nranges: 0-3\n"
+            "source_extraction_id: A\n---\n"
+        )
+        other = with_source("B")
+        run(FakeFS({f"{BASE}/x.md": stored_a}), ops(other))
+        self.assertEqual(other.uris, [f"{BASE}/x_2.md"])
+        replay = ops(with_source("A"))
+        dropped, _ = run(FakeFS({f"{BASE}/x.md": stored_a}), replay)
+        self.assertEqual(
+            (dropped, replay.upsert_operations), ([(f"{BASE}/x.md",) * 2], [])
+        )
+
+    def test_concurrent_submits_reserve_different_slots(self):
+        # Codex P1 (round 2): a slot reserved by an in-flight submit is not free.
+        reserved = {}
+        first, second = op("x", "one"), op("x", "two")
+        run(FakeFS(), ops(first), reserved=reserved, reserve=True)
+        run(FakeFS(), ops(second), reserved=reserved, reserve=True)
+        self.assertEqual(
+            (first.uris, second.uris), ([f"{BASE}/x.md"], [f"{BASE}/x_2.md"])
+        )
+        self.assertEqual(set(reserved), {f"{BASE}/x.md", f"{BASE}/x_2.md"})
+
+    def test_the_apply_pass_verifies_its_own_reservation_instead_of_diverting(self):
+        reserved = {}
+        mine = op("x", "one")
+        run(FakeFS(), ops(mine), reserved=reserved, reserve=True)
+        again = op("x", "one")  # the deep copy the append path applies
+        run(FakeFS(), ops(again), reserved=reserved)
+        self.assertEqual(again.uris, [f"{BASE}/x.md"])
+        taken = op("x", "one")
+        with self.assertRaises(mg.GuardError):
+            run(
+                FakeFS({f"{BASE}/x.md": stored("other")}), ops(taken), reserved=reserved
+            )
+
     def test_upsert_types_still_merge(self):
         path = f"{BASE}/person.md"
         o = op("person", "new", memory_type="entities")
@@ -277,7 +338,9 @@ class WrapperTests(unittest.TestCase):
         )
         fs = FakeFS({target: stored("other")})
         module = types.SimpleNamespace(
-            get_viking_fs=lambda: fs, create_default_registry=Registry
+            get_viking_fs=lambda: fs,
+            create_default_registry=Registry,
+            attach_source_to_request_operations=lambda req: None,
         )
         seen = []
 
@@ -425,6 +488,20 @@ class EchoStripTests(unittest.TestCase):
             mg.strip_recall_text(text),
             f"{mg.PASTE_PLACEHOLDER}\n\nCorrection: I revoked that key today.",
         )
+
+    def test_every_paragraph_typed_after_the_paste_is_kept(self):
+        # Codex P1 (round 2): two correction paragraphs, not just the last one.
+        text = (
+            "- [memory 68%] viking://user/noot-pilot/peers/p/memories/events/x.md\n"
+            "    # Summary\n    The M2M app key is active.\n\n"
+            "Correction: I revoked that key today.\n\n"
+            "Also the dev tenant was renamed."
+        )
+        got = mg.strip_recall_text(text)
+        self.assertTrue(got.startswith(mg.PASTE_PLACEHOLDER), got)
+        self.assertIn("Correction: I revoked that key today.", got)
+        self.assertIn("Also the dev tenant was renamed.", got)
+        self.assertNotIn("M2M app key is active", got)
 
     def test_later_transcript_events_are_kept(self):
         text = (

@@ -20,10 +20,11 @@ This patch guards every ``add_only`` upsert before it is written, at
 again at ``MemoryUpdater.apply_operations`` (for direct callers). For each target it walks
 ``<name>.md``, ``<name>_2.md``, ``<name>_3.md``, …:
 
-  * **duplicate** — a slot already holds (or an earlier op in the batch claimed) the same
-    event, every structured field equal (summary, event name, ranges, …): the operation
-    is dropped. A replayed commit or an exact echo adds nothing. Distinct events that
-    only share a summary are kept apart.
+  * **duplicate** — a slot already holds (or an earlier op in the batch, or another
+    in-flight submit, claimed) the same event, every structured field equal including
+    ``source_extraction_id``: the operation is dropped and references to its target
+    follow to that slot. Only a replay of the same extraction is a duplicate; another
+    session's identical-looking event is kept apart.
   * **collision** — the first free slot takes the write. The op's
     ``old_memory_file_content`` is cleared so it is reported and diffed as a new write,
     and links, delete replacements and search tags that named the old path follow it.
@@ -162,26 +163,61 @@ async def _existing(module, viking_fs, uri: str, ctx):
         return object()
 
 
+# Slots chosen by in-flight StreamingMemoryUpdater.submit calls in this process, released
+# when the call returns: slot uri -> the event fields it is reserved for. Selection runs
+# under _reservation_lock(), so two concurrent submits never pick the same free slot, and
+# the apply-time pass verifies a submit's own reservation instead of diverting it again,
+# which would strand links the split already sent to the merge request (Codex P1,
+# 2026-09-24). Only in-process: OpenViking here runs one server process; another writer
+# that takes a reserved slot is caught by the verify step and raises GuardError.
+_RESERVED: dict[str, dict[str, str]] = {}
+_LOCKS: dict[int, object] = {}
+
+
+def _reservation_lock():
+    import asyncio
+
+    loop = asyncio.get_running_loop()
+    lock = _LOCKS.get(id(loop))
+    if lock is None:
+        lock = _LOCKS[id(loop)] = asyncio.Lock()
+    return lock
+
+
 async def guard_add_only(
-    module, viking_fs, registry, operations, ctx, search_tags_by_uri=None
+    module,
+    viking_fs,
+    registry,
+    operations,
+    ctx,
+    search_tags_by_uri=None,
+    reserved=None,
+    reserve=False,
 ):
     """Drop duplicate and divert colliding add_only upserts, in place.
 
-    For each add_only target, walk ``uri, uri_2, uri_3, …``: a slot holding (or claimed
-    by an earlier op in this batch for) the same event, every structured field equal,
-    means the write already happened and it is dropped; the first free slot takes the
-    write. Distinct events that merely share a summary are kept apart. Running out of
-    slots, or failing to read one, raises ``GuardError``.
+    For each add_only target, walk ``uri, uri_2, uri_3, …``: a slot holding (or claimed,
+    in this batch or by another in-flight submit, for) the same event, every structured
+    field equal including ``source_extraction_id``, means the write already happened; the
+    op is dropped and references to its target follow to that slot. The first free slot
+    takes the write. Running out of slots, or failing to read one, raises ``GuardError``.
 
-    Returns ``(dropped, diverted)`` for logging and tests.
+    ``reserved`` is the shared reservation table. With ``reserve=True`` (submit) the chosen
+    slots are added to it. Without (apply), a target already reserved for these exact
+    fields is this request's own reservation: it is verified in place (free, or holding
+    this event) and never diverted again.
+
+    Returns ``(dropped, diverted, taken)`` for logging, tests and release.
     """
     if registry is None or viking_fs is None or operations.has_errors():
-        return [], []
+        return [], [], []
+    reserved = reserved if reserved is not None else {}
 
     claimed: dict[str, dict[str, str] | None] = {}
     remap: dict[str, str] = {}
     dropped: list[tuple[str, str]] = []
     diverted: list[tuple[str, str]] = []
+    taken: list[tuple[str, dict[str, str]]] = []
     kept_ops = []
     for op in list(operations.upsert_operations or []):
         schema = registry.get(op.memory_type)
@@ -193,16 +229,34 @@ async def guard_add_only(
         fields = _event_fields(op)
         new_uris: list[str] = []
         for uri in op.uris:
+            if not reserve and reserved.get(uri) == fields:
+                state = await _existing(module, viking_fs, uri, ctx)
+                if state is not FREE and not _same_event(state, fields):
+                    raise GuardError(f"reserved slot {uri} was taken by another writer")
+                claimed[uri] = fields
+                if state is FREE:
+                    new_uris.append(uri)
+                else:
+                    dropped.append((uri, uri))
+                continue
             for n in range(1, MAX_SIBLINGS + 1):
                 slot = uri if n == 1 else sibling_uri(uri, n)
-                if slot in claimed:
-                    if claimed[slot] == fields:
+                holder = (
+                    claimed.get(slot, reserved.get(slot))
+                    if (slot in claimed or slot in reserved)
+                    else FREE
+                )
+                if holder is not FREE:
+                    if holder == fields:
                         dropped.append((uri, slot))
+                        if slot != uri:
+                            remap[uri] = slot
                         break
                     continue
                 state = await _existing(module, viking_fs, slot, ctx)
                 if state is FREE:
                     claimed[slot] = fields
+                    taken.append((slot, fields))
                     new_uris.append(slot)
                     if slot != uri:
                         remap[uri] = slot
@@ -210,6 +264,8 @@ async def guard_add_only(
                     break
                 if _same_event(state, fields):
                     dropped.append((uri, slot))
+                    if slot != uri:
+                        remap[uri] = slot
                     break
             else:
                 raise GuardError(f"no free sibling slot for add_only target {uri}")
@@ -245,7 +301,10 @@ async def guard_add_only(
         logger.warning(
             "ov-memory-guard: add_only write to existing %s diverted to %s", uri, new
         )
-    return dropped, diverted
+    if reserve:
+        for slot, slot_fields in taken:
+            reserved[slot] = slot_fields
+    return dropped, diverted, taken
 
 
 def wrap_apply_operations(module, orig):
@@ -260,14 +319,16 @@ def wrap_apply_operations(module, orig):
     ):
         # No fallback to the stock body on failure: an unguarded add_only write is the
         # overwrite this patch exists to prevent. OV_MEMORY_GUARD=0 is the escape hatch.
-        await guard_add_only(
-            module,
-            self._get_viking_fs(),
-            getattr(self, "_registry", None),
-            operations,
-            ctx,
-            search_tags_by_uri,
-        )
+        async with _reservation_lock():
+            await guard_add_only(
+                module,
+                self._get_viking_fs(),
+                getattr(self, "_registry", None),
+                operations,
+                ctx,
+                search_tags_by_uri,
+                reserved=_RESERVED,
+            )
         return await orig(
             self,
             operations,
@@ -324,8 +385,11 @@ def apply(module) -> bool:
 # upsert memory to the merge request, which is applied later from a deep copy. A diversion
 # made inside apply_operations for the append request therefore never reaches that link
 # (Codex P1, 2026-09-24). Guarding the whole request first means the split, and every link,
-# delete replacement and op, already sees the final URIs. The apply_operations guard stays
-# for callers that apply operations directly; on an already guarded request it is a no-op.
+# delete replacement and op, already sees the final URIs. The request's provenance is
+# attached first (stock submit does the same, idempotently), so ``source_extraction_id``
+# is part of the event identity and only a replay of the same extraction is a duplicate.
+# The apply_operations guard stays for callers that apply operations directly; for a
+# submitted request it verifies the submit's reservations rather than choosing again.
 
 EXPECTED_SUBMIT_SHA256 = (
     "67e4e598f003d0d46f6790ac19f469a367cdfa5d65203b12b8a10f596989c0ee"
@@ -340,15 +404,30 @@ def wrap_submit(module, orig, memory_module=None):
     async def submit(self, request):
         operations = getattr(request, "operations", None)
         ctx = getattr(request, "ctx", None)
-        if operations is not None and ctx is not None:
-            readers = memory_module
-            if readers is None:
-                from openviking.session.memory import memory_updater as readers
-            registry = self.registry or module.create_default_registry()
-            await guard_add_only(
-                readers, module.get_viking_fs(), registry, operations, ctx
+        if operations is None or ctx is None:
+            return await orig(self, request)
+        readers = memory_module
+        if readers is None:
+            from openviking.session.memory import memory_updater as readers
+        module.attach_source_to_request_operations(request)
+        registry = self.registry or module.create_default_registry()
+        async with _reservation_lock():
+            _, _, taken = await guard_add_only(
+                readers,
+                module.get_viking_fs(),
+                registry,
+                operations,
+                ctx,
+                reserved=_RESERVED,
+                reserve=True,
             )
-        return await orig(self, request)
+        try:
+            return await orig(self, request)
+        finally:
+            async with _reservation_lock():
+                for slot, slot_fields in taken:
+                    if _RESERVED.get(slot) is slot_fields:
+                        del _RESERVED[slot]
 
     submit._ov_memory_guard = True
     return submit
@@ -374,6 +453,7 @@ def apply_streaming(module) -> bool:
         or split_digest != EXPECTED_SPLIT_SHA256
         or not hasattr(module, "get_viking_fs")
         or not hasattr(module, "create_default_registry")
+        or not hasattr(module, "attach_source_to_request_operations")
     ):
         logger.warning(
             "ov-memory-guard: NOT applied to StreamingMemoryUpdater (version=%r "
@@ -421,24 +501,30 @@ RECALL_SHAPED = re.compile(r"^(?:\s|#|\*\*|- \[|[│├└┌┐┘⎿|>]|\.\.\.
 def _recall_block_end(lines: list[str], start: int) -> tuple[int, int]:
     """``(end, keep_from)`` for the recall block opening at ``start``.
 
-    The block runs to the next transcript event (or the end). Its last paragraph is
-    handed back to the caller (``keep_from < end``) when it is plainly prose, with no
-    recall-shaped line in it: text typed after a paste, such as a correction, is the
-    user's own and must still reach extraction (Codex P1, 2026-09-24).
+    The block runs to the next transcript event (or the end). Everything after its last
+    recall-shaped line, from the first paragraph set off by a blank line, is handed back
+    to the caller (``keep_from < end``): text typed after a paste, however many
+    paragraphs, is the user's own and must reach extraction (Codex P1, 2026-09-24).
+
+    Accepted trade-off: a pasted turn whose final paragraph is plain unindented prose
+    lets that paragraph through. Free text has no explicit author boundary, and losing
+    the user's words is the worse error; a leaked sentence can at most add a separate
+    memory, because the collision guard never lets it overwrite one.
     """
     end = start + 1
     while end < len(lines) and not TRANSCRIPT_EVENT.match(lines[end]):
         end += 1
-    blank = max(
-        (i for i in range(start + 1, end) if not lines[i].strip()), default=None
+    last_shaped = max(
+        i
+        for i in range(start, end)
+        if RECALL_LINE.match(lines[i]) or RECALL_SHAPED.match(lines[i])
     )
-    if blank is None:
-        return end, end
-    tail = [ln for ln in lines[blank + 1 : end] if ln.strip()]
-    if tail and not any(
-        RECALL_SHAPED.match(ln) or RECALL_LINE.match(ln) for ln in tail
-    ):
-        return end, blank + 1
+    seen_blank = False
+    for i in range(last_shaped + 1, end):
+        if not lines[i].strip():
+            seen_blank = True
+        elif seen_blank:
+            return end, i
     return end, end
 
 
