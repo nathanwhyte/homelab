@@ -95,6 +95,45 @@ spec:
               args:
                 - |
                   set -euo pipefail
+                  # Idle pre-check (IMPR-1154): most scheduled runs have nothing
+                  # to deliver, and apt + pip + clone cost ~4.5 min to learn that.
+                  # Exit early only on the exact idle condition compendium-sync.py
+                  # itself uses (canonical --changed run, no journal run in the
+                  # state file, watermark == origin/main). Any doubt (other
+                  # flags, missing state, API error, odd SHA) falls through to
+                  # the full run.
+                  if python3 - <<'PRECHECK'
+                  import json, os, re, sys, urllib.request
+                  args = os.environ.get("SYNC_ARGS", "").split()
+                  if "--changed" not in args or {"--retry-parked", "--abandon-run", "--set-baseline"} & set(args):
+                      sys.exit(1)
+                  try:
+                      with open(os.environ["OV_SYNC_STATE"]) as fh:
+                          doc = json.load(fh)
+                      baseline = doc["last_delivered_commit"]
+                  except Exception:
+                      sys.exit(1)
+                  if doc.get("run") or not isinstance(baseline, str):
+                      sys.exit(1)
+                  req = urllib.request.Request(
+                      "https://api.github.com/repos/nathanwhyte/compendium/commits/main",
+                      headers={
+                          "Authorization": "Bearer " + os.environ.get("GITHUB_TOKEN", ""),
+                          "Accept": "application/vnd.github.sha",
+                          "User-Agent": "compendium-sync-precheck",
+                      },
+                  )
+                  try:
+                      head = urllib.request.urlopen(req, timeout=20).read().decode().strip()
+                  except Exception:
+                      sys.exit(1)
+                  if not re.fullmatch(r"[0-9a-f]{40}", head) or head != baseline:
+                      sys.exit(1)
+                  print(f"nothing to sync: HEAD == last delivered commit ({head[:12]}) [idle pre-check, setup skipped]")
+                  PRECHECK
+                  then
+                    exit 0
+                  fi
                   apt-get update -qq && apt-get install -y -qq git >/dev/null
                   pip install --quiet openviking==0.4.10
                   # ov CLI requires a config file to exist even when env vars are set
