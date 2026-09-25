@@ -32,20 +32,30 @@ BASE = "viking://user/u/peers/p/memories/events/2026/09/24"
 
 
 class FakeFS:
-    def __init__(self, files=None):
+    def __init__(self, files=None, failing=()):
         self.files = dict(files or {})
+        self.failing = set(failing)
 
     async def read_file(self, uri, ctx=None):
+        if uri in self.failing:
+            raise TimeoutError(f"read timed out: {uri}")
         if uri not in self.files:
             raise FileNotFoundError(uri)
         return self.files[uri]
 
 
 class FakeMemoryFileUtils:
+    """Reads ``key: value`` lines up to a ``---`` line as the stored fields."""
+
     @staticmethod
     def read(content, uri=None):
-        summary = content.split("\n", 1)[0].removeprefix("summary: ")
-        return types.SimpleNamespace(extra_fields={"summary": summary})
+        fields = {}
+        for line in content.split("\n"):
+            if line == "---":
+                break
+            key, _, value = line.partition(": ")
+            fields[key] = value
+        return types.SimpleNamespace(extra_fields=fields)
 
 
 FAKE_MODULE = types.SimpleNamespace(MemoryFileUtils=FakeMemoryFileUtils)
@@ -59,30 +69,32 @@ class Registry:
         return types.SimpleNamespace(operation_mode=MODES[memory_type])
 
 
-def op(name, summary, memory_type="events", old=None):
+def op(name, summary, memory_type="events", old=None, ranges="0-3"):
     return types.SimpleNamespace(
         memory_type=memory_type,
         uris=[f"{BASE}/{name}.md"],
-        memory_fields={"summary": summary, "event_name": name},
+        memory_fields={"summary": summary, "event_name": name, "ranges": ranges},
         old_memory_file_content=old,
     )
 
 
-def ops(*items, links=()):
+def ops(*items, links=(), replacements=None):
     return types.SimpleNamespace(
         upsert_operations=list(items),
         resolved_links=list(links),
+        delete_replacements=dict(replacements or {}),
         has_errors=lambda: False,
     )
 
 
 def run(fs, operations, tags=None):
-    updater = types.SimpleNamespace(_registry=Registry(), _get_viking_fs=lambda: fs)
-    return asyncio.run(mg.guard_add_only(FAKE_MODULE, updater, operations, None, tags))
+    return asyncio.run(
+        mg.guard_add_only(FAKE_MODULE, fs, Registry(), operations, None, tags)
+    )
 
 
-def stored(summary):
-    return f"summary: {summary}\n# ChatLog"
+def stored(summary, name="x", ranges="0-3"):
+    return f"summary: {summary}\nevent_name: {name}\nranges: {ranges}\n---\n# ChatLog"
 
 
 class GuardSemantics(unittest.TestCase):
@@ -93,12 +105,22 @@ class GuardSemantics(unittest.TestCase):
         self.assertEqual(o.uris, [f"{BASE}/kinde_login_attempts.md"])
         self.assertEqual(batch.upsert_operations, [o])
 
-    def test_existing_memory_with_the_same_summary_is_dropped(self):
-        fs = FakeFS({f"{BASE}/kinde_login_attempts.md": stored("Attempted login.")})
+    def test_the_same_event_already_stored_is_dropped(self):
+        target = f"{BASE}/kinde_login_attempts.md"
+        fs = FakeFS({target: stored("Attempted login.", "kinde_login_attempts")})
         batch = ops(op("kinde_login_attempts", "  Attempted login.  "))
         dropped, diverted = run(fs, batch)
-        self.assertEqual(dropped, [(f"{BASE}/kinde_login_attempts.md", None)])
+        self.assertEqual(dropped, [(target, target)])
         self.assertEqual((diverted, batch.upsert_operations), ([], []))
+
+    def test_a_distinct_event_with_the_same_summary_is_kept(self):
+        # Codex P1: two same-day login attempts can share a summary; only equal
+        # structured fields (here ranges differ) make a duplicate.
+        target = f"{BASE}/x.md"
+        fs = FakeFS({target: stored("Attempted login.", ranges="0-3")})
+        o = op("x", "Attempted login.", ranges="10-14")
+        run(fs, ops(o))
+        self.assertEqual(o.uris, [f"{BASE}/x_2.md"])
 
     def test_existing_memory_with_a_different_summary_is_not_overwritten(self):
         target = f"{BASE}/kinde_login_attempts.md"
@@ -122,6 +144,29 @@ class GuardSemantics(unittest.TestCase):
         run(fs, ops(o))
         self.assertEqual(o.uris, [f"{BASE}/x_3.md"])
 
+    def test_replaying_a_diverted_write_is_idempotent(self):
+        # Codex P2: after x.md collided and the event landed at x_2.md, a retry of the
+        # same operation finds it there instead of writing x_3.md.
+        fs = FakeFS({f"{BASE}/x.md": stored("other"), f"{BASE}/x_2.md": stored("mine")})
+        batch = ops(op("x", "mine"))
+        dropped, diverted = run(fs, batch)
+        self.assertEqual(dropped, [(f"{BASE}/x.md", f"{BASE}/x_2.md")])
+        self.assertEqual((diverted, batch.upsert_operations), ([], []))
+
+    def test_an_unreadable_target_raises_instead_of_counting_as_free(self):
+        # Codex P0: a read timeout is not "free"; letting the stock write run would
+        # merge into whatever is there.
+        o = op("x", "new")
+        with self.assertRaises(mg.GuardError):
+            run(FakeFS(failing={f"{BASE}/x.md"}), ops(o))
+        self.assertEqual(o.uris, [f"{BASE}/x.md"], "op left untouched on failure")
+
+    def test_running_out_of_sibling_slots_raises(self):
+        files = {f"{BASE}/x.md": stored("s0")}
+        files.update({f"{BASE}/x_{n}.md": stored(f"s{n}") for n in range(2, 51)})
+        with self.assertRaises(mg.GuardError):
+            run(FakeFS(files), ops(op("x", "new")))
+
     def test_same_path_twice_in_one_batch(self):
         first, second = op("x", "one"), op("x", "two")
         run(FakeFS(), ops(first, second))
@@ -132,7 +177,13 @@ class GuardSemantics(unittest.TestCase):
         batch = ops(op("x", "same"), op("x", "same"))
         dropped, _ = run(FakeFS(), batch)
         self.assertEqual(len(batch.upsert_operations), 1)
-        self.assertEqual(dropped, [(f"{BASE}/x.md", None)])
+        self.assertEqual(dropped, [(f"{BASE}/x.md", f"{BASE}/x.md")])
+
+    def test_delete_replacements_follow_the_diversion(self):
+        target = f"{BASE}/x.md"
+        batch = ops(op("x", "new"), replacements={f"{BASE}/old.md": target})
+        run(FakeFS({target: stored("other")}), batch)
+        self.assertEqual(batch.delete_replacements[f"{BASE}/old.md"], f"{BASE}/x_2.md")
 
     def test_upsert_types_still_merge(self):
         path = f"{BASE}/person.md"
@@ -154,10 +205,8 @@ class GuardSemantics(unittest.TestCase):
 
         module = types.SimpleNamespace(MemoryFileUtils=Broken)
         o = op("x", "s")
-        updater = types.SimpleNamespace(
-            _registry=Registry(), _get_viking_fs=lambda: FakeFS({f"{BASE}/x.md": "?"})
-        )
-        asyncio.run(mg.guard_add_only(module, updater, ops(o), None))
+        fs = FakeFS({f"{BASE}/x.md": "?"})
+        asyncio.run(mg.guard_add_only(module, fs, Registry(), ops(o), None))
         self.assertEqual(o.uris, [f"{BASE}/x_2.md"])
 
     def test_links_and_search_tags_follow_the_diversion(self):
@@ -183,7 +232,8 @@ class GuardSemantics(unittest.TestCase):
 
 
 class WrapperTests(unittest.TestCase):
-    def test_a_failing_guard_falls_through_to_the_stock_body(self):
+    def test_a_failing_guard_blocks_the_stock_write(self):
+        # Codex P0: no unguarded fallback; the commit fails instead of overwriting.
         calls = []
 
         async def stock(
@@ -193,10 +243,52 @@ class WrapperTests(unittest.TestCase):
             return "result"
 
         wrapped = mg.wrap_apply_operations(FAKE_MODULE, stock)
-        updater = types.SimpleNamespace(_registry=None, _get_viking_fs=None)  # raises
-        out = asyncio.run(wrapped(updater, "ops", None))
-        self.assertEqual((out, calls), ("result", ["ops"]))
+        fs = FakeFS(failing={f"{BASE}/x.md"})
+        updater = types.SimpleNamespace(_registry=Registry(), _get_viking_fs=lambda: fs)
+        with self.assertRaises(mg.GuardError):
+            asyncio.run(wrapped(updater, ops(op("x", "new")), None))
+        self.assertEqual(calls, [])
         self.assertTrue(wrapped._ov_memory_guard)
+
+    def test_guarded_operations_reach_the_stock_body(self):
+        seen = []
+
+        async def stock(
+            self, operations, ctx, extract_context, isolation_handler, tags
+        ):
+            seen.append([list(o.uris) for o in operations.upsert_operations])
+            return "result"
+
+        wrapped = mg.wrap_apply_operations(FAKE_MODULE, stock)
+        fs = FakeFS({f"{BASE}/x.md": stored("other")})
+        updater = types.SimpleNamespace(_registry=Registry(), _get_viking_fs=lambda: fs)
+        out = asyncio.run(wrapped(updater, ops(op("x", "new")), None))
+        self.assertEqual((out, seen), ("result", [[[f"{BASE}/x_2.md"]]]))
+
+    def test_submit_guards_the_whole_request_before_the_split(self):
+        # Codex P1: a link between a diverted event and an upsert entity is sent to the
+        # merge request; it must already carry the new URI when the split happens.
+        target, entity = f"{BASE}/x.md", "viking://user/u/memories/entities/e.md"
+        link = types.SimpleNamespace(from_uri=entity, to_uri=target)
+        entity_op = op("e", "entity", memory_type="entities")
+        entity_op.uris = [entity]
+        request = types.SimpleNamespace(
+            operations=ops(op("x", "new"), entity_op, links=[link]), ctx=object()
+        )
+        fs = FakeFS({target: stored("other")})
+        module = types.SimpleNamespace(
+            get_viking_fs=lambda: fs, create_default_registry=Registry
+        )
+        seen = []
+
+        async def stock_submit(self, req):
+            seen.append(link.to_uri)
+            return "ok"
+
+        updater = types.SimpleNamespace(registry=None)
+        wrapped = mg.wrap_submit(module, stock_submit, memory_module=FAKE_MODULE)
+        out = asyncio.run(wrapped(updater, request))
+        self.assertEqual((out, seen), ("ok", [f"{BASE}/x_2.md"]))
 
 
 class ApplyGuardTests(unittest.TestCase):
@@ -264,6 +356,16 @@ class LoaderTests(unittest.TestCase):
             ],
         )
 
+    def test_streaming_updater_gets_the_request_level_guard(self):
+        self.assertEqual(
+            sitecustomize._entries(
+                sitecustomize.TARGETS[
+                    "openviking.session.memory.streaming_memory_updater"
+                ]
+            ),
+            [("ov_memory_guard_patch", "apply_streaming")],
+        )
+
     def test_single_pair_targets_still_load(self):
         self.assertEqual(
             sitecustomize._entries(("ov_nav_patch", "apply")),
@@ -311,6 +413,37 @@ class EchoStripTests(unittest.TestCase):
             "",
         ):
             self.assertEqual(mg.strip_recall_text(text), text)
+
+    def test_user_text_after_a_pasted_search_result_is_kept(self):
+        # Codex P1: a correction typed after the paste is the user's own words.
+        text = (
+            "- [memory 68%] viking://user/noot-pilot/peers/p/memories/events/x.md\n"
+            "    # Summary\n    The M2M app key is active.\n\n"
+            "Correction: I revoked that key today."
+        )
+        self.assertEqual(
+            mg.strip_recall_text(text),
+            f"{mg.PASTE_PLACEHOLDER}\n\nCorrection: I revoked that key today.",
+        )
+
+    def test_later_transcript_events_are_kept(self):
+        text = (
+            "❯ what did we look at?\n"
+            "⏺ plugin:openviking-memory:openviking - read (MCP)(uris: [...])\n"
+            "# Summary\nRecalled body.\n"
+            "# 2026-09-24 (Thursday) ChatLog:\n**p**: old turn\n"
+            "⏺ Bash(ls)\n  a.txt\n"
+            "❯ now do the new thing"
+        )
+        got = mg.strip_recall_text(text)
+        self.assertNotIn("Recalled body", got)
+        self.assertNotIn("old turn", got)
+        self.assertIn("⏺ Bash(ls)", got)
+        self.assertTrue(got.endswith("❯ now do the new thing"), got)
+
+    def test_recall_shaped_final_paragraph_stays_cut(self):
+        text = "# 2026-09-22 (Tuesday) ChatLog:\n**p**: x\n\n**assistant**: y"
+        self.assertEqual(mg.strip_recall_text(text), mg.PASTE_PLACEHOLDER)
 
     def test_injected_context_block_is_removed_and_the_rest_kept(self):
         text = (
@@ -377,13 +510,15 @@ class Installed(unittest.TestCase):
             mg.EXPECTED_UPSERT_SHA256,
         )
 
-    def test_summary_reads_back_through_the_real_memory_file_utils(self):
+    def test_event_fields_read_back_through_the_real_memory_file_utils(self):
         uri = f"{BASE}/kinde_login_attempts.md"
         mf = installed.MemoryFile.from_parsed(
             uri=uri,
             parsed={
                 "memory_type": "events",
                 "summary": "Attempted login.",
+                "event_name": "kinde_login_attempts",
+                "ranges": "0-3",
                 "content": "# Summary\nAttempted login.",
             },
         )
@@ -391,7 +526,22 @@ class Installed(unittest.TestCase):
         existing = asyncio.run(
             mg._existing(installed, FakeFS({uri: content}), uri, None)
         )
-        self.assertEqual(mg._summary(existing), "Attempted login.")
+        same = {"summary": "Attempted login.", "event_name": "kinde_login_attempts"}
+        self.assertTrue(mg._same_event(existing, {**same, "ranges": "0-3"}))
+        self.assertFalse(mg._same_event(existing, {**same, "ranges": "10-14"}))
+
+    def test_request_level_guard_applied_on_import(self):
+        from openviking.session.memory import streaming_memory_updater as s
+
+        submit = s.StreamingMemoryUpdater.submit
+        self.assertTrue(getattr(submit, "_ov_memory_guard", False))
+        self.assertEqual(mg._source_hash(submit.__wrapped__), mg.EXPECTED_SUBMIT_SHA256)
+
+    def test_not_found_is_recognised_for_the_real_error(self):
+        from openviking.storage.viking_fs import NotFoundError
+
+        self.assertTrue(mg._is_not_found(NotFoundError("viking://x", "file")))
+        self.assertFalse(mg._is_not_found(TimeoutError("slow")))
 
     def test_echo_guard_applied_on_import(self):
         init = installed.ExtractContext.__init__
