@@ -144,10 +144,48 @@ data:
 
     Both paths build their record through ``EmbeddingMsgConverter.from_context``. This
     patch wraps it and, after the stock body has run, replaces ``context_data["abstract"]``
-    with the Summary section for a level-2 memory record under ``/memories/events/``. The
-    embedding input (``EmbeddingMsg.message``, taken from the context's vectorize text) is
-    never touched, so ranking is unchanged; a body without a Summary keeps its abstract.
-    Existing records pick the Summary up on ``POST /api/v1/content/reindex``.
+    with the Summary section for a level-2 memory record under ``/memories/events/``.
+    ``EmbeddingMsg.message`` (the embedding input) is never modified — only read, to pick
+    the Summary source (see below) — so the text handed to the embedder is unchanged.
+
+    Summary source and reindex freshness: the wrapper prefers ``msg.message`` over
+    ``context_data["abstract"]`` when ``message`` is a string. On the write path the two
+    already agree (``MemoryUpdater._vectorize_memories``: ``embedding_text = abstract =
+    strip_all_links(mf.content)`` unless a memory-type ``embedding_template`` renders a
+    different ``embedding_text`` — the abstract still carries the Summary either way).
+    On reindex (``ReindexExecutor._upsert_context``, ``vector_text=body``), ``message`` is
+    the untouched file body, while ``context_data["abstract"]`` prefers the *existing*
+    stored record's abstract (``_best_non_empty(self._record_abstract(existing), ...)``)
+    — so reading only ``abstract`` would keep a stale Summary after the file body changed
+    and the memory was reindexed. Reading ``message`` first means the Summary picked up is
+    always the one in the current file body. A body without a ``# Summary`` heading, or an
+    already-multimodal ``message`` (a list, not a string), falls back to the incoming
+    ``abstract`` unchanged.
+
+    Reranking: ``HierarchicalRetriever`` only builds a rerank client when
+    ``rerank_config.is_available()`` is true (``RerankConfig.is_available()``,
+    ``openviking_cli/utils/config/rerank_config.py:99-110`` — requires a provider's
+    credentials: Cohere ``api_key``, OpenAI-compatible ``api_key``+``api_base``, LiteLLM
+    ``model``, or VikingDB ``ak``+``sk``). Prod's ``rerank`` config
+    (``viking/manifests/openviking-configmap.yaml``) is ``{"threshold": 0.2}`` only, no
+    provider fields, so ``_effective_provider()`` returns ``None``, ``is_available()``
+    returns ``False``, and ``HierarchicalRetriever.__init__``
+    (``retrieve/hierarchical_retriever.py:88-96``) sets ``self._rerank_client = None`` and
+    defaults retrieval to ``RetrieverMode.QUICK`` (line 127) — no reranker runs today, so
+    this patch does not change ranking in production as currently configured. That is a
+    fact about the live config, not a code guarantee: if rerank is ever enabled,
+    ``HierarchicalRetriever`` reranks each candidate on its stored ``abstract``
+    (``documents = [str(r.get("abstract", "")) for r in results]``,
+    ``retrieve/hierarchical_retriever.py:526``, gated on ``mode == RetrieverMode.THINKING``
+    at line 525) — a Summary-only abstract would then be the rerank input instead of the
+    full body, and that tradeoff should be re-evaluated before rerank is turned on.
+
+    Existing records pick the Summary up on ``POST /api/v1/content/reindex``, but that
+    endpoint's embedding text is the raw file body (comment and links included), not the
+    write-path text — see ``viking/scripts/ov-event-abstract-backfill.py`` for a backfill
+    that reuses ``MemoryUpdater._vectorize_memories`` instead, so the embedding text
+    matches what a fresh write would produce; the same tool's ``--restore`` reverts to the
+    full-body abstract independent of the ``OV_EVENT_ABSTRACT_PATCH`` switch.
 
     Guarded: applies only to openviking ``v0.4.20`` whose ``from_context`` source hashes to
     the expected value; otherwise it logs "NOT applied" and stock behaviour stays. Disable
@@ -203,15 +241,22 @@ data:
         )
 
 
-    def summarize_event_abstract(data):
-        """Swap an event record's full-body abstract for its Summary, in place.
+    def summarize_event_abstract(data, message=None):
+        """Swap an event record's abstract for its Summary, in place.
 
-        Returns True when the abstract changed.
+        Prefers ``message`` (the embedding text) as the Summary source when it is a
+        string: on reindex that is the current file body, so a stale stored abstract
+        never survives a body edit. Falls back to ``data["abstract"]`` when ``message``
+        is absent, empty, or yields no Summary (e.g. a multimodal message). Never
+        modifies ``message`` itself. Returns True when the abstract changed.
         """
         if not isinstance(data, dict) or not is_event_record(data):
             return False
         abstract = data.get("abstract") or ""
-        summary = summary_section(abstract)
+        source = message if isinstance(message, str) and message.strip() else ""
+        summary = summary_section(source) if source else ""
+        if not summary:
+            summary = summary_section(abstract)
         if not summary or summary == abstract:
             return False
         data["abstract"] = summary
@@ -223,7 +268,9 @@ data:
         def from_context(*args, **kwargs):
             msg = original(*args, **kwargs)
             if msg is not None:
-                summarize_event_abstract(getattr(msg, "context_data", None))
+                summarize_event_abstract(
+                    getattr(msg, "context_data", None), getattr(msg, "message", None)
+                )
             return msg
 
         from_context._ov_event_abstract_patch = True

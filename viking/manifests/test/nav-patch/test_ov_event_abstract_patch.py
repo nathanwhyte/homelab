@@ -83,6 +83,30 @@ class RecordTests(unittest.TestCase):
     def test_non_dict_is_ignored(self):
         self.assertFalse(ea.summarize_event_abstract(None))
 
+    def test_message_preferred_over_stale_stored_abstract(self):
+        """Reindex staleness (Codex finding 2): an edited body's Summary wins even
+        when the record's incoming abstract still carries the old Summary."""
+        edited_body = BODY.replace(
+            "Attempted login; the CLI adds its own https:// scheme.",
+            "Retried login after adding --domain; it succeeded.",
+        )
+        data = record(abstract=SUMMARY)  # stale: the previously-stored Summary
+        self.assertTrue(ea.summarize_event_abstract(data, message=edited_body))
+        self.assertEqual(
+            data["abstract"], "Retried login after adding --domain; it succeeded."
+        )
+
+    def test_message_falls_back_to_abstract_when_not_a_string(self):
+        for message in (None, "", "   ", ["multimodal", "parts"]):
+            data = record()
+            self.assertTrue(ea.summarize_event_abstract(data, message=message))
+            self.assertEqual(data["abstract"], SUMMARY)
+
+    def test_message_without_summary_falls_back_to_abstract(self):
+        data = record()  # abstract carries a Summary
+        self.assertTrue(ea.summarize_event_abstract(data, message="no summary here"))
+        self.assertEqual(data["abstract"], SUMMARY)
+
 
 class WrapperTests(unittest.TestCase):
     def test_embedding_text_is_never_touched(self):
@@ -91,6 +115,26 @@ class WrapperTests(unittest.TestCase):
         out = wrapped(object())
         self.assertIs(out, msg)
         self.assertEqual(out.message, BODY)
+        self.assertEqual(out.context_data["abstract"], SUMMARY)
+
+    def test_reindex_style_message_wins_over_stale_abstract(self):
+        """The wrapper reads msg.message, so a reindex whose incoming abstract is
+        stale still lands the Summary from the (fresher) message body."""
+        edited_body = BODY.replace("Attempted login", "Retried login")
+        msg = types.SimpleNamespace(
+            message=edited_body, context_data=record(abstract=SUMMARY)
+        )
+        wrapped = ea.summary_abstract(lambda context, creator_acl_grant=None: msg)
+        out = wrapped(object())
+        self.assertEqual(out.message, edited_body)  # untouched
+        self.assertEqual(out.context_data["abstract"], ea.summary_section(edited_body))
+
+    def test_multimodal_message_falls_back_to_abstract(self):
+        msg = types.SimpleNamespace(
+            message=[{"type": "text", "text": "x"}], context_data=record()
+        )
+        wrapped = ea.summary_abstract(lambda context, creator_acl_grant=None: msg)
+        out = wrapped(object())
         self.assertEqual(out.context_data["abstract"], SUMMARY)
 
     def test_none_passes_through_and_args_are_forwarded(self):
@@ -187,6 +231,36 @@ class Installed(unittest.TestCase):
                 msg = converter.from_context(context)
                 self.assertEqual(msg.message, BODY)
                 self.assertEqual(msg.context_data["abstract"], SUMMARY)
+            finally:
+                converter.from_context = original
+
+    def test_real_converter_picks_up_an_edited_body_on_reindex(self):
+        """Codex finding 2: a reindex-shaped call (vectorize text = the current file
+        body, incoming abstract = the previously-stored, now-stale Summary) must
+        pick the Summary out of the fresher body, not keep the stale abstract."""
+        from openviking.core.context import Context, ContextLevel, Vectorize
+
+        edited_body = BODY.replace("Attempted login", "Retried login")
+        with patch.object(_ov, "__version__", ea.EXPECTED_VERSION):
+            converter = _emc.EmbeddingMsgConverter
+            original = converter.__dict__["from_context"]
+            try:
+                self.assertTrue(ea.apply(_emc))
+                context = Context(
+                    uri=EVENT_URI,
+                    parent_uri=EVENT_URI.rsplit("/", 1)[0],
+                    is_leaf=True,
+                    abstract=SUMMARY,  # stale: the Summary stored before the edit
+                    context_type="memory",
+                    level=ContextLevel.DETAIL,
+                )
+                context.set_vectorize(Vectorize(text=edited_body))
+                msg = converter.from_context(context)
+                self.assertEqual(msg.message, edited_body)
+                self.assertEqual(
+                    msg.context_data["abstract"], ea.summary_section(edited_body)
+                )
+                self.assertNotEqual(msg.context_data["abstract"], SUMMARY)
             finally:
                 converter.from_context = original
 
