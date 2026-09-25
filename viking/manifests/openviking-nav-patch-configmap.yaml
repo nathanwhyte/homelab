@@ -437,6 +437,7 @@ data:
 
     from __future__ import annotations
 
+    import contextvars
     import dataclasses
     import functools
     import hashlib
@@ -537,15 +538,41 @@ data:
             return object()
 
 
-    # Slots chosen by in-flight StreamingMemoryUpdater.submit calls in this process, released
-    # when the call returns: slot uri -> the event fields it is reserved for. Selection runs
-    # under _reservation_lock(), so two concurrent submits never pick the same free slot, and
-    # the apply-time pass verifies a submit's own reservation instead of diverting it again,
-    # which would strand links the split already sent to the merge request (Codex P1,
-    # 2026-09-24). Only in-process: OpenViking here runs one server process; another writer
-    # that takes a reserved slot is caught by the verify step and raises GuardError.
-    _RESERVED: dict[str, dict[str, str]] = {}
+    # Slots chosen by in-flight StreamingMemoryUpdater.submit calls in this process: slot uri
+    # -> Reservation. Selection runs under _reservation_lock(), so two concurrent submits
+    # never pick the same free slot, and the apply-time pass recognises its own submit's
+    # reservations (by the owner token in _OWNER) and verifies them instead of diverting
+    # again, which would strand links the split already sent to the merge request.
+    #
+    # A reservation is a pending write, not a stored one (Codex P1, round 3): a request whose
+    # event matches another submit's reservation waits for that submit to finish, then
+    # decides again from what is on disk, so it never reports success for a write that the
+    # owner may still fail. Release is synchronous (no await), so a cancelled submit cannot
+    # be interrupted mid-cleanup and leave a stale reservation (Codex P2, round 3).
+    #
+    # Only in-process: OpenViking here runs one server process; another writer that takes a
+    # reserved slot is caught by the verify step and raises GuardError.
+    MAX_WAITS = 20
+
+
+    @dataclasses.dataclass(eq=False)
+    class Reservation:
+        fields: dict
+        owner: object
+        done: object  # asyncio.Event, set when the owning submit returns or fails
+
+
+    class _PendingDuplicate(Exception):
+        """A matching event is reserved by another in-flight submit; wait, then retry."""
+
+        def __init__(self, reservation):
+            super().__init__(reservation)
+            self.reservation = reservation
+
+
+    _RESERVED: dict[str, Reservation] = {}
     _LOCKS: dict[int, object] = {}
+    _OWNER = contextvars.ContextVar("ov_memory_guard_owner", default=None)
 
 
     def _reservation_lock():
@@ -558,6 +585,26 @@ data:
         return lock
 
 
+    def release_reservations(taken, table=None) -> None:
+        """Drop this submit's reservations and wake anyone waiting on them. No awaits."""
+        table = _RESERVED if table is None else table
+        for slot, reservation in taken:
+            if table.get(slot) is reservation:
+                del table[slot]
+            reservation.done.set()
+
+
+    async def guard_with_waits(run_guard):
+        """Run ``run_guard`` under the reservation lock, waiting out pending duplicates."""
+        for _ in range(MAX_WAITS):
+            try:
+                async with _reservation_lock():
+                    return await run_guard()
+            except _PendingDuplicate as pending:
+                await pending.reservation.done.wait()
+        raise GuardError("add_only target stayed reserved by other in-flight submits")
+
+
     async def guard_add_only(
         module,
         viking_fs,
@@ -567,21 +614,26 @@ data:
         search_tags_by_uri=None,
         reserved=None,
         reserve=False,
+        owner=None,
     ):
         """Drop duplicate and divert colliding add_only upserts, in place.
 
-        For each add_only target, walk ``uri, uri_2, uri_3, …``: a slot holding (or claimed,
-        in this batch or by another in-flight submit, for) the same event, every structured
-        field equal including ``source_extraction_id``, means the write already happened; the
-        op is dropped and references to its target follow to that slot. The first free slot
+        For each add_only target, walk ``uri, uri_2, uri_3, …``. A slot that is stored
+        with (or claimed earlier in this batch for) the same event, every structured field
+        equal including ``source_extraction_id``, means the write already happened: the op
+        is dropped and references to its target follow to that slot. The first free slot
         takes the write. Running out of slots, or failing to read one, raises ``GuardError``.
 
-        ``reserved`` is the shared reservation table. With ``reserve=True`` (submit) the chosen
-        slots are added to it. Without (apply), a target already reserved for these exact
-        fields is this request's own reservation: it is verified in place (free, or holding
-        this event) and never diverted again.
+        ``reserved`` is the shared reservation table and ``owner`` the calling submit's
+        token. A slot reserved by this owner for the same fields is its own pending write:
+        verified in place (free, or holding this event) and never diverted again. A slot
+        reserved by another owner is skipped, or, if it is for the same event, raises
+        ``_PendingDuplicate`` so the caller waits for that submit's outcome. Nothing is
+        mutated until the whole plan is made. With ``reserve=True`` (submit) the chosen
+        slots are reserved for ``owner``.
 
-        Returns ``(dropped, diverted, taken)`` for logging, tests and release.
+        Returns ``(dropped, diverted, taken)``; ``taken`` holds ``(slot, Reservation)`` when
+        reserving, else ``(slot, fields)``.
         """
         if registry is None or viking_fs is None or operations.has_errors():
             return [], [], []
@@ -592,64 +644,69 @@ data:
         dropped: list[tuple[str, str]] = []
         diverted: list[tuple[str, str]] = []
         taken: list[tuple[str, dict[str, str]]] = []
-        kept_ops = []
+        plan: list[tuple[object, list[str] | None]] = []  # (op, new uris or None to keep)
         for op in list(operations.upsert_operations or []):
             schema = registry.get(op.memory_type)
             if getattr(schema, "operation_mode", None) != ADD_ONLY or not op.uris:
                 for uri in op.uris or []:
                     claimed.setdefault(uri, None)
-                kept_ops.append(op)
+                plan.append((op, None))
                 continue
             fields = _event_fields(op)
             new_uris: list[str] = []
             for uri in op.uris:
-                if not reserve and reserved.get(uri) == fields:
-                    state = await _existing(module, viking_fs, uri, ctx)
-                    if state is not FREE and not _same_event(state, fields):
-                        raise GuardError(f"reserved slot {uri} was taken by another writer")
-                    claimed[uri] = fields
-                    if state is FREE:
-                        new_uris.append(uri)
-                    else:
-                        dropped.append((uri, uri))
-                    continue
                 for n in range(1, MAX_SIBLINGS + 1):
                     slot = uri if n == 1 else sibling_uri(uri, n)
-                    holder = (
-                        claimed.get(slot, reserved.get(slot))
-                        if (slot in claimed or slot in reserved)
-                        else FREE
-                    )
-                    if holder is not FREE:
-                        if holder == fields:
+                    if slot in claimed:
+                        if claimed[slot] == fields:
                             dropped.append((uri, slot))
                             if slot != uri:
                                 remap[uri] = slot
                             break
                         continue
+                    entry = reserved.get(slot)
+                    own = entry is not None and owner is not None and entry.owner is owner
+                    if entry is not None and not own:
+                        if entry.fields == fields:
+                            raise _PendingDuplicate(entry)
+                        continue
+                    if own and entry.fields != fields:
+                        continue  # another op of this request holds it
                     state = await _existing(module, viking_fs, slot, ctx)
                     if state is FREE:
                         claimed[slot] = fields
-                        taken.append((slot, fields))
+                        if not own:
+                            taken.append((slot, fields))
                         new_uris.append(slot)
                         if slot != uri:
                             remap[uri] = slot
                             diverted.append((uri, slot))
                         break
                     if _same_event(state, fields):
+                        claimed[slot] = fields
                         dropped.append((uri, slot))
                         if slot != uri:
                             remap[uri] = slot
                         break
+                    if own:
+                        raise GuardError(
+                            f"reserved slot {slot} was taken by another writer"
+                        )
                 else:
                     raise GuardError(f"no free sibling slot for add_only target {uri}")
+            plan.append((op, new_uris))
+
+        kept_ops = []
+        for op, new_uris in plan:
+            if new_uris is None:
+                kept_ops.append(op)
+                continue
             if not new_uris:
                 continue  # every target already holds this event: nothing to write
             if new_uris != list(op.uris):
                 op.uris = new_uris
                 op.old_memory_file_content = None
             kept_ops.append(op)
-
         operations.upsert_operations = kept_ops
         for link in getattr(operations, "resolved_links", None) or []:
             if link.from_uri in remap:
@@ -676,8 +733,14 @@ data:
                 "ov-memory-guard: add_only write to existing %s diverted to %s", uri, new
             )
         if reserve:
-            for slot, slot_fields in taken:
-                reserved[slot] = slot_fields
+            import asyncio
+
+            taken = [
+                (slot, Reservation(slot_fields, owner, asyncio.Event()))
+                for slot, slot_fields in taken
+            ]
+            for slot, reservation in taken:
+                reserved[slot] = reservation
         return dropped, diverted, taken
 
 
@@ -693,8 +756,9 @@ data:
         ):
             # No fallback to the stock body on failure: an unguarded add_only write is the
             # overwrite this patch exists to prevent. OV_MEMORY_GUARD=0 is the escape hatch.
-            async with _reservation_lock():
-                await guard_add_only(
+            owner = _OWNER.get()
+            await guard_with_waits(
+                lambda: guard_add_only(
                     module,
                     self._get_viking_fs(),
                     getattr(self, "_registry", None),
@@ -702,7 +766,9 @@ data:
                     ctx,
                     search_tags_by_uri,
                     reserved=_RESERVED,
+                    owner=owner,
                 )
+            )
             return await orig(
                 self,
                 operations,
@@ -785,23 +851,26 @@ data:
                 from openviking.session.memory import memory_updater as readers
             module.attach_source_to_request_operations(request)
             registry = self.registry or module.create_default_registry()
-            async with _reservation_lock():
-                _, _, taken = await guard_add_only(
-                    readers,
-                    module.get_viking_fs(),
-                    registry,
-                    operations,
-                    ctx,
-                    reserved=_RESERVED,
-                    reserve=True,
-                )
+            owner = object()
+            token = _OWNER.set(owner)
+            taken = []
             try:
+                _, _, taken = await guard_with_waits(
+                    lambda: guard_add_only(
+                        readers,
+                        module.get_viking_fs(),
+                        registry,
+                        operations,
+                        ctx,
+                        reserved=_RESERVED,
+                        reserve=True,
+                        owner=owner,
+                    )
+                )
                 return await orig(self, request)
             finally:
-                async with _reservation_lock():
-                    for slot, slot_fields in taken:
-                        if _RESERVED.get(slot) is slot_fields:
-                            del _RESERVED[slot]
+                release_reservations(taken)
+                _OWNER.reset(token)
 
         submit._ov_memory_guard = True
         return submit

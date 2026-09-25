@@ -224,27 +224,134 @@ class GuardSemantics(unittest.TestCase):
 
     def test_concurrent_submits_reserve_different_slots(self):
         # Codex P1 (round 2): a slot reserved by an in-flight submit is not free.
-        reserved = {}
+        reserved, a, b = {}, object(), object()
         first, second = op("x", "one"), op("x", "two")
-        run(FakeFS(), ops(first), reserved=reserved, reserve=True)
-        run(FakeFS(), ops(second), reserved=reserved, reserve=True)
+        run(FakeFS(), ops(first), reserved=reserved, reserve=True, owner=a)
+        run(FakeFS(), ops(second), reserved=reserved, reserve=True, owner=b)
         self.assertEqual(
             (first.uris, second.uris), ([f"{BASE}/x.md"], [f"{BASE}/x_2.md"])
         )
         self.assertEqual(set(reserved), {f"{BASE}/x.md", f"{BASE}/x_2.md"})
 
     def test_the_apply_pass_verifies_its_own_reservation_instead_of_diverting(self):
-        reserved = {}
+        reserved, mine_owner = {}, object()
         mine = op("x", "one")
-        run(FakeFS(), ops(mine), reserved=reserved, reserve=True)
+        run(FakeFS(), ops(mine), reserved=reserved, reserve=True, owner=mine_owner)
         again = op("x", "one")  # the deep copy the append path applies
-        run(FakeFS(), ops(again), reserved=reserved)
+        run(FakeFS(), ops(again), reserved=reserved, owner=mine_owner)
         self.assertEqual(again.uris, [f"{BASE}/x.md"])
         taken = op("x", "one")
         with self.assertRaises(mg.GuardError):
             run(
-                FakeFS({f"{BASE}/x.md": stored("other")}), ops(taken), reserved=reserved
+                FakeFS({f"{BASE}/x.md": stored("other")}),
+                ops(taken),
+                reserved=reserved,
+                owner=mine_owner,
             )
+
+    def _race(self, owner_writes: bool):
+        """Submit A reserves x.md; an identical replay B waits on it; A then finishes."""
+
+        async def scenario():
+            reserved, fs = {}, FakeFS()
+            a, b = object(), object()
+            mine = op("x", "same")
+            _, _, taken = await mg.guard_add_only(
+                FAKE_MODULE,
+                fs,
+                Registry(),
+                ops(mine),
+                None,
+                reserved=reserved,
+                reserve=True,
+                owner=a,
+            )
+            replay = ops(op("x", "same"))
+
+            async def run_b():
+                async def guard():
+                    return await mg.guard_add_only(
+                        FAKE_MODULE,
+                        fs,
+                        Registry(),
+                        replay,
+                        None,
+                        reserved=reserved,
+                        reserve=True,
+                        owner=b,
+                    )
+
+                for _ in range(mg.MAX_WAITS):
+                    try:
+                        return await guard()
+                    except mg._PendingDuplicate as pending:
+                        await pending.reservation.done.wait()
+                raise AssertionError("never settled")
+
+            task = asyncio.ensure_future(run_b())
+            await asyncio.sleep(0)
+            self.assertFalse(task.done(), "B must wait while A is in flight")
+            if owner_writes:
+                fs.files[f"{BASE}/x.md"] = (
+                    "summary: same\nevent_name: x\nranges: 0-3\n---\n"
+                )
+            mg.release_reservations(taken, reserved)
+            await task
+            return replay, reserved
+
+        return asyncio.run(scenario())
+
+    def test_a_replay_waits_for_the_owner_and_drops_only_after_it_stored(self):
+        # Codex P1 (round 3): a pending reservation is not a stored write.
+        replay, _ = self._race(owner_writes=True)
+        self.assertEqual(replay.upsert_operations, [])
+
+    def test_a_replay_takes_the_slot_when_the_owner_failed(self):
+        replay, reserved = self._race(owner_writes=False)
+        self.assertEqual([o.uris for o in replay.upsert_operations], [[f"{BASE}/x.md"]])
+        self.assertIn(f"{BASE}/x.md", reserved)
+
+    def test_release_is_synchronous_and_wakes_waiters(self):
+        # Codex P2 (round 3): cleanup has no await, so cancellation cannot interrupt it.
+        self.assertFalse(asyncio.iscoroutinefunction(mg.release_reservations))
+
+        async def scenario():
+            reservation = mg.Reservation({"k": "v"}, object(), asyncio.Event())
+            mg._RESERVED["viking://t/x.md"] = reservation
+            mg.release_reservations([("viking://t/x.md", reservation)])
+            return reservation.done.is_set(), "viking://t/x.md" in mg._RESERVED
+
+        self.assertEqual(asyncio.run(scenario()), (True, False))
+
+    def test_a_cancelled_submit_releases_its_reservations(self):
+        async def scenario():
+            fs = FakeFS()
+            module = types.SimpleNamespace(
+                get_viking_fs=lambda: fs,
+                create_default_registry=Registry,
+                attach_source_to_request_operations=lambda req: None,
+            )
+
+            async def stock_submit(self, req):
+                await asyncio.sleep(3600)
+
+            wrapped = mg.wrap_submit(module, stock_submit, memory_module=FAKE_MODULE)
+            request = types.SimpleNamespace(
+                operations=ops(op("x", "new")), ctx=object()
+            )
+            task = asyncio.ensure_future(
+                wrapped(types.SimpleNamespace(registry=None), request)
+            )
+            await asyncio.sleep(0.01)
+            held = f"{BASE}/x.md" in mg._RESERVED
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+            return held, f"{BASE}/x.md" in mg._RESERVED
+
+        self.assertEqual(asyncio.run(scenario()), (True, False))
 
     def test_upsert_types_still_merge(self):
         path = f"{BASE}/person.md"
