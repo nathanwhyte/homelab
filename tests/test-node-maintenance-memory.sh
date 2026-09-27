@@ -322,6 +322,67 @@ else
 	bad "successful finish left stale state"
 fi
 
+# --- BUG-1178: target demand counts only what a drain can move ---------------
+# `kubectl drain --ignore-daemonsets` never evicts DaemonSet-owned pods, and a
+# pod already carrying a deletionTimestamp is leaving on its own. Counting
+# either as target demand is what let a drain block on memory it could not
+# move, with its own spin-down already in effect.
+cat >"$STUB_PODS" <<'JSON'
+{"items":[
+  {"metadata":{},"spec":{"nodeName":"wemby","containers":[{"resources":{"requests":{"memory":"5Gi"}}}]}},
+  {"metadata":{"ownerReferences":[{"kind":"DaemonSet","name":"ds-agent"}]},"spec":{"nodeName":"wemby","containers":[{"resources":{"requests":{"memory":"2Gi"}}}]}},
+  {"metadata":{"deletionTimestamp":"2026-09-26T00:00:00Z"},"spec":{"nodeName":"wemby","containers":[{"resources":{"requests":{"memory":"3Gi"}}}]}}
+]}
+JSON
+assert_eq "DaemonSet and terminating pods are not movable demand" "$((5 * 1024 * 1024 * 1024))" "$(node_pod_memory_bytes wemby)"
+
+# The exclusions must not over-reach: an ordinary ReplicaSet-owned pod is still
+# demand the drain has to absorb.
+jq '.items += [{"metadata":{"ownerReferences":[{"kind":"ReplicaSet","name":"rs"}]},"spec":{"nodeName":"wemby","containers":[{"resources":{"requests":{"memory":"1Gi"}}}]}}]' "$STUB_PODS" >"$STUB_PODS.next"
+mv "$STUB_PODS.next" "$STUB_PODS"
+assert_eq "a plain ReplicaSet-owned pod still counts as demand" "$((6 * 1024 * 1024 * 1024))" "$(node_pod_memory_bytes wemby)"
+
+# --- BUG-1178: advice names a lever that can still help ----------------------
+# Block fixture: wemby requests 20Gi against 8Gi of headroom on manu+timmy.
+cat >"$STUB_PODS" <<'JSON'
+{"items":[
+  {"metadata":{},"spec":{"nodeName":"wemby","containers":[{"resources":{"requests":{"memory":"20Gi"}}}]}},
+  {"metadata":{},"spec":{"nodeName":"manu","containers":[{"resources":{"requests":{"memory":"60Gi"}}}]}},
+  {"metadata":{},"spec":{"nodeName":"timmy","containers":[{"resources":{"requests":{"memory":"60Gi"}}}]}}
+]}
+JSON
+
+blocked_plain=$( (memory_headroom_preflight wemby 0 0) 2>&1 ) || true
+if [[ $blocked_plain == *"--spin-down"* ]]; then
+	ok "blocked preflight offers --spin-down when it has not run"
+else
+	bad "blocked preflight should offer --spin-down when it has not run"
+fi
+
+blocked_spun=$( (memory_headroom_preflight wemby 0 1) 2>&1 ) || true
+if [[ $blocked_spun == *"Re-run with --spin-down"* ]]; then
+	bad "blocked preflight recommends --spin-down while it is already in effect"
+elif [[ $blocked_spun == *"--override-memory"* ]]; then
+	ok "blocked preflight names only a lever that can still help"
+else
+	bad "blocked preflight names no lever when --spin-down is already in effect"
+fi
+
+# Warn fixture: wemby requests 20Gi against 24Gi of headroom (>80%, not over).
+cat >"$STUB_PODS" <<'JSON'
+{"items":[
+  {"metadata":{},"spec":{"nodeName":"wemby","containers":[{"resources":{"requests":{"memory":"20Gi"}}}]}},
+  {"metadata":{},"spec":{"nodeName":"manu","containers":[{"resources":{"requests":{"memory":"50Gi"}}}]}},
+  {"metadata":{},"spec":{"nodeName":"timmy","containers":[{"resources":{"requests":{"memory":"54Gi"}}}]}}
+]}
+JSON
+warned=$(memory_headroom_preflight wemby 0 1 2>&1)
+if [[ $warned == *"TIGHT"* && $warned == *"already in effect"* ]]; then
+	ok "warn states that --spin-down is already in effect"
+else
+	bad "warn should state that --spin-down is already in effect"
+fi
+
 echo
 echo "$PASS passed, $FAIL failed"
 ((FAIL == 0))

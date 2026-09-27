@@ -389,13 +389,21 @@ memory_headroom_verdict() {
 	fi
 }
 
-# Sum the memory requests of pods scheduled on a node (bytes). Pods without a
-# request contribute 0 — the scheduler treats them the same way, so this is the
-# conservative scheduling signal (requests, not live usage, decide placement).
+# Sum the memory requests of the pods a drain would actually have to move:
+# those scheduled on the node, minus DaemonSet-owned pods (`kubectl drain
+# --ignore-daemonsets` never evicts them) and pods already carrying a
+# deletionTimestamp (they are leaving on their own). Counting either inflated
+# the target's demand with memory the drain cannot move, which is what blocked
+# a drain whose own spin-down had just succeeded — BUG-1178. Pods without a
+# request contribute 0 — the scheduler treats them the same way, so this stays
+# the conservative scheduling signal (requests, not live usage, decide placement).
 node_pod_memory_bytes() {
 	local node=$1 q quantities total=0
 	quantities=$($KUBECTL get pods -A -o json --field-selector "spec.nodeName=$node" |
-		jq -r '.items[].spec.containers[].resources.requests.memory // "0"') || return 1
+		jq -r '.items[]
+			| select((.metadata.ownerReferences // []) | any(.kind == "DaemonSet") | not)
+			| select((.metadata.deletionTimestamp // null) == null)
+			| .spec.containers[].resources.requests.memory // "0"') || return 1
 	while IFS= read -r q; do
 		[[ -n $q ]] && total=$((total + $(mem_quantity_to_bytes "$q")))
 	done <<<"$quantities"
@@ -465,21 +473,31 @@ remaining_headroom_bytes() {
 
 # Orchestrator: gather the target node's pod memory and the remaining nodes'
 # headroom, then pass/warn/block. On block, abort unless override is set.
+# spin_down (third arg) reports whether the pre-drain spin-down already ran, so
+# the advice names a lever that can still help: telling an operator to re-run
+# with --spin-down when it is already in effect is the self-contradiction
+# BUG-1178 recorded, and for a target whose block is driven by a host
+# reservation it cannot resolve (see the 2026-09-25 note on BUG-1178).
 memory_headroom_preflight() {
-	local node=$1 override=${2:-0}
-	local target_mem headroom verdict
+	local node=$1 override=${2:-0} spin_down=${3:-0}
+	local target_mem headroom verdict advice
 	target_mem=$(node_pod_memory_bytes "$node") || die "cannot read pod memory on $node"
 	headroom=$(remaining_headroom_bytes "$node") || die "cannot read remaining-node headroom"
 	verdict=$(memory_headroom_verdict "$target_mem" "$headroom")
 	log "[$node] memory preflight: target pods request $(human_bytes "$target_mem"), remaining headroom $(human_bytes "$headroom")"
+	if ((spin_down)); then
+		advice=" --spin-down is already in effect, so this figure is post-spin-down; --override-memory is the only remaining lever."
+	else
+		advice=" Re-run with --spin-down and/or --override-memory."
+	fi
 	case $verdict in
 	pass) log "[$node] memory headroom OK." ;;
-	warn) warn "[$node] memory headroom is TIGHT — rescheduled pods will consume most of the remaining capacity. Consider --spin-down." ;;
+	warn) warn "[$node] memory headroom is TIGHT — rescheduled pods will consume most of the remaining capacity.${advice}" ;;
 	block)
 		if ((override)); then
 			warn "[$node] memory headroom INSUFFICIENT but --override-memory given; proceeding."
 		else
-			die "[$node] memory preflight BLOCKED: target pods request $(human_bytes "$target_mem") but remaining nodes have only $(human_bytes "$headroom") headroom. Re-run with --spin-down and/or --override-memory."
+			die "[$node] memory preflight BLOCKED: target pods request $(human_bytes "$target_mem") but remaining nodes have only $(human_bytes "$headroom") headroom.${advice}"
 		fi
 		;;
 	esac
@@ -747,7 +765,7 @@ cmd_reboot() {
 	fi
 
 	log "[$node] preflight: memory headroom"
-	memory_headroom_preflight "$node" "$override_memory"
+	memory_headroom_preflight "$node" "$override_memory" "$spin_down"
 
 	log "[$node] preflight: no active sync Jobs in the compendium namespace"
 	local active
