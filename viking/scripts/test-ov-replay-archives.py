@@ -49,29 +49,52 @@ PROD_STATUS = {
 IDLE_QUEUE_STATUS = {
     "components": {
         "queue": {
-            "status": "+----------+---------+-------------+\n"
-            "|  Queue   | Pending | In Progress |\n"
-            "+----------+---------+-------------+\n"
-            "| Semantic |    0    |      0      |\n"
-            "+----------+---------+-------------+"
+            "status": "+----------------+---------+-------------+\n"
+            "|     Queue      | Pending | In Progress |\n"
+            "+----------------+---------+-------------+\n"
+            "|    Semantic    |    0    |      0      |\n"
+            "| Semantic-Nodes |    0    |      0      |\n"
+            "+----------------+---------+-------------+"
         }
     }
 }
 BUSY_QUEUE_STATUS = {
     "components": {
         "queue": {
-            "status": "+----------+---------+-------------+\n"
-            "|  Queue   | Pending | In Progress |\n"
-            "+----------+---------+-------------+\n"
-            "| Semantic |    4    |      1      |\n"
-            "+----------+---------+-------------+"
+            "status": "+----------------+---------+-------------+\n"
+            "|     Queue      | Pending | In Progress |\n"
+            "+----------------+---------+-------------+\n"
+            "|    Semantic    |    4    |      1      |\n"
+            "| Semantic-Nodes |    0    |      0      |\n"
+            "+----------------+---------+-------------+"
+        }
+    }
+}
+# Regression fixture (2026-09-24 real sample): Semantic itself is idle, but
+# Semantic-Nodes still has pending/in-progress work -- an earlier prod_semantic_queue_idle
+# checked only the Semantic row and reported idle=True here, which is wrong.
+SEMANTIC_IDLE_NODES_BUSY_STATUS = {
+    "components": {
+        "queue": {
+            "status": "+----------------+---------+-------------+\n"
+            "|     Queue      | Pending | In Progress |\n"
+            "+----------------+---------+-------------+\n"
+            "|    Semantic    |    0    |      0      |\n"
+            "| Semantic-Nodes |    9    |      1      |\n"
+            "+----------------+---------+-------------+"
         }
     }
 }
 
 
 class FakeRequester:
-    """Replaces ``_request``: scripted (method, path-regex) -> handler(body)."""
+    """Replaces ``_request``: scripted (method, path-regex) -> handler(body, base_url).
+
+    ``calls`` records ``(base_url, method, path, body)`` so a test can assert which
+    host a call went to (the preflight and identity checks share a path but target
+    different hosts). A handler that only needs ``body`` (almost every existing rule)
+    can ignore the second positional argument -- ``_const`` does.
+    """
 
     def __init__(self, rules):
         self.rules = [(m, re.compile(p), h) for m, p, h in rules]
@@ -80,15 +103,22 @@ class FakeRequester:
     def __call__(
         self, base_url, method, path, api_key, account, user, body=None, timeout=None
     ):
-        self.calls.append((method, path, body))
+        self.calls.append((base_url, method, path, body))
         for m, pattern, handler in self.rules:
             if m == method and pattern.match(path):
-                return handler(body)
-        raise AssertionError(f"unexpected request: {method} {path}")
+                return handler(body, base_url)
+        raise AssertionError(
+            f"unexpected request: {method} {path} (base_url={base_url})"
+        )
 
 
 def _const(value):
-    return lambda body: value
+    return lambda body, base_url=None: value
+
+
+def _by_base_url(mapping):
+    """A handler that returns a different canned value per target host."""
+    return lambda body, base_url=None: mapping[base_url]
 
 
 class VerifyIdentityTests(unittest.TestCase):
@@ -190,6 +220,96 @@ class ProdQueueIdleTests(unittest.TestCase):
         idle, _ = ra.prod_semantic_queue_idle("http://prod", "key")
         self.assertIsNone(idle)
 
+    def test_semantic_idle_but_semantic_nodes_busy_is_not_idle(self):
+        # Regression: an earlier version checked only the Semantic row and reported
+        # idle=True here (live sample, 2026-09-24: Semantic 0/0, Semantic-Nodes 9/1).
+        fake = FakeRequester(
+            [
+                (
+                    "GET",
+                    r"^/api/v1/observer/system",
+                    _const(SEMANTIC_IDLE_NODES_BUSY_STATUS),
+                )
+            ]
+        )
+        ra._request = fake
+        idle, status = ra.prod_semantic_queue_idle("http://prod", "key")
+        self.assertFalse(idle)
+        self.assertIn("Semantic-Nodes", status)
+
+    def test_a_missing_semantic_nodes_row_is_unrecognised_not_idle(self):
+        only_semantic = {
+            "components": {
+                "queue": {
+                    "status": "+----------+---------+-------------+\n"
+                    "|  Queue   | Pending | In Progress |\n"
+                    "+----------+---------+-------------+\n"
+                    "| Semantic |    0    |      0      |\n"
+                    "+----------+---------+-------------+"
+                }
+            }
+        }
+        fake = FakeRequester(
+            [("GET", r"^/api/v1/observer/system", _const(only_semantic))]
+        )
+        ra._request = fake
+        idle, _ = ra.prod_semantic_queue_idle("http://prod", "key")
+        self.assertIsNone(idle)
+
+
+class PreflightProdQueueTests(unittest.TestCase):
+    def test_idle_queue_passes(self):
+        fake = FakeRequester(
+            [("GET", r"^/api/v1/observer/system", _const(IDLE_QUEUE_STATUS))]
+        )
+        ra._request = fake
+        ra.preflight_prod_queue("http://prod", "key")  # must not raise
+
+    def test_busy_queue_raises_prod_busy_error(self):
+        fake = FakeRequester(
+            [("GET", r"^/api/v1/observer/system", _const(BUSY_QUEUE_STATUS))]
+        )
+        ra._request = fake
+        with self.assertRaises(ra.ProdBusyError):
+            ra.preflight_prod_queue("http://prod", "key")
+
+    def test_semantic_nodes_alone_being_busy_raises(self):
+        fake = FakeRequester(
+            [
+                (
+                    "GET",
+                    r"^/api/v1/observer/system",
+                    _const(SEMANTIC_IDLE_NODES_BUSY_STATUS),
+                )
+            ]
+        )
+        ra._request = fake
+        with self.assertRaises(ra.ProdBusyError):
+            ra.preflight_prod_queue("http://prod", "key")
+
+    def test_a_read_failure_is_treated_as_busy_not_idle(self):
+        def fail(body, base_url=None):
+            raise ra.ReplayError("connection refused")
+
+        fake = FakeRequester([("GET", r"^/api/v1/observer/system", fail)])
+        ra._request = fake
+        with self.assertRaises(ra.ProdBusyError):
+            ra.preflight_prod_queue("http://prod", "key")
+
+    def test_an_unrecognised_table_shape_is_treated_as_busy_not_idle(self):
+        fake = FakeRequester(
+            [
+                (
+                    "GET",
+                    r"^/api/v1/observer/system",
+                    _const({"components": {"queue": {"status": ""}}}),
+                )
+            ]
+        )
+        ra._request = fake
+        with self.assertRaises(ra.ProdBusyError):
+            ra.preflight_prod_queue("http://prod", "key")
+
 
 class WaitForTaskTests(unittest.TestCase):
     def test_returns_on_a_done_status(self):
@@ -272,6 +392,10 @@ class DiffOperationsTests(unittest.TestCase):
         self.assertEqual(ra._diff_operations({}), ([], []))
 
 
+OV_TEST_URL = "http://ov-test"
+PROD_URL = "http://prod"
+
+
 class SelfTestTests(unittest.TestCase):
     def _happy_rules(self, diff=None):
         if diff is None:
@@ -279,7 +403,13 @@ class SelfTestTests(unittest.TestCase):
                 "operations": {"adds": [{"uri": "x"}], "updates": [], "deletes": []}
             }
         return [
-            ("GET", r"^/api/v1/observer/system", _const(OV_TEST_STATUS)),
+            (
+                "GET",
+                r"^/api/v1/observer/system",
+                _by_base_url(
+                    {OV_TEST_URL: OV_TEST_STATUS, PROD_URL: IDLE_QUEUE_STATUS}
+                ),
+            ),
             ("POST", r"^/api/v1/sessions$", _const({"session_id": "sess-1"})),
             (
                 "POST",
@@ -303,26 +433,55 @@ class SelfTestTests(unittest.TestCase):
     def test_round_trips_one_synthetic_session(self):
         fake = FakeRequester(self._happy_rules())
         ra._request = fake
-        receipt = ra.self_test("http://ov-test", "key")
+        receipt = ra.self_test(OV_TEST_URL, "key", PROD_URL)
         self.assertTrue(receipt["ok"])
         self.assertTrue(receipt["cleaned_up"])
         self.assertEqual(receipt["session_id"], "sess-1")
         # two messages posted before commit
         message_calls = [
-            c for c in fake.calls if c[0] == "POST" and c[1].endswith("/messages")
+            c for c in fake.calls if c[1] == "POST" and c[2].endswith("/messages")
         ]
         self.assertEqual(len(message_calls), 2)
         # cleanup ran last
-        self.assertEqual(fake.calls[-1][0], "DELETE")
+        self.assertEqual(fake.calls[-1][1], "DELETE")
 
-    def test_refuses_a_non_ov_test_target_before_creating_anything(self):
+    def test_refuses_a_non_ov_test_target_after_the_preflight_but_before_creating_anything(
+        self,
+    ):
+        mystery = "http://mystery-target"
         fake = FakeRequester(
-            [("GET", r"^/api/v1/observer/system", _const(PROD_STATUS))]
+            [
+                (
+                    "GET",
+                    r"^/api/v1/observer/system",
+                    _by_base_url({PROD_URL: IDLE_QUEUE_STATUS, mystery: PROD_STATUS}),
+                )
+            ]
         )
         ra._request = fake
         with self.assertRaises(ra.TargetIdentityError):
-            ra.self_test("http://prod", "key")
-        self.assertEqual(fake.calls, [("GET", "/api/v1/observer/system", None)])
+            ra.self_test(mystery, "key", PROD_URL)
+        # preflight (prod), then the failed identity check (mystery) -- nothing else
+        self.assertEqual([c[0] for c in fake.calls], [PROD_URL, mystery])
+        self.assertFalse(any(c[1] == "POST" for c in fake.calls))
+
+    def test_a_busy_prod_queue_blocks_before_any_session_is_created(self):
+        fake = FakeRequester(
+            [
+                (
+                    "GET",
+                    r"^/api/v1/observer/system",
+                    _by_base_url({PROD_URL: BUSY_QUEUE_STATUS}),
+                )
+            ]
+        )
+        ra._request = fake
+        with self.assertRaises(ra.ProdBusyError):
+            ra.self_test(OV_TEST_URL, "key", PROD_URL)
+        self.assertEqual(
+            len(fake.calls), 1, "must stop at the preflight, never reach ov-test"
+        )
+        self.assertFalse(any(c[1] == "POST" for c in fake.calls))
 
     def test_a_terminal_task_with_no_operations_is_not_success(self):
         # This is the real empty shape captured live (2026-09-27): a genuinely successful
@@ -330,9 +489,9 @@ class SelfTestTests(unittest.TestCase):
         fake = FakeRequester(self._happy_rules(diff=REAL_EMPTY_DIFF))
         ra._request = fake
         with self.assertRaises(ra.ReplayError):
-            ra.self_test("http://ov-test", "key")
+            ra.self_test(OV_TEST_URL, "key", PROD_URL)
         # cleanup still ran even though the test failed
-        self.assertEqual(fake.calls[-1][0], "DELETE")
+        self.assertEqual(fake.calls[-1][1], "DELETE")
 
     def test_fresh_user_per_call(self):
         seen_users = []
@@ -345,9 +504,9 @@ class SelfTestTests(unittest.TestCase):
         ra.create_session = spy_create
         try:
             ra._request = FakeRequester(self._happy_rules())
-            ra.self_test("http://ov-test", "key")
+            ra.self_test(OV_TEST_URL, "key", PROD_URL)
             ra._request = FakeRequester(self._happy_rules())
-            ra.self_test("http://ov-test", "key")
+            ra.self_test(OV_TEST_URL, "key", PROD_URL)
         finally:
             ra.create_session = orig_create
         self.assertEqual(len(seen_users), 2)
@@ -359,23 +518,55 @@ class ArgParsingTests(unittest.TestCase):
         env = os.environ.pop("OPENVIKING_API_KEY", None)
         try:
             with self.assertRaises(SystemExit):
-                ra.parse_args(["--self-test", "--base-url", "http://ov-test"])
+                ra.parse_args(
+                    [
+                        "--self-test",
+                        "--base-url",
+                        "http://ov-test",
+                        "--prod-base-url",
+                        "http://prod",
+                    ]
+                )
         finally:
             if env is not None:
                 os.environ["OPENVIKING_API_KEY"] = env
 
-    def test_replay_requires_prod_base_url_and_session_uri(self):
+    def test_prod_base_url_is_required_for_self_test_too(self):
+        # The preflight needs it even though self-test never reads prod content.
         with self.assertRaises(SystemExit):
             ra.parse_args(
-                ["--replay", "--base-url", "http://ov-test", "--api-key", "k"]
+                ["--self-test", "--base-url", "http://ov-test", "--api-key", "k"]
             )
 
-    def test_self_test_needs_only_base_url_and_key(self):
+    def test_replay_requires_session_uri(self):
+        with self.assertRaises(SystemExit):
+            ra.parse_args(
+                [
+                    "--replay",
+                    "--base-url",
+                    "http://ov-test",
+                    "--prod-base-url",
+                    "http://prod",
+                    "--api-key",
+                    "k",
+                ]
+            )
+
+    def test_self_test_needs_base_url_prod_base_url_and_key(self):
         args = ra.parse_args(
-            ["--self-test", "--base-url", "http://ov-test", "--api-key", "k"]
+            [
+                "--self-test",
+                "--base-url",
+                "http://ov-test",
+                "--prod-base-url",
+                "http://prod",
+                "--api-key",
+                "k",
+            ]
         )
         self.assertTrue(args.self_test)
         self.assertEqual(args.account, "default")
+        self.assertEqual(args.prod_base_url, "http://prod")
 
     def test_self_test_and_replay_are_mutually_exclusive(self):
         with self.assertRaises(SystemExit):
@@ -411,7 +602,7 @@ class HydrateToolOutputTests(unittest.TestCase):
         )
 
     def test_an_unresolvable_ref_returns_none(self):
-        def fail(body):
+        def fail(body, base_url=None):
             raise ra.ReplayError("not found")
 
         fake = FakeRequester([("GET", r"^/api/v1/content/read", fail)])

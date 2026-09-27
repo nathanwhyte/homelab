@@ -34,10 +34,15 @@ Two modes:
                      manual verification, run separately once prod's Semantic queue is idle.
 
 Scheduling (ov-test extracts on the same ``gemma4:vlm`` as prod, IMPR-1188 plan § 3.2):
-run replays one at a time; never start one while prod's Semantic queue
-(``GET /api/v1/observer/system``, ``components.queue.status``) shows nonzero Pending or
-In Progress, and report as blocked instead of waiting or retrying; keep clear of the
-IMPR-1199 idle-queue H7 rerun and of prod pod restarts.
+run replays one at a time; ``--prod-base-url`` is required for both ``--self-test`` and
+``--replay`` (a self-test commit extracts too), and ``preflight_prod_queue`` runs before
+either ever writes to ov-test — it checks both the ``Semantic`` and ``Semantic-Nodes``
+rows of prod's queue (``GET /api/v1/observer/system``, ``components.queue.status``; an
+earlier version checked only ``Semantic`` and missed Semantic-Nodes work, caught live
+2026-09-24), and treats any read failure as busy rather than assuming idle. A busy or
+unreadable prod queue raises ``ProdBusyError`` and aborts before a session is created —
+never a wait-and-retry loop. Keep clear of the IMPR-1199 idle-queue H7 rerun and of prod
+pod restarts regardless.
 
 Archived production messages carry only ``id``, ``role``, ``parts``, ``created_at``,
 ``peer_id`` in the common case (verified 2026-09-27 against sampled archives) — no
@@ -134,6 +139,27 @@ def verify_ov_test_identity(
     return result
 
 
+class ProdBusyError(RuntimeError):
+    """Prod's queue is not confirmed idle; refuse to start an ov-test round trip that
+    would add load to the same shared VLM."""
+
+
+# Both rows share the gemma4:vlm extraction queue with ov-test: "Semantic" is the
+# extraction step itself, "Semantic-Nodes" is its sub-work. A round trip is only safe
+# to start when neither has pending or in-progress work.
+_QUEUE_ROWS_TO_CHECK = ("Semantic", "Semantic-Nodes")
+
+
+def _queue_row(status_text, name):
+    """(pending, in_progress) strings for `name`'s row in the fixed-width queue table,
+    or ``None`` when that row is not present."""
+    for line in status_text.splitlines():
+        cells = [c.strip() for c in line.strip("|").split("|")]
+        if cells and cells[0] == name and len(cells) >= 3:
+            return cells[1], cells[2]
+    return None
+
+
 def prod_semantic_queue_idle(
     prod_base_url,
     api_key,
@@ -141,7 +167,14 @@ def prod_semantic_queue_idle(
     user="ov-replay-queue-check",
     timeout=DEFAULT_TIMEOUT,
 ):
-    """(idle: bool, raw queue status text) from prod's own observer/system. Read-only."""
+    """(idle: bool, raw queue status text) from prod's own observer/system. Read-only.
+
+    Checks both ``Semantic`` and ``Semantic-Nodes`` — an earlier version checked only
+    ``Semantic`` and reported idle while ``Semantic-Nodes`` still had pending/in-progress
+    work (caught live, 2026-09-24 queue sample: Semantic 0/0, Semantic-Nodes 9/1).
+    ``idle`` is ``None``, not ``True``, when any checked row's shape is unrecognised —
+    an unreadable row is never assumed idle.
+    """
     result = _request(
         prod_base_url,
         "GET",
@@ -154,14 +187,40 @@ def prod_semantic_queue_idle(
     status_text = (
         (result or {}).get("components", {}).get("queue", {}).get("status", "")
     )
-    # Parses the fixed-width table's "Semantic" row's Pending/In Progress columns.
-    for line in status_text.splitlines():
-        cells = [c.strip() for c in line.strip("|").split("|")]
-        if cells and cells[0] == "Semantic" and len(cells) >= 3:
-            pending, in_progress = cells[1], cells[2]
-            idle = pending == "0" and in_progress == "0"
-            return idle, status_text
-    return None, status_text  # queue table shape unrecognised; caller decides
+    rows = {name: _queue_row(status_text, name) for name in _QUEUE_ROWS_TO_CHECK}
+    if any(row is None for row in rows.values()):
+        return None, status_text  # queue table shape unrecognised; caller decides
+    idle = all(
+        pending == "0" and in_progress == "0" for pending, in_progress in rows.values()
+    )
+    return idle, status_text
+
+
+def preflight_prod_queue(
+    prod_base_url,
+    api_key,
+    account="default",
+    user="ov-replay-queue-check",
+    timeout=DEFAULT_TIMEOUT,
+):
+    """Fail-closed gate: raise ``ProdBusyError`` unless prod's Semantic and
+    Semantic-Nodes queues are both confirmed idle. Any error reading prod — a network
+    failure, an auth error, an unrecognised table shape — counts as busy; this runs
+    before every ov-test write in both ``--self-test`` and ``--replay``.
+    """
+    try:
+        idle, status_text = prod_semantic_queue_idle(
+            prod_base_url, api_key, account=account, user=user, timeout=timeout
+        )
+    except ReplayError as exc:
+        raise ProdBusyError(
+            f"could not read prod's queue status at {prod_base_url}; treating as busy: {exc}"
+        ) from exc
+    if idle is not True:
+        raise ProdBusyError(
+            f"prod's Semantic/Semantic-Nodes queue is not confirmed idle at "
+            f"{prod_base_url}:\n{status_text}"
+        )
 
 
 def _fresh_user(prefix="ov-replay"):
@@ -329,11 +388,20 @@ def _diff_operations(diff):
 def self_test(
     base_url,
     api_key,
+    prod_base_url,
     account="default",
+    prod_account="default",
+    prod_user="ov-replay-queue-check",
     timeout=DEFAULT_TIMEOUT,
     extraction_timeout=DEFAULT_EXTRACTION_TIMEOUT,
 ):
-    """Refuse a non-ov-test target, then round-trip one synthetic session on ov-test."""
+    """Preflight prod's queue, refuse a non-ov-test target, then round-trip one
+    synthetic session on ov-test. `prod_base_url` is required: self-test's commit
+    extracts on the same shared VLM as prod, so it is gated exactly like `--replay`.
+    """
+    preflight_prod_queue(
+        prod_base_url, api_key, account=prod_account, user=prod_user, timeout=timeout
+    )
     verify_ov_test_identity(base_url, api_key, account=account, timeout=timeout)
     user = _fresh_user("ov-replay-selftest")
     session_id = create_session(base_url, api_key, account, user, timeout=timeout)
@@ -453,8 +521,11 @@ def replay_archive(
 ):
     """UNVERIFIED end to end as of 2026-09-27 — see the module docstring. Reads from
     `prod_base_url` only; every write goes to `base_url_test`, whose identity is
-    verified first.
+    verified first, after prod's queue is confirmed idle.
     """
+    preflight_prod_queue(
+        prod_base_url, api_key, account=prod_account, user=prod_user, timeout=timeout
+    )
     verify_ov_test_identity(base_url_test, api_key, account=account, timeout=timeout)
     messages = read_production_messages(
         prod_base_url,
@@ -559,7 +630,12 @@ def parse_args(argv=None):
     )
     parser.add_argument(
         "--prod-base-url",
-        help="Required with --replay: prod port-forward base URL, read-only.",
+        required=True,
+        help=(
+            "Prod port-forward base URL, read-only. Required for both modes: the "
+            "fail-closed preflight checks prod's queue before any ov-test write, "
+            "since a self-test commit extracts on the same shared VLM as a replay."
+        ),
     )
     parser.add_argument("--prod-account", default="default")
     parser.add_argument("--prod-user", default="noot-pilot")
@@ -574,8 +650,8 @@ def parse_args(argv=None):
     args = parser.parse_args(argv)
     if not args.api_key:
         parser.error("--api-key or OPENVIKING_API_KEY is required")
-    if args.replay and (not args.prod_base_url or not args.session_uri):
-        parser.error("--replay requires --prod-base-url and --session-uri")
+    if args.replay and not args.session_uri:
+        parser.error("--replay requires --session-uri")
     return args
 
 
@@ -586,7 +662,10 @@ def main(argv=None):
             receipt = self_test(
                 args.base_url,
                 args.api_key,
+                args.prod_base_url,
                 account=args.account,
+                prod_account=args.prod_account,
+                prod_user=args.prod_user,
                 timeout=args.timeout,
                 extraction_timeout=args.extraction_timeout,
             )
@@ -604,7 +683,7 @@ def main(argv=None):
                 timeout=args.timeout,
                 extraction_timeout=args.extraction_timeout,
             )
-    except (TargetIdentityError, ReplayError) as exc:
+    except (TargetIdentityError, ReplayError, ProdBusyError) as exc:
         print(f"ov-replay-archives: {exc}", file=sys.stderr)
         return 1
 
