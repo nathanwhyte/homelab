@@ -1,0 +1,2 @@
+{"event":"start","launch_id":"20260920T090000Z-1111","ts":"2026-09-20T09:00:00Z","mode":"capture","backend":"ollama:qwen3-coder","cwd":"/home/noot/code/dipdash","toplevel":"/home/noot/code/dipdash","user":"noot","plugin_commit":"aaa1111","dotfiles":"bbb2222","settings_sha":"ccc3333"}
+{"event":"session","launch_id":"20260920T090000Z-1111","ts":"2026-09-20T09:00:01Z","mode":"capture","session_id":"11111111-2222-3333-4444-555555555555","source":"startup","transcript_path":"/scrubbed/transcript.jsonl","cwd":"/home/noot/code/dipdash"}
