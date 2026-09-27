@@ -14,6 +14,7 @@ shape (``start`` + ``session`` events joined by ``launch_id``).
 
 import importlib.util
 import io
+import json
 import os
 import sys
 import unittest
@@ -99,15 +100,45 @@ class IndexLedgerTests(unittest.TestCase):
     def test_start_and_session_rows_join_by_launch_id(self):
         rows = report.parse_ledger_rows(os.path.join(_TESTDATA, "ledger-pop.jsonl"))
         starts, sessions = report.index_ledger(rows)
-        launch = sessions["a5b818a0-c729-4063-abdd-efa1eceb5522"]
-        self.assertEqual(launch, "20260927T184306Z-25126")
-        self.assertEqual(starts[launch]["backend"], "anthropic")
+        entry = sessions["a5b818a0-c729-4063-abdd-efa1eceb5522"]
+        self.assertEqual(entry["launch_id"], "20260927T184306Z-25126")
+        self.assertEqual(entry["ts"], "2026-09-27T18:43:07Z")
+        self.assertEqual(starts[entry["launch_id"]]["backend"], "anthropic")
 
     def test_a_session_row_with_no_start_row_is_indexed_but_unresolvable(self):
-        rows = [{"event": "session", "launch_id": "L", "session_id": "u1"}]
+        rows = [
+            {
+                "event": "session",
+                "launch_id": "L",
+                "session_id": "u1",
+                "ts": "2026-09-27T00:00:00Z",
+            }
+        ]
         starts, sessions = report.index_ledger(rows)
-        self.assertEqual(sessions["u1"], "L")
+        self.assertEqual(
+            sessions["u1"], {"launch_id": "L", "ts": "2026-09-27T00:00:00Z"}
+        )
         self.assertNotIn("L", starts)
+
+    def test_the_earliest_ts_wins_across_resume_and_compact_rows(self):
+        rows = [
+            {
+                "event": "session",
+                "launch_id": "L",
+                "session_id": "u1",
+                "ts": "2026-09-27T10:00:00Z",
+                "source": "resume",
+            },
+            {
+                "event": "session",
+                "launch_id": "L",
+                "session_id": "u1",
+                "ts": "2026-09-27T08:00:00Z",
+                "source": "startup",
+            },
+        ]
+        _, sessions = report.index_ledger(rows)
+        self.assertEqual(sessions["u1"]["ts"], "2026-09-27T08:00:00Z")
 
     def test_rows_without_a_launch_id_are_ignored(self):
         starts, sessions = report.index_ledger(
@@ -125,34 +156,40 @@ class BackendForTests(unittest.TestCase):
             ]
         )
 
-    def test_no_archive_field_is_unknown(self):
-        self.assertEqual(report.backend_for({}, self.ledgers), ("unknown", None))
+    def test_no_archive_is_unknown(self):
+        self.assertEqual(report.backend_for(None, self.ledgers), ("unknown", None))
 
     def test_a_matching_parent_session_resolves_through_pop(self):
-        rec = {
-            "archive": "viking://user/noot-pilot/sessions/cc-a5b818a0-c729-4063-abdd-efa1eceb5522/history/archive_003"
-        }
-        self.assertEqual(report.backend_for(rec, self.ledgers), ("anthropic", "pop"))
+        archive = "viking://user/noot-pilot/sessions/cc-a5b818a0-c729-4063-abdd-efa1eceb5522/history/archive_003"
+        self.assertEqual(
+            report.backend_for(archive, self.ledgers), ("anthropic", "pop")
+        )
 
     def test_a_matching_subagent_resolves_through_its_parents_launch(self):
-        rec = {
-            "archive": "viking://user/noot-pilot/sessions/cc-a5b818a0-c729-4063-abdd-efa1eceb5522__subagent-77aa/history/archive_001"
-        }
-        self.assertEqual(report.backend_for(rec, self.ledgers), ("anthropic", "pop"))
+        archive = "viking://user/noot-pilot/sessions/cc-a5b818a0-c729-4063-abdd-efa1eceb5522__subagent-77aa/history/archive_001"
+        self.assertEqual(
+            report.backend_for(archive, self.ledgers), ("anthropic", "pop")
+        )
 
     def test_a_workbook_session_resolves_through_workbook(self):
-        rec = {
-            "archive": "viking://user/noot-pilot-lab/sessions/cc-11111111-2222-3333-4444-555555555555/history/archive_001"
-        }
+        archive = "viking://user/noot-pilot-lab/sessions/cc-11111111-2222-3333-4444-555555555555/history/archive_001"
         self.assertEqual(
-            report.backend_for(rec, self.ledgers), ("ollama:qwen3-coder", "workbook")
+            report.backend_for(archive, self.ledgers),
+            ("ollama:qwen3-coder", "workbook"),
         )
 
     def test_an_unmatched_session_is_unknown_not_dropped(self):
-        rec = {
-            "archive": "viking://user/noot-pilot/sessions/cc-99999999-0000-1111-2222-333344445555/history/archive_002"
-        }
-        self.assertEqual(report.backend_for(rec, self.ledgers), ("unknown", None))
+        archive = "viking://user/noot-pilot/sessions/cc-99999999-0000-1111-2222-333344445555/history/archive_002"
+        self.assertEqual(report.backend_for(archive, self.ledgers), ("unknown", None))
+
+
+class UserForBackendTests(unittest.TestCase):
+    def test_ollama_backend_is_lab(self):
+        self.assertEqual(report.user_for_backend("ollama:qwen3-coder"), report.LAB_USER)
+
+    def test_anthropic_and_unknown_backend_is_pilot(self):
+        self.assertEqual(report.user_for_backend("anthropic"), report.PILOT_USER)
+        self.assertEqual(report.user_for_backend(None), report.PILOT_USER)
 
 
 class SampleFixtureReportTests(unittest.TestCase):
@@ -238,6 +275,279 @@ class MainCliTests(unittest.TestCase):
     def test_bad_ledger_spec_is_rejected(self):
         with self.assertRaises(ValueError):
             report.load_ledgers(["not-a-valid-spec"])
+
+
+_ARCHIVE_TREE = os.path.join(_TESTDATA, "archive-tree")
+
+
+class ParseTsTests(unittest.TestCase):
+    def test_z_suffix_and_offset_suffix_both_parse(self):
+        self.assertIsNotNone(report._parse_ts("2026-09-27T18:43:07Z"))
+        self.assertIsNotNone(report._parse_ts("2026-09-27T19:00:00.000000+00:00"))
+
+    def test_none_and_garbage_are_none(self):
+        self.assertIsNone(report._parse_ts(None))
+        self.assertIsNone(report._parse_ts("not a timestamp"))
+
+
+class CandidateSessionsTests(unittest.TestCase):
+    def setUp(self):
+        self.ledgers = report.load_ledgers(
+            [
+                f"pop={os.path.join(_TESTDATA, 'ledger-pop.jsonl')}",
+                f"workbook={os.path.join(_TESTDATA, 'ledger-workbook.jsonl')}",
+            ]
+        )
+
+    def test_no_created_at_min_yields_no_candidates(self):
+        self.assertEqual(report._candidate_sessions(self.ledgers, None, 3600), [])
+
+    def test_a_session_starting_after_the_turn_is_excluded(self):
+        # pop's session ts is 2026-09-27T18:43:07Z; a turn before that has no eligible
+        # candidate from pop's ledger.
+        candidates = report._candidate_sessions(
+            self.ledgers, "2026-09-27T18:00:00+00:00", 3600
+        )
+        self.assertNotIn(
+            "a5b818a0-c729-4063-abdd-efa1eceb5522", [c[1] for c in candidates]
+        )
+
+    def test_closest_preceding_session_sorts_first(self):
+        candidates = report._candidate_sessions(
+            self.ledgers, "2026-09-27T19:10:00+00:00", 365 * 24 * 3600
+        )
+        # workbook's session (2026-09-20) is also eligible with a generous slack, but
+        # pop's (2026-09-27T18:43:07Z) is closer to the turn and must sort first.
+        self.assertEqual(candidates[0][1], "a5b818a0-c729-4063-abdd-efa1eceb5522")
+
+    def test_slack_window_excludes_a_too_distant_session(self):
+        candidates = report._candidate_sessions(
+            self.ledgers, "2026-09-27T19:10:00+00:00", 3600
+        )
+        uuids = [c[1] for c in candidates]
+        self.assertIn("a5b818a0-c729-4063-abdd-efa1eceb5522", uuids)
+        self.assertNotIn("11111111-2222-3333-4444-555555555555", uuids)
+
+
+class LocalTreeReaderTests(unittest.TestCase):
+    def setUp(self):
+        self.reader = report.LocalTreeReader(_ARCHIVE_TREE)
+
+    def test_list_sessions(self):
+        self.assertEqual(
+            sorted(self.reader.list_sessions("noot-pilot")),
+            [
+                "cc-a5b818a0-c729-4063-abdd-efa1eceb5522",
+                "cc-a5b818a0-c729-4063-abdd-efa1eceb5522__subagent-77aa",
+            ],
+        )
+
+    def test_list_sessions_for_an_unknown_user_is_empty(self):
+        self.assertEqual(self.reader.list_sessions("nobody"), [])
+
+    def test_list_archives(self):
+        self.assertEqual(
+            self.reader.list_archives(
+                "noot-pilot", "cc-a5b818a0-c729-4063-abdd-efa1eceb5522"
+            ),
+            ["archive_001"],
+        )
+
+    def test_read_messages(self):
+        messages = self.reader.read_messages(
+            "noot-pilot", "cc-a5b818a0-c729-4063-abdd-efa1eceb5522", "archive_001"
+        )
+        self.assertEqual([m["id"] for m in messages], ["msg_p1_u0", "msg_p1_a1"])
+
+    def test_read_messages_missing_archive_is_none(self):
+        self.assertIsNone(
+            self.reader.read_messages("noot-pilot", "cc-missing", "archive_001")
+        )
+
+    def test_reads_are_cached(self):
+        key = ("noot-pilot", "cc-a5b818a0-c729-4063-abdd-efa1eceb5522", "archive_001")
+        first = self.reader.read_messages(*key)
+        self.reader._read_cache[key].append({"id": "injected"})
+        second = self.reader.read_messages(*key)
+        self.assertIs(first, second)
+
+
+class ResolveArchiveTests(unittest.TestCase):
+    def setUp(self):
+        self.ledgers = report.load_ledgers(
+            [
+                f"pop={os.path.join(_TESTDATA, 'ledger-pop.jsonl')}",
+                f"workbook={os.path.join(_TESTDATA, 'ledger-workbook.jsonl')}",
+            ]
+        )
+        self.reader = report.LocalTreeReader(_ARCHIVE_TREE)
+
+    def test_resolves_a_parent_session_turn(self):
+        rec = {
+            "first_message_id": "msg_p1_u0",
+            "created_at_min": "2026-09-27T19:00:00.000000+00:00",
+        }
+        self.assertEqual(
+            report.resolve_archive(rec, self.ledgers, self.reader),
+            "viking://user/noot-pilot/sessions/cc-a5b818a0-c729-4063-abdd-efa1eceb5522/history/archive_001",
+        )
+
+    def test_resolves_a_subagent_turn_through_its_parents_launch(self):
+        rec = {
+            "first_message_id": "msg_sub_u0",
+            "created_at_min": "2026-09-27T19:05:00.000000+00:00",
+        }
+        self.assertEqual(
+            report.resolve_archive(rec, self.ledgers, self.reader),
+            "viking://user/noot-pilot/sessions/cc-a5b818a0-c729-4063-abdd-efa1eceb5522__subagent-77aa/history/archive_001",
+        )
+
+    def test_resolves_a_lab_session_turn_through_the_workbook_ledger(self):
+        rec = {
+            "first_message_id": "msg_lab_u0",
+            "created_at_min": "2026-09-20T09:30:00.000000+00:00",
+        }
+        self.assertEqual(
+            report.resolve_archive(rec, self.ledgers, self.reader),
+            "viking://user/noot-pilot-lab/sessions/cc-11111111-2222-3333-4444-555555555555/history/archive_001",
+        )
+
+    def test_an_id_in_no_archive_is_unresolved(self):
+        rec = {
+            "first_message_id": "msg_nowhere",
+            "created_at_min": "2026-09-27T19:10:00.000000+00:00",
+        }
+        self.assertIsNone(report.resolve_archive(rec, self.ledgers, self.reader))
+
+    def test_no_created_at_min_is_unresolved(self):
+        self.assertIsNone(
+            report.resolve_archive(
+                {"first_message_id": "msg_p1_u0"}, self.ledgers, self.reader
+            )
+        )
+
+    def test_no_first_message_id_is_unresolved(self):
+        rec = {"created_at_min": "2026-09-27T19:00:00.000000+00:00"}
+        self.assertIsNone(report.resolve_archive(rec, self.ledgers, self.reader))
+
+
+class BuildReportWithReaderTests(unittest.TestCase):
+    """End to end: records with no explicit `archive` field resolve through the reader."""
+
+    def setUp(self):
+        self.ledgers = report.load_ledgers(
+            [
+                f"pop={os.path.join(_TESTDATA, 'ledger-pop.jsonl')}",
+                f"workbook={os.path.join(_TESTDATA, 'ledger-workbook.jsonl')}",
+            ]
+        )
+        self.reader = report.LocalTreeReader(_ARCHIVE_TREE)
+
+    def test_a_record_with_no_archive_field_resolves_backend_via_the_reader(self):
+        records = [
+            {
+                "verdict": "strip",
+                "first_message_id": "msg_p1_u0",
+                "last_message_id": "msg_p1_a1",
+                "created_at_min": "2026-09-27T19:00:00.000000+00:00",
+                "created_at_max": "2026-09-27T19:00:05.000000+00:00",
+            }
+        ]
+        rep = report.build_report(records, self.ledgers, reader=self.reader)
+        self.assertEqual(rep["rows"][0]["backend"], "anthropic")
+        self.assertEqual(rep["rows"][0]["machine"], "pop")
+        self.assertEqual(rep["rows"][0]["lab_or_pilot"], "pilot")
+
+    def test_an_unresolvable_record_still_reports_unknown_not_dropped(self):
+        records = [
+            {
+                "verdict": "strip",
+                "first_message_id": "msg_nowhere",
+                "created_at_min": "2026-09-27T19:10:00.000000+00:00",
+            }
+        ]
+        rep = report.build_report(records, self.ledgers, reader=self.reader)
+        self.assertEqual(rep["rows"][0]["backend"], "unknown")
+        self.assertEqual(len(rep["rows"]), 1)
+
+    def test_without_a_reader_records_with_no_archive_field_stay_unknown(self):
+        records = [
+            {
+                "verdict": "strip",
+                "first_message_id": "msg_p1_u0",
+                "created_at_min": "2026-09-27T19:00:00.000000+00:00",
+            }
+        ]
+        rep = report.build_report(records, self.ledgers, reader=None)
+        self.assertEqual(rep["rows"][0]["backend"], "unknown")
+
+
+class _Completed:
+    def __init__(self, stdout):
+        self.stdout = stdout
+
+
+class OvCliReaderTests(unittest.TestCase):
+    """``subprocess`` is faked; the argv shapes and the ``ov read -o json`` envelope
+    match a real read-only invocation (2026-09-28, against real prod session data —
+    see the module docstring)."""
+
+    def _fake_run(self, matcher, result):
+        calls = []
+
+        def run(argv, capture_output=True, text=True, timeout=None):
+            calls.append(argv)
+            if matcher(argv):
+                return result
+            raise AssertionError(f"unexpected ov invocation: {argv}")
+
+        run.calls = calls
+        return run
+
+    def test_list_sessions_parses_simple_paths(self):
+        # Regression: an earlier draft omitted --user from `ov ls`, which silently
+        # listed the CLI's default user's (empty) tree instead of raising -- caught
+        # live against real ov-test/prod data, 2026-09-28.
+        stdout = (
+            "cmd: ov ls viking://user/noot-pilot/sessions -l 256 -n 256 -s\n"
+            "viking://user/noot-pilot/sessions/cc-a\n"
+            "viking://user/noot-pilot/sessions/cc-b\n"
+        )
+
+        def matcher(argv):
+            return (
+                argv[:2] == ["ov", "ls"] and "--user" in argv and "noot-pilot" in argv
+            )
+
+        run = self._fake_run(matcher, _Completed(stdout))
+        reader = report.OvCliReader(run=run)
+        self.assertEqual(reader.list_sessions("noot-pilot"), ["cc-a", "cc-b"])
+
+    def test_list_sessions_is_cached_per_user(self):
+        stdout = "viking://user/noot-pilot/sessions/cc-a\n"
+        run = self._fake_run(lambda argv: "--user" in argv, _Completed(stdout))
+        reader = report.OvCliReader(run=run)
+        reader.list_sessions("noot-pilot")
+        reader.list_sessions("noot-pilot")
+        self.assertEqual(len(run.calls), 1)
+        reader.list_sessions("noot-pilot-lab")
+        self.assertEqual(len(run.calls), 2, "a different user must not hit the cache")
+
+    def test_read_messages_parses_the_real_envelope_shape(self):
+        # `ov read <uri> --user <user> -o json` -> {"ok": true, "result": "<raw jsonl>"}
+        raw_jsonl = '{"id": "msg_a", "role": "user", "parts": []}\n'
+        stdout = json.dumps({"ok": True, "result": raw_jsonl})
+        run = self._fake_run(
+            lambda argv: argv[1] == "read" and "--user" in argv, _Completed(stdout)
+        )
+        reader = report.OvCliReader(run=run)
+        messages = reader.read_messages("noot-pilot", "cc-a", "archive_001")
+        self.assertEqual(messages, [{"id": "msg_a", "role": "user", "parts": []}])
+
+    def test_unparseable_output_is_none_not_a_crash(self):
+        run = self._fake_run(lambda argv: True, _Completed("not json"))
+        reader = report.OvCliReader(run=run)
+        self.assertIsNone(reader.read_messages("noot-pilot", "cc-a", "archive_001"))
 
 
 if __name__ == "__main__":

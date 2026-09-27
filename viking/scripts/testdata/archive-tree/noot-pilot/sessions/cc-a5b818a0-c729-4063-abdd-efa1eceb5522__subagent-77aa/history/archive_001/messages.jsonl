@@ -1,0 +1,2 @@
+{"id": "msg_sub_u0", "role": "user", "parts": [{"type": "text", "text": "subagent: check the config"}], "created_at": "2026-09-27T19:05:00.000000+00:00", "peer_id": "p"}
+{"id": "msg_sub_a1", "role": "assistant", "parts": [{"type": "text", "text": "config looks fine"}], "created_at": "2026-09-27T19:05:03.000000+00:00", "peer_id": "p"}

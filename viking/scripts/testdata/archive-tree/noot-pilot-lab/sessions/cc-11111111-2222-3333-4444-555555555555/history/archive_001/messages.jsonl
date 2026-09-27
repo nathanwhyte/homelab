@@ -1,0 +1,2 @@
+{"id": "msg_lab_u0", "role": "user", "parts": [{"type": "text", "text": "lab: what did the qwen model produce?"}], "created_at": "2026-09-20T09:30:00.000000+00:00", "peer_id": "p"}
+{"id": "msg_lab_a1", "role": "assistant", "parts": [{"type": "text", "text": "it produced a draft patch"}], "created_at": "2026-09-20T09:30:04.000000+00:00", "peer_id": "p"}
