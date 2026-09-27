@@ -433,6 +433,20 @@ else
 	bad "spin-down wait should return once the pods are gone"
 fi
 
+# A sibling Deployment whose name shares the prefix — the cluster runs
+# openviking-test and ov-vectordb-test beside the real pair — must not be
+# mistaken for the target, or the wait blocks on pods it does not own.
+cat >"$STUB_PODS" <<'JSON'
+{"items":[
+  {"metadata":{"namespace":"viking","name":"openviking-test-5d946b994-wbkrj","ownerReferences":[{"kind":"ReplicaSet","name":"openviking-test-5d946b994"}]},"spec":{"containers":[]}}
+]}
+JSON
+if watched 20 'SPIN_DOWN_TIMEOUT_SECONDS=10 wait_for_spin_down_pods_gone' >/dev/null 2>&1; then
+	ok "spin-down wait ignores a sibling deployment sharing the name prefix"
+else
+	bad "spin-down wait blocked on a sibling deployment's pods"
+fi
+
 # Still terminating: the wait must keep polling to its deadline and then warn.
 # This is what a stub that returns immediately, or ignores the configured
 # timeout, cannot satisfy.

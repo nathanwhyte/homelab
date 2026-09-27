@@ -599,8 +599,11 @@ wait_for_spin_down_pods_gone() {
 			name=${svc#*/}
 			# A Deployment's pods are owned by a ReplicaSet named
 			# "<deployment>-<podtemplatehash>", so the name prefix identifies them
-			# without a second round trip for the selector. No phase or
-			# deletionTimestamp filter — terminating pods are what this waits for.
+			# without a second round trip for the selector. The remainder must be a
+			# bare hash — no further dash — or a sibling like "openviking-test"
+			# would match "openviking" and this would wait on an unrelated
+			# Deployment's pods. No phase or deletionTimestamp filter: terminating
+			# pods are exactly what this waits for.
 			if [[ -n $TIMEOUT_BIN ]]; then
 				pods=$("$TIMEOUT_BIN" "$budget" "$KUBECTL" get pods -n "$ns" -o json --request-timeout="${budget}s" 2>/dev/null) || pods=""
 			else
@@ -608,7 +611,9 @@ wait_for_spin_down_pods_gone() {
 			fi
 			remaining=$(printf '%s' "$pods" | jq -r --arg d "$name" '
 				[.items[] | select((.metadata.ownerReferences // [])
-					| any(.kind == "ReplicaSet" and (.name | startswith($d + "-"))))] | length' 2>/dev/null) || remaining=""
+					| any(.kind == "ReplicaSet"
+						and (.name | startswith($d + "-"))
+						and ((.name | ltrimstr($d + "-")) | test("^[^-]+$"))))] | length' 2>/dev/null) || remaining=""
 			# Unreadable or unparseable counts as pending: the safe side here is
 			# to keep waiting, not to declare the pods gone.
 			if [[ -z $remaining || $remaining != 0 ]]; then
