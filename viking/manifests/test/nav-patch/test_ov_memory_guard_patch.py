@@ -11,10 +11,12 @@ and read a summary back through the real ``MemoryFileUtils``.
 import asyncio
 import dataclasses
 import importlib.util
+import json
 import os
 import sys
 import types
 import unittest
+from unittest import mock
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -673,6 +675,398 @@ class EchoMessageTests(unittest.TestCase):
             self.assertIs(mg.strip_recall_message(msg, FakeText), msg)
 
 
+@dataclasses.dataclass
+class ShadowMessage(FakeMessage):
+    turn_id: object = None
+    message_kind: object = None
+
+
+@dataclasses.dataclass
+class ShadowToolPart:
+    tool_name: str
+    tool_input: dict = dataclasses.field(default_factory=dict)
+    tool_status: str = "success"
+
+
+def umsg(mid, text_="hi", turn_id=None, message_kind=None):
+    return ShadowMessage(mid, "user", [FakeText(text_)], turn_id, message_kind)
+
+
+def amsg(mid, parts, turn_id=None):
+    return ShadowMessage(mid, "assistant", list(parts), turn_id)
+
+
+def tpart(name, tool_input=None, status="success"):
+    return ShadowToolPart(name, tool_input or {}, status)
+
+
+class ClassifyToolTests(unittest.TestCase):
+    def test_ov_memory_read_tools(self):
+        for verb in ("read", "search", "find", "list", "tree", "grep", "glob"):
+            name = f"mcp__plugin_openviking-memory_openviking__{verb}"
+            self.assertEqual(mg.classify_tool(tpart(name)), "ov_read", name)
+
+    def test_ov_memory_write_tools_are_mutating(self):
+        for verb in ("write", "edit", "remember", "forget", "add_resource"):
+            name = f"mcp__plugin_openviking-memory_openviking__{verb}"
+            self.assertEqual(mg.classify_tool(tpart(name)), "mutating", name)
+
+    def test_ov_read_over_resources_only_is_read_only(self):
+        part = tpart(
+            "mcp__plugin_openviking-memory_openviking__read",
+            {"uris": ["viking://resources/compendium/tasks/a.md"]},
+        )
+        self.assertEqual(mg.classify_tool(part), "read_only")
+
+    def test_ov_read_with_a_mixed_target_list_is_still_a_memory_read(self):
+        part = tpart(
+            "mcp__plugin_openviking-memory_openviking__read",
+            {
+                "uris": [
+                    "viking://resources/x.md",
+                    "viking://user/u/memories/events/2026/09/24/x.md",
+                ]
+            },
+        )
+        self.assertEqual(mg.classify_tool(part), "ov_read")
+
+    def test_ov_read_with_no_explicit_target_counts_as_a_memory_read(self):
+        part = tpart(
+            "mcp__plugin_openviking-memory_openviking__search", {"query": "kinde"}
+        )
+        self.assertEqual(mg.classify_tool(part), "ov_read")
+
+    def test_read_only_tools(self):
+        for name in ("ToolSearch", "Read", "Glob", "Grep", "LS"):
+            self.assertEqual(mg.classify_tool(tpart(name)), "read_only", name)
+
+    def test_context_mode_search_and_index_are_read_only(self):
+        for name in (
+            "mcp__plugin_context-mode_context-mode__ctx_search",
+            "mcp__plugin_context-mode_context-mode__ctx_index",
+        ):
+            self.assertEqual(mg.classify_tool(tpart(name)), "read_only", name)
+
+    def test_context_mode_execution_tools_are_unknown(self):
+        # ctx_execute*/ctx_batch_execute can run anything, same as Bash.
+        for name in (
+            "mcp__plugin_context-mode_context-mode__ctx_execute",
+            "mcp__plugin_context-mode_context-mode__ctx_execute_file",
+            "mcp__plugin_context-mode_context-mode__ctx_batch_execute",
+        ):
+            self.assertEqual(mg.classify_tool(tpart(name)), "unknown", name)
+
+    def test_mutating_tools(self):
+        for name in ("Edit", "Write", "NotebookEdit", "MultiEdit", "Artifact"):
+            self.assertEqual(mg.classify_tool(tpart(name)), "mutating", name)
+
+    def test_an_mcp_tool_named_by_its_verb_is_mutating(self):
+        for name in (
+            "mcp__plugin_slack_slack__send_message",
+            "mcp__plugin_jira_jira__create_issue",
+            "mcp__plugin_x_x__publish_post",
+        ):
+            self.assertEqual(mg.classify_tool(tpart(name)), "mutating", name)
+
+    def test_bash_and_unlisted_tools_are_unknown(self):
+        for name in ("Bash", "SomeFutureTool"):
+            self.assertEqual(mg.classify_tool(tpart(name)), "unknown", name)
+
+    def test_malformed_tool_input_does_not_raise(self):
+        for bad_input in (None, "not a dict", 5, ["a", "list"]):
+            part = tpart("mcp__plugin_openviking-memory_openviking__read", bad_input)
+            self.assertEqual(mg.classify_tool(part), "ov_read")
+
+
+class SegmentTurnsTests(unittest.TestCase):
+    def test_empty_message_list(self):
+        self.assertEqual(mg.segment_turns([]), ([], "text"))
+
+    def test_text_boundaries_without_turn_id(self):
+        msgs = [umsg("u0"), amsg("a1", [FakeText("hello")]), umsg("u2", "next")]
+        ranges, mode = mg.segment_turns(msgs)
+        self.assertEqual(mode, "text")
+        self.assertEqual(ranges, [range(2), range(2, 3)])
+
+    def test_tool_only_user_transport_message_does_not_split_a_turn(self):
+        msgs = [
+            umsg("u0"),
+            amsg("a1", [tpart("Read")]),
+            ShadowMessage("u2", "user", [tpart("Bash")]),  # tool-only, no text part
+            amsg("a3", [FakeText("done")]),
+        ]
+        ranges, mode = mg.segment_turns(msgs)
+        self.assertEqual(ranges, [range(4)])
+        self.assertEqual(mode, "text")
+
+    def test_checkpoint_text_does_not_start_a_turn(self):
+        msgs = [
+            umsg("u0"),
+            amsg("a1", [FakeText("hello")]),
+            umsg("u2", "compacted", message_kind="checkpoint"),
+            amsg("a3", [FakeText("ok")]),
+        ]
+        ranges, _ = mg.segment_turns(msgs)
+        self.assertEqual(ranges, [range(4)])
+
+    def test_turn_id_used_when_every_message_carries_one(self):
+        msgs = [
+            umsg("u0", turn_id="t1"),
+            amsg("a1", [FakeText("hello")], turn_id="t1"),
+            umsg("u2", "next", turn_id="t2"),
+        ]
+        ranges, mode = mg.segment_turns(msgs)
+        self.assertEqual(mode, "turn_id")
+        self.assertEqual(ranges, [range(2), range(2, 3)])
+
+    def test_a_partial_turn_id_falls_back_to_text_boundaries_as_mixed(self):
+        msgs = [
+            umsg("u0", turn_id="t1"),
+            amsg("a1", [FakeText("hello")]),  # no turn_id
+            umsg("u2", "next", turn_id="t2"),
+        ]
+        ranges, mode = mg.segment_turns(msgs)
+        self.assertEqual(mode, "mixed")
+        self.assertEqual(ranges, [range(2), range(2, 3)])
+
+    def test_a_turn_starting_mid_list_has_no_leading_user_text(self):
+        msgs = [
+            amsg("a0", [FakeText("orphaned reply")]),
+            umsg("u1"),
+            amsg("a2", [FakeText("ok")]),
+        ]
+        ranges, _ = mg.segment_turns(msgs)
+        self.assertEqual(ranges, [range(1), range(1, 3)])
+        self.assertFalse(mg._is_turn_boundary(msgs[ranges[0].start]))
+        self.assertTrue(mg._is_turn_boundary(msgs[ranges[1].start]))
+
+
+class RecallShadowTests(unittest.TestCase):
+    def _turn(self, *assistant_parts):
+        return [umsg("u0", "what did we look at?"), amsg("a1", assistant_parts)]
+
+    def test_ov_read_then_an_answer_is_strip(self):
+        msgs = self._turn(
+            tpart("mcp__plugin_openviking-memory_openviking__read"),
+            FakeText("Here it is."),
+        )
+        recs = mg.shadow_classify(msgs)
+        self.assertEqual(len(recs), 1)
+        self.assertEqual(recs[0]["verdict"], "strip")
+        self.assertEqual(
+            recs[0]["ov_tools"], ["mcp__plugin_openviking-memory_openviking__read"]
+        )
+
+    def test_read_search_bash_answer_is_keep_ambiguous(self):
+        # The a71c8501 shape (BUG-1180): Bash is unknown, not neutral-read-only.
+        msgs = self._turn(
+            tpart("mcp__plugin_openviking-memory_openviking__read"),
+            tpart("mcp__plugin_openviking-memory_openviking__search"),
+            tpart("Bash", {"command": "rg kinde"}),
+            FakeText("Here it is."),
+        )
+        recs = mg.shadow_classify(msgs)
+        self.assertEqual(recs[0]["verdict"], "keep-ambiguous")
+        self.assertEqual(recs[0]["bash_first_tokens"], ["rg"])
+        self.assertEqual(recs[0]["other_tools"], ["unknown"])
+
+    def test_read_then_edit_is_keep_mixed(self):
+        msgs = self._turn(
+            tpart("mcp__plugin_openviking-memory_openviking__read"),
+            tpart("Edit"),
+            FakeText("done"),
+        )
+        self.assertEqual(mg.shadow_classify(msgs)[0]["verdict"], "keep-mixed")
+
+    def test_read_then_an_ov_write_is_keep_mixed(self):
+        msgs = self._turn(
+            tpart("mcp__plugin_openviking-memory_openviking__read"),
+            tpart("mcp__plugin_openviking-memory_openviking__write"),
+        )
+        self.assertEqual(mg.shadow_classify(msgs)[0]["verdict"], "keep-mixed")
+
+    def test_read_then_artifact_is_keep_mixed(self):
+        msgs = self._turn(
+            tpart("mcp__plugin_openviking-memory_openviking__read"), tpart("Artifact")
+        )
+        self.assertEqual(mg.shadow_classify(msgs)[0]["verdict"], "keep-mixed")
+
+    def test_read_with_tool_status_error_is_keep_ambiguous(self):
+        msgs = self._turn(
+            tpart("mcp__plugin_openviking-memory_openviking__read", status="error"),
+            FakeText("sorry, that failed"),
+        )
+        recs = mg.shadow_classify(msgs)
+        self.assertEqual(recs[0]["verdict"], "keep-ambiguous")
+        self.assertTrue(recs[0]["errored"])
+
+    def test_resources_only_reads_produce_no_record(self):
+        msgs = self._turn(
+            tpart(
+                "mcp__plugin_openviking-memory_openviking__read",
+                {"uris": ["viking://resources/compendium/tasks/a.md"]},
+            ),
+            FakeText("Here it is."),
+        )
+        self.assertEqual(mg.shadow_classify(msgs), [])
+
+    def test_a_turn_with_no_ov_read_produces_no_record(self):
+        msgs = self._turn(tpart("Bash", {"command": "ls"}), FakeText("done"))
+        self.assertEqual(mg.shadow_classify(msgs), [])
+
+    def test_text_before_and_after_the_last_ov_read_are_split(self):
+        msgs = self._turn(
+            FakeText("thinking"),
+            tpart("mcp__plugin_openviking-memory_openviking__read"),
+            FakeText("answer"),
+        )
+        rec = mg.shadow_classify(msgs)[0]
+        self.assertEqual(rec["assistant_chars_before"], len("thinking"))
+        self.assertEqual(rec["assistant_chars_after"], len("answer"))
+        self.assertEqual(rec["assistant_text_hashes_before"], [mg._hash12("thinking")])
+        self.assertEqual(rec["assistant_text_hashes_after"], [mg._hash12("answer")])
+
+    def test_only_text_after_the_last_of_two_ov_reads_counts_as_after(self):
+        msgs = self._turn(
+            tpart("mcp__plugin_openviking-memory_openviking__read"),
+            FakeText("middle"),
+            tpart("mcp__plugin_openviking-memory_openviking__search"),
+            FakeText("final"),
+        )
+        rec = mg.shadow_classify(msgs)[0]
+        self.assertEqual(rec["assistant_chars_before"], len("middle"))
+        self.assertEqual(rec["assistant_chars_after"], len("final"))
+
+    def test_record_never_carries_message_text(self):
+        msgs = self._turn(
+            tpart("mcp__plugin_openviking-memory_openviking__read"),
+            FakeText("a very identifiable secret sentence"),
+        )
+        rec = mg.shadow_classify(msgs)[0]
+        blob = json.dumps(rec)
+        self.assertNotIn("secret", blob)
+        self.assertNotIn("identifiable", blob)
+
+    def test_record_carries_message_ids_and_partial_flag(self):
+        msgs = self._turn(tpart("mcp__plugin_openviking-memory_openviking__read"))
+        rec = mg.shadow_classify(msgs)[0]
+        self.assertEqual(
+            (rec["first_message_id"], rec["last_message_id"]), ("u0", "a1")
+        )
+        self.assertFalse(rec["partial"])
+
+    def test_a_partial_turn_is_flagged(self):
+        msgs = [amsg("a0", [tpart("mcp__plugin_openviking-memory_openviking__read")])]
+        rec = mg.shadow_classify(msgs)[0]
+        self.assertTrue(rec["partial"])
+
+    def test_shadow_classify_never_mutates_messages(self):
+        msgs = self._turn(
+            tpart("mcp__plugin_openviking-memory_openviking__read"),
+            FakeText("Here it is."),
+        )
+        before = [dataclasses.replace(m) for m in msgs]
+        mg.shadow_classify(msgs)
+        self.assertEqual(msgs, before)
+
+
+class ShadowWrapperTests(unittest.TestCase):
+    def _module(self):
+        return types.SimpleNamespace(TextPart=FakeText)
+
+    def test_invariance_message_list_identical_shadow_on_and_off(self):
+        seen = []
+
+        def orig(self, messages, chunk_meta, *, split_long_text_messages=True):
+            seen.append(messages)
+
+        wrapped = mg.wrap_extract_init(self._module(), orig)
+        msgs = [
+            umsg("u0", PASTE),
+            amsg(
+                "a1",
+                [
+                    tpart("mcp__plugin_openviking-memory_openviking__read"),
+                    FakeText("hi"),
+                ],
+            ),
+        ]
+        os.environ.pop("OV_RECALL_SHADOW", None)
+        wrapped(object(), list(msgs))
+        os.environ["OV_RECALL_SHADOW"] = "0"
+        try:
+            wrapped(object(), list(msgs))
+        finally:
+            os.environ.pop("OV_RECALL_SHADOW", None)
+        self.assertEqual(seen[0], seen[1])
+        # the untouched assistant message is the same object both times
+        self.assertIs(seen[0][1], msgs[1])
+        self.assertIs(seen[1][1], msgs[1])
+
+    def test_kill_switch_suppresses_shadow_logging(self):
+        def orig(self, messages, chunk_meta, *, split_long_text_messages=True):
+            return None
+
+        wrapped = mg.wrap_extract_init(self._module(), orig)
+        msgs = [
+            umsg("u0"),
+            amsg(
+                "a1",
+                [
+                    tpart("mcp__plugin_openviking-memory_openviking__read"),
+                    FakeText("ans"),
+                ],
+            ),
+        ]
+        os.environ["OV_RECALL_SHADOW"] = "0"
+        try:
+            with mock.patch.object(mg.logger, "warning") as warn:
+                wrapped(object(), msgs)
+        finally:
+            os.environ.pop("OV_RECALL_SHADOW", None)
+        shadow_calls = [
+            c
+            for c in warn.call_args_list
+            if c.args and str(c.args[0]).startswith("ov-recall-shadow")
+        ]
+        self.assertEqual(shadow_calls, [])
+
+    def test_prechunked_skips_classification_and_logs_once(self):
+        called = []
+
+        def orig(self, messages, chunk_meta, *, split_long_text_messages=True):
+            called.append((messages, chunk_meta))
+
+        wrapped = mg.wrap_extract_init(self._module(), orig)
+        msgs = [umsg("u0")]
+        chunk_meta = object()
+        with (
+            mock.patch.object(mg, "shadow_classify") as classify,
+            mock.patch.object(mg.logger, "warning") as warn,
+        ):
+            wrapped(object(), msgs, chunk_meta)
+        classify.assert_not_called()
+        expected = (
+            "ov-recall-shadow %s",
+            json.dumps({"skipped": "prechunked"}, sort_keys=True),
+        )
+        skip_calls = [c for c in warn.call_args_list if c.args == expected]
+        self.assertEqual(len(skip_calls), 1)
+        self.assertEqual(called, [(msgs, chunk_meta)])
+
+    def test_classifier_failure_leaves_the_stock_call_unchanged(self):
+        seen = []
+
+        def orig(self, messages, chunk_meta, *, split_long_text_messages=True):
+            seen.append(messages)
+
+        wrapped = mg.wrap_extract_init(self._module(), orig)
+        msgs = [umsg("u0"), amsg("a1", [FakeText("ans")])]
+        with mock.patch.object(mg, "shadow_classify", side_effect=RuntimeError("boom")):
+            wrapped(object(), msgs)  # must not raise
+        self.assertEqual(seen, [msgs])
+
+
 try:
     from openviking.session.memory import memory_updater as installed
 except ImportError:  # not in the openviking image
@@ -749,6 +1143,46 @@ class Installed(unittest.TestCase):
         chatlog = ctx.read_message_ranges("0-2").pretty_print()
         self.assertNotIn("kinde-cli_installation", chatlog)
         self.assertIn("merge them", chatlog)
+
+    def test_shadow_classifier_does_not_change_split_messages(self):
+        # IMPR-1188: a long assistant text that stock `_build_extraction_messages`
+        # divides must come out identically whether the shadow classifier ran or not.
+        from openviking.message import Message, ToolPart
+
+        long_text = "answer " * 4000
+
+        def build_messages():
+            return [
+                Message(
+                    id="u0", role="user", parts=[installed.TextPart("what did we do?")]
+                ),
+                Message(
+                    id="a1",
+                    role="assistant",
+                    parts=[
+                        ToolPart(
+                            tool_name="mcp__plugin_openviking-memory_openviking__read",
+                            tool_input={},
+                            tool_status="success",
+                        ),
+                        installed.TextPart(long_text),
+                    ],
+                ),
+            ]
+
+        def shape(ctx):
+            return [
+                (m.id, [getattr(p, "text", None) for p in m.parts])
+                for m in ctx.messages
+            ]
+
+        os.environ["OV_RECALL_SHADOW"] = "0"
+        try:
+            ctx_off = installed.ExtractContext(build_messages())
+        finally:
+            os.environ.pop("OV_RECALL_SHADOW", None)
+        ctx_on = installed.ExtractContext(build_messages())
+        self.assertEqual(shape(ctx_off), shape(ctx_on))
 
 
 if __name__ == "__main__":
