@@ -1,0 +1,2 @@
+{"id": "msg_p1_u0", "role": "user", "parts": [{"type": "text", "text": "what did we decide?"}], "created_at": "2026-09-27T19:00:00.000000+00:00", "peer_id": "p"}
+{"id": "msg_p1_a1", "role": "assistant", "parts": [{"type": "text", "text": "the widget ships in cobalt blue"}], "created_at": "2026-09-27T19:00:05.000000+00:00", "peer_id": "p"}

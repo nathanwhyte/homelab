@@ -59,6 +59,39 @@ line), which is kept. A final plain-prose paragraph inside the block, such as a
 correction typed after the paste, is kept too. ``<openviking-context …>`` blocks are
 removed. Every message keeps its place, so ``ranges`` still line up; assistant turns are
 left alone.
+
+**Recall shadow classifier** (``shadow_classify``, IMPR-1188 Phase 1, ``OV_RECALL_SHADOW=0``).
+Measures, without changing anything, how often a "strip the assistant text of a pure
+recall turn" rule would fire and what it would have thrown away. Runs inside
+``wrap_extract_init`` after the paste pass, on the message list before stock splitting
+(``_build_extraction_messages`` does not preserve ``turn_id``/``message_kind`` on the
+derived messages it produces). It never mutates ``messages``; a classifier that raises is
+caught and logged, and extraction proceeds unaffected either way. For every turn that
+contains an assistant call of an OpenViking memory read tool (``read``, ``search``,
+``find``, ``list``, ``tree``, ``grep``, ``glob``; not a call over ``resources`` targets
+only), one ``ov-recall-shadow`` JSON line is logged at WARNING: the turn's index range,
+``first_message_id``/``last_message_id``/``message_count``/``created_at_min``/
+``created_at_max`` for the turn, every other tool call classified
+``read_only``/``mutating``/``unknown`` (``Bash`` is ``unknown`` — Codex's point that tool
+activity alone does not prove the answer holds only recalled facts), the first token of
+any ``Bash`` command seen, whether any tool call errored, the verdict a strip rule would
+have given (``strip`` only when every other tool is ``read_only`` and nothing errored;
+``keep-mixed`` when a mutating tool ran; ``keep-ambiguous`` otherwise), and the assistant
+text character counts and a 12-hex-character sha256 prefix per text part, split by
+whether the part falls before or after the turn's last OpenViking read. **The record
+never includes message text.** ``ExtractContext.__init__`` is not given an archive or
+session id (neither is any caller in this module) — confirmed by tracing the real
+v0.4.20 commit path, ``session.py``: the archive write (``messages_to_archive`` ->
+``m.to_jsonl()``), the Phase 2 read-back (``_read_archive_messages`` ->
+``archive_messages``, whose own ``first_message_id``/``last_message_id`` OpenViking
+computes the same way, ``archive_messages[0].id``/``[-1].id``), and the id-preserving
+hydration and image-replacement passes before ``SessionExtractContextProvider`` builds
+the ``ExtractContext``. **The join key is the turn's message ids** (2026-09-28 decision):
+a consumer resolves a record to its archive by finding the ``messages.jsonl`` that
+contains ``first_message_id``, not by a session id this hook does not have. With
+``chunk_meta`` given, the pre-chunked path is unaffected (as above) and one
+``{"skipped": "prechunked"}``
+line is logged instead of classifying.
 """
 
 from __future__ import annotations
@@ -68,6 +101,7 @@ import dataclasses
 import functools
 import hashlib
 import inspect
+import json
 import logging
 import os
 import re
@@ -649,6 +683,230 @@ def strip_recall_message(message, text_part_cls):
     return dataclasses.replace(message, parts=new_parts)
 
 
+# --- Recall shadow classifier (IMPR-1188) ------------------------------------------------
+#
+# Labels every recall turn with the verdict a "strip the assistant text" rule would have
+# given, and logs it. `messages` is never mutated; extraction sees exactly what it would
+# without this classifier.
+
+OV_READ = re.compile(
+    r"^mcp__plugin_openviking-memory_openviking__(read|search|find|list|tree|grep|glob)$"
+)
+OV_WRITE = re.compile(
+    r"^mcp__plugin_openviking-memory_openviking__(write|edit|remember|forget|add_resource)$"
+)
+READ_ONLY = frozenset({"ToolSearch", "Read", "Glob", "Grep", "LS"})
+MUTATING = frozenset({"Edit", "Write", "NotebookEdit", "MultiEdit", "Artifact"})
+# context-mode search/index tools: read-only over the FTS5 knowledge base, never the
+# target repo or cluster. ctx_execute*/ctx_batch_execute are deliberately excluded — they
+# can run anything, same as Bash, so they fall through to `unknown`.
+CONTEXT_MODE_READ_ONLY = re.compile(r"__ctx_(search|index)$")
+# An MCP tool whose name says what it does: a create/update/delete/send/write/publish verb.
+MUTATING_KEYWORDS = re.compile(
+    r"create|update|delete|send|write|publish", re.IGNORECASE
+)
+
+
+def _ov_read_targets(tool_input) -> list[str]:
+    if not isinstance(tool_input, dict):
+        return []
+    targets: list[str] = []
+    for key in ("uri", "uris", "path", "paths"):
+        value = tool_input.get(key)
+        if isinstance(value, str):
+            targets.append(value)
+        elif isinstance(value, (list, tuple)):
+            targets.extend(v for v in value if isinstance(v, str))
+    return targets
+
+
+def _is_resources_only(tool_input) -> bool:
+    """True when every explicit target of an OV read call is under ``resources``.
+
+    A call with no explicit target (a bare ``search`` query, for example) cannot be
+    proven resources-only, so it counts as a memory read.
+    """
+    targets = _ov_read_targets(tool_input)
+    if not targets:
+        return False
+    return all(
+        t.startswith("viking://resources") or "/resources/" in t for t in targets
+    )
+
+
+def classify_tool(part) -> str:
+    """'ov_read' | 'read_only' | 'mutating' | 'unknown' (Bash and anything unlisted)."""
+    name = getattr(part, "tool_name", None) or ""
+    if OV_WRITE.match(name):
+        return "mutating"
+    if OV_READ.match(name):
+        return (
+            "read_only"
+            if _is_resources_only(getattr(part, "tool_input", None))
+            else "ov_read"
+        )
+    if name in READ_ONLY or CONTEXT_MODE_READ_ONLY.search(name):
+        return "read_only"
+    if name in MUTATING or MUTATING_KEYWORDS.search(name):
+        return "mutating"
+    return "unknown"
+
+
+def _is_turn_boundary(message) -> bool:
+    """A ``role == "user"`` message with a non-empty text part that is not a checkpoint."""
+    if getattr(message, "role", None) != "user":
+        return False
+    if getattr(message, "message_kind", None) == "checkpoint":
+        return False
+    for part in getattr(message, "parts", None) or []:
+        text = getattr(part, "text", None)
+        if text and text.strip():
+            return True
+    return False
+
+
+def segment_turns(messages) -> tuple[list[range], str]:
+    """Turn index ranges plus 'turn_id' | 'text' | 'mixed' for how they were found."""
+    n = len(messages)
+    if n == 0:
+        return [], "text"
+    turn_ids = [getattr(m, "turn_id", None) for m in messages]
+    if all(t is not None for t in turn_ids):
+        ranges = []
+        start = 0
+        for i in range(1, n):
+            if turn_ids[i] != turn_ids[i - 1]:
+                ranges.append(range(start, i))
+                start = i
+        ranges.append(range(start, n))
+        return ranges, "turn_id"
+
+    mode = "mixed" if any(t is not None for t in turn_ids) else "text"
+    boundaries = [i for i, m in enumerate(messages) if _is_turn_boundary(m)]
+    if not boundaries:
+        return [range(n)], mode
+    ranges = []
+    if boundaries[0] != 0:
+        ranges.append(range(boundaries[0]))
+    for idx, start in enumerate(boundaries):
+        end = boundaries[idx + 1] if idx + 1 < len(boundaries) else n
+        ranges.append(range(start, end))
+    return ranges, mode
+
+
+def _bash_first_token(tool_input):
+    if not isinstance(tool_input, dict):
+        return None
+    command = tool_input.get("command")
+    if not isinstance(command, str) or not command.strip():
+        return None
+    return command.strip().split(maxsplit=1)[0]
+
+
+def _hash12(text: str) -> str:
+    return hashlib.sha256(text.encode()).hexdigest()[:12]
+
+
+def _classify_turn(messages, rng: range, segmentation: str) -> dict | None:
+    """One shadow record for ``rng``, or ``None`` when it has no OpenViking memory read."""
+    turn = messages[rng.start : rng.stop]
+    ov_tools: list[str] = []
+    other_tools: list[str] = []
+    bash_tokens: list[str] = []
+    errored = False
+    # Document-order (kind, value) for every assistant part: ("tool", classification) or
+    # ("text", the part's text). Positions in this list, not in `turn`, place text parts
+    # before or after the turn's last OpenViking read.
+    flat: list[tuple[str, str]] = []
+    for message in turn:
+        if getattr(message, "role", None) != "assistant":
+            continue
+        for part in getattr(message, "parts", None) or []:
+            name = getattr(part, "tool_name", None)
+            if name:
+                if getattr(part, "tool_status", None) == "error":
+                    errored = True
+                cls = classify_tool(part)
+                flat.append(("tool", cls))
+                if cls == "ov_read":
+                    ov_tools.append(name)
+                else:
+                    other_tools.append(cls)
+                    if name == "Bash":
+                        token = _bash_first_token(getattr(part, "tool_input", None))
+                        if token:
+                            bash_tokens.append(token)
+                continue
+            text = getattr(part, "text", None)
+            if text:
+                flat.append(("text", text))
+    if not ov_tools:
+        return None
+
+    last_ov_pos = max(
+        i
+        for i, (kind, value) in enumerate(flat)
+        if kind == "tool" and value == "ov_read"
+    )
+    chars_before = chars_after = 0
+    hashes_before: list[str] = []
+    hashes_after: list[str] = []
+    for i, (kind, value) in enumerate(flat):
+        if kind != "text":
+            continue
+        if i < last_ov_pos:
+            chars_before += len(value)
+            hashes_before.append(_hash12(value))
+        else:
+            chars_after += len(value)
+            hashes_after.append(_hash12(value))
+
+    if "mutating" in other_tools:
+        verdict = "keep-mixed"
+    elif "unknown" in other_tools or errored:
+        verdict = "keep-ambiguous"
+    else:
+        verdict = "strip"
+
+    created_ats = [ts for ts in (getattr(m, "created_at", None) for m in turn) if ts]
+
+    return {
+        "segmentation": segmentation,
+        "turn_start": rng.start,
+        "turn_end": rng.stop,
+        "partial": not _is_turn_boundary(turn[0]),
+        "first_message_id": getattr(turn[0], "id", None),
+        "last_message_id": getattr(turn[-1], "id", None),
+        "message_count": len(turn),
+        "created_at_min": min(created_ats) if created_ats else None,
+        "created_at_max": max(created_ats) if created_ats else None,
+        "ov_tools": sorted(set(ov_tools)),
+        "other_tools": sorted(set(other_tools)),
+        "bash_first_tokens": sorted(set(bash_tokens)),
+        "errored": errored,
+        "verdict": verdict,
+        "assistant_chars_before": chars_before,
+        "assistant_chars_after": chars_after,
+        "assistant_text_hashes_before": hashes_before,
+        "assistant_text_hashes_after": hashes_after,
+    }
+
+
+def shadow_classify(messages) -> list[dict]:
+    """One record per turn with an OV memory read; never mutates `messages`."""
+    ranges, segmentation = segment_turns(messages)
+    records = []
+    for rng in ranges:
+        record = _classify_turn(messages, rng, segmentation)
+        if record is not None:
+            records.append(record)
+    return records
+
+
+def _recall_shadow_enabled() -> bool:
+    return os.environ.get("OV_RECALL_SHADOW", "1") != "0"
+
+
 def wrap_extract_init(module, orig):
     @functools.wraps(orig)
     def __init__(self, messages, chunk_meta=None, *, split_long_text_messages=True):
@@ -665,6 +923,21 @@ def wrap_extract_init(module, orig):
                 messages = cleaned
             except Exception:
                 logger.exception("ov-echo-guard: strip failed; messages left unchanged")
+            if _recall_shadow_enabled():
+                try:
+                    for rec in shadow_classify(messages):
+                        logger.warning(
+                            "ov-recall-shadow %s", json.dumps(rec, sort_keys=True)
+                        )
+                except Exception:
+                    logger.exception(
+                        "ov-recall-shadow: classification failed; extraction unaffected"
+                    )
+        elif chunk_meta is not None and _recall_shadow_enabled():
+            logger.warning(
+                "ov-recall-shadow %s",
+                json.dumps({"skipped": "prechunked"}, sort_keys=True),
+            )
         orig(
             self,
             messages,
