@@ -35,6 +35,14 @@ NODES=(wemby manu timmy)
 DRAIN_TIMEOUT=5m # evictions settle in ~2m; the rest would only be spent retrying pinned instance-managers
 REBOOT_TIMEOUT_SECONDS=${REBOOT_TIMEOUT_SECONDS:-600}
 READY_TIMEOUT_SECONDS=${READY_TIMEOUT_SECONDS:-600}
+# A scaled-down Deployment's pods keep their node assignment while terminating,
+# and the headroom preflight counts them on both sides of its comparison, so a
+# drain could block on the spin-down's own victims. Bounded rather than
+# open-ended: exceeding it warns and proceeds, because the preflight that follows
+# still counts those pods and blocks if they do not fit. An incomplete spin-down
+# is not by itself unsafe — it leaves the drain where it started, not in a worse
+# state than before the flag existed.
+SPIN_DOWN_TIMEOUT_SECONDS=${SPIN_DOWN_TIMEOUT_SECONDS:-120}
 # Rebooting timmy takes the API server down with it, and a slow POST/initramfs can
 # outlast the node's own boot. Waited-for separately from READY so a late API is not
 # mistaken for a node that failed to come back.
@@ -389,13 +397,28 @@ memory_headroom_verdict() {
 	fi
 }
 
-# Sum the memory requests of pods scheduled on a node (bytes). Pods without a
-# request contribute 0 — the scheduler treats them the same way, so this is the
-# conservative scheduling signal (requests, not live usage, decide placement).
+# Sum the memory requests of the pods a drain would actually have to move:
+# those scheduled on the node, minus DaemonSet-owned pods (`kubectl drain
+# --ignore-daemonsets` never evicts them, so counting those inflated the
+# target's demand with memory the drain cannot move — BUG-1178).
+#
+# Terminating pods are deliberately still counted. A deletionTimestamp does not
+# mean the demand has gone: a StatefulSet recreates a manually deleted replica,
+# and even a Deployment's replacement needs somewhere to land, so dropping
+# terminating pods can understate what the remaining nodes must absorb — the
+# unsafe direction, since this preflight exists to prevent an OOM freeze
+# (2026-07-20). The spin-down's own victims are handled by waiting for them to
+# leave (wait_for_spin_down_pods_gone), not by excluding them from the sum.
+#
+# Pods without a request contribute 0 — the scheduler treats them the same way,
+# so this stays the conservative scheduling signal (requests, not live usage,
+# decide placement).
 node_pod_memory_bytes() {
 	local node=$1 q quantities total=0
 	quantities=$($KUBECTL get pods -A -o json --field-selector "spec.nodeName=$node" |
-		jq -r '.items[].spec.containers[].resources.requests.memory // "0"') || return 1
+		jq -r '.items[]
+			| select((.metadata.ownerReferences // []) | any(.kind == "DaemonSet") | not)
+			| .spec.containers[].resources.requests.memory // "0"') || return 1
 	while IFS= read -r q; do
 		[[ -n $q ]] && total=$((total + $(mem_quantity_to_bytes "$q")))
 	done <<<"$quantities"
@@ -465,21 +488,31 @@ remaining_headroom_bytes() {
 
 # Orchestrator: gather the target node's pod memory and the remaining nodes'
 # headroom, then pass/warn/block. On block, abort unless override is set.
+# spin_down (third arg) reports whether the pre-drain spin-down already ran, so
+# the advice names a lever that can still help: telling an operator to re-run
+# with --spin-down when it is already in effect is the self-contradiction
+# BUG-1178 recorded, and for a target whose block is driven by a host
+# reservation it cannot resolve (see the 2026-09-25 note on BUG-1178).
 memory_headroom_preflight() {
-	local node=$1 override=${2:-0}
-	local target_mem headroom verdict
+	local node=$1 override=${2:-0} spin_down=${3:-0}
+	local target_mem headroom verdict advice
 	target_mem=$(node_pod_memory_bytes "$node") || die "cannot read pod memory on $node"
 	headroom=$(remaining_headroom_bytes "$node") || die "cannot read remaining-node headroom"
 	verdict=$(memory_headroom_verdict "$target_mem" "$headroom")
 	log "[$node] memory preflight: target pods request $(human_bytes "$target_mem"), remaining headroom $(human_bytes "$headroom")"
+	if ((spin_down)); then
+		advice=" --spin-down is already in effect, so this figure is post-spin-down; --override-memory is the only remaining lever."
+	else
+		advice=" Re-run with --spin-down and/or --override-memory."
+	fi
 	case $verdict in
 	pass) log "[$node] memory headroom OK." ;;
-	warn) warn "[$node] memory headroom is TIGHT — rescheduled pods will consume most of the remaining capacity. Consider --spin-down." ;;
+	warn) warn "[$node] memory headroom is TIGHT — rescheduled pods will consume most of the remaining capacity.${advice}" ;;
 	block)
 		if ((override)); then
 			warn "[$node] memory headroom INSUFFICIENT but --override-memory given; proceeding."
 		else
-			die "[$node] memory preflight BLOCKED: target pods request $(human_bytes "$target_mem") but remaining nodes have only $(human_bytes "$headroom") headroom. Re-run with --spin-down and/or --override-memory."
+			die "[$node] memory preflight BLOCKED: target pods request $(human_bytes "$target_mem") but remaining nodes have only $(human_bytes "$headroom") headroom.${advice}"
 		fi
 		;;
 	esac
@@ -528,6 +561,96 @@ spin_down_memory_services() {
 			$KUBECTL scale deployment "$name" -n "$ns" --replicas=0 || return 1
 		fi
 	done
+}
+
+# Wait for the spin-down's own pods to actually leave before the headroom
+# preflight measures. The preflight counts every pod carrying a request on BOTH
+# sides of its comparison, so a victim still terminating is demand on the target
+# and consumed capacity on the remaining nodes at once — which is why a run with
+# --spin-down in effect could still block on the very pods it had just scaled
+# down (BUG-1178). Waiting is the alternative to excluding terminating pods from
+# the measurement: an exclusion cannot tell a scaled-down replica from one whose
+# controller is already recreating it, and dropping that demand understates what
+# the remaining nodes must absorb.
+#
+# The check is a pod list, not the Deployment's replica status. `.status.replicas`
+# counts only non-terminating pods, so it can read 0 while the terminating pods
+# this exists to wait for are still on the node; it is also omitempty, so a real
+# zero can be absent and would otherwise read as "still pending" forever.
+#
+# Bounded per read, not per pass. The remaining budget is recomputed immediately
+# before EACH cluster read: computing it once before the service loop let the
+# second service spend the same allowance again, so two stalled reads could run
+# the wait to twice the configured timeout. An unbounded read would defeat the
+# deadline the same way a hung SSH call does (see SSH_CMD_TIMEOUT_SECONDS) —
+# `--request-timeout` bounds the request itself and TIMEOUT_BIN, where the
+# platform has one, bounds the process.
+#
+# A timeout warns rather than failing: an incomplete spin-down does not by itself
+# make the drain unsafe, because the preflight that follows still counts these
+# pods and blocks if they do not fit.
+wait_for_spin_down_pods_gone() {
+	local svc ns name pods selector remaining deadline budget pending
+	deadline=$((SECONDS + SPIN_DOWN_TIMEOUT_SECONDS))
+	while ((SECONDS < deadline)); do
+		pending=0
+		for svc in "${MEMORY_HEAVY_SERVICES[@]}"; do
+			ns=${svc%%/*}
+			name=${svc#*/}
+			budget=$((deadline - SECONDS))
+			if ((budget <= 0)); then
+				break
+			fi
+			# Membership comes from the Deployment's own selector, not from the
+			# ReplicaSet name. A Deployment may adopt an existing ReplicaSet without
+			# renaming it, so name syntax can miss pods it genuinely owns; a bare
+			# prefix also matches siblings such as openviking-test. An absent or
+			# empty selector counts as pending — keep waiting rather than assume.
+			selector=$(bounded_kubectl "$budget" get deployment "$name" -n "$ns" -o json 2>/dev/null |
+				jq -c '.spec.selector.matchLabels // {}' 2>/dev/null) || selector=""
+			if [[ -z $selector || $selector == "{}" ]]; then
+				pending=$((pending + 1))
+				continue
+			fi
+			# No phase or deletionTimestamp filter: terminating pods are exactly
+			# what this waits for.
+			pods=$(bounded_kubectl "$budget" get pods -n "$ns" -o json 2>/dev/null) || pods=""
+			remaining=$(printf '%s' "$pods" | jq -r --argjson sel "$selector" '
+				[.items[] | select(.metadata.labels as $l
+					| ($sel | to_entries | all(.value == $l[.key])))] | length' 2>/dev/null) || remaining=""
+			# Unreadable or unparseable counts as pending: keep waiting rather
+			# than declare the pods gone.
+			if [[ -z $remaining || $remaining != 0 ]]; then
+				pending=$((pending + 1))
+			fi
+		done
+		if ((pending == 0)); then
+			return 0
+		fi
+		# Cap the sleep to the remaining budget so the loop cannot overshoot by a
+		# whole interval.
+		budget=$((deadline - SECONDS))
+		((budget > 0)) || break
+		if ((budget > 5)); then
+			budget=5
+		fi
+		sleep "$budget"
+	done
+	warn "spin-down pods still present after ${SPIN_DOWN_TIMEOUT_SECONDS}s; the memory headroom figure may include them"
+}
+
+# A cluster read bounded by $1 seconds. `--request-timeout` covers the HTTP
+# request, but client-go's timeout is not a whole-process deadline — kubectl
+# startup and credential helpers sit outside it — so TIMEOUT_BIN wraps the
+# process too where the platform provides one.
+bounded_kubectl() {
+	local budget=$1
+	shift
+	if [[ -n $TIMEOUT_BIN ]]; then
+		"$TIMEOUT_BIN" "$budget" "$KUBECTL" "$@" --request-timeout="${budget}s"
+	else
+		"$KUBECTL" "$@" --request-timeout="${budget}s"
+	fi
 }
 
 # Restore each service to the replica count recorded before the drain. No-op
@@ -744,10 +867,11 @@ cmd_reboot() {
 	if ((spin_down)); then
 		log "[$node] pre-drain spin-down of memory-heavy services"
 		spin_down_memory_services || return 1
+		wait_for_spin_down_pods_gone
 	fi
 
 	log "[$node] preflight: memory headroom"
-	memory_headroom_preflight "$node" "$override_memory"
+	memory_headroom_preflight "$node" "$override_memory" "$spin_down"
 
 	log "[$node] preflight: no active sync Jobs in the compendium namespace"
 	local active
