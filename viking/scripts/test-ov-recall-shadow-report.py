@@ -385,17 +385,23 @@ class SampleFixtureReportTests(unittest.TestCase):
         )
 
     def test_backend_summary_counts(self):
+        # Session identity, not archive identity (Codex #173 finding 5): rec3 (pop
+        # parent) and rec4 (its subagent) are the SAME session, so anthropic's
+        # session count is 1, not 2. rec1/rec2 have no archive at all and count as
+        # unresolved_turns, not pseudo-sessions; rec6's archive is unmatched by any
+        # ledger but is still a real resolved session, so unknown's session count is
+        # 1 (rec6), with 2 separate unresolved_turns (rec1, rec2).
         rep = report.build_report(self.records, self.ledgers)
         by_backend = rep["by_backend"]
         self.assertEqual(
             {
-                k: (len(v["sessions"]), v["turns"], v["strip"])
+                k: (len(v["sessions"]), v["turns"], v["strip"], v["unresolved_turns"])
                 for k, v in by_backend.items()
             },
             {
-                "unknown": (3, 3, 2),
-                "anthropic": (2, 2, 1),
-                "ollama:qwen3-coder": (1, 1, 1),
+                "unknown": (1, 3, 2, 2),
+                "anthropic": (1, 2, 1, 0),
+                "ollama:qwen3-coder": (1, 1, 1, 0),
             },
         )
 
@@ -416,9 +422,9 @@ class SampleFixtureReportTests(unittest.TestCase):
         self.assertIn("| keep-ambiguous | 1 |", text)
         self.assertIn("| keep-mixed | 1 |", text)
         self.assertIn("## Per-backend summary", text)
-        self.assertIn("| anthropic | 2 | 2 | 1 |", text)
-        self.assertIn("| ollama:qwen3-coder | 1 | 1 | 1 |", text)
-        self.assertIn("| unknown | 3 | 3 | 2 |", text)
+        self.assertIn("| anthropic | 1 | 2 | 1 | 0 |", text)
+        self.assertIn("| ollama:qwen3-coder | 1 | 1 | 1 | 0 |", text)
+        self.assertIn("| unknown | 1 | 3 | 2 | 2 |", text)
 
 
 class MainCliTests(unittest.TestCase):

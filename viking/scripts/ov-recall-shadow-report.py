@@ -538,14 +538,19 @@ def build_report(
         backend, machine, candidates = backend_for(
             archive, ledgers, created_at_min=rec.get("created_at_min")
         )
-        session_key = archive or (
-            rec.get("first_message_id"),
-            rec.get("last_message_id"),
-        )
+        # Session identity, not archive identity: bare_session_uuid already strips a
+        # subagent's "__subagent-..." suffix, so a subagent's turns are counted under
+        # its parent session, never as a session of their own. A turn with no
+        # resolved archive has no session to attribute and is counted separately
+        # (unresolved_turns), never as a pseudo-session keyed on its message ids.
+        session_uuid = bare_session_uuid(archive) if archive else None
         bucket = by_backend.setdefault(
-            backend, {"sessions": set(), "turns": 0, "strip": 0}
+            backend, {"sessions": set(), "turns": 0, "strip": 0, "unresolved_turns": 0}
         )
-        bucket["sessions"].add(session_key)
+        if session_uuid:
+            bucket["sessions"].add(session_uuid)
+        else:
+            bucket["unresolved_turns"] += 1
         bucket["turns"] += 1
         if verdict == "strip":
             bucket["strip"] += 1
@@ -575,12 +580,13 @@ def render_markdown(report) -> str:
         "",
         "## Per-backend summary",
         "",
-        "| Backend | Sessions | Recall turns | Strip verdicts |",
-        "| --- | --- | --- | --- |",
+        "| Backend | Sessions | Recall turns | Strip verdicts | Unresolved turns |",
+        "| --- | --- | --- | --- | --- |",
     ]
     for backend, bucket in sorted(report["by_backend"].items()):
         lines.append(
-            f"| {backend} | {len(bucket['sessions'])} | {bucket['turns']} | {bucket['strip']} |"
+            f"| {backend} | {len(bucket['sessions'])} | {bucket['turns']} | "
+            f"{bucket['strip']} | {bucket['unresolved_turns']} |"
         )
     return "\n".join(lines) + "\n"
 
