@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
-"""IMPR-1188 Phase 3.1 / 4a: turn ``ov-recall-shadow`` log lines into a verdict table,
-joined against the ov-pilot ledger for backend and lab/pilot provenance. Stdlib only.
+"""IMPR-1188 Phase 3.1 / 4a: turn ``ov-recall-shadow`` log lines into a per-turn table
+(machine, backend, session, archive, verdict, tools, produced events, an empty
+manual-label column) plus an aggregate summary, joined against the ov-pilot ledger for
+backend and lab/pilot provenance. Stdlib only.
 
 Finding (2026-09-27, verified live against the deployed OpenViking v0.4.20 image, and
 against the IMPR-1188 Phase 1 classifier as committed — homelab
@@ -68,6 +70,21 @@ in, and reports ``backend: "ambiguous"`` with every fitting ``{"machine", "backe
 candidate when more than one window fits (or none do, with no ``created_at_min`` to
 disambiguate). ``testdata/ledger-resume.jsonl`` is an ollama→anthropic resume fixture.
 
+**Per-turn table and produced events (2026-09-28 finding).** The rendered report leads
+with a ``## Turns`` table — one row per shadow record: machine, backend, session
+(the resolved parent session UUID), archive URI, turn index range, verdict, the tool
+classifications, the events that turn's archive actually produced, and an empty
+manual-label column (``restatement`` / ``new-info`` / ``mixed``, filled in by hand
+during labelling) — with the aggregate counts kept as a separate ``## Aggregate
+summary`` section below it. ``_events_for_archive`` reads that archive's
+``memory_diff.json`` read-only through the same ``reader`` used to resolve the
+archive (``LocalTreeReader.read_memory_diff`` / ``OvCliReader.read_memory_diff``,
+mirroring the real nested ``operations.adds``/``updates`` shape found in
+``ov-replay-archives.py``'s ``_diff_operations``) and lists each produced event's name
+and a best-effort one-line abstract (the ``# Summary`` line of its rendered content).
+A record with no resolved archive, or an archive with no ``memory_diff.json`` yet,
+still gets a row — the Events cell just reads "—".
+
 Usage:
     ov-recall-shadow-report.py --log shadow.log --ledger pop=~/.openviking/pilot/ledger.jsonl \\
         --ledger workbook=/path/to/workbook-ledger.jsonl --out report.md
@@ -90,6 +107,9 @@ from datetime import datetime
 SHADOW_PREFIX = "ov-recall-shadow "
 _SESSION_SEGMENT_RE = re.compile(r"/sessions/(cc-[0-9a-fA-F-]+(?:__subagent-[^/]+)?)")
 _ARCHIVE_USER_RE = re.compile(r"^viking://user/([^/]+)/")
+_ARCHIVE_URI_RE = re.compile(
+    r"^viking://user/([^/]+)/sessions/([^/]+)/history/([^/]+)$"
+)
 LAB_USER = "noot-pilot-lab"
 PILOT_USER = "noot-pilot"
 # How much earlier than the turn's first message a ledger session may have started and
@@ -219,6 +239,84 @@ def lab_or_pilot(archive: str) -> str:
     if user == PILOT_USER:
         return "pilot"
     return "unknown"
+
+
+def parse_archive_uri(archive: str):
+    """``viking://user/<user>/sessions/<session-dir>/history/<archive-id>`` ->
+    ``{"user", "session_dir", "archive_id"}``, or ``None`` when it doesn't match."""
+    if not archive:
+        return None
+    m = _ARCHIVE_URI_RE.match(archive)
+    if not m:
+        return None
+    return {"user": m.group(1), "session_dir": m.group(2), "archive_id": m.group(3)}
+
+
+def _extract_summary(content: str, max_chars: int = 160):
+    """A one-line abstract: the first non-blank line after a ``# Summary`` heading,
+    truncated. Falls back to the first non-blank line of the whole body when there is
+    no ``# Summary`` heading; ``None`` for empty content."""
+    if not content:
+        return None
+    lines = content.splitlines()
+    start = 0
+    for i, line in enumerate(lines):
+        if line.strip() == "# Summary":
+            start = i + 1
+            break
+    for line in lines[start:]:
+        line = line.strip()
+        if line:
+            return line[:max_chars]
+    return None
+
+
+def _diff_events(diff):
+    """[{"uri", "memory_type", "name", "abstract"}, ...] from a ``memory_diff.json``
+    payload's ``adds`` and ``updates`` (the real shape nests them under
+    ``operations``, per ``_diff_operations`` in ``ov-replay-archives.py``; a flat
+    top-level shape is also accepted). ``name`` is the URI's basename with ``.md``
+    stripped; ``abstract`` is the item's rendered ``after`` content's ``# Summary``
+    line, best-effort."""
+    if not isinstance(diff, dict):
+        return []
+    operations = diff.get("operations")
+    ops = operations if isinstance(operations, dict) else diff
+    adds = list(ops.get("adds", []) or [])
+    updates = list(ops.get("updates", []) or [])
+    events = []
+    for item in adds + updates:
+        if not isinstance(item, dict):
+            continue
+        uri = item.get("uri")
+        name = None
+        if uri:
+            base = uri.rsplit("/", 1)[-1]
+            name = base.removesuffix(".md")
+        events.append(
+            {
+                "uri": uri,
+                "memory_type": item.get("memory_type"),
+                "name": name,
+                "abstract": _extract_summary(item.get("after") or ""),
+            }
+        )
+    return events
+
+
+def _events_for_archive(archive, reader):
+    """The events an archive's extraction produced, via ``reader.read_memory_diff`` —
+    ``[]`` when there is no archive, no reader, or the archive has no memory_diff.json
+    (extraction failed, produced nothing, or has not run yet)."""
+    if not archive or reader is None:
+        return []
+    parsed = parse_archive_uri(archive)
+    if not parsed:
+        return []
+    diff = reader.read_memory_diff(
+        parsed["user"], parsed["session_dir"], parsed["archive_id"]
+    )
+    return _diff_events(diff)
 
 
 def _launch_windows(launches):
@@ -443,6 +541,26 @@ class LocalTreeReader:
         self._read_cache[key] = messages
         return messages
 
+    def read_memory_diff(self, user, session_dir, archive_id):
+        key = (user, session_dir, archive_id, "memory_diff")
+        if key in self._read_cache:
+            return self._read_cache[key]
+        path = os.path.join(
+            self.root,
+            user,
+            "sessions",
+            session_dir,
+            "history",
+            archive_id,
+            "memory_diff.json",
+        )
+        diff = None
+        if os.path.isfile(path):
+            with open(path) as fh:
+                diff = json.load(fh)
+        self._read_cache[key] = diff
+        return diff
+
 
 class OvCliReader:
     """Online, read-only: ``ov ls`` / ``ov read ... --user <user> -o json`` via
@@ -507,6 +625,28 @@ class OvCliReader:
         self._read_cache[key] = messages
         return messages
 
+    def read_memory_diff(self, user, session_dir, archive_id):
+        key = (user, session_dir, archive_id, "memory_diff")
+        if key in self._read_cache:
+            return self._read_cache[key]
+        uri = f"viking://user/{user}/sessions/{session_dir}/history/{archive_id}/memory_diff.json"
+        proc = self._run(
+            [self.ov_bin, "read", uri, "--user", user, "-o", "json"],
+            capture_output=True,
+            text=True,
+            timeout=self.timeout,
+        )
+        diff = None
+        try:
+            payload = json.loads(proc.stdout)
+            raw = payload.get("result") if isinstance(payload, dict) else None
+            if isinstance(raw, str):
+                diff = json.loads(raw)
+        except json.JSONDecodeError:
+            diff = None
+        self._read_cache[key] = diff
+        return diff
+
 
 def resolve_record_archive(
     record, ledgers, reader, ts_slack_seconds=DEFAULT_TS_SLACK_SECONDS
@@ -561,24 +701,104 @@ def build_report(
                 "machine": machine or "unknown",
                 "ambiguous_candidates": candidates,
                 "lab_or_pilot": lab_or_pilot(archive) if archive else "unknown",
+                "session": session_uuid,
+                "archive": archive,
                 "turn_start": rec.get("turn_start"),
                 "turn_end": rec.get("turn_end"),
                 "first_message_id": rec.get("first_message_id"),
                 "last_message_id": rec.get("last_message_id"),
                 "ov_tools": rec.get("ov_tools", []),
                 "other_tools": rec.get("other_tools", []),
+                "events": _events_for_archive(archive, reader),
+                "label": "",
             }
         )
     return {"by_verdict": by_verdict, "by_backend": by_backend, "rows": rows}
 
 
+def _cell(value) -> str:
+    """A markdown table cell: ``|`` and newlines can't survive in one, so escape/join
+    them; ``""``/``None`` renders as an em dash so an empty cell is still visible."""
+    if value is None or value == "":
+        return "—"
+    return str(value).replace("|", "\\|").replace("\n", " ")
+
+
+def _format_tools(row) -> str:
+    parts = []
+    if row["ov_tools"]:
+        parts.append("ov: " + ", ".join(row["ov_tools"]))
+    if row["other_tools"]:
+        parts.append("other: " + ", ".join(row["other_tools"]))
+    return "; ".join(parts) if parts else "—"
+
+
+def _format_events(row) -> str:
+    events = row.get("events") or []
+    if not events:
+        return "—"
+    rendered = []
+    for event in events:
+        name = event.get("name") or event.get("uri") or "?"
+        abstract = event.get("abstract")
+        rendered.append(f"{name}: {abstract}" if abstract else name)
+    return "; ".join(rendered)
+
+
+def _format_backend(row) -> str:
+    if row["backend"] != "ambiguous" or not row.get("ambiguous_candidates"):
+        return row["backend"]
+    candidates = ", ".join(
+        f"{c['machine']}:{c['backend']}" for c in row["ambiguous_candidates"]
+    )
+    return f"ambiguous ({candidates})"
+
+
 def render_markdown(report) -> str:
-    lines = ["## Turns by verdict", "", "| Verdict | Count |", "| --- | --- |"]
+    lines = [
+        "## Turns",
+        "",
+        (
+            "| Machine | Backend | Session | Archive | Turn range | Verdict | Tools | "
+            "Events | Label (restatement / new-info / mixed) |"
+        ),
+        "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+    ]
+    for row in report["rows"]:
+        turn_range = f"{row.get('turn_start')}-{row.get('turn_end')}"
+        lines.append(
+            "| "
+            + " | ".join(
+                _cell(v)
+                for v in (
+                    row["machine"],
+                    _format_backend(row),
+                    row.get("session"),
+                    row.get("archive"),
+                    turn_range,
+                    row["verdict"],
+                    _format_tools(row),
+                    _format_events(row),
+                    row.get("label"),
+                )
+            )
+            + " |"
+        )
+
+    lines += [
+        "",
+        "## Aggregate summary",
+        "",
+        "### Turns by verdict",
+        "",
+        "| Verdict | Count |",
+        "| --- | --- |",
+    ]
     for verdict, count in sorted(report["by_verdict"].items()):
         lines.append(f"| {verdict} | {count} |")
     lines += [
         "",
-        "## Per-backend summary",
+        "### Per-backend summary",
         "",
         "| Backend | Sessions | Recall turns | Strip verdicts | Unresolved turns |",
         "| --- | --- | --- | --- | --- |",

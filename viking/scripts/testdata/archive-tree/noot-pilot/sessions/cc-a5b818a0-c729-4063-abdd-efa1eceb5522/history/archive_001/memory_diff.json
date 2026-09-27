@@ -1,0 +1,23 @@
+{
+  "archive_uri": "viking://user/noot-pilot/sessions/cc-a5b818a0-c729-4063-abdd-efa1eceb5522/history/archive_001",
+  "trace_id": null,
+  "extracted_at": "2026-09-27T19:00:10.000000Z",
+  "operations": {
+    "adds": [
+      {
+        "uri": "viking://user/noot-pilot/peers/p/memories/events/2026/09/27/widget_color_decided.md",
+        "memory_type": "events",
+        "after": "# Summary\nThe widget ships in cobalt blue.\n\n# 2026-09-27 (Sunday) ChatLog:\n**p**: what did we decide?\n**assistant**: the widget ships in cobalt blue\n"
+      }
+    ],
+    "updates": [],
+    "deletes": []
+  },
+  "skipped_operations": [],
+  "summary": {
+    "total_adds": 1,
+    "total_updates": 0,
+    "total_deletes": 0,
+    "total_skipped": 0
+  }
+}

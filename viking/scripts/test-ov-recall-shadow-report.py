@@ -706,6 +706,177 @@ class BuildReportResumeFixtureTests(unittest.TestCase):
         self.assertIsNone(rep["rows"][0]["ambiguous_candidates"])
 
 
+class ParseArchiveUriTests(unittest.TestCase):
+    def test_a_well_formed_archive_uri(self):
+        self.assertEqual(
+            report.parse_archive_uri(
+                "viking://user/noot-pilot/sessions/cc-a5b8/history/archive_003"
+            ),
+            {
+                "user": "noot-pilot",
+                "session_dir": "cc-a5b8",
+                "archive_id": "archive_003",
+            },
+        )
+
+    def test_none_and_malformed_are_none(self):
+        self.assertIsNone(report.parse_archive_uri(None))
+        self.assertIsNone(report.parse_archive_uri(""))
+        self.assertIsNone(
+            report.parse_archive_uri("viking://resources/compendium/x.md")
+        )
+
+
+class ExtractSummaryTests(unittest.TestCase):
+    def test_the_line_after_a_summary_heading(self):
+        content = "# Summary\nThe widget ships in cobalt blue.\n\n# ChatLog:\n..."
+        self.assertEqual(
+            report._extract_summary(content), "The widget ships in cobalt blue."
+        )
+
+    def test_truncates_a_long_line(self):
+        content = "# Summary\n" + ("x" * 300)
+        self.assertEqual(len(report._extract_summary(content, max_chars=160)), 160)
+
+    def test_no_summary_heading_falls_back_to_the_first_non_blank_line(self):
+        content = "\n\nfirst real line\nsecond line"
+        self.assertEqual(report._extract_summary(content), "first real line")
+
+    def test_empty_content_is_none(self):
+        self.assertIsNone(report._extract_summary(""))
+        self.assertIsNone(report._extract_summary(None))
+
+
+class DiffEventsTests(unittest.TestCase):
+    def test_the_real_nested_shape(self):
+        diff = {
+            "operations": {
+                "adds": [
+                    {
+                        "uri": "viking://user/u/memories/events/2026/09/27/widget_color_decided.md",
+                        "memory_type": "events",
+                        "after": "# Summary\nThe widget ships in cobalt blue.\n",
+                    }
+                ],
+                "updates": [],
+                "deletes": [],
+            }
+        }
+        events = report._diff_events(diff)
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0]["name"], "widget_color_decided")
+        self.assertEqual(events[0]["memory_type"], "events")
+        self.assertEqual(events[0]["abstract"], "The widget ships in cobalt blue.")
+
+    def test_adds_and_updates_are_both_included(self):
+        diff = {
+            "operations": {
+                "adds": [
+                    {"uri": "viking://x/a.md", "memory_type": "events", "after": "A"}
+                ],
+                "updates": [
+                    {"uri": "viking://x/b.md", "memory_type": "entities", "after": "B"}
+                ],
+                "deletes": [],
+            }
+        }
+        names = {e["name"] for e in report._diff_events(diff)}
+        self.assertEqual(names, {"a", "b"})
+
+    def test_none_and_non_dict_and_empty_yield_no_events(self):
+        self.assertEqual(report._diff_events(None), [])
+        self.assertEqual(report._diff_events("not a dict"), [])
+        self.assertEqual(report._diff_events({}), [])
+
+    def test_a_flat_legacy_shape_is_still_accepted(self):
+        diff = {"adds": [{"uri": "viking://x/a.md", "after": "A"}], "updates": []}
+        self.assertEqual(len(report._diff_events(diff)), 1)
+
+
+class EventsForArchiveTests(unittest.TestCase):
+    def setUp(self):
+        self.reader = report.LocalTreeReader(_ARCHIVE_TREE)
+
+    def test_reads_the_real_fixture_memory_diff(self):
+        archive = "viking://user/noot-pilot/sessions/cc-a5b818a0-c729-4063-abdd-efa1eceb5522/history/archive_001"
+        events = report._events_for_archive(archive, self.reader)
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0]["name"], "widget_color_decided")
+        self.assertEqual(events[0]["abstract"], "The widget ships in cobalt blue.")
+
+    def test_no_archive_or_no_reader_yields_no_events(self):
+        self.assertEqual(report._events_for_archive(None, self.reader), [])
+        self.assertEqual(
+            report._events_for_archive(
+                "viking://user/noot-pilot/sessions/cc-a5b818a0-c729-4063-abdd-efa1eceb5522/history/archive_001",
+                None,
+            ),
+            [],
+        )
+
+    def test_an_archive_with_no_memory_diff_file_yields_no_events(self):
+        # The subagent archive fixture has messages.jsonl but no memory_diff.json.
+        archive = "viking://user/noot-pilot/sessions/cc-a5b818a0-c729-4063-abdd-efa1eceb5522__subagent-77aa/history/archive_001"
+        self.assertEqual(report._events_for_archive(archive, self.reader), [])
+
+
+class RenderMarkdownTurnsTableTests(unittest.TestCase):
+    """Codex #173 finding 1: a per-turn table (machine, backend, session, archive,
+    turn range, verdict, tools, produced events, empty manual-label column), with the
+    aggregate summary kept as a separate section."""
+
+    def setUp(self):
+        self.ledgers = report.load_ledgers(
+            [f"pop={os.path.join(_TESTDATA, 'ledger-pop.jsonl')}"]
+        )
+        self.reader = report.LocalTreeReader(_ARCHIVE_TREE)
+
+    def test_a_resolved_turn_shows_its_produced_event(self):
+        records = [
+            {
+                "verdict": "strip",
+                "turn_start": 0,
+                "turn_end": 2,
+                "first_message_id": "msg_p1_u0",
+                "last_message_id": "msg_p1_a1",
+                "created_at_min": "2026-09-27T19:00:00.000000+00:00",
+                "created_at_max": "2026-09-27T19:00:05.000000+00:00",
+                "ov_tools": ["mcp__plugin_openviking-memory_openviking__read"],
+                "other_tools": [],
+            }
+        ]
+        rep = report.build_report(records, self.ledgers, reader=self.reader)
+        text = report.render_markdown(rep)
+        self.assertIn("## Turns", text)
+        self.assertIn("## Aggregate summary", text)
+        # the per-turn table appears before the aggregate section
+        self.assertLess(text.index("## Turns"), text.index("## Aggregate summary"))
+        self.assertIn("widget_color_decided", text)
+        self.assertIn("The widget ships in cobalt blue.", text)
+        self.assertIn("a5b818a0-c729-4063-abdd-efa1eceb5522", text)
+        self.assertIn("anthropic", text)
+        self.assertIn("pop", text)
+        # the manual-label column header is present and the cell is empty (an em dash)
+        self.assertIn("Label (restatement / new-info / mixed)", text)
+
+    def test_an_unresolved_turn_still_gets_a_row(self):
+        records = [
+            {
+                "verdict": "keep-mixed",
+                "turn_start": 4,
+                "turn_end": 6,
+                "first_message_id": "msg_nowhere",
+                "last_message_id": "msg_nowhere2",
+                "ov_tools": [],
+                "other_tools": ["mutating"],
+            }
+        ]
+        rep = report.build_report(records, self.ledgers, reader=self.reader)
+        text = report.render_markdown(rep)
+        self.assertIn("keep-mixed", text)
+        self.assertIn("unknown", text)
+
+
 class _Completed:
     def __init__(self, stdout):
         self.stdout = stdout
