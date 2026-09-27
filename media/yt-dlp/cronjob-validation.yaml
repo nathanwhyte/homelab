@@ -20,9 +20,11 @@
 #     RWO mount scheduling issues
 #   - securityContext.fsGroup: 1000 — matches the ytdlp user in the
 #     image, so the emptyDir / PVC mounts are writable
-#   - resources: requests {cpu: 500m, memory: 1Gi} / limits
+#   - resources: requests {cpu: 500m, memory: 512Mi} / limits
 #     {cpu: "4", memory: 8Gi} (matches the retired setup; ffmpeg on
-#     yt-dlp[default] is the heaviest dependency)
+#     yt-dlp[default] is the heaviest dependency). The memory request was
+#     1Gi until 2026-09-26 — now sized from a measured 7-day peak of 148MiB
+#     so a CronJob pile-up cannot block node-maintenance.sh's memory preflight
 #
 # Command shell:
 #   1. Expand EXTRA_ARGS_DEFAULT to set the per-playlist base args
@@ -89,7 +91,7 @@ spec:
               resources:
                 requests:
                   cpu: 500m
-                  memory: 1Gi
+                  memory: 512Mi
                 limits:
                   cpu: "4"
                   memory: 8Gi

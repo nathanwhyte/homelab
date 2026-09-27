@@ -191,7 +191,7 @@ spec:
             # actual cap below ~32 parallel connections.
             requests:
               cpu: "1"
-              memory: 512Mi
+              memory: 256Mi
             limits:
               cpu: "8"
               memory: 4Gi
