@@ -164,9 +164,9 @@ class IndexLedgerTests(unittest.TestCase):
         )
         self.assertEqual(starts[launches[1]["launch_id"]]["backend"], "anthropic")
 
-    def test_an_end_row_is_captured_defensively(self):
-        # Not confirmed to exist in the real ledger as of 2026-09-28; handled so a
-        # launch-window close is honoured the moment the ledger emits one.
+    def test_a_real_end_row_closes_every_session_of_its_launch(self):
+        # The launcher writes one end row per launch, keyed by launch_id only, with
+        # no session_id: {event, launch_id, ts, mode, exit} (ov-pilot.sh, end line).
         rows = [
             {
                 "event": "session",
@@ -175,14 +175,66 @@ class IndexLedgerTests(unittest.TestCase):
                 "ts": "2026-09-27T08:00:00Z",
             },
             {
+                "event": "session",
+                "launch_id": "L",
+                "session_id": "u2",
+                "ts": "2026-09-27T08:30:00Z",
+                "source": "clear",
+            },
+            {
                 "event": "end",
                 "launch_id": "L",
-                "session_id": "u1",
                 "ts": "2026-09-27T09:00:00Z",
+                "mode": "recall",
+                "exit": 0,
             },
         ]
         _, sessions = report.index_ledger(rows)
         self.assertEqual(sessions["u1"][0]["end_ts"], "2026-09-27T09:00:00Z")
+        self.assertEqual(sessions["u2"][0]["end_ts"], "2026-09-27T09:00:00Z")
+
+    def test_a_launch_without_an_end_row_stays_open(self):
+        # A crashed or still-running launch has no end row.
+        rows = [
+            {
+                "event": "session",
+                "launch_id": "L",
+                "session_id": "u1",
+                "ts": "2026-09-27T08:00:00Z",
+            }
+        ]
+        _, sessions = report.index_ledger(rows)
+        self.assertIsNone(sessions["u1"][0]["end_ts"])
+
+    def test_a_turn_after_its_only_launch_ended_is_unknown(self):
+        rows = [
+            {
+                "event": "start",
+                "launch_id": "L",
+                "ts": "2026-09-27T07:59:59Z",
+                "backend": "ollama:deepseek",
+                "user": "noot-pilot",
+            },
+            {
+                "event": "session",
+                "launch_id": "L",
+                "session_id": "aaaaaaaa-0000-0000-0000-000000000001",
+                "ts": "2026-09-27T08:00:00Z",
+            },
+            {"event": "end", "launch_id": "L", "ts": "2026-09-27T09:00:00Z", "exit": 0},
+        ]
+        ledgers = {"pop": report.index_ledger(rows)}
+        archive = (
+            "viking://user/noot-pilot/sessions/"
+            "cc-aaaaaaaa-0000-0000-0000-000000000001/history/archive_001"
+        )
+        self.assertEqual(
+            report.backend_for(archive, ledgers, "2026-09-27T08:15:00Z")[0],
+            "ollama:deepseek",
+        )
+        self.assertEqual(
+            report.backend_for(archive, ledgers, "2026-09-27T09:30:00Z")[0], "unknown"
+        )
 
     def test_rows_without_a_launch_id_are_ignored(self):
         starts, sessions = report.index_ledger(

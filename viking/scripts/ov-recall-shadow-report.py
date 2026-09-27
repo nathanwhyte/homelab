@@ -161,15 +161,15 @@ def index_ledger(rows):
     A session can be resumed under a different launch (``source: "resume"``), so the
     *full* launch history is kept, one entry per distinct ``launch_id`` (the earliest
     ``session``-row ``ts`` for that launch — resume/compact can repeat rows under the
-    same launch). ``end_ts`` comes from an ``event: "end"`` row for that
-    ``(session_id, launch_id)`` pair if the ledger ever emits one — not confirmed to
-    exist as of 2026-09-28, handled defensively so a launch-window close is honoured
-    the moment it does; ``_launch_windows`` falls back to "until the next launch"
-    otherwise.
+    same launch). ``end_ts`` comes from the launch's ``event: "end"`` row. The launcher
+    writes one per launch, keyed by ``launch_id`` only (``{event, launch_id, ts, mode,
+    exit}``, no ``session_id``), so it closes every session that launch held. A
+    crashed or still-running launch has no end row; ``_launch_windows`` then falls
+    back to "until the next launch", or open-ended for the last one.
     """
     starts = {}
     launch_ts = {}  # (uuid, launch_id) -> earliest session-row ts
-    end_ts = {}  # (uuid, launch_id) -> latest end-row ts
+    launch_end = {}  # launch_id -> latest end-row ts
     for row in rows:
         launch_id = row.get("launch_id")
         if not launch_id:
@@ -186,16 +186,15 @@ def index_ledger(rows):
             ts = row.get("ts")
             if ts and (key not in launch_ts or ts < launch_ts[key]):
                 launch_ts[key] = ts
-        elif event == "end" and row.get("session_id"):
-            key = (row["session_id"], launch_id)
+        elif event == "end":
             ts = row.get("ts")
-            if ts and (key not in end_ts or ts > end_ts[key]):
-                end_ts[key] = ts
+            if ts and (launch_id not in launch_end or ts > launch_end[launch_id]):
+                launch_end[launch_id] = ts
 
     sessions = {}
     for (uuid, launch_id), ts in launch_ts.items():
         sessions.setdefault(uuid, []).append(
-            {"launch_id": launch_id, "ts": ts, "end_ts": end_ts.get((uuid, launch_id))}
+            {"launch_id": launch_id, "ts": ts, "end_ts": launch_end.get(launch_id)}
         )
     for launches in sessions.values():
         launches.sort(key=lambda entry: entry["ts"])
