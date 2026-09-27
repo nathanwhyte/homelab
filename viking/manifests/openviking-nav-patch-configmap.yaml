@@ -751,19 +751,28 @@ data:
     caught and logged, and extraction proceeds unaffected either way. For every turn that
     contains an assistant call of an OpenViking memory read tool (``read``, ``search``,
     ``find``, ``list``, ``tree``, ``grep``, ``glob``; not a call over ``resources`` targets
-    only), one ``ov-recall-shadow`` JSON line is logged at WARNING: the turn's index range and
-    message ids, every other tool call classified ``read_only``/``mutating``/``unknown``
-    (``Bash`` is ``unknown`` — Codex's point that tool activity alone does not prove the
-    answer holds only recalled facts), the first token of any ``Bash`` command seen, whether
-    any tool call errored, the verdict a strip rule would have given (``strip`` only when
-    every other tool is ``read_only`` and nothing errored; ``keep-mixed`` when a mutating tool
-    ran; ``keep-ambiguous`` otherwise), and the assistant text character counts and a
-    12-hex-character sha256 prefix per text part, split by whether the part falls before or
-    after the turn's last OpenViking read. **The record never includes message text.**
-    ``ExtractContext.__init__`` is not given an archive or session id (neither is any caller
-    in this module), so the record's only cross-reference is its first/last message id — a
-    consumer joins on those, not on a session id this hook does not have. With ``chunk_meta``
-    given, the pre-chunked path is unaffected (as above) and one ``{"skipped": "prechunked"}``
+    only), one ``ov-recall-shadow`` JSON line is logged at WARNING: the turn's index range,
+    ``first_message_id``/``last_message_id``/``message_count``/``created_at_min``/
+    ``created_at_max`` for the turn, every other tool call classified
+    ``read_only``/``mutating``/``unknown`` (``Bash`` is ``unknown`` — Codex's point that tool
+    activity alone does not prove the answer holds only recalled facts), the first token of
+    any ``Bash`` command seen, whether any tool call errored, the verdict a strip rule would
+    have given (``strip`` only when every other tool is ``read_only`` and nothing errored;
+    ``keep-mixed`` when a mutating tool ran; ``keep-ambiguous`` otherwise), and the assistant
+    text character counts and a 12-hex-character sha256 prefix per text part, split by
+    whether the part falls before or after the turn's last OpenViking read. **The record
+    never includes message text.** ``ExtractContext.__init__`` is not given an archive or
+    session id (neither is any caller in this module) — confirmed by tracing the real
+    v0.4.20 commit path, ``session.py``: the archive write (``messages_to_archive`` ->
+    ``m.to_jsonl()``), the Phase 2 read-back (``_read_archive_messages`` ->
+    ``archive_messages``, whose own ``first_message_id``/``last_message_id`` OpenViking
+    computes the same way, ``archive_messages[0].id``/``[-1].id``), and the id-preserving
+    hydration and image-replacement passes before ``SessionExtractContextProvider`` builds
+    the ``ExtractContext``. **The join key is the turn's message ids** (2026-09-28 decision):
+    a consumer resolves a record to its archive by finding the ``messages.jsonl`` that
+    contains ``first_message_id``, not by a session id this hook does not have. With
+    ``chunk_meta`` given, the pre-chunked path is unaffected (as above) and one
+    ``{"skipped": "prechunked"}``
     line is logged instead of classifying.
     """
 
@@ -1541,6 +1550,8 @@ data:
         else:
             verdict = "strip"
 
+        created_ats = [ts for ts in (getattr(m, "created_at", None) for m in turn) if ts]
+
         return {
             "segmentation": segmentation,
             "turn_start": rng.start,
@@ -1548,6 +1559,9 @@ data:
             "partial": not _is_turn_boundary(turn[0]),
             "first_message_id": getattr(turn[0], "id", None),
             "last_message_id": getattr(turn[-1], "id", None),
+            "message_count": len(turn),
+            "created_at_min": min(created_ats) if created_ats else None,
+            "created_at_max": max(created_ats) if created_ats else None,
             "ov_tools": sorted(set(ov_tools)),
             "other_tools": sorted(set(other_tools)),
             "bash_first_tokens": sorted(set(bash_tokens)),

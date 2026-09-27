@@ -679,6 +679,7 @@ class EchoMessageTests(unittest.TestCase):
 class ShadowMessage(FakeMessage):
     turn_id: object = None
     message_kind: object = None
+    created_at: object = None
 
 
 @dataclasses.dataclass
@@ -688,12 +689,14 @@ class ShadowToolPart:
     tool_status: str = "success"
 
 
-def umsg(mid, text_="hi", turn_id=None, message_kind=None):
-    return ShadowMessage(mid, "user", [FakeText(text_)], turn_id, message_kind)
+def umsg(mid, text_="hi", turn_id=None, message_kind=None, created_at=None):
+    return ShadowMessage(
+        mid, "user", [FakeText(text_)], turn_id, message_kind, created_at
+    )
 
 
-def amsg(mid, parts, turn_id=None):
-    return ShadowMessage(mid, "assistant", list(parts), turn_id)
+def amsg(mid, parts, turn_id=None, created_at=None):
+    return ShadowMessage(mid, "assistant", list(parts), turn_id, None, created_at)
 
 
 def tpart(name, tool_input=None, status="success"):
@@ -954,11 +957,38 @@ class RecallShadowTests(unittest.TestCase):
             (rec["first_message_id"], rec["last_message_id"]), ("u0", "a1")
         )
         self.assertFalse(rec["partial"])
+        self.assertEqual(rec["message_count"], 2)
 
     def test_a_partial_turn_is_flagged(self):
         msgs = [amsg("a0", [tpart("mcp__plugin_openviking-memory_openviking__read")])]
         rec = mg.shadow_classify(msgs)[0]
         self.assertTrue(rec["partial"])
+
+    def test_created_at_min_and_max_span_the_turn(self):
+        msgs = [
+            umsg(
+                "u0",
+                "what did we look at?",
+                created_at="2026-09-24T20:39:14+00:00",
+            ),
+            amsg(
+                "a1",
+                [
+                    tpart("mcp__plugin_openviking-memory_openviking__read"),
+                    FakeText("here"),
+                ],
+                created_at="2026-09-24T20:39:20+00:00",
+            ),
+        ]
+        rec = mg.shadow_classify(msgs)[0]
+        self.assertEqual(rec["created_at_min"], "2026-09-24T20:39:14+00:00")
+        self.assertEqual(rec["created_at_max"], "2026-09-24T20:39:20+00:00")
+
+    def test_created_at_is_none_when_no_message_carries_one(self):
+        msgs = self._turn(tpart("mcp__plugin_openviking-memory_openviking__read"))
+        rec = mg.shadow_classify(msgs)[0]
+        self.assertIsNone(rec["created_at_min"])
+        self.assertIsNone(rec["created_at_max"])
 
     def test_shadow_classify_never_mutates_messages(self):
         msgs = self._turn(
