@@ -58,6 +58,16 @@ guess from the backend. A later capture-side change (IMPR-1204 layer 1) may rout
 ``--ollama`` archives under ``noot-pilot-lab`` going forward; the fallback exists for
 that case, not because today's ledger data points there.
 
+**Resumed sessions (2026-09-28 finding).** A session can be resumed under a different
+launch — an ``--ollama`` capture session picked up later under a plain ``claude``
+launch, for example — and each launch gets its own row. ``index_ledger`` keeps every
+launch a session appeared under, not just the first; ``backend_for`` picks the launch
+window (``_launch_windows``: from one launch's ``ts`` to the next launch's ``ts``, or
+its own ``end`` row if the ledger ever emits one) the turn's ``created_at_min`` falls
+in, and reports ``backend: "ambiguous"`` with every fitting ``{"machine", "backend"}``
+candidate when more than one window fits (or none do, with no ``created_at_min`` to
+disambiguate). ``testdata/ledger-resume.jsonl`` is an ollama→anthropic resume fixture.
+
 Usage:
     ov-recall-shadow-report.py --log shadow.log --ledger pop=~/.openviking/pilot/ledger.jsonl \\
         --ledger workbook=/path/to/workbook-ledger.jsonl --out report.md
@@ -125,15 +135,21 @@ def parse_ledger_rows(path):
 
 
 def index_ledger(rows):
-    """rows -> (launch_id -> {"backend":..., "mode":...},
-    session_uuid -> {"launch_id":..., "ts": <earliest session-row ts>}).
+    """rows -> (launch_id -> {"backend":..., "mode":..., "user":...},
+    session_uuid -> [{"launch_id":..., "ts":..., "end_ts":...}, ...] sorted by ts).
 
-    Multiple ``session`` rows can share one ``launch_id`` (resume/compact); the earliest
-    ``ts`` for a given session UUID is kept, since that is the closest thing to "when
-    this session started" available for candidate narrowing.
+    A session can be resumed under a different launch (``source: "resume"``), so the
+    *full* launch history is kept, one entry per distinct ``launch_id`` (the earliest
+    ``session``-row ``ts`` for that launch — resume/compact can repeat rows under the
+    same launch). ``end_ts`` comes from an ``event: "end"`` row for that
+    ``(session_id, launch_id)`` pair if the ledger ever emits one — not confirmed to
+    exist as of 2026-09-28, handled defensively so a launch-window close is honoured
+    the moment it does; ``_launch_windows`` falls back to "until the next launch"
+    otherwise.
     """
     starts = {}
-    sessions = {}
+    launch_ts = {}  # (uuid, launch_id) -> earliest session-row ts
+    end_ts = {}  # (uuid, launch_id) -> latest end-row ts
     for row in rows:
         launch_id = row.get("launch_id")
         if not launch_id:
@@ -146,14 +162,23 @@ def index_ledger(rows):
                 "user": row.get("user"),
             }
         elif event == "session" and row.get("session_id"):
-            uuid = row["session_id"]
+            key = (row["session_id"], launch_id)
             ts = row.get("ts")
-            existing = sessions.get(uuid)
-            if existing is None:
-                sessions[uuid] = {"launch_id": launch_id, "ts": ts}
-            elif ts and (existing["ts"] is None or ts < existing["ts"]):
-                existing["ts"] = ts
-                existing["launch_id"] = launch_id
+            if ts and (key not in launch_ts or ts < launch_ts[key]):
+                launch_ts[key] = ts
+        elif event == "end" and row.get("session_id"):
+            key = (row["session_id"], launch_id)
+            ts = row.get("ts")
+            if ts and (key not in end_ts or ts > end_ts[key]):
+                end_ts[key] = ts
+
+    sessions = {}
+    for (uuid, launch_id), ts in launch_ts.items():
+        sessions.setdefault(uuid, []).append(
+            {"launch_id": launch_id, "ts": ts, "end_ts": end_ts.get((uuid, launch_id))}
+        )
+    for launches in sessions.values():
+        launches.sort(key=lambda entry: entry["ts"])
     return starts, sessions
 
 
@@ -196,19 +221,87 @@ def lab_or_pilot(archive: str) -> str:
     return "unknown"
 
 
-def backend_for(archive, ledgers):
-    """(backend, machine) for a resolved ``archive`` URI, or ``("unknown", None)`` when
-    there is no archive or it matches no ledger session — a record with no matching
-    session is reported, never dropped."""
+def _launch_windows(launches):
+    """``launches`` (sorted by ts, ``index_ledger``'s per-session list) ->
+    ``[(start_ts, end_ts_or_None, launch_id), ...]``.
+
+    A window runs from its launch's ``ts`` until the next launch's ``ts`` (a resume
+    hands the session to a new launch) — or its own ``end_ts``, when the ledger has
+    one and it closes before the next launch starts. The last launch's window is
+    open-ended (``None``) when there is no ``end_ts``.
+    """
+    windows = []
+    for i, entry in enumerate(launches):
+        next_start = launches[i + 1]["ts"] if i + 1 < len(launches) else None
+        end_ts = entry.get("end_ts")
+        if end_ts and (next_start is None or end_ts < next_start):
+            close = end_ts
+        else:
+            close = next_start
+        windows.append((entry["ts"], close, entry["launch_id"]))
+    return windows
+
+
+def _backend_windows_for_session(session_uuid, ledgers):
+    """``[(machine, launch_id, start_ts, end_ts_or_None), ...]`` across every ledger."""
+    out = []
+    for machine, (_starts, sessions) in ledgers.items():
+        launches = sessions.get(session_uuid)
+        if not launches:
+            continue
+        for start_ts, end_ts, launch_id in _launch_windows(launches):
+            out.append((machine, launch_id, start_ts, end_ts))
+    return out
+
+
+def backend_for(archive, ledgers, created_at_min=None):
+    """(backend, machine, candidates).
+
+    ``backend`` is a real backend string, ``"unknown"`` (no archive, no ledger match),
+    or ``"ambiguous"`` (the turn's ``created_at_min`` fits more than one launch window,
+    or — with no ``created_at_min`` given — the session was resumed under more than one
+    launch and there is nothing to disambiguate with). ``candidates`` is the list of
+    ``{"machine", "backend"}`` dicts that fit when ``backend == "ambiguous"``, else
+    ``None``. A record with no matching session is reported ``"unknown"``, never
+    dropped.
+    """
     session_uuid = bare_session_uuid(archive)
     if not session_uuid:
-        return "unknown", None
-    for machine, (starts, sessions) in ledgers.items():
-        entry = sessions.get(session_uuid)
-        launch_id = entry.get("launch_id") if entry else None
-        if launch_id and launch_id in starts:
-            return starts[launch_id].get("backend") or "unknown", machine
-    return "unknown", None
+        return "unknown", None, None
+    windows = _backend_windows_for_session(session_uuid, ledgers)
+    if not windows:
+        return "unknown", None, None
+
+    def _backend(machine, launch_id):
+        starts, _sessions = ledgers[machine]
+        return starts.get(launch_id, {}).get("backend") or "unknown"
+
+    if created_at_min is None:
+        if len(windows) == 1:
+            machine, launch_id, _s, _e = windows[0]
+            return _backend(machine, launch_id), machine, None
+        candidates = [
+            {"machine": m, "backend": _backend(m, lid)} for m, lid, _s, _e in windows
+        ]
+        return "ambiguous", None, candidates
+
+    turn_ts = _parse_ts(created_at_min)
+    fitting = []
+    for machine, launch_id, start_ts, end_ts in windows:
+        start = _parse_ts(start_ts)
+        if turn_ts is None or start is None or turn_ts < start:
+            continue
+        end = _parse_ts(end_ts) if end_ts else None
+        if end is not None and turn_ts >= end:
+            continue
+        fitting.append((machine, launch_id))
+    if len(fitting) == 1:
+        machine, launch_id = fitting[0]
+        return _backend(machine, launch_id), machine, None
+    if not fitting:
+        return "unknown", None, None
+    candidates = [{"machine": m, "backend": _backend(m, lid)} for m, lid in fitting]
+    return "ambiguous", None, candidates
 
 
 def _candidate_users(launch_user):
@@ -240,24 +333,29 @@ def _parse_ts(ts):
 def _candidate_sessions(ledgers, created_at_min, ts_slack_seconds):
     """[(ts, session_uuid, launch_user), ...], closest-preceding first.
 
-    A candidate is a ledger ``session`` row whose ``ts`` is at or before the turn's
-    ``created_at_min`` (a session that started after the turn cannot have written it)
-    and within ``ts_slack_seconds`` of it. ``launch_user`` is that launch's recorded
-    ``start.user`` (``None`` when the start row predates that field or is missing).
+    A candidate is one ledger launch (of possibly several — a resumed session has one
+    per launch) whose ``ts`` is at or before the turn's ``created_at_min`` (a launch
+    that started after the turn cannot have written it) and within
+    ``ts_slack_seconds`` of it. ``launch_user`` is that launch's recorded
+    ``start.user`` (``None`` when the start row predates that field or is missing). A
+    resumed session naturally contributes one candidate per launch, so the
+    session-directory search in ``resolve_archive`` tries the user each launch
+    actually recorded, not just the session's original one.
     """
     turn_start = _parse_ts(created_at_min)
     if turn_start is None:
         return []
     candidates = []
     for starts, sessions in ledgers.values():
-        for session_uuid, entry in sessions.items():
-            session_ts = _parse_ts(entry.get("ts"))
-            if session_ts is None or session_ts > turn_start:
-                continue
-            if (turn_start - session_ts).total_seconds() > ts_slack_seconds:
-                continue
-            launch_user = starts.get(entry.get("launch_id"), {}).get("user")
-            candidates.append((session_ts, session_uuid, launch_user))
+        for session_uuid, launches in sessions.items():
+            for entry in launches:
+                session_ts = _parse_ts(entry.get("ts"))
+                if session_ts is None or session_ts > turn_start:
+                    continue
+                if (turn_start - session_ts).total_seconds() > ts_slack_seconds:
+                    continue
+                launch_user = starts.get(entry.get("launch_id"), {}).get("user")
+                candidates.append((session_ts, session_uuid, launch_user))
     candidates.sort(key=lambda c: c[0], reverse=True)
     return candidates
 
@@ -437,7 +535,9 @@ def build_report(
         archive = resolve_record_archive(
             rec, ledgers, reader, ts_slack_seconds=ts_slack_seconds
         )
-        backend, machine = backend_for(archive, ledgers)
+        backend, machine, candidates = backend_for(
+            archive, ledgers, created_at_min=rec.get("created_at_min")
+        )
         session_key = archive or (
             rec.get("first_message_id"),
             rec.get("last_message_id"),
@@ -454,6 +554,7 @@ def build_report(
                 "verdict": verdict,
                 "backend": backend,
                 "machine": machine or "unknown",
+                "ambiguous_candidates": candidates,
                 "lab_or_pilot": lab_or_pilot(archive) if archive else "unknown",
                 "turn_start": rec.get("turn_start"),
                 "turn_end": rec.get("turn_end"),

@@ -97,12 +97,18 @@ class LabOrPilotTests(unittest.TestCase):
 
 
 class IndexLedgerTests(unittest.TestCase):
+    """Codex #173 finding 4: sessions[uuid] is the full launch history (a list), not
+    just the earliest launch -- a resumed session needs every launch's window."""
+
     def test_start_and_session_rows_join_by_launch_id(self):
         rows = report.parse_ledger_rows(os.path.join(_TESTDATA, "ledger-pop.jsonl"))
         starts, sessions = report.index_ledger(rows)
-        entry = sessions["a5b818a0-c729-4063-abdd-efa1eceb5522"]
+        launches = sessions["a5b818a0-c729-4063-abdd-efa1eceb5522"]
+        self.assertEqual(len(launches), 1)
+        entry = launches[0]
         self.assertEqual(entry["launch_id"], "20260927T184306Z-25126")
         self.assertEqual(entry["ts"], "2026-09-27T18:43:07Z")
+        self.assertIsNone(entry["end_ts"])
         self.assertEqual(starts[entry["launch_id"]]["backend"], "anthropic")
         self.assertEqual(starts[entry["launch_id"]]["user"], "noot-pilot")
 
@@ -117,11 +123,14 @@ class IndexLedgerTests(unittest.TestCase):
         ]
         starts, sessions = report.index_ledger(rows)
         self.assertEqual(
-            sessions["u1"], {"launch_id": "L", "ts": "2026-09-27T00:00:00Z"}
+            sessions["u1"],
+            [{"launch_id": "L", "ts": "2026-09-27T00:00:00Z", "end_ts": None}],
         )
         self.assertNotIn("L", starts)
 
-    def test_the_earliest_ts_wins_across_resume_and_compact_rows(self):
+    def test_the_earliest_ts_wins_within_one_launch_across_resume_and_compact_rows(
+        self,
+    ):
         rows = [
             {
                 "event": "session",
@@ -139,7 +148,41 @@ class IndexLedgerTests(unittest.TestCase):
             },
         ]
         _, sessions = report.index_ledger(rows)
-        self.assertEqual(sessions["u1"]["ts"], "2026-09-27T08:00:00Z")
+        self.assertEqual(len(sessions["u1"]), 1, "one launch, not two")
+        self.assertEqual(sessions["u1"][0]["ts"], "2026-09-27T08:00:00Z")
+
+    def test_a_resumed_session_keeps_every_launch_not_just_the_first(self):
+        rows = report.parse_ledger_rows(os.path.join(_TESTDATA, "ledger-resume.jsonl"))
+        starts, sessions = report.index_ledger(rows)
+        launches = sessions["bbbbbbbb-1111-2222-3333-444444444444"]
+        self.assertEqual(len(launches), 2)
+        # sorted by ts: the ollama launch first, the anthropic resume second
+        self.assertEqual(launches[0]["launch_id"], "20260910T090000Z-1")
+        self.assertEqual(launches[1]["launch_id"], "20260915T090000Z-2")
+        self.assertEqual(
+            starts[launches[0]["launch_id"]]["backend"], "ollama:qwen3-coder"
+        )
+        self.assertEqual(starts[launches[1]["launch_id"]]["backend"], "anthropic")
+
+    def test_an_end_row_is_captured_defensively(self):
+        # Not confirmed to exist in the real ledger as of 2026-09-28; handled so a
+        # launch-window close is honoured the moment the ledger emits one.
+        rows = [
+            {
+                "event": "session",
+                "launch_id": "L",
+                "session_id": "u1",
+                "ts": "2026-09-27T08:00:00Z",
+            },
+            {
+                "event": "end",
+                "launch_id": "L",
+                "session_id": "u1",
+                "ts": "2026-09-27T09:00:00Z",
+            },
+        ]
+        _, sessions = report.index_ledger(rows)
+        self.assertEqual(sessions["u1"][0]["end_ts"], "2026-09-27T09:00:00Z")
 
     def test_rows_without_a_launch_id_are_ignored(self):
         starts, sessions = report.index_ledger(
@@ -158,30 +201,141 @@ class BackendForTests(unittest.TestCase):
         )
 
     def test_no_archive_is_unknown(self):
-        self.assertEqual(report.backend_for(None, self.ledgers), ("unknown", None))
+        self.assertEqual(
+            report.backend_for(None, self.ledgers), ("unknown", None, None)
+        )
 
     def test_a_matching_parent_session_resolves_through_pop(self):
         archive = "viking://user/noot-pilot/sessions/cc-a5b818a0-c729-4063-abdd-efa1eceb5522/history/archive_003"
         self.assertEqual(
-            report.backend_for(archive, self.ledgers), ("anthropic", "pop")
+            report.backend_for(archive, self.ledgers), ("anthropic", "pop", None)
         )
 
     def test_a_matching_subagent_resolves_through_its_parents_launch(self):
         archive = "viking://user/noot-pilot/sessions/cc-a5b818a0-c729-4063-abdd-efa1eceb5522__subagent-77aa/history/archive_001"
         self.assertEqual(
-            report.backend_for(archive, self.ledgers), ("anthropic", "pop")
+            report.backend_for(archive, self.ledgers), ("anthropic", "pop", None)
         )
 
     def test_a_workbook_session_resolves_through_workbook(self):
         archive = "viking://user/noot-pilot-lab/sessions/cc-11111111-2222-3333-4444-555555555555/history/archive_001"
         self.assertEqual(
             report.backend_for(archive, self.ledgers),
-            ("ollama:qwen3-coder", "workbook"),
+            ("ollama:qwen3-coder", "workbook", None),
         )
 
     def test_an_unmatched_session_is_unknown_not_dropped(self):
         archive = "viking://user/noot-pilot/sessions/cc-99999999-0000-1111-2222-333344445555/history/archive_002"
-        self.assertEqual(report.backend_for(archive, self.ledgers), ("unknown", None))
+        self.assertEqual(
+            report.backend_for(archive, self.ledgers), ("unknown", None, None)
+        )
+
+    def test_created_at_min_is_accepted_and_does_not_change_a_single_window_case(self):
+        archive = "viking://user/noot-pilot/sessions/cc-a5b818a0-c729-4063-abdd-efa1eceb5522/history/archive_003"
+        self.assertEqual(
+            report.backend_for(
+                archive, self.ledgers, created_at_min="2026-09-27T19:00:00+00:00"
+            ),
+            ("anthropic", "pop", None),
+        )
+
+
+class ResumeFixtureTests(unittest.TestCase):
+    """Codex #173 finding 4: an ollama->anthropic resume. backend_for must pick the
+    launch window the turn's created_at_min actually falls in, not stick to the
+    session's first launch."""
+
+    def setUp(self):
+        self.ledgers = report.load_ledgers(
+            [f"pop={os.path.join(_TESTDATA, 'ledger-resume.jsonl')}"]
+        )
+        self.archive = "viking://user/noot-pilot/sessions/cc-bbbbbbbb-1111-2222-3333-444444444444/history/archive_005"
+
+    def test_a_turn_in_the_first_window_gets_the_ollama_backend(self):
+        backend, machine, candidates = report.backend_for(
+            self.archive, self.ledgers, created_at_min="2026-09-12T00:00:00+00:00"
+        )
+        self.assertEqual(
+            (backend, machine, candidates), ("ollama:qwen3-coder", "pop", None)
+        )
+
+    def test_a_turn_after_the_resume_gets_the_anthropic_backend(self):
+        # Regression: an earlier version kept only the session's first (earliest)
+        # launch and reported ollama:qwen3-coder here too.
+        backend, machine, candidates = report.backend_for(
+            self.archive, self.ledgers, created_at_min="2026-09-20T00:00:00+00:00"
+        )
+        self.assertEqual((backend, machine, candidates), ("anthropic", "pop", None))
+
+    def test_a_turn_before_any_launch_is_unknown(self):
+        backend, machine, candidates = report.backend_for(
+            self.archive, self.ledgers, created_at_min="2026-09-01T00:00:00+00:00"
+        )
+        self.assertEqual((backend, machine, candidates), ("unknown", None, None))
+
+    def test_no_created_at_min_with_two_windows_is_ambiguous(self):
+        backend, machine, candidates = report.backend_for(self.archive, self.ledgers)
+        self.assertEqual(backend, "ambiguous")
+        self.assertIsNone(machine)
+        self.assertEqual(
+            candidates,
+            [
+                {"machine": "pop", "backend": "ollama:qwen3-coder"},
+                {"machine": "pop", "backend": "anthropic"},
+            ],
+        )
+
+
+class LaunchWindowsTests(unittest.TestCase):
+    def test_two_launches_bound_each_other(self):
+        launches = [
+            {"launch_id": "L1", "ts": "2026-09-10T09:00:00Z", "end_ts": None},
+            {"launch_id": "L2", "ts": "2026-09-15T09:00:00Z", "end_ts": None},
+        ]
+        windows = report._launch_windows(launches)
+        self.assertEqual(
+            windows,
+            [
+                ("2026-09-10T09:00:00Z", "2026-09-15T09:00:00Z", "L1"),
+                ("2026-09-15T09:00:00Z", None, "L2"),
+            ],
+        )
+
+    def test_a_single_launch_is_open_ended(self):
+        launches = [{"launch_id": "L1", "ts": "2026-09-10T09:00:00Z", "end_ts": None}]
+        self.assertEqual(
+            report._launch_windows(launches), [("2026-09-10T09:00:00Z", None, "L1")]
+        )
+
+    def test_an_end_ts_before_the_next_launch_closes_the_window_early(self):
+        launches = [
+            {
+                "launch_id": "L1",
+                "ts": "2026-09-10T09:00:00Z",
+                "end_ts": "2026-09-10T10:00:00Z",
+            },
+            {"launch_id": "L2", "ts": "2026-09-15T09:00:00Z", "end_ts": None},
+        ]
+        windows = report._launch_windows(launches)
+        self.assertEqual(
+            windows[0], ("2026-09-10T09:00:00Z", "2026-09-10T10:00:00Z", "L1")
+        )
+
+    def test_an_end_ts_after_the_next_launch_is_ignored_in_favour_of_the_next_launch(
+        self,
+    ):
+        launches = [
+            {
+                "launch_id": "L1",
+                "ts": "2026-09-10T09:00:00Z",
+                "end_ts": "2026-09-20T00:00:00Z",
+            },
+            {"launch_id": "L2", "ts": "2026-09-15T09:00:00Z", "end_ts": None},
+        ]
+        windows = report._launch_windows(launches)
+        self.assertEqual(
+            windows[0], ("2026-09-10T09:00:00Z", "2026-09-15T09:00:00Z", "L1")
+        )
 
 
 class CandidateUsersTests(unittest.TestCase):
@@ -363,6 +517,7 @@ class LocalTreeReaderTests(unittest.TestCase):
             [
                 "cc-a5b818a0-c729-4063-abdd-efa1eceb5522",
                 "cc-a5b818a0-c729-4063-abdd-efa1eceb5522__subagent-77aa",
+                "cc-bbbbbbbb-1111-2222-3333-444444444444",
             ],
         )
 
@@ -504,6 +659,45 @@ class BuildReportWithReaderTests(unittest.TestCase):
         ]
         rep = report.build_report(records, self.ledgers, reader=None)
         self.assertEqual(rep["rows"][0]["backend"], "unknown")
+
+
+class BuildReportResumeFixtureTests(unittest.TestCase):
+    """End to end (resolve_archive + backend_for's launch windows) against the
+    ollama->anthropic resume fixture -- Codex #173 finding 4."""
+
+    def setUp(self):
+        self.ledgers = report.load_ledgers(
+            [f"pop={os.path.join(_TESTDATA, 'ledger-resume.jsonl')}"]
+        )
+        self.reader = report.LocalTreeReader(_ARCHIVE_TREE)
+
+    def test_a_turn_before_the_resume_resolves_the_ollama_backend(self):
+        records = [
+            {
+                "verdict": "strip",
+                "first_message_id": "msg_resume_l1_u0",
+                "last_message_id": "msg_resume_l1_a1",
+                "created_at_min": "2026-09-10T12:00:00.000000+00:00",
+                "created_at_max": "2026-09-10T12:00:05.000000+00:00",
+            }
+        ]
+        rep = report.build_report(records, self.ledgers, reader=self.reader)
+        self.assertEqual(rep["rows"][0]["backend"], "ollama:qwen3-coder")
+        self.assertIsNone(rep["rows"][0]["ambiguous_candidates"])
+
+    def test_a_turn_after_the_resume_resolves_the_anthropic_backend(self):
+        records = [
+            {
+                "verdict": "strip",
+                "first_message_id": "msg_resume_l2_u0",
+                "last_message_id": "msg_resume_l2_a1",
+                "created_at_min": "2026-09-15T12:00:00.000000+00:00",
+                "created_at_max": "2026-09-15T12:00:05.000000+00:00",
+            }
+        ]
+        rep = report.build_report(records, self.ledgers, reader=self.reader)
+        self.assertEqual(rep["rows"][0]["backend"], "anthropic")
+        self.assertIsNone(rep["rows"][0]["ambiguous_candidates"])
 
 
 class _Completed:
