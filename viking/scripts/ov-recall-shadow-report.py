@@ -48,6 +48,16 @@ OpenViking archive/session id is ``cc-<uuid>`` or ``cc-<uuid>__subagent-<id>``; 
 strips ``cc-`` and drops any ``__subagent-...`` suffix before matching a ledger
 ``session_id`` — a subagent joins through its parent session's launch.
 
+**Namespace selection (2026-09-28 finding).** A ``start`` row's ``user`` field is
+hardcoded ``noot-pilot`` regardless of ``--backend`` (``ov-pilot.sh:224``, ``--arg user
+noot-pilot``, unconditional) — every existing ``ollama:*`` launch's archives actually
+live under ``noot-pilot``, not ``noot-pilot-lab``. ``_candidate_users`` therefore tries
+the recorded ``start.user`` (or ``noot-pilot`` when the field is absent, for
+pre-existing ledger rows) first, and ``noot-pilot-lab`` only as a fallback — never a
+guess from the backend. A later capture-side change (IMPR-1204 layer 1) may route new
+``--ollama`` archives under ``noot-pilot-lab`` going forward; the fallback exists for
+that case, not because today's ledger data points there.
+
 Usage:
     ov-recall-shadow-report.py --log shadow.log --ledger pop=~/.openviking/pilot/ledger.jsonl \\
         --ledger workbook=/path/to/workbook-ledger.jsonl --out report.md
@@ -130,7 +140,11 @@ def index_ledger(rows):
             continue
         event = row.get("event")
         if event == "start":
-            starts[launch_id] = {"backend": row.get("backend"), "mode": row.get("mode")}
+            starts[launch_id] = {
+                "backend": row.get("backend"),
+                "mode": row.get("mode"),
+                "user": row.get("user"),
+            }
         elif event == "session" and row.get("session_id"):
             uuid = row["session_id"]
             ts = row.get("ts")
@@ -197,15 +211,21 @@ def backend_for(archive, ledgers):
     return "unknown", None
 
 
-def user_for_backend(backend) -> str:
-    """Which OpenViking user namespace a launch's archives live under.
+def _candidate_users(launch_user):
+    """[primary, fallback?] OpenViking user namespaces to search for a launch's
+    archives, primary first.
 
-    IMPR-1204 layer 1: ``--ollama`` archives live under ``noot-pilot-lab``; everything
-    else (including an unknown backend) is searched under ``noot-pilot`` first.
+    2026-09-28 finding: every existing ``ollama:*`` launch's archives actually live
+    under ``noot-pilot`` — a backend-based guess (assuming any ``ollama:*`` launch is
+    ``noot-pilot-lab``) missed them all. The recorded ``user`` from the ledger's
+    ``start`` row is authoritative; ``noot-pilot`` is the fallback default for a start
+    row with no ``user`` field (older ledger rows). ``noot-pilot-lab`` is tried only
+    when the primary guess misses — never assumed from the backend.
     """
-    if backend and str(backend).startswith("ollama"):
-        return LAB_USER
-    return PILOT_USER
+    primary = launch_user or PILOT_USER
+    if primary == LAB_USER:
+        return [primary]
+    return [primary, LAB_USER]
 
 
 def _parse_ts(ts):
@@ -218,11 +238,12 @@ def _parse_ts(ts):
 
 
 def _candidate_sessions(ledgers, created_at_min, ts_slack_seconds):
-    """[(ts, session_uuid, backend), ...], closest-preceding first.
+    """[(ts, session_uuid, launch_user), ...], closest-preceding first.
 
     A candidate is a ledger ``session`` row whose ``ts`` is at or before the turn's
     ``created_at_min`` (a session that started after the turn cannot have written it)
-    and within ``ts_slack_seconds`` of it.
+    and within ``ts_slack_seconds`` of it. ``launch_user`` is that launch's recorded
+    ``start.user`` (``None`` when the start row predates that field or is missing).
     """
     turn_start = _parse_ts(created_at_min)
     if turn_start is None:
@@ -235,8 +256,8 @@ def _candidate_sessions(ledgers, created_at_min, ts_slack_seconds):
                 continue
             if (turn_start - session_ts).total_seconds() > ts_slack_seconds:
                 continue
-            backend = starts.get(entry.get("launch_id"), {}).get("backend")
-            candidates.append((session_ts, session_uuid, backend))
+            launch_user = starts.get(entry.get("launch_id"), {}).get("user")
+            candidates.append((session_ts, session_uuid, launch_user))
     candidates.sort(key=lambda c: c[0], reverse=True)
     return candidates
 
@@ -252,31 +273,33 @@ def resolve_archive(
     ``first_message_id``, or ``None`` when it cannot be resolved.
 
     Candidates are narrowed by ``created_at_min``/the ledger's session timestamps
-    *before* any archive is read (see ``_candidate_sessions``); each candidate session's
-    directory variants (the parent plus every subagent ``reader.list_sessions`` returns
-    for the inferred user) are tried in turn, most-recent first, until one archive's
-    ``messages.jsonl`` contains the id. ``reader`` caches its own reads, so re-resolving
-    many records in one report run only reads each archive once.
+    *before* any archive is read (see ``_candidate_sessions``); for each candidate
+    session, every user namespace ``_candidate_users`` names (the launch's recorded
+    ``start.user``, else ``noot-pilot``, then ``noot-pilot-lab`` only as a fallback)
+    and each of that user's session-directory variants (the parent plus every subagent
+    ``reader.list_sessions`` returns) are tried in turn, most-recent session first,
+    until one archive's ``messages.jsonl`` contains the id. ``reader`` caches its own
+    reads, so re-resolving many records in one report run only reads each archive once.
     """
     first_id = record.get("first_message_id")
     if not first_id:
         return None
-    for _ts, session_uuid, backend in _candidate_sessions(
+    for _ts, session_uuid, launch_user in _candidate_sessions(
         ledgers, record.get("created_at_min"), ts_slack_seconds
     )[:max_candidates]:
-        user = user_for_backend(backend)
-        for session_dir in reader.list_sessions(user):
-            if not session_dir.startswith("cc-"):
-                continue
-            token = session_dir[len("cc-") :].split("__subagent-", 1)[0]
-            if token != session_uuid:
-                continue
-            for archive_id in reader.list_archives(user, session_dir):
-                messages = reader.read_messages(user, session_dir, archive_id)
-                if not messages:
+        for user in _candidate_users(launch_user):
+            for session_dir in reader.list_sessions(user):
+                if not session_dir.startswith("cc-"):
                     continue
-                if any(m.get("id") == first_id for m in messages):
-                    return f"viking://user/{user}/sessions/{session_dir}/history/{archive_id}"
+                token = session_dir[len("cc-") :].split("__subagent-", 1)[0]
+                if token != session_uuid:
+                    continue
+                for archive_id in reader.list_archives(user, session_dir):
+                    messages = reader.read_messages(user, session_dir, archive_id)
+                    if not messages:
+                        continue
+                    if any(m.get("id") == first_id for m in messages):
+                        return f"viking://user/{user}/sessions/{session_dir}/history/{archive_id}"
     return None
 
 

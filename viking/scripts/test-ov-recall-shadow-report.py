@@ -104,6 +104,7 @@ class IndexLedgerTests(unittest.TestCase):
         self.assertEqual(entry["launch_id"], "20260927T184306Z-25126")
         self.assertEqual(entry["ts"], "2026-09-27T18:43:07Z")
         self.assertEqual(starts[entry["launch_id"]]["backend"], "anthropic")
+        self.assertEqual(starts[entry["launch_id"]]["user"], "noot-pilot")
 
     def test_a_session_row_with_no_start_row_is_indexed_but_unresolvable(self):
         rows = [
@@ -183,13 +184,27 @@ class BackendForTests(unittest.TestCase):
         self.assertEqual(report.backend_for(archive, self.ledgers), ("unknown", None))
 
 
-class UserForBackendTests(unittest.TestCase):
-    def test_ollama_backend_is_lab(self):
-        self.assertEqual(report.user_for_backend("ollama:qwen3-coder"), report.LAB_USER)
+class CandidateUsersTests(unittest.TestCase):
+    """Codex #173 finding 3: the recorded start.user is authoritative -- not a guess
+    from the backend. Every existing ollama launch's start row actually records
+    "noot-pilot" (ov-pilot.sh:224 hardcodes --arg user noot-pilot regardless of
+    --ollama), so the old "ollama backend -> noot-pilot-lab" assumption missed them
+    all; noot-pilot-lab is only ever a fallback now."""
 
-    def test_anthropic_and_unknown_backend_is_pilot(self):
-        self.assertEqual(report.user_for_backend("anthropic"), report.PILOT_USER)
-        self.assertEqual(report.user_for_backend(None), report.PILOT_USER)
+    def test_the_recorded_user_is_tried_first_regardless_of_backend(self):
+        # This is the real, hardcoded shape: every launch (ollama included) records
+        # start.user = "noot-pilot".
+        self.assertEqual(
+            report._candidate_users("noot-pilot"), ["noot-pilot", "noot-pilot-lab"]
+        )
+
+    def test_a_missing_user_falls_back_to_noot_pilot_first(self):
+        self.assertEqual(
+            report._candidate_users(None), ["noot-pilot", "noot-pilot-lab"]
+        )
+
+    def test_noot_pilot_lab_recorded_directly_is_not_duplicated(self):
+        self.assertEqual(report._candidate_users("noot-pilot-lab"), ["noot-pilot-lab"])
 
 
 class SampleFixtureReportTests(unittest.TestCase):
@@ -327,6 +342,15 @@ class CandidateSessionsTests(unittest.TestCase):
         uuids = [c[1] for c in candidates]
         self.assertIn("a5b818a0-c729-4063-abdd-efa1eceb5522", uuids)
         self.assertNotIn("11111111-2222-3333-4444-555555555555", uuids)
+
+    def test_each_candidate_carries_its_launch_recorded_user(self):
+        candidates = report._candidate_sessions(
+            self.ledgers, "2026-09-27T19:10:00+00:00", 365 * 24 * 3600
+        )
+        by_uuid = {uuid: user for _ts, uuid, user in candidates}
+        # Both testdata ledgers record the real, hardcoded start.user value.
+        self.assertEqual(by_uuid["a5b818a0-c729-4063-abdd-efa1eceb5522"], "noot-pilot")
+        self.assertEqual(by_uuid["11111111-2222-3333-4444-555555555555"], "noot-pilot")
 
 
 class LocalTreeReaderTests(unittest.TestCase):
