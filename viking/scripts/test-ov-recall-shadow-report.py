@@ -2,7 +2,7 @@
 
     python3 test-ov-recall-shadow-report.py
 
-``testdata/ov-recall-shadow-sample.log`` is a recorded sample log fixture: two records
+``testdata/ov-recall-shadow-sample.txt`` (``.txt``, not ``.log``: the repo ignores ``*.log``) is a recorded sample log fixture: two records
 in the real Phase 1 shape (no ``archive`` field — what a production log has today), one
 ``{"skipped": "prechunked"}`` line, unrelated pod-log noise, and four forward-looking
 records carrying an ``archive`` field (not emitted by Phase 1 today; see the module
@@ -159,7 +159,7 @@ class SampleFixtureReportTests(unittest.TestCase):
     """The automated criterion: parses a recorded sample log fixture into the expected table."""
 
     def setUp(self):
-        with open(os.path.join(_TESTDATA, "ov-recall-shadow-sample.log")) as fh:
+        with open(os.path.join(_TESTDATA, "ov-recall-shadow-sample.txt")) as fh:
             self.records = report.parse_shadow_lines(fh.readlines())
         self.ledgers = report.load_ledgers(
             [
@@ -219,7 +219,7 @@ class MainCliTests(unittest.TestCase):
     def test_main_writes_the_table_to_stdout(self):
         argv = [
             "--log",
-            os.path.join(_TESTDATA, "ov-recall-shadow-sample.log"),
+            os.path.join(_TESTDATA, "ov-recall-shadow-sample.txt"),
             "--ledger",
             f"pop={os.path.join(_TESTDATA, 'ledger-pop.jsonl')}",
             "--ledger",
