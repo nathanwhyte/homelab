@@ -35,6 +35,12 @@ NODES=(wemby manu timmy)
 DRAIN_TIMEOUT=5m # evictions settle in ~2m; the rest would only be spent retrying pinned instance-managers
 REBOOT_TIMEOUT_SECONDS=${REBOOT_TIMEOUT_SECONDS:-600}
 READY_TIMEOUT_SECONDS=${READY_TIMEOUT_SECONDS:-600}
+# A scaled-down Deployment's pods keep their node assignment while terminating,
+# and the headroom preflight counts them on both sides of its comparison, so a
+# drain could block on the spin-down's own victims. Bounded rather than
+# open-ended: exceeding it warns and proceeds, which at worst restores the
+# pre-wait verdict (a block), so the safe direction is preserved.
+SPIN_DOWN_TIMEOUT_SECONDS=${SPIN_DOWN_TIMEOUT_SECONDS:-120}
 # Rebooting timmy takes the API server down with it, and a slow POST/initramfs can
 # outlast the node's own boot. Waited-for separately from READY so a late API is not
 # mistaken for a node that failed to come back.
@@ -391,18 +397,25 @@ memory_headroom_verdict() {
 
 # Sum the memory requests of the pods a drain would actually have to move:
 # those scheduled on the node, minus DaemonSet-owned pods (`kubectl drain
-# --ignore-daemonsets` never evicts them) and pods already carrying a
-# deletionTimestamp (they are leaving on their own). Counting either inflated
-# the target's demand with memory the drain cannot move, which is what blocked
-# a drain whose own spin-down had just succeeded — BUG-1178. Pods without a
-# request contribute 0 — the scheduler treats them the same way, so this stays
-# the conservative scheduling signal (requests, not live usage, decide placement).
+# --ignore-daemonsets` never evicts them, so counting those inflated the
+# target's demand with memory the drain cannot move — BUG-1178).
+#
+# Terminating pods are deliberately still counted. A deletionTimestamp does not
+# mean the demand has gone: a StatefulSet recreates a manually deleted replica,
+# and even a Deployment's replacement needs somewhere to land, so dropping
+# terminating pods can understate what the remaining nodes must absorb — the
+# unsafe direction, since this preflight exists to prevent an OOM freeze
+# (2026-07-20). The spin-down's own victims are handled by waiting for them to
+# leave (wait_for_spin_down_pods_gone), not by excluding them from the sum.
+#
+# Pods without a request contribute 0 — the scheduler treats them the same way,
+# so this stays the conservative scheduling signal (requests, not live usage,
+# decide placement).
 node_pod_memory_bytes() {
 	local node=$1 q quantities total=0
 	quantities=$($KUBECTL get pods -A -o json --field-selector "spec.nodeName=$node" |
 		jq -r '.items[]
 			| select((.metadata.ownerReferences // []) | any(.kind == "DaemonSet") | not)
-			| select((.metadata.deletionTimestamp // null) == null)
 			| .spec.containers[].resources.requests.memory // "0"') || return 1
 	while IFS= read -r q; do
 		[[ -n $q ]] && total=$((total + $(mem_quantity_to_bytes "$q")))
@@ -546,6 +559,43 @@ spin_down_memory_services() {
 			$KUBECTL scale deployment "$name" -n "$ns" --replicas=0 || return 1
 		fi
 	done
+}
+
+# Wait for the spin-down's own pods to actually leave before the headroom
+# preflight measures. The preflight counts every pod carrying a request on BOTH
+# sides of its comparison, so a victim still terminating is demand on the target
+# and consumed capacity on the remaining nodes at once — which is why a run with
+# --spin-down in effect could still block on the very pods it had just scaled
+# down (BUG-1178). Waiting is the alternative to excluding terminating pods from
+# the measurement: an exclusion cannot tell a scaled-down replica from one whose
+# controller is already recreating it, and dropping that demand understates what
+# the remaining nodes must absorb.
+#
+# Bounded, and a timeout warns rather than failing. The wait exists to improve
+# the preflight's inputs; proceeding at worst restores the pre-wait verdict,
+# which is a block and therefore still the safe direction.
+wait_for_spin_down_pods_gone() {
+	local svc ns name replicas deadline pending
+	deadline=$((SECONDS + SPIN_DOWN_TIMEOUT_SECONDS))
+	while ((SECONDS < deadline)); do
+		pending=0
+		for svc in "${MEMORY_HEAVY_SERVICES[@]}"; do
+			ns=${svc%%/*}
+			name=${svc#*/}
+			# .status.replicas is the observed pod count, so it reaches 0 only
+			# once the terminating pods are actually gone. An absent or
+			# unreadable value counts as pending, to stay conservative.
+			replicas=$($KUBECTL get deployment "$name" -n "$ns" -o jsonpath='{.status.replicas}' 2>/dev/null) || replicas=""
+			if [[ -z $replicas || $replicas != 0 ]]; then
+				pending=$((pending + 1))
+			fi
+		done
+		if ((pending == 0)); then
+			return 0
+		fi
+		sleep 5
+	done
+	warn "spin-down pods still terminating after ${SPIN_DOWN_TIMEOUT_SECONDS}s; the memory headroom figure may include them"
 }
 
 # Restore each service to the replica count recorded before the drain. No-op
@@ -762,6 +812,7 @@ cmd_reboot() {
 	if ((spin_down)); then
 		log "[$node] pre-drain spin-down of memory-heavy services"
 		spin_down_memory_services || return 1
+		wait_for_spin_down_pods_gone
 	fi
 
 	log "[$node] preflight: memory headroom"

@@ -323,24 +323,28 @@ else
 fi
 
 # --- BUG-1178: target demand counts only what a drain can move ---------------
-# `kubectl drain --ignore-daemonsets` never evicts DaemonSet-owned pods, and a
-# pod already carrying a deletionTimestamp is leaving on its own. Counting
-# either as target demand is what let a drain block on memory it could not
-# move, with its own spin-down already in effect.
+# `kubectl drain --ignore-daemonsets` never evicts DaemonSet-owned pods, so
+# counting them was demand the drain could never move.
 cat >"$STUB_PODS" <<'JSON'
 {"items":[
   {"metadata":{},"spec":{"nodeName":"wemby","containers":[{"resources":{"requests":{"memory":"5Gi"}}}]}},
-  {"metadata":{"ownerReferences":[{"kind":"DaemonSet","name":"ds-agent"}]},"spec":{"nodeName":"wemby","containers":[{"resources":{"requests":{"memory":"2Gi"}}}]}},
-  {"metadata":{"deletionTimestamp":"2026-09-26T00:00:00Z"},"spec":{"nodeName":"wemby","containers":[{"resources":{"requests":{"memory":"3Gi"}}}]}}
+  {"metadata":{"ownerReferences":[{"kind":"DaemonSet","name":"ds-agent"}]},"spec":{"nodeName":"wemby","containers":[{"resources":{"requests":{"memory":"2Gi"}}}]}}
 ]}
 JSON
-assert_eq "DaemonSet and terminating pods are not movable demand" "$((5 * 1024 * 1024 * 1024))" "$(node_pod_memory_bytes wemby)"
+assert_eq "DaemonSet-owned pods are not movable demand" "$((5 * 1024 * 1024 * 1024))" "$(node_pod_memory_bytes wemby)"
 
-# The exclusions must not over-reach: an ordinary ReplicaSet-owned pod is still
-# demand the drain has to absorb.
+# A terminating pod's demand is NOT gone: its controller may already be
+# recreating it, so excluding it would understate what the remaining nodes must
+# absorb. The spin-down's own victims are handled by waiting for them to leave,
+# which is why this asserts the demand is retained.
+jq '.items += [{"metadata":{"deletionTimestamp":"2026-09-26T00:00:00Z"},"spec":{"nodeName":"wemby","containers":[{"resources":{"requests":{"memory":"3Gi"}}}]}}]' "$STUB_PODS" >"$STUB_PODS.next"
+mv "$STUB_PODS.next" "$STUB_PODS"
+assert_eq "a terminating pod is still counted as demand" "$((8 * 1024 * 1024 * 1024))" "$(node_pod_memory_bytes wemby)"
+
+# An ordinary ReplicaSet-owned pod counts, as it always did.
 jq '.items += [{"metadata":{"ownerReferences":[{"kind":"ReplicaSet","name":"rs"}]},"spec":{"nodeName":"wemby","containers":[{"resources":{"requests":{"memory":"1Gi"}}}]}}]' "$STUB_PODS" >"$STUB_PODS.next"
 mv "$STUB_PODS.next" "$STUB_PODS"
-assert_eq "a plain ReplicaSet-owned pod still counts as demand" "$((6 * 1024 * 1024 * 1024))" "$(node_pod_memory_bytes wemby)"
+assert_eq "a plain ReplicaSet-owned pod still counts as demand" "$((9 * 1024 * 1024 * 1024))" "$(node_pod_memory_bytes wemby)"
 
 # --- BUG-1178: advice names a lever that can still help ----------------------
 # Block fixture: wemby requests 20Gi against 8Gi of headroom on manu+timmy.
@@ -381,6 +385,34 @@ if [[ $warned == *"TIGHT"* && $warned == *"already in effect"* ]]; then
 	ok "warn states that --spin-down is already in effect"
 else
 	bad "warn should state that --spin-down is already in effect"
+fi
+
+# --- BUG-1178: the spin-down wait gates the measurement ----------------------
+# The preflight runs after the spin-down's pods have actually left, rather than
+# during their termination. Reuse the scale stub, which serves the deployment's
+# replica count for any jsonpath.
+cat >"$STUB_REPLICAS" <<'REPLICAS'
+viking/openviking=0
+viking/ov-vectordb=0
+REPLICAS
+if wait_for_spin_down_pods_gone >/dev/null 2>&1; then
+	ok "spin-down wait returns once the deployments report no pods"
+else
+	bad "spin-down wait should return once the deployments report no pods"
+fi
+
+# When the pods never leave, the wait must give up rather than hang — a timeout
+# is a warn, because proceeding at worst restores the pre-wait (blocking) verdict.
+cat >"$STUB_REPLICAS" <<'REPLICAS'
+viking/openviking=1
+viking/ov-vectordb=1
+REPLICAS
+spin_down_wait_start=$SECONDS
+SPIN_DOWN_TIMEOUT_SECONDS=1 wait_for_spin_down_pods_gone >/dev/null 2>&1 || true
+if ((SECONDS - spin_down_wait_start < 60)); then
+	ok "spin-down wait is bounded when the pods never leave"
+else
+	bad "spin-down wait did not respect its bound"
 fi
 
 echo
