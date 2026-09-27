@@ -38,8 +38,10 @@ READY_TIMEOUT_SECONDS=${READY_TIMEOUT_SECONDS:-600}
 # A scaled-down Deployment's pods keep their node assignment while terminating,
 # and the headroom preflight counts them on both sides of its comparison, so a
 # drain could block on the spin-down's own victims. Bounded rather than
-# open-ended: exceeding it warns and proceeds, which at worst restores the
-# pre-wait verdict (a block), so the safe direction is preserved.
+# open-ended: exceeding it warns and proceeds, because the preflight that follows
+# still counts those pods and blocks if they do not fit. An incomplete spin-down
+# is not by itself unsafe — it leaves the drain where it started, not in a worse
+# state than before the flag existed.
 SPIN_DOWN_TIMEOUT_SECONDS=${SPIN_DOWN_TIMEOUT_SECONDS:-120}
 # Rebooting timmy takes the API server down with it, and a slow POST/initramfs can
 # outlast the node's own boot. Waited-for separately from READY so a late API is not
@@ -571,31 +573,61 @@ spin_down_memory_services() {
 # controller is already recreating it, and dropping that demand understates what
 # the remaining nodes must absorb.
 #
-# Bounded, and a timeout warns rather than failing. The wait exists to improve
-# the preflight's inputs; proceeding at worst restores the pre-wait verdict,
-# which is a block and therefore still the safe direction.
+# The check is a pod list, not the Deployment's replica status. `.status.replicas`
+# counts only non-terminating pods, so it can read 0 while the terminating pods
+# this exists to wait for are still on the node; it is also omitempty, so a real
+# zero can be absent and would otherwise read as "still pending" forever.
+#
+# Bounded twice over: the loop by SPIN_DOWN_TIMEOUT_SECONDS, and each cluster
+# read by the budget left in it. An unbounded read would defeat the deadline the
+# same way a hung SSH call does (see SSH_CMD_TIMEOUT_SECONDS) — `--request-timeout`
+# bounds the request itself and TIMEOUT_BIN, where the platform has one, bounds
+# the process.
+#
+# A timeout warns rather than failing: an incomplete spin-down does not by itself
+# make the drain unsafe, because the preflight that follows still counts these
+# pods and blocks if they do not fit.
 wait_for_spin_down_pods_gone() {
-	local svc ns name replicas deadline pending
+	local svc ns name pods remaining deadline budget pending
 	deadline=$((SECONDS + SPIN_DOWN_TIMEOUT_SECONDS))
 	while ((SECONDS < deadline)); do
+		budget=$((deadline - SECONDS))
+		((budget > 0)) || break
 		pending=0
 		for svc in "${MEMORY_HEAVY_SERVICES[@]}"; do
 			ns=${svc%%/*}
 			name=${svc#*/}
-			# .status.replicas is the observed pod count, so it reaches 0 only
-			# once the terminating pods are actually gone. An absent or
-			# unreadable value counts as pending, to stay conservative.
-			replicas=$($KUBECTL get deployment "$name" -n "$ns" -o jsonpath='{.status.replicas}' 2>/dev/null) || replicas=""
-			if [[ -z $replicas || $replicas != 0 ]]; then
+			# A Deployment's pods are owned by a ReplicaSet named
+			# "<deployment>-<podtemplatehash>", so the name prefix identifies them
+			# without a second round trip for the selector. No phase or
+			# deletionTimestamp filter — terminating pods are what this waits for.
+			if [[ -n $TIMEOUT_BIN ]]; then
+				pods=$("$TIMEOUT_BIN" "$budget" "$KUBECTL" get pods -n "$ns" -o json --request-timeout="${budget}s" 2>/dev/null) || pods=""
+			else
+				pods=$("$KUBECTL" get pods -n "$ns" -o json --request-timeout="${budget}s" 2>/dev/null) || pods=""
+			fi
+			remaining=$(printf '%s' "$pods" | jq -r --arg d "$name" '
+				[.items[] | select((.metadata.ownerReferences // [])
+					| any(.kind == "ReplicaSet" and (.name | startswith($d + "-"))))] | length' 2>/dev/null) || remaining=""
+			# Unreadable or unparseable counts as pending: the safe side here is
+			# to keep waiting, not to declare the pods gone.
+			if [[ -z $remaining || $remaining != 0 ]]; then
 				pending=$((pending + 1))
 			fi
 		done
 		if ((pending == 0)); then
 			return 0
 		fi
-		sleep 5
+		# Cap the sleep to the remaining budget so the loop cannot overshoot by a
+		# whole interval.
+		budget=$((deadline - SECONDS))
+		((budget > 0)) || break
+		if ((budget > 5)); then
+			budget=5
+		fi
+		sleep "$budget"
 	done
-	warn "spin-down pods still terminating after ${SPIN_DOWN_TIMEOUT_SECONDS}s; the memory headroom figure may include them"
+	warn "spin-down pods still present after ${SPIN_DOWN_TIMEOUT_SECONDS}s; the memory headroom figure may include them"
 }
 
 # Restore each service to the replica count recorded before the drain. No-op

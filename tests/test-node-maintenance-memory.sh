@@ -29,10 +29,12 @@ get)
   case "$2" in
   nodes) cat "$STUB_NODES" ;;
   pods)
-    # Honor --field-selector spec.nodeName=<node> by filtering with jq.
-    node=""
+    # Honor --field-selector spec.nodeName=<node> and -n <namespace>.
+    node=""; ns=""; prev=""
     for a in "$@"; do
-      [[ $a == spec.nodeName=* ]] && node=${a#spec.nodeName=}
+      if [[ $prev == "-n" ]]; then ns=$a; fi
+      if [[ $a == spec.nodeName=* ]]; then node=${a#spec.nodeName=}; fi
+      prev=$a
     done
     if [[ -n $node ]]; then
       [[ ${STUB_FAIL_TARGET:-0} == 0 ]] || exit 1
@@ -41,6 +43,13 @@ get)
         exit 0
       fi
       jq --arg n "$node" '{items: [.items[] | select(.spec.nodeName == $n)]}' "$STUB_PODS"
+    elif [[ -n $ns ]]; then
+      # A namespaced list is the spin-down wait's read. STUB_FAIL_SPINDOWN_READ
+      # models an unreadable response and STUB_SPINDOWN_SLEEP a stalled one, which
+      # the wait must bound rather than block on.
+      [[ ${STUB_FAIL_SPINDOWN_READ:-0} == 0 ]] || exit 1
+      if [[ ${STUB_SPINDOWN_SLEEP:-0} != 0 ]]; then sleep "$STUB_SPINDOWN_SLEEP"; fi
+      jq --arg ns "$ns" '{items: [.items[] | select(.metadata.namespace == $ns)]}' "$STUB_PODS"
     else
       cat "$STUB_PODS"
     fi
@@ -388,31 +397,76 @@ else
 fi
 
 # --- BUG-1178: the spin-down wait gates the measurement ----------------------
-# The preflight runs after the spin-down's pods have actually left, rather than
-# during their termination. Reuse the scale stub, which serves the deployment's
-# replica count for any jsonpath.
-cat >"$STUB_REPLICAS" <<'REPLICAS'
-viking/openviking=0
-viking/ov-vectordb=0
-REPLICAS
-if wait_for_spin_down_pods_gone >/dev/null 2>&1; then
-	ok "spin-down wait returns once the deployments report no pods"
+# The wait polls a pod list, so these exercise the three things it must do:
+# return once the pods are gone, keep polling (and warn) while they are not, and
+# stay bounded when a cluster read stalls. Each call goes through an external
+# watchdog so a wait that never returns fails the suite rather than stalling it.
+WATCHDOG=""
+if command -v timeout >/dev/null 2>&1; then WATCHDOG=timeout; fi
+
+# Run a snippet against a freshly sourced script, under the watchdog when the
+# platform has one. A stalled read is modelled by STUB_SPINDOWN_SLEEP, which the
+# wait must cut short rather than block on.
+watched() { # max_seconds snippet
+	if [[ -n $WATCHDOG ]]; then
+		"$WATCHDOG" "$1" bash -c "source '$REPO_ROOT/scripts/node-maintenance.sh'; $2"
+	else
+		bash -c "source '$REPO_ROOT/scripts/node-maintenance.sh'; $2"
+	fi
+}
+
+# One scaled-down Deployment pod, still terminating. The owner name follows the
+# "<deployment>-<podtemplatehash>" ReplicaSet convention the wait relies on, and
+# it carries a deletionTimestamp precisely because that must not read as gone.
+terminating_viking_pods() {
+	cat >"$STUB_PODS" <<'JSON'
+{"items":[
+  {"metadata":{"namespace":"viking","name":"openviking-6c9b675f9f-h5v9h","deletionTimestamp":"2026-09-26T00:00:00Z","ownerReferences":[{"kind":"ReplicaSet","name":"openviking-6c9b675f9f"}]},"spec":{"containers":[]}}
+]}
+JSON
+}
+
+printf '{"items":[]}' >"$STUB_PODS"
+if watched 20 'SPIN_DOWN_TIMEOUT_SECONDS=10 wait_for_spin_down_pods_gone' >/dev/null 2>&1; then
+	ok "spin-down wait returns once the pods are gone"
 else
-	bad "spin-down wait should return once the deployments report no pods"
+	bad "spin-down wait should return once the pods are gone"
 fi
 
-# When the pods never leave, the wait must give up rather than hang — a timeout
-# is a warn, because proceeding at worst restores the pre-wait (blocking) verdict.
-cat >"$STUB_REPLICAS" <<'REPLICAS'
-viking/openviking=1
-viking/ov-vectordb=1
-REPLICAS
-spin_down_wait_start=$SECONDS
-SPIN_DOWN_TIMEOUT_SECONDS=1 wait_for_spin_down_pods_gone >/dev/null 2>&1 || true
-if ((SECONDS - spin_down_wait_start < 60)); then
-	ok "spin-down wait is bounded when the pods never leave"
+# Still terminating: the wait must keep polling to its deadline and then warn.
+# This is what a stub that returns immediately, or ignores the configured
+# timeout, cannot satisfy.
+terminating_viking_pods
+spin_down_start=$SECONDS
+wait_out=$(watched 30 'SPIN_DOWN_TIMEOUT_SECONDS=2 wait_for_spin_down_pods_gone' 2>&1) || true
+spin_down_elapsed=$((SECONDS - spin_down_start))
+if [[ $wait_out == *"still present after 2s"* ]]; then
+	ok "spin-down wait warns when the pods never leave"
 else
-	bad "spin-down wait did not respect its bound"
+	bad "spin-down wait should warn when the pods never leave (got: ${wait_out})"
+fi
+if ((spin_down_elapsed >= 2 && spin_down_elapsed < 25)); then
+	ok "spin-down wait polls until its deadline rather than returning early"
+else
+	bad "spin-down wait did not respect its deadline (elapsed ${spin_down_elapsed}s)"
+fi
+
+# A cluster read that stalls past the deadline must not stall the wait — the
+# deadline is only re-checked between reads, so an unbounded read would defeat it.
+if [[ -n $WATCHDOG ]]; then
+	printf '{"items":[]}' >"$STUB_PODS"
+	export STUB_SPINDOWN_SLEEP=8
+	spin_down_start=$SECONDS
+	watched 30 'SPIN_DOWN_TIMEOUT_SECONDS=2 wait_for_spin_down_pods_gone' >/dev/null 2>&1 || true
+	spin_down_elapsed=$((SECONDS - spin_down_start))
+	unset STUB_SPINDOWN_SLEEP
+	if ((spin_down_elapsed < 8)); then
+		ok "spin-down wait bounds a stalled cluster read"
+	else
+		bad "spin-down wait blocked on a stalled read (elapsed ${spin_down_elapsed}s)"
+	fi
+else
+	printf 'skip spin-down wait read-bound test (no timeout(1) on this platform)\n'
 fi
 
 echo
