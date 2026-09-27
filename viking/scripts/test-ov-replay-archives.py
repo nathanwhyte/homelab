@@ -691,35 +691,322 @@ class ArgParsingTests(unittest.TestCase):
             )
 
 
-class HydrateToolOutputTests(unittest.TestCase):
-    def test_a_part_with_no_ref_passes_through(self):
-        part = {"type": "tool", "tool_name": "Read"}
-        self.assertIs(
-            ra.hydrate_tool_output("http://prod", "key", "default", "u", part), part
+class ToolResultIdFromRefTests(unittest.TestCase):
+    def test_strips_the_trailing_slash_and_takes_the_last_segment(self):
+        self.assertEqual(
+            ra._tool_result_id_from_ref(
+                "viking://user/u/sessions/cc-x/tool-results/tr_abc123/"
+            ),
+            "tr_abc123",
         )
 
-    def test_a_resolvable_ref_is_inlined(self):
+    def test_no_trailing_slash(self):
+        self.assertEqual(
+            ra._tool_result_id_from_ref(
+                "viking://user/u/sessions/cc-x/tool-results/tr_abc123"
+            ),
+            "tr_abc123",
+        )
+
+
+class HydrateToolOutputTests(unittest.TestCase):
+    """Codex #173 finding 2: hydrate_tool_output goes through the read-only
+    tool-results API (not a raw content read of the ref, which names a directory —
+    tool_result_store.py:141,240,274), preserves source slices, clears every
+    externalization field, and never drops the part on a failed read."""
+
+    def test_a_part_with_no_externalization_fields_passes_through_unresolved(self):
+        part = {"type": "tool", "tool_name": "Read"}
+        hydrated, unresolved = ra.hydrate_tool_output(
+            "http://prod", "key", "default", "u", "cc-x", part
+        )
+        self.assertEqual(hydrated, part)
+        self.assertIsNot(hydrated, part, "a copy, not the source part")
+        self.assertFalse(unresolved)
+
+    def test_an_untruncated_ref_with_no_source_ref_is_stripped_but_not_fetched(self):
+        # Already-inline output: no read is needed, but the prod pointer must not
+        # reach ov-test.
+        part = {
+            "type": "tool",
+            "tool_output": "already inline",
+            "tool_output_ref": "viking://user/u/sessions/cc-x/tool-results/tr_1",
+        }
+        ra._request = FakeRequester([])  # any call would raise "unexpected request"
+        hydrated, unresolved = ra.hydrate_tool_output(
+            "http://prod", "key", "default", "u", "cc-x", part
+        )
+        self.assertFalse(unresolved)
+        self.assertEqual(hydrated["tool_output"], "already inline")
+        self.assertNotIn("tool_output_ref", hydrated)
+
+    def test_a_truncated_part_is_refetched_in_full(self):
         fake = FakeRequester(
-            [("GET", r"^/api/v1/content/read", _const({"content": "the tool output"}))]
+            [
+                (
+                    "GET",
+                    r"^/api/v1/sessions/cc-x/tool-results/tr_1",
+                    _const({"content": "the full output"}),
+                )
+            ]
         )
         ra._request = fake
-        part = {"type": "tool", "tool_output_ref": "viking://x/y"}
-        out = ra.hydrate_tool_output("http://prod", "key", "default", "u", part)
-        self.assertEqual(out["tool_output"], "the tool output")
-        self.assertEqual(
-            part.get("tool_output"), None, "the source part is not mutated"
+        part = {
+            "type": "tool",
+            "tool_output": "...truncated...",
+            "tool_output_ref": "viking://user/u/sessions/cc-x/tool-results/tr_1",
+            "tool_output_truncated": True,
+        }
+        hydrated, unresolved = ra.hydrate_tool_output(
+            "http://prod", "key", "default", "u", "cc-x", part
         )
+        self.assertFalse(unresolved)
+        self.assertEqual(hydrated["tool_output"], "the full output")
+        self.assertNotIn("tool_output_ref", hydrated)
+        self.assertNotIn("tool_output_truncated", hydrated)
+        # offset=0, limit=-1 for a full re-fetch
+        _base_url, _method, path, _body = fake.calls[0]
+        self.assertIn("offset=0", path)
+        self.assertIn("limit=-1", path)
 
-    def test_an_unresolvable_ref_returns_none(self):
+    def test_a_source_ref_preserves_its_offset_and_limit(self):
+        fake = FakeRequester(
+            [
+                (
+                    "GET",
+                    r"^/api/v1/sessions/cc-x/tool-results/tr_2",
+                    _const({"content": "sliced output"}),
+                )
+            ]
+        )
+        ra._request = fake
+        part = {
+            "type": "tool",
+            "tool_output_ref": "viking://user/u/sessions/cc-x/tool-results/tr_2",
+            "tool_output_source_ref": "viking://user/u/sessions/cc-x/tool-results/tr_2",
+            "tool_output_source_offset": 500,
+            "tool_output_source_limit": 200,
+        }
+        hydrated, unresolved = ra.hydrate_tool_output(
+            "http://prod", "key", "default", "u", "cc-x", part
+        )
+        self.assertFalse(unresolved)
+        self.assertEqual(hydrated["tool_output"], "sliced output")
+        self.assertNotIn("tool_output_source_ref", hydrated)
+        self.assertNotIn("tool_output_source_offset", hydrated)
+        self.assertNotIn("tool_output_source_limit", hydrated)
+        path = fake.calls[0][2]
+        self.assertIn("offset=500", path)
+        self.assertIn("limit=200", path)
+
+    def test_a_source_ref_with_no_limit_falls_back_to_original_chars(self):
+        fake = FakeRequester(
+            [
+                (
+                    "GET",
+                    r"^/api/v1/sessions/cc-x/tool-results/tr_3",
+                    _const({"content": "x"}),
+                )
+            ]
+        )
+        ra._request = fake
+        part = {
+            "tool_output_ref": "viking://user/u/sessions/cc-x/tool-results/tr_3",
+            "tool_output_source_ref": "viking://user/u/sessions/cc-x/tool-results/tr_3",
+            "tool_output_source_offset": 0,
+            "tool_output_source_limit": None,
+            "tool_output_original_chars": 4000,
+        }
+        result = ra.read_tool_result
+        captured = {}
+
+        def spy(*args, **kwargs):
+            captured.update(kwargs)
+            return result(*args, **kwargs)
+
+        ra.read_tool_result = spy
+        try:
+            ra.hydrate_tool_output("http://prod", "key", "default", "u", "cc-x", part)
+        finally:
+            ra.read_tool_result = result
+        self.assertEqual(captured["limit"], 4000)
+
+    def test_a_failed_hydration_keeps_the_part_with_a_marker_and_is_unresolved(self):
         def fail(body, base_url=None):
             raise ra.ReplayError("not found")
 
-        fake = FakeRequester([("GET", r"^/api/v1/content/read", fail)])
-        ra._request = fake
-        part = {"type": "tool", "tool_output_ref": "viking://missing"}
-        self.assertIsNone(
-            ra.hydrate_tool_output("http://prod", "key", "default", "u", part)
+        fake = FakeRequester(
+            [("GET", r"^/api/v1/sessions/cc-x/tool-results/tr_missing", fail)]
         )
+        ra._request = fake
+        part = {
+            "type": "tool",
+            "tool_output_ref": "viking://user/u/sessions/cc-x/tool-results/tr_missing",
+            "tool_output_truncated": True,
+        }
+        hydrated, unresolved = ra.hydrate_tool_output(
+            "http://prod", "key", "default", "u", "cc-x", part
+        )
+        self.assertTrue(unresolved, "a failed read must not silently drop the part")
+        self.assertEqual(hydrated["tool_output"], ra.UNRESOLVED_TOOL_OUTPUT_MARKER)
+        self.assertNotIn(
+            "tool_output_ref", hydrated, "the prod pointer is still cleared"
+        )
+        self.assertNotIn("tool_output_truncated", hydrated)
+
+
+SOURCE_SESSION_URI = "viking://user/noot-pilot/sessions/cc-src"
+
+
+class ReplayArchiveTests(unittest.TestCase):
+    """End-to-end replay_archive() coverage, offline (mocked _request)."""
+
+    def _messages_with_a_truncated_tool_part(self):
+        return [
+            {
+                "id": "m0",
+                "role": "user",
+                "parts": [{"type": "text", "text": "what happened?"}],
+            },
+            {
+                "id": "m1",
+                "role": "assistant",
+                "parts": [
+                    {
+                        "type": "tool",
+                        "tool_name": "Bash",
+                        "tool_output": "...truncated...",
+                        "tool_output_ref": "viking://user/noot-pilot/sessions/cc-src/tool-results/tr_1",
+                        "tool_output_truncated": True,
+                    }
+                ],
+            },
+        ]
+
+    def _base_rules(self, tool_results_rule, diff=None):
+        if diff is None:
+            diff = {
+                "operations": {"adds": [{"uri": "x"}], "updates": [], "deletes": []}
+            }
+        return [
+            (
+                "GET",
+                r"^/api/v1/observer/system",
+                _by_base_url(
+                    {PROD_URL: IDLE_QUEUE_STATUS, OV_TEST_URL: OV_TEST_STATUS}
+                ),
+            ),
+            (
+                "GET",
+                r"^/api/v1/content/read",
+                _by_base_url(
+                    {
+                        PROD_URL: {
+                            "content": "\n".join(
+                                json.dumps(m)
+                                for m in self._messages_with_a_truncated_tool_part()
+                            )
+                        },
+                        OV_TEST_URL: {"content": json.dumps(diff)},
+                    }
+                ),
+            ),
+            tool_results_rule,
+            ("POST", r"^/api/v1/sessions$", _const({"session_id": "sess-1"})),
+            (
+                "POST",
+                r"^/api/v1/sessions/sess-1/messages$",
+                _const({"message_count": 1}),
+            ),
+            (
+                "POST",
+                r"^/api/v1/sessions/sess-1/commit$",
+                _const({"task_id": "task-1"}),
+            ),
+            ("GET", r"^/api/v1/tasks/task-1$", _const({"status": "completed"})),
+        ]
+
+    def test_a_hydrated_tool_part_is_posted_without_the_prod_pointer(self):
+        rule = (
+            "GET",
+            r"^/api/v1/sessions/cc-src/tool-results/tr_1",
+            _const({"content": "the full bash output"}),
+        )
+        fake = FakeRequester(self._base_rules(rule))
+        ra._request = fake
+        receipt = ra.replay_archive(
+            OV_TEST_URL,
+            "key",
+            "default",
+            PROD_URL,
+            "default",
+            "noot-pilot",
+            SOURCE_SESSION_URI,
+            "archive_001",
+        )
+        self.assertEqual(receipt["unresolved_tool_outputs"], [])
+        message_posts = [
+            c for c in fake.calls if c[1] == "POST" and c[2].endswith("/messages")
+        ]
+        self.assertEqual(len(message_posts), 2)
+        tool_message_body = message_posts[1][3]
+        posted_part = tool_message_body["parts"][0]
+        self.assertEqual(posted_part["tool_output"], "the full bash output")
+        self.assertNotIn("tool_output_ref", posted_part)
+        self.assertNotIn("tool_output_truncated", posted_part)
+
+    def test_an_unresolvable_tool_part_is_still_posted_and_listed_as_unresolved(self):
+        def fail(body, base_url=None):
+            raise ra.ReplayError("not found")
+
+        rule = ("GET", r"^/api/v1/sessions/cc-src/tool-results/tr_1", fail)
+        fake = FakeRequester(self._base_rules(rule))
+        ra._request = fake
+        receipt = ra.replay_archive(
+            OV_TEST_URL,
+            "key",
+            "default",
+            PROD_URL,
+            "default",
+            "noot-pilot",
+            SOURCE_SESSION_URI,
+            "archive_001",
+        )
+        self.assertEqual(len(receipt["unresolved_tool_outputs"]), 1)
+        self.assertEqual(receipt["unresolved_tool_outputs"][0]["message_id"], "m1")
+        # the tool message was still posted -- 2 posts, not 1
+        message_posts = [
+            c for c in fake.calls if c[1] == "POST" and c[2].endswith("/messages")
+        ]
+        self.assertEqual(len(message_posts), 2)
+        posted_part = message_posts[1][3]["parts"][0]
+        self.assertEqual(posted_part["tool_output"], ra.UNRESOLVED_TOOL_OUTPUT_MARKER)
+        self.assertNotIn("tool_output_ref", posted_part)
+
+    def test_a_busy_prod_queue_blocks_before_reading_any_production_messages(self):
+        fake = FakeRequester(
+            [
+                (
+                    "GET",
+                    r"^/api/v1/observer/system",
+                    _by_base_url({PROD_URL: BUSY_QUEUE_STATUS}),
+                )
+            ]
+        )
+        ra._request = fake
+        with self.assertRaises(ra.ProdBusyError):
+            ra.replay_archive(
+                OV_TEST_URL,
+                "key",
+                "default",
+                PROD_URL,
+                "default",
+                "noot-pilot",
+                SOURCE_SESSION_URI,
+                "archive_001",
+            )
+        self.assertEqual(len(fake.calls), 1)
+        self.assertFalse(any(c[1] == "POST" for c in fake.calls))
 
 
 if __name__ == "__main__":

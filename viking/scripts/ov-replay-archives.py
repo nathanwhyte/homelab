@@ -26,10 +26,18 @@ Two modes:
                      extracted 0 operations — it proved the round trip, not a successful
                      extraction on this fixture.
 ``--replay``         Reads one production archive's ``messages.jsonl`` (read-only, from
-                     ``--prod-base-url``) and replays it into ov-test under a fresh user,
-                     hydrating any externalized tool output it can reach and listing what
-                     it cannot in the receipt. **UNVERIFIED as of 2026-09-27**: this path
-                     was written from the ``AddMessageRequest``/commit/task-polling shapes
+                     ``--prod-base-url``) and replays it into ov-test under a fresh user.
+                     Every part with externalization fields is hydrated through the
+                     read-only tool-results API (``GET
+                     /api/v1/sessions/{session_id}/tool-results/{tool_result_id}``,
+                     ``read_tool_result``/``hydrate_tool_output``) — never a raw content
+                     read of the pointer itself, which names a directory, not a file
+                     (``tool_result_store.py:141,240,274``, confirmed live 2026-09-28). A
+                     part is never dropped: a failed hydration keeps it with a marker and
+                     lists it in the receipt's ``unresolved_tool_outputs``, and every
+                     externalization field is stripped either way so ov-test never holds
+                     a pointer into prod. **UNVERIFIED as of 2026-09-27**: this path was
+                     written from the ``AddMessageRequest``/commit/task-polling shapes
                      read from ov-test's live OpenAPI schema and the real ``memory_diff.json``
                      shape captured by the self-test run above, but has not itself been run
                      end to end — the baseline Kinde-trio replay this feeds is explicit
@@ -473,25 +481,119 @@ def self_test(
     return receipt
 
 
-def hydrate_tool_output(
-    prod_base_url, api_key, account, user, part, timeout=DEFAULT_TIMEOUT
+# Externalization fields a ToolPart can carry (message/part.py). None of these may
+# reach ov-test -- they are prod storage pointers -- so every part that has any of
+# them gets a fields-stripped copy, hydrated or not.
+EXTERNALIZATION_FIELDS = (
+    "tool_output_ref",
+    "tool_output_storage_uri",
+    "tool_output_source_ref",
+    "tool_output_truncated",
+    "tool_output_source_offset",
+    "tool_output_source_limit",
+    "tool_output_original_chars",
+)
+UNRESOLVED_TOOL_OUTPUT_MARKER = (
+    "[ov-replay-archives: externalized tool output could not be hydrated]"
+)
+
+
+def _tool_result_id_from_ref(ref: str) -> str:
+    """``viking://user/u/sessions/cc-x/tool-results/<id>[/]`` -> ``<id>``."""
+    return ref.rstrip("/").rsplit("/", 1)[-1]
+
+
+def read_tool_result(
+    prod_base_url,
+    api_key,
+    account,
+    user,
+    session_id,
+    tool_result_id,
+    offset=0,
+    limit=-1,
+    timeout=DEFAULT_TIMEOUT,
 ):
-    """An externalized tool output part read back and inlined, or ``None`` if it cannot
-    be resolved (the caller lists the part in the replay receipt rather than dropping it
-    silently). UNVERIFIED as of 2026-09-27 — see the module docstring.
+    """Read-only: GET /api/v1/sessions/{session_id}/tool-results/{tool_result_id}.
+
+    The tool-result API, not a raw content read: the storage layout is a directory
+    plus ``output.txt`` (``tool_result_store.py:141`` write, ``:240``/``:274`` read;
+    ``ToolResultStore._result_uri`` returns the directory a part's ``tool_output_ref``
+    names, confirmed live in the openviking-test v0.4.20 image, 2026-09-28), so a raw
+    read of the ref itself is the wrong URI — this endpoint does the same
+    offset/limit-scoped read the server's own extraction hydration
+    (``Session._hydrate_tool_outputs_for_extraction``) uses internally.
     """
-    ref = part.get("tool_output_ref") or part.get("tool_output_storage_uri")
-    if not ref:
-        return part
+    params = urllib.parse.urlencode(
+        {
+            "offset": max(0, int(offset or 0)),
+            "limit": int(limit) if limit is not None else -1,
+            "include_metadata": "false",
+        }
+    )
+    path = f"/api/v1/sessions/{session_id}/tool-results/{tool_result_id}?{params}"
+    return _request(prod_base_url, "GET", path, api_key, account, user, timeout=timeout)
+
+
+def hydrate_tool_output(
+    prod_base_url, api_key, account, user, session_id, part, timeout=DEFAULT_TIMEOUT
+):
+    """(hydrated_part, unresolved: bool). The tool part is never dropped: on a failed
+    read it is returned with ``tool_output`` set to a marker and ``unresolved=True``
+    (the caller lists it in the receipt); every externalization field is cleared from
+    the returned part either way, so ov-test never holds a pointer into prod.
+
+    Mirrors the server's own hydration precedence
+    (``Session._hydrate_tool_outputs_for_extraction``, session.py): when
+    ``tool_output_source_ref`` is present it wins over ``tool_output_ref`` and is read
+    with its own ``tool_output_source_offset``/``tool_output_source_limit`` (a source
+    slice, preserved rather than re-fetching the whole thing); otherwise, only a
+    ``tool_output_truncated`` part is re-fetched in full (offset 0, limit -1) — an
+    untruncated part with no source ref already carries its full output inline and is
+    just stripped of its (now-irrelevant) prod pointer fields, no read attempted.
+    """
+    has_externalization = any(key in part for key in EXTERNALIZATION_FIELDS)
+    if not has_externalization:
+        return dict(part), False
+
+    cleared = {k: v for k, v in part.items() if k not in EXTERNALIZATION_FIELDS}
+    ref = part.get("tool_output_source_ref") or part.get("tool_output_ref")
+    needs_fetch = bool(
+        part.get("tool_output_truncated") or part.get("tool_output_source_ref")
+    )
+    if not needs_fetch or not ref:
+        return cleared, False
+
+    tool_result_id = _tool_result_id_from_ref(ref)
+    if part.get("tool_output_source_ref"):
+        offset = part.get("tool_output_source_offset") or 0
+        limit = part.get("tool_output_source_limit")
+        if limit is None and part.get("tool_output_original_chars") is not None:
+            limit = part["tool_output_original_chars"]
+        if limit is None:
+            limit = -1
+    else:
+        offset, limit = 0, -1
+
     try:
-        content = read_content(
-            prod_base_url, api_key, account, user, ref, timeout=timeout
+        result = read_tool_result(
+            prod_base_url,
+            api_key,
+            account,
+            user,
+            session_id,
+            tool_result_id,
+            offset=offset,
+            limit=limit,
+            timeout=timeout,
         )
+        content = (result or {}).get("content", "") if isinstance(result, dict) else ""
     except ReplayError:
-        return None
-    hydrated = dict(part)
-    hydrated["tool_output"] = content
-    return hydrated
+        cleared["tool_output"] = UNRESOLVED_TOOL_OUTPUT_MARKER
+        return cleared, True
+
+    cleared["tool_output"] = content
+    return cleared, False
 
 
 def read_production_messages(
@@ -540,26 +642,32 @@ def replay_archive(
         archive_id,
         timeout=timeout,
     )
+    # The tool-results API is scoped to the *source* (prod) session, not the fresh
+    # target session created below.
+    source_session_id = session_uri.rstrip("/").rsplit("/", 1)[-1]
     unresolved = []
     hydrated_messages = []
     for message in messages:
         parts = []
         for part in message.get("parts", []):
-            if part.get("tool_output_ref") or part.get("tool_output_storage_uri"):
-                out = hydrate_tool_output(
-                    prod_base_url,
-                    api_key,
-                    prod_account,
-                    prod_user,
-                    part,
-                    timeout=timeout,
+            hydrated, part_unresolved = hydrate_tool_output(
+                prod_base_url,
+                api_key,
+                prod_account,
+                prod_user,
+                source_session_id,
+                part,
+                timeout=timeout,
+            )
+            if part_unresolved:
+                unresolved.append(
+                    {
+                        "message_id": message.get("id"),
+                        "tool_output_ref": part.get("tool_output_source_ref")
+                        or part.get("tool_output_ref"),
+                    }
                 )
-                if out is None:
-                    unresolved.append({"message_id": message.get("id"), "part": part})
-                    continue
-                parts.append(out)
-            else:
-                parts.append(part)
+            parts.append(hydrated)  # never dropped, hydrated or not
         hydrated_messages.append({**message, "parts": parts})
 
     user = _fresh_user("ov-replay")
