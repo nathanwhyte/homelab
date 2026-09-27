@@ -578,44 +578,48 @@ spin_down_memory_services() {
 # this exists to wait for are still on the node; it is also omitempty, so a real
 # zero can be absent and would otherwise read as "still pending" forever.
 #
-# Bounded twice over: the loop by SPIN_DOWN_TIMEOUT_SECONDS, and each cluster
-# read by the budget left in it. An unbounded read would defeat the deadline the
-# same way a hung SSH call does (see SSH_CMD_TIMEOUT_SECONDS) — `--request-timeout`
-# bounds the request itself and TIMEOUT_BIN, where the platform has one, bounds
-# the process.
+# Bounded per read, not per pass. The remaining budget is recomputed immediately
+# before EACH cluster read: computing it once before the service loop let the
+# second service spend the same allowance again, so two stalled reads could run
+# the wait to twice the configured timeout. An unbounded read would defeat the
+# deadline the same way a hung SSH call does (see SSH_CMD_TIMEOUT_SECONDS) —
+# `--request-timeout` bounds the request itself and TIMEOUT_BIN, where the
+# platform has one, bounds the process.
 #
 # A timeout warns rather than failing: an incomplete spin-down does not by itself
 # make the drain unsafe, because the preflight that follows still counts these
 # pods and blocks if they do not fit.
 wait_for_spin_down_pods_gone() {
-	local svc ns name pods remaining deadline budget pending
+	local svc ns name pods selector remaining deadline budget pending
 	deadline=$((SECONDS + SPIN_DOWN_TIMEOUT_SECONDS))
 	while ((SECONDS < deadline)); do
-		budget=$((deadline - SECONDS))
-		((budget > 0)) || break
 		pending=0
 		for svc in "${MEMORY_HEAVY_SERVICES[@]}"; do
 			ns=${svc%%/*}
 			name=${svc#*/}
-			# A Deployment's pods are owned by a ReplicaSet named
-			# "<deployment>-<podtemplatehash>", so the name prefix identifies them
-			# without a second round trip for the selector. The remainder must be a
-			# bare hash — no further dash — or a sibling like "openviking-test"
-			# would match "openviking" and this would wait on an unrelated
-			# Deployment's pods. No phase or deletionTimestamp filter: terminating
-			# pods are exactly what this waits for.
-			if [[ -n $TIMEOUT_BIN ]]; then
-				pods=$("$TIMEOUT_BIN" "$budget" "$KUBECTL" get pods -n "$ns" -o json --request-timeout="${budget}s" 2>/dev/null) || pods=""
-			else
-				pods=$("$KUBECTL" get pods -n "$ns" -o json --request-timeout="${budget}s" 2>/dev/null) || pods=""
+			budget=$((deadline - SECONDS))
+			if ((budget <= 0)); then
+				break
 			fi
-			remaining=$(printf '%s' "$pods" | jq -r --arg d "$name" '
-				[.items[] | select((.metadata.ownerReferences // [])
-					| any(.kind == "ReplicaSet"
-						and (.name | startswith($d + "-"))
-						and ((.name | ltrimstr($d + "-")) | test("^[^-]+$"))))] | length' 2>/dev/null) || remaining=""
-			# Unreadable or unparseable counts as pending: the safe side here is
-			# to keep waiting, not to declare the pods gone.
+			# Membership comes from the Deployment's own selector, not from the
+			# ReplicaSet name. A Deployment may adopt an existing ReplicaSet without
+			# renaming it, so name syntax can miss pods it genuinely owns; a bare
+			# prefix also matches siblings such as openviking-test. An absent or
+			# empty selector counts as pending — keep waiting rather than assume.
+			selector=$(bounded_kubectl "$budget" get deployment "$name" -n "$ns" -o json 2>/dev/null |
+				jq -c '.spec.selector.matchLabels // {}' 2>/dev/null) || selector=""
+			if [[ -z $selector || $selector == "{}" ]]; then
+				pending=$((pending + 1))
+				continue
+			fi
+			# No phase or deletionTimestamp filter: terminating pods are exactly
+			# what this waits for.
+			pods=$(bounded_kubectl "$budget" get pods -n "$ns" -o json 2>/dev/null) || pods=""
+			remaining=$(printf '%s' "$pods" | jq -r --argjson sel "$selector" '
+				[.items[] | select(.metadata.labels as $l
+					| ($sel | to_entries | all(.value == $l[.key])))] | length' 2>/dev/null) || remaining=""
+			# Unreadable or unparseable counts as pending: keep waiting rather
+			# than declare the pods gone.
 			if [[ -z $remaining || $remaining != 0 ]]; then
 				pending=$((pending + 1))
 			fi
@@ -633,6 +637,20 @@ wait_for_spin_down_pods_gone() {
 		sleep "$budget"
 	done
 	warn "spin-down pods still present after ${SPIN_DOWN_TIMEOUT_SECONDS}s; the memory headroom figure may include them"
+}
+
+# A cluster read bounded by $1 seconds. `--request-timeout` covers the HTTP
+# request, but client-go's timeout is not a whole-process deadline — kubectl
+# startup and credential helpers sit outside it — so TIMEOUT_BIN wraps the
+# process too where the platform provides one.
+bounded_kubectl() {
+	local budget=$1
+	shift
+	if [[ -n $TIMEOUT_BIN ]]; then
+		"$TIMEOUT_BIN" "$budget" "$KUBECTL" "$@" --request-timeout="${budget}s"
+	else
+		"$KUBECTL" "$@" --request-timeout="${budget}s"
+	fi
 }
 
 # Restore each service to the replica count recorded before the drain. No-op

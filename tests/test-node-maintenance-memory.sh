@@ -19,6 +19,8 @@ trap 'rm -rf "$TMPDIR_TEST"' EXIT
 STUB_LOG=$TMPDIR_TEST/scale.log
 STUB_NODES=$TMPDIR_TEST/nodes.json
 STUB_PODS=$TMPDIR_TEST/pods.json
+STUB_DEPLOY_SELECTORS=$TMPDIR_TEST/deploy-selectors
+: >"$STUB_DEPLOY_SELECTORS"
 
 cat >"$TMPDIR_TEST/kubectl" <<'STUB'
 #!/usr/bin/env bash
@@ -56,16 +58,23 @@ get)
     ;;
   deployment)
     # get deployment <name> -n <ns> -o jsonpath='{.spec.replicas}'
-    ns=""; name=""
+    # get deployment <name> -n <ns> -o json   -- selector, for the spin-down wait
+    ns=""; name=""; fmt=""
     shift 2  # drop "get deployment"
     while (($#)); do
       case "$1" in
       -n) ns=$2; shift 2 ;;
-      -o) shift 2 ;;
+      -o) fmt=$2; shift 2 ;;
+      --request-timeout=*) shift ;;
       *) name=$1; shift ;;
       esac
     done
-    grep "^$ns/$name=" "$STUB_REPLICAS" | cut -d= -f2
+    if [[ $fmt == json ]]; then
+      labels=$(grep "^$ns/$name=" "$STUB_DEPLOY_SELECTORS" 2>/dev/null | cut -d= -f2-)
+      printf '{"spec":{"selector":{"matchLabels":%s}}}\n' "${labels:-null}"
+    else
+      grep "^$ns/$name=" "$STUB_REPLICAS" | cut -d= -f2
+    fi
     ;;
   esac
   ;;
@@ -111,7 +120,7 @@ cat >"$STUB_PODS" <<'JSON'
 JSON
 
 export KUBECTL=$TMPDIR_TEST/kubectl
-export STUB_LOG STUB_NODES STUB_PODS
+export STUB_LOG STUB_NODES STUB_PODS STUB_DEPLOY_SELECTORS
 export XDG_STATE_HOME=$TMPDIR_TEST/state
 
 # Source the script under test (its main() is guarded, so this only defines
@@ -415,36 +424,53 @@ watched() { # max_seconds snippet
 	fi
 }
 
-# One scaled-down Deployment pod, still terminating. The owner name follows the
-# "<deployment>-<podtemplatehash>" ReplicaSet convention the wait relies on, and
-# it carries a deletionTimestamp precisely because that must not read as gone.
+# Membership is decided by the Deployment selector, so the stub must serve one per
+# service. The cluster runs openviking-test and ov-vectordb-test beside the pair
+# with distinct selectors — which is what keeps them apart here.
+cat >"$STUB_DEPLOY_SELECTORS" <<'SELECTORS'
+viking/openviking={"app":"openviking"}
+viking/ov-vectordb={"app":"ov-vectordb"}
+viking/openviking-test={"app":"openviking-test"}
+SELECTORS
+
+# One scaled-down Deployment pod, still terminating: it carries a
+# deletionTimestamp precisely because that must NOT read as gone.
 terminating_viking_pods() {
 	cat >"$STUB_PODS" <<'JSON'
 {"items":[
-  {"metadata":{"namespace":"viking","name":"openviking-6c9b675f9f-h5v9h","deletionTimestamp":"2026-09-26T00:00:00Z","ownerReferences":[{"kind":"ReplicaSet","name":"openviking-6c9b675f9f"}]},"spec":{"containers":[]}}
+  {"metadata":{"namespace":"viking","name":"openviking-6c9b675f9f-h5v9h","labels":{"app":"openviking"},"deletionTimestamp":"2026-09-26T00:00:00Z","ownerReferences":[{"kind":"ReplicaSet","name":"openviking-6c9b675f9f"}]},"spec":{"containers":[]}}
 ]}
 JSON
 }
 
+# Gone: must return promptly and without the timeout warning. A wait that never
+# recognises the empty state would sit here until SPIN_DOWN_TIMEOUT_SECONDS and
+# then warn, so both checks are load-bearing.
 printf '{"items":[]}' >"$STUB_PODS"
-if watched 20 'SPIN_DOWN_TIMEOUT_SECONDS=10 wait_for_spin_down_pods_gone' >/dev/null 2>&1; then
-	ok "spin-down wait returns once the pods are gone"
+spin_down_start=$SECONDS
+wait_out=$(watched 25 'SPIN_DOWN_TIMEOUT_SECONDS=10 wait_for_spin_down_pods_gone' 2>&1) && wait_rc=0 || wait_rc=$?
+spin_down_elapsed=$((SECONDS - spin_down_start))
+if ((wait_rc == 0)) && [[ $wait_out != *"still present"* ]] && ((spin_down_elapsed < 5)); then
+	ok "spin-down wait returns promptly once the pods are gone"
 else
-	bad "spin-down wait should return once the pods are gone"
+	bad "spin-down wait did not return promptly and un-warned (rc=${wait_rc} elapsed=${spin_down_elapsed}s out='${wait_out}')"
 fi
 
-# A sibling Deployment whose name shares the prefix — the cluster runs
-# openviking-test and ov-vectordb-test beside the real pair — must not be
-# mistaken for the target, or the wait blocks on pods it does not own.
+# A sibling Deployment sharing the name prefix must not be mistaken for the
+# target: openviking-test runs beside openviking, and its pods carry a different
+# selector value, so they are not this Deployment's to wait on.
 cat >"$STUB_PODS" <<'JSON'
 {"items":[
-  {"metadata":{"namespace":"viking","name":"openviking-test-5d946b994-wbkrj","ownerReferences":[{"kind":"ReplicaSet","name":"openviking-test-5d946b994"}]},"spec":{"containers":[]}}
+  {"metadata":{"namespace":"viking","name":"openviking-test-5d946b994-wbkrj","labels":{"app":"openviking-test"},"ownerReferences":[{"kind":"ReplicaSet","name":"openviking-test-5d946b994"}]},"spec":{"containers":[]}}
 ]}
 JSON
-if watched 20 'SPIN_DOWN_TIMEOUT_SECONDS=10 wait_for_spin_down_pods_gone' >/dev/null 2>&1; then
-	ok "spin-down wait ignores a sibling deployment sharing the name prefix"
+spin_down_start=$SECONDS
+wait_out=$(watched 25 'SPIN_DOWN_TIMEOUT_SECONDS=10 wait_for_spin_down_pods_gone' 2>&1) && wait_rc=0 || wait_rc=$?
+spin_down_elapsed=$((SECONDS - spin_down_start))
+if ((wait_rc == 0)) && [[ $wait_out != *"still present"* ]] && ((spin_down_elapsed < 5)); then
+	ok "spin-down wait ignores a sibling deployment's pods"
 else
-	bad "spin-down wait blocked on a sibling deployment's pods"
+	bad "spin-down wait treated a sibling's pods as its own (rc=${wait_rc} elapsed=${spin_down_elapsed}s out='${wait_out}')"
 fi
 
 # Still terminating: the wait must keep polling to its deadline and then warn.
@@ -465,19 +491,22 @@ else
 	bad "spin-down wait did not respect its deadline (elapsed ${spin_down_elapsed}s)"
 fi
 
-# A cluster read that stalls past the deadline must not stall the wait — the
-# deadline is only re-checked between reads, so an unbounded read would defeat it.
+# A stalled read must be cut short at the budget, not merely bounded overall. With
+# two services, a budget computed once per pass lets each stall a full allowance
+# and runs the wait to twice SPIN_DOWN_TIMEOUT_SECONDS. Each fixture read sleeps 8s
+# against a 4s deadline, so a per-read bound finishes near 4s and a per-pass bound
+# near 8s: the assertion separates them rather than accepting either.
 if [[ -n $WATCHDOG ]]; then
 	printf '{"items":[]}' >"$STUB_PODS"
 	export STUB_SPINDOWN_SLEEP=8
 	spin_down_start=$SECONDS
-	watched 30 'SPIN_DOWN_TIMEOUT_SECONDS=2 wait_for_spin_down_pods_gone' >/dev/null 2>&1 || true
+	watched 30 'SPIN_DOWN_TIMEOUT_SECONDS=4 wait_for_spin_down_pods_gone' >/dev/null 2>&1 || true
 	spin_down_elapsed=$((SECONDS - spin_down_start))
 	unset STUB_SPINDOWN_SLEEP
-	if ((spin_down_elapsed < 8)); then
-		ok "spin-down wait bounds a stalled cluster read"
+	if ((spin_down_elapsed < 6)); then
+		ok "spin-down wait bounds each stalled read to the remaining budget"
 	else
-		bad "spin-down wait blocked on a stalled read (elapsed ${spin_down_elapsed}s)"
+		bad "spin-down wait let stalled reads exceed its budget (elapsed ${spin_down_elapsed}s)"
 	fi
 else
 	printf 'skip spin-down wait read-bound test (no timeout(1) on this platform)\n'
