@@ -13,16 +13,18 @@ Two modes:
 
 ``--self-test``     Round-trips one synthetic session: a fresh user, two messages (a
                      question and an answer with a fact), commit with
-                     ``keep_recent_count=0``, wait for the extraction task, and require a
-                     ``memory_diff.json`` with at least one operation — a terminal task
-                     alone is not proof extraction ran. The session is deleted afterward.
+                     ``keep_recent_count=0``, wait for the extraction task, and check the
+                     ``memory_diff.json`` for at least one operation — a terminal task
+                     alone is not proof extraction ran. An empty diff is a legitimate
+                     result (not raised as an error): the receipt is always written, with
+                     ``successful_extraction``/``ok`` set accordingly, and ``main()``
+                     exits nonzero when it is false. The session is deleted afterward.
                      Run live 2026-09-27 against real ov-test (the one sanctioned round
                      trip): the create/post/commit/poll/read/delete mechanics all worked,
                      and a trivial two-line exchange ("what did we decide about the
                      widget color?" / "We decided the widget ships in cobalt blue.")
-                     extracted 0 operations — a legitimate empty result, not a bug in the
-                     round trip itself, so ``--self-test`` does not currently prove a
-                     *successful* extraction on this fixture; it proves the round trip.
+                     extracted 0 operations — it proved the round trip, not a successful
+                     extraction on this fixture.
 ``--replay``         Reads one production archive's ``messages.jsonl`` (read-only, from
                      ``--prod-base-url``) and replays it into ov-test under a fresh user,
                      hydrating any externalized tool output it can reach and listing what
@@ -454,10 +456,12 @@ def self_test(
             base_url, api_key, account, user, session_id, timeout=timeout
         )
         adds, updates = _diff_operations(diff)
-        if not (adds or updates):
-            raise ReplayError(f"self-test extraction produced no operations: {diff}")
         receipt["memory_diff"] = diff
-        receipt["ok"] = True
+        # A terminal task is not proof of a successful extraction -- an empty diff is
+        # a legitimate result for a trivial exchange, not raised as an error, so the
+        # receipt is always written and main() reports it via the exit code instead.
+        receipt["successful_extraction"] = bool(adds or updates)
+        receipt["ok"] = receipt["successful_extraction"]
     finally:
         try:
             delete_session(
@@ -693,6 +697,10 @@ def main(argv=None):
             fh.write(text + "\n")
     else:
         print(text)
+    # The receipt is written either way; only the exit code reports success/failure --
+    # a failed extraction requirement must not exit 0 for either mode.
+    if not receipt.get("successful_extraction"):
+        return 1
     return 0
 
 

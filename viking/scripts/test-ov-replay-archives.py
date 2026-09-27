@@ -12,6 +12,7 @@ IMPR-1188 Phase 3 PR description for that evidence).
 import json
 import os
 import re
+import tempfile
 import unittest
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
@@ -485,12 +486,17 @@ class SelfTestTests(unittest.TestCase):
 
     def test_a_terminal_task_with_no_operations_is_not_success(self):
         # This is the real empty shape captured live (2026-09-27): a genuinely successful
-        # round trip whose trivial synthetic exchange extracted nothing.
+        # round trip whose trivial synthetic exchange extracted nothing. It is not
+        # raised as an error -- the receipt is returned normally so main() can still
+        # write it and report the failure via the exit code (Codex #173 finding 6).
         fake = FakeRequester(self._happy_rules(diff=REAL_EMPTY_DIFF))
         ra._request = fake
-        with self.assertRaises(ra.ReplayError):
-            ra.self_test(OV_TEST_URL, "key", PROD_URL)
-        # cleanup still ran even though the test failed
+        receipt = ra.self_test(OV_TEST_URL, "key", PROD_URL)
+        self.assertFalse(receipt["successful_extraction"])
+        self.assertFalse(receipt["ok"])
+        self.assertEqual(receipt["memory_diff"], REAL_EMPTY_DIFF)
+        # cleanup still ran
+        self.assertTrue(receipt["cleaned_up"])
         self.assertEqual(fake.calls[-1][1], "DELETE")
 
     def test_fresh_user_per_call(self):
@@ -511,6 +517,109 @@ class SelfTestTests(unittest.TestCase):
             ra.create_session = orig_create
         self.assertEqual(len(seen_users), 2)
         self.assertNotEqual(seen_users[0], seen_users[1])
+
+
+class MainExitCodeTests(unittest.TestCase):
+    """Codex #173 finding 6: the receipt is always written, and the exit code reports
+    the extraction requirement's success/failure for both modes."""
+
+    def setUp(self):
+        self._orig_self_test = ra.self_test
+        self._orig_replay_archive = ra.replay_archive
+
+    def tearDown(self):
+        ra.self_test = self._orig_self_test
+        ra.replay_archive = self._orig_replay_archive
+
+    def _run_main(self, argv):
+        with tempfile.TemporaryDirectory() as tmp:
+            receipt_path = os.path.join(tmp, "r.json")
+            rc = ra.main([*argv, "--receipt", receipt_path])
+            written = os.path.exists(receipt_path)
+            body = None
+            if written:
+                with open(receipt_path) as fh:
+                    body = json.load(fh)
+        return rc, written, body
+
+    def test_self_test_success_exits_zero(self):
+        ra.self_test = lambda *a, **kw: {"successful_extraction": True, "ok": True}
+        rc, written, body = self._run_main(
+            [
+                "--self-test",
+                "--base-url",
+                OV_TEST_URL,
+                "--prod-base-url",
+                PROD_URL,
+                "--api-key",
+                "k",
+            ]
+        )
+        self.assertEqual(rc, 0)
+        self.assertTrue(written)
+        self.assertTrue(body["ok"])
+
+    def test_self_test_failure_still_writes_receipt_and_exits_nonzero(self):
+        ra.self_test = lambda *a, **kw: {
+            "successful_extraction": False,
+            "ok": False,
+            "memory_diff": {},
+        }
+        rc, written, body = self._run_main(
+            [
+                "--self-test",
+                "--base-url",
+                OV_TEST_URL,
+                "--prod-base-url",
+                PROD_URL,
+                "--api-key",
+                "k",
+            ]
+        )
+        self.assertEqual(rc, 1)
+        self.assertTrue(written, "the receipt must be written even on failure")
+        self.assertFalse(body["successful_extraction"])
+
+    def test_replay_success_exits_zero(self):
+        ra.replay_archive = lambda *a, **kw: {"successful_extraction": True}
+        rc, written, body = self._run_main(
+            [
+                "--replay",
+                "--base-url",
+                OV_TEST_URL,
+                "--prod-base-url",
+                PROD_URL,
+                "--api-key",
+                "k",
+                "--session-uri",
+                "viking://user/u/sessions/cc-x",
+            ]
+        )
+        self.assertEqual(rc, 0)
+        self.assertTrue(written)
+        self.assertTrue(body["successful_extraction"])
+
+    def test_replay_failure_still_writes_receipt_and_exits_nonzero(self):
+        ra.replay_archive = lambda *a, **kw: {
+            "successful_extraction": False,
+            "memory_diff": {},
+        }
+        rc, written, body = self._run_main(
+            [
+                "--replay",
+                "--base-url",
+                OV_TEST_URL,
+                "--prod-base-url",
+                PROD_URL,
+                "--api-key",
+                "k",
+                "--session-uri",
+                "viking://user/u/sessions/cc-x",
+            ]
+        )
+        self.assertEqual(rc, 1)
+        self.assertTrue(written, "the receipt must be written even on failure")
+        self.assertFalse(body["successful_extraction"])
 
 
 class ArgParsingTests(unittest.TestCase):
