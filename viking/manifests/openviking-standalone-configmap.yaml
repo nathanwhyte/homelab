@@ -19,6 +19,15 @@ data:
   # buys nothing and re-introduces the warning. The 0.0s wait is the live
   # behaviour and is tracked separately — it is the reason BUG-1039's orphaned
   # tree locks matter and why raising embedding concurrency needs its own gate.
+  #
+  # embedding.max_input_tokens is 6000, not the embedder's 8192 ctx (BUG-1191).
+  # OpenViking trims by an estimate (utils/embedding_input.py: non-CJK chars / 4),
+  # and the qwen3-embedding-4b tokenizer counts markdown-heavy memory text ~16%
+  # higher. The daily events overview (MemoryUpdater, one line per event, 36k chars
+  # on a busy day) went to the embedder at 9,459-9,477 real tokens, got a 400
+  # exceed_context_size_error, and each one opened the embedding circuit breaker,
+  # stalling every embedding for about a minute. 6000 estimated is ~6.9k real at the
+  # observed ratio. Raise it only together with the embedder's --ctx-size.
   ov.conf: |
     {
       "default_account": "default",
@@ -75,7 +84,7 @@ data:
         "output": "stdout"
       },
       "embedding": {
-        "max_input_tokens": 8192,
+        "max_input_tokens": 6000,
         "dense": {
           "provider": "openai",
           "model": "qwen3-embedding-4b",
