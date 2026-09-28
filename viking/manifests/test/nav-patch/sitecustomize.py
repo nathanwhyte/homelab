@@ -35,8 +35,13 @@ off switch; a patch failure never breaks the import):
                         makes ``/api/v1/content/reindex`` embed an event's write-path
                         text instead of the raw body (``ReindexExecutor._upsert_context``,
                         ``OV_EVENT_REINDEX_PATCH=0``), so the backfill runs in-server.
+  * ov_grep_scope_patch — BUG-1189: a grep over a whole user root skips its
+                        ``sessions/`` archives unless the caller names an exclusion,
+                        and every grep is bounded by ``OV_GREP_TIMEOUT_S`` (default
+                        12 s), returning a marked timeout line instead of an error
+                        (``FSService.grep``).
 
-Rollback of one patch: its env switch (``OV_S3_CACHE_PATCH=0``, ``OV_EXTRACT_PATCH=0``, ``OV_CHATLOG_PATCH=0``, ``OV_MEMORY_GUARD=0``, ``OV_EVENT_ABSTRACT_PATCH=0``; ``OV_NAV_PATCH=0``
+Rollback of one patch: its env switch (``OV_S3_CACHE_PATCH=0``, ``OV_EXTRACT_PATCH=0``, ``OV_CHATLOG_PATCH=0``, ``OV_MEMORY_GUARD=0``, ``OV_EVENT_ABSTRACT_PATCH=0``, ``OV_GREP_SCOPE_PATCH=0``; ``OV_NAV_PATCH=0``
 only after the model-built overview template is restored, see the Deployment).
 Rollback of everything: remove PYTHONPATH from the Deployment
 (``kubectl set env … PYTHONPATH-``), again only after that template restore.
@@ -72,6 +77,7 @@ TARGETS = {
         "ov_event_abstract_patch",
         "apply_reindex",
     ),
+    "openviking.service.fs_service": ("ov_grep_scope_patch", "apply"),
 }
 
 
