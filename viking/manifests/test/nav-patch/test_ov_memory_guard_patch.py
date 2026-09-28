@@ -687,6 +687,7 @@ class ShadowToolPart:
     tool_name: str
     tool_input: dict = dataclasses.field(default_factory=dict)
     tool_status: str = "success"
+    tool_id: str = ""
 
 
 def umsg(mid, text_="hi", turn_id=None, message_kind=None, created_at=None):
@@ -773,6 +774,17 @@ class ClassifyToolTests(unittest.TestCase):
 
     def test_bash_and_unlisted_tools_are_unknown(self):
         for name in ("Bash", "SomeFutureTool"):
+            self.assertEqual(mg.classify_tool(tpart(name)), "unknown", name)
+
+    # C-2 (ultrareview; Codex 2026-09-27): the verb heuristic is for MCP names only.
+    def test_todowrite_is_session_bookkeeping_not_work(self):
+        self.assertEqual(mg.classify_tool(tpart("TodoWrite")), "read_only")
+
+    def test_sendmessage_is_mutating_explicitly(self):
+        self.assertEqual(mg.classify_tool(tpart("SendMessage")), "mutating")
+
+    def test_a_non_mcp_tool_with_a_verb_in_its_name_is_unknown_not_mutating(self):
+        for name in ("TaskUpdate", "TaskCreate", "CronDelete"):
             self.assertEqual(mg.classify_tool(tpart(name)), "unknown", name)
 
     def test_malformed_tool_input_does_not_raise(self):
@@ -902,6 +914,78 @@ class RecallShadowTests(unittest.TestCase):
         recs = mg.shadow_classify(msgs)
         self.assertEqual(recs[0]["verdict"], "keep-ambiguous")
         self.assertTrue(recs[0]["errored"])
+
+    # C-4 (ultrareview; Codex 2026-09-27): in real archives an assistant tool part stays
+    # "running"; the outcome is on the user-side result part with the same tool_id.
+    def _ov_call(self, tool_id="toolu_1"):
+        return ShadowToolPart(
+            "mcp__plugin_openviking-memory_openviking__read", {}, "running", tool_id
+        )
+
+    def _result(self, status, tool_id="toolu_1"):
+        return ShadowMessage(
+            "r1",
+            "user",
+            [
+                ShadowToolPart(
+                    "mcp__plugin_openviking-memory_openviking__read",
+                    {},
+                    status,
+                    tool_id,
+                )
+            ],
+        )
+
+    def test_a_failed_ov_read_result_is_errored_and_never_strip(self):
+        msgs = [
+            umsg("u0", "what did we decide?"),
+            amsg("a1", [self._ov_call()]),
+            self._result("error"),
+            amsg("a2", [FakeText("I could not read it, but from memory...")]),
+        ]
+        rec = mg.shadow_classify(msgs)[0]
+        self.assertTrue(rec["errored"])
+        self.assertEqual(rec["verdict"], "keep-ambiguous")
+
+    def test_a_completed_ov_read_result_allows_strip(self):
+        msgs = [
+            umsg("u0", "what did we decide?"),
+            amsg("a1", [self._ov_call()]),
+            self._result("completed"),
+            amsg("a2", [FakeText("We chose cobalt.")]),
+        ]
+        rec = mg.shadow_classify(msgs)[0]
+        self.assertFalse(rec["errored"])
+        self.assertEqual(rec["unresolved_ov_reads"], 0)
+        self.assertEqual(rec["verdict"], "strip")
+
+    def test_an_ov_read_with_no_result_in_the_turn_is_unresolved_and_not_strip(self):
+        msgs = [
+            umsg("u0", "what did we decide?"),
+            amsg("a1", [self._ov_call(), FakeText("We chose cobalt.")]),
+        ]
+        rec = mg.shadow_classify(msgs)[0]
+        self.assertEqual(rec["unresolved_ov_reads"], 1)
+        self.assertEqual(rec["verdict"], "keep-ambiguous")
+
+    def test_record_carries_tool_names_so_classification_can_be_redone(self):
+        msgs = self._turn(
+            tpart("mcp__plugin_openviking-memory_openviking__read"),
+            tpart("TodoWrite"),
+            tpart("Bash", {"command": "ls"}),
+            FakeText("done"),
+        )
+        rec = mg.shadow_classify(msgs)[0]
+        self.assertEqual(rec["other_tool_names"], ["Bash", "TodoWrite"])
+        self.assertEqual(rec["verdict"], "keep-ambiguous")  # Bash is unknown
+
+    def test_todowrite_alone_beside_an_ov_read_stays_strip(self):
+        msgs = self._turn(
+            tpart("mcp__plugin_openviking-memory_openviking__read"),
+            tpart("TodoWrite"),
+            FakeText("Here it is."),
+        )
+        self.assertEqual(mg.shadow_classify(msgs)[0]["verdict"], "strip")
 
     def test_resources_only_reads_produce_no_record(self):
         msgs = self._turn(
