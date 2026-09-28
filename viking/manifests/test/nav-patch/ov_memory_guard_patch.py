@@ -74,8 +74,12 @@ only), one ``ov-recall-shadow`` JSON line is logged at WARNING: the turn's index
 ``created_at_max`` for the turn, every other tool call classified
 ``read_only``/``mutating``/``unknown`` (``Bash`` is ``unknown`` — Codex's point that tool
 activity alone does not prove the answer holds only recalled facts), the first token of
-any ``Bash`` command seen, whether any tool call errored, the verdict a strip rule would
-have given (``strip`` only when every other tool is ``read_only`` and nothing errored;
+any ``Bash`` command seen, the other tools' names (``other_tool_names``, names only, so
+a later report can re-classify), whether any tool call errored (its outcome is read from
+the user-side result part with the same ``tool_id``, since the assistant's own part stays
+``running`` in captured archives), how many OpenViking reads have no outcome in the range
+(``unresolved_ov_reads``), the verdict a strip rule would have given (``strip`` only when
+every other tool is ``read_only``, nothing errored and every OpenViking read completed;
 ``keep-mixed`` when a mutating tool ran; ``keep-ambiguous`` otherwise), and the assistant
 text character counts and a 12-hex-character sha256 prefix per text part, split by
 whether the part falls before or after the turn's last OpenViking read. **The record
@@ -695,13 +699,22 @@ OV_READ = re.compile(
 OV_WRITE = re.compile(
     r"^mcp__plugin_openviking-memory_openviking__(write|edit|remember|forget|add_resource)$"
 )
-READ_ONLY = frozenset({"ToolSearch", "Read", "Glob", "Grep", "LS"})
-MUTATING = frozenset({"Edit", "Write", "NotebookEdit", "MultiEdit", "Artifact"})
+# TodoWrite is session bookkeeping (the agent's own task list), not work on the repo or
+# cluster, so it does not make a recall turn "mixed" (C-2, 2026-09-27 reviews).
+READ_ONLY = frozenset({"ToolSearch", "Read", "Glob", "Grep", "LS", "TodoWrite"})
+MUTATING = frozenset(
+    {"Edit", "Write", "NotebookEdit", "MultiEdit", "Artifact", "SendMessage"}
+)
+# Terminal tool states. In captured archives the assistant's tool part stays "running";
+# the outcome is on the user-side result part carrying the same tool_id (C-4).
+TOOL_DONE = frozenset({"completed", "success", "error"})
 # context-mode search/index tools: read-only over the FTS5 knowledge base, never the
 # target repo or cluster. ctx_execute*/ctx_batch_execute are deliberately excluded — they
 # can run anything, same as Bash, so they fall through to `unknown`.
 CONTEXT_MODE_READ_ONLY = re.compile(r"__ctx_(search|index)$")
 # An MCP tool whose name says what it does: a create/update/delete/send/write/publish verb.
+# Applied to `mcp__` names only; a non-MCP name with a verb in it (TaskUpdate) is
+# `unknown`, which keeps the turn out of `strip` without calling it mutating.
 MUTATING_KEYWORDS = re.compile(
     r"create|update|delete|send|write|publish", re.IGNORECASE
 )
@@ -747,7 +760,9 @@ def classify_tool(part) -> str:
         )
     if name in READ_ONLY or CONTEXT_MODE_READ_ONLY.search(name):
         return "read_only"
-    if name in MUTATING or MUTATING_KEYWORDS.search(name):
+    if name in MUTATING or (
+        name.startswith("mcp__") and MUTATING_KEYWORDS.search(name)
+    ):
         return "mutating"
     return "unknown"
 
@@ -810,10 +825,22 @@ def _hash12(text: str) -> str:
 def _classify_turn(messages, rng: range, segmentation: str) -> dict | None:
     """One shadow record for ``rng``, or ``None`` when it has no OpenViking memory read."""
     turn = messages[rng.start : rng.stop]
+    # Outcome per tool_id from the user-side result parts (C-4). The assistant part's own
+    # status is only a fallback, for a part with no id or no result in this range.
+    result_status: dict[str, str] = {}
+    for message in turn:
+        if getattr(message, "role", None) != "user":
+            continue
+        for part in getattr(message, "parts", None) or []:
+            tool_id = getattr(part, "tool_id", None)
+            if tool_id and getattr(part, "tool_name", None):
+                result_status[tool_id] = getattr(part, "tool_status", None) or ""
     ov_tools: list[str] = []
     other_tools: list[str] = []
+    other_names: list[str] = []
     bash_tokens: list[str] = []
     errored = False
+    unresolved_ov_reads = 0
     # Document-order (kind, value) for every assistant part: ("tool", classification) or
     # ("text", the part's text). Positions in this list, not in `turn`, place text parts
     # before or after the turn's last OpenViking read.
@@ -824,14 +851,23 @@ def _classify_turn(messages, rng: range, segmentation: str) -> dict | None:
         for part in getattr(message, "parts", None) or []:
             name = getattr(part, "tool_name", None)
             if name:
-                if getattr(part, "tool_status", None) == "error":
+                tool_id = getattr(part, "tool_id", None)
+                status = result_status.get(tool_id) if tool_id else None
+                if status is None:
+                    status = getattr(part, "tool_status", None) or ""
+                if status == "error":
                     errored = True
                 cls = classify_tool(part)
                 flat.append(("tool", cls))
                 if cls == "ov_read":
                     ov_tools.append(name)
+                    if status not in TOOL_DONE:
+                        # no outcome in this range: the read may have failed, so the
+                        # answer cannot be assumed to restate it
+                        unresolved_ov_reads += 1
                 else:
                     other_tools.append(cls)
+                    other_names.append(name)
                     if name == "Bash":
                         token = _bash_first_token(getattr(part, "tool_input", None))
                         if token:
@@ -863,7 +899,7 @@ def _classify_turn(messages, rng: range, segmentation: str) -> dict | None:
 
     if "mutating" in other_tools:
         verdict = "keep-mixed"
-    elif "unknown" in other_tools or errored:
+    elif "unknown" in other_tools or errored or unresolved_ov_reads:
         verdict = "keep-ambiguous"
     else:
         verdict = "strip"
@@ -882,8 +918,12 @@ def _classify_turn(messages, rng: range, segmentation: str) -> dict | None:
         "created_at_max": max(created_ats) if created_ats else None,
         "ov_tools": sorted(set(ov_tools)),
         "other_tools": sorted(set(other_tools)),
+        # names, not inputs: lets a later report re-classify (C-2 could not be fixed
+        # from classes alone)
+        "other_tool_names": sorted(set(other_names)),
         "bash_first_tokens": sorted(set(bash_tokens)),
         "errored": errored,
+        "unresolved_ov_reads": unresolved_ov_reads,
         "verdict": verdict,
         "assistant_chars_before": chars_before,
         "assistant_chars_after": chars_after,
