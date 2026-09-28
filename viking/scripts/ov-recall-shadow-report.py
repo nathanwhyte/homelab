@@ -277,35 +277,44 @@ def _extract_summary(content: str, max_chars: int = 160):
 
 
 def _diff_events(diff):
-    """[{"uri", "memory_type", "name", "abstract"}, ...] from a ``memory_diff.json``
-    payload's ``adds`` and ``updates`` (the real shape nests them under
-    ``operations``, per ``_diff_operations`` in ``ov-replay-archives.py``; a flat
-    top-level shape is also accepted). ``name`` is the URI's basename with ``.md``
-    stripped; ``abstract`` is the item's rendered ``after`` content's ``# Summary``
-    line, best-effort."""
+    """[{"uri", "memory_type", "operation", "name", "abstract"}, ...] from a
+    ``memory_diff.json`` payload's ``adds``, ``updates`` *and* ``deletes`` (D-6, Codex
+    #173 review: a delete-only diff used to render as no events at all) -- the real
+    shape nests them under ``operations``, per ``_diff_operations`` in
+    ``ov-replay-archives.py``; a flat top-level shape is also accepted. ``name`` is the
+    URI's basename with ``.md`` stripped; ``operation`` is ``"add"`` / ``"update"`` /
+    ``"delete"`` (the memory-type x operation typing D-6 asked for); ``abstract`` is
+    the item's rendered ``# Summary`` line, best-effort, from ``after`` when present
+    (add/update) else ``before`` (a delete has no ``after``)."""
     if not isinstance(diff, dict):
         return []
     operations = diff.get("operations")
     ops = operations if isinstance(operations, dict) else diff
     adds = list(ops.get("adds", []) or [])
     updates = list(ops.get("updates", []) or [])
+    deletes = list(ops.get("deletes", []) or [])
     events = []
-    for item in adds + updates:
-        if not isinstance(item, dict):
-            continue
-        uri = item.get("uri")
-        name = None
-        if uri:
-            base = uri.rsplit("/", 1)[-1]
-            name = base.removesuffix(".md")
-        events.append(
-            {
-                "uri": uri,
-                "memory_type": item.get("memory_type"),
-                "name": name,
-                "abstract": _extract_summary(item.get("after") or ""),
-            }
-        )
+    for operation, items in (("add", adds), ("update", updates), ("delete", deletes)):
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            uri = item.get("uri")
+            name = None
+            if uri:
+                base = uri.rsplit("/", 1)[-1]
+                name = base.removesuffix(".md")
+            content = item.get("after")
+            if content is None:
+                content = item.get("before")
+            events.append(
+                {
+                    "uri": uri,
+                    "memory_type": item.get("memory_type"),
+                    "operation": operation,
+                    "name": name,
+                    "abstract": _extract_summary(content or ""),
+                }
+            )
     return events
 
 
@@ -987,6 +996,18 @@ def build_report(
                 "label": "",
             }
         )
+    # D-6 (Codex #173 review): a memory_diff.json is the archive's diff, not any one
+    # turn's -- when more than one canonical turn resolves to the same archive (a
+    # segmented extraction, or several turns before the next commit), every row
+    # sharing that archive is flagged so the Events cell doesn't imply single-turn
+    # attribution.
+    archive_counts = collections.Counter(
+        row["archive"] for row in rows if row["archive"]
+    )
+    for row in rows:
+        row["events_shared_archive"] = bool(
+            row["archive"] and archive_counts[row["archive"]] > 1
+        )
     return {"by_verdict": by_verdict, "by_backend": by_backend, "rows": rows}
 
 
@@ -1014,9 +1035,16 @@ def _format_events(row) -> str:
     rendered = []
     for event in events:
         name = event.get("name") or event.get("uri") or "?"
+        operation = event.get("operation")
+        label = f"{name} ({operation})" if operation else name
         abstract = event.get("abstract")
-        rendered.append(f"{name}: {abstract}" if abstract else name)
-    return "; ".join(rendered)
+        rendered.append(f"{label}: {abstract}" if abstract else label)
+    text = "; ".join(rendered)
+    if row.get("events_shared_archive"):
+        # D-6: the diff is the archive's, not attributed to this turn alone --
+        # another canonical turn resolved to the same archive.
+        text += " [archive-level diff, not attributed to a single turn]"
+    return text
 
 
 def _format_backend(row) -> str:

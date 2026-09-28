@@ -1328,6 +1328,7 @@ class DiffEventsTests(unittest.TestCase):
         self.assertEqual(len(events), 1)
         self.assertEqual(events[0]["name"], "widget_color_decided")
         self.assertEqual(events[0]["memory_type"], "events")
+        self.assertEqual(events[0]["operation"], "add")
         self.assertEqual(events[0]["abstract"], "The widget ships in cobalt blue.")
 
     def test_adds_and_updates_are_both_included(self):
@@ -1342,8 +1343,35 @@ class DiffEventsTests(unittest.TestCase):
                 "deletes": [],
             }
         }
-        names = {e["name"] for e in report._diff_events(diff)}
+        events = report._diff_events(diff)
+        names = {e["name"] for e in events}
         self.assertEqual(names, {"a", "b"})
+        by_name = {e["name"]: e["operation"] for e in events}
+        self.assertEqual(by_name, {"a": "add", "b": "update"})
+
+    def test_deletes_are_included_and_typed(self):
+        # D-6 (Codex #173 review): _diff_events silently dropped deletes -- a
+        # memory_type x add/update/delete operation was only two-thirds typed.
+        diff = {
+            "operations": {
+                "adds": [],
+                "updates": [],
+                "deletes": [
+                    {
+                        "uri": "viking://x/c.md",
+                        "memory_type": "preferences",
+                        "before": "# Summary\nStale preference removed.\n",
+                    }
+                ],
+            }
+        }
+        events = report._diff_events(diff)
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0]["name"], "c")
+        self.assertEqual(events[0]["memory_type"], "preferences")
+        self.assertEqual(events[0]["operation"], "delete")
+        # A delete has no "after" -- the abstract falls back to "before".
+        self.assertEqual(events[0]["abstract"], "Stale preference removed.")
 
     def test_none_and_non_dict_and_empty_yield_no_events(self):
         self.assertEqual(report._diff_events(None), [])
@@ -1437,6 +1465,60 @@ class RenderMarkdownTurnsTableTests(unittest.TestCase):
         text = report.render_markdown(rep)
         self.assertIn("keep-mixed", text)
         self.assertIn("unknown", text)
+
+
+class SharedArchiveEventsTests(unittest.TestCase):
+    """D-6 (Codex #173 review): an archive's memory_diff is an archive-level diff, not
+    attributed to any one turn -- when more than one turn's shadow record resolves to
+    the same archive (a batched/segmented extraction, or several turns before the next
+    commit), the report must say so plainly rather than implying each turn caused it."""
+
+    def setUp(self):
+        self.ledgers = report.load_ledgers(
+            [f"pop={os.path.join(_TESTDATA, 'ledger-pop.jsonl')}"]
+        )
+        self.reader = report.LocalTreeReader(_ARCHIVE_TREE)
+        self.archive = "viking://user/noot-pilot/sessions/cc-a5b818a0-c729-4063-abdd-efa1eceb5522/history/archive_001"
+
+    def test_two_turns_resolving_to_the_same_archive_are_flagged_shared(self):
+        records = [
+            {
+                "verdict": "strip",
+                "first_message_id": "msg_p1_u0",
+                "last_message_id": "msg_p1_a1",
+                "message_count": 2,
+                "created_at_min": "2026-09-27T19:00:00.000000+00:00",
+            },
+            {
+                "verdict": "strip",
+                # Different message ids/count than the row above -- not a dedup
+                # collapse, a second, genuinely distinct turn joined to the same
+                # archive.
+                "first_message_id": "msg_p1_u0",
+                "last_message_id": "msg_p1_a1",
+                "message_count": 3,
+                "created_at_min": "2026-09-27T19:00:00.000000+00:00",
+            },
+        ]
+        rep = report.build_report(records, self.ledgers, reader=self.reader)
+        for row in rep["rows"]:
+            self.assertTrue(row["events_shared_archive"])
+        text = report.render_markdown(rep)
+        self.assertIn("not attributed to a single turn", text)
+
+    def test_a_single_turn_archive_is_not_flagged_shared(self):
+        records = [
+            {
+                "verdict": "strip",
+                "first_message_id": "msg_p1_u0",
+                "last_message_id": "msg_p1_a1",
+                "created_at_min": "2026-09-27T19:00:00.000000+00:00",
+            }
+        ]
+        rep = report.build_report(records, self.ledgers, reader=self.reader)
+        self.assertFalse(rep["rows"][0]["events_shared_archive"])
+        text = report.render_markdown(rep)
+        self.assertNotIn("not attributed to a single turn", text)
 
 
 class _Completed:
