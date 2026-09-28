@@ -126,26 +126,44 @@ DEFAULT_MAX_CANDIDATES = None
 
 
 _RICH_PATH_COLUMN_RE = re.compile(r"\s+\S+\.py:\d+\s*$")
+# a rich header: an optional `[MM/DD/YY HH:MM:SS]` time column (blank when it repeats
+# the previous line's), then the level column, then the message
+_RICH_HEADER_RE = re.compile(
+    r"^(\[\d\d/\d\d/\d\d \d\d:\d\d:\d\d\]| +) ?(DEBUG|INFO|WARNING|ERROR|CRITICAL) +$"
+)
 
 
 def _unwrap_rich(lines, i, col):
-    """The payload of a rich-wrapped record whose header is ``lines[i]``.
+    """The payload of a rich-wrapped record whose header is ``lines[i]``, or None when
+    that line is not a rich header.
 
-    The prod server logs through rich at 80 columns: the header carries the level, the
-    start of the message at column ``col`` and a ``file.py:NNN`` column on the right;
-    the rest of the message is folded onto following lines that are blank up to
-    ``col``. Word wraps drop the space between JSON tokens (harmless outside strings)
-    and long keys are folded mid-word, so fragments are joined with nothing between
-    them. Returns (payload, index of the first line after the record)."""
-    head = _RICH_PATH_COLUMN_RE.sub("", lines[i].rstrip("\n"))
-    parts = [head[col + len(SHADOW_PREFIX) :].strip()]
+    The prod server logs through rich at 80 columns: the header carries the time and
+    level columns, the start of the message at column ``col`` and a ``file.py:NNN``
+    column on the right; the rest of the message is folded onto following lines that
+    are blank up to ``col``. Word wraps drop the space between JSON tokens (harmless
+    outside strings) and long keys are folded mid-word, so fragments are joined with
+    nothing between them. A space inside a JSON string that fell on a wrap point is
+    lost the same way; the emitter's string fields (ids, ISO timestamps, tool names,
+    verdicts) carry none today, but nothing enforces that, so the durable fix is an
+    unwrapped log line at the emitter. Reassembly stops at the next shadow marker, at a
+    line that is not a continuation, or as soon as the payload is a complete JSON
+    object. Returns (payload, index of the first line after the record)."""
+    header = lines[i].rstrip("\n")
+    if not _RICH_HEADER_RE.match(header[:col]):
+        return None, i + 1
+    parts = [_RICH_PATH_COLUMN_RE.sub("", header)[col + len(SHADOW_PREFIX) :].strip()]
     j = i + 1
     while j < len(lines):
         ln = lines[j].rstrip("\n")
-        if ln[:col].strip() or not ln[col:].strip():
+        if ln[:col].strip() or not ln[col:].strip() or SHADOW_PREFIX.rstrip() in ln:
             break
         parts.append(ln[col:].strip())
         j += 1
+        try:
+            json.loads("".join(parts))
+            break
+        except json.JSONDecodeError:
+            continue
     return "".join(parts), j
 
 
@@ -172,8 +190,10 @@ def parse_shadow_lines(lines):
         except json.JSONDecodeError:
             payload, nxt = _unwrap_rich(lines, i, idx)
             try:
-                rec = json.loads(payload)
+                rec = json.loads(payload) if payload is not None else None
             except json.JSONDecodeError:
+                rec = None
+            if rec is None:
                 i = max(nxt, i + 1)
                 continue
         if isinstance(rec, dict) and "skipped" not in rec:

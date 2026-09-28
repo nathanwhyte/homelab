@@ -93,6 +93,48 @@ class RichWrappedRecordTests(unittest.TestCase):
         ]
         self.assertEqual(report.parse_shadow_lines(lines), [{"verdict": "strip"}])
 
+    def test_an_unprefixed_failure_line_does_not_swallow_the_next_record(self):
+        # Codex review of homelab#177 (P2): the emitter's own exception line has the
+        # marker at column 0, so a column-0 "continuation" accepted every later line
+        lines = [
+            "ov-recall-shadow: classification failed; extraction unaffected\n",
+            'x ov-recall-shadow {"verdict": "strip"}\n',
+        ]
+        self.assertEqual(report.parse_shadow_lines(lines), [{"verdict": "strip"}])
+
+    def test_a_folded_record_stops_at_the_next_shadow_header(self):
+        lines = [
+            "[09/28/26 15:20:54] WARNING  ov-recall-shadow       ov_memory_guard_patch.py:969\n",
+            '                             {"verdict":                                        \n',
+            "                    WARNING  ov-recall-shadow       ov_memory_guard_patch.py:969\n",
+            '                             {"verdict": "strip"}                               \n',
+        ]
+        # the first record is cut short and skipped; the second is not consumed by it
+        self.assertEqual(report.parse_shadow_lines(lines), [{"verdict": "strip"}])
+
+    def test_reassembly_stops_once_the_object_is_complete(self):
+        lines = [
+            "[09/28/26 15:20:54] WARNING  ov-recall-shadow       ov_memory_guard_patch.py:969\n",
+            '                             {"verdict": "strip"}                               \n',
+            "                             unrelated indented output                          \n",
+        ]
+        self.assertEqual(report.parse_shadow_lines(lines), [{"verdict": "strip"}])
+
+    def test_reassembled_values_round_trip_exactly(self):
+        # exact values, not just keys and types: a join that dropped or added
+        # characters inside a string would still parse (Codex review, P2)
+        first = self.records[0]
+        self.assertEqual(
+            first["first_message_id"], "msg_b1550d3c03fd448c88f86c31c9460da1"
+        )
+        self.assertEqual(
+            first["last_message_id"], "msg_198c1f11099d4f8eb1651a38bc788ae9"
+        )
+        self.assertEqual(first["message_count"], 16)
+        self.assertEqual(first["created_at_min"], "2026-09-28T15:09:40.937190+00:00")
+        self.assertEqual(first["created_at_max"], "2026-09-28T15:09:40.937297+00:00")
+        self.assertEqual(first["verdict"], "keep-ambiguous")
+
     def test_single_line_records_still_parse_next_to_wrapped_ones(self):
         with open(os.path.join(_TESTDATA, "ov-recall-shadow-rich-a2.txt")) as fh:
             lines = fh.readlines()
