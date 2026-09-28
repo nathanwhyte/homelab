@@ -48,6 +48,60 @@ class ParseShadowLinesTests(unittest.TestCase):
         self.assertEqual(report.parse_shadow_lines(lines), [])
 
 
+class RichWrappedRecordTests(unittest.TestCase):
+    """The prod server logs through a rich handler at 80 columns: the header line carries
+    ``WARNING  ov-recall-shadow`` and the file:line column, and the JSON is folded into a
+    narrow message column on the lines after it. ``testdata/ov-recall-shadow-rich-a2.txt``
+    is the four real records from the 2026-09-28 A2 smoke test, pulled from Loki with
+    neighbouring noise; before this fix the parser returned none of them."""
+
+    def setUp(self):
+        with open(os.path.join(_TESTDATA, "ov-recall-shadow-rich-a2.txt")) as fh:
+            self.records = report.parse_shadow_lines(fh.readlines())
+
+    def test_every_wrapped_record_is_reassembled(self):
+        self.assertEqual(len(self.records), 4)
+        for rec in self.records:
+            self.assertIn(rec["verdict"], ("strip", "keep-mixed", "keep-ambiguous"))
+            self.assertIn("first_message_id", rec)
+            self.assertIsInstance(rec["message_count"], int)
+
+    def test_folded_keys_rejoin_without_a_space(self):
+        # rich folds `assistant_chars_after` mid-word across two lines
+        self.assertTrue(all("assistant_chars_after" in rec for rec in self.records))
+
+    def test_a_header_without_a_timestamp_starts_its_own_record(self):
+        # the second record of a same-second pair has a blank time column (the header
+        # starts at column 20, not 29), so it must end the first record, not extend it
+        with open(os.path.join(_TESTDATA, "ov-recall-shadow-rich-a2.txt")) as fh:
+            lines = fh.readlines()
+        first_pair = lines[: next(i for i, ln in enumerate(lines) if "15:21:13" in ln)]
+        self.assertEqual(len(report.parse_shadow_lines(first_pair)), 2)
+
+    def test_a_record_cut_short_is_skipped(self):
+        lines = [
+            "[09/28/26 15:20:54] WARNING  ov-recall-shadow       ov_memory_guard_patch.py:969\n",
+            '                             {"verdict":                                        \n',
+            "[09/28/26 15:20:55] INFO     unrelated                              server.py:1\n",
+        ]
+        self.assertEqual(report.parse_shadow_lines(lines), [])
+
+    def test_the_payload_may_start_on_the_header_line(self):
+        lines = [
+            '[09/28/26 15:20:54] WARNING  ov-recall-shadow {"ver ov_memory_guard_patch.py:969\n',
+            '                             dict": "strip"}                                    \n',
+        ]
+        self.assertEqual(report.parse_shadow_lines(lines), [{"verdict": "strip"}])
+
+    def test_single_line_records_still_parse_next_to_wrapped_ones(self):
+        with open(os.path.join(_TESTDATA, "ov-recall-shadow-rich-a2.txt")) as fh:
+            lines = fh.readlines()
+        lines.append(
+            '2026-09-28T00:00:00Z WARNING:x: ov-recall-shadow {"verdict": "strip"}\n'
+        )
+        self.assertEqual(len(report.parse_shadow_lines(lines)), 5)
+
+
 class BareSessionUuidTests(unittest.TestCase):
     def test_a_parent_session_archive(self):
         self.assertEqual(
@@ -1834,6 +1888,34 @@ class OvCliReaderTests(unittest.TestCase):
         run = self._fake_run(lambda argv: True, _Completed("not json"))
         reader = report.OvCliReader(run=run)
         self.assertIsNone(reader.read_messages("noot-pilot", "cc-a", "archive_001"))
+
+    def test_archive_status_lists_hidden_markers(self):
+        # Regression, caught live 2026-09-28 against prod archive_001 of cc-e3f06e32:
+        # `ov ls -s` hides dotfiles, so `.done` was never seen and every real archive
+        # read as pending. This fake behaves like the real CLI (dotfiles only with -a),
+        # with that archive's real listing: a retried extraction leaves both markers.
+        visible = [
+            "viking://user/noot-pilot/sessions/cc-a/history/archive_001/memory_diff.json",
+            "viking://user/noot-pilot/sessions/cc-a/history/archive_001/messages.jsonl",
+        ]
+        hidden = [
+            "viking://user/noot-pilot/sessions/cc-a/history/archive_001/.done",
+            "viking://user/noot-pilot/sessions/cc-a/history/archive_001/.failed.json",
+        ]
+        calls = []
+
+        def run(argv, **kwargs):
+            calls.append(argv)
+            shown = visible + (hidden if "-a" in argv else [])
+            return _Completed("cmd: ov ls …\n" + "\n".join(shown) + "\n")
+
+        reader = report.OvCliReader(run=run)
+        self.assertEqual(
+            reader.archive_status("noot-pilot", "cc-a", "archive_001"), "completed"
+        )
+        # the session and archive listings keep hidden entries out
+        reader.list_archives("noot-pilot", "cc-a")
+        self.assertNotIn("-a", calls[-1])
 
     def test_archive_status_completed_from_a_done_marker(self):
         stdout = (

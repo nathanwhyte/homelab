@@ -125,24 +125,60 @@ DEFAULT_TS_SLACK_SECONDS = 24 * 3600
 DEFAULT_MAX_CANDIDATES = None
 
 
+_RICH_PATH_COLUMN_RE = re.compile(r"\s+\S+\.py:\d+\s*$")
+
+
+def _unwrap_rich(lines, i, col):
+    """The payload of a rich-wrapped record whose header is ``lines[i]``.
+
+    The prod server logs through rich at 80 columns: the header carries the level, the
+    start of the message at column ``col`` and a ``file.py:NNN`` column on the right;
+    the rest of the message is folded onto following lines that are blank up to
+    ``col``. Word wraps drop the space between JSON tokens (harmless outside strings)
+    and long keys are folded mid-word, so fragments are joined with nothing between
+    them. Returns (payload, index of the first line after the record)."""
+    head = _RICH_PATH_COLUMN_RE.sub("", lines[i].rstrip("\n"))
+    parts = [head[col + len(SHADOW_PREFIX) :].strip()]
+    j = i + 1
+    while j < len(lines):
+        ln = lines[j].rstrip("\n")
+        if ln[:col].strip() or not ln[col:].strip():
+            break
+        parts.append(ln[col:].strip())
+        j += 1
+    return "".join(parts), j
+
+
 def parse_shadow_lines(lines):
     """``ov-recall-shadow {...}`` JSON payloads from raw log lines (any prefix, e.g. a
     ``kubectl logs`` timestamp or pod name, is ignored — only the payload after the
-    marker matters). Lines that are not shadow lines, or whose payload doesn't parse,
-    are skipped rather than raising: a report over a whole pod log must not abort on one
-    unrelated line."""
+    marker matters). A record the server's rich handler folded across lines (the prod
+    format) is reassembled from its continuation lines. Lines that are not shadow
+    lines, or whose payload doesn't parse, are skipped rather than raising: a report
+    over a whole pod log must not abort on one unrelated line."""
+    lines = list(lines)
     records = []
-    for line in lines:
-        idx = line.find(SHADOW_PREFIX)
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        idx = line.find(SHADOW_PREFIX.rstrip())
         if idx == -1:
+            i += 1
             continue
         payload = line[idx + len(SHADOW_PREFIX) :].strip()
+        nxt = i + 1
         try:
             rec = json.loads(payload)
         except json.JSONDecodeError:
-            continue
+            payload, nxt = _unwrap_rich(lines, i, idx)
+            try:
+                rec = json.loads(payload)
+            except json.JSONDecodeError:
+                i = max(nxt, i + 1)
+                continue
         if isinstance(rec, dict) and "skipped" not in rec:
             records.append(rec)
+        i = max(nxt, i + 1)
     return records
 
 
@@ -924,12 +960,14 @@ class OvCliReader:
         self._ls_cache = {}
         self._read_cache = {}
 
-    def _ls(self, uri, user):
-        key = (uri, user)
+    def _ls(self, uri, user, hidden=False):
+        """Simple path list; ``hidden`` adds ``-a``, without which ``ov ls`` omits
+        dotfiles such as an archive's ``.done`` / ``.failed.json`` markers."""
+        key = (uri, user, hidden)
         if key in self._ls_cache:
             return self._ls_cache[key]
         proc = self._run(
-            [self.ov_bin, "ls", uri, "-s", "--user", user],
+            [self.ov_bin, "ls", uri, "-s", *(["-a"] if hidden else []), "--user", user],
             capture_output=True,
             text=True,
             timeout=self.timeout,
@@ -999,7 +1037,9 @@ class OvCliReader:
         ``_archive_terminal_state`` marker precedence (D-3): ``.done`` checked before
         ``.failed.json``, via a read-only ``ov ls`` on the archive directory."""
         paths = self._ls(
-            f"viking://user/{user}/sessions/{session_dir}/history/{archive_id}", user
+            f"viking://user/{user}/sessions/{session_dir}/history/{archive_id}",
+            user,
+            hidden=True,
         )
         names = {p.rsplit("/", 1)[-1] for p in paths}
         if ".done" in names:

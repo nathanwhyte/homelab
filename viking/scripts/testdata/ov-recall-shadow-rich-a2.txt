@@ -1,0 +1,191 @@
+2026-09-28 15:20:54,020 - openviking.session.memory.memory_type_registry - INFO - [MemoryTypeRegistry] Starting memory files initialization for user=noot-pilot
+[09/28/26 15:20:54] WARNING  ov-recall-shadow       ov_memory_guard_patch.py:969
+                             {"assistant_chars_afte
+                             r": 2702,
+                             "assistant_chars_befor
+                             e": 0,
+                             "assistant_text_hashes
+                             _after":
+                             ["af74765abdb6"],
+                             "assistant_text_hashes
+                             _before": [],
+                             "bash_first_tokens":
+                             ["rg"],
+                             "created_at_max":
+                             "2026-09-28T15:09:40.9
+                             37297+00:00",
+                             "created_at_min":
+                             "2026-09-28T15:09:40.9
+                             37190+00:00",
+                             "errored": true,
+                             "first_message_id":
+                             "msg_b1550d3c03fd448c8
+                             8f86c31c9460da1",
+                             "last_message_id":
+                             "msg_198c1f11099d4f8eb
+                             1651a38bc788ae9",
+                             "message_count": 16,
+                             "other_tool_names":
+                             ["Bash", "ToolSearch",
+                             "mcp__plugin_context-m
+                             ode_context-mode__ctx_
+                             execute"],
+                             "other_tools":
+                             ["read_only",
+                             "unknown"],
+                             "ov_tools":
+                             ["mcp__plugin_openviki
+                             ng-memory_openviking__
+                             grep",
+                             "mcp__plugin_openvikin
+                             g-memory_openviking__s
+                             earch"], "partial":
+                             false, "segmentation":
+                             "text", "turn_end":
+                             16, "turn_start": 0,
+                             "unresolved_ov_reads":
+                             0, "verdict":
+                             "keep-ambiguous"}
+                    WARNING  ov-recall-shadow       ov_memory_guard_patch.py:969
+                             {"assistant_chars_afte
+                             r": 0,
+                             "assistant_chars_befor
+                             e": 137,
+                             "assistant_text_hashes
+                             _after": [],
+                             "assistant_text_hashes
+                             _before":
+                             ["14e74c615d9c"],
+                             "bash_first_tokens":
+                             ["ls"],
+                             "created_at_max":
+                             "2026-09-28T15:17:13.4
+                             65865+00:00",
+                             "created_at_min":
+                             "2026-09-28T15:17:11.7
+                             96876+00:00",
+                             "errored": true,
+                             "first_message_id":
+                             "msg_33386816d473484d8
+                             0e935cfdd82b2e3",
+                             "last_message_id":
+                             "msg_b4eeeb20b4cd41788
+                             c625d88c92c927c",
+                             "message_count": 21,
+                             "other_tool_names":
+                             ["Bash", "ToolSearch",
+                             "mcp__plugin_context-m
+                             ode_context-mode__ctx_
+                             execute"],
+                             "other_tools":
+                             ["read_only",
+                             "unknown"],
+                             "ov_tools":
+                             ["mcp__plugin_openviki
+                             ng-memory_openviking__
+                             find",
+                             "mcp__plugin_openvikin
+                             g-memory_openviking__l
+                             ist"], "partial":
+                             false, "segmentation":
+                             "text", "turn_end":
+                             45, "turn_start": 24,
+                             "unresolved_ov_reads":
+                             0, "verdict":
+                             "keep-ambiguous"}
+2026-09-28 15:20:54,464 - openviking.retrieve.hierarchical_retriever - INFO - [HierarchicalRetriever] Rerank not configured, using vector search only with threshold=0.2
+[09/28/26 15:21:13] WARNING  ov-recall-shadow       ov_memory_guard_patch.py:969
+                             {"assistant_chars_afte
+                             r": 2702,
+                             "assistant_chars_befor
+                             e": 0,
+                             "assistant_text_hashes
+                             _after":
+                             ["af74765abdb6"],
+                             "assistant_text_hashes
+                             _before": [],
+                             "bash_first_tokens":
+                             ["rg"],
+                             "created_at_max":
+                             "2026-09-28T15:09:40.9
+                             37297+00:00",
+                             "created_at_min":
+                             "2026-09-28T15:09:40.9
+                             37190+00:00",
+                             "errored": true,
+                             "first_message_id":
+                             "msg_b1550d3c03fd448c8
+                             8f86c31c9460da1",
+                             "last_message_id":
+                             "msg_198c1f11099d4f8eb
+                             1651a38bc788ae9",
+                             "message_count": 16,
+                             "other_tool_names":
+                             ["Bash", "ToolSearch",
+                             "mcp__plugin_context-m
+                             ode_context-mode__ctx_
+                             execute"],
+                             "other_tools":
+                             ["read_only",
+                             "unknown"],
+                             "ov_tools":
+                             ["mcp__plugin_openviki
+                             ng-memory_openviking__
+                             grep",
+                             "mcp__plugin_openvikin
+                             g-memory_openviking__s
+                             earch"], "partial":
+                             false, "segmentation":
+                             "text", "turn_end":
+                             16, "turn_start": 0,
+                             "unresolved_ov_reads":
+                             0, "verdict":
+                             "keep-ambiguous"}
+                    WARNING  ov-recall-shadow       ov_memory_guard_patch.py:969
+                             {"assistant_chars_afte
+                             r": 0,
+                             "assistant_chars_befor
+                             e": 137,
+                             "assistant_text_hashes
+                             _after": [],
+                             "assistant_text_hashes
+                             _before":
+                             ["14e74c615d9c"],
+                             "bash_first_tokens":
+                             ["ls"],
+                             "created_at_max":
+                             "2026-09-28T15:17:13.4
+                             65865+00:00",
+                             "created_at_min":
+                             "2026-09-28T15:17:11.7
+                             96876+00:00",
+                             "errored": true,
+                             "first_message_id":
+                             "msg_33386816d473484d8
+                             0e935cfdd82b2e3",
+                             "last_message_id":
+                             "msg_b4eeeb20b4cd41788
+                             c625d88c92c927c",
+                             "message_count": 21,
+                             "other_tool_names":
+                             ["Bash", "ToolSearch",
+                             "mcp__plugin_context-m
+                             ode_context-mode__ctx_
+                             execute"],
+                             "other_tools":
+                             ["read_only",
+                             "unknown"],
+                             "ov_tools":
+                             ["mcp__plugin_openviki
+                             ng-memory_openviking__
+                             find",
+                             "mcp__plugin_openvikin
+                             g-memory_openviking__l
+                             ist"], "partial":
+                             false, "segmentation":
+                             "text", "turn_end":
+                             45, "turn_start": 24,
+                             "unresolved_ov_reads":
+                             0, "verdict":
+                             "keep-ambiguous"}
+[09/28/26 15:21:14] INFO     Processing request of type            server.py:727
