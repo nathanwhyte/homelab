@@ -315,9 +315,18 @@ def _derive_verdict_from_classifications(classifications):
     classifications = list(classifications)
     if "mutating" in classifications:
         return "keep-mixed"
-    if "unknown" in classifications or "ov_read_error" in classifications:
+    if (
+        "unknown" in classifications
+        or "ov_read_error" in classifications
+        or "ov_read_unresolved" in classifications
+    ):
         return "keep-ambiguous"
     return "strip"
+
+
+# Tool states that mean the call has not finished. In captured archives the assistant's
+# tool part keeps one of these; the outcome is on the user-side result part.
+_TOOL_NOT_DONE = frozenset({"", "pending", "running"})
 
 
 def _is_turn_boundary_message(message):
@@ -357,14 +366,35 @@ def reclassify_record(record, archive, reader):
     record's message ids can be located in it. ``None`` when neither source is
     available, or when reconstruction finds nothing beyond what was already logged.
     """
+    reconstructed = _reclassify_from_archive(record, archive, reader)
+    if reconstructed is not None:
+        return reconstructed
     other_names = record.get("other_tool_names")
     if other_names is not None:
+        # The homelab#174 emitter: names for every non-OV-read tool, `errored` when any
+        # call's outcome was an error, `unresolved_ov_reads` for OV reads with no
+        # outcome in range. `ov_read_error` is accepted as a legacy spelling.
         classifications = [classify_tool_name(n) for n in other_names]
         if record.get("ov_tools"):
-            classifications.append(
-                "ov_read_error" if record.get("ov_read_error") else "ov_read"
-            )
+            if record.get("errored") or record.get("ov_read_error"):
+                classifications.append("ov_read_error")
+            elif record.get("unresolved_ov_reads"):
+                classifications.append("ov_read_unresolved")
+            else:
+                classifications.append("ov_read")
         return _derive_verdict_from_classifications(classifications)
+    return None
+
+
+def _reclassify_from_archive(record, archive, reader):
+    """The verdict re-derived from the complete source turn in the archive, or None
+    when the archive or the record's first message can't be found.
+
+    The whole turn is always re-derived, not only when it extends past the logged
+    range, so C-2/C-4 corrections reach records that covered their full turn.
+    Outcomes come from the user-side result parts, matched by ``tool_id``; the
+    assistant's own part is only a fallback (it stays ``running`` in captured
+    archives)."""
     if reader is None or not archive:
         return None
     parsed = parse_archive_uri(archive)
@@ -380,19 +410,21 @@ def reclassify_record(record, archive, reader):
     if first_id not in ids:
         return None
     start = ids.index(first_id)
-    last_id = record.get("last_message_id")
-    logged_end_idx = ids.index(last_id) if last_id in ids else start
     end = len(messages)
     for i in range(start + 1, len(messages)):
         if _is_turn_boundary_message(messages[i]):
             end = i
             break
-    if end - 1 <= logged_end_idx:
-        # Nothing beyond the logged range -- the record already covered the whole
-        # true turn.
-        return None
+    turn = messages[start:end]
+    outcome = {}
+    for message in turn:
+        if message.get("role") != "user":
+            continue
+        for part in message.get("parts") or []:
+            if isinstance(part, dict) and part.get("tool_id") and part.get("tool_name"):
+                outcome[part["tool_id"]] = part.get("tool_status") or ""
     classifications = []
-    for message in messages[start:end]:
+    for message in turn:
         if message.get("role") != "assistant":
             continue
         for part in message.get("parts") or []:
@@ -401,7 +433,13 @@ def reclassify_record(record, archive, reader):
             name = part.get("tool_name")
             if not name:
                 continue
-            classifications.append(classify_tool_name(name, part.get("tool_status")))
+            status = outcome.get(part.get("tool_id")) if part.get("tool_id") else None
+            if status is None:
+                status = part.get("tool_status") or ""
+            cls = classify_tool_name(name, status)
+            if cls == "ov_read" and status in _TOOL_NOT_DONE:
+                cls = "ov_read_unresolved"
+            classifications.append(cls)
     if not classifications:
         return None
     return _derive_verdict_from_classifications(classifications)

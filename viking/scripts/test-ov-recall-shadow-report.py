@@ -727,6 +727,7 @@ class LocalTreeReaderTests(unittest.TestCase):
             sorted(self.reader.list_sessions("noot-pilot")),
             [
                 "cc-11112222-3333-4444-5555-666677778888",
+                "cc-99990000-1111-2222-3333-444455556666",
                 "cc-a5b818a0-c729-4063-abdd-efa1eceb5522",
                 "cc-a5b818a0-c729-4063-abdd-efa1eceb5522__subagent-77aa",
                 "cc-bbbbbbbb-1111-2222-3333-444444444444",
@@ -1622,14 +1623,21 @@ class ReclassifyRecordTests(unittest.TestCase):
             report.reclassify_record(rec, self.archive, self.reader), "keep-mixed"
         )
 
-    def test_a_fragment_whose_full_turn_was_logged_is_not_reclassified(self):
+    def test_a_fragment_whose_full_turn_was_logged_reclassifies_to_the_same_verdict(
+        self,
+    ):
+        # The caller only surfaces reconstructed_verdict when it differs; the full
+        # turn is still re-derived, so C-2/C-4 corrections reach records that covered
+        # their whole turn.
         rec = {
-            "verdict": "strip",
+            "verdict": "keep-mixed",
             "partial": False,
             "first_message_id": "msg_frag_u0",
             "last_message_id": "msg_frag_a2",
         }
-        self.assertIsNone(report.reclassify_record(rec, self.archive, self.reader))
+        self.assertEqual(
+            report.reclassify_record(rec, self.archive, self.reader), "keep-mixed"
+        )
 
     def test_no_reader_or_no_archive_yields_no_reclassification(self):
         rec = {"first_message_id": "msg_frag_u0", "last_message_id": "msg_frag_a1"}
@@ -1653,6 +1661,22 @@ class ReclassifyRecordTests(unittest.TestCase):
         }
         self.assertEqual(report.reclassify_record(rec, None, None), "keep-mixed")
 
+    def test_emitter_errored_and_unresolved_fields_are_honored(self):
+        # homelab#174's emitter sends errored / unresolved_ov_reads, not ov_read_error
+        base = {
+            "verdict": "strip",
+            "first_message_id": "msg_frag_u0",
+            "last_message_id": "msg_frag_a1",
+            "ov_tools": ["mcp__plugin_openviking-memory_openviking__read"],
+            "other_tool_names": [],
+        }
+        for extra in ({"errored": True}, {"unresolved_ov_reads": 1}):
+            rec = {**base, **extra}
+            self.assertEqual(
+                report.reclassify_record(rec, None, None), "keep-ambiguous", extra
+            )
+        self.assertEqual(report.reclassify_record(base, None, None), "strip")
+
     def test_forward_compat_ov_read_error_flag_is_honored(self):
         rec = {
             "verdict": "strip",
@@ -1663,6 +1687,41 @@ class ReclassifyRecordTests(unittest.TestCase):
             "ov_read_error": True,
         }
         self.assertEqual(report.reclassify_record(rec, None, None), "keep-ambiguous")
+
+
+class ReclassifyRealArchiveShapeTests(unittest.TestCase):
+    """C-4 in real archives: the assistant's tool part stays "running" and the outcome
+    is on the user-side result part carrying the same tool_id (checked on pop over 60
+    live archives, 2026-09-27). Records from the homelab#173 emitter lack
+    other_tool_names, so these are re-derived from the archive."""
+
+    def setUp(self):
+        self.reader = report.LocalTreeReader(_ARCHIVE_TREE)
+        self.archive = "viking://user/noot-pilot/sessions/cc-99990000-1111-2222-3333-444455556666/history/archive_001"
+
+    def rec(self, first, last, verdict):
+        return {"verdict": verdict, "first_message_id": first, "last_message_id": last}
+
+    def test_a_failed_ov_read_found_by_tool_id_is_not_strip(self):
+        got = report.reclassify_record(
+            self.rec("msg_real_u0", "msg_real_a3", "strip"), self.archive, self.reader
+        )
+        self.assertEqual(got, "keep-ambiguous")
+
+    def test_todowrite_beside_a_completed_read_is_strip(self):
+        # the homelab#173 emitter logged keep-mixed (TodoWrite matched the verb regex)
+        got = report.reclassify_record(
+            self.rec("msg_real_u4", "msg_real_a7", "keep-mixed"),
+            self.archive,
+            self.reader,
+        )
+        self.assertEqual(got, "strip")
+
+    def test_an_ov_read_with_no_outcome_in_the_turn_is_not_strip(self):
+        got = report.reclassify_record(
+            self.rec("msg_real_u8", "msg_real_a9", "strip"), self.archive, self.reader
+        )
+        self.assertEqual(got, "keep-ambiguous")
 
 
 class BuildReportReconstructionTests(unittest.TestCase):
@@ -1693,9 +1752,11 @@ class BuildReportReconstructionTests(unittest.TestCase):
         self.assertIn("reconstructed", text)
 
     def test_an_unaffected_row_carries_no_reconstructed_verdict(self):
+        # the logged range already includes the Write, so the logged verdict is
+        # keep-mixed and reconstruction agrees
         records = [
             {
-                "verdict": "strip",
+                "verdict": "keep-mixed",
                 "partial": False,
                 "first_message_id": "msg_frag_u0",
                 "last_message_id": "msg_frag_a2",
