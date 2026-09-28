@@ -102,7 +102,7 @@ import os
 import re
 import subprocess
 import sys
-from datetime import datetime
+from datetime import datetime, timedelta
 
 SHADOW_PREFIX = "ov-recall-shadow "
 _SESSION_SEGMENT_RE = re.compile(r"/sessions/(cc-[0-9a-fA-F-]+(?:__subagent-[^/]+)?)")
@@ -357,8 +357,8 @@ def _backend_windows_for_session(session_uuid, ledgers):
     return out
 
 
-def backend_for(archive, ledgers, created_at_min=None):
-    """(backend, machine, candidates).
+def backend_for(archive, ledgers, created_at_min=None, window_slack_seconds=0):
+    """(backend, machine, candidates, window_status).
 
     ``backend`` is a real backend string, ``"unknown"`` (no archive, no ledger match),
     or ``"ambiguous"`` (the turn's ``created_at_min`` fits more than one launch window,
@@ -367,44 +367,69 @@ def backend_for(archive, ledgers, created_at_min=None):
     ``{"machine", "backend"}`` dicts that fit when ``backend == "ambiguous"``, else
     ``None``. A record with no matching session is reported ``"unknown"``, never
     dropped.
+
+    ``window_status`` (D-4, Codex #173 review) is ``"fit"`` (attributed cleanly),
+    ``"outside-window"`` (a single-launch session attributed anyway, but the turn's
+    timestamp actually falls outside that launch's own window), ``"ambiguous"``, or
+    ``"unknown"``.
+
+    D-4 finding: ``created_at`` is the server's receive time on the cluster clock, not
+    the plugin's capture time -- a detached write landing after the launcher's own end
+    row, a replayed pending queue after an outage, or ordinary cluster/machine clock
+    skew can all put a turn just outside its true window. When the session has exactly
+    one launch there is nothing to disambiguate against, so it is always attributed
+    (flagged ``outside-window`` rather than discarded as ``unknown``); multi-launch
+    sessions still need the window to pick the right one, now with
+    ``window_slack_seconds`` of symmetric tolerance on both bounds.
     """
     session_uuid = bare_session_uuid(archive)
     if not session_uuid:
-        return "unknown", None, None
+        return "unknown", None, None, "unknown"
     windows = _backend_windows_for_session(session_uuid, ledgers)
     if not windows:
-        return "unknown", None, None
+        return "unknown", None, None, "unknown"
 
     def _backend(machine, launch_id):
         starts, _sessions = ledgers[machine]
         return starts.get(launch_id, {}).get("backend") or "unknown"
 
+    slack = timedelta(seconds=window_slack_seconds)
+
+    if len(windows) == 1:
+        machine, launch_id, start_ts, end_ts = windows[0]
+        backend = _backend(machine, launch_id)
+        status = "fit"
+        turn_ts = _parse_ts(created_at_min)
+        start = _parse_ts(start_ts)
+        if turn_ts is not None and start is not None:
+            end = _parse_ts(end_ts) if end_ts else None
+            if turn_ts < start - slack or (end is not None and turn_ts >= end + slack):
+                status = "outside-window"
+        return backend, machine, None, status
+
     if created_at_min is None:
-        if len(windows) == 1:
-            machine, launch_id, _s, _e = windows[0]
-            return _backend(machine, launch_id), machine, None
         candidates = [
             {"machine": m, "backend": _backend(m, lid)} for m, lid, _s, _e in windows
         ]
-        return "ambiguous", None, candidates
+        return "ambiguous", None, candidates, "ambiguous"
 
     turn_ts = _parse_ts(created_at_min)
     fitting = []
     for machine, launch_id, start_ts, end_ts in windows:
         start = _parse_ts(start_ts)
-        if turn_ts is None or start is None or turn_ts < start:
+        if turn_ts is None or start is None or turn_ts < start - slack:
             continue
         end = _parse_ts(end_ts) if end_ts else None
-        if end is not None and turn_ts >= end:
+        if end is not None and turn_ts >= end + slack:
             continue
         fitting.append((machine, launch_id))
     if len(fitting) == 1:
         machine, launch_id = fitting[0]
-        return _backend(machine, launch_id), machine, None
+        return _backend(machine, launch_id), machine, None, "fit"
     if not fitting:
-        return "unknown", None, None
+        return "unknown", None, None, "unknown"
     candidates = [{"machine": m, "backend": _backend(m, lid)} for m, lid in fitting]
-    return "ambiguous", None, candidates
+    return "ambiguous", None, candidates, "ambiguous"
 
 
 def _candidate_users(launch_user):
@@ -893,6 +918,7 @@ def build_report(
     reader=None,
     ts_slack_seconds=DEFAULT_TS_SLACK_SECONDS,
     max_candidates=DEFAULT_MAX_CANDIDATES,
+    window_slack_seconds=0,
 ):
     by_verdict = collections.Counter()
     by_backend = {}
@@ -904,8 +930,11 @@ def build_report(
         archive = resolution.archive
         verdict = rec.get("verdict", "unknown")
         by_verdict[verdict] += 1
-        backend, machine, candidates = backend_for(
-            archive, ledgers, created_at_min=rec.get("created_at_min")
+        backend, machine, candidates, window_status = backend_for(
+            archive,
+            ledgers,
+            created_at_min=rec.get("created_at_min"),
+            window_slack_seconds=window_slack_seconds,
         )
         # Session identity, not archive identity: bare_session_uuid already strips a
         # subagent's "__subagent-..." suffix, so a subagent's turns are counted under
@@ -937,6 +966,7 @@ def build_report(
                 "verdict": verdict,
                 "backend": backend,
                 "machine": machine or "unknown",
+                "window_status": window_status,
                 "ambiguous_candidates": candidates,
                 "lab_or_pilot": lab_or_pilot(archive) if archive else "unknown",
                 "session": session_uuid,
@@ -990,12 +1020,17 @@ def _format_events(row) -> str:
 
 
 def _format_backend(row) -> str:
-    if row["backend"] != "ambiguous" or not row.get("ambiguous_candidates"):
-        return row["backend"]
-    candidates = ", ".join(
-        f"{c['machine']}:{c['backend']}" for c in row["ambiguous_candidates"]
-    )
-    return f"ambiguous ({candidates})"
+    if row["backend"] == "ambiguous" and row.get("ambiguous_candidates"):
+        candidates = ", ".join(
+            f"{c['machine']}:{c['backend']}" for c in row["ambiguous_candidates"]
+        )
+        return f"ambiguous ({candidates})"
+    if row.get("window_status") == "outside-window":
+        # D-4: a single-launch session attributed despite falling outside its own
+        # window (a detached write, a replayed queue, or clock skew) -- flagged, not
+        # hidden.
+        return f"{row['backend']} (outside-window)"
+    return row["backend"]
 
 
 def _format_verdict(row) -> str:
@@ -1152,6 +1187,18 @@ def parse_args(argv=None):
             "trade completeness for a faster search."
         ),
     )
+    parser.add_argument(
+        "--window-slack-seconds",
+        type=int,
+        default=0,
+        help=(
+            "Symmetric tolerance applied to both bounds of a multi-launch session's "
+            "windows when a turn's created_at_min is used to disambiguate them (D-4, "
+            "Codex #173 review). A single-launch session always attributes regardless "
+            "of this value. 0 by default; set this to account for known cluster/"
+            "machine clock skew."
+        ),
+    )
     args = parser.parse_args(argv)
     if args.archive_root and args.online:
         parser.error("--archive-root and --online are mutually exclusive")
@@ -1178,6 +1225,7 @@ def main(argv=None):
         reader=reader,
         ts_slack_seconds=args.ts_slack_seconds,
         max_candidates=args.max_candidates,
+        window_slack_seconds=args.window_slack_seconds,
     )
     text = render_markdown(report)
     if args.out:

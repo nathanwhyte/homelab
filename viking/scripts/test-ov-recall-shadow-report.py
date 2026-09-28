@@ -206,7 +206,14 @@ class IndexLedgerTests(unittest.TestCase):
         _, sessions = report.index_ledger(rows)
         self.assertIsNone(sessions["u1"][0]["end_ts"])
 
-    def test_a_turn_after_its_only_launch_ended_is_unknown(self):
+    def test_a_turn_after_its_only_launch_ended_still_resolves_flagged_outside_window(
+        self,
+    ):
+        # D-4 (Codex #173 review): window matching used to have zero tolerance, so a
+        # detached write landing after the launcher's end row (or any clock skew)
+        # became "unknown" even though there was only one launch it could possibly be
+        # -- nothing to disambiguate against. A single-window session now always
+        # resolves; the report flags it "outside-window" instead of discarding it.
         rows = [
             {
                 "event": "start",
@@ -228,13 +235,14 @@ class IndexLedgerTests(unittest.TestCase):
             "viking://user/noot-pilot/sessions/"
             "cc-aaaaaaaa-0000-0000-0000-000000000001/history/archive_001"
         )
-        self.assertEqual(
-            report.backend_for(archive, ledgers, "2026-09-27T08:15:00Z")[0],
-            "ollama:deepseek",
+        backend, _machine, _candidates, status = report.backend_for(
+            archive, ledgers, "2026-09-27T08:15:00Z"
         )
-        self.assertEqual(
-            report.backend_for(archive, ledgers, "2026-09-27T09:30:00Z")[0], "unknown"
+        self.assertEqual((backend, status), ("ollama:deepseek", "fit"))
+        backend, _machine, _candidates, status = report.backend_for(
+            archive, ledgers, "2026-09-27T09:30:00Z"
         )
+        self.assertEqual((backend, status), ("ollama:deepseek", "outside-window"))
 
     def test_rows_without_a_launch_id_are_ignored(self):
         starts, sessions = report.index_ledger(
@@ -254,32 +262,35 @@ class BackendForTests(unittest.TestCase):
 
     def test_no_archive_is_unknown(self):
         self.assertEqual(
-            report.backend_for(None, self.ledgers), ("unknown", None, None)
+            report.backend_for(None, self.ledgers), ("unknown", None, None, "unknown")
         )
 
     def test_a_matching_parent_session_resolves_through_pop(self):
         archive = "viking://user/noot-pilot/sessions/cc-a5b818a0-c729-4063-abdd-efa1eceb5522/history/archive_003"
         self.assertEqual(
-            report.backend_for(archive, self.ledgers), ("anthropic", "pop", None)
+            report.backend_for(archive, self.ledgers),
+            ("anthropic", "pop", None, "fit"),
         )
 
     def test_a_matching_subagent_resolves_through_its_parents_launch(self):
         archive = "viking://user/noot-pilot/sessions/cc-a5b818a0-c729-4063-abdd-efa1eceb5522__subagent-77aa/history/archive_001"
         self.assertEqual(
-            report.backend_for(archive, self.ledgers), ("anthropic", "pop", None)
+            report.backend_for(archive, self.ledgers),
+            ("anthropic", "pop", None, "fit"),
         )
 
     def test_a_workbook_session_resolves_through_workbook(self):
         archive = "viking://user/noot-pilot-lab/sessions/cc-11111111-2222-3333-4444-555555555555/history/archive_001"
         self.assertEqual(
             report.backend_for(archive, self.ledgers),
-            ("ollama:qwen3-coder", "workbook", None),
+            ("ollama:qwen3-coder", "workbook", None, "fit"),
         )
 
     def test_an_unmatched_session_is_unknown_not_dropped(self):
         archive = "viking://user/noot-pilot/sessions/cc-99999999-0000-1111-2222-333344445555/history/archive_002"
         self.assertEqual(
-            report.backend_for(archive, self.ledgers), ("unknown", None, None)
+            report.backend_for(archive, self.ledgers),
+            ("unknown", None, None, "unknown"),
         )
 
     def test_created_at_min_is_accepted_and_does_not_change_a_single_window_case(self):
@@ -288,7 +299,7 @@ class BackendForTests(unittest.TestCase):
             report.backend_for(
                 archive, self.ledgers, created_at_min="2026-09-27T19:00:00+00:00"
             ),
-            ("anthropic", "pop", None),
+            ("anthropic", "pop", None, "fit"),
         )
 
 
@@ -304,31 +315,39 @@ class ResumeFixtureTests(unittest.TestCase):
         self.archive = "viking://user/noot-pilot/sessions/cc-bbbbbbbb-1111-2222-3333-444444444444/history/archive_005"
 
     def test_a_turn_in_the_first_window_gets_the_ollama_backend(self):
-        backend, machine, candidates = report.backend_for(
+        backend, machine, candidates, status = report.backend_for(
             self.archive, self.ledgers, created_at_min="2026-09-12T00:00:00+00:00"
         )
         self.assertEqual(
-            (backend, machine, candidates), ("ollama:qwen3-coder", "pop", None)
+            (backend, machine, candidates, status),
+            ("ollama:qwen3-coder", "pop", None, "fit"),
         )
 
     def test_a_turn_after_the_resume_gets_the_anthropic_backend(self):
         # Regression: an earlier version kept only the session's first (earliest)
         # launch and reported ollama:qwen3-coder here too.
-        backend, machine, candidates = report.backend_for(
+        backend, machine, candidates, status = report.backend_for(
             self.archive, self.ledgers, created_at_min="2026-09-20T00:00:00+00:00"
         )
-        self.assertEqual((backend, machine, candidates), ("anthropic", "pop", None))
+        self.assertEqual(
+            (backend, machine, candidates, status), ("anthropic", "pop", None, "fit")
+        )
 
     def test_a_turn_before_any_launch_is_unknown(self):
-        backend, machine, candidates = report.backend_for(
+        backend, machine, candidates, status = report.backend_for(
             self.archive, self.ledgers, created_at_min="2026-09-01T00:00:00+00:00"
         )
-        self.assertEqual((backend, machine, candidates), ("unknown", None, None))
+        self.assertEqual(
+            (backend, machine, candidates, status), ("unknown", None, None, "unknown")
+        )
 
     def test_no_created_at_min_with_two_windows_is_ambiguous(self):
-        backend, machine, candidates = report.backend_for(self.archive, self.ledgers)
+        backend, machine, candidates, status = report.backend_for(
+            self.archive, self.ledgers
+        )
         self.assertEqual(backend, "ambiguous")
         self.assertIsNone(machine)
+        self.assertEqual(status, "ambiguous")
         self.assertEqual(
             candidates,
             [
@@ -336,6 +355,136 @@ class ResumeFixtureTests(unittest.TestCase):
                 {"machine": "pop", "backend": "anthropic"},
             ],
         )
+
+
+class WindowSlackTests(unittest.TestCase):
+    """D-4 (Codex #173 review): window matching had zero tolerance, but created_at is
+    the server's receive time, not the plugin's capture time -- a detached write, a
+    replayed pending queue, or ordinary cluster/machine clock skew can land a turn just
+    outside its true window. --window-slack-seconds makes the tolerance configurable
+    (symmetric on both bounds); a single-launch session no longer needs it at all
+    (see IndexLedgerTests.test_a_turn_after_its_only_launch_ended..., which covers
+    that case)."""
+
+    def setUp(self):
+        rows = [
+            {
+                "event": "start",
+                "launch_id": "A",
+                "ts": "2026-09-27T09:00:00Z",
+                "backend": "ollama:deepseek",
+                "user": "noot-pilot",
+            },
+            {
+                "event": "session",
+                "launch_id": "A",
+                "session_id": "cccccccc-1111-2222-3333-444444444444",
+                "ts": "2026-09-27T09:00:01Z",
+            },
+            {"event": "end", "launch_id": "A", "ts": "2026-09-27T09:30:00Z", "exit": 0},
+            {
+                "event": "start",
+                "launch_id": "B",
+                "ts": "2026-09-27T10:00:00Z",
+                "backend": "anthropic",
+                "user": "noot-pilot",
+            },
+            {
+                "event": "session",
+                "launch_id": "B",
+                "session_id": "cccccccc-1111-2222-3333-444444444444",
+                "ts": "2026-09-27T10:00:01Z",
+                "source": "resume",
+            },
+        ]
+        self.ledgers = {"pop": report.index_ledger(rows)}
+        self.archive = "viking://user/noot-pilot/sessions/cc-cccccccc-1111-2222-3333-444444444444/history/archive_001"
+
+    def test_without_slack_a_turn_in_the_gap_between_two_closed_launches_is_unknown(
+        self,
+    ):
+        backend, _machine, _candidates, status = report.backend_for(
+            self.archive, self.ledgers, created_at_min="2026-09-27T09:35:00+00:00"
+        )
+        self.assertEqual((backend, status), ("unknown", "unknown"))
+
+    def test_with_slack_the_gap_turn_resolves_to_the_nearer_launch(self):
+        backend, machine, _candidates, status = report.backend_for(
+            self.archive,
+            self.ledgers,
+            created_at_min="2026-09-27T09:35:00+00:00",
+            window_slack_seconds=600,
+        )
+        self.assertEqual((backend, machine, status), ("ollama:deepseek", "pop", "fit"))
+
+    def test_slack_can_make_a_near_boundary_turn_ambiguous_between_two_launches(self):
+        # Symmetric slack is a real tradeoff, not a free extension: padding both a
+        # window's start and its neighbour's end can make a turn that used to resolve
+        # singly fit both. This is expected -- ambiguous is still safer than a forced
+        # attribution.
+        ledgers = report.load_ledgers(
+            [f"pop={os.path.join(_TESTDATA, 'ledger-resume.jsonl')}"]
+        )
+        archive = "viking://user/noot-pilot/sessions/cc-bbbbbbbb-1111-2222-3333-444444444444/history/archive_005"
+        _backend, _machine, _candidates, status = report.backend_for(
+            archive,
+            ledgers,
+            created_at_min="2026-09-15T09:00:00+00:00",
+            window_slack_seconds=120,
+        )
+        self.assertEqual(status, "ambiguous")
+
+    def test_window_slack_seconds_is_a_cli_option(self):
+        args = report.parse_args(
+            [
+                "--log",
+                os.path.join(_TESTDATA, "ov-recall-shadow-sample.txt"),
+                "--window-slack-seconds",
+                "45",
+            ]
+        )
+        self.assertEqual(args.window_slack_seconds, 45)
+
+    def test_window_slack_seconds_defaults_to_zero(self):
+        args = report.parse_args(
+            ["--log", os.path.join(_TESTDATA, "ov-recall-shadow-sample.txt")]
+        )
+        self.assertEqual(args.window_slack_seconds, 0)
+
+    def test_render_markdown_flags_an_outside_window_attribution(self):
+        rows = [
+            {
+                "event": "start",
+                "launch_id": "L",
+                "ts": "2026-09-27T07:59:59Z",
+                "backend": "ollama:deepseek",
+                "user": "noot-pilot",
+            },
+            {
+                "event": "session",
+                "launch_id": "L",
+                "session_id": "aaaaaaaa-0000-0000-0000-000000000001",
+                "ts": "2026-09-27T08:00:00Z",
+            },
+            {"event": "end", "launch_id": "L", "ts": "2026-09-27T09:00:00Z", "exit": 0},
+        ]
+        ledgers = {"pop": report.index_ledger(rows)}
+        records = [
+            {
+                "verdict": "strip",
+                "archive": (
+                    "viking://user/noot-pilot/sessions/"
+                    "cc-aaaaaaaa-0000-0000-0000-000000000001/history/archive_001"
+                ),
+                "first_message_id": "u0",
+                "last_message_id": "a1",
+                "created_at_min": "2026-09-27T09:30:00.000000+00:00",
+            }
+        ]
+        rep = report.build_report(records, ledgers)
+        self.assertEqual(rep["rows"][0]["window_status"], "outside-window")
+        text = report.render_markdown(rep)
+        self.assertIn("ollama:deepseek (outside-window)", text)
 
 
 class LaunchWindowsTests(unittest.TestCase):
