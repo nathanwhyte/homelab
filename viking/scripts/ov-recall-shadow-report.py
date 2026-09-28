@@ -591,6 +591,48 @@ def backend_for(archive, ledgers, created_at_min=None, window_slack_seconds=0):
     return "ambiguous", None, candidates, "ambiguous"
 
 
+def mode_for(archive, ledgers, created_at_min=None, window_slack_seconds=0):
+    """The resolved launch's recorded ``mode`` (``"recall"``/``"capture"``/...),
+    mirroring ``backend_for``'s own window selection (D-5, Codex #173 review) so the
+    two stay consistent for the same ``(archive, created_at_min)`` pair -- ``mode`` was
+    indexed by ``index_ledger`` from day one but never actually emitted anywhere in the
+    report. ``"unknown"`` (no archive/no ledger match) or ``"ambiguous"`` (more than
+    one launch window fits, mirroring ``backend_for``'s own ambiguous case, without the
+    per-candidate detail ``backend_for``'s ``candidates`` list carries)."""
+    session_uuid = bare_session_uuid(archive)
+    if not session_uuid:
+        return "unknown"
+    windows = _backend_windows_for_session(session_uuid, ledgers)
+    if not windows:
+        return "unknown"
+
+    def _mode(machine, launch_id):
+        starts, _sessions = ledgers[machine]
+        return starts.get(launch_id, {}).get("mode") or "unknown"
+
+    slack = timedelta(seconds=window_slack_seconds)
+    if len(windows) == 1:
+        machine, launch_id, _start_ts, _end_ts = windows[0]
+        return _mode(machine, launch_id)
+    if created_at_min is None:
+        return "ambiguous"
+    turn_ts = _parse_ts(created_at_min)
+    fitting = []
+    for machine, launch_id, start_ts, end_ts in windows:
+        start = _parse_ts(start_ts)
+        if turn_ts is None or start is None or turn_ts < start - slack:
+            continue
+        end = _parse_ts(end_ts) if end_ts else None
+        if end is not None and turn_ts >= end + slack:
+            continue
+        fitting.append((machine, launch_id))
+    if len(fitting) == 1:
+        return _mode(*fitting[0])
+    if not fitting:
+        return "unknown"
+    return "ambiguous"
+
+
 def _candidate_users(launch_user):
     """[primary, fallback?] OpenViking user namespaces to search for a launch's
     archives, primary first.
@@ -1071,6 +1113,31 @@ def _canonicalize_records(records, ledgers, reader, ts_slack_seconds, max_candid
     return canonical
 
 
+def filter_records_by_block(records, since=None, until=None):
+    """Records whose ``created_at_min`` falls in ``[since, until)`` (D-5, Codex #173
+    review: block scoping via ``--since``/``--until``). Either bound is optional; with
+    neither, ``records`` is returned unchanged. A record with no ``created_at_min`` at
+    all is always kept -- there is nothing to scope it out on, and dropping it would
+    silently hide an unresolvable turn from the block's accounting rather than let it
+    show up as unresolved."""
+    if since is None and until is None:
+        return records
+    since_ts = _parse_ts(since) if since else None
+    until_ts = _parse_ts(until) if until else None
+    kept = []
+    for rec in records:
+        turn_ts = _parse_ts(rec.get("created_at_min"))
+        if turn_ts is None:
+            kept.append(rec)
+            continue
+        if since_ts is not None and turn_ts < since_ts:
+            continue
+        if until_ts is not None and turn_ts >= until_ts:
+            continue
+        kept.append(rec)
+    return kept
+
+
 def build_report(
     records,
     ledgers,
@@ -1090,6 +1157,12 @@ def build_report(
         verdict = rec.get("verdict", "unknown")
         by_verdict[verdict] += 1
         backend, machine, candidates, window_status = backend_for(
+            archive,
+            ledgers,
+            created_at_min=rec.get("created_at_min"),
+            window_slack_seconds=window_slack_seconds,
+        )
+        mode = mode_for(
             archive,
             ledgers,
             created_at_min=rec.get("created_at_min"),
@@ -1133,6 +1206,7 @@ def build_report(
                 "reconstructed_verdict": reconstructed_verdict,
                 "partial": rec.get("partial"),
                 "backend": backend,
+                "mode": mode,
                 "machine": machine or "unknown",
                 "window_status": window_status,
                 "ambiguous_candidates": candidates,
@@ -1149,6 +1223,7 @@ def build_report(
                 "last_message_id": rec.get("last_message_id"),
                 "ov_tools": rec.get("ov_tools", []),
                 "other_tools": rec.get("other_tools", []),
+                "errored": rec.get("errored", False),
                 "events": _events_for_archive(archive, reader),
                 "occurrences": occurrences,
                 "duplicate_verdicts": duplicate_verdicts,
@@ -1168,6 +1243,152 @@ def build_report(
             row["archive"] and archive_counts[row["archive"]] > 1
         )
     return {"by_verdict": by_verdict, "by_backend": by_backend, "rows": rows}
+
+
+def _row_aggregates(rows):
+    """(by_verdict, by_backend) recomputed from a (possibly filtered) row list, in the
+    same shape ``build_report`` produces -- used by ``filter_rows_by_lab_sessions`` so
+    a filtered report's aggregate section reflects only the rows it actually kept."""
+    by_verdict = collections.Counter(row["verdict"] for row in rows)
+    by_backend = {}
+    for row in rows:
+        bucket = by_backend.setdefault(
+            row["backend"],
+            {"sessions": set(), "turns": 0, "strip": 0, "unresolved_turns": 0},
+        )
+        if row.get("session"):
+            bucket["sessions"].add(row["session"])
+        else:
+            bucket["unresolved_turns"] += 1
+        bucket["turns"] += 1
+        if row["verdict"] == "strip":
+            bucket["strip"] += 1
+    return by_verdict, by_backend
+
+
+def filter_rows_by_lab_sessions(report_dict, include_lab=True):
+    """A new report dict (D-5, ``--lab-sessions include|exclude``, mirroring
+    weekly-check) with lab-namespace rows dropped and ``by_verdict``/``by_backend``
+    recomputed over what remains. ``include_lab=True`` (the default) returns
+    ``report_dict`` unchanged."""
+    if include_lab:
+        return report_dict
+    kept = [row for row in report_dict["rows"] if row["lab_or_pilot"] != "lab"]
+    by_verdict, by_backend = _row_aggregates(kept)
+    return {"by_verdict": by_verdict, "by_backend": by_backend, "rows": kept}
+
+
+def _row_key(row) -> str:
+    """A stable per-turn key for the label round trip (D-5): built from the resolved
+    archive and both message ids when the turn has a verified archive join, so it is
+    stable across runs of the same shadow log against the same archive tree. A turn
+    with no resolved archive has nothing verified to key on; its fallback key is
+    prefixed ``unresolved:`` so it reads as visibly less stable (a different search
+    cap or ledger state can change which candidate it lands on, if any)."""
+    if (
+        row.get("archive")
+        and row.get("first_message_id")
+        and row.get("last_message_id")
+    ):
+        return f"{row['archive']}#{row['first_message_id']}..{row['last_message_id']}"
+    return f"unresolved:{row.get('machine')}:{row.get('first_message_id')}:{row.get('turn_start')}"
+
+
+VALID_LABELS = frozenset({"restatement", "new-info", "mixed"})
+
+
+def parse_labels_file(path):
+    """``{row_key: label}`` from a simple ``<key>\\t<label>`` file (D-5): one pair per
+    non-blank, non-``#``-comment line. Raises ``ValueError`` on a malformed line or a
+    label outside ``VALID_LABELS`` -- the round trip rejects unknown labels rather than
+    silently accepting a typo."""
+    labels = {}
+    with open(path) as fh:
+        for lineno, line in enumerate(fh, start=1):
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#"):
+                continue
+            parts = stripped.split("\t")
+            if len(parts) != 2:
+                raise ValueError(
+                    f"{path}:{lineno}: expected '<key>\\t<label>', got {line!r}"
+                )
+            key, label = parts[0].strip(), parts[1].strip()
+            if label not in VALID_LABELS:
+                raise ValueError(
+                    f"{path}:{lineno}: unknown label {label!r}, expected one of "
+                    f"{sorted(VALID_LABELS)}"
+                )
+            labels[key] = label
+    return labels
+
+
+def apply_labels(report_dict, labels):
+    """Apply a ``{row_key: label}`` mapping onto ``report_dict["rows"]`` in place (via
+    ``_row_key``), returning ``report_dict``. Raises ``ValueError`` listing any label
+    key that matched no row (D-5: the round trip rejects unknown keys, e.g. from a
+    labels file built against a stale run of the report)."""
+    remaining = dict(labels)
+    for row in report_dict["rows"]:
+        key = _row_key(row)
+        if key in remaining:
+            row["label"] = remaining.pop(key)
+    if remaining:
+        unmatched = sorted(remaining)
+        raise ValueError(
+            f"--labels file has {len(unmatched)} key(s) matching no row: "
+            f"{unmatched[:5]}{'...' if len(unmatched) > 5 else ''}"
+        )
+    return report_dict
+
+
+def compute_precision(rows):
+    """``{"precision", "numerator", "denominator", "excluded"}`` over labelled
+    ``strip`` rows (D-5). ``precision`` is ``numerator / denominator`` (restatement
+    count over every eligible labelled strip row), or ``None`` when the denominator is
+    0. ``excluded`` counts every ``strip`` row NOT in the denominator, by the first
+    reason that applies (a row counts once): ``"unresolved"`` (no completed archive
+    join), ``"ambiguous"`` (archive or backend/window ambiguity), ``"partial"`` (the
+    record's own ``partial`` flag, or a D-7 reconstruction that found a different
+    verdict than what was logged -- either way the logged strip can't be trusted),
+    ``"errored"`` (a tool call in the turn errored), or ``"unlabelled"`` (no label
+    supplied for an otherwise-eligible row). A non-``strip`` row is not counted
+    anywhere -- precision is specifically about the strip population."""
+    excluded = collections.Counter()
+    eligible_labels = []
+    for row in rows:
+        if row["verdict"] != "strip":
+            continue
+        if row.get("archive_status") in ("unresolved", "no-reader"):
+            excluded["unresolved"] += 1
+            continue
+        if (
+            row.get("archive_status") == "ambiguous"
+            or row.get("backend") == "ambiguous"
+            or row.get("window_status") == "ambiguous"
+        ):
+            excluded["ambiguous"] += 1
+            continue
+        if row.get("partial") or row.get("reconstructed_verdict"):
+            excluded["partial"] += 1
+            continue
+        if row.get("errored"):
+            excluded["errored"] += 1
+            continue
+        label = row.get("label")
+        if not label:
+            excluded["unlabelled"] += 1
+            continue
+        eligible_labels.append(label)
+    denominator = len(eligible_labels)
+    numerator = sum(1 for label in eligible_labels if label == "restatement")
+    precision = numerator / denominator if denominator else None
+    return {
+        "precision": precision,
+        "numerator": numerator,
+        "denominator": denominator,
+        "excluded": dict(excluded),
+    }
 
 
 def _cell(value) -> str:
@@ -1257,15 +1478,15 @@ def _format_archive(row) -> str:
     return archive
 
 
-def render_markdown(report) -> str:
+def render_markdown(report, precision=None) -> str:
     lines = [
         "## Turns",
         "",
         (
-            "| Machine | Backend | Session | Archive | Turn range | Verdict | Occ | "
-            "Tools | Events | Label (restatement / new-info / mixed) |"
+            "| Key | Machine | Backend | Mode | Session | Archive | Turn range | "
+            "Verdict | Occ | Tools | Events | Label (restatement / new-info / mixed) |"
         ),
-        "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+        "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
     ]
     for row in report["rows"]:
         turn_range = f"{row.get('turn_start')}-{row.get('turn_end')}"
@@ -1274,8 +1495,10 @@ def render_markdown(report) -> str:
             + " | ".join(
                 _cell(v)
                 for v in (
+                    _row_key(row),
                     row["machine"],
                     _format_backend(row),
+                    row.get("mode"),
                     row.get("session"),
                     _format_archive(row),
                     turn_range,
@@ -1312,6 +1535,23 @@ def render_markdown(report) -> str:
             f"| {backend} | {len(bucket['sessions'])} | {bucket['turns']} | "
             f"{bucket['strip']} | {bucket['unresolved_turns']} |"
         )
+
+    if precision is not None:
+        # D-5: the gate number, with its denominator and every exclusion reason
+        # explicit -- never just a bare percentage.
+        lines += ["", "## Precision", ""]
+        if precision["precision"] is None:
+            lines.append("No eligible labelled strip rows -- precision is undefined.")
+        else:
+            lines.append(
+                f"**{precision['precision']:.1%}** "
+                f"({precision['numerator']} restatement / "
+                f"{precision['denominator']} labelled strip rows)"
+            )
+        lines += ["", "| Excluded reason | Count |", "| --- | --- |"]
+        for reason, count in sorted(precision["excluded"].items()):
+            lines.append(f"| {reason} | {count} |")
+
     return "\n".join(lines) + "\n"
 
 
@@ -1391,6 +1631,39 @@ def parse_args(argv=None):
             "machine clock skew."
         ),
     )
+    parser.add_argument(
+        "--since",
+        help=(
+            "Keep only records whose created_at_min is at or after this ISO8601 "
+            "timestamp (D-5, block scoping). A record with no created_at_min is "
+            "always kept."
+        ),
+    )
+    parser.add_argument(
+        "--until",
+        help=(
+            "Keep only records whose created_at_min is strictly before this ISO8601 "
+            "timestamp (D-5, block scoping). A record with no created_at_min is "
+            "always kept."
+        ),
+    )
+    parser.add_argument(
+        "--lab-sessions",
+        choices=("include", "exclude"),
+        default="include",
+        help=(
+            "Include or exclude noot-pilot-lab rows from the report (D-5, mirrors "
+            "weekly-check). Included by default."
+        ),
+    )
+    parser.add_argument(
+        "--labels",
+        help=(
+            "Path to a <key>\\t<label> file (restatement|new-info|mixed per row key "
+            "from the rendered Key column) to read back onto the Label column and "
+            "compute precision over the labelled strip rows (D-5)."
+        ),
+    )
     args = parser.parse_args(argv)
     if args.archive_root and args.online:
         parser.error("--archive-root and --online are mutually exclusive")
@@ -1409,6 +1682,7 @@ def main(argv=None):
     args = parse_args(argv)
     lines = _read_lines(args.log)
     records = parse_shadow_lines(lines)
+    records = filter_records_by_block(records, since=args.since, until=args.until)
     ledgers = load_ledgers(args.ledger)
     reader = _build_reader(args)
     report = build_report(
@@ -1419,7 +1693,15 @@ def main(argv=None):
         max_candidates=args.max_candidates,
         window_slack_seconds=args.window_slack_seconds,
     )
-    text = render_markdown(report)
+    report = filter_rows_by_lab_sessions(
+        report, include_lab=(args.lab_sessions == "include")
+    )
+    precision = None
+    if args.labels:
+        labels = parse_labels_file(args.labels)
+        apply_labels(report, labels)
+        precision = compute_precision(report["rows"])
+    text = render_markdown(report, precision=precision)
     if args.out:
         with open(args.out, "w") as fh:
             fh.write(text)

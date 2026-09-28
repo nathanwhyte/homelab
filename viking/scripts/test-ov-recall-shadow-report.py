@@ -12,6 +12,7 @@ lab-user session on a different machine's ledger, and a session that matches no 
 shape (``start`` + ``session`` events joined by ``launch_id``).
 """
 
+import collections
 import importlib.util
 import io
 import json
@@ -1801,6 +1802,376 @@ class OvCliReaderTests(unittest.TestCase):
         self.assertEqual(
             reader.archive_status("noot-pilot", "cc-a", "archive_001"), "pending"
         )
+
+
+class ModeForTests(unittest.TestCase):
+    """D-5 (Codex #173 review): mode is indexed but was never emitted -- mode_for
+    mirrors backend_for's own window selection so the two stay consistent for the same
+    (archive, created_at_min)."""
+
+    def setUp(self):
+        self.ledgers = report.load_ledgers(
+            [f"pop={os.path.join(_TESTDATA, 'ledger-pop.jsonl')}"]
+        )
+        self.archive = "viking://user/noot-pilot/sessions/cc-a5b818a0-c729-4063-abdd-efa1eceb5522/history/archive_003"
+
+    def test_a_single_window_session_resolves_its_mode(self):
+        self.assertEqual(report.mode_for(self.archive, self.ledgers), "recall")
+
+    def test_no_archive_is_unknown(self):
+        self.assertEqual(report.mode_for(None, self.ledgers), "unknown")
+
+    def test_two_launch_windows_with_no_created_at_min_is_ambiguous(self):
+        ledgers = report.load_ledgers(
+            [f"pop={os.path.join(_TESTDATA, 'ledger-resume.jsonl')}"]
+        )
+        archive = "viking://user/noot-pilot/sessions/cc-bbbbbbbb-1111-2222-3333-444444444444/history/archive_005"
+        self.assertEqual(report.mode_for(archive, ledgers), "ambiguous")
+
+    def test_two_launch_windows_disambiguated_by_created_at_min(self):
+        ledgers = report.load_ledgers(
+            [f"pop={os.path.join(_TESTDATA, 'ledger-resume.jsonl')}"]
+        )
+        archive = "viking://user/noot-pilot/sessions/cc-bbbbbbbb-1111-2222-3333-444444444444/history/archive_005"
+        self.assertEqual(
+            report.mode_for(
+                archive, ledgers, created_at_min="2026-09-12T00:00:00+00:00"
+            ),
+            "capture",
+        )
+        self.assertEqual(
+            report.mode_for(
+                archive, ledgers, created_at_min="2026-09-20T00:00:00+00:00"
+            ),
+            "recall",
+        )
+
+
+class BuildReportModeTests(unittest.TestCase):
+    def test_a_row_carries_its_resolved_mode(self):
+        ledgers = report.load_ledgers(
+            [f"pop={os.path.join(_TESTDATA, 'ledger-pop.jsonl')}"]
+        )
+        reader = report.LocalTreeReader(_ARCHIVE_TREE)
+        records = [
+            {
+                "verdict": "strip",
+                "first_message_id": "msg_p1_u0",
+                "last_message_id": "msg_p1_a1",
+                "created_at_min": "2026-09-27T19:00:00.000000+00:00",
+            }
+        ]
+        rep = report.build_report(records, ledgers, reader=reader)
+        self.assertEqual(rep["rows"][0]["mode"], "recall")
+
+
+class FilterRecordsByBlockTests(unittest.TestCase):
+    """D-5: --since/--until block scoping."""
+
+    def setUp(self):
+        self.records = [
+            {"created_at_min": "2026-09-27T00:00:00+00:00", "label": "early"},
+            {"created_at_min": "2026-09-27T12:00:00+00:00", "label": "mid"},
+            {"created_at_min": "2026-09-27T23:00:00+00:00", "label": "late"},
+            {"label": "no-timestamp"},
+        ]
+
+    def test_no_bounds_keeps_everything(self):
+        self.assertEqual(report.filter_records_by_block(self.records), self.records)
+
+    def test_since_excludes_earlier_records(self):
+        kept = report.filter_records_by_block(
+            self.records, since="2026-09-27T06:00:00+00:00"
+        )
+        labels = {r["label"] for r in kept}
+        self.assertEqual(labels, {"mid", "late", "no-timestamp"})
+
+    def test_until_excludes_records_at_or_after_the_bound(self):
+        kept = report.filter_records_by_block(
+            self.records, until="2026-09-27T12:00:00+00:00"
+        )
+        labels = {r["label"] for r in kept}
+        self.assertEqual(labels, {"early", "no-timestamp"})
+
+    def test_a_record_with_no_created_at_min_is_always_kept(self):
+        # Nothing to scope it out on -- dropping it would silently hide an
+        # unresolvable turn from the block's accounting.
+        kept = report.filter_records_by_block(
+            self.records,
+            since="2026-09-27T00:00:00+00:00",
+            until="2026-09-27T00:00:01+00:00",
+        )
+        labels = {r["label"] for r in kept}
+        self.assertIn("no-timestamp", labels)
+
+    def test_since_and_until_narrows_to_the_block(self):
+        kept = report.filter_records_by_block(
+            self.records,
+            since="2026-09-27T06:00:00+00:00",
+            until="2026-09-27T18:00:00+00:00",
+        )
+        labels = {r["label"] for r in kept}
+        self.assertEqual(labels, {"mid", "no-timestamp"})
+
+    def test_since_and_until_are_cli_options(self):
+        args = report.parse_args(
+            [
+                "--log",
+                os.path.join(_TESTDATA, "ov-recall-shadow-sample.txt"),
+                "--since",
+                "2026-09-27T00:00:00Z",
+                "--until",
+                "2026-09-28T00:00:00Z",
+            ]
+        )
+        self.assertEqual(args.since, "2026-09-27T00:00:00Z")
+        self.assertEqual(args.until, "2026-09-28T00:00:00Z")
+
+
+class FilterRowsByLabSessionsTests(unittest.TestCase):
+    """D-5: --lab-sessions include|exclude."""
+
+    def setUp(self):
+        self.ledgers = report.load_ledgers(
+            [
+                f"pop={os.path.join(_TESTDATA, 'ledger-pop.jsonl')}",
+                f"workbook={os.path.join(_TESTDATA, 'ledger-workbook.jsonl')}",
+            ]
+        )
+        self.reader = report.LocalTreeReader(_ARCHIVE_TREE)
+        self.records = [
+            {
+                "verdict": "strip",
+                "first_message_id": "msg_p1_u0",
+                "last_message_id": "msg_p1_a1",
+                "created_at_min": "2026-09-27T19:00:00.000000+00:00",
+            },
+            {
+                "verdict": "strip",
+                "archive": "viking://user/noot-pilot-lab/sessions/cc-11111111-2222-3333-4444-555555555555/history/archive_001",
+                "first_message_id": "u0",
+                "last_message_id": "a1",
+            },
+        ]
+
+    def test_include_is_the_default_and_keeps_everything(self):
+        rep = report.build_report(self.records, self.ledgers, reader=self.reader)
+        self.assertEqual(len(rep["rows"]), 2)
+        filtered = report.filter_rows_by_lab_sessions(rep, include_lab=True)
+        self.assertEqual(len(filtered["rows"]), 2)
+
+    def test_exclude_drops_lab_rows_and_recomputes_aggregates(self):
+        rep = report.build_report(self.records, self.ledgers, reader=self.reader)
+        filtered = report.filter_rows_by_lab_sessions(rep, include_lab=False)
+        self.assertEqual(len(filtered["rows"]), 1)
+        self.assertTrue(all(r["lab_or_pilot"] != "lab" for r in filtered["rows"]))
+        self.assertEqual(dict(filtered["by_verdict"]), {"strip": 1})
+
+    def test_lab_sessions_is_a_cli_option_defaulting_to_include(self):
+        args = report.parse_args(
+            ["--log", os.path.join(_TESTDATA, "ov-recall-shadow-sample.txt")]
+        )
+        self.assertEqual(args.lab_sessions, "include")
+
+    def test_lab_sessions_exclude_is_accepted(self):
+        args = report.parse_args(
+            [
+                "--log",
+                os.path.join(_TESTDATA, "ov-recall-shadow-sample.txt"),
+                "--lab-sessions",
+                "exclude",
+            ]
+        )
+        self.assertEqual(args.lab_sessions, "exclude")
+
+
+class RowKeyAndLabelsTests(unittest.TestCase):
+    """D-5: the rendered per-turn table carries a stable row key; --labels <file>
+    reads restatement|new-info|mixed back per key, rejecting unknown keys and labels."""
+
+    def setUp(self):
+        self.ledgers = report.load_ledgers(
+            [f"pop={os.path.join(_TESTDATA, 'ledger-pop.jsonl')}"]
+        )
+        self.reader = report.LocalTreeReader(_ARCHIVE_TREE)
+        self.records = [
+            {
+                "verdict": "strip",
+                "first_message_id": "msg_p1_u0",
+                "last_message_id": "msg_p1_a1",
+                "message_count": 2,
+                "created_at_min": "2026-09-27T19:00:00.000000+00:00",
+            }
+        ]
+
+    def test_the_row_key_is_stable_across_runs(self):
+        rep1 = report.build_report(self.records, self.ledgers, reader=self.reader)
+        rep2 = report.build_report(self.records, self.ledgers, reader=self.reader)
+        self.assertEqual(
+            report._row_key(rep1["rows"][0]), report._row_key(rep2["rows"][0])
+        )
+
+    def test_the_row_key_appears_in_the_rendered_table(self):
+        rep = report.build_report(self.records, self.ledgers, reader=self.reader)
+        key = report._row_key(rep["rows"][0])
+        text = report.render_markdown(rep)
+        self.assertIn(key, text)
+
+    def test_parse_labels_file_reads_back_valid_labels(self):
+        import tempfile
+
+        rep = report.build_report(self.records, self.ledgers, reader=self.reader)
+        key = report._row_key(rep["rows"][0])
+        with tempfile.NamedTemporaryFile("w", suffix=".tsv", delete=False) as fh:
+            fh.write(f"# comment\n\n{key}\trestatement\n")
+            path = fh.name
+        try:
+            labels = report.parse_labels_file(path)
+        finally:
+            os.unlink(path)
+        self.assertEqual(labels, {key: "restatement"})
+
+    def test_parse_labels_file_rejects_an_unknown_label(self):
+        import tempfile
+
+        with tempfile.NamedTemporaryFile("w", suffix=".tsv", delete=False) as fh:
+            fh.write("some-key\tnot-a-real-label\n")
+            path = fh.name
+        try:
+            with self.assertRaises(ValueError):
+                report.parse_labels_file(path)
+        finally:
+            os.unlink(path)
+
+    def test_apply_labels_sets_the_row_label(self):
+        rep = report.build_report(self.records, self.ledgers, reader=self.reader)
+        key = report._row_key(rep["rows"][0])
+        report.apply_labels(rep, {key: "restatement"})
+        self.assertEqual(rep["rows"][0]["label"], "restatement")
+
+    def test_apply_labels_rejects_an_unknown_key(self):
+        rep = report.build_report(self.records, self.ledgers, reader=self.reader)
+        with self.assertRaises(ValueError):
+            report.apply_labels(rep, {"no-such-row-key": "restatement"})
+
+    def test_labels_is_a_cli_option(self):
+        args = report.parse_args(
+            [
+                "--log",
+                os.path.join(_TESTDATA, "ov-recall-shadow-sample.txt"),
+                "--labels",
+                "labels.tsv",
+            ]
+        )
+        self.assertEqual(args.labels, "labels.tsv")
+
+
+class ComputePrecisionTests(unittest.TestCase):
+    """D-5: precision over labelled strip rows, with the denominator and every
+    exclusion reason (unresolved, ambiguous, partial, errored, unlabelled) explicit."""
+
+    def _row(self, **overrides):
+        row = {
+            "verdict": "strip",
+            "backend": "anthropic",
+            "mode": "recall",
+            "machine": "pop",
+            "session": "aaaaaaaa-0000-0000-0000-000000000001",
+            "archive": "viking://user/noot-pilot/sessions/cc-aaaaaaaa-0000-0000-0000-000000000001/history/archive_001",
+            "archive_status": "resolved",
+            "window_status": "fit",
+            "partial": False,
+            "reconstructed_verdict": None,
+            "errored": False,
+            "label": "restatement",
+            "turn_start": 0,
+            "turn_end": 2,
+            "first_message_id": "u0",
+            "last_message_id": "a1",
+            "ov_tools": [],
+            "other_tools": [],
+            "events": [],
+            "occurrences": 1,
+            "duplicate_verdicts": None,
+            "ambiguous_candidates": None,
+            "archive_ambiguous_matches": None,
+            "candidate_coverage": None,
+            "events_shared_archive": False,
+        }
+        row.update(overrides)
+        return row
+
+    def test_a_clean_labelled_set_computes_precision(self):
+        rows = [
+            self._row(label="restatement"),
+            self._row(label="restatement"),
+            self._row(label="new-info"),
+            self._row(label="mixed"),
+        ]
+        result = report.compute_precision(rows)
+        self.assertEqual(result["numerator"], 2)
+        self.assertEqual(result["denominator"], 4)
+        self.assertEqual(result["precision"], 0.5)
+        self.assertEqual(result["excluded"], {})
+
+    def test_non_strip_rows_are_not_in_the_denominator_at_all(self):
+        rows = [self._row(verdict="keep-mixed", label="")]
+        result = report.compute_precision(rows)
+        self.assertEqual(result["denominator"], 0)
+        self.assertNotIn("keep-mixed", result["excluded"])
+
+    def test_unresolved_strip_rows_are_excluded(self):
+        rows = [self._row(archive_status="unresolved", label="restatement")]
+        result = report.compute_precision(rows)
+        self.assertEqual(result["excluded"], {"unresolved": 1})
+        self.assertEqual(result["denominator"], 0)
+
+    def test_ambiguous_strip_rows_are_excluded(self):
+        rows = [self._row(archive_status="ambiguous", label="restatement")]
+        result = report.compute_precision(rows)
+        self.assertEqual(result["excluded"], {"ambiguous": 1})
+
+    def test_partial_strip_rows_are_excluded(self):
+        rows = [self._row(partial=True, label="restatement")]
+        result = report.compute_precision(rows)
+        self.assertEqual(result["excluded"], {"partial": 1})
+
+    def test_a_reconstructed_verdict_excludes_as_partial_even_when_not_flagged_partial(
+        self,
+    ):
+        # D-7's reconstruction found more of the turn than was logged -- the logged
+        # strip can't be trusted even if the record's own partial flag was false.
+        rows = [self._row(reconstructed_verdict="keep-mixed", label="restatement")]
+        result = report.compute_precision(rows)
+        self.assertEqual(result["excluded"], {"partial": 1})
+
+    def test_errored_strip_rows_are_excluded(self):
+        rows = [self._row(errored=True, label="restatement")]
+        result = report.compute_precision(rows)
+        self.assertEqual(result["excluded"], {"errored": 1})
+
+    def test_unlabelled_strip_rows_are_excluded(self):
+        rows = [self._row(label="")]
+        result = report.compute_precision(rows)
+        self.assertEqual(result["excluded"], {"unlabelled": 1})
+
+    def test_precision_is_none_with_an_empty_denominator(self):
+        rows = [self._row(label="")]
+        result = report.compute_precision(rows)
+        self.assertIsNone(result["precision"])
+
+    def test_render_markdown_renders_a_precision_section_when_given_one(self):
+        rows = [self._row(label="restatement")]
+        result = report.compute_precision(rows)
+        rep = {"by_verdict": collections.Counter(), "by_backend": {}, "rows": rows}
+        text = report.render_markdown(rep, precision=result)
+        self.assertIn("## Precision", text)
+        self.assertIn("1", text)
+
+    def test_render_markdown_omits_the_precision_section_by_default(self):
+        rep = {"by_verdict": collections.Counter(), "by_backend": {}, "rows": []}
+        text = report.render_markdown(rep)
+        self.assertNotIn("## Precision", text)
 
 
 if __name__ == "__main__":
