@@ -719,11 +719,13 @@ class LocalTreeReaderTests(unittest.TestCase):
         self.reader = report.LocalTreeReader(_ARCHIVE_TREE)
 
     def test_list_sessions(self):
-        # D-3 fixtures (ArchiveStatusTests / ResolveArchiveTerminalStateTests) added
-        # three more session dirs under the shared noot-pilot testdata tree.
+        # D-3 fixtures (ArchiveStatusTests / ResolveArchiveTerminalStateTests) and D-7
+        # fixtures (ReclassifyRecordTests) added more session dirs under the shared
+        # noot-pilot testdata tree.
         self.assertEqual(
             sorted(self.reader.list_sessions("noot-pilot")),
             [
+                "cc-11112222-3333-4444-5555-666677778888",
                 "cc-a5b818a0-c729-4063-abdd-efa1eceb5522",
                 "cc-a5b818a0-c729-4063-abdd-efa1eceb5522__subagent-77aa",
                 "cc-bbbbbbbb-1111-2222-3333-444444444444",
@@ -1519,6 +1521,189 @@ class SharedArchiveEventsTests(unittest.TestCase):
         self.assertFalse(rep["rows"][0]["events_shared_archive"])
         text = report.render_markdown(rep)
         self.assertNotIn("not attributed to a single turn", text)
+
+
+class ClassifyToolNameTests(unittest.TestCase):
+    """C-2/C-4 downstream (Codex #173 review): the canonical classifier lives here
+    once; the production shadow classifier (ov_memory_guard_patch.py::classify_tool)
+    mirrors it. TodoWrite is explicitly neutral; SendMessage/Write/Edit are explicitly
+    mutating; the create/update/delete/send/write/publish verb heuristic applies only
+    to mcp__-prefixed names; a failed OpenViking read is its own classification, never
+    folded into a clean "strip"-eligible ov_read."""
+
+    def test_an_ov_read_tool_is_ov_read(self):
+        self.assertEqual(
+            report.classify_tool_name("mcp__plugin_openviking-memory_openviking__read"),
+            "ov_read",
+        )
+
+    def test_an_errored_ov_read_is_its_own_classification(self):
+        self.assertEqual(
+            report.classify_tool_name(
+                "mcp__plugin_openviking-memory_openviking__read", tool_status="error"
+            ),
+            "ov_read_error",
+        )
+
+    def test_todo_write_is_neutral_read_only(self):
+        self.assertEqual(report.classify_tool_name("TodoWrite"), "read_only")
+
+    def test_send_message_write_and_edit_are_explicitly_mutating(self):
+        for name in ("SendMessage", "Write", "Edit"):
+            self.assertEqual(report.classify_tool_name(name), "mutating")
+
+    def test_the_verb_heuristic_only_applies_to_mcp_prefixed_names(self):
+        self.assertEqual(
+            report.classify_tool_name("mcp__some_plugin__create_thing"), "mutating"
+        )
+        # An unprefixed tool that happens to contain a verb-like substring must not
+        # be misclassified -- the heuristic is scoped to mcp__ names only.
+        self.assertEqual(report.classify_tool_name("Updater"), "unknown")
+
+    def test_unknown_and_empty_name(self):
+        self.assertEqual(report.classify_tool_name("SomeRandomTool"), "unknown")
+        self.assertEqual(report.classify_tool_name(None), "unknown")
+        self.assertEqual(report.classify_tool_name(""), "unknown")
+
+    def test_read_only_names(self):
+        for name in ("ToolSearch", "Read", "Glob", "Grep", "LS"):
+            self.assertEqual(report.classify_tool_name(name), "read_only")
+
+
+class DeriveVerdictFromClassificationsTests(unittest.TestCase):
+    def test_mutating_wins_keep_mixed(self):
+        self.assertEqual(
+            report._derive_verdict_from_classifications(["ov_read", "mutating"]),
+            "keep-mixed",
+        )
+
+    def test_unknown_without_mutating_is_keep_ambiguous(self):
+        self.assertEqual(
+            report._derive_verdict_from_classifications(["ov_read", "unknown"]),
+            "keep-ambiguous",
+        )
+
+    def test_an_errored_ov_read_is_never_strip(self):
+        self.assertEqual(
+            report._derive_verdict_from_classifications(["ov_read_error"]),
+            "keep-ambiguous",
+        )
+
+    def test_clean_ov_read_only_is_strip(self):
+        self.assertEqual(
+            report._derive_verdict_from_classifications(["ov_read", "read_only"]),
+            "strip",
+        )
+
+
+class ReclassifyRecordTests(unittest.TestCase):
+    """D-7 / Codex additional finding 1 (2026-09-27): a fragment can claim
+    partial:false and a clean strip verdict while its tail (a later mutating tool
+    call) was split into a separate extraction batch and never logged. Reconstruct the
+    complete source turn from the archive's raw messages.jsonl and re-derive the
+    verdict; only report a reconstructed_verdict when it actually differs."""
+
+    def setUp(self):
+        self.reader = report.LocalTreeReader(_ARCHIVE_TREE)
+        self.archive = "viking://user/noot-pilot/sessions/cc-11112222-3333-4444-5555-666677778888/history/archive_001"
+
+    def test_a_fragment_missing_its_mutating_tail_is_reclassified(self):
+        # The logged record only saw msg_frag_u0..msg_frag_a1 (an ov_read, clean
+        # strip); the archive's true turn continues through msg_frag_a2, an
+        # untracked Write, before the next user boundary (msg_frag_u3).
+        rec = {
+            "verdict": "strip",
+            "partial": False,
+            "first_message_id": "msg_frag_u0",
+            "last_message_id": "msg_frag_a1",
+        }
+        self.assertEqual(
+            report.reclassify_record(rec, self.archive, self.reader), "keep-mixed"
+        )
+
+    def test_a_fragment_whose_full_turn_was_logged_is_not_reclassified(self):
+        rec = {
+            "verdict": "strip",
+            "partial": False,
+            "first_message_id": "msg_frag_u0",
+            "last_message_id": "msg_frag_a2",
+        }
+        self.assertIsNone(report.reclassify_record(rec, self.archive, self.reader))
+
+    def test_no_reader_or_no_archive_yields_no_reclassification(self):
+        rec = {"first_message_id": "msg_frag_u0", "last_message_id": "msg_frag_a1"}
+        self.assertIsNone(report.reclassify_record(rec, None, self.reader))
+        self.assertIsNone(report.reclassify_record(rec, self.archive, None))
+
+    def test_an_unresolvable_message_id_yields_no_reclassification(self):
+        rec = {"first_message_id": "msg_nowhere", "last_message_id": "msg_nowhere2"}
+        self.assertIsNone(report.reclassify_record(rec, self.archive, self.reader))
+
+    def test_forward_compat_other_tool_names_is_preferred_over_reconstruction(self):
+        # C-2/C-4 downstream: when the emitter already sends other_tool_names (a new,
+        # forward-compatible field), reclassify from it directly -- no archive read
+        # needed at all.
+        rec = {
+            "verdict": "strip",
+            "first_message_id": "msg_frag_u0",
+            "last_message_id": "msg_frag_a1",
+            "ov_tools": ["mcp__plugin_openviking-memory_openviking__read"],
+            "other_tool_names": ["Write"],
+        }
+        self.assertEqual(report.reclassify_record(rec, None, None), "keep-mixed")
+
+    def test_forward_compat_ov_read_error_flag_is_honored(self):
+        rec = {
+            "verdict": "strip",
+            "first_message_id": "msg_frag_u0",
+            "last_message_id": "msg_frag_a1",
+            "ov_tools": ["mcp__plugin_openviking-memory_openviking__read"],
+            "other_tool_names": [],
+            "ov_read_error": True,
+        }
+        self.assertEqual(report.reclassify_record(rec, None, None), "keep-ambiguous")
+
+
+class BuildReportReconstructionTests(unittest.TestCase):
+    """D-7, end to end: the row surfaces partial and reconstructed_verdict."""
+
+    def setUp(self):
+        self.ledgers = report.load_ledgers(
+            [f"pop={os.path.join(_TESTDATA, 'ledger-reconstruction.jsonl')}"]
+        )
+        self.reader = report.LocalTreeReader(_ARCHIVE_TREE)
+
+    def test_a_reclassified_row_carries_the_reconstructed_verdict(self):
+        records = [
+            {
+                "verdict": "strip",
+                "partial": False,
+                "first_message_id": "msg_frag_u0",
+                "last_message_id": "msg_frag_a1",
+                "message_count": 2,
+                "created_at_min": "2026-09-27T23:00:00.000000+00:00",
+            }
+        ]
+        rep = report.build_report(records, self.ledgers, reader=self.reader)
+        row = rep["rows"][0]
+        self.assertEqual(row["partial"], False)
+        self.assertEqual(row["reconstructed_verdict"], "keep-mixed")
+        text = report.render_markdown(rep)
+        self.assertIn("reconstructed", text)
+
+    def test_an_unaffected_row_carries_no_reconstructed_verdict(self):
+        records = [
+            {
+                "verdict": "strip",
+                "partial": False,
+                "first_message_id": "msg_frag_u0",
+                "last_message_id": "msg_frag_a2",
+                "message_count": 3,
+                "created_at_min": "2026-09-27T23:00:00.000000+00:00",
+            }
+        ]
+        rep = report.build_report(records, self.ledgers, reader=self.reader)
+        self.assertIsNone(rep["rows"][0]["reconstructed_verdict"])
 
 
 class _Completed:

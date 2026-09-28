@@ -257,6 +257,156 @@ def parse_archive_uri(archive: str):
     return {"user": m.group(1), "session_dir": m.group(2), "archive_id": m.group(3)}
 
 
+# --- Canonical tool classifier (C-2/C-4 downstream, Codex #173 review, 2026-09-27) --
+#
+# The single classifier used both to reclassify a record from the emitter's forward-
+# compatible other_tool_names field and to reclassify a reconstructed archive turn
+# (see reclassify_record / D-7 below). The production shadow classifier
+# (viking/manifests/test/nav-patch/ov_memory_guard_patch.py::classify_tool) mirrors
+# this logic; keep the two in sync.
+
+_OV_READ_TOOL_RE = re.compile(
+    r"^mcp__plugin_openviking-memory_openviking__(read|search|find|list|tree|grep|glob)$"
+)
+_MUTATING_TOOL_NAMES = frozenset(
+    {"Edit", "Write", "NotebookEdit", "MultiEdit", "Artifact", "SendMessage"}
+)
+_READ_ONLY_TOOL_NAMES = frozenset(
+    {"ToolSearch", "Read", "Glob", "Grep", "LS", "TodoWrite"}
+)
+# create/update/delete/send/write/publish. C-2 (Codex #173 review): the production
+# classifier's own comment claimed this was scoped to MCP tools, but the code applied
+# it to every name, so TodoWrite and SendMessage misclassified as mutating/unknown.
+# Scoped to mcp__-prefixed names only here, and TodoWrite/SendMessage are handled by
+# explicit name sets above so this regex never has to guess at them.
+_MUTATING_VERB_RE = re.compile(
+    r"create|update|delete|send|write|publish", re.IGNORECASE
+)
+
+
+def classify_tool_name(name, tool_status=None):
+    """``"ov_read"`` / ``"ov_read_error"`` / ``"read_only"`` / ``"mutating"`` /
+    ``"unknown"`` for one tool call.
+
+    TodoWrite is explicitly neutral (routine agentic bookkeeping, changes nothing
+    outside the session); SendMessage/Write/Edit are explicitly mutating; the verb
+    heuristic applies only to ``mcp__``-prefixed names, never to a bare tool name that
+    happens to contain a verb-like substring; a failed OpenViking read (C-4) is its own
+    classification so it can never be folded into a clean, strip-eligible ov_read.
+    """
+    if not name:
+        return "unknown"
+    if _OV_READ_TOOL_RE.match(name):
+        return "ov_read_error" if tool_status == "error" else "ov_read"
+    if name in _MUTATING_TOOL_NAMES:
+        return "mutating"
+    if name in _READ_ONLY_TOOL_NAMES:
+        return "read_only"
+    if name.startswith("mcp__") and _MUTATING_VERB_RE.search(name):
+        return "mutating"
+    return "unknown"
+
+
+def _derive_verdict_from_classifications(classifications):
+    """The verdict a set of tool classifications implies, mirroring the production
+    classifier's own precedence: any mutating call wins ``"keep-mixed"``; otherwise any
+    unknown tool or an errored OpenViking read forces ``"keep-ambiguous"``; a clean
+    turn is ``"strip"``."""
+    classifications = list(classifications)
+    if "mutating" in classifications:
+        return "keep-mixed"
+    if "unknown" in classifications or "ov_read_error" in classifications:
+        return "keep-ambiguous"
+    return "strip"
+
+
+def _is_turn_boundary_message(message):
+    """The same turn-boundary test the production classifier uses
+    (``_is_turn_boundary``), applied to a raw archive message dict rather than a
+    dataclass: ``role == "user"``, not a checkpoint, with a non-empty text part."""
+    if not isinstance(message, dict) or message.get("role") != "user":
+        return False
+    if message.get("message_kind") == "checkpoint":
+        return False
+    for part in message.get("parts") or []:
+        text = part.get("text") if isinstance(part, dict) else None
+        if text and str(text).strip():
+            return True
+    return False
+
+
+def reclassify_record(record, archive, reader):
+    """The corrected verdict for a shadow record, or ``None`` when nothing changes it
+    (or nothing can be checked at all).
+
+    D-7 / Codex additional finding 1 (2026-09-27, the finding D-7 itself missed): a
+    turn that upstream splits across extraction batches can log a fragment with
+    ``partial: false`` and a clean ``strip`` verdict — ``partial`` only checks whether
+    the fragment *starts* at a real turn boundary, not whether more of the same
+    logical turn (a mutating tool call, say) follows in a later, separately-logged
+    fragment. Filtering on ``partial`` alone, or joining only the fragments the
+    emitter happened to log, cannot recover an untracked tail. This reconstructs the
+    *complete* source turn from the resolved archive's raw ``messages.jsonl`` --
+    walking forward from the record's own ``first_message_id`` to the next real turn
+    boundary, regardless of where the record's own ``last_message_id`` fell -- and
+    re-derives the verdict from every tool call actually in that window.
+
+    Preference order (C-2/C-4 downstream): (1) the emitter's own forward-compatible
+    ``other_tool_names``/``ov_read_error`` fields when present, reclassifying without
+    touching the archive at all; (2) the archive reconstruction above, when the
+    record's message ids can be located in it. ``None`` when neither source is
+    available, or when reconstruction finds nothing beyond what was already logged.
+    """
+    other_names = record.get("other_tool_names")
+    if other_names is not None:
+        classifications = [classify_tool_name(n) for n in other_names]
+        if record.get("ov_tools"):
+            classifications.append(
+                "ov_read_error" if record.get("ov_read_error") else "ov_read"
+            )
+        return _derive_verdict_from_classifications(classifications)
+    if reader is None or not archive:
+        return None
+    parsed = parse_archive_uri(archive)
+    if not parsed:
+        return None
+    messages = reader.read_messages(
+        parsed["user"], parsed["session_dir"], parsed["archive_id"]
+    )
+    if not messages:
+        return None
+    ids = [m.get("id") for m in messages]
+    first_id = record.get("first_message_id")
+    if first_id not in ids:
+        return None
+    start = ids.index(first_id)
+    last_id = record.get("last_message_id")
+    logged_end_idx = ids.index(last_id) if last_id in ids else start
+    end = len(messages)
+    for i in range(start + 1, len(messages)):
+        if _is_turn_boundary_message(messages[i]):
+            end = i
+            break
+    if end - 1 <= logged_end_idx:
+        # Nothing beyond the logged range -- the record already covered the whole
+        # true turn.
+        return None
+    classifications = []
+    for message in messages[start:end]:
+        if message.get("role") != "assistant":
+            continue
+        for part in message.get("parts") or []:
+            if not isinstance(part, dict):
+                continue
+            name = part.get("tool_name")
+            if not name:
+                continue
+            classifications.append(classify_tool_name(name, part.get("tool_status")))
+    if not classifications:
+        return None
+    return _derive_verdict_from_classifications(classifications)
+
+
 def _extract_summary(content: str, max_chars: int = 160):
     """A one-line abstract: the first non-blank line after a ``# Summary`` heading,
     truncated. Falls back to the first non-blank line of the whole body when there is
@@ -970,9 +1120,18 @@ def build_report(
             candidate_coverage = _candidate_coverage(
                 rec, ledgers, ts_slack_seconds, max_candidates
             )
+        # D-7 / Codex additional finding 1: reconstruct the complete source turn from
+        # the archive and re-derive the verdict; only surface it when it actually
+        # differs from what was logged.
+        reclassified = reclassify_record(rec, archive, reader)
+        reconstructed_verdict = (
+            reclassified if reclassified and reclassified != verdict else None
+        )
         rows.append(
             {
                 "verdict": verdict,
+                "reconstructed_verdict": reconstructed_verdict,
+                "partial": rec.get("partial"),
                 "backend": backend,
                 "machine": machine or "unknown",
                 "window_status": window_status,
@@ -1065,6 +1224,11 @@ def _format_verdict(row) -> str:
     verdict = row["verdict"]
     if row.get("duplicate_verdicts"):
         verdict += f" (conflicting on retry: {', '.join(row['duplicate_verdicts'])})"
+    if row.get("partial"):
+        verdict += " (partial)"
+    if row.get("reconstructed_verdict"):
+        # D-7: the logged verdict didn't see the full source turn.
+        verdict += f" [reconstructed: {row['reconstructed_verdict']}]"
     return verdict
 
 
