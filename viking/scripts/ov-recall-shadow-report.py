@@ -116,7 +116,13 @@ PILOT_USER = "noot-pilot"
 # still count as a candidate. Generous on purpose: a long-running session's launch can
 # precede any one turn by hours.
 DEFAULT_TS_SLACK_SECONDS = 24 * 3600
-DEFAULT_MAX_CANDIDATES = 5
+# D-2 (Codex #173 review, 2026-09-27): a hardcoded cap of 5 silently dropped the true
+# session whenever six-plus other launches (any /clear, /resume, or new launch on
+# either machine) started closer to the turn -- routine on a two-machine workday, and
+# unraisable because nothing threaded a cap override through to here. Unlimited by
+# default; --max-candidates opts into a narrower, faster search when needed. `None`
+# means "no cap" everywhere this is threaded (a `[:None]` slice is the full list).
+DEFAULT_MAX_CANDIDATES = None
 
 
 def parse_shadow_lines(lines):
@@ -455,6 +461,20 @@ def _candidate_sessions(ledgers, created_at_min, ts_slack_seconds):
                 candidates.append((session_ts, session_uuid, launch_user))
     candidates.sort(key=lambda c: c[0], reverse=True)
     return candidates
+
+
+def _candidate_coverage(record, ledgers, ts_slack_seconds, max_candidates):
+    """(candidates_tried, candidates_total) for this record's search, or ``None`` when
+    every available candidate was searched (nothing incomplete to report). D-2 (Codex
+    #173 review): an unresolved record used to look identical whether the search
+    covered every ledger candidate or silently stopped partway through the cap."""
+    total = len(
+        _candidate_sessions(ledgers, record.get("created_at_min"), ts_slack_seconds)
+    )
+    if total == 0:
+        return None
+    tried = total if max_candidates is None else min(total, max_candidates)
+    return None if tried >= total else (tried, total)
 
 
 def resolve_archive(
@@ -798,6 +818,11 @@ def build_report(
         bucket["turns"] += 1
         if verdict == "strip":
             bucket["strip"] += 1
+        candidate_coverage = None
+        if archive is None and reader is not None and not rec.get("archive"):
+            candidate_coverage = _candidate_coverage(
+                rec, ledgers, ts_slack_seconds, max_candidates
+            )
         rows.append(
             {
                 "verdict": verdict,
@@ -807,6 +832,7 @@ def build_report(
                 "lab_or_pilot": lab_or_pilot(archive) if archive else "unknown",
                 "session": session_uuid,
                 "archive": archive,
+                "candidate_coverage": candidate_coverage,
                 "turn_start": rec.get("turn_start"),
                 "turn_end": rec.get("turn_end"),
                 "first_message_id": rec.get("first_message_id"),
@@ -872,6 +898,20 @@ def _format_occurrences(row) -> str:
     return str(occurrences) if occurrences != 1 else "—"
 
 
+def _format_archive(row) -> str:
+    """The archive cell: the resolved URI, or an explicit search-coverage note (D-2)
+    when the record is unresolved because ``--max-candidates`` cut the search short
+    rather than because every candidate was actually searched and none matched."""
+    archive = row.get("archive")
+    coverage = row.get("candidate_coverage")
+    if archive:
+        return archive
+    if coverage:
+        tried, total = coverage
+        return f"unresolved ({tried}/{total} candidates searched)"
+    return archive
+
+
 def render_markdown(report) -> str:
     lines = [
         "## Turns",
@@ -892,7 +932,7 @@ def render_markdown(report) -> str:
                     row["machine"],
                     _format_backend(row),
                     row.get("session"),
-                    row.get("archive"),
+                    _format_archive(row),
                     turn_range,
                     _format_verdict(row),
                     _format_occurrences(row),
@@ -984,6 +1024,16 @@ def parse_args(argv=None):
         default=DEFAULT_TS_SLACK_SECONDS,
         help="How far before a turn's created_at_min a ledger session may have started.",
     )
+    parser.add_argument(
+        "--max-candidates",
+        type=int,
+        default=DEFAULT_MAX_CANDIDATES,
+        help=(
+            "Cap the number of closest-preceding ledger candidates searched per "
+            "record (D-2, Codex #173 review). Unlimited by default; set this only to "
+            "trade completeness for a faster search."
+        ),
+    )
     args = parser.parse_args(argv)
     if args.archive_root and args.online:
         parser.error("--archive-root and --online are mutually exclusive")
@@ -1005,7 +1055,11 @@ def main(argv=None):
     ledgers = load_ledgers(args.ledger)
     reader = _build_reader(args)
     report = build_report(
-        records, ledgers, reader=reader, ts_slack_seconds=args.ts_slack_seconds
+        records,
+        ledgers,
+        reader=reader,
+        ts_slack_seconds=args.ts_slack_seconds,
+        max_candidates=args.max_candidates,
     )
     text = render_markdown(report)
     if args.out:

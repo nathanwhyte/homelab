@@ -758,6 +758,111 @@ class BuildReportResumeFixtureTests(unittest.TestCase):
         self.assertIsNone(rep["rows"][0]["ambiguous_candidates"])
 
 
+class MaxCandidatesTests(unittest.TestCase):
+    """D-2 (Codex #173 review): the candidate cap silently dropped the true session
+    when six other launches started closer to the turn -- and the cap could not be
+    raised from the CLI. Default is now unlimited; --max-candidates opts into a
+    narrower, faster search and unresolved records report how much of the search
+    space was actually covered."""
+
+    def _rows(self, n_fake, real_ts):
+        rows = []
+        for i in range(n_fake):
+            lid = f"fake-{i}"
+            ts = f"2026-09-27T18:5{i}:00Z"
+            rows.append(
+                {
+                    "event": "start",
+                    "launch_id": lid,
+                    "ts": ts,
+                    "backend": "anthropic",
+                    "user": "noot-pilot",
+                }
+            )
+            rows.append(
+                {
+                    "event": "session",
+                    "launch_id": lid,
+                    "session_id": f"fake-session-{i}",
+                    "ts": ts,
+                }
+            )
+        rows.append(
+            {
+                "event": "start",
+                "launch_id": "real",
+                "ts": real_ts,
+                "backend": "anthropic",
+                "user": "noot-pilot",
+            }
+        )
+        rows.append(
+            {
+                "event": "session",
+                "launch_id": "real",
+                "session_id": "a5b818a0-c729-4063-abdd-efa1eceb5522",
+                "ts": real_ts,
+            }
+        )
+        return rows
+
+    def setUp(self):
+        self.reader = report.LocalTreeReader(_ARCHIVE_TREE)
+        rows = self._rows(6, "2026-09-27T18:43:07Z")
+        self.ledgers = {"pop": report.index_ledger(rows)}
+        self.rec = {
+            "first_message_id": "msg_p1_u0",
+            "created_at_min": "2026-09-27T19:00:00.000000+00:00",
+        }
+
+    def test_the_default_cap_no_longer_drops_a_seventh_candidate(self):
+        self.assertEqual(
+            report.resolve_archive(self.rec, self.ledgers, self.reader),
+            "viking://user/noot-pilot/sessions/cc-a5b818a0-c729-4063-abdd-efa1eceb5522/history/archive_001",
+        )
+
+    def test_an_explicit_max_candidates_can_still_narrow_the_search(self):
+        self.assertIsNone(
+            report.resolve_archive(
+                self.rec, self.ledgers, self.reader, max_candidates=5
+            )
+        )
+
+    def test_an_unresolved_record_reports_incomplete_candidate_coverage_when_capped(
+        self,
+    ):
+        records = [dict(self.rec, verdict="strip")]
+        rep = report.build_report(
+            records, self.ledgers, reader=self.reader, max_candidates=5
+        )
+        row = rep["rows"][0]
+        self.assertEqual(row["backend"], "unknown")
+        self.assertEqual(row["candidate_coverage"], (5, 7))
+
+    def test_full_coverage_reports_no_gap(self):
+        records = [dict(self.rec, verdict="strip")]
+        rep = report.build_report(records, self.ledgers, reader=self.reader)
+        row = rep["rows"][0]
+        self.assertIsNone(row["candidate_coverage"])
+
+    def test_max_candidates_is_a_cli_option(self):
+        args = report.parse_args(
+            [
+                "--log",
+                os.path.join(_TESTDATA, "ov-recall-shadow-sample.txt"),
+                "--max-candidates",
+                "12",
+            ]
+        )
+        self.assertEqual(args.max_candidates, 12)
+
+    def test_max_candidates_defaults_to_unlimited(self):
+        args = report.parse_args(
+            ["--log", os.path.join(_TESTDATA, "ov-recall-shadow-sample.txt")]
+        )
+        self.assertIsNone(args.max_candidates)
+
+
 class DedupCanonicalizationTests(unittest.TestCase):
     """D-1 (Codex #173 review, 2026-09-27): a retried extraction re-logs the identical
     turn. Dedup must key on (archive, first_message_id, last_message_id, message_count)
