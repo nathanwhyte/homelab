@@ -477,28 +477,48 @@ def _candidate_coverage(record, ledgers, ts_slack_seconds, max_candidates):
     return None if tried >= total else (tried, total)
 
 
-def resolve_archive(
+ArchiveResolution = collections.namedtuple(
+    "ArchiveResolution", ["archive", "status", "ambiguous_matches", "diagnostics"]
+)
+
+
+def resolve_archive_detail(
     record,
     ledgers,
     reader,
     ts_slack_seconds=DEFAULT_TS_SLACK_SECONDS,
     max_candidates=DEFAULT_MAX_CANDIDATES,
 ):
-    """The archive URI whose ``messages.jsonl`` contains the record's
-    ``first_message_id``, or ``None`` when it cannot be resolved.
+    """``ArchiveResolution`` for the record's ``first_message_id``, honoring upstream's
+    own terminal-state precedence (D-3, Codex #173 review, 2026-09-27): ``.done``
+    (completed) beats ``.failed.json`` (failed) beats neither (pending) --
+    ``_archive_terminal_state``, ``openviking/session/session.py:3340-3349``. Only a
+    *completed* archive counts as a match.
 
-    Candidates are narrowed by ``created_at_min``/the ledger's session timestamps
-    *before* any archive is read (see ``_candidate_sessions``); for each candidate
-    session, every user namespace ``_candidate_users`` names (the launch's recorded
-    ``start.user``, else ``noot-pilot``, then ``noot-pilot-lab`` only as a fallback)
-    and each of that user's session-directory variants (the parent plus every subagent
-    ``reader.list_sessions`` returns) are tried in turn, most-recent session first,
-    until one archive's ``messages.jsonl`` contains the id. ``reader`` caches its own
-    reads, so re-resolving many records in one report run only reads each archive once.
+    ``status`` is ``"resolved"`` (exactly one completed match; ``archive`` is set),
+    ``"ambiguous"`` (more than one completed match; ``archive`` is ``None`` and
+    ``ambiguous_matches`` lists every completed URI), or ``"unresolved"`` (no completed
+    match at all; ``diagnostics`` lists every failed/pending archive that also
+    contained the id, for the report's transparency -- never used to pick a winner).
+
+    Upstream's Phase 1 failure handling (``session.py:2215-2232``) restores the
+    pre-commit message list and decrements ``compression_index`` on failure, so the
+    *same* message ids get archived again as the next ``archive_NNN`` once the retry
+    succeeds -- the failed archive's ``messages.jsonl`` still contains them, and the
+    old first-wins behaviour returned it even though Phase 2 never ran there
+    (BUG-1174's exact shape: a failed ``archive_001`` shadowed the completed
+    ``archive_002`` that held the same eight message ids). Candidates are narrowed by
+    ``created_at_min``/the ledger's session timestamps *before* any archive is read
+    (see ``_candidate_sessions``); every candidate session (bounded by
+    ``max_candidates``), user namespace (``_candidate_users``) and session-directory
+    variant is searched to completion, never short-circuited on the first match, so a
+    genuine ambiguity is never masked.
     """
     first_id = record.get("first_message_id")
     if not first_id:
-        return None
+        return ArchiveResolution(None, "unresolved", [], [])
+    completed = []
+    diagnostics = []
     for _ts, session_uuid, launch_user in _candidate_sessions(
         ledgers, record.get("created_at_min"), ts_slack_seconds
     )[:max_candidates]:
@@ -513,9 +533,40 @@ def resolve_archive(
                     messages = reader.read_messages(user, session_dir, archive_id)
                     if not messages:
                         continue
-                    if any(m.get("id") == first_id for m in messages):
-                        return f"viking://user/{user}/sessions/{session_dir}/history/{archive_id}"
-    return None
+                    if not any(m.get("id") == first_id for m in messages):
+                        continue
+                    uri = f"viking://user/{user}/sessions/{session_dir}/history/{archive_id}"
+                    status = reader.archive_status(user, session_dir, archive_id)
+                    if status == "completed":
+                        completed.append(uri)
+                    else:
+                        diagnostics.append((uri, status))
+    if len(completed) == 1:
+        return ArchiveResolution(completed[0], "resolved", [], diagnostics)
+    if len(completed) > 1:
+        return ArchiveResolution(None, "ambiguous", completed, diagnostics)
+    return ArchiveResolution(None, "unresolved", [], diagnostics)
+
+
+def resolve_archive(
+    record,
+    ledgers,
+    reader,
+    ts_slack_seconds=DEFAULT_TS_SLACK_SECONDS,
+    max_candidates=DEFAULT_MAX_CANDIDATES,
+):
+    """The archive URI whose ``messages.jsonl`` contains the record's
+    ``first_message_id`` and whose terminal marker says it completed, or ``None`` when
+    it cannot be unambiguously resolved. See ``resolve_archive_detail`` for the
+    ambiguous-vs-unresolved distinction and per-archive diagnostics, which
+    ``build_report`` uses for the row's archive-status column."""
+    return resolve_archive_detail(
+        record,
+        ledgers,
+        reader,
+        ts_slack_seconds=ts_slack_seconds,
+        max_candidates=max_candidates,
+    ).archive
 
 
 class LocalTreeReader:
@@ -579,6 +630,19 @@ class LocalTreeReader:
                 diff = json.load(fh)
         self._read_cache[key] = diff
         return diff
+
+    def archive_status(self, user, session_dir, archive_id):
+        """``"completed"`` / ``"failed"`` / ``"pending"``, mirroring upstream's own
+        ``_archive_terminal_state`` marker precedence (D-3): ``.done`` checked before
+        ``.failed.json``."""
+        archive_dir = os.path.join(
+            self.root, user, "sessions", session_dir, "history", archive_id
+        )
+        if os.path.isfile(os.path.join(archive_dir, ".done")):
+            return "completed"
+        if os.path.isfile(os.path.join(archive_dir, ".failed.json")):
+            return "failed"
+        return "pending"
 
 
 class OvCliReader:
@@ -666,6 +730,20 @@ class OvCliReader:
         self._read_cache[key] = diff
         return diff
 
+    def archive_status(self, user, session_dir, archive_id):
+        """``"completed"`` / ``"failed"`` / ``"pending"``, mirroring upstream's own
+        ``_archive_terminal_state`` marker precedence (D-3): ``.done`` checked before
+        ``.failed.json``, via a read-only ``ov ls`` on the archive directory."""
+        paths = self._ls(
+            f"viking://user/{user}/sessions/{session_dir}/history/{archive_id}", user
+        )
+        names = {p.rsplit("/", 1)[-1] for p in paths}
+        if ".done" in names:
+            return "completed"
+        if ".failed.json" in names:
+            return "failed"
+        return "pending"
+
 
 def resolve_record_archive(
     record,
@@ -689,6 +767,31 @@ def resolve_record_archive(
     if reader is None:
         return None
     return resolve_archive(
+        record,
+        ledgers,
+        reader,
+        ts_slack_seconds=ts_slack_seconds,
+        max_candidates=max_candidates,
+    )
+
+
+def resolve_record_archive_detail(
+    record,
+    ledgers,
+    reader,
+    ts_slack_seconds=DEFAULT_TS_SLACK_SECONDS,
+    max_candidates=DEFAULT_MAX_CANDIDATES,
+):
+    """``ArchiveResolution`` for a record, the detail-carrying counterpart to
+    ``resolve_record_archive``: an explicit ``archive`` field resolves trivially
+    (status ``"resolved"``, no ambiguity possible); no reader resolves to status
+    ``"no-reader"``; otherwise delegates to ``resolve_archive_detail``."""
+    archive = record.get("archive")
+    if archive:
+        return ArchiveResolution(archive, "resolved", [], [])
+    if reader is None:
+        return ArchiveResolution(None, "no-reader", [], [])
+    return resolve_archive_detail(
         record,
         ledgers,
         reader,
@@ -727,27 +830,28 @@ def _turn_identity(rec, archive):
 
 
 def _canonicalize_records(records, ledgers, reader, ts_slack_seconds, max_candidates):
-    """[(representative_record, archive, occurrences, duplicate_verdicts), ...].
+    """[(representative_record, resolution, occurrences, duplicate_verdicts), ...].
 
-    Each input record's archive is resolved once; records sharing a verified identity
-    (see ``_turn_identity``) collapse into a single canonical turn. The first-seen
-    record in a group is kept as the representative (its own fields render in the
-    table); ``occurrences`` counts every copy and ``duplicate_verdicts`` lists the
-    distinct verdicts seen across the group when they conflict, so a retried
-    extraction's inflated count is fixed without hiding a genuine disagreement between
-    attempts.
+    Each input record's archive is resolved once (``resolution`` is an
+    ``ArchiveResolution``); records sharing a verified identity (see
+    ``_turn_identity``, keyed on ``resolution.archive``) collapse into a single
+    canonical turn. The first-seen record in a group is kept as the representative
+    (its own fields render in the table); ``occurrences`` counts every copy and
+    ``duplicate_verdicts`` lists the distinct verdicts seen across the group when they
+    conflict, so a retried extraction's inflated count is fixed without hiding a
+    genuine disagreement between attempts.
     """
     groups = {}
     order = []
     for rec in records:
-        archive = resolve_record_archive(
+        resolution = resolve_record_archive_detail(
             rec,
             ledgers,
             reader,
             ts_slack_seconds=ts_slack_seconds,
             max_candidates=max_candidates,
         )
-        identity = _turn_identity(rec, archive)
+        identity = _turn_identity(rec, resolution.archive)
         if identity is None:
             # No verified join to dedup on: always its own canonical turn.
             key = object()
@@ -760,7 +864,7 @@ def _canonicalize_records(records, ledgers, reader, ts_slack_seconds, max_candid
             continue
         entry = {
             "record": rec,
-            "archive": archive,
+            "resolution": resolution,
             "occurrences": 1,
             "verdicts": {rec.get("verdict", "unknown")},
         }
@@ -775,7 +879,7 @@ def _canonicalize_records(records, ledgers, reader, ts_slack_seconds, max_candid
         canonical.append(
             (
                 entry["record"],
-                entry["archive"],
+                entry["resolution"],
                 entry["occurrences"],
                 duplicate_verdicts,
             )
@@ -796,7 +900,8 @@ def build_report(
     canonical_turns = _canonicalize_records(
         records, ledgers, reader, ts_slack_seconds, max_candidates
     )
-    for rec, archive, occurrences, duplicate_verdicts in canonical_turns:
+    for rec, resolution, occurrences, duplicate_verdicts in canonical_turns:
+        archive = resolution.archive
         verdict = rec.get("verdict", "unknown")
         by_verdict[verdict] += 1
         backend, machine, candidates = backend_for(
@@ -819,7 +924,11 @@ def build_report(
         if verdict == "strip":
             bucket["strip"] += 1
         candidate_coverage = None
-        if archive is None and reader is not None and not rec.get("archive"):
+        if (
+            resolution.status == "unresolved"
+            and reader is not None
+            and not rec.get("archive")
+        ):
             candidate_coverage = _candidate_coverage(
                 rec, ledgers, ts_slack_seconds, max_candidates
             )
@@ -832,6 +941,9 @@ def build_report(
                 "lab_or_pilot": lab_or_pilot(archive) if archive else "unknown",
                 "session": session_uuid,
                 "archive": archive,
+                "archive_status": resolution.status,
+                "archive_ambiguous_matches": resolution.ambiguous_matches or None,
+                "archive_diagnostics": resolution.diagnostics or None,
                 "candidate_coverage": candidate_coverage,
                 "turn_start": rec.get("turn_start"),
                 "turn_end": rec.get("turn_end"),
@@ -899,13 +1011,19 @@ def _format_occurrences(row) -> str:
 
 
 def _format_archive(row) -> str:
-    """The archive cell: the resolved URI, or an explicit search-coverage note (D-2)
-    when the record is unresolved because ``--max-candidates`` cut the search short
-    rather than because every candidate was actually searched and none matched."""
+    """The archive cell: the resolved URI; an ``ambiguous (…)`` note listing every
+    completed candidate when D-3's terminal-state check found more than one; or an
+    explicit search-coverage note (D-2) when the record is unresolved because
+    ``--max-candidates`` cut the search short rather than because every candidate was
+    actually searched and none matched."""
     archive = row.get("archive")
-    coverage = row.get("candidate_coverage")
     if archive:
         return archive
+    if row.get("archive_status") == "ambiguous" and row.get(
+        "archive_ambiguous_matches"
+    ):
+        return "ambiguous (" + ", ".join(row["archive_ambiguous_matches"]) + ")"
+    coverage = row.get("candidate_coverage")
     if coverage:
         tried, total = coverage
         return f"unresolved ({tried}/{total} candidates searched)"

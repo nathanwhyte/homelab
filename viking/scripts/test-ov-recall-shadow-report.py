@@ -570,12 +570,17 @@ class LocalTreeReaderTests(unittest.TestCase):
         self.reader = report.LocalTreeReader(_ARCHIVE_TREE)
 
     def test_list_sessions(self):
+        # D-3 fixtures (ArchiveStatusTests / ResolveArchiveTerminalStateTests) added
+        # three more session dirs under the shared noot-pilot testdata tree.
         self.assertEqual(
             sorted(self.reader.list_sessions("noot-pilot")),
             [
                 "cc-a5b818a0-c729-4063-abdd-efa1eceb5522",
                 "cc-a5b818a0-c729-4063-abdd-efa1eceb5522__subagent-77aa",
                 "cc-bbbbbbbb-1111-2222-3333-444444444444",
+                "cc-dddddddd-0000-1111-2222-333344445566",
+                "cc-eeeeeeee-0000-1111-2222-333344445577",
+                "cc-ffffffff-0000-1111-2222-333344445588",
             ],
         )
 
@@ -607,6 +612,185 @@ class LocalTreeReaderTests(unittest.TestCase):
         self.reader._read_cache[key].append({"id": "injected"})
         second = self.reader.read_messages(*key)
         self.assertIs(first, second)
+
+
+class ArchiveStatusTests(unittest.TestCase):
+    """D-3 (Codex #173 review): terminal-state precedence mirrors upstream's own
+    ``_archive_terminal_state`` (openviking/session/session.py:3340-3349) -- ``.done``
+    checked first (completed), then ``.failed.json`` (failed), else pending."""
+
+    def setUp(self):
+        self.reader = report.LocalTreeReader(_ARCHIVE_TREE)
+
+    def test_a_done_marker_is_completed(self):
+        self.assertEqual(
+            self.reader.archive_status(
+                "noot-pilot",
+                "cc-dddddddd-0000-1111-2222-333344445566",
+                "archive_002",
+            ),
+            "completed",
+        )
+
+    def test_a_failed_marker_is_failed(self):
+        self.assertEqual(
+            self.reader.archive_status(
+                "noot-pilot",
+                "cc-dddddddd-0000-1111-2222-333344445566",
+                "archive_001",
+            ),
+            "failed",
+        )
+
+    def test_neither_marker_is_pending(self):
+        # This fixture archive carries no terminal marker at all (not yet committed).
+        self.assertEqual(
+            self.reader.archive_status(
+                "noot-pilot",
+                "cc-ffffffff-0000-1111-2222-333344445588",
+                "archive_001",
+            ),
+            "pending",
+        )
+
+    def test_done_takes_precedence_when_both_markers_are_somehow_present(self):
+        # Mirrors upstream's own marker order: .done is checked before .failed.json.
+        import os as _os
+
+        both_dir = _os.path.join(
+            _ARCHIVE_TREE,
+            "noot-pilot",
+            "sessions",
+            "cc-dddddddd-0000-1111-2222-333344445566",
+            "history",
+            "archive_002",
+        )
+        self.assertTrue(_os.path.isfile(_os.path.join(both_dir, ".done")))
+
+
+class ResolveArchiveTerminalStateTests(unittest.TestCase):
+    """D-3 (Codex #173 review): a failed archive used to shadow the real one because
+    resolve_archive returned on the first `messages.jsonl` match regardless of
+    terminal state (BUG-1174's exact shape: subagent archive_001 failed and
+    archive_002 held the same message ids). Only completed archives count as a
+    match; more than one completed match is reported ambiguous, never first-wins."""
+
+    def setUp(self):
+        self.ledgers = report.load_ledgers(
+            [f"pop={os.path.join(_TESTDATA, 'ledger-archive-status.jsonl')}"]
+        )
+        self.reader = report.LocalTreeReader(_ARCHIVE_TREE)
+
+    def test_a_failed_archive_is_skipped_in_favour_of_the_completed_retry(self):
+        rec = {
+            "first_message_id": "msg_fail_u0",
+            "created_at_min": "2026-09-27T20:00:00.000000+00:00",
+        }
+        self.assertEqual(
+            report.resolve_archive(rec, self.ledgers, self.reader),
+            "viking://user/noot-pilot/sessions/cc-dddddddd-0000-1111-2222-333344445566/history/archive_002",
+        )
+
+    def test_two_completed_matches_are_reported_ambiguous_not_first_wins(self):
+        rec = {
+            "first_message_id": "msg_ambig_u0",
+            "created_at_min": "2026-09-27T21:00:00.000000+00:00",
+        }
+        # The plain resolve_archive contract ("an archive URI, or None when it cannot
+        # be resolved") cannot represent ambiguous-between-two -- it must not silently
+        # pick the first one.
+        self.assertIsNone(report.resolve_archive(rec, self.ledgers, self.reader))
+
+    def test_the_detailed_resolution_surfaces_ambiguous_matches_and_status(self):
+        rec = {
+            "first_message_id": "msg_ambig_u0",
+            "created_at_min": "2026-09-27T21:00:00.000000+00:00",
+        }
+        detail = report.resolve_archive_detail(rec, self.ledgers, self.reader)
+        self.assertEqual(detail.status, "ambiguous")
+        self.assertIsNone(detail.archive)
+        self.assertEqual(
+            sorted(detail.ambiguous_matches),
+            [
+                "viking://user/noot-pilot/sessions/cc-eeeeeeee-0000-1111-2222-333344445577/history/archive_001",
+                "viking://user/noot-pilot/sessions/cc-eeeeeeee-0000-1111-2222-333344445577/history/archive_002",
+            ],
+        )
+
+    def test_the_detailed_resolution_reports_a_failed_diagnostic_for_the_skipped_archive(
+        self,
+    ):
+        rec = {
+            "first_message_id": "msg_fail_u0",
+            "created_at_min": "2026-09-27T20:00:00.000000+00:00",
+        }
+        detail = report.resolve_archive_detail(rec, self.ledgers, self.reader)
+        self.assertEqual(detail.status, "resolved")
+        self.assertIn(
+            (
+                "viking://user/noot-pilot/sessions/cc-dddddddd-0000-1111-2222-333344445566/history/archive_001",
+                "failed",
+            ),
+            detail.diagnostics,
+        )
+
+    def test_a_pending_only_match_is_unresolved_with_a_pending_diagnostic(self):
+        # This session's archive_001 has messages.jsonl but no .done/.failed.json
+        # marker at all (not yet committed) -- still not a completed match.
+        rec = {
+            "first_message_id": "msg_pending_u0",
+            "created_at_min": "2026-09-27T22:00:00.000000+00:00",
+        }
+        detail = report.resolve_archive_detail(rec, self.ledgers, self.reader)
+        self.assertEqual(detail.status, "unresolved")
+        self.assertIn(
+            (
+                "viking://user/noot-pilot/sessions/cc-ffffffff-0000-1111-2222-333344445588/history/archive_001",
+                "pending",
+            ),
+            detail.diagnostics,
+        )
+
+
+class BuildReportArchiveStatusTests(unittest.TestCase):
+    """D-3, end to end: the report row surfaces the archive's resolution status."""
+
+    def setUp(self):
+        self.ledgers = report.load_ledgers(
+            [f"pop={os.path.join(_TESTDATA, 'ledger-archive-status.jsonl')}"]
+        )
+        self.reader = report.LocalTreeReader(_ARCHIVE_TREE)
+
+    def test_a_resolved_row_reports_resolved_status(self):
+        records = [
+            {
+                "verdict": "strip",
+                "first_message_id": "msg_fail_u0",
+                "last_message_id": "msg_fail_a1",
+                "created_at_min": "2026-09-27T20:00:00.000000+00:00",
+            }
+        ]
+        rep = report.build_report(records, self.ledgers, reader=self.reader)
+        row = rep["rows"][0]
+        self.assertEqual(row["archive_status"], "resolved")
+        self.assertTrue(row["archive"].endswith("archive_002"))
+
+    def test_an_ambiguous_row_reports_ambiguous_status_and_candidates(self):
+        records = [
+            {
+                "verdict": "strip",
+                "first_message_id": "msg_ambig_u0",
+                "last_message_id": "msg_ambig_a1",
+                "created_at_min": "2026-09-27T21:00:00.000000+00:00",
+            }
+        ]
+        rep = report.build_report(records, self.ledgers, reader=self.reader)
+        row = rep["rows"][0]
+        self.assertEqual(row["archive_status"], "ambiguous")
+        self.assertIsNone(row["archive"])
+        self.assertEqual(len(row["archive_ambiguous_matches"]), 2)
+        text = report.render_markdown(rep)
+        self.assertIn("ambiguous", text)
 
 
 class ResolveArchiveTests(unittest.TestCase):
@@ -1172,6 +1356,35 @@ class OvCliReaderTests(unittest.TestCase):
         run = self._fake_run(lambda argv: True, _Completed("not json"))
         reader = report.OvCliReader(run=run)
         self.assertIsNone(reader.read_messages("noot-pilot", "cc-a", "archive_001"))
+
+    def test_archive_status_completed_from_a_done_marker(self):
+        stdout = (
+            "viking://user/noot-pilot/sessions/cc-a/history/archive_001/.done\n"
+            "viking://user/noot-pilot/sessions/cc-a/history/archive_001/messages.jsonl\n"
+        )
+        run = self._fake_run(lambda argv: "--user" in argv, _Completed(stdout))
+        reader = report.OvCliReader(run=run)
+        self.assertEqual(
+            reader.archive_status("noot-pilot", "cc-a", "archive_001"), "completed"
+        )
+
+    def test_archive_status_failed_from_a_failed_json_marker(self):
+        stdout = (
+            "viking://user/noot-pilot/sessions/cc-a/history/archive_001/.failed.json\n"
+        )
+        run = self._fake_run(lambda argv: "--user" in argv, _Completed(stdout))
+        reader = report.OvCliReader(run=run)
+        self.assertEqual(
+            reader.archive_status("noot-pilot", "cc-a", "archive_001"), "failed"
+        )
+
+    def test_archive_status_pending_with_neither_marker(self):
+        stdout = "viking://user/noot-pilot/sessions/cc-a/history/archive_001/messages.jsonl\n"
+        run = self._fake_run(lambda argv: "--user" in argv, _Completed(stdout))
+        reader = report.OvCliReader(run=run)
+        self.assertEqual(
+            reader.archive_status("noot-pilot", "cc-a", "archive_001"), "pending"
+        )
 
 
 if __name__ == "__main__":

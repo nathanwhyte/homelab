@@ -1,0 +1,2 @@
+{"id": "msg_pending_u0", "role": "user", "parts": [{"type": "text", "text": "still working?"}], "created_at": "2026-09-27T22:00:00.000000+00:00", "peer_id": "p"}
+{"id": "msg_pending_a1", "role": "assistant", "parts": [{"type": "text", "text": "yes, still going"}], "created_at": "2026-09-27T22:00:05.000000+00:00", "peer_id": "p"}
