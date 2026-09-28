@@ -102,7 +102,7 @@ import os
 import re
 import subprocess
 import sys
-from datetime import datetime
+from datetime import datetime, timedelta
 
 SHADOW_PREFIX = "ov-recall-shadow "
 _SESSION_SEGMENT_RE = re.compile(r"/sessions/(cc-[0-9a-fA-F-]+(?:__subagent-[^/]+)?)")
@@ -116,7 +116,13 @@ PILOT_USER = "noot-pilot"
 # still count as a candidate. Generous on purpose: a long-running session's launch can
 # precede any one turn by hours.
 DEFAULT_TS_SLACK_SECONDS = 24 * 3600
-DEFAULT_MAX_CANDIDATES = 5
+# D-2 (Codex #173 review, 2026-09-27): a hardcoded cap of 5 silently dropped the true
+# session whenever six-plus other launches (any /clear, /resume, or new launch on
+# either machine) started closer to the turn -- routine on a two-machine workday, and
+# unraisable because nothing threaded a cap override through to here. Unlimited by
+# default; --max-candidates opts into a narrower, faster search when needed. `None`
+# means "no cap" everywhere this is threaded (a `[:None]` slice is the full list).
+DEFAULT_MAX_CANDIDATES = None
 
 
 def parse_shadow_lines(lines):
@@ -251,6 +257,194 @@ def parse_archive_uri(archive: str):
     return {"user": m.group(1), "session_dir": m.group(2), "archive_id": m.group(3)}
 
 
+# --- Canonical tool classifier (C-2/C-4 downstream, Codex #173 review, 2026-09-27) --
+#
+# The single classifier used both to reclassify a record from the emitter's forward-
+# compatible other_tool_names field and to reclassify a reconstructed archive turn
+# (see reclassify_record / D-7 below). The production shadow classifier
+# (viking/manifests/test/nav-patch/ov_memory_guard_patch.py::classify_tool) mirrors
+# this logic; keep the two in sync.
+
+_OV_READ_TOOL_RE = re.compile(
+    r"^mcp__plugin_openviking-memory_openviking__(read|search|find|list|tree|grep|glob)$"
+)
+_MUTATING_TOOL_NAMES = frozenset(
+    {"Edit", "Write", "NotebookEdit", "MultiEdit", "Artifact", "SendMessage"}
+)
+_READ_ONLY_TOOL_NAMES = frozenset(
+    {"ToolSearch", "Read", "Glob", "Grep", "LS", "TodoWrite"}
+)
+# create/update/delete/send/write/publish. C-2 (Codex #173 review): the production
+# classifier's own comment claimed this was scoped to MCP tools, but the code applied
+# it to every name, so TodoWrite and SendMessage misclassified as mutating/unknown.
+# Scoped to mcp__-prefixed names only here, and TodoWrite/SendMessage are handled by
+# explicit name sets above so this regex never has to guess at them.
+_MUTATING_VERB_RE = re.compile(
+    r"create|update|delete|send|write|publish", re.IGNORECASE
+)
+
+
+def classify_tool_name(name, tool_status=None):
+    """``"ov_read"`` / ``"ov_read_error"`` / ``"read_only"`` / ``"mutating"`` /
+    ``"unknown"`` for one tool call.
+
+    TodoWrite is explicitly neutral (routine agentic bookkeeping, changes nothing
+    outside the session); SendMessage/Write/Edit are explicitly mutating; the verb
+    heuristic applies only to ``mcp__``-prefixed names, never to a bare tool name that
+    happens to contain a verb-like substring; a failed OpenViking read (C-4) is its own
+    classification so it can never be folded into a clean, strip-eligible ov_read.
+    """
+    if not name:
+        return "unknown"
+    if _OV_READ_TOOL_RE.match(name):
+        return "ov_read_error" if tool_status == "error" else "ov_read"
+    if name in _MUTATING_TOOL_NAMES:
+        return "mutating"
+    if name in _READ_ONLY_TOOL_NAMES:
+        return "read_only"
+    if name.startswith("mcp__") and _MUTATING_VERB_RE.search(name):
+        return "mutating"
+    return "unknown"
+
+
+def _derive_verdict_from_classifications(classifications):
+    """The verdict a set of tool classifications implies, mirroring the production
+    classifier's own precedence: any mutating call wins ``"keep-mixed"``; otherwise any
+    unknown tool or an errored OpenViking read forces ``"keep-ambiguous"``; a clean
+    turn is ``"strip"``."""
+    classifications = list(classifications)
+    if "mutating" in classifications:
+        return "keep-mixed"
+    if (
+        "unknown" in classifications
+        or "ov_read_error" in classifications
+        or "ov_read_unresolved" in classifications
+    ):
+        return "keep-ambiguous"
+    return "strip"
+
+
+# Tool states that mean the call has not finished. In captured archives the assistant's
+# tool part keeps one of these; the outcome is on the user-side result part.
+_TOOL_NOT_DONE = frozenset({"", "pending", "running"})
+
+
+def _is_turn_boundary_message(message):
+    """The same turn-boundary test the production classifier uses
+    (``_is_turn_boundary``), applied to a raw archive message dict rather than a
+    dataclass: ``role == "user"``, not a checkpoint, with a non-empty text part."""
+    if not isinstance(message, dict) or message.get("role") != "user":
+        return False
+    if message.get("message_kind") == "checkpoint":
+        return False
+    for part in message.get("parts") or []:
+        text = part.get("text") if isinstance(part, dict) else None
+        if text and str(text).strip():
+            return True
+    return False
+
+
+def reclassify_record(record, archive, reader):
+    """The corrected verdict for a shadow record, or ``None`` when nothing changes it
+    (or nothing can be checked at all).
+
+    D-7 / Codex additional finding 1 (2026-09-27, the finding D-7 itself missed): a
+    turn that upstream splits across extraction batches can log a fragment with
+    ``partial: false`` and a clean ``strip`` verdict — ``partial`` only checks whether
+    the fragment *starts* at a real turn boundary, not whether more of the same
+    logical turn (a mutating tool call, say) follows in a later, separately-logged
+    fragment. Filtering on ``partial`` alone, or joining only the fragments the
+    emitter happened to log, cannot recover an untracked tail. This reconstructs the
+    *complete* source turn from the resolved archive's raw ``messages.jsonl`` --
+    walking forward from the record's own ``first_message_id`` to the next real turn
+    boundary, regardless of where the record's own ``last_message_id`` fell -- and
+    re-derives the verdict from every tool call actually in that window.
+
+    Preference order (C-2/C-4 downstream): (1) the emitter's own forward-compatible
+    ``other_tool_names``/``ov_read_error`` fields when present, reclassifying without
+    touching the archive at all; (2) the archive reconstruction above, when the
+    record's message ids can be located in it. ``None`` when neither source is
+    available, or when reconstruction finds nothing beyond what was already logged.
+    """
+    reconstructed = _reclassify_from_archive(record, archive, reader)
+    if reconstructed is not None:
+        return reconstructed
+    other_names = record.get("other_tool_names")
+    if other_names is not None:
+        # The homelab#174 emitter: names for every non-OV-read tool, `errored` when any
+        # call's outcome was an error, `unresolved_ov_reads` for OV reads with no
+        # outcome in range. `ov_read_error` is accepted as a legacy spelling.
+        classifications = [classify_tool_name(n) for n in other_names]
+        if record.get("ov_tools"):
+            if record.get("errored") or record.get("ov_read_error"):
+                classifications.append("ov_read_error")
+            elif record.get("unresolved_ov_reads"):
+                classifications.append("ov_read_unresolved")
+            else:
+                classifications.append("ov_read")
+        return _derive_verdict_from_classifications(classifications)
+    return None
+
+
+def _reclassify_from_archive(record, archive, reader):
+    """The verdict re-derived from the complete source turn in the archive, or None
+    when the archive or the record's first message can't be found.
+
+    The whole turn is always re-derived, not only when it extends past the logged
+    range, so C-2/C-4 corrections reach records that covered their full turn.
+    Outcomes come from the user-side result parts, matched by ``tool_id``; the
+    assistant's own part is only a fallback (it stays ``running`` in captured
+    archives)."""
+    if reader is None or not archive:
+        return None
+    parsed = parse_archive_uri(archive)
+    if not parsed:
+        return None
+    messages = reader.read_messages(
+        parsed["user"], parsed["session_dir"], parsed["archive_id"]
+    )
+    if not messages:
+        return None
+    ids = [m.get("id") for m in messages]
+    first_id = record.get("first_message_id")
+    if first_id not in ids:
+        return None
+    start = ids.index(first_id)
+    end = len(messages)
+    for i in range(start + 1, len(messages)):
+        if _is_turn_boundary_message(messages[i]):
+            end = i
+            break
+    turn = messages[start:end]
+    outcome = {}
+    for message in turn:
+        if message.get("role") != "user":
+            continue
+        for part in message.get("parts") or []:
+            if isinstance(part, dict) and part.get("tool_id") and part.get("tool_name"):
+                outcome[part["tool_id"]] = part.get("tool_status") or ""
+    classifications = []
+    for message in turn:
+        if message.get("role") != "assistant":
+            continue
+        for part in message.get("parts") or []:
+            if not isinstance(part, dict):
+                continue
+            name = part.get("tool_name")
+            if not name:
+                continue
+            status = outcome.get(part.get("tool_id")) if part.get("tool_id") else None
+            if status is None:
+                status = part.get("tool_status") or ""
+            cls = classify_tool_name(name, status)
+            if cls == "ov_read" and status in _TOOL_NOT_DONE:
+                cls = "ov_read_unresolved"
+            classifications.append(cls)
+    if not classifications:
+        return None
+    return _derive_verdict_from_classifications(classifications)
+
+
 def _extract_summary(content: str, max_chars: int = 160):
     """A one-line abstract: the first non-blank line after a ``# Summary`` heading,
     truncated. Falls back to the first non-blank line of the whole body when there is
@@ -271,35 +465,44 @@ def _extract_summary(content: str, max_chars: int = 160):
 
 
 def _diff_events(diff):
-    """[{"uri", "memory_type", "name", "abstract"}, ...] from a ``memory_diff.json``
-    payload's ``adds`` and ``updates`` (the real shape nests them under
-    ``operations``, per ``_diff_operations`` in ``ov-replay-archives.py``; a flat
-    top-level shape is also accepted). ``name`` is the URI's basename with ``.md``
-    stripped; ``abstract`` is the item's rendered ``after`` content's ``# Summary``
-    line, best-effort."""
+    """[{"uri", "memory_type", "operation", "name", "abstract"}, ...] from a
+    ``memory_diff.json`` payload's ``adds``, ``updates`` *and* ``deletes`` (D-6, Codex
+    #173 review: a delete-only diff used to render as no events at all) -- the real
+    shape nests them under ``operations``, per ``_diff_operations`` in
+    ``ov-replay-archives.py``; a flat top-level shape is also accepted. ``name`` is the
+    URI's basename with ``.md`` stripped; ``operation`` is ``"add"`` / ``"update"`` /
+    ``"delete"`` (the memory-type x operation typing D-6 asked for); ``abstract`` is
+    the item's rendered ``# Summary`` line, best-effort, from ``after`` when present
+    (add/update) else ``before`` (a delete has no ``after``)."""
     if not isinstance(diff, dict):
         return []
     operations = diff.get("operations")
     ops = operations if isinstance(operations, dict) else diff
     adds = list(ops.get("adds", []) or [])
     updates = list(ops.get("updates", []) or [])
+    deletes = list(ops.get("deletes", []) or [])
     events = []
-    for item in adds + updates:
-        if not isinstance(item, dict):
-            continue
-        uri = item.get("uri")
-        name = None
-        if uri:
-            base = uri.rsplit("/", 1)[-1]
-            name = base.removesuffix(".md")
-        events.append(
-            {
-                "uri": uri,
-                "memory_type": item.get("memory_type"),
-                "name": name,
-                "abstract": _extract_summary(item.get("after") or ""),
-            }
-        )
+    for operation, items in (("add", adds), ("update", updates), ("delete", deletes)):
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            uri = item.get("uri")
+            name = None
+            if uri:
+                base = uri.rsplit("/", 1)[-1]
+                name = base.removesuffix(".md")
+            content = item.get("after")
+            if content is None:
+                content = item.get("before")
+            events.append(
+                {
+                    "uri": uri,
+                    "memory_type": item.get("memory_type"),
+                    "operation": operation,
+                    "name": name,
+                    "abstract": _extract_summary(content or ""),
+                }
+            )
     return events
 
 
@@ -351,8 +554,8 @@ def _backend_windows_for_session(session_uuid, ledgers):
     return out
 
 
-def backend_for(archive, ledgers, created_at_min=None):
-    """(backend, machine, candidates).
+def backend_for(archive, ledgers, created_at_min=None, window_slack_seconds=0):
+    """(backend, machine, candidates, window_status).
 
     ``backend`` is a real backend string, ``"unknown"`` (no archive, no ledger match),
     or ``"ambiguous"`` (the turn's ``created_at_min`` fits more than one launch window,
@@ -361,44 +564,111 @@ def backend_for(archive, ledgers, created_at_min=None):
     ``{"machine", "backend"}`` dicts that fit when ``backend == "ambiguous"``, else
     ``None``. A record with no matching session is reported ``"unknown"``, never
     dropped.
+
+    ``window_status`` (D-4, Codex #173 review) is ``"fit"`` (attributed cleanly),
+    ``"outside-window"`` (a single-launch session attributed anyway, but the turn's
+    timestamp actually falls outside that launch's own window), ``"ambiguous"``, or
+    ``"unknown"``.
+
+    D-4 finding: ``created_at`` is the server's receive time on the cluster clock, not
+    the plugin's capture time -- a detached write landing after the launcher's own end
+    row, a replayed pending queue after an outage, or ordinary cluster/machine clock
+    skew can all put a turn just outside its true window. When the session has exactly
+    one launch there is nothing to disambiguate against, so it is always attributed
+    (flagged ``outside-window`` rather than discarded as ``unknown``); multi-launch
+    sessions still need the window to pick the right one, now with
+    ``window_slack_seconds`` of symmetric tolerance on both bounds.
     """
     session_uuid = bare_session_uuid(archive)
     if not session_uuid:
-        return "unknown", None, None
+        return "unknown", None, None, "unknown"
     windows = _backend_windows_for_session(session_uuid, ledgers)
     if not windows:
-        return "unknown", None, None
+        return "unknown", None, None, "unknown"
 
     def _backend(machine, launch_id):
         starts, _sessions = ledgers[machine]
         return starts.get(launch_id, {}).get("backend") or "unknown"
 
+    slack = timedelta(seconds=window_slack_seconds)
+
+    if len(windows) == 1:
+        machine, launch_id, start_ts, end_ts = windows[0]
+        backend = _backend(machine, launch_id)
+        status = "fit"
+        turn_ts = _parse_ts(created_at_min)
+        start = _parse_ts(start_ts)
+        if turn_ts is not None and start is not None:
+            end = _parse_ts(end_ts) if end_ts else None
+            if turn_ts < start - slack or (end is not None and turn_ts >= end + slack):
+                status = "outside-window"
+        return backend, machine, None, status
+
     if created_at_min is None:
-        if len(windows) == 1:
-            machine, launch_id, _s, _e = windows[0]
-            return _backend(machine, launch_id), machine, None
         candidates = [
             {"machine": m, "backend": _backend(m, lid)} for m, lid, _s, _e in windows
         ]
-        return "ambiguous", None, candidates
+        return "ambiguous", None, candidates, "ambiguous"
 
     turn_ts = _parse_ts(created_at_min)
     fitting = []
     for machine, launch_id, start_ts, end_ts in windows:
         start = _parse_ts(start_ts)
-        if turn_ts is None or start is None or turn_ts < start:
+        if turn_ts is None or start is None or turn_ts < start - slack:
             continue
         end = _parse_ts(end_ts) if end_ts else None
-        if end is not None and turn_ts >= end:
+        if end is not None and turn_ts >= end + slack:
             continue
         fitting.append((machine, launch_id))
     if len(fitting) == 1:
         machine, launch_id = fitting[0]
-        return _backend(machine, launch_id), machine, None
+        return _backend(machine, launch_id), machine, None, "fit"
     if not fitting:
-        return "unknown", None, None
+        return "unknown", None, None, "unknown"
     candidates = [{"machine": m, "backend": _backend(m, lid)} for m, lid in fitting]
-    return "ambiguous", None, candidates
+    return "ambiguous", None, candidates, "ambiguous"
+
+
+def mode_for(archive, ledgers, created_at_min=None, window_slack_seconds=0):
+    """The resolved launch's recorded ``mode`` (``"recall"``/``"capture"``/...),
+    mirroring ``backend_for``'s own window selection (D-5, Codex #173 review) so the
+    two stay consistent for the same ``(archive, created_at_min)`` pair -- ``mode`` was
+    indexed by ``index_ledger`` from day one but never actually emitted anywhere in the
+    report. ``"unknown"`` (no archive/no ledger match) or ``"ambiguous"`` (more than
+    one launch window fits, mirroring ``backend_for``'s own ambiguous case, without the
+    per-candidate detail ``backend_for``'s ``candidates`` list carries)."""
+    session_uuid = bare_session_uuid(archive)
+    if not session_uuid:
+        return "unknown"
+    windows = _backend_windows_for_session(session_uuid, ledgers)
+    if not windows:
+        return "unknown"
+
+    def _mode(machine, launch_id):
+        starts, _sessions = ledgers[machine]
+        return starts.get(launch_id, {}).get("mode") or "unknown"
+
+    slack = timedelta(seconds=window_slack_seconds)
+    if len(windows) == 1:
+        machine, launch_id, _start_ts, _end_ts = windows[0]
+        return _mode(machine, launch_id)
+    if created_at_min is None:
+        return "ambiguous"
+    turn_ts = _parse_ts(created_at_min)
+    fitting = []
+    for machine, launch_id, start_ts, end_ts in windows:
+        start = _parse_ts(start_ts)
+        if turn_ts is None or start is None or turn_ts < start - slack:
+            continue
+        end = _parse_ts(end_ts) if end_ts else None
+        if end is not None and turn_ts >= end + slack:
+            continue
+        fitting.append((machine, launch_id))
+    if len(fitting) == 1:
+        return _mode(*fitting[0])
+    if not fitting:
+        return "unknown"
+    return "ambiguous"
 
 
 def _candidate_users(launch_user):
@@ -457,28 +727,62 @@ def _candidate_sessions(ledgers, created_at_min, ts_slack_seconds):
     return candidates
 
 
-def resolve_archive(
+def _candidate_coverage(record, ledgers, ts_slack_seconds, max_candidates):
+    """(candidates_tried, candidates_total) for this record's search, or ``None`` when
+    every available candidate was searched (nothing incomplete to report). D-2 (Codex
+    #173 review): an unresolved record used to look identical whether the search
+    covered every ledger candidate or silently stopped partway through the cap."""
+    total = len(
+        _candidate_sessions(ledgers, record.get("created_at_min"), ts_slack_seconds)
+    )
+    if total == 0:
+        return None
+    tried = total if max_candidates is None else min(total, max_candidates)
+    return None if tried >= total else (tried, total)
+
+
+ArchiveResolution = collections.namedtuple(
+    "ArchiveResolution", ["archive", "status", "ambiguous_matches", "diagnostics"]
+)
+
+
+def resolve_archive_detail(
     record,
     ledgers,
     reader,
     ts_slack_seconds=DEFAULT_TS_SLACK_SECONDS,
     max_candidates=DEFAULT_MAX_CANDIDATES,
 ):
-    """The archive URI whose ``messages.jsonl`` contains the record's
-    ``first_message_id``, or ``None`` when it cannot be resolved.
+    """``ArchiveResolution`` for the record's ``first_message_id``, honoring upstream's
+    own terminal-state precedence (D-3, Codex #173 review, 2026-09-27): ``.done``
+    (completed) beats ``.failed.json`` (failed) beats neither (pending) --
+    ``_archive_terminal_state``, ``openviking/session/session.py:3340-3349``. Only a
+    *completed* archive counts as a match.
 
-    Candidates are narrowed by ``created_at_min``/the ledger's session timestamps
-    *before* any archive is read (see ``_candidate_sessions``); for each candidate
-    session, every user namespace ``_candidate_users`` names (the launch's recorded
-    ``start.user``, else ``noot-pilot``, then ``noot-pilot-lab`` only as a fallback)
-    and each of that user's session-directory variants (the parent plus every subagent
-    ``reader.list_sessions`` returns) are tried in turn, most-recent session first,
-    until one archive's ``messages.jsonl`` contains the id. ``reader`` caches its own
-    reads, so re-resolving many records in one report run only reads each archive once.
+    ``status`` is ``"resolved"`` (exactly one completed match; ``archive`` is set),
+    ``"ambiguous"`` (more than one completed match; ``archive`` is ``None`` and
+    ``ambiguous_matches`` lists every completed URI), or ``"unresolved"`` (no completed
+    match at all; ``diagnostics`` lists every failed/pending archive that also
+    contained the id, for the report's transparency -- never used to pick a winner).
+
+    Upstream's Phase 1 failure handling (``session.py:2215-2232``) restores the
+    pre-commit message list and decrements ``compression_index`` on failure, so the
+    *same* message ids get archived again as the next ``archive_NNN`` once the retry
+    succeeds -- the failed archive's ``messages.jsonl`` still contains them, and the
+    old first-wins behaviour returned it even though Phase 2 never ran there
+    (BUG-1174's exact shape: a failed ``archive_001`` shadowed the completed
+    ``archive_002`` that held the same eight message ids). Candidates are narrowed by
+    ``created_at_min``/the ledger's session timestamps *before* any archive is read
+    (see ``_candidate_sessions``); every candidate session (bounded by
+    ``max_candidates``), user namespace (``_candidate_users``) and session-directory
+    variant is searched to completion, never short-circuited on the first match, so a
+    genuine ambiguity is never masked.
     """
     first_id = record.get("first_message_id")
     if not first_id:
-        return None
+        return ArchiveResolution(None, "unresolved", [], [])
+    completed = []
+    diagnostics = []
     for _ts, session_uuid, launch_user in _candidate_sessions(
         ledgers, record.get("created_at_min"), ts_slack_seconds
     )[:max_candidates]:
@@ -493,9 +797,40 @@ def resolve_archive(
                     messages = reader.read_messages(user, session_dir, archive_id)
                     if not messages:
                         continue
-                    if any(m.get("id") == first_id for m in messages):
-                        return f"viking://user/{user}/sessions/{session_dir}/history/{archive_id}"
-    return None
+                    if not any(m.get("id") == first_id for m in messages):
+                        continue
+                    uri = f"viking://user/{user}/sessions/{session_dir}/history/{archive_id}"
+                    status = reader.archive_status(user, session_dir, archive_id)
+                    if status == "completed":
+                        completed.append(uri)
+                    else:
+                        diagnostics.append((uri, status))
+    if len(completed) == 1:
+        return ArchiveResolution(completed[0], "resolved", [], diagnostics)
+    if len(completed) > 1:
+        return ArchiveResolution(None, "ambiguous", completed, diagnostics)
+    return ArchiveResolution(None, "unresolved", [], diagnostics)
+
+
+def resolve_archive(
+    record,
+    ledgers,
+    reader,
+    ts_slack_seconds=DEFAULT_TS_SLACK_SECONDS,
+    max_candidates=DEFAULT_MAX_CANDIDATES,
+):
+    """The archive URI whose ``messages.jsonl`` contains the record's
+    ``first_message_id`` and whose terminal marker says it completed, or ``None`` when
+    it cannot be unambiguously resolved. See ``resolve_archive_detail`` for the
+    ambiguous-vs-unresolved distinction and per-archive diagnostics, which
+    ``build_report`` uses for the row's archive-status column."""
+    return resolve_archive_detail(
+        record,
+        ledgers,
+        reader,
+        ts_slack_seconds=ts_slack_seconds,
+        max_candidates=max_candidates,
+    ).archive
 
 
 class LocalTreeReader:
@@ -559,6 +894,19 @@ class LocalTreeReader:
                 diff = json.load(fh)
         self._read_cache[key] = diff
         return diff
+
+    def archive_status(self, user, session_dir, archive_id):
+        """``"completed"`` / ``"failed"`` / ``"pending"``, mirroring upstream's own
+        ``_archive_terminal_state`` marker precedence (D-3): ``.done`` checked before
+        ``.failed.json``."""
+        archive_dir = os.path.join(
+            self.root, user, "sessions", session_dir, "history", archive_id
+        )
+        if os.path.isfile(os.path.join(archive_dir, ".done")):
+            return "completed"
+        if os.path.isfile(os.path.join(archive_dir, ".failed.json")):
+            return "failed"
+        return "pending"
 
 
 class OvCliReader:
@@ -646,36 +994,217 @@ class OvCliReader:
         self._read_cache[key] = diff
         return diff
 
+    def archive_status(self, user, session_dir, archive_id):
+        """``"completed"`` / ``"failed"`` / ``"pending"``, mirroring upstream's own
+        ``_archive_terminal_state`` marker precedence (D-3): ``.done`` checked before
+        ``.failed.json``, via a read-only ``ov ls`` on the archive directory."""
+        paths = self._ls(
+            f"viking://user/{user}/sessions/{session_dir}/history/{archive_id}", user
+        )
+        names = {p.rsplit("/", 1)[-1] for p in paths}
+        if ".done" in names:
+            return "completed"
+        if ".failed.json" in names:
+            return "failed"
+        return "pending"
+
 
 def resolve_record_archive(
-    record, ledgers, reader, ts_slack_seconds=DEFAULT_TS_SLACK_SECONDS
+    record,
+    ledgers,
+    reader,
+    ts_slack_seconds=DEFAULT_TS_SLACK_SECONDS,
+    max_candidates=DEFAULT_MAX_CANDIDATES,
 ):
     """The record's archive URI: explicit ``archive`` field if present (forward
     compatibility — no shadow record carries one today), else resolved via ``reader``
     from the turn's message ids (``resolve_archive``); ``None`` when neither yields one
-    (no reader given, no ledger data, or no archive anywhere contains the id)."""
+    (no reader given, no ledger data, or no archive anywhere contains the id).
+
+    D-2 (Codex #173 review): ``max_candidates`` used to be silently dropped here, so
+    ``build_report``/``main`` could never actually raise the cap they claimed to
+    expose. It is threaded through to ``resolve_archive`` now.
+    """
     archive = record.get("archive")
     if archive:
         return archive
     if reader is None:
         return None
-    return resolve_archive(record, ledgers, reader, ts_slack_seconds=ts_slack_seconds)
+    return resolve_archive(
+        record,
+        ledgers,
+        reader,
+        ts_slack_seconds=ts_slack_seconds,
+        max_candidates=max_candidates,
+    )
+
+
+def resolve_record_archive_detail(
+    record,
+    ledgers,
+    reader,
+    ts_slack_seconds=DEFAULT_TS_SLACK_SECONDS,
+    max_candidates=DEFAULT_MAX_CANDIDATES,
+):
+    """``ArchiveResolution`` for a record, the detail-carrying counterpart to
+    ``resolve_record_archive``: an explicit ``archive`` field resolves trivially
+    (status ``"resolved"``, no ambiguity possible); no reader resolves to status
+    ``"no-reader"``; otherwise delegates to ``resolve_archive_detail``."""
+    archive = record.get("archive")
+    if archive:
+        return ArchiveResolution(archive, "resolved", [], [])
+    if reader is None:
+        return ArchiveResolution(None, "no-reader", [], [])
+    return resolve_archive_detail(
+        record,
+        ledgers,
+        reader,
+        ts_slack_seconds=ts_slack_seconds,
+        max_candidates=max_candidates,
+    )
+
+
+def _record_message_count(rec):
+    """``message_count`` if the record carries it (the real emitted field), else
+    derived from ``turn_end - turn_start`` when both are ints, else ``None``."""
+    count = rec.get("message_count")
+    if count is not None:
+        return count
+    start, end = rec.get("turn_start"), rec.get("turn_end")
+    if isinstance(start, int) and isinstance(end, int):
+        return end - start
+    return None
+
+
+def _turn_identity(rec, archive):
+    """The dedup join key for D-1 (Codex #173 review, answer 1): ``(archive,
+    first_message_id, last_message_id, message_count)`` -- *after* a verified archive
+    join, never on the raw log line or a process-local seen-set (which would lose the
+    occurrence/conflict diagnostics and miss cross-process duplicates). ``None`` when
+    the record has no resolved archive (an unresolved turn is never deduplicated
+    against another unresolved turn -- there is nothing verified to join them on) or
+    is missing either message id."""
+    if not archive:
+        return None
+    first_id = rec.get("first_message_id")
+    last_id = rec.get("last_message_id")
+    if not first_id or not last_id:
+        return None
+    return (archive, first_id, last_id, _record_message_count(rec))
+
+
+def _canonicalize_records(records, ledgers, reader, ts_slack_seconds, max_candidates):
+    """[(representative_record, resolution, occurrences, duplicate_verdicts), ...].
+
+    Each input record's archive is resolved once (``resolution`` is an
+    ``ArchiveResolution``); records sharing a verified identity (see
+    ``_turn_identity``, keyed on ``resolution.archive``) collapse into a single
+    canonical turn. The first-seen record in a group is kept as the representative
+    (its own fields render in the table); ``occurrences`` counts every copy and
+    ``duplicate_verdicts`` lists the distinct verdicts seen across the group when they
+    conflict, so a retried extraction's inflated count is fixed without hiding a
+    genuine disagreement between attempts.
+    """
+    groups = {}
+    order = []
+    for rec in records:
+        resolution = resolve_record_archive_detail(
+            rec,
+            ledgers,
+            reader,
+            ts_slack_seconds=ts_slack_seconds,
+            max_candidates=max_candidates,
+        )
+        identity = _turn_identity(rec, resolution.archive)
+        if identity is None:
+            # No verified join to dedup on: always its own canonical turn.
+            key = object()
+        else:
+            key = identity
+        if key in groups:
+            entry = groups[key]
+            entry["occurrences"] += 1
+            entry["verdicts"].add(rec.get("verdict", "unknown"))
+            continue
+        entry = {
+            "record": rec,
+            "resolution": resolution,
+            "occurrences": 1,
+            "verdicts": {rec.get("verdict", "unknown")},
+        }
+        groups[key] = entry
+        order.append(key)
+    canonical = []
+    for key in order:
+        entry = groups[key]
+        duplicate_verdicts = (
+            sorted(entry["verdicts"]) if len(entry["verdicts"]) > 1 else None
+        )
+        canonical.append(
+            (
+                entry["record"],
+                entry["resolution"],
+                entry["occurrences"],
+                duplicate_verdicts,
+            )
+        )
+    return canonical
+
+
+def filter_records_by_block(records, since=None, until=None):
+    """Records whose ``created_at_min`` falls in ``[since, until)`` (D-5, Codex #173
+    review: block scoping via ``--since``/``--until``). Either bound is optional; with
+    neither, ``records`` is returned unchanged. A record with no ``created_at_min`` at
+    all is always kept -- there is nothing to scope it out on, and dropping it would
+    silently hide an unresolvable turn from the block's accounting rather than let it
+    show up as unresolved."""
+    if since is None and until is None:
+        return records
+    since_ts = _parse_ts(since) if since else None
+    until_ts = _parse_ts(until) if until else None
+    kept = []
+    for rec in records:
+        turn_ts = _parse_ts(rec.get("created_at_min"))
+        if turn_ts is None:
+            kept.append(rec)
+            continue
+        if since_ts is not None and turn_ts < since_ts:
+            continue
+        if until_ts is not None and turn_ts >= until_ts:
+            continue
+        kept.append(rec)
+    return kept
 
 
 def build_report(
-    records, ledgers, reader=None, ts_slack_seconds=DEFAULT_TS_SLACK_SECONDS
+    records,
+    ledgers,
+    reader=None,
+    ts_slack_seconds=DEFAULT_TS_SLACK_SECONDS,
+    max_candidates=DEFAULT_MAX_CANDIDATES,
+    window_slack_seconds=0,
 ):
     by_verdict = collections.Counter()
     by_backend = {}
     rows = []
-    for rec in records:
+    canonical_turns = _canonicalize_records(
+        records, ledgers, reader, ts_slack_seconds, max_candidates
+    )
+    for rec, resolution, occurrences, duplicate_verdicts in canonical_turns:
+        archive = resolution.archive
         verdict = rec.get("verdict", "unknown")
         by_verdict[verdict] += 1
-        archive = resolve_record_archive(
-            rec, ledgers, reader, ts_slack_seconds=ts_slack_seconds
+        backend, machine, candidates, window_status = backend_for(
+            archive,
+            ledgers,
+            created_at_min=rec.get("created_at_min"),
+            window_slack_seconds=window_slack_seconds,
         )
-        backend, machine, candidates = backend_for(
-            archive, ledgers, created_at_min=rec.get("created_at_min")
+        mode = mode_for(
+            archive,
+            ledgers,
+            created_at_min=rec.get("created_at_min"),
+            window_slack_seconds=window_slack_seconds,
         )
         # Session identity, not archive identity: bare_session_uuid already strips a
         # subagent's "__subagent-..." suffix, so a subagent's turns are counted under
@@ -693,26 +1222,211 @@ def build_report(
         bucket["turns"] += 1
         if verdict == "strip":
             bucket["strip"] += 1
+        candidate_coverage = None
+        if (
+            resolution.status == "unresolved"
+            and reader is not None
+            and not rec.get("archive")
+        ):
+            candidate_coverage = _candidate_coverage(
+                rec, ledgers, ts_slack_seconds, max_candidates
+            )
+        # D-7 / Codex additional finding 1: reconstruct the complete source turn from
+        # the archive and re-derive the verdict; only surface it when it actually
+        # differs from what was logged.
+        reclassified = reclassify_record(rec, archive, reader)
+        reconstructed_verdict = (
+            reclassified if reclassified and reclassified != verdict else None
+        )
         rows.append(
             {
                 "verdict": verdict,
+                "reconstructed_verdict": reconstructed_verdict,
+                "partial": rec.get("partial"),
                 "backend": backend,
+                "mode": mode,
                 "machine": machine or "unknown",
+                "window_status": window_status,
                 "ambiguous_candidates": candidates,
                 "lab_or_pilot": lab_or_pilot(archive) if archive else "unknown",
                 "session": session_uuid,
                 "archive": archive,
+                "archive_status": resolution.status,
+                "archive_ambiguous_matches": resolution.ambiguous_matches or None,
+                "archive_diagnostics": resolution.diagnostics or None,
+                "candidate_coverage": candidate_coverage,
                 "turn_start": rec.get("turn_start"),
                 "turn_end": rec.get("turn_end"),
                 "first_message_id": rec.get("first_message_id"),
                 "last_message_id": rec.get("last_message_id"),
                 "ov_tools": rec.get("ov_tools", []),
                 "other_tools": rec.get("other_tools", []),
+                "errored": rec.get("errored", False),
                 "events": _events_for_archive(archive, reader),
+                "occurrences": occurrences,
+                "duplicate_verdicts": duplicate_verdicts,
                 "label": "",
             }
         )
+    # D-6 (Codex #173 review): a memory_diff.json is the archive's diff, not any one
+    # turn's -- when more than one canonical turn resolves to the same archive (a
+    # segmented extraction, or several turns before the next commit), every row
+    # sharing that archive is flagged so the Events cell doesn't imply single-turn
+    # attribution.
+    archive_counts = collections.Counter(
+        row["archive"] for row in rows if row["archive"]
+    )
+    for row in rows:
+        row["events_shared_archive"] = bool(
+            row["archive"] and archive_counts[row["archive"]] > 1
+        )
     return {"by_verdict": by_verdict, "by_backend": by_backend, "rows": rows}
+
+
+def _row_aggregates(rows):
+    """(by_verdict, by_backend) recomputed from a (possibly filtered) row list, in the
+    same shape ``build_report`` produces -- used by ``filter_rows_by_lab_sessions`` so
+    a filtered report's aggregate section reflects only the rows it actually kept."""
+    by_verdict = collections.Counter(row["verdict"] for row in rows)
+    by_backend = {}
+    for row in rows:
+        bucket = by_backend.setdefault(
+            row["backend"],
+            {"sessions": set(), "turns": 0, "strip": 0, "unresolved_turns": 0},
+        )
+        if row.get("session"):
+            bucket["sessions"].add(row["session"])
+        else:
+            bucket["unresolved_turns"] += 1
+        bucket["turns"] += 1
+        if row["verdict"] == "strip":
+            bucket["strip"] += 1
+    return by_verdict, by_backend
+
+
+def filter_rows_by_lab_sessions(report_dict, include_lab=True):
+    """A new report dict (D-5, ``--lab-sessions include|exclude``, mirroring
+    weekly-check) with lab-namespace rows dropped and ``by_verdict``/``by_backend``
+    recomputed over what remains. ``include_lab=True`` (the default) returns
+    ``report_dict`` unchanged."""
+    if include_lab:
+        return report_dict
+    kept = [row for row in report_dict["rows"] if row["lab_or_pilot"] != "lab"]
+    by_verdict, by_backend = _row_aggregates(kept)
+    return {"by_verdict": by_verdict, "by_backend": by_backend, "rows": kept}
+
+
+def _row_key(row) -> str:
+    """A stable per-turn key for the label round trip (D-5): built from the resolved
+    archive and both message ids when the turn has a verified archive join, so it is
+    stable across runs of the same shadow log against the same archive tree. A turn
+    with no resolved archive has nothing verified to key on; its fallback key is
+    prefixed ``unresolved:`` so it reads as visibly less stable (a different search
+    cap or ledger state can change which candidate it lands on, if any)."""
+    if (
+        row.get("archive")
+        and row.get("first_message_id")
+        and row.get("last_message_id")
+    ):
+        return f"{row['archive']}#{row['first_message_id']}..{row['last_message_id']}"
+    return f"unresolved:{row.get('machine')}:{row.get('first_message_id')}:{row.get('turn_start')}"
+
+
+VALID_LABELS = frozenset({"restatement", "new-info", "mixed"})
+
+
+def parse_labels_file(path):
+    """``{row_key: label}`` from a simple ``<key>\\t<label>`` file (D-5): one pair per
+    non-blank, non-``#``-comment line. Raises ``ValueError`` on a malformed line or a
+    label outside ``VALID_LABELS`` -- the round trip rejects unknown labels rather than
+    silently accepting a typo."""
+    labels = {}
+    with open(path) as fh:
+        for lineno, line in enumerate(fh, start=1):
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#"):
+                continue
+            parts = stripped.split("\t")
+            if len(parts) != 2:
+                raise ValueError(
+                    f"{path}:{lineno}: expected '<key>\\t<label>', got {line!r}"
+                )
+            key, label = parts[0].strip(), parts[1].strip()
+            if label not in VALID_LABELS:
+                raise ValueError(
+                    f"{path}:{lineno}: unknown label {label!r}, expected one of "
+                    f"{sorted(VALID_LABELS)}"
+                )
+            labels[key] = label
+    return labels
+
+
+def apply_labels(report_dict, labels):
+    """Apply a ``{row_key: label}`` mapping onto ``report_dict["rows"]`` in place (via
+    ``_row_key``), returning ``report_dict``. Raises ``ValueError`` listing any label
+    key that matched no row (D-5: the round trip rejects unknown keys, e.g. from a
+    labels file built against a stale run of the report)."""
+    remaining = dict(labels)
+    for row in report_dict["rows"]:
+        key = _row_key(row)
+        if key in remaining:
+            row["label"] = remaining.pop(key)
+    if remaining:
+        unmatched = sorted(remaining)
+        raise ValueError(
+            f"--labels file has {len(unmatched)} key(s) matching no row: "
+            f"{unmatched[:5]}{'...' if len(unmatched) > 5 else ''}"
+        )
+    return report_dict
+
+
+def compute_precision(rows):
+    """``{"precision", "numerator", "denominator", "excluded"}`` over labelled
+    ``strip`` rows (D-5). ``precision`` is ``numerator / denominator`` (restatement
+    count over every eligible labelled strip row), or ``None`` when the denominator is
+    0. ``excluded`` counts every ``strip`` row NOT in the denominator, by the first
+    reason that applies (a row counts once): ``"unresolved"`` (no completed archive
+    join), ``"ambiguous"`` (archive or backend/window ambiguity), ``"partial"`` (the
+    record's own ``partial`` flag, or a D-7 reconstruction that found a different
+    verdict than what was logged -- either way the logged strip can't be trusted),
+    ``"errored"`` (a tool call in the turn errored), or ``"unlabelled"`` (no label
+    supplied for an otherwise-eligible row). A non-``strip`` row is not counted
+    anywhere -- precision is specifically about the strip population."""
+    excluded = collections.Counter()
+    eligible_labels = []
+    for row in rows:
+        if row["verdict"] != "strip":
+            continue
+        if row.get("archive_status") in ("unresolved", "no-reader"):
+            excluded["unresolved"] += 1
+            continue
+        if (
+            row.get("archive_status") == "ambiguous"
+            or row.get("backend") == "ambiguous"
+            or row.get("window_status") == "ambiguous"
+        ):
+            excluded["ambiguous"] += 1
+            continue
+        if row.get("partial") or row.get("reconstructed_verdict"):
+            excluded["partial"] += 1
+            continue
+        if row.get("errored"):
+            excluded["errored"] += 1
+            continue
+        label = row.get("label")
+        if not label:
+            excluded["unlabelled"] += 1
+            continue
+        eligible_labels.append(label)
+    denominator = len(eligible_labels)
+    numerator = sum(1 for label in eligible_labels if label == "restatement")
+    precision = numerator / denominator if denominator else None
+    return {
+        "precision": precision,
+        "numerator": numerator,
+        "denominator": denominator,
+        "excluded": dict(excluded),
+    }
 
 
 def _cell(value) -> str:
@@ -739,29 +1453,78 @@ def _format_events(row) -> str:
     rendered = []
     for event in events:
         name = event.get("name") or event.get("uri") or "?"
+        operation = event.get("operation")
+        label = f"{name} ({operation})" if operation else name
         abstract = event.get("abstract")
-        rendered.append(f"{name}: {abstract}" if abstract else name)
-    return "; ".join(rendered)
+        rendered.append(f"{label}: {abstract}" if abstract else label)
+    text = "; ".join(rendered)
+    if row.get("events_shared_archive"):
+        # D-6: the diff is the archive's, not attributed to this turn alone --
+        # another canonical turn resolved to the same archive.
+        text += " [archive-level diff, not attributed to a single turn]"
+    return text
 
 
 def _format_backend(row) -> str:
-    if row["backend"] != "ambiguous" or not row.get("ambiguous_candidates"):
-        return row["backend"]
-    candidates = ", ".join(
-        f"{c['machine']}:{c['backend']}" for c in row["ambiguous_candidates"]
-    )
-    return f"ambiguous ({candidates})"
+    if row["backend"] == "ambiguous" and row.get("ambiguous_candidates"):
+        candidates = ", ".join(
+            f"{c['machine']}:{c['backend']}" for c in row["ambiguous_candidates"]
+        )
+        return f"ambiguous ({candidates})"
+    if row.get("window_status") == "outside-window":
+        # D-4: a single-launch session attributed despite falling outside its own
+        # window (a detached write, a replayed queue, or clock skew) -- flagged, not
+        # hidden.
+        return f"{row['backend']} (outside-window)"
+    return row["backend"]
 
 
-def render_markdown(report) -> str:
+def _format_verdict(row) -> str:
+    verdict = row["verdict"]
+    if row.get("duplicate_verdicts"):
+        verdict += f" (conflicting on retry: {', '.join(row['duplicate_verdicts'])})"
+    if row.get("partial"):
+        verdict += " (partial)"
+    if row.get("reconstructed_verdict"):
+        # D-7: the logged verdict didn't see the full source turn.
+        verdict += f" [reconstructed: {row['reconstructed_verdict']}]"
+    return verdict
+
+
+def _format_occurrences(row) -> str:
+    occurrences = row.get("occurrences", 1)
+    return str(occurrences) if occurrences != 1 else "—"
+
+
+def _format_archive(row) -> str:
+    """The archive cell: the resolved URI; an ``ambiguous (…)`` note listing every
+    completed candidate when D-3's terminal-state check found more than one; or an
+    explicit search-coverage note (D-2) when the record is unresolved because
+    ``--max-candidates`` cut the search short rather than because every candidate was
+    actually searched and none matched."""
+    archive = row.get("archive")
+    if archive:
+        return archive
+    if row.get("archive_status") == "ambiguous" and row.get(
+        "archive_ambiguous_matches"
+    ):
+        return "ambiguous (" + ", ".join(row["archive_ambiguous_matches"]) + ")"
+    coverage = row.get("candidate_coverage")
+    if coverage:
+        tried, total = coverage
+        return f"unresolved ({tried}/{total} candidates searched)"
+    return archive
+
+
+def render_markdown(report, precision=None) -> str:
     lines = [
         "## Turns",
         "",
         (
-            "| Machine | Backend | Session | Archive | Turn range | Verdict | Tools | "
-            "Events | Label (restatement / new-info / mixed) |"
+            "| Key | Machine | Backend | Mode | Session | Archive | Turn range | "
+            "Verdict | Occ | Tools | Events | Label (restatement / new-info / mixed) |"
         ),
-        "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+        "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
     ]
     for row in report["rows"]:
         turn_range = f"{row.get('turn_start')}-{row.get('turn_end')}"
@@ -770,12 +1533,15 @@ def render_markdown(report) -> str:
             + " | ".join(
                 _cell(v)
                 for v in (
+                    _row_key(row),
                     row["machine"],
                     _format_backend(row),
+                    row.get("mode"),
                     row.get("session"),
-                    row.get("archive"),
+                    _format_archive(row),
                     turn_range,
-                    row["verdict"],
+                    _format_verdict(row),
+                    _format_occurrences(row),
                     _format_tools(row),
                     _format_events(row),
                     row.get("label"),
@@ -807,6 +1573,23 @@ def render_markdown(report) -> str:
             f"| {backend} | {len(bucket['sessions'])} | {bucket['turns']} | "
             f"{bucket['strip']} | {bucket['unresolved_turns']} |"
         )
+
+    if precision is not None:
+        # D-5: the gate number, with its denominator and every exclusion reason
+        # explicit -- never just a bare percentage.
+        lines += ["", "## Precision", ""]
+        if precision["precision"] is None:
+            lines.append("No eligible labelled strip rows -- precision is undefined.")
+        else:
+            lines.append(
+                f"**{precision['precision']:.1%}** "
+                f"({precision['numerator']} restatement / "
+                f"{precision['denominator']} labelled strip rows)"
+            )
+        lines += ["", "| Excluded reason | Count |", "| --- | --- |"]
+        for reason, count in sorted(precision["excluded"].items()):
+            lines.append(f"| {reason} | {count} |")
+
     return "\n".join(lines) + "\n"
 
 
@@ -864,6 +1647,61 @@ def parse_args(argv=None):
         default=DEFAULT_TS_SLACK_SECONDS,
         help="How far before a turn's created_at_min a ledger session may have started.",
     )
+    parser.add_argument(
+        "--max-candidates",
+        type=int,
+        default=DEFAULT_MAX_CANDIDATES,
+        help=(
+            "Cap the number of closest-preceding ledger candidates searched per "
+            "record (D-2, Codex #173 review). Unlimited by default; set this only to "
+            "trade completeness for a faster search."
+        ),
+    )
+    parser.add_argument(
+        "--window-slack-seconds",
+        type=int,
+        default=0,
+        help=(
+            "Symmetric tolerance applied to both bounds of a multi-launch session's "
+            "windows when a turn's created_at_min is used to disambiguate them (D-4, "
+            "Codex #173 review). A single-launch session always attributes regardless "
+            "of this value. 0 by default; set this to account for known cluster/"
+            "machine clock skew."
+        ),
+    )
+    parser.add_argument(
+        "--since",
+        help=(
+            "Keep only records whose created_at_min is at or after this ISO8601 "
+            "timestamp (D-5, block scoping). A record with no created_at_min is "
+            "always kept."
+        ),
+    )
+    parser.add_argument(
+        "--until",
+        help=(
+            "Keep only records whose created_at_min is strictly before this ISO8601 "
+            "timestamp (D-5, block scoping). A record with no created_at_min is "
+            "always kept."
+        ),
+    )
+    parser.add_argument(
+        "--lab-sessions",
+        choices=("include", "exclude"),
+        default="include",
+        help=(
+            "Include or exclude noot-pilot-lab rows from the report (D-5, mirrors "
+            "weekly-check). Included by default."
+        ),
+    )
+    parser.add_argument(
+        "--labels",
+        help=(
+            "Path to a <key>\\t<label> file (restatement|new-info|mixed per row key "
+            "from the rendered Key column) to read back onto the Label column and "
+            "compute precision over the labelled strip rows (D-5)."
+        ),
+    )
     args = parser.parse_args(argv)
     if args.archive_root and args.online:
         parser.error("--archive-root and --online are mutually exclusive")
@@ -882,12 +1720,26 @@ def main(argv=None):
     args = parse_args(argv)
     lines = _read_lines(args.log)
     records = parse_shadow_lines(lines)
+    records = filter_records_by_block(records, since=args.since, until=args.until)
     ledgers = load_ledgers(args.ledger)
     reader = _build_reader(args)
     report = build_report(
-        records, ledgers, reader=reader, ts_slack_seconds=args.ts_slack_seconds
+        records,
+        ledgers,
+        reader=reader,
+        ts_slack_seconds=args.ts_slack_seconds,
+        max_candidates=args.max_candidates,
+        window_slack_seconds=args.window_slack_seconds,
     )
-    text = render_markdown(report)
+    report = filter_rows_by_lab_sessions(
+        report, include_lab=(args.lab_sessions == "include")
+    )
+    precision = None
+    if args.labels:
+        labels = parse_labels_file(args.labels)
+        apply_labels(report, labels)
+        precision = compute_precision(report["rows"])
+    text = render_markdown(report, precision=precision)
     if args.out:
         with open(args.out, "w") as fh:
             fh.write(text)

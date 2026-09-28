@@ -1,0 +1,2 @@
+{"event":"start","launch_id":"20260927T225900Z-1","ts":"2026-09-27T22:59:00Z","mode":"recall","backend":"anthropic","cwd":"/Users/noot/code/homelab","toplevel":"/Users/noot/code/homelab","user":"noot-pilot","plugin_commit":"abc1234","dotfiles":"def5678","settings_sha":"ghi9012"}
+{"event":"session","launch_id":"20260927T225900Z-1","ts":"2026-09-27T22:59:01Z","mode":"recall","session_id":"11112222-3333-4444-5555-666677778888","source":"startup","transcript_path":"/scrubbed/transcript.jsonl","cwd":"/Users/noot/code/homelab"}

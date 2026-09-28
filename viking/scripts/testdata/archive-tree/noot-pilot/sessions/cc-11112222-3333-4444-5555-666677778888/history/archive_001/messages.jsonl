@@ -1,0 +1,5 @@
+{"id": "msg_frag_u0", "role": "user", "parts": [{"type": "text", "text": "what did we decide about the widget color?"}], "created_at": "2026-09-27T23:00:00.000000+00:00", "peer_id": "p"}
+{"id": "msg_frag_a1", "role": "assistant", "parts": [{"type": "tool", "tool_name": "mcp__plugin_openviking-memory_openviking__read", "tool_status": "ok"}, {"type": "text", "text": "cobalt blue"}], "created_at": "2026-09-27T23:00:05.000000+00:00", "peer_id": "p"}
+{"id": "msg_frag_a2", "role": "assistant", "parts": [{"type": "tool", "tool_name": "Write", "tool_status": "ok"}], "created_at": "2026-09-27T23:00:10.000000+00:00", "peer_id": "p"}
+{"id": "msg_frag_u3", "role": "user", "parts": [{"type": "text", "text": "thanks, what else changed?"}], "created_at": "2026-09-27T23:00:15.000000+00:00", "peer_id": "p"}
+{"id": "msg_frag_a4", "role": "assistant", "parts": [{"type": "text", "text": "nothing else."}], "created_at": "2026-09-27T23:00:20.000000+00:00", "peer_id": "p"}
