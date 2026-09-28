@@ -648,32 +648,137 @@ class OvCliReader:
 
 
 def resolve_record_archive(
-    record, ledgers, reader, ts_slack_seconds=DEFAULT_TS_SLACK_SECONDS
+    record,
+    ledgers,
+    reader,
+    ts_slack_seconds=DEFAULT_TS_SLACK_SECONDS,
+    max_candidates=DEFAULT_MAX_CANDIDATES,
 ):
     """The record's archive URI: explicit ``archive`` field if present (forward
     compatibility — no shadow record carries one today), else resolved via ``reader``
     from the turn's message ids (``resolve_archive``); ``None`` when neither yields one
-    (no reader given, no ledger data, or no archive anywhere contains the id)."""
+    (no reader given, no ledger data, or no archive anywhere contains the id).
+
+    D-2 (Codex #173 review): ``max_candidates`` used to be silently dropped here, so
+    ``build_report``/``main`` could never actually raise the cap they claimed to
+    expose. It is threaded through to ``resolve_archive`` now.
+    """
     archive = record.get("archive")
     if archive:
         return archive
     if reader is None:
         return None
-    return resolve_archive(record, ledgers, reader, ts_slack_seconds=ts_slack_seconds)
+    return resolve_archive(
+        record,
+        ledgers,
+        reader,
+        ts_slack_seconds=ts_slack_seconds,
+        max_candidates=max_candidates,
+    )
+
+
+def _record_message_count(rec):
+    """``message_count`` if the record carries it (the real emitted field), else
+    derived from ``turn_end - turn_start`` when both are ints, else ``None``."""
+    count = rec.get("message_count")
+    if count is not None:
+        return count
+    start, end = rec.get("turn_start"), rec.get("turn_end")
+    if isinstance(start, int) and isinstance(end, int):
+        return end - start
+    return None
+
+
+def _turn_identity(rec, archive):
+    """The dedup join key for D-1 (Codex #173 review, answer 1): ``(archive,
+    first_message_id, last_message_id, message_count)`` -- *after* a verified archive
+    join, never on the raw log line or a process-local seen-set (which would lose the
+    occurrence/conflict diagnostics and miss cross-process duplicates). ``None`` when
+    the record has no resolved archive (an unresolved turn is never deduplicated
+    against another unresolved turn -- there is nothing verified to join them on) or
+    is missing either message id."""
+    if not archive:
+        return None
+    first_id = rec.get("first_message_id")
+    last_id = rec.get("last_message_id")
+    if not first_id or not last_id:
+        return None
+    return (archive, first_id, last_id, _record_message_count(rec))
+
+
+def _canonicalize_records(records, ledgers, reader, ts_slack_seconds, max_candidates):
+    """[(representative_record, archive, occurrences, duplicate_verdicts), ...].
+
+    Each input record's archive is resolved once; records sharing a verified identity
+    (see ``_turn_identity``) collapse into a single canonical turn. The first-seen
+    record in a group is kept as the representative (its own fields render in the
+    table); ``occurrences`` counts every copy and ``duplicate_verdicts`` lists the
+    distinct verdicts seen across the group when they conflict, so a retried
+    extraction's inflated count is fixed without hiding a genuine disagreement between
+    attempts.
+    """
+    groups = {}
+    order = []
+    for rec in records:
+        archive = resolve_record_archive(
+            rec,
+            ledgers,
+            reader,
+            ts_slack_seconds=ts_slack_seconds,
+            max_candidates=max_candidates,
+        )
+        identity = _turn_identity(rec, archive)
+        if identity is None:
+            # No verified join to dedup on: always its own canonical turn.
+            key = object()
+        else:
+            key = identity
+        if key in groups:
+            entry = groups[key]
+            entry["occurrences"] += 1
+            entry["verdicts"].add(rec.get("verdict", "unknown"))
+            continue
+        entry = {
+            "record": rec,
+            "archive": archive,
+            "occurrences": 1,
+            "verdicts": {rec.get("verdict", "unknown")},
+        }
+        groups[key] = entry
+        order.append(key)
+    canonical = []
+    for key in order:
+        entry = groups[key]
+        duplicate_verdicts = (
+            sorted(entry["verdicts"]) if len(entry["verdicts"]) > 1 else None
+        )
+        canonical.append(
+            (
+                entry["record"],
+                entry["archive"],
+                entry["occurrences"],
+                duplicate_verdicts,
+            )
+        )
+    return canonical
 
 
 def build_report(
-    records, ledgers, reader=None, ts_slack_seconds=DEFAULT_TS_SLACK_SECONDS
+    records,
+    ledgers,
+    reader=None,
+    ts_slack_seconds=DEFAULT_TS_SLACK_SECONDS,
+    max_candidates=DEFAULT_MAX_CANDIDATES,
 ):
     by_verdict = collections.Counter()
     by_backend = {}
     rows = []
-    for rec in records:
+    canonical_turns = _canonicalize_records(
+        records, ledgers, reader, ts_slack_seconds, max_candidates
+    )
+    for rec, archive, occurrences, duplicate_verdicts in canonical_turns:
         verdict = rec.get("verdict", "unknown")
         by_verdict[verdict] += 1
-        archive = resolve_record_archive(
-            rec, ledgers, reader, ts_slack_seconds=ts_slack_seconds
-        )
         backend, machine, candidates = backend_for(
             archive, ledgers, created_at_min=rec.get("created_at_min")
         )
@@ -709,6 +814,8 @@ def build_report(
                 "ov_tools": rec.get("ov_tools", []),
                 "other_tools": rec.get("other_tools", []),
                 "events": _events_for_archive(archive, reader),
+                "occurrences": occurrences,
+                "duplicate_verdicts": duplicate_verdicts,
                 "label": "",
             }
         )
@@ -753,15 +860,27 @@ def _format_backend(row) -> str:
     return f"ambiguous ({candidates})"
 
 
+def _format_verdict(row) -> str:
+    verdict = row["verdict"]
+    if row.get("duplicate_verdicts"):
+        verdict += f" (conflicting on retry: {', '.join(row['duplicate_verdicts'])})"
+    return verdict
+
+
+def _format_occurrences(row) -> str:
+    occurrences = row.get("occurrences", 1)
+    return str(occurrences) if occurrences != 1 else "—"
+
+
 def render_markdown(report) -> str:
     lines = [
         "## Turns",
         "",
         (
-            "| Machine | Backend | Session | Archive | Turn range | Verdict | Tools | "
-            "Events | Label (restatement / new-info / mixed) |"
+            "| Machine | Backend | Session | Archive | Turn range | Verdict | Occ | "
+            "Tools | Events | Label (restatement / new-info / mixed) |"
         ),
-        "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+        "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
     ]
     for row in report["rows"]:
         turn_range = f"{row.get('turn_start')}-{row.get('turn_end')}"
@@ -775,7 +894,8 @@ def render_markdown(report) -> str:
                     row.get("session"),
                     row.get("archive"),
                     turn_range,
-                    row["verdict"],
+                    _format_verdict(row),
+                    _format_occurrences(row),
                     _format_tools(row),
                     _format_events(row),
                     row.get("label"),

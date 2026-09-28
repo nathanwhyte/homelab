@@ -758,6 +758,78 @@ class BuildReportResumeFixtureTests(unittest.TestCase):
         self.assertIsNone(rep["rows"][0]["ambiguous_candidates"])
 
 
+class DedupCanonicalizationTests(unittest.TestCase):
+    """D-1 (Codex #173 review, 2026-09-27): a retried extraction re-logs the identical
+    turn. Dedup must key on (archive, first_message_id, last_message_id, message_count)
+    after a verified archive join -- not on the raw line, and not on a process-local
+    seen-set that would lose the occurrence/conflict diagnostics."""
+
+    def setUp(self):
+        self.ledgers = report.load_ledgers(
+            [f"pop={os.path.join(_TESTDATA, 'ledger-pop.jsonl')}"]
+        )
+        self.base = {
+            "archive": "viking://user/noot-pilot/sessions/cc-a5b818a0-c729-4063-abdd-efa1eceb5522/history/archive_003",
+            "verdict": "strip",
+            "turn_start": 0,
+            "turn_end": 2,
+            "first_message_id": "u0",
+            "last_message_id": "a1",
+            "message_count": 2,
+            "ov_tools": ["mcp__plugin_openviking-memory_openviking__read"],
+            "other_tools": [],
+        }
+
+    def test_an_exact_repeat_collapses_to_one_turn(self):
+        records = [dict(self.base), dict(self.base)]
+        rep = report.build_report(records, self.ledgers)
+        self.assertEqual(dict(rep["by_verdict"]), {"strip": 1})
+        self.assertEqual(len(rep["rows"]), 1)
+        self.assertEqual(rep["rows"][0]["occurrences"], 2)
+
+    def test_a_retry_with_shifted_turn_bounds_still_collapses(self):
+        # Batch apply can concatenate several requests' lists, shifting turn_start/
+        # turn_end so the lines are not byte-identical -- the join key is message ids
+        # + message_count, not the raw turn range.
+        shifted = dict(self.base)
+        shifted["turn_start"] = 4
+        shifted["turn_end"] = 6
+        records = [dict(self.base), shifted]
+        rep = report.build_report(records, self.ledgers)
+        self.assertEqual(len(rep["rows"]), 1)
+        self.assertEqual(rep["rows"][0]["occurrences"], 2)
+
+    def test_conflicting_verdicts_across_duplicates_are_preserved_not_hidden(self):
+        conflicting = dict(self.base)
+        conflicting["verdict"] = "keep-ambiguous"
+        records = [dict(self.base), conflicting]
+        rep = report.build_report(records, self.ledgers)
+        self.assertEqual(len(rep["rows"]), 1)
+        self.assertEqual(rep["rows"][0]["occurrences"], 2)
+        self.assertEqual(
+            rep["rows"][0]["duplicate_verdicts"], ["keep-ambiguous", "strip"]
+        )
+
+    def test_a_different_message_count_is_not_a_duplicate(self):
+        different = dict(self.base)
+        different["message_count"] = 3
+        records = [dict(self.base), different]
+        rep = report.build_report(records, self.ledgers)
+        self.assertEqual(len(rep["rows"]), 2)
+        self.assertEqual(dict(rep["by_verdict"]), {"strip": 2})
+
+    def test_unresolved_records_are_never_deduplicated_against_each_other(self):
+        # No archive to join on -- canonicalization only applies "after a verified
+        # archive join" (Codex answer 1); two distinct unresolved turns must not
+        # collapse just because they share no identity.
+        unresolved = dict(self.base)
+        del unresolved["archive"]
+        records = [dict(unresolved), dict(unresolved)]
+        rep = report.build_report(records, self.ledgers)
+        self.assertEqual(len(rep["rows"]), 2)
+        self.assertEqual(dict(rep["by_verdict"]), {"strip": 2})
+
+
 class ParseArchiveUriTests(unittest.TestCase):
     def test_a_well_formed_archive_uri(self):
         self.assertEqual(
