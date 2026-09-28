@@ -185,6 +185,8 @@ spec:
                 path: ov_memory_guard_patch.py
               - key: ov_event_abstract_patch.py
                 path: ov_event_abstract_patch.py
+              - key: ov_grep_scope_patch.py
+                path: ov_grep_scope_patch.py
         - name: data
           persistentVolumeClaim:
             claimName: openviking-test-data
