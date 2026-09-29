@@ -42,9 +42,14 @@ off switch; a patch failure never breaks the import):
                         (``FSService.grep``).
   * ov_recall_time_patch — IMPR-1215: each ``<memory>`` tag in assembled context
                         carries its vector record's ``updated_at`` as
-                        ``updated="…Z"`` (``HierarchicalRetriever._convert_to_matched_contexts``
-                        records it; ``budget._make_entry``, ``render.render_entry``
-                        and ``AssembledEntry.to_dict`` carry it out).
+                        ``updated="…Z"``, through request-owned state
+                        (``gather.gather_candidates``,
+                        ``HierarchicalRetriever._convert_to_matched_contexts``,
+                        ``budget._make_entry``, ``render.render_entry``,
+                        ``AssembledEntry.to_dict``); reindex keeps a record's times
+                        at the file's ``modTime`` (``ReindexExecutor._upsert_context``
+                        + ``EmbeddingMsgConverter.from_context``, stacked on the
+                        event-abstract hooks).
 
 Rollback of one patch: its env switch (``OV_S3_CACHE_PATCH=0``, ``OV_EXTRACT_PATCH=0``, ``OV_CHATLOG_PATCH=0``, ``OV_MEMORY_GUARD=0``, ``OV_EVENT_ABSTRACT_PATCH=0``, ``OV_GREP_SCOPE_PATCH=0``, ``OV_RECALL_TIME_PATCH=0``; ``OV_NAV_PATCH=0``
 only after the model-built overview template is restored, see the Deployment).
@@ -74,14 +79,16 @@ TARGETS = {
         ("ov_memory_guard_patch", "apply"),
         ("ov_memory_guard_patch", "apply_echo_guard"),
     ],
-    "openviking.storage.queuefs.embedding_msg_converter": (
-        "ov_event_abstract_patch",
-        "apply",
-    ),
-    "openviking.service.reindex_executor": (
-        "ov_event_abstract_patch",
-        "apply_reindex",
-    ),
+    # Recall-time wraps outermost: it sets a context's times, then event-abstract
+    # swaps its abstract/vector text.
+    "openviking.storage.queuefs.embedding_msg_converter": [
+        ("ov_event_abstract_patch", "apply"),
+        ("ov_recall_time_patch", "apply_converter"),
+    ],
+    "openviking.service.reindex_executor": [
+        ("ov_event_abstract_patch", "apply_reindex"),
+        ("ov_recall_time_patch", "apply_reindex"),
+    ],
     "openviking.service.fs_service": ("ov_grep_scope_patch", "apply"),
     "openviking.retrieve.hierarchical_retriever": (
         "ov_recall_time_patch",
@@ -98,6 +105,10 @@ TARGETS = {
     "openviking.retrieve.context_assembler.budget": (
         "ov_recall_time_patch",
         "apply_budget",
+    ),
+    "openviking.retrieve.context_assembler.gather": (
+        "ov_recall_time_patch",
+        "apply_gather",
     ),
 }
 
