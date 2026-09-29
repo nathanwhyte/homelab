@@ -40,8 +40,13 @@ off switch; a patch failure never breaks the import):
                         and every grep is bounded by ``OV_GREP_TIMEOUT_S`` (default
                         12 s), returning a marked timeout line instead of an error
                         (``FSService.grep``).
+  * ov_recall_time_patch — IMPR-1215: each ``<memory>`` tag in assembled context
+                        carries its vector record's ``updated_at`` as
+                        ``updated="…Z"`` (``HierarchicalRetriever._convert_to_matched_contexts``
+                        records it; ``budget._make_entry``, ``render.render_entry``
+                        and ``AssembledEntry.to_dict`` carry it out).
 
-Rollback of one patch: its env switch (``OV_S3_CACHE_PATCH=0``, ``OV_EXTRACT_PATCH=0``, ``OV_CHATLOG_PATCH=0``, ``OV_MEMORY_GUARD=0``, ``OV_EVENT_ABSTRACT_PATCH=0``, ``OV_GREP_SCOPE_PATCH=0``; ``OV_NAV_PATCH=0``
+Rollback of one patch: its env switch (``OV_S3_CACHE_PATCH=0``, ``OV_EXTRACT_PATCH=0``, ``OV_CHATLOG_PATCH=0``, ``OV_MEMORY_GUARD=0``, ``OV_EVENT_ABSTRACT_PATCH=0``, ``OV_GREP_SCOPE_PATCH=0``, ``OV_RECALL_TIME_PATCH=0``; ``OV_NAV_PATCH=0``
 only after the model-built overview template is restored, see the Deployment).
 Rollback of everything: remove PYTHONPATH from the Deployment
 (``kubectl set env … PYTHONPATH-``), again only after that template restore.
@@ -78,6 +83,22 @@ TARGETS = {
         "apply_reindex",
     ),
     "openviking.service.fs_service": ("ov_grep_scope_patch", "apply"),
+    "openviking.retrieve.hierarchical_retriever": (
+        "ov_recall_time_patch",
+        "apply_retriever",
+    ),
+    "openviking.retrieve.context_assembler.models": (
+        "ov_recall_time_patch",
+        "apply_models",
+    ),
+    "openviking.retrieve.context_assembler.render": (
+        "ov_recall_time_patch",
+        "apply_render",
+    ),
+    "openviking.retrieve.context_assembler.budget": (
+        "ov_recall_time_patch",
+        "apply_budget",
+    ),
 }
 
 

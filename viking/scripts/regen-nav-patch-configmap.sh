@@ -2,8 +2,9 @@
 # Regenerate viking/manifests/openviking-nav-patch-configmap.yaml (prod) from the
 # canonical sources in viking/manifests/test/nav-patch/ (IMPR-1185 nav patch,
 # BUG-1176 extract, BUG-1177 ChatLog, BUG-1174 S3 cache, BUG-1180 memory guard,
-# IMPR-1200 event abstract and BUG-1189 grep scope patches, one loader).
-# The test stack builds its own ConfigMap (ov-nav-patch) from the same eight files via its
+# IMPR-1200 event abstract, BUG-1189 grep scope and IMPR-1215 recall time patches,
+# one loader).
+# The test stack builds its own ConfigMap (ov-nav-patch) from the same nine files via its
 # kustomization, so prod and test cannot drift as long as this is re-run after any
 # edit and the result is committed with it. `--check` exits non-zero when the
 # committed manifest is stale.
@@ -23,6 +24,7 @@ render() {
 		--from-file=ov_memory_guard_patch.py="$SRC/ov_memory_guard_patch.py" \
 		--from-file=ov_event_abstract_patch.py="$SRC/ov_event_abstract_patch.py" \
 		--from-file=ov_grep_scope_patch.py="$SRC/ov_grep_scope_patch.py" \
+		--from-file=ov_recall_time_patch.py="$SRC/ov_recall_time_patch.py" \
 		--dry-run=client -o yaml
 }
 
