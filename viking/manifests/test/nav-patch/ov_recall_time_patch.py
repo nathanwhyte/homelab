@@ -198,12 +198,49 @@ async def file_mod_time(uri, ctx):
     return parse(value)
 
 
+async def existing_times(uri, ctx):
+    """``(created_at, updated_at)`` of the record being replaced, or None."""
+    try:
+        from openviking.server.dependencies import get_service
+
+        record = await asyncio.wait_for(
+            get_service().vikingdb_manager.fetch_by_uri(uri, ctx=ctx),
+            REINDEX_STAT_TIMEOUT_S,
+        )
+    except Exception as exc:  # noqa: BLE001 — no record to preserve
+        logger.warning(
+            "ov-recall-time: reindex record lookup failed for %s: %r", uri, exc
+        )
+        return None
+    if not isinstance(record, dict):
+        return None
+    updated = parse(record.get("updated_at"))
+    if not updated:
+        return None
+    return parse(record.get("created_at")) or updated, updated
+
+
+async def reindex_times(uri, ctx):
+    """The times a rebuilt record keeps: the file's ``modTime`` (both), else the
+    replaced record's own times, else None (v0.4.20's "now", logged)."""
+    when = await file_mod_time(uri, ctx)
+    if when:
+        return when, when
+    kept = await existing_times(uri, ctx)
+    if kept:
+        return kept
+    logger.warning(
+        "ov-recall-time: reindex of %s keeps no write time (defaults to now)", uri
+    )
+    return None
+
+
 def mod_time_upsert(original):
     @functools.wraps(original)
     async def _upsert_context(self, *args, **kwargs):
         uri = kwargs.get("uri", "")
-        when = await file_mod_time(uri, kwargs.get("ctx")) if uri else None
-        token = _reindex_time.set((uri, when) if when else None)
+        times = await reindex_times(uri, kwargs.get("ctx")) if uri else None
+        token = _reindex_time.set((uri, *times) if times else None)
         try:
             return await original(self, *args, **kwargs)
         finally:
@@ -219,7 +256,7 @@ def mod_time_from_context(original):
         pending = _reindex_time.get()
         if pending and getattr(context, "uri", None) == pending[0]:
             context.created_at = pending[1]
-            context.updated_at = pending[1]
+            context.updated_at = pending[2]
         return original(context, *args, **kwargs)
 
     from_context._ov_recall_time_patch = True

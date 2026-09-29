@@ -216,7 +216,7 @@ class FakeExecutor:
 
 
 class ReindexTests(unittest.TestCase):
-    def run_upsert(self, uri, stat_result=None, stat_error=None):
+    def run_upsert(self, uri, stat_result=None, stat_error=None, existing=None):
         converter = rt.mod_time_from_context(lambda context: context)
         executor = FakeExecutor(converter)
         upsert = rt.mod_time_upsert(FakeExecutor._upsert_context)
@@ -226,9 +226,26 @@ class ReindexTests(unittest.TestCase):
                 return None  # file_mod_time's contract: a failed stat is None
             return rt.parse(stat_result.get("modTime"))
 
-        with mock.patch.object(rt, "file_mod_time", new=fake_mod_time):
+        async def fake_existing(u, ctx):
+            return existing
+
+        with (
+            mock.patch.object(rt, "file_mod_time", new=fake_mod_time),
+            mock.patch.object(rt, "existing_times", new=fake_existing),
+        ):
             asyncio.run(upsert(executor, uri=uri, ctx=None))
         return executor.built[0]
+
+    def test_a_failed_stat_keeps_the_replaced_records_times(self):
+        created = datetime(2026, 9, 22, 14, 0, 0, tzinfo=timezone.utc)
+        updated = datetime(2026, 9, 23, 9, 30, 0, tzinfo=timezone.utc)
+        context = self.run_upsert(
+            "viking://m/entities/x.md",
+            stat_error=OSError("slow"),
+            existing=(created, updated),
+        )
+        self.assertEqual(context.created_at, created)
+        self.assertEqual(context.updated_at, updated)
 
     def test_reindex_keeps_the_files_mod_time(self):
         context = self.run_upsert(
@@ -344,8 +361,11 @@ class RealModuleTests(unittest.TestCase):
         from openviking.service import reindex_executor
         from openviking.storage.queuefs import embedding_msg_converter
 
-        ea.apply(embedding_msg_converter)
-        ea.apply_reindex(reindex_executor)
+        from openviking.core.context import Context, Vectorize
+
+        # sitecustomize order: event-abstract first, recall-time outermost.
+        self.assertTrue(ea.apply(embedding_msg_converter))
+        self.assertTrue(ea.apply_reindex(reindex_executor))
         self.assertTrue(rt.apply_converter(embedding_msg_converter))
         self.assertTrue(rt.apply_reindex(reindex_executor))
         converter = embedding_msg_converter.EmbeddingMsgConverter.__dict__[
@@ -353,8 +373,27 @@ class RealModuleTests(unittest.TestCase):
         ]
         self.assertIsInstance(converter, staticmethod)
         self.assertTrue(getattr(converter.__func__, "_ov_recall_time_patch", False))
+        self.assertTrue(getattr(converter.__func__, "_ov_event_abstract_patch", False))
         upsert = reindex_executor.ReindexExecutor.__dict__["_upsert_context"]
         self.assertTrue(getattr(upsert, "_ov_recall_time_patch", False))
+        self.assertTrue(getattr(upsert, "_ov_event_reindex_patch", False))
+
+        # Run the stacked conversion on a real event context, as a reindex would.
+        uri = "viking://user/u/peers/p/memories/events/2026/09/22/probe.md"
+        body = "# Summary\nThe probe summary.\n\n# Details\nLonger body that the abstract drops.\n"
+        context = Context(uri=uri, abstract=body, context_type="memory", level=2)
+        context.set_vectorize(Vectorize(text=body))
+        written = datetime(2026, 9, 22, 14, 23, 37, tzinfo=timezone.utc)
+        token = rt._reindex_time.set((uri, written, written))
+        try:
+            msg = embedding_msg_converter.EmbeddingMsgConverter.from_context(context)
+        finally:
+            rt._reindex_time.reset(token)
+        self.assertIsNotNone(msg)
+        self.assertEqual(rt.parse(msg.context_data["created_at"]), written)
+        self.assertEqual(rt.parse(msg.context_data["updated_at"]), written)
+        # The event-abstract hook still ran underneath: the abstract is the Summary.
+        self.assertNotIn("Longer body", msg.context_data.get("abstract", ""))
 
 
 if __name__ == "__main__":
