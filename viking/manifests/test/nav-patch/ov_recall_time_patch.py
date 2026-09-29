@@ -198,13 +198,43 @@ async def file_mod_time(uri, ctx):
     return parse(value)
 
 
-async def existing_times(uri, ctx):
-    """``(created_at, updated_at)`` of the record being replaced, or None."""
+def pick_level(records, level):
+    """The record at ``level`` (a directory keeps L0 and L1 under one URI)."""
+    records = [r for r in records or () if isinstance(r, dict)]
+    try:
+        want = int(level) if level is not None else None
+    except (TypeError, ValueError):
+        want = None
+    if want is not None:
+        for record in records:
+            try:
+                if int(record.get("level")) == want:
+                    return record
+            except (TypeError, ValueError):
+                continue
+        return None
+    return records[0] if len(records) == 1 else None
+
+
+async def existing_times(uri, level, ctx):
+    """``(created_at, updated_at)`` of the record being replaced, or None.
+
+    Looked up in the caller's account backend by URI and level: v0.4.20's
+    ``fetch_by_uri`` gives up when a URI has more than one record, which every
+    directory does (its L0 and L1)."""
     try:
         from openviking.server.dependencies import get_service
+        from openviking.storage.viking_vector_index_backend import (
+            FETCH_BY_URI_OUTPUT_FIELDS,
+        )
 
-        record = await asyncio.wait_for(
-            get_service().vikingdb_manager.fetch_by_uri(uri, ctx=ctx),
+        backend = get_service().vikingdb_manager._get_backend_for_context(ctx)
+        records = await asyncio.wait_for(
+            backend.query(
+                filter={"op": "must", "field": "uri", "conds": [uri]},
+                limit=4,
+                output_fields=FETCH_BY_URI_OUTPUT_FIELDS,
+            ),
             REINDEX_STAT_TIMEOUT_S,
         )
     except Exception as exc:  # noqa: BLE001 — no record to preserve
@@ -212,7 +242,8 @@ async def existing_times(uri, ctx):
             "ov-recall-time: reindex record lookup failed for %s: %r", uri, exc
         )
         return None
-    if not isinstance(record, dict):
+    record = pick_level(records, level)
+    if record is None:
         return None
     updated = parse(record.get("updated_at"))
     if not updated:
@@ -220,13 +251,14 @@ async def existing_times(uri, ctx):
     return parse(record.get("created_at")) or updated, updated
 
 
-async def reindex_times(uri, ctx):
+async def reindex_times(uri, level, ctx):
     """The times a rebuilt record keeps: the file's ``modTime`` (both), else the
-    replaced record's own times, else None (v0.4.20's "now", logged)."""
+    replaced record's own times at that level, else None (v0.4.20's "now",
+    logged)."""
     when = await file_mod_time(uri, ctx)
     if when:
         return when, when
-    kept = await existing_times(uri, ctx)
+    kept = await existing_times(uri, level, ctx)
     if kept:
         return kept
     logger.warning(
@@ -239,7 +271,11 @@ def mod_time_upsert(original):
     @functools.wraps(original)
     async def _upsert_context(self, *args, **kwargs):
         uri = kwargs.get("uri", "")
-        times = await reindex_times(uri, kwargs.get("ctx")) if uri else None
+        times = (
+            await reindex_times(uri, kwargs.get("level"), kwargs.get("ctx"))
+            if uri
+            else None
+        )
         token = _reindex_time.set((uri, *times) if times else None)
         try:
             return await original(self, *args, **kwargs)

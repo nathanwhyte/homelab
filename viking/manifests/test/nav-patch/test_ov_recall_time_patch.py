@@ -226,14 +226,17 @@ class ReindexTests(unittest.TestCase):
                 return None  # file_mod_time's contract: a failed stat is None
             return rt.parse(stat_result.get("modTime"))
 
-        async def fake_existing(u, ctx):
+        self.asked_levels = []
+
+        async def fake_existing(u, level, ctx):
+            self.asked_levels.append(level)
             return existing
 
         with (
             mock.patch.object(rt, "file_mod_time", new=fake_mod_time),
             mock.patch.object(rt, "existing_times", new=fake_existing),
         ):
-            asyncio.run(upsert(executor, uri=uri, ctx=None))
+            asyncio.run(upsert(executor, uri=uri, ctx=None, level=1))
         return executor.built[0]
 
     def test_a_failed_stat_keeps_the_replaced_records_times(self):
@@ -246,6 +249,7 @@ class ReindexTests(unittest.TestCase):
         )
         self.assertEqual(context.created_at, created)
         self.assertEqual(context.updated_at, updated)
+        self.assertEqual(self.asked_levels, [1])  # the level being rebuilt
 
     def test_reindex_keeps_the_files_mod_time(self):
         context = self.run_upsert(
@@ -271,9 +275,8 @@ class ReindexTests(unittest.TestCase):
     def test_a_context_for_another_uri_is_untouched(self):
         converter = rt.mod_time_from_context(lambda context: context)
         now = datetime.now(timezone.utc)
-        token = rt._reindex_time.set(
-            ("viking://m/a.md", datetime(2020, 1, 1, tzinfo=timezone.utc))
-        )
+        old = datetime(2020, 1, 1, tzinfo=timezone.utc)
+        token = rt._reindex_time.set(("viking://m/a.md", old, old))
         try:
             other = converter(
                 SimpleNamespace(uri="viking://m/b.md", created_at=now, updated_at=now)
@@ -281,6 +284,77 @@ class ReindexTests(unittest.TestCase):
         finally:
             rt._reindex_time.reset(token)
         self.assertEqual(other.updated_at, now)
+
+
+class ExistingTimesTests(unittest.TestCase):
+    """The lookup itself, against a stand-in account backend."""
+
+    def lookup(self, records, level):
+        calls = []
+
+        class Backend:
+            async def query(self, **kwargs):
+                calls.append(kwargs)
+                return records
+
+        manager = SimpleNamespace(
+            _get_backend_for_context=lambda ctx: calls.append(("ctx", ctx)) or Backend()
+        )
+        modules = {
+            "openviking.server.dependencies": SimpleNamespace(
+                get_service=lambda: SimpleNamespace(vikingdb_manager=manager)
+            ),
+            "openviking.storage.viking_vector_index_backend": SimpleNamespace(
+                FETCH_BY_URI_OUTPUT_FIELDS=["uri", "level", "created_at", "updated_at"]
+            ),
+        }
+        with mock.patch.dict(sys.modules, modules):
+            result = asyncio.run(rt.existing_times("viking://m/events", level, "CTX"))
+        return result, calls
+
+    def test_a_directory_picks_the_record_at_the_level_being_rebuilt(self):
+        records = [
+            {
+                "uri": "viking://m/events",
+                "level": 0,
+                "created_at": "2026-09-20T01:00:00Z",
+                "updated_at": "2026-09-21T01:00:00Z",
+            },
+            {
+                "uri": "viking://m/events",
+                "level": 1,
+                "created_at": "2026-09-22T02:00:00Z",
+                "updated_at": "2026-09-23T02:00:00Z",
+            },
+        ]
+        (created, updated), calls = self.lookup(records, 1)
+        self.assertEqual(created, datetime(2026, 9, 22, 2, 0, 0, tzinfo=timezone.utc))
+        self.assertEqual(updated, datetime(2026, 9, 23, 2, 0, 0, tzinfo=timezone.utc))
+        self.assertEqual(calls[0], ("ctx", "CTX"))  # the caller's account backend
+        self.assertEqual(
+            calls[1]["filter"],
+            {"op": "must", "field": "uri", "conds": ["viking://m/events"]},
+        )
+
+    def test_no_record_at_that_level_keeps_nothing(self):
+        records = [
+            {
+                "uri": "viking://m/events",
+                "level": 0,
+                "updated_at": "2026-09-21T01:00:00Z",
+            }
+        ]
+        self.assertIsNone(self.lookup(records, 1)[0])
+
+    def test_an_ambiguous_lookup_without_a_level_keeps_nothing(self):
+        records = [
+            {"level": 0, "updated_at": "2026-09-21T01:00:00Z"},
+            {"level": 1, "updated_at": "2026-09-23T02:00:00Z"},
+        ]
+        self.assertIsNone(self.lookup(records, None)[0])
+
+    def test_a_record_without_a_usable_time_keeps_nothing(self):
+        self.assertIsNone(self.lookup([{"level": 2, "updated_at": "garbage"}], 2)[0])
 
 
 class FileModTimeTests(unittest.TestCase):
