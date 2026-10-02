@@ -4,12 +4,12 @@
 #
 # Two-layer install from OCI charts:
 #   1. gha-runner-scale-set-controller  -> release `arc`, ns arc-systems
-#   2. gha-runner-scale-set (per repo)  -> release `compendium`, ns arc-runners
+#   2. gha-runner-scale-set (per repo)  -> releases `compendium`, `webway`, ns arc-runners
 #
 # Prereqs (one-time, documented in arc.md):
 #   - arc/github-config-secret.yaml applied (copy the .example, fill the PAT)
-#   - Harbor project `ci` exists and the runner image is pushed
-#     (images/runner/build-push.sh)
+#   - Harbor project `ci` exists and the runner images are pushed
+#     (images/runner/build-push.sh, then images/runner-elixir/build-push.sh)
 #
 # NOTE: this script INSTALLS and re-applies values at one pinned chart
 # version. It deliberately refuses in-place chart VERSION bumps: Helm does not
@@ -103,6 +103,7 @@ if [ "$HELM_DIFF" -eq 1 ]; then
 	fi
 	helm_diff arc "$CONTROLLER_CHART" arc-systems "$SCRIPT_DIR/controller-values.yaml"
 	helm_diff compendium "$SCALE_SET_CHART" arc-runners "$SCRIPT_DIR/runner-scale-set-compendium-values.yaml"
+	helm_diff webway "$SCALE_SET_CHART" arc-runners "$SCRIPT_DIR/runner-scale-set-webway-values.yaml"
 	exit 0
 fi
 
@@ -168,9 +169,11 @@ unset GITHUB_TOKEN GITHUB_TOKEN_B64
 
 helm_apply arc "$CONTROLLER_CHART" arc-systems "$SCRIPT_DIR/controller-values.yaml"
 helm_apply compendium "$SCALE_SET_CHART" arc-runners "$SCRIPT_DIR/runner-scale-set-compendium-values.yaml"
+helm_apply webway "$SCALE_SET_CHART" arc-runners "$SCRIPT_DIR/runner-scale-set-webway-values.yaml"
 
 echo -e "\nDone. Check status:"
 echo "  kubectl get pods -n arc-systems        # controller + per-scale-set listener pods"
 echo "  kubectl get pods -n arc-runners        # empty until a job runs; ephemeral runner pods appear per job"
 echo "  gh api repos/nathanwhyte/compendium/actions/runners --jq '.runners[].name'"
-echo -e "\nWorkflows target the runners with: runs-on: homelab-arc-compendium"
+echo "  gh api repos/nathanwhyte/webway/actions/runners --jq '.runners[].name'"
+echo -e "\nWorkflows target the runners with: runs-on: homelab-arc-compendium | homelab-arc-webway"
