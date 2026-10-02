@@ -1,0 +1,127 @@
+# Job failure alerts (BUG-1197; IMPR-1172 stage 2).
+#
+# Replaces the chart's KubeJobFailed, which is disabled in
+# helm/kube-prometheus-stack-values.yaml (`defaultRules.disabled.KubeJobFailed`).
+# The chart rule fires on the EXISTENCE of a failed Job object
+# (`kube_job_failed > 0`), so a failure keeps paging hourly after the CronJob has
+# recovered, until a ttl or a human deletes the object. `k3s-datastore-backup`
+# keeps 10 failed Jobs with no ttl on purpose (IMPR-1126), so its failures paged
+# indefinitely; on 2026-10-02 three differently-named CronJobs paged for 24h+
+# after their next runs had already succeeded.
+#
+# The chart's `expr` is hardcoded in the template (customRules can only override
+# `for` and `severity`), so disable-and-replace is the only shape available.
+#
+# Two rules, not one. Scoping failures to "current" alone would trade a noisy
+# failure mode for a silent one: a CronJob that fails and is never retried
+# (suspended, deleted, sparse schedule) would go quiet. So:
+#
+#   KubeJobFailed       — a failed Job that no later successful run of the same
+#                         CronJob has superseded; or a failed standalone Job
+#                         started in the last 24h.
+#   CronJobNotSucceeding — a CronJob with a failed Job and no success in 48h,
+#                         which keeps the "never retried" case loud.
+#
+# Matching is by name (kube_job_owner / kube_cronjob_*), as in backup-alerts.yaml.
+# The cluster Prometheus has empty rule selectors, so no extra labels are needed.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: job-failure-alerts
+  namespace: grafana
+spec:
+  groups:
+    - name: job.failure.rules
+      rules:
+        - alert: KubeJobFailed
+          # Arm 1: CronJob-owned failed Job whose start time is newer than the
+          # CronJob's last successful completion. A later success supersedes it.
+          # A CronJob that has never succeeded has no last_successful_time
+          # series; `unless on (...)` keeps those (absent = not superseded).
+          # Arm 2: failed Job with no CronJob owner (manual `create job --from`,
+          # one-off Jobs), scoped to 24h like BackupCronJobFailed.
+          expr: |
+            (
+              max by (namespace, job_name, owner_name) (
+                (
+                  kube_job_status_start_time{job="kube-state-metrics"}
+                    and on (namespace, job_name)
+                  (kube_job_failed{job="kube-state-metrics", condition="true"} > 0)
+                )
+                * on (namespace, job_name) group_left (owner_name)
+                max by (namespace, job_name, owner_name) (
+                  kube_job_owner{job="kube-state-metrics", owner_kind="CronJob"}
+                )
+              )
+              > on (namespace, owner_name) group_left ()
+              max by (namespace, owner_name) (
+                label_replace(
+                  kube_cronjob_status_last_successful_time{job="kube-state-metrics"},
+                  "owner_name", "$1", "cronjob", "(.+)"
+                )
+              )
+            )
+            or
+            (
+              max by (namespace, job_name, owner_name) (
+                (
+                  kube_job_status_start_time{job="kube-state-metrics"}
+                    and on (namespace, job_name)
+                  (kube_job_failed{job="kube-state-metrics", condition="true"} > 0)
+                )
+                * on (namespace, job_name) group_left (owner_name)
+                max by (namespace, job_name, owner_name) (
+                  kube_job_owner{job="kube-state-metrics", owner_kind="CronJob"}
+                )
+              )
+              unless on (namespace, owner_name)
+              label_replace(
+                kube_cronjob_status_last_successful_time{job="kube-state-metrics"},
+                "owner_name", "$1", "cronjob", "(.+)"
+              )
+            )
+            or
+            (
+              max by (namespace, job_name) (
+                kube_job_status_start_time{job="kube-state-metrics"}
+                  and on (namespace, job_name)
+                (kube_job_failed{job="kube-state-metrics", condition="true"} > 0)
+                  unless on (namespace, job_name)
+                kube_job_owner{job="kube-state-metrics", owner_kind="CronJob"}
+              )
+              > time() - 86400
+            )
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Job {{ $labels.namespace }}/{{ $labels.job_name }} failed and has not been superseded"
+            description: "Job {{ $labels.namespace }}/{{ $labels.job_name }} failed and no later run of the same CronJob has succeeded (standalone Jobs: failed in the last 24h). Check `kubectl -n {{ $labels.namespace }} describe job {{ $labels.job_name }}` and the pod logs. The alert clears on the next successful run; deleting the Job also clears it."
+        - alert: CronJobNotSucceeding
+          # The companion that keeps a never-retried failure loud: a failed Job
+          # exists for this CronJob and the CronJob has not succeeded in 48h (or
+          # ever). Suspended CronJobs are excluded — suspension is deliberate.
+          expr: |
+            (
+              max by (namespace, owner_name) (
+                kube_job_owner{job="kube-state-metrics", owner_kind="CronJob"}
+                  and on (namespace, job_name)
+                (kube_job_failed{job="kube-state-metrics", condition="true"} > 0)
+              )
+              unless on (namespace, owner_name)
+              label_replace(
+                (time() - kube_cronjob_status_last_successful_time{job="kube-state-metrics"}) < 172800,
+                "owner_name", "$1", "cronjob", "(.+)"
+              )
+            )
+            unless on (namespace, owner_name)
+            label_replace(
+              kube_cronjob_spec_suspend{job="kube-state-metrics"} == 1,
+              "owner_name", "$1", "cronjob", "(.+)"
+            )
+          for: 1h
+          labels:
+            severity: warning
+          annotations:
+            summary: "CronJob {{ $labels.namespace }}/{{ $labels.owner_name }} has failures and no success in 48h"
+            description: "CronJob {{ $labels.namespace }}/{{ $labels.owner_name }} has a failed Job and has not completed successfully in 48h (or ever). Its failures are not being superseded by later runs. Check `kubectl -n {{ $labels.namespace }} get jobs` and the latest Job's logs."
