@@ -2,9 +2,11 @@
 # timmy-offline.sh — take timmy out of the cluster cleanly for a planned outage
 # (Windows dual-boot session, live-USB disk work) and bring it back.
 #
-#   timmy-offline.sh down    park cross-node volumes, spin down memory-heavy services, cordon + drain
-#   timmy-offline.sh up      finish the node-maintenance cycle, restore the parked + spun-down workloads
-#   timmy-offline.sh status  what is parked, what is cordoned, Longhorn health
+#   timmy-offline.sh down    silence alerts, suspend dependent CronJobs, park cross-node volumes,
+#                            spin down memory-heavy services, cordon + drain
+#   timmy-offline.sh up      finish the node-maintenance cycle, restore the parked + spun-down workloads,
+#                            resume CronJobs, run a catch-up k3s backup, expire the silence
+#   timmy-offline.sh status  what is parked/suspended/silenced, what is cordoned, Longhorn health
 #
 # Why this exists on top of node-maintenance.sh: three Longhorn volumes are
 # attached on manu/wemby but their ONLY replica lives on timmy's disk
@@ -28,6 +30,22 @@
 # timmy is the only control plane, so between `down` and `up` there is no API
 # server — manu and wemby keep running what they already have, nothing else.
 #
+# `down` also quiets the outage it is about to cause (BUG-1197, 2026-10-02).
+# Without this a planned Windows session paged Slack ~50 times: `park` itself
+# trips GarageQuorumLost, every CronJob that needs timmy, Garage or OpenViking
+# fails while it is out, and each failed Job keeps firing KubeJobFailed hourly
+# until its ttl reaps it — k3s-datastore-backup has no ttl by design (IMPR-1126),
+# so its failure paged until deleted by hand. Two controls:
+#   - an Alertmanager silence for the whole window, recorded by ID so `up`
+#     expires exactly that one. It has a hard end (SILENCE_DURATION, default 24h)
+#     so a forgotten `up` cannot mute the cluster indefinitely.
+#   - QUIESCED_CRONJOBS are suspended; `up` resumes only the ones `down`
+#     suspended (a CronJob that was already suspended stays suspended), then
+#     runs one catch-up k3s datastore backup so the window leaves no gap.
+# Prometheus and Alertmanager are pinned to timmy, so nothing alerts during the
+# window anyway; the silence matters for the burst on return, when stale state
+# from before the shutdown is evaluated all at once.
+#
 # The power-off itself is deliberately manual (needs a TTY for sudo):
 #   ssh -t timmy sudo shutdown -h now
 # or, for a Windows session (os-prober entry — Windows shares the Ubuntu ESP on
@@ -43,6 +61,19 @@ STATE_DIR=$STATE_ROOT/homelab-timmy-offline
 SCALE_FILE=$STATE_DIR/parked-scales
 DETACH_TIMEOUT_SECONDS=${DETACH_TIMEOUT_SECONDS:-300}
 READY_TIMEOUT_SECONDS=${READY_TIMEOUT_SECONDS:-600}
+KUBECTL=${KUBECTL:-kubectl}
+SUSPEND_FILE=$STATE_DIR/suspended-cronjobs
+SILENCE_FILE=$STATE_DIR/silence-id
+SILENCE_DURATION=${SILENCE_DURATION:-24h}
+AM_NAMESPACE=grafana
+AM_POD=alertmanager-prom-alertmanager-0
+
+# CronJobs that cannot succeed while timmy is out. Format: namespace/name
+QUIESCED_CRONJOBS=(
+	kube-system/k3s-datastore-backup # nodeSelector timmy; reads timmy's datastore
+	compendium/compendium-sync       # needs viking/openviking, spun down by `down`
+	viking/ovlock-janitor            # needs OpenViking and Garage, both down
+)
 
 # Workloads whose Longhorn volume lives only on timmy while the pod runs elsewhere,
 # plus garage-1 (on timmy) because Garage should stop as a unit, not one node at a time.
@@ -64,7 +95,7 @@ die() {
 }
 
 usage() {
-	sed -n '2,8p' "$0" | sed 's/^# \{0,1\}//'
+	sed -n '2,10p' "$0" | sed 's/^# \{0,1\}//'
 	exit 1
 }
 
@@ -187,6 +218,110 @@ wait_parked_ready() {
 	done
 }
 
+# --- Quieting the outage ---------------------------------------------------------
+
+amtool_exec() {
+	"$KUBECTL" -n "$AM_NAMESPACE" exec "$AM_POD" -c alertmanager -- \
+		amtool --alertmanager.url=http://localhost:9093 "$@"
+}
+
+# Best effort: a silence that cannot be created warns rather than blocking the
+# outage, because the alternative is a noisy channel, not an unsafe power-off.
+silence_alerts() {
+	local id
+	mkdir -p "$STATE_DIR"
+	if [[ -s $SILENCE_FILE ]]; then
+		log "alert silence already recorded ($(<"$SILENCE_FILE")) — not adding another"
+		return 0
+	fi
+	if ! id=$(amtool_exec silence add --duration="$SILENCE_DURATION" \
+		--author=timmy-offline.sh \
+		--comment="planned timmy outage (timmy-offline.sh down); expired by 'up'" \
+		'alertname=~".+"' 2>&1); then
+		warn "could not create an Alertmanager silence: $id"
+		warn "the outage will page Slack; continuing"
+		return 0
+	fi
+	id=${id//[[:space:]]/}
+	if [[ ! $id =~ ^[0-9a-f-]{36}$ ]]; then
+		warn "unexpected amtool output, not recording a silence ID: $id"
+		return 0
+	fi
+	printf '%s\n' "$id" >"$SILENCE_FILE"
+	log "silenced all alerts for up to $SILENCE_DURATION (silence $id)"
+}
+
+expire_silence() {
+	local id
+	[[ -s $SILENCE_FILE ]] || {
+		log "no recorded alert silence"
+		return 0
+	}
+	id=$(<"$SILENCE_FILE")
+	if amtool_exec silence expire "$id" >/dev/null 2>&1; then
+		log "expired alert silence $id"
+		rm -f "$SILENCE_FILE"
+	else
+		warn "could not expire silence $id — it ends on its own after $SILENCE_DURATION; retry: $0 up"
+	fi
+}
+
+# Record only the CronJobs this run suspended, so `up` never resumes one that
+# was suspended on purpose before the outage.
+suspend_cronjobs() {
+	local entry ns name current
+	mkdir -p "$STATE_DIR"
+	touch "$SUSPEND_FILE"
+	for entry in "${QUIESCED_CRONJOBS[@]}"; do
+		ns=${entry%%/*}
+		name=${entry#*/}
+		if grep -qxF "$entry" "$SUSPEND_FILE"; then
+			current=true # suspended by an earlier `down`; re-assert below
+		else
+			current=$("$KUBECTL" -n "$ns" get cronjob "$name" -o jsonpath='{.spec.suspend}') ||
+				die "cannot read cronjob $entry"
+			if [[ $current == true ]]; then
+				log "[$entry] already suspended — leaving it for its owner"
+				continue
+			fi
+			printf '%s\n' "$entry" >>"$SUSPEND_FILE"
+		fi
+		log "[$entry] suspend"
+		"$KUBECTL" -n "$ns" patch cronjob "$name" --type=merge -p '{"spec":{"suspend":true}}' >/dev/null ||
+			die "cannot suspend cronjob $entry"
+	done
+}
+
+resume_cronjobs() {
+	local entry ns name
+	[[ -s $SUSPEND_FILE ]] || {
+		log "no CronJobs suspended by down"
+		rm -f "$SUSPEND_FILE"
+		return 0
+	}
+	while IFS= read -r entry; do
+		[[ -n $entry ]] || continue
+		ns=${entry%%/*}
+		name=${entry#*/}
+		log "[$entry] resume"
+		"$KUBECTL" -n "$ns" patch cronjob "$name" --type=merge -p '{"spec":{"suspend":false}}' >/dev/null ||
+			die "cannot resume cronjob $entry (state kept in $SUSPEND_FILE)"
+	done <"$SUSPEND_FILE"
+	rm -f "$SUSPEND_FILE"
+}
+
+# The nightly datastore backup is pinned to timmy, so a window spanning 03:30
+# skips it. One extra same-day run is harmless: it overwrites state-<date>.db.
+catchup_backup() {
+	local job
+	job=k3s-datastore-backup-catchup-$(date +%Y%m%d%H%M)
+	if "$KUBECTL" -n kube-system create job "$job" --from=cronjob/k3s-datastore-backup >/dev/null; then
+		log "started catch-up backup job kube-system/$job"
+	else
+		warn "could not start a catch-up backup; run: kubectl -n kube-system create job <name> --from=cronjob/k3s-datastore-backup"
+	fi
+}
+
 garage_check() {
 	log "garage status"
 	kubectl -n garage exec garage-0 -c garage -- /garage status 2>/dev/null |
@@ -199,6 +334,9 @@ garage_check() {
 cmd_down() {
 	log "preflight: Longhorn must be healthy before parking anything"
 	"$SCRIPT_DIR/node-maintenance.sh" status >/dev/null
+	# Before park: parking Garage is what trips GarageQuorumLost.
+	silence_alerts
+	suspend_cronjobs
 	park
 	wait_cross_node_detached
 	if node_is_cordoned; then
@@ -230,7 +368,11 @@ cmd_up() {
 	"$SCRIPT_DIR/node-maintenance.sh" finish "$NODE"
 	unpark
 	wait_parked_ready
+	resume_cronjobs
+	catchup_backup
 	garage_check
+	# Last: anything still firing after recovery is real and should page now.
+	expire_silence
 	log "timmy is back in service."
 }
 
@@ -240,6 +382,13 @@ cmd_status() {
 		sed 's/^/    /' "$SCALE_FILE"
 	else
 		log "nothing parked"
+	fi
+	if [[ -s $SUSPEND_FILE ]]; then
+		warn "CronJobs suspended by down (resumed by '$0 up'):"
+		sed 's/^/    /' "$SUSPEND_FILE"
+	fi
+	if [[ -s $SILENCE_FILE ]]; then
+		warn "alert silence active (expired by '$0 up'): $(<"$SILENCE_FILE")"
 	fi
 	local orphans
 	orphans=$(cross_node_orphans) || die "cannot read Longhorn state"
@@ -261,4 +410,7 @@ main() {
 	esac
 }
 
-main "$@"
+# Sourcing (tests/test-timmy-offline-quiet.sh) defines functions only.
+if [[ ${BASH_SOURCE[0]} == "$0" ]]; then
+	main "$@"
+fi
