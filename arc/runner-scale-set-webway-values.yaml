@@ -1,0 +1,107 @@
+# Helm values for the webway runner scale set (PROJ-1010 / TASK-1211).
+# Release: webway / namespace: arc-runners. Workflows in nathanwhyte/webway
+# target it with `runs-on: homelab-arc-webway`.
+#
+# Placement, hardening and the CPU bounds are copied from
+# runner-scale-set-compendium-values.yaml; the reasoning for each lives in that
+# file's comments. Keep the two in step when one changes.
+#
+# PRIVATE REPOS ONLY — nathanwhyte/webway is private (checked 2026-10-02).
+
+githubConfigUrl: https://github.com/nathanwhyte/webway
+
+# Shared PAT secret; the fine-grained PAT must list nathanwhyte/webway among
+# its repositories (Administration: Read and write), or the listener cannot
+# register the scale set.
+githubConfigSecret: github-config-secret
+
+runnerScaleSetName: homelab-arc-webway
+
+controllerServiceAccount:
+  namespace: arc-systems
+  name: arc-gha-rs-controller
+
+# minRunners 0: webway CI is occasional, and every warm pod reserves 1000m of
+# CPU that compendium's eight runners compete for (timmy admits 4, wemby 5 —
+# 9 slots for both sets). A cold start costs one image pull the first time a
+# node runs this image, then ~seconds. maxRunners 2: one CI run per PR head is
+# one job today; 2 lets a push to main overlap a PR run.
+minRunners: 0
+maxRunners: 2
+
+# No containerMode: jobs run plain steps in the runner container. CI starts
+# its own PostgreSQL inside the job (the image carries the server binaries),
+# because there are no service containers without Docker.
+
+listenerTemplate:
+  spec:
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+            - matchExpressions:
+                - key: kubernetes.io/hostname
+                  operator: NotIn
+                  values:
+                    - manu
+    containers:
+      - name: listener
+        resources:
+          requests:
+            cpu: 10m
+            memory: 32Mi
+          limits:
+            cpu: 200m
+            memory: 128Mi
+
+template:
+  spec:
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+            - matchExpressions:
+                - key: kubernetes.io/hostname
+                  operator: NotIn
+                  values:
+                    - manu
+
+    # Same selector as compendium's set on purpose: both sets' runner pods
+    # carry app.kubernetes.io/component=runner, so the spread (and its timmy
+    # cap) counts webway and compendium runners together.
+    topologySpreadConstraints:
+      - maxSkew: 1
+        topologyKey: kubernetes.io/hostname
+        whenUnsatisfiable: DoNotSchedule
+        minDomains: 2
+        nodeAffinityPolicy: Honor
+        nodeTaintsPolicy: Ignore
+        labelSelector:
+          matchLabels:
+            app.kubernetes.io/component: runner
+
+    containers:
+      - name: runner
+        # Elixir/OTP + PostgreSQL on top of the compendium runner image —
+        # built by images/runner-elixir/build-push.sh.
+        image: registry.nathanwhyte.dev/ci/actions-runner-elixir:latest
+        command: ["/home/runner/run.sh"]
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 1001
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop: ["ALL"]
+          seccompProfile:
+            type: RuntimeDefault
+        # CPU matches compendium's (the timmy safety bound). Memory is NOT
+        # measured yet: a cold Phoenix compile plus an in-job Postgres is
+        # heavier than vault-checks, so the limit starts at 3Gi. Right-size
+        # from the first week of runs the way compendium's values were.
+        resources:
+          requests:
+            cpu: 1000m
+            memory: 1Gi
+          limits:
+            cpu: 1500m
+            memory: 3Gi
