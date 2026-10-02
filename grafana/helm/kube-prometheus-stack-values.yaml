@@ -174,6 +174,16 @@ alertmanager:
   enabled: true
 defaultRules:
   create: true
+  # BUG-1197 / IMPR-1172 stage 2: the chart's KubeJobFailed fires on the
+  # existence of a failed Job object, so a failure keeps paging after the
+  # CronJob has recovered, and forever for CronJobs with no ttl
+  # (k3s-datastore-backup keeps 10 by design, IMPR-1126). Its expr is hardcoded
+  # in the template, so it is disabled here and replaced by a KubeJobFailed that
+  # clears when a later run succeeds, plus a CronJobNotSucceeding companion:
+  # grafana/manifests/job-failure-alerts.yaml. Render-tested on chart 87.17.0:
+  # this removes exactly that one rule; KubeJobNotCompleted still renders.
+  disabled:
+    KubeJobFailed: true
   rules:
     node: true
     nodeExporterAlerting: true

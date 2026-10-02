@@ -132,6 +132,13 @@ if [ ! -f "$GRAFANA_DIR/manifests/backup-alerts.yaml" ]; then
 	exit 1
 fi
 
+# Replaces the chart's KubeJobFailed, which the values file disables (BUG-1197).
+# Deploy both together: the values without this file leaves no failed-Job alert.
+if [ ! -f "$GRAFANA_DIR/manifests/job-failure-alerts.yaml" ]; then
+	echo "job-failure-alerts.yaml file not found!"
+	exit 1
+fi
+
 # The grafana namespace no longer runs its own cloudflared connector. Its tunnel
 # was deleted 2026-03-28 in the consolidation into the cluster-wide `homelab`
 # tunnel, which has served logs.nathanwhyte.dev ever since; the Deployment and
@@ -151,7 +158,8 @@ kubectl apply \
 	-f "$GRAFANA_DIR/manifests/pvc-rwx.yaml" \
 	-f "$GRAFANA_DIR/manifests/rbac.yaml" \
 	-f "$GRAFANA_DIR/manifests/node-power-alerts.yaml" \
-	-f "$GRAFANA_DIR/manifests/backup-alerts.yaml"
+	-f "$GRAFANA_DIR/manifests/backup-alerts.yaml" \
+	-f "$GRAFANA_DIR/manifests/job-failure-alerts.yaml"
 
 # May also be run independently to avoid touching the Helm releases.
 bash "$GRAFANA_DIR/../longhorn/deploy-storage-alerts.sh"

@@ -1,0 +1,138 @@
+rule_files:
+  - job-failure-alerts.rules.yaml # Replaced with a temporary path by test-job-failure-alerts.py.
+evaluation_interval: 1m
+# Times are relative to the test start (t=0). kube_job_status_start_time and
+# kube_cronjob_status_last_successful_time are unix seconds, so "start at 600"
+# means 10 minutes in.
+tests:
+  # 1. Superseded failure: the Job failed, then the CronJob succeeded later.
+  #    The chart rule would fire forever; this must stay silent.
+  - interval: 1m
+    input_series:
+      - series: 'kube_job_failed{job="kube-state-metrics",namespace="compendium",job_name="sync-1",condition="true"}'
+        values: "1x120"
+      - series: 'kube_job_status_start_time{job="kube-state-metrics",namespace="compendium",job_name="sync-1"}'
+        values: "600x120"
+      - series: 'kube_job_owner{job="kube-state-metrics",namespace="compendium",job_name="sync-1",owner_kind="CronJob",owner_name="sync",owner_is_controller="true"}'
+        values: "1x120"
+      - series: 'kube_cronjob_status_last_successful_time{job="kube-state-metrics",namespace="compendium",cronjob="sync"}'
+        values: "1500x120"
+    alert_rule_test:
+      - { eval_time: 100m, alertname: KubeJobFailed, exp_alerts: [] }
+      - { eval_time: 100m, alertname: CronJobNotSucceeding, exp_alerts: [] }
+
+  # 2. Current failure: the Job started after the last success. Must fire.
+  - interval: 1m
+    input_series:
+      - series: 'kube_job_failed{job="kube-state-metrics",namespace="kube-system",job_name="backup-2",condition="true"}'
+        values: "1x120"
+      - series: 'kube_job_status_start_time{job="kube-state-metrics",namespace="kube-system",job_name="backup-2"}'
+        values: "1500x120"
+      - series: 'kube_job_owner{job="kube-state-metrics",namespace="kube-system",job_name="backup-2",owner_kind="CronJob",owner_name="backup",owner_is_controller="true"}'
+        values: "1x120"
+      - series: 'kube_cronjob_status_last_successful_time{job="kube-state-metrics",namespace="kube-system",cronjob="backup"}'
+        values: "600x120"
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: KubeJobFailed
+        exp_alerts:
+          - exp_labels: { namespace: kube-system, job_name: backup-2, owner_name: backup, severity: warning }
+            exp_annotations:
+              summary: Job kube-system/backup-2 failed and has not been superseded
+              description: "Job kube-system/backup-2 failed and no later run of the same CronJob has succeeded (standalone Jobs: failed in the last 24h). Check `kubectl -n kube-system describe job backup-2` and the pod logs. The alert clears on the next successful run; deleting the Job also clears it."
+
+  # 3. A later success clears a firing alert (the 2026-10-02 shape: failure,
+  #    then the next run succeeds at t=40m).
+  - interval: 1m
+    input_series:
+      - series: 'kube_job_failed{job="kube-state-metrics",namespace="viking",job_name="janitor-1",condition="true"}'
+        values: "1x120"
+      - series: 'kube_job_status_start_time{job="kube-state-metrics",namespace="viking",job_name="janitor-1"}'
+        values: "600x120"
+      - series: 'kube_job_owner{job="kube-state-metrics",namespace="viking",job_name="janitor-1",owner_kind="CronJob",owner_name="janitor",owner_is_controller="true"}'
+        values: "1x120"
+      - series: 'kube_cronjob_status_last_successful_time{job="kube-state-metrics",namespace="viking",cronjob="janitor"}'
+        values: "0x40 2400x80"
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: KubeJobFailed
+        exp_alerts:
+          - exp_labels: { namespace: viking, job_name: janitor-1, owner_name: janitor, severity: warning }
+            exp_annotations:
+              summary: Job viking/janitor-1 failed and has not been superseded
+              description: "Job viking/janitor-1 failed and no later run of the same CronJob has succeeded (standalone Jobs: failed in the last 24h). Check `kubectl -n viking describe job janitor-1` and the pod logs. The alert clears on the next successful run; deleting the Job also clears it."
+      - { eval_time: 60m, alertname: KubeJobFailed, exp_alerts: [] }
+
+  # 4. CronJob that has never succeeded (no last_successful_time series).
+  #    Absent must read as "not superseded", so both rules fire.
+  - interval: 1m
+    input_series:
+      - series: 'kube_job_failed{job="kube-state-metrics",namespace="media",job_name="new-1",condition="true"}'
+        values: "1x120"
+      - series: 'kube_job_status_start_time{job="kube-state-metrics",namespace="media",job_name="new-1"}'
+        values: "60x120"
+      - series: 'kube_job_owner{job="kube-state-metrics",namespace="media",job_name="new-1",owner_kind="CronJob",owner_name="new",owner_is_controller="true"}'
+        values: "1x120"
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: KubeJobFailed
+        exp_alerts:
+          - exp_labels: { namespace: media, job_name: new-1, owner_name: new, severity: warning }
+            exp_annotations:
+              summary: Job media/new-1 failed and has not been superseded
+              description: "Job media/new-1 failed and no later run of the same CronJob has succeeded (standalone Jobs: failed in the last 24h). Check `kubectl -n media describe job new-1` and the pod logs. The alert clears on the next successful run; deleting the Job also clears it."
+      - eval_time: 70m
+        alertname: CronJobNotSucceeding
+        exp_alerts:
+          - exp_labels: { namespace: media, owner_name: new, severity: warning }
+            exp_annotations:
+              summary: CronJob media/new has failures and no success in 48h
+              description: CronJob media/new has a failed Job and has not completed successfully in 48h (or ever). Its failures are not being superseded by later runs. Check `kubectl -n media get jobs` and the latest Job's logs.
+
+  # 5. Standalone Job (no CronJob owner): fires inside 24h, silent after.
+  #    1m interval on purpose: a sample interval longer than the 5m lookback
+  #    makes the series go stale between points and resets the `for` timer.
+  - interval: 1m
+    input_series:
+      - series: 'kube_job_failed{job="kube-state-metrics",namespace="kube-system",job_name="manual-1",condition="true"}'
+        values: "1x1600"
+      - series: 'kube_job_status_start_time{job="kube-state-metrics",namespace="kube-system",job_name="manual-1"}'
+        values: "0x1600"
+      - series: 'kube_job_owner{job="kube-state-metrics",namespace="kube-system",job_name="manual-1",owner_kind="<none>",owner_name="<none>",owner_is_controller="<none>"}'
+        values: "1x1600"
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: KubeJobFailed
+        exp_alerts:
+          - exp_labels: { namespace: kube-system, job_name: manual-1, severity: warning }
+            exp_annotations:
+              summary: Job kube-system/manual-1 failed and has not been superseded
+              description: "Job kube-system/manual-1 failed and no later run of the same CronJob has succeeded (standalone Jobs: failed in the last 24h). Check `kubectl -n kube-system describe job manual-1` and the pod logs. The alert clears on the next successful run; deleting the Job also clears it."
+      - { eval_time: 1500m, alertname: KubeJobFailed, exp_alerts: [] }
+
+  # 6. Suspended CronJob with no recent success: CronJobNotSucceeding stays
+  #    quiet (suspension is deliberate); KubeJobFailed still names the Job.
+  - interval: 1m
+    input_series:
+      - series: 'kube_job_failed{job="kube-state-metrics",namespace="llama",job_name="pull-1",condition="true"}'
+        values: "1x120"
+      - series: 'kube_job_status_start_time{job="kube-state-metrics",namespace="llama",job_name="pull-1"}'
+        values: "60x120"
+      - series: 'kube_job_owner{job="kube-state-metrics",namespace="llama",job_name="pull-1",owner_kind="CronJob",owner_name="pull",owner_is_controller="true"}'
+        values: "1x120"
+      - series: 'kube_cronjob_spec_suspend{job="kube-state-metrics",namespace="llama",cronjob="pull"}'
+        values: "1x120"
+    alert_rule_test:
+      - { eval_time: 90m, alertname: CronJobNotSucceeding, exp_alerts: [] }
+
+  # 7. A failed series with condition="false" is not a failure.
+  - interval: 1m
+    input_series:
+      - series: 'kube_job_failed{job="kube-state-metrics",namespace="compendium",job_name="ok-1",condition="false"}'
+        values: "1x120"
+      - series: 'kube_job_status_start_time{job="kube-state-metrics",namespace="compendium",job_name="ok-1"}'
+        values: "600x120"
+      - series: 'kube_job_owner{job="kube-state-metrics",namespace="compendium",job_name="ok-1",owner_kind="CronJob",owner_name="ok",owner_is_controller="true"}'
+        values: "1x120"
+    alert_rule_test:
+      - { eval_time: 30m, alertname: KubeJobFailed, exp_alerts: [] }
