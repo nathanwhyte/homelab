@@ -27,7 +27,9 @@ off switch; a patch failure never breaks the import):
                         path (``MemoryUpdater.apply_operations``); its echo
                         guard cuts pasted OpenViking recall output from user
                         turns before extraction (``ExtractContext.__init__``,
-                        ``OV_ECHO_GUARD=0``).
+                        ``OV_ECHO_GUARD=0``); its noise filter drops ``events``
+                        that only restate git lifecycle with no reasoning
+                        (``OV_EVENT_NOISE_FILTER=0``).
   * ov_event_abstract_patch — IMPR-1200: an ``events`` memory's vector record
                         stores its ``# Summary`` as the abstract instead of the
                         whole body; the embedding text is unchanged
@@ -51,7 +53,7 @@ off switch; a patch failure never breaks the import):
                         + ``EmbeddingMsgConverter.from_context``, stacked on the
                         event-abstract hooks).
 
-Rollback of one patch: its env switch (``OV_S3_CACHE_PATCH=0``, ``OV_EXTRACT_PATCH=0``, ``OV_CHATLOG_PATCH=0``, ``OV_MEMORY_GUARD=0``, ``OV_EVENT_ABSTRACT_PATCH=0``, ``OV_GREP_SCOPE_PATCH=0``, ``OV_RECALL_TIME_PATCH=0``; ``OV_NAV_PATCH=0``
+Rollback of one patch: its env switch (``OV_S3_CACHE_PATCH=0``, ``OV_EXTRACT_PATCH=0``, ``OV_CHATLOG_PATCH=0``, ``OV_MEMORY_GUARD=0``, ``OV_EVENT_NOISE_FILTER=0``, ``OV_EVENT_ABSTRACT_PATCH=0``, ``OV_GREP_SCOPE_PATCH=0``, ``OV_RECALL_TIME_PATCH=0``; ``OV_NAV_PATCH=0``
 only after the model-built overview template is restored, see the Deployment).
 Rollback of everything: remove PYTHONPATH from the Deployment
 (``kubectl set env … PYTHONPATH-``), again only after that template restore.
