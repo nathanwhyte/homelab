@@ -463,6 +463,248 @@ class WrapperTests(unittest.TestCase):
         self.assertEqual((out, seen), ("ok", [f"{BASE}/x_2.md"]))
 
 
+class LifecycleNoiseTests(unittest.TestCase):
+    # Event names and summaries from the pop/workbook peers, 2026-09-22..10-05 (some trimmed).
+    NOISE = (
+        (
+            "compendium_1009_merged",
+            "Compendium#1009 was merged as 0c1245f05 on 2026-10-02.",
+        ),
+        (
+            "dotfiles_pr_134_merged",
+            "Merged dotfiles#134 (commit 2d7af86). The h7 harness now logs to 03-gates/h7-hooks.log.",
+        ),
+        (
+            "homelab_pr_151_opened",
+            "Opened PR #151 in the homelab repository for documentation updates.",
+        ),
+        ("impr_1154_pr_opened", "The PR for IMPR-1154 was opened against main."),
+        (
+            "merge_dotfiles_127",
+            "dotfiles #127 was merged (511f2bd) and the worktree/branch were cleaned up.",
+        ),
+        (
+            "dipdash_cleanup",
+            "Cleaned up worktrees, local branches, and fast-forwarded main after merging dipdash#1195.",
+        ),
+        (
+            "claims_contract_commits",
+            "Committed three changes on top of 4daf7791: 35cafb2f, 44fb912f and 0c83ef9a.",
+        ),
+        # Codex review of homelab#183: creation, and a reason word inside a quoted title
+        ("pr_183_created", "Created PR 183 for the lifecycle filter."),
+        (
+            "compendium_900_merged",
+            "Merged compendium#900, titled 'drop duplicate index rows'.",
+        ),
+    )
+    KEEP = (
+        # lifecycle, but the summary says why
+        (
+            "compendium_760_closed",
+            "Closed compendium#760 as superseded by compendium#763. Removed worktree and branches.",
+        ),
+        (
+            "dotfiles_232_merged",
+            "Dotfiles PR #232 was merged. Sessions now save to the 'noot' account instead of the pilot.",
+        ),
+        (
+            "compendium_1028_merge",
+            "Compendium#1028 was merged without the required CI checks because ARC runners were down.",
+        ),
+        # lifecycle words in the name or summary, but not a lifecycle event
+        (
+            "pr_quiz_counterargument_questions",
+            "The user proposed adding counterargument questions to the PR quiz.",
+        ),
+        (
+            "homelab_pr_158_cluster_verification",
+            "The user verified that the cluster remains clean after the accidental deploy.",
+        ),
+        (
+            "dotfiles_worktree_rule_tightened",
+            "Agents must now create a worktree before any write.",
+        ),
+        # Codex review of homelab#183: not git, and reasons worded as purpose or choice
+        (
+            "incident_closed",
+            "Closed the production incident after verifying successful replay and restored data.",
+        ),
+        ("pr_183_closed", "Closed PR 183 to avoid exposing credentials in logs."),
+        (
+            "dipdash_1141_merged",
+            "Merged dipdash#1141. Chose cherry-picks to minimize regression risk.",
+        ),
+        # apostrophes must not hide the reason as if it were quoted
+        (
+            "idea_143_pr_opened",
+            "The IDEA-143 PR was opened but wasn't merged because it's a prose change.",
+        ),
+    )
+
+    def setUp(self):
+        env = mock.patch.dict(os.environ, {"OV_EVENT_NOISE_FILTER": "1"})
+        env.start()
+        self.addCleanup(env.stop)
+
+    def test_lifecycle_without_reasoning_is_noise(self):
+        for name, summary in self.NOISE:
+            with self.subTest(name=name):
+                self.assertTrue(mg.is_lifecycle_noise(name, summary))
+
+    def test_reasoning_or_non_lifecycle_is_kept(self):
+        for name, summary in self.KEEP:
+            with self.subTest(name=name):
+                self.assertFalse(mg.is_lifecycle_noise(name, summary))
+
+    def test_drops_only_noisy_events(self):
+        noisy = op("compendium_1009_merged", self.NOISE[0][1])
+        kept = op("compendium_760_closed", self.KEEP[0][1])
+        entity = op("dotfiles_127_merged", self.NOISE[4][1], memory_type="entities")
+        batch = ops(noisy, kept, entity)
+        dropped = mg.drop_lifecycle_noise(batch)
+        self.assertEqual(dropped, [(noisy.uris[0], "compendium_1009_merged")])
+        self.assertEqual(batch.upsert_operations, [kept, entity])
+
+    def test_links_to_a_dropped_event_go_with_it(self):
+        noisy = op("compendium_1009_merged", self.NOISE[0][1])
+        entity = "viking://user/u/memories/entities/e.md"
+        dangling = types.SimpleNamespace(from_uri=entity, to_uri=noisy.uris[0])
+        other = types.SimpleNamespace(from_uri=entity, to_uri=f"{BASE}/y.md")
+        batch = ops(noisy, links=[dangling, other])
+        mg.drop_lifecycle_noise(batch)
+        self.assertEqual(batch.resolved_links, [other])
+
+    def test_a_delete_replacement_is_kept(self):
+        noisy = op("compendium_1009_merged", self.NOISE[0][1])
+        batch = ops(noisy, replacements={f"{BASE}/old.md": noisy.uris[0]})
+        self.assertEqual(mg.drop_lifecycle_noise(batch), [])
+        self.assertEqual(batch.upsert_operations, [noisy])
+
+    def test_off_switch(self):
+        batch = ops(op("compendium_1009_merged", self.NOISE[0][1]))
+        with mock.patch.dict(os.environ, {"OV_EVENT_NOISE_FILTER": "0"}):
+            self.assertEqual(mg.drop_lifecycle_noise(batch), [])
+        self.assertEqual(len(batch.upsert_operations), 1)
+
+    def test_shadow_logs_but_keeps_everything(self):
+        noisy = op("compendium_1009_merged", self.NOISE[0][1])
+        link = types.SimpleNamespace(from_uri="viking://e", to_uri=noisy.uris[0])
+        batch = ops(noisy, links=[link])
+        with (
+            mock.patch.dict(os.environ, {"OV_EVENT_NOISE_FILTER": "shadow"}),
+            self.assertLogs("ov_memory_guard_patch", "WARNING") as logs,
+        ):
+            matched = mg.drop_lifecycle_noise(batch)
+        self.assertEqual(matched, [(noisy.uris[0], "compendium_1009_merged")])
+        self.assertEqual(
+            (batch.upsert_operations, batch.resolved_links), ([noisy], [link])
+        )
+        self.assertIn("would drop", logs.output[0])
+        self.assertIn("merged as 0c1245f05", logs.output[0])
+
+    def test_both_wrappers_filter_before_the_stock_body(self):
+        seen = []
+
+        async def stock(
+            self, operations, ctx, extract_context, isolation_handler, tags
+        ):
+            seen.append(
+                [o.memory_fields["event_name"] for o in operations.upsert_operations]
+            )
+
+        async def stock_submit(self, req):
+            seen.append(
+                [
+                    o.memory_fields["event_name"]
+                    for o in req.operations.upsert_operations
+                ]
+            )
+
+        def batch():
+            return ops(op("compendium_1009_merged", self.NOISE[0][1]), op("x", "kept"))
+
+        fs = FakeFS()
+        updater = types.SimpleNamespace(_registry=Registry(), _get_viking_fs=lambda: fs)
+        asyncio.run(
+            mg.wrap_apply_operations(FAKE_MODULE, stock)(updater, batch(), None)
+        )
+        module = types.SimpleNamespace(
+            get_viking_fs=lambda: fs,
+            create_default_registry=Registry,
+            attach_source_to_request_operations=lambda req: None,
+        )
+        request = types.SimpleNamespace(operations=batch(), ctx=object())
+        wrapped = mg.wrap_submit(module, stock_submit, memory_module=FAKE_MODULE)
+        asyncio.run(wrapped(types.SimpleNamespace(registry=None), request))
+        self.assertEqual(seen, [["x"], ["x"]])
+
+    def chained(self, request, mode):
+        """Run ``request`` through the patched submit, whose stock body splits it the way
+        v0.4.20 does — the append request carries no delete_replacements — and applies the
+        append half through the patched apply_operations."""
+        applied = []
+
+        async def stock_apply(
+            self, operations, ctx, extract_context, isolation_handler, tags
+        ):
+            applied.append(
+                [o.memory_fields["event_name"] for o in operations.upsert_operations]
+            )
+
+        fs = FakeFS()
+        updater = types.SimpleNamespace(_registry=Registry(), _get_viking_fs=lambda: fs)
+        apply_ops = mg.wrap_apply_operations(FAKE_MODULE, stock_apply)
+
+        async def stock_submit(self, req):
+            append = ops(*req.operations.upsert_operations)  # no replacements, as stock
+            await apply_ops(updater, append, req.ctx)
+
+        module = types.SimpleNamespace(
+            get_viking_fs=lambda: fs,
+            create_default_registry=Registry,
+            attach_source_to_request_operations=lambda req: None,
+        )
+        wrapped = mg.wrap_submit(module, stock_submit, memory_module=FAKE_MODULE)
+        with mock.patch.dict(os.environ, {"OV_EVENT_NOISE_FILTER": mode}):
+            asyncio.run(wrapped(types.SimpleNamespace(registry=None), request))
+        return applied
+
+    def test_a_replacement_survives_the_split(self):
+        # Codex P1: the submit filter keeps a replacement; the append request reaching
+        # apply_operations has lost delete_replacements and must not filter again.
+        noisy = op("compendium_1009_merged", self.NOISE[0][1])
+        request = types.SimpleNamespace(
+            operations=ops(noisy, replacements={f"{BASE}/old.md": noisy.uris[0]}),
+            ctx=object(),
+        )
+        self.assertEqual(self.chained(request, "1"), [["compendium_1009_merged"]])
+
+    def test_a_submitted_shadow_match_is_logged_once(self):
+        # Codex P3: one write, one "would drop" line.
+        request = types.SimpleNamespace(
+            operations=ops(op("compendium_1009_merged", self.NOISE[0][1])),
+            ctx=object(),
+        )
+        with self.assertLogs("ov_memory_guard_patch", "WARNING") as logs:
+            applied = self.chained(request, "shadow")
+        self.assertEqual(applied, [["compendium_1009_merged"]])
+        self.assertEqual(sum("would drop" in line for line in logs.output), 1)
+
+    def test_drop_needs_an_explicit_1(self):
+        # Codex P2: unset, a typo, or "false" must never start deleting.
+        for value in (None, "shadwo", "false", "true", ""):
+            with self.subTest(value=value):
+                env = {} if value is None else {"OV_EVENT_NOISE_FILTER": value}
+                with mock.patch.dict(os.environ, env, clear=False):
+                    if value is None:
+                        os.environ.pop("OV_EVENT_NOISE_FILTER", None)
+                    self.assertEqual(mg._noise_filter_mode(), "shadow")
+                    batch = ops(op("compendium_1009_merged", self.NOISE[0][1]))
+                    mg.drop_lifecycle_noise(batch)
+                    self.assertEqual(len(batch.upsert_operations), 1)
+
+
 class ApplyGuardTests(unittest.TestCase):
     def setUp(self):
         self.saved = sys.modules.get("openviking")

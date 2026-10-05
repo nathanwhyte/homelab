@@ -34,6 +34,20 @@ again at ``MemoryUpdater.apply_operations`` (for direct callers). For each targe
 
 ``upsert`` memory types are untouched: merging into an existing file is their contract.
 
+**Git-lifecycle noise filter** (``drop_lifecycle_noise``, ``OV_EVENT_NOISE_FILTER``). Each
+request is filtered once, before it is guarded: in ``submit`` for a submitted request, in
+``apply_operations`` for a direct caller. It drops ``events`` upserts that only restate git
+or GitHub lifecycle — a PR opened or merged, a branch pushed or rebased, a worktree cleaned
+up. Git already records when and where each of those happened; by 2026-10-05 they were
+about 270 of the 1,817 event memories on the pop and workbook peers. An event is dropped
+when its ``event_name`` carries a lifecycle verb, its ``summary`` describes lifecycle in a
+git context, and the summary records no reasoning: "Closed compendium#760 as superseded by
+compendium#763" is kept, "compendium#1009 was merged as 0c1245f05" is not. The check reads
+the summary only, so a decision that appears only in the ChatLog is lost with its event
+(1 of 14 sampled drops on 2026-10-05). Each match logs one ``ov-event-noise`` line with the
+name, URI and summary. Modes: ``1`` drops, ``0`` is off, and ``shadow`` — the default, and
+the fallback for any other value — logs matches as "would drop" and writes them anyway.
+
 Guarded: applies only to openviking ``v0.4.20`` whose ``apply_operations``,
 ``_apply_upsert``, ``StreamingMemoryUpdater.submit`` and ``_split_append_only_request``
 sources hash to the expected values; otherwise it logs "NOT applied" and stock behaviour
@@ -408,6 +422,133 @@ async def guard_add_only(
     return dropped, diverted, taken
 
 
+# --- Git-lifecycle noise filter ---------------------------------------------------------
+#
+# All four checks must hold. The name check alone over-matches ("pr_quiz_…",
+# "dotfiles_worktree_rule_tightened"); the summary check keeps an event whose name says
+# "merged" but whose summary is about something else; the git-context check keeps
+# operational lifecycle that is not git ("incident_closed"); the reasoning check keeps the
+# git events that say why ("superseded by", "to avoid", "chose"). Quoted and backticked
+# text is ignored for reasoning, so a PR titled 'drop duplicate rows' is still noise.
+
+LIFECYCLE_NAME = re.compile(
+    r"(?:^|_)(?:merged?|merges|merging|opened|closed|reopened|landed|push(?:ed)?"
+    r"|committed|commits?|rebased?|squash(?:ed)?|cleanup|cleaned)(?:_|$)"
+    r"|(?:^|_)prs?_(?:\d+_)?(?:created|creation|updated|open(?:ed)?|submitted)(?:_|$)",
+    re.IGNORECASE,
+)
+LIFECYCLE_SUMMARY = re.compile(
+    r"\b(?:merged|merging|merges?|opened|closed|reopened|landed|pushed|committed"
+    r"|commits?|rebased?|squash-merged|squashed|cleaned up|cleanup|worktrees?"
+    r"|branch(?:es)?|submitted|created)\b",
+    re.IGNORECASE,
+)
+GIT_CONTEXT = re.compile(
+    r"\bPRs?\b|\bpull requests?\b|[\w.-]*#\d+|\bbranch(?:es)?\b|\bworktrees?\b"
+    r"|\bcommit(?:s|ted)?\b|\brebas\w*|\bsquash\w*|\bcherry-pick\w*|\bpushed\b"
+    r"|\brepos?\b|\brepositor(?:y|ies)\b"
+    r"|\b(?:into|onto|on|to) (?:main|master)\b"
+    r"|\b(?=[0-9a-f]*[a-f])(?=[0-9a-f]*\d)[0-9a-f]{7,40}\b",
+    re.IGNORECASE,
+)
+REASONING = re.compile(
+    r"\b(?:because|instead of|rather than|covered by"
+    r"|already (?:covered|fixed|handled|handles|implemented|exists?)|supersed\w*"
+    r"|duplicat\w*|redundant|obsolete|in favou?r of|due to|so that|the reason|decided"
+    r"|decision|wontfix|won't fix|not needed|no longer needed|abandon\w*"
+    r"|revert(?:ed|ing)?|root cause|caused by|turned out|lesson"
+    r"|to avoid|to prevent|in order to|so as to|chose|chosen|choice|opted|prefer\w*"
+    r"|trade-?offs?|risk\w*|safer|unsafe)\b",
+    re.IGNORECASE,
+)
+# Single quotes only at word edges, so an apostrophe ("didn't ... it's") never opens a span.
+QUOTED = re.compile(r"`[^`]*`|\"[^\"]*\"|“[^”]*”|(?<!\w)'[^']{3,}'(?!\w)")
+EVENTS = "events"
+SUMMARY_LOG_CHARS = 300
+_MODE_WARNED: set[str] = set()
+
+
+def _noise_filter_mode() -> str:
+    """``"1"`` drops, ``"0"`` is off, anything else (unset included) is ``"shadow"``.
+
+    Dropping needs an explicit ``1``, so a typo never starts deleting memories.
+    """
+    raw = os.environ.get("OV_EVENT_NOISE_FILTER", "shadow").strip().lower()
+    if raw in ("0", "1", "shadow"):
+        return raw
+    if raw not in _MODE_WARNED:
+        _MODE_WARNED.add(raw)
+        logger.warning(
+            "ov-event-noise: OV_EVENT_NOISE_FILTER=%r is not 0, 1 or shadow; using shadow",
+            raw,
+        )
+    return "shadow"
+
+
+def is_lifecycle_noise(event_name: str, summary: str) -> bool:
+    """A lifecycle-named git event whose summary is lifecycle with no reasoning in it."""
+    return bool(
+        LIFECYCLE_NAME.search(event_name)
+        and LIFECYCLE_SUMMARY.search(summary)
+        and GIT_CONTEXT.search(f"{event_name.replace('_', ' ')} {summary}")
+        and not REASONING.search(QUOTED.sub(" ", summary))
+    )
+
+
+def drop_lifecycle_noise(operations) -> list[tuple[str, str]]:
+    """Drop git-lifecycle ``events`` upserts in place; returns ``(uri, event_name)`` pairs.
+
+    An event named as a delete replacement is kept, so a delete is never left without the
+    memory meant to replace it. Links to or from a dropped event go with it.
+
+    Each match logs its name, URI and summary (the only record a drop leaves behind; the
+    session archive under ``sessions/`` still holds the turns). In ``shadow`` mode the
+    matches are logged and returned but nothing is removed.
+    """
+    mode = _noise_filter_mode()
+    if mode == "0" or operations.has_errors():
+        return []
+    replacements = getattr(operations, "delete_replacements", None)
+    needed = set(replacements.values()) if isinstance(replacements, dict) else set()
+    kept, dropped = [], []
+    for op in list(operations.upsert_operations or []):
+        fields = getattr(op, "memory_fields", None) or {}
+        name = str(fields.get("event_name") or "").strip()
+        summary = str(fields.get("summary") or "")
+        uris = list(op.uris or [])
+        if (
+            op.memory_type == EVENTS
+            and uris
+            and not needed.intersection(uris)
+            and is_lifecycle_noise(name, summary)
+        ):
+            for uri in uris:
+                logger.warning(
+                    "ov-event-noise: %s git-lifecycle event %s (%s): %s",
+                    "would drop" if mode == "shadow" else "dropped",
+                    name,
+                    uri,
+                    " ".join(summary.split())[:SUMMARY_LOG_CHARS],
+                )
+                dropped.append((uri, name))
+            if mode == "shadow":
+                kept.append(op)
+            continue
+        kept.append(op)
+    if not dropped or mode == "shadow":
+        return dropped
+    operations.upsert_operations = kept
+    gone = {uri for uri, _ in dropped}
+    links = getattr(operations, "resolved_links", None)
+    if isinstance(links, list):
+        links[:] = [
+            link
+            for link in links
+            if link.from_uri not in gone and link.to_uri not in gone
+        ]
+    return dropped
+
+
 def wrap_apply_operations(module, orig):
     @functools.wraps(orig)
     async def apply_operations(
@@ -421,6 +562,12 @@ def wrap_apply_operations(module, orig):
         # No fallback to the stock body on failure: an unguarded add_only write is the
         # overwrite this patch exists to prevent. OV_MEMORY_GUARD=0 is the escape hatch.
         owner = _OWNER.get()
+        if owner is None:
+            # Direct callers only. A submitted request was filtered whole in submit, where
+            # delete_replacements is still attached; the stock split leaves it off the
+            # append request, so filtering again here would drop a replacement and log
+            # every shadow match twice (Codex review of homelab#183, P1 and P3).
+            drop_lifecycle_noise(operations)
         await guard_with_waits(
             lambda: guard_add_only(
                 module,
@@ -514,6 +661,7 @@ def wrap_submit(module, orig, memory_module=None):
         if readers is None:
             from openviking.session.memory import memory_updater as readers
         module.attach_source_to_request_operations(request)
+        drop_lifecycle_noise(operations)
         registry = self.registry or module.create_default_registry()
         owner = object()
         token = _OWNER.set(owner)
