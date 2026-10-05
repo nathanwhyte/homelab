@@ -561,6 +561,22 @@ class LifecycleNoiseTests(unittest.TestCase):
             self.assertEqual(mg.drop_lifecycle_noise(batch), [])
         self.assertEqual(len(batch.upsert_operations), 1)
 
+    def test_shadow_logs_but_keeps_everything(self):
+        noisy = op("compendium_1009_merged", self.NOISE[0][1])
+        link = types.SimpleNamespace(from_uri="viking://e", to_uri=noisy.uris[0])
+        batch = ops(noisy, links=[link])
+        with (
+            mock.patch.dict(os.environ, {"OV_EVENT_NOISE_FILTER": "shadow"}),
+            self.assertLogs("ov_memory_guard_patch", "WARNING") as logs,
+        ):
+            matched = mg.drop_lifecycle_noise(batch)
+        self.assertEqual(matched, [(noisy.uris[0], "compendium_1009_merged")])
+        self.assertEqual(
+            (batch.upsert_operations, batch.resolved_links), ([noisy], [link])
+        )
+        self.assertIn("would drop", logs.output[0])
+        self.assertIn("merged as 0c1245f05", logs.output[0])
+
     def test_both_wrappers_filter_before_the_stock_body(self):
         seen = []
 

@@ -29,7 +29,7 @@ off switch; a patch failure never breaks the import):
                         turns before extraction (``ExtractContext.__init__``,
                         ``OV_ECHO_GUARD=0``); its noise filter drops ``events``
                         that only restate git lifecycle with no reasoning
-                        (``OV_EVENT_NOISE_FILTER=0``).
+                        (``OV_EVENT_NOISE_FILTER=0`` off, ``=shadow`` log only).
   * ov_event_abstract_patch — IMPR-1200: an ``events`` memory's vector record
                         stores its ``# Summary`` as the abstract instead of the
                         whole body; the embedding text is unchanged

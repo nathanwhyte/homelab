@@ -41,7 +41,10 @@ when and where each of those happened; by 2026-10-05 they were 271 of the 1,817 
 memories on the pop and workbook peers. An event is dropped when its ``event_name`` carries
 a lifecycle verb, its ``summary`` describes lifecycle, and the summary records no reasoning:
 "Closed compendium#760 as superseded by compendium#763" is kept, "compendium#1009 was merged
-as 0c1245f05" is not. Each drop logs one ``ov-event-noise`` line with the name and URI.
+as 0c1245f05" is not. The check reads the summary only, so a decision that appears only
+in the ChatLog is lost with its event (1 of 14 sampled drops on 2026-10-05). Each match
+logs one ``ov-event-noise`` line with the name, URI and summary.
+``OV_EVENT_NOISE_FILTER=shadow`` logs matches as "would drop" and writes them anyway.
 
 Guarded: applies only to openviking ``v0.4.20`` whose ``apply_operations``,
 ``_apply_upsert``, ``StreamingMemoryUpdater.submit`` and ``_split_append_only_request``
@@ -449,8 +452,13 @@ REASONING = re.compile(
 EVENTS = "events"
 
 
-def _noise_filter_enabled() -> bool:
-    return os.environ.get("OV_EVENT_NOISE_FILTER", "1") != "0"
+SUMMARY_LOG_CHARS = 300
+
+
+def _noise_filter_mode() -> str:
+    """``"1"`` drops (default), ``"shadow"`` only logs, ``"0"`` is off."""
+    mode = os.environ.get("OV_EVENT_NOISE_FILTER", "1").strip().lower()
+    return mode if mode in ("0", "shadow") else "1"
 
 
 def is_lifecycle_noise(event_name: str, summary: str) -> bool:
@@ -467,8 +475,13 @@ def drop_lifecycle_noise(operations) -> list[tuple[str, str]]:
 
     An event named as a delete replacement is kept, so a delete is never left without the
     memory meant to replace it. Links to or from a dropped event go with it.
+
+    Each match logs its name, URI and summary (the only record a drop leaves behind; the
+    session archive under ``sessions/`` still holds the turns). In ``shadow`` mode the
+    matches are logged and returned but nothing is removed.
     """
-    if not _noise_filter_enabled() or operations.has_errors():
+    mode = _noise_filter_mode()
+    if mode == "0" or operations.has_errors():
         return []
     replacements = getattr(operations, "delete_replacements", None)
     needed = set(replacements.values()) if isinstance(replacements, dict) else set()
@@ -476,18 +489,29 @@ def drop_lifecycle_noise(operations) -> list[tuple[str, str]]:
     for op in list(operations.upsert_operations or []):
         fields = getattr(op, "memory_fields", None) or {}
         name = str(fields.get("event_name") or "").strip()
+        summary = str(fields.get("summary") or "")
         uris = list(op.uris or [])
         if (
             op.memory_type == EVENTS
             and uris
             and not needed.intersection(uris)
-            and is_lifecycle_noise(name, str(fields.get("summary") or ""))
+            and is_lifecycle_noise(name, summary)
         ):
-            dropped.extend((uri, name) for uri in uris)
+            for uri in uris:
+                logger.warning(
+                    "ov-event-noise: %s git-lifecycle event %s (%s): %s",
+                    "would drop" if mode == "shadow" else "dropped",
+                    name,
+                    uri,
+                    " ".join(summary.split())[:SUMMARY_LOG_CHARS],
+                )
+                dropped.append((uri, name))
+            if mode == "shadow":
+                kept.append(op)
             continue
         kept.append(op)
-    if not dropped:
-        return []
+    if not dropped or mode == "shadow":
+        return dropped
     operations.upsert_operations = kept
     gone = {uri for uri, _ in dropped}
     links = getattr(operations, "resolved_links", None)
@@ -497,8 +521,6 @@ def drop_lifecycle_noise(operations) -> list[tuple[str, str]]:
             for link in links
             if link.from_uri not in gone and link.to_uri not in gone
         ]
-    for uri, name in dropped:
-        logger.warning("ov-event-noise: dropped git-lifecycle event %s (%s)", name, uri)
     return dropped
 
 
