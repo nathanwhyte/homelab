@@ -34,17 +34,19 @@ again at ``MemoryUpdater.apply_operations`` (for direct callers). For each targe
 
 ``upsert`` memory types are untouched: merging into an existing file is their contract.
 
-**Git-lifecycle noise filter** (``drop_lifecycle_noise``, ``OV_EVENT_NOISE_FILTER=0``). Both
-wrappers first drop ``events`` upserts that only restate git or GitHub lifecycle — a PR
-opened or merged, a branch pushed or rebased, a worktree cleaned up. Git already records
-when and where each of those happened; by 2026-10-05 they were 271 of the 1,817 event
-memories on the pop and workbook peers. An event is dropped when its ``event_name`` carries
-a lifecycle verb, its ``summary`` describes lifecycle, and the summary records no reasoning:
-"Closed compendium#760 as superseded by compendium#763" is kept, "compendium#1009 was merged
-as 0c1245f05" is not. The check reads the summary only, so a decision that appears only
-in the ChatLog is lost with its event (1 of 14 sampled drops on 2026-10-05). Each match
-logs one ``ov-event-noise`` line with the name, URI and summary.
-``OV_EVENT_NOISE_FILTER=shadow`` logs matches as "would drop" and writes them anyway.
+**Git-lifecycle noise filter** (``drop_lifecycle_noise``, ``OV_EVENT_NOISE_FILTER``). Each
+request is filtered once, before it is guarded: in ``submit`` for a submitted request, in
+``apply_operations`` for a direct caller. It drops ``events`` upserts that only restate git
+or GitHub lifecycle — a PR opened or merged, a branch pushed or rebased, a worktree cleaned
+up. Git already records when and where each of those happened; by 2026-10-05 they were
+about 270 of the 1,817 event memories on the pop and workbook peers. An event is dropped
+when its ``event_name`` carries a lifecycle verb, its ``summary`` describes lifecycle in a
+git context, and the summary records no reasoning: "Closed compendium#760 as superseded by
+compendium#763" is kept, "compendium#1009 was merged as 0c1245f05" is not. The check reads
+the summary only, so a decision that appears only in the ChatLog is lost with its event
+(1 of 14 sampled drops on 2026-10-05). Each match logs one ``ov-event-noise`` line with the
+name, URI and summary. Modes: ``1`` drops, ``0`` is off, and ``shadow`` — the default, and
+the fallback for any other value — logs matches as "would drop" and writes them anyway.
 
 Guarded: applies only to openviking ``v0.4.20`` whose ``apply_operations``,
 ``_apply_upsert``, ``StreamingMemoryUpdater.submit`` and ``_split_append_only_request``
@@ -422,12 +424,12 @@ async def guard_add_only(
 
 # --- Git-lifecycle noise filter ---------------------------------------------------------
 #
-# All three checks must hold. The name check alone over-matches ("pr_quiz_…",
+# All four checks must hold. The name check alone over-matches ("pr_quiz_…",
 # "dotfiles_worktree_rule_tightened"); the summary check keeps an event whose name says
-# "merged" but whose summary is about something else; the reasoning check keeps the
-# lifecycle events that say why ("superseded by", "instead of", "because"). Measured on the
-# 359 lifecycle-vocabulary events stored by 2026-10-05: 271 dropped, 13 kept for reasoning,
-# 75 kept as not lifecycle.
+# "merged" but whose summary is about something else; the git-context check keeps
+# operational lifecycle that is not git ("incident_closed"); the reasoning check keeps the
+# git events that say why ("superseded by", "to avoid", "chose"). Quoted and backticked
+# text is ignored for reasoning, so a PR titled 'drop duplicate rows' is still noise.
 
 LIFECYCLE_NAME = re.compile(
     r"(?:^|_)(?:merged?|merges|merging|opened|closed|reopened|landed|push(?:ed)?"
@@ -438,35 +440,58 @@ LIFECYCLE_NAME = re.compile(
 LIFECYCLE_SUMMARY = re.compile(
     r"\b(?:merged|merging|merges?|opened|closed|reopened|landed|pushed|committed"
     r"|commits?|rebased?|squash-merged|squashed|cleaned up|cleanup|worktrees?"
-    r"|branch(?:es)?|submitted)\b",
+    r"|branch(?:es)?|submitted|created)\b",
+    re.IGNORECASE,
+)
+GIT_CONTEXT = re.compile(
+    r"\bPRs?\b|\bpull requests?\b|[\w.-]*#\d+|\bbranch(?:es)?\b|\bworktrees?\b"
+    r"|\bcommit(?:s|ted)?\b|\brebas\w*|\bsquash\w*|\bcherry-pick\w*|\bpushed\b"
+    r"|\brepos?\b|\brepositor(?:y|ies)\b"
+    r"|\b(?:into|onto|on|to) (?:main|master)\b"
+    r"|\b(?=[0-9a-f]*[a-f])(?=[0-9a-f]*\d)[0-9a-f]{7,40}\b",
     re.IGNORECASE,
 )
 REASONING = re.compile(
     r"\b(?:because|instead of|rather than|covered by"
-    r"|already (?:covered|fixed|handled|implemented|exists?)|supersed\w*|duplicat\w*"
-    r"|redundant|obsolete|in favou?r of|due to|so that|the reason|decided|decision"
-    r"|wontfix|won't fix|not needed|no longer needed|abandon\w*|revert(?:ed|ing)?"
-    r"|root cause|caused by|turned out|lesson)\b",
+    r"|already (?:covered|fixed|handled|handles|implemented|exists?)|supersed\w*"
+    r"|duplicat\w*|redundant|obsolete|in favou?r of|due to|so that|the reason|decided"
+    r"|decision|wontfix|won't fix|not needed|no longer needed|abandon\w*"
+    r"|revert(?:ed|ing)?|root cause|caused by|turned out|lesson"
+    r"|to avoid|to prevent|in order to|so as to|chose|chosen|choice|opted|prefer\w*"
+    r"|trade-?offs?|risk\w*|safer|unsafe)\b",
     re.IGNORECASE,
 )
+# Single quotes only at word edges, so an apostrophe ("didn't ... it's") never opens a span.
+QUOTED = re.compile(r"`[^`]*`|\"[^\"]*\"|“[^”]*”|(?<!\w)'[^']{3,}'(?!\w)")
 EVENTS = "events"
-
-
 SUMMARY_LOG_CHARS = 300
+_MODE_WARNED: set[str] = set()
 
 
 def _noise_filter_mode() -> str:
-    """``"1"`` drops (default), ``"shadow"`` only logs, ``"0"`` is off."""
-    mode = os.environ.get("OV_EVENT_NOISE_FILTER", "1").strip().lower()
-    return mode if mode in ("0", "shadow") else "1"
+    """``"1"`` drops, ``"0"`` is off, anything else (unset included) is ``"shadow"``.
+
+    Dropping needs an explicit ``1``, so a typo never starts deleting memories.
+    """
+    raw = os.environ.get("OV_EVENT_NOISE_FILTER", "shadow").strip().lower()
+    if raw in ("0", "1", "shadow"):
+        return raw
+    if raw not in _MODE_WARNED:
+        _MODE_WARNED.add(raw)
+        logger.warning(
+            "ov-event-noise: OV_EVENT_NOISE_FILTER=%r is not 0, 1 or shadow; using shadow",
+            raw,
+        )
+    return "shadow"
 
 
 def is_lifecycle_noise(event_name: str, summary: str) -> bool:
-    """A lifecycle-named event whose summary is lifecycle with no reasoning in it."""
+    """A lifecycle-named git event whose summary is lifecycle with no reasoning in it."""
     return bool(
         LIFECYCLE_NAME.search(event_name)
         and LIFECYCLE_SUMMARY.search(summary)
-        and not REASONING.search(summary)
+        and GIT_CONTEXT.search(f"{event_name.replace('_', ' ')} {summary}")
+        and not REASONING.search(QUOTED.sub(" ", summary))
     )
 
 
@@ -536,8 +561,13 @@ def wrap_apply_operations(module, orig):
     ):
         # No fallback to the stock body on failure: an unguarded add_only write is the
         # overwrite this patch exists to prevent. OV_MEMORY_GUARD=0 is the escape hatch.
-        drop_lifecycle_noise(operations)
         owner = _OWNER.get()
+        if owner is None:
+            # Direct callers only. A submitted request was filtered whole in submit, where
+            # delete_replacements is still attached; the stock split leaves it off the
+            # append request, so filtering again here would drop a replacement and log
+            # every shadow match twice (Codex review of homelab#183, P1 and P3).
+            drop_lifecycle_noise(operations)
         await guard_with_waits(
             lambda: guard_add_only(
                 module,
