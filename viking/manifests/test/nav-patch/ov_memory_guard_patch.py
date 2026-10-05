@@ -44,9 +44,11 @@ when its ``event_name`` carries a lifecycle verb, its ``summary`` describes life
 git context, and the summary records no reasoning: "Closed compendium#760 as superseded by
 compendium#763" is kept, "compendium#1009 was merged as 0c1245f05" is not. The check reads
 the summary only, so a decision that appears only in the ChatLog is lost with its event
-(1 of 14 sampled drops on 2026-10-05). Each match logs one ``ov-event-noise`` line with the
-name, URI and summary. Modes: ``1`` drops, ``0`` is off, and ``shadow`` — the default, and
-the fallback for any other value — logs matches as "would drop" and writes them anyway.
+(1 of 14 sampled drops on 2026-10-05). Each match writes one unwrapped stderr line,
+``ov-event-noise {"action": …, "event_name": …, "uri": …, "summary": …}`` (see
+``emit_noise_record``). Modes: ``1`` drops (``"action": "dropped"``), ``0`` is off, and
+``shadow`` — the default, and the fallback for any other value — records
+``"would_drop"`` and writes the event anyway.
 
 Guarded: applies only to openviking ``v0.4.20`` whose ``apply_operations``,
 ``_apply_upsert``, ``StreamingMemoryUpdater.submit`` and ``_split_append_only_request``
@@ -123,6 +125,7 @@ import json
 import logging
 import os
 import re
+import sys
 
 EXPECTED_VERSION = "v0.4.20"
 EXPECTED_APPLY_SHA256 = (
@@ -485,6 +488,24 @@ def _noise_filter_mode() -> str:
     return "shadow"
 
 
+NOISE_PREFIX = "ov-event-noise "
+
+
+def emit_noise_record(record: dict) -> None:
+    """Write one match as a single ``ov-event-noise {json}`` line on stderr.
+
+    Not through ``logger``: once the server is up, OpenViking's rich handler folds a
+    record at 80 columns into separate Loki entries, splitting "would drop" and putting
+    the name, URI and summary on lines of their own (seen on the ov-test canary,
+    2026-10-05). Reassembly loses any space that fell on a wrap point, and summaries are
+    prose (``ov-recall-shadow-report.py``'s ``_unwrap_rich`` names an unwrapped line at
+    the emitter as the durable fix). ``json.dumps`` escapes newlines, so the record is
+    always one line.
+    """
+    sys.stderr.write(NOISE_PREFIX + json.dumps(record, sort_keys=True) + "\n")
+    sys.stderr.flush()
+
+
 def is_lifecycle_noise(event_name: str, summary: str) -> bool:
     """A lifecycle-named git event whose summary is lifecycle with no reasoning in it."""
     return bool(
@@ -523,12 +544,13 @@ def drop_lifecycle_noise(operations) -> list[tuple[str, str]]:
             and is_lifecycle_noise(name, summary)
         ):
             for uri in uris:
-                logger.warning(
-                    "ov-event-noise: %s git-lifecycle event %s (%s): %s",
-                    "would drop" if mode == "shadow" else "dropped",
-                    name,
-                    uri,
-                    " ".join(summary.split())[:SUMMARY_LOG_CHARS],
+                emit_noise_record(
+                    {
+                        "action": "would_drop" if mode == "shadow" else "dropped",
+                        "event_name": name,
+                        "uri": uri,
+                        "summary": " ".join(summary.split())[:SUMMARY_LOG_CHARS],
+                    }
                 )
                 dropped.append((uri, name))
             if mode == "shadow":
