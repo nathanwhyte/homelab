@@ -433,6 +433,11 @@ async def guard_add_only(
 # operational lifecycle that is not git ("incident_closed"); the reasoning check keeps the
 # git events that say why ("superseded by", "to avoid", "chose"). Quoted and backticked
 # text is ignored for reasoning, so a PR titled 'drop duplicate rows' is still noise.
+#
+# A bare "cleanup" in the summary is not lifecycle: content cleanups ("Eleven cleanup items
+# were applied") are decisions about the work. Worktree and branch cleanup still counts,
+# because "worktree" and "branch" are summary words of their own (shadow week, 2026-10-06:
+# dotfiles_template_split_and_cleanup was a confirmed false drop).
 
 LIFECYCLE_NAME = re.compile(
     r"(?:^|_)(?:merged?|merges|merging|opened|closed|reopened|landed|push(?:ed)?"
@@ -442,7 +447,7 @@ LIFECYCLE_NAME = re.compile(
 )
 LIFECYCLE_SUMMARY = re.compile(
     r"\b(?:merged|merging|merges?|opened|closed|reopened|landed|pushed|committed"
-    r"|commits?|rebased?|squash-merged|squashed|cleaned up|cleanup|worktrees?"
+    r"|commits?|rebased?|squash-merged|squashed|worktrees?"
     r"|branch(?:es)?|submitted|created)\b",
     re.IGNORECASE,
 )

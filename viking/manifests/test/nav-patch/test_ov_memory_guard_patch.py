@@ -540,6 +540,15 @@ class LifecycleNoiseTests(unittest.TestCase):
             "dotfiles_worktree_rule_tightened",
             "Agents must now create a worktree before any write.",
         ),
+        # Shadow week, 2026-10-06: a content cleanup is not lifecycle (confirmed false drop)
+        (
+            "dotfiles_template_split_and_cleanup",
+            (
+                "The PR template was split into a shared base (PR_TEMPLATE.md) and a "
+                "work-specific file (PR_TEMPLATE_WORK.md) to separate personal and work "
+                "PR rules. Eleven cleanup items were also applied to both files."
+            ),
+        ),
         # Codex review of homelab#183: not git, and reasons worded as purpose or choice
         (
             "incident_closed",
