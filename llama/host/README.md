@@ -8,7 +8,7 @@ and `llama/ollama-jobs.yaml` (CronJobs that talk to the daemon over HTTP).
 | Piece                             | Where it lands on timmy                             | What it does                                                            |
 | --------------------------------- | --------------------------------------------------- | ----------------------------------------------------------------------- |
 | `ollama.service.d/homelab.conf`   | `/etc/systemd/system/ollama.service.d/`             | The env the pod used to carry (bind, ctx, KV, Vulkan, …)                |
-| `ollama-warm.sh` + `.service`     | `/opt/ollama-host/`, `/etc/systemd/system/`         | Post-start: build + load-only warm of the FIM tag, build agentpair tags |
+| `ollama-warm.sh` + `.service`     | `/opt/ollama-host/`, `/etc/systemd/system/`         | Post-start: build + load-only warm of the FIM tag, build the OV pair   |
 | `install-host-ollama.sh`          | run from a repo checkout, with sudo                 | Pins the binary, installs the above, reconciles the exporter            |
 | `homelab-ollama-deploy.sh`        | `/usr/local/sbin/` (root:root 0755)                 | Passwordless deploy of **GitHub main** only — see below                 |
 | `homelab-deploy.sudoers`          | `/etc/sudoers.d/homelab-deploy` (0440, no dot)      | Grants noot that wrapper plus ollama start/stop/restart, nothing else   |

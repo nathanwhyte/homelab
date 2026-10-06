@@ -14,7 +14,7 @@
 #      install that release's base tarball (sha256-verified; no ROCm). Never floats.
 #      A fresh host also gets the ollama user and the base ollama.service unit.
 #   2. Copy llama/host/ollama.service.d/homelab.conf to the drop-in dir.
-#   3. Copy ollama-warm.sh + the agentpair Modelfiles to /opt/ollama-host and
+#   3. Copy ollama-warm.sh + the OV-pair Modelfiles to /opt/ollama-host and
 #      install ollama-warm.service (PartOf=ollama.service).
 #   4. Reconcile ollama-exporter.service from llama/ollama/ollama-exporter.py.
 #   5. daemon-reload, enable everything, restart ollama.service, verify the
@@ -223,7 +223,8 @@ fi
 install -d -m 0755 "$DROPIN_DIR" "$HOST_DIR" "$HOST_DIR/modelfiles"
 install -m 0644 "$SRC/ollama.service.d/homelab.conf" "$DROPIN_DIR/homelab.conf"
 install -m 0755 "$SRC/ollama-warm.sh" "$HOST_DIR/ollama-warm.sh"
-install -m 0644 "$REPO_DIR"/llama/ollama/agentpair-*.Modelfile "$HOST_DIR/modelfiles/"
+# The agentpair:* tags were retired 2026-10-06; drop their stale recipes.
+rm -f "$HOST_DIR"/modelfiles/agentpair-*.Modelfile
 # IDEA-1105 OpenViking/editor pair; build-if-missing only, see prepare_ov_pair.
 install -m 0644 "$REPO_DIR"/llama/ollama/qwen2.5-coder-fim.Modelfile \
 	"$REPO_DIR"/llama/ollama/gemma4-vlm.Modelfile "$HOST_DIR/modelfiles/"
