@@ -35,8 +35,8 @@
 #   2. LOCAL model prep is best-effort with retry. /run/ollama/models-ready is
 #      written as an observable signal; nothing outside this script reads it.
 #
-#   ollama-warm.sh                   wait, reconcile both tags, pin RESIDENT_TAG,
-#                                    build the agentpair:* tags (never warm them)
+#   ollama-warm.sh                   wait, reconcile both tags, pin RESIDENT_TAG
+#                                    (the agentpair:* tags were retired 2026-10-06)
 #   ollama-warm.sh --reconcile-only  wait, rebuild either tag whose num_ctx drifted
 #                                    from the recipe, load nothing; exit 1 if the
 #                                    resident tag cannot be made to match
@@ -297,23 +297,6 @@ warm_ov_vlm() {
 	fi
 }
 
-prepare_agent_pair() {
-	# IDEA-1090 paired tags — BUILD-IF-MISSING ONLY since the 2026-09-04
-	# rollback; nothing here is warmed. Re-entering the pair posture means
-	# raising OLLAMA_MAX_LOADED_MODELS to 2 in the drop-in AND warming both
-	# halves. Modelfiles are the reference copies in llama/ollama/.
-	local dir
-	dir=${MODELFILE_DIR:-/opt/ollama-host/modelfiles}
-	[[ -d $dir ]] || {
-		log "WARN: $dir missing; agentpair tags not built"
-		return 0
-	}
-	create_if_missing agentpair:fim qwen2.5-coder:3b-base "$dir/agentpair-fim.Modelfile"
-	create_if_missing agentpair:agent qwen3.5:9b-q4_K_M "$dir/agentpair-agent.Modelfile"
-	create_if_missing agentpair:agent-gemma4-e4b gemma4:e4b-it-qat "$dir/agentpair-agent-gemma4-e4b.Modelfile"
-	create_if_missing agentpair:agent-gemma4-12b gemma4:12b-it-qat "$dir/agentpair-agent-gemma4-12b.Modelfile"
-}
-
 copy_modelfile() {
 	# reconcile_tag writer that emits a reference Modelfile verbatim, so the
 	# checked-in recipe in llama/ollama/ stays the single source of truth rather
@@ -323,8 +306,8 @@ copy_modelfile() {
 
 prepare_ov_pair() {
 	# IDEA-1105 OpenViking/editor pair. Warms NOTHING and leaves RESIDENT_TAG
-	# alone, so running this cannot change what is loaded — same contract as
-	# prepare_agent_pair. Adopting the pair is a separate, deliberate change:
+	# alone, so running this cannot change what is loaded. Adopting the pair is a
+	# separate, deliberate change:
 	# point RESIDENT_TAG at $OV_FIM_TAG, warm $OV_VLM_TAG alongside it, and keep
 	# OLLAMA_MAX_LOADED_MODELS at 2.
 	#
@@ -381,12 +364,10 @@ if [[ $mode == ovpair ]]; then
 	log "$OV_FIM_TAG=$(tag_num_ctx "$OV_FIM_TAG") $OV_VLM_TAG=$(tag_num_ctx "$OV_VLM_TAG")"
 	exit 0
 fi
-# Both preparations run concurrently, as the pod's startup.sh did (`… &`), so
-# a cold agentpair build never queues behind the FIM retry loop. Only the
-# edit-prediction result decides the unit's exit status.
+# The OV-pair build runs concurrently, as the pod's startup.sh did (`… &`), so
+# a cold build never queues behind the FIM retry loop. Only the edit-prediction
+# result decides the unit's exit status.
 warm_status=0
-prepare_agent_pair &
-agent_pair_pid=$!
 prepare_ov_pair &
 ov_pair_pid=$!
 prepare_edit_prediction_model || warm_status=$?
@@ -398,6 +379,5 @@ warm_ov_vlm
 # `ollama pull` for the rollback tag cannot delay edit prediction. Best-effort
 # and bounded; its result never gates the unit.
 prepare_standby_tag
-wait "$agent_pair_pid" || log "WARN: agentpair preparation exited non-zero (tags may be missing)"
 wait "$ov_pair_pid" || log "WARN: ov-pair preparation exited non-zero (tags may be missing)"
 exit "$warm_status"
