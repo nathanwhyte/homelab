@@ -1,0 +1,398 @@
+{
+  "started_at": "2026-09-23T16:36:21.907329+00:00",
+  "pod": "task1218-qwen4b-probe",
+  "sample_sha256": "ed0654415fc561d6c85e7b5a95a420f4a0debb61e20b25359c8a1aef75ba434e",
+  "historical_baseline_sha256": "830e377601b18585864f01159d829791e1d5876fa592839181934ec80b6d1b5a",
+  "baseline_caveat": "Historical 1080 vectors from 2026-09-22; sample order inherited from source experiment, not a fresh paired control",
+  "requests": [
+    {
+      "index": 0,
+      "target": 300,
+      "sample_tokens": 300,
+      "usage": {
+        "prompt_tokens": 301,
+        "total_tokens": 301
+      },
+      "input_sha256": "63da6a654c46a5e144828a5d1e6e78d4cc44208a5baaa70ea6f881d43aba12f1",
+      "latency_ms": 2688.9857089990983,
+      "cosine_vs_historical_1080": 1
+    },
+    {
+      "index": 1,
+      "target": 300,
+      "sample_tokens": 300,
+      "usage": {
+        "prompt_tokens": 301,
+        "total_tokens": 301
+      },
+      "input_sha256": "8fa0e2851301b4d454f6ec164872e7b54f7810f8257e42b9a341ad30bdd0a89f",
+      "latency_ms": 601.6542500001378,
+      "cosine_vs_historical_1080": 1
+    },
+    {
+      "index": 2,
+      "target": 300,
+      "sample_tokens": 300,
+      "usage": {
+        "prompt_tokens": 301,
+        "total_tokens": 301
+      },
+      "input_sha256": "439ddbfc118acfa940837559080be86ec4865f3e4802c1c491ec44682ca5d8e7",
+      "latency_ms": 602.8349579992209,
+      "cosine_vs_historical_1080": 1
+    },
+    {
+      "index": 3,
+      "target": 300,
+      "sample_tokens": 300,
+      "usage": {
+        "prompt_tokens": 301,
+        "total_tokens": 301
+      },
+      "input_sha256": "415342e100650843f7b0c4c9d32697ba024a45303454df8bbb5edb99404ea7ef",
+      "latency_ms": 602.8388340000674,
+      "cosine_vs_historical_1080": 1
+    },
+    {
+      "index": 4,
+      "target": 300,
+      "sample_tokens": 300,
+      "usage": {
+        "prompt_tokens": 301,
+        "total_tokens": 301
+      },
+      "input_sha256": "dd41379e4b9b331ad8ce8325bb432ff16054e23734f9139f3ee0992bc0dc85d4",
+      "latency_ms": 604.9352079990058,
+      "cosine_vs_historical_1080": 1
+    },
+    {
+      "index": 5,
+      "target": 300,
+      "sample_tokens": 300,
+      "usage": {
+        "prompt_tokens": 301,
+        "total_tokens": 301
+      },
+      "input_sha256": "85de35d7da86140021b22591e4827224d7d2a9edb52e997caa2895cf7fdf568e",
+      "latency_ms": 603.573750000578,
+      "cosine_vs_historical_1080": 1
+    },
+    {
+      "index": 6,
+      "target": 300,
+      "sample_tokens": 300,
+      "usage": {
+        "prompt_tokens": 301,
+        "total_tokens": 301
+      },
+      "input_sha256": "3dc75d5708141da01ab9f00e38833aba14adce0a317428dbfcd8bbe3fe433d97",
+      "latency_ms": 607.0634169991536,
+      "cosine_vs_historical_1080": 1
+    },
+    {
+      "index": 7,
+      "target": 300,
+      "sample_tokens": 300,
+      "usage": {
+        "prompt_tokens": 301,
+        "total_tokens": 301
+      },
+      "input_sha256": "d5b13c21433e6466641ba6ef584bbcbcb18876ccd27b11946208532e85f966d8",
+      "latency_ms": 610.6951250003476,
+      "cosine_vs_historical_1080": 1
+    },
+    {
+      "index": 8,
+      "target": 300,
+      "sample_tokens": 234,
+      "usage": {
+        "prompt_tokens": 235,
+        "total_tokens": 235
+      },
+      "input_sha256": "ed7d4b52632d68f3c48e4a762751f3f7853512d8b3bfa412158ee58cb620b43b",
+      "latency_ms": 464.229624998552,
+      "cosine_vs_historical_1080": 1
+    },
+    {
+      "index": 9,
+      "target": 300,
+      "sample_tokens": 300,
+      "usage": {
+        "prompt_tokens": 301,
+        "total_tokens": 301
+      },
+      "input_sha256": "7545bdaca0543c9e66f331641b0f7f7fc52fff5b96bf4bba233386044fc2efc0",
+      "latency_ms": 609.7554999996646,
+      "cosine_vs_historical_1080": 1
+    },
+    {
+      "index": 10,
+      "target": 300,
+      "sample_tokens": 300,
+      "usage": {
+        "prompt_tokens": 301,
+        "total_tokens": 301
+      },
+      "input_sha256": "b3295470b7e90827d143b1aa8b513fef4c96bbefcf06abe7343479a4091f5d5a",
+      "latency_ms": 600.3196250003384,
+      "cosine_vs_historical_1080": 1
+    },
+    {
+      "index": 11,
+      "target": 300,
+      "sample_tokens": 300,
+      "usage": {
+        "prompt_tokens": 301,
+        "total_tokens": 301
+      },
+      "input_sha256": "319315e88d5211baa53476c581b46299514fa5f71ccd4d65a019270ab1c30c46",
+      "latency_ms": 601.2629159995413,
+      "cosine_vs_historical_1080": 1
+    },
+    {
+      "index": 12,
+      "target": 1000,
+      "sample_tokens": 1000,
+      "usage": {
+        "prompt_tokens": 1001,
+        "total_tokens": 1001
+      },
+      "input_sha256": "6a186ca612805d62a8cc533c8a2854538f755675ebe955f1c90a2c9f1c301dff",
+      "latency_ms": 2154.680333000215,
+      "cosine_vs_historical_1080": 0.9997415366441441
+    },
+    {
+      "index": 13,
+      "target": 1000,
+      "sample_tokens": 1000,
+      "usage": {
+        "prompt_tokens": 1001,
+        "total_tokens": 1001
+      },
+      "input_sha256": "80bf2303eb6810e7adc1ed3977e38272aa37fc636df538b7d49cf9466f9bcf34",
+      "latency_ms": 2005.7008329986274,
+      "cosine_vs_historical_1080": 0.9997975278657754
+    },
+    {
+      "index": 14,
+      "target": 1000,
+      "sample_tokens": 1000,
+      "usage": {
+        "prompt_tokens": 1001,
+        "total_tokens": 1001
+      },
+      "input_sha256": "3bf52cf19bb2b68839a2bab12175a5b4831874b5be0218162e83067e983b9ed3",
+      "latency_ms": 2005.7329999999638,
+      "cosine_vs_historical_1080": 0.9998305338552419
+    },
+    {
+      "index": 15,
+      "target": 1000,
+      "sample_tokens": 1000,
+      "usage": {
+        "prompt_tokens": 1001,
+        "total_tokens": 1001
+      },
+      "input_sha256": "918d8a118f6ab768e55b2964ed67c8513bbacc42f27142e474a99e796a831cb2",
+      "latency_ms": 2012.6697089999652,
+      "cosine_vs_historical_1080": 0.9997844526247976
+    },
+    {
+      "index": 16,
+      "target": 1000,
+      "sample_tokens": 1000,
+      "usage": {
+        "prompt_tokens": 1001,
+        "total_tokens": 1001
+      },
+      "input_sha256": "f7befd48b2684798e17af5e206e71b050d79caf847176c34cefc6f95eb685efa",
+      "latency_ms": 2039.1637080010696,
+      "cosine_vs_historical_1080": 0.999773149441464
+    },
+    {
+      "index": 17,
+      "target": 1000,
+      "sample_tokens": 1000,
+      "usage": {
+        "prompt_tokens": 1001,
+        "total_tokens": 1001
+      },
+      "input_sha256": "ab20131ce598c05293a04ba09dc0e0b581b1e79c00b1507ec46bdd2e23d3534d",
+      "latency_ms": 2074.413500000446,
+      "cosine_vs_historical_1080": 0.9998230123127102
+    },
+    {
+      "index": 18,
+      "target": 1000,
+      "sample_tokens": 1000,
+      "usage": {
+        "prompt_tokens": 1001,
+        "total_tokens": 1001
+      },
+      "input_sha256": "182d26cd80af07697323e252eea8d46ab62278361aaf6b872cf0ce4724d36c56",
+      "latency_ms": 2055.745957999534,
+      "cosine_vs_historical_1080": 0.9997983703897642
+    },
+    {
+      "index": 19,
+      "target": 1000,
+      "sample_tokens": 1000,
+      "usage": {
+        "prompt_tokens": 1001,
+        "total_tokens": 1001
+      },
+      "input_sha256": "1a5b0ca6d173b35c7406a5371f4b9658a867d3a3e9129acd52f4d155d4b6160a",
+      "latency_ms": 2030.715707998752,
+      "cosine_vs_historical_1080": 0.9998208135788831
+    }
+  ],
+  "telemetry": [
+    {
+      "ts": 1790181383.1296241,
+      "memory_mib": 5615,
+      "total_mib": 6144,
+      "gpu_c": 52,
+      "util_pct": 0,
+      "watts": 9.82,
+      "rss_kib": 1133836,
+      "hwm_kib": 4529976,
+      "cpu_c": 61
+    },
+    {
+      "ts": 1790181388.238699,
+      "memory_mib": 5623,
+      "total_mib": 6144,
+      "gpu_c": 58,
+      "util_pct": 100,
+      "watts": 88.81,
+      "rss_kib": 1315588,
+      "hwm_kib": 4529976,
+      "cpu_c": 73
+    },
+    {
+      "ts": 1790181393.338721,
+      "memory_mib": 5631,
+      "total_mib": 6144,
+      "gpu_c": 61,
+      "util_pct": 100,
+      "watts": 86.42,
+      "rss_kib": 1444596,
+      "hwm_kib": 4529976,
+      "cpu_c": 75
+    },
+    {
+      "ts": 1790181398.460125,
+      "memory_mib": 5631,
+      "total_mib": 6144,
+      "gpu_c": 64,
+      "util_pct": 100,
+      "watts": 89.18,
+      "rss_kib": 1444780,
+      "hwm_kib": 4529976,
+      "cpu_c": 77
+    },
+    {
+      "ts": 1790181403.6107268,
+      "memory_mib": 5631,
+      "total_mib": 6144,
+      "gpu_c": 65,
+      "util_pct": 99,
+      "watts": 58.89,
+      "rss_kib": 1444856,
+      "hwm_kib": 4529976,
+      "cpu_c": 80
+    },
+    {
+      "ts": 1790181408.720924,
+      "memory_mib": 5631,
+      "total_mib": 6144,
+      "gpu_c": 67,
+      "util_pct": 100,
+      "watts": 55.58,
+      "rss_kib": 1444916,
+      "hwm_kib": 4529976,
+      "cpu_c": 82
+    }
+  ],
+  "completed": false,
+  "runtime": {
+    "node": "wemby",
+    "uid": "8a20e243-437e-448f-82de-0087893d7175",
+    "image_id": "ghcr.io/ggml-org/llama.cpp@sha256:95cdc1510dbc5bc15735529353d72ace9fc96b9aeb0dd6c4cdaf1a6b3f70776f",
+    "args": [
+      "--model",
+      "/models/model.gguf",
+      "--host",
+      "0.0.0.0",
+      "--port",
+      "8000",
+      "--embedding",
+      "--pooling",
+      "last",
+      "--ctx-size",
+      "8192",
+      "--n-gpu-layers",
+      "999",
+      "--parallel",
+      "1",
+      "--threads",
+      "4",
+      "--batch-size",
+      "512",
+      "--ubatch-size",
+      "512",
+      "--split-mode",
+      "none",
+      "--main-gpu",
+      "0",
+      "--flash-attn",
+      "on",
+      "--cache-ram",
+      "0",
+      "--metrics"
+    ]
+  },
+  "metrics_before": "# HELP llamacpp:prompt_tokens_total Number of prompt tokens processed, excluding cached tokens\n# TYPE llamacpp:prompt_tokens_total counter\nllamacpp:prompt_tokens_total 0\n# HELP llamacpp:prompt_tokens_cached_total Number of prompt tokens reused from the cache\n# TYPE llamacpp:prompt_tokens_cached_total counter\nllamacpp:prompt_tokens_cached_total 0\n# HELP llamacpp:prompt_seconds_total Total time spent processing prompts\n# TYPE llamacpp:prompt_seconds_total counter\nllamacpp:prompt_seconds_total 0\n# HELP llamacpp:tokens_predicted_total Number of generation tokens processed\n# TYPE llamacpp:tokens_predicted_total counter\nllamacpp:tokens_predicted_total 0\n# HELP llamacpp:tokens_predicted_seconds_total Total time spent generating tokens\n# TYPE llamacpp:tokens_predicted_seconds_total counter\nllamacpp:tokens_predicted_seconds_total 0\n# HELP llamacpp:n_decode_total Total number of llama_decode() calls, excluding speculative decoding and multimodal decoding\n# TYPE llamacpp:n_decode_total counter\nllamacpp:n_decode_total 0\n# HELP llamacpp:n_tokens_max Largest observed sequence length (prompt + generation)\n# TYPE llamacpp:n_tokens_max counter\nllamacpp:n_tokens_max 0\n# HELP llamacpp:spec_decode_num_draft_tokens_total Speculative: Total draft tokens generated\n# TYPE llamacpp:spec_decode_num_draft_tokens_total counter\nllamacpp:spec_decode_num_draft_tokens_total 0\n# HELP llamacpp:spec_decode_num_accepted_tokens_total Speculative: Total draft tokens accepted by the target model\n# TYPE llamacpp:spec_decode_num_accepted_tokens_total counter\nllamacpp:spec_decode_num_accepted_tokens_total 0\n# HELP llamacpp:spec_decode_num_drafts_total Speculative: Total speculative decoding verification steps\n# TYPE llamacpp:spec_decode_num_drafts_total counter\nllamacpp:spec_decode_num_drafts_total 0\n# HELP llamacpp:prompt_tokens_seconds Average prompt throughput in tokens/s\n# TYPE llamacpp:prompt_tokens_seconds gauge\nllamacpp:prompt_tokens_seconds 0\n# HELP llamacpp:predicted_tokens_seconds Average generation throughput in tokens/s\n# TYPE llamacpp:predicted_tokens_seconds gauge\nllamacpp:predicted_tokens_seconds 0\n# HELP llamacpp:requests_processing Number of requests processing\n# TYPE llamacpp:requests_processing gauge\nllamacpp:requests_processing 0\n# HELP llamacpp:requests_deferred Number of requests deferred\n# TYPE llamacpp:requests_deferred gauge\nllamacpp:requests_deferred 0\n# HELP llamacpp:n_busy_slots_per_decode Average number of busy slots per llama_decode() call\n# TYPE llamacpp:n_busy_slots_per_decode gauge\nllamacpp:n_busy_slots_per_decode 0\n",
+  "abort": [
+    "thermal limit"
+  ],
+  "summary": {
+    "buckets": [
+      {
+        "target": 300,
+        "n": 12,
+        "median_ms": 603.2062920003227,
+        "min_ms": 464.229624998552,
+        "max_ms": 2688.9857089990983
+      },
+      {
+        "target": 1000,
+        "n": 8,
+        "median_ms": 2034.9397079999108,
+        "min_ms": 2005.7008329986274,
+        "max_ms": 2154.680333000215
+      }
+    ],
+    "cosine_min": 0.9997415366441441,
+    "gpu_c_max": 67,
+    "cpu_c_max": 82,
+    "vram_mib_max": 5631,
+    "rss_mib_max": 1411.05078125,
+    "hwm_mib": 4423.8046875
+  },
+  "raw_evidence": {
+    "path": "scratch/task1218-20260923/gtx1060-probe/result.json",
+    "sha256": "ba2bf0a20fa6aa99a9ef738ca1b45d621f6c4f56468493e3fb49e6cabf0b7709"
+  },
+  "cleanup": {
+    "probe_absent": true,
+    "nodes_ready": [
+      "manu",
+      "timmy",
+      "wemby"
+    ],
+    "production_endpoint": "embedder-qwen-cuda-5d5485b89b-jz2bm on manu",
+    "production_manifest_diff_empty": true,
+    "prod_and_test_ready": true
+  }
+}
