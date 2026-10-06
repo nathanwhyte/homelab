@@ -9,8 +9,10 @@ and read a summary back through the real ``MemoryFileUtils``.
 """
 
 import asyncio
+import contextlib
 import dataclasses
 import importlib.util
+import io
 import json
 import os
 import sys
@@ -463,6 +465,19 @@ class WrapperTests(unittest.TestCase):
         self.assertEqual((out, seen), ("ok", [f"{BASE}/x_2.md"]))
 
 
+def noise_records(run):
+    """``(records, result)``: the ``ov-event-noise`` records ``run()`` wrote to stderr."""
+    buf = io.StringIO()
+    with contextlib.redirect_stderr(buf):
+        result = run()
+    records = [
+        json.loads(line[len(mg.NOISE_PREFIX) :])
+        for line in buf.getvalue().splitlines()
+        if line.startswith(mg.NOISE_PREFIX)
+    ]
+    return records, result
+
+
 class LifecycleNoiseTests(unittest.TestCase):
     # Event names and summaries from the pop/workbook peers, 2026-09-22..10-05 (some trimmed).
     NOISE = (
@@ -591,17 +606,39 @@ class LifecycleNoiseTests(unittest.TestCase):
         noisy = op("compendium_1009_merged", self.NOISE[0][1])
         link = types.SimpleNamespace(from_uri="viking://e", to_uri=noisy.uris[0])
         batch = ops(noisy, links=[link])
-        with (
-            mock.patch.dict(os.environ, {"OV_EVENT_NOISE_FILTER": "shadow"}),
-            self.assertLogs("ov_memory_guard_patch", "WARNING") as logs,
-        ):
-            matched = mg.drop_lifecycle_noise(batch)
+        with mock.patch.dict(os.environ, {"OV_EVENT_NOISE_FILTER": "shadow"}):
+            records, matched = noise_records(lambda: mg.drop_lifecycle_noise(batch))
         self.assertEqual(matched, [(noisy.uris[0], "compendium_1009_merged")])
         self.assertEqual(
             (batch.upsert_operations, batch.resolved_links), ([noisy], [link])
         )
-        self.assertIn("would drop", logs.output[0])
-        self.assertIn("merged as 0c1245f05", logs.output[0])
+        self.assertEqual(
+            records,
+            [
+                {
+                    "action": "would_drop",
+                    "event_name": "compendium_1009_merged",
+                    "uri": noisy.uris[0],
+                    "summary": self.NOISE[0][1],
+                }
+            ],
+        )
+
+    def test_a_record_is_one_line_whatever_the_summary(self):
+        # Canary 2026-10-05: through OpenViking's rich handler a logger record wrapped
+        # at 80 columns into separate Loki entries. The record bypasses logging, and
+        # json.dumps keeps quotes and newlines inside the one line.
+        summary = 'Merged dotfiles#1 (commit abc1234)\n"quoted" ' + "x" * 400
+        batch = ops(op("dotfiles_1_merged", summary))
+        buf = io.StringIO()
+        with contextlib.redirect_stderr(buf):
+            mg.drop_lifecycle_noise(batch)
+        lines = buf.getvalue().splitlines()
+        self.assertEqual(len(lines), 1)
+        self.assertTrue(lines[0].startswith(mg.NOISE_PREFIX + "{"))
+        record = json.loads(lines[0][len(mg.NOISE_PREFIX) :])
+        self.assertEqual(record["action"], "dropped")
+        self.assertEqual(len(record["summary"]), mg.SUMMARY_LOG_CHARS)
 
     def test_both_wrappers_filter_before_the_stock_body(self):
         seen = []
@@ -681,15 +718,14 @@ class LifecycleNoiseTests(unittest.TestCase):
         self.assertEqual(self.chained(request, "1"), [["compendium_1009_merged"]])
 
     def test_a_submitted_shadow_match_is_logged_once(self):
-        # Codex P3: one write, one "would drop" line.
+        # Codex P3: one write, one "would_drop" record.
         request = types.SimpleNamespace(
             operations=ops(op("compendium_1009_merged", self.NOISE[0][1])),
             ctx=object(),
         )
-        with self.assertLogs("ov_memory_guard_patch", "WARNING") as logs:
-            applied = self.chained(request, "shadow")
+        records, applied = noise_records(lambda: self.chained(request, "shadow"))
         self.assertEqual(applied, [["compendium_1009_merged"]])
-        self.assertEqual(sum("would drop" in line for line in logs.output), 1)
+        self.assertEqual([r["action"] for r in records], ["would_drop"])
 
     def test_drop_needs_an_explicit_1(self):
         # Codex P2: unset, a typo, or "false" must never start deleting.

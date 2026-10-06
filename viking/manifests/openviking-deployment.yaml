@@ -241,9 +241,10 @@ spec:
             - name: OV_CHATLOG_PATCH
               value: "1"
             # Git-lifecycle event filter (ov_memory_guard_patch.py). Starts in shadow:
-            # matches are logged as "ov-event-noise: would drop …" with their summary
-            # and still written. Review a week of those lines in Loki, then set "1" to
-            # drop for real ("0" turns the filter off).
+            # each match is one stderr line, ov-event-noise {"action": "would_drop", …},
+            # with its summary, and is still written. Review a week of them in Loki
+            # ({namespace="viking", container="openviking"} |= "ov-event-noise {"), then
+            # set "1" to drop for real ("0" turns the filter off).
             - name: OV_EVENT_NOISE_FILTER
               value: shadow
           volumeMounts:
