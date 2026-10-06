@@ -1,0 +1,43 @@
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: task1218-1080-model-seed
+  namespace: viking
+  labels:
+    app: task1218-1080-model-seed
+spec:
+  restartPolicy: Never
+  activeDeadlineSeconds: 1800
+  nodeSelector:
+    kubernetes.io/hostname: manu
+  containers:
+    - name: fetch
+      image: curlimages/curl:8.12.1
+      securityContext:
+        runAsUser: 0
+        runAsGroup: 0
+      command: ["/bin/sh", "-c"]
+      args:
+        - |
+          set -eu
+          cd /models
+          echo 'b60ae5ce2dd6a0b77f82cadf21def1f310a3e10cde380ad0081b07a9d416949d  Qwen3-Embedding-4B-Q8_0.gguf' | sha256sum -c -
+          small=task1218-Qwen3-Embedding-0.6B-f16.gguf
+          if [ ! -f "$small" ]; then
+            curl --fail --location --retry 3 --max-time 1200 \
+              https://huggingface.co/Qwen/Qwen3-Embedding-0.6B-GGUF/resolve/main/Qwen3-Embedding-0.6B-f16.gguf \
+              --output "$small.tmp"
+            echo '421a27e58d165478cc7acb984a688c2aa41404968b0203e7cd743ece44c54340  task1218-Qwen3-Embedding-0.6B-f16.gguf.tmp' | sha256sum -c -
+            mv "$small.tmp" "$small"
+          fi
+          echo '421a27e58d165478cc7acb984a688c2aa41404968b0203e7cd743ece44c54340  task1218-Qwen3-Embedding-0.6B-f16.gguf' | sha256sum -c -
+      resources:
+        requests: {cpu: 100m, memory: 128Mi}
+        limits: {cpu: "1", memory: 256Mi}
+      volumeMounts:
+        - {name: models, mountPath: /models}
+  volumes:
+    - name: models
+      persistentVolumeClaim:
+        claimName: embedder-cuda-model-cache

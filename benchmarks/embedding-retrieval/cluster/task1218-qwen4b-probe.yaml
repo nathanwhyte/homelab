@@ -1,0 +1,92 @@
+---
+# IDEA-1109 / TASK-1218: isolated 1060 probe, deliberately no Service.
+# User confirmed wemby's power issue repaired and tested on 2026-09-23.
+# Applying this Pod still requires explicit cluster authorization.
+# Image digest read from the running production embedder on 2026-09-23.
+# GGUF digest computed from the official download used by the local control.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: task1218-qwen4b-probe
+  namespace: viking
+  labels:
+    app: task1218-qwen4b-probe
+spec:
+  restartPolicy: Never
+  activeDeadlineSeconds: 1800
+  terminationGracePeriodSeconds: 15
+  runtimeClassName: nvidia
+  nodeSelector:
+    kubernetes.io/hostname: wemby
+  initContainers:
+    - name: fetch-model
+      image: curlimages/curl:8.12.1
+      securityContext:
+        runAsUser: 0
+        runAsGroup: 0
+      command: ["/bin/sh", "-c"]
+      args:
+        - |
+          set -eu
+          curl --fail --location --retry 3 --max-time 900 \
+            https://huggingface.co/Qwen/Qwen3-Embedding-4B-GGUF/resolve/main/Qwen3-Embedding-4B-Q8_0.gguf \
+            --output /models/model.gguf
+          echo 'b60ae5ce2dd6a0b77f82cadf21def1f310a3e10cde380ad0081b07a9d416949d  /models/model.gguf' | sha256sum -c -
+      resources:
+        requests: {cpu: 100m, memory: 128Mi}
+        limits: {cpu: "1", memory: 256Mi}
+      volumeMounts:
+        - {name: models, mountPath: /models}
+  containers:
+    - name: llamacpp
+      image: ghcr.io/ggml-org/llama.cpp@sha256:95cdc1510dbc5bc15735529353d72ace9fc96b9aeb0dd6c4cdaf1a6b3f70776f
+      command: ["/app/llama-server"]
+      args:
+        - --model
+        - /models/model.gguf
+        - --host
+        - 0.0.0.0
+        - --port
+        - "8000"
+        - --embedding
+        - --pooling
+        - last
+        - --ctx-size
+        - "8192"
+        - --n-gpu-layers
+        - "999"
+        - --parallel
+        - "1"
+        - --threads
+        - "4"
+        - --batch-size
+        - "512"
+        - --ubatch-size
+        - "512"
+        - --split-mode
+        - none
+        - --main-gpu
+        - "0"
+        - --flash-attn
+        - "on"
+        - --cache-ram
+        - "0"
+        - --metrics
+      resources:
+        requests: {cpu: 500m, memory: 2Gi, nvidia.com/gpu: "1"}
+        limits: {cpu: "4", memory: 6Gi, nvidia.com/gpu: "1"}
+      startupProbe:
+        httpGet: {path: /health, port: 8000}
+        periodSeconds: 5
+        failureThreshold: 60
+      readinessProbe:
+        httpGet: {path: /health, port: 8000}
+        periodSeconds: 5
+      volumeMounts:
+        - {name: models, mountPath: /models, readOnly: true}
+        - {name: shm, mountPath: /dev/shm}
+  volumes:
+    - name: models
+      emptyDir: {sizeLimit: 5Gi}
+    - name: shm
+      emptyDir: {medium: Memory, sizeLimit: 2Gi}
