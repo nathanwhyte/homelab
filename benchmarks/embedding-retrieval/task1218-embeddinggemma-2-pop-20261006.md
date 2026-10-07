@@ -47,15 +47,42 @@ Informational runs of EmbeddingGemma 2 (270M text model) against the production 
 
 - Token counts are each model's own (EmbeddingGemma 2's tokenizer gives about 7% more tokens on this sample). One 7,600-target text (sample index 38) is 8,192+ Gemma tokens and fails with `the input length exceeds the context length` on every repeat; it is excluded from that bucket's median.
 - The queueing test uses sample index 39 as the long text for both models (7,600 Qwen tokens, 8,141 Gemma tokens), so it fits both windows. A first pass used the sample's longest text, index 38, which overflowed EmbeddingGemma 2 instantly and made its short query look unqueued; that pass was discarded and `latency_local.py` now drops any queueing run with a failed request.
-- The slow-recall tail is a short query waiting behind a long document. On this hardware EmbeddingGemma 2 shortens that wait about eightfold, in line with its size. Whether that carries to production depends on hardware it cannot run on today.
+- The slow-recall tail is a short query waiting behind a long document. On this hardware EmbeddingGemma 2 shortens that wait about eightfold, in line with its size.
+
+## GGUF on llama.cpp (2026-10-07)
+
+The path a cluster card would use: the official `ggml-org/embeddinggemma-2-GGUF` files (Q8_0 SHA-256 `2188ac1d…09135`, BF16 `68bae29d…f216`) on a llama.cpp b11472 release build, `serve_local.sh eg2q8` / `eg2bf16` (mean pooling, one slot, context and batch 8192). Support first ships in **b11454** (ggml-org/llama.cpp#30054, merged 2026-10-06); pop's Homebrew build b11146 predates it, so the run used `LLAMA_SERVER` pointing at the release binary.
+
+| Arm | Top-1 | Top-5 |
+| --- | --- | --- |
+| GGUF Q8_0, unprefixed | 20/34 | 27/34 |
+| GGUF Q8_0, model-card prompts | 22/34 | 26/34 |
+| GGUF BF16, unprefixed | 20/34 | 27/34 |
+
+- **Matches the Ollama/MLX run within a query.** GGUF Q8_0 and Ollama mxfp8 pick the same top-1 entry on 33 of 34 positives; BF16 scores exactly as Ollama's bf16. The negatives score the same 0.63–0.73, so the abstention caveat carries over.
+- **Overflow message differs.** For this mean-pooling model llama-server rejects an over-long input with HTTP 500 `input (N tokens) is too large to process. increase the physical batch size`, not the causal models' `exceeds the available context size`; the harness now treats both as overflow. Production would hit this wherever OV's cap lets more than 8,192 Gemma tokens through.
+
+Latency, both models on the same b11472 build, one slot each:
+
+| Median latency | EmbeddingGemma 2 GGUF Q8_0 | Qwen 4B Q8_0 | Ratio |
+| --- | --- | --- | --- |
+| 300-token target | 13.3 ms | 91.1 ms | 6.8× |
+| 1,000 | 37.3 ms | 238 ms | 6.4× |
+| 3,000 | 147 ms | 823 ms | 5.6× |
+| 6,000 | 417 ms | 1,940 ms | 4.7× |
+| 7,600 (EG2: 15 ok, 3 overflow) | 603 ms | 2,648 ms | 4.4× |
+| **Short query behind a 7,600-token text** | **513 ms** | **2,669 ms** | **5.2×** |
+
+b11472 is itself faster for Qwen than Homebrew b11146 (2,669 vs 3,401 ms behind a long text), so compare within a table, not across them.
 
 ## Limits
 
 - Whole-entry retrieval on 34 positives. It is not the OV chunked-collection arm, the loaded-recall 500 ms gate, or a re-index measurement, all of which TASK-1218 still requires.
-- Apple Silicon timings do not transfer to the GTX 1080 in production. Ollama's MLX path still needs Apple Silicon or CUDA 13+ on SM 7.5+, so a cluster run would go through llama.cpp's GGUF support instead, and these Ollama/MLX scores do not prove that path ranks the same.
+- Apple Silicon timings do not transfer to the GTX 1080 in production. A cluster deployment would also need the embedder image on llama.cpp b11454 or newer.
 
 ## Files
 
 - `results/task1218-20261006/` — per-arm retrieval results (`eg2-*.json`, `qwen3-4b-unprefixed.json`) and latency (`latency-*.json`).
+- `results/task1218-20261007/` — GGUF retrieval (`eg2-gguf-*.json`) and b11472 latency for both models.
 - `latency_local.py` — the latency runner.
 - Not committed: `scratch/task1218-20261006/` (run scripts, logs, the 2026-09-23-runner raw vectors and its `result.json`, 18/34 and 24/34).

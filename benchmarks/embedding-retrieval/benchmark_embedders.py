@@ -216,6 +216,35 @@ CANDIDATES = {
         "batch": 16,
         "num_ctx": 8192,
     },
+    # EmbeddingGemma 2 GGUF via llama.cpp (serve_local.sh eg2q8 / eg2bf16 -> :8084),
+    # the path a cluster card could run. Needs llama.cpp with #30054.
+    "eg2-gguf-q8-unprefixed": {
+        "backend": "openai",
+        "url": "http://127.0.0.1:8084/v1/embeddings",
+        "model": "embeddinggemma-2",
+        "dim": 768,
+        "doc_prefix": "",
+        "query_prefix": "",
+        "batch": 8,
+    },
+    "eg2-gguf-q8": {  # model-card prompts
+        "backend": "openai",
+        "url": "http://127.0.0.1:8084/v1/embeddings",
+        "model": "embeddinggemma-2",
+        "dim": 768,
+        "doc_prefix": EG2_DOCUMENT,
+        "query_prefix": EG2_QUERY,
+        "batch": 8,
+    },
+    "eg2-gguf-bf16-unprefixed": {
+        "backend": "openai",
+        "url": "http://127.0.0.1:8084/v1/embeddings",
+        "model": "embeddinggemma-2",
+        "dim": 768,
+        "doc_prefix": "",
+        "query_prefix": "",
+        "batch": 8,
+    },
     "eg2-270m-mxfp8-256-unprefixed": {  # Matryoshka truncation to 256 dims
         "backend": "ollama",
         "url": "http://127.0.0.1:11434/api/embed",
@@ -272,9 +301,13 @@ def finish(cfg, v: list[float]) -> list[float]:
 
 
 def is_overflow(e: httpx.HTTPStatusError) -> bool:
-    # llama-server: "exceeds the available context size";
+    # llama-server: "exceeds the available context size"; for a non-causal
+    # (mean-pooling) model, 500 "input (N tokens) is too large to process";
     # Ollama (truncate=false): "input exceeds maximum context length".
-    return e.response.status_code in (400, 500) and "context" in e.response.text
+    body = e.response.text
+    return e.response.status_code in (400, 500) and (
+        "context" in body or "too large to process" in body
+    )
 
 
 def embed_one(client, cfg, text, shortened):
