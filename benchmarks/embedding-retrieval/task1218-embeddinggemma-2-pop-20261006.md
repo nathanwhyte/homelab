@@ -36,18 +36,18 @@ Informational runs of EmbeddingGemma 2 (270M text model) against the production 
 
 | Median latency | EmbeddingGemma 2 mxfp8 (Ollama) | Qwen 4B Q8_0 (llama-server) | Ratio |
 | --- | --- | --- | --- |
-| 300-token target (36 requests) | 17.7 ms | 92.4 ms | 5.2× |
-| 1,000 (30) | 35.9 ms | 254 ms | 7.1× |
-| 3,000 (30) | 115 ms | 946 ms | 8.2× |
-| 6,000 (18) | 332 ms | 2,418 ms | 7.3× |
-| 7,600 (18) | 474 ms (15 ok, 3 overflow) | 3,414 ms | 7.2× |
-| Short query alone (234 tokens) | 17.3 ms | 74.9 ms | 4.3× |
-| **Short query behind a 7,600-token text** | **422 ms** | **3,401 ms** | **8.1×** |
-| First request | 652 ms, model-cold (unloaded beforehand) | 64 ms, server already loaded | — |
+| 300-token target (36 requests) | 18.2 ms | 92.3 ms | 5.1× |
+| 1,000 (30) | 36.8 ms | 259 ms | 7.0× |
+| 3,000 (30) | 116 ms | 961 ms | 8.3× |
+| 6,000 (18) | 332 ms | 2,419 ms | 7.3× |
+| 7,600 (18) | 468 ms (15 ok, 3 overflow) | 3,440 ms | 7.3× |
+| Short query alone (234 tokens) | 18.3 ms | 76.6 ms | 4.2× |
+| **Short query behind a 7,600-token text** | **425 ms** | **3,418 ms** | **8.0×** |
+| First request | 760 ms, model-cold (unloaded beforehand) | 68 ms, server already loaded | — |
 
 - Token counts are each model's own (EmbeddingGemma 2's tokenizer gives about 7% more tokens on this sample). One 7,600-target text (sample index 38) is 8,192+ Gemma tokens and fails with `the input length exceeds the context length` on every repeat; it is excluded from that bucket's median.
 - The queueing test uses sample index 39 as the long text for both models (7,600 Qwen tokens, 8,141 Gemma tokens), so it fits both windows. A first pass used the sample's longest text, index 38, which overflowed EmbeddingGemma 2 instantly and made its short query look unqueued; that pass was discarded and `latency_local.py` now drops any queueing run with a failed request.
-- **Dispatch order was not recorded in these runs.** The saved results came from a runner that slept 100 ms after starting the first request's thread without confirming it had been sent, and kept no timestamps. The durations are consistent with true queueing in every arm: long-first time minus the 100 ms gap plus the short query's own time predicts 406 / 3,391 / 520 / 2,665 ms against the measured 422 / 3,401 / 513 / 2,669 ms. The runner now waits for the first request's dispatch, records each request's start, end and the actual gap, and drops a sample whose order reversed or whose short query went out after the long one had finished. A re-run with the fixed runner would confirm the numbers directly.
+- **Dispatch order is recorded.** The latency tables come from a 2026-10-07 re-run with the fixed runner, which waits for the first request's dispatch, records each request's start and end and the actual gap, and drops a sample whose order reversed or whose short query went out after the long one had finished. In all four configurations every pair went out in order, 100.4–105.2 ms apart, and none was dropped. The first runs, which lacked those checks (the queueing numbers were 422 / 3,401 / 513 / 2,669 ms; git history keeps the files), agree with the re-run within 3% everywhere.
 - The slow-recall tail is a short query waiting behind a long document. On this hardware EmbeddingGemma 2 shortens that wait about eightfold, in line with its size.
 
 ## GGUF on llama.cpp (2026-10-07)
@@ -67,14 +67,14 @@ Latency, both models on the same b11472 build, one slot each:
 
 | Median latency | EmbeddingGemma 2 GGUF Q8_0 | Qwen 4B Q8_0 | Ratio |
 | --- | --- | --- | --- |
-| 300-token target | 13.3 ms | 91.1 ms | 6.8× |
-| 1,000 | 37.3 ms | 238 ms | 6.4× |
-| 3,000 | 147 ms | 823 ms | 5.6× |
-| 6,000 | 417 ms | 1,940 ms | 4.7× |
-| 7,600 (EG2: 15 ok, 3 overflow) | 603 ms | 2,648 ms | 4.4× |
-| **Short query behind a 7,600-token text** | **513 ms** | **2,669 ms** | **5.2×** |
+| 300-token target | 13.3 ms | 90.0 ms | 6.8× |
+| 1,000 | 37.2 ms | 237 ms | 6.4× |
+| 3,000 | 146 ms | 826 ms | 5.6× |
+| 6,000 | 416 ms | 1,921 ms | 4.6× |
+| 7,600 (EG2: 15 ok, 3 overflow) | 602 ms | 2,653 ms | 4.4× |
+| **Short query behind a 7,600-token text** | **531 ms** | **2,731 ms** | **5.1×** |
 
-b11472 is itself faster for Qwen than Homebrew b11146 (2,669 vs 3,401 ms behind a long text), so compare within a table, not across them.
+b11472 is itself faster for Qwen than Homebrew b11146 (2,731 vs 3,418 ms behind a long text), so compare within a table, not across them.
 
 ## Limits
 
