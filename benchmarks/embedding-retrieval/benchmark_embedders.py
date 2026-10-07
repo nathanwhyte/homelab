@@ -300,13 +300,20 @@ def finish(cfg, v: list[float]) -> list[float]:
     return l2(v[:n] if n else v)
 
 
+# Exact overflow messages; anything else (e.g. "context canceled") is a real
+# error and must not shorten a document.
+OVERFLOW_MESSAGES = (
+    "exceeds the available context size",  # llama-server, causal models
+    "is too large to process",  # llama-server, non-causal (mean pooling)
+    "input length exceeds the context length",  # Ollama 0.40, truncate=false
+    "input exceeds maximum context length",  # Ollama, documented wording
+)
+
+
 def is_overflow(e: httpx.HTTPStatusError) -> bool:
-    # llama-server: "exceeds the available context size"; for a non-causal
-    # (mean-pooling) model, 500 "input (N tokens) is too large to process";
-    # Ollama (truncate=false): "input exceeds maximum context length".
     body = e.response.text
-    return e.response.status_code in (400, 500) and (
-        "context" in body or "too large to process" in body
+    return e.response.status_code in (400, 500) and any(
+        m in body for m in OVERFLOW_MESSAGES
     )
 
 
@@ -364,13 +371,14 @@ def main() -> int:
     table = "emb_" + args.model.replace("-", "_").replace(".", "_")
     RESULTS.mkdir(exist_ok=True)
 
-    corpus_sha256 = hashlib.sha256(CORPUS.read_bytes()).hexdigest()
+    corpus_bytes = CORPUS.read_bytes()  # hash and parse the same bytes
+    corpus_sha256 = hashlib.sha256(corpus_bytes).hexdigest()
     if CORPUS_SHA256 and corpus_sha256 != CORPUS_SHA256:
         raise SystemExit(
             f"corpus {CORPUS} has sha256 {corpus_sha256}, expected {CORPUS_SHA256} "
             '(set BENCH_CORPUS_SHA256="" to run on a different corpus)'
         )
-    corpus = [json.loads(l) for l in open(CORPUS)]
+    corpus = [json.loads(l) for l in corpus_bytes.decode().splitlines() if l.strip()]
     gt = json.load(open(GROUND_TRUTH))
     questions = gt["questions"]
 

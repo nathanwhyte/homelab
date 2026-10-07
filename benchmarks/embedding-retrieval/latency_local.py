@@ -41,8 +41,11 @@ def fresh(text: str, rng: random.Random) -> str:
     return "".join(rng.choices(string.ascii_letters + string.digits, k=16)) + " " + text
 
 
-def embed(args, text: str) -> dict:
-    """One request; returns latency, token count, and any error."""
+def embed(args, text: str, sent: threading.Event | None = None) -> dict:
+    """One request; returns latency, start/end times, token count, any error.
+
+    `sent`, if given, is set just before the request is dispatched.
+    """
     if args.backend == "ollama":
         body = {"model": args.model, "input": [text], "truncate": False}
         if args.num_ctx:
@@ -55,33 +58,50 @@ def embed(args, text: str) -> dict:
         headers={"Content-Type": "application/json"},
     )
     started = time.monotonic()
+    if sent is not None:
+        sent.set()
     try:
         with urllib.request.urlopen(req, timeout=300) as response:
             data = json.load(response)
     except urllib.error.HTTPError as error:
+        ended = time.monotonic()
         return {
-            "ms": (time.monotonic() - started) * 1000,
+            "ms": (ended - started) * 1000,
+            "start": started,
+            "end": ended,
             "error": f"HTTP {error.code}: {error.read().decode()[:200]}",
         }
-    ms = (time.monotonic() - started) * 1000
+    ended = time.monotonic()
     if args.backend == "ollama":
         tokens = data.get("prompt_eval_count")
     else:
         tokens = (data.get("usage") or {}).get("prompt_tokens")
-    return {"ms": ms, "tokens": tokens}
+    return {
+        "ms": (ended - started) * 1000,
+        "start": started,
+        "end": ended,
+        "tokens": tokens,
+    }
 
 
-def pair(args, first: str, second: str) -> tuple[dict, dict]:
-    """Send `first`, then `second` GAP_S later, concurrently; return both results."""
+def pair(args, first: str, second: str) -> tuple[dict, dict, float]:
+    """Send `first`; once it is dispatched, wait GAP_S and send `second`.
+
+    Returns both results and the measured dispatch gap in ms.
+    """
     out: dict[str, dict] = {}
+    sent = threading.Event()
     thread = threading.Thread(
-        target=lambda: out.__setitem__("first", embed(args, first))
+        target=lambda: out.__setitem__("first", embed(args, first, sent))
     )
     thread.start()
+    if not sent.wait(timeout=10):
+        raise RuntimeError("first request of an ordering pair was never dispatched")
     time.sleep(GAP_S)
     out["second"] = embed(args, second)
     thread.join()
-    return out["first"], out["second"]
+    gap_ms = (out["second"]["start"] - out["first"]["start"]) * 1000
+    return out["first"], out["second"], gap_ms
 
 
 def median(values: list[float]) -> float | None:
@@ -127,8 +147,15 @@ def main() -> int:
         long = sample[args.long_index]
     ordering = []
     for repeat in range(args.repeats):
-        l1, s1 = pair(args, fresh(long["text"], rng), fresh(short["text"], rng))
-        s2, l2 = pair(args, fresh(short["text"], rng), fresh(long["text"], rng))
+        l1, s1, gap1 = pair(args, fresh(long["text"], rng), fresh(short["text"], rng))
+        s2, l2, gap2 = pair(args, fresh(short["text"], rng), fresh(long["text"], rng))
+        errors = [r["error"] for r in (l1, s1, s2, l2) if "error" in r]
+        # A short-behind-long sample only counts if the short request really
+        # went out after the long one and while the long one was in flight.
+        if gap1 <= 0 or gap2 <= 0:
+            errors.append("ordering reversed")
+        if s1["start"] >= l1["end"]:
+            errors.append("short sent after long finished; no queueing measured")
         ordering.append(
             {
                 "repeat": repeat,
@@ -136,7 +163,8 @@ def main() -> int:
                 "long_ms_when_first": l1["ms"],
                 "short_first_ms": s2["ms"],
                 "long_ms_when_second": l2["ms"],
-                "errors": [r["error"] for r in (l1, s1, s2, l2) if "error" in r],
+                "gap_ms": [round(gap1, 1), round(gap2, 1)],
+                "errors": errors,
             }
         )
 
