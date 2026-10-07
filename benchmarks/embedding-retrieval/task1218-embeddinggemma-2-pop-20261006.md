@@ -1,6 +1,6 @@
 # TASK-1218 — EmbeddingGemma 2 on pop, 2026-10-06
 
-Informational runs of EmbeddingGemma 2 (270M text model) against the production embedder, Qwen3-Embedding-4B Q8_0, on pop (Apple Silicon). EmbeddingGemma 2 has no cluster host, so TASK-1218 keeps it parked; these numbers go on record against its revisit triggers. Nothing in production or on the cluster changed.
+Informational runs of EmbeddingGemma 2 (270M text model) against the production embedder, Qwen3-Embedding-4B Q8_0, on pop (Apple Silicon). TASK-1218 had parked EmbeddingGemma 2 for lack of a cluster host; these numbers go on record against its revisit triggers. Two of those triggers fired while this ran: llama.cpp merged EmbeddingGemma 2 support on 2026-10-06 (ggml-org/llama.cpp#30054) and official GGUFs exist (`ggml-org/embeddinggemma-2-GGUF`), so llama-server on manu's GTX 1080 is a possible host. Nothing in production or on the cluster changed.
 
 ## Method
 
@@ -52,7 +52,7 @@ Informational runs of EmbeddingGemma 2 (270M text model) against the production 
 ## Limits
 
 - Whole-entry retrieval on 34 positives. It is not the OV chunked-collection arm, the loaded-recall 500 ms gate, or a re-index measurement, all of which TASK-1218 still requires.
-- Apple Silicon timings do not transfer to the GTX 1080 in production, and no cluster card can run EmbeddingGemma 2 today (MLX needs Apple Silicon or CUDA 13+ on SM 7.5+).
+- Apple Silicon timings do not transfer to the GTX 1080 in production. Ollama's MLX path still needs Apple Silicon or CUDA 13+ on SM 7.5+, so a cluster run would go through llama.cpp's GGUF support instead, and these Ollama/MLX scores do not prove that path ranks the same.
 
 ## Files
 
