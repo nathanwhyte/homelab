@@ -1,0 +1,1307 @@
+{
+  "model": "eg2-270m-mxfp8",
+  "config": {
+    "backend": "ollama",
+    "model": "embeddinggemma-2:270m-mxfp8-text",
+    "dim": 768,
+    "doc_prefix": "title: none | text: ",
+    "query_prefix": "task: search result | query: ",
+    "num_ctx": 8192
+  },
+  "corpus_size": 1280,
+  "corpus_sha256": "2c5256873ecd70175a0c0b7bf0a6e74d43d3b149f46c4af9979b6273d619e732",
+  "char_cap": 30000,
+  "char_capped": 9,
+  "overflow_shortened": [
+    {
+      "chars": 30020,
+      "embedded_chars": 18012
+    },
+    {
+      "chars": 30020,
+      "embedded_chars": 18012
+    },
+    {
+      "chars": 30020,
+      "embedded_chars": 18012
+    },
+    {
+      "chars": 28865,
+      "embedded_chars": 17319
+    },
+    {
+      "chars": 29504,
+      "embedded_chars": 17702
+    }
+  ],
+  "thresholds": [
+    {
+      "threshold": 0.0,
+      "top1_accuracy": 0.6471,
+      "top5_accuracy": 0.7941,
+      "counts": {
+        "TP": 22,
+        "MISS": 12,
+        "FP": 4,
+        "TN": 0,
+        "FN": 0,
+        "positives": 34
+      },
+      "by_category": {
+        "exact-id": {
+          "n": 5,
+          "tp": 2,
+          "top5": 2
+        },
+        "usage": {
+          "n": 5,
+          "tp": 5,
+          "top5": 5
+        },
+        "debug": {
+          "n": 4,
+          "tp": 3,
+          "top5": 4
+        },
+        "semantic": {
+          "n": 6,
+          "tp": 4,
+          "top5": 6
+        },
+        "cross-ref": {
+          "n": 3,
+          "tp": 2,
+          "top5": 2
+        },
+        "history": {
+          "n": 4,
+          "tp": 3,
+          "top5": 3
+        },
+        "report": {
+          "n": 4,
+          "tp": 2,
+          "top5": 3
+        },
+        "negative": {
+          "n": 4,
+          "tp": 0,
+          "top5": 0
+        },
+        "understanding": {
+          "n": 3,
+          "tp": 1,
+          "top5": 2
+        }
+      }
+    },
+    {
+      "threshold": 0.5,
+      "top1_accuracy": 0.6471,
+      "top5_accuracy": 0.7941,
+      "counts": {
+        "TP": 22,
+        "MISS": 12,
+        "FP": 4,
+        "TN": 0,
+        "FN": 0,
+        "positives": 34
+      },
+      "by_category": {
+        "exact-id": {
+          "n": 5,
+          "tp": 2,
+          "top5": 2
+        },
+        "usage": {
+          "n": 5,
+          "tp": 5,
+          "top5": 5
+        },
+        "debug": {
+          "n": 4,
+          "tp": 3,
+          "top5": 4
+        },
+        "semantic": {
+          "n": 6,
+          "tp": 4,
+          "top5": 6
+        },
+        "cross-ref": {
+          "n": 3,
+          "tp": 2,
+          "top5": 2
+        },
+        "history": {
+          "n": 4,
+          "tp": 3,
+          "top5": 3
+        },
+        "report": {
+          "n": 4,
+          "tp": 2,
+          "top5": 3
+        },
+        "negative": {
+          "n": 4,
+          "tp": 0,
+          "top5": 0
+        },
+        "understanding": {
+          "n": 3,
+          "tp": 1,
+          "top5": 2
+        }
+      }
+    },
+    {
+      "threshold": 0.55,
+      "top1_accuracy": 0.6471,
+      "top5_accuracy": 0.7941,
+      "counts": {
+        "TP": 22,
+        "MISS": 12,
+        "FP": 4,
+        "TN": 0,
+        "FN": 0,
+        "positives": 34
+      },
+      "by_category": {
+        "exact-id": {
+          "n": 5,
+          "tp": 2,
+          "top5": 2
+        },
+        "usage": {
+          "n": 5,
+          "tp": 5,
+          "top5": 5
+        },
+        "debug": {
+          "n": 4,
+          "tp": 3,
+          "top5": 4
+        },
+        "semantic": {
+          "n": 6,
+          "tp": 4,
+          "top5": 6
+        },
+        "cross-ref": {
+          "n": 3,
+          "tp": 2,
+          "top5": 2
+        },
+        "history": {
+          "n": 4,
+          "tp": 3,
+          "top5": 3
+        },
+        "report": {
+          "n": 4,
+          "tp": 2,
+          "top5": 3
+        },
+        "negative": {
+          "n": 4,
+          "tp": 0,
+          "top5": 0
+        },
+        "understanding": {
+          "n": 3,
+          "tp": 1,
+          "top5": 2
+        }
+      }
+    },
+    {
+      "threshold": 0.6,
+      "top1_accuracy": 0.6471,
+      "top5_accuracy": 0.7941,
+      "counts": {
+        "TP": 22,
+        "MISS": 12,
+        "FP": 2,
+        "TN": 2,
+        "FN": 0,
+        "positives": 34
+      },
+      "by_category": {
+        "exact-id": {
+          "n": 5,
+          "tp": 2,
+          "top5": 2
+        },
+        "usage": {
+          "n": 5,
+          "tp": 5,
+          "top5": 5
+        },
+        "debug": {
+          "n": 4,
+          "tp": 3,
+          "top5": 4
+        },
+        "semantic": {
+          "n": 6,
+          "tp": 4,
+          "top5": 6
+        },
+        "cross-ref": {
+          "n": 3,
+          "tp": 2,
+          "top5": 2
+        },
+        "history": {
+          "n": 4,
+          "tp": 3,
+          "top5": 3
+        },
+        "report": {
+          "n": 4,
+          "tp": 2,
+          "top5": 3
+        },
+        "negative": {
+          "n": 4,
+          "tp": 0,
+          "top5": 0
+        },
+        "understanding": {
+          "n": 3,
+          "tp": 1,
+          "top5": 2
+        }
+      }
+    }
+  ],
+  "per_query": [
+    {
+      "qid": "E1",
+      "category": "exact-id",
+      "expected": "bug-1006",
+      "top5": [
+        [
+          "bug-1016",
+          0.7435
+        ],
+        [
+          "info-1069",
+          0.7434
+        ],
+        [
+          "bug-1007",
+          0.743
+        ],
+        [
+          "proj-1006",
+          0.7421
+        ],
+        [
+          "bug-1042",
+          0.742
+        ]
+      ]
+    },
+    {
+      "qid": "E2",
+      "category": "exact-id",
+      "expected": "err-1007",
+      "top5": [
+        [
+          "err-1007",
+          0.7352
+        ],
+        [
+          "err-1009",
+          0.7286
+        ],
+        [
+          "bug-1007",
+          0.7188
+        ],
+        [
+          "info-1069",
+          0.7183
+        ],
+        [
+          "err-1006",
+          0.7165
+        ]
+      ]
+    },
+    {
+      "qid": "E3",
+      "category": "exact-id",
+      "expected": "info-1042",
+      "top5": [
+        [
+          "idea-1035",
+          0.7267
+        ],
+        [
+          "proj-1014",
+          0.7261
+        ],
+        [
+          "info-1107",
+          0.7166
+        ],
+        [
+          "task-086",
+          0.715
+        ],
+        [
+          "bug-1039",
+          0.7105
+        ]
+      ]
+    },
+    {
+      "qid": "E4",
+      "category": "exact-id",
+      "expected": "feat-1003",
+      "top5": [
+        [
+          "feat-1003",
+          0.6977
+        ],
+        [
+          "feat-1007",
+          0.6876
+        ],
+        [
+          "feat-1002",
+          0.6857
+        ],
+        [
+          "feat-1009",
+          0.6795
+        ],
+        [
+          "feat-1004",
+          0.679
+        ]
+      ]
+    },
+    {
+      "qid": "E5",
+      "category": "exact-id",
+      "expected": "idea-1042",
+      "top5": [
+        [
+          "idea-1034",
+          0.7344
+        ],
+        [
+          "idea-1035",
+          0.7323
+        ],
+        [
+          "idea-042",
+          0.7267
+        ],
+        [
+          "idea-1014",
+          0.7216
+        ],
+        [
+          "task-1032",
+          0.7209
+        ]
+      ]
+    },
+    {
+      "qid": "U1",
+      "category": "usage",
+      "expected": "info-1038",
+      "top5": [
+        [
+          "info-1038",
+          0.8061
+        ],
+        [
+          "info-1099",
+          0.7994
+        ],
+        [
+          "info-1060",
+          0.7964
+        ],
+        [
+          "guide-1013",
+          0.7852
+        ],
+        [
+          "info-1049",
+          0.7785
+        ]
+      ]
+    },
+    {
+      "qid": "U2",
+      "category": "usage",
+      "expected": "guide-1011",
+      "top5": [
+        [
+          "guide-1011",
+          0.7802
+        ],
+        [
+          "guide-1001",
+          0.7484
+        ],
+        [
+          "info-1088",
+          0.7111
+        ],
+        [
+          "err-1010",
+          0.7057
+        ],
+        [
+          "impr-1032",
+          0.699
+        ]
+      ]
+    },
+    {
+      "qid": "U4",
+      "category": "usage",
+      "expected": "info-1057",
+      "top5": [
+        [
+          "info-1057",
+          0.775
+        ],
+        [
+          "guide-1013",
+          0.7478
+        ],
+        [
+          "info-1050",
+          0.736
+        ],
+        [
+          "info-1032",
+          0.7334
+        ],
+        [
+          "task-1029",
+          0.7283
+        ]
+      ]
+    },
+    {
+      "qid": "U5",
+      "category": "usage",
+      "expected": "guide-1062",
+      "top5": [
+        [
+          "guide-1062",
+          0.8296
+        ],
+        [
+          "guide-017",
+          0.7695
+        ],
+        [
+          "idea-1014",
+          0.7534
+        ],
+        [
+          "impr-1014",
+          0.7512
+        ],
+        [
+          "impr-1056",
+          0.7471
+        ]
+      ]
+    },
+    {
+      "qid": "U6",
+      "category": "usage",
+      "expected": "info-1058",
+      "top5": [
+        [
+          "info-1058",
+          0.7809
+        ],
+        [
+          "guide-1001",
+          0.7674
+        ],
+        [
+          "idea-1017",
+          0.7599
+        ],
+        [
+          "info-092",
+          0.7366
+        ],
+        [
+          "proj-1002",
+          0.7334
+        ]
+      ]
+    },
+    {
+      "qid": "D1",
+      "category": "debug",
+      "expected": "bug-1008",
+      "top5": [
+        [
+          "bug-1011",
+          0.806
+        ],
+        [
+          "info-1009",
+          0.7648
+        ],
+        [
+          "bug-1008",
+          0.7619
+        ],
+        [
+          "err-1004",
+          0.7467
+        ],
+        [
+          "info-1076",
+          0.7425
+        ]
+      ]
+    },
+    {
+      "qid": "D3",
+      "category": "debug",
+      "expected": "bug-1007",
+      "top5": [
+        [
+          "bug-1007",
+          0.7889
+        ],
+        [
+          "guide-1011",
+          0.7522
+        ],
+        [
+          "bug-1017",
+          0.7403
+        ],
+        [
+          "impr-1062",
+          0.7391
+        ],
+        [
+          "impr-1071",
+          0.7379
+        ]
+      ]
+    },
+    {
+      "qid": "D4",
+      "category": "debug",
+      "expected": "err-1003",
+      "top5": [
+        [
+          "err-1003",
+          0.8172
+        ],
+        [
+          "info-1071",
+          0.7471
+        ],
+        [
+          "impr-1011",
+          0.7371
+        ],
+        [
+          "info-1020",
+          0.7343
+        ],
+        [
+          "info-1084",
+          0.7316
+        ]
+      ]
+    },
+    {
+      "qid": "D6",
+      "category": "debug",
+      "expected": "info-1050",
+      "top5": [
+        [
+          "info-1050",
+          0.7732
+        ],
+        [
+          "info-1057",
+          0.7546
+        ],
+        [
+          "bug-000",
+          0.7081
+        ],
+        [
+          "info-1087",
+          0.701
+        ],
+        [
+          "bug-058",
+          0.6974
+        ]
+      ]
+    },
+    {
+      "qid": "S1",
+      "category": "semantic",
+      "expected": "info-1003",
+      "top5": [
+        [
+          "info-1003",
+          0.8056
+        ],
+        [
+          "impr-1062",
+          0.7748
+        ],
+        [
+          "bug-1017",
+          0.7705
+        ],
+        [
+          "info-1088",
+          0.7699
+        ],
+        [
+          "err-1002",
+          0.764
+        ]
+      ]
+    },
+    {
+      "qid": "S2",
+      "category": "semantic",
+      "expected": "info-1021",
+      "top5": [
+        [
+          "info-1021",
+          0.8074
+        ],
+        [
+          "proj-1002",
+          0.7742
+        ],
+        [
+          "feat-1005",
+          0.7596
+        ],
+        [
+          "bug-1017",
+          0.7416
+        ],
+        [
+          "info-1088",
+          0.7383
+        ]
+      ]
+    },
+    {
+      "qid": "S3",
+      "category": "semantic",
+      "expected": "info-1046",
+      "top5": [
+        [
+          "task-1097",
+          0.7724
+        ],
+        [
+          "task-1104",
+          0.7711
+        ],
+        [
+          "proj-1008",
+          0.7636
+        ],
+        [
+          "info-101",
+          0.7494
+        ],
+        [
+          "info-1046",
+          0.7436
+        ]
+      ]
+    },
+    {
+      "qid": "S4",
+      "category": "semantic",
+      "expected": "info-1042",
+      "top5": [
+        [
+          "info-1042",
+          0.8036
+        ],
+        [
+          "info-1017",
+          0.7837
+        ],
+        [
+          "info-1086",
+          0.7524
+        ],
+        [
+          "info-1020",
+          0.7387
+        ],
+        [
+          "info-1062",
+          0.7269
+        ]
+      ]
+    },
+    {
+      "qid": "S5",
+      "category": "semantic",
+      "expected": "info-1020",
+      "top5": [
+        [
+          "info-1020",
+          0.7584
+        ],
+        [
+          "impr-1005",
+          0.7462
+        ],
+        [
+          "info-1054",
+          0.736
+        ],
+        [
+          "task-1003",
+          0.717
+        ],
+        [
+          "idea-1042",
+          0.7062
+        ]
+      ]
+    },
+    {
+      "qid": "S6",
+      "category": "semantic",
+      "expected": "info-1053",
+      "top5": [
+        [
+          "info-1060",
+          0.7621
+        ],
+        [
+          "info-1053",
+          0.7615
+        ],
+        [
+          "idea-1017",
+          0.7556
+        ],
+        [
+          "info-1038",
+          0.7521
+        ],
+        [
+          "idea-1029",
+          0.7497
+        ]
+      ]
+    },
+    {
+      "qid": "X1",
+      "category": "cross-ref",
+      "expected": "bug-1007",
+      "top5": [
+        [
+          "bug-1007",
+          0.7996
+        ],
+        [
+          "proj-1001",
+          0.7907
+        ],
+        [
+          "idea-1002",
+          0.7866
+        ],
+        [
+          "impr-1001",
+          0.7796
+        ],
+        [
+          "bug-1001",
+          0.7795
+        ]
+      ]
+    },
+    {
+      "qid": "X2",
+      "category": "cross-ref",
+      "expected": "impr-1002",
+      "top5": [
+        [
+          "impr-1002",
+          0.7945
+        ],
+        [
+          "task-1112",
+          0.7689
+        ],
+        [
+          "idea-1007",
+          0.7623
+        ],
+        [
+          "impr-1020",
+          0.7018
+        ],
+        [
+          "impr-1029",
+          0.6992
+        ]
+      ]
+    },
+    {
+      "qid": "X3",
+      "category": "cross-ref",
+      "expected": "bug-1006",
+      "top5": [
+        [
+          "bug-1017",
+          0.792
+        ],
+        [
+          "info-1088",
+          0.7888
+        ],
+        [
+          "impr-1032",
+          0.7793
+        ],
+        [
+          "impr-1007",
+          0.7761
+        ],
+        [
+          "task-1005",
+          0.7729
+        ]
+      ]
+    },
+    {
+      "qid": "H1",
+      "category": "history",
+      "expected": "err-1007",
+      "top5": [
+        [
+          "err-1007",
+          0.807
+        ],
+        [
+          "proj-1008",
+          0.7911
+        ],
+        [
+          "task-1104",
+          0.7839
+        ],
+        [
+          "task-1102",
+          0.7815
+        ],
+        [
+          "task-1097",
+          0.7793
+        ]
+      ]
+    },
+    {
+      "qid": "H2",
+      "category": "history",
+      "expected": "err-1005",
+      "top5": [
+        [
+          "impr-1057",
+          0.7806
+        ],
+        [
+          "info-1089",
+          0.7625
+        ],
+        [
+          "feat-1024",
+          0.7581
+        ],
+        [
+          "impr-1024",
+          0.7572
+        ],
+        [
+          "bug-1027",
+          0.7558
+        ]
+      ]
+    },
+    {
+      "qid": "H3",
+      "category": "history",
+      "expected": "bug-1015",
+      "top5": [
+        [
+          "bug-1015",
+          0.7944
+        ],
+        [
+          "info-1044",
+          0.7585
+        ],
+        [
+          "guide-1013",
+          0.7576
+        ],
+        [
+          "task-1043",
+          0.7516
+        ],
+        [
+          "proj-1006",
+          0.7464
+        ]
+      ]
+    },
+    {
+      "qid": "H4",
+      "category": "history",
+      "expected": "info-1050",
+      "top5": [
+        [
+          "info-1050",
+          0.7977
+        ],
+        [
+          "info-1057",
+          0.7892
+        ],
+        [
+          "bug-000",
+          0.7832
+        ],
+        [
+          "bug-208",
+          0.752
+        ],
+        [
+          "task-225",
+          0.7508
+        ]
+      ]
+    },
+    {
+      "qid": "R1",
+      "category": "report",
+      "expected": "info-1042",
+      "top5": [
+        [
+          "info-1042",
+          0.8013
+        ],
+        [
+          "info-1017",
+          0.7432
+        ],
+        [
+          "info-1062",
+          0.7391
+        ],
+        [
+          "info-1023",
+          0.7282
+        ],
+        [
+          "info-1038",
+          0.7206
+        ]
+      ]
+    },
+    {
+      "qid": "R2",
+      "category": "report",
+      "expected": "bug-",
+      "top5": [
+        [
+          "proj-003",
+          0.7354
+        ],
+        [
+          "proj-024",
+          0.733
+        ],
+        [
+          "info-1069",
+          0.729
+        ],
+        [
+          "impr-1028",
+          0.7222
+        ],
+        [
+          "task-1105",
+          0.7211
+        ]
+      ]
+    },
+    {
+      "qid": "R3",
+      "category": "report",
+      "expected": "info-1046",
+      "top5": [
+        [
+          "info-1046",
+          0.7392
+        ],
+        [
+          "task-1105",
+          0.7283
+        ],
+        [
+          "task-1103",
+          0.7256
+        ],
+        [
+          "info-101",
+          0.7249
+        ],
+        [
+          "proj-1008",
+          0.7212
+        ]
+      ]
+    },
+    {
+      "qid": "R4",
+      "category": "report",
+      "expected": "info-1021",
+      "top5": [
+        [
+          "info-1088",
+          0.7957
+        ],
+        [
+          "proj-1002",
+          0.7856
+        ],
+        [
+          "feat-1005",
+          0.761
+        ],
+        [
+          "task-1005",
+          0.7576
+        ],
+        [
+          "info-1021",
+          0.7539
+        ]
+      ]
+    },
+    {
+      "qid": "N1",
+      "category": "negative",
+      "expected": "NONE",
+      "top5": [
+        [
+          "idea-1063",
+          0.5943
+        ],
+        [
+          "task-092",
+          0.5923
+        ],
+        [
+          "proj-1003",
+          0.5912
+        ],
+        [
+          "task-091",
+          0.5902
+        ],
+        [
+          "info-1027",
+          0.5891
+        ]
+      ]
+    },
+    {
+      "qid": "N2",
+      "category": "negative",
+      "expected": "NONE",
+      "top5": [
+        [
+          "guide-1004",
+          0.5987
+        ],
+        [
+          "task-1023",
+          0.5966
+        ],
+        [
+          "guide-1015",
+          0.5919
+        ],
+        [
+          "task-1038",
+          0.5893
+        ],
+        [
+          "guide-1005",
+          0.5882
+        ]
+      ]
+    },
+    {
+      "qid": "N3",
+      "category": "negative",
+      "expected": "NONE",
+      "top5": [
+        [
+          "task-1134",
+          0.6709
+        ],
+        [
+          "proj-1003",
+          0.6652
+        ],
+        [
+          "info-1090",
+          0.6647
+        ],
+        [
+          "task-1046",
+          0.6572
+        ],
+        [
+          "idea-1004",
+          0.6569
+        ]
+      ]
+    },
+    {
+      "qid": "N4",
+      "category": "negative",
+      "expected": "NONE",
+      "top5": [
+        [
+          "task-1024",
+          0.6006
+        ],
+        [
+          "proj-024",
+          0.5986
+        ],
+        [
+          "info-1009",
+          0.5958
+        ],
+        [
+          "feat-1024",
+          0.5923
+        ],
+        [
+          "proj-021",
+          0.5922
+        ]
+      ]
+    },
+    {
+      "qid": "C1",
+      "category": "understanding",
+      "expected": "info-1021",
+      "top5": [
+        [
+          "guide-1001",
+          0.7714
+        ],
+        [
+          "info-1058",
+          0.7662
+        ],
+        [
+          "impr-1003",
+          0.7383
+        ],
+        [
+          "idea-1017",
+          0.7324
+        ],
+        [
+          "bug-1017",
+          0.7313
+        ]
+      ]
+    },
+    {
+      "qid": "C2",
+      "category": "understanding",
+      "expected": "info-1058",
+      "top5": [
+        [
+          "info-1058",
+          0.7896
+        ],
+        [
+          "guide-1001",
+          0.7643
+        ],
+        [
+          "impr-1003",
+          0.743
+        ],
+        [
+          "bug-1016",
+          0.7387
+        ],
+        [
+          "err-1008",
+          0.7331
+        ]
+      ]
+    },
+    {
+      "qid": "C4",
+      "category": "understanding",
+      "expected": "info-1021",
+      "top5": [
+        [
+          "task-1058",
+          0.7877
+        ],
+        [
+          "info-1021",
+          0.7669
+        ],
+        [
+          "proj-1002",
+          0.7548
+        ],
+        [
+          "impr-1003",
+          0.7535
+        ],
+        [
+          "proj-027",
+          0.7512
+        ]
+      ]
+    }
+  ]
+}
