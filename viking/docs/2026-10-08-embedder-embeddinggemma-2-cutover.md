@@ -111,10 +111,12 @@ In an emergency, step 2 can apply hand-edited copies of those three files before
 The pinned Qwen digest (`sha256:ef08b5a9…`, b11382) means a rollback serves the same engine its stored vectors came from.
 
 **The old collections are only clean if nothing changed while EmbeddingGemma 2 was live.** AGFS is shared, but only the active collection receives mutations. So any addition, update, deletion or move during that time leaves the old 2,560-dim collection out of date:
+
 - a new or changed URI has no current vector there;
 - a deleted or moved memory keeps its stale vector there.
 
 `vectors_only` upserts surviving content but never removes stale records, and `compendium-sync` cannot repair session-memory changes. After a rollback that follows any writes, do all of the following before calling the rollback complete:
+
 1. Rebuild the old collection with Qwen: run the same inventory pairs with `vectors_only`.
 2. Run `prune_orphans` with `dry_run: true` per root, review the candidate list, then run it for real.
 3. Run `compendium-sync reconcile` and confirm it reports `missing 0`.
