@@ -20,11 +20,11 @@ resources:
   - ov-vectordb-pvc.yaml
   - ov-vectordb-deployment.yaml
   - ov-vectordb-service.yaml
-  # Embedder: primary is embedder-eg2-cuda (EmbeddingGemma 2 on manu/GTX 1080,
-  # Service embedder-eg2) since the TASK-1218 cutover (2026-10-08). Rollbacks at
-  # replicas=0: embedder-qwen-cuda (Qwen3-Embedding-4B, the 2026-07-17 to
-  # 2026-10-08 primary, Service embedder-qwen) and embedder-qwen-rocm (timmy).
-  # Runbook: viking/docs/2026-10-08-embedder-embeddinggemma-2-cutover.md.
+  # Embedder: primary is embedder-qwen-cuda (Qwen3-Embedding-4B on manu/GTX 1080,
+  # Service embedder-qwen) since 2026-07-17 (IMPR-1077). At replicas=0:
+  # embedder-qwen-rocm (timmy, retired) and embedder-eg2-cuda (EmbeddingGemma 2,
+  # Service embedder-eg2), parked after the rolled-back 2026-10-08 TASK-1218
+  # cutover. Runbook: viking/docs/2026-10-08-embedder-embeddinggemma-2-cutover.md.
   - embedder-eg2-cuda-deployment.yaml
   - embedder-eg2-service.yaml
   - embedder-qwen-cuda-deployment.yaml

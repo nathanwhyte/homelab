@@ -27,10 +27,10 @@
 #   * 2026-09-28 (BUG-1191): 7000 -> 6000, matching prod. Prod saw a 15.5%
 #     undercount (9477 real tokens) on a code-built daily events overview; at that
 #     ratio 7000 would still reach ~8.1k real tokens.
-# The embedder and the VLM are the SAME services prod uses (embeddinggemma-2 on
-# manu since the 2026-10-08 TASK-1218 cutover, gemma4:vlm via chat-ollama on timmy).
-# The test collection moved to context_test_eg2 (768 dims) with the same cutover;
-# the old 2,560-dim context_test stays in ov-vectordb-test as the rollback. Test generation therefore shares
+# The embedder and the VLM are the SAME services prod uses (qwen3-embedding-4b on
+# manu, gemma4:vlm via chat-ollama on timmy). The 2026-10-08 TASK-1218 cutover to
+# EmbeddingGemma 2 (context_test_eg2, 768 dims) was rolled back the same window;
+# see viking/docs/2026-10-08-embedder-embeddinggemma-2-cutover.md. Test generation therefore shares
 # timmy's single VLM slot with prod; keep canary runs short and serial.
 apiVersion: v1
 kind: ConfigMap
@@ -48,8 +48,8 @@ data:
         "workspace": "/app/data",
         "vectordb": {
           "backend": "http",
-          "name": "context_test_eg2",
-          "dimension": 768,
+          "name": "context_test",
+          "dimension": 2560,
           "url": "http://ov-vectordb-test.viking.svc.cluster.local:5000"
         },
         "agfs": {
@@ -88,10 +88,10 @@ data:
         "max_input_tokens": 6000,
         "dense": {
           "provider": "openai",
-          "model": "embeddinggemma-2",
+          "model": "qwen3-embedding-4b",
           "api_key": "sk-no-key-required",
-          "api_base": "http://embedder-eg2.viking.svc.cluster.local:8080/v1",
-          "dimension": 768,
+          "api_base": "http://embedder-qwen.viking.svc.cluster.local:8080/v1",
+          "dimension": 2560,
           "batch_size": 256
         },
         "max_concurrent": 1

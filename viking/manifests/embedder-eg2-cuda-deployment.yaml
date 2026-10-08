@@ -1,8 +1,10 @@
 ---
-# EmbeddingGemma 2 (270M text model) on manu's GTX 1080 (CUDA) — PRIMARY embedder
-# from the TASK-1218 cutover (decision 2026-10-07). Replaces Qwen3-Embedding-4B
-# (embedder-qwen-cuda-deployment.yaml), which stays at replicas=0 as the rollback
-# with its 2,560-dimension collections left intact in ov-vectordb.
+# EmbeddingGemma 2 (270M text model) on manu's GTX 1080 (CUDA) — PARKED at
+# replicas=0. The TASK-1218 cutover (decision 2026-10-07) ran on 2026-10-08 and was
+# rolled back the same window: on this card llama-server ran it largely on the CPU
+# (GPU 0%, 7.6 s for a 2.5k-token input) and a ~5.4k-token input pushed host memory
+# past the 4Gi limit (OOMKilled). Qwen3-Embedding-4B (embedder-qwen-cuda) is primary
+# again. Retry only after the runbook's "Before a retry" items are resolved.
 #
 # Why this model: on the frozen 1,280-entry fixture it ranks at least as well as
 # the 4B (unprefixed 19-20/34 top-1, 27-28/34 top-5 vs 18/34, 24/34) and a short
@@ -36,7 +38,7 @@ metadata:
   labels:
     app: embedder-eg2-cuda
 spec:
-  replicas: 1 # PRIMARY — the GTX 1080 holds one GPU pod, so embedder-qwen-cuda must be at 0
+  replicas: 0 # PARKED after the rolled-back 2026-10-08 cutover; the GTX 1080 holds one GPU pod, so it runs only with embedder-qwen-cuda at 0
   revisionHistoryLimit: 1
   strategy:
     type: Recreate
