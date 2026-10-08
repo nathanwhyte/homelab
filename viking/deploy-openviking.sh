@@ -53,6 +53,22 @@ require_secret_file() {
 echo "=== Deploying canonical OpenViking stack to viking namespace ==="
 echo "kubectl context: ${KUBECTL_CONTEXT:-current}"
 
+# Refuse to run an embedder migration. This script applies ConfigMaps but does not
+# restart OpenViking (its config is rendered by an init container), never touches
+# ov-test, and does not reindex, so a collection/embedder change applied through
+# it leaves both OV instances calling an embedder that is no longer running.
+# Embedder or collection changes go through their runbook
+# (viking/docs/2026-10-08-embedder-embeddinggemma-2-cutover.md).
+collection_of() { grep -o '"name": "context[a-z0-9_]*"' | head -1; }
+want_collection=$(collection_of < "$MANIFESTS/openviking-standalone-configmap.yaml")
+live_collection=$("${KUBECTL[@]}" -n viking get configmap openviking-standalone-config \
+	-o jsonpath='{.data.ov\.conf}' 2>/dev/null | collection_of || true)
+if [ -n "$live_collection" ] && [ "$live_collection" != "$want_collection" ]; then
+	echo "ERROR: live vectordb collection ($live_collection) differs from the manifest ($want_collection)." >&2
+	echo "       That is an embedder/collection migration; follow its runbook instead of this script." >&2
+	exit 1
+fi
+
 # Namespace first so secret/config applies have a target.
 apply namespace.yaml
 

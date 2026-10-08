@@ -81,7 +81,10 @@ spec:
               mountPath: /models
       containers:
         - name: llamacpp
-          image: ghcr.io/ggml-org/llama.cpp:server-cuda
+          # Pinned to the digest that served prod until the 2026-10-08 cutover
+          # (b11382-11fe02151, read from the live pod's imageID and /props), so a
+          # rollback reuses the exact engine its stored 2,560-dim vectors came from.
+          image: ghcr.io/ggml-org/llama.cpp@sha256:ef08b5a98b1170f2b62177be0a4027c88a84043c55afbf190dd18b9e7cdcfebf
           command: ["/app/llama-server"]
           args:
             - --model

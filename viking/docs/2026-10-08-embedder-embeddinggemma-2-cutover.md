@@ -20,9 +20,15 @@ Unchanged: `max_input_tokens` 6000, `max_concurrent` 1, `batch_size` 256, AGFS c
 ## Preconditions
 
 1. No other session is using manu's GPU, and no IMPR-1237 window is open.
-2. Record the starting state: `kubectl -n viking get deploy embedder-qwen-cuda openviking openviking-test -o wide`, the Qwen pod's `imageID`, and both live ConfigMaps (`kubectl -n viking get cm openviking-standalone-config openviking-test-config -o yaml > /tmp/ov-cm-before.yaml`).
+2. Record the starting state: `kubectl -n viking get deploy embedder-qwen-cuda openviking openviking-test -o wide`, the Qwen pod's `imageID` (it must match the pinned rollback digest `sha256:ef08b5a9…`), and both live ConfigMaps (`kubectl -n viking get cm openviking-standalone-config openviking-test-config -o yaml > /tmp/ov-cm-before.yaml`).
 3. Check the old collections exist and note their sizes, so the rollback can be verified: `ov ls viking://` and the vectordb collection stats if available.
 4. Suspend `compendium/compendium-sync` for the window so it does not write into a half-built collection: `kubectl -n compendium patch cronjob compendium-sync -p '{"spec":{"suspend":true}}'`.
+5. **Reindex inventory gate: complete it before stopping Qwen.** `ov ls viking://` as `noot` lists only `viking://user/noot`, and reading `noot-codex` or `noot-pilot` returns 403 (Codex review, 2026-10-08). So a generic root walk silently misses other users' memories. Write down, per instance:
+   - every account and user that owns memories (at least `noot`, `noot-codex`, `noot-pilot`, plus any peers under each user), and the identity each reindex call must carry (the trusted-mode user and role headers, with the root key);
+   - the roots per user (`viking://user/<id>`, which traverses its peer memory roots), `viking://resources`, and each skills/agent root by explicit URI (`viking://agent/skills` and any other in use). The deployed executor rejects bare `viking://agent` (`reindex_executor.py:277`), and its global traversal skips shared agent namespaces;
+   - the old collection's per-root vector counts, for the coverage check after the reindex.
+
+   Prove each (root, identity) pair is accepted on ov-test without writing, with `{"uri": "<root>", "mode": "prune_orphans", "dry_run": true}`. Then confirm task polling at `GET /api/v1/tasks/{task_id}`. Do not start the window until every pair has passed.
 
 ## Apply (one window)
 
@@ -62,10 +68,16 @@ manu has one GPU, so the Qwen embedder stops the moment EmbeddingGemma 2 starts,
 
 OpenViking v0.4.20 exposes `POST /api/v1/content/reindex` (`openviking/server/routers/content.py`), role ROOT/ADMIN/USER, body `{"uri", "mode": "vectors_only", "wait", "recursive"}`. `vectors_only` re-embeds the stored L0/L1/L2 text from AGFS without regenerating summaries, for resources, memories, skills and the user/global namespaces (`openviking/service/reindex_executor.py`, `SUPPORTED_MODES_BY_TYPE`).
 
-1. Enumerate the roots: `ov ls viking://` (resources, each `viking://user/<id>`, skills/agent namespaces).
-2. On ov-test, reindex each root with `"wait": false`, then follow the returned task until it finishes (task tracker, `admin_reindex` task type). Verify the endpoint, the task polling route and the ROOT key handling on ov-test before prod.
-3. Verify ov-test: `ov find` on a handful of known entries returns them; the collection's vector count is close to the old `context_test` count; no `dimension mismatch` in the logs.
-4. Prod (config already applied in step 3): the same reindex calls, memories first (recall hooks query them), then resources. Prod runs patched reindex code for event memories (`openviking-nav-patch-configmap.yaml`, the `apply_reindex` hook from BUG-1179/IMPR-1200); check it is loaded before relying on `vectors_only` for `events`.
+1. Use the inventory from Preconditions step 5. Work through every (root, identity) pair from that list. Do not walk `ov ls viking://` instead, because it shows only what the calling user can see.
+2. On ov-test, reindex each pair with `"wait": false` and poll `GET /api/v1/tasks/{task_id}` until it finishes.
+3. **Accept a root only if** its result reports `failed_records` 0 and `unsupported_records` 0, or every one of them is explained. The executor returns `status: completed` even when some embeddings failed (`reindex_executor.py` accumulates them, around line 411), so "completed" alone proves nothing. Also require all of these:
+   - the embedding queue has drained;
+   - no warnings in the OV log for that task;
+   - no `dimension mismatch`;
+   - per root and level, the new collection's vector count matches the old collection's.
+
+   Then run `ov find` on a handful of known entries from each user and from resources.
+4. Prod (config already applied in step 3): the same pairs and the same acceptance, memories first (recall hooks query them), then resources and skills. Prod runs patched reindex code for event memories (`openviking-nav-patch-configmap.yaml`, the `apply_reindex` hook from BUG-1179/IMPR-1200). Check it is loaded before relying on `vectors_only` for `events`.
 5. Resume `compendium-sync` and run `uv run python _scripts/compendium-sync.py reconcile` from the vault: `missing 0`, no `COVERAGE INCOMPLETE`.
 
 Duration: Qwen 4B ran ~700 tok/s on this card; EmbeddingGemma 2 was 5–8× faster on the same llama.cpp build on pop. Measure ov-test's reindex time and extrapolate to prod before starting it.
@@ -84,19 +96,33 @@ The old collections and the Qwen Deployment are untouched, so rollback re-points
 ```bash
 # 1. free the GPU
 kubectl -n viking scale deploy/embedder-eg2-cuda --replicas=0
-# 2. land a revert PR of this change, then apply the reverted objects from main
+# 2. land a rollback PR (a forward change, not a git revert, which would also drop
+#    the Qwen digest pin): embedder-eg2-cuda replicas 0, embedder-qwen-cuda replicas 1
+#    on its pinned digest, both OV configs back to qwen3-embedding-4b /
+#    embedder-qwen / 2560 / context and context_test. Then apply from main:
 cd ~/code/homelab/main/viking/manifests
 kubectl apply -f embedder-qwen-cuda-deployment.yaml -f openviking-standalone-configmap.yaml -f test/ov-test-configmap.yaml
 kubectl -n viking rollout status deploy/embedder-qwen-cuda --timeout=600s
 kubectl -n viking rollout restart deploy/openviking deploy/openviking-test
 ```
 
-In an emergency, step 2 can apply the pre-cutover files from `git show <base>:viking/manifests/<file>` before the revert PR lands; record that drift on TASK-1218 and land the revert the same day.
+In an emergency, step 2 can apply hand-edited copies of those three files before the rollback PR lands. Never apply pre-cutover files from `git show <base>`: that Qwen manifest has the floating tag. Record that drift on TASK-1218 and land the rollback PR the same day.
 
-Anything written to OpenViking during the window exists only in the `_eg2` collections; after a rollback, reindex those URIs into the old collection (`vectors_only`) or let `compendium-sync` re-push them.
+The pinned Qwen digest (`sha256:ef08b5a9…`, b11382) means a rollback serves the same engine its stored vectors came from.
+
+**The old collections are only clean if nothing changed while EmbeddingGemma 2 was live.** AGFS is shared, but only the active collection receives mutations. So any addition, update, deletion or move during that time leaves the old 2,560-dim collection out of date:
+- a new or changed URI has no current vector there;
+- a deleted or moved memory keeps its stale vector there.
+
+`vectors_only` upserts surviving content but never removes stale records, and `compendium-sync` cannot repair session-memory changes. After a rollback that follows any writes, do all of the following before calling the rollback complete:
+1. Rebuild the old collection with Qwen: run the same inventory pairs with `vectors_only`.
+2. Run `prune_orphans` with `dry_run: true` per root, review the candidate list, then run it for real.
+3. Run `compendium-sync reconcile` and confirm it reports `missing 0`.
 
 ## Follow-ups (not in this change)
 
 - Recall score thresholds: the pilot plugin's `scoreThreshold` (0.35) and IMPR-1208's gate were calibrated on Qwen. EmbeddingGemma 2's scores sit in a higher, narrower band (no-answer queries 0.63–0.73 on the fixture), so recalibrate after the cutover.
 - Delete the old 2,560-dim collections and the Qwen model cache only after the 24-hour watch passes.
 - IMPR-1237 moves this embedder to Ollama once a release bundles llama.cpp b11454 or newer.
+- dotfiles `claude/ov-pilot/pending-canary.yaml` (dormant) still expects Qwen. Update it before it is reused.
+- Unverified until the window: EmbeddingGemma 2's startup on the GTX 1080, its peak memory, how it handles long inputs, and the end-to-end reindex.
