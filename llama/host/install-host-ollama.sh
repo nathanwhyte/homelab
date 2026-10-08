@@ -25,7 +25,7 @@
 # Only then install/restart the host. ss cannot detect Kubernetes hostPort DNAT.
 set -euo pipefail
 
-OLLAMA_VERSION=${OLLAMA_VERSION:-0.40.0}
+OLLAMA_VERSION=${OLLAMA_VERSION:-0.40.1}
 OLLAMA_BIN=/usr/local/bin/ollama
 OLLAMA_USER=ollama
 MODELS_DIR=/usr/share/ollama/.ollama/models
