@@ -3,6 +3,11 @@ set -euo pipefail
 # Ollama configuration for wemby (GTX 1060, 6 GB VRAM).
 # Run this script ON wemby after installing Ollama (https://ollama.com/install.sh).
 #
+# Install or upgrade at the pinned version, matching timmy's OLLAMA_VERSION in
+# llama/host/install-host-ollama.sh (keep the two equal):
+#   curl -fsSL https://ollama.com/install.sh | OLLAMA_VERSION=0.40.1 sh
+# Ollama 0.40.x bundles llama.cpp b11351 (its LLAMA_CPP_VERSION file).
+#
 # wemby's Ollama is a standalone host daemon: no k8s Service or EndpointSlice
 # points at it (compare timmy's ollama-timmy-host). The 1060 is also the
 # candidate OpenViking embedder host (TASK-1217), and k8s GPU scheduling cannot
