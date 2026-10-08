@@ -53,6 +53,22 @@ require_secret_file() {
 echo "=== Deploying canonical OpenViking stack to viking namespace ==="
 echo "kubectl context: ${KUBECTL_CONTEXT:-current}"
 
+# Refuse to run an embedder migration. This script applies ConfigMaps but does not
+# restart OpenViking (its config is rendered by an init container), never touches
+# ov-test, and does not reindex, so a collection/embedder change applied through
+# it leaves both OV instances calling an embedder that is no longer running.
+# Embedder or collection changes go through their runbook
+# (viking/docs/2026-10-08-embedder-embeddinggemma-2-cutover.md).
+collection_of() { grep -o '"name": "context[a-z0-9_]*"' | head -1; }
+want_collection=$(collection_of < "$MANIFESTS/openviking-standalone-configmap.yaml")
+live_collection=$("${KUBECTL[@]}" -n viking get configmap openviking-standalone-config \
+	-o jsonpath='{.data.ov\.conf}' 2>/dev/null | collection_of || true)
+if [ -n "$live_collection" ] && [ "$live_collection" != "$want_collection" ]; then
+	echo "ERROR: live vectordb collection ($live_collection) differs from the manifest ($want_collection)." >&2
+	echo "       That is an embedder/collection migration; follow its runbook instead of this script." >&2
+	exit 1
+fi
+
 # Namespace first so secret/config applies have a target.
 apply namespace.yaml
 
@@ -75,7 +91,14 @@ apply openviking-native-dashboard-configmap.yaml
 apply ov-vectordb-pvc.yaml
 apply ov-vectordb-deployment.yaml
 apply ov-vectordb-service.yaml
-apply embedder-qwen-rocm-deployment.yaml # Deployment embedder-qwen (backend-neutral, IMPR-1040); primary since 2026-07-06 (was embedder-qwen-cuda on wemby)
+# Embedder: embedder-eg2-cuda (EmbeddingGemma 2, Service embedder-eg2) is primary
+# since the 2026-10-08 TASK-1218 cutover; the two Qwen Deployments are replicas=0
+# rollbacks and embedder-qwen-service.yaml keeps their Service for a rollback.
+apply embedder-eg2-cuda-deployment.yaml
+apply embedder-eg2-service.yaml
+apply embedder-qwen-cuda-deployment.yaml
+apply embedder-qwen-rocm-deployment.yaml
+apply embedder-qwen-service.yaml
 apply llamacpp-vlm-service.yaml
 apply cuda-llamacpp-deployment.yaml
 apply cuda-llamacpp-service.yaml
@@ -99,7 +122,7 @@ verify_manifest_set
 echo ""
 echo "=== Waiting for rollouts ==="
 "${KUBECTL[@]}" -n viking rollout status deployment/ov-vectordb --timeout=300s
-"${KUBECTL[@]}" -n viking rollout status deployment/embedder-qwen --timeout=900s
+"${KUBECTL[@]}" -n viking rollout status deployment/embedder-eg2-cuda --timeout=900s
 "${KUBECTL[@]}" -n viking rollout status deployment/llamacpp-cuda-ov --timeout=900s
 "${KUBECTL[@]}" -n viking rollout status deployment/openviking --timeout=300s
 

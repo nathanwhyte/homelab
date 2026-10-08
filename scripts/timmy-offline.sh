@@ -82,7 +82,7 @@ QUIESCED_CRONJOBS=(
 # Format: kind/namespace/name
 PARKED=(
 	statefulset/garage/garage
-	deployment/viking/embedder-qwen-cuda
+	deployment/viking/embedder-eg2-cuda # the live embedder since 2026-10-08 (embedder-qwen-cuda is at 0)
 	deployment/omnipendium/omnipendium-db
 	deployment/llama/cloud-llm-counter
 )

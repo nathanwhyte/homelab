@@ -28,6 +28,20 @@ data:
   # exceed_context_size_error, and each one opened the embedding circuit breaker,
   # stalling every embedding for about a minute. 6000 estimated is ~6.9k real at the
   # observed ratio. Raise it only together with the embedder's --ctx-size.
+  #
+  # Embedder: EmbeddingGemma 2 (TASK-1218 cutover, 2026-10-08), 768 dimensions,
+  # served by embedder-eg2 (embedder-eg2-cuda-deployment.yaml). The vectordb
+  # collection is a NEW name, context_eg2: a collection's dimension is fixed, and
+  # the old 2,560-dim `context` collection stays untouched as the rollback (set
+  # name/dimension/model/api_base back and scale embedder-qwen-cuda to 1). The
+  # new collection starts empty and is filled by the runbook's reindex
+  # (viking/docs/2026-10-08-embedder-embeddinggemma-2-cutover.md).
+  # max_input_tokens stays 6000: EmbeddingGemma 2's tokenizer counted ~7% more
+  # tokens than Qwen's on the TASK-1218 latency sample, so 6000 estimated is
+  # ~7.4k real at the BUG-1191 ratio, under its 8,192 window. Over the window it
+  # returns 500 "too large to process" instead of Qwen's 400.
+  # No query/document prefixes: the openai provider cannot add them, and the
+  # unprefixed arm is the one benchmarked as production-equivalent.
   ov.conf: |
     {
       "default_account": "default",
@@ -36,8 +50,8 @@ data:
         "workspace": "/app/data",
         "vectordb": {
           "backend": "http",
-          "name": "context",
-          "dimension": 2560,
+          "name": "context_eg2",
+          "dimension": 768,
           "url": "http://ov-vectordb.viking.svc.cluster.local:5000"
         },
         "agfs": {
@@ -87,10 +101,10 @@ data:
         "max_input_tokens": 6000,
         "dense": {
           "provider": "openai",
-          "model": "qwen3-embedding-4b",
+          "model": "embeddinggemma-2",
           "api_key": "sk-no-...ired",
-          "api_base": "http://embedder-qwen.viking.svc.cluster.local:8080/v1",
-          "dimension": 2560,
+          "api_base": "http://embedder-eg2.viking.svc.cluster.local:8080/v1",
+          "dimension": 768,
           "batch_size": 256
         },
         "max_concurrent": 1
