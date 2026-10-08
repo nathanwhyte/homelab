@@ -39,10 +39,24 @@ kubectl -n viking rollout status deploy/embedder-eg2-cuda --timeout=600s
 kubectl -n viking run eg2-smoke --rm -i --restart=Never --image=curlimages/curl:8.12.1 -- \
   curl -s http://embedder-eg2.viking.svc:8080/v1/embeddings -H 'Content-Type: application/json' \
   -d '{"model":"embeddinggemma-2","input":["smoke"]}'
-# 3. ov-test first (canary)
-kubectl apply -f test/ov-test-configmap.yaml
-kubectl -n viking rollout restart deploy/openviking-test && kubectl -n viking rollout status deploy/openviking-test
+# 3. both OV configs at once: once embedder-qwen-cuda is at 0, an OV still on the
+#    old config has no embedder at all (errors, not just thin results)
+kubectl apply -f test/ov-test-configmap.yaml -f openviking-standalone-configmap.yaml
+kubectl -n viking rollout restart deploy/openviking-test deploy/openviking
+kubectl -n viking rollout status deploy/openviking-test && kubectl -n viking rollout status deploy/openviking
 ```
+
+## Window impact
+
+manu has one GPU, so the Qwen embedder stops the moment EmbeddingGemma 2 starts, and prod and ov-test switch together. ov-test is a canary for the **reindex procedure**, not for running the new model while prod stays on the old one.
+
+| Phase | Prod recall | Prod writes |
+| --- | --- | --- |
+| Apply step 1 until step 3 finishes (a few minutes) | Fails open: no embedder behind the old config | Embedding queue errors; retried by OV |
+| After step 3, until the prod reindex finishes | Thin: the new collection holds only what has been reindexed or written since | Land in `context_eg2` |
+| After the reindex | Normal | Normal |
+
+**Size the window before starting:** count the old collection's vectors (vectordb collection stats, or `ov ls -r -a` over each root) and time ov-test's full reindex. Qwen 4B ran ~700 tok/s on this card and EmbeddingGemma 2 was 5–8× faster on the same llama.cpp build on pop, so prod's reindex should take a fraction of the June Qwen re-embed. Use the measured ov-test rate, scaled by the vector count ratio, as the estimate, and pick a time when thin recall is acceptable.
 
 ## Reindex (vectors only)
 
@@ -51,7 +65,7 @@ OpenViking v0.4.20 exposes `POST /api/v1/content/reindex` (`openviking/server/ro
 1. Enumerate the roots: `ov ls viking://` (resources, each `viking://user/<id>`, skills/agent namespaces).
 2. On ov-test, reindex each root with `"wait": false`, then follow the returned task until it finishes (task tracker, `admin_reindex` task type). Verify the endpoint, the task polling route and the ROOT key handling on ov-test before prod.
 3. Verify ov-test: `ov find` on a handful of known entries returns them; the collection's vector count is close to the old `context_test` count; no `dimension mismatch` in the logs.
-4. Prod: `kubectl apply -f openviking-standalone-configmap.yaml`, restart `openviking`, then the same reindex calls against prod, resources first (largest recall value), then memories.
+4. Prod (config already applied in step 3): the same reindex calls, memories first (recall hooks query them), then resources. Prod runs patched reindex code for event memories (`openviking-nav-patch-configmap.yaml`, the `apply_reindex` hook from BUG-1179/IMPR-1200); check it is loaded before relying on `vectors_only` for `events`.
 5. Resume `compendium-sync` and run `uv run python _scripts/compendium-sync.py reconcile` from the vault: `missing 0`, no `COVERAGE INCOMPLETE`.
 
 Duration: Qwen 4B ran ~700 tok/s on this card; EmbeddingGemma 2 was 5–8× faster on the same llama.cpp build on pop. Measure ov-test's reindex time and extrapolate to prod before starting it.
