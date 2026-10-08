@@ -4,6 +4,32 @@ Compendium: TASK-1218 (model decision and evidence), IMPR-1237 (the later move t
 
 **Do not run this without the user's explicit go-ahead.** It changes the live embedder for prod and ov-test, and OpenViking recall stays degraded until the prod reindex finishes.
 
+## Attempt 1 (2026-10-08): rolled back
+
+Run with the user's go-ahead and rolled back in the same window. Qwen3-Embedding-4B is primary again, and `embedder-eg2-cuda` is parked at 0.
+
+| Time (UTC) | Event |
+| --- | --- |
+| 12:39:59 | Window opened. Preconditions and the inventory gate passed. |
+| 12:42:07 | EG2 ready: GGUF SHA-256 OK, 768-dim unit vector through the Service. |
+| 12:42:46 | Both OV instances on `context_eg2` / `context_test_eg2`. |
+| ~12:48–12:55 | `embedder-eg2-cuda` OOMKilled at its 4Gi limit five times, then CrashLoopBackOff. OV's embedding circuit breaker opened. |
+| 12:55:54–12:58:03 | Emergency rollback: EG2 to 0, Qwen to 1 (pinned digest), the pre-window ConfigMaps re-applied, both OVs restarted. Qwen answered with 2,560 dims. |
+
+What failed:
+
+- **EG2 runs mostly on the CPU on the GTX 1080.** The model sits in VRAM (2.4 GB), but GPU utilization stayed at 0% and one CPU core ran during requests. A 2,528-token input took 7.6 s, slower than Qwen 4B on the same card. llama-server logged `layer 5 is assigned to device CUDA0 but Flash Attention is assigned to device CPU` and then `Flash Attention not supported, set to disabled`.
+- **Host memory grows with input length.** A ~5.4k-token input crossed 4Gi within seconds. The pop benchmarks (Metal) never showed this.
+- **ADMIN cannot run `vectors_only` on a user root.** Root key plus `X-OpenViking-Role: admin` passed the `prune_orphans` dry-run on `viking://user/<id>`, but the real `vectors_only` task failed with `Access denied for viking://user/<id>`. Resources and `agent/*` roots accepted ADMIN. User roots need that user's own identity (`X-OpenViking-User: <id>`, role USER), which was proven on a dry-run only.
+
+Data after the rollback: prod `context` holds the same 7,301 record IDs as before the window, Loki shows no prod write routes between 12:41:40 and 12:56:40, and prod `context_eg2` is empty. So the rollback needed no rebuild or prune. `context_test_eg2` holds 33 records from the partial ov-test reindex. Both new collections are left in place.
+
+### Before a retry
+
+1. Find which ops fall back to the CPU on SM 6.1. Use a probe pod with verbose logging (`-lv 1` or `GGML_SCHED_DEBUG`) and a higher memory limit, during a short GPU window. Suspects: tensors in the Q8_0 GGUF that are not Q8_0 (BF16), and the attention path.
+2. Measure throughput and peak host memory at 6,000 and 8,000 tokens on the 1080. Accept only if latency beats Qwen 4B and memory has a known ceiling under the limit.
+3. Fix the inventory: user roots run as their own user, and shared roots as ADMIN.
+
 ## What changes
 
 | Object | Before | After |
@@ -28,7 +54,7 @@ Unchanged: `max_input_tokens` 6000, `max_concurrent` 1, `batch_size` 256, AGFS c
    - the roots per user (`viking://user/<id>`, which traverses its peer memory roots), `viking://resources`, and each skills/agent root by explicit URI (`viking://agent/skills` and any other in use). The deployed executor rejects bare `viking://agent` (`reindex_executor.py:277`), and its global traversal skips shared agent namespaces;
    - the old collection's per-root vector counts, for the coverage check after the reindex.
 
-   Prove each (root, identity) pair is accepted on ov-test without writing, with `{"uri": "<root>", "mode": "prune_orphans", "dry_run": true}`. Then confirm task polling at `GET /api/v1/tasks/{task_id}`. Do not start the window until every pair has passed.
+   Prove each (root, identity) pair is accepted on ov-test without writing, with `{"uri": "<root>", "mode": "prune_orphans", "dry_run": true}`. Then confirm task polling at `GET /api/v1/tasks/{task_id}`. Do not start the window until every pair has passed. A passing dry-run does not prove `vectors_only` access: as ADMIN it passed on user roots that the real run then refused (Attempt 1).
 
 ## Apply (one window)
 

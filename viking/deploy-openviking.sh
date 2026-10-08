@@ -91,9 +91,10 @@ apply openviking-native-dashboard-configmap.yaml
 apply ov-vectordb-pvc.yaml
 apply ov-vectordb-deployment.yaml
 apply ov-vectordb-service.yaml
-# Embedder: embedder-eg2-cuda (EmbeddingGemma 2, Service embedder-eg2) is primary
-# since the 2026-10-08 TASK-1218 cutover; the two Qwen Deployments are replicas=0
-# rollbacks and embedder-qwen-service.yaml keeps their Service for a rollback.
+# Embedder: embedder-qwen-cuda (Service embedder-qwen) is primary. The ROCm
+# Deployment and embedder-eg2-cuda (parked after the rolled-back 2026-10-08
+# TASK-1218 cutover) stay at replicas=0. EG2 is applied first so it can never
+# hold the GPU while Qwen starts.
 apply embedder-eg2-cuda-deployment.yaml
 apply embedder-eg2-service.yaml
 apply embedder-qwen-cuda-deployment.yaml
@@ -122,7 +123,7 @@ verify_manifest_set
 echo ""
 echo "=== Waiting for rollouts ==="
 "${KUBECTL[@]}" -n viking rollout status deployment/ov-vectordb --timeout=300s
-"${KUBECTL[@]}" -n viking rollout status deployment/embedder-eg2-cuda --timeout=900s
+"${KUBECTL[@]}" -n viking rollout status deployment/embedder-qwen-cuda --timeout=900s
 "${KUBECTL[@]}" -n viking rollout status deployment/llamacpp-cuda-ov --timeout=900s
 "${KUBECTL[@]}" -n viking rollout status deployment/openviking --timeout=300s
 

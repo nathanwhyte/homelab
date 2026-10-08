@@ -92,7 +92,7 @@ echo "Run smoke test:"
 # cuda-vectoradd.yaml was referenced here but has never existed in this directory.
 # Verify against a real GPU workload instead — it proves the same thing (CUDA
 # reaches the driver from inside a container) without a throwaway manifest.
-echo "  kubectl -n viking exec deploy/embedder-eg2-cuda -- \\"
+echo "  kubectl -n viking exec deploy/embedder-qwen-cuda -- \\"
 echo "    nvidia-smi --query-gpu=name,driver_version,memory.used --format=csv,noheader"
 echo ""
 echo "Driver is host-installed via dkms (BUG-1102) — the operator no longer manages"
