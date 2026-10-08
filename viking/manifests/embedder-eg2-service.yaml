@@ -1,0 +1,20 @@
+---
+# `embedder-eg2` Service: OpenViking's embedder endpoint from the TASK-1218
+# EmbeddingGemma 2 cutover (2026-10-08). Both OV configs point at
+# embedder-eg2.viking.svc:8080/v1. The old `embedder-qwen` Service stays, so a
+# rollback only reverts the two OV configs and the two Deployments' replicas.
+apiVersion: v1
+kind: Service
+metadata:
+  name: embedder-eg2
+  namespace: viking
+  labels:
+    app: embedder-eg2
+spec:
+  type: ClusterIP
+  selector:
+    app: embedder-eg2-cuda
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8000

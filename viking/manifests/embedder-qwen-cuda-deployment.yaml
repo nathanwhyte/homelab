@@ -1,5 +1,6 @@
 ---
-# Qwen3-Embedding-4B on manu's GTX 1080 (CUDA) — PRIMARY embedder since 2026-07-17.
+# Qwen3-Embedding-4B on manu's GTX 1080 (CUDA) — PRIMARY embedder 2026-07-17 to
+# 2026-10-08, now the rollback for EmbeddingGemma 2 (embedder-eg2-cuda-deployment.yaml).
 # Relocated here from timmy's RX 9070 XT (ROCm) by IMPR-1077 (TASK-1136 throughput
 # decision); the ROCm deployment (embedder-qwen-rocm-deployment.yaml) is retired at
 # replicas=0 as the rollback path. Own PVC embedder-cuda-model-cache so it coexisted
@@ -31,7 +32,7 @@ metadata:
   labels:
     app: embedder-qwen-cuda
 spec:
-  replicas: 1 # PRIMARY — live embedder on manu/GTX 1080; the embedder-qwen Service (embedder-qwen-service.yaml) selects app=embedder-qwen-cuda (cutover 2026-07-17, IMPR-1077)
+  replicas: 0 # ROLLBACK since the TASK-1218 EmbeddingGemma 2 cutover (2026-10-08): embedder-eg2-cuda holds the GTX 1080. Its 2,560-dim collections stay in ov-vectordb; see viking/docs/2026-10-08-embedder-embeddinggemma-2-cutover.md
   revisionHistoryLimit: 1
   strategy:
     type: Recreate

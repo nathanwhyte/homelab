@@ -1,0 +1,172 @@
+---
+# EmbeddingGemma 2 (270M text model) on manu's GTX 1080 (CUDA) — PRIMARY embedder
+# from the TASK-1218 cutover (decision 2026-10-07). Replaces Qwen3-Embedding-4B
+# (embedder-qwen-cuda-deployment.yaml), which stays at replicas=0 as the rollback
+# with its 2,560-dimension collections left intact in ov-vectordb.
+#
+# Why this model: on the frozen 1,280-entry fixture it ranks at least as well as
+# the 4B (unprefixed 19-20/34 top-1, 27-28/34 top-5 vs 18/34, 24/34) and a short
+# query behind a 7,600-token text waits ~5x less on the same llama.cpp build.
+# Evidence: benchmarks/embedding-retrieval/task1218-embeddinggemma-2-pop-20261006.md.
+#
+# Why llama-server and not Ollama: no Ollama release runs it on this card yet
+# (0.40.x bundles llama.cpp b11351; support landed in b11454, ggml-org/llama.cpp
+# #30054; Ollama's MLX path needs SM 7.5+). Tested 2026-10-08, recorded on IMPR-1237.
+#
+# The `embedder-eg2` Service (embedder-eg2-service.yaml) selects app=embedder-eg2-cuda.
+# Cutover / rollback runbook: viking/docs/2026-10-08-embedder-embeddinggemma-2-cutover.md
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: embedder-eg2-model-cache
+  namespace: viking
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: longhorn-ssd
+  resources:
+    requests:
+      storage: 2Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: embedder-eg2-cuda
+  namespace: viking
+  labels:
+    app: embedder-eg2-cuda
+spec:
+  replicas: 1 # PRIMARY — the GTX 1080 holds one GPU pod, so embedder-qwen-cuda must be at 0
+  revisionHistoryLimit: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: embedder-eg2-cuda
+  template:
+    metadata:
+      labels:
+        app: embedder-eg2-cuda
+    spec:
+      runtimeClassName: nvidia
+      nodeSelector:
+        kubernetes.io/hostname: manu
+        gpu.vendor: nvidia
+      securityContext:
+        fsGroup: 0
+      initContainers:
+        - name: model-fetch
+          image: curlimages/curl:8.12.1
+          command: ["/bin/sh", "-c"]
+          # The GGUF is checked against its published SHA-256 on every start, so a
+          # truncated download or a re-pushed file never reaches llama-server.
+          args:
+            - |
+              set -eu
+              model_path="/models/${MODEL_FILE}"
+              if [ ! -f "${model_path}" ]; then
+                echo "Downloading ${MODEL_FILE}..."
+                curl -fL --retry 5 --retry-delay 10 "${MODEL_URL}" -o "${model_path}.tmp"
+                mv "${model_path}.tmp" "${model_path}"
+              fi
+              echo "${MODEL_SHA256}  ${model_path}" | sha256sum -c -
+              ln -sf "${model_path}" /models/current.gguf
+              echo "Model ready."
+          env:
+            - name: MODEL_FILE
+              value: embeddinggemma-2-Q8_0.gguf
+            - name: MODEL_URL
+              value: https://huggingface.co/ggml-org/embeddinggemma-2-GGUF/resolve/main/embeddinggemma-2-Q8_0.gguf
+            - name: MODEL_SHA256
+              value: 2188ac1deca4b77dffefd603c2776a9d76d9d74ec01841392982ebb840b09135
+          securityContext:
+            runAsUser: 0
+            runAsGroup: 0
+          volumeMounts:
+            - name: model-cache
+              mountPath: /models
+      containers:
+        - name: llamacpp
+          # server-cuda b11459 (2026-10-07, CUDA 12.8), index digest. EmbeddingGemma 2
+          # (gemma-embedding2) needs b11454 or newer. Pinned: an engine change can move
+          # vectors against the stored collection, so a bump is its own gated PR.
+          image: ghcr.io/ggml-org/llama.cpp@sha256:fff6185edd2fbc4093aa5970bf6db53ed11c283e3a1c52a3e244cf27047264f4
+          command: ["/app/llama-server"]
+          args:
+            - --model
+            - /models/current.gguf
+            - --host
+            - "0.0.0.0"
+            - --port
+            - "8000"
+            - --embedding
+            # Mean pooling: the model's own (GGUF pooling_type 1). Not `last` like Qwen.
+            - --pooling
+            - mean
+            # 8,192-token window. The model is non-causal, so a whole input must fit
+            # in one physical batch: ubatch below 8192 rejects longer inputs with a
+            # 500 "input (N tokens) is too large to process". A 270M model leaves
+            # plenty of the 8 GB card at 8192/8192.
+            - --ctx-size
+            - "8192"
+            - --batch-size
+            - "8192"
+            - --ubatch-size
+            - "8192"
+            # One slot and no host prompt cache, for the same reasons as the Qwen
+            # embedder (see embedder-qwen-cuda-deployment.yaml).
+            - --parallel
+            - "1"
+            - --cache-ram
+            - "0"
+            - --n-gpu-layers
+            - "999"
+            - --threads
+            - "4"
+            - --split-mode
+            - none
+            - --main-gpu
+            - "0"
+            - --metrics
+          ports:
+            - containerPort: 8000
+              name: http
+          resources:
+            requests:
+              cpu: "500m"
+              memory: 1Gi
+              nvidia.com/gpu: "1"
+            limits:
+              cpu: "4"
+              memory: 4Gi
+              nvidia.com/gpu: "1"
+          # Startup gates on /health, which answers 503 "Loading model" until the
+          # model is in memory: the TCP-only probe on the Qwen embedder reported
+          # Ready while it still returned 503s (seen 2026-10-08). After startup the
+          # BUG-1049 reasoning holds: no readiness probe, TCP-only liveness.
+          startupProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 120
+          livenessProbe:
+            tcpSocket:
+              port: 8000
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 10
+          volumeMounts:
+            - name: model-cache
+              mountPath: /models
+            - name: shm
+              mountPath: /dev/shm
+      volumes:
+        - name: model-cache
+          persistentVolumeClaim:
+            claimName: embedder-eg2-model-cache
+        - name: shm
+          emptyDir:
+            medium: Memory
+            sizeLimit: 1Gi
