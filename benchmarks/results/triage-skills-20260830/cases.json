@@ -131,8 +131,8 @@
    "target_id": "PROJ-1018",
    "target_status": "completed",
    "context": "⚠️ **That blocker was wrong, and PROJ-1018 disproved it on 2026-08-24.** A",
-   "label": "lifted",
-   "note": "entry itself records the blocker as disproved by the target"
+   "label": "not-a-blocker",
+   "note": "relabeled lifted -> not-a-blocker 2026-10-09 (IDEA-1131): the excerpt says the blocker 'was wrong' and was disproved, i.e. the dependency never held; blocker.review's table maps text explicitly denying the dependency to not-a-blocker, and lifted to a real blocker the target's resolution removed. All four models in the IDEA-1131 comparison answered not-a-blocker"
   },
   {
    "id": "IDEA-1052->IDEA-1051#0",
@@ -315,7 +315,7 @@
    "tail": "807 standard format fields have `auto_generate=TRUE`. 36 are date-typed (`date`, `date-time`, `time`). All have empty `format` values in the seed CSV.\n- 2026-06-18: Mark Nicolosi (platform) clarified: claims and claim extensions do NOT use input maps. The `#inst` display is a platform UI rendering bug — same class as a recent litigation flag display issue. Amie filed OWL-19704.\n\n# Fix\n\nPlatform UI fix — the claim/claim-extension detail view needs type-aware rendering for date fields instead of displaying raw Clojure `#inst` serialization. Amie filed ClickUp ticket OWL-19704 for the platform team.\n\n# Verification\n\nTo be determined — pending fix approach selection.\n\n# Related\n\n- Cross-links to other bugs: none identified\n- Key files investigated:\n  - DipDash: `api/seed-data/real-production/standard_format_fields.csv`\n  - DipDash: `web/src/utils/columnMappingUtils.tsx:322` (`getCombinedMappings`)\n  - Mage: `dbt/data_ingestion_automation/macros/to_date.sql`\n  - Mage: `dbt/data_ingestion_automation/models/data_driven/data_driven_map_columns_to_asf.sql`\n  - Mage: `dbt/data_ingestion_automation/models/standardformat/intermediate/int_standard_format_answers.sql`\n  - Mage: `ingest/answers.py`\n\n# Sources\n\n- Slack thread: <https://aclaimant.slack.com/archives/C08Q7S22NGG/p1781803068416739>\n",
    "path": "bugs/other/BUG-152-platform-standard-date-fields-display-as-inst-clojure-literals-when-n.md",
    "label": "follow-up-needed",
-   "note": "verification 'to be determined — pending fix approach selection' is an owed internal decision"
+   "note": "verification 'to be determined — pending fix approach selection' is an owed internal decision. Ambiguous (2026-10-09, IDEA-1131): the fix is the platform team's OWL-19704, so 'fine' (waiting on an external fix) is also defensible; three of four models answered fine. Label kept; treat a fine verdict here as a soft miss"
   },
   {
    "id": "FEAT-1002",
