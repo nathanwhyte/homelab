@@ -63,6 +63,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import os
 import platform
 import resource
@@ -84,6 +85,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from coding_tasks import TASKS, CodingTask, tasks_for_tiers
 
 DEFAULT_BASE = "http://localhost:11434"
+DEFAULT_OPENAI_BASE = "http://127.0.0.1:8000"
+
+# Wire protocol. `ollama` speaks /api/chat natively. `openai` translates each
+# request and response at the post_chat seam, so the tool loop, scoring and
+# result format stay identical for an OpenAI-compatible server such as oMLX
+# (IDEA-1131). `sampling` is sent with every openai request; Ollama rows use the
+# tag's Modelfile parameters instead.
+API: dict[str, Any] = {"kind": "ollama", "sampling": {}}
 
 SYSTEM_PROMPT = """You are a coding agent working in a small repository.
 
@@ -95,6 +104,36 @@ Use the provided tools to inspect and edit files. Rules:
 - When the task is done, reply with a short plain-text summary and no tool call.
 
 Do not ask the user questions; you are running unattended."""
+
+# `--profile tuned` (IDEA-1131, 2026-10-10). Each rule answers a failure seen in
+# the 2026-10-10 baseline rerun: an invented `edit_file` tool and stray
+# arguments, rewritten fixture suites, stopping once the shipped tests passed
+# while the hidden verifier checked more, and running out of turns after the
+# work was already done. The turn caps scale by TUNED_TURN_SCALE alongside.
+SYSTEM_PROMPT_TUNED = """You are a coding agent working in a small repository.
+
+You have exactly four tools:
+- list_files (no arguments) lists the repository.
+- read_file (path) returns one file.
+- write_file (path, content) replaces the ENTIRE file with content; pass the
+  complete new file, and edit a file only through write_file.
+- run_tests (no arguments) runs the repository's existing test suites.
+
+Rules:
+- Always read a file before you rewrite it.
+- Make the smallest change that satisfies the request; keep code that is already
+  correct, and keep public function and class names.
+- Leave existing test_*.py files unchanged. Put any extra checks you want in a
+  new file.
+- The existing tests may not cover the whole request. Before you finish,
+  re-read the request and confirm every requirement it states is met, then run
+  run_tests once more.
+- You have {max_turns} turns. Plan to finish by turn {finish_by}; once the
+  request is met and the tests pass, stop.
+- When the task is done, reply with a short plain-text summary and no tool call.
+
+Do not ask the user questions; you are running unattended."""
+TUNED_TURN_SCALE = 1.5
 
 TOOLS: list[dict[str, Any]] = [
     {
@@ -204,8 +243,142 @@ class TaskResult:
 def post_chat(
     base: str, payload: dict[str, Any], timeout: int
 ) -> tuple[int, dict[str, Any]]:
+    if API["kind"] == "openai":
+        status, body = _post_json(
+            f"{base}/v1/chat/completions", _to_openai(payload), timeout
+        )
+        return _from_openai(status, body)
+    return _post_json(f"{base}/api/chat", payload, timeout)
+
+
+def _to_openai(payload: dict[str, Any]) -> dict[str, Any]:
+    """An Ollama /api/chat payload as an OpenAI chat-completions request.
+
+    Ollama pairs a tool result with its call by position; OpenAI needs the call
+    id. Each assistant message's calls queue their ids, and each following tool
+    message takes the next one. A call the harness rejected as a malformed
+    envelope never reaches the server, so its error goes back as a user turn.
+    """
+    messages: list[dict[str, Any]] = []
+    pending: list[str | None] = []
+    for m in payload.get("messages") or []:
+        role = m.get("role")
+        if role == "assistant":
+            msg: dict[str, Any] = {
+                "role": "assistant",
+                "content": m.get("content") or "",
+            }
+            # Ollama's `thinking` travels back as OpenAI's reasoning_content, so a
+            # thinking row keeps its reasoning in history the way the Ollama loop does.
+            if m.get("thinking"):
+                msg["reasoning_content"] = m["thinking"]
+            calls = []
+            for i, call in enumerate(m.get("tool_calls") or []):
+                fn = call.get("function") if isinstance(call, dict) else None
+                if not isinstance(fn, dict):
+                    pending.append(None)
+                    continue
+                call_id = call.get("id") or f"call_{len(messages)}_{i}"
+                args = fn.get("arguments")
+                calls.append(
+                    {
+                        "id": call_id,
+                        "type": "function",
+                        "function": {
+                            "name": fn.get("name") or "",
+                            "arguments": args
+                            if isinstance(args, str)
+                            else json.dumps(args),
+                        },
+                    }
+                )
+                pending.append(call_id)
+            if calls:
+                msg["tool_calls"] = calls
+            messages.append(msg)
+        elif role == "tool":
+            call_id = pending.pop(0) if pending else None
+            if call_id is None:
+                messages.append(
+                    {
+                        "role": "user",
+                        "content": f"tool result: {m.get('content') or ''}",
+                    }
+                )
+            else:
+                messages.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": call_id,
+                        "content": m.get("content") or "",
+                    }
+                )
+        else:
+            messages.append({"role": role, "content": m.get("content") or ""})
+    options = payload.get("options") or {}
+    body: dict[str, Any] = {
+        "model": payload["model"],
+        "messages": messages,
+        "stream": False,
+        **API["sampling"],
+    }
+    if payload.get("tools"):
+        body["tools"] = payload["tools"]
+    if "num_predict" in options:
+        body["max_tokens"] = options["num_predict"]
+    if "seed" in options:
+        body["seed"] = options["seed"]
+    if payload.get("think") is not None:
+        body["chat_template_kwargs"] = {"enable_thinking": bool(payload["think"])}
+    return body
+
+
+def _from_openai(status: int, body: dict[str, Any]) -> tuple[int, dict[str, Any]]:
+    """An OpenAI chat-completions response in the /api/chat shape run_task reads.
+
+    Tool-call arguments stay as the JSON string the server sent; run_task already
+    parses string arguments and scores an unparseable one as a bad call.
+    """
+    if status != 200:
+        detail = body.get("error") or body.get("detail") or body
+        return status, {"error": detail}
+    choice = (body.get("choices") or [{}])[0]
+    m = choice.get("message") or {}
+    calls = []
+    for call in m.get("tool_calls") or []:
+        if isinstance(call, dict) and isinstance(call.get("function"), dict):
+            calls.append(
+                {
+                    "id": call.get("id"),
+                    "function": {
+                        "name": call["function"].get("name"),
+                        "arguments": call["function"].get("arguments"),
+                    },
+                }
+            )
+        else:
+            calls.append(call)
+    message: dict[str, Any] = {"role": "assistant", "content": m.get("content") or ""}
+    reasoning = m.get("reasoning_content") or m.get("reasoning")
+    if reasoning:
+        message["thinking"] = reasoning
+    if calls:
+        message["tool_calls"] = calls
+    usage = body.get("usage") or {}
+    return 200, {
+        "message": message,
+        "prompt_eval_count": usage.get("prompt_tokens"),
+        "eval_count": usage.get("completion_tokens"),
+        "done_reason": "length" if choice.get("finish_reason") == "length" else "stop",
+        "load_duration": 0,
+    }
+
+
+def _post_json(
+    url: str, payload: dict[str, Any], timeout: int
+) -> tuple[int, dict[str, Any]]:
     req = urllib.request.Request(
-        f"{base}/api/chat",
+        url,
         data=json.dumps(payload).encode(),
         headers={"Content-Type": "application/json"},
     )
@@ -662,6 +835,17 @@ def execute_tool(
     return f"error: unknown tool {name}"
 
 
+def profile_settings(profile: str, task: CodingTask) -> tuple[int, str]:
+    """Turn cap and system prompt for a profile; `baseline` is the 2026-07-28 setup."""
+    if profile == "tuned":
+        max_turns = math.ceil(task.max_turns * TUNED_TURN_SCALE)
+        prompt = SYSTEM_PROMPT_TUNED.format(
+            max_turns=max_turns, finish_by=max(1, max_turns - 2)
+        )
+        return max_turns, prompt
+    return task.max_turns, SYSTEM_PROMPT
+
+
 def run_task(
     base: str,
     model: str,
@@ -673,7 +857,9 @@ def run_task(
     seed: int | None,
     num_predict: int,
     repeat: int = 0,
+    profile: str = "baseline",
 ) -> TaskResult:
+    max_turns, system_prompt = profile_settings(profile, task)
     sandbox = Path(tempfile.mkdtemp(prefix=f"agentic-{task.task_id}-"))
     for name, content in task.files.items():
         (sandbox / name).write_text(content)
@@ -696,7 +882,7 @@ def run_task(
     )
 
     messages: list[dict[str, Any]] = [
-        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "system", "content": system_prompt},
         {
             "role": "user",
             "content": (
@@ -708,7 +894,7 @@ def run_task(
 
     started = time.time()
     try:
-        for _ in range(task.max_turns):
+        for _ in range(max_turns):
             result.turns += 1
             options: dict[str, Any] = {"num_ctx": num_ctx, "num_predict": num_predict}
             if seed is not None:
@@ -873,6 +1059,8 @@ def _fs_name(model: str) -> str:
 
 
 def unload(base: str, model: str) -> None:
+    if API["kind"] == "openai":
+        return  # the OpenAI API has no unload; the server's operator manages residency
     post_chat(base, {"model": model, "messages": [], "keep_alive": 0}, timeout=120)
 
 
@@ -905,6 +1093,16 @@ def preflight(base: str, model: str) -> list[str]:
     fatal.
     """
     problems: list[str] = []
+    if API["kind"] == "openai":
+        # /v1/models has no capability field; tool support is the server's claim
+        # (oMLX parses Qwen tool calls), and bad_tool_calls measures the rest.
+        listing = _get_json(f"{base}/v1/models")
+        if listing.get("error"):
+            return [f"{base} is unreachable: {listing['error']}"]
+        ids = [m.get("id") for m in listing.get("data") or []]
+        if model not in ids:
+            problems.append(f"model {model!r} not served at {base}; served: {ids}")
+        return problems
     version = _get_json(f"{base}/api/version")
     if not version.get("version"):
         return [f"{base} is unreachable: {version.get('error', 'no version returned')}"]
@@ -928,6 +1126,33 @@ def collect_provenance(base: str, model: str) -> dict[str, Any]:
     result identified only by "gemma4:coding-12b" is not attributable. The digest
     and the server-reported parameters are what make a row reproducible.
     """
+    if API["kind"] == "openai":
+        here = Path(__file__).resolve()
+        entry = next(
+            (
+                m
+                for m in _get_json(f"{base}/v1/models").get("data") or []
+                if m.get("id") == model
+            ),
+            {},
+        )
+        return {
+            "model": model,
+            "api": "openai",
+            "server_model": entry,
+            # Requested, not server-confirmed: /v1/models reports no sampling.
+            "effective_parameters": dict(API["sampling"]),
+            # num_ctx is not sent: the OpenAI API has no per-request context size,
+            # so the server's own limit applies. A row compared with an Ollama row
+            # must have that limit at or above the Ollama row's num_ctx.
+            "num_ctx_enforced": False,
+            "harness_sha256": _sha256(here),
+            "fixtures_sha256": _sha256(here.parent / "coding_tasks" / "__init__.py"),
+            "base_url": base,
+            "host": platform.node(),
+            "python": platform.python_version(),
+            "started_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+        }
     show = _get_json(f"{base}/api/show", {"model": model})
     details = show.get("details") or {}
     params_raw = show.get("parameters") or ""
@@ -973,8 +1198,29 @@ def collect_provenance(base: str, model: str) -> dict[str, Any]:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--model", required=True, help="Ollama tag to score")
-    ap.add_argument("--base", default=DEFAULT_BASE)
+    ap.add_argument(
+        "--model", required=True, help="Ollama tag (or served model id) to score"
+    )
+    ap.add_argument(
+        "--api",
+        choices=["ollama", "openai"],
+        default="ollama",
+        help="wire protocol: Ollama /api/chat, or an OpenAI-compatible server (oMLX)",
+    )
+    ap.add_argument(
+        "--base",
+        default=None,
+        help=f"server URL (default {DEFAULT_BASE}, or {DEFAULT_OPENAI_BASE} with --api openai)",
+    )
+    ap.add_argument(
+        "--openai-sampling",
+        default="{}",
+        help=(
+            "JSON sampling fields sent with every --api openai request, e.g. "
+            '\'{"temperature": 1, "top_p": 0.95, "top_k": 20, "min_p": 0, '
+            "\"presence_penalty\": 0}' to match an Ollama tag's Modelfile"
+        ),
+    )
     ap.add_argument("--tiers", default="1,2,3", help="comma-separated tiers, e.g. 1,2")
     ap.add_argument("--num-ctx", type=int, default=32768)
     ap.add_argument(
@@ -1024,10 +1270,55 @@ def main() -> int:
         action="store_true",
         help="proceed even if sandbox-exec confinement is unavailable",
     )
+    ap.add_argument(
+        "--profile",
+        choices=["baseline", "tuned"],
+        default="baseline",
+        help=(
+            "baseline: the 2026-07-28 prompt and turn caps. tuned: names the four "
+            "tools, keeps fixture suites unchanged, asks for a requirements check "
+            f"before finishing, states the turn budget, and scales caps by {TUNED_TURN_SCALE}"
+        ),
+    )
+    ap.add_argument(
+        "--task-set",
+        choices=["core", "heldout"],
+        default="core",
+        help=(
+            "core: the six original tasks. heldout: nine tasks written without "
+            "sight of the tuned profile, for checking that a profile generalizes"
+        ),
+    )
+    ap.add_argument(
+        "--task-ids",
+        default="",
+        help="comma-separated task ids to keep from the selected set and tiers",
+    )
     args = ap.parse_args()
+    API["kind"] = args.api
+    API["sampling"] = json.loads(args.openai_sampling)
+    if args.base is None:
+        args.base = DEFAULT_OPENAI_BASE if args.api == "openai" else DEFAULT_BASE
+    # An Ollama row samples with its tag's Modelfile parameters; an openai row with
+    # nothing explicit would sample with whatever the server defaults to, and the
+    # comparison would silently stop being like for like.
+    if args.api == "openai" and not API["sampling"]:
+        print(
+            "--api openai needs --openai-sampling (for example the compared Ollama "
+            "tag's Modelfile values); refusing to run with server-default sampling"
+        )
+        return 2
 
     tiers = [int(t) for t in args.tiers.split(",") if t.strip()]
-    tasks = tasks_for_tiers(tiers)
+    if args.task_set == "heldout":
+        from coding_tasks.heldout import HELDOUT_TASKS
+
+        tasks = [t for t in HELDOUT_TASKS if t.tier in tiers]
+    else:
+        tasks = tasks_for_tiers(tiers)
+    wanted = {t.strip() for t in args.task_ids.split(",") if t.strip()}
+    if wanted:
+        tasks = [t for t in tasks if t.task_id in wanted]
     # An empty selection must refuse, not exit 0: `--tiers 4` (or `--tiers ""`)
     # otherwise produces a clean 0/0 run that a wrapper reads as "complete" —
     # the same row-that-never-ran class the exit codes 2/3/4 exist to close.
@@ -1089,7 +1380,8 @@ def main() -> int:
     base_seed = None if args.seed is not None and args.seed < 0 else args.seed
     print(
         f"model={args.model} tiers={tiers} tasks={len(tasks)} "
-        f"think={args.think} seed={base_seed} repeats={args.repeats}"
+        f"think={args.think} seed={base_seed} repeats={args.repeats} "
+        f"profile={args.profile}"
     )
     provenance = collect_provenance(args.base, args.model)
     print(
@@ -1119,6 +1411,7 @@ def main() -> int:
                     seed,
                     args.num_predict,
                     repeat,
+                    args.profile,
                 )
             except Exception as e:  # noqa: BLE001 - one task's crash must cost one row, not the batch
                 # Results are only written after the full loop, so an uncaught
@@ -1180,11 +1473,17 @@ def main() -> int:
     out_dir = Path(args.out).expanduser()
     out_dir.mkdir(parents=True, exist_ok=True)
     stamp = time.strftime("%Y%m%d-%H%M%S")
-    out_path = out_dir / f"agentic-coding-{_fs_name(args.model)}-{stamp}.json"
+    suffix = "" if args.profile == "baseline" else f"-{args.profile}"
+    if args.task_set != "core":
+        suffix += f"-{args.task_set}"
+    out_path = out_dir / f"agentic-coding-{_fs_name(args.model)}{suffix}-{stamp}.json"
     out_path.write_text(
         json.dumps(
             {
                 "model": args.model,
+                "api": args.api,
+                "profile": args.profile,
+                "task_set": args.task_set,
                 "tiers": tiers,
                 "think": args.think,
                 "num_ctx": args.num_ctx,

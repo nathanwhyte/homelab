@@ -31,6 +31,7 @@ from __future__ import annotations
 import importlib.util
 import os
 import shutil
+import subprocess
 import sys
 import tempfile
 import time
@@ -492,6 +493,187 @@ def test_malformed_envelope_isolated():
     assert result.tool_calls == 2, result.tool_calls
     assert result.bad_tool_calls == 2, result.bad_tool_detail
     assert any("envelope" in d for d in result.bad_tool_detail), result.bad_tool_detail
+
+
+@check("--api openai pairs each tool result with its call id and keeps the loop shape")
+def test_openai_translation():
+    saved = dict(BENCH.API)
+    try:
+        BENCH.API.update(kind="openai", sampling={"temperature": 1, "top_k": 20})
+        payload = {
+            "model": "m",
+            "tools": BENCH.TOOLS,
+            "think": False,
+            "options": {"num_ctx": 4096, "num_predict": 512, "seed": 7},
+            "messages": [
+                {"role": "system", "content": "sys"},
+                {"role": "user", "content": "go"},
+                {
+                    "role": "assistant",
+                    "content": "",
+                    "tool_calls": [
+                        {
+                            "id": "a",
+                            "function": {
+                                "name": "read_file",
+                                "arguments": {"path": "x"},
+                            },
+                        },
+                        "not-a-dict",
+                        {"function": {"name": "list_files", "arguments": "{}"}},
+                    ],
+                },
+                {"role": "tool", "tool_name": "read_file", "content": "X"},
+                {"role": "tool", "tool_name": "", "content": "error: malformed"},
+                {"role": "tool", "tool_name": "list_files", "content": "x"},
+            ],
+        }
+        body = BENCH._to_openai(payload)
+        assert body["max_tokens"] == 512 and body["seed"] == 7, body
+        assert body["temperature"] == 1 and body["top_k"] == 20, body
+        assert body["chat_template_kwargs"] == {"enable_thinking": False}, body
+        assert "options" not in body and "num_ctx" not in body, body
+        msgs = body["messages"]
+        calls = msgs[2]["tool_calls"]
+        assert [c["id"] for c in calls] == ["a", "call_2_2"], calls
+        assert calls[0]["function"]["arguments"] == '{"path": "x"}', calls
+        assert msgs[3] == {"role": "tool", "tool_call_id": "a", "content": "X"}, msgs
+        assert msgs[4]["role"] == "user", msgs[4]
+        assert msgs[5]["tool_call_id"] == "call_2_2", msgs[5]
+
+        status, resp = BENCH._from_openai(
+            200,
+            {
+                "choices": [
+                    {
+                        "finish_reason": "length",
+                        "message": {
+                            "content": None,
+                            "tool_calls": [
+                                {
+                                    "id": "c1",
+                                    "type": "function",
+                                    "function": {
+                                        "name": "write_file",
+                                        "arguments": '{"path": "t.py"}',
+                                    },
+                                }
+                            ],
+                        },
+                    }
+                ],
+                "usage": {"prompt_tokens": 11, "completion_tokens": 3},
+            },
+        )
+        assert status == 200 and resp["done_reason"] == "length", resp
+        assert resp["prompt_eval_count"] == 11 and resp["eval_count"] == 3, resp
+        call = resp["message"]["tool_calls"][0]
+        assert call["id"] == "c1" and call["function"]["name"] == "write_file", call
+        assert resp["message"]["content"] == "", resp
+
+        status, resp = BENCH._from_openai(400, {"detail": "bad request"})
+        assert status == 400 and resp["error"] == "bad request", resp
+    finally:
+        BENCH.API.clear()
+        BENCH.API.update(saved)
+
+
+@check("--api openai round-trips reasoning and pairs ids across turns")
+def test_openai_translation_multiturn():
+    saved = dict(BENCH.API)
+    try:
+        BENCH.API.update(kind="openai", sampling={"temperature": 1})
+        status, resp = BENCH._from_openai(
+            200,
+            {
+                "choices": [
+                    {
+                        "finish_reason": "tool_calls",
+                        "message": {
+                            "content": "",
+                            "reasoning_content": "plan",
+                            "tool_calls": [
+                                {
+                                    "id": "t1",
+                                    "function": {
+                                        "name": "list_files",
+                                        "arguments": "{}",
+                                    },
+                                }
+                            ],
+                        },
+                    }
+                ]
+            },
+        )
+        assert resp["done_reason"] == "stop", resp
+        assert resp["prompt_eval_count"] is None and resp["eval_count"] is None, resp
+        assert resp["message"]["thinking"] == "plan", resp
+        second = {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [
+                {"id": "t2", "function": {"name": "read_file", "arguments": "{}"}},
+                {"id": "t3", "function": {"name": "run_tests", "arguments": "{}"}},
+            ],
+        }
+        body = BENCH._to_openai(
+            {
+                "model": "m",
+                "messages": [
+                    {"role": "user", "content": "go"},
+                    resp["message"],
+                    {"role": "tool", "tool_name": "list_files", "content": "a"},
+                    second,
+                    {"role": "tool", "tool_name": "read_file", "content": "b"},
+                    {"role": "tool", "tool_name": "run_tests", "content": "c"},
+                ],
+            }
+        )
+        msgs = body["messages"]
+        assert msgs[1]["reasoning_content"] == "plan", msgs[1]
+        assert [m.get("tool_call_id") for m in msgs if m["role"] == "tool"] == [
+            "t1",
+            "t2",
+            "t3",
+        ], msgs
+        assert "max_tokens" not in body and "chat_template_kwargs" not in body, body
+
+        status, resp = BENCH._from_openai(500, {"error": "boom: not json"})
+        assert status == 500 and resp["error"] == "boom: not json", resp
+    finally:
+        BENCH.API.clear()
+        BENCH.API.update(saved)
+
+
+@check("--profile tuned scales turn caps and states the budget; baseline is unchanged")
+def test_profiles():
+    from coding_tasks import TASKS
+
+    for task in TASKS:
+        turns, prompt = BENCH.profile_settings("baseline", task)
+        assert turns == task.max_turns and prompt == BENCH.SYSTEM_PROMPT, task.task_id
+        turns, prompt = BENCH.profile_settings("tuned", task)
+        assert turns == -(-task.max_turns * 3 // 2), (task.task_id, turns)
+        assert f"You have {turns} turns" in prompt, prompt
+        assert f"finish by turn {turns - 2}" in prompt, prompt
+        assert "{" not in prompt, "unformatted placeholder left in the prompt"
+    _, server = run_scripted([_response(content="done")])
+    sent = server.requests[0]["messages"][0]["content"]
+    assert sent == BENCH.SYSTEM_PROMPT, sent[:80]
+
+
+@check("--api openai refuses to run without explicit sampling")
+def test_openai_requires_sampling():
+    script = Path(__file__).resolve().parent / "agentic-coding-bench.py"
+    proc = subprocess.run(
+        [sys.executable, str(script), "--api", "openai", "--model", "m"],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert proc.returncode == 2, (proc.returncode, proc.stdout[-300:])
+    assert "--openai-sampling" in proc.stdout, proc.stdout[-300:]
 
 
 def main() -> int:
