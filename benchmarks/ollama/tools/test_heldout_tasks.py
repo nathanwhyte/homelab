@@ -84,6 +84,10 @@ from fields import decode_field
 class DecodeFieldRegressionTest(unittest.TestCase):
     def test_backslash_n_stays_literal(self):
         self.assertEqual(decode_field(r"line1\\nline2"), r"line1\\nline2")
+
+
+if __name__ == "__main__":
+    unittest.main()
 """,
     },
     "h3a-ledger-snapshots": {

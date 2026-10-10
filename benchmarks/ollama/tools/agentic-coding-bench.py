@@ -1289,6 +1289,11 @@ def main() -> int:
             "sight of the tuned profile, for checking that a profile generalizes"
         ),
     )
+    ap.add_argument(
+        "--task-ids",
+        default="",
+        help="comma-separated task ids to keep from the selected set and tiers",
+    )
     args = ap.parse_args()
     API["kind"] = args.api
     API["sampling"] = json.loads(args.openai_sampling)
@@ -1311,6 +1316,9 @@ def main() -> int:
         tasks = [t for t in HELDOUT_TASKS if t.tier in tiers]
     else:
         tasks = tasks_for_tiers(tiers)
+    wanted = {t.strip() for t in args.task_ids.split(",") if t.strip()}
+    if wanted:
+        tasks = [t for t in tasks if t.task_id in wanted]
     # An empty selection must refuse, not exit 0: `--tiers 4` (or `--tiers ""`)
     # otherwise produces a clean 0/0 run that a wrapper reads as "complete" —
     # the same row-that-never-ran class the exit codes 2/3/4 exist to close.

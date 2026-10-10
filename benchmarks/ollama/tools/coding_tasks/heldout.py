@@ -178,10 +178,12 @@ def decode_field(value):
     return value.replace("\\\\n", "\\n")
 '''
 
+# The submitted test is run the way the harness runs any suite, as a script, so a
+# plain-function test with a __main__ runner and a unittest.main() file both count.
 _H2C_VERIFY = """\
-import importlib
-import types
-import unittest
+import shutil
+import subprocess
+import sys
 from pathlib import Path
 
 from fields import decode_field
@@ -189,17 +191,21 @@ from fields import decode_field
 assert decode_field(r"line1\\nline2") == r"line1\\nline2"
 test_file = Path("test_fields_regression.py")
 assert test_file.is_file(), "add the requested regression test"
-suite = unittest.defaultTestLoader.loadTestsFromName("test_fields_regression")
-result = unittest.TextTestRunner().run(suite)
-assert result.wasSuccessful(), "the submitted regression test must pass"
-test_module = importlib.import_module(test_file.stem)
-original_module = types.ModuleType("fields")
-original_module.decode_field = lambda value: value.replace(chr(92) + "n", "\\n")
-test_module.decode_field = original_module.decode_field
-original_result = unittest.TextTestRunner().run(
-    unittest.defaultTestLoader.loadTestsFromModule(test_module)
+fixed = subprocess.run(
+    [sys.executable, test_file.name], capture_output=True, text=True, timeout=60
 )
-assert not original_result.wasSuccessful(), "regression test must fail against the original bug"
+assert fixed.returncode == 0, "the submitted regression test must pass: " + fixed.stderr[-200:]
+original = Path("_original_fields_check")
+shutil.rmtree(original, ignore_errors=True)
+original.mkdir()
+shutil.copy(test_file, original / test_file.name)
+(original / "fields.py").write_text(
+    "def decode_field(value):\\n    return value.replace(chr(92) + 'n', chr(10))\\n"
+)
+buggy = subprocess.run(
+    [sys.executable, test_file.name], cwd=original, capture_output=True, text=True, timeout=60
+)
+assert buggy.returncode != 0, "regression test must fail against the original bug"
 print("OK")
 """
 
@@ -401,7 +407,7 @@ HELDOUT_TASKS: list[CodingTask] = [
         "h2c-field-regression-test",
         2,
         "Preserve escaped newlines in fields",
-        "`decode_field` in fields.py turns the two characters backslash-n into an actual newline, corrupting exported data. Fix the behavior and add a new regression test file named `test_fields_regression.py`; the test must import `decode_field` and demonstrate the original bug.",
+        "`decode_field` in fields.py turns the two characters backslash-n into an actual newline, corrupting exported data. Fix the behavior and add a new regression test file named `test_fields_regression.py`; the test must import `decode_field` and demonstrate the original bug. It should run its checks when executed directly with `python3 test_fields_regression.py`, exiting non-zero while the bug is present.",
         {"fields.py": _H2C_SOURCE},
         _H2C_VERIFY,
         ["fields.py", "test_fields_regression.py"],
@@ -421,7 +427,7 @@ HELDOUT_TASKS: list[CodingTask] = [
         "h3b-env-filtering",
         3,
         "Add safe environment setting filters",
-        "Extend `collect_settings` in env_settings.py with optional `allowlist` and `transform` arguments. Keep only keys matching the prefix, return lowercase suffix keys, optionally restrict suffixes to the allowlist, and apply the transform callable to each retained value. Keep empty values and the existing default behavior; the test_env_settings.py suite must still pass.",
+        "Extend `collect_settings` in env_settings.py with optional `allowlist` and `transform` arguments. Keep only keys matching the prefix, return lowercase suffix keys, optionally restrict suffixes to the allowlist (allowlist entries match the suffix as it appears in the environment, before lowercasing), and apply the transform callable to each retained value. Keep empty values and the existing default behavior; the test_env_settings.py suite must still pass.",
         {"env_settings.py": _H3B_SOURCE, "test_env_settings.py": _H3B_TESTS},
         _H3B_VERIFY,
         ["env_settings.py"],
