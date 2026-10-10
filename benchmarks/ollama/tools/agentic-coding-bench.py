@@ -84,6 +84,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from coding_tasks import TASKS, CodingTask, tasks_for_tiers
 
 DEFAULT_BASE = "http://localhost:11434"
+DEFAULT_OPENAI_BASE = "http://127.0.0.1:8000"
+
+# Wire protocol. `ollama` speaks /api/chat natively. `openai` translates each
+# request and response at the post_chat seam, so the tool loop, scoring and
+# result format stay identical for an OpenAI-compatible server such as oMLX
+# (IDEA-1131). `sampling` is sent with every openai request; Ollama rows use the
+# tag's Modelfile parameters instead.
+API: dict[str, Any] = {"kind": "ollama", "sampling": {}}
 
 SYSTEM_PROMPT = """You are a coding agent working in a small repository.
 
@@ -204,8 +212,135 @@ class TaskResult:
 def post_chat(
     base: str, payload: dict[str, Any], timeout: int
 ) -> tuple[int, dict[str, Any]]:
+    if API["kind"] == "openai":
+        status, body = _post_json(
+            f"{base}/v1/chat/completions", _to_openai(payload), timeout
+        )
+        return _from_openai(status, body)
+    return _post_json(f"{base}/api/chat", payload, timeout)
+
+
+def _to_openai(payload: dict[str, Any]) -> dict[str, Any]:
+    """An Ollama /api/chat payload as an OpenAI chat-completions request.
+
+    Ollama pairs a tool result with its call by position; OpenAI needs the call
+    id. Each assistant message's calls queue their ids, and each following tool
+    message takes the next one. A call the harness rejected as a malformed
+    envelope never reaches the server, so its error goes back as a user turn.
+    """
+    messages: list[dict[str, Any]] = []
+    pending: list[str | None] = []
+    for m in payload.get("messages") or []:
+        role = m.get("role")
+        if role == "assistant":
+            msg: dict[str, Any] = {
+                "role": "assistant",
+                "content": m.get("content") or "",
+            }
+            calls = []
+            for i, call in enumerate(m.get("tool_calls") or []):
+                fn = call.get("function") if isinstance(call, dict) else None
+                if not isinstance(fn, dict):
+                    pending.append(None)
+                    continue
+                call_id = call.get("id") or f"call_{len(messages)}_{i}"
+                args = fn.get("arguments")
+                calls.append(
+                    {
+                        "id": call_id,
+                        "type": "function",
+                        "function": {
+                            "name": fn.get("name") or "",
+                            "arguments": args
+                            if isinstance(args, str)
+                            else json.dumps(args),
+                        },
+                    }
+                )
+                pending.append(call_id)
+            if calls:
+                msg["tool_calls"] = calls
+            messages.append(msg)
+        elif role == "tool":
+            call_id = pending.pop(0) if pending else None
+            if call_id is None:
+                messages.append(
+                    {
+                        "role": "user",
+                        "content": f"tool result: {m.get('content') or ''}",
+                    }
+                )
+            else:
+                messages.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": call_id,
+                        "content": m.get("content") or "",
+                    }
+                )
+        else:
+            messages.append({"role": role, "content": m.get("content") or ""})
+    options = payload.get("options") or {}
+    body: dict[str, Any] = {
+        "model": payload["model"],
+        "messages": messages,
+        "stream": False,
+        **API["sampling"],
+    }
+    if payload.get("tools"):
+        body["tools"] = payload["tools"]
+    if "num_predict" in options:
+        body["max_tokens"] = options["num_predict"]
+    if "seed" in options:
+        body["seed"] = options["seed"]
+    if payload.get("think") is not None:
+        body["chat_template_kwargs"] = {"enable_thinking": bool(payload["think"])}
+    return body
+
+
+def _from_openai(status: int, body: dict[str, Any]) -> tuple[int, dict[str, Any]]:
+    """An OpenAI chat-completions response in the /api/chat shape run_task reads.
+
+    Tool-call arguments stay as the JSON string the server sent; run_task already
+    parses string arguments and scores an unparseable one as a bad call.
+    """
+    if status != 200:
+        detail = body.get("error") or body.get("detail") or body
+        return status, {"error": detail}
+    choice = (body.get("choices") or [{}])[0]
+    m = choice.get("message") or {}
+    calls = []
+    for call in m.get("tool_calls") or []:
+        if isinstance(call, dict) and isinstance(call.get("function"), dict):
+            calls.append(
+                {
+                    "id": call.get("id"),
+                    "function": {
+                        "name": call["function"].get("name"),
+                        "arguments": call["function"].get("arguments"),
+                    },
+                }
+            )
+        else:
+            calls.append(call)
+    message: dict[str, Any] = {"role": "assistant", "content": m.get("content") or ""}
+    if calls:
+        message["tool_calls"] = calls
+    usage = body.get("usage") or {}
+    return 200, {
+        "message": message,
+        "prompt_eval_count": usage.get("prompt_tokens"),
+        "eval_count": usage.get("completion_tokens"),
+        "done_reason": "length" if choice.get("finish_reason") == "length" else "stop",
+        "load_duration": 0,
+    }
+
+
+def _post_json(
+    url: str, payload: dict[str, Any], timeout: int
+) -> tuple[int, dict[str, Any]]:
     req = urllib.request.Request(
-        f"{base}/api/chat",
+        url,
         data=json.dumps(payload).encode(),
         headers={"Content-Type": "application/json"},
     )
@@ -873,6 +1008,8 @@ def _fs_name(model: str) -> str:
 
 
 def unload(base: str, model: str) -> None:
+    if API["kind"] == "openai":
+        return  # the OpenAI API has no unload; the server's operator manages residency
     post_chat(base, {"model": model, "messages": [], "keep_alive": 0}, timeout=120)
 
 
@@ -905,6 +1042,16 @@ def preflight(base: str, model: str) -> list[str]:
     fatal.
     """
     problems: list[str] = []
+    if API["kind"] == "openai":
+        # /v1/models has no capability field; tool support is the server's claim
+        # (oMLX parses Qwen tool calls), and bad_tool_calls measures the rest.
+        listing = _get_json(f"{base}/v1/models")
+        if listing.get("error"):
+            return [f"{base} is unreachable: {listing['error']}"]
+        ids = [m.get("id") for m in listing.get("data") or []]
+        if model not in ids:
+            problems.append(f"model {model!r} not served at {base}; served: {ids}")
+        return problems
     version = _get_json(f"{base}/api/version")
     if not version.get("version"):
         return [f"{base} is unreachable: {version.get('error', 'no version returned')}"]
@@ -928,6 +1075,28 @@ def collect_provenance(base: str, model: str) -> dict[str, Any]:
     result identified only by "gemma4:coding-12b" is not attributable. The digest
     and the server-reported parameters are what make a row reproducible.
     """
+    if API["kind"] == "openai":
+        here = Path(__file__).resolve()
+        entry = next(
+            (
+                m
+                for m in _get_json(f"{base}/v1/models").get("data") or []
+                if m.get("id") == model
+            ),
+            {},
+        )
+        return {
+            "model": model,
+            "api": "openai",
+            "server_model": entry,
+            "effective_parameters": dict(API["sampling"]),
+            "harness_sha256": _sha256(here),
+            "fixtures_sha256": _sha256(here.parent / "coding_tasks" / "__init__.py"),
+            "base_url": base,
+            "host": platform.node(),
+            "python": platform.python_version(),
+            "started_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+        }
     show = _get_json(f"{base}/api/show", {"model": model})
     details = show.get("details") or {}
     params_raw = show.get("parameters") or ""
@@ -973,8 +1142,29 @@ def collect_provenance(base: str, model: str) -> dict[str, Any]:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--model", required=True, help="Ollama tag to score")
-    ap.add_argument("--base", default=DEFAULT_BASE)
+    ap.add_argument(
+        "--model", required=True, help="Ollama tag (or served model id) to score"
+    )
+    ap.add_argument(
+        "--api",
+        choices=["ollama", "openai"],
+        default="ollama",
+        help="wire protocol: Ollama /api/chat, or an OpenAI-compatible server (oMLX)",
+    )
+    ap.add_argument(
+        "--base",
+        default=None,
+        help=f"server URL (default {DEFAULT_BASE}, or {DEFAULT_OPENAI_BASE} with --api openai)",
+    )
+    ap.add_argument(
+        "--openai-sampling",
+        default="{}",
+        help=(
+            "JSON sampling fields sent with every --api openai request, e.g. "
+            '\'{"temperature": 1, "top_p": 0.95, "top_k": 20, "min_p": 0, '
+            "\"presence_penalty\": 0}' to match an Ollama tag's Modelfile"
+        ),
+    )
     ap.add_argument("--tiers", default="1,2,3", help="comma-separated tiers, e.g. 1,2")
     ap.add_argument("--num-ctx", type=int, default=32768)
     ap.add_argument(
@@ -1025,6 +1215,10 @@ def main() -> int:
         help="proceed even if sandbox-exec confinement is unavailable",
     )
     args = ap.parse_args()
+    API["kind"] = args.api
+    API["sampling"] = json.loads(args.openai_sampling)
+    if args.base is None:
+        args.base = DEFAULT_OPENAI_BASE if args.api == "openai" else DEFAULT_BASE
 
     tiers = [int(t) for t in args.tiers.split(",") if t.strip()]
     tasks = tasks_for_tiers(tiers)
@@ -1185,6 +1379,7 @@ def main() -> int:
         json.dumps(
             {
                 "model": args.model,
+                "api": args.api,
                 "tiers": tiers,
                 "think": args.think,
                 "num_ctx": args.num_ctx,

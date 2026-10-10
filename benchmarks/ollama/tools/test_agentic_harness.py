@@ -494,6 +494,89 @@ def test_malformed_envelope_isolated():
     assert any("envelope" in d for d in result.bad_tool_detail), result.bad_tool_detail
 
 
+@check("--api openai pairs each tool result with its call id and keeps the loop shape")
+def test_openai_translation():
+    saved = dict(BENCH.API)
+    try:
+        BENCH.API.update(kind="openai", sampling={"temperature": 1, "top_k": 20})
+        payload = {
+            "model": "m",
+            "tools": BENCH.TOOLS,
+            "think": False,
+            "options": {"num_ctx": 4096, "num_predict": 512, "seed": 7},
+            "messages": [
+                {"role": "system", "content": "sys"},
+                {"role": "user", "content": "go"},
+                {
+                    "role": "assistant",
+                    "content": "",
+                    "tool_calls": [
+                        {
+                            "id": "a",
+                            "function": {
+                                "name": "read_file",
+                                "arguments": {"path": "x"},
+                            },
+                        },
+                        "not-a-dict",
+                        {"function": {"name": "list_files", "arguments": "{}"}},
+                    ],
+                },
+                {"role": "tool", "tool_name": "read_file", "content": "X"},
+                {"role": "tool", "tool_name": "", "content": "error: malformed"},
+                {"role": "tool", "tool_name": "list_files", "content": "x"},
+            ],
+        }
+        body = BENCH._to_openai(payload)
+        assert body["max_tokens"] == 512 and body["seed"] == 7, body
+        assert body["temperature"] == 1 and body["top_k"] == 20, body
+        assert body["chat_template_kwargs"] == {"enable_thinking": False}, body
+        assert "options" not in body and "num_ctx" not in body, body
+        msgs = body["messages"]
+        calls = msgs[2]["tool_calls"]
+        assert [c["id"] for c in calls] == ["a", "call_2_2"], calls
+        assert calls[0]["function"]["arguments"] == '{"path": "x"}', calls
+        assert msgs[3] == {"role": "tool", "tool_call_id": "a", "content": "X"}, msgs
+        assert msgs[4]["role"] == "user", msgs[4]
+        assert msgs[5]["tool_call_id"] == "call_2_2", msgs[5]
+
+        status, resp = BENCH._from_openai(
+            200,
+            {
+                "choices": [
+                    {
+                        "finish_reason": "length",
+                        "message": {
+                            "content": None,
+                            "tool_calls": [
+                                {
+                                    "id": "c1",
+                                    "type": "function",
+                                    "function": {
+                                        "name": "write_file",
+                                        "arguments": '{"path": "t.py"}',
+                                    },
+                                }
+                            ],
+                        },
+                    }
+                ],
+                "usage": {"prompt_tokens": 11, "completion_tokens": 3},
+            },
+        )
+        assert status == 200 and resp["done_reason"] == "length", resp
+        assert resp["prompt_eval_count"] == 11 and resp["eval_count"] == 3, resp
+        call = resp["message"]["tool_calls"][0]
+        assert call["id"] == "c1" and call["function"]["name"] == "write_file", call
+        assert resp["message"]["content"] == "", resp
+
+        status, resp = BENCH._from_openai(400, {"detail": "bad request"})
+        assert status == 400 and resp["error"] == "bad request", resp
+    finally:
+        BENCH.API.clear()
+        BENCH.API.update(saved)
+
+
 def main() -> int:
     failures = 0
     for name, fn in CHECKS:
