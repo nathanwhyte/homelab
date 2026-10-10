@@ -1,17 +1,18 @@
 """Probe which resident fractions oMLX admits for a model: load, read the offload wrap summary, unload.
 
-Usage: python3 ds_probe.py --model <id> --log <omlx serve log> <fraction> [<fraction> ...]
+Usage: python3 ds_probe.py --model <id> --log <omlx serve log> [--base URL] <fraction> [<fraction> ...]
 """
 
 import argparse
 import json
+import os
 import re
 import time
 import urllib.error
 import urllib.request
 from pathlib import Path
 
-BASE = "http://127.0.0.1:8000"
+BASE = os.environ.get("OMLX_BASE") or "http://127.0.0.1:8000"
 
 
 def http(method, path, body=None):
@@ -29,11 +30,14 @@ def http(method, path, body=None):
 
 
 def main():
+    global BASE
     ap = argparse.ArgumentParser()
     ap.add_argument("--model", required=True)
     ap.add_argument("--log", required=True, type=Path)
+    ap.add_argument("--base", default=BASE, help="oMLX base URL ($OMLX_BASE)")
     ap.add_argument("fractions", nargs="+", type=float)
     a = ap.parse_args()
+    BASE = a.base
     for f in a.fractions:
         http("POST", f"/admin/api/models/{a.model}/unload", {})
         time.sleep(5)

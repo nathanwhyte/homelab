@@ -1,26 +1,29 @@
 """Score the 90-case batch gate per configuration: lane passes, median latency, paired exact McNemar.
 
-Usage: python3 score.py <reference config> [other configs...]
+Usage: python3 score.py [--workdir DIR] <reference config> [other configs...]
 Each configuration is compared case by case with the reference, with and without the two
-cases homelab#193 marks ambiguous.
+cases homelab#193 marks ambiguous. Results are read from <workdir>/shadow, where
+run_shadow.py writes them ($OFFLOAD_WORKDIR, default: the current directory).
 """
 
+import argparse
 import glob
 import json
 import os
 import statistics
 import sys
 from math import comb
+from pathlib import Path
 
-T = os.path.expanduser("~/code/moe-offload-trial")
-LANES = ["summary", "fence", "blocker", "staleness", "compaction"]
-AMBIGUOUS = {"IDEA-1027->PROJ-1018#0", "BUG-152"}
+from gate import AMBIGUOUS, LANES
+
+T = os.environ.get("OFFLOAD_WORKDIR") or os.getcwd()
 
 
 def load(cfg):
     rows = {}
     for lane in LANES:
-        paths = glob.glob(f"{T}/shadow/{cfg}-*/{lane}-results.json")
+        paths = glob.glob(f"{glob.escape(str(T))}/shadow/{cfg}-*/{lane}-results.json")
         if len(paths) != 1:
             sys.exit(f"{cfg} {lane}: expected one results file, found {paths}")
         with open(paths[0]) as f:
@@ -38,7 +41,19 @@ def mcnemar(b, c):
 
 
 def main():
-    ref, *others = sys.argv[1:]
+    global T
+    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    ap.add_argument("ref", help="reference configuration label")
+    ap.add_argument("others", nargs="*", help="configurations compared with ref")
+    ap.add_argument(
+        "--workdir",
+        type=Path,
+        default=T,
+        help="directory whose shadow/ holds run_shadow.py results ($OFFLOAD_WORKDIR, default: cwd)",
+    )
+    a = ap.parse_args()
+    T = a.workdir
+    ref, others = a.ref, a.others
     data = {cfg: load(cfg) for cfg in [ref, *others]}
     keys = sorted(data[ref])
     for cfg, rows in data.items():

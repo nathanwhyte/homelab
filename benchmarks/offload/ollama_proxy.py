@@ -15,6 +15,7 @@ the reasoning length, and token counts.
 
 import argparse
 import json
+import os
 import time
 import urllib.error
 import urllib.request
@@ -146,7 +147,11 @@ class Handler(BaseHTTPRequestHandler):
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
-    ap.add_argument("--upstream", default="http://127.0.0.1:8000")
+    ap.add_argument(
+        "--upstream",
+        default=os.environ.get("OMLX_BASE") or "http://127.0.0.1:8000",
+        help="OpenAI-compatible server base URL ($OMLX_BASE)",
+    )
     ap.add_argument("--model", required=True)
     ap.add_argument("--port", type=int, default=11500)
     ap.add_argument("--log", help="append one JSON line per request")

@@ -4,8 +4,25 @@ Fails loudly instead of skipping: every admin call is status-checked, the applie
 resident fraction is read back from the settings response, Ollama must have nothing
 loaded before an oMLX configuration starts, each proposer-shadow run must exit 0,
 and every expected lane must write a results file with the expected case count.
+
+Results go to <workdir>/shadow/<label>-<case>/<lane>-results.json, where score.py
+reads them; a lane whose results file already has the expected row count is skipped.
+Every path, endpoint and default model can be set by flag or environment variable;
+see --help.
+
+Configurations (positional, default: omlx-60 omlx-12 ollama-qwen36-35b):
+  omlx:<label>:<model id>:<fraction>:<extra settings JSON>
+      load <model id> in oMLX with expert offload at <fraction>; the proxy must
+      already forward to that model. `_expect_layers` in the JSON (not sent to
+      oMLX) requires the serve log to show exactly that many wrapped layers.
+  proxy:<label>:<model name>
+      a server already running behind the proxy; nothing is loaded here.
+  ollama:<label>:<tag>
+      an Ollama tag, stopped afterwards; no other model may be loaded.
+  a preset name from CONFIGS below.
 """
 
+import argparse
 import json
 import os
 import re
@@ -16,26 +33,26 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-TRIAL = Path.home() / "code" / "moe-offload-trial"
-VAULT = Path.home() / "code" / "compendium"
-SHADOW = VAULT / "_scripts" / "batch" / "proposer-shadow.py"
-RESULTS = Path.home() / "code" / "homelab" / "main" / "benchmarks" / "results"
-OMLX = "http://127.0.0.1:8000"
-OLLAMA = "http://127.0.0.1:11434"
-PROXY = "http://127.0.0.1:11500"
-MODEL = "Jundot--Qwen3.8-Flash-Next-oQ4e-mtp"
-OMLX_LOG = Path(os.environ.get("OMLX_LOG", TRIAL / "omlx-serve-ds.log"))
+from gate import GATE
 
-# (case file, --only lane, expected case count); each lane runs on its own because
-# `--only triage` also runs every other triage lane and crashes on a case file
-# that lacks that lane's cases key.
-LANES = [
-    ("batch-skill-gate-20260828-postfix2", "summary", 20),
-    ("fence-mistag-20260830", "fence", 15),
-    ("triage-skills-20260830", "blocker", 23),
-    ("triage-skills-20260830", "staleness", 12),
-    ("compaction-triage-20260831", "compaction", 20),
-]
+
+# Defaults; main() overrides them from the command line.
+def env(name, default):
+    """$name when set and nonempty, else `default`."""
+    return os.environ.get(name) or default
+
+
+WORKDIR = Path(env("OFFLOAD_WORKDIR", Path.cwd()))
+VAULT = Path(env("COMPENDIUM_VAULT", Path.home() / "code" / "compendium"))
+CASES_DIR = Path(
+    env("OFFLOAD_CASES_DIR", Path(__file__).resolve().parent.parent / "results")
+)
+OMLX = env("OMLX_BASE", "http://127.0.0.1:8000")
+OLLAMA = env("OLLAMA_BASE", "http://127.0.0.1:11434")
+PROXY = env("OFFLOAD_PROXY", "http://127.0.0.1:11500")
+TIMMY = env("TIMMY_OLLAMA", "http://100.95.215.105:11434")
+MODEL = env("OMLX_MODEL", "Jundot--Qwen3.8-Flash-Next-oQ4e-mtp")
+OMLX_LOG = None  # set in main(): --omlx-log, $OMLX_LOG, or <workdir>/omlx-serve-ds.log
 
 
 def http(method, url, body=None, timeout=900):
@@ -67,7 +84,8 @@ def ollama_loaded():
     return [m["name"] for m in r["models"]]
 
 
-def omlx_unload(model=MODEL):
+def omlx_unload(model=None):
+    model = model or MODEL
     st, r = http("POST", f"{OMLX}/admin/api/models/{model}/unload", {})
     if st not in (200, 202, 404) and "Model not loaded" not in str(r):
         die(f"oMLX unload returned {st}: {r}")
@@ -152,26 +170,26 @@ def results_ok(path, n):
 
 
 def shadow(label, host, model):
-    for case, lane, n in LANES:
-        out = TRIAL / "shadow" / f"{label}-{case}"
+    for case, lane, n in GATE:
+        out = WORKDIR / "shadow" / f"{label}-{case}"
         result = out / f"{lane}-results.json"
         if results_ok(result, n):
             print(f"== {label} {lane} already complete, skipping", flush=True)
             continue
-        log = TRIAL / "shadow" / f"{label}-{case}-{lane}.log"
+        log = WORKDIR / "shadow" / f"{label}-{case}-{lane}.log"
         out.parent.mkdir(parents=True, exist_ok=True)
         print(f"== {label} {lane} {time.strftime('%H:%M:%S')}", flush=True)
         cmd = [
             "uv",
             "run",
             "python",
-            str(SHADOW),
+            str(VAULT / "_scripts" / "batch" / "proposer-shadow.py"),
             "--model",
             model,
             "--host",
             host,
             "--cases",
-            str(RESULTS / case / "cases.json"),
+            str(CASES_DIR / case / "cases.json"),
             "--only",
             lane,
             "--out",
@@ -197,6 +215,8 @@ def run_ollama(label, tag):
     subprocess.run(["ollama", "stop", tag], check=False)
 
 
+# Presets from the IDEA-1131 trial (pop, 2026-10). The omlx-* presets load
+# --omlx-model with that trial's Qwen3.8-Flash-Next settings.
 CONFIGS = {
     "omlx-60": lambda: (
         omlx_config(0.6),
@@ -210,9 +230,7 @@ CONFIGS = {
     # Production proposer on timmy, run as deployed: it is pinned (KEEP_ALIVE=-1)
     # next to the FIM model and serves OpenViking, so it is never stopped here and
     # no num_ctx is sent (a differing num_ctx would reload it).
-    "timmy-gemma4-vlm": lambda: shadow(
-        "timmy-gemma4-vlm", "http://100.95.215.105:11434", "gemma4:vlm"
-    ),
+    "timmy-gemma4-vlm": lambda: shadow("timmy-gemma4-vlm", TIMMY, "gemma4:vlm"),
     # qwen3.8:27b-mlx ships presence_penalty 0; the -pp15 tag sets 1.5 to match.
     "ollama-qwen38-27b": lambda: run_ollama(
         "ollama-qwen38-27b", "qwen3.8:27b-mlx-pp15"
@@ -221,8 +239,60 @@ CONFIGS = {
 
 
 def main():
-    names = sys.argv[1:] or ["omlx-60", "omlx-12", "ollama-qwen36-35b"]
-    for name in names:
+    global WORKDIR, VAULT, CASES_DIR, OMLX, OLLAMA, PROXY, TIMMY, MODEL, OMLX_LOG
+    ap = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    ap.add_argument(
+        "configs",
+        nargs="*",
+        default=["omlx-60", "omlx-12", "ollama-qwen36-35b"],
+        help="configurations to run, in order",
+    )
+    ap.add_argument(
+        "--workdir",
+        type=Path,
+        default=WORKDIR,
+        help="results and logs go under <workdir>/shadow ($OFFLOAD_WORKDIR, default: cwd)",
+    )
+    ap.add_argument(
+        "--vault",
+        type=Path,
+        default=VAULT,
+        help="compendium checkout with proposer-shadow.py ($COMPENDIUM_VAULT)",
+    )
+    ap.add_argument(
+        "--cases-dir",
+        type=Path,
+        default=CASES_DIR,
+        help="directory holding <case>/cases.json ($OFFLOAD_CASES_DIR, default: benchmarks/results)",
+    )
+    ap.add_argument("--omlx", default=OMLX, help="oMLX base URL ($OMLX_BASE)")
+    ap.add_argument("--ollama", default=OLLAMA, help="Ollama base URL ($OLLAMA_BASE)")
+    ap.add_argument(
+        "--proxy", default=PROXY, help="ollama_proxy.py base URL ($OFFLOAD_PROXY)"
+    )
+    ap.add_argument(
+        "--timmy",
+        default=TIMMY,
+        help="timmy Ollama URL for the timmy preset ($TIMMY_OLLAMA)",
+    )
+    ap.add_argument(
+        "--omlx-model",
+        default=MODEL,
+        help="oMLX model the omlx-* presets load, and unloaded before omlx: runs ($OMLX_MODEL)",
+    )
+    ap.add_argument(
+        "--omlx-log",
+        type=Path,
+        default=os.environ.get("OMLX_LOG"),
+        help="oMLX serve log checked for the wrap summary ($OMLX_LOG, default: <workdir>/omlx-serve-ds.log)",
+    )
+    a = ap.parse_args()
+    WORKDIR, VAULT, CASES_DIR = a.workdir, a.vault, a.cases_dir
+    OMLX, OLLAMA, PROXY, TIMMY, MODEL = a.omlx, a.ollama, a.proxy, a.timmy, a.omlx_model
+    OMLX_LOG = Path(a.omlx_log) if a.omlx_log else WORKDIR / "omlx-serve-ds.log"
+    for name in a.configs:
         if name.startswith("omlx:"):
             # omlx:<label>:<model id>:<fraction>:<extra settings JSON>
             _, label, model, fraction, extra = name.split(":", 4)
@@ -234,6 +304,10 @@ def main():
             if ollama_loaded():
                 die(f"Ollama has models loaded: {ollama_loaded()}")
             shadow(label, PROXY, model)
+        elif name.startswith("ollama:"):
+            # ollama:<label>:<tag>; the tag may itself contain a colon.
+            _, label, tag = name.split(":", 2)
+            run_ollama(label, tag)
         else:
             CONFIGS[name]()
     print(f"== done {time.strftime('%H:%M:%S')}", flush=True)

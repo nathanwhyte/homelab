@@ -13,6 +13,7 @@ server_prompt_tok_s for prompt-processing speed. One JSON line per event goes to
 
 import argparse
 import json
+import os
 import random
 import re
 import subprocess
@@ -21,7 +22,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-BASE = "http://127.0.0.1:8000"
+BASE = os.environ.get("OMLX_BASE") or "http://127.0.0.1:8000"
 DECODE_PROMPT = (
     "You are reviewing a Python service. Write a function `merge_intervals(intervals)` that merges "
     "overlapping closed intervals given as (start, end) tuples, returns them sorted, and handles empty "
@@ -270,7 +271,7 @@ def main():
         type=int,
         help="MoE layers that must be wrapped",
     )
-    ap.add_argument("--base", default=BASE, help="server base URL")
+    ap.add_argument("--base", default=BASE, help="server base URL ($OMLX_BASE)")
     ap.add_argument(
         "--no-admin",
         metavar="LABEL",
