@@ -646,6 +646,23 @@ def test_openai_translation_multiturn():
         BENCH.API.update(saved)
 
 
+@check("--profile tuned scales turn caps and states the budget; baseline is unchanged")
+def test_profiles():
+    from coding_tasks import TASKS
+
+    for task in TASKS:
+        turns, prompt = BENCH.profile_settings("baseline", task)
+        assert turns == task.max_turns and prompt == BENCH.SYSTEM_PROMPT, task.task_id
+        turns, prompt = BENCH.profile_settings("tuned", task)
+        assert turns == -(-task.max_turns * 3 // 2), (task.task_id, turns)
+        assert f"You have {turns} turns" in prompt, prompt
+        assert f"finish by turn {turns - 2}" in prompt, prompt
+        assert "{" not in prompt, "unformatted placeholder left in the prompt"
+    _, server = run_scripted([_response(content="done")])
+    sent = server.requests[0]["messages"][0]["content"]
+    assert sent == BENCH.SYSTEM_PROMPT, sent[:80]
+
+
 @check("--api openai refuses to run without explicit sampling")
 def test_openai_requires_sampling():
     script = Path(__file__).resolve().parent / "agentic-coding-bench.py"

@@ -63,6 +63,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import os
 import platform
 import resource
@@ -103,6 +104,36 @@ Use the provided tools to inspect and edit files. Rules:
 - When the task is done, reply with a short plain-text summary and no tool call.
 
 Do not ask the user questions; you are running unattended."""
+
+# `--profile tuned` (IDEA-1131, 2026-10-10). Each rule answers a failure seen in
+# the 2026-10-10 baseline rerun: an invented `edit_file` tool and stray
+# arguments, rewritten fixture suites, stopping once the shipped tests passed
+# while the hidden verifier checked more, and running out of turns after the
+# work was already done. The turn caps scale by TUNED_TURN_SCALE alongside.
+SYSTEM_PROMPT_TUNED = """You are a coding agent working in a small repository.
+
+You have exactly four tools:
+- list_files (no arguments) lists the repository.
+- read_file (path) returns one file.
+- write_file (path, content) replaces the ENTIRE file with content; pass the
+  complete new file, and edit a file only through write_file.
+- run_tests (no arguments) runs the repository's existing test suites.
+
+Rules:
+- Always read a file before you rewrite it.
+- Make the smallest change that satisfies the request; keep code that is already
+  correct, and keep public function and class names.
+- Leave existing test_*.py files unchanged. Put any extra checks you want in a
+  new file.
+- The existing tests may not cover the whole request. Before you finish,
+  re-read the request and confirm every requirement it states is met, then run
+  run_tests once more.
+- You have {max_turns} turns. Plan to finish by turn {finish_by}; once the
+  request is met and the tests pass, stop.
+- When the task is done, reply with a short plain-text summary and no tool call.
+
+Do not ask the user questions; you are running unattended."""
+TUNED_TURN_SCALE = 1.5
 
 TOOLS: list[dict[str, Any]] = [
     {
@@ -804,6 +835,17 @@ def execute_tool(
     return f"error: unknown tool {name}"
 
 
+def profile_settings(profile: str, task: CodingTask) -> tuple[int, str]:
+    """Turn cap and system prompt for a profile; `baseline` is the 2026-07-28 setup."""
+    if profile == "tuned":
+        max_turns = math.ceil(task.max_turns * TUNED_TURN_SCALE)
+        prompt = SYSTEM_PROMPT_TUNED.format(
+            max_turns=max_turns, finish_by=max(1, max_turns - 2)
+        )
+        return max_turns, prompt
+    return task.max_turns, SYSTEM_PROMPT
+
+
 def run_task(
     base: str,
     model: str,
@@ -815,7 +857,9 @@ def run_task(
     seed: int | None,
     num_predict: int,
     repeat: int = 0,
+    profile: str = "baseline",
 ) -> TaskResult:
+    max_turns, system_prompt = profile_settings(profile, task)
     sandbox = Path(tempfile.mkdtemp(prefix=f"agentic-{task.task_id}-"))
     for name, content in task.files.items():
         (sandbox / name).write_text(content)
@@ -838,7 +882,7 @@ def run_task(
     )
 
     messages: list[dict[str, Any]] = [
-        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "system", "content": system_prompt},
         {
             "role": "user",
             "content": (
@@ -850,7 +894,7 @@ def run_task(
 
     started = time.time()
     try:
-        for _ in range(task.max_turns):
+        for _ in range(max_turns):
             result.turns += 1
             options: dict[str, Any] = {"num_ctx": num_ctx, "num_predict": num_predict}
             if seed is not None:
@@ -1226,6 +1270,16 @@ def main() -> int:
         action="store_true",
         help="proceed even if sandbox-exec confinement is unavailable",
     )
+    ap.add_argument(
+        "--profile",
+        choices=["baseline", "tuned"],
+        default="baseline",
+        help=(
+            "baseline: the 2026-07-28 prompt and turn caps. tuned: names the four "
+            "tools, keeps fixture suites unchanged, asks for a requirements check "
+            f"before finishing, states the turn budget, and scales caps by {TUNED_TURN_SCALE}"
+        ),
+    )
     args = ap.parse_args()
     API["kind"] = args.api
     API["sampling"] = json.loads(args.openai_sampling)
@@ -1304,7 +1358,8 @@ def main() -> int:
     base_seed = None if args.seed is not None and args.seed < 0 else args.seed
     print(
         f"model={args.model} tiers={tiers} tasks={len(tasks)} "
-        f"think={args.think} seed={base_seed} repeats={args.repeats}"
+        f"think={args.think} seed={base_seed} repeats={args.repeats} "
+        f"profile={args.profile}"
     )
     provenance = collect_provenance(args.base, args.model)
     print(
@@ -1334,6 +1389,7 @@ def main() -> int:
                     seed,
                     args.num_predict,
                     repeat,
+                    args.profile,
                 )
             except Exception as e:  # noqa: BLE001 - one task's crash must cost one row, not the batch
                 # Results are only written after the full loop, so an uncaught
@@ -1395,12 +1451,14 @@ def main() -> int:
     out_dir = Path(args.out).expanduser()
     out_dir.mkdir(parents=True, exist_ok=True)
     stamp = time.strftime("%Y%m%d-%H%M%S")
-    out_path = out_dir / f"agentic-coding-{_fs_name(args.model)}-{stamp}.json"
+    suffix = "" if args.profile == "baseline" else f"-{args.profile}"
+    out_path = out_dir / f"agentic-coding-{_fs_name(args.model)}{suffix}-{stamp}.json"
     out_path.write_text(
         json.dumps(
             {
                 "model": args.model,
                 "api": args.api,
+                "profile": args.profile,
                 "tiers": tiers,
                 "think": args.think,
                 "num_ctx": args.num_ctx,
