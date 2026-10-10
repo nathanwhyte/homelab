@@ -1280,6 +1280,15 @@ def main() -> int:
             f"before finishing, states the turn budget, and scales caps by {TUNED_TURN_SCALE}"
         ),
     )
+    ap.add_argument(
+        "--task-set",
+        choices=["core", "heldout"],
+        default="core",
+        help=(
+            "core: the six original tasks. heldout: nine tasks written without "
+            "sight of the tuned profile, for checking that a profile generalizes"
+        ),
+    )
     args = ap.parse_args()
     API["kind"] = args.api
     API["sampling"] = json.loads(args.openai_sampling)
@@ -1296,7 +1305,12 @@ def main() -> int:
         return 2
 
     tiers = [int(t) for t in args.tiers.split(",") if t.strip()]
-    tasks = tasks_for_tiers(tiers)
+    if args.task_set == "heldout":
+        from coding_tasks.heldout import HELDOUT_TASKS
+
+        tasks = [t for t in HELDOUT_TASKS if t.tier in tiers]
+    else:
+        tasks = tasks_for_tiers(tiers)
     # An empty selection must refuse, not exit 0: `--tiers 4` (or `--tiers ""`)
     # otherwise produces a clean 0/0 run that a wrapper reads as "complete" —
     # the same row-that-never-ran class the exit codes 2/3/4 exist to close.
@@ -1452,6 +1466,8 @@ def main() -> int:
     out_dir.mkdir(parents=True, exist_ok=True)
     stamp = time.strftime("%Y%m%d-%H%M%S")
     suffix = "" if args.profile == "baseline" else f"-{args.profile}"
+    if args.task_set != "core":
+        suffix += f"-{args.task_set}"
     out_path = out_dir / f"agentic-coding-{_fs_name(args.model)}{suffix}-{stamp}.json"
     out_path.write_text(
         json.dumps(
@@ -1459,6 +1475,7 @@ def main() -> int:
                 "model": args.model,
                 "api": args.api,
                 "profile": args.profile,
+                "task_set": args.task_set,
                 "tiers": tiers,
                 "think": args.think,
                 "num_ctx": args.num_ctx,
