@@ -237,6 +237,10 @@ def _to_openai(payload: dict[str, Any]) -> dict[str, Any]:
                 "role": "assistant",
                 "content": m.get("content") or "",
             }
+            # Ollama's `thinking` travels back as OpenAI's reasoning_content, so a
+            # thinking row keeps its reasoning in history the way the Ollama loop does.
+            if m.get("thinking"):
+                msg["reasoning_content"] = m["thinking"]
             calls = []
             for i, call in enumerate(m.get("tool_calls") or []):
                 fn = call.get("function") if isinstance(call, dict) else None
@@ -324,6 +328,9 @@ def _from_openai(status: int, body: dict[str, Any]) -> tuple[int, dict[str, Any]
         else:
             calls.append(call)
     message: dict[str, Any] = {"role": "assistant", "content": m.get("content") or ""}
+    reasoning = m.get("reasoning_content") or m.get("reasoning")
+    if reasoning:
+        message["thinking"] = reasoning
     if calls:
         message["tool_calls"] = calls
     usage = body.get("usage") or {}
@@ -1089,7 +1096,12 @@ def collect_provenance(base: str, model: str) -> dict[str, Any]:
             "model": model,
             "api": "openai",
             "server_model": entry,
+            # Requested, not server-confirmed: /v1/models reports no sampling.
             "effective_parameters": dict(API["sampling"]),
+            # num_ctx is not sent: the OpenAI API has no per-request context size,
+            # so the server's own limit applies. A row compared with an Ollama row
+            # must have that limit at or above the Ollama row's num_ctx.
+            "num_ctx_enforced": False,
             "harness_sha256": _sha256(here),
             "fixtures_sha256": _sha256(here.parent / "coding_tasks" / "__init__.py"),
             "base_url": base,
@@ -1219,6 +1231,15 @@ def main() -> int:
     API["sampling"] = json.loads(args.openai_sampling)
     if args.base is None:
         args.base = DEFAULT_OPENAI_BASE if args.api == "openai" else DEFAULT_BASE
+    # An Ollama row samples with its tag's Modelfile parameters; an openai row with
+    # nothing explicit would sample with whatever the server defaults to, and the
+    # comparison would silently stop being like for like.
+    if args.api == "openai" and not API["sampling"]:
+        print(
+            "--api openai needs --openai-sampling (for example the compared Ollama "
+            "tag's Modelfile values); refusing to run with server-default sampling"
+        )
+        return 2
 
     tiers = [int(t) for t in args.tiers.split(",") if t.strip()]
     tasks = tasks_for_tiers(tiers)

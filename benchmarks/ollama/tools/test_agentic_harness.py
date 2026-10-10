@@ -31,6 +31,7 @@ from __future__ import annotations
 import importlib.util
 import os
 import shutil
+import subprocess
 import sys
 import tempfile
 import time
@@ -575,6 +576,87 @@ def test_openai_translation():
     finally:
         BENCH.API.clear()
         BENCH.API.update(saved)
+
+
+@check("--api openai round-trips reasoning and pairs ids across turns")
+def test_openai_translation_multiturn():
+    saved = dict(BENCH.API)
+    try:
+        BENCH.API.update(kind="openai", sampling={"temperature": 1})
+        status, resp = BENCH._from_openai(
+            200,
+            {
+                "choices": [
+                    {
+                        "finish_reason": "tool_calls",
+                        "message": {
+                            "content": "",
+                            "reasoning_content": "plan",
+                            "tool_calls": [
+                                {
+                                    "id": "t1",
+                                    "function": {
+                                        "name": "list_files",
+                                        "arguments": "{}",
+                                    },
+                                }
+                            ],
+                        },
+                    }
+                ]
+            },
+        )
+        assert resp["done_reason"] == "stop", resp
+        assert resp["prompt_eval_count"] is None and resp["eval_count"] is None, resp
+        assert resp["message"]["thinking"] == "plan", resp
+        second = {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [
+                {"id": "t2", "function": {"name": "read_file", "arguments": "{}"}},
+                {"id": "t3", "function": {"name": "run_tests", "arguments": "{}"}},
+            ],
+        }
+        body = BENCH._to_openai(
+            {
+                "model": "m",
+                "messages": [
+                    {"role": "user", "content": "go"},
+                    resp["message"],
+                    {"role": "tool", "tool_name": "list_files", "content": "a"},
+                    second,
+                    {"role": "tool", "tool_name": "read_file", "content": "b"},
+                    {"role": "tool", "tool_name": "run_tests", "content": "c"},
+                ],
+            }
+        )
+        msgs = body["messages"]
+        assert msgs[1]["reasoning_content"] == "plan", msgs[1]
+        assert [m.get("tool_call_id") for m in msgs if m["role"] == "tool"] == [
+            "t1",
+            "t2",
+            "t3",
+        ], msgs
+        assert "max_tokens" not in body and "chat_template_kwargs" not in body, body
+
+        status, resp = BENCH._from_openai(500, {"error": "boom: not json"})
+        assert status == 500 and resp["error"] == "boom: not json", resp
+    finally:
+        BENCH.API.clear()
+        BENCH.API.update(saved)
+
+
+@check("--api openai refuses to run without explicit sampling")
+def test_openai_requires_sampling():
+    script = Path(__file__).resolve().parent / "agentic-coding-bench.py"
+    proc = subprocess.run(
+        [sys.executable, str(script), "--api", "openai", "--model", "m"],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert proc.returncode == 2, (proc.returncode, proc.stdout[-300:])
+    assert "--openai-sampling" in proc.stdout, proc.stdout[-300:]
 
 
 def main() -> int:
