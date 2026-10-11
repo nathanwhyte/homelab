@@ -106,7 +106,7 @@ Parallel indexing (coordinator/worker/merge trio) was removed at the 2026-06-03 
 
 ## OpenViking knowledge base
 
-See [openviking.md](viking/openviking.md) for the organization guide (L0/L1/L2 tiers, directory rules, what to index). See ~/code/CLAUDE.md for the save/search workflow rules. Indexed-compendium table: [reference/compendium-index.md](reference/compendium-index.md).
+See [openviking.md](viking/openviking.md) for the organization guide (L0/L1/L2 tiers, directory rules, what to index). See `~/.claude/OPENVIKING.md` for the save/search workflow rules. Indexed-compendium table: [reference/compendium-index.md](reference/compendium-index.md).
 
 ### Stack implementation report
 
