@@ -14,6 +14,7 @@ write `<workdir>/shadow/`, and the default workdir is the current directory.
 
 | Script            | Does                                                                                                                                        |
 | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| `omlx_base.py`    | Creates a fresh oMLX `--base-path` (admin API without a key, on loopback only) and empty `--model-dir`, and prints the `omlx serve` command   |
 | `balloon.py`      | mlocks 1 GiB chunks until reclaimable memory reaches `--leave-gib`, prints one JSON line, holds until SIGTERM/SIGINT                        |
 | `ds_probe.py`     | For each resident fraction: oMLX settings, load, wrap-summary line from the serve log, admitted size, unload                                |
 | `ds_bench.py`     | Randomized speed sweep (decode, 3k and 12k prompts) with server-side timing and memory snapshots; oMLX admin mode or `--no-admin`           |
@@ -51,6 +52,11 @@ Paths are relative to a scratch workdir; `H` is the homelab checkout.
 
 ```bash
 H=~/code/homelab/main/benchmarks/offload
+
+# Start oMLX from a fresh base folder. Models come from the Hugging Face cache;
+# per-model offload settings are applied by the scripts below on every load.
+# Add OMLX_MOE_OFFLOAD_IO_WORKERS=48 (IDEA-1131: about +7% decode).
+OMLX_MOE_OFFLOAD_IO_WORKERS=48 nohup $(python3 $H/omlx_base.py omlx) > serve.log 2>&1 &
 
 # Hold the memory budget (GUIDE-1088 Step 2); stop with pkill -f balloon.py.
 nohup python3 $H/balloon.py --leave-gib 47 > balloon.log 2>&1 &
