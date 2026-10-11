@@ -1,3 +1,14 @@
+---
+# Combined GPU dashboard — NVIDIA (DCGM) + AMD (sysfs + amdsmi) metrics
+# Shows all 3 cluster GPUs (GTX 1080, GTX 1060, RX 9070 XT) side by side
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: gpu-overview-dashboard
+  namespace: grafana
+  labels:
+    grafana_dashboard: "1"
+data:
   gpu-overview.json: |
     {
       "annotations": {
