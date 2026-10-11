@@ -33,19 +33,6 @@ data:
       "links": [],
       "panels": [
         {
-          "collapsed": false,
-          "gridPos": {
-            "h": 1,
-            "w": 24,
-            "x": 0,
-            "y": 0
-          },
-          "id": 1,
-          "panels": [],
-          "title": "Utilization",
-          "type": "row"
-        },
-        {
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
@@ -148,15 +135,6 @@ data:
               "expr": "max(amdgpu_gfx_activity_percent{gpu=\"1\"})",
               "legendFormat": "timmy \u2014 RX 9070 XT",
               "refId": "B"
-            },
-            {
-              "datasource": {
-                "type": "prometheus",
-                "uid": "prometheus"
-              },
-              "expr": "max(macmon_gpu_usage_ratio{node=\"macbook-m5\"}) * 100",
-              "legendFormat": "pop \u2014 M5 Max GPU",
-              "refId": "C"
             }
           ],
           "title": "GPU Utilization",
@@ -231,32 +209,10 @@ data:
               "expr": "max(amdgpu_gfx_activity_percent{gpu=\"1\"})",
               "legendFormat": "timmy \u2014 RX 9070 XT",
               "refId": "B"
-            },
-            {
-              "datasource": {
-                "type": "prometheus",
-                "uid": "prometheus"
-              },
-              "expr": "max(macmon_gpu_usage_ratio{node=\"macbook-m5\"}) * 100",
-              "legendFormat": "pop \u2014 M5 Max GPU",
-              "refId": "C"
             }
           ],
           "title": "Current Utilization",
           "type": "stat"
-        },
-        {
-          "collapsed": false,
-          "gridPos": {
-            "h": 1,
-            "w": 24,
-            "x": 0,
-            "y": 9
-          },
-          "id": 4,
-          "panels": [],
-          "title": "Temperature",
-          "type": "row"
         },
         {
           "datasource": {
@@ -387,15 +343,6 @@ data:
               "expr": "max(amdgpu_temperature_mem_celsius{gpu=\"1\"})",
               "legendFormat": "timmy \u2014 RX 9070 XT (mem)",
               "refId": "D"
-            },
-            {
-              "datasource": {
-                "type": "prometheus",
-                "uid": "prometheus"
-              },
-              "expr": "max(macmon_gpu_temp_celsius{node=\"macbook-m5\"})",
-              "legendFormat": "pop \u2014 M5 Max GPU",
-              "refId": "E"
             }
           ],
           "title": "GPU Temperature",
@@ -464,7 +411,7 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "expr": "(avg(max by (Hostname, modelName) (DCGM_FI_DEV_GPU_TEMP)) + max(amdgpu_temperature_celsius{gpu=\"1\"}) + max(macmon_gpu_temp_celsius{node=\"macbook-m5\"})) / 3",
+              "expr": "(avg(max by (Hostname, modelName) (DCGM_FI_DEV_GPU_TEMP)) + max(amdgpu_temperature_celsius{gpu=\"1\"})) / 2",
               "legendFormat": "",
               "refId": "A"
             }
@@ -702,19 +649,6 @@ data:
           "type": "gauge"
         },
         {
-          "collapsed": false,
-          "gridPos": {
-            "h": 1,
-            "w": 24,
-            "x": 0,
-            "y": 26
-          },
-          "id": 7,
-          "panels": [],
-          "title": "Power",
-          "type": "row"
-        },
-        {
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
@@ -825,15 +759,6 @@ data:
               "expr": "max(amdgpu_power_socket_watts{gpu=\"1\"})",
               "legendFormat": "timmy \u2014 RX 9070 XT (socket)",
               "refId": "C"
-            },
-            {
-              "datasource": {
-                "type": "prometheus",
-                "uid": "prometheus"
-              },
-              "expr": "max(macmon_gpu_power_watts{node=\"macbook-m5\"})",
-              "legendFormat": "pop \u2014 M5 Max GPU",
-              "refId": "D"
             }
           ],
           "title": "GPU Power Draw",
@@ -902,26 +827,13 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "expr": "sum(max by (Hostname, modelName) (DCGM_FI_DEV_POWER_USAGE)) + max(amdgpu_power_watts{gpu=\"1\"}) + max(macmon_gpu_power_watts{node=\"macbook-m5\"})",
+              "expr": "sum(max by (Hostname, modelName) (DCGM_FI_DEV_POWER_USAGE)) + max(amdgpu_power_watts{gpu=\"1\"})",
               "legendFormat": "",
               "refId": "A"
             }
           ],
           "title": "Total GPU Power",
           "type": "gauge"
-        },
-        {
-          "collapsed": false,
-          "gridPos": {
-            "h": 1,
-            "w": 24,
-            "x": 0,
-            "y": 35
-          },
-          "id": 10,
-          "panels": [],
-          "title": "VRAM",
-          "type": "row"
         },
         {
           "datasource": {
@@ -1021,15 +933,6 @@ data:
               "expr": "max(amdgpu_vram_used_bytes{gpu=\"1\"})",
               "legendFormat": "timmy \u2014 RX 9070 XT",
               "refId": "B"
-            },
-            {
-              "datasource": {
-                "type": "prometheus",
-                "uid": "prometheus"
-              },
-              "expr": "max(macmon_memory_ram_used_bytes{node=\"macbook-m5\"})",
-              "legendFormat": "pop \u2014 M5 Max (unified RAM)",
-              "refId": "C"
             }
           ],
           "title": "VRAM Used",
@@ -1101,32 +1004,10 @@ data:
               "expr": "max(amdgpu_vram_used_bytes{gpu=\"1\"})",
               "legendFormat": "timmy \u2014 RX 9070 XT",
               "refId": "B"
-            },
-            {
-              "datasource": {
-                "type": "prometheus",
-                "uid": "prometheus"
-              },
-              "expr": "max(macmon_memory_ram_used_bytes{node=\"macbook-m5\"})",
-              "legendFormat": "pop \u2014 M5 Max (unified RAM)",
-              "refId": "C"
             }
           ],
           "title": "VRAM Usage per GPU",
           "type": "bargauge"
-        },
-        {
-          "collapsed": false,
-          "gridPos": {
-            "h": 1,
-            "w": 24,
-            "x": 0,
-            "y": 44
-          },
-          "id": 13,
-          "panels": [],
-          "title": "Clocks",
-          "type": "row"
         },
         {
           "datasource": {
@@ -1226,15 +1107,6 @@ data:
               "expr": "max(amdgpu_clock_gpu_mhz{gpu=\"1\"})",
               "legendFormat": "timmy \u2014 RX 9070 XT",
               "refId": "B"
-            },
-            {
-              "datasource": {
-                "type": "prometheus",
-                "uid": "prometheus"
-              },
-              "expr": "max(macmon_gpu_freq_mhz{node=\"macbook-m5\"})",
-              "legendFormat": "pop \u2014 M5 Max GPU",
-              "refId": "C"
             }
           ],
           "title": "GPU Core Clock",
@@ -1342,19 +1214,6 @@ data:
           ],
           "title": "Memory Clock",
           "type": "timeseries"
-        },
-        {
-          "collapsed": false,
-          "gridPos": {
-            "h": 1,
-            "w": 24,
-            "x": 0,
-            "y": 53
-          },
-          "id": 16,
-          "panels": [],
-          "title": "Other Metrics",
-          "type": "row"
         },
         {
           "datasource": {
