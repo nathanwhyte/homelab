@@ -35,9 +35,12 @@ set -uo pipefail
 # stale path can be exercised (by hand or by a test) without alarming anyone.
 DRY_RUN=0
 case "${1:-}" in
-  -n | --dry-run) DRY_RUN=1 ;;
-  "") ;;
-  *) echo "usage: check-macbook-backup.sh [-n|--dry-run]" >&2; exit 2 ;;
+-n | --dry-run) DRY_RUN=1 ;;
+"") ;;
+*)
+	echo "usage: check-macbook-backup.sh [-n|--dry-run]" >&2
+	exit 2
+	;;
 esac
 
 MARKER="${MACBOOK_BACKUP_MARKER:-$HOME/Library/Application Support/macbook-backup/last-success}"
@@ -51,38 +54,38 @@ log() { printf '%s %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "macbook-backup-check: $
 now=$(date +%s)
 age=""
 if [[ -f "$MARKER" ]]; then
-  age=$((now - $(stat -f %m "$MARKER")))
-  reason="last clean run was $((age / 3600))h ago"
+	age=$((now - $(stat -f %m "$MARKER")))
+	reason="last clean run was $((age / 3600))h ago"
 else
-  reason="no last-success marker exists"
+	reason="no last-success marker exists"
 fi
 
 # --- healthy -------------------------------------------------------------
 if [[ -n "$age" ]] && ((age < MAX_AGE)); then
-  log "ok: $reason"
-  # Clearing the state means the next staleness notifies at once rather than
-  # inheriting a stale "already told them" timestamp.
-  rm -f "$STATE"
-  exit 0
+	log "ok: $reason"
+	# Clearing the state means the next staleness notifies at once rather than
+	# inheriting a stale "already told them" timestamp.
+	rm -f "$STATE"
+	exit 0
 fi
 
 # --- stale, or never ran -------------------------------------------------
 if [[ -f "$STATE" ]]; then
-  since=$((now - $(stat -f %m "$STATE")))
-  if ((since < MAX_AGE)); then
-    log "stale: $reason (already notified $((since / 3600))h ago)"
-    exit 0
-  fi
+	since=$((now - $(stat -f %m "$STATE")))
+	if ((since < MAX_AGE)); then
+		log "stale: $reason (already notified $((since / 3600))h ago)"
+		exit 0
+	fi
 fi
 
 log "STALE: $reason -- notifying"
 mkdir -p "$STATE_DIR" 2>/dev/null || true
 if ((DRY_RUN == 1)); then
-  log "dry-run: would notify and stamp $STATE"
-  exit 0
+	log "dry-run: would notify and stamp $STATE"
+	exit 0
 fi
 /usr/bin/osascript \
-  -e "display notification \"$reason\" with title \"macbook-backup is stale\"" \
-  >/dev/null 2>&1 || log "warn: osascript notification failed"
+	-e "display notification \"$reason\" with title \"macbook-backup is stale\"" \
+	>/dev/null 2>&1 || log "warn: osascript notification failed"
 touch "$STATE"
 exit 0
