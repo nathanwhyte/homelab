@@ -3,7 +3,8 @@
 // Runs in the `alloy` container (see mac/docker-compose.yml).
 // Targets:
 //   - ollama-exporter:9111         (sidecar container, compose-network DNS)
-//   - host.docker.internal:9112    (mac-gpu-exporter, native LaunchDaemon)
+//   - host.docker.internal:9113    (macmon, user LaunchAgent)
+//   - host.docker.internal:9114    (macbook-backup-exporter, user LaunchAgent)
 //   - /var/log/ollama/server.log   (bind-mounted from ~/.ollama/logs)
 //
 // Ships to cluster NodePorts on timmy (192.168.1.19); see
@@ -21,13 +22,16 @@ prometheus.scrape "ollama_local" {
   forward_to      = [prometheus.remote_write.cluster.receiver]
 }
 
-prometheus.scrape "mac_gpu_local" {
+// Reports the age of the macbook-backup last-success marker. 60s is ample: the
+// value moves at most once every six hours, and the alert threshold is a day.
+// Replaced the retired mac_gpu_local scrape on :9112 (BUG-1212 follow-up).
+prometheus.scrape "macbook_backup_local" {
   targets = [{
-    __address__ = "host.docker.internal:9112",
+    __address__ = "host.docker.internal:9114",
     instance    = "macbook-m5",
-    job         = "mac-gpu-metrics",
+    job         = "macbook-backup-metrics",
   }]
-  scrape_interval = "15s"
+  scrape_interval = "60s"
   forward_to      = [prometheus.remote_write.cluster.receiver]
 }
 

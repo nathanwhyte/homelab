@@ -53,4 +53,4 @@ spec:
             alertgroup: backup
           annotations:
             summary: "macbook-backup freshness metric is absent"
-            description: "mac_gpu_exporter_up on pop is not exporting macbook_backup_last_success_timestamp_seconds, so the staleness alert cannot fire. Check the exporter (launchctl print system/com.nathanwhyte.mac-gpu-exporter) and its scrape target at host.docker.internal:9112."
+            description: "The macbook-backup-exporter on pop is not exporting macbook_backup_last_success_timestamp_seconds, so the staleness alert cannot fire. Check the agent (`launchctl print gui/501/com.nathanwhyte.macbook-backup-exporter`) and its scrape target at host.docker.internal:9114."
