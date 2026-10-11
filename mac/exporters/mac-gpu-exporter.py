@@ -13,6 +13,9 @@ Metrics:
     mac_cpu_package_power_watts         Combined SoC power (CPU + GPU + ANE)
     mac_thermal_pressure                0=Nominal, 1=Fair, 2=Serious, 3=Critical
     mac_gpu_exporter_up                 1 if last powermetrics invocation succeeded
+    macbook_backup_last_success_timestamp_seconds
+                                        marker mtime for the macbook-backup
+                                        last-success stamp; 0 when absent
 
 Usage:
     sudo python3 mac-gpu-exporter.py                # default :9112, sample every 5s
@@ -20,6 +23,7 @@ Usage:
 """
 
 import argparse
+import os
 import re
 import subprocess
 import threading
@@ -37,7 +41,15 @@ _metrics = {
     "mac_cpu_package_power_watts": 0.0,
     "mac_thermal_pressure": 0,
     "mac_gpu_exporter_up": 0,
+    "macbook_backup_last_success_timestamp_seconds": 0,
 }
+
+# macbook-backup stamps this file only when every source succeeded, so its age
+# is a direct "is the backup working" signal. Default is the pop path; the
+# LaunchDaemon runs as root, so $HOME would resolve to /var/root instead.
+DEFAULT_BACKUP_MARKER = (
+    "/Users/noot/Library/Application Support/macbook-backup/last-success"
+)
 
 THERMAL_LEVELS = {
     "Nominal": 0,
@@ -103,8 +115,27 @@ def parse_powermetrics(output: str) -> dict:
 # ── Sampling loop ────────────────────────────────────────────────────────────
 
 
-def sample_once() -> None:
-    """Run powermetrics once and update the metric dict."""
+def sample_backup_marker(path: str) -> None:
+    """Record the macbook-backup last-success marker as a unix timestamp.
+
+    0 means "no successful run on record" (missing or unreadable), which makes
+    "never" and "stale" the same expression for an alert:
+
+        time() - macbook_backup_last_success_timestamp_seconds > 86400
+    """
+    try:
+        ts = os.stat(path).st_mtime
+    except OSError:
+        ts = 0
+    with _lock:
+        _metrics["macbook_backup_last_success_timestamp_seconds"] = ts
+
+
+def sample_once(backup_marker: str) -> None:
+    """Update every metric once."""
+    # Sampled before powermetrics on purpose: a failing powermetrics must not
+    # freeze the backup age, which is the more important of the two signals.
+    sample_backup_marker(backup_marker)
     try:
         proc = subprocess.run(
             [
@@ -133,9 +164,9 @@ def sample_once() -> None:
             _metrics["mac_gpu_exporter_up"] = 0
 
 
-def sample_loop(interval: int) -> None:
+def sample_loop(interval: int, backup_marker: str) -> None:
     while True:
-        sample_once()
+        sample_once(backup_marker)
         time.sleep(interval)
 
 
@@ -155,6 +186,10 @@ _HELP = {
         "Thermal pressure: 0=Nominal,1=Fair,2=Serious,3=Critical.",
     ),
     "mac_gpu_exporter_up": ("gauge", "1 if last powermetrics invocation succeeded."),
+    "macbook_backup_last_success_timestamp_seconds": (
+        "gauge",
+        "Unix mtime of the macbook-backup last-success stamp; 0 if absent.",
+    ),
 }
 
 
@@ -208,6 +243,11 @@ def main():
     parser.add_argument(
         "--interval", type=int, default=5, help="Sample interval seconds (default 5)"
     )
+    parser.add_argument(
+        "--backup-marker",
+        default=DEFAULT_BACKUP_MARKER,
+        help="macbook-backup last-success stamp to report on",
+    )
     args = parser.parse_args()
 
     print(
@@ -215,7 +255,9 @@ def main():
         flush=True,
     )
 
-    sampler = threading.Thread(target=sample_loop, args=(args.interval,), daemon=True)
+    sampler = threading.Thread(
+        target=sample_loop, args=(args.interval, args.backup_marker), daemon=True
+    )
     sampler.start()
 
     server = ThreadingHTTPServer(("0.0.0.0", args.port), MetricsHandler)
