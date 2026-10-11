@@ -168,7 +168,22 @@ spec:
                 --xff-src "10.42.0.0/24,10.42.2.0/24,10.42.4.0/24" \
                 --rproxy 1 \
                 --vc-url https://api.copyparty.eu/advisories --vc-age 6 \
-                -q
+                --stats
+              # BUG-1212: both of the lines above are here for the same
+              # reason -- an IP ban that lasted 47 days was invisible.
+              #
+              # -q is deliberately absent. copyparty's own help defines it as
+              # "quiet; disable most STDOUT messages", and it silenced both
+              # the ban line and the failed-login line (--log-badpwd already
+              # defaults to logged-but-hashed). Output scales with warnings,
+              # not with requests, so muting it buys nothing.
+              #
+              # --stats enables openmetrics at /.cpr/metrics for admin
+              # accounts (default: False, which is why GET /metrics answers
+              # 403 today, and why the path looked missing rather than
+              # disabled). It carries cpp_active_bans, cpp_total_bans and
+              # cpp_sus_reqs, so a ban becomes directly observable instead of
+              # inferred from a client-side 403. Note the /.cpr/ prefix.
           env:
             - name: USER
               valueFrom:
