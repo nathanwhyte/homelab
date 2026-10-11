@@ -10,8 +10,9 @@
 #     Longhorn PVC.
 #
 # So the freshness signal is exported from pop instead, by
-# mac-gpu-exporter.py (`macbook_backup_last_success_timestamp_seconds`), which
-# Alloy already scrapes into this Prometheus. The marker it reads,
+# mac/exporters/macbook-backup-exporter.py on :9114
+# (`macbook_backup_last_success_timestamp_seconds`), which Alloy scrapes into
+# this Prometheus. The marker it reads,
 # ~/Library/Application Support/macbook-backup/last-success, is stamped by
 # macbook-backup.sh only when EVERY source succeeded — so its age is a direct
 # "is the backup actually working" signal, not merely "did the job start".
