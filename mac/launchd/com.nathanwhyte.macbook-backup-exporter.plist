@@ -13,7 +13,11 @@
   killed its predecessor, which kept pointing at a pre-migration path and
   failed 10781 times without anyone noticing.
 
-  Install:
+  Install — create the log directory FIRST. launchd cannot open
+  StandardOutPath when the directory is missing, so the agent fails to start
+  and stays silent: precisely the failure mode this whole change exists to
+  remove. (Review catch, P1.)
+    mkdir -p ~/.local/share/macbook-backup-exporter
     cp macbook-backup-exporter.plist ~/Library/LaunchAgents/
     launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.nathanwhyte.macbook-backup-exporter.plist
 

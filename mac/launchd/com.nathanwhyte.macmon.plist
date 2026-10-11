@@ -7,7 +7,10 @@
   via IOReport / SMC. It does NOT require root, so it can run as the logged-in
   user. It exposes Prometheus metrics at http://127.0.0.1:9113/metrics.
 
-  Install:
+  Install — create the log directory FIRST; launchd cannot open
+  StandardOutPath when it is missing and the agent then fails to start
+  silently. (Same P1 class as the macbook-backup exporter's plist.)
+    mkdir -p /Users/noot/.local/share/macmon
     cp com.nathanwhyte.macmon.plist ~/Library/LaunchAgents/
     launchctl load ~/Library/LaunchAgents/com.nathanwhyte.macmon.plist
 
