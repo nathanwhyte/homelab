@@ -11,6 +11,26 @@ of what was removed: [RETIRED.md](RETIRED.md).
 | `launchd/com.user.ollama-serve.plist` | User LaunchAgent that runs `Ollama.app`'s `ollama serve` |
 | `pf/com.user.ollama-serve.anchor` | `pf` anchor letting the cluster reach pop's Ollama port |
 | `docs/ollama-pop-fw.md` | The `socketfilterfw` / `pf` steps that anchor needs |
+| `bin/check-macbook-backup.sh` | Hourly freshness check for the MacBook backup (BUG-1212) |
+| `launchd/com.nathanwhyte.macbook-backup-check.plist` | Its user LaunchAgent |
+
+## MacBook backup freshness check
+
+`bin/check-macbook-backup.sh` reads the marker
+`~/Library/Application Support/macbook-backup/last-success`, which
+`bin/macbook-backup.sh` stamps only when every source uploads cleanly, and
+raises a **macOS notification** when it is older than 24h — or absent, which is
+the case where the job itself is gone and there is nothing to fail.
+
+It runs **locally on purpose**. The monitor this replaces went through the
+cluster, and the transport never worked: pop's Alloy could not reach the
+remote-write NodePorts, so nothing it carried ever left the machine
+([RETIRED.md](RETIRED.md)). Checking the marker where it is written needs no
+transport, no cluster, and no credentials.
+
+Once a day at most while a backup stays stale (so it nags without becoming
+noise), silent while healthy, and always `exit 0` so launchd never treats a
+stale backup as a reason to retry-loop.
 
 ## Install
 

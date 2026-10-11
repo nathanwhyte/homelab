@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  User LaunchAgent for the macbook-backup freshness check.
+
+  Hourly, and needs no root: it stats a user-owned marker and raises a macOS
+  notification. Local by design — the cluster route this replaces never worked,
+  because pop's Alloy could not reach the cluster's remote-write NodePorts
+  (see ../RETIRED.md), and a checker that travels through an unmonitored
+  transport is the wrong shape for detecting silence.
+
+  The script path lives under main/ because ~/code/homelab is a bare repo with
+  sibling worktrees (see ../README.md).
+
+  Install — ~/Library/Logs always exists, but a fresh clone's marker directory
+  may not, so the check creates it on demand and nothing here depends on it:
+    cp check-macbook-backup.plist ~/Library/LaunchAgents/ 2>/dev/null || \
+      cp mac/launchd/com.nathanwhyte.macbook-backup-check.plist ~/Library/LaunchAgents/
+    launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.nathanwhyte.macbook-backup-check.plist
+
+  Verify:
+    launchctl print gui/$(id -u)/com.nathanwhyte.macbook-backup-check | head -5
+    tail -3 ~/Library/Logs/macbook-backup-check.log
+
+  Uninstall:
+    launchctl bootout gui/$(id -u)/com.nathanwhyte.macbook-backup-check
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.nathanwhyte.macbook-backup-check</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/noot/code/homelab/main/mac/bin/check-macbook-backup.sh</string>
+  </array>
+
+  <key>StartInterval</key>
+  <integer>3600</integer>
+
+  <key>RunAtLoad</key>
+  <true/>
+
+  <key>ProcessType</key>
+  <string>Background</string>
+
+  <key>StandardOutPath</key>
+  <string>/Users/noot/Library/Logs/macbook-backup-check.log</string>
+
+  <key>StandardErrorPath</key>
+  <string>/Users/noot/Library/Logs/macbook-backup-check.log</string>
+</dict>
+</plist>
