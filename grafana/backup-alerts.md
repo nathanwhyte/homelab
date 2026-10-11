@@ -64,6 +64,15 @@ Other backup targets exist but are **not** in this declared list yet:
   (not R2), nightly. Would need a Garage (not R2) freshness check.
 - **yt-dlp media** (`yt-dlp/yt-dlp-r2-backup`) — PVC → R2, weekly. Would need a
   14-day threshold.
+- **macbook-backup** (pop → copyparty, `bin/macbook-backup.sh`) — **covered, but
+  not from here.** It is invisible to both tiers above: no CronJob or Job exists
+  to fail (the schedule is a LaunchAgent on pop), and the mirror lands in
+  copyparty's Longhorn PVC rather than in R2, so there is nothing to list. Its
+  freshness is exported from pop instead and alerted in
+  [macbook-backup-alerts.yaml](manifests/macbook-backup-alerts.yaml). It took 47
+  days to notice it had failed (BUG-1212), which is why it is listed here even
+  though the rule lives elsewhere: this section is the one place that answers
+  "is X covered".
 
 ## Two alert tiers
 

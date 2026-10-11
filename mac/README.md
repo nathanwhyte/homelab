@@ -40,8 +40,9 @@ The cluster receives via NodePorts exposed on every node:
 │  ollama serve (native, :11434)                        │
 │  ~/.ollama/logs/server.log                            │
 │                                                       │
-│  mac-gpu-exporter.py (native LaunchDaemon, :9112)     │
-│  └─ powermetrics (requires hardware access)           │
+│  macbook-backup-exporter.py (user LaunchAgent, :9114) │
+│  └─ age of the macbook-backup last-success marker     │
+│     (no root required)                               │
 │                                                       │
 │  macmon serve (user LaunchAgent, :9113)              │
 │  └─ CPU/GPU/ANE power, temps, freq, RAM/swap         │
@@ -54,7 +55,8 @@ The cluster receives via NodePorts exposed on every node:
 │  │                                                 │  │
 │  │  alloy                                          │  │
 │  │    ├─ scrape ollama-exporter:9111               │  │
-│  │    ├─ scrape host.docker.internal:9112          │  │
+│  │    ├─ scrape host.docker.internal:9113 (macmon) │  │
+│  │    ├─ scrape host.docker.internal:9114 (backup) │  │
 │  │    ├─ tail  /var/log/ollama/server.log          │  │
 │  │    │        (bind: ~/.ollama/logs)              │  │
 │  │    ├─ remote_write 192.168.1.19:30909           │  │
@@ -64,9 +66,14 @@ The cluster receives via NodePorts exposed on every node:
 └───────────────────────────────────────────────────────┘
 ```
 
-**Why GPU exporter is native:** `powermetrics` reads hardware sensors via
-IOKit. macOS containers run inside a Linux VM that has no view of those
-sensors, so the GPU exporter must run on the host.
+**Why the host exporters are native:** macmon reads Apple Silicon sensors via
+IOReport/SMC, and the backup exporter stats a file in the user's home. macOS
+containers run inside a Linux VM with no view of either, so both run on the
+host — and neither needs root.
+
+`mac_gpu_*` (the old `powermetrics` LaunchDaemon on `:9112`) was **retired**:
+it was dead — pointing at a pre-migration path, 10781 failed runs — nothing
+graphed it, and macmon covered the same ground more cheaply. See BUG-1212.
 
 ## Layout
 
@@ -75,9 +82,8 @@ sensors, so the GPU exporter must run on the host.
 | `docker-compose.yml`                             | Defines `ollama-exporter` (image: `ghcr.io/astral-sh/uv:python3.12-bookworm-slim`, runs via `uv run --no-project`) and `alloy` (image: `grafana/alloy:latest`) containers. |
 | `alloy/config.alloy`                             | Alloy: scrape all exporters, tail Ollama log, ship to cluster. Bind-mounted into the alloy container.                                                                      |
 | `exporters/ollama-exporter.py`                   | Pure-Python exporter, bind-mounted into the ollama-exporter container. Identical to `llama/ollama/ollama-exporter.py`.                                                     |
-| `exporters/mac-gpu-exporter.py`                  | Native Apple Silicon GPU exporter (wraps `powermetrics`). Runs as a LaunchDaemon on the host.                                                                              |
-| `exporters/test_mac_gpu_exporter.py`             | Unit tests for the `powermetrics` parser.                                                                                                                                  |
-| `launchd/com.nathanwhyte.mac-gpu-exporter.plist` | System LaunchDaemon (runs as root for `powermetrics`).                                                                                                                     |
+| `exporters/macbook-backup-exporter.py`           | Exports the age of the macbook-backup last-success marker (BUG-1212). User LaunchAgent, no root.                                                                             |
+| `launchd/com.nathanwhyte.macbook-backup-exporter.plist` | User LaunchAgent for the backup freshness exporter on `:9114`.                                                                                                      |
 | `launchd/com.nathanwhyte.macmon.plist`           | User LaunchAgent that runs `macmon serve` on `:9113` (no root).                                                                                                            |
 | `grafana/dashboards/mac-metrics.json`            | New Grafana dashboard for MacBook hardware metrics.                                                                                                                        |
 | `grafana/manifests/mac-metrics-dashboard.yaml`   | ConfigMap that provisions the Mac Metrics dashboard.                                                                                                                       |
@@ -88,20 +94,28 @@ Requires Docker Desktop, OrbStack, Colima, or Rancher Desktop. Anything that
 provides `docker compose` and a `host-gateway` for `host.docker.internal`.
 
 ```bash
-cd /Users/noot/code/homelab
+cd /Users/noot/code/homelab/main
 
-# 1. Native GPU exporter (system LaunchDaemon — needs root)
-sudo cp mac/launchd/com.nathanwhyte.mac-gpu-exporter.plist /Library/LaunchDaemons/
-sudo chown root:wheel /Library/LaunchDaemons/com.nathanwhyte.mac-gpu-exporter.plist
-sudo launchctl bootstrap system /Library/LaunchDaemons/com.nathanwhyte.mac-gpu-exporter.plist
-
-# 2. User LaunchAgent for macmon (no root)
+# 1. macmon (user LaunchAgent — no root)
 mkdir -p /Users/noot/.local/share/macmon
 cp mac/launchd/com.nathanwhyte.macmon.plist ~/Library/LaunchAgents/
 launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.nathanwhyte.macmon.plist
 
+# 2. macbook-backup freshness exporter (user LaunchAgent — no root)
+mkdir -p /Users/noot/.local/share/macbook-backup-exporter
+cp mac/launchd/com.nathanwhyte.macbook-backup-exporter.plist ~/Library/LaunchAgents/
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.nathanwhyte.macbook-backup-exporter.plist
+
 # 3. Containers
 docker compose -f mac/docker-compose.yml up -d
+```
+
+**Retiring the old GPU exporter.** If `com.nathanwhyte.mac-gpu-exporter` was
+ever installed as a system daemon, remove it — nothing scrapes it now:
+
+```bash
+sudo launchctl bootout system/com.nathanwhyte.mac-gpu-exporter
+sudo rm /Library/LaunchDaemons/com.nathanwhyte.mac-gpu-exporter.plist
 ```
 
 ## Verify
@@ -112,20 +126,20 @@ docker compose -f mac/docker-compose.yml ps
 
 # Local exporters
 curl -fsS localhost:9111/metrics | grep ^ollama_up           # via compose port-forward
-curl -fsS localhost:9112/metrics | grep ^mac_gpu_power_watts # native LaunchDaemon
 curl -fsS localhost:9113/metrics | grep ^macmon_sys_power_watts # user LaunchAgent
+curl -fsS localhost:9114/metrics | grep ^macbook_backup      # user LaunchAgent
 
 # Alloy
 curl -fsS localhost:12345/-/ready                            # OK
 
 # LaunchAgents / LaunchDaemons
-sudo launchctl list | grep mac-gpu-exporter
 launchctl list | grep macmon
+launchctl list | grep macbook-backup-exporter
 
 # End-to-end (from anywhere with cluster Grafana MCP access)
 # ollama_up{node="macbook-m5"}      → 1
-# mac_gpu_power_watts                → live value
 # macmon_sys_power_watts{node="macbook-m5"} → live value
+# macbook_backup_last_success_timestamp_seconds{node="macbook-m5"} → recent mtime
 # {job="ollama", host="macbook-m5"} in Loki → recent log lines
 ```
 
@@ -148,12 +162,6 @@ redirected into the same directory so Alloy picks it up unchanged:
 Otherwise update the bind mount in `docker-compose.yml` and the
 `__path__` in `alloy/config.alloy` to point at the alternative directory.
 
-## Tests
-
-```bash
-python3 mac/exporters/test_mac_gpu_exporter.py -v
-```
-
 ## Update
 
 ```bash
@@ -165,13 +173,17 @@ docker compose -f mac/docker-compose.yml up -d
 
 ```bash
 docker compose -f mac/docker-compose.yml down -v
-sudo launchctl unload /Library/LaunchDaemons/com.nathanwhyte.mac-gpu-exporter.plist
-sudo rm /Library/LaunchDaemons/com.nathanwhyte.mac-gpu-exporter.plist
+
+# Host agents (both user-level, no sudo)
+launchctl bootout gui/$(id -u)/com.nathanwhyte.macmon
+launchctl bootout gui/$(id -u)/com.nathanwhyte.macbook-backup-exporter
+rm ~/Library/LaunchAgents/com.nathanwhyte.macmon.plist
+rm ~/Library/LaunchAgents/com.nathanwhyte.macbook-backup-exporter.plist
 ```
 
-No persistent state on the Mac beyond `/var/log/mac-gpu-exporter.log`,
-`/Users/noot/.local/share/macmon/macmon.log`, and the named Docker volume
-`mac_alloy-data` (removed by `down -v`).
+No persistent state on the Mac beyond `/Users/noot/.local/share/macmon/macmon.log`,
+`/Users/noot/.local/share/macbook-backup-exporter/exporter.log`, and the named
+Docker volume `mac_alloy-data` (removed by `down -v`).
 
 ## Dashboards
 
@@ -181,6 +193,11 @@ Metrics from this pipeline are used on two Grafana dashboards:
   cluster AMD GPU plus a MacBook row with `macmon_*` GPU/power/temperature panels.
 - **Mac Metrics** (`grafana/dashboards/mac-metrics.json`) — dedicated Apple
   Silicon CPU/GPU/ANE power, frequency, temperature, and memory overview.
+
+`macbook_backup_last_success_timestamp_seconds` is deliberately not dashboarded:
+it exists for the freshness alert in
+`grafana/manifests/macbook-backup-alerts.yaml`, which fires when the mirror has
+not completed a clean run in 24h.
 
 ## Notes
 
