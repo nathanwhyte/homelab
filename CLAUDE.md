@@ -2,6 +2,18 @@
 
 3-node K3s cluster running AI/RAG workloads. This file is the canonical home for repo conventions and safety rules. **Mirror rule:** pi and Codex load [`AGENTS.md`](AGENTS.md) instead of this file and never see it unless they choose to read it; any change here to a ground rule, the bare-repo/worktree contract, or the editing and validation conventions must be mirrored in `AGENTS.md` in the same commit. See [HARDWARE.md](HARDWARE.md) for node specs. See [GPU_AND_AI_REVIEW.md](GPU_AND_AI_REVIEW.md) for design decisions, benchmarks, and architecture history.
 
+## Essentials
+
+The dotfiles `repo-context` hook sends this section to sessions started in another repo; the sections below are the source for each line, so change a rule there first.
+
+<!-- agent-essentials:start -->
+- Never mutate the live cluster unless asked. A deploy covers only the object you changed: `kubectl diff` first, never `kubectl apply -f` a whole multi-object manifest (§ Ground rules).
+- `~/code/homelab` is a bare repo: work in a sibling worktree (`git -C ~/code/homelab worktree add <slug> -b <type>/<desc> origin/main`), never the bare root, and never switch `main/` off `main`.
+- Do not introduce or commit secrets.
+- PRs target `main` with a `changes:<service>` label and the `session:` stamp (§ PR labels); fetch and rebase onto `origin/main` before pushing.
+- Validate before committing (§ Minimal validation).
+<!-- agent-essentials:end -->
+
 ## Ground rules (safety first)
 
 - **Do not apply changes to a live cluster unless explicitly asked.** Avoid running `kubectl apply`, `helm install/upgrade`, or anything that mutates cluster state unless the user requests it.
