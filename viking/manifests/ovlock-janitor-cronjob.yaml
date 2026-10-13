@@ -6,7 +6,9 @@
 # logged and surfaced via the OpenVikingWedgedLockFile alert — never deleted,
 # never "fixed" with a restart. This tool makes zero Kubernetes API calls;
 # deploy/openviking restarts belong exclusively to the IMPR-1062 Phase 4
-# in-Job heal (single-restart-controller rule). automountServiceAccountToken
+# in-Job heal (single-restart-controller rule) and, for a lease held for hours,
+# the ov-lock-watchdog CronJob (BUG-1220), which respects the same cooldown and
+# resourceVersion guard. automountServiceAccountToken
 # is disabled to make that structural: the pod holds no API credentials at
 # all (it needs only DNS, HTTP to OV /health, and S3).
 #

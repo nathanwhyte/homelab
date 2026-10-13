@@ -1,0 +1,140 @@
+---
+# BUG-1220: long-hold watchdog. Restarts deploy/openviking when ONE lock has
+# been held by the SAME lease_ref for more than 3 h (WATCHDOG_HOLD_SECONDS).
+# On 2026-10-09..12 one MCP session's memory extraction held its
+# .path.ovlock for ~70 h, refreshing every ~10 s, and only an unrelated pod
+# replacement cleared it. The BUG-1181 in-Job heal restarts only for a wedge
+# its own sync run caused under resources/compendium, and the IMPR-1095 janitor
+# deletes dead leases only, so nothing covered this class.
+#
+# A second restart controller. The IMPR-1062 single-restart-controller rule
+# exists so two actors cannot restart OV over each other. This job stays inside
+# it: it declines inside WATCHDOG_COOLDOWN_SECONDS (1 h) of ANY restartedAt
+# change, including the compendium heal's, it declines while a rollout is
+# unsettled, and its PATCH carries the Deployment's resourceVersion so a
+# restart that lands between its read and its write turns it into a 409 no-op.
+#
+# Identity: ov-exporter's openviking_s3_ovlock_live_age_seconds (homelab#205,
+# port 9210 on the openviking Service) says how long the lock has been present;
+# the openviking container log must show ONE lease_ref refreshing it within the
+# last 60 s and, over the part of the window the log covers, no other. Anything
+# unclear logs a reason and restarts nothing.
+#
+# Disruption guard: prefer a quiet queue, force at WATCHDOG_FORCE_SECONDS (6 h).
+# Details and the reason this differs from "restart when the queue is not
+# progressing": viking/tools/ov-lock-watchdog.py docstring.
+#
+# SHADOW MODE (IMPR-1095 precedent, as for ovlock-janitor): args carry
+# --dry-run, so every run logs its decision, and the restart it would make,
+# without PATCHing. Read the logs for a soak (a wedge that would have been
+# restarted, and the absence of false positives), then enable by DELETING the
+# "--dry-run" arg and `kubectl apply`ing this one object.
+#
+# HOW IT IS SEEN: every run logs `ov-lock-watchdog: decision=...` and a real
+# restart logs `ov-lock-watchdog: RESTARTED ...` (Loki: {namespace="viking"}
+# |= "ov-lock-watchdog: RESTARTED"), and stamps the Deployment with the
+# ov-lock-watchdog.nathanwhyte.dev/last-restart annotation. A failed restart
+# or a ServiceAccount the API refuses exits non-zero, which reaches Slack
+# through KubeJobFailed (grafana/manifests/job-failure-alerts.yaml). The
+# OpenVikingWedgedLockFile alert resolves on its own once OV restarts.
+#
+# Script is mounted from the ov-lock-watchdog ConfigMap; regenerate it with
+# viking/scripts/regen-lock-watchdog-configmap.sh after editing the .py and
+# commit both together.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: ov-lock-watchdog
+  namespace: viking
+  labels:
+    app.kubernetes.io/name: openviking
+    app.kubernetes.io/component: ov-lock-watchdog
+spec:
+  # Every 15 min, off the :00/:15/:30/:45 crowd and compendium-sync's
+  # 7,22,37,52. A 3 h hold threshold makes finer polling pointless.
+  schedule: "3,18,33,48 * * * *"
+  timeZone: "Etc/UTC"
+  suspend: false
+  # Two overlapping runs could both decide to restart.
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  # A failed Job is the alarm and the record; keep several inspectable.
+  failedJobsHistoryLimit: 5
+  startingDeadlineSeconds: 300
+  jobTemplate:
+    metadata:
+      labels:
+        app.kubernetes.io/name: openviking
+        app.kubernetes.io/component: ov-lock-watchdog
+    spec:
+      completions: 1
+      parallelism: 1
+      # No retry: a failure is an alarm, and the next slot is 15 min away.
+      backoffLimit: 0
+      # An exporter scrape, a few API calls and one log read of a few MB.
+      activeDeadlineSeconds: 300
+      ttlSecondsAfterFinished: 172800
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: openviking
+            app.kubernetes.io/component: ov-lock-watchdog
+        spec:
+          restartPolicy: Never
+          serviceAccountName: ov-lock-watchdog
+          # Needed: the job talks to the Kubernetes API with this token.
+          automountServiceAccountToken: true
+          containers:
+            - name: watchdog
+              # Same digest as compendium-sync and main-force-push-watch. The
+              # script is stdlib-only, so nothing is installed at runtime.
+              image: python:3.13-slim@sha256:eb43ff125d8d58d7449dcba7d336c23bcac412f526d861db493b9994d8010280
+              imagePullPolicy: IfNotPresent
+              command:
+                - python3
+                - /scripts/ov-lock-watchdog.py
+              args:
+                - --dry-run
+              env:
+                - name: WATCHDOG_EXPORTER_URL
+                  value: http://openviking.viking.svc.cluster.local:9210/metrics
+                # Thresholds written out so they can be tuned without a code
+                # change. Hold: the same lease continuously, from the exporter.
+                - name: WATCHDOG_HOLD_SECONDS
+                  value: "10800"
+                # Hard cap: restart even though the queue is busy.
+                - name: WATCHDOG_FORCE_SECONDS
+                  value: "21600"
+                - name: WATCHDOG_COOLDOWN_SECONDS
+                  value: "3600"
+                # Queue items (pending + in progress) tolerated at a "quiet
+                # moment". 0 = fully idle; the wedged task is not counted in
+                # the queue, so nothing is subtracted.
+                - name: WATCHDOG_QUIET_MAX_WORK
+                  value: "0"
+              volumeMounts:
+                - name: scripts
+                  mountPath: /scripts
+                  readOnly: true
+              resources:
+                requests:
+                  cpu: 10m
+                  memory: 64Mi
+                limits:
+                  memory: 256Mi
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: ["ALL"]
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65534
+            runAsGroup: 65534
+            seccompProfile:
+              type: RuntimeDefault
+          volumes:
+            - name: scripts
+              configMap:
+                name: ov-lock-watchdog
+                defaultMode: 0755

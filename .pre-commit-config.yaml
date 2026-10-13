@@ -53,6 +53,12 @@ repos:
         language: system
         pass_filenames: false
         files: ^viking/(exporters/s3lite\.py|tools/(test_)?ovlock[-_]janitor\.py)$
+      - id: ov-lock-watchdog-tests
+        name: ov-lock-watchdog tests
+        entry: python3 viking/tools/test_ov_lock_watchdog.py
+        language: system
+        pass_filenames: false
+        files: ^viking/(tools/(test_)?ov[-_]lock[-_]watchdog\.py|manifests/ov-lock-watchdog-configmap\.yaml)$
       - id: helm-deploy-tests
         name: Helm deployment version safety tests
         entry: python3 scripts/test-helm-deploy.py
