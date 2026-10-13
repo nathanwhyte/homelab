@@ -5,7 +5,7 @@ set -euo pipefail
 #
 # Install or upgrade at the pinned version, matching timmy's OLLAMA_VERSION in
 # llama/host/install-host-ollama.sh (keep the two equal):
-#   curl -fsSL https://ollama.com/install.sh | OLLAMA_VERSION=0.40.1 sh
+#   curl -fsSL https://ollama.com/install.sh | OLLAMA_VERSION=0.40.3 sh
 # Ollama 0.40.x bundles llama.cpp b11351 (its LLAMA_CPP_VERSION file).
 #
 # wemby's Ollama is a standalone host daemon: no k8s Service or EndpointSlice
@@ -13,6 +13,16 @@ set -euo pipefail
 # candidate OpenViking embedder host (TASK-1217), and k8s GPU scheduling cannot
 # see VRAM held by this daemon. The settings below keep Ollama small and
 # short-lived on that card so a loaded model cannot starve a GPU pod.
+#
+# Since 2026-10-13 (IMPR-1303) this daemon serves editor FIM: qwen2.5-coder:fim
+# (2.3 GB resident, num_ctx 8192 x 2 slots), built here by hand from
+# llama/ollama/qwen2.5-coder-fim.Modelfile after timmy became gemma4:vlm's
+# sole host. Nothing pins it — KEEP_ALIVE=5m below means an idle editor pays a
+# ~3 s cold load on its next completion, which is the price of leaving the card
+# free for a GPU pod. Rebuild after a reinstall:
+#   ollama pull qwen2.5-coder:3b-base && ollama create qwen2.5-coder:fim -f llama/ollama/qwen2.5-coder-fim.Modelfile
+# dotfiles nvim/lua/plugins/minuet.lua, zed/settings.json and the vimt/fimt/
+# fimprime helpers name this host (Tailscale 100.118.40.21, LAN 192.168.1.9).
 #
 # The drop-in replaces the installer's environment. The upstream installer
 # bakes the invoking shell's PATH (linuxbrew, ~/.bun, ~/.go, ...) into

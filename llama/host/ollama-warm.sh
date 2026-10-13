@@ -30,8 +30,10 @@
 # Two independent concerns, kept apart on purpose:
 #   1. SERVER readiness is the daemon's own business — this script never gates
 #      it, and a failure here leaves the API serving. OV's VLM is the LOCAL
-#      gemma4:vlm runner since 2026-09-18 (warm_ov_vlm below), so a failure
-#      here degrades OV to missing abstracts until its next call reloads it.
+#      gemma4:vlm runner since 2026-09-18, and since 2026-10-13 it is the
+#      RESIDENT tag itself (IMPR-1303 retired the IDEA-1105 pair), so a
+#      failure here degrades OV to missing abstracts until its next call
+#      reloads it.
 #   2. LOCAL model prep is best-effort with retry. /run/ollama/models-ready is
 #      written as an observable signal; nothing outside this script reads it.
 #
@@ -54,36 +56,41 @@ INSTRUCT_BASE=deepseek-coder-v2:16b-lite-instruct-q4_0
 # runner would need 9 GiB of KV and would not fit the card (IDEA-1105). Keep in
 # step with the drop-in: changing either one alone breaks the VRAM budget.
 FIM_NUM_CTX=8192
-# IDEA-1105 OpenViking/editor pair. Not resident by default; see prepare_ov_pair.
-# The FIM half sits at 8192 like the deepseek tag above (2.7 GiB vs 3.6 at
-# 16384); the VLM half needs 16384 to hold an OV entry plus a batched
-# overview_generation over semantic.overview_batch_size summaries.
+# IDEA-1105 OpenViking/editor pair, RETIRED as a co-resident posture on
+# 2026-10-13 (IMPR-1303): the daemon evicted the FIM half at every restart
+# ("predicted to exceed available memory") once gemma4:vlm's 131072-token
+# runner was budgeted, so the pair never co-resided in steady state (only in
+# the hand-loaded 2026-09-18 measurement run). Both tags stay
+# reconciled (prepare_ov_pair) so the FIM half is one RESIDENT_TAG flip away;
+# the VLM half is now the resident tag.
 OV_FIM_TAG=qwen2.5-coder:fim
 OV_FIM_BASE=qwen2.5-coder:3b-base
 OV_FIM_NUM_CTX=8192
 OV_VLM_TAG=gemma4:vlm
 OV_VLM_BASE=gemma4:12b-it-qat
-# 32768 since 2026-09-21 (BUG-1155). MUST track PARAMETER num_ctx in
-# llama/ollama/gemma4-vlm.Modelfile: reconcile_tag compares the live tag
-# against THIS value, so a Modelfile-only change makes every warm run log
-# "WARN: gemma4:vlm num_ctx is 32768, want 16384" and return 1, failing
-# --reconcile-only on each install and daemon restart while the in-cluster
-# CronJob re-asserts every 15 minutes.
-OV_VLM_NUM_CTX=32768
-# Which tag stays pinned for edit prediction. :instruct since 2026-09-18 — both
-# tags decode at the same speed (170 vs 160 tok/s, identical TTFT) and measure
-# the same through the real minuet stack (28% vs 30% empty after filtering,
-# comparable lengths); it was adopted on the quality of its completions, judged
-# in the editor. dotfiles nvim/lua/plugins/minuet.lua and zed/settings.json name
-# this tag, and OLLAMA_MAX_LOADED_MODELS=1 means a request for the OTHER tag
-# evicts this one and pays a ~5 s reload -- so change all three together.
-# Both tags are reconciled below, so rolling back is: set this to $FIM_TAG,
-# re-run, and flip the two dotfiles entries.
-# $OV_FIM_TAG since 2026-09-18 (IDEA-1105). Rolling back is: set this to
-# $INSTRUCT_TAG, drop OLLAMA_MAX_LOADED_MODELS to 1 in the drop-in, re-run, and
-# flip the two dotfiles entries — all four together, or the clients and the host
-# disagree about which tag is resident.
-RESIDENT_TAG=${RESIDENT_TAG:-$OV_FIM_TAG}
+# 65536 since 2026-10-13 (IMPR-1303; 32768 from 2026-09-21, BUG-1155), paired
+# with OLLAMA_NUM_PARALLEL=2 in the drop-in so the runner's aggregate context
+# is unchanged at 131072 (KV drops, ~2.2 GB -> ~1.7 GB; see the Modelfile).
+# MUST track PARAMETER num_ctx in llama/ollama/gemma4-vlm.Modelfile:
+# reconcile_tag compares the live tag against THIS value, so a Modelfile-only
+# change makes every warm run log "WARN: gemma4:vlm num_ctx is 65536, want
+# 32768" and return 1, failing --reconcile-only on each install and daemon
+# restart while the in-cluster CronJob re-asserts every 15 minutes.
+OV_VLM_NUM_CTX=65536
+# Which tag stays pinned. $OV_VLM_TAG since 2026-10-13 (IMPR-1303): gemma4:vlm
+# is the sole resident model and OLLAMA_MAX_LOADED_MODELS is 1, so a request
+# for ANY other tag evicts OpenViking's summarizer and pays its ~8 GB reload on
+# OV's next call. Editor FIM therefore must not target this host (dotfiles
+# nvim/lua/plugins/minuet.lua and zed/settings.json, which named $OV_FIM_TAG
+# here until the retirement). Three places encode the resident tag — this
+# variable, MODEL in llama/ollama-jobs.yaml, and the drop-in's
+# OLLAMA_MAX_LOADED_MODELS — and the tests assert they agree.
+# History: $OV_FIM_TAG 2026-09-18 → 10-13 (IDEA-1105 pair, never co-resident
+# in steady state); $INSTRUCT_TAG before that. Rolling back to the pair is: set
+# this to $OV_FIM_TAG, raise OLLAMA_MAX_LOADED_MODELS to 2, set MODEL in
+# llama/ollama-jobs.yaml back to $OV_FIM_TAG and apply that CronJob, re-run,
+# and point the two dotfiles entries back at this host — all together.
+RESIDENT_TAG=${RESIDENT_TAG:-$OV_VLM_TAG}
 # Cap on best-effort standby reconciliation (a cold store can pull ~9 GB).
 STANDBY_TIMEOUT=${STANDBY_TIMEOUT:-600}
 export OLLAMA_HOST=$OLLAMA_URL
@@ -200,9 +207,11 @@ reconcile_one() {
 
 standby_tag() {
 	# The tag a rollback would make resident, kept reconciled so the flip is one
-	# variable rather than a cold ~9 GB pull. Under the OV pair posture that is
-	# the deepseek tag the editors used before 2026-09-18.
+	# variable rather than a cold ~9 GB pull. With gemma4:vlm resident that is
+	# the FIM half of the retired pair; under the pair posture it was the
+	# deepseek tag the editors used before 2026-09-18.
 	case $RESIDENT_TAG in
+	"$OV_VLM_TAG") printf '%s' "$OV_FIM_TAG" ;;
 	"$FIM_TAG") printf '%s' "$INSTRUCT_TAG" ;;
 	"$OV_FIM_TAG") printf '%s' "$INSTRUCT_TAG" ;;
 	*) printf '%s' "$FIM_TAG" ;;
@@ -257,10 +266,11 @@ prepare_standby_tag() {
 }
 
 prepare_edit_prediction_model() {
-	# $RESIDENT_TAG is the sole resident model: Zed, Minuet suffix FIM, and the
-	# remote VSCode FIM client (TASK-1156) all request it BY NAME, and
-	# OLLAMA_MAX_LOADED_MODELS=1 means a request for any other tag evicts it.
-	# ~2-3x faster than qwen2.5-coder:14b-base (BUG-1037).
+	# $RESIDENT_TAG is the sole resident model and OLLAMA_MAX_LOADED_MODELS=1
+	# means a request for any other tag evicts it. Since 2026-10-13 that is
+	# OpenViking's gemma4:vlm; the function keeps its edit-prediction name from
+	# the years it pinned a FIM tag for Zed, Minuet and the remote VSCode client
+	# (TASK-1156), and the retry shape is unchanged.
 	local attempt
 	for attempt in 1 2 3 4 5; do
 		# ONLY the resident tag gates warming. Reconciling the standby here
@@ -269,14 +279,14 @@ prepare_edit_prediction_model() {
 			log "warming $RESIDENT_TAG (load-only)"
 			if warm_load_only "$RESIDENT_TAG"; then
 				touch "$READY_MARKER"
-				log "edit-prediction model ready (attempt $attempt)"
+				log "resident model $RESIDENT_TAG ready (attempt $attempt)"
 				return 0
 			fi
 		fi
-		log "WARN: edit-prediction model incomplete (attempt $attempt/5); retrying in 30s"
+		log "WARN: resident model $RESIDENT_TAG incomplete (attempt $attempt/5); retrying in 30s"
 		sleep 30
 	done
-	log "WARN: edit-prediction model not prepared after 5 attempts; server stays up — check registry/model store"
+	log "WARN: resident model $RESIDENT_TAG not prepared after 5 attempts; server stays up — check registry/model store"
 	return 1
 }
 
@@ -287,6 +297,8 @@ warm_ov_vlm() {
 	# failed autocomplete is what the user feels. Needs
 	# OLLAMA_MAX_LOADED_MODELS=2 — at 1 this warm simply evicts the tag that was
 	# just pinned, which is why the drop-in and this function move together.
+	# A no-op since 2026-10-13: gemma4:vlm IS the resident tag, so
+	# prepare_edit_prediction_model already warmed it.
 	[[ $RESIDENT_TAG == "$OV_FIM_TAG" ]] || return 0
 	if reconcile_one "$OV_VLM_TAG"; then
 		log "warming $OV_VLM_TAG (OpenViking summarizer)"
@@ -356,7 +368,8 @@ fi
 log "server ready ($(curl -fsS -m 3 "$OLLAMA_URL/api/version"))"
 if [[ $mode == reconcile ]]; then
 	reconcile_all_strict || exit 1
-	log "$FIM_TAG and $INSTRUCT_TAG num_ctx match the recipe ($FIM_NUM_CTX); resident=$RESIDENT_TAG"
+	standby=$(standby_tag)
+	log "resident $RESIDENT_TAG (num_ctx $(tag_num_ctx "$RESIDENT_TAG")) and standby $standby (num_ctx $(tag_num_ctx "$standby")) match their recipes"
 	exit 0
 fi
 if [[ $mode == ovpair ]]; then

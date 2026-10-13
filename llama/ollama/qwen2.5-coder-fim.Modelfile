@@ -1,4 +1,13 @@
-# qwen2.5-coder:fim — the FIM half of timmy's OpenViking/editor pair (IDEA-1105).
+# qwen2.5-coder:fim — the editor's FIM model. Served from wemby's GTX 1060 since
+# 2026-10-13 (IMPR-1303; see llama/ollama/ollama-wemby-setup.sh), after the
+# IDEA-1105 pair that put it beside gemma4:vlm on timmy was retired. The
+# pair co-resided only in the 2026-09-18 measurement run below (both loaded by
+# hand, 11.8/16 GB, no eviction); in steady state it did not: at every daemon
+# restart the warm unit loaded this tag first and Ollama evicted it two
+# seconds later ("predicted to exceed available memory") once gemma4:vlm's
+# 131072-token runner was budgeted, so OpenViking alone held the card. timmy
+# now pins gemma4:vlm alone; this tag is still reconciled there by
+# ollama-warm.sh as the pair's rollback tag, unloaded.
 #
 # Supersedes deepseek-coder-v2:instruct as the editor's completion model. The
 # deepseek tag served FIM well (8/8 smoke) but was carried as a DUAL-USE tag so
