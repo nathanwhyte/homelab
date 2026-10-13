@@ -47,3 +47,8 @@ resources:
   # IMPR-1095: stale S3 .ovlock janitor (shadow mode until Phase 4 flips --apply)
   - ovlock-janitor-configmap.yaml
   - ovlock-janitor-cronjob.yaml
+  # BUG-1220: restarts OV when one lease holds one lock for hours. Ships in
+  # --dry-run (shadow) mode; see the CronJob header for the flip.
+  - ov-lock-watchdog-rbac.yaml
+  - ov-lock-watchdog-configmap.yaml
+  - ov-lock-watchdog-cronjob.yaml
