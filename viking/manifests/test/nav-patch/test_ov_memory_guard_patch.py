@@ -816,13 +816,18 @@ class LoaderTests(unittest.TestCase):
         )
 
     def test_streaming_updater_gets_the_request_level_guard(self):
+        # BUG-1196: the extract patch's write tracking wraps other methods than the
+        # guard's ``submit``, so the order between them does not matter.
         self.assertEqual(
             sitecustomize._entries(
                 sitecustomize.TARGETS[
                     "openviking.session.memory.streaming_memory_updater"
                 ]
             ),
-            [("ov_memory_guard_patch", "apply_streaming")],
+            [
+                ("ov_memory_guard_patch", "apply_streaming"),
+                ("ov_extract_patch", "apply_streaming"),
+            ],
         )
 
     def test_single_pair_targets_still_load(self):

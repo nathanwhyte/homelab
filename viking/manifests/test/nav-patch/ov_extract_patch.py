@@ -38,23 +38,30 @@ Scope of the claim: this protects against a demonstrated source-code defect (an 
 retry becomes a successful empty diff). Whether the 2026-09-22 zero runs took this path or
 returned a parsed empty program is not established by the INFO log; see BUG-1176.
 
-BUG-1196 adds three things to the session half, each with its own guard and off switch:
+BUG-1196 adds three things, each with its own guard and off switch (the session half,
+plus a streaming half that tracks writes for the lock-wait retry):
 
-  * Timeouts and lock waits are retried, each on its own small budget. Stock
-    ``is_retryable_api_error`` matches the text "timeout", not "timed out", so
-    ``openai.APITimeoutError`` ("Request timed out.") and ``LockAcquisitionError`` ("lock
-    acquire timed out after 300000ms") both failed the archive on the first attempt.
-    ``session.retry_async`` (the name ``_run_retryable_phase2_step`` looks up at call
-    time) is wrapped with a per-call classifier. A timeout is retried only when the
-    session-extraction ``ExtractLoop.run`` raised it (the loop half tags it): that loop
-    runs before anything from the batch is written, so repeating it cannot duplicate
-    events. A timeout from anywhere else keeps stock behaviour. A lock wait is retried on
-    its own budget; it is raised while memories are being applied, so a retry re-runs the
-    batch's extraction against files a sibling group may already have written (the same
-    exposure upstream accepts for its own transient retries; the memory guard drops exact
-    ``add_only`` duplicates). Both stay under the overall ``_MEMORY_EXTRACTION_MAX_RETRIES``
-    cap. Budgets: ``OV_EXTRACT_PATCH_TIMEOUT_RETRIES`` (default 2) and
-    ``OV_EXTRACT_PATCH_LOCK_RETRIES`` (default 3); ``0`` turns that class off.
+  * Timeouts and lock waits are retried, each on its own small budget, only when nothing
+    from the step's attempt has been written. Stock ``is_retryable_api_error`` matches
+    the text "timeout", not "timed out", so ``openai.APITimeoutError`` ("Request timed
+    out.") and ``LockAcquisitionError`` ("lock acquire timed out after 300000ms") both
+    failed the archive on the first attempt. ``session.retry_async`` (the name
+    ``_run_retryable_phase2_step`` looks up at call time) is wrapped with a per-call
+    classifier that asks the caller's classifier first, so whatever stock already
+    retries (a "504 Gateway Timeout", any text containing "timeout") keeps its stock
+    retries; the class budgets only add retries stock would refuse. A timeout gets them
+    only when the session-extraction ``ExtractLoop.run`` raised it before this attempt
+    wrote anything (the loop half tags it). A lock wait gets them only when the
+    ``StreamingMemoryUpdater`` append-only fast path failed to take its lease and it was
+    the attempt's first write after session extraction (the streaming half tags it): the
+    lease is taken before any write, and the fast path runs before the merge groups.
+    Any other lock wait keeps stock behaviour, because a retry is a fresh LLM extraction
+    with a new ``source_extraction_id``: the memory guard files its re-extracted events
+    as collisions at ``<name>_2.md`` instead of dropping them, so retrying after events
+    are written would duplicate them. Both stay under the overall
+    ``_MEMORY_EXTRACTION_MAX_RETRIES`` cap. Budgets: ``OV_EXTRACT_PATCH_TIMEOUT_RETRIES``
+    (default 2) and ``OV_EXTRACT_PATCH_LOCK_RETRIES`` (default 3); ``0`` turns that
+    class's extra retries off and leaves stock retries alone.
   * Every retry, recovery and final failure of a Phase 2 step writes one unwrapped
     ``ov-extract-outcome {json}`` line on stderr naming the step, attempt and
     ``failure_class`` (``timeout``, ``lock_wait``, ``degraded`` or ``other``), so a lock
@@ -72,14 +79,18 @@ BUG-1196 adds three things to the session half, each with its own guard and off 
 
 Guarded: applies only to openviking ``v0.4.20`` whose ``ExtractLoop.run`` source hashes to
 ``EXPECTED_RUN_SHA256``; otherwise it logs "NOT applied" and stock behaviour stays. The
-retry and chunking wrappers are each also guarded on the source hash of the function they
-wrap. Disable everything at runtime with ``OV_EXTRACT_PATCH=0``. Retry budget overrides:
-``OV_EXTRACT_PATCH_RETRIES``, ``OV_EXTRACT_PATCH_BASE_DELAY``, ``OV_EXTRACT_PATCH_MAX_DELAY``.
+retry and chunking wrappers, and the streaming half's three write-tracking wrappers
+(``openviking.session.memory.streaming_memory_updater``), are each also guarded on the
+source hash of the function they wrap. Without the streaming half no lock wait is ever
+tagged, so lock waits keep stock behaviour. Disable everything at runtime with
+``OV_EXTRACT_PATCH=0``. Retry budget overrides: ``OV_EXTRACT_PATCH_RETRIES``,
+``OV_EXTRACT_PATCH_BASE_DELAY``, ``OV_EXTRACT_PATCH_MAX_DELAY``.
 """
 
 from __future__ import annotations
 
 import contextlib
+import contextvars
 import functools
 import hashlib
 import inspect
@@ -99,6 +110,17 @@ EXPECTED_RETRY_ASYNC_SHA256 = (
 EXPECTED_RESOLVE_LIMITS_SHA256 = (
     "811fff5754eee8fed3fdfde1c4c9750901249ef3c66041032f6082959c47b9b1"
 )
+# openviking.session.memory.streaming_memory_updater on v0.4.20: the append-only fast
+# path, the merge-group submit, and the module-level lease acquisition.
+EXPECTED_APPEND_ONLY_SHA256 = (
+    "3e24e1c676c8bd718109d206c94e1b155c3d99af1ed367398efc4acba94cc58f"
+)
+EXPECTED_GROUPED_MERGE_SHA256 = (
+    "f33842c5447652ad21db1d6763bfcec54f41e4521a5d96534a93b09388061af8"
+)
+EXPECTED_ACQUIRE_LEASE_SHA256 = (
+    "01461f9e570eddbb4854149f24a0fe5455adb5b860142650513e77748936a23c"
+)
 DEFAULT_RETRIES = 5
 DEFAULT_BASE_DELAY_SECONDS = 15.0
 DEFAULT_MAX_DELAY_SECONDS = 120.0
@@ -114,6 +136,15 @@ FAILURE_OTHER = "other"
 OUTCOME_PREFIX = "ov-extract-outcome "
 STAGE_ATTR = "_ov_extract_stage"
 STAGE_SESSION_EXTRACT = "session_extract"
+STAGE_BEFORE_WRITE = "before_write"  # lock wait from the attempt's first lease
+LEASE_ATTR = "_ov_extract_lease_wait"
+
+# Per-attempt write state, set by the retry wrapper around each attempt. ``armed``: the
+# session-extraction loop returned in this attempt; ``wrote``: something may have been
+# written. Tasks spawned inside the attempt copy the context and share the dict.
+_STEP: contextvars.ContextVar[dict | None] = contextvars.ContextVar(
+    "ov_extract_step", default=None
+)
 
 logger = logging.getLogger("ov_extract_patch")
 SESSION_PROVIDER = (
@@ -190,11 +221,38 @@ def failure_class(error: BaseException) -> str:
     return FAILURE_OTHER
 
 
+def _tag(error: BaseException, attr: str, value) -> None:
+    with contextlib.suppress(AttributeError, TypeError):
+        setattr(error, attr, value)
+
+
+def _has_tag(error: BaseException, attr: str, value) -> bool:
+    return any(getattr(e, attr, None) == value for e in _chain(error))
+
+
 def is_session_extract_timeout(error: BaseException) -> bool:
     """True for a timeout the loop half tagged as raised by session extraction."""
-    return failure_class(error) == FAILURE_TIMEOUT and any(
-        getattr(e, STAGE_ATTR, None) == STAGE_SESSION_EXTRACT for e in _chain(error)
+    return failure_class(error) == FAILURE_TIMEOUT and _has_tag(
+        error, STAGE_ATTR, STAGE_SESSION_EXTRACT
     )
+
+
+def is_before_write_lock_wait(error: BaseException) -> bool:
+    """True for a lock wait the streaming half tagged as raised before any write."""
+    return failure_class(error) == FAILURE_LOCK_WAIT and _has_tag(
+        error, STAGE_ATTR, STAGE_BEFORE_WRITE
+    )
+
+
+def _step_wrote() -> bool:
+    state = _STEP.get()
+    return state is not None and state["wrote"]
+
+
+def _mark_wrote() -> None:
+    state = _STEP.get()
+    if state is not None:
+        state["wrote"] = True
 
 
 def emit_outcome(record: dict) -> None:
@@ -218,14 +276,21 @@ def wrap_run(orig):
             operations, tools_used = await orig(self)
         except Exception as exc:
             # BUG-1196: session extraction runs before anything from this batch is
-            # written, so its timeouts are safe for the Phase 2 retry to repeat. Tag them;
-            # the session-half classifier retries only tagged timeouts.
-            if provider == SESSION_PROVIDER and failure_class(exc) == FAILURE_TIMEOUT:
-                try:
-                    setattr(exc, STAGE_ATTR, STAGE_SESSION_EXTRACT)
-                except (AttributeError, TypeError):
-                    pass
+            # written, so its timeouts are safe for the Phase 2 retry to repeat. Tag them
+            # unless this attempt already wrote; the session-half classifier gives extra
+            # retries only to tagged timeouts.
+            if (
+                provider == SESSION_PROVIDER
+                and failure_class(exc) == FAILURE_TIMEOUT
+                and not _step_wrote()
+            ):
+                _tag(exc, STAGE_ATTR, STAGE_SESSION_EXTRACT)
             raise
+        if provider == SESSION_PROVIDER:
+            # Arms the streaming half: the next lease the attempt takes is its first write.
+            state = _STEP.get()
+            if state is not None and not state["wrote"]:
+                state["armed"] = True
         if operations is None:
             return operations, tools_used
         upserts = getattr(operations, "upsert_operations", None) or []
@@ -334,8 +399,10 @@ def wrap_retry_async(orig, default_is_retryable):
     """Wrap ``retry_async`` with per-class budgets and one outcome line per event.
 
     ``retry_async`` asks ``is_retryable`` only while attempts remain, so each True
-    returned here is one retry actually taken. Timeouts not tagged by the loop half, and
-    every other class, defer to the caller's classifier (stock behaviour).
+    returned here is one retry actually taken. The caller's classifier is asked first,
+    so stock retries are never reduced; a class budget only adds retries for a tagged
+    error the caller's classifier refused (a session-extraction timeout, or a lock wait
+    raised before the attempt wrote anything).
     """
 
     @functools.wraps(orig)
@@ -348,14 +415,13 @@ def wrap_retry_async(orig, default_is_retryable):
 
         def decide(error):
             cls = failure_class(error)
-            if cls == FAILURE_LOCK_WAIT or (
-                cls == FAILURE_TIMEOUT and is_session_extract_timeout(error)
+            allowed = bool(base(error))
+            if not allowed and (
+                is_session_extract_timeout(error) or is_before_write_lock_wait(error)
             ):
                 allowed = used[cls] < budget[cls]
                 if allowed:
                     used[cls] += 1
-            else:
-                allowed = bool(base(error))
             if allowed:
                 emit_outcome(
                     {
@@ -371,7 +437,11 @@ def wrap_retry_async(orig, default_is_retryable):
         async def counted():
             nonlocal attempts
             attempts += 1
-            return await func()
+            token = _STEP.set({"armed": False, "wrote": False})
+            try:
+                return await func()
+            finally:
+                _STEP.reset(token)
 
         try:
             result = await orig(
@@ -425,6 +495,69 @@ def wrap_resolve_limits(orig, limits_cls):
 
     resolve_extraction_batch_limits._ov_extract_patch = True  # type: ignore[attr-defined]
     return resolve_extraction_batch_limits
+
+
+# --- streaming half: write tracking (BUG-1196) -----------------------------------------
+
+
+def wrap_acquire_lease(orig):
+    """Mark a lock wait raised while taking a memory-apply lease (before its writes)."""
+
+    @functools.wraps(orig)
+    async def _acquire_stable_operation_lease(*args, **kwargs):
+        try:
+            return await orig(*args, **kwargs)
+        except Exception as exc:
+            if failure_class(exc) == FAILURE_LOCK_WAIT:
+                _tag(exc, LEASE_ATTR, True)
+            raise
+
+    _acquire_stable_operation_lease._ov_extract_patch = True  # type: ignore[attr-defined]
+    return _acquire_stable_operation_lease
+
+
+def wrap_append_only(orig):
+    """Tag a lease wait in the attempt's first write; otherwise mark the attempt written.
+
+    Runs in the submitter's own task, first in ``submit``. A lock wait is tagged
+    ``before_write`` only when session extraction armed this attempt, nothing has been
+    written since, and the wait came from taking the lease (which precedes every write
+    of the fast path).
+    """
+
+    @functools.wraps(orig)
+    async def _apply_append_only_request_now(self, request):
+        state = _STEP.get()
+        fresh = state is not None and state["armed"] and not state["wrote"]
+        try:
+            result = await orig(self, request)
+        except Exception as exc:
+            if fresh and _has_tag(exc, LEASE_ATTR, True):
+                _tag(exc, STAGE_ATTR, STAGE_BEFORE_WRITE)
+            else:
+                _mark_wrote()
+            raise
+        _mark_wrote()
+        return result
+
+    _apply_append_only_request_now._ov_extract_patch = True  # type: ignore[attr-defined]
+    return _apply_append_only_request_now
+
+
+def wrap_grouped_merge(orig):
+    """Mark the attempt written before merge groups run.
+
+    Group flushes run in batcher tasks whose context belongs to whoever started them, so
+    their writes are recorded here, in the submitter's task, before they can happen.
+    """
+
+    @functools.wraps(orig)
+    async def _submit_grouped_merge_request(self, request):
+        _mark_wrote()
+        return await orig(self, request)
+
+    _submit_grouped_merge_request._ov_extract_patch = True  # type: ignore[attr-defined]
+    return _submit_grouped_merge_request
 
 
 # --- installers -------------------------------------------------------------------------
@@ -562,8 +695,62 @@ def apply_session(module) -> bool:
     return True
 
 
+def apply_streaming(module) -> bool:
+    """Install the write-tracking wrappers in ``streaming_memory_updater``; all or none.
+
+    Without them no lock wait is tagged, so the retry wrapper leaves every lock wait to
+    the stock classifier.
+    """
+    if not _enabled():
+        return False
+    import openviking
+
+    version = getattr(openviking, "__version__", None)
+    cls = getattr(module, "StreamingMemoryUpdater", None)
+    targets = (
+        (
+            cls,
+            "_apply_append_only_request_now",
+            EXPECTED_APPEND_ONLY_SHA256,
+            wrap_append_only,
+        ),
+        (
+            cls,
+            "_submit_grouped_merge_request",
+            EXPECTED_GROUPED_MERGE_SHA256,
+            wrap_grouped_merge,
+        ),
+        (
+            module,
+            "_acquire_stable_operation_lease",
+            EXPECTED_ACQUIRE_LEASE_SHA256,
+            wrap_acquire_lease,
+        ),
+    )
+    current = [getattr(owner, name, None) for owner, name, _, _ in targets]
+    if all(getattr(fn, "_ov_extract_patch", False) for fn in current):
+        return True
+    digests = [_source_hash(fn) if fn else None for fn in current]
+    if version != EXPECTED_VERSION or digests != [t[2] for t in targets]:
+        logger.warning(
+            "ov-extract-patch: NOT applied to StreamingMemoryUpdater write tracking "
+            "(version=%r source_sha256=%s); lock waits keep stock retry behaviour",
+            version,
+            digests,
+        )
+        return False
+    for (owner, name, _, wrap), fn in zip(targets, current, strict=True):
+        setattr(owner, name, wrap(fn))
+    logger.warning(
+        "ov-extract-patch: applied StreamingMemoryUpdater write tracking (pid %d)",
+        os.getpid(),
+    )
+    return True
+
+
 # module name -> apply function, consumed by sitecustomize.py
 TARGETS = {
     "openviking.session.memory.extract_loop": apply_extract_loop,
     "openviking.session.session": apply_session,
+    "openviking.session.memory.streaming_memory_updater": apply_streaming,
 }

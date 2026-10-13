@@ -17,10 +17,12 @@ off switch; a patch failure never breaks the import):
                         Phase 2 failure instead of an empty ``memory_diff.json``
                         recorded as success (``ExtractLoop.run`` + the session's
                         Phase 2 retry classifier and budget). BUG-1196: session-
-                        extraction timeouts and lock waits are retried on their own
-                        budgets with one ``ov-extract-outcome {json}`` stderr line per
-                        retry/failure, and long-term extraction is chunked for every
-                        session (``retry_async`` + ``resolve_extraction_batch_limits``;
+                        extraction timeouts, and lock waits raised before the attempt
+                        wrote anything, get extra retries on their own budgets with one
+                        ``ov-extract-outcome {json}`` stderr line per retry/failure, and
+                        long-term extraction is chunked for every session
+                        (``retry_async`` + ``resolve_extraction_batch_limits``, plus
+                        write tracking on ``StreamingMemoryUpdater``;
                         ``OV_EXTRACT_PATCH_CHUNK=0`` turns chunking off alone).
   * ov_chatlog_patch  — BUG-1177: ChatLog speaker labels follow the turn's role
                         (assistant turns read ``assistant``) and tool-only turns no
@@ -83,10 +85,10 @@ TARGETS = {
         "apply_extract_loop",
     ),
     "openviking.session.session": ("ov_extract_patch", "apply_session"),
-    "openviking.session.memory.streaming_memory_updater": (
-        "ov_memory_guard_patch",
-        "apply_streaming",
-    ),
+    "openviking.session.memory.streaming_memory_updater": [
+        ("ov_memory_guard_patch", "apply_streaming"),
+        ("ov_extract_patch", "apply_streaming"),
+    ],
     "openviking.session.memory.memory_updater": [
         ("ov_chatlog_patch", "apply"),
         ("ov_memory_guard_patch", "apply"),

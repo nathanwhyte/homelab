@@ -9,6 +9,7 @@ this file covers the wrapper semantics.
 
 import asyncio
 import contextlib
+import contextvars
 import dataclasses
 import io
 import json
@@ -296,6 +297,16 @@ def tagged(exc):
     return exc
 
 
+def before_write(exc):
+    setattr(exc, ep.STAGE_ATTR, ep.STAGE_BEFORE_WRITE)
+    return exc
+
+
+def stock_like(error):
+    """The slice of stock ``is_retryable_api_error`` these tests need: text "timeout"."""
+    return "timeout" in str(error).lower()
+
+
 class FailureClassTests(unittest.TestCase):
     def test_classes(self):
         self.assertEqual(ep.failure_class(ep.ExtractionDegradedError("x")), "degraded")
@@ -396,12 +407,51 @@ class RetryWrapperTests(EnvMixin, unittest.TestCase):
         self.assertEqual(len(calls), 1)
         self.assertEqual([r["event"] for r in records], ["failed"])
 
-    def test_lock_wait_retried_on_own_budget_and_named(self):
-        step, calls = scripted(lock_error())
+    def test_before_write_lock_wait_retried_on_own_budget_and_named(self):
+        step, calls = scripted(before_write(lock_error()))
         _, exc, records = self.run_step(step)
         self.assertIsInstance(exc, LockAcquisitionError)
         self.assertEqual(len(calls), 4)  # 1 + DEFAULT_LOCK_RETRIES
         self.assertEqual(records[-1]["failure_class"], "lock_wait")
+
+    def test_untagged_lock_wait_keeps_stock_behaviour(self):
+        # A lock wait after the attempt wrote: a retry would re-extract with a new
+        # source_extraction_id and duplicate the written events.
+        step, calls = scripted(lock_error())
+        _, exc, records = self.run_step(step)
+        self.assertIsInstance(exc, LockAcquisitionError)
+        self.assertEqual(len(calls), 1)
+        self.assertEqual([r["event"] for r in records], ["failed"])
+
+    def test_stock_retried_timeout_keeps_stock_retries(self):
+        # "504 Gateway Timeout" is retried by stock; the class budget must add to that,
+        # never replace it, at the default budget and with the class switched off.
+        for budget in (None, "0"):
+            if budget is not None:
+                os.environ["OV_EXTRACT_PATCH_TIMEOUT_RETRIES"] = budget
+            for exc in (
+                RuntimeError("Error code: 504 - {'error': 'Gateway Timeout'}"),
+                RuntimeError("read timeout"),
+            ):
+                self.assertEqual(ep.failure_class(exc), "timeout")
+                step, calls = scripted(tagged(exc))
+                _, got, _ = self.run_step(step, base=stock_like, max_retries=5)
+                self.assertIs(got, exc)
+                self.assertEqual(len(calls), 6, (budget, str(exc)))
+
+    def test_class_budget_counts_only_retries_stock_refused(self):
+        # Two stock-retried timeouts, then "Request timed out." twice: the budget of 2
+        # is still whole when the untransient-looking ones arrive.
+        step, calls = scripted(
+            tagged(RuntimeError("upstream timeout")),
+            tagged(RuntimeError("upstream timeout")),
+            tagged(APITimeoutError()),
+            tagged(APITimeoutError()),
+            tagged(APITimeoutError()),
+        )
+        _, exc, _ = self.run_step(step, base=stock_like, max_retries=10)
+        self.assertIsInstance(exc, APITimeoutError)
+        self.assertEqual(len(calls), 5)  # 2 stock + 2 budget + the final failure
 
     def test_recovery_after_timeout_is_reported(self):
         step, _ = scripted(tagged(APITimeoutError()), {"contexts": []})
@@ -420,14 +470,14 @@ class RetryWrapperTests(EnvMixin, unittest.TestCase):
     def test_zero_budget_disables_a_class(self):
         os.environ["OV_EXTRACT_PATCH_TIMEOUT_RETRIES"] = "0"
         os.environ["OV_EXTRACT_PATCH_LOCK_RETRIES"] = "0"
-        for exc in (tagged(APITimeoutError()), lock_error()):
+        for exc in (tagged(APITimeoutError()), before_write(lock_error())):
             step, calls = scripted(exc)
             self.run_step(step)
             self.assertEqual(len(calls), 1)
 
     def test_overall_cap_still_applies(self):
         os.environ["OV_EXTRACT_PATCH_LOCK_RETRIES"] = "10"
-        step, calls = scripted(lock_error())
+        step, calls = scripted(before_write(lock_error()))
         self.run_step(step, max_retries=2)
         self.assertEqual(len(calls), 3)
 
@@ -457,6 +507,238 @@ class RetryWrapperTests(EnvMixin, unittest.TestCase):
         _, exc, records = self.run_step(step, base=base)
         self.assertIsInstance(exc, ValueError)
         self.assertEqual(records[-1]["failure_class"], "other")
+
+
+class FakeUpdater:
+    """The v0.4.20 ``StreamingMemoryUpdater.submit`` write order, with scripted leases.
+
+    ``submit`` applies the append-only part first (lease, then write), then the merge
+    groups. Merge groups flush in a batcher task whose context is not the submitter's,
+    as upstream's ``StreamingBatcher`` does. ``leases`` scripts each lease acquisition
+    in order: ``"ok"`` or ``"lock"`` (raises a lock wait). ``writes`` records each write.
+    """
+
+    def __init__(self, leases):
+        self.leases = list(leases)
+        self.writes = []
+        self.acquire = ep.wrap_acquire_lease(self._acquire)
+
+    async def _acquire(self, kind):
+        outcome = self.leases.pop(0) if self.leases else "ok"
+        if outcome == "lock":
+            raise lock_error()
+        return kind
+
+    async def _apply(self, kind):
+        await self.acquire(kind)
+        self.writes.append(kind)
+
+    async def _apply_append_only_request_now(self, request):
+        await self._apply("append")
+
+    async def _submit_grouped_merge_request(self, request):
+        loop = asyncio.get_running_loop()
+        await loop.create_task(self._apply("merge"), context=contextvars.Context())
+
+    async def submit(self, append=True, merge=True):
+        if append:
+            await self._apply_append_only_request_now(None)
+        if merge:
+            await self._submit_grouped_merge_request(None)
+
+
+FakeUpdater._apply_append_only_request_now = ep.wrap_append_only(
+    FakeUpdater._apply_append_only_request_now
+)
+FakeUpdater._submit_grouped_merge_request = ep.wrap_grouped_merge(
+    FakeUpdater._submit_grouped_merge_request
+)
+
+
+class WriteTrackingTests(EnvMixin, unittest.TestCase):
+    """End to end: wrapped extraction loop + fake updater under the retry wrapper."""
+
+    def run_steps(self, updater, submits, extract=True):
+        """Run one Phase 2 step: session extraction, then each ``submit`` in order."""
+        calls = []
+        run = ep.wrap_run(lambda self: _ops_result())
+
+        async def step():
+            calls.append(1)
+            if extract:
+                await run(Loop())
+            for kwargs in submits:
+                await updater.submit(**kwargs)
+            return "ok"
+
+        wrapped = ep.wrap_retry_async(fake_retry_async, lambda e: False)
+        with contextlib.redirect_stderr(io.StringIO()):
+            try:
+                result = asyncio.run(wrapped(step, max_retries=5))
+                exc = None
+            except Exception as e:  # noqa: BLE001
+                result, exc = None, e
+        return result, exc, calls
+
+    def test_lease_wait_before_any_write_is_retried(self):
+        updater = FakeUpdater(["lock", "lock", "ok", "ok"])
+        result, exc, calls = self.run_steps(updater, [{}])
+        self.assertIsNone(exc)
+        self.assertEqual(result, "ok")
+        self.assertEqual(len(calls), 3)
+        self.assertEqual(updater.writes, ["append", "merge"])
+
+    def test_lock_wait_after_append_only_write_is_not_retried(self):
+        # The review finding: events are written, then the merge lease waits out.
+        # A retry would re-extract and file the same events again at <name>_2.md.
+        updater = FakeUpdater(["ok", "lock"])
+        _, exc, calls = self.run_steps(updater, [{}])
+        self.assertIsInstance(exc, LockAcquisitionError)
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(updater.writes, ["append"])
+
+    def test_lock_wait_in_a_later_submit_is_not_retried(self):
+        updater = FakeUpdater(["ok", "lock"])
+        _, exc, calls = self.run_steps(updater, [{"merge": False}, {"merge": False}])
+        self.assertIsInstance(exc, LockAcquisitionError)
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(updater.writes, ["append"])
+
+    def test_lock_wait_after_merge_only_submit_is_not_retried(self):
+        # The merge flush runs in a foreign context; the submitter still records it.
+        updater = FakeUpdater(["ok", "lock"])
+        _, exc, calls = self.run_steps(updater, [{"append": False}, {"merge": False}])
+        self.assertIsInstance(exc, LockAcquisitionError)
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(updater.writes, ["merge"])
+
+    def test_lease_wait_without_session_extraction_is_not_retried(self):
+        updater = FakeUpdater(["lock"])
+        _, exc, calls = self.run_steps(updater, [{}], extract=False)
+        self.assertIsInstance(exc, LockAcquisitionError)
+        self.assertEqual(len(calls), 1)
+
+    def test_each_attempt_starts_unwritten(self):
+        # Attempt 1 writes nothing (lease wait); attempt 2 again waits on its first
+        # lease and is still retried; attempt 3 succeeds.
+        updater = FakeUpdater(["lock", "lock", "ok", "ok"])
+        _, exc, calls = self.run_steps(updater, [{"merge": False}])
+        self.assertIsNone(exc)
+        self.assertEqual(len(calls), 3)
+
+    def test_timeout_in_session_extraction_after_a_write_is_not_tagged(self):
+        updater = FakeUpdater([])
+
+        async def raising(self):
+            raise APITimeoutError()
+
+        run = ep.wrap_run(raising)
+        seen = []
+
+        async def step():
+            await updater.submit(merge=False)
+            try:
+                await run(Loop())
+            except APITimeoutError as e:
+                seen.append(ep.is_session_extract_timeout(e))
+                raise
+
+        wrapped = ep.wrap_retry_async(fake_retry_async, lambda e: False)
+        with (
+            contextlib.redirect_stderr(io.StringIO()),
+            self.assertRaises(APITimeoutError),
+        ):
+            asyncio.run(wrapped(step, max_retries=5))
+        self.assertEqual(seen, [False])
+
+
+async def _ops_result():
+    return Ops(upserts=["op"]), []
+
+
+class StreamingInstallTests(EnvMixin, unittest.TestCase):
+    def setUp(self):
+        super().setUp()
+        import types
+
+        fake_openviking = types.ModuleType("openviking")
+        fake_openviking.__version__ = ep.EXPECTED_VERSION
+        sys.modules["openviking"] = fake_openviking
+
+        class Updater:
+            async def _apply_append_only_request_now(self, request):
+                return request
+
+            async def _submit_grouped_merge_request(self, request):
+                return request
+
+        async def _acquire_stable_operation_lease(operations, viking_fs, ctx):
+            return None
+
+        self.cls = Updater
+        self.mod = types.SimpleNamespace(
+            StreamingMemoryUpdater=Updater,
+            _acquire_stable_operation_lease=_acquire_stable_operation_lease,
+        )
+        self._hashes = (
+            ep.EXPECTED_APPEND_ONLY_SHA256,
+            ep.EXPECTED_GROUPED_MERGE_SHA256,
+            ep.EXPECTED_ACQUIRE_LEASE_SHA256,
+        )
+
+    def tearDown(self):
+        (
+            ep.EXPECTED_APPEND_ONLY_SHA256,
+            ep.EXPECTED_GROUPED_MERGE_SHA256,
+            ep.EXPECTED_ACQUIRE_LEASE_SHA256,
+        ) = self._hashes
+        sys.modules.pop("openviking", None)
+        super().tearDown()
+
+    def match_hashes(self):
+        ep.EXPECTED_APPEND_ONLY_SHA256 = ep._source_hash(
+            self.cls._apply_append_only_request_now
+        )
+        ep.EXPECTED_GROUPED_MERGE_SHA256 = ep._source_hash(
+            self.cls._submit_grouped_merge_request
+        )
+        ep.EXPECTED_ACQUIRE_LEASE_SHA256 = ep._source_hash(
+            self.mod._acquire_stable_operation_lease
+        )
+
+    def test_hash_mismatch_installs_nothing(self):
+        orig = self.mod._acquire_stable_operation_lease
+        self.assertFalse(ep.apply_streaming(self.mod))
+        self.assertIs(self.mod._acquire_stable_operation_lease, orig)
+        self.assertFalse(
+            getattr(self.cls._apply_append_only_request_now, "_ov_extract_patch", False)
+        )
+
+    def test_one_mismatch_installs_nothing(self):
+        self.match_hashes()
+        ep.EXPECTED_GROUPED_MERGE_SHA256 = "0" * 64
+        self.assertFalse(ep.apply_streaming(self.mod))
+        self.assertFalse(
+            getattr(self.cls._apply_append_only_request_now, "_ov_extract_patch", False)
+        )
+
+    def test_hash_match_installs_all_three_idempotently(self):
+        self.match_hashes()
+        self.assertTrue(ep.apply_streaming(self.mod))
+        for fn in (
+            self.cls._apply_append_only_request_now,
+            self.cls._submit_grouped_merge_request,
+            self.mod._acquire_stable_operation_lease,
+        ):
+            self.assertTrue(getattr(fn, "_ov_extract_patch", False))
+        wrapped = self.cls._apply_append_only_request_now
+        self.assertTrue(ep.apply_streaming(self.mod))
+        self.assertIs(self.cls._apply_append_only_request_now, wrapped)
+
+    def test_wrong_version_installs_nothing(self):
+        self.match_hashes()
+        sys.modules["openviking"].__version__ = "v0.4.99"
+        self.assertFalse(ep.apply_streaming(self.mod))
 
 
 @dataclasses.dataclass(frozen=True)
