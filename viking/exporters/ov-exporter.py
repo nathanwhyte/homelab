@@ -50,6 +50,18 @@ say WHICH lock is wedged. Cardinality is bounded twice over: only the top N
 live locks by presence age, and only once they have been present for the
 minimum age, so a sync burst's short-lived locks never mint series. One GET
 per labelled lock per poll reads the owner from the lock body.
+
+The top-N bound is also a coverage bound: with more than N locks wedged at
+once, the extras get no labelled series, so the alert names only N of them
+(the unlabelled fallback arm stays muted while any labelled instance fires)
+and the janitor reports the rest as `presence_age=not-exported`.
+
+Presence age measures one holder's tenure. When a labelled lock's body
+names a different owner or lock type than the last read (released and
+re-acquired between two polls, so the key never left the bucket), its first
+sighting restarts, so the series never pairs a new holder with the old
+holder's age. Locks are read only once labelled, so a hand-off before the
+minimum age still counts from the first sighting (at most min_age extra).
 """
 
 from __future__ import annotations
@@ -270,11 +282,13 @@ def poll_ov_status() -> bool:
 # for the oldest_live_age gauge (a wedge's mtime never ages, so its *presence
 # duration* is the only signal that it has outlived plausible work — BUG-1039).
 # Reset on exporter restart: the wedge alert just re-accumulates from zero.
+# Also reset when a labelled lock changes holder (BUG-1220, holder_changed).
 _s3_first_seen: dict[str, float] = {}
 
-# Last successfully parsed lock token per live key (BUG-1220). Used only when
-# a GET of a labelled lock fails, so a transient read error does not flip the
-# series' owner label (which would resolve and re-fire the alert).
+# Last successfully parsed lock token per live key (BUG-1220). Used when a
+# GET of a labelled lock fails, so a transient read error does not flip the
+# series' owner label (which would resolve and re-fire the alert), and to
+# detect a holder change on a key that never left the bucket.
 _s3_token_cache: dict[str, dict] = {}
 
 UNKNOWN = "unknown"
@@ -303,6 +317,20 @@ def lock_labels(key: str, token: dict | None) -> dict[str, str]:
         "owner": (token or {}).get("owner") or UNKNOWN,
         "lock_type": (token or {}).get("lock_type") or UNKNOWN,
     }
+
+
+def holder_changed(previous: dict | None, current: dict | None) -> bool:
+    """True when two parsed tokens of one key name different holders.
+
+    A holder is (owner, lock_type). Either side missing (never read, or
+    unreadable with no cached fallback) is not evidence of a change.
+    """
+    if not previous or not current:
+        return False
+    return (previous.get("owner"), previous.get("lock_type")) != (
+        current.get("owner"),
+        current.get("lock_type"),
+    )
 
 
 def _read_token(client, bucket: str, key: str) -> dict | None:
@@ -368,12 +396,25 @@ def poll_s3_locks(
     for key in list(_s3_token_cache):
         if key not in live_keys:
             del _s3_token_cache[key]
-    oldest_live_age = max((now - t for t in _s3_first_seen.values()), default=0.0)
 
-    labelled = [
-        (lock_labels(key, _read_token(client, bucket, key)), round(age, 1))
-        for key, age in select_label_candidates(_s3_first_seen, now, top_n, min_age)
-    ]
+    labelled = []
+    for key, age in select_label_candidates(_s3_first_seen, now, top_n, min_age):
+        previous = _s3_token_cache.get(key)
+        token = _read_token(client, bucket, key)
+        if holder_changed(previous, token):
+            # Same key, new holder: restart presence so the series (and the
+            # alert instance) never carries the old holder's age. The slot
+            # refills from the next-oldest lock on the next poll.
+            print(
+                f"s3 lock {key} changed holder "
+                f"{previous['owner']}:{previous['lock_type']} -> "
+                f"{token['owner']}:{token['lock_type']}; presence restarts",
+                flush=True,
+            )
+            _s3_first_seen[key] = now
+            continue
+        labelled.append((lock_labels(key, token), round(age, 1)))
+    oldest_live_age = max((now - t for t in _s3_first_seen.values()), default=0.0)
 
     with _lock:
         _metrics["openviking_s3_ovlock_live_age_seconds"] = labelled

@@ -70,6 +70,11 @@ spec:
         # is a fallback on the unlabelled gauge, for an exporter that predates
         # the labelled series or has it disabled; `unless on()` keeps it from
         # paging a second time when a labelled instance is already firing.
+        # Coverage gap: the top-N bound (OVLOCK_LABEL_TOP_N) also caps what is
+        # named. With more than N locks wedged at once, the extras get no
+        # series and the muted fallback cannot cover them; the janitor lists
+        # them as presence_age=not-exported. A labelled lock's age restarts
+        # when its holder changes, so one series is one holder's tenure.
         # Re-notification cadence for this alert is set in the Alertmanager
         # route (grafana/helm/kube-prometheus-stack-values.yaml), not here.
         - alert: OpenVikingWedgedLockFile

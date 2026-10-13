@@ -42,8 +42,10 @@ data:
     OpenVikingWedgedLockFile threshold) are reported as WEDGED. They are never
     deleted: their holder still believes it owns them, and recovery is an OV
     restart, which belongs to the BUG-1181 in-Job heal or the operator. An
-    unreachable exporter degrades the report to "age unknown"; it never changes
-    what is deleted.
+    unreachable or misbehaving exporter degrades the report to "age unknown"; it
+    never changes what is deleted. The exporter labels only its top N
+    longest-present locks, so with more than N wedged at once the extras print
+    as presence_age=not-exported and are not counted as WEDGED.
 
     Dry-run by default; pass --apply to actually delete (repo convention).
 
@@ -148,30 +150,49 @@ data:
 
 
     def fetch_presence_ages(url: str, timeout: float = 10.0) -> dict[str, float] | None:
-        """parse_presence_ages over a live scrape, or None if the exporter is unreachable."""
+        """parse_presence_ages over a live scrape, or None on any failure.
+
+        Catches every Exception, not just URLError/OSError: a malformed or
+        truncated response raises http.client.HTTPException (BadStatusLine,
+        IncompleteRead), which is neither, and the wedge report must never abort
+        the run before its deletion pass.
+        """
         try:
             with urllib.request.urlopen(
                 urllib.request.Request(url), timeout=timeout
             ) as resp:
                 return parse_presence_ages(resp.read().decode("utf-8", "replace"))
-        except (urllib.error.URLError, OSError) as e:
-            print(f"presence ages unavailable from ov-exporter ({url}): {e}")
+        except Exception as e:  # noqa: BLE001 - report degrades, run carries on
+            print(f"presence ages unavailable from ov-exporter ({url}): {e!r}")
             return None
 
 
+    NOT_EXPORTED = "not-exported"
+
+
     def describe_live(
-        key: str, token: str, presence_age: float | None, wedge_threshold: float
+        key: str,
+        token: str,
+        presence_age: float | None,
+        wedge_threshold: float,
+        exporter_reachable: bool = False,
     ) -> tuple[str, bool]:
         """One report line for a live-refreshing lock, and whether it is wedged.
 
         `token` is read_token()'s output (raw body or a placeholder). Wedged means
         present for at least wedge_threshold seconds. Either way the line says
-        the lock is never deleted.
+        the lock is never deleted. With no age, the line says why: `unknown`
+        when the exporter could not be read, `not-exported` when it was read but
+        has no series for this key (present under its minimum age, or outside
+        its top N — so a wedged lock beyond the top N shows up here, uncounted).
         """
         parsed = s3lite.parse_lock_token(token)
         owner = parsed["owner"] if parsed else "unknown"
         lock_type = parsed["lock_type"] if parsed else "unknown"
-        age = "unknown" if presence_age is None else f"{int(presence_age)}s"
+        if presence_age is not None:
+            age = f"{int(presence_age)}s"
+        else:
+            age = NOT_EXPORTED if exporter_reachable else "unknown"
         # `<prefix>: <key> k=v ...` in both shapes; the live-refreshing prefix and
         # leading key are the pre-BUG-1220 format, kept for existing log searches.
         fields = (
@@ -249,23 +270,38 @@ data:
         now = time.time()
         dead, live, fresh = classify(pass1, pass2, now, args.dead_threshold)
 
-        # Report-only: nothing in this block feeds the deletion path below.
+        # Report-only: nothing in this block feeds the deletion path below, and
+        # no failure in it may stop that path from running.
         if live:
-            presence = presence_fn(args.exporter_url) or {}
-            wedged = 0
+            try:
+                presence = presence_fn(args.exporter_url)
+            except Exception as e:  # noqa: BLE001 - report degrades, run carries on
+                print(f"presence ages unavailable from ov-exporter: {e!r}")
+                presence = None
+            reachable = presence is not None
+            presence = presence or {}
+            wedged = not_exported = 0
             for key in live:
                 line, is_wedged = describe_live(
                     key,
                     read_token(client, args.bucket, key),
                     presence.get(key),
                     args.wedge_threshold,
+                    exporter_reachable=reachable,
                 )
                 print(line)
                 wedged += is_wedged
+                not_exported += reachable and key not in presence
             print(
                 f"wedge report: {wedged} of {len(live)} live lock(s) present >= "
                 f"{int(args.wedge_threshold)}s (never deleted; BUG-1220)"
             )
+            if not_exported:
+                print(
+                    f"wedge report: {not_exported} live lock(s) have no ov-exporter "
+                    "series (present under its minimum age, or outside its top N; "
+                    "a wedged lock beyond the top N is not counted above)"
+                )
         for key in fresh:
             age = int(now - pass2[key].timestamp())
             print(f"fresh (frozen {age}s < threshold {int(args.dead_threshold)}s): {key}")

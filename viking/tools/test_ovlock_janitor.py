@@ -1,15 +1,19 @@
 #!/usr/bin/env python3
-"""Unit tests for ovlock-janitor.py (IMPR-1095). Pure logic — stubbed S3."""
+"""Unit tests for ovlock-janitor.py (IMPR-1095). Stubbed S3; the only socket
+is a loopback listener for fetch_presence_ages' error path. Offline."""
 
 from __future__ import annotations
 
 import argparse
 import contextlib
 import datetime
+import http.client
 import importlib.util
 import io
 import os
+import socket
 import sys
+import threading
 import unittest
 
 _DIR = os.path.dirname(os.path.abspath(__file__))
@@ -255,6 +259,52 @@ class TestParsePresenceAges(unittest.TestCase):
         )
 
 
+def _serve_once(payload: bytes) -> tuple[str, threading.Thread]:
+    """A loopback listener that answers one request with `payload` raw."""
+    srv = socket.socket()
+    srv.bind(("127.0.0.1", 0))
+    srv.listen(1)
+
+    def answer():
+        with srv:
+            conn, _ = srv.accept()
+            with conn:
+                conn.recv(4096)
+                conn.sendall(payload)
+
+    thread = threading.Thread(target=answer, daemon=True)
+    thread.start()
+    return f"http://127.0.0.1:{srv.getsockname()[1]}/metrics", thread
+
+
+class TestFetchPresenceAges(unittest.TestCase):
+    """The real fetch path: no response shape may raise out of it."""
+
+    def _fetch(self, payload: bytes):
+        url, thread = _serve_once(payload)
+        with contextlib.redirect_stdout(io.StringIO()) as out:
+            got = janitor.fetch_presence_ages(url, timeout=5.0)
+        thread.join(5)
+        return got, out.getvalue()
+
+    def test_bad_status_line_is_none(self):
+        got, out = self._fetch(b"GARBAGE\r\n\r\n")
+        self.assertIsNone(got)
+        self.assertIn("BadStatusLine", out)
+
+    def test_truncated_body_is_none(self):
+        got, out = self._fetch(b"HTTP/1.1 200 OK\r\nContent-Length: 1000\r\n\r\nshort")
+        self.assertIsNone(got)
+        self.assertIn("IncompleteRead", out)
+
+    def test_good_response_parses(self):
+        body = EXPORTER_TEXT.encode()
+        got, _ = self._fetch(
+            b"HTTP/1.1 200 OK\r\nContent-Length: %d\r\n\r\n" % len(body) + body
+        )
+        self.assertEqual(got[WEDGED_KEY], 252000.0)
+
+
 class TestDescribeLive(unittest.TestCase):
     def test_wedged(self):
         line, wedged = janitor.describe_live(
@@ -293,7 +343,7 @@ class TestDescribeLive(unittest.TestCase):
 class TestWedgeReportInRun(unittest.TestCase):
     """The wedge report never changes what is deleted (BUG-1220 invariant)."""
 
-    def _run(self, args, client, presence):
+    def _run(self, args, client, presence, presence_fn=None):
         original = janitor.ov_healthy
         janitor.ov_healthy = lambda url, timeout=10.0: True
         out = io.StringIO()
@@ -303,7 +353,7 @@ class TestWedgeReportInRun(unittest.TestCase):
                     args,
                     client,
                     sleep_fn=lambda s: None,
-                    presence_fn=lambda url: presence,
+                    presence_fn=presence_fn or (lambda url: presence),
                 )
         finally:
             janitor.ov_healthy = original
@@ -330,6 +380,25 @@ class TestWedgeReportInRun(unittest.TestCase):
         self.assertEqual(client.deleted, ["dead/.path.ovlock"])
         self.assertIn("presence_age=unknown", out)
         self.assertIn("wedge report: 0 of 1 live lock(s)", out)
+
+    def test_raising_presence_fn_still_runs_deletion_pass(self):
+        client = self._client()
+
+        def boom(url):
+            raise http.client.IncompleteRead(b"")
+
+        rc, out = self._run(make_args(apply=True), client, None, presence_fn=boom)
+        self.assertEqual(rc, 0)
+        self.assertEqual(client.deleted, ["dead/.path.ovlock"])
+        self.assertIn("presence_age=unknown", out)
+
+    def test_missing_series_on_reachable_exporter_is_not_exported(self):
+        client = self._client()
+        rc, out = self._run(make_args(apply=True), client, {})
+        self.assertEqual(rc, 0)
+        self.assertEqual(client.deleted, ["dead/.path.ovlock"])
+        self.assertIn("presence_age=not-exported", out)
+        self.assertIn("wedge report: 1 live lock(s) have no ov-exporter series", out)
 
     def test_no_live_locks_skips_exporter(self):
         snap = {"dead/.path.ovlock": _ts(3600)}

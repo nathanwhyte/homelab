@@ -276,6 +276,51 @@ class TestPollS3Locks(unittest.TestCase):
         self.assertEqual(self._series(), before)
         self.assertEqual(exporter._metrics["openviking_s3_ovlock_poll_ok"], 0)
 
+    def test_holder_change_on_present_key_restarts_presence(self):
+        # Review finding: released and re-acquired between two polls, the key
+        # never leaves the bucket. The new holder must not inherit the old
+        # holder's age (misattribution, and a fresh alert fingerprint that
+        # bypasses repeat_interval).
+        client = StubS3({WEDGED_KEY: self.now - 5}, {WEDGED_KEY: b"owner-1:1:T"})
+        self._poll(client)
+        self.now += 3000
+        client.objects[WEDGED_KEY] = self.now - 5
+        self._poll(client)
+        self.assertEqual(
+            [(s[0]["owner"], s[1]) for s in self._series()], [("owner-1", 3000.0)]
+        )
+
+        self.now += 15
+        client.objects[WEDGED_KEY] = self.now - 2
+        client.bodies[WEDGED_KEY] = b"owner-2:2:T"
+        self._poll(client)
+        self.assertEqual(self._series(), [])
+        self.assertEqual(exporter._s3_first_seen[WEDGED_KEY], self.now)
+        self.assertEqual(
+            exporter._metrics["openviking_s3_ovlock_oldest_live_age_seconds"], 0.0
+        )
+
+        self.now += 1000
+        client.objects[WEDGED_KEY] = self.now - 5
+        self._poll(client)
+        self.assertEqual(
+            [(s[0]["owner"], s[1]) for s in self._series()], [("owner-2", 1000.0)]
+        )
+
+    def test_lock_type_change_is_a_holder_change(self):
+        self.assertTrue(
+            exporter.holder_changed(
+                {"owner": "h", "lock_type": "T"}, {"owner": "h", "lock_type": "E"}
+            )
+        )
+        self.assertFalse(
+            exporter.holder_changed(
+                {"owner": "h", "lock_type": "T"}, {"owner": "h", "lock_type": "T"}
+            )
+        )
+        self.assertFalse(exporter.holder_changed(None, {"owner": "h"}))
+        self.assertFalse(exporter.holder_changed({"owner": "h"}, None))
+
     def test_labelled_series_bounded_by_top_n(self):
         keys = [f"default/resources/r{i}/.path.ovlock" for i in range(6)]
         client = StubS3({k: self.now - 5 for k in keys})
