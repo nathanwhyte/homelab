@@ -191,6 +191,8 @@ spec:
                 path: ov_recall_time_patch.py
               - key: ov_fetch_items_patch.py
                 path: ov_fetch_items_patch.py
+              - key: ov_wm_update_patch.py
+                path: ov_wm_update_patch.py
         - name: data
           persistentVolumeClaim:
             claimName: openviking-test-data
