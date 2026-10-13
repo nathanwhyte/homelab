@@ -166,13 +166,14 @@ FROM gemma4:12b-it-qat
 # heads. Both are right for their model. Any future tag change here must
 # re-derive KV from ITS OWN /api/show shape and the allocator's padding rules.
 #
-# 65536 since 2026-10-13 (IMPR-1303) at OLLAMA_NUM_PARALLEL=4: runner n_ctx
-# 262144, KV ~3.35 GB by the formula above (4 x 32768 was ~2.21 GB). It was
+# 65536 since 2026-10-13 (IMPR-1303) at OLLAMA_NUM_PARALLEL=8: runner n_ctx
+# 262144. MEASURED at 4 x 65536: the runner allocated 2176 + 1020 MiB of KV
+# (the formula above predicted ~3.35 GB), so 8 x 65536 is ~6.4 GiB. It was
 # first deployed as 2 x 65536 (~1.68 GB) to keep the aggregate at 131072, but
 # two slots halved completions per minute and stalled the Semantic queue
-# within 20 minutes, so the slot count went back to 4 the same day; see the
-# drop-in. Weights ~7.2 GB + this KV fits the 16 GB card with no second tag
-# resident.
+# within 20 minutes, so the slot count went back to 4 the same day and up to
+# 8 that afternoon once the freed VRAM was confirmed; see the drop-in.
+# Weights 6.6 GiB + this KV fits the 16 GB card with no second tag resident.
 #
 # This time the wall was on the PROMPT side. Ollama admits a prompt unchanged
 # up to num_ctx - 1 tokens; a longer one is cut down to half the slot and
@@ -185,9 +186,11 @@ FROM gemma4:12b-it-qat
 # sampling (semantic.overview_sample_limit) is a separate, optional item in
 # IMPR-1303, not needed for these prompts.
 #
-# VERIFY AFTER THE RELOAD: the runner's `n_ctx_seq = 65536` and `n_slots = 4`
-# lines, `/api/ps` context_length 65536, and zero new `truncating input prompt`
-# lines over a busy window.
+# VERIFY AFTER THE RELOAD: the runner's `n_ctx_seq = 65536` and `n_slots = 8`
+# lines, `/api/ps` context_length 65536, the two `KV buffer size` lines summing
+# to ~6.4 GiB, and zero new `msg="truncating input prompt"` lines over a busy
+# window (match on the msg= form: the bare phrase also appears inside gemma4
+# tool-call parse failures that echo earlier log text).
 PARAMETER num_ctx 65536
 PARAMETER temperature 0
 PARAMETER top_p 0.95
