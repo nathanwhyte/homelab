@@ -894,16 +894,28 @@ def run(
     if dry_run:
         say(f"{TAG} DRY-RUN would restart deploy/{cfg.deployment}: {note}")
         return 0
+    # Re-read everything the decision rests on just before acting: the log read
+    # can take a while, and a restart is the one step that cannot be undone. A
+    # failed re-read is an abort (retry in 15 min), not a failed restart.
     try:
-        # Re-read just before acting: state may have moved during the log read.
         fresh = cluster.get_deployment()
-        again, still_long = gate(cfg, now_fn(), fresh, exporter, errors)
-        if not still_long:
-            say(f"{TAG} ABORTED before restart: {again.reason}")
+        exporter_again = parse_exporter(fetch_metrics(cfg.exporter_url))
+        again, still_long = gate(cfg, now_fn(), fresh, exporter_again, errors)
+        if not any(
+            lock.key == first.lock.key and lock.owner == first.lock.owner
+            for lock in still_long
+        ):
+            say(
+                f"{TAG} ABORTED before restart: {again.reason or 'lock gone or changed'}"
+            )
             return 0
         if pod is not None and cluster.ov_pod() != pod:
             say(f"{TAG} ABORTED before restart: the openviking pod changed")
             return 0
+    except Exception as e:  # noqa: BLE001 - nothing was changed; try next slot
+        say(f"{TAG} ABORTED before restart: {type(e).__name__}: {str(e)[:200]}")
+        return 2 if getattr(e, "blind", False) else 0
+    try:
         cluster.restart(fresh.resource_version, note, now_fn())
     except K8sError as e:
         outcome = "lost a race (409), nothing restarted" if e.conflict else "FAILED"

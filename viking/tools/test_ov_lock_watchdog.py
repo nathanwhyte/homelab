@@ -455,6 +455,35 @@ class TestRun(unittest.TestCase):
         self.assertEqual((code, cluster.patches), (0, []))
         self.assertIn("ABORTED before restart", out)
 
+    def test_lock_gone_before_the_patch_aborts(self):
+        texts = iter([metrics_text(work=0), metrics_text(age=60)])
+        cluster = FakeCluster()
+        code, out = self.go(cluster, lambda url: next(texts))
+        self.assertEqual((code, cluster.patches), (0, []))
+        self.assertIn("ABORTED before restart", out)
+
+    def test_exporter_failing_on_the_recheck_aborts(self):
+        calls = []
+
+        def flaky(url):
+            calls.append(url)
+            if len(calls) > 1:
+                raise OSError("reset")
+            return metrics_text(work=0)
+
+        cluster = FakeCluster()
+        code, out = self.go(cluster, flaky)
+        self.assertEqual((code, cluster.patches), (0, []))
+        self.assertIn("ABORTED before restart: OSError", out)
+
+    def test_owner_change_before_the_patch_aborts(self):
+        swapped = metrics_text(work=0).replace('owner="tok-1"', 'owner="tok-9"')
+        texts = iter([metrics_text(work=0), swapped])
+        cluster = FakeCluster()
+        code, out = self.go(cluster, lambda url: next(texts))
+        self.assertEqual((code, cluster.patches), (0, []))
+        self.assertIn("ABORTED before restart", out)
+
     def test_two_long_locks_still_patch_once(self):
         key2 = "default/user/noot/sessions/other/.path.ovlock"
         second = refresh_log(
