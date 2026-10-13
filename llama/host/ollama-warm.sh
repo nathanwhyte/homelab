@@ -67,10 +67,14 @@ OV_FIM_TAG=qwen2.5-coder:fim
 OV_FIM_BASE=qwen2.5-coder:3b-base
 OV_FIM_NUM_CTX=8192
 OV_VLM_TAG=gemma4:vlm
-OV_VLM_BASE=gemma4:12b-it-qat
+# E4B Q8_0 from Hugging Face since 2026-10-13 (IMPR-1303; gemma4:12b-it-qat
+# before): `ollama pull` accepts the hf.co form, and the recipe states
+# RENDERER/PARSER gemma4 because an hf.co base does not inherit them.
+OV_VLM_BASE=hf.co/unsloth/gemma-4-E4B-it-GGUF:Q8_0
 # 65536 since 2026-10-13 (IMPR-1303; 32768 from 2026-09-21, BUG-1155) at 4
-# slots (KV ~3.1 GiB; see the Modelfile for the same-day 2 -> 4 -> 8 -> 4
-# path). The Modelfile also bakes num_batch 2048, which this script does NOT
+# slots (KV ~2.3 GiB on the E4B base; see the Modelfile for the same-day
+# 2 -> 4 -> 8 -> 4 slot path and the 12B -> E4B switch). The Modelfile also
+# bakes num_batch 2048, which this script does NOT
 # reconcile: only num_ctx is compared, so a num_batch change is applied by
 # hand with `ollama create gemma4:vlm -f llama/ollama/gemma4-vlm.Modelfile`.
 # MUST track PARAMETER num_ctx in llama/ollama/gemma4-vlm.Modelfile:

@@ -48,15 +48,49 @@
 #     family). Drive it through /api/chat. OV is provider "openai" and calls
 #     /v1/chat/completions, so it is on the safe path -- keep it there.
 #
-# Recipe is the retired agentpair:agent-gemma4-12b unchanged: its sampling is
-# gemma4's single published row and needs no adjustment for this workload.
+# Sampling is gemma4's single published row and needs no adjustment for this
+# workload; it carried over unchanged from the retired agentpair:agent-gemma4-12b
+# recipe and from the gemma4:12b-it-qat base this tag used until 2026-10-13.
 #
-# Requires: ollama pull gemma4:12b-it-qat
+# BASE: gemma-4-E4B-it at Q8_0 from Unsloth's GGUF repo (7.63 GiB file, 4.9 GiB
+# of GPU-resident weights, 43 layers) since 2026-10-13 (IMPR-1303), replacing
+# gemma4:12b-it-qat (Q4_0, 6.6 GiB resident). The card is decode-bound and
+# decode scales with bytes read per token, so the ~4B-active E-series at 8 bits
+# beats the 12B at 4 bits on speed while keeping 8-bit weights. Measured on the
+# live OpenViking workload, 4 x 65536, num_batch 2048, same afternoon:
+#
+#   12B Q4_0 QAT   25.8 t/s per call   prompt eval ~2,100 t/s   18-22 done/5 min   median 165-203 s
+#   E4B Q8_0       39.5 t/s per call   prompt eval  4,339 t/s   32-41 done/5 min   median  98-125 s
+#
+# Generated tokens per call were the same (~1,130 avg), tool-call parse
+# failures, timeouts and degraded extractions stayed at zero, and the first
+# event memory it wrote read like the 12B's. GPU busy fell from 85-95% to
+# 71-84%: OpenViking became the limiter. The 26B-A4B MoE (UD-IQ3_S, 10.5 GiB)
+# was pulled but NOT trialled: with KV it sits at the estimator's edge, and a
+# spill puts resident weights plus CPU compute on timmy, the k3s control
+# plane. Its file stays in the store for a quiet-window test on another
+# posture. Smaller 12B quants (UD-Q3_K_XL 5.6 GiB) are the fallback if E4B's
+# summaries disappoint: a 15-20% gain at a quality cost, since they are not
+# QAT.
+#
+# HOST RAM: the E-series keeps its per-layer embedding tables on the CPU
+# (`CPU_Mapped model buffer size = 3536 MiB`, mmap'd page cache, hot). The 12B
+# kept 0.8 GiB there. timmy has 30 GiB with ~12 GiB available; this is
+# reclaimable under pressure at the cost of re-reading from NVMe, not a
+# stability risk, but it is 2.7 GiB more control-plane page cache than before.
+#
+# RENDERER / PARSER must be stated for an hf.co base: the library tag inherits
+# gemma4's, a GGUF pulled from Hugging Face would otherwise use the GGUF chat
+# template and lose the tool-call parser that OpenViking's session commit
+# relies on. `think` is per-request (the proxy injects reasoning none).
+#
+# Requires: ollama pull hf.co/unsloth/gemma-4-E4B-it-GGUF:Q8_0
 # Build:    ollama create gemma4:vlm -f gemma4-vlm.Modelfile
+# Rollback: FROM gemma4:12b-it-qat, drop the RENDERER/PARSER lines, rebuild.
 
-FROM gemma4:12b-it-qat
-
-# RENDERER / PARSER inherited (gemma4) — never restated. `think` is per-request.
+FROM hf.co/unsloth/gemma-4-E4B-it-GGUF:Q8_0
+RENDERER gemma4
+PARSER gemma4
 
 # 32768, raised from 16384 on 2026-09-21 after the BUG-1155 cold ingest.
 #
@@ -172,9 +206,10 @@ FROM gemma4:12b-it-qat
 # (~1.68 GB) to keep the aggregate at 131072, but two slots halved completions
 # per minute and stalled the Semantic queue within 20 minutes; 8 x 65536
 # (~6.4 GiB KV) ran for 15 minutes that afternoon and gained nothing, since
-# the card is decode-bound at ~100 t/s for this model (see the drop-in). 4 it
-# is. Weights 6.6 GiB + this KV fits the 16 GB card with no second tag
-# resident.
+# the card is decode-bound at ~100 t/s for that model (see the drop-in). 4 it
+# is. Those KV figures are the 12B's; the E4B base allocates 2176 + 212 MiB
+# (~2.3 GiB) at 4 x 65536, and with 4.9 GiB of weights the card sits at
+# ~9.3 GiB with no second tag resident.
 #
 # num_batch 2048 (2026-10-13, IMPR-1303): Ollama's llama runner sets both
 # n_batch and n_ubatch from this value (default 512). n_ubatch is the physical
@@ -202,12 +237,13 @@ FROM gemma4:12b-it-qat
 # sampling (semantic.overview_sample_limit) is a separate, optional item in
 # IMPR-1303, not needed for these prompts.
 #
-# VERIFY AFTER THE RELOAD: the runner's `n_ctx_seq = 65536`, `n_slots = 4`,
-# `n_ubatch = 2048` and `offloaded 49/49 layers to GPU` lines, `/api/ps`
-# context_length 65536, the two `KV buffer size` lines summing to ~3.1 GiB,
-# and zero new `msg="truncating input prompt"` lines over a busy window (match
-# on the msg= form: the bare phrase also appears inside gemma4 tool-call parse
-# failures that echo earlier log text).
+# VERIFY AFTER THE RELOAD: the runner's `general.name = Gemma-4-E4B-It`,
+# `n_ctx_seq = 65536`, `n_slots = 4`, `n_ubatch = 2048` and `offloaded 43/43
+# layers to GPU` lines, `/api/ps` context_length 65536, the two `KV buffer
+# size` lines summing to ~2.3 GiB, VRAM ~9.3 GiB, and zero new
+# `msg="truncating input prompt"` lines over a busy window (match on the msg=
+# form: the bare phrase also appears inside gemma4 tool-call parse failures
+# that echo earlier log text).
 PARAMETER num_ctx 65536
 PARAMETER num_batch 2048
 PARAMETER temperature 0
