@@ -39,6 +39,20 @@ repos:
         language: system
         pass_filenames: false
         files: ^grafana/(test-)?backup-freshness-exporter\.py$
+      # BUG-1220 / IMPR-1095: the lock wedge exporter and the janitor have no
+      # CI either. Stdlib only and offline (stubbed S3, loopback socket).
+      - id: ov-exporter-tests
+        name: ov-exporter lock series tests
+        entry: python3 viking/exporters/test_ov_exporter.py
+        language: system
+        pass_filenames: false
+        files: ^viking/exporters/
+      - id: ovlock-janitor-tests
+        name: ovlock-janitor tests
+        entry: python3 viking/tools/test_ovlock_janitor.py
+        language: system
+        pass_filenames: false
+        files: ^viking/(exporters/s3lite\.py|tools/(test_)?ovlock[-_]janitor\.py)$
       - id: helm-deploy-tests
         name: Helm deployment version safety tests
         entry: python3 scripts/test-helm-deploy.py

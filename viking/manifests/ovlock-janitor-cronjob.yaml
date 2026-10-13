@@ -10,6 +10,12 @@
 # is disabled to make that structural: the pod holds no API credentials at
 # all (it needs only DNS, HTTP to OV /health, and S3).
 #
+# BUG-1220: each run also reports every live lock's target, owner and
+# presence age, and flags those present >= 2700s as WEDGED (still never
+# deleted). Presence age is read over HTTP from ov-exporter's /metrics on the
+# openviking Service, port 9210; if that is unreachable the report says
+# "presence_age=unknown" and nothing else changes.
+#
 # SHADOW MODE: args carry no --apply, so every run is a dry-run report.
 # Enable deletion (plan Phase 4, after the >=3-day soak + drills) by adding
 # "--apply" to the args list.
