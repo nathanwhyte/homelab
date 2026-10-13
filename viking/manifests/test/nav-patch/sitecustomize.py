@@ -65,8 +65,15 @@ off switch; a patch failure never breaks the import):
                         ``set_tags``, account-bound ``delete(ids)``, ``exists`` and
                         ``increment_active_count`` see the record
                         (``HttpCollection.fetch_data``).
+  * ov_wm_update_patch — IMPR-1303: the session-commit ``update_working_memory``
+                        tool call, which gemma4 answers in a form Ollama's parser
+                        rejects every time (unquoted keys with spaces), is answered
+                        locally with an empty ``VLMResponse`` so Branch 2 takes its
+                        creation-prompt fallback without first spending a 60-250 s
+                        generation (``OpenAIVLM.get_completion_async``); one
+                        ``ov-wm-update-skip {json}`` stderr line per skip.
 
-Rollback of one patch: its env switch (``OV_S3_CACHE_PATCH=0``, ``OV_EXTRACT_PATCH=0``, ``OV_CHATLOG_PATCH=0``, ``OV_MEMORY_GUARD=0``, ``OV_EVENT_NOISE_FILTER=0``, ``OV_EVENT_ABSTRACT_PATCH=0``, ``OV_GREP_SCOPE_PATCH=0``, ``OV_RECALL_TIME_PATCH=0``, ``OV_FETCH_ITEMS_PATCH=0``; ``OV_NAV_PATCH=0``
+Rollback of one patch: its env switch (``OV_S3_CACHE_PATCH=0``, ``OV_EXTRACT_PATCH=0``, ``OV_CHATLOG_PATCH=0``, ``OV_MEMORY_GUARD=0``, ``OV_EVENT_NOISE_FILTER=0``, ``OV_EVENT_ABSTRACT_PATCH=0``, ``OV_GREP_SCOPE_PATCH=0``, ``OV_RECALL_TIME_PATCH=0``, ``OV_FETCH_ITEMS_PATCH=0``, ``OV_WM_UPDATE_SKIP=0``; ``OV_NAV_PATCH=0``
 only after the model-built overview template is restored, see the Deployment).
 Rollback of everything: remove PYTHONPATH from the Deployment
 (``kubectl set env … PYTHONPATH-``), again only after that template restore.
@@ -129,6 +136,7 @@ TARGETS = {
         "ov_fetch_items_patch",
         "apply",
     ),
+    "openviking.models.vlm.backends.openai_vlm": ("ov_wm_update_patch", "apply"),
 }
 
 

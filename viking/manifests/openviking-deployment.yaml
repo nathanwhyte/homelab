@@ -247,6 +247,18 @@ spec:
             # set "1" to drop for real ("0" turns the filter off).
             - name: OV_EVENT_NOISE_FILTER
               value: shadow
+            # IMPR-1303 (ov_wm_update_patch.py): the session-commit update_working_memory
+            # tool call never parses on gemma4 behind Ollama (unquoted keys with spaces;
+            # 173/173 "gemma4 tool call parsing failed" on timmy, 2026-10-13), and OV
+            # then runs the creation prompt anyway. The patch answers that one call
+            # locally so the creation prompt is the only generation, saving 60-250 s
+            # of a ~100 t/s GPU per commit. One stderr line per skip,
+            # ov-wm-update-skip {"tool": …, "prompt_chars": …}; the OV warning
+            # "WM update: LLM returned no tool_call; falling back" still follows each
+            # one, and "gemma4 tool call parsing failed" should vanish from timmy's
+            # journal. "0" turns it off (the wasted call comes back).
+            - name: OV_WM_UPDATE_SKIP
+              value: "1"
           volumeMounts:
             - name: config-out
               mountPath: /app/.openviking/ov.conf
