@@ -101,7 +101,9 @@ echo "test 5: the adoption points agree across files"
 # The hazard this guards is real and was caught in review: the live host had
 # MAX_LOADED_MODELS=2 while the tracked drop-in still said 1, so reapplying the
 # repo's own config would have silently restored single-model capacity and
-# undone co-residency. Four places encode the posture and must not drift.
+# undone co-residency. Since 2026-10-13 (IMPR-1303) the posture is the reverse
+# — gemma4:vlm sole resident, MAX_LOADED_MODELS=1 — and the same three places
+# must agree on it.
 REPO=$(cd "$(dirname "$SCRIPT")/../.." && pwd) # llama/host -> llama -> repo root
 agree() {                                      # $1 label, $2 file, $3 grep pattern
 	if grep -qE -- "$3" "$REPO/$2" 2>/dev/null; then
@@ -112,14 +114,14 @@ agree() {                                      # $1 label, $2 file, $3 grep patt
 		fail=$((fail + 1))
 	fi
 }
-agree "drop-in allows two resident models" \
-	"llama/host/ollama.service.d/homelab.conf" '^Environment="OLLAMA_MAX_LOADED_MODELS=2"'
-agree "RESIDENT_TAG defaults to the OV FIM tag" \
-	"llama/host/ollama-warm.sh" '^RESIDENT_TAG=\$\{RESIDENT_TAG:-\$OV_FIM_TAG\}'
+agree "drop-in pins one resident model" \
+	"llama/host/ollama.service.d/homelab.conf" '^Environment="OLLAMA_MAX_LOADED_MODELS=1"'
+agree "RESIDENT_TAG defaults to the OV VLM tag" \
+	"llama/host/ollama-warm.sh" '^RESIDENT_TAG=\$\{RESIDENT_TAG:-\$OV_VLM_TAG\}'
 agree "recovery CronJob re-pins the same tag" \
-	"llama/ollama-jobs.yaml" '^ +value: qwen2\.5-coder:fim$'
-agree "OV_FIM_TAG is the tag the editors request" \
-	"llama/host/ollama-warm.sh" '^OV_FIM_TAG=qwen2\.5-coder:fim$'
+	"llama/ollama-jobs.yaml" '^ +value: gemma4:vlm$'
+agree "OV_VLM_TAG is the tag OpenViking requests" \
+	"llama/host/ollama-warm.sh" '^OV_VLM_TAG=gemma4:vlm$'
 
 # Added 2026-09-21 (BUG-1155). reconcile_tag compares the live tag against
 # OV_VLM_NUM_CTX, not against the Modelfile, so raising num_ctx in the recipe

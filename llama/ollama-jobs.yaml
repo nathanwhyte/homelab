@@ -6,20 +6,19 @@
 # just an HTTP call to the API runs from here, unprivileged, through the
 # selector-less Service in llama/ollama-service.yaml.
 #
-#   ollama-warm  — every 15 min: load-only warm of the resident edit-prediction
-#                  tag with keep_alive=-1. Idempotent; a no-op while the model
-#                  is already resident, a self-heal if the daemon restarted and
+#   ollama-warm  — every 15 min: load-only warm of the resident tag with
+#                  keep_alive=-1. Idempotent; a no-op while the model is
+#                  already resident, a self-heal if the daemon restarted and
 #                  the host-side ollama-warm.service missed). Any resident
 #                  model is left alone; suspend this CronJob for benchmarks
 #                  that deliberately unload between requests.
-#                  Its MODEL is one of FOUR places naming the resident tag —
-#                  with llama/host/ollama-warm.sh (RESIDENT_TAG) and dotfiles
-#                  nvim/lua/plugins/minuet.lua + zed/settings.json. They must
-#                  agree: OLLAMA_MAX_LOADED_MODELS=2 holds this tag plus
-#                  gemma4:vlm (OpenViking's summarizer), so a request for any
-#                  THIRD tag evicts one of them and pays a cold reload. This
-#                  job re-pins only the FIM half; an evicted gemma4:vlm is
-#                  reloaded by OpenViking's next call, not by this CronJob.
+#                  Its MODEL is one of THREE places naming the resident tag —
+#                  with llama/host/ollama-warm.sh (RESIDENT_TAG) and the
+#                  drop-in's OLLAMA_MAX_LOADED_MODELS=1. Since 2026-10-13
+#                  (IMPR-1303) that tag is gemma4:vlm, OpenViking's
+#                  summarizer; a request for any OTHER tag evicts it and OV
+#                  pays the reload on its next call. The IDEA-1105 pair with
+#                  qwen2.5-coder:fim is retired (it never co-resided).
 #   ollama-pull  — suspended template. Run one-off:
 #                    kubectl -n llama create job --from=cronjob/ollama-pull pull-$(date +%s)
 #                  after editing MODEL in the env, or override on the fly:
@@ -57,13 +56,12 @@ spec:
                 - name: OLLAMA_URL
                   value: http://ollama.llama.svc:11434
                 - name: MODEL
-                  # MUST match RESIDENT_TAG in llama/host/ollama-warm.sh and the
-                  # model named by dotfiles nvim/lua/plugins/minuet.lua and
-                  # zed/settings.json. This job skips while any model is
-                  # resident, so it normally never fires -- but if the host-side
-                  # warm unit fails, a stale value here silently re-pins the
-                  # WRONG tag within 15 minutes and reverts the editor's model.
-                  value: qwen2.5-coder:fim
+                  # MUST match RESIDENT_TAG in llama/host/ollama-warm.sh. This
+                  # job skips while any model is resident, so it normally never
+                  # fires -- but if the host-side warm unit fails, a stale value
+                  # here silently re-pins the WRONG tag within 15 minutes and
+                  # OpenViking's next call evicts it again.
+                  value: gemma4:vlm
               command:
                 - sh
                 - -ec
