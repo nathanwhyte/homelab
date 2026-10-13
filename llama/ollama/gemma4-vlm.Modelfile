@@ -165,7 +165,23 @@ FROM gemma4:12b-it-qat
 # (IMPR-1083) sized a dense model with no sliding window and many more kv
 # heads. Both are right for their model. Any future tag change here must
 # re-derive KV from ITS OWN /api/show shape and the allocator's padding rules.
-PARAMETER num_ctx 32768
+#
+# 65536 since 2026-10-13 (IMPR-1303), PAIRED with OLLAMA_NUM_PARALLEL 4 -> 2 in
+# llama/host/ollama.service.d/homelab.conf so total KV stays at the 2.21 GB
+# the 4 x 32768 posture held (runner n_ctx 131072 either way). This time the
+# wall was on the PROMPT side: Ollama's runner reserves half a slot for
+# generation when max_tokens is unset, so at 32768 it logged
+# `truncating input prompt limit=16387` 53 times in 24 h — OpenViking's
+# overview_generation for a 195-child compendium directory sends 33-35K-token
+# prompts. At 65536 the prompt limit is ~32.8K, which covers all but the
+# largest of those; the OV-side fix for the remainder is a lower
+# semantic.overview_sample_limit, tracked in IMPR-1303. n_ctx_train is 262144,
+# so the model side is not the constraint.
+#
+# VERIFY AFTER THE RELOAD: the runner's `n_ctx_seq = 65536` and `n_slots = 2`
+# lines, `/api/ps` context_length 65536, and zero new `truncating input prompt`
+# lines over a busy window.
+PARAMETER num_ctx 65536
 PARAMETER temperature 0
 PARAMETER top_p 0.95
 PARAMETER top_k 64

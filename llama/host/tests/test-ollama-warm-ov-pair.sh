@@ -20,7 +20,7 @@ pass=0 fail=0
 # Reference recipes prepare_ov_pair copies verbatim.
 printf 'FROM qwen2.5-coder:3b-base\nPARAMETER num_ctx 8192\n' \
 	>"$TMP/modelfiles/qwen2.5-coder-fim.Modelfile"
-printf 'FROM gemma4:12b-it-qat\nPARAMETER num_ctx 32768\n' \
+printf 'FROM gemma4:12b-it-qat\nPARAMETER num_ctx 65536\n' \
 	>"$TMP/modelfiles/gemma4-vlm.Modelfile"
 
 mock() { # $1 = existing qwen num_ctx ("" = tag missing), $2 = existing gemma num_ctx
@@ -42,7 +42,7 @@ create)
   # Rebuild succeeds: flip the recorded ctx so the post-check sees the new value.
   tag=\$2
   [[ \$tag == qwen2.5-coder:fim ]] && QWEN_CTX=8192
-  [[ \$tag == gemma4:vlm ]] && GEMMA_CTX=32768
+  [[ \$tag == gemma4:vlm ]] && GEMMA_CTX=65536
   sed -i.bak "s/^QWEN_CTX=.*/QWEN_CTX=\"\$QWEN_CTX\"/;s/^GEMMA_CTX=.*/GEMMA_CTX=\"\$GEMMA_CTX\"/" "\$0"
   exit 0 ;;
 esac
@@ -80,7 +80,7 @@ run_prepare
 check "rebuilds qwen2.5-coder:fim" y "create qwen2.5-coder:fim"
 
 echo "test 2: tags already at the wanted num_ctx are left alone"
-mock 8192 32768
+mock 8192 65536
 run_prepare
 check "no rebuild of qwen2.5-coder:fim" n "create qwen2.5-coder:fim"
 check "no rebuild of gemma4:vlm" n "create gemma4:vlm"
@@ -92,10 +92,10 @@ check "creates qwen2.5-coder:fim" y "create qwen2.5-coder:fim"
 check "creates gemma4:vlm" y "create gemma4:vlm"
 
 echo "test 4: the two halves reconcile to DIFFERENT contexts"
-mock 16384 8192
+mock 16384 32768
 run_prepare
 check "rebuilds qwen (16384 -> 8192)" y "create qwen2.5-coder:fim"
-check "rebuilds gemma (8192 -> 32768)" y "create gemma4:vlm"
+check "rebuilds gemma (32768 -> 65536)" y "create gemma4:vlm"
 
 echo "test 5: the adoption points agree across files"
 # The hazard this guards is real and was caught in review: the live host had

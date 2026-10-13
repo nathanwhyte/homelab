@@ -63,13 +63,14 @@ OV_FIM_BASE=qwen2.5-coder:3b-base
 OV_FIM_NUM_CTX=8192
 OV_VLM_TAG=gemma4:vlm
 OV_VLM_BASE=gemma4:12b-it-qat
-# 32768 since 2026-09-21 (BUG-1155). MUST track PARAMETER num_ctx in
-# llama/ollama/gemma4-vlm.Modelfile: reconcile_tag compares the live tag
-# against THIS value, so a Modelfile-only change makes every warm run log
-# "WARN: gemma4:vlm num_ctx is 32768, want 16384" and return 1, failing
-# --reconcile-only on each install and daemon restart while the in-cluster
-# CronJob re-asserts every 15 minutes.
-OV_VLM_NUM_CTX=32768
+# 65536 since 2026-10-13 (IMPR-1303; 32768 from 2026-09-21, BUG-1155), paired
+# with OLLAMA_NUM_PARALLEL=2 in the drop-in so gemma's KV budget is unchanged.
+# MUST track PARAMETER num_ctx in llama/ollama/gemma4-vlm.Modelfile:
+# reconcile_tag compares the live tag against THIS value, so a Modelfile-only
+# change makes every warm run log "WARN: gemma4:vlm num_ctx is 65536, want
+# 32768" and return 1, failing --reconcile-only on each install and daemon
+# restart while the in-cluster CronJob re-asserts every 15 minutes.
+OV_VLM_NUM_CTX=65536
 # Which tag stays pinned for edit prediction. :instruct since 2026-09-18 — both
 # tags decode at the same speed (170 vs 160 tok/s, identical TTFT) and measure
 # the same through the real minuet stack (28% vs 30% empty after filtering,
