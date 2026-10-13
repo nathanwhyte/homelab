@@ -615,6 +615,12 @@ class TestParsers(unittest.TestCase):
         self.assertTrue(
             sent["path"].endswith("/namespaces/viking/deployments/openviking")
         )
+        # RBAC cannot limit a Deployment PATCH to annotations; this body does.
+        self.assertEqual(set(body), {"metadata", "spec"})
+        self.assertEqual(set(body["metadata"]), {"resourceVersion", "annotations"})
+        self.assertEqual(set(body["spec"]), {"template"})
+        self.assertEqual(set(body["spec"]["template"]), {"metadata"})
+        self.assertEqual(set(body["spec"]["template"]["metadata"]), {"annotations"})
         self.assertEqual(body["metadata"]["resourceVersion"], "77")
         self.assertEqual(
             body["spec"]["template"]["metadata"]["annotations"][wd.RESTARTED_AT],
