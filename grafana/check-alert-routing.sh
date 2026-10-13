@@ -11,7 +11,8 @@
 # Adding a rule and adding a route were separate acts with no linkage. This
 # closes that: it evaluates every rule's real label set against the live merged
 # route tree (base config + operator-merged AlertmanagerConfig CRs) and fails
-# when any rule reaches no receiver, or reaches two.
+# when any rule reaches no receiver, or reaches two (automation-only receivers,
+# listed in is_machine_receiver, are not counted).
 #
 #   ./grafana/check-alert-routing.sh            # check the live cluster
 #   ./grafana/check-alert-routing.sh --verbose  # list every rule and its receiver
@@ -32,6 +33,20 @@ is_expected_silent() {
 	*'alertname=Watchdog'*) return 0 ;;
 	*'alertname=InfoInhibitor'*) return 0 ;;
 	*'severity=info'*) return 0 ;;
+	*) return 1 ;;
+	esac
+}
+
+# Receivers that feed automation, not a person. They are left out of the count,
+# so a rule they receive must still reach exactly one human receiver: IMPR-1156
+# sends KubePersistentVolumeFillingUp to the capacity auto-resolver webhook with
+# `continue: true`, then to Slack, and that is one page, not two. Matched on the
+# receiver's last path segment, since the operator prefixes CR receivers with
+# `<namespace>/<config>/`. Add a name here only for a receiver that notifies
+# nobody.
+is_machine_receiver() {
+	case "${1##*/}" in
+	capacity-auto-resolver) return 0 ;;
 	*) return 1 ;;
 	esac
 }
@@ -81,7 +96,12 @@ undelivered=0
 duplicated=0
 while IFS='|' read -r receivers labels; do
 	[ -z "${labels:-}" ] && continue
-	real=$(printf '%s' "$receivers" | tr ',' '\n' | grep -v '^null$' | grep -c . || true)
+	real=0
+	for r in $(printf '%s' "$receivers" | tr ',' ' '); do
+		[ "$r" = null ] && continue
+		is_machine_receiver "$r" && continue
+		real=$((real + 1))
+	done
 	if [ "$real" -eq 0 ]; then
 		if is_expected_silent "$labels"; then
 			[ "$VERBOSE" = "--verbose" ] && echo "  silent (expected)  $labels"
