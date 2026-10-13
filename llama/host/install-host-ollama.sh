@@ -25,7 +25,12 @@
 # Only then install/restart the host. ss cannot detect Kubernetes hostPort DNAT.
 set -euo pipefail
 
-OLLAMA_VERSION=${OLLAMA_VERSION:-0.40.1}
+# 0.40.3 since 2026-10-13 (IMPR-1303): timmy had been left on 0.34.1 (binary
+# dated 2026-09-15) while wemby ran the 0.40.1 pin, so the two hosts disagreed;
+# 0.40.2 added background model upgrades with on-disk backups and 0.40.3 paused
+# them for request performance. Keep equal to the version named in
+# llama/ollama/ollama-wemby-setup.sh.
+OLLAMA_VERSION=${OLLAMA_VERSION:-0.40.3}
 OLLAMA_BIN=/usr/local/bin/ollama
 OLLAMA_USER=ollama
 MODELS_DIR=/usr/share/ollama/.ollama/models
