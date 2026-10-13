@@ -25,6 +25,9 @@ printf 'FROM hf.co/unsloth/gemma-4-E4B-it-GGUF:Q8_0\nPARAMETER num_ctx 65536\n' 
 # The weights blob the script pins for gemma4:vlm, read from the script so the
 # mock cannot drift from it.
 PIN=$(grep -oE '^OV_VLM_BASE_SHA256=[0-9a-f]+' "$SCRIPT" | cut -d= -f2)
+# Stand-in for the 12B's weights blob: what the mock "creates" from a recipe
+# whose FROM is gemma4:12b-it-qat (test 8).
+OLD_BLOB=1111111111111111111111111111111111111111111111111111111111111111
 
 mock() { # $1 = existing qwen num_ctx ("" = tag missing), $2 = existing gemma num_ctx, $3 = gemma weights blob (default: the pin)
 	cat >"$TMP/bin/ollama" <<EOF
@@ -56,9 +59,15 @@ create)
   # on the host (the installer's pre-restart reconcile, IMPR-1303).
   tag=\$2
   ctx=\$(awk '\$1 == "PARAMETER" && \$2 == "num_ctx" {print \$3}' "\$4")
+  # The weights blob follows the recipe's FROM the way it would on the host:
+  # a 12B recipe lands the 12B blob, anything else the pinned E4B file.
+  from=\$(awk '\$1 == "FROM" {print \$2; exit}' "\$4")
   [[ \$tag == qwen2.5-coder:fim ]] && QWEN_CTX=\$ctx
-  [[ \$tag == gemma4:vlm ]] && GEMMA_CTX=\$ctx
-  sed -i.bak "s/^QWEN_CTX=.*/QWEN_CTX=\"\$QWEN_CTX\"/;s/^GEMMA_CTX=.*/GEMMA_CTX=\"\$GEMMA_CTX\"/" "\$0"
+  if [[ \$tag == gemma4:vlm ]]; then
+    GEMMA_CTX=\$ctx
+    if [[ \$from == gemma4:12b-it-qat ]]; then GEMMA_BLOB=$OLD_BLOB; else GEMMA_BLOB=$PIN; fi
+  fi
+  sed -i.bak "s/^QWEN_CTX=.*/QWEN_CTX=\"\$QWEN_CTX\"/;s/^GEMMA_CTX=.*/GEMMA_CTX=\"\$GEMMA_CTX\"/;s/^GEMMA_BLOB=.*/GEMMA_BLOB=\"\$GEMMA_BLOB\"/" "\$0"
   exit 0 ;;
 esac
 exit 0
@@ -187,8 +196,7 @@ echo "test 8: a base rollback moves OV_VLM_BASE and OV_VLM_BASE_SHA256 together"
 # rolled-back tag's first FROM blob no longer matches and the pre-restart gate
 # refuses the very rollback it documents. Simulate both halves against a
 # script copy: recipe-only rollback must be refused, recipe + both constants
-# must pass.
-OLD_BLOB=1111111111111111111111111111111111111111111111111111111111111111
+# must pass, and a missing tag must be pulled from the rolled-back base.
 mkdir -p "$TMP/rollback"
 printf 'FROM gemma4:12b-it-qat\nPARAMETER num_ctx 65536\n' >"$TMP/rollback/gemma4-vlm.Modelfile"
 cp "$TMP/modelfiles/qwen2.5-coder-fim.Modelfile" "$TMP/rollback/"
@@ -213,6 +221,30 @@ else
 	echo "  FAIL  recipe + base + pin rollback: --reconcile-only refused"
 	fail=$((fail + 1))
 fi
+# A fresh host: the tag is missing, so reconcile pulls OV_VLM_BASE and builds
+# from the recipe. The rolled-back script must pull the 12B and pass; the
+# unchanged script pulls the E4B base, builds the 12B recipe, and must refuse.
+mock "" ""
+if MODELFILE_DIR="$TMP/rollback" OLLAMA_URL="http://127.0.0.1:1" \
+	bash "$TMP/ollama-warm-rolled-back.sh" --reconcile-only >>"$TMP/out" 2>&1; then
+	echo "  PASS  missing tag, rolled-back script: --reconcile-only builds and passes"
+	pass=$((pass + 1))
+else
+	echo "  FAIL  missing tag, rolled-back script: --reconcile-only refused"
+	fail=$((fail + 1))
+fi
+check "pulls the rolled-back base" y "pull gemma4:12b-it-qat"
+check "does not pull the E4B base" n "pull hf.co/unsloth/gemma-4-E4B-it-GGUF:Q8_0"
+mock "" ""
+if MODELFILE_DIR="$TMP/rollback" OLLAMA_URL="http://127.0.0.1:1" \
+	bash "$SCRIPT" --reconcile-only >>"$TMP/out" 2>&1; then
+	echo "  FAIL  missing tag, unchanged script + 12B recipe: --reconcile-only passed"
+	fail=$((fail + 1))
+else
+	echo "  PASS  missing tag, unchanged script + 12B recipe: --reconcile-only refuses"
+	pass=$((pass + 1))
+fi
+check "unchanged script still pulls the E4B base" y "pull hf.co/unsloth/gemma-4-E4B-it-GGUF:Q8_0"
 if grep -qE 'OV_VLM_BASE_SHA256' "$REPO/llama/ollama/gemma4-vlm.Modelfile" &&
 	grep -qiE 'rollback.*together|together.*rollback' "$REPO/llama/ollama/gemma4-vlm.Modelfile"; then
 	echo "  PASS  Modelfile rollback note names the pin and says the two move together"
