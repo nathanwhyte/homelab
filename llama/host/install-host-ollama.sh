@@ -226,7 +226,7 @@ if curl -fsS -m 3 http://127.0.0.1:11434/api/version >/dev/null 2>&1; then
 		"$SRC/ollama-warm.sh" --reconcile-only ||
 		die "a served tag does not match its recipe's num_ctx; refusing to restart into the new slot count"
 else
-	log "WARN: ollama API not answering; ollama-warm reconciles the FIM tag after restart"
+	log "WARN: ollama API not answering; ollama-warm reconciles the served tags after restart"
 fi
 
 # --- 3. Units, drop-in, warm script, Modelfiles -------------------------------

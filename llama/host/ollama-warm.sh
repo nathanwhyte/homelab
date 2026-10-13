@@ -59,7 +59,8 @@ FIM_NUM_CTX=8192
 # IDEA-1105 OpenViking/editor pair, RETIRED as a co-resident posture on
 # 2026-10-13 (IMPR-1303): the daemon evicted the FIM half at every restart
 # ("predicted to exceed available memory") once gemma4:vlm's 131072-token
-# runner was budgeted, so the pair never actually co-resided. Both tags stay
+# runner was budgeted, so the pair never co-resided in steady state (only in
+# the hand-loaded 2026-09-18 measurement run). Both tags stay
 # reconciled (prepare_ov_pair) so the FIM half is one RESIDENT_TAG flip away;
 # the VLM half is now the resident tag.
 OV_FIM_TAG=qwen2.5-coder:fim
@@ -68,7 +69,8 @@ OV_FIM_NUM_CTX=8192
 OV_VLM_TAG=gemma4:vlm
 OV_VLM_BASE=gemma4:12b-it-qat
 # 65536 since 2026-10-13 (IMPR-1303; 32768 from 2026-09-21, BUG-1155), paired
-# with OLLAMA_NUM_PARALLEL=2 in the drop-in so gemma's KV budget is unchanged.
+# with OLLAMA_NUM_PARALLEL=2 in the drop-in so the runner's aggregate context
+# is unchanged at 131072 (KV drops, ~2.2 GB -> ~1.7 GB; see the Modelfile).
 # MUST track PARAMETER num_ctx in llama/ollama/gemma4-vlm.Modelfile:
 # reconcile_tag compares the live tag against THIS value, so a Modelfile-only
 # change makes every warm run log "WARN: gemma4:vlm num_ctx is 65536, want
@@ -83,8 +85,8 @@ OV_VLM_NUM_CTX=65536
 # here until the retirement). Three places encode the resident tag — this
 # variable, MODEL in llama/ollama-jobs.yaml, and the drop-in's
 # OLLAMA_MAX_LOADED_MODELS — and the tests assert they agree.
-# History: $OV_FIM_TAG 2026-09-18 → 10-13 (IDEA-1105 pair, never actually
-# co-resident); $INSTRUCT_TAG before that. Rolling back to the pair is: set
+# History: $OV_FIM_TAG 2026-09-18 → 10-13 (IDEA-1105 pair, never co-resident
+# in steady state); $INSTRUCT_TAG before that. Rolling back to the pair is: set
 # this to $OV_FIM_TAG, raise OLLAMA_MAX_LOADED_MODELS to 2, set MODEL in
 # llama/ollama-jobs.yaml back to $OV_FIM_TAG and apply that CronJob, re-run,
 # and point the two dotfiles entries back at this host — all together.
@@ -277,14 +279,14 @@ prepare_edit_prediction_model() {
 			log "warming $RESIDENT_TAG (load-only)"
 			if warm_load_only "$RESIDENT_TAG"; then
 				touch "$READY_MARKER"
-				log "edit-prediction model ready (attempt $attempt)"
+				log "resident model $RESIDENT_TAG ready (attempt $attempt)"
 				return 0
 			fi
 		fi
-		log "WARN: edit-prediction model incomplete (attempt $attempt/5); retrying in 30s"
+		log "WARN: resident model $RESIDENT_TAG incomplete (attempt $attempt/5); retrying in 30s"
 		sleep 30
 	done
-	log "WARN: edit-prediction model not prepared after 5 attempts; server stays up — check registry/model store"
+	log "WARN: resident model $RESIDENT_TAG not prepared after 5 attempts; server stays up — check registry/model store"
 	return 1
 }
 

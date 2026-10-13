@@ -18,7 +18,8 @@
 #                  (IMPR-1303) that tag is gemma4:vlm, OpenViking's
 #                  summarizer; a request for any OTHER tag evicts it and OV
 #                  pays the reload on its next call. The IDEA-1105 pair with
-#                  qwen2.5-coder:fim is retired (it never co-resided).
+#                  qwen2.5-coder:fim is retired (it never co-resided in
+#                  steady state).
 #   ollama-pull  — suspended template. Run one-off:
 #                    kubectl -n llama create job --from=cronjob/ollama-pull pull-$(date +%s)
 #                  after editing MODEL in the env, or override on the fly:
