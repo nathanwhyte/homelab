@@ -39,6 +39,17 @@ module mounted alongside this script; no SDK exists in the OV image.
                                    lease refresh cadence)
     OVLOCK_DEAD_THRESHOLD_SECONDS  mtime age above which a lock counts as a
                                    dead lease (default: 1800)
+    OVLOCK_LABEL_TOP_N             how many of the longest-present live locks
+                                   get a per-lock labelled series (default: 3)
+    OVLOCK_LABEL_MIN_AGE_SECONDS   presence age a live lock needs before it
+                                   gets one (default: 900)
+
+Per-lock wedge series (BUG-1220): openviking_s3_ovlock_live_age_seconds
+carries key, uri, owner and lock_type labels so OpenVikingWedgedLockFile can
+say WHICH lock is wedged. Cardinality is bounded twice over: only the top N
+live locks by presence age, and only once they have been present for the
+minimum age, so a sync burst's short-lived locks never mint series. One GET
+per labelled lock per poll reads the owner from the lock body.
 """
 
 from __future__ import annotations
@@ -81,6 +92,9 @@ _metrics: dict[str, object] = {
     "openviking_s3_ovlock_live_refreshing": 0,
     "openviking_s3_ovlock_oldest_live_age_seconds": 0.0,
     "openviking_s3_ovlock_poll_ok": 0,
+    # BUG-1220: [(labels, presence_age_seconds)] for the top-N longest-present
+    # live locks — names the wedged lock for the alert.
+    "openviking_s3_ovlock_live_age_seconds": [],
 }
 
 POLL_TIMEOUT_S = 10
@@ -258,9 +272,60 @@ def poll_ov_status() -> bool:
 # Reset on exporter restart: the wedge alert just re-accumulates from zero.
 _s3_first_seen: dict[str, float] = {}
 
+# Last successfully parsed lock token per live key (BUG-1220). Used only when
+# a GET of a labelled lock fails, so a transient read error does not flip the
+# series' owner label (which would resolve and re-fire the alert).
+_s3_token_cache: dict[str, dict] = {}
+
+UNKNOWN = "unknown"
+
+
+def select_label_candidates(
+    first_seen: dict[str, float], now: float, top_n: int, min_age: float
+) -> list[tuple[str, float]]:
+    """The live locks that get a labelled series: [(key, presence_age)].
+
+    Longest-present first (key as tiebreak, for a stable order), at most
+    top_n, and only those present for at least min_age seconds.
+    """
+    if top_n <= 0:
+        return []
+    aged = [(key, now - t) for key, t in first_seen.items() if now - t >= min_age]
+    aged.sort(key=lambda kv: (-kv[1], kv[0]))
+    return aged[:top_n]
+
+
+def lock_labels(key: str, token: dict | None) -> dict[str, str]:
+    """Label set for one lock's wedge series. `token` from parse_lock_token."""
+    return {
+        "key": key,
+        "uri": s3lite.lock_target(key) or UNKNOWN,
+        "owner": (token or {}).get("owner") or UNKNOWN,
+        "lock_type": (token or {}).get("lock_type") or UNKNOWN,
+    }
+
+
+def _read_token(client, bucket: str, key: str) -> dict | None:
+    """Parsed token for key, falling back to the last good read; None if never."""
+    try:
+        token = s3lite.parse_lock_token(client.get_object(bucket, key))
+    except Exception as e:  # noqa: BLE001 - label falls back, poll carries on
+        print(f"s3 lock token read failed for {key}: {e}", flush=True)
+        token = None
+    if token is not None:
+        _s3_token_cache[key] = token
+        return token
+    return _s3_token_cache.get(key)
+
 
 def poll_s3_locks(
-    client, bucket: str, live_window: float, dead_threshold: float, ov_up: bool
+    client,
+    bucket: str,
+    live_window: float,
+    dead_threshold: float,
+    ov_up: bool,
+    top_n: int = 3,
+    min_age: float = 900.0,
 ) -> bool:
     """Classify .ovlock objects in the S3 AGFS bucket by mtime age.
 
@@ -300,9 +365,18 @@ def poll_s3_locks(
     for key in list(_s3_first_seen):
         if key not in live_keys:
             del _s3_first_seen[key]
+    for key in list(_s3_token_cache):
+        if key not in live_keys:
+            del _s3_token_cache[key]
     oldest_live_age = max((now - t for t in _s3_first_seen.values()), default=0.0)
 
+    labelled = [
+        (lock_labels(key, _read_token(client, bucket, key)), round(age, 1))
+        for key, age in select_label_candidates(_s3_first_seen, now, top_n, min_age)
+    ]
+
     with _lock:
+        _metrics["openviking_s3_ovlock_live_age_seconds"] = labelled
         _metrics["openviking_s3_ovlock_total"] = total
         _metrics["openviking_s3_ovlock_dead"] = dead
         _metrics["openviking_s3_ovlock_live_refreshing"] = live
@@ -333,6 +407,19 @@ def poll_lock_count(agfs_path: str) -> bool:
 # ── Metrics Format ───────────────────────────────────────────────────────────
 
 
+def escape_label_value(value: str) -> str:
+    """Prometheus text-format label escaping: backslash, quote, newline."""
+    return value.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n")
+
+
+def format_labels(labels: dict[str, str]) -> str:
+    """`{a="x",b="y"}` in key order, values escaped; "" for no labels."""
+    if not labels:
+        return ""
+    inner = ",".join(f'{k}="{escape_label_value(v)}"' for k, v in labels.items())
+    return "{" + inner + "}"
+
+
 def format_metrics() -> str:
     lines: list[str] = []
 
@@ -353,6 +440,12 @@ def format_metrics() -> str:
             for label, v in sorted(value.items()):
                 safe = label.replace('"', '\\"')
                 lines.append(f'{name}{{{label_name}="{safe}"}} {v}')
+
+    def multi_labeled_gauge(name: str, help_text: str, samples) -> None:
+        lines.append(f"# HELP {name} {help_text}")
+        lines.append(f"# TYPE {name} gauge")
+        for labels, v in samples:
+            lines.append(f"{name}{format_labels(labels)} {v}")
 
     def counter(name: str, help_text: str, label_name: str, value) -> None:
         lines.append(f"# HELP {name} {help_text}")
@@ -463,6 +556,12 @@ def format_metrics() -> str:
             "Longest continuous presence of any live-refreshing lock (wedge signal, BUG-1039).",
             _metrics["openviking_s3_ovlock_oldest_live_age_seconds"],
         )
+        multi_labeled_gauge(
+            "openviking_s3_ovlock_live_age_seconds",
+            "Presence age of the longest-present live-refreshing locks, labelled "
+            "with key/uri/owner/lock_type (top N, past a minimum age; BUG-1220).",
+            _metrics["openviking_s3_ovlock_live_age_seconds"],
+        )
         gauge(
             "openviking_s3_ovlock_poll_ok",
             "1 if the last S3 lock poll ran with OV healthy, 0 if skipped or failed.",
@@ -514,6 +613,8 @@ def poll_loop(agfs_path: str, interval: int, s3_cfg: dict | None) -> None:
                 s3_cfg["live_window"],
                 s3_cfg["dead_threshold"],
                 ov_up=status_ok,
+                top_n=s3_cfg["label_top_n"],
+                min_age=s3_cfg["label_min_age"],
             )
         with _lock:
             _metrics["openviking_up"] = 1 if (status_ok and lock_ok) else 0
@@ -545,6 +646,10 @@ def main() -> None:
             "live_window": float(os.environ.get("OVLOCK_LIVE_WINDOW_SECONDS", "120")),
             "dead_threshold": float(
                 os.environ.get("OVLOCK_DEAD_THRESHOLD_SECONDS", "1800")
+            ),
+            "label_top_n": int(os.environ.get("OVLOCK_LABEL_TOP_N", "3")),
+            "label_min_age": float(
+                os.environ.get("OVLOCK_LABEL_MIN_AGE_SECONDS", "900")
             ),
         }
 

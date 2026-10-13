@@ -195,3 +195,53 @@ def is_lock_key(key: str) -> bool:
     """True for OpenViking lock objects: `.path.ovlock` / `.exact.ovlock.*`."""
     basename = key.rsplit("/", 1)[-1]
     return basename == ".path.ovlock" or basename.startswith(".exact.ovlock.")
+
+
+_EXACT_PREFIX = ".exact.ovlock."
+
+
+def lock_target(key: str) -> str:
+    """The viking:// URI a lock object guards, or "" for a non-lock key.
+
+    Bucket keys are account-prefixed (IMPR-1095): `default/resources/a/.path.ovlock`
+    guards `viking://resources/a`. An EXACT-on-file lock lives next to its
+    target as `.exact.ovlock.<name>.<hash>` (INFO-1003), so the trailing
+    `.<hash>` is dropped and `<name>` (which may itself contain dots) is kept.
+    """
+    if not is_lock_key(key):
+        return ""
+    parts = key.split("/")
+    # parts[0] is the account segment; parts[-1] the lock basename.
+    target = parts[1:-1]
+    basename = parts[-1]
+    if basename.startswith(_EXACT_PREFIX):
+        name = basename[len(_EXACT_PREFIX) :]
+        if "." in name:
+            name = name.rsplit(".", 1)[0]
+        if name:
+            target.append(name)
+    return "viking://" + "/".join(target)
+
+
+def parse_lock_token(body: bytes | str) -> dict | None:
+    """Parse a lock body `{handle_id}:{time_ns}:{E|T}` (INFO-1003).
+
+    Returns {"owner": handle_id, "time_ns": int, "lock_type": "E"|"T"}, or
+    None when the body is not that shape. `time_ns` is rewritten on every
+    lease refresh (2026-10-12: on a lock held ~70h the token's time trailed
+    the read by ~5s, BUG-1220), so it is the LAST REFRESH time, never the
+    acquisition time. Do not derive a lock's age from it.
+    """
+    if isinstance(body, bytes):
+        body = body.decode("utf-8", "replace")
+    fields = body.strip().split(":")
+    if len(fields) != 3:
+        return None
+    owner, time_ns, lock_type = fields
+    if not owner or lock_type not in ("E", "T"):
+        return None
+    try:
+        ts = int(time_ns)
+    except ValueError:
+        return None
+    return {"owner": owner, "time_ns": ts, "lock_type": lock_type}

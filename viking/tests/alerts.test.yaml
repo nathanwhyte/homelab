@@ -112,3 +112,76 @@ tests:
       - expr: openviking_queue_pending{queue="total"}
         eval_time: 25m
         exp_samples: [{ labels: 'openviking_queue_pending{queue="total"}', value: 0 }]
+
+  # BUG-1220: OpenVikingWedgedLockFile must name the wedged lock. Presence age
+  # climbs 60s per 1m sample, so it crosses 2700 at 46m and fires at 51m.
+  - name: a wedged lock fires per lock and names it
+    interval: 1m
+    input_series:
+      - series: 'openviking_s3_ovlock_live_age_seconds{key="default/user/noot/sessions/mcp-store-e71a7b670fca/.path.ovlock",uri="viking://user/noot/sessions/mcp-store-e71a7b670fca",owner="9959d01e-e133-4e46-8074-04cc1de18b00",lock_type="E"}'
+        values: "0+60x60"
+      - series: 'openviking_s3_ovlock_oldest_live_age_seconds'
+        values: "0+60x60"
+    alert_rule_test:
+      - alertname: OpenVikingWedgedLockFile
+        eval_time: 50m
+        exp_alerts: []
+      - alertname: OpenVikingWedgedLockFile
+        eval_time: 52m
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              key: default/user/noot/sessions/mcp-store-e71a7b670fca/.path.ovlock
+              uri: viking://user/noot/sessions/mcp-store-e71a7b670fca
+              owner: 9959d01e-e133-4e46-8074-04cc1de18b00
+              lock_type: E
+            exp_annotations:
+              summary: "OpenViking lock viking://user/noot/sessions/mcp-store-e71a7b670fca live-refreshed for 52m 0s — wedge signature"
+              description: "Lock default/user/noot/sessions/mcp-store-e71a7b670fca/.path.ovlock (owner handle 9959d01e-e133-4e46-8074-04cc1de18b00, type E) has been lease-refreshed continuously for 52m 0s: a wedged server-side task, not normal work. NEVER delete this lock file: its holder still believes it owns it. Recovery is an OV restart (deploy/openviking -n viking, after the queue drains), which only the in-Job heal (off since BUG-1181) or an operator may do. Find the holder with Loki {namespace=\"viking\", container=\"openviking\"} |= \"9959d01e-e133-4e46-8074-04cc1de18b00\" (ragfs::lock::manager refresh lines carry lease_ref and lock_path). The janitor reports these as WEDGED and never deletes them (IMPR-1095, BUG-1220)."
+
+  - name: the unlabelled gauge alone still fires, with placeholders
+    # An exporter without the labelled series (pre-BUG-1220 sidecar, or
+    # OVLOCK_LABEL_TOP_N=0) must not leave the wedge unalerted.
+    interval: 1m
+    input_series:
+      - series: 'openviking_s3_ovlock_oldest_live_age_seconds{pod="openviking-x"}'
+        values: "0+60x60"
+    alert_rule_test:
+      - alertname: OpenVikingWedgedLockFile
+        eval_time: 52m
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              pod: openviking-x
+            exp_annotations:
+              summary: "OpenViking lock (path not exported) live-refreshed for 52m 0s — wedge signature"
+              description: "Lock (key not exported: read the latest ovlock-janitor run log) (owner handle unknown, type unknown) has been lease-refreshed continuously for 52m 0s: a wedged server-side task, not normal work. NEVER delete this lock file: its holder still believes it owns it. Recovery is an OV restart (deploy/openviking -n viking, after the queue drains), which only the in-Job heal (off since BUG-1181) or an operator may do. Find the holder with Loki {namespace=\"viking\", container=\"openviking\"} |= \"<owner>\" (ragfs::lock::manager refresh lines carry lease_ref and lock_path). The janitor reports these as WEDGED and never deletes them (IMPR-1095, BUG-1220)."
+
+  - name: two wedged locks are two instances, and the fallback stays quiet
+    interval: 1m
+    input_series:
+      - series: 'openviking_s3_ovlock_live_age_seconds{key="default/resources/a/.path.ovlock",uri="viking://resources/a",owner="h-a",lock_type="T"}'
+        values: "0+60x60"
+      - series: 'openviking_s3_ovlock_live_age_seconds{key="default/resources/b/.path.ovlock",uri="viking://resources/b",owner="h-b",lock_type="T"}'
+        values: "0+50x60"
+      - series: 'openviking_s3_ovlock_oldest_live_age_seconds'
+        values: "0+60x60"
+    promql_expr_test:
+      - expr: count(ALERTS{alertname="OpenVikingWedgedLockFile",alertstate="firing"})
+        eval_time: 60m
+        exp_samples: [{ labels: "{}", value: 2 }]
+      - expr: count(ALERTS{alertname="OpenVikingWedgedLockFile",alertstate="firing",key=""}) or vector(0)
+        eval_time: 60m
+        exp_samples: [{ labels: "{}", value: 0 }]
+
+  - name: a long but sub-threshold lock never fires
+    interval: 1m
+    input_series:
+      - series: 'openviking_s3_ovlock_live_age_seconds{key="default/resources/a/.path.ovlock",uri="viking://resources/a",owner="h-a",lock_type="T"}'
+        values: "900+30x60"
+      - series: 'openviking_s3_ovlock_oldest_live_age_seconds'
+        values: "900+30x60"
+    promql_expr_test:
+      - expr: count(ALERTS{alertname="OpenVikingWedgedLockFile"}) or vector(0)
+        eval_time: 60m
+        exp_samples: [{ labels: "{}", value: 0 }]

@@ -63,14 +63,29 @@ spec:
           annotations:
             summary: ">20 dead-lease .ovlock files in openviking-agfs for 15m"
             description: "Dead lock files are accumulating in the S3 AGFS bucket. The ovlock-janitor CronJob runs in SHADOW MODE (no --apply in ovlock-janitor-cronjob.yaml, IMPR-1095 Phase 4 not flipped), so it reports dead leases but deletes nothing — read its latest run logs (kubectl -n viking logs job/<latest ovlock-janitor job>) to see which keys it would delete, then either flip --apply or clean up by hand from that list (IMPR-1095)."
+        # BUG-1220: one lock stayed live-refreshed ~70h (2026-10-09..12) and
+        # this alert could not say which. It now fires per lock from ov-exporter's
+        # labelled series (key, uri, owner, lock_type — top 3 live locks present
+        # >= 15m, so bounded), and the templates name the lock. The second arm
+        # is a fallback on the unlabelled gauge, for an exporter that predates
+        # the labelled series or has it disabled; `unless on()` keeps it from
+        # paging a second time when a labelled instance is already firing.
+        # Re-notification cadence for this alert is set in the Alertmanager
+        # route (grafana/helm/kube-prometheus-stack-values.yaml), not here.
         - alert: OpenVikingWedgedLockFile
-          expr: openviking_s3_ovlock_oldest_live_age_seconds > 2700
+          expr: |
+            openviking_s3_ovlock_live_age_seconds > 2700
+            or
+            (
+              openviking_s3_ovlock_oldest_live_age_seconds > 2700
+              unless on() (openviking_s3_ovlock_live_age_seconds > 2700)
+            )
           for: 5m
           labels:
             severity: warning
           annotations:
-            summary: "Live-refreshing .ovlock present for >45m — BUG-1039 wedge signature"
-            description: "A lock file has been lease-refreshed continuously for over 45 minutes — a wedged server-side task, not normal work. The in-Job heal clears these during sync runs; outside one, follow BUG-1039's manual fallback (restart deploy/openviking -n viking after the queue drains). The janitor never deletes these by design (IMPR-1095 report-only)."
+            summary: "OpenViking lock {{ or $labels.uri \"(path not exported)\" }} live-refreshed for {{ $value | humanizeDuration }} — wedge signature"
+            description: "Lock {{ or $labels.key \"(key not exported: read the latest ovlock-janitor run log)\" }} (owner handle {{ or $labels.owner \"unknown\" }}, type {{ or $labels.lock_type \"unknown\" }}) has been lease-refreshed continuously for {{ $value | humanizeDuration }}: a wedged server-side task, not normal work. NEVER delete this lock file: its holder still believes it owns it. Recovery is an OV restart (deploy/openviking -n viking, after the queue drains), which only the in-Job heal (off since BUG-1181) or an operator may do. Find the holder with Loki {namespace=\"viking\", container=\"openviking\"} |= \"{{ or $labels.owner \"<owner>\" }}\" (ragfs::lock::manager refresh lines carry lease_ref and lock_path). The janitor reports these as WEDGED and never deletes them (IMPR-1095, BUG-1220)."
         - alert: OpenVikingS3LockPollFailing
           expr: openviking_s3_ovlock_poll_ok == 0
           for: 30m

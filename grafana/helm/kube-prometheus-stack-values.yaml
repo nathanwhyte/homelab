@@ -107,6 +107,18 @@ alertmanager:
         - receiver: "null"
           matchers:
             - severity = "info"
+        # BUG-1220: one continuous OpenViking lock wedge is one incident. A
+        # live-refreshed lock does not clear until OV restarts, and the 1h
+        # default re-sent the same OpenVikingWedgedLockFile message about 70
+        # times over 2026-10-09..12. 12h keeps a twice-daily reminder while the
+        # wedge is unresolved. A NEW wedged lock is a new alert in this group
+        # and still notifies within group_interval, and the resolve still posts.
+        # This matcher changes cadence only, not delivery: without it the
+        # default route would deliver the alert hourly.
+        - receiver: slack-homelab
+          matchers:
+            - alertname = "OpenVikingWedgedLockFile"
+          repeat_interval: 12h
         # Critical pages faster and repeats more often than the 1h default.
         - receiver: slack-homelab
           matchers:

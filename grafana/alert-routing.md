@@ -52,6 +52,11 @@ Defined in `helm/kube-prometheus-stack-values.yaml` under `alertmanager.config.r
   merges _ahead_ of these routes with `continue: true`. Terminating them keeps
   them to one Slack message instead of two.
 - `severity = "info"` → `null`. Recorded in Prometheus for dashboards, not paged.
+- `alertname = "OpenVikingWedgedLockFile"` → `slack-homelab` with
+  `repeat_interval: 12h`. A cadence change, not a delivery one: a wedged lock
+  stays firing until OpenViking restarts, and the 1h default re-sent one ~70 h
+  wedge about 70 times (BUG-1220). A new wedged lock still notifies within
+  `group_interval`.
 - `severity = "critical"` → `slack-homelab` with `group_wait: 10s`,
   `repeat_interval: 30m` — faster and more persistent than the 1h default.
 
