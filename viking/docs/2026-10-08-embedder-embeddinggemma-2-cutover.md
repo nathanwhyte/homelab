@@ -1,6 +1,6 @@
 # OpenViking embedder cutover: Qwen3-Embedding-4B → EmbeddingGemma 2 (2026-10-08)
 
-Compendium: TASK-1218 (model decision and evidence), IMPR-1237 (the later move to Ollama). Decision by the user on 2026-10-07: adopt EmbeddingGemma 2 now on llama-server, with one re-index.
+Compendium: TASK-1218 (model decision and evidence), IMPR-1237 (the later move to Ollama). Decision by the user on 2026-10-07: adopt EmbeddingGemma 2 now on llama-server, with one re-index. **Superseded 2026-10-13 (the user):** Qwen3-Embedding-4B stays the production embedder after attempt 1's rollback. A retry happens only after the probe in "Before a retry" passes on a fixed llama.cpp build.
 
 **Do not run this without the user's explicit go-ahead.** It changes the live embedder for prod and ov-test, and OpenViking recall stays degraded until the prod reindex finishes.
 
@@ -24,11 +24,25 @@ What failed:
 
 Data after the rollback: prod `context` holds the same 7,301 record IDs as before the window, Loki shows no prod write routes between 12:41:40 and 12:56:40, and prod `context_eg2` is empty. So the rollback needed no rebuild or prune. `context_test_eg2` holds 33 records from the partial ov-test reindex. Both new collections are left in place.
 
+### Upstream causes (found 2026-10-13)
+
+Both failures are llama.cpp bugs in b11459, fixed upstream since:
+
+| Symptom | Cause | Fix | First release |
+| --- | --- | --- | --- |
+| Attention on the CPU, GPU at 0% | The CUDA Flash Attention kernel for head dim 512 (EG2's global layers) needs a key length that is a multiple of 256. Cache-less embedding attention was not padded, so other lengths fell back to the CPU. `-fa auto` probed a 1-token key, so it always disabled Flash Attention for this model (ggml-org/llama.cpp#30398) | ggml-org/llama.cpp#30416 pads the no-cache K/V and mask to 256 (3,841 tokens: 363 → 58 ms on CUDA, embeddings unchanged) | b11576 |
+| Host RSS growing with input length | Pooled-embedding contexts allocated a logits buffer, about 1 GiB of RSS per 1,000 tokens on this model (ggml-org/llama.cpp#29388) | ggml-org/llama.cpp#30255 skips the allocation when the graph produces no logits | b11588 |
+
+ggml-org/llama.cpp#30445 (skip the LM head for pooled embeddings) merged on 2026-10-13 but was not in a release that day. The upstream reports used SM 7.5 and newer cards; on the GTX 1080 (SM 6.1), the probe below is what shows the fix holds.
+
+Ollama v0.40.0–v0.40.3 bundle llama.cpp b11351, and v0.40.4-rc1 bundles b11521. Neither has the fixes, so the Ollama route (IMPR-1237) needs a release bundling b11588 or newer.
+
 ### Before a retry
 
-1. Find which ops fall back to the CPU on SM 6.1. Use a probe pod with verbose logging (`-lv 1` or `GGML_SCHED_DEBUG`) and a higher memory limit, during a short GPU window. Suspects: tensors in the Q8_0 GGUF that are not Q8_0 (BF16), and the attention path.
-2. Measure throughput and peak host memory at 6,000 and 8,000 tokens on the 1080. Accept only if latency beats Qwen 4B and memory has a known ceiling under the limit.
-3. Fix the inventory: user roots run as their own user, and shared roots as ADMIN.
+1. **Probe the fixed build on the 1080.** In a short GPU window (Qwen to 0, restored afterwards), run a probe pod on `ghcr.io/ggml-org/llama.cpp:server-cuda` pinned by digest to b11588 or newer, with `-fa on`, verbose logging (`-lv 1`), and a memory limit above 4Gi. Confirm that no attention op is assigned to the CPU: `resolve_fused_ops` should not log a Flash Attention fallback.
+2. **Measure on the probe:** latency and peak host RSS at about 2.5k, 6,000 and 8,000 tokens, including lengths that are not multiples of 256, with `cache_prompt: false`. Accept only if latency beats Qwen 4B and peak RSS has a known ceiling under the pod limit; set the limit from that ceiling.
+3. **Fix the inventory:** user roots run as their own user, and shared roots as ADMIN.
+4. **Re-pin** `embedder-eg2-cuda` to the probed digest (replacing b11459 in "What changes"), and re-run this runbook from Preconditions.
 
 ## What changes
 
@@ -151,6 +165,6 @@ The pinned Qwen digest (`sha256:ef08b5a9…`, b11382) means a rollback serves th
 
 - Recall score thresholds: the pilot plugin's `scoreThreshold` (0.35) and IMPR-1208's gate were calibrated on Qwen. EmbeddingGemma 2's scores sit in a higher, narrower band (no-answer queries 0.63–0.73 on the fixture), so recalibrate after the cutover.
 - Delete the old 2,560-dim collections and the Qwen model cache only after the 24-hour watch passes.
-- IMPR-1237 moves this embedder to Ollama once a release bundles llama.cpp b11454 or newer.
+- IMPR-1237 moves this embedder to Ollama once a release bundles llama.cpp b11588 or newer (b11454 loads the model but lacks the fixes above).
 - dotfiles `claude/ov-pilot/pending-canary.yaml` (dormant) still expects Qwen. Update it before it is reused.
 - Unverified until the window: EmbeddingGemma 2's startup on the GTX 1080, its peak memory, how it handles long inputs, and the end-to-end reindex.
