@@ -47,6 +47,12 @@ LoadBalancer Service; the host daemon cannot bind `0.0.0.0:11434` until that is 
    removing ServiceLB DNAT can actually reach the pod; verify host authentication only
    after cutover. Model copying alone caused cloud 401s during the first live deployment.
 
+   After cutover, `--files-only` installs the warm script, the Modelfiles, the exporter code
+   and the drop-in, runs `daemon-reload`, prints which installed files changed, and exits
+   without restarting anything (IMPR-1310). Use it when a merged diff is scripts, recipes
+   and comments; a drop-in change to slots or `Environment=` still needs the full run, which
+   is the only path that restarts `ollama.service`.
+
    Save the live Deployment, ConfigMap, and Service for rollback in a private directory.
    Use those snapshots to preserve the deployed image/config, rather than pulling `latest`.
 
@@ -122,6 +128,7 @@ So the grant covers a wrapper that deploys **only what is on GitHub main**:
 ```bash
 sudo homelab-ollama-deploy.sh            # == install-host-ollama.sh, from main
 sudo homelab-ollama-deploy.sh --check    # (and --sync-models / --sync-identity)
+sudo homelab-ollama-deploy.sh --files-only  # scripts, recipes, drop-in + daemon-reload; no restart
 sudo systemctl restart ollama            # start / stop / restart, ollama-warm start / restart
 ```
 

@@ -57,6 +57,8 @@ run bash "$WRAPPER" --check
 grep -q 'args=\[--check\]' "$CALLS" && ok "--check passed through" || bad "--check"
 run bash "$WRAPPER" --sync-models
 grep -q 'args=\[--sync-models\]' "$CALLS" && ok "--sync-models passed through" || bad "--sync-models"
+run bash "$WRAPPER" --files-only
+grep -q 'args=\[--files-only\]' "$CALLS" && ok "--files-only passed through" || bad "--files-only"
 run bash "$WRAPPER" --evil
 rc=$?
 [[ $rc -eq 2 && ! -s $CALLS ]] && ok "unknown argument refused (exit 2), installer NOT run" || bad "unknown arg (rc=$rc)"

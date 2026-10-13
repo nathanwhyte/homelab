@@ -7,6 +7,14 @@
 #   sudo llama/host/install-host-ollama.sh --sync-models  # copy models ONLY; no service changes
 #   sudo llama/host/install-host-ollama.sh --sync-identity # copy cloud identity ONLY; host must be stopped
 #   sudo llama/host/install-host-ollama.sh --check        # report only, change nothing
+#   sudo llama/host/install-host-ollama.sh --files-only   # steps 2-4 + daemon-reload; NO
+#                                                         # restart, binary pin or gate
+#
+# --files-only is for a diff that is scripts, recipes and comments (IMPR-1310): the
+# warm script, the Modelfiles, the exporter code and the drop-in land on disk and
+# systemd re-reads the units, but ollama.service keeps running with its current
+# Environment= values and the exporter keeps its loaded code until the next
+# restart. A drop-in change that alters slots or env still needs the full run.
 #
 # What "install" does, idempotently:
 #   1. Check the cutover preconditions, then verify /usr/local/bin/ollama is
@@ -46,8 +54,9 @@ for arg in "$@"; do
 	--sync-models) mode=sync ;;
 	--sync-identity) mode=identity ;;
 	--check) mode=check ;;
+	--files-only) mode=files ;;
 	-h | --help)
-		sed -n '2,25p' "$0"
+		sed -n '2,33p' "$0"
 		exit 0
 		;;
 	*)
@@ -197,37 +206,63 @@ if [[ $mode == sync || $mode == identity ]]; then
 fi
 
 # --- 2. Fail closed BEFORE any install/restart -------------------------------
-cutover_preflight
-if [[ $(installed_version) != "$OLLAMA_VERSION" ]]; then
-	log "installing ollama $OLLAMA_VERSION (base tarball, no ROCm) over $(installed_version)"
-	install_release_tarball "$OLLAMA_VERSION"
-	[[ $(installed_version) == "$OLLAMA_VERSION" ]] || die "install did not produce $OLLAMA_VERSION"
-fi
-if ! id "$OLLAMA_USER" >/dev/null 2>&1; then
-	log "creating system user $OLLAMA_USER"
-	useradd -r -s /bin/false -U -m -d "$(dirname "$(dirname "$MODELS_DIR")")" "$OLLAMA_USER"
-fi
-ensure_base_unit
-for grp in video render; do
-	id -nG "$OLLAMA_USER" | tr ' ' '\n' | grep -qx "$grp" || usermod -aG "$grp" "$OLLAMA_USER"
-done
-# The drop-in's OLLAMA_NUM_PARALLEL and each tag's baked num_ctx share one VRAM
-# budget. Migrate the resident and standby tags to the repo recipes against the
-# RUNNING daemon before the restart below applies the new slot count, so no
-# client can load a tag sized for the old posture into the new one (IDEA-1105;
-# IMPR-1303 moved gemma4:vlm 32768 -> 65536 this way). Uses the repo copy of
-# the warm script AND the repo recipes: step 3 has not copied the Modelfiles
-# yet, so the installed /opt/ollama-host/modelfiles still hold the old num_ctx
-# and reconciling against them would rebuild the old value and refuse the
-# restart. Loads nothing in this mode.
-if curl -fsS -m 3 http://127.0.0.1:11434/api/version >/dev/null 2>&1; then
-	log "reconciling the resident and standby tags' num_ctx before restart"
-	OLLAMA_URL=http://127.0.0.1:11434 MODELFILE_DIR="$REPO_DIR/llama/ollama" \
-		"$SRC/ollama-warm.sh" --reconcile-only ||
-		die "a served tag does not match its recipe's num_ctx; refusing to restart into the new slot count"
+# --files-only restarts nothing, so the cutover preflight, the binary pin and the
+# num_ctx reconcile gate (all of which exist to make a restart safe) are skipped;
+# a fresh host still needs the full run first.
+if [[ $mode == files ]]; then
+	[[ -f /etc/systemd/system/ollama.service ]] || die "--files-only needs an installed host; run the full installer first"
+	log "--files-only: skipping preflight, binary pin and the num_ctx reconcile gate; nothing restarts"
 else
-	log "WARN: ollama API not answering; ollama-warm reconciles the served tags after restart"
+	cutover_preflight
+	if [[ $(installed_version) != "$OLLAMA_VERSION" ]]; then
+		log "installing ollama $OLLAMA_VERSION (base tarball, no ROCm) over $(installed_version)"
+		install_release_tarball "$OLLAMA_VERSION"
+		[[ $(installed_version) == "$OLLAMA_VERSION" ]] || die "install did not produce $OLLAMA_VERSION"
+	fi
+	if ! id "$OLLAMA_USER" >/dev/null 2>&1; then
+		log "creating system user $OLLAMA_USER"
+		useradd -r -s /bin/false -U -m -d "$(dirname "$(dirname "$MODELS_DIR")")" "$OLLAMA_USER"
+	fi
+	ensure_base_unit
+	for grp in video render; do
+		id -nG "$OLLAMA_USER" | tr ' ' '\n' | grep -qx "$grp" || usermod -aG "$grp" "$OLLAMA_USER"
+	done
+	# The drop-in's OLLAMA_NUM_PARALLEL and each tag's baked num_ctx share one VRAM
+	# budget. Migrate the resident and standby tags to the repo recipes against the
+	# RUNNING daemon before the restart below applies the new slot count, so no
+	# client can load a tag sized for the old posture into the new one (IDEA-1105;
+	# IMPR-1303 moved gemma4:vlm 32768 -> 65536 this way). Uses the repo copy of
+	# the warm script AND the repo recipes: step 3 has not copied the Modelfiles
+	# yet, so the installed /opt/ollama-host/modelfiles still hold the old num_ctx
+	# and reconciling against them would rebuild the old value and refuse the
+	# restart. Loads nothing in this mode.
+	if curl -fsS -m 3 http://127.0.0.1:11434/api/version >/dev/null 2>&1; then
+		log "reconciling the resident and standby tags' num_ctx before restart"
+		OLLAMA_URL=http://127.0.0.1:11434 MODELFILE_DIR="$REPO_DIR/llama/ollama" \
+			"$SRC/ollama-warm.sh" --reconcile-only ||
+			die "a served tag does not match its recipe's num_ctx; refusing to restart into the new slot count"
+	else
+		log "WARN: ollama API not answering; ollama-warm reconciles the served tags after restart"
+	fi
 fi
+
+# Everything steps 3 and 4 write, so --files-only can report what actually changed.
+installed_files=(
+	"$DROPIN_DIR/homelab.conf"
+	"$HOST_DIR/ollama-warm.sh"
+	"$HOST_DIR/modelfiles/qwen2.5-coder-fim.Modelfile"
+	"$HOST_DIR/modelfiles/gemma4-vlm.Modelfile"
+	/etc/systemd/system/ollama-warm.service
+	/opt/ollama-exporter/ollama-exporter.py
+	/etc/systemd/system/ollama-exporter.service
+)
+checksums() {
+	local f
+	for f in "${installed_files[@]}"; do
+		if [[ -f $f ]]; then sha256sum "$f"; else echo "missing  $f"; fi
+	done
+}
+before=$(checksums)
 
 # --- 3. Units, drop-in, warm script, Modelfiles -------------------------------
 install -d -m 0755 "$DROPIN_DIR" "$HOST_DIR" "$HOST_DIR/modelfiles"
@@ -262,6 +297,19 @@ CPUQuota=20%
 [Install]
 WantedBy=multi-user.target
 EOF
+
+if [[ $mode == files ]]; then
+	systemctl daemon-reload
+	mapfile -t changed < <(diff <(printf '%s\n' "$before") <(checksums) | awk '/^>/ {print $NF}')
+	if ((${#changed[@]})); then
+		log "--files-only: installed files that changed:"
+		printf '    %s\n' "${changed[@]}"
+	else
+		log "--files-only: every installed file already matched the repo"
+	fi
+	log "--files-only: nothing restarted. ollama.service keeps its running Environment= values and ollama-exporter its loaded code until the next restart; ollama-warm.service picks the new script up on its next run. Run without --files-only to restart."
+	exit 0
+fi
 
 # --- 5. Activate and verify ---------------------------------------------------
 systemctl daemon-reload
