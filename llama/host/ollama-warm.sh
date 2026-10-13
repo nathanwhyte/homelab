@@ -85,8 +85,9 @@ OV_VLM_NUM_CTX=65536
 # OLLAMA_MAX_LOADED_MODELS — and the tests assert they agree.
 # History: $OV_FIM_TAG 2026-09-18 → 10-13 (IDEA-1105 pair, never actually
 # co-resident); $INSTRUCT_TAG before that. Rolling back to the pair is: set
-# this to $OV_FIM_TAG, raise OLLAMA_MAX_LOADED_MODELS to 2, re-run, and point
-# the two dotfiles entries back at this host — all together.
+# this to $OV_FIM_TAG, raise OLLAMA_MAX_LOADED_MODELS to 2, set MODEL in
+# llama/ollama-jobs.yaml back to $OV_FIM_TAG and apply that CronJob, re-run,
+# and point the two dotfiles entries back at this host — all together.
 RESIDENT_TAG=${RESIDENT_TAG:-$OV_VLM_TAG}
 # Cap on best-effort standby reconciliation (a cold store can pull ~9 GB).
 STANDBY_TIMEOUT=${STANDBY_TIMEOUT:-600}
@@ -365,7 +366,8 @@ fi
 log "server ready ($(curl -fsS -m 3 "$OLLAMA_URL/api/version"))"
 if [[ $mode == reconcile ]]; then
 	reconcile_all_strict || exit 1
-	log "$FIM_TAG and $INSTRUCT_TAG num_ctx match the recipe ($FIM_NUM_CTX); resident=$RESIDENT_TAG"
+	standby=$(standby_tag)
+	log "resident $RESIDENT_TAG (num_ctx $(tag_num_ctx "$RESIDENT_TAG")) and standby $standby (num_ctx $(tag_num_ctx "$standby")) match their recipes"
 	exit 0
 fi
 if [[ $mode == ovpair ]]; then

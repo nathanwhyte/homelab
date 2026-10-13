@@ -211,15 +211,20 @@ ensure_base_unit
 for grp in video render; do
 	id -nG "$OLLAMA_USER" | tr ' ' '\n' | grep -qx "$grp" || usermod -aG "$grp" "$OLLAMA_USER"
 done
-# The drop-in's OLLAMA_NUM_PARALLEL and the FIM recipe's num_ctx share one VRAM
-# budget. Migrate an existing FIM tag to the repo recipe against the RUNNING
-# daemon before the restart below applies the new slot count, so no client can
-# load a 16384-context tag into 4 slots (IDEA-1105). Uses the repo copy of the
-# warm script, which loads nothing in this mode.
+# The drop-in's OLLAMA_NUM_PARALLEL and each tag's baked num_ctx share one VRAM
+# budget. Migrate the resident and standby tags to the repo recipes against the
+# RUNNING daemon before the restart below applies the new slot count, so no
+# client can load a tag sized for the old posture into the new one (IDEA-1105;
+# IMPR-1303 moved gemma4:vlm 32768 -> 65536 this way). Uses the repo copy of
+# the warm script AND the repo recipes: step 3 has not copied the Modelfiles
+# yet, so the installed /opt/ollama-host/modelfiles still hold the old num_ctx
+# and reconciling against them would rebuild the old value and refuse the
+# restart. Loads nothing in this mode.
 if curl -fsS -m 3 http://127.0.0.1:11434/api/version >/dev/null 2>&1; then
-	log "reconciling the FIM tag's num_ctx before restart"
-	OLLAMA_URL=http://127.0.0.1:11434 "$SRC/ollama-warm.sh" --reconcile-only ||
-		die "FIM tag does not match the recipe's num_ctx; refusing to restart into the new slot count"
+	log "reconciling the resident and standby tags' num_ctx before restart"
+	OLLAMA_URL=http://127.0.0.1:11434 MODELFILE_DIR="$REPO_DIR/llama/ollama" \
+		"$SRC/ollama-warm.sh" --reconcile-only ||
+		die "a served tag does not match its recipe's num_ctx; refusing to restart into the new slot count"
 else
 	log "WARN: ollama API not answering; ollama-warm reconciles the FIM tag after restart"
 fi

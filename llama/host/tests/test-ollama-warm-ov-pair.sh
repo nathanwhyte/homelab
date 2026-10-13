@@ -26,7 +26,11 @@ printf 'FROM gemma4:12b-it-qat\nPARAMETER num_ctx 65536\n' \
 mock() { # $1 = existing qwen num_ctx ("" = tag missing), $2 = existing gemma num_ctx
 	cat >"$TMP/bin/ollama" <<EOF
 #!/usr/bin/env bash
-QWEN_CTX="$1"; GEMMA_CTX="$2"
+# One assignment per line: the create branch rewrites each with sed, and a
+# shared line lost GEMMA_CTX on the first rewrite (masked while the tests only
+# asserted on calls.log).
+QWEN_CTX="$1"
+GEMMA_CTX="$2"
 echo "\$*" >>"$TMP/calls.log"
 case "\$1" in
 show)
@@ -39,10 +43,13 @@ show)
   fi
   exit 0 ;;
 create)
-  # Rebuild succeeds: flip the recorded ctx so the post-check sees the new value.
+  # Rebuild succeeds: record the num_ctx the SUPPLIED recipe bakes (-f file),
+  # so a stale recipe directory shows up as the wrong value, the way it would
+  # on the host (the installer's pre-restart reconcile, IMPR-1303).
   tag=\$2
-  [[ \$tag == qwen2.5-coder:fim ]] && QWEN_CTX=8192
-  [[ \$tag == gemma4:vlm ]] && GEMMA_CTX=65536
+  ctx=\$(awk '\$1 == "PARAMETER" && \$2 == "num_ctx" {print \$3}' "\$4")
+  [[ \$tag == qwen2.5-coder:fim ]] && QWEN_CTX=\$ctx
+  [[ \$tag == gemma4:vlm ]] && GEMMA_CTX=\$ctx
   sed -i.bak "s/^QWEN_CTX=.*/QWEN_CTX=\"\$QWEN_CTX\"/;s/^GEMMA_CTX=.*/GEMMA_CTX=\"\$GEMMA_CTX\"/" "\$0"
   exit 0 ;;
 esac
@@ -59,6 +66,13 @@ run_prepare() {
 	# touches RESIDENT_TAG, which is what makes it safe to drive here.
 	MODELFILE_DIR="$TMP/modelfiles" OLLAMA_URL="http://127.0.0.1:1" \
 		bash "$SCRIPT" --ov-pair-only >>"$TMP/out" 2>&1
+}
+
+run_reconcile() { # $1 recipe directory
+	# --reconcile-only is the installer's pre-restart gate: resident + standby
+	# must end at their recipes' num_ctx or it exits 1.
+	MODELFILE_DIR="$1" OLLAMA_URL="http://127.0.0.1:1" \
+		bash "$SCRIPT" --reconcile-only >>"$TMP/out" 2>&1
 }
 
 check() { # $1 label, $2 expected-substring-present(y/n), $3 pattern
@@ -96,6 +110,39 @@ mock 16384 32768
 run_prepare
 check "rebuilds qwen (16384 -> 8192)" y "create qwen2.5-coder:fim"
 check "rebuilds gemma (32768 -> 65536)" y "create gemma4:vlm"
+
+echo "test 6: the installer's pre-restart reconcile must read the REPO recipes"
+# Caught by Codex on homelab#211: install-host-ollama.sh runs --reconcile-only
+# before step 3 copies the Modelfiles, so the installed recipe dir still bakes
+# the old num_ctx. Reconciling against it rebuilds the old value and the gate
+# refuses the restart; against the repo recipes it migrates the tag.
+REPO=$(cd "$(dirname "$SCRIPT")/../.." && pwd) # llama/host -> llama -> repo root
+mkdir -p "$TMP/stale"
+printf 'FROM qwen2.5-coder:3b-base\nPARAMETER num_ctx 8192\n' >"$TMP/stale/qwen2.5-coder-fim.Modelfile"
+printf 'FROM gemma4:12b-it-qat\nPARAMETER num_ctx 32768\n' >"$TMP/stale/gemma4-vlm.Modelfile"
+mock 8192 32768
+if run_reconcile "$TMP/stale"; then
+	echo "  FAIL  stale recipe dir: --reconcile-only passed although gemma stays at 32768"
+	fail=$((fail + 1))
+else
+	echo "  PASS  stale recipe dir: --reconcile-only refuses (gemma rebuilt to the stale 32768)"
+	pass=$((pass + 1))
+fi
+mock 8192 32768
+if run_reconcile "$REPO/llama/ollama" && [[ $(ollama show gemma4:vlm --parameters | awk '{print $2}') == 65536 ]]; then
+	echo "  PASS  repo recipe dir: --reconcile-only migrates gemma 32768 -> 65536 and passes"
+	pass=$((pass + 1))
+else
+	echo "  FAIL  repo recipe dir: --reconcile-only did not migrate gemma to 65536 (got $(ollama show gemma4:vlm --parameters))"
+	fail=$((fail + 1))
+fi
+if grep -qE 'MODELFILE_DIR="\$REPO_DIR/llama/ollama" \\$' "$REPO/llama/host/install-host-ollama.sh"; then
+	echo "  PASS  installer passes the repo recipe dir to the pre-restart reconcile"
+	pass=$((pass + 1))
+else
+	echo "  FAIL  installer does not pass MODELFILE_DIR=\$REPO_DIR/llama/ollama to --reconcile-only"
+	fail=$((fail + 1))
+fi
 
 echo "test 5: the adoption points agree across files"
 # The hazard this guards is real and was caught in review: the live host had

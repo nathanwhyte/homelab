@@ -167,16 +167,22 @@ FROM gemma4:12b-it-qat
 # re-derive KV from ITS OWN /api/show shape and the allocator's padding rules.
 #
 # 65536 since 2026-10-13 (IMPR-1303), PAIRED with OLLAMA_NUM_PARALLEL 4 -> 2 in
-# llama/host/ollama.service.d/homelab.conf so total KV stays at the 2.21 GB
-# the 4 x 32768 posture held (runner n_ctx 131072 either way). This time the
-# wall was on the PROMPT side: Ollama's runner reserves half a slot for
-# generation when max_tokens is unset, so at 32768 it logged
-# `truncating input prompt limit=16387` 53 times in 24 h — OpenViking's
-# overview_generation for a 195-child compendium directory sends 33-35K-token
-# prompts. At 65536 the prompt limit is ~32.8K, which covers all but the
-# largest of those; the OV-side fix for the remainder is a lower
-# semantic.overview_sample_limit, tracked in IMPR-1303. n_ctx_train is 262144,
-# so the model side is not the constraint.
+# llama/host/ollama.service.d/homelab.conf so the runner's aggregate context
+# stays at 131072 (2 x 65536 instead of 4 x 32768). KV is slightly LOWER, not
+# equal: by the formula above the full-attention layers cost the same for the
+# same aggregate, but the SWA layers are padded per slot (1536 cells each), so
+# 4 x 32768 was ~2.21 GB and 2 x 65536 is ~1.68 GB.
+#
+# This time the wall was on the PROMPT side. Ollama admits a prompt unchanged
+# up to num_ctx - 1 tokens; a longer one is cut down to half the slot and
+# logged as `truncating input prompt limit=<num_ctx/2+3> prompt=<n>` (Ollama
+# v0.40.3 llm/llama_server.go:282-333, same in 0.34.1). At 32768 that fired 53
+# times in 24 h with prompts of 32992-34598 tokens: OpenViking's
+# overview_generation for a 195-child compendium directory. At 65536 those
+# prompts fit whole, with ~30K tokens of generation room left. n_ctx_train is
+# 262144, so the model side is not the constraint. An OV-side cap on overview
+# sampling (semantic.overview_sample_limit) is a separate, optional item in
+# IMPR-1303, not needed for these prompts.
 #
 # VERIFY AFTER THE RELOAD: the runner's `n_ctx_seq = 65536` and `n_slots = 2`
 # lines, `/api/ps` context_length 65536, and zero new `truncating input prompt`
