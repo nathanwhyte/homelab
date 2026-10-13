@@ -56,17 +56,14 @@ def _tool_names(tools):
 
 
 def is_wm_update_call(tools, tool_choice=None):
-    """True when the call declares the ``update_working_memory`` tool.
+    """True only when ``tools`` declares the ``update_working_memory`` tool.
 
-    ``tool_choice`` is consulted only when it names a function (the session passes a
-    dict, the type hint says str); a bare ``tools`` match is enough on its own.
+    ``tool_choice`` alone never matches: upstream ignores a choice with no tools and
+    returns text, so a forwarding caller that kept the choice must keep its generation.
+    The session passes both (``tools=[WM_UPDATE_TOOL]`` plus a dict ``tool_choice``).
     """
-    if SKIPPED_TOOL in _tool_names(tools):
-        return True
-    if isinstance(tool_choice, dict):
-        fn = tool_choice.get("function")
-        return isinstance(fn, dict) and fn.get("name") == SKIPPED_TOOL
-    return False
+    del tool_choice  # kept in the signature for the wrapper's positional mapping
+    return SKIPPED_TOOL in _tool_names(tools)
 
 
 def skipping_wm_update(original):

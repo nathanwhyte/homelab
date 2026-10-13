@@ -34,7 +34,7 @@ def _fake_base_module():
 
 
 def _run(coro):
-    return asyncio.new_event_loop().run_until_complete(coro)
+    return asyncio.run(coro)
 
 
 class DetectionTests(unittest.TestCase):
@@ -48,10 +48,11 @@ class DetectionTests(unittest.TestCase):
         self.assertFalse(wm_patch.is_wm_update_call([]))
         self.assertFalse(wm_patch.is_wm_update_call(["not a dict", {"function": "x"}]))
 
-    def test_tool_choice_dict_alone_is_enough(self):
-        self.assertTrue(wm_patch.is_wm_update_call(None, CHOICE))
-        self.assertFalse(wm_patch.is_wm_update_call(None, "auto"))
-        self.assertFalse(wm_patch.is_wm_update_call(None, {"type": "function"}))
+    def test_tool_choice_alone_never_matches(self):
+        self.assertFalse(wm_patch.is_wm_update_call(None, CHOICE))
+        self.assertFalse(wm_patch.is_wm_update_call([CREATE_TOOL], CHOICE))
+        self.assertFalse(wm_patch.is_wm_update_call([], CHOICE))
+        self.assertTrue(wm_patch.is_wm_update_call([UPDATE_TOOL], "auto"))
 
 
 class WrapperTests(unittest.TestCase):
@@ -88,6 +89,21 @@ class WrapperTests(unittest.TestCase):
         self.assertTrue(line.startswith("ov-wm-update-skip {"), line)
         self.assertIn('"prompt_chars": 6', line)
         self.assertIn('"tool": "update_working_memory"', line)
+
+    def test_choice_without_the_tool_passes_through(self):
+        resp = _run(
+            self.wrapped(self.vlm, "p", tools=[CREATE_TOOL], tool_choice=CHOICE)
+        )
+        self.assertEqual(resp, "model text")
+        resp = _run(self.wrapped(self.vlm, "p", tool_choice=CHOICE))
+        self.assertEqual(resp, "model text")
+        self.assertEqual(len(self.calls), 2)
+
+    def test_messages_path_passes_through(self):
+        msgs = [{"role": "user", "content": "hi"}]
+        resp = _run(self.wrapped(self.vlm, "", messages=msgs, max_tokens=64))
+        self.assertEqual(resp, "model text")
+        self.assertEqual(self.calls, [("", (), {"messages": msgs, "max_tokens": 64})])
 
     def test_positional_tools_are_detected(self):
         with patch.dict(
