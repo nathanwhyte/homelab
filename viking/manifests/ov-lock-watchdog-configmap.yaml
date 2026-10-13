@@ -29,10 +29,13 @@ data:
     Disruption guard. BUG-1220's original wording was "restart when the queue is
     not progressing", but in that incident the queue kept progressing around the one
     wedged task, so that guard would never have fired. Instead: prefer a quiet
-    moment. Defer while the OV queue (openviking_queue_{pending,in_progress}
-    queue="total") holds work beyond the wedged task(s), and force the restart once
+    moment. Defer while the OV queue holds work (pending + in_progress of
+    queue="total", more than WATCHDOG_QUIET_MAX_WORK), and force the restart once
     the hold exceeds WATCHDOG_FORCE_SECONDS (6 h) so a busy system cannot defer
-    forever. An unreadable queue counts as busy.
+    forever. An unreadable queue counts as busy. The wedged task itself is not
+    subtracted: Prometheus showed queue="total" at 0 for hours (2026-10-10
+    12:05-15:20Z) while that lock was held, so a wedged extraction does not occupy
+    a queue slot, and subtracting one would hide a real task.
 
     Safety: at most one restart per run no matter how many locks qualify; never
     touches a lock file; never deletes anything; the PATCH carries the Deployment's
@@ -45,7 +48,7 @@ data:
     cannot be imported in-cluster). Keep them in step if that format changes.
 
     Env (all optional): WATCHDOG_HOLD_SECONDS=10800, WATCHDOG_FORCE_SECONDS=21600,
-    WATCHDOG_COOLDOWN_SECONDS=3600, WATCHDOG_QUIET_MAX_OTHER_WORK=0,
+    WATCHDOG_COOLDOWN_SECONDS=3600, WATCHDOG_QUIET_MAX_WORK=0,
     WATCHDOG_LOG_RECENT_SECONDS=60, WATCHDOG_LOG_MAX_GAP_SECONDS=60,
     WATCHDOG_MIN_LOG_COVERAGE_SECONDS=600, WATCHDOG_EXPORTER_MAX_STALE_SECONDS=120,
     WATCHDOG_EXPORTER_URL, WATCHDOG_NAMESPACE, WATCHDOG_DEPLOYMENT.
@@ -101,7 +104,7 @@ data:
         hold: float = 10800.0
         force: float = 21600.0
         cooldown: float = 3600.0
-        quiet_max_other_work: int = 0
+        quiet_max_work: int = 0
         log_recent: float = 60.0
         log_max_gap: float = 60.0
         min_log_coverage: float = 600.0
@@ -122,9 +125,7 @@ data:
                 hold=num("WATCHDOG_HOLD_SECONDS", d.hold),
                 force=num("WATCHDOG_FORCE_SECONDS", d.force),
                 cooldown=num("WATCHDOG_COOLDOWN_SECONDS", d.cooldown),
-                quiet_max_other_work=int(
-                    num("WATCHDOG_QUIET_MAX_OTHER_WORK", d.quiet_max_other_work)
-                ),
+                quiet_max_work=int(num("WATCHDOG_QUIET_MAX_WORK", d.quiet_max_work)),
                 log_recent=num("WATCHDOG_LOG_RECENT_SECONDS", d.log_recent),
                 log_max_gap=num("WATCHDOG_LOG_MAX_GAP_SECONDS", d.log_max_gap),
                 min_log_coverage=num(
@@ -788,11 +789,10 @@ data:
             )
         longest = max(r.lock.age for r in qualified)
         work = exporter.queue_work if exporter else None
-        other = None if work is None else max(0, work - len(qualified))
         queue = (
             "queue unreadable (counted as busy)"
-            if other is None
-            else f"{other} queue item(s) beyond the wedged task(s)"
+            if work is None
+            else f"{work} queue item(s) pending or in progress"
         )
         if longest >= cfg.force:
             return Decision(
@@ -800,7 +800,7 @@ data:
                 f"forced: held {int(longest)}s >= {int(cfg.force)}s cap; {queue}",
                 tuple(reports),
             )
-        if other is not None and other <= cfg.quiet_max_other_work:
+        if work is not None and work <= cfg.quiet_max_work:
             return Decision(
                 "restart",
                 f"quiet moment: held {int(longest)}s >= {int(cfg.hold)}s; {queue}",

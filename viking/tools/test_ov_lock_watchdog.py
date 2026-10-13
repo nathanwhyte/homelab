@@ -113,7 +113,9 @@ class TestBug1220Policy(unittest.TestCase):
 
     def test_quiet_queue_restarts_at_the_hold_threshold(self):
         d = decide(
-            exporter=exporter([lock(3.2 * HOUR)], work=1),  # 1 = the wedged task
+            exporter=exporter(
+                [lock(3.2 * HOUR)], work=0
+            ),  # the wedged task is not in the queue
             log=refresh_log(hold=3.2 * HOUR),
         )
         self.assertEqual(d.action, "restart", d.reason)
@@ -126,7 +128,7 @@ class TestBug1220Policy(unittest.TestCase):
             log=refresh_log(hold=4 * HOUR),
         )
         self.assertEqual(d.action, "defer", d.reason)
-        self.assertIn("10 queue item(s) beyond", d.reason)
+        self.assertIn("11 queue item(s) pending or in progress", d.reason)
         self.assertIn("forced restart in 7200s", d.reason)
 
     def test_busy_queue_is_forced_at_the_cap(self):
@@ -150,12 +152,17 @@ class TestBug1220Policy(unittest.TestCase):
         self.assertEqual(d.action, "none")
         self.assertIn("no lock held >=", d.reason)
 
-    def test_quiet_max_other_work_is_configurable(self):
-        cfg = wd.Config(quiet_max_other_work=3)
-        d = wd.decide(
-            cfg, NOW, deploy(), exporter([lock(4 * HOUR)], work=4), refresh_log()
-        )
-        self.assertEqual(d.action, "restart", d.reason)
+    def test_quiet_max_work_is_configurable(self):
+        cfg = wd.Config(quiet_max_work=3)
+        for work, action in ((3, "restart"), (4, "defer")):
+            d = wd.decide(
+                cfg, NOW, deploy(), exporter([lock(4 * HOUR)], work=work), refresh_log()
+            )
+            self.assertEqual(d.action, action, d.reason)
+
+    def test_any_queued_work_defers_by_default(self):
+        d = decide(exporter=exporter([lock(4 * HOUR)], work=1))
+        self.assertEqual(d.action, "defer", d.reason)
 
 
 class TestIdentity(unittest.TestCase):
@@ -268,18 +275,17 @@ class TestTwoLongLocks(unittest.TestCase):
             sightings=tuple(sorted(log.sightings + second.sightings)),
         )
         d = decide(
-            exporter=exporter([lock(4 * HOUR), lock(4 * HOUR, key=key2)], work=2),
+            exporter=exporter([lock(4 * HOUR), lock(4 * HOUR, key=key2)], work=0),
             log=both,
         )
         self.assertEqual(d.action, "restart", d.reason)
         self.assertEqual(len(d.qualified), 2)
-        # Two wedged tasks account for two queue slots, so work=2 is quiet.
         self.assertIn("quiet", d.reason)
 
     def test_one_rejected_lock_does_not_veto_the_other(self):
         key2 = "default/user/noot/sessions/other/.path.ovlock"
         d = decide(
-            exporter=exporter([lock(4 * HOUR), lock(5 * HOUR, key=key2)], work=1),
+            exporter=exporter([lock(4 * HOUR), lock(5 * HOUR, key=key2)], work=0),
         )  # the log only has KEY
         self.assertEqual(d.action, "restart", d.reason)
         self.assertEqual([r.qualified for r in d.locks], [False, True])
@@ -319,9 +325,9 @@ def metrics_text(age=4 * HOUR, work=11, up=1, poll_ok=1) -> str:
         f'openviking_s3_ovlock_live_age_seconds{{key="{KEY}",uri="viking://u/x",'
         f'owner="tok-1",lock_type="E"}} {age}\n'
         '# TYPE openviking_queue_pending gauge\nopenviking_queue_pending{queue="total"} '
-        f"{work - 1}\n"
+        f"{work - (1 if work else 0)}\n"
         f'openviking_queue_pending{{queue="semantic"}} 40\n'
-        'openviking_queue_in_progress{queue="total"} 1\n'
+        'openviking_queue_in_progress{queue="total"} ' + ("1" if work else "0") + "\n"
     )
 
 
@@ -340,7 +346,7 @@ class TestRun(unittest.TestCase):
 
     def test_quiet_restart_patches_once_with_the_read_resource_version(self):
         cluster = FakeCluster(log=refresh_log(hold=4 * HOUR))
-        code, out = self.go(cluster, metrics_text(work=1))
+        code, out = self.go(cluster, metrics_text(work=0))
         self.assertEqual(code, 0, out)
         self.assertEqual(len(cluster.patches), 1)
         self.assertEqual(cluster.patches[0][0], "42")
@@ -351,7 +357,7 @@ class TestRun(unittest.TestCase):
 
     def test_dry_run_never_patches(self):
         cluster = FakeCluster()
-        code, out = self.go(cluster, metrics_text(work=1), dry_run=True)
+        code, out = self.go(cluster, metrics_text(work=0), dry_run=True)
         self.assertEqual(code, 0)
         self.assertEqual(cluster.patches, [])
         self.assertIn("DRY-RUN would restart", out)
@@ -385,7 +391,7 @@ class TestRun(unittest.TestCase):
                 raise wd.K8sError("HTTP 403 on GET deployments", blind=True)
 
         cluster = Blind()
-        code, out = self.go(cluster, metrics_text(work=1))
+        code, out = self.go(cluster, metrics_text(work=0))
         self.assertEqual((code, cluster.patches), (2, []))
         self.assertIn("BLIND", out)
 
@@ -395,7 +401,7 @@ class TestRun(unittest.TestCase):
                 raise wd.K8sError("HTTP 403 on GET pods/log", blind=True)
 
         cluster = NoLog()
-        code, out = self.go(cluster, metrics_text(work=1))
+        code, out = self.go(cluster, metrics_text(work=0))
         self.assertEqual((code, cluster.patches), (2, []))
         self.assertIn("pod log unavailable", out)
 
@@ -408,7 +414,7 @@ class TestRun(unittest.TestCase):
                 return ("ov-1", "a") if Swap.calls == 1 else ("ov-2", "b")
 
         cluster = Swap()
-        code, out = self.go(cluster, metrics_text(work=1))
+        code, out = self.go(cluster, metrics_text(work=0))
         self.assertEqual((code, cluster.patches), (0, []))
         self.assertIn("pod changed", out)
 
@@ -418,21 +424,21 @@ class TestRun(unittest.TestCase):
                 raise AssertionError("log must not be read")
 
         cluster = NoLogRead(deploy_state=deploy(restarted_ago=600.0))
-        code, out = self.go(cluster, metrics_text(work=1))
+        code, out = self.go(cluster, metrics_text(work=0))
         self.assertEqual((code, cluster.patches), (0, []))
         self.assertIn("cooldown", out)
 
     def test_conflict_on_patch_restarts_nothing_and_is_not_a_failure(self):
         cluster = FakeCluster()
         cluster.restart_error = wd.K8sError("HTTP 409", conflict=True)
-        code, out = self.go(cluster, metrics_text(work=1))
+        code, out = self.go(cluster, metrics_text(work=0))
         self.assertEqual((code, cluster.patches), (0, []))
         self.assertIn("lost a race", out)
 
     def test_failed_patch_exits_1(self):
         cluster = FakeCluster()
         cluster.restart_error = wd.K8sError("HTTP 500")
-        code, out = self.go(cluster, metrics_text(work=1))
+        code, out = self.go(cluster, metrics_text(work=0))
         self.assertEqual(code, 1)
         self.assertIn("FAILED", out)
 
@@ -445,7 +451,7 @@ class TestRun(unittest.TestCase):
                 return deploy() if Moving.reads == 1 else deploy(restarted_ago=5.0)
 
         cluster = Moving()
-        code, out = self.go(cluster, metrics_text(work=1))
+        code, out = self.go(cluster, metrics_text(work=0))
         self.assertEqual((code, cluster.patches), (0, []))
         self.assertIn("ABORTED before restart", out)
 
@@ -460,7 +466,7 @@ class TestRun(unittest.TestCase):
             covered_from=base.covered_from,
             sightings=tuple(sorted(base.sightings + second.sightings)),
         )
-        text = metrics_text(work=2) + (
+        text = metrics_text(work=0) + (
             f'openviking_s3_ovlock_live_age_seconds{{key="{key2}",uri="viking://u/y",'
             f'owner="tok-2",lock_type="E"}} {4 * HOUR}\n'
         )

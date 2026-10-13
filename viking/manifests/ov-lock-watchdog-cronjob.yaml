@@ -107,8 +107,10 @@ spec:
                   value: "21600"
                 - name: WATCHDOG_COOLDOWN_SECONDS
                   value: "3600"
-                # Queue items allowed beyond the wedged task(s) for a quiet moment.
-                - name: WATCHDOG_QUIET_MAX_OTHER_WORK
+                # Queue items (pending + in progress) tolerated at a "quiet
+                # moment". 0 = fully idle; the wedged task is not counted in
+                # the queue, so nothing is subtracted.
+                - name: WATCHDOG_QUIET_MAX_WORK
                   value: "0"
               volumeMounts:
                 - name: scripts
