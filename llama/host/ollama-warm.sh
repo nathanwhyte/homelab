@@ -68,8 +68,11 @@ OV_FIM_BASE=qwen2.5-coder:3b-base
 OV_FIM_NUM_CTX=8192
 OV_VLM_TAG=gemma4:vlm
 OV_VLM_BASE=gemma4:12b-it-qat
-# 65536 since 2026-10-13 (IMPR-1303; 32768 from 2026-09-21, BUG-1155) at 8
-# slots (KV ~6.4 GiB; see the Modelfile for the same-day 2 -> 4 -> 8 path).
+# 65536 since 2026-10-13 (IMPR-1303; 32768 from 2026-09-21, BUG-1155) at 4
+# slots (KV ~3.1 GiB; see the Modelfile for the same-day 2 -> 4 -> 8 -> 4
+# path). The Modelfile also bakes num_batch 2048, which this script does NOT
+# reconcile: only num_ctx is compared, so a num_batch change is applied by
+# hand with `ollama create gemma4:vlm -f llama/ollama/gemma4-vlm.Modelfile`.
 # MUST track PARAMETER num_ctx in llama/ollama/gemma4-vlm.Modelfile:
 # reconcile_tag compares the live tag against THIS value, so a Modelfile-only
 # change makes every warm run log "WARN: gemma4:vlm num_ctx is 65536, want

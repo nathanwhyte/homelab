@@ -166,14 +166,30 @@ FROM gemma4:12b-it-qat
 # heads. Both are right for their model. Any future tag change here must
 # re-derive KV from ITS OWN /api/show shape and the allocator's padding rules.
 #
-# 65536 since 2026-10-13 (IMPR-1303) at OLLAMA_NUM_PARALLEL=8: runner n_ctx
+# 65536 since 2026-10-13 (IMPR-1303) at OLLAMA_NUM_PARALLEL=4: runner n_ctx
 # 262144. MEASURED at 4 x 65536: the runner allocated 2176 + 1020 MiB of KV
-# (the formula above predicted ~3.35 GB), so 8 x 65536 is ~6.4 GiB. It was
-# first deployed as 2 x 65536 (~1.68 GB) to keep the aggregate at 131072, but
-# two slots halved completions per minute and stalled the Semantic queue
-# within 20 minutes, so the slot count went back to 4 the same day and up to
-# 8 that afternoon once the freed VRAM was confirmed; see the drop-in.
-# Weights 6.6 GiB + this KV fits the 16 GB card with no second tag resident.
+# (the formula above predicted ~3.35 GB). It was first deployed as 2 x 65536
+# (~1.68 GB) to keep the aggregate at 131072, but two slots halved completions
+# per minute and stalled the Semantic queue within 20 minutes; 8 x 65536
+# (~6.4 GiB KV) ran for 15 minutes that afternoon and gained nothing, since
+# the card is decode-bound at ~100 t/s for this model (see the drop-in). 4 it
+# is. Weights 6.6 GiB + this KV fits the 16 GB card with no second tag
+# resident.
+#
+# num_batch 2048 (2026-10-13, IMPR-1303): Ollama's llama runner sets both
+# n_batch and n_ubatch from this value (default 512). n_ubatch is the physical
+# micro-batch: a 13K-token prompt is 26 forward passes at 512 and 7 at 2048,
+# each pass streaming the full weights once, so prefill does ~4x the tokens
+# per byte read. It only touches prompt eval (p50 13K tokens at ~1,800 t/s,
+# ~7 s of a 60-250 s call); decode steps carry at most n_slots tokens and
+# never fill a 512 batch, so the ~100 t/s decode ceiling is unchanged. Cost:
+# the Vulkan compute buffer grows from 188 MiB to 758 MiB, and Ollama's
+# pre-load estimate is the gate: at 8 slots the same value made the estimator
+# offload 4 of 49 layers to CPU (1.27 GiB weights + 408 MiB KV on the host,
+# GPU 12-30% busy), which is why 8 x 2048 was reverted within minutes. At 4
+# slots the total is ~10.5 GiB. ollama-warm.sh reconciles num_ctx only, so a
+# num_batch change needs `ollama create gemma4:vlm -f <this file>` by hand
+# after `git pull` on timmy; the next installer run would not notice it.
 #
 # This time the wall was on the PROMPT side. Ollama admits a prompt unchanged
 # up to num_ctx - 1 tokens; a longer one is cut down to half the slot and
@@ -186,12 +202,14 @@ FROM gemma4:12b-it-qat
 # sampling (semantic.overview_sample_limit) is a separate, optional item in
 # IMPR-1303, not needed for these prompts.
 #
-# VERIFY AFTER THE RELOAD: the runner's `n_ctx_seq = 65536` and `n_slots = 8`
-# lines, `/api/ps` context_length 65536, the two `KV buffer size` lines summing
-# to ~6.4 GiB, and zero new `msg="truncating input prompt"` lines over a busy
-# window (match on the msg= form: the bare phrase also appears inside gemma4
-# tool-call parse failures that echo earlier log text).
+# VERIFY AFTER THE RELOAD: the runner's `n_ctx_seq = 65536`, `n_slots = 4`,
+# `n_ubatch = 2048` and `offloaded 49/49 layers to GPU` lines, `/api/ps`
+# context_length 65536, the two `KV buffer size` lines summing to ~3.1 GiB,
+# and zero new `msg="truncating input prompt"` lines over a busy window (match
+# on the msg= form: the bare phrase also appears inside gemma4 tool-call parse
+# failures that echo earlier log text).
 PARAMETER num_ctx 65536
+PARAMETER num_batch 2048
 PARAMETER temperature 0
 PARAMETER top_p 0.95
 PARAMETER top_k 64
