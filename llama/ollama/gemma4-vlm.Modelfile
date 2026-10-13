@@ -84,6 +84,23 @@
 # template and lose the tool-call parser that OpenViking's session commit
 # relies on. `think` is per-request (the proxy injects reasoning none).
 #
+# PIN. The hf.co reference is a moving name: Unsloth re-uploads quants under
+# the same file name when they fix templates or re-quantize, and `ollama pull`
+# has no revision syntax, so a fresh host could land different weights with no
+# log line. The file this recipe was measured on, 2026-10-13:
+#   repo    unsloth/gemma-4-E4B-it-GGUF
+#   commit  bfc15c382204943c3a8fff0c750b94ae2364d7a3  (2026-07-17)
+#   file    gemma-4-E4B-it-Q8_0.gguf, 8192953472 bytes
+#   sha256 f8854aa4480df62585a279e7ca0a881554fc18a41c59c4f62642d16a2ae47012
+# Ollama stores the download under that sha256 (models/blobs/sha256-f8854aa…),
+# and ollama-warm.sh refuses to serve or restart into a gemma4:vlm whose first
+# FROM blob differs (OV_VLM_BASE_SHA256, test 7). If a pull ever lands another
+# blob, fetch the pinned file by commit and build from the path instead:
+#   curl -fL -o /var/lib/ollama/gemma-4-E4B-it-Q8_0.gguf \
+#     https://huggingface.co/unsloth/gemma-4-E4B-it-GGUF/resolve/bfc15c382204943c3a8fff0c750b94ae2364d7a3/gemma-4-E4B-it-Q8_0.gguf
+#   sha256sum /var/lib/ollama/gemma-4-E4B-it-Q8_0.gguf   # must match the pin
+#   then FROM /var/lib/ollama/gemma-4-E4B-it-Q8_0.gguf here, keep RENDERER/PARSER.
+#
 # Requires: ollama pull hf.co/unsloth/gemma-4-E4B-it-GGUF:Q8_0
 # Build:    ollama create gemma4:vlm -f gemma4-vlm.Modelfile
 # Rollback: FROM gemma4:12b-it-qat, drop the RENDERER/PARSER lines, rebuild.

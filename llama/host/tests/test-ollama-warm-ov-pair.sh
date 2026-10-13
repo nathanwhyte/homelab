@@ -20,10 +20,13 @@ pass=0 fail=0
 # Reference recipes prepare_ov_pair copies verbatim.
 printf 'FROM qwen2.5-coder:3b-base\nPARAMETER num_ctx 8192\n' \
 	>"$TMP/modelfiles/qwen2.5-coder-fim.Modelfile"
-printf 'FROM gemma4:12b-it-qat\nPARAMETER num_ctx 65536\n' \
+printf 'FROM hf.co/unsloth/gemma-4-E4B-it-GGUF:Q8_0\nPARAMETER num_ctx 65536\n' \
 	>"$TMP/modelfiles/gemma4-vlm.Modelfile"
+# The weights blob the script pins for gemma4:vlm, read from the script so the
+# mock cannot drift from it.
+PIN=$(grep -oE '^OV_VLM_BASE_SHA256=[0-9a-f]+' "$SCRIPT" | cut -d= -f2)
 
-mock() { # $1 = existing qwen num_ctx ("" = tag missing), $2 = existing gemma num_ctx
+mock() { # $1 = existing qwen num_ctx ("" = tag missing), $2 = existing gemma num_ctx, $3 = gemma weights blob (default: the pin)
 	cat >"$TMP/bin/ollama" <<EOF
 #!/usr/bin/env bash
 # One assignment per line: the create branch rewrites each with sed, and a
@@ -31,6 +34,7 @@ mock() { # $1 = existing qwen num_ctx ("" = tag missing), $2 = existing gemma nu
 # asserted on calls.log).
 QWEN_CTX="$1"
 GEMMA_CTX="$2"
+GEMMA_BLOB="${3:-$PIN}"
 echo "\$*" >>"$TMP/calls.log"
 case "\$1" in
 show)
@@ -40,6 +44,10 @@ show)
   if [[ \${3:-} == --parameters ]]; then
     [[ \$tag == qwen2.5-coder:fim ]] && echo "num_ctx \$QWEN_CTX"
     [[ \$tag == gemma4:vlm ]] && echo "num_ctx \$GEMMA_CTX"
+  fi
+  if [[ \${3:-} == --modelfile && \$tag == gemma4:vlm ]]; then
+    echo "FROM /blobs/sha256-\$GEMMA_BLOB"
+    echo "FROM /blobs/sha256-projector"
   fi
   exit 0 ;;
 create)
@@ -141,6 +149,35 @@ if grep -qE 'MODELFILE_DIR="\$REPO_DIR/llama/ollama" \\$' "$REPO/llama/host/inst
 	pass=$((pass + 1))
 else
 	echo "  FAIL  installer does not pass MODELFILE_DIR=\$REPO_DIR/llama/ollama to --reconcile-only"
+	fail=$((fail + 1))
+fi
+
+echo "test 7: the gemma4:vlm weights blob is pinned (hf.co base is a moving name)"
+# Unsloth re-uploads quants under the same file name, so a fresh host's pull
+# can land different weights with no log line. The pre-restart gate refuses a
+# tag whose first FROM blob is not the pinned sha256; the Modelfile's PIN block
+# must carry the same value.
+mock 8192 65536 0000000000000000000000000000000000000000000000000000000000000000
+if run_reconcile "$REPO/llama/ollama"; then
+	echo "  FAIL  mismatched weights blob: --reconcile-only passed"
+	fail=$((fail + 1))
+else
+	echo "  PASS  mismatched weights blob: --reconcile-only refuses"
+	pass=$((pass + 1))
+fi
+mock 8192 65536
+if run_reconcile "$REPO/llama/ollama"; then
+	echo "  PASS  pinned weights blob: --reconcile-only passes"
+	pass=$((pass + 1))
+else
+	echo "  FAIL  pinned weights blob: --reconcile-only refused"
+	fail=$((fail + 1))
+fi
+if [[ -n $PIN ]] && grep -q "sha256 $PIN" "$REPO/llama/ollama/gemma4-vlm.Modelfile"; then
+	echo "  PASS  Modelfile PIN block carries the script's pinned sha256"
+	pass=$((pass + 1))
+else
+	echo "  FAIL  Modelfile PIN block does not carry OV_VLM_BASE_SHA256 ($PIN)"
 	fail=$((fail + 1))
 fi
 

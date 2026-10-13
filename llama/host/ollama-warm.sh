@@ -71,6 +71,13 @@ OV_VLM_TAG=gemma4:vlm
 # before): `ollama pull` accepts the hf.co form, and the recipe states
 # RENDERER/PARSER gemma4 because an hf.co base does not inherit them.
 OV_VLM_BASE=hf.co/unsloth/gemma-4-E4B-it-GGUF:Q8_0
+# PIN. The hf.co name is a moving target (Unsloth re-uploads quants under the
+# same file name), so the weights blob a fresh pull lands is verified against
+# the file measured on 2026-10-13: gemma-4-E4B-it-Q8_0.gguf at Hugging Face
+# commit bfc15c382204943c3a8fff0c750b94ae2364d7a3. Ollama stores the file under
+# its own sha256, so this is the blob name under models/blobs/. MUST track the
+# PIN block in llama/ollama/gemma4-vlm.Modelfile (test 7 checks they agree).
+OV_VLM_BASE_SHA256=f8854aa4480df62585a279e7ca0a881554fc18a41c59c4f62642d16a2ae47012
 # 65536 since 2026-10-13 (IMPR-1303; 32768 from 2026-09-21, BUG-1155) at 4
 # slots (KV ~2.3 GiB on the E4B base; see the Modelfile for the same-day
 # 2 -> 4 -> 8 -> 4 slot path and the 12B -> E4B switch). The Modelfile also
@@ -130,6 +137,25 @@ create_if_missing() {
 	fi
 	ollama pull "$2" || true
 	ollama create "$1" -f "$3" || true
+}
+
+tag_base_blob() {
+	# Prints the sha256 of the tag's first FROM blob (the weights; a projector
+	# follows it), or nothing when the tag is missing.
+	ollama show "$1" --modelfile 2>/dev/null |
+		awk '/^FROM .*sha256-/ {sub(/.*sha256-/, "", $2); print $2; exit}'
+}
+
+verify_base_blob() {
+	# $1 tag, $2 pinned sha256. Non-zero when the served tag's weights are not
+	# the pinned file: an hf.co base re-uploaded upstream would otherwise land
+	# different weights on a fresh host with no log line saying so. Recovery is
+	# the commit-pinned download in the Modelfile's PIN block.
+	local got
+	got=$(tag_base_blob "$1")
+	[[ $got == "$2" ]] && return 0
+	log "WARN: $1 weights blob is ${got:-unset}, pinned ${2:0:12}… (upstream re-upload? see the Modelfile PIN block)"
+	return 1
 }
 
 tag_num_ctx() {
@@ -202,7 +228,8 @@ reconcile_one() {
 		;;
 	"$OV_VLM_TAG")
 		OV_RECIPE="$dir/gemma4-vlm.Modelfile" \
-			reconcile_tag "$OV_VLM_TAG" "$OV_VLM_BASE" copy_modelfile "$OV_VLM_NUM_CTX"
+			reconcile_tag "$OV_VLM_TAG" "$OV_VLM_BASE" copy_modelfile "$OV_VLM_NUM_CTX" &&
+			verify_base_blob "$OV_VLM_TAG" "$OV_VLM_BASE_SHA256"
 		;;
 	*)
 		log "ERROR: no recipe for tag $1"
@@ -343,9 +370,11 @@ prepare_ov_pair() {
 	OV_RECIPE="$dir/qwen2.5-coder-fim.Modelfile" \
 		reconcile_tag "$OV_FIM_TAG" "$OV_FIM_BASE" copy_modelfile "$OV_FIM_NUM_CTX" ||
 		log "WARN: $OV_FIM_TAG not reconciled"
-	OV_RECIPE="$dir/gemma4-vlm.Modelfile" \
-		reconcile_tag "$OV_VLM_TAG" "$OV_VLM_BASE" copy_modelfile "$OV_VLM_NUM_CTX" ||
-		log "WARN: $OV_VLM_TAG not reconciled"
+	{
+		OV_RECIPE="$dir/gemma4-vlm.Modelfile" \
+			reconcile_tag "$OV_VLM_TAG" "$OV_VLM_BASE" copy_modelfile "$OV_VLM_NUM_CTX" &&
+			verify_base_blob "$OV_VLM_TAG" "$OV_VLM_BASE_SHA256"
+	} || log "WARN: $OV_VLM_TAG not reconciled"
 }
 
 mode=warm
