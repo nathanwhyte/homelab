@@ -7,10 +7,12 @@
 # Kubernetes API (no kubectl in the Job image).
 #
 # Scope: get/patch on the ONE named deployment in viking, plus read-only
-# pods and pods/log in viking (below). The `kubectl auth can-i` matrix in the
-# IMPR-1062 plan (Phase 4 automated verification) asserts the allows and the
-# denies; the read rules add three allows and leave every other deny in place.
-# `get` on the named deployment lets the SA read its own restart's rollout
+# pods and pods/log in viking (below). The `kubectl auth can-i` matrix the
+# IMPR-1062 plan recorded (Phase 4 automated verification, 2026-07-21) is no
+# longer true as written: its `list/get pods -> no` deny is superseded by the
+# read rules, which also allow get pods/log. Every other deny in it still
+# holds (delete, other deployments, namespace-wide or cross-namespace patch,
+# secrets). `get` on the named deployment lets the SA read its own restart's rollout
 # status when diagnosing a heal.
 #
 # Pod and pod-log read (BUG-1181 option 3, approved 2026-10-13). PR #51 dropped
