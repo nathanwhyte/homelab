@@ -1,0 +1,65 @@
+---
+# BUG-1196: alert when a session commit's memory extraction fails.
+#
+# A failed Phase 2 run writes .failed.json on the archive, fails its task, and
+# logs "Memory extraction failed for session …", but none of the existing rules
+# see it: openviking_queue_errors_total stays at 0 (the queue message is
+# handled; only the extraction inside it failed). On 2026-09-29 eight commits
+# lost every memory this way, and on 2026-10-12 seven more did, all silently.
+#
+# Source: OpenViking's native operation counter, scraped straight from
+# /metrics on the openviking container. It does not depend on the ov-exporter
+# sidecar. Telemetry finishes "error" on the same code path that logs
+# "Memory extraction failed", so the counter and the log agree (2026-10-12:
+# 4 errors on pod openviking-67dc9f9cff-dspc2, 4 log lines).
+#
+# Not a Loki rule: Loki runs without a ruler here, and OpenViking's rich log
+# handler folds long records across several Loki entries. Not
+# openviking_task_failed either: that gauge counts failed tasks in the
+# process-local cache, which refills from the task store after a restart, so
+# it jumped by 14 on 2026-10-12 19:45Z with no new failure.
+#
+# The second branch covers the first error after a pod start: the counter
+# series is born at 1, and increase() cannot see a series' first sample. The
+# alert clears on its own 15 min after the last failure, so it notifies once
+# per burst instead of re-notifying.
+#
+# Validated against 2026-10-12 14:00Z-24:00Z (Prometheus range query): it
+# fires at 15:16, 15:23, 16:34, 19:44 (first error after the 19:33 restart),
+# 20:31 and 20:45Z, matching every "Memory extraction failed" line in Loki.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: openviking-extraction-alerts
+  namespace: viking
+  labels:
+    app: openviking
+spec:
+  groups:
+    - name: openviking.extraction.rules
+      rules:
+        - alert: OpenVikingMemoryExtractionFailed
+          expr: |
+            sum by (namespace, pod) (
+              increase(openviking_operation_requests_total{operation="session_commit_phase2",status="error"}[15m])
+            ) > 0
+            or
+            sum by (namespace, pod) (
+              openviking_operation_requests_total{operation="session_commit_phase2",status="error"}
+              unless
+              openviking_operation_requests_total{operation="session_commit_phase2",status="error"} offset 15m
+            )
+          for: 0m
+          labels:
+            severity: warning
+          annotations:
+            summary: "OpenViking memory extraction failed for a session commit"
+            description: >-
+              {{ $value | humanize }} session commit(s) on {{ $labels.pod }} ended Phase 2
+              with an error in the last 15m, so no memories were extracted from those
+              archives (each has .failed.json). Find the session and cause in Loki:
+              {namespace="viking", container="openviking"} |= "Memory extraction failed"
+              and |= "ov-extract-outcome" (failure_class timeout, lock_wait, degraded or
+              other; lock_wait means an events-tree reindex or a wedged .ovlock held the
+              tree). Re-extracting a failed archive is a replay into a fresh session
+              (BUG-1176 procedure), a prod write that needs the user's go-ahead.

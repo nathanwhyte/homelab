@@ -44,6 +44,8 @@ resources:
   - openviking-mcp-ingress.yaml
   - openviking-servicemonitor.yaml
   - openviking-alerts.yaml
+  # BUG-1196: alert on failed session-commit memory extraction
+  - openviking-extraction-alerts.yaml
   # IMPR-1095: stale S3 .ovlock janitor (shadow mode until Phase 4 flips --apply)
   - ovlock-janitor-configmap.yaml
   - ovlock-janitor-cronjob.yaml
