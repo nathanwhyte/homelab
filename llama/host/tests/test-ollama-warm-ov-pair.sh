@@ -181,6 +181,47 @@ else
 	fail=$((fail + 1))
 fi
 
+echo "test 8: a base rollback moves OV_VLM_BASE and OV_VLM_BASE_SHA256 together"
+# Caught by Codex on homelab#219: the Modelfile's rollback line said "FROM
+# gemma4:12b-it-qat, rebuild", which leaves the E4B pin in place, so the
+# rolled-back tag's first FROM blob no longer matches and the pre-restart gate
+# refuses the very rollback it documents. Simulate both halves against a
+# script copy: recipe-only rollback must be refused, recipe + both constants
+# must pass.
+OLD_BLOB=1111111111111111111111111111111111111111111111111111111111111111
+mkdir -p "$TMP/rollback"
+printf 'FROM gemma4:12b-it-qat\nPARAMETER num_ctx 65536\n' >"$TMP/rollback/gemma4-vlm.Modelfile"
+cp "$TMP/modelfiles/qwen2.5-coder-fim.Modelfile" "$TMP/rollback/"
+mock 8192 65536 "$OLD_BLOB" # the host already serves the rolled-back 12B tag
+if MODELFILE_DIR="$TMP/rollback" OLLAMA_URL="http://127.0.0.1:1" \
+	bash "$SCRIPT" --reconcile-only >>"$TMP/out" 2>&1; then
+	echo "  FAIL  recipe-only rollback: --reconcile-only passed with the E4B pin still set"
+	fail=$((fail + 1))
+else
+	echo "  PASS  recipe-only rollback: --reconcile-only refuses (pin left behind)"
+	pass=$((pass + 1))
+fi
+sed -e 's|^OV_VLM_BASE=.*|OV_VLM_BASE=gemma4:12b-it-qat|' \
+	-e "s|^OV_VLM_BASE_SHA256=.*|OV_VLM_BASE_SHA256=$OLD_BLOB|" \
+	"$SCRIPT" >"$TMP/ollama-warm-rolled-back.sh"
+mock 8192 65536 "$OLD_BLOB"
+if MODELFILE_DIR="$TMP/rollback" OLLAMA_URL="http://127.0.0.1:1" \
+	bash "$TMP/ollama-warm-rolled-back.sh" --reconcile-only >>"$TMP/out" 2>&1; then
+	echo "  PASS  recipe + base + pin rollback: --reconcile-only passes"
+	pass=$((pass + 1))
+else
+	echo "  FAIL  recipe + base + pin rollback: --reconcile-only refused"
+	fail=$((fail + 1))
+fi
+if grep -qE 'OV_VLM_BASE_SHA256' "$REPO/llama/ollama/gemma4-vlm.Modelfile" &&
+	grep -qiE 'rollback.*together|together.*rollback' "$REPO/llama/ollama/gemma4-vlm.Modelfile"; then
+	echo "  PASS  Modelfile rollback note names the pin and says the two move together"
+	pass=$((pass + 1))
+else
+	echo "  FAIL  Modelfile rollback note does not tie the pin to the base change"
+	fail=$((fail + 1))
+fi
+
 echo "test 5: the adoption points agree across files"
 # The hazard this guards is real and was caught in review: the live host had
 # MAX_LOADED_MODELS=2 while the tracked drop-in still said 1, so reapplying the

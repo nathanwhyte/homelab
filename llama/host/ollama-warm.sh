@@ -68,15 +68,22 @@ OV_FIM_BASE=qwen2.5-coder:3b-base
 OV_FIM_NUM_CTX=8192
 OV_VLM_TAG=gemma4:vlm
 # E4B Q8_0 from Hugging Face since 2026-10-13 (IMPR-1303; gemma4:12b-it-qat
-# before): `ollama pull` accepts the hf.co form, and the recipe states
-# RENDERER/PARSER gemma4 because an hf.co base does not inherit them.
+# before): `ollama pull` accepts the hf.co form. The recipe states
+# RENDERER/PARSER gemma4 to select them explicitly (Ollama 0.40.3 would
+# detect the same pair from the GGUF architecture; the lines make the choice
+# visible and pin it).
 OV_VLM_BASE=hf.co/unsloth/gemma-4-E4B-it-GGUF:Q8_0
 # PIN. The hf.co name is a moving target (Unsloth re-uploads quants under the
 # same file name), so the weights blob a fresh pull lands is verified against
 # the file measured on 2026-10-13: gemma-4-E4B-it-Q8_0.gguf at Hugging Face
 # commit bfc15c382204943c3a8fff0c750b94ae2364d7a3. Ollama stores the file under
 # its own sha256, so this is the blob name under models/blobs/. MUST track the
-# PIN block in llama/ollama/gemma4-vlm.Modelfile (test 7 checks they agree).
+# PIN block in llama/ollama/gemma4-vlm.Modelfile (test 7 checks they agree),
+# and MUST change together with OV_VLM_BASE: a base change that leaves this
+# pin behind makes verify_base_blob refuse the new tag, which fails this unit
+# and aborts the installer's pre-restart gate (test 8 covers the 12B
+# rollback). This is a warm/installer gate only; the daemon still serves a
+# drifted tag on request until the WARN is acted on.
 OV_VLM_BASE_SHA256=f8854aa4480df62585a279e7ca0a881554fc18a41c59c4f62642d16a2ae47012
 # 65536 since 2026-10-13 (IMPR-1303; 32768 from 2026-09-21, BUG-1155) at 4
 # slots (KV ~2.3 GiB on the E4B base; see the Modelfile for the same-day
