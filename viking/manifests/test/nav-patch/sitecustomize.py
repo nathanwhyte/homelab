@@ -16,7 +16,12 @@ off switch; a patch failure never breaks the import):
                         LLM output after the loop's own retry) becomes a retryable
                         Phase 2 failure instead of an empty ``memory_diff.json``
                         recorded as success (``ExtractLoop.run`` + the session's
-                        Phase 2 retry classifier and budget).
+                        Phase 2 retry classifier and budget). BUG-1196: session-
+                        extraction timeouts and lock waits are retried on their own
+                        budgets with one ``ov-extract-outcome {json}`` stderr line per
+                        retry/failure, and long-term extraction is chunked for every
+                        session (``retry_async`` + ``resolve_extraction_batch_limits``;
+                        ``OV_EXTRACT_PATCH_CHUNK=0`` turns chunking off alone).
   * ov_chatlog_patch  — BUG-1177: ChatLog speaker labels follow the turn's role
                         (assistant turns read ``assistant``) and tool-only turns no
                         longer render as empty lines (``MessageRange._speaker_for`` +

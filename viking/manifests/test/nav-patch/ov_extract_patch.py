@@ -38,31 +38,93 @@ Scope of the claim: this protects against a demonstrated source-code defect (an 
 retry becomes a successful empty diff). Whether the 2026-09-22 zero runs took this path or
 returned a parsed empty program is not established by the INFO log; see BUG-1176.
 
+BUG-1196 adds three things to the session half, each with its own guard and off switch:
+
+  * Timeouts and lock waits are retried, each on its own small budget. Stock
+    ``is_retryable_api_error`` matches the text "timeout", not "timed out", so
+    ``openai.APITimeoutError`` ("Request timed out.") and ``LockAcquisitionError`` ("lock
+    acquire timed out after 300000ms") both failed the archive on the first attempt.
+    ``session.retry_async`` (the name ``_run_retryable_phase2_step`` looks up at call
+    time) is wrapped with a per-call classifier. A timeout is retried only when the
+    session-extraction ``ExtractLoop.run`` raised it (the loop half tags it): that loop
+    runs before anything from the batch is written, so repeating it cannot duplicate
+    events. A timeout from anywhere else keeps stock behaviour. A lock wait is retried on
+    its own budget; it is raised while memories are being applied, so a retry re-runs the
+    batch's extraction against files a sibling group may already have written (the same
+    exposure upstream accepts for its own transient retries; the memory guard drops exact
+    ``add_only`` duplicates). Both stay under the overall ``_MEMORY_EXTRACTION_MAX_RETRIES``
+    cap. Budgets: ``OV_EXTRACT_PATCH_TIMEOUT_RETRIES`` (default 2) and
+    ``OV_EXTRACT_PATCH_LOCK_RETRIES`` (default 3); ``0`` turns that class off.
+  * Every retry, recovery and final failure of a Phase 2 step writes one unwrapped
+    ``ov-extract-outcome {json}`` line on stderr naming the step, attempt and
+    ``failure_class`` (``timeout``, ``lock_wait``, ``degraded`` or ``other``), so a lock
+    wait reads differently from a model timeout in Loki. Not through ``logger``: the rich
+    handler folds long records into several Loki entries (see ov_memory_guard_patch).
+  * Long-term extraction is chunked. v0.4.20 already plans Phase 2 extraction batches,
+    but only from a session's ``auto_commit_policy``, and Claude Code sessions carry none,
+    so a 180-message archive went to the model as one prompt. The session module's
+    ``resolve_extraction_batch_limits`` is wrapped to cap every session at
+    ``OV_EXTRACT_PATCH_BATCH_MESSAGES`` (default 60) messages and
+    ``OV_EXTRACT_PATCH_BATCH_TOKENS`` (default 24000) estimated tokens per batch, keeping a
+    policy's tighter limit; ``0`` drops that cap and ``OV_EXTRACT_PATCH_CHUNK=0`` turns
+    chunking off. Upstream records and retries each batch as its own step, so a failure
+    redoes one batch, not the archive. The same limits batch the Working Memory summary.
+
 Guarded: applies only to openviking ``v0.4.20`` whose ``ExtractLoop.run`` source hashes to
-``EXPECTED_RUN_SHA256``; otherwise it logs "NOT applied" and stock behaviour stays.
-Disable at runtime with ``OV_EXTRACT_PATCH=0``. Retry budget overrides:
+``EXPECTED_RUN_SHA256``; otherwise it logs "NOT applied" and stock behaviour stays. The
+retry and chunking wrappers are each also guarded on the source hash of the function they
+wrap. Disable everything at runtime with ``OV_EXTRACT_PATCH=0``. Retry budget overrides:
 ``OV_EXTRACT_PATCH_RETRIES``, ``OV_EXTRACT_PATCH_BASE_DELAY``, ``OV_EXTRACT_PATCH_MAX_DELAY``.
 """
 
 from __future__ import annotations
 
+import contextlib
 import functools
 import hashlib
 import inspect
+import json
 import logging
 import os
+import re
+import sys
 
 EXPECTED_VERSION = "v0.4.20"
 EXPECTED_RUN_SHA256 = "f9bf435228ca4a82200442f47752a0f4b7e2213a0c86dcb08a6a773357156876"
+# BUG-1196: openviking.utils.model_retry.retry_async and
+# openviking.session.extraction_batch.resolve_extraction_batch_limits on v0.4.20.
+EXPECTED_RETRY_ASYNC_SHA256 = (
+    "0b5f1eb95670455767e1b671c132cfd6a814d3d62bfc94b59b155f23816a8fa7"
+)
+EXPECTED_RESOLVE_LIMITS_SHA256 = (
+    "811fff5754eee8fed3fdfde1c4c9750901249ef3c66041032f6082959c47b9b1"
+)
 DEFAULT_RETRIES = 5
 DEFAULT_BASE_DELAY_SECONDS = 15.0
 DEFAULT_MAX_DELAY_SECONDS = 120.0
+DEFAULT_TIMEOUT_RETRIES = 2
+DEFAULT_LOCK_RETRIES = 3
+DEFAULT_BATCH_MESSAGES = 60
+DEFAULT_BATCH_TOKENS = 24000
+
+FAILURE_TIMEOUT = "timeout"
+FAILURE_LOCK_WAIT = "lock_wait"
+FAILURE_DEGRADED = "degraded"
+FAILURE_OTHER = "other"
+OUTCOME_PREFIX = "ov-extract-outcome "
+STAGE_ATTR = "_ov_extract_stage"
+STAGE_SESSION_EXTRACT = "session_extract"
 
 logger = logging.getLogger("ov_extract_patch")
 SESSION_PROVIDER = (
     "SessionExtractContextProvider"  # exact class; subclasses are merge loops
 )
 _state = {"loop_applied": False}
+
+_LOCK_WAIT_TEXT = re.compile(
+    r"lock acquir\w* timed out|pathlock\S* .*timed out", re.IGNORECASE
+)
+_TIMEOUT_TEXT = re.compile(r"\btimed out\b|\btimeout\b", re.IGNORECASE)
 
 
 class ExtractionDegradedError(RuntimeError):
@@ -83,18 +145,92 @@ def _enabled() -> bool:
     return True
 
 
+# --- failure classification (BUG-1196) -------------------------------------------------
+
+
+def _chain(error: BaseException) -> list[BaseException]:
+    """``error`` plus its ``__cause__``/``__context__`` chain, cycle-safe."""
+    seen: set[int] = set()
+    out: list[BaseException] = []
+    cur: BaseException | None = error
+    while cur is not None and id(cur) not in seen:
+        out.append(cur)
+        seen.add(id(cur))
+        cur = cur.__cause__ or cur.__context__
+    return out
+
+
+def _class_names(error: BaseException) -> set[str]:
+    return {cls.__name__ for cls in type(error).__mro__}
+
+
+def failure_class(error: BaseException) -> str:
+    """Classify a Phase 2 step failure as degraded, lock_wait, timeout or other.
+
+    Lock waits are checked before timeouts because their text says "timed out" too.
+    Class names are matched instead of imported types so this module stays importable
+    without openviking, openai or httpx.
+    """
+    chain = _chain(error)
+    if any(isinstance(e, ExtractionDegradedError) for e in chain):
+        return FAILURE_DEGRADED
+    for e in chain:
+        if "LockAcquisitionError" in _class_names(e) or _LOCK_WAIT_TEXT.search(str(e)):
+            return FAILURE_LOCK_WAIT
+    for e in chain:
+        if (
+            isinstance(e, TimeoutError)
+            or any(
+                n.endswith(("Timeout", "TimeoutError", "TimeoutException"))
+                for n in _class_names(e)
+            )
+            or _TIMEOUT_TEXT.search(str(e))
+        ):
+            return FAILURE_TIMEOUT
+    return FAILURE_OTHER
+
+
+def is_session_extract_timeout(error: BaseException) -> bool:
+    """True for a timeout the loop half tagged as raised by session extraction."""
+    return failure_class(error) == FAILURE_TIMEOUT and any(
+        getattr(e, STAGE_ATTR, None) == STAGE_SESSION_EXTRACT for e in _chain(error)
+    )
+
+
+def emit_outcome(record: dict) -> None:
+    """Write one ``ov-extract-outcome {json}`` line on stderr, never folded by rich."""
+    # Diagnostics must never fail a step.
+    with contextlib.suppress(Exception):
+        sys.stderr.write(OUTCOME_PREFIX + json.dumps(record, sort_keys=True) + "\n")
+        sys.stderr.flush()
+
+
+# --- ExtractLoop half (BUG-1176) -------------------------------------------------------
+
+
 def wrap_run(orig):
     """Wrap ``ExtractLoop.run``: errors-only result raises; zero-op result is logged."""
 
     @functools.wraps(orig)
     async def run(self):
-        operations, tools_used = await orig(self)
+        provider = type(getattr(self, "context_provider", None)).__name__
+        try:
+            operations, tools_used = await orig(self)
+        except Exception as exc:
+            # BUG-1196: session extraction runs before anything from this batch is
+            # written, so its timeouts are safe for the Phase 2 retry to repeat. Tag them;
+            # the session-half classifier retries only tagged timeouts.
+            if provider == SESSION_PROVIDER and failure_class(exc) == FAILURE_TIMEOUT:
+                try:
+                    setattr(exc, STAGE_ATTR, STAGE_SESSION_EXTRACT)
+                except (AttributeError, TypeError):
+                    pass
+            raise
         if operations is None:
             return operations, tools_used
         upserts = getattr(operations, "upsert_operations", None) or []
         errors = list(getattr(operations, "errors", None) or [])
         kind = getattr(self, "_last_llm_failure_kind", None) or "unknown"
-        provider = type(getattr(self, "context_provider", None)).__name__
         if errors and not upserts:
             if provider != SESSION_PROVIDER:
                 logger.warning(
@@ -140,23 +276,158 @@ def wrap_is_retryable(orig):
     return is_retryable
 
 
-def retry_budget() -> tuple[int, float, float]:
-    def _num(name, default, cast):
-        raw = os.environ.get(name)
-        if raw is None or not raw.strip():
-            return default
-        try:
-            value = cast(raw)
-        except ValueError:
-            logger.warning("ov-extract-patch: ignoring %s=%r", name, raw)
-            return default
-        return value if value > 0 else default
+# --- budgets ---------------------------------------------------------------------------
 
+
+def _env_num(name, default, cast, *, allow_zero=False):
+    raw = os.environ.get(name)
+    if raw is None or not raw.strip():
+        return default
+    try:
+        value = cast(raw)
+    except ValueError:
+        logger.warning("ov-extract-patch: ignoring %s=%r", name, raw)
+        return default
+    if value > 0 or (allow_zero and value == 0):
+        return value
+    return default
+
+
+def retry_budget() -> tuple[int, float, float]:
     return (
-        _num("OV_EXTRACT_PATCH_RETRIES", DEFAULT_RETRIES, int),
-        _num("OV_EXTRACT_PATCH_BASE_DELAY", DEFAULT_BASE_DELAY_SECONDS, float),
-        _num("OV_EXTRACT_PATCH_MAX_DELAY", DEFAULT_MAX_DELAY_SECONDS, float),
+        _env_num("OV_EXTRACT_PATCH_RETRIES", DEFAULT_RETRIES, int),
+        _env_num("OV_EXTRACT_PATCH_BASE_DELAY", DEFAULT_BASE_DELAY_SECONDS, float),
+        _env_num("OV_EXTRACT_PATCH_MAX_DELAY", DEFAULT_MAX_DELAY_SECONDS, float),
     )
+
+
+def class_budget() -> dict[str, int]:
+    """Per-step retry allowance for the classes stock OpenViking never retries."""
+    return {
+        FAILURE_TIMEOUT: _env_num(
+            "OV_EXTRACT_PATCH_TIMEOUT_RETRIES",
+            DEFAULT_TIMEOUT_RETRIES,
+            int,
+            allow_zero=True,
+        ),
+        FAILURE_LOCK_WAIT: _env_num(
+            "OV_EXTRACT_PATCH_LOCK_RETRIES", DEFAULT_LOCK_RETRIES, int, allow_zero=True
+        ),
+    }
+
+
+def batch_caps() -> tuple[int | None, int | None]:
+    """(max messages, max estimated tokens) per extraction batch; None means no cap."""
+    messages = _env_num(
+        "OV_EXTRACT_PATCH_BATCH_MESSAGES", DEFAULT_BATCH_MESSAGES, int, allow_zero=True
+    )
+    tokens = _env_num(
+        "OV_EXTRACT_PATCH_BATCH_TOKENS", DEFAULT_BATCH_TOKENS, int, allow_zero=True
+    )
+    return (messages or None, tokens or None)
+
+
+# --- session half: retry classifier (BUG-1196) -----------------------------------------
+
+
+def wrap_retry_async(orig, default_is_retryable):
+    """Wrap ``retry_async`` with per-class budgets and one outcome line per event.
+
+    ``retry_async`` asks ``is_retryable`` only while attempts remain, so each True
+    returned here is one retry actually taken. Timeouts not tagged by the loop half, and
+    every other class, defer to the caller's classifier (stock behaviour).
+    """
+
+    @functools.wraps(orig)
+    async def retry_async(func, *, max_retries, is_retryable=None, **kwargs):
+        base = is_retryable or default_is_retryable
+        operation = kwargs.get("operation_name", "operation")
+        budget = class_budget()
+        used = {FAILURE_TIMEOUT: 0, FAILURE_LOCK_WAIT: 0}
+        attempts = 0
+
+        def decide(error):
+            cls = failure_class(error)
+            if cls == FAILURE_LOCK_WAIT or (
+                cls == FAILURE_TIMEOUT and is_session_extract_timeout(error)
+            ):
+                allowed = used[cls] < budget[cls]
+                if allowed:
+                    used[cls] += 1
+            else:
+                allowed = bool(base(error))
+            if allowed:
+                emit_outcome(
+                    {
+                        "event": "retry",
+                        "step": operation,
+                        "attempt": attempts,
+                        "failure_class": cls,
+                        "error": str(error)[:300],
+                    }
+                )
+            return allowed
+
+        async def counted():
+            nonlocal attempts
+            attempts += 1
+            return await func()
+
+        try:
+            result = await orig(
+                counted, max_retries=max_retries, is_retryable=decide, **kwargs
+            )
+        except Exception as exc:
+            emit_outcome(
+                {
+                    "event": "failed",
+                    "step": operation,
+                    "attempts": attempts,
+                    "failure_class": failure_class(exc),
+                    "error": str(exc)[:300],
+                }
+            )
+            raise
+        if attempts > 1:
+            emit_outcome(
+                {"event": "recovered", "step": operation, "attempts": attempts}
+            )
+        return result
+
+    retry_async._ov_extract_patch = True  # type: ignore[attr-defined]
+    return retry_async
+
+
+# --- session half: chunking (BUG-1196) -------------------------------------------------
+
+
+def _tighter(a, b):
+    if a is None:
+        return b
+    if b is None:
+        return a
+    return min(a, b)
+
+
+def wrap_resolve_limits(orig, limits_cls):
+    """Cap every session's extraction batches, keeping a policy's tighter limit."""
+
+    @functools.wraps(orig)
+    def resolve_extraction_batch_limits(auto_commit_policy):
+        limits = orig(auto_commit_policy)
+        if os.environ.get("OV_EXTRACT_PATCH_CHUNK", "1") == "0":
+            return limits
+        max_messages, max_tokens = batch_caps()
+        return limits_cls(
+            max_message_tokens=_tighter(limits.max_message_tokens, max_tokens),
+            max_messages=_tighter(limits.max_messages, max_messages),
+        )
+
+    resolve_extraction_batch_limits._ov_extract_patch = True  # type: ignore[attr-defined]
+    return resolve_extraction_batch_limits
+
+
+# --- installers -------------------------------------------------------------------------
 
 
 def apply_extract_loop(module) -> bool:
@@ -185,8 +456,62 @@ def apply_extract_loop(module) -> bool:
     return True
 
 
+def _apply_retry_wrapper(module) -> bool:
+    orig = getattr(module, "retry_async", None)
+    if getattr(orig, "_ov_extract_patch", False):
+        return True
+    digest = _source_hash(orig) if orig else None
+    if digest != EXPECTED_RETRY_ASYNC_SHA256:
+        logger.warning(
+            "ov-extract-patch: NOT applied to session retry_async (source_sha256=%s); "
+            "timeouts and lock waits stay unretried",
+            digest,
+        )
+        return False
+    module.retry_async = wrap_retry_async(orig, module.is_retryable_api_error)
+    budget = class_budget()
+    logger.warning(
+        "ov-extract-patch: applied to session retry_async (timeout_retries=%d "
+        "lock_retries=%d, pid %d)",
+        budget[FAILURE_TIMEOUT],
+        budget[FAILURE_LOCK_WAIT],
+        os.getpid(),
+    )
+    return True
+
+
+def _apply_chunking(module) -> bool:
+    if os.environ.get("OV_EXTRACT_PATCH_CHUNK", "1") == "0":
+        logger.warning(
+            "ov-extract-patch: chunking disabled by OV_EXTRACT_PATCH_CHUNK=0"
+        )
+        return False
+    orig = getattr(module, "resolve_extraction_batch_limits", None)
+    limits_cls = getattr(module, "ExtractionBatchLimits", None)
+    if getattr(orig, "_ov_extract_patch", False):
+        return True
+    digest = _source_hash(orig) if orig else None
+    if digest != EXPECTED_RESOLVE_LIMITS_SHA256 or limits_cls is None:
+        logger.warning(
+            "ov-extract-patch: NOT applied to extraction batching (source_sha256=%s "
+            "limits_cls=%r); stock batching kept",
+            digest,
+            limits_cls is not None,
+        )
+        return False
+    module.resolve_extraction_batch_limits = wrap_resolve_limits(orig, limits_cls)
+    max_messages, max_tokens = batch_caps()
+    logger.warning(
+        "ov-extract-patch: applied extraction batching (max_messages=%s max_tokens=%s, pid %d)",
+        max_messages,
+        max_tokens,
+        os.getpid(),
+    )
+    return True
+
+
 def apply_session(module) -> bool:
-    """Patch the retry classifier and constants in ``openviking.session.session``."""
+    """Patch the retry classifier, constants, retry wrapper and batching in the session."""
     if not _enabled():
         return False
     import openviking
@@ -231,6 +556,9 @@ def apply_session(module) -> bool:
         max_delay,
         os.getpid(),
     )
+    # BUG-1196 halves: each guarded on its own source hash; one failing leaves the rest.
+    _apply_retry_wrapper(module)
+    _apply_chunking(module)
     return True
 
 
