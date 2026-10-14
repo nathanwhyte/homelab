@@ -42,9 +42,11 @@ from benchmark_1080_slots import (
     DEPLOY,
     Forward,
     Monitor,
+    ProductionChanged,
     cleanup_restore,
     http,
     kube,
+    log,
     now,
     obj,
     save,
@@ -467,7 +469,7 @@ def run_window(out, snapshot, budget_s, start_pod, body, abort):
     started = time.monotonic()
     measure_until = started + budget_s
     deadline = started + DEADLINE_MINUTES * 60
-    issued = []
+    issued, created = [], []
 
     def remaining():
         """Seconds left to measure; at zero, record the deadline and stop."""
@@ -481,6 +483,9 @@ def run_window(out, snapshot, budget_s, start_pod, body, abort):
         window["scale_down_at"] = now()
         save(out / "window.json", window)
         scale_checked(snapshot, 0, measure_until, issued)
+        if not issued:
+            # Someone else scaled it to 0 after preflight: not this runner's outage.
+            raise ProductionChanged(f"{DEPLOY} was already at 0 replicas")
         left = remaining()
         if left > 0:
             wait = int(min(180, left)) or 1
@@ -494,6 +499,7 @@ def run_window(out, snapshot, budget_s, start_pod, body, abort):
                 timeout=wait + 10,
             )
         if remaining() > 0 and not abort.is_set():
+            created.append(now())
             start_pod()
         if remaining() > 0 and not abort.is_set():
             worker.start()
@@ -503,32 +509,40 @@ def run_window(out, snapshot, budget_s, start_pod, body, abort):
         failures.append(exc)
     finally:
         abort.set()
+        restore_ended = None
+
+        def delete_probe():
+            # Runs even when the restore fails: a probe left on the GPU (a create
+            # the API accepted late, a delete that never landed) blocks every later
+            # restore attempt.
+            try:
+                kube(
+                    "delete",
+                    "pod",
+                    POD,
+                    "--ignore-not-found",
+                    "--wait=false",
+                    check=False,
+                )
+            except subprocess.SubprocessError as exc:
+                window["final_probe_delete_error"] = str(exc)
+
         try:
             if issued:
                 try:
                     cleanup_restore(snapshot, out, pod=POD, deadline=deadline)
                     window["restored_at"] = now()
                 finally:
-                    # Runs even when the restore fails: a probe left on the GPU
-                    # (a create the API accepted late, a delete that never landed)
-                    # blocks every later restore attempt.
-                    try:
-                        kube(
-                            "delete",
-                            "pod",
-                            POD,
-                            "--ignore-not-found",
-                            "--wait=false",
-                            check=False,
-                        )
-                    except subprocess.SubprocessError as exc:
-                        window["final_probe_delete_error"] = str(exc)
+                    restore_ended = time.monotonic()
+                    delete_probe()
             else:
-                # The check refused before any write: production was never touched.
+                # Refused before any scale write: production was never touched.
                 window["production_untouched"] = True
+                if created:
+                    delete_probe()
         finally:
             # Scale-down to restored (or to the failed restore).
-            elapsed = time.monotonic() - started
+            elapsed = (restore_ended or time.monotonic()) - started
             window["outage_seconds"] = round(elapsed)
             window["overran_deadline"] = elapsed > DEADLINE_MINUTES * 60
             if worker.is_alive():
@@ -835,7 +849,7 @@ def execute(args, sample, kept_by_qwen):
     finally:
         verdict = evaluate(records)
         save(out / "verdict.json", verdict)
-        print("VERDICT " + json.dumps(verdict, indent=2), flush=True)
+        log("VERDICT " + json.dumps(verdict, indent=2))
 
 
 def prepull():

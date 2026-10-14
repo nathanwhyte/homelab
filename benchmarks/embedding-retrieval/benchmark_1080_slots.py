@@ -559,6 +559,14 @@ RESTORE_ATTEMPTS = 5
 RETRY_PAUSE_S = 5
 
 
+def log(message):
+    """Best-effort progress line: a closed stdout must never stop a restore."""
+    try:
+        print(message, flush=True)
+    except (OSError, ValueError):
+        pass
+
+
 def retry(step, action, attempts=RESTORE_ATTEMPTS, errors=(OSError,), deadline=None):
     """Retry a step on transient failures; anything else propagates at once.
 
@@ -575,7 +583,7 @@ def retry(step, action, attempts=RESTORE_ATTEMPTS, errors=(OSError,), deadline=N
         except (subprocess.SubprocessError, *errors) as exc:
             if attempt == attempts or late():
                 raise
-            print(f"{step} failed ({exc}); retry {attempt}", flush=True)
+            log(f"{step} failed ({exc}); retry {attempt}")
             time.sleep(RETRY_PAUSE_S)
             if late():  # the pause itself can cross the deadline
                 raise
@@ -669,7 +677,7 @@ def restore(snapshot, out, deadline=None):
         "template_unchanged": True,
     }
     save(out / "restored.json", result)
-    print("PRODUCTION RESTORED " + json.dumps(result), flush=True)
+    log("PRODUCTION RESTORED " + json.dumps(result))
 
 
 def main():

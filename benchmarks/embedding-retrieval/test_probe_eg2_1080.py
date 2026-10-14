@@ -319,6 +319,25 @@ class WindowTests(unittest.TestCase):
         run.start_pod.assert_not_called()
         run.restore.assert_called_once()
 
+    def test_production_already_at_zero_is_refused_before_any_write(self):
+        deployment = FakeDeployment()
+        deployment.state["spec"]["replicas"] = 0
+        run = self.run_window(deployment=deployment)
+        self.assertIsInstance(run.error, bench.ProductionChanged)
+        self.assertEqual(run.deployment.scales, [])
+        run.start_pod.assert_not_called()
+        run.restore.assert_not_called()
+        self.assertTrue(run.window["production_untouched"])
+
+    def test_outage_ends_at_the_restore_not_the_final_delete(self):
+        def kube_effect(*args, **kwargs):
+            if args[:2] == ("delete", "pod"):
+                time.sleep(1.2)
+
+        run = self.run_window(kube_effect=kube_effect)
+        self.assertIsNone(run.error)
+        self.assertEqual(run.window["outage_seconds"], 0)
+
     def test_production_pod_drain_timeout_still_restores(self):
         def kube_effect(*args, **kwargs):
             if args[0] == "wait":
@@ -480,6 +499,18 @@ class RestoreTests(unittest.TestCase):
             bench.restore(SNAPSHOT, Path(directory), time.monotonic() + 0.1)
         self.assertEqual(obj.call_count, 1)
         kube.assert_not_called()
+
+    def test_closed_stdout_never_stops_a_restore(self):
+        gets = [
+            subprocess.TimeoutExpired("kubectl get", 60),
+            self.deployment(0, "7"),
+            self.deployment(1, "8"),
+        ]
+        with patch("builtins.print", side_effect=BrokenPipeError("stdout closed")):
+            error, _, kube, restored = self.restore(gets)
+        self.assertIsNone(error)
+        self.assertTrue(restored)
+        self.assertEqual(len(self.scales(kube)), 1)
 
     def test_probe_delete_is_retried_before_the_restore(self):
         attempts = [subprocess.TimeoutExpired("kubectl delete", 70), None]
