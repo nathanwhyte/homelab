@@ -17,9 +17,12 @@ spec:
     - name: litellm-vlm.rules
       rules:
         - alert: LiteLLMRedisRestartedAfterRouter
+          # Container start times, not pod start times: an in-place container
+          # restart (OOM, liveness) keeps the pod's StartTime but still breaks or
+          # repairs the router's Redis connection.
           expr: |
-            max(kube_pod_start_time{namespace="viking", pod=~"litellm-redis-.*"})
-              > max(kube_pod_start_time{namespace="viking", pod=~"litellm-vlm-.*"})
+            max(kube_pod_container_state_started{namespace="viking", pod=~"litellm-redis-.*", container="redis"})
+              > max(kube_pod_container_state_started{namespace="viking", pod=~"litellm-vlm-.*", container="litellm"})
           for: 5m
           labels:
             severity: warning
@@ -32,5 +35,5 @@ spec:
           labels:
             severity: info
           annotations:
-            summary: "Under $10 of the router's $90 Haiku threshold left this month"
-            description: "Overflow returns to gemma at $0. The Console workspace limit ($100) is the hard cap; check Console usage if this fires early in the month."
+            summary: "Under $10 of the router's $90 Haiku threshold left in the current budget window"
+            description: "The router's window runs one month from when its budget tracking started, not by calendar month, so it may not line up with the Console's monthly limit ($100, the hard cap). Overflow returns to gemma at $0; compare with Console usage."

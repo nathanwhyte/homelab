@@ -50,7 +50,9 @@ Deployed 2026-10-14; OpenViking cut over at 13:36:41 CDT. Step 4's Redis outage 
 
 LiteLLM 1.103.1's Redis client does not reconnect after a Redis restart. The router keeps serving, but Haiku spend goes untallied, both in memory and in Redis, until `litellm-vlm` itself restarts. Measured 2026-10-14: four Haiku calls after a Redis outage left the gauge unchanged across a router restart; after a clean router start, the same batch landed in Redis (`provider_spend:anthropic:1mo`).
 
-So after any `litellm-redis` restart (node drain, eviction, a manifest apply), run `kubectl -n viking rollout restart deploy/litellm-vlm`. `LiteLLMRedisRestartedAfterRouter` fires when Redis's pod is newer than the router's. The leak is bounded by Haiku's overflow rate, and the Console limit stays the hard cap.
+So after any `litellm-redis` restart (node drain, eviction, a manifest apply, or an in-place container restart from OOM or liveness), run `kubectl -n viking rollout restart deploy/litellm-vlm`. `LiteLLMRedisRestartedAfterRouter` fires when the Redis container started more recently than the router container (`kube_pod_container_state_started`), which covers in-place restarts too.
+
+The router's budget window is one month from when its tracking started (`time_period: 1mo` advances to the same date next month), not the calendar month the Console limit uses. The leak is bounded by Haiku's overflow rate, and the Console limit stays the hard cap.
 
 ## Watch
 
