@@ -273,13 +273,30 @@ def median(values):
     return statistics.median(values) if values else None
 
 
+def combine(results):
+    """False if any measured part failed, None if any part is unmeasured, else True."""
+    results = list(results)
+    if any(r is False for r in results):
+        return False
+    if any(r is None for r in results):
+        return None
+    return True
+
+
 def evaluate(records, cosines=None):
-    """Gate verdicts with their numbers. A gate with no measurement fails."""
-    lines = (records.get("startup_log") or "").splitlines()
+    """Gate verdicts with their numbers.
+
+    A gate is judged only on what was measured (plan § Phase 2): an unmeasured
+    gate is `pass: None`, never a failure, so a window a guard cut short reads
+    INCOMPLETE rather than closing EG2 on missing data.
+    """
+    log = records.get("startup_log")
+    lines = (log or "").splitlines()
     fallback = [line for line in lines if any(s in line for s in FA_FALLBACK)]
     enabled = any(FA_ENABLED in line for line in lines)
     gate1 = {
-        "pass": enabled and not fallback,
+        # A captured log without the enabled line fails: --verbosity 3 prints it.
+        "pass": None if not log else enabled and not fallback,
         "enabled_line": enabled,
         "fallback_lines": fallback[:5],
     }
@@ -302,7 +319,7 @@ def evaluate(records, cosines=None):
         )
         name = f"{a}/{b}"
         if ma is None or mb is None:
-            ratios[name] = {"pass": False, "measured": False}
+            ratios[name] = {"pass": None, "measured": False}
             continue
         # Either direction counts: the slower of the two over the faster.
         ratio = max(ma, mb) / min(ma, mb)
@@ -311,19 +328,19 @@ def evaluate(records, cosines=None):
             "median_ms": [round(ma, 1), round(mb, 1)],
             "ratio": round(ratio, 3),
         }
-    gate2 = {"pass": all(r["pass"] for r in ratios.values()), "pairs": ratios}
+    gate2 = {"pass": combine(r["pass"] for r in ratios.values()), "pairs": ratios}
 
     buckets = {}
     for target, baseline in QWEN_MEDIANS_MS.items():
         rows = [r for r in records.get("buckets", []) if r["target"] == target]
         value = median([r["ms"] for r in rows if "ms" in r])
         buckets[str(target)] = {
-            "pass": value is not None and value < baseline,
+            "pass": None if value is None else value < baseline,
             "requests": len(rows),
             "median_ms": None if value is None else round(value, 1),
             "qwen_median_ms": baseline,
         }
-    gate3 = {"pass": all(b["pass"] for b in buckets.values()), "buckets": buckets}
+    gate3 = {"pass": combine(b["pass"] for b in buckets.values()), "buckets": buckets}
 
     if cosines is None:
         gate4 = {"pass": None, "pending": "phase 3 reference vectors on pop"}
@@ -335,11 +352,13 @@ def evaluate(records, cosines=None):
             "threshold": COSINE_MIN,
         }
 
-    gates = [gate1, gate2, gate3, gate4]
-    if any(g["pass"] is False for g in gates):
+    measured = combine([gate1["pass"], gate2["pass"], gate3["pass"]])
+    if measured is False or gate4["pass"] is False:
         verdict = "FAIL"
+    elif measured is None:
+        verdict = "INCOMPLETE"  # nothing failed, but gates 1-3 are not all measured
     elif gate4["pass"] is None:
-        verdict = "PENDING"
+        verdict = "PENDING"  # gates 1-3 pass; gate 4 waits for phase 3
     else:
         verdict = "PASS"
     return {
@@ -498,9 +517,11 @@ def run_window(out, snapshot, budget_s, start_pod, body, abort):
                 f"--timeout={wait}s",
                 timeout=wait + 10,
             )
-        if remaining() > 0 and not abort.is_set():
+        left = remaining()
+        if left > 0 and not abort.is_set():
             created.append(now())
-            start_pod()
+            # Bounded by the cutoff, so a slow create can't eat the restore reserve.
+            start_pod(max(1, min(60, int(left))))
         if remaining() > 0 and not abort.is_set():
             worker.start()
         while worker.is_alive() and remaining() > 0 and not abort.is_set():
@@ -842,7 +863,7 @@ def execute(args, sample, kept_by_qwen):
             out,
             snapshot,
             budget,
-            lambda: kube("create", "-f", str(pod_path)),
+            lambda timeout: kube("create", "-f", str(pod_path), timeout=timeout),
             body,
             abort,
         )

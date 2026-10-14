@@ -157,15 +157,40 @@ class EvaluateTests(unittest.TestCase):
         self.assertFalse(gate["pass"])
         self.assertTrue(gate["buckets"]["1000"]["pass"])
 
-    def test_partial_records_fail_unmeasured_gates(self):
+    def test_unmeasured_gates_read_incomplete_not_fail(self):
         records = passing_records()
         records["buckets"] = [r for r in records["buckets"] if r["target"] == 300]
         records["guard"] = "rss guard"
         result = probe.evaluate(records)
         self.assertTrue(result["gate2_no_length_cliff"]["pass"])
-        self.assertFalse(result["gate3_faster_than_qwen"]["buckets"]["3000"]["pass"])
+        gate3 = result["gate3_faster_than_qwen"]
+        self.assertIsNone(gate3["buckets"]["3000"]["pass"])
+        self.assertTrue(gate3["buckets"]["300"]["pass"])
+        self.assertIsNone(gate3["pass"])
         self.assertEqual(result["guard"], "rss guard")
+        self.assertEqual(result["verdict"], "INCOMPLETE")
+        # Even with gate 4 measured, missing buckets keep it incomplete.
+        self.assertEqual(probe.evaluate(records, {"min": 1.0})["verdict"], "INCOMPLETE")
+
+    def test_a_measured_failure_wins_over_missing_data(self):
+        records = passing_records()
+        records["buckets"] = [
+            {"target": 300, "ms": 400.0}
+        ]  # slower than Qwen's 326 ms; 1k and 3k never ran
+        result = probe.evaluate(records)
+        self.assertIsNone(result["gate3_faster_than_qwen"]["buckets"]["1000"]["pass"])
+        self.assertFalse(result["gate3_faster_than_qwen"]["pass"])
         self.assertEqual(result["verdict"], "FAIL")
+
+    def test_no_startup_log_is_unmeasured(self):
+        records = passing_records()
+        records["startup_log"] = None
+        result = probe.evaluate(records)
+        self.assertIsNone(result["gate1_attention_on_gpu"]["pass"])
+        self.assertEqual(result["verdict"], "INCOMPLETE")
+
+    def test_nothing_measured_is_incomplete(self):
+        self.assertEqual(probe.evaluate({})["verdict"], "INCOMPLETE")
 
     def test_low_cosine_fails_gate4(self):
         result = probe.evaluate(passing_records(), {"min": 0.998})
@@ -359,6 +384,14 @@ class WindowTests(unittest.TestCase):
         self.assertIn("--timeout=1s", wait.args)
         run.start_pod.assert_not_called()
         run.restore.assert_called_once()
+
+    def test_probe_create_is_bounded_by_the_time_left(self):
+        run = self.run_window(budget_s=30)
+        (timeout,) = run.start_pod.call_args.args
+        self.assertLessEqual(timeout, 30)
+        self.assertGreaterEqual(timeout, 1)
+        run = self.run_window(budget_s=600)
+        self.assertEqual(run.start_pod.call_args.args, (60,))
 
     def test_probe_delete_runs_even_when_the_restore_fails(self):
         def during_restore(*args, **kwargs):
