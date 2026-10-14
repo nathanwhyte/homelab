@@ -4315,19 +4315,21 @@ data:
         return (new_tools, key_map) if key_map else (tools, None)
 
 
-    def _substitute_quoted_keys(text, key_map):
+    def _substitute_quoted_keys(text, key_map, precedence=True):
         """Rename ``"<id>"`` to ``"<Title>"`` inside raw JSON text (regex salvage input).
 
-        Returns ``(text, renamed, collisions)``. An id whose title already appears as a
-        quoted key in the text is left as it is, so upstream's salvage (which matches
-        titles only) keeps the title's decision whichever came first.
+        Returns ``(text, renamed, collisions)``. With ``precedence`` an id whose title
+        already appears as a quoted key in the text is left as it is, so upstream's
+        salvage (which matches titles only) keeps the title's decision whichever came
+        first; ``_salvage`` passes ``precedence=False`` and resolves collisions itself.
         """
         if not key_map:
             return text, 0, []
         collisions = [
             title
             for key, title in key_map.items()
-            if re.search(rf'"{re.escape(key)}"\s*:', text)
+            if precedence
+            and re.search(rf'"{re.escape(key)}"\s*:', text)
             and re.search(rf'"{re.escape(title)}"\s*:', text)
         ]
         renamable = {k: t for k, t in key_map.items() if t not in collisions}
@@ -4338,6 +4340,32 @@ data:
         )
         text, count = pattern.subn(lambda m: f'"{renamable[m.group(1)]}"{m.group(2)}', text)
         return text, count, collisions
+
+
+    def _salvage(text, key_map):
+        """Upstream's regex salvage over undecodable raw text, with title precedence.
+
+        Runs ``Session._wm_recover_ops_from_raw`` (the same function Branch 2 would run)
+        twice: over the text as it came, which finds decisions keyed by title, and over
+        the text with every id renamed, which finds the ones keyed by id; a title's
+        decision wins a collision. Returns ``(ops, collisions)`` with the decisions still
+        un-normalized, or ``None`` when openviking is not importable here or salvage
+        finds nothing (the caller then forwards the text for upstream to handle).
+        """
+        try:
+            from openviking.session.session import Session
+        except Exception:  # noqa: BLE001 — outside the OV process there is no salvage
+            return None
+        recover = getattr(Session, "_wm_recover_ops_from_raw", None)
+        if recover is None:
+            return None
+        by_title = recover(text) or {}
+        renamed, _, _ = _substitute_quoted_keys(text, key_map, precedence=False)
+        by_alias = recover(renamed) or {}
+        collisions = sorted(title for title in by_alias if title in by_title)
+        ops = dict(by_alias)
+        ops.update(by_title)
+        return (ops, collisions) if ops else None
 
 
     def _decode_raw(text):
@@ -4501,6 +4529,24 @@ data:
                 new_args, info = restore_arguments(decoded, key_map)
                 info["sections"] = f"{label}->{info['sections']}"
                 return new_args, info
+            # Undecodable: run upstream's own salvage here so its decisions are
+            # normalized too, and hand Branch 2 a structured object.
+            salvaged = _salvage(raw_text, key_map)
+            if salvaged is not None:
+                ops, collisions = salvaged
+                sections = {}
+                for title, decision in ops.items():
+                    decision, repaired = normalize_decision(decision)
+                    info["repaired"] += repaired
+                    sections[title] = decision
+                info.update(
+                    sections=f"{label}->salvaged",
+                    mapped=len(sections),
+                    collisions=collisions,
+                )
+                return {"sections": sections}, info
+            # No openviking here (tests) or nothing to salvage: titles renamed for
+            # upstream's own salvage, which then finds the same nothing or the same ops.
             new_text, count, collisions = _substitute_quoted_keys(raw_text, key_map)
             info.update(sections=label, mapped=count, collisions=collisions)
             return (new_text if label == "text" else {"raw": new_text}), info

@@ -2,6 +2,7 @@
 
 import asyncio
 import copy
+import importlib.util
 import io
 import json
 import os
@@ -338,6 +339,56 @@ class RestoreArgumentsTests(unittest.TestCase):
                 self.assertEqual(info["mapped"], 1)
                 self.assertEqual(info["unmapped"], ["Current State"])
 
+    def test_undecodable_raw_is_salvaged_and_normalized_in_the_installed_openviking(
+        self,
+    ):
+        try:
+            from openviking.session.session import Session
+        except Exception:  # noqa: BLE001 — the system Python has no openviking
+            self.skipTest("openviking not importable here")
+        prior = "\n".join(
+            f"## {title}\n\nold {title.lower()} body\n" for title in TITLES
+        )
+        # A blank UPDATE and a KEEP ahead of unterminated junk: brace-closing cannot
+        # decode it, salvage finds both decisions, normalization makes both KEEP.
+        raw = '{"sections":{"current_state":{"op":"UPDATE","content":""},"open_issues":{"op":"KEEP"},"broken":"unterminated'
+        new_args, info = wm_patch.restore_arguments({"raw": raw}, self.key_map)
+        self.assertEqual(
+            new_args,
+            {
+                "sections": {
+                    "Current State": {"op": "KEEP"},
+                    "Open Issues": {"op": "KEEP"},
+                }
+            },
+        )
+        self.assertEqual(
+            (info["sections"], info["mapped"], info["repaired"]),
+            ("raw->salvaged", 2, 1),
+        )
+        merged = Session._merge_wm_sections(prior, new_args["sections"])
+        self.assertIn("old current state body", merged)
+        # Prose that quotes a title is not a decision: the alias UPDATE survives.
+        prose = '{"sections":{"current_state":{"op":"UPDATE","content":"new body"},"open_issues":{"op":"KEEP"}}, "note": "Docs say \\"Current State\\": is a heading'
+        new_args, info = wm_patch.restore_arguments(prose, self.key_map)
+        self.assertEqual(
+            new_args["sections"]["Current State"],
+            {"op": "UPDATE", "content": "new body"},
+        )
+        self.assertEqual(info["collisions"], [])
+        # Title and id both present as decisions: the title's wins in either order.
+        for ordered in (
+            '{"sections":{"Current State":{"op":"KEEP"},"current_state":{"op":"UPDATE","content":"x"},"broken":"unterminated',
+            '{"sections":{"current_state":{"op":"UPDATE","content":"x"},"Current State":{"op":"KEEP"},"broken":"unterminated',
+        ):
+            new_args, info = wm_patch.restore_arguments({"raw": ordered}, self.key_map)
+            self.assertEqual(new_args["sections"]["Current State"], {"op": "KEEP"})
+            self.assertEqual(info["collisions"], ["Current State"])
+        # Nothing salvageable: the text is forwarded with ids renamed.
+        new_args, info = wm_patch.restore_arguments({"raw": "garbage {"}, self.key_map)
+        self.assertEqual(new_args, {"raw": "garbage {"})
+        self.assertEqual(info["sections"], "raw")
+
     def test_restored_decisions_merge_in_the_installed_openviking(self):
         try:
             from openviking.session.session import Session
@@ -459,6 +510,10 @@ class RestoreArgumentsTests(unittest.TestCase):
     def test_undecodable_raw_gets_quoted_key_substitution_with_title_precedence(
         self,
     ):
+        # The fallback when openviking's own salvage is not importable (outside the
+        # OV process); inside it, the salvage path below applies instead.
+        if importlib.util.find_spec("openviking") is not None:
+            self.skipTest("openviking importable: the salvage path is tested instead")
         raw = '{"sections": {"current_state": {"op": "KEEP"}, "open_issues": {"op": "UPDATE", "content": "see current_state'
         new_args, info = wm_patch.restore_arguments({"raw": raw}, self.key_map)
         self.assertEqual(
