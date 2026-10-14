@@ -38,7 +38,7 @@ class RestorationTests(unittest.TestCase):
 
     def test_restoration_requires_valid_production_vector(self):
         snapshot = {
-            "metadata": {"uid": "original"},
+            "metadata": {"uid": "original", "resourceVersion": "1"},
             "spec": {"template": {}, "replicas": 1},
         }
         with (

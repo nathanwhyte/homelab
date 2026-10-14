@@ -226,7 +226,6 @@ class Monitor:
                     hot = hot + 1 if cpu >= 80 or gpu[2] >= 85 else 0
                     bloated = bool(self.rss_limit_kib) and rss > self.rss_limit_kib
                     failures = 0
-                    self.sampled.set()
                 except (
                     OSError,
                     subprocess.SubprocessError,
@@ -235,13 +234,9 @@ class Monitor:
                 ) as exc:
                     row["error"] = str(exc)
                     failures += 1
-                try:
-                    row["metrics"] = http(self.base, "/metrics", timeout=2, raw=True)
-                except (OSError, ValueError):
-                    row["metrics_unavailable"] = True
-                stream.write(json.dumps(row) + "\n")
-                stream.flush()
                 if hot >= 2 or failures >= 3 or bloated:
+                    # Latch and delete before anything else: no request may start
+                    # between seeing the breach and the guard taking effect.
                     self.reason = (
                         "thermal guard"
                         if hot >= 2
@@ -258,7 +253,17 @@ class Monitor:
                         "--ignore-not-found",
                         check=False,
                     )
+                    row["guard"] = self.reason
+                    stream.write(json.dumps(row) + "\n")
                     return
+                if "error" not in row:
+                    self.sampled.set()
+                try:
+                    row["metrics"] = http(self.base, "/metrics", timeout=2, raw=True)
+                except (OSError, ValueError):
+                    row["metrics_unavailable"] = True
+                stream.write(json.dumps(row) + "\n")
+                stream.flush()
                 self.stop.wait(5)
 
     def start(self):
@@ -629,12 +634,39 @@ def scale_checked(snapshot, replicas, deadline=None, issued=None):
     retry(f"scale to {replicas}", scale, deadline=deadline)
 
 
+FENCE = "homelab.task1218/restore-fence"
+
+
+def fence(snapshot, deadline=None):
+    """Bump the Deployment's resourceVersion with a metadata-only write.
+
+    A scale-down whose kubectl call timed out can still commit later on the API
+    server, and its --resource-version precondition stays valid until something
+    else writes. After this write it can only fail. Annotations on the
+    Deployment's own metadata don't touch the Pod template, so nothing rolls.
+    """
+
+    def write():
+        current = obj("get", "deployment", DEPLOY)
+        unchanged(current, snapshot)
+        kube(
+            "annotate",
+            "deployment/" + DEPLOY,
+            f"{FENCE}={now()}",
+            "--overwrite",
+            "--resource-version=" + current["metadata"]["resourceVersion"],
+        )
+
+    retry("fence", write, deadline=deadline)
+
+
 def restore(snapshot, out, deadline=None):
     """Scale production back, wait for it, and prove it with a real 2,560-dim vector.
 
     Every step runs at least once; `deadline` only stops further retries.
     """
     replicas = snapshot["spec"]["replicas"]
+    fence(snapshot, deadline)
     scale_checked(snapshot, replicas, deadline)
     retry(
         "rollout",
@@ -647,6 +679,8 @@ def restore(snapshot, out, deadline=None):
         "verify", lambda: obj("get", "deployment", DEPLOY), deadline=deadline
     )
     unchanged(current, snapshot)
+    if current["spec"]["replicas"] != replicas:
+        raise RuntimeError(f"{DEPLOY} at {current['spec']['replicas']} after restore")
 
     def check():
         forward = Forward("deployment/" + DEPLOY, out / "restore-port-forward.log")
@@ -669,6 +703,12 @@ def restore(snapshot, out, deadline=None):
         "embedding check", check, 3, (OSError, RuntimeError), deadline=deadline
     )
     normalize(response["data"][0]["embedding"], 2560)
+    try:
+        # Best effort: the fence has done its job, and a leftover annotation is
+        # harmless metadata.
+        kube("annotate", "deployment/" + DEPLOY, FENCE + "-")
+    except (OSError, subprocess.SubprocessError) as exc:
+        log(f"fence annotation left on {DEPLOY}: {exc}")
     result = {
         "at": now(),
         "replicas": replicas,

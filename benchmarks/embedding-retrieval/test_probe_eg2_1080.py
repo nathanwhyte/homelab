@@ -217,6 +217,13 @@ class FakeDeployment:
         return copy.deepcopy(self.state)
 
     def kube(self, *args, **kwargs):
+        if args[0] == "annotate":
+            versions = [a.split("=", 1)[1] for a in args if "--resource-version=" in a]
+            if versions and versions[0] != self.state["metadata"]["resourceVersion"]:
+                raise subprocess.CalledProcessError(1, "kubectl annotate", "conflict")
+            version = int(self.state["metadata"]["resourceVersion"])
+            self.state["metadata"]["resourceVersion"] = str(version + 1)
+            return SimpleNamespace(stdout="")
         if args[0] != "scale":
             return SimpleNamespace(stdout="")
         self.scales.append(args)
@@ -433,6 +440,67 @@ class WindowTests(unittest.TestCase):
         self.assertEqual(len(run.window["stopped_by"]), 2)
 
 
+class GuardTests(unittest.TestCase):
+    def test_rss_guard_latches_before_startup_returns(self):
+        telemetry = "512, 8192, 50, 90, 80\n5767168 5767168\n60000\n0.5 0.4 0.3 1/2 3\n"
+        calls = []
+
+        def kube(*args, **kwargs):
+            calls.append(args[0])
+            return SimpleNamespace(stdout=telemetry if args[0] == "exec" else "")
+
+        with (
+            tempfile.TemporaryDirectory() as directory,
+            patch.object(bench, "kube", side_effect=kube),
+            patch.object(bench, "http") as http,
+        ):
+            monitor = bench.Monitor(
+                Path(directory) / "t.jsonl",
+                "http://unused",
+                pod=probe.POD,
+                rss_limit_kib=probe.RSS_LIMIT_KIB,
+            )
+            with self.assertRaisesRegex(RuntimeError, "rss guard"):
+                monitor.start()
+            monitor.close()
+        self.assertEqual(calls, ["exec", "delete"])
+        http.assert_not_called()
+
+
+class StartupLogTests(unittest.TestCase):
+    def capture(self, results):
+        records = {}
+        with (
+            tempfile.TemporaryDirectory() as directory,
+            patch.object(probe, "kube", side_effect=results),
+            patch.object(probe.time, "sleep"),
+        ):
+            probe.capture_startup_log(records, Path(directory))
+            saved = (Path(directory) / "startup.log").exists()
+        return records, saved
+
+    def test_api_error_leaves_gate1_unmeasured(self):
+        error = SimpleNamespace(returncode=1, stdout="", stderr="Error from server")
+        records, saved = self.capture([error] * 3)
+        self.assertIsNone(records["startup_log"])
+        self.assertEqual(records["startup_log_error"], "Error from server")
+        self.assertFalse(saved)
+        self.assertIsNone(probe.evaluate(records)["gate1_attention_on_gpu"]["pass"])
+
+    def test_retry_captures_the_log_without_kubectl_stderr(self):
+        error = SimpleNamespace(returncode=1, stdout="", stderr="Error from server")
+        ok = SimpleNamespace(
+            returncode=0,
+            stdout="llama_context: Flash Attention enabled\n",
+            stderr="kubectl warning",
+        )
+        records, saved = self.capture([error, ok])
+        self.assertTrue(saved)
+        self.assertNotIn("kubectl warning", records["startup_log"])
+        self.assertNotIn("startup_log_error", records)
+        self.assertTrue(probe.evaluate(records)["gate1_attention_on_gpu"]["pass"])
+
+
 class RestoreTests(unittest.TestCase):
     def deployment(self, replicas, version, image="qwen"):
         return {
@@ -441,6 +509,9 @@ class RestoreTests(unittest.TestCase):
         }
 
     def restore(self, gets, kube_effect=None, deadline=None):
+        # The fence reads the Deployment before the scale step's own read.
+        first = next(i for i, g in enumerate(gets) if isinstance(g, dict))
+        gets = [*gets[: first + 1], copy.deepcopy(gets[first]), *gets[first + 1 :]]
         with (
             tempfile.TemporaryDirectory() as directory,
             patch.object(bench, "obj", side_effect=gets) as obj,
@@ -571,6 +642,39 @@ class RestoreTests(unittest.TestCase):
         error, _, _, restored = self.restore(gets, deadline=time.monotonic() + 600)
         self.assertIsNone(error)
         self.assertTrue(restored)
+
+    def restore_fake(self, deployment):
+        with (
+            tempfile.TemporaryDirectory() as directory,
+            patch.object(bench, "obj", side_effect=deployment.obj),
+            patch.object(bench, "kube", side_effect=deployment.kube),
+            patch.object(bench, "Forward"),
+            patch.object(
+                bench, "http", return_value={"data": [{"embedding": [1.0] * 2560}]}
+            ),
+            patch.object(bench, "RETRY_PAUSE_S", 0),
+        ):
+            bench.restore(SNAPSHOT, Path(directory))
+            return (Path(directory) / "restored.json").exists()
+
+    def test_a_timed_out_scale_down_cannot_commit_after_the_restore(self):
+        # The scale-down never landed, so production still reads 1 replica at its
+        # original version; the stale write is still pending on the API server.
+        deployment = FakeDeployment()
+        stale = ("scale", "deployment/" + bench.DEPLOY, "--replicas=0")
+        stale += (
+            "--resource-version=" + deployment.state["metadata"]["resourceVersion"],
+        )
+        self.assertTrue(self.restore_fake(deployment))
+        with self.assertRaises(subprocess.CalledProcessError):
+            deployment.kube(*stale)
+        self.assertEqual(deployment.state["spec"]["replicas"], 1)
+
+    def test_replica_count_is_verified_after_the_rollout(self):
+        gets = [self.deployment(0, "7"), self.deployment(0, "9")]
+        error, _, _, restored = self.restore(gets)
+        self.assertRegex(str(error), "at 0 after restore")
+        self.assertFalse(restored)
 
     def test_template_changed_during_rollout_is_reported(self):
         gets = [self.deployment(0, "7"), self.deployment(1, "9", image="new")]

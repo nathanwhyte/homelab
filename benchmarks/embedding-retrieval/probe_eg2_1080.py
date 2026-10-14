@@ -70,12 +70,12 @@ SEED = 1218
 RSS_LIMIT_KIB = 5 * 1024 * 1024
 DEADLINE_MINUTES = 20  # scale-down to restored
 # Measurements stop this long before the deadline: one attempt of every restore
-# step at its kubectl timeout (probe delete 70 s, get + scale 120 s, rollout 310 s,
-# verify get 60 s, port-forward readiness 120 s, vector check 60 s = 740 s). No
-# retry starts after the deadline. Each step still runs once, so a restore whose
-# retries used up the reserve ends in an error naming the step, never a silent
-# abandon; window.json records `overran_deadline`.
-RESTORE_RESERVE_S = 750
+# step at its kubectl timeout (probe delete 70 s, get + fence 120 s, get + scale
+# 120 s, rollout 310 s, verify get 60 s, port-forward readiness 120 s, vector
+# check 60 s = 860 s). No retry starts after the deadline. Each step still runs
+# once, so a restore whose retries used up the reserve ends in an error naming the
+# step, never a silent abandon; window.json records `overran_deadline`.
+RESTORE_RESERVE_S = 870
 # Qwen3-Embedding-4B Q8_0, one slot, this card: task1218-1080-slots-20260923.md:25-32.
 QWEN_MEDIANS_MS = {300: 326, 1000: 1108, 3000: 3644}
 PAIR_RATIO_MAX = 1.5
@@ -581,6 +581,30 @@ def run_window(out, snapshot, budget_s, start_pod, body, abort):
         raise RuntimeError(reasons[0])
 
 
+def capture_startup_log(records, out, attempts=3):
+    """Gate 1's evidence. A failed capture leaves the gate unmeasured, never failed.
+
+    `kubectl logs` prints the container's stdout and stderr on its own stdout;
+    its own stderr carries API errors, which must never stand in for the log.
+    """
+    for _ in range(attempts):
+        try:
+            result = kube("logs", POD, "-c", "llamacpp", check=False)
+        except subprocess.SubprocessError as exc:
+            records["startup_log_error"] = str(exc)
+        else:
+            if result.returncode == 0 and result.stdout.strip():
+                records["startup_log"] = result.stdout
+                records.pop("startup_log_error", None)
+                (out / "startup.log").write_text(result.stdout)
+                return
+            records["startup_log_error"] = (
+                result.stderr.strip() or f"empty log, exit {result.returncode}"
+            )[:500]
+        time.sleep(2)
+    records["startup_log"] = None
+
+
 def tokenize(base, text, add_special=True):
     return http(
         base,
@@ -789,9 +813,7 @@ def execute(args, sample, kept_by_qwen):
                 "--timeout=420s",
                 timeout=430,
             )
-            log = kube("logs", POD, "-c", "llamacpp", check=False)
-            records["startup_log"] = log.stdout + log.stderr
-            (out / "startup.log").write_text(records["startup_log"])
+            capture_startup_log(records, out)
             pod = obj("get", "pod", POD)
             image_id = pod["status"]["containerStatuses"][0]["imageID"]
             save(
