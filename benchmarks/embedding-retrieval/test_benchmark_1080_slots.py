@@ -16,7 +16,7 @@ class RestorationTests(unittest.TestCase):
         ):
             with self.assertRaises(TimeoutError):
                 bench.cleanup_restore({"snapshot": True}, Path("unused"))
-            restore.assert_called_once_with({"snapshot": True}, Path("unused"))
+            restore.assert_called_once_with({"snapshot": True}, Path("unused"), None)
 
     def test_concurrent_template_change_is_not_overwritten(self):
         snapshot = {

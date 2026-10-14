@@ -47,6 +47,7 @@ from benchmark_1080_slots import (
     now,
     obj,
     save,
+    scale_checked,
 )
 
 POD = "task1218-eg2-probe"
@@ -66,11 +67,12 @@ SEED = 1218
 RSS_LIMIT_KIB = 5 * 1024 * 1024
 DEADLINE_MINUTES = 20  # scale-down to restored
 # Measurements stop this long before the deadline: one attempt of every restore
-# step at its kubectl timeout (probe delete 70 s, get + scale 120 s, rollout 310 s)
-# plus the 120 s readiness wait, rounded to 10 minutes. The vector check after the
-# rollout and any retries can run past the deadline: a late restore beats none,
-# and window.json records `overran_deadline`.
-RESTORE_RESERVE_S = 600
+# step at its kubectl timeout (probe delete 70 s, get + scale 120 s, rollout 310 s,
+# verify get 60 s, port-forward readiness 120 s, vector check 60 s = 740 s). No
+# retry starts after the deadline. Each step still runs once, so a restore whose
+# retries used up the reserve ends in an error naming the step, never a silent
+# abandon; window.json records `overran_deadline`.
+RESTORE_RESERVE_S = 750
 # Qwen3-Embedding-4B Q8_0, one slot, this card: task1218-1080-slots-20260923.md:25-32.
 QWEN_MEDIANS_MS = {300: 326, 1000: 1108, 3000: 3644}
 PAIR_RATIO_MAX = 1.5
@@ -430,13 +432,16 @@ def preflight():
     return snapshot
 
 
-def run_window(out, snapshot, budget_s, body, abort):
-    """Scale production to 0, run body() in a worker thread, restore on every exit.
+def run_window(out, snapshot, budget_s, start_pod, body, abort):
+    """Scale production to 0, start the probe, run body() in a worker, restore.
 
     The signal handlers only record a reason and set `abort`; nothing raises into
-    the main thread, so no signal can unwind past the restore. The main thread stops
-    waiting at the measurement budget, and the restore then deletes the probe Pod,
-    which fails any request the worker still has in flight.
+    the main thread, so no signal can unwind past the restore. Every cluster write
+    (scale-down, probe create, delete, restore) runs in the main thread, so the
+    cleanup never races a create still in flight. The main thread stops waiting at
+    the measurement budget; the restore then deletes the probe Pod, which fails
+    any request the worker still has in flight. One absolute deadline, 20 minutes
+    after scale-down, bounds the retries of every step.
     """
     reasons = []
 
@@ -459,10 +464,13 @@ def run_window(out, snapshot, budget_s, body, abort):
         "measure_budget_seconds": budget_s,
     }
     started = time.monotonic()
+    measure_until = started + budget_s
+    deadline = started + DEADLINE_MINUTES * 60
+    issued = []
     try:
         window["scale_down_at"] = now()
         save(out / "window.json", window)
-        kube("scale", "deployment/" + DEPLOY, "--replicas=0")
+        scale_checked(snapshot, 0, measure_until, issued)
         kube(
             "wait",
             "--for=delete",
@@ -473,9 +481,11 @@ def run_window(out, snapshot, budget_s, body, abort):
             timeout=190,
         )
         if not abort.is_set():
+            start_pod()
+        if not abort.is_set():
             worker.start()
         while worker.is_alive() and not abort.is_set():
-            if time.monotonic() - started >= budget_s:
+            if time.monotonic() >= measure_until:
                 reasons.append("deadline reached")
                 abort.set()
                 break
@@ -485,8 +495,16 @@ def run_window(out, snapshot, budget_s, body, abort):
     finally:
         abort.set()
         try:
-            cleanup_restore(snapshot, out, pod=POD)
-            window["restored_at"] = now()
+            if issued:
+                cleanup_restore(snapshot, out, pod=POD, deadline=deadline)
+                window["restored_at"] = now()
+                # A create the API accepted after the delete would hold the GPU.
+                if kube("get", "pod", POD, "--ignore-not-found").stdout.strip():
+                    window["probe_left_after_restore"] = True
+                    kube("delete", "pod", POD, "--ignore-not-found", "--wait=false")
+            else:
+                # The check refused before any write: production was never touched.
+                window["production_untouched"] = True
         finally:
             # Scale-down to restored (or to the failed restore).
             elapsed = time.monotonic() - started
@@ -708,7 +726,6 @@ def execute(args, sample, kept_by_qwen):
     def body():
         forward = monitor = None
         try:
-            kube("create", "-f", str(pod_path))
             kube(
                 "wait",
                 "--for=condition=Ready",
@@ -786,7 +803,14 @@ def execute(args, sample, kept_by_qwen):
 
     budget = DEADLINE_MINUTES * 60 - RESTORE_RESERVE_S
     try:
-        run_window(out, snapshot, budget, body, abort)
+        run_window(
+            out,
+            snapshot,
+            budget,
+            lambda: kube("create", "-f", str(pod_path)),
+            body,
+            abort,
+        )
     finally:
         verdict = evaluate(records)
         save(out / "verdict.json", verdict)

@@ -1,5 +1,6 @@
 """Offline checks for the capped EmbeddingGemma 2 probe: manifest, cap, gates, restore."""
 
+import copy
 import json
 import os
 import signal
@@ -9,7 +10,8 @@ import threading
 import time
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from types import SimpleNamespace
+from unittest.mock import MagicMock, patch
 
 import benchmark_1080_slots as bench
 import probe_eg2_1080 as probe
@@ -170,12 +172,62 @@ class EvaluateTests(unittest.TestCase):
         self.assertFalse(result["gate4_reference_vectors"]["pass"])
 
 
+SNAPSHOT = {
+    "metadata": {"uid": "u", "resourceVersion": "1"},
+    "spec": {"template": {"image": "qwen"}, "replicas": 1},
+}
+
+
+class FakeDeployment:
+    """embedder-qwen-cuda as bench.obj / bench.kube see it, honoring --resource-version."""
+
+    def __init__(self, image="qwen"):
+        self.state = copy.deepcopy(SNAPSHOT)
+        self.state["spec"]["template"]["image"] = image
+        self.scales = []
+        self.lost_responses = []  # exceptions raised after a scale lands
+
+    def obj(self, *args):
+        return copy.deepcopy(self.state)
+
+    def kube(self, *args, **kwargs):
+        if args[0] != "scale":
+            return SimpleNamespace(stdout="")
+        self.scales.append(args)
+        version = args[3].split("=", 1)[1]
+        if version != self.state["metadata"]["resourceVersion"]:
+            raise subprocess.CalledProcessError(1, "kubectl scale", "conflict")
+        self.state["spec"]["replicas"] = int(args[2].split("=", 1)[1])
+        self.state["metadata"]["resourceVersion"] = str(int(version) + 1)
+        if self.lost_responses:
+            raise self.lost_responses.pop(0)
+        return SimpleNamespace(stdout="")
+
+
 class WindowTests(unittest.TestCase):
-    def run_window(self, body, budget_s=60, kube_effect=None, during_restore=None):
+    def run_window(
+        self,
+        body=lambda: None,
+        budget_s=60,
+        kube_effect=None,
+        during_restore=None,
+        deployment=None,
+    ):
         abort = threading.Event()
+        deployment = deployment or FakeDeployment()
+        start_pod = MagicMock()
+
+        def probe_kube(*args, **kwargs):
+            if kube_effect:
+                kube_effect(*args, **kwargs)
+            return SimpleNamespace(stdout="")
+
         with (
             tempfile.TemporaryDirectory() as directory,
-            patch.object(probe, "kube", side_effect=kube_effect) as kube,
+            patch.object(bench, "obj", side_effect=deployment.obj),
+            patch.object(bench, "kube", side_effect=deployment.kube),
+            patch.object(bench, "RETRY_PAUSE_S", 0),
+            patch.object(probe, "kube", side_effect=probe_kube) as kube,
             patch.object(
                 probe, "cleanup_restore", side_effect=during_restore
             ) as restore,
@@ -183,48 +235,96 @@ class WindowTests(unittest.TestCase):
             out = Path(directory)
             error = None
             try:
-                probe.run_window(out, {"snapshot": True}, budget_s, body, abort)
+                probe.run_window(out, SNAPSHOT, budget_s, start_pod, body, abort)
             except Exception as exc:  # noqa: BLE001 — each test asserts the type
                 error = exc
             window = json.loads((out / "window.json").read_text())
-            return error, window, kube, restore, out, abort
+            return SimpleNamespace(
+                error=error,
+                window=window,
+                kube=kube,
+                restore=restore,
+                start_pod=start_pod,
+                deployment=deployment,
+                out=out,
+                abort=abort,
+            )
 
     def test_failure_in_measurements_restores_once(self):
         def body():
             raise RuntimeError("probe broke")
 
-        error, window, kube, restore, out, _ = self.run_window(body)
-        self.assertEqual(str(error), "probe broke")
-        restore.assert_called_once_with({"snapshot": True}, out, pod=probe.POD)
-        self.assertEqual(window["stopped_by"], ["RuntimeError: probe broke"])
-        self.assertIn("restored_at", window)
-        kube.assert_any_call("scale", "deployment/" + probe.DEPLOY, "--replicas=0")
+        run = self.run_window(body)
+        self.assertEqual(str(run.error), "probe broke")
+        run.restore.assert_called_once()
+        args, kwargs = run.restore.call_args
+        self.assertEqual(args, (SNAPSHOT, run.out))
+        self.assertEqual(kwargs["pod"], probe.POD)
+        self.assertIn("deadline", kwargs)
+        self.assertEqual(run.window["stopped_by"], ["RuntimeError: probe broke"])
+        self.assertIn("restored_at", run.window)
+        self.assertIn("--resource-version=1", run.deployment.scales[0])
+        run.start_pod.assert_called_once()
+
+    def test_restore_deadline_is_twenty_minutes_after_scale_down(self):
+        before = time.monotonic()
+        run = self.run_window()
+        deadline = run.restore.call_args.kwargs["deadline"]
+        self.assertGreaterEqual(deadline - before, probe.DEADLINE_MINUTES * 60 - 1)
+        self.assertLessEqual(deadline - before, probe.DEADLINE_MINUTES * 60 + 1)
 
     def test_deadline_stops_measurements_and_restores(self):
-        error, window, _, restore, _, abort = self.run_window(lambda: time.sleep(5), 1)
-        self.assertEqual(str(error), "deadline reached")
-        restore.assert_called_once()
-        self.assertTrue(abort.is_set())
-        self.assertIn("restored_at", window)
-        self.assertLess(window["outage_seconds"], 5)
+        run = self.run_window(lambda: time.sleep(5), 1)
+        self.assertEqual(str(run.error), "deadline reached")
+        run.restore.assert_called_once()
+        self.assertTrue(run.abort.is_set())
+        self.assertIn("restored_at", run.window)
+        self.assertLess(run.window["outage_seconds"], 5)
 
     def test_success_restores_once(self):
-        error, window, _, restore, _, _ = self.run_window(lambda: None)
-        self.assertIsNone(error)
-        restore.assert_called_once()
-        self.assertNotIn("stopped_by", window)
-        self.assertFalse(window["overran_deadline"])
+        run = self.run_window()
+        self.assertIsNone(run.error)
+        run.restore.assert_called_once()
+        self.assertNotIn("stopped_by", run.window)
+        self.assertFalse(run.window["overran_deadline"])
 
-    def test_scale_down_timeout_still_restores(self):
+    def test_template_changed_before_scale_down_leaves_production_alone(self):
+        run = self.run_window(deployment=FakeDeployment(image="new"))
+        self.assertIsInstance(run.error, bench.ProductionChanged)
+        self.assertEqual(run.deployment.scales, [])
+        run.restore.assert_not_called()
+        run.start_pod.assert_not_called()
+        self.assertTrue(run.window["production_untouched"])
+
+    def test_scale_down_that_landed_before_its_timeout_is_not_repeated(self):
+        deployment = FakeDeployment()
+        deployment.lost_responses.append(subprocess.TimeoutExpired("kubectl scale", 60))
+        run = self.run_window(deployment=deployment)
+        self.assertIsNone(run.error)
+        self.assertEqual(len(run.deployment.scales), 1)
+        run.start_pod.assert_called_once()
+        run.restore.assert_called_once()
+
+    def test_scale_down_timeout_that_never_lands_still_restores(self):
         def kube_effect(*args, **kwargs):
             if args[0] == "wait":
                 raise subprocess.TimeoutExpired("kubectl wait", 190)
 
-        error, _, _, restore, _, _ = self.run_window(
-            lambda: None, kube_effect=kube_effect
-        )
-        self.assertIsInstance(error, subprocess.TimeoutExpired)
-        restore.assert_called_once()
+        run = self.run_window(kube_effect=kube_effect)
+        self.assertIsInstance(run.error, subprocess.TimeoutExpired)
+        run.start_pod.assert_not_called()
+        run.restore.assert_called_once()
+
+    def test_signal_before_create_prevents_the_probe(self):
+        def kube_effect(*args, **kwargs):
+            if args[0] == "wait":
+                os.kill(os.getpid(), signal.SIGTERM)
+                time.sleep(0.2)
+
+        run = self.run_window(kube_effect=kube_effect)
+        self.assertEqual(str(run.error), f"interrupted: signal {signal.SIGTERM}")
+        run.start_pod.assert_not_called()
+        run.restore.assert_called_once()
 
     def test_signals_never_unwind_past_the_restore(self):
         def body():
@@ -236,19 +336,11 @@ class WindowTests(unittest.TestCase):
             os.kill(os.getpid(), signal.SIGINT)
             time.sleep(0.2)
 
-        error, window, _, restore, _, _ = self.run_window(
-            body, during_restore=during_restore
-        )
-        restore.assert_called_once()
-        self.assertIn("restored_at", window)
-        self.assertEqual(str(error), f"interrupted: signal {signal.SIGTERM}")
-        self.assertEqual(len(window["stopped_by"]), 2)
-
-
-SNAPSHOT = {
-    "metadata": {"uid": "u", "resourceVersion": "1"},
-    "spec": {"template": {"image": "qwen"}, "replicas": 1},
-}
+        run = self.run_window(body, during_restore=during_restore)
+        run.restore.assert_called_once()
+        self.assertIn("restored_at", run.window)
+        self.assertEqual(str(run.error), f"interrupted: signal {signal.SIGTERM}")
+        self.assertEqual(len(run.window["stopped_by"]), 2)
 
 
 class RestoreTests(unittest.TestCase):
@@ -258,7 +350,7 @@ class RestoreTests(unittest.TestCase):
             "spec": {"template": {"image": image}, "replicas": replicas},
         }
 
-    def restore(self, gets, kube_effect=None):
+    def restore(self, gets, kube_effect=None, deadline=None):
         with (
             tempfile.TemporaryDirectory() as directory,
             patch.object(bench, "obj", side_effect=gets) as obj,
@@ -267,11 +359,11 @@ class RestoreTests(unittest.TestCase):
             patch.object(
                 bench, "http", return_value={"data": [{"embedding": [1.0] * 2560}]}
             ),
-            patch.object(bench.time, "sleep"),
+            patch.object(bench, "RETRY_PAUSE_S", 0),
         ):
             error = None
             try:
-                bench.restore(SNAPSHOT, Path(directory))
+                bench.restore(SNAPSHOT, Path(directory), deadline)
             except Exception as exc:  # noqa: BLE001 — each test asserts the type
                 error = exc
             restored = (Path(directory) / "restored.json").exists()
@@ -323,6 +415,27 @@ class RestoreTests(unittest.TestCase):
         self.assertIsNone(error)
         self.assertTrue(restored)
         self.assertEqual(len(self.scales(kube)), 1)
+
+    def test_no_retry_starts_after_the_deadline(self):
+        gets = [
+            subprocess.TimeoutExpired("kubectl get", 60),
+            self.deployment(0, "7"),
+        ]
+        error, obj, kube, restored = self.restore(gets, deadline=time.monotonic() - 1)
+        self.assertIsInstance(error, subprocess.TimeoutExpired)
+        self.assertEqual(obj.call_count, 1)
+        self.assertEqual(self.scales(kube), [])
+        self.assertFalse(restored)
+
+    def test_retries_continue_before_the_deadline(self):
+        gets = [
+            subprocess.TimeoutExpired("kubectl get", 60),
+            self.deployment(0, "7"),
+            self.deployment(1, "8"),
+        ]
+        error, _, _, restored = self.restore(gets, deadline=time.monotonic() + 600)
+        self.assertIsNone(error)
+        self.assertTrue(restored)
 
     def test_template_changed_during_rollout_is_reported(self):
         gets = [self.deployment(0, "7"), self.deployment(1, "9", image="new")]

@@ -556,18 +556,28 @@ def run_arm(model, slots, args, corpus, lengths, questions, sample):
 
 
 RESTORE_ATTEMPTS = 5
+RETRY_PAUSE_S = 5
 
 
-def retry(step, action, attempts=RESTORE_ATTEMPTS, errors=(OSError,)):
-    """Retry a restore step on transient failures; anything else propagates at once."""
+def retry(step, action, attempts=RESTORE_ATTEMPTS, errors=(OSError,), deadline=None):
+    """Retry a step on transient failures; anything else propagates at once.
+
+    With a `deadline` (time.monotonic()), no retry starts after it: the failure
+    propagates instead, so retries never stretch a bounded outage.
+    """
     for attempt in range(1, attempts + 1):
         try:
             return action()
         except (subprocess.SubprocessError, *errors) as exc:
-            if attempt == attempts:
+            late = deadline is not None and time.monotonic() >= deadline
+            if attempt == attempts or late:
                 raise
-            print(f"restore: {step} failed ({exc}); retry {attempt}", flush=True)
-            time.sleep(5)
+            print(f"{step} failed ({exc}); retry {attempt}", flush=True)
+            time.sleep(RETRY_PAUSE_S)
+
+
+class ProductionChanged(RuntimeError):
+    pass
 
 
 def unchanged(current, snapshot):
@@ -575,19 +585,25 @@ def unchanged(current, snapshot):
         current["metadata"]["uid"] != snapshot["metadata"]["uid"]
         or current["spec"]["template"] != snapshot["spec"]["template"]
     ):
-        raise RuntimeError(
+        raise ProductionChanged(
             "Production template/identity changed concurrently; refusing blind restore"
         )
 
 
-def restore(snapshot, out):
-    replicas = snapshot["spec"]["replicas"]
+def scale_checked(snapshot, replicas, deadline=None, issued=None):
+    """Scale production only while it still matches `snapshot`.
+
+    `issued` (a list) records each scale write, so a caller can tell a refusal
+    before any write from one after.
+    """
 
     def scale():
         current = obj("get", "deployment", DEPLOY)
         unchanged(current, snapshot)
         if current["spec"]["replicas"] == replicas:
             return  # an earlier attempt landed before its kubectl call timed out
+        if issued is not None:
+            issued.append(now())
         # The precondition makes the scale fail if anything edited the Deployment
         # after the check above; the retry then re-reads and re-checks it.
         kube(
@@ -597,14 +613,27 @@ def restore(snapshot, out):
             "--resource-version=" + current["metadata"]["resourceVersion"],
         )
 
-    retry("scale", scale)
+    retry(f"scale to {replicas}", scale, deadline=deadline)
+
+
+def restore(snapshot, out, deadline=None):
+    """Scale production back, wait for it, and prove it with a real 2,560-dim vector.
+
+    Every step runs at least once; `deadline` only stops further retries.
+    """
+    replicas = snapshot["spec"]["replicas"]
+    scale_checked(snapshot, replicas, deadline)
     retry(
         "rollout",
         lambda: kube(
             "rollout", "status", "deployment/" + DEPLOY, "--timeout=300s", timeout=310
         ),
+        deadline=deadline,
     )
-    unchanged(retry("verify", lambda: obj("get", "deployment", DEPLOY)), snapshot)
+    current = retry(
+        "verify", lambda: obj("get", "deployment", DEPLOY), deadline=deadline
+    )
+    unchanged(current, snapshot)
 
     def check():
         forward = Forward("deployment/" + DEPLOY, out / "restore-port-forward.log")
@@ -623,7 +652,9 @@ def restore(snapshot, out):
         finally:
             forward.close()
 
-    response = retry("embedding check", check, 3, (OSError, RuntimeError))
+    response = retry(
+        "embedding check", check, 3, (OSError, RuntimeError), deadline=deadline
+    )
     normalize(response["data"][0]["embedding"], 2560)
     result = {
         "at": now(),
@@ -802,7 +833,7 @@ def main():
         cleanup_restore(snapshot, args.output)
 
 
-def cleanup_restore(snapshot, output, pod=POD):
+def cleanup_restore(snapshot, output, pod=POD, deadline=None):
     try:
         kube(
             "delete",
@@ -815,7 +846,7 @@ def cleanup_restore(snapshot, output, pod=POD):
         )
     finally:
         # Even a failed cleanup must attempt to bring the production replica back.
-        restore(snapshot, output)
+        restore(snapshot, output, deadline)
 
 
 if __name__ == "__main__":
