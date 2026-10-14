@@ -34,6 +34,27 @@ data:
   # on 2026-10-08 and was rolled back the same window: EG2 was OOMKilled on the
   # GTX 1080. context_eg2 exists but is empty. Attempt record and retry
   # preconditions: viking/docs/2026-10-08-embedder-embeddinggemma-2-cutover.md.
+  #
+  # VLM concurrency (IMPR-1303). On v0.4.20 vlm.max_concurrent is read twice on
+  # the Semantic path: QueueManager._max_concurrent_for_queue returns it as the
+  # number of Semantic jobs run at once (queue_manager.py), and every job's
+  # SemanticDAG takes it again as its own per-node semaphore (semantic_dag.py,
+  # max_concurrent_llm), so the ceiling on in-flight Semantic VLM calls is the
+  # square: 4 at the old value of 2, 16 at 4. It is not read by session commits,
+  # which queue_workers.session_commit.max_concurrent bounds instead (code
+  # default 8, one Phase 2 job per worker; a job's extraction batch is an
+  # ExtractLoop that defaults to 3 sequential VLM iterations, and format
+  # retries, refetches and repairs add calls beyond that, so a batch is one
+  # call only when its first iteration succeeds outright). Every call shares
+  # timmy's four OLLAMA_NUM_PARALLEL slots with chat-ollama-proxy's other
+  # callers (omnibot, omnipendium, the warm job); the excess waits in Ollama's
+  # queue, so vlm.timeout (1200) is the thing to watch. 1 -> 2 landed in #218
+  # (2026-10-13 15:35 CDT); 2 -> 4 and session_commit 8 -> 12 followed after a
+  # 6 h window peaked at Semantic 102 pending and SessionCommit 13 pending
+  # (above the 8 workers) with zero Phase 2 errors and an oldest live lock of
+  # 59 s against the 2700 s OpenVikingWedgedLockFile threshold. Before raising
+  # either again: record ov-extract-outcome counts, VLM timeouts and
+  # openviking_s3_ovlock_oldest_live_age_seconds before and after (BUG-1220).
   ov.conf: |
     {
       "default_account": "default",
@@ -111,7 +132,12 @@ data:
         "model": "gemma4:vlm",
         "api_key": "${OLLAMA_KEY}",
         "api_base": "http://chat-ollama.llama.svc.cluster.local:11434/v1",
-        "max_concurrent": 2,
+        "max_concurrent": 4,
         "timeout": 1200
+      },
+      "queue_workers": {
+        "session_commit": {
+          "max_concurrent": 12
+        }
       }
     }
