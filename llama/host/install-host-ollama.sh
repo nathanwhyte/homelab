@@ -57,7 +57,7 @@ for arg in "$@"; do
 	--check) mode=check ;;
 	--files-only) mode=files ;;
 	-h | --help)
-		sed -n '2,33p' "$0"
+		sed -n '2,34p' "$0"
 		exit 0
 		;;
 	*)
@@ -219,11 +219,12 @@ if [[ $mode == files ]]; then
 	# control plane. The same goes for a recipe whose num_ctx moves: ollama-warm
 	# rebuilds the tag into the unchanged slot budget at the next restart. Refuse
 	# both; comments and blank lines may differ, directives may not.
-	if [[ -f $DROPIN_DIR/homelab.conf ]]; then
-		staged=$(diff <(directives "$DROPIN_DIR/homelab.conf") <(directives "$SRC/ollama.service.d/homelab.conf") || true)
-		[[ -z $staged ]] || die "--files-only refuses: the drop-in differs in directives, not only comments, and would take effect at the next unplanned restart without the reconcile gate. Run the full installer instead. Staged change:
+	# A host without the drop-in would receive every repo directive this way,
+	# so that case is the full run too (Codex round 3 on homelab#220).
+	[[ -f $DROPIN_DIR/homelab.conf ]] || die "--files-only refuses: $DROPIN_DIR/homelab.conf is not installed, so every repo directive would arm at the next restart ungated. Run the full installer instead."
+	staged=$(diff <(directives "$DROPIN_DIR/homelab.conf") <(directives "$SRC/ollama.service.d/homelab.conf") || true)
+	[[ -z $staged ]] || die "--files-only refuses: the drop-in differs in directives, not only comments, and would take effect at the next unplanned restart without the reconcile gate. Run the full installer instead. Staged change:
 $staged"
-	fi
 	for recipe in qwen2.5-coder-fim gemma4-vlm; do
 		installed=$HOST_DIR/modelfiles/$recipe.Modelfile
 		[[ -f $installed ]] || continue
