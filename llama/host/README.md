@@ -50,8 +50,10 @@ LoadBalancer Service; the host daemon cannot bind `0.0.0.0:11434` until that is 
    After cutover, `--files-only` installs the warm script, the Modelfiles, the exporter code
    and the drop-in, runs `daemon-reload`, prints which installed files changed, and exits
    without restarting anything (IMPR-1310). Use it when a merged diff is scripts, recipes
-   and comments; a drop-in change to slots or `Environment=` still needs the full run, which
-   is the only path that restarts `ollama.service`.
+   and comments. It refuses when the drop-in differs in a directive or a recipe moves
+   `num_ctx`: `ollama.service` has `Restart=always`, so such a change would otherwise take
+   effect at the next crash or reboot with no reconcile gate. Those take the full run, the
+   only path that restarts `ollama.service`.
 
    Save the live Deployment, ConfigMap, and Service for rollback in a private directory.
    Use those snapshots to preserve the deployed image/config, rather than pulling `latest`.

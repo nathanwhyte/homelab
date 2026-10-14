@@ -12,9 +12,10 @@
 #
 # --files-only is for a diff that is scripts, recipes and comments (IMPR-1310): the
 # warm script, the Modelfiles, the exporter code and the drop-in land on disk and
-# systemd re-reads the units, but ollama.service keeps running with its current
-# Environment= values and the exporter keeps its loaded code until the next
-# restart. A drop-in change that alters slots or env still needs the full run.
+# systemd re-reads the units, but nothing restarts. It REFUSES when the drop-in
+# differs in a directive or a recipe moves num_ctx: with Restart=always such a
+# change would take effect at the next crash or reboot with no reconcile gate.
+# Those changes take the full run, which is the only path that restarts.
 #
 # What "install" does, idempotently:
 #   1. Check the cutover preconditions, then verify /usr/local/bin/ollama is
@@ -71,6 +72,8 @@ die() {
 	printf 'ERROR: %s\n' "$*" >&2
 	exit 1
 }
+# The lines of a unit drop-in or Modelfile that do something: no comments, no blanks.
+directives() { grep -vE '^[[:space:]]*(#|;|$)' "$1" || true; }
 
 [[ $EUID -eq 0 ]] || die "run with sudo"
 [[ -f $SRC/ollama.service.d/homelab.conf ]] || die "drop-in not found at $SRC — run from a repo checkout"
@@ -211,7 +214,24 @@ fi
 # a fresh host still needs the full run first.
 if [[ $mode == files ]]; then
 	[[ -f /etc/systemd/system/ollama.service ]] || die "--files-only needs an installed host; run the full installer first"
-	log "--files-only: skipping preflight, binary pin and the num_ctx reconcile gate; nothing restarts"
+	# ollama.service has Restart=always, so a drop-in installed now arms itself at
+	# the next crash or reboot with no reconcile gate in front of it, on the k3s
+	# control plane. The same goes for a recipe whose num_ctx moves: ollama-warm
+	# rebuilds the tag into the unchanged slot budget at the next restart. Refuse
+	# both; comments and blank lines may differ, directives may not.
+	if [[ -f $DROPIN_DIR/homelab.conf ]]; then
+		staged=$(diff <(directives "$DROPIN_DIR/homelab.conf") <(directives "$SRC/ollama.service.d/homelab.conf") || true)
+		[[ -z $staged ]] || die "--files-only refuses: the drop-in differs in directives, not only comments, and would take effect at the next unplanned restart without the reconcile gate. Run the full installer instead. Staged change:
+$staged"
+	fi
+	for recipe in qwen2.5-coder-fim gemma4-vlm; do
+		installed=$HOST_DIR/modelfiles/$recipe.Modelfile
+		[[ -f $installed ]] || continue
+		old_ctx=$(grep -E '^PARAMETER[[:space:]]+num_ctx' "$installed" || true)
+		new_ctx=$(grep -E '^PARAMETER[[:space:]]+num_ctx' "$REPO_DIR/llama/ollama/$recipe.Modelfile" || true)
+		[[ $old_ctx == "$new_ctx" ]] || die "--files-only refuses: $recipe.Modelfile moves num_ctx ($old_ctx -> $new_ctx); ollama-warm would rebuild the tag at the next restart without the reconcile gate. Run the full installer instead."
+	done
+	log "--files-only: drop-in directives and recipe num_ctx unchanged; skipping preflight, binary pin and the reconcile gate; nothing restarts"
 else
 	cutover_preflight
 	if [[ $(installed_version) != "$OLLAMA_VERSION" ]]; then
