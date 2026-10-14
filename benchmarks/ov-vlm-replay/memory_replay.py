@@ -190,7 +190,10 @@ def validate(args) -> str:
         except jsonschema.ValidationError as e:
             return f"schema: {e.message[:120]}"
         return "valid"
-    missing = [s for s in WM_SEVEN_SECTIONS if s not in args.get("sections", {})]
+    sections = args.get("sections")
+    if not isinstance(sections, dict):
+        return f"sections is {type(sections).__name__}, not an object"
+    missing = [s for s in WM_SEVEN_SECTIONS if s not in sections]
     return f"missing {missing}" if missing else "valid (required keys only)"
 
 

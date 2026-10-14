@@ -26,6 +26,7 @@ from pathlib import Path
 
 import httpx
 from openviking.prompts.manager import render_prompt
+from openviking.storage.abstract_overview import deterministic_sample
 from pricing import call_cost, run_cost  # sibling module
 
 # The nav patch production runs; its prompt builder is the source of truth.
@@ -37,6 +38,8 @@ import ov_nav_patch as nav
 API = "https://api.anthropic.com/v1/messages"
 MODEL, ROOT = "claude-haiku-5-5", "viking://resources/compendium/"  # --model, --root
 MAX_TOKENS, NO_THINKING = 4096, False  # --max-tokens, --no-thinking
+# OV 0.4.20 semantic defaults; prod sets only overview_sample_limit (105, --sample-limit).
+MAX_OVERVIEW_PROMPT_CHARS, OVERVIEW_BATCH_SIZE = 60000, 50
 WEEKLY_VLM_CALLS = (
     15002  # increase(openviking_model_calls_total{model_type="vlm"}[7d]), 2026-10-13
 )
@@ -142,10 +145,17 @@ def coverage_statement(total_files, total_children, provided) -> str:
     )
 
 
-async def run_dir(api: Api, uri: str, kids: list[dict], batch_size: int) -> dict:
+async def run_dir(api: Api, uri: str, kids: list[dict], sample_limit: int) -> dict:
     all_files = [k for k in kids if not k["isDir"]]
-    files = all_files[:batch_size]  # OV samples above overview_sample_limit too
-    subdirs = [k for k in kids if k["isDir"]]
+    all_dirs = [k for k in kids if k["isDir"]]
+    # OV's semantic DAG (_dispatch_dir): direct entries sorted by name, then one
+    # deterministic sample across files and subdirectories together.
+    direct = sorted(
+        all_files + all_dirs, key=lambda k: k["uri"].rstrip("/").rsplit("/", 1)[-1]
+    )
+    sampled = deterministic_sample(direct, sample_limit)
+    files = [k for k in sampled if not k["isDir"]]
+    subdirs = [k for k in sampled if k["isDir"]]
 
     async def summarize(f):
         name = f["uri"].rsplit("/", 1)[-1]
@@ -174,7 +184,7 @@ async def run_dir(api: Api, uri: str, kids: list[dict], batch_size: int) -> dict
     ]
     if nav.phase2_enabled(uri):
         prompt = nav.build_brief_prompt(
-            uri, file_items, child_items, len(all_files), len(subdirs), "en"
+            uri, file_items, child_items, len(all_files), len(all_dirs), "en"
         )
         overview = await api.complete(
             "overview_brief", uri, prompt, max_tokens=nav.BRIEF_MAX_TOKENS
@@ -188,15 +198,37 @@ async def run_dir(api: Api, uri: str, kids: list[dict], batch_size: int) -> dict
             f"- {it['name']}/ (link: viking://input_sample_c{i}): {it['abstract']}"
             for i, it in enumerate(child_items, 1)
         ]
+        files_str = "\n".join(file_lines) or "None"
+        children_str = "\n".join(child_lines) or "None"
+        # OV's budget guard in _generate_overview: an oversized prompt with many
+        # entries is batched and merged (several calls); with few entries each
+        # summary is truncated to fit. The batch path is not replayed: reported.
+        over_budget = len(files_str) + len(children_str) > MAX_OVERVIEW_PROMPT_CHARS
+        if over_budget and len(file_items) + len(child_items) > OVERVIEW_BATCH_SIZE:
+            api.recs.append(
+                {
+                    "kind": "overview_generation",
+                    "uri": uri,
+                    "status": "skipped: OV would batch and merge",
+                }
+            )
+            return {"uri": uri, "files": len(files), "overview": "", "baseline": ""}
+        if over_budget:
+            budget = MAX_OVERVIEW_PROMPT_CHARS - len(children_str)
+            per_file = max(100, budget // max(len(file_items), 1))
+            files_str = "\n".join(
+                f"- {it['name']} (link: viking://input_sample_f{i}): {it['summary'][:per_file]}"
+                for i, it in enumerate(file_items, 1)
+            )
         prompt = render_prompt(
             "semantic.overview_generation",
             {
                 "dir_name": uri.rstrip("/").rsplit("/", 1)[-1],
-                "file_summaries": "\n".join(file_lines) or "None",
-                "children_abstracts": "\n".join(child_lines) or "None",
+                "file_summaries": files_str,
+                "children_abstracts": children_str,
                 "output_language": "en",
                 "directory_coverage": coverage_statement(
-                    len(all_files), len(subdirs), len(file_items) + len(child_items)
+                    len(all_files), len(all_dirs), len(file_items) + len(child_items)
                 ),
             },
         )
@@ -215,8 +247,15 @@ def pct(xs, q):
 
 def report(api: Api, wall_s: float):
     ok = [r for r in api.recs if r["status"] == 200]
+    skipped = [r for r in api.recs if str(r["status"]).startswith("skipped")]
+    errors = [
+        r
+        for r in api.recs
+        if r not in ok and r not in skipped and r["status"] not in (429, 529)
+    ]
     print(
-        f"calls ok={len(ok)} throttled(429/529)={api.throttled} other_errors={sum(r['status'] not in (200, 429, 529) for r in api.recs)} wall={wall_s:.0f}s rpm={len(ok) / wall_s * 60:.0f}"
+        f"calls ok={len(ok)} throttled(429/529)={api.throttled} other_errors={len(errors)} "
+        f"skipped(OV would batch)={len(skipped)} wall={wall_s:.0f}s rpm={len(ok) / wall_s * 60:.0f}"
     )
     for kind in sorted({r["kind"] for r in ok}):
         rs = [r for r in ok if r["kind"] == kind]
@@ -241,7 +280,7 @@ def report(api: Api, wall_s: float):
         print(
             f"  same output, IMPR-1303's 9.4K-token mean prompt -> ${call_cost(MODEL, 9400, mo) * monthly:.0f}/month"
         )
-    last = next((r["ratelimit"] for r in reversed(api.recs) if r["ratelimit"]), {})
+    last = next((r["ratelimit"] for r in reversed(api.recs) if r.get("ratelimit")), {})
     print("rate-limit headers (last response):")
     for k, v in sorted(last.items()):
         print(f"  {k}: {v}")
@@ -254,7 +293,12 @@ async def main():
     ap.add_argument("--workspace-id")
     ap.add_argument("--random-dirs", type=int, default=4)
     ap.add_argument("--largest-dirs", type=int, default=2)
-    ap.add_argument("--batch-size", type=int, default=50)
+    ap.add_argument(
+        "--sample-limit",
+        type=int,
+        default=105,
+        help="OV's semantic.overview_sample_limit (prod: 105)",
+    )
     ap.add_argument("--concurrency", type=int, default=4)
     ap.add_argument("--seed", type=int, default=1311)
     ap.add_argument("--model", default=MODEL)
@@ -286,7 +330,8 @@ async def main():
     api = Api(headers, a.concurrency)
     t0 = time.monotonic()
     results = await asyncio.gather(
-        *(run_dir(api, u, ks, a.batch_size) for u, ks in chosen), return_exceptions=True
+        *(run_dir(api, u, ks, a.sample_limit) for u, ks in chosen),
+        return_exceptions=True,
     )
     wall = time.monotonic() - t0
     await api.client.aclose()

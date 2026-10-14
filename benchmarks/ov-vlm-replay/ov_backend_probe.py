@@ -97,6 +97,12 @@ async def main():
     )
     tc = resp.tool_calls[0] if resp.tool_calls else None
     args = tc.arguments if tc else None
+    sections = args.get("sections") if isinstance(args, dict) else None
+    sections_desc = (
+        len(sections)
+        if isinstance(sections, dict)
+        else f"malformed ({type(sections).__name__})"
+    )
     print(
         "\n[tool-forced update via get_completion_async] has_tool_calls",
         resp.has_tool_calls,
@@ -107,7 +113,7 @@ async def main():
         "args keys",
         list(args)[:3] if isinstance(args, dict) else type(args).__name__,
         "sections",
-        len(args.get("sections", {})) if isinstance(args, dict) else None,
+        sections_desc,
     )
 
 

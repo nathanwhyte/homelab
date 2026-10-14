@@ -25,7 +25,7 @@ $P memory_replay.py --create --no-thinking --max-tokens 16384 --key-file <key fi
 $P ov_backend_probe.py --key-file <key file> --workspace-id <wrkspc_…>
 ```
 
-`--model` targets another Claude model; `--root` and `--sessions` pick what to sample.
+`--model` targets another Claude model; `--root` and `--sessions` pick what to sample. `vlm_replay.py` samples each directory with OV's own `deterministic_sample` up to `--sample-limit` (prod's `overview_sample_limit`, 105). Outside `viking://resources/` it sends the stock overview prompt with OV's budget guard; a directory OV would split into batched calls is reported as skipped rather than replayed.
 
 ## Results, 2026-10-13 (Claude Haiku 5.5)
 
