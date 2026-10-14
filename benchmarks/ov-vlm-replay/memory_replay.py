@@ -18,6 +18,7 @@ content: write them outside any repo.
 
 import argparse
 import asyncio
+import contextlib
 import itertools
 import json
 import random
@@ -103,7 +104,7 @@ def build(prev: str, cur: str, create: bool) -> dict | None:
             "output_language": "en",
         },
     )
-    return {"archive": cur, "prompt": prompt, "messages": len(msgs)}
+    return {"archive": cur, "prompt": prompt, "messages": len(msgs), "prior": prior}
 
 
 def sections_missing(text: str) -> list[str]:
@@ -112,23 +113,70 @@ def sections_missing(text: str) -> list[str]:
     return [s for s in WM_SEVEN_SECTIONS if f"## {s}" not in headers]
 
 
-def ov_update_outcome(args) -> str:
+def _decode_args(raw_args):
+    """OV's argument decoding: a JSON string is parsed, and a `{"raw": str}` wrapper
+    (OV's backend wraps unparseable JSON that way) is parsed or brace-closed."""
+    args = json.loads(raw_args) if isinstance(raw_args, str) else raw_args
+    if not isinstance(args, dict):
+        raise TypeError(f"tool_call arguments is not a dict: {type(args).__name__}")
+    if list(args) == ["raw"] and isinstance(args["raw"], str):
+        raw_str, recovered = args["raw"], None
+        try:
+            recovered = json.loads(raw_str)
+        except ValueError:
+            opens = raw_str.count("{") - raw_str.count("}")
+            if opens > 0:
+                with contextlib.suppress(ValueError):
+                    recovered = json.loads(raw_str.rstrip().rstrip(",") + "}" * opens)
+        if isinstance(recovered, dict):
+            args = recovered
+    return args
+
+
+def _merge_outcome(prior: str, ops: dict, label: str) -> str:
+    # OV calls _merge_wm_sections outside its try block, so an error here escapes
+    # the session commit instead of falling back.
+    try:
+        Session._merge_wm_sections(prior, ops)
+    except Exception as e:  # noqa: BLE001 — any exception is the outcome being measured
+        return f"merge raised {type(e).__name__}"
+    return label
+
+
+def ov_update_outcome(raw_args, prior: str) -> str:
     """What OV 0.4.20's update branch does with these tool arguments.
 
-    Mirrors `_generate_archive_summary_async`: a `sections` object or all seven keys
-    at the top level are merged as ops; anything else goes to the regex recovery,
-    which merges whatever sections it salvages; with nothing salvaged OV falls back
-    to the creation prompt (a second full generation).
+    Mirrors `_generate_archive_summary_async` step by step: decode the arguments and
+    take `sections` (or all seven top-level keys) as ops; a failure there goes to OV's
+    regex recovery over the raw arguments, and with nothing salvaged OV reruns the
+    creation prompt (a second full generation). Ops that parse are merged into the
+    prior WM with OV's own `_merge_wm_sections`.
     """
-    if isinstance(args, dict):
+    try:
+        args = _decode_args(raw_args)
         if isinstance(args.get("sections"), dict):
-            return "merged"
-        if all(k in args for k in WM_SEVEN_SECTIONS):
-            return "merged"
-    raw = args if isinstance(args, str) else json.dumps(args, ensure_ascii=False)
+            ops = args["sections"]
+        elif all(k in args for k in WM_SEVEN_SECTIONS):
+            ops = args
+        else:
+            raise ValueError("tool_call arguments.sections missing")
+        if not isinstance(ops, dict):
+            raise TypeError("ops is not a dict")
+    except (ValueError, TypeError):
+        ops = None
+    if ops is not None:
+        return _merge_outcome(prior, ops, "merged")
+    if isinstance(raw_args, str):
+        raw = raw_args
+    elif isinstance(raw_args, dict) and isinstance(raw_args.get("raw"), str):
+        raw = raw_args["raw"]
+    else:
+        raw = json.dumps(raw_args, ensure_ascii=False)
     salvaged = Session._wm_recover_ops_from_raw(raw)
     if salvaged:
-        return f"salvaged {len(salvaged)}/{len(WM_SEVEN_SECTIONS)}"
+        return _merge_outcome(
+            prior, salvaged, f"salvaged {len(salvaged)}/{len(WM_SEVEN_SECTIONS)}"
+        )
     return "creation fallback"
 
 
@@ -202,7 +250,9 @@ async def call(
     tool = next((b for b in data["content"] if b.get("type") == "tool_use"), None)
     rec |= {
         "verdict": validate(tool["input"]) if tool else "no tool_use block",
-        "ov_outcome": ov_update_outcome(tool["input"]) if tool else "creation fallback",
+        "ov_outcome": ov_update_outcome(tool["input"], job["prior"])
+        if tool
+        else "creation fallback",
         "tool_input": tool["input"] if tool else None,
     }
     return rec
@@ -268,9 +318,18 @@ async def main():
     }
     sem = asyncio.Semaphore(a.concurrency)
     async with httpx.AsyncClient(timeout=300) as client:
-        recs = await asyncio.gather(
-            *(call(client, headers, j, sem, a.strict, a.create) for j in jobs)
+        # Drain every request before the client closes, so a transport error on one
+        # call never drops another call's billed response.
+        results = await asyncio.gather(
+            *(call(client, headers, j, sem, a.strict, a.create) for j in jobs),
+            return_exceptions=True,
         )
+    recs = [
+        r
+        if not isinstance(r, BaseException)
+        else {"archive": j["archive"], "status": "exception", "error": repr(r)}
+        for j, r in zip(jobs, results, strict=True)
+    ]
     suffix = ("_create" if a.create else "_strict" if a.strict else "") + a.tag
     with (a.out / f"memory_results{suffix}.jsonl").open("w") as fh:
         for r in recs:

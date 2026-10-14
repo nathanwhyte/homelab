@@ -44,7 +44,10 @@ Rerun on 2026-10-14 after the review fixes, which check sections with OV's own `
 | --- | --- | --- | --- | --- | --- |
 | WM creation | 12 | 33,052 | 4,195 | 15.8 s | 12/12 with all seven sections, by OV's parser |
 | WM update, tool forced | 12 | 32,656 | 2,591 | 12.9 s | OV merges 10/12; 2/12 sent `sections` as a JSON string, which OV 0.4.20 can't recover, so it reruns the creation prompt; 8/12 match the strict schema |
+| WM update, second sample (merge run through OV's `_merge_wm_sections`) | 12 | 35,949 | 2,461 | 11.3 s | OV merges 12/12 |
+| Document summaries | 121 | 2,223 | 283 | 1.9 s | all completed |
+| Directory overviews, production prompt (`ov_nav_patch` Phase 2 brief, 768 cap) | 6 | 1,169 | 163 | 1.5 s | all completed |
 
-The three WMs Haiku wrote in production during the live window also pass OV's parser with all seven sections.
+The three WMs Haiku wrote in production during the live window also pass OV's parser with all seven sections. The round-1 overview row measured OV's stock `overview_generation` prompt, which production does not send for `viking://resources/`: there the nav patch's brief prompt is about a fifteenth of the output.
 
 Rate limits from the response headers: 10,000 requests, 10M input and 2M output tokens a minute. OV peaks near 10 calls a minute. Projected spend at 15,000 calls a week: about $36 a month. The live window used `viking/scripts/ov-vlm-swap.py` and `viking/manifests/test/nav-patch/ov_claude_params_patch.py`; see `viking/docs/2026-10-13-impr-1311-haiku-vlm-round2.md`.

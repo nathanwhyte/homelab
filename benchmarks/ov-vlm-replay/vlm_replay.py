@@ -1,8 +1,11 @@
 """Replay OpenViking's semantic pipeline against a Claude model (IMPR-1311 round 1).
 
 For each sampled directory under `--root`, runs OpenViking 0.4.20's two stages the
-way the semantic processor does: `semantic.document_summary` per file, then
-`semantic.overview_generation` over those summaries. Records tokens, latency, 429s
+way production does: `semantic.document_summary` per file, then the directory
+overview. Under `viking://resources/` production runs homelab's `ov_nav_patch.py`
+Phase 2, a short brief prompt capped at 768 tokens, so the replay imports that patch's
+own `build_brief_prompt`; elsewhere it renders the stock `semantic.overview_generation`
+with OV's coverage statement and child-link placeholders. Records tokens, latency, 429s
 and the `anthropic-ratelimit-*` headers, and writes each new overview next to the
 stored one. Read-only against OpenViking; the API key is read from a file and never
 printed. Outputs carry real vault content: write them outside any repo.
@@ -17,12 +20,19 @@ import json
 import random
 import statistics
 import subprocess
+import sys
 import time
 from pathlib import Path
 
 import httpx
 from openviking.prompts.manager import render_prompt
 from pricing import call_cost, run_cost  # sibling module
+
+# The nav patch production runs; its prompt builder is the source of truth.
+sys.path.insert(
+    0, str(Path(__file__).resolve().parents[2] / "viking/manifests/test/nav-patch")
+)
+import ov_nav_patch as nav
 
 API = "https://api.anthropic.com/v1/messages"
 MODEL, ROOT = "claude-haiku-5-5", "viking://resources/compendium/"  # --model, --root
@@ -64,10 +74,12 @@ class Api:
         self.recs: list[dict] = []
         self.throttled = 0
 
-    async def complete(self, kind: str, uri: str, prompt: str) -> str:
+    async def complete(
+        self, kind: str, uri: str, prompt: str, max_tokens: int | None = None
+    ) -> str:
         body = {
             "model": MODEL,
-            "max_tokens": MAX_TOKENS,
+            "max_tokens": max_tokens or MAX_TOKENS,
             "messages": [{"role": "user", "content": prompt}],
         }
         if NO_THINKING:
@@ -112,8 +124,27 @@ class Api:
         raise RuntimeError(f"gave up after retries: {uri}")
 
 
+def coverage_statement(total_files, total_children, provided) -> str:
+    """OV 0.4.20's `_generate_overview` coverage text, verbatim."""
+    total = total_files + total_children
+    if total <= provided:
+        return (
+            f"Total direct entries: {total}. "
+            "All direct entries are represented in the summaries below."
+        )
+    return (
+        f"Total direct entries: {total} "
+        f"({total_files} files, {total_children} subdirectories).\n"
+        f"Summaries provided for this aggregation: {provided}.\n"
+        f"Direct entries not individually shown: {total - provided}.\n"
+        "Coverage: sampled. The summaries below are representative "
+        "entries; generalize cautiously and do not treat them as exhaustive."
+    )
+
+
 async def run_dir(api: Api, uri: str, kids: list[dict], batch_size: int) -> dict:
-    files = [k for k in kids if not k["isDir"]][:batch_size]
+    all_files = [k for k in kids if not k["isDir"]]
+    files = all_files[:batch_size]  # OV samples above overview_sample_limit too
     subdirs = [k for k in kids if k["isDir"]]
 
     async def summarize(f):
@@ -133,25 +164,43 @@ async def run_dir(api: Api, uri: str, kids: list[dict], batch_size: int) -> dict
     failed = next((r for r in results if isinstance(r, BaseException)), None)
     if failed is not None:
         raise failed
-    summaries = results
-    file_lines = [
-        f"- {n} (link: viking://input_sample_f{i}): {s}"
-        for i, (n, s) in enumerate(summaries, 1)
-    ]
-    child_lines = [
-        f"- {k['uri'].rsplit('/', 1)[-1]}/: {k.get('abstract', '')}" for k in subdirs
-    ]
-    prompt = render_prompt(
-        "semantic.overview_generation",
+    file_items = [{"name": n, "summary": s} for n, s in results]
+    child_items = [
         {
-            "dir_name": uri.rstrip("/").rsplit("/", 1)[-1],
-            "file_summaries": "\n".join(file_lines) or "None",
-            "children_abstracts": "\n".join(child_lines) or "None",
-            "output_language": "en",
-            "directory_coverage": "",
-        },
-    )
-    overview = await api.complete("overview_generation", uri, prompt)
+            "name": k["uri"].rstrip("/").rsplit("/", 1)[-1],
+            "abstract": k.get("abstract", ""),
+        }
+        for k in subdirs
+    ]
+    if nav.phase2_enabled(uri):
+        prompt = nav.build_brief_prompt(
+            uri, file_items, child_items, len(all_files), len(subdirs), "en"
+        )
+        overview = await api.complete(
+            "overview_brief", uri, prompt, max_tokens=nav.BRIEF_MAX_TOKENS
+        )
+    else:
+        file_lines = [
+            f"- {it['name']} (link: viking://input_sample_f{i}): {it['summary']}"
+            for i, it in enumerate(file_items, 1)
+        ]
+        child_lines = [
+            f"- {it['name']}/ (link: viking://input_sample_c{i}): {it['abstract']}"
+            for i, it in enumerate(child_items, 1)
+        ]
+        prompt = render_prompt(
+            "semantic.overview_generation",
+            {
+                "dir_name": uri.rstrip("/").rsplit("/", 1)[-1],
+                "file_summaries": "\n".join(file_lines) or "None",
+                "children_abstracts": "\n".join(child_lines) or "None",
+                "output_language": "en",
+                "directory_coverage": coverage_statement(
+                    len(all_files), len(subdirs), len(file_items) + len(child_items)
+                ),
+            },
+        )
+        overview = await api.complete("overview_generation", uri, prompt)
     try:
         baseline = await asyncio.to_thread(ov_json, "overview", uri)
     except subprocess.CalledProcessError:
