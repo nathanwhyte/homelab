@@ -57,6 +57,8 @@ run bash "$WRAPPER" --check
 grep -q 'args=\[--check\]' "$CALLS" && ok "--check passed through" || bad "--check"
 run bash "$WRAPPER" --sync-models
 grep -q 'args=\[--sync-models\]' "$CALLS" && ok "--sync-models passed through" || bad "--sync-models"
+run bash "$WRAPPER" --files-only
+grep -q 'args=\[--files-only\]' "$CALLS" && ok "--files-only passed through" || bad "--files-only"
 run bash "$WRAPPER" --evil
 rc=$?
 [[ $rc -eq 2 && ! -s $CALLS ]] && ok "unknown argument refused (exit 2), installer NOT run" || bad "unknown arg (rc=$rc)"
@@ -119,6 +121,14 @@ grep -qE 'NOPASSWD: *ALL|SETENV|env_keep' <<<"$directives" &&
 	bad "fragment grants ALL, SETENV or env_keep" || ok "no ALL, SETENV or env_keep in any directive"
 grep -qE '^[[:space:]]*/usr/local/sbin/homelab-ollama-deploy\.sh[[:space:]]*,' <<<"$directives" &&
 	bad "wrapper listed WITHOUT an argument spec (would allow any args)" || ok "every wrapper form pins its arguments"
+# Every mode the wrapper accepts must also be granted, or it runs only with a
+# password (Codex on homelab#220: --files-only was allowlisted but not granted).
+wrapper_modes=$(sed -n 's/^"" | \(.*\)) ;;$/\1/p' "$HOST/homelab-ollama-deploy.sh" | tr -d ' ' | tr '|' '\n')
+missing=""
+for m in $wrapper_modes; do
+	grep -qE "^[[:space:]]*/usr/local/sbin/homelab-ollama-deploy\.sh $m(,|$)" <<<"$directives" || missing="$missing $m"
+done
+[[ -z $missing ]] && ok "every wrapper mode is in the sudoers grant" || bad "wrapper modes missing from the grant:$missing"
 
 echo "installer: the traps it exists to prevent"
 dst=$(sed -n 's/^SUDOERS_DST=\([^ ]*\).*/\1/p' "$HOST/install-sudo-deploy.sh")
