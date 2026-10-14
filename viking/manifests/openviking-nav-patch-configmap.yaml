@@ -4457,9 +4457,11 @@ data:
             if token:
                 return {"op": OP_UPDATE, "content": value}, True
             return {"op": OP_KEEP}, True
-        if isinstance(value, list) and all(isinstance(item, str) for item in value):
-            if _text_items(value):
-                return {"op": OP_APPEND, "items": value}, True
+        if isinstance(value, list):
+            # Non-string and blank entries are dropped, as the merge drops them.
+            items = _text_items(value)
+            if items:
+                return {"op": OP_APPEND, "items": items}, True
             return {"op": OP_KEEP}, True
         return value, False
 
@@ -4793,9 +4795,12 @@ data:
         failed reply behind a silent all-KEEP merge, so the caller falls back instead.
         """
         if isinstance(value, dict):
-            op = value.get("op")
-            if isinstance(op, str) and op.strip().upper() in OPS:
-                return True
+            if "op" in value:
+                # An explicit op decides on its own: a known name is a decision, an
+                # invalid one (None, a number, an unknown word) is not, whatever else
+                # the object carries.
+                op = value["op"]
+                return isinstance(op, str) and op.strip().upper() in OPS
             content = value.get("content")
             if isinstance(content, str) and content.strip():
                 return True

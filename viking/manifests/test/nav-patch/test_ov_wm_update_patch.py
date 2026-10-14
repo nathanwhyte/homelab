@@ -468,7 +468,10 @@ class RestoreArgumentsTests(unittest.TestCase):
         self.assertEqual((info["mapped"], info["coerced"]), (7, 6))
         self.assertEqual(info["unmapped"], ["Extra"])
         self.assertEqual(wm_patch.coerce_op(5), (5, False))
-        self.assertEqual(wm_patch.coerce_op([1, "a"]), ([1, "a"], False))
+        self.assertEqual(
+            wm_patch.coerce_op([1, "a"]), ({"op": "APPEND", "items": ["a"]}, True)
+        )
+        self.assertEqual(wm_patch.coerce_op([1, None]), ({"op": "KEEP"}, True))
         self.assertEqual(wm_patch.coerce_op({"other": 1}), ({"other": 1}, False))
 
     def test_titles_and_unknown_keys_pass_through(self):
@@ -851,6 +854,14 @@ class JsonModeTests(unittest.TestCase):
             ),
             json.dumps({"sections": {"Current State": {"content": "", "items": []}}}),
             json.dumps({"current_state": 5, "open_issues": None}),
+            # An explicit but invalid op is not rescued by its body.
+            json.dumps(
+                {"sections": {"current_state": {"op": None, "content": "failed"}}}
+            ),
+            json.dumps({"sections": {"current_state": {"op": 3, "items": ["x"]}}}),
+            json.dumps(
+                {"sections": {"current_state": {"op": "RETRY", "content": "x"}}}
+            ),
         ):
             self.reply = reply
             resp, record = self._run_update()
@@ -879,6 +890,18 @@ class JsonModeTests(unittest.TestCase):
             (
                 json.dumps({"sections": json.dumps({"current_state": {"op": "KEEP"}})}),
                 {"op": "KEEP"},
+            ),
+            # A mixed list keeps its text; the non-string is dropped as the merge would.
+            (
+                json.dumps(
+                    {
+                        "sections": {
+                            "current_state": ["new fact", None, " "],
+                            "open_issues": [],
+                        }
+                    }
+                ),
+                {"op": "APPEND", "items": ["new fact"]},
             ),
         ):
             self.reply = reply
