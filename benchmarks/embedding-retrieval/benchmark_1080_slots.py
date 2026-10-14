@@ -565,15 +565,20 @@ def retry(step, action, attempts=RESTORE_ATTEMPTS, errors=(OSError,), deadline=N
     With a `deadline` (time.monotonic()), no retry starts after it: the failure
     propagates instead, so retries never stretch a bounded outage.
     """
+
+    def late():
+        return deadline is not None and time.monotonic() >= deadline
+
     for attempt in range(1, attempts + 1):
         try:
             return action()
         except (subprocess.SubprocessError, *errors) as exc:
-            late = deadline is not None and time.monotonic() >= deadline
-            if attempt == attempts or late:
+            if attempt == attempts or late():
                 raise
             print(f"{step} failed ({exc}); retry {attempt}", flush=True)
             time.sleep(RETRY_PAUSE_S)
+            if late():  # the pause itself can cross the deadline
+                raise
 
 
 class ProductionChanged(RuntimeError):
@@ -835,14 +840,19 @@ def main():
 
 def cleanup_restore(snapshot, output, pod=POD, deadline=None):
     try:
-        kube(
-            "delete",
-            "pod",
-            pod,
-            "--ignore-not-found",
-            "--wait=true",
-            "--timeout=60s",
-            timeout=70,
+        # The probe holds the only GPU: production cannot roll out until it is gone.
+        retry(
+            "delete " + pod,
+            lambda: kube(
+                "delete",
+                "pod",
+                pod,
+                "--ignore-not-found",
+                "--wait=true",
+                "--timeout=60s",
+                timeout=70,
+            ),
+            deadline=deadline,
         )
     finally:
         # Even a failed cleanup must attempt to bring the production replica back.

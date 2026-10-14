@@ -12,6 +12,7 @@ class RestorationTests(unittest.TestCase):
     def test_restore_attempted_when_probe_delete_fails(self):
         with (
             patch.object(bench, "kube", side_effect=TimeoutError("delete timeout")),
+            patch.object(bench, "RETRY_PAUSE_S", 0),
             patch.object(bench, "restore") as restore,
         ):
             with self.assertRaises(TimeoutError):

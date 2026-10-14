@@ -31,6 +31,7 @@ import random
 import re
 import signal
 import statistics
+import subprocess
 import threading
 import time
 from collections import Counter
@@ -467,28 +468,36 @@ def run_window(out, snapshot, budget_s, start_pod, body, abort):
     measure_until = started + budget_s
     deadline = started + DEADLINE_MINUTES * 60
     issued = []
+
+    def remaining():
+        """Seconds left to measure; at zero, record the deadline and stop."""
+        left = measure_until - time.monotonic()
+        if left <= 0 and not abort.is_set():
+            reasons.append("deadline reached")
+            abort.set()
+        return left
+
     try:
         window["scale_down_at"] = now()
         save(out / "window.json", window)
         scale_checked(snapshot, 0, measure_until, issued)
-        kube(
-            "wait",
-            "--for=delete",
-            "pod",
-            "-l",
-            "app=" + DEPLOY,
-            "--timeout=180s",
-            timeout=190,
-        )
-        if not abort.is_set():
+        left = remaining()
+        if left > 0:
+            wait = int(min(180, left)) or 1
+            kube(
+                "wait",
+                "--for=delete",
+                "pod",
+                "-l",
+                "app=" + DEPLOY,
+                f"--timeout={wait}s",
+                timeout=wait + 10,
+            )
+        if remaining() > 0 and not abort.is_set():
             start_pod()
-        if not abort.is_set():
+        if remaining() > 0 and not abort.is_set():
             worker.start()
-        while worker.is_alive() and not abort.is_set():
-            if time.monotonic() >= measure_until:
-                reasons.append("deadline reached")
-                abort.set()
-                break
+        while worker.is_alive() and remaining() > 0 and not abort.is_set():
             worker.join(1)
     except BaseException as exc:  # noqa: BLE001 — re-raised after the restore
         failures.append(exc)
@@ -496,12 +505,24 @@ def run_window(out, snapshot, budget_s, start_pod, body, abort):
         abort.set()
         try:
             if issued:
-                cleanup_restore(snapshot, out, pod=POD, deadline=deadline)
-                window["restored_at"] = now()
-                # A create the API accepted after the delete would hold the GPU.
-                if kube("get", "pod", POD, "--ignore-not-found").stdout.strip():
-                    window["probe_left_after_restore"] = True
-                    kube("delete", "pod", POD, "--ignore-not-found", "--wait=false")
+                try:
+                    cleanup_restore(snapshot, out, pod=POD, deadline=deadline)
+                    window["restored_at"] = now()
+                finally:
+                    # Runs even when the restore fails: a probe left on the GPU
+                    # (a create the API accepted late, a delete that never landed)
+                    # blocks every later restore attempt.
+                    try:
+                        kube(
+                            "delete",
+                            "pod",
+                            POD,
+                            "--ignore-not-found",
+                            "--wait=false",
+                            check=False,
+                        )
+                    except subprocess.SubprocessError as exc:
+                        window["final_probe_delete_error"] = str(exc)
             else:
                 # The check refused before any write: production was never touched.
                 window["production_untouched"] = True

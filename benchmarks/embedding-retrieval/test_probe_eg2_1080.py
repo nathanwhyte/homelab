@@ -186,6 +186,7 @@ class FakeDeployment:
         self.state["spec"]["template"]["image"] = image
         self.scales = []
         self.lost_responses = []  # exceptions raised after a scale lands
+        self.unlanded = []  # exceptions raised before a scale lands
 
     def obj(self, *args):
         return copy.deepcopy(self.state)
@@ -194,6 +195,8 @@ class FakeDeployment:
         if args[0] != "scale":
             return SimpleNamespace(stdout="")
         self.scales.append(args)
+        if self.unlanded:
+            raise self.unlanded.pop(0)
         version = args[3].split("=", 1)[1]
         if version != self.state["metadata"]["resourceVersion"]:
             raise subprocess.CalledProcessError(1, "kubectl scale", "conflict")
@@ -305,7 +308,18 @@ class WindowTests(unittest.TestCase):
         run.start_pod.assert_called_once()
         run.restore.assert_called_once()
 
-    def test_scale_down_timeout_that_never_lands_still_restores(self):
+    def test_scale_down_write_that_never_lands_still_restores(self):
+        deployment = FakeDeployment()
+        deployment.unlanded = [
+            subprocess.TimeoutExpired("kubectl scale", 60)
+        ] * bench.RESTORE_ATTEMPTS
+        run = self.run_window(deployment=deployment)
+        self.assertIsInstance(run.error, subprocess.TimeoutExpired)
+        self.assertEqual(run.deployment.state["spec"]["replicas"], 1)
+        run.start_pod.assert_not_called()
+        run.restore.assert_called_once()
+
+    def test_production_pod_drain_timeout_still_restores(self):
         def kube_effect(*args, **kwargs):
             if args[0] == "wait":
                 raise subprocess.TimeoutExpired("kubectl wait", 190)
@@ -314,6 +328,30 @@ class WindowTests(unittest.TestCase):
         self.assertIsInstance(run.error, subprocess.TimeoutExpired)
         run.start_pod.assert_not_called()
         run.restore.assert_called_once()
+
+    def test_slow_setup_never_starts_the_probe_past_the_cutoff(self):
+        def kube_effect(*args, **kwargs):
+            if args[0] == "wait":
+                time.sleep(1.2)
+
+        run = self.run_window(budget_s=1, kube_effect=kube_effect)
+        self.assertEqual(str(run.error), "deadline reached")
+        wait = next(c for c in run.kube.call_args_list if c.args[0] == "wait")
+        self.assertIn("--timeout=1s", wait.args)
+        run.start_pod.assert_not_called()
+        run.restore.assert_called_once()
+
+    def test_probe_delete_runs_even_when_the_restore_fails(self):
+        def during_restore(*args, **kwargs):
+            raise RuntimeError("rollout failed")
+
+        run = self.run_window(during_restore=during_restore)
+        self.assertEqual(str(run.error), "rollout failed")
+        deletes = [
+            c for c in run.kube.call_args_list if c.args[:2] == ("delete", "pod")
+        ]
+        self.assertEqual(len(deletes), 1)
+        self.assertNotIn("restored_at", run.window)
 
     def test_signal_before_create_prevents_the_probe(self):
         def kube_effect(*args, **kwargs):
@@ -426,6 +464,39 @@ class RestoreTests(unittest.TestCase):
         self.assertEqual(obj.call_count, 1)
         self.assertEqual(self.scales(kube), [])
         self.assertFalse(restored)
+
+    def test_no_retry_starts_when_the_pause_crosses_the_deadline(self):
+        gets = [
+            subprocess.TimeoutExpired("kubectl get", 60),
+            self.deployment(0, "7"),
+        ]
+        with (
+            patch.object(bench, "RETRY_PAUSE_S", 0.2),
+            tempfile.TemporaryDirectory() as directory,
+            patch.object(bench, "obj", side_effect=gets) as obj,
+            patch.object(bench, "kube") as kube,
+            self.assertRaises(subprocess.TimeoutExpired),
+        ):
+            bench.restore(SNAPSHOT, Path(directory), time.monotonic() + 0.1)
+        self.assertEqual(obj.call_count, 1)
+        kube.assert_not_called()
+
+    def test_probe_delete_is_retried_before_the_restore(self):
+        attempts = [subprocess.TimeoutExpired("kubectl delete", 70), None]
+
+        def kube_effect(*args, **kwargs):
+            effect = attempts.pop(0)
+            if effect:
+                raise effect
+
+        with (
+            patch.object(bench, "kube", side_effect=kube_effect) as kube,
+            patch.object(bench, "RETRY_PAUSE_S", 0),
+            patch.object(bench, "restore") as restore,
+        ):
+            bench.cleanup_restore(SNAPSHOT, Path("unused"), probe.POD)
+        self.assertEqual(kube.call_count, 2)
+        restore.assert_called_once()
 
     def test_retries_continue_before_the_deadline(self):
         gets = [
