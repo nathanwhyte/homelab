@@ -181,8 +181,9 @@ class Forward:
 
 
 class Monitor:
-    def __init__(self, path, base):
-        self.path, self.base = path, base
+    def __init__(self, path, base, pod=POD, rss_limit_kib=None):
+        self.path, self.base, self.pod = path, base, pod
+        self.rss_limit_kib = rss_limit_kib
         self.stop = threading.Event()
         self.sampled = threading.Event()
         self.reason = None
@@ -190,13 +191,14 @@ class Monitor:
 
     def run(self):
         hot = failures = 0
+        bloated = False
         with self.path.open("w") as stream:
             while not self.stop.is_set():
                 row = {"at": now()}
                 try:
                     raw = kube(
                         "exec",
-                        POD,
+                        self.pod,
                         "-c",
                         "llamacpp",
                         "--",
@@ -222,6 +224,7 @@ class Monitor:
                     )
                     row["host_load_average"] = [float(x) for x in lines[3].split()[:3]]
                     hot = hot + 1 if cpu >= 80 or gpu[2] >= 85 else 0
+                    bloated = bool(self.rss_limit_kib) and rss > self.rss_limit_kib
                     failures = 0
                     self.sampled.set()
                 except (
@@ -238,13 +241,19 @@ class Monitor:
                     row["metrics_unavailable"] = True
                 stream.write(json.dumps(row) + "\n")
                 stream.flush()
-                if hot >= 2 or failures >= 3:
-                    self.reason = "thermal guard" if hot >= 2 else "telemetry lost"
+                if hot >= 2 or failures >= 3 or bloated:
+                    self.reason = (
+                        "thermal guard"
+                        if hot >= 2
+                        else "rss guard"
+                        if bloated
+                        else "telemetry lost"
+                    )
                     self.sampled.set()
                     kube(
                         "delete",
                         "pod",
-                        POD,
+                        self.pod,
                         "--wait=false",
                         "--ignore-not-found",
                         check=False,
@@ -750,12 +759,12 @@ def main():
         cleanup_restore(snapshot, args.output)
 
 
-def cleanup_restore(snapshot, output):
+def cleanup_restore(snapshot, output, pod=POD):
     try:
         kube(
             "delete",
             "pod",
-            POD,
+            pod,
             "--ignore-not-found",
             "--wait=true",
             "--timeout=60s",
