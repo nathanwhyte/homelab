@@ -1,0 +1,39 @@
+---
+# IMPR-1311 router guards. LiteLLM 1.103.1's Redis client does not reconnect after a
+# Redis restart: the router keeps serving, but Haiku spend goes untallied (in memory
+# and in Redis) until litellm-vlm itself restarts. Measured 2026-10-14: four Haiku
+# calls after a Redis outage left the budget gauge unchanged across a router restart;
+# after a clean router start the same batch landed in Redis. The Claude Console
+# workspace limit ($100) stays the hard cap either way.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: litellm-vlm-alerts
+  namespace: viking
+  labels:
+    app: litellm-vlm
+spec:
+  groups:
+    - name: litellm-vlm.rules
+      rules:
+        - alert: LiteLLMRedisRestartedAfterRouter
+          # Container start times, not pod start times: an in-place container
+          # restart (OOM, liveness) keeps the pod's StartTime but still breaks or
+          # repairs the router's Redis connection.
+          expr: |
+            max(kube_pod_container_state_started{namespace="viking", pod=~"litellm-redis-.*", container="redis"})
+              > max(kube_pod_container_state_started{namespace="viking", pod=~"litellm-vlm-.*", container="litellm"})
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "litellm-redis restarted after the VLM router; Haiku spend is not being tallied"
+            description: "The router does not reconnect to Redis after a Redis restart, so the $90 routing threshold stops counting. Remedy: kubectl -n viking rollout restart deploy/litellm-vlm (a short VLM gap; OpenViking retries)."
+        - alert: LiteLLMHaikuBudgetLow
+          expr: litellm_provider_remaining_budget_metric{api_provider="anthropic"} < 10
+          for: 15m
+          labels:
+            severity: info
+          annotations:
+            summary: "Under $10 of the router's $90 Haiku threshold left in the current budget window"
+            description: "The router's window runs one month from when its budget tracking started, not by calendar month, so it may not line up with the Console's monthly limit ($100, the hard cap). Overflow returns to gemma at $0; compare with Console usage."

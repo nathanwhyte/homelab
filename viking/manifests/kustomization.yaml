@@ -47,6 +47,7 @@ resources:
   - litellm-vlm-deployment.yaml
   - litellm-vlm-service.yaml
   - litellm-vlm-servicemonitor.yaml
+  - litellm-vlm-alerts.yaml
   - openviking-deployment.yaml
   - openviking-service.yaml
   - openviking-nodeport-service.yaml
