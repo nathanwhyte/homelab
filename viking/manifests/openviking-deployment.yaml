@@ -274,10 +274,13 @@ spec:
             # keyed by snake_case ids with one flat op object each, maps the answer
             # back to the titles and holds every decision to upstream's per-op shape,
             # so the incremental update runs when the model returns valid decisions
-            # (7/8 pairs in the 2026-10-14 gemma4 replay); one stderr line per call,
-            # ov-wm-update-schema {"outcome": "tool_call"|"no_tool_call", "mapped": N,
-            # "coerced": N, "repaired": N, "elapsed_s": …}, and OV's "WM update: LLM
-            # returned no tool_call; falling back" should become rare. "skip" is the 2026-10-13
+            # (8/12 pairs in the 2026-10-14 gemma4 replay; the other 4 wrote the op
+            # object as prose and fell back to creation after the update call's cost);
+            # one stderr line per call, ov-wm-update-schema {"outcome":
+            # "tool_call"|"no_tool_call", "mapped": N, "coerced": N, "repaired": N,
+            # "elapsed_s": …}, so the no_tool_call share is the number to watch and
+            # OV's "WM update: LLM returned no tool_call; falling back" should drop by
+            # the tool_call share. "skip" is the 2026-10-13
             # behaviour (answer the call locally, creation prompt only; one
             # ov-wm-update-skip line per skip) and the rollback if the parse rate
             # disappoints; "off" restores upstream (the wasted call comes back).

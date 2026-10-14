@@ -32,11 +32,13 @@ Two modes, chosen by ``OV_WM_UPDATE_MODE``:
     non-blank string body, APPEND non-empty string items, else KEEP), because the
     flattened schema cannot express those conditional requirements and the merge
     would clear a section whose body is missing. The incremental update then runs
-    when the model returns valid decisions (7 of 8 pairs in the 2026-10-14 gemma4
-    replay, every one merged by OpenViking's own branch logic); a call that returns
-    no tool call takes OpenViking's own creation-prompt fallback. One stderr line per
-    call, ``ov-wm-update-schema {json}``, names the outcome and how many section keys
-    were mapped, coerced and repaired, so each rate is countable in Loki.
+    when the model returns valid decisions: 8 of 12 pairs in the 2026-10-14 gemma4
+    replay, every one merged by OpenViking's own branch logic; the other 4 returned
+    no tool call (the op object written as prose) and take OpenViking's own
+    creation-prompt fallback after the update call's cost, which is the share to
+    watch. One stderr line per call, ``ov-wm-update-schema {json}``, names the
+    outcome and how many section keys were mapped, coerced and repaired, so each
+    rate is countable in Loki.
 ``skip``
     The 2026-10-13 behaviour: answer the call locally with an empty ``VLMResponse``
     (no tool calls) so Branch 2 takes its fallback at once and the creation prompt is
@@ -214,13 +216,44 @@ def rewrite_tools(tools):
 
 
 def _substitute_quoted_keys(text, key_map):
-    """Rename ``"<id>"`` to ``"<Title>"`` inside raw JSON text (regex salvage input)."""
+    """Rename ``"<id>"`` to ``"<Title>"`` inside raw JSON text (regex salvage input).
+
+    Returns ``(text, renamed, collisions)``. An id whose title already appears as a
+    quoted key in the text is left as it is, so upstream's salvage (which matches
+    titles only) keeps the title's decision whichever came first.
+    """
     if not key_map:
-        return text, 0
+        return text, 0, []
+    collisions = [
+        title
+        for key, title in key_map.items()
+        if re.search(rf'"{re.escape(key)}"\s*:', text)
+        and re.search(rf'"{re.escape(title)}"\s*:', text)
+    ]
+    renamable = {k: t for k, t in key_map.items() if t not in collisions}
+    if not renamable:
+        return text, 0, collisions
     pattern = re.compile(
-        r'"(' + "|".join(re.escape(key) for key in key_map) + r')"(\s*:)'
+        r'"(' + "|".join(re.escape(key) for key in renamable) + r')"(\s*:)'
     )
-    return pattern.subn(lambda m: f'"{key_map[m.group(1)]}"{m.group(2)}', text)
+    text, count = pattern.subn(lambda m: f'"{renamable[m.group(1)]}"{m.group(2)}', text)
+    return text, count, collisions
+
+
+def _decode_raw(text):
+    """Upstream's recovery of a raw tool-call string (session.py 4627-4648): a JSON
+    object, or a truncated one closed with the missing braces; ``None`` otherwise."""
+    if not isinstance(text, str):
+        return None
+    try:
+        decoded = json.loads(text)
+    except ValueError:
+        decoded = None
+        opens = text.count("{") - text.count("}")
+        if opens > 0:
+            with contextlib.suppress(ValueError):
+                decoded = json.loads(text.rstrip().rstrip(",") + "}" * opens)
+    return decoded if isinstance(decoded, dict) else None
 
 
 OP_KEEP, OP_UPDATE, OP_APPEND = "KEEP", "UPDATE", "APPEND"
@@ -274,15 +307,19 @@ def normalize_decision(value):
     """``(decision, repaired)``: hold a decision to upstream's per-op shape.
 
     The flattened schema only requires ``op``, so the model can answer ``UPDATE``
-    without ``content`` or ``APPEND`` without ``items``; upstream's merge would turn
-    the missing body into an empty one and clear the section. Here UPDATE needs a
-    non-blank string ``content`` and APPEND a non-empty list of strings (non-string
-    items dropped, as the merge drops them), or the decision becomes KEEP; KEEP
-    carries nothing else. An unknown or non-string op passes through for the merge
-    to judge (it keeps the old content and logs).
+    without ``content``: upstream's merge turns the missing body into an empty one and
+    clears the section (an APPEND without items is a no-op there, but a list body or
+    non-string items raise outside Branch 2's exception handler and fail the commit).
+    Here UPDATE needs a non-blank string ``content`` and APPEND a non-empty list of
+    strings (non-string items dropped, as the merge drops them), or the decision
+    becomes KEEP; KEEP carries nothing else; a non-string op (the merge calls
+    ``.upper()`` on it) becomes KEEP. An unknown op string passes through for the
+    merge to judge (it keeps the old content and logs).
     """
-    if not isinstance(value, dict) or not isinstance(value.get("op"), str):
+    if not isinstance(value, dict) or "op" not in value:
         return value, False
+    if not isinstance(value["op"], str):
+        return {"op": OP_KEEP}, True
     op = value["op"].strip().upper()
     if op == OP_UPDATE:
         content = value.get("content")
@@ -346,17 +383,30 @@ def restore_arguments(args, key_map):
             out[title] = value
         return out
 
+    raw_text = None
     if isinstance(args, str):
-        new_text, count = _substitute_quoted_keys(args, key_map)
-        info.update(sections="text", mapped=count)
-        return new_text, info
+        raw_text, label = args, "text"
+    elif (
+        isinstance(args, dict)
+        and list(args.keys()) == ["raw"]
+        and isinstance(args["raw"], str)
+    ):
+        raw_text, label = args["raw"], "raw"
+    if raw_text is not None:
+        # Decode what upstream would recover (a whole or brace-closed object) and
+        # take the structured path, so its decisions are normalized too; only text
+        # that stays undecodable goes to upstream's regex salvage, titles renamed.
+        decoded = _decode_raw(raw_text)
+        if decoded is not None:
+            new_args, info = restore_arguments(decoded, key_map)
+            info["sections"] = f"{label}->{info['sections']}"
+            return new_args, info
+        new_text, count, collisions = _substitute_quoted_keys(raw_text, key_map)
+        info.update(sections=label, mapped=count, collisions=collisions)
+        return (new_text if label == "text" else {"raw": new_text}), info
     if not isinstance(args, dict):
         info["sections"] = type(args).__name__
         return args, info
-    if list(args.keys()) == ["raw"] and isinstance(args["raw"], str):
-        new_text, count = _substitute_quoted_keys(args["raw"], key_map)
-        info.update(sections="raw", mapped=count)
-        return {"raw": new_text}, info
     new_args = dict(args)
     if "sections" in new_args:
         sections = new_args["sections"]

@@ -299,7 +299,10 @@ class RestoreArgumentsTests(unittest.TestCase):
             ({"op": "KEEP", "items": []}, {"op": "KEEP"}, True),
             ({"op": "KEEP"}, {"op": "KEEP"}, False),
             ({"op": "BOGUS"}, {"op": "BOGUS"}, False),
-            ({"op": 5}, {"op": 5}, False),
+            ({"op": 5}, {"op": "KEEP"}, True),
+            ({"op": True, "content": "x"}, {"op": "KEEP"}, True),
+            ({"op": ["UPDATE"], "content": "x"}, {"op": "KEEP"}, True),
+            ({"op": None}, {"op": "KEEP"}, True),
             ("text", "text", False),
         ]
         for value, expected, repaired in cases:
@@ -429,12 +432,38 @@ class RestoreArgumentsTests(unittest.TestCase):
         self.assertEqual(info["sections"], "top-level")
         self.assertEqual(info["mapped"], 7)
 
-    def test_raw_wrapper_and_text_get_quoted_key_substitution(self):
-        raw = '{"sections": {"current_state": {"op": "KEEP"}, "open_issues":{"op": "UPDATE", "content": "see current_state"}'
+    def test_decodable_raw_takes_the_structured_path_with_normalization(self):
+        # Truncated as upstream's brace-close recovery would see it: two braces short.
+        raw = '{"sections": {"current_state": {"op": "UPDATE"}, "open_issues":{"op": "UPDATE", "content": "see current_state"}'
+        for args, label in (({"raw": raw}, "raw->dict"), (raw, "text->dict")):
+            with self.subTest(label=label):
+                new_args, info = wm_patch.restore_arguments(args, self.key_map)
+                self.assertEqual(
+                    new_args,
+                    {
+                        "sections": {
+                            "Current State": {"op": "KEEP"},
+                            "Open Issues": {
+                                "op": "UPDATE",
+                                "content": "see current_state",
+                            },
+                        }
+                    },
+                )
+                self.assertEqual(info["sections"], label)
+                self.assertEqual((info["mapped"], info["repaired"]), (2, 1))
+        listy = '{"sections": {"current_state": {"op": "UPDATE", "content": ["x"]}}}'
+        new_args, info = wm_patch.restore_arguments({"raw": listy}, self.key_map)
+        self.assertEqual(new_args["sections"], {"Current State": {"op": "KEEP"}})
+
+    def test_undecodable_raw_gets_quoted_key_substitution_with_title_precedence(
+        self,
+    ):
+        raw = '{"sections": {"current_state": {"op": "KEEP"}, "open_issues": {"op": "UPDATE", "content": "see current_state'
         new_args, info = wm_patch.restore_arguments({"raw": raw}, self.key_map)
         self.assertEqual(
             new_args["raw"],
-            '{"sections": {"Current State": {"op": "KEEP"}, "Open Issues":{"op": "UPDATE", "content": "see current_state"}',
+            '{"sections": {"Current State": {"op": "KEEP"}, "Open Issues": {"op": "UPDATE", "content": "see current_state',
         )
         self.assertEqual(
             info,
@@ -450,6 +479,21 @@ class RestoreArgumentsTests(unittest.TestCase):
         new_text, info = wm_patch.restore_arguments(raw, self.key_map)
         self.assertEqual(new_text, new_args["raw"])
         self.assertEqual(info["sections"], "text")
+        # Title and id both present: the id stays unrenamed, so upstream's salvage
+        # (titles only) keeps the title's decision whichever came first.
+        for ordered in (
+            '{"sections": {"Current State": {"op": "KEEP"}, "current_state": {"op": "UPDATE", "content": "x',
+            '{"sections": {"current_state": {"op": "UPDATE", "content": "x"}, "Current State": {"op": "KEEP"}, "open_issues": {"op": "UPDATE", "content": "y',
+        ):
+            with self.subTest(ordered=ordered[:40]):
+                new_args, info = wm_patch.restore_arguments(
+                    {"raw": ordered}, self.key_map
+                )
+                self.assertIn('"current_state":', new_args["raw"])
+                self.assertEqual(info["collisions"], ["Current State"])
+                self.assertNotIn('"Open Issues"', ordered)
+                if "open_issues" in ordered:
+                    self.assertIn('"Open Issues":', new_args["raw"])
 
     def test_other_values_are_returned_unchanged(self):
         self.assertEqual(wm_patch.restore_arguments(7, self.key_map)[0], 7)
