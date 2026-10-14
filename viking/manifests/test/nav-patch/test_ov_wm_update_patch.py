@@ -799,6 +799,72 @@ class JsonModeTests(unittest.TestCase):
         )
         self.assertEqual(wm_patch._strip_fences("no object"), "no object")
         self.assertIsNone(wm_patch._strip_fences(None))
+        self.assertEqual(
+            wm_patch._strip_fences(f"Here:\n```json\n{obj}\n```\nDone."), obj
+        )
+        # A fence or brace inside a string value is content, not a delimiter.
+        snippet = json.dumps(
+            {
+                "sections": {
+                    "current_state": {
+                        "op": "UPDATE",
+                        "content": "Run:\n```sh\nmake {all}\n```\nthen }",
+                    }
+                }
+            }
+        )
+        self.assertEqual(wm_patch._strip_fences(snippet), snippet)
+        self.assertEqual(wm_patch._strip_fences(f"```json\n{snippet}\n```"), snippet)
+        self.assertEqual(wm_patch._strip_fences(f"Sure:\n{snippet}\nBye"), snippet)
+        self.assertEqual(wm_patch._strip_fences(f"```\n{snippet}\n```"), snippet)
+
+    def test_embedded_fences_in_content_survive_end_to_end(self):
+        body = "Run:\n```sh\nmake {all}\n```\nthen }"
+        inner = {
+            "sections": {
+                **_ops(IDS[1:], "KEEP"),
+                "session_title": {"op": "UPDATE", "content": body},
+            }
+        }
+        for wrapper in ("{}", "```json\n{}\n```", "Here:\n{}\n"):
+            self.reply = wrapper.format(json.dumps(inner))
+            resp, record = self._run_update()
+            self.assertTrue(resp.has_tool_calls, wrapper)
+            self.assertEqual(
+                resp.tool_calls[0].arguments["sections"]["Session Title"],
+                {"op": "UPDATE", "content": body},
+            )
+            self.assertEqual(record["mapped"], 7)
+
+    def test_non_decision_objects_fall_back(self):
+        for reply in (
+            json.dumps({"sections": {}}),
+            json.dumps({"sections": {"Introduction": {"op": "KEEP"}}}),
+            json.dumps({"sections": {"current_state": {"error": "cannot"}}}),
+            json.dumps({"error": "rate limited"}),
+            json.dumps({"sections": "KEEP everything"}),
+        ):
+            self.reply = reply
+            resp, record = self._run_update()
+            self.assertFalse(resp.has_tool_calls, reply)
+            self.assertEqual(resp.content, reply)
+            self.assertEqual(record["outcome"], "no_tool_call", reply)
+
+    def test_partial_and_top_level_decisions_are_accepted(self):
+        self.reply = json.dumps(
+            {"sections": {"open_issues": {"op": "KEEP"}, "Extra": {"op": "KEEP"}}}
+        )
+        resp, record = self._run_update()
+        self.assertTrue(resp.has_tool_calls)
+        self.assertEqual(record["mapped"], 1)
+        # The seven decisions at the top level, checkpoint summaries beside them.
+        self.reply = json.dumps({**_ops(IDS, "KEEP"), "checkpoint_summaries": ["one"]})
+        resp, record = self._run_update()
+        self.assertTrue(resp.has_tool_calls)
+        args = resp.tool_calls[0].arguments
+        self.assertEqual(list(args["sections"]), TITLES)
+        self.assertEqual(args["checkpoint_summaries"], ["one"])
+        self.assertEqual(record["sections"], "text->top-level")
 
     def test_update_call_becomes_a_plain_call_and_the_reply_a_tool_call(self):
         resp, record = self._run_update(max_tokens=5)

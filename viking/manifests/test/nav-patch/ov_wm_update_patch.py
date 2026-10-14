@@ -629,18 +629,89 @@ def json_instructions(tools, key_map):
     )
 
 
+def _extract_object(text):
+    """The first balanced JSON object in ``text``, string-aware, or the text from its
+    first ``{`` when no closing brace balances it (brace-close recovery's input)."""
+    start = text.find("{")
+    if start == -1:
+        return text
+    depth, in_string, escaped = 0, False, False
+    for index in range(start, len(text)):
+        char = text[index]
+        if in_string:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                in_string = False
+        elif char == '"':
+            in_string = True
+        elif char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth == 0:
+                return text[start : index + 1]
+    return text[start:]
+
+
 def _strip_fences(text):
-    """The JSON object inside a reply: fences and surrounding prose removed."""
+    """The JSON object inside a reply: an enclosing fence and surrounding prose removed.
+
+    Intact JSON is returned as it is, so a fence or brace inside a string value (a
+    markdown body quoting code) is never mistaken for a delimiter; otherwise only a
+    fence that encloses the whole reply is removed, and the first balanced object is
+    taken by a string-aware scan.
+    """
     if not isinstance(text, str):
         return text
     stripped = text.strip()
-    match = re.search(r"```(?:json)?\s*(.*?)```", stripped, re.DOTALL)
-    if match:
-        stripped = match.group(1).strip()
-    start, end = stripped.find("{"), stripped.rfind("}")
-    if start != -1 and end > start:
-        return stripped[start : end + 1]
-    return stripped[start:] if start != -1 else stripped
+    try:
+        json.loads(stripped)
+        return stripped
+    except ValueError:
+        pass
+    fenced = re.fullmatch(r"```[\w-]*\s*\n?(.*?)\n?\s*```", stripped, re.DOTALL)
+    if fenced:
+        stripped = fenced.group(1).strip()
+        try:
+            json.loads(stripped)
+            return stripped
+        except ValueError:
+            pass
+    return _extract_object(stripped)
+
+
+def _as_decision_object(args, key_map):
+    """``args`` canonicalized to ``{"sections": {...}, ...}`` when it carries at least
+    one recognized section with a well-formed decision, else ``None``.
+
+    Branch 2 accepts the seven decisions at the top level too, so that form is
+    wrapped (its other keys, ``checkpoint_summaries`` among them, kept beside
+    ``sections``). An empty, unrelated or error-shaped object is not a decision: it
+    returns ``None`` so the creation fallback runs instead of a silent all-KEEP merge.
+    """
+    if not isinstance(args, dict):
+        return None
+    titles = set(key_map.values())
+    if isinstance(args.get("sections"), dict):
+        sections = args["sections"]
+        extras = {k: v for k, v in args.items() if k != "sections"}
+    else:
+        sections = {k: v for k, v in args.items() if k in titles}
+        extras = {k: v for k, v in args.items() if k not in titles}
+    recognized = [
+        decision
+        for title, decision in sections.items()
+        if title in titles
+        and isinstance(decision, dict)
+        and isinstance(decision.get("op"), str)
+        and decision["op"].strip().upper() in OPS
+    ]
+    if not recognized:
+        return None
+    return {"sections": sections, **extras}
 
 
 def json_wm_update(original):
@@ -692,8 +763,9 @@ def json_wm_update(original):
             "calls": _calls,
             "pid": os.getpid(),
         }
-        arguments, info = restore_arguments(_strip_fences(text), key_map)
-        if isinstance(arguments, dict) and isinstance(arguments.get("sections"), dict):
+        restored, info = restore_arguments(_strip_fences(text), key_map)
+        arguments = _as_decision_object(restored, key_map)
+        if arguments is not None:
             record["outcome"] = "tool_call"
             for key in ("sections", "mapped", "coerced", "repaired", "collisions"):
                 record[key] = info[key]
