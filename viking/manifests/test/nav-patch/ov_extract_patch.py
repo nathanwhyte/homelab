@@ -86,20 +86,32 @@ is replaced by ``asyncio.gather`` over the same ``record_batch`` steps under a s
 of ``OV_EXTRACT_PATCH_BATCH_PARALLEL`` (default 2; ``1`` or ``0`` keeps the stock
 loop), so each batch is still its own recorded, retried step and BUG-1196's per-attempt
 write tracking stays per batch (each step runs in its own task with its own context).
-The read-back is what cannot run concurrently, because the compressor's per-batch
-``memory_diff.json`` overwrite would be read by the wrong batch, so
-``SessionCompressorV3._write_final_memory_diff`` is wrapped to hand its diff to the
-calling batch's collector (a context variable set only inside a batch task) instead of
-writing the file, and the session writes the merged file once, in batch order, after
-every batch has finished. A failed batch (after its own retries) still fails the
-archive with the first failure in batch order; the diffs of the batches that did
-finish are written first, as the stock loop's incremental rewrites would have left
-them. One ``ov-extract-outcome {"event": "parallel_batches", …}`` line per archive
-names the batch count, the parallelism, the failures and the wall time. Under gemma the
-four Ollama slots still bound the work per hour, so this shortens one large commit's
-wall time; behind the LiteLLM router the overflow goes to Haiku and it becomes a
-throughput lever. Needs both halves (session batching and compressor write) applied,
-each on its own source hash; with the compressor half missing the stock loop runs.
+Two things cannot run concurrently and are handled so that the stock shape is kept:
+
+  * The diff read-back: the compressor's per-batch ``memory_diff.json`` overwrite would
+    be read by the wrong batch, so ``SessionCompressorV3._write_final_memory_diff`` is
+    wrapped to hand its diff to the calling batch's collector (a context variable set
+    only inside a batch task) instead of writing the file, and the batch step itself,
+    still inside ``record_batch`` so before its messages are marked complete, rewrites
+    the merged file with the finished batches' diffs in batch order under a lock. A
+    recovery after a crash therefore finds the diff of every batch it will skip, as
+    with stock; a failed batch (after its own retries) still fails the archive with
+    the first failure in batch order.
+  * The streaming apply: ``StreamingMemoryUpdater`` flushes requests that arrive in one
+    window together and scopes the result back by archive and session id, which
+    sibling batches share, so two batches in one flush would each receive the other's
+    operations and contexts. ``StreamingMemoryUpdater.submit`` is wrapped to hold a
+    per-archive lock (a context variable set only inside a batch task) for the whole
+    submit, so the extraction calls overlap and the applies, merge-loop calls
+    included, run one at a time as stock ran them.
+
+One ``ov-extract-outcome {"event": "parallel_batches", …}`` line per archive names the
+batch count, the parallelism, the failures and the wall time. Under gemma the four
+Ollama slots still bound the work per hour, so this shortens one large commit's wall
+time; behind the LiteLLM router the overflow goes to Haiku and it becomes a throughput
+lever. Needs all three halves (session batching, compressor write, submit lock)
+applied, each on its own source hash; with either of the last two missing the stock
+loop runs.
 
 Guarded: applies only to openviking ``v0.4.20`` whose ``ExtractLoop.run`` source hashes to
 ``EXPECTED_RUN_SHA256``; otherwise it logs "NOT applied" and stock behaviour stays. The
@@ -156,6 +168,10 @@ EXPECTED_BATCHING_SHA256 = (
 EXPECTED_WRITE_FINAL_DIFF_SHA256 = (
     "d9b9a4734a348381f3cb71f9c5236f5b64455d7185f90063944a522835ef5029"
 )
+# StreamingMemoryUpdater.submit on v0.4.20.
+EXPECTED_SUBMIT_SHA256 = (
+    "67e4e598f003d0d46f6790ac19f469a367cdfa5d65203b12b8a10f596989c0ee"
+)
 DEFAULT_BATCH_PARALLEL = 2
 DEFAULT_RETRIES = 5
 DEFAULT_BASE_DELAY_SECONDS = 15.0
@@ -186,12 +202,21 @@ _STEP: contextvars.ContextVar[dict | None] = contextvars.ContextVar(
 _DIFFS: contextvars.ContextVar[list | None] = contextvars.ContextVar(
     "ov_extract_batch_diffs", default=None
 )
+# IMPR-1303 lever 2: inside a parallel batch task, the archive's lock that
+# ``StreamingMemoryUpdater.submit`` holds so sibling batches never share a flush.
+_SUBMIT_LOCK: contextvars.ContextVar[asyncio.Lock | None] = contextvars.ContextVar(
+    "ov_extract_batch_submit_lock", default=None
+)
 
 logger = logging.getLogger("ov_extract_patch")
 SESSION_PROVIDER = (
     "SessionExtractContextProvider"  # exact class; subclasses are merge loops
 )
-_state = {"loop_applied": False, "compressor_applied": False}
+_state = {
+    "loop_applied": False,
+    "compressor_applied": False,
+    "submit_lock_applied": False,
+}
 
 _LOCK_WAIT_TEXT = re.compile(
     r"lock acquir\w* timed out|pathlock\S* .*timed out", re.IGNORECASE
@@ -552,9 +577,10 @@ def wrap_resolve_limits(orig, limits_cls):
 def wrap_write_final_memory_diff(orig):
     """Inside a parallel batch, hand the diff to the batch's collector; else write.
 
-    The compressor calls this last in ``extract_long_term_memories`` with every diff the
-    batch produced (the training path's earlier call is folded into that final list), so
-    the collector keeps only the latest call's dicts, as the file would have.
+    ``extract_long_term_memories`` ends in exactly one call to this, on whichever of
+    its two paths ran (the cached fast path at compressor_v3.py 553-570 or the normal
+    path at 502-509), with every diff the batch produced, so the collector keeps the
+    latest call's dicts, as the file would have held them.
     """
 
     @functools.wraps(orig)
@@ -569,6 +595,31 @@ def wrap_write_final_memory_diff(orig):
 
     _write_final_memory_diff._ov_extract_patch = True  # type: ignore[attr-defined]
     return _write_final_memory_diff
+
+
+def wrap_submit(orig):
+    """Serialize ``StreamingMemoryUpdater.submit`` across the parallel batches of one
+    archive.
+
+    The streaming updater flushes requests that arrive inside one count/time window
+    together and scopes the result back to each submitter by archive and session id,
+    which sibling batches of one archive share, so two batches in one flush would each
+    receive the other's operations, diffs and contexts. Holding the archive's lock
+    for the whole ``submit`` (the apply phase, including its merge-loop calls) keeps
+    the stock one-submit-at-a-time shape while the extraction calls still overlap.
+    Outside a parallel batch there is no lock and the call is untouched.
+    """
+
+    @functools.wraps(orig)
+    async def submit(self, request):
+        lock = _SUBMIT_LOCK.get()
+        if lock is None:
+            return await orig(self, request)
+        async with lock:
+            return await orig(self, request)
+
+    submit._ov_extract_patch = True  # type: ignore[attr-defined]
+    return submit
 
 
 def wrap_batching(orig, plan_batches, is_storage_not_found):
@@ -590,29 +641,51 @@ def wrap_batching(orig, plan_batches, is_storage_not_found):
                 record_batch=record_batch,
             )
 
-        if parallel <= 1 or not _state["compressor_applied"]:
+        if (
+            parallel <= 1
+            or not _state["compressor_applied"]
+            or not _state["submit_lock_applied"]
+        ):
             return await stock()
         batches = plan_batches(messages, limits)
         if len(batches) <= 1:
             return await stock()
 
-        memory_diffs: list = []
+        previous: list = []
         viking_fs = getattr(self, "_viking_fs", None)
         if viking_fs:
             try:
                 previous_raw = await viking_fs.read_file(
                     f"{archive_uri}/memory_diff.json", ctx=self.ctx
                 )
-                previous = json.loads(previous_raw or "{}")
-                if isinstance(previous, dict):
-                    memory_diffs.append(previous)
+                previous_diff = json.loads(previous_raw or "{}")
+                if isinstance(previous_diff, dict):
+                    previous.append(previous_diff)
             except Exception as exc:
                 if not is_storage_not_found(exc):
                     raise
 
         collected: list[list] = [[] for _ in batches]
+        finished: list[bool] = [False] * len(batches)
         semaphore = asyncio.Semaphore(parallel)
+        write_lock = asyncio.Lock()
+        submit_lock = asyncio.Lock()
         started = time.monotonic()
+
+        async def write_merged():
+            # The merged file holds the finished batches' diffs in batch order, so
+            # it is current whenever a batch's step completes, as stock's per-batch
+            # rewrite left it: a recovery after a crash finds the diff of every batch
+            # whose messages are marked complete.
+            if not viking_fs:
+                return
+            diffs = list(previous)
+            for index, done in enumerate(finished):
+                if done:
+                    diffs.extend(collected[index])
+            await self._session_compressor._write_final_memory_diff(
+                archive_uri=archive_uri, ctx=self.ctx, memory_diffs=diffs
+            )
 
         async def run_batch(index, batch):
             batch_messages = list(batch.messages)
@@ -621,11 +694,21 @@ def wrap_batching(orig, plan_batches, is_storage_not_found):
                 # One collector per attempt: a retried attempt starts empty, as the
                 # stock per-batch overwrite would have left the file.
                 collected[index].clear()
-                token = _DIFFS.set(collected[index])
+                finished[index] = False
+                diffs_token = _DIFFS.set(collected[index])
+                lock_token = _SUBMIT_LOCK.set(submit_lock)
                 try:
-                    return await extract_batch(batch_messages)
+                    result = await extract_batch(batch_messages)
                 finally:
-                    _DIFFS.reset(token)
+                    _SUBMIT_LOCK.reset(lock_token)
+                    _DIFFS.reset(diffs_token)
+                # Still inside the recorded step: the diff reaches disk before the
+                # step marks its messages complete, and a failed write retries the
+                # step like stock's read-back would.
+                async with write_lock:
+                    finished[index] = True
+                    await write_merged()
+                return result
 
             async with semaphore:
                 return await record_batch(
@@ -640,12 +723,6 @@ def wrap_batching(orig, plan_batches, is_storage_not_found):
             return_exceptions=True,
         )
         failures = [r for r in results if isinstance(r, BaseException)]
-        for diffs in collected:
-            memory_diffs.extend(diffs)
-        if viking_fs and len(failures) < len(results):
-            await self._session_compressor._write_final_memory_diff(
-                archive_uri=archive_uri, ctx=self.ctx, memory_diffs=memory_diffs
-            )
         emit_outcome(
             {
                 "event": "parallel_batches",
@@ -931,8 +1008,34 @@ def apply_compressor(module) -> bool:
     return True
 
 
+def _apply_submit_lock(cls, version) -> bool:
+    """IMPR-1303 lever 2: the per-archive submit lock, guarded on its own hash."""
+    orig = getattr(cls, "submit", None)
+    if getattr(orig, "_ov_extract_patch", False):
+        _state["submit_lock_applied"] = True
+        return True
+    digest = _source_hash(orig) if orig else None
+    if version != EXPECTED_VERSION or digest != EXPECTED_SUBMIT_SHA256:
+        logger.warning(
+            "ov-extract-patch: NOT applied to StreamingMemoryUpdater.submit "
+            "(version=%r source_sha256=%s); Phase 2 batches stay sequential",
+            version,
+            digest,
+        )
+        return False
+    cls.submit = wrap_submit(orig)
+    _state["submit_lock_applied"] = True
+    logger.warning(
+        "ov-extract-patch: applied to StreamingMemoryUpdater.submit (pid %d)",
+        os.getpid(),
+    )
+    return True
+
+
 def apply_streaming(module) -> bool:
     """Install the write-tracking wrappers in ``streaming_memory_updater``; all or none.
+
+    Also installs the lever 2 submit lock first, on its own guard.
 
     Without them no lock wait is tagged, so the retry wrapper leaves every lock wait to
     the stock classifier.
@@ -943,6 +1046,7 @@ def apply_streaming(module) -> bool:
 
     version = getattr(openviking, "__version__", None)
     cls = getattr(module, "StreamingMemoryUpdater", None)
+    _apply_submit_lock(cls, version)
     targets = (
         (
             cls,

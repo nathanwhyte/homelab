@@ -922,8 +922,12 @@ def batch_number(batch_messages):
 class ParallelBatchTests(EnvMixin, unittest.TestCase):
     def setUp(self):
         super().setUp()
-        self._saved_state = ep._state["compressor_applied"]
+        self._saved_state = (
+            ep._state["compressor_applied"],
+            ep._state["submit_lock_applied"],
+        )
         ep._state["compressor_applied"] = True
+        ep._state["submit_lock_applied"] = True
         self.fs = FakeFS({DIFF_URI: json.dumps({"prev": 1})})
         self.compressor = PatchedCompressor(self.fs)
         self.session = FakeSession(self.fs, self.compressor)
@@ -931,10 +935,13 @@ class ParallelBatchTests(EnvMixin, unittest.TestCase):
         self.inflight = 0
         self.max_inflight = 0
         self.steps = []
+        self.durable = []  # (batch, diffs on disk) when the batch's step returned
         self.err = io.StringIO()
 
     def tearDown(self):
-        ep._state["compressor_applied"] = self._saved_state
+        ep._state["compressor_applied"], ep._state["submit_lock_applied"] = (
+            self._saved_state
+        )
         super().tearDown()
 
     def extractor(self, delays=None, fail=None, skills=False):
@@ -963,7 +970,12 @@ class ParallelBatchTests(EnvMixin, unittest.TestCase):
 
     async def record_batch(self, name, kind, msgs, fn):
         self.steps.append((name, kind, [m.id for m in msgs]))
-        return await fn()
+        result = await fn()
+        # What _run_recorded_memory_step persists next: the batch's messages as
+        # complete. Its diff must already be on disk by then.
+        on_disk = self.final_diffs() if DIFF_URI in self.fs.files else None
+        self.durable.append((batch_number(msgs), on_disk))
+        return result
 
     def run_batches(self, extract_batch, messages=6, record=None):
         msgs = [Msg(i) for i in range(messages)]
@@ -997,7 +1009,11 @@ class ParallelBatchTests(EnvMixin, unittest.TestCase):
         self.assertEqual(
             self.final_diffs(), [{"prev": 1}, {"batch": 1}, {"batch": 2}, {"batch": 3}]
         )
-        self.assertEqual(self.fs.writes, [DIFF_URI])  # one write, at the end
+        self.assertEqual(self.fs.writes, [DIFF_URI] * 3)  # one write per batch step
+        for n, on_disk in self.durable:
+            self.assertIn({"batch": n}, on_disk, f"batch {n} diff not durable")
+        # Batch 3 finished first; its step saw only its own diff after the previous.
+        self.assertEqual(dict(self.durable)[3], [{"prev": 1}, {"batch": 3}])
         self.assertEqual(self.max_inflight, 3)
         self.assertEqual(
             sorted(self.steps),
@@ -1057,6 +1073,46 @@ class ParallelBatchTests(EnvMixin, unittest.TestCase):
             os.environ["OV_EXTRACT_PATCH_BATCH_PARALLEL"] = value
             self.assertEqual(self.run_batches(self.extractor()), "stock")
         self.assertEqual(self.fs.writes, [])
+
+    def test_stock_loop_without_submit_lock_half(self):
+        ep._state["submit_lock_applied"] = False
+        self.assertEqual(self.run_batches(self.extractor()), "stock")
+
+    def test_sibling_submits_never_overlap_while_extractions_do(self):
+        os.environ["OV_EXTRACT_PATCH_BATCH_PARALLEL"] = "3"
+        state = {"submits": 0, "max_submits": 0, "max_extracting": 0, "extracting": 0}
+
+        class Updater:
+            async def submit(self_, request):
+                state["submits"] += 1
+                state["max_submits"] = max(state["max_submits"], state["submits"])
+                await asyncio.sleep(0.01)
+                state["submits"] -= 1
+                return request
+
+        Updater.submit = ep.wrap_submit(Updater.submit)
+        updater = Updater()
+
+        async def extract_batch(batch_messages):
+            n = batch_number(batch_messages)
+            state["extracting"] += 1
+            state["max_extracting"] = max(state["max_extracting"], state["extracting"])
+            await asyncio.sleep(0.02)  # the VLM phase, overlapping
+            state["extracting"] -= 1
+            await updater.submit(n)  # the apply phase, serialized
+            await self.compressor._write_final_memory_diff(
+                archive_uri=ARCHIVE, ctx=self.session.ctx, memory_diffs=[{"batch": n}]
+            )
+            return [f"c{n}"]
+
+        self.assertEqual(self.run_batches(extract_batch), ["c1", "c2", "c3"])
+        self.assertEqual((state["max_extracting"], state["max_submits"]), (3, 1))
+
+        async def outside():  # no batch context: the lock is not taken
+            await asyncio.gather(updater.submit(1), updater.submit(2))
+
+        asyncio.run(outside())
+        self.assertEqual(state["max_submits"], 2)
 
     def test_stock_loop_without_compressor_half(self):
         ep._state["compressor_applied"] = False
@@ -1170,10 +1226,13 @@ class ParallelInstallTests(EnvMixin, unittest.TestCase):
 
         self._saved_parallel = (
             ep._state["compressor_applied"],
+            ep._state["submit_lock_applied"],
             ep.EXPECTED_BATCHING_SHA256,
             ep.EXPECTED_WRITE_FINAL_DIFF_SHA256,
+            ep.EXPECTED_SUBMIT_SHA256,
         )
         ep._state["compressor_applied"] = False
+        ep._state["submit_lock_applied"] = False
         self.types = types
         fake_openviking = types.ModuleType("openviking")
         fake_openviking.__version__ = ep.EXPECTED_VERSION
@@ -1182,8 +1241,10 @@ class ParallelInstallTests(EnvMixin, unittest.TestCase):
     def tearDown(self):
         (
             ep._state["compressor_applied"],
+            ep._state["submit_lock_applied"],
             ep.EXPECTED_BATCHING_SHA256,
             ep.EXPECTED_WRITE_FINAL_DIFF_SHA256,
+            ep.EXPECTED_SUBMIT_SHA256,
         ) = self._saved_parallel
         del sys.modules["openviking"]
         super().tearDown()
@@ -1211,6 +1272,24 @@ class ParallelInstallTests(EnvMixin, unittest.TestCase):
         self.assertTrue(getattr(installed, "_ov_extract_patch", False))
         self.assertTrue(ep.apply_compressor(mod))
         self.assertIs(mod.SessionCompressorV3._write_final_memory_diff, installed)
+
+    def test_submit_lock_guards_and_sets_state(self):
+        class StreamingMemoryUpdater:
+            async def submit(self, request):
+                return request
+
+        cls = StreamingMemoryUpdater
+        self.assertFalse(ep._apply_submit_lock(cls, ep.EXPECTED_VERSION))
+        self.assertFalse(ep._state["submit_lock_applied"])
+        ep.EXPECTED_SUBMIT_SHA256 = ep._source_hash(cls.submit)
+        self.assertFalse(ep._apply_submit_lock(cls, "v0.4.99"))
+        self.assertTrue(ep._apply_submit_lock(cls, ep.EXPECTED_VERSION))
+        self.assertTrue(ep._state["submit_lock_applied"])
+        installed = cls.submit
+        self.assertTrue(getattr(installed, "_ov_extract_patch", False))
+        self.assertTrue(ep._apply_submit_lock(cls, ep.EXPECTED_VERSION))
+        self.assertIs(cls.submit, installed)
+        self.assertFalse(ep._apply_submit_lock(None, ep.EXPECTED_VERSION))
 
     def test_apply_compressor_disabled_by_env(self):
         os.environ["OV_EXTRACT_PATCH"] = "0"
