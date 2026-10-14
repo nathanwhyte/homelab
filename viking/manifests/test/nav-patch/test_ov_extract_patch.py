@@ -220,6 +220,7 @@ ENV_KEYS = (
     "OV_EXTRACT_PATCH_BATCH_MESSAGES",
     "OV_EXTRACT_PATCH_BATCH_TOKENS",
     "OV_EXTRACT_PATCH_CHUNK",
+    "OV_EXTRACT_PATCH_BATCH_PARALLEL",
 )
 
 
@@ -841,6 +842,411 @@ class SessionInstallTests(EnvMixin, unittest.TestCase):
         self.assertTrue(ep.apply_session(self.mod))
         self.assertTrue(getattr(self.mod.retry_async, "_ov_extract_patch", False))
         self.assertIs(self.mod.resolve_extraction_batch_limits, resolve_stock)
+
+
+# --- IMPR-1303 lever 2: parallel Phase 2 batches ----------------------------------------
+
+ARCHIVE = "viking://user/u/sessions/s/history/archive_001"
+DIFF_URI = f"{ARCHIVE}/memory_diff.json"
+
+
+class FakeFS:
+    def __init__(self, files=None):
+        self.files = dict(files or {})
+        self.writes = []
+
+    async def read_file(self, uri, ctx=None):
+        if uri not in self.files:
+            raise FileNotFoundError(uri)
+        return self.files[uri]
+
+    async def write_file(self, *, uri, content, ctx=None, lease_ref=None):
+        self.files[uri] = content
+        self.writes.append(uri)
+
+
+def is_not_found(exc):
+    return isinstance(exc, FileNotFoundError)
+
+
+class Batch:
+    def __init__(self, messages):
+        self.messages = list(messages)
+
+
+def plan_pairs(messages, limits):
+    return [Batch(messages[i : i + 2]) for i in range(0, len(messages), 2)]
+
+
+class Msg:
+    def __init__(self, i):
+        self.id = i
+
+
+class FakeCompressor:
+    """Stock-shaped final write: merges by concatenation and writes the file."""
+
+    def __init__(self, fs):
+        self.fs = fs
+
+    async def _write_final_memory_diff(self, *, archive_uri, ctx, memory_diffs):
+        merged = {"diffs": [d for d in memory_diffs if isinstance(d, dict)]}
+        await self.fs.write_file(
+            uri=f"{archive_uri}/memory_diff.json", content=json.dumps(merged), ctx=ctx
+        )
+
+
+class PatchedCompressor(FakeCompressor):
+    _write_final_memory_diff = ep.wrap_write_final_memory_diff(
+        FakeCompressor._write_final_memory_diff
+    )
+
+
+class FakeSession:
+    def __init__(self, fs, compressor):
+        self._viking_fs = fs
+        self.ctx = object()
+        self._session_compressor = compressor
+
+
+async def stock_batching(
+    self, *, messages, limits, archive_uri, extract_batch, record_batch
+):
+    return "stock"
+
+
+def batch_number(batch_messages):
+    return batch_messages[0].id // 2 + 1
+
+
+class ParallelBatchTests(EnvMixin, unittest.TestCase):
+    def setUp(self):
+        super().setUp()
+        self._saved_state = ep._state["compressor_applied"]
+        ep._state["compressor_applied"] = True
+        self.fs = FakeFS({DIFF_URI: json.dumps({"prev": 1})})
+        self.compressor = PatchedCompressor(self.fs)
+        self.session = FakeSession(self.fs, self.compressor)
+        self.wrapped = ep.wrap_batching(stock_batching, plan_pairs, is_not_found)
+        self.inflight = 0
+        self.max_inflight = 0
+        self.steps = []
+        self.err = io.StringIO()
+
+    def tearDown(self):
+        ep._state["compressor_applied"] = self._saved_state
+        super().tearDown()
+
+    def extractor(self, delays=None, fail=None, skills=False):
+        delays = delays or {}
+
+        async def extract_batch(batch_messages):
+            n = batch_number(batch_messages)
+            self.inflight += 1
+            self.max_inflight = max(self.max_inflight, self.inflight)
+            try:
+                await asyncio.sleep(delays.get(n, 0))
+                if fail and fail(n):
+                    raise RuntimeError(f"batch {n} failed")
+                await self.compressor._write_final_memory_diff(
+                    archive_uri=ARCHIVE,
+                    ctx=self.session.ctx,
+                    memory_diffs=[{"batch": n}, None],
+                )
+                if skills:
+                    return {"contexts": [f"c{n}"], "session_skills": [f"s{n}"]}
+                return {"contexts": [f"c{n}"], "session_skills": []}
+            finally:
+                self.inflight -= 1
+
+        return extract_batch
+
+    async def record_batch(self, name, kind, msgs, fn):
+        self.steps.append((name, kind, [m.id for m in msgs]))
+        return await fn()
+
+    def run_batches(self, extract_batch, messages=6, record=None):
+        msgs = [Msg(i) for i in range(messages)]
+        with contextlib.redirect_stderr(self.err):
+            return asyncio.run(
+                self.wrapped(
+                    self.session,
+                    messages=msgs,
+                    limits=None,
+                    archive_uri=ARCHIVE,
+                    extract_batch=extract_batch,
+                    record_batch=record or self.record_batch,
+                )
+            )
+
+    def final_diffs(self):
+        return json.loads(self.fs.files[DIFF_URI])["diffs"]
+
+    def outcomes(self):
+        return [
+            json.loads(line[len(ep.OUTCOME_PREFIX) :])
+            for line in self.err.getvalue().splitlines()
+            if line.startswith(ep.OUTCOME_PREFIX)
+        ]
+
+    def test_batches_run_concurrently_and_diffs_merge_in_batch_order(self):
+        os.environ["OV_EXTRACT_PATCH_BATCH_PARALLEL"] = "3"
+        # Later batches finish first; the merge must still follow batch order.
+        result = self.run_batches(self.extractor({1: 0.03, 2: 0.02, 3: 0.01}))
+        self.assertEqual(result, ["c1", "c2", "c3"])
+        self.assertEqual(
+            self.final_diffs(), [{"prev": 1}, {"batch": 1}, {"batch": 2}, {"batch": 3}]
+        )
+        self.assertEqual(self.fs.writes, [DIFF_URI])  # one write, at the end
+        self.assertEqual(self.max_inflight, 3)
+        self.assertEqual(
+            sorted(self.steps),
+            [
+                ("long_term_memory_extraction_batch_1", "long_term", [0, 1]),
+                ("long_term_memory_extraction_batch_2", "long_term", [2, 3]),
+                ("long_term_memory_extraction_batch_3", "long_term", [4, 5]),
+            ],
+        )
+        (out,) = self.outcomes()
+        self.assertEqual(
+            {k: out[k] for k in ("event", "batches", "parallel", "failed", "diffs")},
+            {
+                "event": "parallel_batches",
+                "batches": 3,
+                "parallel": 3,
+                "failed": 0,
+                "diffs": 3,
+            },
+        )
+        self.assertIsInstance(out["elapsed_s"], float)
+
+    def test_skills_are_returned_in_the_stock_shape(self):
+        os.environ["OV_EXTRACT_PATCH_BATCH_PARALLEL"] = "2"
+        result = self.run_batches(self.extractor({1: 0.02}, skills=True), messages=4)
+        self.assertEqual(
+            result, {"contexts": ["c1", "c2"], "session_skills": ["s1", "s2"]}
+        )
+
+    def test_parallelism_is_capped(self):
+        os.environ["OV_EXTRACT_PATCH_BATCH_PARALLEL"] = "2"
+        result = self.run_batches(
+            self.extractor({n: 0.01 for n in range(1, 6)}), messages=10
+        )
+        self.assertEqual(result, [f"c{n}" for n in range(1, 6)])
+        self.assertEqual(self.max_inflight, 2)
+        self.assertEqual(
+            self.final_diffs(), [{"prev": 1}] + [{"batch": n} for n in range(1, 6)]
+        )
+
+    def test_failing_batch_fails_after_writing_the_finished_diffs(self):
+        os.environ["OV_EXTRACT_PATCH_BATCH_PARALLEL"] = "3"
+        with self.assertRaisesRegex(RuntimeError, "batch 2 failed"):
+            self.run_batches(self.extractor({1: 0.02, 3: 0.01}, fail=lambda n: n == 2))
+        self.assertEqual(self.final_diffs(), [{"prev": 1}, {"batch": 1}, {"batch": 3}])
+        (out,) = self.outcomes()
+        self.assertEqual((out["failed"], out["diffs"]), (1, 2))
+
+    def test_every_batch_failing_writes_nothing(self):
+        os.environ["OV_EXTRACT_PATCH_BATCH_PARALLEL"] = "2"
+        with self.assertRaisesRegex(RuntimeError, "batch 1 failed"):
+            self.run_batches(self.extractor(fail=lambda n: True), messages=4)
+        self.assertEqual(self.fs.writes, [])
+
+    def test_stock_loop_when_parallel_is_one_or_zero(self):
+        for value in ("1", "0"):
+            os.environ["OV_EXTRACT_PATCH_BATCH_PARALLEL"] = value
+            self.assertEqual(self.run_batches(self.extractor()), "stock")
+        self.assertEqual(self.fs.writes, [])
+
+    def test_stock_loop_without_compressor_half(self):
+        ep._state["compressor_applied"] = False
+        self.assertEqual(self.run_batches(self.extractor()), "stock")
+
+    def test_single_batch_uses_stock_loop(self):
+        self.assertEqual(self.run_batches(self.extractor(), messages=2), "stock")
+
+    def test_default_parallelism(self):
+        self.assertEqual(ep.batch_parallelism(), ep.DEFAULT_BATCH_PARALLEL)
+        for bad in ("abc", "-3", ""):
+            os.environ["OV_EXTRACT_PATCH_BATCH_PARALLEL"] = bad
+            self.assertEqual(ep.batch_parallelism(), ep.DEFAULT_BATCH_PARALLEL)
+        os.environ["OV_EXTRACT_PATCH_BATCH_PARALLEL"] = "4"
+        self.assertEqual(ep.batch_parallelism(), 4)
+
+    def test_no_previous_diff_file(self):
+        del self.fs.files[DIFF_URI]
+        self.run_batches(self.extractor(), messages=4)
+        self.assertEqual(self.final_diffs(), [{"batch": 1}, {"batch": 2}])
+
+    def test_other_read_errors_propagate(self):
+        async def broken_read(uri, ctx=None):
+            raise PermissionError(uri)
+
+        self.fs.read_file = broken_read
+        with self.assertRaises(PermissionError):
+            self.run_batches(self.extractor(), messages=4)
+
+    def test_retried_attempt_starts_with_an_empty_collector(self):
+        attempts = {}
+
+        async def extract_batch(batch_messages):
+            n = batch_number(batch_messages)
+            attempts[n] = attempts.get(n, 0) + 1
+            await self.compressor._write_final_memory_diff(
+                archive_uri=ARCHIVE,
+                ctx=self.session.ctx,
+                memory_diffs=[{"batch": n, "attempt": attempts[n]}],
+            )
+            if n == 2 and attempts[n] == 1:
+                raise RuntimeError("flaky")
+            return [f"c{n}"]
+
+        async def record(name, kind, msgs, fn):
+            try:
+                return await fn()
+            except RuntimeError:
+                return await fn()
+
+        self.assertEqual(
+            self.run_batches(extract_batch, messages=4, record=record), ["c1", "c2"]
+        )
+        self.assertEqual(
+            self.final_diffs(),
+            [{"prev": 1}, {"batch": 1, "attempt": 1}, {"batch": 2, "attempt": 2}],
+        )
+
+    def test_per_batch_attempt_state_is_isolated(self):
+        seen = {}
+
+        async def extract_batch(batch_messages):
+            n = batch_number(batch_messages)
+            if n == 1:
+                ep._mark_wrote()
+                await asyncio.sleep(0.02)
+            else:
+                await asyncio.sleep(0.01)
+                seen["batch2_wrote"] = ep._step_wrote()
+            await self.compressor._write_final_memory_diff(
+                archive_uri=ARCHIVE, ctx=self.session.ctx, memory_diffs=[{"batch": n}]
+            )
+            return [f"c{n}"]
+
+        async def record(name, kind, msgs, fn):
+            # What the retry wrapper's counted() does per attempt.
+            token = ep._STEP.set({"armed": False, "wrote": False})
+            try:
+                return await fn()
+            finally:
+                ep._STEP.reset(token)
+
+        self.run_batches(extract_batch, messages=4, record=record)
+        self.assertFalse(seen["batch2_wrote"])
+
+    def test_write_wrapper_writes_only_without_a_collector(self):
+        asyncio.run(
+            self.compressor._write_final_memory_diff(
+                archive_uri=ARCHIVE, ctx=None, memory_diffs=[{"x": 1}, None]
+            )
+        )
+        self.assertEqual(self.final_diffs(), [{"x": 1}])
+        collected = [{"stale": True}]
+        token = ep._DIFFS.set(collected)
+        try:
+            asyncio.run(
+                self.compressor._write_final_memory_diff(
+                    archive_uri=ARCHIVE, ctx=None, memory_diffs=[None, {"y": 2}]
+                )
+            )
+        finally:
+            ep._DIFFS.reset(token)
+        self.assertEqual(collected, [{"y": 2}])
+        self.assertEqual(self.fs.writes, [DIFF_URI])
+
+
+class ParallelInstallTests(EnvMixin, unittest.TestCase):
+    def setUp(self):
+        super().setUp()
+        import types
+
+        self._saved_parallel = (
+            ep._state["compressor_applied"],
+            ep.EXPECTED_BATCHING_SHA256,
+            ep.EXPECTED_WRITE_FINAL_DIFF_SHA256,
+        )
+        ep._state["compressor_applied"] = False
+        self.types = types
+        fake_openviking = types.ModuleType("openviking")
+        fake_openviking.__version__ = ep.EXPECTED_VERSION
+        sys.modules["openviking"] = fake_openviking
+
+    def tearDown(self):
+        (
+            ep._state["compressor_applied"],
+            ep.EXPECTED_BATCHING_SHA256,
+            ep.EXPECTED_WRITE_FINAL_DIFF_SHA256,
+        ) = self._saved_parallel
+        del sys.modules["openviking"]
+        super().tearDown()
+
+    def compressor_module(self):
+        class SessionCompressorV3:
+            async def _write_final_memory_diff(self, *, archive_uri, ctx, memory_diffs):
+                return "wrote"
+
+        return self.types.SimpleNamespace(SessionCompressorV3=SessionCompressorV3)
+
+    def test_apply_compressor_guards_and_sets_state(self):
+        mod = self.compressor_module()
+        self.assertFalse(ep.apply_compressor(mod))
+        self.assertFalse(ep._state["compressor_applied"])
+        ep.EXPECTED_WRITE_FINAL_DIFF_SHA256 = ep._source_hash(
+            mod.SessionCompressorV3._write_final_memory_diff
+        )
+        sys.modules["openviking"].__version__ = "v0.4.99"
+        self.assertFalse(ep.apply_compressor(mod))
+        sys.modules["openviking"].__version__ = ep.EXPECTED_VERSION
+        self.assertTrue(ep.apply_compressor(mod))
+        self.assertTrue(ep._state["compressor_applied"])
+        installed = mod.SessionCompressorV3._write_final_memory_diff
+        self.assertTrue(getattr(installed, "_ov_extract_patch", False))
+        self.assertTrue(ep.apply_compressor(mod))
+        self.assertIs(mod.SessionCompressorV3._write_final_memory_diff, installed)
+
+    def test_apply_compressor_disabled_by_env(self):
+        os.environ["OV_EXTRACT_PATCH"] = "0"
+        try:
+            self.assertFalse(ep.apply_compressor(self.compressor_module()))
+        finally:
+            os.environ.pop("OV_EXTRACT_PATCH", None)
+
+    def session_module(self, **drop):
+        class Session:
+            async def _extract_long_term_memories_with_batching(self, **kwargs):
+                return "stock"
+
+        attrs = {
+            "Session": Session,
+            "plan_extraction_batches": plan_pairs,
+            "_is_storage_not_found": is_not_found,
+        }
+        for name in drop:
+            attrs.pop(name)
+        return self.types.SimpleNamespace(**attrs)
+
+    def test_parallel_batches_install_guards(self):
+        mod = self.session_module()
+        self.assertFalse(ep._apply_parallel_batches(mod))
+        ep.EXPECTED_BATCHING_SHA256 = ep._source_hash(
+            mod.Session._extract_long_term_memories_with_batching
+        )
+        self.assertFalse(
+            ep._apply_parallel_batches(self.session_module(plan_extraction_batches=1))
+        )
+        self.assertTrue(ep._apply_parallel_batches(mod))
+        installed = mod.Session._extract_long_term_memories_with_batching
+        self.assertTrue(getattr(installed, "_ov_extract_patch", False))
+        self.assertTrue(ep._apply_parallel_batches(mod))
+        self.assertIs(mod.Session._extract_long_term_memories_with_batching, installed)
 
 
 if __name__ == "__main__":

@@ -77,18 +77,44 @@ plus a streaming half that tracks writes for the lock-wait retry):
     chunking off. Upstream records and retries each batch as its own step, so a failure
     redoes one batch, not the archive. The same limits batch the Working Memory summary.
 
+IMPR-1303 (lever 2) runs a commit's Phase 2 batches concurrently. Stock
+``Session._extract_long_term_memories_with_batching`` runs the planned batches in a
+``for`` loop, so a chunked archive is N serial VLM calls on one session-commit worker;
+after each batch it reads back the ``memory_diff.json`` the compressor just wrote for
+that batch alone, appends it to the running list and rewrites the merged file. The loop
+is replaced by ``asyncio.gather`` over the same ``record_batch`` steps under a semaphore
+of ``OV_EXTRACT_PATCH_BATCH_PARALLEL`` (default 2; ``1`` or ``0`` keeps the stock
+loop), so each batch is still its own recorded, retried step and BUG-1196's per-attempt
+write tracking stays per batch (each step runs in its own task with its own context).
+The read-back is what cannot run concurrently, because the compressor's per-batch
+``memory_diff.json`` overwrite would be read by the wrong batch, so
+``SessionCompressorV3._write_final_memory_diff`` is wrapped to hand its diff to the
+calling batch's collector (a context variable set only inside a batch task) instead of
+writing the file, and the session writes the merged file once, in batch order, after
+every batch has finished. A failed batch (after its own retries) still fails the
+archive with the first failure in batch order; the diffs of the batches that did
+finish are written first, as the stock loop's incremental rewrites would have left
+them. One ``ov-extract-outcome {"event": "parallel_batches", …}`` line per archive
+names the batch count, the parallelism, the failures and the wall time. Under gemma the
+four Ollama slots still bound the work per hour, so this shortens one large commit's
+wall time; behind the LiteLLM router the overflow goes to Haiku and it becomes a
+throughput lever. Needs both halves (session batching and compressor write) applied,
+each on its own source hash; with the compressor half missing the stock loop runs.
+
 Guarded: applies only to openviking ``v0.4.20`` whose ``ExtractLoop.run`` source hashes to
 ``EXPECTED_RUN_SHA256``; otherwise it logs "NOT applied" and stock behaviour stays. The
-retry and chunking wrappers, and the streaming half's three write-tracking wrappers
-(``openviking.session.memory.streaming_memory_updater``), are each also guarded on the
-source hash of the function they wrap. Without the streaming half no lock wait is ever
-tagged, so lock waits keep stock behaviour. Disable everything at runtime with
-``OV_EXTRACT_PATCH=0``. Retry budget overrides: ``OV_EXTRACT_PATCH_RETRIES``,
-``OV_EXTRACT_PATCH_BASE_DELAY``, ``OV_EXTRACT_PATCH_MAX_DELAY``.
+retry and chunking wrappers, the parallel-batch pair, and the streaming half's three
+write-tracking wrappers (``openviking.session.memory.streaming_memory_updater``), are
+each also guarded on the source hash of the function they wrap. Without the streaming
+half no lock wait is ever tagged, so lock waits keep stock behaviour. Disable everything
+at runtime with ``OV_EXTRACT_PATCH=0``. Retry budget overrides:
+``OV_EXTRACT_PATCH_RETRIES``, ``OV_EXTRACT_PATCH_BASE_DELAY``,
+``OV_EXTRACT_PATCH_MAX_DELAY``.
 """
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import contextvars
 import functools
@@ -99,6 +125,7 @@ import logging
 import os
 import re
 import sys
+import time
 
 EXPECTED_VERSION = "v0.4.20"
 EXPECTED_RUN_SHA256 = "f9bf435228ca4a82200442f47752a0f4b7e2213a0c86dcb08a6a773357156876"
@@ -121,6 +148,15 @@ EXPECTED_GROUPED_MERGE_SHA256 = (
 EXPECTED_ACQUIRE_LEASE_SHA256 = (
     "01461f9e570eddbb4854149f24a0fe5455adb5b860142650513e77748936a23c"
 )
+# IMPR-1303 lever 2: Session._extract_long_term_memories_with_batching and
+# SessionCompressorV3._write_final_memory_diff on v0.4.20.
+EXPECTED_BATCHING_SHA256 = (
+    "eca14bd38e10946d5b4838d1602ced15dc0a2c1234863a0f5183051da95abe1b"
+)
+EXPECTED_WRITE_FINAL_DIFF_SHA256 = (
+    "d9b9a4734a348381f3cb71f9c5236f5b64455d7185f90063944a522835ef5029"
+)
+DEFAULT_BATCH_PARALLEL = 2
 DEFAULT_RETRIES = 5
 DEFAULT_BASE_DELAY_SECONDS = 15.0
 DEFAULT_MAX_DELAY_SECONDS = 120.0
@@ -145,12 +181,17 @@ LEASE_ATTR = "_ov_extract_lease_wait"
 _STEP: contextvars.ContextVar[dict | None] = contextvars.ContextVar(
     "ov_extract_step", default=None
 )
+# IMPR-1303 lever 2: inside a parallel batch task, the list the compressor's final
+# memory_diff write hands its diffs to instead of writing ``memory_diff.json``.
+_DIFFS: contextvars.ContextVar[list | None] = contextvars.ContextVar(
+    "ov_extract_batch_diffs", default=None
+)
 
 logger = logging.getLogger("ov_extract_patch")
 SESSION_PROVIDER = (
     "SessionExtractContextProvider"  # exact class; subclasses are merge loops
 )
-_state = {"loop_applied": False}
+_state = {"loop_applied": False, "compressor_applied": False}
 
 _LOCK_WAIT_TEXT = re.compile(
     r"lock acquir\w* timed out|pathlock\S* .*timed out", re.IGNORECASE
@@ -392,6 +433,14 @@ def batch_caps() -> tuple[int | None, int | None]:
     return (messages or None, tokens or None)
 
 
+def batch_parallelism() -> int:
+    """Concurrent Phase 2 batches per commit; 1 is the stock sequential loop."""
+    value = _env_num(
+        "OV_EXTRACT_PATCH_BATCH_PARALLEL", DEFAULT_BATCH_PARALLEL, int, allow_zero=True
+    )
+    return max(value, 1)
+
+
 # --- session half: retry classifier (BUG-1196) -----------------------------------------
 
 
@@ -495,6 +544,136 @@ def wrap_resolve_limits(orig, limits_cls):
 
     resolve_extraction_batch_limits._ov_extract_patch = True  # type: ignore[attr-defined]
     return resolve_extraction_batch_limits
+
+
+# --- parallel Phase 2 batches (IMPR-1303 lever 2) ---------------------------------------
+
+
+def wrap_write_final_memory_diff(orig):
+    """Inside a parallel batch, hand the diff to the batch's collector; else write.
+
+    The compressor calls this last in ``extract_long_term_memories`` with every diff the
+    batch produced (the training path's earlier call is folded into that final list), so
+    the collector keeps only the latest call's dicts, as the file would have.
+    """
+
+    @functools.wraps(orig)
+    async def _write_final_memory_diff(self, *, archive_uri, ctx, memory_diffs):
+        collector = _DIFFS.get()
+        if collector is None:
+            return await orig(
+                self, archive_uri=archive_uri, ctx=ctx, memory_diffs=memory_diffs
+            )
+        collector[:] = [diff for diff in memory_diffs if isinstance(diff, dict)]
+        return None
+
+    _write_final_memory_diff._ov_extract_patch = True  # type: ignore[attr-defined]
+    return _write_final_memory_diff
+
+
+def wrap_batching(orig, plan_batches, is_storage_not_found):
+    """Run the planned Phase 2 batches concurrently, merging their diffs in order."""
+
+    @functools.wraps(orig)
+    async def _extract_long_term_memories_with_batching(
+        self, *, messages, limits, archive_uri, extract_batch, record_batch
+    ):
+        parallel = batch_parallelism()
+
+        async def stock():
+            return await orig(
+                self,
+                messages=messages,
+                limits=limits,
+                archive_uri=archive_uri,
+                extract_batch=extract_batch,
+                record_batch=record_batch,
+            )
+
+        if parallel <= 1 or not _state["compressor_applied"]:
+            return await stock()
+        batches = plan_batches(messages, limits)
+        if len(batches) <= 1:
+            return await stock()
+
+        memory_diffs: list = []
+        viking_fs = getattr(self, "_viking_fs", None)
+        if viking_fs:
+            try:
+                previous_raw = await viking_fs.read_file(
+                    f"{archive_uri}/memory_diff.json", ctx=self.ctx
+                )
+                previous = json.loads(previous_raw or "{}")
+                if isinstance(previous, dict):
+                    memory_diffs.append(previous)
+            except Exception as exc:
+                if not is_storage_not_found(exc):
+                    raise
+
+        collected: list[list] = [[] for _ in batches]
+        semaphore = asyncio.Semaphore(parallel)
+        started = time.monotonic()
+
+        async def run_batch(index, batch):
+            batch_messages = list(batch.messages)
+
+            async def extract():
+                # One collector per attempt: a retried attempt starts empty, as the
+                # stock per-batch overwrite would have left the file.
+                collected[index].clear()
+                token = _DIFFS.set(collected[index])
+                try:
+                    return await extract_batch(batch_messages)
+                finally:
+                    _DIFFS.reset(token)
+
+            async with semaphore:
+                return await record_batch(
+                    f"long_term_memory_extraction_batch_{index + 1}",
+                    "long_term",
+                    batch_messages,
+                    extract,
+                )
+
+        results = await asyncio.gather(
+            *(run_batch(i, batch) for i, batch in enumerate(batches)),
+            return_exceptions=True,
+        )
+        failures = [r for r in results if isinstance(r, BaseException)]
+        for diffs in collected:
+            memory_diffs.extend(diffs)
+        if viking_fs and len(failures) < len(results):
+            await self._session_compressor._write_final_memory_diff(
+                archive_uri=archive_uri, ctx=self.ctx, memory_diffs=memory_diffs
+            )
+        emit_outcome(
+            {
+                "event": "parallel_batches",
+                "step": "long_term_memory_extraction",
+                "batches": len(batches),
+                "parallel": parallel,
+                "failed": len(failures),
+                "diffs": sum(len(d) for d in collected),
+                "elapsed_s": round(time.monotonic() - started, 1),
+            }
+        )
+        if failures:
+            raise failures[0]
+
+        contexts: list = []
+        skills: list = []
+        for result in results:
+            if isinstance(result, dict):
+                contexts.extend(result.get("contexts", []))
+                skills.extend(result.get("session_skills", []))
+            else:
+                contexts.extend(result or [])
+        if skills:
+            return {"contexts": contexts, "session_skills": skills}
+        return contexts
+
+    _extract_long_term_memories_with_batching._ov_extract_patch = True  # type: ignore[attr-defined]
+    return _extract_long_term_memories_with_batching
 
 
 # --- streaming half: write tracking (BUG-1196) -----------------------------------------
@@ -692,6 +871,63 @@ def apply_session(module) -> bool:
     # BUG-1196 halves: each guarded on its own source hash; one failing leaves the rest.
     _apply_retry_wrapper(module)
     _apply_chunking(module)
+    _apply_parallel_batches(module)
+    return True
+
+
+def _apply_parallel_batches(module) -> bool:
+    cls = getattr(module, "Session", None)
+    orig = getattr(cls, "_extract_long_term_memories_with_batching", None)
+    plan = getattr(module, "plan_extraction_batches", None)
+    not_found = getattr(module, "_is_storage_not_found", None)
+    if getattr(orig, "_ov_extract_patch", False):
+        return True
+    digest = _source_hash(orig) if orig else None
+    if digest != EXPECTED_BATCHING_SHA256 or plan is None or not_found is None:
+        logger.warning(
+            "ov-extract-patch: NOT applied to parallel Phase 2 batches (source_sha256=%s "
+            "plan=%r not_found=%r); stock sequential batches kept",
+            digest,
+            plan is not None,
+            not_found is not None,
+        )
+        return False
+    cls._extract_long_term_memories_with_batching = wrap_batching(orig, plan, not_found)
+    logger.warning(
+        "ov-extract-patch: applied parallel Phase 2 batches (parallel=%d, pid %d)",
+        batch_parallelism(),
+        os.getpid(),
+    )
+    return True
+
+
+def apply_compressor(module) -> bool:
+    """Route the compressor's final memory_diff write through a batch collector."""
+    if not _enabled():
+        return False
+    import openviking
+
+    version = getattr(openviking, "__version__", None)
+    cls = getattr(module, "SessionCompressorV3", None)
+    orig = getattr(cls, "_write_final_memory_diff", None)
+    if getattr(orig, "_ov_extract_patch", False):
+        _state["compressor_applied"] = True
+        return True
+    digest = _source_hash(orig) if orig else None
+    if version != EXPECTED_VERSION or digest != EXPECTED_WRITE_FINAL_DIFF_SHA256:
+        logger.warning(
+            "ov-extract-patch: NOT applied to SessionCompressorV3._write_final_memory_diff "
+            "(version=%r source_sha256=%s); Phase 2 batches stay sequential",
+            version,
+            digest,
+        )
+        return False
+    cls._write_final_memory_diff = wrap_write_final_memory_diff(orig)
+    _state["compressor_applied"] = True
+    logger.warning(
+        "ov-extract-patch: applied to SessionCompressorV3._write_final_memory_diff (pid %d)",
+        os.getpid(),
+    )
     return True
 
 
@@ -752,5 +988,6 @@ def apply_streaming(module) -> bool:
 TARGETS = {
     "openviking.session.memory.extract_loop": apply_extract_loop,
     "openviking.session.session": apply_session,
+    "openviking.session.compressor_v3": apply_compressor,
     "openviking.session.memory.streaming_memory_updater": apply_streaming,
 }

@@ -24,6 +24,13 @@ off switch; a patch failure never breaks the import):
                         (``retry_async`` + ``resolve_extraction_batch_limits``, plus
                         write tracking on ``StreamingMemoryUpdater``;
                         ``OV_EXTRACT_PATCH_CHUNK=0`` turns chunking off alone).
+                        IMPR-1303: a commit's Phase 2 batches run concurrently,
+                        ``OV_EXTRACT_PATCH_BATCH_PARALLEL`` (default 2, ``1`` is the
+                        stock loop) at a time, each still its own recorded, retried
+                        step; the compressor's per-batch ``memory_diff.json`` write
+                        is collected instead and the merged file is written once in
+                        batch order (``Session._extract_long_term_memories_with_batching``
+                        + ``SessionCompressorV3._write_final_memory_diff``).
   * ov_chatlog_patch  — BUG-1177: ChatLog speaker labels follow the turn's role
                         (assistant turns read ``assistant``) and tool-only turns no
                         longer render as empty lines (``MessageRange._speaker_for`` +
@@ -97,6 +104,7 @@ TARGETS = {
         "apply_extract_loop",
     ),
     "openviking.session.session": ("ov_extract_patch", "apply_session"),
+    "openviking.session.compressor_v3": ("ov_extract_patch", "apply_compressor"),
     "openviking.session.memory.streaming_memory_updater": [
         ("ov_memory_guard_patch", "apply_streaming"),
         ("ov_extract_patch", "apply_streaming"),
