@@ -28,7 +28,9 @@ spec:
         - alert: OpenVikingBypassingVLMRouter
           # OpenViking labels VLM calls with the credential's model: ov-vlm through the
           # router, gemma4:vlm when its vlm.backup (direct chat-ollama) serves them.
-          expr: sum(increase(openviking_vlm_calls_total{model_name="gemma4:vlm"}[15m])) > 0
+          # A short rate window held for 15m measures a sustained bypass; a 15m
+          # increase() would keep firing after the router recovered.
+          expr: sum(rate(openviking_vlm_calls_total{model_name="gemma4:vlm"}[5m])) > 0
           for: 15m
           labels:
             severity: warning

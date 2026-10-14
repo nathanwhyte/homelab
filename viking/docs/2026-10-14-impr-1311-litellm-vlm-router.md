@@ -65,6 +65,8 @@ The router's budget window is one month from when its tracking started (`time_pe
 OpenViking's `vlm.backup` is chat-ollama directly. In v0.4.20 it becomes a second credential: when a call's retries against the router run out with a transient error (router down, connection refused, timeout), OpenViking serves that call from gemma and stays on gemma, trying the router again after 10 minutes or 50 calls. Verified on pop on 2026-10-14 with OpenViking's own config loader and a dead primary: the first call took 5.9 s (3 retries, then failover), the next ones 1.2 s straight on gemma.
 
 - While bypassed, Haiku takes no overflow, so gemma alone carries the load (the pre-router behavior).
+- A refused or erroring router fails over within seconds. A router that accepts the connection and then hangs fails over only after OpenViking's own 1,200 s `vlm.timeout` (an SDK timeout classifies as unknown and switches without retrying), so a hang can stall a call for up to 20 minutes first; `LiteLLMRouterDown` names the cause if the scrape fails too.
+- Error classes, per `openviking/utils/model_retry.py`: 401/403, quota, timeouts and unknown errors switch credentials; 429 and 5xx retry first and then switch; an ordinary 400, oversized input or a moderation rejection fails the call without switching.
 - `LiteLLMRouterDown` fires when the router misses scrapes for 3 minutes; `OpenVikingBypassingVLMRouter` fires when OpenViking has called gemma directly (`openviking_vlm_calls_total{model_name="gemma4:vlm"}`) for 15 minutes.
 - Once the router is healthy, OpenViking returns to it at the next failback attempt; nothing needs restarting.
 
