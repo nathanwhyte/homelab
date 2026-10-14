@@ -34,6 +34,19 @@ data:
   # on 2026-10-08 and was rolled back the same window: EG2 was OOMKilled on the
   # GTX 1080. context_eg2 exists but is empty. Attempt record and retry
   # preconditions: viking/docs/2026-10-08-embedder-embeddinggemma-2-cutover.md.
+  #
+  # VLM concurrency (IMPR-1303). On v0.4.20 vlm.max_concurrent sizes only the
+  # Semantic DAG semaphore and the reindex executor; session commits are bounded
+  # by queue_workers.session_commit.max_concurrent (code default 8) instead, and
+  # every Phase 2 batch is one VLM call on its worker. Both share timmy's four
+  # OLLAMA_NUM_PARALLEL slots with chat-ollama-proxy's other callers (omnibot,
+  # omnipendium, the warm job). 1 -> 2 landed in #218 (2026-10-13 15:35 CDT);
+  # 2 -> 4 and session_commit 8 -> 12 followed the same evening after a 6 h
+  # window peaked at Semantic 102 pending and SessionCommit 13 pending (above
+  # the 8 workers) with zero Phase 2 errors and an oldest live lock of 59 s
+  # against the 2700 s OpenVikingWedgedLockFile threshold. Before raising
+  # either again: record ov-extract-outcome counts and
+  # openviking_s3_ovlock_oldest_live_age_seconds before and after (BUG-1220).
   ov.conf: |
     {
       "default_account": "default",
@@ -111,7 +124,12 @@ data:
         "model": "gemma4:vlm",
         "api_key": "${OLLAMA_KEY}",
         "api_base": "http://chat-ollama.llama.svc.cluster.local:11434/v1",
-        "max_concurrent": 2,
+        "max_concurrent": 4,
         "timeout": 1200
+      },
+      "queue_workers": {
+        "session_commit": {
+          "max_concurrent": 12
+        }
       }
     }
