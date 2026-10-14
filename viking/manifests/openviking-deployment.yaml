@@ -257,8 +257,9 @@ spec:
               value: /ov-nav-patch
             # IMPR-1303 (ov_extract_patch.py): a commit's chunked Phase 2 extraction
             # batches run this many at a time instead of one after another; each is
-            # still its own recorded, retried step, and the merged memory_diff.json is
-            # written once in batch order. One ov-extract-outcome {"event":
+            # still its own recorded, retried step, applies run one batch at a time,
+            # and the merged memory_diff.json is rewritten in batch order as each batch
+            # finishes, before its step completes. One ov-extract-outcome {"event":
             # "parallel_batches", …} line per archive. "1" (or "0") restores the stock
             # sequential loop. Behind the LiteLLM router the extra in-flight calls
             # overflow from gemma4 (4 slots) to Haiku; raise with the budget in view.

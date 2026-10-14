@@ -100,10 +100,13 @@ Two things cannot run concurrently and are handled so that the stock shape is ke
   * The streaming apply: ``StreamingMemoryUpdater`` flushes requests that arrive in one
     window together and scopes the result back by archive and session id, which
     sibling batches share, so two batches in one flush would each receive the other's
-    operations and contexts. ``StreamingMemoryUpdater.submit`` is wrapped to hold a
-    per-archive lock (a context variable set only inside a batch task) for the whole
-    submit, so the extraction calls overlap and the applies, merge-loop calls
-    included, run one at a time as stock ran them.
+    operations and contexts, and after the apply the compressor reads the memory
+    files to build the diff and canonical cases. ``StreamingMemoryUpdater.submit`` is
+    wrapped to take a per-archive lock (a gate in a context variable set only inside a
+    batch task) at the batch's first submit and keep it until the batch's extraction
+    step ends, so the extraction calls overlap and the applies, merge-loop calls and
+    read-backs included, run one batch at a time as stock ran them; a failed submit
+    first flushes any merge group it left buffered, so a sibling cannot join it.
 
 One ``ov-extract-outcome {"event": "parallel_batches", …}`` line per archive names the
 batch count, the parallelism, the failures and the wall time. Under gemma the four
@@ -202,10 +205,12 @@ _STEP: contextvars.ContextVar[dict | None] = contextvars.ContextVar(
 _DIFFS: contextvars.ContextVar[list | None] = contextvars.ContextVar(
     "ov_extract_batch_diffs", default=None
 )
-# IMPR-1303 lever 2: inside a parallel batch task, the archive's lock that
-# ``StreamingMemoryUpdater.submit`` holds so sibling batches never share a flush.
-_SUBMIT_LOCK: contextvars.ContextVar[asyncio.Lock | None] = contextvars.ContextVar(
-    "ov_extract_batch_submit_lock", default=None
+# IMPR-1303 lever 2: inside a parallel batch task, the batch's gate on the archive's
+# apply lock, taken at its first ``StreamingMemoryUpdater.submit`` and released when
+# the batch's extraction step ends, so sibling batches never share a flush or read
+# each other's fresh writes.
+_SUBMIT_LOCK: contextvars.ContextVar[BatchGate | None] = contextvars.ContextVar(
+    "ov_extract_batch_submit_gate", default=None
 )
 
 logger = logging.getLogger("ov_extract_patch")
@@ -597,26 +602,72 @@ def wrap_write_final_memory_diff(orig):
     return _write_final_memory_diff
 
 
+class BatchGate:
+    """The per-archive apply lock a parallel batch holds from its first ``submit``
+    until its extraction step ends, so the diff and case read-back after the apply
+    see no sibling's writes either. Released by the batch step, not by ``submit``."""
+
+    def __init__(self, lock):
+        self.lock = lock
+        self.held = False
+
+    async def acquire(self):
+        if not self.held:
+            await self.lock.acquire()
+            self.held = True
+
+    def release(self):
+        if self.held:
+            self.held = False
+            self.lock.release()
+
+
+async def _settle_pending_flushes(updater):
+    """Best effort: flush any merge group still buffered after a failed ``submit``.
+
+    Stock ``_submit_grouped_merge_request`` gathers its group submissions fail-fast,
+    so a failure can leave another group buffered in its batcher; a sibling submitting
+    after the gate opened could join that pending flush and receive its operations.
+    Flushing it first (its result is dropped, as the failed step's would have been)
+    closes that window. Any error here is logged and swallowed: the step is failing
+    already and will retry.
+    """
+    batchers = getattr(updater, "_group_batchers", None)
+    if not isinstance(batchers, dict):
+        return
+    for batcher in list(batchers.values()):
+        try:
+            if await batcher.get_buffered_item_count() > 0:
+                await batcher.flush("ov-extract-patch: settle after a failed submit")
+        except Exception as exc:  # noqa: BLE001 — diagnostics must not mask the step's error
+            logger.warning("ov-extract-patch: settling a pending flush failed: %r", exc)
+
+
 def wrap_submit(orig):
-    """Serialize ``StreamingMemoryUpdater.submit`` across the parallel batches of one
-    archive.
+    """Serialize the apply phase across the parallel batches of one archive.
 
     The streaming updater flushes requests that arrive inside one count/time window
     together and scopes the result back to each submitter by archive and session id,
     which sibling batches of one archive share, so two batches in one flush would each
-    receive the other's operations, diffs and contexts. Holding the archive's lock
-    for the whole ``submit`` (the apply phase, including its merge-loop calls) keeps
-    the stock one-submit-at-a-time shape while the extraction calls still overlap.
-    Outside a parallel batch there is no lock and the call is untouched.
+    receive the other's operations, diffs and contexts; and after ``submit`` returns
+    the compressor reads the memory files to build the diff and canonical cases. The
+    batch's ``BatchGate`` is taken at its first ``submit`` and held until its
+    extraction step ends, so applies and their read-backs run one batch at a time
+    while the extraction calls still overlap. A failed ``submit`` first settles any
+    group still buffered. Outside a parallel batch the call is untouched.
     """
 
     @functools.wraps(orig)
     async def submit(self, request):
-        lock = _SUBMIT_LOCK.get()
-        if lock is None:
+        gate = _SUBMIT_LOCK.get()
+        if gate is None:
             return await orig(self, request)
-        async with lock:
+        await gate.acquire()
+        try:
             return await orig(self, request)
+        except BaseException:
+            await _settle_pending_flushes(self)
+            raise
 
     submit._ov_extract_patch = True  # type: ignore[attr-defined]
     return submit
@@ -695,13 +746,15 @@ def wrap_batching(orig, plan_batches, is_storage_not_found):
                 # stock per-batch overwrite would have left the file.
                 collected[index].clear()
                 finished[index] = False
+                gate = BatchGate(submit_lock)
                 diffs_token = _DIFFS.set(collected[index])
-                lock_token = _SUBMIT_LOCK.set(submit_lock)
+                gate_token = _SUBMIT_LOCK.set(gate)
                 try:
                     result = await extract_batch(batch_messages)
                 finally:
-                    _SUBMIT_LOCK.reset(lock_token)
+                    _SUBMIT_LOCK.reset(gate_token)
                     _DIFFS.reset(diffs_token)
+                    gate.release()
                 # Still inside the recorded step: the diff reaches disk before the
                 # step marks its messages complete, and a failed write retries the
                 # step like stock's read-back would.

@@ -28,9 +28,12 @@ off switch; a patch failure never breaks the import):
                         ``OV_EXTRACT_PATCH_BATCH_PARALLEL`` (default 2, ``1`` is the
                         stock loop) at a time, each still its own recorded, retried
                         step; the compressor's per-batch ``memory_diff.json`` write
-                        is collected instead and the merged file is written once in
-                        batch order (``Session._extract_long_term_memories_with_batching``
-                        + ``SessionCompressorV3._write_final_memory_diff``).
+                        is collected instead and the merged file is rewritten in
+                        batch order as each batch finishes, and applies take a
+                        per-archive lock so no two batches share a flush
+                        (``Session._extract_long_term_memories_with_batching``
+                        + ``SessionCompressorV3._write_final_memory_diff``
+                        + ``StreamingMemoryUpdater.submit``).
   * ov_chatlog_patch  — BUG-1177: ChatLog speaker labels follow the turn's role
                         (assistant turns read ``assistant``) and tool-only turns no
                         longer render as empty lines (``MessageRange._speaker_for`` +

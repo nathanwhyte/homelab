@@ -981,13 +981,16 @@ class ParallelBatchTests(EnvMixin, unittest.TestCase):
         msgs = [Msg(i) for i in range(messages)]
         with contextlib.redirect_stderr(self.err):
             return asyncio.run(
-                self.wrapped(
-                    self.session,
-                    messages=msgs,
-                    limits=None,
-                    archive_uri=ARCHIVE,
-                    extract_batch=extract_batch,
-                    record_batch=record or self.record_batch,
+                asyncio.wait_for(
+                    self.wrapped(
+                        self.session,
+                        messages=msgs,
+                        limits=None,
+                        archive_uri=ARCHIVE,
+                        extract_batch=extract_batch,
+                        record_batch=record or self.record_batch,
+                    ),
+                    timeout=10,
                 )
             )
 
@@ -1093,6 +1096,8 @@ class ParallelBatchTests(EnvMixin, unittest.TestCase):
         Updater.submit = ep.wrap_submit(Updater.submit)
         updater = Updater()
 
+        state.update(applied=0, max_applied=0)
+
         async def extract_batch(batch_messages):
             n = batch_number(batch_messages)
             state["extracting"] += 1
@@ -1100,19 +1105,85 @@ class ParallelBatchTests(EnvMixin, unittest.TestCase):
             await asyncio.sleep(0.02)  # the VLM phase, overlapping
             state["extracting"] -= 1
             await updater.submit(n)  # the apply phase, serialized
+            await updater.submit(n)  # a second submit in the same batch re-enters
+            # The read-back after the apply (diff build, case reads) is still covered.
+            state["applied"] += 1
+            state["max_applied"] = max(state["max_applied"], state["applied"])
+            await asyncio.sleep(0.01)
+            state["applied"] -= 1
             await self.compressor._write_final_memory_diff(
                 archive_uri=ARCHIVE, ctx=self.session.ctx, memory_diffs=[{"batch": n}]
             )
             return [f"c{n}"]
 
         self.assertEqual(self.run_batches(extract_batch), ["c1", "c2", "c3"])
-        self.assertEqual((state["max_extracting"], state["max_submits"]), (3, 1))
+        self.assertEqual(
+            (state["max_extracting"], state["max_submits"], state["max_applied"]),
+            (3, 1, 1),
+        )
 
         async def outside():  # no batch context: the lock is not taken
             await asyncio.gather(updater.submit(1), updater.submit(2))
 
         asyncio.run(outside())
         self.assertEqual(state["max_submits"], 2)
+
+    def test_failed_submit_settles_pending_flushes_and_releases_the_gate(self):
+        os.environ["OV_EXTRACT_PATCH_BATCH_PARALLEL"] = "2"
+        events = []
+
+        class Batcher:
+            buffered = 1
+
+            async def get_buffered_item_count(self_):
+                return self_.buffered
+
+            async def flush(self_, reason):
+                events.append(("flush", reason))
+                self_.buffered = 0
+
+        class Updater:
+            _group_batchers = {"group": Batcher()}
+
+            async def submit(self_, request):
+                events.append(("submit", request))
+                if request == 1:
+                    raise RuntimeError("group gather failed")
+                return request
+
+        Updater.submit = ep.wrap_submit(Updater.submit)
+        updater = Updater()
+
+        async def extract_batch(batch_messages):
+            n = batch_number(batch_messages)
+            await asyncio.sleep(0.01 if n == 1 else 0.02)
+            await updater.submit(n)
+            await self.compressor._write_final_memory_diff(
+                archive_uri=ARCHIVE, ctx=self.session.ctx, memory_diffs=[{"batch": n}]
+            )
+            return [f"c{n}"]
+
+        with self.assertRaisesRegex(RuntimeError, "group gather failed"):
+            self.run_batches(extract_batch, messages=4)
+        self.assertEqual(
+            [e[0] for e in events], ["submit", "flush", "submit"]
+        )  # the pending group flushed before the sibling could submit
+        self.assertEqual(self.final_diffs(), [{"prev": 1}, {"batch": 2}])
+
+    def test_batch_gate_is_reentrant_and_releases_only_when_held(self):
+        lock = asyncio.Lock()
+        gate = ep.BatchGate(lock)
+
+        async def scenario():
+            gate.release()  # never held: no-op
+            await gate.acquire()
+            await gate.acquire()  # re-entry does not deadlock
+            self.assertTrue(lock.locked())
+            gate.release()
+            self.assertFalse(lock.locked())
+            gate.release()  # second release is a no-op
+
+        asyncio.run(scenario())
 
     def test_stock_loop_without_compressor_half(self):
         ep._state["compressor_applied"] = False
