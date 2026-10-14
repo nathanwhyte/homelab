@@ -683,6 +683,49 @@ def _strip_fences(text):
     return _extract_object(stripped)
 
 
+def _is_genuine_decision(value):
+    """True for a value the model meant as a decision, before any repair.
+
+    An explicit op object (``op`` a known name, whatever its payload), a non-blank
+    string body, a list with at least one non-blank string, or an op-less object with
+    such a body or items. An empty string or list, an object with no usable op or
+    payload, or anything else is not a decision; repairing it to KEEP would hide a
+    failed reply behind a silent all-KEEP merge, so the caller falls back instead.
+    """
+    if isinstance(value, dict):
+        op = value.get("op")
+        if isinstance(op, str) and op.strip().upper() in OPS:
+            return True
+        content = value.get("content")
+        if isinstance(content, str) and content.strip():
+            return True
+        return bool(_text_items(value.get("items")))
+    if isinstance(value, str):
+        return bool(value.strip())
+    if isinstance(value, list):
+        return bool(_text_items(value))
+    return False
+
+
+def _has_genuine_decision(raw, key_map):
+    """Whether a decoded reply holds at least one genuine decision for a known
+    section, under its id or its title, wrapped in ``sections`` or at the top level."""
+    if not isinstance(raw, dict):
+        return False
+    sections = raw.get("sections", raw)
+    if isinstance(sections, str):
+        try:
+            sections = json.loads(sections)
+        except ValueError:
+            return False
+    if not isinstance(sections, dict):
+        return False
+    known = set(key_map) | set(key_map.values())
+    return any(
+        _is_genuine_decision(value) for key, value in sections.items() if key in known
+    )
+
+
 def _as_decision_object(args, key_map):
     """``args`` canonicalized to ``{"sections": {...}, ...}`` when it carries at least
     one recognized section with a well-formed decision, else ``None``.
@@ -763,8 +806,17 @@ def json_wm_update(original):
             "calls": _calls,
             "pid": os.getpid(),
         }
-        restored, info = restore_arguments(_strip_fences(text), key_map)
-        arguments = _as_decision_object(restored, key_map)
+        cleaned = _strip_fences(text)
+        decoded = _decode_raw(cleaned)
+        restored, info = restore_arguments(cleaned, key_map)
+        # A decodable reply must carry a genuine decision before repairs run; an
+        # undecodable one reaches here only through upstream's salvage, whose
+        # output is op-shaped by construction.
+        arguments = (
+            _as_decision_object(restored, key_map)
+            if decoded is None or _has_genuine_decision(decoded, key_map)
+            else None
+        )
         if arguments is not None:
             record["outcome"] = "tool_call"
             for key in ("sections", "mapped", "coerced", "repaired", "collisions"):

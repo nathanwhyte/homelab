@@ -843,12 +843,53 @@ class JsonModeTests(unittest.TestCase):
             json.dumps({"sections": {"current_state": {"error": "cannot"}}}),
             json.dumps({"error": "rate limited"}),
             json.dumps({"sections": "KEEP everything"}),
+            # Repairable to KEEP, but nothing the model meant as a decision.
+            json.dumps({"sections": {"current_state": ""}}),
+            json.dumps({"sections": {"current_state": [], "open_issues": "  "}}),
+            json.dumps(
+                {"sections": {"current_state": {"op": None, "error": "failed"}}}
+            ),
+            json.dumps({"sections": {"Current State": {"content": "", "items": []}}}),
+            json.dumps({"current_state": 5, "open_issues": None}),
         ):
             self.reply = reply
             resp, record = self._run_update()
             self.assertFalse(resp.has_tool_calls, reply)
             self.assertEqual(resp.content, reply)
             self.assertEqual(record["outcome"], "no_tool_call", reply)
+
+    def test_genuine_but_repairable_decisions_are_accepted(self):
+        for reply, expected in (
+            # An explicit op with a missing body: a decision, repaired to KEEP.
+            (
+                json.dumps({"sections": {"current_state": {"op": "UPDATE"}}}),
+                {"op": "KEEP"},
+            ),
+            # A bare non-blank body: coerced to UPDATE.
+            (
+                json.dumps({"sections": {"current_state": "new body"}}),
+                {"op": "UPDATE", "content": "new body"},
+            ),
+            # An op-less object with items: coerced to APPEND.
+            (
+                json.dumps({"sections": {"Current State": {"items": ["x"]}}}),
+                {"op": "APPEND", "items": ["x"]},
+            ),
+            # sections as a JSON string carrying decisions (the Haiku shape).
+            (
+                json.dumps({"sections": json.dumps({"current_state": {"op": "KEEP"}})}),
+                {"op": "KEEP"},
+            ),
+        ):
+            self.reply = reply
+            resp, record = self._run_update()
+            self.assertTrue(resp.has_tool_calls, reply)
+            self.assertEqual(
+                resp.tool_calls[0].arguments["sections"]["Current State"],
+                expected,
+                reply,
+            )
+            self.assertEqual(record["outcome"], "tool_call")
 
     def test_partial_and_top_level_decisions_are_accepted(self):
         self.reply = json.dumps(
