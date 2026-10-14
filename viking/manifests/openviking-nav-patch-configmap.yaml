@@ -4347,10 +4347,12 @@ data:
 
         Runs ``Session._wm_recover_ops_from_raw`` (the same function Branch 2 would run)
         twice: over the text as it came, which finds decisions keyed by title, and over
-        the text with every id renamed, which finds the ones keyed by id; a title's
-        decision wins a collision. Returns ``(ops, collisions)`` with the decisions still
-        un-normalized, or ``None`` when openviking is not importable here or salvage
-        finds nothing (the caller then forwards the text for upstream to handle).
+        the text with the titles masked and every id renamed, which finds the ones keyed
+        by id; a title's decision wins a collision. Returns ``(ops, counts)``, the
+        decisions still un-normalized and ``counts`` holding ``mapped`` (id decisions),
+        ``unmapped`` (title decisions) and ``collisions`` (both), or ``None`` when
+        openviking is not importable here or salvage finds nothing (the caller then
+        forwards the text for upstream to handle).
         """
         try:
             from openviking.session.session import Session
@@ -4360,12 +4362,26 @@ data:
         if recover is None:
             return None
         by_title = recover(text) or {}
-        renamed, _, _ = _substitute_quoted_keys(text, key_map, precedence=False)
+        # Mask the title keys before renaming the ids, so this pass recovers only the
+        # decisions that arrived under an id (otherwise every title decision would be
+        # counted again as an alias).
+        masked = text
+        for title in key_map.values():
+            masked = re.sub(
+                rf'"{re.escape(title)}"(\s*:)', lambda m: f'"\u0000"{m.group(1)}', masked
+            )
+        renamed, _, _ = _substitute_quoted_keys(masked, key_map, precedence=False)
         by_alias = recover(renamed) or {}
         collisions = sorted(title for title in by_alias if title in by_title)
         ops = dict(by_alias)
         ops.update(by_title)
-        return (ops, collisions) if ops else None
+        if not ops:
+            return None
+        return ops, {
+            "collisions": collisions,
+            "mapped": len(by_alias),
+            "unmapped": [title for title in by_title],
+        }
 
 
     def _decode_raw(text):
@@ -4533,17 +4549,13 @@ data:
             # normalized too, and hand Branch 2 a structured object.
             salvaged = _salvage(raw_text, key_map)
             if salvaged is not None:
-                ops, collisions = salvaged
+                ops, counts = salvaged
                 sections = {}
                 for title, decision in ops.items():
                     decision, repaired = normalize_decision(decision)
                     info["repaired"] += repaired
                     sections[title] = decision
-                info.update(
-                    sections=f"{label}->salvaged",
-                    mapped=len(sections),
-                    collisions=collisions,
-                )
+                info.update(sections=f"{label}->salvaged", **counts)
                 return {"sections": sections}, info
             # No openviking here (tests) or nothing to salvage: titles renamed for
             # upstream's own salvage, which then finds the same nothing or the same ops.

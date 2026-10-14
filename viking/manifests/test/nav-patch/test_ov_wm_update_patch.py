@@ -384,6 +384,25 @@ class RestoreArgumentsTests(unittest.TestCase):
             new_args, info = wm_patch.restore_arguments({"raw": ordered}, self.key_map)
             self.assertEqual(new_args["sections"]["Current State"], {"op": "KEEP"})
             self.assertEqual(info["collisions"], ["Current State"])
+        # Provenance in the counts: a title-only text maps nothing and collides with
+        # nothing; a mixed text without a collision counts one of each.
+        title_only = '{"sections":{"Current State":{"op":"UPDATE","content":"new body"},"broken":"unterminated'
+        new_args, info = wm_patch.restore_arguments({"raw": title_only}, self.key_map)
+        self.assertEqual(
+            new_args["sections"]["Current State"],
+            {"op": "UPDATE", "content": "new body"},
+        )
+        self.assertEqual(
+            (info["mapped"], info["unmapped"], info["collisions"]),
+            (0, ["Current State"], []),
+        )
+        mixed = '{"sections":{"current_state":{"op":"KEEP"},"Open Issues":{"op":"KEEP"},"broken":"unterminated'
+        new_args, info = wm_patch.restore_arguments({"raw": mixed}, self.key_map)
+        self.assertEqual(sorted(new_args["sections"]), ["Current State", "Open Issues"])
+        self.assertEqual(
+            (info["mapped"], info["unmapped"], info["collisions"]),
+            (1, ["Open Issues"], []),
+        )
         # Nothing salvageable: the text is forwarded with ids renamed.
         new_args, info = wm_patch.restore_arguments({"raw": "garbage {"}, self.key_map)
         self.assertEqual(new_args, {"raw": "garbage {"})
