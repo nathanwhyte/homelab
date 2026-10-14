@@ -1,0 +1,86 @@
+---
+# LiteLLM router for OpenViking's VLM (IMPR-1311); routing lives in
+# litellm-vlm-configmap.yaml. One replica with one worker on purpose: the router
+# counts gemma's in-flight cap per process, so a second replica or worker would
+# double it. Recreate keeps a rollout from briefly running two.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: litellm-vlm
+  namespace: viking
+  labels:
+    app: litellm-vlm
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: litellm-vlm
+  template:
+    metadata:
+      labels:
+        app: litellm-vlm
+      annotations:
+        # Bump to roll the pod after a config-only change (the config is read at start).
+        homelab.nathanwhyte.dev/config-rev: "1"
+    spec:
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: litellm
+          image: ghcr.io/berriai/litellm:v1.103.1
+          args: ["--config", "/etc/litellm/config.yaml", "--port", "4000", "--num_workers", "1"]
+          env:
+            - name: LITELLM_MASTER_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: litellm-vlm
+                  key: LITELLM_MASTER_KEY
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: litellm-vlm
+                  key: REDIS_PASSWORD
+            - name: OLLAMA_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: ollama-api-key
+                  key: API_KEY
+            - name: ANTHROPIC_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: anthropic-vlm-key
+                  key: API_KEY
+          ports:
+            - name: http
+              containerPort: 4000
+          startupProbe:
+            httpGet:
+              path: /health/liveliness
+              port: 4000
+            periodSeconds: 3
+            failureThreshold: 40
+          # Liveness only, like ov-vectordb: one replica is OpenViking's only VLM
+          # route, so a readiness ejection would turn "slow" into "down".
+          livenessProbe:
+            httpGet:
+              path: /health/liveliness
+              port: 4000
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 6
+          resources:
+            requests:
+              cpu: 100m
+              memory: 512Mi
+            limits:
+              cpu: "2"
+              memory: 2Gi
+          volumeMounts:
+            - name: config
+              mountPath: /etc/litellm
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: litellm-vlm-config
