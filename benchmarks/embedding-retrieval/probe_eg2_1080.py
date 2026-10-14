@@ -31,10 +31,10 @@ import random
 import re
 import signal
 import statistics
+import threading
 import time
 from collections import Counter
 from pathlib import Path
-from types import SimpleNamespace
 
 import latency_local
 from benchmark_1080_slots import (
@@ -65,7 +65,12 @@ REPEATS = 3
 SEED = 1218
 RSS_LIMIT_KIB = 5 * 1024 * 1024
 DEADLINE_MINUTES = 20  # scale-down to restored
-RESTORE_RESERVE_S = 240  # measurements stop this long before the deadline
+# Measurements stop this long before the deadline: one attempt of every restore
+# step at its kubectl timeout (probe delete 70 s, get + scale 120 s, rollout 310 s)
+# plus the 120 s readiness wait, rounded to 10 minutes. The vector check after the
+# rollout and any retries can run past the deadline: a late restore beats none,
+# and window.json records `overran_deadline`.
+RESTORE_RESERVE_S = 600
 # Qwen3-Embedding-4B Q8_0, one slot, this card: task1218-1080-slots-20260923.md:25-32.
 QWEN_MEDIANS_MS = {300: 326, 1000: 1108, 3000: 3644}
 PAIR_RATIO_MAX = 1.5
@@ -425,22 +430,36 @@ def preflight():
     return snapshot
 
 
-def run_window(out, snapshot, budget_s, body):
-    """Scale production to 0, run body(), and restore it on every exit."""
+def run_window(out, snapshot, budget_s, body, abort):
+    """Scale production to 0, run body() in a worker thread, restore on every exit.
 
-    def interrupted(signum, frame):
-        if signum == signal.SIGALRM:
-            raise RuntimeError("deadline reached")
-        raise RuntimeError(f"interrupted: signal {signum}")
+    The signal handlers only record a reason and set `abort`; nothing raises into
+    the main thread, so no signal can unwind past the restore. The main thread stops
+    waiting at the measurement budget, and the restore then deletes the probe Pod,
+    which fails any request the worker still has in flight.
+    """
+    reasons = []
 
-    handled = (signal.SIGTERM, signal.SIGINT, signal.SIGALRM)
-    previous = {s: signal.signal(s, interrupted) for s in handled}
+    def stop(signum, frame):
+        reasons.append(f"interrupted: signal {signum}")
+        abort.set()
+
+    previous = {s: signal.signal(s, stop) for s in (signal.SIGINT, signal.SIGTERM)}
+    failures = []
+
+    def work():
+        try:
+            body()
+        except BaseException as exc:  # noqa: BLE001 — re-raised after the restore
+            failures.append(exc)
+
+    worker = threading.Thread(target=work, daemon=True)
     window = {
         "deadline_minutes": DEADLINE_MINUTES,
         "measure_budget_seconds": budget_s,
     }
+    started = time.monotonic()
     try:
-        signal.alarm(budget_s)
         window["scale_down_at"] = now()
         save(out / "window.json", window)
         kube("scale", "deployment/" + DEPLOY, "--replicas=0")
@@ -453,23 +472,39 @@ def run_window(out, snapshot, budget_s, body):
             "--timeout=180s",
             timeout=190,
         )
-        body()
-    except BaseException as exc:
-        window["error"] = {"at": now(), "type": type(exc).__name__, "error": str(exc)}
-        raise
+        if not abort.is_set():
+            worker.start()
+        while worker.is_alive() and not abort.is_set():
+            if time.monotonic() - started >= budget_s:
+                reasons.append("deadline reached")
+                abort.set()
+                break
+            worker.join(1)
+    except BaseException as exc:  # noqa: BLE001 — re-raised after the restore
+        failures.append(exc)
     finally:
-        signal.alarm(0)
-        # A second Ctrl-C must not cut the restore short.
-        signal.signal(signal.SIGINT, signal.SIG_IGN)
-        signal.signal(signal.SIGTERM, signal.SIG_IGN)
+        abort.set()
         try:
             cleanup_restore(snapshot, out, pod=POD)
             window["restored_at"] = now()
         finally:
+            # Scale-down to restored (or to the failed restore).
+            elapsed = time.monotonic() - started
+            window["outage_seconds"] = round(elapsed)
+            window["overran_deadline"] = elapsed > DEADLINE_MINUTES * 60
+            if worker.is_alive():
+                worker.join(30)
             window["finished_at"] = now()
+            stopped = reasons + [f"{type(e).__name__}: {e}" for e in failures]
+            if stopped:
+                window["stopped_by"] = stopped
             save(out / "window.json", window)
             for s, handler in previous.items():
                 signal.signal(s, handler)
+    if failures:
+        raise failures[0]
+    if reasons:
+        raise RuntimeError(reasons[0])
 
 
 def tokenize(base, text, add_special=True):
@@ -480,31 +515,65 @@ def tokenize(base, text, add_special=True):
     )["tokens"]
 
 
-def measure(base, monitor, texts, pair_source, scratch, records, flush):
+def measure(base, monitor, abort, texts, pair_source, scratch, records, flush):
     rng = random.Random(SEED)
     vectors = (scratch / "vectors.jsonl").open("w")
+    lock = threading.Lock()
 
-    def embed(key, value):
+    def embed(key, value, sent=None):
+        if abort.is_set():
+            raise RuntimeError("window stopped")
         monitor.check()
         start = time.monotonic()
+        if sent is not None:
+            sent.set()
         response = http(
             base,
             "/v1/embeddings",
             {"model": "probe", "input": [value], "cache_prompt": False},
             timeout=300,
         )
-        ms = (time.monotonic() - start) * 1000
+        end = time.monotonic()
         vector = response["data"][0]["embedding"]
         norm = check_vector(vector)
         tokens = (response.get("usage") or {}).get("prompt_tokens")
         if tokens is None or tokens > CAP:
             raise RuntimeError(f"{key}: {tokens} prompt tokens, cap {CAP}")
-        vectors.write(
-            json.dumps({"key": key, "input": value, "tokens": tokens, "vector": vector})
-            + "\n"
-        )
-        vectors.flush()
-        return {"key": key, "ms": round(ms, 1), "tokens": tokens, "norm": norm}
+        row = {"key": key, "input": value, "tokens": tokens, "vector": vector}
+        with lock:
+            vectors.write(json.dumps(row) + "\n")
+            vectors.flush()
+        return {
+            "key": key,
+            "ms": round((end - start) * 1000, 1),
+            "start": start,
+            "end": end,
+            "tokens": tokens,
+            "norm": norm,
+        }
+
+    def pair(first_key, first, second_key, second):
+        """latency_local.pair(), keeping both vectors: `second` goes GAP_S after `first`."""
+        out, sent = {}, threading.Event()
+
+        def run_first():
+            try:
+                out["first"] = embed(first_key, first, sent)
+            except Exception as exc:  # noqa: BLE001 — recorded as the run's error
+                out["first"] = {"error": str(exc)}
+                sent.set()
+
+        thread = threading.Thread(target=run_first)
+        thread.start()
+        if not sent.wait(timeout=10):
+            raise RuntimeError("first request of an ordering pair was never dispatched")
+        time.sleep(latency_local.GAP_S)
+        try:
+            out["second"] = embed(second_key, second)
+        except Exception as exc:  # noqa: BLE001 — recorded as the run's error
+            out["second"] = {"error": str(exc)}
+        thread.join()
+        return out["first"], out["second"]
 
     try:
         records["first"] = embed("first", "probe warm-up request")
@@ -557,43 +626,55 @@ def measure(base, monitor, texts, pair_source, scratch, records, flush):
             (t for t in texts if t["target"] == 300), key=lambda t: t["eg2_tokens"]
         )
         long = max(texts, key=lambda t: t["eg2_tokens"])
-        args = SimpleNamespace(
-            backend="openai", url=base + "/v1/embeddings", model="probe"
-        )
         records["ordering_inputs"] = {
             "short_index": short["index"],
             "long_index": long["index"],
             "long_eg2_tokens": long["eg2_tokens"],
         }
         for repeat in range(REPEATS):
-            monitor.check()
-            l1, s1, gap1 = latency_local.pair(
-                args,
-                latency_local.fresh(long["text"], rng),
-                latency_local.fresh(short["text"], rng),
+            fresh = {}
+            for name, item in (
+                ("l1", long),
+                ("s1", short),
+                ("s2", short),
+                ("l2", long),
+            ):
+                fresh[name] = latency_local.fresh(item["text"], rng)
+                if len(tokenize(base, fresh[name])) > CAP:
+                    raise RuntimeError(f"ordering text {item['index']} over the cap")
+            l1, s1 = pair(
+                f"order-long-first-r{repeat}",
+                fresh["l1"],
+                f"order-short-behind-r{repeat}",
+                fresh["s1"],
             )
-            s2, l2, gap2 = latency_local.pair(
-                args,
-                latency_local.fresh(short["text"], rng),
-                latency_local.fresh(long["text"], rng),
+            s2, l2 = pair(
+                f"order-short-first-r{repeat}",
+                fresh["s2"],
+                f"order-long-second-r{repeat}",
+                fresh["l2"],
             )
             errors = [r["error"] for r in (l1, s1, s2, l2) if "error" in r]
-            if gap1 <= 0 or gap2 <= 0:
-                errors.append("ordering reversed")
-            if s1["start"] >= l1["end"]:
-                errors.append("short sent after long finished; no queueing measured")
+            if not errors:
+                if s1["start"] <= l1["start"] or l2["start"] <= s2["start"]:
+                    errors.append("ordering reversed")
+                if s1["start"] >= l1["end"]:
+                    errors.append(
+                        "short sent after long finished; no queueing measured"
+                    )
             records["ordering"].append(
                 {
                     "repeat": repeat,
-                    "short_behind_long_ms": round(s1["ms"], 1),
-                    "long_ms_when_first": round(l1["ms"], 1),
-                    "short_first_ms": round(s2["ms"], 1),
-                    "long_ms_when_second": round(l2["ms"], 1),
-                    "gap_ms": [round(gap1, 1), round(gap2, 1)],
+                    "short_behind_long_ms": s1.get("ms"),
+                    "long_ms_when_first": l1.get("ms"),
+                    "short_first_ms": s2.get("ms"),
+                    "long_ms_when_second": l2.get("ms"),
                     "errors": errors,
                 }
             )
             flush()
+            if abort.is_set():
+                raise RuntimeError("window stopped")
     finally:
         vectors.close()
 
@@ -619,6 +700,7 @@ def execute(args, sample, kept_by_qwen):
     snapshot = preflight()
     save(out / "production-before.json", snapshot)
     records = {"pairs": [], "buckets": [], "ordering": [], "guard": None}
+    abort = threading.Event()
 
     def flush():
         save(out / "records.json", records)
@@ -653,7 +735,8 @@ def execute(args, sample, kept_by_qwen):
             flush()
             gate1 = evaluate(records)["gate1_attention_on_gpu"]
             print(f"gate 1 (startup log): {json.dumps(gate1)}", flush=True)
-            forward = Forward("pod/" + POD, out / "port-forward.log")
+            # Not restore()'s 18085: the restore can start while this one still runs.
+            forward = Forward("pod/" + POD, out / "port-forward.log", port=18086)
             forward.ready()
             save(out / "props.json", http(forward.base, "/props"))
             monitor = Monitor(
@@ -674,7 +757,16 @@ def execute(args, sample, kept_by_qwen):
             ]
             flush()
             pair_source = max(sample, key=lambda s: s["tokens"])["text"]
-            measure(forward.base, monitor, texts, pair_source, scratch, records, flush)
+            measure(
+                forward.base,
+                monitor,
+                abort,
+                texts,
+                pair_source,
+                scratch,
+                records,
+                flush,
+            )
             monitor.check()
         except BaseException:
             if monitor and monitor.reason:
@@ -694,7 +786,7 @@ def execute(args, sample, kept_by_qwen):
 
     budget = DEADLINE_MINUTES * 60 - RESTORE_RESERVE_S
     try:
-        run_window(out, snapshot, budget, body)
+        run_window(out, snapshot, budget, body, abort)
     finally:
         verdict = evaluate(records)
         save(out / "verdict.json", verdict)
@@ -704,8 +796,9 @@ def execute(args, sample, kept_by_qwen):
 def prepull():
     if kube("get", "pod", PREPULL, "--ignore-not-found").stdout.strip():
         raise RuntimeError("pre-pull Pod already exists")
-    kube("create", "-f", "-", data=json.dumps(prepull_manifest()))
     try:
+        # Inside the cleanup boundary: kubectl can time out after the API accepted it.
+        kube("create", "-f", "-", data=json.dumps(prepull_manifest()))
         deadline = time.monotonic() + 900
         phase = None
         while time.monotonic() < deadline:
@@ -716,7 +809,8 @@ def prepull():
         log = kube("logs", PREPULL, check=False)
         text = log.stdout + log.stderr
         print(f"pre-pull phase {phase}\n{text.strip()}", flush=True)
-        build = re.search(r"version: (\d+)", text)
+        # e.g. "version: 0.6.0-dev (build 11580, commit 4413a1924)"
+        build = re.search(r"\(build (\d+),", text)
         if not build or int(build.group(1)) != BUILD:
             raise RuntimeError(f"expected build {BUILD}")
         print(f"build {BUILD} confirmed; image cached on manu", flush=True)

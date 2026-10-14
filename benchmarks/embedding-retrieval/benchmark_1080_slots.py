@@ -148,14 +148,14 @@ def manifest(model, slots):
 
 
 class Forward:
-    def __init__(self, target, path):
+    def __init__(self, target, path, port=18085):
         self.log = path.open("w")
         self.process = subprocess.Popen(
-            KUBE + ["port-forward", target, "18085:8000", "--address", "127.0.0.1"],
+            KUBE + ["port-forward", target, f"{port}:8000", "--address", "127.0.0.1"],
             stdout=self.log,
             stderr=self.log,
         )
-        self.base = "http://127.0.0.1:18085"
+        self.base = f"http://127.0.0.1:{port}"
 
     def ready(self, seconds=180):
         deadline = time.monotonic() + seconds
@@ -555,8 +555,22 @@ def run_arm(model, slots, args, corpus, lengths, questions, sample):
             )
 
 
-def restore(snapshot, out):
-    current = obj("get", "deployment", DEPLOY)
+RESTORE_ATTEMPTS = 5
+
+
+def retry(step, action, attempts=RESTORE_ATTEMPTS, errors=(OSError,)):
+    """Retry a restore step on transient failures; anything else propagates at once."""
+    for attempt in range(1, attempts + 1):
+        try:
+            return action()
+        except (subprocess.SubprocessError, *errors) as exc:
+            if attempt == attempts:
+                raise
+            print(f"restore: {step} failed ({exc}); retry {attempt}", flush=True)
+            time.sleep(5)
+
+
+def unchanged(current, snapshot):
     if (
         current["metadata"]["uid"] != snapshot["metadata"]["uid"]
         or current["spec"]["template"] != snapshot["spec"]["template"]
@@ -564,33 +578,62 @@ def restore(snapshot, out):
         raise RuntimeError(
             "Production template/identity changed concurrently; refusing blind restore"
         )
+
+
+def restore(snapshot, out):
     replicas = snapshot["spec"]["replicas"]
-    kube("scale", "deployment/" + DEPLOY, f"--replicas={replicas}")
-    kube("rollout", "status", "deployment/" + DEPLOY, "--timeout=420s", timeout=430)
-    forward = Forward("deployment/" + DEPLOY, out / "restore-port-forward.log")
-    try:
-        forward.ready(240)
-        response = http(
-            forward.base,
-            "/v1/embeddings",
-            {
-                "model": "restore-check",
-                "input": ["Embedding service restoration check."],
-                "cache_prompt": False,
-            },
+
+    def scale():
+        current = obj("get", "deployment", DEPLOY)
+        unchanged(current, snapshot)
+        if current["spec"]["replicas"] == replicas:
+            return  # an earlier attempt landed before its kubectl call timed out
+        # The precondition makes the scale fail if anything edited the Deployment
+        # after the check above; the retry then re-reads and re-checks it.
+        kube(
+            "scale",
+            "deployment/" + DEPLOY,
+            f"--replicas={replicas}",
+            "--resource-version=" + current["metadata"]["resourceVersion"],
         )
-        normalize(response["data"][0]["embedding"], 2560)
-        result = {
-            "at": now(),
-            "replicas": replicas,
-            "health": "ok",
-            "embedding_dimension": 2560,
-            "template_unchanged": True,
-        }
-        save(out / "restored.json", result)
-        print("PRODUCTION RESTORED " + json.dumps(result), flush=True)
-    finally:
-        forward.close()
+
+    retry("scale", scale)
+    retry(
+        "rollout",
+        lambda: kube(
+            "rollout", "status", "deployment/" + DEPLOY, "--timeout=300s", timeout=310
+        ),
+    )
+    unchanged(retry("verify", lambda: obj("get", "deployment", DEPLOY)), snapshot)
+
+    def check():
+        forward = Forward("deployment/" + DEPLOY, out / "restore-port-forward.log")
+        try:
+            forward.ready(120)
+            return http(
+                forward.base,
+                "/v1/embeddings",
+                {
+                    "model": "restore-check",
+                    "input": ["Embedding service restoration check."],
+                    "cache_prompt": False,
+                },
+                timeout=60,
+            )
+        finally:
+            forward.close()
+
+    response = retry("embedding check", check, 3, (OSError, RuntimeError))
+    normalize(response["data"][0]["embedding"], 2560)
+    result = {
+        "at": now(),
+        "replicas": replicas,
+        "health": "ok",
+        "embedding_dimension": 2560,
+        "template_unchanged": True,
+    }
+    save(out / "restored.json", result)
+    print("PRODUCTION RESTORED " + json.dumps(result), flush=True)
 
 
 def main():
