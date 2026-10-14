@@ -38,6 +38,8 @@ spec:
               vlm = conf.get('vlm', {})
               if vlm.get('api_key') == '\${OLLAMA_KEY}':
                   vlm['api_key'] = os.environ.get('OLLAMA_KEY', '')
+              if vlm.get('api_key') == '\${ANTHROPIC_KEY}':
+                  vlm['api_key'] = os.environ.get('ANTHROPIC_KEY', '')
               agfs = conf.get('storage', {}).get('agfs', {})
               if agfs.get('backend', 'local') == 's3':
                   agfs.setdefault('s3', {})
@@ -73,6 +75,16 @@ spec:
               valueFrom:
                 secretKeyRef:
                   name: ollama-api-key
+                  key: API_KEY
+                  optional: true
+            # IMPR-1311: Claude Console key for a Claude VLM (Haiku 5.5 on the Max
+            # plan's API credit), injected when vlm.api_key is "${ANTHROPIC_KEY}".
+            # Unused while the VLM is gemma4:vlm. Created out of band from
+            # anthropic-vlm-key.secret.yaml.example.
+            - name: ANTHROPIC_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: anthropic-vlm-key
                   key: API_KEY
                   optional: true
           volumeMounts:
@@ -418,6 +430,8 @@ spec:
                 path: ov_fetch_items_patch.py
               - key: ov_wm_update_patch.py
                 path: ov_wm_update_patch.py
+              - key: ov_claude_params_patch.py
+                path: ov_claude_params_patch.py
         - name: data
           persistentVolumeClaim:
             claimName: openviking-data
