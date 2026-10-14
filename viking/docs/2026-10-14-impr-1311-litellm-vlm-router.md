@@ -60,6 +60,14 @@ The router's budget window is one month from when its tracking started (`time_pe
 - OpenViking's own `openviking_vlm_calls_total{error_code}` now reports `model_name="ov-vlm"`; the per-model split is in LiteLLM's metrics.
 - Claude Console usage for the workspace, the authoritative spend.
 
+## Router outage: automatic bypass
+
+OpenViking's `vlm.backup` is chat-ollama directly. In v0.4.20 it becomes a second credential: when a call's retries against the router run out with a transient error (router down, connection refused, timeout), OpenViking serves that call from gemma and stays on gemma, trying the router again after 10 minutes or 50 calls. Verified on pop on 2026-10-14 with OpenViking's own config loader and a dead primary: the first call took 5.9 s (3 retries, then failover), the next ones 1.2 s straight on gemma.
+
+- While bypassed, Haiku takes no overflow, so gemma alone carries the load (the pre-router behavior).
+- `LiteLLMRouterDown` fires when the router misses scrapes for 3 minutes; `OpenVikingBypassingVLMRouter` fires when OpenViking has called gemma directly (`openviking_vlm_calls_total{model_name="gemma4:vlm"}`) for 15 minutes.
+- Once the router is healthy, OpenViking returns to it at the next failback attempt; nothing needs restarting.
+
 ## Rollback
 
 `viking/scripts/ov-vlm-swap.py gemma --apply` writes the direct chat-ollama block and restarts OpenViking; the router can stay up idle. To retire it, delete the four `litellm-vlm` objects and the three `litellm-redis` objects.

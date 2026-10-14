@@ -59,9 +59,17 @@ data:
   # VLM route (IMPR-1311): OpenViking calls the LiteLLM router's `ov-vlm` group
   # (litellm-vlm-configmap.yaml), which sends gemma4:vlm up to 4 calls in flight,
   # overflow to Claude Haiku 5.5 under a $100/month cap, and the rest back to gemma.
-  # The in-flight ceiling above therefore no longer queues past gemma's slots. To
-  # bypass the router, restore the direct block with
-  # `viking/scripts/ov-vlm-swap.py gemma --apply`.
+  # The in-flight ceiling above therefore no longer queues past gemma's slots.
+  #
+  # Router bypass: vlm.backup is chat-ollama directly. v0.4.20 turns it into a second
+  # credential (MultiCredentialVLM), and once a call's retries on the router are
+  # exhausted with a transient error (router down, connection refused, timeout) it
+  # serves the call from gemma and stays there; it tries the router again after 10
+  # minutes or 50 backup calls. Verified on pop 2026-10-14 against a dead primary:
+  # 3 retries, then "Credential legacy-primary failed with transient, trying next
+  # credential", and later calls went straight to gemma. While bypassed, Haiku takes
+  # no overflow. LiteLLMRouterDown and OpenVikingBypassingVLMRouter alert on it.
+  # To pin OpenViking to gemma by hand: `viking/scripts/ov-vlm-swap.py gemma --apply`.
   ov.conf: |
     {
       "default_account": "default",
@@ -140,7 +148,13 @@ data:
         "api_key": "${LITELLM_KEY}",
         "api_base": "http://litellm-vlm.viking.svc.cluster.local:4000/v1",
         "max_concurrent": 4,
-        "timeout": 1200
+        "timeout": 1200,
+        "backup": {
+          "provider": "openai",
+          "model": "gemma4:vlm",
+          "api_key": "${OLLAMA_KEY}",
+          "api_base": "http://chat-ollama.llama.svc.cluster.local:11434/v1"
+        }
       },
       "queue_workers": {
         "session_commit": {

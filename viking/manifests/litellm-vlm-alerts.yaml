@@ -16,6 +16,25 @@ spec:
   groups:
     - name: litellm-vlm.rules
       rules:
+        - alert: LiteLLMRouterDown
+          # absent() covers a missing scrape target as well as a failing one.
+          expr: up{job="litellm-vlm"} == 0 or absent(up{job="litellm-vlm"})
+          for: 3m
+          labels:
+            severity: warning
+          annotations:
+            summary: "The OpenViking VLM router (litellm-vlm) is not answering scrapes"
+            description: "OpenViking falls over to its vlm.backup (gemma via chat-ollama) after a call's retries are exhausted, so summaries and memory continue on gemma alone with no Haiku overflow. Check kubectl -n viking get pods -l app=litellm-vlm and its logs. To pin OpenViking to gemma: viking/scripts/ov-vlm-swap.py gemma --apply."
+        - alert: OpenVikingBypassingVLMRouter
+          # OpenViking labels VLM calls with the credential's model: ov-vlm through the
+          # router, gemma4:vlm when its vlm.backup (direct chat-ollama) serves them.
+          expr: sum(increase(openviking_vlm_calls_total{model_name="gemma4:vlm"}[15m])) > 0
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "OpenViking has been calling gemma directly, bypassing the VLM router, for 15m"
+            description: "OpenViking's credential failover moved to vlm.backup after the router failed. It retries the router every 10 minutes or 50 calls; if this persists, the router is still failing. Haiku takes no overflow meanwhile."
         - alert: LiteLLMRedisRestartedAfterRouter
           # Container start times, not pod start times: an in-place container
           # restart (OOM, liveness) keeps the pod's StartTime but still breaks or
