@@ -578,7 +578,7 @@
       "id": 18,
       "type": "stat",
       "title": "Haiku budget left this month",
-      "description": "LiteLLM provider budget for anthropic ($100 per month, tracked in litellm-redis). At $0 the router skips Haiku and overflow stays on gemma.",
+      "description": "LiteLLM's routing threshold for anthropic ($90 per month, tallied in litellm-redis; approximate). At $0 the router skips Haiku and overflow stays on gemma. The hard cap is the Claude Console workspace limit ($100).",
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 36 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [

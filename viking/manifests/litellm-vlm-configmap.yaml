@@ -6,7 +6,8 @@
 #            A 5th concurrent call gets an immediate 429 from the router and fails
 #            over; a call that runs past 90 s times out and fails over too.
 #   order 2  Claude Haiku 5.5 on the Max plan's API credit (native Messages API).
-#            Skipped once Anthropic spend for the month reaches $100.
+#            Skipped once the router's tally of Anthropic spend for the month
+#            reaches $90.
 #   order 3  gemma4:vlm again, uncapped: overflow lands back on gemma (Ollama queues
 #            it) whenever Haiku is over budget, rate limited or down.
 #
@@ -16,8 +17,17 @@
 # models, temperature dropped and thinking off for Haiku, timeout failover, budget
 # exhaustion falling through to order 3, and the Prometheus metrics below.
 #
-# Budget spend lives in Redis (litellm-redis, AOF on a PVC): without it the router
-# keeps spend in memory and a restart resets the month to $0.
+# The $90 is a routing threshold, not the hard cap. LiteLLM 1.103.1 records a call's
+# cost after it finishes and writes it to Redis asynchronously, so concurrent overflow
+# can overshoot it, and spend recorded while Redis is down can be lost (Codex review
+# on homelab#225). The hard cap is the Claude Console workspace spend limit of $100,
+# which Anthropic enforces and which fails closed: past it Haiku answers errors and
+# order 3 takes the call. The $10 gap lets routing move back to gemma before that.
+# Spend lives in Redis (litellm-redis, AOF on a PVC); without Redis a restart would
+# reset the month's tally to $0.
+#
+# Timeouts are per attempt and must sum inside OpenViking's vlm.timeout (1200 s):
+# 90 + 120 + 900 = 1110 s.
 #
 # This is the only instance. No Mac runs its own (workbook is short on memory); a
 # client off the cluster routes here, which needs a tailnet route that requires the
@@ -60,14 +70,15 @@ data:
             - location: message
               role: system
           order: 2
-          timeout: 300
+          # Haiku's slowest WM rewrite in the replays was 35 s.
+          timeout: 120
       - model_name: ov-vlm
         litellm_params:
           model: openai/gemma4:vlm
           api_base: http://chat-ollama.llama.svc.cluster.local:11434/v1
           api_key: os.environ/OLLAMA_KEY
           order: 3
-          timeout: 1200
+          timeout: 900
 
     litellm_settings:
       callbacks: ["prometheus"]
@@ -76,12 +87,13 @@ data:
       # Failover between orders does the retrying; a same-deployment retry of a
       # cap 429 would only spin.
       num_retries: 0
-      request_timeout: 1200
+      # Under OpenViking's 1200 s, so the router answers (success or error) first.
+      request_timeout: 1150
 
     router_settings:
       provider_budget_config:
         anthropic:
-          budget_limit: 100.0
+          budget_limit: 90.0
           time_period: 1mo
       redis_host: litellm-redis.viking.svc.cluster.local
       redis_port: 6379
