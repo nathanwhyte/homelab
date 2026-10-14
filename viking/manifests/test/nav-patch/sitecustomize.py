@@ -72,8 +72,13 @@ off switch; a patch failure never breaks the import):
                         creation-prompt fallback without first spending a 60-250 s
                         generation (``OpenAIVLM.get_completion_async``); one
                         ``ov-wm-update-skip {json}`` stderr line per skip.
+  * ov_claude_params_patch — IMPR-1311: a VLM request to a ``claude-*`` model drops
+                        ``temperature``, which Claude Haiku 5.5 rejects and
+                        ``VLMConfig`` cannot omit
+                        (``OpenAIVLM._apply_completion_params``); inert for every
+                        other model.
 
-Rollback of one patch: its env switch (``OV_S3_CACHE_PATCH=0``, ``OV_EXTRACT_PATCH=0``, ``OV_CHATLOG_PATCH=0``, ``OV_MEMORY_GUARD=0``, ``OV_EVENT_NOISE_FILTER=0``, ``OV_EVENT_ABSTRACT_PATCH=0``, ``OV_GREP_SCOPE_PATCH=0``, ``OV_RECALL_TIME_PATCH=0``, ``OV_FETCH_ITEMS_PATCH=0``, ``OV_WM_UPDATE_SKIP=0``; ``OV_NAV_PATCH=0``
+Rollback of one patch: its env switch (``OV_S3_CACHE_PATCH=0``, ``OV_EXTRACT_PATCH=0``, ``OV_CHATLOG_PATCH=0``, ``OV_MEMORY_GUARD=0``, ``OV_EVENT_NOISE_FILTER=0``, ``OV_EVENT_ABSTRACT_PATCH=0``, ``OV_GREP_SCOPE_PATCH=0``, ``OV_RECALL_TIME_PATCH=0``, ``OV_FETCH_ITEMS_PATCH=0``, ``OV_WM_UPDATE_SKIP=0``, ``OV_CLAUDE_PARAMS_PATCH=0``; ``OV_NAV_PATCH=0``
 only after the model-built overview template is restored, see the Deployment).
 Rollback of everything: remove PYTHONPATH from the Deployment
 (``kubectl set env … PYTHONPATH-``), again only after that template restore.
@@ -136,7 +141,10 @@ TARGETS = {
         "ov_fetch_items_patch",
         "apply",
     ),
-    "openviking.models.vlm.backends.openai_vlm": ("ov_wm_update_patch", "apply"),
+    "openviking.models.vlm.backends.openai_vlm": [
+        ("ov_wm_update_patch", "apply"),
+        ("ov_claude_params_patch", "apply"),
+    ],
 }
 
 
