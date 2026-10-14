@@ -630,14 +630,17 @@ data:
         batch task) at the batch's first submit and keep it until the batch's extraction
         step ends, so the extraction calls overlap and the applies, merge-loop calls and
         read-backs included, run one batch at a time as stock ran them; a failed submit
-        first flushes any merge group it left buffered, so a sibling cannot join it.
+        first flushes every merge group (joining one already in flight), so a sibling
+        cannot join or race it. The CaseSpec fast path writes its case memory without
+        ``submit`` (``SessionCompressorV3._write_training_case_memory``), so that write
+        takes the same gate.
 
     One ``ov-extract-outcome {"event": "parallel_batches", …}`` line per archive names the
     batch count, the parallelism, the failures and the wall time. Under gemma the four
     Ollama slots still bound the work per hour, so this shortens one large commit's wall
     time; behind the LiteLLM router the overflow goes to Haiku and it becomes a throughput
-    lever. Needs all three halves (session batching, compressor write, submit lock)
-    applied, each on its own source hash; with either of the last two missing the stock
+    lever. Needs all the wrappers (session batching, the two compressor writes, submit
+    lock) applied, each on its own source hash; with any but the first missing the stock
     loop runs.
 
     Guarded: applies only to openviking ``v0.4.20`` whose ``ExtractLoop.run`` source hashes to
@@ -698,6 +701,11 @@ data:
     # StreamingMemoryUpdater.submit on v0.4.20.
     EXPECTED_SUBMIT_SHA256 = (
         "67e4e598f003d0d46f6790ac19f469a367cdfa5d65203b12b8a10f596989c0ee"
+    )
+    # SessionCompressorV3._write_training_case_memory on v0.4.20: the CaseSpec fast
+    # path's direct write, which never goes through StreamingMemoryUpdater.submit.
+    EXPECTED_TRAINING_CASE_SHA256 = (
+        "5ad1aa455c1c3c04ff5add35af9bae50b1365345b02ce9b214030f4aaf5808b2"
     )
     DEFAULT_BATCH_PARALLEL = 2
     DEFAULT_RETRIES = 5
@@ -1160,11 +1168,34 @@ data:
         if not isinstance(batchers, dict):
             return
         for batcher in list(batchers.values()):
+            # Unconditionally: StreamingBatcher.flush empties its buffer before it awaits
+            # the apply, so a buffered-count check misses a flush already in progress;
+            # flush's own lock joins that flush and returns once it has applied.
             try:
-                if await batcher.get_buffered_item_count() > 0:
-                    await batcher.flush("ov-extract-patch: settle after a failed submit")
+                await batcher.flush("ov-extract-patch: settle after a failed submit")
             except Exception as exc:  # noqa: BLE001 — diagnostics must not mask the step's error
                 logger.warning("ov-extract-patch: settling a pending flush failed: %r", exc)
+
+
+    def wrap_training_case_write(orig):
+        """Take the batch's gate before the CaseSpec fast path's direct memory write.
+
+        ``extract_long_term_memories``'s fast path (compressor_v3.py 553-570 via
+        ``_write_training_case_memory``, 600-650) applies its case memory through
+        ``MemoryUpdater.apply_operations`` directly and then builds its diff, never
+        entering ``submit``; without the gate that write and read-back would run beside a
+        sibling's. Outside a parallel batch the call is untouched.
+        """
+
+        @functools.wraps(orig)
+        async def _write_training_case_memory(self, **kwargs):
+            gate = _SUBMIT_LOCK.get()
+            if gate is not None:
+                await gate.acquire()
+            return await orig(self, **kwargs)
+
+        _write_training_case_memory._ov_extract_patch = True  # type: ignore[attr-defined]
+        return _write_training_case_memory
 
 
     def wrap_submit(orig):
@@ -1563,23 +1594,37 @@ data:
 
         version = getattr(openviking, "__version__", None)
         cls = getattr(module, "SessionCompressorV3", None)
-        orig = getattr(cls, "_write_final_memory_diff", None)
-        if getattr(orig, "_ov_extract_patch", False):
+        targets = (
+            (
+                "_write_final_memory_diff",
+                EXPECTED_WRITE_FINAL_DIFF_SHA256,
+                wrap_write_final_memory_diff,
+            ),
+            (
+                "_write_training_case_memory",
+                EXPECTED_TRAINING_CASE_SHA256,
+                wrap_training_case_write,
+            ),
+        )
+        current = [getattr(cls, name, None) for name, _, _ in targets]
+        if all(getattr(fn, "_ov_extract_patch", False) for fn in current):
             _state["compressor_applied"] = True
             return True
-        digest = _source_hash(orig) if orig else None
-        if version != EXPECTED_VERSION or digest != EXPECTED_WRITE_FINAL_DIFF_SHA256:
+        digests = [_source_hash(fn) if fn else None for fn in current]
+        if version != EXPECTED_VERSION or digests != [t[1] for t in targets]:
             logger.warning(
-                "ov-extract-patch: NOT applied to SessionCompressorV3._write_final_memory_diff "
-                "(version=%r source_sha256=%s); Phase 2 batches stay sequential",
+                "ov-extract-patch: NOT applied to SessionCompressorV3 (version=%r "
+                "source_sha256=%s); Phase 2 batches stay sequential",
                 version,
-                digest,
+                digests,
             )
             return False
-        cls._write_final_memory_diff = wrap_write_final_memory_diff(orig)
+        for (name, _, wrap), fn in zip(targets, current, strict=True):
+            setattr(cls, name, wrap(fn))
         _state["compressor_applied"] = True
         logger.warning(
-            "ov-extract-patch: applied to SessionCompressorV3._write_final_memory_diff (pid %d)",
+            "ov-extract-patch: applied to SessionCompressorV3 final diff write and "
+            "training case write (pid %d)",
             os.getpid(),
         )
         return True

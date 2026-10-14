@@ -1301,6 +1301,7 @@ class ParallelInstallTests(EnvMixin, unittest.TestCase):
             ep.EXPECTED_BATCHING_SHA256,
             ep.EXPECTED_WRITE_FINAL_DIFF_SHA256,
             ep.EXPECTED_SUBMIT_SHA256,
+            ep.EXPECTED_TRAINING_CASE_SHA256,
         )
         ep._state["compressor_applied"] = False
         ep._state["submit_lock_applied"] = False
@@ -1316,6 +1317,7 @@ class ParallelInstallTests(EnvMixin, unittest.TestCase):
             ep.EXPECTED_BATCHING_SHA256,
             ep.EXPECTED_WRITE_FINAL_DIFF_SHA256,
             ep.EXPECTED_SUBMIT_SHA256,
+            ep.EXPECTED_TRAINING_CASE_SHA256,
         ) = self._saved_parallel
         del sys.modules["openviking"]
         super().tearDown()
@@ -1324,6 +1326,9 @@ class ParallelInstallTests(EnvMixin, unittest.TestCase):
         class SessionCompressorV3:
             async def _write_final_memory_diff(self, *, archive_uri, ctx, memory_diffs):
                 return "wrote"
+
+            async def _write_training_case_memory(self, *, case, ctx, archive_uri):
+                return "case"
 
         return self.types.SimpleNamespace(SessionCompressorV3=SessionCompressorV3)
 
@@ -1334,6 +1339,17 @@ class ParallelInstallTests(EnvMixin, unittest.TestCase):
         ep.EXPECTED_WRITE_FINAL_DIFF_SHA256 = ep._source_hash(
             mod.SessionCompressorV3._write_final_memory_diff
         )
+        self.assertFalse(ep.apply_compressor(mod))  # one of two hashes: nothing
+        self.assertFalse(
+            getattr(
+                mod.SessionCompressorV3._write_final_memory_diff,
+                "_ov_extract_patch",
+                False,
+            )
+        )
+        ep.EXPECTED_TRAINING_CASE_SHA256 = ep._source_hash(
+            mod.SessionCompressorV3._write_training_case_memory
+        )
         sys.modules["openviking"].__version__ = "v0.4.99"
         self.assertFalse(ep.apply_compressor(mod))
         sys.modules["openviking"].__version__ = ep.EXPECTED_VERSION
@@ -1341,8 +1357,43 @@ class ParallelInstallTests(EnvMixin, unittest.TestCase):
         self.assertTrue(ep._state["compressor_applied"])
         installed = mod.SessionCompressorV3._write_final_memory_diff
         self.assertTrue(getattr(installed, "_ov_extract_patch", False))
+        self.assertTrue(
+            getattr(
+                mod.SessionCompressorV3._write_training_case_memory,
+                "_ov_extract_patch",
+                False,
+            )
+        )
         self.assertTrue(ep.apply_compressor(mod))
         self.assertIs(mod.SessionCompressorV3._write_final_memory_diff, installed)
+
+    def test_training_case_write_takes_the_batch_gate(self):
+        async def orig(self, *, case, ctx, archive_uri):
+            return ("case", case)
+
+        wrapped = ep.wrap_training_case_write(orig)
+        lock = asyncio.Lock()
+        gate = ep.BatchGate(lock)
+
+        async def scenario():
+            # Outside a batch: untouched, no lock taken.
+            self.assertEqual(
+                await wrapped(object(), case="c", ctx=None, archive_uri="a"),
+                ("case", "c"),
+            )
+            self.assertFalse(lock.locked())
+            token = ep._SUBMIT_LOCK.set(gate)
+            try:
+                await wrapped(object(), case="c", ctx=None, archive_uri="a")
+                self.assertTrue(gate.held)
+                self.assertTrue(lock.locked())
+                await wrapped(object(), case="d", ctx=None, archive_uri="a")  # re-entry
+            finally:
+                ep._SUBMIT_LOCK.reset(token)
+                gate.release()
+            self.assertFalse(lock.locked())
+
+        asyncio.run(scenario())
 
     def test_submit_lock_guards_and_sets_state(self):
         class StreamingMemoryUpdater:
