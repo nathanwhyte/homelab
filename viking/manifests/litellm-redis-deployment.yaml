@@ -1,0 +1,59 @@
+---
+# Redis for the LiteLLM router's budget state (IMPR-1311). The router tracks
+# Anthropic spend against the monthly cap here; append-only persistence on a PVC
+# keeps the month's spend across pod restarts.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: litellm-redis
+  namespace: viking
+  labels:
+    app: litellm-redis
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: litellm-redis
+  template:
+    metadata:
+      labels:
+        app: litellm-redis
+    spec:
+      terminationGracePeriodSeconds: 15
+      containers:
+        - name: redis
+          image: redis:7.4.1-alpine
+          command: ["/bin/sh", "-c"]
+          args:
+            - exec redis-server --appendonly yes --appendfsync everysec --dir /data --requirepass "$REDIS_PASSWORD"
+          env:
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: litellm-vlm
+                  key: REDIS_PASSWORD
+          ports:
+            - name: redis
+              containerPort: 6379
+          livenessProbe:
+            tcpSocket:
+              port: 6379
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 6
+          resources:
+            requests:
+              cpu: 20m
+              memory: 32Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          volumeMounts:
+            - name: data
+              mountPath: /data
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: litellm-redis-data

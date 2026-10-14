@@ -55,6 +55,13 @@ data:
   # 59 s against the 2700 s OpenVikingWedgedLockFile threshold. Before raising
   # either again: record ov-extract-outcome counts, VLM timeouts and
   # openviking_s3_ovlock_oldest_live_age_seconds before and after (BUG-1220).
+  #
+  # VLM route (IMPR-1311): OpenViking calls the LiteLLM router's `ov-vlm` group
+  # (litellm-vlm-configmap.yaml), which sends gemma4:vlm up to 4 calls in flight,
+  # overflow to Claude Haiku 5.5 under a $100/month cap, and the rest back to gemma.
+  # The in-flight ceiling above therefore no longer queues past gemma's slots. To
+  # bypass the router, restore the direct block with
+  # `viking/scripts/ov-vlm-swap.py gemma --apply`.
   ov.conf: |
     {
       "default_account": "default",
@@ -129,9 +136,9 @@ data:
       },
       "vlm": {
         "provider": "openai",
-        "model": "gemma4:vlm",
-        "api_key": "${OLLAMA_KEY}",
-        "api_base": "http://chat-ollama.llama.svc.cluster.local:11434/v1",
+        "model": "ov-vlm",
+        "api_key": "${LITELLM_KEY}",
+        "api_base": "http://litellm-vlm.viking.svc.cluster.local:4000/v1",
         "max_concurrent": 4,
         "timeout": 1200
       },

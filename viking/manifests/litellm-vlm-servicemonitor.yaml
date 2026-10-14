@@ -1,0 +1,19 @@
+---
+# LiteLLM router metrics (IMPR-1311): per-deployment requests, failovers, Haiku spend
+# and remaining budget. The path needs the trailing slash; /metrics answers 307.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: litellm-vlm
+  namespace: viking
+  labels:
+    app: litellm-vlm
+spec:
+  selector:
+    matchLabels:
+      app: litellm-vlm
+  endpoints:
+    - port: http
+      interval: 30s
+      path: /metrics/
+      scrapeTimeout: 10s

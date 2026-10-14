@@ -37,6 +37,16 @@ resources:
   # BUG-1155: semantic overview template override. Holds ONE file; PromptManager
   # falls back per file to the bundled templates for everything else.
   - openviking-prompt-overrides-configmap.yaml
+  # IMPR-1311: LiteLLM router in front of the VLM (gemma4 first, Haiku overflow under
+  # a monthly cap) and the Redis that holds its budget spend. Secret litellm-vlm is
+  # created from litellm-vlm.secret.yaml.example.
+  - litellm-redis-pvc.yaml
+  - litellm-redis-deployment.yaml
+  - litellm-redis-service.yaml
+  - litellm-vlm-configmap.yaml
+  - litellm-vlm-deployment.yaml
+  - litellm-vlm-service.yaml
+  - litellm-vlm-servicemonitor.yaml
   - openviking-deployment.yaml
   - openviking-service.yaml
   - openviking-nodeport-service.yaml

@@ -1,0 +1,91 @@
+---
+# LiteLLM router in front of OpenViking's VLM (IMPR-1311). OpenViking calls one model,
+# `ov-vlm`; the router picks a deployment by `order` (lowest first):
+#
+#   order 1  gemma4:vlm on timmy, at most 4 calls in flight (OLLAMA_NUM_PARALLEL=4).
+#            A 5th concurrent call gets an immediate 429 from the router and fails
+#            over; a call that runs past 90 s times out and fails over too.
+#   order 2  Claude Haiku 5.5 on the Max plan's API credit (native Messages API).
+#            Skipped once Anthropic spend for the month reaches $100.
+#   order 3  gemma4:vlm again, uncapped: overflow lands back on gemma (Ollama queues
+#            it) whenever Haiku is over budget, rate limited or down.
+#
+# So Haiku's share of calls measures how often gemma was full or stuck, not how slow
+# gemma was. Verified against v1.103.1 on pop on 2026-10-14 with OpenViking's own
+# request shapes: overflow at the cap, tool calls (forced and multi-turn) on both
+# models, temperature dropped and thinking off for Haiku, timeout failover, budget
+# exhaustion falling through to order 3, and the Prometheus metrics below.
+#
+# Budget spend lives in Redis (litellm-redis, AOF on a PVC): without it the router
+# keeps spend in memory and a restart resets the month to $0.
+#
+# This is the only instance. No Mac runs its own (workbook is short on memory); a
+# client off the cluster routes here, which needs a tailnet route that requires the
+# master key, since the Service is ClusterIP.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: litellm-vlm-config
+  namespace: viking
+  labels:
+    app: litellm-vlm
+data:
+  config.yaml: |
+    model_list:
+      - model_name: ov-vlm
+        litellm_params:
+          model: openai/gemma4:vlm
+          api_base: http://chat-ollama.llama.svc.cluster.local:11434/v1
+          api_key: os.environ/OLLAMA_KEY
+          order: 1
+          max_parallel_requests: 4
+          # gemma's slowest call on 2026-10-14 was 59 s (IMPR-1303 lever-1 window).
+          timeout: 90
+      - model_name: ov-vlm
+        litellm_params:
+          model: anthropic/claude-haiku-5-5
+          api_key: os.environ/ANTHROPIC_API_KEY
+          # The Console key is not workspace-scoped.
+          extra_headers:
+            anthropic-workspace-id: wrkspc_01Mt86Lk5sxm3HSnaM1PbWSA
+          # Claude 5 thinks by default; off, WM rewrites fit and cost less.
+          thinking:
+            type: disabled
+          # OpenViking always sends temperature 0.0; Claude 4.7+ answers 400 to it.
+          additional_drop_params: ["temperature"]
+          # Default when OpenViking sends none (LiteLLM's own default is 4096,
+          # which cuts WM rewrites off).
+          max_tokens: 16384
+          cache_control_injection_points:
+            - location: message
+              role: system
+          order: 2
+          timeout: 300
+      - model_name: ov-vlm
+        litellm_params:
+          model: openai/gemma4:vlm
+          api_base: http://chat-ollama.llama.svc.cluster.local:11434/v1
+          api_key: os.environ/OLLAMA_KEY
+          order: 3
+          timeout: 1200
+
+    litellm_settings:
+      callbacks: ["prometheus"]
+      # Scraped in-cluster only; the Service has no Ingress.
+      require_auth_for_metrics_endpoint: false
+      # Failover between orders does the retrying; a same-deployment retry of a
+      # cap 429 would only spin.
+      num_retries: 0
+      request_timeout: 1200
+
+    router_settings:
+      provider_budget_config:
+        anthropic:
+          budget_limit: 100.0
+          time_period: 1mo
+      redis_host: litellm-redis.viking.svc.cluster.local
+      redis_port: 6379
+      redis_password: os.environ/REDIS_PASSWORD
+
+    general_settings:
+      master_key: os.environ/LITELLM_MASTER_KEY

@@ -40,6 +40,8 @@ spec:
                   vlm['api_key'] = os.environ.get('OLLAMA_KEY', '')
               if vlm.get('api_key') == '\${ANTHROPIC_KEY}':
                   vlm['api_key'] = os.environ.get('ANTHROPIC_KEY', '')
+              if vlm.get('api_key') == '\${LITELLM_KEY}':
+                  vlm['api_key'] = os.environ.get('LITELLM_KEY', '')
               agfs = conf.get('storage', {}).get('agfs', {})
               if agfs.get('backend', 'local') == 's3':
                   agfs.setdefault('s3', {})
@@ -86,6 +88,14 @@ spec:
                 secretKeyRef:
                   name: anthropic-vlm-key
                   key: API_KEY
+                  optional: true
+            # IMPR-1311: the LiteLLM router's master key, injected when vlm.api_key
+            # is "${LITELLM_KEY}" (the router route). From litellm-vlm.secret.yaml.example.
+            - name: LITELLM_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: litellm-vlm
+                  key: LITELLM_MASTER_KEY
                   optional: true
           volumeMounts:
             - name: config-template

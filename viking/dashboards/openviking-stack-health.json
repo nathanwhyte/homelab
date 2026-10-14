@@ -497,6 +497,155 @@
         },
         "tooltip": { "mode": "multi", "sort": "desc" }
       }
+    },
+    {
+      "id": 16,
+      "type": "timeseries",
+      "title": "VLM calls by route (LiteLLM, 5m rate)",
+      "description": "IMPR-1311 router. gemma4:vlm takes up to 4 calls in flight; Claude Haiku 5.5 takes the overflow (gemma full or a gemma call past 90 s) until the monthly budget is spent. Haiku's share measures how often gemma was full, not how slow it was.",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 28 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (litellm_model_name) (rate(litellm_deployment_success_responses_total[5m]))",
+          "legendFormat": "{{litellm_model_name}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "fillOpacity": 25,
+            "stacking": { "mode": "normal", "group": "A" },
+            "axisPlacement": "auto",
+            "axisColorMode": "text"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": ["mean", "max"],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      }
+    },
+    {
+      "id": 17,
+      "type": "timeseries",
+      "title": "Haiku share of VLM calls (1h window)",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 28 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(litellm_deployment_success_responses_total{api_provider=\"anthropic\"}[1h])) / sum(rate(litellm_deployment_success_responses_total[1h]))",
+          "legendFormat": "Haiku share"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1,
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "fillOpacity": 15,
+            "axisPlacement": "auto",
+            "axisColorMode": "text"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": ["mean", "max", "lastNotNull"],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": { "mode": "single", "sort": "none" }
+      }
+    },
+    {
+      "id": 18,
+      "type": "stat",
+      "title": "Haiku budget left this month",
+      "description": "LiteLLM provider budget for anthropic ($100 per month, tracked in litellm-redis). At $0 the router skips Haiku and overflow stays on gemma.",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 36 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "litellm_provider_remaining_budget_metric{api_provider=\"anthropic\"}",
+          "legendFormat": "remaining"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD",
+          "decimals": 2,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "orange", "value": 10 },
+              { "color": "green", "value": 25 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "value",
+        "graphMode": "area",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 19,
+      "type": "timeseries",
+      "title": "Router failovers by reason (5m rate)",
+      "description": "429 is gemma at its 4-call cap; 408 or timeout is a gemma call past 90 s.",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 36 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (exception_status, exception_class) (rate(litellm_deployment_successful_fallbacks_total[5m]))",
+          "legendFormat": "{{exception_status}} {{exception_class}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "fillOpacity": 15,
+            "axisPlacement": "auto",
+            "axisColorMode": "text"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": ["mean", "max"],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      }
     }
   ]
 }

@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-"""IMPR-1311 round 2: swap prod OpenViking's VLM between Claude Haiku 5.5 and the repo's
-VLM (gemma4:vlm), stdlib only.
+"""Swap prod OpenViking's VLM route (IMPR-1311), stdlib only.
 
 Reads the LIVE ``openviking-standalone-config`` ConfigMap and replaces only the ``vlm``
-block of its ``ov.conf``; every other key stays exactly as it runs. ``haiku`` writes
-the block below; ``restore`` writes the ``vlm`` block from this repo's
-``openviking-standalone-configmap.yaml`` (the reviewed baseline). Without ``--apply``
+block of its ``ov.conf``; every other key stays exactly as it runs. ``restore`` writes
+the ``vlm`` block from this repo's ``openviking-standalone-configmap.yaml`` (the reviewed
+baseline: the LiteLLM router since IMPR-1311). ``gemma`` writes the direct gemma4:vlm
+route, bypassing the router; ``haiku`` writes the direct Haiku route of the round-2
+window. Each target's key Secret is checked before any change. Without ``--apply``
 it prints the ``kubectl diff`` and changes nothing. With ``--apply`` it replaces that one
 ConfigMap under the resourceVersion it read (a concurrent edit makes it fail with a
 Conflict instead of being overwritten), restarts ``deployment/openviking`` (the
@@ -52,6 +53,23 @@ HAIKU_VLM = {
     "timeout": 300,
 }
 
+# The direct route before the router: Ollama on timmy through chat-ollama.
+GEMMA_VLM = {
+    "provider": "openai",
+    "model": "gemma4:vlm",
+    "api_key": "${OLLAMA_KEY}",
+    "api_base": "http://chat-ollama.llama.svc.cluster.local:11434/v1",
+    "max_concurrent": 4,
+    "timeout": 1200,
+}
+
+# The placeholder in a vlm block -> the Secret and key the init container reads for it.
+KEY_SECRETS = {
+    "${ANTHROPIC_KEY}": ("anthropic-vlm-key", "API_KEY"),
+    "${LITELLM_KEY}": ("litellm-vlm", "LITELLM_MASTER_KEY"),
+    "${OLLAMA_KEY}": ("ollama-api-key", "API_KEY"),
+}
+
 
 def kubectl(*args, stdin=None, check=True):
     return subprocess.run(
@@ -85,16 +103,18 @@ def live_cm() -> dict:
     return cm
 
 
-def require_anthropic_key() -> None:
+def require_key(vlm: dict) -> None:
     """The init container falls back to an empty api_key, which OV refuses at start."""
+    secret = KEY_SECRETS.get(vlm.get("api_key", ""))
+    if secret is None:
+        return
+    name, key = secret
     out = kubectl(
-        "get", "secret", "anthropic-vlm-key", "-n", NS,
-        "-o", "jsonpath={.data.API_KEY}", check=False,
+        "get", "secret", name, "-n", NS,
+        "-o", f"jsonpath={{.data.{key}}}", check=False,
     )  # fmt: skip
     if out.returncode != 0 or not out.stdout.strip():
-        sys.exit(
-            "Secret viking/anthropic-vlm-key is missing or has no API_KEY; not applying"
-        )
+        sys.exit(f"Secret {NS}/{name} is missing or has no {key}; not applying")
 
 
 def restart() -> None:
@@ -108,7 +128,7 @@ def main() -> int:
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    ap.add_argument("target", choices=("haiku", "restore", "status"))
+    ap.add_argument("target", choices=("restore", "gemma", "haiku", "status"))
     ap.add_argument(
         "--apply",
         action="store_true",
@@ -123,9 +143,14 @@ def main() -> int:
         print(json.dumps(vlm, indent=2))
         return 0
 
-    new_vlm = copy.deepcopy(HAIKU_VLM) if a.target == "haiku" else repo_ov_conf()["vlm"]
-    if a.apply and a.target == "haiku":
-        require_anthropic_key()
+    targets = {"haiku": HAIKU_VLM, "gemma": GEMMA_VLM}
+    new_vlm = (
+        copy.deepcopy(targets[a.target])
+        if a.target in targets
+        else repo_ov_conf()["vlm"]
+    )
+    if a.apply:
+        require_key(new_vlm)
     if conf.get("vlm") == new_vlm:
         # The ConfigMap may match while the pod still runs the old config (a restart
         # that failed after an earlier apply), so --apply still restarts.

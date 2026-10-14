@@ -1,0 +1,19 @@
+---
+# ClusterIP only: /metrics/ is served without auth (require_auth_for_metrics_endpoint
+# false), so this Service must never get an Ingress.
+apiVersion: v1
+kind: Service
+metadata:
+  name: litellm-vlm
+  namespace: viking
+  labels:
+    app: litellm-vlm
+spec:
+  type: ClusterIP
+  selector:
+    app: litellm-vlm
+  ports:
+    - name: http
+      port: 4000
+      targetPort: 4000
+      protocol: TCP
