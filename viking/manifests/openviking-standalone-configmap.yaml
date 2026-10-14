@@ -43,7 +43,9 @@ data:
   # square: 4 at the old value of 2, 16 at 4. It is not read by session commits,
   # which queue_workers.session_commit.max_concurrent bounds instead (code
   # default 8, one Phase 2 job per worker; a job's extraction batch is an
-  # ExtractLoop of up to 3 sequential VLM calls, not one). Every call shares
+  # ExtractLoop that defaults to 3 sequential VLM iterations, and format
+  # retries, refetches and repairs add calls beyond that, so a batch is one
+  # call only when its first iteration succeeds outright). Every call shares
   # timmy's four OLLAMA_NUM_PARALLEL slots with chat-ollama-proxy's other
   # callers (omnibot, omnipendium, the warm job); the excess waits in Ollama's
   # queue, so vlm.timeout (1200) is the thing to watch. 1 -> 2 landed in #218
