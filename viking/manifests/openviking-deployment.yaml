@@ -268,17 +268,19 @@ spec:
             - name: OV_EVENT_NOISE_FILTER
               value: shadow
             # IMPR-1303 (ov_wm_update_patch.py): the session-commit update_working_memory
-            # tool call never parses on gemma4 behind Ollama (unquoted keys with spaces;
+            # tool call never parsed on gemma4 behind Ollama (unquoted keys with spaces;
             # 173/173 "gemma4 tool call parsing failed" on timmy, 2026-10-13), and OV
-            # then runs the creation prompt anyway. The patch answers that one call
-            # locally so the creation prompt is the only generation, saving 60-250 s
-            # of a ~100 t/s GPU per commit. One stderr line per skip,
-            # ov-wm-update-skip {"tool": …, "prompt_chars": …}; the OV warning
-            # "WM update: LLM returned no tool_call; falling back" still follows each
-            # one, and "gemma4 tool call parsing failed" should vanish from timmy's
-            # journal. "0" turns it off (the wasted call comes back).
-            - name: OV_WM_UPDATE_SKIP
-              value: "1"
+            # then ran the creation prompt anyway. "schema" sends the tool's sections
+            # keyed by snake_case ids and maps the answer back to the titles, so the
+            # incremental update runs; one stderr line per call,
+            # ov-wm-update-schema {"outcome": "tool_call"|"no_tool_call", "mapped": N,
+            # "sections": …, "elapsed_s": …}, and OV's "WM update: LLM returned no
+            # tool_call; falling back" should become rare. "skip" is the 2026-10-13
+            # behaviour (answer the call locally, creation prompt only; one
+            # ov-wm-update-skip line per skip) and the rollback if the parse rate
+            # disappoints; "off" restores upstream (the wasted call comes back).
+            - name: OV_WM_UPDATE_MODE
+              value: schema
           volumeMounts:
             - name: config-out
               mountPath: /app/.openviking/ov.conf
