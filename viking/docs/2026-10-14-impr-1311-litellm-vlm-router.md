@@ -12,7 +12,7 @@ _OpenViking's VLM goes through a LiteLLM router: gemma4:vlm takes up to 4 calls 
 
 Haiku's share of calls measures how often gemma was **full or stuck**, not how slow gemma was: a call gemma accepts stays on gemma.
 
-The per-attempt timeouts sum to 1,110 s and the router's `request_timeout` is 1,150 s, both inside OpenViking's `vlm.timeout` of 1,200 s, so the router always answers before OpenViking gives up.
+Timeouts are per attempt and bound the wait for a response, not wall-clock time: LiteLLM's transport sets connect and read timers with no total deadline (Codex round 2), and OpenViking's own 1,200 s `vlm.timeout` works the same way through the OpenAI SDK. These calls are non-streaming, so a model's whole reply arrives after generation and the read timer covers the generation; the three attempts' 90 + 120 + 900 = 1,110 s keeps a normal worst-case chain inside OpenViking's 1,200 s. A server that trickled a body slowly could exceed both bounds; neither side guards against that.
 
 One instance only: one replica, one worker, because the router counts gemma's cap per process. No Mac runs its own router; a client off the cluster would need a tailnet route to this Service, with the master key required.
 
@@ -37,7 +37,7 @@ One instance only: one replica, one worker, because the router counts gemma's ca
 3. Router: the same for `litellm-vlm-configmap.yaml`, `litellm-vlm-deployment.yaml`, `litellm-vlm-service.yaml`, `litellm-vlm-servicemonitor.yaml`.
 4. Smoke the router before OpenViking uses it (`kubectl -n viking port-forward svc/litellm-vlm 24000:4000`, model `ov-vlm`, the master key):
    - 8 concurrent short calls, so at least 4 overflow to Haiku: `litellm_deployment_success_responses_total` shows both deployments and `litellm_spend_metric_total{api_provider="anthropic"}` is above 0. Also one forced-tool call.
-   - Record `litellm_provider_remaining_budget_metric{api_provider="anthropic"}` (below $90), wait a minute for the Redis write, `kubectl -n viking rollout restart deploy/litellm-vlm`, and check the value after the restart matches. If it reads $90 again, spend is not persisting: stop.
+   - The remaining-budget gauge updates only when the router evaluates a request, so refresh it before each reading: wait a minute for the Redis write, send one single call (gemma serves it), then record `litellm_provider_remaining_budget_metric{api_provider="anthropic"}` (below $90). `kubectl -n viking rollout restart deploy/litellm-vlm`, send one single call again, and check the value matches. If it reads $90 again, spend is not persisting: stop.
    - Redis outage: `kubectl -n viking scale deploy/litellm-redis --replicas=0`, send another overflow batch (calls still succeed), scale back to 1, and confirm the router reconnects (metrics keep updating). Spend from the outage window may be missing from the tally; the Console limit covers it.
 5. OpenViking's Deployment (the `LITELLM_KEY` init env): `kubectl diff` then apply `openviking-deployment.yaml`. OpenViking restarts and stays on gemma.
 6. Cut over: `viking/scripts/ov-vlm-swap.py restore` shows the `vlm` diff (to `ov-vlm` at `litellm-vlm`); `--apply` replaces the ConfigMap and restarts OpenViking. Check with other sessions touching OV first (IMPR-1303, TASK-1218).

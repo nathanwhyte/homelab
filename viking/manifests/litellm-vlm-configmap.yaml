@@ -26,8 +26,10 @@
 # Spend lives in Redis (litellm-redis, AOF on a PVC); without Redis a restart would
 # reset the month's tally to $0.
 #
-# Timeouts are per attempt and must sum inside OpenViking's vlm.timeout (1200 s):
-# 90 + 120 + 900 = 1110 s.
+# Timeouts are per attempt and bound the wait for a response (connect/read), not
+# wall-clock time; for these non-streaming calls that covers generation. The three
+# attempts sum to 90 + 120 + 900 = 1110 s, inside OpenViking's vlm.timeout of 1200 s,
+# which is itself a per-read bound. A slowly trickled body is bounded by neither.
 #
 # This is the only instance. No Mac runs its own (workbook is short on memory); a
 # client off the cluster routes here, which needs a tailnet route that requires the
@@ -87,7 +89,7 @@ data:
       # Failover between orders does the retrying; a same-deployment retry of a
       # cap 429 would only spin.
       num_retries: 0
-      # Under OpenViking's 1200 s, so the router answers (success or error) first.
+      # Fallback for calls with no per-deployment timeout; each deployment sets its own.
       request_timeout: 1150
 
     router_settings:
