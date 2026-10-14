@@ -633,15 +633,19 @@ data:
         first flushes every merge group (joining one already in flight), so a sibling
         cannot join or race it. The CaseSpec fast path writes its case memory without
         ``submit`` (``SessionCompressorV3._write_training_case_memory``), so that write
-        takes the same gate.
+        takes the same gate. Before its VLM call each extraction also runs
+        ``MemoryTypeRegistry.initialize_memory_files`` (an existence check, then a
+        write of defaults), which two batches on a fresh pool would race, the slower one
+        overwriting extracted content with defaults; that call takes the archive's own
+        short init lock, held for the call only, so extraction still overlaps.
 
     One ``ov-extract-outcome {"event": "parallel_batches", …}`` line per archive names the
     batch count, the parallelism, the failures and the wall time. Under gemma the four
     Ollama slots still bound the work per hour, so this shortens one large commit's wall
     time; behind the LiteLLM router the overflow goes to Haiku and it becomes a throughput
     lever. Needs all the wrappers (session batching, the two compressor writes, submit
-    lock) applied, each on its own source hash; with any but the first missing the stock
-    loop runs.
+    lock, init lock) applied, each on its own source hash; with any but the first missing
+    the stock loop runs.
 
     Guarded: applies only to openviking ``v0.4.20`` whose ``ExtractLoop.run`` source hashes to
     ``EXPECTED_RUN_SHA256``; otherwise it logs "NOT applied" and stock behaviour stays. The
@@ -707,6 +711,12 @@ data:
     EXPECTED_TRAINING_CASE_SHA256 = (
         "5ad1aa455c1c3c04ff5add35af9bae50b1365345b02ce9b214030f4aaf5808b2"
     )
+    # MemoryTypeRegistry.initialize_memory_files on v0.4.20: the existence-check-then-
+    # write of profile.md / identity.md defaults that every extraction runs before its
+    # VLM call.
+    EXPECTED_INIT_FILES_SHA256 = (
+        "2b2d0714682a3369bd5f89c7ec3c3658a4b7d3a368b9ff7bc95bfefc7565256d"
+    )
     DEFAULT_BATCH_PARALLEL = 2
     DEFAULT_RETRIES = 5
     DEFAULT_BASE_DELAY_SECONDS = 15.0
@@ -753,6 +763,7 @@ data:
         "loop_applied": False,
         "compressor_applied": False,
         "submit_lock_applied": False,
+        "init_lock_applied": False,
     }
 
     _LOCK_WAIT_TEXT = re.compile(
@@ -1137,10 +1148,13 @@ data:
     class BatchGate:
         """The per-archive apply lock a parallel batch holds from its first ``submit``
         until its extraction step ends, so the diff and case read-back after the apply
-        see no sibling's writes either. Released by the batch step, not by ``submit``."""
+        see no sibling's writes either. Released by the batch step, not by ``submit``.
+        ``init_lock`` is the archive's separate lock around memory-file initialization,
+        held only for that call."""
 
-        def __init__(self, lock):
+        def __init__(self, lock, init_lock=None):
             self.lock = lock
+            self.init_lock = init_lock or asyncio.Lock()
             self.held = False
 
         async def acquire(self):
@@ -1175,6 +1189,30 @@ data:
                 await batcher.flush("ov-extract-patch: settle after a failed submit")
             except Exception as exc:  # noqa: BLE001 — diagnostics must not mask the step's error
                 logger.warning("ov-extract-patch: settling a pending flush failed: %r", exc)
+
+
+    def wrap_initialize_memory_files(orig):
+        """Serialize memory-file initialization across the parallel batches of one archive.
+
+        ``extract_long_term_memories`` calls ``registry.initialize_memory_files`` before
+        its VLM call (compressor_v3.py 683); the method checks each file's existence and
+        then writes its defaults, so two batches on a fresh pool can both see
+        ``profile.md`` missing and the slower one then overwrites what the faster one
+        has already extracted into it, even while the faster one holds the apply gate.
+        The archive's ``init_lock`` is held for this call only, so the extraction calls
+        still overlap. Outside a parallel batch the call is untouched.
+        """
+
+        @functools.wraps(orig)
+        async def initialize_memory_files(self, ctx, allowed_memory_types=None):
+            gate = _SUBMIT_LOCK.get()
+            if gate is None:
+                return await orig(self, ctx, allowed_memory_types=allowed_memory_types)
+            async with gate.init_lock:
+                return await orig(self, ctx, allowed_memory_types=allowed_memory_types)
+
+        initialize_memory_files._ov_extract_patch = True  # type: ignore[attr-defined]
+        return initialize_memory_files
 
 
     def wrap_training_case_write(orig):
@@ -1251,6 +1289,7 @@ data:
                 parallel <= 1
                 or not _state["compressor_applied"]
                 or not _state["submit_lock_applied"]
+                or not _state["init_lock_applied"]
             ):
                 return await stock()
             batches = plan_batches(messages, limits)
@@ -1276,6 +1315,7 @@ data:
             semaphore = asyncio.Semaphore(parallel)
             write_lock = asyncio.Lock()
             submit_lock = asyncio.Lock()
+            init_lock = asyncio.Lock()
             started = time.monotonic()
 
             async def write_merged():
@@ -1301,7 +1341,7 @@ data:
                     # stock per-batch overwrite would have left the file.
                     collected[index].clear()
                     finished[index] = False
-                    gate = BatchGate(submit_lock)
+                    gate = BatchGate(submit_lock, init_lock)
                     diffs_token = _DIFFS.set(collected[index])
                     gate_token = _SUBMIT_LOCK.set(gate)
                     try:
@@ -1654,6 +1694,36 @@ data:
         return True
 
 
+    def apply_registry(module) -> bool:
+        """IMPR-1303 lever 2: the per-archive lock around memory-file initialization."""
+        if not _enabled():
+            return False
+        import openviking
+
+        version = getattr(openviking, "__version__", None)
+        cls = getattr(module, "MemoryTypeRegistry", None)
+        orig = getattr(cls, "initialize_memory_files", None)
+        if getattr(orig, "_ov_extract_patch", False):
+            _state["init_lock_applied"] = True
+            return True
+        digest = _source_hash(orig) if orig else None
+        if version != EXPECTED_VERSION or digest != EXPECTED_INIT_FILES_SHA256:
+            logger.warning(
+                "ov-extract-patch: NOT applied to MemoryTypeRegistry.initialize_memory_files "
+                "(version=%r source_sha256=%s); Phase 2 batches stay sequential",
+                version,
+                digest,
+            )
+            return False
+        cls.initialize_memory_files = wrap_initialize_memory_files(orig)
+        _state["init_lock_applied"] = True
+        logger.warning(
+            "ov-extract-patch: applied to MemoryTypeRegistry.initialize_memory_files (pid %d)",
+            os.getpid(),
+        )
+        return True
+
+
     def apply_streaming(module) -> bool:
         """Install the write-tracking wrappers in ``streaming_memory_updater``; all or none.
 
@@ -1715,6 +1785,7 @@ data:
         "openviking.session.memory.extract_loop": apply_extract_loop,
         "openviking.session.session": apply_session,
         "openviking.session.compressor_v3": apply_compressor,
+        "openviking.session.memory.memory_type_registry": apply_registry,
         "openviking.session.memory.streaming_memory_updater": apply_streaming,
     }
   ov_fetch_items_patch.py: |
@@ -4701,11 +4772,15 @@ data:
                             stock loop) at a time, each still its own recorded, retried
                             step; the compressor's per-batch ``memory_diff.json`` write
                             is collected instead and the merged file is rewritten in
-                            batch order as each batch finishes, and applies take a
-                            per-archive lock so no two batches share a flush
+                            batch order as each batch finishes, applies and the CaseSpec
+                            fast path's direct write take a per-archive lock so no two
+                            batches share a flush or a read-back, and memory-file
+                            initialization takes a short lock of its own
                             (``Session._extract_long_term_memories_with_batching``
-                            + ``SessionCompressorV3._write_final_memory_diff``
-                            + ``StreamingMemoryUpdater.submit``).
+                            + ``SessionCompressorV3._write_final_memory_diff`` and
+                            ``_write_training_case_memory``
+                            + ``StreamingMemoryUpdater.submit``
+                            + ``MemoryTypeRegistry.initialize_memory_files``).
       * ov_chatlog_patch  — BUG-1177: ChatLog speaker labels follow the turn's role
                             (assistant turns read ``assistant``) and tool-only turns no
                             longer render as empty lines (``MessageRange._speaker_for`` +
@@ -4780,6 +4855,10 @@ data:
         ),
         "openviking.session.session": ("ov_extract_patch", "apply_session"),
         "openviking.session.compressor_v3": ("ov_extract_patch", "apply_compressor"),
+        "openviking.session.memory.memory_type_registry": (
+            "ov_extract_patch",
+            "apply_registry",
+        ),
         "openviking.session.memory.streaming_memory_updater": [
             ("ov_memory_guard_patch", "apply_streaming"),
             ("ov_extract_patch", "apply_streaming"),

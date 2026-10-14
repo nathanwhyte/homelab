@@ -925,9 +925,11 @@ class ParallelBatchTests(EnvMixin, unittest.TestCase):
         self._saved_state = (
             ep._state["compressor_applied"],
             ep._state["submit_lock_applied"],
+            ep._state["init_lock_applied"],
         )
         ep._state["compressor_applied"] = True
         ep._state["submit_lock_applied"] = True
+        ep._state["init_lock_applied"] = True
         self.fs = FakeFS({DIFF_URI: json.dumps({"prev": 1})})
         self.compressor = PatchedCompressor(self.fs)
         self.session = FakeSession(self.fs, self.compressor)
@@ -939,9 +941,11 @@ class ParallelBatchTests(EnvMixin, unittest.TestCase):
         self.err = io.StringIO()
 
     def tearDown(self):
-        ep._state["compressor_applied"], ep._state["submit_lock_applied"] = (
-            self._saved_state
-        )
+        (
+            ep._state["compressor_applied"],
+            ep._state["submit_lock_applied"],
+            ep._state["init_lock_applied"],
+        ) = self._saved_state
         super().tearDown()
 
     def extractor(self, delays=None, fail=None, skills=False):
@@ -1080,6 +1084,53 @@ class ParallelBatchTests(EnvMixin, unittest.TestCase):
     def test_stock_loop_without_submit_lock_half(self):
         ep._state["submit_lock_applied"] = False
         self.assertEqual(self.run_batches(self.extractor()), "stock")
+
+    def test_stock_loop_without_init_lock_half(self):
+        ep._state["init_lock_applied"] = False
+        self.assertEqual(self.run_batches(self.extractor()), "stock")
+
+    def test_memory_initialization_is_serialized_but_does_not_hold_the_gate(self):
+        os.environ["OV_EXTRACT_PATCH_BATCH_PARALLEL"] = "3"
+        state = {"init": 0, "max_init": 0, "extracting": 0, "max_extracting": 0}
+
+        class Registry:
+            async def initialize_memory_files(self_, ctx, allowed_memory_types=None):
+                state["init"] += 1
+                state["max_init"] = max(state["max_init"], state["init"])
+                await asyncio.sleep(0.01)
+                state["init"] -= 1
+                return (ctx, allowed_memory_types)
+
+        Registry.initialize_memory_files = ep.wrap_initialize_memory_files(
+            Registry.initialize_memory_files
+        )
+        registry = Registry()
+
+        async def extract_batch(batch_messages):
+            n = batch_number(batch_messages)
+            await registry.initialize_memory_files("ctx", allowed_memory_types={"x"})
+            gate = ep._SUBMIT_LOCK.get()
+            self.assertFalse(gate.held)  # the init lock is not the apply gate
+            state["extracting"] += 1
+            state["max_extracting"] = max(state["max_extracting"], state["extracting"])
+            await asyncio.sleep(0.08)  # longer than the three serialized inits
+            state["extracting"] -= 1
+            await self.compressor._write_final_memory_diff(
+                archive_uri=ARCHIVE, ctx=self.session.ctx, memory_diffs=[{"batch": n}]
+            )
+            return [f"c{n}"]
+
+        self.assertEqual(self.run_batches(extract_batch), ["c1", "c2", "c3"])
+        self.assertEqual((state["max_init"], state["max_extracting"]), (1, 3))
+
+        async def outside():  # no batch context: untouched, concurrent
+            return await asyncio.gather(
+                registry.initialize_memory_files("a"),
+                registry.initialize_memory_files("b"),
+            )
+
+        self.assertEqual(asyncio.run(outside()), [("a", None), ("b", None)])
+        self.assertEqual(state["max_init"], 2)
 
     def test_sibling_submits_never_overlap_while_extractions_do(self):
         os.environ["OV_EXTRACT_PATCH_BATCH_PARALLEL"] = "3"
@@ -1298,13 +1349,16 @@ class ParallelInstallTests(EnvMixin, unittest.TestCase):
         self._saved_parallel = (
             ep._state["compressor_applied"],
             ep._state["submit_lock_applied"],
+            ep._state["init_lock_applied"],
             ep.EXPECTED_BATCHING_SHA256,
             ep.EXPECTED_WRITE_FINAL_DIFF_SHA256,
             ep.EXPECTED_SUBMIT_SHA256,
             ep.EXPECTED_TRAINING_CASE_SHA256,
+            ep.EXPECTED_INIT_FILES_SHA256,
         )
         ep._state["compressor_applied"] = False
         ep._state["submit_lock_applied"] = False
+        ep._state["init_lock_applied"] = False
         self.types = types
         fake_openviking = types.ModuleType("openviking")
         fake_openviking.__version__ = ep.EXPECTED_VERSION
@@ -1314,10 +1368,12 @@ class ParallelInstallTests(EnvMixin, unittest.TestCase):
         (
             ep._state["compressor_applied"],
             ep._state["submit_lock_applied"],
+            ep._state["init_lock_applied"],
             ep.EXPECTED_BATCHING_SHA256,
             ep.EXPECTED_WRITE_FINAL_DIFF_SHA256,
             ep.EXPECTED_SUBMIT_SHA256,
             ep.EXPECTED_TRAINING_CASE_SHA256,
+            ep.EXPECTED_INIT_FILES_SHA256,
         ) = self._saved_parallel
         del sys.modules["openviking"]
         super().tearDown()
@@ -1412,6 +1468,28 @@ class ParallelInstallTests(EnvMixin, unittest.TestCase):
         self.assertTrue(ep._apply_submit_lock(cls, ep.EXPECTED_VERSION))
         self.assertIs(cls.submit, installed)
         self.assertFalse(ep._apply_submit_lock(None, ep.EXPECTED_VERSION))
+
+    def test_apply_registry_guards_and_sets_state(self):
+        class MemoryTypeRegistry:
+            async def initialize_memory_files(self, ctx, allowed_memory_types=None):
+                return ctx
+
+        mod = self.types.SimpleNamespace(MemoryTypeRegistry=MemoryTypeRegistry)
+        self.assertFalse(ep.apply_registry(mod))
+        self.assertFalse(ep._state["init_lock_applied"])
+        ep.EXPECTED_INIT_FILES_SHA256 = ep._source_hash(
+            MemoryTypeRegistry.initialize_memory_files
+        )
+        sys.modules["openviking"].__version__ = "v0.4.99"
+        self.assertFalse(ep.apply_registry(mod))
+        sys.modules["openviking"].__version__ = ep.EXPECTED_VERSION
+        self.assertTrue(ep.apply_registry(mod))
+        self.assertTrue(ep._state["init_lock_applied"])
+        installed = MemoryTypeRegistry.initialize_memory_files
+        self.assertTrue(getattr(installed, "_ov_extract_patch", False))
+        self.assertTrue(ep.apply_registry(mod))
+        self.assertIs(MemoryTypeRegistry.initialize_memory_files, installed)
+        self.assertFalse(ep.apply_registry(self.types.SimpleNamespace()))
 
     def test_apply_compressor_disabled_by_env(self):
         os.environ["OV_EXTRACT_PATCH"] = "0"
