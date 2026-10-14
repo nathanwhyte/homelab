@@ -47,6 +47,8 @@ data:
       - model_name: ov-vlm
         litellm_params:
           model: openai/gemma4:vlm
+          # Via chat-ollama-proxy, never ollama.llama.svc directly: the shim turns
+          # gemma's thinking off (see its docstring in llama/chat-ollama-proxy.yaml).
           api_base: http://chat-ollama.llama.svc.cluster.local:11434/v1
           api_key: os.environ/OLLAMA_KEY
           order: 1
@@ -77,6 +79,7 @@ data:
       - model_name: ov-vlm
         litellm_params:
           model: openai/gemma4:vlm
+          # Via chat-ollama-proxy, as order 1.
           api_base: http://chat-ollama.llama.svc.cluster.local:11434/v1
           api_key: os.environ/OLLAMA_KEY
           order: 3
