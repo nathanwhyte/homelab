@@ -24,12 +24,14 @@ import random
 import statistics
 import subprocess
 import time
+from collections import Counter
 from pathlib import Path
 
 import httpx
 from openviking.message.message import Message
 from openviking.prompts.manager import render_prompt
 from openviking.session.session import WM_SEVEN_SECTIONS, WM_UPDATE_TOOL, Session
+from pricing import run_cost  # sibling module; the script's directory is on sys.path
 
 try:
     import jsonschema
@@ -42,10 +44,6 @@ MODEL, SESSIONS = (
     "viking://user/noot/sessions/",
 )  # --model, --sessions
 MAX_TOKENS, NO_THINKING = 8192, False  # set from --max-tokens / --no-thinking
-PRICE = {
-    False: (0.10e-6, 0.50e-6),
-    True: (0.50e-6, 2.50e-6),
-}  # keyed by prompt > 100K tokens
 
 
 def ov(*args: str, json_out: bool = True):
@@ -109,7 +107,29 @@ def build(prev: str, cur: str, create: bool) -> dict | None:
 
 
 def sections_missing(text: str) -> list[str]:
-    return [s for s in WM_SEVEN_SECTIONS if f"## {s}" not in text]
+    """Canonical WM sections OV's own parser does not find as exact `## <title>` headers."""
+    headers = Session._parse_wm_sections(text)
+    return [s for s in WM_SEVEN_SECTIONS if f"## {s}" not in headers]
+
+
+def ov_update_outcome(args) -> str:
+    """What OV 0.4.20's update branch does with these tool arguments.
+
+    Mirrors `_generate_archive_summary_async`: a `sections` object or all seven keys
+    at the top level are merged as ops; anything else goes to the regex recovery,
+    which merges whatever sections it salvages; with nothing salvaged OV falls back
+    to the creation prompt (a second full generation).
+    """
+    if isinstance(args, dict):
+        if isinstance(args.get("sections"), dict):
+            return "merged"
+        if all(k in args for k in WM_SEVEN_SECTIONS):
+            return "merged"
+    raw = args if isinstance(args, str) else json.dumps(args, ensure_ascii=False)
+    salvaged = Session._wm_recover_ops_from_raw(raw)
+    if salvaged:
+        return f"salvaged {len(salvaged)}/{len(WM_SEVEN_SECTIONS)}"
+    return "creation fallback"
 
 
 def validate(args) -> str:
@@ -164,18 +184,16 @@ async def call(
         "input_tokens": data["usage"]["input_tokens"],
         "output_tokens": data["usage"]["output_tokens"],
         "stop_reason": data["stop_reason"],
-        "thinking_tokens": data["usage"]
-        .get("output_tokens_details", {})
-        .get("thinking_tokens", 0),
+        # output_tokens_details may be absent or null.
+        "thinking_tokens": (data["usage"].get("output_tokens_details") or {}).get(
+            "thinking_tokens", 0
+        ),
     }
     if create:
         text = "".join(b.get("text", "") for b in data["content"]).strip()
         missing = sections_missing(text)
         rec |= {
-            "tool_call": f"missing {missing}" if missing else "all seven sections",
-            "tool_input": {
-                "sections": {}
-            },  # keeps the summary's parser count meaningful
+            "verdict": f"missing {missing}" if missing else "all seven sections",
             "text": text,
             "baseline": job["baseline"],
             "baseline_missing": sections_missing(job["baseline"]),
@@ -183,7 +201,8 @@ async def call(
         return rec
     tool = next((b for b in data["content"] if b.get("type") == "tool_use"), None)
     rec |= {
-        "tool_call": validate(tool["input"]) if tool else "no tool_use block",
+        "verdict": validate(tool["input"]) if tool else "no tool_use block",
+        "ov_outcome": ov_update_outcome(tool["input"]) if tool else "creation fallback",
         "tool_input": tool["input"] if tool else None,
     }
     return rec
@@ -261,10 +280,10 @@ async def main():
             for r in recs:
                 if r["status"] == 200:
                     fh.write(
-                        f"# {r['archive']}\n\n## gemma (stored)\n\n{r['baseline']}\n\n## haiku\n\n{r['text']}\n\n"
+                        f"# {r['archive']}\n\n## stored\n\n{r['baseline']}\n\n## {MODEL}\n\n{r['text']}\n\n"
                     )
         print(
-            "gemma baselines missing sections:",
+            "stored baselines missing sections:",
             sum(bool(r.get("baseline_missing")) for r in recs if r["status"] == 200),
         )
 
@@ -285,27 +304,14 @@ async def main():
         f"output tokens mean={statistics.mean(tout):.0f} max={max(tout)}  stops={sorted({r['stop_reason'] for r in ok})}"
     )
     print(f"latency p50={lat[len(lat) // 2]}s max={lat[-1]}s")
-    verdicts: dict[str, int] = {}
-    for r in ok:
-        verdicts[r["tool_call"]] = verdicts.get(r["tool_call"], 0) + 1
-    print("tool calls:", verdicts)
-    ov_ok = sum(
-        isinstance(r["tool_input"], dict)
-        and (
-            isinstance(r["tool_input"].get("sections"), dict)
-            or all(k in r["tool_input"] for k in WM_SEVEN_SECTIONS)
-        )
-        for r in ok
-    )
-    print(
-        f"OpenViking's own parser would accept {ov_ok}/{len(ok)} (needs a 'sections' object or all seven keys)"
-    )
-    cost = sum(
-        PRICE[r["input_tokens"] > 100_000][0] * r["input_tokens"]
-        + PRICE[r["input_tokens"] > 100_000][1] * r["output_tokens"]
-        for r in ok
-    )
-    print(f"run cost ${cost:.3f}  mean cost/call ${cost / len(ok):.5f}")
+    print("verdicts:", dict(Counter(r["verdict"] for r in ok)))
+    if not a.create:
+        print("OV 0.4.20 update branch:", dict(Counter(r["ov_outcome"] for r in ok)))
+    cost = run_cost(MODEL, [(r["input_tokens"], r["output_tokens"]) for r in ok])
+    if cost is None:
+        print(f"run cost: no price table for {MODEL} (add it to pricing.py)")
+    else:
+        print(f"run cost ${cost:.3f}  mean cost/call ${cost / len(ok):.5f}")
 
 
 if __name__ == "__main__":

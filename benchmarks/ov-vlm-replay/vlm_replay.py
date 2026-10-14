@@ -22,11 +22,11 @@ from pathlib import Path
 
 import httpx
 from openviking.prompts.manager import render_prompt
+from pricing import call_cost, run_cost  # sibling module
 
 API = "https://api.anthropic.com/v1/messages"
 MODEL, ROOT = "claude-haiku-5-5", "viking://resources/compendium/"  # --model, --root
 MAX_TOKENS, NO_THINKING = 4096, False  # --max-tokens, --no-thinking
-PRICE_IN, PRICE_OUT = 0.10e-6, 0.50e-6  # Haiku 5.5, prompts under 100K tokens
 WEEKLY_VLM_CALLS = (
     15002  # increase(openviking_model_calls_total{model_type="vlm"}[7d]), 2026-10-13
 )
@@ -125,7 +125,15 @@ async def run_dir(api: Api, uri: str, kids: list[dict], batch_size: int) -> dict
         )
         return name, await api.complete("document_summary", f["uri"], prompt)
 
-    summaries = await asyncio.gather(*(summarize(f) for f in files))
+    # Await every summary before failing, so no billed response is still in flight
+    # when the caller reports and closes the client.
+    results = await asyncio.gather(
+        *(summarize(f) for f in files), return_exceptions=True
+    )
+    failed = next((r for r in results if isinstance(r, BaseException)), None)
+    if failed is not None:
+        raise failed
+    summaries = results
     file_lines = [
         f"- {n} (link: viking://input_sample_f{i}): {s}"
         for i, (n, s) in enumerate(summaries, 1)
@@ -171,17 +179,18 @@ def report(api: Api, wall_s: float):
             f"out mean={statistics.mean(tout):4.0f} max={max(tout):5}  "
             f"latency p50={pct(lat, 0.5)}s p90={pct(lat, 0.9)}s  stops={sorted({r['stop_reason'] for r in rs})}"
         )
-    if ok:
-        tin = sum(r["input_tokens"] for r in ok)
-        tout = sum(r["output_tokens"] for r in ok)
-        per_call = (tin * PRICE_IN + tout * PRICE_OUT) / len(ok)
+    cost = run_cost(MODEL, [(r["input_tokens"], r["output_tokens"]) for r in ok])
+    if ok and cost is None:
+        print(f"run cost: no price table for {MODEL} (add it to pricing.py)")
+    elif ok:
+        per_call = cost / len(ok)
         monthly = WEEKLY_VLM_CALLS / 7 * 30
         print(
-            f"run cost ${tin * PRICE_IN + tout * PRICE_OUT:.3f}  mean cost/call ${per_call:.5f}  projected {monthly:.0f} calls/month -> ${per_call * monthly:.0f}"
+            f"run cost ${cost:.3f}  mean cost/call ${per_call:.5f}  projected {monthly:.0f} calls/month -> ${per_call * monthly:.0f}"
         )
-        mo = tout / len(ok)
+        mo = sum(r["output_tokens"] for r in ok) / len(ok)
         print(
-            f"  same output, IMPR-1303's 9.4K-token mean prompt -> ${(9400 * PRICE_IN + mo * PRICE_OUT) * monthly:.0f}/month"
+            f"  same output, IMPR-1303's 9.4K-token mean prompt -> ${call_cost(MODEL, 9400, mo) * monthly:.0f}/month"
         )
     last = next((r["ratelimit"] for r in reversed(api.recs) if r["ratelimit"]), {})
     print("rate-limit headers (last response):")
@@ -242,7 +251,7 @@ async def main():
                 fh.write(f"## failed\n\n{r}\n\n")
                 continue
             fh.write(
-                f"## {r['uri']} ({r['files']} files)\n\n### gemma (stored)\n\n{r['baseline']}\n\n### haiku\n\n{r['overview']}\n\n"
+                f"## {r['uri']} ({r['files']} files)\n\n### stored\n\n{r['baseline']}\n\n### {MODEL}\n\n{r['overview']}\n\n"
             )
     for r in results:
         if isinstance(r, Exception):
