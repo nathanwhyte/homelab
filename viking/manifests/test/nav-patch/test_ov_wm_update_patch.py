@@ -32,7 +32,38 @@ IDS = [
     "errors_and_corrections",
     "open_issues",
 ]
-OP_SCHEMA = {"oneOf": [{"type": "object", "properties": {"op": {"type": "string"}}}]}
+OP_SCHEMA = {  # upstream _WM_SECTION_OP_SCHEMA (session.py 301-342), trimmed
+    "oneOf": [
+        {
+            "type": "object",
+            "required": ["op"],
+            "additionalProperties": False,
+            "properties": {"op": {"type": "string", "enum": ["KEEP"]}},
+        },
+        {
+            "type": "object",
+            "required": ["op", "content"],
+            "additionalProperties": False,
+            "properties": {
+                "op": {"type": "string", "enum": ["UPDATE"]},
+                "content": {"type": "string", "description": "FULL replacement"},
+            },
+        },
+        {
+            "type": "object",
+            "required": ["op", "items"],
+            "additionalProperties": False,
+            "properties": {
+                "op": {"type": "string", "enum": ["APPEND"]},
+                "items": {"type": "array", "items": {"type": "string"}},
+            },
+        },
+    ]
+}
+FLAT_DESCRIPTION = (
+    "Decision for the '## Current State' section. "
+    "Emit KEEP alone; UPDATE with content; APPEND with items."
+)
 
 
 def _update_tool():
@@ -156,13 +187,36 @@ class SchemaRewriteTests(unittest.TestCase):
         self.assertFalse(sections["additionalProperties"])
         self.assertIn("current_state = '## Current State'", sections["description"])
         state = sections["properties"]["current_state"]
-        self.assertEqual(state["oneOf"], OP_SCHEMA["oneOf"])
         self.assertEqual(
-            state["description"], "Decision for the '## Current State' section."
+            state,
+            {
+                "type": "object",
+                "required": ["op"],
+                "additionalProperties": False,
+                "description": FLAT_DESCRIPTION,
+                "properties": {
+                    "op": {"type": "string", "enum": ["KEEP", "UPDATE", "APPEND"]},
+                    "content": {"type": "string", "description": "FULL replacement"},
+                    "items": {"type": "array", "items": {"type": "string"}},
+                },
+            },
         )
         params = new_tools[1]["function"]["parameters"]
         self.assertEqual(params["required"], ["sections"])
         self.assertIn("checkpoint_summaries", params["properties"])
+
+    def test_flatten_keeps_unknown_op_schemas_and_adds_the_title(self):
+        plain = {"type": "object", "properties": {"op": {"type": "string"}}}
+        self.assertEqual(
+            wm_patch.flatten_op_schema(plain, "Open Issues"),
+            dict(plain, description="Decision for the '## Open Issues' section."),
+        )
+        no_enum = {"oneOf": [{"type": "object", "properties": {"op": {}}}]}
+        self.assertEqual(
+            wm_patch.flatten_op_schema(no_enum, "Open Issues")["oneOf"],
+            no_enum["oneOf"],
+        )
+        self.assertEqual(wm_patch.flatten_op_schema("x", "Open Issues"), "x")
 
     def test_unknown_shapes_are_forwarded_as_is(self):
         flat = {"type": "function", "function": {"name": "update_working_memory"}}
@@ -185,8 +239,43 @@ class RestoreArgumentsTests(unittest.TestCase):
         new_args, info = wm_patch.restore_arguments(args, self.key_map)
         self.assertEqual(list(new_args["sections"]), TITLES)
         self.assertEqual(new_args["checkpoint_summaries"], ["x"])
-        self.assertEqual(info, {"sections": "dict", "mapped": 7, "unmapped": []})
+        self.assertEqual(
+            info, {"sections": "dict", "mapped": 7, "unmapped": [], "coerced": 0}
+        )
         self.assertEqual(list(args["sections"]), IDS)  # input not mutated
+
+    def test_bare_values_are_coerced_into_decisions_and_counted(self):
+        args = {
+            "sections": {
+                "session_title": "New title",
+                "current_state": "",
+                "open_issues": ["one", "two"],
+                "errors_and_corrections": [],
+                "files_and_context": {"content": "paths"},
+                "key_facts_and_decisions": {"items": ["fact"]},
+                "task_and_goals": {"op": "KEEP"},
+                "Extra": "left alone",
+            }
+        }
+        new_args, info = wm_patch.restore_arguments(args, self.key_map)
+        self.assertEqual(
+            new_args["sections"],
+            {
+                "Session Title": {"op": "UPDATE", "content": "New title"},
+                "Current State": {"op": "KEEP"},
+                "Open Issues": {"op": "APPEND", "items": ["one", "two"]},
+                "Errors & Corrections": {"op": "KEEP"},
+                "Files & Context": {"op": "UPDATE", "content": "paths"},
+                "Key Facts & Decisions": {"op": "APPEND", "items": ["fact"]},
+                "Task & Goals": {"op": "KEEP"},
+                "Extra": "left alone",
+            },
+        )
+        self.assertEqual((info["mapped"], info["coerced"]), (7, 6))
+        self.assertEqual(info["unmapped"], ["Extra"])
+        self.assertEqual(wm_patch.coerce_op(5), (5, False))
+        self.assertEqual(wm_patch.coerce_op([1, "a"]), ([1, "a"], False))
+        self.assertEqual(wm_patch.coerce_op({"other": 1}), ({"other": 1}, False))
 
     def test_titles_and_unknown_keys_pass_through(self):
         args = {"sections": _ops(["Current State", "open_issues", "Extra"])}
@@ -226,7 +315,9 @@ class RestoreArgumentsTests(unittest.TestCase):
             new_args["raw"],
             '{"sections": {"Current State": {"op": "KEEP"}, "Open Issues":{"op": "UPDATE", "content": "see current_state"}',
         )
-        self.assertEqual(info, {"sections": "raw", "mapped": 2, "unmapped": []})
+        self.assertEqual(
+            info, {"sections": "raw", "mapped": 2, "unmapped": [], "coerced": 0}
+        )
         new_text, info = wm_patch.restore_arguments(raw, self.key_map)
         self.assertEqual(new_text, new_args["raw"])
         self.assertEqual(info["sections"], "text")
@@ -293,6 +384,7 @@ class SchemaWrapperTests(unittest.TestCase):
         self.assertEqual(record["sections"], "dict")
         self.assertEqual(record["mapped"], 7)
         self.assertEqual(record["unmapped"], [])
+        self.assertEqual(record["coerced"], 0)
         self.assertEqual(record["finish_reason"], "tool_calls")
         self.assertEqual(record["completion_tokens"], 321)
         self.assertEqual(record["prompt_chars"], 6)

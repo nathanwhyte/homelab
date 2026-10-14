@@ -4118,13 +4118,20 @@ data:
     ``schema`` (default)
         The tool schema the model sees keys ``sections`` by snake_case ids
         (``current_state``, ``task_and_goals``, ...), each carrying the title it stands
-        for, so gemma4's unquoted keys parse. The returned tool call is mapped back to the
-        title keys before OpenViking's parser sees it, and a ``sections`` value that came
-        back as a JSON string (seen 2/24 on Claude Haiku 5.5, IMPR-1311) is decoded. The
-        incremental update path then runs as upstream designed it; a call that still
-        returns no tool call takes OpenViking's own creation-prompt fallback. One stderr
-        line per call, ``ov-wm-update-schema {json}``, names the outcome and how many
-        section keys mapped, so the parse rate is countable in Loki.
+        for, so gemma4's unquoted keys parse. Each section's upstream ``oneOf`` (three
+        object shapes, one per op) is flattened to one object with a required ``op`` enum
+        plus ``content`` and ``items``: with the ``oneOf`` gemma4 answered every section
+        with a bare string (2/2 pairs in the 2026-10-14 replay), which OpenViking's merge
+        treats as an unknown op and keeps the old content. The returned tool call is mapped
+        back to the title keys before OpenViking's parser sees it; a ``sections`` value that
+        came back as a JSON string (seen 2/24 on Claude Haiku 5.5, IMPR-1311) is decoded;
+        and a section that still arrives as a bare string, a list of strings, or an object
+        without ``op`` is coerced to ``UPDATE``/``APPEND``/``KEEP`` and counted, so the
+        merge's own guards (append-only sections, loss checks) decide instead of a silent
+        keep. The incremental update path then runs as upstream designed it; a call that
+        still returns no tool call takes OpenViking's own creation-prompt fallback. One
+        stderr line per call, ``ov-wm-update-schema {json}``, names the outcome, how many
+        section keys mapped and how many were coerced, so both rates are countable in Loki.
     ``skip``
         The 2026-10-13 behaviour: answer the call locally with an empty ``VLMResponse``
         (no tool calls) so Branch 2 takes its fallback at once and the creation prompt is
@@ -4222,6 +4229,48 @@ data:
         return sections
 
 
+    def flatten_op_schema(schema, title):
+        """One object schema with a required ``op`` enum instead of upstream's ``oneOf``.
+
+        Upstream describes a section decision as three alternative object shapes. The
+        flattened form keeps every property and the union of ``op`` values, says in its
+        description which fields each op takes, and names the section title. A schema
+        without a usable ``oneOf`` only gains the title description.
+        """
+        description = f"Decision for the '## {title}' section."
+        if not isinstance(schema, dict):
+            return schema
+        branches = schema.get("oneOf")
+        if not isinstance(branches, list) or not branches:
+            return dict(schema, description=description)
+        ops, properties, rules = [], {}, []
+        for branch in branches:
+            if not isinstance(branch, dict):
+                return dict(schema, description=description)
+            branch_props = branch.get("properties") or {}
+            branch_ops = [
+                op
+                for op in ((branch_props.get("op") or {}).get("enum") or [])
+                if isinstance(op, str)
+            ]
+            if not branch_ops:
+                return dict(schema, description=description)
+            ops.extend(op for op in branch_ops if op not in ops)
+            for key, prop in branch_props.items():
+                if key != "op":
+                    properties.setdefault(key, prop)
+            extra = [k for k in (branch.get("required") or []) if k != "op"]
+            for op in branch_ops:
+                rules.append(f"{op} with {', '.join(extra)}" if extra else f"{op} alone")
+        return {
+            "type": "object",
+            "required": ["op"],
+            "additionalProperties": False,
+            "description": f"{description} Emit {'; '.join(rules)}.",
+            "properties": {"op": {"type": "string", "enum": ops}, **properties},
+        }
+
+
     def rewrite_tools(tools):
         """A deep copy of ``tools`` whose ``sections`` keys are snake_case ids.
 
@@ -4243,11 +4292,7 @@ data:
             if len(ids) != len(props) or "" in ids:
                 return tools, None
             sections["properties"] = {
-                key: dict(schema, description=f"Decision for the '## {title}' section.")
-                if isinstance(schema, dict)
-                else schema
-                for key, title in ids.items()
-                for schema in (props[title],)
+                key: flatten_op_schema(props[title], title) for key, title in ids.items()
             }
             required = sections.get("required")
             if isinstance(required, list):
@@ -4272,15 +4317,44 @@ data:
         return pattern.subn(lambda m: f'"{key_map[m.group(1)]}"{m.group(2)}', text)
 
 
+    def coerce_op(value):
+        """``(decision, coerced)``: a bare string, string list or op-less object as an op.
+
+        A string is the section's replacement body (UPDATE), a list of strings new items
+        (APPEND), an empty one KEEP; an object with ``content`` or ``items`` but no ``op``
+        gets the op those fields imply. A well-formed decision passes through untouched,
+        and so does anything else, for OpenViking's merge to judge.
+        """
+        if isinstance(value, dict):
+            if "op" in value:
+                return value, False
+            if "content" in value:
+                return {"op": "UPDATE", **value}, True
+            if "items" in value:
+                return {"op": "APPEND", **value}, True
+            return value, False
+        if isinstance(value, str):
+            if value.strip():
+                return {"op": "UPDATE", "content": value}, True
+            return {"op": "KEEP"}, True
+        if isinstance(value, list) and all(isinstance(item, str) for item in value):
+            if any(item.strip() for item in value):
+                return {"op": "APPEND", "items": value}, True
+            return {"op": "KEEP"}, True
+        return value, False
+
+
     def restore_arguments(args, key_map):
         """Map a returned tool call's section ids back to titles.
 
         Returns ``(new_args, info)``; ``info`` carries ``sections`` (how the value
-        arrived), ``mapped`` (keys renamed) and ``unmapped`` (keys left as they came, the
-        seven titles themselves included). Anything of an unexpected shape is returned as
-        it was, so OpenViking's own tolerant parser still gets its chance.
+        arrived), ``mapped`` (keys renamed), ``unmapped`` (keys left as they came, the
+        seven titles themselves included) and ``coerced`` (section values rewritten by
+        ``coerce_op``). Anything of an unexpected shape is returned as it was, so
+        OpenViking's own tolerant parser still gets its chance.
         """
-        info = {"sections": None, "mapped": 0, "unmapped": []}
+        info = {"sections": None, "mapped": 0, "unmapped": [], "coerced": 0}
+        titles = set(key_map.values())
 
         def rename(ops):
             out = {}
@@ -4288,10 +4362,13 @@ data:
                 title = key_map.get(key) if isinstance(key, str) else None
                 if title is None:
                     info["unmapped"].append(key)
-                    out[key] = value
+                    title = key
                 else:
                     info["mapped"] += 1
-                    out[title] = value
+                if title in titles:
+                    value, coerced = coerce_op(value)
+                    info["coerced"] += coerced
+                out[title] = value
             return out
 
         if isinstance(args, str):
@@ -4368,6 +4445,7 @@ data:
                 "sections": None,
                 "mapped": 0,
                 "unmapped": [],
+                "coerced": 0,
                 "finish_reason": getattr(resp, "finish_reason", None),
                 "completion_tokens": (getattr(resp, "usage", None) or {}).get(
                     "completion_tokens"
@@ -4390,6 +4468,7 @@ data:
                     record["sections"] = info["sections"]
                     record["mapped"] = info["mapped"]
                     record["unmapped"] = [str(k) for k in info["unmapped"]][:10]
+                    record["coerced"] = info["coerced"]
                     break
             print(
                 "ov-wm-update-schema " + json.dumps(record, sort_keys=True),
