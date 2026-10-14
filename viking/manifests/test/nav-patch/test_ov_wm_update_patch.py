@@ -120,7 +120,7 @@ class _FakeVLMResponse:
 
 
 def _fake_base_module():
-    return types.SimpleNamespace(VLMResponse=_FakeVLMResponse)
+    return types.SimpleNamespace(VLMResponse=_FakeVLMResponse, ToolCall=_FakeToolCall)
 
 
 def _run(coro):
@@ -150,11 +150,11 @@ class DetectionTests(unittest.TestCase):
 
 
 class ModeTests(unittest.TestCase):
-    def test_default_is_schema(self):
-        self.assertEqual(wm_patch.read_mode({}), "schema")
+    def test_default_is_json(self):
+        self.assertEqual(wm_patch.read_mode({}), "json")
 
     def test_explicit_modes(self):
-        for mode in ("schema", "skip", "off"):
+        for mode in ("json", "schema", "skip", "off"):
             self.assertEqual(wm_patch.read_mode({"OV_WM_UPDATE_MODE": mode}), mode)
 
     def test_unknown_mode_is_rejected(self):
@@ -164,7 +164,7 @@ class ModeTests(unittest.TestCase):
     def test_legacy_skip_switch(self):
         self.assertEqual(wm_patch.read_mode({"OV_WM_UPDATE_SKIP": "1"}), "skip")
         self.assertEqual(wm_patch.read_mode({"OV_WM_UPDATE_SKIP": "0"}), "off")
-        self.assertEqual(wm_patch.read_mode({"OV_WM_UPDATE_SKIP": "maybe"}), "schema")
+        self.assertEqual(wm_patch.read_mode({"OV_WM_UPDATE_SKIP": "maybe"}), "json")
 
     def test_mode_wins_over_legacy_switch(self):
         env = {"OV_WM_UPDATE_MODE": "schema", "OV_WM_UPDATE_SKIP": "1"}
@@ -736,6 +736,166 @@ class SchemaWrapperTests(unittest.TestCase):
             _run(wm_patch.schema_wm_update(fail)(self.vlm, "p", tools=[UPDATE_TOOL]))
 
 
+class JsonModeTests(unittest.TestCase):
+    def setUp(self):
+        self.tools, self.key_map = wm_patch.rewrite_tools([_update_tool()])
+        self.calls = []
+        self.reply = json.dumps({"sections": _ops(IDS, "KEEP")})
+
+        async def original(self_, prompt="", *args, **kwargs):
+            self.calls.append((prompt, args, kwargs))
+            return self.reply
+
+        self.wrapped = wm_patch.json_wm_update(original)
+        self.vlm = object()
+
+    def _run_update(self, **kwargs):
+        err = io.StringIO()
+        with (
+            patch.dict(
+                sys.modules, {"openviking.models.vlm.base": _fake_base_module()}
+            ),
+            redirect_stderr(err),
+        ):
+            resp = _run(
+                self.wrapped(
+                    self.vlm,
+                    "prompt",
+                    tools=[UPDATE_TOOL],
+                    tool_choice=CHOICE,
+                    **kwargs,
+                )
+            )
+        lines = [
+            line for line in err.getvalue().splitlines() if line.startswith("ov-wm-")
+        ]
+        record = json.loads(lines[-1].split(" ", 1)[1]) if lines else None
+        return resp, record
+
+    def test_instructions_name_every_id_op_and_title(self):
+        block = wm_patch.json_instructions(self.tools, self.key_map)
+        self.assertTrue(block.startswith("\n\n# OUTPUT FORMAT"))
+        for key, title in zip(IDS, TITLES):
+            self.assertIn(f'"{key}": <decision>', block)
+            self.assertIn(f"{key} = '## {title}'", block)
+        for op in ("KEEP", "UPDATE", "APPEND"):
+            self.assertIn(f'{{"op": "{op}"', block)
+        self.assertIn("Do not call a tool", block)
+        self.assertIn('"checkpoint_summaries"', block)
+        # The op list follows the (flattened) schema's enum.
+        narrowed = copy.deepcopy(self.tools)
+        narrowed[0]["function"]["parameters"]["properties"]["sections"]["properties"][
+            "session_title"
+        ]["properties"]["op"]["enum"] = ["KEEP", "UPDATE"]
+        self.assertNotIn("APPEND", wm_patch.json_instructions(narrowed, self.key_map))
+
+    def test_strip_fences(self):
+        obj = '{"sections": {"a": 1}}'
+        self.assertEqual(wm_patch._strip_fences(obj), obj)
+        self.assertEqual(wm_patch._strip_fences(f"```json\n{obj}\n```"), obj)
+        self.assertEqual(wm_patch._strip_fences(f"Here you go:\n{obj}\nDone."), obj)
+        self.assertEqual(
+            wm_patch._strip_fences('{"sections": {"a": 1'), '{"sections": {"a": 1'
+        )
+        self.assertEqual(wm_patch._strip_fences("no object"), "no object")
+        self.assertIsNone(wm_patch._strip_fences(None))
+
+    def test_update_call_becomes_a_plain_call_and_the_reply_a_tool_call(self):
+        resp, record = self._run_update(max_tokens=5)
+        prompt, args, kwargs = self.calls[-1]
+        self.assertTrue(prompt.startswith("prompt\n\n# OUTPUT FORMAT"))
+        self.assertEqual(args, ())
+        self.assertEqual(kwargs, {"max_tokens": 5})  # tools and tool_choice dropped
+        self.assertIsInstance(resp, _FakeVLMResponse)
+        self.assertEqual(resp.finish_reason, "tool_calls")
+        self.assertEqual(resp.tool_calls[0].name, "update_working_memory")
+        self.assertEqual(list(resp.tool_calls[0].arguments["sections"]), TITLES)
+        self.assertEqual(record["mode"], "json")
+        self.assertEqual(record["outcome"], "tool_call")
+        self.assertEqual(
+            (record["mapped"], record["coerced"], record["repaired"]), (7, 0, 0)
+        )
+        self.assertEqual(record["reply_chars"], len(self.reply))
+
+    def test_positional_tools_are_dropped(self):
+        with (
+            patch.dict(
+                sys.modules, {"openviking.models.vlm.base": _fake_base_module()}
+            ),
+            redirect_stderr(io.StringIO()),
+        ):
+            resp = _run(
+                self.wrapped(self.vlm, "p", None, [UPDATE_TOOL], CHOICE, None, 9)
+            )
+        _prompt, args, _kwargs = self.calls[-1]
+        self.assertEqual(args, (None, None, None, None, 9))
+        self.assertTrue(resp.has_tool_calls)
+
+    def test_fenced_and_prose_wrapped_replies_still_parse(self):
+        for wrapper in ("```json\n{}\n```", "Sure, here is the object:\n{}\n"):
+            self.reply = wrapper.format(
+                json.dumps({"sections": _ops(IDS[:2], "UPDATE")})
+            )
+            resp, _record = self._run_update()
+            self.assertTrue(resp.has_tool_calls, wrapper)
+            self.assertEqual(list(resp.tool_calls[0].arguments["sections"]), TITLES[:2])
+
+    def test_bare_values_and_missing_bodies_are_normalized(self):
+        self.reply = json.dumps(
+            {"sections": {"current_state": "new body", "open_issues": {"op": "UPDATE"}}}
+        )
+        resp, record = self._run_update()
+        self.assertEqual(
+            resp.tool_calls[0].arguments["sections"],
+            {
+                "Current State": {"op": "UPDATE", "content": "new body"},
+                "Open Issues": {"op": "KEEP"},
+            },
+        )
+        self.assertEqual((record["coerced"], record["repaired"]), (1, 1))
+
+    def test_checkpoint_summaries_ride_along(self):
+        self.reply = json.dumps(
+            {"sections": _ops(IDS, "KEEP"), "checkpoint_summaries": ["one", "two"]}
+        )
+        resp, _ = self._run_update()
+        self.assertEqual(
+            resp.tool_calls[0].arguments["checkpoint_summaries"], ["one", "two"]
+        )
+
+    def test_prose_reply_becomes_no_tool_call_with_the_text_kept(self):
+        self.reply = "I cannot produce the object."
+        resp, record = self._run_update()
+        self.assertFalse(resp.has_tool_calls)
+        self.assertEqual(resp.content, self.reply)
+        self.assertEqual(resp.finish_reason, "stop")
+        self.assertEqual(record["outcome"], "no_tool_call")
+
+    def test_response_object_reply_is_read_through_content(self):
+        self.reply = _FakeVLMResponse(content=json.dumps({"sections": _ops(IDS)}))
+        resp, _ = self._run_update()
+        self.assertTrue(resp.has_tool_calls)
+
+    def test_other_calls_pass_through_untouched(self):
+        msgs = [{"role": "user", "content": "hi"}]
+        self.assertEqual(_run(self.wrapped(self.vlm, "plain")), self.reply)
+        self.assertEqual(
+            _run(self.wrapped(self.vlm, "", messages=msgs, tools=[CREATE_TOOL])),
+            self.reply,
+        )
+        self.assertEqual(
+            self.calls,
+            [("plain", (), {}), ("", (), {"messages": msgs, "tools": [CREATE_TOOL]})],
+        )
+
+    def test_original_errors_propagate(self):
+        async def fail(self_, prompt="", *args, **kwargs):
+            raise RuntimeError("upstream down")
+
+        with self.assertRaisesRegex(RuntimeError, "upstream down"):
+            _run(wm_patch.json_wm_update(fail)(self.vlm, "p", tools=[UPDATE_TOOL]))
+
+
 class SkipWrapperTests(unittest.TestCase):
     def setUp(self):
         self.calls = []
@@ -835,7 +995,7 @@ class GuardTests(unittest.TestCase):
                     self.assertFalse(wm_patch.apply(module))
                 self.assertTrue(wm_patch.apply(module))
                 installed = cls.get_completion_async
-                self.assertEqual(installed._ov_wm_update_patch, "schema")
+                self.assertEqual(installed._ov_wm_update_patch, "json")
                 self.assertTrue(wm_patch.apply(module))
                 self.assertIs(cls.get_completion_async, installed)
                 with patch.dict(os.environ, {"OV_WM_UPDATE_MODE": "skip"}):
@@ -844,18 +1004,23 @@ class GuardTests(unittest.TestCase):
                     )  # already patched: no re-wrap
                 self.assertIs(cls.get_completion_async, installed)
 
-    def test_skip_mode_installs_the_skip_wrapper(self):
+    def test_each_mode_installs_its_wrapper(self):
         cls, module, digest = self._module()
         ov = types.SimpleNamespace(__version__=wm_patch.EXPECTED_VERSION)
         with (
             patch.dict(sys.modules, {"openviking": ov}),
             patch.object(wm_patch, "EXPECTED_SHA256", digest),
         ):
-            for env in ({"OV_WM_UPDATE_MODE": "skip"}, {"OV_WM_UPDATE_SKIP": "1"}):
+            for env, mode in (
+                ({"OV_WM_UPDATE_MODE": "skip"}, "skip"),
+                ({"OV_WM_UPDATE_SKIP": "1"}, "skip"),
+                ({"OV_WM_UPDATE_MODE": "schema"}, "schema"),
+                ({"OV_WM_UPDATE_MODE": "json"}, "json"),
+            ):
                 cls, module, _ = self._module()
                 with patch.dict(os.environ, env, clear=True):
                     self.assertTrue(wm_patch.apply(module))
-                self.assertEqual(cls.get_completion_async._ov_wm_update_patch, "skip")
+                self.assertEqual(cls.get_completion_async._ov_wm_update_patch, mode)
 
     def test_missing_class_is_not_applied(self):
         ov = types.SimpleNamespace(__version__=wm_patch.EXPECTED_VERSION)

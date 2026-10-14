@@ -13,9 +13,25 @@ failed ... invalid character 'C' looking for beginning of object key string`` on
 session commits in 3 h). The first call is 60-250 s of a decode-bound GPU (~100 t/s for
 this model) spent on output that is always discarded.
 
-Two modes, chosen by ``OV_WM_UPDATE_MODE``:
+Four modes, chosen by ``OV_WM_UPDATE_MODE``:
 
-``schema`` (default)
+``json`` (default)
+    No forced tool call at all. The call goes out as a plain completion (``tools`` and
+    ``tool_choice`` dropped) with an OUTPUT FORMAT block appended to OpenViking's own
+    update prompt, asking for one JSON object keyed by the same snake_case ids and
+    per-op shapes ``schema`` mode uses; the reply is parsed (fences and prose stripped,
+    then the same decode, salvage, coercion and normalization as ``schema``) and handed
+    to Branch 2 as a synthetic ``VLMResponse`` carrying one ``ToolCall``, so upstream's
+    merge runs unchanged; a reply that is not a decision object is returned as a
+    no-tool-call response and Branch 2 takes its creation fallback as it would after a
+    failed forced call. Why: through the chat-ollama shim every call gets
+    ``reasoning_effort: "none"`` unless it sets one, which makes gemma4 cut a forced
+    native tool call short (0 of 6 through the router on 2026-10-14), while leaving the
+    key unset makes it think instead of calling the tool (0 of 4 with the shim
+    exemption, IMPR-1311); a plain call with ``"none"`` is the path the creation prompt
+    already takes every day. One stderr line per call, ``ov-wm-update-schema {json}``
+    with ``"mode": "json"``.
+``schema``
     The tool schema the model sees keys ``sections`` by snake_case ids
     (``current_state``, ``task_and_goals``, ...), each carrying the title it stands
     for, so gemma4's unquoted keys parse. Each section's upstream ``oneOf`` (three
@@ -47,8 +63,8 @@ Two modes, chosen by ``OV_WM_UPDATE_MODE``:
     Not applied; the upstream call runs unchanged.
 
 With ``OV_WM_UPDATE_MODE`` unset the older ``OV_WM_UPDATE_SKIP`` switch still reads:
-``1`` is ``skip``, ``0`` is ``off``, unset is ``schema``. Every other call, tools or
-not, passes through untouched in both modes; the fallback itself carries no tools.
+``1`` is ``skip``, ``0`` is ``off``, unset is ``json``. Every other call, tools or
+not, passes through untouched in every mode; the fallback itself carries no tools.
 Version/source guarded on ``OpenAIVLM.get_completion_async``. Remove this patch once an
 OV release renames the ``sections`` keys or the Ollama parser accepts keys with spaces.
 """
@@ -68,7 +84,8 @@ import time
 EXPECTED_VERSION = "v0.4.20"
 EXPECTED_SHA256 = "2f8d5bd8a8f871b0af1b52c44e5f41a9bf46bed43be87a1fb337264f36f8f1ac"
 SKIPPED_TOOL = "update_working_memory"
-MODES = ("schema", "skip", "off")
+MODES = ("json", "schema", "skip", "off")
+DEFAULT_MODE = "json"
 logger = logging.getLogger("ov_wm_update_patch")
 
 _skips = 0
@@ -110,7 +127,7 @@ def read_mode(environ=None):
         return "off"
     if legacy == "1":
         return "skip"
-    return "schema"
+    return DEFAULT_MODE
 
 
 # ---------------------------------------------------------------- schema mode
@@ -571,6 +588,140 @@ def schema_wm_update(original):
     return get_completion_async
 
 
+# ------------------------------------------------------------------ json mode
+
+
+def json_instructions(tools, key_map):
+    """The output-format block appended to the update prompt in ``json`` mode.
+
+    Built from the rewritten tool so the ids, the op names and each op's fields stay
+    what ``restore_arguments`` expects. The model is told not to call a tool and to
+    answer with one JSON object only.
+    """
+    sections = None
+    for tool in tools:
+        sections = _sections_schema(tool)
+        if sections is not None:
+            break
+    ops = ["KEEP", "UPDATE", "APPEND"]
+    rules = {
+        "KEEP": '{"op": "KEEP"}',
+        "UPDATE": '{"op": "UPDATE", "content": "<full replacement body, markdown, no header line>"}',
+        "APPEND": '{"op": "APPEND", "items": ["<new item>", "..."]}',
+    }
+    if sections is not None:
+        first = next(iter(sections["properties"].values()), None)
+        enum = ((first or {}).get("properties") or {}).get("op", {}).get("enum")
+        if isinstance(enum, list) and enum:
+            ops = [op for op in enum if isinstance(op, str)]
+    keys = ", ".join(f'"{key}": <decision>' for key in key_map)
+    legend = "; ".join(f"{key} = '## {title}'" for key, title in key_map.items())
+    shapes = " | ".join(rules.get(op, f'{{"op": "{op}"}}') for op in ops)
+    return (
+        "\n\n# OUTPUT FORMAT\n\n"
+        "Do not call a tool. Reply with exactly one JSON object and nothing else: no "
+        "prose before or after it and no code fence.\n"
+        f'{{"sections": {{{keys}}}}}\n'
+        f"where <decision> is {shapes}.\n"
+        f"Every key is required ({legend}).\n"
+        'If checkpoint summaries were requested above, add "checkpoint_summaries": '
+        '["<summary per checkpoint source, in index order>"] beside "sections".\n'
+    )
+
+
+def _strip_fences(text):
+    """The JSON object inside a reply: fences and surrounding prose removed."""
+    if not isinstance(text, str):
+        return text
+    stripped = text.strip()
+    match = re.search(r"```(?:json)?\s*(.*?)```", stripped, re.DOTALL)
+    if match:
+        stripped = match.group(1).strip()
+    start, end = stripped.find("{"), stripped.rfind("}")
+    if start != -1 and end > start:
+        return stripped[start : end + 1]
+    return stripped[start:] if start != -1 else stripped
+
+
+def json_wm_update(original):
+    @functools.wraps(original)
+    async def get_completion_async(self, prompt="", *args, **kwargs):
+        # Positional order is (prompt, thinking, tools, tool_choice, messages, max_tokens).
+        tools = kwargs.get("tools", args[1] if len(args) > 1 else None)
+        tool_choice = kwargs.get("tool_choice", args[2] if len(args) > 2 else None)
+        if not is_wm_update_call(tools, tool_choice):
+            return await original(self, prompt, *args, **kwargs)
+        new_tools, key_map = rewrite_tools(tools)
+        if key_map is None:
+            logger.warning(
+                "ov-wm-update-patch: %s schema not in the expected shape; forwarded as is",
+                SKIPPED_TOOL,
+            )
+            return await original(self, prompt, *args, **kwargs)
+        # A plain call: no tools, no tool_choice, the format block on the prompt.
+        plain_args = list(args)
+        if len(plain_args) > 1:
+            plain_args[1] = None
+        if len(plain_args) > 2:
+            plain_args[2] = None
+        plain_kwargs = {
+            k: v for k, v in kwargs.items() if k not in ("tools", "tool_choice")
+        }
+        plain_prompt = prompt + json_instructions(new_tools, key_map)
+        global _calls
+        _calls += 1
+        started = time.perf_counter()
+        reply = await original(self, plain_prompt, *plain_args, **plain_kwargs)
+        elapsed = round(time.perf_counter() - started, 1)
+        text = reply if isinstance(reply, str) else getattr(reply, "content", None)
+        from openviking.models.vlm.base import ToolCall, VLMResponse
+
+        record = {
+            "mode": "json",
+            "tool": SKIPPED_TOOL,
+            "outcome": "no_tool_call",
+            "sections": None,
+            "mapped": 0,
+            "unmapped": [],
+            "coerced": 0,
+            "repaired": 0,
+            "collisions": [],
+            "reply_chars": len(text) if isinstance(text, str) else None,
+            "elapsed_s": elapsed,
+            "prompt_chars": len(prompt) if isinstance(prompt, str) else None,
+            "calls": _calls,
+            "pid": os.getpid(),
+        }
+        arguments, info = restore_arguments(_strip_fences(text), key_map)
+        if isinstance(arguments, dict) and isinstance(arguments.get("sections"), dict):
+            record["outcome"] = "tool_call"
+            for key in ("sections", "mapped", "coerced", "repaired", "collisions"):
+                record[key] = info[key]
+            record["unmapped"] = [str(k) for k in info["unmapped"]][:10]
+            response = VLMResponse(
+                content="",
+                tool_calls=[
+                    ToolCall(id="ov-wm-json", name=SKIPPED_TOOL, arguments=arguments)
+                ],
+                finish_reason="tool_calls",
+                usage={},
+            )
+        else:
+            # Not a decision object: Branch 2 sees no tool call and takes its
+            # creation-prompt fallback, as it would after a failed forced call.
+            response = VLMResponse(
+                content=text if isinstance(text, str) else "",
+                tool_calls=[],
+                finish_reason="stop",
+                usage={},
+            )
+        _emit("ov-wm-update-schema ", record)
+        return response
+
+    get_completion_async._ov_wm_update_patch = "json"
+    return get_completion_async
+
+
 # ------------------------------------------------------------------ skip mode
 
 
@@ -601,7 +752,11 @@ def skipping_wm_update(original):
     return get_completion_async
 
 
-WRAPPERS = {"schema": schema_wm_update, "skip": skipping_wm_update}
+WRAPPERS = {
+    "json": json_wm_update,
+    "schema": schema_wm_update,
+    "skip": skipping_wm_update,
+}
 
 
 def apply(module):

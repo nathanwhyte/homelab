@@ -67,12 +67,16 @@ off switch; a patch failure never breaks the import):
                         (``HttpCollection.fetch_data``).
   * ov_wm_update_patch — IMPR-1303: the session-commit ``update_working_memory``
                         tool call, which gemma4 answers in a form Ollama's parser
-                        rejects every time (unquoted keys with spaces). In
-                        ``OV_WM_UPDATE_MODE=schema`` (default) the tool's
-                        ``sections`` keys go out as snake_case ids and the answer
-                        is mapped back to the titles, so the incremental update
-                        runs; one ``ov-wm-update-schema {json}`` stderr line per
-                        call. In ``skip`` mode the call is answered locally with an
+                        rejects every time (unquoted keys with spaces), and which
+                        the chat-ollama shim's ``reasoning_effort`` makes
+                        unreliable either way. In ``OV_WM_UPDATE_MODE=json``
+                        (default) the update goes out as a plain completion asking
+                        for one JSON object keyed by snake_case section ids, and
+                        the reply is parsed, normalized and handed to Branch 2 as a
+                        synthetic tool call; ``schema`` keeps the forced tool call
+                        with a flat snake_case schema; one
+                        ``ov-wm-update-schema {json}`` stderr line per call in
+                        both. In ``skip`` mode the call is answered locally with an
                         empty ``VLMResponse`` so Branch 2 takes its creation-prompt
                         fallback without first spending a 60-250 s generation; one
                         ``ov-wm-update-skip {json}`` line per skip
