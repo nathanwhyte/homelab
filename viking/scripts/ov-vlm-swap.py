@@ -6,13 +6,17 @@ Reads the LIVE ``openviking-standalone-config`` ConfigMap and replaces only the 
 block of its ``ov.conf``; every other key stays exactly as it runs. ``haiku`` writes
 the block below; ``restore`` writes the ``vlm`` block from this repo's
 ``openviking-standalone-configmap.yaml`` (the reviewed baseline). Without ``--apply``
-it prints the ``kubectl diff`` and changes nothing. With ``--apply`` it applies that one
-ConfigMap, restarts ``deployment/openviking`` (the config-rewrite init container only
-runs at pod start) and waits for the rollout.
+it prints the ``kubectl diff`` and changes nothing. With ``--apply`` it replaces that one
+ConfigMap under the resourceVersion it read (a concurrent edit makes it fail with a
+Conflict instead of being overwritten), restarts ``deployment/openviking`` (the
+config-rewrite init container only runs at pod start) and waits for the rollout. When
+the ConfigMap already matches, ``--apply`` still restarts, so a retry recovers a
+restart that failed.
 
 Prerequisites for ``haiku`` (see viking/docs/2026-10-13-impr-1311-haiku-vlm-round2.md):
-the ``anthropic-vlm-key`` Secret exists and the pod runs ``ov_claude_params_patch.py``
-(Haiku 5.5 rejects the ``temperature`` OpenViking always sends).
+the ``anthropic-vlm-key`` Secret holds a nonempty ``API_KEY`` (checked before any
+change) and the pod runs ``ov_claude_params_patch.py`` (Haiku 5.5 rejects the
+``temperature`` OpenViking always sends).
 """
 
 import argparse
@@ -70,14 +74,34 @@ def repo_ov_conf() -> dict:
 def live_cm() -> dict:
     cm = json.loads(kubectl("get", "configmap", CM, "-n", NS, "-o", "json").stdout)
     meta = cm["metadata"]
-    # Keep identity and labels; drop server-managed fields so the object applies cleanly.
+    # Keep identity, labels, annotations and resourceVersion: `kubectl replace` with the
+    # read resourceVersion fails with a Conflict instead of overwriting a change made to
+    # any other ov.conf key since this read.
     cm["metadata"] = {
-        k: meta[k] for k in ("name", "namespace", "labels", "annotations") if k in meta
+        k: meta[k]
+        for k in ("name", "namespace", "labels", "annotations", "resourceVersion")
+        if k in meta
     }
-    cm["metadata"].get("annotations", {}).pop(
-        "kubectl.kubernetes.io/last-applied-configuration", None
-    )
     return cm
+
+
+def require_anthropic_key() -> None:
+    """The init container falls back to an empty api_key, which OV refuses at start."""
+    out = kubectl(
+        "get", "secret", "anthropic-vlm-key", "-n", NS,
+        "-o", "jsonpath={.data.API_KEY}", check=False,
+    )  # fmt: skip
+    if out.returncode != 0 or not out.stdout.strip():
+        sys.exit(
+            "Secret viking/anthropic-vlm-key is missing or has no API_KEY; not applying"
+        )
+
+
+def restart() -> None:
+    print(kubectl("rollout", "restart", DEPLOY, "-n", NS).stdout.strip())
+    print(
+        kubectl("rollout", "status", DEPLOY, "-n", NS, "--timeout=600s").stdout.strip()
+    )
 
 
 def main() -> int:
@@ -100,32 +124,41 @@ def main() -> int:
         return 0
 
     new_vlm = copy.deepcopy(HAIKU_VLM) if a.target == "haiku" else repo_ov_conf()["vlm"]
+    if a.apply and a.target == "haiku":
+        require_anthropic_key()
     if conf.get("vlm") == new_vlm:
-        print(f"vlm already matches {a.target}; nothing to do")
+        # The ConfigMap may match while the pod still runs the old config (a restart
+        # that failed after an earlier apply), so --apply still restarts.
+        print(f"vlm already matches {a.target}")
+        if a.apply:
+            restart()
         return 0
     conf["vlm"] = new_vlm
     cm["data"]["ov.conf"] = json.dumps(conf, indent=2) + "\n"
 
-    with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as fh:
-        json.dump(cm, fh)
-        path = fh.name
-    diff = kubectl("diff", "-f", path, check=False)
-    if diff.returncode > 1:
-        print(diff.stderr, file=sys.stderr)
-        return diff.returncode
-    print(diff.stdout or "(no diff)")
-    if not a.apply:
-        print(
-            "dry run: re-run with --apply to apply this ConfigMap and restart OpenViking"
-        )
-        return 0
-    if a.target == "haiku":
-        kubectl("get", "secret", "anthropic-vlm-key", "-n", NS)  # raises when missing
-    print(kubectl("apply", "-f", path).stdout.strip())
-    print(kubectl("rollout", "restart", DEPLOY, "-n", NS).stdout.strip())
-    print(
-        kubectl("rollout", "status", DEPLOY, "-n", NS, "--timeout=600s").stdout.strip()
-    )
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "configmap.json"
+        path.write_text(json.dumps(cm))
+        diff = kubectl("diff", "-f", str(path), check=False)
+        if diff.returncode > 1:
+            print(diff.stderr, file=sys.stderr)
+            return diff.returncode
+        print(diff.stdout or "(no diff)")
+        if not a.apply:
+            print(
+                "dry run: re-run with --apply to apply this ConfigMap and restart OpenViking"
+            )
+            return 0
+        replaced = kubectl("replace", "-f", str(path), check=False)
+        if replaced.returncode != 0:
+            print(replaced.stderr, file=sys.stderr)
+            print(
+                "ConfigMap changed since it was read (or replace failed); re-run to see a fresh diff",
+                file=sys.stderr,
+            )
+            return replaced.returncode
+        print(replaced.stdout.strip())
+    restart()
     return 0
 
 
