@@ -9,21 +9,32 @@ metadata:
 data:
   chat-ollama-proxy.py: |
     #!/usr/bin/env python3
-    """Minimal Ollama reasoning-suppression shim for Hermes.
+    """Ollama reasoning-suppression shim, LOAD-BEARING for OpenViking's gemma VLM.
 
-    Hermes cannot send reasoning controls to a generic Ollama provider
-    (NousResearch/hermes-agent#25758, #11237), and local models (gemma4,
-    qwen3.5, ...) emit a large `reasoning` field by default. That reasoning
-    consumes the per-response output budget, yielding `finish_reason: length`,
-    which Hermes treats as truncation and retries 3x before failing with
-    `agent_incomplete`.
+    OpenViking is its only chat client (7,013 `gemma4:vlm` chat calls in the 24 h
+    to 2026-10-14 14:50 CDT): the LiteLLM router's gemma deployments
+    (viking/manifests/litellm-vlm-configmap.yaml) and OpenViking's `vlm.backup`
+    both point here. It was written for Hermes (retired 2026-07-16), which could
+    not send reasoning controls itself (NousResearch/hermes-agent#25758, #11237).
 
-    This shim injects the top-level `reasoning_effort: "none"` field (which
-    Ollama's OpenAI-compatible endpoint DOES respect) into
-    /v1/chat/completions for non-cloud models, then transparently proxies the
-    response bytes to Ollama -- streamed (SSE) or not. It does not rewrite the
-    response, finish_reason, tool calls, or anything else. Context length is
-    handled natively by Hermes' `model.ollama_num_ctx` injection.
+    gemma4 thinks by default (llama/ollama/gemma4-vlm.Modelfile). On plain prompts
+    that costs about 4x the completion tokens, and a capped call (the nav-patch
+    brief at max_tokens 768) ends `finish_reason: length` with its content cut.
+    So the shim injects the top-level `reasoning_effort: "none"` (which Ollama's
+    OpenAI-compatible endpoint respects) into /v1/chat/completions for non-cloud
+    models that set no reasoning control themselves. Do not route gemma around it.
+
+    Known gap: gemma4 does not reliably answer a forced tool call (`tool_choice`
+    naming one function) either way. With "none" it cuts the native call off
+    mid-JSON, which Ollama drops: `content: ""`, no `tool_calls` (0 of 6 via the
+    router for OpenViking's `update_working_memory`). Without the key it thinks
+    instead and still makes no call (0 of 4 on real archive pairs, 2026-10-14),
+    so exempting those requests is not a fix. OpenViking sends no forced call
+    today (homelab's WM update skip patch); see compendium IMPR-1311 § Open
+    issue and IMPR-1303 lever 3. Unforced `tools` requests work through the
+    shim, which is what OpenViking's extraction loop runs on.
+
+    Response bytes are proxied unchanged -- streamed (SSE) or not.
     """
 
     import http.client
