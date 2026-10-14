@@ -36,12 +36,10 @@ spec:
               conf = json.load(open('/config-template/ov.conf'))
               conf['server']['root_api_key'] = os.environ['API_KEY']
               vlm = conf.get('vlm', {})
-              if vlm.get('api_key') == '\${OLLAMA_KEY}':
-                  vlm['api_key'] = os.environ.get('OLLAMA_KEY', '')
-              if vlm.get('api_key') == '\${ANTHROPIC_KEY}':
-                  vlm['api_key'] = os.environ.get('ANTHROPIC_KEY', '')
-              if vlm.get('api_key') == '\${LITELLM_KEY}':
-                  vlm['api_key'] = os.environ.get('LITELLM_KEY', '')
+              for block in (vlm, vlm.get('backup') or {}):
+                  for var in ('OLLAMA_KEY', 'ANTHROPIC_KEY', 'LITELLM_KEY'):
+                      if block.get('api_key') == '\${' + var + '}':
+                          block['api_key'] = os.environ.get(var, '')
               agfs = conf.get('storage', {}).get('agfs', {})
               if agfs.get('backend', 'local') == 's3':
                   agfs.setdefault('s3', {})
