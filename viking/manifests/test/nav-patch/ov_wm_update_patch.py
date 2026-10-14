@@ -25,13 +25,18 @@ Two modes, chosen by ``OV_WM_UPDATE_MODE``:
     treats as an unknown op and keeps the old content. The returned tool call is mapped
     back to the title keys before OpenViking's parser sees it; a ``sections`` value that
     came back as a JSON string (seen 2/24 on Claude Haiku 5.5, IMPR-1311) is decoded;
-    and a section that still arrives as a bare string, a list of strings, or an object
+    a section that still arrives as a bare string, a list of strings, or an object
     without ``op`` is coerced to ``UPDATE``/``APPEND``/``KEEP`` and counted, so the
     merge's own guards (append-only sections, loss checks) decide instead of a silent
-    keep. The incremental update path then runs as upstream designed it; a call that
-    still returns no tool call takes OpenViking's own creation-prompt fallback. One
-    stderr line per call, ``ov-wm-update-schema {json}``, names the outcome, how many
-    section keys mapped and how many were coerced, so both rates are countable in Loki.
+    keep; and every decision is held to upstream's per-op shape (UPDATE needs a
+    non-blank string body, APPEND non-empty string items, else KEEP), because the
+    flattened schema cannot express those conditional requirements and the merge
+    would clear a section whose body is missing. The incremental update then runs
+    when the model returns valid decisions (7 of 8 pairs in the 2026-10-14 gemma4
+    replay, every one merged by OpenViking's own branch logic); a call that returns
+    no tool call takes OpenViking's own creation-prompt fallback. One stderr line per
+    call, ``ov-wm-update-schema {json}``, names the outcome and how many section keys
+    were mapped, coerced and repaired, so each rate is countable in Loki.
 ``skip``
     The 2026-10-13 behaviour: answer the call locally with an empty ``VLMResponse``
     (no tool calls) so Branch 2 takes its fallback at once and the creation prompt is
@@ -46,6 +51,7 @@ Version/source guarded on ``OpenAIVLM.get_completion_async``. Remove this patch 
 OV release renames the ``sections`` keys or the Ollama parser accepts keys with spaces.
 """
 
+import contextlib
 import copy
 import functools
 import hashlib
@@ -217,31 +223,81 @@ def _substitute_quoted_keys(text, key_map):
     return pattern.subn(lambda m: f'"{key_map[m.group(1)]}"{m.group(2)}', text)
 
 
+OP_KEEP, OP_UPDATE, OP_APPEND = "KEEP", "UPDATE", "APPEND"
+OPS = (OP_KEEP, OP_UPDATE, OP_APPEND)
+
+
+def _text_items(items):
+    """The non-blank strings of a list, or ``None`` when ``items`` is not a list."""
+    if not isinstance(items, list):
+        return None
+    return [item for item in items if isinstance(item, str) and item.strip()]
+
+
 def coerce_op(value):
     """``(decision, coerced)``: a bare string, string list or op-less object as an op.
 
-    A string is the section's replacement body (UPDATE), a list of strings new items
-    (APPEND), an empty one KEEP; an object with ``content`` or ``items`` but no ``op``
-    gets the op those fields imply. A well-formed decision passes through untouched,
-    and so does anything else, for OpenViking's merge to judge.
+    A non-blank string that is not itself an op name is the section's replacement
+    body (UPDATE); a bare op name is that op with no payload (which
+    ``normalize_decision`` then turns into KEEP unless it is KEEP); a list of strings
+    is new items (APPEND); an empty string or list, or an op-less object whose
+    ``content``/``items`` is empty or of the wrong type, is KEEP, so an ambiguous
+    value never replaces a section. A decision that carries ``op`` passes through
+    untouched, and so does anything else, for OpenViking's merge to judge.
     """
     if isinstance(value, dict):
         if "op" in value:
             return value, False
-        if "content" in value:
-            return {"op": "UPDATE", **value}, True
-        if "items" in value:
-            return {"op": "APPEND", **value}, True
+        content = value.get("content")
+        if isinstance(content, str) and content.strip():
+            return {"op": OP_UPDATE, **value}, True
+        if _text_items(value.get("items")):
+            return {"op": OP_APPEND, **value}, True
+        if "content" in value or "items" in value:
+            return {"op": OP_KEEP}, True
         return value, False
     if isinstance(value, str):
-        if value.strip():
-            return {"op": "UPDATE", "content": value}, True
-        return {"op": "KEEP"}, True
+        token = value.strip().upper()
+        if token in OPS:
+            return {"op": token}, True
+        if token:
+            return {"op": OP_UPDATE, "content": value}, True
+        return {"op": OP_KEEP}, True
     if isinstance(value, list) and all(isinstance(item, str) for item in value):
-        if any(item.strip() for item in value):
-            return {"op": "APPEND", "items": value}, True
-        return {"op": "KEEP"}, True
+        if _text_items(value):
+            return {"op": OP_APPEND, "items": value}, True
+        return {"op": OP_KEEP}, True
     return value, False
+
+
+def normalize_decision(value):
+    """``(decision, repaired)``: hold a decision to upstream's per-op shape.
+
+    The flattened schema only requires ``op``, so the model can answer ``UPDATE``
+    without ``content`` or ``APPEND`` without ``items``; upstream's merge would turn
+    the missing body into an empty one and clear the section. Here UPDATE needs a
+    non-blank string ``content`` and APPEND a non-empty list of strings (non-string
+    items dropped, as the merge drops them), or the decision becomes KEEP; KEEP
+    carries nothing else. An unknown or non-string op passes through for the merge
+    to judge (it keeps the old content and logs).
+    """
+    if not isinstance(value, dict) or not isinstance(value.get("op"), str):
+        return value, False
+    op = value["op"].strip().upper()
+    if op == OP_UPDATE:
+        content = value.get("content")
+        if isinstance(content, str) and content.strip():
+            fixed = {"op": OP_UPDATE, "content": content}
+        else:
+            fixed = {"op": OP_KEEP}
+    elif op == OP_APPEND:
+        items = _text_items(value.get("items"))
+        fixed = {"op": OP_APPEND, "items": items} if items else {"op": OP_KEEP}
+    elif op == OP_KEEP:
+        fixed = {"op": OP_KEEP}
+    else:
+        return value, False
+    return fixed, fixed != value
 
 
 def restore_arguments(args, key_map):
@@ -249,25 +305,44 @@ def restore_arguments(args, key_map):
 
     Returns ``(new_args, info)``; ``info`` carries ``sections`` (how the value
     arrived), ``mapped`` (keys renamed), ``unmapped`` (keys left as they came, the
-    seven titles themselves included) and ``coerced`` (section values rewritten by
-    ``coerce_op``). Anything of an unexpected shape is returned as it was, so
-    OpenViking's own tolerant parser still gets its chance.
+    seven titles themselves included), ``coerced`` (section values rewritten by
+    ``coerce_op``), ``repaired`` (decisions reshaped by ``normalize_decision``) and
+    ``collisions`` (titles that arrived under both their id and their title; the
+    title's decision wins). Anything of an unexpected shape is returned as it was,
+    so OpenViking's own tolerant parser still gets its chance.
     """
-    info = {"sections": None, "mapped": 0, "unmapped": [], "coerced": 0}
+    info = {
+        "sections": None,
+        "mapped": 0,
+        "unmapped": [],
+        "coerced": 0,
+        "repaired": 0,
+        "collisions": [],
+    }
     titles = set(key_map.values())
 
     def rename(ops):
         out = {}
+        from_title = set()
         for key, value in ops.items():
             title = key_map.get(key) if isinstance(key, str) else None
-            if title is None:
+            is_alias = title is not None
+            if is_alias:
+                info["mapped"] += 1
+            else:
                 info["unmapped"].append(key)
                 title = key
-            else:
-                info["mapped"] += 1
             if title in titles:
                 value, coerced = coerce_op(value)
+                value, repaired = normalize_decision(value)
                 info["coerced"] += coerced
+                info["repaired"] += repaired
+                if title in out:
+                    info["collisions"].append(title)
+                    if is_alias and title in from_title:
+                        continue
+                if not is_alias:
+                    from_title.add(title)
             out[title] = value
         return out
 
@@ -305,6 +380,13 @@ def restore_arguments(args, key_map):
     # Tolerant upstream shape: the section ops at the top level, no wrapper.
     info["sections"] = "top-level"
     return rename(new_args), info
+
+
+def _emit(prefix, record):
+    """One stderr line, best effort: a failing stderr never fails the VLM call."""
+    with contextlib.suppress(Exception):
+        sys.stderr.write(prefix + json.dumps(record, sort_keys=True) + "\n")
+        sys.stderr.flush()
 
 
 def _forward_with_tools(args, kwargs, new_tools):
@@ -346,6 +428,8 @@ def schema_wm_update(original):
             "mapped": 0,
             "unmapped": [],
             "coerced": 0,
+            "repaired": 0,
+            "collisions": [],
             "finish_reason": getattr(resp, "finish_reason", None),
             "completion_tokens": (getattr(resp, "usage", None) or {}).get(
                 "completion_tokens"
@@ -369,12 +453,10 @@ def schema_wm_update(original):
                 record["mapped"] = info["mapped"]
                 record["unmapped"] = [str(k) for k in info["unmapped"]][:10]
                 record["coerced"] = info["coerced"]
+                record["repaired"] = info["repaired"]
+                record["collisions"] = info["collisions"]
                 break
-        print(
-            "ov-wm-update-schema " + json.dumps(record, sort_keys=True),
-            file=sys.stderr,
-            flush=True,
-        )
+        _emit("ov-wm-update-schema ", record)
         return resp
 
     get_completion_async._ov_wm_update_patch = "schema"
@@ -396,19 +478,14 @@ def skipping_wm_update(original):
         _skips += 1
         from openviking.models.vlm.base import VLMResponse
 
-        print(
-            "ov-wm-update-skip "
-            + json.dumps(
-                {
-                    "tool": SKIPPED_TOOL,
-                    "prompt_chars": len(prompt) if isinstance(prompt, str) else None,
-                    "skips": _skips,
-                    "pid": os.getpid(),
-                },
-                sort_keys=True,
-            ),
-            file=sys.stderr,
-            flush=True,
+        _emit(
+            "ov-wm-update-skip ",
+            {
+                "tool": SKIPPED_TOOL,
+                "prompt_chars": len(prompt) if isinstance(prompt, str) else None,
+                "skips": _skips,
+                "pid": os.getpid(),
+            },
         )
         return VLMResponse(content="", tool_calls=[], finish_reason="stop", usage={})
 

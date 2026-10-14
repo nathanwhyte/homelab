@@ -240,9 +240,130 @@ class RestoreArgumentsTests(unittest.TestCase):
         self.assertEqual(list(new_args["sections"]), TITLES)
         self.assertEqual(new_args["checkpoint_summaries"], ["x"])
         self.assertEqual(
-            info, {"sections": "dict", "mapped": 7, "unmapped": [], "coerced": 0}
+            info,
+            {
+                "sections": "dict",
+                "mapped": 7,
+                "unmapped": [],
+                "coerced": 0,
+                "repaired": 0,
+                "collisions": [],
+            },
         )
         self.assertEqual(list(args["sections"]), IDS)  # input not mutated
+
+    def test_op_names_empty_and_mistyped_values_never_replace_a_section(self):
+        self.assertEqual(wm_patch.coerce_op("KEEP"), ({"op": "KEEP"}, True))
+        self.assertEqual(wm_patch.coerce_op(" update "), ({"op": "UPDATE"}, True))
+        self.assertEqual(wm_patch.coerce_op("   "), ({"op": "KEEP"}, True))
+        self.assertEqual(wm_patch.coerce_op({"content": ""}), ({"op": "KEEP"}, True))
+        self.assertEqual(
+            wm_patch.coerce_op({"content": ["new state"]}), ({"op": "KEEP"}, True)
+        )
+        self.assertEqual(wm_patch.coerce_op({"items": 7}), ({"op": "KEEP"}, True))
+        self.assertEqual(wm_patch.coerce_op({"items": [" "]}), ({"op": "KEEP"}, True))
+        # Through restore: a bare op name and an empty implicit body both end as KEEP.
+        args = {
+            "sections": {"current_state": "KEEP", "task_and_goals": {"content": ""}}
+        }
+        new_args, info = wm_patch.restore_arguments(args, self.key_map)
+        self.assertEqual(
+            new_args["sections"],
+            {"Current State": {"op": "KEEP"}, "Task & Goals": {"op": "KEEP"}},
+        )
+        self.assertEqual((info["coerced"], info["repaired"]), (2, 0))
+
+    def test_decisions_are_held_to_the_per_op_shape(self):
+        cases = [
+            ({"op": "UPDATE"}, {"op": "KEEP"}, True),
+            ({"op": "UPDATE", "content": " "}, {"op": "KEEP"}, True),
+            ({"op": "UPDATE", "content": ["x"]}, {"op": "KEEP"}, True),
+            (
+                {"op": "update", "content": "body"},
+                {"op": "UPDATE", "content": "body"},
+                True,
+            ),
+            (
+                {"op": "UPDATE", "content": "body", "items": []},
+                {"op": "UPDATE", "content": "body"},
+                True,
+            ),
+            ({"op": "APPEND"}, {"op": "KEEP"}, True),
+            ({"op": "APPEND", "items": "one"}, {"op": "KEEP"}, True),
+            (
+                {"op": "APPEND", "items": ["a", 3, " ", "b"]},
+                {"op": "APPEND", "items": ["a", "b"]},
+                True,
+            ),
+            ({"op": "APPEND", "items": ["a"]}, {"op": "APPEND", "items": ["a"]}, False),
+            ({"op": "KEEP", "items": []}, {"op": "KEEP"}, True),
+            ({"op": "KEEP"}, {"op": "KEEP"}, False),
+            ({"op": "BOGUS"}, {"op": "BOGUS"}, False),
+            ({"op": 5}, {"op": 5}, False),
+            ("text", "text", False),
+        ]
+        for value, expected, repaired in cases:
+            with self.subTest(value=value):
+                self.assertEqual(
+                    wm_patch.normalize_decision(value), (expected, repaired)
+                )
+        args = {
+            "sections": {
+                "current_state": {"op": "UPDATE"},
+                "open_issues": {"op": "KEEP", "items": []},
+            }
+        }
+        new_args, info = wm_patch.restore_arguments(args, self.key_map)
+        self.assertEqual(
+            new_args["sections"],
+            {"Current State": {"op": "KEEP"}, "Open Issues": {"op": "KEEP"}},
+        )
+        self.assertEqual((info["coerced"], info["repaired"]), (0, 2))
+
+    def test_title_and_id_for_one_section_keep_the_title_decision(self):
+        append = {"op": "APPEND", "items": ["new task"]}
+        for ops in (
+            {"Current State": append, "current_state": {"op": "KEEP"}},
+            {"current_state": {"op": "KEEP"}, "Current State": append},
+        ):
+            with self.subTest(order=list(ops)):
+                new_args, info = wm_patch.restore_arguments(
+                    {"sections": ops}, self.key_map
+                )
+                self.assertEqual(new_args["sections"], {"Current State": append})
+                self.assertEqual(info["collisions"], ["Current State"])
+                self.assertEqual(info["mapped"], 1)
+                self.assertEqual(info["unmapped"], ["Current State"])
+
+    def test_restored_decisions_merge_in_the_installed_openviking(self):
+        try:
+            from openviking.session.session import Session
+        except Exception:  # noqa: BLE001 — the system Python has no openviking
+            self.skipTest("openviking not importable here")
+        prior = "\n".join(
+            f"## {title}\n\nold {title.lower()} body\n" for title in TITLES
+        )
+        sections = {
+            "session_title": "KEEP",
+            "current_state": {"op": "UPDATE"},
+            "task_and_goals": {"content": ["not a string"]},
+            "key_facts_and_decisions": {"op": "APPEND", "items": ["a fact", 3]},
+            "files_and_context": {"items": 7},
+            "errors_and_corrections": "",
+            "open_issues": {"op": "KEEP", "items": []},
+        }
+        new_args, _info = wm_patch.restore_arguments(
+            {"sections": sections}, self.key_map
+        )
+        merged = Session._merge_wm_sections(prior, new_args["sections"])
+        parsed = Session._parse_wm_sections(merged)
+        for title in TITLES:
+            if title != "Key Facts & Decisions":
+                self.assertIn(
+                    "old " + title.lower() + " body", parsed[f"## {title}"], title
+                )
+        self.assertIn("a fact", parsed["## Key Facts & Decisions"])
+        self.assertNotIn("KEEP", parsed["## Session Title"])
 
     def test_bare_values_are_coerced_into_decisions_and_counted(self):
         args = {
@@ -316,7 +437,15 @@ class RestoreArgumentsTests(unittest.TestCase):
             '{"sections": {"Current State": {"op": "KEEP"}, "Open Issues":{"op": "UPDATE", "content": "see current_state"}',
         )
         self.assertEqual(
-            info, {"sections": "raw", "mapped": 2, "unmapped": [], "coerced": 0}
+            info,
+            {
+                "sections": "raw",
+                "mapped": 2,
+                "unmapped": [],
+                "coerced": 0,
+                "repaired": 0,
+                "collisions": [],
+            },
         )
         new_text, info = wm_patch.restore_arguments(raw, self.key_map)
         self.assertEqual(new_text, new_args["raw"])
@@ -384,11 +513,31 @@ class SchemaWrapperTests(unittest.TestCase):
         self.assertEqual(record["sections"], "dict")
         self.assertEqual(record["mapped"], 7)
         self.assertEqual(record["unmapped"], [])
-        self.assertEqual(record["coerced"], 0)
+        self.assertEqual((record["coerced"], record["repaired"]), (0, 0))
+        self.assertEqual(record["collisions"], [])
         self.assertEqual(record["finish_reason"], "tool_calls")
         self.assertEqual(record["completion_tokens"], 321)
         self.assertEqual(record["prompt_chars"], 6)
         self.assertIsInstance(record["elapsed_s"], float)
+
+    def test_a_failing_stderr_never_fails_the_call(self):
+        class Broken(io.StringIO):
+            def write(self, s):
+                raise BrokenPipeError("stderr closed")
+
+        with redirect_stderr(Broken()):
+            resp = _run(self.wrapped(self.vlm, "p", tools=[UPDATE_TOOL]))
+        self.assertIs(resp, self.response)
+        self.assertEqual(list(resp.tool_calls[0].arguments["sections"]), TITLES)
+        skip = wm_patch.skipping_wm_update(self.wrapped)
+        with (
+            patch.dict(
+                sys.modules, {"openviking.models.vlm.base": _fake_base_module()}
+            ),
+            redirect_stderr(Broken()),
+        ):
+            resp = _run(skip(self.vlm, "p", tools=[UPDATE_TOOL]))
+        self.assertFalse(resp.has_tool_calls)
 
     def test_positional_tools_are_rewritten_in_place(self):
         with redirect_stderr(io.StringIO()):
