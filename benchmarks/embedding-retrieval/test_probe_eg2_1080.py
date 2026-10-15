@@ -971,6 +971,23 @@ class RehearsalTests(unittest.TestCase):
         )
         self.assertIn("3000", detail["detail"])
 
+    def test_failed_ordering_requests_fail(self):
+        server = FakeServer()
+        original = server.__call__
+        texts = []
+
+        def failing(base, path, body=None, timeout=None):
+            if path != "/tokenize" and isinstance(body["input"][0], str):
+                texts.append(1)
+                # The warm-up and 44 texts x 3 repeats come first; the rest is ordering.
+                if len(texts) > 1 + 44 * probe.REPEATS:
+                    raise OSError("connection reset")
+            return original(base, path, body, timeout)
+
+        passed, _, failed, _, _ = self.rehearse(rehearsal_sample(), server=failing)
+        self.assertFalse(passed)
+        self.assertEqual(failed, {"ordering_ran_clean"})
+
     def test_over_cap_request_fails(self):
         passed, _, failed, _, _ = self.rehearse(
             rehearsal_sample(), server=FakeServer(over_cap_array=True)

@@ -1028,6 +1028,17 @@ def rehearsal_checks(records, queries_mode, failure=None):
         return len(specials) > 1 and not r["prefix_only"] and r["tail"] != specials[-1]
 
     bare = [r["key"] for r in requests if r["array"] and specials and unwrapped(r)]
+    ordering = records.get("ordering", [])
+    ordering_bad = (
+        []
+        if queries_mode
+        else [f"r{o['repeat']}: {o['errors']}" for o in ordering if o["errors"]]
+        + (
+            [f"{len(ordering)} of {REPEATS} repeats ran"]
+            if len(ordering) < REPEATS
+            else []
+        )
+    )
     counts = Counter(r["target"] for r in records.get("buckets", []))
     empty = [] if queries_mode else [t for t in QWEN_MEDIANS_MS if not counts[t]]
     seen = gate1["enabled_line"] or bool(gate1["fallback_lines"])
@@ -1049,6 +1060,11 @@ def rehearsal_checks(records, queries_mode, failure=None):
             "probe_verbosity_logs_fa",
             verbosity >= FA_LOG_VERBOSITY,
             f"--verbosity {verbosity}, the FA line logs at {FA_LOG_VERBOSITY}",
+        ),
+        (
+            "ordering_ran_clean",
+            not ordering_bad,
+            f"ordering: {ordering_bad}" if ordering_bad else "no ordering errors",
         ),
         (
             "every_bucket_has_requests",
