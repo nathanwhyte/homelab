@@ -1,0 +1,240 @@
+{
+  "created_at": "2026-10-15T13:34:58.349551+00:00",
+  "sample": "/Users/noot/ov-pilot-20260921/06-trial/embedder-exp/sample.json",
+  "sample_sha256": "ed0654415fc561d6c85e7b5a95a420f4a0debb61e20b25359c8a1aef75ba434e",
+  "runner_sha256": "5d2435aa0749779428b359a110e90a9f29c4d7cf61e08e94b8bdd2894830fe71",
+  "plan": {
+    "image": "ghcr.io/ggml-org/llama.cpp@sha256:c4348afb91499b10fad12f92626c7a8ca8b69d6475d10c793b810cb61237ce00",
+    "pod": "task1218-eg2-probe",
+    "args": [
+      "--model",
+      "/models/current.gguf",
+      "--host",
+      "0.0.0.0",
+      "--port",
+      "8000",
+      "--embedding",
+      "--pooling",
+      "mean",
+      "--ctx-size",
+      "8192",
+      "--batch-size",
+      "8192",
+      "--ubatch-size",
+      "8192",
+      "--parallel",
+      "1",
+      "--cache-ram",
+      "0",
+      "--n-gpu-layers",
+      "999",
+      "--threads",
+      "4",
+      "--split-mode",
+      "none",
+      "--main-gpu",
+      "0",
+      "--metrics",
+      "--flash-attn",
+      "auto",
+      "--verbosity",
+      "3"
+    ],
+    "cap_eg2_tokens": 3072,
+    "inputs": [
+      {
+        "index": 0,
+        "target": 300,
+        "qwen_tokens": 300
+      },
+      {
+        "index": 1,
+        "target": 300,
+        "qwen_tokens": 300
+      },
+      {
+        "index": 2,
+        "target": 300,
+        "qwen_tokens": 300
+      },
+      {
+        "index": 3,
+        "target": 300,
+        "qwen_tokens": 300
+      },
+      {
+        "index": 4,
+        "target": 300,
+        "qwen_tokens": 300
+      },
+      {
+        "index": 5,
+        "target": 300,
+        "qwen_tokens": 300
+      },
+      {
+        "index": 6,
+        "target": 300,
+        "qwen_tokens": 300
+      },
+      {
+        "index": 7,
+        "target": 300,
+        "qwen_tokens": 300
+      },
+      {
+        "index": 8,
+        "target": 300,
+        "qwen_tokens": 234
+      },
+      {
+        "index": 9,
+        "target": 300,
+        "qwen_tokens": 300
+      },
+      {
+        "index": 10,
+        "target": 300,
+        "qwen_tokens": 300
+      },
+      {
+        "index": 11,
+        "target": 300,
+        "qwen_tokens": 300
+      },
+      {
+        "index": 12,
+        "target": 1000,
+        "qwen_tokens": 1000
+      },
+      {
+        "index": 13,
+        "target": 1000,
+        "qwen_tokens": 1000
+      },
+      {
+        "index": 14,
+        "target": 1000,
+        "qwen_tokens": 1000
+      },
+      {
+        "index": 15,
+        "target": 1000,
+        "qwen_tokens": 1000
+      },
+      {
+        "index": 16,
+        "target": 1000,
+        "qwen_tokens": 1000
+      },
+      {
+        "index": 17,
+        "target": 1000,
+        "qwen_tokens": 1000
+      },
+      {
+        "index": 18,
+        "target": 1000,
+        "qwen_tokens": 1000
+      },
+      {
+        "index": 19,
+        "target": 1000,
+        "qwen_tokens": 1000
+      },
+      {
+        "index": 20,
+        "target": 1000,
+        "qwen_tokens": 1000
+      },
+      {
+        "index": 21,
+        "target": 1000,
+        "qwen_tokens": 1000
+      },
+      {
+        "index": 22,
+        "target": 3000,
+        "qwen_tokens": 3000
+      },
+      {
+        "index": 23,
+        "target": 3000,
+        "qwen_tokens": 3000
+      },
+      {
+        "index": 24,
+        "target": 3000,
+        "qwen_tokens": 3000
+      },
+      {
+        "index": 25,
+        "target": 3000,
+        "qwen_tokens": 3000
+      },
+      {
+        "index": 26,
+        "target": 3000,
+        "qwen_tokens": 3000
+      },
+      {
+        "index": 27,
+        "target": 3000,
+        "qwen_tokens": 3000
+      },
+      {
+        "index": 28,
+        "target": 3000,
+        "qwen_tokens": 3000
+      },
+      {
+        "index": 29,
+        "target": 3000,
+        "qwen_tokens": 3000
+      },
+      {
+        "index": 30,
+        "target": 3000,
+        "qwen_tokens": 3000
+      },
+      {
+        "index": 31,
+        "target": 3000,
+        "qwen_tokens": 3000
+      }
+    ],
+    "inputs_by_target": {
+      "300": 12,
+      "1000": 10,
+      "3000": 10
+    },
+    "pair_lengths": [
+      1024,
+      1025,
+      2048,
+      2049,
+      2816,
+      2817
+    ],
+    "pair_token_source_index": 38,
+    "repeats": 3,
+    "requests": 128,
+    "gates": {
+      "pair_ratio_max": 1.5,
+      "qwen_medians_ms": {
+        "300": 326,
+        "1000": 1108,
+        "3000": 3644
+      },
+      "cosine_min": 0.999
+    },
+    "guards": {
+      "rss_kib": 5242880,
+      "cpu_c": 80,
+      "gpu_c": 85,
+      "deadline_minutes": 20,
+      "restore_reserve_seconds": 870
+    }
+  },
+  "vectors": "/Users/noot/code/homelab/.worktrees/agent-task1218-eg2-probe/benchmarks/embedding-retrieval/scratch/task1218-eg2-probe-20261015T1334Z"
+}
