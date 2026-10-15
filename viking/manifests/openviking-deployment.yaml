@@ -280,7 +280,9 @@ spec:
             # decision object falls back to the creation prompt as before. One stderr
             # line per call, ov-wm-update-schema {"mode": "json", "outcome":
             # "tool_call"|"no_tool_call", "mapped": N, "coerced": N, "repaired": N,
-            # "elapsed_s": …}, so the no_tool_call share is the number to watch and
+            # "ops": {"KEEP": N, "UPDATE": N, "APPEND": N, "other": N}, "elapsed_s": …},
+            # so the no_tool_call share is the number to watch (an all-KEEP drift in
+            # "ops" is the quality one) and
             # OV's "WM update: LLM returned no tool_call; falling back" should drop by
             # the tool_call share. "schema" is the forced-tool-call variant (flat
             # snake_case schema; for a path without the shim), "skip" the 2026-10-13

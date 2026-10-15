@@ -509,6 +509,30 @@ def restore_arguments(args, key_map):
     return rename(new_args), info
 
 
+def decision_mix(arguments, key_map):
+    """``{"KEEP": n, "UPDATE": n, "APPEND": n, "other": n}`` over the known sections of
+    a restored tool-call argument object (``sections`` wrapper or top level), so the
+    per-call line shows what the merge will do, not only that it will run; ``None``
+    when there is nothing to count."""
+    if not isinstance(arguments, dict):
+        return None
+    titles = set(key_map.values())
+    sections = arguments.get("sections")
+    if not isinstance(sections, dict):
+        sections = {k: v for k, v in arguments.items() if k in titles}
+    mix = {op: 0 for op in OPS}
+    mix["other"] = 0
+    counted = False
+    for title, decision in sections.items():
+        if title not in titles:
+            continue
+        counted = True
+        op = decision.get("op") if isinstance(decision, dict) else None
+        op = op.strip().upper() if isinstance(op, str) else None
+        mix[op if op in OPS else "other"] += 1
+    return mix if counted else None
+
+
 def _emit(prefix, record):
     """One stderr line, best effort: a failing stderr never fails the VLM call."""
     with contextlib.suppress(Exception):
@@ -557,6 +581,7 @@ def schema_wm_update(original):
             "coerced": 0,
             "repaired": 0,
             "collisions": [],
+            "ops": None,
             "finish_reason": getattr(resp, "finish_reason", None),
             "completion_tokens": (getattr(resp, "usage", None) or {}).get(
                 "completion_tokens"
@@ -582,6 +607,7 @@ def schema_wm_update(original):
                 record["coerced"] = info["coerced"]
                 record["repaired"] = info["repaired"]
                 record["collisions"] = info["collisions"]
+                record["ops"] = decision_mix(tool_call.arguments, key_map)
                 break
         _emit("ov-wm-update-schema ", record)
         return resp
@@ -805,6 +831,7 @@ def json_wm_update(original):
             "coerced": 0,
             "repaired": 0,
             "collisions": [],
+            "ops": None,
             "reply_chars": len(text) if isinstance(text, str) else None,
             "elapsed_s": elapsed,
             "prompt_chars": len(prompt) if isinstance(prompt, str) else None,
@@ -827,6 +854,7 @@ def json_wm_update(original):
             for key in ("sections", "mapped", "coerced", "repaired", "collisions"):
                 record[key] = info[key]
             record["unmapped"] = [str(k) for k in info["unmapped"]][:10]
+            record["ops"] = decision_mix(arguments, key_map)
             response = VLMResponse(
                 content="",
                 tool_calls=[

@@ -636,6 +636,9 @@ class SchemaWrapperTests(unittest.TestCase):
         self.assertEqual(record["unmapped"], [])
         self.assertEqual((record["coerced"], record["repaired"]), (0, 0))
         self.assertEqual(record["collisions"], [])
+        self.assertEqual(
+            record["ops"], {"KEEP": 7, "UPDATE": 0, "APPEND": 0, "other": 0}
+        )
         self.assertEqual(record["finish_reason"], "tool_calls")
         self.assertEqual(record["completion_tokens"], 321)
         self.assertEqual(record["prompt_chars"], 6)
@@ -946,6 +949,9 @@ class JsonModeTests(unittest.TestCase):
             (record["mapped"], record["coerced"], record["repaired"]), (7, 0, 0)
         )
         self.assertEqual(record["reply_chars"], len(self.reply))
+        self.assertEqual(
+            record["ops"], {"KEEP": 7, "UPDATE": 0, "APPEND": 0, "other": 0}
+        )
 
     def test_positional_tools_are_dropped(self):
         with (
@@ -983,6 +989,37 @@ class JsonModeTests(unittest.TestCase):
             },
         )
         self.assertEqual((record["coerced"], record["repaired"]), (1, 1))
+        self.assertEqual(
+            record["ops"], {"KEEP": 1, "UPDATE": 1, "APPEND": 0, "other": 0}
+        )
+
+    def test_decision_mix_counts_known_sections_only(self):
+        key_map = dict(zip(IDS, TITLES))
+        args = {
+            "sections": {
+                "Current State": {"op": "update", "content": "x"},
+                "Open Issues": {"op": "APPEND", "items": ["a"]},
+                "Task & Goals": {"op": "BOGUS"},
+                "Session Title": "not a dict",
+                "Extra": {"op": "KEEP"},
+            },
+            "checkpoint_summaries": ["one"],
+        }
+        self.assertEqual(
+            wm_patch.decision_mix(args, key_map),
+            {"KEEP": 0, "UPDATE": 1, "APPEND": 1, "other": 2},
+        )
+        top_level = {**_ops(TITLES[:3], "KEEP"), "checkpoint_summaries": []}
+        self.assertEqual(
+            wm_patch.decision_mix(top_level, key_map),
+            {"KEEP": 3, "UPDATE": 0, "APPEND": 0, "other": 0},
+        )
+        self.assertIsNone(wm_patch.decision_mix({"sections": {"Extra": 1}}, key_map))
+        self.assertIsNone(wm_patch.decision_mix("text", key_map))
+        # No tool call: the record carries ops None.
+        self.reply = "nothing here"
+        _resp, record = self._run_update()
+        self.assertIsNone(record["ops"])
 
     def test_checkpoint_summaries_ride_along(self):
         self.reply = json.dumps(
