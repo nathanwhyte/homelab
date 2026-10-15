@@ -3,6 +3,7 @@
 import copy
 import json
 import os
+import shutil
 import signal
 import subprocess
 import sys
@@ -376,6 +377,7 @@ class WindowTests(unittest.TestCase):
         kube_effect=None,
         during_restore=None,
         deployment=None,
+        note=None,
     ):
         abort = threading.Event()
         deployment = deployment or FakeDeployment()
@@ -399,7 +401,7 @@ class WindowTests(unittest.TestCase):
             out = Path(directory)
             error = None
             try:
-                probe.run_window(out, SNAPSHOT, budget_s, start_pod, body, abort)
+                probe.run_window(out, SNAPSHOT, budget_s, start_pod, body, abort, note)
             except Exception as exc:  # noqa: BLE001 — each test asserts the type
                 error = exc
             window = json.loads((out / "window.json").read_text())
@@ -413,6 +415,10 @@ class WindowTests(unittest.TestCase):
                 out=out,
                 abort=abort,
             )
+
+    def test_window_json_records_the_rehearsal_note(self):
+        run = self.run_window(note={"rehearsal": "skipped (--skip-rehearsal)"})
+        self.assertEqual(run.window["rehearsal"], "skipped (--skip-rehearsal)")
 
     def test_failure_in_measurements_restores_once(self):
         def body():
@@ -843,6 +849,261 @@ class RestoreTests(unittest.TestCase):
         error, _, _, restored = self.restore(gets)
         self.assertRegex(str(error), "changed concurrently")
         self.assertFalse(restored)
+
+
+def rehearsal_sample(long_3000=False):
+    """44 rows; `long_3000` makes the 3,000-target texts tokenize past the EG2 cap."""
+    rows = []
+    for target, n in ((300, 12), (1000, 10), (3000, 10), (6000, 6), (7600, 6)):
+        chars = 9000 if long_3000 and target == 3000 else max(target, 7700)
+        rows += [{"target": target, "tokens": target, "text": "a" * chars}] * n
+    return rows
+
+
+class FakeServer:
+    """A stand-in for http(): one token per character, plus [2, 1] specials."""
+
+    def __init__(self, over_cap_array=False):
+        self.over_cap_array = over_cap_array
+        self.sent = []
+
+    def __call__(self, base, path, body=None, timeout=None):
+        if path == "/tokenize":
+            n = len(body["content"])
+            specials = [2, 1] if body["add_special"] else []
+            return {"tokens": specials + [10 + i % 900 for i in range(n)]}
+        value = body["input"][0]
+        self.sent.append(value)
+        time.sleep(0.001)  # a measured request never takes 0.0 ms
+        tokens = len(value) if isinstance(value, list) else len(value) + 2
+        if self.over_cap_array and isinstance(value, list) and tokens >= 2000:
+            tokens = probe.CAP + 1
+        return {
+            "data": [{"embedding": [1.0] * probe.DIMENSION}],
+            "usage": {"prompt_tokens": tokens},
+        }
+
+
+GOOD_LOG = "llama_context: Flash Attention enabled\n"
+
+
+class RehearsalTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        self.name = f"rehearse-test-{os.getpid()}-{id(self)}"
+        self.addCleanup(
+            shutil.rmtree, Path(probe.__file__).parent / "scratch" / self.name, True
+        )
+        patcher = patch.object(probe.latency_local, "GAP_S", 0)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def args(self, rows, log=GOOD_LOG, queries=None):
+        sample_path = self.root / "sample.json"
+        sample_path.write_text(json.dumps(rows))
+        log_path = self.root / "server.log"
+        log_path.write_text(log)
+        query_path = None
+        if queries:
+            query_path = self.root / "queries.json"
+            query_path.write_text(json.dumps({"queries": queries}))
+        return SimpleNamespace(
+            sample=sample_path,
+            queries=query_path,
+            query_list=queries,
+            output=self.root / self.name,
+            server_log=log_path,
+            base_url="http://127.0.0.1:1",
+        )
+
+    def rehearse(self, rows, server=None, **kwargs):
+        args = self.args(rows, **kwargs)
+        server = server or FakeServer()
+        kept = probe.select_inputs(rows)
+        with (
+            patch.object(probe, "http", server),
+            patch.object(probe, "kube", side_effect=AssertionError("kubectl")),
+        ):
+            passed = probe.rehearse(args, rows, kept)
+        record = json.loads((args.output / "rehearsal.json").read_text())
+        failed = {c["name"] for c in record["checks"] if not c["ok"]}
+        return passed, record, failed, server, args
+
+    def test_good_fixture_passes_and_records_the_plan_hash(self):
+        rows = rehearsal_sample()
+        passed, record, failed, server, args = self.rehearse(rows)
+        self.assertTrue(passed, record["checks"])
+        self.assertEqual(failed, set())
+        self.assertEqual(
+            record["plan_hash"],
+            probe.plan_hash(args, rows, probe.select_inputs(rows)),
+        )
+        # Every token array that is not special-free starts with the BOS id.
+        arrays = [v for v in server.sent if isinstance(v, list)]
+        self.assertTrue(arrays and all(v[0] == 2 and v[-1] == 1 for v in arrays))
+
+    def test_missing_fa_line_fails(self):
+        passed, _, failed, _, _ = self.rehearse(
+            rehearsal_sample(), log="no resolution lines at this verbosity\n"
+        )
+        self.assertFalse(passed)
+        self.assertEqual(failed, {"fa_signal_in_server_log"})
+
+    def test_empty_server_log_leaves_gate_1_unmeasured(self):
+        passed, _, failed, _, _ = self.rehearse(rehearsal_sample(), log="")
+        self.assertFalse(passed)
+        self.assertEqual(failed, {"gates_1_3_measured", "fa_signal_in_server_log"})
+
+    def test_fallback_line_counts_as_the_signal(self):
+        passed, _, _, _, _ = self.rehearse(
+            rehearsal_sample(), log="Flash Attention not supported, set to disabled\n"
+        )
+        self.assertTrue(passed)
+
+    def test_empty_bucket_fails(self):
+        passed, record, failed, _, _ = self.rehearse(rehearsal_sample(long_3000=True))
+        self.assertFalse(passed)
+        self.assertIn("every_bucket_has_requests", failed)
+        detail = next(
+            c for c in record["checks"] if c["name"] == "every_bucket_has_requests"
+        )
+        self.assertIn("3000", detail["detail"])
+
+    def test_over_cap_request_fails(self):
+        passed, _, failed, _, _ = self.rehearse(
+            rehearsal_sample(), server=FakeServer(over_cap_array=True)
+        )
+        self.assertFalse(passed)
+        self.assertLessEqual({"no_request_over_cap", "plan_ran_to_the_end"}, failed)
+
+    def test_special_free_array_fails_unless_marked(self):
+        records = {
+            "specials": [2, 1],
+            "requests": [
+                {"key": "calibrate", "tokens": 16, "array": True, "head": 10,
+                 "special_free": False},
+                {"key": "frag-8", "tokens": 8, "array": True, "head": 10,
+                 "special_free": True},
+                {"key": "first", "tokens": 5, "array": False, "head": None,
+                 "special_free": False},
+            ],
+        }  # fmt: skip
+        by_name = {c["name"]: c for c in probe.rehearsal_checks(records, True)}
+        check = by_name["token_arrays_carry_specials"]
+        self.assertFalse(check["ok"])
+        self.assertIn("calibrate", check["detail"])
+        self.assertNotIn("frag-8", check["detail"])
+        records["requests"][0]["head"] = 2
+        by_name = {c["name"]: c for c in probe.rehearsal_checks(records, True)}
+        self.assertTrue(by_name["token_arrays_carry_specials"]["ok"])
+
+    def test_queries_mode_keeps_its_special_free_fragments_labeled(self):
+        rows = rehearsal_sample()
+        passed, record, _, server, _ = self.rehearse(
+            rows, queries=[{"id": "q1", "text": "what is BUG-1"}]
+        )
+        self.assertTrue(passed, record["checks"])
+        self.assertEqual(record["mode"], "queries")
+        sent = [v for v in server.sent if isinstance(v, list)]
+        self.assertEqual(len([v for v in sent if v[0] == 2]), 8)
+        self.assertEqual(len([v for v in sent if v[0] != 2]), 8)
+
+    def test_verbosity_below_trace_fails_the_check(self):
+        args = list(probe.PROBE_ARGS)
+        args[args.index("--verbosity") + 1] = "3"
+        with patch.object(probe, "PROBE_ARGS", args):
+            checks = probe.rehearsal_checks({"requests": []}, True)
+        self.assertFalse(
+            next(c for c in checks if c["name"] == "probe_verbosity_logs_fa")["ok"]
+        )
+
+
+class RehearsalGateTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        self.rows = rehearsal_sample()
+        self.sample_path = self.root / "sample.json"
+        self.sample_path.write_text(json.dumps(self.rows))
+        self.kept = probe.select_inputs(self.rows)
+        self.name = f"execute-test-{os.getpid()}-{id(self)}"
+        self.addCleanup(
+            shutil.rmtree, Path(probe.__file__).parent / "scratch" / self.name, True
+        )
+
+    def args(self, **kwargs):
+        base = {
+            "sample": self.sample_path,
+            "queries": None,
+            "query_list": None,
+            "output": self.root / self.name,
+            "rehearsal": None,
+            "skip_rehearsal": False,
+        }
+        return SimpleNamespace(**{**base, **kwargs})
+
+    def rehearsal_file(self, **fields):
+        record = {
+            "passed": True,
+            "plan_hash": probe.plan_hash(self.args(), self.rows, self.kept),
+            "checks": [{"name": "fa_signal_in_server_log", "ok": False}],
+        }
+        path = self.root / "rehearsal.json"
+        path.write_text(json.dumps({**record, **fields}))
+        return path
+
+    def execute(self, args):
+        with (
+            patch.object(probe, "preflight", side_effect=RuntimeError("stop")),
+            self.assertRaisesRegex(Exception, "stop|rehearsal") as ctx,
+        ):
+            probe.execute(args, self.rows, self.kept)
+        return ctx.exception
+
+    def test_execute_refuses_without_a_rehearsal(self):
+        error = self.execute(self.args())
+        self.assertIsInstance(error, probe.RehearsalRefused)
+        self.assertFalse((self.root / self.name).exists())
+
+    def test_execute_refuses_a_failed_rehearsal(self):
+        path = self.rehearsal_file(passed=False)
+        error = self.execute(self.args(rehearsal=path))
+        self.assertIsInstance(error, probe.RehearsalRefused)
+        self.assertIn("fa_signal_in_server_log", str(error))
+
+    def test_execute_refuses_a_mismatched_plan_hash(self):
+        path = self.rehearsal_file(plan_hash="0" * 64)
+        error = self.execute(self.args(rehearsal=path))
+        self.assertIsInstance(error, probe.RehearsalRefused)
+        self.assertIn("plan hash", str(error))
+
+    def test_a_changed_sample_invalidates_the_rehearsal(self):
+        path = self.rehearsal_file()
+        self.sample_path.write_text(json.dumps(self.rows) + " ")
+        error = self.execute(self.args(rehearsal=path))
+        self.assertIsInstance(error, probe.RehearsalRefused)
+
+    def test_matching_rehearsal_proceeds_to_preflight(self):
+        path = self.rehearsal_file()
+        error = self.execute(self.args(rehearsal=path))
+        self.assertNotIsInstance(error, probe.RehearsalRefused)
+        provenance = json.loads((self.root / self.name / "provenance.json").read_text())
+        self.assertEqual(provenance["rehearsal"], str(path))
+
+    def test_skip_rehearsal_proceeds_and_is_recorded(self):
+        error = self.execute(self.args(skip_rehearsal=True))
+        self.assertNotIsInstance(error, probe.RehearsalRefused)
+        provenance = json.loads((self.root / self.name / "provenance.json").read_text())
+        self.assertIn("skipped", provenance["rehearsal"])
+        self.assertIn(
+            "skipped",
+            probe.require_rehearsal(
+                self.args(skip_rehearsal=True), self.rows, self.kept
+            )["rehearsal"],
+        )
 
 
 if __name__ == "__main__":

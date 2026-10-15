@@ -9,18 +9,28 @@ Modes (default: --dry-run):
               (no Service selects it), measure, and restore production on every exit
   --evaluate  re-score a finished window's records.json, optionally with gate 4's
               cosines from the pop reference run (--cosines)
+  --rehearse  run the --execute request plan against a local llama-server (--base-url,
+              started with PROBE_ARGS; --server-log is its log) and fail unless every
+              setup defect a window cannot afford is absent; touches no cluster, writes
+              rehearsal.json. --execute refuses without --rehearsal pointing at a
+              passing one for the same plan (--skip-rehearsal overrides, recorded)
 
 b11610 has the attention padding fix (ggml-org/llama.cpp#30416, b11576) and the
 host-memory fix (#30255, b11588), so inputs run up to the 8,192-token context. The
 first window (2026-10-15, b11580) capped them at 3,072 for want of #30255. The RSS
 guard still deletes the Pod past 5 GiB. The token-exact pairs are sliced from the
-longest sample text.
+longest sample text. Token arrays carry the model's BOS/EOS specials, as OV's do,
+except the --queries `frag-N` inputs, which are special-free on purpose.
 
 Plan: compendium docs/plans/2026-10-13-TASK-1218-eg2-gtx1080-probe.md.
 
   python3 probe_eg2_1080.py --sample sample.json --dry-run
   python3 probe_eg2_1080.py --prepull
+  python3 probe_eg2_1080.py --sample sample.json --rehearse \\
+    --base-url http://127.0.0.1:18093 --server-log server.log \\
+    --output results-local/task1218-eg2-rehearsal-<UTC>
   python3 probe_eg2_1080.py --sample sample.json --execute \\
+    --rehearsal results-local/task1218-eg2-rehearsal-<UTC>/rehearsal.json \\
     --output results-local/task1218-eg2-probe-<UTC>
 """
 
@@ -33,10 +43,12 @@ import re
 import signal
 import statistics
 import subprocess
+import sys
 import threading
 import time
 from collections import Counter
 from pathlib import Path
+from types import SimpleNamespace
 
 import latency_local
 from benchmark_1080_slots import (
@@ -98,6 +110,8 @@ COSINE_MIN = 0.999
 # b11588 src/llama-context.cpp:629-645, the -fa auto probe's verdict lines.
 FA_ENABLED = "Flash Attention enabled"
 FA_FALLBACK = ("Flash Attention is assigned to device", "Flash Attention not supported")
+FA_LOG_VERBOSITY = 4  # libllama logs the resolution at TRACE: common/log.cpp:532
+REHEARSAL_URL = "http://127.0.0.1:18093"
 
 MODEL_ENV = [
     {"name": "MODEL_FILE", "value": "embeddinggemma-2-Q8_0.gguf"},
@@ -504,7 +518,7 @@ def preflight():
 STOP_SIGNALS = (signal.SIGINT, signal.SIGTERM, signal.SIGHUP, signal.SIGQUIT)
 
 
-def run_window(out, snapshot, budget_s, start_pod, body, abort):
+def run_window(out, snapshot, budget_s, start_pod, body, abort, note=None):
     """Scale production to 0, start the probe, run body() in a worker, restore.
 
     The signal handlers only record a reason and set `abort`; nothing raises into
@@ -536,6 +550,7 @@ def run_window(out, snapshot, budget_s, start_pod, body, abort):
     window = {
         "deadline_minutes": DEADLINE_MINUTES,
         "measure_budget_seconds": budget_s,
+        **(note or {}),
     }
     started = time.monotonic()
     measure_until = started + budget_s
@@ -672,7 +687,7 @@ def measure(
     vectors = (scratch / "vectors.jsonl").open("w")
     lock = threading.Lock()
 
-    def embed(key, value, sent=None):
+    def embed(key, value, sent=None, special_free=False):
         if abort.is_set():
             raise RuntimeError("window stopped")
         monitor.check()
@@ -689,6 +704,17 @@ def measure(
         vector = response["data"][0]["embedding"]
         norm = check_vector(vector)
         tokens = (response.get("usage") or {}).get("prompt_tokens")
+        with lock:
+            # What --rehearse audits: each request's shape, kept even when over the cap.
+            records.setdefault("requests", []).append(
+                {
+                    "key": key,
+                    "tokens": tokens,
+                    "array": isinstance(value, list),
+                    "head": value[0] if isinstance(value, list) and value else None,
+                    "special_free": special_free,
+                }
+            )
         if tokens is None or tokens > CAP:
             raise RuntimeError(f"{key}: {tokens} prompt tokens, cap {CAP}")
         row = {"key": key, "input": value, "tokens": tokens, "vector": vector}
@@ -745,7 +771,8 @@ def measure(
                     ("frag", ids[:length]),
                     ("bosfrag", bos + ids[:length]),
                 ):
-                    row = embed(f"{kind}-{length}", value)
+                    # `frag` is the deliberate special-free half of the pair.
+                    row = embed(f"{kind}-{length}", value, special_free=kind == "frag")
                     if row["tokens"] != len(value):
                         raise RuntimeError(
                             f"{kind}-{length}: sent {len(value)}, server counted "
@@ -764,13 +791,20 @@ def measure(
             print(f"short inputs done at {now()}", flush=True)
             return
 
-        # Token arrays are sent as-is (server-common.cpp tokenize_mixed adds no BOS);
-        # the calibration request proves it on this build.
+        # Token arrays are sent as-is (server-common.cpp tokenize_mixed adds no BOS),
+        # so they carry the model's specials ([BOS, EOS]) as OV's inputs do. The
+        # 2026-10-15 third window found a special-free array scoring 0.988 vs pop.
+        specials = tokenize(base, "", add_special=True)
+        records["specials"] = specials
+
+        def wrap(ids):
+            return specials[:1] + ids + specials[1:]
+
         ids = tokenize(base, pair_source, add_special=False)
         longest = max(n for pair in PAIRS for n in pair)
         if len(ids) < longest + REPEATS:
             raise RuntimeError(f"pair source has {len(ids)} tokens, need {longest}")
-        calibration = embed("calibrate", ids[:16])
+        calibration = embed("calibrate", wrap(ids[:16]))
         offset = calibration["tokens"] - 16
         records["calibration"] = {**calibration, "offset": offset}
         if not 0 <= offset <= 2:
@@ -780,7 +814,7 @@ def measure(
                 for length in (a, b) if repeat % 2 == 0 else (b, a):
                     row = embed(
                         f"pair-{length}-r{repeat}",
-                        ids[repeat : repeat + length - offset],
+                        wrap(ids[repeat : repeat + length - offset]),
                     )
                     if row["tokens"] != length:
                         raise RuntimeError(f"pair {length} sent {row['tokens']} tokens")
@@ -864,7 +898,204 @@ def measure(
         vectors.close()
 
 
+def run_plan(
+    base, monitor, abort, sample, kept_by_qwen, queries, scratch, records, flush
+):
+    """The measurement body of --execute, against any llama-server at `base`.
+
+    --rehearse calls this with a local server, so the requests it audits are the
+    ones a window sends.
+    """
+    count = lambda text: len(tokenize(base, text))
+    texts, dropped = cap_inputs(kept_by_qwen, count)
+    records["inputs"] = [
+        {k: r[k] for k in ("index", "target", "qwen_tokens", "eg2_tokens")}
+        for r in texts
+    ]
+    records["dropped_over_cap"] = [
+        {"index": r["index"], "eg2_tokens": r["eg2_tokens"]} for r in dropped
+    ]
+    flush()
+    pair_source = max(sample, key=lambda s: s["tokens"])["text"]
+    measure(
+        base,
+        monitor,
+        abort,
+        texts,
+        pair_source,
+        scratch,
+        records,
+        flush,
+        queries=queries,
+    )
+
+
+class RehearsalRefused(ValueError):
+    pass
+
+
+def plan_hash(args, sample, kept):
+    """What a rehearsal certifies: the sample, probe args, cap, mode and request plan."""
+    queries = args.queries.read_bytes() if args.queries else b""
+    return hashlib.sha256(
+        json.dumps(
+            {
+                "plan": plan(sample, kept, args.query_list),
+                "sample_sha256": hashlib.sha256(args.sample.read_bytes()).hexdigest(),
+                "queries_sha256": hashlib.sha256(queries).hexdigest(),
+            },
+            sort_keys=True,
+        ).encode()
+    ).hexdigest()
+
+
+def require_rehearsal(args, sample, kept):
+    """Refuse --execute without a passing rehearsal of this plan; returns window.json's note."""
+    if args.skip_rehearsal:
+        return {"rehearsal": "skipped (--skip-rehearsal)"}
+    if not args.rehearsal:
+        raise RehearsalRefused("--execute needs --rehearsal PATH (or --skip-rehearsal)")
+    try:
+        record = json.loads(args.rehearsal.read_text())
+    except (OSError, ValueError) as exc:
+        raise RehearsalRefused(f"unreadable rehearsal {args.rehearsal}: {exc}") from exc
+    if record.get("passed") is not True:
+        failed = [c["name"] for c in record.get("checks", []) if not c.get("ok")]
+        raise RehearsalRefused(f"rehearsal {args.rehearsal} did not pass: {failed}")
+    expected = plan_hash(args, sample, kept)
+    if record.get("plan_hash") != expected:
+        raise RehearsalRefused(
+            f"rehearsal plan hash {record.get('plan_hash')} != current {expected}"
+        )
+    return {"rehearsal": str(args.rehearsal), "rehearsal_plan_hash": expected}
+
+
+def rehearsal_checks(records, queries_mode, failure=None):
+    """Each setup defect a window cannot afford, as {name, ok, detail}.
+
+    Gate 4 is not judged: the reference is the local server. Gates 2 and 3 need
+    only be measured, since a local card's speed says nothing about manu's.
+    """
+    verdict = evaluate(records)
+    gate1 = verdict["gate1_attention_on_gpu"]
+    unmeasured = [
+        name
+        for name in (
+            ("gate1_attention_on_gpu",)
+            if queries_mode
+            else (
+                "gate1_attention_on_gpu",
+                "gate2_no_length_cliff",
+                "gate3_faster_than_qwen",
+            )
+        )
+        if verdict[name]["pass"] is None
+    ]
+    verbosity = int(PROBE_ARGS[PROBE_ARGS.index("--verbosity") + 1])
+    requests = records.get("requests", [])
+    over = [r["key"] for r in requests if r["tokens"] is None or r["tokens"] > CAP]
+    specials = records.get("specials") or []
+    bare = [
+        r["key"]
+        for r in requests
+        if r["array"]
+        and not r["special_free"]
+        and specials
+        and r["head"] != specials[0]
+    ]
+    counts = Counter(r["target"] for r in records.get("buckets", []))
+    empty = [] if queries_mode else [t for t in QWEN_MEDIANS_MS if not counts[t]]
+    seen = gate1["enabled_line"] or bool(gate1["fallback_lines"])
+    checks = [
+        ("plan_ran_to_the_end", failure is None, failure or "no request failed"),
+        (
+            "gates_1_3_measured" if not queries_mode else "gate_1_measured",
+            not unmeasured,
+            f"unmeasured: {unmeasured}" if unmeasured else "all measured",
+        ),
+        (
+            "fa_signal_in_server_log",
+            seen,
+            "FA line found"
+            if seen
+            else f"no {FA_ENABLED!r} or fallback line in the server log",
+        ),
+        (
+            "probe_verbosity_logs_fa",
+            verbosity >= FA_LOG_VERBOSITY,
+            f"--verbosity {verbosity}, the FA line logs at {FA_LOG_VERBOSITY}",
+        ),
+        (
+            "every_bucket_has_requests",
+            not empty,
+            f"empty buckets: {empty}" if empty else "none empty",
+        ),
+        (
+            "no_request_over_cap",
+            bool(requests) and not over,
+            f"over {CAP}: {over}" if over else f"{len(requests)} requests",
+        ),
+        (
+            "token_arrays_carry_specials",
+            not bare,
+            f"special-free arrays not marked in the plan: {bare}"
+            if bare
+            else "all arrays wrapped, or marked special-free",
+        ),
+    ]
+    return [{"name": n, "ok": bool(ok), "detail": d} for n, ok, d in checks]
+
+
+def rehearse(args, sample, kept):
+    """Run the --execute plan against a local server and write rehearsal.json.
+
+    Returns True when every check passes. No kubectl, no port-forward.
+    """
+    out = args.output
+    scratch = Path(__file__).parent / "scratch" / out.name
+    out.mkdir(parents=True, exist_ok=False)
+    scratch.mkdir(parents=True, exist_ok=False)
+    records = {"pairs": [], "buckets": [], "ordering": [], "short": [], "guard": None}
+    records["startup_log"] = args.server_log.read_text() or None
+    monitor = SimpleNamespace(check=lambda: None)
+    failure = None
+    try:
+        run_plan(
+            args.base_url,
+            monitor,
+            threading.Event(),
+            sample,
+            kept,
+            args.query_list,
+            scratch,
+            records,
+            lambda: save(out / "records.json", records),
+        )
+    except Exception as exc:  # noqa: BLE001 — reported as a failed check
+        failure = f"{type(exc).__name__}: {exc}"
+    save(out / "records.json", records)
+    checks = rehearsal_checks(records, args.query_list is not None, failure)
+    passed = all(c["ok"] for c in checks)
+    save(
+        out / "rehearsal.json",
+        {
+            "created_at": now(),
+            "passed": passed,
+            "plan_hash": plan_hash(args, sample, kept),
+            "mode": "queries" if args.query_list is not None else "full",
+            "base_url": args.base_url,
+            "server_log": str(args.server_log),
+            "checks": checks,
+        },
+    )
+    for c in checks:
+        print(f"{'ok  ' if c['ok'] else 'FAIL'} {c['name']}: {c['detail']}")
+    print(f"rehearsal {'PASSED' if passed else 'FAILED'}: {out / 'rehearsal.json'}")
+    return passed
+
+
 def execute(args, sample, kept_by_qwen):
+    note = require_rehearsal(args, sample, kept_by_qwen)
     out = args.output
     scratch = Path(__file__).parent / "scratch" / out.name
     out.mkdir(parents=True, exist_ok=False)
@@ -879,6 +1110,7 @@ def execute(args, sample, kept_by_qwen):
             "sample_sha256": hashlib.sha256(args.sample.read_bytes()).hexdigest(),
             "runner_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
             "plan": plan(sample, kept_by_qwen, args.query_list),
+            **note,
             "vectors": str(scratch),
         },
     )
@@ -928,27 +1160,16 @@ def execute(args, sample, kept_by_qwen):
                 rss_limit_kib=RSS_LIMIT_KIB,
             )
             monitor.start()
-            count = lambda text: len(tokenize(forward.base, text))
-            texts, dropped = cap_inputs(kept_by_qwen, count)
-            records["inputs"] = [
-                {k: r[k] for k in ("index", "target", "qwen_tokens", "eg2_tokens")}
-                for r in texts
-            ]
-            records["dropped_over_cap"] = [
-                {"index": r["index"], "eg2_tokens": r["eg2_tokens"]} for r in dropped
-            ]
-            flush()
-            pair_source = max(sample, key=lambda s: s["tokens"])["text"]
-            measure(
+            run_plan(
                 forward.base,
                 monitor,
                 abort,
-                texts,
-                pair_source,
+                sample,
+                kept_by_qwen,
+                args.query_list,
                 scratch,
                 records,
                 flush,
-                queries=args.query_list,
             )
             monitor.check()
         except BaseException:
@@ -976,6 +1197,7 @@ def execute(args, sample, kept_by_qwen):
             lambda timeout: kube("create", "-f", str(pod_path), timeout=timeout),
             body,
             abort,
+            note,
         )
     finally:
         verdict = evaluate(records)
@@ -1025,6 +1247,7 @@ def main():
     mode.add_argument("--prepull", action="store_true")
     mode.add_argument("--execute", action="store_true")
     mode.add_argument("--evaluate", type=Path, metavar="WINDOW_DIR")
+    mode.add_argument("--rehearse", action="store_true")
     ap.add_argument("--sample", type=Path)
     ap.add_argument("--output", type=Path)
     ap.add_argument(
@@ -1035,6 +1258,22 @@ def main():
         type=Path,
         help="JSON {queries: [{id, text}]}: embed these and SHORT_LENGTHS token "
         "fragments instead of the pairs, buckets and ordering (gate 4 only)",
+    )
+    ap.add_argument(
+        "--base-url",
+        default=REHEARSAL_URL,
+        help="--rehearse: local llama-server started with PROBE_ARGS",
+    )
+    ap.add_argument("--server-log", type=Path, help="--rehearse: that server's log")
+    ap.add_argument(
+        "--rehearsal",
+        type=Path,
+        help="--execute: a passing rehearsal.json for this plan",
+    )
+    ap.add_argument(
+        "--skip-rehearsal",
+        action="store_true",
+        help="--execute without a rehearsal; recorded in window.json",
     )
     args = ap.parse_args()
     # Loaded before any cluster call, so a bad file fails first.
@@ -1052,10 +1291,17 @@ def main():
         ap.error("--sample is required")
     sample = load_sample(args.sample)
     kept = select_inputs(sample)
+    if args.rehearse:
+        if not (args.output and args.server_log):
+            ap.error("--rehearse needs --output and --server-log")
+        sys.exit(0 if rehearse(args, sample, kept) else 1)
     if args.execute:
         if not args.output:
             ap.error("--execute needs --output")
-        execute(args, sample, kept)
+        try:
+            execute(args, sample, kept)
+        except RehearsalRefused as exc:
+            ap.error(str(exc))
         return
     print(
         json.dumps(
