@@ -80,6 +80,9 @@ TIMESTAMP = re.compile(r"^(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d)(?:\.\d+)?(Z|[+-]\d\d:
 # The first line of a log record (any of the OV log formats starts with a date);
 # anything else after a dispatch error is its traceback.
 RECORD_START = re.compile(r"^\d{4}-\d\d-\d\d[ T]\d\d:\d\d:\d\d")
+# The traceback's final exception line (`[module.]LockAcquisitionError: …`), not
+# a source frame such as `raise LockAcquisitionError(...)` that names it earlier.
+DAG_TRACE_END = re.compile(r"^\s*(?:[\w.]+\.)?LockAcquisitionError(?::|$)")
 OUTCOME = re.compile(r"ov-extract-outcome (\{.*\})")
 
 REVISION = "deployment.kubernetes.io/revision"
@@ -327,7 +330,7 @@ def log_events(sink, pod, cursor):
             if RECORD_START.match(line):
                 cursor.dag_open = False
             else:
-                if "LockAcquisitionError" in line:
+                if DAG_TRACE_END.match(line):
                     cursor.dag_open = False
                 continue
         if "manager.rs:988" in line:

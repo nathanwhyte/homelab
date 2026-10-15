@@ -315,6 +315,22 @@ class WaitRouting(unittest.TestCase):
         self.assertEqual(has(out + logged, " WAIT "), [])
         self.assertIn("dag_miss 1", has(out, "WATCH end:")[0])
 
+    def test_raise_frame_does_not_close_the_dag_traceback(self):
+        err = stamped(
+            "2026-10-15 16:40:05,1 - ERROR - Failed to dispatch directory viking://x"
+        )
+        frames = joined(
+            stamped("Traceback (most recent call last):", frac=1),
+            stamped('  File "lock.py", line 40, in acquire', frac=2),
+            stamped('    raise LockAcquisitionError(f"could not lock {p}")', frac=3),
+            stamped("viking.LockAcquisitionError: could not lock /local/x", frac=4),
+        )
+        out, logged = run_watch(
+            FakeKubectl([POD_A], logs=[err, frames]), polls=2, log=self.log
+        )
+        self.assertEqual(has(out + logged, " WAIT "), [])
+        self.assertIn("dag_miss 1", has(out, "WATCH end:")[0])
+
     def test_new_record_closes_an_open_dag_traceback(self):
         err = stamped(
             "2026-10-15 16:40:05,1 - ERROR - Failed to dispatch directory viking://x"
