@@ -59,6 +59,12 @@ repos:
         language: system
         pass_filenames: false
         files: ^viking/(tools/(test_)?ov[-_]lock[-_]watchdog\.py|manifests/ov-lock-watchdog-configmap\.yaml)$
+      - id: ov-contention-watch-tests
+        name: ov-contention-watch tests
+        entry: python3 viking/tools/test_ov_contention_watch.py
+        language: system
+        pass_filenames: false
+        files: ^viking/tools/(test_)?ov[-_]contention[-_]watch\.py$
       - id: helm-deploy-tests
         name: Helm deployment version safety tests
         entry: python3 scripts/test-helm-deploy.py
