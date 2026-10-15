@@ -38,6 +38,13 @@ def stamped(line, sec=0, frac=0):
     return f"{t:%Y-%m-%dT%H:%M:%S}.{frac:09d}Z {line}"
 
 
+def offset_stamped(line, zone="-05:00"):
+    """A stamp in a non-UTC zone, as the real cluster prints, for the same instant as BASE."""
+    hours = int(zone[:3])
+    t = BASE + dt.timedelta(hours=hours)
+    return f"{t:%Y-%m-%dT%H:%M:%S}.123456789{zone} {line}"
+
+
 def joined(*lines):
     return "\n".join(lines)
 
@@ -274,6 +281,14 @@ class WaitRouting(unittest.TestCase):
         self.assertIn("waits=1 max=80.0s", has(logged, " WAIT ")[1])
         self.assertEqual(len(has(out, " WAIT ")), 2)
 
+    def test_offset_timestamps_are_read_as_utc(self):
+        # -05:00 stamps for an instant after the start cursor must dedupe, not replay
+        a = offset_stamped(wait_line(70000))
+        _out, logged = run_watch(
+            FakeKubectl([POD_A], logs=[a, a, a]), polls=3, log=self.log
+        )
+        self.assertEqual(len(has(logged, " WAIT ")), 1)
+
     def test_dag_traceback_split_across_polls_is_not_a_timeout(self):
         t1 = stamped(
             "ERROR Failed to dispatch directory viking://x: lock acquire timed out"
@@ -285,12 +300,29 @@ class WaitRouting(unittest.TestCase):
         self.assertEqual(has(out + logged, " WAIT "), [])
         self.assertIn("dag_miss 1", has(out, "WATCH end:")[0])
 
-    def test_carried_dag_flag_covers_only_the_first_line(self):
-        t1 = stamped("ERROR Failed to dispatch directory viking://x")
-        other = stamped("ok", sec=1)
-        real = stamped("LockAcquisitionError: could not lock /local/y", sec=2)
+    def test_multiline_dag_traceback_split_across_polls(self):
+        err = stamped(
+            "2026-10-15 16:40:05,1 - ERROR - Failed to dispatch directory viking://x"
+        )
+        frames = joined(
+            stamped("Traceback (most recent call last):", frac=1),
+            stamped('  File "dag.py", line 9, in dispatch', frac=2),
+            stamped("viking.LockAcquisitionError: could not lock /local/x", frac=3),
+        )
+        out, logged = run_watch(
+            FakeKubectl([POD_A], logs=[err, frames]), polls=2, log=self.log
+        )
+        self.assertEqual(has(out + logged, " WAIT "), [])
+        self.assertIn("dag_miss 1", has(out, "WATCH end:")[0])
+
+    def test_new_record_closes_an_open_dag_traceback(self):
+        err = stamped(
+            "2026-10-15 16:40:05,1 - ERROR - Failed to dispatch directory viking://x"
+        )
+        nxt = stamped("2026-10-15 16:40:06,1 - INFO - ok", sec=1)
+        real = stamped("viking.LockAcquisitionError: could not lock /local/y", sec=2)
         out, _ = run_watch(
-            FakeKubectl([POD_A], logs=[t1, f"{other}\n{real}"]),
+            FakeKubectl([POD_A], logs=[err, joined(nxt, real)]),
             polls=2,
             log=self.log,
         )

@@ -74,7 +74,12 @@ LOCK_PATH = re.compile(r'lock_paths=\["([^"]+)"')
 WAIT_MS = re.compile(r"wait_ms=(\d+)")
 # A wait shorter than this is ordinary contention: counted for BEAT, not its own event.
 WAIT_EVENT_MS = 5000
-TIMESTAMP = re.compile(r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d")
+# kubectl --timestamps: RFC3339 with nanoseconds and the zone the kubelet reports,
+# which on this cluster is a local offset such as -05:00, not Z.
+TIMESTAMP = re.compile(r"^(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d)(?:\.\d+)?(Z|[+-]\d\d:\d\d)$")
+# The first line of a log record (any of the OV log formats starts with a date);
+# anything else after a dispatch error is its traceback.
+RECORD_START = re.compile(r"^\d{4}-\d\d-\d\d[ T]\d\d:\d\d:\d\d")
 OUTCOME = re.compile(r"ov-extract-outcome (\{.*\})")
 
 REVISION = "deployment.kubernetes.io/revision"
@@ -234,6 +239,19 @@ def short(uri):
     return re.sub(r"^.*?/user/", "user/", uri)
 
 
+def utc_second(stamp):
+    """A kubectl timestamp as a UTC `%Y-%m-%dT%H:%M:%SZ` second; None if it is not one."""
+    hit = TIMESTAMP.match(stamp)
+    if not hit:
+        return None
+    base, zone = hit.groups()
+    t = dt.datetime.strptime(base, "%Y-%m-%dT%H:%M:%S").replace(tzinfo=dt.UTC)
+    if zone != "Z":
+        sign = 1 if zone[0] == "+" else -1
+        t -= sign * dt.timedelta(hours=int(zone[1:3]), minutes=int(zone[4:6]))
+    return t.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
 class LogCursor:
     """Where the next log read starts, so no line is counted twice.
 
@@ -241,17 +259,17 @@ class LogCursor:
     was taken, so a bare "since the last poll" replays lines. Each line is read
     with its kubectl timestamp; the cursor is the second of the newest one, and
     lines already seen within that second are skipped. A dag-miss traceback that
-    lands in the next read is still matched through `dag_pending`.
+    lands in the next read is still matched through `dag_open`.
     """
 
     def __init__(self):
         self.since = dt.datetime.now(dt.UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
         self.seen = set()
-        self.dag_pending = False
+        self.dag_open = False
 
     def reset_pod(self):
         self.seen = set()
-        self.dag_pending = False
+        self.dag_open = False
 
     def fresh(self, text):
         """The lines of `text` not read before; advances the cursor."""
@@ -259,16 +277,17 @@ class LogCursor:
         newest = self.since
         for raw in text.splitlines():
             stamp, _, rest = raw.partition(" ")
-            if not TIMESTAMP.match(stamp):
+            second = utc_second(stamp)
+            if second is None:
                 lines.append(raw)
                 continue
             if raw in self.seen:
                 continue
             self.seen.add(raw)
             lines.append(rest)
-            newest = max(newest, stamp[:19] + "Z")
+            newest = max(newest, second)
         self.since = newest
-        self.seen = {x for x in self.seen if x[:19] + "Z" >= newest}
+        self.seen = {x for x in self.seen if utc_second(x.partition(" ")[0]) >= newest}
         return lines
 
 
@@ -295,23 +314,21 @@ def log_events(sink, pod, cursor):
     # Semantic-DAG directory dispatch gives up on a lock within ms; it logs the
     # ERROR line (carrying the timeout text) plus one traceback line. Counted
     # apart so they cannot hide a session-lock timeout.
-    # A traceback split from its ERROR line by a poll boundary can only be the
-    # first line of the next read, so the carried flag applies to that line alone.
-    dag_miss, dag_trace_pending = 0, 0
-    carried = cursor.dag_pending
-    lines = cursor.fresh(s)
-    if lines:
-        cursor.dag_pending = "Failed to dispatch directory" in lines[-1]
-    for i, line in enumerate(lines):
+    # While a dispatch error's traceback is open, its header, frames and final
+    # LockAcquisitionError line are all part of the dag miss, wherever the poll
+    # boundary falls; a new log record closes it.
+    dag_miss = 0
+    for line in cursor.fresh(s):
         if "Failed to dispatch directory" in line:
             dag_miss += 1
-            dag_trace_pending += 1
+            cursor.dag_open = True
             continue
-        if "LockAcquisitionError" in line:
-            if i == 0 and carried:
-                continue
-            if dag_trace_pending:
-                dag_trace_pending -= 1
+        if cursor.dag_open:
+            if RECORD_START.match(line):
+                cursor.dag_open = False
+            else:
+                if "LockAcquisitionError" in line:
+                    cursor.dag_open = False
                 continue
         if "manager.rs:988" in line:
             p = LOCK_PATH.search(line)
