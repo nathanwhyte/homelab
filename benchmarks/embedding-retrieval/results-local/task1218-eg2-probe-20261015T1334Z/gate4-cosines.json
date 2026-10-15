@@ -1,0 +1,39 @@
+{
+  "min": 0.9881347937778902,
+  "median": 0.9999410578990479,
+  "n": 98,
+  "unique_inputs": 98,
+  "token_mismatches": 0,
+  "worst": [
+    {
+      "key": "calibrate",
+      "tokens": 16,
+      "ref_tokens": 16,
+      "cosine": 0.9881347937778902
+    },
+    {
+      "key": "bucket-1000-13-r2",
+      "tokens": 1091,
+      "ref_tokens": 1091,
+      "cosine": 0.9998830073315864
+    },
+    {
+      "key": "bucket-1000-20-r1",
+      "tokens": 1082,
+      "ref_tokens": 1082,
+      "cosine": 0.999889838332588
+    },
+    {
+      "key": "bucket-300-1-r1",
+      "tokens": 335,
+      "ref_tokens": 335,
+      "cosine": 0.9998957879733538
+    },
+    {
+      "key": "bucket-1000-12-r2",
+      "tokens": 1121,
+      "ref_tokens": 1121,
+      "cosine": 0.9999039297905662
+    }
+  ]
+}

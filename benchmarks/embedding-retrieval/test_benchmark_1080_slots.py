@@ -12,11 +12,12 @@ class RestorationTests(unittest.TestCase):
     def test_restore_attempted_when_probe_delete_fails(self):
         with (
             patch.object(bench, "kube", side_effect=TimeoutError("delete timeout")),
+            patch.object(bench, "RETRY_PAUSE_S", 0),
             patch.object(bench, "restore") as restore,
         ):
             with self.assertRaises(TimeoutError):
                 bench.cleanup_restore({"snapshot": True}, Path("unused"))
-            restore.assert_called_once_with({"snapshot": True}, Path("unused"))
+            restore.assert_called_once_with({"snapshot": True}, Path("unused"), None)
 
     def test_concurrent_template_change_is_not_overwritten(self):
         snapshot = {
@@ -37,7 +38,7 @@ class RestorationTests(unittest.TestCase):
 
     def test_restoration_requires_valid_production_vector(self):
         snapshot = {
-            "metadata": {"uid": "original"},
+            "metadata": {"uid": "original", "resourceVersion": "1"},
             "spec": {"template": {}, "replicas": 1},
         }
         with (

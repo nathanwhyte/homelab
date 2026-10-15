@@ -1,0 +1,33 @@
+{
+  "reference": "pop, llama.cpp b11472 macos-arm64 (Metal), embeddinggemma-2-Q8_0.gguf sha256 2188ac1d...09135",
+  "probe": "manu GTX 1080, llama.cpp b11610 server-cuda, -fa auto",
+  "bos_tokens": [2, 1],
+  "fragments": {
+    "columns": ["length", "no_bos_tokens", "no_bos_cosine", "bos_tokens", "bos_cosine"],
+    "rows": [
+      [8, 8, 0.985202, 10, 0.999862],
+      [16, 16, 0.988135, 18, 0.999916],
+      [32, 32, 0.998656, 34, 0.9999],
+      [64, 64, 0.999014, 66, 0.999931],
+      [128, 128, 0.998107, 130, 0.99991],
+      [255, 255, 0.99961, 257, 0.99993],
+      [256, 256, 0.999539, 258, 0.99993],
+      [257, 257, 0.999445, 259, 0.999941]
+    ]
+  },
+  "queries": {
+    "n": 78,
+    "tokens_min": 9,
+    "tokens_max": 25,
+    "cosine_min": 0.999604,
+    "cosine_median": 0.999915,
+    "below_0_999": 0,
+    "lowest": [
+      ["query-fixture-R1", 15, 0.999604],
+      ["query-gold-r05", 20, 0.999772],
+      ["query-fixture-H1", 11, 0.999821],
+      ["query-fixture-H2", 15, 0.999826]
+    ]
+  },
+  "first_text_7_tokens": 0.999929
+}

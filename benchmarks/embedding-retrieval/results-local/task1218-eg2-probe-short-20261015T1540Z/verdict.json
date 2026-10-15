@@ -1,0 +1,77 @@
+{
+  "verdict": "INCOMPLETE",
+  "guard": null,
+  "gate1_attention_on_gpu": {
+    "pass": true,
+    "enabled_line": true,
+    "fallback_lines": []
+  },
+  "gate2_no_length_cliff": {
+    "pass": null,
+    "pairs": {
+      "1024/1025": {
+        "pass": null,
+        "measured": false
+      },
+      "2048/2049": {
+        "pass": null,
+        "measured": false
+      },
+      "2816/2817": {
+        "pass": null,
+        "measured": false
+      },
+      "4096/4097": {
+        "pass": null,
+        "measured": false
+      },
+      "6144/6145": {
+        "pass": null,
+        "measured": false
+      },
+      "7680/7681": {
+        "pass": null,
+        "measured": false
+      }
+    }
+  },
+  "gate3_faster_than_qwen": {
+    "pass": null,
+    "buckets": {
+      "300": {
+        "pass": null,
+        "requests": 0,
+        "median_ms": null,
+        "qwen_median_ms": 326
+      },
+      "1000": {
+        "pass": null,
+        "requests": 0,
+        "median_ms": null,
+        "qwen_median_ms": 1108
+      },
+      "3000": {
+        "pass": null,
+        "requests": 0,
+        "median_ms": null,
+        "qwen_median_ms": 3644
+      },
+      "6000": {
+        "pass": null,
+        "requests": 0,
+        "median_ms": null,
+        "qwen_median_ms": 8789
+      },
+      "7600": {
+        "pass": null,
+        "requests": 0,
+        "median_ms": null,
+        "qwen_median_ms": 12238
+      }
+    }
+  },
+  "gate4_reference_vectors": {
+    "pass": null,
+    "pending": "phase 3 reference vectors on pop"
+  }
+}

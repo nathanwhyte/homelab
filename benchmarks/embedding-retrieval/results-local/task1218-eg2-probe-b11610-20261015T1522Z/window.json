@@ -1,0 +1,9 @@
+{
+  "deadline_minutes": 25,
+  "measure_budget_seconds": 630,
+  "scale_down_at": "2026-10-15T15:22:31.147913+00:00",
+  "restored_at": "2026-10-15T15:30:19.072821+00:00",
+  "outage_seconds": 468,
+  "overran_deadline": false,
+  "finished_at": "2026-10-15T15:30:19.107360+00:00"
+}

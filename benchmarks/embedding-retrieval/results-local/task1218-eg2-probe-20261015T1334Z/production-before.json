@@ -1,0 +1,222 @@
+{
+  "apiVersion": "apps/v1",
+  "kind": "Deployment",
+  "metadata": {
+    "annotations": {
+      "deployment.kubernetes.io/revision": "14",
+      "kubectl.kubernetes.io/last-applied-configuration": "{\"apiVersion\":\"apps/v1\",\"kind\":\"Deployment\",\"metadata\":{\"annotations\":{},\"labels\":{\"app\":\"embedder-qwen-cuda\"},\"name\":\"embedder-qwen-cuda\",\"namespace\":\"viking\"},\"spec\":{\"replicas\":1,\"revisionHistoryLimit\":1,\"selector\":{\"matchLabels\":{\"app\":\"embedder-qwen-cuda\"}},\"strategy\":{\"type\":\"Recreate\"},\"template\":{\"metadata\":{\"labels\":{\"app\":\"embedder-qwen-cuda\"}},\"spec\":{\"containers\":[{\"args\":[\"--model\",\"/models/current.gguf\",\"--host\",\"0.0.0.0\",\"--port\",\"8000\",\"--embedding\",\"--pooling\",\"last\",\"--ctx-size\",\"8192\",\"--n-gpu-layers\",\"999\",\"--parallel\",\"1\",\"--threads\",\"4\",\"--batch-size\",\"2048\",\"--ubatch-size\",\"2048\",\"--cache-ram\",\"0\",\"--split-mode\",\"none\",\"--main-gpu\",\"0\",\"--flash-attn\",\"on\",\"--metrics\"],\"command\":[\"/app/llama-server\"],\"image\":\"ghcr.io/ggml-org/llama.cpp@sha256:ef08b5a98b1170f2b62177be0a4027c88a84043c55afbf190dd18b9e7cdcfebf\",\"livenessProbe\":{\"failureThreshold\":10,\"periodSeconds\":30,\"tcpSocket\":{\"port\":8000},\"timeoutSeconds\":5},\"name\":\"llamacpp\",\"ports\":[{\"containerPort\":8000,\"name\":\"http\"}],\"resources\":{\"limits\":{\"cpu\":\"4\",\"memory\":\"6Gi\",\"nvidia.com/gpu\":\"1\"},\"requests\":{\"cpu\":\"500m\",\"memory\":\"2Gi\",\"nvidia.com/gpu\":\"1\"}},\"startupProbe\":{\"failureThreshold\":120,\"periodSeconds\":10,\"tcpSocket\":{\"port\":8000},\"timeoutSeconds\":5},\"volumeMounts\":[{\"mountPath\":\"/models\",\"name\":\"model-cache\"},{\"mountPath\":\"/dev/shm\",\"name\":\"shm\"}]}],\"initContainers\":[{\"args\":[\"set -eu\\nmodel_path=\\\"/models/${MODEL_FILE}\\\"\\nif [ -f \\\"${model_path}\\\" ]; then\\n  echo \\\"Model already cached: ${model_path}\\\"\\nelse\\n  echo \\\"Downloading ${MODEL_FILE}...\\\"\\n  curl -fL --retry 5 --retry-delay 10 \\\"${MODEL_URL}\\\" -o \\\"${model_path}.tmp\\\"\\n  mv \\\"${model_path}.tmp\\\" \\\"${model_path}\\\"\\n  echo \\\"Download complete.\\\"\\nfi\\nln -sf \\\"${model_path}\\\" /models/current.gguf\\necho \\\"Model ready.\\\"\\n\"],\"command\":[\"/bin/sh\",\"-c\"],\"env\":[{\"name\":\"MODEL_FILE\",\"value\":\"Qwen3-Embedding-4B-Q8_0.gguf\"},{\"name\":\"MODEL_URL\",\"value\":\"https://huggingface.co/Qwen/Qwen3-Embedding-4B-GGUF/resolve/main/Qwen3-Embedding-4B-Q8_0.gguf\"}],\"image\":\"curlimages/curl:8.12.1\",\"name\":\"model-fetch\",\"securityContext\":{\"runAsGroup\":0,\"runAsUser\":0},\"volumeMounts\":[{\"mountPath\":\"/models\",\"name\":\"model-cache\"}]}],\"nodeSelector\":{\"gpu.vendor\":\"nvidia\",\"kubernetes.io/hostname\":\"manu\"},\"runtimeClassName\":\"nvidia\",\"securityContext\":{\"fsGroup\":0},\"volumes\":[{\"name\":\"model-cache\",\"persistentVolumeClaim\":{\"claimName\":\"embedder-cuda-model-cache\"}},{\"emptyDir\":{\"medium\":\"Memory\",\"sizeLimit\":\"2Gi\"},\"name\":\"shm\"}]}}}}\n"
+    },
+    "creationTimestamp": "2026-07-17T19:02:13Z",
+    "generation": 54,
+    "labels": {
+      "app": "embedder-qwen-cuda"
+    },
+    "name": "embedder-qwen-cuda",
+    "namespace": "viking",
+    "resourceVersion": "77139294",
+    "uid": "33902d44-56b8-4fea-9c86-b70d19d50d5c"
+  },
+  "spec": {
+    "progressDeadlineSeconds": 600,
+    "replicas": 1,
+    "revisionHistoryLimit": 1,
+    "selector": {
+      "matchLabels": {
+        "app": "embedder-qwen-cuda"
+      }
+    },
+    "strategy": {
+      "type": "Recreate"
+    },
+    "template": {
+      "metadata": {
+        "labels": {
+          "app": "embedder-qwen-cuda"
+        }
+      },
+      "spec": {
+        "containers": [
+          {
+            "args": [
+              "--model",
+              "/models/current.gguf",
+              "--host",
+              "0.0.0.0",
+              "--port",
+              "8000",
+              "--embedding",
+              "--pooling",
+              "last",
+              "--ctx-size",
+              "8192",
+              "--n-gpu-layers",
+              "999",
+              "--parallel",
+              "1",
+              "--threads",
+              "4",
+              "--batch-size",
+              "2048",
+              "--ubatch-size",
+              "2048",
+              "--cache-ram",
+              "0",
+              "--split-mode",
+              "none",
+              "--main-gpu",
+              "0",
+              "--flash-attn",
+              "on",
+              "--metrics"
+            ],
+            "command": [
+              "/app/llama-server"
+            ],
+            "image": "ghcr.io/ggml-org/llama.cpp@sha256:ef08b5a98b1170f2b62177be0a4027c88a84043c55afbf190dd18b9e7cdcfebf",
+            "imagePullPolicy": "IfNotPresent",
+            "livenessProbe": {
+              "failureThreshold": 10,
+              "periodSeconds": 30,
+              "successThreshold": 1,
+              "tcpSocket": {
+                "port": 8000
+              },
+              "timeoutSeconds": 5
+            },
+            "name": "llamacpp",
+            "ports": [
+              {
+                "containerPort": 8000,
+                "name": "http",
+                "protocol": "TCP"
+              }
+            ],
+            "resources": {
+              "limits": {
+                "cpu": "4",
+                "memory": "6Gi",
+                "nvidia.com/gpu": "1"
+              },
+              "requests": {
+                "cpu": "500m",
+                "memory": "2Gi",
+                "nvidia.com/gpu": "1"
+              }
+            },
+            "startupProbe": {
+              "failureThreshold": 120,
+              "periodSeconds": 10,
+              "successThreshold": 1,
+              "tcpSocket": {
+                "port": 8000
+              },
+              "timeoutSeconds": 5
+            },
+            "terminationMessagePath": "/dev/termination-log",
+            "terminationMessagePolicy": "File",
+            "volumeMounts": [
+              {
+                "mountPath": "/models",
+                "name": "model-cache"
+              },
+              {
+                "mountPath": "/dev/shm",
+                "name": "shm"
+              }
+            ]
+          }
+        ],
+        "dnsPolicy": "ClusterFirst",
+        "initContainers": [
+          {
+            "args": [
+              "set -eu\nmodel_path=\"/models/${MODEL_FILE}\"\nif [ -f \"${model_path}\" ]; then\n  echo \"Model already cached: ${model_path}\"\nelse\n  echo \"Downloading ${MODEL_FILE}...\"\n  curl -fL --retry 5 --retry-delay 10 \"${MODEL_URL}\" -o \"${model_path}.tmp\"\n  mv \"${model_path}.tmp\" \"${model_path}\"\n  echo \"Download complete.\"\nfi\nln -sf \"${model_path}\" /models/current.gguf\necho \"Model ready.\"\n"
+            ],
+            "command": [
+              "/bin/sh",
+              "-c"
+            ],
+            "env": [
+              {
+                "name": "MODEL_FILE",
+                "value": "Qwen3-Embedding-4B-Q8_0.gguf"
+              },
+              {
+                "name": "MODEL_URL",
+                "value": "https://huggingface.co/Qwen/Qwen3-Embedding-4B-GGUF/resolve/main/Qwen3-Embedding-4B-Q8_0.gguf"
+              }
+            ],
+            "image": "curlimages/curl:8.12.1",
+            "imagePullPolicy": "IfNotPresent",
+            "name": "model-fetch",
+            "resources": {},
+            "securityContext": {
+              "runAsGroup": 0,
+              "runAsUser": 0
+            },
+            "terminationMessagePath": "/dev/termination-log",
+            "terminationMessagePolicy": "File",
+            "volumeMounts": [
+              {
+                "mountPath": "/models",
+                "name": "model-cache"
+              }
+            ]
+          }
+        ],
+        "nodeSelector": {
+          "gpu.vendor": "nvidia",
+          "kubernetes.io/hostname": "manu"
+        },
+        "restartPolicy": "Always",
+        "runtimeClassName": "nvidia",
+        "schedulerName": "default-scheduler",
+        "securityContext": {
+          "fsGroup": 0
+        },
+        "terminationGracePeriodSeconds": 30,
+        "volumes": [
+          {
+            "name": "model-cache",
+            "persistentVolumeClaim": {
+              "claimName": "embedder-cuda-model-cache"
+            }
+          },
+          {
+            "emptyDir": {
+              "medium": "Memory",
+              "sizeLimit": "2Gi"
+            },
+            "name": "shm"
+          }
+        ]
+      }
+    }
+  },
+  "status": {
+    "availableReplicas": 1,
+    "conditions": [
+      {
+        "lastTransitionTime": "2026-07-17T19:18:21Z",
+        "lastUpdateTime": "2026-10-08T12:40:02Z",
+        "message": "ReplicaSet \"embedder-qwen-cuda-59bc569f57\" has successfully progressed.",
+        "reason": "NewReplicaSetAvailable",
+        "status": "True",
+        "type": "Progressing"
+      },
+      {
+        "lastTransitionTime": "2026-10-09T03:37:09Z",
+        "lastUpdateTime": "2026-10-09T03:37:09Z",
+        "message": "Deployment has minimum availability.",
+        "reason": "MinimumReplicasAvailable",
+        "status": "True",
+        "type": "Available"
+      }
+    ],
+    "observedGeneration": 54,
+    "readyReplicas": 1,
+    "replicas": 1,
+    "terminatingReplicas": 0,
+    "updatedReplicas": 1
+  }
+}

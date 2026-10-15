@@ -1,0 +1,1225 @@
+{
+  "pairs": [],
+  "buckets": [],
+  "ordering": [],
+  "short": [
+    {
+      "kind": "frag",
+      "length": 8,
+      "key": "frag-8",
+      "ms": 18.2,
+      "start": 90652.1366885,
+      "end": 90652.154853875,
+      "tokens": 8,
+      "norm": 1.0000000380515461
+    },
+    {
+      "kind": "bosfrag",
+      "length": 8,
+      "key": "bosfrag-8",
+      "ms": 7303.9,
+      "start": 90652.155662416,
+      "end": 90659.459514166,
+      "tokens": 10,
+      "norm": 1.0000000136051044
+    },
+    {
+      "kind": "frag",
+      "length": 16,
+      "key": "frag-16",
+      "ms": 23.6,
+      "start": 90659.461391458,
+      "end": 90659.484979541,
+      "tokens": 16,
+      "norm": 0.9999999985522436
+    },
+    {
+      "kind": "bosfrag",
+      "length": 16,
+      "key": "bosfrag-16",
+      "ms": 19.3,
+      "start": 90659.486400041,
+      "end": 90659.505732333,
+      "tokens": 18,
+      "norm": 0.9999999666608642
+    },
+    {
+      "kind": "frag",
+      "length": 32,
+      "key": "frag-32",
+      "ms": 18.8,
+      "start": 90659.507478708,
+      "end": 90659.526323458,
+      "tokens": 32,
+      "norm": 1.000000006034843
+    },
+    {
+      "kind": "bosfrag",
+      "length": 32,
+      "key": "bosfrag-32",
+      "ms": 19.1,
+      "start": 90659.527795375,
+      "end": 90659.546888,
+      "tokens": 34,
+      "norm": 1.0000000111950431
+    },
+    {
+      "kind": "frag",
+      "length": 64,
+      "key": "frag-64",
+      "ms": 21.0,
+      "start": 90659.5477975,
+      "end": 90659.568773625,
+      "tokens": 64,
+      "norm": 1.0000000096074417
+    },
+    {
+      "kind": "bosfrag",
+      "length": 64,
+      "key": "bosfrag-64",
+      "ms": 21.5,
+      "start": 90659.569456291,
+      "end": 90659.590955625,
+      "tokens": 66,
+      "norm": 0.9999999824247647
+    },
+    {
+      "kind": "frag",
+      "length": 128,
+      "key": "frag-128",
+      "ms": 25.5,
+      "start": 90659.591443375,
+      "end": 90659.616930041,
+      "tokens": 128,
+      "norm": 0.999999978673078
+    },
+    {
+      "kind": "bosfrag",
+      "length": 128,
+      "key": "bosfrag-128",
+      "ms": 30.4,
+      "start": 90659.617442625,
+      "end": 90659.647812416,
+      "tokens": 130,
+      "norm": 0.9999999824524468
+    },
+    {
+      "kind": "frag",
+      "length": 255,
+      "key": "frag-255",
+      "ms": 34.1,
+      "start": 90659.648305291,
+      "end": 90659.682379583,
+      "tokens": 255,
+      "norm": 1.0000000076862545
+    },
+    {
+      "kind": "bosfrag",
+      "length": 255,
+      "key": "bosfrag-255",
+      "ms": 36.8,
+      "start": 90659.683023541,
+      "end": 90659.719805583,
+      "tokens": 257,
+      "norm": 0.9999999795479422
+    },
+    {
+      "kind": "frag",
+      "length": 256,
+      "key": "frag-256",
+      "ms": 32.5,
+      "start": 90659.720653916,
+      "end": 90659.75313,
+      "tokens": 256,
+      "norm": 0.9999999497264092
+    },
+    {
+      "kind": "bosfrag",
+      "length": 256,
+      "key": "bosfrag-256",
+      "ms": 39.8,
+      "start": 90659.753996791,
+      "end": 90659.793749333,
+      "tokens": 258,
+      "norm": 1.0000000322490423
+    },
+    {
+      "kind": "frag",
+      "length": 257,
+      "key": "frag-257",
+      "ms": 37.4,
+      "start": 90659.794497291,
+      "end": 90659.831894041,
+      "tokens": 257,
+      "norm": 0.9999999895064943
+    },
+    {
+      "kind": "bosfrag",
+      "length": 257,
+      "key": "bosfrag-257",
+      "ms": 38.9,
+      "start": 90659.832505666,
+      "end": 90659.871436125,
+      "tokens": 259,
+      "norm": 0.9999999794162181
+    },
+    {
+      "kind": "query",
+      "id": "fixture-E1",
+      "key": "query-fixture-E1",
+      "ms": 17.3,
+      "start": 90659.872054708,
+      "end": 90659.889376416,
+      "tokens": 11,
+      "norm": 1.0000000292726177
+    },
+    {
+      "kind": "query",
+      "id": "fixture-E2",
+      "key": "query-fixture-E2",
+      "ms": 16.7,
+      "start": 90659.889972375,
+      "end": 90659.906661958,
+      "tokens": 11,
+      "norm": 0.9999999867079681
+    },
+    {
+      "kind": "query",
+      "id": "fixture-E3",
+      "key": "query-fixture-E3",
+      "ms": 17.3,
+      "start": 90659.907280833,
+      "end": 90659.924542375,
+      "tokens": 11,
+      "norm": 1.0000000085053402
+    },
+    {
+      "kind": "query",
+      "id": "fixture-E4",
+      "key": "query-fixture-E4",
+      "ms": 17.1,
+      "start": 90659.925167666,
+      "end": 90659.942248708,
+      "tokens": 12,
+      "norm": 0.9999999818304857
+    },
+    {
+      "kind": "query",
+      "id": "fixture-E5",
+      "key": "query-fixture-E5",
+      "ms": 17.4,
+      "start": 90659.942932625,
+      "end": 90659.960283791,
+      "tokens": 11,
+      "norm": 0.9999999867899747
+    },
+    {
+      "kind": "query",
+      "id": "fixture-U1",
+      "key": "query-fixture-U1",
+      "ms": 17.9,
+      "start": 90659.960814791,
+      "end": 90659.978761541,
+      "tokens": 13,
+      "norm": 1.0000000060993588
+    },
+    {
+      "kind": "query",
+      "id": "fixture-U2",
+      "key": "query-fixture-U2",
+      "ms": 18.2,
+      "start": 90659.979277125,
+      "end": 90659.997475458,
+      "tokens": 17,
+      "norm": 0.9999999683464279
+    },
+    {
+      "kind": "query",
+      "id": "fixture-U4",
+      "key": "query-fixture-U4",
+      "ms": 17.4,
+      "start": 90659.997975333,
+      "end": 90660.015423416,
+      "tokens": 12,
+      "norm": 0.9999999844247337
+    },
+    {
+      "kind": "query",
+      "id": "fixture-U5",
+      "key": "query-fixture-U5",
+      "ms": 17.1,
+      "start": 90660.015922708,
+      "end": 90660.033032,
+      "tokens": 15,
+      "norm": 0.9999999906210608
+    },
+    {
+      "kind": "query",
+      "id": "fixture-U6",
+      "key": "query-fixture-U6",
+      "ms": 17.1,
+      "start": 90660.033542958,
+      "end": 90660.050607541,
+      "tokens": 15,
+      "norm": 1.000000021581474
+    },
+    {
+      "kind": "query",
+      "id": "fixture-D1",
+      "key": "query-fixture-D1",
+      "ms": 16.6,
+      "start": 90660.051030416,
+      "end": 90660.06759625,
+      "tokens": 20,
+      "norm": 1.0000000167791316
+    },
+    {
+      "kind": "query",
+      "id": "fixture-D3",
+      "key": "query-fixture-D3",
+      "ms": 16.4,
+      "start": 90660.06805925,
+      "end": 90660.084443,
+      "tokens": 16,
+      "norm": 0.9999999809572526
+    },
+    {
+      "kind": "query",
+      "id": "fixture-D4",
+      "key": "query-fixture-D4",
+      "ms": 17.8,
+      "start": 90660.084983458,
+      "end": 90660.102804083,
+      "tokens": 17,
+      "norm": 1.0000000194070269
+    },
+    {
+      "kind": "query",
+      "id": "fixture-D6",
+      "key": "query-fixture-D6",
+      "ms": 16.7,
+      "start": 90660.103334458,
+      "end": 90660.120082958,
+      "tokens": 11,
+      "norm": 1.0000000121551567
+    },
+    {
+      "kind": "query",
+      "id": "fixture-S1",
+      "key": "query-fixture-S1",
+      "ms": 16.6,
+      "start": 90660.120641375,
+      "end": 90660.137210291,
+      "tokens": 12,
+      "norm": 0.9999999757341227
+    },
+    {
+      "kind": "query",
+      "id": "fixture-S2",
+      "key": "query-fixture-S2",
+      "ms": 17.2,
+      "start": 90660.137789166,
+      "end": 90660.155027625,
+      "tokens": 16,
+      "norm": 0.9999999686981761
+    },
+    {
+      "kind": "query",
+      "id": "fixture-S3",
+      "key": "query-fixture-S3",
+      "ms": 16.6,
+      "start": 90660.155716583,
+      "end": 90660.172348208,
+      "tokens": 12,
+      "norm": 1.0000000031698733
+    },
+    {
+      "kind": "query",
+      "id": "fixture-S4",
+      "key": "query-fixture-S4",
+      "ms": 17.1,
+      "start": 90660.173001625,
+      "end": 90660.190075875,
+      "tokens": 11,
+      "norm": 1.0000000020296809
+    },
+    {
+      "kind": "query",
+      "id": "fixture-S5",
+      "key": "query-fixture-S5",
+      "ms": 17.0,
+      "start": 90660.190752458,
+      "end": 90660.207709125,
+      "tokens": 15,
+      "norm": 0.9999999710652926
+    },
+    {
+      "kind": "query",
+      "id": "fixture-S6",
+      "key": "query-fixture-S6",
+      "ms": 17.9,
+      "start": 90660.20836575,
+      "end": 90660.226254375,
+      "tokens": 9,
+      "norm": 1.0000000240660771
+    },
+    {
+      "kind": "query",
+      "id": "fixture-X1",
+      "key": "query-fixture-X1",
+      "ms": 18.8,
+      "start": 90660.226924416,
+      "end": 90660.245754375,
+      "tokens": 14,
+      "norm": 1.000000020935111
+    },
+    {
+      "kind": "query",
+      "id": "fixture-X2",
+      "key": "query-fixture-X2",
+      "ms": 18.1,
+      "start": 90660.24666825,
+      "end": 90660.264727541,
+      "tokens": 11,
+      "norm": 1.0000000220728984
+    },
+    {
+      "kind": "query",
+      "id": "fixture-X3",
+      "key": "query-fixture-X3",
+      "ms": 18.1,
+      "start": 90660.265590083,
+      "end": 90660.283676958,
+      "tokens": 11,
+      "norm": 0.9999999987305823
+    },
+    {
+      "kind": "query",
+      "id": "fixture-H1",
+      "key": "query-fixture-H1",
+      "ms": 17.3,
+      "start": 90660.284518291,
+      "end": 90660.301819708,
+      "tokens": 11,
+      "norm": 1.0000000429548421
+    },
+    {
+      "kind": "query",
+      "id": "fixture-H2",
+      "key": "query-fixture-H2",
+      "ms": 17.1,
+      "start": 90660.303006791,
+      "end": 90660.320107958,
+      "tokens": 15,
+      "norm": 1.000000027738512
+    },
+    {
+      "kind": "query",
+      "id": "fixture-H3",
+      "key": "query-fixture-H3",
+      "ms": 16.8,
+      "start": 90660.321766375,
+      "end": 90660.338562458,
+      "tokens": 15,
+      "norm": 0.9999999444729306
+    },
+    {
+      "kind": "query",
+      "id": "fixture-H4",
+      "key": "query-fixture-H4",
+      "ms": 17.4,
+      "start": 90660.339643041,
+      "end": 90660.357071833,
+      "tokens": 10,
+      "norm": 0.9999999800531839
+    },
+    {
+      "kind": "query",
+      "id": "fixture-R1",
+      "key": "query-fixture-R1",
+      "ms": 17.0,
+      "start": 90660.358316666,
+      "end": 90660.375282833,
+      "tokens": 15,
+      "norm": 0.9999999945896381
+    },
+    {
+      "kind": "query",
+      "id": "fixture-R2",
+      "key": "query-fixture-R2",
+      "ms": 16.9,
+      "start": 90660.376350458,
+      "end": 90660.393292375,
+      "tokens": 11,
+      "norm": 0.999999992750726
+    },
+    {
+      "kind": "query",
+      "id": "fixture-R3",
+      "key": "query-fixture-R3",
+      "ms": 17.5,
+      "start": 90660.394409375,
+      "end": 90660.411937291,
+      "tokens": 13,
+      "norm": 1.0000000352603793
+    },
+    {
+      "kind": "query",
+      "id": "fixture-R4",
+      "key": "query-fixture-R4",
+      "ms": 17.0,
+      "start": 90660.413253833,
+      "end": 90660.430204083,
+      "tokens": 10,
+      "norm": 0.9999999735249053
+    },
+    {
+      "kind": "query",
+      "id": "fixture-N1",
+      "key": "query-fixture-N1",
+      "ms": 17.0,
+      "start": 90660.431407666,
+      "end": 90660.448380791,
+      "tokens": 9,
+      "norm": 1.0000000261218558
+    },
+    {
+      "kind": "query",
+      "id": "fixture-N2",
+      "key": "query-fixture-N2",
+      "ms": 18.5,
+      "start": 90660.449874958,
+      "end": 90660.468355041,
+      "tokens": 9,
+      "norm": 1.0000000085337941
+    },
+    {
+      "kind": "query",
+      "id": "fixture-N3",
+      "key": "query-fixture-N3",
+      "ms": 17.9,
+      "start": 90660.470115458,
+      "end": 90660.488047125,
+      "tokens": 9,
+      "norm": 0.9999999956130875
+    },
+    {
+      "kind": "query",
+      "id": "fixture-N4",
+      "key": "query-fixture-N4",
+      "ms": 17.3,
+      "start": 90660.489759125,
+      "end": 90660.5070575,
+      "tokens": 13,
+      "norm": 0.9999999916567752
+    },
+    {
+      "kind": "query",
+      "id": "fixture-C1",
+      "key": "query-fixture-C1",
+      "ms": 17.5,
+      "start": 90660.508900333,
+      "end": 90660.526410833,
+      "tokens": 11,
+      "norm": 0.9999999731800445
+    },
+    {
+      "kind": "query",
+      "id": "fixture-C2",
+      "key": "query-fixture-C2",
+      "ms": 17.6,
+      "start": 90660.528348708,
+      "end": 90660.545951,
+      "tokens": 14,
+      "norm": 0.9999999785089166
+    },
+    {
+      "kind": "query",
+      "id": "fixture-C4",
+      "key": "query-fixture-C4",
+      "ms": 17.5,
+      "start": 90660.548066416,
+      "end": 90660.565573541,
+      "tokens": 17,
+      "norm": 0.9999999622040542
+    },
+    {
+      "kind": "query",
+      "id": "gold-d01",
+      "key": "query-gold-d01",
+      "ms": 19.1,
+      "start": 90660.567135208,
+      "end": 90660.586273083,
+      "tokens": 15,
+      "norm": 1.000000010245459
+    },
+    {
+      "kind": "query",
+      "id": "gold-d02",
+      "key": "query-gold-d02",
+      "ms": 18.5,
+      "start": 90660.587161916,
+      "end": 90660.605650875,
+      "tokens": 13,
+      "norm": 1.0000000219793168
+    },
+    {
+      "kind": "query",
+      "id": "gold-d03",
+      "key": "query-gold-d03",
+      "ms": 16.8,
+      "start": 90660.606287958,
+      "end": 90660.623103,
+      "tokens": 13,
+      "norm": 0.9999999803610857
+    },
+    {
+      "kind": "query",
+      "id": "gold-d04",
+      "key": "query-gold-d04",
+      "ms": 18.3,
+      "start": 90660.623735916,
+      "end": 90660.642029791,
+      "tokens": 16,
+      "norm": 0.9999999734114948
+    },
+    {
+      "kind": "query",
+      "id": "gold-d05",
+      "key": "query-gold-d05",
+      "ms": 17.7,
+      "start": 90660.642604708,
+      "end": 90660.660296583,
+      "tokens": 15,
+      "norm": 0.9999999643781248
+    },
+    {
+      "kind": "query",
+      "id": "gold-d06",
+      "key": "query-gold-d06",
+      "ms": 16.6,
+      "start": 90660.660833875,
+      "end": 90660.677468708,
+      "tokens": 12,
+      "norm": 1.0000000514346983
+    },
+    {
+      "kind": "query",
+      "id": "gold-d07",
+      "key": "query-gold-d07",
+      "ms": 17.1,
+      "start": 90660.678188041,
+      "end": 90660.695310041,
+      "tokens": 16,
+      "norm": 1.000000016846728
+    },
+    {
+      "kind": "query",
+      "id": "gold-f01",
+      "key": "query-gold-f01",
+      "ms": 17.9,
+      "start": 90660.695985125,
+      "end": 90660.713877291,
+      "tokens": 17,
+      "norm": 1.0000000319035969
+    },
+    {
+      "kind": "query",
+      "id": "gold-f02",
+      "key": "query-gold-f02",
+      "ms": 17.8,
+      "start": 90660.71464625,
+      "end": 90660.732486458,
+      "tokens": 14,
+      "norm": 1.0000000350948421
+    },
+    {
+      "kind": "query",
+      "id": "gold-f03",
+      "key": "query-gold-f03",
+      "ms": 18.2,
+      "start": 90660.733100916,
+      "end": 90660.751317708,
+      "tokens": 12,
+      "norm": 1.000000028167298
+    },
+    {
+      "kind": "query",
+      "id": "gold-f04",
+      "key": "query-gold-f04",
+      "ms": 18.5,
+      "start": 90660.751915541,
+      "end": 90660.770376541,
+      "tokens": 17,
+      "norm": 0.9999999815074683
+    },
+    {
+      "kind": "query",
+      "id": "gold-f05",
+      "key": "query-gold-f05",
+      "ms": 20.3,
+      "start": 90660.770971791,
+      "end": 90660.79122825,
+      "tokens": 17,
+      "norm": 0.9999999769630366
+    },
+    {
+      "kind": "query",
+      "id": "gold-f06",
+      "key": "query-gold-f06",
+      "ms": 18.6,
+      "start": 90660.791825375,
+      "end": 90660.810404791,
+      "tokens": 15,
+      "norm": 0.9999999682637218
+    },
+    {
+      "kind": "query",
+      "id": "gold-e01",
+      "key": "query-gold-e01",
+      "ms": 20.5,
+      "start": 90660.810981375,
+      "end": 90660.831491166,
+      "tokens": 15,
+      "norm": 0.9999999722124253
+    },
+    {
+      "kind": "query",
+      "id": "gold-e02",
+      "key": "query-gold-e02",
+      "ms": 20.8,
+      "start": 90660.832088875,
+      "end": 90660.852927291,
+      "tokens": 12,
+      "norm": 0.999999995546343
+    },
+    {
+      "kind": "query",
+      "id": "gold-e03",
+      "key": "query-gold-e03",
+      "ms": 21.4,
+      "start": 90660.853492958,
+      "end": 90660.874904416,
+      "tokens": 17,
+      "norm": 1.0000000080706313
+    },
+    {
+      "kind": "query",
+      "id": "gold-e04",
+      "key": "query-gold-e04",
+      "ms": 18.9,
+      "start": 90660.875522708,
+      "end": 90660.894458,
+      "tokens": 19,
+      "norm": 1.0000000111871856
+    },
+    {
+      "kind": "query",
+      "id": "gold-e05",
+      "key": "query-gold-e05",
+      "ms": 18.2,
+      "start": 90660.895088083,
+      "end": 90660.913320458,
+      "tokens": 13,
+      "norm": 1.00000000814989
+    },
+    {
+      "kind": "query",
+      "id": "gold-e06",
+      "key": "query-gold-e06",
+      "ms": 17.0,
+      "start": 90660.913974125,
+      "end": 90660.931012833,
+      "tokens": 15,
+      "norm": 1.0000000239984896
+    },
+    {
+      "kind": "query",
+      "id": "gold-e07",
+      "key": "query-gold-e07",
+      "ms": 16.5,
+      "start": 90660.93166475,
+      "end": 90660.948176375,
+      "tokens": 13,
+      "norm": 0.9999999778092479
+    },
+    {
+      "kind": "query",
+      "id": "gold-r01",
+      "key": "query-gold-r01",
+      "ms": 16.1,
+      "start": 90660.948891916,
+      "end": 90660.965012583,
+      "tokens": 12,
+      "norm": 1.0000000300548901
+    },
+    {
+      "kind": "query",
+      "id": "gold-r02",
+      "key": "query-gold-r02",
+      "ms": 16.3,
+      "start": 90660.965617958,
+      "end": 90660.981899375,
+      "tokens": 20,
+      "norm": 0.9999999807503271
+    },
+    {
+      "kind": "query",
+      "id": "gold-r03",
+      "key": "query-gold-r03",
+      "ms": 17.5,
+      "start": 90660.9825325,
+      "end": 90660.999996458,
+      "tokens": 14,
+      "norm": 0.9999999811025548
+    },
+    {
+      "kind": "query",
+      "id": "gold-r04",
+      "key": "query-gold-r04",
+      "ms": 17.2,
+      "start": 90661.000564375,
+      "end": 90661.017778041,
+      "tokens": 20,
+      "norm": 0.9999999697591552
+    },
+    {
+      "kind": "query",
+      "id": "gold-r05",
+      "key": "query-gold-r05",
+      "ms": 17.0,
+      "start": 90661.01833175,
+      "end": 90661.035281833,
+      "tokens": 20,
+      "norm": 1.000000007884987
+    },
+    {
+      "kind": "query",
+      "id": "gold-r06",
+      "key": "query-gold-r06",
+      "ms": 17.1,
+      "start": 90661.035852,
+      "end": 90661.052983458,
+      "tokens": 17,
+      "norm": 1.0000000006078726
+    },
+    {
+      "kind": "query",
+      "id": "gold-p01",
+      "key": "query-gold-p01",
+      "ms": 16.7,
+      "start": 90661.053524041,
+      "end": 90661.070219833,
+      "tokens": 20,
+      "norm": 1.0000000295778797
+    },
+    {
+      "kind": "query",
+      "id": "gold-p02",
+      "key": "query-gold-p02",
+      "ms": 16.7,
+      "start": 90661.070768291,
+      "end": 90661.087462333,
+      "tokens": 12,
+      "norm": 0.9999999591621465
+    },
+    {
+      "kind": "query",
+      "id": "gold-p03",
+      "key": "query-gold-p03",
+      "ms": 17.3,
+      "start": 90661.088046583,
+      "end": 90661.105316833,
+      "tokens": 14,
+      "norm": 1.0000000371331337
+    },
+    {
+      "kind": "query",
+      "id": "gold-p04",
+      "key": "query-gold-p04",
+      "ms": 17.6,
+      "start": 90661.10597875,
+      "end": 90661.1236125,
+      "tokens": 19,
+      "norm": 1.0000000362388526
+    },
+    {
+      "kind": "query",
+      "id": "gold-p05",
+      "key": "query-gold-p05",
+      "ms": 17.9,
+      "start": 90661.124242708,
+      "end": 90661.142149791,
+      "tokens": 17,
+      "norm": 0.9999999708387624
+    },
+    {
+      "kind": "query",
+      "id": "gold-p06",
+      "key": "query-gold-p06",
+      "ms": 16.9,
+      "start": 90661.142835958,
+      "end": 90661.159785708,
+      "tokens": 11,
+      "norm": 0.99999999082754
+    },
+    {
+      "kind": "query",
+      "id": "gold-s01",
+      "key": "query-gold-s01",
+      "ms": 17.0,
+      "start": 90661.160432125,
+      "end": 90661.177404208,
+      "tokens": 25,
+      "norm": 1.0000000289906656
+    },
+    {
+      "kind": "query",
+      "id": "gold-s02",
+      "key": "query-gold-s02",
+      "ms": 17.7,
+      "start": 90661.178117916,
+      "end": 90661.195831291,
+      "tokens": 23,
+      "norm": 0.9999999970842278
+    },
+    {
+      "kind": "query",
+      "id": "gold-s03",
+      "key": "query-gold-s03",
+      "ms": 17.1,
+      "start": 90661.196620875,
+      "end": 90661.213734416,
+      "tokens": 21,
+      "norm": 0.9999999933147822
+    },
+    {
+      "kind": "query",
+      "id": "gold-s04",
+      "key": "query-gold-s04",
+      "ms": 17.0,
+      "start": 90661.214492958,
+      "end": 90661.231502791,
+      "tokens": 21,
+      "norm": 0.9999999616159538
+    },
+    {
+      "kind": "query",
+      "id": "gold-s05",
+      "key": "query-gold-s05",
+      "ms": 16.6,
+      "start": 90661.232272041,
+      "end": 90661.248852791,
+      "tokens": 13,
+      "norm": 0.9999999834644574
+    },
+    {
+      "kind": "query",
+      "id": "gold-s06",
+      "key": "query-gold-s06",
+      "ms": 16.8,
+      "start": 90661.249635083,
+      "end": 90661.266483833,
+      "tokens": 19,
+      "norm": 1.000000000109939
+    },
+    {
+      "kind": "query",
+      "id": "gold-s07",
+      "key": "query-gold-s07",
+      "ms": 17.0,
+      "start": 90661.267369666,
+      "end": 90661.284388958,
+      "tokens": 23,
+      "norm": 0.9999999900230149
+    },
+    {
+      "kind": "query",
+      "id": "gold-s08",
+      "key": "query-gold-s08",
+      "ms": 16.8,
+      "start": 90661.285281125,
+      "end": 90661.302069041,
+      "tokens": 13,
+      "norm": 1.0000000208588182
+    }
+  ],
+  "guard": null,
+  "startup_log": "warn: LLAMA_ARG_HOST environment variable is set, but will be overwritten by command line argument --host\nwarn: LLAMA_ARG_PORT environment variable is set, but will be overwritten by command line argument --port\n0.00.872.924 I srv  llama_server: initializing ...\n0.00.873.506 I cmn  common_param: common_params_print_info: build 11610 (091b6a7fc) with GNU 14.2.0 for Linux x86_64\n0.00.873.511 I cmn  common_param: common_params_print_info: verbosity = 4 (adjust with the `-lv N` CLI arg)\n0.00.873.512 I cmn  common_param: device_info:\n0.01.069.863 I cmn  common_param:   - CUDA0   : NVIDIA GeForce GTX 1080 (8107 MiB, 7996 MiB free)\n0.01.069.884 I cmn  common_param:   - CPU     : AMD Ryzen 7 1700 Eight-Core Processor (15910 MiB, 15910 MiB free)\n0.01.070.873 I cmn  common_param: system_info: n_threads = 4 (n_threads_batch = 4) / 16 | CUDA : ARCHS = 500,610,700,750,800,860,890,900,1200 | USE_GRAPHS = 1 | FA_QUANTS = q4_0-q4_0,q8_0-q8_0,f16-f16,bf16-bf16 | CPU : SSE3 = 1 | SSSE3 = 1 | AVX = 1 | AVX2 = 1 | F16C = 1 | FMA = 1 | BMI2 = 1 | LLAMAFILE = 1 | OPENMP = 1 | REPACK = 1 | \n0.01.071.498 I srv  init_listene: running without SSL\n0.01.075.438 I srv          init: using 15 threads for HTTP server\n0.01.075.618 W srv  llama_server: security: no API key is set and CORS allows all origins (see https://github.com/ggml-org/llama.cpp/pull/25655)\n0.01.080.005 I srv    load_model: loading model '/models/current.gguf'\n0.01.080.011 I srv    load_model: local path '/models/current.gguf'\n0.01.080.032 I cmn  common_init_: fitting params to device memory ...\n0.01.080.033 I cmn  common_init_: (for bugs during this step try to reproduce them with -fit off, or provide --verbose logs if the bug only occurs with -fit on)\n0.01.080.186 I common_params_fit_impl: getting device memory data for initial parameters:\n0.03.145.373 I common_memory_breakdown_print: | memory breakdown [MiB] | total   free    self   model   context   compute    unaccounted |\n0.03.145.380 I common_memory_breakdown_print: |   - CUDA0 (GTX 1080)   |  8107 = 7996 + (1232 =   144 +       0 +    1088) +       -1122 |\n0.03.145.381 I common_memory_breakdown_print: |   - Host               |                  456 =   136 +       0 +     320                |\n0.03.347.706 I common_params_fit_impl: projected to use 1232 MiB of device memory vs. 7996 MiB of free device memory\n0.03.347.714 I common_params_fit_impl: will leave 6764 >= 1024 MiB of free device memory, no changes needed\n0.03.347.716 I common_fit_params: successfully fit params to free device memory\n0.03.347.721 I common_fit_params: fitting params to free memory took 2.27 seconds\n0.03.549.202 I llama_model_loader: loaded meta data with 46 key-value pairs and 413 tensors from /models/current.gguf (version GGUF V3 (latest))\n0.03.549.244 I llama_model_loader: Dumping metadata keys/values. Note: KV overrides do not apply in this output.\n0.03.549.251 I llama_model_loader: - kv   0:                       general.architecture str              = gemma-embedding2\n0.03.549.254 I llama_model_loader: - kv   1:                               general.type str              = model\n0.03.549.256 I llama_model_loader: - kv   2:                               general.name str              = embeddinggemma-2\n0.03.549.276 I llama_model_loader: - kv   3:                         general.size_label str              = 271M\n0.03.549.279 I llama_model_loader: - kv   4:                            general.license str              = apache-2.0\n0.03.549.302 I llama_model_loader: - kv   5:                               general.tags arr[str,13]      = [\"embedding\", \"feature-extraction\", \"...\n0.03.549.307 I llama_model_loader: - kv   6:                          general.languages arr[str,1]       = [\"multilingual\"]\n0.03.549.310 I llama_model_loader: - kv   7:               gemma-embedding2.block_count u32              = 24\n0.03.549.312 I llama_model_loader: - kv   8:            gemma-embedding2.context_length u32              = 262144\n0.03.549.314 I llama_model_loader: - kv   9:          gemma-embedding2.embedding_length u32              = 512\n0.03.549.315 I llama_model_loader: - kv  10:       gemma-embedding2.feed_forward_length u32              = 2048\n0.03.549.317 I llama_model_loader: - kv  11:      gemma-embedding2.attention.head_count u32              = 4\n0.03.549.328 I llama_model_loader: - kv  12:   gemma-embedding2.attention.head_count_kv arr[i32,24]      = [2, 2, 2, 2, 2, 1, 2, 2, 2, 2, 2, 1, ...\n0.03.549.339 I llama_model_loader: - kv  13:            gemma-embedding2.rope.freq_base f32              = 1000000.000000\n0.03.549.344 I llama_model_loader: - kv  14:        gemma-embedding2.rope.freq_base_swa f32              = 10000.000000\n0.03.549.348 I llama_model_loader: - kv  15: gemma-embedding2.attention.layer_norm_rms_epsilon f32              = 0.000001\n0.03.549.350 I llama_model_loader: - kv  16:      gemma-embedding2.attention.key_length u32              = 512\n0.03.549.352 I llama_model_loader: - kv  17:    gemma-embedding2.attention.value_length u32              = 512\n0.03.549.354 I llama_model_loader: - kv  18:  gemma-embedding2.attention.sliding_window u32              = 1024\n0.03.549.356 I llama_model_loader: - kv  19: gemma-embedding2.attention.shared_kv_layers u32              = 0\n0.03.549.358 I llama_model_loader: - kv  20: gemma-embedding2.embedding_length_per_layer_input u32              = 512\n0.03.549.369 I llama_model_loader: - kv  21: gemma-embedding2.attention.sliding_window_pattern arr[bool,24]     = [true, true, true, true, true, false,...\n0.03.549.372 I llama_model_loader: - kv  22:  gemma-embedding2.attention.key_length_swa u32              = 256\n0.03.549.374 I llama_model_loader: - kv  23: gemma-embedding2.attention.value_length_swa u32              = 256\n0.03.549.376 I llama_model_loader: - kv  24:      gemma-embedding2.rope.dimension_count u32              = 512\n0.03.549.378 I llama_model_loader: - kv  25:  gemma-embedding2.rope.dimension_count_swa u32              = 256\n0.03.549.380 I llama_model_loader: - kv  26:      gemma-embedding2.embedding_length_out u32              = 768\n0.03.549.382 I llama_model_loader: - kv  27:          gemma-embedding2.attention.causal bool             = false\n0.03.549.384 I llama_model_loader: - kv  28:              gemma-embedding2.pooling_type u32              = 1\n0.03.549.387 I llama_model_loader: - kv  29:                       tokenizer.ggml.model str              = gemma4\n0.03.644.837 I llama_model_loader: - kv  30:                      tokenizer.ggml.tokens arr[str,262144]  = [\"<pad>\", \"<eos>\", \"<bos>\", \"<unk>\", ...\n0.03.919.523 I llama_model_loader: - kv  31:                      tokenizer.ggml.scores arr[f32,262144]  = [-1000.000000, -1000.000000, -1000.00...\n0.03.952.315 I llama_model_loader: - kv  32:                  tokenizer.ggml.token_type arr[i32,262144]  = [3, 3, 3, 3, 3, 1, 1, 1, 1, 1, 1, 1, ...\n0.04.180.901 I llama_model_loader: - kv  33:                      tokenizer.ggml.merges arr[str,514906]  = [\"\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n \\n\", ...\n0.04.180.916 I llama_model_loader: - kv  34:                tokenizer.ggml.bos_token_id u32              = 2\n0.04.180.918 I llama_model_loader: - kv  35:                tokenizer.ggml.eos_token_id u32              = 1\n0.04.180.920 I llama_model_loader: - kv  36:            tokenizer.ggml.unknown_token_id u32              = 3\n0.04.180.921 I llama_model_loader: - kv  37:            tokenizer.ggml.padding_token_id u32              = 0\n0.04.180.923 I llama_model_loader: - kv  38:               tokenizer.ggml.mask_token_id u32              = 4\n0.04.180.926 I llama_model_loader: - kv  39:               tokenizer.ggml.add_bos_token bool             = true\n0.04.180.927 I llama_model_loader: - kv  40:               tokenizer.ggml.add_eos_token bool             = true\n0.04.180.929 I llama_model_loader: - kv  41:               tokenizer.ggml.add_sep_token bool             = false\n0.04.180.934 I llama_model_loader: - kv  42:                    tokenizer.chat_template str              = {%- for msg in messages if msg.get('r...\n0.04.180.938 I llama_model_loader: - kv  43:            tokenizer.ggml.add_space_prefix bool             = false\n0.04.180.941 I llama_model_loader: - kv  44:               general.quantization_version u32              = 2\n0.04.180.943 I llama_model_loader: - kv  45:                          general.file_type u32              = 7\n0.04.180.945 I llama_model_loader: - type  f32:  194 tensors\n0.04.180.947 I llama_model_loader: - type q8_0:  218 tensors\n0.04.180.948 I llama_model_loader: - type bf16:    1 tensors\n0.04.180.950 I print_info: file format = GGUF V3 (latest)\n0.04.180.951 I print_info: file type   = Q8_0\n0.04.180.958 I print_info: file size   = 280.44 MiB (8.68 BPW) \n0.04.182.453 I llama_prepare_model_devices: using device CUDA0 (NVIDIA GeForce GTX 1080) (0000:0a:00.0) - 7996 MiB free\n0.04.981.186 I load: 0 unused tokens\n0.05.019.330 W load: control-looking token:    212 '</s>' was not control-type; this is probably a bug in the model. its type will be overridden\n0.05.020.598 W load: control-looking token:     50 '<|tool_response>' was not control-type; this is probably a bug in the model. its type will be overridden\n0.05.090.687 I load: printing all EOG tokens:\n0.05.090.696 I load:   - 1 ('<eos>')\n0.05.090.698 I load:   - 50 ('<|tool_response>')\n0.05.090.699 I load:   - 106 ('<turn|>')\n0.05.090.700 I load:   - 212 ('</s>')\n0.05.090.704 W load: '</s>' is a normal token here, removing it from EOG list\n0.05.091.653 I load: special tokens cache size = 24\n0.05.203.144 I load: token to piece cache size = 1.9445 MB\n0.05.203.174 I print_info: arch                  = gemma-embedding2\n0.05.203.176 I print_info: vocab_only            = 0\n0.05.203.177 I print_info: no_alloc              = 0\n0.05.203.178 I print_info: n_ctx_train           = 262144\n0.05.203.179 I print_info: n_embd_inp            = 512\n0.05.203.181 I print_info: n_embd                = 512\n0.05.203.182 I print_info: n_embd_out            = 768\n0.05.203.184 I print_info: n_layer               = 24\n0.05.203.185 I print_info: n_layer_all           = 24\n0.05.203.198 I print_info: n_head                = 4\n0.05.203.206 I print_info: n_head_kv             = [2, 2, 2, 2, 2, 1, 2, 2, 2, 2, 2, 1, 2, 2, 2, 2, 2, 1, 2, 2, 2, 2, 2, 1]\n0.05.203.207 I print_info: n_rot                 = 512\n0.05.203.207 I print_info: n_swa                 = 1024\n0.05.203.209 I print_info: is_swa_any            = 1\n0.05.203.209 I print_info: non_causal_type       = 0\n0.05.203.210 I print_info: n_embd_head_k         = 512\n0.05.203.211 I print_info: n_embd_head_v         = 512\n0.05.203.217 I print_info: n_gqa                 = [2, 2, 2, 2, 2, 4, 2, 2, 2, 2, 2, 4, 2, 2, 2, 2, 2, 4, 2, 2, 2, 2, 2, 4]\n0.05.203.221 I print_info: n_embd_k_gqa          = 512\n0.05.203.224 I print_info: n_embd_v_gqa          = 512\n0.05.203.226 I print_info: f_norm_eps            = 0.0e+00\n0.05.203.228 I print_info: f_norm_rms_eps        = 1.0e-06\n0.05.203.229 I print_info: f_clamp_kqv           = 0.0e+00\n0.05.203.230 I print_info: f_max_alibi_bias      = 0.0e+00\n0.05.203.231 I print_info: f_logit_scale         = 0.0e+00\n0.05.203.232 I print_info: f_attn_scale          = 1.0e+00\n0.05.203.233 I print_info: f_attn_value_scale    = 0.0000\n0.05.203.235 I print_info: n_ff                  = 2048\n0.05.203.236 I print_info: n_expert              = 0\n0.05.203.237 I print_info: n_expert_used         = 0\n0.05.203.238 I print_info: n_expert_groups       = 0\n0.05.203.238 I print_info: n_group_used          = 0\n0.05.203.239 I print_info: causal attn           = 0\n0.05.203.239 I print_info: pooling type          = 1\n0.05.203.240 I print_info: rope type             = 2\n0.05.203.241 I print_info: rope scaling          = linear\n0.05.203.243 I print_info: freq_base_train       = 1000000.0\n0.05.203.245 I print_info: freq_scale_train      = 1\n0.05.203.247 I print_info: freq_base_swa         = 10000.0\n0.05.203.248 I print_info: freq_scale_swa        = 1\n0.05.203.248 I print_info: n_embd_head_k_swa     = 256\n0.05.203.249 I print_info: n_embd_head_v_swa     = 256\n0.05.203.250 I print_info: n_rot_swa             = 256\n0.05.203.250 I print_info: n_ctx_orig_yarn       = 262144\n0.05.203.251 I print_info: rope_yarn_log_mul     = 0.0000\n0.05.203.252 I print_info: rope_finetuned        = unknown\n0.05.203.255 I print_info: model type            = 0.3B\n0.05.203.258 I print_info: model params          = 271.00 M\n0.05.203.273 I print_info: general.name          = embeddinggemma-2\n0.05.203.275 I print_info: vocab type            = BPE\n0.05.203.276 I print_info: n_vocab               = 262144\n0.05.203.276 I print_info: n_merges              = 514906\n0.05.203.278 I print_info: BOS token             = 2 '<bos>'\n0.05.203.279 I print_info: EOS token             = 1 '<eos>'\n0.05.203.279 I print_info: UNK token             = 3 '<unk>'\n0.05.203.280 I print_info: PAD token             = 0 '<pad>'\n0.05.203.281 I print_info: MASK token            = 4 '<mask>'\n0.05.203.282 I print_info: LF token              = 107 '\n'\n0.05.203.283 I print_info: EOG token             = 1 '<eos>'\n0.05.203.284 I print_info: EOG token             = 50 '<|tool_response>'\n0.05.203.285 I print_info: EOG token             = 106 '<turn|>'\n0.05.203.285 I print_info: max token length      = 93\n0.05.204.613 I load_tensors: loading model tensors, this can take a while... (load_mode = mmap)\n0.05.223.376 I load_tensors: offloading output layer to GPU\n0.05.223.383 I load_tensors: offloading 23 repeating layers to GPU\n0.05.223.384 I load_tensors: offloaded 25/25 layers to GPU\n0.05.223.391 I load_tensors:   CPU_Mapped model buffer size =   136.00 MiB\n0.05.223.394 I load_tensors:        CUDA0 model buffer size =   144.44 MiB\n0.05.268.366 I cmn  common_init_: added <eos> logit bias = -inf\n0.05.268.376 I cmn  common_init_: added <|tool_response> logit bias = -inf\n0.05.268.380 I cmn  common_init_: added <turn|> logit bias = -inf\n0.05.277.203 I llama_context: constructing llama_context\n0.05.277.216 I llama_context: n_seq_max             = 1\n0.05.277.217 I llama_context: n_ctx                 = 8192\n0.05.277.218 I llama_context: n_ctx_seq             = 8192\n0.05.277.218 I llama_context: n_batch               = 8192\n0.05.277.219 I llama_context: n_ubatch              = 8192\n0.05.277.220 I llama_context: causal_attn           = 0\n0.05.277.221 I llama_context: flash_attn            = auto\n0.05.277.222 I llama_context: kv_unified            = false\n0.05.277.228 I llama_context: freq_base             = 1000000.0\n0.05.277.229 I llama_context: freq_scale            = 1\n0.05.277.230 I llama_context: n_rs_seq              = 0\n0.05.277.231 I llama_context: n_outputs_max         = 8192\n0.05.277.231 I llama_context: n_outputs_max_per_seq = 1\n0.05.277.232 I llama_context: n_ctx_seq (8192) < n_ctx_train (262144) -- the full capacity of the model will not be utilized\n0.05.283.294 I llama_context:  CUDA_Host  output buffer size =     1.00 MiB\n0.05.283.627 I sched_reserve: reserving ...\n0.05.285.934 I resolve_fused_ops: Flash Attention enabled\n0.05.285.939 I resolve_fused_ops: resolving fused DeepSeek V4 HC support:\n0.05.287.687 I resolve_fused_ops: fused DeepSeek V4 HC pre enabled\n0.05.289.240 I resolve_fused_ops: fused DeepSeek V4 HC comb enabled\n0.05.290.895 I resolve_fused_ops: fused DeepSeek V4 HC post enabled\n0.05.925.940 I sched_reserve:      CUDA0 compute buffer size =  1088.19 MiB\n0.05.925.950 I sched_reserve:  CUDA_Host compute buffer size =   320.25 MiB\n0.05.925.955 I sched_reserve: graph: nodes = 1149, splits = 2, input objects = 5, input tensors = 10\n0.05.925.957 I sched_reserve: reserve took 642.32 ms, sched copies = 1\n0.05.926.129 I cmn          init: llama threadpool init, n_threads = 4\n0.05.926.509 I cmn  common_init_: warming up the model with an empty run - please wait ... (--no-warmup to disable)\n0.05.926.644 W init: embeddings required but some input tokens were not marked as outputs -> overriding\n1.55.122.844 W srv    load_model: speculative decoding not supported by this context\n1.55.122.853 I srv    load_model: initializing, n_slots = 1, n_ctx_slot = 8192, kv_unified = 'false'\n1.55.122.867 I slot   load_model: id  0 | task -1 | new slot, n_ctx = 8192\n1.55.122.894 I srv    load_model: prompt cache is disabled - use `--cache-ram N` to enable it\n1.55.122.895 I srv    load_model: for more info see https://github.com/ggml-org/llama.cpp/pull/16391\n1.55.122.896 I srv    load_model: context checkpoints enabled, max = 32, min spacing = 8192\n1.55.122.923 W srv          init: --cache-idle-slots requires --cache-ram, disabling\n1.55.138.831 I srv          init: init: chat template, example_format: 'You are a helpful assistantHelloHi thereHow are you?'\n1.55.139.610 I srv          init: init: chat template, thinking = 0\n1.55.139.632 I srv          init: preserve_reasoning kwarg: not supported by template\n1.55.139.722 I srv  llama_server: model loaded\n1.55.139.735 I srv  llama_server: listening on http://0.0.0.0:8000\n1.55.139.941 I srv  update_slots: all slots are idle\n",
+  "inputs": [
+    {
+      "index": 0,
+      "target": 300,
+      "qwen_tokens": 300,
+      "eg2_tokens": 304
+    },
+    {
+      "index": 1,
+      "target": 300,
+      "qwen_tokens": 300,
+      "eg2_tokens": 324
+    },
+    {
+      "index": 2,
+      "target": 300,
+      "qwen_tokens": 300,
+      "eg2_tokens": 315
+    },
+    {
+      "index": 3,
+      "target": 300,
+      "qwen_tokens": 300,
+      "eg2_tokens": 324
+    },
+    {
+      "index": 4,
+      "target": 300,
+      "qwen_tokens": 300,
+      "eg2_tokens": 315
+    },
+    {
+      "index": 5,
+      "target": 300,
+      "qwen_tokens": 300,
+      "eg2_tokens": 321
+    },
+    {
+      "index": 6,
+      "target": 300,
+      "qwen_tokens": 300,
+      "eg2_tokens": 303
+    },
+    {
+      "index": 7,
+      "target": 300,
+      "qwen_tokens": 300,
+      "eg2_tokens": 328
+    },
+    {
+      "index": 8,
+      "target": 300,
+      "qwen_tokens": 234,
+      "eg2_tokens": 265
+    },
+    {
+      "index": 9,
+      "target": 300,
+      "qwen_tokens": 300,
+      "eg2_tokens": 308
+    },
+    {
+      "index": 10,
+      "target": 300,
+      "qwen_tokens": 300,
+      "eg2_tokens": 331
+    },
+    {
+      "index": 11,
+      "target": 300,
+      "qwen_tokens": 300,
+      "eg2_tokens": 323
+    },
+    {
+      "index": 12,
+      "target": 1000,
+      "qwen_tokens": 1000,
+      "eg2_tokens": 1111
+    },
+    {
+      "index": 13,
+      "target": 1000,
+      "qwen_tokens": 1000,
+      "eg2_tokens": 1079
+    },
+    {
+      "index": 14,
+      "target": 1000,
+      "qwen_tokens": 1000,
+      "eg2_tokens": 1029
+    },
+    {
+      "index": 15,
+      "target": 1000,
+      "qwen_tokens": 1000,
+      "eg2_tokens": 1080
+    },
+    {
+      "index": 16,
+      "target": 1000,
+      "qwen_tokens": 1000,
+      "eg2_tokens": 1050
+    },
+    {
+      "index": 17,
+      "target": 1000,
+      "qwen_tokens": 1000,
+      "eg2_tokens": 1091
+    },
+    {
+      "index": 18,
+      "target": 1000,
+      "qwen_tokens": 1000,
+      "eg2_tokens": 1089
+    },
+    {
+      "index": 19,
+      "target": 1000,
+      "qwen_tokens": 1000,
+      "eg2_tokens": 1092
+    },
+    {
+      "index": 20,
+      "target": 1000,
+      "qwen_tokens": 1000,
+      "eg2_tokens": 1071
+    },
+    {
+      "index": 21,
+      "target": 1000,
+      "qwen_tokens": 1000,
+      "eg2_tokens": 1044
+    },
+    {
+      "index": 22,
+      "target": 3000,
+      "qwen_tokens": 3000,
+      "eg2_tokens": 3164
+    },
+    {
+      "index": 23,
+      "target": 3000,
+      "qwen_tokens": 3000,
+      "eg2_tokens": 3277
+    },
+    {
+      "index": 24,
+      "target": 3000,
+      "qwen_tokens": 3000,
+      "eg2_tokens": 3151
+    },
+    {
+      "index": 25,
+      "target": 3000,
+      "qwen_tokens": 3000,
+      "eg2_tokens": 3264
+    },
+    {
+      "index": 26,
+      "target": 3000,
+      "qwen_tokens": 3000,
+      "eg2_tokens": 3230
+    },
+    {
+      "index": 27,
+      "target": 3000,
+      "qwen_tokens": 3000,
+      "eg2_tokens": 3227
+    },
+    {
+      "index": 28,
+      "target": 3000,
+      "qwen_tokens": 3000,
+      "eg2_tokens": 3404
+    },
+    {
+      "index": 29,
+      "target": 3000,
+      "qwen_tokens": 3000,
+      "eg2_tokens": 3156
+    },
+    {
+      "index": 30,
+      "target": 3000,
+      "qwen_tokens": 3000,
+      "eg2_tokens": 3295
+    },
+    {
+      "index": 31,
+      "target": 3000,
+      "qwen_tokens": 3000,
+      "eg2_tokens": 3235
+    },
+    {
+      "index": 32,
+      "target": 6000,
+      "qwen_tokens": 6000,
+      "eg2_tokens": 6423
+    },
+    {
+      "index": 33,
+      "target": 6000,
+      "qwen_tokens": 6000,
+      "eg2_tokens": 6356
+    },
+    {
+      "index": 34,
+      "target": 6000,
+      "qwen_tokens": 6000,
+      "eg2_tokens": 6388
+    },
+    {
+      "index": 35,
+      "target": 6000,
+      "qwen_tokens": 6000,
+      "eg2_tokens": 6382
+    },
+    {
+      "index": 36,
+      "target": 6000,
+      "qwen_tokens": 6000,
+      "eg2_tokens": 6563
+    },
+    {
+      "index": 37,
+      "target": 6000,
+      "qwen_tokens": 6000,
+      "eg2_tokens": 6704
+    },
+    {
+      "index": 39,
+      "target": 7600,
+      "qwen_tokens": 7600,
+      "eg2_tokens": 8130
+    },
+    {
+      "index": 41,
+      "target": 7600,
+      "qwen_tokens": 7600,
+      "eg2_tokens": 8035
+    },
+    {
+      "index": 42,
+      "target": 7600,
+      "qwen_tokens": 7600,
+      "eg2_tokens": 8109
+    },
+    {
+      "index": 43,
+      "target": 7600,
+      "qwen_tokens": 7600,
+      "eg2_tokens": 8099
+    }
+  ],
+  "dropped_over_cap": [
+    {
+      "index": 38,
+      "eg2_tokens": 8280
+    },
+    {
+      "index": 40,
+      "eg2_tokens": 8172
+    }
+  ],
+  "first": {
+    "key": "first",
+    "ms": 81.8,
+    "start": 90651.976964958,
+    "end": 90652.058765041,
+    "tokens": 7,
+    "norm": 1.000000000045035
+  },
+  "bos": [
+    2,
+    1
+  ]
+}

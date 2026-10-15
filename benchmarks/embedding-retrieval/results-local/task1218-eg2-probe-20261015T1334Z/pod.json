@@ -1,0 +1,154 @@
+{
+  "apiVersion": "v1",
+  "kind": "Pod",
+  "metadata": {
+    "name": "task1218-eg2-probe",
+    "namespace": "viking",
+    "labels": {
+      "app": "task1218-eg2-probe"
+    }
+  },
+  "spec": {
+    "restartPolicy": "Never",
+    "activeDeadlineSeconds": 1500,
+    "terminationGracePeriodSeconds": 15,
+    "runtimeClassName": "nvidia",
+    "nodeSelector": {
+      "kubernetes.io/hostname": "manu",
+      "gpu.vendor": "nvidia"
+    },
+    "securityContext": {
+      "fsGroup": 0
+    },
+    "initContainers": [
+      {
+        "name": "model-fetch",
+        "image": "curlimages/curl:8.12.1",
+        "command": [
+          "/bin/sh",
+          "-c"
+        ],
+        "args": [
+          "set -eu\nmodel_path=\"/models/${MODEL_FILE}\"\nif [ ! -f \"${model_path}\" ]; then\n  echo \"Downloading ${MODEL_FILE}...\"\n  curl -fL --retry 5 --retry-delay 10 \"${MODEL_URL}\" -o \"${model_path}.tmp\"\n  mv \"${model_path}.tmp\" \"${model_path}\"\nfi\necho \"${MODEL_SHA256}  ${model_path}\" | sha256sum -c -\nln -sf \"${model_path}\" /models/current.gguf\necho \"Model ready.\"\n"
+        ],
+        "env": [
+          {
+            "name": "MODEL_FILE",
+            "value": "embeddinggemma-2-Q8_0.gguf"
+          },
+          {
+            "name": "MODEL_URL",
+            "value": "https://huggingface.co/ggml-org/embeddinggemma-2-GGUF/resolve/main/embeddinggemma-2-Q8_0.gguf"
+          },
+          {
+            "name": "MODEL_SHA256",
+            "value": "2188ac1deca4b77dffefd603c2776a9d76d9d74ec01841392982ebb840b09135"
+          }
+        ],
+        "securityContext": {
+          "runAsUser": 0,
+          "runAsGroup": 0
+        },
+        "volumeMounts": [
+          {
+            "name": "model-cache",
+            "mountPath": "/models"
+          }
+        ]
+      }
+    ],
+    "containers": [
+      {
+        "name": "llamacpp",
+        "image": "ghcr.io/ggml-org/llama.cpp@sha256:c4348afb91499b10fad12f92626c7a8ca8b69d6475d10c793b810cb61237ce00",
+        "command": [
+          "/app/llama-server"
+        ],
+        "args": [
+          "--model",
+          "/models/current.gguf",
+          "--host",
+          "0.0.0.0",
+          "--port",
+          "8000",
+          "--embedding",
+          "--pooling",
+          "mean",
+          "--ctx-size",
+          "8192",
+          "--batch-size",
+          "8192",
+          "--ubatch-size",
+          "8192",
+          "--parallel",
+          "1",
+          "--cache-ram",
+          "0",
+          "--n-gpu-layers",
+          "999",
+          "--threads",
+          "4",
+          "--split-mode",
+          "none",
+          "--main-gpu",
+          "0",
+          "--metrics",
+          "--flash-attn",
+          "auto",
+          "--verbosity",
+          "3"
+        ],
+        "ports": [
+          {
+            "containerPort": 8000,
+            "name": "http"
+          }
+        ],
+        "resources": {
+          "requests": {
+            "cpu": "500m",
+            "memory": "1Gi",
+            "nvidia.com/gpu": "1"
+          },
+          "limits": {
+            "cpu": "4",
+            "memory": "6Gi",
+            "nvidia.com/gpu": "1"
+          }
+        },
+        "readinessProbe": {
+          "httpGet": {
+            "path": "/health",
+            "port": 8000
+          },
+          "periodSeconds": 5
+        },
+        "volumeMounts": [
+          {
+            "name": "model-cache",
+            "mountPath": "/models"
+          },
+          {
+            "name": "shm",
+            "mountPath": "/dev/shm"
+          }
+        ]
+      }
+    ],
+    "volumes": [
+      {
+        "name": "model-cache",
+        "persistentVolumeClaim": {
+          "claimName": "embedder-eg2-model-cache"
+        }
+      },
+      {
+        "name": "shm",
+        "emptyDir": {
+          "medium": "Memory",
+          "sizeLimit": "1Gi"
+        }
+      }
+    ]
+  }
+}

@@ -1,0 +1,91 @@
+{
+  "verdict": "FAIL",
+  "guard": null,
+  "gate1_attention_on_gpu": {
+    "pass": false,
+    "enabled_line": false,
+    "fallback_lines": []
+  },
+  "gate2_no_length_cliff": {
+    "pass": null,
+    "pairs": {
+      "1024/1025": {
+        "pass": true,
+        "median_ms": [
+          140.9,
+          151.8
+        ],
+        "ratio": 1.077
+      },
+      "2048/2049": {
+        "pass": true,
+        "median_ms": [
+          360.4,
+          382.5
+        ],
+        "ratio": 1.061
+      },
+      "2816/2817": {
+        "pass": true,
+        "median_ms": [
+          595.1,
+          611.8
+        ],
+        "ratio": 1.028
+      },
+      "4096/4097": {
+        "pass": null,
+        "measured": false
+      },
+      "6144/6145": {
+        "pass": null,
+        "measured": false
+      },
+      "7680/7681": {
+        "pass": null,
+        "measured": false
+      }
+    }
+  },
+  "gate3_faster_than_qwen": {
+    "pass": null,
+    "buckets": {
+      "300": {
+        "pass": true,
+        "requests": 36,
+        "median_ms": 50.0,
+        "qwen_median_ms": 326
+      },
+      "1000": {
+        "pass": true,
+        "requests": 30,
+        "median_ms": 159.7,
+        "qwen_median_ms": 1108
+      },
+      "3000": {
+        "pass": null,
+        "requests": 0,
+        "median_ms": null,
+        "qwen_median_ms": 3644
+      },
+      "6000": {
+        "pass": null,
+        "requests": 0,
+        "median_ms": null,
+        "qwen_median_ms": 8789
+      },
+      "7600": {
+        "pass": null,
+        "requests": 0,
+        "median_ms": null,
+        "qwen_median_ms": 12238
+      }
+    }
+  },
+  "gate4_reference_vectors": {
+    "pass": false,
+    "min": 0.9881347937778902,
+    "median": 0.9999410578990479,
+    "threshold": 0.999
+  }
+}

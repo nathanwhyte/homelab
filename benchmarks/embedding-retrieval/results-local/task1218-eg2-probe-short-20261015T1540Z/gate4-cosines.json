@@ -1,0 +1,39 @@
+{
+  "min": 0.985202010425782,
+  "median": 0.9999141679314608,
+  "n": 95,
+  "unique_inputs": 95,
+  "token_mismatches": 0,
+  "worst": [
+    {
+      "key": "frag-8",
+      "tokens": 8,
+      "ref_tokens": 8,
+      "cosine": 0.985202010425782
+    },
+    {
+      "key": "frag-16",
+      "tokens": 16,
+      "ref_tokens": 16,
+      "cosine": 0.9881347937778902
+    },
+    {
+      "key": "frag-128",
+      "tokens": 128,
+      "ref_tokens": 128,
+      "cosine": 0.9981068347083799
+    },
+    {
+      "key": "frag-32",
+      "tokens": 32,
+      "ref_tokens": 32,
+      "cosine": 0.9986560241553784
+    },
+    {
+      "key": "frag-64",
+      "tokens": 64,
+      "ref_tokens": 64,
+      "cosine": 0.9990136235759474
+    }
+  ]
+}

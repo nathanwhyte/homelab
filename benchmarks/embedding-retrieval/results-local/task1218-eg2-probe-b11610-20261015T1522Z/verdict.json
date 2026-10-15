@@ -1,0 +1,101 @@
+{
+  "verdict": "PENDING",
+  "guard": null,
+  "gate1_attention_on_gpu": {
+    "pass": true,
+    "enabled_line": true,
+    "fallback_lines": []
+  },
+  "gate2_no_length_cliff": {
+    "pass": true,
+    "pairs": {
+      "1024/1025": {
+        "pass": true,
+        "median_ms": [
+          135.0,
+          144.4
+        ],
+        "ratio": 1.07
+      },
+      "2048/2049": {
+        "pass": true,
+        "median_ms": [
+          355.6,
+          364.7
+        ],
+        "ratio": 1.026
+      },
+      "2816/2817": {
+        "pass": true,
+        "median_ms": [
+          573.9,
+          591.2
+        ],
+        "ratio": 1.03
+      },
+      "4096/4097": {
+        "pass": true,
+        "median_ms": [
+          1071.3,
+          1087.8
+        ],
+        "ratio": 1.015
+      },
+      "6144/6145": {
+        "pass": true,
+        "median_ms": [
+          2099.9,
+          2140.7
+        ],
+        "ratio": 1.019
+      },
+      "7680/7681": {
+        "pass": true,
+        "median_ms": [
+          3086.6,
+          3168.6
+        ],
+        "ratio": 1.027
+      }
+    }
+  },
+  "gate3_faster_than_qwen": {
+    "pass": true,
+    "buckets": {
+      "300": {
+        "pass": true,
+        "requests": 36,
+        "median_ms": 47.9,
+        "qwen_median_ms": 326
+      },
+      "1000": {
+        "pass": true,
+        "requests": 30,
+        "median_ms": 159.5,
+        "qwen_median_ms": 1108
+      },
+      "3000": {
+        "pass": true,
+        "requests": 30,
+        "median_ms": 741.4,
+        "qwen_median_ms": 3644
+      },
+      "6000": {
+        "pass": true,
+        "requests": 18,
+        "median_ms": 2330.1,
+        "qwen_median_ms": 8789
+      },
+      "7600": {
+        "pass": true,
+        "requests": 12,
+        "median_ms": 3494.1,
+        "qwen_median_ms": 12238
+      }
+    }
+  },
+  "gate4_reference_vectors": {
+    "pass": null,
+    "pending": "phase 3 reference vectors on pop"
+  }
+}

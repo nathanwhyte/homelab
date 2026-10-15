@@ -148,14 +148,14 @@ def manifest(model, slots):
 
 
 class Forward:
-    def __init__(self, target, path):
+    def __init__(self, target, path, port=18085):
         self.log = path.open("w")
         self.process = subprocess.Popen(
-            KUBE + ["port-forward", target, "18085:8000", "--address", "127.0.0.1"],
+            KUBE + ["port-forward", target, f"{port}:8000", "--address", "127.0.0.1"],
             stdout=self.log,
             stderr=self.log,
         )
-        self.base = "http://127.0.0.1:18085"
+        self.base = f"http://127.0.0.1:{port}"
 
     def ready(self, seconds=180):
         deadline = time.monotonic() + seconds
@@ -181,8 +181,9 @@ class Forward:
 
 
 class Monitor:
-    def __init__(self, path, base):
-        self.path, self.base = path, base
+    def __init__(self, path, base, pod=POD, rss_limit_kib=None):
+        self.path, self.base, self.pod = path, base, pod
+        self.rss_limit_kib = rss_limit_kib
         self.stop = threading.Event()
         self.sampled = threading.Event()
         self.reason = None
@@ -190,13 +191,14 @@ class Monitor:
 
     def run(self):
         hot = failures = 0
+        bloated = False
         with self.path.open("w") as stream:
             while not self.stop.is_set():
                 row = {"at": now()}
                 try:
                     raw = kube(
                         "exec",
-                        POD,
+                        self.pod,
                         "-c",
                         "llamacpp",
                         "--",
@@ -222,8 +224,8 @@ class Monitor:
                     )
                     row["host_load_average"] = [float(x) for x in lines[3].split()[:3]]
                     hot = hot + 1 if cpu >= 80 or gpu[2] >= 85 else 0
+                    bloated = bool(self.rss_limit_kib) and rss > self.rss_limit_kib
                     failures = 0
-                    self.sampled.set()
                 except (
                     OSError,
                     subprocess.SubprocessError,
@@ -232,24 +234,36 @@ class Monitor:
                 ) as exc:
                     row["error"] = str(exc)
                     failures += 1
+                if hot >= 2 or failures >= 3 or bloated:
+                    # Latch and delete before anything else: no request may start
+                    # between seeing the breach and the guard taking effect.
+                    self.reason = (
+                        "thermal guard"
+                        if hot >= 2
+                        else "rss guard"
+                        if bloated
+                        else "telemetry lost"
+                    )
+                    self.sampled.set()
+                    kube(
+                        "delete",
+                        "pod",
+                        self.pod,
+                        "--wait=false",
+                        "--ignore-not-found",
+                        check=False,
+                    )
+                    row["guard"] = self.reason
+                    stream.write(json.dumps(row) + "\n")
+                    return
+                if "error" not in row:
+                    self.sampled.set()
                 try:
                     row["metrics"] = http(self.base, "/metrics", timeout=2, raw=True)
                 except (OSError, ValueError):
                     row["metrics_unavailable"] = True
                 stream.write(json.dumps(row) + "\n")
                 stream.flush()
-                if hot >= 2 or failures >= 3:
-                    self.reason = "thermal guard" if hot >= 2 else "telemetry lost"
-                    self.sampled.set()
-                    kube(
-                        "delete",
-                        "pod",
-                        POD,
-                        "--wait=false",
-                        "--ignore-not-found",
-                        check=False,
-                    )
-                    return
                 self.stop.wait(5)
 
     def start(self):
@@ -546,42 +560,164 @@ def run_arm(model, slots, args, corpus, lengths, questions, sample):
             )
 
 
-def restore(snapshot, out):
-    current = obj("get", "deployment", DEPLOY)
+RESTORE_ATTEMPTS = 5
+RETRY_PAUSE_S = 5
+
+
+def log(message):
+    """Best-effort progress line: a closed stdout must never stop a restore."""
+    try:
+        print(message, flush=True)
+    except (OSError, ValueError):
+        pass
+
+
+def retry(step, action, attempts=RESTORE_ATTEMPTS, errors=(OSError,), deadline=None):
+    """Retry a step on transient failures; anything else propagates at once.
+
+    With a `deadline` (time.monotonic()), no retry starts after it: the failure
+    propagates instead, so retries never stretch a bounded outage.
+    """
+
+    def late():
+        return deadline is not None and time.monotonic() >= deadline
+
+    for attempt in range(1, attempts + 1):
+        try:
+            return action()
+        except (subprocess.SubprocessError, *errors) as exc:
+            if attempt == attempts or late():
+                raise
+            log(f"{step} failed ({exc}); retry {attempt}")
+            time.sleep(RETRY_PAUSE_S)
+            if late():  # the pause itself can cross the deadline
+                raise
+
+
+class ProductionChanged(RuntimeError):
+    pass
+
+
+def unchanged(current, snapshot):
     if (
         current["metadata"]["uid"] != snapshot["metadata"]["uid"]
         or current["spec"]["template"] != snapshot["spec"]["template"]
     ):
-        raise RuntimeError(
+        raise ProductionChanged(
             "Production template/identity changed concurrently; refusing blind restore"
         )
-    replicas = snapshot["spec"]["replicas"]
-    kube("scale", "deployment/" + DEPLOY, f"--replicas={replicas}")
-    kube("rollout", "status", "deployment/" + DEPLOY, "--timeout=420s", timeout=430)
-    forward = Forward("deployment/" + DEPLOY, out / "restore-port-forward.log")
-    try:
-        forward.ready(240)
-        response = http(
-            forward.base,
-            "/v1/embeddings",
-            {
-                "model": "restore-check",
-                "input": ["Embedding service restoration check."],
-                "cache_prompt": False,
-            },
+
+
+def scale_checked(snapshot, replicas, deadline=None, issued=None):
+    """Scale production only while it still matches `snapshot`.
+
+    `issued` (a list) records each scale write, so a caller can tell a refusal
+    before any write from one after.
+    """
+
+    def scale():
+        current = obj("get", "deployment", DEPLOY)
+        unchanged(current, snapshot)
+        if current["spec"]["replicas"] == replicas:
+            return  # an earlier attempt landed before its kubectl call timed out
+        if issued is not None:
+            issued.append(now())
+        # The precondition makes the scale fail if anything edited the Deployment
+        # after the check above; the retry then re-reads and re-checks it.
+        kube(
+            "scale",
+            "deployment/" + DEPLOY,
+            f"--replicas={replicas}",
+            "--resource-version=" + current["metadata"]["resourceVersion"],
         )
-        normalize(response["data"][0]["embedding"], 2560)
-        result = {
-            "at": now(),
-            "replicas": replicas,
-            "health": "ok",
-            "embedding_dimension": 2560,
-            "template_unchanged": True,
-        }
-        save(out / "restored.json", result)
-        print("PRODUCTION RESTORED " + json.dumps(result), flush=True)
-    finally:
-        forward.close()
+
+    retry(f"scale to {replicas}", scale, deadline=deadline)
+
+
+FENCE = "homelab.task1218/restore-fence"
+
+
+def fence(snapshot, deadline=None):
+    """Bump the Deployment's resourceVersion with a metadata-only write.
+
+    A scale-down whose kubectl call timed out can still commit later on the API
+    server, and its --resource-version precondition stays valid until something
+    else writes. After this write it can only fail. Annotations on the
+    Deployment's own metadata don't touch the Pod template, so nothing rolls.
+    """
+
+    def write():
+        current = obj("get", "deployment", DEPLOY)
+        unchanged(current, snapshot)
+        kube(
+            "annotate",
+            "deployment/" + DEPLOY,
+            f"{FENCE}={now()}",
+            "--overwrite",
+            "--resource-version=" + current["metadata"]["resourceVersion"],
+        )
+
+    retry("fence", write, deadline=deadline)
+
+
+def restore(snapshot, out, deadline=None):
+    """Scale production back, wait for it, and prove it with a real 2,560-dim vector.
+
+    Every step runs at least once; `deadline` only stops further retries.
+    """
+    replicas = snapshot["spec"]["replicas"]
+    fence(snapshot, deadline)
+    scale_checked(snapshot, replicas, deadline)
+    retry(
+        "rollout",
+        lambda: kube(
+            "rollout", "status", "deployment/" + DEPLOY, "--timeout=300s", timeout=310
+        ),
+        deadline=deadline,
+    )
+    current = retry(
+        "verify", lambda: obj("get", "deployment", DEPLOY), deadline=deadline
+    )
+    unchanged(current, snapshot)
+    if current["spec"]["replicas"] != replicas:
+        raise RuntimeError(f"{DEPLOY} at {current['spec']['replicas']} after restore")
+
+    def check():
+        forward = Forward("deployment/" + DEPLOY, out / "restore-port-forward.log")
+        try:
+            forward.ready(120)
+            return http(
+                forward.base,
+                "/v1/embeddings",
+                {
+                    "model": "restore-check",
+                    "input": ["Embedding service restoration check."],
+                    "cache_prompt": False,
+                },
+                timeout=60,
+            )
+        finally:
+            forward.close()
+
+    response = retry(
+        "embedding check", check, 3, (OSError, RuntimeError), deadline=deadline
+    )
+    normalize(response["data"][0]["embedding"], 2560)
+    try:
+        # Best effort: the fence has done its job, and a leftover annotation is
+        # harmless metadata.
+        kube("annotate", "deployment/" + DEPLOY, FENCE + "-")
+    except (OSError, subprocess.SubprocessError) as exc:
+        log(f"fence annotation left on {DEPLOY}: {exc}")
+    result = {
+        "at": now(),
+        "replicas": replicas,
+        "health": "ok",
+        "embedding_dimension": 2560,
+        "template_unchanged": True,
+    }
+    save(out / "restored.json", result)
+    log("PRODUCTION RESTORED " + json.dumps(result))
 
 
 def main():
@@ -750,20 +886,25 @@ def main():
         cleanup_restore(snapshot, args.output)
 
 
-def cleanup_restore(snapshot, output):
+def cleanup_restore(snapshot, output, pod=POD, deadline=None):
     try:
-        kube(
-            "delete",
-            "pod",
-            POD,
-            "--ignore-not-found",
-            "--wait=true",
-            "--timeout=60s",
-            timeout=70,
+        # The probe holds the only GPU: production cannot roll out until it is gone.
+        retry(
+            "delete " + pod,
+            lambda: kube(
+                "delete",
+                "pod",
+                pod,
+                "--ignore-not-found",
+                "--wait=true",
+                "--timeout=60s",
+                timeout=70,
+            ),
+            deadline=deadline,
         )
     finally:
         # Even a failed cleanup must attempt to bring the production replica back.
-        restore(snapshot, output)
+        restore(snapshot, output, deadline)
 
 
 if __name__ == "__main__":
