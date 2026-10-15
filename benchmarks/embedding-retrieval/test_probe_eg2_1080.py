@@ -146,49 +146,86 @@ class ShortInputTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 probe.load_queries(path)
 
-    def test_queries_mode_sends_fragments_and_queries_only(self):
+    def run_queries(self, source, queries, text_tokens=len):
+        """measure() in --queries mode against a fake server; returns (records, sent)."""
         sent = []
 
         def fake_http(base, path, body=None, timeout=None):
             if path == "/tokenize":
                 text = body["content"]
-                bos = [2] if body["add_special"] else []
-                return {"tokens": bos + list(range(10, 10 + len(text)))}
+                bos = [2, 1] if body["add_special"] else []
+                if text == source:
+                    return {"tokens": bos + list(range(10, 10 + len(text)))}
+                return {"tokens": bos + [7] * text_tokens(text)}
             value = body["input"][0]
             sent.append(value)
-            n = len(value) if isinstance(value, list) else 5
+            n = len(value) if isinstance(value, list) else text_tokens(value)
             return {
                 "data": [{"embedding": [1.0] * probe.DIMENSION}],
                 "usage": {"prompt_tokens": n},
             }
 
         records = {"pairs": [], "buckets": [], "ordering": [], "short": []}
-        queries = [{"id": "q1", "text": "what is BUG-1"}]
+        error = None
         with (
             tempfile.TemporaryDirectory() as tmp,
             patch.object(probe, "http", fake_http),
         ):
-            probe.measure(
-                "http://x",
-                MagicMock(),
-                threading.Event(),
-                [],
-                "s" * 400,
-                Path(tmp),
-                records,
-                lambda: None,
-                queries=queries,
-            )
+            try:
+                probe.measure(
+                    "http://x",
+                    MagicMock(),
+                    threading.Event(),
+                    [],
+                    source,
+                    Path(tmp),
+                    records,
+                    lambda: None,
+                    queries=queries,
+                )
+            except RuntimeError as exc:
+                error = exc
+        return records, sent, error
+
+    def test_queries_mode_sends_exactly_the_planned_inputs(self):
+        records, sent, error = self.run_queries(
+            "s" * 400, [{"id": "q1", "text": "what is BUG-1"}]
+        )
+        self.assertIsNone(error)
+        # Independent of probe.SHORT_LENGTHS.
+        expected = ["probe warm-up request"]
+        for n in (8, 16, 32, 64, 128, 255, 256, 257):
+            fragment = list(range(10, 10 + n))
+            expected += [fragment, [2, 1] + fragment]
+        expected.append("what is BUG-1")
+        self.assertEqual(sent, expected)
         self.assertEqual(records["pairs"], [])
         self.assertEqual(records["buckets"], [])
-        self.assertEqual(records["bos"], [2])
-        kinds = [(r["kind"], r.get("length")) for r in records["short"]]
-        self.assertEqual(len(kinds), 2 * len(probe.SHORT_LENGTHS) + 1)
-        bosfrag16 = next(
-            r for r in records["short"] if r["kind"] == "bosfrag" and r["length"] == 16
+        self.assertEqual(records["bos"], [2, 1])
+
+    def test_short_fragment_source_is_refused_before_sending(self):
+        _, sent, error = self.run_queries("s" * 100, [{"id": "q1", "text": "q"}])
+        self.assertIn("fragment source has 100 tokens", str(error))
+        self.assertEqual(sent, ["probe warm-up request"])
+
+    def test_query_over_the_cap_is_never_sent(self):
+        def tokens(text):
+            return probe.CAP + 1 if text == "long" else 5
+
+        _, sent, error = self.run_queries(
+            "s" * 400,
+            [{"id": "ok", "text": "short"}, {"id": "big", "text": "long"}],
+            tokens,
         )
-        self.assertEqual(bosfrag16["tokens"], 17)
-        self.assertIn("what is BUG-1", sent)
+        self.assertIn("query big", str(error))
+        self.assertIn("short", sent)
+        self.assertNotIn("long", sent)
+
+    def test_queries_plan_counts_the_queries_workload(self):
+        queries = [{"id": "a", "text": "x"}, {"id": "b", "text": "y"}]
+        planned = probe.plan(sample(), probe.select_inputs(sample()), queries)
+        self.assertEqual(planned["mode"], "queries")
+        self.assertEqual(planned["requests"], 1 + 2 * 8 + 2)
 
 
 class EvaluateTests(unittest.TestCase):
@@ -531,34 +568,38 @@ class WindowTests(unittest.TestCase):
         self.assertEqual(str(run.error), f"interrupted: signal {signal.SIGTERM}")
         self.assertEqual(len(run.window["stopped_by"]), 2)
 
-    def test_hangup_after_scale_down_still_restores(self):
-        # In a child process: without a handler, SIGHUP's default action kills the
-        # process outright, and that must not take the test runner with it.
-        script = textwrap.dedent(
-            """
-            import json, os, signal, time
-            import test_probe_eg2_1080 as t
+    def test_hangup_and_quit_after_scale_down_still_restore(self):
+        # In a child process: without a handler, these signals' default action
+        # kills the process outright, and that must not take the test runner with it.
+        for sig in (signal.SIGHUP, signal.SIGQUIT):
+            with self.subTest(signal=sig.name):
+                script = textwrap.dedent(
+                    f"""
+                    import json, os, signal, time
+                    import test_probe_eg2_1080 as t
 
-            def body():
-                os.kill(os.getpid(), signal.SIGHUP)
-                time.sleep(5)
+                    def body():
+                        os.kill(os.getpid(), signal.{sig.name})
+                        time.sleep(5)
 
-            run = t.WindowTests().run_window(body)
-            print(json.dumps({"restores": run.restore.call_count, "error": str(run.error)}))
-            """
-        )
-        child = subprocess.run(
-            [sys.executable, "-c", script],
-            cwd=Path(__file__).parent,
-            capture_output=True,
-            text=True,
-            timeout=60,
-            check=False,  # the return code is the assertion
-        )
-        self.assertEqual(child.returncode, 0, child.stderr)
-        result = json.loads(child.stdout.strip().splitlines()[-1])
-        self.assertEqual(result["restores"], 1)
-        self.assertEqual(result["error"], f"interrupted: signal {signal.SIGHUP}")
+                    run = t.WindowTests().run_window(body)
+                    print(json.dumps(
+                        {{"restores": run.restore.call_count, "error": str(run.error)}}
+                    ))
+                    """
+                )
+                child = subprocess.run(
+                    [sys.executable, "-c", script],
+                    cwd=Path(__file__).parent,
+                    capture_output=True,
+                    text=True,
+                    timeout=60,
+                    check=False,  # the return code is the assertion
+                )
+                self.assertEqual(child.returncode, 0, child.stderr)
+                result = json.loads(child.stdout.strip().splitlines()[-1])
+                self.assertEqual(result["restores"], 1)
+                self.assertEqual(result["error"], f"interrupted: signal {sig}")
 
 
 class GuardTests(unittest.TestCase):

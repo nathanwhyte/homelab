@@ -395,7 +395,30 @@ def evaluate(records, cosines=None):
     }
 
 
-def plan(sample, kept):
+def plan(sample, kept, queries=None):
+    if queries is not None:
+        # --queries windows: warm-up, both fragment kinds per length, each query.
+        return {
+            "image": IMAGE,
+            "pod": POD,
+            "args": PROBE_ARGS,
+            "cap_eg2_tokens": CAP,
+            "mode": "queries",
+            "fragment_lengths": list(SHORT_LENGTHS),
+            "fragment_token_source_index": sample.index(
+                max(sample, key=lambda s: s["tokens"])
+            ),
+            "queries": len(queries),
+            "requests": 1 + 2 * len(SHORT_LENGTHS) + len(queries),
+            "gates": {"cosine_min": COSINE_MIN},
+            "guards": {
+                "rss_kib": RSS_LIMIT_KIB,
+                "cpu_c": 80,
+                "gpu_c": 85,
+                "deadline_minutes": DEADLINE_MINUTES,
+                "restore_reserve_seconds": RESTORE_RESERVE_S,
+            },
+        }
     return {
         "image": IMAGE,
         "pod": POD,
@@ -478,6 +501,9 @@ def preflight():
     return snapshot
 
 
+STOP_SIGNALS = (signal.SIGINT, signal.SIGTERM, signal.SIGHUP, signal.SIGQUIT)
+
+
 def run_window(out, snapshot, budget_s, start_pod, body, abort):
     """Scale production to 0, start the probe, run body() in a worker, restore.
 
@@ -495,11 +521,9 @@ def run_window(out, snapshot, budget_s, start_pod, body, abort):
         reasons.append(f"interrupted: signal {signum}")
         abort.set()
 
-    # SIGHUP too: a closed terminal after scale-down must not skip the restore.
-    previous = {
-        s: signal.signal(s, stop)
-        for s in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP)
-    }
+    # Every catchable terminating signal a shell or terminal sends: a closed
+    # terminal (HUP) or Ctrl-\ (QUIT) after scale-down must not skip the restore.
+    previous = {s: signal.signal(s, stop) for s in STOP_SIGNALS}
     failures = []
 
     def work():
@@ -712,6 +736,8 @@ def measure(
             # calibration scored 0.988 against pop while a 7-token text scored 0.9999.
             # Fragments with and without a BOS separate "no BOS" from "padding to 256".
             ids = tokenize(base, pair_source, add_special=False)
+            if len(ids) < max(SHORT_LENGTHS):
+                raise RuntimeError(f"fragment source has {len(ids)} tokens")
             bos = tokenize(base, "", add_special=True)
             records["bos"] = bos
             for length in SHORT_LENGTHS:
@@ -720,9 +746,18 @@ def measure(
                     ("bosfrag", bos + ids[:length]),
                 ):
                     row = embed(f"{kind}-{length}", value)
+                    if row["tokens"] != len(value):
+                        raise RuntimeError(
+                            f"{kind}-{length}: sent {len(value)}, server counted "
+                            f"{row['tokens']}"
+                        )
                     records["short"].append({"kind": kind, "length": length, **row})
                     flush()
             for query in queries:
+                # Counted before sending, so no request over the cap reaches the server.
+                counted = len(tokenize(base, query["text"]))
+                if counted > CAP:
+                    raise RuntimeError(f"query {query['id']}: {counted} tokens")
                 row = embed(f"query-{query['id']}", query["text"])
                 records["short"].append({"kind": "query", "id": query["id"], **row})
                 flush()
@@ -843,7 +878,7 @@ def execute(args, sample, kept_by_qwen):
             "sample": str(args.sample),
             "sample_sha256": hashlib.sha256(args.sample.read_bytes()).hexdigest(),
             "runner_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
-            "plan": plan(sample, kept_by_qwen),
+            "plan": plan(sample, kept_by_qwen, args.query_list),
             "vectors": str(scratch),
         },
     )
@@ -913,7 +948,7 @@ def execute(args, sample, kept_by_qwen):
                 scratch,
                 records,
                 flush,
-                queries=load_queries(args.queries) if args.queries else None,
+                queries=args.query_list,
             )
             monitor.check()
         except BaseException:
@@ -1002,8 +1037,8 @@ def main():
         "fragments instead of the pairs, buckets and ordering (gate 4 only)",
     )
     args = ap.parse_args()
-    if args.queries:
-        load_queries(args.queries)  # fail before any cluster call
+    # Loaded before any cluster call, so a bad file fails first.
+    args.query_list = load_queries(args.queries) if args.queries else None
 
     if args.prepull:
         prepull()
@@ -1022,7 +1057,11 @@ def main():
             ap.error("--execute needs --output")
         execute(args, sample, kept)
         return
-    print(json.dumps({"pod": manifest(), "plan": plan(sample, kept)}, indent=2))
+    print(
+        json.dumps(
+            {"pod": manifest(), "plan": plan(sample, kept, args.query_list)}, indent=2
+        )
+    )
     print("dry run: no cluster call made", flush=True)
 
 
