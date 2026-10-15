@@ -264,12 +264,22 @@ def prepull_manifest():
     }
 
 
-def load_queries(path):
-    queries = json.loads(path.read_text())["queries"]
+def sha256(raw):
+    return hashlib.sha256(raw).hexdigest()
+
+
+def load_queries_digested(path):
+    """The queries and the sha256 of the exact bytes parsed, from one read."""
+    raw = path.read_bytes()
+    queries = json.loads(raw)["queries"]
     ids = [q["id"] for q in queries]
     if not queries or len(set(ids)) != len(ids) or not all(q["text"] for q in queries):
         raise ValueError(f"{path}: need non-empty queries with unique ids and text")
-    return queries
+    return queries, sha256(raw)
+
+
+def load_queries(path):
+    return load_queries_digested(path)[0]
 
 
 def select_inputs(sample):
@@ -467,11 +477,17 @@ def plan(sample, kept, queries=None):
 
 
 def load_sample(path):
-    sample = json.loads(path.read_text())
+    """The fixture and the sha256 of the exact bytes parsed, from one read.
+
+    A rehearsal certifies this digest, so a file rewritten after the parse (Codex
+    round 3 on homelab#233) cannot be certified in place of what was measured.
+    """
+    raw = path.read_bytes()
+    sample = json.loads(raw)
     counts = Counter(s["target"] for s in sample)
     if len(sample) != 44 or counts != {300: 12, 1000: 10, 3000: 10, 6000: 6, 7600: 6}:
         raise ValueError(f"wrong sample fixture: {dict(counts)}")
-    return sample
+    return sample, sha256(raw)
 
 
 def preflight():
@@ -942,15 +958,23 @@ class RehearsalRefused(ValueError):
     pass
 
 
+# The runner and latency_local as imported: a rehearsal certifies the code that
+# ran, not whatever is on disk when it finishes.
+CODE_SHA256 = [sha256(Path(f).read_bytes()) for f in (__file__, latency_local.__file__)]
+
+
 def plan_hash(args, sample, kept):
-    """What a rehearsal certifies: the sample, probe args, cap, mode and request plan."""
-    queries = args.queries.read_bytes() if args.queries else b""
+    """What a rehearsal certifies: the sample, probe args, cap, mode and request plan.
+
+    The input digests are the ones taken when main() parsed the files, and the
+    code digests are taken at import: nothing is re-read after a run.
+    """
     return hashlib.sha256(
         json.dumps(
             {
                 "plan": plan(sample, kept, args.query_list),
-                "sample_sha256": hashlib.sha256(args.sample.read_bytes()).hexdigest(),
-                "queries_sha256": hashlib.sha256(queries).hexdigest(),
+                "sample_sha256": args.sample_sha256,
+                "queries_sha256": args.queries_sha256,
                 # What shapes the requests but is not in plan(): a changed value
                 # here can empty a bucket or alter an input without moving the plan.
                 "settings": {
@@ -962,10 +986,7 @@ def plan_hash(args, sample, kept):
                     "targets": TARGETS,
                     "short_lengths": SHORT_LENGTHS,
                 },
-                "code_sha256": [
-                    hashlib.sha256(Path(f).read_bytes()).hexdigest()
-                    for f in (__file__, latency_local.__file__)
-                ],
+                "code_sha256": CODE_SHA256,
             },
             sort_keys=True,
         ).encode()
@@ -1101,6 +1122,7 @@ def rehearse(args, sample, kept):
     scratch = Path(__file__).parent / "scratch" / out.name
     out.mkdir(parents=True, exist_ok=False)
     scratch.mkdir(parents=True, exist_ok=False)
+    certified = plan_hash(args, sample, kept)
     records = {"pairs": [], "buckets": [], "ordering": [], "short": [], "guard": None}
     records["startup_log"] = args.server_log.read_text() or None
     monitor = SimpleNamespace(check=lambda: None)
@@ -1127,7 +1149,7 @@ def rehearse(args, sample, kept):
         {
             "created_at": now(),
             "passed": passed,
-            "plan_hash": plan_hash(args, sample, kept),
+            "plan_hash": certified,
             "mode": "queries" if args.query_list is not None else "full",
             "base_url": args.base_url,
             "server_log": str(args.server_log),
@@ -1153,8 +1175,8 @@ def execute(args, sample, kept_by_qwen):
         {
             "created_at": now(),
             "sample": str(args.sample),
-            "sample_sha256": hashlib.sha256(args.sample.read_bytes()).hexdigest(),
-            "runner_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+            "sample_sha256": args.sample_sha256,
+            "runner_sha256": CODE_SHA256[0],
             "plan": plan(sample, kept_by_qwen, args.query_list),
             **note,
             "vectors": str(scratch),
@@ -1323,7 +1345,9 @@ def main():
     )
     args = ap.parse_args()
     # Loaded before any cluster call, so a bad file fails first.
-    args.query_list = load_queries(args.queries) if args.queries else None
+    args.query_list, args.queries_sha256 = (
+        load_queries_digested(args.queries) if args.queries else (None, sha256(b""))
+    )
 
     if args.prepull:
         prepull()
@@ -1335,7 +1359,7 @@ def main():
         return
     if not args.sample:
         ap.error("--sample is required")
-    sample = load_sample(args.sample)
+    sample, args.sample_sha256 = load_sample(args.sample)
     kept = select_inputs(sample)
     if args.rehearse:
         if not (args.output and args.server_log):

@@ -913,6 +913,8 @@ class RehearsalTests(unittest.TestCase):
             sample=sample_path,
             queries=query_path,
             query_list=queries,
+            sample_sha256=probe.sha256(sample_path.read_bytes()),
+            queries_sha256=probe.sha256(query_path.read_bytes() if queries else b""),
             output=self.root / self.name,
             server_log=log_path,
             base_url="http://127.0.0.1:1",
@@ -943,6 +945,41 @@ class RehearsalTests(unittest.TestCase):
         # Every token array that is not special-free starts with the BOS id.
         arrays = [v for v in server.sent if isinstance(v, list)]
         self.assertTrue(arrays and all(v[0] == 2 and v[-1] == 1 for v in arrays))
+
+    def test_a_sample_rewritten_mid_run_is_not_certified(self):
+        # Codex round 3: re-reading the sample after the run certified the
+        # replacement, which --execute then accepted with an empty bucket.
+        rows = rehearsal_sample()
+        server = FakeServer()
+        sample_path = self.root / "sample.json"
+
+        def rewrite_then_serve(base, path, body=None, timeout=None):
+            sample_path.write_text(json.dumps(rows) + " ")
+            return server(base, path, body, timeout)
+
+        args = self.args(rows)
+        original = args.sample_sha256
+        kept = probe.select_inputs(rows)
+        with (
+            patch.object(probe, "http", rewrite_then_serve),
+            patch.object(probe, "kube", side_effect=AssertionError("kubectl")),
+        ):
+            probe.rehearse(args, rows, kept)
+        record = json.loads((args.output / "rehearsal.json").read_text())
+        self.assertNotEqual(original, probe.sha256(sample_path.read_bytes()))
+        self.assertEqual(record["plan_hash"], probe.plan_hash(args, rows, kept))
+        rewritten = SimpleNamespace(
+            **{**vars(args), "sample_sha256": probe.sha256(sample_path.read_bytes())}
+        )
+        self.assertNotEqual(record["plan_hash"], probe.plan_hash(rewritten, rows, kept))
+
+    def test_load_sample_digests_the_bytes_it_parsed(self):
+        path = self.root / "digest.json"
+        raw = json.dumps(rehearsal_sample()).encode()
+        path.write_bytes(raw)
+        sample, digest = probe.load_sample(path)
+        self.assertEqual(len(sample), 44)
+        self.assertEqual(digest, probe.sha256(raw))
 
     def test_missing_fa_line_fails(self):
         passed, _, failed, _, _ = self.rehearse(
@@ -1087,10 +1124,13 @@ class RehearsalGateTests(unittest.TestCase):
         )
 
     def args(self, **kwargs):
+        # As main() does: digest the sample as it is on disk at load time.
         base = {
             "sample": self.sample_path,
             "queries": None,
             "query_list": None,
+            "sample_sha256": probe.sha256(self.sample_path.read_bytes()),
+            "queries_sha256": probe.sha256(b""),
             "output": self.root / self.name,
             "rehearsal": None,
             "skip_rehearsal": False,
