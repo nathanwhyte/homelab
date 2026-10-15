@@ -1,19 +1,20 @@
 #!/usr/bin/env python3
-"""TASK-1218: one capped EmbeddingGemma 2 window on manu's GTX 1080 (llama.cpp b11580).
+"""TASK-1218: one EmbeddingGemma 2 window on manu's GTX 1080 (llama.cpp b11610).
 
 Modes (default: --dry-run):
   --dry-run   render the probe Pod and the request plan; no kubectl write verb
-  --prepull   cache the b11580 image on manu with a GPU-less `llama-server --version`
+  --prepull   cache the b11610 image on manu with a GPU-less `llama-server --version`
               Pod, check the build, delete the Pod; production is not touched
   --execute   snapshot embedder-qwen-cuda, scale it to 0, run the isolated probe Pod
               (no Service selects it), measure, and restore production on every exit
   --evaluate  re-score a finished window's records.json, optionally with gate 4's
               cosines from the pop reference run (--cosines)
 
-b11580 has the attention padding fix (ggml-org/llama.cpp#30416) but not the
-host-memory fix (#30255), so every embedded input is capped at 3,072 EG2 tokens and
-an RSS guard deletes the Pod past 5 GiB. The token-exact pairs are sliced from the
-longest sample text, which is only tokenized, never embedded whole.
+b11610 has the attention padding fix (ggml-org/llama.cpp#30416, b11576) and the
+host-memory fix (#30255, b11588), so inputs run up to the 8,192-token context. The
+first window (2026-10-15, b11580) capped them at 3,072 for want of #30255. The RSS
+guard still deletes the Pod past 5 GiB. The token-exact pairs are sliced from the
+longest sample text.
 
 Plan: compendium docs/plans/2026-10-13-TASK-1218-eg2-gtx1080-probe.md.
 
@@ -55,20 +56,30 @@ from benchmark_1080_slots import (
 
 POD = "task1218-eg2-probe"
 PREPULL = "task1218-eg2-prepull"
-# server-cuda-b11580 index digest (same as server-cuda12-b11580), registry 2026-10-13.
-IMAGE = "ghcr.io/ggml-org/llama.cpp@sha256:c4348afb91499b10fad12f92626c7a8ca8b69d6475d10c793b810cb61237ce00"
-BUILD = 11580
+# server-cuda-b11610 index digest (same as server-cuda12-b11610), registry 2026-10-15.
+# The first published server-cuda build after b11588; b11588-b11609 have no image.
+IMAGE = "ghcr.io/ggml-org/llama.cpp@sha256:b0baccbe2e00b5d74e63f85f9f023c93d61d0f329475269e1e7002e87eb875ea"
+BUILD = 11610
 PROD_IMAGE = "ghcr.io/ggml-org/llama.cpp@sha256:ef08b5a98b1170f2b62177be0a4027c88a84043c55afbf190dd18b9e7cdcfebf"
 EG2_DEPLOY = "embedder-eg2-cuda"
 DIMENSION = 768
-CAP = 3072  # EG2 tokens per embedded input
+CAP = 8192  # EG2 tokens per embedded input: the --ctx-size
 PREFIX_MARGIN = 24  # latency_local.fresh() adds 16 random characters and a space
-TARGETS = (300, 1000, 3000)
-PAIRS = ((1024, 1025), (2048, 2049), (2816, 2817))
+TARGETS = (300, 1000, 3000, 6000, 7600)
+PAIRS = (
+    (1024, 1025),
+    (2048, 2049),
+    (2816, 2817),
+    (4096, 4097),
+    (6144, 6145),
+    (7680, 7681),
+)
 REPEATS = 3
 SEED = 1218
 RSS_LIMIT_KIB = 5 * 1024 * 1024
-DEADLINE_MINUTES = 20  # scale-down to restored
+# scale-down to restored. 25 leaves 630 s to measure; the b11580 window used ~200 s
+# for three buckets and three pairs, and the long inputs here roughly double that.
+DEADLINE_MINUTES = 25
 # Measurements stop this long before the deadline: one attempt of every restore
 # step at its kubectl timeout (probe delete 70 s, get + fence 120 s, get + scale
 # 120 s, rollout 310 s, verify get 60 s, port-forward readiness 120 s, vector
@@ -77,10 +88,10 @@ DEADLINE_MINUTES = 20  # scale-down to restored
 # step, never a silent abandon; window.json records `overran_deadline`.
 RESTORE_RESERVE_S = 870
 # Qwen3-Embedding-4B Q8_0, one slot, this card: task1218-1080-slots-20260923.md:25-32.
-QWEN_MEDIANS_MS = {300: 326, 1000: 1108, 3000: 3644}
+QWEN_MEDIANS_MS = {300: 326, 1000: 1108, 3000: 3644, 6000: 8789, 7600: 12238}
 PAIR_RATIO_MAX = 1.5
 COSINE_MIN = 0.999
-# b11580 src/llama-context.cpp:629-645, the -fa auto probe's verdict lines.
+# b11588 src/llama-context.cpp:629-645, the -fa auto probe's verdict lines.
 FA_ENABLED = "Flash Attention enabled"
 FA_FALLBACK = ("Flash Attention is assigned to device", "Flash Attention not supported")
 
@@ -137,9 +148,10 @@ EG2_ARGS = [
     "0",
     "--metrics",
 ]
-# auto is what production would run. Verbosity 3 keeps the INFO and WARN lines
-# gate 1 reads; -lv 1 would drop both (common/log.h: WARN 2, INFO 3).
-PROBE_ARGS = EG2_ARGS + ["--flash-attn", "auto", "--verbosity", "3"]
+# auto is what production would run. Gate 1 reads libllama's INFO "enabled" line,
+# which common_log_get_verbosity maps to TRACE (4), not INFO (3): the 2026-10-15
+# b11580 window at verbosity 3 logged no resolution line at all (common/log.cpp:532).
+PROBE_ARGS = EG2_ARGS + ["--flash-attn", "auto", "--verbosity", "4"]
 
 
 def manifest():
@@ -826,7 +838,7 @@ def execute(args, sample, kept_by_qwen):
                 },
             )
             if not image_id.endswith(IMAGE.split("@")[1]):
-                raise RuntimeError(f"probe runs {image_id}, not b11580")
+                raise RuntimeError(f"probe runs {image_id}, not b{BUILD}")
             flush()
             gate1 = evaluate(records)["gate1_attention_on_gpu"]
             print(f"gate 1 (startup log): {json.dumps(gate1)}", flush=True)
@@ -911,7 +923,7 @@ def prepull():
         log = kube("logs", PREPULL, check=False)
         text = log.stdout + log.stderr
         print(f"pre-pull phase {phase}\n{text.strip()}", flush=True)
-        # e.g. "version: 0.6.0-dev (build 11580, commit 4413a1924)"
+        # e.g. "version: 0.6.0-dev (build 11610, commit …)"
         build = re.search(r"\(build (\d+),", text)
         if not build or int(build.group(1)) != BUILD:
             raise RuntimeError(f"expected build {BUILD}")

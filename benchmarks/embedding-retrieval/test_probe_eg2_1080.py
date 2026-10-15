@@ -37,7 +37,13 @@ def passing_records():
     ]
     buckets = [
         {"target": t, "ms": ms}
-        for t, ms in ((300, 40.0), (1000, 120.0), (3000, 400.0))
+        for t, ms in (
+            (300, 40.0),
+            (1000, 120.0),
+            (3000, 400.0),
+            (6000, 900.0),
+            (7600, 1300.0),
+        )
         for _ in range(3)
     ]
     return {"startup_log": log, "pairs": pairs, "buckets": buckets, "guard": None}
@@ -48,7 +54,7 @@ class ManifestTests(unittest.TestCase):
         pod = probe.manifest()
         container = pod["spec"]["containers"][0]
         self.assertEqual(container["image"], probe.IMAGE)
-        self.assertIn("sha256:c4348afb", container["image"])
+        self.assertIn("sha256:b0baccbe", container["image"])
         self.assertEqual(container["resources"]["limits"]["memory"], "6Gi")
         self.assertEqual(container["resources"]["limits"]["nvidia.com/gpu"], "1")
         claims = [
@@ -59,8 +65,8 @@ class ManifestTests(unittest.TestCase):
         self.assertEqual(claims, ["embedder-eg2-model-cache"])
         args = container["args"]
         self.assertEqual(args[args.index("--flash-attn") + 1], "auto")
-        # Gate 1 reads INFO and WARN lines, so verbosity must stay at 3 or above.
-        self.assertGreaterEqual(int(args[args.index("--verbosity") + 1]), 3)
+        # Gate 1 reads libllama INFO lines, which log at TRACE (4).
+        self.assertGreaterEqual(int(args[args.index("--verbosity") + 1]), 4)
         self.assertNotIn("-lv", args)
         self.assertEqual(args[args.index("--pooling") + 1], "mean")
 
@@ -96,17 +102,17 @@ class ManifestTests(unittest.TestCase):
 class CapTests(unittest.TestCase):
     def test_select_inputs_keeps_only_capped_targets(self):
         kept = probe.select_inputs(sample())
-        self.assertEqual(len(kept), 32)
-        self.assertEqual({r["target"] for r in kept}, {300, 1000, 3000})
+        self.assertEqual(len(kept), 44)
+        self.assertEqual({r["target"] for r in kept}, {300, 1000, 3000, 6000, 7600})
         self.assertTrue(all(r["qwen_tokens"] <= probe.CAP for r in kept))
 
     def test_cap_inputs_drops_texts_over_the_eg2_cap(self):
         texts = [
-            {"index": 0, "target": 3000, "text": "a"},
-            {"index": 1, "target": 3000, "text": "b"},
-            {"index": 2, "target": 3000, "text": "c"},
+            {"index": 0, "target": 7600, "text": "a"},
+            {"index": 1, "target": 7600, "text": "b"},
+            {"index": 2, "target": 7600, "text": "c"},
         ]
-        counts = {"a": 2900, "b": probe.CAP - probe.PREFIX_MARGIN + 1, "c": 3500}
+        counts = {"a": 7900, "b": probe.CAP - probe.PREFIX_MARGIN + 1, "c": 8500}
         kept, dropped = probe.cap_inputs(texts, counts.__getitem__)
         self.assertEqual([r["index"] for r in kept], [0])
         self.assertEqual([r["index"] for r in dropped], [1, 2])
