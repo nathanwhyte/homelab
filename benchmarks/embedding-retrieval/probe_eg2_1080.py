@@ -687,7 +687,7 @@ def measure(
     vectors = (scratch / "vectors.jsonl").open("w")
     lock = threading.Lock()
 
-    def embed(key, value, sent=None, special_free=False):
+    def embed(key, value, sent=None, special_free=False, prefix_only=False):
         if abort.is_set():
             raise RuntimeError("window stopped")
         monitor.check()
@@ -712,7 +712,9 @@ def measure(
                     "tokens": tokens,
                     "array": isinstance(value, list),
                     "head": value[0] if isinstance(value, list) and value else None,
+                    "tail": value[-1] if isinstance(value, list) and value else None,
                     "special_free": special_free,
+                    "prefix_only": prefix_only,
                 }
             )
         if tokens is None or tokens > CAP:
@@ -766,13 +768,19 @@ def measure(
                 raise RuntimeError(f"fragment source has {len(ids)} tokens")
             bos = tokenize(base, "", add_special=True)
             records["bos"] = bos
+            records["specials"] = bos
             for length in SHORT_LENGTHS:
                 for kind, value in (
                     ("frag", ids[:length]),
                     ("bosfrag", bos + ids[:length]),
                 ):
                     # `frag` is the deliberate special-free half of the pair.
-                    row = embed(f"{kind}-{length}", value, special_free=kind == "frag")
+                    row = embed(
+                        f"{kind}-{length}",
+                        value,
+                        special_free=kind == "frag",
+                        prefix_only=kind == "bosfrag",
+                    )
                     if row["tokens"] != len(value):
                         raise RuntimeError(
                             f"{kind}-{length}: sent {len(value)}, server counted "
@@ -943,6 +951,21 @@ def plan_hash(args, sample, kept):
                 "plan": plan(sample, kept, args.query_list),
                 "sample_sha256": hashlib.sha256(args.sample.read_bytes()).hexdigest(),
                 "queries_sha256": hashlib.sha256(queries).hexdigest(),
+                # What shapes the requests but is not in plan(): a changed value
+                # here can empty a bucket or alter an input without moving the plan.
+                "settings": {
+                    "model_env": MODEL_ENV,
+                    "build": BUILD,
+                    "seed": SEED,
+                    "prefix_margin": PREFIX_MARGIN,
+                    "gap_s": latency_local.GAP_S,
+                    "targets": TARGETS,
+                    "short_lengths": SHORT_LENGTHS,
+                },
+                "code_sha256": [
+                    hashlib.sha256(Path(f).read_bytes()).hexdigest()
+                    for f in (__file__, latency_local.__file__)
+                ],
             },
             sort_keys=True,
         ).encode()
@@ -995,14 +1018,16 @@ def rehearsal_checks(records, queries_mode, failure=None):
     requests = records.get("requests", [])
     over = [r["key"] for r in requests if r["tokens"] is None or r["tokens"] > CAP]
     specials = records.get("specials") or []
-    bare = [
-        r["key"]
-        for r in requests
-        if r["array"]
-        and not r["special_free"]
-        and specials
-        and r["head"] != specials[0]
-    ]
+
+    def unwrapped(r):
+        if r["special_free"]:
+            return False
+        if r["head"] != specials[0]:
+            return True
+        # The --queries `bosfrag` inputs deliberately carry the leading BOS only.
+        return len(specials) > 1 and not r["prefix_only"] and r["tail"] != specials[-1]
+
+    bare = [r["key"] for r in requests if r["array"] and specials and unwrapped(r)]
     counts = Counter(r["target"] for r in records.get("buckets", []))
     empty = [] if queries_mode else [t for t in QWEN_MEDIANS_MS if not counts[t]]
     seen = gate1["enabled_line"] or bool(gate1["fallback_lines"])
@@ -1036,8 +1061,13 @@ def rehearsal_checks(records, queries_mode, failure=None):
             f"over {CAP}: {over}" if over else f"{len(requests)} requests",
         ),
         (
+            "model_specials_resolved",
+            bool(specials),
+            f"/tokenize of '' with specials: {specials}",
+        ),
+        (
             "token_arrays_carry_specials",
-            not bare,
+            bool(specials) and not bare,
             f"special-free arrays not marked in the plan: {bare}"
             if bare
             else "all arrays wrapped, or marked special-free",

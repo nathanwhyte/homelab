@@ -979,25 +979,60 @@ class RehearsalTests(unittest.TestCase):
         self.assertLessEqual({"no_request_over_cap", "plan_ran_to_the_end"}, failed)
 
     def test_special_free_array_fails_unless_marked(self):
+        def row(key, head, tail, **flags):
+            return {
+                "key": key,
+                "tokens": 16,
+                "array": True,
+                "head": head,
+                "tail": tail,
+                "special_free": False,
+                "prefix_only": False,
+                **flags,
+            }
+
         records = {
             "specials": [2, 1],
             "requests": [
-                {"key": "calibrate", "tokens": 16, "array": True, "head": 10,
-                 "special_free": False},
-                {"key": "frag-8", "tokens": 8, "array": True, "head": 10,
-                 "special_free": True},
-                {"key": "first", "tokens": 5, "array": False, "head": None,
-                 "special_free": False},
+                row("calibrate", 10, 11),
+                row("frag-8", 10, 11, special_free=True),
+                row("bosfrag-8", 2, 11, prefix_only=True),
+                row("first", None, None, array=False),
             ],
-        }  # fmt: skip
-        by_name = {c["name"]: c for c in probe.rehearsal_checks(records, True)}
-        check = by_name["token_arrays_carry_specials"]
-        self.assertFalse(check["ok"])
-        self.assertIn("calibrate", check["detail"])
-        self.assertNotIn("frag-8", check["detail"])
-        records["requests"][0]["head"] = 2
-        by_name = {c["name"]: c for c in probe.rehearsal_checks(records, True)}
-        self.assertTrue(by_name["token_arrays_carry_specials"]["ok"])
+        }
+
+        def check():
+            checks = {c["name"]: c for c in probe.rehearsal_checks(records, True)}
+            return checks["token_arrays_carry_specials"]
+
+        result = check()
+        self.assertFalse(result["ok"])
+        self.assertIn("calibrate", result["detail"])
+        self.assertNotIn("frag-8", result["detail"])
+        self.assertNotIn("bosfrag-8", result["detail"])
+        records["requests"][0].update(head=2)  # BOS without EOS still fails
+        self.assertFalse(check()["ok"])
+        records["requests"][0].update(tail=1)
+        self.assertTrue(check()["ok"])
+
+    def test_unresolved_specials_fail_instead_of_skipping_the_audit(self):
+        records = {
+            "specials": [],
+            "requests": [
+                {
+                    "key": "calibrate",
+                    "tokens": 16,
+                    "array": True,
+                    "head": 10,
+                    "tail": 11,
+                    "special_free": False,
+                    "prefix_only": False,
+                }
+            ],
+        }
+        checks = {c["name"]: c for c in probe.rehearsal_checks(records, True)}
+        self.assertFalse(checks["model_specials_resolved"]["ok"])
+        self.assertFalse(checks["token_arrays_carry_specials"]["ok"])
 
     def test_queries_mode_keeps_its_special_free_fragments_labeled(self):
         rows = rehearsal_sample()
@@ -1079,6 +1114,12 @@ class RehearsalGateTests(unittest.TestCase):
         error = self.execute(self.args(rehearsal=path))
         self.assertIsInstance(error, probe.RehearsalRefused)
         self.assertIn("plan hash", str(error))
+
+    def test_a_changed_request_setting_invalidates_the_rehearsal(self):
+        path = self.rehearsal_file()
+        with patch.object(probe, "PREFIX_MARGIN", 500):
+            error = self.execute(self.args(rehearsal=path))
+        self.assertIsInstance(error, probe.RehearsalRefused)
 
     def test_a_changed_sample_invalidates_the_rehearsal(self):
         path = self.rehearsal_file()
