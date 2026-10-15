@@ -75,6 +75,8 @@ PAIRS = (
     (7680, 7681),
 )
 REPEATS = 3
+# --queries windows: token-fragment lengths around the 256 attention padding.
+SHORT_LENGTHS = (8, 16, 32, 64, 128, 255, 256, 257)
 SEED = 1218
 RSS_LIMIT_KIB = 5 * 1024 * 1024
 # scale-down to restored. 25 leaves 630 s to measure; the b11580 window used ~200 s
@@ -244,6 +246,14 @@ def prepull_manifest():
             ],
         },
     }
+
+
+def load_queries(path):
+    queries = json.loads(path.read_text())["queries"]
+    ids = [q["id"] for q in queries]
+    if not queries or len(set(ids)) != len(ids) or not all(q["text"] for q in queries):
+        raise ValueError(f"{path}: need non-empty queries with unique ids and text")
+    return queries
 
 
 def select_inputs(sample):
@@ -625,7 +635,9 @@ def tokenize(base, text, add_special=True):
     )["tokens"]
 
 
-def measure(base, monitor, abort, texts, pair_source, scratch, records, flush):
+def measure(
+    base, monitor, abort, texts, pair_source, scratch, records, flush, queries=None
+):
     rng = random.Random(SEED)
     vectors = (scratch / "vectors.jsonl").open("w")
     lock = threading.Lock()
@@ -688,6 +700,28 @@ def measure(base, monitor, abort, texts, pair_source, scratch, records, flush):
     try:
         records["first"] = embed("first", "probe warm-up request")
         flush()
+
+        if queries is not None:
+            # Gate 4 on short inputs only (third window): the 16-token token-array
+            # calibration scored 0.988 against pop while a 7-token text scored 0.9999.
+            # Fragments with and without a BOS separate "no BOS" from "padding to 256".
+            ids = tokenize(base, pair_source, add_special=False)
+            bos = tokenize(base, "", add_special=True)
+            records["bos"] = bos
+            for length in SHORT_LENGTHS:
+                for kind, value in (
+                    ("frag", ids[:length]),
+                    ("bosfrag", bos + ids[:length]),
+                ):
+                    row = embed(f"{kind}-{length}", value)
+                    records["short"].append({"kind": kind, "length": length, **row})
+                    flush()
+            for query in queries:
+                row = embed(f"query-{query['id']}", query["text"])
+                records["short"].append({"kind": "query", "id": query["id"], **row})
+                flush()
+            print(f"short inputs done at {now()}", flush=True)
+            return
 
         # Token arrays are sent as-is (server-common.cpp tokenize_mixed adds no BOS);
         # the calibration request proves it on this build.
@@ -809,7 +843,7 @@ def execute(args, sample, kept_by_qwen):
     )
     snapshot = preflight()
     save(out / "production-before.json", snapshot)
-    records = {"pairs": [], "buckets": [], "ordering": [], "guard": None}
+    records = {"pairs": [], "buckets": [], "ordering": [], "short": [], "guard": None}
     abort = threading.Event()
 
     def flush():
@@ -873,6 +907,7 @@ def execute(args, sample, kept_by_qwen):
                 scratch,
                 records,
                 flush,
+                queries=load_queries(args.queries) if args.queries else None,
             )
             monitor.check()
         except BaseException:
@@ -954,7 +989,15 @@ def main():
     ap.add_argument(
         "--cosines", type=Path, help='JSON {"min": x, "median": y} for gate 4'
     )
+    ap.add_argument(
+        "--queries",
+        type=Path,
+        help="JSON {queries: [{id, text}]}: embed these and SHORT_LENGTHS token "
+        "fragments instead of the pairs, buckets and ordering (gate 4 only)",
+    )
     args = ap.parse_args()
+    if args.queries:
+        load_queries(args.queries)  # fail before any cluster call
 
     if args.prepull:
         prepull()

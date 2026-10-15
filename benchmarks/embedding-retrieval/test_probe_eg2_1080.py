@@ -118,6 +118,69 @@ class CapTests(unittest.TestCase):
         self.assertEqual([r["index"] for r in dropped], [1, 2])
 
 
+class ShortInputTests(unittest.TestCase):
+    def test_query_file_in_the_repo_loads(self):
+        queries = probe.load_queries(
+            Path(__file__).parent / "task1218-eg2-short-queries.json"
+        )
+        self.assertEqual(len(queries), 78)
+
+    def test_load_queries_rejects_duplicate_ids(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "q.json"
+            path.write_text(
+                json.dumps(
+                    {"queries": [{"id": "a", "text": "x"}, {"id": "a", "text": "y"}]}
+                )
+            )
+            with self.assertRaises(ValueError):
+                probe.load_queries(path)
+
+    def test_queries_mode_sends_fragments_and_queries_only(self):
+        sent = []
+
+        def fake_http(base, path, body=None, timeout=None):
+            if path == "/tokenize":
+                text = body["content"]
+                bos = [2] if body["add_special"] else []
+                return {"tokens": bos + list(range(10, 10 + len(text)))}
+            value = body["input"][0]
+            sent.append(value)
+            n = len(value) if isinstance(value, list) else 5
+            return {
+                "data": [{"embedding": [1.0] * probe.DIMENSION}],
+                "usage": {"prompt_tokens": n},
+            }
+
+        records = {"pairs": [], "buckets": [], "ordering": [], "short": []}
+        queries = [{"id": "q1", "text": "what is BUG-1"}]
+        with (
+            tempfile.TemporaryDirectory() as tmp,
+            patch.object(probe, "http", fake_http),
+        ):
+            probe.measure(
+                "http://x",
+                MagicMock(),
+                threading.Event(),
+                [],
+                "s" * 400,
+                Path(tmp),
+                records,
+                lambda: None,
+                queries=queries,
+            )
+        self.assertEqual(records["pairs"], [])
+        self.assertEqual(records["buckets"], [])
+        self.assertEqual(records["bos"], [2])
+        kinds = [(r["kind"], r.get("length")) for r in records["short"]]
+        self.assertEqual(len(kinds), 2 * len(probe.SHORT_LENGTHS) + 1)
+        bosfrag16 = next(
+            r for r in records["short"] if r["kind"] == "bosfrag" and r["length"] == 16
+        )
+        self.assertEqual(bosfrag16["tokens"], 17)
+        self.assertIn("what is BUG-1", sent)
+
+
 class EvaluateTests(unittest.TestCase):
     def test_all_measured_gates_pass_and_gate4_pends(self):
         result = probe.evaluate(passing_records())

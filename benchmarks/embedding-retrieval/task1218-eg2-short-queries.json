@@ -1,0 +1,320 @@
+{
+  "sources": [
+    "benchmarks/embedding-retrieval/eval_groundtruth_2026-07-04.json (questions)",
+    "dotfiles claude/ov-pilot/gold-queries.yaml (IDEA-1100 gold queries, frozen 2026-09-22)"
+  ],
+  "queries": [
+    {
+      "id": "fixture-E1",
+      "text": "What is BUG-1006?"
+    },
+    {
+      "id": "fixture-E2",
+      "text": "What is ERR-1007?"
+    },
+    {
+      "id": "fixture-E3",
+      "text": "What is INFO-1042?"
+    },
+    {
+      "id": "fixture-E4",
+      "text": "What is FEAT-1003?"
+    },
+    {
+      "id": "fixture-E5",
+      "text": "What is IDEA-1042?"
+    },
+    {
+      "id": "fixture-U1",
+      "text": "How do I configure Hermes for Ollama cloud models?"
+    },
+    {
+      "id": "fixture-U2",
+      "text": "How do I set up the OpenViking CLI for the first time?"
+    },
+    {
+      "id": "fixture-U4",
+      "text": "How do I set up the Hermes Slack integration?"
+    },
+    {
+      "id": "fixture-U5",
+      "text": "How do I clean up git worktrees for compendium repos?"
+    },
+    {
+      "id": "fixture-U6",
+      "text": "How do agents use OpenViking to read and sync knowledge?"
+    },
+    {
+      "id": "fixture-D1",
+      "text": "Why does Ollama return empty responses with NVFP4 Qwen3.6 models?"
+    },
+    {
+      "id": "fixture-D3",
+      "text": "Why does OpenViking pointer sync fail to write from the LAN?"
+    },
+    {
+      "id": "fixture-D4",
+      "text": "What causes slow, looping pulls of the llama.cpp ROCm image?"
+    },
+    {
+      "id": "fixture-D6",
+      "text": "Why are Slack messages silently failing to deliver?"
+    },
+    {
+      "id": "fixture-S1",
+      "text": "How does OpenViking handle concurrent resource commits?"
+    },
+    {
+      "id": "fixture-S2",
+      "text": "What is the architecture of the OpenViking vectordb backend?"
+    },
+    {
+      "id": "fixture-S3",
+      "text": "How does Tailscale integrate with the homelab?"
+    },
+    {
+      "id": "fixture-S4",
+      "text": "What GPU workloads run on each cluster node?"
+    },
+    {
+      "id": "fixture-S5",
+      "text": "How does the llama.cpp embedder allocate GPU context slots?"
+    },
+    {
+      "id": "fixture-S6",
+      "text": "What is the Hermes memory architecture?"
+    },
+    {
+      "id": "fixture-X1",
+      "text": "What entries are related to OpenViking pointer sync failures?"
+    },
+    {
+      "id": "fixture-X2",
+      "text": "What improvements are planned for Grafana dashboards?"
+    },
+    {
+      "id": "fixture-X3",
+      "text": "What bugs affect the OpenViking deployment?"
+    },
+    {
+      "id": "fixture-H1",
+      "text": "What Tailscale routing issues have we hit?"
+    },
+    {
+      "id": "fixture-H2",
+      "text": "What Ollama auto-think / configuration drift issues have occurred?"
+    },
+    {
+      "id": "fixture-H3",
+      "text": "What changes were made to fix the Hermes jump pod SSH keys?"
+    },
+    {
+      "id": "fixture-H4",
+      "text": "What Slack integration problems have we encountered?"
+    },
+    {
+      "id": "fixture-R1",
+      "text": "What are the hardware specs for the K3s cluster nodes?"
+    },
+    {
+      "id": "fixture-R2",
+      "text": "List all known bugs in the homelab deployment"
+    },
+    {
+      "id": "fixture-R3",
+      "text": "What remote access options are available for the homelab?"
+    },
+    {
+      "id": "fixture-R4",
+      "text": "Summarize the OpenViking deployment architecture"
+    },
+    {
+      "id": "fixture-N1",
+      "text": "What is the capital of France?"
+    },
+    {
+      "id": "fixture-N2",
+      "text": "How do I bake sourdough bread?"
+    },
+    {
+      "id": "fixture-N3",
+      "text": "What is the best programming language?"
+    },
+    {
+      "id": "fixture-N4",
+      "text": "Who won the 2024 Super Bowl?"
+    },
+    {
+      "id": "fixture-C1",
+      "text": "How does OpenViking hierarchical retrieval work?"
+    },
+    {
+      "id": "fixture-C2",
+      "text": "What is the difference between OpenViking find and search?"
+    },
+    {
+      "id": "fixture-C4",
+      "text": "What is the relationship between OpenViking and pgvector for the KB?"
+    },
+    {
+      "id": "gold-d01",
+      "text": "what did we decide about forking the openviking capture plugin"
+    },
+    {
+      "id": "gold-d02",
+      "text": "how does the pilot alternate which memory system injects context"
+    },
+    {
+      "id": "gold-d03",
+      "text": "what was decided about H5 and worktrees sharing memory"
+    },
+    {
+      "id": "gold-d04",
+      "text": "what freshness target did we set for a 20-commit burst"
+    },
+    {
+      "id": "gold-d05",
+      "text": "why was the C5 gate changed from queue depth to lost commits"
+    },
+    {
+      "id": "gold-d06",
+      "text": "which repository is the openviking pilot restricted to"
+    },
+    {
+      "id": "gold-d07",
+      "text": "was the week-A archive injection on resume and compact accepted or blocked"
+    },
+    {
+      "id": "gold-f01",
+      "text": "what went wrong when we first tried to install the openviking plugin live"
+    },
+    {
+      "id": "gold-f02",
+      "text": "why did the first burst run not count as gate C5"
+    },
+    {
+      "id": "gold-f03",
+      "text": "what did the fork's truncation marker change break"
+    },
+    {
+      "id": "gold-f04",
+      "text": "which claim about readable at once was withdrawn from BUG-1164"
+    },
+    {
+      "id": "gold-f05",
+      "text": "what happened to the session commit that hit the pod restart in the recall session"
+    },
+    {
+      "id": "gold-f06",
+      "text": "why did the sync from a worktree not reach openviking"
+    },
+    {
+      "id": "gold-e01",
+      "text": "what command checks that the pinned openviking plugin has not drifted"
+    },
+    {
+      "id": "gold-e02",
+      "text": "how many upstream plugin tests passed at the pinned commit"
+    },
+    {
+      "id": "gold-e03",
+      "text": "what was the median memory latency in the qualifying 20-commit burst"
+    },
+    {
+      "id": "gold-e04",
+      "text": "which env var makes compendium-sync read a worktree instead of the shared checkout"
+    },
+    {
+      "id": "gold-e05",
+      "text": "what error did the one lost commit return in the burst"
+    },
+    {
+      "id": "gold-e06",
+      "text": "how long did the pilot namespace proof take from commit to readable memory"
+    },
+    {
+      "id": "gold-e07",
+      "text": "what did date -u return in the pilot capture session"
+    },
+    {
+      "id": "gold-r01",
+      "text": "what was the burst waiting on before it could start"
+    },
+    {
+      "id": "gold-r02",
+      "text": "what did the other session report about ov-test and IMPR-1185"
+    },
+    {
+      "id": "gold-r03",
+      "text": "which PRs did codex's final review lead to"
+    },
+    {
+      "id": "gold-r04",
+      "text": "what did the pilot recall session know about the wombat marker and where did it come from"
+    },
+    {
+      "id": "gold-r05",
+      "text": "what state was IMPR-1153 left in at the end of the day"
+    },
+    {
+      "id": "gold-r06",
+      "text": "what did the pilot recall session read back through the openviking read tool"
+    },
+    {
+      "id": "gold-p01",
+      "text": "what did the restart at 18:24 do to the wedged resource lock"
+    },
+    {
+      "id": "gold-p02",
+      "text": "what sync job was running when the pod was restarted"
+    },
+    {
+      "id": "gold-p03",
+      "text": "how many of the burst's commits produced a memory file"
+    },
+    {
+      "id": "gold-p04",
+      "text": "what did codex say about the 20-session trial's queue sampling"
+    },
+    {
+      "id": "gold-p05",
+      "text": "what plan box was left open after the codex review of the pilot plan"
+    },
+    {
+      "id": "gold-p06",
+      "text": "what did the namespace proof miss in its cleanup"
+    },
+    {
+      "id": "gold-s01",
+      "text": "what did the codex read-only review of the phase 2 plan find about NO_AUTO_INJECT"
+    },
+    {
+      "id": "gold-s02",
+      "text": "which hermes reference files did the bg-dotfiles lanes rewrite for v0.4.20"
+    },
+    {
+      "id": "gold-s03",
+      "text": "what did the other session's check 2 find about the read-shim read-back"
+    },
+    {
+      "id": "gold-s04",
+      "text": "what did the IMPR-1185 prod audit report about bugs/homelab coverage"
+    },
+    {
+      "id": "gold-s05",
+      "text": "what finding did the pilot capture session record about SessionEnd"
+    },
+    {
+      "id": "gold-s06",
+      "text": "which codex review finding said C3 omitted claude-mem prompt-time injection"
+    },
+    {
+      "id": "gold-s07",
+      "text": "what did the read-only codex review of the plan say about restoring the claude-mem database"
+    },
+    {
+      "id": "gold-s08",
+      "text": "how did the second reviewer describe the H5 wording problem"
+    }
+  ]
+}
