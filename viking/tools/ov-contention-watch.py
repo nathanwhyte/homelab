@@ -4,7 +4,8 @@
 Polls the viking namespace once a minute and reports lock contention as one line
 per event. Read-only: kubectl get/logs/exec only. The exec runs a python3 one-liner
 in the ov-exporter container that reads its own :9210/metrics; the openviking
-container log is read with --since-time, so no line is read twice.
+container log is read with --timestamps and --since-time, and lines already seen
+are skipped, so no line is counted twice.
 
 Usage:
   ov-contention-watch.py [--hours H] [--log PATH] [--wake-wait-ms MS]
@@ -73,6 +74,7 @@ LOCK_PATH = re.compile(r'lock_paths=\["([^"]+)"')
 WAIT_MS = re.compile(r"wait_ms=(\d+)")
 # A wait shorter than this is ordinary contention: counted for BEAT, not its own event.
 WAIT_EVENT_MS = 5000
+TIMESTAMP = re.compile(r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d")
 OUTCOME = re.compile(r"ov-extract-outcome (\{.*\})")
 
 REVISION = "deployment.kubernetes.io/revision"
@@ -143,7 +145,18 @@ def restart_trigger(sink):
     s = run(
         sink,
         "deploy",
-        ["kubectl", "-n", NS, "get", "deploy", "openviking", "-o", "json"],
+        [
+            "kubectl",
+            "-n",
+            NS,
+            "get",
+            "deploy",
+            "openviking",
+            "-o",
+            "json",
+            # kubectl strips managedFields from get output unless asked.
+            "--show-managed-fields=true",
+        ],
     )
     if s is None:
         return ""
@@ -221,11 +234,59 @@ def short(uri):
     return re.sub(r"^.*?/user/", "user/", uri)
 
 
-def log_events(sink, pod, since):
+class LogCursor:
+    """Where the next log read starts, so no line is counted twice.
+
+    --since-time has one-second resolution and the read happens after the cursor
+    was taken, so a bare "since the last poll" replays lines. Each line is read
+    with its kubectl timestamp; the cursor is the second of the newest one, and
+    lines already seen within that second are skipped. A dag-miss traceback that
+    lands in the next read is still matched through `dag_pending`.
+    """
+
+    def __init__(self):
+        self.since = dt.datetime.now(dt.UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+        self.seen = set()
+        self.dag_pending = False
+
+    def reset_pod(self):
+        self.seen = set()
+        self.dag_pending = False
+
+    def fresh(self, text):
+        """The lines of `text` not read before; advances the cursor."""
+        lines = []
+        newest = self.since
+        for raw in text.splitlines():
+            stamp, _, rest = raw.partition(" ")
+            if not TIMESTAMP.match(stamp):
+                lines.append(raw)
+                continue
+            if raw in self.seen:
+                continue
+            self.seen.add(raw)
+            lines.append(rest)
+            newest = max(newest, stamp[:19] + "Z")
+        self.since = newest
+        self.seen = {x for x in self.seen if x[:19] + "Z" >= newest}
+        return lines
+
+
+def log_events(sink, pod, cursor):
     s = run(
         sink,
         "logs",
-        ["kubectl", "-n", NS, "logs", pod, "-c", "openviking", f"--since-time={since}"],
+        [
+            "kubectl",
+            "-n",
+            NS,
+            "logs",
+            pod,
+            "-c",
+            "openviking",
+            "--timestamps",
+            f"--since-time={cursor.since}",
+        ],
         timeout=90,
     )
     if s is None:
@@ -234,15 +295,24 @@ def log_events(sink, pod, since):
     # Semantic-DAG directory dispatch gives up on a lock within ms; it logs the
     # ERROR line (carrying the timeout text) plus one traceback line. Counted
     # apart so they cannot hide a session-lock timeout.
+    # A traceback split from its ERROR line by a poll boundary can only be the
+    # first line of the next read, so the carried flag applies to that line alone.
     dag_miss, dag_trace_pending = 0, 0
-    for line in s.splitlines():
+    carried = cursor.dag_pending
+    lines = cursor.fresh(s)
+    if lines:
+        cursor.dag_pending = "Failed to dispatch directory" in lines[-1]
+    for i, line in enumerate(lines):
         if "Failed to dispatch directory" in line:
             dag_miss += 1
             dag_trace_pending += 1
             continue
-        if dag_trace_pending and "LockAcquisitionError" in line:
-            dag_trace_pending -= 1
-            continue
+        if "LockAcquisitionError" in line:
+            if i == 0 and carried:
+                continue
+            if dag_trace_pending:
+                dag_trace_pending -= 1
+                continue
         if "manager.rs:988" in line:
             p = LOCK_PATH.search(line)
             w = WAIT_MS.search(line)
@@ -279,7 +349,7 @@ def wait_is_actionable(poll_max, timeouts, outcomes, failed, wake_wait_ms):
 def watch(hours, sink, wake_wait_ms=DEFAULT_WAKE_WAIT_MS):
     end = time.time() + hours * 3600
     seen_pod, crossed = None, set()
-    since = dt.datetime.now(dt.UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    cursor = LogCursor()
     peak, tot_waits, max_wait, tot_outcomes, n = 0.0, 0, 0, {}, 0
     tot_dag_miss = 0
     sink.emit(
@@ -298,24 +368,31 @@ def watch(hours, sink, wake_wait_ms=DEFAULT_WAKE_WAIT_MS):
                     + restart_trigger(sink)
                 )
             seen_pod = pod
-        now = dt.datetime.now(dt.UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+            cursor.reset_pod()
         if pod:
             got = metrics(sink, pod)
             if got:
                 m, live = got
+                # A lease is its path plus its owner: a replacement holder, or a
+                # lock that was released and taken again, alerts afresh.
+                leases = {
+                    (labels.get("key") or labels.get("uri"), labels.get("owner"))
+                    for labels, _ in live
+                }
+                crossed = {c for c in crossed if c[0] in leases}
                 for labels, age in live:
                     peak = max(peak, age)
                     key = labels.get("key") or labels.get("uri")
+                    lease = (key, labels.get("owner"))
                     for t in THRESHOLDS:
-                        if age >= t and (key, t) not in crossed:
-                            crossed.add((key, t))
+                        if age >= t and (lease, t) not in crossed:
+                            crossed.add((lease, t))
                             sink.emit(
                                 f"HOLD >= {t}s: age={age:.0f}s type={labels.get('lock_type')} "
                                 f"owner={labels.get('owner', '')[:8]} uri={short(labels.get('uri', key))}"
                             )
-            ev = log_events(sink, pod, since)
+            ev = log_events(sink, pod, cursor)
             if ev is not None:
-                since = now
                 waits, timeouts, dag_miss, outcomes, failed = ev
                 tot_dag_miss += dag_miss
                 n_waits = sum(c for c, _ in waits.values())
@@ -324,7 +401,16 @@ def watch(hours, sink, wake_wait_ms=DEFAULT_WAKE_WAIT_MS):
                 max_wait = max(max_wait, poll_max)
                 for k, v in outcomes.items():
                     tot_outcomes[k] = tot_outcomes.get(k, 0) + v
-                if poll_max >= WAIT_EVENT_MS or timeouts or outcomes or failed:
+                actionable = wait_is_actionable(
+                    poll_max, timeouts, outcomes, failed, wake_wait_ms
+                )
+                if (
+                    poll_max >= WAIT_EVENT_MS
+                    or timeouts
+                    or outcomes
+                    or failed
+                    or actionable
+                ):
                     top = ", ".join(
                         f"{k} x{c} max={mx / 1000:.0f}s"
                         for k, (c, mx) in sorted(
@@ -336,9 +422,7 @@ def watch(hours, sink, wake_wait_ms=DEFAULT_WAKE_WAIT_MS):
                         f"dag_miss={dag_miss} extract_failed={failed} "
                         f"outcomes={outcomes or '{}'}"
                         + (f" top: {top}" if top else ""),
-                        wake=wait_is_actionable(
-                            poll_max, timeouts, outcomes, failed, wake_wait_ms
-                        ),
+                        wake=actionable,
                     )
             if n % BEAT_EVERY == 1 and got:
                 m, live = got

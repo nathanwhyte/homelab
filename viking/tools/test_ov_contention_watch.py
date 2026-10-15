@@ -5,6 +5,7 @@ the clock are stubbed; no cluster, no sockets."""
 from __future__ import annotations
 
 import contextlib
+import datetime as dt
 import importlib.util
 import io
 import json
@@ -26,6 +27,15 @@ _spec.loader.exec_module(cw)
 POD_A = "openviking-aaa-1"
 POD_B = "openviking-bbb-2"
 LOCK = "/local/default/user/noot/sessions/cc-1/.path.ovlock"
+
+
+# kubectl --timestamps stamps must not precede the watcher's own start cursor.
+BASE = dt.datetime.now(dt.UTC).replace(microsecond=0) + dt.timedelta(seconds=5)
+
+
+def stamped(line, sec=0, frac=0):
+    t = BASE + dt.timedelta(seconds=sec)
+    return f"{t:%Y-%m-%dT%H:%M:%S}.{frac:09d}Z {line}"
 
 
 def joined(*lines):
@@ -83,12 +93,16 @@ class FakeKubectl:
 
     def __init__(self, pods, logs="", metrics=None, deploy=None, deploy_rc=0):
         self.pods = list(pods)  # one pod name per poll; the last repeats
-        self.logs = logs
+        # one log body per poll; the last repeats
+        self.logs = list(logs) if isinstance(logs, list) else [logs]
+        # one metrics body per poll when a list; the last repeats
         self.metrics = metrics if metrics is not None else metrics_text()
         self.deploy = deploy if deploy is not None else deploy_json()
         self.deploy_rc = deploy_rc
         self.calls = []
         self._polls = 0
+        self._log_polls = 0
+        self._metric_polls = 0
 
     def __call__(self, args, **kw):
         self.calls.append(list(args))
@@ -98,9 +112,14 @@ class FakeKubectl:
             self._polls += 1
             return ok(self.pods[i])
         if "exec" in args:
-            return ok(self.metrics)
+            ms = self.metrics if isinstance(self.metrics, list) else [self.metrics]
+            i = min(self._metric_polls, len(ms) - 1)
+            self._metric_polls += 1
+            return ok(ms[i])
         if "logs" in args:
-            return ok(self.logs)
+            i = min(self._log_polls, len(self.logs) - 1)
+            self._log_polls += 1
+            return ok(self.logs[i])
         if "deploy" in args:
             if self.deploy_rc:
                 return subprocess.CompletedProcess(
@@ -149,7 +168,7 @@ class LogParsing(unittest.TestCase):
     def events(self, logs):
         fake = FakeKubectl([POD_A], logs=logs)
         with mock.patch.object(cw.subprocess, "run", fake):
-            return cw.log_events(cw.Sink(), POD_A, "2026-10-14T00:00:00Z")
+            return cw.log_events(cw.Sink(), POD_A, cw.LogCursor())
 
     def test_dag_miss_is_not_a_timeout(self):
         logs = joined(
@@ -234,6 +253,49 @@ class WaitRouting(unittest.TestCase):
         )
         self.assertEqual(len(has(out, "WAIT")), 1)
 
+    def test_wake_threshold_below_event_threshold_still_wakes(self):
+        out, _ = run_watch(
+            FakeKubectl([POD_A], logs=wait_line(4000)),
+            log=self.log,
+            wake_wait_ms=3000,
+        )
+        self.assertEqual(len(has(out, "WAIT")), 1)
+
+    def test_overlapping_log_reads_count_each_line_once(self):
+        a = stamped(wait_line(70000), frac=100)
+        b = stamped(wait_line(80000), frac=900)
+        out, logged = run_watch(
+            FakeKubectl([POD_A], logs=[a, f"{a}\n{b}", f"{a}\n{b}"]),
+            polls=3,
+            log=self.log,
+        )
+        self.assertEqual(len(has(logged, " WAIT ")), 2)
+        self.assertIn("waits=1 max=70.0s", has(logged, " WAIT ")[0])
+        self.assertIn("waits=1 max=80.0s", has(logged, " WAIT ")[1])
+        self.assertEqual(len(has(out, " WAIT ")), 2)
+
+    def test_dag_traceback_split_across_polls_is_not_a_timeout(self):
+        t1 = stamped(
+            "ERROR Failed to dispatch directory viking://x: lock acquire timed out"
+        )
+        t2 = stamped("    LockAcquisitionError: could not lock /local/x", frac=200)
+        out, logged = run_watch(
+            FakeKubectl([POD_A], logs=[t1, t2]), polls=2, log=self.log
+        )
+        self.assertEqual(has(out + logged, " WAIT "), [])
+        self.assertIn("dag_miss 1", has(out, "WATCH end:")[0])
+
+    def test_carried_dag_flag_covers_only_the_first_line(self):
+        t1 = stamped("ERROR Failed to dispatch directory viking://x")
+        other = stamped("ok", sec=1)
+        real = stamped("LockAcquisitionError: could not lock /local/y", sec=2)
+        out, _ = run_watch(
+            FakeKubectl([POD_A], logs=[t1, f"{other}\n{real}"]),
+            polls=2,
+            log=self.log,
+        )
+        self.assertIn("timeouts=1", has(out, " WAIT ")[0])
+
     def test_session_lock_timeout_wakes(self):
         logs = "ERROR session commit LockAcquisitionError: could not lock /local/y"
         out, logged = run_watch(FakeKubectl([POD_A], logs=logs), log=self.log)
@@ -265,6 +327,31 @@ class WaitRouting(unittest.TestCase):
         self.assertEqual(len(has(out, "HOLD >= 600s")), 1)
         self.assertEqual(has(out, "HOLD >= 1800s"), [])
         self.assertEqual(len(has(logged, "HOLD")), 1)
+
+    def test_replacement_lease_on_same_path_alerts_again(self):
+        def held(owner):
+            return metrics_text().replace(
+                "openviking_s3_ovlock_poll_ok 1",
+                "openviking_s3_ovlock_poll_ok 1\n"
+                "openviking_s3_ovlock_live_age_seconds"
+                f'{{key="k1",uri="viking://x/user/noot/y",owner="{owner}",lock_type="E"}} 700',
+            )
+
+        fake = FakeKubectl([POD_A], metrics=[held("aaaaaaaa"), held("bbbbbbbb")])
+        out, _ = run_watch(fake, polls=2, log=self.log)
+        self.assertEqual(len(has(out, "HOLD >= 600s")), 2)
+
+    def test_released_then_retaken_lock_alerts_again(self):
+        fake = FakeKubectl(
+            [POD_A],
+            metrics=[
+                metrics_text(live_age=700),
+                metrics_text(),
+                metrics_text(live_age=700),
+            ],
+        )
+        out, _ = run_watch(fake, polls=3, log=self.log)
+        self.assertEqual(len(has(out, "HOLD >= 600s")), 2)
 
     def test_watch_error_wakes(self):
         fake = FakeKubectl([POD_A], metrics=metrics_text(poll_ok=0))
@@ -312,10 +399,13 @@ class PodTrigger(unittest.TestCase):
         self.assertNotIn("kubectl-rollout", line)
         self.assertEqual(len(has(logged, "POD changed")), 1)
         deploy = [c for c in fake.calls if "deploy" in c]
+        self.assertEqual(len(deploy), 1)
         self.assertEqual(
-            deploy,
-            [["kubectl", "-n", "viking", "get", "deploy", "openviking", "-o", "json"]],
+            deploy[0][:8],
+            ["kubectl", "-n", "viking", "get", "deploy", "openviking", "-o", "json"],
         )
+        # kubectl hides managedFields by default
+        self.assertIn("--show-managed-fields=true", deploy[0])
 
     def test_absent_annotations_are_omitted(self):
         bare = json.dumps(
