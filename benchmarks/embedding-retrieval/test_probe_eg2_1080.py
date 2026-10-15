@@ -5,7 +5,9 @@ import json
 import os
 import signal
 import subprocess
+import sys
 import tempfile
+import textwrap
 import threading
 import time
 import unittest
@@ -117,6 +119,14 @@ class CapTests(unittest.TestCase):
         self.assertEqual([r["index"] for r in kept], [0])
         self.assertEqual([r["index"] for r in dropped], [1, 2])
 
+    def test_select_inputs_stops_at_the_cap(self):
+        edge = probe.CAP - probe.PREFIX_MARGIN
+        rows = [
+            {"target": 7600, "tokens": edge, "text": "fits"},
+            {"target": 7600, "tokens": edge + 1, "text": "over"},
+        ]
+        self.assertEqual([r["text"] for r in probe.select_inputs(rows)], ["fits"])
+
 
 class ShortInputTests(unittest.TestCase):
     def test_query_file_in_the_repo_loads(self):
@@ -182,6 +192,19 @@ class ShortInputTests(unittest.TestCase):
 
 
 class EvaluateTests(unittest.TestCase):
+    def test_gate2_scores_the_planned_pairs(self):
+        # Independent of probe.PAIRS, which passing_records() derives from.
+        expected = [
+            "1024/1025",
+            "2048/2049",
+            "2816/2817",
+            "4096/4097",
+            "6144/6145",
+            "7680/7681",
+        ]
+        pairs = probe.evaluate(passing_records())["gate2_no_length_cliff"]["pairs"]
+        self.assertEqual(list(pairs), expected)
+
     def test_all_measured_gates_pass_and_gate4_pends(self):
         result = probe.evaluate(passing_records())
         self.assertEqual(result["verdict"], "PENDING")
@@ -507,6 +530,35 @@ class WindowTests(unittest.TestCase):
         self.assertIn("restored_at", run.window)
         self.assertEqual(str(run.error), f"interrupted: signal {signal.SIGTERM}")
         self.assertEqual(len(run.window["stopped_by"]), 2)
+
+    def test_hangup_after_scale_down_still_restores(self):
+        # In a child process: without a handler, SIGHUP's default action kills the
+        # process outright, and that must not take the test runner with it.
+        script = textwrap.dedent(
+            """
+            import json, os, signal, time
+            import test_probe_eg2_1080 as t
+
+            def body():
+                os.kill(os.getpid(), signal.SIGHUP)
+                time.sleep(5)
+
+            run = t.WindowTests().run_window(body)
+            print(json.dumps({"restores": run.restore.call_count, "error": str(run.error)}))
+            """
+        )
+        child = subprocess.run(
+            [sys.executable, "-c", script],
+            cwd=Path(__file__).parent,
+            capture_output=True,
+            text=True,
+            timeout=60,
+            check=False,  # the return code is the assertion
+        )
+        self.assertEqual(child.returncode, 0, child.stderr)
+        result = json.loads(child.stdout.strip().splitlines()[-1])
+        self.assertEqual(result["restores"], 1)
+        self.assertEqual(result["error"], f"interrupted: signal {signal.SIGHUP}")
 
 
 class GuardTests(unittest.TestCase):

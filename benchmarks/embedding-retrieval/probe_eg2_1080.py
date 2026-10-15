@@ -85,10 +85,12 @@ DEADLINE_MINUTES = 25
 # Measurements stop this long before the deadline: one attempt of every restore
 # step at its kubectl timeout (probe delete 70 s, get + fence 120 s, get + scale
 # 120 s, rollout 310 s, verify get 60 s, port-forward readiness 120 s, vector
-# check 60 s = 860 s). No retry starts after the deadline. Each step still runs
-# once, so a restore whose retries used up the reserve ends in an error naming the
-# step, never a silent abandon; window.json records `overran_deadline`.
-RESTORE_RESERVE_S = 870
+# check 60 s, fence annotation removal 60 s = 920 s, plus port-forward close; a
+# fake-clock run of every first attempt took 909 s, Codex round 7). No retry
+# starts after the deadline. Each step still runs once, so a restore whose retries
+# used up the reserve ends in an error naming the step, never a silent abandon;
+# window.json records `overran_deadline`.
+RESTORE_RESERVE_S = 960
 # Qwen3-Embedding-4B Q8_0, one slot, this card: task1218-1080-slots-20260923.md:25-32.
 QWEN_MEDIANS_MS = {300: 326, 1000: 1108, 3000: 3644, 6000: 8789, 7600: 12238}
 PAIR_RATIO_MAX = 1.5
@@ -484,8 +486,8 @@ def run_window(out, snapshot, budget_s, start_pod, body, abort):
     (scale-down, probe create, delete, restore) runs in the main thread, so the
     cleanup never races a create still in flight. The main thread stops waiting at
     the measurement budget; the restore then deletes the probe Pod, which fails
-    any request the worker still has in flight. One absolute deadline, 20 minutes
-    after scale-down, bounds the retries of every step.
+    any request the worker still has in flight. One absolute deadline,
+    DEADLINE_MINUTES after scale-down, bounds the retries of every step.
     """
     reasons = []
 
@@ -493,7 +495,11 @@ def run_window(out, snapshot, budget_s, start_pod, body, abort):
         reasons.append(f"interrupted: signal {signum}")
         abort.set()
 
-    previous = {s: signal.signal(s, stop) for s in (signal.SIGINT, signal.SIGTERM)}
+    # SIGHUP too: a closed terminal after scale-down must not skip the restore.
+    previous = {
+        s: signal.signal(s, stop)
+        for s in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP)
+    }
     failures = []
 
     def work():
