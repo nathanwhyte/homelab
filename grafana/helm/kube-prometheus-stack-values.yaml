@@ -442,8 +442,11 @@ prometheus:
     # 2026-10-16 (compendium IMPR-1311/IMPR-1331): 3d -> 35d per user decision.
     # The VLM router's one-month Haiku reading and the 7-day OpenViking call
     # counts are increase() over 7-30 days, which 3d silently truncated.
-    # retentionSize caps blocks+WAL below the 40Gi volume, so growth in series
-    # deletes the oldest blocks early instead of filling the disk.
+    # retentionSize is a retention target, not a disk guarantee: it counts
+    # blocks, WAL and head chunks but only deletes persistent blocks, so a WAL
+    # or compaction surge can still exceed it. 32GB (binary, = 32 GiB) leaves
+    # 8 GiB of the 40Gi volume as headroom for that; growth in series deletes
+    # the oldest blocks early instead of filling the disk.
     retention: 35d
     retentionSize: 32GB
     ruleSelector: {}
@@ -479,8 +482,8 @@ prometheus:
               # 4,059 samples/s over 198,342 series at 1.45 B/sample = 0.47 GiB a
               # day. 35d = 16.5 GiB of blocks + ~1.7 GiB max-block overshoot
               # (10% of retention) + ~0.5 GiB head+WAL + ~1.7 GiB compaction
-              # transient = ~20 GiB peak; 40Gi is 2x peak, and retentionSize
-              # (32GB) is the hard stop. Expanded online (Longhorn v1.12): patch
+              # transient = ~20 GiB peak; 40Gi is 2x peak, with retentionSize
+              # (32GB) as the retention target. Expanded online (Longhorn v1.12): patch
               # the PVC first, then upgrade, since the StatefulSet's
               # volumeClaimTemplate is immutable.
               storage: 40Gi

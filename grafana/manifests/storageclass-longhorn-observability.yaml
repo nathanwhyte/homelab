@@ -30,7 +30,10 @@
 # same node reboots. storage-loki-0 (1 replica) has never had a snapshot at all.
 #
 # Single replica is the right trade here because this data is disposable —
-# 3d of metrics and 24h of logs, explicitly acceptable to lose.
+# 24h of logs and, since 2026-10-16, up to 35d of metrics (was 3d), explicitly
+# acceptable to lose. Losing timmy's replica now loses up to 35 days of
+# history, including the VLM router counters behind compendium IMPR-1311's
+# monthly reading; the stack itself recovers by recreating the volume blank.
 #
 # CAUTION: `dataLocality: strict-local` requires numberOfReplicas: 1 (any other
 # value fails volume creation) and pins the replica to the workload's node. It is
