@@ -300,10 +300,14 @@ class PortForward:
         self.ready_timeout = ready_timeout
         self.stop_timeout = stop_timeout
 
+    def _new_event(self):
+        """The readiness event; a seam the tests override."""
+        return threading.Event()
+
     def __enter__(self):
         self.url = None
         self.tail = collections.deque(maxlen=5)
-        self.ready = threading.Event()
+        self.ready = self._new_event()
         self.reader = None
         self.proc = subprocess.Popen(
             self.cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True

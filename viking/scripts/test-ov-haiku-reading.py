@@ -408,29 +408,37 @@ class PortForwardTests(unittest.TestCase):
             pass
         self.assertIsNotNone(pf.proc.poll())
 
-    def _interrupt(self, attr, replacement):
-        orig = getattr(hr.threading, attr)
-        setattr(hr.threading, attr, replacement)
-        try:
-            pf = hr.PortForward(child("import time; time.sleep(60)"))
-            with self.assertRaises(KeyboardInterrupt):
-                pf.__enter__()
-        finally:
-            setattr(hr.threading, attr, orig)
-        self.assertIsNotNone(pf.proc.poll())
+    def test_interrupt_while_waiting_for_ready_stops_the_child(self):
+        reached = []
 
-    def test_interrupt_while_waiting_stops_the_child(self):
         class InterruptedEvent(threading.Event):
             def wait(self, timeout=None):
+                reached.append(timeout)
                 raise KeyboardInterrupt
 
-        self._interrupt("Event", InterruptedEvent)
+        class Interrupted(hr.PortForward):
+            def _new_event(self):
+                return InterruptedEvent()
+
+        pf = Interrupted(child("import time; time.sleep(60)"), ready_timeout=7.0)
+        with self.assertRaises(KeyboardInterrupt):
+            pf.__enter__()
+        self.assertEqual(reached, [7.0])  # the readiness wait itself was interrupted
+        self.assertIsNotNone(pf.proc.poll())
 
     def test_interrupt_before_the_reader_exists_stops_the_child(self):
         def no_thread(*args, **kwargs):
             raise KeyboardInterrupt
 
-        self._interrupt("Thread", no_thread)
+        orig = hr.threading.Thread
+        hr.threading.Thread = no_thread
+        try:
+            pf = hr.PortForward(child("import time; time.sleep(60)"))
+            with self.assertRaises(KeyboardInterrupt):
+                pf.__enter__()
+        finally:
+            hr.threading.Thread = orig
+        self.assertIsNotNone(pf.proc.poll())
 
 
 if __name__ == "__main__":
