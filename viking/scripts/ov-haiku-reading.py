@@ -20,10 +20,12 @@ issues Prometheus queries.
 Naive times are read in ``--tz`` (default America/Chicago). Spend is the router's own
 tally (``litellm_spend_metric_total``), not the Claude Console's.
 
-Missing data is never shown as zero. A NaN sample prints as ``unknown``, a window with
-no success series at all is an error, and a bucket with no samples prints ``no data``.
-Within a bucket that has samples, a route with no point had no calls there (both
-routes come from the same scrape target).
+Missing data is never shown as zero. A window with no success samples at all is an
+error, and a bucket with none prints ``no data``. A route that has samples but no
+``increase()`` value (a NaN, or a series whose first sample is the window's last)
+prints ``unknown``, and so do the totals and shares it feeds. Only a route with no
+samples at all in the window or bucket counts as zero calls. Times print with their
+zone, so the two 01:00 buckets of a DST fall-back stay distinct.
 """
 
 import argparse
@@ -95,6 +97,17 @@ def parse_bucket(text):
     return timedelta(hours=n) if m.group(2) == "h" else timedelta(days=n)
 
 
+def routes_with_samples(seconds):
+    """Routes whose success counter has at least one sample in the lookback."""
+    return f"group by (api_provider) (last_over_time({SUCCESS}[{seconds}s]))"
+
+
+def with_unknowns(counts, routes):
+    """A route with samples but no ``increase()`` value (one sample only, say) is
+    unknown, not zero. A route with no samples at all had no calls."""
+    return {r: counts.get(r) for r in sorted(routes | set(counts))}
+
+
 def collect(prom, since, until, bucket):
     since, until = since.astimezone(UTC), until.astimezone(UTC)
     span = int((until - since).total_seconds())
@@ -104,16 +117,22 @@ def collect(prom, since, until, bucket):
     def sum_by(label, expr):
         return f"sum by ({label}) (increase({expr}[{span}s]))"
 
-    calls = instant(prom, sum_by("api_provider", SUCCESS), until)
-    if not calls:
+    present = set(
+        by_label(instant(prom, routes_with_samples(span), until), "api_provider")
+    )
+    if not present:
         raise RuntimeError(
-            f"no {SUCCESS} series in the window; is litellm-vlm being scraped?"
+            f"no {SUCCESS} samples in the window; is litellm-vlm being scraped?"
         )
+    calls = with_unknowns(
+        by_label(instant(prom, sum_by("api_provider", SUCCESS), until), "api_provider"),
+        present,
+    )
     reading = {
         "since": since.isoformat(),
         "until": until.isoformat(),
         "span_s": span,
-        "calls": by_label(calls, "api_provider"),
+        "calls": calls,
         "failovers": by_label(
             instant(prom, sum_by("exception_status", FALLBACKS), until),
             "exception_status",
@@ -137,23 +156,38 @@ def collect(prom, since, until, bucket):
     count = span // step
     if count:
         ends = [since + bucket * k for k in range(1, count + 1)]
-        result = _query(
-            prom,
-            "query_range",
-            query=f"sum by (api_provider) (increase({SUCCESS}[{step}s]))",
-            start=ends[0].timestamp(),
-            end=ends[-1].timestamp(),
-            step=step,
-        )
-        points = collections.defaultdict(dict)
-        for series in result:
-            provider = series["metric"].get("api_provider", "")
-            for ts, value in series["values"]:
-                points[round(float(ts))][provider] = _num(value)
-        reading["buckets"] = [
-            {"end": end.isoformat(), "calls": points.get(round(end.timestamp()))}
-            for end in ends
-        ]
+
+        def per_bucket(expr):
+            result = _query(
+                prom,
+                "query_range",
+                query=expr,
+                start=ends[0].timestamp(),
+                end=ends[-1].timestamp(),
+                step=step,
+            )
+            points = collections.defaultdict(dict)
+            for series in result:
+                provider = series["metric"].get("api_provider", "")
+                for ts, value in series["values"]:
+                    points[round(float(ts))][provider] = _num(value)
+            return points
+
+        counts = per_bucket(f"sum by (api_provider) (increase({SUCCESS}[{step}s]))")
+        sampled = per_bucket(routes_with_samples(step))
+        buckets = []
+        for end in ends:
+            ts = round(end.timestamp())
+            routes = set(sampled.get(ts, ())) | set(counts.get(ts, ()))
+            buckets.append(
+                {
+                    "end": end.isoformat(),
+                    "calls": with_unknowns(counts.get(ts, {}), routes)
+                    if routes
+                    else None,
+                }
+            )
+        reading["buckets"] = buckets
         reading["remainder_s"] = span - step * count
     return reading
 
@@ -200,7 +234,8 @@ def render(reading, tz):
     left = reading["budget_left"]
     lines = [
         (
-            f"_Window: {local(since):%Y-%m-%d %H:%M} to {local(until):%Y-%m-%d %H:%M %Z}"
+            f"_Window: {local(since):%Y-%m-%d %H:%M %Z} to"
+            f" {local(until):%Y-%m-%d %H:%M %Z}"
             f" ({utc(since)} to {utc(until)}), {reading['span_s'] / 3600:.1f} h._"
         ),
         "",
@@ -221,16 +256,15 @@ def render(reading, tz):
         f"| Failed responses | {fails or 'none recorded'} |",
     ]
     if reading["buckets"]:
-        lines += ["", f"| Bucket ending ({local(until):%Z}) | Calls | Haiku |"]
-        lines.append("| --- | --- | --- |")
+        lines += ["", "| Bucket ending | Calls | Haiku |", "| --- | --- | --- |"]
         for b in reading["buckets"]:
-            end = local(datetime.fromisoformat(b["end"]))
+            end = f"{local(datetime.fromisoformat(b['end'])):%m-%d %H:%M %Z}"
             if b["calls"] is None:
-                lines.append(f"| {end:%m-%d %H:%M} | no data | no data |")
+                lines.append(f"| {end} | no data | no data |")
                 continue
             n = _total(b["calls"].values())
             h = b["calls"].get("anthropic", 0.0)
-            lines.append(f"| {end:%m-%d %H:%M} | {_n(n)} | {_share(h, n)} |")
+            lines.append(f"| {end} | {_n(n)} | {_share(h, n)} |")
         if reading["remainder_s"]:
             lines.append("")
             lines.append(
@@ -262,8 +296,12 @@ class PortForward:
             self.cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True
         )
         self.reader = threading.Thread(target=self._drain, daemon=True)
-        self.reader.start()
-        self.ready.wait(self.ready_timeout)
+        try:
+            self.reader.start()
+            self.ready.wait(self.ready_timeout)
+        except BaseException:  # Ctrl-C during startup: __exit__ will not run
+            self._stop()
+            raise
         if self.url is None:
             self._stop()
             said = " | ".join(self.tail) or "no output"

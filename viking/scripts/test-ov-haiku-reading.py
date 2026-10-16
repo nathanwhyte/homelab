@@ -13,6 +13,8 @@ import argparse
 import importlib.util
 import os
 import sys
+import tempfile
+import threading
 import time
 import unittest
 import urllib.parse
@@ -36,37 +38,69 @@ def vec(label, values):
 
 
 class FakeProm:
-    """Answers by metric name. ``range_values`` maps provider -> per-step values."""
+    """Answers by metric name.
 
-    def __init__(self, calls=None, range_values=None, budget="88.921"):
+    ``totals``: the window's increase() per route. ``present``: routes with samples in
+    the window (default: the keys of ``totals``). ``range_values``: per-route
+    increase() values per bucket, None for no point. ``sampled``: per-route booleans
+    per bucket for the samples query (default: where ``range_values`` has a point).
+    """
+
+    def __init__(
+        self,
+        totals=None,
+        present=None,
+        range_values=None,
+        sampled=None,
+        budget="88.921",
+    ):
         self.calls = []
-        self.totals = calls or {"openai": 4383.4, "anthropic": 978.2}
+        self.totals = (
+            totals if totals is not None else {"openai": 4383.4, "anthropic": 978.2}
+        )
+        self.present = present if present is not None else list(self.totals)
         self.range_values = range_values or {
             "openai": ["90", "50", "NaN"],
             "anthropic": ["10", "50", "0"],
         }
+        self.sampled = sampled or {
+            p: [v is not None for v in vals] for p, vals in self.range_values.items()
+        }
         self.budget = budget
+
+    def _range(self, params, table):
+        start, end = float(params["start"]), float(params["end"])
+        step = int(params["step"])
+        ts = []
+        t = start
+        while t <= end:
+            ts.append(t)
+            t += step
+        return [
+            {
+                "metric": {"api_provider": p},
+                "values": [[t, v] for t, v in zip(ts, vals) if v],
+            }
+            for p, vals in table.items()
+        ]
 
     def __call__(self, url):
         parsed = urllib.parse.urlparse(url)
         params = dict(urllib.parse.parse_qsl(parsed.query))
         self.calls.append((parsed.path, params))
         q = params["query"]
-        if parsed.path.endswith("query_range"):
-            start, end = float(params["start"]), float(params["end"])
-            step = int(params["step"])
-            ts = []
-            t = start
-            while t <= end:
-                ts.append(t)
-                t += step
-            result = [
-                {
-                    "metric": {"api_provider": p},
-                    "values": [[t, v] for t, v in zip(ts, vals) if v is not None],
+        is_range = parsed.path.endswith("query_range")
+        if "last_over_time" in q:
+            if is_range:
+                table = {
+                    p: ["1" if s else None for s in flags]
+                    for p, flags in self.sampled.items()
                 }
-                for p, vals in self.range_values.items()
-            ]
+                result = self._range(params, table)
+            else:
+                result = vec("api_provider", {p: 1 for p in self.present})
+        elif is_range:
+            result = self._range(params, self.range_values)
         elif hr.SUCCESS in q:
             result = vec("api_provider", self.totals)
         elif hr.FALLBACKS in q:
@@ -97,31 +131,39 @@ class FakeTest(unittest.TestCase):
     def reading(self, since=SINCE, until=UNTIL, bucket=timedelta(hours=1)):
         return hr.collect("http://p", since, until, bucket)
 
-    def range_params(self):
-        return next(p for path, p in self.fake.calls if path.endswith("query_range"))
+    def queries(self, path_end, needle):
+        return [
+            p
+            for path, p in self.fake.calls
+            if path.endswith(path_end) and needle in p["query"]
+        ]
 
 
 class CollectTests(FakeTest):
     def test_every_instant_query_uses_one_window_at_until(self):
         self.reading()
-        instants = [p for path, p in self.fake.calls if path.endswith("/query")]
-        self.assertEqual(len(instants), 5)
+        instants = self.queries("/query", "")
+        self.assertEqual(len(instants), 6)
         span = int((UNTIL - SINCE).total_seconds())
         for p in instants:
             self.assertEqual(float(p["time"]), UNTIL.timestamp())
-            if "increase" in p["query"]:
+            if "remaining_budget" not in p["query"]:
                 self.assertIn(f"[{span}s]", p["query"])
 
-    def test_bucket_query_looks_back_exactly_one_bucket(self):
+    def test_bucket_queries_look_back_exactly_one_bucket(self):
         reading = self.reading()
-        p = self.range_params()
+        (counts,) = self.queries("query_range", "increase")
+        (sampled,) = self.queries("query_range", "last_over_time")
         self.assertEqual(
-            p["query"],
-            f"sum by (api_provider) (increase({hr.SUCCESS}[3600s]))",
+            counts["query"], f"sum by (api_provider) (increase({hr.SUCCESS}[3600s]))"
         )
-        self.assertEqual(float(p["start"]), (SINCE + timedelta(hours=1)).timestamp())
-        self.assertEqual(float(p["end"]), (SINCE + timedelta(hours=3)).timestamp())
-        self.assertEqual(p["step"], "3600")
+        self.assertIn(f"last_over_time({hr.SUCCESS}[3600s])", sampled["query"])
+        for p in (counts, sampled):
+            self.assertEqual(
+                float(p["start"]), (SINCE + timedelta(hours=1)).timestamp()
+            )
+            self.assertEqual(float(p["end"]), (SINCE + timedelta(hours=3)).timestamp())
+            self.assertEqual(p["step"], "3600")
         self.assertEqual(len(reading["buckets"]), 3)
         self.assertEqual(reading["remainder_s"], 1800)
 
@@ -131,18 +173,18 @@ class CollectTests(FakeTest):
         until = datetime(2026, 11, 1, 4, 0, tzinfo=CHI)
         reading = self.reading(since, until)
         self.assertEqual(reading["span_s"], 5 * 3600)
-        totals = next(
-            p for path, p in self.fake.calls if hr.SUCCESS in p["query"] and "time" in p
-        )
+        (totals,) = [
+            p for p in self.queries("/query", "increase") if hr.SUCCESS in p["query"]
+        ]
         self.assertIn("[18000s]", totals["query"])
-        p = self.range_params()
-        self.assertEqual(float(p["end"]), until.timestamp())
+        (counts,) = self.queries("query_range", "increase")
+        self.assertEqual(float(counts["end"]), until.timestamp())
         self.assertEqual(len(reading["buckets"]), 5)
 
     def test_bucket_longer_than_window_skips_the_table(self):
         reading = self.reading(bucket=timedelta(days=1))
         self.assertEqual(reading["buckets"], [])
-        self.assertFalse(any(c[0].endswith("query_range") for c in self.fake.calls))
+        self.assertEqual(self.queries("query_range", ""), [])
 
     def test_reversed_window_is_refused(self):
         with self.assertRaises(ValueError):
@@ -153,8 +195,8 @@ class CollectTests(FakeTest):
         with self.assertRaises(RuntimeError):
             self.reading()
 
-    def test_no_success_series_is_an_error_not_zero(self):
-        self.fake.totals = {}
+    def test_no_samples_in_window_is_an_error_not_zero(self):
+        self.fake.totals, self.fake.present = {}, []
         with self.assertRaises(RuntimeError):
             self.reading()
 
@@ -179,25 +221,39 @@ class RenderTests(FakeTest):
         self.assertIn("| Threshold left at window end | $88.92 |", self.out)
         self.assertIn("| Failed responses | 22 on gemma |", self.out)
 
-    def test_window_line_in_local_and_utc(self):
+    def test_window_line_has_both_zones_and_utc(self):
         self.assertIn(
-            "2026-10-15 08:28 to 2026-10-15 11:58 CDT (13:28Z to 16:58Z), 3.5 h",
+            "2026-10-15 08:28 CDT to 2026-10-15 11:58 CDT (13:28Z to 16:58Z), 3.5 h",
             self.out,
         )
 
     def test_bucket_rows_and_remainder_note(self):
-        self.assertIn("| 10-15 09:28 | 100 | 10% |", self.out)
-        self.assertIn("| 10-15 10:28 | 100 | 50% |", self.out)
-        self.assertIn("| 10-15 11:28 | unknown | unknown |", self.out)  # NaN
+        self.assertIn("| 10-15 09:28 CDT | 100 | 10% |", self.out)
+        self.assertIn("| 10-15 10:28 CDT | 100 | 50% |", self.out)
+        self.assertIn("| 10-15 11:28 CDT | unknown | unknown |", self.out)  # NaN
         self.assertIn(
             "_The last 30 min are in the totals but not in a bucket._", self.out
         )
 
 
+class DstRenderTests(FakeTest):
+    def make_fake(self):
+        five = ["1", "1", "1", "1", "1"]
+        return FakeProm(range_values={"openai": five, "anthropic": five})
+
+    def test_repeated_hour_rows_carry_their_zone(self):
+        since = datetime(2026, 11, 1, 0, 0, tzinfo=CHI)
+        until = datetime(2026, 11, 1, 4, 0, tzinfo=CHI)
+        out = hr.render(self.reading(since, until), CHI)
+        self.assertIn("| 11-01 01:00 CDT |", out)
+        self.assertIn("| 11-01 01:00 CST |", out)
+        self.assertIn("2026-11-01 00:00 CDT to 2026-11-01 04:00 CST", out)
+
+
 class UnknownDataTests(FakeTest):
     def make_fake(self):
         return FakeProm(
-            calls={"openai": 100.0, "anthropic": float("nan")},
+            totals={"openai": 100.0, "anthropic": float("nan")},
             range_values={"openai": ["5", None, "7"], "anthropic": ["1", None, None]},
             budget="NaN",
         )
@@ -210,9 +266,9 @@ class UnknownDataTests(FakeTest):
 
     def test_bucket_with_no_samples_is_no_data(self):
         out = hr.render(self.reading(), CHI)
-        self.assertIn("| 10-15 09:28 | 6 | 17% |", out)
-        self.assertIn("| 10-15 10:28 | no data | no data |", out)
-        self.assertIn("| 10-15 11:28 | 7 | 0% |", out)
+        self.assertIn("| 10-15 09:28 CDT | 6 | 17% |", out)
+        self.assertIn("| 10-15 10:28 CDT | no data | no data |", out)
+        self.assertIn("| 10-15 11:28 CDT | 7 | 0% |", out)  # Haiku had no samples
 
     def test_missing_spend_series_is_unknown(self):
         reading = self.reading()
@@ -221,6 +277,28 @@ class UnknownDataTests(FakeTest):
         self.assertIn(
             "| Haiku spend in window | unknown (no Haiku spend series) |", out
         )
+
+
+class SampledWithoutIncreaseTests(FakeTest):
+    """A Haiku series whose only sample is the window's last has no increase()."""
+
+    def make_fake(self):
+        return FakeProm(
+            totals={"openai": 100.0},
+            present=["openai", "anthropic"],
+            range_values={"openai": ["5", "6", "7"], "anthropic": [None, None, None]},
+            sampled={"openai": [True, True, True], "anthropic": [False, False, True]},
+        )
+
+    def test_total_with_a_sampled_route_missing_is_unknown(self):
+        out = hr.render(self.reading(), CHI)
+        self.assertIn("| VLM calls | unknown: 100 on gemma, unknown on Haiku", out)
+        self.assertIn("(Haiku unknown) |", out)
+
+    def test_bucket_with_a_sampled_route_missing_is_unknown(self):
+        out = hr.render(self.reading(), CHI)
+        self.assertIn("| 10-15 09:28 CDT | 5 | 0% |", out)
+        self.assertIn("| 10-15 11:28 CDT | unknown | unknown |", out)
 
 
 class ParseTests(unittest.TestCase):
@@ -269,15 +347,21 @@ class PortForwardTests(unittest.TestCase):
             pf.__enter__()
         self.assertIn("no such service", str(ctx.exception))
 
-    def test_output_flood_after_ready_does_not_block(self):
-        flood = (
-            f"import sys; {FORWARD}\nwhile True: sys.stdout.write('x' * 4096 + chr(10))"
-        )
-        pf = hr.PortForward(child(flood))
-        with pf:
-            time.sleep(0.5)  # the child fills a pipe nobody drained before the fix
-            self.assertIsNone(pf.proc.poll())
-        self.assertIsNotNone(pf.proc.poll())
+    def test_output_after_ready_keeps_draining(self):
+        # 4 MiB is far past any pipe buffer: the child reaches the marker only if
+        # someone keeps reading after the ready line.
+        with tempfile.TemporaryDirectory() as tmp:
+            marker = os.path.join(tmp, "done")
+            code = (
+                f"import sys, time; {FORWARD}\n"
+                "for _ in range(1024): sys.stdout.write('x' * 4095 + chr(10))\n"
+                f"sys.stdout.flush(); open({marker!r}, 'w').close(); time.sleep(60)"
+            )
+            with hr.PortForward(child(code)):
+                deadline = time.monotonic() + 10
+                while not os.path.exists(marker) and time.monotonic() < deadline:
+                    time.sleep(0.05)
+                self.assertTrue(os.path.exists(marker))
 
     def test_child_ignoring_terminate_is_killed(self):
         code = (
@@ -287,6 +371,21 @@ class PortForwardTests(unittest.TestCase):
         pf = hr.PortForward(child(code), stop_timeout=0.5)
         with pf:
             pass
+        self.assertIsNotNone(pf.proc.poll())
+
+    def test_interrupt_during_startup_stops_the_child(self):
+        class InterruptedEvent(threading.Event):
+            def wait(self, timeout=None):
+                raise KeyboardInterrupt
+
+        orig = hr.threading.Event
+        hr.threading.Event = InterruptedEvent
+        try:
+            pf = hr.PortForward(child("import time; time.sleep(60)"))
+            with self.assertRaises(KeyboardInterrupt):
+                pf.__enter__()
+        finally:
+            hr.threading.Event = orig
         self.assertIsNotNone(pf.proc.poll())
 
 
