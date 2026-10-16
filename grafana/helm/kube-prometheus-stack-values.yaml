@@ -438,8 +438,14 @@ prometheus:
         memory: 2Gi
     # 2026-07-06 scale-back: 7d -> 3d per user decision (metrics rarely
     # consulted beyond a few days; 30Gi volume now has ample headroom).
-    retention: 3d
-    retentionSize: ""
+    #
+    # 2026-10-16 (compendium IMPR-1311/IMPR-1331): 3d -> 35d per user decision.
+    # The VLM router's one-month Haiku reading and the 7-day OpenViking call
+    # counts are increase() over 7-30 days, which 3d silently truncated.
+    # retentionSize caps blocks+WAL below the 40Gi volume, so growth in series
+    # deletes the oldest blocks early instead of filling the disk.
+    retention: 35d
+    retentionSize: 32GB
     ruleSelector: {}
     ruleSelectorNilUsesHelmValues: false
     # 2026-07-06 logging/monitoring scale-back: 30s -> 60s everywhere (incl.
@@ -468,7 +474,16 @@ prometheus:
               # 30Gi was ~9x — and it never held metrics anyway: the volume sat
               # at 94% because of rebuild snapshots, not TSDB (see the class
               # comment in manifests/storageclass-longhorn-observability.yaml).
-              storage: 12Gi
+              #
+              # 2026-10-16: 12Gi -> 40Gi for 35d retention. Measured at 3d/60s:
+              # 4,059 samples/s over 198,342 series at 1.45 B/sample = 0.47 GiB a
+              # day. 35d = 16.5 GiB of blocks + ~1.7 GiB max-block overshoot
+              # (10% of retention) + ~0.5 GiB head+WAL + ~1.7 GiB compaction
+              # transient = ~20 GiB peak; 40Gi is 2x peak, and retentionSize
+              # (32GB) is the hard stop. Expanded online (Longhorn v1.12): patch
+              # the PVC first, then upgrade, since the StatefulSet's
+              # volumeClaimTemplate is immutable.
+              storage: 40Gi
           storageClassName: longhorn-observability
     tsdb:
       outOfOrderTimeWindow: 5m
