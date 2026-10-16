@@ -7,7 +7,8 @@ by reason, Haiku spend, the routing threshold left, and gemma failures, then a
 per-bucket share table. Every figure is an ``increase()`` over the same
 ``--until - --since`` span evaluated at ``--until``, so no number comes from a
 different window than the rest (IMPR-1331), and counter resets at a router restart
-are absorbed.
+are absorbed. Both ends are converted to UTC before any arithmetic, so a window that
+crosses a DST change is measured in elapsed time.
 
 Without ``--prom-url`` it opens its own ``kubectl -n grafana port-forward
 svc/prom-prometheus`` on a free local port and closes it on exit. Read-only: it only
@@ -18,14 +19,21 @@ issues Prometheus queries.
 
 Naive times are read in ``--tz`` (default America/Chicago). Spend is the router's own
 tally (``litellm_spend_metric_total``), not the Claude Console's.
+
+Missing data is never shown as zero. A NaN sample prints as ``unknown``, a window with
+no success series at all is an error, and a bucket with no samples prints ``no data``.
+Within a bucket that has samples, a route with no point had no calls there (both
+routes come from the same scrape target).
 """
 
 import argparse
+import collections
 import json
 import math
 import re
 import subprocess
 import sys
+import threading
 import urllib.parse
 import urllib.request
 from datetime import UTC, datetime, timedelta
@@ -61,32 +69,34 @@ def instant(prom, expr, at):
     return _query(prom, "query", query=expr, time=at.timestamp())
 
 
+def _num(text):
+    """A Prometheus sample value, with NaN as None (unknown)."""
+    v = float(text)
+    return None if math.isnan(v) else v
+
+
 def by_label(result, label):
-    """Instant-vector result -> {label value: float}, NaN dropped."""
-    out = {}
-    for series in result:
-        value = float(series["value"][1])
-        if not math.isnan(value):
-            out[series["metric"].get(label, "")] = value
-    return out
+    """Instant-vector result -> {label value: float or None}."""
+    return {s["metric"].get(label, ""): _num(s["value"][1]) for s in result}
 
 
 def parse_time(text, tz):
     if text == "now":
         return datetime.now(UTC)
     t = datetime.fromisoformat(text)
-    return t if t.tzinfo else t.replace(tzinfo=tz)
+    return (t if t.tzinfo else t.replace(tzinfo=tz)).astimezone(UTC)
 
 
 def parse_bucket(text):
     m = re.fullmatch(r"(\d+)([hd])", text)
-    if not m:
+    if not m or int(m.group(1)) == 0:
         raise argparse.ArgumentTypeError("bucket must look like 1h, 6h or 1d")
     n = int(m.group(1))
     return timedelta(hours=n) if m.group(2) == "h" else timedelta(days=n)
 
 
 def collect(prom, since, until, bucket):
+    since, until = since.astimezone(UTC), until.astimezone(UTC)
     span = int((until - since).total_seconds())
     if span <= 0:
         raise ValueError("--until must be after --since")
@@ -94,13 +104,16 @@ def collect(prom, since, until, bucket):
     def sum_by(label, expr):
         return f"sum by ({label}) (increase({expr}[{span}s]))"
 
+    calls = instant(prom, sum_by("api_provider", SUCCESS), until)
+    if not calls:
+        raise RuntimeError(
+            f"no {SUCCESS} series in the window; is litellm-vlm being scraped?"
+        )
     reading = {
         "since": since.isoformat(),
         "until": until.isoformat(),
         "span_s": span,
-        "calls": by_label(
-            instant(prom, sum_by("api_provider", SUCCESS), until), "api_provider"
-        ),
+        "calls": by_label(calls, "api_provider"),
         "failovers": by_label(
             instant(prom, sum_by("exception_status", FALLBACKS), until),
             "exception_status",
@@ -111,44 +124,51 @@ def collect(prom, since, until, bucket):
         "spend": by_label(
             instant(prom, sum_by("api_provider", SPEND), until), "api_provider"
         ),
-        "budget_left": None,
+        "budget_left": by_label(instant(prom, f"max({BUDGET_LEFT})", until), "").get(
+            ""
+        ),
         "buckets": [],
+        "remainder_s": 0,
     }
-    left = by_label(instant(prom, f"max({BUDGET_LEFT})", until), "")
-    reading["budget_left"] = left.get("")
 
-    # Buckets end at since + k*bucket; a trailing remainder shorter than one bucket is
-    # left out of the table (the totals above still cover it).
+    # Buckets cover (since + (k-1)*bucket, since + k*bucket]; a trailing remainder
+    # shorter than one bucket is left out of the table (the totals still cover it).
     step = int(bucket.total_seconds())
-    if step <= span:
-        end = since + timedelta(seconds=step * (span // step))
+    count = span // step
+    if count:
+        ends = [since + bucket * k for k in range(1, count + 1)]
         result = _query(
             prom,
             "query_range",
             query=f"sum by (api_provider) (increase({SUCCESS}[{step}s]))",
-            start=(since + bucket).timestamp(),
-            end=end.timestamp(),
+            start=ends[0].timestamp(),
+            end=ends[-1].timestamp(),
             step=step,
         )
-        rows = {}
+        points = collections.defaultdict(dict)
         for series in result:
             provider = series["metric"].get("api_provider", "")
             for ts, value in series["values"]:
-                v = float(value)
-                rows.setdefault(float(ts), {})[provider] = 0.0 if math.isnan(v) else v
+                points[round(float(ts))][provider] = _num(value)
         reading["buckets"] = [
-            {"end": datetime.fromtimestamp(ts, UTC).isoformat(), "calls": c}
-            for ts, c in sorted(rows.items())
+            {"end": end.isoformat(), "calls": points.get(round(end.timestamp()))}
+            for end in ends
         ]
-        reading["remainder_s"] = span - step * (span // step)
+        reading["remainder_s"] = span - step * count
     return reading
 
 
 def _n(x):
-    return f"{round(x):,}"
+    return "unknown" if x is None else f"{round(x):,}"
+
+
+def _total(values):
+    return None if None in values else sum(values)
 
 
 def _share(part, total):
+    if part is None or total is None:
+        return "unknown"
     return f"{100 * part / total:.0f}%" if total else "n/a"
 
 
@@ -163,11 +183,11 @@ def render(reading, tz):
         return t.astimezone(UTC).strftime("%H:%MZ")
 
     calls = reading["calls"]
-    total = sum(calls.values())
+    total = _total(calls.values())
     haiku = calls.get("anthropic", 0.0)
     routes = ", ".join(
         f"{_n(v)} on {ROUTES.get(k, k)}"
-        for k, v in sorted(calls.items(), key=lambda kv: -kv[1])
+        for k, v in sorted(calls.items(), key=lambda kv: -(kv[1] or 0))
     )
     failovers = ", ".join(
         f"{_n(v)} × `{k}`" + (f" ({REASONS[k]})" if k in REASONS else "")
@@ -176,6 +196,7 @@ def render(reading, tz):
     fails = ", ".join(
         f"{_n(v)} on {ROUTES.get(k, k)}" for k, v in sorted(reading["failures"].items())
     )
+    spend = reading["spend"].get("anthropic")
     left = reading["budget_left"]
     lines = [
         (
@@ -185,25 +206,32 @@ def render(reading, tz):
         "",
         "| Measure | Value |",
         "| --- | --- |",
-        f"| VLM calls | {_n(total)}: {routes or 'none'} (Haiku {_share(haiku, total)}) |",
-        f"| Failovers | {failovers or 'none'} |",
+        f"| VLM calls | {_n(total)}: {routes} (Haiku {_share(haiku, total)}) |",
+        f"| Failovers | {failovers or 'none recorded'} |",
         (
-            f"| Haiku spend in window | ${reading['spend'].get('anthropic', 0.0):.2f}"
-            " (router tally, not the Console) |"
+            "| Haiku spend in window | "
+            + (
+                f"${spend:.2f} (router tally, not the Console) |"
+                if spend is not None
+                else "unknown (no Haiku spend series) |"
+            )
         ),
         "| Threshold left at window end | "
-        + (f"${left:.2f} |" if left is not None else "n/a |"),
-        f"| Failed responses | {fails or 'none'} |",
+        + (f"${left:.2f} |" if left is not None else "unknown |"),
+        f"| Failed responses | {fails or 'none recorded'} |",
     ]
     if reading["buckets"]:
         lines += ["", f"| Bucket ending ({local(until):%Z}) | Calls | Haiku |"]
         lines.append("| --- | --- | --- |")
         for b in reading["buckets"]:
             end = local(datetime.fromisoformat(b["end"]))
-            n = sum(b["calls"].values())
+            if b["calls"] is None:
+                lines.append(f"| {end:%m-%d %H:%M} | no data | no data |")
+                continue
+            n = _total(b["calls"].values())
             h = b["calls"].get("anthropic", 0.0)
             lines.append(f"| {end:%m-%d %H:%M} | {_n(n)} | {_share(h, n)} |")
-        if reading.get("remainder_s"):
+        if reading["remainder_s"]:
             lines.append("")
             lines.append(
                 f"_The last {reading['remainder_s'] // 60} min are in the totals"
@@ -213,32 +241,62 @@ def render(reading, tz):
 
 
 class PortForward:
-    """``kubectl port-forward`` to Prometheus on a free local port."""
+    """``kubectl port-forward`` to Prometheus on a free local port.
+
+    A reader thread drains kubectl's output for the whole run, so a chatty child never
+    blocks on a full pipe, and readiness waits at most ``ready_timeout`` seconds.
+    """
+
+    CMD = ("kubectl", "-n", "grafana", "port-forward", "svc/prom-prometheus", ":9090")
+
+    def __init__(self, cmd=None, ready_timeout=20.0, stop_timeout=5.0):
+        self.cmd = list(cmd or self.CMD)
+        self.ready_timeout = ready_timeout
+        self.stop_timeout = stop_timeout
 
     def __enter__(self):
+        self.url = None
+        self.tail = collections.deque(maxlen=5)
+        self.ready = threading.Event()
         self.proc = subprocess.Popen(
-            [
-                "kubectl",
-                "-n",
-                "grafana",
-                "port-forward",
-                "svc/prom-prometheus",
-                ":9090",
-            ],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
+            self.cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True
         )
+        self.reader = threading.Thread(target=self._drain, daemon=True)
+        self.reader.start()
+        self.ready.wait(self.ready_timeout)
+        if self.url is None:
+            self._stop()
+            said = " | ".join(self.tail) or "no output"
+            raise RuntimeError(
+                f"kubectl port-forward not ready within {self.ready_timeout:g} s: {said}"
+            )
+        return self.url
+
+    def _drain(self):
         for line in self.proc.stdout:
-            m = FORWARD_RE.search(line)
-            if m:
-                return f"http://127.0.0.1:{m.group(1)}"
-        self.proc.wait()
-        raise RuntimeError("kubectl port-forward exited before forwarding")
+            if self.url is None:
+                m = FORWARD_RE.search(line)
+                if m:
+                    self.url = f"http://127.0.0.1:{m.group(1)}"
+                    self.ready.set()
+                else:
+                    self.tail.append(line.strip())
+        self.ready.set()  # EOF: wake a waiter that is still waiting
+
+    def _stop(self):
+        if self.proc.poll() is None:
+            self.proc.terminate()
+            try:
+                self.proc.wait(timeout=self.stop_timeout)
+            except subprocess.TimeoutExpired:
+                self.proc.kill()
+                self.proc.wait()
+        self.reader.join(timeout=self.stop_timeout)
+        self.proc.stdout.close()
 
     def __exit__(self, *exc):
-        self.proc.terminate()
-        self.proc.wait(timeout=10)
+        self._stop()
+        return False
 
 
 def main(argv=None):
@@ -257,11 +315,13 @@ def main(argv=None):
 
     tz = ZoneInfo(args.tz)
     since, until = parse_time(args.since, tz), parse_time(args.until, tz)
-    bucket = args.bucket or (
-        timedelta(hours=1)
-        if until - since <= timedelta(hours=48)
-        else timedelta(days=1)
-    )
+    bucket = args.bucket
+    if bucket is None:
+        bucket = (
+            timedelta(hours=1)
+            if until - since <= timedelta(hours=48)
+            else timedelta(days=1)
+        )
     try:
         if args.prom_url:
             reading = collect(args.prom_url.rstrip("/"), since, until, bucket)
