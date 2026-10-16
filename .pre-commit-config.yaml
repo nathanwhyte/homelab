@@ -39,6 +39,13 @@ repos:
         language: system
         pass_filenames: false
         files: ^grafana/(test-)?backup-freshness-exporter\.py$
+      # IMPR-1331: the Haiku-share reading script. Stdlib only, fakes only.
+      - id: ov-haiku-reading-tests
+        name: ov-haiku-reading tests
+        entry: python3 viking/scripts/test-ov-haiku-reading.py
+        language: system
+        pass_filenames: false
+        files: ^viking/scripts/(test-)?ov-haiku-reading\.py$
       # BUG-1220 / IMPR-1095: the lock wedge exporter and the janitor have no
       # CI either. Stdlib only and offline (stubbed S3, loopback socket).
       - id: ov-exporter-tests
