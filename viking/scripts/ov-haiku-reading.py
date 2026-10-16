@@ -145,13 +145,17 @@ def counter(prom, metric, label, seconds, at):
     return reconcile(total, sampled, counted)
 
 
-def collect(prom, since, until, bucket):
+def collect(prom, since, until, bucket, now=None):
     since, until = whole_seconds(since), whole_seconds(until)
     span = int((until - since).total_seconds())
     if span <= 0:
         raise ValueError("--until must be after --since")
 
-    oldest = by_label(instant(prom, f"max({OLDEST})", until), "").get("")
+    # The floor that matters is today's: evaluated at a past --until, the metric
+    # reports the floor as it was then, which retention may have passed since.
+    oldest = by_label(
+        instant(prom, f"max({OLDEST})", now or datetime.now(UTC)), ""
+    ).get("")
     if oldest is not None and since.timestamp() < oldest:
         kept = datetime.fromtimestamp(oldest, UTC).isoformat()
         raise RuntimeError(

@@ -33,6 +33,7 @@ _SPEC.loader.exec_module(hr)
 CHI = ZoneInfo("America/Chicago")
 SINCE = datetime(2026, 10, 15, 8, 28, tzinfo=CHI)
 UNTIL = datetime(2026, 10, 15, 11, 58, tzinfo=CHI)  # 3.5 h: three buckets + 30 min
+NOW = datetime(2026, 10, 16, 18, 0, tzinfo=UTC)  # when the reading is taken
 NAN = float("nan")
 ONE = None  # a series with a single sample in the lookback: no increase() value
 
@@ -90,11 +91,12 @@ class FakeProm:
             result = [{"metric": {}, "value": [0, self.budget]}]
             return {"status": "success", "data": {"result": result}}
         if hr.OLDEST in q:
-            result = (
-                []
-                if self.oldest is None
-                else [{"metric": {}, "value": [0, self.oldest]}]
-            )
+            # oldest: a value, None (not reported), or a function of the query time
+            # (the floor as it stood at that moment).
+            value = self.oldest
+            if callable(value):
+                value = value(float(params["time"]))
+            result = [] if value is None else [{"metric": {}, "value": [0, value]}]
             return {"status": "success", "data": {"result": result}}
         label = re.search(r"by \((\w+)\)", q).group(1)
         metric = next(
@@ -138,7 +140,7 @@ class FakeTest(unittest.TestCase):
         hr._get = self._orig
 
     def reading(self, since=SINCE, until=UNTIL, bucket=timedelta(hours=1)):
-        return hr.collect("http://p", since, until, bucket)
+        return hr.collect("http://p", since, until, bucket, now=NOW)
 
     def out(self, **kw):
         return hr.render(self.reading(**kw), CHI)
@@ -158,8 +160,11 @@ class CollectTests(FakeTest):
         self.assertEqual(len(instants), 14)  # oldest sample + 4 counters x 3 + budget
         span = int((UNTIL - SINCE).total_seconds())
         for p in instants:
+            if hr.OLDEST in p["query"]:
+                self.assertEqual(float(p["time"]), NOW.timestamp())  # today's floor
+                continue
             self.assertEqual(float(p["time"]), UNTIL.timestamp())
-            if "remaining_budget" not in p["query"] and hr.OLDEST not in p["query"]:
+            if "remaining_budget" not in p["query"]:
                 self.assertIn(f"[{span}s]", p["query"])
 
     def test_bucket_queries_look_back_exactly_one_bucket(self):
@@ -202,7 +207,8 @@ class CollectTests(FakeTest):
         self.assertEqual(reading["remainder_s"], 0)
         whole = datetime(2026, 10, 15, 14, 0, 0, tzinfo=UTC).timestamp()
         for p in self.queries("/query"):
-            self.assertEqual(float(p["time"]), whole)
+            if hr.OLDEST not in p["query"]:  # the floor is read at NOW
+                self.assertEqual(float(p["time"]), whole)
         self.assertEqual(float(self.queries("query_range")[0]["end"]), whole)
 
     def test_bucket_longer_than_window_skips_the_table(self):
@@ -234,6 +240,17 @@ class CollectTests(FakeTest):
     def test_window_starting_at_the_oldest_sample_is_allowed(self):
         self.fake.oldest = str(SINCE.timestamp())
         self.assertEqual(self.reading()["oldest_sample"], SINCE.timestamp())
+
+    def test_past_until_is_checked_against_todays_floor(self):
+        # At UNTIL the floor was older than SINCE, but by NOW retention has moved
+        # it past SINCE: the start of the window is gone and must be refused.
+        def floor_at(t):
+            moved = (SINCE + timedelta(hours=1)).timestamp()
+            return str(moved if t >= NOW.timestamp() else SINCE.timestamp() - 86400)
+
+        self.fake.oldest = floor_at
+        with self.assertRaises(RuntimeError):
+            self.reading()
 
     def test_unreported_retention_warns_in_the_output(self):
         self.fake.oldest = None
