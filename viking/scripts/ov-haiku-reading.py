@@ -21,11 +21,13 @@ Naive times are read in ``--tz`` (default America/Chicago). Spend is the router'
 tally (``litellm_spend_metric_total``), not the Claude Console's.
 
 Missing data is never shown as zero. A window with no success samples at all is an
-error, and a bucket with none prints ``no data``. A route that has samples but no
-``increase()`` value (a NaN, or a series whose first sample is the window's last)
-prints ``unknown``, and so do the totals and shares it feeds. Only a route with no
-samples at all in the window or bucket counts as zero calls. Times print with their
-zone, so the two 01:00 buckets of a DST fall-back stay distinct.
+error, and a bucket with none prints ``no data``. For every counter, each label's
+series are checked one by one before they are summed: if any series has samples but
+no ``increase()`` value (a NaN, or a new pod's series whose first sample is the
+window's last), that label prints ``unknown``, and so do the totals and shares it
+feeds. Only a label with no samples at all counts as zero. Both ends are truncated to
+whole seconds, and times print with their zone, so the two 01:00 buckets of a DST
+fall-back stay distinct.
 """
 
 import argparse
@@ -83,10 +85,15 @@ def by_label(result, label):
 
 
 def parse_time(text, tz):
-    if text == "now":
-        return datetime.now(UTC)
-    t = datetime.fromisoformat(text)
-    return (t if t.tzinfo else t.replace(tzinfo=tz)).astimezone(UTC)
+    t = datetime.now(UTC) if text == "now" else datetime.fromisoformat(text)
+    if t.tzinfo is None:
+        t = t.replace(tzinfo=tz)
+    return whole_seconds(t)
+
+
+def whole_seconds(t):
+    """UTC, truncated to the second: the span is whole seconds, so the ends must be."""
+    return t.astimezone(UTC).replace(microsecond=0)
 
 
 def parse_bucket(text):
@@ -97,52 +104,57 @@ def parse_bucket(text):
     return timedelta(hours=n) if m.group(2) == "h" else timedelta(days=n)
 
 
-def routes_with_samples(seconds):
-    """Routes whose success counter has at least one sample in the lookback."""
-    return f"group by (api_provider) (last_over_time({SUCCESS}[{seconds}s]))"
+def counter_queries(metric, label, seconds):
+    """The three queries that decide each label's increase: the summed increase, the
+    number of series with samples, and the number with an ``increase()`` value."""
+    rng = f"{metric}[{seconds}s]"
+    return (
+        f"sum by ({label}) (increase({rng}))",
+        f"count by ({label}) (last_over_time({rng}))",
+        f"count by ({label}) (increase({rng}))",
+    )
 
 
-def with_unknowns(counts, routes):
-    """A route with samples but no ``increase()`` value (one sample only, say) is
-    unknown, not zero. A route with no samples at all had no calls."""
-    return {r: counts.get(r) for r in sorted(routes | set(counts))}
+def reconcile(total, sampled, counted):
+    """{label: increase or None}. The check is per series, before the sum: a label is
+    unknown when any of its series has samples but no ``increase()`` value (a single
+    sample, as after a router restart). A label with no samples at all is absent."""
+    out = {}
+    for label in sorted(set(sampled) | set(total)):
+        complete = (
+            sampled.get(label) is not None and counted.get(label) == sampled[label]
+        )
+        out[label] = total.get(label) if complete else None
+    return out
+
+
+def counter(prom, metric, label, seconds, at):
+    total, sampled, counted = (
+        by_label(instant(prom, q, at), label)
+        for q in counter_queries(metric, label, seconds)
+    )
+    return reconcile(total, sampled, counted)
 
 
 def collect(prom, since, until, bucket):
-    since, until = since.astimezone(UTC), until.astimezone(UTC)
+    since, until = whole_seconds(since), whole_seconds(until)
     span = int((until - since).total_seconds())
     if span <= 0:
         raise ValueError("--until must be after --since")
 
-    def sum_by(label, expr):
-        return f"sum by ({label}) (increase({expr}[{span}s]))"
-
-    present = set(
-        by_label(instant(prom, routes_with_samples(span), until), "api_provider")
-    )
-    if not present:
+    calls = counter(prom, SUCCESS, "api_provider", span, until)
+    if not calls:
         raise RuntimeError(
             f"no {SUCCESS} samples in the window; is litellm-vlm being scraped?"
         )
-    calls = with_unknowns(
-        by_label(instant(prom, sum_by("api_provider", SUCCESS), until), "api_provider"),
-        present,
-    )
     reading = {
         "since": since.isoformat(),
         "until": until.isoformat(),
         "span_s": span,
         "calls": calls,
-        "failovers": by_label(
-            instant(prom, sum_by("exception_status", FALLBACKS), until),
-            "exception_status",
-        ),
-        "failures": by_label(
-            instant(prom, sum_by("api_provider", FAILURES), until), "api_provider"
-        ),
-        "spend": by_label(
-            instant(prom, sum_by("api_provider", SPEND), until), "api_provider"
-        ),
+        "failovers": counter(prom, FALLBACKS, "exception_status", span, until),
+        "failures": counter(prom, FAILURES, "api_provider", span, until),
+        "spend": counter(prom, SPEND, "api_provider", span, until),
         "budget_left": by_label(instant(prom, f"max({BUDGET_LEFT})", until), "").get(
             ""
         ),
@@ -173,20 +185,16 @@ def collect(prom, since, until, bucket):
                     points[round(float(ts))][provider] = _num(value)
             return points
 
-        counts = per_bucket(f"sum by (api_provider) (increase({SUCCESS}[{step}s]))")
-        sampled = per_bucket(routes_with_samples(step))
+        total, sampled, counted = (
+            per_bucket(q) for q in counter_queries(SUCCESS, "api_provider", step)
+        )
         buckets = []
         for end in ends:
             ts = round(end.timestamp())
-            routes = set(sampled.get(ts, ())) | set(counts.get(ts, ()))
-            buckets.append(
-                {
-                    "end": end.isoformat(),
-                    "calls": with_unknowns(counts.get(ts, {}), routes)
-                    if routes
-                    else None,
-                }
+            calls = reconcile(
+                total.get(ts, {}), sampled.get(ts, {}), counted.get(ts, {})
             )
+            buckets.append({"end": end.isoformat(), "calls": calls or None})
         reading["buckets"] = buckets
         reading["remainder_s"] = span - step * count
     return reading
@@ -248,7 +256,11 @@ def render(reading, tz):
             + (
                 f"${spend:.2f} (router tally, not the Console) |"
                 if spend is not None
-                else "unknown (no Haiku spend series) |"
+                else (
+                    "unknown (incomplete spend series) |"
+                    if "anthropic" in reading["spend"]
+                    else "no Haiku spend samples |"
+                )
             )
         ),
         "| Threshold left at window end | "
@@ -292,14 +304,15 @@ class PortForward:
         self.url = None
         self.tail = collections.deque(maxlen=5)
         self.ready = threading.Event()
+        self.reader = None
         self.proc = subprocess.Popen(
             self.cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True
         )
-        self.reader = threading.Thread(target=self._drain, daemon=True)
-        try:
+        try:  # Ctrl-C anywhere in startup: __exit__ will not run, so clean up here
+            self.reader = threading.Thread(target=self._drain, daemon=True)
             self.reader.start()
             self.ready.wait(self.ready_timeout)
-        except BaseException:  # Ctrl-C during startup: __exit__ will not run
+        except BaseException:
             self._stop()
             raise
         if self.url is None:
@@ -329,7 +342,8 @@ class PortForward:
             except subprocess.TimeoutExpired:
                 self.proc.kill()
                 self.proc.wait()
-        self.reader.join(timeout=self.stop_timeout)
+        if self.reader is not None and self.reader.ident is not None:
+            self.reader.join(timeout=self.stop_timeout)
         self.proc.stdout.close()
 
     def __exit__(self, *exc):
