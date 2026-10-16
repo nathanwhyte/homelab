@@ -15,7 +15,12 @@ svc/prom-prometheus`` on a free local port and closes it on exit. Read-only: it 
 issues Prometheus queries.
 
     ov-haiku-reading.py --since 2026-10-15T08:28 --until 2026-10-15T22:28
-    ov-haiku-reading.py --since 2026-10-14T13:36 --until now --bucket 1d
+    ov-haiku-reading.py --since 2026-10-16T08:00 --until now --bucket 6h
+
+The window must lie inside Prometheus's retention (3 days on 2026-10-16): a ``--since``
+older than its oldest sample is refused, because ``increase()`` would silently count
+only what is left. A longer reading, such as IMPR-1311's one-month reading, is the sum
+of readings taken inside retention.
 
 Naive times are read in ``--tz`` (default America/Chicago). Spend is the router's own
 tally (``litellm_spend_metric_total``), not the Claude Console's.
@@ -48,6 +53,10 @@ FALLBACKS = "litellm_deployment_successful_fallbacks_total"
 FAILURES = "litellm_deployment_failure_responses_total"
 SPEND = "litellm_spend_metric_total"
 BUDGET_LEFT = 'litellm_provider_remaining_budget_metric{api_provider="anthropic"}'
+# Prometheus's own oldest retained sample. Homelab retention is short (3d on
+# 2026-10-16), and increase() over a window reaching past it silently counts only what
+# is left, so such a window is refused instead.
+OLDEST = "prometheus_tsdb_lowest_timestamp_seconds"
 
 # api_provider label -> the route name the compendium entry uses.
 ROUTES = {"openai": "gemma", "anthropic": "Haiku"}
@@ -142,6 +151,15 @@ def collect(prom, since, until, bucket):
     if span <= 0:
         raise ValueError("--until must be after --since")
 
+    oldest = by_label(instant(prom, f"max({OLDEST})", until), "").get("")
+    if oldest is not None and since.timestamp() < oldest:
+        kept = datetime.fromtimestamp(oldest, UTC).isoformat()
+        raise RuntimeError(
+            f"--since is older than Prometheus's oldest sample ({kept}); retention has"
+            " already dropped the start of the window, so its totals would be short."
+            " Take readings inside the retention period and add them up."
+        )
+
     calls = counter(prom, SUCCESS, "api_provider", span, until)
     if not calls:
         raise RuntimeError(
@@ -158,6 +176,7 @@ def collect(prom, since, until, bucket):
         "budget_left": by_label(instant(prom, f"max({BUDGET_LEFT})", until), "").get(
             ""
         ),
+        "oldest_sample": oldest,
         "buckets": [],
         "remainder_s": 0,
     }
@@ -267,6 +286,14 @@ def render(reading, tz):
         + (f"${left:.2f} |" if left is not None else "unknown |"),
         f"| Failed responses | {fails or 'none recorded'} |",
     ]
+    if reading["oldest_sample"] is None:
+        lines += [
+            "",
+            (
+                f"_Warning: Prometheus did not report `{OLDEST}`, so the window was"
+                " not checked against retention; totals may be short._"
+            ),
+        ]
     if reading["buckets"]:
         lines += ["", "| Bucket ending | Calls | Haiku |", "| --- | --- | --- |"]
         for b in reading["buckets"]:

@@ -74,11 +74,12 @@ def aggregate(series, op, label):
 
 
 class FakeProm:
-    def __init__(self, window=None, buckets=None, budget="88.921"):
+    def __init__(self, window=None, buckets=None, budget="88.921", oldest="0"):
         self.calls = []
         self.window = {**WINDOW, **(window or {})}
         self.buckets = BUCKETS if buckets is None else buckets
         self.budget = budget
+        self.oldest = oldest  # Prometheus's oldest sample (epoch s); None: not reported
 
     def __call__(self, url):
         parsed = urllib.parse.urlparse(url)
@@ -87,6 +88,13 @@ class FakeProm:
         q = params["query"]
         if "remaining_budget" in q:
             result = [{"metric": {}, "value": [0, self.budget]}]
+            return {"status": "success", "data": {"result": result}}
+        if hr.OLDEST in q:
+            result = (
+                []
+                if self.oldest is None
+                else [{"metric": {}, "value": [0, self.oldest]}]
+            )
             return {"status": "success", "data": {"result": result}}
         label = re.search(r"by \((\w+)\)", q).group(1)
         metric = next(
@@ -147,11 +155,11 @@ class CollectTests(FakeTest):
     def test_every_instant_query_uses_one_window_at_until(self):
         self.reading()
         instants = self.queries("/query")
-        self.assertEqual(len(instants), 13)  # 4 counters x 3 queries + budget
+        self.assertEqual(len(instants), 14)  # oldest sample + 4 counters x 3 + budget
         span = int((UNTIL - SINCE).total_seconds())
         for p in instants:
             self.assertEqual(float(p["time"]), UNTIL.timestamp())
-            if "remaining_budget" not in p["query"]:
+            if "remaining_budget" not in p["query"] and hr.OLDEST not in p["query"]:
                 self.assertIn(f"[{span}s]", p["query"])
 
     def test_bucket_queries_look_back_exactly_one_bucket(self):
@@ -215,6 +223,24 @@ class CollectTests(FakeTest):
         self.fake.window[hr.SUCCESS] = []
         with self.assertRaises(RuntimeError):
             self.reading()
+
+    def test_window_older_than_retention_is_refused(self):
+        self.fake.oldest = str((SINCE + timedelta(minutes=1)).timestamp())
+        with self.assertRaises(RuntimeError) as ctx:
+            self.reading()
+        self.assertIn("oldest sample", str(ctx.exception))
+        self.assertEqual(len(self.fake.calls), 1)  # refused before any counter query
+
+    def test_window_starting_at_the_oldest_sample_is_allowed(self):
+        self.fake.oldest = str(SINCE.timestamp())
+        self.assertEqual(self.reading()["oldest_sample"], SINCE.timestamp())
+
+    def test_unreported_retention_warns_in_the_output(self):
+        self.fake.oldest = None
+        self.assertIn("was not checked against retention", self.out())
+
+    def test_checked_retention_prints_no_warning(self):
+        self.assertNotIn("Warning", self.out())
 
 
 class RenderTests(FakeTest):
