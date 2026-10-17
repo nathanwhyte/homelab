@@ -10,7 +10,8 @@ HELM_DEPLOY="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/scripts/helm-deplo
 # against 32 attached volumes — Longhorn does not support downgrades, so that is
 # a data-integrity risk, not a downtime one. helm-deploy.py reads the deployed
 # chart version and passes it back explicitly, making this an "apply my values"
-# tool. Upgrading the chart is a separate, deliberate Helm operation.
+# tool. Upgrading the chart is a separate, deliberate Helm operation
+# (longhorn/upgrading.md).
 case "${1:-}" in
 --dry-run)
 	[[ $# -eq 1 ]] || exit 2

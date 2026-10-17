@@ -1,13 +1,9 @@
 ---
 # Longhorn Helm Chart Values
-# Chart: longhorn/longhorn v1.11.1
+# Chart: longhorn/longhorn (version read from the cluster; see deploy-longhorn.sh)
 #
-# Install with:
-#   helm repo add longhorn https://charts.longhorn.io
-#   helm repo update
-#   helm upgrade --install longhorn longhorn/longhorn \
-#     --namespace longhorn-system --create-namespace \
-#     -f longhorn/longhorn-values.yaml --version 1.11.1
+# Reapply values: longhorn/deploy-longhorn.sh
+# Upgrade the chart: longhorn/upgrading.md
 
 # Default StorageClass configuration
 persistence:
@@ -100,4 +96,11 @@ ingress:
 # Network policies (k3s)
 networkPolicies:
   enabled: false
+  # Chart 1.12.1 adds this key, default true, which renders six NetworkPolicies
+  # even with `enabled: false`. Its longhorn-manager policy admits only Longhorn's
+  # own pods, so Prometheus in `grafana` could no longer scrape :9500 (the
+  # IMPR-1119 alerts) and anything else calling the manager API from outside
+  # longhorn-system would be cut off too. Kept off to match 1.12.0; adopting it
+  # needs an allow rule for those clients first.
+  restrictInternalTraffic: false
   type: "k3s"

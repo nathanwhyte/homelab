@@ -1,61 +1,83 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Upgrade all Longhorn volumes from v1.10.1 engine to v1.11.0
-# Live engine upgrade is supported for attached volumes.
-# Detached volumes are upgraded on next attach.
+# Live-upgrade every attached Longhorn volume to the engine image of TARGET.
+# Run after the chart upgrade has deployed that engine image (see upgrading.md).
+# Detached volumes are skipped; Longhorn upgrades them on their next attach.
+#
+# Usage: upgrade-engines.sh v1.12.1 [--dry-run]
 
-TARGET_IMAGE="docker.io/longhornio/longhorn-engine:v1.11.0"
+TARGET="${1:-}"
+DRY_RUN="${2:-}"
 NAMESPACE="longhorn-system"
 
-echo "Longhorn Engine Upgrade: all volumes -> v1.11.0"
-echo "================================================"
+if [[ ! "$TARGET" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || [[ -n "$DRY_RUN" && "$DRY_RUN" != "--dry-run" ]]; then
+  echo "Usage: $0 vX.Y.Z [--dry-run]" >&2
+  exit 2
+fi
+TARGET_IMAGE="docker.io/longhornio/longhorn-engine:$TARGET"
 
-# Get all volumes still on v1.10.1
-OLD_VOLS=$(kubectl get volumes.longhorn.io -n "$NAMESPACE" -o json | \
-  python3 -c "
+# The engine image must be deployed and ready on every node before any volume
+# points at it; a volume patched onto a missing image cannot start its engine.
+EI_STATE=$(kubectl get engineimages.longhorn.io -n "$NAMESPACE" -o json | python3 -c "
 import json, sys
-vols = json.load(sys.stdin)['items']
-for v in vols:
-    img = v['status'].get('currentImage', '')
-    if 'v1.11.0' not in img:
-        name = v['metadata']['name']
-        state = v['status'].get('state', '?')
-        pvc = v['status'].get('kubernetesStatus', {}).get('pvcName', '?')
-        ns = v['status'].get('kubernetesStatus', {}).get('namespace', '?')
-        print(f'{name}|{state}|{ns}/{pvc}')
-")
-
-if [ -z "$OLD_VOLS" ]; then
-  echo "All volumes are already on v1.11.0!"
-  exit 0
+target = sys.argv[1]
+states = [ei['status'].get('state', '?') for ei in json.load(sys.stdin)['items'] if ei['spec'].get('image') == target]
+print(states[0] if len(states) == 1 else 'missing')
+" "$TARGET_IMAGE")
+if [ "$EI_STATE" != "deployed" ]; then
+  echo "Engine image $TARGET_IMAGE is '$EI_STATE', not 'deployed'. Upgrade the chart first." >&2
+  exit 1
 fi
 
-TOTAL=$(echo "$OLD_VOLS" | wc -l)
-echo "Found $TOTAL volumes to upgrade:"
-echo "$OLD_VOLS" | while IFS='|' read -r vol state pvc; do
-  printf "  %-8s %s\n" "$state" "$pvc"
-done
-echo ""
+echo "Longhorn engine upgrade: attached volumes -> $TARGET"
+echo "================================================"
+
+# name|state|namespace/pvc for every volume not already on the target image.
+# Captured first so a kubectl failure stops the script under pipefail; read
+# from a process substitution, a failure would look like "nothing to upgrade".
+# A read loop, not mapfile: macOS still ships bash 3.2.
+VOL_ROWS=$(kubectl get volumes.longhorn.io -n "$NAMESPACE" -o json | python3 -c "
+import json, sys
+target = sys.argv[1]
+for v in json.load(sys.stdin)['items']:
+    if v['status'].get('currentImage', '') != target:
+        k = v['status'].get('kubernetesStatus', {})
+        print(f\"{v['metadata']['name']}|{v['status'].get('state', '?')}|{k.get('namespace', '?')}/{k.get('pvcName', '?')}\")
+" "$TARGET_IMAGE")
+OLD_VOLS=()
+while IFS= read -r line; do
+  [ -n "$line" ] && OLD_VOLS+=("$line")
+done <<<"$VOL_ROWS"
+
+if [ "${#OLD_VOLS[@]}" -eq 0 ]; then
+  # `set -u` on bash 3.2 treats an empty array expansion as unbound, so this
+  # exit also keeps the loop below from ever expanding an empty array.
+  echo "All volumes are already on $TARGET."
+  exit 0
+fi
 
 UPGRADED=0
 SKIPPED=0
 FAILED=0
 
-echo "$OLD_VOLS" | while IFS='|' read -r vol state pvc; do
-  if [ "$state" = "detached" ]; then
-    echo "[skip] $pvc (detached — will upgrade on next attach)"
+# Not a pipeline: a `| while` loop runs in a subshell and loses the counters.
+for row in "${OLD_VOLS[@]}"; do
+  IFS='|' read -r vol state pvc <<<"$row"
+  if [ "$state" != "attached" ]; then
+    echo "[skip] $pvc ($state; upgrades on next attach)"
     SKIPPED=$((SKIPPED + 1))
+    continue
+  fi
+  if [ "$DRY_RUN" = "--dry-run" ]; then
+    echo "[would upgrade] $pvc"
     continue
   fi
 
   echo -n "[upgrading] $pvc ... "
-
-  # Patch the volume spec to use the new engine image
-  if kubectl patch volumes.longhorn.io "$vol" -n "$NAMESPACE" \
-    --type=json \
+  if kubectl patch volumes.longhorn.io "$vol" -n "$NAMESPACE" --type=json \
     -p "[{\"op\": \"replace\", \"path\": \"/spec/image\", \"value\": \"$TARGET_IMAGE\"}]" \
-    > /dev/null 2>&1; then
+    >/dev/null; then
     echo "patched"
     UPGRADED=$((UPGRADED + 1))
   else
@@ -68,9 +90,9 @@ echo "$OLD_VOLS" | while IFS='|' read -r vol state pvc; do
 done
 
 echo ""
-echo "Done. Upgrades are live — Longhorn will rolling-restart engines."
+echo "Patched $UPGRADED, skipped $SKIPPED, failed $FAILED."
 echo "Monitor progress:"
 echo "  kubectl get volumes.longhorn.io -n $NAMESPACE -o custom-columns='PVC:.status.kubernetesStatus.pvcName,IMAGE:.status.currentImage,STATE:.status.state'"
-echo ""
-echo "Once all volumes show v1.11.0, the old engine image can be removed:"
-echo "  kubectl delete engineimage ei-3154f3aa -n $NAMESPACE"
+echo "Once no volume reports the old image, its engineimage refCount is 0 and Longhorn"
+echo "garbage-collects it (or delete it by hand: kubectl get engineimages -n $NAMESPACE)."
+[ "$FAILED" -eq 0 ]
