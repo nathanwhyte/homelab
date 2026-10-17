@@ -1,5 +1,11 @@
 ---
-# 200 Gi media PVC for the IDEA-019 yt-dlp revival.
+# 300 Gi media PVC for the IDEA-019 yt-dlp revival.
+#
+# Grown 200 -> 300 Gi on 2026-10-17 (BUG-1243): yt-dlp 2026.06.09 read
+# only the first ~100 items of each playlist, so the 2026.08.19 upgrade
+# surfaced a ~1,670-video backlog (playlist 3 alone lists 1391). The
+# 1080p cap and --max-downloads in yt-dlp-config.yaml bound how fast it
+# lands; grow again from here if the backlog outruns it.
 #
 # Q1 (closed): 200 Gi is ~1.75x the deduplicated 75.7 GB R2 inventory
 #              (post-consolidation figure), with headroom for new
@@ -30,4 +36,4 @@ spec:
   storageClassName: longhorn-hdd-wemby
   resources:
     requests:
-      storage: 200Gi
+      storage: 300Gi
