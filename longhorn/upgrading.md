@@ -67,7 +67,12 @@ go-common-libs#192 re-resolves the PID and retries).
    Wait for the v1.12.1 engine image to show `deployed`. Each node gets a new
    instance-manager pod; the old one stays while it still hosts a process.
 
-4. Live-upgrade the attached volumes' engines.
+4. Upgrade every volume's engine: attached volumes live, detached ones
+   offline. Automatic engine upgrade is off here
+   (`concurrent-automatic-engine-upgrade-per-node-limit` is `0`), so a
+   detached volume left alone would reattach on the old engine. The script
+   exits non-zero if a volume was mid-attach or mid-detach; rerun it until it
+   reports nothing left.
 
    ```bash
    longhorn/upgrade-engines.sh v1.12.1 --dry-run
@@ -78,9 +83,10 @@ go-common-libs#192 re-resolves the PID and retries).
 
    - `helm list -n longhorn-system` shows `longhorn-1.12.1`.
    - `kubectl get networkpolicies -n longhorn-system` returns nothing.
-   - Prometheus target `longhorn-system/longhorn-prometheus-servicemonitor` is up,
-     and `longhorn_volume_robustness` reports every attached volume.
-   - Every volume reports `currentImage` v1.12.1 or is detached.
+   - Prometheus's Longhorn target (ServiceMonitor `longhorn-system/longhorn`)
+     is up, and `longhorn_volume_robustness` reports every attached volume.
+   - Every volume, attached or detached, reports `currentImage` v1.12.1
+     (`upgrade-engines.sh v1.12.1` prints "All volumes are already on v1.12.1").
 
 ### Which volumes get the fix
 

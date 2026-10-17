@@ -1,9 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Live-upgrade every attached Longhorn volume to the engine image of TARGET.
+# Move every Longhorn volume to the engine image of TARGET: attached volumes by
+# live upgrade, detached ones by offline upgrade (the same spec.image patch).
 # Run after the chart upgrade has deployed that engine image (see upgrading.md).
-# Detached volumes are skipped; Longhorn upgrades them on their next attach.
+# Detached volumes are not left for "next attach": this cluster runs with
+# concurrent-automatic-engine-upgrade-per-node-limit=0, so nothing would
+# upgrade them and they would reattach on the old engine. A volume caught
+# mid-attach or mid-detach is skipped and the script exits non-zero; rerun it.
 #
 # Usage: upgrade-engines.sh v1.12.1 [--dry-run]
 
@@ -30,7 +34,7 @@ if [ "$EI_STATE" != "deployed" ]; then
   exit 1
 fi
 
-echo "Longhorn engine upgrade: attached volumes -> $TARGET"
+echo "Longhorn engine upgrade: all volumes -> $TARGET"
 echo "================================================"
 
 # name|state|namespace/pvc for every volume not already on the target image.
@@ -80,17 +84,17 @@ FAILED=0
 # Not a pipeline: a `| while` loop runs in a subshell and loses the counters.
 for row in "${OLD_VOLS[@]}"; do
   IFS='|' read -r vol state pvc <<<"$row"
-  if [ "$state" != "attached" ]; then
-    echo "[skip] $pvc ($state; upgrades on next attach)"
+  if [ "$state" != "attached" ] && [ "$state" != "detached" ]; then
+    echo "[skip] $pvc ($state; rerun once it settles)"
     SKIPPED=$((SKIPPED + 1))
     continue
   fi
   if [ "$DRY_RUN" = "--dry-run" ]; then
-    echo "[would upgrade] $pvc"
+    echo "[would upgrade] $pvc ($state)"
     continue
   fi
 
-  echo -n "[upgrading] $pvc ... "
+  echo -n "[upgrading] $pvc ($state) ... "
   if kubectl patch volumes.longhorn.io "$vol" -n "$NAMESPACE" --type=json \
     -p "[{\"op\": \"replace\", \"path\": \"/spec/image\", \"value\": \"$TARGET_IMAGE\"}]" \
     >/dev/null; then
@@ -111,4 +115,4 @@ echo "Monitor progress:"
 echo "  kubectl get volumes.longhorn.io -n $NAMESPACE -o custom-columns='PVC:.status.kubernetesStatus.pvcName,IMAGE:.status.currentImage,STATE:.status.state'"
 echo "Once no volume reports the old image, its engineimage refCount is 0 and Longhorn"
 echo "garbage-collects it (or delete it by hand: kubectl get engineimages -n $NAMESPACE)."
-[ "$FAILED" -eq 0 ]
+[ "$FAILED" -eq 0 ] && [ "$SKIPPED" -eq 0 ]
