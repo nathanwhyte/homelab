@@ -56,7 +56,7 @@ spec:
         fsGroup: 1000
       containers:
         - name: yt-dlp
-          image: nathanwhyte/yt-dlp:2026.06.10-yt-dlp
+          image: nathanwhyte/yt-dlp:2026.10.17-yt-dlp
           imagePullPolicy: IfNotPresent
           resources:
             requests:

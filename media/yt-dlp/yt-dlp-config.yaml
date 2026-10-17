@@ -91,3 +91,33 @@ data:
     --no-keep-fragments
     --preset-alias sleep
     --cookies /yt-dlp-archive/cookies.txt
+
+  # Every playlist Job runs yt-dlp through this wrapper (BUG-1243).
+  # yt-dlp exits 1 whenever any video errored, even under --ignore-errors,
+  # so the Jobs used to end in `|| true`, which also hid a month of 403s
+  # once YouTube blocked the android_vr client (2026-08). The wrapper
+  # still passes the per-video errors a playlist sync should skip, and
+  # fails the Job on anything else so KubeJobFailed fires.
+  run-yt-dlp.sh: |
+    set -u
+    log=/tmp/yt-dlp.log
+    rc_file=/tmp/yt-dlp.rc
+    { yt-dlp "$@"; echo $? > "$rc_file"; } 2>&1 | tee "$log"
+    rc=$(cat "$rc_file")
+    [ "$rc" -eq 0 ] && exit 0
+
+    # Per-video conditions no retry will fix; age-gated videos need
+    # logged-in cookies (cookies.md).
+    skippable='Video unavailable|Private video|has been removed|no longer available'
+    skippable="${skippable}|not available in your country|made this video available"
+    skippable="${skippable}|Sign in to confirm your age|members-only|Join this channel"
+    skippable="${skippable}|This live event will begin|Premieres in|has been terminated"
+
+    unexpected=$(grep '^ERROR:' "$log" | grep -v -E "$skippable" || true)
+    if [ -z "$unexpected" ]; then
+      echo "run-yt-dlp: exit $rc with only per-video errors; treating as success"
+      exit 0
+    fi
+    echo "run-yt-dlp: exit $rc; failing the Job on $(printf '%s\n' "$unexpected" | wc -l) unexpected error(s):"
+    printf '%s\n' "$unexpected" | sort | uniq -c
+    exit "$rc"
