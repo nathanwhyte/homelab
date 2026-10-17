@@ -32,10 +32,17 @@ go-common-libs#192 re-resolves the PID and retries).
 
 ### Steps
 
-1. Preflight: every volume `healthy` or detached, nothing rebuilding.
+1. Preflight: no volume is `faulted` (attached or not), every attached volume
+   is `healthy`, and nothing is mid-attach or mid-detach. The command must print
+   nothing. Longhorn's important notes warn that upgrading with a faulted volume
+   can delete its unusable replicas for good.
 
    ```bash
-   kubectl -n longhorn-system get volumes.longhorn.io -o custom-columns='N:.metadata.name,STATE:.status.state,ROBUST:.status.robustness' | rg -v 'healthy|detached'
+   kubectl -n longhorn-system get volumes.longhorn.io -o json | jq -r '.items[]
+     | select(.status.robustness == "faulted"
+         or (.status.state == "attached" and .status.robustness != "healthy")
+         or (.status.state != "attached" and .status.state != "detached"))
+     | "\(.metadata.name) \(.status.state) \(.status.robustness)"'
    ```
 
 2. Diff, and check it matches the list above.
@@ -80,9 +87,24 @@ go-common-libs#192 re-resolves the PID and retries).
 A live engine upgrade re-creates replicas in the new instance-manager, but the
 engine process stays in the old instance-manager pod until the volume detaches
 (Longhorn docs, "Instance Manager Pods During Upgrade"). The fix spans the engine
-and the instance-manager, so a volume is fully covered only once its workload
-has restarted onto the new pod. Before expanding a volume whose engine is still
-in a pre-upgrade instance-manager, restart its workload first.
+and the instance-manager, so a volume is fully covered only once it has
+detached and reattached. A rolling restart is not enough: it can keep the volume
+attached throughout, and an RWX volume stays attached through its share-manager
+while any consumer remains.
+
+Before expanding a volume, check which instance-manager its engine runs in:
+
+```bash
+VOL=pvc-...
+IM=$(kubectl -n longhorn-system get engines.longhorn.io -l longhornvolume=$VOL \
+  -o jsonpath='{.items[0].status.instanceManagerName}')
+kubectl -n longhorn-system get instancemanagers.longhorn.io "$IM" -o jsonpath='{.spec.image}{"\n"}'
+```
+
+If that image is still the old instance-manager, scale every consumer to zero,
+wait until `kubectl -n longhorn-system get volumes.longhorn.io $VOL -o
+jsonpath='{.status.state}'` prints `detached`, scale back up, and run the check
+again before expanding.
 
 ### Verify the fix (optional)
 

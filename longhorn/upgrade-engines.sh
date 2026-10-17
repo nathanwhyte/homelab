@@ -37,13 +37,29 @@ echo "================================================"
 # Captured first so a kubectl failure stops the script under pipefail; read
 # from a process substitution, a failure would look like "nothing to upgrade".
 # A read loop, not mapfile: macOS still ships bash 3.2.
+# Refuses outright if any volume already runs a NEWER engine: old engine images
+# stay deployed during a rolling upgrade, and Longhorn's webhook checks image
+# compatibility, not version order, so a stale target would patch volumes back.
 VOL_ROWS=$(kubectl get volumes.longhorn.io -n "$NAMESPACE" -o json | python3 -c "
-import json, sys
+import json, re, sys
 target = sys.argv[1]
+def ver(image):
+    m = re.search(r':v(\d+)\.(\d+)\.(\d+)$', image)
+    return tuple(map(int, m.groups())) if m else None
+want = ver(target)
+rows, newer = [], []
 for v in json.load(sys.stdin)['items']:
-    if v['status'].get('currentImage', '') != target:
-        k = v['status'].get('kubernetesStatus', {})
-        print(f\"{v['metadata']['name']}|{v['status'].get('state', '?')}|{k.get('namespace', '?')}/{k.get('pvcName', '?')}\")
+    cur = v['status'].get('currentImage', '')
+    if cur == target:
+        continue
+    have = ver(cur)
+    if have is not None and have > want:
+        newer.append(f\"{v['metadata']['name']} ({cur})\")
+    k = v['status'].get('kubernetesStatus', {})
+    rows.append(f\"{v['metadata']['name']}|{v['status'].get('state', '?')}|{k.get('namespace', '?')}/{k.get('pvcName', '?')}\")
+if newer:
+    sys.exit('Refusing a downgrade; these volumes run a newer engine: ' + ', '.join(newer))
+print('\n'.join(rows))
 " "$TARGET_IMAGE")
 OLD_VOLS=()
 while IFS= read -r line; do
