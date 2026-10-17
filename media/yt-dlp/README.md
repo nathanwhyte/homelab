@@ -8,10 +8,10 @@ five suspended until the validation run proves the pipeline).
 
 | File | Purpose |
 |------|---------|
-| `docker/Dockerfile` | `nathanwhyte/yt-dlp:2026.06.10-yt-dlp` build |
+| `docker/Dockerfile` | `nathanwhyte/yt-dlp:2026.10.17-yt-dlp` build |
 | `namespace.yaml` | `yt-dlp` namespace |
 | `longhorn-node-wemby-tag.yaml` | Patches the wemby Longhorn Node with a `wemby` tag |
-| `longhorn-hdd-wemby-storageclass.yaml` | Dedicated SC: 2 replicas, HDD, wemby-pinned |
+| `longhorn-hdd-wemby-storageclass.yaml` | Dedicated SC: HDD, wemby-pinned (volume runs 1 replica) |
 | `media-pvc.yaml` | 200 Gi PVC, RWO, on `longhorn-hdd-wemby` |
 | `yt-dlp-config.yaml` | `yt-dlp.conf` ConfigMap |
 | `yt-dlp-playlists.yaml` | 6 playlist URLs + names + per-playlist extra args |
@@ -26,13 +26,14 @@ five suspended until the validation run proves the pipeline).
 1. **Build the image** (from repo root):
 
    ```bash
-   docker build -t nathanwhyte/yt-dlp:2026.06.10-yt-dlp media/yt-dlp/docker/
-   docker push  nathanwhyte/yt-dlp:2026.06.10-yt-dlp
+   docker build -t nathanwhyte/yt-dlp:2026.10.17-yt-dlp media/yt-dlp/docker/
+   docker push  nathanwhyte/yt-dlp:2026.10.17-yt-dlp
    ```
 
-   The Dockerfile is `python:3.12-alpine` + ffmpeg +
-   `yt-dlp[default]` (bundles `yt-dlp-ejs` for JS challenge solving) +
-   `bgutil-ytdlp-pot-provider` (in-process POT tokens, no sidecar).
+   The Dockerfile is `python:3.12-alpine` + ffmpeg + deno +
+   `yt-dlp[default]` pinned to a release (bundles `yt-dlp-ejs` for JS
+   challenge solving). No PO-token provider: the default clients don't
+   need one (BUG-1243).
 
 2. **Apply manifests**:
 
@@ -194,25 +195,31 @@ Usage: media/yt-dlp/operator.sh <command> [args]
 
 - **Q5 (retention policy)** — deferred. Q4 (6 playlists) is the upper
   bound on storage pressure; revisit once the 200 Gi PVC is >70% full.
-- **Q7 (bgutil in-process config block)** — the validation run uses
-  the plugin's default config. If YouTube challenges the cluster's
-  egress IP, add a `[yt_dlp_plugins.bgutil]` block to `yt-dlp.conf`
-  in `yt-dlp-config.yaml`, rebuild the image, and retry.
+- **Q7 (PO tokens)** — closed 2026-10-17 (BUG-1243). The bgutil plugin
+  was never "in-process": it needs an HTTP server on `:4416` or the
+  server's JS on disk, so it never produced a token and was dropped.
+  If YouTube starts enforcing PO tokens on the default clients, run the
+  `brainicism/bgutil-ytdlp-pot-provider` server as a sidecar and
+  reinstall the plugin.
 
 ## Why this design
 
-- **No sidecar**: `bgutil-ytdlp-pot-provider` runs in-process; the
-  `nathanwhyte/bgutil-provider` Deployment + Service from the retired
-  setup is gone. The K8s surface shrinks from 2 Deployments + 1
+- **No sidecar**: the `nathanwhyte/bgutil-provider` Deployment +
+  Service from the retired setup is gone, and no PO-token provider
+  replaces it. The K8s surface shrinks from 2 Deployments + 1
   Service + 2 ConfigMaps to 1 image + 2 ConfigMaps + 6 CronJobs.
+- **Failing Jobs mean something**: every Job runs yt-dlp through
+  `run-yt-dlp.sh` (in `yt-dlp-config.yaml`), which tolerates per-video
+  errors and fails on the rest, so a client-wide block like the
+  2026-08 android_vr 403s alerts instead of passing as `Completed`.
 - **No copyparty**: direct writes to the 200 Gi PVC. The retired
   setup had a 2-node copyparty Deployment + 600 Gi of media/archive
   PVCs for upload — none of that is needed for personal use.
 - **wemby-pinned storage**: `longhorn-hdd-wemby` SC with
-  `numberOfReplicas: 2` + `nodeSelector: wemby` gives 2-replica
-  redundancy on the wemby HDDs (the retired SC had `replicas: 1` and
-  no node pin). The `wemby` Longhorn node tag is bootstrapped once
-  via `longhorn-node-wemby-tag.yaml`.
+  `nodeSelector: wemby` keeps the volume on wemby's HDD. It runs
+  **1 replica** (wemby has a single HDD disk), so the weekly R2 backup
+  is the only other copy. The `wemby` Longhorn node tag is
+  bootstrapped once via `longhorn-node-wemby-tag.yaml`.
 - **RWO, single-Job-at-a-time**: schedules are staggered ~2h10m apart
   so no two CronJobs ever contend for the PVC. If parallel runs are
   ever wanted, switch the PVC to RWX or give each playlist its own.

@@ -1,6 +1,6 @@
 # yt-dlp Dockerfile for the IDEA-019 revival
 #
-# Image: nathanwhyte/yt-dlp:2026.06.10-yt-dlp
+# Image: nathanwhyte/yt-dlp:2026.10.17-yt-dlp (yt-dlp 2026.08.19)
 # Base:  python:3.12-alpine
 #
 # Notable changes from the retired ~/code/repos/k8s/media/yt-dlp/docker/Dockerfile:
@@ -22,12 +22,21 @@
 #     optional read layer, not an upload intermediary.
 #   - DROP mutagen / pycryptodome / certifi: optional yt-dlp extras that
 #     aren't required for the YouTube + audio extraction path we use.
-#   - KEEP bgutil-ytdlp-pot-provider: in-process POT token generation,
-#     eliminates the bgutil-provider sidecar from the retired architecture.
+#   - DROP bgutil-ytdlp-pot-provider (2026-10-17, BUG-1243): it was kept
+#     as "in-process" POT generation, but the plugin only ships an HTTP
+#     provider (needs a server on :4416) and script providers (need the
+#     bgutil server JS on disk). Neither existed here, so it never minted
+#     a token and only logged a ping warning on every video. The default
+#     clients since yt-dlp 2026.08.19 (visionos) need no PO token; if
+#     that changes, add the bgutil HTTP server as a sidecar.
+#   - PIN yt-dlp: 2026.06.09 still defaulted to the android_vr client,
+#     which YouTube began 403ing on every format around 2026-08-17
+#     (yt-dlp#17456, fixed in 2026.08.19 by yt-dlp#17461). Bump the pin
+#     and the image tag together.
 #
 # Build:
 #   docker buildx build --platform=linux/amd64 \
-#     -t nathanwhyte/yt-dlp:2026.06.10-yt-dlp \
+#     -t nathanwhyte/yt-dlp:2026.10.17-yt-dlp \
 #     --push media/yt-dlp/docker/
 # Mac/p4 cross-build verified 2026-09-06 (linux/amd64, dropped-deps list)
 # Push:
@@ -48,17 +57,13 @@ RUN apk add --no-cache \
     deno \
     && rm -rf /var/cache/apk/*
 
-# Install yt-dlp and the in-process POT plugin
+# Install yt-dlp
 # - yt-dlp[default]: main package; the `default` extra group bundles
 #   `yt-dlp-ejs` (the JavaScript challenge solver), certifi, mutagen,
 #   pycryptodome, and websockets — all the things the old Dockerfile
 #   installed individually. EJS needs a JS runtime (deno, above).
-# - bgutil-ytdlp-pot-provider: featured plugin maintained by a yt-dlp
-#   maintainer; runs in-process so the new design drops the bgutil-provider
-#   Deployment + ClusterIP Service from the retired architecture.
 RUN pip install --no-cache-dir \
-    "yt-dlp[default]" \
-    bgutil-ytdlp-pot-provider
+    "yt-dlp[default]==2026.8.19"
 
 # Create a non-root user matching the fsGroup on the Pod spec
 RUN addgroup -g 1000 ytdlp && \

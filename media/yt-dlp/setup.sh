@@ -4,8 +4,8 @@
 # Applies (in dependency order):
 #   1. Namespace
 #   2. Longhorn node tag (one-time bootstrap of the wemby tag)
-#   3. Dedicated StorageClass (longhorn-hdd-wemby: 2 replicas, pinned
-#      to wemby via the new tag)
+#   3. Dedicated StorageClass (longhorn-hdd-wemby: HDD, pinned to wemby
+#      via the new tag; the media volume runs 1 replica)
 #   4. 200Gi media PVC
 #   5. ConfigMaps (yt-dlp.conf + yt-dlp-playlists)
 #   6. Validation CronJob (playlist 2, enabled)
@@ -17,7 +17,7 @@
 # Pre-requisites:
 #   - kubectl context is pointed at the homelab cluster
 #   - Longhorn is installed (provides the node.longhorn.io CRD)
-#   - The image `nathanwhyte/yt-dlp:2026.06.10-yt-dlp` is built and
+#   - The image `nathanwhyte/yt-dlp:2026.10.17-yt-dlp` is built and
 #     pushed to Docker Hub BEFORE the first Job runs (this script
 #     doesn't build the image — see media/yt-dlp/docker/Dockerfile
 #     and the README).
