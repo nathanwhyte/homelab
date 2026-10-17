@@ -73,6 +73,12 @@ data:
     --ignore-errors
 
     ### download options
+    # Prefer the best format at or below 1080p (BUG-1243 backlog sizing).
+    --format-sort "res:1080"
+    # Bound each nightly run so a backlog drains over several nights
+    # instead of hitting activeDeadlineSeconds. yt-dlp exits 101 with no
+    # ERROR line when it stops here, which run-yt-dlp.sh treats as success.
+    --max-downloads 150
     --concurrent-fragments 8
     --resize-buffer
     --match-filters "duration<?10860"
@@ -115,7 +121,7 @@ data:
 
     unexpected=$(grep '^ERROR:' "$log" | grep -v -E "$skippable" || true)
     if [ -z "$unexpected" ]; then
-      echo "run-yt-dlp: exit $rc with only per-video errors; treating as success"
+      echo "run-yt-dlp: exit $rc with no unexpected errors (per-video skips or --max-downloads); treating as success"
       exit 0
     fi
     echo "run-yt-dlp: exit $rc; failing the Job on $(printf '%s\n' "$unexpected" | wc -l) unexpected error(s):"
