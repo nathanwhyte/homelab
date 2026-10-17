@@ -72,6 +72,13 @@ repos:
         language: system
         pass_filenames: false
         files: ^viking/tools/(test_)?ov[-_]contention[-_]watch\.py$
+      # IMPR-1344: every OV embedding call passes through the prompt shim.
+      - id: embedder-prompt-shim-tests
+        name: embedder-prompt-shim tests
+        entry: python3 viking/tools/test_embedder_prompt_shim.py
+        language: system
+        pass_filenames: false
+        files: ^viking/(tools/(test_)?embedder[-_]prompt[-_]shim\.py|manifests/embedder-prompt-shim-configmap\.yaml)$
       - id: helm-deploy-tests
         name: Helm deployment version safety tests
         entry: python3 scripts/test-helm-deploy.py

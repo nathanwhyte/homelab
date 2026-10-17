@@ -1,0 +1,20 @@
+---
+# Embedding prompt shim Service (IMPR-1344). With the shim live, OpenViking's
+# embedding.dense.api_base is http://embedder-prompt-shim.viking.svc.cluster.local:8080/v1
+# and the shim forwards to embedder-qwen:8080.
+apiVersion: v1
+kind: Service
+metadata:
+  name: embedder-prompt-shim
+  namespace: viking
+  labels:
+    app: embedder-prompt-shim
+spec:
+  type: ClusterIP
+  selector:
+    app: embedder-prompt-shim
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+      protocol: TCP

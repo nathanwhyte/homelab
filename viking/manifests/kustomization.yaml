@@ -30,6 +30,11 @@ resources:
   - embedder-qwen-cuda-deployment.yaml
   - embedder-qwen-rocm-deployment.yaml
   - embedder-qwen-service.yaml
+  # IMPR-1344: prompt shim in front of embedder-qwen (adds Qwen's query
+  # instruction when OV sends input_type=query; documents pass unchanged).
+  - embedder-prompt-shim-configmap.yaml
+  - embedder-prompt-shim-deployment.yaml
+  - embedder-prompt-shim-service.yaml
   - llamacpp-vlm-service.yaml
   - cuda-llamacpp-deployment.yaml
   - cuda-llamacpp-service.yaml
