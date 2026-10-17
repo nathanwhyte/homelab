@@ -8,8 +8,8 @@ so read the target's release notes and important-notes page before starting.
 ## 1.12.0 to 1.12.1 (BUG-1232)
 
 **Why.** v1.12.0 resolves the host `iscsid` PID once and keeps it. Unattended
-upgrades restart `iscsid` on every node (timmy 2026-10-15 06:17:58 CDT, its old
-logger was PID 1553), after which every host-namespace call from that node's
+upgrades restart `iscsid` on every node (timmy 2026-10-15 06:17:58 CDT), after
+which every host-namespace call from that node's
 instance-manager fails with `nsenter: cannot open /host/proc/<pid>/ns/mnt`.
 Attached volumes keep serving I/O, so nothing alerts, but a PVC expansion stalls
 at `expansionRequired=true` until the instance-manager is restarted. That is
