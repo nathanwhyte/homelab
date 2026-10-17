@@ -8,9 +8,9 @@ Ephemeral runner pods, scale-to-zero between jobs, no privileged containers.
 | --------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Charts          | `oci://ghcr.io/actions/actions-runner-controller-charts/{gha-runner-scale-set-controller,gha-runner-scale-set}`, pinned 0.14.2 in `deploy-arc.sh`                                                               |
 | Controller      | release `arc`, ns `arc-systems` (1 replica, idles at tens of MB)                                                                                                                                                |
-| Scale set       | release `compendium`, ns `arc-runners` → repo `nathanwhyte/compendium`; its listener pod lives in `arc-systems`                                                                                                 |
-| `runs-on` label | `homelab-arc-compendium` (`runnerScaleSetName`) — **unique per repo** (`homelab-arc-<repo>`): the chart names the AutoscalingRunnerSet and service accounts after it, so a shared name collides across releases |
-| Runner image    | `registry.nathanwhyte.dev/ci/actions-runner:latest` (custom, `images/runner/`)                                                                                                                                  |
+| Scale sets      | release `compendium` → repo `nathanwhyte/compendium`; release `webway` → repo `nathanwhyte/webway` (min 0, max 2). Both in ns `arc-runners`; their listener pods live in `arc-systems`                        |
+| `runs-on` label | `homelab-arc-compendium`, `homelab-arc-webway` (`runnerScaleSetName`) — **unique per repo** (`homelab-arc-<repo>`): the chart names the AutoscalingRunnerSet and service accounts after it, so a shared name collides across releases |
+| Runner images   | `registry.nathanwhyte.dev/ci/actions-runner:latest` (custom, `images/runner/`); webway uses `ci/actions-runner-elixir:latest` (`images/runner-elixir/`), which builds FROM it and adds Erlang/OTP, Elixir and the PostgreSQL server |
 | Container mode  | none (plain steps only) — unprivileged; a job declaring `container:` will fail                                                                                                                                  |
 | Job hardening   | runner container: `runAsNonRoot`, no privilege escalation (sudo disabled), all capabilities dropped, `RuntimeDefault` seccomp                                                                                   |
 | Egress          | `network-policies.yaml`: runner pods get DNS + public internet only — all private ranges denied (LAN, cluster CIDRs, link-local)                                                                                |
@@ -19,8 +19,8 @@ Ephemeral runner pods, scale-to-zero between jobs, no privileged containers.
 ## ⚠ Private repos only
 
 A self-hosted runner on a public repo executes fork-PR code on the cluster —
-GitHub itself advises against it. `nathanwhyte/compendium` and
-`nathanwhyte/dotfiles` are private; **`nathanwhyte/homelab` is public and must
+GitHub itself advises against it. `nathanwhyte/compendium`,
+`nathanwhyte/dotfiles` and `nathanwhyte/webway` are private; **`nathanwhyte/homelab` is public and must
 never get a scale set**. Check before adding one:
 `gh repo view <repo> --json visibility`.
 
