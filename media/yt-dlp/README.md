@@ -11,7 +11,7 @@ five suspended until the validation run proves the pipeline).
 | `docker/Dockerfile` | `nathanwhyte/yt-dlp:2026.10.17-yt-dlp` build |
 | `namespace.yaml` | `yt-dlp` namespace |
 | `longhorn-node-wemby-tag.yaml` | Patches the wemby Longhorn Node with a `wemby` tag |
-| `longhorn-hdd-wemby-storageclass.yaml` | Dedicated SC: 2 replicas, HDD, wemby-pinned |
+| `longhorn-hdd-wemby-storageclass.yaml` | Dedicated SC: HDD, wemby-pinned (volume runs 1 replica) |
 | `media-pvc.yaml` | 200 Gi PVC, RWO, on `longhorn-hdd-wemby` |
 | `yt-dlp-config.yaml` | `yt-dlp.conf` ConfigMap |
 | `yt-dlp-playlists.yaml` | 6 playlist URLs + names + per-playlist extra args |
@@ -216,10 +216,10 @@ Usage: media/yt-dlp/operator.sh <command> [args]
   setup had a 2-node copyparty Deployment + 600 Gi of media/archive
   PVCs for upload — none of that is needed for personal use.
 - **wemby-pinned storage**: `longhorn-hdd-wemby` SC with
-  `numberOfReplicas: 2` + `nodeSelector: wemby` gives 2-replica
-  redundancy on the wemby HDDs (the retired SC had `replicas: 1` and
-  no node pin). The `wemby` Longhorn node tag is bootstrapped once
-  via `longhorn-node-wemby-tag.yaml`.
+  `nodeSelector: wemby` keeps the volume on wemby's HDD. It runs
+  **1 replica** (wemby has a single HDD disk), so the weekly R2 backup
+  is the only other copy. The `wemby` Longhorn node tag is
+  bootstrapped once via `longhorn-node-wemby-tag.yaml`.
 - **RWO, single-Job-at-a-time**: schedules are staggered ~2h10m apart
   so no two CronJobs ever contend for the PVC. If parallel runs are
   ever wanted, switch the PVC to RWX or give each playlist its own.

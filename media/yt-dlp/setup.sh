@@ -4,8 +4,8 @@
 # Applies (in dependency order):
 #   1. Namespace
 #   2. Longhorn node tag (one-time bootstrap of the wemby tag)
-#   3. Dedicated StorageClass (longhorn-hdd-wemby: 2 replicas, pinned
-#      to wemby via the new tag)
+#   3. Dedicated StorageClass (longhorn-hdd-wemby: HDD, pinned to wemby
+#      via the new tag; the media volume runs 1 replica)
 #   4. 200Gi media PVC
 #   5. ConfigMaps (yt-dlp.conf + yt-dlp-playlists)
 #   6. Validation CronJob (playlist 2, enabled)
