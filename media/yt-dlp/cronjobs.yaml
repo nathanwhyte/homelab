@@ -26,6 +26,11 @@
 # via its ConfigMap key `playlist-4-extra-args`, which the Job
 # template reads into EXTRA_ARGS_DEFAULT. No second ConfigMap
 # (`yt-dlp-music`) is needed.
+#
+# Each Job ends in `exec sh /config/run-yt-dlp.sh` (yt-dlp-config.yaml),
+# which fails the Job on any error other than a skippable per-video one
+# (BUG-1243). `restartPolicy: Never` keeps the failed pod and its logs
+# for the 48h TTL; `backoffLimit: 1` retries in a fresh pod.
 apiVersion: batch/v1
 kind: CronJob
 metadata:
@@ -55,13 +60,13 @@ spec:
             app.kubernetes.io/component: job
             app.kubernetes.io/playlist: "1"
         spec:
-          restartPolicy: OnFailure
+          restartPolicy: Never
           nodeName: wemby
           securityContext:
             fsGroup: 1000
           containers:
             - name: yt-dlp
-              image: nathanwhyte/yt-dlp:2026.06.10-yt-dlp
+              image: nathanwhyte/yt-dlp:2026.10.17-yt-dlp
               imagePullPolicy: IfNotPresent
               resources:
                 requests:
@@ -105,7 +110,7 @@ spec:
                   fi
                   mkdir -p "/downloads/${PLAYLIST_NAME}"
                   cd "/downloads/${PLAYLIST_NAME}"
-                  yt-dlp "$@" || true
+                  exec sh /config/run-yt-dlp.sh "$@"
               volumeMounts:
                 - name: config
                   mountPath: /config
@@ -150,13 +155,13 @@ spec:
             app.kubernetes.io/component: job
             app.kubernetes.io/playlist: "3"
         spec:
-          restartPolicy: OnFailure
+          restartPolicy: Never
           nodeName: wemby
           securityContext:
             fsGroup: 1000
           containers:
             - name: yt-dlp
-              image: nathanwhyte/yt-dlp:2026.06.10-yt-dlp
+              image: nathanwhyte/yt-dlp:2026.10.17-yt-dlp
               imagePullPolicy: IfNotPresent
               resources:
                 requests:
@@ -200,7 +205,7 @@ spec:
                   fi
                   mkdir -p "/downloads/${PLAYLIST_NAME}"
                   cd "/downloads/${PLAYLIST_NAME}"
-                  yt-dlp "$@" || true
+                  exec sh /config/run-yt-dlp.sh "$@"
               volumeMounts:
                 - name: config
                   mountPath: /config
@@ -245,13 +250,13 @@ spec:
             app.kubernetes.io/component: job
             app.kubernetes.io/playlist: "4"
         spec:
-          restartPolicy: OnFailure
+          restartPolicy: Never
           nodeName: wemby
           securityContext:
             fsGroup: 1000
           containers:
             - name: yt-dlp
-              image: nathanwhyte/yt-dlp:2026.06.10-yt-dlp
+              image: nathanwhyte/yt-dlp:2026.10.17-yt-dlp
               imagePullPolicy: IfNotPresent
               resources:
                 requests:
@@ -295,7 +300,7 @@ spec:
                   fi
                   mkdir -p "/downloads/${PLAYLIST_NAME}"
                   cd "/downloads/${PLAYLIST_NAME}"
-                  yt-dlp "$@" || true
+                  exec sh /config/run-yt-dlp.sh "$@"
               volumeMounts:
                 - name: config
                   mountPath: /config
@@ -340,13 +345,13 @@ spec:
             app.kubernetes.io/component: job
             app.kubernetes.io/playlist: "5"
         spec:
-          restartPolicy: OnFailure
+          restartPolicy: Never
           nodeName: wemby
           securityContext:
             fsGroup: 1000
           containers:
             - name: yt-dlp
-              image: nathanwhyte/yt-dlp:2026.06.10-yt-dlp
+              image: nathanwhyte/yt-dlp:2026.10.17-yt-dlp
               imagePullPolicy: IfNotPresent
               resources:
                 requests:
@@ -390,7 +395,7 @@ spec:
                   fi
                   mkdir -p "/downloads/${PLAYLIST_NAME}"
                   cd "/downloads/${PLAYLIST_NAME}"
-                  yt-dlp "$@" || true
+                  exec sh /config/run-yt-dlp.sh "$@"
               volumeMounts:
                 - name: config
                   mountPath: /config
@@ -435,13 +440,13 @@ spec:
             app.kubernetes.io/component: job
             app.kubernetes.io/playlist: "6"
         spec:
-          restartPolicy: OnFailure
+          restartPolicy: Never
           nodeName: wemby
           securityContext:
             fsGroup: 1000
           containers:
             - name: yt-dlp
-              image: nathanwhyte/yt-dlp:2026.06.10-yt-dlp
+              image: nathanwhyte/yt-dlp:2026.10.17-yt-dlp
               imagePullPolicy: IfNotPresent
               resources:
                 requests:
@@ -485,7 +490,7 @@ spec:
                   fi
                   mkdir -p "/downloads/${PLAYLIST_NAME}"
                   cd "/downloads/${PLAYLIST_NAME}"
-                  yt-dlp "$@" || true
+                  exec sh /config/run-yt-dlp.sh "$@"
               volumeMounts:
                 - name: config
                   mountPath: /config

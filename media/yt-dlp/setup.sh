@@ -17,7 +17,7 @@
 # Pre-requisites:
 #   - kubectl context is pointed at the homelab cluster
 #   - Longhorn is installed (provides the node.longhorn.io CRD)
-#   - The image `nathanwhyte/yt-dlp:2026.06.10-yt-dlp` is built and
+#   - The image `nathanwhyte/yt-dlp:2026.10.17-yt-dlp` is built and
 #     pushed to Docker Hub BEFORE the first Job runs (this script
 #     doesn't build the image — see media/yt-dlp/docker/Dockerfile
 #     and the README).
