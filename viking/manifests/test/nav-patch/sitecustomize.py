@@ -24,6 +24,20 @@ off switch; a patch failure never breaks the import):
                         (``retry_async`` + ``resolve_extraction_batch_limits``, plus
                         write tracking on ``StreamingMemoryUpdater``;
                         ``OV_EXTRACT_PATCH_CHUNK=0`` turns chunking off alone).
+                        IMPR-1303: a commit's Phase 2 batches run concurrently,
+                        ``OV_EXTRACT_PATCH_BATCH_PARALLEL`` (default 2, ``1`` is the
+                        stock loop) at a time, each still its own recorded, retried
+                        step; the compressor's per-batch ``memory_diff.json`` write
+                        is collected instead and the merged file is rewritten in
+                        batch order as each batch finishes, applies and the CaseSpec
+                        fast path's direct write take a per-archive lock so no two
+                        batches share a flush or a read-back, and memory-file
+                        initialization takes a short lock of its own
+                        (``Session._extract_long_term_memories_with_batching``
+                        + ``SessionCompressorV3._write_final_memory_diff`` and
+                        ``_write_training_case_memory``
+                        + ``StreamingMemoryUpdater.submit``
+                        + ``MemoryTypeRegistry.initialize_memory_files``).
   * ov_chatlog_patch  — BUG-1177: ChatLog speaker labels follow the turn's role
                         (assistant turns read ``assistant``) and tool-only turns no
                         longer render as empty lines (``MessageRange._speaker_for`` +
@@ -106,6 +120,11 @@ TARGETS = {
         "apply_extract_loop",
     ),
     "openviking.session.session": ("ov_extract_patch", "apply_session"),
+    "openviking.session.compressor_v3": ("ov_extract_patch", "apply_compressor"),
+    "openviking.session.memory.memory_type_registry": (
+        "ov_extract_patch",
+        "apply_registry",
+    ),
     "openviking.session.memory.streaming_memory_updater": [
         ("ov_memory_guard_patch", "apply_streaming"),
         ("ov_extract_patch", "apply_streaming"),

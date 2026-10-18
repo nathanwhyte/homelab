@@ -255,6 +255,16 @@ spec:
             #   kubectl set env deployment/openviking -n viking PYTHONPATH-
             - name: PYTHONPATH
               value: /ov-nav-patch
+            # IMPR-1303 (ov_extract_patch.py): a commit's chunked Phase 2 extraction
+            # batches run this many at a time instead of one after another; each is
+            # still its own recorded, retried step, applies run one batch at a time,
+            # and the merged memory_diff.json is rewritten in batch order as each batch
+            # finishes, before its step completes. One ov-extract-outcome {"event":
+            # "parallel_batches", …} line per archive. "1" (or "0") restores the stock
+            # sequential loop. Behind the LiteLLM router the extra in-flight calls
+            # overflow from gemma4 (4 slots) to Haiku; raise with the budget in view.
+            - name: OV_EXTRACT_PATCH_BATCH_PARALLEL
+              value: "2"
             # BUG-1177: user authorized the capture-validity rollout on 2026-09-23,
             # advancing the original Sep 29 boundary. Treat this as a new pilot
             # configuration epoch; old ChatLogs retain their original rendering.
