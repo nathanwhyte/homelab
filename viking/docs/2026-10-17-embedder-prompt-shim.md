@@ -29,14 +29,15 @@ Editing the script: change `viking/tools/embedder-prompt-shim.py`, run `viking/s
    - `api_base`: `http://embedder-prompt-shim.viking.svc.cluster.local:8080/v1`
    - add `"query_param": "query"` and `"document_param": "document"`
 5. `kubectl diff -f viking/manifests/openviking-standalone-configmap.yaml`, apply that one file, `kubectl -n viking rollout restart deploy/openviking`.
-6. Check: shim logs show `query` and `document` counts and no `http_400`; a search returns results.
-7. Take a vectors-included export right after; record it as "params set".
+6. In the same window, ship the recall floor re-fitted on the prompted band (dotfiles `OPENVIKING_SCORE_THRESHOLD`, IMPR-1208). The prompt lowers every memory score by about 0.12, so the old floor cuts most real hits (see the 2026-10-18 attempt below).
+7. Check: shim logs show `query` and `document` counts and no `http_400`; a search returns results; the gold-query recall run at the new floor matches the baseline.
+8. Take a vectors-included export right after; record it as "params set".
 
 No reindex: document vectors through the shim are identical to direct-embedder vectors (see Validation).
 
 ## Rollback
 
-Revert step 4 (point `api_base` back at `http://embedder-qwen.viking.svc.cluster.local:8080/v1` and remove both params), apply the ConfigMap, restart `deploy/openviking`. Stored vectors stay valid either way, since documents were embedded identically. The shim can then be scaled to 0.
+Revert step 4 (point `api_base` back at `http://embedder-qwen.viking.svc.cluster.local:8080/v1` and remove both params), apply the ConfigMap, restart `deploy/openviking`, and revert step 6's floor. Stored vectors stay valid either way, since documents were embedded identically. The shim can then be scaled to 0.
 
 ## Vector backups (ovpack)
 
@@ -71,13 +72,41 @@ Median query latency on the fixture was 64 ms (control), 162 ms (prompted) and 1
 
 ov-test was restored to its pre-test ConfigMap (`context_test`, direct, no params). Left in place: collection `context_test_impr1344`, trees `viking://resources/impr1344/` and `viking://resources/impr1344probe/`, and the probe session's two memories under `viking://user/noot` on ov-test.
 
+## Production cutover attempt (2026-10-18): rolled back
+
+Switched at 04:01:57 UTC with the user's go-ahead (steps 1–5; the floor was not re-fitted), rolled back at 17:11 UTC (rollout done 17:17). Evidence: `~/code/archive/ov-pilot-20260921/06-trial/impr-1344-recall/` (`pre-switch-*`, `post-switch-*`, `post-rollback-*` recall runs, the "params unset" pack under `packs/`, `score-prod-postswitch.json`).
+
+| Measure | Before (direct) | Switched (shim) | After rollback |
+| --- | --- | --- | --- |
+| Resource fixture top-1 / top-5 | 13/34, 21/34 | **20/34, 25/34** | — |
+| Memory recall at the production floor 0.60: answerable gold queries kept | 4/7 | **2/6** | 4/7 |
+| Mean memories kept per gold query / noise per off-topic prompt | 4.1 / 0.1 | 0.4 / 0.0 | 4.1 / 0.1 |
+
+Memory recall (dotfiles `recall-gate-calibrate.py`, the plugin's own request with no floor, 40 gold queries, 8 off-topic prompts) regressed for two reasons:
+
+- **Uniform score drop.** All 230 memory/query pairs returned in both runs scored lower with the prompt: mean −0.122, range 0 to −0.235, relevant and noise alike. The 0.60 floor (dotfiles `claude/settings.json`, IMPR-1250) was fitted on the unprefixed band, so it acted like a floor near 0.72.
+- **No ranking gain on memories.** Relevant memories moved up for three gold queries and down for three; answerable queries went from 7 to 6. The resource fixture's gain did not carry over.
+
+A floor moved with the band recovers most of it (switched run, `floor-sweep.py`):
+
+| Floor | Answerable kept | Mean noise | Off-topic prompts with ≤ 2 noise |
+| --- | --- | --- | --- |
+| Unprefixed, 0.60 (production) | 4/7 | 0.1 | 8/8 |
+| Unprefixed, 0.55 | 6/7 | 1.0 | 7/8 |
+| Prompted, 0.40 | 6/6 | 1.9 | 6/8 |
+| Prompted, 0.42 | 4/6 | 0.0 | 8/8 |
+| Prompted, 0.44–0.48 | 3/6 | 0.0 | 8/8 |
+
+The set is too small to pick between these: only 7 of the 40 gold queries have an answer stored in OpenViking. Nothing stored changed during the window, so the rollback needed no cleanup; recall after it is identical to before.
+
 ## Production gate
 
 Before step 4 of the cutover, all of these hold:
 
 - [x] Passthrough cosine 1.0 (above)
-- [x] Fixture top-1 ≥ 19/34 and top-5 ≥ 24/34 on ov-test (above); re-score through production after the cutover
+- [x] Fixture top-1 ≥ 19/34 and top-5 ≥ 24/34 on ov-test (above); production reached 20/34 and 25/34 on 2026-10-18
 - [x] New-document indexing marked and accepted through the shim (above)
-- [x] Rollback tested on ov-test (above)
+- [x] Rollback tested on ov-test (above) and used on production (2026-10-18)
 - [ ] IDEA-1100 gold-query baseline (unprefixed) recorded the same day
-- [ ] IMPR-1208 recall thresholds re-fitted on the prompted band (weakest hit 0.664 → 0.568, highest negative 0.446 → 0.320)
+- [ ] IMPR-1208 recall floor re-fitted on the prompted band, on a labelled recall set with tens of answerable queries, and ready to ship in the same window (step 6)
+- [ ] Memory recall at the new floor shows no regression against the same-day baseline
