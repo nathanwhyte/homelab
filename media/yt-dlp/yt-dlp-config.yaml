@@ -112,11 +112,13 @@ data:
     rc=$(cat "$rc_file")
     [ "$rc" -eq 0 ] && exit 0
 
-    # Per-video conditions no retry will fix; age-gated videos need
-    # logged-in cookies (cookies.md).
+    # Per-video conditions no retry will fix; age-gated and sign-in-only
+    # videos need logged-in cookies (cookies.md). "Sign in to confirm
+    # you're not a bot" is deliberately absent: it blocks every video
+    # from this IP, so it must fail the Job.
     skippable='Video unavailable|Private video|has been removed|no longer available'
     skippable="${skippable}|not available in your country|made this video available"
-    skippable="${skippable}|Sign in to confirm your age|members-only|Join this channel"
+    skippable="${skippable}|Sign in to confirm your age|Please sign in|members-only|Join this channel"
     skippable="${skippable}|This live event will begin|Premieres in|has been terminated"
 
     unexpected=$(grep '^ERROR:' "$log" | grep -v -E "$skippable" || true)
