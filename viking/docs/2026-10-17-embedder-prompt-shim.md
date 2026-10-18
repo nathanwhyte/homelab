@@ -108,5 +108,17 @@ Before step 4 of the cutover, all of these hold:
 - [x] New-document indexing marked and accepted through the shim (above)
 - [x] Rollback tested on ov-test (above) and used on production (2026-10-18)
 - [ ] IDEA-1100 gold-query baseline (unprefixed) recorded the same day
-- [ ] IMPR-1208 recall floor re-fitted on the prompted band, on a labelled recall set with tens of answerable queries, and ready to ship in the same window (step 6)
-- [ ] Memory recall at the new floor shows no regression against the same-day baseline
+- [x] IMPR-1208 recall floor re-fitted on the prompted band, on a labelled recall set with tens of answerable queries (2026-10-18, below); ships in the same window (step 6)
+- [x] Memory recall at the new floor shows no regression against the unprefixed baseline (offline replica, below); re-check with the live calibrator after the cutover
+
+## Floor re-fit (2026-10-18, offline)
+
+Measured without touching the server: a replica of OV v0.4.20's context search (plain cosine, live recall's scopes and quotas) against production's `ov-vectordb`, with query vectors from the shim (`input_type: document` for the unprefixed arm, `query` for the prompted arm). It matched production's `/search/search` exactly on 25 queries. The labelled set has 56 prompts for memories sampled from the live tree, 30 off-topic prompts, and 120 real prompts from the recall hook log.
+
+| Arm, floor | Targets recalled (of 56) | Noise per off-topic prompt | Entries per real prompt |
+| --- | --- | --- | --- |
+| Unprefixed, 0.60 (production) | 40 | 0.17 | 3.44 |
+| Prompted, 0.48 | 45 | 0.17 | 4.04 |
+| Prompted, 0.50 | 44 | 0.13 | 3.58 |
+
+Candidate for step 6: `OPENVIKING_SCORE_THRESHOLD=0.50`. Other fixed floors read the same band: the MCP `viking_search` default (0.50, keeps every prompted resource-fixture hit, cuts the lower memory hits) and Codex's `OPENVIKING_SCORE_THRESHOLD` (0.55). Evidence and method: `~/code/archive/ov-pilot-20260921/06-trial/impr-1344-recall/round2-20261018/README.md`; analysis in IMPR-1208 § Round 2.
