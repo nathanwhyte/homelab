@@ -92,6 +92,17 @@ spec:
           # and keeping the RO /srv/media NFS mount free of .hist writes.
           # The thumb cache is ephemeral (regenerated on pod restart); swap
           # to a PVC if cold regen of the media library gets annoying.
+          # /srv/media volflags (2026-10-18): `-e2d` alone only indexes
+          # uploads, and nothing is uploaded to /media (yt-dlp writes the
+          # files), so its index sat at 0 rows and search never found a
+          # video. `e2dsa` scans the tree on startup, `scan=3600` rescans
+          # hourly for the nightly yt-dlp downloads, and `nohash=.` indexes
+          # names/sizes without hashing contents: the db lives on the
+          # ephemeral /cfg, so a hashed index of ~100G would be rebuilt over
+          # NFS on every restart, and a read-only volume gains nothing from
+          # dedup hashes. Each volflag takes its own `:c,` segment: a value
+          # swallows the rest of its segment, so `c,nohash=.,scan=3600`
+          # parses as the regex `.,scan=3600` and leaves scan unset.
           # Server-side accidental-rm safety: copyparty has no built-in
           # retention. Longhorn RecurringJob snapshots on copyparty-files
           # PVC handle point-in-time recovery (see snapshot-policy.yaml) --
@@ -158,7 +169,7 @@ spec:
               exec python3 -m copyparty \
                 -i 0.0.0.0 -p 3923 \
                 -v "/srv/files:files:A,${USER}" \
-                -v "/srv/media:media:A,${USER}" \
+                -v "/srv/media:media:A,${USER}:c,e2dsa:c,nohash=.:c,scan=3600" \
                 -c /cfg/copyparty-accounts.conf \
                 -e2d \
                 --hist=/cfg \
