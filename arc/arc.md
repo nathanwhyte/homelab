@@ -209,6 +209,26 @@ arc_cpu_target=--runner-cpu-trial # Use --runner-cpu-baseline for restoration.
 bash arc/deploy-arc.sh "$arc_cpu_target" --diff
 ```
 
+Before either transition changes live state, capture the currently deployed
+revision under the same exclusive window. Retain this value with the trial
+record so it survives a disconnected shell. It may be the trial revision when
+starting baseline restoration; the purpose is to retain a verified recovery
+point, not to guess the previous revision later.
+
+```bash
+arc_cpu_good_revision="$(
+  helm list --namespace arc-runners --deployed --filter '^compendium$' --output json |
+    jq -er 'if length == 1 and .[0].status == "deployed" then
+      .[0].revision | tonumber | select(. > 0)
+      else error("one deployed compendium revision is required") end'
+)"
+helm history compendium -n arc-runners --output json
+```
+
+Confirm that captured revision is the working deployment and its
+`gha-runner-scale-set` chart version matches the deployed controller reported
+by the helper preflight. If capture or verification fails, stop before pausing.
+
 Preview a patch to only the existing scale set's runner counts, preserving
 its current CPU limit and entire pod template. `kubectl diff` exits 1 when it
 finds changes; inspect those changes before running the separate apply command.
@@ -254,10 +274,61 @@ kubectl get autoscalingrunnersets,ephemeralrunnersets,pods -n arc-runners \
 ```
 
 If interrupted after pausing, leave admission paused; do not automatically
-resume it. Recovery is this same procedure with
-`arc_cpu_target=--runner-cpu-baseline`. Inspect live state after any failed
-apply because it may have partially reopened admission; preview/reapply the
-zero-count patch and repeat both drain checks before baseline restoration.
+resume it. Inspect live state after any failed apply because it may have
+partially reopened admission; preview/reapply the zero-count patch and repeat
+both drain checks. If the latest release remains `deployed`, recovery can
+repeat this procedure with `arc_cpu_target=--runner-cpu-baseline`.
+
+If Helm instead reports `failed` or a pending state such as `pending-upgrade`
+or `pending-rollback`, both helper modes
+deliberately refuse that state. Keep the exclusive window and the zero-count
+fence while recovering Helm status separately. Confirm the original deploy,
+rollback, or Helm process has terminated before recovery: a pending state can mean a legitimate
+operation is still running, and rollback must not race it. First inspect history, the
+captured revision's values and manifest, and the currently deployed controller:
+
+```bash
+helm history compendium -n arc-runners
+helm get values compendium -n arc-runners --revision "${arc_cpu_good_revision:?Restore the captured verified revision}" --output yaml
+helm get manifest compendium -n arc-runners --revision "${arc_cpu_good_revision:?Restore the captured verified revision}"
+helm list --namespace arc-systems --deployed --filter '^arc$' --output json
+```
+
+Proceed only when the explicit positive revision is still retained, was
+verified working before this transition, and its chart version still matches
+the deployed controller. Check its resources, CPU/count settings, and template
+against the recorded deployment. Do not choose revision `0`, omit the revision,
+or guess from the latest history row. If no trusted matching revision exists,
+stop with admission paused and investigate; do not edit Helm storage/history,
+delete release secrets, or force an upgrade/rollback.
+
+Preview the exact rollback. The installed `helm diff rollback` interface
+compares stored revisions, so also compare the retained manifest with live
+objects to expose the temporary zero-count patch and any other drift. Inspect
+both diffs; stop on unexpected resources or configuration changes.
+
+```bash
+helm diff rollback compendium "${arc_cpu_good_revision:?Restore the captured verified revision}" -n arc-runners --suppress-secrets
+helm get manifest compendium -n arc-runners --revision "${arc_cpu_good_revision:?Restore the captured verified revision}" |
+  kubectl diff -f -
+```
+
+Only after review, restore that explicit revision with a bounded wait:
+
+```bash
+helm rollback compendium "${arc_cpu_good_revision:?Restore the captured verified revision}" -n arc-runners --wait --timeout 5m
+```
+
+Rollback restores the retained chart/values and **can reopen admission**. Keep
+the window held, immediately preview/reapply the zero-count patch above, and
+repeat both drain checks before any further template change. Confirm the latest
+Helm revision is `deployed` and chart parity still holds, then re-preview/apply
+`--runner-cpu-baseline` through the normal helper. If rollback fails or is
+interrupted, inspect/re-establish the zero-count fence and stop for diagnosis;
+any later recovery repeats this fenced procedure with the same verified
+revision. Do not bypass the helper's deployed-state guard or retry another
+revision blindly. Helm's bounded `--wait` is not proof of the ARC pod rollout;
+retain the live old-set, CPU-limit, and node-placement checks above.
 
 The helper's diff and apply use the same values and installed chart version. Both reset
 release values to the checked-in base file before adding any trial overrides;

@@ -54,6 +54,8 @@ if tool == "helm" and args == ["plugin", "list"]:
     sys.exit(0)
 if tool == "helm" and (args[:1] == ["upgrade"] or args[:2] == ["diff", "upgrade"]):
     sys.exit(int(os.environ.get("ARC_TEST_HELM_EXIT", "0")))
+if tool == "helm" and (args[:1] == ["rollback"] or args[:2] == ["diff", "rollback"]):
+    sys.exit(int(os.environ.get("ARC_TEST_HELM_EXIT", "0")))
 print("Unexpected command: " + repr([tool, *args]), file=sys.stderr)
 sys.exit(97)
 """
@@ -187,18 +189,18 @@ class RunnerCpuTests(unittest.TestCase):
                     {"ARC_TEST_FAIL_LOOKUP": key},
                     {"ARC_TEST_STATUS_" + key: "failed"},
                     {"ARC_TEST_STATUS_" + key: "pending-upgrade"},
+                    {"ARC_TEST_STATUS_" + key: "pending-rollback"},
                     {"ARC_TEST_CHART_" + key: "wrong-chart"},
                 ]
             )
         for env in cases:
-            for flags in ([], ["--diff"]):
-                with self.subTest(env=env, flags=flags):
-                    result, calls = self.run_script(
-                        "--runner-cpu-trial", *flags, env=env
-                    )
-                    self.assertNotEqual(result.returncode, 0)
-                    self.assertEqual(self.upgrades(calls), [])
-                    self.assert_scope(calls)
+            for mode in ("--runner-cpu-trial", "--runner-cpu-baseline"):
+                for flags in ([], ["--diff"]):
+                    with self.subTest(env=env, mode=mode, flags=flags):
+                        result, calls = self.run_script(mode, *flags, env=env)
+                        self.assertNotEqual(result.returncode, 0)
+                        self.assertEqual(self.upgrades(calls), [])
+                        self.assert_scope(calls)
 
     def test_conflicting_or_duplicate_modes_fail_before_any_command(self):
         for second in ("--runner-cpu-trial", "--runner-cpu-baseline"):
@@ -264,6 +266,88 @@ class RunnerCpuTests(unittest.TestCase):
                     timeout=10,
                 )
                 self.assertEqual(result.returncode, 0 if accepted else 1, result.stderr)
+
+    def test_documented_capture_requires_positive_deployed_revision(self):
+        match = re.search(
+            r"jq -er '(if length == 1.*?)'", (ROOT / "arc.md").read_text(), re.S
+        )
+        self.assertIsNotNone(match)
+        healthy = {"revision": "8", "status": "deployed"}
+        for rows, accepted in (
+            ([healthy], True),
+            ([], False),
+            ([healthy, healthy], False),
+            ([{**healthy, "status": "failed"}], False),
+            ([{**healthy, "status": "pending-upgrade"}], False),
+            ([{**healthy, "status": "pending-rollback"}], False),
+            ([{**healthy, "revision": "0"}], False),
+        ):
+            with self.subTest(rows=rows):
+                result = subprocess.run(
+                    ["jq", "-er", match.group(1)],
+                    input=json.dumps(rows),
+                    text=True,
+                    capture_output=True,
+                    timeout=10,
+                )
+                self.assertEqual(result.returncode == 0, accepted, result.stderr)
+
+    def test_documented_recovery_uses_explicit_revision_and_supported_flags(self):
+        commands = re.findall(
+            r"^helm (?:diff )?rollback compendium .+$",
+            (ROOT / "arc.md").read_text(),
+            re.M,
+        )
+        self.assertEqual(len(commands), 2)
+        for command, expected in zip(
+            commands,
+            (
+                [
+                    "helm",
+                    "diff",
+                    "rollback",
+                    "compendium",
+                    "8",
+                    "-n",
+                    "arc-runners",
+                    "--suppress-secrets",
+                ],
+                [
+                    "helm",
+                    "rollback",
+                    "compendium",
+                    "8",
+                    "-n",
+                    "arc-runners",
+                    "--wait",
+                    "--timeout",
+                    "5m",
+                ],
+            ),
+        ):
+            for revision in ("8", ""):
+                with self.subTest(command=command, revision=revision):
+                    self.calls_path.unlink(missing_ok=True)
+                    result = subprocess.run(
+                        ["bash", "-c", command],
+                        env={
+                            **os.environ,
+                            "PATH": f"{self.path}{os.pathsep}{os.environ['PATH']}",
+                            "ARC_TEST_CALLS": str(self.calls_path),
+                            "arc_cpu_good_revision": revision,
+                        },
+                        text=True,
+                        capture_output=True,
+                        timeout=10,
+                    )
+                    if revision:
+                        self.assertEqual(result.returncode, 0, result.stderr)
+                        self.assertEqual(
+                            json.loads(self.calls_path.read_text()), expected
+                        )
+                    else:
+                        self.assertNotEqual(result.returncode, 0)
+                        self.assertFalse(self.calls_path.exists())
 
 
 if __name__ == "__main__":
