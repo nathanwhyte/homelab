@@ -186,30 +186,89 @@ savings: serial work and wemby's older CPU may dominate. A separate observed
 checkout stall lasted over 30 minutes; this CPU trial does not establish or
 fix its cause.
 
-Run these commands from this repository's worktree, after the current workload
-has drained. Both modes require an existing deployed controller and scale-set
+Run these commands from this repository's worktree. Both modes require an existing deployed controller and scale-set
 release at matching chart versions, then pin that installed version. An
 explicit conflicting `ARC_CHART_VERSION` is rejected. They update only the
 `compendium` scale-set release: no controller, namespace, network-policy,
 credential, or chart-version changes. `jq` and the `helm-diff` plugin must
 already be installed for the preflight.
 
-```bash
-# Review the exact scale-set change before applying the trial.
-bash arc/deploy-arc.sh --runner-cpu-trial --diff
-bash arc/deploy-arc.sh --runner-cpu-trial
+**Hold one exclusive operator maintenance window for the entire transition,
+in both directions.** Coordinate with other operators and deployment jobs so
+none can change this scale set until replacement and verification finish. The
+helper does not acquire a lock or drain automatically. An idle-job snapshot
+does not fence new arrivals: ARC 0.14.2's installed `immediate` strategy can
+overlap old busy runners with their replacement, exceeding the intended
+aggregate CPU bound ([versioned controller contract](https://github.com/actions/actions-runner-controller/blob/gha-runner-scale-set-0.14.2/controllers/actions.github.com/autoscalingrunnerset_controller.go#L58-L71)).
 
-# Restore the checked-in baseline, also after reviewing its diff.
-bash arc/deploy-arc.sh --runner-cpu-baseline --diff
-bash arc/deploy-arc.sh --runner-cpu-baseline
+Choose the target; **baseline restoration follows the same complete drain
+procedure as trial activation**. Preview it before pausing admission:
+
+```bash
+arc_cpu_target=--runner-cpu-trial # Use --runner-cpu-baseline for restoration.
+bash arc/deploy-arc.sh "$arc_cpu_target" --diff
 ```
 
-Diff and apply use the same values and installed chart version. Both reset
+Preview a patch to only the existing scale set's runner counts, preserving
+its current CPU limit and entire pod template. `kubectl diff` exits 1 when it
+finds changes; inspect those changes before running the separate apply command.
+
+```bash
+kubectl patch autoscalingrunnerset homelab-arc-compendium -n arc-runners \
+  --type merge --patch '{"spec":{"minRunners":0,"maxRunners":0}}' \
+  --dry-run=server -o yaml | kubectl diff -f -
+
+# After reviewing the count-only diff, pause new runner creation.
+kubectl patch autoscalingrunnerset homelab-arc-compendium -n arc-runners \
+  --type merge --patch '{"spec":{"minRunners":0,"maxRunners":0}}'
+```
+
+Zero minimum and maximum prevent new runner pods for arriving jobs
+([GitHub's drain procedure](https://docs.github.com/en/actions/how-tos/manage-runners/use-actions-runner-controller/deploy-runner-scale-sets#example-jobs-queue-draining)).
+Keep admission at zero while existing jobs finish. Repeat these read-only
+checks until **both print `true` and exit 0**. The second check requires no
+runner pods or EphemeralRunners across any old or current set; any remaining
+EphemeralRunnerSet must have zero desired and observed replicas. Do not
+delete busy runners to make the checks pass.
+
+```bash
+kubectl get autoscalingrunnerset homelab-arc-compendium -n arc-runners -o json |
+  jq -e '.spec.minRunners == 0 and .spec.maxRunners == 0'
+kubectl get pods,ephemeralrunners,ephemeralrunnersets -n arc-runners \
+  -l actions.github.com/scale-set-name=homelab-arc-compendium -o json |
+  jq -e 'all(.items[]; .kind == "EphemeralRunnerSet" and
+    (.spec.replicas // 0) == 0 and .status.currentReplicas == 0)'
+```
+
+With both checks satisfied and the exclusive window still held, re-preview
+and apply the selected target. This is the point that reopens admission.
+Keep the window through replacement: verify the AutoscalingRunnerSet returns
+to `Running`, old runner sets have no remaining runners, and new runner pods
+have the intended CPU limit and node placement before releasing it.
+
+```bash
+bash arc/deploy-arc.sh "$arc_cpu_target" --diff
+bash arc/deploy-arc.sh "$arc_cpu_target"
+kubectl get autoscalingrunnersets,ephemeralrunnersets,pods -n arc-runners \
+  -l actions.github.com/scale-set-name=homelab-arc-compendium -o wide
+```
+
+If interrupted after pausing, leave admission paused; do not automatically
+resume it. Recovery is this same procedure with
+`arc_cpu_target=--runner-cpu-baseline`. Inspect live state after any failed
+apply because it may have partially reopened admission; preview/reapply the
+zero-count patch and repeat both drain checks before baseline restoration.
+
+The helper's diff and apply use the same values and installed chart version. Both reset
 release values to the checked-in base file before adding any trial overrides;
 review the diff for other live-versus-file drift before applying. Baseline mode
 restores that file, not an arbitrary previous Helm revision. A regular deploy
 also uses the baseline, so keep the trial window bounded and record its start,
 end, and deployed chart version with IMPR-1363.
+
+The temporary count patch does not change stored Helm release values, so Helm's
+diff may omit the pause itself. The live zero-count check remains required;
+applying the target reopens admission even if its baseline diff is empty.
 
 Compare repeated runs of the same commit and job mix before, during, and after
 the trial. Record job queue and execution durations separately, node placement,

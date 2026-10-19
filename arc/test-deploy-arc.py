@@ -4,8 +4,10 @@
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -57,7 +59,6 @@ sys.exit(97)
 """
 
 
-@unittest.skipUnless(shutil.which("jq"), "jq is required by the deployment script")
 class RunnerCpuTests(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory()
@@ -219,6 +220,55 @@ class RunnerCpuTests(unittest.TestCase):
             )
             self.assertEqual(result.returncode, 8)
 
+    def test_missing_jq_fails_the_suite_instead_of_skipping(self):
+        environment = {**os.environ, "PATH": str(self.path)}
+        result = subprocess.run(
+            [sys.executable, str(Path(__file__).resolve())],
+            env=environment,
+            text=True,
+            capture_output=True,
+            timeout=10,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("jq is required", result.stderr)
+        self.assertNotIn("skipped=", result.stderr)
+
+    def test_documented_drain_gate_requires_no_old_runners(self):
+        match = re.search(
+            r"jq -e '(all\(\.items\[\];.*?)'", (ROOT / "arc.md").read_text(), re.S
+        )
+        self.assertIsNotNone(match)
+        drained = {
+            "kind": "EphemeralRunnerSet",
+            "spec": {},  # ARC serializes zero desired replicas with omitempty.
+            "status": {"currentReplicas": 0},
+        }
+        cases = [
+            ([], True),
+            ([drained], True),
+            ([{**drained, "spec": {"replicas": 0}}], True),
+            ([{**drained, "spec": {"replicas": 1}}], False),
+            ([{**drained, "status": {"currentReplicas": 1}}], False),
+            ([{**drained, "status": {}}], False),
+            ([drained, {"kind": "Pod"}], False),
+            ([drained, {"kind": "EphemeralRunner"}], False),
+            ([drained, {**drained, "status": {"currentReplicas": 1}}], False),
+        ]
+        for items, accepted in cases:
+            with self.subTest(items=items):
+                result = subprocess.run(
+                    ["jq", "-e", match.group(1)],
+                    input=json.dumps({"items": items}),
+                    text=True,
+                    capture_output=True,
+                    timeout=10,
+                )
+                self.assertEqual(result.returncode, 0 if accepted else 1, result.stderr)
+
 
 if __name__ == "__main__":
+    if not shutil.which("jq"):
+        raise SystemExit(
+            "ERROR: jq is required to run the ARC deployment safety tests."
+        )
     unittest.main()

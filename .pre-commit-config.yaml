@@ -90,7 +90,7 @@ repos:
         entry: python3 arc/test-deploy-arc.py
         language: system
         pass_filenames: false
-        files: ^arc/((test-)?deploy-arc\.(sh|py)|runner-scale-set-compendium-values\.yaml)$
+        files: ^arc/((test-)?deploy-arc\.(sh|py)|runner-scale-set-compendium-values\.yaml|arc\.md)$
       # BUG-1135 / IMPR-1173: guards the class where a Slack receiver's
       # `channel` field is a lie because the transport ignores it. Fixture-driven,
       # so it also proves the checker can fail.
