@@ -27,6 +27,11 @@ if tool == "helm" and args[:1] == ["list"]:
     namespace = args[args.index("--namespace") + 1]
     controller = namespace == "arc-systems"
     release = "arc" if controller else "compendium"
+    expected = ["list", "--namespace", namespace, "--deployed", "--filter",
+                "^" + release + "$", "--output", "json"]
+    if args != expected:
+        print("Unsupported helm list arguments: " + repr(args), file=sys.stderr)
+        sys.exit(97)
     key = "CONTROLLER" if controller else "RUNNER"
     if os.environ.get("ARC_TEST_FAIL_LOOKUP") == key:
         sys.exit(9)
@@ -130,6 +135,30 @@ class RunnerCpuTests(unittest.TestCase):
         self.assert_scope(calls)
         [upgrade] = self.upgrades(calls)
         self.assertNotIn("--set", upgrade)
+
+    def test_release_lookup_uses_helm_three_and_four_deployed_filter(self):
+        result, calls = self.run_script("--runner-cpu-trial", "--diff")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(
+            [call for call in calls if call[:2] == ["helm", "list"]],
+            [
+                [
+                    "helm",
+                    "list",
+                    "--namespace",
+                    namespace,
+                    "--deployed",
+                    "--filter",
+                    f"^{release}$",
+                    "--output",
+                    "json",
+                ]
+                for namespace, release in (
+                    ("arc-systems", "arc"),
+                    ("arc-runners", "compendium"),
+                )
+            ],
+        )
 
     def test_diff_and_apply_use_identical_chart_and_values(self):
         for mode in ("--runner-cpu-trial", "--runner-cpu-baseline"):

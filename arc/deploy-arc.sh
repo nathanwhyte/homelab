@@ -119,7 +119,8 @@ if [ -n "$RUNNER_CPU_MODE" ]; then
 	fi
 	installed_chart_version() {
 		local release="$1" namespace="$2" chart="$3"
-		helm list --namespace "$namespace" --all --filter "^${release}$" --output json |
+		# --deployed works with Helm 3 and 4; Helm 4 removed --all.
+		helm list --namespace "$namespace" --deployed --filter "^${release}$" --output json |
 			jq -er --arg release "$release" --arg namespace "$namespace" --arg prefix "$chart-" '
               if length == 1 and .[0].name == $release and
                  .[0].namespace == $namespace and .[0].status == "deployed" and
