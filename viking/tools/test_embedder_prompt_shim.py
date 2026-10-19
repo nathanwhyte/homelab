@@ -225,6 +225,31 @@ class ShimTest(unittest.TestCase):
         status, _ = self.call("/v1/embeddings?trace=1", {"input": "x"})
         self.assertEqual(status, 400)
 
+    def test_percent_encoded_path_does_not_bypass_the_rewrite(self):
+        status, _ = self.call("/v1/%65mbeddings", {"input": "x"})
+        self.assertEqual(status, 400)
+        self.call("/v1/%65mbeddings", {"input": "x", "input_type": "query"})
+        self.assertEqual(
+            FakeUpstream.requests[0]["body"], {"input": [QUERY_PREFIX + "x"]}
+        )
+
+    def test_expect_100_continue_gets_an_interim_response(self):
+        body = json.dumps({"input": "x", "input_type": "document"}).encode()
+        head = (
+            b"POST /v1/embeddings HTTP/1.1\r\nHost: shim\r\n"
+            b"Content-Type: application/json\r\nExpect: 100-continue\r\n"
+            b"Content-Length: " + str(len(body)).encode() + b"\r\n\r\n"
+        )
+        with socket.create_connection(("127.0.0.1", self.shim.server_port), 5) as s:
+            s.sendall(head)
+            self.assertIn(b" 100 ", s.recv(1024))
+            s.sendall(body)
+            out = b""
+            while chunk := s.recv(65536):
+                out += chunk
+        self.assertIn(b" 200 ", out.split(b"\r\n", 1)[0])
+        self.assertEqual(FakeUpstream.requests[0]["body"], {"input": "x"})
+
     def test_non_string_input_type_is_a_400(self):
         for kind in ([], {}, 1):
             status, _ = self.call("/v1/embeddings", {"input": "x", "input_type": kind})

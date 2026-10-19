@@ -34,9 +34,10 @@ spec:
         # Bump to roll the pods after a script-only change (read at start).
         homelab.nathanwhyte.dev/config-rev: "2"
     spec:
-      # The shim drains requests in flight after SIGTERM; a large document batch
-      # on a busy embedder can take well over the default 30 s.
-      terminationGracePeriodSeconds: 120
+      # The shim drains requests in flight after SIGTERM, so the grace period
+      # covers the preStop sleep (5 s) plus a whole SHIM_UPSTREAM_TIMEOUT (300 s),
+      # with a margin. Change the two together.
+      terminationGracePeriodSeconds: 330
       affinity:
         podAntiAffinity:
           # Preferred, not required: a node down to two still schedules both.
@@ -60,6 +61,9 @@ spec:
               value: "8080"
             - name: SHIM_UPSTREAM
               value: http://embedder-qwen.viking.svc.cluster.local:8080
+            # Bounded by terminationGracePeriodSeconds above.
+            - name: SHIM_UPSTREAM_TIMEOUT
+              value: "300"
             # QWEN_INSTRUCT from benchmark_embedders.py, trailing space included
             # (TASK-1218: 13/34 -> 19/34 fixture top-1 through OV's chunked path).
             - name: SHIM_QUERY_PREFIX

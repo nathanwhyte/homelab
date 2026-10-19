@@ -33,7 +33,7 @@ import sys
 import threading
 from collections import Counter
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import urlsplit
+from urllib.parse import unquote, urlsplit
 
 # RFC 9110 hop-by-hop headers, plus the ones recomputed for each leg.
 HOP_BY_HOP = {
@@ -149,8 +149,20 @@ def make_handler(cfg: Config, stats: Stats):
             payload = {"error": {"code": status, "message": f"shim: {message}"}}
             self._reply(status, json.dumps(payload).encode())
 
+        def _path(self) -> str:
+            # Percent-decoded, as llama-server's router decodes it, so an
+            # encoded alias of /embeddings cannot skip the rewrite.
+            return unquote(urlsplit(self.path).path)
+
         def _read_body(self) -> bytes:
             """The request body, de-chunked; raise BadRequest on bad framing."""
+            # The HTTP/1.0 handler never sends 100 Continue on its own.
+            if (
+                self.headers.get("Expect", "").lower() == "100-continue"
+                and self.request_version != "HTTP/1.0"
+            ):
+                self.send_response_only(100)
+                self.end_headers()
             if "chunked" in self.headers.get("Transfer-Encoding", "").lower():
                 chunks = []
                 while True:
@@ -207,7 +219,7 @@ def make_handler(cfg: Config, stats: Stats):
             self._reply(status, data, out)
 
         def do_GET(self):
-            if urlsplit(self.path).path == "/healthz":
+            if self._path() == "/healthz":
                 self._reply(200, json.dumps(stats.snapshot()).encode())
                 return
             self._forward("GET")
@@ -219,7 +231,7 @@ def make_handler(cfg: Config, stats: Stats):
                 self.close_connection = True
                 self._error(400, str(e))
                 return
-            if not urlsplit(self.path).path.rstrip("/").endswith("/embeddings"):
+            if not self._path().rstrip("/").endswith("/embeddings"):
                 self._forward("POST", raw)
                 return
             try:
