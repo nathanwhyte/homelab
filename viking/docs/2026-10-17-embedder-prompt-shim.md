@@ -107,7 +107,7 @@ Before step 4 of the cutover, all of these hold:
 - [x] Fixture top-1 ≥ 19/34 and top-5 ≥ 24/34 on ov-test (above); production reached 20/34 and 25/34 on 2026-10-18
 - [x] New-document indexing marked and accepted through the shim (above)
 - [x] Rollback tested on ov-test (above) and used on production (2026-10-18)
-- [ ] IDEA-1100 gold-query baseline (unprefixed) recorded the same day
+- [x] IDEA-1100 gold-query baseline (unprefixed) recorded the same day: round 2's unprefixed arm (2026-10-18, below) includes the 40 C1 gold queries on the live tree
 - [x] IMPR-1208 recall floor re-fitted on the prompted band, on a labelled recall set with tens of answerable queries (2026-10-18, below); ships in the same window (step 6)
 - [x] Memory recall at the new floor shows no regression against the unprefixed baseline (offline replica, below); re-check with the live calibrator after the cutover
 
@@ -122,3 +122,18 @@ Measured without touching the server: a replica of OV v0.4.20's context search (
 | Prompted, 0.50 | 44 | 0.13 | 3.58 |
 
 Candidate for step 6: `OPENVIKING_SCORE_THRESHOLD=0.50`. Other fixed floors read the same band: the MCP `viking_search` default (0.50, keeps every prompted resource-fixture hit, cuts the lower memory hits) and Codex's `OPENVIKING_SCORE_THRESHOLD` (0.55). Evidence and method: `~/code/archive/ov-pilot-20260921/06-trial/impr-1344-recall/round2-20261018/README.md`; analysis in IMPR-1208 § Round 2.
+
+## Production cutover (2026-10-19 UTC): live
+
+With the user's go-ahead, all eight steps ran in one window:
+
+| Step | Result |
+| --- | --- |
+| 2. Rollback pack, params unset | `packs/compendium-prod-pre-switch2-params-unset-20261019T0424Z.ovpack` (28.2 MB) |
+| 3. Unprefixed baseline | Round 2's unprefixed arm, 2026-10-18 (above) |
+| 4–5. ConfigMap applied, OV restarted | 04:28:47 UTC; rollout done 04:29:12 |
+| 6. Floors | dotfiles#466 merged 04:30:55: Claude Code recall 0.60 → 0.50, `viking_search` default 0.50 → 0.45, Codex 0.55 → 0.45 (pop's `~/.config/openviking/codex.env` set by hand) |
+| 7. Check | Production's `/search/search` matches the replica's prompted arm on a fresh 25-query sample: same entry set 25/25, max score difference 0.000000 (the unprefixed arm now differs on 25/25). Round 2's prompted 0.50 row therefore describes live recall. No OV embedding errors after the restart |
+| 8. Pack, params set | `packs/compendium-prod-post-switch2-params-set-*.ovpack` |
+
+Evidence: `~/code/archive/ov-pilot-20260921/06-trial/impr-1344-recall/post-cutover2-20261019T0429Z/`. Workbook's `codex.env` floor still needs the same change.
