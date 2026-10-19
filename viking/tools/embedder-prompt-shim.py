@@ -5,17 +5,19 @@ Qwen3-Embedding is instruction-aware: queries should arrive as
 "Instruct: <task>\\nQuery: <text>" and documents as raw text. OpenViking's
 openai provider cannot prepend text, but with query_param/document_param set it
 sends an `input_type` body field (query|document) that llama-server ignores.
-This shim reads that field on POST .../embeddings, prepends SHIM_QUERY_PREFIX
-to query inputs (SHIM_DOCUMENT_PREFIX to documents, empty by default), drops the
-field, and forwards to SHIM_UPSTREAM. An embeddings request without a known
-input_type is rejected with 400 rather than guessed. Every other request is
-passed through unchanged.
+This shim reads that field on a POST to any of llama-server's embeddings routes
+(.../embedding, .../embeddings), prepends SHIM_QUERY_PREFIX to query inputs
+(SHIM_DOCUMENT_PREFIX to documents, empty by default), drops the field, and
+forwards to SHIM_UPSTREAM. An embeddings request without a known input_type is
+rejected with 400 rather than guessed, and so is any request whose path is
+percent-encoded. Every other request (GET, HEAD, OPTIONS, PUT, PATCH, DELETE,
+and POST elsewhere) is passed through unchanged.
 
 A document request with an empty prefix is forwarded with only input_type
 removed and its input untouched, so stored document vectors stay identical to
 direct-embedder vectors and no reindex is needed. Ported from the TASK-1218 prototype (prefix-shim.py). Stdlib only.
 
-GET /healthz answers locally and never touches the upstream.
+GET and HEAD /healthz answer locally and never touch the upstream.
 
 Requests and responses keep their end-to-end headers (hop-by-hop ones and the
 length are recomputed), redirects are relayed rather than followed, and chunked
@@ -33,7 +35,7 @@ import sys
 import threading
 from collections import Counter
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import unquote, urlsplit
+from urllib.parse import urlsplit
 
 # RFC 9110 hop-by-hop headers, plus the ones recomputed for each leg.
 HOP_BY_HOP = {
@@ -133,16 +135,28 @@ def end_to_end(headers) -> list[tuple[str, str]]:
 def make_handler(cfg: Config, stats: Stats):
     class Shim(BaseHTTPRequestHandler):
         def _reply(
-            self, status: int, data: bytes, headers: list[tuple[str, str]] | None = None
+            self,
+            status: int,
+            data: bytes,
+            headers: list[tuple[str, str]] | None = None,
+            length: str | None = None,
         ) -> None:
+            """Send a response. A HEAD, 204 or 304 reply carries no body, and
+            `length` (the upstream's Content-Length, omitted when None) stands in
+            for the length of `data`."""
             self.send_response(status)
             if headers is None:
                 headers = [("Content-Type", "application/json")]
             for k, v in headers:
                 self.send_header(k, v)
-            self.send_header("Content-Length", str(len(data)))
+            bodiless = self.command == "HEAD" or status in (204, 304)
+            if not bodiless:
+                self.send_header("Content-Length", str(len(data)))
+            elif length is not None:
+                self.send_header("Content-Length", length)
             self.end_headers()
-            self.wfile.write(data)
+            if not bodiless:
+                self.wfile.write(data)
 
         def _error(self, status: int, message: str) -> None:
             stats.add(f"http_{status}")
@@ -150,12 +164,31 @@ def make_handler(cfg: Config, stats: Stats):
             self._reply(status, json.dumps(payload).encode())
 
         def _path(self) -> str:
-            # Percent-decoded, as llama-server's router decodes it, so an
-            # encoded alias of /embeddings cannot skip the rewrite.
-            return unquote(urlsplit(self.path).path)
+            """The request path as llama-server routes it; raise BadRequest when
+            the shim cannot see that path the same way."""
+            # cpp-httplib splits the target at the first "?" and then
+            # percent-decodes it, %uXXXX included. OV never encodes its paths, so
+            # any "%" is refused rather than decoded differently from upstream,
+            # which would let an encoded alias of /embeddings skip the rewrite.
+            path = self.path.split("?", 1)[0]
+            if not path.startswith("/"):
+                raise BadRequest(f"request target must be a path: {path!r}")
+            if "%" in path:
+                raise BadRequest(f"percent-encoded path refused: {path!r}")
+            return path
 
-        def _read_body(self) -> bytes:
-            """The request body, de-chunked; raise BadRequest on bad framing."""
+        def _routed(self) -> str | None:
+            """`_path()`, or None after answering 400."""
+            try:
+                return self._path()
+            except BadRequest as e:
+                self.close_connection = True
+                self._error(400, str(e))
+                return None
+
+        def _read_body(self) -> bytes | None:
+            """The request body, de-chunked, or None when the request has none;
+            raise BadRequest on bad framing."""
             # The HTTP/1.0 handler never sends 100 Continue on its own.
             if (
                 self.headers.get("Expect", "").lower() == "100-continue"
@@ -181,7 +214,7 @@ def make_handler(cfg: Config, stats: Stats):
                     chunks.append(chunk)
             length = self.headers.get("Content-Length")
             if length is None:
-                return b""
+                return None
             if not length.strip().isdigit():
                 raise BadRequest(f"bad Content-Length {length!r}")
             n = int(length)
@@ -205,7 +238,8 @@ def make_handler(cfg: Config, stats: Stats):
             try:
                 conn.request(method, cfg.base_path + self.path, body, headers)
                 resp = conn.getresponse()
-                status, data = resp.status, resp.read()
+                status, data = resp.status, resp.read()  # read() is b"" for HEAD
+                length = resp.getheader("Content-Length")
                 out = [
                     (k, v)
                     for k, v in end_to_end(resp.msg)
@@ -216,22 +250,46 @@ def make_handler(cfg: Config, stats: Stats):
                 return
             finally:
                 conn.close()
-            self._reply(status, data, out)
+            self._reply(status, data, out, length)
 
-        def do_GET(self):
-            if self._path() == "/healthz":
-                self._reply(200, json.dumps(stats.snapshot()).encode())
+        def _get_or_head(self) -> None:
+            path = self._routed()
+            if path is None:
                 return
-            self._forward("GET")
+            if path == "/healthz":
+                data = json.dumps(stats.snapshot()).encode()
+                self._reply(200, data, length=str(len(data)))
+                return
+            self._forward(self.command)
 
-        def do_POST(self):
+        do_GET = do_HEAD = _get_or_head
+
+        def _with_body(self) -> tuple[str, bytes | None] | None:
+            """(path, body), or None after answering 400."""
+            path = self._routed()
+            if path is None:
+                return None
             try:
-                raw = self._read_body()
+                return path, self._read_body()
             except BadRequest as e:
                 self.close_connection = True
                 self._error(400, str(e))
+                return None
+
+        def _passthrough(self) -> None:
+            req = self._with_body()
+            if req is not None:
+                self._forward(self.command, req[1])
+
+        do_OPTIONS = do_PUT = do_PATCH = do_DELETE = _passthrough
+
+        def do_POST(self):
+            req = self._with_body()
+            if req is None:
                 return
-            if not self._path().rstrip("/").endswith("/embeddings"):
+            path, raw = req
+            # llama-server serves /embedding, /embeddings and /v1/embeddings.
+            if path.rstrip("/").rsplit("/", 1)[-1] not in ("embedding", "embeddings"):
                 self._forward("POST", raw)
                 return
             try:

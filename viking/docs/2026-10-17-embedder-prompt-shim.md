@@ -12,9 +12,10 @@ Qwen3-Embedding is instruction-aware: queries should be embedded as `Instruct: <
 
 - `input_type: query`: prepends `SHIM_QUERY_PREFIX` to each input.
 - `input_type: document`: forwards the input unchanged (`SHIM_DOCUMENT_PREFIX` is empty).
-- Missing or unknown `input_type` on `.../embeddings`: 400, never guessed. An OV pointed at the shim without the params fails loudly instead of embedding documents as queries.
-- `input_type` is always removed before forwarding. Every other request passes through.
-- `GET /healthz` answers locally, so an embedder outage does not also eject the shim from its Service.
+- Missing or unknown `input_type` on a POST to `.../embedding` or `.../embeddings` (llama-server serves `/embedding`, `/embeddings` and `/v1/embeddings`): 400, never guessed. An OV pointed at the shim without the params fails loudly instead of embedding documents as queries.
+- A percent-encoded request path is a 400 on any method. llama-server decodes `%XX` and `%uXXXX` before routing, and OV never encodes its paths, so refusing them keeps the shim's view of the route equal to the embedder's.
+- `input_type` is always removed before forwarding. Every other request passes through: GET, HEAD (with the upstream's `Content-Length` and no body), OPTIONS, PUT, PATCH, DELETE, and POST elsewhere.
+- `GET` and `HEAD /healthz` answer locally, so an embedder outage does not also eject the shim from its Service.
 
 Two replicas with preferred anti-affinity and `maxUnavailable: 0`; every OV embedding call passes through it.
 

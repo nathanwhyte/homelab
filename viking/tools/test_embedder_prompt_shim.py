@@ -59,12 +59,22 @@ class FakeUpstream(BaseHTTPRequestHandler):
     def do_GET(self):
         self._answer(None)
 
+    def do_HEAD(self):
+        # The headers of the GET answer, without its body.
+        FakeUpstream.requests.append({"method": "HEAD", "path": self.path})
+        self.send_response(FakeUpstream.status)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(json.dumps({"echo": None}))))
+        self.end_headers()
+
     def do_POST(self):
-        raw = self.rfile.read(int(self.headers["Content-Length"]))
+        raw = self.rfile.read(int(self.headers.get("Content-Length", 0)))
         try:
             self._answer(json.loads(raw))
         except ValueError:
             self._answer(raw.decode())
+
+    do_OPTIONS = do_DELETE = do_POST
 
     def log_message(self, *args):
         pass
@@ -225,12 +235,85 @@ class ShimTest(unittest.TestCase):
         status, _ = self.call("/v1/embeddings?trace=1", {"input": "x"})
         self.assertEqual(status, 400)
 
-    def test_percent_encoded_path_does_not_bypass_the_rewrite(self):
-        status, _ = self.call("/v1/%65mbeddings", {"input": "x"})
-        self.assertEqual(status, 400)
-        self.call("/v1/%65mbeddings", {"input": "x", "input_type": "query"})
+    def test_percent_encoded_path_is_refused(self):
+        # cpp-httplib decodes %XX and %uXXXX; the shim refuses both, any method.
+        for path in ("/v1/%65mbeddings", "/v1/%u0065mbeddings", "/v1/models%2F"):
+            for body in ({"input": "x"}, {"input": "x", "input_type": "query"}):
+                status, out = self.call(path, body)
+                self.assertEqual(status, 400, path)
+                self.assertIn("percent-encoded", out["error"]["message"])
+            status, _ = self.call(path)
+            self.assertEqual(status, 400, path)
+        self.assertEqual(FakeUpstream.requests, [])
+
+    def test_percent_in_the_query_string_is_forwarded(self):
+        status, _ = self.call(
+            "/v1/embeddings?q=%20", {"input": "x", "input_type": "query"}
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(FakeUpstream.requests[0]["path"], "/v1/embeddings?q=%20")
+
+    def test_absolute_form_target_is_refused(self):
+        out = self.raw_request(
+            b"GET http://embedder/v1/models HTTP/1.1\r\nHost: shim\r\n\r\n"
+        )
+        self.assertTrue(out.startswith(b"HTTP/1.0 400"), out[:40])
+        self.assertEqual(FakeUpstream.requests, [])
+
+    def test_every_embeddings_route_is_rewritten(self):
+        for path in ("/embedding", "/embeddings", "/v1/embeddings/"):
+            status, _ = self.call(path, {"input": "x"})
+            self.assertEqual(status, 400, path)
+            FakeUpstream.requests = []
+            self.call(path, {"input": "x", "input_type": "query"})
+            self.assertEqual(
+                FakeUpstream.requests[0]["body"],
+                {"input": [QUERY_PREFIX + "x"]},
+                path,
+            )
+
+    def test_head_is_forwarded_with_get_framing(self):
+        conn = http.client.HTTPConnection("127.0.0.1", self.shim.server_port, timeout=5)
+        conn.request("HEAD", "/v1/models")
+        resp = conn.getresponse()
+        self.assertEqual(resp.read(), b"")
+        self.assertEqual(resp.status, 200)
         self.assertEqual(
-            FakeUpstream.requests[0]["body"], {"input": [QUERY_PREFIX + "x"]}
+            resp.getheader("Content-Length"), str(len(json.dumps({"echo": None})))
+        )
+        self.assertEqual(
+            FakeUpstream.requests, [{"method": "HEAD", "path": "/v1/models"}]
+        )
+        # No stray body bytes: the same connection carries the next request.
+        if not resp.will_close:
+            conn.request("GET", "/v1/models")
+            nxt = conn.getresponse()
+            self.assertEqual(json.loads(nxt.read()), {"echo": None})
+        conn.close()
+
+    def test_head_healthz_is_local(self):
+        conn = http.client.HTTPConnection("127.0.0.1", self.shim.server_port, timeout=5)
+        conn.request("HEAD", "/healthz")
+        resp = conn.getresponse()
+        self.assertEqual(resp.read(), b"")
+        conn.close()
+        self.assertEqual(resp.status, 200)
+        self.assertGreater(int(resp.getheader("Content-Length")), 0)
+        self.assertEqual(FakeUpstream.requests, [])
+
+    def test_options_and_delete_pass_through(self):
+        for method in ("OPTIONS", "DELETE"):
+            conn = http.client.HTTPConnection(
+                "127.0.0.1", self.shim.server_port, timeout=5
+            )
+            conn.request(method, "/v1/embeddings", headers={"Origin": "http://x"})
+            resp = conn.getresponse()
+            resp.read()
+            conn.close()
+            self.assertEqual(resp.status, 200, method)
+        self.assertEqual(
+            [(r["method"], r["path"]) for r in FakeUpstream.requests],
+            [("OPTIONS", "/v1/embeddings"), ("DELETE", "/v1/embeddings")],
         )
 
     def test_expect_100_continue_gets_an_interim_response(self):
