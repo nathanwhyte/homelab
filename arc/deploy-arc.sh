@@ -30,7 +30,7 @@ RUNNER_CPU_MODE=""
 
 usage() {
 	cat <<EOF
-Usage: $0 [--diff] [--runner-cpu-trial | --runner-cpu-baseline]
+Usage: $0 [--diff] [--runner-cpu-drain | --runner-cpu-trial | --runner-cpu-baseline]
 
   --diff       Read-only preflight: run \`helm diff upgrade\` for both releases
                by default, or only the scale set with a runner CPU mode.
@@ -40,8 +40,12 @@ Usage: $0 [--diff] [--runner-cpu-trial | --runner-cpu-baseline]
                four runners with a 2-CPU limit. --diff previews this change.
   --runner-cpu-baseline
                Restore only that scale set to the checked-in baseline values.
-               Both CPU modes require deployed, matching controller/scale-set
+  --runner-cpu-drain
+               Pause admission through Helm, reusing the installed values and
+               changing only minRunners/maxRunners to zero. Existing jobs finish.
+               All CPU modes require deployed, matching controller/scale-set
                releases and pin their installed chart version.
+               Trial/baseline apply requires zero counts and no old runners.
   -h, --help   Show this help.
 
 Chart version is pinned via \$ARC_CHART_VERSION (default: $CHART_VERSION).
@@ -55,7 +59,7 @@ while [ $# -gt 0 ]; do
 		HELM_DIFF=1
 		shift
 		;;
-	--runner-cpu-trial | --runner-cpu-baseline)
+	--runner-cpu-drain | --runner-cpu-trial | --runner-cpu-baseline)
 		if [ -n "$RUNNER_CPU_MODE" ]; then
 			echo "Choose exactly one runner CPU mode." >&2
 			exit 2
@@ -139,8 +143,12 @@ if [ -n "$RUNNER_CPU_MODE" ]; then
 		echo "CPU modes cannot change chart version: installed=$SCALE_SET_VERSION ARC_CHART_VERSION=$ARC_CHART_VERSION." >&2
 		exit 2
 	fi
-	RUNNER_VALUES=(--version "$SCALE_SET_VERSION" --namespace arc-runners --reset-values
-		-f "$SCRIPT_DIR/runner-scale-set-compendium-values.yaml")
+	RUNNER_VALUES=(--version "$SCALE_SET_VERSION" --namespace arc-runners)
+	if [ "$RUNNER_CPU_MODE" = "--runner-cpu-drain" ]; then
+		RUNNER_VALUES+=(--reuse-values --set 'minRunners=0,maxRunners=0')
+	else
+		RUNNER_VALUES+=(--reset-values -f "$SCRIPT_DIR/runner-scale-set-compendium-values.yaml")
+	fi
 	if [ "$RUNNER_CPU_MODE" = "--runner-cpu-trial" ]; then
 		# --set updates the existing runner element; a values overlay with a
 		# partial containers list would replace its image and security settings.
@@ -153,6 +161,15 @@ if [ -n "$RUNNER_CPU_MODE" ]; then
 		fi
 		helm diff upgrade compendium "$SCALE_SET_CHART" "${RUNNER_VALUES[@]}"
 	else
+		python3 "$SCRIPT_DIR/runner-count-ownership.py" --check
+		if [ "$RUNNER_CPU_MODE" != "--runner-cpu-drain" ]; then
+			kubectl get autoscalingrunnerset homelab-arc-compendium -n arc-runners -o json |
+				jq -e '.spec.minRunners == 0 and .spec.maxRunners == 0' >/dev/null
+			kubectl get pods,ephemeralrunners,ephemeralrunnersets -n arc-runners \
+				-l actions.github.com/scale-set-name=homelab-arc-compendium -o json |
+				jq -e 'all(.items[]; .kind == "EphemeralRunnerSet" and
+                  (.spec.replicas // 0) == 0 and .status.currentReplicas == 0)' >/dev/null
+		fi
 		helm upgrade compendium "$SCALE_SET_CHART" "${RUNNER_VALUES[@]}" --wait --timeout "$TIMEOUT"
 	fi
 	exit 0

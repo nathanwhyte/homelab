@@ -2,6 +2,8 @@
 """Hermetic tests for the ARC CPU trial's shell deployment boundary."""
 
 import json
+import copy
+import importlib.util
 import os
 from pathlib import Path
 import re
@@ -24,6 +26,21 @@ args = sys.argv[1:]
 with open(os.environ["ARC_TEST_CALLS"], "a") as stream:
     stream.write(json.dumps([tool, *args]) + "\n")
 if tool == "kubectl" and args == ["cluster-info"]:
+    sys.exit(0)
+if tool == "kubectl" and args[:2] == ["get", "autoscalingrunnerset"]:
+    counts = {"f:minRunners": {}, "f:maxRunners": {}}
+    owners = [dict(manager="helm", operation="Apply", apiVersion="actions.github.com/v1alpha1",
+                   fieldsType="FieldsV1", fieldsV1={"f:spec": counts})]
+    if os.environ.get("ARC_TEST_LEGACY_OWNER"):
+        owners.append({**owners[0], "manager": "kubectl-patch", "operation": "Update"})
+    print(json.dumps(dict(apiVersion="actions.github.com/v1alpha1", kind="AutoscalingRunnerSet",
+        metadata=dict(name="homelab-arc-compendium", namespace="arc-runners", uid="test", resourceVersion="1",
+            annotations={"meta.helm.sh/release-name": "compendium", "meta.helm.sh/release-namespace": "arc-runners"},
+            managedFields=owners),
+        spec=dict(minRunners=int(os.environ.get("ARC_TEST_COUNT", "0")), maxRunners=0))))
+    sys.exit(0)
+if tool == "kubectl" and args[:2] == ["get", "pods,ephemeralrunners,ephemeralrunnersets"]:
+    print(json.dumps({"items": [{"kind": "Pod"}] if os.environ.get("ARC_TEST_BUSY") else []}))
     sys.exit(0)
 if tool == "helm" and args[:1] == ["list"]:
     namespace = args[args.index("--namespace") + 1]
@@ -103,10 +120,11 @@ class RunnerCpuTests(unittest.TestCase):
         return [call for call in calls if "upgrade" in call]
 
     def assert_scope(self, calls):
-        self.assertEqual(
-            [call for call in calls if call[0] == "kubectl"],
-            [["kubectl", "cluster-info"]],
-        )
+        for call in calls:
+            if call[0] == "kubectl":
+                self.assertTrue(call[1:] == ["cluster-info"] or call[1] == "get")
+                if call[1] == "get":
+                    self.assertEqual(call[call.index("-n") + 1], "arc-runners")
         for call in self.upgrades(calls):
             index = call.index("upgrade")
             self.assertEqual(call[index + 1], "compendium")
@@ -114,11 +132,19 @@ class RunnerCpuTests(unittest.TestCase):
             self.assertNotIn("--allow-unreleased", call)
             self.assertEqual(call[call.index("--namespace") + 1], "arc-runners")
             self.assertEqual(call[call.index("--version") + 1], "0.15.7")
-            self.assertIn("--reset-values", call)
-            self.assertEqual(
-                call[call.index("-f") + 1],
-                str(ROOT / "runner-scale-set-compendium-values.yaml"),
-            )
+            if "--reuse-values" in call:
+                self.assertNotIn("-f", call)
+                self.assertNotIn("--reset-values", call)
+                self.assertEqual(
+                    call[call.index("--set") + 1], "minRunners=0,maxRunners=0"
+                )
+            else:
+                self.assertIn("--reset-values", call)
+                self.assertEqual(
+                    call[call.index("-f") + 1],
+                    str(ROOT / "runner-scale-set-compendium-values.yaml"),
+                )
+            self.assertNotIn("--force-conflicts", call)
 
     def test_trial_changes_only_expected_scale_set_values(self):
         result, calls = self.run_script("--runner-cpu-trial")
@@ -164,7 +190,11 @@ class RunnerCpuTests(unittest.TestCase):
         )
 
     def test_diff_and_apply_use_identical_chart_and_values(self):
-        for mode in ("--runner-cpu-trial", "--runner-cpu-baseline"):
+        for mode in (
+            "--runner-cpu-trial",
+            "--runner-cpu-baseline",
+            "--runner-cpu-drain",
+        ):
             with self.subTest(mode=mode):
                 result, calls = self.run_script(mode, "--diff")
                 self.assertEqual(result.returncode, 0, result.stderr)
@@ -194,7 +224,11 @@ class RunnerCpuTests(unittest.TestCase):
                 ]
             )
         for env in cases:
-            for mode in ("--runner-cpu-trial", "--runner-cpu-baseline"):
+            for mode in (
+                "--runner-cpu-trial",
+                "--runner-cpu-baseline",
+                "--runner-cpu-drain",
+            ):
                 for flags in ([], ["--diff"]):
                     with self.subTest(env=env, mode=mode, flags=flags):
                         result, calls = self.run_script(mode, *flags, env=env)
@@ -203,7 +237,11 @@ class RunnerCpuTests(unittest.TestCase):
                         self.assert_scope(calls)
 
     def test_conflicting_or_duplicate_modes_fail_before_any_command(self):
-        for second in ("--runner-cpu-trial", "--runner-cpu-baseline"):
+        for second in (
+            "--runner-cpu-trial",
+            "--runner-cpu-baseline",
+            "--runner-cpu-drain",
+        ):
             result, calls = self.run_script("--runner-cpu-trial", second)
             self.assertEqual(result.returncode, 2)
             self.assertEqual(calls, [])
@@ -221,6 +259,31 @@ class RunnerCpuTests(unittest.TestCase):
                 "--runner-cpu-trial", *flags, env={"ARC_TEST_HELM_EXIT": "8"}
             )
             self.assertEqual(result.returncode, 8)
+
+    def test_activation_requires_empty_fenced_scale_set(self):
+        for mode in ("--runner-cpu-trial", "--runner-cpu-baseline"):
+            for env in (
+                {"ARC_TEST_BUSY": "1"},
+                {"ARC_TEST_COUNT": "4"},
+                {"ARC_TEST_LEGACY_OWNER": "1"},
+            ):
+                with self.subTest(mode=mode, env=env):
+                    result, calls = self.run_script(mode, env=env)
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertEqual(self.upgrades(calls), [])
+
+    def test_drain_keeps_template_and_allows_existing_jobs_to_finish(self):
+        result, calls = self.run_script(
+            "--runner-cpu-drain", env={"ARC_TEST_BUSY": "1", "ARC_TEST_COUNT": "4"}
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assert_scope(calls)
+        self.assertEqual(len(self.upgrades(calls)), 1)
+        result, calls = self.run_script(
+            "--runner-cpu-drain", env={"ARC_TEST_LEGACY_OWNER": "1"}
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(self.upgrades(calls), [])
 
     def test_missing_jq_fails_the_suite_instead_of_skipping(self):
         environment = {**os.environ, "PATH": str(self.path)}
@@ -334,7 +397,7 @@ class RunnerCpuTests(unittest.TestCase):
                             **os.environ,
                             "PATH": f"{self.path}{os.pathsep}{os.environ['PATH']}",
                             "ARC_TEST_CALLS": str(self.calls_path),
-                            "arc_cpu_good_revision": revision,
+                            "arc_cpu_drain_revision": revision,
                         },
                         text=True,
                         capture_output=True,
@@ -348,6 +411,84 @@ class RunnerCpuTests(unittest.TestCase):
                     else:
                         self.assertNotEqual(result.returncode, 0)
                         self.assertFalse(self.calls_path.exists())
+
+
+class OwnershipTests(unittest.TestCase):
+    def setUp(self):
+        spec = importlib.util.spec_from_file_location(
+            "ownership", ROOT / "runner-count-ownership.py"
+        )
+        self.module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(self.module)
+        counts = {"f:minRunners": {}, "f:maxRunners": {}}
+        helm = dict(
+            manager="helm",
+            operation="Apply",
+            apiVersion=self.module.API,
+            fieldsType="FieldsV1",
+            fieldsV1={"f:spec": counts},
+        )
+        legacy = {
+            **copy.deepcopy(helm),
+            "manager": "kubectl-patch",
+            "operation": "Update",
+        }
+        self.resource = dict(
+            apiVersion=self.module.API,
+            kind="AutoscalingRunnerSet",
+            metadata=dict(
+                name=self.module.NAME,
+                namespace=self.module.NAMESPACE,
+                uid="identity",
+                resourceVersion="7",
+                annotations={
+                    "meta.helm.sh/release-name": "compendium",
+                    "meta.helm.sh/release-namespace": "arc-runners",
+                },
+                managedFields=[helm, legacy],
+            ),
+            spec=dict(minRunners=4, maxRunners=8),
+        )
+
+    def test_handoff_only_removes_known_coowner_and_guards_identity_and_version(self):
+        before = copy.deepcopy(self.resource)
+        self.assertEqual(
+            self.module.handoff_patch(self.resource),
+            [
+                {"op": "test", "path": "/metadata/uid", "value": "identity"},
+                {"op": "test", "path": "/metadata/resourceVersion", "value": "7"},
+                {"op": "remove", "path": "/metadata/managedFields/1"},
+            ],
+        )
+        self.assertEqual(self.resource, before)
+        self.resource["metadata"]["managedFields"].pop()
+        self.assertEqual(self.module.handoff_patch(self.resource), [])
+
+    def test_unexpected_ownership_or_identity_fails_closed(self):
+        cases = []
+        for key, value in (
+            ("manager", "another-operator"),
+            ("operation", "Apply"),
+            ("apiVersion", "wrong"),
+        ):
+            resource = copy.deepcopy(self.resource)
+            resource["metadata"]["managedFields"][1][key] = value
+            cases.append(resource)
+        resource = copy.deepcopy(self.resource)
+        resource["metadata"]["managedFields"][1]["fieldsV1"]["f:spec"][
+            "f:template"
+        ] = {}
+        cases.append(resource)
+        resource = copy.deepcopy(self.resource)
+        resource["metadata"]["managedFields"].pop(0)
+        cases.append(resource)
+        resource = copy.deepcopy(self.resource)
+        resource["metadata"]["name"] = "other-scale-set"
+        cases.append(resource)
+        for resource in cases:
+            with self.subTest(resource=resource):
+                with self.assertRaises(ValueError):
+                    self.module.handoff_patch(resource)
 
 
 if __name__ == "__main__":
