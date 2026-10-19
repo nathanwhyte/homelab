@@ -382,8 +382,39 @@ hardware or additional scale set is provisioned by this trial.
 
 `python3 arc/test-deploy-arc.py` runs in pre-commit and covers the ownership
 handoff's fail-closed contract, drain predicates, mode scoping, and recovery
-commands. For actual field-management behavior, use a disposable local
-Kubernetes API and Helm 4:
+commands. The `arc-ownership-integration` hook also runs the actual Helm/Kubernetes
+regression whenever deployment, ownership or runbook files change:
+
+```bash
+python3 arc/check-runner-count-ownership.py
+```
+
+It requires Helm 4, kubectl and a running local Linux Docker engine reached by
+a Unix socket. Missing tools, an unavailable engine or remote Docker fail the
+check; they never count as a skipped pass. The driver starts a uniquely named,
+digest-pinned K3s API without agents, publishes a random loopback-only port,
+and passes its generated credentials and server explicitly to the test. Docker
+needs privileged mode for this disposable container. No live Kubernetes context
+is consulted. Every Docker operation is pinned to the validated Unix socket,
+even if another terminal changes the active context. Credentials are copied
+into a caller-owned private file, so rootful Linux Docker works for a nonroot
+committer too. The driver defers handled signals until it owns each launched
+process, kills the integration process group before cleanup on timeout or
+interruption, then removes only its own labeled container and anonymous volumes.
+
+An interrupted `docker create` can leave daemon-side creation pending. The
+driver retries identity-checked cleanup for ten seconds; if the outcome remains
+unknown, it fails with the path to a private `arc-ssa-recovery-*/container.json`
+receipt instead of claiming removal. The receipt preserves the original socket,
+container name and ownership token. Inspect that named container on that socket,
+compare its `compendium.arc-ssa-test` label with the receipt token, and remove it
+only on a match. Retain the receipt until the launch outcome is reconciled.
+The pinned image is reused from the local cache; only a missing image is pulled.
+Driver tests cover endpoint pinning,
+caller-owned credentials, delayed creation, recovery receipts and descendants.
+
+For debugging with an already prepared disposable API, the underlying test
+also accepts an explicit kubeconfig and loopback server:
 
 ```bash
 python3 arc/test-runner-count-ownership-integration.py \
