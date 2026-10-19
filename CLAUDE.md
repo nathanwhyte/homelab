@@ -17,6 +17,7 @@ The dotfiles `repo-context` hook sends this section to sessions started in anoth
 ## Ground rules (safety first)
 
 - **Do not apply changes to a live cluster unless explicitly asked.** Avoid running `kubectl apply`, `helm install/upgrade`, or anything that mutates cluster state unless the user requests it.
+- **A cutover go-ahead while runbook gate items are open is a question.** Name each unchecked item and what it guards, and ask which are waived before mutating anything; record a waived item in the cutover write-up. Never defer one on your own reasoning (IMPR-1344: a deferred floor re-fit cost about 13 hours of degraded memory recall).
 - **Apply the object you changed, never the whole file.** Being asked to deploy a change is not permission to reconcile everything in the same manifest. A multi-document file often declares objects the cluster deliberately does not run, so `kubectl apply -f <file>` **creates** them as a side effect — and the giveaway is `created` rather than `configured` in the output.
 
   Before applying, `kubectl diff -f <target>` and read it: every `+` you did not intend is an object you are about to bring into existence. If the file holds more than the object you changed, narrow the target (a `-f` on a single-object file, `-l` on a selector) or accept only what the diff shows and revert the rest immediately.
