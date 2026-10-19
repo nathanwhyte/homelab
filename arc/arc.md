@@ -2,7 +2,7 @@
 
 actions-runner-controller (the modern **gha-runner-scale-set** architecture) on
 the K3s cluster. GitHub stays the forge; only compute moves in-cluster.
-Ephemeral runner pods, scale-to-zero between jobs, no privileged containers.
+Ephemeral runner pods, four warm runners between jobs, no privileged containers.
 
 | Piece           | Value                                                                                                                                                                                                           |
 | --------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -14,7 +14,7 @@ Ephemeral runner pods, scale-to-zero between jobs, no privileged containers.
 | Container mode  | none (plain steps only) — unprivileged; a job declaring `container:` will fail                                                                                                                                  |
 | Job hardening   | runner container: `runAsNonRoot`, no privilege escalation (sudo disabled), all capabilities dropped, `RuntimeDefault` seccomp                                                                                   |
 | Egress          | `network-policies.yaml`: runner pods get DNS + public internet only — all private ranges denied (LAN, cluster CIDRs, link-local)                                                                                |
-| Scheduling      | controller, listener, and runner pods all pinned off timmy (control plane + heaviest memory; listener via `listenerTemplate`)                                                                                   |
+| Scheduling      | controller stays off timmy; runner and listener pods stay off manu; runner pods have a hard two-node spread across timmy and wemby                                                                               |
 
 ## ⚠ Private repos only
 
@@ -105,8 +105,8 @@ gh workflow run "vault checks" -R nathanwhyte/compendium         # workflow_disp
   carries the query forms). Original 1h sample over 49 pods: idle ~37 MiB / ~4m
   CPU, median ~425 MiB / ~333m, peak 736 MiB / 1.14 cores. Re-measured
   2026-09-14 over 2 days: **peak 809 MiB / 739m per pod, p90 CPU 522m**.
-  Requests are 512Mi/500m and limits 2Gi/2 — per-pod sizing still holds at the
-  refreshed numbers, and the memory limit came down from the 4Gi BUG-1099 set
+  The baseline now requests 512Mi/1000m and limits 2Gi/1500m; the September 15
+  placement change bounded runner CPU on timmy. The memory limit came down from the 4Gi BUG-1099 set
   for a `pre-commit --all-files` spike that `PRE_COMMIT_NO_CONCURRENCY=1`
   (IMPR-1131) has since removed. What the refresh did change is CFS throttling,
   now 15.2% peak as a deduplicated fleet ratio against the 2.8% the 1h sample
@@ -164,6 +164,67 @@ gh workflow run "vault checks" -R nathanwhyte/compendium         # workflow_disp
   **local-model consumer**: keep it serialized (one job at a time, e.g. a
   dedicated concurrency group) so it never runs alongside an interactive
   session's use of timmy's GPU.
+
+## Bounded CPU trial (IMPR-1363)
+
+The checked-in baseline remains min 4/max 8 runners with a 1-CPU request,
+1.5-CPU limit, and 512Mi/2Gi memory request/limit. The opt-in trial keeps four
+warm runners but caps the pool at four and raises each runner's limit to
+2 CPUs. The existing hard two-node spread, CPU request, memory settings,
+image, security context, and network policy stay unchanged. At steady state
+the trial admits two runners per node, bounding runner CPU at four of timmy's
+eight reported CPUs. Do not combine the 2-CPU limit with the baseline max 8:
+four runners on timmy could consume all of its control-plane CPU capacity.
+
+This tests individual-job latency at the cost of burst capacity. More than four
+concurrent jobs can wait longer. The October 19 sample
+[vault run 39261417269](https://github.com/nathanwhyte/compendium/actions/runs/39261417269)
+started jobs after about one second; lint and e2e both ran on wemby. Their peak
+one-minute CPU rates were 1.36 and 1.05 cores, with deduplicated CFS throttled
+period fractions of 10.2% and 7.4%. Those fractions are not predicted wall-time
+savings: serial work and wemby's older CPU may dominate. A separate observed
+checkout stall lasted over 30 minutes; this CPU trial does not establish or
+fix its cause.
+
+Run these commands from this repository's worktree, after the current workload
+has drained. Both modes require an existing deployed controller and scale-set
+release at matching chart versions, then pin that installed version. An
+explicit conflicting `ARC_CHART_VERSION` is rejected. They update only the
+`compendium` scale-set release: no controller, namespace, network-policy,
+credential, or chart-version changes. `jq` and the `helm-diff` plugin must
+already be installed for the preflight.
+
+```bash
+# Review the exact scale-set change before applying the trial.
+bash arc/deploy-arc.sh --runner-cpu-trial --diff
+bash arc/deploy-arc.sh --runner-cpu-trial
+
+# Restore the checked-in baseline, also after reviewing its diff.
+bash arc/deploy-arc.sh --runner-cpu-baseline --diff
+bash arc/deploy-arc.sh --runner-cpu-baseline
+```
+
+Diff and apply use the same values and installed chart version. Both reset
+release values to the checked-in base file before adding any trial overrides;
+review the diff for other live-versus-file drift before applying. Baseline mode
+restores that file, not an arbitrary previous Helm revision. A regular deploy
+also uses the baseline, so keep the trial window bounded and record its start,
+end, and deployed chart version with IMPR-1363.
+
+Compare repeated runs of the same commit and job mix before, during, and after
+the trial. Record job queue and execution durations separately, node placement,
+checkout time, CPU use/throttled periods, and control-plane health. Use an inner
+`max by (pod, container)` before summing duplicate kubelet scrape series.
+Restore baseline if queue time or control-plane health regresses; retain the
+trial only if the end-to-end result improves. Successful Helm rollout alone
+does not demonstrate a speedup.
+
+A future dedicated fast worker pool would remove the control-plane CPU budget
+constraint. A modern 8-core host with local NVMe and 16–32GB RAM could begin
+with two runners, each requesting 2 CPUs/2Gi and limited to 3 CPUs/4Gi, leaving
+host CPU headroom. Route lint/e2e explicitly to that separate scale set and
+benchmark against the current pool before increasing concurrency. No dedicated
+hardware or additional scale set is provisioned by this trial.
 
 ## Teardown
 

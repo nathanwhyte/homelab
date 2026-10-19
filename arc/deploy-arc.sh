@@ -26,14 +26,22 @@ CONTROLLER_CHART="oci://ghcr.io/actions/actions-runner-controller-charts/gha-run
 SCALE_SET_CHART="oci://ghcr.io/actions/actions-runner-controller-charts/gha-runner-scale-set"
 TIMEOUT="5m"
 HELM_DIFF=0
+RUNNER_CPU_MODE=""
 
 usage() {
 	cat <<EOF
-Usage: $0 [--diff]
+Usage: $0 [--diff] [--runner-cpu-trial | --runner-cpu-baseline]
 
   --diff       Read-only preflight: run \`helm diff upgrade\` for both releases
-               without applying anything (no namespaces, no secret checks).
-               Requires the helm-diff plugin.
+               by default, or only the scale set with a runner CPU mode.
+               No namespaces or secret checks; requires the helm-diff plugin.
+  --runner-cpu-trial
+               IMPR-1363: update only the existing compendium scale set to
+               four runners with a 2-CPU limit. --diff previews this change.
+  --runner-cpu-baseline
+               Restore only that scale set to the checked-in baseline values.
+               Both CPU modes require deployed, matching controller/scale-set
+               releases and pin their installed chart version.
   -h, --help   Show this help.
 
 Chart version is pinned via \$ARC_CHART_VERSION (default: $CHART_VERSION).
@@ -45,6 +53,14 @@ while [ $# -gt 0 ]; do
 	case "$1" in
 	--diff)
 		HELM_DIFF=1
+		shift
+		;;
+	--runner-cpu-trial | --runner-cpu-baseline)
+		if [ -n "$RUNNER_CPU_MODE" ]; then
+			echo "Choose exactly one runner CPU mode." >&2
+			exit 2
+		fi
+		RUNNER_CPU_MODE="$1"
 		shift
 		;;
 	-h | --help)
@@ -93,6 +109,53 @@ helm_apply() {
 		--timeout "$TIMEOUT" \
 		-f "$values"
 }
+
+# CPU experiments are scale-set-only changes, never fresh installs or chart
+# upgrades. In particular, do not run the namespace, policy, or secret path.
+if [ -n "$RUNNER_CPU_MODE" ]; then
+	if ! command -v jq >/dev/null 2>&1; then
+		echo "jq is required for runner CPU modes." >&2
+		exit 1
+	fi
+	installed_chart_version() {
+		local release="$1" namespace="$2" chart="$3"
+		helm list --namespace "$namespace" --all --filter "^${release}$" --output json |
+			jq -er --arg release "$release" --arg namespace "$namespace" --arg prefix "$chart-" '
+              if length == 1 and .[0].name == $release and
+                 .[0].namespace == $namespace and .[0].status == "deployed" and
+                 (.[0].chart | startswith($prefix))
+              then .[0].chart | ltrimstr($prefix) | select(length > 0)
+              else error("expected one deployed " + $release + " release of the expected chart")
+              end'
+	}
+	CONTROLLER_VERSION="$(installed_chart_version arc arc-systems gha-runner-scale-set-controller)"
+	SCALE_SET_VERSION="$(installed_chart_version compendium arc-runners gha-runner-scale-set)"
+	if [ "$CONTROLLER_VERSION" != "$SCALE_SET_VERSION" ]; then
+		echo "CPU modes require matching installed chart versions; controller=$CONTROLLER_VERSION scale-set=$SCALE_SET_VERSION." >&2
+		exit 2
+	fi
+	if [ -n "${ARC_CHART_VERSION:-}" ] && [ "$ARC_CHART_VERSION" != "$SCALE_SET_VERSION" ]; then
+		echo "CPU modes cannot change chart version: installed=$SCALE_SET_VERSION ARC_CHART_VERSION=$ARC_CHART_VERSION." >&2
+		exit 2
+	fi
+	RUNNER_VALUES=(--version "$SCALE_SET_VERSION" --namespace arc-runners --reset-values
+		-f "$SCRIPT_DIR/runner-scale-set-compendium-values.yaml")
+	if [ "$RUNNER_CPU_MODE" = "--runner-cpu-trial" ]; then
+		# --set updates the existing runner element; a values overlay with a
+		# partial containers list would replace its image and security settings.
+		RUNNER_VALUES+=(--set 'minRunners=4,maxRunners=4,template.spec.containers[0].resources.requests.cpu=1000m,template.spec.containers[0].resources.limits.cpu=2')
+	fi
+	if [ "$HELM_DIFF" -eq 1 ]; then
+		if ! helm plugin list 2>/dev/null | grep -q '^diff[[:space:]]'; then
+			echo "ERROR: --diff requested but the helm-diff plugin is not installed." >&2
+			exit 1
+		fi
+		helm diff upgrade compendium "$SCALE_SET_CHART" "${RUNNER_VALUES[@]}"
+	else
+		helm upgrade compendium "$SCALE_SET_CHART" "${RUNNER_VALUES[@]}" --wait --timeout "$TIMEOUT"
+	fi
+	exit 0
+fi
 
 # --- Read-only diff mode: no kubectl applies, no secret gate. -----------------
 if [ "$HELM_DIFF" -eq 1 ]; then
