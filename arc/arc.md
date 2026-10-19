@@ -382,8 +382,25 @@ hardware or additional scale set is provisioned by this trial.
 
 `python3 arc/test-deploy-arc.py` runs in pre-commit and covers the ownership
 handoff's fail-closed contract, drain predicates, mode scoping, and recovery
-commands. For actual field-management behavior, use a disposable local
-Kubernetes API and Helm 4:
+commands. The `arc-ownership-integration` hook also runs the actual Helm/Kubernetes
+regression whenever deployment, ownership or runbook files change:
+
+```bash
+python3 arc/check-runner-count-ownership.py
+```
+
+It requires Helm 4, kubectl and a running local Linux Docker engine reached by
+a Unix socket. Missing tools, an unavailable engine or remote Docker fail the
+check; they never count as a skipped pass. The driver starts a uniquely named,
+digest-pinned K3s API without agents, publishes a random loopback-only port,
+and passes its generated credentials and server explicitly to the test. Docker
+needs privileged mode for this disposable container. No live Kubernetes context
+is consulted. The driver removes only its own labeled container on success,
+failure, timeout or handled interruption. The first run may pull the pinned
+image. The separate driver unit tests cover endpoint selection and cleanup.
+
+For debugging with an already prepared disposable API, the underlying test
+also accepts an explicit kubeconfig and loopback server:
 
 ```bash
 python3 arc/test-runner-count-ownership-integration.py \
