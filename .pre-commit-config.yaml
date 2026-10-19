@@ -34,6 +34,16 @@ repos:
     hooks:
       - id: gitleaks
 
+  - repo: local
+    hooks:
+      # Secret-named files (force-added past .gitignore) and Kubernetes Secrets
+      # with real values in any YAML/JSON, including kubectl dumps.
+      - id: secret-files
+        name: Secret files and Secret values
+        entry: _scripts/check-secret-files.py
+        language: python
+        additional_dependencies: [pyyaml==6.0.2]
+
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.16.6
     hooks:

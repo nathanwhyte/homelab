@@ -1,14 +1,25 @@
 # Sensitive files - tokens and credentials
-**/kube-token.txt
+# Anything named like a secret or credential is ignored, whatever its
+# extension. Commit the placeholder twin as `<name>.example` instead; the
+# `secret-files` pre-commit hook refuses a force-added one and any manifest
+# whose Secret carries a real value.
+**/*secret*
+**/*credential*
 **/*token*.txt
-**/*secret*.yaml
-**/*secret*.yml
 **/*.key
 **/*.pem
 **/*.crt
 **/*.p12
 **/*.pfx
 **/htpasswd
+**/rclone.conf
+**/rotated-creds-*.txt
+!**/*.example
+# Code that handles secrets is not itself one.
+!**/*secret*.py
+!**/*secret*.sh
+!**/*credential*.py
+!**/*credential*.sh
 
 # Kubernetes temporary files
 *.kubeconfig
@@ -21,8 +32,9 @@ kubeconfig
 
 # Environment files
 .env
-.env.local
-.env.*.local
+.env.*
+*.env
+!.env.example
 
 # Backup files
 *.bak
