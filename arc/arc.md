@@ -395,9 +395,21 @@ check; they never count as a skipped pass. The driver starts a uniquely named,
 digest-pinned K3s API without agents, publishes a random loopback-only port,
 and passes its generated credentials and server explicitly to the test. Docker
 needs privileged mode for this disposable container. No live Kubernetes context
-is consulted. The driver removes only its own labeled container on success,
-failure, timeout or handled interruption. The first run may pull the pinned
-image. The separate driver unit tests cover endpoint selection and cleanup.
+is consulted. Every Docker operation is pinned to the validated Unix socket,
+even if another terminal changes the active context. Credentials are copied
+into a caller-owned private file, so rootful Linux Docker works for a nonroot
+committer too. The driver kills the integration process group before cleanup
+on timeout or interruption, then removes only its own labeled container.
+
+An interrupted `docker create` can leave daemon-side creation pending. The
+driver retries identity-checked cleanup for ten seconds; if the outcome remains
+unknown, it fails with the path to a private `arc-ssa-recovery-*/container.json`
+receipt instead of claiming removal. The receipt preserves the original socket,
+container name and ownership token. Inspect that named container on that socket,
+compare its `compendium.arc-ssa-test` label with the receipt token, and remove it
+only on a match. Retain the receipt until the launch outcome is reconciled.
+The first run may pull the pinned image. Driver tests cover endpoint pinning,
+caller-owned credentials, delayed creation, recovery receipts and descendants.
 
 For debugging with an already prepared disposable API, the underlying test
 also accepts an explicit kubeconfig and loopback server:

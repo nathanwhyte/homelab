@@ -2,6 +2,7 @@
 """Run the Helm ownership regression in a fresh local Docker API server."""
 
 from contextlib import contextmanager
+import json
 import os
 from pathlib import Path
 import re
@@ -18,11 +19,46 @@ LABEL = "compendium.arc-ssa-test"
 ROOT = Path(__file__).resolve().parent
 
 
-def run(*args, timeout=30, check=True):
-    result = subprocess.run(args, capture_output=True, text=True, timeout=timeout)
+def run(*args, timeout=30, check=True, env=None):
+    process = subprocess.Popen(
+        args,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        start_new_session=True,
+        env=env,
+    )
+    try:
+        stdout, stderr = process.communicate(timeout=timeout)
+    except BaseException:
+        # The integration launches Helm/kubectl grandchildren. Kill the entire
+        # isolated group before its API server is removed.
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        process.communicate()
+        raise
+    result = subprocess.CompletedProcess(args, process.returncode, stdout, stderr)
     if check and result.returncode:
         raise RuntimeError(f"{args[0]} {args[1]} failed: {result.stderr.strip()}")
     return result
+
+
+def docker(endpoint, *args, **kwargs):
+    env = {
+        k: v
+        for k, v in os.environ.items()
+        if k
+        not in (
+            "DOCKER_CONTEXT",
+            "DOCKER_HOST",
+            "DOCKER_TLS",
+            "DOCKER_TLS_VERIFY",
+            "DOCKER_CERT_PATH",
+        )
+    }
+    return run("docker", "--host", endpoint, *args, env=env, **kwargs)
 
 
 def local_docker_endpoint():
@@ -47,9 +83,9 @@ def local_docker_endpoint():
     return endpoint
 
 
-def cleanup(name, token):
-    result = run(
-        "docker",
+def cleanup(endpoint, name, token):
+    result = docker(
+        endpoint,
         "inspect",
         name,
         "--format",
@@ -60,29 +96,40 @@ def cleanup(name, token):
         # A successful --rm exit already removed it. Daemon errors are not
         # proof of cleanup; retain the exact identity in the diagnostic.
         if "No such object" in result.stderr or "No such container" in result.stderr:
-            return
+            return False
         raise RuntimeError(f"cannot verify cleanup for {name}: {result.stderr.strip()}")
     if result.stdout.strip() != token:
         raise RuntimeError(
             f"refusing cleanup of container with a different owner: {name}"
         )
-    run("docker", "rm", "--force", name)
+    docker(endpoint, "rm", "--force", name)
+    return True
 
 
 @contextmanager
-def disposable_api():
+def disposable_api(endpoint):
     token = uuid.uuid4().hex
     name = "arc-ssa-test-" + token
+    # Pulling does not create a container, so do it before opening a launch
+    # receipt. A killed Docker create client can leave daemon work pending.
+    docker(endpoint, "pull", IMAGE, timeout=180)
+    receipt_dir = Path(tempfile.mkdtemp(prefix="arc-ssa-recovery-"))
+    receipt = receipt_dir / "container.json"
+    receipt.write_text(
+        json.dumps({"endpoint": endpoint, "name": name, "label": LABEL, "token": token})
+        + "\n"
+    )
+    receipt.chmod(0o600)
+    created = False
     with tempfile.TemporaryDirectory(prefix="arc-ssa-api-") as directory:
         output = Path(directory)
         kubeconfig = output / "kubeconfig"
         try:
             # No Kubernetes context is consulted. The credential belongs only
             # to this new API server, which has no agents or host resources.
-            run(
-                "docker",
-                "run",
-                "--detach",
+            docker(
+                endpoint,
+                "create",
                 "--rm",
                 "--privileged",
                 "--name",
@@ -91,12 +138,6 @@ def disposable_api():
                 f"{LABEL}={token}",
                 "-p",
                 "127.0.0.1::6443",
-                "-v",
-                f"{output}:/output",
-                "-e",
-                "K3S_KUBECONFIG_OUTPUT=/output/kubeconfig",
-                "-e",
-                "K3S_KUBECONFIG_MODE=600",
                 IMAGE,
                 "server",
                 "--disable-agent",
@@ -105,12 +146,29 @@ def disposable_api():
                 "127.0.0.1",
                 timeout=180,
             )
-            address = run("docker", "port", name, "6443/tcp").stdout.strip()
+            created = True
+            docker(endpoint, "start", name, timeout=30)
+            address = docker(endpoint, "port", name, "6443/tcp").stdout.strip()
             if not re.fullmatch(r"127\.0\.0\.1:[0-9]+", address):
                 raise RuntimeError(f"unexpected disposable API binding: {address!r}")
             server = "https://" + address
             deadline = time.monotonic() + 60
             while time.monotonic() < deadline:
+                if not kubeconfig.exists():
+                    credential = docker(
+                        endpoint,
+                        "exec",
+                        name,
+                        "cat",
+                        "/etc/rancher/k3s/k3s.yaml",
+                        check=False,
+                    )
+                    if credential.returncode == 0 and credential.stdout.strip():
+                        # Docker's root-owned file stays inside the container.
+                        # The caller creates its own private credential copy.
+                        with kubeconfig.open("x") as handle:
+                            os.fchmod(handle.fileno(), 0o600)
+                            handle.write(credential.stdout)
                 if kubeconfig.is_file():
                     ready = run(
                         "kubectl",
@@ -133,7 +191,27 @@ def disposable_api():
                 )
             yield kubeconfig, server
         finally:
-            cleanup(name, token)
+            try:
+                removed = cleanup(endpoint, name, token)
+                if not created and not removed:
+                    # Bounded reconciliation can catch delayed registration,
+                    # but absence cannot prove a failed create has finished.
+                    for _ in range(10):
+                        time.sleep(1)
+                        if cleanup(endpoint, name, token):
+                            removed = True
+                            break
+                    if not removed:
+                        raise RuntimeError(
+                            "container creation outcome remains indeterminate"
+                        )
+            except BaseException as exc:
+                raise RuntimeError(
+                    f"cleanup unconfirmed; retain recovery receipt {receipt}: {exc}"
+                ) from exc
+            else:
+                receipt.unlink()
+                receipt_dir.rmdir()
 
 
 def main():
@@ -142,12 +220,12 @@ def main():
             raise RuntimeError(
                 f"required tool missing: {tool}; integration validation did not run"
             )
-    local_docker_endpoint()
-    if run("docker", "info", "--format", "{{.OSType}}").stdout.strip() != "linux":
+    endpoint = local_docker_endpoint()
+    if docker(endpoint, "info", "--format", "{{.OSType}}").stdout.strip() != "linux":
         raise RuntimeError("a running local Linux Docker engine is required")
     if not run("helm", "version", "--short").stdout.strip().startswith("v4."):
         raise RuntimeError("Helm 4 is required for the SSA regression")
-    with disposable_api() as (kubeconfig, server):
+    with disposable_api(endpoint) as (kubeconfig, server):
         result = run(
             sys.executable,
             str(ROOT / "test-runner-count-ownership-integration.py"),

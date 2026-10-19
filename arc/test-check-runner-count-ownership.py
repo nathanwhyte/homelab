@@ -5,6 +5,8 @@ import importlib.util
 import os
 from pathlib import Path
 import subprocess
+import sys
+import tempfile
 import unittest
 from unittest.mock import patch
 
@@ -46,22 +48,80 @@ class DriverTests(unittest.TestCase):
     def test_cleanup_refuses_foreign_identity(self):
         with patch.object(driver, "run", return_value=result("another-owner\n")) as run:
             with self.assertRaisesRegex(RuntimeError, "different owner"):
-                driver.cleanup("arc-ssa-test-example", "our-token")
+                driver.cleanup(
+                    "unix:///original.sock", "arc-ssa-test-example", "our-token"
+                )
             self.assertEqual(run.call_count, 1)
 
-    def test_failed_start_checks_for_its_own_orphan(self):
-        with patch.object(
-            driver,
-            "run",
-            side_effect=[
-                RuntimeError("launch failed"),
-                result(stderr="No such object: absent", code=1),
-            ],
-        ) as run:
-            with self.assertRaisesRegex(RuntimeError, "launch failed"):
-                with driver.disposable_api():
-                    self.fail("launch failure must not yield an API")
-            self.assertEqual(run.call_args.args[:2], ("docker", "inspect"))
+    def test_every_docker_command_pins_original_endpoint(self):
+        with (
+            patch.dict(
+                os.environ, {"DOCKER_CONTEXT": "other", "DOCKER_HOST": "ssh://other"}
+            ),
+            patch.object(driver, "run", return_value=result()) as run,
+        ):
+            driver.docker("unix:///original.sock", "inspect", "fixture")
+        self.assertEqual(
+            run.call_args.args[:3], ("docker", "--host", "unix:///original.sock")
+        )
+        self.assertNotIn("DOCKER_CONTEXT", run.call_args.kwargs["env"])
+        self.assertNotIn("DOCKER_HOST", run.call_args.kwargs["env"])
+
+    def test_interrupted_create_reconciles_late_registration_or_keeps_receipt(self):
+        for late in (True, False):
+            with self.subTest(late=late), tempfile.TemporaryDirectory() as tmp:
+                receipt_dir = Path(tmp) / "recovery"
+                receipt_dir.mkdir(mode=0o700)
+                original_mkdtemp = tempfile.mkdtemp
+
+                def directory(*args, **kwargs):
+                    if kwargs.get("prefix") == "arc-ssa-recovery-":
+                        return str(receipt_dir)
+                    return original_mkdtemp(*args, **kwargs)
+
+                with (
+                    patch.object(driver.tempfile, "mkdtemp", side_effect=directory),
+                    patch.object(
+                        driver,
+                        "docker",
+                        side_effect=[
+                            result(),
+                            subprocess.TimeoutExpired("create", 180),
+                        ],
+                    ),
+                    patch.object(
+                        driver,
+                        "cleanup",
+                        side_effect=([False, False, True] if late else [False] * 11),
+                    ) as cleanup,
+                    patch.object(driver.time, "sleep"),
+                ):
+                    with self.assertRaises(
+                        subprocess.TimeoutExpired if late else RuntimeError
+                    ):
+                        with driver.disposable_api("unix:///original.sock"):
+                            self.fail("create timeout cannot yield an API")
+                self.assertEqual(receipt_dir.exists(), not late)
+                self.assertEqual(cleanup.call_count, 3 if late else 11)
+                if not late:
+                    self.assertIn(
+                        "unix:///original.sock",
+                        (receipt_dir / "container.json").read_text(),
+                    )
+
+    def test_timeout_kills_descendants_before_return(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            marker = Path(tmp) / "survivor"
+            child = f"import time; from pathlib import Path; time.sleep(1); Path({str(marker)!r}).touch()"
+            parent = f"import subprocess,sys,time; subprocess.Popen([sys.executable,'-c',{child!r}]); time.sleep(30)"
+            with self.assertRaises(subprocess.TimeoutExpired):
+                driver.run(sys.executable, "-c", parent, timeout=0.3)
+            # A separate process waits after run has returned; no surviving
+            # grandchild should be able to write its marker.
+            subprocess.run(
+                [sys.executable, "-c", "import time; time.sleep(1.2)"], check=True
+            )
+            self.assertFalse(marker.exists())
 
     def test_success_and_interruption_remove_only_the_owned_container(self):
         for interrupt in (False, True):
@@ -69,18 +129,23 @@ class DriverTests(unittest.TestCase):
                 state = {}
 
                 def command(*args, **kwargs):
-                    if args[:2] == ("docker", "run"):
+                    if args[:2] == ("docker", "--host"):
+                        self.assertEqual(args[2], "unix:///original.sock")
+                        self.assertNotIn("DOCKER_CONTEXT", kwargs["env"])
+                        args = ("docker", *args[3:])
+                    if args[:2] in (("docker", "pull"), ("docker", "start")):
+                        return result()
+                    if args[:2] == ("docker", "create"):
                         state["name"] = args[args.index("--name") + 1]
                         state["token"] = args[args.index("--label") + 1].split("=", 1)[
                             1
                         ]
-                        output = Path(
-                            args[args.index("-v") + 1].removesuffix(":/output")
-                        )
-                        (output / "kubeconfig").write_text("isolated credential")
+                        self.assertNotIn("-v", args)
                         self.assertIn("127.0.0.1::6443", args)
                         self.assertIn(driver.IMAGE, args)
                         return result("container-id")
+                    if args[:2] == ("docker", "exec"):
+                        return result("isolated credential")
                     if args[:2] == ("docker", "port"):
                         return result("127.0.0.1:49152\n")
                     if args[0] == "kubectl":
@@ -98,8 +163,13 @@ class DriverTests(unittest.TestCase):
 
                 with patch.object(driver, "run", side_effect=command):
                     try:
-                        with driver.disposable_api() as (config, server):
+                        with driver.disposable_api("unix:///original.sock") as (
+                            config,
+                            server,
+                        ):
                             self.assertTrue(config.is_file())
+                            self.assertEqual(config.stat().st_uid, os.getuid())
+                            self.assertEqual(config.stat().st_mode & 0o777, 0o600)
                             self.assertEqual(server, "https://127.0.0.1:49152")
                             if interrupt:
                                 raise KeyboardInterrupt
