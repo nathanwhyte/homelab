@@ -253,14 +253,14 @@ def make_handler(cfg: Config, stats: Stats):
             self._reply(status, data, out, length)
 
         def _get_or_head(self) -> None:
-            path = self._routed()
-            if path is None:
+            req = self._with_body()
+            if req is None:
                 return
-            if path == "/healthz":
+            if req[0] == "/healthz":
                 data = json.dumps(stats.snapshot()).encode()
                 self._reply(200, data, length=str(len(data)))
                 return
-            self._forward(self.command)
+            self._forward(self.command, req[1])
 
         do_GET = do_HEAD = _get_or_head
 

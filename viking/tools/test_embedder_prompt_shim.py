@@ -57,7 +57,10 @@ class FakeUpstream(BaseHTTPRequestHandler):
         self.wfile.write(data)
 
     def do_GET(self):
-        self._answer(None)
+        if "Content-Length" in self.headers:
+            self.do_POST()
+        else:
+            self._answer(None)
 
     def do_HEAD(self):
         # The headers of the GET answer, without its body.
@@ -290,6 +293,15 @@ class ShimTest(unittest.TestCase):
             nxt = conn.getresponse()
             self.assertEqual(json.loads(nxt.read()), {"echo": None})
         conn.close()
+
+    def test_get_body_is_forwarded(self):
+        conn = http.client.HTTPConnection("127.0.0.1", self.shim.server_port, timeout=5)
+        conn.request("GET", "/v1/models", b"payload", {"Content-Type": "text/plain"})
+        resp = conn.getresponse()
+        resp.read()
+        conn.close()
+        self.assertEqual(resp.status, 200)
+        self.assertEqual(FakeUpstream.requests[0]["body"], "payload")
 
     def test_head_healthz_is_local(self):
         conn = http.client.HTTPConnection("127.0.0.1", self.shim.server_port, timeout=5)
