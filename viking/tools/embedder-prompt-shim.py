@@ -16,10 +16,16 @@ removed and its input untouched, so stored document vectors stay identical to
 direct-embedder vectors and no reindex is needed. Ported from the TASK-1218 prototype (prefix-shim.py). Stdlib only.
 
 GET /healthz answers locally and never touches the upstream.
+
+Requests and responses keep their end-to-end headers (hop-by-hop ones and the
+length are recomputed), redirects are relayed rather than followed, and chunked
+request bodies are decoded. On SIGTERM the server stops accepting connections and
+finishes the requests in flight before exiting.
 """
 
 from __future__ import annotations
 
+import http.client
 import json
 import os
 import signal
@@ -27,17 +33,41 @@ import sys
 import threading
 from collections import Counter
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.error import HTTPError, URLError
-from urllib.request import Request, urlopen
+from urllib.parse import urlsplit
 
-# Headers copied onto the upstream request; hop-by-hop ones are left out.
-FORWARD_HEADERS = ("Authorization", "Accept")
+# RFC 9110 hop-by-hop headers, plus the ones recomputed for each leg.
+HOP_BY_HOP = {
+    "connection",
+    "keep-alive",
+    "proxy-authenticate",
+    "proxy-authorization",
+    "proxy-connection",
+    "te",
+    "trailer",
+    "transfer-encoding",
+    "upgrade",
+    "host",
+    "content-length",
+}
+# BaseHTTPRequestHandler writes its own Server and Date on every response.
+RESPONSE_OWN = {"server", "date"}
 LOG_EVERY = 500
+
+
+class BadRequest(ValueError):
+    pass
 
 
 class Config:
     def __init__(self, upstream: str, prompts: dict[str, str], timeout: float):
         self.upstream = upstream.rstrip("/")
+        parts = urlsplit(self.upstream)
+        if parts.scheme not in ("http", "https") or not parts.hostname:
+            raise ValueError(f"SHIM_UPSTREAM must be an http(s) URL: {upstream!r}")
+        self.scheme = parts.scheme
+        self.host = parts.hostname
+        self.port = parts.port
+        self.base_path = parts.path
         self.prompts = prompts
         self.timeout = timeout
 
@@ -73,7 +103,7 @@ class Stats:
 def rewrite(body: dict, prompts: dict[str, str]) -> tuple[bytes | None, str]:
     """Return (forward body or None if unchanged, input_type) or raise ValueError."""
     kind = body.pop("input_type", None)
-    if kind not in prompts:
+    if not isinstance(kind, str) or kind not in prompts:
         raise ValueError(f"input_type {kind!r} is not one of {sorted(prompts)}")
     prefix = prompts[kind]
     if not prefix:
@@ -86,11 +116,30 @@ def rewrite(body: dict, prompts: dict[str, str]) -> tuple[bytes | None, str]:
     return json.dumps(body).encode(), kind
 
 
+def end_to_end(headers) -> list[tuple[str, str]]:
+    """Headers minus hop-by-hop ones, including any the Connection header names."""
+    named = {
+        token.strip().lower()
+        for value in headers.get_all("Connection", []) or []
+        for token in value.split(",")
+    }
+    return [
+        (k, v)
+        for k, v in headers.items()
+        if k.lower() not in HOP_BY_HOP and k.lower() not in named
+    ]
+
+
 def make_handler(cfg: Config, stats: Stats):
     class Shim(BaseHTTPRequestHandler):
-        def _reply(self, status: int, data: bytes) -> None:
+        def _reply(
+            self, status: int, data: bytes, headers: list[tuple[str, str]] | None = None
+        ) -> None:
             self.send_response(status)
-            self.send_header("Content-Type", "application/json")
+            if headers is None:
+                headers = [("Content-Type", "application/json")]
+            for k, v in headers:
+                self.send_header(k, v)
             self.send_header("Content-Length", str(len(data)))
             self.end_headers()
             self.wfile.write(data)
@@ -100,33 +149,77 @@ def make_handler(cfg: Config, stats: Stats):
             payload = {"error": {"code": status, "message": f"shim: {message}"}}
             self._reply(status, json.dumps(payload).encode())
 
+        def _read_body(self) -> bytes:
+            """The request body, de-chunked; raise BadRequest on bad framing."""
+            if "chunked" in self.headers.get("Transfer-Encoding", "").lower():
+                chunks = []
+                while True:
+                    line = self.rfile.readline(65537)
+                    try:
+                        size = int(line.split(b";", 1)[0].strip(), 16)
+                    except ValueError:
+                        raise BadRequest("bad chunk size") from None
+                    if size == 0:
+                        while self.rfile.readline(65537).strip():
+                            pass  # trailers
+                        return b"".join(chunks)
+                    chunk = self.rfile.read(size)
+                    if len(chunk) != size or self.rfile.read(2) != b"\r\n":
+                        raise BadRequest("incomplete chunked body")
+                    chunks.append(chunk)
+            length = self.headers.get("Content-Length")
+            if length is None:
+                return b""
+            if not length.strip().isdigit():
+                raise BadRequest(f"bad Content-Length {length!r}")
+            n = int(length)
+            raw = self.rfile.read(n)
+            if len(raw) != n:
+                raise BadRequest(f"body ended after {len(raw)} of {n} bytes")
+            return raw
+
         def _forward(self, method: str, body: bytes | None = None) -> None:
-            headers = {"Content-Type": "application/json"}
-            for name in FORWARD_HEADERS:
-                if self.headers.get(name):
-                    headers[name] = self.headers[name]
-            req = Request(
-                cfg.upstream + self.path, data=body, method=method, headers=headers
+            headers = dict(end_to_end(self.headers))
+            if body is not None and not any(
+                k.lower() == "content-type" for k in headers
+            ):
+                headers["Content-Type"] = "application/json"
+            conn_cls = (
+                http.client.HTTPSConnection
+                if cfg.scheme == "https"
+                else http.client.HTTPConnection
             )
+            conn = conn_cls(cfg.host, cfg.port, timeout=cfg.timeout)
             try:
-                with urlopen(req, timeout=cfg.timeout) as r:
-                    status, data = r.status, r.read()
-            except HTTPError as e:
-                status, data = e.code, e.read()
-            except (URLError, OSError) as e:
+                conn.request(method, cfg.base_path + self.path, body, headers)
+                resp = conn.getresponse()
+                status, data = resp.status, resp.read()
+                out = [
+                    (k, v)
+                    for k, v in end_to_end(resp.msg)
+                    if k.lower() not in RESPONSE_OWN
+                ]
+            except (OSError, http.client.HTTPException) as e:
                 self._error(502, f"upstream unreachable: {e}")
                 return
-            self._reply(status, data)
+            finally:
+                conn.close()
+            self._reply(status, data, out)
 
         def do_GET(self):
-            if self.path == "/healthz":
+            if urlsplit(self.path).path == "/healthz":
                 self._reply(200, json.dumps(stats.snapshot()).encode())
                 return
             self._forward("GET")
 
         def do_POST(self):
-            raw = self.rfile.read(int(self.headers.get("Content-Length", 0)))
-            if not self.path.rstrip("/").endswith("/embeddings"):
+            try:
+                raw = self._read_body()
+            except BadRequest as e:
+                self.close_connection = True
+                self._error(400, str(e))
+                return
+            if not urlsplit(self.path).path.rstrip("/").endswith("/embeddings"):
                 self._forward("POST", raw)
                 return
             try:
@@ -156,14 +249,21 @@ def main() -> int:
         flush=True,
     )
     server = ThreadingHTTPServer(("0.0.0.0", port), make_handler(cfg, stats))
-    server.daemon_threads = True
-    # Kubernetes stops the pod with SIGTERM; exit through the finally below.
-    signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
+    # Non-daemon handler threads, joined by server_close(), so requests in flight
+    # finish before exit. Kubernetes sends SIGTERM after the preStop sleep, once
+    # the pod is out of the Service; shutdown() must run off the serving thread.
+    server.daemon_threads = False
+    server.block_on_close = True
+    signal.signal(
+        signal.SIGTERM,
+        lambda *_: threading.Thread(target=server.shutdown, daemon=True).start(),
+    )
     try:
         server.serve_forever()
     except KeyboardInterrupt:
         pass
     finally:
+        server.server_close()
         print("final", json.dumps(stats.snapshot()), flush=True)
     return 0
 

@@ -3,10 +3,16 @@
 
 from __future__ import annotations
 
+import http.client
 import importlib.util
 import json
 import os
+import signal
+import socket
+import subprocess
+import sys
 import threading
+import time
 import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.error import HTTPError
@@ -23,10 +29,12 @@ QUERY_PREFIX = "Instruct: Given a web search query, retrieve relevant passages t
 
 
 class FakeUpstream(BaseHTTPRequestHandler):
-    """Records each request; answers 200 with the parsed body, or `status`."""
+    """Records each request; answers `status` (200) with the parsed body echoed."""
 
     requests: list[dict] = []
     status = 200
+    extra_headers: list[tuple[str, str]] = []
+    delay = 0.0
 
     def _answer(self, body):
         FakeUpstream.requests.append(
@@ -35,11 +43,15 @@ class FakeUpstream(BaseHTTPRequestHandler):
                 "path": self.path,
                 "body": body,
                 "auth": self.headers.get("Authorization"),
+                "content_type": self.headers.get("Content-Type"),
             }
         )
+        time.sleep(FakeUpstream.delay)
         data = json.dumps({"echo": body}).encode()
         self.send_response(FakeUpstream.status)
         self.send_header("Content-Type", "application/json")
+        for k, v in FakeUpstream.extra_headers:
+            self.send_header(k, v)
         self.send_header("Content-Length", str(len(data)))
         self.end_headers()
         self.wfile.write(data)
@@ -48,7 +60,11 @@ class FakeUpstream(BaseHTTPRequestHandler):
         self._answer(None)
 
     def do_POST(self):
-        self._answer(json.loads(self.rfile.read(int(self.headers["Content-Length"]))))
+        raw = self.rfile.read(int(self.headers["Content-Length"]))
+        try:
+            self._answer(json.loads(raw))
+        except ValueError:
+            self._answer(raw.decode())
 
     def log_message(self, *args):
         pass
@@ -83,6 +99,19 @@ class ShimTest(unittest.TestCase):
     def setUp(self):
         FakeUpstream.requests = []
         FakeUpstream.status = 200
+        FakeUpstream.extra_headers = []
+        FakeUpstream.delay = 0.0
+
+    def raw_request(self, data: bytes, shut_write: bool = False) -> bytes:
+        """Send bytes on a bare socket and return the whole response."""
+        with socket.create_connection(("127.0.0.1", self.shim.server_port), 5) as s:
+            s.sendall(data)
+            if shut_write:
+                s.shutdown(socket.SHUT_WR)
+            out = b""
+            while chunk := s.recv(65536):
+                out += chunk
+        return out
 
     def call(self, path, body=None, raw=None, headers=None):
         data = (
@@ -184,6 +213,140 @@ class ShimTest(unittest.TestCase):
         status, _ = self.call("/healthz")
         self.assertEqual(status, 200)
         self.assertEqual(FakeUpstream.requests, [])
+
+    def test_query_string_does_not_bypass_the_rewrite(self):
+        status, _ = self.call(
+            "/v1/embeddings?trace=1", {"input": "x", "input_type": "query"}
+        )
+        self.assertEqual(status, 200)
+        sent = FakeUpstream.requests[0]
+        self.assertEqual(sent["path"], "/v1/embeddings?trace=1")
+        self.assertEqual(sent["body"], {"input": [QUERY_PREFIX + "x"]})
+        status, _ = self.call("/v1/embeddings?trace=1", {"input": "x"})
+        self.assertEqual(status, 400)
+
+    def test_non_string_input_type_is_a_400(self):
+        for kind in ([], {}, 1):
+            status, _ = self.call("/v1/embeddings", {"input": "x", "input_type": kind})
+            self.assertEqual(status, 400, kind)
+        self.assertEqual(FakeUpstream.requests, [])
+
+    def test_chunked_body_is_decoded(self):
+        body = json.dumps({"input": "x", "input_type": "query"}).encode()
+        conn = http.client.HTTPConnection("127.0.0.1", self.shim.server_port, timeout=5)
+        conn.request(
+            "POST",
+            "/v1/embeddings",
+            iter([body[:7], body[7:]]),
+            {"Content-Type": "application/json", "Transfer-Encoding": "chunked"},
+            encode_chunked=True,
+        )
+        resp = conn.getresponse()
+        resp.read()
+        conn.close()
+        self.assertEqual(resp.status, 200)
+        self.assertEqual(
+            FakeUpstream.requests[0]["body"], {"input": [QUERY_PREFIX + "x"]}
+        )
+
+    def test_short_body_is_rejected_not_forwarded(self):
+        body = json.dumps({"input": "x", "input_type": "document"}).encode()
+        head = (
+            b"POST /v1/embeddings HTTP/1.1\r\nHost: shim\r\n"
+            b"Content-Type: application/json\r\nContent-Length: 500\r\n\r\n"
+        )
+        out = self.raw_request(head + body, shut_write=True)
+        self.assertTrue(out.startswith(b"HTTP/1.0 400"), out[:40])
+        self.assertEqual(FakeUpstream.requests, [])
+
+    def test_bad_content_length_is_a_400(self):
+        out = self.raw_request(
+            b"POST /v1/embeddings HTTP/1.1\r\nHost: shim\r\nContent-Length: ten\r\n\r\n"
+        )
+        self.assertTrue(out.startswith(b"HTTP/1.0 400"), out[:40])
+
+    def test_end_to_end_headers_are_kept(self):
+        FakeUpstream.status = 429
+        FakeUpstream.extra_headers = [("Retry-After", "17")]
+        req = Request(
+            self.base + "/v1/other",
+            data=b"plain",
+            method="POST",
+            headers={"Content-Type": "text/plain"},
+        )
+        with self.assertRaises(HTTPError) as ctx:
+            urlopen(req, timeout=5)
+        with ctx.exception as e:
+            self.assertEqual(e.code, 429)
+            self.assertEqual(e.headers["Retry-After"], "17")
+        self.assertEqual(FakeUpstream.requests[0]["content_type"], "text/plain")
+        self.assertEqual(FakeUpstream.requests[0]["body"], "plain")
+
+    def test_redirect_is_relayed_not_followed(self):
+        FakeUpstream.status = 302
+        FakeUpstream.extra_headers = [("Location", "/elsewhere")]
+        conn = http.client.HTTPConnection("127.0.0.1", self.shim.server_port, timeout=5)
+        conn.request("GET", "/v1/models")
+        resp = conn.getresponse()
+        resp.read()
+        conn.close()
+        self.assertEqual(resp.status, 302)
+        self.assertEqual(resp.getheader("Location"), "/elsewhere")
+        self.assertEqual(len(FakeUpstream.requests), 1)
+
+
+class DrainOnSigtermTest(unittest.TestCase):
+    def test_request_in_flight_finishes_after_sigterm(self):
+        upstream = serve(FakeUpstream)
+        FakeUpstream.requests, FakeUpstream.status = [], 200
+        FakeUpstream.extra_headers, FakeUpstream.delay = [], 1.5
+        probe = socket.socket()
+        probe.bind(("127.0.0.1", 0))
+        port = probe.getsockname()[1]
+        probe.close()
+        env = {
+            **os.environ,
+            "SHIM_PORT": str(port),
+            "SHIM_UPSTREAM": f"http://127.0.0.1:{upstream.server_port}",
+            "SHIM_QUERY_PREFIX": "q: ",
+        }
+        proc = subprocess.Popen(
+            [sys.executable, os.path.join(_DIR, "embedder-prompt-shim.py")],
+            env=env,
+            stdout=subprocess.DEVNULL,
+        )
+        try:
+            for _ in range(50):
+                try:
+                    socket.create_connection(("127.0.0.1", port), 0.2).close()
+                    break
+                except OSError:
+                    time.sleep(0.1)
+            result = {}
+
+            def post():
+                req = Request(
+                    f"http://127.0.0.1:{port}/v1/embeddings",
+                    data=json.dumps({"input": "x", "input_type": "document"}).encode(),
+                    method="POST",
+                    headers={"Content-Type": "application/json"},
+                )
+                with urlopen(req, timeout=10) as r:
+                    result["status"] = r.status
+
+            t = threading.Thread(target=post)
+            t.start()
+            time.sleep(0.5)  # the upstream is now holding the request
+            proc.send_signal(signal.SIGTERM)
+            t.join(10)
+            self.assertEqual(result.get("status"), 200)
+            self.assertEqual(proc.wait(10), 0)
+        finally:
+            FakeUpstream.delay = 0.0
+            if proc.poll() is None:
+                proc.kill()
+            upstream.shutdown()
+            upstream.server_close()
 
 
 class UpstreamDownTest(unittest.TestCase):

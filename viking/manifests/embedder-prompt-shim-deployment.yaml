@@ -32,9 +32,11 @@ spec:
         app: embedder-prompt-shim
       annotations:
         # Bump to roll the pods after a script-only change (read at start).
-        homelab.nathanwhyte.dev/config-rev: "1"
+        homelab.nathanwhyte.dev/config-rev: "2"
     spec:
-      terminationGracePeriodSeconds: 30
+      # The shim drains requests in flight after SIGTERM; a large document batch
+      # on a busy embedder can take well over the default 30 s.
+      terminationGracePeriodSeconds: 120
       affinity:
         podAntiAffinity:
           # Preferred, not required: a node down to two still schedules both.

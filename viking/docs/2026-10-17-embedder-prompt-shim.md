@@ -50,7 +50,12 @@ OpenViking treats `query_param` and `document_param` as part of the embedding id
 | params set (after cutover) | params unset (ov-test, rolled-back prod) | **refused** | re-embeds every record |
 | params set | params set | restores vectors | restores vectors |
 
-Restore procedure for a pack whose param setting differs from the server's: temporarily match the server's params to the pack (documents embed identically either way, so the stored vectors stay valid), import with `vector_mode=require`, then put the params back and restart. Queries embedded while the params are off are unprefixed, so do it in a quiet window.
+Restore procedure for a pack whose param setting differs from the server's: temporarily switch the server's whole `embedding.dense` route to the pack's setting, import, then switch it back. Documents embed identically either way, so the stored vectors stay valid. `api_base` and the two params always change together, because the shim answers 400 to any embedding request without `input_type`:
+
+1. **Params-unset pack into a params-set server** (any pack taken before 2026-10-19 04:28 UTC into production now): apply the Rollback configuration (`api_base` to `embedder-qwen`, both params removed) and restart `deploy/openviking`. Import with `vector_mode=require`. Then reapply cutover step 4 and restart again.
+2. **Params-set pack into a params-unset server** (ov-test, or a rolled-back production): apply cutover step 4 (`api_base` to the shim, both params added) and restart. Import with `vector_mode=require`. Then revert and restart again.
+
+While the route is switched, queries embed in the pack's form, and recall floors are fitted for the other one. Do it in a quiet window.
 
 On the S3 AGFS backend, `/pack/import` reports `Resource already exists` for any target, because listing a missing prefix returns an empty list instead of NotFound. Pass `on_conflict: overwrite` for a target known to be empty. The import writes one object at a time: the 2,583-entry compendium pack took about 60 minutes on ov-test, so call it with a long client timeout or poll the vector count.
 
