@@ -1,0 +1,121 @@
+---
+# Embedding prompt shim (IMPR-1344): OpenViking -> embedder-prompt-shim ->
+# embedder-qwen. Prepends Qwen3-Embedding's query instruction to requests OV
+# marks input_type=query and forwards documents with their input unchanged, so
+# stored vectors stay valid. Script: viking/tools/embedder-prompt-shim.py, shipped
+# as the embedder-prompt-shim ConfigMap (regen-prompt-shim-configmap.sh).
+#
+# Every OV embedding call passes through here, so two replicas spread across
+# nodes and a rollout that never drops below two ready pods. CPU only.
+# Rollback: point OV's embedding.dense.api_base back at embedder-qwen and drop
+# query_param/document_param; this Deployment can then be scaled to 0.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: embedder-prompt-shim
+  namespace: viking
+  labels:
+    app: embedder-prompt-shim
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app: embedder-prompt-shim
+  template:
+    metadata:
+      labels:
+        app: embedder-prompt-shim
+      annotations:
+        # Bump to roll the pods after a script-only change (read at start).
+        homelab.nathanwhyte.dev/config-rev: "2"
+    spec:
+      # The shim drains requests in flight after SIGTERM, so the grace period
+      # covers the preStop sleep (5 s) plus a whole SHIM_UPSTREAM_TIMEOUT (300 s),
+      # with a margin. Change the two together.
+      terminationGracePeriodSeconds: 330
+      affinity:
+        podAntiAffinity:
+          # Preferred, not required: a node down to two still schedules both.
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                topologyKey: kubernetes.io/hostname
+                labelSelector:
+                  matchLabels:
+                    app: embedder-prompt-shim
+      containers:
+        - name: shim
+          # Same digest as ov-lock-watchdog. Stdlib only; nothing installed.
+          image: python:3.13-slim@sha256:eb43ff125d8d58d7449dcba7d336c23bcac412f526d861db493b9994d8010280
+          imagePullPolicy: IfNotPresent
+          command:
+            - python3
+            - /scripts/embedder-prompt-shim.py
+          env:
+            - name: SHIM_PORT
+              value: "8080"
+            - name: SHIM_UPSTREAM
+              value: http://embedder-qwen.viking.svc.cluster.local:8080
+            # Bounded by terminationGracePeriodSeconds above.
+            - name: SHIM_UPSTREAM_TIMEOUT
+              value: "300"
+            # QWEN_INSTRUCT from benchmark_embedders.py, trailing space included
+            # (TASK-1218: 13/34 -> 19/34 fixture top-1 through OV's chunked path).
+            - name: SHIM_QUERY_PREFIX
+              value: "Instruct: Given a web search query, retrieve relevant passages that answer the query\nQuery: "
+            # Documents embed exactly as today, so no reindex.
+            - name: SHIM_DOCUMENT_PREFIX
+              value: ""
+          ports:
+            - name: http
+              containerPort: 8080
+          # /healthz is local: an embedder outage must not eject the shim too.
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            periodSeconds: 10
+            timeoutSeconds: 3
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 4
+          lifecycle:
+            # Let the Service drop this endpoint before the process exits.
+            preStop:
+              exec:
+                command: ["sleep", "5"]
+          resources:
+            requests:
+              cpu: 20m
+              memory: 48Mi
+            limits:
+              memory: 256Mi
+          volumeMounts:
+            - name: scripts
+              mountPath: /scripts
+              readOnly: true
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        seccompProfile:
+          type: RuntimeDefault
+      volumes:
+        - name: scripts
+          configMap:
+            name: embedder-prompt-shim
+            defaultMode: 0755

@@ -35,6 +35,14 @@ data:
   # GTX 1080. context_eg2 exists but is empty. Attempt record and retry
   # preconditions: viking/docs/2026-10-08-embedder-embeddinggemma-2-cutover.md.
   #
+  # Query instruction (IMPR-1344): OpenViking calls embedder-qwen through
+  # embedder-prompt-shim, which prepends Qwen3-Embedding's query instruction to
+  # requests marked `input_type: query` and forwards documents unchanged. Both
+  # params must stay set together: the shim rejects unmarked embedding requests,
+  # and they are part of an ovpack's embedding identity. The prompt scores every
+  # query about 0.12 lower, so recall floors (dotfiles OPENVIKING_SCORE_THRESHOLD)
+  # move with it. Runbook and rollback: viking/docs/2026-10-17-embedder-prompt-shim.md.
+  #
   # VLM concurrency (IMPR-1303). On v0.4.20 vlm.max_concurrent is read twice on
   # the Semantic path: QueueManager._max_concurrent_for_queue returns it as the
   # number of Semantic jobs run at once (queue_manager.py), and every job's
@@ -131,7 +139,9 @@ data:
           "provider": "openai",
           "model": "qwen3-embedding-4b",
           "api_key": "sk-no-...ired",
-          "api_base": "http://embedder-qwen.viking.svc.cluster.local:8080/v1",
+          "api_base": "http://embedder-prompt-shim.viking.svc.cluster.local:8080/v1",
+          "query_param": "query",
+          "document_param": "document",
           "dimension": 2560,
           "batch_size": 256
         },

@@ -1,0 +1,355 @@
+#!/usr/bin/env python3
+"""Embedding prompt shim between OpenViking and the embedder (IMPR-1344).
+
+Qwen3-Embedding is instruction-aware: queries should arrive as
+"Instruct: <task>\\nQuery: <text>" and documents as raw text. OpenViking's
+openai provider cannot prepend text, but with query_param/document_param set it
+sends an `input_type` body field (query|document) that llama-server ignores.
+This shim reads that field on a POST to any of llama-server's embeddings routes
+(.../embedding, .../embeddings), prepends SHIM_QUERY_PREFIX to query inputs
+(SHIM_DOCUMENT_PREFIX to documents, empty by default), drops the field, and
+forwards to SHIM_UPSTREAM. An embeddings request without a known input_type is
+rejected with 400 rather than guessed, and so is any request whose path is
+percent-encoded. Every other request (GET, HEAD, OPTIONS, PUT, PATCH, DELETE,
+and POST elsewhere) is passed through unchanged.
+
+A document request with an empty prefix is forwarded with only input_type
+removed and its input untouched, so stored document vectors stay identical to
+direct-embedder vectors and no reindex is needed. Ported from the TASK-1218 prototype (prefix-shim.py). Stdlib only.
+
+GET and HEAD /healthz answer locally and never touch the upstream.
+
+Requests and responses keep their end-to-end headers (hop-by-hop ones and the
+length are recomputed), redirects are relayed rather than followed, and chunked
+request bodies are decoded. On SIGTERM the server stops accepting connections and
+finishes the requests in flight before exiting.
+"""
+
+from __future__ import annotations
+
+import http.client
+import json
+import os
+import signal
+import sys
+import threading
+from collections import Counter
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import urlsplit
+
+# RFC 9110 hop-by-hop headers, plus the ones recomputed for each leg.
+HOP_BY_HOP = {
+    "connection",
+    "keep-alive",
+    "proxy-authenticate",
+    "proxy-authorization",
+    "proxy-connection",
+    "te",
+    "trailer",
+    "transfer-encoding",
+    "upgrade",
+    "host",
+    "content-length",
+}
+# BaseHTTPRequestHandler writes its own Server and Date on every response.
+RESPONSE_OWN = {"server", "date"}
+LOG_EVERY = 500
+
+
+class BadRequest(ValueError):
+    pass
+
+
+class Config:
+    def __init__(self, upstream: str, prompts: dict[str, str], timeout: float):
+        self.upstream = upstream.rstrip("/")
+        parts = urlsplit(self.upstream)
+        if parts.scheme not in ("http", "https") or not parts.hostname:
+            raise ValueError(f"SHIM_UPSTREAM must be an http(s) URL: {upstream!r}")
+        self.scheme = parts.scheme
+        self.host = parts.hostname
+        self.port = parts.port
+        self.base_path = parts.path
+        self.prompts = prompts
+        self.timeout = timeout
+
+
+def config_from_env(env=os.environ) -> Config:
+    return Config(
+        upstream=env["SHIM_UPSTREAM"],
+        prompts={
+            "query": env["SHIM_QUERY_PREFIX"],
+            "document": env.get("SHIM_DOCUMENT_PREFIX", ""),
+        },
+        timeout=float(env.get("SHIM_UPSTREAM_TIMEOUT", "600")),
+    )
+
+
+class Stats:
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._counts: Counter[str] = Counter()
+
+    def add(self, key: str, n: int = 1) -> None:
+        with self._lock:
+            before = sum(self._counts.values())
+            self._counts[key] += n
+            if before // LOG_EVERY != (before + n) // LOG_EVERY:
+                print(json.dumps(dict(self._counts)), flush=True)
+
+    def snapshot(self) -> dict[str, int]:
+        with self._lock:
+            return dict(self._counts)
+
+
+def rewrite(body: dict, prompts: dict[str, str]) -> tuple[bytes | None, str]:
+    """Return (forward body or None if unchanged, input_type) or raise ValueError."""
+    kind = body.pop("input_type", None)
+    if not isinstance(kind, str) or kind not in prompts:
+        raise ValueError(f"input_type {kind!r} is not one of {sorted(prompts)}")
+    prefix = prompts[kind]
+    if not prefix:
+        return json.dumps(body).encode(), kind
+    inputs = body.get("input")
+    items = inputs if isinstance(inputs, list) else [inputs]
+    if not items or not all(isinstance(t, str) for t in items):
+        raise ValueError("input must be a string or a list of strings")
+    body["input"] = [prefix + t for t in items]
+    return json.dumps(body).encode(), kind
+
+
+def end_to_end(headers) -> list[tuple[str, str]]:
+    """Headers minus hop-by-hop ones, including any the Connection header names."""
+    named = {
+        token.strip().lower()
+        for value in headers.get_all("Connection", []) or []
+        for token in value.split(",")
+    }
+    return [
+        (k, v)
+        for k, v in headers.items()
+        if k.lower() not in HOP_BY_HOP and k.lower() not in named
+    ]
+
+
+def make_handler(cfg: Config, stats: Stats):
+    class Shim(BaseHTTPRequestHandler):
+        def _reply(
+            self,
+            status: int,
+            data: bytes,
+            headers: list[tuple[str, str]] | None = None,
+            length: str | None = None,
+        ) -> None:
+            """Send a response. A HEAD, 204 or 304 reply carries no body, and
+            `length` (the upstream's Content-Length, omitted when None) stands in
+            for the length of `data`."""
+            self.send_response(status)
+            if headers is None:
+                headers = [("Content-Type", "application/json")]
+            for k, v in headers:
+                self.send_header(k, v)
+            bodiless = self.command == "HEAD" or status in (204, 304)
+            if not bodiless:
+                self.send_header("Content-Length", str(len(data)))
+            elif length is not None:
+                self.send_header("Content-Length", length)
+            self.end_headers()
+            if not bodiless:
+                self.wfile.write(data)
+
+        def _error(self, status: int, message: str) -> None:
+            stats.add(f"http_{status}")
+            payload = {"error": {"code": status, "message": f"shim: {message}"}}
+            self._reply(status, json.dumps(payload).encode())
+
+        def _path(self) -> str:
+            """The request path as llama-server routes it; raise BadRequest when
+            the shim cannot see that path the same way."""
+            # cpp-httplib splits the target at the first "?" and then
+            # percent-decodes it, %uXXXX included. OV never encodes its paths, so
+            # any "%" is refused rather than decoded differently from upstream,
+            # which would let an encoded alias of /embeddings skip the rewrite.
+            path = self.path.split("?", 1)[0]
+            if not path.startswith("/"):
+                raise BadRequest(f"request target must be a path: {path!r}")
+            if "%" in path:
+                raise BadRequest(f"percent-encoded path refused: {path!r}")
+            return path
+
+        def _routed(self) -> str | None:
+            """`_path()`, or None after answering 400."""
+            try:
+                return self._path()
+            except BadRequest as e:
+                self.close_connection = True
+                self._error(400, str(e))
+                return None
+
+        def _read_body(self) -> bytes | None:
+            """The request body, de-chunked, or None when the request has none;
+            raise BadRequest on bad framing."""
+            # The HTTP/1.0 handler never sends 100 Continue on its own.
+            if (
+                self.headers.get("Expect", "").lower() == "100-continue"
+                and self.request_version != "HTTP/1.0"
+            ):
+                self.send_response_only(100)
+                self.end_headers()
+            if "chunked" in self.headers.get("Transfer-Encoding", "").lower():
+                chunks = []
+                while True:
+                    line = self.rfile.readline(65537)
+                    try:
+                        size = int(line.split(b";", 1)[0].strip(), 16)
+                    except ValueError:
+                        raise BadRequest("bad chunk size") from None
+                    if size == 0:
+                        while self.rfile.readline(65537).strip():
+                            pass  # trailers
+                        return b"".join(chunks)
+                    chunk = self.rfile.read(size)
+                    if len(chunk) != size or self.rfile.read(2) != b"\r\n":
+                        raise BadRequest("incomplete chunked body")
+                    chunks.append(chunk)
+            length = self.headers.get("Content-Length")
+            if length is None:
+                return None
+            if not length.strip().isdigit():
+                raise BadRequest(f"bad Content-Length {length!r}")
+            n = int(length)
+            raw = self.rfile.read(n)
+            if len(raw) != n:
+                raise BadRequest(f"body ended after {len(raw)} of {n} bytes")
+            return raw
+
+        def _forward(self, method: str, body: bytes | None = None) -> None:
+            # A list, not a dict: repeated fields reach the upstream as sent.
+            headers = end_to_end(self.headers)
+            names = {k.lower() for k, _ in headers}
+            if body is not None and "content-type" not in names:
+                headers.append(("Content-Type", "application/json"))
+            if body is not None:
+                headers.append(("Content-Length", str(len(body))))
+            elif method in ("POST", "PUT", "PATCH"):
+                headers.append(("Content-Length", "0"))
+            conn_cls = (
+                http.client.HTTPSConnection
+                if cfg.scheme == "https"
+                else http.client.HTTPConnection
+            )
+            conn = conn_cls(cfg.host, cfg.port, timeout=cfg.timeout)
+            try:
+                # putheader per field; request() would need a dict. Host comes
+                # from putrequest, Accept-Encoding only when the client sent one.
+                conn.putrequest(
+                    method,
+                    cfg.base_path + self.path,
+                    skip_accept_encoding="accept-encoding" in names,
+                )
+                for k, v in headers:
+                    conn.putheader(k, v)
+                conn.endheaders(body)
+                resp = conn.getresponse()
+                status, data = resp.status, resp.read()  # read() is b"" for HEAD
+                length = resp.getheader("Content-Length")
+                out = [
+                    (k, v)
+                    for k, v in end_to_end(resp.msg)
+                    if k.lower() not in RESPONSE_OWN
+                ]
+            except (OSError, http.client.HTTPException) as e:
+                self._error(502, f"upstream unreachable: {e}")
+                return
+            finally:
+                conn.close()
+            self._reply(status, data, out, length)
+
+        def _get_or_head(self) -> None:
+            req = self._with_body()
+            if req is None:
+                return
+            if req[0] == "/healthz":
+                data = json.dumps(stats.snapshot()).encode()
+                self._reply(200, data, length=str(len(data)))
+                return
+            self._forward(self.command, req[1])
+
+        do_GET = do_HEAD = _get_or_head
+
+        def _with_body(self) -> tuple[str, bytes | None] | None:
+            """(path, body), or None after answering 400."""
+            path = self._routed()
+            if path is None:
+                return None
+            try:
+                return path, self._read_body()
+            except BadRequest as e:
+                self.close_connection = True
+                self._error(400, str(e))
+                return None
+
+        def _passthrough(self) -> None:
+            req = self._with_body()
+            if req is not None:
+                self._forward(self.command, req[1])
+
+        do_OPTIONS = do_PUT = do_PATCH = do_DELETE = _passthrough
+
+        def do_POST(self):
+            req = self._with_body()
+            if req is None:
+                return
+            path, raw = req
+            # llama-server serves /embedding, /embeddings and /v1/embeddings.
+            if path.rstrip("/").rsplit("/", 1)[-1] not in ("embedding", "embeddings"):
+                self._forward("POST", raw)
+                return
+            try:
+                body = json.loads(raw or b"{}")
+                if not isinstance(body, dict):
+                    raise ValueError("body must be a JSON object")
+                data, kind = rewrite(body, cfg.prompts)
+            except ValueError as e:  # JSONDecodeError is a ValueError
+                self._error(400, str(e))
+                return
+            inputs = body.get("input")
+            stats.add(kind, len(inputs) if isinstance(inputs, list) else 1)
+            self._forward("POST", data)
+
+        def log_message(self, *args):
+            pass
+
+    return Shim
+
+
+def main() -> int:
+    cfg = config_from_env()
+    port = int(os.environ.get("SHIM_PORT", "8080"))
+    stats = Stats()
+    print(
+        f"shim :{port} -> {cfg.upstream} prompts={cfg.prompts!r}",
+        flush=True,
+    )
+    server = ThreadingHTTPServer(("0.0.0.0", port), make_handler(cfg, stats))
+    # Non-daemon handler threads, joined by server_close(), so requests in flight
+    # finish before exit. Kubernetes sends SIGTERM after the preStop sleep, once
+    # the pod is out of the Service; shutdown() must run off the serving thread.
+    server.daemon_threads = False
+    server.block_on_close = True
+    signal.signal(
+        signal.SIGTERM,
+        lambda *_: threading.Thread(target=server.shutdown, daemon=True).start(),
+    )
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        server.server_close()
+        print("final", json.dumps(stats.snapshot()), flush=True)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
