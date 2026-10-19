@@ -134,6 +134,6 @@ With the user's go-ahead, all eight steps ran in one window:
 | 4–5. ConfigMap applied, OV restarted | 04:28:47 UTC; rollout done 04:29:12 |
 | 6. Floors | dotfiles#466 merged 04:30:55: Claude Code recall 0.60 → 0.50, `viking_search` default 0.50 → 0.45, Codex 0.55 → 0.45 (pop's `~/.config/openviking/codex.env` set by hand) |
 | 7. Check | Production's `/search/search` matches the replica's prompted arm on a fresh 25-query sample: same entry set 25/25, max score difference 0.000000 (the unprefixed arm now differs on 25/25). Round 2's prompted 0.50 row therefore describes live recall. No OV embedding errors after the restart |
-| 8. Pack, params set | `packs/compendium-prod-post-switch2-params-set-*.ovpack` |
+| 8. Pack, params set | `packs/compendium-prod-post-switch2-params-set-20261019T0432Z.ovpack` (28.2 MB) |
 
 Evidence: `~/code/archive/ov-pilot-20260921/06-trial/impr-1344-recall/post-cutover2-20261019T0429Z/`. Workbook's `codex.env` floor still needs the same change.
