@@ -122,10 +122,28 @@ data:
     skippable="${skippable}|This live event will begin|Premieres in|has been terminated"
 
     unexpected=$(grep '^ERROR:' "$log" | grep -v -E "$skippable" || true)
-    if [ -z "$unexpected" ]; then
-      echo "run-yt-dlp: exit $rc with no unexpected errors (per-video skips or --max-downloads); treating as success"
-      exit 0
+    if [ -n "$unexpected" ]; then
+      echo "run-yt-dlp: exit $rc; failing the Job on $(printf '%s\n' "$unexpected" | wc -l) unexpected error(s):"
+      printf '%s\n' "$unexpected" | sort | uniq -c
+      exit "$rc"
     fi
-    echo "run-yt-dlp: exit $rc; failing the Job on $(printf '%s\n' "$unexpected" | wc -l) unexpected error(s):"
-    printf '%s\n' "$unexpected" | sort | uniq -c
+
+    # Only two exits are explained by what passed above: 101 is
+    # --max-downloads stopping the run, and 1 is yt-dlp reporting the
+    # skipped videos. Anything else (2 for a bad option, 137 for an OOM
+    # kill, or 1 with no ERROR line) fails the Job.
+    skipped=$(grep '^ERROR:' "$log" | grep -c -E "$skippable" || true)
+    case "$rc" in
+      101)
+        echo "run-yt-dlp: stopped at --max-downloads after $skipped per-video skip(s); treating as success"
+        exit 0
+        ;;
+      1)
+        if [ "$skipped" -gt 0 ]; then
+          echo "run-yt-dlp: exit 1 from $skipped per-video skip(s); treating as success"
+          exit 0
+        fi
+        ;;
+    esac
+    echo "run-yt-dlp: exit $rc with no ERROR line explaining it; failing the Job"
     exit "$rc"

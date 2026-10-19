@@ -6,7 +6,7 @@
 #   2. Longhorn node tag (one-time bootstrap of the wemby tag)
 #   3. Dedicated StorageClass (longhorn-hdd-wemby: HDD, pinned to wemby
 #      via the new tag; the media volume runs 1 replica)
-#   4. 200Gi media PVC
+#   4. 300Gi media PVC
 #   5. ConfigMaps (yt-dlp.conf + yt-dlp-playlists)
 #   6. Validation CronJob (playlist 2, enabled)
 #   7. Suspended CronJobs (playlists 1, 3, 4, 5, 6)
@@ -38,7 +38,7 @@ kubectl apply -f "$DIR/longhorn-node-wemby-tag.yaml"
 echo "==> StorageClass (longhorn-hdd-wemby)"
 kubectl apply -f "$DIR/longhorn-hdd-wemby-storageclass.yaml"
 
-echo "==> media PVC (200Gi, RWO, wemby-pinned)"
+echo "==> media PVC (300Gi, RWO, wemby-pinned)"
 kubectl apply -f "$DIR/media-pvc.yaml"
 
 echo "==> ConfigMaps"

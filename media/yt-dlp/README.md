@@ -1,7 +1,7 @@
 # yt-dlp revival (IDEA-019)
 
 YouTube playlist downloader on the homelab K3s cluster. One custom
-Docker image, one 200 Gi PVC on wemby, six daily CronJobs (one enabled,
+Docker image, one 300 Gi PVC on wemby, six daily CronJobs (one enabled,
 five suspended until the validation run proves the pipeline).
 
 ## Files
@@ -12,7 +12,7 @@ five suspended until the validation run proves the pipeline).
 | `namespace.yaml` | `yt-dlp` namespace |
 | `longhorn-node-wemby-tag.yaml` | Patches the wemby Longhorn Node with a `wemby` tag |
 | `longhorn-hdd-wemby-storageclass.yaml` | Dedicated SC: HDD, wemby-pinned (volume runs 1 replica) |
-| `media-pvc.yaml` | 200 Gi PVC, RWO, on `longhorn-hdd-wemby` |
+| `media-pvc.yaml` | 300 Gi PVC, RWO, on `longhorn-hdd-wemby` |
 | `yt-dlp-config.yaml` | `yt-dlp.conf` ConfigMap |
 | `yt-dlp-playlists.yaml` | 6 playlist URLs + names + per-playlist extra args |
 | `cronjob-validation.yaml` | Enabled CronJob for playlist 2 ("Gotta Keep These Somewhere") |
@@ -194,7 +194,7 @@ Usage: media/yt-dlp/operator.sh <command> [args]
 ## Open questions
 
 - **Q5 (retention policy)** — deferred. Q4 (6 playlists) is the upper
-  bound on storage pressure; revisit once the 200 Gi PVC is >70% full.
+  bound on storage pressure; revisit once the 300 Gi PVC is >70% full.
 - **Q7 (PO tokens)** — closed 2026-10-17 (BUG-1243). The bgutil plugin
   was never "in-process": it needs an HTTP server on `:4416` or the
   server's JS on disk, so it never produced a token and was dropped.
@@ -212,7 +212,7 @@ Usage: media/yt-dlp/operator.sh <command> [args]
   `run-yt-dlp.sh` (in `yt-dlp-config.yaml`), which tolerates per-video
   errors and fails on the rest, so a client-wide block like the
   2026-08 android_vr 403s alerts instead of passing as `Completed`.
-- **No copyparty**: direct writes to the 200 Gi PVC. The retired
+- **No copyparty**: direct writes to the 300 Gi PVC. The retired
   setup had a 2-node copyparty Deployment + 600 Gi of media/archive
   PVCs for upload — none of that is needed for personal use.
 - **wemby-pinned storage**: `longhorn-hdd-wemby` SC with
