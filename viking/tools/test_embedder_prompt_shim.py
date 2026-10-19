@@ -44,6 +44,7 @@ class FakeUpstream(BaseHTTPRequestHandler):
                 "body": body,
                 "auth": self.headers.get("Authorization"),
                 "content_type": self.headers.get("Content-Type"),
+                "accept": self.headers.get_all("Accept"),
             }
         )
         time.sleep(FakeUpstream.delay)
@@ -293,6 +294,16 @@ class ShimTest(unittest.TestCase):
             nxt = conn.getresponse()
             self.assertEqual(json.loads(nxt.read()), {"echo": None})
         conn.close()
+
+    def test_repeated_request_headers_are_kept(self):
+        self.raw_request(
+            b"GET /v1/models HTTP/1.1\r\nHost: shim\r\n"
+            b"Accept: application/json\r\nAccept: text/plain\r\n"
+            b"Connection: close\r\n\r\n"
+        )
+        self.assertEqual(
+            FakeUpstream.requests[0]["accept"], ["application/json", "text/plain"]
+        )
 
     def test_get_body_is_forwarded(self):
         conn = http.client.HTTPConnection("127.0.0.1", self.shim.server_port, timeout=5)

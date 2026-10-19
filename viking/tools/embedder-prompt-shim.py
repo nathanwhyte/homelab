@@ -224,11 +224,15 @@ def make_handler(cfg: Config, stats: Stats):
             return raw
 
         def _forward(self, method: str, body: bytes | None = None) -> None:
-            headers = dict(end_to_end(self.headers))
-            if body is not None and not any(
-                k.lower() == "content-type" for k in headers
-            ):
-                headers["Content-Type"] = "application/json"
+            # A list, not a dict: repeated fields reach the upstream as sent.
+            headers = end_to_end(self.headers)
+            names = {k.lower() for k, _ in headers}
+            if body is not None and "content-type" not in names:
+                headers.append(("Content-Type", "application/json"))
+            if body is not None:
+                headers.append(("Content-Length", str(len(body))))
+            elif method in ("POST", "PUT", "PATCH"):
+                headers.append(("Content-Length", "0"))
             conn_cls = (
                 http.client.HTTPSConnection
                 if cfg.scheme == "https"
@@ -236,7 +240,16 @@ def make_handler(cfg: Config, stats: Stats):
             )
             conn = conn_cls(cfg.host, cfg.port, timeout=cfg.timeout)
             try:
-                conn.request(method, cfg.base_path + self.path, body, headers)
+                # putheader per field; request() would need a dict. Host comes
+                # from putrequest, Accept-Encoding only when the client sent one.
+                conn.putrequest(
+                    method,
+                    cfg.base_path + self.path,
+                    skip_accept_encoding="accept-encoding" in names,
+                )
+                for k, v in headers:
+                    conn.putheader(k, v)
+                conn.endheaders(body)
                 resp = conn.getresponse()
                 status, data = resp.status, resp.read()  # read() is b"" for HEAD
                 length = resp.getheader("Content-Length")
