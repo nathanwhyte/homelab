@@ -73,8 +73,14 @@ data:
     --ignore-errors
 
     ### download options
-    # Prefer the best format at or below 1080p (BUG-1243 backlog sizing).
+    # Hard 1080p ceiling (BUG-1243 backlog sizing): `-f` excludes taller
+    # formats, which `--format-sort "res:1080"` alone falls back to when
+    # nothing at or below 1080p exists. Such a video errors with
+    # "Requested format is not available", which run-yt-dlp.sh keeps
+    # fatal on purpose: format blocks like the 2026-08 one print it too.
+    # playlist-4's `--preset-alias mp3` sets its own `-f`, which wins.
     --format-sort "res:1080"
+    --format "bv*[height<=1080]+ba/b[height<=1080]"
     # Bound each nightly run so a backlog drains over several nights
     # instead of hitting activeDeadlineSeconds. yt-dlp exits 101 with no
     # ERROR line when it stops here, which run-yt-dlp.sh treats as success.
