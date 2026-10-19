@@ -3,6 +3,7 @@
 
 import importlib.util
 import os
+import signal
 from pathlib import Path
 import subprocess
 import sys
@@ -22,6 +23,22 @@ def result(stdout="", stderr="", code=0):
 
 
 class DriverTests(unittest.TestCase):
+    def test_cached_image_never_needs_registry_and_absent_image_is_pulled(self):
+        with patch.object(
+            driver,
+            "docker",
+            side_effect=[result(), AssertionError("cached image must not pull")],
+        ) as docker:
+            driver.ensure_image("unix:///original.sock")
+            self.assertEqual(docker.call_count, 1)
+        with patch.object(
+            driver, "docker", side_effect=[result(code=1), result()]
+        ) as docker:
+            driver.ensure_image("unix:///original.sock")
+            self.assertEqual(
+                docker.call_args.args, ("unix:///original.sock", "pull", driver.IMAGE)
+            )
+
     def test_remote_docker_host_refused_without_starting_anything(self):
         with (
             patch.dict(os.environ, {"DOCKER_HOST": "ssh://cluster"}, clear=True),
@@ -123,6 +140,41 @@ class DriverTests(unittest.TestCase):
             )
             self.assertFalse(marker.exists())
 
+    def test_signal_during_popen_cannot_escape_process_cleanup(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            marker = Path(tmp) / "survivor"
+            child = f"import time; from pathlib import Path; time.sleep(1); Path({str(marker)!r}).touch()"
+            parent = f"import subprocess,sys,time; subprocess.Popen([sys.executable,'-c',{child!r}]); time.sleep(30)"
+            original_popen = subprocess.Popen
+            original_handler = signal.signal(signal.SIGTERM, driver.interrupted)
+            launched = []
+
+            def launch(*args, **kwargs):
+                process = original_popen(*args, **kwargs)
+                launched.append(process)
+                os.kill(os.getpid(), signal.SIGTERM)
+                return process
+
+            try:
+                with (
+                    patch.object(driver.subprocess, "Popen", side_effect=launch),
+                    self.assertRaises(KeyboardInterrupt),
+                ):
+                    driver.run(sys.executable, "-c", parent)
+                subprocess.run(
+                    [sys.executable, "-c", "import time; time.sleep(1.2)"], check=True
+                )
+                self.assertFalse(marker.exists())
+                self.assertIsNotNone(launched[0].poll())
+            finally:
+                signal.signal(signal.SIGTERM, original_handler)
+                for process in launched:
+                    try:
+                        os.killpg(process.pid, signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
+                    process.wait()
+
     def test_success_and_interruption_remove_only_the_owned_container(self):
         for interrupt in (False, True):
             with self.subTest(interrupt=interrupt):
@@ -133,7 +185,11 @@ class DriverTests(unittest.TestCase):
                         self.assertEqual(args[2], "unix:///original.sock")
                         self.assertNotIn("DOCKER_CONTEXT", kwargs["env"])
                         args = ("docker", *args[3:])
-                    if args[:2] in (("docker", "pull"), ("docker", "start")):
+                    if args[:2] in (
+                        ("docker", "pull"),
+                        ("docker", "start"),
+                        ("docker", "image"),
+                    ):
                         return result()
                     if args[:2] == ("docker", "create"):
                         state["name"] = args[args.index("--name") + 1]
@@ -156,6 +212,7 @@ class DriverTests(unittest.TestCase):
                         self.assertEqual(args[2], state["name"])
                         return result(state["token"])
                     if args[:2] == ("docker", "rm"):
+                        self.assertIn("--volumes", args)
                         self.assertEqual(args[-1], state["name"])
                         state["removed"] = True
                         return result()

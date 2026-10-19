@@ -20,25 +20,41 @@ ROOT = Path(__file__).resolve().parent
 
 
 def run(*args, timeout=30, check=True, env=None):
-    process = subprocess.Popen(
-        args,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-        start_new_session=True,
-        env=env,
-    )
+    process = None
+    pending = []
+    handlers = {sig: signal.getsignal(sig) for sig in (signal.SIGINT, signal.SIGTERM)}
     try:
+        # Defer handled cancellation until Popen has returned its handle and
+        # this cleanup guard owns it. Caught handlers reset on exec, so unlike
+        # a blocked signal mask this does not disable signals in the child.
+        for sig in handlers:
+            signal.signal(sig, lambda number, frame: pending.append(number))
+        process = subprocess.Popen(
+            args,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            start_new_session=True,
+            env=env,
+        )
+        for sig, handler in handlers.items():
+            signal.signal(sig, handler)
+        if pending:
+            raise KeyboardInterrupt
         stdout, stderr = process.communicate(timeout=timeout)
     except BaseException:
         # The integration launches Helm/kubectl grandchildren. Kill the entire
         # isolated group before its API server is removed.
-        try:
-            os.killpg(process.pid, signal.SIGKILL)
-        except ProcessLookupError:
-            pass
-        process.communicate()
+        if process is not None:
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            process.communicate()
         raise
+    finally:
+        for sig, handler in handlers.items():
+            signal.signal(sig, handler)
     result = subprocess.CompletedProcess(args, process.returncode, stdout, stderr)
     if check and result.returncode:
         raise RuntimeError(f"{args[0]} {args[1]} failed: {result.stderr.strip()}")
@@ -102,8 +118,13 @@ def cleanup(endpoint, name, token):
         raise RuntimeError(
             f"refusing cleanup of container with a different owner: {name}"
         )
-    docker(endpoint, "rm", "--force", name)
+    docker(endpoint, "rm", "--force", "--volumes", name)
     return True
+
+
+def ensure_image(endpoint):
+    if docker(endpoint, "image", "inspect", IMAGE, check=False).returncode:
+        docker(endpoint, "pull", IMAGE, timeout=180)
 
 
 @contextmanager
@@ -112,7 +133,7 @@ def disposable_api(endpoint):
     name = "arc-ssa-test-" + token
     # Pulling does not create a container, so do it before opening a launch
     # receipt. A killed Docker create client can leave daemon work pending.
-    docker(endpoint, "pull", IMAGE, timeout=180)
+    ensure_image(endpoint)
     receipt_dir = Path(tempfile.mkdtemp(prefix="arc-ssa-recovery-"))
     receipt = receipt_dir / "container.json"
     receipt.write_text(
