@@ -26,6 +26,14 @@ repos:
       - id: check-executables-have-shebangs
       - id: check-shebang-scripts-are-executable
 
+  # The repo is public: an R2 key pair sat in two yt-dlp scripts as
+  # `os.environ.get` defaults until 2026-10-19. gitleaks scans staged changes;
+  # `.gitleaks.toml` adds a rule for S3-style key pairs its defaults miss.
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.28.0
+    hooks:
+      - id: gitleaks
+
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.16.6
     hooks:

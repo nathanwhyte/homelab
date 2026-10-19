@@ -42,10 +42,10 @@ import urllib.request
 import xml.etree.ElementTree as ET
 from collections import defaultdict
 
-AK = os.environ.get("R2_AK", "252fd0b63874b32278a38ae39cff877b")
-SK = os.environ.get(
-    "R2_SK", "4999254a6b3cb663b35238b256a9f39153cb44501832f3c03378c2ef7ddfeeea"
-)
+AK = os.environ.get("R2_AK", "")
+SK = os.environ.get("R2_SK", "")
+if not AK or not SK:
+    sys.exit("Set R2_AK and R2_SK to an R2 API token's access key pair.")
 SESSION_TOKEN = os.environ.get("R2_SESSION_TOKEN", "")
 ACCOUNT_ID = os.environ.get("R2_ACCOUNT_ID", "e9f17cd063113cea9c2e73c302971066")
 BUCKET = os.environ.get("R2_BUCKET", "homelab")

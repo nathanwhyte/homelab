@@ -1,0 +1,14 @@
+# gitleaks config for the pre-commit hook. Extends the default rules with one
+# for S3-style key pairs (R2, Garage): a 32-hex access key ID or 64-hex secret
+# next to an AK/SK/access-key/secret-key name. The defaults missed the R2 pair
+# inlined in media/yt-dlp/scripts/ until 2026-10-19.
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "s3-style-key-pair"
+description = "Hex S3/R2 access key ID or secret assigned to a key-like name"
+regex = '''(?i)(?:\b(?:r2_)?(?:ak|sk)\b|access[_-]?key(?:[_-]?id)?|secret(?:[_-]?access)?[_-]?key)["']?\s*[,:=]\s*["']?([a-f0-9]{64}|[a-f0-9]{32})\b'''
+secretGroup = 1
+keywords = ["ak", "sk", "access", "secret"]

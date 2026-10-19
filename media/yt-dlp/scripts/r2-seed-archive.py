@@ -63,12 +63,11 @@ import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
 
-# ---------- credentials (inlined; matches r2-consolidate.py) ----------
+# ---------- credentials (from the environment; matches r2-consolidate.py) ----------
 
-AK = os.environ.get("R2_AK", "252fd0b63874b32278a38ae39cff877b")
-SK = os.environ.get(
-    "R2_SK", "4999254a6b3cb663b35238b256a9f39153cb44501832f3c03378c2ef7ddfeeea"
-)
+# Only --check-r2 talks to R2, so the keys are checked when a request is signed.
+AK = os.environ.get("R2_AK", "")
+SK = os.environ.get("R2_SK", "")
 SESSION_TOKEN = os.environ.get("R2_SESSION_TOKEN", "")
 ACCOUNT_ID = os.environ.get("R2_ACCOUNT_ID", "e9f17cd063113cea9c2e73c302971066")
 BUCKET = os.environ.get("R2_BUCKET", "homelab")
@@ -134,6 +133,8 @@ def canonical_query_string(params):
 
 
 def sigv4_for_method(method, canonical_uri, canonical_query, extra_signed_headers=None):
+    if not AK or not SK:
+        raise SystemExit("Set R2_AK and R2_SK to an R2 API token's access key pair.")
     now = datetime.datetime.now(datetime.timezone.utc)
     amz_date = now.strftime("%Y%m%dT%H%M%SZ")
     date_stamp = amz_date[:8]
