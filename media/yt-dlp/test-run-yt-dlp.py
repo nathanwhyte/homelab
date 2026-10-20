@@ -14,6 +14,7 @@ through uv on the host; the image pass skips them.
   YTDLP_CONFIG=<old yt-dlp-config.yaml> uv run ...    # test another wrapper
 """
 
+import copy
 import os
 import re
 import shlex
@@ -38,6 +39,17 @@ INNER = os.environ.get("YTDLP_TEST_INNER") == "1"
 A, B, C = "AAAAAAAAAAA", "BBBBBBBBBBB", "CCCCCCCCCCC"
 CAP = "bv*[height<=1080]+ba/b[height<=1080]"
 EXIT_3 = {"containerName": "yt-dlp", "operator": "In", "values": [3]}
+# The errored lists live beside the archives on the media claim, so a Job
+# without that mount would start a fresh list every night and never fail.
+VOLUMES = [
+    {"name": "config", "configMap": {"name": "yt-dlp-config"}},
+    {"name": "media", "persistentVolumeClaim": {"claimName": "media"}},
+]
+MOUNTS = [
+    {"name": "config", "mountPath": "/config"},
+    {"name": "media", "mountPath": "/downloads"},
+    {"name": "media", "mountPath": "/yt-dlp-archive"},
+]
 
 
 def block(text, key):
@@ -350,9 +362,29 @@ class TestManifests(unittest.TestCase):
         return jobs
 
     # The fields below are pinned to exact values rather than interpreted: a
-    # second policy rule, a configMap items list or another mount at /config
-    # can each change what Kubernetes does, so any change fails here until
-    # this test is updated on purpose.
+    # second policy rule, a configMap items list, a read-only or missing
+    # mount, or another image can each change what the wrapper sees, so any
+    # change fails here until this test is updated on purpose.
+
+    def test_every_job_template_matches_the_validation_job(self):
+        jobs = self.jobs()
+        self.assertEqual(
+            sorted(j["metadata"]["labels"]["app.kubernetes.io/playlist"] for j in jobs),
+            list("123456"),
+        )
+        want = template(jobs[-1])  # cronjob-validation.yaml's
+        self.maxDiff = None
+        for job in jobs:
+            with self.subTest(job=job["metadata"]["name"]):
+                self.assertEqual(template(job), want)
+
+    def test_every_job_runs_the_image_the_busybox_pass_tests(self):
+        for job in self.jobs():
+            with self.subTest(job=job["metadata"]["name"]):
+                pod = job["spec"]["jobTemplate"]["spec"]["template"]["spec"]
+                self.assertNotIn("initContainers", pod)
+                self.assertEqual([c["name"] for c in pod["containers"]], ["yt-dlp"])
+                self.assertEqual(pod["containers"][0]["image"], image_tag())
 
     def test_exit_3_fails_every_job_at_once(self):
         policy = {"rules": [{"action": "FailJob", "onExitCodes": EXIT_3}]}
@@ -362,23 +394,13 @@ class TestManifests(unittest.TestCase):
                 self.assertEqual(spec["template"]["spec"]["restartPolicy"], "Never")
                 self.assertEqual(spec["podFailurePolicy"], policy)
 
-    def test_every_job_mounts_the_whole_configmap_at_config(self):
+    def test_every_job_mounts_the_configmap_and_the_media_claim(self):
         for job in self.jobs():
             with self.subTest(job=job["metadata"]["name"]):
                 pod = job["spec"]["jobTemplate"]["spec"]["template"]["spec"]
                 (ctr,) = [c for c in pod["containers"] if c["name"] == "yt-dlp"]
-                config = [v for v in pod["volumes"] if v["name"] == "config"]
-                self.assertEqual(
-                    config, [{"name": "config", "configMap": {"name": "yt-dlp-config"}}]
-                )
-                at_config = [
-                    m
-                    for m in ctr["volumeMounts"]
-                    if m["name"] == "config" or m["mountPath"].startswith("/config")
-                ]
-                self.assertEqual(
-                    at_config, [{"name": "config", "mountPath": "/config"}]
-                )
+                self.assertEqual(pod["volumes"], VOLUMES)
+                self.assertEqual(ctr["volumeMounts"], MOUNTS)
 
     def test_every_job_script_execs_the_wrapper_and_keeps_its_status(self):
         with open(os.path.join(HERE, "yt-dlp-playlists.yaml")) as f:
@@ -450,6 +472,29 @@ class TestEffectiveConfig(unittest.TestCase):
         )
         self.assertEqual(opts.ydl_opts["format"], CAP)
         self.assertTrue(opts.ydl_opts["progress_with_newline"])
+
+
+def template(job):
+    """The CronJob with its playlist number, schedule and suspend taken out.
+
+    The script is left out too; run_job_script runs each one.
+    """
+    n = job["metadata"]["labels"]["app.kubernetes.io/playlist"]
+    job = copy.deepcopy(job)
+    assert job["metadata"]["name"] == f"yt-dlp-playlist-{n}", job["metadata"]["name"]
+    job["metadata"]["name"] = "yt-dlp-playlist-N"
+    pod = job["spec"]["jobTemplate"]["spec"]["template"]
+    for meta in (job["metadata"], pod["metadata"]):
+        meta["labels"]["app.kubernetes.io/playlist"] = "N"
+    del job["spec"]["schedule"], job["spec"]["suspend"]
+    for ctr in pod["spec"]["containers"]:
+        ctr["command"][2:3] = ["<script>"]
+        for e in ctr.get("env", []):
+            ref = e.get("valueFrom", {}).get("configMapKeyRef", {})
+            key = ref.get("key", "")
+            if key == f"playlist-{n}" or key.startswith(f"playlist-{n}-"):
+                ref["key"] = "playlist-N" + key[len(f"playlist-{n}") :]
+    return job
 
 
 def image_tag():
