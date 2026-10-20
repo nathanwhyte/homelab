@@ -10,9 +10,13 @@
 set -euo pipefail
 
 BUCKET="${BUCKET:-openviking-agfs-test}"
-KEY_ID="${KEY_ID:-GKe02cc7ed645326937f7e185e}"
 GARAGE_POD="${GARAGE_POD:-garage-0}"
 GARAGE_NS="${GARAGE_NS:-garage}"
+# Default to the key OpenViking runs with, read from its Secret, so a key
+# rotation never leaves a stale ID here.
+KEY_ID="${KEY_ID:-$(kubectl -n viking get secret openviking-s3-credentials \
+  -o jsonpath='{.data.AWS_ACCESS_KEY_ID}' | base64 -d)}"
+: "${KEY_ID:?could not read AWS_ACCESS_KEY_ID from viking/openviking-s3-credentials; set KEY_ID}"
 
 echo "Checking if bucket ${BUCKET} already exists in ${GARAGE_NS}/${GARAGE_POD}..."
 LIST=$(kubectl -n "${GARAGE_NS}" exec "${GARAGE_POD}" -c garage -- /garage bucket list 2>&1 || true)
