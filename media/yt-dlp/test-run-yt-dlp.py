@@ -366,6 +366,27 @@ class TestManifests(unittest.TestCase):
     # mount, or another image can each change what the wrapper sees, so any
     # change fails here until this test is updated on purpose.
 
+    def test_the_jobs_and_what_they_reference_share_the_namespace(self):
+        refs = {
+            "yt-dlp-config.yaml": ("ConfigMap", "yt-dlp-config"),
+            "yt-dlp-playlists.yaml": ("ConfigMap", "yt-dlp-playlists"),
+            "media-pvc.yaml": ("PersistentVolumeClaim", "media"),
+        }
+        for name, want in refs.items():
+            with self.subTest(file=name):
+                path = (
+                    CONFIG if name == "yt-dlp-config.yaml" else os.path.join(HERE, name)
+                )
+                with open(path) as f:
+                    (doc,) = [d for d in yaml.safe_load_all(f) if d]
+                meta = doc["metadata"]
+                self.assertEqual(
+                    (doc["kind"], meta["name"], meta["namespace"]), (*want, "yt-dlp")
+                )
+        for job in self.jobs():
+            with self.subTest(job=job["metadata"]["name"]):
+                self.assertEqual(job["metadata"]["namespace"], "yt-dlp")
+
     def test_every_job_template_matches_the_validation_job(self):
         jobs = self.jobs()
         self.assertEqual(
