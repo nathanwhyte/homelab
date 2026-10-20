@@ -116,6 +116,16 @@ repos:
         # not exist, so edits to the driver itself skipped the hook and could weaken
         # the fixtures silently. Name all three files literally.
         files: ^grafana/(check-slack-transport\.(sh|test\.yaml)|test-slack-transport\.py)$
+      # BUG-1243: run-yt-dlp.sh lives in a ConfigMap and decides whether each
+      # yt-dlp Job fails. Stub yt-dlp, offline; reruns under busybox in the
+      # CronJobs' image when docker has it locally, since busybox and macOS sh
+      # differ on the wrapper's grep -f.
+      - id: yt-dlp-wrapper-tests
+        name: run-yt-dlp.sh wrapper tests
+        entry: python3 media/yt-dlp/test-run-yt-dlp.py
+        language: system
+        pass_filenames: false
+        files: ^media/yt-dlp/(test-run-yt-dlp\.py|yt-dlp-config\.yaml|cronjobs\.yaml|cronjob-validation\.yaml)$
       - id: bare-code-fences
         name: Check for bare code fences (MD040)
         description: Reject commits with bare ``` fences that lack a language tag.
