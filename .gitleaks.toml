@@ -29,10 +29,3 @@ id = "slack-webhook-url"
 description = "Placeholder Slack webhooks (all-zero IDs, EXAMPLE token)"
 regexTarget = "match"
 regexes = ['''hooks\.slack\.com/services/T0{8}/B0{8}/EXAMPLE[A-Za-z]*$''']
-
-[[rules]]
-id = "curl-auth-user"
-[[rules.allowlists]]
-description = "curl -u with an elided password"
-regexTarget = "match"
-regexes = ['''-u\s+(?:'[\w.-]+:\.\.\.'|"[\w.-]+:\.\.\."|[\w.-]+:\.\.\.)\s*$''']

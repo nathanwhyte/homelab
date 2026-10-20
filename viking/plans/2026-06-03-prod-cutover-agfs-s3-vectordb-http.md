@@ -71,7 +71,7 @@ kubectl -n viking get deploy openviking ov-vectordb
 #   ov-vectordb   1/1   1            1
 
 # 2. /ready 4/4 ok (via ingress)
-curl -fsS -u 'noot:...' https://context.nathanwhyte.dev/api/v1/ready
+curl -fsS -u "$OV_USER:$OV_PASS" https://context.nathanwhyte.dev/api/v1/ready
 #   {"checks":{"agfs":"ok","vectordb":"ok","api_key_manager":"ok","vlm":"ok"},...}
 
 # 3. Active config has the new backends

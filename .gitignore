@@ -20,10 +20,8 @@
 !**/*secret*.sh
 !**/*credential*.py
 !**/*credential*.sh
-# Keep directories with these names traversable, or the exceptions above
-# can't reach files inside them; the hook checks those files by path.
-!**/*secret*/
-!**/*credential*/
+# A directory named like a secret stays wholly ignored, code and examples
+# included: keep those outside such directories.
 
 # Kubernetes temporary files
 *.kubeconfig
@@ -38,7 +36,7 @@ kubeconfig
 .env
 .env.*
 *.env
-!.env.example
+!**/*.example
 
 # Backup files
 *.bak

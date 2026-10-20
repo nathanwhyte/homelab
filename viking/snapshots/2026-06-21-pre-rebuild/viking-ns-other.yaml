@@ -487,12 +487,12 @@ items:
     phase: Bound
 - apiVersion: v1
   data:
-    api-key: <redacted>
+    api-key: <REDACTED>
   kind: Secret
   metadata:
     annotations:
       kubectl.kubernetes.io/last-applied-configuration: |
-        {"apiVersion":"v1","data":{"api-key":"<redacted>"},"kind":"Secret","metadata":{"annotations":{},"name":"openviking-api-key","namespace":"viking"},"type":"Opaque"}
+        {"apiVersion":"v1","data":{"api-key":"<REDACTED>"},"kind":"Secret","metadata":{"annotations":{},"name":"openviking-api-key","namespace":"viking"},"type":"Opaque"}
     creationTimestamp: "2026-05-10T06:03:02Z"
     name: openviking-api-key
     namespace: viking
@@ -501,13 +501,13 @@ items:
   type: Opaque
 - apiVersion: v1
   data:
-    AWS_ACCESS_KEY_ID: <redacted>
-    AWS_SECRET_ACCESS_KEY: <redacted>
+    AWS_ACCESS_KEY_ID: <REDACTED>
+    AWS_SECRET_ACCESS_KEY: <REDACTED>
   kind: Secret
   metadata:
     annotations:
       kubectl.kubernetes.io/last-applied-configuration: |
-        {"apiVersion":"v1","data":{"AWS_ACCESS_KEY_ID":"<redacted>","AWS_SECRET_ACCESS_KEY":"<redacted>"},"kind":"Secret","metadata":{"annotations":{},"name":"openviking-s3-credentials","namespace":"viking"},"type":"Opaque"}
+        {"apiVersion":"v1","data":{"AWS_ACCESS_KEY_ID":"<REDACTED>","AWS_SECRET_ACCESS_KEY":"<REDACTED>"},"kind":"Secret","metadata":{"annotations":{},"name":"openviking-s3-credentials","namespace":"viking"},"type":"Opaque"}
     creationTimestamp: "2026-05-10T06:03:02Z"
     name: openviking-s3-credentials
     namespace: viking
@@ -516,8 +516,8 @@ items:
   type: Opaque
 - apiVersion: v1
   data:
-    tls.crt: <redacted>
-    tls.key: <redacted>
+    tls.crt: <REDACTED>
+    tls.key: <REDACTED>
   kind: Secret
   metadata:
     annotations:
