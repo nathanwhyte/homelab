@@ -6,13 +6,17 @@ Fails closed. A staged file fails when it
      not a `.example` placeholder or code, i.e. it was force-added;
   2. is YAML/JSON (.yaml/.yml/.json, or one of those plus .example) that is
      not plain UTF-8, so it cannot be checked;
-  3. is YAML/JSON that does not load (duplicate keys, however tagged, and bad
-     tags included), or whose aliases expand past a fixed node budget; or
+  3. is YAML/JSON that does not load, repeats a mapping key, uses a tag other
+     than the plain core ones (no !!binary, !!omap, !!pairs, !!set or custom
+     tags), walks past a fixed node budget, or has a document that mentions
+     `Secret` and uses aliases or merge keys. These are checked on the
+     composed nodes, before construction can merge, retag or share anything;
+     or
   4. holds a Kubernetes Secret, anywhere in the document (a list dump, a
-     SecretList item, an aliased node, a last-applied-configuration
-     annotation, nested under any key), with a data or stringData value other
-     than exactly "", REPLACE_ME, CHANGE_ME or <UPPER_SNAKE>, written as is
-     (no base64, even in data: gitleaks flags encoded values).
+     SecretList item, a last-applied-configuration annotation, nested under
+     any key), with a data or stringData value other than exactly "",
+     REPLACE_ME, CHANGE_ME or <UPPER_SNAKE>, written as is (no base64, even
+     in data: gitleaks flags encoded values).
 
 There are no exemptions for config-looking values: write non-secret settings
 (endpoints, regions) as placeholders too, and give their values in a comment.
@@ -40,42 +44,50 @@ LAST_APPLIED = "kubectl.kubernetes.io/last-applied-configuration"
 NODE_BUDGET = 1_000_000
 
 
+MERGE = "tag:yaml.org,2002:merge"
+PLAIN_TAGS = {
+    f"tag:yaml.org,2002:{t}"
+    for t in ("str", "int", "float", "bool", "null", "timestamp", "seq", "map")
+} | {MERGE}
+
+
 class TooManyNodes(Exception):
     pass
 
 
-class Loader(yaml.SafeLoader):
-    """SafeLoader that reads unknown tags as plain data and refuses duplicate keys."""
-
-    def construct_mapping(self, node, deep=False):
-        if isinstance(node, yaml.MappingNode):
-            # Compare constructed keys: `!x password` and `password` collide.
-            seen = set()
-            for key_node, _ in node.value:
-                if key_node.tag == "tag:yaml.org,2002:merge":
+def node_problems(loader: yaml.SafeLoader, doc) -> list[str]:
+    """Check a composed document before construction merges, retags or shares nodes."""
+    seen, stack = set(), [doc]
+    shared = merges = mentions_secret = False
+    while stack:
+        node = stack.pop()
+        if id(node) in seen:
+            shared = True
+            continue
+        seen.add(id(node))
+        if node.tag not in PLAIN_TAGS:
+            # The tag itself is not printed: it could be the value.
+            return ["uses a YAML tag other than the plain core ones"]
+        if isinstance(node, yaml.ScalarNode):
+            mentions_secret = mentions_secret or "Secret" in node.value
+        elif isinstance(node, yaml.SequenceNode):
+            stack.extend(node.value)
+        else:
+            keys = set()
+            for key_node, value_node in node.value:
+                stack.extend((key_node, value_node))
+                if key_node.tag == MERGE:
+                    merges = True
                     continue
-                key = self.construct_object(key_node, deep=True)
-                try:
-                    duplicate = key in seen
-                except TypeError:  # unhashable; the base class rejects it
-                    continue
-                if duplicate:
-                    raise yaml.constructor.ConstructorError(
-                        None, None, "duplicate mapping key", key_node.start_mark
-                    )
-                seen.add(key)
-        return super().construct_mapping(node, deep=deep)
-
-
-def _untagged(loader, _suffix, node):
-    if isinstance(node, yaml.MappingNode):
-        return loader.construct_mapping(node, deep=True)
-    if isinstance(node, yaml.SequenceNode):
-        return loader.construct_sequence(node, deep=True)
-    return loader.construct_scalar(node)
-
-
-Loader.add_multi_constructor("", _untagged)
+                if not isinstance(key_node, yaml.ScalarNode):
+                    continue  # construction rejects unhashable keys
+                key = loader.construct_object(key_node)
+                if key in keys:
+                    return ["repeats a mapping key"]
+                keys.add(key)
+    if mentions_secret and (shared or merges):
+        return ["mentions Secret and uses YAML aliases or merge keys; write it out"]
+    return []
 
 
 def _no_duplicates(pairs):
@@ -174,12 +186,21 @@ def check(path: Path) -> list[str]:
     if text is None or "\x00" in text:
         return problems + ["YAML/JSON that is not plain UTF-8, so it cannot be checked"]
     budget = [NODE_BUDGET]
+    loader = yaml.SafeLoader(text)
     try:
-        for i, doc in enumerate(yaml.load_all(text, Loader=Loader)):
+        i = 0
+        while loader.check_node():
+            node = loader.get_node()
+            if found := node_problems(loader, node):
+                return problems + [f"doc {i} {p}" for p in found]
+            doc = loader.construct_document(node)
             problems.extend(secret_findings(doc, f"doc {i}", budget))
+            i += 1
     except Exception as e:  # noqa: BLE001 - any load failure fails closed
         # The type only: a constructor error's message can quote the value.
         problems.append(f"does not load ({type(e).__name__}), so it cannot be checked")
+    finally:
+        loader.dispose()
     return problems
 
 
