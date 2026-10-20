@@ -12,3 +12,27 @@ description = "Hex S3/R2 access key ID or secret assigned to a key-like name"
 regex = '''(?i)(?:\b(?:r2_)?(?:ak|sk)\b|access[_-]?key(?:[_-]?id)?|secret(?:[_-]?access)?[_-]?key)["']?\s*[,:=]\s*["']?([a-f0-9]{64}|[a-f0-9]{32})\b'''
 secretGroup = 1
 keywords = ["ak", "sk", "access", "secret"]
+
+# Default-rule hits on tracked content checked to be benign (2026-10-20).
+# Each matches the whole finding, so a real value in the same file still fails.
+# A rule with a default rule's id and no regex adds these allowlists to it.
+[[rules]]
+id = "generic-api-key"
+[[rules.allowlists]]
+description = "Benchmark record keys and SSH key file names, not API keys"
+regexTarget = "secret"
+regexes = ['''^bucket-\d+-\d+-r\d+$''', '''^id_(?:ed25519|ecdsa|rsa)(?:\.pub)?$''']
+
+[[rules]]
+id = "slack-webhook-url"
+[[rules.allowlists]]
+description = "Placeholder Slack webhooks (all-zero IDs, EXAMPLE token)"
+regexTarget = "match"
+regexes = ['''hooks\.slack\.com/services/[A-Z]?0{6,}\d*/[A-Z]?0{6,}\d*/[A-Za-z0-9]*EXAMPLE[A-Za-z0-9]*''']
+
+[[rules]]
+id = "curl-auth-user"
+[[rules.allowlists]]
+description = "curl -u with an elided password"
+regexTarget = "match"
+regexes = ['''-u\s+['"]?[\w.-]+:\.\.\.['"]?''']
