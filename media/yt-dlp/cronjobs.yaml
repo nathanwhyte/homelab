@@ -26,6 +26,13 @@
 # via its ConfigMap key `playlist-4-extra-args`, which the Job
 # template reads into EXTRA_ARGS_DEFAULT. No second ConfigMap
 # (`yt-dlp-music`) is needed.
+#
+# Each Job ends in `exec sh /config/run-yt-dlp.sh` (yt-dlp-config.yaml),
+# which fails the Job on an error not tied to a video and on a video
+# that errors for the first time (BUG-1243). `restartPolicy: Never`
+# keeps the failed pod and its logs for the 48h TTL; `backoffLimit: 1`
+# retries in a fresh pod, except on the wrapper's exit 3
+# (podFailurePolicy).
 apiVersion: batch/v1
 kind: CronJob
 metadata:
@@ -46,6 +53,15 @@ spec:
   jobTemplate:
     spec:
       backoffLimit: 1
+      # run-yt-dlp.sh exits 3 after listing a video that errored for the
+      # first time; a retry would pass, so the Job fails now.
+      podFailurePolicy:
+        rules:
+          - action: FailJob
+            onExitCodes:
+              containerName: yt-dlp
+              operator: In
+              values: [3]
       activeDeadlineSeconds: 14400
       ttlSecondsAfterFinished: 172800
       template:
@@ -55,13 +71,13 @@ spec:
             app.kubernetes.io/component: job
             app.kubernetes.io/playlist: "1"
         spec:
-          restartPolicy: OnFailure
+          restartPolicy: Never
           nodeName: wemby
           securityContext:
             fsGroup: 1000
           containers:
             - name: yt-dlp
-              image: nathanwhyte/yt-dlp:2026.06.10-yt-dlp
+              image: nathanwhyte/yt-dlp:2026.10.17-yt-dlp
               imagePullPolicy: IfNotPresent
               resources:
                 requests:
@@ -105,7 +121,7 @@ spec:
                   fi
                   mkdir -p "/downloads/${PLAYLIST_NAME}"
                   cd "/downloads/${PLAYLIST_NAME}"
-                  yt-dlp "$@" || true
+                  exec sh /config/run-yt-dlp.sh "$@"
               volumeMounts:
                 - name: config
                   mountPath: /config
@@ -141,6 +157,15 @@ spec:
   jobTemplate:
     spec:
       backoffLimit: 1
+      # run-yt-dlp.sh exits 3 after listing a video that errored for the
+      # first time; a retry would pass, so the Job fails now.
+      podFailurePolicy:
+        rules:
+          - action: FailJob
+            onExitCodes:
+              containerName: yt-dlp
+              operator: In
+              values: [3]
       activeDeadlineSeconds: 14400
       ttlSecondsAfterFinished: 172800
       template:
@@ -150,13 +175,13 @@ spec:
             app.kubernetes.io/component: job
             app.kubernetes.io/playlist: "3"
         spec:
-          restartPolicy: OnFailure
+          restartPolicy: Never
           nodeName: wemby
           securityContext:
             fsGroup: 1000
           containers:
             - name: yt-dlp
-              image: nathanwhyte/yt-dlp:2026.06.10-yt-dlp
+              image: nathanwhyte/yt-dlp:2026.10.17-yt-dlp
               imagePullPolicy: IfNotPresent
               resources:
                 requests:
@@ -200,7 +225,7 @@ spec:
                   fi
                   mkdir -p "/downloads/${PLAYLIST_NAME}"
                   cd "/downloads/${PLAYLIST_NAME}"
-                  yt-dlp "$@" || true
+                  exec sh /config/run-yt-dlp.sh "$@"
               volumeMounts:
                 - name: config
                   mountPath: /config
@@ -236,6 +261,15 @@ spec:
   jobTemplate:
     spec:
       backoffLimit: 1
+      # run-yt-dlp.sh exits 3 after listing a video that errored for the
+      # first time; a retry would pass, so the Job fails now.
+      podFailurePolicy:
+        rules:
+          - action: FailJob
+            onExitCodes:
+              containerName: yt-dlp
+              operator: In
+              values: [3]
       activeDeadlineSeconds: 14400
       ttlSecondsAfterFinished: 172800
       template:
@@ -245,13 +279,13 @@ spec:
             app.kubernetes.io/component: job
             app.kubernetes.io/playlist: "4"
         spec:
-          restartPolicy: OnFailure
+          restartPolicy: Never
           nodeName: wemby
           securityContext:
             fsGroup: 1000
           containers:
             - name: yt-dlp
-              image: nathanwhyte/yt-dlp:2026.06.10-yt-dlp
+              image: nathanwhyte/yt-dlp:2026.10.17-yt-dlp
               imagePullPolicy: IfNotPresent
               resources:
                 requests:
@@ -295,7 +329,7 @@ spec:
                   fi
                   mkdir -p "/downloads/${PLAYLIST_NAME}"
                   cd "/downloads/${PLAYLIST_NAME}"
-                  yt-dlp "$@" || true
+                  exec sh /config/run-yt-dlp.sh "$@"
               volumeMounts:
                 - name: config
                   mountPath: /config
@@ -331,6 +365,15 @@ spec:
   jobTemplate:
     spec:
       backoffLimit: 1
+      # run-yt-dlp.sh exits 3 after listing a video that errored for the
+      # first time; a retry would pass, so the Job fails now.
+      podFailurePolicy:
+        rules:
+          - action: FailJob
+            onExitCodes:
+              containerName: yt-dlp
+              operator: In
+              values: [3]
       activeDeadlineSeconds: 14400
       ttlSecondsAfterFinished: 172800
       template:
@@ -340,13 +383,13 @@ spec:
             app.kubernetes.io/component: job
             app.kubernetes.io/playlist: "5"
         spec:
-          restartPolicy: OnFailure
+          restartPolicy: Never
           nodeName: wemby
           securityContext:
             fsGroup: 1000
           containers:
             - name: yt-dlp
-              image: nathanwhyte/yt-dlp:2026.06.10-yt-dlp
+              image: nathanwhyte/yt-dlp:2026.10.17-yt-dlp
               imagePullPolicy: IfNotPresent
               resources:
                 requests:
@@ -390,7 +433,7 @@ spec:
                   fi
                   mkdir -p "/downloads/${PLAYLIST_NAME}"
                   cd "/downloads/${PLAYLIST_NAME}"
-                  yt-dlp "$@" || true
+                  exec sh /config/run-yt-dlp.sh "$@"
               volumeMounts:
                 - name: config
                   mountPath: /config
@@ -426,6 +469,15 @@ spec:
   jobTemplate:
     spec:
       backoffLimit: 1
+      # run-yt-dlp.sh exits 3 after listing a video that errored for the
+      # first time; a retry would pass, so the Job fails now.
+      podFailurePolicy:
+        rules:
+          - action: FailJob
+            onExitCodes:
+              containerName: yt-dlp
+              operator: In
+              values: [3]
       activeDeadlineSeconds: 14400
       ttlSecondsAfterFinished: 172800
       template:
@@ -435,13 +487,13 @@ spec:
             app.kubernetes.io/component: job
             app.kubernetes.io/playlist: "6"
         spec:
-          restartPolicy: OnFailure
+          restartPolicy: Never
           nodeName: wemby
           securityContext:
             fsGroup: 1000
           containers:
             - name: yt-dlp
-              image: nathanwhyte/yt-dlp:2026.06.10-yt-dlp
+              image: nathanwhyte/yt-dlp:2026.10.17-yt-dlp
               imagePullPolicy: IfNotPresent
               resources:
                 requests:
@@ -485,7 +537,7 @@ spec:
                   fi
                   mkdir -p "/downloads/${PLAYLIST_NAME}"
                   cd "/downloads/${PLAYLIST_NAME}"
-                  yt-dlp "$@" || true
+                  exec sh /config/run-yt-dlp.sh "$@"
               volumeMounts:
                 - name: config
                   mountPath: /config

@@ -71,8 +71,24 @@ data:
     --force-write-archive
     --restrict-filenames
     --ignore-errors
+    # Progress on its own lines: a redrawn progress bar ends in no newline,
+    # so an ERROR printed after it starts mid-line, where run-yt-dlp.sh's
+    # `^ERROR:` match misses it.
+    --newline
 
     ### download options
+    # Hard 1080p ceiling (BUG-1243 backlog sizing): `-f` excludes taller
+    # formats, which `--format-sort "res:1080"` alone falls back to when
+    # nothing at or below 1080p exists. Such a video errors with
+    # "Requested format is not available", which fails the Job the first
+    # night it appears (run-yt-dlp.sh), then joins the errored list.
+    # playlist-4's `--preset-alias mp3` sets its own `-f`, which wins.
+    --format-sort "res:1080"
+    --format "bv*[height<=1080]+ba/b[height<=1080]"
+    # Bound each nightly run so a backlog drains over several nights
+    # instead of hitting activeDeadlineSeconds. yt-dlp exits 101 with no
+    # ERROR line when it stops here, which run-yt-dlp.sh treats as success.
+    --max-downloads 150
     --concurrent-fragments 8
     --resize-buffer
     --match-filters "duration<?10860"
@@ -91,3 +107,181 @@ data:
     --no-keep-fragments
     --preset-alias sleep
     --cookies /yt-dlp-archive/cookies.txt
+
+  # Every playlist Job runs yt-dlp through this wrapper (BUG-1243).
+  # yt-dlp exits 1 whenever any video errored, even under --ignore-errors,
+  # so the Jobs used to end in `|| true`, which also hid a month of 403s
+  # once YouTube blocked the android_vr client (2026-08).
+  #
+  # The wrapper classifies by video ID, not by message text: YouTube words
+  # a permanent per-video failure and a downloader-wide block alike
+  # ("Video unavailable. This content isn't available." is both), and
+  # yt-dlp has no option that records failed IDs (--download-archive keeps
+  # successes only). Each playlist keeps the IDs that have errored before
+  # in archive-playlist-N.errored.txt, next to its --download-archive.
+  # The Job fails, whatever yt-dlp's exit status, when
+  #   - an ERROR line names no video ID (the 403 class: "unable to
+  #     download video data", playlist-level errors), or
+  #   - a video errors for the first time; it is then added to the list,
+  #     so a private or age-gated video fails one run, and a block shows
+  #     up the first night a new video meets it. This exits 3, which each
+  #     Job's podFailurePolicy turns into FailJob: a retry pod would find
+  #     the ID already listed and pass.
+  # Otherwise exits 0, 101 (--max-downloads) and 1 with known per-video
+  # errors pass; anything else (2 for a bad option, 137 for an OOM kill,
+  # 1 with no ERROR line) fails and gets the Job's one retry. With no
+  # list yet, a run records its per-video errors as the starting list
+  # instead of failing on them.
+  #
+  # The list is only ever appended to, or created whole with `ln`, which
+  # fails when the file exists, so Jobs running at once on one archive
+  # (backfills) can add duplicate IDs but never drop one. A list the
+  # wrapper cannot write (a full volume) also exits 3, and one it cannot
+  # read counts every errored ID as new. Each batch of new IDs is saved
+  # whole in a .pending file before the append; a later run finishes an
+  # append the volume cut short, and removes the file.
+  run-yt-dlp.sh: |
+    set -u
+    log=/tmp/yt-dlp.log
+    rc_file=/tmp/yt-dlp.rc
+    { yt-dlp "$@"; echo $? > "$rc_file"; } 2>&1 | tee "$log"
+    rc=$(cat "$rc_file")
+
+    # The last --download-archive wins, as it does for yt-dlp.
+    archive=
+    prev=
+    for arg in "$@"; do
+      [ "$prev" = --download-archive ] && archive=$arg
+      case "$arg" in --download-archive=*) archive=${arg#--download-archive=} ;; esac
+      prev=$arg
+    done
+
+    id_re='^ERROR: \[youtube\] [A-Za-z0-9_-]\{11\}: '
+    ids=$(sed -n "s/^ERROR: \[youtube\] \([A-Za-z0-9_-]\{11\}\): .*/\1/p" "$log" | sort -u)
+    no_id=$(grep '^ERROR:' "$log" | grep -v "$id_re" || true)
+
+    # The IDs in $1 that $known does not list; all of them when the list
+    # cannot be read. busybox grep -f with an empty pattern file matches
+    # nothing, so an empty list is checked first.
+    unlisted() {
+      if [ ! -f "$known" ] || [ ! -r "$known" ]; then
+        printf '%s' "$1"
+      elif [ -s "$known" ]; then
+        out=$(printf '%s\n' "$1" | grep -v -x -F -f "$known")
+        if [ $? -gt 1 ]; then printf '%s' "$1"; else printf '%s' "$out"; fi
+      else
+        printf '%s' "$1"
+      fi
+    }
+    # A failed write to the list fails the Job with no retry, since a retry
+    # would find the IDs missing or listed and could pass either way.
+    write_failed() {
+      echo "run-yt-dlp: could not write $known; failing the Job with no retry"
+      [ -n "$tmp" ] && rm -f "$tmp"
+      exit 3
+    }
+    count() { printf '%s' "$1" | grep -c .; }
+    # Write $1 to a new file at $2, checked line by line.
+    write_whole() {
+      { [ -z "$1" ] || printf '%s\n' "$1"; } > "$2" || write_failed
+      [ "$(grep -c . "$2")" -eq "$(count "$1")" ] || write_failed
+    }
+    # Append the IDs in $1. They go first into a pending file, published by
+    # mv once complete, so an append the volume cuts short is finished by
+    # finish_pending on a later run instead of failing those IDs again.
+    append() {
+      tmp="$known.tmp.$(hostname).$$"
+      write_whole "$1" "$tmp"
+      pending="$known.pending.$(hostname).$$"
+      mv "$tmp" "$pending" || write_failed
+      tmp=
+      # A cut-short append can leave a last line with no newline.
+      if [ -s "$known" ] && [ -n "$(tail -c 1 "$known")" ]; then
+        echo >> "$known" || write_failed
+      fi
+      printf '%s\n' "$1" >> "$known" || write_failed
+      rm -f "$pending"
+    }
+    finish_pending() {
+      for p in "$known".pending.*; do
+        [ -f "$p" ] || continue
+        batch=$(cat "$p") || write_failed
+        extra=$(unlisted "$batch")
+        [ -n "$extra" ] && append "$extra"
+        rm -f "$p"
+        echo "run-yt-dlp: finished an append cut short in an earlier run ($(count "$extra") ID(s))"
+      done
+    }
+
+    new=
+    if [ -z "$archive" ]; then
+      new=$ids
+      echo "run-yt-dlp: no --download-archive, so no errored list; every per-video error counts as new"
+    else
+      known="${archive%.txt}.errored.txt"
+      tmp=
+      # -e, not -f: ln into an existing directory would link inside it.
+      if [ ! -e "$known" ]; then
+        tmp="$known.tmp.$(hostname).$$"
+        write_whole "$ids" "$tmp"
+        if ln "$tmp" "$known" 2>/dev/null; then
+          rm -f "$tmp"
+          tmp=
+          echo "run-yt-dlp: started $known with $(count "$ids") per-video error(s)"
+        elif [ -f "$known" ]; then
+          rm -f "$tmp"
+          tmp=
+          # Another Job started the list first; this run is a starting run too.
+          extra=$(unlisted "$ids")
+          [ -n "$extra" ] && append "$extra"
+          echo "run-yt-dlp: $known appeared during this run; added $(count "$extra") per-video error(s)"
+        else
+          write_failed
+        fi
+      else
+        finish_pending
+        new=$(unlisted "$ids")
+        [ -n "$new" ] && append "$new"
+      fi
+    fi
+
+    fail=
+    if [ -n "$no_id" ]; then
+      echo "run-yt-dlp: $(printf '%s\n' "$no_id" | wc -l) error(s) not tied to a video ID:"
+      printf '%s\n' "$no_id" | sort | uniq -c
+      fail=retry
+    fi
+    if [ -n "$new" ]; then
+      echo "run-yt-dlp: $(printf '%s\n' "$new" | wc -l) video(s) errored for the first time:"
+      printf '%s\n' "$new" | while read -r id; do
+        grep -m 1 "^ERROR: \[youtube\] $id: " "$log"
+      done
+      fail=final
+    fi
+    if [ "$fail" = final ]; then
+      echo "run-yt-dlp: failing the Job with no retry (yt-dlp exit $rc)"
+      exit 3
+    fi
+    if [ "$fail" = retry ]; then
+      echo "run-yt-dlp: failing the Job (yt-dlp exit $rc)"
+      [ "$rc" -eq 0 ] && exit 1
+      exit "$rc"
+    fi
+
+    case "$rc" in
+      0)
+        exit 0
+        ;;
+      101)
+        echo "run-yt-dlp: stopped at --max-downloads; treating as success"
+        exit 0
+        ;;
+      1)
+        if [ -n "$ids" ]; then
+          echo "run-yt-dlp: exit 1 from $(printf '%s\n' "$ids" | wc -l) known per-video error(s); treating as success"
+          exit 0
+        fi
+        ;;
+    esac
+    echo "run-yt-dlp: exit $rc with no ERROR line explaining it; failing the Job"
+    exit "$rc"

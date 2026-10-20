@@ -49,12 +49,12 @@
 #
 # Environment:
 #   YT_DLP_NS                default: yt-dlp
-#   YT_DLP_IMAGE              default: nathanwhyte/yt-dlp:2026.06.10-yt-dlp
+#   YT_DLP_IMAGE              default: nathanwhyte/yt-dlp:2026.10.17-yt-dlp
 
 set -euo pipefail
 
 NS="${YT_DLP_NS:-yt-dlp}"
-IMAGE="${YT_DLP_IMAGE:-nathanwhyte/yt-dlp:2026.06.10-yt-dlp}"
+IMAGE="${YT_DLP_IMAGE:-nathanwhyte/yt-dlp:2026.10.17-yt-dlp}"
 
 usage() {
 	sed -n '2,/^$/p' "$0" | sed 's/^# \{0,1\}//'

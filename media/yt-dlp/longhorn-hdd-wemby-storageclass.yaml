@@ -1,16 +1,22 @@
 # Dedicated StorageClass for the yt-dlp media PVC.
 #
 # Q2 (Option 1A) for the IDEA-019 yt-dlp revival:
-#   200 Gi PVC, numberOfReplicas: 2, nodeSelector: wemby.
+#   PVC pinned to wemby's HDD via nodeSelector: wemby.
 #
-# Why a dedicated SC: the existing `longhorn-hdd` SC has
-# `numberOfReplicas: 1` and no wemby-specific nodeSelector, so it would
-# land on either manu-hdd or wemby-hdd and survive only one disk
-# failure. This SC bakes in the 2-replica + wemby-pinned defaults so the
-# PVC manifest stays clean.
+# Replicas: the `media` volume runs 1 replica (wemby-hdd), set on the
+# live Longhorn volume. wemby has a single HDD disk, so the SC's
+# `numberOfReplicas: "2"` below only seeds new volumes and never got a
+# second copy placed. StorageClass parameters are immutable, so the
+# value stays matching the live object. The R2 backup (r2-backup-cronjob)
+# is the only other copy of the media.
+#
+# Why a dedicated SC: the existing `longhorn-hdd` SC has no
+# wemby-specific nodeSelector, so it would land on either manu-hdd or
+# wemby-hdd. This SC bakes in the wemby-pinned defaults so the PVC
+# manifest stays clean.
 #
 # Modeled on `longhorn/longhorn-harbor` StorageClass in
-# ~/code/homelab/longhorn/storage.yaml (HDD + ethernet + 2 replicas).
+# ~/code/homelab/longhorn/storage.yaml (HDD + ethernet).
 #
 # `volumeBindingMode: Immediate` is the right call here because the SC
 # is restricted to a single node (wemby); the pod will run on wemby too
