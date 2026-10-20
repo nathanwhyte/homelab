@@ -137,7 +137,9 @@ data:
   # fails when the file exists, so Jobs running at once on one archive
   # (backfills) can add duplicate IDs but never drop one. A list the
   # wrapper cannot write (a full volume) also exits 3, and one it cannot
-  # read counts every errored ID as new.
+  # read counts every errored ID as new. Each batch of new IDs is saved
+  # whole in a .pending file before the append; a later run finishes an
+  # append the volume cut short, and removes the file.
   run-yt-dlp.sh: |
     set -u
     log=/tmp/yt-dlp.log
@@ -179,6 +181,37 @@ data:
       exit 3
     }
     count() { printf '%s' "$1" | grep -c .; }
+    # Write $1 to a new file at $2, checked line by line.
+    write_whole() {
+      { [ -z "$1" ] || printf '%s\n' "$1"; } > "$2" || write_failed
+      [ "$(grep -c . "$2")" -eq "$(count "$1")" ] || write_failed
+    }
+    # Append the IDs in $1. They go first into a pending file, published by
+    # mv once complete, so an append the volume cuts short is finished by
+    # finish_pending on a later run instead of failing those IDs again.
+    append() {
+      tmp="$known.tmp.$(hostname).$$"
+      write_whole "$1" "$tmp"
+      pending="$known.pending.$(hostname).$$"
+      mv "$tmp" "$pending" || write_failed
+      tmp=
+      # A cut-short append can leave a last line with no newline.
+      if [ -s "$known" ] && [ -n "$(tail -c 1 "$known")" ]; then
+        echo >> "$known" || write_failed
+      fi
+      printf '%s\n' "$1" >> "$known" || write_failed
+      rm -f "$pending"
+    }
+    finish_pending() {
+      for p in "$known".pending.*; do
+        [ -f "$p" ] || continue
+        batch=$(cat "$p") || write_failed
+        extra=$(unlisted "$batch")
+        [ -n "$extra" ] && append "$extra"
+        rm -f "$p"
+        echo "run-yt-dlp: finished an append cut short in an earlier run ($(count "$extra") ID(s))"
+      done
+    }
 
     new=
     if [ -z "$archive" ]; then
@@ -189,27 +222,26 @@ data:
       tmp=
       # -e, not -f: ln into an existing directory would link inside it.
       if [ ! -e "$known" ]; then
-        tmp="$known.$(hostname).$$"
-        { [ -z "$ids" ] || printf '%s\n' "$ids"; } > "$tmp" || write_failed
-        [ "$(grep -c . "$tmp")" -eq "$(count "$ids")" ] || write_failed
+        tmp="$known.tmp.$(hostname).$$"
+        write_whole "$ids" "$tmp"
         if ln "$tmp" "$known" 2>/dev/null; then
+          rm -f "$tmp"
+          tmp=
           echo "run-yt-dlp: started $known with $(count "$ids") per-video error(s)"
         elif [ -f "$known" ]; then
+          rm -f "$tmp"
+          tmp=
           # Another Job started the list first; this run is a starting run too.
           extra=$(unlisted "$ids")
-          if [ -n "$extra" ]; then
-            printf '%s\n' "$extra" >> "$known" || write_failed
-          fi
+          [ -n "$extra" ] && append "$extra"
           echo "run-yt-dlp: $known appeared during this run; added $(count "$extra") per-video error(s)"
         else
           write_failed
         fi
-        rm -f "$tmp"
       else
+        finish_pending
         new=$(unlisted "$ids")
-        if [ -n "$new" ]; then
-          printf '%s\n' "$new" >> "$known" || write_failed
-        fi
+        [ -n "$new" ] && append "$new"
       fi
     fi
 
