@@ -28,9 +28,11 @@
 # (`yt-dlp-music`) is needed.
 #
 # Each Job ends in `exec sh /config/run-yt-dlp.sh` (yt-dlp-config.yaml),
-# which fails the Job on any error other than a skippable per-video one
-# (BUG-1243). `restartPolicy: Never` keeps the failed pod and its logs
-# for the 48h TTL; `backoffLimit: 1` retries in a fresh pod.
+# which fails the Job on an error not tied to a video and on a video
+# that errors for the first time (BUG-1243). `restartPolicy: Never`
+# keeps the failed pod and its logs for the 48h TTL; `backoffLimit: 1`
+# retries in a fresh pod, except on the wrapper's exit 3
+# (podFailurePolicy).
 apiVersion: batch/v1
 kind: CronJob
 metadata:
@@ -51,6 +53,15 @@ spec:
   jobTemplate:
     spec:
       backoffLimit: 1
+      # run-yt-dlp.sh exits 3 after listing a video that errored for the
+      # first time; a retry would pass, so the Job fails now.
+      podFailurePolicy:
+        rules:
+          - action: FailJob
+            onExitCodes:
+              containerName: yt-dlp
+              operator: In
+              values: [3]
       activeDeadlineSeconds: 14400
       ttlSecondsAfterFinished: 172800
       template:
@@ -146,6 +157,15 @@ spec:
   jobTemplate:
     spec:
       backoffLimit: 1
+      # run-yt-dlp.sh exits 3 after listing a video that errored for the
+      # first time; a retry would pass, so the Job fails now.
+      podFailurePolicy:
+        rules:
+          - action: FailJob
+            onExitCodes:
+              containerName: yt-dlp
+              operator: In
+              values: [3]
       activeDeadlineSeconds: 14400
       ttlSecondsAfterFinished: 172800
       template:
@@ -241,6 +261,15 @@ spec:
   jobTemplate:
     spec:
       backoffLimit: 1
+      # run-yt-dlp.sh exits 3 after listing a video that errored for the
+      # first time; a retry would pass, so the Job fails now.
+      podFailurePolicy:
+        rules:
+          - action: FailJob
+            onExitCodes:
+              containerName: yt-dlp
+              operator: In
+              values: [3]
       activeDeadlineSeconds: 14400
       ttlSecondsAfterFinished: 172800
       template:
@@ -336,6 +365,15 @@ spec:
   jobTemplate:
     spec:
       backoffLimit: 1
+      # run-yt-dlp.sh exits 3 after listing a video that errored for the
+      # first time; a retry would pass, so the Job fails now.
+      podFailurePolicy:
+        rules:
+          - action: FailJob
+            onExitCodes:
+              containerName: yt-dlp
+              operator: In
+              values: [3]
       activeDeadlineSeconds: 14400
       ttlSecondsAfterFinished: 172800
       template:
@@ -431,6 +469,15 @@ spec:
   jobTemplate:
     spec:
       backoffLimit: 1
+      # run-yt-dlp.sh exits 3 after listing a video that errored for the
+      # first time; a retry would pass, so the Job fails now.
+      podFailurePolicy:
+        rules:
+          - action: FailJob
+            onExitCodes:
+              containerName: yt-dlp
+              operator: In
+              values: [3]
       activeDeadlineSeconds: 14400
       ttlSecondsAfterFinished: 172800
       template:

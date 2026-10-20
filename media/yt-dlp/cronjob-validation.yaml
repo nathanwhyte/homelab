@@ -40,10 +40,11 @@
 #      `operator.sh run-job 2 "--no-mtime"`.
 #   5. exec sh /config/run-yt-dlp.sh "$@" — run yt-dlp through the
 #      wrapper in `yt-dlp-config.yaml`. yt-dlp exits 1 when any video
-#      errored, even with --ignore-errors; the wrapper treats skippable
-#      per-video errors (unavailable, private, age-gated, ...) as success
-#      and fails the Job on anything else, such as a 403 (BUG-1243).
-#      `restartPolicy: Never` keeps the failed pod's logs.
+#      errored, even with --ignore-errors; the wrapper passes errors from
+#      videos that have errored before and fails the Job on a video's
+#      first error or an error not tied to a video, such as a 403
+#      (BUG-1243). `restartPolicy: Never` keeps the failed pod's logs;
+#      podFailurePolicy skips the retry on the wrapper's exit 3.
 #
 # Volume layout:
 #   - `config` ConfigMap (`yt-dlp-config`) → /config/yt-dlp.conf
@@ -69,6 +70,15 @@ spec:
   jobTemplate:
     spec:
       backoffLimit: 1
+      # run-yt-dlp.sh exits 3 after listing a video that errored for the
+      # first time; a retry would pass, so the Job fails now.
+      podFailurePolicy:
+        rules:
+          - action: FailJob
+            onExitCodes:
+              containerName: yt-dlp
+              operator: In
+              values: [3]
       activeDeadlineSeconds: 14400 # 4h hard cap
       ttlSecondsAfterFinished: 172800
       template:
