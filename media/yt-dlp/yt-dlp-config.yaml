@@ -71,6 +71,10 @@ data:
     --force-write-archive
     --restrict-filenames
     --ignore-errors
+    # Progress on its own lines: a redrawn progress bar ends in no newline,
+    # so an ERROR printed after it starts mid-line, where run-yt-dlp.sh's
+    # `^ERROR:` match misses it.
+    --newline
 
     ### download options
     # Hard 1080p ceiling (BUG-1243 backlog sizing): `-f` excludes taller
@@ -131,7 +135,9 @@ data:
   #
   # The list is only ever appended to, or created whole with `ln`, which
   # fails when the file exists, so Jobs running at once on one archive
-  # (backfills) can add duplicate IDs but never drop one.
+  # (backfills) can add duplicate IDs but never drop one. A list the
+  # wrapper cannot write (a full volume) also exits 3, and one it cannot
+  # read counts every errored ID as new.
   run-yt-dlp.sh: |
     set -u
     log=/tmp/yt-dlp.log
@@ -152,15 +158,27 @@ data:
     ids=$(sed -n "s/^ERROR: \[youtube\] \([A-Za-z0-9_-]\{11\}\): .*/\1/p" "$log" | sort -u)
     no_id=$(grep '^ERROR:' "$log" | grep -v "$id_re" || true)
 
-    # The IDs in $1 that $known does not list. busybox grep -f with an
-    # empty pattern file matches nothing, so an empty list is checked first.
+    # The IDs in $1 that $known does not list; all of them when the list
+    # cannot be read. busybox grep -f with an empty pattern file matches
+    # nothing, so an empty list is checked first.
     unlisted() {
-      if [ -s "$known" ]; then
-        printf '%s\n' "$1" | grep -v -x -F -f "$known" || true
+      if [ ! -f "$known" ] || [ ! -r "$known" ]; then
+        printf '%s' "$1"
+      elif [ -s "$known" ]; then
+        out=$(printf '%s\n' "$1" | grep -v -x -F -f "$known")
+        if [ $? -gt 1 ]; then printf '%s' "$1"; else printf '%s' "$out"; fi
       else
         printf '%s' "$1"
       fi
     }
+    # A failed write to the list fails the Job with no retry, since a retry
+    # would find the IDs missing or listed and could pass either way.
+    write_failed() {
+      echo "run-yt-dlp: could not write $known; failing the Job with no retry"
+      [ -n "$tmp" ] && rm -f "$tmp"
+      exit 3
+    }
+    count() { printf '%s' "$1" | grep -c .; }
 
     new=
     if [ -z "$archive" ]; then
@@ -168,22 +186,30 @@ data:
       echo "run-yt-dlp: no --download-archive, so no errored list; every per-video error counts as new"
     else
       known="${archive%.txt}.errored.txt"
-      if [ ! -f "$known" ]; then
+      tmp=
+      # -e, not -f: ln into an existing directory would link inside it.
+      if [ ! -e "$known" ]; then
         tmp="$known.$(hostname).$$"
-        printf '%s' "$ids" > "$tmp"
-        [ -n "$ids" ] && echo >> "$tmp"
+        { [ -z "$ids" ] || printf '%s\n' "$ids"; } > "$tmp" || write_failed
+        [ "$(grep -c . "$tmp")" -eq "$(count "$ids")" ] || write_failed
         if ln "$tmp" "$known" 2>/dev/null; then
-          echo "run-yt-dlp: started $known with $(printf '%s' "$ids" | grep -c .) per-video error(s)"
-        else
+          echo "run-yt-dlp: started $known with $(count "$ids") per-video error(s)"
+        elif [ -f "$known" ]; then
           # Another Job started the list first; this run is a starting run too.
           extra=$(unlisted "$ids")
-          [ -n "$extra" ] && printf '%s\n' "$extra" >> "$known"
-          echo "run-yt-dlp: $known appeared during this run; added $(printf '%s' "$extra" | grep -c .) per-video error(s)"
+          if [ -n "$extra" ]; then
+            printf '%s\n' "$extra" >> "$known" || write_failed
+          fi
+          echo "run-yt-dlp: $known appeared during this run; added $(count "$extra") per-video error(s)"
+        else
+          write_failed
         fi
         rm -f "$tmp"
       else
         new=$(unlisted "$ids")
-        [ -n "$new" ] && printf '%s\n' "$new" >> "$known"
+        if [ -n "$new" ]; then
+          printf '%s\n' "$new" >> "$known" || write_failed
+        fi
       fi
     fi
 
