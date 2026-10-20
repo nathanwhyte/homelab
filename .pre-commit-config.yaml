@@ -119,10 +119,11 @@ repos:
       # BUG-1243: run-yt-dlp.sh lives in a ConfigMap and decides whether each
       # yt-dlp Job fails. Stub yt-dlp, offline; reruns under busybox in the
       # CronJobs' image when docker has it locally (never pulls), since busybox
-      # and macOS sh differ on the wrapper's grep -f. pyyaml for the manifests.
+      # and macOS sh differ on the wrapper's grep -f. pyyaml for the manifests,
+      # from uv's cache only (`uv run --with pyyaml true` once fills it).
       - id: yt-dlp-wrapper-tests
         name: run-yt-dlp.sh wrapper tests
-        entry: uv run --no-project --with pyyaml python3 media/yt-dlp/test-run-yt-dlp.py
+        entry: uv run --offline --no-project --with pyyaml python3 media/yt-dlp/test-run-yt-dlp.py
         language: system
         pass_filenames: false
         files: ^media/yt-dlp/(test-run-yt-dlp\.py|yt-dlp-config\.yaml|cronjobs\.yaml|cronjob-validation\.yaml)$
