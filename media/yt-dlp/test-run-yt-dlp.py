@@ -37,6 +37,7 @@ CONFIG = os.environ.get("YTDLP_CONFIG") or os.path.join(HERE, "yt-dlp-config.yam
 INNER = os.environ.get("YTDLP_TEST_INNER") == "1"
 A, B, C = "AAAAAAAAAAA", "BBBBBBBBBBB", "CCCCCCCCCCC"
 CAP = "bv*[height<=1080]+ba/b[height<=1080]"
+EXIT_3 = {"containerName": "yt-dlp", "operator": "In", "values": [3]}
 
 
 def block(text, key):
@@ -348,43 +349,46 @@ class TestManifests(unittest.TestCase):
         self.assertEqual(len(jobs), 6)
         return jobs
 
+    # The fields below are pinned to exact values rather than interpreted: a
+    # second policy rule, a configMap items list or another mount at /config
+    # can each change what Kubernetes does, so any change fails here until
+    # this test is updated on purpose.
+
     def test_exit_3_fails_every_job_at_once(self):
+        policy = {"rules": [{"action": "FailJob", "onExitCodes": EXIT_3}]}
         for job in self.jobs():
             with self.subTest(job=job["metadata"]["name"]):
                 spec = job["spec"]["jobTemplate"]["spec"]
                 self.assertEqual(spec["template"]["spec"]["restartPolicy"], "Never")
-                # Kubernetes applies the first rule that matches.
-                rules = spec["podFailurePolicy"]["rules"]
-                self.assertEqual(first_matching_action(rules, "yt-dlp", 3), "FailJob")
+                self.assertEqual(spec["podFailurePolicy"], policy)
 
-    def test_every_job_mounts_both_configmap_files_at_config(self):
+    def test_every_job_mounts_the_whole_configmap_at_config(self):
         for job in self.jobs():
             with self.subTest(job=job["metadata"]["name"]):
                 pod = job["spec"]["jobTemplate"]["spec"]["template"]["spec"]
                 (ctr,) = [c for c in pod["containers"] if c["name"] == "yt-dlp"]
-                (vol,) = [
-                    v
-                    for v in pod["volumes"]
-                    if v.get("configMap", {}).get("name") == "yt-dlp-config"
+                config = [v for v in pod["volumes"] if v["name"] == "config"]
+                self.assertEqual(
+                    config, [{"name": "config", "configMap": {"name": "yt-dlp-config"}}]
+                )
+                at_config = [
+                    m
+                    for m in ctr["volumeMounts"]
+                    if m["name"] == "config" or m["mountPath"].startswith("/config")
                 ]
-                items = vol["configMap"].get("items")
-                if items is not None:
-                    paths = {i["key"]: i["path"] for i in items}
-                    for key in ("yt-dlp.conf", "run-yt-dlp.sh"):
-                        self.assertEqual(paths.get(key), key)
-                (mount,) = [m for m in ctr["volumeMounts"] if m["name"] == vol["name"]]
-                self.assertEqual(mount["mountPath"], "/config")
-                self.assertNotIn("subPath", mount)
-                self.assertNotIn("subPathExpr", mount)
+                self.assertEqual(
+                    at_config, [{"name": "config", "mountPath": "/config"}]
+                )
 
-    def test_every_job_script_execs_the_wrapper_with_its_playlist_args(self):
+    def test_every_job_script_execs_the_wrapper_and_keeps_its_status(self):
         with open(os.path.join(HERE, "yt-dlp-playlists.yaml")) as f:
             playlists = yaml.safe_load(f)["data"]
         for job in self.jobs():
-            with self.subTest(job=job["metadata"]["name"]):
-                self.run_job_script(job, playlists)
+            for rc in (0, 1, 3):
+                with self.subTest(job=job["metadata"]["name"], wrapper_exit=rc):
+                    self.run_job_script(job, playlists, rc)
 
-    def run_job_script(self, job, playlists):
+    def run_job_script(self, job, playlists, rc):
         """Run the container's script with its paths moved into a temp dir."""
         t = os.path.realpath(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, t, True)
@@ -393,6 +397,7 @@ class TestManifests(unittest.TestCase):
         with open(os.path.join(t, "config", "run-yt-dlp.sh"), "w") as f:
             f.write(
                 f'pwd > "{t}/called.pwd"\nprintf "%s\\n" "$@" > "{t}/called.args"\n'
+                f"exit {rc}\n"
             )
         pod = job["spec"]["jobTemplate"]["spec"]["template"]["spec"]
         (ctr,) = [c for c in pod["containers"] if c["name"] == "yt-dlp"]
@@ -414,7 +419,7 @@ class TestManifests(unittest.TestCase):
         p = subprocess.run(
             ["sh", "-c", script], env=env, capture_output=True, text=True, check=False
         )
-        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertEqual(p.returncode, rc, p.stdout + p.stderr)
         self.assertTrue(os.path.exists(f"{t}/called.args"), "the wrapper never ran")
         n = job["metadata"]["labels"]["app.kubernetes.io/playlist"]
         want = shlex.split(env.get("EXTRA_ARGS_DEFAULT", "")) + [
@@ -445,18 +450,6 @@ class TestEffectiveConfig(unittest.TestCase):
         )
         self.assertEqual(opts.ydl_opts["format"], CAP)
         self.assertTrue(opts.ydl_opts["progress_with_newline"])
-
-
-def first_matching_action(rules, container, code):
-    """The action Kubernetes takes for a container exit code."""
-    for rule in rules:
-        on = rule.get("onExitCodes")
-        if on is None or on.get("containerName") not in (None, container):
-            continue
-        listed = code in on["values"]
-        if listed == (on["operator"] == "In"):
-            return rule["action"]
-    return None
 
 
 def image_tag():
