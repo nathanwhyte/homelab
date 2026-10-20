@@ -37,6 +37,10 @@ kubeconfig
 .env.*
 *.env
 !**/*.example
+# The negations above also match directories (`credentials.example/`);
+# directories named like a secret stay ignored whatever their suffix.
+**/*secret*/
+**/*credential*/
 
 # Backup files
 *.bak

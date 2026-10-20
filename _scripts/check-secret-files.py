@@ -4,13 +4,15 @@
 Fails closed. A staged file fails when it
   1. is named like a secret, or sits in a directory named like one, and is
      not a `.example` placeholder or code, i.e. it was force-added;
-  2. is YAML/JSON that is not plain UTF-8, so it cannot be checked;
-  3. is YAML/JSON that does not parse (duplicate keys included) and mentions
-     `Secret`; or
+  2. is YAML/JSON (.yaml/.yml/.json, or one of those plus .example) that is
+     not plain UTF-8, so it cannot be checked;
+  3. is YAML/JSON that does not load (duplicate keys and bad tags included);
+     or
   4. holds a Kubernetes Secret, anywhere in the document (a list dump, a
-     last-applied-configuration annotation, nested under any key), with a
-     data or stringData value other than "", REPLACE_ME, CHANGE_ME or
-     <UPPER_SNAKE> (plain, or base64 in data).
+     SecretList item, a last-applied-configuration annotation, nested under
+     any key), with a data or stringData value other than "", REPLACE_ME,
+     CHANGE_ME or <UPPER_SNAKE> (written as is, even in data, or base64 of
+     REPLACE_ME/CHANGE_ME).
 
 There are no exemptions for config-looking values: write non-secret settings
 (endpoints, regions) as placeholders too, and give their values in a comment.
@@ -33,9 +35,10 @@ SECRET_NAME = re.compile(
 )
 SECRET_DIR = re.compile(r"secret|credential", re.I)
 ALLOWED_NAME = re.compile(r"\.example$|\.(py|sh)$", re.I)
-CHECKED_SUFFIXES = (".yaml", ".yml", ".json", ".example")
+CHECKED = re.compile(r"\.(?:ya?ml|json)(?:\.example)?$", re.I)
 PLACEHOLDER = re.compile(r"^(?:|REPLACE_ME|CHANGE_ME|<[A-Z][A-Z0-9_]*>)$")
-MENTIONS_SECRET = re.compile(r"\bSecret\b")
+# gitleaks flags base64 of <UPPER_SNAKE>, so data takes only these two encoded.
+ENCODED_PLACEHOLDER = re.compile(r"^(?:REPLACE_ME|CHANGE_ME)$")
 LAST_APPLIED = "kubectl.kubernetes.io/last-applied-configuration"
 
 
@@ -87,29 +90,34 @@ def placeholder(value, encoded: bool) -> bool:
             text = base64.b64decode(re.sub(r"\s", "", text), validate=True).decode()
         except (binascii.Error, UnicodeDecodeError, ValueError):
             return False
-    return bool(PLACEHOLDER.match(text.strip()))
+        return bool(ENCODED_PLACEHOLDER.match(text.strip()))
+    return False
 
 
-def secret_findings(node, where: str, seen: dict[int, object]):
+def secret_findings(node, where: str, seen: dict[int, object], kind=None):
     # `seen` keeps each visited object alive, so its id() is never reused.
+    # `kind` is the item kind a typed list (SecretList) implies for its items.
     if not isinstance(node, (list, dict)) or id(node) in seen:
         return
     seen[id(node)] = node
     if isinstance(node, list):
         for i, item in enumerate(node):
-            yield from secret_findings(item, f"{where}[{i}]", seen)
+            yield from secret_findings(item, f"{where}[{i}]", seen, kind)
         return
     metadata = node.get("metadata")
     metadata = metadata if isinstance(metadata, dict) else {}
     annotations = metadata.get("annotations")
     if isinstance(annotations, dict) and LAST_APPLIED in annotations:
         try:
-            applied = json.loads(str(annotations[LAST_APPLIED]), object_pairs_hook=_no_duplicates)
+            applied = json.loads(
+                str(annotations[LAST_APPLIED]), object_pairs_hook=_no_duplicates
+            )
         except ValueError:
             yield f"unparseable last-applied annotation ({where}); cannot check it"
         else:
             yield from secret_findings(applied, f"{where}.last-applied", seen)
-    is_secret = node.get("kind") == "Secret"
+    own_kind = node.get("kind")
+    is_secret = own_kind == "Secret" or (own_kind is None and kind == "Secret")
     if is_secret:
         name = metadata.get("name", "?")
         for field, encoded in (("data", True), ("stringData", False)):
@@ -124,19 +132,27 @@ def secret_findings(node, where: str, seen: dict[int, object]):
                     yield (
                         f"Secret {name} {field}.{key} is not a placeholder ({where})"
                     )
+    item_kind = (
+        own_kind[: -len("List")]
+        if isinstance(own_kind, str) and own_kind.endswith("List")
+        else None
+    )
     for key, value in node.items():
         if not (is_secret and key in ("data", "stringData")):
-            yield from secret_findings(value, f"{where}.{key}", seen)
+            yield from secret_findings(
+                value, f"{where}.{key}", seen, item_kind if key == "items" else None
+            )
 
 
 def check(path: Path) -> list[str]:
     problems = []
-    named = SECRET_NAME.search(path.name) or any(
-        SECRET_DIR.search(part) for part in path.parts[:-1]
-    )
-    if named and not ALLOWED_NAME.search(path.name):
+    if any(SECRET_DIR.search(part) for part in path.parts[:-1]):
+        problems.append(
+            "inside a directory named like a secret, which stays wholly ignored"
+        )
+    elif SECRET_NAME.search(path.name) and not ALLOWED_NAME.search(path.name):
         problems.append("named like a secret; commit a `.example` placeholder instead")
-    if path.suffix.lower() not in CHECKED_SUFFIXES or not path.is_file():
+    if not CHECKED.search(path.name) or not path.is_file():
         return problems
     raw = path.read_bytes()
     try:
@@ -149,11 +165,9 @@ def check(path: Path) -> list[str]:
     try:
         for i, doc in enumerate(yaml.load_all(text, Loader=Loader)):
             problems.extend(secret_findings(doc, f"doc {i}", seen))
-    except yaml.YAMLError:
-        if MENTIONS_SECRET.search(text):
-            problems.append(
-                "mentions Secret but does not parse (duplicate keys count), so it cannot be checked"
-            )
+    except Exception as e:  # noqa: BLE001 - any load failure fails closed
+        # The type only: a constructor error's message can quote the value.
+        problems.append(f"does not load ({type(e).__name__}), so it cannot be checked")
     return problems
 
 

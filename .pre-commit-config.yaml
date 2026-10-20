@@ -33,6 +33,12 @@ repos:
     rev: v8.28.0
     hooks:
       - id: gitleaks
+        # The stock entry adds --verbose, whose excerpt can print a second,
+        # unredacted secret on the same line; report rule and location only.
+        entry: >-
+          gitleaks git --pre-commit --redact --staged --no-banner
+          --report-format template --report-template .gitleaks-report.tmpl
+          --report-path -
 
   - repo: local
     hooks:
