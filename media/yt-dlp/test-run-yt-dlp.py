@@ -1,15 +1,17 @@
 #!/usr/bin/env python3
 """Tests for run-yt-dlp.sh, the wrapper in yt-dlp-config.yaml (BUG-1243).
 
-Stdlib only and offline: a stub yt-dlp prints canned output and exits with a
-canned status. The suite runs under the host's sh, then again inside the yt-dlp
-image the CronJobs use, under busybox sh with a 64k tmpfs for the full-volume
-cases, when docker has that image locally (it never pulls). busybox differs from
-macOS sh where it matters: `grep -f` on an empty file matches nothing there.
+Offline: a stub yt-dlp records its arguments, prints canned output and exits
+with a canned status. The suite runs under the host's sh, then again inside the
+yt-dlp image the CronJobs use, under busybox sh with a 64k tmpfs for the
+full-volume cases, when docker has that image's linux/amd64 variant locally (it
+never pulls). busybox differs from macOS sh where it matters: `grep -f` on an
+empty file matches nothing there. The manifest checks need pyyaml, so run it
+through uv on the host; the image pass skips them.
 
-  python3 media/yt-dlp/test-run-yt-dlp.py              # host, then image
-  python3 media/yt-dlp/test-run-yt-dlp.py --host-only
-  YTDLP_CONFIG=<old yt-dlp-config.yaml> python3 ...    # test another wrapper
+  uv run --no-project --with pyyaml python3 media/yt-dlp/test-run-yt-dlp.py
+  ... test-run-yt-dlp.py --host-only
+  YTDLP_CONFIG=<old yt-dlp-config.yaml> uv run ...    # test another wrapper
 """
 
 import os
@@ -19,6 +21,11 @@ import subprocess
 import sys
 import tempfile
 import unittest
+
+try:
+    import yaml
+except ImportError:
+    yaml = None
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 CONFIG = os.environ.get("YTDLP_CONFIG") or os.path.join(HERE, "yt-dlp-config.yaml")
@@ -60,7 +67,9 @@ class Case:
         self.bin = os.path.join(self.d, "bin")
         os.mkdir(self.bin)
         self.write_exec(
-            "yt-dlp", f'#!/bin/sh\ncat "{self.d}/out"\nexit "$(cat "{self.d}/rc")"\n'
+            "yt-dlp",
+            f'#!/bin/sh\nprintf "%s\\n" "$@" > "{self.d}/args"\n'
+            f'cat "{self.d}/out"\nexit "$(cat "{self.d}/rc")"\n',
         )
         self.run_sh = os.path.join(self.d, "run.sh")
         with open(self.run_sh, "w") as f:
@@ -91,9 +100,18 @@ class Case:
         )
 
     def run(self, out, rc, args=None, limit=False):
-        p = self.popen(out, rc, self.args() if args is None else args, limit)
+        args = self.args() if args is None else args
+        p = self.popen(out, rc, args, limit)
         stdout, _ = p.communicate()
+        self.check_forwarded(args)
         return p.returncode, stdout
+
+    def check_forwarded(self, args):
+        """yt-dlp got exactly the wrapper's arguments, in order."""
+        got = lines(os.path.join(self.d, "args"))
+        if got != list(args):
+            raise AssertionError(f"yt-dlp got {got}, want {list(args)}")
+        os.remove(os.path.join(self.d, "args"))
 
     def leftovers(self, directory=None):
         return [
@@ -195,6 +213,8 @@ class TestListState(WrapperTest):
             ]
             for p in ps:
                 p.communicate()
+            c1.check_forwarded(c1.args(archive))
+            c2.check_forwarded(c2.args(archive))
             listed = lines(archive.replace(".txt", ".errored.txt"))
             self.assertIn(A, listed)
             self.assertIn(B, listed)
@@ -278,30 +298,58 @@ class TestListState(WrapperTest):
         self.assertExit(0, self.c.run(out, 1, seed_args))
 
 
+@unittest.skipIf(INNER, "the image has no pyyaml; the host pass checks manifests")
 class TestManifests(unittest.TestCase):
-    """The ConfigMap and Job templates the wrapper depends on."""
+    """The ConfigMap and Job templates the wrapper depends on, parsed as YAML."""
+
+    def setUp(self):
+        if yaml is None:
+            self.fail("needs pyyaml: uv run --no-project --with pyyaml python3 ...")
+
+    def test_the_extracted_blocks_match_the_parsed_configmap(self):
+        data = yaml.safe_load(CONFIG_TEXT)["data"]
+        for key in ("run-yt-dlp.sh", "yt-dlp.conf"):
+            with self.subTest(key=key):
+                self.assertEqual(block(CONFIG_TEXT, key), data[key])
 
     def test_the_config_keeps_newline_progress_and_the_1080p_cap(self):
-        conf = block(CONFIG_TEXT, "yt-dlp.conf").splitlines()
+        conf = yaml.safe_load(CONFIG_TEXT)["data"]["yt-dlp.conf"].splitlines()
         self.assertIn("--newline", conf)
         self.assertIn('--format "bv*[height<=1080]+ba/b[height<=1080]"', conf)
 
     def test_every_job_runs_the_wrapper_and_fails_at_once_on_exit_3(self):
-        text = ""
+        jobs = []
         for name in ("cronjobs.yaml", "cronjob-validation.yaml"):
             with open(os.path.join(HERE, name)) as f:
-                text += f.read()
-        jobs = len(re.findall(r"^kind: CronJob$", text, re.MULTILINE))
-        self.assertEqual(jobs, 6)
-        execs = re.findall(
-            r'^\s+exec sh /config/run-yt-dlp\.sh "\$@"$', text, re.MULTILINE
-        )
-        self.assertEqual(len(execs), jobs)
-        policy = re.compile(
-            r"podFailurePolicy:\n\s+rules:\n\s+- action: FailJob\n\s+onExitCodes:\n"
-            r"\s+containerName: yt-dlp\n\s+operator: In\n\s+values: \[3\]\n"
-        )
-        self.assertEqual(len(policy.findall(text)), jobs)
+                jobs += [
+                    d for d in yaml.safe_load_all(f) if d and d["kind"] == "CronJob"
+                ]
+        self.assertEqual(len(jobs), 6)
+        want_rule = {
+            "action": "FailJob",
+            "onExitCodes": {"containerName": "yt-dlp", "operator": "In", "values": [3]},
+        }
+        for job in jobs:
+            with self.subTest(job=job["metadata"]["name"]):
+                spec = job["spec"]["jobTemplate"]["spec"]
+                self.assertIn(want_rule, spec["podFailurePolicy"]["rules"])
+                pod = spec["template"]["spec"]
+                self.assertEqual(pod["restartPolicy"], "Never")
+                (ctr,) = [c for c in pod["containers"] if c["name"] == "yt-dlp"]
+                self.assertEqual(ctr["command"][:2], ["/bin/sh", "-c"])
+                script = [
+                    s
+                    for s in (x.strip() for x in ctr["command"][2].splitlines())
+                    if s and not s.startswith("#")
+                ]
+                self.assertEqual(script[-1], 'exec sh /config/run-yt-dlp.sh "$@"')
+                mount = {m["name"]: m["mountPath"] for m in ctr["volumeMounts"]}
+                (vol,) = [
+                    v["name"]
+                    for v in pod["volumes"]
+                    if v.get("configMap", {}).get("name") == "yt-dlp-config"
+                ]
+                self.assertEqual(mount[vol], "/config")
 
 
 def image_tag():
@@ -319,16 +367,20 @@ def image_pass():
         print(f"WARNING: no docker, so the busybox pass in {image} did not run")
         return 0
     have = subprocess.run(
-        ["docker", "image", "inspect", image], check=False, capture_output=True
+        ["docker", "image", "inspect", "-f", "{{.Os}}/{{.Architecture}}", image],
+        check=False,
+        capture_output=True,
+        text=True,
     )
-    if have.returncode != 0:
+    if have.returncode != 0 or have.stdout.strip() != "linux/amd64":
         print(
-            f"WARNING: {image} is not pulled locally, so the busybox pass did not run"
+            f"WARNING: {image} (linux/amd64) is not pulled locally, "
+            "so the busybox pass did not run"
         )
         return 0
     print(f"--- busybox pass in {image}", flush=True)
     return subprocess.run([
-        "docker", "run", "--rm", "--platform", "linux/amd64",
+        "docker", "run", "--rm", "--pull=never", "--platform", "linux/amd64",
         "--tmpfs", "/full:size=64k", "-e", "FULLFS=/full", "-e", "YTDLP_TEST_INNER=1",
         "-e", "YTDLP_CONFIG=/cfg/yt-dlp-config.yaml",
         "-v", f"{HERE}:/src:ro", "-v", f"{os.path.abspath(CONFIG)}:/cfg/yt-dlp-config.yaml:ro",

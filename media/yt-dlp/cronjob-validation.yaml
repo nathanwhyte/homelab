@@ -149,8 +149,8 @@ spec:
                   mkdir -p "/downloads/${PLAYLIST_NAME}"
                   cd "/downloads/${PLAYLIST_NAME}"
 
-                  # The wrapper (yt-dlp-config.yaml) passes skippable
-                  # per-video errors and fails the Job on anything else.
+                  # The wrapper (yt-dlp-config.yaml) decides whether the Job
+                  # fails, from the video IDs yt-dlp's errors name.
                   exec sh /config/run-yt-dlp.sh "$@"
               volumeMounts:
                 - name: config
