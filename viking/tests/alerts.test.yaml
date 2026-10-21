@@ -332,6 +332,54 @@ tests:
         eval_time: 26h
         exp_samples: [{ labels: "{}", value: 0 }]
 
+  - name: session-start threshold boundary, 5 runs quiet and 6 fire
+    # Codex round 6: increase() extrapolates, so 5 runs read 5.0017 and
+    # fired the old > 5. 30s samples, as the ServiceMonitor scrapes, and a
+    # nonzero base: increase() never extrapolates a counter back below 0.
+    interval: 30s
+    input_series:
+      - series: 'openviking_client_session_start_runs_total{machine="workbook", harness="codex"}'
+        values: "100x2880 101+1x4 105x600"
+      - series: 'openviking_client_session_start_injects_total{machine="workbook", harness="codex"}'
+        values: "0x3500"
+      - series: 'openviking_client_session_start_runs_total{machine="pop", harness="codex"}'
+        values: "100x2880 101+1x5 106x600"
+      - series: 'openviking_client_session_start_injects_total{machine="pop", harness="codex"}'
+        values: "0x3500"
+    promql_expr_test:
+      - expr: count by (machine) (ALERTS{alertname="OpenVikingClientSessionStartFlat",alertstate="firing"})
+        eval_time: 25h
+        exp_samples: [{ labels: '{machine="pop"}', value: 1 }]
+
+  - name: recall-delivery threshold boundary, 10 recalls quiet and 11 fire
+    # Codex round 6: 10 recalls read just over 10 and fired the old > 10.
+    interval: 30s
+    input_series:
+      - series: 'openviking_client_recalls_total{machine="workbook", harness="codex"}'
+        values: "100x720 101+1x9 110x200"
+      - series: 'openviking_client_recalls_total{machine="pop", harness="codex"}'
+        values: "100x720 101+1x10 111x200"
+      - series: 'openviking_client_recall_skips_total{machine="workbook", harness="codex"}'
+        values: "0x940"
+      - series: 'openviking_client_recall_skips_total{machine="pop", harness="codex"}'
+        values: "0x940"
+      - series: 'openviking_client_recall_errors_total{machine="workbook", harness="codex"}'
+        values: "0x940"
+      - series: 'openviking_client_recall_errors_total{machine="pop", harness="codex"}'
+        values: "0x940"
+      - series: 'openviking_client_recall_tokens_total{machine="workbook", harness="codex"}'
+        values: "5000x940"
+      - series: 'openviking_client_recall_tokens_total{machine="pop", harness="codex"}'
+        values: "5000x940"
+      - series: 'openviking_client_recall_entries_total{machine="workbook", harness="codex"}'
+        values: "40x940"
+      - series: 'openviking_client_recall_entries_total{machine="pop", harness="codex"}'
+        values: "40x940"
+    promql_expr_test:
+      - expr: count by (machine) (ALERTS{alertname="OpenVikingClientRecallDeliveryFlat",alertstate="firing"})
+        eval_time: 7h
+        exp_samples: [{ labels: '{machine="pop"}', value: 1 }]
+
   - name: a long but sub-threshold lock never fires
     interval: 1m
     input_series:
