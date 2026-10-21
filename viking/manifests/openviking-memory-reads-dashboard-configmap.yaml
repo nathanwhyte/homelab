@@ -446,7 +446,7 @@ data:
           "id": 14,
           "type": "stat",
           "title": "Recall entries delivered (approx.)",
-          "description": "Memory entries auto-recall put into prompts: Claude Code's as the server assembled them (before the hook trims) plus its search-fallback entries and hints; Codex's at the emitted block. Codex's search fallback logs no delivery and adds none.",
+          "description": "Memory entries auto-recall put into prompts: Claude Code's as the server assembled them (before the hook trims) plus its search-fallback entries and hints; Codex's as the item count before its compressor drops any. Both run high. Codex's search fallback logs no delivery and adds none.",
           "gridPos": { "h": 4, "w": 6, "x": 6, "y": 39 },
           "datasource": { "type": "prometheus", "uid": "prometheus" },
           "targets": [
