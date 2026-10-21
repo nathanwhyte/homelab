@@ -94,9 +94,16 @@ CASES = {
         "    stringData: {password: s3cure9q}\n",
         True,
     ),
-    "later yaml tag": (
+    # The first document is clean, so only a checker that walks every document
+    # of the stream fails these.
+    "later document secret value": (
         "a.yaml",
-        secret("  password: s3cure9q") + "---\ncustom: !Ref parameter\n",
+        "kind: ConfigMap\ndata: {a: b}\n---\n" + secret("  password: s3cure9q"),
+        True,
+    ),
+    "later document tag": (
+        "a.yaml",
+        "kind: ConfigMap\ndata: {a: b}\n---\ncustom: !Ref parameter\n",
         True,
     ),
     "unparseable secret": (
@@ -126,23 +133,33 @@ CASES = {
         "  - valueFrom: {secretKeyRef: {name: s, key: k}}\n",
         False,
     ),
-    "placeholder example": (
-        "x.secret.yaml.example",
-        secret(
-            "  A: REPLACE_ME\n  B: <token>\n  C: ${VAR}\n  D: REPLACE_WITH_KEY\n"
-            "  E: ROOT_TOKEN_PLACEHOLDER"
-        ),
-        True,
-    ),
-    "config keys": (
-        "x.secret.yaml.example",
-        secret(
-            '  RCLONE_CONFIG_R2_ENDPOINT: "https://abc.r2.cloudflarestorage.com"\n'
-            "  RCLONE_CONFIG_R2_REGION: auto\n"
-            '  RCLONE_CONFIG_R2_NO_CHECK_BUCKET: "true"\n  USER: noot'
-        ),
-        True,
-    ),
+    # One forbidden value per case, so a loosened rule cannot hide behind
+    # another value that still fails.
+    **{
+        f"not a placeholder: {value}": (
+            "x.secret.yaml.example",
+            secret(f"  A: {value}"),
+            True,
+        )
+        for value in (
+            "<token>",
+            "${VAR}",
+            "REPLACE_WITH_KEY",
+            "ROOT_TOKEN_PLACEHOLDER",
+        )
+    },
+    **{
+        f"config value in secret: {key}": (
+            "x.secret.yaml.example",
+            secret(f"  {key}: {value}"),
+            True,
+        )
+        for key, value in (
+            ("RCLONE_CONFIG_R2_ENDPOINT", '"https://abc.r2.cloudflarestorage.com"'),
+            ("RCLONE_CONFIG_R2_NO_CHECK_BUCKET", '"true"'),
+            ("USER", "noot"),
+        )
+    },
     "url placeholder password": (
         "x.secret.yaml.example",
         secret("  DB_URL: postgresql+asyncpg://u:CHANGE_ME@db:5432/x"),
@@ -161,11 +178,12 @@ CASES = {
     ),
     "cfn tags": ("cfn.yaml", "Resources:\n  B: !Ref Thing\n", True),
     # round 4
-    "escaped kind + dup json": (
+    "escaped kind": (
         "e.json",
-        '{"kind":"\\u0053ecret","stringData":{"password":"probe-value"},"x":1,"x":2}',
+        '{"kind":"\\u0053ecret","stringData":{"password":"probe-value"}}',
         True,
     ),
+    "dup json key": ("e2.json", '{"x":1,"x":2}', True),
     "secretlist item": (
         "sl.yaml",
         "kind: SecretList\nitems:\n- metadata: {name: a}\n"
@@ -425,7 +443,7 @@ CASES = {
 class CheckerCaseTests(unittest.TestCase):
     def test_case_count(self):
         # Dropping a case drops a regression guard; raise this with a new one.
-        self.assertEqual(len(CASES), 78)
+        self.assertEqual(len(CASES), 85)
 
     def test_names_and_symlinks(self):
         # Cases above write regular files under non-secret names; these cover
