@@ -35,8 +35,11 @@ repos:
       - id: gitleaks
         # The stock entry adds --verbose, whose excerpt can print a second,
         # unredacted secret on the same line; report rule and location only.
+        # --ignore-gitleaks-allow: an inline `gitleaks:allow` comment must not
+        # wave a secret through; allowlist known placeholders in .gitleaks.toml.
         entry: >-
           gitleaks git --pre-commit --redact --staged --no-banner
+          --ignore-gitleaks-allow
           --report-format template --report-template .gitleaks-report.tmpl
           --report-path -
 
@@ -48,7 +51,9 @@ repos:
         name: Secret files and Secret values
         entry: _scripts/check-secret-files.py
         language: python
-        # The default `types: [file]` skips symlinks, which the hook rejects.
+        # The default `types: [file]` skips symlinks, which the hook rejects;
+        # `types` and `types_or` both apply, so clear `types`.
+        types: []
         types_or: [file, symlink]
         additional_dependencies: [pyyaml==6.0.2]
 
