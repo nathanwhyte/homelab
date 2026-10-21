@@ -57,22 +57,38 @@ spec:
         - alert: LiteLLMAnthropicAuthFailing
           # 2026-10-21: the Haiku key expired and every overflow call returned 401
           # from ~01:00Z to 18:15Z (363 calls) with nothing alerting, since gemma
-          # answered the fallbacks. Those 401s land in the successful-fallbacks
-          # counter; the failure counter covers a 401 whose fallback also failed.
-          # Keys expire 30 days after issue (current one ~2026-11-20, IMPR-1311).
-          # Only overflow traffic reaches Haiku, so a dead key is silent until then.
-          # increase() skips a series' first sample, so the `unless ... offset`
-          # terms count a series that first appeared in the window (a fresh
-          # router pod's first 401). Only > 0 matters, so overlap is harmless.
+          # answered the fallbacks. LiteLLM counts a Haiku rejection under the
+          # fallback that followed it, successful or failed; failure_responses
+          # covers a rejection on a direct Haiku call. Keys expire 30 days after
+          # issue (current one ~2026-11-20, IMPR-1311). Only overflow reaches
+          # Haiku, so a dead key is silent until gemma overflows, and LiteLLM
+          # records the rejection only when the fallback finishes (gemma's last
+          # attempt can take 900 s).
+          # increase() skips a series' first sample, so the _created terms
+          # count a series created in the window with a nonzero value (a fresh
+          # router pod's first rejection). _created is the creation time, so a
+          # scrape gap does not look like a new series, and max_over_time keeps
+          # the evidence after the pod is replaced. Only > 0 matters.
           expr: |
             (
               sum(increase(litellm_deployment_successful_fallbacks_total{namespace="viking", exception_class=~"Anthropic\\..*", exception_status=~"401|403"}[30m]))
               or vector(0)
             )
             + (
-              sum(
-                litellm_deployment_successful_fallbacks_total{namespace="viking", exception_class=~"Anthropic\\..*", exception_status=~"401|403"}
-                unless litellm_deployment_successful_fallbacks_total{namespace="viking", exception_class=~"Anthropic\\..*", exception_status=~"401|403"} offset 30m
+              count(
+                max_over_time(litellm_deployment_successful_fallbacks_created{namespace="viking", exception_class=~"Anthropic\\..*", exception_status=~"401|403"}[30m]) > time() - 1800
+                and max_over_time(litellm_deployment_successful_fallbacks_total{namespace="viking", exception_class=~"Anthropic\\..*", exception_status=~"401|403"}[30m]) > 0
+              )
+              or vector(0)
+            )
+            + (
+              sum(increase(litellm_deployment_failed_fallbacks_total{namespace="viking", exception_class=~"Anthropic\\..*", exception_status=~"401|403"}[30m]))
+              or vector(0)
+            )
+            + (
+              count(
+                max_over_time(litellm_deployment_failed_fallbacks_created{namespace="viking", exception_class=~"Anthropic\\..*", exception_status=~"401|403"}[30m]) > time() - 1800
+                and max_over_time(litellm_deployment_failed_fallbacks_total{namespace="viking", exception_class=~"Anthropic\\..*", exception_status=~"401|403"}[30m]) > 0
               )
               or vector(0)
             )
@@ -81,9 +97,9 @@ spec:
               or vector(0)
             )
             + (
-              sum(
-                litellm_deployment_failure_responses_total{namespace="viking", api_provider="anthropic", exception_status=~"401|403"}
-                unless litellm_deployment_failure_responses_total{namespace="viking", api_provider="anthropic", exception_status=~"401|403"} offset 30m
+              count(
+                max_over_time(litellm_deployment_failure_responses_created{namespace="viking", api_provider="anthropic", exception_status=~"401|403"}[30m]) > time() - 1800
+                and max_over_time(litellm_deployment_failure_responses_total{namespace="viking", api_provider="anthropic", exception_status=~"401|403"}[30m]) > 0
               )
               or vector(0)
             )
@@ -92,8 +108,8 @@ spec:
           labels:
             severity: warning
           annotations:
-            summary: "Anthropic rejected the VLM router's Haiku key (401/403) in the last 30m"
-            description: "The router's Haiku calls are failing authentication, so overflow falls back to gemma and Haiku capacity is lost. The key in Secret anthropic-vlm-key has expired or been revoked: issue a new Console key, update the Secret, then kubectl -n viking rollout restart deploy/litellm-vlm."
+            summary: "Anthropic rejected the VLM router's Haiku calls (401/403) in the last 30m"
+            description: "Anthropic answered the router's Haiku calls with 401 (authentication) or 403 (permission), so overflow falls back to gemma and Haiku capacity is lost. Read the error in kubectl -n viking logs deploy/litellm-vlm. A 401 usually means the key in Secret anthropic-vlm-key expired or was revoked: put a new Console key in the Secret, then kubectl -n viking rollout restart deploy/litellm-vlm. For a 403, check the key's workspace and model access in the Claude Console first; a new key with the same access will not fix it."
         - alert: LiteLLMHaikuBudgetLow
           expr: litellm_provider_remaining_budget_metric{api_provider="anthropic"} < 10
           for: 15m
