@@ -5,13 +5,13 @@ Fails closed. A staged file fails when it
   1. is named like a secret, or sits in a directory named like one, and is
      not a `.example` placeholder or code, i.e. it was force-added;
   2. is YAML/JSON (.yaml/.yml/.json, or one of those plus .example) that is
-     not plain UTF-8, so it cannot be checked;
-  3. is YAML/JSON that does not load, repeats a mapping key, uses a tag other
-     than the plain core ones (no !!binary, !!omap, !!pairs, !!set or custom
-     tags), walks past a fixed node budget, or has a document that mentions
-     `Secret` and uses aliases or merge keys. These are checked on the
-     composed nodes, before construction can merge, retag or share anything;
-     or
+     a symlink or not plain UTF-8, so it cannot be checked;
+  3. is YAML/JSON that does not load, repeats a mapping key, uses an explicit
+     tag (any tag other than the one its text resolves to untagged), walks
+     past a fixed node budget, or has a document with a `Secret`, `SecretList`
+     or last-applied-configuration scalar that uses aliases or merge keys.
+     These are checked on the composed nodes, before construction can merge,
+     retag or share anything; or
   4. holds a Kubernetes Secret, anywhere in the document (a list dump, a
      SecretList item, a last-applied-configuration annotation, nested under
      any key), with a data or stringData value other than exactly "",
@@ -45,10 +45,12 @@ NODE_BUDGET = 1_000_000
 
 
 MERGE = "tag:yaml.org,2002:merge"
-PLAIN_TAGS = {
-    f"tag:yaml.org,2002:{t}"
-    for t in ("str", "int", "float", "bool", "null", "timestamp", "seq", "map")
-} | {MERGE}
+COLLECTION_TAGS = {
+    yaml.SequenceNode: "tag:yaml.org,2002:seq",
+    yaml.MappingNode: "tag:yaml.org,2002:map",
+}
+# Scalars that make a document hold a Secret, possibly JSON-escaped.
+SECRET_MARKERS = {"Secret", "SecretList", LAST_APPLIED}
 
 
 class TooManyNodes(Exception):
@@ -65,11 +67,18 @@ def node_problems(loader: yaml.SafeLoader, doc) -> list[str]:
             shared = True
             continue
         seen.add(id(node))
-        if node.tag not in PLAIN_TAGS:
-            # The tag itself is not printed: it could be the value.
-            return ["uses a YAML tag other than the plain core ones"]
         if isinstance(node, yaml.ScalarNode):
-            mentions_secret = mentions_secret or "Secret" in node.value
+            # The tag must be the one the text resolves to on its own, so an
+            # explicit tag (`!!null hunter2`, `!!binary`) cannot reinterpret it.
+            implicit = (node.style is None, True)
+            expected = loader.resolve(yaml.ScalarNode, node.value, implicit)
+        else:
+            expected = COLLECTION_TAGS[type(node)]
+        if node.tag != expected:
+            # The tag itself is not printed: it could be the value.
+            return ["uses an explicit YAML tag; write the value untagged"]
+        if isinstance(node, yaml.ScalarNode):
+            mentions_secret = mentions_secret or node.value in SECRET_MARKERS
         elif isinstance(node, yaml.SequenceNode):
             stack.extend(node.value)
         else:
@@ -86,7 +95,10 @@ def node_problems(loader: yaml.SafeLoader, doc) -> list[str]:
                     return ["repeats a mapping key"]
                 keys.add(key)
     if mentions_secret and (shared or merges):
-        return ["mentions Secret and uses YAML aliases or merge keys; write it out"]
+        return [
+            "holds a Secret or last-applied annotation and uses YAML aliases or"
+            " merge keys; write it out"
+        ]
     return []
 
 
@@ -176,7 +188,11 @@ def check(path: Path) -> list[str]:
         )
     elif SECRET_NAME.search(path.name) and not ALLOWED_NAME.search(path.name):
         problems.append("named like a secret; commit a `.example` placeholder instead")
-    if not CHECKED.search(path.name) or not path.is_file():
+    if not CHECKED.search(path.name):
+        return problems
+    if path.is_symlink():
+        return problems + ["YAML/JSON symlink; commit the file itself"]
+    if not path.is_file():
         return problems
     raw = path.read_bytes()
     try:
@@ -186,8 +202,9 @@ def check(path: Path) -> list[str]:
     if text is None or "\x00" in text:
         return problems + ["YAML/JSON that is not plain UTF-8, so it cannot be checked"]
     budget = [NODE_BUDGET]
-    loader = yaml.SafeLoader(text)
+    loader = None
     try:
+        loader = yaml.SafeLoader(text)
         i = 0
         while loader.check_node():
             node = loader.get_node()
@@ -200,7 +217,8 @@ def check(path: Path) -> list[str]:
         # The type only: a constructor error's message can quote the value.
         problems.append(f"does not load ({type(e).__name__}), so it cannot be checked")
     finally:
-        loader.dispose()
+        if loader is not None:
+            loader.dispose()
     return problems
 
 

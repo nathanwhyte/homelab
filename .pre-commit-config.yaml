@@ -48,6 +48,8 @@ repos:
         name: Secret files and Secret values
         entry: _scripts/check-secret-files.py
         language: python
+        # The default `types: [file]` skips symlinks, which the hook rejects.
+        types_or: [file, symlink]
         additional_dependencies: [pyyaml==6.0.2]
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
