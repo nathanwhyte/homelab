@@ -174,6 +174,51 @@ tests:
         eval_time: 60m
         exp_samples: [{ labels: "{}", value: 0 }]
 
+  # OpenVikingExporterUnscraped: OpenVikingDown cannot see a missing exporter.
+  - name: a failing exporter scrape fires after 5m
+    interval: 1m
+    input_series:
+      - series: 'up{namespace="viking", job="openviking", endpoint="metrics", pod="openviking-x"}'
+        values: "1 1 0x20"
+      - series: 'up{namespace="viking", job="openviking", endpoint="http", pod="openviking-x"}'
+        values: "1x22"
+    alert_rule_test:
+      - alertname: OpenVikingExporterUnscraped
+        eval_time: 6m
+        exp_alerts: []
+      - alertname: OpenVikingExporterUnscraped
+        eval_time: 8m
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              namespace: viking
+              job: openviking
+              endpoint: metrics
+              pod: openviking-x
+            exp_annotations:
+              summary: "ov-exporter (port 9210) not scraped for 5m"
+              description: "Prometheus cannot scrape the ov-exporter sidecar, or the target is gone, so every openviking_* exporter series is missing and OpenVikingDown and the lock and queue rules above cannot fire. Check the pod (`kubectl -n viking get pods -l app=openviking`) and the ov-exporter container log; a failing scrape with a running container points at the exposition (`curl <pod-ip>:9210/metrics | promtool check metrics`)."
+
+  - name: a vanished exporter target fires through absent()
+    interval: 1m
+    input_series:
+      - series: 'up{namespace="viking", job="openviking", endpoint="http", pod="openviking-x"}'
+        values: "1x20"
+    promql_expr_test:
+      - expr: count(ALERTS{alertname="OpenVikingExporterUnscraped",alertstate="firing"})
+        eval_time: 8m
+        exp_samples: [{ labels: "{}", value: 1 }]
+
+  - name: a healthy exporter scrape stays quiet
+    interval: 1m
+    input_series:
+      - series: 'up{namespace="viking", job="openviking", endpoint="metrics", pod="openviking-x"}'
+        values: "1x20"
+    promql_expr_test:
+      - expr: count(ALERTS{alertname="OpenVikingExporterUnscraped"}) or vector(0)
+        eval_time: 15m
+        exp_samples: [{ labels: "{}", value: 0 }]
+
   - name: a long but sub-threshold lock never fires
     interval: 1m
     input_series:

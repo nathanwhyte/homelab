@@ -111,6 +111,19 @@ spec:
           annotations:
             summary: "OpenViking exporter reports OV unreachable for 5m"
             description: "ov-exporter's last poll cycle failed (ov status or lock count). OV may be down or the exporter lost its API key."
+        # OpenVikingDown is silent when openviking_up is absent: a crashed
+        # exporter, a scrape broken by bad exposition, or no pod at all.
+        # TargetDown covers the first two only, so absent() closes the third.
+        - alert: OpenVikingExporterUnscraped
+          expr: >-
+            up{namespace="viking", job="openviking", endpoint="metrics"} == 0
+            or absent(up{namespace="viking", job="openviking", endpoint="metrics"})
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "ov-exporter (port 9210) not scraped for 5m"
+            description: "Prometheus cannot scrape the ov-exporter sidecar, or the target is gone, so every openviking_* exporter series is missing and OpenVikingDown and the lock and queue rules above cannot fire. Check the pod (`kubectl -n viking get pods -l app=openviking`) and the ov-exporter container log; a failing scrape with a running container points at the exposition (`curl <pod-ip>:9210/metrics | promtool check metrics`)."
         # OpenVikingLocksAccumulating (openviking_lock_path_ovlock_count > 20)
         # was retired 2026-09-21: it counted .path.ovlock files on the PVC with
         # find, and under agfs.backend: s3 the locks live in the Garage bucket,
