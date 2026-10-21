@@ -324,7 +324,7 @@
       "gridPos": { "h": 8, "w": 8, "x": 16, "y": 20 },
       "options": {
         "mode": "markdown",
-        "content": "- **Loki panels cover about a day.** The access log is the only per-URI source and Loki holds roughly 24h of it, so the Loki panels and tables go blank past that however wide the range is. The Prometheus panels cover the full range.\n- **No per-machine caller.** Both Macs reach the pod through the NodePort SNAT address; the `peers/<machine>/` path is the only hint.\n- **MCP is opaque.** `/mcp` counts every `viking_*` tool call, reads and writes together.\n- **Delivery, not use.** These count what was fetched. What the Claude Code hooks injected into context (entries, tokens) lives only in each Mac's `~/.openviking/logs/cc-hooks.log`."
+        "content": "- **Loki panels cover about a day.** The access log is the only per-URI source and Loki holds roughly 24h of it, so the Loki panels and tables go blank past that however wide the range is. The Prometheus panels cover the full range.\n- **No per-machine caller.** Both Macs reach the pod through the NodePort SNAT address; the `peers/<machine>/` path is the only hint.\n- **MCP is opaque.** `/mcp` counts every `viking_*` tool call, reads and writes together.\n- **Delivery, not use.** The delivery row below comes from each Mac's `ov-telemetry-push.py` LaunchAgent (totals from `~/.openviking/logs/*-hooks.log`). It counts what the hooks injected into context, not whether a reply used it, and it counts only from the first push onward."
       }
     },
     {
@@ -400,6 +400,203 @@
         "overrides": []
       },
       "options": { "showHeader": true, "cellHeight": "sm" }
+    },
+    {
+      "id": 12,
+      "type": "row",
+      "title": "Delivered to sessions (client hooks)",
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 38 },
+      "panels": []
+    },
+    {
+      "id": 13,
+      "type": "stat",
+      "title": "Memory tokens injected",
+      "description": "Session-start plus per-prompt auto-recall tokens the client hooks put into context, all machines and harnesses.",
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 39 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(increase(openviking_client_session_start_tokens_total[$__range])) + sum(increase(openviking_client_recall_tokens_total[$__range]))",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "color": { "mode": "fixed", "fixedColor": "blue" }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "reduceOptions": {
+          "calcs": ["lastNotNull"],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 14,
+      "type": "stat",
+      "title": "Recall entries injected",
+      "description": "Memory entries auto-recall put into prompts.",
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 39 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(increase(openviking_client_recall_entries_total[$__range]))",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "color": { "mode": "fixed", "fixedColor": "green" }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "reduceOptions": {
+          "calcs": ["lastNotNull"],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 15,
+      "type": "stat",
+      "title": "Recalls that injected something",
+      "description": "Share of auto-recall runs that were not skipped (no results, filtered or too-short query).",
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 39 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "1 - sum(increase(openviking_client_recall_skips_total[$__range])) / sum(increase(openviking_client_recalls_total[$__range]))",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "decimals": 1,
+          "min": 0,
+          "max": 1,
+          "color": { "mode": "fixed", "fixedColor": "purple" }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "reduceOptions": {
+          "calcs": ["lastNotNull"],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 16,
+      "type": "stat",
+      "title": "Last push per machine",
+      "description": "Age of each Mac's newest accepted push. The LaunchAgent pushes every 5 minutes; red past 15 means that Mac's shipper or its route to the cluster is down.",
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 39 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "time() - max by (machine) (openviking_client_last_push_unix)",
+          "legendFormat": "{{machine}}",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "red", "value": 900 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "reduceOptions": {
+          "calcs": ["lastNotNull"],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value_and_name"
+      }
+    },
+    {
+      "id": 17,
+      "type": "timeseries",
+      "title": "Tokens injected by machine and hook",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 43 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "interval": "1h",
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (machine, harness) (increase(openviking_client_recall_tokens_total[$__interval]))",
+          "legendFormat": "{{machine}} {{harness}} auto-recall"
+        },
+        {
+          "refId": "B",
+          "expr": "sum by (machine, harness) (increase(openviking_client_session_start_tokens_total[$__interval]))",
+          "legendFormat": "{{machine}} {{harness}} session start"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 80,
+            "stacking": { "mode": "normal", "group": "A" },
+            "lineWidth": 1
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": ["sum"],
+          "displayMode": "table",
+          "placement": "right",
+          "showLegend": true,
+          "sortBy": "Total",
+          "sortDesc": true
+        },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      }
     }
   ]
 }

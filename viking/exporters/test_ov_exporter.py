@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Unit tests for ov-exporter.py's S3 lock gauges and s3lite's lock parsing.
+"""Unit tests for ov-exporter.py's S3 lock gauges, s3lite's lock parsing, and
+the /client-telemetry push validation.
 
 BUG-1220: the wedge alert must name the wedged lock. Pure logic: stubbed S3,
 pinned clock, no network.
@@ -11,6 +12,7 @@ from __future__ import annotations
 
 import datetime
 import importlib.util
+import json
 import os
 import sys
 import unittest
@@ -331,6 +333,78 @@ class TestPollS3Locks(unittest.TestCase):
         self._poll(client)
         self.assertEqual(len(self._series()), 3)
         self.assertEqual(len(client.gets), 3)
+
+
+class TestClientPush(unittest.TestCase):
+    KEY = "root-key"
+    AUTH = "Bearer root-key"
+
+    def setUp(self):
+        exporter._client_totals.clear()
+
+    def _push(self, doc, auth=AUTH, now=T0):
+        body = doc if isinstance(doc, bytes) else json.dumps(doc).encode()
+        return exporter.apply_client_push(body, auth, self.KEY, now)
+
+    def _doc(self, machine="pop", **totals):
+        return {
+            "machine": machine,
+            "harness": "claude-code",
+            "totals": totals or {"recalls": 3, "recall_tokens": 900},
+        }
+
+    def test_valid_push_is_exported(self):
+        self.assertEqual(self._push(self._doc()), (204, ""))
+        text = exporter.format_metrics()
+        self.assertIn(
+            'openviking_client_recalls_total{machine="pop",harness="claude-code"} 3',
+            text,
+        )
+        self.assertIn(
+            'openviking_client_recall_tokens_total{machine="pop",harness="claude-code"} 900',
+            text,
+        )
+        self.assertIn(
+            f'openviking_client_last_push_unix{{machine="pop",harness="claude-code"}} {T0}',
+            text,
+        )
+
+    def test_resend_replaces_instead_of_adding(self):
+        self._push(self._doc(recalls=3))
+        self._push(self._doc(recalls=5), now=T0 + 300)
+        self.assertEqual(
+            exporter._client_totals[("pop", "claude-code")],
+            {"totals": {"recalls": 5}, "received": T0 + 300},
+        )
+
+    def test_rejects_wrong_or_missing_key(self):
+        self.assertEqual(self._push(self._doc(), auth="Bearer nope")[0], 401)
+        self.assertEqual(self._push(self._doc(), auth=None)[0], 401)
+        self.assertEqual(exporter.apply_client_push(b"{}", "Bearer ", "", T0)[0], 401)
+        self.assertEqual(exporter._client_totals, {})
+
+    def test_rejects_bad_bodies(self):
+        bad = [
+            b"not json",
+            [1, 2],
+            self._doc(machine="Pop!"),
+            {**self._doc(), "totals": {}},
+            self._doc(bogus=1),
+            self._doc(recalls=-1),
+            self._doc(recalls=1.5),
+            self._doc(recalls=True),
+        ]
+        for doc in bad:
+            with self.subTest(doc=doc):
+                self.assertEqual(self._push(doc)[0], 400)
+        self.assertEqual(exporter._client_totals, {})
+
+    def test_series_cap(self):
+        for i in range(exporter.CLIENT_MAX_SERIES):
+            self.assertEqual(self._push(self._doc(machine=f"m{i}"))[0], 204)
+        self.assertEqual(self._push(self._doc(machine="one-more"))[0], 429)
+        # An existing series can still update at the cap.
+        self.assertEqual(self._push(self._doc(machine="m0"))[0], 204)
 
 
 if __name__ == "__main__":
