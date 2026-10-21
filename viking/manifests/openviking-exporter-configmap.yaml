@@ -72,12 +72,12 @@ data:
     running totals, parsed from ~/.openviking/logs/*-hooks.log, to
     /client-telemetry with `Authorization: Bearer <OPENVIKING_KEY>`; the NodePort
     exposes this port on 31934 for that. The key is checked before any body is
-    read, bodies are capped at 4 KiB and values at 2**53, and every request has a
-    socket deadline, so nothing a LAN client sends can stall the server or break
-    the /metrics exposition. Totals are cumulative and replace the
-    previous push, so a resend never double-counts; a log rotation sends smaller
-    totals, which Prometheus reads as a counter reset. They live in memory only,
-    so an exporter restart drops them until the next push.
+    read, bodies are capped at 4 KiB and values at 2**53, at most 4 bodies are
+    read at once, and every connection is closed 10 s after it opens however
+    slowly it trickles, so nothing a LAN client sends can stall the server or
+    break the /metrics exposition. Totals are cumulative and replace the previous
+    push, so a resend never double-counts. They live in memory only, so an
+    exporter restart drops them until the next push.
     """
 
     from __future__ import annotations
@@ -86,6 +86,7 @@ data:
     import json
     import os
     import re
+    import socket
     import subprocess
     import threading
     import time
@@ -778,6 +779,35 @@ data:
         # mid-body (the port is on the LAN since the client-telemetry NodePort)
         # frees its thread instead of holding it.
         timeout = CLIENT_SOCKET_TIMEOUT_S
+        # The socket timeout restarts on every byte, so a client trickling one
+        # byte at a time would never hit it. This caps the whole connection.
+        deadline = CLIENT_SOCKET_TIMEOUT_S
+
+        def setup(self):
+            super().setup()
+            self._deadline = threading.Timer(self.deadline, self._expire)
+            self._deadline.daemon = True
+            self._deadline.start()
+
+        def _expire(self):
+            # Shutting the socket makes a blocked read return EOF at once.
+            try:
+                self.connection.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
+
+        def handle(self):
+            try:
+                super().handle()
+            except OSError:
+                pass  # the deadline closed the socket mid-request
+
+        def finish(self):
+            self._deadline.cancel()
+            try:
+                super().finish()
+            except OSError:
+                pass
 
         def do_GET(self):
             if self.path == "/metrics":

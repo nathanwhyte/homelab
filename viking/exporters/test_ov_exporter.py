@@ -14,8 +14,12 @@ import datetime
 import importlib.util
 import json
 import os
+import socket
 import sys
+import threading
+import time
 import unittest
+from unittest import mock
 
 _DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, _DIR)
@@ -507,6 +511,51 @@ class TestClientPushHardening(unittest.TestCase):
             'openviking_client_recall_errors_total{machine="pop",harness="codex"} 2',
             exporter.format_metrics(),
         )
+
+
+class TestConnectionDeadline(unittest.TestCase):
+    """A client trickling bytes resets the socket timeout but not the deadline."""
+
+    def setUp(self):
+        handler = type("H", (exporter.MetricsHandler,), {"deadline": 0.5, "timeout": 5})
+        self.server = exporter.ThreadingHTTPServer(("127.0.0.1", 0), handler)
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        self.addCleanup(self.server.server_close)
+        self.addCleanup(self.server.shutdown)
+        self.env = mock.patch.dict(os.environ, {"OPENVIKING_KEY": "k"})
+        self.env.start()
+        self.addCleanup(self.env.stop)
+
+    def trickle(self, head: bytes) -> float:
+        """Send `head`, then a byte every 0.1 s; seconds until the server closes."""
+        sock = socket.create_connection(self.server.server_address)
+        sock.settimeout(0.1)
+        start = time.monotonic()
+        sock.sendall(head)
+        try:
+            while time.monotonic() - start < 3:
+                try:
+                    if sock.recv(4096) == b"":
+                        break
+                except TimeoutError:
+                    sock.sendall(b"x")
+        except OSError:
+            pass  # reset by the server's shutdown
+        finally:
+            sock.close()
+        return time.monotonic() - start
+
+    def test_trickled_headers_are_cut_off(self):
+        self.assertLess(self.trickle(b"GET /metr"), 1.5)
+
+    def test_trickled_body_is_cut_off_and_frees_its_slot(self):
+        head = b"POST /client-telemetry HTTP/1.1\r\nAuthorization: Bearer k\r\nContent-Length: 4000\r\n\r\n"
+        self.assertLess(self.trickle(head), 1.5)
+        # The in-flight slot was released: all four can still be taken.
+        for _ in range(exporter.CLIENT_MAX_INFLIGHT):
+            self.assertTrue(exporter._client_inflight.acquire(timeout=1))
+        for _ in range(exporter.CLIENT_MAX_INFLIGHT):
+            exporter._client_inflight.release()
 
 
 if __name__ == "__main__":

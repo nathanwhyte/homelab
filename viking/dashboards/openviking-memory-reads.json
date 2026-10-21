@@ -59,8 +59,8 @@
     {
       "id": 2,
       "type": "stat",
-      "title": "Auto-recall searches",
-      "description": "search.context operations. Both harnesses' per-prompt auto-recall hooks drive most of these.",
+      "title": "search.context operations",
+      "description": "Context-mode searches (POST /api/v1/search/search with mode=context). The per-prompt auto-recall hooks make these, but so can any agent or API call; the server does not record the caller.",
       "gridPos": { "h": 4, "w": 6, "x": 6, "y": 0 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
@@ -324,7 +324,7 @@
       "gridPos": { "h": 8, "w": 8, "x": 16, "y": 20 },
       "options": {
         "mode": "markdown",
-        "content": "- **Loki panels cover about a day.** The access log is the only per-URI source and Loki holds roughly 24h of it, so the Loki panels and tables go blank past that however wide the range is. The Prometheus panels cover the full range.\n- **No per-machine caller.** Both Macs reach the pod through the NodePort SNAT address; the `peers/<machine>/` path is the only hint.\n- **MCP is opaque.** `/mcp` counts every `viking_*` tool call, reads and writes together.\n- **Delivery, not use.** The delivery row below comes from each Mac's `ov-telemetry-push.py` LaunchAgent (totals from `~/.openviking/logs/*-hooks.log`). Recall is counted as assembled, before the client's compressor can shrink or drop it, so the token and entry figures are upper bounds on what reached context, and none of it says whether a reply used it. It counts only from the first push onward.\n- **Search callers are unknown.** The server names the operation, not the caller, and hooks reach find and search as well as agents."
+        "content": "- **Loki panels cover about a day.** The access log is the only per-URI source and Loki holds roughly 24h of it, so the Loki panels and tables go blank past that however wide the range is. The Prometheus panels cover the full range.\n- **No per-machine caller.** Both Macs reach the pod through the NodePort SNAT address; the `peers/<machine>/` path is the only hint.\n- **MCP is opaque.** `/mcp` counts every `viking_*` tool call, reads and writes together.\n- **Delivery, not use.** The delivery row below comes from each Mac's `ov-telemetry-push.py` LaunchAgent (totals from `~/.openviking/logs/*-hooks.log`). Token and entry figures are approximate: Claude Code's recall is counted before the hook trims it and Codex's search fallback logs no size (see each panel's description), and none of it says whether a reply used it. It counts only from the first push onward.\n- **Search callers are unknown.** The server names the operation, not the caller, and hooks reach find and search as well as agents."
       }
     },
     {
@@ -408,8 +408,8 @@
     {
       "id": 13,
       "type": "stat",
-      "title": "Memory tokens delivered (upper bound)",
-      "description": "Session-start profile tokens plus auto-recall tokens as assembled, all machines and harnesses. The recall side is counted before the client's compressor runs, which can shrink or drop the block, so this is an upper bound on what reached context.",
+      "title": "Memory tokens delivered (approx.)",
+      "description": "Session-start plus auto-recall tokens, all machines and harnesses. Claude Code's recall is counted as the server assembled it, before the hook trims it (high); Codex's at the block it emitted; Codex's search fallback logs no size and adds none (low). Tokens logged only as chars use the hooks' own ceil(chars/4).",
       "gridPos": { "h": 4, "w": 6, "x": 0, "y": 39 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
@@ -442,8 +442,8 @@
     {
       "id": 14,
       "type": "stat",
-      "title": "Recall entries assembled",
-      "description": "Memory entries auto-recall assembled for prompts, counted before client compression; an upper bound on entries injected.",
+      "title": "Recall entries delivered (approx.)",
+      "description": "Memory entries auto-recall put into prompts: Claude Code's as the server assembled them (before the hook trims), Codex's at the emitted block, plus both harnesses' search-fallback picks.",
       "gridPos": { "h": 4, "w": 6, "x": 6, "y": 39 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
@@ -476,8 +476,8 @@
     {
       "id": 15,
       "type": "stat",
-      "title": "Recalls that injected something",
-      "description": "Share of auto-recall runs that neither skipped (no results, filtered or too-short query, compressor found nothing relevant) nor failed (server unreachable, uncaught error).",
+      "title": "Recalls that delivered memory",
+      "description": "Share of started auto-recall runs that neither skipped (no results, filtered or too-short query, nothing relevant after compression or ranking) nor failed (server unreachable, uncaught error). The shipper counts only post-start skips and these terminal errors, so the three are disjoint; an uncaught error before start is the one case it can miscount.",
       "gridPos": { "h": 4, "w": 6, "x": 12, "y": 39 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
@@ -554,7 +554,7 @@
     {
       "id": 17,
       "type": "timeseries",
-      "title": "Tokens delivered by machine and hook (recall as assembled)",
+      "title": "Tokens delivered by machine and hook (approx.)",
       "gridPos": { "h": 8, "w": 24, "x": 0, "y": 43 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "interval": "1h",
