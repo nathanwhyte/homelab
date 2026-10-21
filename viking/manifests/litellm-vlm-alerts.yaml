@@ -54,6 +54,46 @@ spec:
           annotations:
             summary: "litellm-redis restarted after the VLM router; Haiku spend is not being tallied"
             description: "The router does not reconnect to Redis after a Redis restart, so the $90 routing threshold stops counting. Remedy: kubectl -n viking rollout restart deploy/litellm-vlm (a short VLM gap; OpenViking retries)."
+        - alert: LiteLLMAnthropicAuthFailing
+          # 2026-10-21: the Haiku key expired and every overflow call returned 401
+          # from ~01:00Z to 18:15Z (363 calls) with nothing alerting, since gemma
+          # answered the fallbacks. Those 401s land in the successful-fallbacks
+          # counter; the failure counter covers a 401 whose fallback also failed.
+          # Keys expire 30 days after issue (current one ~2026-11-20, IMPR-1311).
+          # Only overflow traffic reaches Haiku, so a dead key is silent until then.
+          # increase() skips a series' first sample, so the `unless ... offset`
+          # terms count a series that first appeared in the window (a fresh
+          # router pod's first 401). Only > 0 matters, so overlap is harmless.
+          expr: |
+            (
+              sum(increase(litellm_deployment_successful_fallbacks_total{namespace="viking", exception_class=~"Anthropic\\..*", exception_status=~"401|403"}[30m]))
+              or vector(0)
+            )
+            + (
+              sum(
+                litellm_deployment_successful_fallbacks_total{namespace="viking", exception_class=~"Anthropic\\..*", exception_status=~"401|403"}
+                unless litellm_deployment_successful_fallbacks_total{namespace="viking", exception_class=~"Anthropic\\..*", exception_status=~"401|403"} offset 30m
+              )
+              or vector(0)
+            )
+            + (
+              sum(increase(litellm_deployment_failure_responses_total{namespace="viking", api_provider="anthropic", exception_status=~"401|403"}[30m]))
+              or vector(0)
+            )
+            + (
+              sum(
+                litellm_deployment_failure_responses_total{namespace="viking", api_provider="anthropic", exception_status=~"401|403"}
+                unless litellm_deployment_failure_responses_total{namespace="viking", api_provider="anthropic", exception_status=~"401|403"} offset 30m
+              )
+              or vector(0)
+            )
+            > 0
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Anthropic rejected the VLM router's Haiku key (401/403) in the last 30m"
+            description: "The router's Haiku calls are failing authentication, so overflow falls back to gemma and Haiku capacity is lost. The key in Secret anthropic-vlm-key has expired or been revoked: issue a new Console key, update the Secret, then kubectl -n viking rollout restart deploy/litellm-vlm."
         - alert: LiteLLMHaikuBudgetLow
           expr: litellm_provider_remaining_budget_metric{api_provider="anthropic"} < 10
           for: 15m

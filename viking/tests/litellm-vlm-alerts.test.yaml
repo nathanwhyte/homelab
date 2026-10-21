@@ -1,0 +1,95 @@
+# Extract litellm-vlm-alerts.yaml's spec to litellm-vlm-rules.yaml before running promtool.
+# LiteLLMAnthropicAuthFailing: the 2026-10-21 expired Haiku key returned 401 on
+# every overflow call for ~17h with nothing alerting.
+rule_files: [litellm-vlm-rules.yaml]
+evaluation_interval: 1m
+tests:
+  - name: 401s answered by a gemma fallback fire
+    # The 2026-10-21 shape: Haiku rejects the key, the fallback succeeds.
+    interval: 1m
+    input_series:
+      - series: 'litellm_deployment_successful_fallbacks_total{namespace="viking", exception_class="Anthropic.AuthenticationError", exception_status="401", requested_model="ov-vlm", fallback_model="ov-vlm"}'
+        values: "100x10 101+2x30"
+    alert_rule_test:
+      - alertname: LiteLLMAnthropicAuthFailing
+        eval_time: 20m
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: "Anthropic rejected the VLM router's Haiku key (401/403) in the last 30m"
+              description: "The router's Haiku calls are failing authentication, so overflow falls back to gemma and Haiku capacity is lost. The key in Secret anthropic-vlm-key has expired or been revoked: issue a new Console key, update the Secret, then kubectl -n viking rollout restart deploy/litellm-vlm."
+
+  - name: a 401 whose fallback also failed fires
+    interval: 1m
+    input_series:
+      - series: 'litellm_deployment_failure_responses_total{namespace="viking", api_provider="anthropic", litellm_model_name="claude-haiku-5-5", exception_class="Anthropic.PermissionDeniedError", exception_status="403"}'
+        values: "0x10 1+1x30"
+    promql_expr_test:
+      - expr: count(ALERTS{alertname="LiteLLMAnthropicAuthFailing", alertstate="firing"}) or vector(0)
+        eval_time: 20m
+        exp_samples: [{ labels: "{}", value: 1 }]
+
+  - name: a fresh pod's single first 401 fires
+    # The series appears at its first 401 and never moves again; increase()
+    # alone reads 0 for it.
+    interval: 1m
+    input_series:
+      - series: 'litellm_deployment_successful_fallbacks_total{namespace="viking", pod="litellm-vlm-new", exception_class="Anthropic.AuthenticationError", exception_status="401"}'
+        values: "_x10 1x40"
+    promql_expr_test:
+      - expr: count(ALERTS{alertname="LiteLLMAnthropicAuthFailing", alertstate="firing"}) or vector(0)
+        eval_time: 20m
+        exp_samples: [{ labels: "{}", value: 1 }]
+      - expr: count(ALERTS{alertname="LiteLLMAnthropicAuthFailing"}) or vector(0)
+        eval_time: 50m
+        exp_samples: [{ labels: "{}", value: 0 }]
+
+  - name: a single failed-fallback 403 on a fresh pod fires
+    interval: 1m
+    input_series:
+      - series: 'litellm_deployment_failure_responses_total{namespace="viking", api_provider="anthropic", litellm_model_name="claude-haiku-5-5", exception_class="Anthropic.PermissionDeniedError", exception_status="403"}'
+        values: "_x10 1x40"
+    promql_expr_test:
+      - expr: count(ALERTS{alertname="LiteLLMAnthropicAuthFailing", alertstate="firing"}) or vector(0)
+        eval_time: 20m
+        exp_samples: [{ labels: "{}", value: 1 }]
+
+  - name: gemma timeouts, rate limits and an Anthropic 429 stay quiet
+    interval: 1m
+    input_series:
+      - series: 'litellm_deployment_failure_responses_total{namespace="viking", api_provider="openai", litellm_model_name="gemma4:vlm", exception_class="Openai.Timeout", exception_status="408"}'
+        values: "0+3x40"
+      - series: 'litellm_deployment_successful_fallbacks_total{namespace="viking", exception_class="RateLimitError", exception_status="429"}'
+        values: "0+1x40"
+      - series: 'litellm_deployment_failure_responses_total{namespace="viking", api_provider="anthropic", litellm_model_name="claude-haiku-5-5", exception_class="Anthropic.RateLimitError", exception_status="429"}'
+        values: "0+1x40"
+    promql_expr_test:
+      - expr: count(ALERTS{alertname="LiteLLMAnthropicAuthFailing"}) or vector(0)
+        eval_time: 40m
+        exp_samples: [{ labels: "{}", value: 0 }]
+
+  - name: no series at all stays quiet
+    # A fresh router pod exports no failure series until the first failure.
+    interval: 1m
+    input_series:
+      - series: 'up{job="litellm-vlm"}'
+        values: "1x40"
+    promql_expr_test:
+      - expr: count(ALERTS{alertname="LiteLLMAnthropicAuthFailing"}) or vector(0)
+        eval_time: 40m
+        exp_samples: [{ labels: "{}", value: 0 }]
+
+  - name: the alert clears once the new key stops the 401s
+    # The 401 counter goes flat after the fix; 30m later the window is clean.
+    interval: 1m
+    input_series:
+      - series: 'litellm_deployment_successful_fallbacks_total{namespace="viking", exception_class="Anthropic.AuthenticationError", exception_status="401"}'
+        values: "100+2x20 140x60"
+    promql_expr_test:
+      - expr: count(ALERTS{alertname="LiteLLMAnthropicAuthFailing", alertstate="firing"}) or vector(0)
+        eval_time: 15m
+        exp_samples: [{ labels: "{}", value: 1 }]
+      - expr: count(ALERTS{alertname="LiteLLMAnthropicAuthFailing"}) or vector(0)
+        eval_time: 60m
+        exp_samples: [{ labels: "{}", value: 0 }]
