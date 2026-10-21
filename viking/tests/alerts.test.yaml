@@ -282,21 +282,55 @@ tests:
         eval_time: 9h
         exp_samples: [{ labels: "{}", value: 0 }]
 
-  - name: a day of recalls with no session-start injection fires, one with injections stays quiet
+  - name: session starts with no injection fire, sessions that inject stay quiet
     interval: 30m
     input_series:
-      - series: 'openviking_client_recalls_total{machine="workbook", harness="claude-code"}'
-        values: "0+10x60"
+      - series: 'openviking_client_session_start_runs_total{machine="workbook", harness="claude-code"}'
+        values: "0+1x60"
       - series: 'openviking_client_session_start_injects_total{machine="workbook", harness="claude-code"}'
         values: "300x60"
-      - series: 'openviking_client_recalls_total{machine="pop", harness="claude-code"}'
-        values: "0+10x60"
+      - series: 'openviking_client_session_start_runs_total{machine="pop", harness="claude-code"}'
+        values: "0+1x60"
       - series: 'openviking_client_session_start_injects_total{machine="pop", harness="claude-code"}'
         values: "0+1x60"
     promql_expr_test:
       - expr: count by (machine) (ALERTS{alertname="OpenVikingClientSessionStartFlat",alertstate="firing"})
         eval_time: 26h
         exp_samples: [{ labels: '{machine="workbook"}', value: 1 }]
+
+  - name: a long-lived session with recalls but no new session start stays quiet
+    # Codex round 5: recalls alone fired this for a session open over 24h.
+    interval: 30m
+    input_series:
+      - series: 'openviking_client_recalls_total{machine="pop", harness="claude-code"}'
+        values: "0+10x60"
+      - series: 'openviking_client_recall_tokens_total{machine="pop", harness="claude-code"}'
+        values: "0+500x60"
+      - series: 'openviking_client_session_start_runs_total{machine="pop", harness="claude-code"}'
+        values: "40x60"
+      - series: 'openviking_client_session_start_injects_total{machine="pop", harness="claude-code"}'
+        values: "38x60"
+    promql_expr_test:
+      - expr: count(ALERTS{alertname="OpenVikingClientSessionStartFlat"}) or vector(0)
+        eval_time: 26h
+        exp_samples: [{ labels: "{}", value: 0 }]
+
+  - name: recalls that all fail with no session start stay quiet
+    # Codex round 5: failed recall attempts used to count as activity.
+    interval: 30m
+    input_series:
+      - series: 'openviking_client_recalls_total{machine="pop", harness="codex"}'
+        values: "0+10x60"
+      - series: 'openviking_client_recall_errors_total{machine="pop", harness="codex"}'
+        values: "0+10x60"
+      - series: 'openviking_client_session_start_runs_total{machine="pop", harness="codex"}'
+        values: "98x60"
+      - series: 'openviking_client_session_start_injects_total{machine="pop", harness="codex"}'
+        values: "88x60"
+    promql_expr_test:
+      - expr: count(ALERTS{alertname="OpenVikingClientSessionStartFlat"}) or vector(0)
+        eval_time: 26h
+        exp_samples: [{ labels: "{}", value: 0 }]
 
   - name: a long but sub-threshold lock never fires
     interval: 1m

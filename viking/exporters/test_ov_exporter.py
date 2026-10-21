@@ -501,6 +501,17 @@ class TestClientPushHardening(unittest.TestCase):
             for _ in range(exporter.CLIENT_MAX_INFLIGHT):
                 exporter._client_inflight.release()
 
+    def test_session_start_runs_is_accepted(self):
+        body = self._body(session_start_runs=7)
+        status, _ = self._post(
+            {"Authorization": self.AUTH, "Content-Length": str(len(body))}, body
+        )
+        self.assertEqual(status, 204)
+        self.assertIn(
+            'openviking_client_session_start_runs_total{machine="pop",harness="codex"} 7',
+            exporter.format_metrics(),
+        )
+
     def test_valid_post_stores(self):
         body = self._body(recall_errors=2)
         status, _ = self._post(

@@ -132,6 +132,10 @@ POLL_TIMEOUT_S = 10
 # Pushed total field -> (metric name, help text). Unknown fields are rejected
 # so a shipper typo fails loudly instead of minting a series.
 CLIENT_FIELDS: dict[str, tuple[str, str]] = {
+    "session_start_runs": (
+        "openviking_client_session_start_runs_total",
+        "Session-start hook runs (every source: startup, resume, clear, compact, fork).",
+    ),
     "session_start_injects": (
         "openviking_client_session_start_injects_total",
         "Session-start memory injections a client hook made.",

@@ -147,17 +147,20 @@ spec:
           annotations:
             summary: "{{ $labels.machine }}/{{ $labels.harness }} recalls ran but delivered no counted memory for 6h"
             description: "Auto-recall runs that neither skipped nor failed kept arriving from {{ $labels.machine }} ({{ $labels.harness }}), but recall tokens or entries did not move. The likely cause is a memory-plugin update renaming the hook-log stage ov-telemetry-push.py counts (DELIVERY_EVENTS in dotfiles bin/ov-telemetry-push.py). Compare the stages in ~/.openviking/logs/*-hooks.log on that Mac with the table and update it."
+        # Gated on session-start hook runs, not recalls: a long-lived session
+        # recalls for days without a new session start, and failed recalls
+        # say nothing about whether a session started.
         - alert: OpenVikingClientSessionStartFlat
           expr: >-
-            increase(openviking_client_recalls_total[24h]) > 20
+            increase(openviking_client_session_start_runs_total[24h]) > 5
             and on (machine, harness)
             increase(openviking_client_session_start_injects_total[24h]) == 0
           for: 30m
           labels:
             severity: warning
           annotations:
-            summary: "{{ $labels.machine }}/{{ $labels.harness }} counted no session-start injection in 24h of use"
-            description: "Recalls show {{ $labels.machine }} ({{ $labels.harness }}) in use, but no session-start memory injection was counted in 24h. Either injection is off, or a memory-plugin update renamed the session-start stage ov-telemetry-push.py counts (DELIVERY_EVENTS in dotfiles bin/ov-telemetry-push.py). Check that Mac's ~/.openviking/logs/*-hooks.log."
+            summary: "{{ $labels.machine }}/{{ $labels.harness }} session-start hook ran but counted no injection in 24h"
+            description: "The session-start hook ran more than 5 times on {{ $labels.machine }} ({{ $labels.harness }}) in 24h, but no session-start memory injection was counted. Either injection is off, or a memory-plugin update renamed the session-start stage ov-telemetry-push.py counts (DELIVERY_EVENTS in dotfiles bin/ov-telemetry-push.py). Check that Mac's ~/.openviking/logs/*-hooks.log."
         # OpenVikingLocksAccumulating (openviking_lock_path_ovlock_count > 20)
         # was retired 2026-09-21: it counted .path.ovlock files on the PVC with
         # find, and under agfs.backend: s3 the locks live in the Garage bucket,
