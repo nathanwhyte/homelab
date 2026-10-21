@@ -111,6 +111,58 @@ spec:
           annotations:
             summary: "OpenViking exporter reports OV unreachable for 5m"
             description: "ov-exporter's last poll cycle failed (ov status or lock count). OV may be down or the exporter lost its API key."
+        # OpenVikingDown is silent when openviking_up is absent: a crashed
+        # exporter, a scrape broken by bad exposition, or no pod at all.
+        # TargetDown covers the first two only, so absent() closes the third.
+        - alert: OpenVikingExporterUnscraped
+          expr: >-
+            up{namespace="viking", job="openviking", endpoint="metrics"} == 0
+            or absent(up{namespace="viking", job="openviking", endpoint="metrics"})
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "ov-exporter (port 9210) not scraped for 5m"
+            description: "Prometheus cannot scrape the ov-exporter sidecar, or the target is gone, so every openviking_* exporter series is missing and OpenVikingDown and the lock and queue rules above cannot fire. Check the pod (`kubectl -n viking get pods -l app=openviking`) and the ov-exporter container log; a failing scrape with a running container points at the exposition (`curl <pod-ip>:9210/metrics | promtool check metrics`)."
+        # Client delivery counts come from ov-telemetry-push.py (dotfiles)
+        # matching hook-log stage names written for openviking-memory 0.4.7
+        # (Claude Code) and 0.8.3 (Codex). A plugin update that renames a
+        # stage makes a count go flat with no error, so alert when recall
+        # runs that neither skipped nor failed keep coming but deliver nothing.
+        # increase() extrapolates to the window edges, so exactly N events
+        # read slightly above N; the thresholds are >= N+1, not > N.
+        - alert: OpenVikingClientRecallDeliveryFlat
+          expr: >-
+            (
+              increase(openviking_client_recalls_total[6h])
+              - increase(openviking_client_recall_skips_total[6h])
+              - increase(openviking_client_recall_errors_total[6h])
+            ) >= 11
+            and on (machine, harness)
+            (
+              increase(openviking_client_recall_tokens_total[6h]) == 0
+              or increase(openviking_client_recall_entries_total[6h]) == 0
+            )
+          for: 30m
+          labels:
+            severity: warning
+          annotations:
+            summary: "{{ $labels.machine }}/{{ $labels.harness }} recalls ran but delivered no counted memory for 6h"
+            description: "Auto-recall runs that neither skipped nor failed kept arriving from {{ $labels.machine }} ({{ $labels.harness }}), but recall tokens or entries did not move. The likely cause is a memory-plugin update renaming the hook-log stage ov-telemetry-push.py counts (DELIVERY_EVENTS in dotfiles bin/ov-telemetry-push.py). Compare the stages in ~/.openviking/logs/*-hooks.log on that Mac with the table and update it."
+        # Gated on session-start hook runs, not recalls: a long-lived session
+        # recalls for days without a new session start, and failed recalls
+        # say nothing about whether a session started.
+        - alert: OpenVikingClientSessionStartFlat
+          expr: >-
+            increase(openviking_client_session_start_runs_total[24h]) >= 6
+            and on (machine, harness)
+            increase(openviking_client_session_start_injects_total[24h]) == 0
+          for: 30m
+          labels:
+            severity: warning
+          annotations:
+            summary: "{{ $labels.machine }}/{{ $labels.harness }} session-start hook ran but counted no injection in 24h"
+            description: "The session-start hook ran about 6 or more times on {{ $labels.machine }} ({{ $labels.harness }}) in 24h (increase() extrapolates, so the count is approximate), but no session-start memory injection was counted. Either injection is off, or a memory-plugin update renamed the session-start stage ov-telemetry-push.py counts (DELIVERY_EVENTS in dotfiles bin/ov-telemetry-push.py). Check that Mac's ~/.openviking/logs/*-hooks.log."
         # OpenVikingLocksAccumulating (openviking_lock_path_ovlock_count > 20)
         # was retired 2026-09-21: it counted .path.ovlock files on the PVC with
         # find, and under agfs.backend: s3 the locks live in the Garage bucket,

@@ -62,12 +62,28 @@ re-acquired between two polls, so the key never left the bucket), its first
 sighting restarts, so the series never pairs a new holder with the old
 holder's age. Locks are read only once labelled, so a hand-off before the
 minimum age still counts from the first sighting (at most min_age extra).
+
+Client delivery telemetry: what the Claude Code / Codex memory hooks put into
+a session's context is decided on the Mac (token budget, truncation), so the
+server never sees it. Each Mac's ov-telemetry-push.py LaunchAgent POSTs its
+running totals, parsed from ~/.openviking/logs/*-hooks.log, to
+/client-telemetry with `Authorization: Bearer <OPENVIKING_KEY>`; the NodePort
+exposes this port on 31934 for that. The key is checked before any body is
+read, bodies are capped at 4 KiB and values at 2**53, at most 4 bodies are
+read at once, and every connection is closed 10 s after it opens however
+slowly it trickles, so nothing a LAN client sends can stall the server or
+break the /metrics exposition. Totals are cumulative and replace the previous
+push, so a resend never double-counts. They live in memory only, so an
+exporter restart drops them until the next push.
 """
 
 from __future__ import annotations
 
+import hmac
 import json
 import os
+import re
+import socket
 import subprocess
 import threading
 import time
@@ -110,6 +126,123 @@ _metrics: dict[str, object] = {
 }
 
 POLL_TIMEOUT_S = 10
+
+# ── Client Delivery Telemetry ────────────────────────────────────────────────
+
+# Pushed total field -> (metric name, help text). Unknown fields are rejected
+# so a shipper typo fails loudly instead of minting a series.
+CLIENT_FIELDS: dict[str, tuple[str, str]] = {
+    "session_start_runs": (
+        "openviking_client_session_start_runs_total",
+        "Session-start hook runs (every source: startup, resume, clear, compact, fork).",
+    ),
+    "session_start_injects": (
+        "openviking_client_session_start_injects_total",
+        "Session-start memory injections a client hook made.",
+    ),
+    "session_start_tokens": (
+        "openviking_client_session_start_tokens_total",
+        "Tokens of memory a client hook injected at session start.",
+    ),
+    "recalls": (
+        "openviking_client_recalls_total",
+        "Per-prompt auto-recall runs a client hook started.",
+    ),
+    "recall_entries": (
+        "openviking_client_recall_entries_total",
+        "Memory entries auto-recall put into a prompt's context.",
+    ),
+    "recall_tokens": (
+        "openviking_client_recall_tokens_total",
+        "Tokens of memory auto-recall put into a prompt's context.",
+    ),
+    "recall_skips": (
+        "openviking_client_recall_skips_total",
+        "Auto-recall runs that injected nothing (no results, filtered query).",
+    ),
+    "recall_errors": (
+        "openviking_client_recall_errors_total",
+        "Auto-recall runs that failed (server unreachable, uncaught error) and injected nothing.",
+    ),
+}
+CLIENT_LABEL_RE = re.compile(r"[a-z0-9][a-z0-9-]{0,31}")  # always fullmatch
+CLIENT_MAX_SERIES = 16  # (machine, harness) pairs; bounds cardinality
+CLIENT_MAX_BODY = 4096
+# Totals above 2**53 lose precision as float64 and a big enough int is not a
+# valid exposition value at all, which would fail the whole scrape.
+CLIENT_MAX_VALUE = 2**53
+CLIENT_MAX_INFLIGHT = 4  # concurrent POST bodies being read
+CLIENT_SOCKET_TIMEOUT_S = 10
+
+_client_lock = threading.Lock()
+_client_inflight = threading.BoundedSemaphore(CLIENT_MAX_INFLIGHT)
+# (machine, harness) -> {"totals": {field: int}, "received": unix}
+_client_totals: dict[tuple[str, str], dict] = {}
+
+
+def client_auth_ok(auth: str | None, key: str) -> bool:
+    """Constant-time `Bearer <key>` check; any header bytes give False, never raise."""
+    if not key:
+        return False
+    # http.server decodes headers as latin-1; compare bytes so non-ASCII input
+    # is a mismatch rather than compare_digest's TypeError.
+    given = (auth or "").encode("latin-1", errors="replace")
+    return hmac.compare_digest(given, f"Bearer {key}".encode())
+
+
+def apply_client_push(
+    body: bytes, auth: str | None, key: str, now: float
+) -> tuple[int, str]:
+    """Validate one /client-telemetry push and store it; (status, message)."""
+    if not client_auth_ok(auth, key):
+        return 401, "unauthorized"
+    try:
+        doc = json.loads(body)
+    except ValueError:
+        return 400, "body is not JSON"
+    if not isinstance(doc, dict):
+        return 400, "body must be an object"
+    machine, harness, totals = doc.get("machine"), doc.get("harness"), doc.get("totals")
+    for name, value in (("machine", machine), ("harness", harness)):
+        if not isinstance(value, str) or not CLIENT_LABEL_RE.fullmatch(value):
+            return 400, f"{name} must match {CLIENT_LABEL_RE.pattern}"
+    if not isinstance(totals, dict) or not totals:
+        return 400, "totals must be a non-empty object"
+    for field, value in totals.items():
+        if field not in CLIENT_FIELDS:
+            return 400, f"unknown total {field!r}"
+        if (
+            not isinstance(value, int)
+            or isinstance(value, bool)
+            or not 0 <= value <= CLIENT_MAX_VALUE
+        ):
+            return 400, f"total {field!r} must be an integer in 0..2**53"
+    series = (machine, harness)
+    with _client_lock:
+        if series not in _client_totals and len(_client_totals) >= CLIENT_MAX_SERIES:
+            return 429, "too many client series"
+        _client_totals[series] = {"totals": dict(totals), "received": now}
+    return 204, ""
+
+
+def format_client_metrics() -> list[str]:
+    lines: list[str] = []
+    with _client_lock:
+        snapshot = sorted(_client_totals.items())
+    for field, (name, help_text) in CLIENT_FIELDS.items():
+        lines.append(f"# HELP {name} {help_text}")
+        lines.append(f"# TYPE {name} counter")
+        for (machine, harness), entry in snapshot:
+            if field in entry["totals"]:
+                labels = format_labels({"machine": machine, "harness": harness})
+                lines.append(f"{name}{labels} {entry['totals'][field]}")
+    name = "openviking_client_last_push_unix"
+    lines.append(f"# HELP {name} Unix time the exporter last accepted a client push.")
+    lines.append(f"# TYPE {name} gauge")
+    for (machine, harness), entry in snapshot:
+        labels = format_labels({"machine": machine, "harness": harness})
+        lines.append(f"{name}{labels} {entry['received']}")
+    return lines
 
 
 # ── Poll Sources ─────────────────────────────────────────────────────────────
@@ -609,13 +742,74 @@ def format_metrics() -> str:
             _metrics["openviking_s3_ovlock_poll_ok"],
         )
 
+    lines.extend(format_client_metrics())
     return "\n".join(lines) + "\n"
 
 
 # ── HTTP Handler ─────────────────────────────────────────────────────────────
 
 
+def client_post_response(headers, read, key: str) -> tuple[int, str]:
+    """Handle one /client-telemetry POST: auth and size checks before reading.
+
+    `headers` maps header names to values, `read(n)` reads the body. Only an
+    authorised caller gets a body read at all, at most CLIENT_MAX_INFLIGHT at
+    once, each bounded by the handler's socket timeout.
+    """
+    if not client_auth_ok(headers.get("Authorization"), key):
+        return 401, "unauthorized"
+    try:
+        length = int(headers.get("Content-Length") or "")
+    except ValueError:
+        return 400, "Content-Length must be an integer"
+    if length <= 0 or length > CLIENT_MAX_BODY:
+        return 413, f"body must be 1-{CLIENT_MAX_BODY} bytes"
+    if not _client_inflight.acquire(blocking=False):
+        return 503, "too many pushes in flight"
+    try:
+        body = read(length)
+    finally:
+        _client_inflight.release()
+    if len(body) != length:
+        return 400, "body shorter than Content-Length"
+    return apply_client_push(body, headers.get("Authorization"), key, time.time())
+
+
 class MetricsHandler(BaseHTTPRequestHandler):
+    # Socket deadline for every request, so a client that stalls mid-headers or
+    # mid-body (the port is on the LAN since the client-telemetry NodePort)
+    # frees its thread instead of holding it.
+    timeout = CLIENT_SOCKET_TIMEOUT_S
+    # The socket timeout restarts on every byte, so a client trickling one
+    # byte at a time would never hit it. This caps the whole connection.
+    deadline = CLIENT_SOCKET_TIMEOUT_S
+
+    def setup(self):
+        super().setup()
+        self._deadline = threading.Timer(self.deadline, self._expire)
+        self._deadline.daemon = True
+        self._deadline.start()
+
+    def _expire(self):
+        # Shutting the socket makes a blocked read return EOF at once.
+        try:
+            self.connection.shutdown(socket.SHUT_RDWR)
+        except OSError:
+            pass
+
+    def handle(self):
+        try:
+            super().handle()
+        except OSError:
+            pass  # the deadline closed the socket mid-request
+
+    def finish(self):
+        self._deadline.cancel()
+        try:
+            super().finish()
+        except OSError:
+            pass
+
     def do_GET(self):
         if self.path == "/metrics":
             body = format_metrics().encode()
@@ -631,6 +825,28 @@ class MetricsHandler(BaseHTTPRequestHandler):
             self.wfile.write(b"ok\n")
         else:
             self.send_response(404)
+            self.end_headers()
+
+    def do_POST(self):
+        if self.path != "/client-telemetry":
+            self.send_response(404)
+            self.end_headers()
+            return
+        try:
+            status, message = client_post_response(
+                self.headers, self.rfile.read, os.environ.get("OPENVIKING_KEY", "")
+            )
+        except TimeoutError:
+            self.close_connection = True  # body never arrived; nothing to answer
+            return
+        self.send_response(status)
+        if message:
+            body = (message + "\n").encode()
+            self.send_header("Content-Type", "text/plain")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+        else:
             self.end_headers()
 
     def log_message(self, format, *args):

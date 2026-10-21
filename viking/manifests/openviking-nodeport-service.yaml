@@ -16,5 +16,14 @@ spec:
       targetPort: 1933
       nodePort: 31933
       protocol: TCP
+    # The ov-exporter sidecar, so each Mac's ov-telemetry-push.py can POST
+    # hook delivery totals to /client-telemetry (root API key required). This
+    # also puts the exporter's unauthenticated GET /metrics on the LAN, which
+    # holds nothing beyond what Grafana already shows.
+    - name: client-telemetry
+      port: 9210
+      targetPort: 9210
+      nodePort: 31934
+      protocol: TCP
   selector:
     app: openviking

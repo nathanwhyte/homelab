@@ -174,6 +174,212 @@ tests:
         eval_time: 60m
         exp_samples: [{ labels: "{}", value: 0 }]
 
+  # OpenVikingExporterUnscraped: OpenVikingDown cannot see a missing exporter.
+  - name: a failing exporter scrape fires after 5m
+    interval: 1m
+    input_series:
+      - series: 'up{namespace="viking", job="openviking", endpoint="metrics", pod="openviking-x"}'
+        values: "1 1 0x20"
+      - series: 'up{namespace="viking", job="openviking", endpoint="http", pod="openviking-x"}'
+        values: "1x22"
+    alert_rule_test:
+      - alertname: OpenVikingExporterUnscraped
+        eval_time: 6m
+        exp_alerts: []
+      - alertname: OpenVikingExporterUnscraped
+        eval_time: 8m
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              namespace: viking
+              job: openviking
+              endpoint: metrics
+              pod: openviking-x
+            exp_annotations:
+              summary: "ov-exporter (port 9210) not scraped for 5m"
+              description: "Prometheus cannot scrape the ov-exporter sidecar, or the target is gone, so every openviking_* exporter series is missing and OpenVikingDown and the lock and queue rules above cannot fire. Check the pod (`kubectl -n viking get pods -l app=openviking`) and the ov-exporter container log; a failing scrape with a running container points at the exposition (`curl <pod-ip>:9210/metrics | promtool check metrics`)."
+
+  - name: a vanished exporter target fires through absent()
+    interval: 1m
+    input_series:
+      - series: 'up{namespace="viking", job="openviking", endpoint="http", pod="openviking-x"}'
+        values: "1x20"
+    promql_expr_test:
+      - expr: count(ALERTS{alertname="OpenVikingExporterUnscraped",alertstate="firing"})
+        eval_time: 8m
+        exp_samples: [{ labels: "{}", value: 1 }]
+
+  - name: a healthy exporter scrape stays quiet
+    interval: 1m
+    input_series:
+      - series: 'up{namespace="viking", job="openviking", endpoint="metrics", pod="openviking-x"}'
+        values: "1x20"
+    promql_expr_test:
+      - expr: count(ALERTS{alertname="OpenVikingExporterUnscraped"}) or vector(0)
+        eval_time: 15m
+        exp_samples: [{ labels: "{}", value: 0 }]
+
+  # Client delivery counts going flat while recalls continue (plugin rename).
+  - name: recalls with no counted delivery fire
+    interval: 10m
+    input_series:
+      - series: 'openviking_client_recalls_total{machine="pop", harness="codex"}'
+        values: "0+5x60"
+      - series: 'openviking_client_recall_skips_total{machine="pop", harness="codex"}'
+        values: "0+1x60"
+      - series: 'openviking_client_recall_errors_total{machine="pop", harness="codex"}'
+        values: "0x60"
+      - series: 'openviking_client_recall_tokens_total{machine="pop", harness="codex"}'
+        values: "5000x60"
+      - series: 'openviking_client_recall_entries_total{machine="pop", harness="codex"}'
+        values: "40x60"
+    alert_rule_test:
+      - alertname: OpenVikingClientRecallDeliveryFlat
+        eval_time: 7h
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              machine: pop
+              harness: codex
+            exp_annotations:
+              summary: "pop/codex recalls ran but delivered no counted memory for 6h"
+              description: "Auto-recall runs that neither skipped nor failed kept arriving from pop (codex), but recall tokens or entries did not move. The likely cause is a memory-plugin update renaming the hook-log stage ov-telemetry-push.py counts (DELIVERY_EVENTS in dotfiles bin/ov-telemetry-push.py). Compare the stages in ~/.openviking/logs/*-hooks.log on that Mac with the table and update it."
+
+  - name: recalls that deliver stay quiet
+    interval: 10m
+    input_series:
+      - series: 'openviking_client_recalls_total{machine="pop", harness="codex"}'
+        values: "0+5x60"
+      - series: 'openviking_client_recall_skips_total{machine="pop", harness="codex"}'
+        values: "0+1x60"
+      - series: 'openviking_client_recall_errors_total{machine="pop", harness="codex"}'
+        values: "0x60"
+      - series: 'openviking_client_recall_tokens_total{machine="pop", harness="codex"}'
+        values: "0+800x60"
+      - series: 'openviking_client_recall_entries_total{machine="pop", harness="codex"}'
+        values: "0+4x60"
+    promql_expr_test:
+      - expr: count(ALERTS{alertname="OpenVikingClientRecallDeliveryFlat"}) or vector(0)
+        eval_time: 9h
+        exp_samples: [{ labels: "{}", value: 0 }]
+
+  - name: recalls that all skip or fail stay quiet
+    # An offline server or a run of filtered prompts is not a counting break.
+    interval: 10m
+    input_series:
+      - series: 'openviking_client_recalls_total{machine="pop", harness="claude-code"}'
+        values: "0+5x60"
+      - series: 'openviking_client_recall_skips_total{machine="pop", harness="claude-code"}'
+        values: "0+3x60"
+      - series: 'openviking_client_recall_errors_total{machine="pop", harness="claude-code"}'
+        values: "0+2x60"
+      - series: 'openviking_client_recall_tokens_total{machine="pop", harness="claude-code"}'
+        values: "9000x60"
+      - series: 'openviking_client_recall_entries_total{machine="pop", harness="claude-code"}'
+        values: "70x60"
+    promql_expr_test:
+      - expr: count(ALERTS{alertname="OpenVikingClientRecallDeliveryFlat"}) or vector(0)
+        eval_time: 9h
+        exp_samples: [{ labels: "{}", value: 0 }]
+
+  - name: session starts with no injection fire, sessions that inject stay quiet
+    interval: 30m
+    input_series:
+      - series: 'openviking_client_session_start_runs_total{machine="workbook", harness="claude-code"}'
+        values: "0+1x60"
+      - series: 'openviking_client_session_start_injects_total{machine="workbook", harness="claude-code"}'
+        values: "300x60"
+      - series: 'openviking_client_session_start_runs_total{machine="pop", harness="claude-code"}'
+        values: "0+1x60"
+      - series: 'openviking_client_session_start_injects_total{machine="pop", harness="claude-code"}'
+        values: "0+1x60"
+    promql_expr_test:
+      - expr: count by (machine) (ALERTS{alertname="OpenVikingClientSessionStartFlat",alertstate="firing"})
+        eval_time: 26h
+        exp_samples: [{ labels: '{machine="workbook"}', value: 1 }]
+
+  - name: a long-lived session with recalls but no new session start stays quiet
+    # Codex round 5: recalls alone fired this for a session open over 24h.
+    interval: 30m
+    input_series:
+      - series: 'openviking_client_recalls_total{machine="pop", harness="claude-code"}'
+        values: "0+10x60"
+      - series: 'openviking_client_recall_tokens_total{machine="pop", harness="claude-code"}'
+        values: "0+500x60"
+      - series: 'openviking_client_session_start_runs_total{machine="pop", harness="claude-code"}'
+        values: "40x60"
+      - series: 'openviking_client_session_start_injects_total{machine="pop", harness="claude-code"}'
+        values: "38x60"
+    promql_expr_test:
+      - expr: count(ALERTS{alertname="OpenVikingClientSessionStartFlat"}) or vector(0)
+        eval_time: 26h
+        exp_samples: [{ labels: "{}", value: 0 }]
+
+  - name: recalls that all fail with no session start stay quiet
+    # Codex round 5: failed recall attempts used to count as activity.
+    interval: 30m
+    input_series:
+      - series: 'openviking_client_recalls_total{machine="pop", harness="codex"}'
+        values: "0+10x60"
+      - series: 'openviking_client_recall_errors_total{machine="pop", harness="codex"}'
+        values: "0+10x60"
+      - series: 'openviking_client_session_start_runs_total{machine="pop", harness="codex"}'
+        values: "98x60"
+      - series: 'openviking_client_session_start_injects_total{machine="pop", harness="codex"}'
+        values: "88x60"
+    promql_expr_test:
+      - expr: count(ALERTS{alertname="OpenVikingClientSessionStartFlat"}) or vector(0)
+        eval_time: 26h
+        exp_samples: [{ labels: "{}", value: 0 }]
+
+  - name: session-start threshold boundary, 5 runs quiet and 6 fire
+    # Codex round 6: increase() extrapolates, so 5 runs read 5.0017 and
+    # fired the old > 5. 30s samples, as the ServiceMonitor scrapes, and a
+    # nonzero base: increase() never extrapolates a counter back below 0.
+    interval: 30s
+    input_series:
+      - series: 'openviking_client_session_start_runs_total{machine="workbook", harness="codex"}'
+        values: "100x2880 101+1x4 105x600"
+      - series: 'openviking_client_session_start_injects_total{machine="workbook", harness="codex"}'
+        values: "0x3500"
+      - series: 'openviking_client_session_start_runs_total{machine="pop", harness="codex"}'
+        values: "100x2880 101+1x5 106x600"
+      - series: 'openviking_client_session_start_injects_total{machine="pop", harness="codex"}'
+        values: "0x3500"
+    promql_expr_test:
+      - expr: count by (machine) (ALERTS{alertname="OpenVikingClientSessionStartFlat",alertstate="firing"})
+        eval_time: 25h
+        exp_samples: [{ labels: '{machine="pop"}', value: 1 }]
+
+  - name: recall-delivery threshold boundary, 10 recalls quiet and 11 fire
+    # Codex round 6: 10 recalls read just over 10 and fired the old > 10.
+    interval: 30s
+    input_series:
+      - series: 'openviking_client_recalls_total{machine="workbook", harness="codex"}'
+        values: "100x720 101+1x9 110x200"
+      - series: 'openviking_client_recalls_total{machine="pop", harness="codex"}'
+        values: "100x720 101+1x10 111x200"
+      - series: 'openviking_client_recall_skips_total{machine="workbook", harness="codex"}'
+        values: "0x940"
+      - series: 'openviking_client_recall_skips_total{machine="pop", harness="codex"}'
+        values: "0x940"
+      - series: 'openviking_client_recall_errors_total{machine="workbook", harness="codex"}'
+        values: "0x940"
+      - series: 'openviking_client_recall_errors_total{machine="pop", harness="codex"}'
+        values: "0x940"
+      - series: 'openviking_client_recall_tokens_total{machine="workbook", harness="codex"}'
+        values: "5000x940"
+      - series: 'openviking_client_recall_tokens_total{machine="pop", harness="codex"}'
+        values: "5000x940"
+      - series: 'openviking_client_recall_entries_total{machine="workbook", harness="codex"}'
+        values: "40x940"
+      - series: 'openviking_client_recall_entries_total{machine="pop", harness="codex"}'
+        values: "40x940"
+    promql_expr_test:
+      - expr: count by (machine) (ALERTS{alertname="OpenVikingClientRecallDeliveryFlat",alertstate="firing"})
+        eval_time: 7h
+        exp_samples: [{ labels: '{machine="pop"}', value: 1 }]
+
   - name: a long but sub-threshold lock never fires
     interval: 1m
     input_series:

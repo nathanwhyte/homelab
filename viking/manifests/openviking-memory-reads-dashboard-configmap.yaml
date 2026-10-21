@@ -1,0 +1,608 @@
+apiVersion: v1
+data:
+  openviking-memory-reads.json: |
+    {
+      "title": "OpenViking — Memory Reads",
+      "uid": "openviking-memory-reads",
+      "description": "How much OpenViking memory is read: request counts from Prometheus, per-URI detail from the Loki access log.",
+      "tags": ["openviking", "viking", "memory"],
+      "timezone": "browser",
+      "refresh": "5m",
+      "time": { "from": "now-7d", "to": "now" },
+      "schemaVersion": 42,
+      "version": 1,
+      "editable": true,
+      "graphTooltip": 1,
+      "fiscalYearStartMonth": 0,
+      "weekStart": "",
+      "templating": { "list": [] },
+      "annotations": { "list": [] },
+      "links": [
+        {
+          "title": "Stack Health",
+          "type": "link",
+          "url": "/d/openviking-stack-health"
+        }
+      ],
+      "panels": [
+        {
+          "id": 1,
+          "type": "stat",
+          "title": "Memory reads (content/read)",
+          "description": "GET /api/v1/content/read over the dashboard range: every viking_read, digest fetch, and hook body read.",
+          "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum(increase(openviking_http_requests_total{route=\"/api/v1/content/read\"}[$__range]))",
+              "instant": true
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "decimals": 0,
+              "color": { "mode": "fixed", "fixedColor": "blue" }
+            },
+            "overrides": []
+          },
+          "options": {
+            "colorMode": "value",
+            "graphMode": "none",
+            "justifyMode": "auto",
+            "reduceOptions": {
+              "calcs": ["lastNotNull"],
+              "fields": "",
+              "values": false
+            },
+            "textMode": "auto"
+          }
+        },
+        {
+          "id": 2,
+          "type": "stat",
+          "title": "search.context operations",
+          "description": "Context-mode searches (POST /api/v1/search/search with mode=context). The per-prompt auto-recall hooks make these, but so can any agent or API call; the server does not record the caller.",
+          "gridPos": { "h": 4, "w": 6, "x": 6, "y": 0 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum(increase(openviking_operation_requests_total{operation=\"search.context\"}[$__range]))",
+              "instant": true
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "decimals": 0,
+              "color": { "mode": "fixed", "fixedColor": "green" }
+            },
+            "overrides": []
+          },
+          "options": {
+            "colorMode": "value",
+            "graphMode": "none",
+            "justifyMode": "auto",
+            "reduceOptions": {
+              "calcs": ["lastNotNull"],
+              "fields": "",
+              "values": false
+            },
+            "textMode": "auto"
+          }
+        },
+        {
+          "id": 3,
+          "type": "stat",
+          "title": "find / search / recall operations",
+          "description": "search.find, search.search and search.recall operations. Not agent-only: the hooks' recall paths and skill-experience lookups call /api/v1/search/find and /search/search too, and the server does not record the caller.",
+          "gridPos": { "h": 4, "w": 6, "x": 12, "y": 0 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum(increase(openviking_operation_requests_total{operation=~\"search.find|search.search|search.recall\"}[$__range]))",
+              "instant": true
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "decimals": 0,
+              "color": { "mode": "fixed", "fixedColor": "purple" }
+            },
+            "overrides": []
+          },
+          "options": {
+            "colorMode": "value",
+            "graphMode": "none",
+            "justifyMode": "auto",
+            "reduceOptions": {
+              "calcs": ["lastNotNull"],
+              "fields": "",
+              "values": false
+            },
+            "textMode": "auto"
+          }
+        },
+        {
+          "id": 4,
+          "type": "stat",
+          "title": "MCP calls",
+          "description": "POST /mcp. The access log does not name the viking_* tool, so reads and writes are mixed here.",
+          "gridPos": { "h": 4, "w": 6, "x": 18, "y": 0 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum(increase(openviking_http_requests_total{route=\"/mcp\", method=\"POST\"}[$__range]))",
+              "instant": true
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "decimals": 0,
+              "color": { "mode": "fixed", "fixedColor": "orange" }
+            },
+            "overrides": []
+          },
+          "options": {
+            "colorMode": "value",
+            "graphMode": "none",
+            "justifyMode": "auto",
+            "reduceOptions": {
+              "calcs": ["lastNotNull"],
+              "fields": "",
+              "values": false
+            },
+            "textMode": "auto"
+          }
+        },
+        {
+          "id": 5,
+          "type": "timeseries",
+          "title": "Read traffic by route",
+          "description": "Requests per interval on the read-side routes.",
+          "gridPos": { "h": 8, "w": 24, "x": 0, "y": 4 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "interval": "1h",
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum by (method, route) (increase(openviking_http_requests_total{route=~\"/api/v1/content/(read|overview|abstract)|/api/v1/fs/(ls|tree|stat)|/api/v1/search/.*|/mcp\", method=~\"GET|POST\"}[$__interval]))",
+              "legendFormat": "{{method}} {{route}}"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "decimals": 0,
+              "custom": {
+                "drawStyle": "bars",
+                "fillOpacity": 80,
+                "stacking": { "mode": "normal", "group": "A" },
+                "lineWidth": 1
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "calcs": ["sum"],
+              "displayMode": "table",
+              "placement": "right",
+              "showLegend": true,
+              "sortBy": "Total",
+              "sortDesc": true
+            },
+            "tooltip": { "mode": "multi", "sort": "desc" }
+          }
+        },
+        {
+          "id": 6,
+          "type": "timeseries",
+          "title": "Search operations by type",
+          "description": "Search operations by name. The server does not record the caller, and hooks and agents both reach find and search.",
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 12 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "interval": "1h",
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum by (operation) (increase(openviking_operation_requests_total{operation=~\"search\\\\..*\"}[$__interval]))",
+              "legendFormat": "{{operation}}"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "decimals": 0,
+              "custom": {
+                "drawStyle": "bars",
+                "fillOpacity": 80,
+                "stacking": { "mode": "normal", "group": "A" },
+                "lineWidth": 1
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "calcs": ["sum"],
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": { "mode": "multi", "sort": "desc" }
+          }
+        },
+        {
+          "id": 7,
+          "type": "timeseries",
+          "title": "Memory reads by caller (Loki)",
+          "description": "Requests from outside the cluster (both Macs) arrive SNATed to the node's 10.42.N.1 gateway, so pop and workbook are indistinguishable here; see the scope panel for peer paths.",
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 12 },
+          "datasource": { "type": "loki", "uid": "P8E80F9AEF21F6940" },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum(count_over_time({namespace=\"viking\", container=\"openviking\"} |= \"uvicorn.access\" |= \"/api/v1/content/read?uri=\" |~ \"\\\\] 10\\\\.42\\\\.[0-9]+\\\\.1:\" [$__auto]))",
+              "legendFormat": "Macs (NodePort)"
+            },
+            {
+              "refId": "B",
+              "expr": "sum(count_over_time({namespace=\"viking\", container=\"openviking\"} |= \"uvicorn.access\" |= \"/api/v1/content/read?uri=\" !~ \"\\\\] 10\\\\.42\\\\.[0-9]+\\\\.1:\" [$__auto]))",
+              "legendFormat": "In-cluster pods"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "decimals": 0,
+              "custom": {
+                "drawStyle": "bars",
+                "fillOpacity": 80,
+                "stacking": { "mode": "normal", "group": "A" },
+                "lineWidth": 1
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "calcs": ["sum"],
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": { "mode": "multi", "sort": "desc" }
+          }
+        },
+        {
+          "id": 8,
+          "type": "timeseries",
+          "title": "Memory reads by scope (Loki)",
+          "description": "content/read grouped by URI prefix: per-machine peer memories, shared user memories, and compendium resources.",
+          "gridPos": { "h": 8, "w": 16, "x": 0, "y": 20 },
+          "datasource": { "type": "loki", "uid": "P8E80F9AEF21F6940" },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum by (scope) (count_over_time({namespace=\"viking\", container=\"openviking\"} |= \"uvicorn.access\" |= \"/api/v1/content/read?uri=\" | regexp `uri=viking%3A%2F%2F(?P<scope>resources|user%2F[a-z0-9_-]+%2Fpeers%2F[a-z0-9_-]+|user%2F[a-z0-9_-]+%2F[a-z]+)` | label_format scope=`{{ .scope | replace \"%2F\" \"/\" }}` [$__auto]))",
+              "legendFormat": "{{scope}}"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "decimals": 0,
+              "custom": {
+                "drawStyle": "bars",
+                "fillOpacity": 80,
+                "stacking": { "mode": "normal", "group": "A" },
+                "lineWidth": 1
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "calcs": ["sum"],
+              "displayMode": "table",
+              "placement": "right",
+              "showLegend": true,
+              "sortBy": "Total",
+              "sortDesc": true
+            },
+            "tooltip": { "mode": "multi", "sort": "desc" }
+          }
+        },
+        {
+          "id": 9,
+          "type": "text",
+          "title": "What this can't show",
+          "gridPos": { "h": 8, "w": 8, "x": 16, "y": 20 },
+          "options": {
+            "mode": "markdown",
+            "content": "- **Loki panels cover about a day.** The access log is the only per-URI source and Loki holds roughly 24h of it, so the Loki panels and tables go blank past that however wide the range is. The Prometheus panels cover the full range.\n- **No per-machine caller.** Both Macs reach the pod through the NodePort SNAT address; the `peers/<machine>/` path is the only hint.\n- **MCP is opaque.** `/mcp` counts every `viking_*` tool call, reads and writes together.\n- **Delivery, not use.** The delivery row below comes from each Mac's `ov-telemetry-push.py` LaunchAgent (totals from `~/.openviking/logs/*-hooks.log`). Token and entry figures are approximate: Claude Code's recall is counted before the hook trims it and Codex's search fallback logs no size (see each panel's description), and none of it says whether a reply used it. It counts only from the first push onward.\n- **Search callers are unknown.** The server names the operation, not the caller, and hooks reach find and search as well as agents."
+          }
+        },
+        {
+          "id": 10,
+          "type": "table",
+          "title": "Most-read memories (Loki)",
+          "description": "Top 25 content/read URIs over the dashboard range, limited to what Loki still holds.",
+          "gridPos": { "h": 10, "w": 14, "x": 0, "y": 28 },
+          "datasource": { "type": "loki", "uid": "P8E80F9AEF21F6940" },
+          "targets": [
+            {
+              "refId": "A",
+              "queryType": "instant",
+              "expr": "topk(25, sum by (uri) (count_over_time({namespace=\"viking\", container=\"openviking\"} |= \"uvicorn.access\" |= \"/api/v1/content/read?uri=\" | regexp `\"GET /api/v1/content/read\\?uri=(?P<uri>[^ &]+)` | label_format uri=`{{ .uri | urldecode }}` [$__range])))",
+              "legendFormat": "{{uri}}"
+            }
+          ],
+          "transformations": [
+            { "id": "merge", "options": {} },
+            {
+              "id": "organize",
+              "options": {
+                "excludeByName": { "Time": true },
+                "renameByName": { "uri": "URI", "Value #A": "Reads" }
+              }
+            },
+            {
+              "id": "sortBy",
+              "options": { "sort": [{ "field": "Reads", "desc": true }] }
+            }
+          ],
+          "fieldConfig": {
+            "defaults": { "unit": "short", "decimals": 0 },
+            "overrides": []
+          },
+          "options": { "showHeader": true, "cellHeight": "sm" }
+        },
+        {
+          "id": 11,
+          "type": "table",
+          "title": "Reads of missing memories (404, Loki)",
+          "description": "content/read requests that found nothing: stale links in digests, or files a hook expects but OpenViking never wrote.",
+          "gridPos": { "h": 10, "w": 10, "x": 14, "y": 28 },
+          "datasource": { "type": "loki", "uid": "P8E80F9AEF21F6940" },
+          "targets": [
+            {
+              "refId": "A",
+              "queryType": "instant",
+              "expr": "topk(25, sum by (uri) (count_over_time({namespace=\"viking\", container=\"openviking\"} |= \"uvicorn.access\" |= \"/api/v1/content/read?uri=\" | regexp `\"GET /api/v1/content/read\\?uri=(?P<uri>[^ &]+)[^\"]*\" (?P<code>[0-9]+)` | code=\"404\" | label_format uri=`{{ .uri | urldecode }}` [$__range])))",
+              "legendFormat": "{{uri}}"
+            }
+          ],
+          "transformations": [
+            { "id": "merge", "options": {} },
+            {
+              "id": "organize",
+              "options": {
+                "excludeByName": { "Time": true },
+                "renameByName": { "uri": "URI", "Value #A": "404s" }
+              }
+            },
+            {
+              "id": "sortBy",
+              "options": { "sort": [{ "field": "404s", "desc": true }] }
+            }
+          ],
+          "fieldConfig": {
+            "defaults": { "unit": "short", "decimals": 0 },
+            "overrides": []
+          },
+          "options": { "showHeader": true, "cellHeight": "sm" }
+        },
+        {
+          "id": 12,
+          "type": "row",
+          "title": "Delivered to sessions (client hooks)",
+          "collapsed": false,
+          "gridPos": { "h": 1, "w": 24, "x": 0, "y": 38 },
+          "panels": []
+        },
+        {
+          "id": 13,
+          "type": "stat",
+          "title": "Memory tokens delivered (approx.)",
+          "description": "Session-start plus auto-recall tokens, all machines and harnesses. Claude Code's recall is counted as the server assembled it, before the hook trims it (high); Codex's at the block it emitted; Codex's search fallback logs no size and adds none (low). Tokens logged only as chars use the hooks' own ceil(chars/4).",
+          "gridPos": { "h": 4, "w": 6, "x": 0, "y": 39 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum(increase(openviking_client_session_start_tokens_total[$__range])) + sum(increase(openviking_client_recall_tokens_total[$__range]))",
+              "instant": true
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "decimals": 0,
+              "color": { "mode": "fixed", "fixedColor": "blue" }
+            },
+            "overrides": []
+          },
+          "options": {
+            "colorMode": "value",
+            "graphMode": "none",
+            "justifyMode": "auto",
+            "reduceOptions": {
+              "calcs": ["lastNotNull"],
+              "fields": "",
+              "values": false
+            },
+            "textMode": "auto"
+          }
+        },
+        {
+          "id": 14,
+          "type": "stat",
+          "title": "Recall entries delivered (approx.)",
+          "description": "Memory entries auto-recall put into prompts: Claude Code's as the server assembled them (before the hook trims) plus its search-fallback entries and hints; Codex's as the item count before its compressor drops any. Both run high. Codex's search fallback logs no delivery and adds none.",
+          "gridPos": { "h": 4, "w": 6, "x": 6, "y": 39 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum(increase(openviking_client_recall_entries_total[$__range]))",
+              "instant": true
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "decimals": 0,
+              "color": { "mode": "fixed", "fixedColor": "green" }
+            },
+            "overrides": []
+          },
+          "options": {
+            "colorMode": "value",
+            "graphMode": "none",
+            "justifyMode": "auto",
+            "reduceOptions": {
+              "calcs": ["lastNotNull"],
+              "fields": "",
+              "values": false
+            },
+            "textMode": "auto"
+          }
+        },
+        {
+          "id": 15,
+          "type": "stat",
+          "title": "Recalls that delivered memory",
+          "description": "Share of started auto-recall runs that neither skipped (no results, filtered or too-short query, nothing relevant after compression or ranking) nor failed (server unreachable, recall timeout, uncaught error). The shipper counts only post-start skips and these terminal errors, so the two are disjoint. A Codex search-fallback run logs nothing after picking, so it counts here as delivered even when compression empties it (none in pop's log so far), and an uncaught error before start is miscounted.",
+          "gridPos": { "h": 4, "w": 6, "x": 12, "y": 39 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "1 - (sum(increase(openviking_client_recall_skips_total[$__range])) + (sum(increase(openviking_client_recall_errors_total[$__range])) or vector(0))) / (sum(increase(openviking_client_recalls_total[$__range])) > 0)",
+              "instant": true
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "noValue": "no recalls",
+              "unit": "percentunit",
+              "decimals": 1,
+              "min": 0,
+              "max": 1,
+              "color": { "mode": "fixed", "fixedColor": "purple" }
+            },
+            "overrides": []
+          },
+          "options": {
+            "colorMode": "value",
+            "graphMode": "none",
+            "justifyMode": "auto",
+            "reduceOptions": {
+              "calcs": ["lastNotNull"],
+              "fields": "",
+              "values": false
+            },
+            "textMode": "auto"
+          }
+        },
+        {
+          "id": 16,
+          "type": "stat",
+          "title": "Last push per machine",
+          "description": "Age of each Mac's newest accepted push. The LaunchAgent pushes every 5 minutes; red past 15 means that Mac's shipper or its route to the cluster is down.",
+          "gridPos": { "h": 4, "w": 6, "x": 18, "y": 39 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "time() - max by (machine) (openviking_client_last_push_unix)",
+              "legendFormat": "{{machine}}",
+              "instant": true
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s",
+              "decimals": 0,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "green", "value": null },
+                  { "color": "red", "value": 900 }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "colorMode": "background",
+            "graphMode": "none",
+            "justifyMode": "auto",
+            "reduceOptions": {
+              "calcs": ["lastNotNull"],
+              "fields": "",
+              "values": false
+            },
+            "textMode": "value_and_name"
+          }
+        },
+        {
+          "id": 17,
+          "type": "timeseries",
+          "title": "Tokens delivered by machine and hook (approx.)",
+          "gridPos": { "h": 8, "w": 24, "x": 0, "y": 43 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "interval": "1h",
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum by (machine, harness) (increase(openviking_client_recall_tokens_total[$__interval]))",
+              "legendFormat": "{{machine}} {{harness}} auto-recall"
+            },
+            {
+              "refId": "B",
+              "expr": "sum by (machine, harness) (increase(openviking_client_session_start_tokens_total[$__interval]))",
+              "legendFormat": "{{machine}} {{harness}} session start"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "decimals": 0,
+              "custom": {
+                "drawStyle": "bars",
+                "fillOpacity": 80,
+                "stacking": { "mode": "normal", "group": "A" },
+                "lineWidth": 1
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "calcs": ["sum"],
+              "displayMode": "table",
+              "placement": "right",
+              "showLegend": true,
+              "sortBy": "Total",
+              "sortDesc": true
+            },
+            "tooltip": { "mode": "multi", "sort": "desc" }
+          }
+        }
+      ]
+    }
+kind: ConfigMap
+metadata:
+  labels:
+    grafana_dashboard: "1"
+  name: openviking-memory-reads-dashboard
+  namespace: grafana

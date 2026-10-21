@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Unit tests for ov-exporter.py's S3 lock gauges and s3lite's lock parsing.
+"""Unit tests for ov-exporter.py's S3 lock gauges, s3lite's lock parsing, and
+the /client-telemetry push validation.
 
 BUG-1220: the wedge alert must name the wedged lock. Pure logic: stubbed S3,
 pinned clock, no network.
@@ -11,9 +12,14 @@ from __future__ import annotations
 
 import datetime
 import importlib.util
+import json
 import os
+import socket
 import sys
+import threading
+import time
 import unittest
+from unittest import mock
 
 _DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, _DIR)
@@ -331,6 +337,236 @@ class TestPollS3Locks(unittest.TestCase):
         self._poll(client)
         self.assertEqual(len(self._series()), 3)
         self.assertEqual(len(client.gets), 3)
+
+
+class TestClientPush(unittest.TestCase):
+    KEY = "root-key"
+    AUTH = "Bearer root-key"
+
+    def setUp(self):
+        exporter._client_totals.clear()
+
+    def _push(self, doc, auth=AUTH, now=T0):
+        body = doc if isinstance(doc, bytes) else json.dumps(doc).encode()
+        return exporter.apply_client_push(body, auth, self.KEY, now)
+
+    def _doc(self, machine="pop", **totals):
+        return {
+            "machine": machine,
+            "harness": "claude-code",
+            "totals": totals or {"recalls": 3, "recall_tokens": 900},
+        }
+
+    def test_valid_push_is_exported(self):
+        self.assertEqual(self._push(self._doc()), (204, ""))
+        text = exporter.format_metrics()
+        self.assertIn(
+            'openviking_client_recalls_total{machine="pop",harness="claude-code"} 3',
+            text,
+        )
+        self.assertIn(
+            'openviking_client_recall_tokens_total{machine="pop",harness="claude-code"} 900',
+            text,
+        )
+        self.assertIn(
+            f'openviking_client_last_push_unix{{machine="pop",harness="claude-code"}} {T0}',
+            text,
+        )
+
+    def test_resend_replaces_instead_of_adding(self):
+        self._push(self._doc(recalls=3))
+        self._push(self._doc(recalls=5), now=T0 + 300)
+        self.assertEqual(
+            exporter._client_totals[("pop", "claude-code")],
+            {"totals": {"recalls": 5}, "received": T0 + 300},
+        )
+
+    def test_rejects_wrong_or_missing_key(self):
+        self.assertEqual(self._push(self._doc(), auth="Bearer nope")[0], 401)
+        self.assertEqual(self._push(self._doc(), auth=None)[0], 401)
+        self.assertEqual(exporter.apply_client_push(b"{}", "Bearer ", "", T0)[0], 401)
+        self.assertEqual(exporter._client_totals, {})
+
+    def test_rejects_bad_bodies(self):
+        bad = [
+            b"not json",
+            [1, 2],
+            self._doc(machine="Pop!"),
+            {**self._doc(), "totals": {}},
+            self._doc(bogus=1),
+            self._doc(recalls=-1),
+            self._doc(recalls=1.5),
+            self._doc(recalls=True),
+        ]
+        for doc in bad:
+            with self.subTest(doc=doc):
+                self.assertEqual(self._push(doc)[0], 400)
+        self.assertEqual(exporter._client_totals, {})
+
+    def test_series_cap(self):
+        for i in range(exporter.CLIENT_MAX_SERIES):
+            self.assertEqual(self._push(self._doc(machine=f"m{i}"))[0], 204)
+        self.assertEqual(self._push(self._doc(machine="one-more"))[0], 429)
+        # An existing series can still update at the cap.
+        self.assertEqual(self._push(self._doc(machine="m0"))[0], 204)
+
+
+class TestClientPushHardening(unittest.TestCase):
+    KEY = "root-key"
+    AUTH = "Bearer root-key"
+
+    def setUp(self):
+        exporter._client_totals.clear()
+
+    def _post(self, headers, body=b"", reads=None):
+        def read(n):
+            if reads is not None:
+                reads.append(n)
+            return body[:n]
+
+        return exporter.client_post_response(headers, read, self.KEY)
+
+    def _body(self, **totals):
+        return json.dumps(
+            {"machine": "pop", "harness": "codex", "totals": totals or {"recalls": 1}}
+        ).encode()
+
+    def test_huge_total_rejected_and_scrape_stays_valid(self):
+        doc = {"machine": "pop", "harness": "codex", "totals": {"recalls": 10**400}}
+        status, _ = exporter.apply_client_push(
+            json.dumps(doc).encode(), self.AUTH, self.KEY, T0
+        )
+        self.assertEqual(status, 400)
+        self.assertEqual(
+            exporter.apply_client_push(
+                self._body(recalls=2**53 + 1), self.AUTH, self.KEY, T0
+            )[0],
+            400,
+        )
+        self.assertEqual(
+            exporter.apply_client_push(
+                self._body(recalls=2**53), self.AUTH, self.KEY, T0
+            )[0],
+            204,
+        )
+        for line in exporter.format_metrics().splitlines():
+            if line and not line.startswith("#"):
+                float(line.rsplit(" ", 1)[1])  # every sample value parses
+
+    def test_label_with_trailing_newline_rejected(self):
+        doc = {"machine": "pop\n", "harness": "codex", "totals": {"recalls": 1}}
+        status, _ = exporter.apply_client_push(
+            json.dumps(doc).encode(), self.AUTH, self.KEY, T0
+        )
+        self.assertEqual(status, 400)
+
+    def test_non_ascii_auth_is_401_not_an_exception(self):
+        self.assertFalse(exporter.client_auth_ok("Bearer \xff€", self.KEY))
+        self.assertTrue(exporter.client_auth_ok(self.AUTH, self.KEY))
+        self.assertFalse(exporter.client_auth_ok(self.AUTH, ""))
+
+    def test_unauthorised_post_reads_no_body(self):
+        reads = []
+        status, _ = self._post({"Content-Length": "4096"}, reads=reads)
+        self.assertEqual((status, reads), (401, []))
+
+    def test_bad_content_length(self):
+        for value in ("wat", "", "-1", "0", "4097"):
+            with self.subTest(value=value):
+                reads = []
+                status, _ = self._post(
+                    {"Authorization": self.AUTH, "Content-Length": value}, reads=reads
+                )
+                self.assertIn(status, (400, 413))
+                self.assertEqual(reads, [])
+
+    def test_short_body_rejected(self):
+        body = self._body()
+        status, _ = self._post(
+            {"Authorization": self.AUTH, "Content-Length": str(len(body) + 5)}, body
+        )
+        self.assertEqual(status, 400)
+        self.assertEqual(exporter._client_totals, {})
+
+    def test_inflight_cap(self):
+        for _ in range(exporter.CLIENT_MAX_INFLIGHT):
+            exporter._client_inflight.acquire()
+        try:
+            body = self._body()
+            status, _ = self._post(
+                {"Authorization": self.AUTH, "Content-Length": str(len(body))}, body
+            )
+            self.assertEqual(status, 503)
+        finally:
+            for _ in range(exporter.CLIENT_MAX_INFLIGHT):
+                exporter._client_inflight.release()
+
+    def test_session_start_runs_is_accepted(self):
+        body = self._body(session_start_runs=7)
+        status, _ = self._post(
+            {"Authorization": self.AUTH, "Content-Length": str(len(body))}, body
+        )
+        self.assertEqual(status, 204)
+        self.assertIn(
+            'openviking_client_session_start_runs_total{machine="pop",harness="codex"} 7',
+            exporter.format_metrics(),
+        )
+
+    def test_valid_post_stores(self):
+        body = self._body(recall_errors=2)
+        status, _ = self._post(
+            {"Authorization": self.AUTH, "Content-Length": str(len(body))}, body
+        )
+        self.assertEqual(status, 204)
+        self.assertIn(
+            'openviking_client_recall_errors_total{machine="pop",harness="codex"} 2',
+            exporter.format_metrics(),
+        )
+
+
+class TestConnectionDeadline(unittest.TestCase):
+    """A client trickling bytes resets the socket timeout but not the deadline."""
+
+    def setUp(self):
+        handler = type("H", (exporter.MetricsHandler,), {"deadline": 0.5, "timeout": 5})
+        self.server = exporter.ThreadingHTTPServer(("127.0.0.1", 0), handler)
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        self.addCleanup(self.server.server_close)
+        self.addCleanup(self.server.shutdown)
+        self.env = mock.patch.dict(os.environ, {"OPENVIKING_KEY": "k"})
+        self.env.start()
+        self.addCleanup(self.env.stop)
+
+    def trickle(self, head: bytes) -> float:
+        """Send `head`, then a byte every 0.1 s; seconds until the server closes."""
+        sock = socket.create_connection(self.server.server_address)
+        sock.settimeout(0.1)
+        start = time.monotonic()
+        sock.sendall(head)
+        try:
+            while time.monotonic() - start < 3:
+                try:
+                    if sock.recv(4096) == b"":
+                        break
+                except TimeoutError:
+                    sock.sendall(b"x")
+        except OSError:
+            pass  # reset by the server's shutdown
+        finally:
+            sock.close()
+        return time.monotonic() - start
+
+    def test_trickled_headers_are_cut_off(self):
+        self.assertLess(self.trickle(b"GET /metr"), 1.5)
+
+    def test_trickled_body_is_cut_off_and_frees_its_slot(self):
+        head = b"POST /client-telemetry HTTP/1.1\r\nAuthorization: Bearer k\r\nContent-Length: 4000\r\n\r\n"
+        self.assertLess(self.trickle(head), 1.5)
+        # The in-flight slot was released: all four can still be taken.
+        for _ in range(exporter.CLIENT_MAX_INFLIGHT):
+            self.assertTrue(exporter._client_inflight.acquire(timeout=1))
+        for _ in range(exporter.CLIENT_MAX_INFLIGHT):
+            exporter._client_inflight.release()
 
 
 if __name__ == "__main__":
