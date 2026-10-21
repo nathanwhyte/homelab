@@ -37,9 +37,11 @@ repos:
         # unredacted secret on the same line; report rule and location only.
         # --ignore-gitleaks-allow: an inline `gitleaks:allow` comment must not
         # wave a secret through; allowlist known placeholders in .gitleaks.toml.
+        # --config: GITLEAKS_CONFIG must not swap out the repo's rules.
+        # secret-files fails while a .gitleaksignore exists, which this cannot.
         entry: >-
           gitleaks git --pre-commit --redact --staged --no-banner
-          --ignore-gitleaks-allow
+          --ignore-gitleaks-allow --config .gitleaks.toml
           --report-format template --report-template .gitleaks-report.tmpl
           --report-path -
 

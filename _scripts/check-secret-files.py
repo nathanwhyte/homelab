@@ -224,6 +224,12 @@ def check(path: Path) -> list[str]:
 
 def main(paths: list[str]) -> int:
     failed = 0
+    # pre-commit runs hooks from the repo root, where gitleaks reads this file
+    # even with --ignore-gitleaks-allow, so a listed finding would pass.
+    ignore = Path(".gitleaksignore")
+    if ignore.exists() or ignore.is_symlink():
+        print(".gitleaksignore: gitleaks skips the findings it lists; remove it")
+        return 1
     for p in paths:
         for problem in check(Path(p)):
             print(f"{p}: {problem}")
