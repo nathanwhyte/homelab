@@ -66,6 +66,25 @@ repos:
 
   - repo: local
     hooks:
+      # IMPR-1387: the checker's regression cases, one per review finding on
+      # homelab#242. pyyaml for the checker, from uv's cache only.
+      - id: check-secret-files-tests
+        name: check-secret-files regression cases
+        entry: uv run --offline --no-project --with pyyaml python3 _scripts/test-check-secret-files.py CheckerCaseTests
+        language: system
+        pass_filenames: false
+        files: ^_scripts/(test-)?check-secret-files\.py$
+      # IMPR-1387: the same hooks under a real `pre-commit run` in a scratch repo,
+      # since calling the script skips what pre-commit decides first (symlinks,
+      # gitleaks flags). Also runs when the config or gitleaks files change. Skips
+      # (exit 0, SKIP printed) when hook environments cannot install offline;
+      # CHECK_SECRET_FILES_REQUIRE_DISPATCH=1 makes that a failure.
+      - id: check-secret-files-dispatch-tests
+        name: secret hooks under real pre-commit dispatch
+        entry: uv run --offline --no-project --with pyyaml python3 _scripts/test-check-secret-files.py DispatchTests
+        language: system
+        pass_filenames: false
+        files: ^(_scripts/(test-)?check-secret-files\.py|\.pre-commit-config\.yaml|\.gitleaks\.toml|\.gitleaks-report\.tmpl)$
       - id: backup-freshness-tests
         name: Backup freshness exporter tests
         entry: python3 grafana/test-backup-freshness-exporter.py
