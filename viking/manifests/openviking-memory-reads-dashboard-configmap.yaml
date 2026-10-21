@@ -446,7 +446,7 @@ data:
           "id": 14,
           "type": "stat",
           "title": "Recall entries delivered (approx.)",
-          "description": "Memory entries auto-recall put into prompts: Claude Code's as the server assembled them (before the hook trims), Codex's at the emitted block, plus both harnesses' search-fallback picks.",
+          "description": "Memory entries auto-recall put into prompts: Claude Code's as the server assembled them (before the hook trims) plus its search-fallback entries and hints; Codex's at the emitted block. Codex's search fallback logs no delivery and adds none.",
           "gridPos": { "h": 4, "w": 6, "x": 6, "y": 39 },
           "datasource": { "type": "prometheus", "uid": "prometheus" },
           "targets": [
@@ -480,7 +480,7 @@ data:
           "id": 15,
           "type": "stat",
           "title": "Recalls that delivered memory",
-          "description": "Share of started auto-recall runs that neither skipped (no results, filtered or too-short query, nothing relevant after compression or ranking) nor failed (server unreachable, uncaught error). The shipper counts only post-start skips and these terminal errors, so the three are disjoint; an uncaught error before start is the one case it can miscount.",
+          "description": "Share of started auto-recall runs that neither skipped (no results, filtered or too-short query, nothing relevant after compression or ranking) nor failed (server unreachable, recall timeout, uncaught error). The shipper counts only post-start skips and these terminal errors, so the two are disjoint. A Codex search-fallback run logs nothing after picking, so it counts here as delivered even when compression empties it (none in pop's log so far), and an uncaught error before start is miscounted.",
           "gridPos": { "h": 4, "w": 6, "x": 12, "y": 39 },
           "datasource": { "type": "prometheus", "uid": "prometheus" },
           "targets": [
