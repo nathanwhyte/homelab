@@ -219,6 +219,85 @@ tests:
         eval_time: 15m
         exp_samples: [{ labels: "{}", value: 0 }]
 
+  # Client delivery counts going flat while recalls continue (plugin rename).
+  - name: recalls with no counted delivery fire
+    interval: 10m
+    input_series:
+      - series: 'openviking_client_recalls_total{machine="pop", harness="codex"}'
+        values: "0+5x60"
+      - series: 'openviking_client_recall_skips_total{machine="pop", harness="codex"}'
+        values: "0+1x60"
+      - series: 'openviking_client_recall_errors_total{machine="pop", harness="codex"}'
+        values: "0x60"
+      - series: 'openviking_client_recall_tokens_total{machine="pop", harness="codex"}'
+        values: "5000x60"
+      - series: 'openviking_client_recall_entries_total{machine="pop", harness="codex"}'
+        values: "40x60"
+    alert_rule_test:
+      - alertname: OpenVikingClientRecallDeliveryFlat
+        eval_time: 7h
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              machine: pop
+              harness: codex
+            exp_annotations:
+              summary: "pop/codex recalls ran but delivered no counted memory for 6h"
+              description: "Auto-recall runs that neither skipped nor failed kept arriving from pop (codex), but recall tokens or entries did not move. The likely cause is a memory-plugin update renaming the hook-log stage ov-telemetry-push.py counts (DELIVERY_EVENTS in dotfiles bin/ov-telemetry-push.py). Compare the stages in ~/.openviking/logs/*-hooks.log on that Mac with the table and update it."
+
+  - name: recalls that deliver stay quiet
+    interval: 10m
+    input_series:
+      - series: 'openviking_client_recalls_total{machine="pop", harness="codex"}'
+        values: "0+5x60"
+      - series: 'openviking_client_recall_skips_total{machine="pop", harness="codex"}'
+        values: "0+1x60"
+      - series: 'openviking_client_recall_errors_total{machine="pop", harness="codex"}'
+        values: "0x60"
+      - series: 'openviking_client_recall_tokens_total{machine="pop", harness="codex"}'
+        values: "0+800x60"
+      - series: 'openviking_client_recall_entries_total{machine="pop", harness="codex"}'
+        values: "0+4x60"
+    promql_expr_test:
+      - expr: count(ALERTS{alertname="OpenVikingClientRecallDeliveryFlat"}) or vector(0)
+        eval_time: 9h
+        exp_samples: [{ labels: "{}", value: 0 }]
+
+  - name: recalls that all skip or fail stay quiet
+    # An offline server or a run of filtered prompts is not a counting break.
+    interval: 10m
+    input_series:
+      - series: 'openviking_client_recalls_total{machine="pop", harness="claude-code"}'
+        values: "0+5x60"
+      - series: 'openviking_client_recall_skips_total{machine="pop", harness="claude-code"}'
+        values: "0+3x60"
+      - series: 'openviking_client_recall_errors_total{machine="pop", harness="claude-code"}'
+        values: "0+2x60"
+      - series: 'openviking_client_recall_tokens_total{machine="pop", harness="claude-code"}'
+        values: "9000x60"
+      - series: 'openviking_client_recall_entries_total{machine="pop", harness="claude-code"}'
+        values: "70x60"
+    promql_expr_test:
+      - expr: count(ALERTS{alertname="OpenVikingClientRecallDeliveryFlat"}) or vector(0)
+        eval_time: 9h
+        exp_samples: [{ labels: "{}", value: 0 }]
+
+  - name: a day of recalls with no session-start injection fires, one with injections stays quiet
+    interval: 30m
+    input_series:
+      - series: 'openviking_client_recalls_total{machine="workbook", harness="claude-code"}'
+        values: "0+10x60"
+      - series: 'openviking_client_session_start_injects_total{machine="workbook", harness="claude-code"}'
+        values: "300x60"
+      - series: 'openviking_client_recalls_total{machine="pop", harness="claude-code"}'
+        values: "0+10x60"
+      - series: 'openviking_client_session_start_injects_total{machine="pop", harness="claude-code"}'
+        values: "0+1x60"
+    promql_expr_test:
+      - expr: count by (machine) (ALERTS{alertname="OpenVikingClientSessionStartFlat",alertstate="firing"})
+        eval_time: 26h
+        exp_samples: [{ labels: '{machine="workbook"}', value: 1 }]
+
   - name: a long but sub-threshold lock never fires
     interval: 1m
     input_series:
