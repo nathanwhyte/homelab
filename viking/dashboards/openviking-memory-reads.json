@@ -343,14 +343,12 @@
         }
       ],
       "transformations": [
-        {
-          "id": "reduce",
-          "options": { "mode": "seriesToRows", "reducers": ["lastNotNull"] }
-        },
+        { "id": "merge", "options": {} },
         {
           "id": "organize",
           "options": {
-            "renameByName": { "Field": "URI", "Last *": "Reads" }
+            "excludeByName": { "Time": true },
+            "renameByName": { "uri": "URI", "Value #A": "Reads" }
           }
         },
         {
@@ -380,14 +378,12 @@
         }
       ],
       "transformations": [
-        {
-          "id": "reduce",
-          "options": { "mode": "seriesToRows", "reducers": ["lastNotNull"] }
-        },
+        { "id": "merge", "options": {} },
         {
           "id": "organize",
           "options": {
-            "renameByName": { "Field": "URI", "Last *": "404s" }
+            "excludeByName": { "Time": true },
+            "renameByName": { "uri": "URI", "Value #A": "404s" }
           }
         },
         {
