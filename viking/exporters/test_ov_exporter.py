@@ -407,5 +407,107 @@ class TestClientPush(unittest.TestCase):
         self.assertEqual(self._push(self._doc(machine="m0"))[0], 204)
 
 
+class TestClientPushHardening(unittest.TestCase):
+    KEY = "root-key"
+    AUTH = "Bearer root-key"
+
+    def setUp(self):
+        exporter._client_totals.clear()
+
+    def _post(self, headers, body=b"", reads=None):
+        def read(n):
+            if reads is not None:
+                reads.append(n)
+            return body[:n]
+
+        return exporter.client_post_response(headers, read, self.KEY)
+
+    def _body(self, **totals):
+        return json.dumps(
+            {"machine": "pop", "harness": "codex", "totals": totals or {"recalls": 1}}
+        ).encode()
+
+    def test_huge_total_rejected_and_scrape_stays_valid(self):
+        doc = {"machine": "pop", "harness": "codex", "totals": {"recalls": 10**400}}
+        status, _ = exporter.apply_client_push(
+            json.dumps(doc).encode(), self.AUTH, self.KEY, T0
+        )
+        self.assertEqual(status, 400)
+        self.assertEqual(
+            exporter.apply_client_push(
+                self._body(recalls=2**53 + 1), self.AUTH, self.KEY, T0
+            )[0],
+            400,
+        )
+        self.assertEqual(
+            exporter.apply_client_push(
+                self._body(recalls=2**53), self.AUTH, self.KEY, T0
+            )[0],
+            204,
+        )
+        for line in exporter.format_metrics().splitlines():
+            if line and not line.startswith("#"):
+                float(line.rsplit(" ", 1)[1])  # every sample value parses
+
+    def test_label_with_trailing_newline_rejected(self):
+        doc = {"machine": "pop\n", "harness": "codex", "totals": {"recalls": 1}}
+        status, _ = exporter.apply_client_push(
+            json.dumps(doc).encode(), self.AUTH, self.KEY, T0
+        )
+        self.assertEqual(status, 400)
+
+    def test_non_ascii_auth_is_401_not_an_exception(self):
+        self.assertFalse(exporter.client_auth_ok("Bearer \xff€", self.KEY))
+        self.assertTrue(exporter.client_auth_ok(self.AUTH, self.KEY))
+        self.assertFalse(exporter.client_auth_ok(self.AUTH, ""))
+
+    def test_unauthorised_post_reads_no_body(self):
+        reads = []
+        status, _ = self._post({"Content-Length": "4096"}, reads=reads)
+        self.assertEqual((status, reads), (401, []))
+
+    def test_bad_content_length(self):
+        for value in ("wat", "", "-1", "0", "4097"):
+            with self.subTest(value=value):
+                reads = []
+                status, _ = self._post(
+                    {"Authorization": self.AUTH, "Content-Length": value}, reads=reads
+                )
+                self.assertIn(status, (400, 413))
+                self.assertEqual(reads, [])
+
+    def test_short_body_rejected(self):
+        body = self._body()
+        status, _ = self._post(
+            {"Authorization": self.AUTH, "Content-Length": str(len(body) + 5)}, body
+        )
+        self.assertEqual(status, 400)
+        self.assertEqual(exporter._client_totals, {})
+
+    def test_inflight_cap(self):
+        for _ in range(exporter.CLIENT_MAX_INFLIGHT):
+            exporter._client_inflight.acquire()
+        try:
+            body = self._body()
+            status, _ = self._post(
+                {"Authorization": self.AUTH, "Content-Length": str(len(body))}, body
+            )
+            self.assertEqual(status, 503)
+        finally:
+            for _ in range(exporter.CLIENT_MAX_INFLIGHT):
+                exporter._client_inflight.release()
+
+    def test_valid_post_stores(self):
+        body = self._body(recall_errors=2)
+        status, _ = self._post(
+            {"Authorization": self.AUTH, "Content-Length": str(len(body))}, body
+        )
+        self.assertEqual(status, 204)
+        self.assertIn(
+            'openviking_client_recall_errors_total{machine="pop",harness="codex"} 2',
+            exporter.format_metrics(),
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -60,7 +60,7 @@
       "id": 2,
       "type": "stat",
       "title": "Auto-recall searches",
-      "description": "search.context operations: the per-prompt auto-recall hook's semantic search.",
+      "description": "search.context operations. Both harnesses' per-prompt auto-recall hooks drive most of these.",
       "gridPos": { "h": 4, "w": 6, "x": 6, "y": 0 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
@@ -93,8 +93,8 @@
     {
       "id": 3,
       "type": "stat",
-      "title": "Agent searches (find / search / recall)",
-      "description": "Explicit searches an agent asked for, as opposed to hook-driven auto-recall.",
+      "title": "find / search / recall operations",
+      "description": "search.find, search.search and search.recall operations. Not agent-only: the hooks' recall paths and skill-experience lookups call /api/v1/search/find and /search/search too, and the server does not record the caller.",
       "gridPos": { "h": 4, "w": 6, "x": 12, "y": 0 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
@@ -202,7 +202,7 @@
       "id": 6,
       "type": "timeseries",
       "title": "Search operations by type",
-      "description": "search.context is hook auto-recall; find, search, and recall are explicit agent queries.",
+      "description": "Search operations by name. The server does not record the caller, and hooks and agents both reach find and search.",
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 12 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "interval": "1h",
@@ -324,7 +324,7 @@
       "gridPos": { "h": 8, "w": 8, "x": 16, "y": 20 },
       "options": {
         "mode": "markdown",
-        "content": "- **Loki panels cover about a day.** The access log is the only per-URI source and Loki holds roughly 24h of it, so the Loki panels and tables go blank past that however wide the range is. The Prometheus panels cover the full range.\n- **No per-machine caller.** Both Macs reach the pod through the NodePort SNAT address; the `peers/<machine>/` path is the only hint.\n- **MCP is opaque.** `/mcp` counts every `viking_*` tool call, reads and writes together.\n- **Delivery, not use.** The delivery row below comes from each Mac's `ov-telemetry-push.py` LaunchAgent (totals from `~/.openviking/logs/*-hooks.log`). It counts what the hooks injected into context, not whether a reply used it, and it counts only from the first push onward."
+        "content": "- **Loki panels cover about a day.** The access log is the only per-URI source and Loki holds roughly 24h of it, so the Loki panels and tables go blank past that however wide the range is. The Prometheus panels cover the full range.\n- **No per-machine caller.** Both Macs reach the pod through the NodePort SNAT address; the `peers/<machine>/` path is the only hint.\n- **MCP is opaque.** `/mcp` counts every `viking_*` tool call, reads and writes together.\n- **Delivery, not use.** The delivery row below comes from each Mac's `ov-telemetry-push.py` LaunchAgent (totals from `~/.openviking/logs/*-hooks.log`). Recall is counted as assembled, before the client's compressor can shrink or drop it, so the token and entry figures are upper bounds on what reached context, and none of it says whether a reply used it. It counts only from the first push onward.\n- **Search callers are unknown.** The server names the operation, not the caller, and hooks reach find and search as well as agents."
       }
     },
     {
@@ -408,8 +408,8 @@
     {
       "id": 13,
       "type": "stat",
-      "title": "Memory tokens injected",
-      "description": "Session-start plus per-prompt auto-recall tokens the client hooks put into context, all machines and harnesses.",
+      "title": "Memory tokens delivered (upper bound)",
+      "description": "Session-start profile tokens plus auto-recall tokens as assembled, all machines and harnesses. The recall side is counted before the client's compressor runs, which can shrink or drop the block, so this is an upper bound on what reached context.",
       "gridPos": { "h": 4, "w": 6, "x": 0, "y": 39 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
@@ -442,8 +442,8 @@
     {
       "id": 14,
       "type": "stat",
-      "title": "Recall entries injected",
-      "description": "Memory entries auto-recall put into prompts.",
+      "title": "Recall entries assembled",
+      "description": "Memory entries auto-recall assembled for prompts, counted before client compression; an upper bound on entries injected.",
       "gridPos": { "h": 4, "w": 6, "x": 6, "y": 39 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
@@ -477,13 +477,13 @@
       "id": 15,
       "type": "stat",
       "title": "Recalls that injected something",
-      "description": "Share of auto-recall runs that were not skipped (no results, filtered or too-short query).",
+      "description": "Share of auto-recall runs that neither skipped (no results, filtered or too-short query, compressor found nothing relevant) nor failed (server unreachable, uncaught error).",
       "gridPos": { "h": 4, "w": 6, "x": 12, "y": 39 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
           "refId": "A",
-          "expr": "1 - sum(increase(openviking_client_recall_skips_total[$__range])) / (sum(increase(openviking_client_recalls_total[$__range])) > 0)",
+          "expr": "1 - (sum(increase(openviking_client_recall_skips_total[$__range])) + (sum(increase(openviking_client_recall_errors_total[$__range])) or vector(0))) / (sum(increase(openviking_client_recalls_total[$__range])) > 0)",
           "instant": true
         }
       ],
@@ -554,7 +554,7 @@
     {
       "id": 17,
       "type": "timeseries",
-      "title": "Tokens injected by machine and hook",
+      "title": "Tokens delivered by machine and hook (recall as assembled)",
       "gridPos": { "h": 8, "w": 24, "x": 0, "y": 43 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "interval": "1h",

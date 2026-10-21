@@ -71,7 +71,10 @@ data:
     server never sees it. Each Mac's ov-telemetry-push.py LaunchAgent POSTs its
     running totals, parsed from ~/.openviking/logs/*-hooks.log, to
     /client-telemetry with `Authorization: Bearer <OPENVIKING_KEY>`; the NodePort
-    exposes this port on 31934 for that. Totals are cumulative and replace the
+    exposes this port on 31934 for that. The key is checked before any body is
+    read, bodies are capped at 4 KiB and values at 2**53, and every request has a
+    socket deadline, so nothing a LAN client sends can stall the server or break
+    the /metrics exposition. Totals are cumulative and replace the
     previous push, so a resend never double-counts; a log rotation sends smaller
     totals, which Prometheus reads as a counter reset. They live in memory only,
     so an exporter restart drops them until the next push.
@@ -155,21 +158,41 @@ data:
             "openviking_client_recall_skips_total",
             "Auto-recall runs that injected nothing (no results, filtered query).",
         ),
+        "recall_errors": (
+            "openviking_client_recall_errors_total",
+            "Auto-recall runs that failed (server unreachable, uncaught error) and injected nothing.",
+        ),
     }
-    CLIENT_LABEL_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,31}$")
+    CLIENT_LABEL_RE = re.compile(r"[a-z0-9][a-z0-9-]{0,31}")  # always fullmatch
     CLIENT_MAX_SERIES = 16  # (machine, harness) pairs; bounds cardinality
     CLIENT_MAX_BODY = 4096
+    # Totals above 2**53 lose precision as float64 and a big enough int is not a
+    # valid exposition value at all, which would fail the whole scrape.
+    CLIENT_MAX_VALUE = 2**53
+    CLIENT_MAX_INFLIGHT = 4  # concurrent POST bodies being read
+    CLIENT_SOCKET_TIMEOUT_S = 10
 
     _client_lock = threading.Lock()
+    _client_inflight = threading.BoundedSemaphore(CLIENT_MAX_INFLIGHT)
     # (machine, harness) -> {"totals": {field: int}, "received": unix}
     _client_totals: dict[tuple[str, str], dict] = {}
+
+
+    def client_auth_ok(auth: str | None, key: str) -> bool:
+        """Constant-time `Bearer <key>` check; any header bytes give False, never raise."""
+        if not key:
+            return False
+        # http.server decodes headers as latin-1; compare bytes so non-ASCII input
+        # is a mismatch rather than compare_digest's TypeError.
+        given = (auth or "").encode("latin-1", errors="replace")
+        return hmac.compare_digest(given, f"Bearer {key}".encode())
 
 
     def apply_client_push(
         body: bytes, auth: str | None, key: str, now: float
     ) -> tuple[int, str]:
         """Validate one /client-telemetry push and store it; (status, message)."""
-        if not key or not hmac.compare_digest(auth or "", f"Bearer {key}"):
+        if not client_auth_ok(auth, key):
             return 401, "unauthorized"
         try:
             doc = json.loads(body)
@@ -179,15 +202,19 @@ data:
             return 400, "body must be an object"
         machine, harness, totals = doc.get("machine"), doc.get("harness"), doc.get("totals")
         for name, value in (("machine", machine), ("harness", harness)):
-            if not isinstance(value, str) or not CLIENT_LABEL_RE.match(value):
+            if not isinstance(value, str) or not CLIENT_LABEL_RE.fullmatch(value):
                 return 400, f"{name} must match {CLIENT_LABEL_RE.pattern}"
         if not isinstance(totals, dict) or not totals:
             return 400, "totals must be a non-empty object"
         for field, value in totals.items():
             if field not in CLIENT_FIELDS:
                 return 400, f"unknown total {field!r}"
-            if not isinstance(value, int) or isinstance(value, bool) or value < 0:
-                return 400, f"total {field!r} must be a non-negative integer"
+            if (
+                not isinstance(value, int)
+                or isinstance(value, bool)
+                or not 0 <= value <= CLIENT_MAX_VALUE
+            ):
+                return 400, f"total {field!r} must be an integer in 0..2**53"
         series = (machine, harness)
         with _client_lock:
             if series not in _client_totals and len(_client_totals) >= CLIENT_MAX_SERIES:
@@ -720,7 +747,38 @@ data:
     # ── HTTP Handler ─────────────────────────────────────────────────────────────
 
 
+    def client_post_response(headers, read, key: str) -> tuple[int, str]:
+        """Handle one /client-telemetry POST: auth and size checks before reading.
+
+        `headers` maps header names to values, `read(n)` reads the body. Only an
+        authorised caller gets a body read at all, at most CLIENT_MAX_INFLIGHT at
+        once, each bounded by the handler's socket timeout.
+        """
+        if not client_auth_ok(headers.get("Authorization"), key):
+            return 401, "unauthorized"
+        try:
+            length = int(headers.get("Content-Length") or "")
+        except ValueError:
+            return 400, "Content-Length must be an integer"
+        if length <= 0 or length > CLIENT_MAX_BODY:
+            return 413, f"body must be 1-{CLIENT_MAX_BODY} bytes"
+        if not _client_inflight.acquire(blocking=False):
+            return 503, "too many pushes in flight"
+        try:
+            body = read(length)
+        finally:
+            _client_inflight.release()
+        if len(body) != length:
+            return 400, "body shorter than Content-Length"
+        return apply_client_push(body, headers.get("Authorization"), key, time.time())
+
+
     class MetricsHandler(BaseHTTPRequestHandler):
+        # Socket deadline for every request, so a client that stalls mid-headers or
+        # mid-body (the port is on the LAN since the client-telemetry NodePort)
+        # frees its thread instead of holding it.
+        timeout = CLIENT_SOCKET_TIMEOUT_S
+
         def do_GET(self):
             if self.path == "/metrics":
                 body = format_metrics().encode()
@@ -743,16 +801,13 @@ data:
                 self.send_response(404)
                 self.end_headers()
                 return
-            length = int(self.headers.get("Content-Length") or 0)
-            if length <= 0 or length > CLIENT_MAX_BODY:
-                status, message = 413, f"body must be 1-{CLIENT_MAX_BODY} bytes"
-            else:
-                status, message = apply_client_push(
-                    self.rfile.read(length),
-                    self.headers.get("Authorization"),
-                    os.environ.get("OPENVIKING_KEY", ""),
-                    time.time(),
+            try:
+                status, message = client_post_response(
+                    self.headers, self.rfile.read, os.environ.get("OPENVIKING_KEY", "")
                 )
+            except TimeoutError:
+                self.close_connection = True  # body never arrived; nothing to answer
+                return
             self.send_response(status)
             if message:
                 body = (message + "\n").encode()
