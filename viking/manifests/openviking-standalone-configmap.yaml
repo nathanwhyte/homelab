@@ -78,6 +78,10 @@ data:
   # credential", and later calls went straight to gemma. While bypassed, Haiku takes
   # no overflow. LiteLLMRouterDown and OpenVikingBypassingVLMRouter alert on it.
   # To pin OpenViking to gemma by hand: `viking/scripts/ov-vlm-swap.py gemma --apply`.
+  #
+  # memory.custom_templates_dir loads openviking-memory-templates over the bundled
+  # memory schemas (BUG-1260: preferences come only from [user] messages). The
+  # deployment mounts that ConfigMap at this path.
   ov.conf: |
     {
       "default_account": "default",
@@ -170,5 +174,8 @@ data:
         "session_commit": {
           "max_concurrent": 12
         }
+      },
+      "memory": {
+        "custom_templates_dir": "/etc/openviking/memory-templates"
       }
     }

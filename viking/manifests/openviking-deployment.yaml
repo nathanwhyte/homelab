@@ -308,6 +308,12 @@ spec:
             - name: prompt-overrides
               mountPath: /etc/openviking/prompts/semantic
               readOnly: true
+            # BUG-1260: ov.conf memory.custom_templates_dir points here. Directory
+            # mount for the same reason as prompt-overrides; schemas are cached
+            # in-process, so an edit still needs a pod restart.
+            - name: memory-templates
+              mountPath: /etc/openviking/memory-templates
+              readOnly: true
             - name: data
               mountPath: /app/data
         - name: ov-exporter
@@ -423,6 +429,10 @@ spec:
         - name: prompt-overrides
           configMap:
             name: openviking-prompt-overrides
+        # BUG-1260: preferences.yaml only; every other memory schema stays bundled.
+        - name: memory-templates
+          configMap:
+            name: openviking-memory-templates
         # IMPR-1185 navigation patch (see the PYTHONPATH comment on the main container).
         - name: nav-patch
           configMap:

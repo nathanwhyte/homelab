@@ -1,0 +1,89 @@
+---
+# BUG-1260: override for OpenViking's `preferences` memory schema.
+#
+# The shipped schema asks the extractor for "preferences the user has expressed"
+# but never says which messages count as the user. Since the dotfiles capture
+# fixes (BUG-1215, BUG-1235) send subagent briefs, peer messages and harness
+# notices as `assistant`, a session can reach extraction with no `[user]` text at
+# all, and the extractor then files the agent's own reasoning as a user
+# preference: canary cc-ffcc4dd8 (2026-10-21) wrote "prefers the work to be
+# handled directly when the global rules forbid dispatching a single subagent",
+# paraphrased from Claude's reply.
+#
+# The conversation reaches the extractor as `[idx][role][speaker]: text` lines
+# (session_extract_context_provider._assemble_conversation), so the schema can
+# name the `[user]` label. Everything below is the v0.4.20 bundled
+# openviking/prompts/templates/memory/preferences.yaml, byte-identical except the
+# three sentences added to `description` and the clause added to the `content`
+# field. Re-diff against the bundled copy when bumping the image.
+#
+# Loaded through ov.conf `memory.custom_templates_dir`, which
+# MemoryTypeRegistry loads after the bundled templates with replace=True.
+# PromptManager and the registry cache schemas in-process, so an edit here takes
+# a pod restart.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: openviking-memory-templates
+  namespace: viking
+data:
+  preferences.yaml: |
+    memory_type: preferences
+    description: |
+      User preference memory - captures "what the user likes/dislikes or is accustomed to".
+      Extract specific preferences the user has expressed across conversations.
+      Only a message labelled [user] can express a user preference. Messages labelled [assistant] (the agent's replies, plans and explanations, the rules it says it follows, and briefs or notices relayed to it) are context for what a [user] message refers to; never record their content as a user preference.
+      If no [user] message states or clearly implies a preference, write no preference memory.
+      Each preference should be about a specific topic (not generic).
+      Topics can be: code style, communication style, tools, workflow, food, commute, etc.
+      Store different topics as separate memory files, do NOT mix unrelated preferences.
+    directory: "viking://user/{{ user_space }}/memories/preferences"
+    filename_template: "{{ user }}/{{ topic }}.md"
+    enabled: true
+    embedding_template: |-
+      {{ user }}
+
+      {{ topic }}
+
+      {{ content }}
+
+    overview_template: |-
+      # Preferences Overview
+      {% if items %}**User:** {{ items[0].file_content.user|default(directory_name, true) }}
+      **Topic:** {{ items[0].file_content.topic|default(items[0].file_name, true) }}{% endif %}
+      {% for item in items %}
+      - [{{ item.file_content.topic|default(item.file_name, true) }}](./{{ item.file_name }})
+      {% endfor %}
+
+    fields:
+      - name: user
+        type: string
+        description: |
+          Username for the preference owner
+        merge_op: immutable
+
+      - name: topic
+        type: string
+        description: |
+          Preference topic written in {{ language }}.
+          {% if language == 'en' %}Use lowercase with underscores, max 3 words.{% else %}Keep the topic concise and natural in {{ language }}.{% endif %}
+          Preference topic used to uniquely identify this preference memory.
+          Should be a semantic topic description such as "Python code style", "Communication style", "Food preference", "Commute preference", etc.
+          This topic is an identity component together with user. Merge only true aliases for
+          the same owner's same behavioral choice dimension. Related dimensions may share words
+          but remain separate; for example, preferred movie genres and preferred games are not
+          one preference merely because both are entertainment.
+        merge_op: immutable
+
+      - name: content
+        type: string
+        description: |
+          Preference content in Markdown format describing "what the user prefers/is accustomed to", taken only from [user] messages.
+          Write one concise bullet per distinct, reusable preference; omit exact duplicates,
+          events, dates, and plans. Preserve the specific choice, list members, conditions,
+          exceptions, and user-stated reason or emotional meaning when they make the preference
+          answerable or distinguish it from nearby preferences.
+          Example:
+          - Prefers concise written updates with decisions and next actions.
+          - Chooses lightweight tools when they cover the workflow.
+        merge_op: patch
