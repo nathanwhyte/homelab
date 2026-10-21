@@ -483,12 +483,13 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "1 - sum(increase(openviking_client_recall_skips_total[$__range])) / sum(increase(openviking_client_recalls_total[$__range]))",
+          "expr": "1 - sum(increase(openviking_client_recall_skips_total[$__range])) / (sum(increase(openviking_client_recalls_total[$__range])) > 0)",
           "instant": true
         }
       ],
       "fieldConfig": {
         "defaults": {
+          "noValue": "no recalls",
           "unit": "percentunit",
           "decimals": 1,
           "min": 0,
