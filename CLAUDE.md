@@ -29,7 +29,7 @@ The dotfiles `repo-context` hook sends this section to sessions started in anoth
 - **Do not introduce or commit secrets.**
   - Prefer referencing existing `Secret` resources (by name) rather than inlining secret material.
   - If a manifest must reference a secret key/token/cert, add a placeholder and document what’s required.
-  - The repo ignores common sensitive patterns (see `.gitignore`), but still treat all credentials as out-of-scope.
+  - The repo is public. Every file named like a secret or credential is gitignored; commit only its `<name>.example` placeholder twin, in which every Secret value is exactly `REPLACE_ME`, `CHANGE_ME` or `<UPPER_SNAKE>` (non-secret config such as endpoints too, with the real value in a comment); never `git add -f` the real file, never inline a key as a script's default value, and never commit a `kubectl get -o yaml` dump that includes `Secret` objects. The `secret-files` and `gitleaks` pre-commit hooks enforce this; never `--no-verify` past them.
 - **Don’t change global tooling config** (git config, shell config, etc.) unless asked.
 
 **Reference tables** (kept out of this file so the SessionStart hook stays under the 40k char cap) — `Read` them when needed:

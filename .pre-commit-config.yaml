@@ -26,6 +26,39 @@ repos:
       - id: check-executables-have-shebangs
       - id: check-shebang-scripts-are-executable
 
+  # The repo is public: an R2 key pair sat in two yt-dlp scripts as
+  # `os.environ.get` defaults until 2026-10-19. gitleaks scans staged changes;
+  # `.gitleaks.toml` adds a rule for S3-style key pairs its defaults miss.
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.28.0
+    hooks:
+      - id: gitleaks
+        # The stock entry adds --verbose, whose excerpt can print a second,
+        # unredacted secret on the same line; report rule and location only.
+        # --ignore-gitleaks-allow: an inline `gitleaks:allow` comment must not
+        # wave a secret through; allowlist known placeholders in .gitleaks.toml.
+        # --config: GITLEAKS_CONFIG must not swap out the repo's rules.
+        # secret-files fails while a .gitleaksignore exists, which this cannot.
+        entry: >-
+          gitleaks git --pre-commit --redact --staged --no-banner
+          --ignore-gitleaks-allow --config .gitleaks.toml
+          --report-format template --report-template .gitleaks-report.tmpl
+          --report-path -
+
+  - repo: local
+    hooks:
+      # Secret-named files (force-added past .gitignore) and Kubernetes Secrets
+      # with real values in any YAML/JSON, including kubectl dumps.
+      - id: secret-files
+        name: Secret files and Secret values
+        entry: _scripts/check-secret-files.py
+        language: python
+        # The default `types: [file]` skips symlinks, which the hook rejects;
+        # `types` and `types_or` both apply, so clear `types`.
+        types: []
+        types_or: [file, symlink]
+        additional_dependencies: [pyyaml==6.0.2]
+
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.16.6
     hooks:

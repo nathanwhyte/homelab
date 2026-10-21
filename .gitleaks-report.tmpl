@@ -1,0 +1,3 @@
+{{- /* Rule and location only: a finding's Match or Line can hold another, unredacted secret. */ -}}
+{{ range . }}gitleaks: {{ .RuleID }} at {{ .File }}:{{ .StartLine }}
+{{ end }}

@@ -19,7 +19,13 @@ the two in step.
   `-l <selector>`.
 - **Never introduce or commit secrets.** Reference existing `Secret` objects
   by name; use a placeholder and document what is required. Scripts take
-  credentials from env vars or pre-created secrets, never inline.
+  credentials from env vars or pre-created secrets, never inline, not even as
+  a default value. Files named like a secret are gitignored: commit only the
+  `<name>.example` copy, in which every Secret value is exactly `REPLACE_ME`,
+  `CHANGE_ME` or `<UPPER_SNAKE>` (non-secret config such as endpoints too,
+  with the real value in a comment), and never `git add -f` the real file. Never commit a `kubectl get -o yaml` dump
+  that includes `Secret` objects. The `secret-files` and `gitleaks`
+  pre-commit hooks block these; never bypass them with `--no-verify`.
 - **Do not change global tooling config** (git, shell) unless asked.
 
 ## Repo layout and git
