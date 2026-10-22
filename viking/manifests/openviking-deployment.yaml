@@ -475,6 +475,8 @@ spec:
                 path: ov_wm_update_patch.py
               - key: ov_claude_params_patch.py
                 path: ov_claude_params_patch.py
+              - key: ov_pref_gate_patch.py
+                path: ov_pref_gate_patch.py
         - name: data
           persistentVolumeClaim:
             claimName: openviking-data
