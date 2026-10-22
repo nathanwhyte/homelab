@@ -1,20 +1,27 @@
-"""Tests for ov_extract_patch. Pure (fakes only) — runs anywhere:
+"""Tests for ov_extract_patch. The wrapper tests use fakes only and run anywhere:
 
     python3 test_ov_extract_patch.py
 
-The version/source-hash guard is exercised against the INSTALLED openviking by piping
-ov_extract_patch.py into a throwaway interpreter in the pod (see the BUG-1176 PR);
-this file covers the wrapper semantics.
+``RealTargetTests`` and ``Phase2HarnessTests`` run only where openviking
+``EXPECTED_VERSION`` is installed (the image). They apply the guards to the real targets
+and drive the real ``Session._run_memory_extraction``, ``ExtractLoop.run``,
+``StreamingMemoryUpdater`` and ``retry_async`` in a clean ``python -I`` subprocess, so
+sitecustomize and the other patches stay out. ``OV_EXTRACT_PATCH=0`` in the environment
+reaches that subprocess and shows stock behaviour.
 """
 
 import asyncio
 import contextlib
 import contextvars
 import dataclasses
+import importlib.util
 import io
 import json
 import os
+import subprocess
 import sys
+import tempfile
+import types
 import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -55,33 +62,69 @@ def make(result):
     return ep.wrap_run(orig)
 
 
+def parse_exhausted():
+    """The RuntimeError v0.5.1.1 ``ExtractLoop.run`` raises (extract_loop.py:440-444)."""
+    return RuntimeError(
+        "Final response could not be parsed as operations after 4 iterations "
+        "(failure_kind=empty_response)"
+    )
+
+
+def raising_run(exc):
+    async def orig(self):
+        raise exc
+
+    return ep.wrap_run(orig)
+
+
 class WrapRunTests(unittest.TestCase):
     def run_wrapped(self, result, kind=None, loop_cls=Loop):
         loop = loop_cls()
         loop._last_llm_failure_kind = kind
         return asyncio.run(make(result)(loop))
 
-    def test_merge_loop_errors_only_is_returned_not_raised(self):
-        ops = Ops(errors=["merge program unparseable"])
-        with self.assertLogs("ov_extract_patch", level="WARNING") as logs:
-            got, _ = self.run_wrapped((ops, []), kind="parse_error", loop_cls=MergeLoop)
-        self.assertIs(got, ops)
-        self.assertTrue(
-            any(
-                "PatchMergeContextProvider" in m and "duplicate" in m
-                for m in logs.output
-            )
-        )
-
-    def test_errors_only_raises_degraded(self):
-        ops = Ops(
-            errors=[
-                "Final response could not be parsed as operations after 3 iterations (failure_kind=empty_response)"
-            ]
-        )
-        with self.assertRaises(ep.ExtractionDegradedError) as cm:
-            self.run_wrapped((ops, []), kind="empty_response")
+    def test_session_parse_exhaustion_becomes_degraded(self):
+        exc = parse_exhausted()
+        with (
+            self.assertLogs("ov_extract_patch", level="WARNING"),
+            self.assertRaises(ep.ExtractionDegradedError) as cm,
+        ):
+            asyncio.run(raising_run(exc)(Loop()))
         self.assertIn("failure_kind=empty_response", str(cm.exception))
+        self.assertIn("could not be parsed", str(cm.exception))
+        self.assertIs(cm.exception.__cause__, exc)
+        self.assertEqual(ep.failure_class(cm.exception), "degraded")
+
+    def test_merge_loop_parse_exhaustion_is_reraised_unchanged(self):
+        # Merge loops run after append-only events are written; a whole-step retry
+        # there would regenerate and duplicate them, so stock (not retried) stays.
+        exc = parse_exhausted()
+        with self.assertRaises(RuntimeError) as cm:
+            asyncio.run(raising_run(exc)(MergeLoop()))
+        self.assertIs(cm.exception, exc)
+
+    def test_session_parse_exhaustion_after_a_write_is_reraised_unchanged(self):
+        exc = parse_exhausted()
+        token = ep._STEP.set({"armed": True, "wrote": True})
+        try:
+            with self.assertRaises(RuntimeError) as cm:
+                asyncio.run(raising_run(exc)(Loop()))
+        finally:
+            ep._STEP.reset(token)
+        self.assertIs(cm.exception, exc)
+
+    def test_other_runtime_errors_are_reraised_unchanged(self):
+        exc = RuntimeError("Reached 3 iterations without completion")
+        with self.assertRaises(RuntimeError) as cm:
+            asyncio.run(raising_run(exc)(Loop()))
+        self.assertIs(cm.exception, exc)
+
+    def test_errors_only_result_is_returned(self):
+        # v0.4.20 returned parse exhaustion as an errors-only result; v0.5.1.1 raises
+        # instead, so a returned result is passed through as upstream built it.
+        ops = Ops(errors=["something"])
+        got, _ = self.run_wrapped((ops, []))
+        self.assertIs(got, ops)
 
     def test_upserts_pass_through_even_with_errors(self):
         ops = Ops(upserts=["op"], errors=["some warning"])
@@ -266,14 +309,22 @@ async def fake_retry_async(
     is_retryable=lambda e: False,
     logger=None,
     operation_name="operation",
+    model_errors_only=False,
 ):
-    """Upstream v0.4.20 ``retry_async`` control flow, without the sleep."""
+    """Upstream v0.5.1.1 ``retry_async`` control flow, without the sleep.
+
+    As upstream's ``_retry_limit`` (model_retry.py:432-451) does for a non-model error,
+    it asks ``is_retryable`` on every failure, the last one included. The model-error
+    branch, which skips ``is_retryable``, is covered against the real function in
+    ``RealTargetTests``.
+    """
     attempt = 0
     while True:
         try:
             return await func()
         except Exception as e:
-            if max_retries <= 0 or attempt >= max_retries or not is_retryable(e):
+            retry_limit = max_retries if is_retryable(e) else 0
+            if attempt >= retry_limit:
                 raise
             attempt += 1
 
@@ -303,8 +354,18 @@ def before_write(exc):
 
 
 def stock_like(error):
-    """The slice of stock ``is_retryable_api_error`` these tests need: text "timeout"."""
+    """A stock classifier that retries the text "timeout" but not "timed out" (v0.4.20)."""
     return "timeout" in str(error).lower()
+
+
+def stock_v0511(error):
+    """The slice of v0.5.1.1 ``is_retryable_api_error`` these tests need.
+
+    #6102 added "timed out" to the transient patterns (model_retry.py:186), so it also
+    retries "lock acquire timed out after …ms".
+    """
+    text = str(error).lower()
+    return "timeout" in text or "timed out" in text
 
 
 class FailureClassTests(unittest.TestCase):
@@ -408,20 +469,36 @@ class RetryWrapperTests(EnvMixin, unittest.TestCase):
         self.assertEqual([r["event"] for r in records], ["failed"])
 
     def test_before_write_lock_wait_retried_on_own_budget_and_named(self):
-        step, calls = scripted(before_write(lock_error()))
-        _, exc, records = self.run_step(step)
-        self.assertIsInstance(exc, LockAcquisitionError)
-        self.assertEqual(len(calls), 4)  # 1 + DEFAULT_LOCK_RETRIES
-        self.assertEqual(records[-1]["failure_class"], "lock_wait")
+        # Stock v0.5.1.1 would retry it up to max_retries; the lock budget still caps it.
+        for base in (lambda e: False, stock_v0511):
+            step, calls = scripted(before_write(lock_error()))
+            _, exc, records = self.run_step(step, base=base)
+            self.assertIsInstance(exc, LockAcquisitionError)
+            self.assertEqual(len(calls), 4)  # 1 + DEFAULT_LOCK_RETRIES
+            self.assertEqual(records[-1]["failure_class"], "lock_wait")
+            self.assertEqual(
+                [r["event"] for r in records], ["retry", "retry", "retry", "failed"]
+            )
 
-    def test_untagged_lock_wait_keeps_stock_behaviour(self):
+    def test_untagged_lock_wait_is_not_retried_although_stock_would(self):
         # A lock wait after the attempt wrote: a retry would re-extract with a new
-        # source_extraction_id and duplicate the written events.
-        step, calls = scripted(lock_error())
-        _, exc, records = self.run_step(step)
-        self.assertIsInstance(exc, LockAcquisitionError)
-        self.assertEqual(len(calls), 1)
-        self.assertEqual([r["event"] for r in records], ["failed"])
+        # source_extraction_id and duplicate the written events. v0.5.1.1's classifier
+        # retries the text "timed out", so the wrapper has to refuse it.
+        for exc_ in (lock_error(), RuntimeError("lock acquire timed out after 110ms")):
+            self.assertTrue(stock_v0511(exc_))
+            step, calls = scripted(exc_)
+            _, exc, records = self.run_step(step, base=stock_v0511)
+            self.assertIs(exc, exc_)
+            self.assertEqual(len(calls), 1)
+            self.assertEqual([r["event"] for r in records], ["failed"])
+            self.assertEqual(records[-1]["failure_class"], "lock_wait")
+
+    def test_final_failure_spends_no_budget_and_emits_no_retry(self):
+        # v0.5.1.1 asks the classifier on the last failure too; that answer is moot.
+        step, calls = scripted(before_write(lock_error()))
+        _, exc, records = self.run_step(step, max_retries=1)
+        self.assertEqual(len(calls), 2)
+        self.assertEqual([r["event"] for r in records], ["retry", "failed"])
 
     def test_stock_retried_timeout_keeps_stock_retries(self):
         # "504 Gateway Timeout" is retried by stock; the class budget must add to that,
@@ -510,7 +587,7 @@ class RetryWrapperTests(EnvMixin, unittest.TestCase):
 
 
 class FakeUpdater:
-    """The v0.4.20 ``StreamingMemoryUpdater.submit`` write order, with scripted leases.
+    """The v0.5.1.1 ``StreamingMemoryUpdater.submit`` write order, with scripted leases.
 
     ``submit`` applies the append-only part first (lease, then write), then the merge
     groups. Merge groups flush in a batcher task whose context is not the submitter's,
@@ -559,7 +636,10 @@ class WriteTrackingTests(EnvMixin, unittest.TestCase):
     """End to end: wrapped extraction loop + fake updater under the retry wrapper."""
 
     def run_steps(self, updater, submits, extract=True):
-        """Run one Phase 2 step: session extraction, then each ``submit`` in order."""
+        """Run one Phase 2 step: session extraction, then each ``submit`` in order.
+
+        The caller's classifier is v0.5.1.1's, which would retry every lock wait.
+        """
         calls = []
         run = ep.wrap_run(lambda self: _ops_result())
 
@@ -571,7 +651,7 @@ class WriteTrackingTests(EnvMixin, unittest.TestCase):
                 await updater.submit(**kwargs)
             return "ok"
 
-        wrapped = ep.wrap_retry_async(fake_retry_async, lambda e: False)
+        wrapped = ep.wrap_retry_async(fake_retry_async, stock_v0511)
         with contextlib.redirect_stderr(io.StringIO()):
             try:
                 result = asyncio.run(wrapped(step, max_retries=5))
@@ -672,13 +752,13 @@ class StreamingInstallTests(EnvMixin, unittest.TestCase):
             async def _submit_grouped_merge_request(self, request):
                 return request
 
-        async def _acquire_stable_operation_lease(operations, viking_fs, ctx):
+        async def acquire_memory_operation_lease(operations, viking_fs, ctx):
             return None
 
         self.cls = Updater
         self.mod = types.SimpleNamespace(
             StreamingMemoryUpdater=Updater,
-            _acquire_stable_operation_lease=_acquire_stable_operation_lease,
+            acquire_memory_operation_lease=acquire_memory_operation_lease,
         )
         self._hashes = (
             ep.EXPECTED_APPEND_ONLY_SHA256,
@@ -703,13 +783,13 @@ class StreamingInstallTests(EnvMixin, unittest.TestCase):
             self.cls._submit_grouped_merge_request
         )
         ep.EXPECTED_ACQUIRE_LEASE_SHA256 = ep._source_hash(
-            self.mod._acquire_stable_operation_lease
+            self.mod.acquire_memory_operation_lease
         )
 
     def test_hash_mismatch_installs_nothing(self):
-        orig = self.mod._acquire_stable_operation_lease
+        orig = self.mod.acquire_memory_operation_lease
         self.assertFalse(ep.apply_streaming(self.mod))
-        self.assertIs(self.mod._acquire_stable_operation_lease, orig)
+        self.assertIs(self.mod.acquire_memory_operation_lease, orig)
         self.assertFalse(
             getattr(self.cls._apply_append_only_request_now, "_ov_extract_patch", False)
         )
@@ -728,7 +808,7 @@ class StreamingInstallTests(EnvMixin, unittest.TestCase):
         for fn in (
             self.cls._apply_append_only_request_now,
             self.cls._submit_grouped_merge_request,
-            self.mod._acquire_stable_operation_lease,
+            self.mod.acquire_memory_operation_lease,
         ):
             self.assertTrue(getattr(fn, "_ov_extract_patch", False))
         wrapped = self.cls._apply_append_only_request_now
@@ -841,6 +921,540 @@ class SessionInstallTests(EnvMixin, unittest.TestCase):
         self.assertTrue(ep.apply_session(self.mod))
         self.assertTrue(getattr(self.mod.retry_async, "_ov_extract_patch", False))
         self.assertIs(self.mod.resolve_extraction_batch_limits, resolve_stock)
+
+
+# --- real v0.5.1.1 targets (image only) -------------------------------------------------
+
+
+def _installed_version():
+    if importlib.util.find_spec("openviking") is None:
+        return None
+    import openviking
+
+    return getattr(openviking, "__version__", None)
+
+
+REAL = _installed_version() == ep.EXPECTED_VERSION
+requires_real = unittest.skipUnless(
+    REAL, f"needs openviking {ep.EXPECTED_VERSION} installed (run in the image)"
+)
+LOCK_TEXT = (
+    "lock acquire timed out after 110ms"  # pathlock text (ragfs lock/types.rs:176)
+)
+
+
+@requires_real
+class RealTargetTests(EnvMixin, unittest.TestCase):
+    """``wrap_retry_async`` around the real, unpatched ``model_retry.retry_async``."""
+
+    def run_real(self, step, max_retries=5):
+        from openviking.utils import model_retry
+
+        wrapped = ep.wrap_retry_async(
+            model_retry.retry_async, model_retry.is_retryable_api_error
+        )
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            try:
+                result, exc = (
+                    asyncio.run(
+                        wrapped(
+                            step,
+                            max_retries=max_retries,
+                            base_delay=0,
+                            max_delay=0,
+                            is_retryable=model_retry.is_retryable_api_error,
+                            operation_name="long_term_memory_extraction",
+                        )
+                    ),
+                    None,
+                )
+            except Exception as e:  # noqa: BLE001
+                result, exc = None, e
+        records = [
+            json.loads(line[len(ep.OUTCOME_PREFIX) :])
+            for line in err.getvalue().splitlines()
+            if line.startswith(ep.OUTCOME_PREFIX)
+        ]
+        return result, exc, records
+
+    def test_stock_retries_a_lock_wait(self):
+        # The upstream behaviour the port has to counter (#6102).
+        from openviking.storage.errors import LockAcquisitionError as RealLockError
+        from openviking.utils import model_retry
+
+        step, calls = scripted(RealLockError(LOCK_TEXT))
+        with self.assertRaises(RealLockError):
+            asyncio.run(
+                model_retry.retry_async(
+                    step, max_retries=3, base_delay=0, max_delay=0, jitter=False
+                )
+            )
+        self.assertEqual(len(calls), 4)
+
+    def test_untagged_real_lock_wait_is_not_retried(self):
+        from openviking.storage.errors import LockAcquisitionError as RealLockError
+
+        step, calls = scripted(RealLockError(LOCK_TEXT))
+        _, exc, records = self.run_real(step)
+        self.assertIsInstance(exc, RealLockError)
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(
+            [(r["event"], r["failure_class"]) for r in records],
+            [("failed", "lock_wait")],
+        )
+
+    def test_before_write_real_lock_wait_gets_the_lock_budget(self):
+        from openviking.storage.errors import LockAcquisitionError as RealLockError
+
+        step, calls = scripted(before_write(RealLockError(LOCK_TEXT)))
+        _, exc, records = self.run_real(step)
+        self.assertIsInstance(exc, RealLockError)
+        self.assertEqual(len(calls), 1 + ep.DEFAULT_LOCK_RETRIES)
+
+    def test_model_error_retries_still_emit_retry_lines(self):
+        # A builtin TimeoutError is a model error: real retry_async retries it without
+        # asking is_retryable (_retry_limit), so the wrapper reports it from the attempt.
+        step, calls = scripted(TimeoutError("read timed out"), "ok")
+        result, exc, records = self.run_real(step)
+        self.assertIsNone(exc)
+        self.assertEqual(result, "ok")
+        self.assertEqual(
+            [(r["event"], r.get("failure_class")) for r in records],
+            [("retry", "timeout"), ("recovered", None)],
+        )
+
+    def test_degraded_is_retried_by_the_wrapped_classifier(self):
+        from openviking.utils import model_retry
+
+        classifier = ep.wrap_is_retryable(model_retry.is_retryable_api_error)
+        self.assertFalse(model_retry.is_retryable_api_error(parse_exhausted()))
+        degraded = ep.ExtractionDegradedError(
+            f"memory extraction degraded: {parse_exhausted()}"
+        )
+        self.assertTrue(classifier(degraded))
+
+
+# The PyPI wheel reports "0.5.1.1" where the image reports "v0.5.1.1". The suite
+# runner maps one to the other in its own process only, so a child interpreter
+# repeats that mapping before any patch target imports (a no-op in the image).
+PIN_WHEEL_VERSION = (
+    "import sys, openviking\n"
+    "if 'v' + str(openviking.__version__) == {v!r}:\n"
+    "    openviking.__version__ = {v!r}\n"
+    "    _m = sys.modules.get('openviking._version')\n"
+    "    if _m is not None:\n"
+    "        _m.version = _m.__version__ = {v!r}\n"
+).format(v=ep.EXPECTED_VERSION)
+
+
+def _run_harness(scenario, extra_env=None):
+    """Run ``_phase2_harness_main(scenario)`` in a clean interpreter; return its record."""
+    here = os.path.dirname(os.path.abspath(__file__))
+    env = {k: v for k, v in os.environ.items() if k != "PYTHONPATH"}
+    env.setdefault("OV_EXTRACT_PATCH_BASE_DELAY", "0.001")
+    env.setdefault("OV_EXTRACT_PATCH_MAX_DELAY", "0.001")
+    env.update(extra_env or {})
+    code = PIN_WHEEL_VERSION + (
+        "sys.path.insert(0, %r); import test_ov_extract_patch as t; "
+        "t._phase2_harness_main(%r)" % (here, scenario)
+    )
+    # A scratch cwd: the default config resolves its workspace to ./data.
+    with tempfile.TemporaryDirectory() as cwd:
+        proc = subprocess.run(
+            [sys.executable, "-I", "-c", code],
+            capture_output=True,
+            text=True,
+            env=env,
+            cwd=cwd,
+            timeout=300,
+        )
+    lines = [ln for ln in proc.stdout.splitlines() if ln.startswith("HARNESS ")]
+    if proc.returncode != 0 or not lines:
+        raise AssertionError(
+            f"harness {scenario} exited {proc.returncode}:\n{proc.stderr[-3000:]}"
+        )
+    record = json.loads(lines[-1][len("HARNESS ") :])
+    record["stderr_tail"] = proc.stderr[-2000:]
+    return record
+
+
+ARCHIVE = "viking://session/default/s1/history/archive_001"
+MEMORIES = "viking://user/default/memories"
+# (extraction number, lease index within it) -> "lock"; every other lease succeeds.
+LEASE_SCRIPTS = {
+    "guard": {},
+    "lock_after_append": {(1, 1): "lock"},  # the merge-group lease, after events landed
+    "lock_before_write": {(1, 0): "lock"},  # the append-only lease, before any write
+    "parse_exhaustion": {},
+}
+
+
+def _phase2_harness_main(scenario):
+    """Drive the real v0.5.1.1 Phase 2 for one long-term extraction step.
+
+    Real: ``Session._run_memory_extraction`` (retry, batching, ``.done`` /
+    ``.failed.json``), ``ExtractLoop.run``'s loop and parse-exhaustion raise,
+    ``StreamingMemoryUpdater.submit`` with its append-only fast path, merge-group
+    batcher and ``acquire_memory_operation_lease``, ``retry_async`` and
+    ``is_retryable_api_error``, plus this module's ``apply_*`` guards on them. Faked:
+    storage (a dict), pathlocks (scripted), the LLM (``_call_llm`` and operation
+    resolution), and ``MemoryUpdater`` (``_apply_operations`` takes the real lease, then
+    records one file per operation). Each extraction names its event after itself, as
+    the LLM picks a fresh name on every run.
+    """
+    import openviking.service.task_tracker as task_tracker
+    from openviking.message.message import Message
+    from openviking.message.part import TextPart
+    from openviking.session import session as sm
+    from openviking.session.memory import extract_loop as el
+    from openviking.session.memory import memory_updater as mu
+    from openviking.session.memory import streaming_memory_updater as smu
+    from openviking.session.memory.dataclass import (
+        ResolvedOperation,
+        ResolvedOperations,
+    )
+    from openviking.storage.errors import LockAcquisitionError as RealLockError
+    from openviking_cli.utils.config import open_viking_config as ovc
+
+    applied = {
+        "extract_loop": ep.apply_extract_loop(el),
+        "streaming": ep.apply_streaming(smu),
+        "session": ep.apply_session(sm),
+    }
+    wrapped = {
+        "ExtractLoop.run": el.ExtractLoop.run,
+        "retry_async": sm.retry_async,
+        "is_retryable_api_error": sm.is_retryable_api_error,
+        "resolve_extraction_batch_limits": sm.resolve_extraction_batch_limits,
+        "_apply_append_only_request_now": smu.StreamingMemoryUpdater._apply_append_only_request_now,
+        "_submit_grouped_merge_request": smu.StreamingMemoryUpdater._submit_grouped_merge_request,
+        "acquire_memory_operation_lease": smu.acquire_memory_operation_lease,
+    }
+    wrapped = {
+        k: bool(getattr(v, "_ov_extract_patch", False)) for k, v in wrapped.items()
+    }
+    result = {
+        "applied": applied,
+        "wrapped": wrapped,
+        "sitecustomize": "sitecustomize" in sys.modules,
+    }
+    if scenario == "guard":
+        print("HARNESS " + json.dumps(result, sort_keys=True))
+        return
+
+    ovc.OpenVikingConfigSingleton._instance = ovc.OpenVikingConfig()
+    script = LEASE_SCRIPTS[scenario]
+    state = {"extractions": 0, "lease": 0}
+    files = {}
+
+    class Agfs:
+        async def pathlock_acquire_exact_batch(self, paths, timeout_secs=0.0, **kw):
+            key = (state["extractions"], state["lease"])
+            state["lease"] += 1
+            if script.get(key) == "lock":
+                raise RealLockError(LOCK_TEXT)
+            return {"lease": key}
+
+        pathlock_acquire_exact_tree_batch = pathlock_acquire_exact_batch
+
+        async def pathlock_release(self, lease, **kw):
+            return None
+
+    class FS:
+        _async_agfs = Agfs()
+
+        def _uri_to_path(self, uri, ctx=None):
+            return "/" + uri.split("://", 1)[1]
+
+        async def write_file(self, uri, content, ctx=None, **kw):
+            files[uri] = content
+
+        async def read_file(self, uri, ctx=None, **kw):
+            if uri in files:
+                return files[uri]
+            raise FileNotFoundError(uri)
+
+        async def exists(self, uri, ctx=None, **kw):
+            return uri in files
+
+    fs = FS()
+
+    class SessionExtractContextProvider:  # the exact class name the loop half keys on
+        read_file_contents = {}
+
+        def __init__(self, messages):
+            self._extract_context = mu.ExtractContext(messages)
+
+        def get_memory_schemas(self, ctx):
+            return []
+
+        def get_output_language(self):
+            return "en"
+
+        def get_tools(self):
+            return []
+
+        def get_extract_context(self):
+            return self._extract_context
+
+        def instruction(self):
+            return "extract"
+
+        async def prefetch(self):
+            return []
+
+    class Schema:
+        def __init__(self, memory_type):
+            self.operation_mode = "add_only" if memory_type == "events" else "upsert"
+            self._account_content_template = None
+
+        def model_dump(self):
+            return {"operation_mode": self.operation_mode}
+
+    class Registry:
+        def get(self, memory_type):
+            return Schema(memory_type)
+
+    class Updater(smu.StreamingMemoryUpdater):
+        async def _apply_operations(self, *, operations, request, messages):
+            # Upstream streaming_memory_updater.py:497-520, MemoryUpdater recorded.
+            lease = await smu.acquire_memory_operation_lease(
+                operations, fs, request.ctx
+            )
+            try:
+                applied_result = mu.MemoryUpdateResult()
+                for op in operations.upsert_operations:
+                    files[op.uris[0]] = f"extraction {state['extractions']}"
+                    applied_result.add_written(op.uris[0])
+                return applied_result
+            finally:
+                if lease is not None:
+                    await fs._async_agfs.pathlock_release(lease)
+
+    updater = Updater(
+        registry=Registry(),
+        config=smu.StreamingMemoryUpdaterConfig(
+            max_operations_per_update=1,
+            max_wait_seconds=0.05,
+            timer_check_interval_seconds=0.01,
+        ),
+    )
+
+    class Compressor:
+        """``SessionCompressorV3._extract_user_memories``: loop, then submit."""
+
+        async def extract_long_term_memories(
+            self, messages, ctx=None, strict_extract_errors=False, **kwargs
+        ):
+            state["extractions"] += 1
+            state["lease"] = 0
+            n = state["extractions"]
+            loop = el.ExtractLoop(
+                vlm=types.SimpleNamespace(model="fake", max_tokens=None),
+                viking_fs=fs,
+                ctx=ctx,
+                context_provider=SessionExtractContextProvider(messages),
+            )
+            resolved = ResolvedOperations(
+                upsert_operations=[
+                    ResolvedOperation(
+                        memory_fields={},
+                        memory_type="events",
+                        uris=[f"{MEMORIES}/events/event-from-extraction-{n}.md"],
+                    ),
+                    ResolvedOperation(
+                        memory_fields={},
+                        memory_type="profile",
+                        uris=[f"{MEMORIES}/profile.md"],
+                    ),
+                ],
+                delete_file_contents=[],
+                errors=[],
+            )
+
+            async def call_llm(_messages):
+                if scenario == "parse_exhaustion":
+                    loop._last_llm_failure_kind = "empty_response"
+                    return None, None
+                return None, object()
+
+            async def resolve_operations(_operations):
+                return resolved, []
+
+            async def no_refetch(_operations):
+                return {}
+
+            async def no_patch_errors(_operations):
+                return []
+
+            async def finalize(_operations, _links):
+                return None
+
+            loop._call_llm = call_llm
+            loop.resolve_operations = resolve_operations
+            loop._retryable_resolution_issues = lambda _operations: []
+            loop._check_unread_existing_files = no_refetch
+            loop._validate_patch_operations = no_patch_errors
+            loop.finalize_operations = finalize
+            operations, _ = await loop.run()
+            await updater.submit(
+                smu.MemoryUpdateRequest(
+                    operations=operations,
+                    messages=list(messages),
+                    ctx=ctx,
+                    strict_extract_errors=strict_extract_errors,
+                    metadata={"source_extraction_id": f"x{n}", "session_id": "s1"},
+                )
+            )
+            return {"contexts": []}
+
+    class Tracker:
+        async def start(self, *a, **k):
+            pass
+
+        async def complete(self, *a, **k):
+            pass
+
+        async def fail(self, *a, **k):
+            pass
+
+        async def wait_for_task_work(self, *a, **k):
+            pass
+
+        async def is_cancellation_requested(self, *a, **k):
+            return False
+
+    task_tracker.get_task_tracker = lambda: Tracker()
+
+    async def prepare(archive_uri, messages):
+        return messages, "archive_001", "archive_001", [], {}
+
+    async def hydrate(messages):
+        return messages
+
+    async def noop(*a, **k):
+        return None
+
+    session = sm.Session(viking_fs=fs, session_compressor=Compressor())
+    session._prepare_phase2_archive_messages = prepare
+    session._tool_outputs = types.SimpleNamespace(hydrate_for_extraction=hydrate)
+    session._merge_archive_meta = noop
+    session._merge_and_save_commit_meta = noop
+    messages = [
+        Message(id=f"m{i}", role="user", parts=[TextPart(text=f"hello {i}")])
+        for i in range(3)
+    ]
+
+    err = io.StringIO()
+    real_stderr = sys.stderr
+    sys.stderr = err
+    try:
+        asyncio.run(
+            session._run_memory_extraction(
+                task_id="t1",
+                archive_uri=ARCHIVE,
+                messages=messages,
+                first_message_id="m0",
+                last_message_id="m2",
+                memory_policy={},
+            )
+        )
+    finally:
+        sys.stderr = real_stderr
+        real_stderr.write(err.getvalue()[-6000:])
+    result.update(
+        extractions=state["extractions"],
+        files=files,
+        outcomes=[
+            json.loads(line[len(ep.OUTCOME_PREFIX) :])
+            for line in err.getvalue().splitlines()
+            if line.startswith(ep.OUTCOME_PREFIX)
+        ],
+    )
+    print("HARNESS " + json.dumps(result, sort_keys=True))
+
+
+@requires_real
+class Phase2HarnessTests(unittest.TestCase):
+    """Plan § 1.3: the real v0.5.1.1 Phase 2 with the patch applied by its own guards."""
+
+    def event_files(self, record):
+        return {
+            uri: body
+            for uri, body in record["files"].items()
+            if uri.startswith(f"{MEMORIES}/events/")
+        }
+
+    def marker(self, record, name):
+        raw = record["files"].get(f"{ARCHIVE}/{name}")
+        return None if raw is None else json.loads(raw)
+
+    def test_guards_apply_to_the_real_targets(self):
+        record = _run_harness("guard")
+        self.assertFalse(record["sitecustomize"])
+        self.assertEqual(
+            record["applied"],
+            {"extract_loop": True, "streaming": True, "session": True},
+        )
+        self.assertTrue(all(record["wrapped"].values()), record["wrapped"])
+
+    def test_a_lock_wait_after_an_append_only_write_is_not_retried(self):
+        # The append-only event lands, then the merge group's lease times out. A stock
+        # retry re-extracts and files a second event beside the first, then marks the
+        # archive .done.
+        record = _run_harness("lock_after_append")
+        events = self.event_files(record)
+        self.assertEqual(
+            events,
+            {f"{MEMORIES}/events/event-from-extraction-1.md": "extraction 1"},
+            f"{record['extractions']} extraction(s)\n{record['stderr_tail']}",
+        )
+        self.assertEqual(record["extractions"], 1)
+        self.assertIsNone(self.marker(record, ".done"))
+        failed = self.marker(record, ".failed.json")
+        self.assertEqual(failed["stage"], "memory_extraction")
+        self.assertIn("lock acquire timed out", failed["error"])
+        self.assertEqual(
+            [(o["event"], o["failure_class"]) for o in record["outcomes"]],
+            [("failed", "lock_wait")],
+        )
+
+    def test_a_lock_wait_before_any_write_is_still_retried(self):
+        record = _run_harness("lock_before_write")
+        self.assertEqual(
+            self.event_files(record),
+            {f"{MEMORIES}/events/event-from-extraction-2.md": "extraction 2"},
+        )
+        self.assertIsNotNone(self.marker(record, ".done"), record["stderr_tail"])
+        self.assertIsNone(self.marker(record, ".failed.json"))
+        self.assertEqual(
+            [o["event"] for o in record["outcomes"]], ["retry", "recovered"]
+        )
+        self.assertEqual(record["outcomes"][0]["failure_class"], "lock_wait")
+
+    def test_b_parse_exhaustion_ends_in_failed_json_not_done(self):
+        record = _run_harness("parse_exhaustion")
+        self.assertIsNone(self.marker(record, ".done"))
+        failed = self.marker(record, ".failed.json")
+        self.assertIsNotNone(failed, record["stderr_tail"])
+        self.assertEqual(failed["stage"], "memory_extraction")
+        self.assertIn("could not be parsed as operations", failed["error"])
+        self.assertIn("failure_kind=empty_response", failed["error"])
+        self.assertEqual(self.event_files(record), {})
+
+    def test_b_parse_exhaustion_is_retried_as_degraded_before_failing(self):
+        # BUG-1176's remaining value on v0.5.1.1: a saturated VLM gets the widened
+        # Phase 2 retries instead of failing the archive on its first exhausted loop.
+        record = _run_harness("parse_exhaustion")
+        self.assertEqual(record["extractions"], 1 + ep.DEFAULT_RETRIES)
+        self.assertEqual(
+            [(o["event"], o["failure_class"]) for o in record["outcomes"]],
+            [("retry", "degraded")] * ep.DEFAULT_RETRIES + [("failed", "degraded")],
+        )
+        self.assertEqual(
+            self.marker(record, ".failed.json")["stage"], "memory_extraction"
+        )
 
 
 if __name__ == "__main__":

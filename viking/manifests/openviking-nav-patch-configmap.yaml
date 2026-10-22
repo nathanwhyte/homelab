@@ -1,55 +1,48 @@
 apiVersion: v1
 data:
   ov_chatlog_patch.py: |
-    """ChatLog speaker labels follow the turn's role, and tool-only turns drop out (BUG-1177).
+    """ChatLog speaker labels follow the turn's role (BUG-1177).
 
-    OpenViking v0.4.20 renders the ``ChatLog`` of an extracted memory (the ``events`` template,
+    OpenViking v0.5.1.1 renders the ``ChatLog`` of an extracted memory (the ``events`` template,
     ``prompts/templates/memory/events.yaml``) through ``MessageRange.pretty_print`` in
     ``openviking.session.memory.memory_updater``. Each line is ``**{speaker}**: {content}``, and
-    ``MessageRange._speaker_for`` picks the speaker as ``peer_id or role``. The pilot lane runs
-    recall peer scope ``actor`` with an explicit compendium peer, so every turn, user and
-    assistant alike, carries the same ``peer_id``: every ChatLog line gets one label and a user's
-    approval reads exactly like the agent's reply. ``role`` is stored on every message but never
-    consulted. Separately, ``_format_contiguous_group`` emits a line for every message group
-    without an empty-content check, and ``_message_content`` reads only ``TextPart`` — so an
-    assistant turn that was only tool calls renders as an empty ``**name**:`` line.
+    ``MessageRange._speaker_for`` (``memory_updater.py:654``) picks the speaker as
+    ``peer_id or role``. The pilot lane runs recall peer scope ``actor`` with an explicit
+    compendium peer, so every turn, user and assistant alike, carries the same ``peer_id``: every
+    ChatLog line gets one label and a user's approval reads exactly like the agent's reply.
+    ``role`` is stored on every message but never consulted.
 
-    This patch changes two things in ``MessageRange``:
+    This patch replaces ``MessageRange._speaker_for``: an assistant turn is labelled
+    ``assistant``; any other turn keeps the stock ``peer_id or role`` (several human peers in one
+    shared session stay distinct). ``_can_merge_messages`` compares speakers, so a user chunk can
+    no longer merge into an assistant chunk under the shared label.
 
-      * ``_speaker_for`` — an assistant turn is labelled ``assistant``; any other turn keeps the
-        stock ``peer_id or role`` (several human peers in one shared session stay distinct).
-        ``_can_merge_messages`` compares speakers, so a user chunk can no longer merge into an
-        assistant chunk under the shared label.
-      * ``_format_contiguous_group`` — lines whose content is empty after the speaker label are
-        dropped. Only the rendered ChatLog changes; stored messages and tool parts are untouched.
+    The v0.4.20 patch also dropped the empty ``**name**:`` line a tool-only assistant turn
+    rendered. Upstream #5139 fixed that in v0.5.1.1: ``_format_contiguous_group``'s
+    ``flush_current`` emits a line only when ``content.strip()`` (``memory_updater.py:640-642``),
+    so that half is gone and ``_format_contiguous_group`` is no longer touched or hashed.
 
     Rendering only: capture, the stored archive, recall and extraction are unchanged.
 
-    Guarded: applies only to openviking ``v0.4.20`` whose ``_speaker_for`` and
-    ``_format_contiguous_group`` sources hash to the expected values; otherwise it logs
-    "NOT applied" and the stock renderer stays. Disable at runtime with ``OV_CHATLOG_PATCH=0``.
+    Guarded: applies only to openviking ``v0.5.1.1`` whose ``_speaker_for`` source hashes to the
+    expected value; otherwise it logs "NOT applied" and the stock renderer stays. Disable at
+    runtime with ``OV_CHATLOG_PATCH=0``.
     """
 
     from __future__ import annotations
 
-    import functools
     import hashlib
     import inspect
     import logging
     import os
-    import re
 
-    EXPECTED_VERSION = "v0.4.20"
+    EXPECTED_VERSION = "v0.5.1.1"
     EXPECTED_SPEAKER_SHA256 = (
         "b3117533db57255151072c51d4ffb839172f6533cefe2cc3c295689f8ab00a64"
-    )
-    EXPECTED_GROUP_SHA256 = (
-        "aa7c32112426ca961768e50942b51f4841a9b238cec8a641493fa74e4b578f5d"
     )
     ASSISTANT_LABEL = "assistant"
 
     logger = logging.getLogger("ov_chatlog_patch")
-    _EMPTY_LINE = re.compile(r"^\*\*.*?\*\*:\s*$", re.DOTALL)
 
 
     def _source_hash(fn) -> str | None:
@@ -74,16 +67,13 @@ data:
         return getattr(message, "peer_id", None) or role
 
 
-    def wrap_group(orig):
-        """Wrap ``_format_contiguous_group``: drop lines with nothing after the label."""
+    speaker_for._ov_chatlog_patch = True
 
-        @functools.wraps(orig)
-        def format_contiguous_group(self, msg_group):
-            lines = orig(self, msg_group)
-            return [line for line in lines if not _EMPTY_LINE.match(line)]
 
-        format_contiguous_group._ov_chatlog_patch = True
-        return format_contiguous_group
+    def _speaker_fn(cls):
+        """The function behind ``cls._speaker_for`` (a staticmethod), or None."""
+        raw = cls.__dict__.get("_speaker_for") if cls is not None else None
+        return raw.__func__ if isinstance(raw, staticmethod) else raw
 
 
     def apply(module) -> bool:
@@ -94,30 +84,19 @@ data:
 
         version = getattr(openviking, "__version__", None)
         cls = getattr(module, "MessageRange", None)
-        group = getattr(cls, "_format_contiguous_group", None)
-        if getattr(group, "_ov_chatlog_patch", False):
+        speaker_fn = _speaker_fn(cls)
+        if getattr(speaker_fn, "_ov_chatlog_patch", False):
             return True
-        raw_speaker = cls.__dict__.get("_speaker_for") if cls is not None else None
-        speaker_fn = (
-            raw_speaker.__func__ if isinstance(raw_speaker, staticmethod) else raw_speaker
-        )
         speaker_digest = _source_hash(speaker_fn) if speaker_fn else None
-        group_digest = _source_hash(group) if group else None
-        if (
-            version != EXPECTED_VERSION
-            or speaker_digest != EXPECTED_SPEAKER_SHA256
-            or group_digest != EXPECTED_GROUP_SHA256
-        ):
+        if version != EXPECTED_VERSION or speaker_digest != EXPECTED_SPEAKER_SHA256:
             logger.warning(
-                "ov-chatlog-patch: NOT applied to MessageRange (version=%r speaker_sha256=%s "
-                "group_sha256=%s); stock ChatLog rendering kept",
+                "ov-chatlog-patch: NOT applied to MessageRange (version=%r speaker_sha256=%s); "
+                "stock ChatLog rendering kept",
                 version,
                 speaker_digest,
-                group_digest,
             )
             return False
         cls._speaker_for = staticmethod(speaker_for)
-        cls._format_contiguous_group = wrap_group(group)
         logger.warning(
             "ov-chatlog-patch: applied to MessageRange ChatLog rendering (pid %d)",
             os.getpid(),
@@ -132,53 +111,58 @@ data:
   ov_event_abstract_patch.py: |
     """Store an event memory's ``# Summary`` as its vector-record abstract (IMPR-1200).
 
-    OpenViking v0.4.20 writes each memory file's vector record with the whole file body
+    OpenViking v0.5.1.1 writes each memory file's vector record with the whole file body
     as its ``abstract`` (``MemoryUpdater._vectorize_memories``: ``abstract =
-    strip_all_links(mf.content)``, capped at 50 KB), and the reindex path keeps that same
-    text (``ReindexExecutor._reindex_memory_vectors``). For an ``events`` memory the body is
-    a short ``# Summary`` followed by the full ChatLog, so ``/api/v1/search/find`` and
-    list-mode ``search`` return 270 B to 28 KB per hit, and ten hits overflow an MCP tool
-    result. Upstream notes the gap (``retrieve/context_assembler/params.py``: events are
-    read from the file at the overview tier only because "the writer stores no separate
-    summary scalar").
+    strip_all_links(mf.content)``, capped at 50 KB, ``memory_updater.py:1806-1807``), and
+    the reindex path keeps that same text (``ReindexExecutor._reindex_memory_vectors``).
+    For an ``events`` memory the body is a short ``# Summary`` followed by the full ChatLog,
+    so ``/api/v1/search/find`` and list-mode ``search`` return 270 B to 28 KB per hit, and
+    ten hits overflow an MCP tool result. Upstream still notes the gap
+    (``retrieve/context_assembler/params.py:44-51``: events are read from the file at the
+    overview tier until "the writer stores a separate summary scalar").
 
     Both paths build their record through ``EmbeddingMsgConverter.from_context``. This
     patch wraps it and, after the stock body has run, replaces ``context_data["abstract"]``
     with the Summary section for a level-2 memory record under ``/memories/events/``.
     ``EmbeddingMsg.message`` (the embedding input) is never modified — only read, to pick
     the Summary source (see below) — so the text handed to the embedder is unchanged.
+    The wrapper forwards every argument (v0.5.1.1's ``from_context(context, action=MERGE,
+    *, telemetry_id=None)``) and lets the stock body's errors through, including its
+    ``ValueError`` for a context whose ``account_id`` is missing or blank (where v0.4.20
+    defaulted it to ``"default"``; ``embedding_msg_converter.py:46-51``).
 
     Summary source and reindex freshness: the wrapper prefers ``msg.message`` over
     ``context_data["abstract"]`` when ``message`` is a string. On the write path the two
     already agree (``MemoryUpdater._vectorize_memories``: ``embedding_text = abstract =
     strip_all_links(mf.content)`` unless a memory-type ``embedding_template`` renders a
     different ``embedding_text`` — the abstract still carries the Summary either way).
-    On reindex (``ReindexExecutor._upsert_context``, ``vector_text=body``), ``message`` is
-    the untouched file body, while ``context_data["abstract"]`` prefers the *existing*
-    stored record's abstract (``_best_non_empty(self._record_abstract(existing), ...)``)
-    — so reading only ``abstract`` would keep a stale Summary after the file body changed
-    and the memory was reindexed. Reading ``message`` first means the Summary picked up is
-    always the one in the current file body. A body without a ``# Summary`` heading, or an
+    On reindex (``ReindexExecutor._upsert_context``, ``vector_text=body``,
+    ``reindex_executor.py:1371-1381``), ``message`` is the untouched file body, while
+    ``context_data["abstract"]`` prefers the *existing* stored record's abstract
+    (``_best_non_empty(self._record_abstract(existing), ...)``, L1358-1361) — so reading
+    only ``abstract`` would keep a stale Summary after the file body changed and the memory
+    was reindexed. Reading ``message`` first means the Summary picked up is always the one
+    in the current file body. A body without a ``# Summary`` heading, or an
     already-multimodal ``message`` (a list, not a string), falls back to the incoming
     ``abstract`` unchanged.
 
     Reranking: ``HierarchicalRetriever`` only builds a rerank client when
     ``rerank_config.is_available()`` is true (``RerankConfig.is_available()``,
-    ``openviking_cli/utils/config/rerank_config.py:99-110`` — requires a provider's
-    credentials: Cohere ``api_key``, OpenAI-compatible ``api_key``+``api_base``, LiteLLM
-    ``model``, or VikingDB ``ak``+``sk``). Prod's ``rerank`` config
+    ``openviking_cli/utils/config/rerank_config.py:125-136`` — requires a provider's
+    credentials: Cohere or Jev ``api_key``, OpenAI-compatible ``api_key``+``api_base``,
+    LiteLLM ``model``, or VikingDB ``ak``+``sk``). Prod's ``rerank`` config
     (``viking/manifests/openviking-configmap.yaml``) is ``{"threshold": 0.2}`` only, no
     provider fields, so ``_effective_provider()`` returns ``None``, ``is_available()``
     returns ``False``, and ``HierarchicalRetriever.__init__``
-    (``retrieve/hierarchical_retriever.py:88-96``) sets ``self._rerank_client = None`` and
-    defaults retrieval to ``RetrieverMode.QUICK`` (line 127) — no reranker runs today, so
-    this patch does not change ranking in production as currently configured. That is a
-    fact about the live config, not a code guarantee: if rerank is ever enabled,
-    ``HierarchicalRetriever`` reranks each candidate on its stored ``abstract``
-    (``documents = [str(r.get("abstract", "")) for r in results]``,
-    ``retrieve/hierarchical_retriever.py:526``, gated on ``mode == RetrieverMode.THINKING``
-    at line 525) — a Summary-only abstract would then be the rerank input instead of the
-    full body, and that tradeoff should be re-evaluated before rerank is turned on.
+    (``retrieve/hierarchical_retriever.py:97-107``) sets ``self._rerank_client = None``,
+    so ``retrieve`` defaults to ``RetrieverMode.QUICK`` (L141-142) — no reranker runs
+    today, so this patch does not change ranking in production as currently configured.
+    That is a fact about the live config, not a code guarantee: if rerank is ever enabled,
+    ``retrieve`` defaults to ``THINKING`` and reranks the global candidate list on each
+    candidate's stored ``abstract`` (``[str(candidate.get("abstract", "")) for candidate in
+    candidates]``, ``retrieve/hierarchical_retriever.py:251-256``) — a Summary-only
+    abstract would then be the rerank input instead of the full body, and that tradeoff
+    should be re-evaluated before rerank is turned on.
 
     Backfill through reindex (``apply_reindex``): stock ``POST /api/v1/content/reindex``
     embeds the raw file body for a memory (``ReindexExecutor._reindex_memory_vectors`` →
@@ -195,7 +179,7 @@ data:
     ``viking/scripts/ov-event-abstract-backfill.py`` stays as the reviewed fallback and the
     ``--restore`` path.
 
-    Guarded: each hook applies only to openviking ``v0.4.20`` whose target source hashes to
+    Guarded: each hook applies only to openviking ``v0.5.1.1`` whose target source hashes to
     the expected value; otherwise it logs "NOT applied" and stock behaviour stays. Disable
     at runtime with ``OV_EVENT_ABSTRACT_PATCH=0`` (both hooks) or
     ``OV_EVENT_REINDEX_PATCH=0`` (the reindex hook only).
@@ -208,14 +192,14 @@ data:
     import os
     import re
 
-    EXPECTED_VERSION = "v0.4.20"
-    EXPECTED_SHA256 = "fb15c3af326be29f826a870a8e6284e1663c122089769ae5df1c74c1e5bc6081"
+    EXPECTED_VERSION = "v0.5.1.1"
+    EXPECTED_SHA256 = "9a21cfa830018ce4b93e77d9e322d6ba38ae7480bbd20e5e372fdd7b429aaedf"
     EXPECTED_UPSERT_CONTEXT_SHA256 = (
-        "ddfd3f03e673f1b396caef3d549d4efacc97a64fc78e9a30c21c8297a48feaad"
+        "120763eb0e417bca8bb13b3ea6dcc6c25d8def47a398ddce8b6054a1dcf28782"
     )
     logger = logging.getLogger("ov_event_abstract_patch")
 
-    # Mirrors extract_summary_section in retrieve/context_assembler/tiers.py (v0.4.20), the
+    # Mirrors extract_summary_section in retrieve/context_assembler/tiers.py:70 (v0.5.1.1), the
     # helper the overview tier already uses for these files; kept local so the write path
     # does not import the retrieval package.
     _SUMMARY_SECTION = re.compile(
@@ -339,17 +323,17 @@ data:
         global _REGISTRY
         if _REGISTRY is None:
             from openviking.session.memory.memory_type_registry import (
-                create_default_registry,
+                get_default_registry,
             )
 
-            _REGISTRY = create_default_registry()
+            _REGISTRY = get_default_registry()
         return _REGISTRY.get("events")
 
 
     def write_path_embedding_text(body, uri, schema=None):
         """What ``MemoryUpdater._vectorize_memories`` embeds for this file body.
 
-        Mirrors ``memory_updater.py`` v0.4.20 lines 1440-1471: parse the file, strip links,
+        Mirrors ``memory_updater.py`` v0.5.1.1 lines 1801-1835: parse the file, strip links,
         cap at 50 KB, then render the memory type's ``embedding_template`` with the file's
         fields plus ``content`` when every variable is present. Returns ``None`` when the
         template needs ``extract_context``, which a reindex cannot supply; the caller then
@@ -438,91 +422,98 @@ data:
         )
         return True
   ov_extract_patch.py: |
-    """Degraded memory extraction becomes a retryable failure, not a silent empty diff (BUG-1176).
+    """Degraded memory extraction gets the Phase 2 retries before it fails the archive (BUG-1176).
 
-    OpenViking v0.4.20's ``ExtractLoop.run`` gives the extraction LLM one format retry; when
-    that is exhausted with an empty, unparseable or refusal completion it returns a
-    ``ResolvedOperations`` with no upserts and an ``errors`` list, and ``MemoryUpdater.apply``
-    turns that into ``result.errors`` and returns. The compressor then writes an empty
-    ``memory_diff.json``, the session logs ``Extracted 0 memories`` and the archive gets its
-    ``.done`` marker. A saturated VLM (the 2026-09-22 BUG-1173 backfill) therefore produced
-    three "successful" commits with nothing in them; the same archive replayed idle yielded
-    four memories.
+    OpenViking v0.4.20's ``ExtractLoop.run`` returned an exhausted format retry (an empty,
+    unparseable or refusal completion) as an errors-only ``ResolvedOperations``, and the
+    archive got ``.done`` with an empty diff: a saturated VLM (the 2026-09-22 BUG-1173
+    backfill) produced three "successful" commits with nothing in them. v0.5.1.1 fixed the
+    silent half upstream (#5171): ``run`` raises ``RuntimeError("Final response could not be
+    parsed as operations after N iterations (failure_kind=K)")`` (extract_loop.py:440-444),
+    the commit path runs with ``strict_extract_errors=True`` (session.py:2362), and the outer
+    handler writes ``.failed.json`` with stage ``memory_extraction`` (session.py:2588-2603).
+    It is not retried, though: no transient pattern matches that text (model_retry.py:175-188),
+    so one exhausted loop fails the archive for good (later commits never re-cover it,
+    session.py:2944-2962).
 
-    This wrapper changes two things, both inside the existing Phase 2 machinery:
+    What this wrapper still does on v0.5.1.1, inside the existing Phase 2 machinery:
 
       * ``ExtractLoop.run`` — when the *session extraction* loop (context provider exactly
-        ``SessionExtractContextProvider``) returns errors and no upserts, raise
-        ``ExtractionDegradedError`` instead of returning. ``extract_long_term_memories`` runs with
-        ``strict_extract_errors=True`` in the commit path, so the error reaches
-        ``_run_retryable_phase2_step`` and is retried by ``retry_async``; if every retry fails the
-        archive gets ``.failed.json`` (stage ``memory_extraction``) and the task fails — visible,
-        exact, and re-drivable — instead of an empty diff recorded as success. The streaming
-        memory updater's merge loops (``PatchMergeContextProvider``, ``max_iterations=1``) are
-        left returning: they run after append-only events have already been written, and a
-        whole-step retry there would regenerate and duplicate those events. A degraded merge
-        is logged, not raised.
+        ``SessionExtractContextProvider``) raises that parse-exhaustion ``RuntimeError``
+        before its attempt has written anything, re-raise it as ``ExtractionDegradedError``
+        (chained, same text). The streaming memory updater's merge loops
+        (``PatchMergeContextProvider``, ``max_iterations=1``) keep the stock raise, which is
+        not retried: they run after append-only events have already been written, and a
+        whole-step retry there would regenerate and duplicate those events.
       * ``openviking.session.session`` — ``is_retryable_api_error`` also returns True for
         ``ExtractionDegradedError``, and the Phase 2 retry constants are widened from
-        3 retries × (1 s … 8 s) to 5 retries × (15 s … 120 s): ``retry_async`` makes up to
-        6 attempts with 5 capped, jittered sleeps (about 345–420 s of sleeping in all, no
-        overall deadline), plus the extraction's own LLM time per attempt. Both are module
-        globals the nested retry helper reads at call time. This half applies only after the
-        loop half applied in the same process, so the guard governs both.
+        3 retries × (1 s … 8 s) to 5 retries × (15 s … 120 s) (session.py:105-107):
+        ``retry_async`` makes up to 6 attempts with 5 capped, jittered sleeps (about
+        345–420 s of sleeping in all, no overall deadline), plus the extraction's own LLM time
+        per attempt. Both are module globals the nested retry helper reads at call time. This
+        half applies only after the loop half applied in the same process, so the guard
+        governs both. When every retry fails, the archive still gets upstream's
+        ``.failed.json``.
+
+    Dropped in the v0.5.1.1 port: raising on an errors-only *returned* result, and logging a
+    degraded merge loop. Upstream now raises for both instead of returning, and
+    ``resolve_operations`` never fills ``errors`` (extract_loop.py:765-971), so neither path
+    is reachable.
 
     Also logs, at WARNING, an extraction that parsed fine but produced zero operations, with the
     loop's last failure kind, so a future zero window is diagnosable from the pod log alone.
     That parsed-empty outcome is indistinguishable from "nothing to extract" and is NOT raised.
 
-    Scope of the claim: this protects against a demonstrated source-code defect (an exhausted
-    retry becomes a successful empty diff). Whether the 2026-09-22 zero runs took this path or
-    returned a parsed empty program is not established by the INFO log; see BUG-1176.
-
     BUG-1196 adds three things, each with its own guard and off switch (the session half,
     plus a streaming half that tracks writes for the lock-wait retry):
 
-      * Timeouts and lock waits are retried, each on its own small budget, only when nothing
-        from the step's attempt has been written. Stock ``is_retryable_api_error`` matches
-        the text "timeout", not "timed out", so ``openai.APITimeoutError`` ("Request timed
-        out.") and ``LockAcquisitionError`` ("lock acquire timed out after 300000ms") both
-        failed the archive on the first attempt. ``session.retry_async`` (the name
-        ``_run_retryable_phase2_step`` looks up at call time) is wrapped with a per-call
-        classifier that asks the caller's classifier first, so whatever stock already
-        retries (a "504 Gateway Timeout", any text containing "timeout") keeps its stock
-        retries; the class budgets only add retries stock would refuse. A timeout gets them
-        only when the session-extraction ``ExtractLoop.run`` raised it before this attempt
-        wrote anything (the loop half tags it). A lock wait gets them only when the
-        ``StreamingMemoryUpdater`` append-only fast path failed to take its lease and it was
-        the attempt's first write after session extraction (the streaming half tags it): the
-        lease is taken before any write, and the fast path runs before the merge groups.
-        Any other lock wait keeps stock behaviour, because a retry is a fresh LLM extraction
-        with a new ``source_extraction_id``: the memory guard files its re-extracted events
-        as collisions at ``<name>_2.md`` instead of dropping them, so retrying after events
-        are written would duplicate them. Both stay under the overall
-        ``_MEMORY_EXTRACTION_MAX_RETRIES`` cap. Budgets: ``OV_EXTRACT_PATCH_TIMEOUT_RETRIES``
-        (default 2) and ``OV_EXTRACT_PATCH_LOCK_RETRIES`` (default 3); ``0`` turns that
-        class's extra retries off and leaves stock retries alone.
+      * Lock waits are retried only when nothing from the step's attempt has been written,
+        on their own small budget. v0.5.1.1 added "timed out" to the transient patterns
+        (#6102, model_retry.py:186), so stock now retries every ``LockAcquisitionError``
+        ("lock acquire timed out after {elapsed_ms}ms") by re-running the whole step: a
+        fresh LLM extraction with a new ``source_extraction_id`` (session.py:2350-2371,
+        compressor_v3.py:749) after append-only events and merge groups may have landed
+        (streaming_memory_updater.py:186-196, 457-462), so the retry files its re-extracted
+        events, under new LLM-chosen names, beside the ones already written.
+        ``session.retry_async`` (the name ``_run_retryable_phase2_step`` looks up at call
+        time) is wrapped with a per-call classifier that takes lock waits away from the
+        caller's classifier: one is retried only when the ``StreamingMemoryUpdater``
+        append-only fast path failed to take its lease and it was the attempt's first write
+        after session extraction (the streaming half tags it): the lease
+        (``acquire_memory_operation_lease``) is taken before any write, and the fast path runs
+        before the merge groups. Every other lock wait fails the step, as on v0.4.20. Timeouts
+        keep the caller's classifier, which now retries them itself; a session-extraction
+        timeout that it refuses (the loop half tags those raised before the attempt wrote
+        anything) gets its own small budget, a fallback that v0.5.1.1's classifier leaves
+        almost unused. Both stay under the overall ``_MEMORY_EXTRACTION_MAX_RETRIES`` cap.
+        Budgets: ``OV_EXTRACT_PATCH_TIMEOUT_RETRIES`` (default 2) and
+        ``OV_EXTRACT_PATCH_LOCK_RETRIES`` (default 3); ``0`` turns the timeout fallback off
+        and stops every lock-wait retry.
       * Every retry, recovery and final failure of a Phase 2 step writes one unwrapped
         ``ov-extract-outcome {json}`` line on stderr naming the step, attempt and
         ``failure_class`` (``timeout``, ``lock_wait``, ``degraded`` or ``other``), so a lock
-        wait reads differently from a model timeout in Loki. Not through ``logger``: the rich
-        handler folds long records into several Loki entries (see ov_memory_guard_patch).
-      * Long-term extraction is chunked. v0.4.20 already plans Phase 2 extraction batches,
-        but only from a session's ``auto_commit_policy``, and Claude Code sessions carry none,
-        so a 180-message archive went to the model as one prompt. The session module's
+        wait reads differently from a model timeout in Loki. A retry line is written when the
+        next attempt starts, because v0.5.1.1's ``retry_async`` retries a recognised model
+        error without asking the classifier (``_retry_limit``, model_retry.py:432-451). Not
+        through ``logger``: the rich handler folds long records into several Loki entries
+        (see ov_memory_guard_patch).
+      * Long-term extraction is chunked. Upstream plans Phase 2 extraction batches, but only
+        from a session's ``auto_commit_policy``, and Claude Code sessions carry none, so a
+        180-message archive went to the model as one prompt. The session module's
         ``resolve_extraction_batch_limits`` is wrapped to cap every session at
         ``OV_EXTRACT_PATCH_BATCH_MESSAGES`` (default 60) messages and
         ``OV_EXTRACT_PATCH_BATCH_TOKENS`` (default 24000) estimated tokens per batch, keeping a
         policy's tighter limit; ``0`` drops that cap and ``OV_EXTRACT_PATCH_CHUNK=0`` turns
-        chunking off. Upstream records and retries each batch as its own step, so a failure
-        redoes one batch, not the archive. The same limits batch the Working Memory summary.
+        chunking off. Upstream records and retries each batch as its own step
+        (session.py:2041-2079), so a failure redoes one batch, not the archive. The same
+        limits batch the Working Memory summary.
 
-    Guarded: applies only to openviking ``v0.4.20`` whose ``ExtractLoop.run`` source hashes to
+    Guarded: applies only to openviking ``v0.5.1.1`` whose ``ExtractLoop.run`` source hashes to
     ``EXPECTED_RUN_SHA256``; otherwise it logs "NOT applied" and stock behaviour stays. The
     retry and chunking wrappers, and the streaming half's three write-tracking wrappers
     (``openviking.session.memory.streaming_memory_updater``), are each also guarded on the
     source hash of the function they wrap. Without the streaming half no lock wait is ever
-    tagged, so lock waits keep stock behaviour. Disable everything at runtime with
+    tagged, so no lock wait is retried. Disable everything at runtime with
     ``OV_EXTRACT_PATCH=0``. Retry budget overrides: ``OV_EXTRACT_PATCH_RETRIES``,
     ``OV_EXTRACT_PATCH_BASE_DELAY``, ``OV_EXTRACT_PATCH_MAX_DELAY``.
     """
@@ -540,18 +531,20 @@ data:
     import re
     import sys
 
-    EXPECTED_VERSION = "v0.4.20"
-    EXPECTED_RUN_SHA256 = "f9bf435228ca4a82200442f47752a0f4b7e2213a0c86dcb08a6a773357156876"
+    EXPECTED_VERSION = "v0.5.1.1"
+    EXPECTED_RUN_SHA256 = "48d4bc4f14b03b0a157402779f5e73aad1ef58465df582e173ab34d7347076bb"
     # BUG-1196: openviking.utils.model_retry.retry_async and
-    # openviking.session.extraction_batch.resolve_extraction_batch_limits on v0.4.20.
+    # openviking.session.extraction_batch.resolve_extraction_batch_limits on v0.5.1.1.
     EXPECTED_RETRY_ASYNC_SHA256 = (
-        "0b5f1eb95670455767e1b671c132cfd6a814d3d62bfc94b59b155f23816a8fa7"
+        "b0fc3cf82a2e6115928ad85f3a24b139791f48aaa66e0641bc6309e3a9e2fecc"
     )
     EXPECTED_RESOLVE_LIMITS_SHA256 = (
         "811fff5754eee8fed3fdfde1c4c9750901249ef3c66041032f6082959c47b9b1"
     )
-    # openviking.session.memory.streaming_memory_updater on v0.4.20: the append-only fast
-    # path, the merge-group submit, and the module-level lease acquisition.
+    # openviking.session.memory.streaming_memory_updater on v0.5.1.1: the append-only fast
+    # path, the merge-group submit, and the module-level lease acquisition
+    # (``acquire_memory_operation_lease``, renamed from ``_acquire_stable_operation_lease``
+    # in #5178).
     EXPECTED_APPEND_ONLY_SHA256 = (
         "3e24e1c676c8bd718109d206c94e1b155c3d99af1ed367398efc4acba94cc58f"
     )
@@ -559,7 +552,7 @@ data:
         "f33842c5447652ad21db1d6763bfcec54f41e4521a5d96534a93b09388061af8"
     )
     EXPECTED_ACQUIRE_LEASE_SHA256 = (
-        "01461f9e570eddbb4854149f24a0fe5455adb5b860142650513e77748936a23c"
+        "ca2c9480fd785fca2bf500789854e2369661137fd78c9be419d474b715196843"
     )
     DEFAULT_RETRIES = 5
     DEFAULT_BASE_DELAY_SECONDS = 15.0
@@ -596,6 +589,10 @@ data:
         r"lock acquir\w* timed out|pathlock\S* .*timed out", re.IGNORECASE
     )
     _TIMEOUT_TEXT = re.compile(r"\btimed out\b|\btimeout\b", re.IGNORECASE)
+    # ExtractLoop.run's raise once its format retry is spent (extract_loop.py:440-444).
+    _PARSE_EXHAUSTED_TEXT = re.compile(
+        r"^Final response could not be parsed as operations\b"
+    )
 
 
     class ExtractionDegradedError(RuntimeError):
@@ -707,7 +704,7 @@ data:
 
 
     def wrap_run(orig):
-        """Wrap ``ExtractLoop.run``: errors-only result raises; zero-op result is logged."""
+        """Wrap ``ExtractLoop.run``: session parse exhaustion becomes retryable; 0 ops logged."""
 
         @functools.wraps(orig)
         async def run(self):
@@ -715,15 +712,24 @@ data:
             try:
                 operations, tools_used = await orig(self)
             except Exception as exc:
-                # BUG-1196: session extraction runs before anything from this batch is
-                # written, so its timeouts are safe for the Phase 2 retry to repeat. Tag them
-                # unless this attempt already wrote; the session-half classifier gives extra
-                # retries only to tagged timeouts.
-                if (
-                    provider == SESSION_PROVIDER
-                    and failure_class(exc) == FAILURE_TIMEOUT
-                    and not _step_wrote()
-                ):
+                # Session extraction runs before anything from this batch is written, so a
+                # Phase 2 retry of its failures repeats no write. Not so once the attempt
+                # wrote, nor for merge loops, which run after the append-only events.
+                if provider != SESSION_PROVIDER or _step_wrote():
+                    raise
+                if isinstance(exc, RuntimeError) and _PARSE_EXHAUSTED_TEXT.search(str(exc)):
+                    # BUG-1176: upstream fails the archive on the first exhausted loop; a
+                    # saturated VLM gets the Phase 2 retries first.
+                    logger.warning(
+                        "ov-extract-patch: extraction degraded (%s); raising for Phase 2 retry",
+                        str(exc)[:200],
+                    )
+                    raise ExtractionDegradedError(
+                        f"memory extraction degraded: {str(exc)[:300]}"
+                    ) from exc
+                # BUG-1196: the session-half classifier gives its fallback budget only to
+                # tagged timeouts.
+                if failure_class(exc) == FAILURE_TIMEOUT:
                     _tag(exc, STAGE_ATTR, STAGE_SESSION_EXTRACT)
                 raise
             if provider == SESSION_PROVIDER:
@@ -734,28 +740,7 @@ data:
             if operations is None:
                 return operations, tools_used
             upserts = getattr(operations, "upsert_operations", None) or []
-            errors = list(getattr(operations, "errors", None) or [])
             kind = getattr(self, "_last_llm_failure_kind", None) or "unknown"
-            if errors and not upserts:
-                if provider != SESSION_PROVIDER:
-                    logger.warning(
-                        "ov-extract-patch: degraded %s loop (failure_kind=%s: %s); returned as-is "
-                        "because a retry here would duplicate already-appended events",
-                        provider,
-                        kind,
-                        errors[0][:200],
-                    )
-                    return operations, tools_used
-                logger.warning(
-                    "ov-extract-patch: extraction degraded (failure_kind=%s, %d error(s): %s); "
-                    "raising for Phase 2 retry instead of recording an empty diff",
-                    kind,
-                    len(errors),
-                    errors[0][:200],
-                )
-                raise ExtractionDegradedError(
-                    f"memory extraction degraded: failure_kind={kind}: {errors[0][:200]}"
-                )
             if not upserts:
                 deletes = getattr(operations, "delete_file_contents", None) or []
                 logger.warning(
@@ -838,11 +823,13 @@ data:
     def wrap_retry_async(orig, default_is_retryable):
         """Wrap ``retry_async`` with per-class budgets and one outcome line per event.
 
-        ``retry_async`` asks ``is_retryable`` only while attempts remain, so each True
-        returned here is one retry actually taken. The caller's classifier is asked first,
-        so stock retries are never reduced; a class budget only adds retries for a tagged
-        error the caller's classifier refused (a session-extraction timeout, or a lock wait
-        raised before the attempt wrote anything).
+        v0.5.1.1's ``retry_async`` asks ``is_retryable`` on every failure that is not a
+        recognised model error, the final one included (``_retry_limit``), so a budget is
+        spent only while a retry can follow, and the retry line is written when the next
+        attempt starts. Lock waits are decided here alone: retried, on the lock budget, only
+        when tagged as raised before the attempt wrote anything. For every other error the
+        caller's classifier is asked first, so its retries are never reduced; the timeout
+        budget only adds retries for a tagged session-extraction timeout it refused.
         """
 
         @functools.wraps(orig)
@@ -852,34 +839,45 @@ data:
             budget = class_budget()
             used = {FAILURE_TIMEOUT: 0, FAILURE_LOCK_WAIT: 0}
             attempts = 0
+            last_error: BaseException | None = None
+
+            def spend(cls):
+                if used[cls] >= budget[cls]:
+                    return False
+                used[cls] += 1
+                return True
 
             def decide(error):
+                if attempts > max_retries:
+                    return False  # the final failure: no retry follows whatever we answer
                 cls = failure_class(error)
-                allowed = bool(base(error))
-                if not allowed and (
-                    is_session_extract_timeout(error) or is_before_write_lock_wait(error)
-                ):
-                    allowed = used[cls] < budget[cls]
-                    if allowed:
-                        used[cls] += 1
-                if allowed:
+                if cls == FAILURE_LOCK_WAIT:
+                    # Stock retries "timed out" (#6102), which would re-extract after the
+                    # attempt's events may have landed and file them a second time.
+                    return is_before_write_lock_wait(error) and spend(cls)
+                if base(error):
+                    return True
+                return is_session_extract_timeout(error) and spend(cls)
+
+            async def counted():
+                nonlocal attempts, last_error
+                if last_error is not None:
                     emit_outcome(
                         {
                             "event": "retry",
                             "step": operation,
                             "attempt": attempts,
-                            "failure_class": cls,
-                            "error": str(error)[:300],
+                            "failure_class": failure_class(last_error),
+                            "error": str(last_error)[:300],
                         }
                     )
-                return allowed
-
-            async def counted():
-                nonlocal attempts
                 attempts += 1
                 token = _STEP.set({"armed": False, "wrote": False})
                 try:
                     return await func()
+                except Exception as exc:
+                    last_error = exc
+                    raise
                 finally:
                     _STEP.reset(token)
 
@@ -944,7 +942,7 @@ data:
         """Mark a lock wait raised while taking a memory-apply lease (before its writes)."""
 
         @functools.wraps(orig)
-        async def _acquire_stable_operation_lease(*args, **kwargs):
+        async def acquire_memory_operation_lease(*args, **kwargs):
             try:
                 return await orig(*args, **kwargs)
             except Exception as exc:
@@ -952,8 +950,8 @@ data:
                     _tag(exc, LEASE_ATTR, True)
                 raise
 
-        _acquire_stable_operation_lease._ov_extract_patch = True  # type: ignore[attr-defined]
-        return _acquire_stable_operation_lease
+        acquire_memory_operation_lease._ov_extract_patch = True  # type: ignore[attr-defined]
+        return acquire_memory_operation_lease
 
 
     def wrap_append_only(orig):
@@ -1037,7 +1035,7 @@ data:
         if digest != EXPECTED_RETRY_ASYNC_SHA256:
             logger.warning(
                 "ov-extract-patch: NOT applied to session retry_async (source_sha256=%s); "
-                "timeouts and lock waits stay unretried",
+                "stock retry kept, which retries lock waits after writes",
                 digest,
             )
             return False
@@ -1138,8 +1136,7 @@ data:
     def apply_streaming(module) -> bool:
         """Install the write-tracking wrappers in ``streaming_memory_updater``; all or none.
 
-        Without them no lock wait is tagged, so the retry wrapper leaves every lock wait to
-        the stock classifier.
+        Without them no lock wait is tagged, so the retry wrapper retries none.
         """
         if not _enabled():
             return False
@@ -1162,7 +1159,7 @@ data:
             ),
             (
                 module,
-                "_acquire_stable_operation_lease",
+                "acquire_memory_operation_lease",
                 EXPECTED_ACQUIRE_LEASE_SHA256,
                 wrap_acquire_lease,
             ),
@@ -1174,7 +1171,7 @@ data:
         if version != EXPECTED_VERSION or digests != [t[2] for t in targets]:
             logger.warning(
                 "ov-extract-patch: NOT applied to StreamingMemoryUpdater write tracking "
-                "(version=%r source_sha256=%s); lock waits keep stock retry behaviour",
+                "(version=%r source_sha256=%s); no lock wait is retried",
                 version,
                 digests,
             )
@@ -1197,25 +1194,34 @@ data:
   ov_grep_scope_patch.py: |
     """Scope a user-root grep away from session archives, and bound every grep (BUG-1189).
 
-    On v0.4.20 a grep over ``viking://user/<uid>/`` walks ``sessions/*/history/archive_*``
-    too. A URI that can hold memory content takes the Python walker (``FSService.grep``
-    sets a ``content_transform``), which lists every directory serially and reads every
-    file, and a pattern that matches nothing never stops early: ``node_limit`` only
-    counts matches. Measured 2026-09-28 on the pilot user: ``sessions/`` alone ran past
-    the CLI's 60 s timeout, while the root with ``sessions/`` excluded returned in 10.9 s.
-    The MCP ``grep`` tool has no ``exclude_uri`` parameter, so an agent could not route
-    around it; its call timed out at 15 s and recall lost its exact-match check.
+    A grep over ``viking://user/<uid>/`` walks ``sessions/*/history/archive_*`` too. A
+    URI that can hold memory content takes the Python walker: v0.5.1.1 ``FSService.grep``
+    sets a ``content_transform`` when ``_may_include_memory_content(uri)``
+    (``service/fs_service.py:71-80,1199-1200``), which forces the ``fs`` engine and,
+    past ``_grep_fs``'s native fast path, ``_grep_encrypted`` →
+    ``_collect_grep_files`` (``storage/viking_fs/_grep.py:85-89,294-336,775-841``). That
+    walker lists every directory and reads every file, skipping only ``exclude_uri``,
+    and a pattern that matches nothing never stops early: ``node_limit`` only counts
+    matches. Upstream #5271 sends a URI that is itself a session down the native path,
+    but a user root is not a session URI, so it still walks ``sessions/``. Measured
+    2026-09-28 on the pilot user (v0.4.20): ``sessions/`` alone ran past the CLI's 60 s
+    timeout, while the root with ``sessions/`` excluded returned in 10.9 s. The MCP
+    ``grep`` tool still has no ``exclude_uri`` parameter (``server/mcp_endpoint.py:2076``),
+    so an agent cannot route around it; its call timed out at 15 s and recall lost its
+    exact-match check.
 
     Two changes at ``FSService.grep``, the boundary the MCP tool and the REST route share
-    (internal ``VikingFS.grep`` callers are untouched):
+    (internal ``VikingFS.grep`` callers are untouched; every other argument, including
+    v0.5.1.1's ``before_context``/``after_context`` from #5168, passes through as given):
 
       * a grep whose URI is exactly a user root, with no ``exclude_uri`` of its own, gets
         ``viking://user/<uid>/sessions`` as its exclusion, and the result carries
         ``excluded_by_default``. A grep that names ``sessions/…`` still searches it.
       * every grep is bounded by ``OV_GREP_TIMEOUT_S`` (default 12 s, inside the MCP
         client's 15 s; ``0`` turns the bound off). A timeout returns one marked result line
-        and ``timed_out: true`` rather than an error, because the MCP tool turns any error
-        into "No matches found", which would read as a confirmed absence.
+        and ``timed_out: true`` rather than an error: the line tells the agent the result
+        is incomplete and how to narrow the URI, where a bare ``TimeoutError`` reaches the
+        MCP tool as a failure with an empty message and the REST route as a 500.
 
     Version/source guarded; ``OV_GREP_SCOPE_PATCH=0`` rolls back.
     """
@@ -1228,8 +1234,8 @@ data:
     import os
     import re
 
-    EXPECTED_VERSION = "v0.4.20"
-    EXPECTED_SHA256 = "57bde0d9dee25370436e08d7de7036d9d178ba5b73932f5004d229e5de45cdc0"
+    EXPECTED_VERSION = "v0.5.1.1"
+    EXPECTED_SHA256 = "be962811fbded40c92ff7227b490ed4cc109b5cab4f07a588b9b187158546d23"
     DEFAULT_TIMEOUT_S = 12.0
     USER_ROOT = re.compile(r"^viking://user/([^/]+)/?$")
     logger = logging.getLogger("ov_grep_scope_patch")
@@ -1329,7 +1335,7 @@ data:
   ov_memory_guard_patch.py: |
     """An add_only memory write never replaces an existing memory (BUG-1180).
 
-    OpenViking v0.4.20 files an ``add_only`` memory (``events``, ``trajectories``) at a path
+    OpenViking v0.5.1.1 files an ``add_only`` memory (``events``, ``trajectories``) at a path
     rendered from its fields: ``events`` is ``{year}/{month}/{day}/{event_name}.md``. When a
     later extraction produces the same event name on the same day, the resolver hands the
     operation to ``MemoryUpdater.apply_operations`` with that path. The streaming updater
@@ -1357,9 +1363,21 @@ data:
       * **collision** — the first free slot takes the write. The op's
         ``old_memory_file_content`` is cleared so it is reported and diffed as a new write,
         and links, delete replacements and search tags that named the old path follow it.
+        On v0.5.1.1 the clear also keeps the stock body from taking the diverted op for a
+        rename: a snapshot whose ``uri`` differs from the op's target makes it a URI
+        migration that deletes the snapshot's file (``_is_uri_migration``,
+        ``memory_updater.py`` L1191-L1198; ``_apply_upsert`` L1383-L1386), and from
+        filling a free slot's fields from the old file (the not-found fallback to the
+        snapshot, L1416-L1417).
       * **uncertain** — a slot that cannot be read (anything but not-found), or no free slot
         in 50: ``GuardError`` is raised and nothing is written. The stock body is never run
         unguarded, because that is the overwrite this patch exists to prevent.
+
+    Since v0.5.1.1 (#6075) stock ``_apply_upsert`` itself re-raises any read error but
+    not-found instead of merging into the prefetched snapshot (``memory_updater.py``
+    L1399-L1405), so the guard no longer stands alone against that fallback. It still raises
+    on an unreadable slot: the slot walk has to decide free, duplicate or occupied, and a slot
+    wrongly counted free that reads back on the stock pass would be merged into.
 
     ``upsert`` memory types are untouched: merging into an existing file is their contract.
 
@@ -1379,7 +1397,7 @@ data:
     ``shadow`` — the default, and the fallback for any other value — records
     ``"would_drop"`` and writes the event anyway.
 
-    Guarded: applies only to openviking ``v0.4.20`` whose ``apply_operations``,
+    Guarded: applies only to openviking ``v0.5.1.1`` whose ``apply_operations``,
     ``_apply_upsert``, ``StreamingMemoryUpdater.submit`` and ``_split_append_only_request``
     sources hash to the expected values; otherwise it logs "NOT applied" and stock behaviour
     stays. Disable at runtime with ``OV_MEMORY_GUARD=0``.
@@ -1428,14 +1446,18 @@ data:
     ``keep-mixed`` when a mutating tool ran; ``keep-ambiguous`` otherwise), and the assistant
     text character counts and a 12-hex-character sha256 prefix per text part, split by
     whether the part falls before or after the turn's last OpenViking read. **The record
-    never includes message text.** ``ExtractContext.__init__`` is not given an archive or
-    session id (neither is any caller in this module) — confirmed by tracing the real
-    v0.4.20 commit path, ``session.py``: the archive write (``messages_to_archive`` ->
+    never includes message text.** On the user-memory path ``ExtractContext.__init__`` is not
+    given an archive or session id: v0.5.1.1 added a ``source_archive_uri`` keyword, which
+    the wrapper passes through untouched, but ``SessionCompressorV3._extract_user_memories``
+    builds its ``SessionExtractContextProvider`` without one (``compressor_v3.py``
+    L708-L717); only session-skill and case training pass it (L848, L906, L990). Traced on
+    v0.4.20, ``session.py``: the archive write (``messages_to_archive`` ->
     ``m.to_jsonl()``), the Phase 2 read-back (``_read_archive_messages`` ->
     ``archive_messages``, whose own ``first_message_id``/``last_message_id`` OpenViking
-    computes the same way, ``archive_messages[0].id``/``[-1].id``), and the id-preserving
-    hydration and image-replacement passes before ``SessionExtractContextProvider`` builds
-    the ``ExtractContext``. **The join key is the turn's message ids** (2026-09-28 decision):
+    computes the same way, ``archive_messages[0].id``/``[-1].id``, ``session.py`` L1967-L1968
+    on v0.5.1.1), and the id-preserving hydration and image-replacement passes before
+    ``SessionExtractContextProvider`` builds the ``ExtractContext``. **The join key is the
+    turn's message ids** (2026-09-28 decision):
     a consumer resolves a record to its archive by finding the ``messages.jsonl`` that
     contains ``first_message_id``, not by a session id this hook does not have. With
     ``chunk_meta`` given, the pre-chunked path is unaffected (as above) and one
@@ -1456,12 +1478,12 @@ data:
     import re
     import sys
 
-    EXPECTED_VERSION = "v0.4.20"
+    EXPECTED_VERSION = "v0.5.1.1"
     EXPECTED_APPLY_SHA256 = (
-        "3d193734e7cc836a7153915a170bca3076c64f30bd0db5a93bad9e1747004e0d"
+        "b7e59f96cf88e9620c91ca91e16fe3e2a575531b993208973210f83c3194bd19"
     )
     EXPECTED_UPSERT_SHA256 = (
-        "852ef6c47789e240ddd4072dae0c889f5fcfa9808c99667c54d11213fa796d09"
+        "06e2711ee13c2ecb30ab545faa0ee14d950b5e272c4a5fd5bfe10fc8a182fb25"
     )
     MAX_SIBLINGS = 50
     ADD_ONLY = "add_only"
@@ -1997,12 +2019,15 @@ data:
     # is part of the event identity and only a replay of the same extraction is a duplicate.
     # The apply_operations guard stays for callers that apply operations directly; for a
     # submitted request it verifies the submit's reservations rather than choosing again.
+    # The add_only test uses the registry the stock split uses: on v0.5.1.1 the request's
+    # own ``memory_registry`` (the account registry), then the updater's, then the default
+    # (``streaming_memory_updater.py`` L326).
 
     EXPECTED_SUBMIT_SHA256 = (
         "67e4e598f003d0d46f6790ac19f469a367cdfa5d65203b12b8a10f596989c0ee"
     )
     EXPECTED_SPLIT_SHA256 = (
-        "72cb16fd3f60e18ebf99da17c782c233fe231f3e1ff3073380b04baa497e0605"
+        "13bacf014d756d6224353005b31de5497bc3d9826efd619a9eef4cc5fdb44c49"
     )
 
 
@@ -2018,7 +2043,11 @@ data:
                 from openviking.session.memory import memory_updater as readers
             module.attach_source_to_request_operations(request)
             drop_lifecycle_noise(operations)
-            registry = self.registry or module.create_default_registry()
+            registry = (
+                getattr(request, "memory_registry", None)
+                or self.registry
+                or module.get_default_registry()
+            )
             owner = object()
             token = _OWNER.set(owner)
             taken = []
@@ -2063,7 +2092,7 @@ data:
             or submit_digest != EXPECTED_SUBMIT_SHA256
             or split_digest != EXPECTED_SPLIT_SHA256
             or not hasattr(module, "get_viking_fs")
-            or not hasattr(module, "create_default_registry")
+            or not hasattr(module, "get_default_registry")
             or not hasattr(module, "attach_source_to_request_operations")
         ):
             logger.warning(
@@ -2085,7 +2114,7 @@ data:
     # --- Echo guard -------------------------------------------------------------------------
 
     EXPECTED_EXTRACT_INIT_SHA256 = (
-        "194316aaa85ed0cdacdb638dc6982db93fdb19d78dd840b775f2eaad4c96fcf3"
+        "3db08842e387d2d8f8a0c797a939b06afbaf02ef0f7ee561282bd2b259abe1ff"
     )
     RECALL_LINE = re.compile(
         r"^(?:"
@@ -2453,7 +2482,14 @@ data:
 
     def wrap_extract_init(module, orig):
         @functools.wraps(orig)
-        def __init__(self, messages, chunk_meta=None, *, split_long_text_messages=True):
+        def __init__(
+            self,
+            messages,
+            chunk_meta=None,
+            *,
+            split_long_text_messages=True,
+            source_archive_uri="",
+        ):
             if chunk_meta is None and isinstance(messages, list):
                 try:
                     cleaned = [strip_recall_message(m, module.TextPart) for m in messages]
@@ -2487,6 +2523,7 @@ data:
                 messages,
                 chunk_meta,
                 split_long_text_messages=split_long_text_messages,
+                source_archive_uri=source_archive_uri,
             )
 
         __init__._ov_echo_guard = True
@@ -2524,7 +2561,7 @@ data:
         )
         return True
   ov_nav_patch.py: |
-    """Deterministic Quick Navigation for OpenViking v0.4.20 directory overviews (IMPR-1185).
+    """Deterministic Quick Navigation for OpenViking v0.5.1.1 directory overviews (IMPR-1185).
 
     The stock ``SemanticProcessor._generate_overview`` asks the VLM to write the whole
     overview, including one navigation line per entry with an exact link placeholder.
@@ -2541,17 +2578,21 @@ data:
         ## Directory Coverage        code-built from the counts
         ## Detailed Description      model prose, pre-truncated to the space left
 
-    Constraints honoured (v0.4.20 source):
+    Constraints honoured (v0.5.1.1 source):
       * ``_extract_abstract_from_overview`` reads prose after the H1 up to the first
         ``##``, so navigation sits under an ``##`` AFTER the brief.
-      * ``_parse_overview_md`` treats every ``###`` body as a cached per-file summary and
-        keeps appending until the next ``###``, so nothing code-generated may follow
-        the model's last H3; everything added here precedes the first H3.
+      * ``_parse_overview_md`` (a classmethod delegating to
+        ``storage/abstract_overview.py`` ``parse_overview_file_summaries``) treats every
+        ``###`` body as a cached per-file summary and keeps appending until the next
+        ``###``, so nothing code-generated may follow the model's last H3; everything
+        added here precedes the first H3.
       * ``_enforce_size_limits`` tail-cuts at a sentence boundary; the tail is sized so
         the document is already under ``overview_max_chars`` and every nav line ends in
         a period as a backstop.
+      * Links come from the processor's own ``_markdown_link_target``
+        (``markdown_safe_viking_uri``), so they match the stock targets byte for byte.
 
-    Guarded: applies only to openviking ``v0.4.20`` whose ``_generate_overview`` source
+    Guarded: applies only to openviking ``v0.5.1.1`` whose ``_generate_overview`` source
     hashes to ``EXPECTED_SOURCE_SHA256``; otherwise it logs and leaves stock behaviour.
     Model failures (the stock placeholder strings) are passed through unchanged.
     Disable at runtime with ``OV_NAV_PATCH=0``.
@@ -2570,9 +2611,9 @@ data:
     import os
     import re
 
-    EXPECTED_VERSION = "v0.4.20"
+    EXPECTED_VERSION = "v0.5.1.1"
     EXPECTED_SOURCE_SHA256 = (
-        "aec8040007bbfed22727309060fc7034a325a738925e65024337d1aefe71325f"
+        "bae5084290a54df47b67fa8b66a46201d85a2c3363daa8ac6b631501061cf4ab"
     )
     NAV_SHARE = 0.6  # nav may take at most this share of overview_max_chars
     MAX_GLOSS_WORDS = 12
@@ -2921,10 +2962,11 @@ data:
     # real summary, and asks the model for the brief alone: the prompt carries glosses, so
     # no directory takes the batched merge path (BUG-1172), and the reply is capped.
     #
-    # The H3 bodies are also what ``SemanticDagExecutor._read_existing_summary`` reuses for
-    # an unchanged file, but only when no freshness debt is pending. A refresh caused by a
-    # new or changed child has debt pending, and stock v0.4.20 then re-summarizes every
-    # sampled file (``regenerate_sampled_summary``); the IMPR-1185 canary measured 0 of 58
+    # The H3 bodies are also what ``SemanticTreeExecutor._read_existing_summary``
+    # (semantic_executor.py) reuses for an unchanged file, but only when no freshness debt
+    # is pending. A refresh caused by a new or changed child has debt pending, and stock
+    # v0.5.1.1 then re-summarizes every sampled file (``regenerate_sampled_summary``,
+    # semantic_executor.py:1124, unchanged from v0.4.20); the IMPR-1185 canary measured 0 of 58
     # sibling inputs from the cache on that path. The bodies are kept idempotent under
     # re-clip so the paths that do read them see stable text.
     #
@@ -3209,11 +3251,26 @@ data:
             space -= len(out) - cap
 
 
-    def _accepts_max_tokens(func) -> bool:
+    def _named_param(func, name: str) -> bool:
         try:
-            return "max_tokens" in inspect.signature(func).parameters
+            return name in inspect.signature(func).parameters
         except (TypeError, ValueError):
             return False
+
+
+    def _accepts_max_tokens(vlm) -> bool:
+        """True when the handle's completion call takes ``max_tokens``.
+
+        v0.5.1.1 hands out an ``AccountBoundVLM`` whose ``get_completion_async`` is
+        ``(*args, **kwargs)`` and forwards to ``VLMConfig.get_completion_async``
+        (config/vlm.py:138, :331), which names ``max_tokens``; the handle's ``_settings``
+        copy is that ``VLMConfig``, so its signature stands in for the forward target.
+        """
+        if _named_param(vlm.get_completion_async, "max_tokens"):
+            return True
+        settings = getattr(vlm, "__dict__", {}).get("_settings")
+        forward = getattr(settings, "get_completion_async", None)
+        return forward is not None and _named_param(forward, "max_tokens")
 
 
     def _output_language(config, text: str) -> str:
@@ -3226,13 +3283,17 @@ data:
 
 
     async def generate_brief_overview(
-        module, processor, dir_uri, file_summaries, children_abstracts, tf, tc
+        module, processor, dir_uri, file_summaries, children_abstracts, tf, tc, ctx=None
     ):
-        """Phase 2 replacement body. Returns None when the VLM is unavailable."""
+        """Phase 2 replacement body. Returns None when the VLM is unavailable.
+
+        The VLM is the Account-owned handle the stock body resolves (semantic_processor.py
+        :1577-1578, ``ctx or self._default_ctx``), not the global ``config.vlm``.
+        """
         import contextlib
 
         config = module.get_openviking_config()
-        vlm = config.vlm
+        vlm = await processor._get_vlm_config(ctx or processor._default_ctx)
         if not vlm.is_available():
             return None
         tf = len(file_summaries) if tf is None else tf
@@ -3248,15 +3309,12 @@ data:
         prompt = build_brief_prompt(
             dir_uri, file_summaries, children_abstracts, tf, tc, language
         )
-        kwargs = (
-            {"max_tokens": BRIEF_MAX_TOKENS}
-            if _accepts_max_tokens(vlm.get_completion_async)
-            else {}
-        )
+        kwargs = {"max_tokens": BRIEF_MAX_TOKENS} if _accepts_max_tokens(vlm) else {}
         stage = getattr(module, "bind_telemetry_stage", None)
         raw = ""
         try:
-            with stage("resource_summarize") if stage else contextlib.nullcontext():
+            # the stage the stock overview calls use (semantic_processor.py:1730)
+            with stage("semantic_execute") if stage else contextlib.nullcontext():
                 raw = await vlm.get_completion_async(prompt, **kwargs)
         except Exception:
             logger.exception(
@@ -3292,7 +3350,7 @@ data:
             doc = assemble_contents(
                 p, "Brief prose.", "viking://resources/x/d", fs, cs, None, None, 20000
             )
-            cache = p._parse_overview_md(doc)
+            cache = cls._parse_overview_md(doc)  # a classmethod since v0.5.x
             return (
                 cache.get("a.md") == "Alpha entry about caching. It has detail."
                 and cache.get("b c.md") == "Beta entry."
@@ -3379,7 +3437,10 @@ data:
             llm_sem=None,
             total_files=None,
             total_children=None,
+            ctx=None,
         ):
+            # both v0.5.1.1 callers pass ctx by keyword (semantic_processor.py:1094-1101,
+            # semantic_executor.py:1509-1516)
             if phase2_ok and phase2_enabled(dir_uri):
                 try:
                     out = await generate_brief_overview(
@@ -3390,6 +3451,7 @@ data:
                         children_abstracts,
                         total_files,
                         total_children,
+                        ctx,
                     )
                 except Exception:
                     logger.exception(
@@ -3416,6 +3478,7 @@ data:
                 llm_sem,
                 total_files,
                 total_children,
+                ctx=ctx,
             )
             try:
                 cap = module.get_openviking_config().semantic.overview_max_chars
@@ -3455,7 +3518,7 @@ data:
         )
         return True
   ov_pref_gate_patch.py: |
-    """Skip preference extraction for an archive with no typed user text on v0.4.20 (IMPR-1404).
+    """Skip preference extraction for an archive with no typed user text on v0.5.1.1 (IMPR-1404).
 
     ``SessionCompressorV3._extract_user_memories`` sends every enabled ``stage: user`` schema
     to the model in one call, ``preferences`` included, whatever the archive holds. The
@@ -3494,7 +3557,14 @@ data:
     off, and anything else, unset included, only logs (``"action": "would_skip"``), so a typo
     never changes what is extracted.
 
-    Two halves, each guarded on v0.4.20 and the source hash of the method it wraps. Without
+    When the policy is ``None`` (every type), enforce mode passes the enabled names of the
+    deployment's default registry (``get_default_registry()``, ``memory_type_registry.py``
+    L322) minus ``preferences``. v0.5.1.1 resolves an account registry per extraction
+    (``resolve_account_memory_registry``, ``compressor_v3.py`` L692-L697); it holds one
+    schema per default schema, so the names match, but an account template that enables a
+    type the default leaves disabled is not seen here.
+
+    Two halves, each guarded on v0.5.1.1 and the source hash of the method it wraps. Without
     the session half a Phase 2 batch cannot be told from a whole archive, so the compressor
     half then gates nothing and extraction stays stock. Remove the patch once OpenViking checks
     message roles before a ``preferences`` write, or the capture plugin can set
@@ -3512,11 +3582,12 @@ data:
     import sys
     from collections import Counter
 
-    EXPECTED_VERSION = "v0.4.20"
-    EXPECTED_SHA256 = "3c355a049198505eeeeb0efea5881a43f6505dc3e886f5fa5fc2b3e823d557b2"
-    # openviking.session.session.Session._run_memory_extraction on v0.4.20.
+    EXPECTED_VERSION = "v0.5.1.1"
+    # openviking.session.compressor_v3.SessionCompressorV3._extract_user_memories on v0.5.1.1.
+    EXPECTED_SHA256 = "29befc9a5f91a6c91f1c0b74fb0bf6dad52ebd7e95304759cb4408093c0f21a6"
+    # openviking.session.session.Session._run_memory_extraction on v0.5.1.1.
     EXPECTED_PHASE2_SHA256 = (
-        "950a7ce54ae1cf8bb74dd7a24b7aac9bac65d150ba59982cec293e04e66c6faa"
+        "d64ddfa93c3d0d33c665f372c746f22f9bca9f670c7c4542d4e68f3e1527e9d2"
     )
     GATED_TYPE = "preferences"
     WATCHED_TYPES = (GATED_TYPE, "profile")
@@ -3734,11 +3805,11 @@ data:
             return False
         cls = getattr(module, "SessionCompressorV3", None)
         original = getattr(cls, "_extract_user_memories", None)
-        registry = getattr(module, "create_default_registry", None)
+        registry = getattr(module, "get_default_registry", None)
         if original is None or registry is None:
             logger.warning(
                 "ov-pref-gate-patch: NOT applied (SessionCompressorV3._extract_user_memories "
-                "or create_default_registry missing)"
+                "or get_default_registry missing)"
             )
             return False
         if getattr(original, "_ov_pref_gate_patch", False):
@@ -3798,12 +3869,13 @@ data:
   ov_recall_time_patch.py: |
     """Carry each recalled memory's last-write time into assembled context (IMPR-1215).
 
-    On v0.4.20 every retrieval hit already reads its vector record's ``updated_at``
-    (``RETRIEVAL_OUTPUT_FIELDS``) for the hotness blend, then drops it: ``MatchedContext``,
-    the context assembler's ``Candidate`` and ``AssembledEntry`` have no time field, so a
-    ``<memory>`` tag in ``/api/v1/search/search`` (``mode: "context"``) says nothing about
-    when the memory was written. The Claude Code plugin worked around that with one
-    ``fs/stat`` per URI, 280-660 ms each server-side and up to 2.8 s under write load.
+    On v0.5.1.1 every retrieval hit still reads its vector record's ``updated_at``
+    (``RETRIEVAL_OUTPUT_FIELDS``, ``storage/viking_vector_index_backend.py:64-72``; the
+    events time decay reads it too), then drops it: ``MatchedContext``, the context
+    assembler's ``Candidate`` and ``AssembledEntry`` have no time field, so a ``<memory>``
+    tag in ``/api/v1/search/search`` (``mode: "context"``) says nothing about when the
+    memory was written. The Claude Code plugin worked around that with one ``fs/stat`` per
+    URI, 280-660 ms each server-side and up to 2.8 s under write load.
 
     Read path, no new I/O, all state request-owned:
 
@@ -3812,7 +3884,10 @@ data:
         copies each candidate's time onto the ``Candidate`` itself.
       * ``HierarchicalRetriever._convert_to_matched_contexts`` writes each hit's
         ``updated_at`` into that map, keyed by its raw and display URI. Outside an
-        assembly (plain find) there is no map and nothing is recorded.
+        assembly (plain find) there is no map and nothing is recorded. The stock
+        conversion runs first and its result is returned as is, so v0.5.1.1's scoring
+        (no hotness blend since #5454; ``origin_score``/``time_score`` on each
+        ``MatchedContext``) is unchanged.
       * ``budget._make_entry`` copies the time onto the ``AssembledEntry`` and recounts its
         tokens at the length the plugin renders (local time with a UTC offset, five
         characters longer than ``…Z``), so the budget reserves room for the final form.
@@ -3821,16 +3896,20 @@ data:
 
     Write path (the vector time must mean the content's last write):
 
-      * v0.4.20's reindex builds a fresh ``Context`` whose ``created_at``/``updated_at``
-        default to now, so the IMPR-1200 events backfill (2026-09-28 ~13:24Z) stamped
-        every reindexed event with the backfill time. ``ReindexExecutor._upsert_context``
-        now stats the file first and ``EmbeddingMsgConverter.from_context`` gives that
-        context the file's ``modTime`` as both times. Reindexing unchanged content keeps
-        its write time, and re-running the events reindex repairs the backfilled records.
+      * The reindex builds a fresh ``Context`` whose ``created_at``/``updated_at``
+        default to now (``core/context.py:97-98``, ``reindex_executor.py:1575-1589``), so
+        the IMPR-1200 events backfill (2026-09-28 ~13:24Z) stamped every reindexed event
+        with the backfill time. v0.5.1.1's default ``IndexAction.MERGE`` does not keep
+        the stored times either: the fresh context data wins over the exact-read record
+        (``{**base, **inserted_data}``, ``storage/collection_schemas.py:897-899``).
+        ``ReindexExecutor._upsert_context`` now stats the file first and
+        ``EmbeddingMsgConverter.from_context`` gives that context the file's ``modTime``
+        as both times. Reindexing unchanged content keeps its write time, and re-running
+        the events reindex repairs the backfilled records.
 
     Each hook is version/source guarded on its own. A read-path hook that does not apply
     leaves the tag without ``updated`` (the plugin then falls back to its stat); a failed
-    stat on reindex leaves v0.4.20's default. ``OV_RECALL_TIME_PATCH=0`` rolls all back.
+    stat on reindex leaves upstream's default. ``OV_RECALL_TIME_PATCH=0`` rolls all back.
     """
 
     import asyncio
@@ -3842,15 +3921,15 @@ data:
     import os
     from datetime import datetime, timezone
 
-    EXPECTED_VERSION = "v0.4.20"
+    EXPECTED_VERSION = "v0.5.1.1"
     EXPECTED_SHA256 = {
-        "convert": "18a9911e3aa793b5e5d966b09604717d7d06c914d340bdd0d70db95dd184ee32",
-        "gather": "66f8d0b6590491345cdaca6be94984ef9d4cb719891f869243eece98fac5aa0b",
+        "convert": "5049fc8134b0aacc47d77a7e0b1eb8044d65ff840c5db28d87e20fe98a3a7356",
+        "gather": "85c3909ae32e498104d00efe312b856b704e296ef74763d6912d0b32d6187c4e",
         "make_entry": "565a34fbf4bb310aa21884bf2b50d0ebdb79d11bd16bf76db1670a653d0d7470",
         "render_entry": "4ff788f4804f55c841d95d1e331a2f4093f8b36641ea5dfdcd89db03d1d764f8",
         "to_dict": "60715e66d58ef5b110f5a256cfdfc6065f01bcd314a5bb13cae6960ac6a26089",
-        "upsert_context": "ddfd3f03e673f1b396caef3d549d4efacc97a64fc78e9a30c21c8297a48feaad",
-        "from_context": "fb15c3af326be29f826a870a8e6284e1663c122089769ae5df1c74c1e5bc6081",
+        "upsert_context": "120763eb0e417bca8bb13b3ea6dcc6c25d8def47a398ddce8b6054a1dcf28782",
+        "from_context": "9a21cfa830018ce4b93e77d9e322d6ba38ae7480bbd20e5e372fdd7b429aaedf",
     }
     # "…Z" becomes "…-05:00" in the plugin: reserve that length when counting tokens.
     LOCALIZED_PLACEHOLDER = "0000-00-00T00:00:00+00:00"
@@ -3985,7 +4064,7 @@ data:
             stat = await asyncio.wait_for(
                 get_viking_fs().stat(uri, ctx=ctx, skip_count=True), REINDEX_STAT_TIMEOUT_S
             )
-        except Exception as exc:  # noqa: BLE001 — a failed stat keeps v0.4.20's default
+        except Exception as exc:  # noqa: BLE001 — a failed stat keeps upstream's default
             logger.warning("ov-recall-time: reindex stat failed for %s: %r", uri, exc)
             return None
         value = (
@@ -4017,9 +4096,11 @@ data:
     async def existing_times(uri, level, ctx):
         """``(created_at, updated_at)`` of the record being replaced, or None.
 
-        Looked up in the caller's account backend by URI and level: v0.4.20's
-        ``fetch_by_uri`` gives up when a URI has more than one record, which every
-        directory does (its L0 and L1)."""
+        Looked up in the caller's account backend by URI and level: v0.5.1.1's
+        ``fetch_by_uri`` still gives up when a URI has more than one record
+        (``storage/viking_vector_index_backend.py:844-853``), which every directory does
+        (its L0 and L1). ``_get_backend_for_context`` became a coroutine in v0.5.1.1
+        (L1219-1221), so an awaitable result is awaited."""
         try:
             from openviking.server.dependencies import get_service
             from openviking.storage.viking_vector_index_backend import (
@@ -4027,6 +4108,8 @@ data:
             )
 
             backend = get_service().vikingdb_manager._get_backend_for_context(ctx)
+            if inspect.isawaitable(backend):
+                backend = await asyncio.wait_for(backend, REINDEX_STAT_TIMEOUT_S)
             records = await asyncio.wait_for(
                 backend.query(
                     filter={"op": "must", "field": "uri", "conds": [uri]},
@@ -4051,7 +4134,7 @@ data:
 
     async def reindex_times(uri, level, ctx):
         """The times a rebuilt record keeps: the file's ``modTime`` (both), else the
-        replaced record's own times at that level, else None (v0.4.20's "now",
+        replaced record's own times at that level, else None (upstream's "now",
         logged)."""
         when = await file_mod_time(uri, ctx)
         if when:
@@ -4101,7 +4184,7 @@ data:
 
 
     def _guarded(name, func):
-        """True when ``func`` is the v0.4.20 source this hook was written against."""
+        """True when ``func`` is the v0.5.1.1 source this hook was written against."""
         if os.environ.get("OV_RECALL_TIME_PATCH", "1") == "0":
             logger.warning("ov-recall-time: %s disabled by OV_RECALL_TIME_PATCH=0", name)
             return False
@@ -4112,7 +4195,7 @@ data:
 
         try:
             # getsource follows __wrapped__, so a hook stacked on another patch's
-            # functools.wraps wrapper still hashes the v0.4.20 function.
+            # functools.wraps wrapper still hashes the v0.5.1.1 function.
             digest = hashlib.sha256(inspect.getsource(func).encode()).hexdigest()
         except (OSError, TypeError):
             digest = None
@@ -4192,7 +4275,7 @@ data:
             "from_context", cls, "from_context", mod_time_from_context, static=True
         )
   ov_s3_cache_patch.py: |
-    """Disable RAGFS's process-local S3 metadata cache on v0.4.20 (BUG-1174).
+    """Disable RAGFS's process-local S3 metadata cache on v0.5.1.1 (BUG-1174).
 
     A cached negative stat survives another worker's mkdir. The lock manager then
     gets AlreadyExists from mkdir and the same stale NotFound from its verification
@@ -4212,7 +4295,7 @@ data:
     import logging
     import os
 
-    EXPECTED_VERSION = "v0.4.20"
+    EXPECTED_VERSION = "v0.5.1.1"
     EXPECTED_SHA256 = "3dd278b535bd5059e7eb09d58642560721c41fc8ccde403e1150c6282d0151e9"
     logger = logging.getLogger("ov_s3_cache_patch")
 
@@ -4253,7 +4336,7 @@ data:
         )
         return True
   sitecustomize.py: |
-    """Post-import hook that installs the OpenViking v0.4.20 runtime patches.
+    """Post-import hook that installs the OpenViking v0.5.1.1 runtime patches.
 
     Mounted from a ConfigMap onto PYTHONPATH. Python's ``site`` imports this file at
     interpreter start in every process, including the uvicorn workers. Each patch is
@@ -4280,9 +4363,8 @@ data:
                             write tracking on ``StreamingMemoryUpdater``;
                             ``OV_EXTRACT_PATCH_CHUNK=0`` turns chunking off alone).
       * ov_chatlog_patch  — BUG-1177: ChatLog speaker labels follow the turn's role
-                            (assistant turns read ``assistant``) and tool-only turns no
-                            longer render as empty lines (``MessageRange._speaker_for`` +
-                            ``_format_contiguous_group``).
+                            (assistant turns read ``assistant``)
+                            (``MessageRange._speaker_for``).
       * ov_memory_guard_patch — BUG-1180: an ``add_only`` memory write (events,
                             trajectories) never replaces an existing memory; an exact
                             duplicate is dropped and a collision goes to a free sibling

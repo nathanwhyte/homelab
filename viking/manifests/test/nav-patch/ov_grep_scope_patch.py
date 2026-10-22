@@ -1,24 +1,33 @@
 """Scope a user-root grep away from session archives, and bound every grep (BUG-1189).
 
-On v0.4.20 a grep over ``viking://user/<uid>/`` walks ``sessions/*/history/archive_*``
-too. A URI that can hold memory content takes the Python walker (``FSService.grep``
-sets a ``content_transform``), which lists every directory serially and reads every
-file, and a pattern that matches nothing never stops early: ``node_limit`` only
-counts matches. Measured 2026-09-28 on the pilot user: ``sessions/`` alone ran past
-the CLI's 60 s timeout, while the root with ``sessions/`` excluded returned in 10.9 s.
-The MCP ``grep`` tool has no ``exclude_uri`` parameter, so an agent could not route
-around it; its call timed out at 15 s and recall lost its exact-match check.
+A grep over ``viking://user/<uid>/`` walks ``sessions/*/history/archive_*`` too. A
+URI that can hold memory content takes the Python walker: v0.5.1.1 ``FSService.grep``
+sets a ``content_transform`` when ``_may_include_memory_content(uri)``
+(``service/fs_service.py:71-80,1199-1200``), which forces the ``fs`` engine and,
+past ``_grep_fs``'s native fast path, ``_grep_encrypted`` →
+``_collect_grep_files`` (``storage/viking_fs/_grep.py:85-89,294-336,775-841``). That
+walker lists every directory and reads every file, skipping only ``exclude_uri``,
+and a pattern that matches nothing never stops early: ``node_limit`` only counts
+matches. Upstream #5271 sends a URI that is itself a session down the native path,
+but a user root is not a session URI, so it still walks ``sessions/``. Measured
+2026-09-28 on the pilot user (v0.4.20): ``sessions/`` alone ran past the CLI's 60 s
+timeout, while the root with ``sessions/`` excluded returned in 10.9 s. The MCP
+``grep`` tool still has no ``exclude_uri`` parameter (``server/mcp_endpoint.py:2076``),
+so an agent cannot route around it; its call timed out at 15 s and recall lost its
+exact-match check.
 
 Two changes at ``FSService.grep``, the boundary the MCP tool and the REST route share
-(internal ``VikingFS.grep`` callers are untouched):
+(internal ``VikingFS.grep`` callers are untouched; every other argument, including
+v0.5.1.1's ``before_context``/``after_context`` from #5168, passes through as given):
 
   * a grep whose URI is exactly a user root, with no ``exclude_uri`` of its own, gets
     ``viking://user/<uid>/sessions`` as its exclusion, and the result carries
     ``excluded_by_default``. A grep that names ``sessions/…`` still searches it.
   * every grep is bounded by ``OV_GREP_TIMEOUT_S`` (default 12 s, inside the MCP
     client's 15 s; ``0`` turns the bound off). A timeout returns one marked result line
-    and ``timed_out: true`` rather than an error, because the MCP tool turns any error
-    into "No matches found", which would read as a confirmed absence.
+    and ``timed_out: true`` rather than an error: the line tells the agent the result
+    is incomplete and how to narrow the URI, where a bare ``TimeoutError`` reaches the
+    MCP tool as a failure with an empty message and the REST route as a 500.
 
 Version/source guarded; ``OV_GREP_SCOPE_PATCH=0`` rolls back.
 """
@@ -31,8 +40,8 @@ import logging
 import os
 import re
 
-EXPECTED_VERSION = "v0.4.20"
-EXPECTED_SHA256 = "57bde0d9dee25370436e08d7de7036d9d178ba5b73932f5004d229e5de45cdc0"
+EXPECTED_VERSION = "v0.5.1.1"
+EXPECTED_SHA256 = "be962811fbded40c92ff7227b490ed4cc109b5cab4f07a588b9b187158546d23"
 DEFAULT_TIMEOUT_S = 12.0
 USER_ROOT = re.compile(r"^viking://user/([^/]+)/?$")
 logger = logging.getLogger("ov_grep_scope_patch")

@@ -7,7 +7,7 @@
 #   * PYTHONPATH=/ov-nav-patch + the ov-nav-patch ConfigMap: sitecustomize.py installs
 #     the deterministic Quick Navigation wrapper (nav-patch/ov_nav_patch.py) and the
 #     BUG-1176 extraction-retry wrapper (nav-patch/ov_extract_patch.py). Each is guarded
-#     on openviking v0.4.20 + a source hash; otherwise stock behaviour, logged.
+#     on openviking v0.5.1.1 + a source hash; otherwise stock behaviour, logged.
 #   * No ov-exporter sidecar, no NodePort/ingress; ClusterIP only.
 #   * Own PVC, own vectordb, own S3 bucket (see ov-test-configmap.yaml).
 # It reuses prod's openviking-prompt-overrides ConfigMap, so the canary runs the
@@ -103,7 +103,8 @@ spec:
               mountPath: /app/data
       containers:
         - name: openviking-test
-          image: ghcr.io/volcengine/openviking:v0.4.20
+          # digest: sha256:551b1ae00f59fd7b1a2434ecc10a4860be34aae8b7627f5f57240be355b23217
+          image: ghcr.io/volcengine/openviking:v0.5.1.1
           ports:
             - containerPort: 1933
               name: http

@@ -1,4 +1,4 @@
-"""Post-import hook that installs the OpenViking v0.4.20 runtime patches.
+"""Post-import hook that installs the OpenViking v0.5.1.1 runtime patches.
 
 Mounted from a ConfigMap onto PYTHONPATH. Python's ``site`` imports this file at
 interpreter start in every process, including the uvicorn workers. Each patch is
@@ -25,9 +25,8 @@ off switch; a patch failure never breaks the import):
                         write tracking on ``StreamingMemoryUpdater``;
                         ``OV_EXTRACT_PATCH_CHUNK=0`` turns chunking off alone).
   * ov_chatlog_patch  — BUG-1177: ChatLog speaker labels follow the turn's role
-                        (assistant turns read ``assistant``) and tool-only turns no
-                        longer render as empty lines (``MessageRange._speaker_for`` +
-                        ``_format_contiguous_group``).
+                        (assistant turns read ``assistant``)
+                        (``MessageRange._speaker_for``).
   * ov_memory_guard_patch — BUG-1180: an ``add_only`` memory write (events,
                         trajectories) never replaces an existing memory; an exact
                         duplicate is dropped and a collision goes to a free sibling

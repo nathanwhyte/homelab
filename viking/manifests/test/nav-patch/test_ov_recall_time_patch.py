@@ -1,7 +1,7 @@
 """IMPR-1215: assembled context carries each memory's time; reindex keeps it true.
 
 The offline tests use stand-ins for the retriever, gather, budget, render and reindex
-functions. ``RealModuleTests`` run only inside the v0.4.20 image: they apply the hooks
+functions. ``RealModuleTests`` run only inside the v0.5.1.1 image: they apply the hooks
 to the real modules (so the version and source guards run too), stack them on the
 event-abstract hooks the way ``sitecustomize`` orders them, and render end to end.
 """
@@ -9,6 +9,7 @@ event-abstract hooks the way ``sitecustomize`` orders them, and render end to en
 import asyncio
 import importlib.util
 import os
+import subprocess
 import sys
 import unittest
 from dataclasses import dataclass
@@ -44,7 +45,8 @@ class FakeRetriever:
     def _append_level_suffix(cls, uri, level):
         return f"{uri}/.overview.md" if level == 1 else uri
 
-    async def _convert_to_matched_contexts(self, candidates, ctx, apply_hotness=True):
+    # v0.5.1.1's signature: hotness (and its ``apply_hotness`` flag) is gone (#5454).
+    async def _convert_to_matched_contexts(self, candidates, ctx):
         await asyncio.sleep(0)
         return [c["uri"] for c in candidates]
 
@@ -61,7 +63,7 @@ def fake_gather(convert):
     async def gather_candidates(hits, delay=0.0):
         async def retrieve():
             await asyncio.sleep(delay)
-            return await convert(FakeRetriever(), hits, None)
+            return await convert(FakeRetriever(), hits, ctx=None)
 
         uris = await asyncio.create_task(retrieve())
         return [FakeCandidate(u, u) for u in uris], {"n": len(uris)}
@@ -127,7 +129,8 @@ class ReadPathTests(unittest.TestCase):
             {"uri": "viking://m/a.md", "level": 2, "updated_at": "2026-09-29T17:45:58Z"}
         ]
         self.assertEqual(
-            asyncio.run(self.convert(FakeRetriever(), hits, None)), ["viking://m/a.md"]
+            asyncio.run(self.convert(FakeRetriever(), hits, ctx=None)),
+            ["viking://m/a.md"],
         )
         self.assertIsNone(rt._request_times.get())
 
@@ -209,7 +212,7 @@ class FakeExecutor:
         self.built = []
 
     async def _upsert_context(self, *, uri, ctx, **_):
-        # Like v0.4.20: a fresh context whose times default to now, then the converter.
+        # Like v0.5.1.1: a fresh context whose times default to now, then the converter.
         now = datetime.now(timezone.utc)
         context = SimpleNamespace(uri=uri, created_at=now, updated_at=now)
         self.converter(context)
@@ -290,7 +293,7 @@ class ReindexTests(unittest.TestCase):
 class ExistingTimesTests(unittest.TestCase):
     """The lookup itself, against a stand-in account backend."""
 
-    def lookup(self, records, level):
+    def lookup(self, records, level, async_getter=True):
         calls = []
 
         class Backend:
@@ -298,8 +301,15 @@ class ExistingTimesTests(unittest.TestCase):
                 calls.append(kwargs)
                 return records
 
+        def sync_getter(ctx):
+            calls.append(("ctx", ctx))
+            return Backend()
+
+        async def async_getter_(ctx):  # v0.5.1.1's _get_backend_for_context
+            return sync_getter(ctx)
+
         manager = SimpleNamespace(
-            _get_backend_for_context=lambda ctx: calls.append(("ctx", ctx)) or Backend()
+            _get_backend_for_context=async_getter_ if async_getter else sync_getter
         )
         modules = {
             "openviking.server.dependencies": SimpleNamespace(
@@ -336,6 +346,12 @@ class ExistingTimesTests(unittest.TestCase):
             calls[1]["filter"],
             {"op": "must", "field": "uri", "conds": ["viking://m/events"]},
         )
+
+    def test_a_synchronous_backend_getter_still_works(self):
+        records = [{"level": 2, "updated_at": "2026-09-23T02:00:00Z"}]
+        (_, updated), calls = self.lookup(records, 2, async_getter=False)
+        self.assertEqual(updated, datetime(2026, 9, 23, 2, 0, 0, tzinfo=timezone.utc))
+        self.assertEqual(calls[0], ("ctx", "CTX"))
 
     def test_no_record_at_that_level_keeps_nothing(self):
         records = [
@@ -392,7 +408,7 @@ class GuardTests(unittest.TestCase):
 HAVE_OV = importlib.util.find_spec("openviking") is not None
 
 
-@unittest.skipUnless(HAVE_OV, "needs the v0.4.20 openviking package")
+@unittest.skipUnless(HAVE_OV, "needs the v0.5.1.1 openviking package")
 class RealModuleTests(unittest.TestCase):
     def test_read_hooks_apply_and_render_end_to_end(self):
         from openviking.retrieve import hierarchical_retriever as h
@@ -452,7 +468,9 @@ class RealModuleTests(unittest.TestCase):
         # Run the stacked conversion on a real event context, as a reindex would.
         uri = "viking://user/u/peers/p/memories/events/2026/09/22/probe.md"
         body = "# Summary\nThe probe summary.\n\n# Details\nLonger body that the abstract drops.\n"
-        context = Context(uri=uri, abstract=body, context_type="memory", level=2)
+        context = Context(
+            uri=uri, abstract=body, context_type="memory", level=2, account_id="u"
+        )
         context.set_vectorize(Vectorize(text=body))
         written = datetime(2026, 9, 22, 14, 23, 37, tzinfo=timezone.utc)
         token = rt._reindex_time.set((uri, written, written))
@@ -465,6 +483,126 @@ class RealModuleTests(unittest.TestCase):
         self.assertEqual(rt.parse(msg.context_data["updated_at"]), written)
         # The event-abstract hook still ran underneath: the abstract is the Summary.
         self.assertNotIn("Longer body", msg.context_data.get("abstract", ""))
+
+    def test_real_convert_records_times_and_keeps_upstream_scores(self):
+        """The hook only records ``updated_at``: v0.5.1.1's own result, including
+        ``origin_score`` and ``time_score`` and no hotness blend, comes back as is."""
+        from openviking.retrieve import hierarchical_retriever as h
+
+        self.assertTrue(rt.apply_retriever(h))
+        convert = h.HierarchicalRetriever.__dict__["_convert_to_matched_contexts"]
+        self.assertTrue(getattr(convert, "_ov_recall_time_patch", False))
+        retriever = object.__new__(h.HierarchicalRetriever)
+        uri = "viking://user/u/memories/events/2026/09/29/a.md"
+        hits = [
+            {
+                "uri": uri,
+                "level": 2,
+                "context_type": "memory",
+                "abstract": "abs",
+                "_score": 0.5,
+                "_origin_score": 0.4,
+                "_time_score": 0.9,
+                "active_count": 50,
+                "updated_at": "2026-09-29T17:45:58.123456Z",
+            }
+        ]
+        times = {}
+        token = rt._request_times.set(times)
+        try:
+            matched = asyncio.run(
+                retriever._convert_to_matched_contexts(hits, ctx=None)
+            )
+        finally:
+            rt._request_times.reset(token)
+        self.assertEqual(len(matched), 1)
+        self.assertEqual(matched[0].uri, uri)
+        self.assertEqual(matched[0].score, 0.5)  # no hotness blend
+        self.assertEqual(matched[0].origin_score, 0.4)
+        self.assertEqual(matched[0].time_score, 0.9)
+        self.assertEqual(times, {uri: "2026-09-29T17:45:58Z"})
+
+    def test_sitecustomize_applies_both_patches_in_order(self):
+        """A fresh interpreter importing the real modules through ``sitecustomize``
+        applies event-abstract, then recall-time outermost, on both shared targets."""
+        here = os.path.dirname(os.path.abspath(__file__))
+        # The wheel reports "0.5.1.1" where the image reports "v0.5.1.1"; the suite
+        # runner maps it in its own process only, so the child repeats the mapping
+        # before any target imports (a no-op in the image).
+        code = "\n".join(
+            [
+                "import sys, openviking",
+                f"if 'v' + str(openviking.__version__) == {rt.EXPECTED_VERSION!r}:",
+                f"    openviking.__version__ = {rt.EXPECTED_VERSION!r}",
+                "    _m = sys.modules.get('openviking._version')",
+                "    if _m is not None:",
+                f"        _m.version = _m.__version__ = {rt.EXPECTED_VERSION!r}",
+                "import openviking.service.reindex_executor as r",
+                "import openviking.storage.queuefs.embedding_msg_converter as c",
+                "f = c.EmbeddingMsgConverter.__dict__['from_context'].__func__",
+                "u = r.ReindexExecutor.__dict__['_upsert_context']",
+                "for name, outer, inner_flag in (",
+                "    ('from_context', f, '_ov_event_abstract_patch'),",
+                "    ('upsert_context', u, '_ov_event_reindex_patch'),",
+                "):",
+                "    inner = outer.__wrapped__",
+                "    print(name, bool(outer.__dict__.get('_ov_recall_time_patch')),",
+                "          bool(inner.__dict__.get(inner_flag)),",
+                "          '_ov_recall_time_patch' in inner.__dict__)",
+            ]
+        )
+        env = {
+            k: v
+            for k, v in os.environ.items()
+            if k
+            not in {
+                "OV_EVENT_ABSTRACT_PATCH",
+                "OV_EVENT_REINDEX_PATCH",
+                "OV_RECALL_TIME_PATCH",
+            }
+        }
+        env["PYTHONPATH"] = os.pathsep.join(
+            p for p in (here, os.environ.get("PYTHONPATH", "")) if p
+        )
+        proc = subprocess.run(
+            [sys.executable, "-c", code],
+            cwd=here,
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=300,
+        )
+        self.assertEqual(proc.returncode, 0, proc.stderr[-2000:])
+        # Recall-time outermost, event-abstract directly beneath it.
+        report = [
+            line
+            for line in proc.stdout.splitlines()
+            if line.startswith(("from_context ", "upsert_context "))
+        ]
+        self.assertEqual(
+            report,
+            ["from_context True True False", "upsert_context True True False"],
+            proc.stdout,
+        )
+        log = proc.stderr
+        applied = [
+            "ov-event-abstract: applied",
+            "ov-recall-time: from_context applied",
+            "ov-event-reindex: applied",
+            "ov-recall-time: upsert_context applied",
+        ]
+        positions = [log.find(line) for line in applied]
+        self.assertNotIn(-1, positions, log[-2000:])
+        self.assertEqual(positions, sorted(positions), log[-2000:])
+        for refused in (
+            "ov-event-abstract: NOT applied",
+            "ov-event-reindex: NOT applied",
+            "ov-recall-time: from_context NOT applied",
+            "ov-recall-time: upsert_context NOT applied",
+            "ov_event_abstract_patch: install failed",
+            "ov_recall_time_patch: install failed",
+        ):
+            self.assertNotIn(refused, log)
 
 
 if __name__ == "__main__":

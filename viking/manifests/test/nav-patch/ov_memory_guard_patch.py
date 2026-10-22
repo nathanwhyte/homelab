@@ -1,6 +1,6 @@
 """An add_only memory write never replaces an existing memory (BUG-1180).
 
-OpenViking v0.4.20 files an ``add_only`` memory (``events``, ``trajectories``) at a path
+OpenViking v0.5.1.1 files an ``add_only`` memory (``events``, ``trajectories``) at a path
 rendered from its fields: ``events`` is ``{year}/{month}/{day}/{event_name}.md``. When a
 later extraction produces the same event name on the same day, the resolver hands the
 operation to ``MemoryUpdater.apply_operations`` with that path. The streaming updater
@@ -28,9 +28,21 @@ again at ``MemoryUpdater.apply_operations`` (for direct callers). For each targe
   * **collision** — the first free slot takes the write. The op's
     ``old_memory_file_content`` is cleared so it is reported and diffed as a new write,
     and links, delete replacements and search tags that named the old path follow it.
+    On v0.5.1.1 the clear also keeps the stock body from taking the diverted op for a
+    rename: a snapshot whose ``uri`` differs from the op's target makes it a URI
+    migration that deletes the snapshot's file (``_is_uri_migration``,
+    ``memory_updater.py`` L1191-L1198; ``_apply_upsert`` L1383-L1386), and from
+    filling a free slot's fields from the old file (the not-found fallback to the
+    snapshot, L1416-L1417).
   * **uncertain** — a slot that cannot be read (anything but not-found), or no free slot
     in 50: ``GuardError`` is raised and nothing is written. The stock body is never run
     unguarded, because that is the overwrite this patch exists to prevent.
+
+Since v0.5.1.1 (#6075) stock ``_apply_upsert`` itself re-raises any read error but
+not-found instead of merging into the prefetched snapshot (``memory_updater.py``
+L1399-L1405), so the guard no longer stands alone against that fallback. It still raises
+on an unreadable slot: the slot walk has to decide free, duplicate or occupied, and a slot
+wrongly counted free that reads back on the stock pass would be merged into.
 
 ``upsert`` memory types are untouched: merging into an existing file is their contract.
 
@@ -50,7 +62,7 @@ the summary only, so a decision that appears only in the ChatLog is lost with it
 ``shadow`` — the default, and the fallback for any other value — records
 ``"would_drop"`` and writes the event anyway.
 
-Guarded: applies only to openviking ``v0.4.20`` whose ``apply_operations``,
+Guarded: applies only to openviking ``v0.5.1.1`` whose ``apply_operations``,
 ``_apply_upsert``, ``StreamingMemoryUpdater.submit`` and ``_split_append_only_request``
 sources hash to the expected values; otherwise it logs "NOT applied" and stock behaviour
 stays. Disable at runtime with ``OV_MEMORY_GUARD=0``.
@@ -99,14 +111,18 @@ every other tool is ``read_only``, nothing errored and every OpenViking read com
 ``keep-mixed`` when a mutating tool ran; ``keep-ambiguous`` otherwise), and the assistant
 text character counts and a 12-hex-character sha256 prefix per text part, split by
 whether the part falls before or after the turn's last OpenViking read. **The record
-never includes message text.** ``ExtractContext.__init__`` is not given an archive or
-session id (neither is any caller in this module) — confirmed by tracing the real
-v0.4.20 commit path, ``session.py``: the archive write (``messages_to_archive`` ->
+never includes message text.** On the user-memory path ``ExtractContext.__init__`` is not
+given an archive or session id: v0.5.1.1 added a ``source_archive_uri`` keyword, which
+the wrapper passes through untouched, but ``SessionCompressorV3._extract_user_memories``
+builds its ``SessionExtractContextProvider`` without one (``compressor_v3.py``
+L708-L717); only session-skill and case training pass it (L848, L906, L990). Traced on
+v0.4.20, ``session.py``: the archive write (``messages_to_archive`` ->
 ``m.to_jsonl()``), the Phase 2 read-back (``_read_archive_messages`` ->
 ``archive_messages``, whose own ``first_message_id``/``last_message_id`` OpenViking
-computes the same way, ``archive_messages[0].id``/``[-1].id``), and the id-preserving
-hydration and image-replacement passes before ``SessionExtractContextProvider`` builds
-the ``ExtractContext``. **The join key is the turn's message ids** (2026-09-28 decision):
+computes the same way, ``archive_messages[0].id``/``[-1].id``, ``session.py`` L1967-L1968
+on v0.5.1.1), and the id-preserving hydration and image-replacement passes before
+``SessionExtractContextProvider`` builds the ``ExtractContext``. **The join key is the
+turn's message ids** (2026-09-28 decision):
 a consumer resolves a record to its archive by finding the ``messages.jsonl`` that
 contains ``first_message_id``, not by a session id this hook does not have. With
 ``chunk_meta`` given, the pre-chunked path is unaffected (as above) and one
@@ -127,12 +143,12 @@ import os
 import re
 import sys
 
-EXPECTED_VERSION = "v0.4.20"
+EXPECTED_VERSION = "v0.5.1.1"
 EXPECTED_APPLY_SHA256 = (
-    "3d193734e7cc836a7153915a170bca3076c64f30bd0db5a93bad9e1747004e0d"
+    "b7e59f96cf88e9620c91ca91e16fe3e2a575531b993208973210f83c3194bd19"
 )
 EXPECTED_UPSERT_SHA256 = (
-    "852ef6c47789e240ddd4072dae0c889f5fcfa9808c99667c54d11213fa796d09"
+    "06e2711ee13c2ecb30ab545faa0ee14d950b5e272c4a5fd5bfe10fc8a182fb25"
 )
 MAX_SIBLINGS = 50
 ADD_ONLY = "add_only"
@@ -668,12 +684,15 @@ def apply(module) -> bool:
 # is part of the event identity and only a replay of the same extraction is a duplicate.
 # The apply_operations guard stays for callers that apply operations directly; for a
 # submitted request it verifies the submit's reservations rather than choosing again.
+# The add_only test uses the registry the stock split uses: on v0.5.1.1 the request's
+# own ``memory_registry`` (the account registry), then the updater's, then the default
+# (``streaming_memory_updater.py`` L326).
 
 EXPECTED_SUBMIT_SHA256 = (
     "67e4e598f003d0d46f6790ac19f469a367cdfa5d65203b12b8a10f596989c0ee"
 )
 EXPECTED_SPLIT_SHA256 = (
-    "72cb16fd3f60e18ebf99da17c782c233fe231f3e1ff3073380b04baa497e0605"
+    "13bacf014d756d6224353005b31de5497bc3d9826efd619a9eef4cc5fdb44c49"
 )
 
 
@@ -689,7 +708,11 @@ def wrap_submit(module, orig, memory_module=None):
             from openviking.session.memory import memory_updater as readers
         module.attach_source_to_request_operations(request)
         drop_lifecycle_noise(operations)
-        registry = self.registry or module.create_default_registry()
+        registry = (
+            getattr(request, "memory_registry", None)
+            or self.registry
+            or module.get_default_registry()
+        )
         owner = object()
         token = _OWNER.set(owner)
         taken = []
@@ -734,7 +757,7 @@ def apply_streaming(module) -> bool:
         or submit_digest != EXPECTED_SUBMIT_SHA256
         or split_digest != EXPECTED_SPLIT_SHA256
         or not hasattr(module, "get_viking_fs")
-        or not hasattr(module, "create_default_registry")
+        or not hasattr(module, "get_default_registry")
         or not hasattr(module, "attach_source_to_request_operations")
     ):
         logger.warning(
@@ -756,7 +779,7 @@ def apply_streaming(module) -> bool:
 # --- Echo guard -------------------------------------------------------------------------
 
 EXPECTED_EXTRACT_INIT_SHA256 = (
-    "194316aaa85ed0cdacdb638dc6982db93fdb19d78dd840b775f2eaad4c96fcf3"
+    "3db08842e387d2d8f8a0c797a939b06afbaf02ef0f7ee561282bd2b259abe1ff"
 )
 RECALL_LINE = re.compile(
     r"^(?:"
@@ -1124,7 +1147,14 @@ def _recall_shadow_enabled() -> bool:
 
 def wrap_extract_init(module, orig):
     @functools.wraps(orig)
-    def __init__(self, messages, chunk_meta=None, *, split_long_text_messages=True):
+    def __init__(
+        self,
+        messages,
+        chunk_meta=None,
+        *,
+        split_long_text_messages=True,
+        source_archive_uri="",
+    ):
         if chunk_meta is None and isinstance(messages, list):
             try:
                 cleaned = [strip_recall_message(m, module.TextPart) for m in messages]
@@ -1158,6 +1188,7 @@ def wrap_extract_init(module, orig):
             messages,
             chunk_meta,
             split_long_text_messages=split_long_text_messages,
+            source_archive_uri=source_archive_uri,
         )
 
     __init__._ov_echo_guard = True

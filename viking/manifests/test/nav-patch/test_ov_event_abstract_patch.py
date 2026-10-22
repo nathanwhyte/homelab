@@ -1,6 +1,6 @@
 """IMPR-1200 event-abstract patch: semantics on fakes, plus checks against the real module.
 
-The ``Installed`` cases need openviking importable (the v0.4.20 image, or the
+The ``Installed`` cases need openviking importable (the v0.5.1.1 image, or the
 ``openviking`` uv tool through viking/scripts/run-nav-patch-tests.py) and are skipped
 only when no openviking package is found; another version fails its guard.
 """
@@ -25,6 +25,12 @@ BODY = (
     "**assistant**: needs --domain\n"
 )
 SUMMARY = "Attempted login; the CLI adds its own https:// scheme."
+ACCOUNT = "noot"
+
+
+def stock_shape(msg):
+    """A stand-in with v0.5.1.1's ``from_context(context, action, *, telemetry_id)``."""
+    return lambda context, action=None, *, telemetry_id=None: msg
 
 
 def record(**overrides):
@@ -113,7 +119,7 @@ class RecordTests(unittest.TestCase):
 class WrapperTests(unittest.TestCase):
     def test_embedding_text_is_never_touched(self):
         msg = types.SimpleNamespace(message=BODY, context_data=record())
-        wrapped = ea.summary_abstract(lambda context, creator_acl_grant=None: msg)
+        wrapped = ea.summary_abstract(stock_shape(msg))
         out = wrapped(object())
         self.assertIs(out, msg)
         self.assertEqual(out.message, BODY)
@@ -126,7 +132,7 @@ class WrapperTests(unittest.TestCase):
         msg = types.SimpleNamespace(
             message=edited_body, context_data=record(abstract=SUMMARY)
         )
-        wrapped = ea.summary_abstract(lambda context, creator_acl_grant=None: msg)
+        wrapped = ea.summary_abstract(stock_shape(msg))
         out = wrapped(object())
         self.assertEqual(out.message, edited_body)  # untouched
         self.assertEqual(out.context_data["abstract"], ea.summary_section(edited_body))
@@ -135,25 +141,26 @@ class WrapperTests(unittest.TestCase):
         msg = types.SimpleNamespace(
             message=[{"type": "text", "text": "x"}], context_data=record()
         )
-        wrapped = ea.summary_abstract(lambda context, creator_acl_grant=None: msg)
+        wrapped = ea.summary_abstract(stock_shape(msg))
         out = wrapped(object())
         self.assertEqual(out.context_data["abstract"], SUMMARY)
 
     def test_none_passes_through_and_args_are_forwarded(self):
         seen = {}
 
-        def original(context, creator_acl_grant=None):
-            seen["args"] = (context, creator_acl_grant)
+        def original(context, action=None, *, telemetry_id=None):
+            seen["args"] = (context, action, telemetry_id)
             return None
 
-        self.assertIsNone(ea.summary_abstract(original)("ctx", creator_acl_grant="g"))
-        self.assertEqual(seen["args"], ("ctx", "g"))
+        wrapped = ea.summary_abstract(original)
+        self.assertIsNone(wrapped("ctx", "upsert", telemetry_id="t"))
+        self.assertEqual(seen["args"], ("ctx", "upsert", "t"))
 
     def test_original_errors_propagate(self):
-        def fail(context, creator_acl_grant=None):
-            raise ValueError("bad context")
+        def fail(context, action=None, *, telemetry_id=None):
+            raise ValueError("Embedding context requires account_id")
 
-        with self.assertRaisesRegex(ValueError, "bad context"):
+        with self.assertRaisesRegex(ValueError, "requires account_id"):
             ea.summary_abstract(fail)(None)
 
 
@@ -161,7 +168,7 @@ class ApplyTests(unittest.TestCase):
     def _module(self):
         class Converter:
             @staticmethod
-            def from_context(context, creator_acl_grant=None):
+            def from_context(context, action=None, *, telemetry_id=None):
                 return types.SimpleNamespace(message="m", context_data=record())
 
         return types.SimpleNamespace(EmbeddingMsgConverter=Converter)
@@ -200,7 +207,7 @@ else:
     from openviking.storage.queuefs import embedding_msg_converter as _emc
 
 
-@unittest.skipIf(_ov is None, "needs openviking v0.4.20 importable")
+@unittest.skipIf(_ov is None, "needs openviking v0.5.1.1 importable")
 class Installed(unittest.TestCase):
     def test_source_hash_matches(self):
         digest = ea.hashlib.sha256(
@@ -229,11 +236,39 @@ class Installed(unittest.TestCase):
                     abstract=BODY,
                     context_type="memory",
                     level=ContextLevel.DETAIL,
+                    account_id=ACCOUNT,
                 )
                 context.set_vectorize(Vectorize(text=BODY))
                 msg = converter.from_context(context)
                 self.assertEqual(msg.message, BODY)
                 self.assertEqual(msg.context_data["abstract"], SUMMARY)
+                self.assertEqual(msg.context_data["account_id"], ACCOUNT)
+            finally:
+                converter.from_context = original
+
+    def test_real_converter_still_refuses_a_context_without_an_account(self):
+        """v0.5.1.1 raises for a blank account_id instead of defaulting it to
+        "default" (embedding_msg_converter.py:46-51); the wrapper must not mask
+        that. ``Context()`` itself fills "default", so blank it afterwards."""
+        from openviking.core.context import Context, ContextLevel, Vectorize
+
+        with patch.object(_ov, "__version__", ea.EXPECTED_VERSION):
+            converter = _emc.EmbeddingMsgConverter
+            original = converter.__dict__["from_context"]
+            try:
+                self.assertTrue(ea.apply(_emc))
+                context = Context(
+                    uri=EVENT_URI,
+                    parent_uri=EVENT_URI.rsplit("/", 1)[0],
+                    is_leaf=True,
+                    abstract=BODY,
+                    context_type="memory",
+                    level=ContextLevel.DETAIL,
+                )
+                context.set_vectorize(Vectorize(text=BODY))
+                context.account_id = "  "
+                with self.assertRaisesRegex(ValueError, "requires account_id"):
+                    converter.from_context(context)
             finally:
                 converter.from_context = original
 
@@ -256,6 +291,7 @@ class Installed(unittest.TestCase):
                     abstract=SUMMARY,  # stale: the Summary stored before the edit
                     context_type="memory",
                     level=ContextLevel.DETAIL,
+                    account_id=ACCOUNT,
                 )
                 context.set_vectorize(Vectorize(text=edited_body))
                 msg = converter.from_context(context)
@@ -280,7 +316,7 @@ class Installed(unittest.TestCase):
         enqueues for the same stored file: run the real updater on a fake store and
         compare its message with write_path_embedding_text on the same body."""
         from openviking.session.memory.memory_type_registry import (
-            create_default_registry,
+            get_default_registry,
         )
         from openviking.session.memory.memory_updater import (
             MemoryUpdater,
@@ -297,7 +333,7 @@ class Installed(unittest.TestCase):
         # registry failure fails the case (IMPR-1413).
         if resolve_config_path(None, OPENVIKING_CONFIG_ENV, DEFAULT_OV_CONF) is None:
             self.skipTest("no OpenViking config here (needs the image's ov.conf)")
-        registry = create_default_registry()
+        registry = get_default_registry()
         stored = (
             "---\nevent_name: kinde_login_attempts\ngoal: log in to the dev tenant\n---\n"
             + BODY.replace("needs --domain", "needs --domain, see [docs](viking://x/y)")
@@ -323,7 +359,7 @@ class Installed(unittest.TestCase):
         asyncio.run(
             updater._vectorize_memories(
                 result,
-                ctx=types.SimpleNamespace(user=None, account_id="default"),
+                ctx=types.SimpleNamespace(user=None, account_id=ACCOUNT),
                 uri_memory_type_map={EVENT_URI: "events"},
             )
         )

@@ -1,12 +1,15 @@
-"""Tests for ov_chatlog_patch. Pure (fakes only) — runs anywhere:
+"""Tests for ov_chatlog_patch. The fake-only cases run anywhere:
 
     python3 test_ov_chatlog_patch.py
 
-The version/source-hash guard and the rendering against the INSTALLED openviking are
-exercised by piping ov_chatlog_patch.py into a throwaway interpreter in the ov-test pod
-(see the BUG-1177 PR); this file covers the wrapper semantics and the guard's refusals.
+``RealRendererTests`` need the installed openviking (run inside the v0.5.1.1 image): they
+load a fresh, unpatched copy of ``memory_updater`` and check the guard applies to the real
+``MessageRange`` and that the patched renderer labels turns by role. They also pin the
+upstream #5139 behaviour this patch no longer carries: stock v0.5.1.1 already drops the
+empty line of a tool-only turn.
 """
 
+import importlib.util
 import os
 import sys
 import types
@@ -14,6 +17,9 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import ov_chatlog_patch as cp  # noqa: E402
+
+TARGET = "openviking.session.memory.memory_updater"
+HAVE_OPENVIKING = importlib.util.find_spec("openviking") is not None
 
 
 class Msg:
@@ -40,35 +46,6 @@ class SpeakerTests(unittest.TestCase):
         self.assertEqual(cp.speaker_for(Msg("system")), "system")
 
 
-class GroupTests(unittest.TestCase):
-    def wrapped(self, lines):
-        return cp.wrap_group(lambda self, group: list(lines))(None, [])
-
-    def test_empty_content_lines_are_dropped(self):
-        out = self.wrapped(
-            [
-                f"**{PEER}**: merge them",
-                "**assistant**: ",
-                "**assistant**:",
-                "**assistant**:   \n  ",
-                "**assistant**: Both PRs are merged.",
-            ]
-        )
-        self.assertEqual(
-            out, [f"**{PEER}**: merge them", "**assistant**: Both PRs are merged."]
-        )
-
-    def test_multiline_content_is_kept(self):
-        line = "**assistant**: first\nsecond"
-        self.assertEqual(self.wrapped([line]), [line])
-
-    def test_separator_and_non_label_lines_pass_through(self):
-        self.assertEqual(self.wrapped(["...", "plain"]), ["...", "plain"])
-
-    def test_wrapper_is_marked(self):
-        self.assertTrue(cp.wrap_group(lambda s, g: [])._ov_chatlog_patch)
-
-
 class GuardTests(unittest.TestCase):
     def setUp(self):
         self.saved = sys.modules.get("openviking")
@@ -93,7 +70,7 @@ class GuardTests(unittest.TestCase):
             def _format_contiguous_group(self, msg_group):
                 return []
 
-        module = types.ModuleType("openviking.session.memory.memory_updater")
+        module = types.ModuleType(TARGET)
         module.MessageRange = MessageRange
         return module, MessageRange
 
@@ -116,11 +93,81 @@ class GuardTests(unittest.TestCase):
 
     def test_already_applied_is_idempotent(self):
         module, cls = self.fake(cp.EXPECTED_VERSION)
-        cls._format_contiguous_group = cp.wrap_group(cls._format_contiguous_group)
+        cls._speaker_for = staticmethod(cp.speaker_for)
         self.assertTrue(cp.apply(module))
+        self.assertIs(cls.__dict__["_speaker_for"].__func__, cp.speaker_for)
+
+    def test_group_renderer_is_left_alone(self):
+        module, cls = self.fake(cp.EXPECTED_VERSION)
+        group = cls.__dict__["_format_contiguous_group"]
+        cls._speaker_for = staticmethod(cp.speaker_for)
+        cp.apply(module)
+        self.assertIs(cls.__dict__["_format_contiguous_group"], group)
 
     def test_targets_name_the_renderer_module(self):
-        self.assertIn("openviking.session.memory.memory_updater", cp.TARGETS)
+        self.assertIn(TARGET, cp.TARGETS)
+
+
+def fresh_target():
+    """A new, unpatched copy of the renderer module under a name sitecustomize ignores."""
+    name = "_ov_chatlog_stock_copy"
+    spec = importlib.util.find_spec(TARGET)
+    copy = importlib.util.spec_from_file_location(name, spec.origin)
+    module = importlib.util.module_from_spec(copy)
+    sys.modules[name] = module  # dataclasses resolve annotations through sys.modules
+    try:
+        copy.loader.exec_module(module)
+    finally:
+        sys.modules.pop(name, None)
+    return module
+
+
+@unittest.skipUnless(
+    HAVE_OPENVIKING, "needs the installed openviking (run in the image)"
+)
+class RealRendererTests(unittest.TestCase):
+    def setUp(self):
+        os.environ.pop("OV_CHATLOG_PATCH", None)
+        from openviking.message import Message
+        from openviking.message.part import TextPart, ToolPart
+
+        self.module = fresh_target()
+        self.Message, self.TextPart, self.ToolPart = Message, TextPart, ToolPart
+
+    def msg(self, i, role, *parts):
+        return self.Message(id=f"m{i}", role=role, parts=list(parts), peer_id=PEER)
+
+    def conversation(self):
+        return [
+            self.msg(1, "user", self.TextPart(text="merge them")),
+            self.msg(2, "assistant", self.ToolPart(tool_id="t1", tool_name="Bash")),
+            self.msg(3, "assistant", self.TextPart(text="Both PRs are merged.")),
+        ]
+
+    def test_guard_matches_the_real_target(self):
+        stock = cp._speaker_fn(self.module.MessageRange)
+        self.assertEqual(cp._source_hash(stock), cp.EXPECTED_SPEAKER_SHA256)
+        self.assertTrue(cp.apply(self.module))
+        self.assertIs(
+            self.module.MessageRange.__dict__["_speaker_for"].__func__, cp.speaker_for
+        )
+        self.assertTrue(cp.apply(self.module))  # idempotent
+
+    def test_stock_renderer_already_drops_tool_only_turns(self):
+        # upstream #5139: the v0.4.20 empty-line half of this patch is no longer needed
+        out = self.module.MessageRange([self.conversation()]).pretty_print()
+        self.assertEqual(
+            out.splitlines(),
+            [f"**{PEER}**: merge them", f"**{PEER}**: Both PRs are merged."],
+        )
+
+    def test_patched_renderer_labels_turns_by_role(self):
+        self.assertTrue(cp.apply(self.module))
+        out = self.module.MessageRange([self.conversation()]).pretty_print()
+        self.assertEqual(
+            out.splitlines(),
+            [f"**{PEER}**: merge them", "**assistant**: Both PRs are merged."],
+        )
 
 
 if __name__ == "__main__":

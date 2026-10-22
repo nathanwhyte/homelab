@@ -3,7 +3,7 @@
     python3 test_ov_memory_guard_patch.py
 
 The guard's semantics run on fakes anywhere. The ``Installed`` cases need openviking
-v0.4.20 (the image, run with PYTHONPATH=<this dir> /app/.venv/bin/python …, or the
+v0.5.1.1 (the image, run with PYTHONPATH=<this dir> /app/.venv/bin/python …, or the
 ``openviking`` uv tool through viking/scripts/run-nav-patch-tests.py) and are skipped
 only when no openviking package is found: they check the version/source-hash guard against the real ``MemoryUpdater``
 and read a summary back through the real ``MemoryFileUtils``.
@@ -333,7 +333,7 @@ class GuardSemantics(unittest.TestCase):
             fs = FakeFS()
             module = types.SimpleNamespace(
                 get_viking_fs=lambda: fs,
-                create_default_registry=Registry,
+                get_default_registry=Registry,
                 attach_source_to_request_operations=lambda req: None,
             )
 
@@ -451,7 +451,7 @@ class WrapperTests(unittest.TestCase):
         fs = FakeFS({target: stored("other")})
         module = types.SimpleNamespace(
             get_viking_fs=lambda: fs,
-            create_default_registry=Registry,
+            get_default_registry=Registry,
             attach_source_to_request_operations=lambda req: None,
         )
         seen = []
@@ -464,6 +464,42 @@ class WrapperTests(unittest.TestCase):
         wrapped = mg.wrap_submit(module, stock_submit, memory_module=FAKE_MODULE)
         out = asyncio.run(wrapped(updater, request))
         self.assertEqual((out, seen), ("ok", [f"{BASE}/x_2.md"]))
+
+    def test_submit_reads_add_only_from_the_registry_the_stock_split_uses(self):
+        # v0.5.1.1 splits on request.memory_registry first, then the updater's registry
+        # (streaming_memory_updater.py L326); the guard must decide add_only the same way.
+        class AllUpsert:
+            def get(self, memory_type):
+                return types.SimpleNamespace(operation_mode="upsert")
+
+        target = f"{BASE}/x.md"
+        fs = FakeFS({target: stored("other")})
+        module = types.SimpleNamespace(
+            get_viking_fs=lambda: fs,
+            get_default_registry=AllUpsert,
+            attach_source_to_request_operations=lambda req: None,
+        )
+
+        async def stock_submit(self, req):
+            return [list(o.uris) for o in req.operations.upsert_operations]
+
+        wrapped = mg.wrap_submit(module, stock_submit, memory_module=FAKE_MODULE)
+        cases = [
+            # (request registry, updater registry, expected target)
+            (Registry(), AllUpsert(), f"{BASE}/x_2.md"),
+            (AllUpsert(), Registry(), target),
+            (None, Registry(), f"{BASE}/x_2.md"),
+            (None, None, target),
+        ]
+        for request_registry, updater_registry, expected in cases:
+            with self.subTest(request=request_registry, updater=updater_registry):
+                request = types.SimpleNamespace(
+                    operations=ops(op("x", "new")),
+                    ctx=object(),
+                    memory_registry=request_registry,
+                )
+                updater = types.SimpleNamespace(registry=updater_registry)
+                self.assertEqual(asyncio.run(wrapped(updater, request)), [[expected]])
 
 
 def noise_records(run):
@@ -678,7 +714,7 @@ class LifecycleNoiseTests(unittest.TestCase):
         )
         module = types.SimpleNamespace(
             get_viking_fs=lambda: fs,
-            create_default_registry=Registry,
+            get_default_registry=Registry,
             attach_source_to_request_operations=lambda req: None,
         )
         request = types.SimpleNamespace(operations=batch(), ctx=object())
@@ -688,7 +724,7 @@ class LifecycleNoiseTests(unittest.TestCase):
 
     def chained(self, request, mode):
         """Run ``request`` through the patched submit, whose stock body splits it the way
-        v0.4.20 does — the append request carries no delete_replacements — and applies the
+        v0.5.1.1 does — the append request carries no delete_replacements — and applies the
         append half through the patched apply_operations."""
         applied = []
 
@@ -709,7 +745,7 @@ class LifecycleNoiseTests(unittest.TestCase):
 
         module = types.SimpleNamespace(
             get_viking_fs=lambda: fs,
-            create_default_registry=Registry,
+            get_default_registry=Registry,
             attach_source_to_request_operations=lambda req: None,
         )
         wrapped = mg.wrap_submit(module, stock_submit, memory_module=FAKE_MODULE)
@@ -1381,10 +1417,50 @@ class ShadowWrapperTests(unittest.TestCase):
     def _module(self):
         return types.SimpleNamespace(TextPart=FakeText)
 
+    def test_source_archive_uri_reaches_the_stock_init(self):
+        # v0.5.1.1 added the keyword (memory_updater.py L221); dropping it would lose the
+        # archive suffix that get_source_archive_suffix() puts in file names.
+        seen = []
+
+        def orig(
+            self,
+            messages,
+            chunk_meta,
+            *,
+            split_long_text_messages=True,
+            source_archive_uri="",
+        ):
+            seen.append((split_long_text_messages, source_archive_uri))
+
+        wrapped = mg.wrap_extract_init(self._module(), orig)
+        wrapped(object(), [umsg("u0")])
+        wrapped(
+            object(),
+            [umsg("u0")],
+            split_long_text_messages=False,
+            source_archive_uri="viking://s/history/archive_005",
+        )
+        wrapped(object(), [umsg("u0")], {}, source_archive_uri="viking://s/a")
+        self.assertEqual(
+            seen,
+            [
+                (True, ""),
+                (False, "viking://s/history/archive_005"),
+                (True, "viking://s/a"),
+            ],
+        )
+
     def test_invariance_message_list_identical_shadow_on_and_off(self):
         seen = []
 
-        def orig(self, messages, chunk_meta, *, split_long_text_messages=True):
+        def orig(
+            self,
+            messages,
+            chunk_meta,
+            *,
+            split_long_text_messages=True,
+            source_archive_uri="",
+        ):
             seen.append(messages)
 
         wrapped = mg.wrap_extract_init(self._module(), orig)
@@ -1411,7 +1487,14 @@ class ShadowWrapperTests(unittest.TestCase):
         self.assertIs(seen[1][1], msgs[1])
 
     def test_kill_switch_suppresses_shadow_logging(self):
-        def orig(self, messages, chunk_meta, *, split_long_text_messages=True):
+        def orig(
+            self,
+            messages,
+            chunk_meta,
+            *,
+            split_long_text_messages=True,
+            source_archive_uri="",
+        ):
             return None
 
         wrapped = mg.wrap_extract_init(self._module(), orig)
@@ -1441,7 +1524,14 @@ class ShadowWrapperTests(unittest.TestCase):
     def test_prechunked_skips_classification_and_logs_once(self):
         called = []
 
-        def orig(self, messages, chunk_meta, *, split_long_text_messages=True):
+        def orig(
+            self,
+            messages,
+            chunk_meta,
+            *,
+            split_long_text_messages=True,
+            source_archive_uri="",
+        ):
             called.append((messages, chunk_meta))
 
         wrapped = mg.wrap_extract_init(self._module(), orig)
@@ -1464,7 +1554,14 @@ class ShadowWrapperTests(unittest.TestCase):
     def test_classifier_failure_leaves_the_stock_call_unchanged(self):
         seen = []
 
-        def orig(self, messages, chunk_meta, *, split_long_text_messages=True):
+        def orig(
+            self,
+            messages,
+            chunk_meta,
+            *,
+            split_long_text_messages=True,
+            source_archive_uri="",
+        ):
             seen.append(messages)
 
         wrapped = mg.wrap_extract_init(self._module(), orig)
@@ -1481,7 +1578,7 @@ else:
     from openviking.session.memory import memory_updater as installed
 
 
-@unittest.skipIf(installed is None, "needs the openviking v0.4.20 image")
+@unittest.skipIf(installed is None, "needs the openviking v0.5.1.1 image")
 class Installed(unittest.TestCase):
     def test_hook_applied_the_guard_on_import(self):
         self.assertTrue(
@@ -1522,6 +1619,23 @@ class Installed(unittest.TestCase):
         submit = s.StreamingMemoryUpdater.submit
         self.assertTrue(getattr(submit, "_ov_memory_guard", False))
         self.assertEqual(mg._source_hash(submit.__wrapped__), mg.EXPECTED_SUBMIT_SHA256)
+        self.assertEqual(
+            mg._source_hash(s.StreamingMemoryUpdater._split_append_only_request),
+            mg.EXPECTED_SPLIT_SHA256,
+        )
+
+    def test_a_diverted_write_is_not_taken_for_a_rename(self):
+        # v0.5.1.1 treats an upsert whose snapshot names another URI as a rename that
+        # deletes the snapshot's file; the diversion clears the snapshot.
+        target = f"{BASE}/x.md"
+        o = op("x", "new", old=types.SimpleNamespace(uri=target))
+        self.assertFalse(installed.MemoryUpdater._is_uri_migration(o))
+        run(FakeFS({target: stored("other")}), ops(o))
+        self.assertEqual(o.uris, [f"{BASE}/x_2.md"])
+        self.assertIsNone(o.old_memory_file_content)
+        self.assertFalse(installed.MemoryUpdater._is_uri_migration(o))
+        o.old_memory_file_content = types.SimpleNamespace(uri=target)
+        self.assertTrue(installed.MemoryUpdater._is_uri_migration(o))
 
     def test_not_found_is_recognised_for_the_real_error(self):
         from openviking.storage.viking_fs import NotFoundError
@@ -1551,6 +1665,17 @@ class Installed(unittest.TestCase):
         chatlog = ctx.read_message_ranges("0-2").pretty_print()
         self.assertNotIn("kinde-cli_installation", chatlog)
         self.assertIn("merge them", chatlog)
+
+    def test_extract_context_keeps_the_source_archive_uri(self):
+        from openviking.message import Message
+
+        msgs = [Message(id="u0", role="user", parts=[installed.TextPart(PASTE)])]
+        ctx = installed.ExtractContext(
+            msgs, source_archive_uri="viking://s/history/archive_005/"
+        )
+        self.assertEqual(ctx.source_archive_uri, "viking://s/history/archive_005")
+        self.assertTrue(ctx.get_source_archive_suffix())
+        self.assertTrue(ctx.messages[0].parts[0].text.endswith(mg.PASTE_PLACEHOLDER))
 
     def test_shadow_classifier_does_not_change_split_messages(self):
         # IMPR-1188: a long assistant text that stock `_build_extraction_messages`

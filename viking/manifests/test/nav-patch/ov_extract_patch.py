@@ -1,88 +1,95 @@
-"""Degraded memory extraction becomes a retryable failure, not a silent empty diff (BUG-1176).
+"""Degraded memory extraction gets the Phase 2 retries before it fails the archive (BUG-1176).
 
-OpenViking v0.4.20's ``ExtractLoop.run`` gives the extraction LLM one format retry; when
-that is exhausted with an empty, unparseable or refusal completion it returns a
-``ResolvedOperations`` with no upserts and an ``errors`` list, and ``MemoryUpdater.apply``
-turns that into ``result.errors`` and returns. The compressor then writes an empty
-``memory_diff.json``, the session logs ``Extracted 0 memories`` and the archive gets its
-``.done`` marker. A saturated VLM (the 2026-09-22 BUG-1173 backfill) therefore produced
-three "successful" commits with nothing in them; the same archive replayed idle yielded
-four memories.
+OpenViking v0.4.20's ``ExtractLoop.run`` returned an exhausted format retry (an empty,
+unparseable or refusal completion) as an errors-only ``ResolvedOperations``, and the
+archive got ``.done`` with an empty diff: a saturated VLM (the 2026-09-22 BUG-1173
+backfill) produced three "successful" commits with nothing in them. v0.5.1.1 fixed the
+silent half upstream (#5171): ``run`` raises ``RuntimeError("Final response could not be
+parsed as operations after N iterations (failure_kind=K)")`` (extract_loop.py:440-444),
+the commit path runs with ``strict_extract_errors=True`` (session.py:2362), and the outer
+handler writes ``.failed.json`` with stage ``memory_extraction`` (session.py:2588-2603).
+It is not retried, though: no transient pattern matches that text (model_retry.py:175-188),
+so one exhausted loop fails the archive for good (later commits never re-cover it,
+session.py:2944-2962).
 
-This wrapper changes two things, both inside the existing Phase 2 machinery:
+What this wrapper still does on v0.5.1.1, inside the existing Phase 2 machinery:
 
   * ``ExtractLoop.run`` — when the *session extraction* loop (context provider exactly
-    ``SessionExtractContextProvider``) returns errors and no upserts, raise
-    ``ExtractionDegradedError`` instead of returning. ``extract_long_term_memories`` runs with
-    ``strict_extract_errors=True`` in the commit path, so the error reaches
-    ``_run_retryable_phase2_step`` and is retried by ``retry_async``; if every retry fails the
-    archive gets ``.failed.json`` (stage ``memory_extraction``) and the task fails — visible,
-    exact, and re-drivable — instead of an empty diff recorded as success. The streaming
-    memory updater's merge loops (``PatchMergeContextProvider``, ``max_iterations=1``) are
-    left returning: they run after append-only events have already been written, and a
-    whole-step retry there would regenerate and duplicate those events. A degraded merge
-    is logged, not raised.
+    ``SessionExtractContextProvider``) raises that parse-exhaustion ``RuntimeError``
+    before its attempt has written anything, re-raise it as ``ExtractionDegradedError``
+    (chained, same text). The streaming memory updater's merge loops
+    (``PatchMergeContextProvider``, ``max_iterations=1``) keep the stock raise, which is
+    not retried: they run after append-only events have already been written, and a
+    whole-step retry there would regenerate and duplicate those events.
   * ``openviking.session.session`` — ``is_retryable_api_error`` also returns True for
     ``ExtractionDegradedError``, and the Phase 2 retry constants are widened from
-    3 retries × (1 s … 8 s) to 5 retries × (15 s … 120 s): ``retry_async`` makes up to
-    6 attempts with 5 capped, jittered sleeps (about 345–420 s of sleeping in all, no
-    overall deadline), plus the extraction's own LLM time per attempt. Both are module
-    globals the nested retry helper reads at call time. This half applies only after the
-    loop half applied in the same process, so the guard governs both.
+    3 retries × (1 s … 8 s) to 5 retries × (15 s … 120 s) (session.py:105-107):
+    ``retry_async`` makes up to 6 attempts with 5 capped, jittered sleeps (about
+    345–420 s of sleeping in all, no overall deadline), plus the extraction's own LLM time
+    per attempt. Both are module globals the nested retry helper reads at call time. This
+    half applies only after the loop half applied in the same process, so the guard
+    governs both. When every retry fails, the archive still gets upstream's
+    ``.failed.json``.
+
+Dropped in the v0.5.1.1 port: raising on an errors-only *returned* result, and logging a
+degraded merge loop. Upstream now raises for both instead of returning, and
+``resolve_operations`` never fills ``errors`` (extract_loop.py:765-971), so neither path
+is reachable.
 
 Also logs, at WARNING, an extraction that parsed fine but produced zero operations, with the
 loop's last failure kind, so a future zero window is diagnosable from the pod log alone.
 That parsed-empty outcome is indistinguishable from "nothing to extract" and is NOT raised.
 
-Scope of the claim: this protects against a demonstrated source-code defect (an exhausted
-retry becomes a successful empty diff). Whether the 2026-09-22 zero runs took this path or
-returned a parsed empty program is not established by the INFO log; see BUG-1176.
-
 BUG-1196 adds three things, each with its own guard and off switch (the session half,
 plus a streaming half that tracks writes for the lock-wait retry):
 
-  * Timeouts and lock waits are retried, each on its own small budget, only when nothing
-    from the step's attempt has been written. Stock ``is_retryable_api_error`` matches
-    the text "timeout", not "timed out", so ``openai.APITimeoutError`` ("Request timed
-    out.") and ``LockAcquisitionError`` ("lock acquire timed out after 300000ms") both
-    failed the archive on the first attempt. ``session.retry_async`` (the name
-    ``_run_retryable_phase2_step`` looks up at call time) is wrapped with a per-call
-    classifier that asks the caller's classifier first, so whatever stock already
-    retries (a "504 Gateway Timeout", any text containing "timeout") keeps its stock
-    retries; the class budgets only add retries stock would refuse. A timeout gets them
-    only when the session-extraction ``ExtractLoop.run`` raised it before this attempt
-    wrote anything (the loop half tags it). A lock wait gets them only when the
-    ``StreamingMemoryUpdater`` append-only fast path failed to take its lease and it was
-    the attempt's first write after session extraction (the streaming half tags it): the
-    lease is taken before any write, and the fast path runs before the merge groups.
-    Any other lock wait keeps stock behaviour, because a retry is a fresh LLM extraction
-    with a new ``source_extraction_id``: the memory guard files its re-extracted events
-    as collisions at ``<name>_2.md`` instead of dropping them, so retrying after events
-    are written would duplicate them. Both stay under the overall
-    ``_MEMORY_EXTRACTION_MAX_RETRIES`` cap. Budgets: ``OV_EXTRACT_PATCH_TIMEOUT_RETRIES``
-    (default 2) and ``OV_EXTRACT_PATCH_LOCK_RETRIES`` (default 3); ``0`` turns that
-    class's extra retries off and leaves stock retries alone.
+  * Lock waits are retried only when nothing from the step's attempt has been written,
+    on their own small budget. v0.5.1.1 added "timed out" to the transient patterns
+    (#6102, model_retry.py:186), so stock now retries every ``LockAcquisitionError``
+    ("lock acquire timed out after {elapsed_ms}ms") by re-running the whole step: a
+    fresh LLM extraction with a new ``source_extraction_id`` (session.py:2350-2371,
+    compressor_v3.py:749) after append-only events and merge groups may have landed
+    (streaming_memory_updater.py:186-196, 457-462), so the retry files its re-extracted
+    events, under new LLM-chosen names, beside the ones already written.
+    ``session.retry_async`` (the name ``_run_retryable_phase2_step`` looks up at call
+    time) is wrapped with a per-call classifier that takes lock waits away from the
+    caller's classifier: one is retried only when the ``StreamingMemoryUpdater``
+    append-only fast path failed to take its lease and it was the attempt's first write
+    after session extraction (the streaming half tags it): the lease
+    (``acquire_memory_operation_lease``) is taken before any write, and the fast path runs
+    before the merge groups. Every other lock wait fails the step, as on v0.4.20. Timeouts
+    keep the caller's classifier, which now retries them itself; a session-extraction
+    timeout that it refuses (the loop half tags those raised before the attempt wrote
+    anything) gets its own small budget, a fallback that v0.5.1.1's classifier leaves
+    almost unused. Both stay under the overall ``_MEMORY_EXTRACTION_MAX_RETRIES`` cap.
+    Budgets: ``OV_EXTRACT_PATCH_TIMEOUT_RETRIES`` (default 2) and
+    ``OV_EXTRACT_PATCH_LOCK_RETRIES`` (default 3); ``0`` turns the timeout fallback off
+    and stops every lock-wait retry.
   * Every retry, recovery and final failure of a Phase 2 step writes one unwrapped
     ``ov-extract-outcome {json}`` line on stderr naming the step, attempt and
     ``failure_class`` (``timeout``, ``lock_wait``, ``degraded`` or ``other``), so a lock
-    wait reads differently from a model timeout in Loki. Not through ``logger``: the rich
-    handler folds long records into several Loki entries (see ov_memory_guard_patch).
-  * Long-term extraction is chunked. v0.4.20 already plans Phase 2 extraction batches,
-    but only from a session's ``auto_commit_policy``, and Claude Code sessions carry none,
-    so a 180-message archive went to the model as one prompt. The session module's
+    wait reads differently from a model timeout in Loki. A retry line is written when the
+    next attempt starts, because v0.5.1.1's ``retry_async`` retries a recognised model
+    error without asking the classifier (``_retry_limit``, model_retry.py:432-451). Not
+    through ``logger``: the rich handler folds long records into several Loki entries
+    (see ov_memory_guard_patch).
+  * Long-term extraction is chunked. Upstream plans Phase 2 extraction batches, but only
+    from a session's ``auto_commit_policy``, and Claude Code sessions carry none, so a
+    180-message archive went to the model as one prompt. The session module's
     ``resolve_extraction_batch_limits`` is wrapped to cap every session at
     ``OV_EXTRACT_PATCH_BATCH_MESSAGES`` (default 60) messages and
     ``OV_EXTRACT_PATCH_BATCH_TOKENS`` (default 24000) estimated tokens per batch, keeping a
     policy's tighter limit; ``0`` drops that cap and ``OV_EXTRACT_PATCH_CHUNK=0`` turns
-    chunking off. Upstream records and retries each batch as its own step, so a failure
-    redoes one batch, not the archive. The same limits batch the Working Memory summary.
+    chunking off. Upstream records and retries each batch as its own step
+    (session.py:2041-2079), so a failure redoes one batch, not the archive. The same
+    limits batch the Working Memory summary.
 
-Guarded: applies only to openviking ``v0.4.20`` whose ``ExtractLoop.run`` source hashes to
+Guarded: applies only to openviking ``v0.5.1.1`` whose ``ExtractLoop.run`` source hashes to
 ``EXPECTED_RUN_SHA256``; otherwise it logs "NOT applied" and stock behaviour stays. The
 retry and chunking wrappers, and the streaming half's three write-tracking wrappers
 (``openviking.session.memory.streaming_memory_updater``), are each also guarded on the
 source hash of the function they wrap. Without the streaming half no lock wait is ever
-tagged, so lock waits keep stock behaviour. Disable everything at runtime with
+tagged, so no lock wait is retried. Disable everything at runtime with
 ``OV_EXTRACT_PATCH=0``. Retry budget overrides: ``OV_EXTRACT_PATCH_RETRIES``,
 ``OV_EXTRACT_PATCH_BASE_DELAY``, ``OV_EXTRACT_PATCH_MAX_DELAY``.
 """
@@ -100,18 +107,20 @@ import os
 import re
 import sys
 
-EXPECTED_VERSION = "v0.4.20"
-EXPECTED_RUN_SHA256 = "f9bf435228ca4a82200442f47752a0f4b7e2213a0c86dcb08a6a773357156876"
+EXPECTED_VERSION = "v0.5.1.1"
+EXPECTED_RUN_SHA256 = "48d4bc4f14b03b0a157402779f5e73aad1ef58465df582e173ab34d7347076bb"
 # BUG-1196: openviking.utils.model_retry.retry_async and
-# openviking.session.extraction_batch.resolve_extraction_batch_limits on v0.4.20.
+# openviking.session.extraction_batch.resolve_extraction_batch_limits on v0.5.1.1.
 EXPECTED_RETRY_ASYNC_SHA256 = (
-    "0b5f1eb95670455767e1b671c132cfd6a814d3d62bfc94b59b155f23816a8fa7"
+    "b0fc3cf82a2e6115928ad85f3a24b139791f48aaa66e0641bc6309e3a9e2fecc"
 )
 EXPECTED_RESOLVE_LIMITS_SHA256 = (
     "811fff5754eee8fed3fdfde1c4c9750901249ef3c66041032f6082959c47b9b1"
 )
-# openviking.session.memory.streaming_memory_updater on v0.4.20: the append-only fast
-# path, the merge-group submit, and the module-level lease acquisition.
+# openviking.session.memory.streaming_memory_updater on v0.5.1.1: the append-only fast
+# path, the merge-group submit, and the module-level lease acquisition
+# (``acquire_memory_operation_lease``, renamed from ``_acquire_stable_operation_lease``
+# in #5178).
 EXPECTED_APPEND_ONLY_SHA256 = (
     "3e24e1c676c8bd718109d206c94e1b155c3d99af1ed367398efc4acba94cc58f"
 )
@@ -119,7 +128,7 @@ EXPECTED_GROUPED_MERGE_SHA256 = (
     "f33842c5447652ad21db1d6763bfcec54f41e4521a5d96534a93b09388061af8"
 )
 EXPECTED_ACQUIRE_LEASE_SHA256 = (
-    "01461f9e570eddbb4854149f24a0fe5455adb5b860142650513e77748936a23c"
+    "ca2c9480fd785fca2bf500789854e2369661137fd78c9be419d474b715196843"
 )
 DEFAULT_RETRIES = 5
 DEFAULT_BASE_DELAY_SECONDS = 15.0
@@ -156,6 +165,10 @@ _LOCK_WAIT_TEXT = re.compile(
     r"lock acquir\w* timed out|pathlock\S* .*timed out", re.IGNORECASE
 )
 _TIMEOUT_TEXT = re.compile(r"\btimed out\b|\btimeout\b", re.IGNORECASE)
+# ExtractLoop.run's raise once its format retry is spent (extract_loop.py:440-444).
+_PARSE_EXHAUSTED_TEXT = re.compile(
+    r"^Final response could not be parsed as operations\b"
+)
 
 
 class ExtractionDegradedError(RuntimeError):
@@ -267,7 +280,7 @@ def emit_outcome(record: dict) -> None:
 
 
 def wrap_run(orig):
-    """Wrap ``ExtractLoop.run``: errors-only result raises; zero-op result is logged."""
+    """Wrap ``ExtractLoop.run``: session parse exhaustion becomes retryable; 0 ops logged."""
 
     @functools.wraps(orig)
     async def run(self):
@@ -275,15 +288,24 @@ def wrap_run(orig):
         try:
             operations, tools_used = await orig(self)
         except Exception as exc:
-            # BUG-1196: session extraction runs before anything from this batch is
-            # written, so its timeouts are safe for the Phase 2 retry to repeat. Tag them
-            # unless this attempt already wrote; the session-half classifier gives extra
-            # retries only to tagged timeouts.
-            if (
-                provider == SESSION_PROVIDER
-                and failure_class(exc) == FAILURE_TIMEOUT
-                and not _step_wrote()
-            ):
+            # Session extraction runs before anything from this batch is written, so a
+            # Phase 2 retry of its failures repeats no write. Not so once the attempt
+            # wrote, nor for merge loops, which run after the append-only events.
+            if provider != SESSION_PROVIDER or _step_wrote():
+                raise
+            if isinstance(exc, RuntimeError) and _PARSE_EXHAUSTED_TEXT.search(str(exc)):
+                # BUG-1176: upstream fails the archive on the first exhausted loop; a
+                # saturated VLM gets the Phase 2 retries first.
+                logger.warning(
+                    "ov-extract-patch: extraction degraded (%s); raising for Phase 2 retry",
+                    str(exc)[:200],
+                )
+                raise ExtractionDegradedError(
+                    f"memory extraction degraded: {str(exc)[:300]}"
+                ) from exc
+            # BUG-1196: the session-half classifier gives its fallback budget only to
+            # tagged timeouts.
+            if failure_class(exc) == FAILURE_TIMEOUT:
                 _tag(exc, STAGE_ATTR, STAGE_SESSION_EXTRACT)
             raise
         if provider == SESSION_PROVIDER:
@@ -294,28 +316,7 @@ def wrap_run(orig):
         if operations is None:
             return operations, tools_used
         upserts = getattr(operations, "upsert_operations", None) or []
-        errors = list(getattr(operations, "errors", None) or [])
         kind = getattr(self, "_last_llm_failure_kind", None) or "unknown"
-        if errors and not upserts:
-            if provider != SESSION_PROVIDER:
-                logger.warning(
-                    "ov-extract-patch: degraded %s loop (failure_kind=%s: %s); returned as-is "
-                    "because a retry here would duplicate already-appended events",
-                    provider,
-                    kind,
-                    errors[0][:200],
-                )
-                return operations, tools_used
-            logger.warning(
-                "ov-extract-patch: extraction degraded (failure_kind=%s, %d error(s): %s); "
-                "raising for Phase 2 retry instead of recording an empty diff",
-                kind,
-                len(errors),
-                errors[0][:200],
-            )
-            raise ExtractionDegradedError(
-                f"memory extraction degraded: failure_kind={kind}: {errors[0][:200]}"
-            )
         if not upserts:
             deletes = getattr(operations, "delete_file_contents", None) or []
             logger.warning(
@@ -398,11 +399,13 @@ def batch_caps() -> tuple[int | None, int | None]:
 def wrap_retry_async(orig, default_is_retryable):
     """Wrap ``retry_async`` with per-class budgets and one outcome line per event.
 
-    ``retry_async`` asks ``is_retryable`` only while attempts remain, so each True
-    returned here is one retry actually taken. The caller's classifier is asked first,
-    so stock retries are never reduced; a class budget only adds retries for a tagged
-    error the caller's classifier refused (a session-extraction timeout, or a lock wait
-    raised before the attempt wrote anything).
+    v0.5.1.1's ``retry_async`` asks ``is_retryable`` on every failure that is not a
+    recognised model error, the final one included (``_retry_limit``), so a budget is
+    spent only while a retry can follow, and the retry line is written when the next
+    attempt starts. Lock waits are decided here alone: retried, on the lock budget, only
+    when tagged as raised before the attempt wrote anything. For every other error the
+    caller's classifier is asked first, so its retries are never reduced; the timeout
+    budget only adds retries for a tagged session-extraction timeout it refused.
     """
 
     @functools.wraps(orig)
@@ -412,34 +415,45 @@ def wrap_retry_async(orig, default_is_retryable):
         budget = class_budget()
         used = {FAILURE_TIMEOUT: 0, FAILURE_LOCK_WAIT: 0}
         attempts = 0
+        last_error: BaseException | None = None
+
+        def spend(cls):
+            if used[cls] >= budget[cls]:
+                return False
+            used[cls] += 1
+            return True
 
         def decide(error):
+            if attempts > max_retries:
+                return False  # the final failure: no retry follows whatever we answer
             cls = failure_class(error)
-            allowed = bool(base(error))
-            if not allowed and (
-                is_session_extract_timeout(error) or is_before_write_lock_wait(error)
-            ):
-                allowed = used[cls] < budget[cls]
-                if allowed:
-                    used[cls] += 1
-            if allowed:
+            if cls == FAILURE_LOCK_WAIT:
+                # Stock retries "timed out" (#6102), which would re-extract after the
+                # attempt's events may have landed and file them a second time.
+                return is_before_write_lock_wait(error) and spend(cls)
+            if base(error):
+                return True
+            return is_session_extract_timeout(error) and spend(cls)
+
+        async def counted():
+            nonlocal attempts, last_error
+            if last_error is not None:
                 emit_outcome(
                     {
                         "event": "retry",
                         "step": operation,
                         "attempt": attempts,
-                        "failure_class": cls,
-                        "error": str(error)[:300],
+                        "failure_class": failure_class(last_error),
+                        "error": str(last_error)[:300],
                     }
                 )
-            return allowed
-
-        async def counted():
-            nonlocal attempts
             attempts += 1
             token = _STEP.set({"armed": False, "wrote": False})
             try:
                 return await func()
+            except Exception as exc:
+                last_error = exc
+                raise
             finally:
                 _STEP.reset(token)
 
@@ -504,7 +518,7 @@ def wrap_acquire_lease(orig):
     """Mark a lock wait raised while taking a memory-apply lease (before its writes)."""
 
     @functools.wraps(orig)
-    async def _acquire_stable_operation_lease(*args, **kwargs):
+    async def acquire_memory_operation_lease(*args, **kwargs):
         try:
             return await orig(*args, **kwargs)
         except Exception as exc:
@@ -512,8 +526,8 @@ def wrap_acquire_lease(orig):
                 _tag(exc, LEASE_ATTR, True)
             raise
 
-    _acquire_stable_operation_lease._ov_extract_patch = True  # type: ignore[attr-defined]
-    return _acquire_stable_operation_lease
+    acquire_memory_operation_lease._ov_extract_patch = True  # type: ignore[attr-defined]
+    return acquire_memory_operation_lease
 
 
 def wrap_append_only(orig):
@@ -597,7 +611,7 @@ def _apply_retry_wrapper(module) -> bool:
     if digest != EXPECTED_RETRY_ASYNC_SHA256:
         logger.warning(
             "ov-extract-patch: NOT applied to session retry_async (source_sha256=%s); "
-            "timeouts and lock waits stay unretried",
+            "stock retry kept, which retries lock waits after writes",
             digest,
         )
         return False
@@ -698,8 +712,7 @@ def apply_session(module) -> bool:
 def apply_streaming(module) -> bool:
     """Install the write-tracking wrappers in ``streaming_memory_updater``; all or none.
 
-    Without them no lock wait is tagged, so the retry wrapper leaves every lock wait to
-    the stock classifier.
+    Without them no lock wait is tagged, so the retry wrapper retries none.
     """
     if not _enabled():
         return False
@@ -722,7 +735,7 @@ def apply_streaming(module) -> bool:
         ),
         (
             module,
-            "_acquire_stable_operation_lease",
+            "acquire_memory_operation_lease",
             EXPECTED_ACQUIRE_LEASE_SHA256,
             wrap_acquire_lease,
         ),
@@ -734,7 +747,7 @@ def apply_streaming(module) -> bool:
     if version != EXPECTED_VERSION or digests != [t[2] for t in targets]:
         logger.warning(
             "ov-extract-patch: NOT applied to StreamingMemoryUpdater write tracking "
-            "(version=%r source_sha256=%s); lock waits keep stock retry behaviour",
+            "(version=%r source_sha256=%s); no lock wait is retried",
             version,
             digests,
         )
