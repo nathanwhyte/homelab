@@ -50,20 +50,26 @@ started is omitted too. The closing SEGMENT line reports the time from its end t
 poll (or the close) that observed the end as unobserved=. Durations and the target
 are measured on a clock that keeps counting while the host sleeps (CLOCK_MONOTONIC on
 macOS, CLOCK_BOOTTIME on Linux, time.monotonic() otherwise), so a gap bridged across a
-host sleep counts in full. Wall-clock UTC appears only in printed stamps (start=/end=
-and the HH:MMZ line prefix). The accounting compares API timestamps only with each
-other, never with the local clock. Known limit: if a node controller marks a pod
+host sleep counts in full. Wall-clock UTC appears in printed stamps (start=/end= and
+the HH:MMZ line prefix) and in the log cursor, which seeds its first --since-time from
+it; it plays no part in durations or the target. The accounting compares API
+timestamps only with each other, never with the local clock. Known limit: if a node controller marks a pod
 NotReady and no successful poll sees it, and kubelet later restores the original
 Ready lastTransitionTime, the identical string bridges that gap and it counts. Which pod the metrics
 and log reads sample does not affect the sum. A pod handoff with a pod continuous
 across it is not a boundary; it is a log-only `POD ready a -> b` line.
 Events, all actionable:
   SEGMENT <i> pod=<a,b> start=<UTC> end=<UTC> dur=<d> cum=<d> remaining=<d> unobserved=<d>
-          (live=<n> oldest=<s>s | locks=unknown)[ trigger][ note]
+          bridged=<d> (live=<n> oldest=<s>s | locks=unknown)[ trigger][ note]
            a segment closed: no covering pod at a poll (OV DOWN), the target was
            reached, the run was interrupted or failed, or two covering polls shared
            no pod with an identical transition (note: Ready lost between polls).
-           pod= lists the pods that covered it. live= counts the labelled
+           pod= lists the pods that covered it. bridged= is the part of dur that came
+           from counted gaps longer than 2 x POLL (120 s) between two consecutive
+           successful polls: a host sleep or a long run of failed probes. A pod's
+           unchanged Ready transition is the only evidence for that time, and
+           nothing was checked during it. It is never more than dur. WATCH end
+           carries the total as `bridged <d>`. live= counts the labelled
            openviking_s3_ovlock_live_age_seconds series at the last metrics poll in
            the segment (the exporter keeps the top 3 locks held >= 900 s, so it is
            not the lease count); oldest= is the exporter's oldest live lock age;
@@ -85,17 +91,21 @@ and the rest to the log. A streak ends only when that probe runs and reports suc
 a poll in which it did not run leaves it unchanged. Pod-probe errors, and the deploy
 fetch made at OV DOWN, are log-only while OV is down; other deploy errors go through
 the gate like the rest. At the target the run prints a final SEGMENT and a WATCH end
-line (segments, total uptime) and exits 0. On an interrupt (Ctrl-C, SIGTERM) or an
-error the open segment's SEGMENT and a WATCH end line are written, marked
-`incomplete (interrupted)` or `incomplete (error: ...)`; an interrupt exits 130 and an
-error propagates. From the WATCH start line on, an interrupt ends with a WATCH end line
-marked incomplete, with the closed segments counted once. A SEGMENT line cut off by the
-interrupt is written by the finalizer (retried once), and can then appear twice in the
-log if the interrupt landed between its write and the bookkeeping. An interrupt that
-lands while the final target-reached SEGMENT is being written exits 130 and is marked
-incomplete; its uptime figure shows whether the target had been met. A second
-interrupt inside the finalizer, or one that cuts the WATCH end write itself, can still
-leave the run without a complete ledger.
+line (segments, total uptime, total bridged) and exits 0. On an interrupt (Ctrl-C,
+SIGTERM) or an error the open segment's SEGMENT and a WATCH end line are written,
+marked `incomplete (interrupted)` or `incomplete (error: ...)`; an interrupt exits 130
+and an error propagates. From the WATCH start line on, a single interrupt ends with a
+WATCH end line marked incomplete and each closed segment counted once; the marking is
+taken from the exception in flight, so it does not depend on one assignment
+surviving, and a SEGMENT or WATCH end write that the interrupt cut is retried once.
+The price is repeats: a SEGMENT or WATCH end line whose interrupt landed after its
+write is written again, in the log and on stdout (a second wake), and then the first
+WATCH end may lack the incomplete mark. An interrupt that lands while the final
+target-reached SEGMENT is being written exits 130 and is marked incomplete; its
+uptime figure shows whether the target had been met. What stays open: an interrupt
+at a statement boundary between the finalizer's own protected blocks can still leave
+no WATCH end (line-event injection finds eight such boundaries), and a second
+interrupt inside the finalizer can leave the ledger incomplete.
 
 A semantic-DAG "Failed to dispatch directory" ERROR carries the lock-timeout text
 plus a LockAcquisitionError traceback line. Both count as dag_miss, never as a
@@ -129,6 +139,8 @@ from typing import NamedTuple
 
 NS = "viking"
 POLL = 60
+# A counted gap longer than this many seconds is "bridged": nothing was checked in it.
+BRIDGE_AFTER = 2 * POLL
 BEAT_EVERY = 30
 THRESHOLDS = (600, 1800, 2700)
 DEFAULT_HOURS = 6.0
@@ -604,6 +616,8 @@ class Ledger(NamedTuple):
     pods: tuple = ()  # pods that covered it
     locks: tuple | None = None  # (live series, oldest age) at the last metrics poll
     pending: str | None = None  # a closed segment's line not yet known to be written
+    bridged: float = 0.0  # seconds of bridged gaps in closed segments
+    seg_bridged: float = 0.0  # ... and in the open segment
 
 
 class ReadyTracker:
@@ -630,6 +644,7 @@ class ReadyTracker:
         self.down_since = None
 
     closed = property(lambda self: self.ledger.closed)
+    bridged = property(lambda self: self.ledger.bridged)
     segments = property(lambda self: self.ledger.segments)
     start = property(lambda self: self.ledger.start)
     last_ready = property(lambda self: self.ledger.last)
@@ -673,6 +688,7 @@ class ReadyTracker:
             f"dur={fmt_dur(secs)} cum={fmt_dur(cum)} "
             f"remaining={fmt_dur(max(0, self.target - cum))} "
             f"unobserved={fmt_dur(max(0, now.mono - lg.last.mono))} "
+            f"bridged={fmt_dur(lg.seg_bridged)} "
             f"{held}{note}"
         )
         self.ledger = lg._replace(
@@ -683,14 +699,17 @@ class ReadyTracker:
             pods=(),
             locks=None,
             pending=line,
+            bridged=lg.bridged + lg.seg_bridged,
+            seg_bridged=0.0,
         )
         self.flush()
 
     def flush(self):
         """Write a closed segment's line if it is not yet known to be written.
 
-        An interrupt between the write and the clearing repeats the line in the log;
-        the count and the uptime are never repeated.
+        An interrupt between the write and the clearing writes the line again, in the
+        log and on stdout (a second wake); the count and the uptime are never
+        repeated.
         """
         line = self.ledger.pending
         if line:
@@ -733,7 +752,12 @@ class ReadyTracker:
                     f"{','.join(sorted(cover))}" + restart_trigger(self.sink),
                     wake=False,
                 )
-            self.ledger = lg._replace(last=now, pods=pods)
+            gap = now.mono - lg.last.mono
+            self.ledger = lg._replace(
+                last=now,
+                pods=pods,
+                seg_bridged=lg.seg_bridged + (gap if gap > BRIDGE_AFTER else 0.0),
+            )
         else:
             self.close(now, restart_trigger(self.sink) + " (Ready lost between polls)")
             self.open(cover, now)
@@ -762,6 +786,21 @@ def watch(hours, sink, wake_wait_ms=DEFAULT_WAKE_WAIT_MS, target_uptime=None):
     window = f"target uptime {fmt_dur(target_uptime)}" if tracker else f"{hours:g} h"
     done = False
     status = ""
+
+    def end_line(status):
+        uptime = ""
+        if tracker:
+            uptime = (
+                f"{status + ', ' if status else ''}{tracker.segments} segments, "
+                f"uptime {fmt_dur(tracker.closed)} of {fmt_dur(target_uptime)}, "
+                f"bridged {fmt_dur(tracker.bridged)}, "
+            )
+        return (
+            f"WATCH end: {uptime}peak lease {peak:.0f}s, waits {tot_waits} "
+            f"(max {max_wait / 1000:.1f}s), dag_miss {tot_dag_miss}, "
+            f"outcomes {tot_outcomes or '{}'}"
+        )
+
     try:
         sink.emit(
             f"WATCH start: {window}, poll {POLL}s, hold thresholds {THRESHOLDS}, "
@@ -868,38 +907,37 @@ def watch(hours, sink, wake_wait_ms=DEFAULT_WAKE_WAIT_MS, target_uptime=None):
         status = outcome(exc)
         raise
     finally:
-        # --target-uptime always ends with a WATCH end line; --hours keeps its old
-        # shape (no line after an interrupt or error). The target-reached SEGMENT
-        # is written in the try body above, not here.
-        exc = sys.exception()
-        if exc is not None and not status:
-            status = outcome(exc)
-        if tracker or not status:
-            uptime = ""
+        # --target-uptime ends with a WATCH end line; a single interrupt anywhere from
+        # the WATCH start line on does not stop it, and the line is retried once if
+        # the first write is cut. --hours keeps its old shape (no line after an
+        # interrupt or error). The target-reached SEGMENT is written in the try body.
+        try:
+            current = sys.exception()
+            if current is not None and not status:
+                status = outcome(current)
+            if tracker and tracker.start:
+                tracker.finish(instant(), f" {status}")
+        except BaseException as exc:
+            status = status or outcome(exc)
+            raise
+        finally:
+            failure = None
             try:
                 if tracker:
-                    tracker.flush()
-                    if tracker.start:
-                        tracker.finish(instant(), f" {status}")
-            finally:
-                exc = sys.exception()
-                if exc is not None and not status and tracker:
-                    status = outcome(exc)
-                try:
-                    if tracker:
-                        tracker.flush()  # one retry of a line cut off above
-                finally:
-                    if tracker:
-                        uptime = (
-                            f"{status + ', ' if status else ''}{tracker.segments} "
-                            f"segments, uptime {fmt_dur(tracker.closed)} "
-                            f"of {fmt_dur(target_uptime)}, "
-                        )
-                    sink.emit(
-                        f"WATCH end: {uptime}peak lease {peak:.0f}s, waits {tot_waits} "
-                        f"(max {max_wait / 1000:.1f}s), dag_miss {tot_dag_miss}, "
-                        f"outcomes {tot_outcomes or '{}'}"
-                    )
+                    tracker.flush()  # one retry of a line cut off above
+            except BaseException as exc:  # noqa: BLE001 - re-raised below
+                status = status or outcome(exc)
+                failure = exc
+            if tracker or not status:
+                for _attempt in range(2 if tracker else 1):
+                    try:
+                        sink.emit(end_line(status))
+                        break
+                    except BaseException as exc:  # noqa: BLE001 - re-raised below
+                        status = status or outcome(exc)
+                        failure = failure or exc
+            if failure is not None:
+                raise failure
 
 
 def outcome(exc):

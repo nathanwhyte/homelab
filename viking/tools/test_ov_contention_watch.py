@@ -13,6 +13,7 @@ import importlib.util
 import io
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -139,6 +140,21 @@ class FakeKubectl:
         raise AssertionError(f"unexpected call {args}")
 
 
+def sleep_counting_clock_ids():
+    """The clock ids cw.mono() may read on this platform (mirrors its choice)."""
+    if sys.platform == "darwin" and hasattr(cw.time, "CLOCK_MONOTONIC"):
+        return {cw.time.CLOCK_MONOTONIC}
+    if hasattr(cw.time, "CLOCK_BOOTTIME"):
+        return {cw.time.CLOCK_BOOTTIME}
+    return set()
+
+
+def hms_secs(text):
+    h, rest = text.split("h")
+    m, rest = rest.split("m")
+    return int(h) * 3600 + int(m) * 60 + int(rest.rstrip("s"))
+
+
 class Clock:
     """time.time and time.monotonic that advance only when sleep is called.
 
@@ -159,6 +175,11 @@ class Clock:
         return self.t
 
     def clock_gettime(self, clock_id):
+        # Only the sleep-counting clock mono() should pick for this platform; any
+        # other id (CLOCK_UPTIME_RAW, CLOCK_REALTIME, ...) fails the test.
+        allowed = sleep_counting_clock_ids()
+        if clock_id not in allowed:
+            raise AssertionError(f"clock id {clock_id} is not in {allowed}")
         return self.t + self.asleep
 
     def sleep(self, s):
@@ -1055,6 +1076,134 @@ class TargetUptime(unittest.TestCase):
         self.assertIn("first line second line third", err)
         for line in out + logged:
             self.assertRegex(line, r"^\d\d:\d\dZ ")
+
+    def test_host_sleep_shows_as_bridged(self):
+        a = [pod_item(POD_A, since=-3600)]
+        out, _, _ = run_target(PodListKubectl([a]), 600, suspend_after=(3, 8 * 3600.0))
+        (seg,) = has(out, "SEGMENT ")
+        # the whole 8 h 1 m gap between the two polls is bridged
+        self.assertIn("dur=8h03m00s", seg)
+        self.assertIn("unobserved=0h00m00s bridged=8h01m00s", seg)
+        self.assertIn("bridged 8h01m00s", has(out, "WATCH end")[0])
+
+    def test_failed_probe_run_over_two_polls_is_bridged(self):
+        a = [pod_item(POD_A, since=-3600)]
+        out, _, _ = run_target(PodListKubectl([a, None, None, None, a, a]), 300)
+        (seg,) = has(out, "SEGMENT ")
+        self.assertIn("dur=0h05m00s", seg)
+        self.assertIn("bridged=0h04m00s", seg)
+
+    def test_normal_polls_have_nothing_bridged(self):
+        a = [pod_item(POD_A, since=-3600)]
+        # a single failed probe makes a 120 s gap: not over the threshold
+        out, _, _ = run_target(PodListKubectl([a, None, a, a, a, a]), 300)
+        (seg,) = has(out, "SEGMENT ")
+        self.assertIn("bridged=0h00m00s", seg)
+        self.assertIn("bridged 0h00m00s", has(out, "WATCH end")[0])
+
+    def test_bridged_total_is_the_sum_over_segments(self):
+        a = [pod_item(POD_A, since=-3600)]
+        gone = [pod_item(POD_A, ready=False, since=130)]
+        b = [pod_item(POD_B, since=400)]
+        states = [a, None, None, None, a, gone, b, None, None, None, b, b]
+        out, _, _ = run_target(PodListKubectl(states), 540)
+        segs = has(out, "SEGMENT ")
+        self.assertEqual(len(segs), 2)
+        parts = [hms_secs(re.search(r"bridged=(\S+)", x).group(1)) for x in segs]
+        self.assertEqual(parts, [240, 240])
+        for x in segs:
+            self.assertLessEqual(
+                hms_secs(re.search(r"bridged=(\S+)", x).group(1)),
+                hms_secs(re.search(r"dur=(\S+)", x).group(1)),
+            )
+        total = hms_secs(
+            re.search(r"bridged (\S+),", has(out, "WATCH end")[0]).group(1)
+        )
+        self.assertEqual(total, sum(parts))
+
+    def test_mono_reads_only_the_sleep_counting_clock(self):
+        clock = Clock()
+        clock.asleep = 500.0
+        with mock.patch.object(cw.time, "clock_gettime", clock.clock_gettime):
+            if sleep_counting_clock_ids():
+                self.assertEqual(cw.mono(), clock.t + 500.0)
+
+    def test_interrupt_at_the_finalizer_status_pickup_is_still_marked(self):
+        a = [pod_item(POD_A, since=-3600)]
+
+        class SysProxy:
+            armed = False
+
+            def __getattr__(self, name):
+                return getattr(sys, name)
+
+            def exception(self):
+                if self.armed:
+                    self.armed = False
+                    raise KeyboardInterrupt
+                return sys.exception()
+
+        proxy = SysProxy()
+        real = cw.ReadyTracker.finish
+
+        def finish(self, now, note=""):
+            real(self, now, note)
+            proxy.armed = True  # the next sys.exception() is the finalizer's
+
+        caught = []
+        with (
+            mock.patch.object(cw, "sys", proxy),
+            mock.patch.object(cw.ReadyTracker, "finish", finish),
+        ):
+            out, _, _ = run_target(PodListKubectl([a]), 120, caught=caught)
+        (end,) = has(out, "WATCH end:")
+        self.assertIn("incomplete (interrupted)", end)
+        self.assertEqual(len(caught), 1)
+
+    def test_status_is_taken_from_the_exception_when_the_handler_is_cut(self):
+        a = [pod_item(POD_A, since=-3600)]
+        calls = []
+        real = cw.outcome
+
+        def outcome(exc):
+            calls.append(exc)
+            if len(calls) == 1:
+                raise KeyboardInterrupt  # cut inside the except clause
+            return real(exc)
+
+        caught = []
+        with mock.patch.object(cw, "outcome", outcome):
+            out, _, _ = run_target(
+                PodListKubectl([a]),
+                3600,
+                raise_after=3,
+                exc=RuntimeError("boom"),
+                caught=caught,
+            )
+        (end,) = has(out, "WATCH end:")
+        self.assertIn("incomplete (interrupted)", end)
+
+    def test_interrupt_cutting_the_watch_end_write_is_retried(self):
+        a = [pod_item(POD_A, since=-3600)]
+        raised = []
+        real = cw.Sink.emit
+
+        def emit(self, line, wake=True):
+            if line.startswith("WATCH end") and not raised:
+                raised.append(line)
+                raise KeyboardInterrupt
+            return real(self, line, wake)
+
+        caught = []
+        with mock.patch.object(cw.Sink, "emit", emit):
+            out, _, _ = run_target(
+                PodListKubectl([a]), 120, log=self.log, caught=caught
+            )
+        # the first write was cut: the retry writes it once, marked incomplete, and
+        # the interrupt still propagates (exit 130 in main)
+        (end,) = has(out, "WATCH end:")
+        self.assertIn("incomplete (interrupted)", end)
+        self.assertEqual(len(caught), 1)
 
     def test_hours_mode_still_ends_by_the_clock(self):
         out, _ = run_watch(FakeKubectl([POD_A]), polls=2)
