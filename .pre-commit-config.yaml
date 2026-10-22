@@ -8,8 +8,16 @@ repos:
     # (Aug 2025); v6.0.0 deferred pending review.
     rev: v5.0.0
     hooks:
+      # Four trees whose bytes are the record or the contract, so the whitespace
+      # fixers must not rewrite them: benchmarks/results/ and
+      # benchmarks/embedding-retrieval/results*/ (recorded tool output),
+      # benchmarks/ollama/corpus/ (prompt corpora whose bytes and sha256 are
+      # pinned in manifest.json), and *.patch (a trailing blank context line is
+      # counted in the hunk header).
       - id: trailing-whitespace
+        exclude: ^benchmarks/(results/|embedding-retrieval/results[^/]*/|ollama/corpus/)|\.patch$
       - id: end-of-file-fixer
+        exclude: ^benchmarks/(results/|embedding-retrieval/results[^/]*/|ollama/corpus/)|\.patch$
       - id: check-yaml
         # exclude viking/snapshots/ — point-in-time archives of cluster state;
         # reformatting would lose the "what it actually was" signal
@@ -231,6 +239,10 @@ repos:
     rev: v0.22.1
     hooks:
       - id: markdownlint-cli2
+        # --fix would rewrite recorded benchmark reports (benchmarks/results/),
+        # and benchmarks/harbor/tasks/*/instruction.md is the prompt handed to
+        # the agent under test, so neither is linted.
+        exclude: ^benchmarks/(results/|harbor/tasks/)
         args:
           - --config
           - .markdownlint-cli2.jsonc
