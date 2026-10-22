@@ -112,8 +112,10 @@ data:
     def render_metrics(counts: dict[str, int]) -> bytes:
         """`Stats.snapshot()` in Prometheus text format. Responses are grouped by
         status class (2xx..5xx), and every input and class series is present from
-        the start at 0, so increase() sees a series' first error; a series that
-        appeared already nonzero would lose it. /healthz keeps the exact codes."""
+        the start at 0, so once a scrape has recorded that baseline, increase()
+        sees a series' first error; a series that appeared already nonzero would
+        lose it. Errors before a pod's first scrape are still lost that way.
+        /healthz keeps the exact codes."""
         inputs = {"query": 0, "document": 0}
         responses = {
             (f"{c}xx", src): 0 for c in range(2, 6) for src in ("shim", "upstream")

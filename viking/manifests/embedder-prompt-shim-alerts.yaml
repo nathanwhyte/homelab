@@ -19,7 +19,8 @@ spec:
           # 2026-10-22 outage), a failing one as relayed upstream 5xx, a client
           # sending bad bodies as 400s. The floor of 5 keeps a single error in a
           # quiet window from firing on the ratio alone. Every class series is
-          # exported from pod start at 0, so increase() sees the first error.
+          # exported from pod start at 0, so after a pod's first scrape
+          # increase() sees its first error (errors before that scrape are not).
           expr: |
             sum(increase(embedder_prompt_shim_responses_total{namespace="viking", class=~"4xx|5xx"}[10m])) >= 5
             and
