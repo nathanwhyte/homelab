@@ -121,7 +121,9 @@ class CheckerCases(unittest.TestCase):
                 vol["configMap"]["name"] = "something-else"
 
         self.edit_docs(PROD_DEPLOYMENT, rename)
-        self.assertFails("mounts 'something-else'")
+        self.assertFails(
+            "expected one volume nav-patch of ConfigMap openviking-nav-patch"
+        )
 
     def test_new_patch_without_regen_fails_everywhere(self):
         (self.root / checker.NAV / "ov_new_patch.py").write_text('"""New."""\n')
@@ -193,7 +195,7 @@ class CheckerCases(unittest.TestCase):
                 ]
 
         self.edit_docs(TEST_DEPLOYMENT, unmount)
-        self.assertFails("no container mounts volume nav-patch")
+        self.assertFails("container openviking-test does not mount nav-patch")
 
     def test_subpath_mount_fails(self):
         def subpath(doc):
@@ -228,6 +230,113 @@ class CheckerCases(unittest.TestCase):
 
         self.edit_docs(TEST_DEPLOYMENT, move)
         self.assertFails("but its PYTHONPATH is")
+
+    def test_mount_only_in_an_init_container_fails(self):
+        # R3: an init container's mount does not put the patches in the app.
+        def move_to_init(doc):
+            spec = self.pod_spec(doc)
+            if not spec:
+                return
+            app = spec["containers"][0]
+            mount = next(m for m in app["volumeMounts"] if m["name"] == checker.VOLUME)
+            app["volumeMounts"].remove(mount)
+            env = [e for e in app["env"] if e["name"] == "PYTHONPATH"]
+            spec["initContainers"] = [
+                {
+                    "name": "init",
+                    "image": "busybox",
+                    "env": env,
+                    "volumeMounts": [mount],
+                }
+            ]
+
+        self.edit_docs(TEST_DEPLOYMENT, move_to_init)
+        self.assertFails("container openviking-test does not mount nav-patch")
+
+    def test_items_hidden_from_kustomize_but_in_the_source_file_fails(self):
+        # R3: a single-file apply still sends the items: list a kustomize patch drops.
+        files = [
+            f for f in checker.patch_files(self.root) if f != "ov_pref_gate_patch.py"
+        ]
+
+        def add_items(doc):
+            vol = self.nav_volume(doc)
+            if vol:
+                vol["configMap"]["items"] = [{"key": f, "path": f} for f in files]
+
+        self.edit_docs(PROD_DEPLOYMENT, add_items)
+        index = self.find_volume_index(PROD_DEPLOYMENT)
+        self.edit_docs(
+            "viking/manifests/kustomization.yaml",
+            lambda doc: doc.setdefault("patches", []).append(
+                {
+                    "target": {"kind": "Deployment", "name": "openviking"},
+                    "patch": "- op: remove\n"
+                    f"  path: /spec/template/spec/volumes/{index}/configMap/items\n",
+                }
+            ),
+        )
+        errors = self.errors()
+        self.assertFalse(
+            any("(kustomize)" in e and "items:" in e for e in errors), errors
+        )
+        self.assertTrue(
+            any("(source files)" in e and "items:" in e for e in errors), errors
+        )
+
+    def find_volume_index(self, rel):
+        for doc in yaml.safe_load_all((self.root / rel).read_text()):
+            spec = self.pod_spec(doc or {})
+            if spec:
+                return next(
+                    i
+                    for i, v in enumerate(spec["volumes"])
+                    if v["name"] == checker.VOLUME
+                )
+        raise AssertionError("no nav-patch volume")
+
+    def test_another_workload_with_an_items_list_fails(self):
+        # R3: a second workload consuming the ConfigMap is checked too.
+        self.append(
+            "viking/manifests/openviking-deployment.yaml",
+            "---\napiVersion: apps/v1\nkind: Deployment\nmetadata:\n"
+            "  name: canary\n  namespace: viking\nspec:\n"
+            "  selector:\n    matchLabels: {app: canary}\n  template:\n"
+            "    metadata:\n      labels: {app: canary}\n    spec:\n"
+            "      containers:\n        - name: c\n          image: x\n"
+            "      volumes:\n        - name: nav-patch\n          configMap:\n"
+            "            name: openviking-nav-patch\n"
+            "            items: [{key: sitecustomize.py, path: sitecustomize.py}]\n",
+        )
+        self.assertFails("Deployment canary: volume nav-patch has an items: list")
+
+    def test_projected_volume_of_the_configmap_fails(self):
+        def project(doc):
+            spec = self.pod_spec(doc)
+            if spec:
+                spec["volumes"].append(
+                    {
+                        "name": "other",
+                        "projected": {
+                            "sources": [{"configMap": {"name": "ov-nav-patch"}}]
+                        },
+                    }
+                )
+
+        self.edit_docs(TEST_DEPLOYMENT, project)
+        self.assertFails("volume other uses ov-nav-patch")
+
+    def test_earlier_pythonpath_entry_fails(self):
+        # R3: an earlier PYTHONPATH entry can supply a different sitecustomize.py.
+        def prepend(doc):
+            spec = self.pod_spec(doc)
+            for c in (spec or {}).get("containers", []):
+                for e in c.get("env", []):
+                    if e["name"] == "PYTHONPATH":
+                        e["value"] = "/extra-python:" + e["value"]
+
+        self.edit_docs(PROD_DEPLOYMENT, prepend)
+        self.assertFails("must be its first entry")
 
     def test_patch_edit_without_regen_fails(self):
         path = self.root / checker.NAV / "ov_pref_gate_patch.py"

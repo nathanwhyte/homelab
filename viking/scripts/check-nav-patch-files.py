@@ -6,20 +6,28 @@ Deployments' ``items:`` lists, and the pod ran without the gate until homelab#25
 The patch set is ``sitecustomize.py`` plus every ``ov_*_patch.py`` in
 viking/manifests/test/nav-patch/.
 
-The checker reads what the consumers produce, not the files that feed them: it
-renders each stack with ``kubectl kustomize`` (so generators, patches, List
-resources and duplicate definitions are resolved the way kustomize resolves them)
-and runs sitecustomize.py to read the TARGETS Python builds. For the prod stack
+The checker reads what the consumers produce: it renders each stack with
+``kubectl kustomize`` (so generators, patches, List resources and duplicate
+definitions are resolved the way kustomize resolves them), checks the same rules
+on the source files a single-file ``kubectl apply -f`` would send, and runs
+sitecustomize.py to read the TARGETS Python builds. For the prod stack
 (viking/manifests/) and the test stack (viking/manifests/test/) it requires:
 
   * exactly one nav-patch ConfigMap, holding exactly the patch set, each value
     byte-identical to its file;
-  * exactly one Deployment whose ``nav-patch`` volume mounts that ConfigMap whole
-    (no ``items:``), and every container that mounts it does so without subPath,
-    at a directory on its literal PYTHONPATH, with no other mount at or under it;
+  * exactly one OpenViking Deployment, whose application container mounts the
+    ``nav-patch`` volume, and that volume is a plain configMap volume of the
+    nav-patch ConfigMap;
+  * in every workload, every volume that references the nav-patch ConfigMap is
+    that plain ``nav-patch`` volume with no ``items:``, and every container that
+    mounts it does so once, without subPath, at the first entry of its literal
+    PYTHONPATH (so its sitecustomize.py is the one Python loads), with no other
+    mount at or under that directory;
 
 and that sitecustomize.py's TARGETS names every patch module, and only those, with
-no target key repeated.
+no target key repeated. Manifests built to defeat the check (a second loader on
+another volume, transforms that differ between kustomize and single-file apply
+beyond these rules) are out of its scope.
 
 Run by ``regen-nav-patch-configmap.sh --check`` (a pre-commit hook). Needs PyYAML
 and kubectl (for ``kubectl kustomize``, which needs no cluster).
@@ -44,13 +52,39 @@ except ImportError:
 
 NAV = "viking/manifests/test/nav-patch"
 REGEN = "viking/scripts/regen-nav-patch-configmap.sh"
-# (kustomization dir, nav-patch ConfigMap, Deployment)
+# kustomization dir, nav-patch ConfigMap, Deployment, its application container,
+# and the source files a single-file apply sends.
 STACKS = (
-    ("viking/manifests", "openviking-nav-patch", "openviking"),
-    ("viking/manifests/test", "ov-nav-patch", "openviking-test"),
+    {
+        "dir": "viking/manifests",
+        "configmap": "openviking-nav-patch",
+        "deployment": "openviking",
+        "container": "openviking",
+        "sources": (
+            "viking/manifests/openviking-deployment.yaml",
+            "viking/manifests/openviking-nav-patch-configmap.yaml",
+        ),
+    },
+    {
+        "dir": "viking/manifests/test",
+        "configmap": "ov-nav-patch",
+        "deployment": "openviking-test",
+        "container": "openviking-test",
+        "sources": ("viking/manifests/test/openviking-test-deployment.yaml",),
+    },
 )
 NAMESPACE = "viking"
 VOLUME = "nav-patch"
+WORKLOAD_KINDS = {
+    "Pod",
+    "Deployment",
+    "StatefulSet",
+    "DaemonSet",
+    "ReplicaSet",
+    "ReplicationController",
+    "Job",
+    "CronJob",
+}
 
 
 def patch_files(root):
@@ -70,6 +104,19 @@ def diff_sets(label, want, got):
     return errors
 
 
+def flatten(docs):
+    """Objects, with List resources expanded as kubectl expands them."""
+    out = []
+    for d in docs:
+        if not isinstance(d, dict):
+            continue
+        if str(d.get("kind", "")).endswith("List") and isinstance(d.get("items"), list):
+            out += flatten(d["items"])
+        else:
+            out.append(d)
+    return out
+
+
 def render(root, kdir):
     """The stack's objects as ``kubectl kustomize`` renders them."""
     kubectl = shutil.which("kubectl")
@@ -83,21 +130,30 @@ def render(root, kdir):
     )
     if proc.returncode != 0:
         raise RuntimeError(f"kubectl kustomize failed: {proc.stderr.strip()}")
-    return [d for d in yaml.safe_load_all(proc.stdout) if isinstance(d, dict)]
+    return flatten(yaml.safe_load_all(proc.stdout))
 
 
-def named(objects, kind, name):
+def load_source(path):
+    with open(path, encoding="utf-8") as fh:
+        return flatten(yaml.safe_load_all(fh))
+
+
+def named(objects, kind, name, namespace):
+    """Objects of ``kind`` and ``name``; ``namespace=None`` matches any (a source
+    file may leave it to kustomize)."""
     return [
         o
         for o in objects
         if o.get("kind") == kind
         and (o.get("metadata") or {}).get("name") == name
-        and (o.get("metadata") or {}).get("namespace") == NAMESPACE
+        and (
+            namespace is None or (o.get("metadata") or {}).get("namespace") == namespace
+        )
     ]
 
 
 def check_configmap(root, label, objects, name, files):
-    found = named(objects, "ConfigMap", name)
+    found = named(objects, "ConfigMap", name, NAMESPACE)
     if len(found) != 1:
         return [f"{label}: expected one ConfigMap {name}, found {len(found)}"]
     cm = found[0]
@@ -115,6 +171,30 @@ def check_configmap(root, label, objects, name, files):
     return errors
 
 
+def pod_spec(obj):
+    kind = obj.get("kind")
+    if kind not in WORKLOAD_KINDS:
+        return None
+    spec = obj.get("spec") or {}
+    if kind == "Pod":
+        return spec
+    if kind == "CronJob":
+        spec = (spec.get("jobTemplate") or {}).get("spec") or {}
+    return (spec.get("template") or {}).get("spec")
+
+
+def references(volume, configmap):
+    """True when the volume projects any key of ``configmap``."""
+    cm = volume.get("configMap")
+    if isinstance(cm, dict) and cm.get("name") == configmap:
+        return True
+    sources = (volume.get("projected") or {}).get("sources") or []
+    return any(
+        isinstance(src, dict) and (src.get("configMap") or {}).get("name") == configmap
+        for src in sources
+    )
+
+
 def pythonpath(container):
     entries = [e for e in container.get("env") or [] if e.get("name") == "PYTHONPATH"]
     if len(entries) != 1 or not isinstance(entries[0].get("value"), str):
@@ -122,58 +202,90 @@ def pythonpath(container):
     return [p.rstrip("/") for p in entries[0]["value"].split(":") if p]
 
 
-def check_deployment(label, objects, name, configmap):
-    found = named(objects, "Deployment", name)
+def check_mount(where, mount, mounts, container):
+    errors = []
+    path = str(mount.get("mountPath", "")).rstrip("/")
+    if mount.get("subPath") or mount.get("subPathExpr"):
+        errors.append(f"{where} mounts {VOLUME} with a subPath")
+    paths = pythonpath(container)
+    if not paths or paths[0] != path:
+        errors.append(
+            f"{where} mounts {VOLUME} at {path} but its PYTHONPATH is {paths}; "
+            "the mount must be its first entry, so its sitecustomize.py is the one loaded"
+        )
+    for other in mounts:
+        if other is mount:
+            continue
+        op = str(other.get("mountPath", "")).rstrip("/")
+        if op == path or op.startswith(path + "/"):
+            errors.append(
+                f"{where}: mount {other.get('name')} at {op} hides {VOLUME} files"
+            )
+    return errors
+
+
+def check_workload(label, obj, configmap):
+    """Every volume referencing ``configmap`` and every mount of it in one workload."""
+    spec = pod_spec(obj)
+    if not isinstance(spec, dict):
+        return []
+    where = f"{label}: {obj.get('kind')} {(obj.get('metadata') or {}).get('name')}"
+    errors = []
+    refs = [
+        v
+        for v in spec.get("volumes") or []
+        if isinstance(v, dict) and references(v, configmap)
+    ]
+    for v in refs:
+        if v.get("name") != VOLUME or set(v) != {"name", "configMap"}:
+            errors.append(
+                f"{where}: volume {v.get('name')} uses {configmap}; only a plain "
+                f"configMap volume named {VOLUME} may"
+            )
+        elif "items" in v["configMap"]:
+            errors.append(
+                f"{where}: volume {VOLUME} has an items: list; mount the whole "
+                "ConfigMap so every patch file is on PYTHONPATH (homelab#250)"
+            )
+    names = {v.get("name") for v in refs}
+    for c in (spec.get("initContainers") or []) + (spec.get("containers") or []):
+        mounts = c.get("volumeMounts") or []
+        ours = [m for m in mounts if m.get("name") in names]
+        cwhere = f"{where} container {c.get('name')}"
+        if len(ours) > 1:
+            errors.append(f"{cwhere} mounts {VOLUME} {len(ours)} times")
+        elif ours:
+            errors += check_mount(cwhere, ours[0], mounts, c)
+    return errors
+
+
+def check_app(label, objects, stack, namespace):
+    """The OpenViking Deployment exists once and its app container mounts nav-patch."""
+    name, container = stack["deployment"], stack["container"]
+    found = named(objects, "Deployment", name, namespace)
     if len(found) != 1:
         return [f"{label}: expected one Deployment {name}, found {len(found)}"]
-    spec = ((found[0].get("spec") or {}).get("template") or {}).get("spec") or {}
+    spec = pod_spec(found[0]) or {}
+    where = f"{label}: Deployment {name}"
     vols = [v for v in spec.get("volumes") or [] if v.get("name") == VOLUME]
-    if len(vols) != 1:
-        return [f"{label}: expected one volume {VOLUME}, found {len(vols)}"]
-    cm = vols[0].get("configMap")
-    if not isinstance(cm, dict) or set(vols[0]) != {"name", "configMap"}:
-        return [f"{label}: volume {VOLUME} is not a plain configMap volume"]
-    errors = []
-    if cm.get("name") != configmap:
-        errors.append(
-            f"{label}: volume {VOLUME} mounts {cm.get('name')!r}, not {configmap}"
-        )
-    if "items" in cm:
-        errors.append(
-            f"{label}: volume {VOLUME} has an items: list; mount the whole ConfigMap "
-            "so every patch file is on PYTHONPATH (homelab#250)"
-        )
-    containers = (spec.get("initContainers") or []) + (spec.get("containers") or [])
-    mounting = 0
-    for c in containers:
-        mounts = c.get("volumeMounts") or []
-        ours = [m for m in mounts if m.get("name") == VOLUME]
-        if not ours:
-            continue
-        mounting += 1
-        where = f"{label}: container {c.get('name')}"
-        if len(ours) != 1:
-            errors.append(f"{where} mounts {VOLUME} {len(ours)} times")
-            continue
-        mount = ours[0]
-        path = str(mount.get("mountPath", "")).rstrip("/")
-        if mount.get("subPath") or mount.get("subPathExpr"):
-            errors.append(f"{where} mounts {VOLUME} with a subPath")
-        paths = pythonpath(c)
-        if paths is None or path not in paths:
-            errors.append(
-                f"{where} mounts {VOLUME} at {path} but its PYTHONPATH is {paths}"
-            )
-        for other in mounts:
-            if other is mount:
-                continue
-            op = str(other.get("mountPath", "")).rstrip("/")
-            if op == path or op.startswith(path + "/"):
-                errors.append(
-                    f"{where}: mount {other.get('name')} at {op} hides {VOLUME} files"
-                )
-    if mounting == 0:
-        errors.append(f"{label}: no container mounts volume {VOLUME}")
+    if len(vols) != 1 or not references(vols[0], stack["configmap"]):
+        return [
+            f"{where}: expected one volume {VOLUME} of ConfigMap {stack['configmap']}"
+        ]
+    app = [c for c in spec.get("containers") or [] if c.get("name") == container]
+    if len(app) != 1:
+        return [f"{where}: expected one container {container}, found {len(app)}"]
+    if not any(m.get("name") == VOLUME for m in app[0].get("volumeMounts") or []):
+        return [f"{where}: container {container} does not mount {VOLUME}"]
+    return []
+
+
+def check_objects(root, label, objects, stack, files, namespace):
+    errors = check_app(label, objects, stack, namespace)
+    for obj in objects:
+        errors += check_workload(label, obj, stack["configmap"])
+    if any(o.get("kind") == "ConfigMap" for o in objects) or namespace is not None:
+        errors += check_configmap(root, label, objects, stack["configmap"], files)
     return errors
 
 
@@ -226,15 +338,24 @@ def check_targets(root, files):
 def check(root):
     files = patch_files(root)
     errors = []
-    for kdir, configmap, deployment in STACKS:
-        label = f"{kdir} (kustomize)"
+    for stack in STACKS:
+        label = f"{stack['dir']} (kustomize)"
         try:
-            objects = render(root, kdir)
+            objects = render(root, stack["dir"])
         except RuntimeError as exc:
             errors.append(f"{label}: {exc}")
-            continue
-        errors += check_configmap(root, label, objects, configmap, files)
-        errors += check_deployment(label, objects, deployment, configmap)
+        else:
+            errors += check_objects(root, label, objects, stack, files, NAMESPACE)
+        # What a single-file `kubectl apply -f` of each source sends.
+        sources = []
+        for rel in stack["sources"]:
+            try:
+                sources += load_source(root / rel)
+            except (OSError, yaml.YAMLError) as exc:
+                errors.append(f"{rel}: {exc}")
+        errors += check_objects(
+            root, f"{stack['dir']} (source files)", sources, stack, files, None
+        )
     return errors + check_targets(root, files)
 
 
