@@ -7,26 +7,36 @@ outage goes to the watch's log instead of waking the session:
     maintenance-active.py [--json] [TARGET ...]
 
 TARGET is kind/namespace/name (deployment/viking/openviking) or a bare
-namespace (viking). Exit 0 prints one line per window that covers the targets,
-exit 1 means none does, exit 2 means none was found but a source could not be
-read (the watch then treats its failure as it would without this check).
+namespace (viking). Exit 0 means every target is covered by a window and
+prints the windows; with no TARGET, it means a cluster-wide window is active.
+Exit 1 means some target is not covered. Exit 2 means some target is not
+covered and a source could not be read, so the watch treats its failure as it
+would without this check.
 
-Windows, in the order checked:
+Every signal is one its producer writes on purpose and reads with the same
+test, never an inference from cluster state:
 
 - timmy-offline: timmy-offline.sh's state under
-  ${XDG_STATE_HOME:-~/.local/state}/homelab-timmy-offline/ (a recorded silence,
-  parked workloads or suspended CronJobs). timmy is the only control plane, so
-  this covers every target.
-- node-maintenance: node-maintenance.sh's cycle state beside it (a <node>.boot-id
-  owing a finish, a held lock, spun-down services). Covers every target: a cycle
-  drains a node and reschedules its pods across the cluster.
-- silence: an active Alertmanager silence whose every matcher either matches
-  any value (alertname=~".+", as timmy-offline.sh sets) or is a namespace
-  matcher that matches a target's namespace. A silence on one alert name says
-  nothing about whether its service is down on purpose, so it does not count.
-- rollout: a Deployment, StatefulSet or DaemonSet target whose rollout has not
-  finished (a newer generation not yet observed, or pods not all updated and
-  available).
+  ${XDG_STATE_HOME:-~/.local/state}/homelab-timmy-offline/: silence-id,
+  parked-scales or suspended-cronjobs non-empty (the script's own -s test).
+  timmy is the only control plane, so this covers every target.
+- node-maintenance: node-maintenance.sh's state beside it: a <node>.boot-id
+  whose first line is non-empty (load_cycle_boot_id), a lock/pid naming a live
+  process (acquire_maintenance_lock treats any other lock as stale), or a
+  non-empty spin-down-replicas. Covers every target: a cycle drains a node and
+  reschedules pods across the cluster.
+- silence: an active Alertmanager silence whose matchers are only
+  alertname=~".+" (or ".*"), the form timmy-offline.sh creates, which covers
+  every target, plus at most one namespace="<ns>" equality matcher, which
+  narrows it to targets in that namespace. Any other matcher, including a regex
+  or negated namespace matcher, makes it not count: it silences particular
+  alerts, which says nothing about whether a service is down on purpose.
+- rollout: a deployment/<ns>/<name> target whose Progressing condition says a
+  rollout is under way (ReplicaSetUpdated, NewReplicaSetCreated,
+  FoundNewReplicaSet), or whose newest generation the controller has not yet
+  observed. It ends when the rollout completes (NewReplicaSetAvailable) or
+  fails (ProgressDeadlineExceeded), so a crash after or instead of a rollout is
+  never covered. Covers that target only; other kinds get no rollout check.
 
 The state files exist only on the Mac that ran the tool; on the other Mac only
 the silence and rollout checks apply. Alertmanager runs on timmy, so during a
@@ -39,7 +49,6 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import re
 import subprocess
 import sys
 from pathlib import Path
@@ -48,7 +57,8 @@ KUBECTL = os.environ.get("KUBECTL", "kubectl")
 AM_NAMESPACE = "grafana"
 AM_POD = "alertmanager-prom-alertmanager-0"
 CALL_TIMEOUT_SECONDS = 20
-ROLLOUT_KINDS = {"deployment", "statefulset", "daemonset"}
+ROLLING_REASONS = {"ReplicaSetUpdated", "NewReplicaSetCreated", "FoundNewReplicaSet"}
+ALL = "*"  # a window's scope: ALL, a namespace, or one target string
 
 
 class Unreadable(Exception):
@@ -59,34 +69,71 @@ def state_root(env=os.environ) -> Path:
     return Path(env.get("XDG_STATE_HOME") or Path.home() / ".local/state")
 
 
-def nonempty(path: Path) -> bool:
+def read_state(path: Path) -> str | None:
+    """A regular file's text, None when it does not exist; Unreadable otherwise."""
     try:
-        return path.stat().st_size > 0
+        if not path.is_file():
+            return None
+        return path.read_text(errors="replace")
+    except (FileNotFoundError, NotADirectoryError):
+        return None
+    except OSError as e:
+        raise Unreadable(f"{path}: {e}") from None
+
+
+def pid_alive(text: str) -> bool:
+    """acquire_maintenance_lock's test: digits only, and kill -0 succeeds."""
+    pid = text.split("\n", 1)[0]
+    if not pid.isdigit() or not pid.isascii():
+        return False
+    try:
+        os.kill(int(pid), 0)
     except OSError:
         return False
+    return True
 
 
-def local_windows(root: Path) -> list[str]:
-    """Windows recorded by timmy-offline.sh and node-maintenance.sh on this Mac."""
-    found = []
+def local_windows(root: Path) -> tuple[list[tuple[str, str]], list[str]]:
+    """(scope, line) windows recorded on this Mac, and the paths that failed."""
+    found, unreadable = [], []
+
+    def state(path: Path) -> str | None:
+        try:
+            return read_state(path)
+        except Unreadable as e:
+            unreadable.append(str(e))
+            return None
+
     offline = root / "homelab-timmy-offline"
     held = [
         name
         for name in ("silence-id", "parked-scales", "suspended-cronjobs")
-        if nonempty(offline / name)
+        if state(offline / name)
     ]
     if held:
-        found.append(f"timmy-offline: {', '.join(held)} in {offline}")
+        found.append((ALL, f"timmy-offline: {', '.join(held)} in {offline}"))
+
     nm = root / "homelab-node-maintenance"
-    for boot_id in sorted(nm.glob("*.boot-id")):
-        found.append(f"node-maintenance: {boot_id.stem} owes a finish ({boot_id})")
-    if nonempty(nm / "lock" / "pid"):
-        found.append(f"node-maintenance: a cycle holds {nm / 'lock'}")
-    if nonempty(nm / "spin-down-replicas"):
+    try:
+        boot_ids = sorted(p for p in nm.iterdir() if p.name.endswith(".boot-id"))
+    except (FileNotFoundError, NotADirectoryError):
+        boot_ids = []
+    except OSError as e:
+        unreadable.append(f"{nm}: {e}")
+        boot_ids = []
+    for path in boot_ids:
+        text = state(path)
+        if text and text.split("\n", 1)[0]:
+            node = path.name.removesuffix(".boot-id")
+            found.append((ALL, f"node-maintenance: {node} owes a finish ({path})"))
+    lock = state(nm / "lock" / "pid")
+    if lock and pid_alive(lock):
+        found.append((ALL, f"node-maintenance: pid {lock.strip()} holds {nm / 'lock'}"))
+    if state(nm / "spin-down-replicas"):
         found.append(
-            f"node-maintenance: services spun down ({nm / 'spin-down-replicas'})"
+            (ALL, f"node-maintenance: services spun down ({nm / 'spin-down-replicas'})")
         )
-    return found
+    return found, unreadable
 
 
 def parse_target(target: str) -> tuple[str | None, str, str | None]:
@@ -99,35 +146,27 @@ def parse_target(target: str) -> tuple[str | None, str, str | None]:
     raise ValueError(f"target must be kind/namespace/name or a namespace: {target!r}")
 
 
-def matches(matcher: dict, value: str) -> bool:
-    """Alertmanager matcher semantics: regexes are anchored, isEqual false negates."""
-    if matcher.get("isRegex"):
-        hit = re.fullmatch(matcher["value"], value) is not None
-    else:
-        hit = matcher["value"] == value
-    return hit if matcher.get("isEqual", True) else not hit
-
-
-def matches_anything(matcher: dict) -> bool:
-    """True for a matcher no label value can fail, such as alertname=~".+"."""
-    return (
-        matcher.get("isRegex", False)
-        and matcher.get("isEqual", True)
-        and (matcher["value"] in (".+", ".*"))
-    )
-
-
-def silence_covers(silence: dict, namespaces: list[str]) -> bool:
-    if silence.get("status", {}).get("state", "active") != "active":
-        return False
+def silence_scope(silence: dict) -> str | None:
+    """ALL, a namespace, or None when the silence does not mark maintenance."""
+    if silence.get("status", {}).get("state") != "active":
+        return None
+    namespaces, saw_match_all = set(), False
     for m in silence.get("matchers", []):
-        if matches_anything(m):
-            continue
-        if m.get("name") == "namespace" and namespaces:
-            if all(matches(m, ns) for ns in namespaces):
-                continue
-        return False
-    return True
+        regex, equal = m.get("isRegex", False), m.get("isEqual", True)
+        if (
+            m.get("name") == "alertname"
+            and regex
+            and equal
+            and m.get("value") in (".+", ".*")
+        ):
+            saw_match_all = True
+        elif m.get("name") == "namespace" and not regex and equal and m.get("value"):
+            namespaces.add(m["value"])
+        else:
+            return None
+    if not saw_match_all or len(namespaces) > 1:
+        return None
+    return namespaces.pop() if namespaces else ALL
 
 
 def run(cmd: list[str]) -> str:
@@ -144,7 +183,7 @@ def run(cmd: list[str]) -> str:
     return out.stdout
 
 
-def active_silences() -> list[dict]:
+def silence_windows() -> list[tuple[str, str]]:
     raw = run(
         [
             KUBECTL,
@@ -167,57 +206,60 @@ def active_silences() -> list[dict]:
         silences = json.loads(raw or "[]")
     except ValueError:
         raise Unreadable(f"amtool printed non-JSON: {raw[:80]!r}") from None
-    return silences if isinstance(silences, list) else []
+    if not isinstance(silences, list):
+        raise Unreadable(f"amtool printed {type(silences).__name__}, not a list")
+    found = []
+    for s in silences:
+        scope = silence_scope(s) if isinstance(s, dict) else None
+        if scope is not None:
+            where = "all targets" if scope == ALL else f"namespace {scope}"
+            found.append(
+                (
+                    scope,
+                    f"silence: {s.get('id')} on {where} until {s.get('endsAt')}"
+                    f" ({str(s.get('comment', '')).strip()})",
+                )
+            )
+    return found
 
 
-def silence_windows(namespaces: list[str]) -> list[str]:
-    return [
-        f"silence: {s.get('id')} until {s.get('endsAt')} ({s.get('comment', '').strip()})"
-        for s in active_silences()
-        if silence_covers(s, namespaces)
-    ]
-
-
-def rollout_in_progress(obj: dict) -> str | None:
-    """Why the object's rollout has not finished, or None when it has."""
-    meta, spec, status = obj["metadata"], obj.get("spec", {}), obj.get("status", {})
-    if status.get("observedGeneration", 0) < meta.get("generation", 0):
+def rollout_reason(obj: dict) -> str | None:
+    """Why a Deployment is mid-rollout, or None when it is not."""
+    status = obj.get("status", {})
+    if status.get("observedGeneration", 0) < obj["metadata"].get("generation", 0):
         return "a new generation is not yet observed"
-    if obj["kind"] == "DaemonSet":
-        want = status.get("desiredNumberScheduled", 0)
-        updated = status.get("updatedNumberScheduled", 0)
-        available = status.get("numberAvailable", 0)
-    else:
-        want = spec.get("replicas", 1)
-        updated = status.get("updatedReplicas", 0)
-        available = status.get("availableReplicas", 0)
-    if updated < want:
-        return f"{updated}/{want} pods updated"
-    if obj["kind"] == "Deployment" and status.get("replicas", 0) > updated:
-        return f"{status['replicas'] - updated} old pods still running"
-    if available < want:
-        return f"{available}/{want} pods available"
+    for cond in status.get("conditions", []):
+        if cond.get("type") == "Progressing":
+            if cond.get("status") == "True" and cond.get("reason") in ROLLING_REASONS:
+                return f"Progressing: {cond['reason']}"
+            return None
     return None
 
 
-def rollout_window(kind: str, ns: str, name: str) -> list[str]:
+def rollout_window(ns: str, name: str) -> list[tuple[str, str]]:
+    target = f"deployment/{ns}/{name}"
     raw = run(
         [
             KUBECTL,
             "-n",
             ns,
             "get",
-            f"{kind}/{name}",
+            f"deployment/{name}",
             "-o",
             "json",
             f"--request-timeout={CALL_TIMEOUT_SECONDS}s",
         ]
     )
     try:
-        reason = rollout_in_progress(json.loads(raw))
-    except (ValueError, KeyError) as e:
-        raise Unreadable(f"{kind}/{ns}/{name}: unexpected object ({e})") from None
-    return [f"rollout: {kind}/{ns}/{name} ({reason})"] if reason else []
+        reason = rollout_reason(json.loads(raw))
+    except (ValueError, KeyError, TypeError, AttributeError) as e:
+        raise Unreadable(f"{target}: unexpected object ({e})") from None
+    return [(target, f"rollout: {target} ({reason})")] if reason else []
+
+
+def covers(scope: str, target: tuple[str | None, str, str | None]) -> bool:
+    kind, ns, name = target
+    return scope in (ALL, ns) or (kind is not None and scope == f"{kind}/{ns}/{name}")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -229,12 +271,12 @@ def main(argv: list[str] | None = None) -> int:
         targets = [parse_target(t) for t in args.targets]
     except ValueError as e:
         ap.error(str(e))
-    namespaces = sorted({ns for _, ns, _ in targets})
 
-    windows = local_windows(state_root())
-    unreadable = []
-    checks = [lambda: silence_windows(namespaces)] + [
-        (lambda t=t: rollout_window(*t)) for t in targets if t[0] in ROLLOUT_KINDS
+    windows, unreadable = local_windows(state_root())
+    checks = [silence_windows] + [
+        (lambda ns=ns, name=name: rollout_window(ns, name))
+        for kind, ns, name in targets
+        if kind == "deployment"
     ]
     for check in checks:
         try:
@@ -242,15 +284,33 @@ def main(argv: list[str] | None = None) -> int:
         except Unreadable as e:
             unreadable.append(str(e))
 
-    code = 0 if windows else (2 if unreadable else 1)
+    relevant = [
+        line
+        for scope, line in windows
+        if scope == ALL or any(covers(scope, t) for t in targets)
+    ]
+    if targets:
+        uncovered = [
+            args.targets[i]
+            for i, t in enumerate(targets)
+            if not any(covers(scope, t) for scope, _ in windows)
+        ]
+    else:
+        uncovered = [] if any(scope == ALL for scope, _ in windows) else ["(cluster)"]
+    code = 0 if not uncovered else (2 if unreadable else 1)
     if args.json:
         print(
             json.dumps(
-                {"active": bool(windows), "windows": windows, "unreadable": unreadable}
+                {
+                    "covered": not uncovered,
+                    "windows": relevant,
+                    "uncovered": uncovered,
+                    "unreadable": unreadable,
+                }
             )
         )
     else:
-        for line in windows:
+        for line in relevant:
             print(line)
         for line in unreadable:
             print(f"unreadable: {line}", file=sys.stderr)
