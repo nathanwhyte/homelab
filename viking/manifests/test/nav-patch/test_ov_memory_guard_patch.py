@@ -2,9 +2,10 @@
 
     python3 test_ov_memory_guard_patch.py
 
-The guard's semantics run on fakes anywhere. The ``Installed`` cases need the openviking
-v0.4.20 image (run with PYTHONPATH=<this dir> /app/.venv/bin/python …) and are skipped
-elsewhere: they check the version/source-hash guard against the real ``MemoryUpdater``
+The guard's semantics run on fakes anywhere. The ``Installed`` cases need openviking
+v0.4.20 (the image, run with PYTHONPATH=<this dir> /app/.venv/bin/python …, or the
+``openviking`` uv tool through viking/scripts/run-nav-patch-tests.py) and are skipped
+only when no openviking package is found: they check the version/source-hash guard against the real ``MemoryUpdater``
 and read a summary back through the real ``MemoryFileUtils``.
 """
 
@@ -1473,10 +1474,11 @@ class ShadowWrapperTests(unittest.TestCase):
         self.assertEqual(seen, [msgs])
 
 
-try:
-    from openviking.session.memory import memory_updater as installed
-except ImportError:  # not in the openviking image
+# Skip only when the package is absent; a broken install fails (IMPR-1413).
+if importlib.util.find_spec("openviking") is None:  # not in the openviking image
     installed = None
+else:
+    from openviking.session.memory import memory_updater as installed
 
 
 @unittest.skipIf(installed is None, "needs the openviking v0.4.20 image")

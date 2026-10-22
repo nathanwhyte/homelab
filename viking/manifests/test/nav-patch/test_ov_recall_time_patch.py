@@ -7,6 +7,7 @@ event-abstract hooks the way ``sitecustomize`` orders them, and render end to en
 """
 
 import asyncio
+import importlib.util
 import os
 import sys
 import unittest
@@ -380,19 +381,15 @@ class GuardTests(unittest.TestCase):
             self.assertFalse(rt._guarded("render_entry", fake_render))
 
     def test_a_changed_source_is_not_patched(self):
-        try:
-            import openviking  # noqa: F401
-        except ImportError:
+        if not HAVE_OV:
             self.skipTest("needs the openviking package")
+        import openviking  # noqa: F401
+
         self.assertFalse(rt._guarded("render_entry", fake_render))
 
 
-try:
-    import openviking  # noqa: F401
-
-    HAVE_OV = True
-except ImportError:
-    HAVE_OV = False
+# Skip only when the package is absent; a broken install fails (IMPR-1413).
+HAVE_OV = importlib.util.find_spec("openviking") is not None
 
 
 @unittest.skipUnless(HAVE_OV, "needs the v0.4.20 openviking package")

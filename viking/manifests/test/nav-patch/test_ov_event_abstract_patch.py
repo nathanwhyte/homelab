@@ -1,9 +1,11 @@
 """IMPR-1200 event-abstract patch: semantics on fakes, plus checks against the real module.
 
-The ``Installed`` cases need openviking v0.4.20 importable (the image, or a local
-site-packages on PYTHONPATH) and are skipped otherwise.
+The ``Installed`` cases need openviking importable (the v0.4.20 image, or the
+``openviking`` uv tool through viking/scripts/run-nav-patch-tests.py) and are skipped
+only when no openviking package is found; another version fails its guard.
 """
 
+import importlib.util
 import os
 import sys
 import types
@@ -189,12 +191,13 @@ class ApplyTests(unittest.TestCase):
                 self.assertEqual(msg.message, "m")
 
 
-try:
+# Skip only when the package is absent; a broken install fails (IMPR-1413).
+if importlib.util.find_spec("openviking") is None:
+    _ov = None
+else:
     import openviking as _ov
     from openviking.retrieve.context_assembler import tiers as _tiers
     from openviking.storage.queuefs import embedding_msg_converter as _emc
-except Exception:  # noqa: BLE001 — anything short of a real install skips these cases
-    _ov = None
 
 
 @unittest.skipIf(_ov is None, "needs openviking v0.4.20 importable")
@@ -284,10 +287,17 @@ class Installed(unittest.TestCase):
             MemoryUpdateResult,
         )
 
-        try:
-            registry = create_default_registry()
-        except Exception as exc:  # noqa: BLE001 — needs the image's config
-            self.skipTest(f"no OpenViking config here: {exc!r}")
+        from openviking_cli.utils.config.config_loader import resolve_config_path
+        from openviking_cli.utils.config.consts import (
+            DEFAULT_OV_CONF,
+            OPENVIKING_CONFIG_ENV,
+        )
+
+        # Skip only when OpenViking's own resolver finds no ov.conf; any other
+        # registry failure fails the case (IMPR-1413).
+        if resolve_config_path(None, OPENVIKING_CONFIG_ENV, DEFAULT_OV_CONF) is None:
+            self.skipTest("no OpenViking config here (needs the image's ov.conf)")
+        registry = create_default_registry()
         stored = (
             "---\nevent_name: kinde_login_attempts\ngoal: log in to the dev tenant\n---\n"
             + BODY.replace("needs --domain", "needs --domain, see [docs](viking://x/y)")

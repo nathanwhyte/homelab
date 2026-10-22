@@ -447,36 +447,12 @@ spec:
           configMap:
             name: openviking-memory-templates
         # IMPR-1185 navigation patch (see the PYTHONPATH comment on the main container).
+        # The whole ConfigMap, no `items:` list (IMPR-1413): a list here had to name
+        # every patch file and missed ov_pref_gate_patch.py (homelab#250).
+        # regen-nav-patch-configmap.sh --check refuses an `items:` list.
         - name: nav-patch
           configMap:
             name: openviking-nav-patch
-            items:
-              - key: sitecustomize.py
-                path: sitecustomize.py
-              - key: ov_nav_patch.py
-                path: ov_nav_patch.py
-              - key: ov_extract_patch.py
-                path: ov_extract_patch.py
-              - key: ov_chatlog_patch.py
-                path: ov_chatlog_patch.py
-              - key: ov_s3_cache_patch.py
-                path: ov_s3_cache_patch.py
-              - key: ov_memory_guard_patch.py
-                path: ov_memory_guard_patch.py
-              - key: ov_event_abstract_patch.py
-                path: ov_event_abstract_patch.py
-              - key: ov_grep_scope_patch.py
-                path: ov_grep_scope_patch.py
-              - key: ov_recall_time_patch.py
-                path: ov_recall_time_patch.py
-              - key: ov_fetch_items_patch.py
-                path: ov_fetch_items_patch.py
-              - key: ov_wm_update_patch.py
-                path: ov_wm_update_patch.py
-              - key: ov_claude_params_patch.py
-                path: ov_claude_params_patch.py
-              - key: ov_pref_gate_patch.py
-                path: ov_pref_gate_patch.py
         - name: data
           persistentVolumeClaim:
             claimName: openviking-data
