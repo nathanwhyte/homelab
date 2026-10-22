@@ -502,14 +502,6 @@ def now_utc():
     return dt.datetime.fromtimestamp(time.time(), dt.UTC)
 
 
-def parse_ts(stamp):
-    """A kubectl `...Z` timestamp as an aware UTC datetime; None if it is not one."""
-    second = utc_second(stamp or "")
-    if second is None:
-        return None
-    return dt.datetime.strptime(second, ISO_SECOND).replace(tzinfo=dt.UTC)
-
-
 def ready_state(sink):
     """What the openviking pods say, or None for a failed probe.
 
