@@ -103,9 +103,9 @@ write is written again, in the log and on stdout (a second wake), and then the f
 WATCH end may lack the incomplete mark. An interrupt that lands while the final
 target-reached SEGMENT is being written exits 130 and is marked incomplete; its
 uptime figure shows whether the target had been met. What stays open: an interrupt
-at a statement boundary between the finalizer's own protected blocks can still leave
-no WATCH end (line-event injection finds eight such boundaries), and a second
-interrupt inside the finalizer can leave the ledger incomplete.
+at one of the few statement boundaries between the finalizer's own protected blocks
+can still leave no WATCH end, and a second interrupt inside the finalizer can leave
+the ledger incomplete.
 
 A semantic-DAG "Failed to dispatch directory" ERROR carries the lock-timeout text
 plus a LockAcquisitionError traceback line. Both count as dag_miss, never as a
