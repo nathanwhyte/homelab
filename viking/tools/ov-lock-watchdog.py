@@ -50,15 +50,23 @@ WATCHDOG_LOG_RECENT_SECONDS=60, WATCHDOG_LOG_MAX_GAP_SECONDS=60,
 WATCHDOG_MIN_LOG_COVERAGE_SECONDS=600, WATCHDOG_EXPORTER_MAX_STALE_SECONDS=120,
 WATCHDOG_EXPORTER_URL, WATCHDOG_NAMESPACE, WATCHDOG_DEPLOYMENT.
 
-Decisions (the run's `decision=` line): restart, defer, none (usable lock
-series were read and no lock qualified, or a later check stopped it), or blind
-(the Deployment was unreadable, or the exporter was unusable, reported
-OpenViking down or its lock poll failing, or was stale, so no lock series were
-read). Count observations by decision=none only (IMPR-1416). The pre-restart
-recheck logs no second decision line; a recheck that fails any gate logs
-`ABORTED before restart`.
+Decisions (the run's `decision=` line, IMPR-1416):
 
-Exit codes: 0 = a decision was made (restart, defer, none or blind, including
+- restart, defer: a same-lease lock held >= hold; the queue rule chose.
+- held: a lock held >= hold was seen, but no restart: the cooldown, an
+  unsettled rollout or unreadable restartedAt stopped it, or no long lock
+  passed the same-lease check (the log was unreadable, too short, or showed a
+  changed, stopped or gapped lease).
+- none: usable lock series were read and no lock was held >= hold.
+- blind: no lock series were read (the Deployment was unreadable, or the
+  exporter was unusable, reported OpenViking down or its lock poll failing, or
+  was stale).
+
+A count of decision=none counts the runs that read usable lock series and saw
+no lock held >= hold. The pre-restart recheck logs no second decision line; a
+recheck that fails any gate logs `ABORTED before restart`.
+
+Exit codes: 0 = a decision was made (restart, defer, held, none or blind, including
 every "could not tell" case); 1 = a restart was attempted and failed, or an
 unexpected error; 2 = blind (the ServiceAccount is refused by the Kubernetes API
 - RBAC missing) or bad configuration. Non-zero fails the Job, which reaches
@@ -705,7 +713,7 @@ class LockReport:
 
 @dataclass(frozen=True)
 class Decision:
-    action: str  # "restart" | "defer" | "none" | "blind"
+    action: str  # "restart" | "defer" | "held" | "none" | "blind"
     reason: str
     locks: tuple[LockReport, ...] = field(default_factory=tuple)
 
@@ -722,6 +730,11 @@ def _blind(reason: str) -> tuple[Decision, list[LiveLock]]:
     """A stop before the lock series could be read: the run observed nothing,
     so it must not count as a clean "none" (IMPR-1416 row 2)."""
     return Decision("blind", reason), []
+
+
+def _held(reason: str) -> tuple[Decision, list[LiveLock]]:
+    """A stop after a lock held >= hold was seen: not a clean "none" either."""
+    return Decision("held", reason), []
 
 
 def gate(
@@ -756,13 +769,13 @@ def gate(
             f"no lock held >= {int(cfg.hold)}s (longest labelled: {int(longest)}s)"
         )
     if deploy.restarted_at_error:
-        return _stop(f"cannot judge the cooldown: {deploy.restarted_at_error}")
+        return _held(f"cannot judge the cooldown: {deploy.restarted_at_error}")
     if not deploy.settled:
-        return _stop(f"deployment not settled: {deploy.unsettled_why}")
+        return _held(f"deployment not settled: {deploy.unsettled_why}")
     if deploy.restarted_at is not None:
         since = (now - deploy.restarted_at).total_seconds()
         if since < cfg.cooldown:
-            return _stop(
+            return _held(
                 f"cooldown: deployment restarted {int(since)}s ago "
                 f"(< {int(cfg.cooldown)}s)"
             )
@@ -793,7 +806,7 @@ def decide(
     qualified = [r for r in reports if r.qualified]
     if not qualified:
         return Decision(
-            "none",
+            "held",
             f"{len(reports)} lock(s) held >= {int(cfg.hold)}s, none passed the "
             "same-lease check",
             tuple(reports),

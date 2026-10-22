@@ -168,27 +168,27 @@ class TestBug1220Policy(unittest.TestCase):
 class TestIdentity(unittest.TestCase):
     def test_lease_ref_changing_on_the_path_is_not_a_wedge(self):
         d = decide(log=refresh_log(swap_at=2 * HOUR))
-        self.assertEqual(d.action, "none")
+        self.assertEqual(d.action, "held")
         self.assertIn("lease changed", d.locks[0].reason)
 
     def test_refreshes_stopped_is_the_janitors_case(self):
         d = decide(log=refresh_log(last_ago=600.0))
-        self.assertEqual(d.action, "none")
+        self.assertEqual(d.action, "held")
         self.assertIn("refreshes stopped", d.locks[0].reason)
 
     def test_a_refresh_gap_inside_the_window_blocks(self):
         d = decide(log=refresh_log(drop=(2 * HOUR + 600, 2 * HOUR)))
-        self.assertEqual(d.action, "none")
+        self.assertEqual(d.action, "held")
         self.assertIn("refresh gap", d.locks[0].reason)
 
     def test_no_lease_line_for_the_path_blocks(self):
         d = decide(log=refresh_log(path="/local/default/other/.path.ovlock"))
-        self.assertEqual(d.action, "none")
+        self.assertEqual(d.action, "held")
         self.assertIn("no lease line", d.locks[0].reason)
 
     def test_log_missing_blocks(self):
         d = decide(log=None, errors={"log": "HTTP 403 on GET .../log"})
-        self.assertEqual(d.action, "none")
+        self.assertEqual(d.action, "held")
         self.assertIn("pod log unavailable: HTTP 403", d.locks[0].reason)
 
     def test_partial_log_coverage_is_judged_on_what_it_holds(self):
@@ -204,22 +204,23 @@ class TestIdentity(unittest.TestCase):
 
     def test_too_little_log_blocks(self):
         d = decide(log=refresh_log(covered_for=300.0))
-        self.assertEqual(d.action, "none")
+        self.assertEqual(d.action, "held")
         self.assertIn("log covers only 300s", d.locks[0].reason)
 
     def test_unknown_exporter_owner_blocks(self):
         d = decide(exporter=exporter([lock(4 * HOUR, owner="unknown")]))
-        self.assertEqual(d.action, "none")
+        self.assertEqual(d.action, "held")
         self.assertIn("owner unknown", d.locks[0].reason)
 
     def test_clock_skew_blocks(self):
         log = refresh_log(last_ago=-120.0)
-        self.assertEqual(decide(log=log).action, "none")
+        self.assertEqual(decide(log=log).action, "held")
 
 
 class TestGates(unittest.TestCase):
-    # A stop before the lock series are read is "blind", not "none", so every
-    # decision=none run read usable lock series (IMPR-1416 row 2).
+    # A stop before the lock series are read is "blind"; a stop after a lock
+    # held >= hold was seen is "held"; "none" is left for runs that read usable
+    # lock series and saw no lock held >= hold (IMPR-1416 row 2).
     def test_exporter_down(self):
         d = decide(exporter=None, errors={"exporter": "URLError: refused"})
         self.assertEqual(d.action, "blind")
@@ -249,7 +250,7 @@ class TestGates(unittest.TestCase):
 
     def test_cooldown_after_a_recent_restart(self):
         d = decide(deploy=deploy(restarted_ago=1800.0))
-        self.assertEqual(d.action, "none")
+        self.assertEqual(d.action, "held")
         self.assertIn("cooldown", d.reason)
 
     def test_cooldown_expires(self):
@@ -260,12 +261,12 @@ class TestGates(unittest.TestCase):
 
     def test_unparseable_restarted_at_blocks(self):
         d = decide(deploy=deploy(restarted_ago=None, err="unparseable restartedAt"))
-        self.assertEqual(d.action, "none")
+        self.assertEqual(d.action, "held")
         self.assertIn("cooldown", d.reason)
 
     def test_unsettled_rollout_blocks(self):
         d = decide(deploy=deploy(settled=False))
-        self.assertEqual(d.action, "none")
+        self.assertEqual(d.action, "held")
         self.assertIn("not settled", d.reason)
 
 
@@ -369,6 +370,13 @@ class TestRun(unittest.TestCase):
         self.assertEqual(cluster.patches, [])
         self.assertIn("DRY-RUN would restart", out)
         self.assertIn("mode=dry-run", out)
+
+    def test_long_lock_in_cooldown_logs_held_without_patching(self):
+        cluster = FakeCluster(deploy_state=deploy(restarted_ago=1800.0))
+        code, out = self.go(cluster, metrics_text(work=0))
+        self.assertEqual((code, cluster.patches), (0, []))
+        self.assertIn("decision=held", out)
+        self.assertIn("cooldown", out)
 
     def test_busy_queue_defers_without_patching(self):
         cluster = FakeCluster()
