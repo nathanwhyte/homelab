@@ -38,6 +38,9 @@ patch)
 exec)
   # exec <pod> -c alertmanager -- amtool --alertmanager.url=... silence add|expire ...
   [[ ${STUB_FAIL_AMTOOL:-0} == 0 ]] || { echo "connection refused" >&2; exit 1; }
+  # What amtool prints for a silence Alertmanager no longer has (lost on an
+  # unclean restart): a 404, exit 1.
+  [[ ${STUB_AMTOOL_NOTFOUND:-0} == 0 ]] || { echo "amtool: error: [DELETE /silence/{silenceID}][404] deleteSilenceNotFound" >&2; exit 1; }
   for a in "$@"; do
     if [[ $a == add ]]; then echo "$STUB_SILENCE_ID"; fi
   done
@@ -129,6 +132,35 @@ else
 	bad "an unreachable Alertmanager should warn, not fail"
 fi
 if [[ -s $SILENCE_FILE ]]; then bad "no ID recorded when amtool fails"; else ok "no ID recorded when amtool fails"; fi
+
+# A silence Alertmanager lost (power cut inside its snapshot interval) is reported
+# and cleared, not retried forever.
+reset_cluster
+silence_alerts >/dev/null
+expire_out=$(STUB_AMTOOL_NOTFOUND=1 expire_silence 2>&1)
+assert_eq "a 404 on expire exits 0" 0 "$?"
+if [[ -e $SILENCE_FILE ]]; then bad "a lost silence clears the ID"; else ok "a lost silence clears the ID"; fi
+assert_eq "a lost silence is reported as uncovered, not expired" 1 "$(grep -c 'WARN.*no longer exists.*not covered' <<<"$expire_out")"
+
+# --- down asks node-maintenance.sh before it mutates anything ------------------
+# Order within cmd_down, by line: the preflight call precedes the first mutation
+# (silence, suspend, park). 2026-10-21: the refusal came after all three.
+down_body=$(declare -f cmd_down)
+preflight_line=$(grep -n 'node-maintenance.sh" preflight' <<<"$down_body" | head -1 | cut -d: -f1)
+first_mutation_line=$(grep -n -E '^\s*(silence_alerts|suspend_cronjobs|park);?$' <<<"$down_body" | head -1 | cut -d: -f1)
+if [[ -n $preflight_line && -n $first_mutation_line ]] && ((preflight_line < first_mutation_line)); then
+	ok "down runs node-maintenance.sh preflight before silence/suspend/park"
+else
+	bad "down must run node-maintenance.sh preflight before silence/suspend/park (preflight at '${preflight_line:-none}', first mutation at '${first_mutation_line:-none}')"
+fi
+
+# --- up without cycle state ---------------------------------------------------
+# finish_cycle skips node-maintenance.sh finish when `down` never reached the
+# drain; it must still refuse a cordoned node rather than unpark onto it.
+up_body=$(declare -f finish_cycle)
+assert_eq "finish_cycle keys on the node-maintenance boot-id file" 1 "$(grep -c 'NM_STATE_DIR/.NODE.boot-id' <<<"$up_body")"
+assert_eq "finish_cycle refuses a cordoned node without cycle state" 1 "$(grep -c 'node_is_cordoned' <<<"$up_body")"
+assert_eq "finish_cycle restores the spun-down services it skips finish for" 1 "$(grep -c 'restore-services' <<<"$up_body")"
 
 # --- catch-up backup ------------------------------------------------------------
 reset_cluster

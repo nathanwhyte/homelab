@@ -46,6 +46,14 @@
 # window anyway; the silence matters for the burst on return, when stale state
 # from before the shutdown is evaluated all at once.
 #
+# `down` runs node-maintenance.sh's own refusals (another cycle active, an earlier
+# node still owing a reboot) before it silences, suspends or parks anything. On
+# 2026-10-21 they ran last, inside the drain call: everything was parked and
+# detached, then wemby's pending reboot refused the drain, timmy dropped before
+# anyone noticed, and OpenViking took a power-cut stop. `up` in turn tolerates a
+# `down` that never reached the drain: with no reboot to verify it skips
+# node-maintenance.sh finish instead of dying on the missing cycle state.
+#
 # The power-off itself is deliberately manual (needs a TTY for sudo):
 #   ssh -t timmy sudo shutdown -h now
 # or, for a Windows session (os-prober entry — Windows shares the Ubuntu ESP on
@@ -55,9 +63,13 @@
 set -euo pipefail
 
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+# The script's own path for the commands it prints: $0 is the caller when sourced.
+SELF=$SCRIPT_DIR/$(basename "${BASH_SOURCE[0]}")
 NODE=timmy
 STATE_ROOT=${XDG_STATE_HOME:-"$HOME/.local/state"}
 STATE_DIR=$STATE_ROOT/homelab-timmy-offline
+# node-maintenance.sh's cycle state; `redrain` writes it and `up` reads it.
+NM_STATE_DIR=$STATE_ROOT/homelab-node-maintenance
 SCALE_FILE=$STATE_DIR/parked-scales
 DETACH_TIMEOUT_SECONDS=${DETACH_TIMEOUT_SECONDS:-300}
 READY_TIMEOUT_SECONDS=${READY_TIMEOUT_SECONDS:-600}
@@ -95,7 +107,7 @@ die() {
 }
 
 usage() {
-	sed -n '2,10p' "$0" | sed 's/^# \{0,1\}//'
+	sed -n '2,10p' "$SELF" | sed 's/^# \{0,1\}//'
 	exit 1
 }
 
@@ -185,8 +197,8 @@ redrain() {
 	# Refresh the boot ID node-maintenance.sh `finish` will compare against.
 	local boot_id
 	boot_id=$(ssh -o ConnectTimeout=5 "$NODE" 'cat /proc/sys/kernel/random/boot_id') || die "cannot read boot ID from $NODE"
-	mkdir -p "$STATE_ROOT/homelab-node-maintenance"
-	printf '%s\n' "$boot_id" >"$STATE_ROOT/homelab-node-maintenance/$NODE.boot-id"
+	mkdir -p "$NM_STATE_DIR"
+	printf '%s\n' "$boot_id" >"$NM_STATE_DIR/$NODE.boot-id"
 	log "[$NODE] saved current boot ID for 'up': $boot_id"
 }
 
@@ -258,11 +270,20 @@ expire_silence() {
 		return 0
 	}
 	id=$(<"$SILENCE_FILE")
-	if amtool_exec silence expire "$id" >/dev/null 2>&1; then
+	local out
+	if out=$(amtool_exec silence expire "$id" 2>&1); then
 		log "expired alert silence $id"
 		rm -f "$SILENCE_FILE"
+	elif [[ $out == *deleteSilenceNotFound* || $out == *'[404]'* ]]; then
+		# Alertmanager's store is persistent, but it snapshots silences only every
+		# 15 minutes and on a clean shutdown. A silence younger than that when
+		# timmy loses power is gone on return (2026-10-21), and with it the cover
+		# for the alert burst `down` created it for — so say so, then clear the ID
+		# rather than retrying a delete that can never succeed.
+		warn "silence $id no longer exists: Alertmanager came back without it, so the return burst was not covered (an unclean stop within its 15-minute snapshot interval loses a fresh silence)"
+		rm -f "$SILENCE_FILE"
 	else
-		warn "could not expire silence $id — it ends on its own after $SILENCE_DURATION; retry: $0 up"
+		warn "could not expire silence $id — it ends on its own after $SILENCE_DURATION; retry: $SELF up"
 	fi
 }
 
@@ -334,6 +355,14 @@ garage_check() {
 cmd_down() {
 	log "preflight: Longhorn must be healthy before parking anything"
 	"$SCRIPT_DIR/node-maintenance.sh" status >/dev/null
+	# node-maintenance.sh refuses the drain while another cycle is active or an
+	# earlier node still owes a reboot. Ask it first: a refusal after the silence,
+	# suspend and park below leaves timmy half out with no instruction (2026-10-21).
+	# The already-cordoned re-run goes to `redrain`, which never asks it.
+	if ! node_is_cordoned; then
+		log "preflight: node-maintenance.sh must be willing to drain $NODE"
+		"$SCRIPT_DIR/node-maintenance.sh" preflight "$NODE"
+	fi
 	# Before park: parking Garage is what trips GarageQuorumLost.
 	silence_alerts
 	suspend_cronjobs
@@ -356,16 +385,39 @@ cmd_down() {
 	orphans=$(cross_node_orphans) || die "cannot read Longhorn state"
 	if [[ -n $orphans ]]; then
 		printf '%s\n' "$orphans" | sed 's/^/    /'
-		die "NOT safe to power off — scale the owning workloads to 0 and add them to PARKED, then re-check with '$0 status'"
+		die "NOT safe to power off — scale the owning workloads to 0 and add them to PARKED, then re-check with '$SELF status'"
 	fi
 	echo
 	log "timmy is parked, cordoned and drained. Power off when ready:"
 	log "    ssh -t $NODE sudo shutdown -h now"
-	log "When it is back on Ubuntu:  $0 up"
+	log "When it is back on Ubuntu:  $SELF up"
+}
+
+node_is_ready() {
+	[[ $(kubectl get node "$NODE" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}') == True ]]
+}
+
+# `down` saves node-maintenance.sh's cycle state only when it reaches the drain.
+# Without it there is no reboot to verify and nothing to uncordon, so `finish`
+# would die on the missing state and `set -e` would stop `up` before `unpark`.
+finish_cycle() {
+	if [[ -s $NM_STATE_DIR/$NODE.boot-id ]]; then
+		"$SCRIPT_DIR/node-maintenance.sh" finish "$NODE"
+		return 0
+	fi
+	warn "no node-maintenance cycle state for $NODE — down never reached the drain; skipping finish"
+	if node_is_cordoned; then
+		die "$NODE is cordoned without cycle state; finish it by hand: $SCRIPT_DIR/node-maintenance.sh finish $NODE <previous-boot-id>"
+	fi
+	node_is_ready || die "$NODE is not Ready; wait for it, then re-run: $SELF up"
+	# `down` spins the memory-heavy services down before node-maintenance.sh
+	# checks headroom, so a refusal there leaves them at 0 with no finish to
+	# restore them.
+	"$SCRIPT_DIR/node-maintenance.sh" restore-services
 }
 
 cmd_up() {
-	"$SCRIPT_DIR/node-maintenance.sh" finish "$NODE"
+	finish_cycle
 	unpark
 	wait_parked_ready
 	resume_cronjobs
@@ -378,17 +430,17 @@ cmd_up() {
 
 cmd_status() {
 	if [[ -s $SCALE_FILE ]]; then
-		warn "parked workloads (restore with '$0 up'):"
+		warn "parked workloads (restore with '$SELF up'):"
 		sed 's/^/    /' "$SCALE_FILE"
 	else
 		log "nothing parked"
 	fi
 	if [[ -s $SUSPEND_FILE ]]; then
-		warn "CronJobs suspended by down (resumed by '$0 up'):"
+		warn "CronJobs suspended by down (resumed by '$SELF up'):"
 		sed 's/^/    /' "$SUSPEND_FILE"
 	fi
 	if [[ -s $SILENCE_FILE ]]; then
-		warn "alert silence active (expired by '$0 up'): $(<"$SILENCE_FILE")"
+		warn "alert silence active (expired by '$SELF up'): $(<"$SILENCE_FILE")"
 	fi
 	local orphans
 	orphans=$(cross_node_orphans) || die "cannot read Longhorn state"

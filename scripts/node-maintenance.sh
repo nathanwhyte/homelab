@@ -10,6 +10,11 @@
 #   node-maintenance.sh reboot <node> [--no-reboot] [--spin-down] [--override-memory]
 #   node-maintenance.sh finish <node> [previous-boot-id]
 #                                             verify reboot → wait for Ready → uncordon → health gate
+#   node-maintenance.sh preflight <node>    the read-only refusals `reboot` starts with (another cycle
+#                                             active, an earlier node still owing a reboot), for a
+#                                             caller to run before it mutates anything of its own
+#   node-maintenance.sh restore-services    scale the --spin-down services back without a finish, for
+#                                             a cycle that stopped before its drain
 #
 # Reboot order matters: wemby → manu → timmy. timmy is the only control plane,
 # so its reboot takes the API down — run it last and let the wait loop tolerate
@@ -31,6 +36,8 @@
 
 set -euo pipefail
 
+# The script's own path for the commands it prints: $0 is the caller when sourced.
+SELF=${BASH_SOURCE[0]}
 NODES=(wemby manu timmy)
 DRAIN_TIMEOUT=5m # evictions settle in ~2m; the rest would only be spent retrying pinned instance-managers
 REBOOT_TIMEOUT_SECONDS=${REBOOT_TIMEOUT_SECONDS:-600}
@@ -79,7 +86,7 @@ die() {
 }
 
 usage() {
-	sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//'
+	sed -n '2,19p' "$SELF" | sed 's/^# \{0,1\}//'
 	exit 1
 }
 
@@ -503,7 +510,7 @@ memory_headroom_preflight() {
 	if ((spin_down)); then
 		advice=" --spin-down is already in effect, so this figure is post-spin-down; --override-memory is the only remaining lever."
 	else
-		advice=" Re-run with --spin-down and/or --override-memory."
+		advice=" Re-run with: $SELF reboot $node --spin-down   (frees the memory-heavy services' headroom; --override-memory proceeds without it)."
 	fi
 	case $verdict in
 	pass) log "[$node] memory headroom OK." ;;
@@ -941,12 +948,39 @@ cmd_reboot() {
 	cmd_finish "$node" "$boot_id"
 }
 
+# The refusals `reboot` raises before it touches the cluster, exposed so a caller
+# with mutations of its own (timmy-offline.sh down silences, suspends and parks
+# before it gets here) can run them first. On 2026-10-21 `down` parked everything,
+# then this script's reboot-order check refused on wemby, leaving timmy half out.
+cmd_preflight() {
+	(($# == 1)) || die "usage: $SELF preflight <node>"
+	local node=$1
+	require_node "$node"
+	require_no_cordoned_nodes
+	require_reboot_order "$node"
+	log "[$node] preflight OK: no cycle active, no earlier node owes a reboot"
+}
+
+# The restore half of --spin-down on its own. `finish` runs it after proving a
+# reboot, so a cycle that stopped between the spin-down and the drain (a preflight
+# refused, or the node dropped first) has no other way back without hand-scaling.
+cmd_restore_services() {
+	(($# == 0)) || die "usage: $SELF restore-services"
+	if [[ -s $(spin_down_state_file) ]]; then
+		restore_memory_services || die "restore failed; state kept in $(spin_down_state_file)"
+	else
+		log "no spin-down state recorded; nothing to restore"
+	fi
+}
+
 main() {
 	case ${1:-} in
 	apt) shift && acquire_maintenance_lock && cmd_apt "$@" ;;
 	status) cmd_status ;;
+	preflight) shift && cmd_preflight "$@" ;;
 	reboot) shift && acquire_maintenance_lock && cmd_reboot "$@" ;;
 	finish) shift && acquire_maintenance_lock && cmd_finish "$@" ;;
+	restore-services) shift && acquire_maintenance_lock && cmd_restore_services "$@" ;;
 	*) usage ;;
 	esac
 }

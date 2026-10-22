@@ -225,10 +225,17 @@ JSON
 
 # Without override: must abort (die -> exit 1). Run in a subshell so the
 # sourced script's `die` (which calls `exit`) cannot kill the test harness.
-if (memory_headroom_preflight wemby 0) >/dev/null 2>&1; then
+if block_out=$( (memory_headroom_preflight wemby 0) 2>&1 >/dev/null); then
 	bad "preflight should BLOCK when headroom is insufficient"
 else
 	ok "preflight blocks when headroom is insufficient (no override)"
+fi
+# The refusal names the command to re-run, not just the flag (2026-10-21: one
+# failed attempt per reboot while the operator reconstructed it).
+if grep -q -- "Re-run with: .*node-maintenance.sh reboot wemby --spin-down" <<<"$block_out"; then
+	ok "block message names the exact --spin-down re-run command"
+else
+	bad "block message should name the re-run command (got: $block_out)"
 fi
 
 # With override: must proceed (exit 0).
