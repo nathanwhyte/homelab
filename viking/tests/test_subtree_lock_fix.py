@@ -12,9 +12,14 @@ Fail criteria: either write fails, or one takes > 60s longer than the other.
 
 Uses whatever `ov` CLI config is active (OPENVIKING_URL / config file).
 Cleans up the scratch subtree afterwards.
+
+It writes to that OpenViking (production, by default), so it refuses to run
+without `--live` (or OV_LIVE_REPRODUCER=1): a review round that ran every file
+under viking/tests/ wrote to live OpenViking through it (compendium BUG-1264).
 """
 
 import concurrent.futures
+import os
 import subprocess
 import sys
 import tempfile
@@ -37,6 +42,13 @@ def timed_add(local_path: Path, target_uri: str) -> tuple[float, int, str]:
 
 
 def main() -> int:
+    if "--live" not in sys.argv[1:] and os.environ.get("OV_LIVE_REPRODUCER") != "1":
+        print(
+            f"refusing: this writes {PARENT} on the OpenViking the `ov` CLI points"
+            " at; pass --live (or set OV_LIVE_REPRODUCER=1) to run it",
+            file=sys.stderr,
+        )
+        return 64
     run(["mkdir", PARENT])
 
     with tempfile.TemporaryDirectory() as tmp:
