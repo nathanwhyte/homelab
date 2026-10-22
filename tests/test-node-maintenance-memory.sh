@@ -225,10 +225,17 @@ JSON
 
 # Without override: must abort (die -> exit 1). Run in a subshell so the
 # sourced script's `die` (which calls `exit`) cannot kill the test harness.
-if (memory_headroom_preflight wemby 0) >/dev/null 2>&1; then
+if block_out=$( (memory_headroom_preflight wemby 0) 2>&1 >/dev/null); then
 	bad "preflight should BLOCK when headroom is insufficient"
 else
 	ok "preflight blocks when headroom is insufficient (no override)"
+fi
+# The refusal names the command to re-run, not just the flag (2026-10-21: one
+# failed attempt per reboot while the operator reconstructed it).
+if grep -q -- "Re-run with: .*node-maintenance.sh reboot wemby --spin-down" <<<"$block_out"; then
+	ok "block message names the exact --spin-down re-run command"
+else
+	bad "block message should name the re-run command (got: $block_out)"
 fi
 
 # With override: must proceed (exit 0).
@@ -338,6 +345,50 @@ if [[ ! -e $TMPDIR_TEST/cordoned && ! -e $(spin_down_state_file) ]]; then
 	ok "successful finish clears cordon and recovery state"
 else
 	bad "successful finish left stale state"
+fi
+
+# --- restore-services ownership ----------------------------------------------
+# The spin-down state is one file for every node, so a `timmy-offline.sh up`
+# fallback must not consume it while another node's cycle (cordoned, or with
+# saved reboot state) still owns it.
+spin_down_memory_services
+restore_fixture() (
+	cordoned_nodes() {
+		if [[ -e $TMPDIR_TEST/cordoned ]]; then printf 'wemby\n'; fi
+	}
+	cmd_restore_services
+)
+touch "$TMPDIR_TEST/cordoned"
+if restore_fixture >/dev/null 2>&1; then
+	bad "restore-services should refuse while a node is cordoned"
+else
+	ok "restore-services refuses while a node is cordoned"
+fi
+rm "$TMPDIR_TEST/cordoned"
+save_cycle_boot_id wemby 12345678-1234-1234-1234-123456789abc
+if restore_fixture >/dev/null 2>&1; then
+	bad "restore-services should refuse while a node has saved reboot state"
+else
+	ok "restore-services refuses while a node has saved reboot state"
+fi
+if [[ -s $(spin_down_state_file) ]] && grep -q '^viking/openviking=0' "$STUB_REPLICAS"; then
+	ok "a refused restore leaves the spin-down state and replicas untouched"
+else
+	bad "a refused restore changed the spin-down state or replicas"
+fi
+clear_cycle_state wemby
+if restore_fixture >/dev/null 2>&1; then
+	ok "restore-services restores once no cycle is active"
+else
+	bad "restore-services should restore once no cycle is active"
+fi
+for svc in viking/openviking viking/ov-vectordb; do
+	assert_eq "restore-services restored $svc" "$svc=1" "$(grep "^$svc=" "$STUB_REPLICAS")"
+done
+if restore_fixture >/dev/null 2>&1 && [[ ! -e $(spin_down_state_file) ]]; then
+	ok "restore-services is a no-op with nothing recorded"
+else
+	bad "restore-services should be a no-op with nothing recorded"
 fi
 
 # --- BUG-1178: target demand counts only what a drain can move ---------------
