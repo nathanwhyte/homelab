@@ -20,7 +20,11 @@ data:
     removed and its input untouched, so stored document vectors stay identical to
     direct-embedder vectors and no reindex is needed. Ported from the TASK-1218 prototype (prefix-shim.py). Stdlib only.
 
-    GET and HEAD /healthz answer locally and never touch the upstream.
+    GET and HEAD /healthz and /metrics answer locally and never touch the upstream:
+    /healthz with the counts as JSON, /metrics with the same counts in Prometheus
+    text format (IMPR-1410). The counts are inputs by input_type, the shim's own
+    error answers (http_<code>), and the statuses relayed from the upstream
+    (upstream_<code>).
 
     Requests and responses keep their end-to-end headers (hop-by-hop ones and the
     length are recomputed), redirects are relayed rather than followed, and chunked
@@ -103,6 +107,37 @@ data:
         def snapshot(self) -> dict[str, int]:
             with self._lock:
                 return dict(self._counts)
+
+
+    def render_metrics(counts: dict[str, int]) -> bytes:
+        """`Stats.snapshot()` in Prometheus text format. The input series and the
+        shim's 400 and 502 are always present, at 0 until counted, so a rate over
+        them has a baseline before the first error."""
+        inputs = {"query": 0, "document": 0}
+        responses = {("400", "shim"): 0, ("502", "shim"): 0}
+        for key, n in counts.items():
+            if key in inputs:
+                inputs[key] = n
+            elif key.startswith("http_"):
+                responses[(key[5:], "shim")] = n
+            elif key.startswith("upstream_"):
+                responses[(key[9:], "upstream")] = n
+        lines = [
+            "# HELP embedder_prompt_shim_inputs_total Embedding inputs forwarded, by input_type.",
+            "# TYPE embedder_prompt_shim_inputs_total counter",
+            *(
+                f'embedder_prompt_shim_inputs_total{{input_type="{k}"}} {n}'
+                for k, n in sorted(inputs.items())
+            ),
+            "# HELP embedder_prompt_shim_responses_total Responses by status code; "
+            "source is shim for the shim's own errors, upstream for relayed ones.",
+            "# TYPE embedder_prompt_shim_responses_total counter",
+            *(
+                f'embedder_prompt_shim_responses_total{{code="{code}",source="{src}"}} {n}'
+                for (code, src), n in sorted(responses.items())
+            ),
+        ]
+        return ("\n".join(lines) + "\n").encode()
 
 
     def rewrite(body: dict, prompts: dict[str, str]) -> tuple[bytes | None, str]:
@@ -266,6 +301,7 @@ data:
                     return
                 finally:
                     conn.close()
+                stats.add(f"upstream_{status}")
                 self._reply(status, data, out, length)
 
             def _get_or_head(self) -> None:
@@ -275,6 +311,11 @@ data:
                 if req[0] == "/healthz":
                     data = json.dumps(stats.snapshot()).encode()
                     self._reply(200, data, length=str(len(data)))
+                    return
+                if req[0] == "/metrics":
+                    data = render_metrics(stats.snapshot())
+                    headers = [("Content-Type", "text/plain; version=0.0.4")]
+                    self._reply(200, data, headers, length=str(len(data)))
                     return
                 self._forward(self.command, req[1])
 

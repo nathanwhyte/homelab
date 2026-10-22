@@ -32,7 +32,7 @@ spec:
         app: embedder-prompt-shim
       annotations:
         # Bump to roll the pods after a script-only change (read at start).
-        homelab.nathanwhyte.dev/config-rev: "2"
+        homelab.nathanwhyte.dev/config-rev: "3"
     spec:
       # The shim drains requests in flight after SIGTERM, so the grace period
       # covers the preStop sleep (5 s) plus a whole SHIM_UPSTREAM_TIMEOUT (300 s),
