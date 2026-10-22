@@ -45,11 +45,14 @@ next covering poll opens a new one. A segment starts at the poll that first obse
 coverage and ends at its last covering poll. A start therefore omits the time between
 the pod becoming Ready and that poll: at most one poll interval plus probe latency
 when the previous probe succeeded (an outage whose probes kept succeeding omits no
-more), and more only when probes had failed before it. The closing SEGMENT line
-reports the time from its end to the poll (or the close) that observed the end as
-unobserved=. Durations and the target are measured on the monotonic clock; wall-clock
-UTC is only printed as start=/end=. The accounting compares API timestamps only with
-each other, never with the local clock. Known limit: if a node controller marks a pod
+more), and more only when probes had failed before it; Ready time before the watcher
+started is omitted too. The closing SEGMENT line reports the time from its end to the
+poll (or the close) that observed the end as unobserved=. Durations and the target
+are measured on a clock that keeps counting while the host sleeps (CLOCK_MONOTONIC on
+macOS, CLOCK_BOOTTIME on Linux, time.monotonic() otherwise), so a gap bridged across a
+host sleep counts in full. Wall-clock UTC appears only in printed stamps (start=/end=
+and the HH:MMZ line prefix). The accounting compares API timestamps only with each
+other, never with the local clock. Known limit: if a node controller marks a pod
 NotReady and no successful poll sees it, and kubelet later restores the original
 Ready lastTransitionTime, the identical string bridges that gap and it counts. Which pod the metrics
 and log reads sample does not affect the sum. A pod handoff with a pod continuous
@@ -85,9 +88,14 @@ the gate like the rest. At the target the run prints a final SEGMENT and a WATCH
 line (segments, total uptime) and exits 0. On an interrupt (Ctrl-C, SIGTERM) or an
 error the open segment's SEGMENT and a WATCH end line are written, marked
 `incomplete (interrupted)` or `incomplete (error: ...)`; an interrupt exits 130 and an
-error propagates. This holds from the WATCH start line on, including an interrupt that
-lands while the final target-reached SEGMENT is being written: that run exits 130 and
-is marked incomplete, and its uptime figure shows whether the target had been met.
+error propagates. From the WATCH start line on, an interrupt ends with a WATCH end line
+marked incomplete, with the closed segments counted once. A SEGMENT line cut off by the
+interrupt is written by the finalizer (retried once), and can then appear twice in the
+log if the interrupt landed between its write and the bookkeeping. An interrupt that
+lands while the final target-reached SEGMENT is being written exits 130 and is marked
+incomplete; its uptime figure shows whether the target had been met. A second
+interrupt inside the finalizer, or one that cuts the WATCH end write itself, can still
+leave the run without a complete ledger.
 
 A semantic-DAG "Failed to dispatch directory" ERROR carries the lock-timeout text
 plus a LockAcquisitionError traceback line. Both count as dag_miss, never as a
@@ -197,7 +205,8 @@ class StreakSink:
     The first error line of a probe's streak keeps its wake flag; the rest of the
     streak go to the log only. A streak ends only when that probe reports `ok`,
     that is, runs and succeeds; a poll in which the probe did not run leaves it
-    unchanged. A line already sent log-only (`LogOnly`) neither opens nor extends a
+    unchanged. The gate also collapses an error line's whitespace to single spaces,
+    so only target mode changes the text. A line already sent log-only (`LogOnly`) neither opens nor extends a
     streak, so an error during an outage cannot hide the first one after it.
     """
 
@@ -206,6 +215,8 @@ class StreakSink:
         self.streak = set()
 
     def emit(self, line, wake=True):
+        if line.startswith("WATCH ERROR "):
+            line = one_line(line)  # one error, one line, one wake
         if wake and line.startswith("WATCH ERROR "):
             probe = line.split()[2].rstrip(":")
             if probe in self.streak:
@@ -229,12 +240,10 @@ def run(sink, probe, args, timeout=60):
             args, check=False, capture_output=True, text=True, timeout=timeout
         )
     except Exception as exc:  # noqa: BLE001 - every probe failure is reported
-        sink.emit(f"WATCH ERROR {probe}: {one_line(exc)}")
+        sink.emit(f"WATCH ERROR {probe}: {exc}")
         return None
     if p.returncode != 0:
-        sink.emit(
-            f"WATCH ERROR {probe}: exit {p.returncode}: {one_line(p.stderr)[:200]}"
-        )
+        sink.emit(f"WATCH ERROR {probe}: exit {p.returncode}: {p.stderr.strip()[:200]}")
         return None
     return p.stdout
 
@@ -308,7 +317,7 @@ def restart_trigger(sink):
         sink.ok("deploy")
         return " " + " ".join(parts)
     except (ValueError, TypeError, AttributeError, KeyError) as exc:
-        sink.emit(f"WATCH ERROR deploy: unparsable deployment: {one_line(exc)}")
+        sink.emit(f"WATCH ERROR deploy: unparsable deployment: {exc}")
         return ""
 
 
@@ -491,7 +500,8 @@ def wait_is_actionable(poll_max, timeouts, outcomes, failed, wake_wait_ms):
 
 
 def parse_duration(text):
-    """Seconds in `72h`, `90m`, `1h30m`; raises ValueError for anything else."""
+    """Seconds in `72h`, `90m`, `1h30m`, `1.5h`: h, m, s at most once each, in that
+    order, positive. Raises ValueError for text of any other form."""
     parts = DURATION.findall(text)
     if not parts or "".join(n + u for n, u in parts) != text:
         raise ValueError(f"not a duration: {text!r}")
@@ -513,16 +523,31 @@ def iso(t):
     return t.strftime(ISO_SECOND)
 
 
+def mono():
+    """Seconds on a clock that keeps counting while the host sleeps.
+
+    time.monotonic() on macOS is mach_absolute_time(), which stops during sleep, so
+    macOS uses CLOCK_MONOTONIC (continuous there) and Linux CLOCK_BOOTTIME when the
+    time module has it; anything else falls back to time.monotonic().
+    """
+    if sys.platform == "darwin" and hasattr(time, "CLOCK_MONOTONIC"):
+        return time.clock_gettime(time.CLOCK_MONOTONIC)
+    if hasattr(time, "CLOCK_BOOTTIME"):
+        return time.clock_gettime(time.CLOCK_BOOTTIME)
+    return time.monotonic()
+
+
 class Instant(NamedTuple):
     """A poll time: `wall` (UTC, printed as start=/end=) and `mono` (seconds on the
-    monotonic clock, the only thing durations and the target are measured on)."""
+    sleep-counting clock of `mono()`, the only thing durations and the target are
+    measured on)."""
 
     wall: dt.datetime
     mono: float
 
 
 def instant():
-    return Instant(dt.datetime.fromtimestamp(time.time(), dt.UTC), time.monotonic())
+    return Instant(dt.datetime.fromtimestamp(time.time(), dt.UTC), mono())
 
 
 def ready_state(sink):
@@ -542,7 +567,7 @@ def ready_state(sink):
     try:
         items = json.loads(s).get("items") or []
     except (ValueError, AttributeError) as exc:
-        sink.emit(f"WATCH ERROR pods: unparsable pod list: {one_line(exc)}")
+        sink.emit(f"WATCH ERROR pods: unparsable pod list: {exc}")
         return None
     sink.ok("pods")
     ready, why = [], []
@@ -578,6 +603,7 @@ class Ledger(NamedTuple):
     last: Instant | None = None  # ... and its latest covering poll
     pods: tuple = ()  # pods that covered it
     locks: tuple | None = None  # (live series, oldest age) at the last metrics poll
+    pending: str | None = None  # a closed segment's line not yet known to be written
 
 
 class ReadyTracker:
@@ -630,25 +656,18 @@ class ReadyTracker:
         )
 
     def close(self, now, note=""):
-        # Replace the ledger before any output, which an interrupt can cut short:
-        # the finalizer then sees the interval closed, once.
+        # Build the line, then replace the ledger (segment closed, line pending) in
+        # one store before any output, which an interrupt can cut short: the
+        # finalizer then sees the segment closed once and writes the line itself.
         lg = self.ledger
         secs = lg.last.mono - lg.start.mono
-        self.ledger = lg._replace(
-            closed=lg.closed + secs,
-            segments=lg.segments + 1,
-            start=None,
-            last=None,
-            pods=(),
-            locks=None,
-        )
         cum = lg.closed + secs
         held = (
             f"live={lg.locks[0]} oldest={lg.locks[1]:.0f}s"
             if lg.locks
             else "locks=unknown"
         )
-        self.sink.emit(
+        line = (
             f"SEGMENT {lg.segments + 1} pod={','.join(lg.pods)} "
             f"start={iso(lg.start.wall)} end={iso(lg.last.wall)} "
             f"dur={fmt_dur(secs)} cum={fmt_dur(cum)} "
@@ -656,6 +675,27 @@ class ReadyTracker:
             f"unobserved={fmt_dur(max(0, now.mono - lg.last.mono))} "
             f"{held}{note}"
         )
+        self.ledger = lg._replace(
+            closed=cum,
+            segments=lg.segments + 1,
+            start=None,
+            last=None,
+            pods=(),
+            locks=None,
+            pending=line,
+        )
+        self.flush()
+
+    def flush(self):
+        """Write a closed segment's line if it is not yet known to be written.
+
+        An interrupt between the write and the clearing repeats the line in the log;
+        the count and the uptime are never repeated.
+        """
+        line = self.ledger.pending
+        if line:
+            self.sink.emit(line)
+            self.ledger = self.ledger._replace(pending=None)
 
     def poll(self, now):
         """Probe once; return the Ready pod to sample metrics and logs from, or None."""
@@ -703,6 +743,7 @@ class ReadyTracker:
         return self.sample
 
     def finish(self, now, note=""):
+        self.flush()
         if self.start:
             self.close(now, note)
 
@@ -823,30 +864,48 @@ def watch(hours, sink, wake_wait_ms=DEFAULT_WAKE_WAIT_MS, target_uptime=None):
             # Inside the try: an interrupt during this write is an incomplete run
             # (exit 130), even though the target was met.
             tracker.finish(instant(), " target reached")
-    except KeyboardInterrupt:
-        status = "incomplete (interrupted)"
-        raise
     except BaseException as exc:  # SystemExit too, so the ledger is written
-        status = f"incomplete (error: {str(exc) or type(exc).__name__})"
+        status = outcome(exc)
         raise
     finally:
-        # A target-uptime run writes its ledger here; --hours keeps its old shape.
+        # --target-uptime always ends with a WATCH end line; --hours keeps its old
+        # shape (no line after an interrupt or error). The target-reached SEGMENT
+        # is written in the try body above, not here.
+        exc = sys.exception()
+        if exc is not None and not status:
+            status = outcome(exc)
         if tracker or not status:
             uptime = ""
             try:
                 if tracker:
-                    tracker.finish(instant(), f" {status}")
+                    tracker.flush()
+                    if tracker.start:
+                        tracker.finish(instant(), f" {status}")
             finally:
-                if tracker:
-                    uptime = (
-                        f"{status + ', ' if status else ''}{tracker.segments} segments, "
-                        f"uptime {fmt_dur(tracker.closed)} of {fmt_dur(target_uptime)}, "
+                exc = sys.exception()
+                if exc is not None and not status and tracker:
+                    status = outcome(exc)
+                try:
+                    if tracker:
+                        tracker.flush()  # one retry of a line cut off above
+                finally:
+                    if tracker:
+                        uptime = (
+                            f"{status + ', ' if status else ''}{tracker.segments} "
+                            f"segments, uptime {fmt_dur(tracker.closed)} "
+                            f"of {fmt_dur(target_uptime)}, "
+                        )
+                    sink.emit(
+                        f"WATCH end: {uptime}peak lease {peak:.0f}s, waits {tot_waits} "
+                        f"(max {max_wait / 1000:.1f}s), dag_miss {tot_dag_miss}, "
+                        f"outcomes {tot_outcomes or '{}'}"
                     )
-                sink.emit(
-                    f"WATCH end: {uptime}peak lease {peak:.0f}s, waits {tot_waits} "
-                    f"(max {max_wait / 1000:.1f}s), dag_miss {tot_dag_miss}, "
-                    f"outcomes {tot_outcomes or '{}'}"
-                )
+
+
+def outcome(exc):
+    if isinstance(exc, KeyboardInterrupt):
+        return "incomplete (interrupted)"
+    return f"incomplete (error: {str(exc) or type(exc).__name__})"
 
 
 def duration_arg(text):

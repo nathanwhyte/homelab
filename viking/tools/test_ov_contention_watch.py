@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """Unit tests for ov-contention-watch.py (BUG-1220). Offline, no cluster, no sockets:
-subprocess.run and the clocks are stubbed, except test_real_sigterm_exits_130_with_a_ledger,
-which runs the watcher as a child process against a fake kubectl script."""
+subprocess.run and the watcher's poll clocks (time.time, time.monotonic,
+time.clock_gettime, time.sleep) are stubbed. The HH:MMZ line prefix and the log
+cursor still read the real clock, and test_real_sigterm_exits_130_with_a_ledger runs
+the watcher as a child process against a fake kubectl script."""
 
 from __future__ import annotations
 
@@ -140,18 +142,24 @@ class FakeKubectl:
 class Clock:
     """time.time and time.monotonic that advance only when sleep is called.
 
-    `skew` steps the wall clock without touching the monotonic one.
+    `skew` steps the wall clock without touching the others. `asleep` is host-sleep
+    time: wall and the sleep-counting duration clock advance by it, time.monotonic
+    (mach_absolute_time on macOS) does not.
     """
 
     def __init__(self):
         self.t = 1_000_000.0
         self.skew = 0.0
+        self.asleep = 0.0
 
     def time(self):
-        return self.t + self.skew
+        return self.t + self.skew + self.asleep
 
     def monotonic(self):
         return self.t
+
+    def clock_gettime(self, clock_id):
+        return self.t + self.asleep
 
     def sleep(self, s):
         self.t += s
@@ -577,8 +585,11 @@ def run_target(
     exc=None,
     caught=None,
     skew_after=None,
+    suspend_after=None,
 ):
-    """Run watch() in target-uptime mode; return (stdout lines, log lines, polls).
+    """Run watch() in target-uptime mode; return (stdout lines, log lines, sleeps).
+
+    The third value counts the sleeps, one per poll that did not end the run.
 
     A run that has not stopped after max_polls fails unless capped_ok is set.
     `exc` is raised from the sleep after `raise_after` polls; watch() re-raises it
@@ -591,6 +602,8 @@ def run_target(
         polls.append(clock.t)
         if skew_after and len(polls) == skew_after[0]:
             clock.skew = skew_after[1]
+        if suspend_after and len(polls) == suspend_after[0]:
+            clock.asleep = suspend_after[1]
         if exc is not None and len(polls) >= raise_after:
             raise exc
         if len(polls) > max_polls:
@@ -602,6 +615,7 @@ def run_target(
         mock.patch.object(cw.subprocess, "run", fake),
         mock.patch.object(cw.time, "time", clock.time),
         mock.patch.object(cw.time, "monotonic", clock.monotonic),
+        mock.patch.object(cw.time, "clock_gettime", clock.clock_gettime),
         mock.patch.object(cw.time, "sleep", sleep),
         contextlib.redirect_stdout(buf),
     ):
@@ -772,6 +786,63 @@ class TargetUptime(unittest.TestCase):
         self.assertEqual(len(raised), 1)
         (end,) = has(out, "WATCH end:")
         self.assertIn("1 segments, uptime 0h02m00s", end)
+        # the SEGMENT line the interrupt cut off is written by the finalizer
+        self.assertEqual(len(has(out, "SEGMENT 1 ")), 1)
+
+    def test_second_interrupt_in_the_finalizer_still_marks_watch_end(self):
+        a = [pod_item(POD_A, since=-3600)]
+        raised = []
+        real = cw.Sink.emit
+
+        def emit(self, line, wake=True):
+            if line.startswith("SEGMENT") and not raised:
+                raised.append(line)
+                raise KeyboardInterrupt
+            return real(self, line, wake)
+
+        caught = []
+        with mock.patch.object(cw.Sink, "emit", emit):
+            out, _, _ = run_target(
+                PodListKubectl([a]),
+                3600,
+                raise_after=3,
+                exc=KeyboardInterrupt(),
+                caught=caught,
+            )
+        (end,) = has(out, "WATCH end:")
+        self.assertIn("incomplete (interrupted), 1 segments, uptime 0h02m00s", end)
+        self.assertEqual(len(has(out, "SEGMENT 1 ")), 1)
+
+    def test_finalizer_reads_no_clock_when_nothing_is_open(self):
+        a = [pod_item(POD_A, since=-3600)]
+        calls = []
+        real = cw.instant
+
+        def counting():
+            calls.append(1)
+            return real()
+
+        with mock.patch.object(cw, "instant", counting):
+            _, _, sleeps = run_target(PodListKubectl([a]), 120)
+        # one per poll (3), one for the target SEGMENT; none in the finalizer
+        self.assertEqual(len(calls), sleeps + 2)
+
+    def test_host_sleep_is_counted(self):
+        a = [pod_item(POD_A, since=-3600)]
+        # the host sleeps 8 h after the third poll; the pod stays Ready throughout
+        out, _, _ = run_target(PodListKubectl([a]), 600, suspend_after=(3, 8 * 3600.0))
+        (seg,) = has(out, "SEGMENT ")
+        self.assertIn("dur=8h03m00s", seg)
+        self.assertIn("uptime 8h03m00s of 0h10m00s", has(out, "WATCH end")[0])
+
+    def test_hours_mode_error_text_is_unchanged(self):
+        def failing(args, **kw):
+            return subprocess.CompletedProcess(args, 1, "", "first\n  second  third")
+
+        out, _ = run_watch(failing, polls=1)
+        # --hours keeps the raw stderr, newline and spacing included
+        self.assertIn("  second  third", out)
+        self.assertIn(True, ["WATCH ERROR pod: exit 1: first" in ln for ln in out])
 
     def test_failed_probes_in_a_continuous_pod_are_counted(self):
         a = [pod_item(POD_A, since=-3600)]
@@ -955,6 +1026,7 @@ class TargetUptime(unittest.TestCase):
         (end,) = has(out, "WATCH end:")
         self.assertIn("incomplete (interrupted)", end)
         self.assertNotIn("target reached", end)
+        self.assertEqual(len(has(out, "SEGMENT 1 ")), 1)
 
     def test_interrupt_during_the_start_line_still_writes_watch_end(self):
         a = [pod_item(POD_A, since=-3600)]
