@@ -21,6 +21,9 @@ name: pre-commit
 #   - uv (pinned): slack-transport-tests runs `uv run --with pyyaml`, and
 #     yt-dlp-wrapper-tests runs `uv run --offline --with pyyaml`, which only
 #     works from a warm uv cache, so a step fills it first.
+#   - openviking==0.4.20 as a uv tool (IMPR-1413): nav-patch-tests runs its
+#     real-package cases under it, and NAV_PATCH_REQUIRE_OPENVIKING=1 on the
+#     pre-commit step turns a missing package into a failure, not a skip.
 #   - Helm 4 (pinned, matches the local 4.3.1 the hook was written against):
 #     arc-ownership-integration refuses anything older and runs `helm` and
 #     `kubectl` against a disposable rancher/k3s container started on the
@@ -72,6 +75,14 @@ jobs:
         with:
           version: "0.13.5"
 
+      - name: Install openviking for the nav-patch suite
+        # IMPR-1413 row 4. run-nav-patch-tests.py uses the `openviking` uv
+        # tool's Python, as on a workstation; without it every real-package
+        # case skipped here. The patches pin this release.
+        run: |
+          uv tool install --python 3.12 openviking==0.4.20
+          "$(uv tool dir)/openviking/bin/python" -c 'import openviking; print("openviking", openviking.__version__)'
+
       - name: Set up Helm 4
         # azure/setup-helm v5.0.1
         uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310
@@ -106,6 +117,10 @@ jobs:
         run: git reset --soft HEAD^1
 
       - name: Run pre-commit on all files
+        env:
+          # nav-patch-tests fails, rather than skips the real-module cases,
+          # when openviking is not importable.
+          NAV_PATCH_REQUIRE_OPENVIKING: "1"
         run: pre-commit run --all-files --show-diff-on-failure --color always
 
       - name: Run the pre-push-only hooks on all files
