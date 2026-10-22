@@ -228,7 +228,7 @@ def pod_name(sink):
 
 
 def restart_trigger(sink):
-    """Name what restarted the pod, from the Deployment. Never raises."""
+    """Name what restarted the pod, from the Deployment; "" if it cannot be read."""
     s = run(
         sink,
         "deploy",
