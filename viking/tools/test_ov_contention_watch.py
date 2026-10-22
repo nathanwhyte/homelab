@@ -490,6 +490,246 @@ class PodTrigger(unittest.TestCase):
         self.assertFalse([c for c in fake.calls if "deploy" in c])
 
 
+T0 = 1_000_000  # Clock's first reading
+
+
+def pod_item(name, ready=True, since=0, phase="Running", terminating=False):
+    """A pod as `kubectl get pods -o json` shows it; `since` is seconds after T0."""
+    when = dt.datetime.fromtimestamp(T0 + since, dt.UTC)
+    meta = {"name": name}
+    if terminating:
+        meta["deletionTimestamp"] = when.strftime("%Y-%m-%dT%H:%M:%SZ")
+    return {
+        "metadata": meta,
+        "status": {
+            "phase": phase,
+            "conditions": [
+                {
+                    "type": "Ready",
+                    "status": "True" if ready else "False",
+                    "lastTransitionTime": when.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                }
+            ],
+        },
+    }
+
+
+class PodListKubectl(FakeKubectl):
+    """FakeKubectl whose `get pods -o json` serves one scripted state per poll.
+
+    A state is a list of pod_item dicts, or None for a failed probe. The last
+    state repeats. The Deployment (readyReplicas included) is never consulted.
+    """
+
+    def __init__(self, states, **kw):
+        super().__init__([POD_A], **kw)
+        self.states = list(states)
+        self._probes = 0
+
+    def __call__(self, args, **kw):
+        if "pods" in args and "json" in args:
+            self.calls.append(list(args))
+            state = self.states[min(self._probes, len(self.states) - 1)]
+            self._probes += 1
+            if state is None:
+                return subprocess.CompletedProcess(args, 1, "", "connection refused")
+            return subprocess.CompletedProcess(
+                args, 0, json.dumps({"items": state}), ""
+            )
+        return super().__call__(args, **kw)
+
+
+class _Capped(Exception):
+    pass
+
+
+def run_target(fake, target, log=None, max_polls=500, capped_ok=False):
+    """Run watch() in target-uptime mode; return (stdout lines, log lines, polls).
+
+    A run that has not stopped after max_polls fails unless capped_ok is set.
+    """
+    clock = Clock()
+    polls = []
+
+    def sleep(s):
+        polls.append(clock.t)
+        if len(polls) > max_polls:
+            raise _Capped()
+        clock.sleep(s)
+
+    buf = io.StringIO()
+    with (
+        mock.patch.object(cw.subprocess, "run", fake),
+        mock.patch.object(cw.time, "time", clock.time),
+        mock.patch.object(cw.time, "sleep", sleep),
+        contextlib.redirect_stdout(buf),
+    ):
+        try:
+            cw.watch(None, cw.Sink(log), target_uptime=target)
+        except _Capped:
+            if not capped_ok:
+                raise AssertionError("watcher did not stop at the target") from None
+    logged = []
+    if log and os.path.exists(log):
+        with open(log, encoding="utf-8") as fh:
+            logged = fh.read().splitlines()
+    return buf.getvalue().splitlines(), logged, len(polls)
+
+
+class TargetUptime(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.log = os.path.join(self.tmp.name, "events.log")
+
+    def test_exits_at_target_with_summary(self):
+        # one pod Ready since before the watcher started: uptime counts from the start
+        states = [[pod_item(POD_A, since=-3600)]]
+        out, logged, polls = run_target(PodListKubectl(states), 300, log=self.log)
+        # polls at +0..+300 s; the target is met on the poll at +300 s
+        self.assertEqual(polls, 5)
+        (end,) = has(out, "WATCH end:")
+        self.assertIn("1 segments, uptime 0h05m00s of 0h05m00s", end)
+        (seg,) = has(out, "SEGMENT ")
+        self.assertIn("SEGMENT 1 pod=openviking-aaa-1", seg)
+        self.assertIn("dur=0h05m00s cum=0h05m00s remaining=0h00m00s", seg)
+        self.assertTrue(seg.endswith("target reached"))
+        self.assertEqual(has(out, "WATCH start"), [])
+        self.assertIn("target uptime 0h05m00s", has(logged, "WATCH start")[0])
+
+    def test_pod_change_makes_a_segment_and_sums(self):
+        a = [pod_item(POD_A, since=-3600)]
+        b = [pod_item(POD_B, since=290)]
+        # A seen Ready on polls at +0..+240 s, B Ready since +290 s from the +300 s poll
+        states = [a] * 5 + [b]
+        out, logged, _ = run_target(PodListKubectl(states), 600, log=self.log)
+        segs = has(out, "SEGMENT ")
+        self.assertEqual(len(segs), 2)
+        self.assertIn("SEGMENT 1 pod=openviking-aaa-1", segs[0])
+        self.assertIn("dur=0h04m00s cum=0h04m00s remaining=0h06m00s", segs[0])
+        self.assertIn("rev=17", segs[0])  # restart trigger rides on the line
+        # B: 290 s .. last Ready poll at +660 s = 370 s; 240 + 370 = 610 s
+        self.assertIn("SEGMENT 2 pod=openviking-bbb-2", segs[1])
+        self.assertIn("dur=0h06m10s cum=0h10m10s remaining=0h00m00s", segs[1])
+        self.assertEqual(has(out, "OV DOWN"), [])
+        self.assertEqual(has(out, "OV BACK"), [])
+        self.assertIn(
+            "2 segments, uptime 0h10m10s of 0h10m00s", has(out, "WATCH end:")[0]
+        )
+        self.assertEqual(len(has(logged, "SEGMENT ")), 2)
+
+    def test_segment_line_carries_last_lock_state(self):
+        a = [pod_item(POD_A, since=-3600)]
+        fake = PodListKubectl(
+            [a, a, [pod_item(POD_B, since=100)]],
+            metrics=metrics_text(live_age=700),
+        )
+        out, _, _ = run_target(fake, 400, log=self.log)
+        self.assertIn("live=1 oldest=0s", has(out, "SEGMENT 1")[0])
+
+    def test_outage_is_one_down_and_one_back(self):
+        a = [pod_item(POD_A, since=-3600)]
+        gone = [pod_item(POD_A, ready=False, since=130, terminating=True)]
+        # Ready for 3 polls, then NotReady, 4 failed probes, a stale Ready, then B
+        states = [a] * 3 + [gone] + [None] * 4 + [a, [pod_item(POD_B, since=600)]]
+        out, logged, _ = run_target(PodListKubectl(states), 900, log=self.log)
+        self.assertEqual(len(has(out, "OV DOWN")), 1)
+        self.assertIn("openviking-aaa-1 terminating", has(out, "OV DOWN")[0])
+        self.assertEqual(len(has(out, "OV BACK")), 1)
+        self.assertIn("OV BACK openviking-bbb-2", has(out, "OV BACK")[0])
+        # the probe failures during the outage never reach stdout, only the log
+        self.assertEqual(has(out, "WATCH ERROR"), [])
+        self.assertEqual(len(has(logged, "WATCH ERROR pods")), 4)
+        self.assertEqual(len(has(logged, "OV DOWN")), 1)
+        self.assertEqual(len(has(logged, "OV BACK")), 1)
+        # segment A closed at its last Ready poll (+120 s), once
+        segs = has(out, "SEGMENT ")
+        self.assertIn("pod=openviking-aaa-1", segs[0])
+        self.assertIn("dur=0h02m00s", segs[0])
+
+    def test_stale_ready_pod_or_replicas_is_not_back(self):
+        a = [pod_item(POD_A, since=-3600)]
+        down = [pod_item(POD_A, ready=False, since=130)]
+        # the old pod reports Ready again with a transition from before the stop, and
+        # the Deployment still says readyReplicas=1: neither is a recovery
+        stale = {"status": {"readyReplicas": 1}}
+        fake = PodListKubectl([a, a, down, a, a, a], deploy=json.dumps(stale))
+        out, _, _ = run_target(fake, 180, log=self.log, max_polls=12, capped_ok=True)
+        # never reaches the target again: the watcher is still down at the cap
+        self.assertEqual(len(has(out, "OV DOWN")), 1)
+        self.assertEqual(has(out, "OV BACK"), [])
+
+    def test_same_pod_with_a_fresh_transition_is_back(self):
+        a = [pod_item(POD_A, since=-3600)]
+        down = [pod_item(POD_A, ready=False, since=130)]
+        again = [pod_item(POD_A, since=250)]
+        out, _, _ = run_target(PodListKubectl([a, a, down, down, again]), 500)
+        (back,) = has(out, "OV BACK")
+        self.assertIn("OV BACK openviking-aaa-1", back)
+        self.assertEqual(len(has(out, "SEGMENT ")), 2)
+
+    def test_probe_failure_while_up_wakes_once_per_streak(self):
+        a = [pod_item(POD_A, since=-3600)]
+        out, logged, _ = run_target(
+            PodListKubectl([a, None, None, None, a]), 300, log=self.log
+        )
+        self.assertEqual(len(has(out, "WATCH ERROR pods")), 1)
+        self.assertEqual(len(has(logged, "WATCH ERROR pods")), 3)
+        self.assertEqual(has(out, "OV DOWN"), [])
+
+    def test_hours_mode_still_ends_by_the_clock(self):
+        out, _ = run_watch(FakeKubectl([POD_A]), polls=2)
+        self.assertEqual(has(out, "SEGMENT"), [])
+        self.assertNotIn("segments", has(out, "WATCH end:")[0])
+
+
+class UptimeSum(unittest.TestCase):
+    def test_last_soak_segment_c_replay(self):
+        start = dt.datetime(2026, 10, 21, 22, 7, 19, tzinfo=dt.UTC)
+        end = dt.datetime(2026, 10, 22, 0, 26, 51, tzinfo=dt.UTC)
+        lines = []
+
+        class Lines:
+            def emit(self, line, wake=True):
+                lines.append(line)
+
+        t = cw.ReadyTracker(72 * 3600, Lines(), start)
+        t.open(POD_A, start, start)
+        t.last_ready = end
+        t.close()
+        self.assertEqual(t.closed, 2 * 3600 + 19 * 60 + 32)
+        self.assertEqual(cw.fmt_dur(t.closed), "2h19m32s")
+        self.assertIn("start=2026-10-21T22:07:19Z end=2026-10-22T00:26:51Z", lines[0])
+        self.assertIn("dur=2h19m32s cum=2h19m32s remaining=69h40m28s", lines[0])
+
+    def test_segment_never_starts_before_the_previous_one_ended(self):
+        t0 = dt.datetime(2026, 10, 21, 0, 0, tzinfo=dt.UTC)
+        t = cw.ReadyTracker(3600, mock.Mock(), t0)
+        t.open(POD_A, t0, t0)
+        t.last_ready = t0 + dt.timedelta(minutes=10)
+        t.close()
+        # a rolling update: the new pod went Ready 5 minutes before the old one's end
+        t.open(POD_B, t0 + dt.timedelta(minutes=5), t0 + dt.timedelta(minutes=11))
+        self.assertEqual(t.start, t0 + dt.timedelta(minutes=10))
+
+
+class Durations(unittest.TestCase):
+    def test_parse(self):
+        for text, secs in (
+            ("72h", 259200),
+            ("90m", 5400),
+            ("1h30m", 5400),
+            ("1.5h", 5400),
+            ("45s", 45),
+        ):
+            self.assertEqual(cw.parse_duration(text), secs, text)
+
+    def test_rejects_junk(self):
+        for text in ("", "72", "h", "1d", "1h junk", "0h", "-1h"):
+            with self.assertRaises(ValueError, msg=text):
+                cw.parse_duration(text)
+
+
 class Cli(unittest.TestCase):
     def test_main_parses_hours_and_log(self):
         with mock.patch.object(cw, "watch") as watch:
@@ -502,6 +742,26 @@ class Cli(unittest.TestCase):
             cw.main([])
         hours, sink, wake = watch.call_args.args
         self.assertEqual((hours, sink.log_path, wake), (6.0, None, 60000))
+
+    def test_target_uptime_calls_watch_with_seconds(self):
+        with mock.patch.object(cw, "watch") as watch:
+            cw.main(["--target-uptime", "1h30m", "--log", "/x/y.log"])
+        self.assertEqual(watch.call_args.kwargs, {"target_uptime": 5400.0})
+        self.assertIsNone(watch.call_args.args[0])
+
+    def test_target_uptime_and_hours_are_exclusive(self):
+        with (
+            contextlib.redirect_stderr(io.StringIO()),
+            self.assertRaises(SystemExit),
+        ):
+            cw.main(["--hours", "6", "--target-uptime", "72h"])
+
+    def test_bad_target_uptime_is_an_error(self):
+        with (
+            contextlib.redirect_stderr(io.StringIO()),
+            self.assertRaises(SystemExit),
+        ):
+            cw.main(["--target-uptime", "soon"])
 
     def test_positional_hours_is_rejected(self):
         with (
