@@ -194,6 +194,14 @@ repos:
         language: system
         pass_filenames: false
         files: ^viking/(tools/(test_)?embedder[-_]prompt[-_]shim\.py|manifests/embedder-prompt-shim-configmap\.yaml)$
+      # IDEA-1150: session watches ask this before alerting; it reads the
+      # state files the two maintenance scripts write.
+      - id: maintenance-active-tests
+        name: maintenance-active tests
+        entry: python3 scripts/test-maintenance-active.py
+        language: system
+        pass_filenames: false
+        files: ^scripts/((test-)?maintenance-active\.py|timmy-offline\.sh|node-maintenance\.sh)$
       - id: helm-deploy-tests
         name: Helm deployment version safety tests
         entry: python3 scripts/test-helm-deploy.py
