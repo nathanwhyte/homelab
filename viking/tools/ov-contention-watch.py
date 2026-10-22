@@ -34,24 +34,39 @@ Events (each line starts with the UTC time, HH:MMZ):
   WATCH start / WATCH end         bracket the run; WATCH end always reaches stdout
 
 Target-uptime mode (BUG-1220 split-window rule: a planned restart splits the soak
-into segments instead of resetting it). Ready uptime is the time a Ready, non-
-terminating openviking pod is serving; each segment starts at that pod's Ready
-lastTransitionTime (never before the watcher started or the previous segment's end)
-and ends at the last poll that saw it Ready. Events, all actionable:
-  SEGMENT <i> pod=<name> start=<UTC> end=<UTC> dur=<d> cum=<d> remaining=<d>
-          live=<n> oldest=<s>s [rev=...]
-           a Ready interval closed (pod change, OV stopped, or target reached);
-           live/oldest are the lease count and oldest age at the last poll before
-           the stop (locks=unknown if no metrics poll succeeded)
-  OV DOWN <reason>          OV stopped being Ready; one line per outage
-  OV BACK <pod> ...         a fresh Ready transition: a new pod name that is Ready,
-                            or the same pod whose Ready lastTransitionTime is after
-                            the last poll that saw it Ready. Deployment readyReplicas
-                            is never consulted (it can be stale).
-Probe failures during an outage go to the log only. While OV is up, the first failed
-probe of a streak is a WATCH ERROR on stdout and the rest of the streak go to the
-log; probe failures do not end a segment. At the target the run prints a final
-SEGMENT and a WATCH end line (segments, total uptime) and exits 0.
+into segments instead of resetting it). OV is up at a poll when any non-terminating
+openviking pod is Ready. Uptime is the union of those intervals across all pods,
+whichever pod the metrics and log reads sample: an interval starts at the earliest
+Ready lastTransitionTime of the pods covering it (never before the watcher started or
+the previous interval's end) and runs to the last poll that saw any pod Ready. A
+rolling update with continuous coverage is not a boundary; the pod handoff is a
+log-only `POD ready a -> b` line. Events, all actionable:
+  SEGMENT <i> pod=<a,b> start=<UTC> end=<UTC> dur=<d> cum=<d> remaining=<d>
+          unobserved=<d> live=<n> oldest=<s>s [rev=...] [note]
+           a Ready interval closed because coverage dropped to zero (OV DOWN), the
+           target was reached, the run was interrupted, or a pod's Ready transition
+           after the last poll showed coverage broke between polls. pod= lists every
+           pod that covered it. live/oldest are the lease count and oldest age at
+           the last poll before the stop (locks=unknown if no metrics poll
+           succeeded).
+  OV DOWN <reason>          no Ready pod; one line per outage
+  OV BACK <pod> ...         a fresh Ready transition: a Ready pod whose
+                            lastTransitionTime is after the last poll that saw OV
+                            Ready, or a new pod name. Deployment readyReplicas is
+                            never consulted (it can be stale).
+Time the probes could not observe is never counted as up. An interval ends at the last
+poll that saw a pod Ready, so a stop undercounts by up to one poll plus any interval
+of failed probes before the stop is seen; the SEGMENT line shows that interval as
+unobserved=. If the probes recover and a pod is still Ready from a transition at or
+before the last good poll, the interval carries on across the failed probes.
+
+Probe failures: each `WATCH ERROR <probe>` line passes one per-probe gate. The first
+line of a streak goes to stdout and the rest to the log; a probe's streak resets after
+a poll in which it emitted no error line. During an outage every line is log-only.
+At the target the run prints a final SEGMENT and a WATCH end line (segments, total
+uptime) and exits 0. An interrupt (Ctrl-C, SIGTERM) or an error still writes the open
+interval's SEGMENT and a WATCH end line marked `incomplete (interrupted)` or
+`incomplete (error: ...)`; the exit status is 130 or the error's non-zero status.
 
 A semantic-DAG "Failed to dispatch directory" ERROR carries the lock-timeout text
 plus a LockAcquisitionError traceback line. Both count as dag_miss, never as a
@@ -77,6 +92,7 @@ import argparse
 import datetime as dt
 import json
 import re
+import signal
 import subprocess
 import sys
 import time
@@ -145,6 +161,31 @@ class LogOnly:
 
     def emit(self, line, wake=True):
         self.sink.emit(line, wake=False)
+
+
+class StreakSink:
+    """--target-uptime: one gate for every `WATCH ERROR <probe>` line.
+
+    The first error line of a probe's streak keeps its wake flag; the rest of the
+    streak go to the log only. A streak ends after a poll (`end_poll`) in which the
+    probe emitted no error line, whatever code path emits it.
+    """
+
+    def __init__(self, sink):
+        self.sink = sink
+        self.streak = set()  # probes that errored in the previous poll
+        self.seen = set()  # probes that have errored this poll
+
+    def emit(self, line, wake=True):
+        if line.startswith("WATCH ERROR "):
+            probe = line.split()[2].rstrip(":")
+            if probe in self.streak or probe in self.seen:
+                wake = False
+            self.seen.add(probe)
+        self.sink.emit(line, wake=wake)
+
+    def end_poll(self):
+        self.streak, self.seen = self.seen, set()
 
 
 def run(sink, probe, args, timeout=60):
@@ -481,38 +522,44 @@ def ready_state(sink):
 
 
 class ReadyTracker:
-    """Sums Ready uptime across pods for --target-uptime and reports the edges.
+    """Sums OV Ready uptime for --target-uptime and reports the edges.
 
-    Time is the injected wall clock (`now` arguments), so a replay is a plain sum of
-    segment end minus start.
+    OV is up at a poll when any pod is Ready. The open interval is the union of the
+    covering pods' Ready spans, so uptime does not depend on which pod is sampled
+    for metrics and logs (`sample`). Time is the injected wall clock (`now`
+    arguments).
     """
 
     def __init__(self, target, sink, started):
         self.target = target
         self.sink = sink
-        self.floor = started  # a segment never starts before this
+        self.floor = started  # an interval never starts before this
         self.closed = 0.0
         self.segments = 0
-        self.pod = self.start = self.last_ready = None
+        self.start = self.last_ready = None  # the open interval
+        self.pods = []  # every pod that covered the open interval
+        self.ready = frozenset()  # Ready pod names at the last poll
+        self.sample = None
         self.down = False
-        self.down_pod = self.down_cutoff = self.down_since = None
-        self.fail_streak = 0
+        self.down_pods = self.down_cutoff = self.down_since = None
         self.locks = None  # (live leases, oldest age) at the last metrics poll
 
     def total(self):
-        open_secs = (self.last_ready - self.start).total_seconds() if self.pod else 0
+        open_secs = (self.last_ready - self.start).total_seconds() if self.start else 0
         return self.closed + open_secs
 
     def reached(self):
         return self.total() >= self.target
 
-    def open(self, pod, since, now):
-        self.pod = pod
-        self.start = max(since or now, self.floor)
+    def open(self, cands, now):
+        since = min(t or now for _, t in cands)
+        self.start = max(since, self.floor)
         self.last_ready = max(now, self.start)
+        self.ready = frozenset(n for n, _ in cands)
+        self.pods = sorted(self.ready)
         self.locks = None
 
-    def close(self, note=""):
+    def close(self, now, note=""):
         end = self.last_ready
         secs = (end - self.start).total_seconds()
         self.closed += secs
@@ -524,31 +571,31 @@ class ReadyTracker:
             else "locks=unknown"
         )
         self.sink.emit(
-            f"SEGMENT {self.segments} pod={self.pod} "
+            f"SEGMENT {self.segments} pod={','.join(self.pods)} "
             f"start={iso(self.start)} end={iso(end)} "
             f"dur={fmt_dur(secs)} cum={fmt_dur(cum)} "
-            f"remaining={fmt_dur(max(0, self.target - cum))} {locks}{note}"
+            f"remaining={fmt_dur(max(0, self.target - cum))} "
+            f"unobserved={fmt_dur(max(0, (now - end).total_seconds()))} {locks}{note}"
         )
         self.floor = end
-        self.pod = self.start = self.last_ready = None
+        self.start = self.last_ready = None
+        self.pods, self.ready = [], frozenset()
 
     def poll(self, now):
-        """Probe once; return the Ready pod to inspect, or None."""
-        quiet = self.down or self.fail_streak > 0
-        st = ready_state(LogOnly(self.sink) if quiet else self.sink)
+        """Probe once; return the Ready pod to sample metrics and logs from, or None."""
+        st = ready_state(LogOnly(self.sink) if self.down else self.sink)
         if st is None:
-            self.fail_streak += 1
             return None
-        self.fail_streak = 0
         if st[0] == "down":
             if not self.down:
                 self.down = True
-                self.down_pod = self.pod
+                self.down_pods = set(self.pods)
                 self.down_cutoff = self.last_ready or self.floor
                 self.down_since = now
                 self.sink.emit(f"OV DOWN {st[1]}")
-                if self.pod:
-                    self.close(restart_trigger(LogOnly(self.sink)))
+                if self.start:
+                    self.close(now, restart_trigger(LogOnly(self.sink)))
+                self.sample = None
             return None
         cands = st[1]
         if self.down:
@@ -557,39 +604,49 @@ class ReadyTracker:
             cands = [
                 (n, t)
                 for n, t in cands
-                if not (n == self.down_pod and t is not None and t <= self.down_cutoff)
+                if not (n in self.down_pods and t is not None and t <= self.down_cutoff)
             ]
             if not cands:
                 return None
-        # Track one pod: the current one while it is Ready (a rollout's second Ready
-        # pod is ignored), else the newest Ready pod.
-        tracked = [c for c in cands if c[0] == self.pod]
-        name, since = tracked[0] if tracked else max(cands, key=lambda c: c[1] or now)
-        if self.down:
             self.down = False
-            self.open(name, since, now)
+            self.open(cands, now)
             self.sink.emit(
-                f"OV BACK {name} ready_since={iso(self.start)} "
+                f"OV BACK {','.join(self.pods)} ready_since={iso(self.start)} "
                 f"down_for={fmt_dur((now - self.down_since).total_seconds())}"
             )
-            return name
-        if self.pod is None:
-            self.open(name, since, now)
-        elif name != self.pod:
-            self.close(restart_trigger(self.sink))
-            self.open(name, since, now)
+        elif not self.start:
+            self.open(cands, now)
+        elif not any(t is None or t <= self.last_ready for _, t in cands):
+            # Every Ready pod went Ready after the last poll that saw OV Ready, so
+            # coverage dropped and returned between polls.
+            self.close(now, restart_trigger(self.sink) + " (Ready lost between polls)")
+            self.open(cands, now)
+        names = frozenset(n for n, _ in cands)
+        if names != self.ready:
+            self.sink.emit(
+                f"POD ready {','.join(sorted(self.ready))} -> {','.join(sorted(names))}"
+                + restart_trigger(LogOnly(self.sink)),
+                wake=False,
+            )
+            self.ready = names
+            self.pods += [n for n in sorted(names) if n not in self.pods]
         self.last_ready = max(now, self.start)
-        return name
+        # Sample one pod: the current one while it is Ready, else the newest.
+        if self.sample not in names:
+            self.sample = max(cands, key=lambda c: c[1] or now)[0]
+        return self.sample
 
-    def finish(self):
-        if self.pod:
-            self.close(" target reached" if self.reached() else "")
+    def finish(self, now, note=""):
+        if self.start:
+            self.close(now, note)
 
 
 def watch(hours, sink, wake_wait_ms=DEFAULT_WAKE_WAIT_MS, target_uptime=None):
     """Poll until `hours` pass, or, with target_uptime (seconds), until OV's summed
     Ready uptime reaches it."""
     end = None if target_uptime else time.time() + hours * 3600
+    if target_uptime:
+        sink = StreakSink(sink)
     tracker = ReadyTracker(target_uptime, sink, now_utc()) if target_uptime else None
     seen_pod, crossed = None, set()
     cursor = LogCursor()
@@ -601,122 +658,122 @@ def watch(hours, sink, wake_wait_ms=DEFAULT_WAKE_WAIT_MS, target_uptime=None):
         f"wait event >= {WAIT_EVENT_MS} ms, wake wait >= {wake_wait_ms} ms",
         wake=False,
     )
-    # --target-uptime: a failing metrics or logs probe wakes the session once per
-    # streak; the rest of the streak goes to the log.
-    streaks = {}
-
-    def probe_sink(name):
-        return LogOnly(sink) if tracker and streaks.get(name) else sink
-
-    def note(name, result):
-        if tracker:
-            streaks[name] = streaks.get(name, 0) + 1 if result is None else 0
-
     done = False
-    while tracker or time.time() < end:
-        n += 1
-        got = None
-        if tracker:
-            pod = tracker.poll(now_utc())
-            # The poll that meets the target still reads its metrics and logs.
-            done = tracker.reached()
-        else:
-            pod = pod_name(sink)
-        if pod and pod != seen_pod:
-            if seen_pod and not tracker:
-                sink.emit(
-                    f"POD changed {seen_pod} -> {pod} (all leases released)"
-                    + restart_trigger(sink)
-                )
-            seen_pod = pod
-            cursor.reset_pod()
-        if pod:
-            got = metrics(probe_sink("metrics"), pod)
-            note("metrics", got)
-            if got:
-                m, live = got
-                if tracker:
-                    tracker.locks = (
-                        len(live),
-                        m.get("openviking_s3_ovlock_oldest_live_age_seconds", 0),
-                    )
-                # A lease is its path plus its owner: a replacement holder, or a
-                # lock that was released and taken again, alerts afresh.
-                leases = {
-                    (labels.get("key") or labels.get("uri"), labels.get("owner"))
-                    for labels, _ in live
-                }
-                crossed = {c for c in crossed if c[0] in leases}
-                for labels, age in live:
-                    peak = max(peak, age)
-                    key = labels.get("key") or labels.get("uri")
-                    lease = (key, labels.get("owner"))
-                    for t in THRESHOLDS:
-                        if age >= t and (lease, t) not in crossed:
-                            crossed.add((lease, t))
-                            sink.emit(
-                                f"HOLD >= {t}s: age={age:.0f}s type={labels.get('lock_type')} "
-                                f"owner={labels.get('owner', '')[:8]} uri={short(labels.get('uri', key))}"
-                            )
-            ev = log_events(probe_sink("logs"), pod, cursor)
-            note("logs", ev)
-            if ev is not None:
-                waits, timeouts, dag_miss, outcomes, failed = ev
-                tot_dag_miss += dag_miss
-                n_waits = sum(c for c, _ in waits.values())
-                poll_max = max((mx for _, mx in waits.values()), default=0)
-                tot_waits += n_waits
-                max_wait = max(max_wait, poll_max)
-                for k, v in outcomes.items():
-                    tot_outcomes[k] = tot_outcomes.get(k, 0) + v
-                actionable = wait_is_actionable(
-                    poll_max, timeouts, outcomes, failed, wake_wait_ms
-                )
-                if (
-                    poll_max >= WAIT_EVENT_MS
-                    or timeouts
-                    or outcomes
-                    or failed
-                    or actionable
-                ):
-                    top = ", ".join(
-                        f"{k} x{c} max={mx / 1000:.0f}s"
-                        for k, (c, mx) in sorted(
-                            waits.items(), key=lambda kv: -kv[1][1]
-                        )[:3]
-                    )
+    status = ""
+    try:
+        while tracker or time.time() < end:
+            n += 1
+            got = None
+            if tracker:
+                pod = tracker.poll(now_utc())
+                # The poll that meets the target still reads its metrics and logs.
+                done = tracker.reached()
+            else:
+                pod = pod_name(sink)
+            if pod and pod != seen_pod:
+                if seen_pod and not tracker:
                     sink.emit(
-                        f"WAIT waits={n_waits} max={poll_max / 1000:.1f}s timeouts={timeouts} "
-                        f"dag_miss={dag_miss} extract_failed={failed} "
-                        f"outcomes={outcomes or '{}'}"
-                        + (f" top: {top}" if top else ""),
-                        wake=actionable,
+                        f"POD changed {seen_pod} -> {pod} (all leases released)"
+                        + restart_trigger(sink)
                     )
-            if n % BEAT_EVERY == 1 and got:
-                m, live = got
-                sink.emit(
-                    f"BEAT live={len(live)} oldest={m.get('openviking_s3_ovlock_oldest_live_age_seconds', 0):.0f}s "
-                    f"peak={peak:.0f}s waits_total={tot_waits} max_wait={max_wait / 1000:.1f}s "
-                    f"dag_miss={tot_dag_miss} outcomes_total={tot_outcomes or '{}'} "
-                    f"queue sem={m.get('q.semantic', 0):.0f} nodes={m.get('q.semantic_nodes', 0):.0f} "
-                    f"commit={m.get('q.sessioncommit', 0):.0f} total={m.get('q.total', 0):.0f}",
-                    wake=False,
+                seen_pod = pod
+                cursor.reset_pod()
+            if pod:
+                got = metrics(sink, pod)
+                if got:
+                    m, live = got
+                    if tracker:
+                        tracker.locks = (
+                            len(live),
+                            m.get("openviking_s3_ovlock_oldest_live_age_seconds", 0),
+                        )
+                    # A lease is its path plus its owner: a replacement holder, or a
+                    # lock that was released and taken again, alerts afresh.
+                    leases = {
+                        (labels.get("key") or labels.get("uri"), labels.get("owner"))
+                        for labels, _ in live
+                    }
+                    crossed = {c for c in crossed if c[0] in leases}
+                    for labels, age in live:
+                        peak = max(peak, age)
+                        key = labels.get("key") or labels.get("uri")
+                        lease = (key, labels.get("owner"))
+                        for t in THRESHOLDS:
+                            if age >= t and (lease, t) not in crossed:
+                                crossed.add((lease, t))
+                                sink.emit(
+                                    f"HOLD >= {t}s: age={age:.0f}s type={labels.get('lock_type')} "
+                                    f"owner={labels.get('owner', '')[:8]} uri={short(labels.get('uri', key))}"
+                                )
+                ev = log_events(sink, pod, cursor)
+                if ev is not None:
+                    waits, timeouts, dag_miss, outcomes, failed = ev
+                    tot_dag_miss += dag_miss
+                    n_waits = sum(c for c, _ in waits.values())
+                    poll_max = max((mx for _, mx in waits.values()), default=0)
+                    tot_waits += n_waits
+                    max_wait = max(max_wait, poll_max)
+                    for k, v in outcomes.items():
+                        tot_outcomes[k] = tot_outcomes.get(k, 0) + v
+                    actionable = wait_is_actionable(
+                        poll_max, timeouts, outcomes, failed, wake_wait_ms
+                    )
+                    if (
+                        poll_max >= WAIT_EVENT_MS
+                        or timeouts
+                        or outcomes
+                        or failed
+                        or actionable
+                    ):
+                        top = ", ".join(
+                            f"{k} x{c} max={mx / 1000:.0f}s"
+                            for k, (c, mx) in sorted(
+                                waits.items(), key=lambda kv: -kv[1][1]
+                            )[:3]
+                        )
+                        sink.emit(
+                            f"WAIT waits={n_waits} max={poll_max / 1000:.1f}s timeouts={timeouts} "
+                            f"dag_miss={dag_miss} extract_failed={failed} "
+                            f"outcomes={outcomes or '{}'}"
+                            + (f" top: {top}" if top else ""),
+                            wake=actionable,
+                        )
+                if n % BEAT_EVERY == 1 and got:
+                    m, live = got
+                    sink.emit(
+                        f"BEAT live={len(live)} oldest={m.get('openviking_s3_ovlock_oldest_live_age_seconds', 0):.0f}s "
+                        f"peak={peak:.0f}s waits_total={tot_waits} max_wait={max_wait / 1000:.1f}s "
+                        f"dag_miss={tot_dag_miss} outcomes_total={tot_outcomes or '{}'} "
+                        f"queue sem={m.get('q.semantic', 0):.0f} nodes={m.get('q.semantic_nodes', 0):.0f} "
+                        f"commit={m.get('q.sessioncommit', 0):.0f} total={m.get('q.total', 0):.0f}",
+                        wake=False,
+                    )
+            if tracker:
+                sink.end_poll()
+            if done:
+                break
+            time.sleep(POLL)
+    except KeyboardInterrupt:
+        status = "incomplete (interrupted)"
+        raise
+    except BaseException as exc:  # noqa: BLE001 - SystemExit too: the ledger is written
+        status = f"incomplete (error: {exc or type(exc).__name__})"
+        raise
+    finally:
+        # A target-uptime run always writes its ledger; --hours keeps its old shape.
+        if tracker or not status:
+            uptime = ""
+            if tracker:
+                tracker.finish(now_utc(), f" {status}" if status else " target reached")
+                uptime = (
+                    f"{status + ', ' if status else ''}{tracker.segments} segments, "
+                    f"uptime {fmt_dur(tracker.closed)} of {fmt_dur(target_uptime)}, "
                 )
-        if done:
-            break
-        time.sleep(POLL)
-    uptime = ""
-    if tracker:
-        tracker.finish()
-        uptime = (
-            f"{tracker.segments} segments, uptime {fmt_dur(tracker.closed)} "
-            f"of {fmt_dur(target_uptime)}, "
-        )
-    summary = (
-        f"WATCH end: {uptime}peak lease {peak:.0f}s, waits {tot_waits} (max {max_wait / 1000:.1f}s), "
-        f"dag_miss {tot_dag_miss}, outcomes {tot_outcomes or '{}'}"
-    )
-    sink.emit(summary)
+            sink.emit(
+                f"WATCH end: {uptime}peak lease {peak:.0f}s, waits {tot_waits} "
+                f"(max {max_wait / 1000:.1f}s), dag_miss {tot_dag_miss}, "
+                f"outcomes {tot_outcomes or '{}'}"
+            )
 
 
 def duration_arg(text):
@@ -724,6 +781,10 @@ def duration_arg(text):
         return parse_duration(text)
     except ValueError as exc:
         raise argparse.ArgumentTypeError(str(exc)) from exc
+
+
+def on_sigterm(signum, frame):
+    raise KeyboardInterrupt
 
 
 def main(argv=None):
@@ -747,7 +808,17 @@ def main(argv=None):
     if args.target_uptime and args.hours is not None:
         ap.error("--hours and --target-uptime are mutually exclusive")
     if args.target_uptime:
-        watch(None, Sink(args.log), args.wake_wait_ms, target_uptime=args.target_uptime)
+        # SIGTERM (a stopped Monitor) takes the same path as Ctrl-C.
+        signal.signal(signal.SIGTERM, on_sigterm)
+        try:
+            watch(
+                None,
+                Sink(args.log),
+                args.wake_wait_ms,
+                target_uptime=args.target_uptime,
+            )
+        except KeyboardInterrupt:
+            return 130
     else:
         hours = DEFAULT_HOURS if args.hours is None else args.hours
         watch(hours, Sink(args.log), args.wake_wait_ms)
