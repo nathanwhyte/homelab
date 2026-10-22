@@ -84,6 +84,8 @@ async def _phase2(
     auto_commit_policy=None,
 ):
     """Stand-in for Phase 2: one extraction per batch, each as its own task."""
+    if self.resumed_done:
+        return  # every batch finished on an earlier attempt
     for start in range(0, len(messages), self.batch_size):
         batch = messages[start : start + self.batch_size]
         try:
@@ -109,7 +111,16 @@ class _Compressor:
 
 
 class _Session:
-    def __init__(self, extract, compressor, batch_size=2, policy=None, reraise=False):
+    def __init__(
+        self,
+        extract,
+        compressor,
+        batch_size=2,
+        policy=None,
+        reraise=False,
+        resumed_done=False,
+    ):
+        self.resumed_done = resumed_done
         self.session_id = "cc-35c37c51__subagent-ab4c"
         self.extract = extract
         self.compressor = compressor
@@ -252,6 +263,12 @@ class ArchiveTests(_Phase2Applied):
         with patch.dict(os.environ, {"OV_PREF_GATE": "0"}):
             calls, records = _phase(SUBAGENT_ARCHIVE)
         self.assertTrue(all(c["allowed_memory_types"] is None for c in calls))
+        self.assertEqual(records, [])
+
+    def test_resumed_run_with_nothing_left_to_extract_logs_nothing(self):
+        with patch.dict(os.environ, {"OV_PREF_GATE": "1"}):
+            calls, records = _phase(SUBAGENT_ARCHIVE, resumed_done=True)
+        self.assertEqual(calls, [])
         self.assertEqual(records, [])
 
     def test_explicit_policy_loses_only_preferences(self):

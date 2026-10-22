@@ -90,7 +90,8 @@ off switch; a patch failure never breaks the import):
                         typed text (every subagent session) extracts with
                         ``preferences`` removed from its allowed memory types, so
                         assistant text never becomes a user preference; one
-                        ``ov-pref-gate {json}`` stderr line per gated archive lists the
+                        ``ov-pref-gate {json}`` stderr line per Phase 2 run that
+                        extracted from a gated archive lists the
                         ``preferences`` and ``profile`` writes it still made
                         (decided per archive in ``Session._run_memory_extraction``,
                         applied in ``SessionCompressorV3._extract_user_memories``;

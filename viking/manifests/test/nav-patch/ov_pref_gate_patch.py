@@ -23,7 +23,10 @@ as before. An archive with typed user text, or one whose policy already excludes
 ``/extract`` endpoint, which passes the whole session unbatched) is judged on its own
 messages.
 
-Each gated archive writes one stderr line after Phase 2 finishes, ``ov-pref-gate
+Each Phase 2 run of a gated archive that makes at least one user-memory extraction call
+writes one stderr line when it finishes. A resumed run whose extraction batches all
+finished on an earlier attempt extracts nothing and writes none; the earlier run logged
+the archive. The line is ``ov-pref-gate
 {"action": …, "session_id": …, "archive_uri": …, "messages": …, "roles": …,
 "extractions": …, "writes": …}``, plus ``"errors"`` when an extraction call raised.
 ``writes`` lists the ``preferences`` and ``profile`` URIs the archive's extraction
@@ -226,7 +229,8 @@ def gating(original, all_types):
 
 
 def archive_scope(original):
-    """Wrap ``Session._run_memory_extraction``: one decision and one line per archive."""
+    """Wrap ``Session._run_memory_extraction``: one decision per archive, and one line per
+    run that extracted under it."""
     signature = inspect.signature(original)
 
     @functools.wraps(original)

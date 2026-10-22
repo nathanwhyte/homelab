@@ -295,7 +295,8 @@ spec:
             # typed text (every subagent session, BUG-1215) extracts with "preferences"
             # removed from its memory types, so assistant text cannot become a user
             # preference (BUG-1260: the [user]-only schema override was not enough).
-            # Other memory types still extract. One stderr line per gated archive,
+            # Other memory types still extract. One stderr line per Phase 2 run that
+            # extracts from a gated archive,
             # ov-pref-gate {"action": "skipped", …, "writes": {"preferences": […],
             # "profile": […]}}; watch "profile" in Loki ({namespace="viking",
             # container="openviking"} |= "ov-pref-gate {"), since profile.yaml routes
