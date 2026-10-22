@@ -786,6 +786,15 @@ def decide(
         )
     longest = max(r.lock.age for r in qualified)
     work = exporter.queue_work if exporter else None
+    return queue_policy(cfg, longest, work, tuple(reports))
+
+
+def queue_policy(
+    cfg: Config, longest: float, work: int | None, reports: tuple[LockReport, ...]
+) -> Decision:
+    """Restart, or defer, for a same-lease lock held `longest` seconds (>= hold)
+    with `work` queue items (None = unreadable). Applied again to fresh metrics
+    just before a restart, so a queue that turned busy defers it."""
     queue = (
         "queue unreadable (counted as busy)"
         if work is None
@@ -795,19 +804,19 @@ def decide(
         return Decision(
             "restart",
             f"forced: held {int(longest)}s >= {int(cfg.force)}s cap; {queue}",
-            tuple(reports),
+            reports,
         )
     if work is not None and work <= cfg.quiet_max_work:
         return Decision(
             "restart",
             f"quiet moment: held {int(longest)}s >= {int(cfg.hold)}s; {queue}",
-            tuple(reports),
+            reports,
         )
     return Decision(
         "defer",
         f"busy: held {int(longest)}s >= {int(cfg.hold)}s but {queue}; forced "
         f"restart in {int(cfg.force - longest)}s at {int(cfg.force)}s",
-        tuple(reports),
+        reports,
     )
 
 
@@ -901,13 +910,22 @@ def run(
         fresh = cluster.get_deployment()
         exporter_again = parse_exporter(fetch_metrics(cfg.exporter_url))
         again, still_long = gate(cfg, now_fn(), fresh, exporter_again, errors)
-        if not any(
-            lock.key == first.lock.key and lock.owner == first.lock.owner
+        same = [
+            lock
             for lock in still_long
-        ):
+            if lock.key == first.lock.key and lock.owner == first.lock.owner
+        ]
+        if not same:
             say(
                 f"{TAG} ABORTED before restart: {again.reason or 'lock gone or changed'}"
             )
+            return 0
+        # The quiet-queue / force decision too, on the fresh queue count.
+        policy = queue_policy(
+            cfg, same[0].age, exporter_again.queue_work, decision.locks
+        )
+        if policy.action != "restart":
+            say(f"{TAG} ABORTED before restart: {policy.reason}")
             return 0
         if pod is not None and cluster.ov_pod() != pod:
             say(f"{TAG} ABORTED before restart: the openviking pod changed")

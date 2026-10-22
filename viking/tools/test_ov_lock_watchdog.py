@@ -484,6 +484,35 @@ class TestRun(unittest.TestCase):
         self.assertEqual((code, cluster.patches), (0, []))
         self.assertIn("ABORTED before restart", out)
 
+    def test_queue_busy_on_the_recheck_aborts(self):
+        # homelab#251 Codex R1: the recheck must apply the quiet-queue rule to
+        # the fresh queue count, not only the lock gates.
+        texts = iter([metrics_text(work=0), metrics_text(work=11)])
+        cluster = FakeCluster(log=refresh_log(hold=4 * HOUR))
+        code, out = self.go(cluster, lambda url: next(texts))
+        self.assertEqual((code, cluster.patches), (0, []))
+        self.assertIn("ABORTED before restart: busy:", out)
+
+    def test_queue_unreadable_on_the_recheck_aborts(self):
+        unreadable = "".join(
+            line
+            for line in metrics_text(work=0).splitlines(keepends=True)
+            if "queue" not in line
+        )
+        texts = iter([metrics_text(work=0), unreadable])
+        cluster = FakeCluster(log=refresh_log(hold=4 * HOUR))
+        code, out = self.go(cluster, lambda url: next(texts))
+        self.assertEqual((code, cluster.patches), (0, []))
+        self.assertIn("queue unreadable", out)
+
+    def test_busy_recheck_past_the_force_cap_still_restarts(self):
+        texts = iter([metrics_text(age=7 * HOUR, work=0), metrics_text(age=7 * HOUR)])
+        cluster = FakeCluster(log=refresh_log(hold=7 * HOUR))
+        code, out = self.go(cluster, lambda url: next(texts))
+        self.assertEqual(code, 0, out)
+        self.assertEqual(len(cluster.patches), 1)
+        self.assertIn("forced:", out)
+
     def test_two_long_locks_still_patch_once(self):
         key2 = "default/user/noot/sessions/other/.path.ovlock"
         second = refresh_log(
