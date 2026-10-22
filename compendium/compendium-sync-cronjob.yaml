@@ -135,7 +135,7 @@ spec:
                     exit 0
                   fi
                   apt-get update -qq && apt-get install -y -qq git >/dev/null
-                  pip install --quiet openviking==0.4.10
+                  pip install --quiet openviking==0.4.10 openviking-sdk==0.1.16
                   # ov CLI requires a config file to exist even when env vars are set
                   mkdir -p "$HOME/.openviking"
                   printf '{"url":"%s","api_key":"%s","root_api_key":"%s","account":"default","user":"noot","timeout":300.0,"output":"table"}\n' \
