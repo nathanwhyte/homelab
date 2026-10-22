@@ -7,8 +7,9 @@ outage goes to the watch's log instead of waking the session:
     maintenance-active.py [--json] [TARGET ...]
 
 TARGET is kind/namespace/name (deployment/viking/openviking) or a bare
-namespace (viking). Exit 0 means every target is covered by a window and
-prints the windows; with no TARGET, it means a cluster-wide window is active.
+namespace (viking); a window covers a target through its namespace, since no
+signal names a single object. Exit 0 means every target is covered by a window
+and prints the windows; with no TARGET, it means a cluster-wide window is active.
 Exit 1 means some target is not covered. Exit 2 means some target is not
 covered and a source could not be read, so the watch treats its failure as it
 would without this check.
@@ -31,19 +32,17 @@ test, never an inference from cluster state:
   narrows it to targets in that namespace. Any other matcher, including a regex
   or negated namespace matcher, makes it not count: it silences particular
   alerts, which says nothing about whether a service is down on purpose.
-- rollout: a deployment/<ns>/<name> target whose Progressing condition, as
-  the Deployment controller set it, says a rollout is under way
-  (ReplicaSetUpdated, NewReplicaSetCreated, FoundNewReplicaSet). It ends when
-  the rollout completes (NewReplicaSetAvailable) or fails
-  (ProgressDeadlineExceeded), so a crash after or instead of a rollout is never
-  covered. Generation lag alone is not a rollout: annotation and other
-  non-template edits bump the generation too. Covers that target only; other
-  kinds get no rollout check.
+
+A rollout is not a window. No Deployment field says one was planned: the
+controller's Progressing reasons also fire for edits that change no pods
+(FoundNewReplicaSet on a progressDeadlineSeconds change), so a watch handles a
+failure during a rollout as any other until a rollout tool records one on
+purpose.
 
 The state files exist only on the Mac that ran the tool; on the other Mac only
-the silence and rollout checks apply. Alertmanager runs on timmy, so during a
-timmy outage the silence is unreadable from anywhere and the state files are
-the only signal. Read-only: nothing here changes the cluster or the files.
+the silence check applies. Alertmanager runs on timmy, so during a timmy
+outage the silence is unreadable from anywhere and the state files are the only
+signal. Read-only: nothing here changes the cluster or the files.
 """
 
 from __future__ import annotations
@@ -60,8 +59,7 @@ KUBECTL = os.environ.get("KUBECTL", "kubectl")
 AM_NAMESPACE = "grafana"
 AM_POD = "alertmanager-prom-alertmanager-0"
 CALL_TIMEOUT_SECONDS = 20
-ROLLING_REASONS = {"ReplicaSetUpdated", "NewReplicaSetCreated", "FoundNewReplicaSet"}
-ALL = "*"  # a window's scope: ALL, a namespace, or one target string
+ALL = "*"  # a window's scope: ALL or a namespace
 
 
 class Unreadable(Exception):
@@ -270,40 +268,8 @@ def silence_windows() -> list[tuple[str, str]]:
     return found
 
 
-def rollout_reason(obj: dict) -> str | None:
-    """Why a Deployment is mid-rollout per its controller, or None."""
-    for cond in obj.get("status", {}).get("conditions", []):
-        if cond.get("type") == "Progressing":
-            if cond.get("status") == "True" and cond.get("reason") in ROLLING_REASONS:
-                return f"Progressing: {cond['reason']}"
-            return None
-    return None
-
-
-def rollout_window(ns: str, name: str) -> list[tuple[str, str]]:
-    target = f"deployment/{ns}/{name}"
-    raw = run(
-        [
-            KUBECTL,
-            "-n",
-            ns,
-            "get",
-            f"deployment/{name}",
-            "-o",
-            "json",
-            f"--request-timeout={CALL_TIMEOUT_SECONDS}s",
-        ]
-    )
-    try:
-        reason = rollout_reason(json.loads(raw))
-    except (ValueError, KeyError, TypeError, AttributeError) as e:
-        raise Unreadable(f"{target}: unexpected object ({e})") from None
-    return [(target, f"rollout: {target} ({reason})")] if reason else []
-
-
 def covers(scope: str, target: tuple[str | None, str, str | None]) -> bool:
-    kind, ns, name = target
-    return scope in (ALL, ns) or (kind is not None and scope == f"{kind}/{ns}/{name}")
+    return scope in (ALL, target[1])
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -317,18 +283,12 @@ def main(argv: list[str] | None = None) -> int:
         ap.error(str(e))
 
     windows, unreadable = local_windows(state_root())
-    checks = [silence_windows] + [
-        (lambda ns=ns, name=name: rollout_window(ns, name))
-        for kind, ns, name in targets
-        if kind == "deployment"
-    ]
-    for check in checks:
-        try:
-            windows += check()
-        except Unreadable as e:
-            unreadable.append(str(e))
-        except Exception as e:  # any other failure is still "could not tell"
-            unreadable.append(f"unexpected {type(e).__name__}: {e}")
+    try:
+        windows += silence_windows()
+    except Unreadable as e:
+        unreadable.append(str(e))
+    except Exception as e:  # any other failure is still "could not tell"
+        unreadable.append(f"unexpected {type(e).__name__}: {e}")
 
     relevant = [
         line

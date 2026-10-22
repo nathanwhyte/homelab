@@ -35,21 +35,6 @@ def silence(*matchers, state="active", sid="s1"):
     }
 
 
-def deployment(
-    generation=2, observed=2, reason="NewReplicaSetAvailable", status="True"
-):
-    conditions = [
-        {"type": "Available", "status": "True", "reason": "MinimumReplicasAvailable"}
-    ]
-    if reason:
-        conditions.append({"type": "Progressing", "status": status, "reason": reason})
-    return {
-        "kind": "Deployment",
-        "metadata": {"generation": generation},
-        "status": {"observedGeneration": observed, "conditions": conditions},
-    }
-
-
 class SilenceTests(unittest.TestCase):
     def test_timmy_offline_silence_covers_everything(self):
         self.assertEqual(ma.silence_scope(silence(MATCH_ALL)), ma.ALL)
@@ -96,38 +81,6 @@ class SilenceTests(unittest.TestCase):
             self.assertIsNone(ma.silence_scope(s))
 
 
-class RolloutTests(unittest.TestCase):
-    def test_rolling_reasons(self):
-        for reason in (
-            "ReplicaSetUpdated",
-            "NewReplicaSetCreated",
-            "FoundNewReplicaSet",
-        ):
-            self.assertEqual(
-                ma.rollout_reason(deployment(reason=reason)), f"Progressing: {reason}"
-            )
-
-    def test_generation_lag_alone_is_not_a_rollout(self):
-        # Round 2 P2: annotation and other non-template edits bump generation.
-        for reason, status in (
-            ("ProgressDeadlineExceeded", "False"),
-            ("NewReplicaSetAvailable", "True"),
-        ):
-            d = deployment(generation=3, observed=2, reason=reason, status=status)
-            self.assertIsNone(ma.rollout_reason(d))
-
-    def test_completed_rollout_with_pods_down_is_not_covered(self):
-        # Round 1 P2: availability falling after a finished rollout is an outage.
-        self.assertIsNone(ma.rollout_reason(deployment()))
-
-    def test_failed_rollout_is_not_covered(self):
-        d = deployment(reason="ProgressDeadlineExceeded", status="False")
-        self.assertIsNone(ma.rollout_reason(d))
-
-    def test_no_progressing_condition(self):
-        self.assertIsNone(ma.rollout_reason(deployment(reason=None)))
-
-
 class TargetTests(unittest.TestCase):
     def test_forms(self):
         self.assertEqual(ma.parse_target("viking"), (None, "viking", None))
@@ -143,12 +96,8 @@ class TargetTests(unittest.TestCase):
         t = ("deployment", "viking", "openviking")
         self.assertTrue(ma.covers(ma.ALL, t))
         self.assertTrue(ma.covers("viking", t))
-        self.assertTrue(ma.covers("deployment/viking/openviking", t))
+        self.assertTrue(ma.covers("viking", (None, "viking", None)))
         self.assertFalse(ma.covers("garage", t))
-        self.assertFalse(ma.covers("deployment/viking/other", t))
-        self.assertFalse(
-            ma.covers("deployment/viking/openviking", (None, "viking", None))
-        )
 
 
 class LocalStateTests(unittest.TestCase):
@@ -292,9 +241,7 @@ STUB = """#!/bin/sh
 case "$*" in
   *amtool*) [ -n "$STUB_SILENCES_FAIL" ] && { echo "connection refused" >&2; exit 1; }
             printf '%s' "$STUB_SILENCES" ;;
-  *deployment/broken*) echo "not found" >&2; exit 1 ;;
-  *get*) printf '%s' "$STUB_OBJECT" ;;
-  *) exit 99 ;;
+  *) echo "unexpected kubectl call: $*" >&2; exit 99 ;;
 esac
 """
 
@@ -313,7 +260,6 @@ class CliTests(unittest.TestCase):
             "KUBECTL": str(kubectl),
             "XDG_STATE_HOME": str(self.state),
             "STUB_SILENCES": "[]",
-            "STUB_OBJECT": json.dumps(deployment()),
         }
 
     def tearDown(self):
@@ -329,33 +275,11 @@ class CliTests(unittest.TestCase):
         )
         return out.returncode, json.loads(out.stdout)
 
-    def rolling(self):
-        return json.dumps(deployment(reason="ReplicaSetUpdated"))
-
-    def test_no_window_exits_1(self):
+    def test_no_window_exits_1_without_reading_the_deployment(self):
+        # Round 3 P2: a Deployment's Progressing reason is not a window, so the
+        # stub's "unexpected kubectl call" never fires (it would be unreadable).
         code, out = self.cli("deployment/viking/openviking")
         self.assertEqual((code, out["windows"], out["unreadable"]), (1, [], []))
-
-    def test_rollout_window_exits_0(self):
-        code, out = self.cli("deployment/viking/openviking", STUB_OBJECT=self.rolling())
-        self.assertEqual(code, 0)
-        self.assertEqual(
-            out["windows"],
-            ["rollout: deployment/viking/openviking (Progressing: ReplicaSetUpdated)"],
-        )
-
-    def test_one_rollout_does_not_cover_another_target(self):
-        # Round 1 P2: coverage is per target, and every target must be covered.
-        code, out = self.cli(
-            "deployment/viking/openviking", "garage", STUB_OBJECT=self.rolling()
-        )
-        self.assertEqual((code, out["uncovered"]), (1, ["garage"]))
-        code, out = self.cli(
-            "deployment/viking/openviking",
-            "deployment/viking/broken",
-            STUB_OBJECT=self.rolling(),
-        )
-        self.assertEqual((code, out["uncovered"]), (2, ["deployment/viking/broken"]))
 
     def test_namespace_silence_covers_only_its_namespace(self):
         s = silence(MATCH_ALL, matcher("namespace", "viking"))
