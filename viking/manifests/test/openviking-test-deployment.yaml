@@ -146,6 +146,10 @@ spec:
             # the nav glosses offline. Test instance only; drop before prod.
             - name: OV_NAV_PATCH_DUMP
               value: /app/data/navdump
+            # IMPR-1404 pref gate in enforce mode, as prod runs it, so the canary
+            # exercises the skip ("action": "skipped"), not only the shadow log.
+            - name: OV_PREF_GATE
+              value: "1"
           volumeMounts:
             - name: config-out
               mountPath: /app/.openviking/ov.conf
