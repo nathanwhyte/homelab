@@ -218,8 +218,8 @@ class TestIdentity(unittest.TestCase):
 
 
 class TestGates(unittest.TestCase):
-    # A stop before the lock series are read is "blind", not "none", so a count
-    # of decision=none counts only runs that saw no long lock (IMPR-1416 row 2).
+    # A stop before the lock series are read is "blind", not "none", so every
+    # decision=none run read usable lock series (IMPR-1416 row 2).
     def test_exporter_down(self):
         d = decide(exporter=None, errors={"exporter": "URLError: refused"})
         self.assertEqual(d.action, "blind")
