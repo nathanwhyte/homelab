@@ -75,9 +75,9 @@ spec:
           env: [{ name: HIP_VISIBLE_DEVICES, value: "0" }]
           command: ["/app/llama-server"]
           args: ["--model","/models/current.gguf","--host","0.0.0.0","--port","8000",
-                  "--embedding","--pooling","last","--ctx-size","8192","--n-gpu-layers","999",
-                  "--parallel","1","--batch-size","4096","--ubatch-size","4096",
-                  "--split-mode","none","--main-gpu","0","--flash-attn","on"]
+                 "--embedding","--pooling","last","--ctx-size","8192","--n-gpu-layers","999",
+                 "--parallel","1","--batch-size","4096","--ubatch-size","4096",
+                 "--split-mode","none","--main-gpu","0","--flash-attn","on"]
           ports: [{ containerPort: 8000 }]
           securityContext: { privileged: true }
           startupProbe: { tcpSocket: { port: 8000 }, periodSeconds: 10, failureThreshold: 120 }
@@ -125,9 +125,9 @@ spec:
           env: [{ name: HIP_VISIBLE_DEVICES, value: "0" }]
           command: ["/app/llama-server"]
           args: ["--model","/models/current.gguf","--host","0.0.0.0","--port","8000",
-                  "--embedding","--pooling","last","--ctx-size","8192","--n-gpu-layers","999",
-                  "--parallel","1","--batch-size","4096","--ubatch-size","4096",
-                  "--split-mode","none","--main-gpu","0","--flash-attn","on"]
+                 "--embedding","--pooling","last","--ctx-size","8192","--n-gpu-layers","999",
+                 "--parallel","1","--batch-size","4096","--ubatch-size","4096",
+                 "--split-mode","none","--main-gpu","0","--flash-attn","on"]
           ports: [{ containerPort: 8000 }]
           securityContext: { privileged: true }
           startupProbe: { tcpSocket: { port: 8000 }, periodSeconds: 10, failureThreshold: 120 }

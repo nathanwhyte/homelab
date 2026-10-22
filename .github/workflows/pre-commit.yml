@@ -1,0 +1,129 @@
+name: pre-commit
+
+# IMPR-1403 row 4. homelab had no CI, so homelab#248 merged on "no checks
+# reported, and none expected". This job runs the repo's own
+# .pre-commit-config.yaml over every file on each pull request to main, so
+# gh-merge-green.py has a check to wait on.
+#
+# GitHub-hosted runner on purpose. arc/ runs a self-hosted scale set, but only
+# for nathanwhyte/compendium (`homelab-arc-compendium`); this repo is public, so
+# a self-hosted runner here would run fork-PR code on the cluster (arc/arc.md),
+# and a check that waits on the cluster being up is the wrong gate for a repo
+# whose job is to repair the cluster. No secrets are used or needed.
+#
+# Every hook in the config runs; nothing is skipped (no SKIP=...). Recorded
+# benchmark output, pinned corpora and patches are excluded per hook in
+# .pre-commit-config.yaml itself, so a local run and this job agree. What each
+# one needs beyond a stock ubuntu-latest image:
+#
+#   - Python 3.12, from setup-python: the `language: system` test hooks call
+#     `python3`, and ruff.toml targets py312 (the ARC runner image's CPython).
+#   - uv (pinned): slack-transport-tests runs `uv run --with pyyaml`, and
+#     yt-dlp-wrapper-tests runs `uv run --offline --with pyyaml`, which only
+#     works from a warm uv cache, so a step fills it first.
+#   - Helm 4 (pinned, matches the local 4.3.1 the hook was written against):
+#     arc-ownership-integration refuses anything older and runs `helm` and
+#     `kubectl` against a disposable rancher/k3s container started on the
+#     runner's own Docker engine. It never reads ~/.kube or touches the live
+#     cluster. kubectl and docker come preinstalled on ubuntu-latest.
+#   - gitleaks (built by pre-commit with the runner's Go) is the exception: its
+#     hook scans `--staged` changes, and a fresh checkout stages nothing, so on
+#     a bare `--all-files` run it would pass without reading a byte. The
+#     "Stage the PR diff" step below makes the PR's net change the staged set,
+#     which is what a local commit of the same change would have scanned.
+#
+# Nothing in the config reads the live cluster or needs a secret.
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pre-commit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out the merge commit
+        # actions/checkout v7.0.1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          # The merge commit's first parent is the base branch tip; the staging
+          # step below needs it.
+          fetch-depth: 2
+          persist-credentials: false
+
+      - name: Set up Python
+        # actions/setup-python v7.1.0
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
+        with:
+          python-version: "3.12"
+
+      - name: Set up uv
+        # astral-sh/setup-uv v10.3.2
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e
+        with:
+          version: "0.13.5"
+
+      - name: Set up Helm 4
+        # azure/setup-helm v5.0.1
+        uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310
+        with:
+          version: v4.3.1
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install pre-commit
+        run: python -m pip install pre-commit==4.6.0
+
+      - name: Cache pre-commit hook environments
+        # actions/cache v6.1.0
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: ~/.cache/pre-commit
+          key: pre-commit-${{ runner.os }}-py3.12-${{ hashFiles('.pre-commit-config.yaml') }}
+          # pre-commit keys each environment by hook repo and rev underneath, so
+          # restoring a near-miss reuses the unchanged ones.
+          restore-keys: |
+            pre-commit-${{ runner.os }}-py3.12-
+
+      - name: Warm the uv cache for the offline hook
+        # yt-dlp-wrapper-tests runs `uv run --offline --with pyyaml`.
+        run: uv run --no-project --with pyyaml true
+
+      - name: Stage the PR diff for gitleaks
+        # pull_request checks out refs/pull/N/merge, a merge commit whose first
+        # parent is the base branch tip. A soft reset to it leaves the PR's net
+        # change staged, so `gitleaks git --pre-commit --staged` scans it.
+        # Working-tree contents are unchanged; the other hooks are unaffected.
+        if: github.event_name == 'pull_request'
+        run: git reset --soft HEAD^1
+
+      - name: Run pre-commit on all files
+        run: pre-commit run --all-files --show-diff-on-failure --color always
+
+      - name: Run the pre-push-only hooks on all files
+        # A hook with `stages:` that leaves out pre-commit (agentic-coding-fixtures,
+        # pre-push because it is slow) is skipped by the step above. Running the
+        # whole pre-push stage would repeat every unstaged hook, so each such hook
+        # runs by id, read from the config so a new one is never missed.
+        run: |
+          ids=$(python3 - <<'EOF'
+          import yaml
+          config = yaml.safe_load(open(".pre-commit-config.yaml"))
+          for repo in config["repos"]:
+              for hook in repo["hooks"]:
+                  stages = hook.get("stages")
+                  if stages and "pre-commit" not in stages and "pre-push" in stages:
+                      print(hook["id"])
+          EOF
+          )
+          for id in $ids; do
+            pre-commit run "$id" --all-files --hook-stage pre-push --show-diff-on-failure --color always
+          done

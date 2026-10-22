@@ -191,19 +191,28 @@ def disposable_api(endpoint):
                             os.fchmod(handle.fileno(), 0o600)
                             handle.write(credential.stdout)
                 if kubeconfig.is_file():
-                    ready = run(
-                        "kubectl",
-                        "--kubeconfig",
-                        str(kubeconfig),
-                        "--server",
-                        server,
-                        "--request-timeout=3s",
-                        "get",
-                        "--raw=/readyz",
-                        timeout=5,
-                        check=False,
-                    )
-                    if ready.returncode == 0 and ready.stdout.strip() == "ok":
+                    try:
+                        ready = run(
+                            "kubectl",
+                            "--kubeconfig",
+                            str(kubeconfig),
+                            "--server",
+                            server,
+                            "--request-timeout=3s",
+                            "get",
+                            "--raw=/readyz",
+                            timeout=5,
+                            check=False,
+                        )
+                    except subprocess.TimeoutExpired:
+                        # A booting API server can accept the connection and
+                        # not answer; poll again until the deadline.
+                        ready = None
+                    if (
+                        ready is not None
+                        and ready.returncode == 0
+                        and ready.stdout.strip() == "ok"
+                    ):
                         break
                 time.sleep(1)
             else:
