@@ -521,12 +521,26 @@ class PodListKubectl(FakeKubectl):
     state repeats. The Deployment (readyReplicas included) is never consulted.
     """
 
-    def __init__(self, states, **kw):
+    def __init__(self, states, exec_fail=(), logs_fail=(), **kw):
         super().__init__([POD_A], **kw)
         self.states = list(states)
+        self.exec_fail = set(exec_fail)  # indices of exec calls that fail
+        self.logs_fail = set(logs_fail)  # indices of logs calls that fail
         self._probes = 0
+        self._execs = 0
+        self._logs = 0
 
     def __call__(self, args, **kw):
+        for verb, fail, attr in (
+            ("exec", self.exec_fail, "_execs"),
+            ("logs", self.logs_fail, "_logs"),
+        ):
+            if verb in args:
+                i = getattr(self, attr)
+                setattr(self, attr, i + 1)
+                if i in fail:
+                    self.calls.append(list(args))
+                    return subprocess.CompletedProcess(args, 1, "", "refused")
         if "pods" in args and "json" in args:
             self.calls.append(list(args))
             state = self.states[min(self._probes, len(self.states) - 1)]
@@ -676,6 +690,55 @@ class TargetUptime(unittest.TestCase):
         self.assertEqual(len(has(out, "WATCH ERROR pods")), 1)
         self.assertEqual(len(has(logged, "WATCH ERROR pods")), 3)
         self.assertEqual(has(out, "OV DOWN"), [])
+
+    def test_rolling_update_overlap_keeps_accounting_and_collection(self):
+        a = pod_item(POD_A, since=-3600)
+        b = pod_item(POD_B, since=100)
+        # A alone, five polls with A and B Ready, B alone, then the pods are gone
+        states = [[a]] + [[a, b]] * 5 + [[b], []]
+        fake = PodListKubectl(states)
+        out, logged, _ = run_target(
+            fake, 3600, log=self.log, max_polls=9, capped_ok=True
+        )
+        self.assertEqual(has(out + logged, "WATCH ERROR"), [])
+        # metrics were read on all seven polls that had a Ready pod
+        self.assertEqual(len([c for c in fake.calls if "exec" in c]), 7)
+        segs = has(out, "SEGMENT ")
+        self.assertEqual(len(segs), 2)
+        # A is kept while Ready (+0..+300 s); B takes over from there to +360 s
+        self.assertIn("pod=openviking-aaa-1", segs[0])
+        self.assertIn("dur=0h05m00s", segs[0])
+        self.assertIn("pod=openviking-bbb-2", segs[1])
+        self.assertIn("dur=0h01m00s cum=0h06m00s", segs[1])
+        self.assertEqual(len(has(out, "OV DOWN")), 1)
+
+    def test_probe_failures_are_woken_once_per_streak(self):
+        a = [pod_item(POD_A, since=-3600)]
+        for verb, fail_kw in (("metrics", "exec_fail"), ("logs", "logs_fail")):
+            with self.subTest(verb):
+                log = os.path.join(self.tmp.name, f"{verb}.log")
+                # five failures in a row, a success, then two more failures
+                fake = PodListKubectl([a], **{fail_kw: {0, 1, 2, 3, 4, 6, 7}})
+                out, logged, _ = run_target(fake, 540, log=log)
+                token = f"WATCH ERROR {verb}"
+                self.assertEqual(len(has(out, token)), 2)
+                self.assertEqual(len(has(logged, token)), 7)
+
+    def test_final_sample_is_read_before_the_summary(self):
+        a = [pod_item(POD_A, since=-3600)]
+        fake = PodListKubectl(
+            [a],
+            metrics=[metrics_text(), metrics_text(), metrics_text(live_age=700)],
+            logs=["", "", wait_line(7000)],
+        )
+        out, _, _ = run_target(fake, 120, log=self.log)
+        # the target is met on the third poll, which still reads metrics and logs
+        self.assertEqual(len([c for c in fake.calls if "exec" in c]), 3)
+        self.assertEqual(len([c for c in fake.calls if "logs" in c]), 3)
+        self.assertEqual(len(has(out, "HOLD >= 600s")), 1)
+        (end,) = has(out, "WATCH end:")
+        self.assertIn("peak lease 700s, waits 1 (max 7.0s)", end)
+        self.assertIn("live=1 oldest=0s", has(out, "SEGMENT 1")[0])
 
     def test_hours_mode_still_ends_by_the_clock(self):
         out, _ = run_watch(FakeKubectl([POD_A]), polls=2)

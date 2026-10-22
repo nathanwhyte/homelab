@@ -438,11 +438,12 @@ def parse_ts(stamp):
 
 
 def ready_state(sink):
-    """What the openviking pods say: ("ready", name, since), ("down", reason) or None.
+    """What the openviking pods say: ("ready", [(name, since), ...]), ("down", reason)
+    or None.
 
     Ready means phase Running, Ready condition True and no deletionTimestamp; `since`
-    is that condition's lastTransitionTime. None is a failed probe (already reported
-    through `sink`).
+    is that condition's lastTransitionTime. More than one Ready pod is a normal
+    rolling update. None is a failed probe (already reported through `sink`).
     """
     s = run(
         sink,
@@ -474,13 +475,8 @@ def ready_state(sink):
                 f"{name} {status.get('phase', '?')} Ready={cond.get('status', '?')}"
                 + (f" ({detail})" if detail else "")
             )
-    if len(ready) > 1:
-        sink.emit(
-            f"WATCH ERROR pods: expected one Ready openviking pod, got {[n for n, _ in ready]}"
-        )
-        return None
     if ready:
-        return ("ready", *ready[0])
+        return ("ready", ready)
     return ("down", "; ".join(why[:3]) or "no openviking pods")
 
 
@@ -554,16 +550,22 @@ class ReadyTracker:
                 if self.pod:
                     self.close(restart_trigger(LogOnly(self.sink)))
             return None
-        _, name, since = st
+        cands = st[1]
         if self.down:
             # Only a Ready transition after the stop counts; a Ready condition that
             # predates it (or a stale readyReplicas) is not a recovery.
-            if (
-                name == self.down_pod
-                and since is not None
-                and since <= self.down_cutoff
-            ):
+            cands = [
+                (n, t)
+                for n, t in cands
+                if not (n == self.down_pod and t is not None and t <= self.down_cutoff)
+            ]
+            if not cands:
                 return None
+        # Track one pod: the current one while it is Ready (a rollout's second Ready
+        # pod is ignored), else the newest Ready pod.
+        tracked = [c for c in cands if c[0] == self.pod]
+        name, since = tracked[0] if tracked else max(cands, key=lambda c: c[1] or now)
+        if self.down:
             self.down = False
             self.open(name, since, now)
             self.sink.emit(
@@ -599,13 +601,25 @@ def watch(hours, sink, wake_wait_ms=DEFAULT_WAKE_WAIT_MS, target_uptime=None):
         f"wait event >= {WAIT_EVENT_MS} ms, wake wait >= {wake_wait_ms} ms",
         wake=False,
     )
+    # --target-uptime: a failing metrics or logs probe wakes the session once per
+    # streak; the rest of the streak goes to the log.
+    streaks = {}
+
+    def probe_sink(name):
+        return LogOnly(sink) if tracker and streaks.get(name) else sink
+
+    def note(name, result):
+        if tracker:
+            streaks[name] = streaks.get(name, 0) + 1 if result is None else 0
+
+    done = False
     while tracker or time.time() < end:
         n += 1
         got = None
         if tracker:
             pod = tracker.poll(now_utc())
-            if tracker.reached():
-                break
+            # The poll that meets the target still reads its metrics and logs.
+            done = tracker.reached()
         else:
             pod = pod_name(sink)
         if pod and pod != seen_pod:
@@ -617,7 +631,8 @@ def watch(hours, sink, wake_wait_ms=DEFAULT_WAKE_WAIT_MS, target_uptime=None):
             seen_pod = pod
             cursor.reset_pod()
         if pod:
-            got = metrics(sink, pod)
+            got = metrics(probe_sink("metrics"), pod)
+            note("metrics", got)
             if got:
                 m, live = got
                 if tracker:
@@ -643,7 +658,8 @@ def watch(hours, sink, wake_wait_ms=DEFAULT_WAKE_WAIT_MS, target_uptime=None):
                                 f"HOLD >= {t}s: age={age:.0f}s type={labels.get('lock_type')} "
                                 f"owner={labels.get('owner', '')[:8]} uri={short(labels.get('uri', key))}"
                             )
-            ev = log_events(sink, pod, cursor)
+            ev = log_events(probe_sink("logs"), pod, cursor)
+            note("logs", ev)
             if ev is not None:
                 waits, timeouts, dag_miss, outcomes, failed = ev
                 tot_dag_miss += dag_miss
@@ -686,6 +702,8 @@ def watch(hours, sink, wake_wait_ms=DEFAULT_WAKE_WAIT_MS, target_uptime=None):
                     f"commit={m.get('q.sessioncommit', 0):.0f} total={m.get('q.total', 0):.0f}",
                     wake=False,
                 )
+        if done:
+            break
         time.sleep(POLL)
     uptime = ""
     if tracker:
