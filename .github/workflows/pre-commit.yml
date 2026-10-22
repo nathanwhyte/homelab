@@ -107,3 +107,23 @@ jobs:
 
       - name: Run pre-commit on all files
         run: pre-commit run --all-files --show-diff-on-failure --color always
+
+      - name: Run the pre-push-only hooks on all files
+        # A hook with `stages:` that leaves out pre-commit (agentic-coding-fixtures,
+        # pre-push because it is slow) is skipped by the step above. Running the
+        # whole pre-push stage would repeat every unstaged hook, so each such hook
+        # runs by id, read from the config so a new one is never missed.
+        run: |
+          ids=$(python3 - <<'EOF'
+          import yaml
+          config = yaml.safe_load(open(".pre-commit-config.yaml"))
+          for repo in config["repos"]:
+              for hook in repo["hooks"]:
+                  stages = hook.get("stages")
+                  if stages and "pre-commit" not in stages and "pre-push" in stages:
+                      print(hook["id"])
+          EOF
+          )
+          for id in $ids; do
+            pre-commit run "$id" --all-files --hook-stage pre-push --show-diff-on-failure --color always
+          done
