@@ -1,12 +1,18 @@
 #!/usr/bin/env python3
 """Isolation and cleanup contracts for the disposable integration-test driver."""
 
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "_scripts" / "lib"))
+from git_env import scrub_environ  # noqa: E402
+
+scrub_environ()
+
 import importlib.util
 import os
 import signal
-from pathlib import Path
 import subprocess
-import sys
 import tempfile
 import unittest
 from unittest.mock import patch

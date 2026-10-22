@@ -28,14 +28,20 @@ Run: python3 test_agentic_harness.py
 
 from __future__ import annotations
 
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "_scripts" / "lib"))
+from git_env import scrub_environ  # noqa: E402
+
+scrub_environ()
+
 import importlib.util
 import os
 import shutil
 import subprocess
-import sys
 import tempfile
 import time
-from pathlib import Path
 from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))

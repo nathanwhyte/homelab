@@ -7,6 +7,14 @@ ov_extract_patch.py into a throwaway interpreter in the pod (see the BUG-1176 PR
 this file covers the wrapper semantics.
 """
 
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "_scripts" / "lib"))
+from git_env import scrub_environ  # noqa: E402
+
+scrub_environ()
+
 import asyncio
 import contextlib
 import contextvars
@@ -14,7 +22,6 @@ import dataclasses
 import io
 import json
 import os
-import sys
 import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))

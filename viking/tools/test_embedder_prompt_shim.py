@@ -3,6 +3,14 @@
 
 from __future__ import annotations
 
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "_scripts" / "lib"))
+from git_env import scrub_environ  # noqa: E402
+
+scrub_environ()
+
 import http.client
 import importlib.util
 import json
@@ -10,7 +18,6 @@ import os
 import signal
 import socket
 import subprocess
-import sys
 import threading
 import time
 import unittest

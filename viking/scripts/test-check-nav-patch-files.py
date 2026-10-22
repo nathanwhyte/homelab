@@ -7,13 +7,20 @@ first failing case is homelab#250: a Deployment ``items:`` list that leaves out
 ov_pref_gate_patch.py. The rest are the review findings on homelab#254.
 """
 
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "_scripts" / "lib"))
+from git_env import scrub_environ  # noqa: E402
+
+scrub_environ()
+
 import ast
 import importlib.util
 import re
 import shutil
 import tempfile
 import unittest
-from pathlib import Path
 
 import yaml
 

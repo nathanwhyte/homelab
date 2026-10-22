@@ -1,8 +1,15 @@
 """Offline checks for the experiment's production restoration boundary."""
 
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "_scripts" / "lib"))
+from git_env import scrub_environ  # noqa: E402
+
+scrub_environ()
+
 import tempfile
 import unittest
-from pathlib import Path
 from unittest.mock import patch
 
 import benchmark_1080_slots as bench

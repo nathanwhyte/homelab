@@ -5,14 +5,20 @@ Requires a fresh Kubernetes API with neither arc-runners nor ARC CRDs present.
 Creates only fixture resources there; never uses the implicit kubectl context.
 """
 
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "_scripts" / "lib"))
+from git_env import scrub_environ  # noqa: E402
+
+scrub_environ()
+
 import argparse
 import importlib.util
 import json
 import os
-from pathlib import Path
 import shutil
 import subprocess
-import sys
 import tempfile
 from urllib.parse import urlparse
 

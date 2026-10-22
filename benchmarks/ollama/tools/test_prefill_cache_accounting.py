@@ -15,10 +15,16 @@ a classifier that could never return True on the first tier shipped unnoticed.
 
 from __future__ import annotations
 
-import json
-import subprocess
 import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "_scripts" / "lib"))
+from git_env import scrub_environ  # noqa: E402
+
+scrub_environ()
+
+import json
+import subprocess
 
 TOOLS = Path(__file__).resolve().parent
 CORPUS = TOOLS.parent / "corpus"
