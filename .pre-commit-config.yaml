@@ -112,8 +112,6 @@ repos:
         language: system
         pass_filenames: false
         files: ^viking/scripts/(test-)?ov-haiku-reading\.py$
-      # BUG-1220 / IMPR-1095: the lock wedge exporter and the janitor have no
-      # CI either. Stdlib only and offline (stubbed S3, loopback socket).
       # IMPR-1413: what the prod and test stacks mount, as `kubectl kustomize`
       # renders them, agrees with the nav-patch files on disk, and so does
       # sitecustomize.py's TARGETS. homelab#250 shipped a patch its Deployments'
@@ -144,6 +142,8 @@ repos:
         pass_filenames: false
         verbose: true
         files: ^viking/(manifests/test/nav-patch/|scripts/run-nav-patch-tests\.py$)
+      # BUG-1220 / IMPR-1095: the lock wedge exporter and the janitor have no
+      # CI either. Stdlib only and offline (stubbed S3, loopback socket).
       - id: ov-exporter-tests
         name: ov-exporter lock series tests
         entry: python3 viking/exporters/test_ov_exporter.py

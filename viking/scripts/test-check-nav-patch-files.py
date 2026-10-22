@@ -7,8 +7,10 @@ first failing case is homelab#250: a Deployment ``items:`` list that leaves out
 ov_pref_gate_patch.py. The rest are the review findings on homelab#254.
 """
 
+import ast
 import importlib.util
 import shutil
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -27,7 +29,24 @@ CONFIGMAP = "viking/manifests/openviking-nav-patch-configmap.yaml"
 KUSTOMIZATION = "viking/manifests/test/kustomization.yaml"
 PROD_DEPLOYMENT = "viking/manifests/openviking-deployment.yaml"
 TEST_DEPLOYMENT = "viking/manifests/test/openviking-test-deployment.yaml"
-GREP_LINE = '    "openviking.service.fs_service": ("ov_grep_scope_patch", "apply"),\n'
+
+
+def targets_entries(text):
+    """(key, modules, first line, last line) for each TARGETS entry, 1-based, read
+    with ast so a patch edit to any one entry leaves the cases below working."""
+    for node in ast.parse(text).body:
+        if (
+            isinstance(node, ast.Assign)
+            and any(isinstance(t, ast.Name) and t.id == "TARGETS" for t in node.targets)
+            and isinstance(node.value, ast.Dict)
+        ):
+            value = ast.literal_eval(node.value)
+            for key_node, val_node in zip(node.value.keys, node.value.values):
+                key = ast.literal_eval(key_node)
+                pairs = value[key] if isinstance(value[key], list) else [value[key]]
+                yield key, [p[0] for p in pairs], key_node.lineno, val_node.end_lineno
+            return
+    raise AssertionError("sitecustomize.py has no TARGETS dict")
 
 
 class CheckerCases(unittest.TestCase):
@@ -75,12 +94,16 @@ class CheckerCases(unittest.TestCase):
                 return vol
         return None
 
-    def edit_loader(self, old, new):
+    def edit_loader(self, fn):
+        """Rewrite sitecustomize.py's lines with ``fn(lines, entries)`` and resync
+        the prod ConfigMap so only TARGETS can fail."""
         path = self.root / checker.NAV / "sitecustomize.py"
         text = path.read_text()
-        self.assertIn(old, text)
-        path.write_text(text.replace(old, new))
+        lines = text.splitlines(keepends=True)
+        result = fn(lines, list(targets_entries(text)))
+        path.write_text("".join(lines))
         self.edit_docs(CONFIGMAP, self.resync_loader)
+        return result
 
     def resync_loader(self, doc):
         doc["data"]["sitecustomize.py"] = (
@@ -344,17 +367,85 @@ class CheckerCases(unittest.TestCase):
         self.assertFails("ov_pref_gate_patch.py differs")
 
     def test_targets_missing_a_module_fails(self):
-        self.edit_loader(GREP_LINE, "")
-        self.assertFails("TARGETS: missing ov_grep_scope_patch")
+        def drop(lines, entries):
+            counts = {}
+            for _, modules, _, _ in entries:
+                for m in set(modules):
+                    counts[m] = counts.get(m, 0) + 1
+            # An entry whose only module appears nowhere else in TARGETS.
+            _, modules, first, last = next(
+                e for e in entries if len(set(e[1])) == 1 and counts[e[1][0]] == 1
+            )
+            del lines[first - 1 : last]
+            return modules[0]
+
+        module = self.edit_loader(drop)
+        self.assertFails(f"TARGETS: missing {module}")
 
     def test_duplicate_targets_key_fails(self):
         # R1: a repeated key drops the earlier entry at runtime.
-        self.edit_loader(
-            GREP_LINE,
-            GREP_LINE
-            + '    "openviking.service.fs_service": ("ov_nav_patch", "apply"),\n',
+        def repeat(lines, entries):
+            key, _, first, last = entries[0]
+            lines[first - 1 : first - 1] = lines[first - 1 : last]
+            return key
+
+        key = self.edit_loader(repeat)
+        self.assertFails(f"listed twice {key}")
+
+    def test_annotated_targets_duplicate_key_fails(self):
+        # R4: an annotated TARGETS assignment gets the same repeated-key check.
+        def annotate(lines, entries):
+            key, _, first, last = entries[0]
+            start = next(i for i, l in enumerate(lines) if l.startswith("TARGETS = {"))
+            lines[start] = lines[start].replace("TARGETS = {", "TARGETS: dict = {", 1)
+            lines[first - 1 : first - 1] = lines[first - 1 : last]
+            return key
+
+        key = self.edit_loader(annotate)
+        self.assertFails(f"listed twice {key}")
+
+    def test_empty_pythonpath_entry_fails(self):
+        # R4: an empty entry puts the working directory ahead of the mount.
+        def prepend(doc):
+            spec = self.pod_spec(doc)
+            for c in (spec or {}).get("containers", []):
+                for e in c.get("env", []):
+                    if e["name"] == "PYTHONPATH":
+                        e["value"] = ":" + e["value"]
+
+        self.edit_docs(PROD_DEPLOYMENT, prepend)
+        self.assertFails("must be its first entry")
+
+    def test_unrelated_configmap_in_the_test_deployment_file_passes(self):
+        # R4: ov-nav-patch is generated in the test stack, so another ConfigMap in
+        # its source file is not a nav-patch ConfigMap check.
+        self.append(
+            TEST_DEPLOYMENT,
+            "---\napiVersion: v1\nkind: ConfigMap\nmetadata:\n"
+            "  name: unrelated\n  namespace: viking\ndata:\n  a: b\n",
         )
-        self.assertFails("listed twice openviking.service.fs_service")
+        self.assertEqual(self.errors(), [])
+
+    def test_untracked_patch_is_not_in_a_git_trees_patch_set(self):
+        # R4: in a git work tree only the files a commit would hold form the set.
+        shutil.which("git") or self.skipTest("no git")
+
+        def git(*args):
+            subprocess.run(
+                ["git", "-C", str(self.root), *args],
+                check=True,
+                capture_output=True,
+            )
+
+        git("init", "-q")
+        git("add", "-A")
+        (self.root / checker.NAV / "ov_wip_patch.py").write_text('"""WIP."""\n')
+        self.assertNotIn("ov_wip_patch.py", checker.patch_files(self.root))
+        self.assertEqual(self.errors(), [])
+        git("add", "-N", f"{checker.NAV}/ov_wip_patch.py")
+        self.assertNotIn("ov_wip_patch.py", checker.patch_files(self.root))
+        git("add", f"{checker.NAV}/ov_wip_patch.py")
+        self.assertIn("ov_wip_patch.py", checker.patch_files(self.root))
 
 
 if __name__ == "__main__":
