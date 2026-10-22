@@ -746,6 +746,53 @@ class TargetUptime(unittest.TestCase):
             "1 segments, uptime 0h02m00s of 0h02m00s", has(out, "WATCH end")[0]
         )
 
+    def test_pod_not_ready_at_startup_needs_a_fresh_transition(self):
+        nr = [pod_item(POD_A, ready=False, since=-10)]
+        stale = [pod_item(POD_A, since=-3600)]
+        fresh = [pod_item(POD_A, since=250)]
+        # NotReady at +0 and +60; a Ready condition from an hour before startup at
+        # +120..+240 is stale; a transition at +250 is real
+        states = [nr, nr, stale, stale, stale, fresh]
+        out, _, _ = run_target(PodListKubectl(states), 180, max_polls=9)
+        self.assertEqual(len(has(out, "OV BACK")), 1)
+        self.assertIn("ready_since=", has(out, "OV BACK")[0])
+        (seg,) = has(out, "SEGMENT ")
+        # counted from +250 to the poll at +480 that meets the target
+        self.assertIn("dur=0h03m50s", seg)
+
+    def test_stale_ready_is_not_back_before_a_fresh_transition(self):
+        nr = [pod_item(POD_A, ready=False, since=-10)]
+        stale = [pod_item(POD_A, since=-3600)]
+        out, _, _ = run_target(
+            PodListKubectl([nr, nr, stale]), 180, max_polls=8, capped_ok=True
+        )
+        self.assertEqual(has(out, "OV BACK"), [])
+        self.assertEqual(has(out, "SEGMENT "), [])
+
+    def test_interrupt_inside_the_segment_emit_counts_the_interval_once(self):
+        a = [pod_item(POD_A, since=-3600)]
+        gone = [pod_item(POD_A, ready=False, since=130)]
+        raised = []
+        real = cw.Sink.emit
+
+        def emit(self, line, wake=True):
+            if line.startswith("SEGMENT") and not raised:
+                raised.append(line)
+                raise KeyboardInterrupt
+            return real(self, line, wake)
+
+        caught = []
+        with mock.patch.object(cw.Sink, "emit", emit):
+            out, _, _ = run_target(
+                PodListKubectl([a, a, a, gone]),
+                3600,
+                log=os.path.join(self.tmp.name, "i.log"),
+                caught=caught,
+            )
+        self.assertEqual(len(raised), 1)
+        (end,) = has(out, "WATCH end:")
+        self.assertIn("1 segments, uptime 0h02m00s", end)
+
     def test_failed_probes_in_a_continuous_pod_are_counted(self):
         a = [pod_item(POD_A, since=-3600)]
         out, _, _ = run_target(PodListKubectl([a, None, None, a, a, a]), 300)
@@ -832,29 +879,37 @@ class UnionProperty(unittest.TestCase):
     def test_summed_uptime_is_the_union_of_observed_intervals(self):
         import random
 
-        t0 = dt.datetime(2026, 10, 21, 0, 0, tzinfo=dt.UTC)
-        for seed in range(200):
+        t0 = dt.datetime.fromtimestamp(T0, dt.UTC)
+        stale_seen = 0
+        for seed in range(300):
             rng = random.Random(seed)
             n = rng.randint(5, 30)
             pods = {}
             for k in range(rng.randint(1, 4)):
-                s = rng.randint(-120, n * 60)
-                pods[f"p{k}"] = (s, s + rng.randint(30, n * 40))
+                born = rng.randint(-120, n * 60)
+                s = born + rng.randint(0, 200)
+                pods[f"p{k}"] = (born, s, s + rng.randint(30, n * 40))
             seen = {}  # pod -> [first start, last poll that saw it Ready]
-            states = []
+            last_nr = {}  # pod -> last poll that saw it NotReady
+            polls = []
             for k in range(n + 1):
                 at = k * 60
-                ready = [(p, s) for p, (s, e) in pods.items() if s <= at < e]
-                for p, s in ready:
-                    seen.setdefault(p, [max(s, 0), at])[1] = at
-                states.append(
-                    (
-                        "ready",
-                        [(p, t0 + dt.timedelta(seconds=s)) for p, s in ready],
-                    )
-                    if ready
-                    else ("down", "none")
-                )
+                items = []
+                for p, (born, s, e) in pods.items():
+                    if at < born:
+                        continue
+                    if s <= at < e:
+                        seen.setdefault(p, [max(s, 0), at])[1] = at
+                        items.append(pod_item(p, since=s))
+                    elif p in last_nr and rng.random() < 0.4:
+                        # a Ready condition with a transition older than the
+                        # NotReady poll that already saw this pod: stale
+                        items.append(pod_item(p, since=last_nr[p] - 1))
+                        stale_seen += 1
+                    else:
+                        last_nr[p] = at
+                        items.append(pod_item(p, ready=False, since=at))
+                polls.append(items)
             union, end = 0, None
             for a, b in sorted(seen.values()):
                 if end is None or a > end:
@@ -863,16 +918,17 @@ class UnionProperty(unittest.TestCase):
                 elif b > end:
                     union += b - end
                     end = b
-            sink = mock.Mock()
-            tracker = cw.ReadyTracker(10**9, sink, t0)
+            tracker = cw.ReadyTracker(10**9, mock.Mock(), t0)
+            fake = PodListKubectl(polls)
             with (
-                mock.patch.object(cw, "ready_state", side_effect=states),
+                mock.patch.object(cw.subprocess, "run", fake),
                 mock.patch.object(cw, "restart_trigger", return_value=""),
             ):
                 for k in range(n + 1):
                     tracker.poll(t0 + dt.timedelta(seconds=60 * k))
             tracker.finish(t0 + dt.timedelta(seconds=60 * n), "")
             self.assertEqual(tracker.closed, union, f"seed {seed}")
+        self.assertGreater(stale_seen, 50)
 
 
 class ErrorGate(unittest.TestCase):
