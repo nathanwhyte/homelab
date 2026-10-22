@@ -24,11 +24,10 @@
 # Details and the reason this differs from "restart when the queue is not
 # progressing": viking/tools/ov-lock-watchdog.py docstring.
 #
-# SHADOW MODE (IMPR-1095 precedent, as for ovlock-janitor): args carry
-# --dry-run, so every run logs its decision, and the restart it would make,
-# without PATCHing. Read the logs for a soak (a wedge that would have been
-# restarted, and the absence of false positives), then enable by DELETING the
-# "--dry-run" arg and `kubectl apply`ing this one object.
+# ENABLED 2026-10-22 after the BUG-1220 72 h soak (2026-10-19..22): it shipped
+# in shadow mode (--dry-run, IMPR-1095 precedent) and every logged decision was
+# `none`, with no lock held 15 min. To return to shadow mode, add "--dry-run"
+# to args and `kubectl apply` this one object.
 #
 # HOW IT IS SEEN: every run logs `ov-lock-watchdog: decision=...` and a real
 # restart logs `ov-lock-watchdog: RESTARTED ...` (Loki: {namespace="viking"}
@@ -93,8 +92,6 @@ spec:
               command:
                 - python3
                 - /scripts/ov-lock-watchdog.py
-              args:
-                - --dry-run
               env:
                 - name: WATCHDOG_EXPORTER_URL
                   value: http://openviking.viking.svc.cluster.local:9210/metrics
