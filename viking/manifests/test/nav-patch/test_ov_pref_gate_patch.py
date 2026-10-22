@@ -1,4 +1,4 @@
-"""Typed-text detection, gating modes, pass-through, and guard checks for ov_pref_gate_patch."""
+"""Typed-text detection, per-archive gating, modes, pass-through, and guards for ov_pref_gate_patch."""
 
 import asyncio
 import io
@@ -13,6 +13,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import ov_pref_gate_patch as gate
 
 ALL_TYPES = ["entities", "events", "identity", "preferences", "profile", "soul"]
+ARCHIVE = "viking://s/history/archive_005"
 
 
 def _text(text):
@@ -61,19 +62,63 @@ async def _original(
             "allow_self_memory": allow_self_memory,
         }
     )
-    if self.error:
-        raise self.error
-    return self.result
+    if self.errors:
+        raise self.errors.pop(0)
+    return self.results.pop(0) if self.results else types.SimpleNamespace()
+
+
+async def _phase2(
+    self,
+    task_id,
+    archive_uri,
+    messages,
+    usage_records,
+    first_message_id,
+    last_message_id,
+    memory_policy,
+    agent_evolution_enabled=True,
+    agent_memory_skip_reason=None,
+    user_config_error=None,
+    record_auto_commit_success=False,
+    event_search_tags=None,
+    auto_commit_policy=None,
+):
+    """Stand-in for Phase 2: one extraction per batch, each as its own task."""
+    for start in range(0, len(messages), self.batch_size):
+        batch = messages[start : start + self.batch_size]
+        try:
+            await asyncio.create_task(
+                self.extract(
+                    self.compressor,
+                    messages=batch,
+                    session_id=self.session_id,
+                    archive_uri=archive_uri,
+                    allowed_memory_types=self.policy,
+                )
+            )
+        except Exception:
+            if self.reraise:
+                raise
 
 
 class _Compressor:
-    def __init__(self, result=None, error=None):
+    def __init__(self, results=(), errors=()):
         self.calls = []
-        self.result = result if result is not None else types.SimpleNamespace()
-        self.error = error
+        self.results = list(results)
+        self.errors = list(errors)
 
 
-def _result(adds=(), updates=(), skipped=()):
+class _Session:
+    def __init__(self, extract, compressor, batch_size=2, policy=None, reraise=False):
+        self.session_id = "cc-35c37c51__subagent-ab4c"
+        self.extract = extract
+        self.compressor = compressor
+        self.batch_size = batch_size
+        self.policy = policy
+        self.reraise = reraise
+
+
+def _result(adds=(), updates=()):
     return types.SimpleNamespace(
         memory_diff={
             "operations": {
@@ -82,21 +127,44 @@ def _result(adds=(), updates=(), skipped=()):
                 "deletes": [],
             }
         },
-        skipped_operations=[{"memory_type": t, "reason_code": "x"} for t in skipped],
     )
 
 
-def _run(wrapped, *args, compressor=None, **kwargs):
-    compressor = compressor or _Compressor()
-    stderr = io.StringIO()
-    with patch.object(gate.sys, "stderr", stderr):
-        result = asyncio.run(wrapped(compressor, *args, **kwargs))
-    records = [
+def _records(stderr):
+    return [
         json.loads(line[len(gate.PREFIX) :])
         for line in stderr.getvalue().splitlines()
         if line.startswith(gate.PREFIX)
     ]
-    return result, compressor.calls, records
+
+
+def _run(wrapped, *args, compressor=None, **kwargs):
+    """A call outside Phase 2."""
+    compressor = compressor or _Compressor()
+    stderr = io.StringIO()
+    with patch.object(gate.sys, "stderr", stderr):
+        result = asyncio.run(wrapped(compressor, *args, **kwargs))
+    return result, compressor.calls, _records(stderr)
+
+
+def _phase(messages, compressor=None, **session_kwargs):
+    """One archive through Phase 2, batched."""
+    compressor = compressor or _Compressor()
+    session = _Session(
+        gate.gating(_original, lambda: ALL_TYPES), compressor, **session_kwargs
+    )
+    run = gate.archive_scope(_phase2)
+    stderr = io.StringIO()
+    with patch.object(gate.sys, "stderr", stderr):
+        asyncio.run(run(session, "t1", ARCHIVE, messages, [], "m0", "m9", None))
+    return compressor.calls, _records(stderr)
+
+
+class _Phase2Applied(unittest.TestCase):
+    def setUp(self):
+        state = patch.dict(gate._state, {"phase2_applied": True})
+        state.start()
+        self.addCleanup(state.stop)
 
 
 class TypedTextTests(unittest.TestCase):
@@ -123,121 +191,180 @@ class TypedTextTests(unittest.TestCase):
         )
 
 
-class GatingTests(unittest.TestCase):
-    def setUp(self):
-        self.wrapped = gate.gating(_original, lambda: ALL_TYPES)
+class ArchiveTests(_Phase2Applied):
+    def test_typed_text_in_an_early_batch_keeps_preferences_in_every_batch(self):
+        messages = TYPED_ARCHIVE + SUBAGENT_ARCHIVE + SUBAGENT_ARCHIVE
+        with patch.dict(os.environ, {"OV_PREF_GATE": "1"}):
+            calls, records = _phase(messages)
+        self.assertEqual(len(calls), 4)
+        self.assertTrue(all(c["allowed_memory_types"] is None for c in calls))
+        self.assertEqual(records, [])
 
-    def test_enforce_drops_preferences_from_an_explicit_policy(self):
-        extracted = _result(
-            adds=[("events", "viking://e/1.md")],
-            updates=[("profile", "viking://p/profile.md")],
-            skipped=["preferences", "events"],
+    def test_gated_archive_skips_every_batch_and_logs_once(self):
+        messages = SUBAGENT_ARCHIVE * 2
+        compressor = _Compressor(
+            results=[
+                _result(adds=[("events", "viking://e/1.md")]),
+                _result(updates=[("profile", "viking://p/profile.md")]),
+                _result(adds=[("profile", "viking://p/2.md")]),
+            ]
         )
         with patch.dict(os.environ, {"OV_PREF_GATE": "1"}):
-            result, calls, records = _run(
-                self.wrapped,
-                messages=SUBAGENT_ARCHIVE,
-                session_id="cc-35c37c51__subagent-ab4c",
-                archive_uri="viking://s/history/archive_005",
-                allowed_memory_types={"events", "preferences", "profile"},
-                allow_self_memory=False,
-                compressor=_Compressor(result=extracted),
+            calls, records = _phase(messages, compressor=compressor)
+        self.assertEqual(len(calls), 3)
+        for call in calls:
+            self.assertEqual(
+                call["allowed_memory_types"], set(ALL_TYPES) - {"preferences"}
             )
-        self.assertIs(result, extracted)
-        self.assertEqual(calls[0]["allowed_memory_types"], {"events", "profile"})
-        self.assertFalse(calls[0]["allow_self_memory"])
-        self.assertIs(calls[0]["messages"], SUBAGENT_ARCHIVE)
         self.assertEqual(
             records,
             [
                 {
                     "action": "skipped",
-                    "archive_uri": "viking://s/history/archive_005",
+                    "archive_uri": ARCHIVE,
                     "diff": True,
-                    "messages": 3,
-                    "roles": {"assistant": 2, "user": 1, "user_text": 0},
+                    "extractions": 3,
+                    "messages": 6,
+                    "roles": {"assistant": 4, "user": 2, "user_text": 0},
                     "session_id": "cc-35c37c51__subagent-ab4c",
-                    "skipped_preferences": 1,
                     "writes": {
                         "preferences": [],
-                        "profile": ["viking://p/profile.md"],
+                        "profile": ["viking://p/profile.md", "viking://p/2.md"],
                     },
                 }
             ],
         )
 
-    def test_shadow_records_the_preference_writes_it_let_through(self):
-        extracted = _result(adds=[("preferences", "viking://pref/relay.md")])
-        _, _, records = _run(
-            self.wrapped,
-            messages=SUBAGENT_ARCHIVE,
-            compressor=_Compressor(result=extracted),
+    def test_shadow_extracts_unchanged_and_records_preference_writes(self):
+        for env in ({}, {"OV_PREF_GATE": "shadow"}, {"OV_PREF_GATE": "yes"}):
+            with self.subTest(env=env), patch.dict(os.environ, env, clear=True):
+                compressor = _Compressor(
+                    results=[_result(adds=[("preferences", "viking://pref/relay.md")])]
+                )
+                calls, records = _phase(SUBAGENT_ARCHIVE, compressor=compressor)
+                self.assertTrue(all(c["allowed_memory_types"] is None for c in calls))
+                self.assertEqual([r["action"] for r in records], ["would_skip"])
+                self.assertEqual(
+                    records[0]["writes"]["preferences"], ["viking://pref/relay.md"]
+                )
+
+    def test_off_passes_through_silently(self):
+        with patch.dict(os.environ, {"OV_PREF_GATE": "0"}):
+            calls, records = _phase(SUBAGENT_ARCHIVE)
+        self.assertTrue(all(c["allowed_memory_types"] is None for c in calls))
+        self.assertEqual(records, [])
+
+    def test_explicit_policy_loses_only_preferences(self):
+        with patch.dict(os.environ, {"OV_PREF_GATE": "1"}):
+            calls, _ = _phase(
+                SUBAGENT_ARCHIVE, policy={"events", "preferences", "profile"}
+            )
+        self.assertEqual(calls[0]["allowed_memory_types"], {"events", "profile"})
+
+    def test_policy_without_preferences_passes_through(self):
+        with patch.dict(os.environ, {"OV_PREF_GATE": "1"}):
+            calls, records = _phase(SUBAGENT_ARCHIVE, policy={"events"})
+        self.assertEqual(calls[0]["allowed_memory_types"], {"events"})
+        self.assertEqual(records, [])
+
+    def test_failed_batch_is_recorded_and_still_logs_once(self):
+        compressor = _Compressor(errors=[TimeoutError("vlm")])
+        with patch.dict(os.environ, {"OV_PREF_GATE": "1"}):
+            calls, records = _phase(SUBAGENT_ARCHIVE, compressor=compressor)
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(records[0]["errors"], ["TimeoutError"])
+        self.assertEqual(records[0]["extractions"], 2)
+
+    def test_phase2_failure_propagates_and_logs(self):
+        compressor = _Compressor(errors=[TimeoutError("vlm")])
+        with patch.dict(os.environ, {"OV_PREF_GATE": "1"}):
+            with self.assertRaises(TimeoutError):
+                _phase(SUBAGENT_ARCHIVE, compressor=compressor, reraise=True)
+
+    def test_call_for_another_archive_is_judged_on_its_own(self):
+        async def extract(compressor, **kwargs):
+            kwargs["archive_uri"] = "viking://s/manual_extract"
+            kwargs["messages"] = TYPED_ARCHIVE
+            return await gate.gating(_original, lambda: ALL_TYPES)(compressor, **kwargs)
+
+        compressor = _Compressor()
+        session = _Session(extract, compressor)
+        with patch.dict(os.environ, {"OV_PREF_GATE": "1"}):
+            asyncio.run(
+                gate.archive_scope(_phase2)(
+                    session, "t1", ARCHIVE, SUBAGENT_ARCHIVE, [], "m0", "m9", None
+                )
+            )
+        self.assertEqual(len(compressor.calls), 2)
+        self.assertTrue(
+            all(c["allowed_memory_types"] is None for c in compressor.calls)
         )
+
+
+class LoneCallTests(_Phase2Applied):
+    def setUp(self):
+        super().setUp()
+        self.wrapped = gate.gating(_original, lambda: ALL_TYPES)
+
+    def test_enforce_logs_one_line_per_call(self):
+        extracted = _result(updates=[("profile", "viking://p/profile.md")])
+        with patch.dict(os.environ, {"OV_PREF_GATE": "1"}):
+            result, calls, records = _run(
+                self.wrapped,
+                messages=SUBAGENT_ARCHIVE,
+                session_id="s1",
+                archive_uri="viking://s/manual_extract",
+                allow_self_memory=False,
+                compressor=_Compressor(results=[extracted]),
+            )
+        self.assertIs(result, extracted)
         self.assertEqual(
-            records[0]["writes"],
-            {"preferences": ["viking://pref/relay.md"], "profile": []},
+            calls[0]["allowed_memory_types"], set(ALL_TYPES) - {"preferences"}
+        )
+        self.assertFalse(calls[0]["allow_self_memory"])
+        self.assertIs(calls[0]["messages"], SUBAGENT_ARCHIVE)
+        self.assertEqual(
+            [(r["action"], r["extractions"], r["writes"]["profile"]) for r in records],
+            [("skipped", 1, ["viking://p/profile.md"])],
         )
 
     def test_result_without_a_diff_still_logs(self):
         with patch.dict(os.environ, {"OV_PREF_GATE": "1"}):
-            _, _, records = _run(self.wrapped, messages=SUBAGENT_ARCHIVE)
+            _, _, records = _run(self.wrapped, SUBAGENT_ARCHIVE)
         self.assertFalse(records[0]["diff"])
         self.assertEqual(records[0]["writes"], {"preferences": [], "profile": []})
 
     def test_failed_extraction_logs_and_reraises(self):
-        compressor = _Compressor(error=TimeoutError("vlm"))
+        compressor = _Compressor(errors=[TimeoutError("vlm")])
         with patch.dict(os.environ, {"OV_PREF_GATE": "1"}):
             with self.assertRaises(TimeoutError):
                 _run(self.wrapped, messages=SUBAGENT_ARCHIVE, compressor=compressor)
         self.assertNotIn("preferences", compressor.calls[0]["allowed_memory_types"])
 
-    def test_enforce_expands_a_none_policy(self):
+    def test_typed_and_empty_calls_pass_through(self):
         with patch.dict(os.environ, {"OV_PREF_GATE": "1"}):
-            _, calls, _ = _run(self.wrapped, SUBAGENT_ARCHIVE)
-        self.assertEqual(
-            calls[0]["allowed_memory_types"], set(ALL_TYPES) - {"preferences"}
-        )
-
-    def test_shadow_logs_and_extracts_unchanged(self):
-        for env in ({}, {"OV_PREF_GATE": "shadow"}, {"OV_PREF_GATE": "yes"}):
-            with self.subTest(env=env), patch.dict(os.environ, env, clear=True):
-                _, calls, records = _run(self.wrapped, messages=SUBAGENT_ARCHIVE)
+            for messages in (TYPED_ARCHIVE, []):
+                _, calls, records = _run(self.wrapped, messages=messages)
                 self.assertIsNone(calls[0]["allowed_memory_types"])
-                self.assertEqual([r["action"] for r in records], ["would_skip"])
+                self.assertEqual(records, [])
 
-    def test_off_passes_through_silently(self):
-        with patch.dict(os.environ, {"OV_PREF_GATE": "0"}):
+    def test_without_the_phase2_half_nothing_is_gated(self):
+        with (
+            patch.dict(gate._state, {"phase2_applied": False}),
+            patch.dict(os.environ, {"OV_PREF_GATE": "1"}),
+        ):
             _, calls, records = _run(self.wrapped, messages=SUBAGENT_ARCHIVE)
-        self.assertIsNone(calls[0]["allowed_memory_types"])
-        self.assertEqual(records, [])
-
-    def test_typed_text_passes_through(self):
-        with patch.dict(os.environ, {"OV_PREF_GATE": "1"}):
-            _, calls, records = _run(
-                self.wrapped,
-                messages=TYPED_ARCHIVE,
-                allowed_memory_types={"preferences", "events"},
-            )
-        self.assertEqual(calls[0]["allowed_memory_types"], {"preferences", "events"})
-        self.assertEqual(records, [])
-
-    def test_policy_without_preferences_passes_through(self):
-        with patch.dict(os.environ, {"OV_PREF_GATE": "1"}):
-            _, calls, records = _run(
-                self.wrapped, messages=SUBAGENT_ARCHIVE, allowed_memory_types={"events"}
-            )
-        self.assertEqual(calls[0]["allowed_memory_types"], {"events"})
-        self.assertEqual(records, [])
-
-    def test_empty_archive_passes_through(self):
-        with patch.dict(os.environ, {"OV_PREF_GATE": "1"}):
-            _, calls, records = _run(self.wrapped, messages=[])
         self.assertIsNone(calls[0]["allowed_memory_types"])
         self.assertEqual(records, [])
 
 
 class GuardTests(unittest.TestCase):
-    def _module(self):
+    def setUp(self):
+        state = patch.dict(gate._state, {"phase2_applied": False})
+        state.start()
+        self.addCleanup(state.stop)
+
+    def _compressor_module(self):
         cls = type("SessionCompressorV3", (), {"_extract_user_memories": _original})
         registry = types.SimpleNamespace(
             list_names=lambda include_disabled=False: ALL_TYPES
@@ -246,38 +373,59 @@ class GuardTests(unittest.TestCase):
             SessionCompressorV3=cls, create_default_registry=lambda: registry
         )
 
+    @staticmethod
+    def _digest(fn):
+        return gate.hashlib.sha256(gate.inspect.getsource(fn).encode()).hexdigest()
+
     def test_guards_and_idempotence(self):
-        cls, module = self._module()
+        cls, module = self._compressor_module()
+        session_cls = type("Session", (), {"_run_memory_extraction": _phase2})
+        session_module = types.SimpleNamespace(Session=session_cls)
         ov = types.SimpleNamespace(__version__="v0.4.99")
         with (
             patch.dict(sys.modules, {"openviking": ov}),
             patch.dict(os.environ, {}, clear=True),
         ):
             self.assertFalse(gate.apply(module))
+            self.assertFalse(gate.apply_session(session_module))
             ov.__version__ = gate.EXPECTED_VERSION
             self.assertFalse(gate.apply(module))
-            digest = gate.hashlib.sha256(
-                gate.inspect.getsource(_original).encode()
-            ).hexdigest()
-            with patch.object(gate, "EXPECTED_SHA256", digest):
+            self.assertFalse(gate.apply_session(session_module))
+            self.assertFalse(gate._state["phase2_applied"])
+            with (
+                patch.object(gate, "EXPECTED_SHA256", self._digest(_original)),
+                patch.object(gate, "EXPECTED_PHASE2_SHA256", self._digest(_phase2)),
+            ):
                 with patch.dict(os.environ, {"OV_PREF_GATE": "0"}):
                     self.assertFalse(gate.apply(module))
+                    self.assertFalse(gate.apply_session(session_module))
                 self.assertTrue(gate.apply(module))
+                self.assertTrue(gate.apply_session(session_module))
+                self.assertTrue(gate._state["phase2_applied"])
                 installed = cls._extract_user_memories
+                phase2 = session_cls._run_memory_extraction
                 self.assertTrue(gate.apply(module))
+                self.assertTrue(gate.apply_session(session_module))
                 self.assertIs(cls._extract_user_memories, installed)
-                self.assertTrue(getattr(installed, "_ov_pref_gate_patch", False))
+                self.assertIs(session_cls._run_memory_extraction, phase2)
+                session = _Session(installed, _Compressor())
                 with patch.dict(os.environ, {"OV_PREF_GATE": "1"}):
-                    _, calls, _ = _run(installed, SUBAGENT_ARCHIVE)
-                self.assertNotIn("preferences", calls[0]["allowed_memory_types"])
-                self.assertIn("profile", calls[0]["allowed_memory_types"])
+                    asyncio.run(
+                        phase2(
+                            session, "t", ARCHIVE, SUBAGENT_ARCHIVE, [], "a", "b", None
+                        )
+                    )
+                call = session.compressor.calls[0]
+                self.assertNotIn("preferences", call["allowed_memory_types"])
+                self.assertIn("profile", call["allowed_memory_types"])
 
     def test_missing_target_is_not_applied(self):
         ov = types.SimpleNamespace(__version__=gate.EXPECTED_VERSION)
         with patch.dict(sys.modules, {"openviking": ov}):
             self.assertFalse(gate.apply(types.SimpleNamespace()))
-            cls, _ = self._module()
+            cls, _ = self._compressor_module()
             self.assertFalse(gate.apply(types.SimpleNamespace(SessionCompressorV3=cls)))
+            self.assertFalse(gate.apply_session(types.SimpleNamespace()))
 
 
 if __name__ == "__main__":
