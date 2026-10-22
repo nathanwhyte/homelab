@@ -5,9 +5,15 @@ Extracts spec from manifests/job-failure-alerts.yaml, checks rule syntax, then r
 the behavior fixtures in job-failure-alerts.test.yaml.
 """
 
-from pathlib import Path
-import subprocess
 import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "_scripts" / "lib"))
+from git_env import scrub_environ  # noqa: E402
+
+scrub_environ()
+
+import subprocess
 import tempfile
 
 import yaml

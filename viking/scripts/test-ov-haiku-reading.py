@@ -10,11 +10,18 @@ children in place of kubectl. The live check (the 2026-10-15 weekday reading in
 compendium IMPR-1311) is run by hand.
 """
 
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "_scripts" / "lib"))
+from git_env import scrub_environ  # noqa: E402
+
+scrub_environ()
+
 import argparse
 import importlib.util
 import os
 import re
-import sys
 import tempfile
 import threading
 import time

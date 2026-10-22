@@ -7,8 +7,15 @@ exercised by piping ov_chatlog_patch.py into a throwaway interpreter in the ov-t
 (see the BUG-1177 PR); this file covers the wrapper semantics and the guard's refusals.
 """
 
-import os
 import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "_scripts" / "lib"))
+from git_env import scrub_environ  # noqa: E402
+
+scrub_environ()
+
+import os
 import types
 import unittest
 

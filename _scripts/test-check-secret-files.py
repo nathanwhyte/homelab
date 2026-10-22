@@ -20,14 +20,22 @@ printed) when pre-commit or its hook environments are unavailable offline; set
 CHECK_SECRET_FILES_REQUIRE_DISPATCH=1 to fail instead.
 """
 
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "_scripts" / "lib"))
+from git_env import scrub_environ  # noqa: E402
+
+scrub_environ()
+
 import base64
+import git_env
 import importlib.util
 import os
 import shutil
 import subprocess
 import tempfile
 import unittest
-from pathlib import Path
 
 import yaml
 
@@ -508,9 +516,10 @@ class Link(str):
 
 
 def clean_env() -> dict[str, str]:
-    # pre-commit sets GIT_* when it runs a hook, and a test run from one would
-    # leak them into the scratch repo's git (IMPR-1266).
-    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    # The header already scrubbed GIT_* from this process (IMPR-1419); clean
+    # the copy too, so a variable a case sets later never reaches the scratch
+    # repo's git.
+    env = git_env.clean_env()
     env["PRE_COMMIT_COLOR"] = "never"
     return env
 

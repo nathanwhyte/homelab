@@ -18,13 +18,19 @@ without `--live` (or OV_LIVE_REPRODUCER=1): a review round that ran every file
 under viking/tests/ wrote to live OpenViking through it (compendium BUG-1264).
 """
 
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "_scripts" / "lib"))
+from git_env import scrub_environ  # noqa: E402
+
+scrub_environ()
+
 import concurrent.futures
 import os
 import subprocess
-import sys
 import tempfile
 import time
-from pathlib import Path
 
 PARENT = "viking://resources/scratch/lockfix-test"
 

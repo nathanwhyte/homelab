@@ -9,6 +9,14 @@ check and the self-test round trip against real ov-test are exercised by hand (s
 IMPR-1188 Phase 3 PR description for that evidence).
 """
 
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "_scripts" / "lib"))
+from git_env import scrub_environ  # noqa: E402
+
+scrub_environ()
+
 import json
 import os
 import re

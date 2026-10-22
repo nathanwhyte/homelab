@@ -1,12 +1,19 @@
 #!/usr/bin/env python3
 """Hermetic version-selection and script dry-run safety tests."""
 
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "_scripts" / "lib"))
+from git_env import scrub_environ  # noqa: E402
+
+scrub_environ()
+
 import contextlib
 import importlib.util
 import io
 import json
 import os
-from pathlib import Path
 import subprocess
 import tempfile
 import unittest

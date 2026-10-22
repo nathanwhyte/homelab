@@ -6,10 +6,17 @@ to the real modules (so the version and source guards run too), stack them on th
 event-abstract hooks the way ``sitecustomize`` orders them, and render end to end.
 """
 
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "_scripts" / "lib"))
+from git_env import scrub_environ  # noqa: E402
+
+scrub_environ()
+
 import asyncio
 import importlib.util
 import os
-import sys
 import unittest
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone

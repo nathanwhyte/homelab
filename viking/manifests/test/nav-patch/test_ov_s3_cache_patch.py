@@ -1,7 +1,14 @@
 """Guard and option-preservation checks; the S3 race is a separate live test."""
 
-import os
 import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "_scripts" / "lib"))
+from git_env import scrub_environ  # noqa: E402
+
+scrub_environ()
+
+import os
 import types
 import unittest
 from unittest.mock import patch

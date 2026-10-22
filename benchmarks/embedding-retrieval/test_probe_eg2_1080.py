@@ -1,18 +1,24 @@
 """Offline checks for the capped EmbeddingGemma 2 probe: manifest, cap, gates, restore."""
 
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "_scripts" / "lib"))
+from git_env import scrub_environ  # noqa: E402
+
+scrub_environ()
+
 import copy
 import json
 import os
 import shutil
 import signal
 import subprocess
-import sys
 import tempfile
 import textwrap
 import threading
 import time
 import unittest
-from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 

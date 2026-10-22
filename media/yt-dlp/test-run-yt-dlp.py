@@ -14,13 +14,20 @@ through uv on the host; the image pass skips them.
   YTDLP_CONFIG=<old yt-dlp-config.yaml> uv run ...    # test another wrapper
 """
 
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "_scripts" / "lib"))
+from git_env import scrub_environ  # noqa: E402
+
+scrub_environ()
+
 import copy
 import os
 import re
 import shlex
 import shutil
 import subprocess
-import sys
 import tempfile
 import unittest
 
@@ -545,12 +552,16 @@ def image_pass():
         )
         return 0
     print(f"--- busybox pass in {image}", flush=True)
+    # The repo's layout under /src, so the scrub header's parents[2] finds
+    # _scripts/lib there too (IMPR-1419).
+    lib = os.path.join(HERE, "..", "..", "_scripts", "lib")
     return subprocess.run([
         "docker", "run", "--rm", "--pull=never", "--platform", "linux/amd64",
         "--tmpfs", "/full:size=64k", "-e", "FULLFS=/full", "-e", "YTDLP_TEST_INNER=1",
         "-e", "YTDLP_CONFIG=/cfg/yt-dlp-config.yaml",
-        "-v", f"{HERE}:/src:ro", "-v", f"{os.path.abspath(CONFIG)}:/cfg/yt-dlp-config.yaml:ro",
-        "--entrypoint", "python3", image, "/src/test-run-yt-dlp.py",
+        "-v", f"{HERE}:/src/media/yt-dlp:ro", "-v", f"{os.path.abspath(lib)}:/src/_scripts/lib:ro",
+        "-v", f"{os.path.abspath(CONFIG)}:/cfg/yt-dlp-config.yaml:ro",
+        "--entrypoint", "python3", image, "/src/media/yt-dlp/test-run-yt-dlp.py",
     ], check=False).returncode  # fmt: skip
 
 

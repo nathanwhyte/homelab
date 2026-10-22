@@ -4,11 +4,18 @@ Kubernetes API; the cluster and the exporter are stubbed."""
 
 from __future__ import annotations
 
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "_scripts" / "lib"))
+from git_env import scrub_environ  # noqa: E402
+
+scrub_environ()
+
 import datetime
 import importlib.util
 import json
 import os
-import sys
 import unittest
 
 _DIR = os.path.dirname(os.path.abspath(__file__))

@@ -12,12 +12,19 @@ the extract_context template guard, incremental JSONL receipts, per-URI enqueue
 outcomes, read-back verification, and a dry run that never builds a writable service.
 """
 
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "_scripts" / "lib"))
+from git_env import scrub_environ  # noqa: E402
+
+scrub_environ()
+
 import asyncio
 import functools
 import importlib.util
 import json
 import os
-import sys
 import types
 import unittest
 import unittest.mock
