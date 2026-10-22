@@ -180,17 +180,15 @@ park() {
 	done
 }
 
-# Prints true or false; a failed read is a hard stop, because both callers choose
-# between mutating paths on the answer and "could not read" must not look like
-# "not cordoned".
-node_unschedulable() {
+# A failed read is a hard stop, because both callers choose between mutating
+# paths on the answer and "could not read" must not look like "not cordoned".
+# The read is captured in this shell, not compared inside a $( ): a die inside
+# a command substitution only ends that subshell, and the comparison would then
+# see an empty string and answer "not cordoned" (Codex R2 on homelab#249).
+node_is_cordoned() {
 	local v
 	v=$("$KUBECTL" get node "$NODE" -o jsonpath='{.spec.unschedulable}') || die "cannot read whether $NODE is cordoned"
-	if [[ $v == true ]]; then printf 'true\n'; else printf 'false\n'; fi
-}
-
-node_is_cordoned() {
-	[[ $(node_unschedulable) == true ]]
+	[[ $v == true ]]
 }
 
 node_is_ready() {

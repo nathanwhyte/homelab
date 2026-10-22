@@ -34,7 +34,13 @@ get)
     grep "^$ns/$3=" "$STUB_SUSPEND" | cut -d= -f2
     ;;
   node)
-    [[ ${STUB_FAIL_NODE_GET:-0} == 0 ]] || { echo "Error from server: temporary read failure" >&2; exit 1; }
+    # STUB_FAIL_NODE_GET=1 fails every node read; a jsonpath fragment
+    # (unschedulable, Ready) fails only the read that asks for it.
+    case "${STUB_FAIL_NODE_GET:-0}" in
+    0) ;;
+    1) echo "Error from server: temporary read failure" >&2; exit 1 ;;
+    *) [[ $* != *"$STUB_FAIL_NODE_GET"* ]] || { echo "Error from server: temporary read failure" >&2; exit 1; } ;;
+    esac
     if [[ $* == *unschedulable* ]]; then printf '%s' "${STUB_NODE_UNSCHED:-}"; else printf '%s' "${STUB_NODE_READY:-True}"; fi
     ;;
   volumes.longhorn.io*) echo '{"items":[]}' ;;
@@ -244,8 +250,31 @@ reset_cluster
 park_fixture
 STUB_FAIL_NODE_GET=1 run_cmd cmd_up
 rc=$?
-assert_eq "up without cycle state fails closed when the cordon read fails" 1 "$rc"
-assert_eq "a failed cordon read scales nothing" 0 "$(grep -c ' scale ' "$STUB_LOG")"
+assert_eq "up without cycle state fails closed when every node read fails" 1 "$rc"
+assert_eq "failed node reads scale nothing" 0 "$(grep -c ' scale ' "$STUB_LOG")"
+
+# Each read on its own: a die inside a $( ) comparison would end only the
+# subshell and read as "not cordoned" (Codex R2), with the Ready read masking it.
+reset_cluster
+park_fixture
+STUB_FAIL_NODE_GET=unschedulable run_cmd cmd_up
+rc=$?
+assert_eq "up without cycle state fails closed when only the cordon read fails" 1 "$rc"
+assert_eq "a failed cordon read restores and unparks nothing" 0 "$(grep -c -E 'nm: restore-services| scale ' "$STUB_LOG")"
+
+reset_cluster
+park_fixture
+STUB_FAIL_NODE_GET=Ready run_cmd cmd_up
+rc=$?
+assert_eq "up without cycle state fails closed when only the Ready read fails" 1 "$rc"
+assert_eq "a failed Ready read restores and unparks nothing" 0 "$(grep -c -E 'nm: restore-services| scale ' "$STUB_LOG")"
+
+# down chooses between preflight and redrain on the same read.
+reset_cluster
+STUB_FAIL_NODE_GET=unschedulable run_cmd cmd_down
+rc=$?
+assert_eq "down fails closed when the cordon read fails" 1 "$rc"
+assert_eq "a failed cordon read in down mutates nothing" 0 "$(mutations)"
 
 reset_cluster
 park_fixture

@@ -88,7 +88,7 @@ die() {
 }
 
 usage() {
-	sed -n '2,21p' "$SELF" | sed 's/^# \{0,1\}//'
+	sed -n '2,19p' "$SELF" | sed 's/^# \{0,1\}//'
 	exit 1
 }
 
