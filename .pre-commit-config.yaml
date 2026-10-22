@@ -114,25 +114,25 @@ repos:
         files: ^viking/scripts/(test-)?ov-haiku-reading\.py$
       # BUG-1220 / IMPR-1095: the lock wedge exporter and the janitor have no
       # CI either. Stdlib only and offline (stubbed S3, loopback socket).
-      # IMPR-1413: every list of nav-patch files agrees with the files on disk (the
-      # prod ConfigMap, the test kustomization, sitecustomize.py's TARGETS), and
-      # both Deployments mount the ConfigMap whole. homelab#250 shipped a patch its
-      # Deployments' items: lists did not mount. No kubectl: the check parses the
-      # committed ConfigMap.
+      # IMPR-1413: what the prod and test stacks mount, as `kubectl kustomize`
+      # renders them, agrees with the nav-patch files on disk, and so does
+      # sitecustomize.py's TARGETS. homelab#250 shipped a patch its Deployments'
+      # items: lists did not mount. Any viking/manifests/ file can change a render,
+      # so the filter takes the whole tree. kubectl: on both MacBooks and CI's runner.
       - id: nav-patch-files
         name: nav-patch file lists
         entry: viking/scripts/regen-nav-patch-configmap.sh --check
         language: python
         additional_dependencies: [pyyaml==6.0.2]
         pass_filenames: false
-        files: ^viking/(manifests/(openviking-deployment\.yaml|openviking-nav-patch-configmap\.yaml|test/(kustomization\.yaml|openviking-test-deployment\.yaml|nav-patch/[^/]+))|scripts/(regen-nav-patch-configmap\.sh|(test-)?check-nav-patch-files\.py))$
+        files: ^viking/(manifests/|scripts/(regen-nav-patch-configmap\.sh|(test-)?check-nav-patch-files\.py)$)
       - id: nav-patch-files-tests
         name: check-nav-patch-files regression cases
         entry: python3 viking/scripts/test-check-nav-patch-files.py
         language: python
         additional_dependencies: [pyyaml==6.0.2]
         pass_filenames: false
-        files: ^viking/(manifests/(openviking-deployment\.yaml|openviking-nav-patch-configmap\.yaml|test/(kustomization\.yaml|openviking-test-deployment\.yaml|nav-patch/[^/]+))|scripts/(regen-nav-patch-configmap\.sh|(test-)?check-nav-patch-files\.py))$
+        files: ^viking/(manifests/|scripts/(regen-nav-patch-configmap\.sh|(test-)?check-nav-patch-files\.py)$)
       # IMPR-1413: the nav-patch suite. Uses the `openviking` uv tool's Python when
       # it exists, mapping its `0.4.20` to the image's `v0.4.20`; without
       # openviking (CI) the real-module cases skip, and `verbose` keeps that SKIP

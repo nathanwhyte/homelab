@@ -286,10 +286,17 @@ class Installed(unittest.TestCase):
             MemoryUpdateResult,
         )
 
-        try:
-            registry = create_default_registry()
-        except Exception as exc:  # noqa: BLE001 — needs the image's config
-            self.skipTest(f"no OpenViking config here: {exc!r}")
+        from openviking_cli.utils.config.config_loader import resolve_config_path
+        from openviking_cli.utils.config.consts import (
+            DEFAULT_OV_CONF,
+            OPENVIKING_CONFIG_ENV,
+        )
+
+        # Skip only when OpenViking's own resolver finds no ov.conf; any other
+        # registry failure fails the case (IMPR-1413).
+        if resolve_config_path(None, OPENVIKING_CONFIG_ENV, DEFAULT_OV_CONF) is None:
+            self.skipTest("no OpenViking config here (needs the image's ov.conf)")
+        registry = create_default_registry()
         stored = (
             "---\nevent_name: kinde_login_attempts\ngoal: log in to the dev tenant\n---\n"
             + BODY.replace("needs --domain", "needs --domain, see [docs](viking://x/y)")

@@ -9,11 +9,12 @@
 # stack builds its own ConfigMap (ov-nav-patch) through its kustomization, which has
 # to list the same files; both Deployments mount their ConfigMap whole.
 #
-# `--check` (a pre-commit hook) runs check-nav-patch-files.py, which exits non-zero
-# when the committed manifest is stale or any list disagrees with the glob: the test
-# kustomization, an `items:` list on either Deployment, or sitecustomize.py's
-# TARGETS. It parses the manifest rather than diffing a fresh render, so it needs
-# a python3 with PyYAML but not kubectl, whose output format varies by version.
+# `--check` (a pre-commit hook) runs check-nav-patch-files.py, which renders both
+# stacks with `kubectl kustomize` and exits non-zero when what either one mounts
+# disagrees with the glob (a stale ConfigMap, a missing kustomization entry, an
+# `items:` list or bad mount on a Deployment) or sitecustomize.py's TARGETS does.
+# It compares parsed objects, not bytes, so kubectl's output format does not
+# matter. It needs kubectl and a python3 with PyYAML.
 set -euo pipefail
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SRC="$DIR/manifests/test/nav-patch"
