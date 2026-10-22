@@ -126,7 +126,9 @@ data:
             if src == "http":
                 src = "shim"
             if src in ("shim", "upstream") and code.isdigit() and len(code) == 3:
-                responses[(f"{code[0]}xx", src)] = responses.get((f"{code[0]}xx", src), 0) + n
+                responses[(f"{code[0]}xx", src)] = (
+                    responses.get((f"{code[0]}xx", src), 0) + n
+                )
         lines = [
             "# HELP embedder_prompt_shim_inputs_total Embedding inputs forwarded, by input_type.",
             "# TYPE embedder_prompt_shim_inputs_total counter",
