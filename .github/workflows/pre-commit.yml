@@ -11,8 +11,10 @@ name: pre-commit
 # and a check that waits on the cluster being up is the wrong gate for a repo
 # whose job is to repair the cluster. No secrets are used or needed.
 #
-# Every hook in the config runs; nothing is skipped (no SKIP=...). What each one
-# needs beyond a stock ubuntu-latest image:
+# Every hook in the config runs; nothing is skipped (no SKIP=...). Recorded
+# benchmark output, pinned corpora and patches are excluded per hook in
+# .pre-commit-config.yaml itself, so a local run and this job agree. What each
+# one needs beyond a stock ubuntu-latest image:
 #
 #   - Python 3.12, from setup-python: the `language: system` test hooks call
 #     `python3`, and ruff.toml targets py312 (the ARC runner image's CPython).
