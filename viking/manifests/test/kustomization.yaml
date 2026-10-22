@@ -34,9 +34,6 @@ configMapGenerator:
       - nav-patch/ov_event_abstract_patch.py
       - nav-patch/ov_grep_scope_patch.py
       - nav-patch/ov_recall_time_patch.py
-      - nav-patch/ov_fetch_items_patch.py
-      - nav-patch/ov_wm_update_patch.py
-      - nav-patch/ov_claude_params_patch.py
       - nav-patch/ov_pref_gate_patch.py
     options:
       disableNameSuffixHash: true
