@@ -21,10 +21,11 @@ inference from cluster state or from what a tool has left to undo:
   ${XDG_STATE_HOME:-~/.local/state}/homelab-timmy-offline/window (written by
   timmy-offline.sh down, removed when up completes) and
   homelab-node-maintenance/window (opened at a reboot cycle's first change,
-  removed by finish or restore-services). One counts until its end, which
-  bounds a cycle that was backed out or abandoned. Covers every target: timmy
-  is the only control plane, and a cycle drains a node and reschedules pods
-  across the cluster.
+  removed by finish or restore-services) and apt-window beside it (open while
+  node-maintenance.sh apt runs). One counts until its end, which bounds a
+  cycle that was backed out or abandoned. Covers every target: timmy is the
+  only control plane, a cycle drains a node and reschedules pods across the
+  cluster, and an upgrade can restart k3s or containerd.
 - silence: an active Alertmanager silence whose matchers are only
   alertname=~".+" (or ".*"), the form timmy-offline.sh creates, which covers
   every target, plus at most one namespace="<ns>" equality matcher on a valid
@@ -62,10 +63,11 @@ KUBECTL = os.environ.get("KUBECTL", "kubectl")
 AM_NAMESPACE = "grafana"
 AM_POD = "alertmanager-prom-alertmanager-0"
 CALL_TIMEOUT_SECONDS = 20
-WINDOW_FILES = {
-    "timmy-offline": "homelab-timmy-offline/window",
-    "node-maintenance": "homelab-node-maintenance/window",
-}
+WINDOW_FILES = (
+    ("timmy-offline", "homelab-timmy-offline/window"),
+    ("node-maintenance", "homelab-node-maintenance/window"),
+    ("node-maintenance", "homelab-node-maintenance/apt-window"),
+)
 ALL = "*"  # a window's scope: ALL or a namespace
 # A Kubernetes namespace name (RFC 1123 label), so no value can equal ALL.
 NAMESPACE = re.compile(r"[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?")
@@ -121,7 +123,7 @@ def local_windows(
     """(scope, line) windows recorded on this Mac, and the files that failed."""
     now = time.time() if now is None else now
     found, unreadable = [], []
-    for tool, rel in WINDOW_FILES.items():
+    for tool, rel in WINDOW_FILES:
         path = root / rel
         try:
             text = read_state(path)

@@ -76,12 +76,14 @@ TIMEOUT_BIN=$(command -v timeout || command -v gtimeout || true)
 STATE_ROOT=${XDG_STATE_HOME:-"$HOME/.local/state"}
 MAINTENANCE_STATE_DIR=$STATE_ROOT/homelab-node-maintenance
 MAINTENANCE_LOCK_DIR=$MAINTENANCE_STATE_DIR/lock
-# The window session watches read (maintenance-active.py, IDEA-1150): "<end epoch
-# seconds> <what>", opened at a reboot cycle's first change and closed by finish
-# or restore-services. The end bounds a cycle backed out by hand (uncordon) or
-# abandoned, which leaves the boot ID behind.
+# The windows session watches read (maintenance-active.py, IDEA-1150): "<end epoch
+# seconds> <what>". A reboot cycle opens $MAINTENANCE_WINDOW_FILE at its first
+# change and finish or restore-services closes it; the end bounds a cycle backed
+# out by hand (uncordon) or abandoned, which leaves the boot ID behind. apt keeps
+# its own file, removed whenever it exits, so it never closes a cycle's window.
 MAINTENANCE_WINDOW_FILE=$MAINTENANCE_STATE_DIR/window
 MAINTENANCE_WINDOW_SECONDS=${MAINTENANCE_WINDOW_SECONDS:-7200}
+APT_WINDOW_FILE=$MAINTENANCE_STATE_DIR/apt-window
 LOCK_HELD=0
 # Overridable so tests can stub cluster reads/writes without a live cluster.
 KUBECTL=${KUBECTL:-kubectl}
@@ -165,10 +167,11 @@ clear_cycle_state() {
 	rm -f "$(cycle_state_file "$1")"
 }
 
-open_maintenance_window() {
+open_maintenance_window() { # <what> [file seconds]
+	local file=${2:-$MAINTENANCE_WINDOW_FILE} seconds=${3:-$MAINTENANCE_WINDOW_SECONDS}
 	mkdir -p "$MAINTENANCE_STATE_DIR"
-	printf '%s %s\n' "$(($(date +%s) + MAINTENANCE_WINDOW_SECONDS))" "$1" >"$MAINTENANCE_WINDOW_FILE.$$"
-	mv -f "$MAINTENANCE_WINDOW_FILE.$$" "$MAINTENANCE_WINDOW_FILE"
+	printf '%s %s\n' "$(($(date +%s) + seconds))" "$1" >"$file.$$"
+	mv -f "$file.$$" "$file"
 }
 
 close_maintenance_window() {
@@ -783,6 +786,13 @@ cmd_apt() {
 	local node rc
 	for node in "${targets[@]}"; do
 		require_node "$node"
+	done
+	# Package restarts (k3s, containerd, tailscaled) can drop pods. Bounded by
+	# apt's own limits per node, and removed on any exit.
+	open_maintenance_window "apt upgrade on ${targets[*]}" "$APT_WINDOW_FILE" \
+		$((${#targets[@]} * (APT_LAUNCH_GRACE_SECONDS + APT_TIMEOUT_SECONDS + 2 * SSH_CMD_TIMEOUT_SECONDS)))
+	trap 'rm -f "$APT_WINDOW_FILE"; release_maintenance_lock' EXIT
+	for node in "${targets[@]}"; do
 		log "[$node] apt update + full-upgrade + autoremove (detached; nodes still serial)"
 		launch_remote_apt "$node"
 		rc=$(wait_remote_apt "$node")

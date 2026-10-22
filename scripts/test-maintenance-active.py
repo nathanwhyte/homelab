@@ -228,7 +228,7 @@ class ProducerRoundTripTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         tmp = Path(self.tmp.name)
-        bin_dir = tmp / "bin"
+        self.bin = bin_dir = tmp / "bin"
         bin_dir.mkdir()
         stub = bin_dir / "kubectl"
         stub.write_text(
@@ -300,6 +300,33 @@ class ProducerRoundTripTests(unittest.TestCase):
             src,
             self.env,
         )
+        self.assertEqual(self.helper()[0], 1)
+
+    def test_apt_window_is_open_while_apt_runs_and_gone_after(self):
+        # The stub ssh records the apt window as apt's first remote call sees
+        # it, then fails, so apt dies through its EXIT trap.
+        state = self.home / ".local/state/homelab-node-maintenance"
+        seen = self.home / "seen"
+        ssh = self.bin / "ssh"
+        ssh.write_text(f'#!/bin/sh\ncat "{state}/apt-window" >"{seen}"\nexit 1\n')
+        ssh.chmod(0o755)
+        src = "scripts/node-maintenance.sh"
+        with self.assertRaises(subprocess.CalledProcessError):
+            bash(
+                'open_maintenance_window "reboot cycle on manu"; cmd_apt wemby',
+                src,
+                self.env,
+            )
+        self.assertRegex(seen.read_text(), r"^\d+ apt upgrade on wemby\n$")
+        self.assertFalse((state / "apt-window").exists())
+        # A cycle's window outlives the apt run.
+        code, out = self.helper()
+        self.assertEqual(code, 0, out)
+        self.assertEqual(len(out["windows"]), 1)
+
+    def test_apt_refuses_an_unknown_node_before_opening_a_window(self):
+        with self.assertRaises(subprocess.CalledProcessError):
+            bash("cmd_apt nosuchnode", "scripts/node-maintenance.sh", self.env)
         self.assertEqual(self.helper()[0], 1)
 
     def test_restore_services_leaves_an_active_cycles_window(self):
