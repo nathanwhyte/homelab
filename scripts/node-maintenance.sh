@@ -14,7 +14,9 @@
 #                                             active, an earlier node still owing a reboot), for a
 #                                             caller to run before it mutates anything of its own
 #   node-maintenance.sh restore-services    scale the --spin-down services back without a finish, for
-#                                             a cycle that stopped before its drain
+#                                             a cycle that stopped before its drain; refuses while any
+#                                             node is cordoned or has saved reboot state
+#   node-maintenance.sh wait-longhorn       block until every attached Longhorn volume is healthy
 #
 # Reboot order matters: wemby → manu → timmy. timmy is the only control plane,
 # so its reboot takes the API down — run it last and let the wait loop tolerate
@@ -36,7 +38,7 @@
 
 set -euo pipefail
 
-# The script's own path for the commands it prints: $0 is the caller when sourced.
+# The script's own path for the commands it prints; $0 is the caller when sourced.
 SELF=${BASH_SOURCE[0]}
 NODES=(wemby manu timmy)
 DRAIN_TIMEOUT=5m # evictions settle in ~2m; the rest would only be spent retrying pinned instance-managers
@@ -86,7 +88,7 @@ die() {
 }
 
 usage() {
-	sed -n '2,19p' "$SELF" | sed 's/^# \{0,1\}//'
+	sed -n '2,21p' "$SELF" | sed 's/^# \{0,1\}//'
 	exit 1
 }
 
@@ -774,7 +776,7 @@ cmd_apt() {
 		fi
 		report_apt_result "$node"
 	done
-	log "apt phase done. Reboot serially with: $0 reboot <node>  (order: ${NODES[*]})"
+	log "apt phase done. Reboot serially with: $SELF reboot <node>  (order: ${NODES[*]})"
 }
 
 cmd_status() {
@@ -809,7 +811,7 @@ cmd_status() {
 }
 
 cmd_finish() {
-	(($# >= 1 && $# <= 2)) || die "usage: $0 finish <node> [previous-boot-id]"
+	(($# >= 1 && $# <= 2)) || die "usage: $SELF finish <node> [previous-boot-id]"
 	local node=$1 previous_boot_id=${2:-} saved_boot_id
 	require_node "$node"
 
@@ -847,7 +849,7 @@ cmd_finish() {
 }
 
 cmd_reboot() {
-	(($# >= 1 && $# <= 4)) || die "usage: $0 reboot <node> [--no-reboot] [--spin-down] [--override-memory]"
+	(($# >= 1 && $# <= 4)) || die "usage: $SELF reboot <node> [--no-reboot] [--spin-down] [--override-memory]"
 	local node=$1 boot_id
 	local do_reboot=1 spin_down=0 override_memory=0
 	shift
@@ -924,7 +926,7 @@ cmd_reboot() {
 	if ((! do_reboot)); then
 		log "[$node] --no-reboot: stopping before restart. Node is cordoned and drained."
 		log "[$node] next: ssh -t $node$NODE_SSH_SUFFIX sudo reboot   (or: kubectl uncordon $node to back out)"
-		log "[$node] then: $0 finish $node   (saved previous boot ID: $boot_id)"
+		log "[$node] then: $SELF finish $node   (saved previous boot ID: $boot_id)"
 		return 0
 	fi
 
@@ -964,8 +966,18 @@ cmd_preflight() {
 # The restore half of --spin-down on its own. `finish` runs it after proving a
 # reboot, so a cycle that stopped between the spin-down and the drain (a preflight
 # refused, or the node dropped first) has no other way back without hand-scaling.
+# The spin-down state is one file for every node, so an active cycle on any node
+# owns it: the checks run under the lock, so a cycle cannot start between them
+# and the scale-up.
 cmd_restore_services() {
 	(($# == 0)) || die "usage: $SELF restore-services"
+	local f node
+	require_no_cordoned_nodes
+	for f in "$MAINTENANCE_STATE_DIR"/*.boot-id; do
+		[[ -e $f ]] || continue
+		node=$(basename "${f%.boot-id}")
+		die "an active cycle owns the spin-down state: $node has saved reboot state; finish it instead: $SELF finish $node"
+	done
 	if [[ -s $(spin_down_state_file) ]]; then
 		restore_memory_services || die "restore failed; state kept in $(spin_down_state_file)"
 	else
@@ -981,6 +993,7 @@ main() {
 	reboot) shift && acquire_maintenance_lock && cmd_reboot "$@" ;;
 	finish) shift && acquire_maintenance_lock && cmd_finish "$@" ;;
 	restore-services) shift && acquire_maintenance_lock && cmd_restore_services "$@" ;;
+	wait-longhorn) wait_longhorn_healthy ;;
 	*) usage ;;
 	esac
 }

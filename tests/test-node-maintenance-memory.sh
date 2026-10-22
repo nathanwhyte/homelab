@@ -347,6 +347,50 @@ else
 	bad "successful finish left stale state"
 fi
 
+# --- restore-services ownership ----------------------------------------------
+# The spin-down state is one file for every node, so a `timmy-offline.sh up`
+# fallback must not consume it while another node's cycle (cordoned, or with
+# saved reboot state) still owns it.
+spin_down_memory_services
+restore_fixture() (
+	cordoned_nodes() {
+		if [[ -e $TMPDIR_TEST/cordoned ]]; then printf 'wemby\n'; fi
+	}
+	cmd_restore_services
+)
+touch "$TMPDIR_TEST/cordoned"
+if restore_fixture >/dev/null 2>&1; then
+	bad "restore-services should refuse while a node is cordoned"
+else
+	ok "restore-services refuses while a node is cordoned"
+fi
+rm "$TMPDIR_TEST/cordoned"
+save_cycle_boot_id wemby 12345678-1234-1234-1234-123456789abc
+if restore_fixture >/dev/null 2>&1; then
+	bad "restore-services should refuse while a node has saved reboot state"
+else
+	ok "restore-services refuses while a node has saved reboot state"
+fi
+if [[ -s $(spin_down_state_file) ]] && grep -q '^viking/openviking=0' "$STUB_REPLICAS"; then
+	ok "a refused restore leaves the spin-down state and replicas untouched"
+else
+	bad "a refused restore changed the spin-down state or replicas"
+fi
+clear_cycle_state wemby
+if restore_fixture >/dev/null 2>&1; then
+	ok "restore-services restores once no cycle is active"
+else
+	bad "restore-services should restore once no cycle is active"
+fi
+for svc in viking/openviking viking/ov-vectordb; do
+	assert_eq "restore-services restored $svc" "$svc=1" "$(grep "^$svc=" "$STUB_REPLICAS")"
+done
+if restore_fixture >/dev/null 2>&1 && [[ ! -e $(spin_down_state_file) ]]; then
+	ok "restore-services is a no-op with nothing recorded"
+else
+	bad "restore-services should be a no-op with nothing recorded"
+fi
+
 # --- BUG-1178: target demand counts only what a drain can move ---------------
 # `kubectl drain --ignore-daemonsets` never evicts DaemonSet-owned pods, so
 # counting them was demand the drain could never move.

@@ -65,6 +65,9 @@ set -euo pipefail
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 # The script's own path for the commands it prints: $0 is the caller when sourced.
 SELF=$SCRIPT_DIR/$(basename "${BASH_SOURCE[0]}")
+# Overridable so the tests can run down/up against a stub instead of the real
+# script (and the real cluster).
+NODE_MAINTENANCE=${NODE_MAINTENANCE:-$SCRIPT_DIR/node-maintenance.sh}
 NODE=timmy
 STATE_ROOT=${XDG_STATE_HOME:-"$HOME/.local/state"}
 STATE_DIR=$STATE_ROOT/homelab-timmy-offline
@@ -116,7 +119,7 @@ usage() {
 # Volumes attached on another node whose replicas are all on $NODE. Any pod still
 # using one of these when timmy powers off loses its disk mid-write.
 cross_node_orphans() {
-	kubectl get volumes.longhorn.io,replicas.longhorn.io -n longhorn-system -o json |
+	"$KUBECTL" get volumes.longhorn.io,replicas.longhorn.io -n longhorn-system -o json |
 		jq -r --arg n "$NODE" '.items as $all
 			| ($all | map(select(.kind == "Replica")) | group_by(.spec.volumeName)
 				| map({key: .[0].spec.volumeName, value: (map(.spec.nodeID) | unique)}) | from_entries) as $nodes
@@ -143,7 +146,7 @@ wait_cross_node_detached() {
 
 current_replicas() {
 	local kind=$1 ns=$2 name=$3
-	kubectl -n "$ns" get "$kind" "$name" -o jsonpath='{.spec.replicas}'
+	"$KUBECTL" -n "$ns" get "$kind" "$name" -o jsonpath='{.spec.replicas}'
 }
 
 park() {
@@ -159,7 +162,7 @@ park() {
 			replicas=$(current_replicas "$kind" "$ns" "$name") || die "cannot read $entry"
 			[[ $replicas == 0 ]] && continue
 			log "[$entry] scale $replicas -> 0 (saved count unchanged)"
-			kubectl -n "$ns" scale "$kind" "$name" --replicas=0 >/dev/null
+			"$KUBECTL" -n "$ns" scale "$kind" "$name" --replicas=0 >/dev/null
 		done
 		return 0
 	fi
@@ -173,12 +176,27 @@ park() {
 			continue
 		fi
 		log "[$entry] scale $replicas -> 0"
-		kubectl -n "$ns" scale "$kind" "$name" --replicas=0 >/dev/null
+		"$KUBECTL" -n "$ns" scale "$kind" "$name" --replicas=0 >/dev/null
 	done
 }
 
+# Prints true or false; a failed read is a hard stop, because both callers choose
+# between mutating paths on the answer and "could not read" must not look like
+# "not cordoned".
+node_unschedulable() {
+	local v
+	v=$("$KUBECTL" get node "$NODE" -o jsonpath='{.spec.unschedulable}') || die "cannot read whether $NODE is cordoned"
+	if [[ $v == true ]]; then printf 'true\n'; else printf 'false\n'; fi
+}
+
 node_is_cordoned() {
-	[[ $(kubectl get node "$NODE" -o jsonpath='{.spec.unschedulable}') == true ]]
+	[[ $(node_unschedulable) == true ]]
+}
+
+node_is_ready() {
+	local v
+	v=$("$KUBECTL" get node "$NODE" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}') || die "cannot read whether $NODE is Ready"
+	[[ $v == True ]]
 }
 
 redrain() {
@@ -186,9 +204,9 @@ redrain() {
 	# drain directly. The instance-manager PDB failure is expected (last-replica
 	# volumes); anything else left behind is a real problem.
 	local leftovers
-	kubectl drain "$NODE" --ignore-daemonsets --delete-emptydir-data --timeout=5m ||
+	"$KUBECTL" drain "$NODE" --ignore-daemonsets --delete-emptydir-data --timeout=5m ||
 		warn "drain incomplete — assessing what is left on $NODE"
-	leftovers=$(kubectl get pods -A -o json --field-selector "spec.nodeName=$NODE" |
+	leftovers=$("$KUBECTL" get pods -A -o json --field-selector "spec.nodeName=$NODE" |
 		jq -r '.items[] | select((.status.phase // "Unknown") as $p | $p != "Succeeded" and $p != "Failed")
 			| select((.metadata.ownerReferences // []) | any(.kind == "DaemonSet") | not)
 			| select((.metadata.namespace == "longhorn-system" and (.metadata.name | startswith("instance-manager"))) | not)
@@ -204,11 +222,16 @@ redrain() {
 
 unpark() {
 	local entry kind ns name replicas
-	[[ -s $SCALE_FILE ]] || die "no parked state at $SCALE_FILE; nothing to restore"
+	# A `down` that stopped before `park` (a CronJob it could not suspend) leaves
+	# the silence and suspend records with nothing parked; `up` must still clear those.
+	[[ -s $SCALE_FILE ]] || {
+		log "nothing parked by down"
+		return 0
+	}
 	while IFS=$'\t' read -r entry replicas; do
 		IFS=/ read -r kind ns name <<<"$entry"
 		log "[$entry] scale 0 -> $replicas"
-		kubectl -n "$ns" scale "$kind" "$name" --replicas="$replicas" >/dev/null
+		"$KUBECTL" -n "$ns" scale "$kind" "$name" --replicas="$replicas" >/dev/null
 	done <"$SCALE_FILE"
 	rm -f "$SCALE_FILE"
 }
@@ -222,7 +245,7 @@ wait_parked_ready() {
 		[[ $replicas == 0 ]] && continue
 		log "[$entry] waiting for $replicas ready..."
 		while ((SECONDS < deadline)); do
-			ready=$(kubectl -n "$ns" get "$kind" "$name" -o jsonpath='{.status.readyReplicas}' 2>/dev/null || true)
+			ready=$("$KUBECTL" -n "$ns" get "$kind" "$name" -o jsonpath='{.status.readyReplicas}' 2>/dev/null || true)
 			[[ ${ready:-0} == "$replicas" ]] && break
 			sleep 10
 		done
@@ -345,7 +368,7 @@ catchup_backup() {
 
 garage_check() {
 	log "garage status"
-	kubectl -n garage exec garage-0 -c garage -- /garage status 2>/dev/null |
+	"$KUBECTL" -n garage exec garage-0 -c garage -- /garage status 2>/dev/null |
 		sed -n '/HEALTHY NODES/,$p' |
 		sed 's/^/    /'
 }
@@ -354,14 +377,15 @@ garage_check() {
 
 cmd_down() {
 	log "preflight: Longhorn must be healthy before parking anything"
-	"$SCRIPT_DIR/node-maintenance.sh" status >/dev/null
+	"$NODE_MAINTENANCE" status >/dev/null
 	# node-maintenance.sh refuses the drain while another cycle is active or an
 	# earlier node still owes a reboot. Ask it first: a refusal after the silence,
 	# suspend and park below leaves timmy half out with no instruction (2026-10-21).
 	# The already-cordoned re-run goes to `redrain`, which never asks it.
 	if ! node_is_cordoned; then
 		log "preflight: node-maintenance.sh must be willing to drain $NODE"
-		"$SCRIPT_DIR/node-maintenance.sh" preflight "$NODE"
+		"$NODE_MAINTENANCE" preflight "$NODE" ||
+			die "node-maintenance.sh will not drain $NODE (see above); nothing was silenced, suspended or parked"
 	fi
 	# Before park: parking Garage is what trips GarageQuorumLost.
 	silence_alerts
@@ -375,7 +399,7 @@ cmd_down() {
 		log "cordon + drain via node-maintenance.sh (no reboot, pre-drain spin-down)"
 		# --spin-down is required here, not optional: it frees headroom for the
 		# pods evicted from timmy before the memory-headroom preflight runs.
-		"$SCRIPT_DIR/node-maintenance.sh" reboot "$NODE" --no-reboot --spin-down
+		"$NODE_MAINTENANCE" reboot "$NODE" --no-reboot --spin-down
 	fi
 	# The drain itself can create new orphans: any unpinned pod evicted from timmy
 	# lands on another node and re-attaches its timmy-only volume from there. Check
@@ -393,30 +417,34 @@ cmd_down() {
 	log "When it is back on Ubuntu:  $SELF up"
 }
 
-node_is_ready() {
-	[[ $(kubectl get node "$NODE" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}') == True ]]
-}
-
 # `down` saves node-maintenance.sh's cycle state only when it reaches the drain.
 # Without it there is no reboot to verify and nothing to uncordon, so `finish`
 # would die on the missing state and `set -e` would stop `up` before `unpark`.
+# The fallback keeps finish's gates in finish's order: the node is back
+# (Ready, not cordoned), the spun-down services are restored, and Longhorn is
+# healthy before anything is unparked onto it — after a power cut, Ready says
+# nothing about the volumes.
 finish_cycle() {
 	if [[ -s $NM_STATE_DIR/$NODE.boot-id ]]; then
-		"$SCRIPT_DIR/node-maintenance.sh" finish "$NODE"
+		"$NODE_MAINTENANCE" finish "$NODE"
 		return 0
 	fi
 	warn "no node-maintenance cycle state for $NODE — down never reached the drain; skipping finish"
 	if node_is_cordoned; then
-		die "$NODE is cordoned without cycle state; finish it by hand: $SCRIPT_DIR/node-maintenance.sh finish $NODE <previous-boot-id>"
+		die "$NODE is cordoned without cycle state; finish it by hand: $NODE_MAINTENANCE finish $NODE <previous-boot-id>"
 	fi
 	node_is_ready || die "$NODE is not Ready; wait for it, then re-run: $SELF up"
 	# `down` spins the memory-heavy services down before node-maintenance.sh
 	# checks headroom, so a refusal there leaves them at 0 with no finish to
-	# restore them.
-	"$SCRIPT_DIR/node-maintenance.sh" restore-services
+	# restore them. restore-services re-checks cordons and cycle state under
+	# the maintenance lock, so another node's cycle cannot lose its state here.
+	"$NODE_MAINTENANCE" restore-services || die "spun-down services not restored; fix that, then re-run: $SELF up"
+	"$NODE_MAINTENANCE" wait-longhorn || die "Longhorn health unknown; nothing unparked"
 }
 
 cmd_up() {
+	[[ -s $SCALE_FILE || -s $SUSPEND_FILE || -s $SILENCE_FILE || -s $NM_STATE_DIR/$NODE.boot-id ]] ||
+		die "nothing recorded by down (no parked, suspended, silence or cycle state); nothing to do"
 	finish_cycle
 	unpark
 	wait_parked_ready
@@ -450,7 +478,7 @@ cmd_status() {
 	else
 		log "no cross-node volume depends solely on $NODE"
 	fi
-	"$SCRIPT_DIR/node-maintenance.sh" status
+	"$NODE_MAINTENANCE" status
 }
 
 main() {

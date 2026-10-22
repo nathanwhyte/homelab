@@ -17,17 +17,31 @@ STUB_SILENCE_ID=0b5c1f0e-7a3d-4c51-9e2b-1d2f3a4b5c6d
 
 cat >"$TMPDIR_TEST/kubectl" <<'STUB'
 #!/usr/bin/env bash
-# Every call is recorded; cronjob suspend state lives in $STUB_SUSPEND.
+# Every call is recorded; cronjob suspend state lives in $STUB_SUSPEND. Node
+# reads answer from STUB_NODE_UNSCHED / STUB_NODE_READY, or fail outright with
+# STUB_FAIL_NODE_GET=1; workload reads answer STUB_REPLICAS for both spec and
+# ready counts so a wait returns at once.
 set -euo pipefail
 echo "$*" >>"$STUB_LOG"
 ns=""
 if [[ $1 == -n ]]; then ns=$2; shift 2; fi
 case "$1" in
 get)
-  # get cronjob <name> -o jsonpath='{.spec.suspend}'
-  [[ ${STUB_FAIL_GET:-} != "$ns/$3" ]] || exit 1
-  grep "^$ns/$3=" "$STUB_SUSPEND" | cut -d= -f2
+  case "$2" in
+  cronjob)
+    # get cronjob <name> -o jsonpath='{.spec.suspend}'
+    [[ ${STUB_FAIL_GET:-} != "$ns/$3" ]] || exit 1
+    grep "^$ns/$3=" "$STUB_SUSPEND" | cut -d= -f2
+    ;;
+  node)
+    [[ ${STUB_FAIL_NODE_GET:-0} == 0 ]] || { echo "Error from server: temporary read failure" >&2; exit 1; }
+    if [[ $* == *unschedulable* ]]; then printf '%s' "${STUB_NODE_UNSCHED:-}"; else printf '%s' "${STUB_NODE_READY:-True}"; fi
+    ;;
+  volumes.longhorn.io*) echo '{"items":[]}' ;;
+  *) printf '%s' "${STUB_REPLICAS:-1}" ;;
+  esac
   ;;
+scale) ;;
 patch)
   # patch cronjob <name> --type=merge -p '{"spec":{"suspend":X}}'
   name=$3; body=${*: -1}
@@ -49,6 +63,38 @@ create) ;;
 esac
 STUB
 chmod +x "$TMPDIR_TEST/kubectl"
+
+# node-maintenance.sh stand-in: records every call as "nm: <args>" in the same
+# log as kubectl, so ordering between the two is one grep -n; exits with the
+# per-subcommand code in STUB_NM_<SUBCOMMAND>_RC (default 0).
+cat >"$TMPDIR_TEST/node-maintenance.sh" <<'STUB'
+#!/usr/bin/env bash
+echo "nm: $*" >>"$STUB_LOG"
+rc_var=STUB_NM_$(tr 'a-z-' 'A-Z_' <<<"$1")_RC
+exit "${!rc_var:-0}"
+STUB
+chmod +x "$TMPDIR_TEST/node-maintenance.sh"
+export NODE_MAINTENANCE=$TMPDIR_TEST/node-maintenance.sh
+
+# redrain reads timmy's boot ID over ssh; answer with a fixed one.
+cat >"$TMPDIR_TEST/ssh" <<'STUB'
+#!/usr/bin/env bash
+echo "ssh: $*" >>"$STUB_LOG"
+echo "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+STUB
+chmod +x "$TMPDIR_TEST/ssh"
+# The stubs shadow the real kubectl and ssh for anything that escapes $KUBECTL.
+export PATH=$TMPDIR_TEST:$PATH
+
+# Run a command the way the script runs it (errexit on) and report its status.
+# Not `if (set -e; …)`: bash ignores errexit inside an if condition, subshell
+# included, so a refusal the script leaves to errexit would look like success.
+run_cmd() {
+	(
+		set -e
+		"$@"
+	) >/dev/null 2>&1
+}
 
 reset_cluster() {
 	cat >"$STUB_SUSPEND" <<'EOF'
@@ -143,24 +189,117 @@ if [[ -e $SILENCE_FILE ]]; then bad "a lost silence clears the ID"; else ok "a l
 assert_eq "a lost silence is reported as uncovered, not expired" 1 "$(grep -c 'WARN.*no longer exists.*not covered' <<<"$expire_out")"
 
 # --- down asks node-maintenance.sh before it mutates anything ------------------
-# Order within cmd_down, by line: the preflight call precedes the first mutation
-# (silence, suspend, park). 2026-10-21: the refusal came after all three.
-down_body=$(declare -f cmd_down)
-preflight_line=$(grep -n 'node-maintenance.sh" preflight' <<<"$down_body" | head -1 | cut -d: -f1)
-first_mutation_line=$(grep -n -E '^\s*(silence_alerts|suspend_cronjobs|park);?$' <<<"$down_body" | head -1 | cut -d: -f1)
-if [[ -n $preflight_line && -n $first_mutation_line ]] && ((preflight_line < first_mutation_line)); then
-	ok "down runs node-maintenance.sh preflight before silence/suspend/park"
+# The commands run against the stubs with errexit on, as the script runs them.
+line_of() { grep -n -F -- "$1" "$STUB_LOG" | head -1 | cut -d: -f1; }
+mutations() { grep -c -E '^(-n [^ ]+ (patch|scale) |-n grafana exec .* silence add)' "$STUB_LOG"; }
+
+# 2026-10-21: the refusal came after the silence, the suspends and the park.
+reset_cluster
+STUB_NM_PREFLIGHT_RC=1 run_cmd cmd_down
+rc=$?
+assert_eq "down stops when node-maintenance.sh preflight refuses" 1 "$rc"
+assert_eq "a refused preflight costs no silence, suspend or scale" 0 "$(mutations)"
+assert_eq "a refused preflight leaves no state behind" 0 "$(find "$TMPDIR_TEST/state" -type f 2>/dev/null | wc -l | tr -d ' ')"
+
+reset_cluster
+run_cmd cmd_down
+rc=$?
+assert_eq "down completes against the stubs" 0 "$rc"
+preflight_line=$(line_of 'nm: preflight timmy')
+silence_line=$(line_of 'silence add')
+if [[ -n $preflight_line && -n $silence_line ]] && ((preflight_line < silence_line)); then
+	ok "down runs node-maintenance.sh preflight before its first mutation"
 else
-	bad "down must run node-maintenance.sh preflight before silence/suspend/park (preflight at '${preflight_line:-none}', first mutation at '${first_mutation_line:-none}')"
+	bad "down must run preflight before the silence (preflight at '${preflight_line:-none}', silence at '${silence_line:-none}')"
 fi
+assert_eq "down still drains through node-maintenance.sh reboot --no-reboot --spin-down" 1 "$(grep -c 'nm: reboot timmy --no-reboot --spin-down' "$STUB_LOG")"
+
+# The already-cordoned re-run goes to redrain, which never asks preflight (it
+# would refuse on the cordoned node).
+reset_cluster
+STUB_NODE_UNSCHED=true run_cmd cmd_down
+assert_eq "an already-cordoned timmy skips preflight" 0 "$(grep -c 'nm: preflight' "$STUB_LOG")"
+assert_eq "an already-cordoned timmy re-drains directly" 1 "$(grep -c '^drain timmy ' "$STUB_LOG")"
 
 # --- up without cycle state ---------------------------------------------------
-# finish_cycle skips node-maintenance.sh finish when `down` never reached the
-# drain; it must still refuse a cordoned node rather than unpark onto it.
-up_body=$(declare -f finish_cycle)
-assert_eq "finish_cycle keys on the node-maintenance boot-id file" 1 "$(grep -c 'NM_STATE_DIR/.NODE.boot-id' <<<"$up_body")"
-assert_eq "finish_cycle refuses a cordoned node without cycle state" 1 "$(grep -c 'node_is_cordoned' <<<"$up_body")"
-assert_eq "finish_cycle restores the spun-down services it skips finish for" 1 "$(grep -c 'restore-services' <<<"$up_body")"
+park_fixture() { # parked state as a completed park would leave it
+	mkdir -p "$STATE_DIR"
+	printf 'statefulset/garage/garage\t3\n' >"$SCALE_FILE"
+}
+cycle_fixture() { # the boot ID node-maintenance.sh saves when the drain ran
+	mkdir -p "$TMPDIR_TEST/state/homelab-node-maintenance"
+	printf 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee\n' >"$TMPDIR_TEST/state/homelab-node-maintenance/timmy.boot-id"
+}
+
+reset_cluster
+park_fixture
+cycle_fixture
+run_cmd cmd_up
+rc=$?
+assert_eq "up with cycle state completes" 0 "$rc"
+assert_eq "up with cycle state finishes through node-maintenance.sh" 1 "$(grep -c 'nm: finish timmy' "$STUB_LOG")"
+assert_eq "up with cycle state does not take the fallback" 0 "$(grep -c 'nm: restore-services' "$STUB_LOG")"
+
+reset_cluster
+park_fixture
+STUB_FAIL_NODE_GET=1 run_cmd cmd_up
+rc=$?
+assert_eq "up without cycle state fails closed when the cordon read fails" 1 "$rc"
+assert_eq "a failed cordon read scales nothing" 0 "$(grep -c ' scale ' "$STUB_LOG")"
+
+reset_cluster
+park_fixture
+STUB_NODE_UNSCHED=true run_cmd cmd_up
+rc=$?
+assert_eq "up without cycle state refuses a cordoned timmy" 1 "$rc"
+assert_eq "a cordoned timmy is neither restored nor unparked" 0 "$(grep -c -E 'nm: restore-services| scale ' "$STUB_LOG")"
+
+reset_cluster
+park_fixture
+STUB_NODE_READY=False run_cmd cmd_up
+rc=$?
+assert_eq "up without cycle state refuses a timmy that is not Ready" 1 "$rc"
+
+reset_cluster
+park_fixture
+STUB_NM_RESTORE_SERVICES_RC=1 run_cmd cmd_up
+rc=$?
+assert_eq "up without cycle state stops when restore-services refuses" 1 "$rc"
+assert_eq "a refused restore unparks nothing" 0 "$(grep -c ' scale ' "$STUB_LOG")"
+
+reset_cluster
+park_fixture
+run_cmd cmd_up
+rc=$?
+assert_eq "up without cycle state completes on a Ready, uncordoned timmy" 0 "$rc"
+assert_eq "the fallback never calls finish" 0 "$(grep -c 'nm: finish' "$STUB_LOG")"
+restore_line=$(line_of 'nm: restore-services')
+longhorn_line=$(line_of 'nm: wait-longhorn')
+unpark_line=$(line_of '-n garage scale statefulset garage --replicas=3')
+if [[ -n $restore_line && -n $longhorn_line && -n $unpark_line ]] && ((restore_line < longhorn_line && longhorn_line < unpark_line)); then
+	ok "the fallback restores services, waits for Longhorn, then unparks"
+else
+	bad "fallback order wrong (restore at '${restore_line:-none}', longhorn at '${longhorn_line:-none}', unpark at '${unpark_line:-none}')"
+fi
+
+# A down that stopped before park (a CronJob it could not suspend) leaves only
+# the silence and suspend records; up must still clear them.
+reset_cluster
+silence_alerts >/dev/null
+suspend_cronjobs >/dev/null
+: >"$STUB_LOG"
+run_cmd cmd_up
+rc=$?
+assert_eq "up after a down that never parked completes" 0 "$rc"
+assert_eq "it resumes the CronJobs down suspended" false "$(state_of kube-system/k3s-datastore-backup)"
+assert_eq "it expires the silence down created" 1 "$(grep -c "silence expire $STUB_SILENCE_ID" "$STUB_LOG")"
+assert_eq "it scales nothing" 0 "$(grep -c ' scale ' "$STUB_LOG")"
+
+reset_cluster
+run_cmd cmd_up
+rc=$?
+assert_eq "up with nothing recorded refuses rather than running a catch-up backup" 1 "$rc"
+assert_eq "it creates no catch-up job" 0 "$(grep -c 'create job' "$STUB_LOG")"
 
 # --- catch-up backup ------------------------------------------------------------
 reset_cluster
