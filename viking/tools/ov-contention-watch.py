@@ -756,7 +756,7 @@ def watch(hours, sink, wake_wait_ms=DEFAULT_WAKE_WAIT_MS, target_uptime=None):
     except KeyboardInterrupt:
         status = "incomplete (interrupted)"
         raise
-    except BaseException as exc:  # noqa: BLE001 - SystemExit too: the ledger is written
+    except BaseException as exc:  # SystemExit too: the ledger is always written
         status = f"incomplete (error: {exc or type(exc).__name__})"
         raise
     finally:
