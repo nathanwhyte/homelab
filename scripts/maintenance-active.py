@@ -203,6 +203,39 @@ def run(cmd: list[str]) -> str:
     return out.stdout
 
 
+def parse_silences(raw: str) -> list[dict]:
+    """amtool's JSON, every field silence_scope reads checked for type; any
+    other shape (empty output included) is Unreadable, never "no silence"."""
+    try:
+        silences = json.loads(raw)
+    except ValueError:
+        raise Unreadable(f"amtool printed non-JSON: {raw[:80]!r}") from None
+
+    def bad(why: str) -> Unreadable:
+        return Unreadable(f"amtool silence JSON: {why}")
+
+    if not isinstance(silences, list):
+        raise bad(f"{type(silences).__name__}, not a list")
+    for s in silences:
+        if not isinstance(s, dict):
+            raise bad(f"entry {s!r} is not an object")
+        status, matchers = s.get("status"), s.get("matchers")
+        if not isinstance(status, dict) or not isinstance(status.get("state"), str):
+            raise bad(f"silence {s.get('id')!r} has no status.state")
+        if not isinstance(matchers, list) or not matchers:
+            raise bad(f"silence {s.get('id')!r} has no matchers")
+        for m in matchers:
+            if not (
+                isinstance(m, dict)
+                and isinstance(m.get("name"), str)
+                and isinstance(m.get("value"), str)
+                and isinstance(m.get("isRegex"), bool)
+                and isinstance(m.get("isEqual", True), bool)
+            ):
+                raise bad(f"silence {s.get('id')!r} has a malformed matcher {m!r}")
+    return silences
+
+
 def silence_windows() -> list[tuple[str, str]]:
     raw = run(
         [
@@ -222,15 +255,9 @@ def silence_windows() -> list[tuple[str, str]]:
             "query",
         ]
     )
-    try:
-        silences = json.loads(raw or "[]")
-    except ValueError:
-        raise Unreadable(f"amtool printed non-JSON: {raw[:80]!r}") from None
-    if not isinstance(silences, list):
-        raise Unreadable(f"amtool printed {type(silences).__name__}, not a list")
     found = []
-    for s in silences:
-        scope = silence_scope(s) if isinstance(s, dict) else None
+    for s in parse_silences(raw):
+        scope = silence_scope(s)
         if scope is not None:
             where = "all targets" if scope == ALL else f"namespace {scope}"
             found.append(
@@ -300,6 +327,8 @@ def main(argv: list[str] | None = None) -> int:
             windows += check()
         except Unreadable as e:
             unreadable.append(str(e))
+        except Exception as e:  # any other failure is still "could not tell"
+            unreadable.append(f"unexpected {type(e).__name__}: {e}")
 
     relevant = [
         line

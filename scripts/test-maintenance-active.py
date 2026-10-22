@@ -380,9 +380,29 @@ class CliTests(unittest.TestCase):
         self.assertEqual(code, 2)
         self.assertIn("connection refused", out["unreadable"][0])
 
-    def test_malformed_silence_list_is_unreadable(self):
-        code, out = self.cli("viking", STUB_SILENCES='{"not": "a list"}')
-        self.assertEqual(code, 2)
+    def test_malformed_silence_output_is_unreadable(self):
+        # Round 3 P2: every malformed shape, empty output included, is exit 2.
+        for raw in (
+            '{"not": "a list"}',
+            "",
+            "[null]",
+            '[{"status": null}]',
+            '[{"status": {"state": "active"}, "matchers": []}]',
+            '[{"status": {"state": "active"}, "matchers": [{"name": "alertname"}]}]',
+            '[{"status": {"state": "active"}, "matchers": '
+            '[{"name": "alertname", "value": ".+", "isRegex": "yes"}]}]',
+        ):
+            with self.subTest(raw=raw):
+                code, out = self.cli("viking", STUB_SILENCES=raw)
+                self.assertEqual(code, 2)
+                self.assertEqual(len(out["unreadable"]), 1)
+
+    def test_local_window_survives_malformed_silence_output(self):
+        (self.state / "homelab-timmy-offline").mkdir()
+        (self.state / "homelab-timmy-offline/silence-id").write_text("abc\n")
+        code, out = self.cli("viking", STUB_SILENCES='[{"status": null}]')
+        self.assertEqual(code, 0)
+        self.assertEqual(len(out["unreadable"]), 1)
 
     def test_local_window_wins_over_an_unreadable_cluster(self):
         (self.state / "homelab-timmy-offline").mkdir()
