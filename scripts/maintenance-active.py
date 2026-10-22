@@ -12,7 +12,7 @@ signal names a single object. Exit 0 means every target is covered by a window
 and prints the windows; with no TARGET, it means a cluster-wide window is active.
 Exit 1 means some target is not covered. Exit 2 means some target is not
 covered and a source could not be read, so the watch treats its failure as it
-would without this check. Exit 64 is a usage error.
+would without this check. Exit 64 is a usage error or --help.
 
 A window is a record a maintenance tool writes to say one is open, never an
 inference from cluster state or from what a tool has left to undo:
@@ -22,8 +22,10 @@ inference from cluster state or from what a tool has left to undo:
   timmy-offline.sh down, removed when up completes) and
   homelab-node-maintenance/window (opened at a reboot cycle's first change,
   removed by finish or restore-services) and apt-window beside it (open while
-  node-maintenance.sh apt runs). One counts until its end, which bounds a
-  cycle that was backed out or abandoned. Covers every target: timmy is the
+  node-maintenance.sh apt runs, and after a launch failure, timeout or
+  interrupt, since the detached remote upgrade may still be going). One counts
+  until its end, which bounds a cycle that was backed out or abandoned. A file
+  that is not exactly one such line, or not a regular file, is unreadable. Covers every target: timmy is the
   only control plane, a cycle drains a node and reschedules pods across the
   cluster, and an upgrade can restart k3s or containerd.
 - silence: an active Alertmanager silence whose matchers are only
@@ -71,6 +73,9 @@ WINDOW_FILES = (
 ALL = "*"  # a window's scope: ALL or a namespace
 # A Kubernetes namespace name (RFC 1123 label), so no value can equal ALL.
 NAMESPACE = re.compile(r"[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?")
+# Exactly what the producers' printf '%s %s\n' "$(($(date +%s) + n))" "<what>"
+# writes: one line, a 10-digit epoch (2001-2286), a printable description.
+WINDOW = re.compile(r"([1-9][0-9]{9}) ([^\x00-\x20\x7f][^\x00-\x1f\x7f]*)\n")
 EX_USAGE = 64
 
 
@@ -83,17 +88,17 @@ def state_root(env=os.environ) -> Path:
 
 
 def local_time(when: datetime) -> str:
-    return when.astimezone().strftime("%Y-%m-%d %H:%M %Z")
+    return when.astimezone().strftime("%Y-%m-%d %H:%M %Z %z")
 
 
 def read_state(path: Path) -> str | None:
-    """A regular file's text, None when it does not exist or is not a regular
-    file, Unreadable on any other error. Raw os calls only: pathlib predicates
-    such as is_file() return False on a permission error, which would read as
-    "no window"."""
+    """A file's text (stat follows symlinks), None when it does not exist,
+    Unreadable on any other error or file type. Raw os calls only: pathlib
+    predicates such as is_file() return False on a permission error, which
+    would read as "no window"."""
     try:
         if not stat.S_ISREG(os.stat(path).st_mode):
-            return None
+            raise Unreadable(f"{path}: not a regular file")
         with open(path, errors="replace") as fh:
             return fh.read()
     except (FileNotFoundError, NotADirectoryError):
@@ -105,16 +110,13 @@ def read_state(path: Path) -> str | None:
 def parse_window(text: str, path: Path, now: float) -> str | None:
     """The window's description while it is open, None once its end has
     passed; any other content is Unreadable."""
-    end, _, what = text.split("\n", 1)[0].partition(" ")
-    if not (end.isascii() and end.isdigit() and what.strip()):
-        raise Unreadable(f"{path}: not '<end epoch> <what>': {text[:80]!r}")
-    if int(end) <= now:
+    m = WINDOW.fullmatch(text)
+    if not m:
+        raise Unreadable(f"{path}: not one '<end epoch> <what>' line: {text[:80]!r}")
+    end, what = int(m[1]), m[2].strip()
+    if end <= now:
         return None
-    try:
-        until = local_time(datetime.fromtimestamp(int(end), timezone.utc))
-    except (OverflowError, OSError, ValueError):
-        raise Unreadable(f"{path}: end {end} is out of range") from None
-    return f"{what.strip()} until {until}"
+    return f"{what} until {local_time(datetime.fromtimestamp(end, timezone.utc))}"
 
 
 def local_windows(
@@ -271,10 +273,10 @@ def covers(scope: str, target: tuple[str | None, str, str | None]) -> bool:
 
 
 class Parser(argparse.ArgumentParser):
-    def error(self, message):
-        # argparse's own 2 would read as "could not tell".
-        self.print_usage(sys.stderr)
-        self.exit(EX_USAGE, f"{self.prog}: error: {message}\n")
+    def exit(self, status=0, message=None):
+        # argparse exits only for --help (0) and usage errors (2), which here
+        # would read as "covered" and "could not tell".
+        super().exit(EX_USAGE, message)
 
 
 def main(argv: list[str] | None = None) -> int:

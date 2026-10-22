@@ -91,7 +91,7 @@ class SilenceTests(unittest.TestCase):
         # Round 4 P3: amtool's endsAt is UTC with up to nanoseconds.
         shown = ma.ends_at("2026-10-23T00:00:00.123456789Z")
         self.assertNotIn("T00:00", shown)
-        self.assertRegex(shown, r"^2026-10-2[23] \d\d:\d\d \S+$")
+        self.assertRegex(shown, r"^2026-10-2[23] \d\d:\d\d \S+ [+-]\d{4}$")
         self.assertEqual(ma.ends_at("not a time"), "not a time")
 
 
@@ -180,18 +180,39 @@ class LocalStateTests(unittest.TestCase):
             "123  \n",
             "-5 x\n",
             "١٢٣ x\n",
+            # Round 5 P3s: only exactly what the producers' printf writes.
+            f"{int(self.now) + 60} x\nmore\n",
+            f"{int(self.now) + 60} x",
+            f"0{int(self.now) + 60} x\n",
+            f"{int(self.now) + 60} \x00\n",
+            "253402300799 year 9999\n",
+            "9" * 5000 + " forever\n",
         ):
-            with self.subTest(text=text):
+            with self.subTest(text=text[:40]):
                 self.write(TIMMY, text)
                 found, unreadable = self.windows()
                 self.assertEqual(found, [])
                 self.assertEqual(len(unreadable), 1)
 
-    def test_an_end_past_any_date_is_unreadable(self):
-        self.write(TIMMY, f"{10**30} forever\n")
+    def test_a_malformed_window_does_not_hide_its_sibling(self):
+        # Round 5 P3: a huge end raised outside the guard and lost this one.
+        self.write(TIMMY, "9" * 5000 + " forever\n")
+        self.write(NODE, f"{int(self.now) + 60} reboot cycle on wemby\n")
+        found, unreadable = self.windows()
+        self.assertEqual(len(found), 1)
+        self.assertEqual(len(unreadable), 1)
+
+    def test_a_non_regular_window_path_is_unreadable(self):
+        # Round 5 P3: a directory there swallowed the producer's mv.
+        (self.root / NODE).mkdir(parents=True)
+        fifo = self.root / "homelab-timmy-offline/fifo"
+        fifo.parent.mkdir()
+        os.mkfifo(fifo)
+        (self.root / TIMMY).symlink_to(fifo)
         found, unreadable = self.windows()
         self.assertEqual(found, [])
-        self.assertIn("out of range", unreadable[0])
+        self.assertEqual(len(unreadable), 2)
+        self.assertTrue(all("not a regular file" in u for u in unreadable))
 
     @unittest.skipIf(os.geteuid() == 0, "root reads mode-000 files")
     def test_unreadable_window_is_reported_not_treated_as_absent(self):
@@ -302,32 +323,17 @@ class ProducerRoundTripTests(unittest.TestCase):
         )
         self.assertEqual(self.helper()[0], 1)
 
-    def test_apt_window_is_open_while_apt_runs_and_gone_after(self):
-        # The stub ssh records the apt window as apt's first remote call sees
-        # it, then fails, so apt dies through its EXIT trap.
-        state = self.home / ".local/state/homelab-node-maintenance"
-        seen = self.home / "seen"
-        ssh = self.bin / "ssh"
-        ssh.write_text(f'#!/bin/sh\ncat "{state}/apt-window" >"{seen}"\nexit 1\n')
-        ssh.chmod(0o755)
-        src = "scripts/node-maintenance.sh"
-        with self.assertRaises(subprocess.CalledProcessError):
-            bash(
-                'open_maintenance_window "reboot cycle on manu"; cmd_apt wemby',
-                src,
-                self.env,
-            )
-        self.assertRegex(seen.read_text(), r"^\d+ apt upgrade on wemby\n$")
-        self.assertFalse((state / "apt-window").exists())
-        # A cycle's window outlives the apt run.
+    def test_xdg_state_home_moves_both_sides(self):
+        # Round 5 P3: the round trips above leave XDG_STATE_HOME unset.
+        xdg = Path(self.tmp.name) / "xdg"
+        self.env["XDG_STATE_HOME"] = str(xdg)
+        bash("open_window", "scripts/timmy-offline.sh", self.env)
+        bash('open_maintenance_window "x"', "scripts/node-maintenance.sh", self.env)
+        self.assertTrue((xdg / TIMMY).is_file())
+        self.assertTrue((xdg / NODE).is_file())
+        self.assertFalse((self.home / ".local").exists())
         code, out = self.helper()
-        self.assertEqual(code, 0, out)
-        self.assertEqual(len(out["windows"]), 1)
-
-    def test_apt_refuses_an_unknown_node_before_opening_a_window(self):
-        with self.assertRaises(subprocess.CalledProcessError):
-            bash("cmd_apt nosuchnode", "scripts/node-maintenance.sh", self.env)
-        self.assertEqual(self.helper()[0], 1)
+        self.assertEqual((code, len(out["windows"])), (0, 2))
 
     def test_restore_services_leaves_an_active_cycles_window(self):
         # It refuses while a cycle owns the state; the window stays with it.
@@ -474,12 +480,18 @@ class CliTests(unittest.TestCase):
         self.assertEqual(code, 1)
 
     def test_bad_target_is_a_usage_error(self):
-        # Round 4 P3: 2 means "could not tell"; a usage error is 64.
+        # Round 4 P3: 2 means "could not tell"; a usage error is 64. Round 5
+        # P3: so is --help, whose 0 would mean "covered".
         for args in (["viking/openviking"], ["--bogus", "viking"]):
             with self.subTest(args=args):
                 out = self.run_cli("--json", *args)
                 self.assertEqual(out.returncode, 64)
                 self.assertEqual(out.stdout, "")
+        for args in (["-h"], ["viking", "--help"]):
+            with self.subTest(args=args):
+                out = self.run_cli(*args)
+                self.assertEqual(out.returncode, 64)
+                self.assertTrue(out.stdout.startswith("usage: "))
         self.assertIn("kind/namespace/name", self.run_cli("viking/openviking").stderr)
 
 

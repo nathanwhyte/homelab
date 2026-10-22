@@ -80,7 +80,7 @@ MAINTENANCE_LOCK_DIR=$MAINTENANCE_STATE_DIR/lock
 # seconds> <what>". A reboot cycle opens $MAINTENANCE_WINDOW_FILE at its first
 # change and finish or restore-services closes it; the end bounds a cycle backed
 # out by hand (uncordon) or abandoned, which leaves the boot ID behind. apt keeps
-# its own file, removed whenever it exits, so it never closes a cycle's window.
+# its own file, so it never closes a cycle's window.
 MAINTENANCE_WINDOW_FILE=$MAINTENANCE_STATE_DIR/window
 MAINTENANCE_WINDOW_SECONDS=${MAINTENANCE_WINDOW_SECONDS:-7200}
 APT_WINDOW_FILE=$MAINTENANCE_STATE_DIR/apt-window
@@ -788,20 +788,23 @@ cmd_apt() {
 		require_node "$node"
 	done
 	# Package restarts (k3s, containerd, tailscaled) can drop pods. Bounded by
-	# apt's own limits per node, and removed on any exit.
+	# apt's own limits per node. Removed once the remote runs have ended; a launch
+	# failure, timeout or interrupt leaves it to its end, since the detached
+	# remote upgrade may still be going.
 	open_maintenance_window "apt upgrade on ${targets[*]}" "$APT_WINDOW_FILE" \
 		$((${#targets[@]} * (APT_LAUNCH_GRACE_SECONDS + APT_TIMEOUT_SECONDS + 2 * SSH_CMD_TIMEOUT_SECONDS)))
-	trap 'rm -f "$APT_WINDOW_FILE"; release_maintenance_lock' EXIT
 	for node in "${targets[@]}"; do
 		log "[$node] apt update + full-upgrade + autoremove (detached; nodes still serial)"
 		launch_remote_apt "$node"
 		rc=$(wait_remote_apt "$node")
 		if [[ $rc != 0 ]]; then
+			rm -f "$APT_WINDOW_FILE"
 			run_ssh "$node" "tail -25 $APT_REMOTE_LOG" 2>/dev/null | sed 's/^/    /' || true
 			die "[$node] apt exited $rc; full log at $node:$APT_REMOTE_LOG"
 		fi
 		report_apt_result "$node"
 	done
+	rm -f "$APT_WINDOW_FILE"
 	log "apt phase done. Reboot serially with: $SELF reboot <node>  (order: ${NODES[*]})"
 }
 

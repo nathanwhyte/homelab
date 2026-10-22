@@ -88,7 +88,6 @@ SUSPEND_FILE=$STATE_DIR/suspended-cronjobs
 SILENCE_FILE=$STATE_DIR/silence-id
 SILENCE_DURATION=${SILENCE_DURATION:-24h}
 WINDOW_FILE=$STATE_DIR/window
-WINDOW_SECONDS=${WINDOW_SECONDS:-86400} # SILENCE_DURATION's default
 AM_NAMESPACE=grafana
 AM_POD=alertmanager-prom-alertmanager-0
 
@@ -262,9 +261,33 @@ wait_parked_ready() {
 
 # --- Quieting the outage ---------------------------------------------------------
 
+# SILENCE_DURATION in seconds; the window takes the silence's end, so only the
+# single-unit forms are accepted.
+silence_seconds() {
+	[[ $SILENCE_DURATION =~ ^([0-9]+)([smhd])$ ]] || return 1
+	local n=$((10#${BASH_REMATCH[1]}))
+	case ${BASH_REMATCH[2]} in
+	s) echo "$n" ;;
+	m) echo $((n * 60)) ;;
+	h) echo $((n * 3600)) ;;
+	d) echo $((n * 86400)) ;;
+	esac
+}
+
 open_window() {
+	local end seconds now
+	now=$(date +%s)
+	# A re-run of down keeps the silence it already made (silence_alerts), so it
+	# keeps that silence's window too rather than moving its end.
+	if [[ -s $WINDOW_FILE ]] && IFS=' ' read -r end _ <"$WINDOW_FILE" &&
+		[[ $end =~ ^[1-9][0-9]*$ ]] && ((end > now)); then
+		log "maintenance window already open"
+		return 0
+	fi
+	seconds=$(silence_seconds) ||
+		die "SILENCE_DURATION=$SILENCE_DURATION: use <n>s, <n>m, <n>h or <n>d; nothing was silenced, suspended or parked"
 	mkdir -p "$STATE_DIR"
-	printf '%s %s\n' "$(($(date +%s) + WINDOW_SECONDS))" "planned timmy outage (timmy-offline.sh down)" >"$WINDOW_FILE.$$"
+	printf '%s %s\n' "$((now + seconds))" "planned timmy outage (timmy-offline.sh down)" >"$WINDOW_FILE.$$"
 	mv -f "$WINDOW_FILE.$$" "$WINDOW_FILE"
 }
 
@@ -385,9 +408,14 @@ catchup_backup() {
 
 garage_check() {
 	log "garage status"
-	"$KUBECTL" -n garage exec garage-0 -c garage -- /garage status 2>/dev/null |
-		sed -n '/HEALTHY NODES/,$p' |
-		sed 's/^/    /'
+	local out
+	# A report, not a gate: under pipefail a failed exec here used to end up
+	# silently, before the silence was expired.
+	if ! out=$("$KUBECTL" -n garage exec garage-0 -c garage -- /garage status 2>&1); then
+		warn "garage status unavailable (${out//$'\n'/ }); check it once garage-0 is Running"
+		return 0
+	fi
+	sed -n '/HEALTHY NODES/,$p' <<<"$out" | sed 's/^/    /'
 }
 
 # --- Commands -------------------------------------------------------------------

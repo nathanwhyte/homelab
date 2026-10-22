@@ -59,6 +59,7 @@ exec)
   # exec <pod> -c alertmanager -- amtool --alertmanager.url=... silence add|expire ...
   [[ ${STUB_FAIL_AMTOOL:-0} == 0 ]] || { echo "connection refused" >&2; exit 1; }
   [[ ${STUB_FAIL_EXPIRE:-0} == 0 || $* != *" silence expire "* ]] || { echo "connection refused" >&2; exit 1; }
+  [[ ${STUB_FAIL_GARAGE:-0} == 0 || $* != *garage-0* ]] || { echo "pod garage-0 is not running" >&2; exit 1; }
   # What amtool prints for a silence Alertmanager no longer has (lost on an
   # unclean restart): a 404, exit 1.
   [[ ${STUB_AMTOOL_NOTFOUND:-0} == 0 ]] || { echo "amtool: error: [DELETE /silence/{silenceID}][404] deleteSilenceNotFound" >&2; exit 1; }
@@ -101,6 +102,12 @@ run_cmd() {
 		set -e
 		"$@"
 	) >/dev/null 2>&1
+}
+run_cmd_out() { # the same, printing the command's output
+	(
+		set -e
+		"$@"
+	) 2>&1
 }
 
 reset_cluster() {
@@ -269,6 +276,38 @@ run_cmd cmd_up
 rc=$?
 assert_eq "up with only a window recorded refuses" 1 "$rc"
 if [[ -e $WINDOW_FILE ]]; then bad "it closes that window"; else ok "it closes that window"; fi
+
+# Round 5: garage_check is a report. A garage-0 that cannot be exec'd used to
+# end up silently under pipefail, before the silence and window were cleared.
+reset_cluster
+park_fixture
+cycle_fixture
+silence_alerts >/dev/null
+open_window
+up_out=$(STUB_FAIL_GARAGE=1 run_cmd_out cmd_up)
+rc=$?
+assert_eq "up completes when garage status cannot be read" 0 "$rc"
+assert_eq "it says so" 1 "$(grep -c 'WARN.*garage status unavailable' <<<"$up_out")"
+assert_eq "it still expires the silence" 1 "$(grep -c "silence expire $STUB_SILENCE_ID" "$STUB_LOG")"
+if [[ -e $WINDOW_FILE ]]; then bad "it still closes the window"; else ok "it still closes the window"; fi
+
+# --- the window's end is the silence's -------------------------------------------
+window_left() { echo $(($(cut -d' ' -f1 "$WINDOW_FILE") - $(date +%s))); }
+reset_cluster
+(SILENCE_DURATION=4h open_window) >/dev/null
+left=$(window_left)
+if ((left > 14300 && left <= 14400)); then ok "the window follows SILENCE_DURATION"; else bad "the window follows SILENCE_DURATION (left ${left}s)"; fi
+end_before=$(cut -d' ' -f1 "$WINDOW_FILE")
+sleep 1
+open_window >/dev/null
+assert_eq "re-running down keeps the open window's end, as it keeps the silence" "$end_before" "$(cut -d' ' -f1 "$WINDOW_FILE")"
+
+reset_cluster
+SILENCE_DURATION=1h30m run_cmd cmd_down
+rc=$?
+assert_eq "down refuses a SILENCE_DURATION the window cannot follow" 1 "$rc"
+assert_eq "it refuses before any silence, suspend or scale" 0 "$(mutations)"
+if [[ -e $WINDOW_FILE ]]; then bad "and before opening a window"; else ok "and before opening a window"; fi
 
 reset_cluster
 park_fixture
