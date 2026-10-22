@@ -65,6 +65,15 @@ plus a streaming half that tracks writes for the lock-wait retry):
     Budgets: ``OV_EXTRACT_PATCH_TIMEOUT_RETRIES`` (default 2) and
     ``OV_EXTRACT_PATCH_LOCK_RETRIES`` (default 3); ``0`` turns the timeout fallback off
     and stops every lock-wait retry.
+  * Once an attempt has written anything (the streaming half marks the append-only fast
+    path and the merge groups before they run), no failure of that attempt is retried,
+    whatever its class: a lock wait, a builtin ``TimeoutError``, a ``ModelError`` or SDK
+    5xx/429, anything. v0.5.1.1's ``retry_async`` retries recognised model errors
+    without asking the classifier (``_retry_limit``, model_retry.py:432-451), so the
+    wrapper hands such a failure to it as an opaque, unretryable ``_AttemptWrote`` and
+    re-raises the original once it gives up. The step fails and Phase 2 writes
+    ``.failed.json`` (stage ``memory_extraction``); v0.4.20 did not retry these either.
+    Failures before any write keep stock retries plus the budgets above.
   * Every retry, recovery and final failure of a Phase 2 step writes one unwrapped
     ``ov-extract-outcome {json}`` line on stderr naming the step, attempt and
     ``failure_class`` (``timeout``, ``lock_wait``, ``degraded`` or ``other``), so a lock
@@ -173,6 +182,18 @@ _PARSE_EXHAUSTED_TEXT = re.compile(
 
 class ExtractionDegradedError(RuntimeError):
     """The extraction LLM produced no usable operations after the loop's own retry."""
+
+
+class _AttemptWrote(Exception):
+    """Carries a failure of an attempt that wrote, past upstream's retry loop.
+
+    Plain ``Exception`` with no cause or context, so upstream's model-error detection
+    (``isinstance(TimeoutError)``, SDK modules, the exception chain) never matches it.
+    """
+
+    def __init__(self, error: BaseException):
+        super().__init__("phase 2 attempt failed after writing")
+        self.error = error
 
 
 def _source_hash(fn) -> str | None:
@@ -399,13 +420,22 @@ def batch_caps() -> tuple[int | None, int | None]:
 def wrap_retry_async(orig, default_is_retryable):
     """Wrap ``retry_async`` with per-class budgets and one outcome line per event.
 
-    v0.5.1.1's ``retry_async`` asks ``is_retryable`` on every failure that is not a
-    recognised model error, the final one included (``_retry_limit``), so a budget is
-    spent only while a retry can follow, and the retry line is written when the next
-    attempt starts. Lock waits are decided here alone: retried, on the lock budget, only
-    when tagged as raised before the attempt wrote anything. For every other error the
-    caller's classifier is asked first, so its retries are never reduced; the timeout
-    budget only adds retries for a tagged session-extraction timeout it refused.
+    Once an attempt has written anything (the streaming half's write tracking), no
+    failure of it is retried, whatever its class: a retry is a fresh LLM extraction that
+    files its events again under new names. v0.5.1.1's ``retry_async`` retries a
+    recognised model error (builtin ``TimeoutError``, ``ModelError``, SDK 5xx/429)
+    without asking ``is_retryable`` (``_retry_limit``, model_retry.py:432-451), so such a
+    failure reaches it wrapped in ``_AttemptWrote``, which carries no exception chain for
+    ``model_error_from_exception`` to walk and which the classifier refuses; the original
+    error is re-raised after it gives up.
+
+    Before any write, ``retry_async`` asks ``is_retryable`` on every failure that is not
+    a recognised model error, the final one included, so a budget is spent only while a
+    retry can follow, and the retry line is written when the next attempt starts. Lock
+    waits are decided here alone: retried, on the lock budget, only when tagged as
+    raised before the attempt wrote anything. For every other error the caller's
+    classifier is asked first, so its retries are never reduced; the timeout budget only
+    adds retries for a tagged session-extraction timeout it refused.
     """
 
     @functools.wraps(orig)
@@ -424,6 +454,8 @@ def wrap_retry_async(orig, default_is_retryable):
             return True
 
         def decide(error):
+            if isinstance(error, _AttemptWrote):
+                return False
             if attempts > max_retries:
                 return False  # the final failure: no retry follows whatever we answer
             cls = failure_class(error)
@@ -448,30 +480,42 @@ def wrap_retry_async(orig, default_is_retryable):
                     }
                 )
             attempts += 1
-            token = _STEP.set({"armed": False, "wrote": False})
+            state = {"armed": False, "wrote": False}
+            token = _STEP.set(state)
             try:
                 return await func()
             except Exception as exc:
                 last_error = exc
-                raise
+                if not state["wrote"]:
+                    raise
+                wrote_error = exc
             finally:
                 _STEP.reset(token)
+            # Raised outside the handler so it has no __context__ leading back to exc.
+            raise _AttemptWrote(wrote_error)
 
+        failure: BaseException | None = None
+        after_write = False
         try:
             result = await orig(
                 counted, max_retries=max_retries, is_retryable=decide, **kwargs
             )
+        except _AttemptWrote as stopped:
+            failure, after_write = stopped.error, True
         except Exception as exc:
-            emit_outcome(
-                {
-                    "event": "failed",
-                    "step": operation,
-                    "attempts": attempts,
-                    "failure_class": failure_class(exc),
-                    "error": str(exc)[:300],
-                }
-            )
-            raise
+            failure = exc
+        if failure is not None:
+            record = {
+                "event": "failed",
+                "step": operation,
+                "attempts": attempts,
+                "failure_class": failure_class(failure),
+                "error": str(failure)[:300],
+            }
+            if after_write:
+                record["after_write"] = True
+            emit_outcome(record)
+            raise failure
         if attempts > 1:
             emit_outcome(
                 {"event": "recovered", "step": operation, "attempts": attempts}
@@ -515,15 +559,18 @@ def wrap_resolve_limits(orig, limits_cls):
 
 
 def wrap_acquire_lease(orig):
-    """Mark a lock wait raised while taking a memory-apply lease (before its writes)."""
+    """Mark any failure raised while taking a memory-apply lease (before its writes).
+
+    Whatever its class (a lock wait, a ``TimeoutError`` from the pathlock call), it
+    precedes every write the lease covers.
+    """
 
     @functools.wraps(orig)
     async def acquire_memory_operation_lease(*args, **kwargs):
         try:
             return await orig(*args, **kwargs)
         except Exception as exc:
-            if failure_class(exc) == FAILURE_LOCK_WAIT:
-                _tag(exc, LEASE_ATTR, True)
+            _tag(exc, LEASE_ATTR, True)
             raise
 
     acquire_memory_operation_lease._ov_extract_patch = True  # type: ignore[attr-defined]
@@ -531,12 +578,13 @@ def wrap_acquire_lease(orig):
 
 
 def wrap_append_only(orig):
-    """Tag a lease wait in the attempt's first write; otherwise mark the attempt written.
+    """Tag a lease failure in the attempt's first write; otherwise mark the attempt written.
 
-    Runs in the submitter's own task, first in ``submit``. A lock wait is tagged
-    ``before_write`` only when session extraction armed this attempt, nothing has been
-    written since, and the wait came from taking the lease (which precedes every write
-    of the fast path).
+    Runs in the submitter's own task, first in ``submit``. A failure is tagged
+    ``before_write`` (and the attempt left unwritten) only when session extraction armed
+    this attempt, nothing has been written since, and it came from taking the lease
+    (which precedes every write of the fast path). The lock budget applies to tagged
+    lock waits; any other tagged failure keeps the caller's retries.
     """
 
     @functools.wraps(orig)

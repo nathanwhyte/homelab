@@ -1024,6 +1024,48 @@ class RealTargetTests(EnvMixin, unittest.TestCase):
             [("retry", "timeout"), ("recovered", None)],
         )
 
+    def written_then(self, exc):
+        """A step that writes (as the streaming half records it), then raises ``exc``."""
+        calls = []
+
+        async def step():
+            calls.append(1)
+            ep._mark_wrote()
+            raise exc
+
+        return step, calls
+
+    def test_nothing_is_retried_once_the_attempt_wrote(self):
+        from openviking.models.model_error import ModelError, ModelErrorKind
+        from openviking.storage.errors import LockAcquisitionError as RealLockError
+
+        for exc in (
+            TimeoutError(),
+            TimeoutError("storage timed out"),
+            ModelError(ModelErrorKind.RATE_LIMIT_ERROR, "429", status_code=429),
+            ModelError(ModelErrorKind.TRANSIENT_SERVICE_ERROR, "503", status_code=503),
+            before_write(RealLockError(LOCK_TEXT)),
+            RuntimeError("Error code: 502 - bad gateway"),
+        ):
+            with self.subTest(exc=repr(exc)):
+                step, calls = self.written_then(exc)
+                _, got, records = self.run_real(step)
+                self.assertIs(got, exc)
+                self.assertEqual(len(calls), 1)
+                self.assertEqual([r["event"] for r in records], ["failed"])
+                self.assertEqual(records[0]["failure_class"], ep.failure_class(exc))
+
+    def test_structured_model_error_before_a_write_keeps_stock_retry(self):
+        from openviking.models.model_error import ModelError, ModelErrorKind
+
+        exc = ModelError(ModelErrorKind.RATE_LIMIT_ERROR, "429", status_code=429)
+        step, calls = scripted(exc, "ok")
+        result, got, records = self.run_real(step)
+        self.assertIsNone(got)
+        self.assertEqual(result, "ok")
+        self.assertEqual(len(calls), 2)
+        self.assertEqual([r["event"] for r in records], ["retry", "recovered"])
+
     def test_degraded_is_retried_by_the_wrapped_classifier(self):
         from openviking.utils import model_retry
 
@@ -1081,13 +1123,45 @@ def _run_harness(scenario, extra_env=None):
 
 ARCHIVE = "viking://session/default/s1/history/archive_001"
 MEMORIES = "viking://user/default/memories"
-# (extraction number, lease index within it) -> "lock"; every other lease succeeds.
+# (extraction number, lease index within it) -> failure; every other lease succeeds.
+# Lease 0 is the append-only lease (before any write); lease 1 is the merge group's,
+# after the event landed.
 LEASE_SCRIPTS = {
     "guard": {},
-    "lock_after_append": {(1, 1): "lock"},  # the merge-group lease, after events landed
-    "lock_before_write": {(1, 0): "lock"},  # the append-only lease, before any write
+    "lock_after_append": {(1, 1): "lock"},
+    "lock_before_write": {(1, 0): "lock"},
     "parse_exhaustion": {},
+    # Errors upstream's _retry_limit retries without asking the classifier.
+    "timeout_empty_after_append": {(1, 1): "timeout_empty"},
+    "timeout_storage_after_append": {(1, 1): "timeout_storage"},
+    "model_429_after_append": {(1, 1): "model_429"},
+    "model_503_after_append": {(1, 1): "model_503"},
+    "timeout_before_write": {(1, 0): "timeout_storage"},
 }
+
+
+def _scripted_failure(kind):
+    """The exception a scripted lease raises."""
+    from openviking.models.model_error import ModelError, ModelErrorKind
+    from openviking.storage.errors import LockAcquisitionError as RealLockError
+
+    return {
+        "lock": lambda: RealLockError(LOCK_TEXT),
+        "timeout_empty": lambda: TimeoutError(),
+        "timeout_storage": lambda: TimeoutError("storage timed out"),
+        "model_429": lambda: ModelError(
+            ModelErrorKind.RATE_LIMIT_ERROR,
+            "Error code: 429 - rate limit",
+            provider="openai",
+            status_code=429,
+        ),
+        "model_503": lambda: ModelError(
+            ModelErrorKind.TRANSIENT_SERVICE_ERROR,
+            "Error code: 503 - service unavailable",
+            provider="openai",
+            status_code=503,
+        ),
+    }[kind]()
 
 
 def _phase2_harness_main(scenario):
@@ -1114,7 +1188,6 @@ def _phase2_harness_main(scenario):
         ResolvedOperation,
         ResolvedOperations,
     )
-    from openviking.storage.errors import LockAcquisitionError as RealLockError
     from openviking_cli.utils.config import open_viking_config as ovc
 
     applied = {
@@ -1152,8 +1225,8 @@ def _phase2_harness_main(scenario):
         async def pathlock_acquire_exact_batch(self, paths, timeout_secs=0.0, **kw):
             key = (state["extractions"], state["lease"])
             state["lease"] += 1
-            if script.get(key) == "lock":
-                raise RealLockError(LOCK_TEXT)
+            if key in script:
+                raise _scripted_failure(script[key])
             return {"lease": key}
 
         pathlock_acquire_exact_tree_batch = pathlock_acquire_exact_batch
@@ -1418,6 +1491,55 @@ class Phase2HarnessTests(unittest.TestCase):
         self.assertEqual(
             [(o["event"], o["failure_class"]) for o in record["outcomes"]],
             [("failed", "lock_wait")],
+        )
+
+    def assert_stopped_after_append(self, scenario, failure_class):
+        """One extraction, one event file, ``.failed.json``, one failed outcome line."""
+        record = _run_harness(scenario)
+        self.assertEqual(
+            self.event_files(record),
+            {f"{MEMORIES}/events/event-from-extraction-1.md": "extraction 1"},
+            f"{scenario}: {record['extractions']} extraction(s)\n"
+            f"{record['stderr_tail']}",
+        )
+        self.assertEqual(record["extractions"], 1)
+        self.assertIsNone(self.marker(record, ".done"))
+        failed = self.marker(record, ".failed.json")
+        self.assertIsNotNone(failed, record["stderr_tail"])
+        self.assertEqual(failed["stage"], "memory_extraction")
+        self.assertEqual(
+            [(o["event"], o["failure_class"]) for o in record["outcomes"]],
+            [("failed", failure_class)],
+        )
+        return record, failed
+
+    def test_a_timeout_after_an_append_only_write_is_not_retried(self):
+        # Upstream's _retry_limit retries a builtin TimeoutError as a model error
+        # without asking the classifier, with or without a message.
+        for scenario in ("timeout_empty_after_append", "timeout_storage_after_append"):
+            with self.subTest(scenario=scenario):
+                self.assert_stopped_after_append(scenario, "timeout")
+
+    def test_a_model_error_after_an_append_only_write_is_not_retried(self):
+        for scenario, text in (
+            ("model_429_after_append", "429"),
+            ("model_503_after_append", "503"),
+        ):
+            with self.subTest(scenario=scenario):
+                _, failed = self.assert_stopped_after_append(scenario, "other")
+                self.assertIn(text, failed["error"])
+
+    def test_a_timeout_before_any_write_keeps_stock_retry(self):
+        record = _run_harness("timeout_before_write")
+        self.assertEqual(
+            self.event_files(record),
+            {f"{MEMORIES}/events/event-from-extraction-2.md": "extraction 2"},
+            record["stderr_tail"],
+        )
+        self.assertIsNotNone(self.marker(record, ".done"))
+        self.assertEqual(
+            [(o["event"], o.get("failure_class")) for o in record["outcomes"]],
+            [("retry", "timeout"), ("recovered", None)],
         )
 
     def test_a_lock_wait_before_any_write_is_still_retried(self):
