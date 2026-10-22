@@ -53,10 +53,13 @@ data:
     WATCHDOG_MIN_LOG_COVERAGE_SECONDS=600, WATCHDOG_EXPORTER_MAX_STALE_SECONDS=120,
     WATCHDOG_EXPORTER_URL, WATCHDOG_NAMESPACE, WATCHDOG_DEPLOYMENT.
 
-    Decisions: restart, defer, none (the lock series were read and no lock
-    qualified, or a later check stopped it), or blind (the Deployment or exporter
-    could not be read, so nothing was observed). Count clean observations by
-    decision=none only; decision=blind runs saw nothing (IMPR-1416).
+    Decisions (the run's `decision=` line): restart, defer, none (usable lock
+    series were read and no lock qualified, or a later check stopped it), or blind
+    (the Deployment was unreadable, or the exporter was unusable, reported
+    OpenViking down or its lock poll failing, or was stale, so no lock series were
+    read). Count observations by decision=none only (IMPR-1416). The pre-restart
+    recheck logs no second decision line; a recheck that fails any gate logs
+    `ABORTED before restart`.
 
     Exit codes: 0 = a decision was made (restart, defer, none or blind, including
     every "could not tell" case); 1 = a restart was attempted and failed, or an
