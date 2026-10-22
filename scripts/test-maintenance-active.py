@@ -107,8 +107,14 @@ class RolloutTests(unittest.TestCase):
                 ma.rollout_reason(deployment(reason=reason)), f"Progressing: {reason}"
             )
 
-    def test_unobserved_generation(self):
-        self.assertIn("generation", ma.rollout_reason(deployment(generation=3)))
+    def test_generation_lag_alone_is_not_a_rollout(self):
+        # Round 2 P2: annotation and other non-template edits bump generation.
+        for reason, status in (
+            ("ProgressDeadlineExceeded", "False"),
+            ("NewReplicaSetAvailable", "True"),
+        ):
+            d = deployment(generation=3, observed=2, reason=reason, status=status)
+            self.assertIsNone(ma.rollout_reason(d))
 
     def test_completed_rollout_with_pods_down_is_not_covered(self):
         # Round 1 P2: availability falling after a finished rollout is an outage.
@@ -217,6 +223,47 @@ class LocalStateTests(unittest.TestCase):
         self.assertEqual(found, [])
         self.assertEqual(len(unreadable), 1)
         self.assertIn("silence-id", unreadable[0])
+
+    @unittest.skipIf(os.geteuid() == 0, "root reads mode-000 directories")
+    def test_unreadable_state_directories_are_reported(self):
+        # Round 2 P2: pathlib's is_file() hid a mode-000 parent as "no file".
+        for rel in (
+            "homelab-timmy-offline",
+            "homelab-node-maintenance/lock",
+            "homelab-node-maintenance",
+        ):
+            with self.subTest(rel=rel):
+                self.write("homelab-timmy-offline/silence-id", "abc\n")
+                self.write("homelab-node-maintenance/lock/pid", f"{os.getpid()}\n")
+                d = self.root / rel
+                d.chmod(0)
+                try:
+                    found, unreadable = ma.local_windows(self.root)
+                finally:
+                    d.chmod(0o700)
+                self.assertTrue(unreadable, rel)
+                self.assertTrue(all(rel in u for u in unreadable), unreadable)
+
+    @unittest.skipIf(os.geteuid() == 0, "root reads mode-000 directories")
+    def test_cli_exits_2_on_an_unreadable_state_directory(self):
+        d = self.root / "homelab-node-maintenance"
+        d.mkdir()
+        d.chmod(0)
+        try:
+            out = subprocess.run(
+                [sys.executable, "-I", str(SCRIPT), "--json", "viking"],
+                capture_output=True,
+                text=True,
+                env={
+                    "PATH": os.environ["PATH"],
+                    "XDG_STATE_HOME": str(self.root),
+                    "KUBECTL": "/usr/bin/true",
+                },
+                timeout=30,
+            )
+        finally:
+            d.chmod(0o700)
+        self.assertEqual(out.returncode, 2, out.stdout)
 
 
 class StateNamesInSyncTests(unittest.TestCase):

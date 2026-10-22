@@ -31,12 +31,14 @@ test, never an inference from cluster state:
   narrows it to targets in that namespace. Any other matcher, including a regex
   or negated namespace matcher, makes it not count: it silences particular
   alerts, which says nothing about whether a service is down on purpose.
-- rollout: a deployment/<ns>/<name> target whose Progressing condition says a
-  rollout is under way (ReplicaSetUpdated, NewReplicaSetCreated,
-  FoundNewReplicaSet), or whose newest generation the controller has not yet
-  observed. It ends when the rollout completes (NewReplicaSetAvailable) or
-  fails (ProgressDeadlineExceeded), so a crash after or instead of a rollout is
-  never covered. Covers that target only; other kinds get no rollout check.
+- rollout: a deployment/<ns>/<name> target whose Progressing condition, as
+  the Deployment controller set it, says a rollout is under way
+  (ReplicaSetUpdated, NewReplicaSetCreated, FoundNewReplicaSet). It ends when
+  the rollout completes (NewReplicaSetAvailable) or fails
+  (ProgressDeadlineExceeded), so a crash after or instead of a rollout is never
+  covered. Generation lag alone is not a rollout: annotation and other
+  non-template edits bump the generation too. Covers that target only; other
+  kinds get no rollout check.
 
 The state files exist only on the Mac that ran the tool; on the other Mac only
 the silence and rollout checks apply. Alertmanager runs on timmy, so during a
@@ -49,6 +51,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import stat
 import subprocess
 import sys
 from pathlib import Path
@@ -69,16 +72,33 @@ def state_root(env=os.environ) -> Path:
     return Path(env.get("XDG_STATE_HOME") or Path.home() / ".local/state")
 
 
-def read_state(path: Path) -> str | None:
-    """A regular file's text, None when it does not exist; Unreadable otherwise."""
-    try:
-        if not path.is_file():
-            return None
-        return path.read_text(errors="replace")
-    except (FileNotFoundError, NotADirectoryError):
+def absent_or_raise(path: Path, e: OSError) -> None:
+    """Every filesystem error but absence is Unreadable. Only raw os calls go
+    through here: pathlib predicates such as is_file() return False on a
+    permission error, which would read as "no window"."""
+    if isinstance(e, (FileNotFoundError, NotADirectoryError)):
         return None
+    raise Unreadable(f"{path}: {e}") from None
+
+
+def read_state(path: Path) -> str | None:
+    """A regular file's text (stat follows symlinks, like the producers' -s),
+    None when it does not exist or is not a regular file; Unreadable otherwise."""
+    try:
+        if not stat.S_ISREG(os.stat(path).st_mode):
+            return None
+        with open(path, errors="replace") as fh:
+            return fh.read()
     except OSError as e:
-        raise Unreadable(f"{path}: {e}") from None
+        return absent_or_raise(path, e)
+
+
+def list_dir(path: Path) -> list[str]:
+    try:
+        return sorted(os.listdir(path))
+    except OSError as e:
+        absent_or_raise(path, e)
+        return []
 
 
 def pid_alive(text: str) -> bool:
@@ -115,17 +135,17 @@ def local_windows(root: Path) -> tuple[list[tuple[str, str]], list[str]]:
 
     nm = root / "homelab-node-maintenance"
     try:
-        boot_ids = sorted(p for p in nm.iterdir() if p.name.endswith(".boot-id"))
-    except (FileNotFoundError, NotADirectoryError):
-        boot_ids = []
-    except OSError as e:
-        unreadable.append(f"{nm}: {e}")
-        boot_ids = []
-    for path in boot_ids:
-        text = state(path)
+        names = list_dir(nm)
+    except Unreadable as e:
+        unreadable.append(str(e))
+        names = []
+    for name in names:
+        if not name.endswith(".boot-id"):
+            continue
+        text = state(nm / name)
         if text and text.split("\n", 1)[0]:
-            node = path.name.removesuffix(".boot-id")
-            found.append((ALL, f"node-maintenance: {node} owes a finish ({path})"))
+            node = name.removesuffix(".boot-id")
+            found.append((ALL, f"node-maintenance: {node} owes a finish ({nm / name})"))
     lock = state(nm / "lock" / "pid")
     if lock and pid_alive(lock):
         found.append((ALL, f"node-maintenance: pid {lock.strip()} holds {nm / 'lock'}"))
@@ -224,11 +244,8 @@ def silence_windows() -> list[tuple[str, str]]:
 
 
 def rollout_reason(obj: dict) -> str | None:
-    """Why a Deployment is mid-rollout, or None when it is not."""
-    status = obj.get("status", {})
-    if status.get("observedGeneration", 0) < obj["metadata"].get("generation", 0):
-        return "a new generation is not yet observed"
-    for cond in status.get("conditions", []):
+    """Why a Deployment is mid-rollout per its controller, or None."""
+    for cond in obj.get("status", {}).get("conditions", []):
         if cond.get("type") == "Progressing":
             if cond.get("status") == "True" and cond.get("reason") in ROLLING_REASONS:
                 return f"Progressing: {cond['reason']}"
