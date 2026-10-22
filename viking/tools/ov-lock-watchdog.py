@@ -50,8 +50,24 @@ WATCHDOG_LOG_RECENT_SECONDS=60, WATCHDOG_LOG_MAX_GAP_SECONDS=60,
 WATCHDOG_MIN_LOG_COVERAGE_SECONDS=600, WATCHDOG_EXPORTER_MAX_STALE_SECONDS=120,
 WATCHDOG_EXPORTER_URL, WATCHDOG_NAMESPACE, WATCHDOG_DEPLOYMENT.
 
-Exit codes: 0 = a decision was made (restart, defer or none, including every
-"could not tell" case); 1 = a restart was attempted and failed, or an
+Decisions (the run's `decision=` line, IMPR-1416):
+
+- restart, defer: a same-lease lock held >= hold; the queue rule chose.
+- held: a lock held >= hold was seen, but no restart: the cooldown, an
+  unsettled rollout or unreadable restartedAt stopped it, or no long lock
+  passed the same-lease check (the log was unreadable, too short, or showed a
+  changed, stopped or gapped lease).
+- none: usable lock series were read and no lock was held >= hold.
+- blind: no lock series were read (the Deployment was unreadable, or the
+  exporter was unusable, reported OpenViking down or its lock poll failing, or
+  was stale).
+
+A count of decision=none counts the runs that read usable lock series and saw
+no lock held >= hold. The pre-restart recheck logs no second decision line; a
+recheck that fails any gate logs `ABORTED before restart`.
+
+Exit codes: 0 = a decision was made (restart, defer, held, none or blind, including
+every "could not tell" case); 1 = a restart was attempted and failed, or an
 unexpected error; 2 = blind (the ServiceAccount is refused by the Kubernetes API
 - RBAC missing) or bad configuration. Non-zero fails the Job, which reaches
 Slack through KubeJobFailed; a quiet "none" never does.
@@ -697,7 +713,7 @@ class LockReport:
 
 @dataclass(frozen=True)
 class Decision:
-    action: str  # "restart" | "defer" | "none"
+    action: str  # "restart" | "defer" | "held" | "none" | "blind"
     reason: str
     locks: tuple[LockReport, ...] = field(default_factory=tuple)
 
@@ -710,6 +726,17 @@ def _stop(reason: str) -> tuple[Decision, list[LiveLock]]:
     return Decision("none", reason), []
 
 
+def _blind(reason: str) -> tuple[Decision, list[LiveLock]]:
+    """A stop before the lock series could be read: the run observed nothing,
+    so it must not count as a clean "none" (IMPR-1416 row 2)."""
+    return Decision("blind", reason), []
+
+
+def _held(reason: str) -> tuple[Decision, list[LiveLock]]:
+    """A stop after a lock held >= hold was seen: not a clean "none" either."""
+    return Decision("held", reason), []
+
+
 def gate(
     cfg: Config,
     now: datetime.datetime,
@@ -720,18 +747,18 @@ def gate(
     """Cheap checks that need no pod log. (Decision, long locks): the locks are
     empty exactly when the Decision is already final."""
     if deploy is None:
-        return _stop(f"deployment unreadable: {errors.get('deploy', 'unknown')}")
+        return _blind(f"deployment unreadable: {errors.get('deploy', 'unknown')}")
     if exporter is None:
-        return _stop(f"exporter unusable: {errors.get('exporter', 'unknown')}")
+        return _blind(f"exporter unusable: {errors.get('exporter', 'unknown')}")
     if not exporter.up or not exporter.lock_poll_ok:
-        return _stop(
+        return _blind(
             "exporter reports OpenViking down or the lock poll failing "
             f"(up={int(exporter.up)}, lock_poll_ok={int(exporter.lock_poll_ok)}); "
             "its lock series are stale"
         )
     stale = now.timestamp() - exporter.last_poll
     if stale > cfg.exporter_max_stale or stale < -cfg.exporter_max_stale:
-        return _stop(f"exporter last polled {int(stale)}s ago; its series are stale")
+        return _blind(f"exporter last polled {int(stale)}s ago; its series are stale")
     longs = sorted(
         (lock for lock in exporter.locks if lock.age >= cfg.hold),
         key=lambda lock: -lock.age,
@@ -742,13 +769,13 @@ def gate(
             f"no lock held >= {int(cfg.hold)}s (longest labelled: {int(longest)}s)"
         )
     if deploy.restarted_at_error:
-        return _stop(f"cannot judge the cooldown: {deploy.restarted_at_error}")
+        return _held(f"cannot judge the cooldown: {deploy.restarted_at_error}")
     if not deploy.settled:
-        return _stop(f"deployment not settled: {deploy.unsettled_why}")
+        return _held(f"deployment not settled: {deploy.unsettled_why}")
     if deploy.restarted_at is not None:
         since = (now - deploy.restarted_at).total_seconds()
         if since < cfg.cooldown:
-            return _stop(
+            return _held(
                 f"cooldown: deployment restarted {int(since)}s ago "
                 f"(< {int(cfg.cooldown)}s)"
             )
@@ -779,7 +806,7 @@ def decide(
     qualified = [r for r in reports if r.qualified]
     if not qualified:
         return Decision(
-            "none",
+            "held",
             f"{len(reports)} lock(s) held >= {int(cfg.hold)}s, none passed the "
             "same-lease check",
             tuple(reports),
