@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
-"""Unit tests for ov-contention-watch.py (BUG-1220). Offline: subprocess.run and
-the clock are stubbed; no cluster, no sockets."""
+"""Unit tests for ov-contention-watch.py (BUG-1220). Offline, no cluster, no sockets:
+subprocess.run and the clocks are stubbed, except test_real_sigterm_exits_130_with_a_ledger,
+which runs the watcher as a child process against a fake kubectl script."""
 
 from __future__ import annotations
 
@@ -137,12 +138,19 @@ class FakeKubectl:
 
 
 class Clock:
-    """time.time that advances only when sleep is called."""
+    """time.time and time.monotonic that advance only when sleep is called.
+
+    `skew` steps the wall clock without touching the monotonic one.
+    """
 
     def __init__(self):
         self.t = 1_000_000.0
+        self.skew = 0.0
 
     def time(self):
+        return self.t + self.skew
+
+    def monotonic(self):
         return self.t
 
     def sleep(self, s):
@@ -518,7 +526,8 @@ class PodListKubectl(FakeKubectl):
     """FakeKubectl whose `get pods -o json` serves one scripted state per poll.
 
     A state is a list of pod_item dicts, or None for a failed probe. The last
-    state repeats. The Deployment (readyReplicas included) is never consulted.
+    state repeats. The Deployment JSON is served only to restart_trigger; the uptime accounting
+    does not read it (readyReplicas included).
     """
 
     def __init__(self, states, exec_fail=(), logs_fail=(), **kw):
@@ -526,6 +535,7 @@ class PodListKubectl(FakeKubectl):
         self.states = list(states)
         self.exec_fail = set(exec_fail)  # indices of exec calls that fail
         self.logs_fail = set(logs_fail)  # indices of logs calls that fail
+        self.fail_stderr = "connection refused"
         self._probes = 0
         self._execs = 0
         self._logs = 0
@@ -546,7 +556,7 @@ class PodListKubectl(FakeKubectl):
             state = self.states[min(self._probes, len(self.states) - 1)]
             self._probes += 1
             if state is None:
-                return subprocess.CompletedProcess(args, 1, "", "connection refused")
+                return subprocess.CompletedProcess(args, 1, "", self.fail_stderr)
             return subprocess.CompletedProcess(
                 args, 0, json.dumps({"items": state}), ""
             )
@@ -566,6 +576,7 @@ def run_target(
     raise_after=None,
     exc=None,
     caught=None,
+    skew_after=None,
 ):
     """Run watch() in target-uptime mode; return (stdout lines, log lines, polls).
 
@@ -578,6 +589,8 @@ def run_target(
 
     def sleep(s):
         polls.append(clock.t)
+        if skew_after and len(polls) == skew_after[0]:
+            clock.skew = skew_after[1]
         if exc is not None and len(polls) >= raise_after:
             raise exc
         if len(polls) > max_polls:
@@ -588,6 +601,7 @@ def run_target(
     with (
         mock.patch.object(cw.subprocess, "run", fake),
         mock.patch.object(cw.time, "time", clock.time),
+        mock.patch.object(cw.time, "monotonic", clock.monotonic),
         mock.patch.object(cw.time, "sleep", sleep),
         contextlib.redirect_stdout(buf),
     ):
@@ -874,6 +888,102 @@ class TargetUptime(unittest.TestCase):
         self.assertEqual(len(has(out, "WATCH ERROR deploy")), 1)
         self.assertEqual(len(has(logged, "WATCH ERROR deploy")), 2)
 
+    def test_bad_exporter_reads_never_become_lock_state(self):
+        a = [pod_item(POD_A, since=-3600)]
+        out, _, _ = run_target(
+            PodListKubectl([a], metrics=metrics_text(poll_ok=0)), 120
+        )
+        self.assertIn("locks=unknown", has(out, "SEGMENT ")[0])
+
+    def test_a_bad_read_keeps_the_last_good_lock_state(self):
+        a = [pod_item(POD_A, since=-3600)]
+        fake = PodListKubectl(
+            [a],
+            metrics=[
+                metrics_text(live_age=700),
+                metrics_text(poll_ok=0),
+                metrics_text(poll_ok=0),
+            ],
+        )
+        out, _, _ = run_target(fake, 120)
+        self.assertIn("live=1 oldest=0s", has(out, "SEGMENT ")[0])
+        # HOLD alerting is not changed by this: it still sees the first read
+        self.assertEqual(len(has(out, "HOLD >= 600s")), 1)
+
+    def test_log_only_deploy_failure_does_not_open_the_streak(self):
+        a = [pod_item(POD_A, since=-3600)]
+        a_term = [pod_item(POD_A, since=-3600, terminating=True)]
+        b = [pod_item(POD_B, since=10)]
+        c = [pod_item("openviking-ccc-3", since=20)]
+        states = [a] * 3 + [a_term] + [b] * 3 + [c] * 3
+        fake = PodListKubectl(states, deploy_rc=1)
+        out, logged, _ = run_target(
+            fake, 3600, log=self.log, max_polls=12, capped_ok=True
+        )
+        # the fetch at OV DOWN is log-only; the next one, with OV up, wakes
+        self.assertEqual(len(has(logged, "WATCH ERROR deploy")), 2)
+        self.assertEqual(len(has(out, "WATCH ERROR deploy")), 1)
+
+    def test_wall_clock_step_does_not_change_durations(self):
+        a = [pod_item(POD_A, since=-3600)]
+        # the wall clock steps back 2 h 5 m after the second poll
+        out, _, polls = run_target(PodListKubectl([a]), 180, skew_after=(2, -7500.0))
+        self.assertEqual(polls, 3)
+        (seg,) = has(out, "SEGMENT ")
+        self.assertIn("dur=0h03m00s cum=0h03m00s remaining=0h00m00s", seg)
+        self.assertIn(
+            "1 segments, uptime 0h03m00s of 0h03m00s", has(out, "WATCH end")[0]
+        )
+
+    def test_interrupt_during_the_target_segment_write_is_incomplete(self):
+        a = [pod_item(POD_A, since=-3600)]
+        raised = []
+        real = cw.Sink.emit
+
+        def emit(self, line, wake=True):
+            if line.startswith("SEGMENT") and not raised:
+                raised.append(line)
+                raise KeyboardInterrupt
+            return real(self, line, wake)
+
+        caught = []
+        with mock.patch.object(cw.Sink, "emit", emit):
+            out, _, _ = run_target(
+                PodListKubectl([a]), 120, log=self.log, caught=caught
+            )
+        self.assertEqual(len(caught), 1)
+        (end,) = has(out, "WATCH end:")
+        self.assertIn("incomplete (interrupted)", end)
+        self.assertNotIn("target reached", end)
+
+    def test_interrupt_during_the_start_line_still_writes_watch_end(self):
+        a = [pod_item(POD_A, since=-3600)]
+        raised = []
+        real = cw.Sink.emit
+
+        def emit(self, line, wake=True):
+            if line.startswith("WATCH start") and not raised:
+                raised.append(line)
+                raise KeyboardInterrupt
+            return real(self, line, wake)
+
+        caught = []
+        with mock.patch.object(cw.Sink, "emit", emit):
+            out, _, _ = run_target(PodListKubectl([a]), 120, caught=caught)
+        self.assertEqual(len(caught), 1)
+        (end,) = has(out, "WATCH end:")
+        self.assertIn("incomplete (interrupted), 0 segments", end)
+
+    def test_multiline_stderr_is_one_stdout_line(self):
+        a = [pod_item(POD_A, since=-3600)]
+        fake = PodListKubectl([a, None, a])
+        fake.fail_stderr = "first line\nsecond line\n\n  third"
+        out, logged, _ = run_target(fake, 120, log=self.log)
+        (err,) = has(out, "WATCH ERROR pods")
+        self.assertIn("first line second line third", err)
+        for line in out + logged:
+            self.assertRegex(line, r"^\d\d:\d\dZ ")
+
     def test_hours_mode_still_ends_by_the_clock(self):
         out, _ = run_watch(FakeKubectl([POD_A]), polls=2)
         self.assertEqual(has(out, "SEGMENT"), [])
@@ -895,12 +1005,15 @@ class UptimeRule(unittest.TestCase):
             def ok(self, probe):
                 pass
 
+        def at(wall):
+            return cw.Instant(wall, (wall - start).total_seconds())
+
         t = cw.ReadyTracker(72 * 3600, Lines())
         state = ("ready", [(POD_A, "2026-10-21T20:00:00Z")])
         with mock.patch.object(cw, "ready_state", return_value=state):
-            t.poll(start)
-            t.poll(end)
-        t.finish(end)
+            t.poll(at(start))
+            t.poll(at(end))
+        t.finish(at(end))
         self.assertEqual(cw.fmt_dur(t.closed), "2h19m32s")
         self.assertIn("start=2026-10-21T22:07:19Z end=2026-10-22T00:26:51Z", lines[0])
         self.assertIn("dur=2h19m32s cum=2h19m32s remaining=69h40m28s", lines[0])
@@ -946,8 +1059,10 @@ class UptimeRule(unittest.TestCase):
                 mock.patch.object(cw, "restart_trigger", return_value=""),
             ):
                 for k in range(n + 1):
-                    tracker.poll(t0 + dt.timedelta(seconds=60 * k))
-            tracker.finish(t0 + dt.timedelta(seconds=60 * n))
+                    tracker.poll(
+                        cw.Instant(t0 + dt.timedelta(seconds=60 * k), 60.0 * k)
+                    )
+            tracker.finish(cw.Instant(t0 + dt.timedelta(seconds=60 * n), 60.0 * n))
             self.assertEqual(tracker.closed, expected, f"seed {seed}")
         self.assertGreater(bridged, 20)
 
