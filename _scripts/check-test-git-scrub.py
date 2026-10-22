@@ -23,9 +23,12 @@ exactly
 with N the number of directories between the repo root and the suite (1 for
 `_scripts/test-x.py`), compared as AST nodes with nothing else before it.
 
-A suite is any `test-*.py` or `test_*.py` under the repo, outside hidden
-directories, whether or not a hook runs it today. EXEMPT lists the suites that
-run somewhere other than a checkout, where `_scripts/lib` does not exist.
+A suite is any `test-*.py` or `test_*.py` under the repo, outside hidden,
+`node_modules` and `__pycache__` directories, whether or not a hook runs it
+today. EXEMPT lists the suites that run only somewhere other than a checkout
+(a container, a pod over stdin), where `_scripts/lib` does not exist; a suite
+that also runs from a checkout mounts the repo layout instead, as
+media/yt-dlp/test-run-yt-dlp.py's image pass does.
 
 This protects against accidental GIT_* inheritance. It does not stop a suite
 that deliberately defeats it (a later `os.environ.update`, a `GIT_DIR` set on
@@ -56,6 +59,10 @@ scrub_environ()
 EXEMPT = {
     "benchmarks/harbor/tasks/hello-world/tests/test_state.py": (
         "tests/test.sh runs it inside the Harbor task container"
+    ),
+    "viking/scripts/test-s3-lockdir-race.py": (
+        "piped into the openviking-test pod as `python -` (__file__ is <stdin>); "
+        "no hook runs it"
     ),
 }
 SKIP_DIRS = {"node_modules", "__pycache__"}

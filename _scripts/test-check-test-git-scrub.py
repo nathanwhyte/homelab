@@ -180,7 +180,10 @@ class CheckTestGitScrub(unittest.TestCase):
 
     def test_the_exempt_suite_is_not_scanned_and_only_it(self):
         self.passes(
-            **{"benchmarks__harbor__tasks__hello-world__tests__test_state.py": "pass\n"}
+            **{
+                "benchmarks__harbor__tasks__hello-world__tests__test_state.py": "pass\n",
+                "viking__scripts__test-s3-lockdir-race.py": "pass\n",
+            }
         )
         self.fails(
             "benchmarks/harbor/tasks/other/tests/test_state.py",
