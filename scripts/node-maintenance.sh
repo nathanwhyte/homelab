@@ -84,6 +84,9 @@ MAINTENANCE_LOCK_DIR=$MAINTENANCE_STATE_DIR/lock
 MAINTENANCE_WINDOW_FILE=$MAINTENANCE_STATE_DIR/window
 MAINTENANCE_WINDOW_SECONDS=${MAINTENANCE_WINDOW_SECONDS:-7200}
 APT_WINDOW_FILE=$MAINTENANCE_STATE_DIR/apt-window
+# The node whose remote apt run started (APT_STARTED seen) and has not been seen
+# to end. The run is detached, so it outlives a timeout or an interrupt here.
+APT_RUNNING=
 LOCK_HELD=0
 # Overridable so tests can stub cluster reads/writes without a live cluster.
 KUBECTL=${KUBECTL:-kubectl}
@@ -788,24 +791,35 @@ cmd_apt() {
 		require_node "$node"
 	done
 	# Package restarts (k3s, containerd, tailscaled) can drop pods. Bounded by
-	# apt's own limits per node. Removed once the remote runs have ended; a launch
-	# failure, timeout or interrupt leaves it to its end, since the detached
-	# remote upgrade may still be going.
+	# apt's own limits per node; apt_exit_window settles it on any exit.
 	open_maintenance_window "apt upgrade on ${targets[*]}" "$APT_WINDOW_FILE" \
 		$((${#targets[@]} * (APT_LAUNCH_GRACE_SECONDS + APT_TIMEOUT_SECONDS + 2 * SSH_CMD_TIMEOUT_SECONDS)))
+	trap 'apt_exit_window; release_maintenance_lock' EXIT
 	for node in "${targets[@]}"; do
 		log "[$node] apt update + full-upgrade + autoremove (detached; nodes still serial)"
 		launch_remote_apt "$node"
+		APT_RUNNING=$node
 		rc=$(wait_remote_apt "$node")
+		APT_RUNNING=
 		if [[ $rc != 0 ]]; then
-			rm -f "$APT_WINDOW_FILE"
 			run_ssh "$node" "tail -25 $APT_REMOTE_LOG" 2>/dev/null | sed 's/^/    /' || true
 			die "[$node] apt exited $rc; full log at $node:$APT_REMOTE_LOG"
 		fi
 		report_apt_result "$node"
 	done
-	rm -f "$APT_WINDOW_FILE"
 	log "apt phase done. Reboot serially with: $SELF reboot <node>  (order: ${NODES[*]})"
+}
+
+# Without a run that started and was not seen to end, nothing is upgrading and
+# the window goes. With one, it keeps at most one more APT_TIMEOUT_SECONDS for
+# that run; later nodes never start.
+apt_exit_window() {
+	if [[ -n $APT_RUNNING ]]; then
+		open_maintenance_window "apt upgrade on $APT_RUNNING (stopped early; its remote run may continue)" \
+			"$APT_WINDOW_FILE" "$APT_TIMEOUT_SECONDS"
+	else
+		rm -f "$APT_WINDOW_FILE"
+	fi
 }
 
 cmd_status() {

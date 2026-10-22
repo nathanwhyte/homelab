@@ -69,7 +69,7 @@ probe() { printf '%s\n\n__PROBE_OK__\n' "$1"; }
 case $cmd in
 *setsid*) exit 0 ;;
 *"grep -c APT_STARTED"*) probe 1 ;;
-*APT_DONE_RC=//p*) probe "${STUB_APT_RC:-0}" ;;
+*APT_DONE_RC=//p*) if [[ -n ${STUB_APT_HANG:-} ]]; then probe ""; else probe "${STUB_APT_RC:-0}"; fi ;;
 *"dpkg --audit"*) probe "" ;;
 *reboot-required*) probe current ;;
 *boot_id*) cat "$B" ;;
@@ -181,12 +181,24 @@ STUB_APT_RC=100 nm apt wemby
 assert_eq "a failed remote apt fails the run" 1 "$?"
 assert_eq "the remote run has ended, so its window is closed" absent "$(left "$ND/apt-window")"
 
-# A launch failure (or a timeout, or an interrupt) may leave the detached
-# remote upgrade running, so the window is left to its end.
+# A launch failure means no remote run started, so nothing is upgrading.
 fresh
 STUB_SSH_FAIL=1 nm apt wemby
 assert_eq "an apt launch failure fails the run" 1 "$?"
-assert_eq "it leaves the apt window to its end" open "$(open_now "$ND/apt-window")"
+assert_eq "it closes the apt window" absent "$(left "$ND/apt-window")"
+
+# A timeout (or an interrupt) after the remote run started leaves it going, so
+# the window keeps one more APT_TIMEOUT_SECONDS for that node only.
+fresh
+STUB_APT_HANG=1 APT_TIMEOUT_SECONDS=1 nm apt wemby manu
+assert_eq "an apt timeout fails the run" 1 "$?"
+if [[ $(cat "$ND/apt-window" 2>/dev/null) =~ ^[0-9]+\ apt\ upgrade\ on\ wemby\ \(stopped\ early ]] &&
+	(($(left "$ND/apt-window") <= 1)); then
+	ok "it keeps the window for the started run only, for APT_TIMEOUT_SECONDS"
+else
+	bad "it keeps the window for the started run only (got '$(cat "$ND/apt-window" 2>/dev/null)', $(left "$ND/apt-window")s left)"
+fi
+assert_eq "manu's upgrade never started" 1 "$(grep -c 'setsid' "$STUB_LOG")"
 
 fresh
 nm apt wemby nosuchnode

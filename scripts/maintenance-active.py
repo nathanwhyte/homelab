@@ -22,8 +22,8 @@ inference from cluster state or from what a tool has left to undo:
   timmy-offline.sh down, removed when up completes) and
   homelab-node-maintenance/window (opened at a reboot cycle's first change,
   removed by finish or restore-services) and apt-window beside it (open while
-  node-maintenance.sh apt runs, and after a launch failure, timeout or
-  interrupt, since the detached remote upgrade may still be going). One counts
+  node-maintenance.sh apt runs, and for one more APT_TIMEOUT_SECONDS after a
+  timeout or interrupt that leaves a started remote upgrade going). One counts
   until its end, which bounds a cycle that was backed out or abandoned. A file
   that is not exactly one such line, or not a regular file, is unreadable. Covers every target: timmy is the
   only control plane, a cycle drains a node and reschedules pods across the
