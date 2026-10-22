@@ -161,6 +161,32 @@ class CheckerCases(unittest.TestCase):
         self.edit_docs(checker.CONFIGMAP[0], self.resync_loader)
         self.assertFails("TARGETS: missing ov_grep_scope_patch")
 
+    def test_duplicate_targets_key_fails(self):
+        # Codex R1 on homelab#254: a repeated key drops the earlier entry at runtime.
+        path = self.root / checker.NAV / "sitecustomize.py"
+        text = path.read_text()
+        line = (
+            '    "openviking.service.fs_service": ("ov_grep_scope_patch", "apply"),\n'
+        )
+        self.assertIn(line, text)
+        path.write_text(
+            text.replace(
+                line,
+                line
+                + '    "openviking.service.fs_service": ("ov_nav_patch", "apply"),\n',
+            )
+        )
+        self.edit_docs(checker.CONFIGMAP[0], self.resync_loader)
+        self.assertFails("listed twice openviking.service.fs_service")
+
+    def test_generator_literal_fails(self):
+        # Codex R1 on homelab#254: a literal adds a mounted key outside `files`.
+        def literal(doc):
+            doc["configMapGenerator"][0]["literals"] = ["openviking.py=x"]
+
+        self.edit_docs(checker.KUSTOMIZATION[0], literal)
+        self.assertFails("unexpected generator fields literals")
+
     def resync_loader(self, doc):
         doc["data"]["sitecustomize.py"] = (
             self.root / checker.NAV / "sitecustomize.py"

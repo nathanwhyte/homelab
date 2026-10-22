@@ -15,6 +15,9 @@ from unittest.mock import patch
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import ov_wm_update_patch as wm_patch
 
+# Skip only when the package is absent; a broken install fails (IMPR-1413).
+HAVE_OV = importlib.util.find_spec("openviking") is not None
+
 TITLES = [
     "Session Title",
     "Current State",
@@ -342,10 +345,10 @@ class RestoreArgumentsTests(unittest.TestCase):
     def test_undecodable_raw_is_salvaged_and_normalized_in_the_installed_openviking(
         self,
     ):
-        try:
-            from openviking.session.session import Session
-        except Exception:  # noqa: BLE001 — the system Python has no openviking
+        if not HAVE_OV:  # the system Python has no openviking
             self.skipTest("openviking not importable here")
+        from openviking.session.session import Session
+
         prior = "\n".join(
             f"## {title}\n\nold {title.lower()} body\n" for title in TITLES
         )
@@ -409,10 +412,10 @@ class RestoreArgumentsTests(unittest.TestCase):
         self.assertEqual(info["sections"], "raw")
 
     def test_restored_decisions_merge_in_the_installed_openviking(self):
-        try:
-            from openviking.session.session import Session
-        except Exception:  # noqa: BLE001 — the system Python has no openviking
+        if not HAVE_OV:  # the system Python has no openviking
             self.skipTest("openviking not importable here")
+        from openviking.session.session import Session
+
         prior = "\n".join(
             f"## {title}\n\nold {title.lower()} body\n" for title in TITLES
         )

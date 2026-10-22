@@ -4,11 +4,13 @@
 IMPR-1413. homelab#250 added ov_pref_gate_patch.py to the ConfigMap but not to the
 Deployments' ``items:`` lists, and the pod ran without the gate until homelab#252.
 The patch set is ``sitecustomize.py`` plus every ``ov_*_patch.py`` in
-viking/manifests/test/nav-patch/. This checks, with a YAML parser and ``ast``:
+viking/manifests/test/nav-patch/. This checks, with a YAML parser and by loading
+the loader itself:
 
   * the prod ConfigMap (openviking-nav-patch-configmap.yaml) holds exactly that set,
     each value byte-identical to its file;
-  * the test kustomization's ov-nav-patch generator lists exactly that set;
+  * the test kustomization's ov-nav-patch generator lists exactly that set, with no
+    other field (``literals``, ``envs``, ``behavior``) that could add a key;
   * both Deployments mount their nav-patch ConfigMap whole, with no ``items:`` list;
   * sitecustomize.py's TARGETS names every patch module, and only those.
 
@@ -18,6 +20,7 @@ Usage: check-nav-patch-files.py [--root <repo root>]
 
 import argparse
 import ast
+import importlib.util
 import sys
 from pathlib import Path
 
@@ -48,6 +51,7 @@ DEPLOYMENTS = (
     ),
 )
 VOLUME = "nav-patch"
+GENERATOR_FIELDS = {"name", "files", "options"}
 
 
 def patch_files(root):
@@ -110,8 +114,13 @@ def check_kustomization(root, files):
     ]
     if len(gens) != 1:
         return [f"{rel}: expected one configMapGenerator {name}, found {len(gens)}"]
-    listed = gens[0].get("files") or []
     errors = []
+    # literals, envs and behavior add or merge keys outside `files`; only the
+    # fields that cannot add a mounted key are allowed.
+    extra = sorted(set(gens[0]) - GENERATOR_FIELDS)
+    if extra:
+        errors.append(f"{rel} {name}: unexpected generator fields {', '.join(extra)}")
+    listed = gens[0].get("files") or []
     dupes = sorted({f for f in listed if listed.count(f) > 1})
     if dupes:
         errors.append(f"{rel} {name}: listed twice {', '.join(dupes)}")
@@ -149,39 +158,46 @@ def check_deployment(root, rel, deployment, configmap):
 
 
 def target_modules(path):
-    """Patch module names in sitecustomize.py's TARGETS dict literal."""
-    for node in ast.parse(path.read_text(encoding="utf-8")).body:
-        if (
-            isinstance(node, ast.Assign)
-            and any(isinstance(t, ast.Name) and t.id == "TARGETS" for t in node.targets)
-            and isinstance(node.value, ast.Dict)
-        ):
-            names = set()
-            for value in node.value.values:
-                pairs = value.elts if isinstance(value, ast.List) else [value]
-                for pair in pairs:
-                    if not (isinstance(pair, ast.Tuple) and pair.elts):
-                        raise ValueError(
-                            f"TARGETS value at line {pair.lineno} is not a tuple"
-                        )
-                    head = pair.elts[0]
-                    if not (
-                        isinstance(head, ast.Constant) and isinstance(head.value, str)
-                    ):
-                        raise ValueError(
-                            f"TARGETS module at line {head.lineno} is not a string"
-                        )
-                    names.add(head.value)
-            return names
-    raise ValueError("no TARGETS dict literal")
+    """Patch module names in the TARGETS that sitecustomize.py builds at runtime.
+
+    The loader is executed (under a private module name) rather than parsed, so the
+    mapping is what Python evaluates: a repeated key keeps only its last value,
+    exactly as in the pod. Its only side effect is a meta-path finder in this process.
+    """
+    source = path.read_text(encoding="utf-8")
+    keys = [
+        k.value
+        for node in ast.walk(ast.parse(source))
+        if isinstance(node, ast.Assign)
+        and any(isinstance(t, ast.Name) and t.id == "TARGETS" for t in node.targets)
+        and isinstance(node.value, ast.Dict)
+        for k in node.value.keys
+        if isinstance(k, ast.Constant)
+    ]
+    dupes = sorted({k for k in keys if keys.count(k) > 1})
+    if dupes:
+        raise ValueError(f"target module listed twice {', '.join(dupes)}")
+    spec = importlib.util.spec_from_file_location("_nav_patch_sitecustomize", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    targets = getattr(module, "TARGETS", None)
+    if not isinstance(targets, dict):
+        raise ValueError("no TARGETS dict")
+    names = set()
+    for target, entry in targets.items():
+        for pair in entry if isinstance(entry, list) else [entry]:
+            if not (isinstance(pair, tuple) and len(pair) == 2):
+                raise ValueError(f"{target}: entry {pair!r} is not (module, function)")
+            names.add(pair[0])
+    return names
 
 
 def check_targets(root, files):
     rel = f"{NAV}/sitecustomize.py"
     try:
         named = target_modules(root / rel)
-    except (SyntaxError, ValueError) as exc:
-        return [f"{rel}: cannot read TARGETS: {exc}"]
+    except Exception as exc:  # noqa: BLE001 — any failure to load is a finding
+        return [f"{rel}: cannot read TARGETS: {exc!r}"]
     want = [f[: -len(".py")] for f in files if f != "sitecustomize.py"]
     return diff_sets(f"{rel} TARGETS", want, named)
 

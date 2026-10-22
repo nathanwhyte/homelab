@@ -1473,10 +1473,11 @@ class ShadowWrapperTests(unittest.TestCase):
         self.assertEqual(seen, [msgs])
 
 
-try:
-    from openviking.session.memory import memory_updater as installed
-except ImportError:  # not in the openviking image
+# Skip only when the package is absent; a broken install fails (IMPR-1413).
+if importlib.util.find_spec("openviking") is None:  # not in the openviking image
     installed = None
+else:
+    from openviking.session.memory import memory_updater as installed
 
 
 @unittest.skipIf(installed is None, "needs the openviking v0.4.20 image")

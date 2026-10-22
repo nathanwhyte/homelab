@@ -4,6 +4,7 @@ The ``Installed`` cases need openviking v0.4.20 importable (the image, or a loca
 site-packages on PYTHONPATH) and are skipped otherwise.
 """
 
+import importlib.util
 import os
 import sys
 import types
@@ -189,12 +190,13 @@ class ApplyTests(unittest.TestCase):
                 self.assertEqual(msg.message, "m")
 
 
-try:
+# Skip only when the package is absent; a broken install fails (IMPR-1413).
+if importlib.util.find_spec("openviking") is None:
+    _ov = None
+else:
     import openviking as _ov
     from openviking.retrieve.context_assembler import tiers as _tiers
     from openviking.storage.queuefs import embedding_msg_converter as _emc
-except Exception:  # noqa: BLE001 — anything short of a real install skips these cases
-    _ov = None
 
 
 @unittest.skipIf(_ov is None, "needs openviking v0.4.20 importable")
