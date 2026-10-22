@@ -218,27 +218,34 @@ class TestIdentity(unittest.TestCase):
 
 
 class TestGates(unittest.TestCase):
+    # A stop before the lock series are read is "blind", not "none", so a count
+    # of decision=none counts only runs that saw no long lock (IMPR-1416 row 2).
     def test_exporter_down(self):
         d = decide(exporter=None, errors={"exporter": "URLError: refused"})
-        self.assertEqual(d.action, "none")
+        self.assertEqual(d.action, "blind")
         self.assertIn("exporter unusable: URLError", d.reason)
 
     def test_exporter_reports_ov_down(self):
         for kw in ({"up": False}, {"poll_ok": False}):
             d = decide(exporter=exporter([lock(9 * HOUR)], **kw))
-            self.assertEqual(d.action, "none")
+            self.assertEqual(d.action, "blind")
             self.assertIn("stale", d.reason)
 
     def test_exporter_stale_poll(self):
         e = exporter([lock(9 * HOUR)], last_poll=NOW.timestamp() - 900)
         d = decide(exporter=e)
-        self.assertEqual(d.action, "none")
+        self.assertEqual(d.action, "blind")
         self.assertIn("last polled 900s ago", d.reason)
 
     def test_deployment_unreadable(self):
         d = decide(deploy=None, errors={"deploy": "HTTP 403"})
-        self.assertEqual(d.action, "none")
+        self.assertEqual(d.action, "blind")
         self.assertIn("deployment unreadable: HTTP 403", d.reason)
+
+    def test_no_long_lock_is_an_observed_none(self):
+        d = decide(exporter=exporter([lock(600.0)]))
+        self.assertEqual(d.action, "none")
+        self.assertIn("no lock held >=", d.reason)
 
     def test_cooldown_after_a_recent_restart(self):
         d = decide(deploy=deploy(restarted_ago=1800.0))
@@ -376,6 +383,7 @@ class TestRun(unittest.TestCase):
         cluster = FakeCluster()
         code, out = self.go(cluster, boom)
         self.assertEqual((code, cluster.patches), (0, []))
+        self.assertIn("decision=blind", out)
         self.assertIn("exporter unusable: OSError", out)
 
     def test_exporter_without_the_labelled_series_is_unusable(self):

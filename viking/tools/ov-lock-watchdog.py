@@ -50,8 +50,13 @@ WATCHDOG_LOG_RECENT_SECONDS=60, WATCHDOG_LOG_MAX_GAP_SECONDS=60,
 WATCHDOG_MIN_LOG_COVERAGE_SECONDS=600, WATCHDOG_EXPORTER_MAX_STALE_SECONDS=120,
 WATCHDOG_EXPORTER_URL, WATCHDOG_NAMESPACE, WATCHDOG_DEPLOYMENT.
 
-Exit codes: 0 = a decision was made (restart, defer or none, including every
-"could not tell" case); 1 = a restart was attempted and failed, or an
+Decisions: restart, defer, none (the lock series were read and no lock
+qualified, or a later check stopped it), or blind (the Deployment or exporter
+could not be read, so nothing was observed). Count clean observations by
+decision=none only; decision=blind runs saw nothing (IMPR-1416).
+
+Exit codes: 0 = a decision was made (restart, defer, none or blind, including
+every "could not tell" case); 1 = a restart was attempted and failed, or an
 unexpected error; 2 = blind (the ServiceAccount is refused by the Kubernetes API
 - RBAC missing) or bad configuration. Non-zero fails the Job, which reaches
 Slack through KubeJobFailed; a quiet "none" never does.
@@ -697,7 +702,7 @@ class LockReport:
 
 @dataclass(frozen=True)
 class Decision:
-    action: str  # "restart" | "defer" | "none"
+    action: str  # "restart" | "defer" | "none" | "blind"
     reason: str
     locks: tuple[LockReport, ...] = field(default_factory=tuple)
 
@@ -710,6 +715,12 @@ def _stop(reason: str) -> tuple[Decision, list[LiveLock]]:
     return Decision("none", reason), []
 
 
+def _blind(reason: str) -> tuple[Decision, list[LiveLock]]:
+    """A stop before the lock series could be read: the run observed nothing,
+    so it must not count as a clean "none" (IMPR-1416 row 2)."""
+    return Decision("blind", reason), []
+
+
 def gate(
     cfg: Config,
     now: datetime.datetime,
@@ -720,18 +731,18 @@ def gate(
     """Cheap checks that need no pod log. (Decision, long locks): the locks are
     empty exactly when the Decision is already final."""
     if deploy is None:
-        return _stop(f"deployment unreadable: {errors.get('deploy', 'unknown')}")
+        return _blind(f"deployment unreadable: {errors.get('deploy', 'unknown')}")
     if exporter is None:
-        return _stop(f"exporter unusable: {errors.get('exporter', 'unknown')}")
+        return _blind(f"exporter unusable: {errors.get('exporter', 'unknown')}")
     if not exporter.up or not exporter.lock_poll_ok:
-        return _stop(
+        return _blind(
             "exporter reports OpenViking down or the lock poll failing "
             f"(up={int(exporter.up)}, lock_poll_ok={int(exporter.lock_poll_ok)}); "
             "its lock series are stale"
         )
     stale = now.timestamp() - exporter.last_poll
     if stale > cfg.exporter_max_stale or stale < -cfg.exporter_max_stale:
-        return _stop(f"exporter last polled {int(stale)}s ago; its series are stale")
+        return _blind(f"exporter last polled {int(stale)}s ago; its series are stale")
     longs = sorted(
         (lock for lock in exporter.locks if lock.age >= cfg.hold),
         key=lambda lock: -lock.age,
