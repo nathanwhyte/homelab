@@ -607,6 +607,7 @@ def run_target(
     caught=None,
     skew_after=None,
     suspend_after=None,
+    latency=0.0,
 ):
     """Run watch() in target-uptime mode; return (stdout lines, log lines, sleeps).
 
@@ -631,9 +632,13 @@ def run_target(
             raise _Capped()
         clock.sleep(s)
 
+    def slow(args, **kw):
+        clock.t += latency  # every kubectl call takes `latency` seconds
+        return fake(args, **kw)
+
     buf = io.StringIO()
     with (
-        mock.patch.object(cw.subprocess, "run", fake),
+        mock.patch.object(cw.subprocess, "run", slow if latency else fake),
         mock.patch.object(cw.time, "time", clock.time),
         mock.patch.object(cw.time, "monotonic", clock.monotonic),
         mock.patch.object(cw.time, "clock_gettime", clock.clock_gettime),
@@ -1095,7 +1100,7 @@ class TargetUptime(unittest.TestCase):
 
     def test_normal_polls_have_nothing_bridged(self):
         a = [pod_item(POD_A, since=-3600)]
-        # a single failed probe makes a 120 s gap: not over the threshold
+        # with no latency a single failed probe makes exactly 120 s: not over (strict >)
         out, _, _ = run_target(PodListKubectl([a, None, a, a, a, a]), 300)
         (seg,) = has(out, "SEGMENT ")
         self.assertIn("bridged=0h00m00s", seg)
@@ -1204,6 +1209,76 @@ class TargetUptime(unittest.TestCase):
         (end,) = has(out, "WATCH end:")
         self.assertIn("incomplete (interrupted)", end)
         self.assertEqual(len(caught), 1)
+
+    def test_one_failed_probe_with_real_latency_is_bridged(self):
+        a = [pod_item(POD_A, since=-3600)]
+        # 0.5 s per call: a full poll takes 61.5 s, a failed one 60.5 s, so the
+        # two-poll gap is 122 s, over the 120 s threshold
+        out, _, _ = run_target(PodListKubectl([a, None, a, a]), 300, latency=0.5)
+        (seg,) = has(out, "SEGMENT ")
+        self.assertIn("bridged=0h02m02s", seg)
+
+    def test_a_gap_between_two_and_four_polls_is_bridged(self):
+        a = [pod_item(POD_A, since=-3600)]
+        # 15 s per call: 105 s for a full poll, 75 s for a failed one: a 180 s gap
+        out, _, _ = run_target(PodListKubectl([a, None, a, a]), 400, latency=15.0)
+        (seg,) = has(out, "SEGMENT ")
+        self.assertIn("bridged=0h03m00s", seg)
+
+    def test_printed_bridged_values_add_up_to_the_total(self):
+        a = [pod_item(POD_A, since=-3600)]
+        gone = [pod_item(POD_A, ready=False, since=130)]
+        b = [pod_item(POD_B, since=400)]
+        # a 121.6 s gap in each of two segments: each prints 2m02s, total 4m04s
+        states = [a, None, a, gone, b, None, b, b]
+        out, _, _ = run_target(PodListKubectl(states), 400, latency=0.4)
+        segs = has(out, "SEGMENT ")
+        parts = [hms_secs(re.search(r"bridged=(\S+)", x).group(1)) for x in segs]
+        self.assertEqual(parts, [122, 122])
+        total = hms_secs(
+            re.search(r"bridged (\S+),", has(out, "WATCH end")[0]).group(1)
+        )
+        self.assertEqual(total, sum(parts))
+
+    def test_error_then_interrupt_inside_finish_keeps_the_open_segment(self):
+        a = [pod_item(POD_A, since=-3600)]
+        real = cw.ReadyTracker.finish
+        calls = []
+
+        def finish(self, now, note=""):
+            calls.append(1)
+            if len(calls) == 1:
+                raise KeyboardInterrupt  # cut before the segment is closed
+            return real(self, now, note)
+
+        caught = []
+        with mock.patch.object(cw.ReadyTracker, "finish", finish):
+            out, _, _ = run_target(
+                PodListKubectl([a]),
+                3600,
+                raise_after=3,
+                exc=RuntimeError("boom"),
+                caught=caught,
+            )
+        (end,) = has(out, "WATCH end:")
+        self.assertIn("incomplete (error: boom), 1 segments, uptime 0h02m00s", end)
+        self.assertEqual(len(has(out, "SEGMENT 1 ")), 1)
+
+    def test_multiline_exception_text_stays_on_one_line(self):
+        a = [pod_item(POD_A, since=-3600)]
+        caught = []
+        out, logged, _ = run_target(
+            PodListKubectl([a]),
+            3600,
+            log=self.log,
+            raise_after=3,
+            exc=RuntimeError("first\nsecond  third"),
+            caught=caught,
+        )
+        (end,) = has(out, "WATCH end:")
+        self.assertIn("incomplete (error: first second third), 1 segments", end)
+        for line in out + logged:
+            self.assertRegex(line, r"^\d\d:\d\dZ ")
 
     def test_hours_mode_still_ends_by_the_clock(self):
         out, _ = run_watch(FakeKubectl([POD_A]), polls=2)

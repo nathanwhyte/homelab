@@ -64,12 +64,16 @@ Events, all actionable:
            a segment closed: no covering pod at a poll (OV DOWN), the target was
            reached, the run was interrupted or failed, or two covering polls shared
            no pod with an identical transition (note: Ready lost between polls).
-           pod= lists the pods that covered it. bridged= is the part of dur that came
-           from counted gaps longer than 2 x POLL (120 s) between two consecutive
-           successful polls: a host sleep or a long run of failed probes. A pod's
+           pod= lists the pods that covered it. bridged= is the part of dur counted
+           from gaps of more than 2 x POLL (120 s, strict) between two consecutive
+           successful pods polls that were both counted: any single missed or
+           failed pods poll (about 2 min, since one poll cycle takes a little over
+           60 s), a host sleep longer than about a minute, or a poll cycle slowed
+           by a probe timeout, as well as longer runs of failed probes. A pod's
            unchanged Ready transition is the only evidence for that time, and
-           nothing was checked during it. It is never more than dur. WATCH end
-           carries the total as `bridged <d>`. live= counts the labelled
+           nothing was checked during it. Each segment's value is rounded to whole
+           seconds when it closes and WATCH end sums those values, as
+           `bridged <d>`; it is never more than dur. live= counts the labelled
            openviking_s3_ovlock_live_age_seconds series at the last metrics poll in
            the segment (the exporter keeps the top 3 locks held >= 900 s, so it is
            not the lease count); oldest= is the exporter's oldest live lock age;
@@ -102,10 +106,15 @@ The price is repeats: a SEGMENT or WATCH end line whose interrupt landed after i
 write is written again, in the log and on stdout (a second wake), and then the first
 WATCH end may lack the incomplete mark. An interrupt that lands while the final
 target-reached SEGMENT is being written exits 130 and is marked incomplete; its
-uptime figure shows whether the target had been met. What stays open: an interrupt
-at one of the few statement boundaries between the finalizer's own protected blocks
-can still leave no WATCH end, and a second interrupt inside the finalizer can leave
-the ledger incomplete.
+uptime figure shows whether the target had been met. An unexpected error followed by
+one interrupt inside the finalizer's close of the open segment is retried once, so
+the segment is kept. What stays open:
+- an interrupt at one of the few statement boundaries between the finalizer's own
+  protected blocks can still leave no WATCH end;
+- an interrupt that lands after the last WATCH end write of a target-reached run
+  (or in main() after watch() returns) leaves that one WATCH end unmarked and exits
+  130, with a complete ledger;
+- a second interrupt inside the finalizer can leave the ledger incomplete.
 
 A semantic-DAG "Failed to dispatch directory" ERROR carries the lock-timeout text
 plus a LockAcquisitionError traceback line. Both count as dag_miss, never as a
@@ -139,7 +148,9 @@ from typing import NamedTuple
 
 NS = "viking"
 POLL = 60
-# A counted gap longer than this many seconds is "bridged": nothing was checked in it.
+# A counted gap of more than this many seconds between two successful pods polls is
+# "bridged": the pod's unchanged Ready transition is all that vouches for it. A poll
+# cycle is POLL plus probe latency, so one failed or slow poll already exceeds it.
 BRIDGE_AFTER = 2 * POLL
 BEAT_EVERY = 30
 THRESHOLDS = (600, 1800, 2700)
@@ -616,7 +627,7 @@ class Ledger(NamedTuple):
     pods: tuple = ()  # pods that covered it
     locks: tuple | None = None  # (live series, oldest age) at the last metrics poll
     pending: str | None = None  # a closed segment's line not yet known to be written
-    bridged: float = 0.0  # seconds of bridged gaps in closed segments
+    bridged: int = 0  # whole seconds of bridged gaps in closed segments
     seg_bridged: float = 0.0  # ... and in the open segment
 
 
@@ -682,13 +693,14 @@ class ReadyTracker:
             if lg.locks
             else "locks=unknown"
         )
+        seg_bridged = round(lg.seg_bridged)  # whole seconds, so the total adds up
         line = (
             f"SEGMENT {lg.segments + 1} pod={','.join(lg.pods)} "
             f"start={iso(lg.start.wall)} end={iso(lg.last.wall)} "
             f"dur={fmt_dur(secs)} cum={fmt_dur(cum)} "
             f"remaining={fmt_dur(max(0, self.target - cum))} "
             f"unobserved={fmt_dur(max(0, now.mono - lg.last.mono))} "
-            f"bridged={fmt_dur(lg.seg_bridged)} "
+            f"bridged={fmt_dur(seg_bridged)} "
             f"{held}{note}"
         )
         self.ledger = lg._replace(
@@ -699,7 +711,7 @@ class ReadyTracker:
             pods=(),
             locks=None,
             pending=line,
-            bridged=lg.bridged + lg.seg_bridged,
+            bridged=lg.bridged + seg_bridged,
             seg_bridged=0.0,
         )
         self.flush()
@@ -907,10 +919,11 @@ def watch(hours, sink, wake_wait_ms=DEFAULT_WAKE_WAIT_MS, target_uptime=None):
         status = outcome(exc)
         raise
     finally:
-        # --target-uptime ends with a WATCH end line; a single interrupt anywhere from
-        # the WATCH start line on does not stop it, and the line is retried once if
-        # the first write is cut. --hours keeps its old shape (no line after an
-        # interrupt or error). The target-reached SEGMENT is written in the try body.
+        # --target-uptime ends with a WATCH end line; the line and the close of an open
+        # segment are each retried once if a single interrupt cuts them (a few
+        # statement boundaries in this block stay open; see the module docstring).
+        # --hours keeps its old shape (no line after an interrupt or error). The
+        # target-reached SEGMENT is written in the try body.
         try:
             current = sys.exception()
             if current is not None and not status:
@@ -924,7 +937,12 @@ def watch(hours, sink, wake_wait_ms=DEFAULT_WAKE_WAIT_MS, target_uptime=None):
             failure = None
             try:
                 if tracker:
-                    tracker.flush()  # one retry of a line cut off above
+                    # retry what the block above may have been cut in: closing an
+                    # open segment, or writing a closed one's line
+                    if tracker.start:
+                        tracker.finish(instant(), f" {status}")
+                    else:
+                        tracker.flush()
             except BaseException as exc:  # noqa: BLE001 - re-raised below
                 status = status or outcome(exc)
                 failure = exc
@@ -943,7 +961,7 @@ def watch(hours, sink, wake_wait_ms=DEFAULT_WAKE_WAIT_MS, target_uptime=None):
 def outcome(exc):
     if isinstance(exc, KeyboardInterrupt):
         return "incomplete (interrupted)"
-    return f"incomplete (error: {str(exc) or type(exc).__name__})"
+    return f"incomplete (error: {one_line(exc) or type(exc).__name__})"
 
 
 def duration_arg(text):
