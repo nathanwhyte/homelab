@@ -235,6 +235,41 @@ class DriverTests(unittest.TestCase):
                 self.assertTrue(state["removed"])
                 self.assertFalse(config.exists())
 
+    def test_hung_readiness_probe_is_retried_until_the_deadline(self):
+        # A booting API server can accept the connection and not answer, so one
+        # probe outlives its own timeout; the poll retries instead of aborting.
+        probes = []
+
+        def command(*args, **kwargs):
+            args = args[3:] if args[:2] == ("docker", "--host") else args[1:]
+            if args[0] in ("image", "create", "start", "rm"):
+                return result()
+            if args[0] == "exec":
+                return result("isolated credential")
+            if args[0] == "port":
+                return result("127.0.0.1:49152\n")
+            if args[0] == "inspect":
+                return result(command.token)
+            if args[0] == "--kubeconfig":
+                probes.append(args)
+                if len(probes) == 1:
+                    raise subprocess.TimeoutExpired("kubectl", kwargs["timeout"])
+                return result("ok")
+            self.fail(f"unexpected command: {args}")
+
+        def create_token(*args, **kwargs):
+            if "create" in args:
+                command.token = args[args.index("--label") + 1].split("=", 1)[1]
+            return command(*args, **kwargs)
+
+        with (
+            patch.object(driver, "run", side_effect=create_token),
+            patch.object(driver.time, "sleep"),
+        ):
+            with driver.disposable_api("unix:///original.sock") as (_, server):
+                self.assertEqual(server, "https://127.0.0.1:49152")
+        self.assertEqual(len(probes), 2)
+
 
 if __name__ == "__main__":
     unittest.main()
