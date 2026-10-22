@@ -291,6 +291,18 @@ spec:
             # disappoints; "off" restores upstream (the wasted call comes back).
             - name: OV_WM_UPDATE_MODE
               value: json
+            # IMPR-1404 (ov_pref_gate_patch.py): an archive with no user message that has
+            # typed text (every subagent session, BUG-1215) extracts with "preferences"
+            # removed from its memory types, so assistant text cannot become a user
+            # preference (BUG-1260: the [user]-only schema override was not enough).
+            # Other memory types still extract. One stderr line per gated archive,
+            # ov-pref-gate {"action": "skipped", …, "writes": {"preferences": […],
+            # "profile": […]}}; watch "profile" in Loki ({namespace="viking",
+            # container="openviking"} |= "ov-pref-gate {"), since profile.yaml routes
+            # preference-like facts to the schema this removes. "shadow" logs only
+            # ("would_skip"), "0" turns the gate off.
+            - name: OV_PREF_GATE
+              value: "1"
           volumeMounts:
             - name: config-out
               mountPath: /app/.openviking/ov.conf

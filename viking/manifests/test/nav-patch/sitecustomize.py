@@ -86,8 +86,16 @@ off switch; a patch failure never breaks the import):
                         ``VLMConfig`` cannot omit
                         (``OpenAIVLM._apply_completion_params``); inert for every
                         other model.
+  * ov_pref_gate_patch — IMPR-1404: an archive with no ``user`` message carrying
+                        typed text (every subagent session) extracts with
+                        ``preferences`` removed from its allowed memory types, so
+                        assistant text never becomes a user preference; one
+                        ``ov-pref-gate {json}`` stderr line per gated archive lists the
+                        ``preferences`` and ``profile`` writes it still made
+                        (``SessionCompressorV3._extract_user_memories``;
+                        ``OV_PREF_GATE``: ``1`` skips, ``0`` off, anything else logs only).
 
-Rollback of one patch: its env switch (``OV_S3_CACHE_PATCH=0``, ``OV_EXTRACT_PATCH=0``, ``OV_CHATLOG_PATCH=0``, ``OV_MEMORY_GUARD=0``, ``OV_EVENT_NOISE_FILTER=0``, ``OV_EVENT_ABSTRACT_PATCH=0``, ``OV_GREP_SCOPE_PATCH=0``, ``OV_RECALL_TIME_PATCH=0``, ``OV_FETCH_ITEMS_PATCH=0``, ``OV_WM_UPDATE_MODE=off`` (``skip`` for the 2026-10-13 behaviour), ``OV_CLAUDE_PARAMS_PATCH=0``; ``OV_NAV_PATCH=0``
+Rollback of one patch: its env switch (``OV_S3_CACHE_PATCH=0``, ``OV_EXTRACT_PATCH=0``, ``OV_CHATLOG_PATCH=0``, ``OV_MEMORY_GUARD=0``, ``OV_EVENT_NOISE_FILTER=0``, ``OV_EVENT_ABSTRACT_PATCH=0``, ``OV_GREP_SCOPE_PATCH=0``, ``OV_RECALL_TIME_PATCH=0``, ``OV_FETCH_ITEMS_PATCH=0``, ``OV_WM_UPDATE_MODE=off`` (``skip`` for the 2026-10-13 behaviour), ``OV_CLAUDE_PARAMS_PATCH=0``, ``OV_PREF_GATE=0``; ``OV_NAV_PATCH=0``
 only after the model-built overview template is restored, see the Deployment).
 Rollback of everything: remove PYTHONPATH from the Deployment
 (``kubectl set env … PYTHONPATH-``), again only after that template restore.
@@ -106,6 +114,7 @@ TARGETS = {
         "apply_extract_loop",
     ),
     "openviking.session.session": ("ov_extract_patch", "apply_session"),
+    "openviking.session.compressor_v3": ("ov_pref_gate_patch", "apply"),
     "openviking.session.memory.streaming_memory_updater": [
         ("ov_memory_guard_patch", "apply_streaming"),
         ("ov_extract_patch", "apply_streaming"),
