@@ -1,46 +1,36 @@
 #!/usr/bin/env bash
 # Regenerate viking/manifests/openviking-nav-patch-configmap.yaml (prod) from the
-# canonical sources in viking/manifests/test/nav-patch/ (IMPR-1185 nav patch,
-# BUG-1176 extract, BUG-1177 ChatLog, BUG-1174 S3 cache, BUG-1180 memory guard,
-# IMPR-1200 event abstract, BUG-1189 grep scope, IMPR-1215 recall time, BUG-1218
-# fetch-items, IMPR-1303 WM-update-skip, IMPR-1311 Claude-params and IMPR-1404 preference-gate
-# patches, one loader).
-# The test stack builds its own ConfigMap (ov-nav-patch) from the same thirteen files via its
-# kustomization, so prod and test cannot drift as long as this is re-run after any
-# edit and the result is committed with it. `--check` exits non-zero when the
-# committed manifest is stale.
+# canonical sources in viking/manifests/test/nav-patch/: sitecustomize.py (the one
+# loader) and every ov_*_patch.py beside it (IMPR-1185 nav patch, BUG-1176 extract,
+# BUG-1177 ChatLog, BUG-1174 S3 cache, BUG-1180 memory guard, IMPR-1200 event
+# abstract, BUG-1189 grep scope, IMPR-1215 recall time, BUG-1218 fetch-items,
+# IMPR-1303 WM-update-skip, IMPR-1311 Claude-params and IMPR-1404 preference-gate).
+# The file set is that glob (IMPR-1413), so a new patch needs no edit here. The test
+# stack builds its own ConfigMap (ov-nav-patch) through its kustomization, which has
+# to list the same files; both Deployments mount their ConfigMap whole.
+#
+# `--check` (a pre-commit hook) runs check-nav-patch-files.py, which exits non-zero
+# when the committed manifest is stale or any list disagrees with the glob: the test
+# kustomization, an `items:` list on either Deployment, or sitecustomize.py's
+# TARGETS. It parses the manifest rather than diffing a fresh render, so it needs
+# a python3 with PyYAML but not kubectl, whose output format varies by version.
 set -euo pipefail
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SRC="$DIR/manifests/test/nav-patch"
 OUT="$DIR/manifests/openviking-nav-patch-configmap.yaml"
 
-render() {
-	kubectl create configmap openviking-nav-patch \
-		-n viking \
-		--from-file=sitecustomize.py="$SRC/sitecustomize.py" \
-		--from-file=ov_nav_patch.py="$SRC/ov_nav_patch.py" \
-		--from-file=ov_extract_patch.py="$SRC/ov_extract_patch.py" \
-		--from-file=ov_chatlog_patch.py="$SRC/ov_chatlog_patch.py" \
-		--from-file=ov_s3_cache_patch.py="$SRC/ov_s3_cache_patch.py" \
-		--from-file=ov_memory_guard_patch.py="$SRC/ov_memory_guard_patch.py" \
-		--from-file=ov_event_abstract_patch.py="$SRC/ov_event_abstract_patch.py" \
-		--from-file=ov_grep_scope_patch.py="$SRC/ov_grep_scope_patch.py" \
-		--from-file=ov_recall_time_patch.py="$SRC/ov_recall_time_patch.py" \
-		--from-file=ov_fetch_items_patch.py="$SRC/ov_fetch_items_patch.py" \
-		--from-file=ov_wm_update_patch.py="$SRC/ov_wm_update_patch.py" \
-		--from-file=ov_claude_params_patch.py="$SRC/ov_claude_params_patch.py" \
-		--from-file=ov_pref_gate_patch.py="$SRC/ov_pref_gate_patch.py" \
-		--dry-run=client -o yaml
-}
-
 if [[ "${1:-}" == "--check" ]]; then
-	if diff -q <(render) "$OUT" >/dev/null; then
-		echo "openviking-nav-patch ConfigMap is current"
-	else
-		echo "openviking-nav-patch ConfigMap is STALE: run $0" >&2
-		exit 1
-	fi
-else
-	render >"$OUT"
-	echo "Regenerated $OUT"
+	exec python3 "$DIR/scripts/check-nav-patch-files.py" --root "$DIR/.."
 fi
+
+shopt -s nullglob
+FILES=("$SRC/sitecustomize.py" "$SRC"/ov_*_patch.py)
+shopt -u nullglob
+
+args=()
+for f in "${FILES[@]}"; do
+	args+=("--from-file=$(basename "$f")=$f")
+done
+kubectl create configmap openviking-nav-patch -n viking "${args[@]}" \
+	--dry-run=client -o yaml >"$OUT"
+echo "Regenerated $OUT"

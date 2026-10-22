@@ -167,36 +167,10 @@ spec:
         - name: prompt-overrides
           configMap:
             name: openviking-prompt-overrides
+        # The whole ConfigMap, no `items:` list (IMPR-1413; see the prod Deployment).
         - name: nav-patch
           configMap:
             name: ov-nav-patch
-            items:
-              - key: sitecustomize.py
-                path: sitecustomize.py
-              - key: ov_nav_patch.py
-                path: ov_nav_patch.py
-              - key: ov_extract_patch.py
-                path: ov_extract_patch.py
-              - key: ov_chatlog_patch.py
-                path: ov_chatlog_patch.py
-              - key: ov_s3_cache_patch.py
-                path: ov_s3_cache_patch.py
-              - key: ov_memory_guard_patch.py
-                path: ov_memory_guard_patch.py
-              - key: ov_event_abstract_patch.py
-                path: ov_event_abstract_patch.py
-              - key: ov_grep_scope_patch.py
-                path: ov_grep_scope_patch.py
-              - key: ov_recall_time_patch.py
-                path: ov_recall_time_patch.py
-              - key: ov_fetch_items_patch.py
-                path: ov_fetch_items_patch.py
-              - key: ov_wm_update_patch.py
-                path: ov_wm_update_patch.py
-              - key: ov_claude_params_patch.py
-                path: ov_claude_params_patch.py
-              - key: ov_pref_gate_patch.py
-                path: ov_pref_gate_patch.py
         - name: data
           persistentVolumeClaim:
             claimName: openviking-test-data

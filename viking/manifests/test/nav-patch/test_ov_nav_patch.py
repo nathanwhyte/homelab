@@ -6,9 +6,16 @@ Run inside the openviking image (no pytest needed):
 
 import sys
 import types
+import unittest
 
 import ov_nav_patch as nav
-from openviking.storage.queuefs import semantic_processor as sp
+
+try:
+    from openviking.storage.queuefs import semantic_processor as sp
+except ImportError:  # viking/scripts/run-nav-patch-tests.py skips the module (CI)
+    if __name__ == "__main__":
+        raise
+    raise unittest.SkipTest("needs the openviking v0.4.20 package") from None
 
 P = object.__new__(sp.SemanticProcessor)  # the methods used here need no instance state
 DIR = "viking://resources/compendium/bugs/resolved"
