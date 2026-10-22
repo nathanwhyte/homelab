@@ -9,6 +9,7 @@ ov_pref_gate_patch.py. The rest are the review findings on homelab#254.
 
 import ast
 import importlib.util
+import re
 import shutil
 import tempfile
 import unittest
@@ -34,11 +35,16 @@ def targets_entries(text):
     """(key, modules, first line, last line) for each TARGETS entry, 1-based, read
     with ast so a patch edit to any one entry leaves the cases below working."""
     for node in ast.parse(text).body:
-        if (
-            isinstance(node, ast.Assign)
-            and any(isinstance(t, ast.Name) and t.id == "TARGETS" for t in node.targets)
-            and isinstance(node.value, ast.Dict)
-        ):
+        targets = (
+            node.targets
+            if isinstance(node, ast.Assign)
+            else [node.target]
+            if isinstance(node, ast.AnnAssign)
+            else []
+        )
+        if any(
+            isinstance(t, ast.Name) and t.id == "TARGETS" for t in targets
+        ) and isinstance(node.value, ast.Dict):
             value = ast.literal_eval(node.value)
             for key_node, val_node in zip(node.value.keys, node.value.values):
                 key = ast.literal_eval(key_node)
@@ -395,8 +401,10 @@ class CheckerCases(unittest.TestCase):
         # R4: an annotated TARGETS assignment gets the same repeated-key check.
         def annotate(lines, entries):
             key, _, first, last = entries[0]
-            start = next(i for i, l in enumerate(lines) if l.startswith("TARGETS = {"))
-            lines[start] = lines[start].replace("TARGETS = {", "TARGETS: dict = {", 1)
+            start = next(i for i, l in enumerate(lines) if l.startswith("TARGETS"))
+            lines[start] = re.sub(
+                r"^TARGETS\s*(:[^=]*)?=", "TARGETS: dict =", lines[start]
+            )
             lines[first - 1 : first - 1] = lines[first - 1 : last]
             return key
 

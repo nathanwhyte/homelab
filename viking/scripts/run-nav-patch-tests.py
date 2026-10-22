@@ -135,6 +135,14 @@ def main():
         )
         os.execve(py, [py, __file__, *sys.argv[1:]], env)
 
+    # The patches and their tests use PEP 604 unions (``X | None``).
+    if sys.version_info < (3, 10):
+        sys.exit(
+            f"run-nav-patch-tests: {sys.executable} is Python "
+            f"{sys.version.split()[0]}; the nav-patch suite needs 3.10 or newer "
+            "(set NAV_PATCH_PYTHON to one)"
+        )
+
     expected = expected_version()
     openviking = pin_image_version(expected)
     if openviking is None:

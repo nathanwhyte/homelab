@@ -1,7 +1,8 @@
 """IMPR-1200 event-abstract patch: semantics on fakes, plus checks against the real module.
 
-The ``Installed`` cases need openviking v0.4.20 importable (the image, or a local
-site-packages on PYTHONPATH) and are skipped otherwise.
+The ``Installed`` cases need openviking importable (the v0.4.20 image, or the
+``openviking`` uv tool through viking/scripts/run-nav-patch-tests.py) and are skipped
+only when no openviking package is found; another version fails its guard.
 """
 
 import importlib.util
