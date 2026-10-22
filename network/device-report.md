@@ -7,7 +7,7 @@
 | Scanned  | 2026-07-02 ~11:03 CDT                                                            |
 | Source   | Router admin UI (`/DEV_device.htm`, `/LAN_lan.htm`, `/debug.htm`) via Basic Auth |
 
-### Router runtime
+## Router runtime
 
 | Metric           | Value                                                                         |
 | ---------------- | ----------------------------------------------------------------------------- |

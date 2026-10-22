@@ -41,7 +41,7 @@ newest revision written         -> /registry/pods/kube-system/k3s-datastore-back
 The newest revision in the snapshot is the backup job's own pod — the snapshot captures the instant
 the job ran, as designed.
 
-## Run 1 — the documented procedure. FAILS.
+## Run 1 — the documented procedure. FAILS
 
 Staged `state.db` + `token` + the extracted `tls/` into a disposable volume, started k3s.
 
@@ -72,7 +72,7 @@ rehydration from the datastore worked. The kubeconfigs are not part of that blob
 generated. This failure mode is nasty because the apiserver comes up first — it looks like a
 datastore problem when it is a certificate-side-effect problem.
 
-## Run 2 — `state.db` + `token` only. WORKS.
+## Run 2 — `state.db` + `token` only. WORKS
 
 Fresh volume, only `db/state.db` and `token`, no `tls/`. k3s reconciled the bootstrap blob out of
 the datastore, regenerated the leaf certs (and therefore the kubeconfigs), and served.
