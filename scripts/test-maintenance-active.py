@@ -9,6 +9,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -29,7 +30,7 @@ def silence(*matchers, state="active", sid="s1"):
     return {
         "id": sid,
         "status": {"state": state},
-        "endsAt": "2026-10-23T00:00:00Z",
+        "endsAt": "2026-10-23T00:00:00.123456789Z",
         "comment": "planned",
         "matchers": list(matchers),
     }
@@ -54,6 +55,12 @@ class SilenceTests(unittest.TestCase):
             matcher("namespace", "viking", equal=False),
         ):
             self.assertIsNone(ma.silence_scope(silence(MATCH_ALL, m)), m)
+
+    def test_a_namespace_no_pod_can_have_does_not_count(self):
+        # Round 4 P3: namespace="*" matches no alert but equalled ALL.
+        for value in ("*", "Viking", "", "a" * 64, "-viking"):
+            s = silence(MATCH_ALL, matcher("namespace", value))
+            self.assertIsNone(ma.silence_scope(s), value)
 
     def test_match_all_on_an_optional_label_does_not_count(self):
         # Round 1 P2: job=~".+" fails every alert without a job label.
@@ -80,6 +87,13 @@ class SilenceTests(unittest.TestCase):
             s = silence(MATCH_ALL, state=state)
             self.assertIsNone(ma.silence_scope(s))
 
+    def test_end_is_shown_in_local_time(self):
+        # Round 4 P3: amtool's endsAt is UTC with up to nanoseconds.
+        shown = ma.ends_at("2026-10-23T00:00:00.123456789Z")
+        self.assertNotIn("T00:00", shown)
+        self.assertRegex(shown, r"^2026-10-2[23] \d\d:\d\d \S+$")
+        self.assertEqual(ma.ends_at("not a time"), "not a time")
+
 
 class TargetTests(unittest.TestCase):
     def test_forms(self):
@@ -100,141 +114,205 @@ class TargetTests(unittest.TestCase):
         self.assertFalse(ma.covers("garage", t))
 
 
+TIMMY = "homelab-timmy-offline/window"
+NODE = "homelab-node-maintenance/window"
+
+
 class LocalStateTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.root = Path(self.tmp.name)
+        self.now = time.time()
 
     def tearDown(self):
         self.tmp.cleanup()
 
-    def write(self, rel, text="x\n"):
+    def write(self, rel, text):
         path = self.root / rel
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(text)
         return path
 
-    def lines(self):
-        found, unreadable = ma.local_windows(self.root)
-        self.assertEqual(unreadable, [])
-        return [line for _, line in found]
+    def windows(self):
+        return ma.local_windows(self.root, self.now)
 
     def test_nothing_recorded(self):
-        self.assertEqual(self.lines(), [])
+        self.assertEqual(self.windows(), ([], []))
 
-    def test_empty_state_files_do_not_count(self):
-        self.write("homelab-timmy-offline/silence-id", "")
-        self.write("homelab-timmy-offline/parked-scales", "")
-        self.write("homelab-node-maintenance/timmy.boot-id", "")  # round 1 P2
-        self.write("homelab-node-maintenance/wemby.boot-id", "\nlater\n")
-        self.write("homelab-node-maintenance/reboot-timmy.log")  # a log is history
-        self.assertEqual(self.lines(), [])
-
-    def test_dead_lock_owner_does_not_count(self):
-        # Round 1 P2: node-maintenance.sh itself treats this lock as stale.
-        proc = subprocess.run(
-            [sys.executable, "-c", "import os; print(os.getpid())"],
-            capture_output=True,
-            text=True,
-            check=True,
+    def test_open_windows_cover_everything(self):
+        self.write(TIMMY, f"{int(self.now) + 60} planned timmy outage\n")
+        self.write(NODE, f"{int(self.now) + 60} reboot cycle on wemby\n")
+        found, unreadable = self.windows()
+        self.assertEqual(unreadable, [])
+        self.assertEqual([scope for scope, _ in found], [ma.ALL, ma.ALL])
+        self.assertTrue(
+            found[0][1].startswith("timmy-offline: planned timmy outage until ")
         )
-        self.write("homelab-node-maintenance/lock/pid", proc.stdout)
-        self.write("homelab-node-maintenance/lock2/pid", "not-a-pid\n")
-        self.assertEqual(self.lines(), [])
-
-    def test_live_lock_owner_counts(self):
-        self.write("homelab-node-maintenance/lock/pid", f"{os.getpid()}\n")
-        self.assertEqual(len(self.lines()), 1)
-
-    def test_timmy_offline_and_node_cycle(self):
-        self.write("homelab-timmy-offline/silence-id", "abc\n")
-        self.write(
-            "homelab-timmy-offline/parked-scales", "statefulset/garage/garage\t3\n"
+        self.assertTrue(
+            found[1][1].startswith("node-maintenance: reboot cycle on wemby until ")
         )
-        self.write("homelab-node-maintenance/timmy.boot-id", "boot\n")
-        self.write(
-            "homelab-node-maintenance/spin-down-replicas", "viking/openviking 1\n"
-        )
-        found = self.lines()
-        self.assertEqual(len(found), 3)
-        self.assertTrue(found[0].startswith("timmy-offline: silence-id, parked-scales"))
-        self.assertIn("timmy owes a finish", found[1])
+
+    def test_a_window_past_its_end_does_not_count(self):
+        # Round 4 P2s: undo state left by a failed expire or a backed-out cycle
+        # outlived the window; the window file's end bounds it.
+        self.write(TIMMY, f"{int(self.now)} planned timmy outage\n")
+        self.write(NODE, f"{int(self.now) - 3600} reboot cycle on timmy\n")
+        self.assertEqual(self.windows(), ([], []))
+
+    def test_undo_state_alone_is_not_a_window(self):
+        for rel in (
+            "homelab-timmy-offline/silence-id",
+            "homelab-timmy-offline/parked-scales",
+            "homelab-timmy-offline/suspended-cronjobs",
+            "homelab-node-maintenance/timmy.boot-id",
+            "homelab-node-maintenance/spin-down-replicas",
+            "homelab-node-maintenance/lock/pid",
+        ):
+            self.write(rel, f"{os.getpid()}\n")
+        self.assertEqual(self.windows(), ([], []))
+
+    def test_malformed_window_is_unreadable(self):
+        for text in (
+            "",
+            "\n",
+            "soon reboot\n",
+            "123\n",
+            "123  \n",
+            "-5 x\n",
+            "١٢٣ x\n",
+        ):
+            with self.subTest(text=text):
+                self.write(TIMMY, text)
+                found, unreadable = self.windows()
+                self.assertEqual(found, [])
+                self.assertEqual(len(unreadable), 1)
+
+    def test_an_end_past_any_date_is_unreadable(self):
+        self.write(TIMMY, f"{10**30} forever\n")
+        found, unreadable = self.windows()
+        self.assertEqual(found, [])
+        self.assertIn("out of range", unreadable[0])
 
     @unittest.skipIf(os.geteuid() == 0, "root reads mode-000 files")
-    def test_unreadable_state_is_reported_not_treated_as_absent(self):
-        # Round 1 P2.
-        path = self.write("homelab-timmy-offline/silence-id", "abc\n")
-        path.chmod(0)
-        try:
-            found, unreadable = ma.local_windows(self.root)
-        finally:
-            path.chmod(0o600)
-        self.assertEqual(found, [])
-        self.assertEqual(len(unreadable), 1)
-        self.assertIn("silence-id", unreadable[0])
-
-    @unittest.skipIf(os.geteuid() == 0, "root reads mode-000 directories")
-    def test_unreadable_state_directories_are_reported(self):
-        # Round 2 P2: pathlib's is_file() hid a mode-000 parent as "no file".
-        for rel in (
-            "homelab-timmy-offline",
-            "homelab-node-maintenance/lock",
-            "homelab-node-maintenance",
-        ):
+    def test_unreadable_window_is_reported_not_treated_as_absent(self):
+        for rel in (TIMMY, "homelab-timmy-offline"):
             with self.subTest(rel=rel):
-                self.write("homelab-timmy-offline/silence-id", "abc\n")
-                self.write("homelab-node-maintenance/lock/pid", f"{os.getpid()}\n")
-                d = self.root / rel
-                d.chmod(0)
+                self.write(TIMMY, f"{int(self.now) + 60} outage\n")
+                path = self.root / rel
+                path.chmod(0)
                 try:
-                    found, unreadable = ma.local_windows(self.root)
+                    found, unreadable = self.windows()
                 finally:
-                    d.chmod(0o700)
-                self.assertTrue(unreadable, rel)
-                self.assertTrue(all(rel in u for u in unreadable), unreadable)
+                    path.chmod(0o700)
+                self.assertEqual(found, [])
+                self.assertEqual(len(unreadable), 1)
+                self.assertIn("homelab-timmy-offline", unreadable[0])
 
-    @unittest.skipIf(os.geteuid() == 0, "root reads mode-000 directories")
-    def test_cli_exits_2_on_an_unreadable_state_directory(self):
-        d = self.root / "homelab-node-maintenance"
-        d.mkdir()
-        d.chmod(0)
-        try:
-            out = subprocess.run(
-                [sys.executable, "-I", str(SCRIPT), "--json", "viking"],
-                capture_output=True,
-                text=True,
-                env={
-                    "PATH": os.environ["PATH"],
-                    "XDG_STATE_HOME": str(self.root),
-                    "KUBECTL": "/usr/bin/true",
-                },
-                timeout=30,
+
+def bash(script, source, env):
+    return subprocess.run(
+        ["bash", "-c", f'source "$1"; {script}', "bash", str(ROOT / source)],
+        capture_output=True,
+        text=True,
+        env=env,
+        timeout=30,
+        check=True,
+    )
+
+
+class ProducerRoundTripTests(unittest.TestCase):
+    """The producers' own functions write what the helper reads, at the path
+    their own STATE_ROOT default resolves to (round 4 P2: a substring check
+    missed a moved state root)."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        tmp = Path(self.tmp.name)
+        bin_dir = tmp / "bin"
+        bin_dir.mkdir()
+        stub = bin_dir / "kubectl"
+        stub.write_text(
+            '#!/bin/sh\ncase "$*" in\n'
+            '  *amtool*) printf "[]" ;;\n'
+            '  "get nodes -o json") printf \'{"items":[]}\' ;;\n'
+            "  *) exit 99 ;;\nesac\n"
+        )
+        stub.chmod(0o755)
+        self.home = tmp / "home"
+        self.home.mkdir()
+        self.env = {
+            "PATH": f"{bin_dir}:{os.environ['PATH']}",
+            "HOME": str(self.home),
+            "KUBECTL": str(stub),
+        }
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def helper(self):
+        out = subprocess.run(
+            [sys.executable, "-I", str(SCRIPT), "--json", "viking"],
+            capture_output=True,
+            text=True,
+            env=self.env,
+            timeout=30,
+        )
+        return out.returncode, json.loads(out.stdout)
+
+    def test_timmy_offline_window(self):
+        bash("open_window", "scripts/timmy-offline.sh", self.env)
+        code, out = self.helper()
+        self.assertEqual(code, 0, out)
+        self.assertTrue(
+            out["windows"][0].startswith(
+                "timmy-offline: planned timmy outage (timmy-offline.sh down) until "
             )
-        finally:
-            d.chmod(0o700)
-        self.assertEqual(out.returncode, 2, out.stdout)
-
-
-class StateNamesInSyncTests(unittest.TestCase):
-    """The state paths read here are the ones the maintenance scripts write."""
-
-    def test_timmy_offline_names(self):
-        text = (ROOT / "scripts/timmy-offline.sh").read_text()
-        self.assertIn("STATE_DIR=$STATE_ROOT/homelab-timmy-offline\n", text)
-        for name in ("silence-id", "parked-scales", "suspended-cronjobs"):
-            self.assertIn(f"=$STATE_DIR/{name}\n", text)
-
-    def test_node_maintenance_names(self):
-        text = (ROOT / "scripts/node-maintenance.sh").read_text()
-        self.assertIn(
-            "MAINTENANCE_STATE_DIR=$STATE_ROOT/homelab-node-maintenance\n", text
         )
-        self.assertIn("MAINTENANCE_LOCK_DIR=$MAINTENANCE_STATE_DIR/lock\n", text)
-        self.assertIn('"$MAINTENANCE_LOCK_DIR/pid"', text)
-        self.assertIn("printf '%s/%s.boot-id\\n' \"$MAINTENANCE_STATE_DIR\"", text)
-        self.assertIn(
-            "printf '%s/spin-down-replicas\\n' \"$MAINTENANCE_STATE_DIR\"", text
+        bash("close_window", "scripts/timmy-offline.sh", self.env)
+        self.assertEqual(self.helper()[0], 1)
+
+    def test_node_maintenance_window(self):
+        src = "scripts/node-maintenance.sh"
+        bash('open_maintenance_window "reboot cycle on wemby"', src, self.env)
+        code, out = self.helper()
+        self.assertEqual(code, 0, out)
+        self.assertTrue(
+            out["windows"][0].startswith(
+                "node-maintenance: reboot cycle on wemby until "
+            )
         )
+        bash("close_maintenance_window", src, self.env)
+        self.assertEqual(self.helper()[0], 1)
+
+    def test_window_ends_on_its_own(self):
+        env = {**self.env, "MAINTENANCE_WINDOW_SECONDS": "0"}
+        bash(
+            'open_maintenance_window "reboot cycle on wemby"',
+            "scripts/node-maintenance.sh",
+            env,
+        )
+        self.assertEqual(self.helper()[0], 1)
+
+    def test_restore_services_closes_a_stopped_cycles_window(self):
+        src = "scripts/node-maintenance.sh"
+        bash(
+            'open_maintenance_window "reboot cycle on wemby"; cmd_restore_services',
+            src,
+            self.env,
+        )
+        self.assertEqual(self.helper()[0], 1)
+
+    def test_restore_services_leaves_an_active_cycles_window(self):
+        # It refuses while a cycle owns the state; the window stays with it.
+        src = "scripts/node-maintenance.sh"
+        with self.assertRaises(subprocess.CalledProcessError):
+            bash(
+                'open_maintenance_window "reboot cycle on wemby";'
+                " save_cycle_boot_id wemby x; cmd_restore_services",
+                src,
+                self.env,
+            )
+        self.assertEqual(self.helper()[0], 0)
 
 
 STUB = """#!/bin/sh
@@ -265,15 +343,24 @@ class CliTests(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
-    def cli(self, *args, **env):
-        out = subprocess.run(
-            [sys.executable, "-I", str(SCRIPT), "--json", *args],
+    def run_cli(self, *args, **env):
+        return subprocess.run(
+            [sys.executable, "-I", str(SCRIPT), *args],
             capture_output=True,
             text=True,
             env={**self.env, **env},
             timeout=30,
         )
+
+    def cli(self, *args, **env):
+        out = self.run_cli("--json", *args, **env)
         return out.returncode, json.loads(out.stdout)
+
+    def open_window(self):
+        path = self.state / TIMMY
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(f"{int(time.time()) + 600} planned timmy outage\n")
+        return path
 
     def test_no_window_exits_1_without_reading_the_deployment(self):
         # Round 3 P2: a Deployment's Progressing reason is not a window, so the
@@ -322,29 +409,51 @@ class CliTests(unittest.TestCase):
                 self.assertEqual(len(out["unreadable"]), 1)
 
     def test_local_window_survives_malformed_silence_output(self):
-        (self.state / "homelab-timmy-offline").mkdir()
-        (self.state / "homelab-timmy-offline/silence-id").write_text("abc\n")
+        self.open_window()
         code, out = self.cli("viking", STUB_SILENCES='[{"status": null}]')
         self.assertEqual(code, 0)
         self.assertEqual(len(out["unreadable"]), 1)
 
     def test_local_window_wins_over_an_unreadable_cluster(self):
-        (self.state / "homelab-timmy-offline").mkdir()
-        (self.state / "homelab-timmy-offline/silence-id").write_text("abc\n")
+        self.open_window()
         code, out = self.cli("viking", STUB_SILENCES_FAIL="1")
         self.assertEqual(code, 0)
         self.assertEqual(len(out["unreadable"]), 1)
 
-    def test_bad_target_is_a_usage_error(self):
-        out = subprocess.run(
-            [sys.executable, "-I", str(SCRIPT), "viking/openviking"],
-            capture_output=True,
-            text=True,
-            env=self.env,
-            timeout=30,
+    @unittest.skipIf(os.geteuid() == 0, "root reads mode-000 directories")
+    def test_cli_exits_2_on_an_unreadable_state_directory(self):
+        # Round 4 P3: the stub answers "[]", so only the directory is unreadable.
+        self.open_window()
+        d = self.state / "homelab-timmy-offline"
+        d.chmod(0)
+        try:
+            code, out = self.cli("viking")
+        finally:
+            d.chmod(0o700)
+        self.assertEqual(code, 2)
+        self.assertEqual(len(out["unreadable"]), 1)
+        self.assertIn("homelab-timmy-offline", out["unreadable"][0])
+
+    def test_text_output_names_the_window(self):
+        self.open_window()
+        out = self.run_cli("viking")
+        self.assertEqual(out.returncode, 0)
+        self.assertTrue(
+            out.stdout.startswith("timmy-offline: planned timmy outage until ")
         )
-        self.assertEqual(out.returncode, 2)
-        self.assertIn("kind/namespace/name", out.stderr)
+
+    def test_options_may_follow_targets(self):
+        code, _ = self.cli("viking", "--json", "garage")
+        self.assertEqual(code, 1)
+
+    def test_bad_target_is_a_usage_error(self):
+        # Round 4 P3: 2 means "could not tell"; a usage error is 64.
+        for args in (["viking/openviking"], ["--bogus", "viking"]):
+            with self.subTest(args=args):
+                out = self.run_cli("--json", *args)
+                self.assertEqual(out.returncode, 64)
+                self.assertEqual(out.stdout, "")
+        self.assertIn("kind/namespace/name", self.run_cli("viking/openviking").stderr)
 
 
 if __name__ == "__main__":

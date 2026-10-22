@@ -76,6 +76,12 @@ TIMEOUT_BIN=$(command -v timeout || command -v gtimeout || true)
 STATE_ROOT=${XDG_STATE_HOME:-"$HOME/.local/state"}
 MAINTENANCE_STATE_DIR=$STATE_ROOT/homelab-node-maintenance
 MAINTENANCE_LOCK_DIR=$MAINTENANCE_STATE_DIR/lock
+# The window session watches read (maintenance-active.py, IDEA-1150): "<end epoch
+# seconds> <what>", opened at a reboot cycle's first change and closed by finish
+# or restore-services. The end bounds a cycle backed out by hand (uncordon) or
+# abandoned, which leaves the boot ID behind.
+MAINTENANCE_WINDOW_FILE=$MAINTENANCE_STATE_DIR/window
+MAINTENANCE_WINDOW_SECONDS=${MAINTENANCE_WINDOW_SECONDS:-7200}
 LOCK_HELD=0
 # Overridable so tests can stub cluster reads/writes without a live cluster.
 KUBECTL=${KUBECTL:-kubectl}
@@ -157,6 +163,16 @@ load_cycle_boot_id() {
 
 clear_cycle_state() {
 	rm -f "$(cycle_state_file "$1")"
+}
+
+open_maintenance_window() {
+	mkdir -p "$MAINTENANCE_STATE_DIR"
+	printf '%s %s\n' "$(($(date +%s) + MAINTENANCE_WINDOW_SECONDS))" "$1" >"$MAINTENANCE_WINDOW_FILE.$$"
+	mv -f "$MAINTENANCE_WINDOW_FILE.$$" "$MAINTENANCE_WINDOW_FILE"
+}
+
+close_maintenance_window() {
+	rm -f "$MAINTENANCE_WINDOW_FILE"
 }
 
 release_maintenance_lock() {
@@ -845,6 +861,7 @@ cmd_finish() {
 
 	wait_longhorn_healthy
 	clear_cycle_state "$node"
+	close_maintenance_window
 	log "[$node] cycle complete. Safe to proceed to the next node."
 }
 
@@ -874,6 +891,7 @@ cmd_reboot() {
 	# ov-vectordb), so checking headroom first made --spin-down unable to ever help
 	# (it always ran too late to affect the verdict it was meant to fix — 2026-09-06).
 	if ((spin_down)); then
+		open_maintenance_window "reboot cycle on $node"
 		log "[$node] pre-drain spin-down of memory-heavy services"
 		spin_down_memory_services || return 1
 		wait_for_spin_down_pods_gone
@@ -893,6 +911,7 @@ cmd_reboot() {
 	[[ -n $boot_id ]] || die "empty boot ID returned by $node"
 	require_valid_boot_id "$boot_id"
 
+	open_maintenance_window "reboot cycle on $node"
 	log "[$node] cordon"
 	kubectl cordon "$node"
 	save_cycle_boot_id "$node" "$boot_id"
@@ -983,6 +1002,9 @@ cmd_restore_services() {
 	else
 		log "no spin-down state recorded; nothing to restore"
 	fi
+	# No cycle is active (checked above), so a window left open is the one a
+	# stopped cycle opened before its spin-down.
+	close_maintenance_window
 }
 
 main() {

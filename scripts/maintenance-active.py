@@ -12,54 +12,64 @@ signal names a single object. Exit 0 means every target is covered by a window
 and prints the windows; with no TARGET, it means a cluster-wide window is active.
 Exit 1 means some target is not covered. Exit 2 means some target is not
 covered and a source could not be read, so the watch treats its failure as it
-would without this check.
+would without this check. Exit 64 is a usage error.
 
-Every signal is one its producer writes on purpose and reads with the same
-test, never an inference from cluster state:
+A window is a record a maintenance tool writes to say one is open, never an
+inference from cluster state or from what a tool has left to undo:
 
-- timmy-offline: timmy-offline.sh's state under
-  ${XDG_STATE_HOME:-~/.local/state}/homelab-timmy-offline/: silence-id,
-  parked-scales or suspended-cronjobs non-empty (the script's own -s test).
-  timmy is the only control plane, so this covers every target.
-- node-maintenance: node-maintenance.sh's state beside it: a <node>.boot-id
-  whose first line is non-empty (load_cycle_boot_id), a lock/pid naming a live
-  process (acquire_maintenance_lock treats any other lock as stale), or a
-  non-empty spin-down-replicas. Covers every target: a cycle drains a node and
-  reschedules pods across the cluster.
+- window files: "<end epoch seconds> <what>" in
+  ${XDG_STATE_HOME:-~/.local/state}/homelab-timmy-offline/window (written by
+  timmy-offline.sh down, removed when up completes) and
+  homelab-node-maintenance/window (opened at a reboot cycle's first change,
+  removed by finish or restore-services). One counts until its end, which
+  bounds a cycle that was backed out or abandoned. Covers every target: timmy
+  is the only control plane, and a cycle drains a node and reschedules pods
+  across the cluster.
 - silence: an active Alertmanager silence whose matchers are only
   alertname=~".+" (or ".*"), the form timmy-offline.sh creates, which covers
-  every target, plus at most one namespace="<ns>" equality matcher, which
-  narrows it to targets in that namespace. Any other matcher, including a regex
-  or negated namespace matcher, makes it not count: it silences particular
-  alerts, which says nothing about whether a service is down on purpose.
+  every target, plus at most one namespace="<ns>" equality matcher on a valid
+  namespace name, which narrows it to targets in that namespace. Any other
+  matcher, including a regex or negated namespace matcher, makes it not count:
+  it silences particular alerts, which says nothing about whether a service is
+  down on purpose.
 
 A rollout is not a window. No Deployment field says one was planned: the
 controller's Progressing reasons also fire for edits that change no pods
 (FoundNewReplicaSet on a progressDeadlineSeconds change), so a watch handles a
 failure during a rollout as any other until a rollout tool records one on
-purpose.
+purpose (IDEA-1151).
 
-The state files exist only on the Mac that ran the tool; on the other Mac only
+The window files exist only on the Mac that ran the tool; on the other Mac only
 the silence check applies. Alertmanager runs on timmy, so during a timmy
-outage the silence is unreadable from anywhere and the state files are the only
-signal. Read-only: nothing here changes the cluster or the files.
+outage the silence is unreadable from anywhere and the window file is the only
+signal (IDEA-1152). Read-only: nothing here changes the cluster or the files.
 """
 
 from __future__ import annotations
 
 import argparse
+from datetime import datetime, timezone
 import json
 import os
+import re
 import stat
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 KUBECTL = os.environ.get("KUBECTL", "kubectl")
 AM_NAMESPACE = "grafana"
 AM_POD = "alertmanager-prom-alertmanager-0"
 CALL_TIMEOUT_SECONDS = 20
+WINDOW_FILES = {
+    "timmy-offline": "homelab-timmy-offline/window",
+    "node-maintenance": "homelab-node-maintenance/window",
+}
 ALL = "*"  # a window's scope: ALL or a namespace
+# A Kubernetes namespace name (RFC 1123 label), so no value can equal ALL.
+NAMESPACE = re.compile(r"[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?")
+EX_USAGE = 64
 
 
 class Unreadable(Exception):
@@ -70,87 +80,57 @@ def state_root(env=os.environ) -> Path:
     return Path(env.get("XDG_STATE_HOME") or Path.home() / ".local/state")
 
 
-def absent_or_raise(path: Path, e: OSError) -> None:
-    """Every filesystem error but absence is Unreadable. Only raw os calls go
-    through here: pathlib predicates such as is_file() return False on a
-    permission error, which would read as "no window"."""
-    if isinstance(e, (FileNotFoundError, NotADirectoryError)):
-        return None
-    raise Unreadable(f"{path}: {e}") from None
+def local_time(when: datetime) -> str:
+    return when.astimezone().strftime("%Y-%m-%d %H:%M %Z")
 
 
 def read_state(path: Path) -> str | None:
-    """A regular file's text (stat follows symlinks, like the producers' -s),
-    None when it does not exist or is not a regular file; Unreadable otherwise."""
+    """A regular file's text, None when it does not exist or is not a regular
+    file, Unreadable on any other error. Raw os calls only: pathlib predicates
+    such as is_file() return False on a permission error, which would read as
+    "no window"."""
     try:
         if not stat.S_ISREG(os.stat(path).st_mode):
             return None
         with open(path, errors="replace") as fh:
             return fh.read()
+    except (FileNotFoundError, NotADirectoryError):
+        return None
     except OSError as e:
-        return absent_or_raise(path, e)
+        raise Unreadable(f"{path}: {e}") from None
 
 
-def list_dir(path: Path) -> list[str]:
+def parse_window(text: str, path: Path, now: float) -> str | None:
+    """The window's description while it is open, None once its end has
+    passed; any other content is Unreadable."""
+    end, _, what = text.split("\n", 1)[0].partition(" ")
+    if not (end.isascii() and end.isdigit() and what.strip()):
+        raise Unreadable(f"{path}: not '<end epoch> <what>': {text[:80]!r}")
+    if int(end) <= now:
+        return None
     try:
-        return sorted(os.listdir(path))
-    except OSError as e:
-        absent_or_raise(path, e)
-        return []
+        until = local_time(datetime.fromtimestamp(int(end), timezone.utc))
+    except (OverflowError, OSError, ValueError):
+        raise Unreadable(f"{path}: end {end} is out of range") from None
+    return f"{what.strip()} until {until}"
 
 
-def pid_alive(text: str) -> bool:
-    """acquire_maintenance_lock's test: digits only, and kill -0 succeeds."""
-    pid = text.split("\n", 1)[0]
-    if not pid.isdigit() or not pid.isascii():
-        return False
-    try:
-        os.kill(int(pid), 0)
-    except OSError:
-        return False
-    return True
-
-
-def local_windows(root: Path) -> tuple[list[tuple[str, str]], list[str]]:
-    """(scope, line) windows recorded on this Mac, and the paths that failed."""
+def local_windows(
+    root: Path, now: float | None = None
+) -> tuple[list[tuple[str, str]], list[str]]:
+    """(scope, line) windows recorded on this Mac, and the files that failed."""
+    now = time.time() if now is None else now
     found, unreadable = [], []
-
-    def state(path: Path) -> str | None:
+    for tool, rel in WINDOW_FILES.items():
+        path = root / rel
         try:
-            return read_state(path)
+            text = read_state(path)
+            what = parse_window(text, path, now) if text is not None else None
         except Unreadable as e:
             unreadable.append(str(e))
-            return None
-
-    offline = root / "homelab-timmy-offline"
-    held = [
-        name
-        for name in ("silence-id", "parked-scales", "suspended-cronjobs")
-        if state(offline / name)
-    ]
-    if held:
-        found.append((ALL, f"timmy-offline: {', '.join(held)} in {offline}"))
-
-    nm = root / "homelab-node-maintenance"
-    try:
-        names = list_dir(nm)
-    except Unreadable as e:
-        unreadable.append(str(e))
-        names = []
-    for name in names:
-        if not name.endswith(".boot-id"):
             continue
-        text = state(nm / name)
-        if text and text.split("\n", 1)[0]:
-            node = name.removesuffix(".boot-id")
-            found.append((ALL, f"node-maintenance: {node} owes a finish ({nm / name})"))
-    lock = state(nm / "lock" / "pid")
-    if lock and pid_alive(lock):
-        found.append((ALL, f"node-maintenance: pid {lock.strip()} holds {nm / 'lock'}"))
-    if state(nm / "spin-down-replicas"):
-        found.append(
-            (ALL, f"node-maintenance: services spun down ({nm / 'spin-down-replicas'})")
-        )
+        if what:
+            found.append((ALL, f"{tool}: {what} ({path})"))
     return found, unreadable
 
 
@@ -178,7 +158,12 @@ def silence_scope(silence: dict) -> str | None:
             and m.get("value") in (".+", ".*")
         ):
             saw_match_all = True
-        elif m.get("name") == "namespace" and not regex and equal and m.get("value"):
+        elif (
+            m.get("name") == "namespace"
+            and not regex
+            and equal
+            and NAMESPACE.fullmatch(m.get("value", ""))
+        ):
             namespaces.add(m["value"])
         else:
             return None
@@ -234,6 +219,17 @@ def parse_silences(raw: str) -> list[dict]:
     return silences
 
 
+def ends_at(value: object) -> str:
+    """Alertmanager's RFC 3339 end in local time, or as given if it is not one."""
+    text = str(value)
+    # fromisoformat takes at most microseconds; Go prints up to nanoseconds.
+    trimmed = re.sub(r"(\.\d{6})\d+", r"\1", text).replace("Z", "+00:00")
+    try:
+        return local_time(datetime.fromisoformat(trimmed))
+    except ValueError:
+        return text
+
+
 def silence_windows() -> list[tuple[str, str]]:
     raw = run(
         [
@@ -261,7 +257,7 @@ def silence_windows() -> list[tuple[str, str]]:
             found.append(
                 (
                     scope,
-                    f"silence: {s.get('id')} on {where} until {s.get('endsAt')}"
+                    f"silence: {s.get('id')} on {where} until {ends_at(s.get('endsAt'))}"
                     f" ({str(s.get('comment', '')).strip()})",
                 )
             )
@@ -272,23 +268,33 @@ def covers(scope: str, target: tuple[str | None, str, str | None]) -> bool:
     return scope in (ALL, target[1])
 
 
+class Parser(argparse.ArgumentParser):
+    def error(self, message):
+        # argparse's own 2 would read as "could not tell".
+        self.print_usage(sys.stderr)
+        self.exit(EX_USAGE, f"{self.prog}: error: {message}\n")
+
+
 def main(argv: list[str] | None = None) -> int:
-    ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+    ap = Parser(description=__doc__.split("\n\n")[0])
     ap.add_argument("targets", nargs="*", metavar="TARGET")
     ap.add_argument("--json", action="store_true", help="print one JSON object")
-    args = ap.parse_args(argv)
+    args = ap.parse_intermixed_args(argv)
     try:
         targets = [parse_target(t) for t in args.targets]
     except ValueError as e:
         ap.error(str(e))
 
-    windows, unreadable = local_windows(state_root())
-    try:
-        windows += silence_windows()
-    except Unreadable as e:
-        unreadable.append(str(e))
-    except Exception as e:  # any other failure is still "could not tell"
-        unreadable.append(f"unexpected {type(e).__name__}: {e}")
+    windows, unreadable = [], []
+    for check in (lambda: local_windows(state_root()), lambda: (silence_windows(), [])):
+        try:
+            found, failed = check()
+            windows += found
+            unreadable += failed
+        except Unreadable as e:
+            unreadable.append(str(e))
+        except Exception as e:  # any other failure is still "could not tell"
+            unreadable.append(f"unexpected {type(e).__name__}: {e}")
 
     relevant = [
         line

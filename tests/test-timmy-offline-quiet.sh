@@ -58,6 +58,7 @@ patch)
 exec)
   # exec <pod> -c alertmanager -- amtool --alertmanager.url=... silence add|expire ...
   [[ ${STUB_FAIL_AMTOOL:-0} == 0 ]] || { echo "connection refused" >&2; exit 1; }
+  [[ ${STUB_FAIL_EXPIRE:-0} == 0 || $* != *" silence expire "* ]] || { echo "connection refused" >&2; exit 1; }
   # What amtool prints for a silence Alertmanager no longer has (lost on an
   # unclean restart): a 404, exit 1.
   [[ ${STUB_AMTOOL_NOTFOUND:-0} == 0 ]] || { echo "amtool: error: [DELETE /silence/{silenceID}][404] deleteSilenceNotFound" >&2; exit 1; }
@@ -219,6 +220,7 @@ else
 	bad "down must run preflight before the silence (preflight at '${preflight_line:-none}', silence at '${silence_line:-none}')"
 fi
 assert_eq "down still drains through node-maintenance.sh reboot --no-reboot --spin-down" 1 "$(grep -c 'nm: reboot timmy --no-reboot --spin-down' "$STUB_LOG")"
+if [[ $(<"$WINDOW_FILE") =~ ^[0-9]+\ planned\ timmy\ outage ]]; then ok "down opens the maintenance window"; else bad "down opens the maintenance window"; fi
 
 # The already-cordoned re-run goes to redrain, which never asks preflight (it
 # would refuse on the cordoned node).
@@ -240,11 +242,33 @@ cycle_fixture() { # the boot ID node-maintenance.sh saves when the drain ran
 reset_cluster
 park_fixture
 cycle_fixture
+open_window
 run_cmd cmd_up
 rc=$?
 assert_eq "up with cycle state completes" 0 "$rc"
 assert_eq "up with cycle state finishes through node-maintenance.sh" 1 "$(grep -c 'nm: finish timmy' "$STUB_LOG")"
 assert_eq "up with cycle state does not take the fallback" 0 "$(grep -c 'nm: restore-services' "$STUB_LOG")"
+if [[ -e $WINDOW_FILE ]]; then bad "up closes the maintenance window"; else ok "up closes the maintenance window"; fi
+
+# IDEA-1150 round 4: a failed expire keeps the silence ID for a retry, but the
+# outage is over, so the window must not outlive it.
+reset_cluster
+park_fixture
+cycle_fixture
+silence_alerts >/dev/null
+open_window
+STUB_FAIL_EXPIRE=1 run_cmd cmd_up
+rc=$?
+assert_eq "up with a failed expire still completes" 0 "$rc"
+assert_eq "a failed expire in up keeps the silence ID" "$STUB_SILENCE_ID" "$(cat "$SILENCE_FILE" 2>/dev/null)"
+if [[ -e $WINDOW_FILE ]]; then bad "a failed expire in up still closes the window"; else ok "a failed expire in up still closes the window"; fi
+
+reset_cluster
+open_window
+run_cmd cmd_up
+rc=$?
+assert_eq "up with only a window recorded refuses" 1 "$rc"
+if [[ -e $WINDOW_FILE ]]; then bad "it closes that window"; else ok "it closes that window"; fi
 
 reset_cluster
 park_fixture

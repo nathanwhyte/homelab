@@ -46,6 +46,13 @@
 # window anyway; the silence matters for the burst on return, when stale state
 # from before the shutdown is evaluated all at once.
 #
+# Session watches learn of the window from a third record, $STATE_DIR/window
+# ("<end epoch seconds> <what>", read by maintenance-active.py, IDEA-1150).
+# `down` writes it before its first change and `up` removes it once it
+# completes. Its end matches the silence's, so a forgotten or failed `up` stops
+# covering failures when the silence stops muting them; the other records mean
+# "left to undo" and can outlive the window.
+#
 # `down` runs node-maintenance.sh's own refusals (another cycle active, an earlier
 # node still owing a reboot) before it silences, suspends or parks anything. On
 # 2026-10-21 they ran last, inside the drain call: everything was parked and
@@ -80,6 +87,8 @@ KUBECTL=${KUBECTL:-kubectl}
 SUSPEND_FILE=$STATE_DIR/suspended-cronjobs
 SILENCE_FILE=$STATE_DIR/silence-id
 SILENCE_DURATION=${SILENCE_DURATION:-24h}
+WINDOW_FILE=$STATE_DIR/window
+WINDOW_SECONDS=${WINDOW_SECONDS:-86400} # SILENCE_DURATION's default
 AM_NAMESPACE=grafana
 AM_POD=alertmanager-prom-alertmanager-0
 
@@ -253,6 +262,16 @@ wait_parked_ready() {
 
 # --- Quieting the outage ---------------------------------------------------------
 
+open_window() {
+	mkdir -p "$STATE_DIR"
+	printf '%s %s\n' "$(($(date +%s) + WINDOW_SECONDS))" "planned timmy outage (timmy-offline.sh down)" >"$WINDOW_FILE.$$"
+	mv -f "$WINDOW_FILE.$$" "$WINDOW_FILE"
+}
+
+close_window() {
+	rm -f "$WINDOW_FILE"
+}
+
 amtool_exec() {
 	"$KUBECTL" -n "$AM_NAMESPACE" exec "$AM_POD" -c alertmanager -- \
 		amtool --alertmanager.url=http://localhost:9093 "$@"
@@ -385,6 +404,7 @@ cmd_down() {
 		"$NODE_MAINTENANCE" preflight "$NODE" ||
 			die "node-maintenance.sh will not drain $NODE (see above); nothing was silenced, suspended or parked"
 	fi
+	open_window
 	# Before park: parking Garage is what trips GarageQuorumLost.
 	silence_alerts
 	suspend_cronjobs
@@ -441,8 +461,11 @@ finish_cycle() {
 }
 
 cmd_up() {
-	[[ -s $SCALE_FILE || -s $SUSPEND_FILE || -s $SILENCE_FILE || -s $NM_STATE_DIR/$NODE.boot-id ]] ||
+	if ! [[ -s $SCALE_FILE || -s $SUSPEND_FILE || -s $SILENCE_FILE || -s $NM_STATE_DIR/$NODE.boot-id ]]; then
+		# A down that stopped between opening the window and its first change.
+		[[ -e $WINDOW_FILE ]] && close_window && log "closed the maintenance window; nothing else was recorded"
 		die "nothing recorded by down (no parked, suspended, silence or cycle state); nothing to do"
+	fi
 	finish_cycle
 	unpark
 	wait_parked_ready
@@ -451,6 +474,7 @@ cmd_up() {
 	garage_check
 	# Last: anything still firing after recovery is real and should page now.
 	expire_silence
+	close_window
 	log "timmy is back in service."
 }
 
