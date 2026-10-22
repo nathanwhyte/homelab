@@ -255,9 +255,9 @@ class ShimTest(unittest.TestCase):
         responses = "embedder_prompt_shim_responses_total"
         self.assertEqual(delta(f'{inputs}{{input_type="query"}}'), 2)
         self.assertEqual(delta(f'{inputs}{{input_type="document"}}'), 1)
-        self.assertEqual(delta(f'{responses}{{code="200",source="upstream"}}'), 1)
-        self.assertEqual(delta(f'{responses}{{code="503",source="upstream"}}'), 1)
-        self.assertEqual(delta(f'{responses}{{code="400",source="shim"}}'), 1)
+        self.assertEqual(delta(f'{responses}{{class="2xx",source="upstream"}}'), 1)
+        self.assertEqual(delta(f'{responses}{{class="5xx",source="upstream"}}'), 1)
+        self.assertEqual(delta(f'{responses}{{class="4xx",source="shim"}}'), 1)
 
     def test_query_string_does_not_bypass_the_rewrite(self):
         status, _ = self.call(
@@ -532,7 +532,7 @@ class UpstreamDownTest(unittest.TestCase):
             ctx.exception.close()
             self.assertEqual(ctx.exception.code, 502)
             self.assertIn(
-                b'embedder_prompt_shim_responses_total{code="502",source="shim"} 1\n',
+                b'embedder_prompt_shim_responses_total{class="5xx",source="shim"} 1\n',
                 shim.render_metrics(stats.snapshot()),
             )
         finally:
@@ -541,27 +541,36 @@ class UpstreamDownTest(unittest.TestCase):
 
 
 class RenderMetricsTest(unittest.TestCase):
-    def test_baseline_series_exist_before_any_count(self):
-        text = shim.render_metrics({}).decode()
-        for series in (
-            'embedder_prompt_shim_inputs_total{input_type="query"} 0',
-            'embedder_prompt_shim_inputs_total{input_type="document"} 0',
-            'embedder_prompt_shim_responses_total{code="400",source="shim"} 0',
-            'embedder_prompt_shim_responses_total{code="502",source="shim"} 0',
-        ):
-            self.assertIn(series + "\n", text)
-        self.assertIn("# TYPE embedder_prompt_shim_responses_total counter", text)
+    def test_every_series_exists_before_any_count(self):
+        # A series first seen nonzero loses that first increase() (round 1 P2).
+        lines = shim.render_metrics({}).decode().splitlines()
+        samples = [line for line in lines if not line.startswith("#")]
+        self.assertEqual(len(samples), 10)
+        self.assertTrue(all(line.endswith(" 0") for line in samples))
+        for cls in ("2xx", "3xx", "4xx", "5xx"):
+            for src in ("shim", "upstream"):
+                self.assertIn(
+                    f'embedder_prompt_shim_responses_total{{class="{cls}",source="{src}"}} 0',
+                    samples,
+                )
+        self.assertIn("# TYPE embedder_prompt_shim_responses_total counter", lines)
 
-    def test_counts_map_to_labels(self):
+    def test_codes_fold_into_their_class(self):
         text = shim.render_metrics(
-            {"query": 7, "http_502": 24, "upstream_200": 5, "upstream_503": 2}
+            {
+                "query": 7,
+                "http_502": 24,
+                "upstream_200": 5,
+                "upstream_503": 2,
+                "upstream_500": 1,
+            }
         ).decode()
         self.assertIn('embedder_prompt_shim_inputs_total{input_type="query"} 7\n', text)
         self.assertIn(
-            'embedder_prompt_shim_responses_total{code="502",source="shim"} 24\n', text
+            'embedder_prompt_shim_responses_total{class="5xx",source="shim"} 24\n', text
         )
         self.assertIn(
-            'embedder_prompt_shim_responses_total{code="503",source="upstream"} 2\n',
+            'embedder_prompt_shim_responses_total{class="5xx",source="upstream"} 3\n',
             text,
         )
 
