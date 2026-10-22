@@ -10,7 +10,6 @@ ov_pref_gate_patch.py. The rest are the review findings on homelab#254.
 import ast
 import importlib.util
 import shutil
-import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -425,27 +424,6 @@ class CheckerCases(unittest.TestCase):
             "  name: unrelated\n  namespace: viking\ndata:\n  a: b\n",
         )
         self.assertEqual(self.errors(), [])
-
-    def test_untracked_patch_is_not_in_a_git_trees_patch_set(self):
-        # R4: in a git work tree only the files a commit would hold form the set.
-        shutil.which("git") or self.skipTest("no git")
-
-        def git(*args):
-            subprocess.run(
-                ["git", "-C", str(self.root), *args],
-                check=True,
-                capture_output=True,
-            )
-
-        git("init", "-q")
-        git("add", "-A")
-        (self.root / checker.NAV / "ov_wip_patch.py").write_text('"""WIP."""\n')
-        self.assertNotIn("ov_wip_patch.py", checker.patch_files(self.root))
-        self.assertEqual(self.errors(), [])
-        git("add", "-N", f"{checker.NAV}/ov_wip_patch.py")
-        self.assertNotIn("ov_wip_patch.py", checker.patch_files(self.root))
-        git("add", f"{checker.NAV}/ov_wip_patch.py")
-        self.assertIn("ov_wip_patch.py", checker.patch_files(self.root))
 
 
 if __name__ == "__main__":

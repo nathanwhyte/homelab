@@ -4,8 +4,8 @@
 IMPR-1413. homelab#250 added ov_pref_gate_patch.py to the ConfigMap but not to the
 Deployments' ``items:`` lists, and the pod ran without the gate until homelab#252.
 The patch set is ``sitecustomize.py`` plus every ``ov_*_patch.py`` in
-viking/manifests/test/nav-patch/; in a git work tree, only those staged or committed
-(an untracked or intent-to-add file is not yet part of it).
+viking/manifests/test/nav-patch/ on disk, tracked or not: the set regen builds the
+ConfigMap from.
 
 The checker reads what the consumers produce: it renders each stack with
 ``kubectl kustomize`` (so generators, patches, List resources and duplicate
@@ -91,42 +91,11 @@ WORKLOAD_KINDS = {
 }
 
 
-def committed_names(root):
-    """File names under NAV in the tree a commit would record now, or None outside
-    a git work tree rooted at ``root``. ``git write-tree`` leaves out untracked and
-    intent-to-add files, so a WIP patch on disk does not join the set."""
-    git = shutil.which("git")
-    if git is None:
-        return None
-
-    def run(*args):
-        return subprocess.run(
-            [git, "-C", str(root), *args], capture_output=True, text=True, check=False
-        )
-
-    top = run("rev-parse", "--show-toplevel")
-    if top.returncode != 0 or Path(top.stdout.strip()).resolve() != root.resolve():
-        return None
-    tree = run("write-tree")
-    if tree.returncode != 0:
-        raise RuntimeError(f"git write-tree failed: {tree.stderr.strip()}")
-    listing = run("ls-tree", "--name-only", tree.stdout.strip(), f"{NAV}/")
-    if listing.returncode != 0:
-        raise RuntimeError(f"git ls-tree failed: {listing.stderr.strip()}")
-    return {Path(p).name for p in listing.stdout.split()}
-
-
 def patch_files(root):
-    """The patch set: sitecustomize.py and every ov_*_patch.py, by file name; in a
-    git work tree, only those the commit would hold."""
+    """The patch set: sitecustomize.py and every ov_*_patch.py, by file name."""
     nav = root / NAV
     names = ["sitecustomize.py"] + sorted(p.name for p in nav.glob("ov_*_patch.py"))
-    committed = committed_names(root)
-    return [
-        n
-        for n in names
-        if (nav / n).is_file() and (committed is None or n in committed)
-    ]
+    return [n for n in names if (nav / n).is_file()]
 
 
 def diff_sets(label, want, got):
@@ -375,10 +344,7 @@ def check_targets(root, files):
 
 
 def check(root):
-    try:
-        files = patch_files(root)
-    except RuntimeError as exc:
-        return [f"{NAV}: {exc}"]
+    files = patch_files(root)
     errors = []
     for stack in STACKS:
         label = f"{stack['dir']} (kustomize)"
@@ -413,8 +379,8 @@ def main(argv=None):
     if errors:
         print(
             f"(a stale prod ConfigMap is fixed by {REGEN}; a new patch also needs "
-            "its test kustomization entry and its TARGETS entry, and is counted only "
-            "once `git add`ed)",
+            "its test kustomization entry and its TARGETS entry; a WIP ov_*_patch.py "
+            "in the nav-patch dir counts too, so move it out until it is ready)",
             file=sys.stderr,
         )
         return 1

@@ -13,8 +13,6 @@
 # stacks with `kubectl kustomize` and exits non-zero when what either one mounts
 # disagrees with the glob (a stale ConfigMap, a missing kustomization entry, an
 # `items:` list or bad mount on a Deployment) or sitecustomize.py's TARGETS does.
-# In a git work tree the check counts only staged or committed patch files, so a
-# regen over an untracked patch fails until that patch is `git add`ed.
 # It compares parsed objects, not bytes, so kubectl's output format does not
 # matter. It needs kubectl and a python3 with PyYAML.
 set -euo pipefail
