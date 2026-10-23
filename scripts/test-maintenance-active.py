@@ -1,13 +1,19 @@
 #!/usr/bin/env python3
 """Hermetic tests for maintenance-active.py (IDEA-1150): no cluster, a stub kubectl."""
 
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "_scripts" / "lib"))
+from git_env import scrub_environ  # noqa: E402
+
+scrub_environ()
+
 import importlib.util
 import json
 import os
-from pathlib import Path
 import stat
 import subprocess
-import sys
 import tempfile
 import time
 import unittest
