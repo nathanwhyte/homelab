@@ -46,6 +46,14 @@
 # window anyway; the silence matters for the burst on return, when stale state
 # from before the shutdown is evaluated all at once.
 #
+# Session watches learn of the window from a third record, $STATE_DIR/window
+# ("<end epoch seconds> <what>", read by maintenance-active.py, IDEA-1150).
+# `down` writes it after the silence and suspends, before it parks anything, and
+# `up` removes it once it completes. Its end is the silence's (a re-run that keeps
+# the silence takes its recorded end, $STATE_DIR/silence-end), so a forgotten or
+# failed `up` stops covering failures when the silence stops muting them; the
+# other records mean "left to undo" and can outlive the window.
+#
 # `down` runs node-maintenance.sh's own refusals (another cycle active, an earlier
 # node still owing a reboot) before it silences, suspends or parks anything. On
 # 2026-10-21 they ran last, inside the drain call: everything was parked and
@@ -79,7 +87,10 @@ READY_TIMEOUT_SECONDS=${READY_TIMEOUT_SECONDS:-600}
 KUBECTL=${KUBECTL:-kubectl}
 SUSPEND_FILE=$STATE_DIR/suspended-cronjobs
 SILENCE_FILE=$STATE_DIR/silence-id
+SILENCE_END_FILE=$STATE_DIR/silence-end # "<end epoch> <id>", beside silence-id
 SILENCE_DURATION=${SILENCE_DURATION:-24h}
+SILENCE_MAX_SECONDS=2592000 # 30d
+WINDOW_FILE=$STATE_DIR/window
 AM_NAMESPACE=grafana
 AM_POD=alertmanager-prom-alertmanager-0
 
@@ -253,6 +264,72 @@ wait_parked_ready() {
 
 # --- Quieting the outage ---------------------------------------------------------
 
+# SILENCE_DURATION in seconds; the window takes the silence's end, so only the
+# single-unit forms up to SILENCE_MAX_SECONDS are accepted.
+silence_seconds() {
+	[[ $SILENCE_DURATION =~ ^([0-9]{1,7})([smhd])$ ]] || return 1
+	local n=$((10#${BASH_REMATCH[1]})) s
+	case ${BASH_REMATCH[2]} in
+	s) s=$n ;;
+	m) s=$((n * 60)) ;;
+	h) s=$((n * 3600)) ;;
+	d) s=$((n * 86400)) ;;
+	esac
+	((s > 0 && s <= SILENCE_MAX_SECONDS)) || return 1
+	echo "$s"
+}
+
+# down's refusals that need no cluster: a duration the window cannot follow, or
+# something other than a regular file where the window goes (mv would put the
+# window inside a directory and succeed).
+check_window() {
+	silence_seconds >/dev/null ||
+		die "SILENCE_DURATION=$SILENCE_DURATION: use <n>s, <n>m, <n>h or <n>d, at most 30d; this run changed nothing"
+	if [[ -L $WINDOW_FILE || (-e $WINDOW_FILE && ! -f $WINDOW_FILE) ]]; then
+		die "$WINDOW_FILE is not a regular file; remove it and re-run. This run changed nothing"
+	fi
+}
+
+# Exactly one "<10-digit end epoch> <what>" line, the grammar
+# maintenance-active.py accepts.
+WINDOW_LINE=$'^([1-9][0-9]{9}) ([^[:cntrl:][:space:]][^[:cntrl:]]*)\n$'
+
+line_end() { # <file>: the end such a file records; fails on anything else
+	local text=''
+	[[ -f $1 && ! -L $1 ]] || return 1
+	IFS= read -r -d '' text <"$1" || true
+	[[ $text =~ $WINDOW_LINE ]] || return 1
+	printf '%s\n' "${BASH_REMATCH[1]}"
+}
+
+# The window ends with the recorded silence, whether this run made it or kept an
+# earlier down's. Without a silence of known end (amtool failed), an open window
+# is kept and anything else replaced by one of SILENCE_DURATION.
+open_window() {
+	local end seconds now
+	now=$(date +%s)
+	if [[ -s $SILENCE_FILE ]] && end=$(line_end "$SILENCE_END_FILE"); then
+		if ((end <= now)); then
+			close_window
+			warn "the silence an earlier down made has ended; opening no maintenance window"
+			return 0
+		fi
+	elif end=$(line_end "$WINDOW_FILE") && ((end > now)); then
+		log "maintenance window already open"
+		return 0
+	else
+		seconds=$(silence_seconds) || die "SILENCE_DURATION=$SILENCE_DURATION: use <n>s, <n>m, <n>h or <n>d, at most 30d"
+		end=$((now + seconds))
+	fi
+	mkdir -p "$STATE_DIR"
+	printf '%s %s\n' "$end" "planned timmy outage (timmy-offline.sh down)" >"$WINDOW_FILE.$$"
+	mv -f "$WINDOW_FILE.$$" "$WINDOW_FILE"
+}
+
+close_window() {
+	rm -f "$WINDOW_FILE"
+}
+
 amtool_exec() {
 	"$KUBECTL" -n "$AM_NAMESPACE" exec "$AM_POD" -c alertmanager -- \
 		amtool --alertmanager.url=http://localhost:9093 "$@"
@@ -281,6 +358,8 @@ silence_alerts() {
 		return 0
 	fi
 	printf '%s\n' "$id" >"$SILENCE_FILE"
+	# Its end, for a later down's window (open_window); amtool took the same duration.
+	printf '%s %s\n' "$(($(date +%s) + $(silence_seconds)))" "$id" >"$SILENCE_END_FILE"
 	log "silenced all alerts for up to $SILENCE_DURATION (silence $id)"
 }
 
@@ -294,7 +373,7 @@ expire_silence() {
 	local out
 	if out=$(amtool_exec silence expire "$id" 2>&1); then
 		log "expired alert silence $id"
-		rm -f "$SILENCE_FILE"
+		rm -f "$SILENCE_FILE" "$SILENCE_END_FILE"
 	elif [[ $out == *deleteSilenceNotFound* || $out == *'[404]'* ]]; then
 		# Alertmanager's store is persistent, but it snapshots silences only every
 		# 15 minutes and on a clean shutdown. A silence younger than that when
@@ -302,7 +381,7 @@ expire_silence() {
 		# for the alert burst `down` created it for — so say so, then clear the ID
 		# rather than retrying a delete that can never succeed.
 		warn "silence $id no longer exists: Alertmanager came back without it, so the return burst was not covered (an unclean stop within its 15-minute snapshot interval loses a fresh silence)"
-		rm -f "$SILENCE_FILE"
+		rm -f "$SILENCE_FILE" "$SILENCE_END_FILE"
 	else
 		warn "could not expire silence $id — it ends on its own after $SILENCE_DURATION; retry: $SELF up"
 	fi
@@ -366,14 +445,20 @@ catchup_backup() {
 
 garage_check() {
 	log "garage status"
-	"$KUBECTL" -n garage exec garage-0 -c garage -- /garage status 2>/dev/null |
-		sed -n '/HEALTHY NODES/,$p' |
-		sed 's/^/    /'
+	local out
+	# A report, not a gate: under pipefail a failed exec here used to end up
+	# silently, before the silence was expired.
+	if ! out=$("$KUBECTL" -n garage exec garage-0 -c garage -- /garage status 2>&1); then
+		warn "garage status unavailable (${out//$'\n'/ }); check it once garage-0 is Running"
+		return 0
+	fi
+	sed -n '/HEALTHY NODES/,$p' <<<"$out" | sed 's/^/    /'
 }
 
 # --- Commands -------------------------------------------------------------------
 
 cmd_down() {
+	check_window
 	log "preflight: Longhorn must be healthy before parking anything"
 	"$NODE_MAINTENANCE" status >/dev/null
 	# node-maintenance.sh refuses the drain while another cycle is active or an
@@ -383,11 +468,15 @@ cmd_down() {
 	if ! node_is_cordoned; then
 		log "preflight: node-maintenance.sh must be willing to drain $NODE"
 		"$NODE_MAINTENANCE" preflight "$NODE" ||
-			die "node-maintenance.sh will not drain $NODE (see above); nothing was silenced, suspended or parked"
+			die "node-maintenance.sh will not drain $NODE (see above); this run changed nothing"
 	fi
 	# Before park: parking Garage is what trips GarageQuorumLost.
 	silence_alerts
 	suspend_cronjobs
+	# Before the first workload goes down, and after the steps above, so their
+	# failure leaves no window while every service is still up (a silence they
+	# made counts on its own).
+	open_window
 	park
 	wait_cross_node_detached
 	if node_is_cordoned; then
@@ -441,8 +530,11 @@ finish_cycle() {
 }
 
 cmd_up() {
-	[[ -s $SCALE_FILE || -s $SUSPEND_FILE || -s $SILENCE_FILE || -s $NM_STATE_DIR/$NODE.boot-id ]] ||
+	if ! [[ -s $SCALE_FILE || -s $SUSPEND_FILE || -s $SILENCE_FILE || -s $NM_STATE_DIR/$NODE.boot-id ]]; then
+		# A down that stopped after opening the window, before recording a change.
+		[[ -e $WINDOW_FILE ]] && close_window && log "closed the maintenance window; nothing else was recorded"
 		die "nothing recorded by down (no parked, suspended, silence or cycle state); nothing to do"
+	fi
 	finish_cycle
 	unpark
 	wait_parked_ready
@@ -451,6 +543,7 @@ cmd_up() {
 	garage_check
 	# Last: anything still firing after recovery is real and should page now.
 	expire_silence
+	close_window
 	log "timmy is back in service."
 }
 

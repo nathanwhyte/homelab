@@ -76,6 +76,20 @@ TIMEOUT_BIN=$(command -v timeout || command -v gtimeout || true)
 STATE_ROOT=${XDG_STATE_HOME:-"$HOME/.local/state"}
 MAINTENANCE_STATE_DIR=$STATE_ROOT/homelab-node-maintenance
 MAINTENANCE_LOCK_DIR=$MAINTENANCE_STATE_DIR/lock
+# The windows session watches read (maintenance-active.py, IDEA-1150): "<end epoch
+# seconds> <what>". A reboot cycle opens $MAINTENANCE_WINDOW_FILE at its first
+# change and finish or restore-services closes it; the end bounds a cycle backed
+# out by hand (uncordon) or abandoned, which leaves the boot ID behind. apt keeps
+# its own file, so it never closes a cycle's window.
+MAINTENANCE_WINDOW_FILE=$MAINTENANCE_STATE_DIR/window
+MAINTENANCE_WINDOW_SECONDS=${MAINTENANCE_WINDOW_SECONDS:-7200}
+APT_WINDOW_FILE=$MAINTENANCE_STATE_DIR/apt-window
+# The node whose remote apt run started (APT_STARTED seen) and has not been seen
+# to end. The run is detached, so it outlives a timeout or an interrupt here.
+APT_RUNNING=''
+APT_RC=''
+APT_KEPT_END=''
+APT_KEPT_WHAT=''
 LOCK_HELD=0
 # Overridable so tests can stub cluster reads/writes without a live cluster.
 KUBECTL=${KUBECTL:-kubectl}
@@ -157,6 +171,52 @@ load_cycle_boot_id() {
 
 clear_cycle_state() {
 	rm -f "$(cycle_state_file "$1")"
+}
+
+# Returns non-zero instead of dying, so the apt EXIT trap can still release the
+# lock. Refuses anything but a regular file at the path: mv would put the window
+# inside a directory and succeed.
+write_window() { # <file> <end epoch> <what>
+	[[ ! -L $1 && (-f $1 || ! -e $1) ]] || return 1
+	mkdir -p "$MAINTENANCE_STATE_DIR" &&
+		printf '%s %s\n' "$2" "$3" >"$1.$$" &&
+		mv -f "$1.$$" "$1"
+}
+
+open_maintenance_window() { # <what> [file seconds]
+	local file=${2:-$MAINTENANCE_WINDOW_FILE} seconds=${3:-$MAINTENANCE_WINDOW_SECONDS}
+	write_window "$file" $(($(date +%s) + seconds)) "$1" ||
+		die "cannot write maintenance window $file (a regular file or nothing must be there)"
+}
+
+# Exactly the one line write_window writes, the grammar maintenance-active.py
+# accepts; anything else is not carried over.
+WINDOW_LINE=$'^([1-9][0-9]{9}) ([^[:cntrl:][:space:]][^[:cntrl:]]*)\n$'
+
+# An apt-window still open from an earlier apt run, which keeps one after
+# stopping while a remote upgrade may still be going (apt_exit_window).
+read_kept_apt_window() {
+	local text=''
+	APT_KEPT_END='' APT_KEPT_WHAT=''
+	[[ -f $APT_WINDOW_FILE && ! -L $APT_WINDOW_FILE ]] || return 0
+	IFS= read -r -d '' text <"$APT_WINDOW_FILE" || true
+	if [[ $text =~ $WINDOW_LINE ]] && ((BASH_REMATCH[1] > $(date +%s))); then
+		APT_KEPT_END=${BASH_REMATCH[1]} APT_KEPT_WHAT=${BASH_REMATCH[2]}
+	fi
+}
+
+# Writes the apt-window, unless the kept one ends later: a later run never
+# shortens an earlier run's window.
+settle_apt_window() { # <end epoch> <what>
+	if [[ -n $APT_KEPT_END ]] && ((APT_KEPT_END > $1)); then
+		write_window "$APT_WINDOW_FILE" "$APT_KEPT_END" "$APT_KEPT_WHAT"
+	else
+		write_window "$APT_WINDOW_FILE" "$1" "$2"
+	fi
+}
+
+close_maintenance_window() {
+	rm -f "$MAINTENANCE_WINDOW_FILE"
 }
 
 release_maintenance_lock() {
@@ -710,8 +770,12 @@ launch_remote_apt() {
 }
 
 wait_remote_apt() {
-	# Echoes the apt chain's exit code. SSH failures while polling are expected
-	# (that is the transport restarting), so reconnect rather than give up.
+	# Sets APT_RC to the apt chain's exit code and clears APT_RUNNING. SSH failures
+	# while polling are expected (that is the transport restarting), so reconnect
+	# rather than give up. Not echoed through $(…): bash holds a TERM sent to this
+	# pid until a substitution returns, so the script would keep polling, see the
+	# run end and still exit with APT_RUNNING set. A signal during the one poll
+	# that sees the end still does that.
 	local node=$1 deadline rc
 	deadline=$((SECONDS + APT_TIMEOUT_SECONDS))
 	while ((SECONDS < deadline)); do
@@ -722,7 +786,8 @@ wait_remote_apt() {
 			continue
 		}
 		if [[ -n $rc ]]; then
-			printf '%s\n' "$rc"
+			APT_RC=$rc
+			APT_RUNNING=
 			return 0
 		fi
 		sleep 10
@@ -764,19 +829,49 @@ report_apt_result() {
 cmd_apt() {
 	local targets=("$@")
 	((${#targets[@]})) || targets=("${NODES[@]}")
-	local node rc
+	local node
 	for node in "${targets[@]}"; do
 		require_node "$node"
+	done
+	# Package restarts (k3s, containerd, tailscaled) can drop pods. Bounded by
+	# apt's own limits per node; apt_exit_window settles it on any exit.
+	read_kept_apt_window
+	# Before the window is written, so a signal during the write still settles it.
+	# Not set -e's to stop: a failed write must not skip the lock release.
+	trap 'apt_exit_window || warn "could not settle $APT_WINDOW_FILE; check it by hand"; release_maintenance_lock' EXIT
+	settle_apt_window \
+		$(($(date +%s) + ${#targets[@]} * (APT_LAUNCH_GRACE_SECONDS + APT_TIMEOUT_SECONDS + 2 * SSH_CMD_TIMEOUT_SECONDS))) \
+		"apt upgrade on ${targets[*]}" ||
+		die "cannot write maintenance window $APT_WINDOW_FILE (a regular file or nothing must be there)"
+	for node in "${targets[@]}"; do
 		log "[$node] apt update + full-upgrade + autoremove (detached; nodes still serial)"
 		launch_remote_apt "$node"
-		rc=$(wait_remote_apt "$node")
-		if [[ $rc != 0 ]]; then
+		APT_RUNNING=$node
+		wait_remote_apt "$node"
+		if [[ $APT_RC != 0 ]]; then
 			run_ssh "$node" "tail -25 $APT_REMOTE_LOG" 2>/dev/null | sed 's/^/    /' || true
-			die "[$node] apt exited $rc; full log at $node:$APT_REMOTE_LOG"
+			die "[$node] apt exited $APT_RC; full log at $node:$APT_REMOTE_LOG"
 		fi
 		report_apt_result "$node"
 	done
 	log "apt phase done. Reboot serially with: $SELF reboot <node>  (order: ${NODES[*]})"
+}
+
+# Without a run confirmed started (APT_STARTED seen) and not seen to end, the
+# window goes, back to an earlier run's kept one if that is still open. That
+# includes a stop during a launch, before the marker is confirmed: whether the
+# upgrade came up is unknown, and an unknown errs toward alerting. With one, it
+# keeps at most one more APT_TIMEOUT_SECONDS for that run; later nodes never
+# start.
+apt_exit_window() {
+	if [[ -n $APT_RUNNING ]]; then
+		settle_apt_window $(($(date +%s) + APT_TIMEOUT_SECONDS)) \
+			"apt upgrade on $APT_RUNNING (stopped early; its remote run may continue)"
+	elif [[ -n $APT_KEPT_END ]] && ((APT_KEPT_END > $(date +%s))); then
+		write_window "$APT_WINDOW_FILE" "$APT_KEPT_END" "$APT_KEPT_WHAT"
+	else
+		rm -f "$APT_WINDOW_FILE"
+	fi
 }
 
 cmd_status() {
@@ -845,6 +940,7 @@ cmd_finish() {
 
 	wait_longhorn_healthy
 	clear_cycle_state "$node"
+	close_maintenance_window
 	log "[$node] cycle complete. Safe to proceed to the next node."
 }
 
@@ -874,6 +970,7 @@ cmd_reboot() {
 	# ov-vectordb), so checking headroom first made --spin-down unable to ever help
 	# (it always ran too late to affect the verdict it was meant to fix — 2026-09-06).
 	if ((spin_down)); then
+		open_maintenance_window "reboot cycle on $node"
 		log "[$node] pre-drain spin-down of memory-heavy services"
 		spin_down_memory_services || return 1
 		wait_for_spin_down_pods_gone
@@ -893,6 +990,7 @@ cmd_reboot() {
 	[[ -n $boot_id ]] || die "empty boot ID returned by $node"
 	require_valid_boot_id "$boot_id"
 
+	open_maintenance_window "reboot cycle on $node"
 	log "[$node] cordon"
 	kubectl cordon "$node"
 	save_cycle_boot_id "$node" "$boot_id"
@@ -983,6 +1081,9 @@ cmd_restore_services() {
 	else
 		log "no spin-down state recorded; nothing to restore"
 	fi
+	# No cycle is active (checked above), so a window left open is the one a
+	# stopped cycle opened before its spin-down.
+	close_maintenance_window
 }
 
 main() {
