@@ -6,10 +6,15 @@ Reads `ov status --output json` and parses its queue table with the exporter's o
 reading of the same text (IMPR-1412 review: an awk gate passed on
 `[queue] (unhealthy)` with no rows).
 
-It refuses to call the queues drained unless the server and its queue component
-report healthy, the queue status holds exactly one table with Pending and
+It refuses to call the queues drained unless the status is `ok` and its queue
+component reports healthy, the queue status holds exactly one table with Pending and
 In Progress columns, every row's two counts are integers, and every queue in
 QUEUES is present (Semantic-Nodes included: `TOTAL` leaves it out, BUG-1181).
+
+The server's own `is_healthy` is not part of the judgment. v0.5.1.1 clears it
+whenever the vikingdb component's aggregate call 404s, a route the vectordb has
+never served, so it reads false on every v0.5.1.1 server (IMPR-1412 rehearsal).
+Components that report unhealthy are listed in the report's `unhealthy` field.
 
 Exit codes: 0 drained, 3 work remaining, 1 the status could not be judged.
 Prints one JSON line either way.
@@ -51,9 +56,10 @@ def _exporter():
 def judge(status: dict) -> tuple[int, dict]:
     ex = _exporter()
     result = status.get("result") or {}
-    queue = (result.get("components") or {}).get("queue") or {}
-    if not (status.get("ok") and result.get("is_healthy") and queue.get("is_healthy")):
-        return 1, {"error": "server or queue component not healthy"}
+    components = result.get("components") or {}
+    queue = components.get("queue") or {}
+    if not (status.get("ok") and queue.get("is_healthy")):
+        return 1, {"error": "status not ok or queue component not healthy"}
     tables = ex._parse_tables(queue.get("status") or "")
     if (
         len(tables) != 1
@@ -80,6 +86,9 @@ def judge(status: dict) -> tuple[int, dict]:
         "drained": not busy,
         "queues": len(counts),
         "busy": busy,
+        "unhealthy": sorted(
+            n for n, c in components.items() if not (c or {}).get("is_healthy")
+        ),
     }
 
 
