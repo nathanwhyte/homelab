@@ -6,18 +6,20 @@ Reads `ov status --output json` and parses its queue table with the exporter's o
 reading of the same text (IMPR-1412 review: an awk gate passed on
 `[queue] (unhealthy)` with no rows).
 
-It refuses to call the queues drained unless the status is `ok` and its queue
-component reports healthy, the queue status holds exactly one table with Pending and
+It refuses to call the queues drained unless the status's `ok` and its queue
+component's `is_healthy` are both JSON `true`, the queue status is text holding
+exactly one table with Pending and
 In Progress columns, every row's two counts are integers, and every queue in
 QUEUES is present (Semantic-Nodes included: `TOTAL` leaves it out, BUG-1181).
 
 The server's own `is_healthy` is not part of the judgment. v0.5.1.1 clears it
 whenever the vikingdb component's aggregate call 404s, a route the vectordb has
 never served, so it reads false on every v0.5.1.1 server (IMPR-1412 rehearsal).
-Components that report unhealthy are listed in the report's `unhealthy` field.
+Every report carries an `unhealthy` list naming each component whose `is_healthy`
+is not `true` (false, missing, or not an object), queue included.
 
-Exit codes: 0 drained, 3 work remaining, 1 the status could not be judged.
-Prints one JSON line either way.
+Exit codes: 0 drained, 3 work remaining, 1 the status could not be judged
+(bad arguments and unreadable input included). Prints one JSON line in every case.
 
 Usage: python3 ov-queue-drained.py            (runs `ov status --output json`)
        python3 ov-queue-drained.py --file F   (judges a saved status JSON)
@@ -63,15 +65,23 @@ def judge(status: dict) -> tuple[int, dict]:
     result = _dict(status.get("result"))
     components = _dict(result.get("components"))
     queue = _dict(components.get("queue"))
-    if not (status.get("ok") and queue.get("is_healthy")):
-        return 1, {"error": "status not ok or queue component not healthy"}
-    tables = ex._parse_tables(queue.get("status") or "")
+    unhealthy = sorted(
+        n for n, c in components.items() if _dict(c).get("is_healthy") is not True
+    )
+
+    def refuse(error: str) -> tuple[int, dict]:
+        return 1, {"error": error, "unhealthy": unhealthy}
+
+    if not (status.get("ok") is True and queue.get("is_healthy") is True):
+        return refuse("status not ok or queue component not healthy")
+    text = queue.get("status")
+    tables = ex._parse_tables(text if isinstance(text, str) else "")
     if (
         len(tables) != 1
         or not tables[0]
         or not {"Queue", "Pending", "In Progress"} <= set(tables[0][0])
     ):
-        return 1, {"error": f"expected one queue table, found {len(tables)}"}
+        return refuse(f"expected one queue table, found {len(tables)}")
     counts = {}
     for row in tables[0]:
         name = row.get("Queue", "")
@@ -79,11 +89,11 @@ def judge(status: dict) -> tuple[int, dict]:
             continue
         p, i = ex._to_int(row.get("Pending")), ex._to_int(row.get("In Progress"))
         if p is None or i is None:
-            return 1, {"error": f"unreadable counts on row {name!r}"}
+            return refuse(f"unreadable counts on row {name!r}")
         counts[name] = (p, i)
     missing = [q for q in QUEUES if q not in counts]
     if missing:
-        return 1, {"error": f"queue rows missing: {missing}"}
+        return refuse(f"queue rows missing: {missing}")
     busy = {
         n: {"pending": p, "in_progress": i} for n, (p, i) in counts.items() if p or i
     }
@@ -91,22 +101,39 @@ def judge(status: dict) -> tuple[int, dict]:
         "drained": not busy,
         "queues": len(counts),
         "busy": busy,
-        "unhealthy": sorted(
-            n for n, c in components.items() if not _dict(c).get("is_healthy")
-        ),
+        "unhealthy": unhealthy,
     }
 
 
+class _Parser(argparse.ArgumentParser):
+    """No --help: argparse would exit 0 after it, and 0 means drained."""
+
+    def __init__(self):
+        super().__init__(add_help=False)
+
+    def error(self, message):
+        print(json.dumps({"error": f"bad arguments: {message}"}))
+        sys.exit(1)
+
+
 def main() -> int:
-    ap = argparse.ArgumentParser()
+    ap = _Parser()
     ap.add_argument("--file", type=Path)
-    a = ap.parse_args()
-    if a.file:
-        raw = a.file.read_text()
-    else:
-        run = subprocess.run(
-            ["ov", "status", "--output", "json"], capture_output=True, text=True
-        )
+    try:
+        a = ap.parse_args()
+    except SystemExit as exc:
+        return exc.code if isinstance(exc.code, int) else 1
+    try:
+        if a.file:
+            raw = a.file.read_text()
+        else:
+            run = subprocess.run(
+                ["ov", "status", "--output", "json"], capture_output=True, text=True
+            )
+    except (OSError, UnicodeDecodeError) as exc:
+        print(json.dumps({"error": f"could not read the status: {exc}"}))
+        return 1
+    if not a.file:
         if run.returncode != 0:
             print(
                 json.dumps(
