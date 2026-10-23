@@ -56,12 +56,15 @@ STUB
 # Answers the boot-ID, reboot and apt probes. probe_ssh needs its sentinel
 # after the output. The first apt-era call records the apt window as seen
 # mid-run; STUB_SSH_FAIL fails every call, STUB_APT_RC is the remote apt's code.
+# STUB_APT_HANG keeps the remote run going until $XDG_STATE_HOME/apt-done exists;
+# STUB_BLOCK_WINDOW puts a directory where the apt window goes.
 cat >"$TMPDIR_TEST/ssh" <<'STUB'
 #!/usr/bin/env bash
 cmd=${*: -1}
 echo "ssh $cmd" >>"$STUB_LOG"
 W=$XDG_STATE_HOME/homelab-node-maintenance/apt-window
 [[ -e $XDG_STATE_HOME/apt-window-seen ]] || cat "$W" >"$XDG_STATE_HOME/apt-window-seen" 2>/dev/null || echo absent >"$XDG_STATE_HOME/apt-window-seen"
+[[ -z ${STUB_BLOCK_WINDOW:-} || -d $W ]] || { rm -f "$W" && mkdir "$W"; }
 [[ -z ${STUB_SSH_FAIL:-} ]] || exit 255
 B=$XDG_STATE_HOME/bootid
 [[ -s $B ]] || echo aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee >"$B"
@@ -69,7 +72,7 @@ probe() { printf '%s\n\n__PROBE_OK__\n' "$1"; }
 case $cmd in
 *setsid*) exit 0 ;;
 *"grep -c APT_STARTED"*) probe 1 ;;
-*APT_DONE_RC=//p*) if [[ -n ${STUB_APT_HANG:-} ]]; then probe ""; else probe "${STUB_APT_RC:-0}"; fi ;;
+*APT_DONE_RC=//p*) if [[ -n ${STUB_APT_HANG:-} && ! -e $XDG_STATE_HOME/apt-done ]]; then probe ""; else probe "${STUB_APT_RC:-0}"; fi ;;
 *"dpkg --audit"*) probe "" ;;
 *reboot-required*) probe current ;;
 *boot_id*) cat "$B" ;;
@@ -84,6 +87,8 @@ STUB
 chmod +x "$TMPDIR_TEST/kubectl" "$TMPDIR_TEST/ssh"
 export PATH=$TMPDIR_TEST:$PATH KUBECTL=$TMPDIR_TEST/kubectl
 export REBOOT_TIMEOUT_SECONDS=30 SPIN_DOWN_TIMEOUT_SECONDS=5
+# The bounds asserted below are the script's defaults, not the caller's.
+unset APT_TIMEOUT_SECONDS APT_LAUNCH_GRACE_SECONDS SSH_CMD_TIMEOUT_SECONDS MAINTENANCE_WINDOW_SECONDS
 set +e # assertions below inspect failures themselves
 
 PASS=0
@@ -166,13 +171,16 @@ assert_eq "restore-services closes the stopped cycle's window" absent "$(left "$
 
 # --- apt -------------------------------------------------------------------------
 fresh
+t0=$(date +%s)
 nm apt wemby
 assert_eq "apt completes against the stubs" 0 "$?"
+t1=$(date +%s)
+# One node: APT_LAUNCH_GRACE_SECONDS + APT_TIMEOUT_SECONDS + 2 x SSH_CMD_TIMEOUT_SECONDS.
 if [[ $(<"$XDG_STATE_HOME/apt-window-seen") =~ ^([0-9]+)\ apt\ upgrade\ on\ wemby$ ]] &&
-	((BASH_REMATCH[1] > $(date +%s) + 3600)); then
+	((BASH_REMATCH[1] >= t0 + 3900 && BASH_REMATCH[1] <= t1 + 3900)); then
 	ok "the apt window is open, with apt's own bound, while apt runs"
 else
-	bad "the apt window is open while apt runs (saw '$(<"$XDG_STATE_HOME/apt-window-seen")')"
+	bad "the apt window is open, with apt's own bound, while apt runs (saw '$(<"$XDG_STATE_HOME/apt-window-seen")', started $t0)"
 fi
 assert_eq "a finished apt run closes its window" absent "$(left "$ND/apt-window")"
 
@@ -190,15 +198,64 @@ assert_eq "it closes the apt window" absent "$(left "$ND/apt-window")"
 # A timeout (or an interrupt) after the remote run started leaves it going, so
 # the window keeps one more APT_TIMEOUT_SECONDS for that node only.
 fresh
-STUB_APT_HANG=1 APT_TIMEOUT_SECONDS=1 nm apt wemby manu
+STUB_APT_HANG=1 APT_TIMEOUT_SECONDS=5 nm apt wemby manu
 assert_eq "an apt timeout fails the run" 1 "$?"
+w=$(left "$ND/apt-window")
 if [[ $(cat "$ND/apt-window" 2>/dev/null) =~ ^[0-9]+\ apt\ upgrade\ on\ wemby\ \(stopped\ early ]] &&
-	(($(left "$ND/apt-window") <= 1)); then
+	((w >= 3 && w <= 5)); then
 	ok "it keeps the window for the started run only, for APT_TIMEOUT_SECONDS"
 else
-	bad "it keeps the window for the started run only (got '$(cat "$ND/apt-window" 2>/dev/null)', $(left "$ND/apt-window")s left)"
+	bad "it keeps the window for the started run only, for APT_TIMEOUT_SECONDS (got '$(cat "$ND/apt-window" 2>/dev/null)', ${w}s left)"
 fi
 assert_eq "manu's upgrade never started" 1 "$(grep -c 'setsid' "$STUB_LOG")"
+
+# Round 6 P2: a TERM to apt's own pid (the one its lock names) was held until
+# the whole wait returned, so apt kept polling, saw the run end, and still kept
+# a "stopped early" window. It now stops at its next step, without polling again.
+fresh
+STUB_APT_HANG=1 bash "$NM" apt wemby >"$XDG_STATE_HOME/out" 2>&1 &
+pid=$!
+# The poll, not the launch command, which also names APT_DONE_RC.
+poll='APT_DONE_RC=//p'
+for _ in $(seq 1 100); do grep -qF "$poll" "$STUB_LOG" && break; sleep 0.1; done
+polls=$(grep -cF "$poll" "$STUB_LOG")
+kill -TERM "$pid"
+touch "$XDG_STATE_HOME/apt-done" # the remote run ends right after
+wait "$pid"
+assert_eq "a TERM to the apt pid stops it" 143 "$?"
+assert_eq "it stops without polling the remote run again" "$polls" "$(grep -cF "$poll" "$STUB_LOG")"
+w=$(left "$ND/apt-window")
+if [[ $(cat "$ND/apt-window" 2>/dev/null) =~ \ apt\ upgrade\ on\ wemby\ \(stopped\ early ]] && ((w > 3500 && w <= 3600)); then
+	ok "the run it did not see end keeps the window for APT_TIMEOUT_SECONDS"
+else
+	bad "the run it did not see end keeps the window for APT_TIMEOUT_SECONDS (got '$(cat "$ND/apt-window" 2>/dev/null)', ${w}s left)"
+fi
+assert_eq "the lock is released" absent "$([[ -e $ND/lock ]] && echo present || echo absent)"
+
+# Round 6: a later apt run must not shorten the window an earlier one kept.
+fresh
+mkdir -p "$ND"
+kept="$(($(date +%s) + 600)) apt upgrade on wemby (stopped early; its remote run may continue)"
+printf '%s\n' "$kept" >"$ND/apt-window"
+nm apt manu
+assert_eq "apt on another node completes" 0 "$?"
+assert_eq "the earlier run's kept window is restored afterwards" "$kept" "$(cat "$ND/apt-window" 2>/dev/null)"
+if [[ $(<"$XDG_STATE_HOME/apt-window-seen") =~ \ apt\ upgrade\ on\ manu$ ]]; then ok "the longer window covers the run"; else bad "the longer window covers the run (saw '$(<"$XDG_STATE_HOME/apt-window-seen")')"; fi
+
+# mv would put the window inside a directory and succeed.
+fresh
+mkdir -p "$ND/apt-window"
+nm apt wemby
+assert_eq "apt refuses a directory at its window path" 1 "$?"
+assert_eq "before any SSH call" 0 "$(grep -c '^ssh ' "$STUB_LOG" || true)"
+
+# Round 6: a window that cannot be settled must not keep the lock (set -e used
+# to abort the EXIT trap before the release).
+fresh
+STUB_BLOCK_WINDOW=1 STUB_APT_RC=100 nm apt wemby
+assert_eq "apt with an unwritable window path still fails as before" 1 "$?"
+assert_eq "it says the window could not be settled" 1 "$(grep -c 'could not settle' "$XDG_STATE_HOME/out")"
+assert_eq "it releases the lock" absent "$([[ -e $ND/lock ]] && echo present || echo absent)"
 
 fresh
 nm apt wemby nosuchnode

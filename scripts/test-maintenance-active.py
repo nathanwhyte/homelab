@@ -116,6 +116,7 @@ class TargetTests(unittest.TestCase):
 
 TIMMY = "homelab-timmy-offline/window"
 NODE = "homelab-node-maintenance/window"
+APT = "homelab-node-maintenance/apt-window"
 
 
 class LocalStateTests(unittest.TestCase):
@@ -185,6 +186,10 @@ class LocalStateTests(unittest.TestCase):
             f"{int(self.now) + 60} x",
             f"0{int(self.now) + 60} x\n",
             f"{int(self.now) + 60} \x00\n",
+            # Round 6 P3: a description that is or starts with whitespace.
+            f"{int(self.now) + 60}  x\n",
+            f"{int(self.now) + 60}  \n",
+            f"{int(self.now) + 60} \t\n",
             "253402300799 year 9999\n",
             "9" * 5000 + " forever\n",
         ):
@@ -213,6 +218,21 @@ class LocalStateTests(unittest.TestCase):
         self.assertEqual(found, [])
         self.assertEqual(len(unreadable), 2)
         self.assertTrue(all("not a regular file" in u for u in unreadable))
+        # Round 6 P3: without hiding a valid sibling window.
+        self.write(APT, f"{int(self.now) + 60} apt upgrade on wemby\n")
+        found, unreadable = self.windows()
+        self.assertEqual(len(found), 1)
+        self.assertIn("apt upgrade on wemby", found[0][1])
+        self.assertEqual(len(unreadable), 2)
+
+    def test_a_dangling_symlink_is_unreadable(self):
+        # Round 6 P3: it read as absent.
+        (self.root / TIMMY).parent.mkdir(parents=True)
+        (self.root / TIMMY).symlink_to(self.root / "nowhere")
+        found, unreadable = self.windows()
+        self.assertEqual(found, [])
+        self.assertEqual(len(unreadable), 1)
+        self.assertIn("symlink to nothing", unreadable[0])
 
     @unittest.skipIf(os.geteuid() == 0, "root reads mode-000 files")
     def test_unreadable_window_is_reported_not_treated_as_absent(self):

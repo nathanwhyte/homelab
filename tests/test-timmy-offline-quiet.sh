@@ -47,7 +47,10 @@ get)
   *) printf '%s' "${STUB_REPLICAS:-1}" ;;
   esac
   ;;
-scale) ;;
+scale)
+  # Whether the window was open when the first workload went down.
+  if [[ -f $XDG_STATE_HOME/homelab-timmy-offline/window ]]; then echo "scale saw a window" >>"$STUB_LOG"; else echo "scale saw no window" >>"$STUB_LOG"; fi
+  ;;
 patch)
   # patch cronjob <name> --type=merge -p '{"spec":{"suspend":X}}'
   name=$3; body=${*: -1}
@@ -118,6 +121,7 @@ viking/ovlock-janitor=true
 EOF
 	: >"$STUB_LOG"
 	rm -rf "$TMPDIR_TEST/state"
+	SILENCE_CREATED= # a fresh run of the sourced script
 }
 
 export KUBECTL=$TMPDIR_TEST/kubectl
@@ -228,6 +232,25 @@ else
 fi
 assert_eq "down still drains through node-maintenance.sh reboot --no-reboot --spin-down" 1 "$(grep -c 'nm: reboot timmy --no-reboot --spin-down' "$STUB_LOG")"
 if [[ $(<"$WINDOW_FILE") =~ ^[0-9]+\ planned\ timmy\ outage ]]; then ok "down opens the maintenance window"; else bad "down opens the maintenance window"; fi
+assert_eq "the window is open before the first workload is scaled down" "0 $(grep -c '^-n .* scale ' "$STUB_LOG")" \
+	"$(grep -c 'scale saw no window' "$STUB_LOG") $(grep -c 'scale saw a window' "$STUB_LOG")"
+
+# Round 6: a down whose silence and suspend both fail has changed nothing that
+# needs a window; the silence, had it been made, counts on its own.
+reset_cluster
+STUB_FAIL_AMTOOL=1 STUB_FAIL_GET=kube-system/k3s-datastore-backup run_cmd cmd_down
+assert_eq "down stops when a CronJob cannot be read" 1 "$?"
+if [[ -e $WINDOW_FILE ]]; then bad "it leaves no window"; else ok "it leaves no window"; fi
+
+# Round 6: mv would put the window inside a directory and succeed.
+for kind in directory symlink; do
+	reset_cluster
+	mkdir -p "$STATE_DIR"
+	if [[ $kind == directory ]]; then mkdir "$WINDOW_FILE"; else ln -s "$TMPDIR_TEST/nowhere" "$WINDOW_FILE"; fi
+	run_cmd cmd_down
+	assert_eq "down refuses a $kind at the window path" 1 "$?"
+	assert_eq "before any silence, suspend or scale ($kind)" 0 "$(mutations)"
+done
 
 # The already-cordoned re-run goes to redrain, which never asks preflight (it
 # would refuse on the cordoned node).
@@ -301,13 +324,28 @@ end_before=$(cut -d' ' -f1 "$WINDOW_FILE")
 sleep 1
 open_window >/dev/null
 assert_eq "re-running down keeps the open window's end, as it keeps the silence" "$end_before" "$(cut -d' ' -f1 "$WINDOW_FILE")"
+(SILENCE_CREATED=1 SILENCE_DURATION=1h open_window) >/dev/null
+left=$(window_left)
+if ((left > 3500 && left <= 3600)); then ok "a re-run that made a new silence takes its end"; else bad "a re-run that made a new silence takes its end (left ${left}s)"; fi
 
-reset_cluster
-SILENCE_DURATION=1h30m run_cmd cmd_down
-rc=$?
-assert_eq "down refuses a SILENCE_DURATION the window cannot follow" 1 "$rc"
-assert_eq "it refuses before any silence, suspend or scale" 0 "$(mutations)"
-if [[ -e $WINDOW_FILE ]]; then bad "and before opening a window"; else ok "and before opening a window"; fi
+# Round 6: only an open, well-formed window is kept.
+for text in "$(($(date +%s) - 1)) planned timmy outage" "now+600 planned timmy outage" "99999999999 planned timmy outage"; do
+	reset_cluster
+	mkdir -p "$STATE_DIR"
+	printf '%s\n' "$text" >"$WINDOW_FILE"
+	open_window >/dev/null
+	left=$(window_left)
+	if ((left > 86300 && left <= 86400)); then ok "down replaces a window '${text%% *}'"; else bad "down replaces a window '${text%% *}' (left ${left}s)"; fi
+done
+
+for d in 1h30m 100000d 31d 0s 99999999999999999999d; do
+	reset_cluster
+	SILENCE_DURATION=$d run_cmd cmd_down
+	assert_eq "down refuses SILENCE_DURATION=$d" 1 "$?"
+	assert_eq "it refuses before any silence, suspend or scale ($d)" 0 "$(mutations)"
+	if [[ -e $WINDOW_FILE ]]; then bad "and before opening a window ($d)"; else ok "and before opening a window ($d)"; fi
+done
+assert_eq "30d is the longest window" 2592000 "$(SILENCE_DURATION=30d silence_seconds)"
 
 reset_cluster
 park_fixture

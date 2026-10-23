@@ -19,11 +19,11 @@ inference from cluster state or from what a tool has left to undo:
 
 - window files: "<end epoch seconds> <what>" in
   ${XDG_STATE_HOME:-~/.local/state}/homelab-timmy-offline/window (written by
-  timmy-offline.sh down, removed when up completes) and
+  timmy-offline.sh down before it parks anything, removed when up completes) and
   homelab-node-maintenance/window (opened at a reboot cycle's first change,
   removed by finish or restore-services) and apt-window beside it (open while
-  node-maintenance.sh apt runs, and for one more APT_TIMEOUT_SECONDS after a
-  timeout or interrupt that leaves a started remote upgrade going). One counts
+  node-maintenance.sh apt runs, and for one more APT_TIMEOUT_SECONDS when it
+  stops while a started remote upgrade has not been seen to end). One counts
   until its end, which bounds a cycle that was backed out or abandoned. A file
   that is not exactly one such line, or not a regular file, is unreadable. Covers every target: timmy is the
   only control plane, a cycle drains a node and reschedules pods across the
@@ -92,8 +92,8 @@ def local_time(when: datetime) -> str:
 
 
 def read_state(path: Path) -> str | None:
-    """A file's text (stat follows symlinks), None when it does not exist,
-    Unreadable on any other error or file type. Raw os calls only: pathlib
+    """A file's text (stat follows symlinks), None when nothing is at the path,
+    Unreadable on any other error or file type, a dangling symlink included. Raw os calls only: pathlib
     predicates such as is_file() return False on a permission error, which
     would read as "no window"."""
     try:
@@ -102,6 +102,8 @@ def read_state(path: Path) -> str | None:
         with open(path, errors="replace") as fh:
             return fh.read()
     except (FileNotFoundError, NotADirectoryError):
+        if os.path.lexists(path):
+            raise Unreadable(f"{path}: a symlink to nothing") from None
         return None
     except OSError as e:
         raise Unreadable(f"{path}: {e}") from None

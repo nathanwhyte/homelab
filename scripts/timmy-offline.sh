@@ -48,8 +48,9 @@
 #
 # Session watches learn of the window from a third record, $STATE_DIR/window
 # ("<end epoch seconds> <what>", read by maintenance-active.py, IDEA-1150).
-# `down` writes it before its first change and `up` removes it once it
-# completes. Its end matches the silence's, so a forgotten or failed `up` stops
+# `down` writes it after the silence and suspends, before it parks anything, and
+# `up` removes it once it completes. Its end matches the silence's (a re-run that
+# keeps the silence keeps the window), so a forgotten or failed `up` stops
 # covering failures when the silence stops muting them; the other records mean
 # "left to undo" and can outlive the window.
 #
@@ -87,6 +88,8 @@ KUBECTL=${KUBECTL:-kubectl}
 SUSPEND_FILE=$STATE_DIR/suspended-cronjobs
 SILENCE_FILE=$STATE_DIR/silence-id
 SILENCE_DURATION=${SILENCE_DURATION:-24h}
+SILENCE_MAX_SECONDS=2592000 # 30d
+SILENCE_CREATED=            # set when this run made a new silence
 WINDOW_FILE=$STATE_DIR/window
 AM_NAMESPACE=grafana
 AM_POD=alertmanager-prom-alertmanager-0
@@ -262,30 +265,42 @@ wait_parked_ready() {
 # --- Quieting the outage ---------------------------------------------------------
 
 # SILENCE_DURATION in seconds; the window takes the silence's end, so only the
-# single-unit forms are accepted.
+# single-unit forms up to SILENCE_MAX_SECONDS are accepted.
 silence_seconds() {
-	[[ $SILENCE_DURATION =~ ^([0-9]+)([smhd])$ ]] || return 1
-	local n=$((10#${BASH_REMATCH[1]}))
+	[[ $SILENCE_DURATION =~ ^([0-9]{1,7})([smhd])$ ]] || return 1
+	local n=$((10#${BASH_REMATCH[1]})) s
 	case ${BASH_REMATCH[2]} in
-	s) echo "$n" ;;
-	m) echo $((n * 60)) ;;
-	h) echo $((n * 3600)) ;;
-	d) echo $((n * 86400)) ;;
+	s) s=$n ;;
+	m) s=$((n * 60)) ;;
+	h) s=$((n * 3600)) ;;
+	d) s=$((n * 86400)) ;;
 	esac
+	((s > 0 && s <= SILENCE_MAX_SECONDS)) || return 1
+	echo "$s"
+}
+
+# down's refusals that need no cluster: a duration the window cannot follow, or
+# something other than a regular file where the window goes (mv would put the
+# window inside a directory and succeed).
+check_window() {
+	silence_seconds >/dev/null ||
+		die "SILENCE_DURATION=$SILENCE_DURATION: use <n>s, <n>m, <n>h or <n>d, at most 30d; this run changed nothing"
+	if [[ -L $WINDOW_FILE || (-e $WINDOW_FILE && ! -f $WINDOW_FILE) ]]; then
+		die "$WINDOW_FILE is not a regular file; remove it and re-run. This run changed nothing"
+	fi
 }
 
 open_window() {
 	local end seconds now
 	now=$(date +%s)
-	# A re-run of down keeps the silence it already made (silence_alerts), so it
-	# keeps that silence's window too rather than moving its end.
-	if [[ -s $WINDOW_FILE ]] && IFS=' ' read -r end _ <"$WINDOW_FILE" &&
-		[[ $end =~ ^[1-9][0-9]*$ ]] && ((end > now)); then
+	# A re-run of down that kept its earlier silence (silence_alerts) keeps that
+	# silence's window too; one that made a new silence takes the new end.
+	if [[ -z $SILENCE_CREATED && -f $WINDOW_FILE ]] && IFS=' ' read -r end _ <"$WINDOW_FILE" &&
+		[[ $end =~ ^[1-9][0-9]{9}$ ]] && ((end > now)); then
 		log "maintenance window already open"
 		return 0
 	fi
-	seconds=$(silence_seconds) ||
-		die "SILENCE_DURATION=$SILENCE_DURATION: use <n>s, <n>m, <n>h or <n>d; nothing was silenced, suspended or parked"
+	seconds=$(silence_seconds) || die "SILENCE_DURATION=$SILENCE_DURATION: use <n>s, <n>m, <n>h or <n>d, at most 30d"
 	mkdir -p "$STATE_DIR"
 	printf '%s %s\n' "$((now + seconds))" "planned timmy outage (timmy-offline.sh down)" >"$WINDOW_FILE.$$"
 	mv -f "$WINDOW_FILE.$$" "$WINDOW_FILE"
@@ -323,6 +338,7 @@ silence_alerts() {
 		return 0
 	fi
 	printf '%s\n' "$id" >"$SILENCE_FILE"
+	SILENCE_CREATED=1
 	log "silenced all alerts for up to $SILENCE_DURATION (silence $id)"
 }
 
@@ -421,6 +437,7 @@ garage_check() {
 # --- Commands -------------------------------------------------------------------
 
 cmd_down() {
+	check_window
 	log "preflight: Longhorn must be healthy before parking anything"
 	"$NODE_MAINTENANCE" status >/dev/null
 	# node-maintenance.sh refuses the drain while another cycle is active or an
@@ -430,12 +447,15 @@ cmd_down() {
 	if ! node_is_cordoned; then
 		log "preflight: node-maintenance.sh must be willing to drain $NODE"
 		"$NODE_MAINTENANCE" preflight "$NODE" ||
-			die "node-maintenance.sh will not drain $NODE (see above); nothing was silenced, suspended or parked"
+			die "node-maintenance.sh will not drain $NODE (see above); this run changed nothing"
 	fi
-	open_window
 	# Before park: parking Garage is what trips GarageQuorumLost.
 	silence_alerts
 	suspend_cronjobs
+	# Before the first workload goes down, and after the steps above, so their
+	# failure leaves no window over an unchanged cluster (a silence they made
+	# counts on its own).
+	open_window
 	park
 	wait_cross_node_detached
 	if node_is_cordoned; then
@@ -490,7 +510,7 @@ finish_cycle() {
 
 cmd_up() {
 	if ! [[ -s $SCALE_FILE || -s $SUSPEND_FILE || -s $SILENCE_FILE || -s $NM_STATE_DIR/$NODE.boot-id ]]; then
-		# A down that stopped between opening the window and its first change.
+		# A down that stopped after opening the window, before recording a change.
 		[[ -e $WINDOW_FILE ]] && close_window && log "closed the maintenance window; nothing else was recorded"
 		die "nothing recorded by down (no parked, suspended, silence or cycle state); nothing to do"
 	fi
