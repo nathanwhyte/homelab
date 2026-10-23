@@ -119,6 +119,13 @@ repos:
         language: system
         pass_filenames: false
         files: ^viking/scripts/(test-)?ov-search-baseline\.py$
+      # IMPR-1412: key-exact AGFS export (IMPR-1152: `aws s3 sync` drops zero-byte keys).
+      - id: ov-agfs-export-tests
+        name: ov-agfs-export tests
+        entry: python3 viking/scripts/test-ov-agfs-export.py
+        language: system
+        pass_filenames: false
+        files: ^viking/scripts/(test-)?ov-agfs-export\.py$
       # IMPR-1413: what the prod and test stacks mount, as `kubectl kustomize`
       # renders them, agrees with the nav-patch files on disk, and so does
       # sitecustomize.py's TARGETS. homelab#250 shipped a patch its Deployments'
