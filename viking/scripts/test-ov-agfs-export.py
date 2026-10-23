@@ -132,6 +132,24 @@ class RoundTripTests(unittest.TestCase):
             self.assertFalse(r["ok"])
             self.assertEqual(r["differ"], ["default/resources/a.md"])
 
+    def test_verify_reports_a_key_deleted_after_the_export(self):
+        ax.export(self.s3, "prod", self.dir)
+        del self.s3.b["prod"]["default/_system/x"]
+        r = ax.verify(self.s3, "prod", self.dir)
+        self.assertFalse(r["ok"])
+        self.assertEqual(r["missing"], ["default/_system/x"])
+
+    def test_verify_compares_the_listing_to_the_archived_bytes_not_the_recorded_etag(
+        self,
+    ):
+        # The listing described other bytes than the GET returned: the manifest's etag
+        # matches the listing, its md5 the archive, and only the md5 ties them.
+        self.s3.etags["default/resources/a.md"] = "0" * 32
+        ax.export(self.s3, "prod", self.dir)
+        r = ax.verify(self.s3, "prod", self.dir)
+        self.assertFalse(r["ok"])
+        self.assertEqual(r["differ"], ["default/resources/a.md"])
+
     def test_a_second_import_puts_only_what_changed(self):
         ax.export(self.s3, "prod", self.dir)
         ax.import_(self.s3, "test", self.dir, delete=True)
