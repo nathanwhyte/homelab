@@ -58,8 +58,18 @@ class FakeS3:
 
         return P()
 
+    class exceptions:  # noqa: N801 - mirrors boto3's client.exceptions
+        class NoSuchKey(Exception):
+            pass
+
+    vanish_on_get: set[str] = set()
+
     def get_object(self, Bucket, Key):
         self.gets.append(Key)
+        if Key in self.vanish_on_get:
+            self.b[Bucket].pop(Key, None)
+        if Key not in self.b[Bucket]:
+            raise self.exceptions.NoSuchKey(Key)
         return {"Body": io.BytesIO(self.b[Bucket][Key])}
 
     def put_object(self, Bucket, Key, Body):
@@ -120,6 +130,19 @@ class RoundTripTests(unittest.TestCase):
             r = ax.verify(self.s3, "prod", self.dir, deep=deep)
             self.assertFalse(r["ok"])
             self.assertEqual(r["differ"], ["default/resources/a.md"])
+
+    def test_a_key_deleted_between_list_and_get_is_left_out_and_counted(self):
+        self.s3.vanish_on_get = {"default/resources/a.md"}
+        m = ax.export(self.s3, "prod", self.dir)
+        self.assertEqual((m["objects"], m["vanished"]), (4, 1))
+        self.assertNotIn("default/resources/a.md", {e["key"] for e in m["entries"]})
+        self.assertTrue(ax.verify(self.s3, "prod", self.dir, deep=True)["ok"])
+
+    def test_a_zero_byte_object_is_not_mistaken_for_a_vanished_one(self):
+        ax.export(self.s3, "prod", self.dir)
+        r = ax.verify(self.s3, "prod", self.dir, deep=True)
+        self.assertTrue(r["ok"])
+        self.assertEqual(r["checked_by_get"], 5)
 
     def test_verify_by_etag_makes_no_gets_except_for_multipart_etags(self):
         self.s3.etags["default/_system/x"] = "abc-2"

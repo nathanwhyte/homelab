@@ -57,8 +57,17 @@ def list_keys(s3, bucket: str) -> dict[str, tuple[int, str]]:
     return keys
 
 
-def get(s3, bucket: str, key: str) -> bytes:
-    return s3.get_object(Bucket=bucket, Key=key)["Body"].read()
+def get(s3, bucket: str, key: str) -> bytes | None:
+    """The object's bytes, or None when it was deleted after the listing."""
+    try:
+        return s3.get_object(Bucket=bucket, Key=key)["Body"].read()
+    except s3.exceptions.NoSuchKey:
+        return None
+
+
+def digest(body: bytes | None) -> str | None:
+    """sha256 of an object's bytes; None for one deleted after the listing."""
+    return None if body is None else hashlib.sha256(body).hexdigest()
 
 
 def pmap(fn, items, workers: int):
@@ -84,15 +93,19 @@ def export(
     if base is not None:
         bmanifest, bbodies = load(base)
         for e in bmanifest["entries"]:
+            # md5 == etag: the bytes PREV holds are the ones its listing described,
+            # not a rewrite that landed between PREV's list and its GET.
             size_etag = listed.get(e["key"])
-            if size_etag == (e["size"], e["etag"]) and "-" not in e["etag"]:
+            if size_etag == (e["size"], e["etag"]) and e["md5"] == e["etag"]:
                 reuse[e["key"]] = bbodies[e["member"]]
     fetch = [k for k in keys if k not in reuse]
     fetched = dict(zip(fetch, pmap(lambda k: get(s3, bucket, k), fetch, workers)))
+    vanished = sorted(k for k in fetch if fetched[k] is None)
+    keys = [k for k in keys if k not in vanished]
     entries = []
     with tarfile.open(out / TAR, "w") as tar:
         for i, key in enumerate(keys):
-            body = reuse.get(key, fetched.get(key))
+            body = reuse[key] if key in reuse else fetched[key]
             member = f"obj/{i:06d}"
             info = tarfile.TarInfo(member)
             info.size = len(body)
@@ -114,6 +127,7 @@ def export(
         "zero_byte": sum(1 for e in entries if e["size"] == 0),
         "fetched": len(fetch),
         "reused": len(reuse),
+        "vanished": len(vanished),
         "entries": entries,
     }
     (out / MANIFEST).write_text(json.dumps(manifest, indent=1) + "\n")
@@ -145,9 +159,7 @@ def verify(s3, bucket: str, src: Path, workers: int = 1, deep: bool = False) -> 
     by_etag = [] if deep else [k for k in both if "-" not in have[k][1]]
     differ = [k for k in by_etag if have[k] != (want[k]["size"], want[k]["md5"])]
     by_get = sorted(set(both) - set(by_etag))
-    digests = pmap(
-        lambda k: hashlib.sha256(get(s3, bucket, k)).hexdigest(), by_get, workers
-    )
+    digests = pmap(lambda k: digest(get(s3, bucket, k)), by_get, workers)
     differ += [k for k, d in zip(by_get, digests) if d != want[k]["sha256"]]
     differ.sort()
     return {
