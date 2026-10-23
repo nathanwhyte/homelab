@@ -171,6 +171,7 @@ def export(
         "reused": len(reuse),
         "base_rejected": base_rejected,
         "vanished": len(vanished),
+        "vanished_keys": vanished,
         "entries": entries,
     }
     (partial / MANIFEST).write_text(json.dumps(manifest, indent=1) + "\n")

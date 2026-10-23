@@ -188,6 +188,7 @@ class RoundTripTests(unittest.TestCase):
         self.s3.vanish_on_get = {"default/resources/a.md"}
         m = ax.export(self.s3, "prod", self.dir)
         self.assertEqual((m["objects"], m["vanished"]), (4, 1))
+        self.assertEqual(m["vanished_keys"], ["default/resources/a.md"])
         self.assertNotIn("default/resources/a.md", {e["key"] for e in m["entries"]})
         self.assertTrue(ax.verify(self.s3, "prod", self.dir, deep=True)["ok"])
 
@@ -221,6 +222,43 @@ class RoundTripTests(unittest.TestCase):
         )
         self.assertEqual((m["fetched"], m["reused"], m["objects"]), (3, 2, 5))
         self.assertTrue(ax.verify(self.s3, "prod", self.dir, deep=True)["ok"])
+
+    def test_export_with_base_refetches_a_same_size_rewrite_by_etag(self):
+        base = Path(self.tmp.name) / "base"
+        ax.export(self.s3, "prod", base)
+        self.s3.b["prod"]["default/resources/a.md"] = b"# B\n"
+        self.s3.gets.clear()
+        m = ax.export(self.s3, "prod", self.dir, base=base)
+        self.assertEqual(self.s3.gets, ["default/resources/a.md"])
+        self.assertEqual((m["fetched"], m["reused"]), (1, 4))
+        self.assertTrue(ax.verify(self.s3, "prod", self.dir, deep=True)["ok"])
+
+    def test_export_with_base_refetches_a_base_entry_whose_md5_is_not_its_etag(self):
+        # A rewrite landed between the base's list and its GET: the base holds bytes
+        # the listing did not describe, though a later listing matches the base's.
+        self.s3.etags["default/resources/a.md"] = "0" * 32
+        base = Path(self.tmp.name) / "base"
+        ax.export(self.s3, "prod", base)
+        self.s3.gets.clear()
+        m = ax.export(self.s3, "prod", self.dir, base=base)
+        self.assertEqual(self.s3.gets, ["default/resources/a.md"])
+        self.assertEqual((m["fetched"], m["reused"]), (1, 4))
+
+    def test_a_get_error_other_than_no_such_key_fails_the_export(self):
+        class Boom(Exception):
+            pass
+
+        get_object = self.s3.get_object
+
+        def failing(Bucket, Key):
+            if Key == "default/resources/a.md":
+                raise Boom(Key)
+            return get_object(Bucket=Bucket, Key=Key)
+
+        self.s3.get_object = failing
+        with self.assertRaises(Boom):
+            ax.export(self.s3, "prod", self.dir)
+        self.assertFalse(self.dir.exists())
 
 
 if __name__ == "__main__":
