@@ -140,6 +140,14 @@ class RoundTripTests(unittest.TestCase):
         self.assertEqual(r, {"put": 1, "unchanged": 4, "deleted": 0})
         self.assertEqual(self.s3.b["test"], PROD)
 
+    def test_a_second_import_re_puts_a_same_size_drift_by_etag(self):
+        ax.export(self.s3, "prod", self.dir)
+        ax.import_(self.s3, "test", self.dir, delete=True)
+        self.s3.b["test"]["default/resources/a.md"] = b"# B\n"
+        r = ax.import_(self.s3, "test", self.dir, delete=True)
+        self.assertEqual(r, {"put": 1, "unchanged": 4, "deleted": 0})
+        self.assertEqual(self.s3.b["test"], PROD)
+
     def test_export_refuses_an_existing_directory(self):
         ax.export(self.s3, "prod", self.dir)
         with self.assertRaises(SystemExit):
