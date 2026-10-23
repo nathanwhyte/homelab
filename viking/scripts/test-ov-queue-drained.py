@@ -97,6 +97,22 @@ class JudgeTests(unittest.TestCase):
         code, _ = qd.judge(status(healthy=False))
         self.assertEqual(code, 1)
 
+    # Each refusal below on its own, over an otherwise drained table.
+    def test_a_status_without_ok_is_not_drained(self):
+        code, r = qd.judge({**status(), "ok": False})
+        self.assertEqual(code, 1)
+        self.assertIn("not healthy", r["error"])
+
+    def test_an_unhealthy_queue_over_a_drained_table_is_not_drained(self):
+        code, r = qd.judge(status(queue_healthy=False))
+        self.assertEqual(code, 1)
+        self.assertIn("not healthy", r["error"])
+
+    def test_two_queue_tables_are_not_drained(self):
+        code, r = qd.judge(status(text=table(ROWS) + "\n\n" + table(ROWS)))
+        self.assertEqual(code, 1)
+        self.assertIn("found 2", r["error"])
+
 
 if __name__ == "__main__":
     unittest.main()

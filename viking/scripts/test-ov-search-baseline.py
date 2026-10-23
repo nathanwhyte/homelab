@@ -72,6 +72,15 @@ class CompareTests(unittest.TestCase):
         self.assertIn("top-3 differs on 1 queries: E1", report)
         self.assertEqual(code, 0)
 
+    def test_a_top3_change_within_tolerance_still_rejects_the_formula(self):
+        # c and d differ by 0.001, so swapping them keeps every deviation at 0.0005
+        old = {"E1": {"a": 0.66, "b": 0.50, "c": 0.44, "d": 0.439}}
+        code, report = self.run_compare(old, halved(old, swap=("E1", "c", "d")))
+        self.assertIn("max |new - f(old)| = 0.0005", report)
+        self.assertIn("REJECTED", report)
+        self.assertIn("top-3 differs on 1 queries: E1", report)
+        self.assertEqual(code, 0)
+
     def test_a_floor_with_nothing_in_its_window_exits_2_when_rejected(self):
         old = {"E1": {"a": 0.90, "b": 0.10}}
         code, report = self.run_compare(old, halved(old, jitter=0.05))
