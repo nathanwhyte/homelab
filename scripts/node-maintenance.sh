@@ -86,10 +86,10 @@ MAINTENANCE_WINDOW_SECONDS=${MAINTENANCE_WINDOW_SECONDS:-7200}
 APT_WINDOW_FILE=$MAINTENANCE_STATE_DIR/apt-window
 # The node whose remote apt run started (APT_STARTED seen) and has not been seen
 # to end. The run is detached, so it outlives a timeout or an interrupt here.
-APT_RUNNING=
-APT_RC=
-APT_KEPT_END=
-APT_KEPT_WHAT=
+APT_RUNNING=''
+APT_RC=''
+APT_KEPT_END=''
+APT_KEPT_WHAT=''
 LOCK_HELD=0
 # Overridable so tests can stub cluster reads/writes without a live cluster.
 KUBECTL=${KUBECTL:-kubectl}
@@ -189,14 +189,19 @@ open_maintenance_window() { # <what> [file seconds]
 		die "cannot write maintenance window $file (a regular file or nothing must be there)"
 }
 
+# Exactly the one line write_window writes, the grammar maintenance-active.py
+# accepts; anything else is not carried over.
+WINDOW_LINE=$'^([1-9][0-9]{9}) ([^[:cntrl:][:space:]][^[:cntrl:]]*)\n$'
+
 # An apt-window still open from an earlier apt run, which keeps one after
 # stopping while a remote upgrade may still be going (apt_exit_window).
 read_kept_apt_window() {
-	local end what
-	APT_KEPT_END= APT_KEPT_WHAT=
-	[[ -f $APT_WINDOW_FILE ]] && IFS=' ' read -r end what <"$APT_WINDOW_FILE" || return 0
-	if [[ $end =~ ^[1-9][0-9]{9}$ ]] && ((end > $(date +%s))); then
-		APT_KEPT_END=$end APT_KEPT_WHAT=$what
+	local text=''
+	APT_KEPT_END='' APT_KEPT_WHAT=''
+	[[ -f $APT_WINDOW_FILE && ! -L $APT_WINDOW_FILE ]] || return 0
+	IFS= read -r -d '' text <"$APT_WINDOW_FILE" || true
+	if [[ $text =~ $WINDOW_LINE ]] && ((BASH_REMATCH[1] > $(date +%s))); then
+		APT_KEPT_END=${BASH_REMATCH[1]} APT_KEPT_WHAT=${BASH_REMATCH[2]}
 	fi
 }
 
@@ -831,12 +836,13 @@ cmd_apt() {
 	# Package restarts (k3s, containerd, tailscaled) can drop pods. Bounded by
 	# apt's own limits per node; apt_exit_window settles it on any exit.
 	read_kept_apt_window
+	# Before the window is written, so a signal during the write still settles it.
+	# Not set -e's to stop: a failed write must not skip the lock release.
+	trap 'apt_exit_window || warn "could not settle $APT_WINDOW_FILE; check it by hand"; release_maintenance_lock' EXIT
 	settle_apt_window \
 		$(($(date +%s) + ${#targets[@]} * (APT_LAUNCH_GRACE_SECONDS + APT_TIMEOUT_SECONDS + 2 * SSH_CMD_TIMEOUT_SECONDS))) \
 		"apt upgrade on ${targets[*]}" ||
 		die "cannot write maintenance window $APT_WINDOW_FILE (a regular file or nothing must be there)"
-	# Not set -e's to stop: a failed write must not skip the lock release.
-	trap 'apt_exit_window || warn "could not settle $APT_WINDOW_FILE; it stays open to its recorded end"; release_maintenance_lock' EXIT
 	for node in "${targets[@]}"; do
 		log "[$node] apt update + full-upgrade + autoremove (detached; nodes still serial)"
 		launch_remote_apt "$node"
@@ -851,10 +857,12 @@ cmd_apt() {
 	log "apt phase done. Reboot serially with: $SELF reboot <node>  (order: ${NODES[*]})"
 }
 
-# Without a run that started and was not seen to end, nothing this run started is
-# upgrading and the window goes, back to an earlier run's kept one if that is
-# still open. With one, it keeps at most one more APT_TIMEOUT_SECONDS for that
-# run; later nodes never start.
+# Without a run confirmed started (APT_STARTED seen) and not seen to end, the
+# window goes, back to an earlier run's kept one if that is still open. That
+# includes a stop during a launch, before the marker is confirmed: whether the
+# upgrade came up is unknown, and an unknown errs toward alerting. With one, it
+# keeps at most one more APT_TIMEOUT_SECONDS for that run; later nodes never
+# start.
 apt_exit_window() {
 	if [[ -n $APT_RUNNING ]]; then
 		settle_apt_window $(($(date +%s) + APT_TIMEOUT_SECONDS)) \

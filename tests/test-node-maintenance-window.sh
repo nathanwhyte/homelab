@@ -84,7 +84,24 @@ case $cmd in
 *) exit 0 ;;
 esac
 STUB
-chmod +x "$TMPDIR_TEST/kubectl" "$TMPDIR_TEST/ssh"
+# Records whether the maintenance lock was still held when the apt window was
+# removed: releasing it first would let another apt run take this window as kept.
+cat >"$TMPDIR_TEST/rm" <<'STUB'
+#!/usr/bin/env bash
+for a; do
+	if [[ $a == */homelab-node-maintenance/apt-window ]]; then
+		if [[ -d ${a%/apt-window}/lock ]]; then echo held; else echo released; fi >>"$XDG_STATE_HOME/lock-at-settle"
+	fi
+done
+exec /bin/rm "$@"
+STUB
+# STUB_TERM_AT_WINDOW sends the script a TERM while it writes its apt window.
+cat >"$TMPDIR_TEST/mv" <<'STUB'
+#!/usr/bin/env bash
+if [[ -n ${STUB_TERM_AT_WINDOW:-} && ${*: -1} == */apt-window ]]; then kill -TERM "$PPID"; fi
+exec /bin/mv "$@"
+STUB
+chmod +x "$TMPDIR_TEST/kubectl" "$TMPDIR_TEST/ssh" "$TMPDIR_TEST/rm" "$TMPDIR_TEST/mv"
 export PATH=$TMPDIR_TEST:$PATH KUBECTL=$TMPDIR_TEST/kubectl
 export REBOOT_TIMEOUT_SECONDS=30 SPIN_DOWN_TIMEOUT_SECONDS=5
 # The bounds asserted below are the script's defaults, not the caller's.
@@ -172,17 +189,18 @@ assert_eq "restore-services closes the stopped cycle's window" absent "$(left "$
 # --- apt -------------------------------------------------------------------------
 fresh
 t0=$(date +%s)
-nm apt wemby
+nm apt wemby manu
 assert_eq "apt completes against the stubs" 0 "$?"
 t1=$(date +%s)
-# One node: APT_LAUNCH_GRACE_SECONDS + APT_TIMEOUT_SECONDS + 2 x SSH_CMD_TIMEOUT_SECONDS.
-if [[ $(<"$XDG_STATE_HOME/apt-window-seen") =~ ^([0-9]+)\ apt\ upgrade\ on\ wemby$ ]] &&
-	((BASH_REMATCH[1] >= t0 + 3900 && BASH_REMATCH[1] <= t1 + 3900)); then
-	ok "the apt window is open, with apt's own bound, while apt runs"
+# Per node: APT_LAUNCH_GRACE_SECONDS + APT_TIMEOUT_SECONDS + 2 x SSH_CMD_TIMEOUT_SECONDS.
+if [[ $(<"$XDG_STATE_HOME/apt-window-seen") =~ ^([0-9]+)\ apt\ upgrade\ on\ wemby\ manu$ ]] &&
+	((BASH_REMATCH[1] >= t0 + 2 * 3900 && BASH_REMATCH[1] <= t1 + 2 * 3900)); then
+	ok "the apt window is open, with apt's own bound for each node, while apt runs"
 else
-	bad "the apt window is open, with apt's own bound, while apt runs (saw '$(<"$XDG_STATE_HOME/apt-window-seen")', started $t0)"
+	bad "the apt window is open, with apt's own bound for each node, while apt runs (saw '$(<"$XDG_STATE_HOME/apt-window-seen")', started $t0)"
 fi
 assert_eq "a finished apt run closes its window" absent "$(left "$ND/apt-window")"
+assert_eq "it closes it before releasing the lock" held "$(cat "$XDG_STATE_HOME/lock-at-settle" 2>/dev/null)"
 
 fresh
 STUB_APT_RC=100 nm apt wemby
@@ -241,6 +259,32 @@ nm apt manu
 assert_eq "apt on another node completes" 0 "$?"
 assert_eq "the earlier run's kept window is restored afterwards" "$kept" "$(cat "$ND/apt-window" 2>/dev/null)"
 if [[ $(<"$XDG_STATE_HOME/apt-window-seen") =~ \ apt\ upgrade\ on\ manu$ ]]; then ok "the longer window covers the run"; else bad "the longer window covers the run (saw '$(<"$XDG_STATE_HOME/apt-window-seen")')"; fi
+
+# A kept window that ends after this run's own bound stays in force throughout.
+fresh
+mkdir -p "$ND"
+kept="$(($(date +%s) + 99999)) apt upgrade on wemby (stopped early; its remote run may continue)"
+printf '%s\n' "$kept" >"$ND/apt-window"
+nm apt manu
+assert_eq "a kept window longer than the run covers it" "$kept" "$(<"$XDG_STATE_HOME/apt-window-seen")"
+assert_eq "and stays afterwards" "$kept" "$(cat "$ND/apt-window" 2>/dev/null)"
+
+# Round 7: only a window in exactly the helper's grammar is carried over; apt
+# must not turn one the helper rejects into a valid window.
+for text in "  $(($(date +%s) + 600))   apt upgrade on wemby  " "$(($(date +%s) + 600)) apt upgrade on wemby"$'\nsecond line'; do
+	fresh
+	mkdir -p "$ND"
+	printf '%s\n' "$text" >"$ND/apt-window"
+	nm apt manu
+	assert_eq "apt does not carry over a malformed window ('${text:0:14}…')" absent "$(left "$ND/apt-window")"
+done
+
+# Round 7: a TERM while apt writes its window, before any launch, leaves none.
+fresh
+STUB_TERM_AT_WINDOW=1 nm apt wemby manu
+assert_eq "a TERM during the opening write stops apt" 143 "$?"
+assert_eq "with no window left behind" absent "$(left "$ND/apt-window")"
+assert_eq "and no SSH call" 0 "$(grep -c '^ssh ' "$STUB_LOG" || true)"
 
 # mv would put the window inside a directory and succeed.
 fresh

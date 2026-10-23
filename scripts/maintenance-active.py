@@ -99,7 +99,8 @@ def read_state(path: Path) -> str | None:
     try:
         if not stat.S_ISREG(os.stat(path).st_mode):
             raise Unreadable(f"{path}: not a regular file")
-        with open(path, errors="replace") as fh:
+        # newline="": a CR stays a CR, which the grammar rejects.
+        with open(path, errors="replace", newline="") as fh:
             return fh.read()
     except (FileNotFoundError, NotADirectoryError):
         if os.path.lexists(path):

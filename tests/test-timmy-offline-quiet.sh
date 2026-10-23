@@ -121,7 +121,6 @@ viking/ovlock-janitor=true
 EOF
 	: >"$STUB_LOG"
 	rm -rf "$TMPDIR_TEST/state"
-	SILENCE_CREATED= # a fresh run of the sourced script
 }
 
 export KUBECTL=$TMPDIR_TEST/kubectl
@@ -323,13 +322,11 @@ if ((left > 14300 && left <= 14400)); then ok "the window follows SILENCE_DURATI
 end_before=$(cut -d' ' -f1 "$WINDOW_FILE")
 sleep 1
 open_window >/dev/null
-assert_eq "re-running down keeps the open window's end, as it keeps the silence" "$end_before" "$(cut -d' ' -f1 "$WINDOW_FILE")"
-(SILENCE_CREATED=1 SILENCE_DURATION=1h open_window) >/dev/null
-left=$(window_left)
-if ((left > 3500 && left <= 3600)); then ok "a re-run that made a new silence takes its end"; else bad "a re-run that made a new silence takes its end (left ${left}s)"; fi
+assert_eq "with no silence recorded, a re-run keeps the open window's end" "$end_before" "$(cut -d' ' -f1 "$WINDOW_FILE")"
 
-# Round 6: only an open, well-formed window is kept.
-for text in "$(($(date +%s) - 1)) planned timmy outage" "now+600 planned timmy outage" "99999999999 planned timmy outage"; do
+# Round 6/7: only an open window in exactly the helper's grammar is kept.
+for text in "$(($(date +%s) - 1)) planned timmy outage" "now+600 planned timmy outage" "99999999999 planned timmy outage" \
+	"$(($(date +%s) + 600))" "  $(($(date +%s) + 600)) planned timmy outage" "$(($(date +%s) + 600)) planned"$'\nsecond line'; do
 	reset_cluster
 	mkdir -p "$STATE_DIR"
 	printf '%s\n' "$text" >"$WINDOW_FILE"
@@ -338,14 +335,40 @@ for text in "$(($(date +%s) - 1)) planned timmy outage" "now+600 planned timmy o
 	if ((left > 86300 && left <= 86400)); then ok "down replaces a window '${text%% *}'"; else bad "down replaces a window '${text%% *}' (left ${left}s)"; fi
 done
 
-for d in 1h30m 100000d 31d 0s 99999999999999999999d; do
+for d in 1h30m 100000d 31d 2592001s 0s 00000001s 18446744073709551617s 99999999999999999999d; do
 	reset_cluster
 	SILENCE_DURATION=$d run_cmd cmd_down
 	assert_eq "down refuses SILENCE_DURATION=$d" 1 "$?"
 	assert_eq "it refuses before any silence, suspend or scale ($d)" 0 "$(mutations)"
 	if [[ -e $WINDOW_FILE ]]; then bad "and before opening a window ($d)"; else ok "and before opening a window ($d)"; fi
 done
-assert_eq "30d is the longest window" 2592000 "$(SILENCE_DURATION=30d silence_seconds)"
+assert_eq "30d is the longest window" "2592000 2592000" "$(SILENCE_DURATION=30d silence_seconds) $(SILENCE_DURATION=2592000s silence_seconds)"
+
+# Round 7: the window ends with the silence down made, including on a re-run
+# that keeps that silence after the window has gone.
+reset_cluster
+run_cmd cmd_down
+silence_end=$(cut -d' ' -f1 "$SILENCE_END_FILE" 2>/dev/null)
+assert_eq "down records the silence's end with its ID" "$STUB_SILENCE_ID" "$(cut -d' ' -f2 "$SILENCE_END_FILE" 2>/dev/null)"
+assert_eq "its window ends with that silence" "$silence_end" "$(cut -d' ' -f1 "$WINDOW_FILE")"
+rm -f "$WINDOW_FILE"
+sleep 1
+run_cmd cmd_down
+assert_eq "a re-run keeping the silence takes its recorded end" "$silence_end" "$(cut -d' ' -f1 "$WINDOW_FILE" 2>/dev/null)"
+printf '%s %s\n' "$(($(date +%s) - 5))" "$STUB_SILENCE_ID" >"$SILENCE_END_FILE"
+run_cmd cmd_down
+if [[ -e $WINDOW_FILE ]]; then bad "a kept silence that has ended leaves no window"; else ok "a kept silence that has ended leaves no window"; fi
+
+# Round 7: a re-run that makes the silence an earlier down could not takes its end.
+reset_cluster
+STUB_FAIL_AMTOOL=1 run_cmd cmd_down
+assert_eq "down with no silence still opens a window" 1 "$(grep -c 'planned timmy outage' "$WINDOW_FILE" 2>/dev/null)"
+printf '%s %s\n' "$(($(date +%s) + 3600))" "planned timmy outage (timmy-offline.sh down)" >"$WINDOW_FILE"
+run_cmd cmd_down
+left=$(window_left)
+if ((left > 86300 && left <= 86400)); then ok "the re-run that made the silence takes its end"; else bad "the re-run that made the silence takes its end (left ${left}s)"; fi
+assert_eq "and records it" "$(cut -d' ' -f1 "$SILENCE_END_FILE" 2>/dev/null)" "$(cut -d' ' -f1 "$WINDOW_FILE")"
+if (STUB_FAIL_EXPIRE=0 expire_silence) >/dev/null && [[ ! -e $SILENCE_END_FILE ]]; then ok "expire clears the silence's end"; else bad "expire clears the silence's end"; fi
 
 reset_cluster
 park_fixture

@@ -190,6 +190,9 @@ class LocalStateTests(unittest.TestCase):
             f"{int(self.now) + 60}  x\n",
             f"{int(self.now) + 60}  \n",
             f"{int(self.now) + 60} \t\n",
+            # Round 7 P3: universal newlines turned these into "\n".
+            f"{int(self.now) + 60} x\r\n",
+            f"{int(self.now) + 60} x\r",
             "253402300799 year 9999\n",
             "9" * 5000 + " forever\n",
         ):

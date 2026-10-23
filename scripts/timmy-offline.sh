@@ -49,10 +49,10 @@
 # Session watches learn of the window from a third record, $STATE_DIR/window
 # ("<end epoch seconds> <what>", read by maintenance-active.py, IDEA-1150).
 # `down` writes it after the silence and suspends, before it parks anything, and
-# `up` removes it once it completes. Its end matches the silence's (a re-run that
-# keeps the silence keeps the window), so a forgotten or failed `up` stops
-# covering failures when the silence stops muting them; the other records mean
-# "left to undo" and can outlive the window.
+# `up` removes it once it completes. Its end is the silence's (a re-run that keeps
+# the silence takes its recorded end, $STATE_DIR/silence-end), so a forgotten or
+# failed `up` stops covering failures when the silence stops muting them; the
+# other records mean "left to undo" and can outlive the window.
 #
 # `down` runs node-maintenance.sh's own refusals (another cycle active, an earlier
 # node still owing a reboot) before it silences, suspends or parks anything. On
@@ -87,9 +87,9 @@ READY_TIMEOUT_SECONDS=${READY_TIMEOUT_SECONDS:-600}
 KUBECTL=${KUBECTL:-kubectl}
 SUSPEND_FILE=$STATE_DIR/suspended-cronjobs
 SILENCE_FILE=$STATE_DIR/silence-id
+SILENCE_END_FILE=$STATE_DIR/silence-end # "<end epoch> <id>", beside silence-id
 SILENCE_DURATION=${SILENCE_DURATION:-24h}
 SILENCE_MAX_SECONDS=2592000 # 30d
-SILENCE_CREATED=            # set when this run made a new silence
 WINDOW_FILE=$STATE_DIR/window
 AM_NAMESPACE=grafana
 AM_POD=alertmanager-prom-alertmanager-0
@@ -290,19 +290,39 @@ check_window() {
 	fi
 }
 
+# Exactly one "<10-digit end epoch> <what>" line, the grammar
+# maintenance-active.py accepts.
+WINDOW_LINE=$'^([1-9][0-9]{9}) ([^[:cntrl:][:space:]][^[:cntrl:]]*)\n$'
+
+line_end() { # <file>: the end such a file records; fails on anything else
+	local text=''
+	[[ -f $1 && ! -L $1 ]] || return 1
+	IFS= read -r -d '' text <"$1" || true
+	[[ $text =~ $WINDOW_LINE ]] || return 1
+	printf '%s\n' "${BASH_REMATCH[1]}"
+}
+
+# The window ends with the recorded silence, whether this run made it or kept an
+# earlier down's. Without a silence of known end (amtool failed), an open window
+# is kept and anything else replaced by one of SILENCE_DURATION.
 open_window() {
 	local end seconds now
 	now=$(date +%s)
-	# A re-run of down that kept its earlier silence (silence_alerts) keeps that
-	# silence's window too; one that made a new silence takes the new end.
-	if [[ -z $SILENCE_CREATED && -f $WINDOW_FILE ]] && IFS=' ' read -r end _ <"$WINDOW_FILE" &&
-		[[ $end =~ ^[1-9][0-9]{9}$ ]] && ((end > now)); then
+	if [[ -s $SILENCE_FILE ]] && end=$(line_end "$SILENCE_END_FILE"); then
+		if ((end <= now)); then
+			close_window
+			warn "the silence an earlier down made has ended; opening no maintenance window"
+			return 0
+		fi
+	elif end=$(line_end "$WINDOW_FILE") && ((end > now)); then
 		log "maintenance window already open"
 		return 0
+	else
+		seconds=$(silence_seconds) || die "SILENCE_DURATION=$SILENCE_DURATION: use <n>s, <n>m, <n>h or <n>d, at most 30d"
+		end=$((now + seconds))
 	fi
-	seconds=$(silence_seconds) || die "SILENCE_DURATION=$SILENCE_DURATION: use <n>s, <n>m, <n>h or <n>d, at most 30d"
 	mkdir -p "$STATE_DIR"
-	printf '%s %s\n' "$((now + seconds))" "planned timmy outage (timmy-offline.sh down)" >"$WINDOW_FILE.$$"
+	printf '%s %s\n' "$end" "planned timmy outage (timmy-offline.sh down)" >"$WINDOW_FILE.$$"
 	mv -f "$WINDOW_FILE.$$" "$WINDOW_FILE"
 }
 
@@ -338,7 +358,8 @@ silence_alerts() {
 		return 0
 	fi
 	printf '%s\n' "$id" >"$SILENCE_FILE"
-	SILENCE_CREATED=1
+	# Its end, for a later down's window (open_window); amtool took the same duration.
+	printf '%s %s\n' "$(($(date +%s) + $(silence_seconds)))" "$id" >"$SILENCE_END_FILE"
 	log "silenced all alerts for up to $SILENCE_DURATION (silence $id)"
 }
 
@@ -352,7 +373,7 @@ expire_silence() {
 	local out
 	if out=$(amtool_exec silence expire "$id" 2>&1); then
 		log "expired alert silence $id"
-		rm -f "$SILENCE_FILE"
+		rm -f "$SILENCE_FILE" "$SILENCE_END_FILE"
 	elif [[ $out == *deleteSilenceNotFound* || $out == *'[404]'* ]]; then
 		# Alertmanager's store is persistent, but it snapshots silences only every
 		# 15 minutes and on a clean shutdown. A silence younger than that when
@@ -360,7 +381,7 @@ expire_silence() {
 		# for the alert burst `down` created it for — so say so, then clear the ID
 		# rather than retrying a delete that can never succeed.
 		warn "silence $id no longer exists: Alertmanager came back without it, so the return burst was not covered (an unclean stop within its 15-minute snapshot interval loses a fresh silence)"
-		rm -f "$SILENCE_FILE"
+		rm -f "$SILENCE_FILE" "$SILENCE_END_FILE"
 	else
 		warn "could not expire silence $id — it ends on its own after $SILENCE_DURATION; retry: $SELF up"
 	fi
@@ -453,8 +474,8 @@ cmd_down() {
 	silence_alerts
 	suspend_cronjobs
 	# Before the first workload goes down, and after the steps above, so their
-	# failure leaves no window over an unchanged cluster (a silence they made
-	# counts on its own).
+	# failure leaves no window while every service is still up (a silence they
+	# made counts on its own).
 	open_window
 	park
 	wait_cross_node_detached
