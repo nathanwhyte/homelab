@@ -120,6 +120,24 @@ class JudgeTests(unittest.TestCase):
         self.assertEqual((code, r["drained"], r["queues"]), (0, True, 9))
         self.assertEqual(r["unhealthy"], ["vikingdb"])
 
+    def test_a_non_dict_component_is_listed_unhealthy_and_does_not_block(self):
+        for value in ("unavailable", ["x"], True):
+            s = status()
+            s["result"]["components"]["models"] = value
+            code, r = qd.judge(s)
+            self.assertEqual((code, r["unhealthy"]), (0, ["models"]), value)
+
+    def test_a_non_dict_queue_component_or_components_is_not_drained(self):
+        s = status()
+        s["result"]["components"]["queue"] = "down"
+        self.assertEqual(qd.judge(s)[0], 1)
+        s = status()
+        s["result"]["components"] = ["queue"]
+        self.assertEqual(qd.judge(s)[0], 1)
+        self.assertEqual(qd.judge({"ok": True, "result": "x"})[0], 1)
+        for value in ("x", [1], None):
+            self.assertEqual(qd.judge(value)[0], 1, value)
+
     def test_v0511_reindex_work_is_busy(self):
         rows = [r if r[0] != "Reindex" else ("Reindex", 4, 0) for r in ROWS_0511]
         code, r = qd.judge(status_0511(rows))

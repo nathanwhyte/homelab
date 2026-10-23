@@ -53,11 +53,16 @@ def _exporter():
     return mod
 
 
+def _dict(value) -> dict:
+    return value if isinstance(value, dict) else {}
+
+
 def judge(status: dict) -> tuple[int, dict]:
     ex = _exporter()
-    result = status.get("result") or {}
-    components = result.get("components") or {}
-    queue = components.get("queue") or {}
+    status = _dict(status)
+    result = _dict(status.get("result"))
+    components = _dict(result.get("components"))
+    queue = _dict(components.get("queue"))
     if not (status.get("ok") and queue.get("is_healthy")):
         return 1, {"error": "status not ok or queue component not healthy"}
     tables = ex._parse_tables(queue.get("status") or "")
@@ -87,7 +92,7 @@ def judge(status: dict) -> tuple[int, dict]:
         "queues": len(counts),
         "busy": busy,
         "unhealthy": sorted(
-            n for n, c in components.items() if not (c or {}).get("is_healthy")
+            n for n, c in components.items() if not _dict(c).get("is_healthy")
         ),
     }
 
