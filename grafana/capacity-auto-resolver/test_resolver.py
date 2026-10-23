@@ -3,18 +3,24 @@
 
 from __future__ import annotations
 
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "_scripts" / "lib"))
+from git_env import scrub_environ  # noqa: E402
+
+scrub_environ()
+
 import copy
 import importlib.util
 import io
 import json
-import sys
 import threading
 import unittest
 import urllib.error
 import urllib.parse
 import urllib.request
 from datetime import UTC, datetime, timedelta
-from pathlib import Path
 from unittest import mock
 
 MODULE_PATH = Path(__file__).with_name("resolver.py")

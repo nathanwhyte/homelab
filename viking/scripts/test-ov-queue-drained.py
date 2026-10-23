@@ -7,13 +7,20 @@ table shape and the v0.5.1.1 one (a ninth row, Reindex); the exporter's parser
 reads the same text in production.
 """
 
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "_scripts" / "lib"))
+from git_env import scrub_environ  # noqa: E402
+
+scrub_environ()
+
 import contextlib
 import importlib.util
 import io
 import json
 import os
 import subprocess
-import sys
 import tempfile
 import unittest
 from unittest import mock

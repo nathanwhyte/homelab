@@ -1,15 +1,21 @@
 #!/usr/bin/env python3
 """Hermetic tests for the ARC CPU trial's shell deployment boundary."""
 
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "_scripts" / "lib"))
+from git_env import scrub_environ  # noqa: E402
+
+scrub_environ()
+
 import json
 import copy
 import importlib.util
 import os
-from pathlib import Path
 import re
 import shutil
 import subprocess
-import sys
 import tempfile
 import unittest
 

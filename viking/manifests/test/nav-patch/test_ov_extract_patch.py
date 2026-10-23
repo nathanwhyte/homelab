@@ -10,6 +10,14 @@ sitecustomize and the other patches stay out. ``OV_EXTRACT_PATCH=0`` in the envi
 reaches that subprocess and shows stock behaviour.
 """
 
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "_scripts" / "lib"))
+from git_env import scrub_environ  # noqa: E402
+
+scrub_environ()
+
 import asyncio
 import contextlib
 import contextvars
@@ -19,7 +27,6 @@ import io
 import json
 import os
 import subprocess
-import sys
 import tempfile
 import types
 import unittest

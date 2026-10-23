@@ -1,0 +1,49 @@
+---
+# IMPR-1410: shim errors as a cluster alert. Until now the shim's error counts
+# were on its /healthz page and in its periodic log lines, with no Prometheus
+# collection and no alert; pod and Deployment state were already covered.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: embedder-prompt-shim-alerts
+  namespace: viking
+  labels:
+    app: embedder-prompt-shim
+spec:
+  groups:
+    - name: embedder-prompt-shim.rules
+      rules:
+        - alert: EmbedderPromptShimErrors
+          # Both replicas share one upstream, so the sum is the signal. An
+          # unreachable embedder shows as source="shim" 502s (24 during timmy's
+          # 2026-10-22 outage), a failing one as relayed upstream 5xx, a client
+          # sending bad bodies as 400s. The floor of 5 keeps a single error in a
+          # quiet window from firing on the ratio alone. Every class series is
+          # exported from pod start at 0, so after a pod's first scrape
+          # increase() sees its first error (errors before that scrape are not).
+          expr: |
+            sum(increase(embedder_prompt_shim_responses_total{namespace="viking", class=~"4xx|5xx"}[10m])) >= 5
+            and
+            sum(rate(embedder_prompt_shim_responses_total{namespace="viking", class=~"4xx|5xx"}[10m]))
+              / sum(rate(embedder_prompt_shim_responses_total{namespace="viking"}[10m]))
+              > 0.05
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Over 5% of the embedding prompt shim's answers have been 4xx/5xx for 10m"
+            description: "OpenViking embeddings (queries and indexing) are failing through embedder-prompt-shim. Split by source and class: sum by (pod, source, class) (rate(embedder_prompt_shim_responses_total{class=~\"4xx|5xx\"}[10m])); a pod's /healthz has the exact codes. shim 5xx (502) means embedder-qwen is unreachable (check kubectl -n viking get pods -l app=embedder-qwen-cuda and manu); upstream 5xx means the embedder answered with an error (its logs); shim 4xx (400) means a caller sent a request without a known input_type (OV's query_param/document_param)."
+        - alert: EmbedderPromptShimMetricsMissing
+          # Per target: one replica failing its scrape must not hide behind the
+          # other's success, since its errors would be missing from the sum
+          # above. absent() covers the case where no target is discovered.
+          expr: |
+            up{namespace="viking", job="embedder-prompt-shim"} == 0
+            or
+            absent(up{namespace="viking", job="embedder-prompt-shim"})
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Prometheus cannot scrape the embedding prompt shim's /metrics{{ with $labels.pod }} on {{ . }}{{ end }}"
+            description: "EmbedderPromptShimErrors does not see that replica's errors until this clears. Check the ServiceMonitor embedder-prompt-shim, the Service's http port, and curl the pod's /metrics."

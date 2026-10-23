@@ -3,6 +3,14 @@
 python3 test-ov-search-baseline.py
 """
 
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "_scripts" / "lib"))
+from git_env import scrub_environ  # noqa: E402
+
+scrub_environ()
+
 import importlib.util
 import os
 import unittest

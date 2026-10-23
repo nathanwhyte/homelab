@@ -1,8 +1,14 @@
-import subprocess
 import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "_scripts" / "lib"))
+from git_env import scrub_environ  # noqa: E402
+
+scrub_environ()
+
+import subprocess
 import tempfile
 import unittest
-from pathlib import Path
 
 HARBOR_DIR = Path(__file__).resolve().parents[1]
 CHECKER = HARBOR_DIR / "check-config-policy.py"

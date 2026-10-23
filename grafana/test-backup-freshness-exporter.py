@@ -1,9 +1,16 @@
 #!/usr/bin/env python3
 """Hermetic backup freshness tests; never access credentials or R2."""
 
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "_scripts" / "lib"))
+from git_env import scrub_environ  # noqa: E402
+
+scrub_environ()
+
 import http.client
 import importlib.util
-from pathlib import Path
 import subprocess
 import threading
 import unittest

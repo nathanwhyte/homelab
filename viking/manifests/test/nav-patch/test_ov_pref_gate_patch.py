@@ -1,11 +1,18 @@
 """Typed-text detection, per-archive gating, modes, pass-through, and guards for ov_pref_gate_patch."""
 
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "_scripts" / "lib"))
+from git_env import scrub_environ  # noqa: E402
+
+scrub_environ()
+
 import asyncio
 import importlib.util
 import io
 import json
 import os
-import sys
 import types
 import unittest
 from unittest.mock import patch

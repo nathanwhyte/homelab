@@ -25,11 +25,17 @@ Run: python3 test_coding_tasks.py
 
 from __future__ import annotations
 
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "_scripts" / "lib"))
+from git_env import scrub_environ  # noqa: E402
+
+scrub_environ()
+
 import importlib.util
 import shutil
-import sys
 import tempfile
-from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 

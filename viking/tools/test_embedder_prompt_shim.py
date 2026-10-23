@@ -3,6 +3,14 @@
 
 from __future__ import annotations
 
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "_scripts" / "lib"))
+from git_env import scrub_environ  # noqa: E402
+
+scrub_environ()
+
 import http.client
 import importlib.util
 import json
@@ -10,7 +18,6 @@ import os
 import signal
 import socket
 import subprocess
-import sys
 import threading
 import time
 import unittest
@@ -227,6 +234,37 @@ class ShimTest(unittest.TestCase):
         status, _ = self.call("/healthz")
         self.assertEqual(status, 200)
         self.assertEqual(FakeUpstream.requests, [])
+
+    def metrics(self) -> dict[str, float]:
+        with urlopen(self.base + "/metrics", timeout=5) as r:
+            self.assertEqual(r.status, 200)
+            self.assertTrue(r.headers["Content-Type"].startswith("text/plain"))
+            text = r.read().decode()
+        return {
+            line.rsplit(" ", 1)[0]: float(line.rsplit(" ", 1)[1])
+            for line in text.splitlines()
+            if line and not line.startswith("#")
+        }
+
+    def test_metrics_count_inputs_and_relayed_statuses_locally(self):
+        before = self.metrics()
+        self.call("/v1/embeddings", {"input": ["a", "b"], "input_type": "query"})
+        FakeUpstream.status = 503
+        self.call("/v1/embeddings", {"input": "x", "input_type": "document"})
+        self.call("/v1/embeddings", {"input": ["x"]})  # the shim's own 400
+        after = self.metrics()
+        self.assertEqual(len(FakeUpstream.requests), 2)  # /metrics stayed local
+
+        def delta(series):
+            return after.get(series, 0) - before.get(series, 0)
+
+        inputs = "embedder_prompt_shim_inputs_total"
+        responses = "embedder_prompt_shim_responses_total"
+        self.assertEqual(delta(f'{inputs}{{input_type="query"}}'), 2)
+        self.assertEqual(delta(f'{inputs}{{input_type="document"}}'), 1)
+        self.assertEqual(delta(f'{responses}{{class="2xx",source="upstream"}}'), 1)
+        self.assertEqual(delta(f'{responses}{{class="5xx",source="upstream"}}'), 1)
+        self.assertEqual(delta(f'{responses}{{class="4xx",source="shim"}}'), 1)
 
     def test_query_string_does_not_bypass_the_rewrite(self):
         status, _ = self.call(
@@ -488,7 +526,8 @@ class UpstreamDownTest(unittest.TestCase):
         cfg = shim.Config(
             f"http://127.0.0.1:{port}", {"query": "q: ", "document": ""}, 2
         )
-        server = serve(shim.make_handler(cfg, shim.Stats()))
+        stats = shim.Stats()
+        server = serve(shim.make_handler(cfg, stats))
         try:
             req = Request(
                 f"http://127.0.0.1:{server.server_port}/v1/embeddings",
@@ -499,9 +538,48 @@ class UpstreamDownTest(unittest.TestCase):
                 urlopen(req, timeout=5)
             ctx.exception.close()
             self.assertEqual(ctx.exception.code, 502)
+            self.assertIn(
+                b'embedder_prompt_shim_responses_total{class="5xx",source="shim"} 1\n',
+                shim.render_metrics(stats.snapshot()),
+            )
         finally:
             server.shutdown()
             server.server_close()
+
+
+class RenderMetricsTest(unittest.TestCase):
+    def test_every_series_exists_before_any_count(self):
+        # A series first seen nonzero loses that first increase() (round 1 P2).
+        lines = shim.render_metrics({}).decode().splitlines()
+        samples = [line for line in lines if not line.startswith("#")]
+        self.assertEqual(len(samples), 10)
+        self.assertTrue(all(line.endswith(" 0") for line in samples))
+        for cls in ("2xx", "3xx", "4xx", "5xx"):
+            for src in ("shim", "upstream"):
+                self.assertIn(
+                    f'embedder_prompt_shim_responses_total{{class="{cls}",source="{src}"}} 0',
+                    samples,
+                )
+        self.assertIn("# TYPE embedder_prompt_shim_responses_total counter", lines)
+
+    def test_codes_fold_into_their_class(self):
+        text = shim.render_metrics(
+            {
+                "query": 7,
+                "http_502": 24,
+                "upstream_200": 5,
+                "upstream_503": 2,
+                "upstream_500": 1,
+            }
+        ).decode()
+        self.assertIn('embedder_prompt_shim_inputs_total{input_type="query"} 7\n', text)
+        self.assertIn(
+            'embedder_prompt_shim_responses_total{class="5xx",source="shim"} 24\n', text
+        )
+        self.assertIn(
+            'embedder_prompt_shim_responses_total{class="5xx",source="upstream"} 3\n',
+            text,
+        )
 
 
 class ConfigTest(unittest.TestCase):

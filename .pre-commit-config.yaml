@@ -74,6 +74,25 @@ repos:
 
   - repo: local
     hooks:
+      # IMPR-1419: every test-*.py / test_*.py opens with the GIT_* scrub header,
+      # because hooks inherit GIT_DIR and GIT_INDEX_FILE and a suite's fixture
+      # git then acts on the repository being committed (homelab#254 round 5).
+      # A new suite anywhere triggers it, so it matches by basename. fail_fast:
+      # a failure stops the run here, before any later hook runs the unscrubbed
+      # suite, so keep this above every hook that runs a test suite.
+      - id: test-git-scrub
+        name: every test suite opens with the GIT_* scrub (IMPR-1419)
+        entry: python3 _scripts/check-test-git-scrub.py
+        language: system
+        pass_filenames: false
+        fail_fast: true
+        files: (^|/)test[-_][^/]*\.py$|^_scripts/(check-test-git-scrub|lib/git_env)\.py$
+      - id: test-git-scrub-tests
+        name: check-test-git-scrub fixture tests (IMPR-1419)
+        entry: python3 _scripts/test-check-test-git-scrub.py
+        language: system
+        pass_filenames: false
+        files: ^_scripts/((test-)?check-test-git-scrub|lib/git_env)\.py$
       # IMPR-1387: the checker's regression cases, one per review finding on
       # homelab#242. Runs in a pre-commit-managed env with the checker's own
       # pyyaml pin, so it needs nothing from uv's cache.
@@ -196,6 +215,21 @@ repos:
         language: system
         pass_filenames: false
         files: ^viking/(tools/(test_)?embedder[-_]prompt[-_]shim\.py|manifests/embedder-prompt-shim-configmap\.yaml)$
+      # IDEA-1150: session watches ask this before alerting; it reads the
+      # window files the two maintenance scripts write.
+      - id: maintenance-active-tests
+        name: maintenance-active tests
+        entry: python3 scripts/test-maintenance-active.py
+        language: system
+        pass_filenames: false
+        files: ^scripts/((test-)?maintenance-active\.py|timmy-offline\.sh|node-maintenance\.sh)$
+      # Which maintenance commands open, keep and close those windows.
+      - id: maintenance-window-tests
+        name: maintenance window tests
+        entry: bash -c 'bash tests/test-node-maintenance-window.sh && bash tests/test-timmy-offline-quiet.sh'
+        language: system
+        pass_filenames: false
+        files: ^(scripts/(maintenance-active\.py|timmy-offline\.sh|node-maintenance\.sh)|tests/test-(node-maintenance-window|timmy-offline-quiet)\.sh)$
       - id: helm-deploy-tests
         name: Helm deployment version safety tests
         entry: python3 scripts/test-helm-deploy.py

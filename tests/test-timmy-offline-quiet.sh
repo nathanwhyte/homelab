@@ -47,7 +47,10 @@ get)
   *) printf '%s' "${STUB_REPLICAS:-1}" ;;
   esac
   ;;
-scale) ;;
+scale)
+  # Whether the window was open when the first workload went down.
+  if [[ -f $XDG_STATE_HOME/homelab-timmy-offline/window ]]; then echo "scale saw a window" >>"$STUB_LOG"; else echo "scale saw no window" >>"$STUB_LOG"; fi
+  ;;
 patch)
   # patch cronjob <name> --type=merge -p '{"spec":{"suspend":X}}'
   name=$3; body=${*: -1}
@@ -58,6 +61,8 @@ patch)
 exec)
   # exec <pod> -c alertmanager -- amtool --alertmanager.url=... silence add|expire ...
   [[ ${STUB_FAIL_AMTOOL:-0} == 0 ]] || { echo "connection refused" >&2; exit 1; }
+  [[ ${STUB_FAIL_EXPIRE:-0} == 0 || $* != *" silence expire "* ]] || { echo "connection refused" >&2; exit 1; }
+  [[ ${STUB_FAIL_GARAGE:-0} == 0 || $* != *garage-0* ]] || { echo "pod garage-0 is not running" >&2; exit 1; }
   # What amtool prints for a silence Alertmanager no longer has (lost on an
   # unclean restart): a 404, exit 1.
   [[ ${STUB_AMTOOL_NOTFOUND:-0} == 0 ]] || { echo "amtool: error: [DELETE /silence/{silenceID}][404] deleteSilenceNotFound" >&2; exit 1; }
@@ -100,6 +105,12 @@ run_cmd() {
 		set -e
 		"$@"
 	) >/dev/null 2>&1
+}
+run_cmd_out() { # the same, printing the command's output
+	(
+		set -e
+		"$@"
+	) 2>&1
 }
 
 reset_cluster() {
@@ -219,6 +230,26 @@ else
 	bad "down must run preflight before the silence (preflight at '${preflight_line:-none}', silence at '${silence_line:-none}')"
 fi
 assert_eq "down still drains through node-maintenance.sh reboot --no-reboot --spin-down" 1 "$(grep -c 'nm: reboot timmy --no-reboot --spin-down' "$STUB_LOG")"
+if [[ $(<"$WINDOW_FILE") =~ ^[0-9]+\ planned\ timmy\ outage ]]; then ok "down opens the maintenance window"; else bad "down opens the maintenance window"; fi
+assert_eq "the window is open before the first workload is scaled down" "0 $(grep -c '^-n .* scale ' "$STUB_LOG")" \
+	"$(grep -c 'scale saw no window' "$STUB_LOG") $(grep -c 'scale saw a window' "$STUB_LOG")"
+
+# Round 6: a down whose silence and suspend both fail has changed nothing that
+# needs a window; the silence, had it been made, counts on its own.
+reset_cluster
+STUB_FAIL_AMTOOL=1 STUB_FAIL_GET=kube-system/k3s-datastore-backup run_cmd cmd_down
+assert_eq "down stops when a CronJob cannot be read" 1 "$?"
+if [[ -e $WINDOW_FILE ]]; then bad "it leaves no window"; else ok "it leaves no window"; fi
+
+# Round 6: mv would put the window inside a directory and succeed.
+for kind in directory symlink; do
+	reset_cluster
+	mkdir -p "$STATE_DIR"
+	if [[ $kind == directory ]]; then mkdir "$WINDOW_FILE"; else ln -s "$TMPDIR_TEST/nowhere" "$WINDOW_FILE"; fi
+	run_cmd cmd_down
+	assert_eq "down refuses a $kind at the window path" 1 "$?"
+	assert_eq "before any silence, suspend or scale ($kind)" 0 "$(mutations)"
+done
 
 # The already-cordoned re-run goes to redrain, which never asks preflight (it
 # would refuse on the cordoned node).
@@ -240,11 +271,104 @@ cycle_fixture() { # the boot ID node-maintenance.sh saves when the drain ran
 reset_cluster
 park_fixture
 cycle_fixture
+open_window
 run_cmd cmd_up
 rc=$?
 assert_eq "up with cycle state completes" 0 "$rc"
 assert_eq "up with cycle state finishes through node-maintenance.sh" 1 "$(grep -c 'nm: finish timmy' "$STUB_LOG")"
 assert_eq "up with cycle state does not take the fallback" 0 "$(grep -c 'nm: restore-services' "$STUB_LOG")"
+if [[ -e $WINDOW_FILE ]]; then bad "up closes the maintenance window"; else ok "up closes the maintenance window"; fi
+
+# IDEA-1150 round 4: a failed expire keeps the silence ID for a retry, but the
+# outage is over, so the window must not outlive it.
+reset_cluster
+park_fixture
+cycle_fixture
+silence_alerts >/dev/null
+open_window
+STUB_FAIL_EXPIRE=1 run_cmd cmd_up
+rc=$?
+assert_eq "up with a failed expire still completes" 0 "$rc"
+assert_eq "a failed expire in up keeps the silence ID" "$STUB_SILENCE_ID" "$(cat "$SILENCE_FILE" 2>/dev/null)"
+if [[ -e $WINDOW_FILE ]]; then bad "a failed expire in up still closes the window"; else ok "a failed expire in up still closes the window"; fi
+
+reset_cluster
+open_window
+run_cmd cmd_up
+rc=$?
+assert_eq "up with only a window recorded refuses" 1 "$rc"
+if [[ -e $WINDOW_FILE ]]; then bad "it closes that window"; else ok "it closes that window"; fi
+
+# Round 5: garage_check is a report. A garage-0 that cannot be exec'd used to
+# end up silently under pipefail, before the silence and window were cleared.
+reset_cluster
+park_fixture
+cycle_fixture
+silence_alerts >/dev/null
+open_window
+up_out=$(STUB_FAIL_GARAGE=1 run_cmd_out cmd_up)
+rc=$?
+assert_eq "up completes when garage status cannot be read" 0 "$rc"
+assert_eq "it says so" 1 "$(grep -c 'WARN.*garage status unavailable' <<<"$up_out")"
+assert_eq "it still expires the silence" 1 "$(grep -c "silence expire $STUB_SILENCE_ID" "$STUB_LOG")"
+if [[ -e $WINDOW_FILE ]]; then bad "it still closes the window"; else ok "it still closes the window"; fi
+
+# --- the window's end is the silence's -------------------------------------------
+window_left() { echo $(($(cut -d' ' -f1 "$WINDOW_FILE") - $(date +%s))); }
+reset_cluster
+(SILENCE_DURATION=4h open_window) >/dev/null
+left=$(window_left)
+if ((left > 14300 && left <= 14400)); then ok "the window follows SILENCE_DURATION"; else bad "the window follows SILENCE_DURATION (left ${left}s)"; fi
+end_before=$(cut -d' ' -f1 "$WINDOW_FILE")
+sleep 1
+open_window >/dev/null
+assert_eq "with no silence recorded, a re-run keeps the open window's end" "$end_before" "$(cut -d' ' -f1 "$WINDOW_FILE")"
+
+# Round 6/7: only an open window in exactly the helper's grammar is kept.
+for text in "$(($(date +%s) - 1)) planned timmy outage" "now+600 planned timmy outage" "99999999999 planned timmy outage" \
+	"$(($(date +%s) + 600))" "  $(($(date +%s) + 600)) planned timmy outage" "$(($(date +%s) + 600)) planned"$'\nsecond line'; do
+	reset_cluster
+	mkdir -p "$STATE_DIR"
+	printf '%s\n' "$text" >"$WINDOW_FILE"
+	open_window >/dev/null
+	left=$(window_left)
+	if ((left > 86300 && left <= 86400)); then ok "down replaces a window '${text%% *}'"; else bad "down replaces a window '${text%% *}' (left ${left}s)"; fi
+done
+
+for d in 1h30m 100000d 31d 2592001s 0s 00000001s 18446744073709551617s 99999999999999999999d; do
+	reset_cluster
+	SILENCE_DURATION=$d run_cmd cmd_down
+	assert_eq "down refuses SILENCE_DURATION=$d" 1 "$?"
+	assert_eq "it refuses before any silence, suspend or scale ($d)" 0 "$(mutations)"
+	if [[ -e $WINDOW_FILE ]]; then bad "and before opening a window ($d)"; else ok "and before opening a window ($d)"; fi
+done
+assert_eq "30d is the longest window" "2592000 2592000" "$(SILENCE_DURATION=30d silence_seconds) $(SILENCE_DURATION=2592000s silence_seconds)"
+
+# Round 7: the window ends with the silence down made, including on a re-run
+# that keeps that silence after the window has gone.
+reset_cluster
+run_cmd cmd_down
+silence_end=$(cut -d' ' -f1 "$SILENCE_END_FILE" 2>/dev/null)
+assert_eq "down records the silence's end with its ID" "$STUB_SILENCE_ID" "$(cut -d' ' -f2 "$SILENCE_END_FILE" 2>/dev/null)"
+assert_eq "its window ends with that silence" "$silence_end" "$(cut -d' ' -f1 "$WINDOW_FILE")"
+rm -f "$WINDOW_FILE"
+sleep 1
+run_cmd cmd_down
+assert_eq "a re-run keeping the silence takes its recorded end" "$silence_end" "$(cut -d' ' -f1 "$WINDOW_FILE" 2>/dev/null)"
+printf '%s %s\n' "$(($(date +%s) - 5))" "$STUB_SILENCE_ID" >"$SILENCE_END_FILE"
+run_cmd cmd_down
+if [[ -e $WINDOW_FILE ]]; then bad "a kept silence that has ended leaves no window"; else ok "a kept silence that has ended leaves no window"; fi
+
+# Round 7: a re-run that makes the silence an earlier down could not takes its end.
+reset_cluster
+STUB_FAIL_AMTOOL=1 run_cmd cmd_down
+assert_eq "down with no silence still opens a window" 1 "$(grep -c 'planned timmy outage' "$WINDOW_FILE" 2>/dev/null)"
+printf '%s %s\n' "$(($(date +%s) + 3600))" "planned timmy outage (timmy-offline.sh down)" >"$WINDOW_FILE"
+run_cmd cmd_down
+left=$(window_left)
+if ((left > 86300 && left <= 86400)); then ok "the re-run that made the silence takes its end"; else bad "the re-run that made the silence takes its end (left ${left}s)"; fi
+assert_eq "and records it" "$(cut -d' ' -f1 "$SILENCE_END_FILE" 2>/dev/null)" "$(cut -d' ' -f1 "$WINDOW_FILE")"
+if (STUB_FAIL_EXPIRE=0 expire_silence) >/dev/null && [[ ! -e $SILENCE_END_FILE ]]; then ok "expire clears the silence's end"; else bad "expire clears the silence's end"; fi
 
 reset_cluster
 park_fixture

@@ -4,8 +4,15 @@ Run inside the openviking image (no pytest needed):
     PYTHONPATH=<dir> /app/.venv/bin/python <dir>/test_ov_nav_patch.py
 """
 
-import importlib.util
 import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "_scripts" / "lib"))
+from git_env import scrub_environ  # noqa: E402
+
+scrub_environ()
+
+import importlib.util
 import types
 import unittest
 

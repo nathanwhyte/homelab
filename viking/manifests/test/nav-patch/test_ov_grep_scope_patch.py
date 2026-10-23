@@ -8,10 +8,17 @@ user-root grep still descends into ``sessions/`` unless it is excluded. The live
 check is the BUG-1189 verification (a user-root grep returns inside the MCP limit).
 """
 
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "_scripts" / "lib"))
+from git_env import scrub_environ  # noqa: E402
+
+scrub_environ()
+
 import asyncio
 import importlib.util
 import os
-import sys
 import types
 import unittest
 from unittest.mock import patch
