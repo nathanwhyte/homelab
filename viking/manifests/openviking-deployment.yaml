@@ -122,8 +122,11 @@ spec:
           # role-value-patch init container (and its /ov-patch PYTHONPATH
           # override) is gone as of the v0.4.7 bump (IMPR-1032 Phase B).
           # v0.4.10 bump: IMPR-1063 (no data migration in the 0.4.7→0.4.10
-          # range; rollback is a pure tag revert).
-          image: ghcr.io/volcengine/openviking:v0.4.20
+          # range; rollback is a pure tag revert). v0.5.1.1 bump: IMPR-1412; v0.5.x
+          # rewrites ov-vectordb rows one way, so its rollback is restore-based
+          # (GUIDE-1085 4.4), never a tag revert.
+          # digest: sha256:551b1ae00f59fd7b1a2434ecc10a4860be34aae8b7627f5f57240be355b23217
+          image: ghcr.io/volcengine/openviking:v0.5.1.1
           ports:
             - containerPort: 1933
               name: http
@@ -312,7 +315,8 @@ spec:
           # `ov language en` runs once at container start to clear v0.4.x's
           # first-run language gate (the gate persists state under
           # ~/.openviking/, which is the container's HOME).
-          image: ghcr.io/volcengine/openviking:v0.4.20
+          # digest: sha256:551b1ae00f59fd7b1a2434ecc10a4860be34aae8b7627f5f57240be355b23217
+          image: ghcr.io/volcengine/openviking:v0.5.1.1
           command:
             - /bin/sh
             - -c

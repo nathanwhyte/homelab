@@ -37,7 +37,7 @@ data:
         "code_summary_mode": "ast"
       },
       "rerank": {
-        "threshold": 0.2
+        "threshold": 0.6
       },
       "server": {
         "host": "0.0.0.0",
