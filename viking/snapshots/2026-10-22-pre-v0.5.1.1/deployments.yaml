@@ -1,0 +1,2042 @@
+apiVersion: v1
+items:
+- apiVersion: apps/v1
+  kind: Deployment
+  metadata:
+    annotations:
+      deployment.kubernetes.io/revision: "1"
+      kubectl.kubernetes.io/last-applied-configuration: |
+        {"apiVersion":"apps/v1","kind":"Deployment","metadata":{"annotations":{},"labels":{"app":"embedder-eg2-cuda"},"name":"embedder-eg2-cuda","namespace":"viking"},"spec":{"replicas":0,"revisionHistoryLimit":1,"selector":{"matchLabels":{"app":"embedder-eg2-cuda"}},"strategy":{"type":"Recreate"},"template":{"metadata":{"labels":{"app":"embedder-eg2-cuda"}},"spec":{"containers":[{"args":["--model","/models/current.gguf","--host","0.0.0.0","--port","8000","--embedding","--pooling","mean","--ctx-size","8192","--batch-size","8192","--ubatch-size","8192","--parallel","1","--cache-ram","0","--n-gpu-layers","999","--threads","4","--split-mode","none","--main-gpu","0","--metrics"],"command":["/app/llama-server"],"image":"ghcr.io/ggml-org/llama.cpp@sha256:fff6185edd2fbc4093aa5970bf6db53ed11c283e3a1c52a3e244cf27047264f4","livenessProbe":{"failureThreshold":10,"periodSeconds":30,"tcpSocket":{"port":8000},"timeoutSeconds":5},"name":"llamacpp","ports":[{"containerPort":8000,"name":"http"}],"resources":{"limits":{"cpu":"4","memory":"4Gi","nvidia.com/gpu":"1"},"requests":{"cpu":"500m","memory":"1Gi","nvidia.com/gpu":"1"}},"startupProbe":{"failureThreshold":120,"httpGet":{"path":"/health","port":8000},"periodSeconds":5,"timeoutSeconds":5},"volumeMounts":[{"mountPath":"/models","name":"model-cache"},{"mountPath":"/dev/shm","name":"shm"}]}],"initContainers":[{"args":["set -eu\nmodel_path=\"/models/${MODEL_FILE}\"\nif [ ! -f \"${model_path}\" ]; then\n  echo \"Downloading ${MODEL_FILE}...\"\n  curl -fL --retry 5 --retry-delay 10 \"${MODEL_URL}\" -o \"${model_path}.tmp\"\n  mv \"${model_path}.tmp\" \"${model_path}\"\nfi\necho \"${MODEL_SHA256}  ${model_path}\" | sha256sum -c -\nln -sf \"${model_path}\" /models/current.gguf\necho \"Model ready.\"\n"],"command":["/bin/sh","-c"],"env":[{"name":"MODEL_FILE","value":"embeddinggemma-2-Q8_0.gguf"},{"name":"MODEL_URL","value":"https://huggingface.co/ggml-org/embeddinggemma-2-GGUF/resolve/main/embeddinggemma-2-Q8_0.gguf"},{"name":"MODEL_SHA256","value":"2188ac1deca4b77dffefd603c2776a9d76d9d74ec01841392982ebb840b09135"}],"image":"curlimages/curl:8.12.1","name":"model-fetch","securityContext":{"runAsGroup":0,"runAsUser":0},"volumeMounts":[{"mountPath":"/models","name":"model-cache"}]}],"nodeSelector":{"gpu.vendor":"nvidia","kubernetes.io/hostname":"manu"},"runtimeClassName":"nvidia","securityContext":{"fsGroup":0},"volumes":[{"name":"model-cache","persistentVolumeClaim":{"claimName":"embedder-eg2-model-cache"}},{"emptyDir":{"medium":"Memory","sizeLimit":"1Gi"},"name":"shm"}]}}}}
+    creationTimestamp: "2026-10-08T12:40:03Z"
+    generation: 3
+    labels:
+      app: embedder-eg2-cuda
+    name: embedder-eg2-cuda
+    namespace: viking
+    resourceVersion: "76940016"
+    uid: 5202df8c-cc9f-4890-8b2c-3d5e9fd02392
+  spec:
+    progressDeadlineSeconds: 600
+    replicas: 0
+    revisionHistoryLimit: 1
+    selector:
+      matchLabels:
+        app: embedder-eg2-cuda
+    strategy:
+      type: Recreate
+    template:
+      metadata:
+        labels:
+          app: embedder-eg2-cuda
+      spec:
+        containers:
+        - args:
+          - --model
+          - /models/current.gguf
+          - --host
+          - 0.0.0.0
+          - --port
+          - "8000"
+          - --embedding
+          - --pooling
+          - mean
+          - --ctx-size
+          - "8192"
+          - --batch-size
+          - "8192"
+          - --ubatch-size
+          - "8192"
+          - --parallel
+          - "1"
+          - --cache-ram
+          - "0"
+          - --n-gpu-layers
+          - "999"
+          - --threads
+          - "4"
+          - --split-mode
+          - none
+          - --main-gpu
+          - "0"
+          - --metrics
+          command:
+          - /app/llama-server
+          image: ghcr.io/ggml-org/llama.cpp@sha256:fff6185edd2fbc4093aa5970bf6db53ed11c283e3a1c52a3e244cf27047264f4
+          imagePullPolicy: IfNotPresent
+          livenessProbe:
+            failureThreshold: 10
+            periodSeconds: 30
+            successThreshold: 1
+            tcpSocket:
+              port: 8000
+            timeoutSeconds: 5
+          name: llamacpp
+          ports:
+          - containerPort: 8000
+            name: http
+            protocol: TCP
+          resources:
+            limits:
+              cpu: "4"
+              memory: 4Gi
+              nvidia.com/gpu: "1"
+            requests:
+              cpu: 500m
+              memory: 1Gi
+              nvidia.com/gpu: "1"
+          startupProbe:
+            failureThreshold: 120
+            httpGet:
+              path: /health
+              port: 8000
+              scheme: HTTP
+            periodSeconds: 5
+            successThreshold: 1
+            timeoutSeconds: 5
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          volumeMounts:
+          - mountPath: /models
+            name: model-cache
+          - mountPath: /dev/shm
+            name: shm
+        dnsPolicy: ClusterFirst
+        initContainers:
+        - args:
+          - |
+            set -eu
+            model_path="/models/${MODEL_FILE}"
+            if [ ! -f "${model_path}" ]; then
+              echo "Downloading ${MODEL_FILE}..."
+              curl -fL --retry 5 --retry-delay 10 "${MODEL_URL}" -o "${model_path}.tmp"
+              mv "${model_path}.tmp" "${model_path}"
+            fi
+            echo "${MODEL_SHA256}  ${model_path}" | sha256sum -c -
+            ln -sf "${model_path}" /models/current.gguf
+            echo "Model ready."
+          command:
+          - /bin/sh
+          - -c
+          env:
+          - name: MODEL_FILE
+            value: embeddinggemma-2-Q8_0.gguf
+          - name: MODEL_URL
+            value: https://huggingface.co/ggml-org/embeddinggemma-2-GGUF/resolve/main/embeddinggemma-2-Q8_0.gguf
+          - name: MODEL_SHA256
+            value: 2188ac1deca4b77dffefd603c2776a9d76d9d74ec01841392982ebb840b09135
+          image: curlimages/curl:8.12.1
+          imagePullPolicy: IfNotPresent
+          name: model-fetch
+          resources: {}
+          securityContext:
+            runAsGroup: 0
+            runAsUser: 0
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          volumeMounts:
+          - mountPath: /models
+            name: model-cache
+        nodeSelector:
+          gpu.vendor: nvidia
+          kubernetes.io/hostname: manu
+        restartPolicy: Always
+        runtimeClassName: nvidia
+        schedulerName: default-scheduler
+        securityContext:
+          fsGroup: 0
+        terminationGracePeriodSeconds: 30
+        volumes:
+        - name: model-cache
+          persistentVolumeClaim:
+            claimName: embedder-eg2-model-cache
+        - emptyDir:
+            medium: Memory
+            sizeLimit: 1Gi
+          name: shm
+  status:
+    conditions:
+    - lastTransitionTime: "2026-10-08T12:40:03Z"
+      lastUpdateTime: "2026-10-08T12:42:07Z"
+      message: ReplicaSet "embedder-eg2-cuda-5f8bb9f955" has successfully progressed.
+      reason: NewReplicaSetAvailable
+      status: "True"
+      type: Progressing
+    - lastTransitionTime: "2026-10-08T12:55:54Z"
+      lastUpdateTime: "2026-10-08T12:55:54Z"
+      message: Deployment has minimum availability.
+      reason: MinimumReplicasAvailable
+      status: "True"
+      type: Available
+    observedGeneration: 3
+    terminatingReplicas: 0
+- apiVersion: apps/v1
+  kind: Deployment
+  metadata:
+    annotations:
+      deployment.kubernetes.io/revision: "2"
+      kubectl.kubernetes.io/last-applied-configuration: |
+        {"apiVersion":"apps/v1","kind":"Deployment","metadata":{"annotations":{},"labels":{"app":"embedder-prompt-shim"},"name":"embedder-prompt-shim","namespace":"viking"},"spec":{"replicas":2,"selector":{"matchLabels":{"app":"embedder-prompt-shim"}},"strategy":{"rollingUpdate":{"maxSurge":1,"maxUnavailable":0},"type":"RollingUpdate"},"template":{"metadata":{"annotations":{"homelab.nathanwhyte.dev/config-rev":"2"},"labels":{"app":"embedder-prompt-shim"}},"spec":{"affinity":{"podAntiAffinity":{"preferredDuringSchedulingIgnoredDuringExecution":[{"podAffinityTerm":{"labelSelector":{"matchLabels":{"app":"embedder-prompt-shim"}},"topologyKey":"kubernetes.io/hostname"},"weight":100}]}},"containers":[{"command":["python3","/scripts/embedder-prompt-shim.py"],"env":[{"name":"SHIM_PORT","value":"8080"},{"name":"SHIM_UPSTREAM","value":"http://embedder-qwen.viking.svc.cluster.local:8080"},{"name":"SHIM_UPSTREAM_TIMEOUT","value":"300"},{"name":"SHIM_QUERY_PREFIX","value":"Instruct: Given a web search query, retrieve relevant passages that answer the query\nQuery: "},{"name":"SHIM_DOCUMENT_PREFIX","value":""}],"image":"python:3.13-slim@sha256:eb43ff125d8d58d7449dcba7d336c23bcac412f526d861db493b9994d8010280","imagePullPolicy":"IfNotPresent","lifecycle":{"preStop":{"exec":{"command":["sleep","5"]}}},"livenessProbe":{"failureThreshold":4,"httpGet":{"path":"/healthz","port":8080},"periodSeconds":30,"timeoutSeconds":5},"name":"shim","ports":[{"containerPort":8080,"name":"http"}],"readinessProbe":{"httpGet":{"path":"/healthz","port":8080},"periodSeconds":10,"timeoutSeconds":3},"resources":{"limits":{"memory":"256Mi"},"requests":{"cpu":"20m","memory":"48Mi"}},"securityContext":{"allowPrivilegeEscalation":false,"capabilities":{"drop":["ALL"]},"readOnlyRootFilesystem":true},"volumeMounts":[{"mountPath":"/scripts","name":"scripts","readOnly":true}]}],"securityContext":{"runAsGroup":65534,"runAsNonRoot":true,"runAsUser":65534,"seccompProfile":{"type":"RuntimeDefault"}},"terminationGracePeriodSeconds":330,"volumes":[{"configMap":{"defaultMode":493,"name":"embedder-prompt-shim"},"name":"scripts"}]}}}}
+    creationTimestamp: "2026-10-17T21:23:04Z"
+    generation: 2
+    labels:
+      app: embedder-prompt-shim
+    name: embedder-prompt-shim
+    namespace: viking
+    resourceVersion: "82082894"
+    uid: 8d0c6d2d-8494-487b-80e2-72ddee335086
+  spec:
+    progressDeadlineSeconds: 600
+    replicas: 2
+    revisionHistoryLimit: 10
+    selector:
+      matchLabels:
+        app: embedder-prompt-shim
+    strategy:
+      rollingUpdate:
+        maxSurge: 1
+        maxUnavailable: 0
+      type: RollingUpdate
+    template:
+      metadata:
+        annotations:
+          homelab.nathanwhyte.dev/config-rev: "2"
+        labels:
+          app: embedder-prompt-shim
+      spec:
+        affinity:
+          podAntiAffinity:
+            preferredDuringSchedulingIgnoredDuringExecution:
+            - podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app: embedder-prompt-shim
+                topologyKey: kubernetes.io/hostname
+              weight: 100
+        containers:
+        - command:
+          - python3
+          - /scripts/embedder-prompt-shim.py
+          env:
+          - name: SHIM_PORT
+            value: "8080"
+          - name: SHIM_UPSTREAM
+            value: http://embedder-qwen.viking.svc.cluster.local:8080
+          - name: SHIM_UPSTREAM_TIMEOUT
+            value: "300"
+          - name: SHIM_QUERY_PREFIX
+            value: "Instruct: Given a web search query, retrieve relevant passages
+              that answer the query\nQuery: "
+          - name: SHIM_DOCUMENT_PREFIX
+          image: python:3.13-slim@sha256:eb43ff125d8d58d7449dcba7d336c23bcac412f526d861db493b9994d8010280
+          imagePullPolicy: IfNotPresent
+          lifecycle:
+            preStop:
+              exec:
+                command:
+                - sleep
+                - "5"
+          livenessProbe:
+            failureThreshold: 4
+            httpGet:
+              path: /healthz
+              port: 8080
+              scheme: HTTP
+            periodSeconds: 30
+            successThreshold: 1
+            timeoutSeconds: 5
+          name: shim
+          ports:
+          - containerPort: 8080
+            name: http
+            protocol: TCP
+          readinessProbe:
+            failureThreshold: 3
+            httpGet:
+              path: /healthz
+              port: 8080
+              scheme: HTTP
+            periodSeconds: 10
+            successThreshold: 1
+            timeoutSeconds: 3
+          resources:
+            limits:
+              memory: 256Mi
+            requests:
+              cpu: 20m
+              memory: 48Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+              - ALL
+            readOnlyRootFilesystem: true
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          volumeMounts:
+          - mountPath: /scripts
+            name: scripts
+            readOnly: true
+        dnsPolicy: ClusterFirst
+        restartPolicy: Always
+        schedulerName: default-scheduler
+        securityContext:
+          runAsGroup: 65534
+          runAsNonRoot: true
+          runAsUser: 65534
+          seccompProfile:
+            type: RuntimeDefault
+        terminationGracePeriodSeconds: 330
+        volumes:
+        - configMap:
+            defaultMode: 493
+            name: embedder-prompt-shim
+          name: scripts
+  status:
+    availableReplicas: 2
+    conditions:
+    - lastTransitionTime: "2026-10-17T21:23:04Z"
+      lastUpdateTime: "2026-10-19T13:22:49Z"
+      message: ReplicaSet "embedder-prompt-shim-7d5db6c44" has successfully progressed.
+      reason: NewReplicaSetAvailable
+      status: "True"
+      type: Progressing
+    - lastTransitionTime: "2026-10-22T03:43:11Z"
+      lastUpdateTime: "2026-10-22T03:43:11Z"
+      message: Deployment has minimum availability.
+      reason: MinimumReplicasAvailable
+      status: "True"
+      type: Available
+    observedGeneration: 2
+    readyReplicas: 2
+    replicas: 2
+    terminatingReplicas: 0
+    updatedReplicas: 2
+- apiVersion: apps/v1
+  kind: Deployment
+  metadata:
+    annotations:
+      deployment.kubernetes.io/revision: "1"
+      kubectl.kubernetes.io/last-applied-configuration: |
+        {"apiVersion":"apps/v1","kind":"Deployment","metadata":{"annotations":{},"labels":{"app":"embedder-qwen","backend":"rocm"},"name":"embedder-qwen","namespace":"viking"},"spec":{"replicas":0,"revisionHistoryLimit":1,"selector":{"matchLabels":{"app":"embedder-qwen"}},"strategy":{"type":"Recreate"},"template":{"metadata":{"labels":{"app":"embedder-qwen","backend":"rocm"}},"spec":{"containers":[{"args":["--model","/models/current.gguf","--host","0.0.0.0","--port","8000","--embedding","--pooling","last","--ctx-size","8192","--n-gpu-layers","999","--parallel","1","--threads","8","--batch-size","4096","--ubatch-size","4096","--split-mode","none","--main-gpu","0","--flash-attn","on","--metrics"],"command":["/app/llama-server"],"env":[{"name":"HIP_VISIBLE_DEVICES","value":"0"}],"image":"ghcr.io/ggml-org/llama.cpp:server-rocm","livenessProbe":{"httpGet":{"path":"/health","port":8000},"periodSeconds":20,"timeoutSeconds":5},"name":"llamacpp","ports":[{"containerPort":8000,"name":"http"}],"readinessProbe":{"httpGet":{"path":"/health","port":8000},"periodSeconds":10,"timeoutSeconds":5},"resources":{"limits":{"cpu":"8","memory":"12Gi"},"requests":{"cpu":"500m","memory":"3Gi"}},"securityContext":{"privileged":true},"startupProbe":{"failureThreshold":120,"periodSeconds":10,"tcpSocket":{"port":8000},"timeoutSeconds":5},"volumeMounts":[{"mountPath":"/models","name":"model-cache"},{"mountPath":"/dev/shm","name":"shm"},{"mountPath":"/opt/rocm/lib/rocblas/library","name":"rocblas-library"}]}],"initContainers":[{"args":["set -eu\nmodel_path=\"/models/${MODEL_FILE}\"\nif [ -f \"${model_path}\" ]; then\n  echo \"Model already cached: ${model_path}\"\nelse\n  echo \"Downloading ${MODEL_FILE}...\"\n  curl -fL --retry 5 --retry-delay 10 \"${MODEL_URL}\" -o \"${model_path}.tmp\"\n  mv \"${model_path}.tmp\" \"${model_path}\"\n  echo \"Download complete.\"\nfi\nln -sf \"${model_path}\" /models/current.gguf\necho \"Model ready.\"\n"],"command":["/bin/sh","-c"],"env":[{"name":"MODEL_FILE","value":"Qwen3-Embedding-4B-Q8_0.gguf"},{"name":"MODEL_URL","value":"https://huggingface.co/Qwen/Qwen3-Embedding-4B-GGUF/resolve/main/Qwen3-Embedding-4B-Q8_0.gguf"}],"image":"curlimages/curl:8.12.1","name":"model-fetch","securityContext":{"runAsGroup":0,"runAsUser":0},"volumeMounts":[{"mountPath":"/models","name":"model-cache"}]}],"nodeSelector":{"gpu.vendor":"amd","kubernetes.io/hostname":"timmy"},"securityContext":{"fsGroup":0},"volumes":[{"name":"model-cache","persistentVolumeClaim":{"claimName":"embedder-qwen-model-cache"}},{"emptyDir":{"medium":"Memory","sizeLimit":"4Gi"},"name":"shm"},{"hostPath":{"path":"/opt/rocm-7.2.1/lib/rocblas/library","type":"Directory"},"name":"rocblas-library"}]}}}}
+    creationTimestamp: "2026-07-07T15:15:59Z"
+    generation: 3
+    labels:
+      app: embedder-qwen
+      backend: rocm
+    name: embedder-qwen
+    namespace: viking
+    resourceVersion: "53936701"
+    uid: d57d47a5-0895-492c-88df-34e6fcda6483
+  spec:
+    progressDeadlineSeconds: 600
+    replicas: 0
+    revisionHistoryLimit: 1
+    selector:
+      matchLabels:
+        app: embedder-qwen
+    strategy:
+      type: Recreate
+    template:
+      metadata:
+        labels:
+          app: embedder-qwen
+          backend: rocm
+      spec:
+        containers:
+        - args:
+          - --model
+          - /models/current.gguf
+          - --host
+          - 0.0.0.0
+          - --port
+          - "8000"
+          - --embedding
+          - --pooling
+          - last
+          - --ctx-size
+          - "8192"
+          - --n-gpu-layers
+          - "999"
+          - --parallel
+          - "1"
+          - --threads
+          - "8"
+          - --batch-size
+          - "4096"
+          - --ubatch-size
+          - "4096"
+          - --split-mode
+          - none
+          - --main-gpu
+          - "0"
+          - --flash-attn
+          - "on"
+          - --metrics
+          command:
+          - /app/llama-server
+          env:
+          - name: HIP_VISIBLE_DEVICES
+            value: "0"
+          image: ghcr.io/ggml-org/llama.cpp:server-rocm
+          imagePullPolicy: IfNotPresent
+          livenessProbe:
+            failureThreshold: 3
+            httpGet:
+              path: /health
+              port: 8000
+              scheme: HTTP
+            periodSeconds: 20
+            successThreshold: 1
+            timeoutSeconds: 5
+          name: llamacpp
+          ports:
+          - containerPort: 8000
+            name: http
+            protocol: TCP
+          readinessProbe:
+            failureThreshold: 3
+            httpGet:
+              path: /health
+              port: 8000
+              scheme: HTTP
+            periodSeconds: 10
+            successThreshold: 1
+            timeoutSeconds: 5
+          resources:
+            limits:
+              cpu: "8"
+              memory: 12Gi
+            requests:
+              cpu: 500m
+              memory: 3Gi
+          securityContext:
+            privileged: true
+          startupProbe:
+            failureThreshold: 120
+            periodSeconds: 10
+            successThreshold: 1
+            tcpSocket:
+              port: 8000
+            timeoutSeconds: 5
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          volumeMounts:
+          - mountPath: /models
+            name: model-cache
+          - mountPath: /dev/shm
+            name: shm
+          - mountPath: /opt/rocm/lib/rocblas/library
+            name: rocblas-library
+        dnsPolicy: ClusterFirst
+        initContainers:
+        - args:
+          - |
+            set -eu
+            model_path="/models/${MODEL_FILE}"
+            if [ -f "${model_path}" ]; then
+              echo "Model already cached: ${model_path}"
+            else
+              echo "Downloading ${MODEL_FILE}..."
+              curl -fL --retry 5 --retry-delay 10 "${MODEL_URL}" -o "${model_path}.tmp"
+              mv "${model_path}.tmp" "${model_path}"
+              echo "Download complete."
+            fi
+            ln -sf "${model_path}" /models/current.gguf
+            echo "Model ready."
+          command:
+          - /bin/sh
+          - -c
+          env:
+          - name: MODEL_FILE
+            value: Qwen3-Embedding-4B-Q8_0.gguf
+          - name: MODEL_URL
+            value: https://huggingface.co/Qwen/Qwen3-Embedding-4B-GGUF/resolve/main/Qwen3-Embedding-4B-Q8_0.gguf
+          image: curlimages/curl:8.12.1
+          imagePullPolicy: IfNotPresent
+          name: model-fetch
+          resources: {}
+          securityContext:
+            runAsGroup: 0
+            runAsUser: 0
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          volumeMounts:
+          - mountPath: /models
+            name: model-cache
+        nodeSelector:
+          gpu.vendor: amd
+          kubernetes.io/hostname: timmy
+        restartPolicy: Always
+        schedulerName: default-scheduler
+        securityContext:
+          fsGroup: 0
+        terminationGracePeriodSeconds: 30
+        volumes:
+        - name: model-cache
+          persistentVolumeClaim:
+            claimName: embedder-qwen-model-cache
+        - emptyDir:
+            medium: Memory
+            sizeLimit: 4Gi
+          name: shm
+        - hostPath:
+            path: /opt/rocm-7.2.1/lib/rocblas/library
+            type: Directory
+          name: rocblas-library
+  status:
+    conditions:
+    - lastTransitionTime: "2026-07-07T15:16:10Z"
+      lastUpdateTime: "2026-07-07T15:16:10Z"
+      message: Deployment has minimum availability.
+      reason: MinimumReplicasAvailable
+      status: "True"
+      type: Available
+    - lastTransitionTime: "2026-07-07T15:15:59Z"
+      lastUpdateTime: "2026-07-07T15:16:10Z"
+      message: ReplicaSet "embedder-qwen-5fb585d4dd" has successfully progressed.
+      reason: NewReplicaSetAvailable
+      status: "True"
+      type: Progressing
+    observedGeneration: 3
+    terminatingReplicas: 0
+- apiVersion: apps/v1
+  kind: Deployment
+  metadata:
+    annotations:
+      deployment.kubernetes.io/revision: "14"
+      kubectl.kubernetes.io/last-applied-configuration: |
+        {"apiVersion":"apps/v1","kind":"Deployment","metadata":{"annotations":{},"labels":{"app":"embedder-qwen-cuda"},"name":"embedder-qwen-cuda","namespace":"viking"},"spec":{"replicas":1,"revisionHistoryLimit":1,"selector":{"matchLabels":{"app":"embedder-qwen-cuda"}},"strategy":{"type":"Recreate"},"template":{"metadata":{"labels":{"app":"embedder-qwen-cuda"}},"spec":{"containers":[{"args":["--model","/models/current.gguf","--host","0.0.0.0","--port","8000","--embedding","--pooling","last","--ctx-size","8192","--n-gpu-layers","999","--parallel","1","--threads","4","--batch-size","2048","--ubatch-size","2048","--cache-ram","0","--split-mode","none","--main-gpu","0","--flash-attn","on","--metrics"],"command":["/app/llama-server"],"image":"ghcr.io/ggml-org/llama.cpp@sha256:ef08b5a98b1170f2b62177be0a4027c88a84043c55afbf190dd18b9e7cdcfebf","livenessProbe":{"failureThreshold":10,"periodSeconds":30,"tcpSocket":{"port":8000},"timeoutSeconds":5},"name":"llamacpp","ports":[{"containerPort":8000,"name":"http"}],"resources":{"limits":{"cpu":"4","memory":"6Gi","nvidia.com/gpu":"1"},"requests":{"cpu":"500m","memory":"2Gi","nvidia.com/gpu":"1"}},"startupProbe":{"failureThreshold":120,"periodSeconds":10,"tcpSocket":{"port":8000},"timeoutSeconds":5},"volumeMounts":[{"mountPath":"/models","name":"model-cache"},{"mountPath":"/dev/shm","name":"shm"}]}],"initContainers":[{"args":["set -eu\nmodel_path=\"/models/${MODEL_FILE}\"\nif [ -f \"${model_path}\" ]; then\n  echo \"Model already cached: ${model_path}\"\nelse\n  echo \"Downloading ${MODEL_FILE}...\"\n  curl -fL --retry 5 --retry-delay 10 \"${MODEL_URL}\" -o \"${model_path}.tmp\"\n  mv \"${model_path}.tmp\" \"${model_path}\"\n  echo \"Download complete.\"\nfi\nln -sf \"${model_path}\" /models/current.gguf\necho \"Model ready.\"\n"],"command":["/bin/sh","-c"],"env":[{"name":"MODEL_FILE","value":"Qwen3-Embedding-4B-Q8_0.gguf"},{"name":"MODEL_URL","value":"https://huggingface.co/Qwen/Qwen3-Embedding-4B-GGUF/resolve/main/Qwen3-Embedding-4B-Q8_0.gguf"}],"image":"curlimages/curl:8.12.1","name":"model-fetch","securityContext":{"runAsGroup":0,"runAsUser":0},"volumeMounts":[{"mountPath":"/models","name":"model-cache"}]}],"nodeSelector":{"gpu.vendor":"nvidia","kubernetes.io/hostname":"manu"},"runtimeClassName":"nvidia","securityContext":{"fsGroup":0},"volumes":[{"name":"model-cache","persistentVolumeClaim":{"claimName":"embedder-cuda-model-cache"}},{"emptyDir":{"medium":"Memory","sizeLimit":"2Gi"},"name":"shm"}]}}}}
+    creationTimestamp: "2026-07-17T19:02:13Z"
+    generation: 68
+    labels:
+      app: embedder-qwen-cuda
+    name: embedder-qwen-cuda
+    namespace: viking
+    resourceVersion: "82074125"
+    uid: 33902d44-56b8-4fea-9c86-b70d19d50d5c
+  spec:
+    progressDeadlineSeconds: 600
+    replicas: 1
+    revisionHistoryLimit: 1
+    selector:
+      matchLabels:
+        app: embedder-qwen-cuda
+    strategy:
+      type: Recreate
+    template:
+      metadata:
+        labels:
+          app: embedder-qwen-cuda
+      spec:
+        containers:
+        - args:
+          - --model
+          - /models/current.gguf
+          - --host
+          - 0.0.0.0
+          - --port
+          - "8000"
+          - --embedding
+          - --pooling
+          - last
+          - --ctx-size
+          - "8192"
+          - --n-gpu-layers
+          - "999"
+          - --parallel
+          - "1"
+          - --threads
+          - "4"
+          - --batch-size
+          - "2048"
+          - --ubatch-size
+          - "2048"
+          - --cache-ram
+          - "0"
+          - --split-mode
+          - none
+          - --main-gpu
+          - "0"
+          - --flash-attn
+          - "on"
+          - --metrics
+          command:
+          - /app/llama-server
+          image: ghcr.io/ggml-org/llama.cpp@sha256:ef08b5a98b1170f2b62177be0a4027c88a84043c55afbf190dd18b9e7cdcfebf
+          imagePullPolicy: IfNotPresent
+          livenessProbe:
+            failureThreshold: 10
+            periodSeconds: 30
+            successThreshold: 1
+            tcpSocket:
+              port: 8000
+            timeoutSeconds: 5
+          name: llamacpp
+          ports:
+          - containerPort: 8000
+            name: http
+            protocol: TCP
+          resources:
+            limits:
+              cpu: "4"
+              memory: 6Gi
+              nvidia.com/gpu: "1"
+            requests:
+              cpu: 500m
+              memory: 2Gi
+              nvidia.com/gpu: "1"
+          startupProbe:
+            failureThreshold: 120
+            periodSeconds: 10
+            successThreshold: 1
+            tcpSocket:
+              port: 8000
+            timeoutSeconds: 5
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          volumeMounts:
+          - mountPath: /models
+            name: model-cache
+          - mountPath: /dev/shm
+            name: shm
+        dnsPolicy: ClusterFirst
+        initContainers:
+        - args:
+          - |
+            set -eu
+            model_path="/models/${MODEL_FILE}"
+            if [ -f "${model_path}" ]; then
+              echo "Model already cached: ${model_path}"
+            else
+              echo "Downloading ${MODEL_FILE}..."
+              curl -fL --retry 5 --retry-delay 10 "${MODEL_URL}" -o "${model_path}.tmp"
+              mv "${model_path}.tmp" "${model_path}"
+              echo "Download complete."
+            fi
+            ln -sf "${model_path}" /models/current.gguf
+            echo "Model ready."
+          command:
+          - /bin/sh
+          - -c
+          env:
+          - name: MODEL_FILE
+            value: Qwen3-Embedding-4B-Q8_0.gguf
+          - name: MODEL_URL
+            value: https://huggingface.co/Qwen/Qwen3-Embedding-4B-GGUF/resolve/main/Qwen3-Embedding-4B-Q8_0.gguf
+          image: curlimages/curl:8.12.1
+          imagePullPolicy: IfNotPresent
+          name: model-fetch
+          resources: {}
+          securityContext:
+            runAsGroup: 0
+            runAsUser: 0
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          volumeMounts:
+          - mountPath: /models
+            name: model-cache
+        nodeSelector:
+          gpu.vendor: nvidia
+          kubernetes.io/hostname: manu
+        restartPolicy: Always
+        runtimeClassName: nvidia
+        schedulerName: default-scheduler
+        securityContext:
+          fsGroup: 0
+        terminationGracePeriodSeconds: 30
+        volumes:
+        - name: model-cache
+          persistentVolumeClaim:
+            claimName: embedder-cuda-model-cache
+        - emptyDir:
+            medium: Memory
+            sizeLimit: 2Gi
+          name: shm
+  status:
+    availableReplicas: 1
+    conditions:
+    - lastTransitionTime: "2026-07-17T19:18:21Z"
+      lastUpdateTime: "2026-10-08T12:40:02Z"
+      message: ReplicaSet "embedder-qwen-cuda-59bc569f57" has successfully progressed.
+      reason: NewReplicaSetAvailable
+      status: "True"
+      type: Progressing
+    - lastTransitionTime: "2026-10-22T03:18:55Z"
+      lastUpdateTime: "2026-10-22T03:18:55Z"
+      message: Deployment has minimum availability.
+      reason: MinimumReplicasAvailable
+      status: "True"
+      type: Available
+    observedGeneration: 68
+    readyReplicas: 1
+    replicas: 1
+    terminatingReplicas: 0
+    updatedReplicas: 1
+- apiVersion: apps/v1
+  kind: Deployment
+  metadata:
+    annotations:
+      deployment.kubernetes.io/revision: "1"
+      kubectl.kubernetes.io/last-applied-configuration: |
+        {"apiVersion":"apps/v1","kind":"Deployment","metadata":{"annotations":{},"labels":{"app":"litellm-redis"},"name":"litellm-redis","namespace":"viking"},"spec":{"replicas":1,"selector":{"matchLabels":{"app":"litellm-redis"}},"strategy":{"type":"Recreate"},"template":{"metadata":{"labels":{"app":"litellm-redis"}},"spec":{"containers":[{"args":["exec redis-server --appendonly yes --appendfsync everysec --dir /data --requirepass \"$REDIS_PASSWORD\""],"command":["/bin/sh","-c"],"env":[{"name":"REDIS_PASSWORD","valueFrom":{"secretKeyRef":{"key":"REDIS_PASSWORD","name":"litellm-vlm"}}}],"image":"redis:7.4.1-alpine","livenessProbe":{"failureThreshold":6,"periodSeconds":30,"tcpSocket":{"port":6379},"timeoutSeconds":5},"name":"redis","ports":[{"containerPort":6379,"name":"redis"}],"resources":{"limits":{"cpu":"500m","memory":"256Mi"},"requests":{"cpu":"20m","memory":"32Mi"}},"volumeMounts":[{"mountPath":"/data","name":"data"}]}],"terminationGracePeriodSeconds":15,"volumes":[{"name":"data","persistentVolumeClaim":{"claimName":"litellm-redis-data"}}]}}}}
+    creationTimestamp: "2026-10-14T18:27:13Z"
+    generation: 3
+    labels:
+      app: litellm-redis
+    name: litellm-redis
+    namespace: viking
+    resourceVersion: "82083801"
+    uid: 34a682f3-ebb9-4e81-bc5b-f7643502a108
+  spec:
+    progressDeadlineSeconds: 600
+    replicas: 1
+    revisionHistoryLimit: 10
+    selector:
+      matchLabels:
+        app: litellm-redis
+    strategy:
+      type: Recreate
+    template:
+      metadata:
+        labels:
+          app: litellm-redis
+      spec:
+        containers:
+        - args:
+          - exec redis-server --appendonly yes --appendfsync everysec --dir /data
+            --requirepass "$REDIS_PASSWORD"
+          command:
+          - /bin/sh
+          - -c
+          env:
+          - name: REDIS_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                key: REDIS_PASSWORD
+                name: litellm-vlm
+          image: redis:7.4.1-alpine
+          imagePullPolicy: IfNotPresent
+          livenessProbe:
+            failureThreshold: 6
+            periodSeconds: 30
+            successThreshold: 1
+            tcpSocket:
+              port: 6379
+            timeoutSeconds: 5
+          name: redis
+          ports:
+          - containerPort: 6379
+            name: redis
+            protocol: TCP
+          resources:
+            limits:
+              cpu: 500m
+              memory: 256Mi
+            requests:
+              cpu: 20m
+              memory: 32Mi
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          volumeMounts:
+          - mountPath: /data
+            name: data
+        dnsPolicy: ClusterFirst
+        restartPolicy: Always
+        schedulerName: default-scheduler
+        securityContext: {}
+        terminationGracePeriodSeconds: 15
+        volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: litellm-redis-data
+  status:
+    availableReplicas: 1
+    conditions:
+    - lastTransitionTime: "2026-10-14T18:27:13Z"
+      lastUpdateTime: "2026-10-14T18:27:29Z"
+      message: ReplicaSet "litellm-redis-74498f4f45" has successfully progressed.
+      reason: NewReplicaSetAvailable
+      status: "True"
+      type: Progressing
+    - lastTransitionTime: "2026-10-22T03:43:53Z"
+      lastUpdateTime: "2026-10-22T03:43:53Z"
+      message: Deployment has minimum availability.
+      reason: MinimumReplicasAvailable
+      status: "True"
+      type: Available
+    observedGeneration: 3
+    readyReplicas: 1
+    replicas: 1
+    terminatingReplicas: 0
+    updatedReplicas: 1
+- apiVersion: apps/v1
+  kind: Deployment
+  metadata:
+    annotations:
+      deployment.kubernetes.io/revision: "4"
+      kubectl.kubernetes.io/last-applied-configuration: |
+        {"apiVersion":"apps/v1","kind":"Deployment","metadata":{"annotations":{},"labels":{"app":"litellm-vlm"},"name":"litellm-vlm","namespace":"viking"},"spec":{"replicas":1,"selector":{"matchLabels":{"app":"litellm-vlm"}},"strategy":{"type":"Recreate"},"template":{"metadata":{"annotations":{"homelab.nathanwhyte.dev/config-rev":"1"},"labels":{"app":"litellm-vlm"}},"spec":{"containers":[{"args":["--config","/etc/litellm/config.yaml","--port","4000","--num_workers","1"],"env":[{"name":"LITELLM_MASTER_KEY","valueFrom":{"secretKeyRef":{"key":"LITELLM_MASTER_KEY","name":"litellm-vlm"}}},{"name":"REDIS_PASSWORD","valueFrom":{"secretKeyRef":{"key":"REDIS_PASSWORD","name":"litellm-vlm"}}},{"name":"OLLAMA_KEY","valueFrom":{"secretKeyRef":{"key":"API_KEY","name":"ollama-api-key"}}},{"name":"ANTHROPIC_API_KEY","valueFrom":{"secretKeyRef":{"key":"API_KEY","name":"anthropic-vlm-key"}}}],"image":"ghcr.io/berriai/litellm:v1.103.1","livenessProbe":{"failureThreshold":6,"httpGet":{"path":"/health/liveliness","port":4000},"periodSeconds":30,"timeoutSeconds":5},"name":"litellm","ports":[{"containerPort":4000,"name":"http"}],"resources":{"limits":{"cpu":"2","memory":"2Gi"},"requests":{"cpu":"100m","memory":"512Mi"}},"startupProbe":{"failureThreshold":40,"httpGet":{"path":"/health/liveliness","port":4000},"periodSeconds":3},"volumeMounts":[{"mountPath":"/etc/litellm","name":"config","readOnly":true}]}],"terminationGracePeriodSeconds":30,"volumes":[{"configMap":{"name":"litellm-vlm-config"},"name":"config"}]}}}}
+    creationTimestamp: "2026-10-14T18:27:35Z"
+    generation: 4
+    labels:
+      app: litellm-vlm
+    name: litellm-vlm
+    namespace: viking
+    resourceVersion: "82083330"
+    uid: e4f443d9-da45-4a89-826a-b3e4293cbae0
+  spec:
+    progressDeadlineSeconds: 600
+    replicas: 1
+    revisionHistoryLimit: 10
+    selector:
+      matchLabels:
+        app: litellm-vlm
+    strategy:
+      type: Recreate
+    template:
+      metadata:
+        annotations:
+          homelab.nathanwhyte.dev/config-rev: "1"
+          kubectl.kubernetes.io/restartedAt: "2026-10-21T13:14:58-05:00"
+        labels:
+          app: litellm-vlm
+      spec:
+        containers:
+        - args:
+          - --config
+          - /etc/litellm/config.yaml
+          - --port
+          - "4000"
+          - --num_workers
+          - "1"
+          env:
+          - name: LITELLM_MASTER_KEY
+            valueFrom:
+              secretKeyRef:
+                key: LITELLM_MASTER_KEY
+                name: litellm-vlm
+          - name: REDIS_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                key: REDIS_PASSWORD
+                name: litellm-vlm
+          - name: OLLAMA_KEY
+            valueFrom:
+              secretKeyRef:
+                key: API_KEY
+                name: ollama-api-key
+          - name: ANTHROPIC_API_KEY
+            valueFrom:
+              secretKeyRef:
+                key: API_KEY
+                name: anthropic-vlm-key
+          image: ghcr.io/berriai/litellm:v1.103.1
+          imagePullPolicy: IfNotPresent
+          livenessProbe:
+            failureThreshold: 6
+            httpGet:
+              path: /health/liveliness
+              port: 4000
+              scheme: HTTP
+            periodSeconds: 30
+            successThreshold: 1
+            timeoutSeconds: 5
+          name: litellm
+          ports:
+          - containerPort: 4000
+            name: http
+            protocol: TCP
+          resources:
+            limits:
+              cpu: "2"
+              memory: 2Gi
+            requests:
+              cpu: 100m
+              memory: 512Mi
+          startupProbe:
+            failureThreshold: 40
+            httpGet:
+              path: /health/liveliness
+              port: 4000
+              scheme: HTTP
+            periodSeconds: 3
+            successThreshold: 1
+            timeoutSeconds: 1
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          volumeMounts:
+          - mountPath: /etc/litellm
+            name: config
+            readOnly: true
+        dnsPolicy: ClusterFirst
+        restartPolicy: Always
+        schedulerName: default-scheduler
+        securityContext: {}
+        terminationGracePeriodSeconds: 30
+        volumes:
+        - configMap:
+            defaultMode: 420
+            name: litellm-vlm-config
+          name: config
+  status:
+    availableReplicas: 1
+    conditions:
+    - lastTransitionTime: "2026-10-14T18:27:35Z"
+      lastUpdateTime: "2026-10-21T18:15:47Z"
+      message: ReplicaSet "litellm-vlm-65cf5488b7" has successfully progressed.
+      reason: NewReplicaSetAvailable
+      status: "True"
+      type: Progressing
+    - lastTransitionTime: "2026-10-22T03:43:29Z"
+      lastUpdateTime: "2026-10-22T03:43:29Z"
+      message: Deployment has minimum availability.
+      reason: MinimumReplicasAvailable
+      status: "True"
+      type: Available
+    observedGeneration: 4
+    readyReplicas: 1
+    replicas: 1
+    terminatingReplicas: 0
+    updatedReplicas: 1
+- apiVersion: apps/v1
+  kind: Deployment
+  metadata:
+    annotations:
+      deployment.kubernetes.io/revision: "2"
+      kubectl.kubernetes.io/last-applied-configuration: |
+        {"apiVersion":"apps/v1","kind":"Deployment","metadata":{"annotations":{},"labels":{"app":"llamacpp-cuda-ov"},"name":"llamacpp-cuda-ov","namespace":"viking"},"spec":{"replicas":0,"revisionHistoryLimit":1,"selector":{"matchLabels":{"app":"llamacpp-cuda-ov"}},"strategy":{"type":"Recreate"},"template":{"metadata":{"labels":{"app":"llamacpp-cuda-ov","vlm-pool":"true"}},"spec":{"containers":[{"args":["--model","/models/current.gguf","--host","0.0.0.0","--port","8000","--ctx-size","32768","--n-gpu-layers","999","--parallel","4","--threads","8","--cache-type-k","q4_0","--cache-type-v","q4_0","--cont-batching","--batch-size","2048","--ubatch-size","1024","--split-mode","none","--main-gpu","0","--flash-attn","on","--metrics","--reasoning-format","deepseek"],"command":["/app/llama-server"],"image":"ghcr.io/ggml-org/llama.cpp:server-cuda","name":"llamacpp","ports":[{"containerPort":8000,"name":"http"}],"readinessProbe":{"failureThreshold":12,"initialDelaySeconds":5,"periodSeconds":10,"tcpSocket":{"port":8000},"timeoutSeconds":5},"resources":{"limits":{"cpu":"4","memory":"10Gi","nvidia.com/gpu":"1"},"requests":{"cpu":"500m","memory":"5Gi","nvidia.com/gpu":"1"}},"startupProbe":{"failureThreshold":120,"periodSeconds":10,"tcpSocket":{"port":8000},"timeoutSeconds":5},"volumeMounts":[{"mountPath":"/models","name":"model-cache"},{"mountPath":"/dev/shm","name":"shm"}]}],"initContainers":[{"command":["nvidia-smi","-pl","238"],"image":"nvidia/cuda:12.4.0-base-ubuntu22.04","name":"gpu-tune","resources":{"limits":{"nvidia.com/gpu":"1"}},"securityContext":{"capabilities":{"add":["SYS_ADMIN"]}}},{"args":["set -eu; model_path=\"/models/${MODEL_FILE}\"; if [ -f \"${model_path}\" ]; then\n\n  echo \"Model already cached: ${model_path}\";\nelse\n\n  echo \"Downloading ${MODEL_FILE}...\";\n  curl -fL --retry 5 --retry-delay 10 \"${MODEL_URL}\" -o \"${model_path}.tmp\";\n  mv \"${model_path}.tmp\" \"${model_path}\";\n  echo \"Download complete.\";\nfi; ln -sf \"${model_path}\" /models/current.gguf; echo \"Model ready.\""],"command":["/bin/sh","-c"],"env":[{"name":"MODEL_FILE","value":"Qwen_Qwen3-8B-IQ4_XS.gguf"},{"name":"MODEL_URL","value":"https://huggingface.co/bartowski/Qwen_Qwen3-8B-GGUF/resolve/main/Qwen_Qwen3-8B-IQ4_XS.gguf"}],"image":"curlimages/curl:8.12.1","name":"model-fetch","securityContext":{"runAsGroup":0,"runAsUser":0},"volumeMounts":[{"mountPath":"/models","name":"model-cache"}]}],"nodeSelector":{"gpu":"true","kubernetes.io/hostname":"manu"},"runtimeClassName":"nvidia","securityContext":{"fsGroup":0},"volumes":[{"name":"model-cache","persistentVolumeClaim":{"claimName":"llama-cuda-model-cache"}},{"emptyDir":{"medium":"Memory","sizeLimit":"2Gi"},"name":"shm"}]}}}}
+    creationTimestamp: "2026-07-06T21:14:10Z"
+    generation: 3
+    labels:
+      app: llamacpp-cuda-ov
+    name: llamacpp-cuda-ov
+    namespace: viking
+    resourceVersion: "53936706"
+    uid: 54d114d5-c569-4fbe-a77e-897f2ffc2db0
+  spec:
+    progressDeadlineSeconds: 600
+    replicas: 0
+    revisionHistoryLimit: 1
+    selector:
+      matchLabels:
+        app: llamacpp-cuda-ov
+    strategy:
+      type: Recreate
+    template:
+      metadata:
+        labels:
+          app: llamacpp-cuda-ov
+          vlm-pool: "true"
+      spec:
+        containers:
+        - args:
+          - --model
+          - /models/current.gguf
+          - --host
+          - 0.0.0.0
+          - --port
+          - "8000"
+          - --ctx-size
+          - "32768"
+          - --n-gpu-layers
+          - "999"
+          - --parallel
+          - "4"
+          - --threads
+          - "8"
+          - --cache-type-k
+          - q4_0
+          - --cache-type-v
+          - q4_0
+          - --cont-batching
+          - --batch-size
+          - "2048"
+          - --ubatch-size
+          - "1024"
+          - --split-mode
+          - none
+          - --main-gpu
+          - "0"
+          - --flash-attn
+          - "on"
+          - --metrics
+          - --reasoning-format
+          - deepseek
+          command:
+          - /app/llama-server
+          image: ghcr.io/ggml-org/llama.cpp:server-cuda
+          imagePullPolicy: IfNotPresent
+          name: llamacpp
+          ports:
+          - containerPort: 8000
+            name: http
+            protocol: TCP
+          readinessProbe:
+            failureThreshold: 12
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            successThreshold: 1
+            tcpSocket:
+              port: 8000
+            timeoutSeconds: 5
+          resources:
+            limits:
+              cpu: "4"
+              memory: 10Gi
+              nvidia.com/gpu: "1"
+            requests:
+              cpu: 500m
+              memory: 5Gi
+              nvidia.com/gpu: "1"
+          startupProbe:
+            failureThreshold: 120
+            periodSeconds: 10
+            successThreshold: 1
+            tcpSocket:
+              port: 8000
+            timeoutSeconds: 5
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          volumeMounts:
+          - mountPath: /models
+            name: model-cache
+          - mountPath: /dev/shm
+            name: shm
+        dnsPolicy: ClusterFirst
+        initContainers:
+        - command:
+          - nvidia-smi
+          - -pl
+          - "238"
+          image: nvidia/cuda:12.4.0-base-ubuntu22.04
+          imagePullPolicy: IfNotPresent
+          name: gpu-tune
+          resources:
+            limits:
+              nvidia.com/gpu: "1"
+          securityContext:
+            capabilities:
+              add:
+              - SYS_ADMIN
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+        - args:
+          - |-
+            set -eu; model_path="/models/${MODEL_FILE}"; if [ -f "${model_path}" ]; then
+
+              echo "Model already cached: ${model_path}";
+            else
+
+              echo "Downloading ${MODEL_FILE}...";
+              curl -fL --retry 5 --retry-delay 10 "${MODEL_URL}" -o "${model_path}.tmp";
+              mv "${model_path}.tmp" "${model_path}";
+              echo "Download complete.";
+            fi; ln -sf "${model_path}" /models/current.gguf; echo "Model ready."
+          command:
+          - /bin/sh
+          - -c
+          env:
+          - name: MODEL_FILE
+            value: Qwen_Qwen3-8B-IQ4_XS.gguf
+          - name: MODEL_URL
+            value: https://huggingface.co/bartowski/Qwen_Qwen3-8B-GGUF/resolve/main/Qwen_Qwen3-8B-IQ4_XS.gguf
+          image: curlimages/curl:8.12.1
+          imagePullPolicy: IfNotPresent
+          name: model-fetch
+          resources: {}
+          securityContext:
+            runAsGroup: 0
+            runAsUser: 0
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          volumeMounts:
+          - mountPath: /models
+            name: model-cache
+        nodeSelector:
+          gpu: "true"
+          kubernetes.io/hostname: manu
+        restartPolicy: Always
+        runtimeClassName: nvidia
+        schedulerName: default-scheduler
+        securityContext:
+          fsGroup: 0
+        terminationGracePeriodSeconds: 30
+        volumes:
+        - name: model-cache
+          persistentVolumeClaim:
+            claimName: llama-cuda-model-cache
+        - emptyDir:
+            medium: Memory
+            sizeLimit: 2Gi
+          name: shm
+  status:
+    conditions:
+    - lastTransitionTime: "2026-07-06T21:14:32Z"
+      lastUpdateTime: "2026-07-06T21:14:32Z"
+      message: Deployment has minimum availability.
+      reason: MinimumReplicasAvailable
+      status: "True"
+      type: Available
+    - lastTransitionTime: "2026-07-06T21:14:10Z"
+      lastUpdateTime: "2026-07-22T03:01:13Z"
+      message: ReplicaSet "llamacpp-cuda-ov-79fb6b565b" has successfully progressed.
+      reason: NewReplicaSetAvailable
+      status: "True"
+      type: Progressing
+    observedGeneration: 3
+    terminatingReplicas: 0
+- apiVersion: apps/v1
+  kind: Deployment
+  metadata:
+    annotations:
+      deployment.kubernetes.io/revision: "109"
+      kubectl.kubernetes.io/last-applied-configuration: |
+        {"apiVersion":"apps/v1","kind":"Deployment","metadata":{"annotations":{},"labels":{"app":"openviking"},"name":"openviking","namespace":"viking"},"spec":{"replicas":1,"selector":{"matchLabels":{"app":"openviking"}},"strategy":{"type":"Recreate"},"template":{"metadata":{"labels":{"app":"openviking"}},"spec":{"containers":[{"env":[{"name":"OPENVIKING_PROMPT_TEMPLATES_DIR","value":"/etc/openviking/prompts"},{"name":"PYTHONPATH","value":"/ov-nav-patch"},{"name":"OV_CHATLOG_PATCH","value":"1"},{"name":"OV_EVENT_NOISE_FILTER","value":"shadow"},{"name":"OV_WM_UPDATE_MODE","value":"json"},{"name":"OV_PREF_GATE","value":"1"}],"image":"ghcr.io/volcengine/openviking:v0.4.20","lifecycle":{"preStop":{"exec":{"command":["/bin/sh","-c","sleep 5"]}}},"livenessProbe":{"failureThreshold":10,"initialDelaySeconds":10,"periodSeconds":30,"tcpSocket":{"port":1933},"timeoutSeconds":5},"name":"openviking","ports":[{"containerPort":1933,"name":"http"}],"resources":{"limits":{"cpu":"12","memory":"8Gi"},"requests":{"cpu":"500m","memory":"3Gi"}},"startupProbe":{"failureThreshold":20,"httpGet":{"path":"/health","port":1933},"periodSeconds":3},"volumeMounts":[{"mountPath":"/app/.openviking/ov.conf","name":"config-out","readOnly":true,"subPath":"ov.conf"},{"mountPath":"/ov-nav-patch","name":"nav-patch","readOnly":true},{"mountPath":"/etc/openviking/prompts/semantic","name":"prompt-overrides","readOnly":true},{"mountPath":"/etc/openviking/memory-templates","name":"memory-templates","readOnly":true},{"mountPath":"/app/data","name":"data"}]},{"command":["/bin/sh","-c","set -eu\nmkdir -p /tmp/ov\ncat \u003e/tmp/ov/ovcli.conf \u003c\u003cEOF\n{\"url\": \"${OPENVIKING_URL}\", \"api_key\": \"${OPENVIKING_KEY}\", \"account\": \"default\", \"user\": \"noot\"}\nEOF\nexport OPENVIKING_CLI_CONFIG_FILE=/tmp/ov/ovcli.conf\nov language en \u003e/dev/null 2\u003e\u00261 || true\nexec python3 /scripts/ov-exporter.py\n"],"env":[{"name":"OPENVIKING_URL","value":"http://localhost:1933"},{"name":"OPENVIKING_KEY","valueFrom":{"secretKeyRef":{"key":"api-key","name":"openviking-api-key"}}},{"name":"AGFS_PATH","value":"/app/data/viking"},{"name":"POLL_INTERVAL","value":"15"},{"name":"PORT","value":"9210"},{"name":"OVLOCK_S3_BUCKET","value":"openviking-agfs"},{"name":"OVLOCK_S3_ENDPOINT","value":"http://garage.garage.svc.cluster.local:3900"},{"name":"AWS_ACCESS_KEY_ID","valueFrom":{"secretKeyRef":{"key":"AWS_ACCESS_KEY_ID","name":"openviking-s3-credentials"}}},{"name":"AWS_SECRET_ACCESS_KEY","valueFrom":{"secretKeyRef":{"key":"AWS_SECRET_ACCESS_KEY","name":"openviking-s3-credentials"}}}],"image":"ghcr.io/volcengine/openviking:v0.4.20","livenessProbe":{"httpGet":{"path":"/health","port":9210},"periodSeconds":30,"timeoutSeconds":5},"name":"ov-exporter","ports":[{"containerPort":9210,"name":"metrics"}],"resources":{"limits":{"cpu":"100m","memory":"128Mi"},"requests":{"cpu":"20m","memory":"32Mi"}},"startupProbe":{"failureThreshold":30,"httpGet":{"path":"/health","port":9210},"periodSeconds":3},"volumeMounts":[{"mountPath":"/scripts","name":"exporter-script","readOnly":true},{"mountPath":"/app/data","name":"data","readOnly":true}]}],"initContainers":[{"args":["python3 -c \"\nimport json, os\nconf = json.load(open('/config-template/ov.conf'))\nconf['server']['root_api_key'] = os.environ['API_KEY']\nvlm = conf.get('vlm', {})\nfor block in (vlm, vlm.get('backup') or {}):\n    for var in ('OLLAMA_KEY', 'ANTHROPIC_KEY', 'LITELLM_KEY'):\n        if block.get('api_key') == '\\${' + var + '}':\n            block['api_key'] = os.environ.get(var, '')\nagfs = conf.get('storage', {}).get('agfs', {})\nif agfs.get('backend', 'local') == 's3':\n    agfs.setdefault('s3', {})\n    agfs['s3']['access_key'] = os.environ['S3_ACCESS_KEY']\n    agfs['s3']['secret_key'] = os.environ['S3_SECRET_KEY']\nelse:\n    agfs.pop('s3', None)\njson.dump(conf, open('/config-out/ov.conf', 'w'), indent=2)\n\"\n"],"command":["/bin/sh","-c"],"env":[{"name":"API_KEY","valueFrom":{"secretKeyRef":{"key":"api-key","name":"openviking-api-key"}}},{"name":"S3_ACCESS_KEY","valueFrom":{"secretKeyRef":{"key":"AWS_ACCESS_KEY_ID","name":"openviking-s3-credentials","optional":true}}},{"name":"S3_SECRET_KEY","valueFrom":{"secretKeyRef":{"key":"AWS_SECRET_ACCESS_KEY","name":"openviking-s3-credentials","optional":true}}},{"name":"OLLAMA_KEY","valueFrom":{"secretKeyRef":{"key":"API_KEY","name":"ollama-api-key","optional":true}}},{"name":"ANTHROPIC_KEY","valueFrom":{"secretKeyRef":{"key":"API_KEY","name":"anthropic-vlm-key","optional":true}}},{"name":"LITELLM_KEY","valueFrom":{"secretKeyRef":{"key":"LITELLM_MASTER_KEY","name":"litellm-vlm","optional":true}}}],"image":"python:3.12-slim","name":"config-rewrite","volumeMounts":[{"mountPath":"/config-template","name":"config-template"},{"mountPath":"/config-out","name":"config-out"}]},{"args":["echo \"Cleaning stale temp files...\"; find /app/data/temp -type f -mtime +1 -delete 2\u003e/dev/null || true; find /app/data/temp -type d -empty -delete 2\u003e/dev/null || true; find /app/data/viking/default/temp -type d -empty -delete 2\u003e/dev/null || true; echo \"Removing stale pid/store locks...\"; rm -f /app/data/.openviking.pid; rm -f /app/data/vectordb/context/store/LOCK; echo \"Done.\""],"command":["/bin/sh","-c"],"image":"busybox:1.37","name":"temp-cleanup","volumeMounts":[{"mountPath":"/app/data","name":"data"}]}],"nodeSelector":{"kubernetes.io/hostname":"timmy"},"terminationGracePeriodSeconds":15,"volumes":[{"configMap":{"name":"openviking-standalone-config"},"name":"config-template"},{"emptyDir":{},"name":"config-out"},{"configMap":{"defaultMode":493,"name":"openviking-exporter"},"name":"exporter-script"},{"configMap":{"name":"openviking-prompt-overrides"},"name":"prompt-overrides"},{"configMap":{"name":"openviking-memory-templates"},"name":"memory-templates"},{"configMap":{"name":"openviking-nav-patch"},"name":"nav-patch"},{"name":"data","persistentVolumeClaim":{"claimName":"openviking-data"}}]}}}}
+    creationTimestamp: "2026-07-06T21:14:10Z"
+    generation: 146
+    labels:
+      app: openviking
+    name: openviking
+    namespace: viking
+    resourceVersion: "82325271"
+    uid: bf0292d2-f257-41cf-b82a-06f7d0a7e262
+  spec:
+    progressDeadlineSeconds: 600
+    replicas: 1
+    revisionHistoryLimit: 10
+    selector:
+      matchLabels:
+        app: openviking
+    strategy:
+      type: Recreate
+    template:
+      metadata:
+        annotations:
+          kubectl.kubernetes.io/restartedAt: "2026-10-20T09:34:30-05:00"
+        labels:
+          app: openviking
+      spec:
+        containers:
+        - env:
+          - name: OPENVIKING_PROMPT_TEMPLATES_DIR
+            value: /etc/openviking/prompts
+          - name: PYTHONPATH
+            value: /ov-nav-patch
+          - name: OV_CHATLOG_PATCH
+            value: "1"
+          - name: OV_EVENT_NOISE_FILTER
+            value: shadow
+          - name: OV_WM_UPDATE_MODE
+            value: json
+          - name: OV_PREF_GATE
+            value: "1"
+          image: ghcr.io/volcengine/openviking:v0.4.20
+          imagePullPolicy: IfNotPresent
+          lifecycle:
+            preStop:
+              exec:
+                command:
+                - /bin/sh
+                - -c
+                - sleep 5
+          livenessProbe:
+            failureThreshold: 10
+            initialDelaySeconds: 10
+            periodSeconds: 30
+            successThreshold: 1
+            tcpSocket:
+              port: 1933
+            timeoutSeconds: 5
+          name: openviking
+          ports:
+          - containerPort: 1933
+            name: http
+            protocol: TCP
+          resources:
+            limits:
+              cpu: "12"
+              memory: 8Gi
+            requests:
+              cpu: 500m
+              memory: 3Gi
+          startupProbe:
+            failureThreshold: 20
+            httpGet:
+              path: /health
+              port: 1933
+              scheme: HTTP
+            periodSeconds: 3
+            successThreshold: 1
+            timeoutSeconds: 1
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          volumeMounts:
+          - mountPath: /app/.openviking/ov.conf
+            name: config-out
+            readOnly: true
+            subPath: ov.conf
+          - mountPath: /ov-nav-patch
+            name: nav-patch
+            readOnly: true
+          - mountPath: /etc/openviking/prompts/semantic
+            name: prompt-overrides
+            readOnly: true
+          - mountPath: /etc/openviking/memory-templates
+            name: memory-templates
+            readOnly: true
+          - mountPath: /app/data
+            name: data
+        - command:
+          - /bin/sh
+          - -c
+          - |
+            set -eu
+            mkdir -p /tmp/ov
+            cat >/tmp/ov/ovcli.conf <<EOF
+            {"url": "${OPENVIKING_URL}", "api_key": "${OPENVIKING_KEY}", "account": "default", "user": "noot"}
+            EOF
+            export OPENVIKING_CLI_CONFIG_FILE=/tmp/ov/ovcli.conf
+            ov language en >/dev/null 2>&1 || true
+            exec python3 /scripts/ov-exporter.py
+          env:
+          - name: OPENVIKING_URL
+            value: http://localhost:1933
+          - name: OPENVIKING_KEY
+            valueFrom:
+              secretKeyRef:
+                key: api-key
+                name: openviking-api-key
+          - name: AGFS_PATH
+            value: /app/data/viking
+          - name: POLL_INTERVAL
+            value: "15"
+          - name: PORT
+            value: "9210"
+          - name: OVLOCK_S3_BUCKET
+            value: openviking-agfs
+          - name: OVLOCK_S3_ENDPOINT
+            value: http://garage.garage.svc.cluster.local:3900
+          - name: AWS_ACCESS_KEY_ID
+            valueFrom:
+              secretKeyRef:
+                key: AWS_ACCESS_KEY_ID
+                name: openviking-s3-credentials
+          - name: AWS_SECRET_ACCESS_KEY
+            valueFrom:
+              secretKeyRef:
+                key: AWS_SECRET_ACCESS_KEY
+                name: openviking-s3-credentials
+          image: ghcr.io/volcengine/openviking:v0.4.20
+          imagePullPolicy: IfNotPresent
+          livenessProbe:
+            failureThreshold: 3
+            httpGet:
+              path: /health
+              port: 9210
+              scheme: HTTP
+            periodSeconds: 30
+            successThreshold: 1
+            timeoutSeconds: 5
+          name: ov-exporter
+          ports:
+          - containerPort: 9210
+            name: metrics
+            protocol: TCP
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 20m
+              memory: 32Mi
+          startupProbe:
+            failureThreshold: 30
+            httpGet:
+              path: /health
+              port: 9210
+              scheme: HTTP
+            periodSeconds: 3
+            successThreshold: 1
+            timeoutSeconds: 1
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          volumeMounts:
+          - mountPath: /scripts
+            name: exporter-script
+            readOnly: true
+          - mountPath: /app/data
+            name: data
+            readOnly: true
+        dnsPolicy: ClusterFirst
+        initContainers:
+        - args:
+          - |
+            python3 -c "
+            import json, os
+            conf = json.load(open('/config-template/ov.conf'))
+            conf['server']['root_api_key'] = os.environ['API_KEY']
+            vlm = conf.get('vlm', {})
+            for block in (vlm, vlm.get('backup') or {}):
+                for var in ('OLLAMA_KEY', 'ANTHROPIC_KEY', 'LITELLM_KEY'):
+                    if block.get('api_key') == '\${' + var + '}':
+                        block['api_key'] = os.environ.get(var, '')
+            agfs = conf.get('storage', {}).get('agfs', {})
+            if agfs.get('backend', 'local') == 's3':
+                agfs.setdefault('s3', {})
+                agfs['s3']['access_key'] = os.environ['S3_ACCESS_KEY']
+                agfs['s3']['secret_key'] = os.environ['S3_SECRET_KEY']
+            else:
+                agfs.pop('s3', None)
+            json.dump(conf, open('/config-out/ov.conf', 'w'), indent=2)
+            "
+          command:
+          - /bin/sh
+          - -c
+          env:
+          - name: API_KEY
+            valueFrom:
+              secretKeyRef:
+                key: api-key
+                name: openviking-api-key
+          - name: S3_ACCESS_KEY
+            valueFrom:
+              secretKeyRef:
+                key: AWS_ACCESS_KEY_ID
+                name: openviking-s3-credentials
+                optional: true
+          - name: S3_SECRET_KEY
+            valueFrom:
+              secretKeyRef:
+                key: AWS_SECRET_ACCESS_KEY
+                name: openviking-s3-credentials
+                optional: true
+          - name: OLLAMA_KEY
+            valueFrom:
+              secretKeyRef:
+                key: API_KEY
+                name: ollama-api-key
+                optional: true
+          - name: ANTHROPIC_KEY
+            valueFrom:
+              secretKeyRef:
+                key: API_KEY
+                name: anthropic-vlm-key
+                optional: true
+          - name: LITELLM_KEY
+            valueFrom:
+              secretKeyRef:
+                key: LITELLM_MASTER_KEY
+                name: litellm-vlm
+                optional: true
+          image: python:3.12-slim
+          imagePullPolicy: IfNotPresent
+          name: config-rewrite
+          resources: {}
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          volumeMounts:
+          - mountPath: /config-template
+            name: config-template
+          - mountPath: /config-out
+            name: config-out
+        - args:
+          - echo "Cleaning stale temp files..."; find /app/data/temp -type f -mtime
+            +1 -delete 2>/dev/null || true; find /app/data/temp -type d -empty -delete
+            2>/dev/null || true; find /app/data/viking/default/temp -type d -empty
+            -delete 2>/dev/null || true; echo "Removing stale pid/store locks...";
+            rm -f /app/data/.openviking.pid; rm -f /app/data/vectordb/context/store/LOCK;
+            echo "Done."
+          command:
+          - /bin/sh
+          - -c
+          image: busybox:1.37
+          imagePullPolicy: IfNotPresent
+          name: temp-cleanup
+          resources: {}
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          volumeMounts:
+          - mountPath: /app/data
+            name: data
+        nodeSelector:
+          kubernetes.io/hostname: timmy
+        restartPolicy: Always
+        schedulerName: default-scheduler
+        securityContext: {}
+        terminationGracePeriodSeconds: 15
+        volumes:
+        - configMap:
+            defaultMode: 420
+            name: openviking-standalone-config
+          name: config-template
+        - emptyDir: {}
+          name: config-out
+        - configMap:
+            defaultMode: 493
+            name: openviking-exporter
+          name: exporter-script
+        - configMap:
+            defaultMode: 420
+            name: openviking-prompt-overrides
+          name: prompt-overrides
+        - configMap:
+            defaultMode: 420
+            name: openviking-memory-templates
+          name: memory-templates
+        - configMap:
+            defaultMode: 420
+            name: openviking-nav-patch
+          name: nav-patch
+        - name: data
+          persistentVolumeClaim:
+            claimName: openviking-data
+  status:
+    availableReplicas: 1
+    conditions:
+    - lastTransitionTime: "2026-10-22T18:22:13Z"
+      lastUpdateTime: "2026-10-22T18:22:13Z"
+      message: Deployment has minimum availability.
+      reason: MinimumReplicasAvailable
+      status: "True"
+      type: Available
+    - lastTransitionTime: "2026-07-06T21:14:10Z"
+      lastUpdateTime: "2026-10-22T18:22:13Z"
+      message: ReplicaSet "openviking-785f656d89" has successfully progressed.
+      reason: NewReplicaSetAvailable
+      status: "True"
+      type: Progressing
+    observedGeneration: 146
+    readyReplicas: 1
+    replicas: 1
+    terminatingReplicas: 0
+    updatedReplicas: 1
+- apiVersion: apps/v1
+  kind: Deployment
+  metadata:
+    annotations:
+      deployment.kubernetes.io/revision: "42"
+      kubectl.kubernetes.io/last-applied-configuration: |
+        {"apiVersion":"apps/v1","kind":"Deployment","metadata":{"annotations":{},"labels":{"app":"openviking-test"},"name":"openviking-test","namespace":"viking"},"spec":{"replicas":1,"selector":{"matchLabels":{"app":"openviking-test"}},"strategy":{"type":"Recreate"},"template":{"metadata":{"labels":{"app":"openviking-test"}},"spec":{"containers":[{"env":[{"name":"OPENVIKING_PROMPT_TEMPLATES_DIR","value":"/etc/openviking/prompts"},{"name":"PYTHONPATH","value":"/ov-nav-patch"},{"name":"OV_NAV_PATCH_DUMP","value":"/app/data/navdump"},{"name":"OV_PREF_GATE","value":"1"}],"image":"ghcr.io/volcengine/openviking:v0.5.1.1","lifecycle":{"preStop":{"exec":{"command":["/bin/sh","-c","sleep 5"]}}},"livenessProbe":{"failureThreshold":10,"initialDelaySeconds":10,"periodSeconds":30,"tcpSocket":{"port":1933},"timeoutSeconds":5},"name":"openviking-test","ports":[{"containerPort":1933,"name":"http"}],"resources":{"limits":{"cpu":"4","memory":"4Gi"},"requests":{"cpu":"250m","memory":"1Gi"}},"startupProbe":{"failureThreshold":30,"httpGet":{"path":"/health","port":1933},"periodSeconds":3},"volumeMounts":[{"mountPath":"/app/.openviking/ov.conf","name":"config-out","readOnly":true,"subPath":"ov.conf"},{"mountPath":"/etc/openviking/prompts/semantic","name":"prompt-overrides","readOnly":true},{"mountPath":"/ov-nav-patch","name":"nav-patch","readOnly":true},{"mountPath":"/app/data","name":"data"}]}],"initContainers":[{"args":["python3 -c \"\nimport json, os\nconf = json.load(open('/config-template/ov.conf'))\nconf['server']['root_api_key'] = os.environ['API_KEY']\nvlm = conf.get('vlm', {})\nif vlm.get('api_key') == '\\${OLLAMA_KEY}':\n    vlm['api_key'] = os.environ.get('OLLAMA_KEY', '')\nagfs = conf.get('storage', {}).get('agfs', {})\nif agfs.get('backend', 'local') == 's3':\n    agfs.setdefault('s3', {})\n    agfs['s3']['access_key'] = os.environ['S3_ACCESS_KEY']\n    agfs['s3']['secret_key'] = os.environ['S3_SECRET_KEY']\nelse:\n    agfs.pop('s3', None)\njson.dump(conf, open('/config-out/ov.conf', 'w'), indent=2)\n\"\n"],"command":["/bin/sh","-c"],"env":[{"name":"API_KEY","valueFrom":{"secretKeyRef":{"key":"api-key","name":"openviking-api-key"}}},{"name":"S3_ACCESS_KEY","valueFrom":{"secretKeyRef":{"key":"AWS_ACCESS_KEY_ID","name":"openviking-s3-credentials","optional":true}}},{"name":"S3_SECRET_KEY","valueFrom":{"secretKeyRef":{"key":"AWS_SECRET_ACCESS_KEY","name":"openviking-s3-credentials","optional":true}}},{"name":"OLLAMA_KEY","valueFrom":{"secretKeyRef":{"key":"API_KEY","name":"ollama-api-key","optional":true}}}],"image":"python:3.12-slim","name":"config-rewrite","volumeMounts":[{"mountPath":"/config-template","name":"config-template"},{"mountPath":"/config-out","name":"config-out"}]},{"args":["echo \"Cleaning stale temp files...\"; find /app/data/temp -type f -mtime +1 -delete 2\u003e/dev/null || true; find /app/data/temp -type d -empty -delete 2\u003e/dev/null || true; rm -f /app/data/.openviking.pid; rm -f /app/data/vectordb/context/store/LOCK; echo \"Done.\""],"command":["/bin/sh","-c"],"image":"busybox:1.37","name":"temp-cleanup","volumeMounts":[{"mountPath":"/app/data","name":"data"}]}],"nodeSelector":{"kubernetes.io/hostname":"timmy"},"terminationGracePeriodSeconds":15,"volumes":[{"configMap":{"name":"openviking-test-config"},"name":"config-template"},{"emptyDir":{},"name":"config-out"},{"configMap":{"name":"openviking-prompt-overrides"},"name":"prompt-overrides"},{"configMap":{"name":"ov-nav-patch"},"name":"nav-patch"},{"name":"data","persistentVolumeClaim":{"claimName":"openviking-test-data"}}]}}}}
+    creationTimestamp: "2026-09-22T16:16:54Z"
+    generation: 46
+    labels:
+      app: openviking-test
+    name: openviking-test
+    namespace: viking
+    resourceVersion: "82415503"
+    uid: 4910b765-428e-4a9d-ab5c-e6f32d43dde9
+  spec:
+    progressDeadlineSeconds: 600
+    replicas: 1
+    revisionHistoryLimit: 10
+    selector:
+      matchLabels:
+        app: openviking-test
+    strategy:
+      type: Recreate
+    template:
+      metadata:
+        annotations:
+          kubectl.kubernetes.io/restartedAt: "2026-10-20T09:34:30-05:00"
+        labels:
+          app: openviking-test
+      spec:
+        containers:
+        - env:
+          - name: OPENVIKING_PROMPT_TEMPLATES_DIR
+            value: /etc/openviking/prompts
+          - name: PYTHONPATH
+            value: /ov-nav-patch
+          - name: OV_NAV_PATCH_DUMP
+            value: /app/data/navdump
+          - name: OV_PREF_GATE
+            value: "1"
+          image: ghcr.io/volcengine/openviking:v0.5.1.1
+          imagePullPolicy: IfNotPresent
+          lifecycle:
+            preStop:
+              exec:
+                command:
+                - /bin/sh
+                - -c
+                - sleep 5
+          livenessProbe:
+            failureThreshold: 10
+            initialDelaySeconds: 10
+            periodSeconds: 30
+            successThreshold: 1
+            tcpSocket:
+              port: 1933
+            timeoutSeconds: 5
+          name: openviking-test
+          ports:
+          - containerPort: 1933
+            name: http
+            protocol: TCP
+          resources:
+            limits:
+              cpu: "4"
+              memory: 4Gi
+            requests:
+              cpu: 250m
+              memory: 1Gi
+          startupProbe:
+            failureThreshold: 30
+            httpGet:
+              path: /health
+              port: 1933
+              scheme: HTTP
+            periodSeconds: 3
+            successThreshold: 1
+            timeoutSeconds: 1
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          volumeMounts:
+          - mountPath: /app/.openviking/ov.conf
+            name: config-out
+            readOnly: true
+            subPath: ov.conf
+          - mountPath: /etc/openviking/prompts/semantic
+            name: prompt-overrides
+            readOnly: true
+          - mountPath: /ov-nav-patch
+            name: nav-patch
+            readOnly: true
+          - mountPath: /app/data
+            name: data
+        dnsPolicy: ClusterFirst
+        initContainers:
+        - args:
+          - |
+            python3 -c "
+            import json, os
+            conf = json.load(open('/config-template/ov.conf'))
+            conf['server']['root_api_key'] = os.environ['API_KEY']
+            vlm = conf.get('vlm', {})
+            if vlm.get('api_key') == '\${OLLAMA_KEY}':
+                vlm['api_key'] = os.environ.get('OLLAMA_KEY', '')
+            agfs = conf.get('storage', {}).get('agfs', {})
+            if agfs.get('backend', 'local') == 's3':
+                agfs.setdefault('s3', {})
+                agfs['s3']['access_key'] = os.environ['S3_ACCESS_KEY']
+                agfs['s3']['secret_key'] = os.environ['S3_SECRET_KEY']
+            else:
+                agfs.pop('s3', None)
+            json.dump(conf, open('/config-out/ov.conf', 'w'), indent=2)
+            "
+          command:
+          - /bin/sh
+          - -c
+          env:
+          - name: API_KEY
+            valueFrom:
+              secretKeyRef:
+                key: api-key
+                name: openviking-api-key
+          - name: S3_ACCESS_KEY
+            valueFrom:
+              secretKeyRef:
+                key: AWS_ACCESS_KEY_ID
+                name: openviking-s3-credentials
+                optional: true
+          - name: S3_SECRET_KEY
+            valueFrom:
+              secretKeyRef:
+                key: AWS_SECRET_ACCESS_KEY
+                name: openviking-s3-credentials
+                optional: true
+          - name: OLLAMA_KEY
+            valueFrom:
+              secretKeyRef:
+                key: API_KEY
+                name: ollama-api-key
+                optional: true
+          image: python:3.12-slim
+          imagePullPolicy: IfNotPresent
+          name: config-rewrite
+          resources: {}
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          volumeMounts:
+          - mountPath: /config-template
+            name: config-template
+          - mountPath: /config-out
+            name: config-out
+        - args:
+          - echo "Cleaning stale temp files..."; find /app/data/temp -type f -mtime
+            +1 -delete 2>/dev/null || true; find /app/data/temp -type d -empty -delete
+            2>/dev/null || true; rm -f /app/data/.openviking.pid; rm -f /app/data/vectordb/context/store/LOCK;
+            echo "Done."
+          command:
+          - /bin/sh
+          - -c
+          image: busybox:1.37
+          imagePullPolicy: IfNotPresent
+          name: temp-cleanup
+          resources: {}
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          volumeMounts:
+          - mountPath: /app/data
+            name: data
+        nodeSelector:
+          kubernetes.io/hostname: timmy
+        restartPolicy: Always
+        schedulerName: default-scheduler
+        securityContext: {}
+        terminationGracePeriodSeconds: 15
+        volumes:
+        - configMap:
+            defaultMode: 420
+            name: openviking-test-config
+          name: config-template
+        - emptyDir: {}
+          name: config-out
+        - configMap:
+            defaultMode: 420
+            name: openviking-prompt-overrides
+          name: prompt-overrides
+        - configMap:
+            defaultMode: 420
+            name: ov-nav-patch
+          name: nav-patch
+        - name: data
+          persistentVolumeClaim:
+            claimName: openviking-test-data
+  status:
+    availableReplicas: 1
+    conditions:
+    - lastTransitionTime: "2026-10-22T23:50:23Z"
+      lastUpdateTime: "2026-10-22T23:50:23Z"
+      message: Deployment has minimum availability.
+      reason: MinimumReplicasAvailable
+      status: "True"
+      type: Available
+    - lastTransitionTime: "2026-09-22T16:16:54Z"
+      lastUpdateTime: "2026-10-22T23:50:23Z"
+      message: ReplicaSet "openviking-test-5c8c466d46" has successfully progressed.
+      reason: NewReplicaSetAvailable
+      status: "True"
+      type: Progressing
+    observedGeneration: 46
+    readyReplicas: 1
+    replicas: 1
+    terminatingReplicas: 0
+    updatedReplicas: 1
+- apiVersion: apps/v1
+  kind: Deployment
+  metadata:
+    annotations:
+      deployment.kubernetes.io/revision: "4"
+      kubectl.kubernetes.io/last-applied-configuration: |
+        {"apiVersion":"apps/v1","kind":"Deployment","metadata":{"annotations":{},"labels":{"app":"ov-vectordb"},"name":"ov-vectordb","namespace":"viking"},"spec":{"replicas":1,"selector":{"matchLabels":{"app":"ov-vectordb"}},"strategy":{"type":"Recreate"},"template":{"metadata":{"labels":{"app":"ov-vectordb"}},"spec":{"containers":[{"command":["python","-m","openviking.storage.vectordb.service.server_fastapi"],"env":[{"name":"VIKINGDB_PERSIST_PATH","value":"/data/vikingdb"}],"image":"ghcr.io/volcengine/openviking:v0.4.20","lifecycle":{"preStop":{"exec":{"command":["/bin/sh","-c","sleep 5"]}}},"livenessProbe":{"failureThreshold":10,"periodSeconds":30,"tcpSocket":{"port":5000},"timeoutSeconds":5},"name":"ov-vectordb","ports":[{"containerPort":5000,"name":"http"}],"resources":{"limits":{"cpu":"4","memory":"8Gi"},"requests":{"cpu":"1","memory":"1Gi"}},"startupProbe":{"failureThreshold":20,"httpGet":{"path":"/health","port":5000},"periodSeconds":3},"volumeMounts":[{"mountPath":"/data","name":"data"}]}],"nodeSelector":{"kubernetes.io/hostname":"timmy"},"terminationGracePeriodSeconds":15,"volumes":[{"name":"data","persistentVolumeClaim":{"claimName":"ov-vectordb-data"}}]}}}}
+    creationTimestamp: "2026-07-06T21:14:10Z"
+    generation: 31
+    labels:
+      app: ov-vectordb
+    name: ov-vectordb
+    namespace: viking
+    resourceVersion: "82087329"
+    uid: 448155d9-e417-4fc1-a5d4-6cb39a82d62b
+  spec:
+    progressDeadlineSeconds: 600
+    replicas: 1
+    revisionHistoryLimit: 10
+    selector:
+      matchLabels:
+        app: ov-vectordb
+    strategy:
+      type: Recreate
+    template:
+      metadata:
+        labels:
+          app: ov-vectordb
+      spec:
+        containers:
+        - command:
+          - python
+          - -m
+          - openviking.storage.vectordb.service.server_fastapi
+          env:
+          - name: VIKINGDB_PERSIST_PATH
+            value: /data/vikingdb
+          image: ghcr.io/volcengine/openviking:v0.4.20
+          imagePullPolicy: IfNotPresent
+          lifecycle:
+            preStop:
+              exec:
+                command:
+                - /bin/sh
+                - -c
+                - sleep 5
+          livenessProbe:
+            failureThreshold: 10
+            periodSeconds: 30
+            successThreshold: 1
+            tcpSocket:
+              port: 5000
+            timeoutSeconds: 5
+          name: ov-vectordb
+          ports:
+          - containerPort: 5000
+            name: http
+            protocol: TCP
+          resources:
+            limits:
+              cpu: "4"
+              memory: 8Gi
+            requests:
+              cpu: "1"
+              memory: 1Gi
+          startupProbe:
+            failureThreshold: 20
+            httpGet:
+              path: /health
+              port: 5000
+              scheme: HTTP
+            periodSeconds: 3
+            successThreshold: 1
+            timeoutSeconds: 1
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          volumeMounts:
+          - mountPath: /data
+            name: data
+        dnsPolicy: ClusterFirst
+        nodeSelector:
+          kubernetes.io/hostname: timmy
+        restartPolicy: Always
+        schedulerName: default-scheduler
+        securityContext: {}
+        terminationGracePeriodSeconds: 15
+        volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: ov-vectordb-data
+  status:
+    availableReplicas: 1
+    conditions:
+    - lastTransitionTime: "2026-07-06T21:14:10Z"
+      lastUpdateTime: "2026-09-15T22:53:53Z"
+      message: ReplicaSet "ov-vectordb-b5f56794b" has successfully progressed.
+      reason: NewReplicaSetAvailable
+      status: "True"
+      type: Progressing
+    - lastTransitionTime: "2026-10-22T03:51:55Z"
+      lastUpdateTime: "2026-10-22T03:51:55Z"
+      message: Deployment has minimum availability.
+      reason: MinimumReplicasAvailable
+      status: "True"
+      type: Available
+    observedGeneration: 31
+    readyReplicas: 1
+    replicas: 1
+    terminatingReplicas: 0
+    updatedReplicas: 1
+- apiVersion: apps/v1
+  kind: Deployment
+  metadata:
+    annotations:
+      deployment.kubernetes.io/revision: "2"
+      kubectl.kubernetes.io/last-applied-configuration: |
+        {"apiVersion":"apps/v1","kind":"Deployment","metadata":{"annotations":{},"labels":{"app":"ov-vectordb-test"},"name":"ov-vectordb-test","namespace":"viking"},"spec":{"replicas":1,"selector":{"matchLabels":{"app":"ov-vectordb-test"}},"strategy":{"type":"Recreate"},"template":{"metadata":{"labels":{"app":"ov-vectordb-test"}},"spec":{"containers":[{"command":["python","-m","openviking.storage.vectordb.service.server_fastapi"],"env":[{"name":"VIKINGDB_PERSIST_PATH","value":"/data/test/vikingdb"}],"image":"ghcr.io/volcengine/openviking:v0.5.1.1","lifecycle":{"preStop":{"exec":{"command":["/bin/sh","-c","sleep 5"]}}},"livenessProbe":{"httpGet":{"path":"/health","port":5000},"periodSeconds":15},"name":"ov-vectordb-test","ports":[{"containerPort":5000,"name":"http"}],"readinessProbe":{"httpGet":{"path":"/health","port":5000},"periodSeconds":10},"resources":{"limits":{"cpu":"2","memory":"4Gi"},"requests":{"cpu":"500m","memory":"1Gi"}},"startupProbe":{"failureThreshold":20,"httpGet":{"path":"/health","port":5000},"periodSeconds":3},"volumeMounts":[{"mountPath":"/data","name":"data"}]}],"nodeSelector":{"kubernetes.io/hostname":"timmy"},"terminationGracePeriodSeconds":15,"volumes":[{"name":"data","persistentVolumeClaim":{"claimName":"ov-vectordb-test-data"}}]}}}}
+    creationTimestamp: "2026-09-22T16:16:54Z"
+    generation: 4
+    labels:
+      app: ov-vectordb-test
+    name: ov-vectordb-test
+    namespace: viking
+    resourceVersion: "82411809"
+    uid: e1f43755-911b-45cf-9ab4-b4e440126fff
+  spec:
+    progressDeadlineSeconds: 600
+    replicas: 1
+    revisionHistoryLimit: 10
+    selector:
+      matchLabels:
+        app: ov-vectordb-test
+    strategy:
+      type: Recreate
+    template:
+      metadata:
+        labels:
+          app: ov-vectordb-test
+      spec:
+        containers:
+        - command:
+          - python
+          - -m
+          - openviking.storage.vectordb.service.server_fastapi
+          env:
+          - name: VIKINGDB_PERSIST_PATH
+            value: /data/test/vikingdb
+          image: ghcr.io/volcengine/openviking:v0.5.1.1
+          imagePullPolicy: IfNotPresent
+          lifecycle:
+            preStop:
+              exec:
+                command:
+                - /bin/sh
+                - -c
+                - sleep 5
+          livenessProbe:
+            failureThreshold: 3
+            httpGet:
+              path: /health
+              port: 5000
+              scheme: HTTP
+            periodSeconds: 15
+            successThreshold: 1
+            timeoutSeconds: 1
+          name: ov-vectordb-test
+          ports:
+          - containerPort: 5000
+            name: http
+            protocol: TCP
+          readinessProbe:
+            failureThreshold: 3
+            httpGet:
+              path: /health
+              port: 5000
+              scheme: HTTP
+            periodSeconds: 10
+            successThreshold: 1
+            timeoutSeconds: 1
+          resources:
+            limits:
+              cpu: "2"
+              memory: 4Gi
+            requests:
+              cpu: 500m
+              memory: 1Gi
+          startupProbe:
+            failureThreshold: 20
+            httpGet:
+              path: /health
+              port: 5000
+              scheme: HTTP
+            periodSeconds: 3
+            successThreshold: 1
+            timeoutSeconds: 1
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          volumeMounts:
+          - mountPath: /data
+            name: data
+        dnsPolicy: ClusterFirst
+        nodeSelector:
+          kubernetes.io/hostname: timmy
+        restartPolicy: Always
+        schedulerName: default-scheduler
+        securityContext: {}
+        terminationGracePeriodSeconds: 15
+        volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: ov-vectordb-test-data
+  status:
+    availableReplicas: 1
+    conditions:
+    - lastTransitionTime: "2026-10-22T23:39:33Z"
+      lastUpdateTime: "2026-10-22T23:39:33Z"
+      message: Deployment has minimum availability.
+      reason: MinimumReplicasAvailable
+      status: "True"
+      type: Available
+    - lastTransitionTime: "2026-09-22T16:16:54Z"
+      lastUpdateTime: "2026-10-22T23:39:33Z"
+      message: ReplicaSet "ov-vectordb-test-856c4899d8" has successfully progressed.
+      reason: NewReplicaSetAvailable
+      status: "True"
+      type: Progressing
+    observedGeneration: 4
+    readyReplicas: 1
+    replicas: 1
+    terminatingReplicas: 0
+    updatedReplicas: 1
+- apiVersion: batch/v1
+  kind: CronJob
+  metadata:
+    annotations:
+      kubectl.kubernetes.io/last-applied-configuration: |
+        {"apiVersion":"batch/v1","kind":"CronJob","metadata":{"annotations":{},"labels":{"app.kubernetes.io/component":"ov-lock-watchdog","app.kubernetes.io/name":"openviking"},"name":"ov-lock-watchdog","namespace":"viking"},"spec":{"concurrencyPolicy":"Forbid","failedJobsHistoryLimit":5,"jobTemplate":{"metadata":{"labels":{"app.kubernetes.io/component":"ov-lock-watchdog","app.kubernetes.io/name":"openviking"}},"spec":{"activeDeadlineSeconds":300,"backoffLimit":0,"completions":1,"parallelism":1,"template":{"metadata":{"labels":{"app.kubernetes.io/component":"ov-lock-watchdog","app.kubernetes.io/name":"openviking"}},"spec":{"automountServiceAccountToken":true,"containers":[{"command":["python3","/scripts/ov-lock-watchdog.py"],"env":[{"name":"WATCHDOG_EXPORTER_URL","value":"http://openviking.viking.svc.cluster.local:9210/metrics"},{"name":"WATCHDOG_HOLD_SECONDS","value":"10800"},{"name":"WATCHDOG_FORCE_SECONDS","value":"21600"},{"name":"WATCHDOG_COOLDOWN_SECONDS","value":"3600"},{"name":"WATCHDOG_QUIET_MAX_WORK","value":"0"}],"image":"python:3.13-slim@sha256:eb43ff125d8d58d7449dcba7d336c23bcac412f526d861db493b9994d8010280","imagePullPolicy":"IfNotPresent","name":"watchdog","resources":{"limits":{"memory":"256Mi"},"requests":{"cpu":"10m","memory":"64Mi"}},"securityContext":{"allowPrivilegeEscalation":false,"capabilities":{"drop":["ALL"]},"readOnlyRootFilesystem":true},"volumeMounts":[{"mountPath":"/scripts","name":"scripts","readOnly":true}]}],"restartPolicy":"Never","securityContext":{"runAsGroup":65534,"runAsNonRoot":true,"runAsUser":65534,"seccompProfile":{"type":"RuntimeDefault"}},"serviceAccountName":"ov-lock-watchdog","volumes":[{"configMap":{"defaultMode":493,"name":"ov-lock-watchdog"},"name":"scripts"}]}},"ttlSecondsAfterFinished":172800}},"schedule":"3,18,33,48 * * * *","startingDeadlineSeconds":300,"successfulJobsHistoryLimit":3,"suspend":false,"timeZone":"Etc/UTC"}}
+    creationTimestamp: "2026-10-13T15:31:57Z"
+    generation: 2
+    labels:
+      app.kubernetes.io/component: ov-lock-watchdog
+      app.kubernetes.io/name: openviking
+    name: ov-lock-watchdog
+    namespace: viking
+    resourceVersion: "82436696"
+    uid: e68d98ef-4a46-46c4-93ca-4498a2c0ad20
+  spec:
+    concurrencyPolicy: Forbid
+    failedJobsHistoryLimit: 5
+    jobTemplate:
+      metadata:
+        labels:
+          app.kubernetes.io/component: ov-lock-watchdog
+          app.kubernetes.io/name: openviking
+      spec:
+        activeDeadlineSeconds: 300
+        backoffLimit: 0
+        completions: 1
+        parallelism: 1
+        template:
+          metadata:
+            labels:
+              app.kubernetes.io/component: ov-lock-watchdog
+              app.kubernetes.io/name: openviking
+          spec:
+            automountServiceAccountToken: true
+            containers:
+            - command:
+              - python3
+              - /scripts/ov-lock-watchdog.py
+              env:
+              - name: WATCHDOG_EXPORTER_URL
+                value: http://openviking.viking.svc.cluster.local:9210/metrics
+              - name: WATCHDOG_HOLD_SECONDS
+                value: "10800"
+              - name: WATCHDOG_FORCE_SECONDS
+                value: "21600"
+              - name: WATCHDOG_COOLDOWN_SECONDS
+                value: "3600"
+              - name: WATCHDOG_QUIET_MAX_WORK
+                value: "0"
+              image: python:3.13-slim@sha256:eb43ff125d8d58d7449dcba7d336c23bcac412f526d861db493b9994d8010280
+              imagePullPolicy: IfNotPresent
+              name: watchdog
+              resources:
+                limits:
+                  memory: 256Mi
+                requests:
+                  cpu: 10m
+                  memory: 64Mi
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop:
+                  - ALL
+                readOnlyRootFilesystem: true
+              terminationMessagePath: /dev/termination-log
+              terminationMessagePolicy: File
+              volumeMounts:
+              - mountPath: /scripts
+                name: scripts
+                readOnly: true
+            dnsPolicy: ClusterFirst
+            restartPolicy: Never
+            schedulerName: default-scheduler
+            securityContext:
+              runAsGroup: 65534
+              runAsNonRoot: true
+              runAsUser: 65534
+              seccompProfile:
+                type: RuntimeDefault
+            serviceAccount: ov-lock-watchdog
+            serviceAccountName: ov-lock-watchdog
+            terminationGracePeriodSeconds: 30
+            volumes:
+            - configMap:
+                defaultMode: 493
+                name: ov-lock-watchdog
+              name: scripts
+        ttlSecondsAfterFinished: 172800
+    schedule: 3,18,33,48 * * * *
+    startingDeadlineSeconds: 300
+    successfulJobsHistoryLimit: 3
+    suspend: false
+    timeZone: Etc/UTC
+  status:
+    lastScheduleTime: "2026-10-23T01:18:00Z"
+    lastSuccessfulTime: "2026-10-23T01:18:03Z"
+- apiVersion: batch/v1
+  kind: CronJob
+  metadata:
+    annotations:
+      kubectl.kubernetes.io/last-applied-configuration: |
+        {"apiVersion":"batch/v1","kind":"CronJob","metadata":{"annotations":{},"labels":{"app.kubernetes.io/component":"ovlock-janitor","app.kubernetes.io/name":"openviking"},"name":"ovlock-janitor","namespace":"viking"},"spec":{"concurrencyPolicy":"Forbid","failedJobsHistoryLimit":3,"jobTemplate":{"spec":{"activeDeadlineSeconds":900,"backoffLimit":1,"template":{"metadata":{"labels":{"app.kubernetes.io/component":"ovlock-janitor","app.kubernetes.io/name":"openviking"}},"spec":{"automountServiceAccountToken":false,"containers":[{"command":["python3","/scripts/ovlock-janitor.py"],"env":[{"name":"OVLOCK_S3_BUCKET","value":"openviking-agfs"},{"name":"OVLOCK_S3_ENDPOINT","value":"http://garage.garage.svc.cluster.local:3900"},{"name":"OV_HEALTH_URL","value":"http://openviking.viking.svc.cluster.local:1933/health"},{"name":"AWS_ACCESS_KEY_ID","valueFrom":{"secretKeyRef":{"key":"AWS_ACCESS_KEY_ID","name":"openviking-s3-credentials"}}},{"name":"AWS_SECRET_ACCESS_KEY","valueFrom":{"secretKeyRef":{"key":"AWS_SECRET_ACCESS_KEY","name":"openviking-s3-credentials"}}}],"image":"ghcr.io/volcengine/openviking:v0.4.20","imagePullPolicy":"IfNotPresent","name":"janitor","resources":{"limits":{"cpu":"200m","memory":"128Mi"},"requests":{"cpu":"20m","memory":"32Mi"}},"volumeMounts":[{"mountPath":"/scripts","name":"scripts","readOnly":true}]}],"restartPolicy":"Never","volumes":[{"configMap":{"defaultMode":493,"name":"ovlock-janitor"},"name":"scripts"}]}},"ttlSecondsAfterFinished":172800}},"schedule":"17 */6 * * *","startingDeadlineSeconds":600,"successfulJobsHistoryLimit":3,"suspend":false,"timeZone":"Etc/UTC"}}
+    creationTimestamp: "2026-07-22T03:01:13Z"
+    generation: 12
+    labels:
+      app.kubernetes.io/component: ovlock-janitor
+      app.kubernetes.io/name: openviking
+    name: ovlock-janitor
+    namespace: viking
+    resourceVersion: "82423258"
+    uid: fa0d32d2-9015-4f67-9f8d-bf38cbee47a6
+  spec:
+    concurrencyPolicy: Forbid
+    failedJobsHistoryLimit: 3
+    jobTemplate:
+      metadata: {}
+      spec:
+        activeDeadlineSeconds: 900
+        backoffLimit: 1
+        template:
+          metadata:
+            labels:
+              app.kubernetes.io/component: ovlock-janitor
+              app.kubernetes.io/name: openviking
+          spec:
+            automountServiceAccountToken: false
+            containers:
+            - command:
+              - python3
+              - /scripts/ovlock-janitor.py
+              env:
+              - name: OVLOCK_S3_BUCKET
+                value: openviking-agfs
+              - name: OVLOCK_S3_ENDPOINT
+                value: http://garage.garage.svc.cluster.local:3900
+              - name: OV_HEALTH_URL
+                value: http://openviking.viking.svc.cluster.local:1933/health
+              - name: AWS_ACCESS_KEY_ID
+                valueFrom:
+                  secretKeyRef:
+                    key: AWS_ACCESS_KEY_ID
+                    name: openviking-s3-credentials
+              - name: AWS_SECRET_ACCESS_KEY
+                valueFrom:
+                  secretKeyRef:
+                    key: AWS_SECRET_ACCESS_KEY
+                    name: openviking-s3-credentials
+              image: ghcr.io/volcengine/openviking:v0.4.20
+              imagePullPolicy: IfNotPresent
+              name: janitor
+              resources:
+                limits:
+                  cpu: 200m
+                  memory: 128Mi
+                requests:
+                  cpu: 20m
+                  memory: 32Mi
+              terminationMessagePath: /dev/termination-log
+              terminationMessagePolicy: File
+              volumeMounts:
+              - mountPath: /scripts
+                name: scripts
+                readOnly: true
+            dnsPolicy: ClusterFirst
+            restartPolicy: Never
+            schedulerName: default-scheduler
+            securityContext: {}
+            terminationGracePeriodSeconds: 30
+            volumes:
+            - configMap:
+                defaultMode: 493
+                name: ovlock-janitor
+              name: scripts
+        ttlSecondsAfterFinished: 172800
+    schedule: 17 */6 * * *
+    startingDeadlineSeconds: 600
+    successfulJobsHistoryLimit: 3
+    suspend: false
+    timeZone: Etc/UTC
+  status:
+    lastScheduleTime: "2026-10-23T00:17:00Z"
+    lastSuccessfulTime: "2026-10-23T00:19:56Z"
+kind: List
+metadata:
+  resourceVersion: ""
