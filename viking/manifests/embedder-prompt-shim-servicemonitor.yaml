@@ -1,0 +1,21 @@
+---
+# Scrapes the embedding prompt shim's /metrics on both replicas (IMPR-1410): its
+# input counts and response statuses, the same counts /healthz serves as JSON.
+# The kube-prometheus-stack Prometheus has an empty serviceMonitorSelector, so
+# this is picked up without a release label.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: embedder-prompt-shim
+  namespace: viking
+  labels:
+    app: embedder-prompt-shim
+spec:
+  selector:
+    matchLabels:
+      app: embedder-prompt-shim
+  endpoints:
+    - port: http
+      interval: 30s
+      path: /metrics
+      scrapeTimeout: 10s

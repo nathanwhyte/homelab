@@ -36,6 +36,9 @@ resources:
   - embedder-prompt-shim-configmap.yaml
   - embedder-prompt-shim-deployment.yaml
   - embedder-prompt-shim-service.yaml
+  # IMPR-1410: its /metrics scrape and the error-rate alert.
+  - embedder-prompt-shim-servicemonitor.yaml
+  - embedder-prompt-shim-alerts.yaml
   - llamacpp-vlm-service.yaml
   - cuda-llamacpp-deployment.yaml
   - cuda-llamacpp-service.yaml
