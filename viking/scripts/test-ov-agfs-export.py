@@ -11,6 +11,7 @@ import hashlib
 import importlib.util
 import io
 import os
+import tarfile
 import tempfile
 import unittest
 from pathlib import Path
@@ -112,7 +113,7 @@ class RoundTripTests(unittest.TestCase):
     def test_import_with_delete_makes_the_bucket_equal_the_export(self):
         ax.export(self.s3, "prod", self.dir)
         r = ax.import_(self.s3, "test", self.dir, delete=True)
-        self.assertEqual(r, {"put": 5, "deleted": 1})
+        self.assertEqual(r, {"put": 5, "unchanged": 0, "deleted": 1})
         self.assertEqual(self.s3.b["test"], PROD)
         self.assertTrue(ax.verify(self.s3, "test", self.dir)["ok"])
 
@@ -130,6 +131,50 @@ class RoundTripTests(unittest.TestCase):
             r = ax.verify(self.s3, "prod", self.dir, deep=deep)
             self.assertFalse(r["ok"])
             self.assertEqual(r["differ"], ["default/resources/a.md"])
+
+    def test_a_second_import_puts_only_what_changed(self):
+        ax.export(self.s3, "prod", self.dir)
+        ax.import_(self.s3, "test", self.dir, delete=True)
+        self.s3.b["test"]["default/resources/a.md"] = b"drifted"
+        r = ax.import_(self.s3, "test", self.dir, delete=True)
+        self.assertEqual(r, {"put": 1, "unchanged": 4, "deleted": 0})
+        self.assertEqual(self.s3.b["test"], PROD)
+
+    def test_export_refuses_an_existing_directory(self):
+        ax.export(self.s3, "prod", self.dir)
+        with self.assertRaises(SystemExit):
+            ax.export(self.s3, "prod", self.dir)
+
+    def test_a_truncated_archive_fails_verify_and_import(self):
+        ax.export(self.s3, "prod", self.dir)
+        (self.dir / ax.TAR).write_bytes(b"")
+        for deep in (False, True):
+            r = ax.verify(self.s3, "prod", self.dir, deep=deep)
+            self.assertFalse(r["ok"])
+            self.assertEqual(r["counts"]["archive_bad"], 5)
+        with self.assertRaises(SystemExit):
+            ax.import_(self.s3, "test", self.dir, delete=True)
+
+    def test_a_base_member_altered_on_disk_is_refetched_not_reused(self):
+        base = Path(self.tmp.name) / "base"
+        ax.export(self.s3, "prod", base)
+        manifest, bodies = ax.load(base)
+        member = next(
+            e["member"]
+            for e in manifest["entries"]
+            if e["key"] == "default/resources/a.md"
+        )
+        with tarfile.open(base / ax.TAR, "w") as tar:
+            for name, body in bodies.items():
+                body = b"# X\n" if name == member else body
+                info = tarfile.TarInfo(name)
+                info.size = len(body)
+                tar.addfile(info, io.BytesIO(body))
+        self.s3.gets.clear()
+        m = ax.export(self.s3, "prod", self.dir, base=base)
+        self.assertEqual((m["base_rejected"], m["fetched"]), (1, 1))
+        self.assertEqual(self.s3.gets, ["default/resources/a.md"])
+        self.assertTrue(ax.verify(self.s3, "prod", self.dir, deep=True)["ok"])
 
     def test_a_key_deleted_between_list_and_get_is_left_out_and_counted(self):
         self.s3.vanish_on_get = {"default/resources/a.md"}

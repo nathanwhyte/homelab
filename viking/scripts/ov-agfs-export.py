@@ -10,11 +10,17 @@ its member, size, ETag, md5 and sha256. Reconcile by key set and per-key digest,
 never bytes.
 
   export  --bucket B --out DIR [--base PREV]  bucket -> DIR/objects.tar + manifest.json;
-                                              with --base, a key whose size and ETag
-                                              match PREV's entry reuses PREV's bytes
-  import  --bucket B --from DIR [--delete]    DIR -> bucket; --delete removes keys the
-                                              manifest lacks, so the bucket equals it
-  verify  --bucket B --from DIR [--deep]      exit 0 when the bucket holds exactly the
+                                              DIR must not exist and appears only when
+                                              complete; with --base, a key whose size
+                                              and ETag match PREV's entry reuses PREV's
+                                              bytes once they check against PREV's
+                                              manifest
+  import  --bucket B --from DIR [--delete]    DIR -> bucket, PUTting only keys absent
+                                              or different there; --delete removes keys
+                                              the manifest lacks, so the bucket equals
+                                              it; then verify
+  verify  --bucket B --from DIR [--deep]      exit 0 when DIR's archive matches its
+                                              manifest and the bucket holds exactly the
                                               manifest's keys; each key's listed ETag
                                               must equal its md5 (--deep: GET every
                                               object and compare sha256 instead)
@@ -37,6 +43,7 @@ import base64
 import hashlib
 import io
 import json
+import shutil
 import subprocess
 import sys
 import tarfile
@@ -83,27 +90,62 @@ def load(src: Path) -> tuple[dict, dict[str, bytes]]:
     return manifest, bodies
 
 
+def intact(e: dict, bodies: dict[str, bytes]) -> bool:
+    """The archive holds this entry's member with the manifest's size and sha256."""
+    body = bodies.get(e["member"])
+    return (
+        body is not None
+        and len(body) == e["size"]
+        and hashlib.sha256(body).hexdigest() == e["sha256"]
+    )
+
+
+def check_archive(src: Path) -> tuple[dict, dict[str, bytes], list[str]]:
+    """Load an export and list the keys whose archived bytes disagree with the manifest.
+
+    An unreadable or truncated tar counts every key as bad rather than raising, so a
+    verify of a damaged export reports it instead of passing on the manifest alone.
+    """
+    manifest = json.loads((src / MANIFEST).read_text())
+    try:
+        _, bodies = load(src)
+    except (tarfile.TarError, OSError, EOFError):
+        bodies = {}
+    bad = [e["key"] for e in manifest["entries"] if not intact(e, bodies)]
+    return manifest, bodies, bad
+
+
 def export(
     s3, bucket: str, out: Path, workers: int = 1, base: Path | None = None
 ) -> dict:
-    out.mkdir(parents=True, exist_ok=True)
+    """Export into OUT, which must not exist yet; it appears only once complete."""
+    if out.exists():
+        raise SystemExit(f"{out} exists; export into a new directory")
+    partial = out.with_name(f".{out.name}.partial")
+    shutil.rmtree(partial, ignore_errors=True)
+    partial.mkdir(parents=True)
     listed = list_keys(s3, bucket)
     keys = sorted(listed)
     reuse: dict[str, bytes] = {}
+    base_rejected = 0
     if base is not None:
-        bmanifest, bbodies = load(base)
+        bmanifest, bbodies, _ = check_archive(base)
         for e in bmanifest["entries"]:
             # md5 == etag: the bytes PREV holds are the ones its listing described,
-            # not a rewrite that landed between PREV's list and its GET.
-            size_etag = listed.get(e["key"])
-            if size_etag == (e["size"], e["etag"]) and e["md5"] == e["etag"]:
+            # not a rewrite that landed between PREV's list and its GET. intact():
+            # PREV's archive still holds exactly those bytes.
+            if listed.get(e["key"]) != (e["size"], e["etag"]) or e["md5"] != e["etag"]:
+                continue
+            if intact(e, bbodies):
                 reuse[e["key"]] = bbodies[e["member"]]
+            else:
+                base_rejected += 1
     fetch = [k for k in keys if k not in reuse]
     fetched = dict(zip(fetch, pmap(lambda k: get(s3, bucket, k), fetch, workers)))
     vanished = sorted(k for k in fetch if fetched[k] is None)
     keys = [k for k in keys if k not in vanished]
     entries = []
-    with tarfile.open(out / TAR, "w") as tar:
+    with tarfile.open(partial / TAR, "w") as tar:
         for i, key in enumerate(keys):
             body = reuse[key] if key in reuse else fetched[key]
             member = f"obj/{i:06d}"
@@ -127,30 +169,40 @@ def export(
         "zero_byte": sum(1 for e in entries if e["size"] == 0),
         "fetched": len(fetch),
         "reused": len(reuse),
+        "base_rejected": base_rejected,
         "vanished": len(vanished),
         "entries": entries,
     }
-    (out / MANIFEST).write_text(json.dumps(manifest, indent=1) + "\n")
+    (partial / MANIFEST).write_text(json.dumps(manifest, indent=1) + "\n")
+    partial.rename(out)
     return manifest
 
 
 def import_(s3, bucket: str, src: Path, delete: bool, workers: int = 1) -> dict:
-    manifest, bodies = load(src)
+    """Make BUCKET hold the export's keys: PUT only keys absent or different there."""
+    manifest, bodies, bad = check_archive(src)
+    if bad:
+        raise SystemExit(
+            f"{len(bad)} archived objects disagree with the manifest, e.g. {bad[:3]}"
+        )
     wanted = {e["key"] for e in manifest["entries"]}
-    for e in manifest["entries"]:
-        if hashlib.sha256(bodies[e["member"]]).hexdigest() != e["sha256"]:
-            raise SystemExit(
-                f"tar member {e['member']} does not match the manifest for {e['key']}"
-            )
+    have = list_keys(s3, bucket)
+    todo = [
+        e for e in manifest["entries"] if have.get(e["key"]) != (e["size"], e["md5"])
+    ]
     put = lambda e: s3.put_object(Bucket=bucket, Key=e["key"], Body=bodies[e["member"]])  # noqa: E731
-    list(pmap(put, manifest["entries"], workers))
-    stale = sorted(set(list_keys(s3, bucket)) - wanted) if delete else []
+    list(pmap(put, todo, workers))
+    stale = sorted(set(have) - wanted) if delete else []
     list(pmap(lambda k: s3.delete_object(Bucket=bucket, Key=k), stale, workers))
-    return {"put": len(wanted), "deleted": len(stale)}
+    return {
+        "put": len(todo),
+        "unchanged": len(wanted) - len(todo),
+        "deleted": len(stale),
+    }
 
 
 def verify(s3, bucket: str, src: Path, workers: int = 1, deep: bool = False) -> dict:
-    manifest = json.loads((src / MANIFEST).read_text())
+    manifest, _, archive_bad = check_archive(src)
     want = {e["key"]: e for e in manifest["entries"]}
     have = list_keys(s3, bucket)
     missing = sorted(set(want) - set(have))
@@ -170,8 +222,14 @@ def verify(s3, bucket: str, src: Path, workers: int = 1, deep: bool = False) -> 
         "missing": missing[:20],
         "extra": extra[:20],
         "differ": differ[:20],
-        "counts": {"missing": len(missing), "extra": len(extra), "differ": len(differ)},
-        "ok": not (missing or extra or differ),
+        "archive_bad": archive_bad[:20],
+        "counts": {
+            "missing": len(missing),
+            "extra": len(extra),
+            "differ": len(differ),
+            "archive_bad": len(archive_bad),
+        },
+        "ok": not (missing or extra or differ or archive_bad),
     }
 
 
