@@ -1,7 +1,8 @@
 """Tests for ov_nav_patch against the INSTALLED openviking v0.5.1.1 methods.
 
-Run inside the openviking image (no pytest needed):
-    PYTHONPATH=<dir> /app/.venv/bin/python <dir>/test_ov_nav_patch.py
+Run inside the openviking image (no pytest needed), with the repo root mounted so the
+GIT_* scrub header finds _scripts/lib (IMPR-1419):
+    D=/r/viking/manifests/test/nav-patch; PYTHONPATH=$D /app/.venv/bin/python $D/test_ov_nav_patch.py
 """
 
 import sys
@@ -19,7 +20,8 @@ import unittest
 import ov_nav_patch as nav
 
 # viking/scripts/run-nav-patch-tests.py skips the module when the package is absent
-# (CI); a broken install still fails the import (IMPR-1413).
+# (CI fails that skip with NAV_PATCH_REQUIRE_OPENVIKING=1); a broken install still
+# fails the import (IMPR-1413).
 if __name__ != "__main__" and importlib.util.find_spec("openviking") is None:
     raise unittest.SkipTest("needs the openviking v0.5.1.1 package")
 from openviking.storage.queuefs import semantic_processor as sp  # noqa: E402

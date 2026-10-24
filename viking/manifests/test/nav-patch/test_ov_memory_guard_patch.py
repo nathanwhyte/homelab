@@ -3,7 +3,8 @@
     python3 test_ov_memory_guard_patch.py
 
 The guard's semantics run on fakes anywhere. The ``Installed`` cases need openviking
-v0.5.1.1 (the image, run with PYTHONPATH=<this dir> /app/.venv/bin/python …, or the
+v0.5.1.1 (the image, with the repo root mounted so the GIT_* scrub header finds
+_scripts/lib: PYTHONPATH=<this dir> /app/.venv/bin/python <this dir>/…, or the
 ``openviking`` uv tool through viking/scripts/run-nav-patch-tests.py) and are skipped
 only when no openviking package is found: they check the version/source-hash guard against the real ``MemoryUpdater``
 and read a summary back through the real ``MemoryFileUtils``.

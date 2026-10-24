@@ -34,6 +34,8 @@ name: pre-commit
 #     a bare `--all-files` run it would pass without reading a byte. The
 #     "Stage the PR diff" step below makes the PR's net change the staged set,
 #     which is what a local commit of the same change would have scanned.
+#     check-added-large-files reads the staged set too (`git diff --staged
+#     --diff-filter=A`), so it also judges only the files the PR adds.
 #
 # Nothing in the config reads the live cluster or needs a secret.
 
@@ -112,7 +114,9 @@ jobs:
         # pull_request checks out refs/pull/N/merge, a merge commit whose first
         # parent is the base branch tip. A soft reset to it leaves the PR's net
         # change staged, so `gitleaks git --pre-commit --staged` scans it.
-        # Working-tree contents are unchanged; the other hooks are unaffected.
+        # Working-tree contents are unchanged. check-added-large-files also reads
+        # the staged set, so it sees the files this PR adds; every other hook
+        # is unaffected.
         if: github.event_name == 'pull_request'
         run: git reset --soft HEAD^1
 
