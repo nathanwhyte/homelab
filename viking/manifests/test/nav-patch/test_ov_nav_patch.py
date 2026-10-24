@@ -1,7 +1,8 @@
-"""Tests for ov_nav_patch against the INSTALLED openviking v0.4.20 methods.
+"""Tests for ov_nav_patch against the INSTALLED openviking v0.5.1.1 methods.
 
-Run inside the openviking image (no pytest needed):
-    PYTHONPATH=<dir> /app/.venv/bin/python <dir>/test_ov_nav_patch.py
+Run inside the openviking image (no pytest needed), with the repo root mounted so the
+GIT_* scrub header finds _scripts/lib (IMPR-1419):
+    D=/r/viking/manifests/test/nav-patch; PYTHONPATH=$D /app/.venv/bin/python $D/test_ov_nav_patch.py
 """
 
 import sys
@@ -19,9 +20,10 @@ import unittest
 import ov_nav_patch as nav
 
 # viking/scripts/run-nav-patch-tests.py skips the module when the package is absent
-# (CI); a broken install still fails the import (IMPR-1413).
+# (CI fails that skip with NAV_PATCH_REQUIRE_OPENVIKING=1); a broken install still
+# fails the import (IMPR-1413).
 if __name__ != "__main__" and importlib.util.find_spec("openviking") is None:
-    raise unittest.SkipTest("needs the openviking v0.4.20 package")
+    raise unittest.SkipTest("needs the openviking v0.5.1.1 package")
 from openviking.storage.queuefs import semantic_processor as sp  # noqa: E402
 
 P = object.__new__(sp.SemanticProcessor)  # the methods used here need no instance state
@@ -412,7 +414,7 @@ def test_sitecustomize_hook_patched_on_import():
     assert getattr(sp.SemanticProcessor._generate_overview, "_ov_nav_patch", False)
 
 
-def test_guard_accepts_installed_v0420_and_wraps():
+def test_guard_accepts_installed_v0511_and_wraps():
     current = sp.SemanticProcessor._generate_overview
     orig = getattr(current, "__wrapped__", current)  # undo the import-time hook
     sp.SemanticProcessor._generate_overview = orig
@@ -431,8 +433,11 @@ def test_wrapper_end_to_end_with_stubbed_model():
 
     fs, cs = files(7), children(2)
     orig = sp.SemanticProcessor._generate_overview
+    seen_ctx = []
+    ctx = object()
 
-    async def fake_orig(self, dir_uri, f, c, llm_sem=None, tf=None, tc=None):
+    async def fake_orig(self, dir_uri, f, c, llm_sem=None, tf=None, tc=None, ctx=None):
+        seen_ctx.append(ctx)
         return model_output(f, c, drop_nav_tail=5)
 
     fake_orig.__qualname__ = orig.__qualname__
@@ -452,12 +457,13 @@ def test_wrapper_end_to_end_with_stubbed_model():
         shim_cls._generate_overview = fake_orig
         nav.EXPECTED_SOURCE_SHA256 = nav._source_hash(fake_orig)
         assert nav.apply(shim) is True
-        out = asyncio.run(shim_cls._generate_overview(P, DIR, fs, cs))
+        out = asyncio.run(shim_cls._generate_overview(P, DIR, fs, cs, ctx=ctx))
         nav.EXPECTED_SOURCE_SHA256 = nav_src_hash
         nav_block = out[
             out.index("## Quick Navigation") : out.index("## Directory Coverage")
         ]
         assert targets(fs, cs) <= links_in(nav_block)
+        assert seen_ctx == [ctx], "phase 1 must forward ctx to the stock generator"
         assert wrapper is not None
     finally:
         sp.SemanticProcessor._generate_overview = orig
@@ -648,49 +654,121 @@ def test_phase2_scope_is_resources_only():
         os.environ.pop("OV_NAV_PHASE2", None)
 
 
-def test_phase2_self_check_passes_on_installed_v0420():
+def test_phase2_self_check_passes_on_installed_v0511():
     assert nav.phase2_self_check(sp.SemanticProcessor)
 
 
-def test_phase2_wrapper_calls_model_for_brief_only_with_max_tokens():
-    import asyncio
+BRIEF_REPLY = "# ignored\n\nResolved bugs across repos.\n\n## Detailed Description\n\n### [x](y)\n\nz."
 
-    fs, cs = real_files(12), children(2)
-    calls = []
 
-    class FakeVLM:
-        def is_available(self):
-            return True
+def phase2_shim(stock, resolver):
+    """A shim module whose processor resolves its VLM through ``resolver``, as v0.5.1.1 does."""
+    import contextlib
 
-        async def get_completion_async(self, prompt="", max_tokens=None):
-            calls.append((prompt, max_tokens))
-            return "# ignored\n\nResolved bugs across repos.\n\n## Detailed Description\n\n### [x](y)\n\nz."
+    stages = []
 
-    async def stock(self, dir_uri, f, c, llm_sem=None, tf=None, tc=None):
-        raise AssertionError("phase 2 must not call the stock generator")
+    @contextlib.contextmanager
+    def bind_telemetry_stage(name):
+        stages.append(name)
+        yield
 
     shim_cls = type("SemanticProcessor", (sp.SemanticProcessor,), {})
     shim_cls._generate_overview = stock
     shim = types.SimpleNamespace(
         SemanticProcessor=shim_cls,
+        bind_telemetry_stage=bind_telemetry_stage,
         get_openviking_config=lambda: types.SimpleNamespace(
-            vlm=FakeVLM(), semantic=types.SimpleNamespace(overview_max_chars=CAP)
+            semantic=types.SimpleNamespace(overview_max_chars=CAP)
         ),
     )
+    return shim, shim_cls(vlm_resolver=resolver), stages
+
+
+def test_phase2_wrapper_calls_model_for_brief_only_with_max_tokens():
+    # Real v0.5.1.1 plumbing: SemanticProcessor._get_vlm_config -> resolver.get_vlm ->
+    # AccountBoundVLM (get_completion_async(*args, **kwargs)) -> provider._invoke.
+    import asyncio
+
+    from openviking.config import vlm as vlm_mod
+    from openviking.server.identity import RequestContext, Role, UserIdentifier
+
+    fs, cs = real_files(12), children(2)
+    calls, accounts = [], []
+
+    class Provider:
+        async def _invoke(self, handle, method, *args, **kwargs):
+            calls.append((method, args, kwargs))
+            return BRIEF_REPLY
+
+    class Resolver:
+        async def get_vlm(self, account_id):
+            accounts.append(account_id)
+            config = vlm_mod.VLMConfig(
+                model="m", api_key="k", provider="openai", api_base="http://x"
+            )
+            return vlm_mod.AccountBoundVLM(
+                Provider(), account_id, "vlm", config, vlm_mod.TokenUsageTracker()
+            )
+
+    async def stock(self, dir_uri, f, c, llm_sem=None, tf=None, tc=None, ctx=None):
+        raise AssertionError("phase 2 must not call the stock generator")
+
+    shim, proc, stages = phase2_shim(stock, Resolver())
+    ctx = RequestContext(user=UserIdentifier("acct-7", "u1"), role=Role.USER)
     saved = nav.EXPECTED_SOURCE_SHA256
     nav.EXPECTED_SOURCE_SHA256 = nav._source_hash(stock)
     try:
         assert nav.apply(shim) is True
-        out = asyncio.run(shim_cls._generate_overview(P, DIR, fs, cs))
+        out = asyncio.run(proc._generate_overview(DIR, fs, cs, ctx=ctx))
+        default = asyncio.run(proc._generate_overview(DIR, fs, cs))
     finally:
         nav.EXPECTED_SOURCE_SHA256 = saved
-    assert len(calls) == 1 and calls[0][1] == nav.BRIEF_MAX_TOKENS
-    prompt = calls[0][0]
+    assert accounts == ["acct-7", proc._default_ctx.account_id], accounts
+    assert len(calls) == 2 and all(m == "get_completion_async" for m, _, _ in calls)
+    assert all(kw.get("max_tokens") == nav.BRIEF_MAX_TOKENS for _, _, kw in calls), (
+        calls
+    )
+    _, args, kwargs = calls[0]
+    assert stages == ["semantic_execute", "semantic_execute"], stages
+    prompt = args[0] if args else kwargs["prompt"]
     assert "Verification ran against staging" not in prompt, "full summaries leaked"
     assert all(x["name"] in prompt for x in fs + cs)
     assert h3_targets(out) == targets(fs, cs)
     assert P._extract_abstract_from_overview(out) == "Resolved bugs across repos."
     assert "### [x](y)" not in out
+    assert default == out
+
+
+def test_phase2_omits_max_tokens_when_the_handle_cannot_take_it():
+    import asyncio
+
+    calls = []
+
+    class PlainVLM:
+        def is_available(self):
+            return True
+
+        async def get_completion_async(self, prompt=""):
+            calls.append(prompt)
+            return BRIEF_REPLY
+
+    class Resolver:
+        async def get_vlm(self, account_id):
+            return PlainVLM()
+
+    async def stock(self, dir_uri, f, c, llm_sem=None, tf=None, tc=None, ctx=None):
+        raise AssertionError("phase 2 must not call the stock generator")
+
+    shim, proc, _ = phase2_shim(stock, Resolver())
+    saved = nav.EXPECTED_SOURCE_SHA256
+    nav.EXPECTED_SOURCE_SHA256 = nav._source_hash(stock)
+    try:
+        assert nav.apply(shim) is True
+        out = asyncio.run(proc._generate_overview(DIR, files(2), [], ctx=None))
+    finally:
+        nav.EXPECTED_SOURCE_SHA256 = saved
+    assert len(calls) == 1
+    assert P._extract_abstract_from_overview(out) == "Resolved bugs across repos."
 
 
 if __name__ == "__main__":

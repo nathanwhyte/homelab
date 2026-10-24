@@ -42,6 +42,9 @@ data:
   # and they are part of an ovpack's embedding identity. The prompt scores every
   # query about 0.12 lower, so recall floors (dotfiles OPENVIKING_SCORE_THRESHOLD)
   # move with it. Runbook and rollback: viking/docs/2026-10-17-embedder-prompt-shim.md.
+  # v0.5.1.1 (IMPR-1412) maps scores to (old+1)/2, measured exactly on restored
+  # data, so every floor moved with it: rerank.threshold 0.2 -> 0.6 here, and the
+  # dotfiles floors 0.45 -> 0.725, 0.50 -> 0.75, 0.65 -> 0.825.
   #
   # VLM concurrency (IMPR-1303). On v0.4.20 vlm.max_concurrent is read twice on
   # the Semantic path: QueueManager._max_concurrent_for_queue returns it as the
@@ -110,7 +113,7 @@ data:
         "enabled": false
       },
       "rerank": {
-        "threshold": 0.2
+        "threshold": 0.6
       },
       "server": {
         "host": "0.0.0.0",

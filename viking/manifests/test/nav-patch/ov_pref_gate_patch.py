@@ -1,4 +1,4 @@
-"""Skip preference extraction for an archive with no typed user text on v0.4.20 (IMPR-1404).
+"""Skip preference extraction for an archive with no typed user text on v0.5.1.1 (IMPR-1404).
 
 ``SessionCompressorV3._extract_user_memories`` sends every enabled ``stage: user`` schema
 to the model in one call, ``preferences`` included, whatever the archive holds. The
@@ -37,7 +37,14 @@ them in ``profile.md`` instead, where ``ov-pref-audit.py`` does not look. Modes
 off, and anything else, unset included, only logs (``"action": "would_skip"``), so a typo
 never changes what is extracted.
 
-Two halves, each guarded on v0.4.20 and the source hash of the method it wraps. Without
+When the policy is ``None`` (every type), enforce mode passes the enabled names of the
+deployment's default registry (``get_default_registry()``, ``memory_type_registry.py``
+L322) minus ``preferences``. v0.5.1.1 resolves an account registry per extraction
+(``resolve_account_memory_registry``, ``compressor_v3.py`` L692-L697); it holds one
+schema per default schema, so the names match, but an account template that enables a
+type the default leaves disabled is not seen here.
+
+Two halves, each guarded on v0.5.1.1 and the source hash of the method it wraps. Without
 the session half a Phase 2 batch cannot be told from a whole archive, so the compressor
 half then gates nothing and extraction stays stock. Remove the patch once OpenViking checks
 message roles before a ``preferences`` write, or the capture plugin can set
@@ -55,11 +62,12 @@ import os
 import sys
 from collections import Counter
 
-EXPECTED_VERSION = "v0.4.20"
-EXPECTED_SHA256 = "3c355a049198505eeeeb0efea5881a43f6505dc3e886f5fa5fc2b3e823d557b2"
-# openviking.session.session.Session._run_memory_extraction on v0.4.20.
+EXPECTED_VERSION = "v0.5.1.1"
+# openviking.session.compressor_v3.SessionCompressorV3._extract_user_memories on v0.5.1.1.
+EXPECTED_SHA256 = "29befc9a5f91a6c91f1c0b74fb0bf6dad52ebd7e95304759cb4408093c0f21a6"
+# openviking.session.session.Session._run_memory_extraction on v0.5.1.1.
 EXPECTED_PHASE2_SHA256 = (
-    "950a7ce54ae1cf8bb74dd7a24b7aac9bac65d150ba59982cec293e04e66c6faa"
+    "d64ddfa93c3d0d33c665f372c746f22f9bca9f670c7c4542d4e68f3e1527e9d2"
 )
 GATED_TYPE = "preferences"
 WATCHED_TYPES = (GATED_TYPE, "profile")
@@ -277,11 +285,11 @@ def apply(module):
         return False
     cls = getattr(module, "SessionCompressorV3", None)
     original = getattr(cls, "_extract_user_memories", None)
-    registry = getattr(module, "create_default_registry", None)
+    registry = getattr(module, "get_default_registry", None)
     if original is None or registry is None:
         logger.warning(
             "ov-pref-gate-patch: NOT applied (SessionCompressorV3._extract_user_memories "
-            "or create_default_registry missing)"
+            "or get_default_registry missing)"
         )
         return False
     if getattr(original, "_ov_pref_gate_patch", False):

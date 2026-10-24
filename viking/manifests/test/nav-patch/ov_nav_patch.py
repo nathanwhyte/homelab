@@ -1,4 +1,4 @@
-"""Deterministic Quick Navigation for OpenViking v0.4.20 directory overviews (IMPR-1185).
+"""Deterministic Quick Navigation for OpenViking v0.5.1.1 directory overviews (IMPR-1185).
 
 The stock ``SemanticProcessor._generate_overview`` asks the VLM to write the whole
 overview, including one navigation line per entry with an exact link placeholder.
@@ -15,17 +15,21 @@ Output layout (the order is load-bearing):
     ## Directory Coverage        code-built from the counts
     ## Detailed Description      model prose, pre-truncated to the space left
 
-Constraints honoured (v0.4.20 source):
+Constraints honoured (v0.5.1.1 source):
   * ``_extract_abstract_from_overview`` reads prose after the H1 up to the first
     ``##``, so navigation sits under an ``##`` AFTER the brief.
-  * ``_parse_overview_md`` treats every ``###`` body as a cached per-file summary and
-    keeps appending until the next ``###``, so nothing code-generated may follow
-    the model's last H3; everything added here precedes the first H3.
+  * ``_parse_overview_md`` (a classmethod delegating to
+    ``storage/abstract_overview.py`` ``parse_overview_file_summaries``) treats every
+    ``###`` body as a cached per-file summary and keeps appending until the next
+    ``###``, so nothing code-generated may follow the model's last H3; everything
+    added here precedes the first H3.
   * ``_enforce_size_limits`` tail-cuts at a sentence boundary; the tail is sized so
     the document is already under ``overview_max_chars`` and every nav line ends in
     a period as a backstop.
+  * Links come from the processor's own ``_markdown_link_target``
+    (``markdown_safe_viking_uri``), so they match the stock targets byte for byte.
 
-Guarded: applies only to openviking ``v0.4.20`` whose ``_generate_overview`` source
+Guarded: applies only to openviking ``v0.5.1.1`` whose ``_generate_overview`` source
 hashes to ``EXPECTED_SOURCE_SHA256``; otherwise it logs and leaves stock behaviour.
 Model failures (the stock placeholder strings) are passed through unchanged.
 Disable at runtime with ``OV_NAV_PATCH=0``.
@@ -44,9 +48,9 @@ import logging
 import os
 import re
 
-EXPECTED_VERSION = "v0.4.20"
+EXPECTED_VERSION = "v0.5.1.1"
 EXPECTED_SOURCE_SHA256 = (
-    "aec8040007bbfed22727309060fc7034a325a738925e65024337d1aefe71325f"
+    "bae5084290a54df47b67fa8b66a46201d85a2c3363daa8ac6b631501061cf4ab"
 )
 NAV_SHARE = 0.6  # nav may take at most this share of overview_max_chars
 MAX_GLOSS_WORDS = 12
@@ -395,10 +399,11 @@ def assemble(
 # real summary, and asks the model for the brief alone: the prompt carries glosses, so
 # no directory takes the batched merge path (BUG-1172), and the reply is capped.
 #
-# The H3 bodies are also what ``SemanticDagExecutor._read_existing_summary`` reuses for
-# an unchanged file, but only when no freshness debt is pending. A refresh caused by a
-# new or changed child has debt pending, and stock v0.4.20 then re-summarizes every
-# sampled file (``regenerate_sampled_summary``); the IMPR-1185 canary measured 0 of 58
+# The H3 bodies are also what ``SemanticTreeExecutor._read_existing_summary``
+# (semantic_executor.py) reuses for an unchanged file, but only when no freshness debt
+# is pending. A refresh caused by a new or changed child has debt pending, and stock
+# v0.5.1.1 then re-summarizes every sampled file (``regenerate_sampled_summary``,
+# semantic_executor.py:1124, unchanged from v0.4.20); the IMPR-1185 canary measured 0 of 58
 # sibling inputs from the cache on that path. The bodies are kept idempotent under
 # re-clip so the paths that do read them see stable text.
 #
@@ -683,11 +688,26 @@ def assemble_contents(
         space -= len(out) - cap
 
 
-def _accepts_max_tokens(func) -> bool:
+def _named_param(func, name: str) -> bool:
     try:
-        return "max_tokens" in inspect.signature(func).parameters
+        return name in inspect.signature(func).parameters
     except (TypeError, ValueError):
         return False
+
+
+def _accepts_max_tokens(vlm) -> bool:
+    """True when the handle's completion call takes ``max_tokens``.
+
+    v0.5.1.1 hands out an ``AccountBoundVLM`` whose ``get_completion_async`` is
+    ``(*args, **kwargs)`` and forwards to ``VLMConfig.get_completion_async``
+    (config/vlm.py:138, :331), which names ``max_tokens``; the handle's ``_settings``
+    copy is that ``VLMConfig``, so its signature stands in for the forward target.
+    """
+    if _named_param(vlm.get_completion_async, "max_tokens"):
+        return True
+    settings = getattr(vlm, "__dict__", {}).get("_settings")
+    forward = getattr(settings, "get_completion_async", None)
+    return forward is not None and _named_param(forward, "max_tokens")
 
 
 def _output_language(config, text: str) -> str:
@@ -700,13 +720,17 @@ def _output_language(config, text: str) -> str:
 
 
 async def generate_brief_overview(
-    module, processor, dir_uri, file_summaries, children_abstracts, tf, tc
+    module, processor, dir_uri, file_summaries, children_abstracts, tf, tc, ctx=None
 ):
-    """Phase 2 replacement body. Returns None when the VLM is unavailable."""
+    """Phase 2 replacement body. Returns None when the VLM is unavailable.
+
+    The VLM is the Account-owned handle the stock body resolves (semantic_processor.py
+    :1577-1578, ``ctx or self._default_ctx``), not the global ``config.vlm``.
+    """
     import contextlib
 
     config = module.get_openviking_config()
-    vlm = config.vlm
+    vlm = await processor._get_vlm_config(ctx or processor._default_ctx)
     if not vlm.is_available():
         return None
     tf = len(file_summaries) if tf is None else tf
@@ -722,15 +746,12 @@ async def generate_brief_overview(
     prompt = build_brief_prompt(
         dir_uri, file_summaries, children_abstracts, tf, tc, language
     )
-    kwargs = (
-        {"max_tokens": BRIEF_MAX_TOKENS}
-        if _accepts_max_tokens(vlm.get_completion_async)
-        else {}
-    )
+    kwargs = {"max_tokens": BRIEF_MAX_TOKENS} if _accepts_max_tokens(vlm) else {}
     stage = getattr(module, "bind_telemetry_stage", None)
     raw = ""
     try:
-        with stage("resource_summarize") if stage else contextlib.nullcontext():
+        # the stage the stock overview calls use (semantic_processor.py:1730)
+        with stage("semantic_execute") if stage else contextlib.nullcontext():
             raw = await vlm.get_completion_async(prompt, **kwargs)
     except Exception:
         logger.exception(
@@ -766,7 +787,7 @@ def phase2_self_check(cls) -> bool:
         doc = assemble_contents(
             p, "Brief prose.", "viking://resources/x/d", fs, cs, None, None, 20000
         )
-        cache = p._parse_overview_md(doc)
+        cache = cls._parse_overview_md(doc)  # a classmethod since v0.5.x
         return (
             cache.get("a.md") == "Alpha entry about caching. It has detail."
             and cache.get("b c.md") == "Beta entry."
@@ -853,7 +874,10 @@ def apply(module) -> bool:
         llm_sem=None,
         total_files=None,
         total_children=None,
+        ctx=None,
     ):
+        # both v0.5.1.1 callers pass ctx by keyword (semantic_processor.py:1094-1101,
+        # semantic_executor.py:1509-1516)
         if phase2_ok and phase2_enabled(dir_uri):
             try:
                 out = await generate_brief_overview(
@@ -864,6 +888,7 @@ def apply(module) -> bool:
                     children_abstracts,
                     total_files,
                     total_children,
+                    ctx,
                 )
             except Exception:
                 logger.exception(
@@ -890,6 +915,7 @@ def apply(module) -> bool:
             llm_sem,
             total_files,
             total_children,
+            ctx=ctx,
         )
         try:
             cap = module.get_openviking_config().semantic.overview_max_chars

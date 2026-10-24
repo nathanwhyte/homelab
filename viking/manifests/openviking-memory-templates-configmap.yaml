@@ -17,6 +17,14 @@
 # three sentences added to `description` and the clause added to the `content`
 # field. Re-diff against the bundled copy when bumping the image.
 #
+# Re-diffed at the v0.5.1.1 bump (IMPR-1412): the bundled copy changed only
+# `filename_template`, to "{{ user|lower }}/{{ topic|lower }}.md". This override
+# keeps v0.4.20's case-preserving template on purpose: v0.5.1.1 ships no rename or
+# migration, so lowercasing would write new preferences beside the existing
+# mixed-case files (6 in the 2026-10-23 AGFS export) instead of updating them.
+# This file is not in kustomization.yaml: deliver a change with
+# `kubectl apply -f` on this file, not `apply -k`.
+#
 # Loaded through ov.conf `memory.custom_templates_dir`, which
 # MemoryTypeRegistry loads after the bundled templates with replace=True.
 # PromptManager and the registry cache schemas in-process, so an edit here takes

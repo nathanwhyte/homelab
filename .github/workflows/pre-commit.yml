@@ -21,7 +21,7 @@ name: pre-commit
 #   - uv (pinned): slack-transport-tests runs `uv run --with pyyaml`, and
 #     yt-dlp-wrapper-tests runs `uv run --offline --with pyyaml`, which only
 #     works from a warm uv cache, so a step fills it first.
-#   - openviking==0.4.20 as a uv tool (IMPR-1413): nav-patch-tests runs its
+#   - openviking==0.5.1.1 as a uv tool (IMPR-1413, IMPR-1412): nav-patch-tests runs its
 #     real-package cases under it, and NAV_PATCH_REQUIRE_OPENVIKING=1 on the
 #     pre-commit step turns a missing package into a failure, not a skip.
 #   - Helm 4 (pinned, matches the local 4.3.1 the hook was written against):
@@ -34,6 +34,8 @@ name: pre-commit
 #     a bare `--all-files` run it would pass without reading a byte. The
 #     "Stage the PR diff" step below makes the PR's net change the staged set,
 #     which is what a local commit of the same change would have scanned.
+#     check-added-large-files reads the staged set too (`git diff --staged
+#     --diff-filter=A`), so it also judges only the files the PR adds.
 #
 # Nothing in the config reads the live cluster or needs a secret.
 
@@ -80,7 +82,7 @@ jobs:
         # tool's Python, as on a workstation; without it every real-package
         # case skipped here. The patches pin this release.
         run: |
-          uv tool install --python 3.12 openviking==0.4.20
+          uv tool install --python 3.12 openviking==0.5.1.1
           "$(uv tool dir)/openviking/bin/python" -c 'import openviking; print("openviking", openviking.__version__)'
 
       - name: Set up Helm 4
@@ -112,7 +114,9 @@ jobs:
         # pull_request checks out refs/pull/N/merge, a merge commit whose first
         # parent is the base branch tip. A soft reset to it leaves the PR's net
         # change staged, so `gitleaks git --pre-commit --staged` scans it.
-        # Working-tree contents are unchanged; the other hooks are unaffected.
+        # Working-tree contents are unchanged. check-added-large-files also reads
+        # the staged set, so it sees the files this PR adds; every other hook
+        # is unaffected.
         if: github.event_name == 'pull_request'
         run: git reset --soft HEAD^1
 

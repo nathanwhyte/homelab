@@ -1,11 +1,12 @@
 """Carry each recalled memory's last-write time into assembled context (IMPR-1215).
 
-On v0.4.20 every retrieval hit already reads its vector record's ``updated_at``
-(``RETRIEVAL_OUTPUT_FIELDS``) for the hotness blend, then drops it: ``MatchedContext``,
-the context assembler's ``Candidate`` and ``AssembledEntry`` have no time field, so a
-``<memory>`` tag in ``/api/v1/search/search`` (``mode: "context"``) says nothing about
-when the memory was written. The Claude Code plugin worked around that with one
-``fs/stat`` per URI, 280-660 ms each server-side and up to 2.8 s under write load.
+On v0.5.1.1 every retrieval hit still reads its vector record's ``updated_at``
+(``RETRIEVAL_OUTPUT_FIELDS``, ``storage/viking_vector_index_backend.py:64-72``; the
+events time decay reads it too), then drops it: ``MatchedContext``, the context
+assembler's ``Candidate`` and ``AssembledEntry`` have no time field, so a ``<memory>``
+tag in ``/api/v1/search/search`` (``mode: "context"``) says nothing about when the
+memory was written. The Claude Code plugin worked around that with one ``fs/stat`` per
+URI, 280-660 ms each server-side and up to 2.8 s under write load.
 
 Read path, no new I/O, all state request-owned:
 
@@ -14,7 +15,10 @@ Read path, no new I/O, all state request-owned:
     copies each candidate's time onto the ``Candidate`` itself.
   * ``HierarchicalRetriever._convert_to_matched_contexts`` writes each hit's
     ``updated_at`` into that map, keyed by its raw and display URI. Outside an
-    assembly (plain find) there is no map and nothing is recorded.
+    assembly (plain find) there is no map and nothing is recorded. The stock
+    conversion runs first and its result is returned as is, so v0.5.1.1's scoring
+    (no hotness blend since #5454; ``origin_score``/``time_score`` on each
+    ``MatchedContext``) is unchanged.
   * ``budget._make_entry`` copies the time onto the ``AssembledEntry`` and recounts its
     tokens at the length the plugin renders (local time with a UTC offset, five
     characters longer than ``…Z``), so the budget reserves room for the final form.
@@ -23,16 +27,20 @@ Read path, no new I/O, all state request-owned:
 
 Write path (the vector time must mean the content's last write):
 
-  * v0.4.20's reindex builds a fresh ``Context`` whose ``created_at``/``updated_at``
-    default to now, so the IMPR-1200 events backfill (2026-09-28 ~13:24Z) stamped
-    every reindexed event with the backfill time. ``ReindexExecutor._upsert_context``
-    now stats the file first and ``EmbeddingMsgConverter.from_context`` gives that
-    context the file's ``modTime`` as both times. Reindexing unchanged content keeps
-    its write time, and re-running the events reindex repairs the backfilled records.
+  * The reindex builds a fresh ``Context`` whose ``created_at``/``updated_at``
+    default to now (``core/context.py:97-98``, ``reindex_executor.py:1575-1589``), so
+    the IMPR-1200 events backfill (2026-09-28 ~13:24Z) stamped every reindexed event
+    with the backfill time. v0.5.1.1's default ``IndexAction.MERGE`` does not keep
+    the stored times either: the fresh context data wins over the exact-read record
+    (``{**base, **inserted_data}``, ``storage/collection_schemas.py:897-899``).
+    ``ReindexExecutor._upsert_context`` now stats the file first and
+    ``EmbeddingMsgConverter.from_context`` gives that context the file's ``modTime``
+    as both times. Reindexing unchanged content keeps its write time, and re-running
+    the events reindex repairs the backfilled records.
 
 Each hook is version/source guarded on its own. A read-path hook that does not apply
 leaves the tag without ``updated`` (the plugin then falls back to its stat); a failed
-stat on reindex leaves v0.4.20's default. ``OV_RECALL_TIME_PATCH=0`` rolls all back.
+stat on reindex leaves upstream's default. ``OV_RECALL_TIME_PATCH=0`` rolls all back.
 """
 
 import asyncio
@@ -44,15 +52,15 @@ import logging
 import os
 from datetime import datetime, timezone
 
-EXPECTED_VERSION = "v0.4.20"
+EXPECTED_VERSION = "v0.5.1.1"
 EXPECTED_SHA256 = {
-    "convert": "18a9911e3aa793b5e5d966b09604717d7d06c914d340bdd0d70db95dd184ee32",
-    "gather": "66f8d0b6590491345cdaca6be94984ef9d4cb719891f869243eece98fac5aa0b",
+    "convert": "5049fc8134b0aacc47d77a7e0b1eb8044d65ff840c5db28d87e20fe98a3a7356",
+    "gather": "85c3909ae32e498104d00efe312b856b704e296ef74763d6912d0b32d6187c4e",
     "make_entry": "565a34fbf4bb310aa21884bf2b50d0ebdb79d11bd16bf76db1670a653d0d7470",
     "render_entry": "4ff788f4804f55c841d95d1e331a2f4093f8b36641ea5dfdcd89db03d1d764f8",
     "to_dict": "60715e66d58ef5b110f5a256cfdfc6065f01bcd314a5bb13cae6960ac6a26089",
-    "upsert_context": "ddfd3f03e673f1b396caef3d549d4efacc97a64fc78e9a30c21c8297a48feaad",
-    "from_context": "fb15c3af326be29f826a870a8e6284e1663c122089769ae5df1c74c1e5bc6081",
+    "upsert_context": "120763eb0e417bca8bb13b3ea6dcc6c25d8def47a398ddce8b6054a1dcf28782",
+    "from_context": "9a21cfa830018ce4b93e77d9e322d6ba38ae7480bbd20e5e372fdd7b429aaedf",
 }
 # "…Z" becomes "…-05:00" in the plugin: reserve that length when counting tokens.
 LOCALIZED_PLACEHOLDER = "0000-00-00T00:00:00+00:00"
@@ -187,7 +195,7 @@ async def file_mod_time(uri, ctx):
         stat = await asyncio.wait_for(
             get_viking_fs().stat(uri, ctx=ctx, skip_count=True), REINDEX_STAT_TIMEOUT_S
         )
-    except Exception as exc:  # noqa: BLE001 — a failed stat keeps v0.4.20's default
+    except Exception as exc:  # noqa: BLE001 — a failed stat keeps upstream's default
         logger.warning("ov-recall-time: reindex stat failed for %s: %r", uri, exc)
         return None
     value = (
@@ -219,9 +227,11 @@ def pick_level(records, level):
 async def existing_times(uri, level, ctx):
     """``(created_at, updated_at)`` of the record being replaced, or None.
 
-    Looked up in the caller's account backend by URI and level: v0.4.20's
-    ``fetch_by_uri`` gives up when a URI has more than one record, which every
-    directory does (its L0 and L1)."""
+    Looked up in the caller's account backend by URI and level: v0.5.1.1's
+    ``fetch_by_uri`` still gives up when a URI has more than one record
+    (``storage/viking_vector_index_backend.py:844-853``), which every directory does
+    (its L0 and L1). ``_get_backend_for_context`` became a coroutine in v0.5.1.1
+    (L1219-1221), so an awaitable result is awaited."""
     try:
         from openviking.server.dependencies import get_service
         from openviking.storage.viking_vector_index_backend import (
@@ -229,6 +239,8 @@ async def existing_times(uri, level, ctx):
         )
 
         backend = get_service().vikingdb_manager._get_backend_for_context(ctx)
+        if inspect.isawaitable(backend):
+            backend = await asyncio.wait_for(backend, REINDEX_STAT_TIMEOUT_S)
         records = await asyncio.wait_for(
             backend.query(
                 filter={"op": "must", "field": "uri", "conds": [uri]},
@@ -253,7 +265,7 @@ async def existing_times(uri, level, ctx):
 
 async def reindex_times(uri, level, ctx):
     """The times a rebuilt record keeps: the file's ``modTime`` (both), else the
-    replaced record's own times at that level, else None (v0.4.20's "now",
+    replaced record's own times at that level, else None (upstream's "now",
     logged)."""
     when = await file_mod_time(uri, ctx)
     if when:
@@ -303,7 +315,7 @@ def mod_time_from_context(original):
 
 
 def _guarded(name, func):
-    """True when ``func`` is the v0.4.20 source this hook was written against."""
+    """True when ``func`` is the v0.5.1.1 source this hook was written against."""
     if os.environ.get("OV_RECALL_TIME_PATCH", "1") == "0":
         logger.warning("ov-recall-time: %s disabled by OV_RECALL_TIME_PATCH=0", name)
         return False
@@ -314,7 +326,7 @@ def _guarded(name, func):
 
     try:
         # getsource follows __wrapped__, so a hook stacked on another patch's
-        # functools.wraps wrapper still hashes the v0.4.20 function.
+        # functools.wraps wrapper still hashes the v0.5.1.1 function.
         digest = hashlib.sha256(inspect.getsource(func).encode()).hexdigest()
     except (OSError, TypeError):
         digest = None

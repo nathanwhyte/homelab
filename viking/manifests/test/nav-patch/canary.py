@@ -203,7 +203,7 @@ def touch_one(c: httpx.Client, vault: Path, timeout: int, before: dict) -> dict:
     Pass: the new entry is linked and has a body, and every sibling is still linked.
     Informational: how many sibling inputs came from the H3 summary cache. Measured
     2026-09-24: none. With freshness debt pending (which a new entry creates), stock
-    v0.4.20 ``_file_summary_task`` sets ``regenerate_sampled_summary`` and re-summarizes
+    v0.5.1.1 ``_file_summary_task`` sets ``regenerate_sampled_summary`` and re-summarizes
     every sampled file, so the cache is not consulted on this path; see IMPR-1185.
     Counted from the OV_NAV_PATCH_DUMP input capture (openviking-test has no /metrics).
     """
