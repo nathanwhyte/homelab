@@ -133,12 +133,20 @@ class Parse(unittest.TestCase):
 
     def test_rejects_malformed_requests(self):
         bad = [
+            {"collection_name": ""},
+            {"collection_name": None},
+            {"collection_name": 5},
+            {"project": ""},
+            {"project": 5},
             {"index_name": ""},
             {"index_name": None},
             {"index_name": 5},
             {"agg": 123},
             {"agg": ["count"]},
             {"agg": "{not json"},
+            {"agg": ""},
+            {"filter": ""},
+            {"cond": ""},
             {"agg": {"op": False}},
             {"agg": {"op": "sum"}},
             {"agg": {"op": None}},
@@ -154,6 +162,12 @@ class Parse(unittest.TestCase):
             with self.subTest(overrides=overrides):
                 with self.assertRaises(agg.InvalidRequest):
                     agg.parse_request(client_body(**overrides))
+
+    def test_rejects_a_body_that_is_not_an_object(self):
+        for body in (None, [], "x", 3):
+            with self.subTest(body=body):
+                with self.assertRaises(agg.InvalidRequest):
+                    agg.parse_request(body)
 
 
 class EngineCount(unittest.TestCase):
@@ -187,6 +201,21 @@ class EngineCount(unittest.TestCase):
 
     def test_filtered_count_with_no_match_is_zero(self):
         self.assertEqual(agg.engine_count(fake_index(""), {"op": "must"}), 0)
+
+    def test_converter_rejection_is_an_invalid_request(self):
+        for error in (ValueError("geo_range field must be geo_point"), TypeError("x")):
+            with self.subTest(error=error):
+
+                def convert(dsl, error=error):
+                    raise error
+
+                index = fake_index(
+                    '{"__total_count__": 2}',
+                    converter=types.SimpleNamespace(convert_filter_for_index=convert),
+                )
+                with self.assertRaises(agg.InvalidRequest):
+                    agg.engine_count(index, {"op": "geo_range", "field": "kind"})
+                self.assertEqual(index.engine_proxy.index_engine.requests, [])
 
     def test_failures_raise_instead_of_reading_zero(self):
         cases = {
@@ -258,6 +287,18 @@ class Handler(unittest.TestCase):
                 out = agg.aggregate(svc, body)
                 self.assertEqual(out["code"], code)
                 self.assertEqual(out["data"], {})
+
+    def test_unexpected_errors_still_get_an_envelope(self):
+        svc = fake_service(fake_collection(fake_index('{"__total_count__": 3}')))
+
+        def explode(name, project="default"):
+            raise KeyError("unexpected")
+
+        svc.get_collection_or_raise = explode
+        out = agg.aggregate(svc, client_body())
+        self.assertEqual((out["code"], out["data"]), (INTERNAL, {}))
+        out = agg.aggregate(svc, None)
+        self.assertEqual((out["code"], out["data"]), (INVALID, {}))
 
     def test_index_without_an_engine_is_an_error(self):
         coll = fake_collection(fake_index(engine=False))
@@ -388,14 +429,18 @@ class Installed(unittest.TestCase):
         cls.server.should_exit = True
         cls.thread.join(timeout=10)
 
-    def _post(self, **overrides):
+    def _post(self, raw=None, **overrides):
         import requests
 
-        body = client_body(collection_name="bug1268")
-        body.update(overrides)
-        resp = requests.post(
-            f"http://127.0.0.1:{self.port}{ROUTE}", json=body, timeout=10
-        )
+        url = f"http://127.0.0.1:{self.port}{ROUTE}"
+        if raw is not None:
+            resp = requests.post(
+                url, data=raw, headers={"Content-Type": "application/json"}, timeout=10
+            )
+        else:
+            body = client_body(collection_name="bug1268")
+            body.update(overrides)
+            resp = requests.post(url, json=body, timeout=10)
         self.assertEqual(resp.status_code, 200)
         return resp.json()
 
@@ -447,12 +492,26 @@ class Installed(unittest.TestCase):
             ({"agg": ["count"]}, INVALID),
             ({"agg": {"op": "count", "field": "kind"}}, INVALID),
             ({"filter": "{bad"}, INVALID),
+            ({"filter": ""}, INVALID),
+            ({"agg": ""}, INVALID),
+            ({"index_name": None}, INVALID),
+            ({"index_name": 5}, INVALID),
+            ({"collection_name": None}, INVALID),
+            # The field-type converter rejects it before the engine runs.
+            (
+                {"filter": {"op": "geo_range", "field": "kind", "center": "0,0"}},
+                INVALID,
+            ),
         ]
         for overrides, code in cases:
             with self.subTest(overrides=overrides):
                 out = self._post(**overrides)
                 self.assertEqual(out["code"], code)
                 self.assertEqual(out["data"], {})
+        for raw in (b"{not json", b"[1, 2]", b"", b"\xff"):
+            with self.subTest(raw=raw):
+                out = self._post(raw=raw)
+                self.assertEqual((out["code"], out["data"]), (INVALID, {}))
 
 
 if __name__ == "__main__":

@@ -16,8 +16,14 @@ that into ``_total: 0``, so a fault would read as an empty store. The handler ru
 the same engine search itself (``engine_count``) and lets failures raise. The one
 ``{}`` that is a real zero is a filtered count that matches nothing: the engine
 then emits no counter, while an unfiltered count always does (probed on v0.5.1.1).
-A missing collection or index, a malformed request and an engine failure each get
-the service's error response, so the client's count raises instead of reading 0.
+Every request gets the service's envelope (HTTP 200, ``code``, ``message``,
+``data``), never a FastAPI 422 or 500: the route reads the raw JSON body instead of a
+typed model, ``parse_request`` checks its shape, and one boundary in ``aggregate``
+answers anything else. A missing collection or index, a malformed body, a filter the
+field-type converter rejects, and an engine failure each get an error code with
+empty data, so the client's count raises instead of reading 0. Filter semantics
+beyond conversion are the engine's, as on every stock search route: the native
+filter parser decides what a filter matches, and this patch does not second-guess it.
 The handler is ``async`` like the stock routes, so the count runs on the event loop
 between writes, never beside one.
 
@@ -85,8 +91,8 @@ def _source_hashes():
 
 
 def _as_object(value, name):
-    """``value`` as a dict: absent is ``{}``, a JSON string is parsed, nothing else passes."""
-    if value is None or value == "":
+    """``value`` as a dict: null is ``{}``, a JSON string is parsed, nothing else passes."""
+    if value is None:
         return {}
     if isinstance(value, str):
         try:
@@ -100,6 +106,16 @@ def _as_object(value, name):
 
 def parse_request(body):
     """``(collection_name, project, index_name, filters)`` for a total count, or InvalidRequest."""
+    if not isinstance(body, dict):
+        raise InvalidRequest("request body must be a JSON object")
+    name = body.get("collection_name")
+    if not isinstance(name, str) or not name:
+        raise InvalidRequest("collection name is empty")
+    project = body.get("project")
+    if project is None:
+        project = "default"
+    if not isinstance(project, str) or not project:
+        raise InvalidRequest("project must be a non-empty string")
     index_name = body.get("index_name")
     if not isinstance(index_name, str) or not index_name:
         raise InvalidRequest("index name is empty")
@@ -114,12 +130,7 @@ def parse_request(body):
     if _as_object(body.get("cond"), "cond"):
         raise InvalidRequest("cond is not supported for a total count")
     filters = _as_object(body.get("filter"), "filter")
-    return (
-        body.get("collection_name"),
-        body.get("project") or "default",
-        index_name,
-        filters,
-    )
+    return name, project, index_name, filters
 
 
 def _local_index(collection, index_name):
@@ -147,11 +158,15 @@ def engine_count(index, filters):
     dsl = {"sorter": {"op": "count"}}
     if filters:
         dsl["filter"] = filters
-    if index.field_type_converter:
-        dsl = index.field_type_converter.convert_filter_for_index(dsl)
+    try:
+        if index.field_type_converter:
+            dsl = index.field_type_converter.convert_filter_for_index(dsl)
+        dsl_json = json.dumps(dsl)
+    except (ValueError, TypeError, KeyError) as e:
+        raise InvalidRequest(f"filter rejected: {e}") from e
     req = engine.SearchRequest()
     req.topk = 1  # CounterOp needs no query vector
-    req.dsl = json.dumps(dsl)
+    req.dsl = dsl_json
     try:
         extra_json = proxy.index_engine.search(req).extra_json
     except Exception as e:  # noqa: BLE001 — any engine error is a failed count
@@ -188,6 +203,11 @@ def aggregate(module, body, req=None):
         return module.error_response(str(e), codes.INVALID_PARAM.value, request=req)
     except AggregateFailed as e:
         return module.error_response(str(e), codes.INTERNAL_ERR.value, request=req)
+    except Exception as e:  # noqa: BLE001 — the boundary: no request ends in a 500
+        logger.exception("ov-vectordb-agg-patch: unexpected error")
+        return module.error_response(
+            f"aggregate failed: {e!r}", codes.INTERNAL_ERR.value, request=req
+        )
     return module.success_response(
         "aggregate success",
         {"agg": {"_total": total}, "op": "count", "field": None},
@@ -196,22 +216,19 @@ def aggregate(module, body, req=None):
 
 
 def _register(module):
-    from typing import Any, Optional
-
     from fastapi import Request
-    from pydantic import BaseModel, Field
 
-    class AggregateRequest(BaseModel):
-        collection_name: str = Field(..., description="Collection name")
-        index_name: str = Field(..., description="Index name")
-        project: Optional[str] = Field("default", description="Project name")
-        agg: Optional[Any] = Field(None, description='{"op": "count"}; no field')
-        filter: Optional[Any] = Field(None, description="Filter conditions")
-        cond: Optional[Any] = Field(None, description="Unsupported; must be empty")
+    # The raw body, not a typed model: a model's 422 would bypass the envelope.
+    async def aggregate_data(req: Request):
+        """Count data in an index (BUG-1268 runtime patch; total counts only).
 
-    async def aggregate_data(request: AggregateRequest, req: Request):
-        """Count data in an index (BUG-1268 runtime patch; total counts only)"""
-        return aggregate(module, request.model_dump(), req)
+        Body: {collection_name, index_name, project?, agg?: {op: "count"},
+        filter?: object}."""
+        try:
+            body = await req.json()
+        except ValueError:
+            body = None  # parse_request answers INVALID_PARAM
+        return aggregate(module, body, req)
 
     module.data_router.add_api_route(
         ROUTE,
