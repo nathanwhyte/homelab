@@ -6,37 +6,57 @@ the exporter's vikingdb table and ``get_stats``) POSTs to that route, which
 v0.5.1.1 marks ``[vikingdb]`` and ``[system]`` unhealthy on every status read.
 
 This adds the route to ``api_fastapi.data_router`` at import, before
-``server_fastapi`` includes the router. It answers with
-``Collection.aggregate_data``, the in-process count the local backend already uses,
-in the ``{"agg": {"_total": N}}`` shape the client parses. Errors keep the service's
-own error response, so a missing collection or index still fails the count instead
-of reading 0. The handler is ``async`` like the stock routes, so the count runs on
-the event loop between writes, never beside one.
+``server_fastapi`` includes the router, and answers total counts only (the one
+request the client sends: ``op: count``, no ``field``) in the
+``{"agg": {"_total": N}}`` shape the client parses.
+
+It does not answer through ``Collection.aggregate_data``: ``LocalIndex.aggregate``
+returns ``{}`` on any engine failure and ``LocalCollection.aggregate_data`` turns
+that into ``_total: 0``, so a fault would read as an empty store. The handler runs
+the same engine search itself (``engine_count``) and lets failures raise. The one
+``{}`` that is a real zero is a filtered count that matches nothing: the engine
+then emits no counter, while an unfiltered count always does (probed on v0.5.1.1).
+A missing collection or index, a malformed request and an engine failure each get
+the service's error response, so the client's count raises instead of reading 0.
+The handler is ``async`` like the stock routes, so the count runs on the event loop
+between writes, never beside one.
 
 Loaded by sitecustomize.py in the ov-vectordb pod (PYTHONPATH=/ov-nav-patch).
-Guarded on the version, the client's request shape and the collection call it
-serves (source sha256s), and on the route being absent, so an upstream fix makes
-it stand down. OV_VECTORDB_AGG_PATCH=0 rolls back.
+Guarded on the version, the sha256 of every method it answers for or mirrors
+(``EXPECTED_SHA256``), and the route being absent, so an upstream fix makes it
+stand down. OV_VECTORDB_AGG_PATCH=0 rolls back.
 """
 
 import hashlib
 import inspect
+import json
 import logging
 import os
 
 EXPECTED_VERSION = "v0.5.1.1"
-# openviking.storage.vectordb.collection.http_collection.HttpCollection.aggregate_data
-# on v0.5.1.1: the request this route answers.
-EXPECTED_CLIENT_SHA256 = (
-    "e45de48be175470080da5a5563301542c903676c8688a3dc8cecc471ce987bcb"
-)
-# openviking.storage.vectordb.collection.collection.Collection.aggregate_data on
-# v0.5.1.1: the call that answers it.
-EXPECTED_COLLECTION_SHA256 = (
-    "5ff7c8034a4ddd7a2f8b99113b4a6f2fa40aa4f37644cf31213308546568d4aa"
-)
+# Source sha256s on v0.5.1.1. client: the request this route answers. collection,
+# local_collection: the delegation _local_index walks (the name-mangled
+# Collection.__collection, then LocalCollection.indexes.get). local_index: the
+# engine search engine_count mirrors.
+EXPECTED_SHA256 = {
+    "client": "e45de48be175470080da5a5563301542c903676c8688a3dc8cecc471ce987bcb",
+    "collection": "5ff7c8034a4ddd7a2f8b99113b4a6f2fa40aa4f37644cf31213308546568d4aa",
+    "local_collection": "fb9fdb383c50dc23e852ee9b70ef2c9b0e3e787bef80094c481b143a9fedaadc",
+    "local_index": "e15b1677c58b5f51e20ed9dce99b491ab8adcd70d3102ab1c29c106940c46165",
+}
 ROUTE = "/aggregate"
+TOTAL_KEY = (
+    "__total_count__"  # the engine's counter (AggregateKeys.TOTAL_COUNT_INTERNAL)
+)
 logger = logging.getLogger("ov_vectordb_agg_patch")
+
+
+class InvalidRequest(Exception):
+    """The request is malformed; answered with INVALID_PARAM."""
+
+
+class AggregateFailed(Exception):
+    """The count could not be taken; answered with INTERNAL_ERR, never with 0."""
 
 
 def _hash_text(text):
@@ -53,47 +73,126 @@ def _source_hash(fn):
 def _source_hashes():
     from openviking.storage.vectordb.collection.collection import Collection
     from openviking.storage.vectordb.collection.http_collection import HttpCollection
+    from openviking.storage.vectordb.collection.local_collection import LocalCollection
+    from openviking.storage.vectordb.index.local_index import LocalIndex
 
     return {
         "client": _source_hash(HttpCollection.aggregate_data),
         "collection": _source_hash(Collection.aggregate_data),
+        "local_collection": _source_hash(LocalCollection.aggregate_data),
+        "local_index": _source_hash(LocalIndex.aggregate),
     }
+
+
+def _as_object(value, name):
+    """``value`` as a dict: absent is ``{}``, a JSON string is parsed, nothing else passes."""
+    if value is None or value == "":
+        return {}
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except ValueError:
+            raise InvalidRequest(f"{name} is not valid JSON") from None
+    if not isinstance(value, dict):
+        raise InvalidRequest(f"{name} must be an object")
+    return value
+
+
+def parse_request(body):
+    """``(collection_name, project, index_name, filters)`` for a total count, or InvalidRequest."""
+    index_name = body.get("index_name")
+    if not isinstance(index_name, str) or not index_name:
+        raise InvalidRequest("index name is empty")
+    spec = _as_object(body.get("agg"), "agg")
+    unknown = set(spec) - {"op", "field"}
+    if unknown:
+        raise InvalidRequest(f"agg has unknown keys {sorted(unknown)}")
+    if spec.get("op", "count") != "count":
+        raise InvalidRequest(f"unsupported aggregate op {spec.get('op')!r}; only count")
+    if spec.get("field") is not None:
+        raise InvalidRequest("grouped counts (agg.field) are not supported")
+    if _as_object(body.get("cond"), "cond"):
+        raise InvalidRequest("cond is not supported for a total count")
+    filters = _as_object(body.get("filter"), "filter")
+    return (
+        body.get("collection_name"),
+        body.get("project") or "default",
+        index_name,
+        filters,
+    )
+
+
+def _local_index(collection, index_name):
+    """The LocalIndex ``collection`` holds as ``index_name``, as LocalCollection.aggregate_data
+    looks it up, or None when it has no such index."""
+    inner = getattr(collection, "_Collection__collection", None)
+    indexes = getattr(inner, "indexes", None)
+    if indexes is None:
+        raise AggregateFailed("collection is closed or not a local collection")
+    return indexes.get(index_name)
+
+
+def _engine_module():
+    import openviking.storage.vectordb.engine as engine
+
+    return engine
+
+
+def engine_count(index, filters):
+    """LocalIndex.aggregate's engine search, with every failure raised instead of ``{}``."""
+    engine = _engine_module()
+    proxy = getattr(index, "engine_proxy", None)
+    if not proxy or not proxy.index_engine:
+        raise AggregateFailed("index engine is not loaded")
+    dsl = {"sorter": {"op": "count"}}
+    if filters:
+        dsl["filter"] = filters
+    if index.field_type_converter:
+        dsl = index.field_type_converter.convert_filter_for_index(dsl)
+    req = engine.SearchRequest()
+    req.topk = 1  # CounterOp needs no query vector
+    req.dsl = json.dumps(dsl)
+    try:
+        extra_json = proxy.index_engine.search(req).extra_json
+    except Exception as e:  # noqa: BLE001 — any engine error is a failed count
+        raise AggregateFailed(f"aggregation failed: {e}") from e
+    if not extra_json:
+        if filters:
+            return 0  # a filter that matches nothing emits no counter
+        raise AggregateFailed("engine returned no aggregation result")
+    try:
+        data = json.loads(extra_json)
+    except ValueError as e:
+        raise AggregateFailed(f"unparseable aggregation result: {e}") from e
+    total = data.get(TOTAL_KEY) if isinstance(data, dict) else None
+    if isinstance(total, bool) or not isinstance(total, int) or total < 0:
+        raise AggregateFailed(f"aggregation result has no valid {TOTAL_KEY}")
+    return total
 
 
 def aggregate(module, body, req=None):
     """Answer one aggregate request body with ``module``'s (api_fastapi's) helpers."""
+    codes = module.ErrorCode
     try:
-        collection = module.get_collection_or_raise(
-            body.get("collection_name"), body.get("project") or "default"
-        )
-        index_name = body.get("index_name")
-        if not index_name:
+        name, project, index_name, filters = parse_request(body)
+        collection = module.get_collection_or_raise(name, project)
+        index = _local_index(collection, index_name)
+        if index is None:
             return module.error_response(
-                "index name is empty", module.ErrorCode.INVALID_PARAM.value, request=req
+                "index not exist", codes.INDEX_NOT_EXIST.value, request=req
             )
-        spec = module.data_utils.convert_dict(body.get("agg")) or {}
-        op = spec.get("op") or "count"
-        if op != "count":
-            return module.error_response(
-                f"unsupported aggregate op {op!r}; only count is supported",
-                module.ErrorCode.INVALID_PARAM.value,
-                request=req,
-            )
-        field = spec.get("field") or None
-        result = collection.aggregate_data(
-            index_name=index_name,
-            op=op,
-            field=field,
-            filters=module.data_utils.convert_dict(body.get("filter")),
-            cond=module.data_utils.convert_dict(body.get("cond")),
-        )
-        return module.success_response(
-            "aggregate success",
-            {"agg": result.agg, "op": result.op, "field": result.field},
-            request=req,
-        )
+        total = engine_count(index, filters)
     except module.VikingDBException as e:
         return module.error_response(e.message, e.code.value, request=req)
+    except InvalidRequest as e:
+        return module.error_response(str(e), codes.INVALID_PARAM.value, request=req)
+    except AggregateFailed as e:
+        return module.error_response(str(e), codes.INTERNAL_ERR.value, request=req)
+    return module.success_response(
+        "aggregate success",
+        {"agg": {"_total": total}, "op": "count", "field": None},
+        request=req,
+    )
 
 
 def _register(module):
@@ -106,12 +205,12 @@ def _register(module):
         collection_name: str = Field(..., description="Collection name")
         index_name: str = Field(..., description="Index name")
         project: Optional[str] = Field("default", description="Project name")
-        agg: Optional[Any] = Field(None, description='{"op": "count", "field": ...}')
+        agg: Optional[Any] = Field(None, description='{"op": "count"}; no field')
         filter: Optional[Any] = Field(None, description="Filter conditions")
-        cond: Optional[Any] = Field(None, description="Post-aggregation conditions")
+        cond: Optional[Any] = Field(None, description="Unsupported; must be empty")
 
     async def aggregate_data(request: AggregateRequest, req: Request):
-        """Aggregate (count) data in an index (BUG-1268 runtime patch)"""
+        """Count data in an index (BUG-1268 runtime patch; total counts only)"""
         return aggregate(module, request.model_dump(), req)
 
     module.data_router.add_api_route(
@@ -140,11 +239,7 @@ def apply(module):
         return False
     version = getattr(openviking, "__version__", None)
     hashes = _source_hashes() if version == EXPECTED_VERSION else {}
-    if (
-        version != EXPECTED_VERSION
-        or hashes.get("client") != EXPECTED_CLIENT_SHA256
-        or hashes.get("collection") != EXPECTED_COLLECTION_SHA256
-    ):
+    if version != EXPECTED_VERSION or hashes != EXPECTED_SHA256:
         logger.warning(
             "ov-vectordb-agg-patch: NOT applied (version=%r sha256=%s)", version, hashes
         )

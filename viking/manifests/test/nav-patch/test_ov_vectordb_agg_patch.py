@@ -1,9 +1,9 @@
 """BUG-1268: ov-vectordb answers the server's count call on /api/vikingdb/data/aggregate.
 
-The guard and handler cases use fakes. The installed cases import the real v0.5.1.1
-vectordb service (sitecustomize applies the patch on import), serve it on a local
-port, and count through the real ``HttpCollectionAdapter``, the path ``ov status``
-takes.
+The parse, engine, handler and guard cases use fakes. The installed cases import the
+real v0.5.1.1 vectordb service (sitecustomize applies the patch on import), serve it
+on a local port, and count through the real ``HttpCollectionAdapter``, the path
+``ov status`` takes, including an engine failure that must not read as 0.
 """
 
 import sys
@@ -15,6 +15,7 @@ from git_env import scrub_environ  # noqa: E402
 scrub_environ()
 
 import importlib.util
+import json
 import os
 import socket
 import threading
@@ -27,13 +28,42 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import ov_vectordb_agg_patch as agg
 
 ROUTE = "/api/vikingdb/data/aggregate"
+INVALID, MISSING, INTERNAL = 1000001, 1000003, 1000004
 
 
-class FakeRouter:
-    prefix = "/api/vikingdb/data"
+class FakeEngine:
+    class SearchRequest:
+        topk = None
+        dsl = None
 
-    def __init__(self, paths=()):
-        self.routes = [types.SimpleNamespace(path=p) for p in paths]
+
+class FakeIndexEngine:
+    def __init__(self, extra_json="", error=None):
+        self.extra_json = extra_json
+        self.error = error
+        self.requests = []
+
+    def search(self, req):
+        self.requests.append(json.loads(req.dsl))
+        if self.error:
+            raise self.error
+        return types.SimpleNamespace(extra_json=self.extra_json)
+
+
+def fake_index(extra_json="", error=None, converter=None, engine=True):
+    index_engine = FakeIndexEngine(extra_json, error) if engine else None
+    return types.SimpleNamespace(
+        engine_proxy=types.SimpleNamespace(index_engine=index_engine),
+        field_type_converter=converter,
+    )
+
+
+def fake_collection(index=None, index_name="default"):
+    """Collection -> LocalCollection.indexes -> LocalIndex, by their real attribute names."""
+    indexes = {} if index is None else {index_name: index}
+    coll = types.SimpleNamespace()
+    setattr(coll, "_Collection__collection", types.SimpleNamespace(indexes=indexes))
+    return coll
 
 
 class FakeVikingDBException(Exception):
@@ -42,37 +72,22 @@ class FakeVikingDBException(Exception):
         self.message = message
 
 
-class FakeCollection:
-    def __init__(self, agg_result=None):
-        self.calls = []
-        self.agg_result = agg_result or {"_total": 3}
-
-    def aggregate_data(
-        self, index_name, op="count", field=None, filters=None, cond=None
-    ):
-        self.calls.append((index_name, op, field, filters, cond))
-        return types.SimpleNamespace(agg=self.agg_result, op=op, field=field)
-
-
-def fake_service(collection=None, missing=False):
+def fake_service(collection=None):
     """The parts of api_fastapi the handler uses."""
 
     def get_collection_or_raise(name, project="default"):
-        if missing:
+        if collection is None:
             raise FakeVikingDBException(
-                types.SimpleNamespace(value=1000002), "collection not exist"
+                types.SimpleNamespace(value=MISSING), "collection not exist"
             )
         return collection
 
-    def convert_dict(p):
-        import json
-
-        if not p:
-            return {}
-        return json.loads(p) if isinstance(p, str) else p
-
+    code = types.SimpleNamespace
     return types.SimpleNamespace(
-        data_router=FakeRouter(["/api/vikingdb/data/upsert"]),
+        data_router=types.SimpleNamespace(
+            prefix="/api/vikingdb/data",
+            routes=[types.SimpleNamespace(path="/api/vikingdb/data/upsert")],
+        ),
         get_collection_or_raise=get_collection_or_raise,
         success_response=lambda m, d=None, request=None: {
             "code": 0,
@@ -82,120 +97,209 @@ def fake_service(collection=None, missing=False):
         error_response=lambda m, c, request=None: {"code": c, "message": m, "data": {}},
         VikingDBException=FakeVikingDBException,
         ErrorCode=types.SimpleNamespace(
-            INVALID_PARAM=types.SimpleNamespace(value=1000001)
+            INVALID_PARAM=code(value=INVALID),
+            INDEX_NOT_EXIST=code(value=MISSING),
+            INTERNAL_ERR=code(value=INTERNAL),
         ),
-        data_utils=types.SimpleNamespace(convert_dict=convert_dict),
     )
 
 
-class Handler(unittest.TestCase):
-    def test_total_count(self):
-        coll = FakeCollection()
-        out = agg.aggregate(
-            fake_service(coll),
-            {
-                "collection_name": "context",
-                "index_name": "default",
-                "agg": {"op": "count"},
-            },
-        )
-        self.assertEqual(out["code"], 0)
+def client_body(**overrides):
+    """What HttpCollection.aggregate_data sends for CollectionAdapter.count()."""
+    body = {
+        "project": "default",
+        "collection_name": "context",
+        "index_name": "default",
+        "agg": {"op": "count", "field": None},
+        "filter": None,
+    }
+    body.update(overrides)
+    return body
+
+
+class Parse(unittest.TestCase):
+    def test_client_request(self):
+        flt = {"op": "must", "field": "kind", "conds": ["x"]}
         self.assertEqual(
-            out["data"], {"agg": {"_total": 3}, "op": "count", "field": None}
+            agg.parse_request(client_body(filter=flt)),
+            ("context", "default", "default", flt),
         )
-        self.assertEqual(coll.calls, [("default", "count", None, {}, {})])
+        self.assertEqual(agg.parse_request(client_body(filter=None))[3], {})
+        self.assertEqual(agg.parse_request(client_body(agg=None))[3], {})
+        self.assertEqual(
+            agg.parse_request(client_body(filter=json.dumps(flt), project=None))[1:],
+            ("default", "default", flt),
+        )
 
-    def test_filter_field_and_cond_pass_through(self):
-        coll = FakeCollection({"x": 2, "y": 1})
-        flt = {"op": "must", "field": "kind", "conds": ["x", "y"]}
-        out = agg.aggregate(
-            fake_service(coll),
+    def test_rejects_malformed_requests(self):
+        bad = [
+            {"index_name": ""},
+            {"index_name": None},
+            {"index_name": 5},
+            {"agg": 123},
+            {"agg": ["count"]},
+            {"agg": "{not json"},
+            {"agg": {"op": False}},
+            {"agg": {"op": "sum"}},
+            {"agg": {"op": None}},
+            {"agg": {"op": "count", "field": "kind"}},
+            {"agg": {"op": "count", "extra": 1}},
+            {"filter": [1]},
+            {"filter": 7},
+            {"filter": "{bad"},
+            {"cond": {"gt": 1}},
+            {"cond": "nope"},
+        ]
+        for overrides in bad:
+            with self.subTest(overrides=overrides):
+                with self.assertRaises(agg.InvalidRequest):
+                    agg.parse_request(client_body(**overrides))
+
+
+class EngineCount(unittest.TestCase):
+    def setUp(self):
+        p = patch.object(agg, "_engine_module", lambda: FakeEngine)
+        p.start()
+        self.addCleanup(p.stop)
+
+    def test_total(self):
+        index = fake_index('{"__total_count__": 3}')
+        self.assertEqual(agg.engine_count(index, {}), 3)
+        self.assertEqual(
+            index.engine_proxy.index_engine.requests, [{"sorter": {"op": "count"}}]
+        )
+
+    def test_filter_and_converter(self):
+        flt = {"op": "must", "field": "kind", "conds": ["x"]}
+        seen = []
+
+        def convert(dsl):
+            seen.append(dsl)
+            return {**dsl, "converted": True}
+
+        index = fake_index(
+            '{"__total_count__": 2}',
+            converter=types.SimpleNamespace(convert_filter_for_index=convert),
+        )
+        self.assertEqual(agg.engine_count(index, flt), 2)
+        self.assertEqual(seen, [{"sorter": {"op": "count"}, "filter": flt}])
+        self.assertTrue(index.engine_proxy.index_engine.requests[0]["converted"])
+
+    def test_filtered_count_with_no_match_is_zero(self):
+        self.assertEqual(agg.engine_count(fake_index(""), {"op": "must"}), 0)
+
+    def test_failures_raise_instead_of_reading_zero(self):
+        cases = {
+            "unfiltered empty result": (fake_index(""), {}),
+            "engine error": (fake_index(error=RuntimeError("boom")), {"op": "must"}),
+            "no engine": (fake_index(engine=False), {}),
+            "no proxy": (types.SimpleNamespace(engine_proxy=None), {}),
+            "bad json": (fake_index("{oops"), {}),
+            "no counter": (fake_index('{"other": 1}'), {}),
+            "bool counter": (fake_index('{"__total_count__": true}'), {}),
+            "negative counter": (fake_index('{"__total_count__": -1}'), {}),
+            "float counter": (fake_index('{"__total_count__": 1.5}'), {}),
+            "list result": (fake_index("[]"), {}),
+        }
+        for name, (index, filters) in cases.items():
+            with self.subTest(name):
+                with self.assertRaises(agg.AggregateFailed):
+                    agg.engine_count(index, filters)
+
+
+class Handler(unittest.TestCase):
+    def setUp(self):
+        p = patch.object(agg, "_engine_module", lambda: FakeEngine)
+        p.start()
+        self.addCleanup(p.stop)
+
+    def test_total_count_envelope(self):
+        svc = fake_service(fake_collection(fake_index('{"__total_count__": 3}')))
+        self.assertEqual(
+            agg.aggregate(svc, client_body()),
             {
-                "collection_name": "context",
-                "index_name": "default",
-                "agg": {"op": "count", "field": "kind"},
-                "filter": flt,
-                "cond": '{"gt": 0}',
+                "code": 0,
+                "message": "aggregate success",
+                "data": {"agg": {"_total": 3}, "op": "count", "field": None},
             },
         )
-        self.assertEqual(out["data"]["agg"], {"x": 2, "y": 1})
-        self.assertEqual(coll.calls, [("default", "count", "kind", flt, {"gt": 0})])
 
-    def test_missing_agg_defaults_to_count(self):
-        coll = FakeCollection()
-        out = agg.aggregate(
-            fake_service(coll), {"collection_name": "context", "index_name": "default"}
+    def test_errors_get_error_envelopes(self):
+        good = fake_index('{"__total_count__": 3}')
+        cases = [
+            ("missing collection", fake_service(None), client_body(), MISSING),
+            (
+                "missing index",
+                fake_service(fake_collection(good, "other")),
+                client_body(),
+                MISSING,
+            ),
+            (
+                "engine error",
+                fake_service(fake_collection(fake_index(error=RuntimeError("boom")))),
+                client_body(),
+                INTERNAL,
+            ),
+            (
+                "closed collection",
+                fake_service(types.SimpleNamespace()),
+                client_body(),
+                INTERNAL,
+            ),
+            (
+                "malformed",
+                fake_service(fake_collection(good)),
+                client_body(agg=["count"]),
+                INVALID,
+            ),
+        ]
+        for name, svc, body, code in cases:
+            with self.subTest(name):
+                out = agg.aggregate(svc, body)
+                self.assertEqual(out["code"], code)
+                self.assertEqual(out["data"], {})
+
+    def test_index_without_an_engine_is_an_error(self):
+        coll = fake_collection(fake_index(engine=False))
+        self.assertEqual(
+            agg.aggregate(fake_service(coll), client_body())["code"], INTERNAL
         )
-        self.assertEqual(out["code"], 0)
-        self.assertEqual(coll.calls[0][1:3], ("count", None))
-
-    def test_rejects_empty_index_and_other_ops(self):
-        coll = FakeCollection()
-        svc = fake_service(coll)
-        for body in (
-            {"collection_name": "context", "index_name": ""},
-            {
-                "collection_name": "context",
-                "index_name": "default",
-                "agg": {"op": "sum"},
-            },
-        ):
-            self.assertEqual(agg.aggregate(svc, body)["code"], 1000001)
-        self.assertEqual(coll.calls, [])
-
-    def test_missing_collection_is_an_error_not_zero(self):
-        out = agg.aggregate(
-            fake_service(missing=True),
-            {"collection_name": "nope", "index_name": "default"},
-        )
-        self.assertEqual(out["code"], 1000002)
-        self.assertEqual(out["data"], {})
 
 
 class Guards(unittest.TestCase):
-    def _sources(self, client="client", collection="collection"):
-        return {
-            "client": agg._hash_text(client),
-            "collection": agg._hash_text(collection),
-        }
-
     def test_refusals_leave_the_router_alone(self):
         svc = fake_service()
         ov = types.SimpleNamespace(__version__="v0.4.20")
-        good = self._sources()
+        good = dict(agg.EXPECTED_SHA256)
         with (
             patch.dict(sys.modules, {"openviking": ov}),
             patch.dict(os.environ, {}, clear=True),
-            patch.object(agg, "_source_hashes", lambda: good),
-            patch.object(agg, "EXPECTED_CLIENT_SHA256", good["client"]),
-            patch.object(agg, "EXPECTED_COLLECTION_SHA256", good["collection"]),
+            patch.object(agg, "_source_hashes", lambda: dict(good)),
             patch.object(agg, "_register", side_effect=AssertionError("registered")),
         ):
             self.assertFalse(agg.apply(svc))  # version
             ov.__version__ = agg.EXPECTED_VERSION
             with patch.dict(os.environ, {"OV_VECTORDB_AGG_PATCH": "0"}):
                 self.assertFalse(agg.apply(svc))  # off switch
-            with patch.object(agg, "_source_hashes", lambda: self._sources("drift")):
-                self.assertFalse(agg.apply(svc))  # client wire shape changed
-            with patch.object(
-                agg, "_source_hashes", lambda: self._sources(collection="drift")
-            ):
-                self.assertFalse(agg.apply(svc))  # collection call changed
+            for key in good:
+                with self.subTest(drift=key):
+                    drifted = {**good, key: agg._hash_text("drift")}
+                    with patch.object(agg, "_source_hashes", lambda d=drifted: d):
+                        self.assertFalse(agg.apply(svc))
+            with patch.object(agg, "_source_hashes", lambda: {**good, "client": None}):
+                self.assertFalse(agg.apply(svc))  # source unreadable
             svc.data_router.routes.append(types.SimpleNamespace(path=ROUTE))
             self.assertFalse(agg.apply(svc))  # upstream serves it already
             self.assertFalse(agg.apply(types.SimpleNamespace()))  # no data_router
 
     def test_applies_once(self):
         svc = fake_service()
-        good = self._sources()
         calls = []
         ov = types.SimpleNamespace(__version__=agg.EXPECTED_VERSION)
         with (
             patch.dict(sys.modules, {"openviking": ov}),
             patch.dict(os.environ, {}, clear=True),
-            patch.object(agg, "_source_hashes", lambda: good),
-            patch.object(agg, "EXPECTED_CLIENT_SHA256", good["client"]),
-            patch.object(agg, "EXPECTED_COLLECTION_SHA256", good["collection"]),
+            patch.object(agg, "_source_hashes", lambda: dict(agg.EXPECTED_SHA256)),
             patch.object(agg, "_register", lambda module: calls.append(module)),
         ):
             self.assertTrue(agg.apply(svc))
@@ -217,6 +321,16 @@ def _free_port():
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))
         return s.getsockname()[1]
+
+
+class RaisingProxy:
+    """Stands in for a real index's engine proxy whose native search fails."""
+
+    class _Engine:
+        def search(self, req):
+            raise RuntimeError("native search failed")
+
+    index_engine = _Engine()
 
 
 @unittest.skipIf(service is None, "needs the openviking v0.5.1.1 image")
@@ -274,6 +388,23 @@ class Installed(unittest.TestCase):
         cls.server.should_exit = True
         cls.thread.join(timeout=10)
 
+    def _post(self, **overrides):
+        import requests
+
+        body = client_body(collection_name="bug1268")
+        body.update(overrides)
+        resp = requests.post(
+            f"http://127.0.0.1:{self.port}{ROUTE}", json=body, timeout=10
+        )
+        self.assertEqual(resp.status_code, 200)
+        return resp.json()
+
+    def _real_index(self):
+        from openviking.storage.vectordb.service import api_fastapi
+
+        coll = api_fastapi.get_collection_or_raise("bug1268")
+        return agg._local_index(coll, "default")
+
     def test_applied_on_import(self):
         from openviking.storage.vectordb.service import api_fastapi
 
@@ -283,31 +414,45 @@ class Installed(unittest.TestCase):
         self.assertIn(ROUTE, service.app.openapi()["paths"])
 
     def test_guard_hashes_match_the_installed_sources(self):
-        self.assertEqual(
-            agg._source_hashes(),
-            {
-                "client": agg.EXPECTED_CLIENT_SHA256,
-                "collection": agg.EXPECTED_COLLECTION_SHA256,
-            },
-        )
+        self.assertEqual(agg._source_hashes(), agg.EXPECTED_SHA256)
+
+    def test_walks_to_the_real_local_index(self):
+        from openviking.storage.vectordb.index.local_index import LocalIndex
+
+        self.assertIsInstance(self._real_index(), LocalIndex)
 
     def test_count_through_the_http_adapter(self):
         self.assertEqual(self.adapter.count(), 3)
         self.assertEqual(self.adapter.strict_count(), 3)
 
-    def test_filtered_count(self):
-        flt = {"op": "must", "field": "kind", "conds": ["x"]}
-        self.assertEqual(self.adapter.count(flt), 2)
-
-    def test_missing_collection_still_fails_the_count(self):
-        from openviking.storage.vectordb.collection.http_collection import (
-            HttpCollection,
+    def test_filtered_counts(self):
+        self.assertEqual(
+            self.adapter.count({"op": "must", "field": "kind", "conds": ["x"]}), 2
+        )
+        self.assertEqual(
+            self.adapter.count({"op": "must", "field": "kind", "conds": ["zzz"]}), 0
         )
 
-        missing = HttpCollection(
-            "127.0.0.1", self.port, {"CollectionName": "bug1268-missing"}
-        )
-        self.assertEqual(missing.aggregate_data("default").agg, {})
+    def test_engine_failure_fails_the_count(self):
+        with patch.object(self._real_index(), "engine_proxy", RaisingProxy()):
+            self.assertEqual(self._post()["code"], INTERNAL)
+            with self.assertRaises(RuntimeError):
+                self.adapter.count()
+        self.assertEqual(self.adapter.count(), 3)
+
+    def test_error_envelopes_over_http(self):
+        cases = [
+            ({"collection_name": "bug1268-missing"}, MISSING),
+            ({"index_name": "missing"}, MISSING),
+            ({"agg": ["count"]}, INVALID),
+            ({"agg": {"op": "count", "field": "kind"}}, INVALID),
+            ({"filter": "{bad"}, INVALID),
+        ]
+        for overrides, code in cases:
+            with self.subTest(overrides=overrides):
+                out = self._post(**overrides)
+                self.assertEqual(out["code"], code)
+                self.assertEqual(out["data"], {})
 
 
 if __name__ == "__main__":
