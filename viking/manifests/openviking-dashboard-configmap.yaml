@@ -426,7 +426,6 @@ data:
           "id": 14,
           "type": "timeseries",
           "title": "VikingDB Vectors per Collection",
-          "description": "No data on OpenViking v0.5.1.1: ov status reports the vikingdb component as an error (the server's /api/vikingdb/data/aggregate call 404s on ov-vectordb; v0.4.20 showed it as 0 vectors), so the exporter publishes no openviking_vectordb_* series (IMPR-1412).",
           "gridPos": { "h": 8, "w": 12, "x": 0, "y": 20 },
           "datasource": { "type": "prometheus", "uid": "prometheus" },
           "targets": [

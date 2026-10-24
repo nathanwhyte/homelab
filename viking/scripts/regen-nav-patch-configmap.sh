@@ -4,10 +4,12 @@
 # loader) and every ov_*_patch.py beside it (IMPR-1185 nav patch, BUG-1176 extract,
 # BUG-1177 ChatLog, BUG-1174 S3 cache, BUG-1180 memory guard, IMPR-1200 event
 # abstract, BUG-1189 grep scope, IMPR-1215 recall time, BUG-1218 fetch-items,
-# IMPR-1303 WM-update-skip, IMPR-1311 Claude-params and IMPR-1404 preference-gate).
+# IMPR-1303 WM-update-skip, IMPR-1311 Claude-params, IMPR-1404 preference-gate and
+# BUG-1268 vectordb aggregate route).
 # The file set is that glob (IMPR-1413), so a new patch needs no edit here. The test
 # stack builds its own ConfigMap (ov-nav-patch) through its kustomization, which has
-# to list the same files; both Deployments mount their ConfigMap whole.
+# to list the same files; every Deployment that loads the patches (openviking and
+# ov-vectordb, and their test twins) mounts its stack's ConfigMap whole.
 #
 # `--check` (a pre-commit hook) runs check-nav-patch-files.py, which renders both
 # stacks with `kubectl kustomize` and exits non-zero when what either one mounts
