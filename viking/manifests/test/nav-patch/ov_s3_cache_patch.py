@@ -1,4 +1,4 @@
-"""Disable RAGFS's process-local S3 metadata cache on v0.4.20 (BUG-1174).
+"""Disable RAGFS's process-local S3 metadata cache on v0.5.1.1 (BUG-1174).
 
 A cached negative stat survives another worker's mkdir. The lock manager then
 gets AlreadyExists from mkdir and the same stale NotFound from its verification
@@ -18,7 +18,7 @@ import inspect
 import logging
 import os
 
-EXPECTED_VERSION = "v0.4.20"
+EXPECTED_VERSION = "v0.5.1.1"
 EXPECTED_SHA256 = "3dd278b535bd5059e7eb09d58642560721c41fc8ccde403e1150c6282d0151e9"
 logger = logging.getLogger("ov_s3_cache_patch")
 

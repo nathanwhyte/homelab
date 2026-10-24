@@ -16,8 +16,10 @@ restart that failed.
 
 Prerequisites for ``haiku`` (see viking/docs/2026-10-13-impr-1311-haiku-vlm-round2.md):
 the ``anthropic-vlm-key`` Secret holds a nonempty ``API_KEY`` (checked before any
-change) and the pod runs ``ov_claude_params_patch.py`` (Haiku 5.5 rejects the
-``temperature`` OpenViking always sends).
+change) and the pod drops ``temperature`` for ``claude-*`` models (Haiku 5.5 rejects
+the ``temperature`` OpenViking always sends). ``ov_claude_params_patch.py`` did that
+on v0.4.20 and was retired at v0.5.1.1 (IMPR-1412), whose non-reasoning branch still
+sends it, so a ``haiku`` swap needs that patch ported back first.
 """
 
 import argparse

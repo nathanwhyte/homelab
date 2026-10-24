@@ -241,9 +241,9 @@ run "ov status shows queue" ov status --expect "queue"
 skip "ov wait with timeout" "hangs indefinitely through external HTTPS proxy (known Traefik long-poll issue)"
 
 # ov version
-# Matches both lines of the 0.4.x output ("CLI: 0.4.21" / "Server: v0.4.20");
-# the old "0.3" expectation predates the v0.4 cutover and could not pass.
-run "ov version prints version" ov version --expect "0.4"
+# Matches the server line on v0.5.x ("Server: v0.5.1.1"), whatever the local CLI
+# is; "0.4" held until the IMPR-1412 upgrade, and "0.3" before the v0.4 cutover.
+run "ov version prints version" ov version --expect "0.5"
 
 # ═══════════════════════════════════════════════════════════════
 # Section 2: Browsing & Navigation

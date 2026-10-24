@@ -1,0 +1,552 @@
+apiVersion: v1
+items:
+- apiVersion: v1
+  kind: Service
+  metadata:
+    annotations:
+      kubectl.kubernetes.io/last-applied-configuration: |
+        {"apiVersion":"v1","kind":"Service","metadata":{"annotations":{},"labels":{"app":"embedder-eg2"},"name":"embedder-eg2","namespace":"viking"},"spec":{"ports":[{"name":"http","port":8080,"targetPort":8000}],"selector":{"app":"embedder-eg2-cuda"},"type":"ClusterIP"}}
+    creationTimestamp: "2026-10-08T12:40:03Z"
+    labels:
+      app: embedder-eg2
+    name: embedder-eg2
+    namespace: viking
+    resourceVersion: "76928786"
+    uid: 4851d72a-fa0f-4de6-b1aa-c6161b1e33f9
+  spec:
+    clusterIP: 10.43.138.48
+    clusterIPs:
+    - 10.43.138.48
+    internalTrafficPolicy: Cluster
+    ipFamilies:
+    - IPv4
+    ipFamilyPolicy: SingleStack
+    ports:
+    - name: http
+      port: 8080
+      protocol: TCP
+      targetPort: 8000
+    selector:
+      app: embedder-eg2-cuda
+    sessionAffinity: None
+    type: ClusterIP
+  status:
+    loadBalancer: {}
+- apiVersion: v1
+  kind: Service
+  metadata:
+    annotations:
+      kubectl.kubernetes.io/last-applied-configuration: |
+        {"apiVersion":"v1","kind":"Service","metadata":{"annotations":{},"labels":{"app":"embedder-prompt-shim"},"name":"embedder-prompt-shim","namespace":"viking"},"spec":{"ports":[{"name":"http","port":8080,"protocol":"TCP","targetPort":8080}],"selector":{"app":"embedder-prompt-shim"},"type":"ClusterIP"}}
+    creationTimestamp: "2026-10-17T21:23:04Z"
+    labels:
+      app: embedder-prompt-shim
+    name: embedder-prompt-shim
+    namespace: viking
+    resourceVersion: "80198331"
+    uid: 552d1c36-3daa-4ed8-bb63-f7cb991c5689
+  spec:
+    clusterIP: 10.43.77.205
+    clusterIPs:
+    - 10.43.77.205
+    internalTrafficPolicy: Cluster
+    ipFamilies:
+    - IPv4
+    ipFamilyPolicy: SingleStack
+    ports:
+    - name: http
+      port: 8080
+      protocol: TCP
+      targetPort: 8080
+    selector:
+      app: embedder-prompt-shim
+    sessionAffinity: None
+    type: ClusterIP
+  status:
+    loadBalancer: {}
+- apiVersion: v1
+  kind: Service
+  metadata:
+    annotations:
+      kubectl.kubernetes.io/last-applied-configuration: |
+        {"apiVersion":"v1","kind":"Service","metadata":{"annotations":{},"labels":{"app":"embedder-qwen"},"name":"embedder-qwen","namespace":"viking"},"spec":{"ports":[{"name":"http","port":8080,"protocol":"TCP","targetPort":8000}],"selector":{"app":"embedder-qwen-cuda"},"type":"ClusterIP"}}
+    creationTimestamp: "2026-07-06T21:14:10Z"
+    labels:
+      app: embedder-qwen
+    name: embedder-qwen
+    namespace: viking
+    resourceVersion: "53936699"
+    uid: e9393474-bc51-4f91-800c-6aac449d684a
+  spec:
+    clusterIP: 10.43.106.189
+    clusterIPs:
+    - 10.43.106.189
+    internalTrafficPolicy: Cluster
+    ipFamilies:
+    - IPv4
+    ipFamilyPolicy: SingleStack
+    ports:
+    - name: http
+      port: 8080
+      protocol: TCP
+      targetPort: 8000
+    selector:
+      app: embedder-qwen-cuda
+    sessionAffinity: None
+    type: ClusterIP
+  status:
+    loadBalancer: {}
+- apiVersion: v1
+  kind: Service
+  metadata:
+    annotations:
+      kubectl.kubernetes.io/last-applied-configuration: |
+        {"apiVersion":"v1","kind":"Service","metadata":{"annotations":{},"labels":{"app":"litellm-redis"},"name":"litellm-redis","namespace":"viking"},"spec":{"ports":[{"name":"redis","port":6379,"protocol":"TCP","targetPort":6379}],"selector":{"app":"litellm-redis"},"type":"ClusterIP"}}
+    creationTimestamp: "2026-10-14T18:27:13Z"
+    labels:
+      app: litellm-redis
+    name: litellm-redis
+    namespace: viking
+    resourceVersion: "79070423"
+    uid: 84dfc196-f6d0-4190-a98b-3959036523ae
+  spec:
+    clusterIP: 10.43.129.23
+    clusterIPs:
+    - 10.43.129.23
+    internalTrafficPolicy: Cluster
+    ipFamilies:
+    - IPv4
+    ipFamilyPolicy: SingleStack
+    ports:
+    - name: redis
+      port: 6379
+      protocol: TCP
+      targetPort: 6379
+    selector:
+      app: litellm-redis
+    sessionAffinity: None
+    type: ClusterIP
+  status:
+    loadBalancer: {}
+- apiVersion: v1
+  kind: Service
+  metadata:
+    annotations:
+      kubectl.kubernetes.io/last-applied-configuration: |
+        {"apiVersion":"v1","kind":"Service","metadata":{"annotations":{},"labels":{"app":"litellm-vlm"},"name":"litellm-vlm","namespace":"viking"},"spec":{"ports":[{"name":"http","port":4000,"protocol":"TCP","targetPort":4000}],"selector":{"app":"litellm-vlm"},"type":"ClusterIP"}}
+    creationTimestamp: "2026-10-14T18:27:35Z"
+    labels:
+      app: litellm-vlm
+    name: litellm-vlm
+    namespace: viking
+    resourceVersion: "79070668"
+    uid: 1b384a79-24fa-46fa-927b-98623c2b546c
+  spec:
+    clusterIP: 10.43.187.99
+    clusterIPs:
+    - 10.43.187.99
+    internalTrafficPolicy: Cluster
+    ipFamilies:
+    - IPv4
+    ipFamilyPolicy: SingleStack
+    ports:
+    - name: http
+      port: 4000
+      protocol: TCP
+      targetPort: 4000
+    selector:
+      app: litellm-vlm
+    sessionAffinity: None
+    type: ClusterIP
+  status:
+    loadBalancer: {}
+- apiVersion: v1
+  kind: Service
+  metadata:
+    annotations:
+      kubectl.kubernetes.io/last-applied-configuration: |
+        {"apiVersion":"v1","kind":"Service","metadata":{"annotations":{},"name":"llamacpp-cuda-llm","namespace":"viking"},"spec":{"ports":[{"name":"http","port":80,"protocol":"TCP","targetPort":8000}],"selector":{"app":"llamacpp-cuda-ov"},"type":"ClusterIP"}}
+    creationTimestamp: "2026-07-06T21:14:10Z"
+    name: llamacpp-cuda-llm
+    namespace: viking
+    resourceVersion: "49430910"
+    uid: 870faae3-02b2-4c2c-bb23-8fb5f1aa1194
+  spec:
+    clusterIP: 10.43.90.63
+    clusterIPs:
+    - 10.43.90.63
+    internalTrafficPolicy: Cluster
+    ipFamilies:
+    - IPv4
+    ipFamilyPolicy: SingleStack
+    ports:
+    - name: http
+      port: 80
+      protocol: TCP
+      targetPort: 8000
+    selector:
+      app: llamacpp-cuda-ov
+    sessionAffinity: None
+    type: ClusterIP
+  status:
+    loadBalancer: {}
+- apiVersion: v1
+  kind: Service
+  metadata:
+    annotations:
+      kubectl.kubernetes.io/last-applied-configuration: |
+        {"apiVersion":"v1","kind":"Service","metadata":{"annotations":{},"name":"llamacpp-vlm","namespace":"viking"},"spec":{"ports":[{"name":"http","port":80,"protocol":"TCP","targetPort":8000}],"selector":{"vlm-pool":"true"},"type":"ClusterIP"}}
+    creationTimestamp: "2026-07-06T21:14:10Z"
+    name: llamacpp-vlm
+    namespace: viking
+    resourceVersion: "49430882"
+    uid: 77d20fb7-747d-4797-a296-cddaddf48a14
+  spec:
+    clusterIP: 10.43.85.77
+    clusterIPs:
+    - 10.43.85.77
+    internalTrafficPolicy: Cluster
+    ipFamilies:
+    - IPv4
+    ipFamilyPolicy: SingleStack
+    ports:
+    - name: http
+      port: 80
+      protocol: TCP
+      targetPort: 8000
+    selector:
+      vlm-pool: "true"
+    sessionAffinity: None
+    type: ClusterIP
+  status:
+    loadBalancer: {}
+- apiVersion: v1
+  kind: Service
+  metadata:
+    annotations:
+      kubectl.kubernetes.io/last-applied-configuration: |
+        {"apiVersion":"v1","kind":"Service","metadata":{"annotations":{},"labels":{"app":"openviking"},"name":"openviking","namespace":"viking"},"spec":{"ports":[{"name":"http","port":1933,"protocol":"TCP","targetPort":1933},{"name":"metrics","port":9210,"protocol":"TCP","targetPort":9210}],"selector":{"app":"openviking"},"type":"ClusterIP"}}
+    creationTimestamp: "2026-07-06T21:14:10Z"
+    labels:
+      app: openviking
+    name: openviking
+    namespace: viking
+    resourceVersion: "49430952"
+    uid: f86cc42a-8c1f-46d2-9ddd-4f2e9cc24cb1
+  spec:
+    clusterIP: 10.43.6.210
+    clusterIPs:
+    - 10.43.6.210
+    internalTrafficPolicy: Cluster
+    ipFamilies:
+    - IPv4
+    ipFamilyPolicy: SingleStack
+    ports:
+    - name: http
+      port: 1933
+      protocol: TCP
+      targetPort: 1933
+    - name: metrics
+      port: 9210
+      protocol: TCP
+      targetPort: 9210
+    selector:
+      app: openviking
+    sessionAffinity: None
+    type: ClusterIP
+  status:
+    loadBalancer: {}
+- apiVersion: v1
+  kind: Service
+  metadata:
+    annotations:
+      kubectl.kubernetes.io/last-applied-configuration: |
+        {"apiVersion":"v1","kind":"Service","metadata":{"annotations":{},"name":"openviking-lan","namespace":"viking"},"spec":{"ports":[{"name":"http","nodePort":31933,"port":1933,"protocol":"TCP","targetPort":1933},{"name":"client-telemetry","nodePort":31934,"port":9210,"protocol":"TCP","targetPort":9210}],"selector":{"app":"openviking"},"type":"NodePort"}}
+    creationTimestamp: "2026-07-06T21:14:10Z"
+    name: openviking-lan
+    namespace: viking
+    resourceVersion: "81923031"
+    uid: 4ed4ca19-7a12-4665-bae9-40b405bfd6c2
+  spec:
+    clusterIP: 10.43.43.226
+    clusterIPs:
+    - 10.43.43.226
+    externalTrafficPolicy: Cluster
+    internalTrafficPolicy: Cluster
+    ipFamilies:
+    - IPv4
+    ipFamilyPolicy: SingleStack
+    ports:
+    - name: http
+      nodePort: 31933
+      port: 1933
+      protocol: TCP
+      targetPort: 1933
+    - name: client-telemetry
+      nodePort: 31934
+      port: 9210
+      protocol: TCP
+      targetPort: 9210
+    selector:
+      app: openviking
+    sessionAffinity: None
+    type: NodePort
+  status:
+    loadBalancer: {}
+- apiVersion: v1
+  kind: Service
+  metadata:
+    annotations:
+      kubectl.kubernetes.io/last-applied-configuration: |
+        {"apiVersion":"v1","kind":"Service","metadata":{"annotations":{},"labels":{"app":"openviking-test"},"name":"openviking-test","namespace":"viking"},"spec":{"ports":[{"name":"http","port":1933,"protocol":"TCP","targetPort":1933}],"selector":{"app":"openviking-test"},"type":"ClusterIP"}}
+    creationTimestamp: "2026-09-22T16:16:54Z"
+    labels:
+      app: openviking-test
+    name: openviking-test
+    namespace: viking
+    resourceVersion: "72263944"
+    uid: 6de5b0e1-2a92-4117-a2d4-20c0a901bb04
+  spec:
+    clusterIP: 10.43.22.233
+    clusterIPs:
+    - 10.43.22.233
+    internalTrafficPolicy: Cluster
+    ipFamilies:
+    - IPv4
+    ipFamilyPolicy: SingleStack
+    ports:
+    - name: http
+      port: 1933
+      protocol: TCP
+      targetPort: 1933
+    selector:
+      app: openviking-test
+    sessionAffinity: None
+    type: ClusterIP
+  status:
+    loadBalancer: {}
+- apiVersion: v1
+  kind: Service
+  metadata:
+    annotations:
+      kubectl.kubernetes.io/last-applied-configuration: |
+        {"apiVersion":"v1","kind":"Service","metadata":{"annotations":{},"labels":{"app":"ov-vectordb"},"name":"ov-vectordb","namespace":"viking"},"spec":{"ports":[{"name":"http","port":5000,"protocol":"TCP","targetPort":5000}],"selector":{"app":"ov-vectordb"},"type":"ClusterIP"}}
+    creationTimestamp: "2026-07-06T21:14:10Z"
+    labels:
+      app: ov-vectordb
+    name: ov-vectordb
+    namespace: viking
+    resourceVersion: "49430858"
+    uid: 8d923410-0cd8-490a-a269-24fe7753fbc5
+  spec:
+    clusterIP: 10.43.28.11
+    clusterIPs:
+    - 10.43.28.11
+    internalTrafficPolicy: Cluster
+    ipFamilies:
+    - IPv4
+    ipFamilyPolicy: SingleStack
+    ports:
+    - name: http
+      port: 5000
+      protocol: TCP
+      targetPort: 5000
+    selector:
+      app: ov-vectordb
+    sessionAffinity: None
+    type: ClusterIP
+  status:
+    loadBalancer: {}
+- apiVersion: v1
+  kind: Service
+  metadata:
+    annotations:
+      kubectl.kubernetes.io/last-applied-configuration: |
+        {"apiVersion":"v1","kind":"Service","metadata":{"annotations":{},"labels":{"app":"ov-vectordb-test"},"name":"ov-vectordb-test","namespace":"viking"},"spec":{"ports":[{"name":"http","port":5000,"protocol":"TCP","targetPort":5000}],"selector":{"app":"ov-vectordb-test"},"type":"ClusterIP"}}
+    creationTimestamp: "2026-09-22T16:16:54Z"
+    labels:
+      app: ov-vectordb-test
+    name: ov-vectordb-test
+    namespace: viking
+    resourceVersion: "72263947"
+    uid: bed71f16-805c-4755-9e27-9d7c56e8b1a3
+  spec:
+    clusterIP: 10.43.229.174
+    clusterIPs:
+    - 10.43.229.174
+    internalTrafficPolicy: Cluster
+    ipFamilies:
+    - IPv4
+    ipFamilyPolicy: SingleStack
+    ports:
+    - name: http
+      port: 5000
+      protocol: TCP
+      targetPort: 5000
+    selector:
+      app: ov-vectordb-test
+    sessionAffinity: None
+    type: ClusterIP
+  status:
+    loadBalancer: {}
+- apiVersion: networking.k8s.io/v1
+  kind: Ingress
+  metadata:
+    annotations:
+      cert-manager.io/cluster-issuer: letsencrypt-prod
+      kubectl.kubernetes.io/last-applied-configuration: |
+        {"apiVersion":"networking.k8s.io/v1","kind":"Ingress","metadata":{"annotations":{"cert-manager.io/cluster-issuer":"letsencrypt-prod","traefik.ingress.kubernetes.io/router.entrypoints":"websecure","traefik.ingress.kubernetes.io/router.tls":"true"},"name":"openviking-ingress","namespace":"viking"},"spec":{"ingressClassName":"traefik","rules":[{"host":"context.nathanwhyte.dev","http":{"paths":[{"backend":{"service":{"name":"openviking","port":{"number":1933}}},"path":"/","pathType":"Prefix"}]}}],"tls":[{"hosts":["context.nathanwhyte.dev"],"secretName":"openviking-tls"}]}}
+      traefik.ingress.kubernetes.io/router.entrypoints: websecure
+      traefik.ingress.kubernetes.io/router.tls: "true"
+    creationTimestamp: "2026-05-10T05:55:16Z"
+    generation: 1
+    name: openviking-ingress
+    namespace: viking
+    resourceVersion: "82086727"
+    uid: 05bd81a3-0d94-476e-ba88-96c2fae9ffe1
+  spec:
+    ingressClassName: traefik
+    rules:
+    - host: context.nathanwhyte.dev
+      http:
+        paths:
+        - backend:
+            service:
+              name: openviking
+              port:
+                number: 1933
+          path: /
+          pathType: Prefix
+    tls:
+    - hosts:
+      - context.nathanwhyte.dev
+      secretName: openviking-tls
+  status:
+    loadBalancer:
+      ingress:
+      - ip: 192.168.1.10
+      - ip: 192.168.1.19
+      - ip: 192.168.1.9
+- apiVersion: networking.k8s.io/v1
+  kind: Ingress
+  metadata:
+    annotations:
+      cert-manager.io/cluster-issuer: letsencrypt-prod
+      kubectl.kubernetes.io/last-applied-configuration: |
+        {"apiVersion":"networking.k8s.io/v1","kind":"Ingress","metadata":{"annotations":{"cert-manager.io/cluster-issuer":"letsencrypt-prod","traefik.ingress.kubernetes.io/router.entrypoints":"websecure","traefik.ingress.kubernetes.io/router.tls":"true"},"name":"openviking-mcp","namespace":"viking"},"spec":{"ingressClassName":"traefik","rules":[{"host":"context.nathanwhyte.dev","http":{"paths":[{"backend":{"service":{"name":"openviking","port":{"number":1933}}},"path":"/mcp","pathType":"Prefix"}]}}],"tls":[{"hosts":["context.nathanwhyte.dev"]}]}}
+      traefik.ingress.kubernetes.io/router.entrypoints: websecure
+      traefik.ingress.kubernetes.io/router.tls: "true"
+    creationTimestamp: "2026-06-01T18:19:50Z"
+    generation: 1
+    name: openviking-mcp
+    namespace: viking
+    resourceVersion: "82086713"
+    uid: 9b0a0638-f715-421b-b8bb-8558cb629550
+  spec:
+    ingressClassName: traefik
+    rules:
+    - host: context.nathanwhyte.dev
+      http:
+        paths:
+        - backend:
+            service:
+              name: openviking
+              port:
+                number: 1933
+          path: /mcp
+          pathType: Prefix
+    tls:
+    - hosts:
+      - context.nathanwhyte.dev
+  status:
+    loadBalancer:
+      ingress:
+      - ip: 192.168.1.10
+      - ip: 192.168.1.19
+      - ip: 192.168.1.9
+- apiVersion: networking.k8s.io/v1
+  kind: Ingress
+  metadata:
+    annotations:
+      kubectl.kubernetes.io/last-applied-configuration: |
+        {"apiVersion":"networking.k8s.io/v1","kind":"Ingress","metadata":{"annotations":{"traefik.ingress.kubernetes.io/router.entrypoints":"web","traefik.ingress.kubernetes.io/router.middlewares":"viking-openviking-https-redirect@kubernetescrd"},"name":"openviking-redirect","namespace":"viking"},"spec":{"ingressClassName":"traefik","rules":[{"host":"context.nathanwhyte.dev","http":{"paths":[{"backend":{"service":{"name":"openviking","port":{"number":1933}}},"path":"/","pathType":"Prefix"}]}}]}}
+      traefik.ingress.kubernetes.io/router.entrypoints: web
+      traefik.ingress.kubernetes.io/router.middlewares: viking-openviking-https-redirect@kubernetescrd
+    creationTimestamp: "2026-05-10T05:55:16Z"
+    generation: 1
+    name: openviking-redirect
+    namespace: viking
+    resourceVersion: "82086807"
+    uid: fb0a80ad-1fd8-4e53-918b-ea2ed106f20d
+  spec:
+    ingressClassName: traefik
+    rules:
+    - host: context.nathanwhyte.dev
+      http:
+        paths:
+        - backend:
+            service:
+              name: openviking
+              port:
+                number: 1933
+          path: /
+          pathType: Prefix
+  status:
+    loadBalancer:
+      ingress:
+      - ip: 192.168.1.10
+      - ip: 192.168.1.19
+      - ip: 192.168.1.9
+- apiVersion: monitoring.coreos.com/v1
+  kind: ServiceMonitor
+  metadata:
+    annotations:
+      kubectl.kubernetes.io/last-applied-configuration: |
+        {"apiVersion":"monitoring.coreos.com/v1","kind":"ServiceMonitor","metadata":{"annotations":{},"labels":{"app":"litellm-vlm"},"name":"litellm-vlm","namespace":"viking"},"spec":{"endpoints":[{"interval":"30s","path":"/metrics/","port":"http","scrapeTimeout":"10s"}],"selector":{"matchLabels":{"app":"litellm-vlm"}}}}
+    creationTimestamp: "2026-10-14T18:27:35Z"
+    generation: 1
+    labels:
+      app: litellm-vlm
+    name: litellm-vlm
+    namespace: viking
+    resourceVersion: "79070671"
+    uid: da0e5a2c-454f-47f7-a383-a0351e7e5c41
+  spec:
+    endpoints:
+    - interval: 30s
+      path: /metrics/
+      port: http
+      scrapeTimeout: 10s
+    selector:
+      matchLabels:
+        app: litellm-vlm
+- apiVersion: monitoring.coreos.com/v1
+  kind: ServiceMonitor
+  metadata:
+    annotations:
+      kubectl.kubernetes.io/last-applied-configuration: |
+        {"apiVersion":"monitoring.coreos.com/v1","kind":"ServiceMonitor","metadata":{"annotations":{},"labels":{"app":"openviking"},"name":"openviking","namespace":"viking"},"spec":{"endpoints":[{"interval":"30s","path":"/metrics","port":"http","scrapeTimeout":"10s"},{"interval":"30s","path":"/metrics","port":"metrics","scrapeTimeout":"10s"}],"selector":{"matchLabels":{"app":"openviking"}}}}
+    creationTimestamp: "2026-06-22T01:07:21Z"
+    generation: 2
+    labels:
+      app: openviking
+    name: openviking
+    namespace: viking
+    resourceVersion: "49062223"
+    uid: cfc92fbf-d91d-4ae6-afd2-f3d5ec71d2f3
+  spec:
+    endpoints:
+    - interval: 30s
+      path: /metrics
+      port: http
+      scrapeTimeout: 10s
+    - interval: 30s
+      path: /metrics
+      port: metrics
+      scrapeTimeout: 10s
+    selector:
+      matchLabels:
+        app: openviking
+kind: List
+metadata:
+  resourceVersion: ""

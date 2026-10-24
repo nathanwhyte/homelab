@@ -9,6 +9,7 @@ from git_env import scrub_environ  # noqa: E402
 scrub_environ()
 
 import asyncio
+import importlib.util
 import io
 import json
 import os
@@ -79,7 +80,6 @@ async def _phase2(
     task_id,
     archive_uri,
     messages,
-    usage_records,
     first_message_id,
     last_message_id,
     memory_policy,
@@ -90,7 +90,7 @@ async def _phase2(
     event_search_tags=None,
     auto_commit_policy=None,
 ):
-    """Stand-in for Phase 2: one extraction per batch, each as its own task."""
+    """Stand-in for v0.5.1.1 Phase 2: one extraction per batch, each its own task."""
     if self.resumed_done:
         return  # every batch finished on an earlier attempt
     for start in range(0, len(messages), self.batch_size):
@@ -174,7 +174,7 @@ def _phase(messages, compressor=None, **session_kwargs):
     run = gate.archive_scope(_phase2)
     stderr = io.StringIO()
     with patch.object(gate.sys, "stderr", stderr):
-        asyncio.run(run(session, "t1", ARCHIVE, messages, [], "m0", "m9", None))
+        asyncio.run(run(session, "t1", ARCHIVE, messages, "m0", "m9", None))
     return compressor.calls, _records(stderr)
 
 
@@ -316,7 +316,7 @@ class ArchiveTests(_Phase2Applied):
         with patch.dict(os.environ, {"OV_PREF_GATE": "1"}):
             asyncio.run(
                 gate.archive_scope(_phase2)(
-                    session, "t1", ARCHIVE, SUBAGENT_ARCHIVE, [], "m0", "m9", None
+                    session, "t1", ARCHIVE, SUBAGENT_ARCHIVE, "m0", "m9", None
                 )
             )
         self.assertEqual(len(compressor.calls), 2)
@@ -394,7 +394,7 @@ class GuardTests(unittest.TestCase):
             list_names=lambda include_disabled=False: ALL_TYPES
         )
         return cls, types.SimpleNamespace(
-            SessionCompressorV3=cls, create_default_registry=lambda: registry
+            SessionCompressorV3=cls, get_default_registry=lambda: registry
         )
 
     @staticmethod
@@ -435,9 +435,7 @@ class GuardTests(unittest.TestCase):
                 session = _Session(installed, _Compressor())
                 with patch.dict(os.environ, {"OV_PREF_GATE": "1"}):
                     asyncio.run(
-                        phase2(
-                            session, "t", ARCHIVE, SUBAGENT_ARCHIVE, [], "a", "b", None
-                        )
+                        phase2(session, "t", ARCHIVE, SUBAGENT_ARCHIVE, "a", "b", None)
                     )
                 call = session.compressor.calls[0]
                 self.assertNotIn("preferences", call["allowed_memory_types"])
@@ -450,6 +448,59 @@ class GuardTests(unittest.TestCase):
             cls, _ = self._compressor_module()
             self.assertFalse(gate.apply(types.SimpleNamespace(SessionCompressorV3=cls)))
             self.assertFalse(gate.apply_session(types.SimpleNamespace()))
+
+
+# Skip only when the package is absent; a broken install fails (IMPR-1413).
+if importlib.util.find_spec("openviking") is None:  # not in the openviking image
+    installed = None
+else:
+    from openviking.session import compressor_v3 as installed
+
+
+@unittest.skipIf(installed is None, "needs the openviking v0.5.1.1 image")
+class Installed(unittest.TestCase):
+    """Both halves applied by sitecustomize to the real v0.5.1.1 targets on import."""
+
+    def test_compressor_half_applied_on_import(self):
+        method = installed.SessionCompressorV3._extract_user_memories
+        self.assertTrue(getattr(method, "_ov_pref_gate_patch", False))
+        self.assertEqual(gate._source_hash(method.__wrapped__), gate.EXPECTED_SHA256)
+
+    def test_phase2_half_applied_on_import(self):
+        from openviking.session import session
+
+        method = session.Session._run_memory_extraction
+        self.assertTrue(getattr(method, "_ov_pref_gate_patch", False))
+        self.assertEqual(
+            gate._source_hash(method.__wrapped__), gate.EXPECTED_PHASE2_SHA256
+        )
+        self.assertTrue(gate._state["phase2_applied"])
+
+    def test_wrappers_bind_the_real_signatures(self):
+        from openviking.session import session
+
+        extract = gate.inspect.signature(
+            installed.SessionCompressorV3._extract_user_memories
+        )
+        self.assertTrue(
+            {"messages", "session_id", "archive_uri", "allowed_memory_types"}
+            <= set(extract.parameters)
+        )
+        phase2 = gate.inspect.signature(session.Session._run_memory_extraction)
+        self.assertTrue({"archive_uri", "messages"} <= set(phase2.parameters))
+
+    def test_the_bundled_registry_offers_preferences_to_remove(self):
+        # get_default_registry() needs a server config; load its bundled templates alone.
+        from openviking.session.memory import memory_type_registry as mtr
+
+        self.assertIs(installed.get_default_registry, mtr.get_default_registry)
+        registry = mtr.MemoryTypeRegistry(load_schemas=False)
+        registry.load_from_directory(
+            str(mtr.PromptManager._get_bundled_templates_dir() / "memory")
+        )
+        names = registry.list_names(include_disabled=False)
+        self.assertIn(gate.GATED_TYPE, names)
+        self.assertIn("profile", names)
 
 
 if __name__ == "__main__":

@@ -1,4 +1,4 @@
-"""Post-import hook that installs the OpenViking v0.4.20 runtime patches.
+"""Post-import hook that installs the OpenViking v0.5.1.1 runtime patches.
 
 Mounted from a ConfigMap onto PYTHONPATH. Python's ``site`` imports this file at
 interpreter start in every process, including the uvicorn workers. Each patch is
@@ -25,9 +25,8 @@ off switch; a patch failure never breaks the import):
                         write tracking on ``StreamingMemoryUpdater``;
                         ``OV_EXTRACT_PATCH_CHUNK=0`` turns chunking off alone).
   * ov_chatlog_patch  — BUG-1177: ChatLog speaker labels follow the turn's role
-                        (assistant turns read ``assistant``) and tool-only turns no
-                        longer render as empty lines (``MessageRange._speaker_for`` +
-                        ``_format_contiguous_group``).
+                        (assistant turns read ``assistant``)
+                        (``MessageRange._speaker_for``).
   * ov_memory_guard_patch — BUG-1180: an ``add_only`` memory write (events,
                         trajectories) never replaces an existing memory; an exact
                         duplicate is dropped and a collision goes to a free sibling
@@ -60,32 +59,6 @@ off switch; a patch failure never breaks the import):
                         at the file's ``modTime`` (``ReindexExecutor._upsert_context``
                         + ``EmbeddingMsgConverter.from_context``, stacked on the
                         event-abstract hooks).
-  * ov_fetch_items_patch — BUG-1218: fetch-by-id reads ``ov-vectordb``'s
-                        ``data.items`` as well as upstream's ``data.fetch``, so
-                        ``set_tags``, account-bound ``delete(ids)``, ``exists`` and
-                        ``increment_active_count`` see the record
-                        (``HttpCollection.fetch_data``).
-  * ov_wm_update_patch — IMPR-1303: the session-commit ``update_working_memory``
-                        tool call, which gemma4 answers in a form Ollama's parser
-                        rejects every time (unquoted keys with spaces), and which
-                        the chat-ollama shim's ``reasoning_effort`` makes
-                        unreliable either way. In ``OV_WM_UPDATE_MODE=json``
-                        (default) the update goes out as a plain completion asking
-                        for one JSON object keyed by snake_case section ids, and
-                        the reply is parsed, normalized and handed to Branch 2 as a
-                        synthetic tool call; ``schema`` keeps the forced tool call
-                        with a flat snake_case schema; one
-                        ``ov-wm-update-schema {json}`` stderr line per call in
-                        both. In ``skip`` mode the call is answered locally with an
-                        empty ``VLMResponse`` so Branch 2 takes its creation-prompt
-                        fallback without first spending a 60-250 s generation; one
-                        ``ov-wm-update-skip {json}`` line per skip
-                        (``OpenAIVLM.get_completion_async``).
-  * ov_claude_params_patch — IMPR-1311: a VLM request to a ``claude-*`` model drops
-                        ``temperature``, which Claude Haiku 5.5 rejects and
-                        ``VLMConfig`` cannot omit
-                        (``OpenAIVLM._apply_completion_params``); inert for every
-                        other model.
   * ov_pref_gate_patch — IMPR-1404: an archive with no ``user`` message carrying
                         typed text (every subagent session) extracts with
                         ``preferences`` removed from its allowed memory types, so
@@ -97,8 +70,13 @@ off switch; a patch failure never breaks the import):
                         applied in ``SessionCompressorV3._extract_user_memories``;
                         ``OV_PREF_GATE``: ``1`` skips, ``0`` off, anything else logs only).
 
-Rollback of one patch: its env switch (``OV_S3_CACHE_PATCH=0``, ``OV_EXTRACT_PATCH=0``, ``OV_CHATLOG_PATCH=0``, ``OV_MEMORY_GUARD=0``, ``OV_EVENT_NOISE_FILTER=0``, ``OV_EVENT_ABSTRACT_PATCH=0``, ``OV_GREP_SCOPE_PATCH=0``, ``OV_RECALL_TIME_PATCH=0``, ``OV_FETCH_ITEMS_PATCH=0``, ``OV_WM_UPDATE_MODE=off`` (``skip`` for the 2026-10-13 behaviour), ``OV_CLAUDE_PARAMS_PATCH=0``, ``OV_PREF_GATE=0``; ``OV_NAV_PATCH=0``
+Rollback of one patch: its env switch (``OV_S3_CACHE_PATCH=0``, ``OV_EXTRACT_PATCH=0``, ``OV_CHATLOG_PATCH=0``, ``OV_MEMORY_GUARD=0``, ``OV_EVENT_NOISE_FILTER=0``, ``OV_EVENT_ABSTRACT_PATCH=0``, ``OV_GREP_SCOPE_PATCH=0``, ``OV_RECALL_TIME_PATCH=0``, ``OV_PREF_GATE=0``; ``OV_NAV_PATCH=0``
 only after the model-built overview template is restored, see the Deployment).
+
+Retired at v0.5.1.1 (IMPR-1412): ``ov_fetch_items_patch`` (BUG-1218, fixed upstream
+in #6193), ``ov_wm_update_patch`` (IMPR-1303; Working Memory is off by default and
+the helper it wrapped is gone) and ``ov_claude_params_patch`` (IMPR-1311; neither
+configured VLM model is a ``claude-*`` model).
 Rollback of everything: remove PYTHONPATH from the Deployment
 (``kubectl set env … PYTHONPATH-``), again only after that template restore.
 """
@@ -160,14 +138,6 @@ TARGETS = {
         "ov_recall_time_patch",
         "apply_gather",
     ),
-    "openviking.storage.vectordb.collection.http_collection": (
-        "ov_fetch_items_patch",
-        "apply",
-    ),
-    "openviking.models.vlm.backends.openai_vlm": [
-        ("ov_wm_update_patch", "apply"),
-        ("ov_claude_params_patch", "apply"),
-    ],
 }
 
 

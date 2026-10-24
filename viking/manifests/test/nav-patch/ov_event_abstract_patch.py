@@ -1,52 +1,57 @@
 """Store an event memory's ``# Summary`` as its vector-record abstract (IMPR-1200).
 
-OpenViking v0.4.20 writes each memory file's vector record with the whole file body
+OpenViking v0.5.1.1 writes each memory file's vector record with the whole file body
 as its ``abstract`` (``MemoryUpdater._vectorize_memories``: ``abstract =
-strip_all_links(mf.content)``, capped at 50 KB), and the reindex path keeps that same
-text (``ReindexExecutor._reindex_memory_vectors``). For an ``events`` memory the body is
-a short ``# Summary`` followed by the full ChatLog, so ``/api/v1/search/find`` and
-list-mode ``search`` return 270 B to 28 KB per hit, and ten hits overflow an MCP tool
-result. Upstream notes the gap (``retrieve/context_assembler/params.py``: events are
-read from the file at the overview tier only because "the writer stores no separate
-summary scalar").
+strip_all_links(mf.content)``, capped at 50 KB, ``memory_updater.py:1806-1807``), and
+the reindex path keeps that same text (``ReindexExecutor._reindex_memory_vectors``).
+For an ``events`` memory the body is a short ``# Summary`` followed by the full ChatLog,
+so ``/api/v1/search/find`` and list-mode ``search`` return 270 B to 28 KB per hit, and
+ten hits overflow an MCP tool result. Upstream still notes the gap
+(``retrieve/context_assembler/params.py:44-51``: events are read from the file at the
+overview tier until "the writer stores a separate summary scalar").
 
 Both paths build their record through ``EmbeddingMsgConverter.from_context``. This
 patch wraps it and, after the stock body has run, replaces ``context_data["abstract"]``
 with the Summary section for a level-2 memory record under ``/memories/events/``.
 ``EmbeddingMsg.message`` (the embedding input) is never modified — only read, to pick
 the Summary source (see below) — so the text handed to the embedder is unchanged.
+The wrapper forwards every argument (v0.5.1.1's ``from_context(context, action=MERGE,
+*, telemetry_id=None)``) and lets the stock body's errors through, including its
+``ValueError`` for a context whose ``account_id`` is missing or blank (where v0.4.20
+defaulted it to ``"default"``; ``embedding_msg_converter.py:46-51``).
 
 Summary source and reindex freshness: the wrapper prefers ``msg.message`` over
 ``context_data["abstract"]`` when ``message`` is a string. On the write path the two
 already agree (``MemoryUpdater._vectorize_memories``: ``embedding_text = abstract =
 strip_all_links(mf.content)`` unless a memory-type ``embedding_template`` renders a
 different ``embedding_text`` — the abstract still carries the Summary either way).
-On reindex (``ReindexExecutor._upsert_context``, ``vector_text=body``), ``message`` is
-the untouched file body, while ``context_data["abstract"]`` prefers the *existing*
-stored record's abstract (``_best_non_empty(self._record_abstract(existing), ...)``)
-— so reading only ``abstract`` would keep a stale Summary after the file body changed
-and the memory was reindexed. Reading ``message`` first means the Summary picked up is
-always the one in the current file body. A body without a ``# Summary`` heading, or an
+On reindex (``ReindexExecutor._upsert_context``, ``vector_text=body``,
+``reindex_executor.py:1371-1381``), ``message`` is the untouched file body, while
+``context_data["abstract"]`` prefers the *existing* stored record's abstract
+(``_best_non_empty(self._record_abstract(existing), ...)``, L1358-1361) — so reading
+only ``abstract`` would keep a stale Summary after the file body changed and the memory
+was reindexed. Reading ``message`` first means the Summary picked up is always the one
+in the current file body. A body without a ``# Summary`` heading, or an
 already-multimodal ``message`` (a list, not a string), falls back to the incoming
 ``abstract`` unchanged.
 
 Reranking: ``HierarchicalRetriever`` only builds a rerank client when
 ``rerank_config.is_available()`` is true (``RerankConfig.is_available()``,
-``openviking_cli/utils/config/rerank_config.py:99-110`` — requires a provider's
-credentials: Cohere ``api_key``, OpenAI-compatible ``api_key``+``api_base``, LiteLLM
-``model``, or VikingDB ``ak``+``sk``). Prod's ``rerank`` config
+``openviking_cli/utils/config/rerank_config.py:125-136`` — requires a provider's
+credentials: Cohere or Jev ``api_key``, OpenAI-compatible ``api_key``+``api_base``,
+LiteLLM ``model``, or VikingDB ``ak``+``sk``). Prod's ``rerank`` config
 (``viking/manifests/openviking-configmap.yaml``) is ``{"threshold": 0.2}`` only, no
 provider fields, so ``_effective_provider()`` returns ``None``, ``is_available()``
 returns ``False``, and ``HierarchicalRetriever.__init__``
-(``retrieve/hierarchical_retriever.py:88-96``) sets ``self._rerank_client = None`` and
-defaults retrieval to ``RetrieverMode.QUICK`` (line 127) — no reranker runs today, so
-this patch does not change ranking in production as currently configured. That is a
-fact about the live config, not a code guarantee: if rerank is ever enabled,
-``HierarchicalRetriever`` reranks each candidate on its stored ``abstract``
-(``documents = [str(r.get("abstract", "")) for r in results]``,
-``retrieve/hierarchical_retriever.py:526``, gated on ``mode == RetrieverMode.THINKING``
-at line 525) — a Summary-only abstract would then be the rerank input instead of the
-full body, and that tradeoff should be re-evaluated before rerank is turned on.
+(``retrieve/hierarchical_retriever.py:97-107``) sets ``self._rerank_client = None``,
+so ``retrieve`` defaults to ``RetrieverMode.QUICK`` (L141-142) — no reranker runs
+today, so this patch does not change ranking in production as currently configured.
+That is a fact about the live config, not a code guarantee: if rerank is ever enabled,
+``retrieve`` defaults to ``THINKING`` and reranks the global candidate list on each
+candidate's stored ``abstract`` (``[str(candidate.get("abstract", "")) for candidate in
+candidates]``, ``retrieve/hierarchical_retriever.py:251-256``) — a Summary-only
+abstract would then be the rerank input instead of the full body, and that tradeoff
+should be re-evaluated before rerank is turned on.
 
 Backfill through reindex (``apply_reindex``): stock ``POST /api/v1/content/reindex``
 embeds the raw file body for a memory (``ReindexExecutor._reindex_memory_vectors`` →
@@ -63,7 +68,7 @@ reindex cannot reproduce) leaves the stock ``vector_text`` and logs it. The stan
 ``viking/scripts/ov-event-abstract-backfill.py`` stays as the reviewed fallback and the
 ``--restore`` path.
 
-Guarded: each hook applies only to openviking ``v0.4.20`` whose target source hashes to
+Guarded: each hook applies only to openviking ``v0.5.1.1`` whose target source hashes to
 the expected value; otherwise it logs "NOT applied" and stock behaviour stays. Disable
 at runtime with ``OV_EVENT_ABSTRACT_PATCH=0`` (both hooks) or
 ``OV_EVENT_REINDEX_PATCH=0`` (the reindex hook only).
@@ -76,14 +81,14 @@ import logging
 import os
 import re
 
-EXPECTED_VERSION = "v0.4.20"
-EXPECTED_SHA256 = "fb15c3af326be29f826a870a8e6284e1663c122089769ae5df1c74c1e5bc6081"
+EXPECTED_VERSION = "v0.5.1.1"
+EXPECTED_SHA256 = "9a21cfa830018ce4b93e77d9e322d6ba38ae7480bbd20e5e372fdd7b429aaedf"
 EXPECTED_UPSERT_CONTEXT_SHA256 = (
-    "ddfd3f03e673f1b396caef3d549d4efacc97a64fc78e9a30c21c8297a48feaad"
+    "120763eb0e417bca8bb13b3ea6dcc6c25d8def47a398ddce8b6054a1dcf28782"
 )
 logger = logging.getLogger("ov_event_abstract_patch")
 
-# Mirrors extract_summary_section in retrieve/context_assembler/tiers.py (v0.4.20), the
+# Mirrors extract_summary_section in retrieve/context_assembler/tiers.py:70 (v0.5.1.1), the
 # helper the overview tier already uses for these files; kept local so the write path
 # does not import the retrieval package.
 _SUMMARY_SECTION = re.compile(
@@ -207,17 +212,17 @@ def _events_schema():
     global _REGISTRY
     if _REGISTRY is None:
         from openviking.session.memory.memory_type_registry import (
-            create_default_registry,
+            get_default_registry,
         )
 
-        _REGISTRY = create_default_registry()
+        _REGISTRY = get_default_registry()
     return _REGISTRY.get("events")
 
 
 def write_path_embedding_text(body, uri, schema=None):
     """What ``MemoryUpdater._vectorize_memories`` embeds for this file body.
 
-    Mirrors ``memory_updater.py`` v0.4.20 lines 1440-1471: parse the file, strip links,
+    Mirrors ``memory_updater.py`` v0.5.1.1 lines 1801-1835: parse the file, strip links,
     cap at 50 KB, then render the memory type's ``embedding_template`` with the file's
     fields plus ``content`` when every variable is present. Returns ``None`` when the
     template needs ``extract_context``, which a reindex cannot supply; the caller then

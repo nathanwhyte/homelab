@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """Run the nav-patch suite (viking/manifests/test/nav-patch/test_*.py) in one process.
 
-IMPR-1413. Each patch guards on ``openviking.__version__ == "v0.4.20"``, the string
-the image reports; the PyPI wheel (the ``openviking`` uv tool) reports ``0.4.20``, so
-the real-module cases failed on every local run and each review round had to diff
-"the same failures as main" by hand. This runner maps the wheel's string to the
+IMPR-1413. Each patch guards on ``openviking.__version__`` equal to the release its
+``EXPECTED_VERSION`` pins (``"v0.5.1.1"`` since IMPR-1412), the string the image reports;
+the PyPI wheel (the ``openviking`` uv tool) reports it without the ``v`` (``0.5.1.1``), so
+before this runner the real-module cases failed on every local run and each review
+round had to diff "the same failures as main" by hand. This runner maps the wheel's string to the
 image's before any patch target is imported (``import openviking`` loads only
 ``openviking._version``), so the suite is green wherever the installed package is
 the release the patches pin. Any other version is left alone and fails as it should.
@@ -13,8 +14,9 @@ It also runs ``test_ov_nav_patch.py``'s module-level ``test_*`` functions, which
 ``unittest discover`` does not collect.
 
 Interpreter: ``$NAV_PATCH_PYTHON``, else the ``openviking`` uv tool's Python when it
-exists, else this one. With no openviking importable (CI), the real-module cases
-skip and a SKIP line says so; ``NAV_PATCH_REQUIRE_OPENVIKING=1`` makes that a failure.
+exists, else this one. With no openviking importable, the real-module cases skip and
+a SKIP line says so; ``NAV_PATCH_REQUIRE_OPENVIKING=1`` (set in CI, which installs the
+pinned release) makes that a failure.
 
 Usage: viking/scripts/run-nav-patch-tests.py [-v]
 """

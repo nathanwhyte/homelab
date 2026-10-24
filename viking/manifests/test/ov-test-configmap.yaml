@@ -4,6 +4,8 @@
 #   * agfs bucket  openviking-agfs-test   (prod: openviking-agfs)
 #   * vectordb     ov-vectordb-test, collection context_test   (prod: ov-vectordb / context)
 #   * no public_base_url and no prometheus exporter
+# rerank.threshold follows prod's v0.5.1.1 value (0.6, the (old+1)/2 map of 0.2;
+# IMPR-1412).
 #
 # 2026-09-25 (ov-test-vectordb-repair): two test-only fixes so memory records are
 # writable and readable again —
@@ -68,7 +70,7 @@ data:
         "enabled": false
       },
       "rerank": {
-        "threshold": 0.2
+        "threshold": 0.6
       },
       "server": {
         "host": "0.0.0.0",

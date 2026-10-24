@@ -28,6 +28,9 @@ repos:
         # second `---`.
         args: ["-m"]
       - id: check-added-large-files
+        # Snapshots are byte-exact before-state dumps kept for rollback; the
+        # pre-v0.5.1.1 configmaps.yaml is 1.2 MB of nav-patch ConfigMaps (IMPR-1412).
+        exclude: ^viking/snapshots/
       - id: check-merge-conflict
       - id: check-case-conflict
       - id: detect-private-key
@@ -131,6 +134,27 @@ repos:
         language: system
         pass_filenames: false
         files: ^viking/scripts/(test-)?ov-haiku-reading\.py$
+      # IMPR-1412: the upgrade's search-baseline compare and floor table. Stdlib only.
+      - id: ov-search-baseline-tests
+        name: ov-search-baseline tests
+        entry: python3 viking/scripts/test-ov-search-baseline.py
+        language: system
+        pass_filenames: false
+        files: ^viking/scripts/(test-)?ov-search-baseline\.py$
+      # IMPR-1412: key-exact AGFS export (IMPR-1152: `aws s3 sync` drops zero-byte keys).
+      - id: ov-agfs-export-tests
+        name: ov-agfs-export tests
+        entry: python3 viking/scripts/test-ov-agfs-export.py
+        language: system
+        pass_filenames: false
+        files: ^viking/scripts/(test-)?ov-agfs-export\.py$
+      # IMPR-1412: the drain gate, judged with the exporter's own table parser.
+      - id: ov-queue-drained-tests
+        name: ov-queue-drained tests
+        entry: python3 viking/scripts/test-ov-queue-drained.py
+        language: system
+        pass_filenames: false
+        files: ^viking/(scripts/(test-)?ov-queue-drained\.py|exporters/ov-exporter\.py)$
       # IMPR-1413: what the prod and test stacks mount, as `kubectl kustomize`
       # renders them, agrees with the nav-patch files on disk, and so does
       # sitecustomize.py's TARGETS. homelab#250 shipped a patch its Deployments'
@@ -151,8 +175,8 @@ repos:
         pass_filenames: false
         files: ^viking/(manifests/|scripts/(regen-nav-patch-configmap\.sh|(test-)?check-nav-patch-files\.py)$)
       # IMPR-1413: the nav-patch suite. Uses the `openviking` uv tool's Python when
-      # it exists, mapping its `0.4.20` to the image's `v0.4.20`; without
-      # openviking (CI) the real-module cases skip, and `verbose` keeps that SKIP
+      # it exists, mapping its `0.5.1.1` to the image's `v0.5.1.1`; without
+      # openviking the real-module cases skip, and `verbose` keeps that SKIP
       # line visible. NAV_PATCH_REQUIRE_OPENVIKING=1 makes the skip a failure.
       - id: nav-patch-tests
         name: nav-patch suite
