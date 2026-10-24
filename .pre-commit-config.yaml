@@ -28,6 +28,9 @@ repos:
         # second `---`.
         args: ["-m"]
       - id: check-added-large-files
+        # Snapshots are byte-exact before-state dumps kept for rollback; the
+        # pre-v0.5.1.1 configmaps.yaml is 1.2 MB of nav-patch ConfigMaps (IMPR-1412).
+        exclude: ^viking/snapshots/
       - id: check-merge-conflict
       - id: check-case-conflict
       - id: detect-private-key
