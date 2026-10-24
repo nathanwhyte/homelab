@@ -1,0 +1,86 @@
+[queue] (healthy)
++----------------+---------+-------------+-----------+----------+--------+-------+
+|     Queue      | Pending | In Progress | Processed | Requeued | Errors | Total |
++----------------+---------+-------------+-----------+----------+--------+-------+
+|   Embedding    |    0    |      0      |     0     |    0     |   0    |   0   |
+|    Semantic    |    0    |      0      |     0     |    0     |   0    |   0   |
+| ExternalParse  |    0    |      0      |     0     |    0     |   0    |   0   |
+|  AddResource   |    0    |      0      |     0     |    0     |   0    |   0   |
+|    Reindex     |    0    |      0      |     0     |    0     |   0    |   0   |
+| SessionCommit  |    0    |      0      |     0     |    0     |   0    |   0   |
+|  ExternalTask  |    0    |      0      |     0     |    0     |   0    |   0   |
+|  UserDeletion  |    0    |      0      |     0     |    0     |   0    |   0   |
+| Semantic-Nodes |    0    |      0      |     0     |    0     |   0    |   0   |
+|     TOTAL      |    0    |      0      |     0     |    0     |   0    |   0   |
++----------------+---------+-------------+-----------+----------+--------+-------+
+
+[vikingdb] (unhealthy)
+Account: default
+VectorDB unavailable: 404 Client Error: Not Found for url: http://ov-vectordb.viking.svc.cluster.local:5000/api/vikingdb/data/aggregate
+
+[models] (healthy)
+Account: default
+Embedding dimension: 2560
+
+VLM Models:
++--------+----------+------------+
+| Model  | Provider |   Status   |
++--------+----------+------------+
+| ov-vlm |  openai  | configured |
++--------+----------+------------+
+
+
+[lock] (healthy)
+Active locks: 0
+Waiting locks: 0
+Stale locks removed: 0
+Conflicts: 0
+
+[retrieval] (healthy)
+No retrieval queries recorded.
+
+[filesystem] (healthy)
+Mount: /local (plugin: s3fs)
+============================================================
++-----------+-------+----------+----------+----------+
+| Operation | Count | Avg (ms) | Min (ms) | Max (ms) |
++-----------+-------+----------+----------+----------+
+|   read    |  41   |  49.260  |  3.007   | 596.127  |
+|   stat    |  28   |  6.165   |  0.562   |  42.603  |
++-----------+-------+----------+----------+----------+
+
++------------------+--------+
+|      Metric      | Value  |
++------------------+--------+
+| Total Operations |   69   |
+|  Total Time (s)  | 2.192  |
+| Overall Avg (ms) | 31.772 |
++------------------+--------+
+
+
+Mount: /queue (plugin: queuefs)
+============================================================
++-----------+-------+----------+----------+----------+
+| Operation | Count | Avg (ms) | Min (ms) | Max (ms) |
++-----------+-------+----------+----------+----------+
+|   mkdir   |   8   |  0.025   |  0.012   |  0.047   |
+|   read    | 2217  |  0.035   |  0.011   |  0.116   |
++-----------+-------+----------+----------+----------+
+
++------------------+-------+
+|      Metric      | Value |
++------------------+-------+
+| Total Operations | 2225  |
+|  Total Time (s)  | 0.078 |
+| Overall Avg (ms) | 0.035 |
++------------------+-------+
+
+
+Mount: /serverinfo (plugin: serverinfofs)
+============================================================
+No operation statistics recorded yet.
+
+
+
+[system] (unhealthy)
+Errors: vikingdb has errors

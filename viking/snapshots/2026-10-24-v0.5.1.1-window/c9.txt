@@ -1,0 +1,18 @@
+Defaulted container "garage" out of: garage, garage-init (init)
+[2m2026-10-24T16:28:00.420324Z[0m [32m INFO[0m [2mgarage_net::netapp[0m[2m:[0m Connected to 127.0.0.1:3901, negotiating handshake...
+[2m2026-10-24T16:28:00.476432Z[0m [32m INFO[0m [2mgarage_net::netapp[0m[2m:[0m Connection established to 1c9f4810c4257a5f
+==== BUCKET INFORMATION ====
+Bucket:          6c272ae61009ddcf71bec682daa2ace84159ed51072342acc35081f4ca10a0f6
+Created:         2026-07-06 21:13:57.223 +00:00
+
+Size:            1.0 GiB (1.1 GB)
+Objects:         72632
+
+Website access:  false
+
+Global alias:    openviking-agfs
+
+==== KEYS FOR THIS BUCKET ====
+Permissions  Access key                                               Local aliases
+RWO          GK8c780b1a32ceee11bef668e8  garage-manager-202610200925
+RW           GK58ac27d3701be316e3224c70  openviking-202610200925

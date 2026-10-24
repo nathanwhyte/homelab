@@ -1,0 +1,2267 @@
+{
+  "captured": "2026-10-24T16:28:34.723073+00:00",
+  "svc": "openviking",
+  "health": {
+    "status": "ok",
+    "healthy": true,
+    "version": "v0.5.1.1",
+    "auth_mode": "trusted",
+    "root_api_key_required": true,
+    "account_id": "default",
+    "user_id": "noot",
+    "role": "user"
+  },
+  "target_uri": "viking://",
+  "queries": {
+    "E1": {
+      "question": "What is BUG-1006?",
+      "hits": [
+        {
+          "section": "memories",
+          "uri": "viking://user/noot/peers/pop/memories/entities/bug/.overview.md",
+          "score": 0.7544514536857605
+        },
+        {
+          "section": "memories",
+          "uri": "viking://user/noot/peers/pop/memories/events/2026/09/30/bug_1196_landed.md",
+          "score": 0.7429814338684082
+        },
+        {
+          "section": "memories",
+          "uri": "viking://user/noot/peers/workbook/memories/events/2026/10/14/adhoc_loss_run_template_rows_null_input_format_break_sql.md",
+          "score": 0.7401044368743896
+        },
+        {
+          "section": "memories",
+          "uri": "viking://user/noot/peers/pop/memories/events/2026/09/30/BUG_1196_merged.md",
+          "score": 0.7390987873077393
+        },
+        {
+          "section": "memories",
+          "uri": "viking://user/noot/peers/pop/memories/entities/tools/compendium_bug.md",
+          "score": 0.735768735408783
+        },
+        {
+          "section": "memories",
+          "uri": "viking://user/noot/peers/pop/memories/events/2026/10/14/bug_1040_assessor_check.md",
+          "score": 0.7345802783966064
+        },
+        {
+          "section": "memories",
+          "uri": "viking://user/noot/peers/workbook/memories/events/2026/10/10/TASK_426_filed.md",
+          "score": 0.732898473739624
+        },
+        {
+          "section": "memories",
+          "uri": "viking://user/noot/peers/workbook/memories/events/2026/10/05/compendium_bug_updates.md",
+          "score": 0.7319358587265015
+        },
+        {
+          "section": "memories",
+          "uri": "viking://user/noot/peers/workbook/memories/events/2026/10/13/session_handoff_note_recorded.md",
+          "score": 0.7314411997795105
+        },
+        {
+          "section": "memories",
+          "uri": "viking://user/noot/peers/workbook/memories/events/2026/10/05/bug_342_rostered.md",
+          "score": 0.731288731098175
+        }
+      ],
+      "top3": [
+        "viking://user/noot/peers/pop/memories/entities/bug/.overview.md",
+        "viking://user/noot/peers/pop/memories/events/2026/09/30/bug_1196_landed.md",
+        "viking://user/noot/peers/workbook/memories/events/2026/10/14/adhoc_loss_run_template_rows_null_input_format_break_sql.md"
+      ]
+    },
+    "E2": {
+      "question": "What is ERR-1007?",
+      "hits": [
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/ideas/completed/idea-1044.md",
+          "score": 0.7180454730987549
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/errors/homelab/.overview.md",
+          "score": 0.7011245489120483
+        },
+        {
+          "section": "memories",
+          "uri": "viking://user/noot/peers/workbook/memories/events/2026/09/29/err_055_amended.md",
+          "score": 0.7064908742904663
+        },
+        {
+          "section": "memories",
+          "uri": "viking://user/noot/peers/workbook/memories/events/2026/10/13/err_055_amended.md",
+          "score": 0.7045127153396606
+        },
+        {
+          "section": "memories",
+          "uri": "viking://user/noot/peers/workbook/memories/events/2026/10/06/ERR-070_intake.md",
+          "score": 0.7033159732818604
+        },
+        {
+          "section": "memories",
+          "uri": "viking://user/noot/peers/workbook/memories/events/2026/10/15/t10_fix_decision.md",
+          "score": 0.70164555311203
+        },
+        {
+          "section": "memories",
+          "uri": "viking://user/noot/peers/workbook/memories/events/2026/10/06/BUG-409_update.md",
+          "score": 0.6967437267303467
+        },
+        {
+          "section": "memories",
+          "uri": "viking://user/noot/peers/workbook/memories/events/2026/10/01/ERR-065_update.md",
+          "score": 0.6965746283531189
+        },
+        {
+          "section": "memories",
+          "uri": "viking://user/noot/peers/workbook/memories/events/2026/10/23/run_3830_error_reduction.md",
+          "score": 0.6929003596305847
+        },
+        {
+          "section": "memories",
+          "uri": "viking://user/noot/peers/pop/memories/events/2026/10/10/error_triage_decision_model.md",
+          "score": 0.6921801567077637
+        }
+      ],
+      "top3": [
+        "viking://resources/compendium/ideas/completed/idea-1044.md",
+        "viking://user/noot/peers/workbook/memories/events/2026/09/29/err_055_amended.md",
+        "viking://user/noot/peers/workbook/memories/events/2026/10/13/err_055_amended.md"
+      ]
+    },
+    "E3": {
+      "question": "What is INFO-1042?",
+      "hits": [
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/tasks/completed/proj-118/task-367.md",
+          "score": 0.6893655061721802
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/tasks/proj-109/task-086.md",
+          "score": 0.6853069067001343
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/tasks/completed/proj-118/task-366.md",
+          "score": 0.6768935918807983
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/tasks/completed/proj-118/task-364.md",
+          "score": 0.6760187149047852
+        },
+        {
+          "section": "memories",
+          "uri": "viking://user/noot/memories/entities/info/.overview.md",
+          "score": 0.697307825088501
+        },
+        {
+          "section": "memories",
+          "uri": "viking://user/noot/peers/workbook/memories/events/2026/10/09/blueprint_info_filing.md",
+          "score": 0.6887662410736084
+        },
+        {
+          "section": "memories",
+          "uri": "viking://user/noot/peers/pop/memories/events/2026/09/27/compendium_835_review_held.md",
+          "score": 0.6853238940238953
+        },
+        {
+          "section": "memories",
+          "uri": "viking://user/noot/peers/workbook/memories/events/2026/10/16/inform_proj_124_about_compendium.md",
+          "score": 0.6773433685302734
+        },
+        {
+          "section": "memories",
+          "uri": "viking://user/noot/peers/workbook/memories/events/2026/10/08/info_020_wording_fix_planned.md",
+          "score": 0.6749271750450134
+        },
+        {
+          "section": "memories",
+          "uri": "viking://user/noot/peers/pop/memories/events/2026/09/22/compendium_729_merged.md",
+          "score": 0.67425137758255
+        }
+      ],
+      "top3": [
+        "viking://user/noot/memories/entities/info/.overview.md",
+        "viking://resources/compendium/tasks/completed/proj-118/task-367.md",
+        "viking://user/noot/peers/workbook/memories/events/2026/10/09/blueprint_info_filing.md"
+      ]
+    },
+    "E4": {
+      "question": "What is FEAT-1003?",
+      "hits": [
+        {
+          "section": "memories",
+          "uri": "viking://user/noot/peers/pop/memories/events/2026/10/11/feat_1035_closed.md",
+          "score": 0.7319104075431824
+        },
+        {
+          "section": "memories",
+          "uri": "viking://user/noot/peers/pop/memories/events/2026/10/12/feat_1035_completion.md",
+          "score": 0.7253449559211731
+        },
+        {
+          "section": "memories",
+          "uri": "viking://user/noot/peers/pop/memories/events/2026/09/28/FEAT-1031_implementation_start.md",
+          "score": 0.7208642959594727
+        },
+        {
+          "section": "memories",
+          "uri": "viking://user/noot/peers/pop/memories/events/2026/10/11/Phase_3_Completion.md",
+          "score": 0.7188785672187805
+        },
+        {
+          "section": "memories",
+          "uri": "viking://user/noot/peers/pop/memories/events/2026/09/30/laya_comparison_results_recording.md",
+          "score": 0.7151469588279724
+        },
+        {
+          "section": "memories",
+          "uri": "viking://user/noot/peers/pop/memories/events/2026/10/09/feat_1031_session_handoff.md",
+          "score": 0.7079111337661743
+        },
+        {
+          "section": "memories",
+          "uri": "viking://user/noot/peers/pop/memories/events/2026/10/10/FEAT-1035_phase_update.md",
+          "score": 0.7078050374984741
+        },
+        {
+          "section": "memories",
+          "uri": "viking://user/noot/peers/workbook/memories/events/2026/10/16/feat_037_design_settled.md",
+          "score": 0.7074322700500488
+        },
+        {
+          "section": "memories",
+          "uri": "viking://user/noot/peers/pop/memories/events/2026/10/03/.overview.md",
+          "score": 0.7040855884552002
+        },
+        {
+          "section": "memories",
+          "uri": "viking://user/noot/peers/pop/memories/events/2026/09/28/FEAT-1031_phase1_progress.md",
+          "score": 0.7004909515380859
+        }
+      ],
+      "top3": [
+        "viking://user/noot/peers/pop/memories/events/2026/10/11/feat_1035_closed.md",
+        "viking://user/noot/peers/pop/memories/events/2026/10/12/feat_1035_completion.md",
+        "viking://user/noot/peers/pop/memories/events/2026/09/28/FEAT-1031_implementation_start.md"
+      ]
+    },
+    "E5": {
+      "question": "What is IDEA-1042?",
+      "hits": [
+        {
+          "section": "memories",
+          "uri": "viking://user/noot/peers/pop/memories/events/2026/10/07/IDEA-1122 plan amended.md",
+          "score": 0.7064360976219177
+        },
+        {
+          "section": "memories",
+          "uri": "viking://user/noot/peers/pop/memories/events/2026/10/17/idea_id_allocation.md",
+          "score": 0.6978992223739624
+        },
+        {
+          "section": "memories",
+          "uri": "viking://user/noot/peers/pop/memories/events/2026/09/28/ledger_entry_added.md",
+          "score": 0.6915948390960693
+        },
+        {
+          "section": "memories",
+          "uri": "viking://user/noot/peers/pop/memories/events/2026/10/10/IDEA-1132 Filing.md",
+          "score": 0.6896085143089294
+        },
+        {
+          "section": "memories",
+          "uri": "viking://user/noot/peers/pop/memories/events/2026/10/06/implement_spec_idea_filed.md",
+          "score": 0.6884345412254333
+        },
+        {
+          "section": "memories",
+          "uri": "viking://user/noot/peers/pop/memories/events/2026/09/25/idea_salvage_pass_filed.md",
+          "score": 0.6868054270744324
+        },
+        {
+          "section": "memories",
+          "uri": "viking://user/noot/peers/pop/memories/entities/tools/compendium_idea.md",
+          "score": 0.6867311596870422
+        },
+        {
+          "section": "memories",
+          "uri": "viking://user/noot/peers/workbook/memories/events/2026/10/23/idea_131_draft_formatting.md",
+          "score": 0.6860457062721252
+        },
+        {
+          "section": "memories",
+          "uri": "viking://user/noot/peers/pop/memories/entities/idea/.overview.md",
+          "score": 0.6855013966560364
+        },
+        {
+          "section": "memories",
+          "uri": "viking://user/noot/peers/pop/memories/events/2026/10/12/idea_1080_scope_note.md",
+          "score": 0.6853622198104858
+        }
+      ],
+      "top3": [
+        "viking://user/noot/peers/pop/memories/events/2026/10/07/IDEA-1122 plan amended.md",
+        "viking://user/noot/peers/pop/memories/events/2026/10/17/idea_id_allocation.md",
+        "viking://user/noot/peers/pop/memories/events/2026/09/28/ledger_entry_added.md"
+      ]
+    },
+    "U1": {
+      "question": "How do I configure Hermes for Ollama cloud models?",
+      "hits": [
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/info/homelab/info-1038.md",
+          "score": 0.8811753392219543
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/tasks/completed/task-1045.md",
+          "score": 0.8750348687171936
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/info/other/info-1049.md",
+          "score": 0.8714115619659424
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/tasks/completed/task-1093.md",
+          "score": 0.8676655292510986
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/tasks/completed/task-1090.md",
+          "score": 0.8656119108200073
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/tasks/completed/proj-1006/task-1047.md",
+          "score": 0.8603522181510925
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/tasks/completed/task-1026.md",
+          "score": 0.8511688709259033
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/tasks/completed/task-1044.md",
+          "score": 0.8485008478164673
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/info/homelab/info-1060.md",
+          "score": 0.8473455905914307
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/info/homelab/info-1032.md",
+          "score": 0.8460091352462769
+        }
+      ],
+      "top3": [
+        "viking://resources/compendium/info/homelab/info-1038.md",
+        "viking://resources/compendium/tasks/completed/task-1045.md",
+        "viking://resources/compendium/info/other/info-1049.md"
+      ]
+    },
+    "U2": {
+      "question": "How do I set up the OpenViking CLI for the first time?",
+      "hits": [
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/guides/tooling/guide-1011.md",
+          "score": 0.9127628803253174
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/improvements/completed/dotfiles/impr-1153.md",
+          "score": 0.8209030032157898
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/errors/homelab/err-1010.md",
+          "score": 0.8123642206192017
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/tasks/completed/proj-1002/task-1137.md",
+          "score": 0.8099479675292969
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/guides/homelab/guide-1085.md",
+          "score": 0.8086174726486206
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/features/completed/feat-1005.md",
+          "score": 0.8061283230781555
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/improvements/completed/homelab/impr-1201.md",
+          "score": 0.805631160736084
+        },
+        {
+          "section": "memories",
+          "uri": "viking://user/noot/peers/pop/memories/events/2026/09/25/ov_cli_setup_instructions.md",
+          "score": 0.858795702457428
+        },
+        {
+          "section": "memories",
+          "uri": "viking://user/noot/peers/pop/memories/events/2026/09/25/ov_cli_audit_complete.md",
+          "score": 0.8261455297470093
+        },
+        {
+          "section": "memories",
+          "uri": "viking://user/noot/peers/workbook/memories/entities/infrastructure/openviking_env.md",
+          "score": 0.8120970726013184
+        }
+      ],
+      "top3": [
+        "viking://resources/compendium/guides/tooling/guide-1011.md",
+        "viking://user/noot/peers/pop/memories/events/2026/09/25/ov_cli_setup_instructions.md",
+        "viking://user/noot/peers/pop/memories/events/2026/09/25/ov_cli_audit_complete.md"
+      ]
+    },
+    "U4": {
+      "question": "How do I set up the Hermes Slack integration?",
+      "hits": [
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/info/homelab/info-1057.md",
+          "score": 0.8959507942199707
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/tasks/completed/proj-1006/task-1029.md",
+          "score": 0.8388363122940063
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/tasks/completed/task-1044.md",
+          "score": 0.807391881942749
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/projects/completed/homelab/proj-1006.md",
+          "score": 0.7988680601119995
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/bugs/resolved/homelab/bug-1135.md",
+          "score": 0.79456627368927
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/tasks/completed/task-1045.md",
+          "score": 0.793128252029419
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/tasks/completed/task-1026.md",
+          "score": 0.7861096858978271
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/ideas/completed/idea-1010.md",
+          "score": 0.7810078263282776
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/improvements/completed/homelab/impr-1173.md",
+          "score": 0.7807793617248535
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/guides/tooling/guide-1013.md",
+          "score": 0.7805145978927612
+        }
+      ],
+      "top3": [
+        "viking://resources/compendium/info/homelab/info-1057.md",
+        "viking://resources/compendium/tasks/completed/proj-1006/task-1029.md",
+        "viking://resources/compendium/tasks/completed/task-1044.md"
+      ]
+    },
+    "U5": {
+      "question": "How do I clean up git worktrees for compendium repos?",
+      "hits": [
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/guides/git/guide-1062.md",
+          "score": 0.8432079553604126
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/ideas/completed/idea-1014.md",
+          "score": 0.8399176597595215
+        },
+        {
+          "section": "memories",
+          "uri": "viking://user/noot/peers/workbook/memories/events/2026/09/28/worktree_cleanup_executed.md",
+          "score": 0.8790086507797241
+        },
+        {
+          "section": "memories",
+          "uri": "viking://user/noot/peers/pop/memories/events/2026/09/25/cleanup_worktrees.md",
+          "score": 0.8617675304412842
+        },
+        {
+          "section": "memories",
+          "uri": "viking://user/noot/peers/pop/memories/events/2026/09/29/worktree_cleanup_20260929.md",
+          "score": 0.8559889793395996
+        },
+        {
+          "section": "memories",
+          "uri": "viking://user/noot/peers/pop/memories/events/2026/09/22/worktree_cleanup_completed.md",
+          "score": 0.8409214019775391
+        },
+        {
+          "section": "memories",
+          "uri": "viking://user/noot/peers/workbook/memories/events/2026/10/08/worktree_cleanup.md",
+          "score": 0.8407280445098877
+        },
+        {
+          "section": "memories",
+          "uri": "viking://user/noot/peers/workbook/memories/events/2026/10/08/worktree_rules_merged.md",
+          "score": 0.8382462859153748
+        },
+        {
+          "section": "memories",
+          "uri": "viking://user/noot/peers/workbook/memories/events/2026/10/07/compendium_worktree_cleaned.md",
+          "score": 0.8372856974601746
+        },
+        {
+          "section": "memories",
+          "uri": "viking://user/noot/peers/workbook/memories/events/2026/10/09/cleanup_worktrees_and_codex.md",
+          "score": 0.8366786241531372
+        }
+      ],
+      "top3": [
+        "viking://user/noot/peers/workbook/memories/events/2026/09/28/worktree_cleanup_executed.md",
+        "viking://user/noot/peers/pop/memories/events/2026/09/25/cleanup_worktrees.md",
+        "viking://user/noot/peers/pop/memories/events/2026/09/29/worktree_cleanup_20260929.md"
+      ]
+    },
+    "U6": {
+      "question": "How do agents use OpenViking to read and sync knowledge?",
+      "hits": [
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/info/knowledge-base/info-1058.md",
+          "score": 0.8377788066864014
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/tasks/completed/proj-1020/task-1174.md",
+          "score": 0.8340067267417908
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/info/openviking-internals/.overview.md",
+          "score": 0.8318043947219849
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/tasks/completed/proj-1002/task-1137.md",
+          "score": 0.8209539651870728
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/info/openviking-internals/info-1177.md",
+          "score": 0.8166967630386353
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/ideas/completed/idea-1017.md",
+          "score": 0.8132954835891724
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/improvements/completed/dotfiles/impr-1153.md",
+          "score": 0.8070115447044373
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/info/tooling/info-092.md",
+          "score": 0.8040497899055481
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/info/openviking-internals/info-1172.md",
+          "score": 0.8021784424781799
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/improvements/completed/homelab/impr-1154.md",
+          "score": 0.7958441972732544
+        }
+      ],
+      "top3": [
+        "viking://resources/compendium/info/knowledge-base/info-1058.md",
+        "viking://resources/compendium/tasks/completed/proj-1020/task-1174.md",
+        "viking://resources/compendium/info/openviking-internals/.overview.md"
+      ]
+    },
+    "D1": {
+      "question": "Why does Ollama return empty responses with NVFP4 Qwen3.6 models?",
+      "hits": [
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/bugs/resolved/other/bug-1011.md",
+          "score": 0.888522744178772
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/info/ollama-api/.overview.md",
+          "score": 0.8447268009185791
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/bugs/resolved/homelab/bug-1008.md",
+          "score": 0.8437619209289551
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/tasks/completed/task-1016.md",
+          "score": 0.8258953094482422
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/info/knowledge-base/info-1009.md",
+          "score": 0.8190499544143677
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/info/ollama-thinking-suppression/.overview.md",
+          "score": 0.8136745691299438
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/info/ollama-api/info-1097.md",
+          "score": 0.8124949932098389
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/tasks/backlog/task-1015.md",
+          "score": 0.8103348016738892
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/info/ollama-thinking-suppression/info-1134.md",
+          "score": 0.8097846508026123
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/info/robots/info-1036.md",
+          "score": 0.8073180913925171
+        }
+      ],
+      "top3": [
+        "viking://resources/compendium/bugs/resolved/other/bug-1011.md",
+        "viking://resources/compendium/info/ollama-api/.overview.md",
+        "viking://resources/compendium/bugs/resolved/homelab/bug-1008.md"
+      ]
+    },
+    "D3": {
+      "question": "Why does OpenViking pointer sync fail to write from the LAN?",
+      "hits": [
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/bugs/resolved/homelab/bug-1007.md",
+          "score": 0.8229890465736389
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/projects/completed/proj-1014.md",
+          "score": 0.7933454513549805
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/improvements/completed/homelab/impr-1154.md",
+          "score": 0.7865122556686401
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/info/openviking-internals/info-1107.md",
+          "score": 0.7841811180114746
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/errors/homelab/err-1008.md",
+          "score": 0.7813595533370972
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/features/completed/feat-1002.md",
+          "score": 0.7811124324798584
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/bugs/resolved/bug-1002.md",
+          "score": 0.780814528465271
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/bugs/homelab/.overview.md",
+          "score": 0.7796655297279358
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/bugs/resolved/homelab/bug-1072.md",
+          "score": 0.7766196727752686
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/features/completed/feat-1001.md",
+          "score": 0.7756432294845581
+        }
+      ],
+      "top3": [
+        "viking://resources/compendium/bugs/resolved/homelab/bug-1007.md",
+        "viking://resources/compendium/projects/completed/proj-1014.md",
+        "viking://resources/compendium/improvements/completed/homelab/impr-1154.md"
+      ]
+    },
+    "D4": {
+      "question": "What causes slow, looping pulls of the llama.cpp ROCm image?",
+      "hits": [
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/errors/homelab/err-1003.md",
+          "score": 0.8411405086517334
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/info/homelab/info-1071.md",
+          "score": 0.8046882152557373
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/improvements/completed/impr-1011.md",
+          "score": 0.803302526473999
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/info/knowledge-base/info-1020.md",
+          "score": 0.7958997488021851
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/tasks/proj-1003/task-1131.md",
+          "score": 0.7940571904182434
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/info/homelab/info-1084.md",
+          "score": 0.7927000522613525
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/bugs/resolved/homelab/bug-1094.md",
+          "score": 0.7795823812484741
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/improvements/completed/impr-1016.md",
+          "score": 0.7793025970458984
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/bugs/homelab/bug-1242.md",
+          "score": 0.7792370319366455
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/tasks/completed/task-1127.md",
+          "score": 0.7772524356842041
+        }
+      ],
+      "top3": [
+        "viking://resources/compendium/errors/homelab/err-1003.md",
+        "viking://resources/compendium/info/homelab/info-1071.md",
+        "viking://resources/compendium/improvements/completed/impr-1011.md"
+      ]
+    },
+    "D6": {
+      "question": "Why are Slack messages silently failing to deliver?",
+      "hits": [
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/info/other/info-1050.md",
+          "score": 0.8055954575538635
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/bugs/resolved/homelab/bug-1135.md",
+          "score": 0.7812830209732056
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/info/homelab/info-1057.md",
+          "score": 0.773801863193512
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/bugs/dipdash/bug-294.md",
+          "score": 0.7666200399398804
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/tasks/proj-109/task-178.md",
+          "score": 0.7624799013137817
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/improvements/completed/homelab/impr-1173.md",
+          "score": 0.7598165273666382
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/improvements/dotfiles/impr-1337.md",
+          "score": 0.7576209306716919
+        },
+        {
+          "section": "memories",
+          "uri": "viking://user/noot/peers/workbook/memories/events/2026/10/01/slack_notification_setup_drafted.md",
+          "score": 0.771218478679657
+        },
+        {
+          "section": "memories",
+          "uri": "viking://user/noot/peers/pop/memories/events/2026/10/16/session_message_delivery_misreport.md",
+          "score": 0.7514599561691284
+        },
+        {
+          "section": "memories",
+          "uri": "viking://user/noot/peers/pop/memories/events/2026/10/16/message_delivery_status_correction.md",
+          "score": 0.7470415830612183
+        }
+      ],
+      "top3": [
+        "viking://resources/compendium/info/other/info-1050.md",
+        "viking://resources/compendium/bugs/resolved/homelab/bug-1135.md",
+        "viking://resources/compendium/info/homelab/info-1057.md"
+      ]
+    },
+    "S1": {
+      "question": "How does OpenViking handle concurrent resource commits?",
+      "hits": [
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/info/knowledge-base/info-1003.md",
+          "score": 0.8425016403198242
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/errors/homelab/err-1002.md",
+          "score": 0.8222553133964539
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/info/openviking-internals/info-1107.md",
+          "score": 0.8046098947525024
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/guides/openviking/.abstract.md",
+          "score": 0.8021223545074463
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/bugs/resolved/homelab/bug-1017.md",
+          "score": 0.7928462028503418
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/tasks/completed/task-1089.md",
+          "score": 0.7920582294464111
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/features/completed/feat-1005.md",
+          "score": 0.7882102727890015
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/info/openviking-internals/.abstract.md",
+          "score": 0.7854475975036621
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/bugs/resolved/homelab/bug-1174.md",
+          "score": 0.7836928963661194
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/improvements/homelab/impr-1175.md",
+          "score": 0.783048152923584
+        }
+      ],
+      "top3": [
+        "viking://resources/compendium/info/knowledge-base/info-1003.md",
+        "viking://resources/compendium/errors/homelab/err-1002.md",
+        "viking://resources/compendium/info/openviking-internals/info-1107.md"
+      ]
+    },
+    "S2": {
+      "question": "What is the architecture of the OpenViking vectordb backend?",
+      "hits": [
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/info/knowledge-base/info-1021.md",
+          "score": 0.8857734203338623
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/features/completed/feat-1005.md",
+          "score": 0.8318793773651123
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/tasks/proj-027/task-1058.md",
+          "score": 0.8191368579864502
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/projects/completed/homelab/proj-1002.md",
+          "score": 0.8156721591949463
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/tasks/completed/task-1002.md",
+          "score": 0.8120885491371155
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/info/openviking-internals/info-1173.md",
+          "score": 0.8081421852111816
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/info/tooling/info-092.md",
+          "score": 0.804732084274292
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/improvements/completed/impr-1003.md",
+          "score": 0.8011901378631592
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/tasks/proj-027/.overview.md",
+          "score": 0.8009775876998901
+        },
+        {
+          "section": "memories",
+          "uri": "viking://user/noot/peers/pop/memories/entities/tools/openviking_upgrade_research.md",
+          "score": 0.8005590438842773
+        }
+      ],
+      "top3": [
+        "viking://resources/compendium/info/knowledge-base/info-1021.md",
+        "viking://resources/compendium/features/completed/feat-1005.md",
+        "viking://resources/compendium/tasks/proj-027/task-1058.md"
+      ]
+    },
+    "S3": {
+      "question": "How does Tailscale integrate with the homelab?",
+      "hits": [
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/info/homelab/info-1046.md",
+          "score": 0.8669426441192627
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/tasks/completed/task-1104.md",
+          "score": 0.85441654920578
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/ideas/completed/idea-1028.md",
+          "score": 0.8439003229141235
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/tasks/completed/task-1097.md",
+          "score": 0.842455267906189
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/projects/completed/proj-1008.md",
+          "score": 0.8311334848403931
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/ideas/completed/homelab/idea-1032.md",
+          "score": 0.8177540898323059
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/info/homelab/.overview.md",
+          "score": 0.810300886631012
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/info/homelab/info-101.md",
+          "score": 0.8034063577651978
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/improvements/completed/homelab/impr-1091.md",
+          "score": 0.7970670461654663
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/tasks/completed/task-1102.md",
+          "score": 0.7902354001998901
+        }
+      ],
+      "top3": [
+        "viking://resources/compendium/info/homelab/info-1046.md",
+        "viking://resources/compendium/tasks/completed/task-1104.md",
+        "viking://resources/compendium/ideas/completed/idea-1028.md"
+      ]
+    },
+    "S4": {
+      "question": "What GPU workloads run on each cluster node?",
+      "hits": [
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/info/knowledge-base/info-1017.md",
+          "score": 0.8078080415725708
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/info/homelab/info-1042.md",
+          "score": 0.7881150245666504
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/ideas/completed/idea-1009.md",
+          "score": 0.7854417562484741
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/ideas/homelab/idea-1109.md",
+          "score": 0.7583037614822388
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/features/completed/feat-1009.md",
+          "score": 0.7472052574157715
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/improvements/completed/homelab/impr-1083.md",
+          "score": 0.7443218231201172
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/ideas/completed/homelab/idea-1053.md",
+          "score": 0.740760862827301
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/features/completed/feat-1021.md",
+          "score": 0.7341445684432983
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/info/homelab/info-1055.md",
+          "score": 0.7333557605743408
+        },
+        {
+          "section": "memories",
+          "uri": "viking://user/noot/peers/pop/memories/events/2026/09/23/1060_routing_plan.md",
+          "score": 0.7359952330589294
+        }
+      ],
+      "top3": [
+        "viking://resources/compendium/info/knowledge-base/info-1017.md",
+        "viking://resources/compendium/info/homelab/info-1042.md",
+        "viking://resources/compendium/ideas/completed/idea-1009.md"
+      ]
+    },
+    "S5": {
+      "question": "How does the llama.cpp embedder allocate GPU context slots?",
+      "hits": [
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/info/knowledge-base/info-1020.md",
+          "score": 0.792904257774353
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/ideas/homelab/idea-1109.md",
+          "score": 0.792252779006958
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/improvements/completed/homelab/impr-1074.md",
+          "score": 0.7837302684783936
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/improvements/completed/homelab/impr-1077.md",
+          "score": 0.7773630023002625
+        },
+        {
+          "section": "memories",
+          "uri": "viking://user/noot/peers/pop/memories/events/2026/09/23/two_gpu_embedder_research_completed.md",
+          "score": 0.8145263195037842
+        },
+        {
+          "section": "memories",
+          "uri": "viking://user/noot/peers/pop/memories/events/2026/09/22/live_embedder_config_verified.md",
+          "score": 0.7935280799865723
+        },
+        {
+          "section": "memories",
+          "uri": "viking://user/noot/peers/pop/memories/events/2026/09/23/llama_cpp_embeddings_analysis.md",
+          "score": 0.7926651239395142
+        },
+        {
+          "section": "memories",
+          "uri": "viking://user/noot/peers/pop/memories/events/2026/09/22/embedder_experiments_approved.md",
+          "score": 0.7910113334655762
+        },
+        {
+          "section": "memories",
+          "uri": "viking://user/noot/peers/pop/memories/events/2026/09/23/Qwen3_embedding_production_status.md",
+          "score": 0.785736083984375
+        },
+        {
+          "section": "memories",
+          "uri": "viking://user/noot/peers/pop/memories/events/2026/09/23/llama_cpp_token_limits.md",
+          "score": 0.7818396091461182
+        }
+      ],
+      "top3": [
+        "viking://user/noot/peers/pop/memories/events/2026/09/23/two_gpu_embedder_research_completed.md",
+        "viking://user/noot/peers/pop/memories/events/2026/09/22/live_embedder_config_verified.md",
+        "viking://resources/compendium/info/knowledge-base/info-1020.md"
+      ]
+    },
+    "S6": {
+      "question": "What is the Hermes memory architecture?",
+      "hits": [
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/info/homelab/info-1053.md",
+          "score": 0.8248105049133301
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/ideas/completed/idea-1017.md",
+          "score": 0.7972514629364014
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/info/mem0/info-1074.md",
+          "score": 0.7918812036514282
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/ideas/completed/homelab/idea-1029.md",
+          "score": 0.7818512916564941
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/bugs/resolved/homelab/bug-1018.md",
+          "score": 0.7753819823265076
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/info/mem0/.abstract.md",
+          "score": 0.7734184861183167
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/improvements/completed/homelab/impr-1019.md",
+          "score": 0.7703781127929688
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/tasks/completed/task-1045.md",
+          "score": 0.7703591585159302
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/info/homelab/info-1055.md",
+          "score": 0.7673102617263794
+        }
+      ],
+      "top3": [
+        "viking://resources/compendium/info/homelab/info-1053.md",
+        "viking://resources/compendium/ideas/completed/idea-1017.md",
+        "viking://resources/compendium/info/mem0/info-1074.md"
+      ]
+    },
+    "X1": {
+      "question": "What entries are related to OpenViking pointer sync failures?",
+      "hits": [
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/projects/completed/proj-1014.md",
+          "score": 0.8413335084915161
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/improvements/completed/homelab/impr-1154.md",
+          "score": 0.8265134692192078
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/errors/homelab/err-1008.md",
+          "score": 0.8257290720939636
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/bugs/homelab/.overview.md",
+          "score": 0.8224769830703735
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/features/completed/feat-1001.md",
+          "score": 0.8213781714439392
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/bugs/resolved/homelab/bug-1007.md",
+          "score": 0.8212889432907104
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/info/openviking-internals/info-1107.md",
+          "score": 0.8204092979431152
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/bugs/resolved/bug-1003.md",
+          "score": 0.8166483640670776
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/bugs/resolved/homelab/bug-1042.md",
+          "score": 0.8153981566429138
+        },
+        {
+          "section": "memories",
+          "uri": "viking://user/noot/peers/workbook/memories/events/2026/09/30/openviking_sync_pending.md",
+          "score": 0.8179880976676941
+        }
+      ],
+      "top3": [
+        "viking://resources/compendium/projects/completed/proj-1014.md",
+        "viking://resources/compendium/improvements/completed/homelab/impr-1154.md",
+        "viking://resources/compendium/errors/homelab/err-1008.md"
+      ]
+    },
+    "X2": {
+      "question": "What improvements are planned for Grafana dashboards?",
+      "hits": [
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/improvements/homelab/impr-1002.md",
+          "score": 0.8537657856941223
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/ideas/completed/idea-1007.md",
+          "score": 0.8460795879364014
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/tasks/completed/task-1112.md",
+          "score": 0.828190803527832
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/improvements/homelab/.overview.md",
+          "score": 0.7777808904647827
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/features/completed/feat-1006.md",
+          "score": 0.7665116786956787
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/improvements/dipdash/.overview.md",
+          "score": 0.7607427835464478
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/bugs/resolved/bug-1004.md",
+          "score": 0.7591285705566406
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/features/completed/feat-1015.md",
+          "score": 0.7579768896102905
+        },
+        {
+          "section": "memories",
+          "uri": "viking://user/noot/peers/pop/memories/events/2026/10/21/dashboard_ready.md",
+          "score": 0.7960532903671265
+        },
+        {
+          "section": "memories",
+          "uri": "viking://user/noot/peers/pop/memories/events/2026/10/11/mac_telemetry_retirement.md",
+          "score": 0.7531479001045227
+        }
+      ],
+      "top3": [
+        "viking://resources/compendium/improvements/homelab/impr-1002.md",
+        "viking://resources/compendium/ideas/completed/idea-1007.md",
+        "viking://resources/compendium/tasks/completed/task-1112.md"
+      ]
+    },
+    "X3": {
+      "question": "What bugs affect the OpenViking deployment?",
+      "hits": [
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/bugs/homelab/.abstract.md",
+          "score": 0.8300744891166687
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/info/knowledge-base/info-1088.md",
+          "score": 0.8268710374832153
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/improvements/completed/homelab/impr-1063.md",
+          "score": 0.8133544921875
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/bugs/resolved/homelab/bug-1017.md",
+          "score": 0.812208354473114
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/improvements/completed/homelab/impr-1032.md",
+          "score": 0.8095468282699585
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/improvements/homelab/impr-1412.md",
+          "score": 0.8064070343971252
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/tasks/completed/task-1002.md",
+          "score": 0.8047974109649658
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/ideas/completed/homelab/idea-1035.md",
+          "score": 0.8031625747680664
+        },
+        {
+          "section": "memories",
+          "uri": "viking://user/noot/peers/workbook/memories/entities/infrastructure/openviking_env.md",
+          "score": 0.8054699897766113
+        }
+      ],
+      "top3": [
+        "viking://resources/compendium/bugs/homelab/.abstract.md",
+        "viking://resources/compendium/info/knowledge-base/info-1088.md",
+        "viking://resources/compendium/improvements/completed/homelab/impr-1063.md"
+      ]
+    },
+    "H1": {
+      "question": "What Tailscale routing issues have we hit?",
+      "hits": [
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/errors/homelab/err-1007.md",
+          "score": 0.8307726979255676
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/tasks/completed/task-1104.md",
+          "score": 0.8262571096420288
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/ideas/completed/idea-1028.md",
+          "score": 0.8242455720901489
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/info/homelab/info-101.md",
+          "score": 0.806702733039856
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/tasks/completed/task-1097.md",
+          "score": 0.8034967184066772
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/info/homelab/info-1046.md",
+          "score": 0.8019403219223022
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/tasks/completed/task-1102.md",
+          "score": 0.7955096960067749
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/ideas/completed/homelab/idea-1032.md",
+          "score": 0.7935489416122437
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/bugs/resolved/homelab/bug-1058.md",
+          "score": 0.7835081815719604
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/projects/completed/proj-1008.md",
+          "score": 0.7777669429779053
+        }
+      ],
+      "top3": [
+        "viking://resources/compendium/errors/homelab/err-1007.md",
+        "viking://resources/compendium/tasks/completed/task-1104.md",
+        "viking://resources/compendium/ideas/completed/idea-1028.md"
+      ]
+    },
+    "H2": {
+      "question": "What Ollama auto-think / configuration drift issues have occurred?",
+      "hits": [
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/info/ollama-config/info-1093.md",
+          "score": 0.8119252920150757
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/info/ollama-api/.overview.md",
+          "score": 0.8096643686294556
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/info/ollama-thinking-suppression/info-1134.md",
+          "score": 0.8093498945236206
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/errors/homelab/err-1005.md",
+          "score": 0.8084506988525391
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/info/dotfiles/info-1089.md",
+          "score": 0.8063894510269165
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/info/ollama-thinking-suppression/.abstract.md",
+          "score": 0.8056924343109131
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/info/ollama-capabilities/.overview.md",
+          "score": 0.8037500381469727
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/info/ollama-serving/info-1106.md",
+          "score": 0.8003356456756592
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/bugs/resolved/homelab/bug-1008.md",
+          "score": 0.799868106842041
+        }
+      ],
+      "top3": [
+        "viking://resources/compendium/info/ollama-config/info-1093.md",
+        "viking://resources/compendium/info/ollama-api/.overview.md",
+        "viking://resources/compendium/info/ollama-thinking-suppression/info-1134.md"
+      ]
+    },
+    "H3": {
+      "question": "What changes were made to fix the Hermes jump pod SSH keys?",
+      "hits": [
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/bugs/resolved/homelab/bug-1015.md",
+          "score": 0.8263874053955078
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/tasks/completed/task-1043.md",
+          "score": 0.7642127871513367
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/tasks/completed/task-1026.md",
+          "score": 0.763076663017273
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/projects/completed/homelab/proj-1006.md",
+          "score": 0.7629280090332031
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/tasks/completed/task-1045.md",
+          "score": 0.7590250372886658
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/tasks/completed/task-1044.md",
+          "score": 0.7574459314346313
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/improvements/completed/homelab/impr-1019.md",
+          "score": 0.7553384304046631
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/tasks/completed/homelab/task-1109.md",
+          "score": 0.7498356103897095
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/info/dotfiles/info-099.md",
+          "score": 0.7485072612762451
+        },
+        {
+          "section": "memories",
+          "uri": "viking://user/noot/peers/pop/memories/events/2026/09/22/homelab_pr_151_updated.md",
+          "score": 0.7556135058403015
+        }
+      ],
+      "top3": [
+        "viking://resources/compendium/bugs/resolved/homelab/bug-1015.md",
+        "viking://resources/compendium/tasks/completed/task-1043.md",
+        "viking://resources/compendium/tasks/completed/task-1026.md"
+      ]
+    },
+    "H4": {
+      "question": "What Slack integration problems have we encountered?",
+      "hits": [
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/info/other/info-1050.md",
+          "score": 0.784079909324646
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/info/homelab/info-1057.md",
+          "score": 0.780924916267395
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/info/slack/.abstract.md",
+          "score": 0.7761532068252563
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/bugs/resolved/bug-000.md",
+          "score": 0.76953125
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/bugs/resolved/homelab/bug-1135.md",
+          "score": 0.7690607309341431
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/tasks/completed/proj-028/task-1123.md",
+          "score": 0.7671207189559937
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/improvements/dotfiles/impr-1337.md",
+          "score": 0.766379714012146
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/info/knowledge-base/info-103.md",
+          "score": 0.7659281492233276
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/info/qa-tooling/info-206.md",
+          "score": 0.7647707462310791
+        }
+      ],
+      "top3": [
+        "viking://resources/compendium/info/other/info-1050.md",
+        "viking://resources/compendium/info/homelab/info-1057.md",
+        "viking://resources/compendium/info/slack/.abstract.md"
+      ]
+    },
+    "R1": {
+      "question": "What are the hardware specs for the K3s cluster nodes?",
+      "hits": [
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/info/homelab/info-1042.md",
+          "score": 0.8598241806030273
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/info/knowledge-base/info-1017.md",
+          "score": 0.8192696571350098
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/info/cluster-topology/info-1125.md",
+          "score": 0.7870007753372192
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/info/cluster-topology/.abstract.md",
+          "score": 0.7491009831428528
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/ideas/completed/idea-1025.md",
+          "score": 0.747691810131073
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/projects/completed/proj-1008.md",
+          "score": 0.7445901036262512
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/features/completed/feat-1021.md",
+          "score": 0.7437750697135925
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/guides/cluster-networking/.overview.md",
+          "score": 0.7321631908416748
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/info/knowledge-base/.overview.md",
+          "score": 0.7290712594985962
+        },
+        {
+          "section": "memories",
+          "uri": "viking://user/noot/peers/pop/memories/events/2026/10/11/homelab_cluster_survey.md",
+          "score": 0.7279404401779175
+        }
+      ],
+      "top3": [
+        "viking://resources/compendium/info/homelab/info-1042.md",
+        "viking://resources/compendium/info/knowledge-base/info-1017.md",
+        "viking://resources/compendium/info/cluster-topology/info-1125.md"
+      ]
+    },
+    "R2": {
+      "question": "List all known bugs in the homelab deployment",
+      "hits": [
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/bugs/resolved/homelab/.overview.md",
+          "score": 0.8424933552742004
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/bugs/homelab/.abstract.md",
+          "score": 0.8217190504074097
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/improvements/completed/homelab/.overview.md",
+          "score": 0.813119649887085
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/errors/homelab/.abstract.md",
+          "score": 0.813049852848053
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/improvements/completed/homelab/impr-1024.md",
+          "score": 0.7905501127243042
+        },
+        {
+          "section": "memories",
+          "uri": "viking://user/noot/peers/pop/memories/entities/tools/homelab_244_review.md",
+          "score": 0.7979078888893127
+        },
+        {
+          "section": "memories",
+          "uri": "viking://user/noot/peers/pop/memories/entities/tools/homelab_256_review_summary.md",
+          "score": 0.7963599562644958
+        },
+        {
+          "section": "memories",
+          "uri": "viking://user/noot/peers/pop/memories/events/2026/09/27/info_1088_audit_completed.md",
+          "score": 0.7946043014526367
+        }
+      ],
+      "top3": [
+        "viking://resources/compendium/bugs/resolved/homelab/.overview.md",
+        "viking://resources/compendium/bugs/homelab/.abstract.md",
+        "viking://resources/compendium/improvements/completed/homelab/.overview.md"
+      ]
+    },
+    "R3": {
+      "question": "What remote access options are available for the homelab?",
+      "hits": [
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/info/homelab/info-1046.md",
+          "score": 0.8139299750328064
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/info/homelab/.overview.md",
+          "score": 0.8057096004486084
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/guides/homelab/.abstract.md",
+          "score": 0.8001616597175598
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/tasks/completed/homelab/.abstract.md",
+          "score": 0.7834173440933228
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/tasks/completed/task-1103.md",
+          "score": 0.7806574106216431
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/bugs/resolved/homelab/.abstract.md",
+          "score": 0.7789310812950134
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/projects/completed/homelab/.abstract.md",
+          "score": 0.7779966592788696
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/improvements/completed/homelab/.overview.md",
+          "score": 0.7775144577026367
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/guides/cluster-networking/.overview.md",
+          "score": 0.7773476839065552
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/ideas/homelab/.overview.md",
+          "score": 0.7753812670707703
+        }
+      ],
+      "top3": [
+        "viking://resources/compendium/info/homelab/info-1046.md",
+        "viking://resources/compendium/info/homelab/.overview.md",
+        "viking://resources/compendium/guides/homelab/.abstract.md"
+      ]
+    },
+    "R4": {
+      "question": "Summarize the OpenViking deployment architecture",
+      "hits": [
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/features/completed/feat-1005.md",
+          "score": 0.8495862483978271
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/info/knowledge-base/info-1088.md",
+          "score": 0.8385143876075745
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/tasks/completed/task-1002.md",
+          "score": 0.8313961625099182
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/projects/completed/homelab/proj-1002.md",
+          "score": 0.8291526436805725
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/ideas/completed/homelab/idea-1035.md",
+          "score": 0.8197447657585144
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/info/openviking-internals/.abstract.md",
+          "score": 0.816415548324585
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/tasks/completed/task-1005.md",
+          "score": 0.8109240531921387
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/features/completed/feat-1006.md",
+          "score": 0.8076726198196411
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/guides/openviking/.abstract.md",
+          "score": 0.8026367425918579
+        },
+        {
+          "section": "memories",
+          "uri": "viking://user/noot/peers/workbook/memories/entities/infrastructure/openviking_env.md",
+          "score": 0.8189535140991211
+        }
+      ],
+      "top3": [
+        "viking://resources/compendium/features/completed/feat-1005.md",
+        "viking://resources/compendium/info/knowledge-base/info-1088.md",
+        "viking://resources/compendium/tasks/completed/task-1002.md"
+      ]
+    },
+    "N1": {
+      "question": "What is the capital of France?",
+      "hits": [
+        {
+          "section": "memories",
+          "uri": "viking://user/noot/memories/entities/concept/claude_code_mods_capabilities.md",
+          "score": 0.6237739324569702
+        },
+        {
+          "section": "memories",
+          "uri": "viking://user/noot/peers/workbook/memories/events/2026/10/14/sandbox_pipeline_capitalization_issues.md",
+          "score": 0.621726393699646
+        },
+        {
+          "section": "memories",
+          "uri": "viking://user/noot/peers/workbook/memories/events/2026/10/21/copilot_backend_main_merge_deployment.md",
+          "score": 0.6200522780418396
+        },
+        {
+          "section": "memories",
+          "uri": "viking://user/noot/peers/pop/memories/events/2026/10/22/plugin_memory_audit_completion.md",
+          "score": 0.6197344064712524
+        },
+        {
+          "section": "memories",
+          "uri": "viking://user/noot/peers/workbook/memories/events/2026/10/14/sandbox_rli_jll_capitalization_remains.md",
+          "score": 0.6193804144859314
+        },
+        {
+          "section": "memories",
+          "uri": "viking://user/noot/peers/pop/memories/events/2026/10/05/compendium_architecture_audit.md",
+          "score": 0.6181461811065674
+        },
+        {
+          "section": "memories",
+          "uri": "viking://user/noot/peers/workbook/memories/events/2026/10/20/dependency_map_location_provided.md",
+          "score": 0.6163491606712341
+        },
+        {
+          "section": "memories",
+          "uri": "viking://user/noot/peers/workbook/memories/events/2026/10/14/dale_capability_scan_completion.md",
+          "score": 0.6147040128707886
+        },
+        {
+          "section": "memories",
+          "uri": "viking://user/noot/peers/pop/memories/events/2026/10/05/compendium_sync_architecture_analysis.md",
+          "score": 0.6147003173828125
+        },
+        {
+          "section": "memories",
+          "uri": "viking://user/noot/peers/pop/memories/events/2026/09/29/openviking_surface_dependency_analysis.md",
+          "score": 0.6146497130393982
+        }
+      ],
+      "top3": [
+        "viking://user/noot/memories/entities/concept/claude_code_mods_capabilities.md",
+        "viking://user/noot/peers/workbook/memories/events/2026/10/14/sandbox_pipeline_capitalization_issues.md",
+        "viking://user/noot/peers/workbook/memories/events/2026/10/21/copilot_backend_main_merge_deployment.md"
+      ]
+    },
+    "N2": {
+      "question": "How do I bake sourdough bread?",
+      "hits": [
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/improvements/dipdash/impr-112.md",
+          "score": 0.6177520155906677
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/tasks/completed/proj-113/task-325.md",
+          "score": 0.6174916625022888
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/tasks/completed/task-1039.md",
+          "score": 0.6173427700996399
+        },
+        {
+          "section": "memories",
+          "uri": "viking://user/noot/peers/pop/memories/events/2026/10/15/start_72h_soak.md",
+          "score": 0.6354895234107971
+        },
+        {
+          "section": "memories",
+          "uri": "viking://user/noot/peers/pop/memories/events/2026/10/16/soak_end_time_calculated.md",
+          "score": 0.6266835331916809
+        },
+        {
+          "section": "memories",
+          "uri": "viking://user/noot/peers/workbook/memories/events/2026/10/09/grill_skill_setup.md",
+          "score": 0.6262326240539551
+        },
+        {
+          "section": "memories",
+          "uri": "viking://user/noot/peers/workbook/memories/events/2026/10/21/mage_bug_450_filed.md",
+          "score": 0.6248373985290527
+        },
+        {
+          "section": "memories",
+          "uri": "viking://user/noot/peers/workbook/memories/events/2026/10/21/sst_row_leak_confirmed.md",
+          "score": 0.6203583478927612
+        },
+        {
+          "section": "memories",
+          "uri": "viking://user/noot/peers/pop/memories/events/2026/10/13/e4b_model_locked_for_pr.md",
+          "score": 0.6186093688011169
+        },
+        {
+          "section": "memories",
+          "uri": "viking://user/noot/peers/pop/memories/events/2026/10/15/soak_not_started.md",
+          "score": 0.6175116300582886
+        }
+      ],
+      "top3": [
+        "viking://user/noot/peers/pop/memories/events/2026/10/15/start_72h_soak.md",
+        "viking://user/noot/peers/pop/memories/events/2026/10/16/soak_end_time_calculated.md",
+        "viking://user/noot/peers/workbook/memories/events/2026/10/09/grill_skill_setup.md"
+      ]
+    },
+    "N3": {
+      "question": "What is the best programming language?",
+      "hits": [
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/info/platform-tech-stack/info-115.md",
+          "score": 0.6599456667900085
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/info/mlx-serving/info-1090.md",
+          "score": 0.658959150314331
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/ideas/other/idea-1004.md",
+          "score": 0.6530560851097107
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/tasks/proj-1003/.abstract.md",
+          "score": 0.6529255509376526
+        },
+        {
+          "section": "memories",
+          "uri": "viking://user/noot/peers/pop/memories/events/2026/10/05/tree_sitter_decision.md",
+          "score": 0.6698499917984009
+        },
+        {
+          "section": "memories",
+          "uri": "viking://user/noot/peers/pop/memories/entities/tools/retro.md",
+          "score": 0.66200852394104
+        },
+        {
+          "section": "memories",
+          "uri": "viking://user/noot/peers/pop/memories/events/2026/10/23/nvim_theme_language_scope_note.md",
+          "score": 0.6568646430969238
+        },
+        {
+          "section": "memories",
+          "uri": "viking://user/noot/memories/entities/project/improve_codebase_architecture.md",
+          "score": 0.6546657085418701
+        },
+        {
+          "section": "memories",
+          "uri": "viking://user/noot/peers/pop/memories/events/2026/10/17/python_vs_webway_conflict.md",
+          "score": 0.6539860963821411
+        },
+        {
+          "section": "memories",
+          "uri": "viking://user/noot/peers/pop/memories/events/2026/10/10/agentic_coding_rerun_results.md",
+          "score": 0.6519357562065125
+        }
+      ],
+      "top3": [
+        "viking://user/noot/peers/pop/memories/events/2026/10/05/tree_sitter_decision.md",
+        "viking://user/noot/peers/pop/memories/entities/tools/retro.md",
+        "viking://resources/compendium/info/platform-tech-stack/info-115.md"
+      ]
+    },
+    "N4": {
+      "question": "Who won the 2024 Super Bowl?",
+      "hits": [
+        {
+          "section": "memories",
+          "uri": "viking://user/noot/peers/pop/memories/events/2026/10/13/e4b_model_locked_for_pr.md",
+          "score": 0.6628168821334839
+        },
+        {
+          "section": "memories",
+          "uri": "viking://user/noot/peers/pop/memories/events/2026/10/13/e4b_q8_0_model_stabilization.md",
+          "score": 0.6616203784942627
+        },
+        {
+          "section": "memories",
+          "uri": "viking://user/noot/peers/pop/memories/events/2026/10/09/deepseek_v4_flash_mlx_trial.md",
+          "score": 0.661574125289917
+        },
+        {
+          "section": "memories",
+          "uri": "viking://user/noot/peers/workbook/memories/events/2026/10/06/phase_4_started.md",
+          "score": 0.6610366106033325
+        },
+        {
+          "section": "memories",
+          "uri": "viking://user/noot/peers/workbook/memories/events/2026/10/15/phase_4_1_prod_check_pass.md",
+          "score": 0.6599230766296387
+        },
+        {
+          "section": "memories",
+          "uri": "viking://user/noot/peers/pop/memories/events/2026/10/22/monitor_impr_1404_completion.md",
+          "score": 0.6579999327659607
+        },
+        {
+          "section": "memories",
+          "uri": "viking://user/noot/peers/pop/memories/events/2026/10/16/round_4_fixes_confirmed.md",
+          "score": 0.6561869978904724
+        },
+        {
+          "section": "memories",
+          "uri": "viking://user/noot/peers/pop/memories/events/2026/10/10/SwiftLM_support_confirmed.md",
+          "score": 0.6545017957687378
+        },
+        {
+          "section": "memories",
+          "uri": "viking://user/noot/peers/workbook/memories/events/2026/10/21/side_agent_rule_clarification.md",
+          "score": 0.6524618268013
+        },
+        {
+          "section": "memories",
+          "uri": "viking://user/noot/peers/pop/memories/events/2026/10/16/codex_round_4_handoff_recorded.md",
+          "score": 0.650676965713501
+        }
+      ],
+      "top3": [
+        "viking://user/noot/peers/pop/memories/events/2026/10/13/e4b_model_locked_for_pr.md",
+        "viking://user/noot/peers/pop/memories/events/2026/10/13/e4b_q8_0_model_stabilization.md",
+        "viking://user/noot/peers/pop/memories/events/2026/10/09/deepseek_v4_flash_mlx_trial.md"
+      ]
+    },
+    "C1": {
+      "question": "How does OpenViking hierarchical retrieval work?",
+      "hits": [
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/info/openviking-internals/info-1173.md",
+          "score": 0.8313645124435425
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/features/completed/feat-1005.md",
+          "score": 0.8063538074493408
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/improvements/completed/impr-1003.md",
+          "score": 0.8011946678161621
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/info/knowledge-base/info-1058.md",
+          "score": 0.796294093132019
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/guides/openviking/.abstract.md",
+          "score": 0.7959944009780884
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/tasks/proj-1002/.abstract.md",
+          "score": 0.7893174886703491
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/improvements/completed/impr-1120.md",
+          "score": 0.787510871887207
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/tasks/completed/proj-1020/task-1174.md",
+          "score": 0.7873641848564148
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/info/openviking-internals/.overview.md",
+          "score": 0.7848067879676819
+        },
+        {
+          "section": "memories",
+          "uri": "viking://user/noot/peers/pop/memories/entities/tools/openviking_upgrade_research.md",
+          "score": 0.7875956296920776
+        }
+      ],
+      "top3": [
+        "viking://resources/compendium/info/openviking-internals/info-1173.md",
+        "viking://resources/compendium/features/completed/feat-1005.md",
+        "viking://resources/compendium/improvements/completed/impr-1003.md"
+      ]
+    },
+    "C2": {
+      "question": "What is the difference between OpenViking find and search?",
+      "hits": [
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/info/knowledge-base/info-1058.md",
+          "score": 0.80629563331604
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/tasks/completed/proj-1020/task-1174.md",
+          "score": 0.802630603313446
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/errors/homelab/err-1008.md",
+          "score": 0.7910776138305664
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/errors/homelab/err-1009.md",
+          "score": 0.7842037677764893
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/guides/openviking/.abstract.md",
+          "score": 0.7826627492904663
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/improvements/completed/impr-1120.md",
+          "score": 0.7735565900802612
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/info/openviking-internals/info-1173.md",
+          "score": 0.7728908658027649
+        },
+        {
+          "section": "memories",
+          "uri": "viking://user/noot/peers/pop/memories/entities/tools/openviking_upgrade_research.md",
+          "score": 0.7903757095336914
+        },
+        {
+          "section": "memories",
+          "uri": "viking://user/noot/peers/pop/memories/entities/tools/openviking_tools.md",
+          "score": 0.7740011215209961
+        },
+        {
+          "section": "memories",
+          "uri": "viking://user/noot/peers/pop/memories/events/2026/09/29/openviking_mcp_wrapper_audit.md",
+          "score": 0.7677599191665649
+        }
+      ],
+      "top3": [
+        "viking://resources/compendium/info/knowledge-base/info-1058.md",
+        "viking://resources/compendium/tasks/completed/proj-1020/task-1174.md",
+        "viking://resources/compendium/errors/homelab/err-1008.md"
+      ]
+    },
+    "C4": {
+      "question": "What is the relationship between OpenViking and pgvector for the KB?",
+      "hits": [
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/tasks/proj-027/task-1058.md",
+          "score": 0.8884130716323853
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/tasks/proj-027/.overview.md",
+          "score": 0.8521846532821655
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/info/knowledge-base/info-1021.md",
+          "score": 0.8369466066360474
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/improvements/completed/impr-1003.md",
+          "score": 0.8312832713127136
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/info/tooling/info-092.md",
+          "score": 0.8143944144248962
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/features/completed/feat-1005.md",
+          "score": 0.8011875152587891
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/info/openviking-internals/info-1173.md",
+          "score": 0.8009918928146362
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/projects/completed/homelab/proj-1002.md",
+          "score": 0.8003230690956116
+        },
+        {
+          "section": "resources",
+          "uri": "viking://resources/compendium/info/knowledge-base/.overview.md",
+          "score": 0.7953059673309326
+        },
+        {
+          "section": "memories",
+          "uri": "viking://user/noot/peers/pop/memories/entities/tools/openviking_upgrade_research.md",
+          "score": 0.7949696779251099
+        }
+      ],
+      "top3": [
+        "viking://resources/compendium/tasks/proj-027/task-1058.md",
+        "viking://resources/compendium/tasks/proj-027/.overview.md",
+        "viking://resources/compendium/info/knowledge-base/info-1021.md"
+      ]
+    }
+  }
+}
