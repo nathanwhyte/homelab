@@ -236,9 +236,9 @@ spec:
             # Guarded on v0.5.1.1 (each patch's EXPECTED_VERSION; v0.4.20 until
             # IMPR-1412) + six source sha256s (the EXPECTED_*_SHA256 constants,
             # ExtractLoop.run's among them), and the session half applies only after the
-            # loop half did. Grep the pod log for "ov-extract-patch:
-            # applied" (five lines per worker, one per part; no "NOT applied") after
-            # any change.
+            # loop half did. After any change, grep the pod log for
+            # "ov-extract-patch: applied"
+            # (five lines per worker, one per part; no "NOT applied").
             #
             # IMPR-1185: sitecustomize.py on this path installs a post-import wrapper
             # around SemanticProcessor._generate_overview that builds Quick Navigation
