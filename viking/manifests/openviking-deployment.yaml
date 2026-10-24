@@ -234,9 +234,11 @@ spec:
             # as success; a run that still fails gets .failed.json and a failed task. The
             # session-extraction loop only; streaming merge loops are logged, not raised.
             # Guarded on v0.5.1.1 (each patch's EXPECTED_VERSION; v0.4.20 until
-            # IMPR-1412) + the ExtractLoop.run source sha256, and the session half
-            # applies only after the loop half did. Grep the pod log for
-            # "ov-extract-patch: applied" (twice per worker) after any change.
+            # IMPR-1412) + six source sha256s (the EXPECTED_*_SHA256 constants,
+            # ExtractLoop.run's among them), and the session half applies only after the
+            # loop half did. Grep the pod log for "ov-extract-patch:
+            # applied" (five lines per worker, one per part; no "NOT applied") after
+            # any change.
             #
             # IMPR-1185: sitecustomize.py on this path installs a post-import wrapper
             # around SemanticProcessor._generate_overview that builds Quick Navigation
