@@ -4402,12 +4402,14 @@ data:
     the same engine search itself (``engine_count``) and lets failures raise. The one
     ``{}`` that is a real zero is a filtered count that matches nothing: the engine
     then emits no counter, while an unfiltered count always does (probed on v0.5.1.1).
-    Every request gets the service's envelope (HTTP 200, ``code``, ``message``,
-    ``data``), never a FastAPI 422 or 500: the route reads the raw JSON body instead of a
-    typed model, ``parse_request`` checks its shape, and one boundary in ``aggregate``
-    answers anything else. A missing collection or index, a malformed body, a filter the
-    field-type converter rejects, and an engine failure each get an error code with
-    empty data, so the client's count raises instead of reading 0. Filter semantics
+    The contract is the client's: a request ``HttpCollection.aggregate_data`` sends
+    gets either a correct count or an error code with empty data (a missing collection
+    or index, an engine failure), so the client's count raises instead of reading 0.
+    Anything else is answered best-effort with the service's envelope (HTTP 200, an
+    error ``code``, ASCII-safe ``message``, empty ``data``): the route reads the raw JSON
+    body instead of a typed model (no FastAPI 422), ``parse_request`` checks its shape,
+    a filter the field-type converter rejects is INVALID_PARAM, and one boundary
+    answers anything unexpected with INTERNAL_ERR. Filter semantics
     beyond conversion are the engine's, as on every stock search route: the native
     filter parser decides what a filter matches, and this patch does not second-guess it.
     The handler is ``async`` like the stock routes, so the count runs on the event loop
@@ -4483,7 +4485,7 @@ data:
         if isinstance(value, str):
             try:
                 value = json.loads(value)
-            except ValueError:
+            except (ValueError, RecursionError):
                 raise InvalidRequest(f"{name} is not valid JSON") from None
         if not isinstance(value, dict):
             raise InvalidRequest(f"{name} must be an object")
@@ -4548,7 +4550,7 @@ data:
             if index.field_type_converter:
                 dsl = index.field_type_converter.convert_filter_for_index(dsl)
             dsl_json = json.dumps(dsl)
-        except (ValueError, TypeError, KeyError) as e:
+        except Exception as e:  # noqa: BLE001 — conversion only reads the filter, so any error rejects it
             raise InvalidRequest(f"filter rejected: {e}") from e
         req = engine.SearchRequest()
         req.topk = 1  # CounterOp needs no query vector
@@ -4571,6 +4573,11 @@ data:
         return total
 
 
+    def _safe_message(message):
+        """ASCII with backslash escapes, so the response serializes whatever the input held."""
+        return str(message).encode("ascii", "backslashreplace").decode("ascii")
+
+
     def aggregate(module, body, req=None):
         """Answer one aggregate request body with ``module``'s (api_fastapi's) helpers."""
         codes = module.ErrorCode
@@ -4579,26 +4586,24 @@ data:
             collection = module.get_collection_or_raise(name, project)
             index = _local_index(collection, index_name)
             if index is None:
-                return module.error_response(
-                    "index not exist", codes.INDEX_NOT_EXIST.value, request=req
+                code, message = codes.INDEX_NOT_EXIST.value, "index not exist"
+            else:
+                total = engine_count(index, filters)
+                return module.success_response(
+                    "aggregate success",
+                    {"agg": {"_total": total}, "op": "count", "field": None},
+                    request=req,
                 )
-            total = engine_count(index, filters)
         except module.VikingDBException as e:
-            return module.error_response(e.message, e.code.value, request=req)
+            code, message = e.code.value, e.message
         except InvalidRequest as e:
-            return module.error_response(str(e), codes.INVALID_PARAM.value, request=req)
+            code, message = codes.INVALID_PARAM.value, e
         except AggregateFailed as e:
-            return module.error_response(str(e), codes.INTERNAL_ERR.value, request=req)
-        except Exception as e:  # noqa: BLE001 — the boundary: no request ends in a 500
+            code, message = codes.INTERNAL_ERR.value, e
+        except Exception as e:  # noqa: BLE001 — the boundary for anything unexpected
             logger.exception("ov-vectordb-agg-patch: unexpected error")
-            return module.error_response(
-                f"aggregate failed: {e!r}", codes.INTERNAL_ERR.value, request=req
-            )
-        return module.success_response(
-            "aggregate success",
-            {"agg": {"_total": total}, "op": "count", "field": None},
-            request=req,
-        )
+            code, message = codes.INTERNAL_ERR.value, f"aggregate failed: {e!r}"
+        return module.error_response(_safe_message(message), code, request=req)
 
 
     def _register(module):
@@ -4612,7 +4617,7 @@ data:
             filter?: object}."""
             try:
                 body = await req.json()
-            except ValueError:
+            except Exception:  # noqa: BLE001 — bad JSON, invalid UTF-8, nesting past the recursion limit
                 body = None  # parse_request answers INVALID_PARAM
             return aggregate(module, body, req)
 

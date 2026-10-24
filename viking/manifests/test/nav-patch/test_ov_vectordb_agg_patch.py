@@ -3,7 +3,8 @@
 The parse, engine, handler and guard cases use fakes. The installed cases import the
 real v0.5.1.1 vectordb service (sitecustomize applies the patch on import), serve it
 on a local port, and count through the real ``HttpCollectionAdapter``, the path
-``ov status`` takes, including an engine failure that must not read as 0.
+``ov status`` takes, including an engine failure that must not read as 0, and run
+the replace-write inventory scan (``get_incremental_inventory_under_uri``) over it.
 """
 
 import sys
@@ -203,7 +204,11 @@ class EngineCount(unittest.TestCase):
         self.assertEqual(agg.engine_count(fake_index(""), {"op": "must"}), 0)
 
     def test_converter_rejection_is_an_invalid_request(self):
-        for error in (ValueError("geo_range field must be geo_point"), TypeError("x")):
+        for error in (
+            ValueError("geo_range field must be geo_point"),
+            TypeError("x"),
+            OverflowError("cannot convert float infinity to integer"),
+        ):
             with self.subTest(error=error):
 
                 def convert(dsl, error=error):
@@ -300,6 +305,21 @@ class Handler(unittest.TestCase):
         out = agg.aggregate(svc, None)
         self.assertEqual((out["code"], out["data"]), (INVALID, {}))
 
+    def test_error_messages_are_ascii(self):
+        def convert(dsl):
+            raise ValueError("bad date \ud800")
+
+        index = fake_index(
+            '{"__total_count__": 2}',
+            converter=types.SimpleNamespace(convert_filter_for_index=convert),
+        )
+        out = agg.aggregate(
+            fake_service(fake_collection(index)), client_body(filter={"op": "range"})
+        )
+        self.assertEqual(out["code"], INVALID)
+        self.assertIn("\\ud800", out["message"])
+        json.dumps(out, ensure_ascii=False).encode()  # a raw surrogate would raise
+
     def test_index_without_an_engine_is_an_error(self):
         coll = fake_collection(fake_index(engine=False))
         self.assertEqual(
@@ -356,6 +376,39 @@ else:
     if "openviking.storage.vectordb.service.api_fastapi" not in sys.modules:
         os.environ["VIKINGDB_PERSIST_PATH"] = ""
     from openviking.storage.vectordb.service import server_fastapi as service
+
+
+CONTEXT = "bug1268ctx"
+BASE = "viking://resources/compendium"
+
+
+def context_rows():
+    """Two accounts' rows under one resource tree, at the levels a write diffs and one more."""
+    rows = []
+    for account in ("noot", "other"):
+        for path, level in (
+            ("bugs/a.md", 2),
+            ("bugs/b.md", 2),
+            ("bugs/.overview.md", 1),
+            ("bugs/.abstract.md", 0),
+            ("bugs/deep/c.md", 2),
+            ("ideas/d.md", 2),
+            ("bugs/e.md", 3),
+        ):
+            n = len(rows) + 1
+            rows.append(
+                {
+                    "id": f"{account}-{n}",
+                    "uri": f"{BASE}/{path}",
+                    "level": level,
+                    "account_id": account,
+                    "updated_at": f"2026-10-24T12:{n:02d}:00Z",
+                    "created_at": "2026-10-24T12:00:00Z",
+                    "md5": f"m{n}",
+                    "vector": [1, 0, 0, 0],
+                }
+            )
+    return rows
 
 
 def _free_port():
@@ -423,6 +476,19 @@ class Installed(unittest.TestCase):
                 {"id": "c", "vector": [0, 0, 1, 0], "kind": "y"},
             ]
         )
+        from openviking.storage.collection_schemas import CollectionSchemas
+
+        cls.ctx_adapter = HttpCollectionAdapter(
+            "127.0.0.1", cls.port, "default", CONTEXT, "default"
+        )
+        cls.ctx_adapter.create_collection(
+            CONTEXT,
+            CollectionSchemas.context_collection(CONTEXT, 4),
+            distance="cosine",
+            sparse_weight=0.0,
+            index_name="default",
+        )
+        cls.ctx_adapter.upsert(context_rows())
 
     @classmethod
     def tearDownClass(cls):
@@ -508,10 +574,72 @@ class Installed(unittest.TestCase):
                 out = self._post(**overrides)
                 self.assertEqual(out["code"], code)
                 self.assertEqual(out["data"], {})
-        for raw in (b"{not json", b"[1, 2]", b"", b"\xff"):
-            with self.subTest(raw=raw):
+        deep_list = b"[" * 15000 + b"0" + b"]" * 15000
+        deep_object = b'{"a":' * 15000 + b"0" + b"}" * 15000
+        for raw in (b"{not json", b"[1, 2]", b"", b"\xff", deep_list, deep_object):
+            with self.subTest(raw=raw[:20]):
                 out = self._post(raw=raw)
                 self.assertEqual((out["code"], out["data"]), (INVALID, {}))
+
+    def test_date_filters_the_converter_rejects(self):
+        for value in (b'"\\ud800"', b"1e999"):  # an unpaired surrogate; infinity
+            with self.subTest(value=value):
+                out = self._post(
+                    raw=b'{"collection_name": "%s", "index_name": "default",'
+                    b' "agg": {"op": "count"},'
+                    b' "filter": {"op": "range", "field": "updated_at", "gt": %s}}'
+                    % (CONTEXT.encode(), value)
+                )
+                self.assertEqual((out["code"], out["data"]), (INVALID, {}))
+                self.assertTrue(out["message"].isascii())
+
+    def _inventory(self, uri, recursive):
+        import asyncio
+
+        from openviking.storage import viking_vector_index_backend as vvib
+
+        config = types.SimpleNamespace(
+            dimension=4,
+            distance_metric="cosine",
+            sparse_weight=0.0,
+            name=CONTEXT,
+            index_name="default",
+        )
+        backend = vvib._SingleAccountBackend(
+            config, "noot", shared_adapter=self.ctx_adapter
+        )
+        outer = object.__new__(vvib.VikingVectorIndexBackend)
+
+        async def for_context(ctx):
+            return backend
+
+        outer._get_backend_for_context = for_context
+        inventory = asyncio.run(
+            outer.get_incremental_inventory_under_uri(
+                uri,
+                ctx=types.SimpleNamespace(account_id="noot"),
+                batch_size=2,
+                recursive=recursive,
+            )
+        )
+        return sorted(r["uri"].removeprefix(BASE + "/") for r in inventory.values())
+
+    def test_replace_write_inventory(self):
+        """content/write(replace) diffs this inventory; its strict count 404s on stock v0.5.1.1."""
+        self.assertEqual(
+            self._inventory(f"{BASE}/bugs", recursive=True),
+            [
+                "bugs/.abstract.md",
+                "bugs/.overview.md",
+                "bugs/a.md",
+                "bugs/b.md",
+                "bugs/deep/c.md",
+            ],
+        )
+        self.assertEqual(
+            self._inventory(f"{BASE}/bugs/a.md", recursive=False), ["bugs/a.md"]
+        )
+        self.assertEqual(self._inventory(f"{BASE}/none", recursive=True), [])
 
 
 if __name__ == "__main__":
