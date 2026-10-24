@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Run the nav-patch suite (viking/manifests/test/nav-patch/test_*.py) in one process.
 
-IMPR-1413. Each patch guards on ``openviking.__version__ == "v0.4.20"``, the string
-the image reports; the PyPI wheel (the ``openviking`` uv tool) reports ``0.4.20``, so
+IMPR-1413. Each patch guards on ``openviking.__version__ == "v0.5.1.1"`` (the
+release ``EXPECTED_VERSION`` pins), the string the image reports; the PyPI wheel (the
+``openviking`` uv tool) reports ``0.5.1.1``, so
 the real-module cases failed on every local run and each review round had to diff
 "the same failures as main" by hand. This runner maps the wheel's string to the
 image's before any patch target is imported (``import openviking`` loads only

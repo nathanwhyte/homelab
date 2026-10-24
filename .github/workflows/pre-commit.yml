@@ -21,7 +21,7 @@ name: pre-commit
 #   - uv (pinned): slack-transport-tests runs `uv run --with pyyaml`, and
 #     yt-dlp-wrapper-tests runs `uv run --offline --with pyyaml`, which only
 #     works from a warm uv cache, so a step fills it first.
-#   - openviking==0.4.20 as a uv tool (IMPR-1413): nav-patch-tests runs its
+#   - openviking==0.5.1.1 as a uv tool (IMPR-1413, IMPR-1412): nav-patch-tests runs its
 #     real-package cases under it, and NAV_PATCH_REQUIRE_OPENVIKING=1 on the
 #     pre-commit step turns a missing package into a failure, not a skip.
 #   - Helm 4 (pinned, matches the local 4.3.1 the hook was written against):
@@ -80,7 +80,7 @@ jobs:
         # tool's Python, as on a workstation; without it every real-package
         # case skipped here. The patches pin this release.
         run: |
-          uv tool install --python 3.12 openviking==0.4.20
+          uv tool install --python 3.12 openviking==0.5.1.1
           "$(uv tool dir)/openviking/bin/python" -c 'import openviking; print("openviking", openviking.__version__)'
 
       - name: Set up Helm 4
