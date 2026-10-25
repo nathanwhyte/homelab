@@ -155,6 +155,13 @@ repos:
         language: system
         pass_filenames: false
         files: ^viking/(scripts/(test-)?ov-queue-drained\.py|exporters/ov-exporter\.py)$
+      # IMPR-1425: the ov-test write canary for vectordb and server patches.
+      - id: ov-test-write-canary-tests
+        name: ov-test-write-canary tests
+        entry: python3 viking/scripts/test-ov-test-write-canary.py
+        language: system
+        pass_filenames: false
+        files: ^viking/scripts/(test-)?ov-test-write-canary\.py$
       # IMPR-1413: what the prod and test stacks mount, as `kubectl kustomize`
       # renders them, agrees with the nav-patch files on disk, and so does
       # sitecustomize.py's TARGETS. homelab#250 shipped a patch its Deployments'
