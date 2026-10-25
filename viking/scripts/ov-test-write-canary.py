@@ -23,8 +23,12 @@ only to PROBE_URI on ov-test. The HTTP calls are stdlib; the count step needs th
 `openviking` package matching the server (a scratch venv), and reports
 `skipped` without it, which fails the run unless `--no-counts` is passed.
 
-Exit codes: 0 every check passed, 3 a check failed, 1 the run could not start
-(config, identity, port-forward). Prints one JSON receipt in every case.
+The read-back must equal the replacement exactly, and the replacement carries a
+marker unique to the run.
+
+Exit codes: 0 every check passed, 3 a check failed, 1 the run could not finish
+(config, prod refusal, port-forward, a transport error). Every run that ends,
+error or not, prints one JSON receipt holding what it saw so far.
 
 Usage: <venv>/bin/python -I ov-test-write-canary.py --label before|after
 """
@@ -39,6 +43,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+import uuid
 
 NS = "viking"
 TEST_CONFIGMAP = "openviking-test-config"
@@ -106,25 +111,41 @@ def free_port():
         return s.getsockname()[1]
 
 
+def stop(p):
+    p.terminate()
+    try:
+        p.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        p.kill()
+        p.wait()
+
+
 def forward(svc, remote, timeout=20):
-    """A port-forward to `svc`, once its local port accepts connections."""
+    """A port-forward to `svc`, once its local port accepts connections.
+
+    The child is stopped here on any way out before it is handed back, an
+    interrupt included; after that, the caller owns it.
+    """
     local = free_port()
     p = subprocess.Popen(
         ["kubectl", "-n", NS, "port-forward", svc, f"{local}:{remote}"],
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
     )
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        if p.poll() is not None:
-            raise CanaryError(f"port-forward to {svc} exited {p.returncode}")
-        try:
-            socket.create_connection(("127.0.0.1", local), timeout=1).close()
-            return p, local
-        except OSError:
-            time.sleep(0.5)
-    p.terminate()
-    raise CanaryError(f"port-forward to {svc} not ready after {timeout}s")
+    try:
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if p.poll() is not None:
+                raise CanaryError(f"port-forward to {svc} exited {p.returncode}")
+            try:
+                socket.create_connection(("127.0.0.1", local), timeout=1).close()
+                return p, local
+            except OSError:
+                time.sleep(0.5)
+        raise CanaryError(f"port-forward to {svc} not ready after {timeout}s")
+    except BaseException:
+        stop(p)
+        raise
 
 
 def http(base, headers, method, path, params=None, body=None, timeout=120):
@@ -195,6 +216,12 @@ def vectordb_counts(port, collection, account):
     return counts
 
 
+def read_back_matches(status, body, expected):
+    """Whether a content read returned exactly the replacement, not just part of it."""
+    text = body.get("result") if status == 200 and isinstance(body, dict) else None
+    return text == expected
+
+
 def failures(out, need_counts):
     """The names of the checks that did not pass."""
     bad = []
@@ -225,11 +252,12 @@ def failures(out, need_counts):
     return bad
 
 
-def run(args):
+def run(args, out):
+    """Fill the receipt `out` as the checks run, so a run that raises keeps what it saw."""
     conf = read_ov_conf(TEST_CONFIGMAP)
     target = target_from_conf(conf)
     refuse_prod(target["collection"], read_ov_conf(PROD_CONFIGMAP))
-    out = {"label": args.label, "target": target, "probe": PROBE_URI}
+    out.update(target=target, probe=PROBE_URI)
     key = base64.b64decode(
         kubectl("get", "secret", SECRET, "-o", "jsonpath={.data.api-key}")
     ).decode()
@@ -258,14 +286,16 @@ def run(args):
                 "uri": PROBE_URI, "content": f"# canary\n\ncreated {stamp}\n",
                 "mode": "create"})  # fmt: skip
             out["create"] = {"http": status, "body": body}
+        # A marker unique to this run, so an earlier run's content cannot match.
+        expected = f"# canary\n\nreplaced {stamp} {uuid.uuid4().hex} ({args.label})\n"
         status, body, tries = replace_with_retry(
-            call, f"# canary\n\nreplaced {stamp} ({args.label})\n",
-            args.replace_attempts, args.replace_wait,
-        )  # fmt: skip
+            call, expected, args.replace_attempts, args.replace_wait
+        )
         out["replace"], out["replace_attempts"] = {"http": status, "body": body}, tries
         status, body = call("GET", "/api/v1/content/read", params={"uri": PROBE_URI})
-        text = body.get("result") if status == 200 and isinstance(body, dict) else None
-        out["read_back_matches"] = isinstance(text, str) and f"replaced {stamp}" in text
+        out["read_back_matches"] = read_back_matches(status, body, expected)
+        if not out["read_back_matches"]:
+            out["read_back"] = {"http": status, "body": body, "expected": expected}
         if args.no_counts:
             out["vectordb"] = "skipped (--no-counts)"
         else:
@@ -276,7 +306,7 @@ def run(args):
             )
     finally:
         for p in procs:
-            p.terminate()
+            stop(p)
     counts = out["vectordb"]
     out["failed"] = failures(
         {**out, "vectordb": None if isinstance(counts, str) else counts},
@@ -304,10 +334,14 @@ def main(argv=None):
     ap.add_argument("--no-counts", action="store_true",
                     help="skip the vectordb counts (no openviking package)")  # fmt: skip
     args = ap.parse_args(argv)
+    out = {"label": args.label}
     try:
-        out = run(args)
-    except CanaryError as exc:
-        print(json.dumps({"label": args.label, "error": str(exc)}))
+        run(args, out)
+    except Exception as exc:  # noqa: BLE001 — every finished run ends in a receipt
+        out["error"] = (
+            str(exc) if isinstance(exc, CanaryError) else f"{type(exc).__name__}: {exc}"
+        )
+        print(json.dumps(out, indent=2, default=str))
         return EXIT_ERROR
     print(json.dumps(out, indent=2, default=str))
     return EXIT_FAILED if out["failed"] else EXIT_OK

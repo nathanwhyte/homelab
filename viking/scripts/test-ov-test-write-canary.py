@@ -170,6 +170,39 @@ class VerdictTests(unittest.TestCase):
         self.assertEqual(wc.failures(out, False), [])
 
 
+class ReadBackTests(unittest.TestCase):
+    def test_only_the_exact_replacement_matches(self):
+        expected = "# canary\n\nreplaced 2026-10-25T00:00:00Z abc (after)\n"
+        self.assertTrue(wc.read_back_matches(200, {"result": expected}, expected))
+        # homelab#266 round 1: a truncated body that kept the marker passed.
+        for body in ({"result": "replaced 2026-10-25T00:00:00Z abc"}, {"result": None},
+                     "Not Found"):  # fmt: skip
+            self.assertFalse(wc.read_back_matches(200, body, expected))
+        self.assertFalse(wc.read_back_matches(404, {"result": expected}, expected))
+
+
+class ForwardTests(unittest.TestCase):
+    def test_an_interrupt_during_startup_stops_the_child(self):
+        # homelab#266 round 1: the child outlived a KeyboardInterrupt here.
+        child = mock.Mock()
+        child.poll.return_value = None
+        with mock.patch.object(wc.subprocess, "Popen", return_value=child), \
+             mock.patch.object(wc.socket, "create_connection",
+                               side_effect=KeyboardInterrupt):  # fmt: skip
+            with self.assertRaises(KeyboardInterrupt):
+                wc.forward("svc/openviking-test", 1933)
+        child.terminate.assert_called_once()
+        child.wait.assert_called()
+
+    def test_a_child_that_exits_is_reported_and_reaped(self):
+        child = mock.Mock(returncode=1)
+        child.poll.return_value = 1
+        with mock.patch.object(wc.subprocess, "Popen", return_value=child):
+            with self.assertRaises(wc.CanaryError):
+                wc.forward("svc/openviking-test", 1933)
+        child.wait.assert_called()
+
+
 class MainTests(unittest.TestCase):
     def run_main(self, argv):
         buf = io.StringIO()
@@ -177,16 +210,32 @@ class MainTests(unittest.TestCase):
             code = wc.main(argv)
         return code, buf.getvalue()
 
-    def test_a_refusal_exits_1_with_one_json_line(self):
+    def test_a_refusal_exits_1_with_one_json_receipt(self):
         with mock.patch.object(wc, "run", side_effect=wc.CanaryError("is prod's")):
             code, out = self.run_main(["--label", "after"])
         self.assertEqual(code, wc.EXIT_ERROR)
         self.assertEqual(json.loads(out), {"label": "after", "error": "is prod's"})
 
+    def test_a_transport_error_still_prints_the_receipt_so_far(self):
+        # homelab#266 round 1: URLError and ValueError escaped with no receipt.
+        def fail(args, out):
+            out["health"] = 200
+            raise wc.urllib.error.URLError("connection reset")
+
+        with mock.patch.object(wc, "run", side_effect=fail):
+            code, out = self.run_main(["--label", "after"])
+        receipt = json.loads(out)
+        self.assertEqual(code, wc.EXIT_ERROR)
+        self.assertEqual(receipt["health"], 200)
+        self.assertTrue(receipt["error"].startswith("URLError: "))
+
     def test_failed_checks_exit_3(self):
-        with mock.patch.object(wc, "run", return_value={"failed": ["replace"]}):
+        def finish(failed):
+            return lambda args, out: out.update(failed=failed)
+
+        with mock.patch.object(wc, "run", side_effect=finish(["replace"])):
             self.assertEqual(self.run_main(["--label", "x"])[0], wc.EXIT_FAILED)
-        with mock.patch.object(wc, "run", return_value={"failed": []}):
+        with mock.patch.object(wc, "run", side_effect=finish([])):
             self.assertEqual(self.run_main(["--label", "x"])[0], wc.EXIT_OK)
 
     def test_replace_attempts_must_be_positive(self):
