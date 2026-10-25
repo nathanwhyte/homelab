@@ -18,13 +18,11 @@ Smoke-check outputs from the Phase 3 window (GUIDE-1085 4.1), captured against p
 | 1 | `c1.txt` | Pod stable | 2/2 Ready, 0 restarts; the file does not record when it was captured |
 | 2 | `c2.txt` | Version | the three `openviking` image references and `/health` on v0.5.1.1 |
 | 3 | `c3.txt` | Digest | `sha256:551b1ae0…` on `openviking` and `ov-exporter`, the digest commented beside the image in `../../manifests/openviking-deployment.yaml` |
+| 4 | `first-start-log.txt` | Runtime patches | lines 2–21: 20 `applied` lines from 10 patch prefixes (`ov-nav-patch` … `ov-s3-cache-patch`); line 69: the pref-gate compressor record `applied in 1 mode`; no `NOT applied` line |
 | 5 | `c5.txt` | `ov status --verbose` | `[queue]` healthy, every queue row 0; `[vikingdb]` unhealthy from the `aggregate` 404 (BUG-1268, since fixed by homelab#265) |
 | 6 | `c6.txt` | Identity | `trusted`, `default`/`noot`; both keys masked |
 | 7 | `c7.txt`, `search-window-v0.5.1.1.json` | Search parity against `../2026-10-22-pre-v0.5.1.1/search-baseline-window-v0.4.20.json` | `--mapping half`: 38 queries, 374 shared hits, max deviation 0.0000, top-3 differs on 0 queries |
 | 9 | `c9.txt` | AGFS bucket | 72,632 objects, the same count as the window's AGFS export (`window-log.txt` line 138) |
 | 10 | `c10.txt` | `usage_audit` | schema `5`, 2001 `request_audit` rows |
 
-Not committed here; recorded on IMPR-1412 in the compendium instead:
-
-- Check 4 (all nine runtime patches `applied`) was read from the live server log.
-- Check 8 (read parity). The URI pointer `read-baseline-plain.uri` (64 bytes) is committed. The baseline body it names (2365 bytes) is not, because the trailing-whitespace hook would rewrite it. The pre-window and post-cutover reads both hashed to sha256 `40a044dd1066edf01e80756e6c47a86d54d60fbe461e2f3ebb0b6f7c8b755f3e`.
+Not committed here; recorded on IMPR-1412 in the compendium instead: check 8 (read parity). The URI pointer `read-baseline-plain.uri` (64 bytes) is committed. The baseline body it names (2365 bytes) is not, because the trailing-whitespace hook would rewrite it. The pre-window and post-cutover reads both hashed to sha256 `40a044dd1066edf01e80756e6c47a86d54d60fbe461e2f3ebb0b6f7c8b755f3e`.
