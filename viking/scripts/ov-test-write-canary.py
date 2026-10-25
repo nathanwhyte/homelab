@@ -20,21 +20,25 @@ Two traps from that run are handled here rather than rediscovered:
 The vectordb service and port come from the same `ov.conf` (`storage.vectordb.url`),
 and the account and user from its `default_account` / `default_user`. Writes go
 only to PROBE_URI on ov-test. The HTTP calls are stdlib; the count step needs the
-`openviking` package matching the server (a scratch venv), and reports
-`skipped` without it, which fails the run unless `--no-counts` is passed.
+`openviking` package matching the server (a scratch venv); without it the counts
+are null, which fails the run unless `--no-counts` is passed.
 
-The read-back must equal the replacement exactly, and the replacement carries a
-marker unique to the run.
+The replace passes on HTTP 200 with `status: ok`. The read-back must equal the
+replacement exactly, and the replacement carries a marker unique to the run. Each
+count must be a non-negative integer, the filter matching nothing must count 0,
+and the account filter must count no more than the unfiltered call.
 
 Exit codes: 0 every check passed, 3 a check failed, 1 the run could not finish
-(config, prod refusal, port-forward, a transport error). Every run that ends,
-error or not, prints one JSON receipt holding what it saw so far.
+(config, prod refusal, port-forward, a transport error), 130 interrupted. Every
+run that ends in one of these prints one JSON receipt, on one line, holding what
+it saw so far. Every port-forward child is stopped on the way out.
 
 Usage: <venv>/bin/python -I ov-test-write-canary.py --label before|after
 """
 
 import argparse
 import base64
+import contextlib
 import json
 import socket
 import subprocess
@@ -52,7 +56,7 @@ SERVER_SVC = "svc/openviking-test"
 SERVER_PORT = 1933
 SECRET = "openviking-api-key"
 PROBE_URI = "viking://resources/ov-test-write-canary/probe.md"
-EXIT_OK, EXIT_ERROR, EXIT_FAILED = 0, 1, 3
+EXIT_OK, EXIT_ERROR, EXIT_FAILED, EXIT_INTERRUPTED = 0, 1, 3, 130
 
 
 class CanaryError(Exception):
@@ -112,12 +116,16 @@ def free_port():
 
 
 def stop(p):
-    p.terminate()
+    """Terminate `p`; kill it if it outlives 5 s or the wait is interrupted."""
     try:
+        p.terminate()
         p.wait(timeout=5)
     except subprocess.TimeoutExpired:
-        p.kill()
-        p.wait()
+        pass
+    finally:
+        if p.poll() is None:
+            p.kill()
+            p.wait()
 
 
 def forward(svc, remote, timeout=20):
@@ -231,7 +239,11 @@ def failures(out, need_counts):
         bad.append("observer_names_collection")
     if not out.get("observer_healthy"):
         bad.append("observer_healthy")
-    if out.get("replace", {}).get("http") != 200:
+    replace = out.get("replace") or {}
+    body = replace.get("body")
+    if replace.get("http") != 200 or not (
+        isinstance(body, dict) and body.get("status") == "ok"
+    ):
         bad.append("replace")
     if not out.get("read_back_matches"):
         bad.append("read_back_matches")
@@ -240,15 +252,29 @@ def failures(out, need_counts):
         if need_counts:
             bad.append("vectordb (openviking not importable; pass --no-counts to skip)")
     else:
-        ints = {
-            k: v
-            for k, v in counts.items()
-            if isinstance(v, int) and not isinstance(v, bool)
-        }
-        if len(ints) != len(counts):
-            bad.append("vectordb")
-        elif ints["strict_count_no_match"] != 0:
-            bad.append("vectordb (a filter matching nothing counted rows)")
+        bad += count_failures(counts)
+    return bad
+
+
+def count_failures(counts):
+    """What is wrong with the four counts, judged only on what must hold for any data.
+
+    Each is a non-negative integer, the filter matching nothing counts 0, and the
+    account filter counts no more than the unfiltered call.
+    """
+    ok = {
+        k: v
+        for k, v in counts.items()
+        if isinstance(v, int) and not isinstance(v, bool) and v >= 0
+    }
+    if set(ok) != {"count", "strict_count", "strict_count_account",
+                   "strict_count_no_match"}:  # fmt: skip
+        return ["vectordb (a count errored or is not a non-negative integer)"]
+    bad = []
+    if ok["strict_count_no_match"] != 0:
+        bad.append("vectordb (a filter matching nothing counted rows)")
+    if ok["strict_count_account"] > ok["strict_count"]:
+        bad.append("vectordb (the account filter counted more than no filter)")
     return bad
 
 
@@ -261,10 +287,10 @@ def run(args, out):
     key = base64.b64decode(
         kubectl("get", "secret", SECRET, "-o", "jsonpath={.data.api-key}")
     ).decode()
-    procs = []
-    try:
+    # ExitStack runs every child's stop even when an earlier one raises.
+    with contextlib.ExitStack() as children:
         p, server = forward(SERVER_SVC, SERVER_PORT)
-        procs.append(p)
+        children.callback(stop, p)
         headers = {"X-API-Key": key, "X-OpenViking-Account": target["account"],
                    "X-OpenViking-User": target["user"]}  # fmt: skip
 
@@ -300,13 +326,10 @@ def run(args, out):
             out["vectordb"] = "skipped (--no-counts)"
         else:
             p, vport = forward(target["vectordb_svc"], target["vectordb_port"])
-            procs.append(p)
+            children.callback(stop, p)
             out["vectordb"] = vectordb_counts(
                 vport, target["collection"], target["account"]
             )
-    finally:
-        for p in procs:
-            stop(p)
     counts = out["vectordb"]
     out["failed"] = failures(
         {**out, "vectordb": None if isinstance(counts, str) else counts},
@@ -337,14 +360,23 @@ def main(argv=None):
     out = {"label": args.label}
     try:
         run(args, out)
-    except Exception as exc:  # noqa: BLE001 — every finished run ends in a receipt
+    except KeyboardInterrupt:
+        out["error"] = "interrupted"
+        emit(out)
+        return EXIT_INTERRUPTED
+    except Exception as exc:  # noqa: BLE001 — every run that ends prints a receipt
         out["error"] = (
             str(exc) if isinstance(exc, CanaryError) else f"{type(exc).__name__}: {exc}"
         )
-        print(json.dumps(out, indent=2, default=str))
+        emit(out)
         return EXIT_ERROR
-    print(json.dumps(out, indent=2, default=str))
+    emit(out)
     return EXIT_FAILED if out["failed"] else EXIT_OK
+
+
+def emit(out):
+    """The receipt, as one JSON line."""
+    print(json.dumps(out, default=str))
 
 
 if __name__ == "__main__":

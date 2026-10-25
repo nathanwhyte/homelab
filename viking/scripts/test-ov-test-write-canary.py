@@ -63,7 +63,7 @@ def passing():
         "health": 200,
         "observer_names_collection": True,
         "observer_healthy": True,
-        "replace": {"http": 200},
+        "replace": {"http": 200, "body": {"status": "ok"}},
         "read_back_matches": True,
         "vectordb": dict(COUNTS),
     }
@@ -152,17 +152,30 @@ class VerdictTests(unittest.TestCase):
         out = {**passing(), "replace": {"http": 404}, "read_back_matches": False}
         self.assertEqual(wc.failures(out, True), ["replace", "read_back_matches"])
 
-    def test_count_errors_and_a_nonzero_no_match_fail(self):
+    def test_a_200_replace_with_an_error_body_fails(self):
+        out = {**passing(), "replace": {"http": 200, "body": {"status": "error"}}}
+        self.assertEqual(wc.failures(out, True), ["replace"])
+
+    def test_counts_must_be_possible_for_any_data(self):
+        bad_shape = ["vectordb (a count errored or is not a non-negative integer)"]
+        # homelab#266 round 2: -1/-2/-3/0 passed.
+        for name, value in (("strict_count", "ERROR HTTPError('404')"),
+                            ("count", True), ("count", -1),
+                            ("strict_count_account", -3)):  # fmt: skip
+            out = passing()
+            out["vectordb"][name] = value
+            self.assertEqual(wc.failures(out, True), bad_shape, (name, value))
         out = passing()
-        out["vectordb"]["strict_count"] = "ERROR HTTPError('404')"
-        self.assertEqual(wc.failures(out, True), ["vectordb"])
+        del out["vectordb"]["count"]
+        self.assertEqual(wc.failures(out, True), bad_shape)
         out = passing()
         out["vectordb"]["strict_count_no_match"] = 3
-        self.assertIn("vectordb (a filter matching nothing counted rows)",
-                      wc.failures(out, True))  # fmt: skip
+        self.assertEqual(wc.failures(out, True),
+                         ["vectordb (a filter matching nothing counted rows)"])  # fmt: skip
         out = passing()
-        out["vectordb"]["count"] = True
-        self.assertEqual(wc.failures(out, True), ["vectordb"])
+        out["vectordb"]["strict_count_account"] = 6
+        self.assertEqual(wc.failures(out, True),
+                         ["vectordb (the account filter counted more than no filter)"])  # fmt: skip
 
     def test_missing_counts_fail_unless_skipped(self):
         out = {**passing(), "vectordb": None}
@@ -182,6 +195,12 @@ class ReadBackTests(unittest.TestCase):
 
 
 class ForwardTests(unittest.TestCase):
+    def setUp(self):
+        # No real socket: a sandbox may refuse even a loopback bind.
+        patcher = mock.patch.object(wc, "free_port", return_value=40000)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     def test_an_interrupt_during_startup_stops_the_child(self):
         # homelab#266 round 1: the child outlived a KeyboardInterrupt here.
         child = mock.Mock()
@@ -201,6 +220,41 @@ class ForwardTests(unittest.TestCase):
             with self.assertRaises(wc.CanaryError):
                 wc.forward("svc/openviking-test", 1933)
         child.wait.assert_called()
+
+
+class StopTests(unittest.TestCase):
+    def test_an_interrupted_wait_still_kills_the_child(self):
+        # homelab#266 round 2: an interrupt in wait() skipped the kill fallback.
+        child = mock.Mock()
+        child.poll.return_value = None
+        child.wait.side_effect = [KeyboardInterrupt, 0]
+        with self.assertRaises(KeyboardInterrupt):
+            wc.stop(child)
+        child.kill.assert_called_once()
+
+    def test_run_stops_every_child_when_one_stop_raises(self):
+        # homelab#266 round 2: an interrupt stopping one child skipped the other.
+        server, vdb = mock.Mock(name="server"), mock.Mock(name="vdb")
+        stopped = []
+
+        def stop(p):
+            stopped.append(p)
+            if p is vdb:
+                raise KeyboardInterrupt
+
+        prod = {"storage": {"vectordb": {"name": "context"}}}
+        args = wc.argparse.Namespace(label="x", replace_attempts=1, replace_wait=0,
+                                     no_counts=False)  # fmt: skip
+        with mock.patch.object(wc, "read_ov_conf",
+                               side_effect=lambda cm: CONF if cm == wc.TEST_CONFIGMAP else prod), \
+             mock.patch.object(wc, "kubectl", return_value="a2V5"), \
+             mock.patch.object(wc, "forward", side_effect=[(server, 1), (vdb, 2)]), \
+             mock.patch.object(wc, "http", return_value=(404, "Not Found")), \
+             mock.patch.object(wc, "vectordb_counts", return_value=dict(COUNTS)), \
+             mock.patch.object(wc, "stop", side_effect=stop):  # fmt: skip
+            with self.assertRaises(KeyboardInterrupt):
+                wc.run(args, {})
+        self.assertEqual(stopped, [vdb, server])
 
 
 class MainTests(unittest.TestCase):
@@ -228,6 +282,25 @@ class MainTests(unittest.TestCase):
         self.assertEqual(code, wc.EXIT_ERROR)
         self.assertEqual(receipt["health"], 200)
         self.assertTrue(receipt["error"].startswith("URLError: "))
+
+    def test_an_interrupt_prints_the_receipt_and_exits_130(self):
+        # homelab#266 round 2: KeyboardInterrupt bypassed `except Exception`.
+        def interrupt(args, out):
+            out["health"] = 200
+            raise KeyboardInterrupt
+
+        with mock.patch.object(wc, "run", side_effect=interrupt):
+            code, out = self.run_main(["--label", "x"])
+        self.assertEqual(code, wc.EXIT_INTERRUPTED)
+        self.assertEqual(json.loads(out), {"label": "x", "health": 200,
+                                           "error": "interrupted"})  # fmt: skip
+
+    def test_every_receipt_is_one_line(self):
+        # homelab#266 round 2: indent=2 printed a refusal over four lines.
+        for effect in (wc.CanaryError("is prod's"), lambda a, o: o.update(failed=[])):
+            with mock.patch.object(wc, "run", side_effect=effect):
+                _, out = self.run_main(["--label", "x"])
+            self.assertEqual(len(out.splitlines()), 1, out)
 
     def test_failed_checks_exit_3(self):
         def finish(failed):
