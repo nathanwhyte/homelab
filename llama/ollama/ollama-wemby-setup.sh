@@ -5,7 +5,7 @@ set -euo pipefail
 #
 # Install or upgrade at the pinned version, matching timmy's OLLAMA_VERSION in
 # llama/host/install-host-ollama.sh (keep the two equal):
-#   curl -fsSL https://ollama.com/install.sh | OLLAMA_VERSION=0.40.3 sh
+#   curl -fsSL https://ollama.com/install.sh | OLLAMA_VERSION=0.40.11 sh
 # Ollama 0.40.x bundles llama.cpp b11351 (its LLAMA_CPP_VERSION file).
 #
 # wemby's Ollama is a standalone host daemon: no k8s Service or EndpointSlice
