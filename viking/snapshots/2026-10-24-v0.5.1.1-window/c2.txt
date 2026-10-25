@@ -1,0 +1,4 @@
+   1 busybox:1.37
+   3 ghcr.io/volcengine/openviking:v0.5.1.1
+   1 python:3.12-slim
+{"status":"ok","healthy":true,"version":"v0.5.1.1","auth_mode":"trusted","root_api_key_required":true}

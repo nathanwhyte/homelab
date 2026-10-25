@@ -1,0 +1,5 @@
+{"ok":true,"result":{"url":"http://100.95.215.105:31933","api_key":"********","root_api_key":"********","account":"default","user":"noot"}}
+auth_mode trusted
+cmd: ov ls viking://user/noot/ -l 256 -n 256
+1. dir · 2026-10-24 11:27
+   viking://user/noot/memories

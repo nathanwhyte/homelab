@@ -1,0 +1,10 @@
+queries 38, shared hits 374, mapping half
+max |new - f(old)| = 0.0000 (tolerance 0.01)
+top-3 differs on 0 queries
+formula (old+1)/2: ACCEPTED
+
+| old floor | formula | measured median | n in ±window | use |
+| --- | --- | --- | --- | --- |
+| 0.450 | 0.725 | 0.731 | 16 | 0.725 |
+| 0.500 | 0.750 | 0.751 | 24 | 0.750 |
+| 0.650 | 0.825 | 0.823 | 41 | 0.825 |
