@@ -16,6 +16,7 @@ from git_env import scrub_environ  # noqa: E402
 scrub_environ()
 
 import importlib.util
+import json
 import os
 import socket
 import threading
@@ -126,6 +127,21 @@ class UpdateData(unittest.TestCase):
         coll = FakeCollection(answer=lambda batch: {"ids": [7]})
         self.assertEqual(upd.update_data(FakeAdapter(coll), [{"id": 7}]), ["7"])
 
+    def test_a_transport_failure_reports_no_ids(self):
+        """A ValueError here would read as INVALID_ARGUMENT in the backend."""
+        for exc in (
+            json.JSONDecodeError("Expecting value", "<html>", 0),
+            ValueError("bad"),
+            ConnectionError("refused"),
+        ):
+            with self.subTest(exc=exc):
+
+                def answer(batch, exc=exc):
+                    raise exc
+
+                coll = FakeCollection(answer=answer)
+                self.assertEqual(upd.update_data(FakeAdapter(coll), [{"id": "a"}]), [])
+
 
 def fake_world(adapter_cls):
     """``openviking`` and its http_adapter as stand-ins, for the guard cases."""
@@ -167,7 +183,10 @@ class Guards(unittest.TestCase):
         self.assertTrue(ok)
         self.assertIs(cls.update_data, upd.update_data)
         self.assertTrue(backend._ov_http_update_patch)
-        with patch.dict(sys.modules, fake_world(cls)):
+        with (
+            patch.dict(sys.modules, fake_world(cls)),
+            patch.dict(os.environ, {}, clear=True),
+        ):
             self.assertTrue(upd.apply(backend))
 
     def test_env_switch_off(self):
@@ -330,6 +349,52 @@ class Installed(unittest.TestCase):
 
         self.assertEqual(asyncio.run(run()), ["r2"])
         self.assertEqual(self.adapter.get(["r2"])[0]["active_count"], 3)
+
+    def _backend_update(self, payload):
+        """The real ``_SingleAccountBackend.update`` over this adapter."""
+        import asyncio
+
+        config = types.SimpleNamespace(
+            dimension=4,
+            distance_metric="cosine",
+            sparse_weight=0.0,
+            name=COLLECTION,
+            index_name="default",
+        )
+        backend = backend_module._SingleAccountBackend(
+            config, "noot", shared_adapter=self.adapter
+        )
+        return asyncio.run(backend.update(payload))
+
+    def test_backend_update_succeeds(self):
+        result = self._backend_update({"id": "r1", "active_count": 7})
+        self.assertEqual(
+            (result.ok, result.ids, result.error_code), (True, ["r1"], None)
+        )
+        self.assertEqual(self.adapter.get(["r1"])[0]["active_count"], 7)
+
+    def test_backend_reports_update_failed(self):
+        """An unknown id and a malformed 200 both read as UPDATE_FAILED."""
+        from openviking.storage.vectordb.collection import http_collection
+
+        malformed = types.SimpleNamespace(status_code=200, text="<html>oops</html>")
+        cases = {
+            "unknown id": ({"id": "missing", "active_count": 1}, None),
+            "malformed response": ({"id": "r1", "active_count": 8}, malformed),
+        }
+        for name, (payload, response) in cases.items():
+            with self.subTest(name):
+                if response is None:
+                    result = self._backend_update(payload)
+                else:
+                    with patch.object(
+                        http_collection.requests, "post", return_value=response
+                    ):
+                        result = self._backend_update(payload)
+                self.assertEqual(
+                    (result.ok, result.ids, result.error_code),
+                    (False, [], "UPDATE_FAILED"),
+                )
 
 
 if __name__ == "__main__":

@@ -15,8 +15,11 @@ service merges the patch over the stored fields, so an un-encoded ``uri`` would
 overwrite the encoded one), batches follow ``_DATA_BATCH_SIZE``, and the result is
 the updated ids as strings. The service answers ``{"ids": [...]}`` on success and
 HTTP 500 for an unknown id, which ``HttpCollection.update_data`` turns into ``[]``;
-any batch that comes back without every one of its ids yields no ids at all, so
-the backend reports ``UPDATE_FAILED`` instead of a partial success.
+any batch that comes back without every one of its ids, or whose request raises
+(a connection error, a 200 whose body is not JSON), yields no ids at all, so the
+backend reports ``UPDATE_FAILED`` instead of a partial success. The raise is
+caught here because the backend reads any ``ValueError`` (``JSONDecodeError``
+is one) as ``INVALID_ARGUMENT``, the caller's fault.
 
 Loaded by sitecustomize.py in the openviking pod (PYTHONPATH=/ov-nav-patch), on
 ``openviking.storage.viking_vector_index_backend``: the caller's module, which
@@ -93,7 +96,13 @@ def update_data(self, data_list):
     ids = []
     for start in range(0, len(records), batch_size):
         batch = records[start : start + batch_size]
-        got = result_ids(coll.update_data(batch))
+        try:
+            got = result_ids(coll.update_data(batch))
+        except Exception as exc:  # noqa: BLE001 — a ValueError would read as INVALID_ARGUMENT
+            logger.warning(
+                "ov-http-update-patch: update request failed (%r); reporting none", exc
+            )
+            return []
         wanted = [str(r.get("id")) for r in batch]
         if sorted(got) != sorted(wanted):
             logger.warning(
