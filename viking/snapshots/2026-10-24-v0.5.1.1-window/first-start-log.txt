@@ -1,0 +1,145 @@
+2026-10-24 16:26:45,755 - openviking.pyagfs - INFO - Loaded RAGFS Rust binding
+ov-nav-patch: applied to SemanticProcessor._generate_overview (pid 8, phase 2 on)
+ov-event-abstract: applied; events abstracts store the Summary (pid 8)
+ov-recall-time: from_context applied (pid 8)
+ov-chatlog-patch: applied to MessageRange ChatLog rendering (pid 8)
+ov-memory-guard: applied to MemoryUpdater.apply_operations (pid 8)
+ov-echo-guard: applied to ExtractContext.__init__ (pid 8)
+ov-extract-patch: applied to ExtractLoop.run (pid 8)
+ov-memory-guard: applied to StreamingMemoryUpdater.submit (pid 8)
+ov-extract-patch: applied StreamingMemoryUpdater write tracking (pid 8)
+ov-extract-patch: applied to session Phase 2 retry (retries=5 base=15s max=120s, pid 8)
+ov-extract-patch: applied to session retry_async (timeout_retries=2 lock_retries=3, pid 8)
+ov-extract-patch: applied extraction batching (max_messages=60 max_tokens=24000, pid 8)
+ov-pref-gate-patch: applied to Phase 2; one decision per archive (pid 8)
+ov-grep-scope: applied; user-root grep skips sessions/, bound 12.0s (pid 8)
+ov-s3-cache-patch: applied; S3 metadata cache off (pid 8)
+ov-recall-time: convert applied (pid 8)
+ov-recall-time: to_dict applied (pid 8)
+ov-recall-time: gather applied (pid 8)
+ov-recall-time: render_entry applied (pid 8)
+ov-recall-time: make_entry applied (pid 8)
+2026-10-24 16:26:48,990 - openviking.server.auth.health_check - INFO - [AUTH] Running authentication health check for auth_mode=trusted
+2026-10-24 16:26:48,991 - openviking.server.auth.registry - INFO - Registered auth plugin: dev (DevAuthPlugin)
+2026-10-24 16:26:48,991 - openviking.server.auth.registry - INFO - Registered auth plugin: api_key (ApiKeyAuthPlugin)
+2026-10-24 16:26:48,991 - openviking.server.auth.registry - INFO - Registered auth plugin: trusted (TrustedAuthPlugin)
+2026-10-24 16:26:48,991 - openviking.server.auth.registry - INFO - Registered auth plugin: oidc (OIDCAuthPlugin)
+2026-10-24 16:26:48,991 - openviking.server.auth.plugins.ldap - WARNING - LDAP library not available. LDAP authentication will not work. Install with: uv pip install python-ldap
+2026-10-24 16:26:48,991 - openviking.server.auth.registry - INFO - Registered auth plugin: ldap (LDAPAuthPlugin)
+2026-10-24 16:26:48,992 - openviking.server.auth.health_check - INFO - ============================================================
+2026-10-24 16:26:48,992 - openviking.server.auth.health_check - INFO - AUTHENTICATION HEALTH CHECK
+2026-10-24 16:26:48,992 - openviking.server.auth.health_check - INFO - ============================================================
+2026-10-24 16:26:48,992 - openviking.server.auth.health_check - INFO - Auth mode: trusted
+2026-10-24 16:26:48,992 - openviking.server.auth.health_check - INFO - Overall: PASS
+2026-10-24 16:26:48,992 - openviking.server.auth.health_check - INFO - ------------------------------------------------------------
+2026-10-24 16:26:48,992 - openviking.server.auth.health_check - INFO - ✅ trusted_config_valid: Trusted mode configuration is valid
+2026-10-24 16:26:48,992 - openviking.server.auth.health_check - INFO - ------------------------------------------------------------
+2026-10-24 16:26:48,992 - openviking.server.auth.health_check - INFO - Health check: 1 passed, 0 warnings, 0 failed
+2026-10-24 16:26:48,992 - openviking.server.auth.health_check - INFO - ============================================================
+2026-10-24 16:26:48,992 - openviking.server.auth.health_check - INFO - [AUTH] trusted_config_valid: PASS - Trusted mode configuration is valid
+2026-10-24 16:26:48,992 - openviking.server.auth.health_check - INFO - [AUTH] Authentication health check passed
+Bot API proxy enabled, forwarding to http://127.0.0.1:18790
+Starting vikingbot gateway...
+Vikingbot logs will be written to: /app/data/bot/logs/vikingbot.log
+Vikingbot gateway started (PID: 19)
+2026-10-24 16:26:52,002 - openviking.server.app - INFO - Bot API proxy enabled, forwarding to http://127.0.0.1:18790
+2026-10-24 16:26:52,222 - openviking.server.app - INFO - Web Studio mounted at /studio from /app/.venv/lib/python3.13/site-packages/openviking/web_studio/dist
+OpenViking HTTP Server is running on 0.0.0.0:1933
+2026-10-24 16:26:52,259 - uvicorn.error - INFO - Started server process [8]
+2026-10-24 16:26:52,259 - uvicorn.error - INFO - Waiting for application startup.
+2026-10-24 16:26:52,259 - openviking.pyagfs - INFO - Loaded RAGFS Rust binding
+2026-10-24T16:26:52.293478Z  INFO ragfs::plugins::s3fs: crates/ragfs/src/plugins/s3fs/mod.rs:225: S3FS initialized: bucket=openviking-agfs, cache=false
+2026-10-24 16:26:52,302 - openviking.storage.queuefs.queue_manager - INFO - [QueueManager] Initialized with agfs=RAGFSBindingClient, mount_point=/queue
+2026-10-24 16:26:52,302 - openviking.storage.viking_vector_index_backend - INFO - VikingVectorIndexBackend facade initialized
+2026-10-24 16:26:52,319 - openviking.server.app - INFO - Prometheus metrics enabled at /metrics
+2026-10-24 16:26:52.339 | INFO     | openviking.telemetry.tracer:init_tracer_from_server_config:233 - [TRACER] disabled in server.observability.traces
+2026-10-24 16:26:52,339 - openviking.observability.usage_audit.runtime - INFO - Usage/Audit store initialized with sqlite backend
+[10/24/26 16:26:52] INFO     StreamableHTTP       streamable_http_manager.py:128
+                             session manager
+                             started
+2026-10-24 16:26:52,343 - openviking.server.mcp_endpoint - INFO - MCP endpoint ready (21 tools: list_users, list_groups, get_acl, set_acl, find, search, read, download, list, tree, remember, write, edit, add_resource, add_skill, list_watches, cancel_watch, grep, glob, forget, health)
+2026-10-24 16:26:52,343 - openviking.service.core - INFO - Encryption module not enabled
+2026-10-24 16:26:52,343 - openviking.storage.viking_vector_index_backend - INFO - _SingleAccountBackend initialized (bound_account_id=default, mode=http)
+2026-10-24 16:26:52,351 - openviking.storage.collection_schemas - WARNING - Collection schema does not support VikingDB full-text grep Missing 'content' field or FullText config. grep engine=auto will fall back to fs. Recreate the collection to enable vikingdb-based grep.
+2026-10-24 16:26:52,406 - openviking.storage.queuefs.queue_manager - INFO - Embedding queue initialized with TextEmbeddingHandler
+2026-10-24 16:26:52,406 - openviking.storage.queuefs.queue_manager - INFO - Semantic queue initialized with SemanticProcessor
+2026-10-24 16:26:52,612 - openviking.service.core - INFO - Initialized preset directories account=0 user=0
+2026-10-24 16:26:52,612 - openviking.session - INFO - Using v3 memory compressor (v2 + commit streaming train)
+                    WARNING  ov-pref-gate-patch:       ov_pref_gate_patch.py:308
+                             applied in 1 mode;
+                             preferences skipped for
+                             archives with no typed
+                             user text (pid 8)
+2026-10-24 16:26:52,662 - openviking.resource.watch_manager - INFO - [WatchManager] Loaded 0 tasks from storage
+2026-10-24 16:26:52,662 - openviking.resource.watch_manager - INFO - [WatchManager] Initialized with 0 tasks
+2026-10-24 16:26:52,662 - openviking.resource.watch_scheduler - INFO - [WatchScheduler] WatchManager initialized
+2026-10-24 16:26:52,662 - openviking.resource.watch_scheduler - INFO - [WatchScheduler] Started with check interval 60.0s
+2026-10-24 16:26:52,662 - openviking.service.core - INFO - WatchScheduler started
+2026-10-24 16:26:52,664 - openviking.storage.queuefs.queue_manager - INFO - [QueueManager] mount_point=/queue Started
+2026-10-24 16:26:52,664 - openviking.service.core - INFO - QueueManager workers started
+2026-10-24 16:26:52,664 - openviking.service.core - INFO - OpenVikingService initialized
+2026-10-24 16:26:52,664 - openviking.resource.watch_scheduler - INFO - [WatchScheduler] Scheduler loop started
+2026-10-24 16:26:52,726 - openviking.server.api_keys.legacy - INFO - FileStore loaded: 1 accounts, 11 user keys
+2026-10-24 16:26:52,726 - openviking.server.app - INFO - Auth plugin initialized: trusted
+2026-10-24 16:26:52,727 - openviking.server.app - INFO - OpenVikingService initialization complete
+2026-10-24 16:26:52,727 - uvicorn.error - INFO - Application startup complete.
+2026-10-24 16:26:52,727 - uvicorn.error - INFO - Uvicorn running on http://0.0.0.0:1933 (Press CTRL+C to quit)
+2026-10-24 16:26:52,728 - uvicorn.access - INFO - [request_id=e405f241-f81c-4105-9124-2dcfc264c695] 10.42.2.1:34938 - "GET /health HTTP/1.1" 200
+2026-10-24 16:26:53,276 - uvicorn.access - INFO - [request_id=4e3097d8-0e70-4f9c-85cc-8bfc5402e021] 127.0.0.1:51626 - "GET /health HTTP/1.1" 200
+[openviking-entrypoint] openviking-server is healthy
+2026-10-24 16:26:59,657 - openviking.storage.viking_vector_index_backend - ERROR - [request_id=847902f7-6381-47ec-b1b9-f736ab8905d7] Error counting records: 404 Client Error: Not Found for url: http://ov-vectordb.viking.svc.cluster.local:5000/api/vikingdb/data/aggregate
+2026-10-24 16:26:59,662 - openviking.storage.viking_vector_index_backend - ERROR - [request_id=847902f7-6381-47ec-b1b9-f736ab8905d7] Error counting records: 404 Client Error: Not Found for url: http://ov-vectordb.viking.svc.cluster.local:5000/api/vikingdb/data/aggregate
+2026-10-24 16:26:59,662 - openviking.storage.observers.vikingdb_observer - ERROR - [request_id=847902f7-6381-47ec-b1b9-f736ab8905d7] Error getting status for collection 'context': 404 Client Error: Not Found for url: http://ov-vectordb.viking.svc.cluster.local:5000/api/vikingdb/data/aggregate
+2026-10-24 16:26:59,662 - openviking.storage.viking_vector_index_backend - ERROR - [request_id=847902f7-6381-47ec-b1b9-f736ab8905d7] Error counting records: 404 Client Error: Not Found for url: http://ov-vectordb.viking.svc.cluster.local:5000/api/vikingdb/data/aggregate
+2026-10-24 16:26:59,662 - openviking.storage.observers.vikingdb_observer - ERROR - [request_id=847902f7-6381-47ec-b1b9-f736ab8905d7] Error getting status for collection 'context': 404 Client Error: Not Found for url: http://ov-vectordb.viking.svc.cluster.local:5000/api/vikingdb/data/aggregate
+2026-10-24 16:26:59,664 - uvicorn.access - INFO - [request_id=847902f7-6381-47ec-b1b9-f736ab8905d7] 10.42.2.163:45020 - "GET /metrics HTTP/1.1" 200
+2026-10-24 16:27:01,620 - openviking.storage.viking_vector_index_backend - ERROR - [request_id=3d428bbd-7fda-4a02-b1e3-1d72575f022b] Error counting records: 404 Client Error: Not Found for url: http://ov-vectordb.viking.svc.cluster.local:5000/api/vikingdb/data/aggregate
+2026-10-24 16:27:01,620 - openviking.service.debug_service - WARNING - [request_id=3d428bbd-7fda-4a02-b1e3-1d72575f022b] Account VectorDB observer failed for account default: 404 Client Error: Not Found for url: http://ov-vectordb.viking.svc.cluster.local:5000/api/vikingdb/data/aggregate
+Traceback (most recent call last):
+  File "/app/.venv/lib/python3.13/site-packages/openviking/service/debug_service.py", line 368, in account_vikingdb
+    info = await backend.get_collection_info() if healthy else None
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/app/.venv/lib/python3.13/site-packages/openviking/storage/viking_vector_index_backend.py", line 291, in call
+    return await method(self, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/app/.venv/lib/python3.13/site-packages/openviking/storage/viking_vector_index_backend.py", line 559, in get_collection_info
+    "count": await self.count(),
+             ^^^^^^^^^^^^^^^^^^
+  File "/app/.venv/lib/python3.13/site-packages/openviking/storage/viking_vector_index_backend.py", line 291, in call
+    return await method(self, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/app/.venv/lib/python3.13/site-packages/openviking/storage/viking_vector_index_backend.py", line 1043, in count
+    return await self._async_adapter.call("count", filter=filter)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/app/.venv/lib/python3.13/site-packages/openviking/storage/viking_vector_index_backend.py", line 215, in call
+    return await self.run(getattr(self._adapter, method_name), *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/app/.venv/lib/python3.13/site-packages/openviking/storage/viking_vector_index_backend.py", line 223, in run
+    return await run_to_completion(lambda: asyncio.to_thread(func, *args, **kwargs))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/app/.venv/lib/python3.13/site-packages/openviking/service/task_tracker_concurrency.py", line 35, in run_to_completion
+    await asyncio.shield(work)
+  File "/usr/local/lib/python3.13/asyncio/threads.py", line 26, in to_thread
+    return await loop.run_in_executor(None, func_call)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.13/concurrent/futures/thread.py", line 59, in run
+    result = self.fn(*self.args, **self.kwargs)
+  File "/app/.venv/lib/python3.13/site-packages/openviking/metrics/core/runtime.py", line 112, in _wrapped
+    return func(*args)
+  File "/app/.venv/lib/python3.13/site-packages/openviking/storage/vectordb_adapters/base.py", line 674, in count
+    result = coll.aggregate_data(
+        index_name=self._index_name,
+        op="count",
+        filters=self._compile_filter(filter),
+    )
+  File "/app/.venv/lib/python3.13/site-packages/openviking/storage/vectordb/collection/collection.py", line 719, in aggregate_data
+    return self.__collection.aggregate_data(index_name, op, field, filters, cond)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/app/.venv/lib/python3.13/site-packages/openviking/storage/vectordb/collection/http_collection.py", line 676, in aggregate_data
+    response.raise_for_status()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "/app/.venv/lib/python3.13/site-packages/requests/models.py", line 1167, in raise_for_status
+    raise HTTPError(http_error_msg, response=self)
+requests.exceptions.HTTPError: 404 Client Error: Not Found for url: http://ov-vectordb.viking.svc.cluster.local:5000/api/vikingdb/data/aggregate
+2026-10-24 16:27:01,625 - uvicorn.access - INFO - [request_id=3d428bbd-7fda-4a02-b1e3-1d72575f022b] 127.0.0.1:51632 - "GET /api/v1/observer/system HTTP/1.1" 200
+2026-10-24 16:27:01,625 - openviking.observability.http - INFO - [request_id=3d428bbd-7fda-4a02-b1e3-1d72575f022b] HTTP request completed method=GET route=/api/v1/observer/system status=200 duration_ms=23.8
