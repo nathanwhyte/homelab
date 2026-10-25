@@ -172,10 +172,11 @@ class VerdictTests(unittest.TestCase):
         out["vectordb"]["strict_count_no_match"] = 3
         self.assertEqual(wc.failures(out, True),
                          ["vectordb (a filter matching nothing counted rows)"])  # fmt: skip
+        # homelab#266 round 3: indexing between calls can make the account count
+        # exceed the earlier total on a healthy backend, so that is no failure.
         out = passing()
-        out["vectordb"]["strict_count_account"] = 6
-        self.assertEqual(wc.failures(out, True),
-                         ["vectordb (the account filter counted more than no filter)"])  # fmt: skip
+        out["vectordb"].update(count=1, strict_count=1, strict_count_account=2)
+        self.assertEqual(wc.failures(out, True), [])
 
     def test_missing_counts_fail_unless_skipped(self):
         out = {**passing(), "vectordb": None}

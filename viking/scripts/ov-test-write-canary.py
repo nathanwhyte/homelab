@@ -25,8 +25,9 @@ are null, which fails the run unless `--no-counts` is passed.
 
 The replace passes on HTTP 200 with `status: ok`. The read-back must equal the
 replacement exactly, and the replacement carries a marker unique to the run. Each
-count must be a non-negative integer, the filter matching nothing must count 0,
-and the account filter must count no more than the unfiltered call.
+count must be a non-negative integer, and the filter matching nothing must count
+0; the counts are not compared with each other, since indexing may run between
+the calls.
 
 Exit codes: 0 every check passed, 3 a check failed, 1 the run could not finish
 (config, prod refusal, port-forward, a transport error), 130 interrupted. Every
@@ -259,8 +260,9 @@ def failures(out, need_counts):
 def count_failures(counts):
     """What is wrong with the four counts, judged only on what must hold for any data.
 
-    Each is a non-negative integer, the filter matching nothing counts 0, and the
-    account filter counts no more than the unfiltered call.
+    Each is a non-negative integer, and the filter matching nothing counts 0. The
+    calls run one after another while the probe's write may still be indexing, so
+    no comparison between two counts holds (homelab#266 round 3).
     """
     ok = {
         k: v
@@ -270,12 +272,9 @@ def count_failures(counts):
     if set(ok) != {"count", "strict_count", "strict_count_account",
                    "strict_count_no_match"}:  # fmt: skip
         return ["vectordb (a count errored or is not a non-negative integer)"]
-    bad = []
     if ok["strict_count_no_match"] != 0:
-        bad.append("vectordb (a filter matching nothing counted rows)")
-    if ok["strict_count_account"] > ok["strict_count"]:
-        bad.append("vectordb (the account filter counted more than no filter)")
-    return bad
+        return ["vectordb (a filter matching nothing counted rows)"]
+    return []
 
 
 def run(args, out):
