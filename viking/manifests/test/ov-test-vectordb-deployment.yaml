@@ -31,6 +31,10 @@ spec:
               # Distinct path so we never collide with the production
               # ov-vectordb's /data/vikingdb. Service container creates it.
               value: /data/test/vikingdb
+            # BUG-1268: the runtime-patch loader adds POST /api/vikingdb/data/aggregate
+            # (ov_vectordb_agg_patch.py); see the prod ov-vectordb Deployment.
+            - name: PYTHONPATH
+              value: /ov-nav-patch
           ports:
             - name: http
               containerPort: 5000
@@ -64,7 +68,14 @@ spec:
           volumeMounts:
             - name: data
               mountPath: /data
+            - name: nav-patch
+              mountPath: /ov-nav-patch
+              readOnly: true
       volumes:
         - name: data
           persistentVolumeClaim:
             claimName: ov-vectordb-test-data
+        # The whole ConfigMap, no `items:` list (IMPR-1413).
+        - name: nav-patch
+          configMap:
+            name: ov-nav-patch

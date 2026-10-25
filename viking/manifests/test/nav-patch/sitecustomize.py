@@ -69,8 +69,13 @@ off switch; a patch failure never breaks the import):
                         (decided per archive in ``Session._run_memory_extraction``,
                         applied in ``SessionCompressorV3._extract_user_memories``;
                         ``OV_PREF_GATE``: ``1`` skips, ``0`` off, anything else logs only).
+  * ov_vectordb_agg_patch — BUG-1268: the ov-vectordb service (this loader is on its
+                        PYTHONPATH too) serves ``POST /api/vikingdb/data/aggregate``,
+                        the server's vector count, so ``ov status`` stops reading
+                        vikingdb as unhealthy (``api_fastapi.data_router``). No other
+                        target loads in that process.
 
-Rollback of one patch: its env switch (``OV_S3_CACHE_PATCH=0``, ``OV_EXTRACT_PATCH=0``, ``OV_CHATLOG_PATCH=0``, ``OV_MEMORY_GUARD=0``, ``OV_EVENT_NOISE_FILTER=0``, ``OV_EVENT_ABSTRACT_PATCH=0``, ``OV_GREP_SCOPE_PATCH=0``, ``OV_RECALL_TIME_PATCH=0``, ``OV_PREF_GATE=0``; ``OV_NAV_PATCH=0``
+Rollback of one patch: its env switch (``OV_S3_CACHE_PATCH=0``, ``OV_EXTRACT_PATCH=0``, ``OV_CHATLOG_PATCH=0``, ``OV_MEMORY_GUARD=0``, ``OV_EVENT_NOISE_FILTER=0``, ``OV_EVENT_ABSTRACT_PATCH=0``, ``OV_GREP_SCOPE_PATCH=0``, ``OV_RECALL_TIME_PATCH=0``, ``OV_PREF_GATE=0``, ``OV_VECTORDB_AGG_PATCH=0`` on ov-vectordb; ``OV_NAV_PATCH=0``
 only after the model-built overview template is restored, see the Deployment).
 
 Retired at v0.5.1.1 (IMPR-1412): ``ov_fetch_items_patch`` (BUG-1218, fixed upstream
@@ -137,6 +142,11 @@ TARGETS = {
     "openviking.retrieve.context_assembler.gather": (
         "ov_recall_time_patch",
         "apply_gather",
+    ),
+    # Loaded only by the ov-vectordb service process.
+    "openviking.storage.vectordb.service.api_fastapi": (
+        "ov_vectordb_agg_patch",
+        "apply",
     ),
 }
 

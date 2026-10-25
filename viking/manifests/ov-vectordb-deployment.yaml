@@ -29,6 +29,16 @@ spec:
           env:
             - name: VIKINGDB_PERSIST_PATH
               value: /data/vikingdb
+            # BUG-1268: the runtime-patch loader (sitecustomize.py, same ConfigMap as
+            # the openviking Deployment) adds POST /api/vikingdb/data/aggregate, the
+            # server's vector count; without it the count 404s and `ov status` reads
+            # [vikingdb] and [system] unhealthy. ov_vectordb_agg_patch.py is the only
+            # patch whose target this process imports. After a change, grep the pod
+            # log for "ov-vectordb-agg-patch: applied" (no "NOT applied").
+            # Rollback: OV_VECTORDB_AGG_PATCH=0, or remove PYTHONPATH:
+            #   kubectl set env deployment/ov-vectordb -n viking PYTHONPATH-
+            - name: PYTHONPATH
+              value: /ov-nav-patch
           ports:
             - name: http
               containerPort: 5000
@@ -72,7 +82,14 @@ spec:
           volumeMounts:
             - name: data
               mountPath: /data
+            - name: nav-patch
+              mountPath: /ov-nav-patch
+              readOnly: true
       volumes:
         - name: data
           persistentVolumeClaim:
             claimName: ov-vectordb-data
+        # The whole ConfigMap, no `items:` list (IMPR-1413; see the openviking Deployment).
+        - name: nav-patch
+          configMap:
+            name: openviking-nav-patch
