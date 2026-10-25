@@ -16,7 +16,8 @@ overwrite the encoded one), batches follow ``_DATA_BATCH_SIZE``, and the result 
 the updated ids as strings. The service answers ``{"ids": [...]}`` on success and
 HTTP 500 for an unknown id, which ``HttpCollection.update_data`` turns into ``[]``;
 any batch that comes back without every one of its ids, or whose request raises
-(a connection error, a 200 whose body is not JSON), yields no ids at all, so the
+(a connection error, a 200 whose body is not JSON, from the update or from the
+collection lookup a fresh adapter makes first), yields no ids at all, so the
 backend reports ``UPDATE_FAILED`` instead of a partial success. The raise is
 caught here because the backend reads any ``ValueError`` (``JSONDecodeError``
 is one) as ``INVALID_ARGUMENT``, the caller's fault.
@@ -91,12 +92,14 @@ def update_data(self, data_list):
     records = [self._normalize_record_for_write(item) for item in data_list or []]
     if not records:
         return []
-    coll = self.get_collection()
     batch_size = getattr(self, "_DATA_BATCH_SIZE", None) or len(records)
+    coll = None
     ids = []
     for start in range(0, len(records), batch_size):
         batch = records[start : start + batch_size]
         try:
+            if coll is None:  # a fresh adapter lists the service's collections here
+                coll = self.get_collection()
             got = result_ids(coll.update_data(batch))
         except Exception as exc:  # noqa: BLE001 — a ValueError would read as INVALID_ARGUMENT
             logger.warning(

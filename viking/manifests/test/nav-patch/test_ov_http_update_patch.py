@@ -142,6 +142,27 @@ class UpdateData(unittest.TestCase):
                 coll = FakeCollection(answer=answer)
                 self.assertEqual(upd.update_data(FakeAdapter(coll), [{"id": "a"}]), [])
 
+    def test_a_collection_lookup_failure_reports_no_ids(self):
+        """A fresh adapter discovers its collection over HTTP inside get_collection."""
+        adapter = FakeAdapter(None)
+
+        def lookup():
+            raise json.JSONDecodeError("Expecting value", "<html>", 0)
+
+        adapter.get_collection = lookup
+        self.assertEqual(upd.update_data(adapter, [{"id": "a"}]), [])
+
+    def test_a_bad_record_still_raises(self):
+        """Normalization is the caller's input; its errors keep their own code."""
+        adapter = FakeAdapter(FakeCollection())
+
+        def normalize(record):
+            raise ValueError("bad uri")
+
+        adapter._normalize_record_for_write = normalize
+        with self.assertRaises(ValueError):
+            upd.update_data(adapter, [{"id": "a"}])
+
 
 def fake_world(adapter_cls):
     """``openviking`` and its http_adapter as stand-ins, for the guard cases."""
@@ -350,7 +371,7 @@ class Installed(unittest.TestCase):
         self.assertEqual(asyncio.run(run()), ["r2"])
         self.assertEqual(self.adapter.get(["r2"])[0]["active_count"], 3)
 
-    def _backend_update(self, payload):
+    def _backend_update(self, payload, adapter=None):
         """The real ``_SingleAccountBackend.update`` over this adapter."""
         import asyncio
 
@@ -362,7 +383,7 @@ class Installed(unittest.TestCase):
             index_name="default",
         )
         backend = backend_module._SingleAccountBackend(
-            config, "noot", shared_adapter=self.adapter
+            config, "noot", shared_adapter=adapter or self.adapter
         )
         return asyncio.run(backend.update(payload))
 
@@ -374,23 +395,35 @@ class Installed(unittest.TestCase):
         self.assertEqual(self.adapter.get(["r1"])[0]["active_count"], 7)
 
     def test_backend_reports_update_failed(self):
-        """An unknown id and a malformed 200 both read as UPDATE_FAILED."""
+        """An unknown id and a malformed 200 (update or discovery) read as UPDATE_FAILED."""
         from openviking.storage.vectordb.collection import http_collection
+        from openviking.storage.vectordb_adapters.http_adapter import (
+            HttpCollectionAdapter,
+        )
 
         malformed = types.SimpleNamespace(status_code=200, text="<html>oops</html>")
+        payload = {"id": "r1", "active_count": 8}
         cases = {
-            "unknown id": ({"id": "missing", "active_count": 1}, None),
-            "malformed response": ({"id": "r1", "active_count": 8}, malformed),
+            "unknown id": ({"id": "missing", "active_count": 1}, None, None),
+            "malformed update": (payload, "post", None),
+            # No cached collection: get_collection lists collections first.
+            "malformed discovery": (
+                payload,
+                "get",
+                HttpCollectionAdapter(
+                    "127.0.0.1", self.port, "default", COLLECTION, "default"
+                ),
+            ),
         }
-        for name, (payload, response) in cases.items():
+        for name, (payload, method, adapter) in cases.items():
             with self.subTest(name):
-                if response is None:
+                if method is None:
                     result = self._backend_update(payload)
                 else:
                     with patch.object(
-                        http_collection.requests, "post", return_value=response
+                        http_collection.requests, method, return_value=malformed
                     ):
-                        result = self._backend_update(payload)
+                        result = self._backend_update(payload, adapter)
                 self.assertEqual(
                     (result.ok, result.ids, result.error_code),
                     (False, [], "UPDATE_FAILED"),
