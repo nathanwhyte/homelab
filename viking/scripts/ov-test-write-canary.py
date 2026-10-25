@@ -4,10 +4,11 @@
 One run against openviking-test does what the BUG-1268 canary did by hand, and
 takes each verdict from the server's own outcome rather than from an inference:
 
-- a replace-write sent with `wait: true`, so the server reports whether its
-  vectors were written (`vector_status`), with an exact read-back;
-- the probe's own vector record, read through OpenViking's HTTP adapter before and
-  after the write: the write must leave a record newer than the one before it;
+- a replace-write sent with `wait: true`, which must come back `vector_status:
+  complete` (no Embedding work failed), with an exact read-back;
+- the probe's own vector record, read through OpenViking's HTTP adapter after the
+  write: it must carry the md5 of this run's content, so no earlier write (the
+  probe's create included) and no empty or errored read can satisfy it;
 - direct vectordb counts through the same adapter (`count`, `strict_count`, and
   `strict_count` filtered to the account and to a value matching nothing), the
   path a missing aggregate route broke on v0.5.1.1;
@@ -17,10 +18,12 @@ Traps from that run are handled here rather than rediscovered:
 
 - The collection is read from the live `openviking-test-config` ConfigMap's
   `ov.conf` (`storage.vectordb.name`, `context_test` on 2026-10-25), never assumed.
-  Before any write, the run refuses when it matches prod's
-  `openviking-standalone-config` collection, when either name or the test url holds
-  a `$` (OpenViking expands `${VAR}` from the server's environment, which this
-  script cannot see), or when the server's observer names a different collection.
+  Before any write, the run refuses when:
+  - the test vectordb block or the default account or user holds a `$` (OpenViking
+    expands `${VAR}` from the server's environment, which this script cannot see);
+  - the vectordb url names a namespace other than `viking`;
+  - the collection or the vectordb service is prod's (`openviking-standalone-config`);
+  - the server's observer names a different collection.
   An observer that names none (an unpatched server's error path) is a failed check,
   not a refusal, so the `before` run still writes.
 - A replace sent right after the probe's create can get 409 (path busy), so the
@@ -30,17 +33,17 @@ The vectordb service and port come from the same `ov.conf` (`storage.vectordb.ur
 its project and index from `project` / `index_name` (OpenViking's default for each
 is `default`), and the account and user from `default_account` / `default_user`.
 Writes go only to PROBE_URI on ov-test. The HTTP calls are stdlib; the vectordb step
-needs the `openviking` package matching the server (a scratch venv). Without it the
-vectordb results are null and the run fails, unless `--no-counts` skips the step;
-the replace's `vector_status` is checked either way.
+(the record check and the counts) needs the `openviking` package matching the server
+(a scratch venv). Without it the run fails, unless `--no-vectordb` skips the step;
+`vector_status` is then the only vector evidence.
 
 The checks: the observer names the collection and reports healthy; `/health` is
 200; the replace returns HTTP 200, `status: ok` and `vector_status: complete`; the
 read-back equals the replacement exactly (the replacement carries a marker unique
-to the run); the probe's vector record exists after the write and its `updated_at`
-is later than before it (or it is new); each count is a non-negative integer, the
-filter matching nothing counts 0, and the account filter counts at least 1. No two
-counts are compared with each other, since other indexing may run between calls.
+to the run); the probe's vector record carries the replacement's md5; each count is
+a non-negative integer, the filter matching nothing counts 0, and the account filter
+counts at least 1. No two counts are compared with each other, since other indexing
+may run between calls.
 
 Exit codes: 0 every check passed, 3 a check failed, 1 the run could not finish
 (bad arguments, config, a refusal, port-forward, a transport error), 130
@@ -54,7 +57,7 @@ Usage: <venv>/bin/python -I ov-test-write-canary.py --label before|after
 import argparse
 import base64
 import contextlib
-import datetime
+import hashlib
 import json
 import math
 import signal
@@ -75,6 +78,8 @@ SERVER_PORT = 1933
 SECRET = "openviking-api-key"
 PROBE_URI = "viking://resources/ov-test-write-canary/probe.md"
 PROBE_FILTER = {"op": "must", "field": "uri", "conds": [PROBE_URI]}
+MAX_SECONDS = 86400
+HELD = {signal.SIGINT, signal.SIGTERM}
 EXIT_OK, EXIT_ERROR, EXIT_FAILED = 0, 1, 3
 EXIT_INTERRUPTED, EXIT_TERMINATED = 130, 143
 
@@ -102,8 +107,19 @@ def read_ov_conf(configmap):
         raise CanaryError(f"cannot read ov.conf from {configmap}: {exc!r}") from exc
 
 
-def templated(value):
-    return isinstance(value, str) and "$" in value
+def vectordb_service(raw_url):
+    """(`svc/<name>`, port) for a vectordb url in namespace `viking`, or None."""
+    if not isinstance(raw_url, str) or "$" in raw_url:
+        return None
+    url = urllib.parse.urlsplit(raw_url)
+    try:
+        port = url.port
+    except ValueError:
+        return None
+    labels = (url.hostname or "").split(".")
+    if not (labels[0] and port) or (len(labels) > 1 and labels[1] != NS):
+        return None
+    return "svc/" + labels[0], port
 
 
 def target_from_conf(conf):
@@ -114,22 +130,21 @@ def target_from_conf(conf):
         account, user = conf["default_account"], conf["default_user"]
     except (KeyError, TypeError) as exc:
         raise CanaryError(f"ov.conf lacks {exc}") from exc
-    if templated(name) or templated(raw_url):
+    if "$" in json.dumps([vdb, account, user]):
         raise CanaryError(
-            f"ov.conf vectordb name {name!r} or url {raw_url!r} is templated; the"
+            "ov.conf's vectordb block or default account/user is templated; the"
             " server expands it from an environment this script cannot see"
         )
-    url = urllib.parse.urlsplit(raw_url) if isinstance(raw_url, str) else None
-    try:
-        port = url.port if url else None
-    except ValueError:
-        port = None
-    if not (isinstance(name, str) and name and url and url.hostname and port):
-        raise CanaryError(f"ov.conf vectordb name {name!r} or url {raw_url!r} unusable")
+    service = vectordb_service(raw_url)
+    if not (isinstance(name, str) and name and service):
+        raise CanaryError(
+            f"ov.conf vectordb name {name!r} or url {raw_url!r} unusable (the url"
+            f" must name a port and a service in namespace {NS})"
+        )
     return {
         "collection": name,
-        "vectordb_svc": "svc/" + url.hostname.split(".")[0],
-        "vectordb_port": port,
+        "vectordb_svc": service[0],
+        "vectordb_port": service[1],
         "project": vdb.get("project") or "default",
         "index": vdb.get("index_name") or "default",
         "account": account,
@@ -137,14 +152,40 @@ def target_from_conf(conf):
     }
 
 
-def refuse_prod(test_collection, prod_conf):
-    prod = (prod_conf.get("storage") or {}).get("vectordb", {}).get("name")
-    if not prod or templated(prod):
-        raise CanaryError(f"{PROD_CONFIGMAP} names no literal collection to compare")
-    if prod == test_collection:
+def refuse_prod(target, prod_conf):
+    """Refuse a test target that shares prod's collection or vectordb service."""
+    vdb = (prod_conf.get("storage") or {}).get("vectordb") or {}
+    name, service = vdb.get("name"), vectordb_service(vdb.get("url"))
+    if not (isinstance(name, str) and name and "$" not in name and service):
         raise CanaryError(
-            f"ov-test's collection {test_collection!r} is prod's; refusing"
+            f"{PROD_CONFIGMAP} names no literal collection and vectordb url to compare"
         )
+    if name == target["collection"]:
+        raise CanaryError(f"ov-test's collection {name!r} is prod's; refusing")
+    if service[0] == target["vectordb_svc"]:
+        raise CanaryError(f"ov-test's vectordb {service[0]} is prod's; refusing")
+
+
+def read_key():
+    """The API key, refused unless it is one printable token (it goes in a header)."""
+    raw = kubectl("get", "secret", SECRET, "-o", "jsonpath={.data.api-key}")
+    try:
+        key = base64.b64decode(raw).decode().strip()
+    except ValueError:
+        key = ""
+    if not key or not key.isprintable() or any(c.isspace() for c in key):
+        raise CanaryError(f"secret {SECRET} holds no single-token api-key")
+    return key
+
+
+@contextlib.contextmanager
+def held_signals():
+    """SIGINT and SIGTERM wait until the block ends."""
+    old = signal.pthread_sigmask(signal.SIG_BLOCK, HELD)
+    try:
+        yield
+    finally:
+        signal.pthread_sigmask(signal.SIG_SETMASK, old)
 
 
 def free_port():
@@ -166,32 +207,30 @@ def stop(p):
             p.wait()
 
 
-def forward(svc, remote, timeout=20):
+def forward(svc, remote, children, timeout=20):
     """A port-forward to `svc`, once its local port accepts connections.
 
-    The child is stopped here on any way out before it is handed back, an
-    interrupt included; after that, the caller owns it.
+    The child goes on `children` (an ExitStack) before any signal can land, so
+    every way out of the caller's stack stops it.
     """
     local = free_port()
-    p = subprocess.Popen(
-        ["kubectl", "-n", NS, "port-forward", svc, f"{local}:{remote}"],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
-    try:
-        deadline = time.monotonic() + timeout
-        while time.monotonic() < deadline:
-            if p.poll() is not None:
-                raise CanaryError(f"port-forward to {svc} exited {p.returncode}")
-            try:
-                socket.create_connection(("127.0.0.1", local), timeout=1).close()
-                return p, local
-            except OSError:
-                time.sleep(0.5)
-        raise CanaryError(f"port-forward to {svc} not ready after {timeout}s")
-    except BaseException:
-        stop(p)
-        raise
+    with held_signals():
+        p = subprocess.Popen(
+            ["kubectl", "-n", NS, "port-forward", svc, f"{local}:{remote}"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        children.callback(stop, p)
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if p.poll() is not None:
+            raise CanaryError(f"port-forward to {svc} exited {p.returncode}")
+        try:
+            socket.create_connection(("127.0.0.1", local), timeout=1).close()
+            return local
+        except OSError:
+            time.sleep(0.5)
+    raise CanaryError(f"port-forward to {svc} not ready after {timeout}s")
 
 
 def http(base, headers, method, path, params=None, body=None, timeout=120):
@@ -259,15 +298,26 @@ def adapter_class():
 
 
 def probe_record(adapter):
-    """The probe's vector record(s) as {rows, updated_at}, or {error}."""
+    """The probe's vector record(s) as {rows, md5s}, or {error}.
+
+    The adapter reads a vectordb error as no rows, so only a row carrying this
+    run's md5 shows anything; an empty result is never evidence.
+    """
     try:
         rows = adapter.query(filter=PROBE_FILTER, limit=5,
-                             output_fields=["uri", "updated_at"])  # fmt: skip
+                             output_fields=["uri", "md5", "updated_at"])  # fmt: skip
     except Exception as e:  # noqa: BLE001 — the canary reports every outcome
         return {"error": f"ERROR {e!r}"[:300]}
-    stamps = [r.get("updated_at") for r in rows if isinstance(r, dict)]
-    stamps = [s for s in stamps if isinstance(s, str)]
-    return {"rows": len(rows), "updated_at": max(stamps) if stamps else None}
+    if not isinstance(rows, list):
+        return {"error": f"ERROR query returned {type(rows).__name__}"}
+    md5s = sorted({r.get("md5") for r in rows if isinstance(r, dict)} - {None, ""})
+    return {"rows": len(rows), "md5s": md5s}
+
+
+def probe_vector_written(record, content):
+    """Whether the probe's record carries the md5 of `content`, this run's bytes."""
+    md5 = hashlib.md5(content.encode()).hexdigest()
+    return isinstance(record, dict) and md5 in (record.get("md5s") or [])
 
 
 def vectordb_counts(adapter, account):
@@ -295,31 +345,6 @@ def read_back_matches(status, body, expected):
     return text == expected
 
 
-def parse_stamp(value):
-    try:
-        return datetime.datetime.fromisoformat(value.replace("Z", "+00:00"))
-    except (AttributeError, TypeError, ValueError):
-        return None
-
-
-def probe_vector_fresh(before, after):
-    """Whether the write left a probe record newer than the one before it.
-
-    Compares the server's own two stamps, so neither machine's clock matters. A
-    `before` with no rows means the record is new; an errored or unparsable
-    `before` cannot show freshness.
-    """
-    if not isinstance(after, dict) or not after.get("rows"):
-        return False
-    new = parse_stamp(after.get("updated_at"))
-    if new is None or not isinstance(before, dict) or "error" in before:
-        return False
-    if not before.get("rows"):
-        return True
-    old = parse_stamp(before.get("updated_at"))
-    return old is not None and new > old
-
-
 def failures(out, need_vectordb):
     """The names of the checks that did not pass."""
     bad = []
@@ -343,10 +368,12 @@ def failures(out, need_vectordb):
     counts = out.get("vectordb")
     if counts is None:
         if need_vectordb:
-            bad.append("vectordb (openviking not importable; pass --no-counts to skip)")
+            bad.append(
+                "vectordb (openviking not importable; pass --no-vectordb to skip)"
+            )
         return bad
-    if not out.get("probe_vector_fresh"):
-        bad.append("probe_vector (no record newer than before the write)")
+    if not out.get("probe_vector_written"):
+        bad.append("probe_vector (no record carries this run's content md5)")
     return bad + count_failures(counts)
 
 
@@ -376,17 +403,13 @@ def count_failures(counts):
 
 def run(args, out):
     """Fill the receipt `out` as the checks run, so a run that raises keeps what it saw."""
-    conf = read_ov_conf(TEST_CONFIGMAP)
-    target = target_from_conf(conf)
-    refuse_prod(target["collection"], read_ov_conf(PROD_CONFIGMAP))
+    target = target_from_conf(read_ov_conf(TEST_CONFIGMAP))
+    refuse_prod(target, read_ov_conf(PROD_CONFIGMAP))
     out.update(target=target, probe=PROBE_URI)
-    key = base64.b64decode(
-        kubectl("get", "secret", SECRET, "-o", "jsonpath={.data.api-key}")
-    ).decode()
+    key = read_key()
     # ExitStack runs every child's stop even when an earlier one raises.
     with contextlib.ExitStack() as children:
-        p, server = forward(SERVER_SVC, SERVER_PORT)
-        children.callback(stop, p)
+        server = forward(SERVER_SVC, SERVER_PORT, children)
         headers = {"X-API-Key": key, "X-OpenViking-Account": target["account"],
                    "X-OpenViking-User": target["user"]}  # fmt: skip
 
@@ -408,14 +431,6 @@ def run(args, out):
         names, healthy = observer_names(body, target["collection"])
         out["observer_names_collection"], out["observer_healthy"] = names, healthy
         out["health"] = call("GET", "/health")[0]
-        adapter = None
-        cls = None if args.no_counts else adapter_class()
-        if cls is not None:
-            p, vport = forward(target["vectordb_svc"], target["vectordb_port"])
-            children.callback(stop, p)
-            adapter = cls("127.0.0.1", vport, target["project"], target["collection"],
-                          target["index"])  # fmt: skip
-            before = probe_record(adapter)
         stamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
         if call("GET", "/api/v1/content/read", params={"uri": PROBE_URI})[0] != 200:
             status, body = call("POST", "/api/v1/content/write", body={
@@ -432,19 +447,24 @@ def run(args, out):
         out["read_back_matches"] = read_back_matches(status, body, expected)
         if not out["read_back_matches"]:
             out["read_back"] = {"http": status, "body": body, "expected": expected}
-        if args.no_counts:
-            out["vectordb"] = "skipped (--no-counts)"
-        elif adapter is None:
+        cls = None if args.no_vectordb else adapter_class()
+        if args.no_vectordb:
+            out["vectordb"] = "skipped (--no-vectordb)"
+        elif cls is None:
             out["vectordb"] = None
         else:
-            after = probe_record(adapter)
-            out["probe_vector"] = {"before": before, "after": after}
-            out["probe_vector_fresh"] = probe_vector_fresh(before, after)
+            vport = forward(target["vectordb_svc"], target["vectordb_port"], children)
+            adapter = cls("127.0.0.1", vport, target["project"], target["collection"],
+                          target["index"])  # fmt: skip
+            out["probe_vector"] = probe_record(adapter)
+            out["probe_vector_written"] = probe_vector_written(
+                out["probe_vector"], expected
+            )
             out["vectordb"] = vectordb_counts(adapter, target["account"])
     counts = out["vectordb"]
     out["failed"] = failures(
         {**out, "vectordb": None if isinstance(counts, str) else counts},
-        need_vectordb=not args.no_counts,
+        need_vectordb=not args.no_vectordb,
     )
     return out
 
@@ -458,9 +478,9 @@ def positive_int(text):
 
 def seconds(text, minimum):
     n = float(text)
-    if not math.isfinite(n) or n < minimum:
+    if not (math.isfinite(n) and minimum <= n <= MAX_SECONDS):
         raise argparse.ArgumentTypeError(
-            f"must be a finite number of at least {minimum}"
+            f"must be a number from {minimum} to {MAX_SECONDS}"
         )
     return n
 
@@ -488,31 +508,34 @@ def main(argv=None):
                     help="seconds between 409 retries")  # fmt: skip
     ap.add_argument("--write-timeout", type=lambda t: seconds(t, 1), default=600.0,
                     help="seconds a waited write may take")  # fmt: skip
-    ap.add_argument("--no-counts", action="store_true",
-                    help="skip the vectordb step (no openviking package)")  # fmt: skip
+    ap.add_argument("--no-vectordb", action="store_true",
+                    help="skip the record check and the counts (no openviking package)")  # fmt: skip
     args = ap.parse_args(argv)
     out = {"label": args.label}
-    previous = signal.signal(signal.SIGTERM, on_sigterm)
+    previous = signal.getsignal(signal.SIGTERM)
+    mask = signal.pthread_sigmask(signal.SIG_BLOCK, set())
     try:
-        run(args, out)
+        try:
+            signal.signal(signal.SIGTERM, on_sigterm)
+            run(args, out)
+        finally:
+            # A signal from here on waits until the receipt is out.
+            signal.pthread_sigmask(signal.SIG_BLOCK, HELD)
+        code = EXIT_FAILED if out["failed"] else EXIT_OK
     except KeyboardInterrupt:
-        out["error"] = "interrupted"
-        emit(out)
-        return EXIT_INTERRUPTED
+        out["error"], code = "interrupted", EXIT_INTERRUPTED
     except Terminated:
-        out["error"] = "terminated"
-        emit(out)
-        return EXIT_TERMINATED
+        out["error"], code = "terminated", EXIT_TERMINATED
     except Exception as exc:  # noqa: BLE001 — every run that ends prints a receipt
         out["error"] = (
             str(exc) if isinstance(exc, CanaryError) else f"{type(exc).__name__}: {exc}"
         )
-        emit(out)
-        return EXIT_ERROR
-    finally:
-        signal.signal(signal.SIGTERM, previous)
+        code = EXIT_ERROR
+    signal.signal(signal.SIGTERM, previous)
     emit(out)
-    return EXIT_FAILED if out["failed"] else EXIT_OK
+    sys.stdout.flush()
+    signal.pthread_sigmask(signal.SIG_SETMASK, mask)
+    return code
 
 
 def emit(out):

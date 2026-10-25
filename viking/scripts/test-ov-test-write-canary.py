@@ -2,9 +2,9 @@
 
     python3 test-ov-test-write-canary.py
 
-No cluster: the pure parts (config parsing, the prod refusal, the 409 retry, the
-observer check, the probe record's freshness, the verdict) are tested directly,
-with fixtures in the shapes the 2026-10-25 BUG-1268 canary run saw live, and
+No cluster: the pure parts (config parsing, the refusals, the 409 retry, the
+observer check, the probe record's md5, the verdict) are tested directly, with
+fixtures in the shapes the 2026-10-25 BUG-1268 canary run saw live, and
 run()/main() with their collaborators mocked.
 """
 
@@ -16,7 +16,9 @@ from git_env import scrub_environ  # noqa: E402
 
 scrub_environ()
 
+import base64
 import contextlib
+import hashlib
 import importlib.util
 import io
 import json
@@ -44,7 +46,15 @@ CONF = {
         }
     },
 }
-PROD = {"storage": {"vectordb": {"name": "context"}}}
+PROD = {
+    "storage": {
+        "vectordb": {
+            "name": "context",
+            "url": "http://ov-vectordb.viking.svc.cluster.local:5000",
+        }
+    }
+}
+TARGET = {"collection": "context_test", "vectordb_svc": "svc/ov-vectordb-test"}
 STATUS = (
     "Account: default\nBackend: http\nCollection: context_test\nIndex: default\n"
     "Dimension: 2560\nVector count: 5"
@@ -66,6 +76,10 @@ def vdb(**fields):
     return {**CONF, "storage": {"vectordb": {**CONF["storage"]["vectordb"], **fields}}}
 
 
+def md5(text):
+    return hashlib.md5(text.encode()).hexdigest()
+
+
 def passing():
     return {
         "health": 200,
@@ -73,33 +87,69 @@ def passing():
         "observer_healthy": True,
         "replace": {"http": 200, "body": WRITTEN},
         "read_back_matches": True,
-        "probe_vector_fresh": True,
+        "probe_vector_written": True,
         "vectordb": dict(COUNTS),
     }
 
 
 def args(**kw):
     base = dict(label="x", replace_attempts=1, replace_wait=0, write_timeout=600,
-                no_counts=False)  # fmt: skip
+                no_vectordb=False)  # fmt: skip
     return wc.argparse.Namespace(**{**base, **kw})
 
 
+def fake_forward(*children):
+    """A forward() that registers each given child on the caller's stack, as the real one does."""
+    queue = list(children)
+
+    def forward(svc, remote, stack):
+        p = queue.pop(0) if queue else mock.Mock()
+        stack.callback(wc.stop, p)
+        return 40000 + len(queue)
+
+    return mock.Mock(side_effect=forward)
+
+
+class Server:
+    """An HTTP double for ov-test that logs every request and stores the probe."""
+
+    def __init__(self, observer=(200, OBSERVER), write=(200, WRITTEN)):
+        self.observer, self.write, self.sent, self.content = observer, write, [], None
+
+    def __call__(
+        self, base, headers, method, path, params=None, body=None, timeout=120
+    ):
+        self.sent.append({"method": method, "path": path, "body": body,
+                          "timeout": timeout})  # fmt: skip
+        if path == "/api/v1/observer/vikingdb":
+            return self.observer
+        if path == "/health":
+            return 200, {}
+        if method == "POST":
+            if self.write[0] == 200:
+                self.content = body["content"]
+            return self.write
+        if self.content is None:
+            return 404, "Not Found"
+        return 200, {"result": self.content}
+
+    def posts(self):
+        return [s for s in self.sent if s["method"] == "POST"]
+
+
 @contextlib.contextmanager
-def cluster(http, forward=None, stop=None, records=None):
+def cluster(http, forward=None, stop=None, prod=PROD, adapter=None):
     """run()'s collaborators: ov-test's conf, prod's, a key, and an importable adapter."""
-    forward = forward or mock.Mock(side_effect=[(mock.Mock(), 1), (mock.Mock(), 2)])
-    records = records or [{"rows": 0, "updated_at": None},
-                          {"rows": 1, "updated_at": "2026-10-25T16:16:51.000Z"}]  # fmt: skip
+    adapter = adapter or mock.Mock(**{"query.return_value": []})
     with mock.patch.object(wc, "read_ov_conf",
-                           side_effect=lambda cm: CONF if cm == wc.TEST_CONFIGMAP else PROD), \
-         mock.patch.object(wc, "kubectl", return_value="a2V5"), \
-         mock.patch.object(wc, "forward", forward), \
+                           side_effect=lambda cm: CONF if cm == wc.TEST_CONFIGMAP else prod), \
+         mock.patch.object(wc, "kubectl", return_value=base64.b64encode(b"key").decode()), \
+         mock.patch.object(wc, "forward", forward or fake_forward()), \
          mock.patch.object(wc, "http", side_effect=http), \
-         mock.patch.object(wc, "adapter_class", return_value=mock.Mock()), \
-         mock.patch.object(wc, "probe_record", side_effect=records), \
+         mock.patch.object(wc, "adapter_class", return_value=mock.Mock(return_value=adapter)), \
          mock.patch.object(wc, "vectordb_counts", return_value=dict(COUNTS)), \
          mock.patch.object(wc, "stop", stop or mock.Mock()):  # fmt: skip
-        yield
+        yield adapter
 
 
 class ConfigTests(unittest.TestCase):
@@ -121,24 +171,60 @@ class ConfigTests(unittest.TestCase):
             {**CONF, "storage": {}},
             {k: v for k, v in CONF.items() if k != "default_user"},
             vdb(url="nowhere"),
+            vdb(url="http://ov-vectordb-test.viking.svc"),
             vdb(name=""),
         ):
             with self.assertRaises(wc.CanaryError):
                 wc.target_from_conf(conf)
 
-    def test_a_templated_name_or_url_refuses(self):
-        # homelab#266 round 4: OpenViking expands ${VAR}; json.loads does not.
+    def test_anything_templated_refuses(self):
+        # homelab#266 rounds 4-5: OpenViking expands ${VAR} over the whole file;
+        # json.loads does not, so no value this run uses may hold a `$`.
         for conf in (vdb(name="${OV_COLLECTION}"),
-                     vdb(url="http://${VDB_HOST}:5000")):  # fmt: skip
-            with self.assertRaises(wc.CanaryError):
+                     vdb(url="http://${VDB_HOST}:5000"),
+                     vdb(project="${OV_PROJECT}"), vdb(index_name="$OV_INDEX"),
+                     {**CONF, "default_account": "${OV_ACCOUNT}"},
+                     {**CONF, "default_user": "$USER"}):  # fmt: skip
+            with self.assertRaises(wc.CanaryError, msg=conf):
                 wc.target_from_conf(conf)
 
-    def test_prod_collection_refuses(self):
-        wc.refuse_prod("context_test", PROD)
-        for test, prod in (("context", PROD), ("context_test", {"storage": {}}),
-                           ("context_test", {"storage": {"vectordb": {"name": "${C}"}}})):  # fmt: skip
-            with self.assertRaises(wc.CanaryError):
-                wc.refuse_prod(test, prod)
+    def test_a_vectordb_outside_the_namespace_refuses(self):
+        # homelab#266 round 5: other-ns was dropped, landing on viking's service.
+        for url in ("http://ov-vectordb.other-ns.svc:5000", "http://10.0.0.5:5000"):
+            with self.assertRaises(wc.CanaryError, msg=url):
+                wc.target_from_conf(vdb(url=url))
+        self.assertEqual(wc.vectordb_service("http://ov-vectordb-test:5000"),
+                         ("svc/ov-vectordb-test", 5000))  # fmt: skip
+
+    def test_prods_collection_or_vectordb_refuses(self):
+        wc.refuse_prod(TARGET, PROD)
+        for target, prod in (
+            ({**TARGET, "collection": "context"}, PROD),
+            # homelab#266 round 5: a test collection on prod's vectordb passed.
+            ({**TARGET, "vectordb_svc": "svc/ov-vectordb"}, PROD),
+            (TARGET, {"storage": {}}),
+            (TARGET, {"storage": {"vectordb": None}}),
+            (TARGET, {"storage": {"vectordb": {**PROD["storage"]["vectordb"], "name": "${C}"}}}),
+            (TARGET, {"storage": {"vectordb": {"name": "context"}}}),
+        ):  # fmt: skip
+            with self.assertRaises(wc.CanaryError, msg=(target, prod)):
+                wc.refuse_prod(target, prod)
+
+
+class KeyTests(unittest.TestCase):
+    def test_the_key_is_stripped(self):
+        with mock.patch.object(wc, "kubectl",
+                               return_value=base64.b64encode(b"s3cr3t\n").decode()):  # fmt: skip
+            self.assertEqual(wc.read_key(), "s3cr3t")
+
+    def test_a_key_that_cannot_be_a_header_refuses_without_naming_it(self):
+        # homelab#266 round 5: http.client's ValueError put the key in the receipt.
+        for raw in (b"", b"s3cr3t\nmore", b"s3cr3t more", b"\xff\xfe"):
+            with mock.patch.object(wc, "kubectl",
+                                   return_value=base64.b64encode(raw).decode()), \
+                 self.assertRaises(wc.CanaryError) as cm:  # fmt: skip
+                wc.read_key()
+            self.assertNotIn("s3cr3t", str(cm.exception))
 
 
 class ReplaceRetryTests(unittest.TestCase):
@@ -190,37 +276,37 @@ class ObserverTests(unittest.TestCase):
 
 
 class ProbeVectorTests(unittest.TestCase):
-    OLD = {"rows": 1, "updated_at": "2026-10-25T16:16:51.000Z"}
-    NEW = {"rows": 1, "updated_at": "2026-10-25T17:02:10.000Z"}
+    CONTENT = "# canary\n\nreplaced 2026-10-25T00:00:00Z abc (after)\n"
 
-    def test_a_newer_record_or_a_new_one_is_fresh(self):
-        self.assertTrue(wc.probe_vector_fresh(self.OLD, self.NEW))
-        self.assertTrue(
-            wc.probe_vector_fresh({"rows": 0, "updated_at": None}, self.NEW)
-        )
+    def test_only_a_record_of_this_runs_content_counts(self):
+        # homelab#266 rounds 4-5: an old record, the create's record, or an
+        # errored read (which the adapter returns as no rows) passed.
+        mine = md5(self.CONTENT)
+        self.assertTrue(wc.probe_vector_written({"rows": 2, "md5s": ["a", mine]},
+                                                self.CONTENT))  # fmt: skip
+        for record in ({"rows": 1, "md5s": [md5("# canary\n\ncreated x\n")]},
+                       {"rows": 0, "md5s": []}, {"rows": 1, "md5s": []},
+                       {"error": "ERROR RuntimeError('boom')"}, None):  # fmt: skip
+            self.assertFalse(wc.probe_vector_written(record, self.CONTENT), record)
 
-    def test_an_unchanged_missing_or_unreadable_record_is_not(self):
-        # homelab#266 round 4: a broken vector upsert left the old record in place.
-        for before, after in (
-            (self.OLD, self.OLD),
-            (self.NEW, self.OLD),
-            (self.OLD, {"rows": 0, "updated_at": None}),
-            (self.OLD, {"error": "ERROR HTTPError('404')"}),
-            ({"error": "ERROR HTTPError('404')"}, self.NEW),
-            (self.OLD, {"rows": 1, "updated_at": "not a time"}),
-            ({"rows": 1, "updated_at": None}, self.NEW),
-        ):
-            self.assertFalse(wc.probe_vector_fresh(before, after), (before, after))
-
-    def test_probe_record_reports_the_latest_stamp_or_the_error(self):
+    def test_probe_record_reports_the_md5s_or_the_error(self):
         adapter = mock.Mock()
-        adapter.query.return_value = [{"updated_at": "2026-10-25T16:00:00Z"},
-                                      {"updated_at": "2026-10-25T17:00:00Z"}]  # fmt: skip
-        self.assertEqual(wc.probe_record(adapter),
-                         {"rows": 2, "updated_at": "2026-10-25T17:00:00Z"})  # fmt: skip
+        adapter.query.return_value = [{"md5": "b"}, {"md5": "a"}, {"md5": None}, {}]
+        self.assertEqual(wc.probe_record(adapter), {"rows": 4, "md5s": ["a", "b"]})
         self.assertEqual(adapter.query.call_args.kwargs["filter"], wc.PROBE_FILTER)
+        self.assertIn("md5", adapter.query.call_args.kwargs["output_fields"])
         adapter.query.side_effect = RuntimeError("boom")
         self.assertIn("error", wc.probe_record(adapter))
+
+    def test_a_termination_is_not_swallowed_as_a_result(self):
+        # homelab#266 round 5: with Terminated an Exception, these would report it.
+        adapter = mock.Mock()
+        adapter.query.side_effect = wc.Terminated
+        adapter.count.side_effect = wc.Terminated
+        with self.assertRaises(wc.Terminated):
+            wc.probe_record(adapter)
+        with self.assertRaises(wc.Terminated):
+            wc.vectordb_counts(adapter, "default")
 
 
 class VerdictTests(unittest.TestCase):
@@ -242,14 +328,14 @@ class VerdictTests(unittest.TestCase):
             out = {**passing(), "replace": {"http": 200, "body": body}}
             self.assertEqual(wc.failures(out, True),
                              ["replace (vector_status is not complete)"], status)  # fmt: skip
-        # --no-counts still checks the server's own outcome.
+        # --no-vectordb still checks the server's own outcome.
         self.assertEqual(wc.failures({**out, "vectordb": None}, False),
                          ["replace (vector_status is not complete)"])  # fmt: skip
 
-    def test_a_stale_probe_record_fails(self):
-        out = {**passing(), "probe_vector_fresh": False}
+    def test_a_record_without_this_runs_md5_fails(self):
+        out = {**passing(), "probe_vector_written": False}
         self.assertEqual(wc.failures(out, True),
-                         ["probe_vector (no record newer than before the write)"])  # fmt: skip
+                         ["probe_vector (no record carries this run's content md5)"])  # fmt: skip
 
     def test_counts_must_be_possible_for_any_data(self):
         bad_shape = ["vectordb (a count errored or is not a non-negative integer)"]
@@ -297,66 +383,80 @@ class ReadBackTests(unittest.TestCase):
 
 
 class RunTests(unittest.TestCase):
-    def test_a_clean_run_waits_on_every_write_and_checks_the_record(self):
-        sent = []
-
-        def http(base, headers, method, path, params=None, body=None, timeout=120):
-            sent.append((method, path, body, timeout))
-            if path == "/api/v1/observer/vikingdb":
-                return 200, OBSERVER
-            if path == "/health":
-                return 200, {}
-            if method == "POST":
-                return 200, WRITTEN
-            if len([s for s in sent if s[0] == "POST"]) < 2:
-                return 404, "Not Found"
-            return 200, {"result": sent[-2][2]["content"]}
-
+    def test_a_clean_run_writes_only_the_probe_and_checks_its_record(self):
+        server = Server()
+        forward = fake_forward()
         out = {}
-        with cluster(http):
+        with cluster(server, forward=forward) as adapter:
+            adapter.query.side_effect = lambda **k: [{"md5": md5(server.content)}]
             wc.run(args(write_timeout=42), out)
         self.assertEqual(out["failed"], [])
-        posts = [s for s in sent if s[0] == "POST"]
-        self.assertEqual([p[2]["mode"] for p in posts], ["create", "replace"])
-        self.assertTrue(all(p[2]["wait"] is True and p[3] == 42 for p in posts))
-        self.assertTrue(out["probe_vector_fresh"])
+        posts = server.posts()
+        self.assertEqual([p["body"]["mode"] for p in posts], ["create", "replace"])
+        # homelab#266 round 5: a POST to another URI or service passed the tests.
+        for p in posts:
+            self.assertEqual((p["path"], p["body"]["uri"], p["body"]["wait"], p["timeout"]),
+                             ("/api/v1/content/write", wc.PROBE_URI, True, 42))  # fmt: skip
+        self.assertEqual([c.args[:2] for c in forward.call_args_list],
+                         [(wc.SERVER_SVC, wc.SERVER_PORT), ("svc/ov-vectordb-test", 5000)])  # fmt: skip
+        self.assertTrue(out["probe_vector_written"])
+
+    def test_a_record_left_by_the_create_fails(self):
+        # homelab#266 round 5: a run that created the probe passed on the create's
+        # record even when the replace's vectors were never written.
+        server = Server()
+        out = {}
+        with cluster(server) as adapter:
+            adapter.query.side_effect = lambda **k: [
+                {"md5": md5(server.posts()[0]["body"]["content"])}
+            ]
+            wc.run(args(), out)
+        self.assertEqual(server.posts()[0]["body"]["mode"], "create")
+        self.assertIn(
+            "probe_vector (no record carries this run's content md5)", out["failed"]
+        )
+
+    def test_prods_collection_refuses_before_any_forward_or_request(self):
+        # homelab#266 round 5: removing or moving refuse_prod passed the tests.
+        server = Server()
+        forward = fake_forward()
+        same = {
+            "storage": {
+                "vectordb": {**PROD["storage"]["vectordb"], "name": "context_test"}
+            }
+        }
+        with (
+            cluster(server, forward=forward, prod=same),
+            self.assertRaises(wc.CanaryError),
+        ):
+            wc.run(args(), {})
+        self.assertEqual((forward.call_count, server.sent), (0, []))
 
     def test_an_observer_naming_another_collection_refuses_before_any_write(self):
         other = {"result": {**OBSERVER["result"],
                             "status": STATUS.replace("context_test", "context")}}  # fmt: skip
-        sent = []
-
-        def http(base, headers, method, path, params=None, body=None, timeout=120):
-            sent.append(method)
-            return 200, other
-
-        with cluster(http), self.assertRaises(wc.CanaryError):
+        server = Server(observer=(200, other))
+        with cluster(server), self.assertRaises(wc.CanaryError):
             wc.run(args(), {})
-        self.assertNotIn("POST", sent)
+        self.assertEqual(server.posts(), [])
 
     def test_an_observer_naming_nothing_is_a_failed_check_not_a_refusal(self):
         # The BUG-1268 `before` run: an unpatched observer errors, and the run writes.
-        sent = []
-
-        def http(base, headers, method, path, params=None, body=None, timeout=120):
-            sent.append(method)
-            if path == "/api/v1/observer/vikingdb":
-                return 500, "Internal Server Error"
-            return (200, WRITTEN) if method == "POST" else (404, "Not Found")
-
+        server = Server(observer=(500, "Internal Server Error"))
         out = {}
-        with cluster(http):
+        with cluster(server):
             wc.run(args(), out)
-        self.assertIn("POST", sent)
+        self.assertEqual(len(server.posts()), 2)
         self.assertIn("observer_names_collection", out["failed"])
 
-    def test_no_counts_skips_the_vectordb_forward(self):
-        forward = mock.Mock(return_value=(mock.Mock(), 1))
-        with cluster(lambda *a, **k: (404, "Not Found"), forward=forward):
-            out = {}
-            wc.run(args(no_counts=True), out)
+    def test_no_vectordb_skips_the_vectordb_forward(self):
+        forward = fake_forward()
+        out = {}
+        with cluster(Server(), forward=forward):
+            wc.run(args(no_vectordb=True), out)
         self.assertEqual(forward.call_count, 1)
-        self.assertEqual(out["vectordb"], "skipped (--no-counts)")
+        self.assertEqual(out["vectordb"], "skipped (--no-vectordb)")
+        self.assertEqual(out["failed"], [])
 
 
 class ForwardTests(unittest.TestCase):
@@ -366,6 +466,25 @@ class ForwardTests(unittest.TestCase):
         patcher.start()
         self.addCleanup(patcher.stop)
 
+    def test_the_child_is_on_the_stack_before_any_signal_can_land(self):
+        # homelab#266 round 5: a signal between forward() returning and the
+        # caller's callback left the child running.
+        child = mock.Mock()
+        child.poll.return_value = None
+        masks = []
+
+        def popen(*a, **k):
+            masks.append(signal.pthread_sigmask(signal.SIG_BLOCK, set()))
+            return child
+
+        stack = mock.Mock()
+        with mock.patch.object(wc.subprocess, "Popen", side_effect=popen), \
+             mock.patch.object(wc.socket, "create_connection"):  # fmt: skip
+            self.assertEqual(wc.forward("svc/openviking-test", 1933, stack), 40000)
+        self.assertTrue(wc.HELD <= masks[0])
+        stack.callback.assert_called_once_with(wc.stop, child)
+        self.assertFalse(wc.HELD & signal.pthread_sigmask(signal.SIG_BLOCK, set()))
+
     def test_an_interrupt_during_startup_stops_the_child(self):
         # homelab#266 round 1: the child outlived a KeyboardInterrupt here.
         child = mock.Mock()
@@ -374,7 +493,8 @@ class ForwardTests(unittest.TestCase):
              mock.patch.object(wc.socket, "create_connection",
                                side_effect=KeyboardInterrupt):  # fmt: skip
             with self.assertRaises(KeyboardInterrupt):
-                wc.forward("svc/openviking-test", 1933)
+                with contextlib.ExitStack() as stack:
+                    wc.forward("svc/openviking-test", 1933, stack)
         child.terminate.assert_called_once()
         child.wait.assert_called()
 
@@ -383,7 +503,8 @@ class ForwardTests(unittest.TestCase):
         child.poll.return_value = 1
         with mock.patch.object(wc.subprocess, "Popen", return_value=child):
             with self.assertRaises(wc.CanaryError):
-                wc.forward("svc/openviking-test", 1933)
+                with contextlib.ExitStack() as stack:
+                    wc.forward("svc/openviking-test", 1933, stack)
         child.wait.assert_called()
 
 
@@ -407,8 +528,7 @@ class StopTests(unittest.TestCase):
             if p is vdb_child:
                 raise KeyboardInterrupt
 
-        forward = mock.Mock(side_effect=[(server, 1), (vdb_child, 2)])
-        with cluster(lambda *a, **k: (404, "Not Found"), forward=forward, stop=stop):
+        with cluster(Server(), forward=fake_forward(server, vdb_child), stop=stop):
             with self.assertRaises(KeyboardInterrupt):
                 wc.run(args(), {})
         self.assertEqual(stopped, [vdb_child, server])
@@ -418,15 +538,15 @@ class StopTests(unittest.TestCase):
         server, vdb_child = mock.Mock(name="server"), mock.Mock(name="vdb")
         stopped = []
 
-        def http(base, headers, method, path, params=None, body=None, timeout=120):
-            if method == "POST":
-                os.kill(os.getpid(), signal.SIGTERM)
-            return 404, "Not Found"
+        def adapter_query(**k):
+            os.kill(os.getpid(), signal.SIGTERM)
+            return []
 
-        forward = mock.Mock(side_effect=[(server, 1), (vdb_child, 2)])
         buf = io.StringIO()
-        with cluster(http, forward=forward, stop=stopped.append), \
+        with cluster(Server(), forward=fake_forward(server, vdb_child),
+                     stop=stopped.append) as adapter, \
              contextlib.redirect_stdout(buf):  # fmt: skip
+            adapter.query.side_effect = adapter_query
             code = wc.main(["--label", "x"])
         self.assertEqual(code, wc.EXIT_TERMINATED)
         self.assertEqual(stopped, [vdb_child, server])
@@ -434,6 +554,23 @@ class StopTests(unittest.TestCase):
         self.assertEqual(receipt["error"], "terminated")
         self.assertEqual(receipt["target"]["collection"], "context_test")
         self.assertIs(signal.getsignal(signal.SIGTERM), signal.SIG_DFL)
+        self.assertFalse(wc.HELD & signal.pthread_sigmask(signal.SIG_BLOCK, set()))
+
+    def test_signals_wait_while_the_receipt_is_printed(self):
+        # homelab#266 round 5: a SIGTERM during the final emit printed nothing.
+        masks = []
+        real = wc.emit
+
+        def emit(out):
+            masks.append(signal.pthread_sigmask(signal.SIG_BLOCK, set()))
+            real(out)
+
+        with mock.patch.object(wc, "run", side_effect=lambda a, o: o.update(failed=[])), \
+             mock.patch.object(wc, "emit", side_effect=emit), \
+             contextlib.redirect_stdout(io.StringIO()):  # fmt: skip
+            wc.main(["--label", "x"])
+        self.assertTrue(wc.HELD <= masks[0])
+        self.assertFalse(wc.HELD & signal.pthread_sigmask(signal.SIG_BLOCK, set()))
 
 
 class MainTests(unittest.TestCase):
@@ -494,15 +631,18 @@ class MainTests(unittest.TestCase):
             self.assertEqual(self.run_main(["--label", "x"])[0], wc.EXIT_OK)
 
     def test_bad_arguments_exit_1_with_a_receipt_before_any_run(self):
-        # homelab#266 round 4: usage errors exited 2 with no receipt, and a
-        # negative, NaN or infinite --replace-wait failed only after the writes.
+        # homelab#266 rounds 4-5: usage errors exited 2 with no receipt, and a
+        # --replace-wait that sleep() rejects (negative, NaN, infinite, or past
+        # its range) failed only after the writes.
         run = mock.Mock()
         with mock.patch.object(wc, "run", run):
             for argv in ([], ["--label", "x", "--replace-attempts", "0"],
                          ["--label", "x", "--replace-wait", "-1"],
                          ["--label", "x", "--replace-wait", "nan"],
                          ["--label", "x", "--replace-wait", "inf"],
-                         ["--label", "x", "--write-timeout", "0"]):  # fmt: skip
+                         ["--label", "x", "--replace-wait", "1e10"],
+                         ["--label", "x", "--write-timeout", "0"],
+                         ["--label", "x", "--write-timeout", "1e10"]):  # fmt: skip
                 code, out = self.run_main(argv)
                 self.assertEqual(code, wc.EXIT_ERROR, argv)
                 self.assertEqual(len(out.splitlines()), 1, argv)
