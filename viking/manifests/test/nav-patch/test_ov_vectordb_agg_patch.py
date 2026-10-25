@@ -489,6 +489,16 @@ class Installed(unittest.TestCase):
             index_name="default",
         )
         cls.ctx_adapter.upsert(context_rows())
+        cls.empty_adapter = HttpCollectionAdapter(
+            "127.0.0.1", cls.port, "default", "bug1268empty", "default"
+        )
+        cls.empty_adapter.create_collection(
+            "bug1268empty",
+            CollectionSchemas.context_collection("bug1268empty", 4),
+            distance="cosine",
+            sparse_weight=0.0,
+            index_name="default",
+        )
 
     @classmethod
     def tearDownClass(cls):
@@ -535,6 +545,11 @@ class Installed(unittest.TestCase):
     def test_count_through_the_http_adapter(self):
         self.assertEqual(self.adapter.count(), 3)
         self.assertEqual(self.adapter.strict_count(), 3)
+
+    def test_empty_collection_counts_zero(self):
+        """The engine emits __total_count__: 0 unfiltered, so an empty store is 0, not an error."""
+        self.assertEqual(self.empty_adapter.count(), 0)
+        self.assertEqual(self.empty_adapter.strict_count(), 0)
 
     def test_filtered_counts(self):
         self.assertEqual(
