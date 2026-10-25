@@ -36,6 +36,7 @@ configMapGenerator:
       - nav-patch/ov_recall_time_patch.py
       - nav-patch/ov_pref_gate_patch.py
       - nav-patch/ov_vectordb_agg_patch.py
+      - nav-patch/ov_http_update_patch.py
     options:
       disableNameSuffixHash: true
       labels:
