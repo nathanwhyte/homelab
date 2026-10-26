@@ -83,6 +83,7 @@ def fake_command(tool, args):
                                 {
                                     "metadata": {
                                         "name": name,
+                                        "resourceVersion": str(node.get("version", 1)),
                                         "annotations": node.get("annotations", {}),
                                     },
                                     "spec": {"unschedulable": node["cordoned"]},
@@ -217,12 +218,14 @@ def fake_command(tool, args):
                 file=sys.stderr,
             )
             return 1
-        cordon = patch.get("spec", {}).get("unschedulable")
+        spec = patch.get("spec", {})
+        cordon = spec.get("unschedulable")
         # A cordon can fail before the API applies it, or after (a lost reply).
         fault = state.get("fail_cordon") if cordon else None
         if fault == "before":
             return 1
-        node["cordoned"] = bool(cordon)
+        if "unschedulable" in spec:
+            node["cordoned"] = bool(cordon)
         annotations = node.setdefault("annotations", {})
         for key, value in metadata.get("annotations", {}).items():
             if value is None:
@@ -637,6 +640,38 @@ class MaintenanceCycleTests(unittest.TestCase):
         self.assertIn("outage:mac-two", result.stderr)
         self.assertEqual(self.read(), before)
         self.assertTrue((self.cycle / "timmy.boot-id").exists())
+
+    def test_owner_taken_during_the_ready_wait_restores_nothing(self):
+        self.run_command(OUTAGE, "down")
+        self.reboot()
+        state = self.read()
+        # finish's first ownership read passes; the other Mac takes the cordon
+        # before the check that follows the Ready wait.
+        state["race_owner"] = "outage:mac-two"
+        self.write(state)
+        spin_down = (self.cycle / "spin-down-replicas").read_text()
+        result = self.run_command(OUTAGE, "up", ok=False)
+        self.assertIn("outage:mac-two", result.stderr)
+        after = self.read()
+        self.assertEqual(after["replicas"]["deployment/viking/openviking"], 0)
+        self.assertEqual(after["replicas"]["statefulset/garage/garage"], 0)
+        self.assertTrue(after["nodes"]["timmy"]["cordoned"])
+        self.assertEqual((self.cycle / "spin-down-replicas").read_text(), spin_down)
+
+    def test_a_stale_owner_is_cleared_by_the_next_mutating_command(self):
+        for args in (("restore-services",), ("reboot", "wemby", "--no-reboot")):
+            with self.subTest(args=args):
+                self.write(self.initial)
+                state = self.read()
+                state["nodes"]["timmy"]["annotations"] = {OWNER_KEY: "outage:mac-one"}
+                self.write(state)
+                self.run_command(NODE, *args)
+                self.assertIsNone(self.owner())
+                self.assertFalse(self.read()["nodes"]["timmy"]["cordoned"])
+                # A hand cordon after that carries no owner, so down refuses it.
+                if args == ("restore-services",):
+                    before = self.cordon_by("timmy")
+                    self.assert_down_refused_untouched(before)
 
     def test_up_finishes_an_ownerless_cordon_from_before_owners(self):
         self.run_command(OUTAGE, "down")

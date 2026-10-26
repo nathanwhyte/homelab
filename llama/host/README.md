@@ -184,12 +184,24 @@ and `finish` clears it with the uncordon. A bare `drain` refuses a cordoned node
 repeat after a reboot replaces that reboot's proof. So `down` repeats only on this Mac's own
 outage cordon, and refuses before any change on a hand cordon, a reboot or drain cycle's
 cordon, or the other Mac's outage; run `up` on the Mac that started the outage, and never
-uncordon another Mac's timmy outage. `finish` (and so `up`) checks the owner before it
-restores anything: it refuses a cordon that names another Mac, so a late `up` cannot undo a
-newer outage, and accepts an ownerless one. `kubectl drain` cordons by itself, so every drain is
-followed by a check that the cordon is still this run's: one cleared mid-run comes back from
-the drain without an owner, and the run stops there. An owner left on an uncordoned node (after a hand
-uncordon) is stale: `status` lists it and the next cordon replaces it. A cordon from before
+uncordon another Mac's timmy outage. `finish` (and so `up`) checks the owner before its
+Ready wait and again before it restores anything: it refuses a cordon that names another
+Mac, and accepts an ownerless one. `kubectl drain` cordons by itself, so every drain is
+followed by a check that the cordon is still this run's owned cordon.
+
+These checks are made at moments, not held: nothing locks timmy across both Macs. Another
+Mac's command, or a hand `kubectl cordon`, `uncordon` or `annotate` on the node, while a run
+on this Mac is still going is outside what they cover. One that lands after `down`'s
+preflight is refused at the drain, after the silence, suspends and parking: this Mac's `up`
+then refuses too, while timmy carries the other cordon, so the Mac that owns it finishes its
+cycle first, and only then does this Mac's `up` undo its own preparation.
+
+`kubectl uncordon` keeps annotations, so back out a cycle with `kubectl uncordon timmy &&
+kubectl annotate node timmy homelab/cordon-owner-`. An owner left on an uncordoned node is
+stale: `status` lists it, and the next mutating command (`reboot`, a first `drain`,
+`restore-services`, `recover` without a cycle) removes it. A hand uncordon followed by a
+hand `kubectl cordon` with no such command between keeps the old owner, and that Mac's
+`down` would take the cordon as its own. A cordon from before
 owners were recorded has none; if it is this Mac's outage, claim it with `kubectl annotate
 node timmy homelab/cordon-owner="outage:$(scutil --get ComputerName)" --overwrite` and re-run
 `down`. A recorded cycle still requires proof of a changed boot ID and a
