@@ -155,19 +155,26 @@ def on_sigterm(signum, frame):
 
 
 def main(argv=None):
-    """Signal handling as in ov-test-write-canary.py's main (homelab#266 rounds 2-5)."""
     ap = Parser(description=__doc__.splitlines()[0])
     ap.add_argument("--configmap", default=PROD_CONFIGMAP,
                     help=f"the ConfigMap whose ov.conf names the collection (default {PROD_CONFIGMAP})")  # fmt: skip
     args = ap.parse_args(argv)
-    out = {"configmap": args.configmap}
+    return guarded({"configmap": args.configmap}, lambda: run(args.configmap))
+
+
+def guarded(out, work):
+    """Merge work()'s result into `out`, print it as the receipt, return the exit code.
+
+    Signal handling as in ov-test-write-canary.py's main (homelab#266 rounds 2-5);
+    ov-collection-add-fields.py shares it.
+    """
     previous = signal.getsignal(signal.SIGTERM)
     mask = signal.pthread_sigmask(signal.SIG_BLOCK, set())
     try:
         try:
             # SIGTERM unwinds run()'s ExitStack, so the port-forward child stops.
             signal.signal(signal.SIGTERM, on_sigterm)
-            out.update(run(args.configmap))
+            out.update(work())
         finally:
             # A signal from here on waits until the receipt is out.
             signal.pthread_sigmask(signal.SIG_BLOCK, HELD)
