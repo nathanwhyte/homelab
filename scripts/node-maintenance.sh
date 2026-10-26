@@ -167,9 +167,17 @@ save_cycle_boot_id() {
 	local node=$1 boot_id=$2 file
 	file=$(cycle_state_file "$node")
 	mkdir -p "$MAINTENANCE_STATE_DIR"
-	[[ ! -L $file && (-f $file || ! -e $file) ]] || die "cannot write saved reboot state: $file (a regular file or nothing must be there)"
+	require_cycle_state_path "$node"
 	printf '%s\n' "$boot_id" >"$file.$$"
 	mv -f "$file.$$" "$file"
+}
+
+# Callers also run this before their cordon or drain, so a path the save would
+# refuse stops them before they change the cluster.
+require_cycle_state_path() {
+	local file
+	file=$(cycle_state_file "$1")
+	[[ ! -L $file && (-f $file || ! -e $file) ]] || die "cannot write saved reboot state: $file (a regular file or nothing must be there)"
 }
 
 # Read-only, for a caller that must decide on the cordon itself: prints
@@ -187,9 +195,10 @@ cmd_cordon_status() {
 load_cycle_boot_id() {
 	local node=$1 file boot_id
 	file=$(cycle_state_file "$node")
-	[[ -s $file ]] || die "no saved reboot state for $node; pass its previous boot ID explicitly"
-	IFS= read -r boot_id <"$file"
-	[[ -n $boot_id ]] || die "saved reboot state for $node is empty"
+	[[ -e $file ]] || die "no saved reboot state for $node; pass its previous boot ID explicitly: $SELF finish $node <previous-boot-id>"
+	IFS= read -r boot_id <"$file" || true
+	[[ -n $(normalize_boot_id "$boot_id") ]] ||
+		die "saved reboot state for $node is empty; pass its previous boot ID explicitly: $SELF finish $node <previous-boot-id>"
 	printf '%s\n' "$boot_id"
 }
 
@@ -223,7 +232,9 @@ cmd_cycle_status() {
 	if [[ -e $file || -L $file ]]; then
 		[[ -f $file && -r $file ]] || die "cannot read saved reboot state: $file"
 	fi
-	if [[ -s $file ]]; then
+	# Any record file counts, as it does for the restore-services scan; whether
+	# its contents hold a boot ID is load_cycle_boot_id's question.
+	if [[ -e $file ]]; then
 		printf 'recorded\n'
 	else
 		printf 'none\n'
@@ -991,6 +1002,7 @@ repeat_drain() {
 	# preflights or spin-down. It does not establish ownership of any cordon or
 	# need a saved record, so an empty or missing one is rewritten here.
 	warn "$node is already cordoned — re-draining"
+	require_cycle_state_path "$node"
 	"$KUBECTL" drain "$node" --ignore-daemonsets --delete-emptydir-data --timeout="$DRAIN_TIMEOUT" ||
 		warn "drain incomplete — assessing what is left on $node"
 	# Unlike a first drain, a repeat always checks leftovers, even after success.
@@ -1000,10 +1012,15 @@ repeat_drain() {
 	require_valid_boot_id "$boot_id"
 	cycle=$(cmd_cycle_status "$node") || die "cannot read saved cycle state for $node"
 	if [[ $cycle == recorded ]]; then
-		saved_boot_id=$(load_cycle_boot_id "$node") || die "cannot read saved cycle state for $node"
+		# Read here, not through load_cycle_boot_id: an empty record is rewritten
+		# below rather than refused.
+		saved_boot_id=
+		IFS= read -r saved_boot_id <"$(cycle_state_file "$node")" || true
 		# A planned outage repeats after timmy came back, so the refresh stays; say
 		# so, because recover/finish now needs another reboot past this one.
-		if [[ $(normalize_boot_id "$saved_boot_id") != "$(normalize_boot_id "$boot_id")" ]]; then
+		if [[ -z $(normalize_boot_id "$saved_boot_id") ]]; then
+			warn "[$node] saved reboot state was empty; rewriting it"
+		elif [[ $(normalize_boot_id "$saved_boot_id") != "$(normalize_boot_id "$boot_id")" ]]; then
 			warn "[$node] rebooted since the saved cycle (boot ID $saved_boot_id, now $boot_id); that reboot no longer counts — recover/finish will wait for another"
 		fi
 	fi
@@ -1027,7 +1044,7 @@ cmd_drain() {
 		# Only an outage caller that owns the cordon opts in; a bare drain of a
 		# cordoned node would skip every first-drain check on any node.
 		((repeat)) ||
-			die "$node is already cordoned; pass --repeat to re-drain an outage's own cordon, or kubectl uncordon $node for a checked first drain"
+			die "$node is already cordoned; pass --repeat to re-drain your own outage's cordon. If no outage of yours owns it, finish that cycle or kubectl uncordon $node for a checked first drain — never uncordon another Mac's timmy outage"
 		repeat_drain "$node"
 	else
 		cmd_reboot "$node" --no-reboot ${first[@]+"${first[@]}"}
@@ -1047,7 +1064,8 @@ cmd_recover() {
 	if node_is_cordoned "$node"; then
 		die "$node is cordoned without cycle state; finish it by hand: $SELF finish $node <previous-boot-id>"
 	fi
-	node_is_ready "$node" || die "$node is not Ready; wait for it, then re-run: $SELF recover $node"
+	# A wrapping caller (timmy-offline.sh up) names its own command to re-run.
+	node_is_ready "$node" || die "$node is not Ready; wait for it, then re-run: ${NODE_MAINTENANCE_RERUN:-$SELF recover $node}"
 	# The shared spin-down record can belong to another node. Check all cordons
 	# and saved cycles under this command's lock before restoring any replicas.
 	cmd_restore_services
@@ -1108,6 +1126,7 @@ cmd_reboot() {
 		shift
 	done
 	require_node "$node"
+	require_cycle_state_path "$node"
 	require_no_cordoned_nodes
 	require_reboot_order "$node"
 

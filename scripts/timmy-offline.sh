@@ -80,6 +80,8 @@ NODE=timmy
 STATE_ROOT=${XDG_STATE_HOME:-"$HOME/.local/state"}
 STATE_DIR=$STATE_ROOT/homelab-timmy-offline
 SCALE_FILE=$STATE_DIR/parked-scales
+# Written just before down's drain; marks a cordon as this Mac's (own_cordon).
+DRAIN_MARK=$STATE_DIR/drain-started
 DETACH_TIMEOUT_SECONDS=${DETACH_TIMEOUT_SECONDS:-300}
 READY_TIMEOUT_SECONDS=${READY_TIMEOUT_SECONDS:-600}
 KUBECTL=${KUBECTL:-kubectl}
@@ -195,6 +197,7 @@ unpark() {
 	# the silence and suspend records with nothing parked; `up` must still clear those.
 	[[ -s $SCALE_FILE ]] || {
 		log "nothing parked by down"
+		rm -f "$DRAIN_MARK"
 		return 0
 	}
 	while IFS=$'\t' read -r entry replicas; do
@@ -202,7 +205,7 @@ unpark() {
 		log "[$entry] scale 0 -> $replicas"
 		"$KUBECTL" -n "$ns" scale "$kind" "$name" --replicas="$replicas" >/dev/null
 	done <"$SCALE_FILE"
-	rm -f "$SCALE_FILE"
+	rm -f "$SCALE_FILE" "$DRAIN_MARK"
 }
 
 wait_parked_ready() {
@@ -448,8 +451,17 @@ cmd_down() {
 	log "drain via node-maintenance.sh (no reboot, pre-drain spin-down)"
 	# --spin-down is required here, not optional: it frees headroom for the
 	# pods evicted from timmy before the memory-headroom preflight runs.
-	# --repeat only when own_cordon above saw this outage's own cordon.
-	"$NODE_MAINTENANCE" drain "$NODE" "${drain_args[@]}"
+	# --repeat only when own_cordon above saw this outage's own cordon. The mark
+	# goes down just before this Mac's drain can cordon, so own_cordon accepts a
+	# cordon only once this Mac may have made it: parked-scales alone is written
+	# before then, and a cordon that came first is someone else's.
+	date +%s >"$DRAIN_MARK"
+	if ! "$NODE_MAINTENANCE" drain "$NODE" "${drain_args[@]}"; then
+		# A drain that stopped before cordoning left no cordon of ours, so a
+		# cordon found on the retry is not this Mac's.
+		[[ $("$NODE_MAINTENANCE" cordon-status "$NODE" 2>/dev/null) == uncordoned ]] && rm -f "$DRAIN_MARK"
+		die "the drain did not finish (see above); fix that, then re-run: $SELF down — do not uncordon a timmy that the other Mac's down cordoned"
+	fi
 	# The drain itself can create new orphans: any unpinned pod evicted from timmy
 	# lands on another node and re-attaches its timmy-only volume from there. Check
 	# again after the drain and fail closed — the pod's owner must be added to PARKED.
@@ -466,11 +478,11 @@ cmd_down() {
 	log "When it is back on Ubuntu:  $SELF up"
 }
 
-# `park` writes the saved counts before the drain cordons, so a cordon this
-# Mac's `down` made always has them. A cordoned timmy without them was cordoned
-# by hand or by `down` on the other Mac, where re-parking would save the
-# current zeros as the counts `up` restores. Succeeds for this Mac's own
-# cordon, fails for no cordon, and dies for anything else. Call it in the
+# `down` writes $DRAIN_MARK just before its drain, so a cordon this Mac's `down`
+# made always has it. A cordoned timmy without it was cordoned by hand, by a
+# node-maintenance cycle, or by `down` on the other Mac, where re-parking would
+# save the current zeros as the counts `up` restores. Succeeds for this Mac's
+# own cordon, fails for no cordon, and dies for anything else. Call it in the
 # calling shell (an `if`), never in a $( ), so the die ends the run.
 own_cordon() {
 	local cordon
@@ -480,8 +492,8 @@ own_cordon() {
 	cordoned) ;;
 	*) die "unexpected cordon status for $NODE: $cordon; this run changed nothing" ;;
 	esac
-	[[ -s $SCALE_FILE ]] ||
-		die "$NODE is cordoned but this Mac has no parked state ($SCALE_FILE); run down/up from the Mac that started the outage — do not uncordon it to get past this. This run changed nothing"
+	[[ -s $DRAIN_MARK && -s $SCALE_FILE ]] && return 0
+	die "$NODE is cordoned, but not by a down on this Mac (no $DRAIN_MARK); this run changed nothing. If the other Mac's down cordoned it, run down/up there and do not uncordon it. If it was cordoned by hand or by node-maintenance.sh, finish that cycle or kubectl uncordon $NODE, then re-run: $SELF down"
 }
 
 cmd_up() {
@@ -496,9 +508,9 @@ cmd_up() {
 		[[ -e $WINDOW_FILE ]] && close_window && log "closed the maintenance window; nothing else was recorded"
 		die "nothing recorded by down (no parked, suspended, silence or cycle state); nothing to do"
 	fi
-	# recover's own hints name node-maintenance.sh; recovering there alone leaves
-	# workloads parked, CronJobs suspended and the silence active.
-	"$NODE_MAINTENANCE" recover "$NODE" ||
+	# Recovering through node-maintenance.sh alone leaves workloads parked,
+	# CronJobs suspended and the silence active, so its retry hints name `up`.
+	NODE_MAINTENANCE_RERUN="$SELF up" "$NODE_MAINTENANCE" recover "$NODE" ||
 		die "node cycle not recovered (see above); nothing unparked — fix that, then re-run: $SELF up"
 	unpark
 	wait_parked_ready

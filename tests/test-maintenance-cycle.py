@@ -309,6 +309,7 @@ class MaintenanceCycleTests(unittest.TestCase):
         self.assertFalse((self.cycle / "window").exists())
         for name in (
             "parked-scales",
+            "drain-started",
             "suspended-cronjobs",
             "silence-id",
             "silence-end",
@@ -456,7 +457,7 @@ class MaintenanceCycleTests(unittest.TestCase):
         state["nodes"]["timmy"]["cordoned"] = True
         self.write(state)
         result = self.run_command(OUTAGE, "down", ok=False)
-        self.assertIn("no parked state", result.stderr)
+        self.assertIn("not by a down on this Mac", result.stderr)
         self.assertEqual(self.read(), state)
         self.assertEqual(list(self.state_root.iterdir()), [])
 
@@ -468,7 +469,7 @@ class MaintenanceCycleTests(unittest.TestCase):
         other_mac.mkdir()
         self.env["XDG_STATE_HOME"] = str(other_mac)
         result = self.run_command(OUTAGE, "down", ok=False)
-        self.assertIn("the Mac that started the outage", result.stderr)
+        self.assertIn("not by a down on this Mac", result.stderr)
         self.assertEqual(self.read(), before)
         self.assertEqual(list(other_mac.iterdir()), [])
         self.env["XDG_STATE_HOME"] = first_mac
@@ -491,6 +492,94 @@ class MaintenanceCycleTests(unittest.TestCase):
                 if c["tool"] == "kubectl"
             )
         )
+
+    def test_parked_state_alone_does_not_own_a_later_cordon(self):
+        # down stops inside its first drain, before the cordon, after parking.
+        state = self.read()
+        state["active_job"] = True
+        self.write(state)
+        self.run_command(OUTAGE, "down", ok=False)
+        self.assertTrue((self.outage / "parked-scales").exists())
+        self.assertFalse((self.outage / "drain-started").exists())
+        # Someone else cordons timmy before the retry.
+        state = self.read()
+        del state["active_job"]
+        state["nodes"]["timmy"]["cordoned"] = True
+        self.write(state)
+        before = self.read()
+        result = self.run_command(OUTAGE, "down", ok=False)
+        self.assertIn("not by a down on this Mac", result.stderr)
+        self.assertEqual(self.read(), before)
+        self.assertEqual(self.drain_calls(), [])
+        # Once that cordon is gone, the retry finishes and up restores.
+        state = self.read()
+        state["nodes"]["timmy"]["cordoned"] = False
+        self.write(state)
+        self.run_command(OUTAGE, "down")
+        self.reboot()
+        self.run_command(OUTAGE, "up")
+        self.assert_restored()
+
+    def test_record_path_refusal_precedes_every_mutation(self):
+        self.cycle.mkdir()
+        (self.cycle / "timmy.boot-id").symlink_to(self.root / "elsewhere")
+        before = self.read()
+        for args in (("drain", "timmy", "--spin-down"), ("reboot", "timmy")):
+            with self.subTest(args=args):
+                self.run_command(NODE, *args, ok=False)
+                self.assertEqual(self.read(), before)
+                self.assertFalse((self.cycle / "spin-down-replicas").exists())
+        state = self.read()
+        state["nodes"]["timmy"]["cordoned"] = True
+        self.write(state)
+        self.run_command(NODE, "drain", "timmy", "--repeat", ok=False)
+        self.assertEqual(self.drain_calls(), [])
+
+    def test_boot_record_save_is_atomic(self):
+        self.record_cycle()
+        record = self.cycle / "timmy.boot-id"
+        # A failed rename (the stand-in for a stop mid-save) keeps the old record.
+        result = subprocess.run(
+            [
+                "bash",
+                "-c",
+                f'source "{NODE}"; mv() {{ return 1; }}; save_cycle_boot_id timmy {NEW_BOOT}',
+            ],
+            env=self.env,
+            capture_output=True,
+            text=True,
+            timeout=20,
+        )
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(record.read_text().strip(), OLD_BOOT)
+        # Its leftover temp file is not a cycle record.
+        record.unlink()
+        self.assertTrue(list(self.cycle.glob("timmy.boot-id.*")))
+        self.assertEqual(
+            self.run_command(NODE, "cycle-status", "timmy").stdout, "none\n"
+        )
+
+    def test_record_readers_agree_on_empty_records(self):
+        for content in ("", "\n"):
+            with self.subTest(content=repr(content)):
+                self.record_cycle(boot="")
+                (self.cycle / "timmy.boot-id").write_text(content)
+                self.assertEqual(
+                    self.run_command(NODE, "cycle-status", "timmy").stdout,
+                    "recorded\n",
+                )
+                result = self.run_command(NODE, "recover", "timmy", ok=False)
+                self.assertIn("pass its previous boot ID explicitly", result.stderr)
+                state = self.read()
+                state["nodes"]["timmy"]["cordoned"] = True
+                self.write(state)
+                result = self.run_command(NODE, "drain", "timmy", "--repeat")
+                self.assertIn("saved reboot state was empty", result.stdout)
+                self.assertEqual(
+                    (self.cycle / "timmy.boot-id").read_text().strip(), OLD_BOOT
+                )
+                state["nodes"]["timmy"]["cordoned"] = False
+                self.write(state)
 
     def test_repeat_down_repairs_an_empty_boot_record(self):
         self.run_command(OUTAGE, "down")

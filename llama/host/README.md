@@ -175,10 +175,12 @@ bounded maintenance windows instead.
 Recovery state remains local to the Mac that started the work. Each mutating node-cycle
 command takes the existing process lock; it does not lock the entire outage workflow
 or offline interval. A bare `drain` refuses a cordoned node; only `drain --repeat`, which
-`down` passes, re-drains one, and a repeat after a reboot replaces that reboot's proof. `down`
-refuses a cordoned timmy when this Mac holds no parked state (a hand cordon, or an outage
-started on the other Mac): run `down` and `up` from the Mac that started the outage, and
-do not uncordon timmy to get past it. A recorded cycle still requires proof of a changed boot ID and a
+`down` passes once it has found its own cordon, re-drains one; a repeat after a reboot
+replaces that reboot's proof. `down` treats a cordon as its own only when this Mac's earlier
+`down` reached its drain (`drain-started` in its state directory), and otherwise refuses
+before changing anything. If the other Mac's `down` made the cordon, run `down` and `up`
+there and do not uncordon timmy. If it was cordoned by hand or by a `node-maintenance.sh`
+cycle, finish that cycle or uncordon it, then re-run `down`. A recorded cycle still requires proof of a changed boot ID and a
 cordoned target; manually uncordoning it does not make `recover` a cancellation command.
 If the Longhorn health check fails or is interrupted after uncordoning, the saved cycle
 remains and strict `recover`/`finish` refuses a retry; that case still needs manual recovery.

@@ -74,6 +74,7 @@ echo "nm: $*" >>"$STUB_LOG"
 rc_var=STUB_NM_$(tr 'a-z-' 'A-Z_' <<<"$1")_RC
 if [[ $1 == cycle-status ]]; then printf '%s\n' "${STUB_CYCLE_STATUS:-none}"; fi
 if [[ $1 == cordon-status ]]; then printf '%s\n' "${STUB_CORDON_STATUS:-uncordoned}"; fi
+if [[ $1 == recover ]]; then echo "nm-rerun: ${NODE_MAINTENANCE_RERUN:-}" >>"$STUB_LOG"; fi
 exit "${!rc_var:-0}"
 STUB
 chmod +x "$TMPDIR_TEST/node-maintenance.sh"
@@ -246,8 +247,8 @@ for kind in directory symlink; do
 	assert_eq "before any silence, suspend or scale ($kind)" 0 "$(mutations)"
 done
 
-# Repeating down delegates both the preflight choice and drain to the cycle
-# module. The real-script integration suite exercises an actually cordoned node.
+# down's own_cordon makes the repeat choice and passes it to preflight and
+# drain. The real-script integration suite exercises an actually cordoned node.
 reset_cluster
 run_cmd cmd_down
 run_cmd cmd_down
@@ -262,7 +263,8 @@ out=$(STUB_CORDON_STATUS=cordoned run_cmd_out cmd_down)
 rc=$?
 assert_eq "down refuses a cordoned timmy this Mac never parked" 1 "$rc"
 assert_eq "that refusal mutates nothing" 0 "$(mutations)"
-assert_eq "that refusal names the starting Mac" 1 "$(grep -c 'the Mac that started the outage' <<<"$out")"
+assert_eq "that refusal says the cordon is not this Mac's" 1 "$(grep -c 'not by a down on this Mac' <<<"$out")"
+assert_eq "that refusal covers both a hand cordon and the other Mac" 1 "$(grep -c "run down/up there and do not uncordon it.*kubectl uncordon timmy, then re-run" <<<"$out")"
 assert_eq "that refusal runs before preflight" 0 "$(grep -c 'nm: preflight' "$STUB_LOG")"
 
 reset_cluster
@@ -417,6 +419,7 @@ rc=$?
 assert_eq "up stops when cycle recovery refuses" 1 "$rc"
 assert_eq "a refused recovery unparks nothing" 0 "$(grep -c ' scale ' "$STUB_LOG")"
 assert_eq "a refused recovery says to re-run up" 1 "$(grep -c 're-run: .*timmy-offline.sh up$' <<<"$out")"
+assert_eq "recover's own retry hints name up too" 1 "$(grep -c '^nm-rerun: .*timmy-offline.sh up$' "$STUB_LOG")"
 
 # The caller cannot distinguish a refused preflight from an unreadable cluster;
 # both must stop before its first mutation. The cycle tests cover those causes.
