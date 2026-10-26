@@ -401,9 +401,14 @@ require_owned_cordon() { # <node> <owner> <what>
 	read_node_cordon "$node"
 	[[ $NODE_CORDONED == true && $NODE_OWNER == "$owner" ]] && return 0
 	if [[ $NODE_CORDONED == true && -n $NODE_OWNER && ${NODE_OWNER#*:} == "${owner#*:}" ]]; then
+		# No drain or preflight option produces a reboot: owner, so only finishing applies.
+		[[ ${NODE_OWNER%%:*} != reboot ]] ||
+			die "$3: $node is this Mac's reboot cordon ($NODE_OWNER), not $owner. Finish that reboot cycle first: $SELF recover $node"
 		die "$3: $node is this Mac's ${NODE_OWNER%%:*} cordon ($NODE_OWNER), not $owner. Re-run with the matching purpose (--outage, or timmy-offline.sh down, for an outage cordon; no --outage for a drain), or finish that cycle"
+	elif [[ $NODE_CORDONED == true && -n $NODE_OWNER ]]; then
+		die "$3: $node is cordoned by $NODE_OWNER, not $owner. Let that Mac finish its cycle first"
 	elif [[ $NODE_CORDONED == true ]]; then
-		die "$3: $node is cordoned by ${NODE_OWNER:-hand (no owner recorded)}, not $owner. Finish that work first. Only if it is this Mac's own from before cordon owners were recorded, claim it and re-run: kubectl annotate node $node $CORDON_OWNER_KEY='$owner' --overwrite"
+		die "$3: $node is cordoned by hand (no owner recorded), not $owner. Finish that work first. Only if it is this Mac's own from before cordon owners were recorded, claim it and re-run: kubectl annotate node $node $CORDON_OWNER_KEY='$owner' --overwrite"
 	fi
 	die "$3: $node is no longer cordoned (its cordon was cleared mid-run); re-run once nothing else is working on it"
 }
@@ -1237,8 +1242,17 @@ cmd_recover() {
 		host=$(cordon_owner recover) || die "cannot tell which Mac this is"
 		if [[ -n $NODE_OWNER && ${NODE_OWNER#*:} != "${host#recover:}" ]]; then
 			die "$node carries $NODE_OWNER's cordon and this Mac has no cycle state; let that Mac finish its cycle, then re-run: ${NODE_MAINTENANCE_RERUN:-$SELF recover $node}"
+		elif [[ -n $NODE_OWNER ]]; then
+			# This Mac's run stopped between its cordon and its boot-ID record, so
+			# there is no boot ID to finish with.
+			local back_out="(kubectl uncordon $node && kubectl annotate node $node $CORDON_OWNER_KEY-), then re-run: ${NODE_MAINTENANCE_RERUN:-$SELF recover $node}"
+			case ${NODE_OWNER%%:*} in
+			outage) die "$node carries this Mac's outage cordon ($NODE_OWNER) but no cycle state; re-run timmy-offline.sh down to drain it again, or back it out: $back_out" ;;
+			drain) die "$node carries this Mac's drain cordon ($NODE_OWNER) but no cycle state; re-run $SELF drain $node --repeat to drain it again, or back it out: $back_out" ;;
+			*) die "$node carries this Mac's ${NODE_OWNER%%:*} cordon ($NODE_OWNER) but no cycle state; back it out: $back_out" ;;
+			esac
 		fi
-		die "$node is cordoned without cycle state; finish it by hand: $SELF finish $node <previous-boot-id>"
+		die "$node is cordoned with no owner recorded and this Mac has no cycle state. If someone else is working on it, let them finish, then re-run: ${NODE_MAINTENANCE_RERUN:-$SELF recover $node}. Only if it is this Mac's own from before cordon owners were recorded, finish it by hand: $SELF finish $node <previous-boot-id>"
 	fi
 	# A wrapping caller (timmy-offline.sh up) names its own command to re-run.
 	node_is_ready "$node" || die "$node is not Ready; wait for it, then re-run: ${NODE_MAINTENANCE_RERUN:-$SELF recover $node}"

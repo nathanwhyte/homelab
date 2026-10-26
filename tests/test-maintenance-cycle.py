@@ -238,11 +238,15 @@ def fake_command(tool, args):
             return 1
     elif verb == "drain":
         node = state["nodes"][resource]
-        # Something clears the cordon and its owner just before the drain,
-        # which then cordons again itself, as kubectl drain does.
-        if state.pop("clear_before_drain", False):
+        # Something clears the cordon and its owner just before the drain (a
+        # string value: another Mac's cordon takes its place), which then cordons
+        # again itself, as kubectl drain does.
+        cleared = state.pop("clear_before_drain", False)
+        if cleared:
             node["cordoned"] = False
-            node["annotations"] = {}
+            node["annotations"] = (
+                {OWNER_KEY: cleared} if isinstance(cleared, str) else {}
+            )
         node["cordoned"] = True
         save()
         return 1 if state.get("fail_drain") else 0
@@ -674,17 +678,21 @@ class MaintenanceCycleTests(unittest.TestCase):
                     self.assert_down_refused_untouched(before)
 
     def test_recovery_by_hand_after_a_refusal_past_the_record(self):
-        # The README's recovery: the drain's check refuses after the record save.
+        # The README's recovery: the other Mac's cordon lands mid-run, so the
+        # drain's check refuses after the record save.
         state = self.read()
-        state["clear_before_drain"] = True
+        state["clear_before_drain"] = "outage:mac-two"
         self.write(state)
-        self.run_command(OUTAGE, "down", ok=False)
+        result = self.run_command(OUTAGE, "down", ok=False)
+        self.assertIn("outage:mac-two", result.stderr)
         self.assertTrue((self.cycle / "timmy.boot-id").exists())
-        # timmy is uncordoned, as after the owning Mac's cycle ends.
-        state = self.read()
-        state["nodes"]["timmy"]["cordoned"] = False
-        self.write(state)
         self.reboot()
+        result = self.run_command(OUTAGE, "up", ok=False)
+        self.assertIn("outage:mac-two", result.stderr)
+        # The other Mac's up ends its cycle.
+        state = self.read()
+        state["nodes"]["timmy"].update(cordoned=False, annotations={})
+        self.write(state)
         result = self.run_command(OUTAGE, "up", ok=False)
         self.assertIn("not cordoned", result.stderr)
         (self.cycle / "timmy.boot-id").unlink()
@@ -695,9 +703,38 @@ class MaintenanceCycleTests(unittest.TestCase):
         self.cordon_by("timmy", "outage:mac-one")
         result = self.run_command(NODE, "drain", "timmy", "--repeat", ok=False)
         self.assertIn("matching purpose", result.stderr)
+        self.cordon_by("timmy", "reboot:mac-one")
+        for args in (
+            ("drain", "timmy", "--repeat"),
+            ("preflight", "timmy", "--allow-repeat"),
+        ):
+            with self.subTest(args=args):
+                result = self.run_command(NODE, *args, ok=False)
+                self.assertIn("Finish that reboot cycle first", result.stderr)
+                self.assertNotIn("matching purpose", result.stderr)
         self.cordon_by("timmy", "outage:mac-two")
         result = self.run_command(NODE, "recover", "timmy", ok=False)
         self.assertIn("let that Mac finish its cycle", result.stderr)
+        result = self.run_command(NODE, "drain", "timmy", "--repeat", ok=False)
+        self.assertIn("Let that Mac finish its cycle first", result.stderr)
+        self.assertNotIn("--overwrite", result.stderr)
+        state = self.cordon_by("timmy")
+        state["nodes"]["timmy"]["annotations"] = {}
+        self.write(state)
+        result = self.run_command(NODE, "drain", "timmy", "--repeat", ok=False)
+        self.assertIn("--overwrite", result.stderr)
+
+    def test_up_after_a_cordon_without_its_record_names_a_repeat_down(self):
+        # A lost reply on the cordon patch: cordoned and owned, no boot-ID record.
+        state = self.read()
+        state["fail_cordon"] = "after"
+        self.write(state)
+        self.run_command(OUTAGE, "down", ok=False)
+        self.assertEqual(self.owner(), "outage:mac-one")
+        self.assertFalse((self.cycle / "timmy.boot-id").exists())
+        result = self.run_command(OUTAGE, "up", ok=False)
+        self.assertIn("re-run timmy-offline.sh down", result.stderr)
+        self.assertNotIn("<previous-boot-id>", result.stderr)
 
     def test_up_finishes_an_ownerless_cordon_from_before_owners(self):
         self.run_command(OUTAGE, "down")

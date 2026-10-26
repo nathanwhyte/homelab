@@ -194,12 +194,21 @@ Mac's command, or a hand `kubectl cordon`, `uncordon` or `annotate` on the node,
 on this Mac is still going is outside what they cover. One that lands after `down`'s
 preflight and leaves another owner (or none) on timmy is refused at the drain, after the
 silence, suspends and parking; a hand uncordon keeps this Mac's owner, so the drain's own
-re-cordon passes. After such a refusal this Mac's `up` refuses while timmy carries the other
-cordon, so that Mac finishes its cycle first. Then, if this Mac's refusal came before its
-cordon, its `up` undoes its preparation; if it came later (this Mac's boot-ID record is
-saved), its `up` cannot finish a cycle whose cordon is gone, and recovery is by hand: remove
-`~/.local/state/homelab-node-maintenance/timmy.boot-id` and re-run `up`, which then restores
-the preparation without a finish.
+re-cordon passes. What this Mac's `up` does next depends on where the refusal came:
+
+- Before its cordon (no boot-ID record saved): `up` refuses while the other Mac's cordon is
+  on timmy, naming it, and refuses an ownerless one; once that cordon is gone, `up` undoes
+  this Mac's preparation.
+- After its boot-ID record is saved: `up` first waits for timmy's boot ID to change, so
+  before timmy reboots it times out without naming anyone. After a reboot it refuses a
+  cordon that names the other Mac, naming it, and finishes an ownerless one (the drain's own
+  re-cordon) as this Mac's. Once the other Mac has finished its cycle, this Mac's `up`
+  cannot finish a cycle whose cordon is gone, and recovery is by hand: remove
+  `~/.local/state/homelab-node-maintenance/timmy.boot-id` and re-run `up`, which then
+  restores the preparation without a finish.
+
+A `down` stopped between its cordon and its boot-ID record (a lost reply, or a kill) leaves
+this Mac's owned cordon with no record: re-run `down`, or back it out as below and run `up`.
 
 `down` writes its owner with the cordon, after its silence, suspends, parking and spin-down.
 A `down` that stops before the cordon leaves nothing on timmy for the other Mac to refuse on,
