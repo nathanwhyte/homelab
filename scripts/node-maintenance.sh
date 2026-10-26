@@ -17,7 +17,7 @@
 #   node-maintenance.sh preflight <node>    the read-only refusals `reboot` starts with (another cycle
 #                                             active, an earlier node still owing a reboot), for a
 #                                             caller to run before it mutates anything of its own
-#                                             --allow-repeat permits the already-cordoned drain path
+#                                             --allow-repeat permits re-draining a recorded cycle
 #   node-maintenance.sh restore-services    scale the --spin-down services back without a finish, for
 #                                             a cycle that stopped before its drain; refuses while any
 #                                             node is cordoned or has saved reboot state
@@ -949,11 +949,20 @@ drain_leftovers() {
 			| "\(.metadata.namespace)/\(.metadata.name) (\(.status.phase // "unknown"))"'
 }
 
+# cmd_reboot saves the boot ID right after its cordon, so a cordon this module
+# made has a saved cycle; one without it was made by hand. Dies on a read failure
+# rather than answering "no cycle", which would pick a different path.
+has_recorded_cycle() {
+	local cycle
+	cycle=$(cmd_cycle_status "$1") || die "cannot read saved cycle state for $1"
+	[[ $cycle == recorded ]]
+}
+
 repeat_drain() {
-	local node=$1 leftovers boot_id
-	# Preserve the planned-outage repeat path: an already-cordoned target may be
-	# drained again without repeating the first drain's preflights or spin-down.
-	# It does not establish ownership of other cordons or require an old record.
+	local node=$1 leftovers boot_id saved_boot_id
+	# Preserve the planned-outage repeat path: a target still cordoned by its
+	# recorded cycle may be drained again without repeating the first drain's
+	# preflights or spin-down. It does not establish ownership of other cordons.
 	warn "$node is already cordoned — re-draining"
 	"$KUBECTL" drain "$node" --ignore-daemonsets --delete-emptydir-data --timeout="$DRAIN_TIMEOUT" ||
 		warn "drain incomplete — assessing what is left on $node"
@@ -962,6 +971,12 @@ repeat_drain() {
 	[[ -n $leftovers ]] && die "non-Longhorn pods still on $node after drain: $leftovers"
 	boot_id=$(remote_boot_id "$node") || die "cannot read boot ID from $node"
 	require_valid_boot_id "$boot_id"
+	saved_boot_id=$(load_cycle_boot_id "$node") || die "cannot read saved cycle state for $node"
+	# A planned outage repeats after timmy came back, so the refresh stays; say so,
+	# because recover/finish now needs another reboot past this one.
+	if [[ $(normalize_boot_id "$saved_boot_id") != "$(normalize_boot_id "$boot_id")" ]]; then
+		warn "[$node] rebooted since the saved cycle (boot ID $saved_boot_id, now $boot_id); that reboot no longer counts — recover/finish will wait for another"
+	fi
 	save_cycle_boot_id "$node" "$boot_id"
 	log "[$node] saved current boot ID for recovery: $boot_id"
 }
@@ -978,6 +993,8 @@ cmd_drain() {
 		esac
 	done
 	if node_is_cordoned "$node"; then
+		has_recorded_cycle "$node" ||
+			die "$node is cordoned without saved cycle state, so no drain here owns it; kubectl uncordon $node, then re-run for a checked first drain"
 		repeat_drain "$node"
 	else
 		cmd_reboot "$node" --no-reboot "$@"
@@ -1153,8 +1170,9 @@ cmd_preflight() {
 	require_node "$node"
 	if (($# == 2)); then
 		[[ $2 == --allow-repeat ]] || die "unknown preflight option '$2'"
-		if node_is_cordoned "$node"; then
-			log "[$node] preflight OK: already cordoned; drain will repeat the existing outage path"
+		# A hand cordon falls through to the refusal below, as drain refuses it too.
+		if node_is_cordoned "$node" && has_recorded_cycle "$node"; then
+			log "[$node] preflight OK: still cordoned by its saved cycle; drain will repeat it"
 			return 0
 		fi
 	fi

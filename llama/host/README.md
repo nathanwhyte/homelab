@@ -173,7 +173,9 @@ bounded maintenance windows instead.
 
 Recovery state remains local to the Mac that started the work. Each mutating node-cycle
 command takes the existing process lock; it does not lock the entire outage workflow
-or offline interval. A recorded cycle still requires proof of a changed boot ID and a
+or offline interval. `drain` repeats only a target still cordoned by its recorded cycle;
+it refuses a hand cordon (uncordon first for a checked drain), and a repeat after a reboot
+replaces that reboot's proof. A recorded cycle still requires proof of a changed boot ID and a
 cordoned target; manually uncordoning it does not make `recover` a cancellation command.
 If the Longhorn health check fails or is interrupted after uncordoning, the saved cycle
 remains and strict `recover`/`finish` refuses a retry; that case still needs manual recovery.

@@ -379,10 +379,11 @@ assert_eq "an invalid cycle query restores and unparks nothing" 0 "$(grep -c -E 
 
 reset_cluster
 park_fixture
-STUB_NM_RECOVER_RC=1 run_cmd cmd_up
+out=$(STUB_NM_RECOVER_RC=1 run_cmd_out cmd_up)
 rc=$?
 assert_eq "up stops when cycle recovery refuses" 1 "$rc"
 assert_eq "a refused recovery unparks nothing" 0 "$(grep -c ' scale ' "$STUB_LOG")"
+assert_eq "a refused recovery says to re-run up" 1 "$(grep -c 're-run: .*timmy-offline.sh up$' <<<"$out")"
 
 # The caller cannot distinguish a refused preflight from an unreadable cluster;
 # both must stop before its first mutation. The cycle tests cover those causes.

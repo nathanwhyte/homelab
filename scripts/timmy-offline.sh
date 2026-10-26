@@ -469,7 +469,10 @@ cmd_up() {
 		[[ -e $WINDOW_FILE ]] && close_window && log "closed the maintenance window; nothing else was recorded"
 		die "nothing recorded by down (no parked, suspended, silence or cycle state); nothing to do"
 	fi
-	"$NODE_MAINTENANCE" recover "$NODE"
+	# recover's own hints name node-maintenance.sh; recovering there alone leaves
+	# workloads parked, CronJobs suspended and the silence active.
+	"$NODE_MAINTENANCE" recover "$NODE" ||
+		die "node cycle not recovered (see above); nothing unparked — fix that, then re-run: $SELF up"
 	unpark
 	wait_parked_ready
 	resume_cronjobs
