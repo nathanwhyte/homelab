@@ -18,14 +18,14 @@
 # every such volume detaches cleanly before the drain; `up` restores the saved
 # replica counts after timmy is Ready and Longhorn is healthy.
 #
-# `down` also passes --spin-down to node-maintenance.sh, which scales the
+# `down` also passes --spin-down to node-maintenance.sh drain, which scales the
 # memory-heavy services (viking/openviking, viking/ov-vectordb) to 0 *before*
 # that script's memory-headroom preflight runs. Without it the preflight weighs
 # timmy's evicted pods against manu/wemby's free memory with nothing freed and
 # blocks the drain outright, so the documented `down` path cannot drain timmy on
 # a loaded cluster — BUG-1105's spin-down ordering fix only helps a caller that
 # opts in. `up` restores the recorded replica counts along with the parked
-# workloads, via node-maintenance.sh finish -> restore_memory_services.
+# workloads, via node-maintenance.sh recover.
 #
 # timmy is the only control plane, so between `down` and `up` there is no API
 # server — manu and wemby keep running what they already have, nothing else.
@@ -79,8 +79,6 @@ NODE_MAINTENANCE=${NODE_MAINTENANCE:-$SCRIPT_DIR/node-maintenance.sh}
 NODE=timmy
 STATE_ROOT=${XDG_STATE_HOME:-"$HOME/.local/state"}
 STATE_DIR=$STATE_ROOT/homelab-timmy-offline
-# node-maintenance.sh's cycle state; `redrain` writes it and `up` reads it.
-NM_STATE_DIR=$STATE_ROOT/homelab-node-maintenance
 SCALE_FILE=$STATE_DIR/parked-scales
 DETACH_TIMEOUT_SECONDS=${DETACH_TIMEOUT_SECONDS:-300}
 READY_TIMEOUT_SECONDS=${READY_TIMEOUT_SECONDS:-600}
@@ -189,44 +187,6 @@ park() {
 		log "[$entry] scale $replicas -> 0"
 		"$KUBECTL" -n "$ns" scale "$kind" "$name" --replicas=0 >/dev/null
 	done
-}
-
-# A failed read is a hard stop, because both callers choose between mutating
-# paths on the answer and "could not read" must not look like "not cordoned".
-# The read is captured in this shell, not compared inside a $( ): a die inside
-# a command substitution only ends that subshell, and the comparison would then
-# see an empty string and answer "not cordoned" (Codex R2 on homelab#249).
-node_is_cordoned() {
-	local v
-	v=$("$KUBECTL" get node "$NODE" -o jsonpath='{.spec.unschedulable}') || die "cannot read whether $NODE is cordoned"
-	[[ $v == true ]]
-}
-
-node_is_ready() {
-	local v
-	v=$("$KUBECTL" get node "$NODE" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}') || die "cannot read whether $NODE is Ready"
-	[[ $v == True ]]
-}
-
-redrain() {
-	# Second pass: node-maintenance.sh refuses a node that is already cordoned, so
-	# drain directly. The instance-manager PDB failure is expected (last-replica
-	# volumes); anything else left behind is a real problem.
-	local leftovers
-	"$KUBECTL" drain "$NODE" --ignore-daemonsets --delete-emptydir-data --timeout=5m ||
-		warn "drain incomplete — assessing what is left on $NODE"
-	leftovers=$("$KUBECTL" get pods -A -o json --field-selector "spec.nodeName=$NODE" |
-		jq -r '.items[] | select((.status.phase // "Unknown") as $p | $p != "Succeeded" and $p != "Failed")
-			| select((.metadata.ownerReferences // []) | any(.kind == "DaemonSet") | not)
-			| select((.metadata.namespace == "longhorn-system" and (.metadata.name | startswith("instance-manager"))) | not)
-			| "\(.metadata.namespace)/\(.metadata.name) (\(.status.phase // "unknown"))"')
-	[[ -n $leftovers ]] && die "non-Longhorn pods still on $NODE after drain: $leftovers"
-	# Refresh the boot ID node-maintenance.sh `finish` will compare against.
-	local boot_id
-	boot_id=$(ssh -o ConnectTimeout=5 "$NODE" 'cat /proc/sys/kernel/random/boot_id') || die "cannot read boot ID from $NODE"
-	mkdir -p "$NM_STATE_DIR"
-	printf '%s\n' "$boot_id" >"$NM_STATE_DIR/$NODE.boot-id"
-	log "[$NODE] saved current boot ID for 'up': $boot_id"
 }
 
 unpark() {
@@ -464,12 +424,19 @@ cmd_down() {
 	# node-maintenance.sh refuses the drain while another cycle is active or an
 	# earlier node still owes a reboot. Ask it first: a refusal after the silence,
 	# suspend and park below leaves timmy half out with no instruction (2026-10-21).
-	# The already-cordoned re-run goes to `redrain`, which never asks it.
-	if ! node_is_cordoned; then
-		log "preflight: node-maintenance.sh must be willing to drain $NODE"
-		"$NODE_MAINTENANCE" preflight "$NODE" ||
-			die "node-maintenance.sh will not drain $NODE (see above); this run changed nothing"
+	# The cycle module also owns the already-cordoned repeat path. Decide once,
+	# from timmy's cordon when down starts (main's rule), and pass that decision
+	# on: a cordon that appears after this read then meets the strict preflight
+	# or a bare drain, which refuse it. Ownership of a cordon that was already
+	# there is not checked, as on main (llama/host/README.md has the limits).
+	local preflight_args=() drain_args=(--spin-down)
+	if already_cordoned; then
+		preflight_args=(--allow-repeat)
+		drain_args+=(--repeat)
 	fi
+	log "preflight: node-maintenance.sh must be willing to drain $NODE"
+	"$NODE_MAINTENANCE" preflight "$NODE" ${preflight_args[@]+"${preflight_args[@]}"} ||
+		die "node-maintenance.sh will not drain $NODE (see above); this run changed nothing"
 	# Before park: parking Garage is what trips GarageQuorumLost.
 	silence_alerts
 	suspend_cronjobs
@@ -479,15 +446,12 @@ cmd_down() {
 	open_window
 	park
 	wait_cross_node_detached
-	if node_is_cordoned; then
-		warn "$NODE is already cordoned — re-draining directly instead of via node-maintenance.sh"
-		redrain
-	else
-		log "cordon + drain via node-maintenance.sh (no reboot, pre-drain spin-down)"
-		# --spin-down is required here, not optional: it frees headroom for the
-		# pods evicted from timmy before the memory-headroom preflight runs.
-		"$NODE_MAINTENANCE" reboot "$NODE" --no-reboot --spin-down
-	fi
+	log "drain via node-maintenance.sh (no reboot, pre-drain spin-down)"
+	# --spin-down is required here, not optional: it frees headroom for the
+	# pods evicted from timmy before the memory-headroom preflight runs.
+	# --repeat only when already_cordoned above saw timmy cordoned.
+	"$NODE_MAINTENANCE" drain "$NODE" "${drain_args[@]}" ||
+		die "the drain did not finish (see above); fix that, then re-run: $SELF down"
 	# The drain itself can create new orphans: any unpinned pod evicted from timmy
 	# lands on another node and re-attaches its timmy-only volume from there. Check
 	# again after the drain and fail closed — the pod's owner must be added to PARKED.
@@ -504,38 +468,35 @@ cmd_down() {
 	log "When it is back on Ubuntu:  $SELF up"
 }
 
-# `down` saves node-maintenance.sh's cycle state only when it reaches the drain.
-# Without it there is no reboot to verify and nothing to uncordon, so `finish`
-# would die on the missing state and `set -e` would stop `up` before `unpark`.
-# The fallback keeps finish's gates in finish's order: the node is back
-# (Ready, not cordoned), the spun-down services are restored, and Longhorn is
-# healthy before anything is unparked onto it — after a power cut, Ready says
-# nothing about the volumes.
-finish_cycle() {
-	if [[ -s $NM_STATE_DIR/$NODE.boot-id ]]; then
-		"$NODE_MAINTENANCE" finish "$NODE"
-		return 0
-	fi
-	warn "no node-maintenance cycle state for $NODE — down never reached the drain; skipping finish"
-	if node_is_cordoned; then
-		die "$NODE is cordoned without cycle state; finish it by hand: $NODE_MAINTENANCE finish $NODE <previous-boot-id>"
-	fi
-	node_is_ready || die "$NODE is not Ready; wait for it, then re-run: $SELF up"
-	# `down` spins the memory-heavy services down before node-maintenance.sh
-	# checks headroom, so a refusal there leaves them at 0 with no finish to
-	# restore them. restore-services re-checks cordons and cycle state under
-	# the maintenance lock, so another node's cycle cannot lose its state here.
-	"$NODE_MAINTENANCE" restore-services || die "spun-down services not restored; fix that, then re-run: $SELF up"
-	"$NODE_MAINTENANCE" wait-longhorn || die "Longhorn health unknown; nothing unparked"
+# Succeeds for a cordoned timmy, fails for an uncordoned one, and dies on a
+# failed or unexpected read. Call it in the calling shell (an `if`), never in a
+# $( ), so the die ends the run.
+already_cordoned() {
+	local cordon
+	cordon=$("$NODE_MAINTENANCE" cordon-status "$NODE") || die "cannot read whether $NODE is cordoned; this run changed nothing"
+	case $cordon in
+	cordoned) return 0 ;;
+	uncordoned) return 1 ;;
+	*) die "unexpected cordon status for $NODE: $cordon; this run changed nothing" ;;
+	esac
 }
 
 cmd_up() {
-	if ! [[ -s $SCALE_FILE || -s $SUSPEND_FILE || -s $SILENCE_FILE || -s $NM_STATE_DIR/$NODE.boot-id ]]; then
+	local cycle
+	cycle=$("$NODE_MAINTENANCE" cycle-status "$NODE") || die "cannot read maintenance-cycle status for $NODE"
+	case $cycle in
+	recorded | none) ;;
+	*) die "unexpected maintenance-cycle status for $NODE: $cycle" ;;
+	esac
+	if ! [[ -s $SCALE_FILE || -s $SUSPEND_FILE || -s $SILENCE_FILE || $cycle == recorded ]]; then
 		# A down that stopped after opening the window, before recording a change.
 		[[ -e $WINDOW_FILE ]] && close_window && log "closed the maintenance window; nothing else was recorded"
 		die "nothing recorded by down (no parked, suspended, silence or cycle state); nothing to do"
 	fi
-	finish_cycle
+	# Recovering through node-maintenance.sh alone leaves workloads parked,
+	# CronJobs suspended and the silence active, so its retry hints name `up`.
+	NODE_MAINTENANCE_RERUN="$SELF up" "$NODE_MAINTENANCE" recover "$NODE" ||
+		die "node cycle not recovered (see above); nothing unparked — fix that, then re-run: $SELF up"
 	unpark
 	wait_parked_ready
 	resume_cronjobs

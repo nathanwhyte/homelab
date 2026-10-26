@@ -17,10 +17,9 @@ STUB_SILENCE_ID=0b5c1f0e-7a3d-4c51-9e2b-1d2f3a4b5c6d
 
 cat >"$TMPDIR_TEST/kubectl" <<'STUB'
 #!/usr/bin/env bash
-# Every call is recorded; cronjob suspend state lives in $STUB_SUSPEND. Node
-# reads answer from STUB_NODE_UNSCHED / STUB_NODE_READY, or fail outright with
-# STUB_FAIL_NODE_GET=1; workload reads answer STUB_REPLICAS for both spec and
-# ready counts so a wait returns at once.
+# Every call is recorded; cronjob suspend state lives in $STUB_SUSPEND.
+# Workload reads answer STUB_REPLICAS for both spec and ready counts so a wait
+# returns at once. Node lifecycle reads belong to node-maintenance.sh.
 set -euo pipefail
 echo "$*" >>"$STUB_LOG"
 ns=""
@@ -33,16 +32,7 @@ get)
     [[ ${STUB_FAIL_GET:-} != "$ns/$3" ]] || exit 1
     grep "^$ns/$3=" "$STUB_SUSPEND" | cut -d= -f2
     ;;
-  node)
-    # STUB_FAIL_NODE_GET=1 fails every node read; a jsonpath fragment
-    # (unschedulable, Ready) fails only the read that asks for it.
-    case "${STUB_FAIL_NODE_GET:-0}" in
-    0) ;;
-    1) echo "Error from server: temporary read failure" >&2; exit 1 ;;
-    *) [[ $* != *"$STUB_FAIL_NODE_GET"* ]] || { echo "Error from server: temporary read failure" >&2; exit 1; } ;;
-    esac
-    if [[ $* == *unschedulable* ]]; then printf '%s' "${STUB_NODE_UNSCHED:-}"; else printf '%s' "${STUB_NODE_READY:-True}"; fi
-    ;;
+  node|nodes) echo "unexpected node read in planned-outage caller" >&2; exit 91 ;;
   volumes.longhorn.io*) echo '{"items":[]}' ;;
   *) printf '%s' "${STUB_REPLICAS:-1}" ;;
   esac
@@ -82,16 +72,20 @@ cat >"$TMPDIR_TEST/node-maintenance.sh" <<'STUB'
 #!/usr/bin/env bash
 echo "nm: $*" >>"$STUB_LOG"
 rc_var=STUB_NM_$(tr 'a-z-' 'A-Z_' <<<"$1")_RC
+if [[ $1 == cycle-status ]]; then printf '%s\n' "${STUB_CYCLE_STATUS:-none}"; fi
+if [[ $1 == cordon-status ]]; then printf '%s\n' "${STUB_CORDON_STATUS:-uncordoned}"; fi
+if [[ $1 == recover ]]; then echo "nm-rerun: ${NODE_MAINTENANCE_RERUN:-}" >>"$STUB_LOG"; fi
 exit "${!rc_var:-0}"
 STUB
 chmod +x "$TMPDIR_TEST/node-maintenance.sh"
 export NODE_MAINTENANCE=$TMPDIR_TEST/node-maintenance.sh
 
-# redrain reads timmy's boot ID over ssh; answer with a fixed one.
+# Any direct SSH from the planned-outage caller bypasses cycle ownership.
 cat >"$TMPDIR_TEST/ssh" <<'STUB'
 #!/usr/bin/env bash
 echo "ssh: $*" >>"$STUB_LOG"
-echo "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+echo "unexpected SSH in planned-outage caller" >&2
+exit 91
 STUB
 chmod +x "$TMPDIR_TEST/ssh"
 # The stubs shadow the real kubectl and ssh for anything that escapes $KUBECTL.
@@ -121,6 +115,7 @@ viking/ovlock-janitor=true
 EOF
 	: >"$STUB_LOG"
 	rm -rf "$TMPDIR_TEST/state"
+	unset STUB_CYCLE_STATUS STUB_CORDON_STATUS
 }
 
 export KUBECTL=$TMPDIR_TEST/kubectl
@@ -229,7 +224,8 @@ if [[ -n $preflight_line && -n $silence_line ]] && ((preflight_line < silence_li
 else
 	bad "down must run preflight before the silence (preflight at '${preflight_line:-none}', silence at '${silence_line:-none}')"
 fi
-assert_eq "down still drains through node-maintenance.sh reboot --no-reboot --spin-down" 1 "$(grep -c 'nm: reboot timmy --no-reboot --spin-down' "$STUB_LOG")"
+assert_eq "a first down drains through the cycle module with spin-down only" 1 "$(grep -c 'nm: drain timmy --spin-down$' "$STUB_LOG")"
+assert_eq "a first down runs the strict preflight" 1 "$(grep -c 'nm: preflight timmy$' "$STUB_LOG")"
 if [[ $(<"$WINDOW_FILE") =~ ^[0-9]+\ planned\ timmy\ outage ]]; then ok "down opens the maintenance window"; else bad "down opens the maintenance window"; fi
 assert_eq "the window is open before the first workload is scaled down" "0 $(grep -c '^-n .* scale ' "$STUB_LOG")" \
 	"$(grep -c 'scale saw no window' "$STUB_LOG") $(grep -c 'scale saw a window' "$STUB_LOG")"
@@ -251,21 +247,42 @@ for kind in directory symlink; do
 	assert_eq "before any silence, suspend or scale ($kind)" 0 "$(mutations)"
 done
 
-# The already-cordoned re-run goes to redrain, which never asks preflight (it
-# would refuse on the cordoned node).
+# down's single cordon-status read makes the repeat choice and passes it to
+# preflight and drain. The integration suite exercises an actually cordoned node.
 reset_cluster
-STUB_NODE_UNSCHED=true run_cmd cmd_down
-assert_eq "an already-cordoned timmy skips preflight" 0 "$(grep -c 'nm: preflight' "$STUB_LOG")"
-assert_eq "an already-cordoned timmy re-drains directly" 1 "$(grep -c '^drain timmy ' "$STUB_LOG")"
+run_cmd cmd_down
+run_cmd cmd_down
+# The stub keeps answering uncordoned, so neither down repeats.
+assert_eq "an uncordoned timmy gets the strict preflight each time" 2 "$(grep -c 'nm: preflight timmy$' "$STUB_LOG")"
+assert_eq "an uncordoned timmy gets a bare drain each time" 2 "$(grep -c 'nm: drain timmy --spin-down$' "$STUB_LOG")"
+
+reset_cluster
+run_cmd cmd_down
+STUB_CORDON_STATUS=cordoned run_cmd cmd_down
+rc=$?
+assert_eq "down repeats on a cordoned timmy" 0 "$rc"
+assert_eq "only the repeat drains with --repeat" 1 "$(grep -c 'nm: drain timmy --spin-down --repeat$' "$STUB_LOG")"
+assert_eq "only the repeat allows a repeat in preflight" 1 "$(grep -c 'nm: preflight timmy --allow-repeat$' "$STUB_LOG")"
+
+for case in "rc" "invalid"; do
+	reset_cluster
+	if [[ $case == rc ]]; then
+		STUB_NM_CORDON_STATUS_RC=1 run_cmd cmd_down
+	else
+		STUB_CORDON_STATUS=maybe run_cmd cmd_down
+	fi
+	rc=$?
+	assert_eq "down fails closed on a cordon-status $case failure" 1 "$rc"
+	assert_eq "a cordon-status $case failure mutates nothing" 0 "$(mutations)"
+done
 
 # --- up without cycle state ---------------------------------------------------
 park_fixture() { # parked state as a completed park would leave it
 	mkdir -p "$STATE_DIR"
 	printf 'statefulset/garage/garage\t3\n' >"$SCALE_FILE"
 }
-cycle_fixture() { # the boot ID node-maintenance.sh saves when the drain ran
-	mkdir -p "$TMPDIR_TEST/state/homelab-node-maintenance"
-	printf 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee\n' >"$TMPDIR_TEST/state/homelab-node-maintenance/timmy.boot-id"
+cycle_fixture() {
+	export STUB_CYCLE_STATUS=recorded
 }
 
 reset_cluster
@@ -275,8 +292,8 @@ open_window
 run_cmd cmd_up
 rc=$?
 assert_eq "up with cycle state completes" 0 "$rc"
-assert_eq "up with cycle state finishes through node-maintenance.sh" 1 "$(grep -c 'nm: finish timmy' "$STUB_LOG")"
-assert_eq "up with cycle state does not take the fallback" 0 "$(grep -c 'nm: restore-services' "$STUB_LOG")"
+assert_eq "up with cycle state recovers through node-maintenance.sh" 1 "$(grep -c 'nm: recover timmy' "$STUB_LOG")"
+assert_eq "up reads cycle evidence through its public query" 1 "$(grep -c 'nm: cycle-status timmy' "$STUB_LOG")"
 if [[ -e $WINDOW_FILE ]]; then bad "up closes the maintenance window"; else ok "up closes the maintenance window"; fi
 
 # IDEA-1150 round 4: a failed expire keeps the silence ID for a retry, but the
@@ -372,67 +389,53 @@ if (STUB_FAIL_EXPIRE=0 expire_silence) >/dev/null && [[ ! -e $SILENCE_END_FILE ]
 
 reset_cluster
 park_fixture
-STUB_FAIL_NODE_GET=1 run_cmd cmd_up
+STUB_NM_CYCLE_STATUS_RC=1 run_cmd cmd_up
 rc=$?
-assert_eq "up without cycle state fails closed when every node read fails" 1 "$rc"
-assert_eq "failed node reads scale nothing" 0 "$(grep -c ' scale ' "$STUB_LOG")"
-
-# Each read on its own: a die inside a $( ) comparison would end only the
-# subshell and read as "not cordoned" (Codex R2), with the Ready read masking it.
-reset_cluster
-park_fixture
-STUB_FAIL_NODE_GET=unschedulable run_cmd cmd_up
-rc=$?
-assert_eq "up without cycle state fails closed when only the cordon read fails" 1 "$rc"
-assert_eq "a failed cordon read restores and unparks nothing" 0 "$(grep -c -E 'nm: restore-services| scale ' "$STUB_LOG")"
+assert_eq "up fails closed when the cycle query fails" 1 "$rc"
+assert_eq "a failed cycle query scales nothing" 0 "$(grep -c ' scale ' "$STUB_LOG")"
 
 reset_cluster
 park_fixture
-STUB_FAIL_NODE_GET=Ready run_cmd cmd_up
+STUB_CYCLE_STATUS=invalid run_cmd cmd_up
 rc=$?
-assert_eq "up without cycle state fails closed when only the Ready read fails" 1 "$rc"
-assert_eq "a failed Ready read restores and unparks nothing" 0 "$(grep -c -E 'nm: restore-services| scale ' "$STUB_LOG")"
-
-# down chooses between preflight and redrain on the same read.
-reset_cluster
-STUB_FAIL_NODE_GET=unschedulable run_cmd cmd_down
-rc=$?
-assert_eq "down fails closed when the cordon read fails" 1 "$rc"
-assert_eq "a failed cordon read in down mutates nothing" 0 "$(mutations)"
+assert_eq "up refuses an unexpected cycle-query result" 1 "$rc"
+assert_eq "an invalid cycle query restores and unparks nothing" 0 "$(grep -c -E 'nm: recover| scale ' "$STUB_LOG")"
 
 reset_cluster
 park_fixture
-STUB_NODE_UNSCHED=true run_cmd cmd_up
+out=$(STUB_NM_RECOVER_RC=1 run_cmd_out cmd_up)
 rc=$?
-assert_eq "up without cycle state refuses a cordoned timmy" 1 "$rc"
-assert_eq "a cordoned timmy is neither restored nor unparked" 0 "$(grep -c -E 'nm: restore-services| scale ' "$STUB_LOG")"
+assert_eq "up stops when cycle recovery refuses" 1 "$rc"
+assert_eq "a refused recovery unparks nothing" 0 "$(grep -c ' scale ' "$STUB_LOG")"
+assert_eq "a refused recovery says to re-run up" 1 "$(grep -c 're-run: .*timmy-offline.sh up$' <<<"$out")"
+assert_eq "recover's own retry hints name up too" 1 "$(grep -c '^nm-rerun: .*timmy-offline.sh up$' "$STUB_LOG")"
+
+# The caller cannot distinguish a refused preflight from an unreadable cluster;
+# both must stop before its first mutation. The cycle tests cover those causes.
+reset_cluster
+STUB_NM_PREFLIGHT_RC=2 run_cmd cmd_down
+rc=$?
+assert_eq "down fails closed when the preflight query fails" 1 "$rc"
+assert_eq "a failed preflight query mutates nothing" 0 "$(mutations)"
 
 reset_cluster
-park_fixture
-STUB_NODE_READY=False run_cmd cmd_up
+cycle_fixture
+run_cmd cmd_up
 rc=$?
-assert_eq "up without cycle state refuses a timmy that is not Ready" 1 "$rc"
-
-reset_cluster
-park_fixture
-STUB_NM_RESTORE_SERVICES_RC=1 run_cmd cmd_up
-rc=$?
-assert_eq "up without cycle state stops when restore-services refuses" 1 "$rc"
-assert_eq "a refused restore unparks nothing" 0 "$(grep -c ' scale ' "$STUB_LOG")"
+assert_eq "saved cycle evidence alone is enough for up to recover" 0 "$rc"
+assert_eq "up with only cycle evidence invokes recovery" 1 "$(grep -c 'nm: recover timmy' "$STUB_LOG")"
 
 reset_cluster
 park_fixture
 run_cmd cmd_up
 rc=$?
-assert_eq "up without cycle state completes on a Ready, uncordoned timmy" 0 "$rc"
-assert_eq "the fallback never calls finish" 0 "$(grep -c 'nm: finish' "$STUB_LOG")"
-restore_line=$(line_of 'nm: restore-services')
-longhorn_line=$(line_of 'nm: wait-longhorn')
+assert_eq "up without cycle evidence completes after recovery" 0 "$rc"
+recover_line=$(line_of 'nm: recover timmy')
 unpark_line=$(line_of '-n garage scale statefulset garage --replicas=3')
-if [[ -n $restore_line && -n $longhorn_line && -n $unpark_line ]] && ((restore_line < longhorn_line && longhorn_line < unpark_line)); then
-	ok "the fallback restores services, waits for Longhorn, then unparks"
+if [[ -n $recover_line && -n $unpark_line ]] && ((recover_line < unpark_line)); then
+	ok "up recovers the cycle before unparking"
 else
-	bad "fallback order wrong (restore at '${restore_line:-none}', longhorn at '${longhorn_line:-none}', unpark at '${unpark_line:-none}')"
+	bad "recovery order wrong (recover at '${recover_line:-none}', unpark at '${unpark_line:-none}')"
 fi
 
 # A down that stopped before park (a CronJob it could not suspend) leaves only

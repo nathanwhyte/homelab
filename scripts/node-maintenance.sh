@@ -8,11 +8,17 @@
 # Phase 2 (disruptive, one node per invocation — agents first, timmy last):
 #   node-maintenance.sh reboot <node>       preflight → cordon → drain → reboot → uncordon → health gate
 #   node-maintenance.sh reboot <node> [--no-reboot] [--spin-down] [--override-memory]
+#   node-maintenance.sh drain <node> [--spin-down] [--override-memory] [--repeat]
+#                                             start a drain (or, with --repeat, re-drain a cordoned target)
+#   node-maintenance.sh recover <node>     finish a recorded cycle, or restore preparation before a drain
+#   node-maintenance.sh cycle-status <node> print recorded|none for saved reboot state (read-only)
+#   node-maintenance.sh cordon-status <node> print cordoned|uncordoned (read-only)
 #   node-maintenance.sh finish <node> [previous-boot-id]
 #                                             verify reboot → wait for Ready → uncordon → health gate
 #   node-maintenance.sh preflight <node>    the read-only refusals `reboot` starts with (another cycle
 #                                             active, an earlier node still owing a reboot), for a
 #                                             caller to run before it mutates anything of its own
+#                                             --allow-repeat: OK for a cordoned target (drain --repeat)
 #   node-maintenance.sh restore-services    scale the --spin-down services back without a finish, for
 #                                             a cycle that stopped before its drain; refuses while any
 #                                             node is cordoned or has saved reboot state
@@ -102,7 +108,7 @@ die() {
 }
 
 usage() {
-	sed -n '2,19p' "$SELF" | sed 's/^# \{0,1\}//'
+	sed -n '2,25p' "$SELF" | sed 's/^# \{0,1\}//'
 	exit 1
 }
 
@@ -154,23 +160,105 @@ cycle_state_file() {
 	printf '%s/%s.boot-id\n' "$MAINTENANCE_STATE_DIR" "$1"
 }
 
+# Written beside the record and renamed over it, so a stop mid-write leaves the
+# old record or the new one, never a truncated one. The temp name does not match
+# *.boot-id, so the any-cycle scan in restore-services never reads it.
 save_cycle_boot_id() {
-	local node=$1 boot_id=$2
+	local node=$1 boot_id=$2 file
+	file=$(cycle_state_file "$node")
 	mkdir -p "$MAINTENANCE_STATE_DIR"
-	printf '%s\n' "$boot_id" >"$(cycle_state_file "$node")"
+	require_cycle_state_path "$node"
+	printf '%s\n' "$boot_id" >"$file.$$"
+	mv -f "$file.$$" "$file"
+}
+
+# Callers also run this before their cordon or drain, so a path the save would
+# refuse stops them before they change the cluster.
+require_cycle_state_path() {
+	local file
+	file=$(cycle_state_file "$1")
+	[[ ! -L $file && (-f $file || ! -e $file) ]] || die "cannot write saved reboot state: $file (a regular file or nothing must be there)"
+}
+
+# A record that is there but cannot be read is not an empty or absent one; every
+# reader refuses it rather than skip the boot-ID it may hold.
+require_cycle_record_readable() {
+	local file
+	file=$(cycle_state_file "$1")
+	if [[ -e $file || -L $file ]]; then
+		[[ -f $file && -r $file ]] || die "cannot read saved reboot state: $file"
+	fi
+	return 0
+}
+
+# Read-only, for a caller that must decide on the cordon itself: prints
+# cordoned|uncordoned, and fails rather than guess on a read failure.
+cmd_cordon_status() {
+	(($# == 1)) || die "usage: $SELF cordon-status <node>"
+	require_node "$1"
+	if node_is_cordoned "$1"; then
+		printf 'cordoned\n'
+	else
+		printf 'uncordoned\n'
+	fi
 }
 
 load_cycle_boot_id() {
 	local node=$1 file boot_id
 	file=$(cycle_state_file "$node")
-	[[ -s $file ]] || die "no saved reboot state for $node; pass its previous boot ID explicitly"
-	IFS= read -r boot_id <"$file"
-	[[ -n $boot_id ]] || die "saved reboot state for $node is empty"
+	[[ -e $file ]] || die "no saved reboot state for $node; pass its previous boot ID explicitly: $SELF finish $node <previous-boot-id>"
+	require_cycle_record_readable "$node"
+	IFS= read -r boot_id <"$file" || true
+	[[ -n $(normalize_boot_id "$boot_id") ]] ||
+		die "saved reboot state for $node is empty; pass its previous boot ID explicitly: $SELF finish $node <previous-boot-id>"
 	printf '%s\n' "$boot_id"
 }
 
 clear_cycle_state() {
 	rm -f "$(cycle_state_file "$1")"
+}
+
+# This describes recorded reboot evidence, not whether an outage is active. The
+# window files remain the deliberately bounded signal for maintenance watches.
+# A test on a path under an unsearchable directory fails as if the path were
+# absent, so "no cycle state" is only trusted when the state directory is
+# listable, or its nearest existing ancestor is searchable.
+require_state_dir_readable() {
+	local dir=$MAINTENANCE_STATE_DIR
+	if [[ -e $dir || -L $dir ]]; then
+		[[ -d $dir && -r $dir && -x $dir ]] || die "cannot read maintenance state directory: $dir"
+		return 0
+	fi
+	while [[ ! -e $dir && ! -L $dir ]]; do
+		dir=$(dirname "$dir")
+	done
+	[[ -d $dir && -x $dir ]] || die "cannot tell whether maintenance state exists under: $dir"
+}
+
+# The lock and the record are created under the state directory, or under its
+# nearest existing ancestor when it does not exist yet.
+require_state_dir_writable() {
+	local dir=$MAINTENANCE_STATE_DIR
+	while [[ ! -e $dir && ! -L $dir ]]; do
+		dir=$(dirname "$dir")
+	done
+	[[ -d $dir && -w $dir && -x $dir ]] || die "cannot write maintenance state under: $dir"
+}
+
+cmd_cycle_status() {
+	(($# == 1)) || die "usage: $SELF cycle-status <node>"
+	require_node "$1"
+	local file
+	require_state_dir_readable
+	file=$(cycle_state_file "$1")
+	require_cycle_record_readable "$1"
+	# Any record file counts, as it does for the restore-services scan; whether
+	# its contents hold a boot ID is load_cycle_boot_id's question.
+	if [[ -e $file ]]; then
+		printf 'recorded\n'
+	else
+		printf 'none\n'
+	fi
 }
 
 # Returns non-zero instead of dying, so the apt EXIT trap can still release the
@@ -249,6 +337,20 @@ acquire_maintenance_lock() {
 cordoned_nodes() {
 	kubectl get nodes -o json |
 		jq -r '.items[] | select(.spec.unschedulable == true) | .metadata.name'
+}
+
+# A failed read must not select the uncordoned recovery/drain path. Keep this in
+# the calling shell: die inside a command substitution only ends that subshell.
+node_is_cordoned() {
+	local node=$1 value
+	value=$("$KUBECTL" get node "$node" -o jsonpath='{.spec.unschedulable}') || die "cannot read whether $node is cordoned"
+	[[ $value == true ]]
+}
+
+node_is_ready() {
+	local node=$1 value
+	value=$("$KUBECTL" get node "$node" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}') || die "cannot read whether $node is Ready"
+	[[ $value == True ]]
 }
 
 require_no_cordoned_nodes() {
@@ -572,7 +674,8 @@ memory_headroom_preflight() {
 	if ((spin_down)); then
 		advice=" --spin-down is already in effect, so this figure is post-spin-down; --override-memory is the only remaining lever."
 	else
-		advice=" Re-run with: $SELF reboot $node --spin-down   (frees the memory-heavy services' headroom; --override-memory proceeds without it)."
+		# RERUN_AS names the command the operator actually ran (drain or reboot).
+		advice=" Re-run with: ${RERUN_AS:-$SELF reboot $node} --spin-down   (frees the memory-heavy services' headroom; --override-memory proceeds without it)."
 	fi
 	case $verdict in
 	pass) log "[$node] memory headroom OK." ;;
@@ -905,6 +1008,92 @@ cmd_status() {
 	fi
 }
 
+drain_leftovers() {
+	"$KUBECTL" get pods -A -o json --field-selector "spec.nodeName=$1" |
+		jq -r '.items[] | select((.status.phase // "Unknown") as $p | $p != "Succeeded" and $p != "Failed")
+			| select((.metadata.ownerReferences // []) | any(.kind == "DaemonSet") | not)
+			| select((.metadata.namespace == "longhorn-system" and (.metadata.name | startswith("instance-manager"))) | not)
+			| "\(.metadata.namespace)/\(.metadata.name) (\(.status.phase // "unknown"))"'
+}
+
+repeat_drain() {
+	local node=$1 leftovers boot_id saved_boot_id cycle
+	# Preserve the planned-outage repeat path: a caller that passes --repeat may
+	# drain an already-cordoned target again without repeating the first drain's
+	# preflights or spin-down. It does not establish ownership of any cordon or
+	# need a saved record, so an empty or missing one is rewritten here.
+	warn "$node is already cordoned — re-draining"
+	require_cycle_state_path "$node"
+	"$KUBECTL" drain "$node" --ignore-daemonsets --delete-emptydir-data --timeout="$DRAIN_TIMEOUT" ||
+		warn "drain incomplete — assessing what is left on $node"
+	# Unlike a first drain, a repeat always checks leftovers, even after success.
+	leftovers=$(drain_leftovers "$node") || die "cannot read pods remaining on $node"
+	[[ -n $leftovers ]] && die "non-Longhorn pods still on $node after drain: $leftovers"
+	boot_id=$(remote_boot_id "$node") || die "cannot read boot ID from $node"
+	require_valid_boot_id "$boot_id"
+	cycle=$(cmd_cycle_status "$node") || die "cannot read saved cycle state for $node"
+	if [[ $cycle == recorded ]]; then
+		# Read here, not through load_cycle_boot_id: an empty record is rewritten
+		# below rather than refused.
+		saved_boot_id=
+		IFS= read -r saved_boot_id <"$(cycle_state_file "$node")" || true
+		# A planned outage repeats after timmy came back, so the refresh stays; say
+		# so, because recover/finish now needs another reboot past this one.
+		if [[ -z $(normalize_boot_id "$saved_boot_id") ]]; then
+			warn "[$node] saved reboot state was empty; rewriting it"
+		elif [[ $(normalize_boot_id "$saved_boot_id") != "$(normalize_boot_id "$boot_id")" ]]; then
+			warn "[$node] rebooted since the saved cycle (boot ID $saved_boot_id, now $boot_id); that reboot no longer counts — recover/finish will wait for another"
+		fi
+	fi
+	save_cycle_boot_id "$node" "$boot_id"
+	log "[$node] saved current boot ID for recovery: $boot_id"
+}
+
+cmd_drain() {
+	(($# >= 1 && $# <= 4)) || die "usage: $SELF drain <node> [--spin-down] [--override-memory] [--repeat]"
+	local node=$1 option repeat=0 first=()
+	shift
+	require_node "$node"
+	for option in "$@"; do
+		case $option in
+		--spin-down | --override-memory) first+=("$option") ;;
+		--repeat) repeat=1 ;;
+		*) die "unknown drain option '$option'" ;;
+		esac
+	done
+	if node_is_cordoned "$node"; then
+		# Only an outage caller that owns the cordon opts in; a bare drain of a
+		# cordoned node would skip every first-drain check on any node.
+		((repeat)) ||
+			die "$node is already cordoned; pass --repeat to re-drain your own outage's cordon. If no outage of yours owns it, finish that cycle or kubectl uncordon $node for a checked first drain — never uncordon another Mac's timmy outage"
+		repeat_drain "$node"
+	else
+		RERUN_AS="$SELF drain $node"
+		cmd_reboot "$node" --no-reboot ${first[@]+"${first[@]}"}
+	fi
+}
+
+cmd_recover() {
+	(($# == 1)) || die "usage: $SELF recover <node>"
+	local node=$1 cycle
+	require_node "$node"
+	cycle=$(cmd_cycle_status "$node") || return 1
+	if [[ $cycle == recorded ]]; then
+		cmd_finish "$node"
+		return
+	fi
+	warn "no saved cycle for $node — preparation stopped before the drain; skipping finish"
+	if node_is_cordoned "$node"; then
+		die "$node is cordoned without cycle state; finish it by hand: $SELF finish $node <previous-boot-id>"
+	fi
+	# A wrapping caller (timmy-offline.sh up) names its own command to re-run.
+	node_is_ready "$node" || die "$node is not Ready; wait for it, then re-run: ${NODE_MAINTENANCE_RERUN:-$SELF recover $node}"
+	# The shared spin-down record can belong to another node. Check all cordons
+	# and saved cycles under this command's lock before restoring any replicas.
+	cmd_restore_services
+	wait_longhorn_healthy
+}
+
 cmd_finish() {
 	(($# >= 1 && $# <= 2)) || die "usage: $SELF finish <node> [previous-boot-id]"
 	local node=$1 previous_boot_id=${2:-} saved_boot_id
@@ -912,9 +1101,16 @@ cmd_finish() {
 
 	if [[ -z $previous_boot_id ]]; then
 		previous_boot_id=$(load_cycle_boot_id "$node")
-	elif [[ -s $(cycle_state_file "$node") ]]; then
-		saved_boot_id=$(load_cycle_boot_id "$node")
-		[[ $saved_boot_id == "$previous_boot_id" ]] || die "provided boot ID does not match the saved cycle state for $node"
+	elif [[ -e $(cycle_state_file "$node") || -L $(cycle_state_file "$node") ]]; then
+		# Same reading as load_cycle_boot_id, but an empty record is what the
+		# explicit ID is for, so only a non-empty one must match it. A record it
+		# cannot read is neither, so it refuses.
+		require_cycle_record_readable "$node"
+		saved_boot_id=
+		IFS= read -r saved_boot_id <"$(cycle_state_file "$node")" || true
+		if [[ -n $(normalize_boot_id "$saved_boot_id") ]]; then
+			[[ $saved_boot_id == "$previous_boot_id" ]] || die "provided boot ID does not match the saved cycle state for $node"
+		fi
 	fi
 	require_valid_boot_id "$previous_boot_id"
 
@@ -959,6 +1155,7 @@ cmd_reboot() {
 		shift
 	done
 	require_node "$node"
+	require_cycle_state_path "$node"
 	require_no_cordoned_nodes
 	require_reboot_order "$node"
 
@@ -1005,11 +1202,7 @@ cmd_reboot() {
 		local leftovers
 		# Fail closed: every non-terminal pod counts (Running, Pending, Unknown, or
 		# missing phase), not just Running — only Succeeded/Failed are safely done.
-		leftovers=$(kubectl get pods -A -o json --field-selector "spec.nodeName=$node" |
-			jq -r '.items[] | select((.status.phase // "Unknown") as $p | $p != "Succeeded" and $p != "Failed")
-				| select((.metadata.ownerReferences // []) | any(.kind == "DaemonSet") | not)
-				| select((.metadata.namespace == "longhorn-system" and (.metadata.name | startswith("instance-manager"))) | not)
-				| "\(.metadata.namespace)/\(.metadata.name) (\(.status.phase // "unknown"))"')
+		leftovers=$(drain_leftovers "$node") || die "cannot read pods remaining on $node"
 		[[ -n $leftovers ]] && die "non-Longhorn pods still on $node after drain: $leftovers"
 		warn "only the Longhorn instance-manager remains, pinned by last-replica volumes."
 		warn "single-replica volumes on $node — briefly unavailable during the reboot:"
@@ -1053,9 +1246,23 @@ cmd_reboot() {
 # before it gets here) can run them first. On 2026-10-21 `down` parked everything,
 # then this script's reboot-order check refused on wemby, leaving timmy half out.
 cmd_preflight() {
-	(($# == 1)) || die "usage: $SELF preflight <node>"
+	(($# >= 1 && $# <= 2)) || die "usage: $SELF preflight <node> [--allow-repeat]"
 	local node=$1
 	require_node "$node"
+	# Both drains refuse state they cannot read, lock or replace, so refuse it
+	# here, before a caller like timmy-offline parks anything.
+	require_state_dir_readable
+	require_state_dir_writable
+	require_cycle_state_path "$node"
+	require_cycle_record_readable "$node"
+	if (($# == 2)); then
+		[[ $2 == --allow-repeat ]] || die "unknown preflight option '$2'"
+		# Pairs with `drain --repeat`, which re-drains any cordoned target.
+		if node_is_cordoned "$node"; then
+			log "[$node] preflight OK: already cordoned; drain --repeat will re-drain it"
+			return 0
+		fi
+	fi
 	require_no_cordoned_nodes
 	require_reboot_order "$node"
 	log "[$node] preflight OK: no cycle active, no earlier node owes a reboot"
@@ -1071,8 +1278,11 @@ cmd_restore_services() {
 	(($# == 0)) || die "usage: $SELF restore-services"
 	local f node
 	require_no_cordoned_nodes
+	# An unlistable directory would glob to nothing and read as "no cycles".
+	require_state_dir_readable
 	for f in "$MAINTENANCE_STATE_DIR"/*.boot-id; do
-		[[ -e $f ]] || continue
+		# A dangling link is still a record, as cycle-status treats it.
+		[[ -e $f || -L $f ]] || continue
 		node=$(basename "${f%.boot-id}")
 		die "an active cycle owns the spin-down state: $node has saved reboot state; finish it instead: $SELF finish $node"
 	done
@@ -1091,6 +1301,10 @@ main() {
 	apt) shift && acquire_maintenance_lock && cmd_apt "$@" ;;
 	status) cmd_status ;;
 	preflight) shift && cmd_preflight "$@" ;;
+	cycle-status) shift && cmd_cycle_status "$@" ;;
+	cordon-status) shift && cmd_cordon_status "$@" ;;
+	drain) shift && acquire_maintenance_lock && cmd_drain "$@" ;;
+	recover) shift && acquire_maintenance_lock && cmd_recover "$@" ;;
 	reboot) shift && acquire_maintenance_lock && cmd_reboot "$@" ;;
 	finish) shift && acquire_maintenance_lock && cmd_finish "$@" ;;
 	restore-services) shift && acquire_maintenance_lock && cmd_restore_services "$@" ;;

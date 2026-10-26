@@ -240,6 +240,18 @@ repos:
         language: system
         pass_filenames: false
         files: ^(scripts/(maintenance-active\.py|timmy-offline\.sh|node-maintenance\.sh)|tests/test-(node-maintenance-window|timmy-offline-quiet)\.sh)$
+      - id: maintenance-memory-tests
+        name: maintenance memory and restoration tests
+        entry: bash tests/test-node-maintenance-memory.sh
+        language: system
+        pass_filenames: false
+        files: ^(scripts/node-maintenance\.sh|tests/test-node-maintenance-memory\.sh)$
+      - id: maintenance-cycle-tests
+        name: maintenance cycle command integration tests
+        entry: python3 tests/test-maintenance-cycle.py
+        language: system
+        pass_filenames: false
+        files: ^(scripts/(node-maintenance|timmy-offline)\.sh|tests/test-maintenance-cycle\.py)$
       - id: helm-deploy-tests
         name: Helm deployment version safety tests
         entry: python3 scripts/test-helm-deploy.py
