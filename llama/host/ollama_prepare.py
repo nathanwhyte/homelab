@@ -54,6 +54,24 @@ def encoded(value):
 STAGING_DIRECTORY = ".ollama-write-staging"
 
 
+def ensure_directory(path, mode=0o755):
+    """Create every missing component with a safe initial write policy.
+
+    Path.mkdir(parents=True) applies the requested mode only to the leaf;
+    intermediate directories otherwise start as 0777 masked by the caller.
+    Existing directories retain their permissions and each caller's trust checks.
+    """
+    path = Path(path)
+    try:
+        path.mkdir(mode=mode)
+    except FileNotFoundError:
+        ensure_directory(path.parent)
+        path.mkdir(mode=mode, exist_ok=True)
+    except FileExistsError:
+        if not path.is_dir():
+            raise
+
+
 def sync_directory(path):
     fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
     try:
@@ -66,7 +84,7 @@ def sync_directory(path):
 def publication_directory(directory):
     """Serialize writers/reclaimers without leaving an additional lock file."""
     directory = Path(directory)
-    directory.mkdir(parents=True, exist_ok=True)
+    ensure_directory(directory)
     fd = os.open(directory, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
     try:
         fcntl.flock(fd, fcntl.LOCK_EX)
@@ -250,7 +268,7 @@ class Preparation:
     def locked(self):
         if self._lock_fd is not None:
             raise PreparationError("preparation lock is already held by this operation")
-        self.state.mkdir(mode=0o755, parents=True, exist_ok=True)
+        ensure_directory(self.state)
         self.trusted_file(
             self.state.lstat(), "preparation state directory", directory=True
         )
@@ -352,7 +370,7 @@ class Preparation:
 
     def intent_directory(self):
         path = self.state / "candidate-intents"
-        path.mkdir(mode=0o700, parents=True, exist_ok=True)
+        ensure_directory(path, mode=0o700)
         self.trusted_file(path.lstat(), "candidate intent directory", directory=True)
         # Persist the directory links too: fsyncing only the eventual intent
         # file would not protect a newly created state/intent directory on crash.
@@ -422,8 +440,10 @@ class Preparation:
         self.sync_directory(intent.parent)
         cleanup_now = False
         try:
-            with snapshot.open("xb") as out:
-                os.fchmod(out.fileno(), 0o600)
+            fd = os.open(
+                snapshot, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600
+            )
+            with os.fdopen(fd, "wb") as out:
                 out.write(posture.recipe_bytes[tag])
                 out.flush()
                 os.fsync(out.fileno())

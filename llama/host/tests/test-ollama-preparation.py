@@ -921,6 +921,186 @@ class PreparationTests(FixtureCase):
             module.render(self.posture, self.root / "rendered", True)
 
 
+class SafeCreationTests(FixtureCase):
+    # Kill at filesystem boundaries, including the older Path.open route. The
+    # assertions concern the abandoned artifacts and two successful warm retries,
+    # not which Python creation API the implementation chooses.
+    CREATOR = textwrap.dedent("""
+        import os, pathlib, signal, sys
+        sys.path.insert(0, sys.argv[1])
+        import ollama_prepare as m
+        root, fresh = pathlib.Path(sys.argv[2]), pathlib.Path(sys.argv[3])
+        boundary, mask = sys.argv[4], int(sys.argv[5], 8)
+        state = fresh / 'parent' / 'state'
+        target = fresh / 'parent' / 'output' / 'result.json'
+        def kill(): os.kill(os.getpid(), signal.SIGKILL)
+        def created(path):
+            path = pathlib.Path(path)
+            selected = {
+                'ancestor': fresh,
+                'state': state,
+                'lock': state / 'preparation.lock',
+                'intents': state / 'candidate-intents',
+                'staging': state / 'candidate-intents' / m.STAGING_DIRECTORY,
+                'publication-ancestor': fresh,
+                'publication-directory': target.parent,
+            }
+            if path == selected.get(boundary): kill()
+            if boundary == 'snapshot' and path.name.startswith('.ollama-preparing-'): kill()
+            if boundary == 'staging-file' and path.suffix == '.tmp': kill()
+        mkdir, opened, path_open = pathlib.Path.mkdir, os.open, pathlib.Path.open
+        chmod, fchmod = os.chmod, os.fchmod
+        paths = {}
+        def make(self, *args, **kwargs):
+            existed = self.exists()
+            result = mkdir(self, *args, **kwargs)
+            if not existed: created(self)
+            return result
+        def open_file(path, *args, **kwargs):
+            existed = pathlib.Path(path).exists()
+            fd = opened(path, *args, **kwargs)
+            paths[fd] = pathlib.Path(path)
+            if not existed: created(path)
+            return fd
+        def open_path(self, *args, **kwargs):
+            existed = self.exists()
+            out = path_open(self, *args, **kwargs)
+            if not existed: created(self)
+            return out
+        def change_mode(path, *args, **kwargs):
+            if boundary == 'before-state-chmod' and pathlib.Path(path) == state: kill()
+            return chmod(path, *args, **kwargs)
+        def change_fd_mode(fd, *args, **kwargs):
+            path = paths.get(fd, pathlib.Path('/unrelated'))
+            if boundary == 'before-lock-chmod' and path.name == 'preparation.lock': kill()
+            if boundary == 'before-staging-chmod' and path.suffix == '.tmp': kill()
+            return fchmod(fd, *args, **kwargs)
+        pathlib.Path.mkdir, pathlib.Path.open = make, open_path
+        os.open, os.chmod, os.fchmod = open_file, change_mode, change_fd_mode
+        os.umask(mask)
+        if boundary.startswith('publication-'):
+            m.atomic_write(target, 'complete publication')
+        else:
+            class Api:
+                url = 'http://fixture.invalid'
+                def tags(self): return {}
+                def call(self, path, **kwargs): return {'version': '0.40.11'}
+            posture = m.Posture(root / 'model-posture.json', root / 'modelfiles')
+            def no_create(*args): raise AssertionError('creation boundary not reached')
+            prep = m.Preparation(posture, Api(), state, no_create)
+            with prep.locked():
+                prep.prepare()
+        raise AssertionError('SIGKILL boundary not reached')
+    """)
+
+    def kill_creation(self, boundary, mask):
+        fresh = self.root / f"generated-{boundary}-{mask:o}"
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                self.CREATOR,
+                str(HOST),
+                str(self.root),
+                str(fresh),
+                boundary,
+                f"{mask:o}",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        self.assertEqual(result.returncode, -signal.SIGKILL, result.stderr)
+        for path in [fresh, *fresh.rglob("*")]:
+            self.assertEqual(path.lstat().st_mode & 0o022, 0, str(path))
+        return fresh
+
+    def assert_warm_replay(self, fresh):
+        prep = Preparation(
+            self.posture, self.api, fresh / "parent/state", self.api.create
+        )
+        for _ in range(2):
+            runtime = FakeRuntime()
+            with prep.locked():
+                receipt = prep.warm(runtime)
+                self.assertEqual(prep.verify(runtime)["status"], "verified")
+            self.assertEqual(receipt["revision"], self.posture.revision)
+            self.assertEqual(runtime.stops, 0)
+        self.assertEqual(list((prep.state / "candidate-intents").iterdir()), [])
+        self.assertFalse(list(self.recipes.glob(".ollama-preparing-*.Modelfile")))
+        self.assert_no_candidates()
+
+    def test_killed_snapshot_creation_is_safe_before_any_permission_adjustment(self):
+        for mask in (0o000, 0o002, 0o022, 0o077):
+            with self.subTest(umask=f"{mask:04o}"):
+                fresh = self.kill_creation("snapshot", mask)
+                intent = next((fresh / "parent/state/candidate-intents").glob("*.json"))
+                snapshot = Path(json.loads(intent.read_text())["snapshot"])
+                self.assertTrue(snapshot.exists())
+                self.assertEqual(snapshot.stat().st_mode & 0o777, 0o600)
+                self.assert_warm_replay(fresh)
+                self.assertFalse(snapshot.exists())
+
+    def test_killed_owned_directories_locks_and_staging_replay_under_common_umasks(
+        self,
+    ):
+        for mask in (0o000, 0o002, 0o022, 0o077):
+            for boundary in (
+                "ancestor",
+                "state",
+                "lock",
+                "intents",
+                "staging",
+                "staging-file",
+                "before-lock-chmod",
+                "before-state-chmod",
+                "before-staging-chmod",
+            ):
+                with self.subTest(boundary=boundary, umask=f"{mask:04o}"):
+                    fresh = self.kill_creation(boundary, mask)
+                    self.assert_warm_replay(fresh)
+
+    def test_killed_publication_parent_creation_retries_under_common_umasks(self):
+        for mask in (0o000, 0o002, 0o022, 0o077):
+            for boundary in ("publication-ancestor", "publication-directory"):
+                with self.subTest(boundary=boundary, umask=f"{mask:04o}"):
+                    fresh = self.kill_creation(boundary, mask)
+                    target = fresh / "parent/output/result.json"
+                    for _ in range(2):
+                        module.atomic_write(target, "complete publication")
+                        self.assertEqual(target.read_text(), "complete publication")
+                    self.assertEqual(target.stat().st_mode & 0o777, 0o644)
+                    self.assertFalse(
+                        (target.parent / module.STAGING_DIRECTORY).exists()
+                    )
+
+    def test_existing_untrusted_state_is_rejected_without_permission_repair(self):
+        for path in (
+            self.prep.state,
+            self.prep.state / "preparation.lock",
+            self.prep.intent_directory(),
+        ):
+            if not path.exists():
+                path.touch()
+            previous = path.stat().st_mode & 0o777
+            try:
+                path.chmod(previous | 0o020)
+                with self.assertRaisesRegex(PreparationError, "group/world-writable"):
+                    self.prep.replay_candidates()
+                self.assertEqual(path.stat().st_mode & 0o777, previous | 0o020)
+            finally:
+                path.chmod(previous)
+
+    def test_existing_generic_publication_parent_retains_caller_permissions(self):
+        parent = self.root / "shared-render-directory"
+        parent.mkdir()
+        parent.chmod(0o775)
+        target = parent / "generated.conf"
+        module.atomic_write(target, "complete publication")
+        self.assertEqual(target.read_text(), "complete publication")
+        self.assertEqual(parent.stat().st_mode & 0o777, 0o775)
+
+
 class AtomicPublicationTests(FixtureCase):
     WRITER = textwrap.dedent("""
         import os, pathlib, signal, stat, sys, time
