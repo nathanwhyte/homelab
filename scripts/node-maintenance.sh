@@ -180,6 +180,17 @@ require_cycle_state_path() {
 	[[ ! -L $file && (-f $file || ! -e $file) ]] || die "cannot write saved reboot state: $file (a regular file or nothing must be there)"
 }
 
+# A record that is there but cannot be read is not an empty or absent one; every
+# reader refuses it rather than skip the boot-ID it may hold.
+require_cycle_record_readable() {
+	local file
+	file=$(cycle_state_file "$1")
+	if [[ -e $file || -L $file ]]; then
+		[[ -f $file && -r $file ]] || die "cannot read saved reboot state: $file"
+	fi
+	return 0
+}
+
 # Read-only, for a caller that must decide on the cordon itself: prints
 # cordoned|uncordoned, and fails rather than guess on a read failure.
 cmd_cordon_status() {
@@ -196,6 +207,7 @@ load_cycle_boot_id() {
 	local node=$1 file boot_id
 	file=$(cycle_state_file "$node")
 	[[ -e $file ]] || die "no saved reboot state for $node; pass its previous boot ID explicitly: $SELF finish $node <previous-boot-id>"
+	require_cycle_record_readable "$node"
 	IFS= read -r boot_id <"$file" || true
 	[[ -n $(normalize_boot_id "$boot_id") ]] ||
 		die "saved reboot state for $node is empty; pass its previous boot ID explicitly: $SELF finish $node <previous-boot-id>"
@@ -223,15 +235,23 @@ require_state_dir_readable() {
 	[[ -d $dir && -x $dir ]] || die "cannot tell whether maintenance state exists under: $dir"
 }
 
+# The lock and the record are created under the state directory, or under its
+# nearest existing ancestor when it does not exist yet.
+require_state_dir_writable() {
+	local dir=$MAINTENANCE_STATE_DIR
+	while [[ ! -e $dir && ! -L $dir ]]; do
+		dir=$(dirname "$dir")
+	done
+	[[ -d $dir && -w $dir && -x $dir ]] || die "cannot write maintenance state under: $dir"
+}
+
 cmd_cycle_status() {
 	(($# == 1)) || die "usage: $SELF cycle-status <node>"
 	require_node "$1"
 	local file
 	require_state_dir_readable
 	file=$(cycle_state_file "$1")
-	if [[ -e $file || -L $file ]]; then
-		[[ -f $file && -r $file ]] || die "cannot read saved reboot state: $file"
-	fi
+	require_cycle_record_readable "$1"
 	# Any record file counts, as it does for the restore-services scan; whether
 	# its contents hold a boot ID is load_cycle_boot_id's question.
 	if [[ -e $file ]]; then
@@ -1081,9 +1101,11 @@ cmd_finish() {
 
 	if [[ -z $previous_boot_id ]]; then
 		previous_boot_id=$(load_cycle_boot_id "$node")
-	elif [[ -e $(cycle_state_file "$node") ]]; then
+	elif [[ -e $(cycle_state_file "$node") || -L $(cycle_state_file "$node") ]]; then
 		# Same reading as load_cycle_boot_id, but an empty record is what the
-		# explicit ID is for, so only a non-empty one must match it.
+		# explicit ID is for, so only a non-empty one must match it. A record it
+		# cannot read is neither, so it refuses.
+		require_cycle_record_readable "$node"
 		saved_boot_id=
 		IFS= read -r saved_boot_id <"$(cycle_state_file "$node")" || true
 		if [[ -n $(normalize_boot_id "$saved_boot_id") ]]; then
@@ -1227,9 +1249,12 @@ cmd_preflight() {
 	(($# >= 1 && $# <= 2)) || die "usage: $SELF preflight <node> [--allow-repeat]"
 	local node=$1
 	require_node "$node"
-	# Both drains refuse a record path they cannot replace, so refuse it here,
-	# before a caller like timmy-offline parks anything.
+	# Both drains refuse state they cannot read, lock or replace, so refuse it
+	# here, before a caller like timmy-offline parks anything.
+	require_state_dir_readable
+	require_state_dir_writable
 	require_cycle_state_path "$node"
+	require_cycle_record_readable "$node"
 	if (($# == 2)); then
 		[[ $2 == --allow-repeat ]] || die "unknown preflight option '$2'"
 		# Pairs with `drain --repeat`, which re-drains any cordoned target.

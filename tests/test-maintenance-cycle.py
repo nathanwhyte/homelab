@@ -553,6 +553,58 @@ class MaintenanceCycleTests(unittest.TestCase):
                 self.assertFalse(self.read()["nodes"]["timmy"]["cordoned"])
                 self.assertFalse((self.cycle / "timmy.boot-id").exists())
 
+    def test_finish_refuses_a_record_it_cannot_compare(self):
+        wrong = "11111111-1111-1111-1111-111111111111"
+        state = self.read()
+        state["nodes"]["timmy"]["cordoned"] = True
+        self.write(state)
+        record = self.cycle / "timmy.boot-id"
+        self.record_cycle()
+        result = self.run_command(NODE, "finish", "timmy", wrong, ok=False)
+        self.assertIn("does not match the saved cycle state", result.stderr)
+        record.chmod(0)
+        self.addCleanup(lambda: record.exists() and record.chmod(0o600))
+        for args in (("finish", "timmy", wrong), ("finish", "timmy")):
+            with self.subTest(record="unreadable", args=args):
+                result = self.run_command(NODE, *args, ok=False)
+                self.assertIn("cannot read saved reboot state", result.stderr)
+        record.chmod(0o600)
+        record.unlink()
+        record.mkdir()
+        with self.subTest(record="directory"):
+            result = self.run_command(NODE, "finish", "timmy", wrong, ok=False)
+            self.assertIn("cannot read saved reboot state", result.stderr)
+        self.assertEqual(self.read(), state)
+
+    def test_preflight_refuses_unusable_state_before_down_parks(self):
+        self.cycle.mkdir()
+        self.addCleanup(self.cycle.chmod, 0o700)
+        for mode, message in (
+            (0o500, "cannot write maintenance state"),
+            (0o600, "cannot read maintenance state directory"),
+        ):
+            with self.subTest(mode=oct(mode)):
+                self.cycle.chmod(mode)
+                before = self.read()
+                result = self.run_command(OUTAGE, "down", ok=False)
+                self.cycle.chmod(0o700)
+                self.assertIn(message, result.stderr)
+                self.assertEqual(self.read(), before)
+                self.assertFalse(self.outage.exists())
+        # The repeat path: a cordoned timmy whose record cannot be read.
+        state = self.read()
+        state["nodes"]["timmy"]["cordoned"] = True
+        self.write(state)
+        record = self.cycle / "timmy.boot-id"
+        self.record_cycle()
+        record.chmod(0)
+        self.addCleanup(record.chmod, 0o600)
+        result = self.run_command(OUTAGE, "down", ok=False)
+        self.assertIn("cannot read saved reboot state", result.stderr)
+        self.assertEqual(self.read(), state)
+        self.assertFalse(self.outage.exists())
+        self.assertEqual(self.drain_calls(), [])
+
     def test_memory_blocked_drain_advises_drain(self):
         def pod(node, memory):
             return {
