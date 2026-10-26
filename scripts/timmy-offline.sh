@@ -424,10 +424,17 @@ cmd_down() {
 	# node-maintenance.sh refuses the drain while another cycle is active or an
 	# earlier node still owes a reboot. Ask it first: a refusal after the silence,
 	# suspend and park below leaves timmy half out with no instruction (2026-10-21).
-	# The cycle module also owns the already-cordoned repeat path.
-	require_own_cordon
+	# The cycle module also owns the already-cordoned repeat path. Decide once
+	# whether this is a repeat and pass that decision on: a cordon that appears
+	# after this read (`down` on the other Mac) then meets the strict preflight
+	# and a bare drain, which refuse it, instead of being taken as our own.
+	local preflight_args=() drain_args=(--spin-down)
+	if own_cordon; then
+		preflight_args=(--allow-repeat)
+		drain_args+=(--repeat)
+	fi
 	log "preflight: node-maintenance.sh must be willing to drain $NODE"
-	"$NODE_MAINTENANCE" preflight "$NODE" --allow-repeat ||
+	"$NODE_MAINTENANCE" preflight "$NODE" ${preflight_args[@]+"${preflight_args[@]}"} ||
 		die "node-maintenance.sh will not drain $NODE (see above); this run changed nothing"
 	# Before park: parking Garage is what trips GarageQuorumLost.
 	silence_alerts
@@ -441,8 +448,8 @@ cmd_down() {
 	log "drain via node-maintenance.sh (no reboot, pre-drain spin-down)"
 	# --spin-down is required here, not optional: it frees headroom for the
 	# pods evicted from timmy before the memory-headroom preflight runs.
-	# --repeat: require_own_cordon above showed any cordon is this outage's own.
-	"$NODE_MAINTENANCE" drain "$NODE" --spin-down --repeat
+	# --repeat only when own_cordon above saw this outage's own cordon.
+	"$NODE_MAINTENANCE" drain "$NODE" "${drain_args[@]}"
 	# The drain itself can create new orphans: any unpinned pod evicted from timmy
 	# lands on another node and re-attaches its timmy-only volume from there. Check
 	# again after the drain and fail closed — the pod's owner must be added to PARKED.
@@ -462,12 +469,14 @@ cmd_down() {
 # `park` writes the saved counts before the drain cordons, so a cordon this
 # Mac's `down` made always has them. A cordoned timmy without them was cordoned
 # by hand or by `down` on the other Mac, where re-parking would save the
-# current zeros as the counts `up` restores.
-require_own_cordon() {
+# current zeros as the counts `up` restores. Succeeds for this Mac's own
+# cordon, fails for no cordon, and dies for anything else. Call it in the
+# calling shell (an `if`), never in a $( ), so the die ends the run.
+own_cordon() {
 	local cordon
 	cordon=$("$NODE_MAINTENANCE" cordon-status "$NODE") || die "cannot read whether $NODE is cordoned; this run changed nothing"
 	case $cordon in
-	uncordoned) return 0 ;;
+	uncordoned) return 1 ;;
 	cordoned) ;;
 	*) die "unexpected cordon status for $NODE: $cordon; this run changed nothing" ;;
 	esac

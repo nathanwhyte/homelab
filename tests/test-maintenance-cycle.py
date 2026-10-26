@@ -102,6 +102,13 @@ def fake_command(tool, args):
             node = state["nodes"][args[2]]
             if "unschedulable" in query:
                 print(str(node["cordoned"]).lower())
+                # The other Mac's down finishes right after this read: its park
+                # and spin-down zero every workload, then its drain cordons.
+                if state.get("race_cordon") and args[2] == "timmy":
+                    state["race_cordon"] = False
+                    node["cordoned"] = True
+                    state["replicas"] = dict.fromkeys(state["replicas"], 0)
+                    save()
             elif "Ready" in query:
                 print(str(node["ready"]))
             else:
@@ -468,6 +475,22 @@ class MaintenanceCycleTests(unittest.TestCase):
         self.reboot()
         self.run_command(OUTAGE, "up")
         self.assert_restored()
+
+    def test_down_racing_the_other_macs_down_refuses_before_parking(self):
+        state = self.read()
+        state["race_cordon"] = True
+        self.write(state)
+        self.run_command(OUTAGE, "down", ok=False)
+        self.assertFalse((self.outage / "parked-scales").exists())
+        self.assertIsNone(self.read()["silence"])
+        self.assertEqual(self.drain_calls(), [])
+        self.assertFalse(
+            any(
+                c["args"][:1] == ["scale"]
+                for c in self.calls()
+                if c["tool"] == "kubectl"
+            )
+        )
 
     def test_repeat_down_repairs_an_empty_boot_record(self):
         self.run_command(OUTAGE, "down")

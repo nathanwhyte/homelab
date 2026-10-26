@@ -223,7 +223,8 @@ if [[ -n $preflight_line && -n $silence_line ]] && ((preflight_line < silence_li
 else
 	bad "down must run preflight before the silence (preflight at '${preflight_line:-none}', silence at '${silence_line:-none}')"
 fi
-assert_eq "down drains through the cycle module with spin-down and --repeat" 1 "$(grep -c 'nm: drain timmy --spin-down --repeat$' "$STUB_LOG")"
+assert_eq "a first down drains through the cycle module with spin-down only" 1 "$(grep -c 'nm: drain timmy --spin-down$' "$STUB_LOG")"
+assert_eq "a first down runs the strict preflight" 1 "$(grep -c 'nm: preflight timmy$' "$STUB_LOG")"
 if [[ $(<"$WINDOW_FILE") =~ ^[0-9]+\ planned\ timmy\ outage ]]; then ok "down opens the maintenance window"; else bad "down opens the maintenance window"; fi
 assert_eq "the window is open before the first workload is scaled down" "0 $(grep -c '^-n .* scale ' "$STUB_LOG")" \
 	"$(grep -c 'scale saw no window' "$STUB_LOG") $(grep -c 'scale saw a window' "$STUB_LOG")"
@@ -250,8 +251,9 @@ done
 reset_cluster
 run_cmd cmd_down
 run_cmd cmd_down
-assert_eq "both downs ask preflight to allow an existing cycle" 2 "$(grep -c 'nm: preflight timmy --allow-repeat' "$STUB_LOG")"
-assert_eq "both downs drain through the cycle module" 2 "$(grep -c 'nm: drain timmy --spin-down --repeat$' "$STUB_LOG")"
+# The stub keeps answering uncordoned, so neither down sees its own cordon.
+assert_eq "an uncordoned timmy gets the strict preflight each time" 2 "$(grep -c 'nm: preflight timmy$' "$STUB_LOG")"
+assert_eq "an uncordoned timmy gets a bare drain each time" 2 "$(grep -c 'nm: drain timmy --spin-down$' "$STUB_LOG")"
 
 # A cordoned timmy is this Mac's outage only if this Mac parked it; otherwise
 # (a hand cordon, or down on the other Mac) re-parking would save zeros.
@@ -268,7 +270,8 @@ run_cmd cmd_down
 STUB_CORDON_STATUS=cordoned run_cmd cmd_down
 rc=$?
 assert_eq "down repeats on a cordoned timmy this Mac parked" 0 "$rc"
-assert_eq "the repeat drains with --repeat" 2 "$(grep -c 'nm: drain timmy --spin-down --repeat$' "$STUB_LOG")"
+assert_eq "only the repeat drains with --repeat" 1 "$(grep -c 'nm: drain timmy --spin-down --repeat$' "$STUB_LOG")"
+assert_eq "only the repeat allows a repeat in preflight" 1 "$(grep -c 'nm: preflight timmy --allow-repeat$' "$STUB_LOG")"
 
 for case in "rc" "invalid"; do
 	reset_cluster

@@ -165,8 +165,9 @@ the nodes' non-interactive sudo is scoped to apt/reboot, so the script cannot do
 For a planned timmy outage, use `scripts/timmy-offline.sh down` and, after returning to
 Ubuntu, `scripts/timmy-offline.sh up`. The outage script owns workload parking, CronJob
 suspension and alert silences. It delegates the node cycle to `node-maintenance.sh`:
-`preflight <node> --allow-repeat` checks before parking, `drain <node> --spin-down`
-starts or repeats the drain without rebooting, and `recover <node>` finishes a recorded
+`preflight <node>` checks before parking, `drain <node> --spin-down` starts the drain
+without rebooting (`preflight --allow-repeat` and `drain --spin-down --repeat` when `down`
+finds its own outage's cordon), and `recover <node>` finishes a recorded
 reboot or restores preparation that stopped before a drain. `cycle-status <node>` prints
 `recorded` or `none` for saved reboot evidence; use `scripts/maintenance-active.py` for
 bounded maintenance windows instead.
