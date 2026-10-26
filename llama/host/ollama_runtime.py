@@ -6,8 +6,9 @@ Missing, stale or ambiguous observations are failures, including journal loss.
 
 Runner text is forwarded through the daemon without a runner PID. Attribution
 therefore requires an ordered, retained startup interval consistent with proc
-starttime, exact argv, and /props; it is not an independently identified runner
-journal stream. Only that current interval supplies runtime observations.
+generation, monotonic birth time, exact argv, and /props; it is not an
+independently identified runner journal stream. Only that current interval
+supplies runtime observations.
 
 Sources: ollama/ollama v0.40.11 llm/llama_server.go (runner argv, forwarded
 stderr), server/routes.go (SIGINT/SIGTERM handling); ggml-org/llama.cpp b11845
@@ -22,7 +23,10 @@ import pwd
 import re
 import select
 import signal
+import socket
+import struct
 import subprocess
+import time
 import urllib.request
 
 
@@ -43,6 +47,105 @@ _PROPERTIES = {
     "TimeoutStopUSec",
 }
 _MAX_BYTES = 16 * 1024 * 1024
+
+
+def _netlink_attributes(data):
+    """Decode the small, non-repeating generic-netlink attribute set we use."""
+    values = {}
+    while data:
+        if len(data) < 4:
+            raise VerificationError("truncated TASKSTATS attribute")
+        length, kind = struct.unpack_from("=HH", data)
+        padded = (length + 3) & ~3
+        if kind & 0x4000:  # NLA_F_NET_BYTEORDER is not used by this ABI.
+            raise VerificationError("unexpected TASKSTATS byte order")
+        kind &= 0x3FFF  # NLA_F_NESTED is not a type bit.
+        if length < 4 or padded > len(data) or kind in values:
+            raise VerificationError("malformed or duplicate TASKSTATS attribute")
+        values[kind] = data[4:length]
+        data = data[padded:]
+    return values
+
+
+def _task_start(pid, *, socket_factory=None, monotonic_ns=None):
+    """Bound process birth in CLOCK_MONOTONIC microseconds via TASKSTATS.
+
+    Linux v6.17 kernel/tsacct.c computes ac_etime from ktime_get_ns() minus
+    task->start_time, then floors to microseconds. Unlike proc stat's
+    start_boottime, this clock excludes suspend. Sample on both sides of the
+    request: even a suspend during the exchange needs no historical offset.
+    The caller holds a pidfd and checks proc generation around this PID query.
+    """
+    factory = socket_factory or socket.socket
+    clock = monotonic_ns or time.monotonic_ns
+
+    def attribute(kind, value):
+        length = len(value) + 4
+        return struct.pack("=HH", length, kind) + value + b"\0" * (-length % 4)
+
+    def exchange(sock, family, command, sequence, attrs):
+        body = struct.pack("=BBH", command, 1, 0) + attrs
+        message = struct.pack("=IHHII", len(body) + 16, family, 1, sequence, 0) + body
+        sock.sendto(message, (0, 0))
+        data, _, flags, sender = sock.recvmsg(65536)
+        if flags or sender != (0, 0) or len(data) < 20:
+            raise VerificationError("truncated or non-kernel TASKSTATS response")
+        length, kind, reply_flags, seq, _ = struct.unpack_from("=IHHII", data)
+        if length != len(data) or seq != sequence or reply_flags & 2:
+            raise VerificationError("malformed TASKSTATS response envelope")
+        if kind == 2:  # NLMSG_ERROR: no ACK was requested.
+            errno = -struct.unpack_from("=i", data, 16)[0]
+            raise OSError(errno, "TASKSTATS request rejected")
+        if kind != family:
+            raise VerificationError("unexpected TASKSTATS response family")
+        reply_command, _, reserved = struct.unpack_from("=BBH", data, 16)
+        if reply_command != (1 if family == 16 else 2) or reserved:
+            raise VerificationError("unexpected TASKSTATS response command")
+        return _netlink_attributes(data[20:])
+
+    try:
+        # AF_NETLINK=16 and NETLINK_GENERIC=16 are Linux ABI values. Keeping
+        # these here lets byte fixtures run on development hosts without Linux.
+        with factory(16, socket.SOCK_RAW, 16) as sock:
+            sock.settimeout(5)
+            sock.bind((0, 0))
+            control = exchange(sock, 16, 3, 1, attribute(2, b"TASKSTATS\0"))
+            if len(control.get(1, b"")) != 2:
+                raise VerificationError("missing TASKSTATS family identity")
+            family = struct.unpack("=H", control[1])[0]
+            if family <= 16:
+                raise VerificationError("invalid TASKSTATS family identity")
+            before = clock()
+            response = exchange(
+                sock, family, 1, 2, attribute(1, struct.pack("=I", pid))
+            )
+            after = clock()
+        # TASKSTATS_TYPE_AGGR_PID contains TYPE_PID and TYPE_STATS. The basic
+        # accounting prefix has fixed, explicitly aligned offsets (UAPI
+        # linux/taskstats.h); later versions append fields without moving it.
+        nested = _netlink_attributes(response.get(4, b""))
+        stats = nested.get(3, b"")
+        if (
+            nested.get(1) != struct.pack("=I", pid)
+            or len(stats) < 152
+            or struct.unpack_from("=H", stats)[0] < 2
+            or struct.unpack_from("=I", stats, 128)[0] != pid
+        ):
+            raise VerificationError("missing or mismatched TASKSTATS process identity")
+        elapsed = struct.unpack_from("=Q", stats, 144)[0]
+        # ac_etime rounds down; expand outwards so the whole possible birth
+        # interval is retained. Do not turn observation latency into precision.
+        lower = (before - (elapsed + 1) * 1000) // 1000
+        upper = (after - elapsed * 1000 + 999) // 1000
+        if before > after or lower < 0 or upper < lower:
+            raise VerificationError("invalid TASKSTATS monotonic timing")
+        return lower, upper
+    except (OSError, ValueError, struct.error) as exc:
+        raise VerificationError(
+            "TASKSTATS monotonic process timing unavailable; use a kernel with "
+            "CONFIG_TASKSTATS and run the verifier as root with CAP_NET_ADMIN; "
+            "retry verification after restoring access"
+        ) from exc
 
 
 def _command(argv):
@@ -148,6 +251,7 @@ class Runtime:
         close_fd=None,
         user_uid=None,
         clock_ticks=None,
+        task_start=None,
     ):
         self.proc = Path(proc_root)
         self.run = run or _command
@@ -159,8 +263,10 @@ class Runtime:
         self.close_fd = close_fd or os.close
         self.user_uid = user_uid or (lambda name: pwd.getpwnam(name).pw_uid)
         self.ticks = clock_ticks or os.sysconf("SC_CLK_TCK")
+        self.task_start = task_start or _task_start
         self.fd = None
         open_fd = pidfd_open or getattr(os, "pidfd_open", None)
+        self.open_fd = open_fd
         if open_fd is None or self.send_signal is None:
             raise VerificationError("Linux pidfd support is required")
         try:
@@ -346,12 +452,50 @@ class Runtime:
             raise VerificationError("malformed journal evidence") from exc
         return rows
 
-    def _startup_interval(self, runner, rows):
+    def _runner_start(self, pid, runner):
+        # A time namespace offsets clock_gettime but not TASKSTATS. Require the
+        # verifier's monotonic clock to be the kernel clock used by journald.
+        # Kernels without CONFIG_TIME_NS do not expose timens_offsets.
+        offsets = self.proc / "self/timens_offsets"
+        try:
+            data = offsets.read_text()
+        except FileNotFoundError:
+            if (self.proc / "self/ns/time").exists():
+                raise VerificationError("missing monotonic time namespace offsets")
+            data = "monotonic 0 0\n"
+        entries = [line.split() for line in data.splitlines()]
+        monotonic = [
+            entry[1:] for entry in entries if entry and entry[0] == "monotonic"
+        ]
+        if monotonic != [["0", "0"]]:
+            raise VerificationError(
+                "TASKSTATS requires an unshifted monotonic time namespace"
+            )
+        fd = self.open_fd(pid, 0)
+        try:
+            identity = (self.pid, runner["start"])
+            if self._stat(pid) != identity or self.wait_exit(fd, 0):
+                raise VerificationError("runner generation changed before TASKSTATS")
+            lower, upper = self.task_start(pid)
+            if self.wait_exit(fd, 0) or self._stat(pid) != identity:
+                raise VerificationError("runner generation changed during TASKSTATS")
+        finally:
+            self.close_fd(fd)
+        # Keep uncertainty within the old proc starttime observation's single
+        # tick resolution. A delayed query supplies a wider interval, not a
+        # more precise birth; retry it instead of weakening generation binding.
+        if lower < 0 or upper < lower or upper - lower > 1_000_000 / self.ticks:
+            raise VerificationError(
+                "ambiguous TASKSTATS birth timing; retry verification when the host is responsive"
+            )
+        return lower, upper
+
+    def _startup_interval(self, runner, rows, birth):
         # A command/port can recur within one daemon invocation. First bind a
-        # monotonic lifecycle interval to the captured proc start tick; only
+        # monotonic lifecycle interval to the captured process birth; only
         # then inspect its command or model. Historical command text is not an
         # identity selector and cannot veto or supply proof for this process.
-        proc_start = runner["start"] * 1_000_000 / self.ticks
+        earliest, latest = birth
         tick = 1_000_000 / self.ticks
         starts = [
             index
@@ -362,9 +506,12 @@ class Runtime:
         candidates = []
         for position, index in enumerate(starts):
             stamp = rows[index][0]
-            # The Go marker precedes cmd.Start by at most the allowed launch
-            # delay; procfs rounds starttime down, unlike journal microseconds.
-            if not proc_start - 5_000_000 <= stamp < proc_start + tick:
+            # The journal timestamps receipt, not the daemon's pre-fork log
+            # write. Retain the existing one-tick post-birth allowance for that
+            # scheduling lag, anchored at the earliest possible birth so the
+            # allowance cannot grow with query latency. Keep every compatible
+            # interval; command/port text cannot resolve ambiguity.
+            if not earliest - 5_000_000 <= stamp < earliest + tick:
                 continue
             end = starts[position + 1] if position + 1 < len(starts) else len(rows)
             ready = [
@@ -378,7 +525,7 @@ class Runtime:
             # happens to be inside the launch-delay allowance. An incomplete
             # interval ends at the next start, or remains open and fails below.
             ended = ready[0][1] if ready else rows[end][0] if end < len(rows) else None
-            if ended is None or ended >= proc_start:
+            if ended is None or ended >= earliest:
                 candidates.append((index, ready))
         index, ready = _one(candidates, "current runner startup interval")
         match = re.search(r'\bcmd=("(?:[^"\\]|\\.)*")', rows[index][1])
@@ -390,7 +537,9 @@ class Runtime:
             raise VerificationError("malformed runner command marker") from exc
         if command != " ".join(runner["argv"]):
             raise VerificationError("current startup command differs from runner argv")
-        ready_index, _, port = _one(ready, "runner listening marker")
+        ready_index, ready_stamp, port = _one(ready, "runner listening marker")
+        if ready_stamp < latest:
+            raise VerificationError("ambiguous runner birth within startup evidence")
         if port != _flag(runner["argv"], "--port"):
             raise VerificationError("current startup listener differs from runner port")
         # All downstream assertions share this one interval. In particular, a
@@ -399,12 +548,12 @@ class Runtime:
         return "\n".join(
             message
             for stamp, message in rows[index + 1 : ready_index + 1]
-            if stamp >= proc_start
+            if stamp >= latest
         )
 
-    def _startup(self, runner, rows, model, expected):
+    def _startup(self, runner, rows, model, expected, birth):
         argv = runner["argv"]
-        text = self._startup_interval(runner, rows)
+        text = self._startup_interval(runner, rows, birth)
         path = _flag(argv, "--model")
         if (
             len(
@@ -529,6 +678,7 @@ class Runtime:
             if pid in seen:
                 raise VerificationError("multiple model identities share one runner")
             seen.add(pid)
+            birth = self._runner_start(pid, runner)
             argv = runner["argv"]
             values = {
                 "-c": model["context"] * expected["parallel"],
@@ -577,9 +727,10 @@ class Runtime:
                     "digest": model["digest"],
                     "pid": pid,
                     "start_ticks": runner["start"],
+                    "birth_monotonic_us": {"lower": birth[0], "upper": birth[1]},
                     "weights_sha256": sha,
                     "slots": data["total_slots"],
-                    **self._startup(runner, rows, model, expected),
+                    **self._startup(runner, rows, model, expected, birth),
                 }
             )
         self._assert_current()

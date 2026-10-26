@@ -19,11 +19,171 @@ scrub_environ()
 
 import json
 import signal
+import struct
 import tempfile
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from ollama_runtime import Runtime, VerificationError  # noqa: E402
+from ollama_runtime import Runtime, VerificationError, _task_start  # noqa: E402
+
+
+class TaskstatsSocket:
+    """Byte fixtures from Linux v6.17 taskstats.h/netlink.h/genetlink.h."""
+
+    def __init__(self, *, pid=101, elapsed=10_000_000):
+        self.sent = []
+        self.closed = False
+        self.flags = 0
+        self.sender = (0, 0)
+        self.error = None
+        # Fixed UAPI prefix, including its explicit 8-byte field alignment.
+        stats = struct.pack(
+            "=H2xIBB6x8Q32sB7x5I4xQ",
+            16,
+            0,
+            0,
+            0,
+            *([0] * 8),
+            b"llama-server",
+            0,
+            992,
+            992,
+            pid,
+            100,
+            0,
+            elapsed,
+        )
+        self.replies = [
+            self.packet(16, 1, 1, self.attr(1, struct.pack("=H", 40))),
+            self.packet(
+                40,
+                2,
+                2,
+                self.attr(
+                    4, self.attr(1, struct.pack("=I", pid)) + self.attr(3, stats)
+                ),
+            ),
+        ]
+
+    @staticmethod
+    def attr(kind, data):
+        length = len(data) + 4
+        return struct.pack("=HH", length, kind) + data + bytes(-length % 4)
+
+    @staticmethod
+    def packet(family, command, sequence, attrs):
+        body = struct.pack("=BBH", command, 1, 0) + attrs
+        return struct.pack("=IHHII", 16 + len(body), family, 0, sequence, 1234) + body
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_):
+        self.closed = True
+
+    def settimeout(self, value):
+        self.timeout = value
+
+    def bind(self, address):
+        assert address == (0, 0)
+
+    def sendto(self, message, address):
+        assert address == (0, 0)
+        self.sent.append(message)
+
+    def recvmsg(self, size):
+        assert size == 65536
+        if self.error:
+            raise self.error
+        return self.replies.pop(0), [], self.flags, self.sender
+
+
+class TaskstatsTests(unittest.TestCase):
+    def read(self, sock, times=(30_000_000_000, 30_000_100_000)):
+        clock = iter(times)
+        return _task_start(
+            101, socket_factory=lambda *_: sock, monotonic_ns=lambda: next(clock)
+        )
+
+    def test_monotonic_birth_bounds_and_exact_read_only_request(self):
+        sock = TaskstatsSocket()
+        self.assertEqual(self.read(sock), (19_999_999, 20_000_100))
+        # GET FAMILY, then TASKSTATS GET for this PID. Never register a listener.
+        self.assertEqual(sock.sent[0][16:20], bytes([3, 1, 0, 0]))
+        self.assertEqual(sock.sent[1][16:], bytes.fromhex("010100000800010065000000"))
+        self.assertEqual(sock.timeout, 5)
+        self.assertTrue(sock.closed)
+
+    def test_suspend_during_request_does_not_shift_monotonic_birth(self):
+        # A 60-second suspend advances BOOTTIME only. The kernel computes
+        # ac_etime in the same monotonic clock as both userspace samples.
+        sock = TaskstatsSocket(elapsed=10_000_050)
+        self.assertEqual(self.read(sock), (19_999_949, 20_000_050))
+
+    def test_timeout_and_permission_failure_have_recovery_guidance(self):
+        for error in [TimeoutError(), PermissionError()]:
+            with self.subTest(error=type(error).__name__):
+                sock = TaskstatsSocket()
+                sock.error = error
+                with self.assertRaisesRegex(
+                    VerificationError, "CONFIG_TASKSTATS.*CAP_NET_ADMIN"
+                ):
+                    self.read(sock)
+                self.assertTrue(sock.closed)
+
+    def test_netlink_error_is_not_a_successful_reply(self):
+        sock = TaskstatsSocket()
+        sock.replies[0] = struct.pack("=IHHIIi", 20, 2, 0, 1, 1234, -1)
+        with self.assertRaisesRegex(VerificationError, "CAP_NET_ADMIN"):
+            self.read(sock)
+
+    def test_truncated_wrong_sender_and_wrong_sequence_fail_closed(self):
+        for failure in ["truncated", "sender", "sequence", "length", "multipart"]:
+            with self.subTest(failure=failure):
+                sock = TaskstatsSocket()
+                if failure == "truncated":
+                    sock.flags = 32
+                elif failure == "sender":
+                    sock.sender = (123, 0)
+                else:
+                    message = bytearray(sock.replies[0])
+                    offset, fmt, value = {
+                        "sequence": (8, "=I", 99),
+                        "length": (0, "=I", 9999),
+                        "multipart": (6, "=H", 2),
+                    }[failure]
+                    struct.pack_into(fmt, message, offset, value)
+                    sock.replies[0] = bytes(message)
+                with self.assertRaises(VerificationError):
+                    self.read(sock)
+                self.assertTrue(sock.closed)
+
+    def test_wrong_process_short_stats_and_duplicate_attributes_fail_closed(self):
+        wrong = TaskstatsSocket(pid=102)
+        short = TaskstatsSocket()
+        short.replies[1] = short.packet(
+            40,
+            2,
+            2,
+            short.attr(
+                4, short.attr(1, struct.pack("=I", 101)) + short.attr(3, bytes(151))
+            ),
+        )
+        duplicate = TaskstatsSocket()
+        duplicate.replies[0] = duplicate.packet(
+            16, 1, 1, duplicate.attr(1, struct.pack("=H", 40)) * 2
+        )
+        for sock in [wrong, short, duplicate]:
+            with self.assertRaises(VerificationError):
+                self.read(sock)
+
+    def test_backward_clock_and_impossible_elapsed_time_fail_closed(self):
+        for times in [(30_000_000_000, 29_000_000_000), (1, 2)]:
+            with (
+                self.subTest(times=times),
+                self.assertRaisesRegex(VerificationError, "timing"),
+            ):
+                self.read(TaskstatsSocket(), times)
 
 
 class Host:
@@ -135,6 +295,7 @@ class Host:
             "srv main: listening on http://127.0.0.1:43210",
         ]
         self.rows_override = None
+        self.births = {101: (19_999_999, 20_000_100)}
 
     def write(self, path, value):
         target = self.root / path
@@ -210,6 +371,7 @@ class Host:
             close_fd=self.closed.append,
             user_uid=lambda name: 992,
             clock_ticks=100,
+            task_start=lambda pid: self.births[pid],
         )
 
 
@@ -355,9 +517,9 @@ class RuntimeTests(unittest.TestCase):
         ):
             self.verify()
 
-    def test_two_start_markers_compatible_with_current_tick_are_ambiguous(self):
+    def test_two_start_markers_compatible_with_birth_bounds_are_ambiguous(self):
         current = self.host.rows()
-        duplicate = {**current[0], "__MONOTONIC_TIMESTAMP": "20001000"}
+        duplicate = {**current[0], "__MONOTONIC_TIMESTAMP": "20000000"}
         self.host.rows_override = current[:1] + [duplicate] + current[1:]
         with self.assertRaisesRegex(
             VerificationError, "ambiguous current runner startup interval"
@@ -438,6 +600,7 @@ class RuntimeTests(unittest.TestCase):
             for arg in self.host.argv
         ]
         self.host.process(102, 100, 2013, second_argv)
+        self.host.births[102] = (20_129_999, 20_130_100)
         self.host.messages.extend(
             [
                 message.replace(self.host.model_path, second_path).replace(
@@ -566,9 +729,104 @@ class RuntimeTests(unittest.TestCase):
                 with self.assertRaises(VerificationError):
                     self.verify()
 
-    def test_proc_start_rounding_allows_one_clock_tick(self):
-        self.host.rows_override = self.host.rows()
-        self.host.rows_override[0]["__MONOTONIC_TIMESTAMP"] = "20005000"
+    def test_monotonic_birth_is_independent_of_proc_tick_rounding(self):
+        self.host.births[101] = (20_006_999, 20_007_100)
+        self.host.rows_override = self.host.rows(start=20_005_000)
+        self.verify()
+
+    def test_journal_marker_receipt_may_trail_process_birth_by_one_tick(self):
+        # The daemon emits the marker before cmd.Start, but journald may read
+        # that stream after the child exists. Its timestamp is receipt time.
+        current = self.host.rows(start=20_005_000)
+        self.host.rows_override = self.host.rows(start=19_000_000) + current
+        self.verify()
+        # A second nearby startup remains ambiguous even with identical argv
+        # and a reused port; text cannot pick one of the compatible intervals.
+        duplicate = {**current[0], "__MONOTONIC_TIMESTAMP": "20006000"}
+        self.host.rows_override = current[:1] + [duplicate] + current[1:]
+        with self.assertRaisesRegex(VerificationError, "ambiguous current runner"):
+            self.verify()
+
+    def test_receipt_delay_beyond_the_existing_tick_budget_fails_closed(self):
+        self.host.rows_override = self.host.rows(start=20_015_000)
+        with self.assertRaisesRegex(
+            VerificationError, "current runner startup interval"
+        ):
+            self.verify()
+
+    def test_suspend_before_and_after_process_birth_preserves_binding(self):
+        # (daemon BOOTTIME tick, runner BOOTTIME tick) for suspend before both,
+        # between their births, after both, and both before/after. Their
+        # historical MONOTONIC births and journal entries do not shift.
+        for daemon, runner in [(7000, 8000), (1000, 8000), (1000, 2000), (7000, 8000)]:
+            with self.subTest(daemon=daemon, runner=runner):
+                self.host.process(100, 1, daemon, ["/usr/local/bin/ollama", "serve"])
+                self.host.process(101, 100, runner, self.host.argv)
+                with self.host.runtime() as runtime:
+                    sock = TaskstatsSocket()
+                    runtime.task_start = lambda pid: TaskstatsTests().read(sock)
+                    result = runtime.verify(self.host.expected, [self.host.model])
+                self.assertEqual(result["models"][0]["start_ticks"], runner)
+
+    def test_suspend_during_capture_preserves_current_generation(self):
+        sock = TaskstatsSocket(elapsed=10_000_050)
+        self.runtime.task_start = lambda pid: TaskstatsTests().read(sock)
+        self.verify()
+
+    def test_timing_source_failure_and_generation_change_close_runner_pidfd(self):
+        def timing_failure(pid):
+            raise VerificationError("TASKSTATS unavailable")
+
+        def replace(pid):
+            self.host.process(pid, 100, 3000, self.host.argv)
+            return 19_999_999, 20_000_100
+
+        for source, message in [
+            (timing_failure, "unavailable"),
+            (replace, "generation changed"),
+        ]:
+            with self.subTest(message=message):
+                self.runtime.task_start = source
+                with self.assertRaisesRegex(VerificationError, message):
+                    self.verify()
+                self.assertIn(1001, self.host.closed)
+                self.assertNotIn(1000, self.host.closed)
+
+    def test_exited_runner_cannot_supply_taskstats_for_reused_pid(self):
+        def exited(pid):
+            self.runtime.wait_exit = lambda fd, timeout: fd == 1001
+            return 19_999_999, 20_000_100
+
+        self.runtime.task_start = exited
+        with self.assertRaisesRegex(
+            VerificationError, "generation changed during TASKSTATS"
+        ):
+            self.verify()
+
+    def test_slow_or_uncertain_timing_cannot_select_a_startup(self):
+        self.host.births[101] = (19_980_000, 20_000_100)
+        with self.assertRaisesRegex(VerificationError, "ambiguous TASKSTATS birth"):
+            self.verify()
+        self.host.births[101] = (20_110_000, 20_116_000)
+        with self.assertRaisesRegex(VerificationError, "ambiguous runner birth"):
+            self.verify()
+
+    def test_stale_fields_inside_uncertain_birth_bounds_are_not_evidence(self):
+        self.host.births[101] = (20_000_000, 20_008_000)
+        # Device line at 20.005s could precede process birth; exclude it.
+        with self.assertRaisesRegex(VerificationError, "GPU device"):
+            self.verify()
+
+    def test_shifted_or_unreadable_time_namespace_fails_closed(self):
+        self.host.write("self/ns/time", "namespace")
+        with self.assertRaisesRegex(
+            VerificationError, "missing monotonic time namespace"
+        ):
+            self.verify()
+        self.host.write("self/timens_offsets", "monotonic 60 0\nboottime 60 0\n")
+        with self.assertRaisesRegex(VerificationError, "unshifted monotonic"):
+            self.verify()
+        self.host.write("self/timens_offsets", "monotonic 0 0\nboottime 60 0\n")
         self.verify()
 
     def test_unsupported_journal_shape_fails_closed(self):
