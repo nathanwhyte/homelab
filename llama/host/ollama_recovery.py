@@ -9,7 +9,6 @@ import errno
 import json
 import os
 import re
-import shlex
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -132,37 +131,6 @@ class Http:
         )
         if result.get("done") is not True or result.get("done_reason") != "load":
             raise PreparationError(f"{name}: load-only request did not complete")
-
-
-def parameters(show):
-    """Read Ollama's canonical parameter display, not a user Modelfile."""
-    values = {}
-    text = show.get("parameters")
-    if not isinstance(text, str):
-        raise PreparationError("show response lacks canonical parameters")
-    for line in text.splitlines():
-        fields = shlex.split(line)
-        if not fields:
-            continue
-        if len(fields) != 2:
-            raise PreparationError("malformed canonical parameter display")
-        values.setdefault(fields[0], []).append(fields[1])
-    return values
-
-
-def integer_parameter(show, name, default=None):
-    values = parameters(show).get(name)
-    if values is None and default is not None:
-        return default
-    if values is None or len(values) != 1:
-        raise PreparationError(f"missing or ambiguous {name}")
-    try:
-        value = int(values[0])
-    except ValueError as exc:
-        raise PreparationError(f"invalid {name}") from exc
-    if value <= 0:
-        raise PreparationError(f"nonpositive {name}")
-    return value
 
 
 def verify_loaded(rows, expected):

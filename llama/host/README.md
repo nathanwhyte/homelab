@@ -48,7 +48,10 @@ the declared `environment.OLLAMA_MODELS` store. Its exact bytes must hash to the
 reported by `/api/tags`; identity is read back again before adoption. The unique candidate
 must be a single runnable manifest, not a base manifest-list parent. Ollama selects the
 base's runnable variant during compilation. Display text from `/api/show.modelfile` is
-never parsed for identity, so multiline templates do not affect this check. Missing,
+never parsed for identity, so multiline templates do not affect this check. Runtime
+context and batch values come from the hash-verified JSON parameters blob referenced by
+that manifest. Its ordered values remain intact; the unstable parameter display order
+is not compared between candidate and serving names. Missing,
 oversized, unreadable or mismatched manifest evidence blocks preparation with no fallback.
 Run preparation on the daemon host with access to its declared model store; `--url` does
 not provide remote filesystem access. HTTP-only recovery still uses the host verifier.

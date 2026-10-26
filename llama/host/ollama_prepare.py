@@ -27,7 +27,6 @@ from ollama_recovery import (
     Http,
     PreparationError,
     TransportUnavailable,
-    integer_parameter,
     request_recovery,
     verify_loaded,
 )
@@ -42,7 +41,6 @@ from ollama_signals import (
 
 HERE = Path(__file__).resolve().parent
 SEMANTIC_FIELDS = (
-    "parameters",
     "template",
     "template_source",
     "system",
@@ -304,6 +302,44 @@ def manifest_blob_ids(content, digest):
     if len(identities["model"]) != 1:
         raise PreparationError("candidate must expose exactly one weights layer")
     return identities["model"] + identities["projector"]
+
+
+def manifest_parameters(content, digest, reader):
+    """Read runtime options from content-addressed consumer evidence.
+
+    Display parameter ordering is not stable. The manifest identity covers the
+    complete recipe; the referenced JSON supplies typed runtime expectations.
+    """
+    manifest_blob_ids(content, digest)
+    layers = [
+        layer
+        for layer in json.loads(content)["layers"]
+        if layer.get("mediaType") == "application/vnd.ollama.image.params"
+    ]
+    if len(layers) != 1:
+        raise PreparationError("candidate must expose exactly one parameters layer")
+    identity = layers[0].get("digest")
+    if not isinstance(identity, str) or not re.fullmatch(
+        r"sha256:[0-9a-f]{64}", identity
+    ):
+        raise PreparationError("invalid parameters layer digest")
+    raw = reader(identity.removeprefix("sha256:"))
+    if len(raw) > MANIFEST_LIMIT or hashlib.sha256(raw).hexdigest() != identity[7:]:
+        raise PreparationError("parameters bytes do not match manifest digest")
+    try:
+        parameters = json.loads(raw)
+    except (ValueError, UnicodeError) as exc:
+        raise PreparationError("candidate parameters are not valid JSON") from exc
+    if not isinstance(parameters, dict):
+        raise PreparationError("candidate parameters must be an object")
+    return parameters
+
+
+def runtime_integer(parameters, name, default=None):
+    value = parameters.get(name, default)
+    if type(value) is not int or value <= 0:
+        raise PreparationError(f"candidate parameter {name} must be a positive integer")
+    return value
 
 
 class AdoptionCancelled(BaseException):
@@ -617,6 +653,11 @@ class Preparation:
             digest = inventory[name]
             content = self.operation(self.manifest_reader, digest)
             blobs = manifest_blob_ids(content, digest)
+            parameters = manifest_parameters(
+                content,
+                digest,
+                lambda identity: self.operation(self.manifest_reader, identity),
+            )
             if self.operation(self.api.tags).get(name) != digest:
                 raise PreparationError(
                     "candidate identity changed during manifest readback"
@@ -629,9 +670,9 @@ class Preparation:
             value = {
                 "tag": tag,
                 "digest": inventory[name],
-                "context": integer_parameter(shown, "num_ctx"),
-                "batch": integer_parameter(
-                    shown, "num_batch", posture.data["default_batch"]
+                "context": runtime_integer(parameters, "num_ctx"),
+                "batch": runtime_integer(
+                    parameters, "num_batch", posture.data["default_batch"]
                 ),
                 "weights_sha256": blobs[0],
                 "show": shown,
