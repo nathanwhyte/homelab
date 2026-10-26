@@ -74,8 +74,14 @@ off switch; a patch failure never breaks the import):
                         the server's vector count, so ``ov status`` stops reading
                         vikingdb as unhealthy (``api_fastapi.data_router``). No other
                         target loads in that process.
+  * ov_http_update_patch — BUG-1269: ``HttpCollectionAdapter`` gets the
+                        ``update_data`` every other adapter has, so a field-only
+                        vector update (``UPDATE_FIELDS``) reaches the service's
+                        ``/api/vikingdb/data/update`` instead of failing with
+                        AttributeError (installed when
+                        ``viking_vector_index_backend`` loads).
 
-Rollback of one patch: its env switch (``OV_S3_CACHE_PATCH=0``, ``OV_EXTRACT_PATCH=0``, ``OV_CHATLOG_PATCH=0``, ``OV_MEMORY_GUARD=0``, ``OV_EVENT_NOISE_FILTER=0``, ``OV_EVENT_ABSTRACT_PATCH=0``, ``OV_GREP_SCOPE_PATCH=0``, ``OV_RECALL_TIME_PATCH=0``, ``OV_PREF_GATE=0``, ``OV_VECTORDB_AGG_PATCH=0`` on ov-vectordb; ``OV_NAV_PATCH=0``
+Rollback of one patch: its env switch (``OV_S3_CACHE_PATCH=0``, ``OV_EXTRACT_PATCH=0``, ``OV_CHATLOG_PATCH=0``, ``OV_MEMORY_GUARD=0``, ``OV_EVENT_NOISE_FILTER=0``, ``OV_EVENT_ABSTRACT_PATCH=0``, ``OV_GREP_SCOPE_PATCH=0``, ``OV_RECALL_TIME_PATCH=0``, ``OV_PREF_GATE=0``, ``OV_HTTP_UPDATE_PATCH=0``, ``OV_VECTORDB_AGG_PATCH=0`` on ov-vectordb; ``OV_NAV_PATCH=0``
 only after the model-built overview template is restored, see the Deployment).
 
 Retired at v0.5.1.1 (IMPR-1412): ``ov_fetch_items_patch`` (BUG-1218, fixed upstream
@@ -123,6 +129,7 @@ TARGETS = {
         ("ov_recall_time_patch", "apply_reindex"),
     ],
     "openviking.service.fs_service": ("ov_grep_scope_patch", "apply"),
+    "openviking.storage.viking_vector_index_backend": ("ov_http_update_patch", "apply"),
     "openviking.retrieve.hierarchical_retriever": (
         "ov_recall_time_patch",
         "apply_retriever",
