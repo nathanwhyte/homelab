@@ -16,6 +16,7 @@ scrub_environ()
 
 import json
 import os
+import signal
 import shutil
 import subprocess
 import tempfile
@@ -294,7 +295,7 @@ class InstallerTests(unittest.TestCase):
         path.write_text("#!" + sys.executable + "\n" + textwrap.dedent(COMMAND))
         path.chmod(0o755)
 
-    def run_installer(self, *args, **env):
+    def run_installer(self, *args, umask=-1, **env):
         return subprocess.run(
             ["bash", str(self.src / "install-host-ollama.sh"), *args],
             env=dict(self.env, EXPECT_INSTALLER_LOCK="1", **env),
@@ -302,6 +303,7 @@ class InstallerTests(unittest.TestCase):
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             timeout=30,
+            umask=umask,
         )
 
     def calls(self):
@@ -337,6 +339,67 @@ class InstallerTests(unittest.TestCase):
         result = self.run_installer()
         self.assertEqual(result.returncode, 0, result.stdout)
         self.log.write_text("")
+
+    def test_interrupted_shell_lock_creation_retries_under_common_umasks(self):
+        interrupt = self.base / "interrupt-lock-creation.sh"
+        interrupt.write_text(
+            "set -T\ntrap 'if [[ -e $KILL_LOCK_PATH ]]; then kill -KILL \"$$\"; fi' DEBUG\n"
+        )
+        for mask in (0o000, 0o002, 0o022, 0o077):
+            for relative in (
+                "run/lock/ollama-install.lock",
+                "var/lib/ollama-preparation/preparation.lock",
+            ):
+                with self.subTest(lock=relative, umask=f"{mask:04o}"):
+                    lock = self.root / relative
+                    lock.unlink(missing_ok=True)
+                    result = self.run_installer(
+                        umask=mask, BASH_ENV=str(interrupt), KILL_LOCK_PATH=str(lock)
+                    )
+                    self.assertEqual(result.returncode, -signal.SIGKILL, result.stdout)
+                    self.assertEqual(lock.stat().st_mode & 0o777, 0o600)
+                    self.assertEqual(lock.read_bytes(), b"")
+                    # The next adoption must accept the killed creator's safe
+                    # file and retain shared-read access for the recovery reader.
+                    result = self.run_installer(umask=mask)
+                    self.assertEqual(result.returncode, 0, result.stdout)
+                    shared = self.root / "var/lib/ollama-preparation/preparation.lock"
+                    self.assertEqual(shared.stat().st_mode & 0o777, 0o644)
+
+    def test_existing_unsafe_shell_locks_are_refused_without_repair(self):
+        for relative in (
+            "run/lock/ollama-install.lock",
+            "var/lib/ollama-preparation/preparation.lock",
+        ):
+            with self.subTest(lock=relative):
+                lock = self.root / relative
+                lock.parent.mkdir(parents=True, exist_ok=True)
+                lock.write_text("existing lock bytes\n")
+                lock.chmod(0o664)
+                result = self.run_installer()
+                self.assertNotEqual(result.returncode, 0, result.stdout)
+                self.assertIn("not group/world-writable", result.stdout)
+                self.assertEqual(self.mutation_calls(), [])
+                self.assertEqual(lock.read_text(), "existing lock bytes\n")
+                self.assertEqual(lock.stat().st_mode & 0o777, 0o664)
+                lock.unlink()
+                self.log.write_text("")
+
+    def test_shell_locks_do_not_truncate_existing_trusted_files(self):
+        locks = [
+            self.root / "run/lock/ollama-install.lock",
+            self.root / "var/lib/ollama-preparation/preparation.lock",
+        ]
+        for lock in locks:
+            lock.parent.mkdir(parents=True, exist_ok=True)
+            lock.write_text("existing lock bytes\n")
+            lock.chmod(0o600)
+        result = self.run_installer()
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertTrue(
+            all(lock.read_text() == "existing lock bytes\n" for lock in locks)
+        )
+        self.assertEqual(locks[1].stat().st_mode & 0o777, 0o644)
 
     def test_normal_unreachable_refuses_before_host_mutation(self):
         (self.root / "online").write_text("no")

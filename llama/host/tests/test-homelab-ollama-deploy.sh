@@ -107,6 +107,57 @@ run bash "$WRAPPER" "--check; id"
 rc=$?
 [[ $rc -eq 2 && ! -s $CALLS ]] && ok "shell-metachar argument refused" || bad "metachar arg (rc=$rc)"
 
+echo "wrapper: lock creation survives interruption without permissive artifacts"
+cat >"$TMP/interrupt-lock-creation.sh" <<'EOF'
+set -T
+trap 'if [[ -e $KILL_LOCK_PATH ]]; then kill -KILL "$$"; fi' DEBUG
+EOF
+cat >"$TMP/run-with-umask.sh" <<'EOF'
+umask "$1"
+exec bash "$2"
+EOF
+for mask in 0000 0002 0022 0077; do
+	rm -f "$TMP/deploy.lock"
+	run env BASH_ENV="$TMP/interrupt-lock-creation.sh" KILL_LOCK_PATH="$TMP/deploy.lock" \
+		bash "$TMP/run-with-umask.sh" "$mask" "$WRAPPER"
+	rc=$?
+	if [[ $rc -eq 137 && ! -s $CALLS ]] && python3 - "$TMP/deploy.lock" <<'PY'
+import os, sys
+assert os.stat(sys.argv[1]).st_mode & 0o777 == 0o600
+PY
+	then
+		ok "killed wrapper leaves a safe lock under umask $mask"
+	else
+		bad "killed wrapper left unsafe lock under umask $mask (rc=$rc)"
+	fi
+	if run bash "$TMP/run-with-umask.sh" "$mask" "$WRAPPER" && grep -q 'rev=v1' "$CALLS"; then
+		ok "wrapper retries after lock creation interruption under umask $mask"
+	else
+		bad "wrapper retry failed under umask $mask"
+	fi
+done
+printf 'existing lock bytes\n' >"$TMP/deploy.lock"
+chmod 0664 "$TMP/deploy.lock"
+run bash "$WRAPPER"
+rc=$?
+if [[ $rc -ne 0 && ! -s $CALLS ]] && grep -q 'not group/world-writable' "$TMP/out" && python3 - "$TMP/deploy.lock" <<'PY'
+import os, pathlib, sys
+path = pathlib.Path(sys.argv[1])
+assert os.stat(path).st_mode & 0o777 == 0o664
+assert path.read_text() == 'existing lock bytes\n'
+PY
+then
+	ok "wrapper refuses an unsafe existing lock without repair or truncation"
+else
+	bad "wrapper repaired or changed an unsafe existing lock"
+fi
+chmod 0600 "$TMP/deploy.lock"
+if run bash "$WRAPPER" && grep -q '^existing lock bytes$' "$TMP/deploy.lock"; then
+	ok "wrapper preserves a trusted lock's existing bytes"
+else
+	bad "wrapper truncated its trusted lock"
+fi
+
 echo "wrapper: the caller cannot steer what runs"
 run env REPO_DIR=/tmp/evil bash "$WRAPPER"
 grep -q "repo_dir=$SRC " "$CALLS" && ok "REPO_DIR from the environment is ignored; pinned to the root checkout" ||

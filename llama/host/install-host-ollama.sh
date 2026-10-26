@@ -66,6 +66,19 @@ die() {
 	printf 'ERROR: %s\n' "$*" >&2
 	exit 1
 }
+validate_lock() {
+	python3 - "$@" <<'PY'
+import os, stat, sys
+fd, path = int(sys.argv[1]), sys.argv[2]
+actual, expected = os.fstat(fd), os.lstat(path)
+if (not stat.S_ISREG(actual.st_mode) or not stat.S_ISREG(expected.st_mode)
+        or actual.st_uid != os.geteuid() or actual.st_mode & 0o022
+        or (actual.st_dev, actual.st_ino) != (expected.st_dev, expected.st_ino)):
+    sys.exit("installer lock must be owned by the installer and not group/world-writable")
+if len(sys.argv) == 4:
+    os.fchmod(fd, int(sys.argv[3], 8))
+PY
+}
 # Empty directive output is valid; a read error is not an empty unit.
 directives() {
 	local status=0
@@ -276,7 +289,13 @@ if [[ $mode == install ]]; then
 fi
 # Serialize the complete host transaction, not just the core's model operations.
 # A normal unavailable-daemon refusal above does not create even this lock file.
-exec 9>"$ROOT/run/lock/ollama-install.lock"
+install_lock=$ROOT/run/lock/ollama-install.lock
+[[ ! -L $install_lock ]] || die "installer lock must not be a symlink"
+previous_umask=$(umask)
+umask 077
+exec 9>>"$install_lock"
+umask "$previous_umask"
+validate_lock 9 "$install_lock" || die "unsafe installer lock"
 flock -n 9 || die "another host adoption is running; retry after it finishes"
 for module in ollama_prepare.py ollama_recovery.py ollama_runtime.py ollama_attestation.py; do
 	[[ -f $SRC/$module ]] || die "preparation module is incomplete: $module"
@@ -298,9 +317,15 @@ if [[ $mode == recovery ]]; then
 fi
 install -d -m 0755 "$STATE_DIR"
 [[ ! -L $STATE_DIR/preparation.lock ]] || die "preparation lock must not be a symlink"
+previous_umask=$(umask)
+umask 077
 exec 8>>"$STATE_DIR/preparation.lock"
-chmod 0644 "$STATE_DIR/preparation.lock"
+umask "$previous_umask"
+validate_lock 8 "$STATE_DIR/preparation.lock" || die "unsafe preparation lock"
 flock 8 || die "cannot acquire the shared preparation lock"
+# Widen only a validated, acquired descriptor. An interrupted creation leaves
+# a safe private file, which the next trusted owner can make readable again.
+validate_lock 8 "$STATE_DIR/preparation.lock" 0644 || die "cannot set preparation lock readability"
 preparation_locked=1
 if [[ $mode == files ]]; then
 	[[ -f $UNIT_DIR/ollama.service && -f $HOST_DIR/model-posture.json ]] || die "--files-only needs a full migration to the preparation module first"
