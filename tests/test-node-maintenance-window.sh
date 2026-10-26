@@ -35,14 +35,23 @@ case "$*" in
 	;;
 "get pdb -A -o json" | get\ pods\ -A\ -o\ json* | "get volumes.longhorn.io -n longhorn-system -o json") echo '{"items":[]}' ;;
 get\ jobs\ -n\ compendium*) printf '%s' "${STUB_ACTIVE_JOB:-}" ;;
-cordon\ *)
+cordon\ * | patch\ node\ *\"unschedulable\":true*)
+	n=$2
+	[[ $1 == patch ]] && n=$3
 	cat "$XDG_STATE_HOME/homelab-node-maintenance/window" >"$XDG_STATE_HOME/window-at-cordon" 2>/dev/null ||
 		echo absent >"$XDG_STATE_HOME/window-at-cordon"
-	echo "$2" >>"$C"
+	echo "$n" >>"$C"
 	;;
-uncordon\ *)
-	grep -vx "$2" "$C" >"$C.n" || true
+uncordon\ * | patch\ node\ *\"unschedulable\":null*)
+	n=$2
+	[[ $1 == patch ]] && n=$3
+	grep -vx "$n" "$C" >"$C.n" || true
 	mv "$C.n" "$C"
+	;;
+get\ node\ *\ -o\ json)
+	u=false
+	grep -qx "$3" "$C" && u=true
+	printf '{"metadata":{"name":"%s","resourceVersion":"1"},"spec":{"unschedulable":%s}}\n' "$3" "$u"
 	;;
 get\ deployment\ *jsonpath*) printf 1 ;;
 get\ deployment\ *-o\ json*) echo '{"spec":{"selector":{"matchLabels":{"app":"x"}}}}' ;;

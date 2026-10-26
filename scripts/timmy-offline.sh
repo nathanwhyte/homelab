@@ -425,12 +425,12 @@ cmd_down() {
 	# earlier node still owes a reboot. Ask it first: a refusal after the silence,
 	# suspend and park below leaves timmy half out with no instruction (2026-10-21).
 	# The cycle module also owns the already-cordoned repeat path. Decide once,
-	# from timmy's cordon when down starts (main's rule), and pass that decision
+	# from timmy's cordon and its owner when down starts, and pass that decision
 	# on: a cordon that appears after this read then meets the strict preflight
-	# or a bare drain, which refuse it. Ownership of a cordon that was already
-	# there is not checked, as on main (llama/host/README.md has the limits).
-	local preflight_args=() drain_args=(--spin-down)
-	if already_cordoned; then
+	# or a bare drain, which refuse it. Only this Mac's outage cordon repeats;
+	# any other refuses here, before any change (IMPR-1428).
+	local preflight_args=() drain_args=(--spin-down --outage)
+	if own_outage_cordon; then
 		preflight_args=(--allow-repeat)
 		drain_args+=(--repeat)
 	fi
@@ -449,7 +449,7 @@ cmd_down() {
 	log "drain via node-maintenance.sh (no reboot, pre-drain spin-down)"
 	# --spin-down is required here, not optional: it frees headroom for the
 	# pods evicted from timmy before the memory-headroom preflight runs.
-	# --repeat only when already_cordoned above saw timmy cordoned.
+	# --repeat only when own_outage_cordon above saw this Mac's outage cordon.
 	"$NODE_MAINTENANCE" drain "$NODE" "${drain_args[@]}" ||
 		die "the drain did not finish (see above); fix that, then re-run: $SELF down"
 	# The drain itself can create new orphans: any unpinned pod evicted from timmy
@@ -468,15 +468,22 @@ cmd_down() {
 	log "When it is back on Ubuntu:  $SELF up"
 }
 
-# Succeeds for a cordoned timmy, fails for an uncordoned one, and dies on a
-# failed or unexpected read. Call it in the calling shell (an `if`), never in a
-# $( ), so the die ends the run.
-already_cordoned() {
+# Succeeds for this Mac's outage cordon, fails for an uncordoned timmy, and dies
+# on any other cordon (by hand, a reboot or drain cycle, the other Mac's outage)
+# or a failed or unexpected read. Call it in the calling shell (an `if`), never
+# in a $( ), so the die ends the run.
+own_outage_cordon() {
 	local cordon
-	cordon=$("$NODE_MAINTENANCE" cordon-status "$NODE") || die "cannot read whether $NODE is cordoned; this run changed nothing"
+	cordon=$("$NODE_MAINTENANCE" cordon-status "$NODE" --outage) || die "cannot read whether $NODE is cordoned; this run changed nothing"
 	case $cordon in
-	cordoned) return 0 ;;
+	owned) return 0 ;;
 	uncordoned) return 1 ;;
+	cordoned)
+		die "$NODE is cordoned by hand (no owner recorded), not by this Mac's down; this run changed nothing. Only if it is this Mac's outage from before cordon owners were recorded, claim it and re-run: kubectl annotate node $NODE homelab/cordon-owner=\"outage:\$(scutil --get ComputerName)\" --overwrite"
+		;;
+	cordoned\ ?*)
+		die "$NODE is cordoned by ${cordon#cordoned }, not by this Mac's down; this run changed nothing. Finish that work first (an outage: run '$SELF up' on the Mac that started it)"
+		;;
 	*) die "unexpected cordon status for $NODE: $cordon; this run changed nothing" ;;
 	esac
 }

@@ -317,7 +317,7 @@ finish_fixture() (
 		if [[ -e $TMPDIR_TEST/cordoned ]]; then printf 'wemby\n'; fi
 	}
 	kubectl() {
-		[[ $1 == uncordon ]] || return 1
+		[[ $1 == patch && $* == *'"unschedulable":null'* ]] || return 1
 		rm "$TMPDIR_TEST/cordoned"
 	}
 	cmd_finish wemby 12345678-1234-1234-1234-123456789abc

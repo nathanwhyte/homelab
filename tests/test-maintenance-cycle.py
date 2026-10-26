@@ -22,6 +22,7 @@ OLD_BOOT = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
 NEW_BOOT = "11111111-2222-3333-4444-555555555555"
 THIRD_BOOT = "99999999-8888-7777-6666-555555555555"
 SILENCE = "0b5c1f0e-7a3d-4c51-9e2b-1d2f3a4b5c6d"
+OWNER_KEY = "homelab/cordon-owner"
 
 
 def fake_command(tool, args):
@@ -80,7 +81,10 @@ def fake_command(tool, args):
                         {
                             "items": [
                                 {
-                                    "metadata": {"name": name},
+                                    "metadata": {
+                                        "name": name,
+                                        "annotations": node.get("annotations", {}),
+                                    },
                                     "spec": {"unschedulable": node["cordoned"]},
                                     "status": {"allocatable": {"memory": "64Gi"}},
                                 }
@@ -100,13 +104,29 @@ def fake_command(tool, args):
             if state.get("fail_node_read") in ("all", query):
                 return 1
             node = state["nodes"][args[2]]
-            if "unschedulable" in query:
-                print(str(node["cordoned"]).lower())
+            if "unschedulable" in query or query == "json":
+                if query == "json":
+                    print(
+                        json.dumps(
+                            {
+                                "metadata": {
+                                    "name": args[2],
+                                    "resourceVersion": str(node.get("version", 1)),
+                                    "annotations": node.get("annotations", {}),
+                                },
+                                "spec": {"unschedulable": node["cordoned"]},
+                            }
+                        )
+                    )
+                else:
+                    print(str(node["cordoned"]).lower())
                 # The other Mac's down finishes right after this read: its park
                 # and spin-down zero every workload, then its drain cordons.
                 if state.get("race_cordon") and args[2] == "timmy":
                     state["race_cordon"] = False
                     node["cordoned"] = True
+                    node["annotations"] = {OWNER_KEY: "outage:mac-two"}
+                    node["version"] = node.get("version", 1) + 1
                     state["replicas"] = dict.fromkeys(state["replicas"], 0)
                     save()
             elif "Ready" in query:
@@ -172,12 +192,37 @@ def fake_command(tool, args):
             return 1
         state["replicas"][key] = replicas
         save()
-    elif verb in ("cordon", "uncordon"):
+    elif verb == "patch" and resource == "node":
+        node = state["nodes"][args[2]]
+        patch = json.loads(args[args.index("-p") + 1])
+        if "--type=merge" not in args or set(patch) - {"metadata", "spec"}:
+            return unexpected()
+        metadata = patch.get("metadata", {})
+        version = metadata.get("resourceVersion")
+        # A status update landing between the read and this write.
+        if version is not None and state.get("node_churn", 0) > 0:
+            state["node_churn"] -= 1
+            node["version"] = node.get("version", 1) + 1
+            save()
+        if version is not None and version != str(node.get("version", 1)):
+            print(
+                f'Error from server (Conflict): Operation cannot be fulfilled on nodes "{args[2]}": the object has been modified',
+                file=sys.stderr,
+            )
+            return 1
+        cordon = patch.get("spec", {}).get("unschedulable")
         # A cordon can fail before the API applies it, or after (a lost reply).
-        fault = state.get("fail_cordon") if verb == "cordon" else None
+        fault = state.get("fail_cordon") if cordon else None
         if fault == "before":
             return 1
-        state["nodes"][resource]["cordoned"] = verb == "cordon"
+        node["cordoned"] = bool(cordon)
+        annotations = node.setdefault("annotations", {})
+        for key, value in metadata.get("annotations", {}).items():
+            if value is None:
+                annotations.pop(key, None)
+            else:
+                annotations[key] = value
+        node["version"] = node.get("version", 1) + 1
         save()
         if fault == "after":
             return 1
@@ -261,6 +306,7 @@ class MaintenanceCycleTests(unittest.TestCase):
             FAKE_CLUSTER_STATE=str(self.cluster_file),
             FAKE_CLUSTER_LOG=str(self.log_file),
             NODE_SSH_SUFFIX="-lan",
+            MAINTENANCE_HOST="mac-one",
             PYTHONDONTWRITEBYTECODE="1",
         )
         self.cycle = self.state_root / "homelab-node-maintenance"
@@ -422,11 +468,26 @@ class MaintenanceCycleTests(unittest.TestCase):
             if c["tool"] == "kubectl" and c["args"][:1] == ["drain"]
         ]
 
-    def test_repeat_keeps_multi_cordon_policy(self):
+    def cordon_by(self, node, owner=None):
         state = self.read()
-        for node in ("timmy", "wemby"):
-            state["nodes"][node]["cordoned"] = True
+        state["nodes"][node]["cordoned"] = True
+        if owner:
+            state["nodes"][node]["annotations"] = {OWNER_KEY: owner}
         self.write(state)
+        return state
+
+    def owner(self, node="timmy"):
+        return self.read()["nodes"][node].get("annotations", {}).get(OWNER_KEY)
+
+    def assert_down_refused_untouched(self, before):
+        self.run_command(OUTAGE, "down", ok=False)
+        self.assertEqual(self.read(), before)
+        self.assertFalse(self.outage.exists())
+        self.assertFalse((self.cycle / "spin-down-replicas").exists())
+
+    def test_repeat_keeps_multi_cordon_policy(self):
+        self.cordon_by("wemby")
+        state = self.cordon_by("timmy", "drain:mac-one")
         self.record_cycle()
         self.run_command(NODE, "preflight", "timmy", ok=False)
         self.run_command(NODE, "preflight", "timmy", "--allow-repeat")
@@ -439,50 +500,92 @@ class MaintenanceCycleTests(unittest.TestCase):
         self.assertEqual((self.cycle / "timmy.boot-id").read_text().strip(), OLD_BOOT)
 
     def test_bare_drain_refuses_any_cordoned_node(self):
-        state = self.read()
-        state["nodes"]["manu"]["cordoned"] = True
-        self.write(state)
+        state = self.cordon_by("manu")
         self.run_command(NODE, "drain", "manu", ok=False)
         self.assertEqual(self.drain_calls(), [])
         self.assertFalse((self.cycle / "manu.boot-id").exists())
         self.assertEqual(self.read(), state)
-        # --repeat is the explicit opt-in, as on main's outage re-drain.
+        # --repeat re-drains only this Mac's own cordon, never a hand cordon.
+        self.run_command(NODE, "drain", "manu", "--repeat", ok=False)
+        self.assertEqual(self.drain_calls(), [])
+        self.assertFalse((self.cycle / "manu.boot-id").exists())
+        self.cordon_by("manu", "drain:mac-one")
+        self.run_command(NODE, "drain", "manu", "--repeat", "--outage", ok=False)
+        self.assertEqual(self.drain_calls(), [])
         self.run_command(NODE, "drain", "manu", "--repeat")
         self.assertEqual(len(self.drain_calls()), 1)
         self.assertEqual((self.cycle / "manu.boot-id").read_text().strip(), OLD_BOOT)
 
-    def test_down_on_a_hand_cordoned_timmy_repeats_as_on_main(self):
-        # A retained limit: down cannot tell whose cordon it sees, so it
-        # re-drains without the first drain's spin-down, as main's down does.
-        state = self.read()
-        state["nodes"]["timmy"]["cordoned"] = True
-        self.write(state)
-        self.run_command(OUTAGE, "down")
-        self.assertEqual(len(self.drain_calls()), 1)
-        self.assertFalse((self.cycle / "spin-down-replicas").exists())
-        self.assertEqual((self.cycle / "timmy.boot-id").read_text().strip(), OLD_BOOT)
-        self.reboot()
-        self.run_command(OUTAGE, "up")
-        self.assert_restored()
+    def test_down_refuses_a_cordon_it_does_not_own(self):
+        for owner in (None, "outage:mac-two", "drain:mac-one", "reboot:mac-one"):
+            with self.subTest(owner=owner):
+                self.write(self.initial)
+                before = self.cordon_by("timmy", owner)
+                self.assert_down_refused_untouched(before)
 
-    def test_down_from_the_other_mac_parks_zeros_as_on_main(self):
-        # A retained limit: the other Mac has no outage state, so its down
-        # repeats and parks the first down's zeros as its own counts.
+    def test_down_refuses_a_reboot_cycles_cordon(self):
+        self.run_command(NODE, "reboot", "timmy", "--no-reboot")
+        self.assertEqual(self.owner(), "reboot:mac-one")
+        before = self.read()
+        self.assertTrue((self.cycle / "timmy.boot-id").exists())
+        self.run_command(OUTAGE, "down", ok=False)
+        self.assertEqual(self.read(), before)
+        self.assertFalse(self.outage.exists())
+
+    def test_down_from_the_other_mac_refuses_before_any_change(self):
         self.run_command(OUTAGE, "down")
+        self.assertEqual(self.owner(), "outage:mac-one")
+        before = self.read()
         first_mac = self.env["XDG_STATE_HOME"]
         other_mac = self.root / "other-mac"
         other_mac.mkdir()
-        self.env["XDG_STATE_HOME"] = str(other_mac)
-        self.run_command(OUTAGE, "down")
-        parked = (other_mac / "homelab-timmy-offline" / "parked-scales").read_text()
-        self.assertTrue(parked.splitlines())
-        for line in parked.splitlines():
-            self.assertTrue(line.endswith("\t0"), line)
-        # The first Mac's up still restores the real counts.
-        self.env["XDG_STATE_HOME"] = first_mac
+        self.env.update(XDG_STATE_HOME=str(other_mac), MAINTENANCE_HOST="mac-two")
+        result = self.run_command(OUTAGE, "down", ok=False)
+        self.assertIn("outage:mac-one", result.stderr)
+        self.assertEqual(self.read(), before)
+        self.assertEqual(list(other_mac.iterdir()), [])
+        # The first Mac's up restores the real counts and drops the owner.
+        self.env.update(XDG_STATE_HOME=first_mac, MAINTENANCE_HOST="mac-one")
         self.reboot()
         self.run_command(OUTAGE, "up")
         self.assert_restored()
+        self.assertIsNone(self.owner())
+
+    def test_a_claimed_legacy_cordon_repeats(self):
+        # A cordon from before owners were recorded refuses until claimed.
+        before = self.cordon_by("timmy")
+        self.assert_down_refused_untouched(before)
+        self.cordon_by("timmy", "outage:mac-one")
+        self.run_command(OUTAGE, "down")
+        self.assertEqual(len(self.drain_calls()), 1)
+        self.assertFalse((self.cycle / "spin-down-replicas").exists())
+
+    def test_stale_owner_on_an_uncordoned_node_is_replaced(self):
+        state = self.read()
+        state["nodes"]["timmy"]["annotations"] = {OWNER_KEY: "outage:mac-two"}
+        self.write(state)
+        self.run_command(OUTAGE, "down")
+        self.assertTrue(self.read()["nodes"]["timmy"]["cordoned"])
+        self.assertEqual(self.owner(), "outage:mac-one")
+        self.assertTrue((self.cycle / "spin-down-replicas").exists())
+
+    def test_cordon_retries_a_conflict(self):
+        state = self.read()
+        state["node_churn"] = 2
+        self.write(state)
+        result = self.run_command(OUTAGE, "down")
+        self.assertEqual(result.stdout.count("changed while cordoning"), 2)
+        self.assertEqual(self.owner(), "outage:mac-one")
+
+    def test_cordon_gives_up_after_repeated_conflicts(self):
+        state = self.read()
+        state["node_churn"] = 3
+        self.write(state)
+        self.run_command(NODE, "drain", "timmy", ok=False)
+        self.assertFalse(self.read()["nodes"]["timmy"]["cordoned"])
+        self.assertIsNone(self.owner())
+        self.assertFalse((self.cycle / "timmy.boot-id").exists())
+        self.assertEqual(self.drain_calls(), [])
 
     def test_down_racing_the_other_macs_down_refuses_before_parking(self):
         state = self.read()
@@ -515,12 +618,10 @@ class MaintenanceCycleTests(unittest.TestCase):
                 self.assertEqual(self.read(), before)
                 self.assertFalse((self.cycle / "spin-down-replicas").exists())
                 self.assertFalse(self.outage.exists())
-        state = self.read()
-        state["nodes"]["timmy"]["cordoned"] = True
-        self.write(state)
+        state = self.cordon_by("timmy", "outage:mac-one")
         for script, args in (
             (NODE, ("preflight", "timmy", "--allow-repeat")),
-            (NODE, ("drain", "timmy", "--repeat")),
+            (NODE, ("drain", "timmy", "--repeat", "--outage")),
             (OUTAGE, ("down",)),
         ):
             with self.subTest(args=args):
@@ -591,10 +692,8 @@ class MaintenanceCycleTests(unittest.TestCase):
                 self.assertIn(message, result.stderr)
                 self.assertEqual(self.read(), before)
                 self.assertFalse(self.outage.exists())
-        # The repeat path: a cordoned timmy whose record cannot be read.
-        state = self.read()
-        state["nodes"]["timmy"]["cordoned"] = True
-        self.write(state)
+        # The repeat path: this Mac's cordon, with a record it cannot read.
+        state = self.cordon_by("timmy", "outage:mac-one")
         record = self.cycle / "timmy.boot-id"
         self.record_cycle()
         record.chmod(0)
@@ -663,9 +762,7 @@ class MaintenanceCycleTests(unittest.TestCase):
                 )
                 result = self.run_command(NODE, "recover", "timmy", ok=False)
                 self.assertIn("pass its previous boot ID explicitly", result.stderr)
-                state = self.read()
-                state["nodes"]["timmy"]["cordoned"] = True
-                self.write(state)
+                state = self.cordon_by("timmy", "drain:mac-one")
                 result = self.run_command(NODE, "drain", "timmy", "--repeat")
                 self.assertIn("saved reboot state was empty", result.stdout)
                 self.assertEqual(
@@ -719,8 +816,7 @@ class MaintenanceCycleTests(unittest.TestCase):
 
     def test_repeat_checks_leftovers_after_successful_drain(self):
         self.record_cycle()
-        state = self.read()
-        state["nodes"]["timmy"]["cordoned"] = True
+        state = self.cordon_by("timmy", "drain:mac-one")
         state["pods"] = [
             {
                 "metadata": {"namespace": "default", "name": "leftover"},
