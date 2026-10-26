@@ -14,9 +14,11 @@ It also runs ``test_ov_nav_patch.py``'s module-level ``test_*`` functions, which
 ``unittest discover`` does not collect.
 
 Interpreter: ``$NAV_PATCH_PYTHON``, else the ``openviking`` uv tool's Python when it
-exists, else this one. With no openviking importable, the real-module cases skip and
-a SKIP line says so; ``NAV_PATCH_REQUIRE_OPENVIKING=1`` (set in CI, which installs the
-pinned release) makes that a failure.
+exists and carries the pinned release, else this one. A uv tool on another release is
+named in one line and left out (IMPR-1431). With no openviking importable, the
+real-module cases skip and a SKIP line says so; ``NAV_PATCH_REQUIRE_OPENVIKING=1``
+(set in CI, which installs the pinned release) makes either line a failure. An
+interpreter that imports another release is refused before any case runs.
 
 Usage: viking/scripts/run-nav-patch-tests.py [-v]
 """
@@ -24,12 +26,15 @@ Usage: viking/scripts/run-nav-patch-tests.py [-v]
 import ast
 import importlib
 import os
+import subprocess
 import sys
 import unittest
 from pathlib import Path
 
 NAV_DIR = Path(__file__).resolve().parent.parent / "manifests" / "test" / "nav-patch"
 CHILD_FLAG = "_NAV_PATCH_TESTS_CHILD"
+# Reads the dist metadata only, so a broken or slow package import costs nothing.
+PROBE = "import importlib.metadata as m; print(m.version('openviking'))"
 
 
 def tool_python():
@@ -41,6 +46,63 @@ def tool_python():
     )
     py = Path(base) / "openviking" / "bin" / "python"
     return str(py) if py.exists() else None
+
+
+def tool_version(py):
+    """The openviking release installed for ``py`` (PyPI form, ``0.5.1.1``), or None."""
+    try:
+        out = subprocess.run(
+            [py, "-I", "-c", PROBE],
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if out.returncode != 0:
+        return None
+    return out.stdout.strip() or None
+
+
+def choose_python(environ, expected, tool=tool_python, version=tool_version):
+    """``(interpreter, notice)`` for the child: ``$NAV_PATCH_PYTHON``, else the uv
+    tool's Python when it carries the pinned release, else this one.
+
+    IMPR-1431: a uv tool on another release (pop's stayed at 0.4.20 until the
+    upgrade's client phase) failed every real-module case with nothing naming the
+    cause. Now it is named in one line and left out, so those cases skip; under
+    ``NAV_PATCH_REQUIRE_OPENVIKING=1`` the line is the failure.
+    """
+    explicit = environ.get("NAV_PATCH_PYTHON")
+    if explicit:
+        return explicit, None
+    py = tool()
+    if py is None:
+        return sys.executable, None
+    found = version(py)
+    if found is None or "v" + found == expected:
+        return py, None
+    pin = expected.removeprefix("v")
+    notice = (
+        f"run-nav-patch-tests: the openviking uv tool has {found} and the patches "
+        f'pin {expected}; run `uv tool install "openviking=={pin}" --force`, or set '
+        f"NAV_PATCH_PYTHON to a Python with openviking=={pin}"
+    )
+    if environ.get("NAV_PATCH_REQUIRE_OPENVIKING") == "1":
+        sys.exit(notice)
+    return sys.executable, f"{notice} (running without it)"
+
+
+def mismatch(openviking, expected):
+    """The refusal for an importable openviking that is not the pinned release, else None."""
+    if openviking is None or openviking.__version__ == expected:
+        return None
+    pin = expected.removeprefix("v")
+    return (
+        f"run-nav-patch-tests: {sys.executable} has openviking "
+        f"{openviking.__version__} and the patches pin {expected}; set "
+        f"NAV_PATCH_PYTHON to a Python with openviking=={pin}"
+    )
 
 
 def expected_version():
@@ -127,7 +189,9 @@ def import_failure(name, exc):
 
 def main():
     if os.environ.get(CHILD_FLAG) != "1":
-        py = os.environ.get("NAV_PATCH_PYTHON") or tool_python() or sys.executable
+        py, notice = choose_python(os.environ, expected_version())
+        if notice:
+            print(notice, flush=True)
         env = dict(os.environ)
         env[CHILD_FLAG] = "1"
         # On PYTHONPATH, not just sys.path, so ``site`` imports the loader at
@@ -155,6 +219,9 @@ def main():
             sys.exit(f"run-nav-patch-tests: {msg}")
         print(msg)
     else:
+        refusal = mismatch(openviking, expected)
+        if refusal:
+            sys.exit(refusal)
         print(f"openviking {openviking.__version__} (patches pin {expected})")
     verbosity = 2 if "-v" in sys.argv[1:] else 1
     # buffer: the patches log every refusal the negative cases provoke; show a

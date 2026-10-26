@@ -6,9 +6,14 @@ takes each verdict from the server's own outcome rather than from an inference:
 
 - a replace-write sent with `wait: true`, which must come back `vector_status:
   complete` (no Embedding work failed), with an exact read-back;
+- a field-only update (IMPR-1431): a waited `batch-write` of the replace's exact
+  bytes with a tag unique to the run, so the server plans `UPDATE_FIELDS`, not a
+  re-embed. Stock v0.5.1.1 failed it with HTTP 500 (BUG-1269), and the replace
+  alone never reached that path;
 - the probe's own vector record, read through OpenViking's HTTP adapter after the
-  write: it must carry the md5 of this run's content, so no earlier write (the
-  probe's create included) and no empty or errored read can satisfy it;
+  writes: it must carry the md5 of this run's content and this run's tag, so no
+  earlier write (the probe's create included) and no empty or errored read can
+  satisfy it;
 - direct vectordb counts through the same adapter (`count`, `strict_count`, and
   `strict_count` filtered to the account and to a value matching nothing), the
   path a missing aggregate route broke on v0.5.1.1;
@@ -27,7 +32,8 @@ Traps from that run are handled here rather than rediscovered:
   An observer that names none (an unpatched server's error path) is a failed check,
   not a refusal, so the `before` run still writes.
 - A replace sent right after the probe's create can get 409 (path busy), so the
-  replace retries on 409 (`--replace-attempts`, every `--replace-wait` seconds).
+  replace and the tag update retry on 409 (`--replace-attempts`, every
+  `--replace-wait` seconds).
 
 The vectordb service and port come from the same `ov.conf` (`storage.vectordb.url`),
 its project and index from `project` / `index_name` (OpenViking's default for each
@@ -40,7 +46,9 @@ Writes go only to PROBE_URI on ov-test. The HTTP calls are stdlib; the vectordb 
 The checks: the observer names the collection and reports healthy; `/health` is
 200; the replace returns HTTP 200, `status: ok` and `vector_status: complete`; the
 read-back equals the replacement exactly (the replacement carries a marker unique
-to the run); the probe's vector record carries the replacement's md5; each count is
+to the run); the tag update returns HTTP 200, `status: ok` and `vector_status:
+complete`, lists the probe as updated, and reports no Embedding error; the probe's
+vector record carries the replacement's md5 and the run's tag; each count is
 a non-negative integer, the filter matching nothing counts 0, and the account filter
 counts at least 1. No two counts are compared with each other, since other indexing
 may run between calls.
@@ -78,6 +86,7 @@ SERVER_PORT = 1933
 SECRET = "openviking-api-key"
 PROBE_URI = "viking://resources/ov-test-write-canary/probe.md"
 PROBE_FILTER = {"op": "must", "field": "uri", "conds": [PROBE_URI]}
+TAG_KEY = "ov-test-write-canary"
 MAX_SECONDS = 86400
 HELD = {signal.SIGINT, signal.SIGTERM}
 EXIT_OK, EXIT_ERROR, EXIT_FAILED = 0, 1, 3
@@ -251,19 +260,40 @@ def http(base, headers, method, path, params=None, body=None, timeout=120):
         return status, raw.decode(errors="replace")[:600]
 
 
-def replace_with_retry(call, content, attempts, wait, sleep=time.sleep):
-    """POST a waited replace, retrying while the path is busy (409).
+def post_with_retry(call, path, body, attempts, wait, sleep=time.sleep):
+    """POST `body` to `path`, retrying while the path is busy (409).
 
     Returns (status, body, tries).
     """
     for n in range(1, attempts + 1):
-        status, body = call(
-            "POST", "/api/v1/content/write",
-            body={"uri": PROBE_URI, "content": content, "mode": "replace", "wait": True},
-        )  # fmt: skip
+        status, reply = call("POST", path, body=body)
         if status != 409 or n == attempts:
-            return status, body, n
+            return status, reply, n
         sleep(wait)
+
+
+def replace_with_retry(call, content, attempts, wait, sleep=time.sleep):
+    """A waited replace of the probe with `content`; (status, body, tries)."""
+    body = {"uri": PROBE_URI, "content": content, "mode": "replace", "wait": True}
+    return post_with_retry(call, "/api/v1/content/write", body, attempts, wait, sleep)
+
+
+def tag_update_with_retry(call, content, tag, attempts, wait, sleep=time.sleep):
+    """A waited batch write of the probe's own `content` with `tag`; (status, body, tries).
+
+    The bytes are unchanged, so the server plans a field-only vector update
+    (UPDATE_FIELDS) rather than a re-embed: the path BUG-1269 broke.
+    """
+    body = {
+        "root_uri": PROBE_URI.rsplit("/", 1)[0],
+        "operations": [
+            {"uri": PROBE_URI, "content": content, "mode": "replace", "tags": [tag]}
+        ],
+        "wait": True,
+    }
+    return post_with_retry(
+        call, "/api/v1/content/batch-write", body, attempts, wait, sleep
+    )
 
 
 def observer_collection(body):
@@ -298,26 +328,34 @@ def adapter_class():
 
 
 def probe_record(adapter):
-    """The probe's vector record(s) as {rows, md5s}, or {error}.
+    """The probe's vector record(s) as {rows, md5s, tags}, or {error}.
 
     The adapter reads a vectordb error as no rows, so only a row carrying this
-    run's md5 shows anything; an empty result is never evidence.
+    run's md5 or tag shows anything; an empty result is never evidence.
     """
     try:
         rows = adapter.query(filter=PROBE_FILTER, limit=5,
-                             output_fields=["uri", "md5", "updated_at"])  # fmt: skip
+                             output_fields=["uri", "md5", "search_tags", "updated_at"])  # fmt: skip
     except Exception as e:  # noqa: BLE001 — the canary reports every outcome
         return {"error": f"ERROR {e!r}"[:300]}
     if not isinstance(rows, list):
         return {"error": f"ERROR query returned {type(rows).__name__}"}
-    md5s = sorted({r.get("md5") for r in rows if isinstance(r, dict)} - {None, ""})
-    return {"rows": len(rows), "md5s": md5s}
+    rows_ = [r for r in rows if isinstance(r, dict)]
+    md5s = sorted({r.get("md5") for r in rows_} - {None, ""})
+    tags = sorted({t for r in rows_ if isinstance(r.get("search_tags"), list)
+                   for t in r["search_tags"] if isinstance(t, str)})  # fmt: skip
+    return {"rows": len(rows), "md5s": md5s, "tags": tags}
 
 
 def probe_vector_written(record, content):
     """Whether the probe's record carries the md5 of `content`, this run's bytes."""
     md5 = hashlib.md5(content.encode()).hexdigest()
     return isinstance(record, dict) and md5 in (record.get("md5s") or [])
+
+
+def probe_tagged(record, tag):
+    """Whether the probe's record carries `tag`, this run's field-only update."""
+    return isinstance(record, dict) and tag in (record.get("tags") or [])
 
 
 def vectordb_counts(adapter, account):
@@ -365,6 +403,7 @@ def failures(out, need_vectordb):
         bad.append("replace (vector_status is not complete)")
     if not out.get("read_back_matches"):
         bad.append("read_back_matches")
+    bad += tag_update_failures(out.get("tag_update") or {})
     counts = out.get("vectordb")
     if counts is None:
         if need_vectordb:
@@ -374,7 +413,33 @@ def failures(out, need_vectordb):
         return bad
     if not out.get("probe_vector_written"):
         bad.append("probe_vector (no record carries this run's content md5)")
+    if not out.get("probe_tagged"):
+        bad.append("probe_vector (no record carries this run's tag)")
     return bad + count_failures(counts)
+
+
+def tag_update_failures(update):
+    """What is wrong with the field-only update, judged on the server's own reply.
+
+    The probe must be listed as updated (not unchanged) with `vector_status:
+    complete`, and the reply's Embedding queue status, when present, must hold no
+    error: stock v0.5.1.1 answered 500 with an Embedding error (BUG-1269).
+    """
+    body = update.get("body")
+    result = body.get("result") if isinstance(body, dict) else None
+    if update.get("http") != 200 or not (
+        isinstance(body, dict) and body.get("status") == "ok"
+    ):
+        return ["tag_update"]
+    if not (isinstance(result, dict) and result.get("vector_status") == "complete"):
+        return ["tag_update (vector_status is not complete)"]
+    if PROBE_URI not in (result.get("updated") or []):
+        return ["tag_update (the probe is not listed as updated)"]
+    queue = result.get("queue_status")
+    embedding = queue.get("Embedding") if isinstance(queue, dict) else None
+    if isinstance(embedding, dict) and embedding.get("error_count"):
+        return ["tag_update (Embedding work failed)"]
+    return []
 
 
 def count_failures(counts):
@@ -447,6 +512,16 @@ def run(args, out):
         out["read_back_matches"] = read_back_matches(status, body, expected)
         if not out["read_back_matches"]:
             out["read_back"] = {"http": status, "body": body, "expected": expected}
+        # IMPR-1431: the same bytes again with a tag unique to this run, so only a
+        # field changes and the server takes the field-only update path.
+        out["tag"] = f"{TAG_KEY}={uuid.uuid4().hex[:12]}"
+        status, body, tries = tag_update_with_retry(
+            call, expected, out["tag"], args.replace_attempts, args.replace_wait
+        )
+        out["tag_update"], out["tag_update_attempts"] = (
+            {"http": status, "body": body},
+            tries,
+        )
         cls = None if args.no_vectordb else adapter_class()
         if args.no_vectordb:
             out["vectordb"] = "skipped (--no-vectordb)"
@@ -460,6 +535,7 @@ def run(args, out):
             out["probe_vector_written"] = probe_vector_written(
                 out["probe_vector"], expected
             )
+            out["probe_tagged"] = probe_tagged(out["probe_vector"], out["tag"])
             out["vectordb"] = vectordb_counts(adapter, target["account"])
     counts = out["vectordb"]
     out["failed"] = failures(
