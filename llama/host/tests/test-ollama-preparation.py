@@ -105,13 +105,33 @@ class FakeOllama:
                 for i, digest in enumerate(shown["fixture_blobs"])
             ],
         }
+        parameters = shown.get("fixture_parameters")
+        if parameters is None:
+            parameters = {}
+            for line in shown["parameters"].splitlines():
+                key, value = line.split(maxsplit=1)
+                parameters[key] = json.loads(value)
+        raw = module.encoded(parameters).encode()
+        parameter_digest = hashlib.sha256(raw).hexdigest()
+        manifest["layers"].append(
+            {
+                "mediaType": "application/vnd.ollama.image.params",
+                "digest": "sha256:" + parameter_digest,
+            }
+        )
+        self.manifests[parameter_digest] = raw
         content = module.encoded(manifest).encode()
         sha = hashlib.sha256(content).hexdigest()
         self.manifests[sha] = content
         blobs = recipe.parent.parent / "model-store" / "blobs"
         blobs.mkdir(parents=True, exist_ok=True)
         (blobs / ("sha256-" + sha)).write_bytes(content)
-        self.models[tag] = {"digest": sha, "show": shown}
+        (blobs / ("sha256-" + parameter_digest)).write_bytes(raw)
+        self.models[tag] = {
+            "digest": sha,
+            "show": shown,
+            "parameter_digest": parameter_digest,
+        }
 
     def read_manifest(self, digest):
         return self.manifests[digest]
@@ -148,7 +168,10 @@ class FakeOllama:
             {
                 "name": tag,
                 "digest": self.models[tag]["digest"],
-                "context_length": module.integer_parameter(self.show(tag), "num_ctx"),
+                "context_length": module.runtime_integer(
+                    json.loads(self.manifests[self.models[tag]["parameter_digest"]]),
+                    "num_ctx",
+                ),
                 "size_vram": 100,
             }
         )
@@ -238,6 +261,102 @@ class FixtureCase(unittest.TestCase):
 
 
 class ManifestEvidenceTests(FixtureCase):
+    def test_parameter_display_order_does_not_change_acceptance(self):
+        tag = "qwen2.5-coder:fim"
+        original = self.api.show
+
+        def reordered(name):
+            shown = original(name)
+            if name == tag:
+                shown["parameters"] = "temperature 0\nnum_ctx 8192"
+            return shown
+
+        self.api.show = reordered
+        self.assertEqual(self.prep.prepare([tag])[tag]["context"], 8192)
+
+    def test_typed_parameters_override_unparseable_display(self):
+        tag = "qwen2.5-coder:fim"
+        self.mutate_recipe(
+            tag,
+            lambda shown: shown.update(
+                parameters="display only",
+                fixture_parameters={
+                    "num_ctx": 8192,
+                    "num_batch": 512,
+                    "stop": ["b", "a"],
+                },
+            ),
+        )
+        result = self.prep.prepare([tag])[tag]
+        self.assertEqual((result["context"], result["batch"]), (8192, 512))
+
+    def test_parameter_blob_corruption_fails_closed(self):
+        original = self.prep.manifest_reader
+
+        def corrupt(digest):
+            raw = original(digest)
+            return raw if b"schemaVersion" in raw else raw + b" "
+
+        self.prep.manifest_reader = corrupt
+        with self.assertRaisesRegex(PreparationError, "parameters bytes"):
+            self.prep.prepare()
+        self.assert_no_candidates()
+
+    def test_parameter_layer_shape_and_payload_fail_closed(self):
+        base = json.loads(
+            (HOST / "tests/fixtures/gemma-live-manifest.json").read_bytes()
+        )
+        for raw in (b"not json", b"[]", b"null"):
+            manifest = copy.deepcopy(base)
+            for layer in manifest["layers"]:
+                if layer["mediaType"] == "application/vnd.ollama.image.params":
+                    layer["digest"] = "sha256:" + hashlib.sha256(raw).hexdigest()
+            content = module.encoded(manifest).encode()
+            with self.subTest(raw=raw), self.assertRaises(PreparationError):
+                module.manifest_parameters(
+                    content, hashlib.sha256(content).hexdigest(), lambda _: raw
+                )
+        for count in (0, 2):
+            manifest = copy.deepcopy(base)
+            params = [
+                l
+                for l in manifest["layers"]
+                if l["mediaType"] == "application/vnd.ollama.image.params"
+            ]
+            manifest["layers"] = [
+                l for l in manifest["layers"] if l not in params
+            ] + params * count
+            content = module.encoded(manifest).encode()
+            with (
+                self.subTest(count=count),
+                self.assertRaisesRegex(PreparationError, "exactly one parameters"),
+            ):
+                module.manifest_parameters(
+                    content, hashlib.sha256(content).hexdigest(), lambda _: b"{}"
+                )
+
+    def test_ordered_stop_change_replaces_serving_identity(self):
+        tag = "qwen2.5-coder:fim"
+        self.mutate_recipe(
+            tag,
+            lambda shown: shown.update(
+                fixture_parameters={"num_ctx": 8192, "stop": ["b", "a"]}
+            ),
+        )
+        first = self.prep.prepare([tag])[tag]["digest"]
+        self.mutate_recipe(
+            tag, lambda shown: shown["fixture_parameters"].update(stop=["a", "b"])
+        )
+        second = self.prep.prepare([tag])[tag]["digest"]
+        self.assertNotEqual(first, second)
+        self.assertEqual(self.api.tags()[tag], second)
+
+    def test_runtime_parameters_require_positive_json_integers(self):
+        for value in (True, 1.5, "8192", 0, -1, None):
+            with self.subTest(value=value), self.assertRaises(PreparationError):
+                module.runtime_integer({"num_ctx": value}, "num_ctx")
+        self.assertEqual(module.runtime_integer({}, "num_batch", 2048), 2048)
+
     def test_live_manifest_hash_and_weights_match_declared_pins(self):
         content = (HOST / "tests/fixtures/gemma-live-manifest.json").read_bytes()
         digest = "801854f4128b59d3194d829fb061ea4389390f29c98a3b0047a1ef839b710c33"
