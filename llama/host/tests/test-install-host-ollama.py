@@ -216,6 +216,7 @@ class InstallerTests(unittest.TestCase):
             "ollama_recovery.py",
             "ollama_runtime.py",
             "ollama_attestation.py",
+            "ollama_signals.py",
         ):
             (self.src / module).write_text("# fixture module\n")
         for recipe in (
@@ -627,6 +628,7 @@ class InstallerTests(unittest.TestCase):
             "ollama_runtime.py",
             "ollama_recovery.py",
             "ollama_attestation.py",
+            "ollama_signals.py",
             "model-posture.json",
         ):
             self.assertEqual(

@@ -333,7 +333,7 @@ exec 9>>"$install_lock"
 umask "$previous_umask"
 validate_lock 9 "$install_lock" || die "unsafe installer lock"
 flock -n 9 || die "another host adoption is running; retry after it finishes"
-for module in ollama_prepare.py ollama_recovery.py ollama_runtime.py ollama_attestation.py; do
+for module in ollama_prepare.py ollama_recovery.py ollama_runtime.py ollama_attestation.py ollama_signals.py; do
 	[[ -f $SRC/$module ]] || die "preparation module is incomplete: $module"
 done
 prepare render --root "$REPO_DIR" --check || die "generated adoption artifacts must match the declared posture"
@@ -407,6 +407,7 @@ installed_files=(
 	"$HOST_DIR/ollama_recovery.py"
 	"$HOST_DIR/ollama_runtime.py"
 	"$HOST_DIR/ollama_attestation.py"
+	"$HOST_DIR/ollama_signals.py"
 	"$UNIT_DIR/ollama-warm.service"
 	"$EXPORTER_DIR/ollama-exporter.py"
 	"$EXPORTER_DIR/ollama_recovery.py"
@@ -430,7 +431,8 @@ install -d -m 0755 "$DROPIN_DIR" "$HOST_DIR" "$HOST_DIR/modelfiles"
 install -m 0644 "$SRC/ollama.service.d/homelab.conf" "$DROPIN_DIR/homelab.conf"
 install -m 0755 "$SRC/ollama-warm.sh" "$HOST_DIR/ollama-warm.sh"
 install -m 0644 "$SRC/model-posture.json" "$SRC/ollama_prepare.py" \
-	"$SRC/ollama_recovery.py" "$SRC/ollama_runtime.py" "$SRC/ollama_attestation.py" "$HOST_DIR/"
+	"$SRC/ollama_recovery.py" "$SRC/ollama_runtime.py" "$SRC/ollama_attestation.py" \
+	"$SRC/ollama_signals.py" "$HOST_DIR/"
 # The agentpair:* tags were retired 2026-10-06; drop their stale recipes.
 rm -f "$HOST_DIR"/modelfiles/agentpair-*.Modelfile
 install -m 0644 "$REPO_DIR"/llama/ollama/*.Modelfile "$HOST_DIR/modelfiles/"
