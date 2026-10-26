@@ -11,6 +11,7 @@ live host acceptance. Historical measurements in the Modelfiles retain their ori
 | `model-posture.json` and `llama/ollama/*.Modelfile` | `/opt/ollama-host/` and its `modelfiles/` directory | Release, resident profiles, runtime settings, complete recipes, and explicit blob pins |
 | `ollama_prepare.py` | `/opt/ollama-host/` | Preparation, adoption, verification receipts, and generated artifacts |
 | `ollama_runtime.py` | `/opt/ollama-host/` | Daemon/runner evidence and failure stop tied to one daemon generation |
+| `ollama_signals.py` | `/opt/ollama-host/` | Signal deferral across resource ownership and explicit interruptible work |
 | `ollama_recovery.py` and `ollama_attestation.py` | Host preparation/exporter directories; generated HTTP client | Idle recovery authorized by a root-owned receipt under the preparation lock |
 | `ollama.service.d/homelab.conf` | `/etc/systemd/system/ollama.service.d/` | Generated daemon environment and failure-stop policy |
 | `ollama-warm.sh` and `ollama-warm.service` | `/opt/ollama-host/`, `/etc/systemd/system/` | Compatibility entrypoint and synchronous post-start adoption |
@@ -77,8 +78,12 @@ Runner birth is measured in the journal's monotonic clock through Linux TASKSTAT
 the current suspend offset. This requires `CONFIG_TASKSTATS`, an unshifted monotonic time
 namespace, and root with `CAP_NET_ADMIN`; the existing warm unit's `ExecStart=+` supplies
 administrative privileges. The measured birth interval must be no wider than one proc tick.
-Unavailable or ambiguous timing refuses verification with a diagnostic; restore access or
-retry a slow observation. Suspend before or after process creation does not change the clock
+A valid but wider interval allows up to three independent samples under one runner pidfd;
+each sample checks that the same process generation is still alive. Protocol, access,
+timeout, identity and cancellation errors are terminal. Unavailable or still-ambiguous timing
+refuses verification; a failed adoption attempts to stop its captured daemon and requires
+the recovery procedure below. Plain observational verification can be retried after correcting
+the cause. Suspend before or after process creation does not change the clock
 binding. Live kernel support and timing still need validation during authorized host adoption.
 
 Only successful acceptance atomically publishes `/var/lib/ollama-preparation/verified.json`.
@@ -240,10 +245,18 @@ The receipt rename publishes completed proof. For `warm` and
 Cancellation before command completion removes the receipt and attempts a generation-bound
 stop, including cancellation after publication or during the final response flush. Ordinary
 work raises a dedicated cancellation exception outside the `OSError`/`Exception` retry
-hierarchies, and later signals can raise again. During an existing exception's unwind,
+hierarchies, and later signals can raise again. Resource contexts defer both signals before
+handoff to `with`, retaining the mask through acquisition and release. Short file publication
+and snapshot writes finish under that mask; long preparation and descriptor scopes enable
+delivery only around explicit external operations. During an existing exception's unwind,
 cancellation is recorded without replacing that exception so cleanup can run. Checks before
-and after preparation operations reject recorded cancellation if an inner handler swallowed
-the exception. Further signals cannot interrupt cleanup.
+and after preparation operations reject recorded or kernel-pending cancellation if an inner
+handler swallowed the exception or a critical section deferred delivery. Further signals
+cannot interrupt cleanup. Publication locks wait at most one second and the core preparation
+lock waits at most 30 seconds. Invalidation stops starting new cleanup requests after 30
+seconds; an in-flight HTTP request retains its transport timeout. The captured-generation
+stop is attempted even if invalidation fails or exhausts this budget. Kernel-stuck filesystem
+calls are outside these in-process bounds.
 After durable publication and a flushed response, the CLI blocks both signals and checks for
 recorded or pending cancellation. An empty check completes the operation; later signals remain
 blocked through runtime and lock release and cannot cancel the completed adoption. The CLI
