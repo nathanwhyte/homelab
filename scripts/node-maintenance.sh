@@ -8,16 +8,17 @@
 # Phase 2 (disruptive, one node per invocation — agents first, timmy last):
 #   node-maintenance.sh reboot <node>       preflight → cordon → drain → reboot → uncordon → health gate
 #   node-maintenance.sh reboot <node> [--no-reboot] [--spin-down] [--override-memory]
-#   node-maintenance.sh drain <node> [--spin-down] [--override-memory]
-#                                             start or repeat a drain, leaving the reboot to the caller
+#   node-maintenance.sh drain <node> [--spin-down] [--override-memory] [--repeat]
+#                                             start a drain (or, with --repeat, re-drain a cordoned target)
 #   node-maintenance.sh recover <node>     finish a recorded cycle, or restore preparation before a drain
 #   node-maintenance.sh cycle-status <node> print recorded|none for saved reboot state (read-only)
+#   node-maintenance.sh cordon-status <node> print cordoned|uncordoned (read-only)
 #   node-maintenance.sh finish <node> [previous-boot-id]
 #                                             verify reboot → wait for Ready → uncordon → health gate
 #   node-maintenance.sh preflight <node>    the read-only refusals `reboot` starts with (another cycle
 #                                             active, an earlier node still owing a reboot), for a
 #                                             caller to run before it mutates anything of its own
-#                                             --allow-repeat permits re-draining a recorded cycle
+#                                             --allow-repeat: OK for a cordoned target (drain --repeat)
 #   node-maintenance.sh restore-services    scale the --spin-down services back without a finish, for
 #                                             a cycle that stopped before its drain; refuses while any
 #                                             node is cordoned or has saved reboot state
@@ -107,7 +108,7 @@ die() {
 }
 
 usage() {
-	sed -n '2,24p' "$SELF" | sed 's/^# \{0,1\}//'
+	sed -n '2,25p' "$SELF" | sed 's/^# \{0,1\}//'
 	exit 1
 }
 
@@ -159,10 +160,28 @@ cycle_state_file() {
 	printf '%s/%s.boot-id\n' "$MAINTENANCE_STATE_DIR" "$1"
 }
 
+# Written beside the record and renamed over it, so a stop mid-write leaves the
+# old record or the new one, never a truncated one. The temp name does not match
+# *.boot-id, so the any-cycle scan in restore-services never reads it.
 save_cycle_boot_id() {
-	local node=$1 boot_id=$2
+	local node=$1 boot_id=$2 file
+	file=$(cycle_state_file "$node")
 	mkdir -p "$MAINTENANCE_STATE_DIR"
-	printf '%s\n' "$boot_id" >"$(cycle_state_file "$node")"
+	[[ ! -L $file && (-f $file || ! -e $file) ]] || die "cannot write saved reboot state: $file (a regular file or nothing must be there)"
+	printf '%s\n' "$boot_id" >"$file.$$"
+	mv -f "$file.$$" "$file"
+}
+
+# Read-only, for a caller that must decide on the cordon itself: prints
+# cordoned|uncordoned, and fails rather than guess on a read failure.
+cmd_cordon_status() {
+	(($# == 1)) || die "usage: $SELF cordon-status <node>"
+	require_node "$1"
+	if node_is_cordoned "$1"; then
+		printf 'cordoned\n'
+	else
+		printf 'uncordoned\n'
+	fi
 }
 
 load_cycle_boot_id() {
@@ -965,20 +984,12 @@ drain_leftovers() {
 			| "\(.metadata.namespace)/\(.metadata.name) (\(.status.phase // "unknown"))"'
 }
 
-# cmd_reboot saves the boot ID right after its cordon, so a cordon this module
-# made has a saved cycle; one without it was made by hand. Dies on a read failure
-# rather than answering "no cycle", which would pick a different path.
-has_recorded_cycle() {
-	local cycle
-	cycle=$(cmd_cycle_status "$1") || die "cannot read saved cycle state for $1"
-	[[ $cycle == recorded ]]
-}
-
 repeat_drain() {
-	local node=$1 leftovers boot_id saved_boot_id
-	# Preserve the planned-outage repeat path: a target still cordoned by its
-	# recorded cycle may be drained again without repeating the first drain's
-	# preflights or spin-down. It does not establish ownership of other cordons.
+	local node=$1 leftovers boot_id saved_boot_id cycle
+	# Preserve the planned-outage repeat path: a caller that passes --repeat may
+	# drain an already-cordoned target again without repeating the first drain's
+	# preflights or spin-down. It does not establish ownership of any cordon or
+	# need a saved record, so an empty or missing one is rewritten here.
 	warn "$node is already cordoned — re-draining"
 	"$KUBECTL" drain "$node" --ignore-daemonsets --delete-emptydir-data --timeout="$DRAIN_TIMEOUT" ||
 		warn "drain incomplete — assessing what is left on $node"
@@ -987,33 +998,39 @@ repeat_drain() {
 	[[ -n $leftovers ]] && die "non-Longhorn pods still on $node after drain: $leftovers"
 	boot_id=$(remote_boot_id "$node") || die "cannot read boot ID from $node"
 	require_valid_boot_id "$boot_id"
-	saved_boot_id=$(load_cycle_boot_id "$node") || die "cannot read saved cycle state for $node"
-	# A planned outage repeats after timmy came back, so the refresh stays; say so,
-	# because recover/finish now needs another reboot past this one.
-	if [[ $(normalize_boot_id "$saved_boot_id") != "$(normalize_boot_id "$boot_id")" ]]; then
-		warn "[$node] rebooted since the saved cycle (boot ID $saved_boot_id, now $boot_id); that reboot no longer counts — recover/finish will wait for another"
+	cycle=$(cmd_cycle_status "$node") || die "cannot read saved cycle state for $node"
+	if [[ $cycle == recorded ]]; then
+		saved_boot_id=$(load_cycle_boot_id "$node") || die "cannot read saved cycle state for $node"
+		# A planned outage repeats after timmy came back, so the refresh stays; say
+		# so, because recover/finish now needs another reboot past this one.
+		if [[ $(normalize_boot_id "$saved_boot_id") != "$(normalize_boot_id "$boot_id")" ]]; then
+			warn "[$node] rebooted since the saved cycle (boot ID $saved_boot_id, now $boot_id); that reboot no longer counts — recover/finish will wait for another"
+		fi
 	fi
 	save_cycle_boot_id "$node" "$boot_id"
 	log "[$node] saved current boot ID for recovery: $boot_id"
 }
 
 cmd_drain() {
-	(($# >= 1 && $# <= 3)) || die "usage: $SELF drain <node> [--spin-down] [--override-memory]"
-	local node=$1 option
+	(($# >= 1 && $# <= 4)) || die "usage: $SELF drain <node> [--spin-down] [--override-memory] [--repeat]"
+	local node=$1 option repeat=0 first=()
 	shift
 	require_node "$node"
 	for option in "$@"; do
 		case $option in
-		--spin-down | --override-memory) ;;
+		--spin-down | --override-memory) first+=("$option") ;;
+		--repeat) repeat=1 ;;
 		*) die "unknown drain option '$option'" ;;
 		esac
 	done
 	if node_is_cordoned "$node"; then
-		has_recorded_cycle "$node" ||
-			die "$node is cordoned without saved cycle state, so no drain here owns it; kubectl uncordon $node, then re-run for a checked first drain"
+		# Only an outage caller that owns the cordon opts in; a bare drain of a
+		# cordoned node would skip every first-drain check on any node.
+		((repeat)) ||
+			die "$node is already cordoned; pass --repeat to re-drain an outage's own cordon, or kubectl uncordon $node for a checked first drain"
 		repeat_drain "$node"
 	else
-		cmd_reboot "$node" --no-reboot "$@"
+		cmd_reboot "$node" --no-reboot ${first[@]+"${first[@]}"}
 	fi
 }
 
@@ -1123,12 +1140,9 @@ cmd_reboot() {
 	require_valid_boot_id "$boot_id"
 
 	open_maintenance_window "reboot cycle on $node"
-	# Save before cordoning: drain repeats only a cordon with saved state, so a
-	# stop between the two must leave state without a cordon (a retry starts a
-	# fresh first drain), never a cordon without state (refused as a hand cordon).
-	save_cycle_boot_id "$node" "$boot_id"
 	log "[$node] cordon"
 	kubectl cordon "$node"
+	save_cycle_boot_id "$node" "$boot_id"
 
 	log "[$node] drain (timeout $DRAIN_TIMEOUT)"
 	# Best-effort: on a node holding the LAST replica of any single-replica Longhorn
@@ -1189,9 +1203,9 @@ cmd_preflight() {
 	require_node "$node"
 	if (($# == 2)); then
 		[[ $2 == --allow-repeat ]] || die "unknown preflight option '$2'"
-		# A hand cordon falls through to the refusal below, as drain refuses it too.
-		if node_is_cordoned "$node" && has_recorded_cycle "$node"; then
-			log "[$node] preflight OK: still cordoned by its saved cycle; drain will repeat it"
+		# Pairs with `drain --repeat`, which re-drains any cordoned target.
+		if node_is_cordoned "$node"; then
+			log "[$node] preflight OK: already cordoned; drain --repeat will re-drain it"
 			return 0
 		fi
 	fi
@@ -1233,6 +1247,7 @@ main() {
 	status) cmd_status ;;
 	preflight) shift && cmd_preflight "$@" ;;
 	cycle-status) shift && cmd_cycle_status "$@" ;;
+	cordon-status) shift && cmd_cordon_status "$@" ;;
 	drain) shift && acquire_maintenance_lock && cmd_drain "$@" ;;
 	recover) shift && acquire_maintenance_lock && cmd_recover "$@" ;;
 	reboot) shift && acquire_maintenance_lock && cmd_reboot "$@" ;;

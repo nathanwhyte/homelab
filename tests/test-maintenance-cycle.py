@@ -408,7 +408,14 @@ class MaintenanceCycleTests(unittest.TestCase):
         self.cycle.mkdir(exist_ok=True)
         (self.cycle / f"{node}.boot-id").write_text(boot + "\n")
 
-    def test_repeat_of_recorded_cycle_keeps_multi_cordon_policy(self):
+    def drain_calls(self):
+        return [
+            c["args"]
+            for c in self.calls()
+            if c["tool"] == "kubectl" and c["args"][:1] == ["drain"]
+        ]
+
+    def test_repeat_keeps_multi_cordon_policy(self):
         state = self.read()
         for node in ("timmy", "wemby"):
             state["nodes"][node]["cordoned"] = True
@@ -416,42 +423,68 @@ class MaintenanceCycleTests(unittest.TestCase):
         self.record_cycle()
         self.run_command(NODE, "preflight", "timmy", ok=False)
         self.run_command(NODE, "preflight", "timmy", "--allow-repeat")
-        result = self.run_command(NODE, "drain", "timmy", "--spin-down")
+        self.run_command(NODE, "drain", "timmy", "--spin-down", ok=False)
+        self.assertEqual(self.drain_calls(), [])
+        result = self.run_command(NODE, "drain", "timmy", "--spin-down", "--repeat")
         self.assertNotIn("rebooted since the saved cycle", result.stdout)
         self.assertFalse((self.cycle / "spin-down-replicas").exists())
         self.assertEqual(self.read(), state)
         self.assertEqual((self.cycle / "timmy.boot-id").read_text().strip(), OLD_BOOT)
 
-    def test_hand_cordon_gets_no_repeat_drain(self):
+    def test_bare_drain_refuses_any_cordoned_node(self):
         state = self.read()
         state["nodes"]["manu"]["cordoned"] = True
         self.write(state)
-        self.run_command(NODE, "preflight", "manu", "--allow-repeat", ok=False)
         self.run_command(NODE, "drain", "manu", ok=False)
-        self.assertFalse(
-            any(
-                c["args"][:1] == ["drain"]
-                for c in self.calls()
-                if c["tool"] == "kubectl"
-            )
-        )
+        self.assertEqual(self.drain_calls(), [])
         self.assertFalse((self.cycle / "manu.boot-id").exists())
         self.assertEqual(self.read(), state)
+        # --repeat is the explicit opt-in, as on main's outage re-drain.
+        self.run_command(NODE, "drain", "manu", "--repeat")
+        self.assertEqual(len(self.drain_calls()), 1)
+        self.assertEqual((self.cycle / "manu.boot-id").read_text().strip(), OLD_BOOT)
 
     def test_down_refuses_hand_cordoned_timmy_before_mutating(self):
         state = self.read()
         state["nodes"]["timmy"]["cordoned"] = True
         self.write(state)
-        self.run_command(OUTAGE, "down", ok=False)
+        result = self.run_command(OUTAGE, "down", ok=False)
+        self.assertIn("no parked state", result.stderr)
         self.assertEqual(self.read(), state)
         self.assertEqual(list(self.state_root.iterdir()), [])
+
+    def test_down_from_the_other_mac_refuses_before_mutating(self):
+        self.run_command(OUTAGE, "down")
+        before = self.read()
+        first_mac = self.env["XDG_STATE_HOME"]
+        other_mac = self.root / "other-mac"
+        other_mac.mkdir()
+        self.env["XDG_STATE_HOME"] = str(other_mac)
+        result = self.run_command(OUTAGE, "down", ok=False)
+        self.assertIn("the Mac that started the outage", result.stderr)
+        self.assertEqual(self.read(), before)
+        self.assertEqual(list(other_mac.iterdir()), [])
+        self.env["XDG_STATE_HOME"] = first_mac
+        self.reboot()
+        self.run_command(OUTAGE, "up")
+        self.assert_restored()
+
+    def test_repeat_down_repairs_an_empty_boot_record(self):
+        self.run_command(OUTAGE, "down")
+        (self.cycle / "timmy.boot-id").write_text("")
+        self.run_command(OUTAGE, "down")
+        self.assertEqual((self.cycle / "timmy.boot-id").read_text().strip(), OLD_BOOT)
+        self.reboot()
+        self.run_command(OUTAGE, "up")
+        self.assert_restored()
 
     def interrupted_cordon_retries(self, fault):
         state = self.read()
         state["fail_cordon"] = fault
         self.write(state)
         self.run_command(OUTAGE, "down", ok=False)
-        self.assertEqual((self.cycle / "timmy.boot-id").read_text().strip(), OLD_BOOT)
+        # Cordon first, then save: a saved record always means a cordon.
+        self.assertFalse((self.cycle / "timmy.boot-id").exists())
         state = self.read()
         del state["fail_cordon"]
         self.write(state)
@@ -491,7 +524,7 @@ class MaintenanceCycleTests(unittest.TestCase):
             }
         ]
         self.write(state)
-        self.run_command(NODE, "drain", "timmy", ok=False)
+        self.run_command(NODE, "drain", "timmy", "--repeat", ok=False)
         self.assertEqual((self.cycle / "timmy.boot-id").read_text().strip(), OLD_BOOT)
 
     def test_first_successful_drain_keeps_its_existing_leftover_policy(self):

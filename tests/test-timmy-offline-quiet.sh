@@ -73,6 +73,7 @@ cat >"$TMPDIR_TEST/node-maintenance.sh" <<'STUB'
 echo "nm: $*" >>"$STUB_LOG"
 rc_var=STUB_NM_$(tr 'a-z-' 'A-Z_' <<<"$1")_RC
 if [[ $1 == cycle-status ]]; then printf '%s\n' "${STUB_CYCLE_STATUS:-none}"; fi
+if [[ $1 == cordon-status ]]; then printf '%s\n' "${STUB_CORDON_STATUS:-uncordoned}"; fi
 exit "${!rc_var:-0}"
 STUB
 chmod +x "$TMPDIR_TEST/node-maintenance.sh"
@@ -113,7 +114,7 @@ viking/ovlock-janitor=true
 EOF
 	: >"$STUB_LOG"
 	rm -rf "$TMPDIR_TEST/state"
-	unset STUB_CYCLE_STATUS
+	unset STUB_CYCLE_STATUS STUB_CORDON_STATUS
 }
 
 export KUBECTL=$TMPDIR_TEST/kubectl
@@ -222,7 +223,7 @@ if [[ -n $preflight_line && -n $silence_line ]] && ((preflight_line < silence_li
 else
 	bad "down must run preflight before the silence (preflight at '${preflight_line:-none}', silence at '${silence_line:-none}')"
 fi
-assert_eq "down drains through the cycle module with spin-down" 1 "$(grep -c 'nm: drain timmy --spin-down' "$STUB_LOG")"
+assert_eq "down drains through the cycle module with spin-down and --repeat" 1 "$(grep -c 'nm: drain timmy --spin-down --repeat$' "$STUB_LOG")"
 if [[ $(<"$WINDOW_FILE") =~ ^[0-9]+\ planned\ timmy\ outage ]]; then ok "down opens the maintenance window"; else bad "down opens the maintenance window"; fi
 assert_eq "the window is open before the first workload is scaled down" "0 $(grep -c '^-n .* scale ' "$STUB_LOG")" \
 	"$(grep -c 'scale saw no window' "$STUB_LOG") $(grep -c 'scale saw a window' "$STUB_LOG")"
@@ -250,7 +251,36 @@ reset_cluster
 run_cmd cmd_down
 run_cmd cmd_down
 assert_eq "both downs ask preflight to allow an existing cycle" 2 "$(grep -c 'nm: preflight timmy --allow-repeat' "$STUB_LOG")"
-assert_eq "both downs drain through the cycle module" 2 "$(grep -c 'nm: drain timmy --spin-down' "$STUB_LOG")"
+assert_eq "both downs drain through the cycle module" 2 "$(grep -c 'nm: drain timmy --spin-down --repeat$' "$STUB_LOG")"
+
+# A cordoned timmy is this Mac's outage only if this Mac parked it; otherwise
+# (a hand cordon, or down on the other Mac) re-parking would save zeros.
+reset_cluster
+out=$(STUB_CORDON_STATUS=cordoned run_cmd_out cmd_down)
+rc=$?
+assert_eq "down refuses a cordoned timmy this Mac never parked" 1 "$rc"
+assert_eq "that refusal mutates nothing" 0 "$(mutations)"
+assert_eq "that refusal names the starting Mac" 1 "$(grep -c 'the Mac that started the outage' <<<"$out")"
+assert_eq "that refusal runs before preflight" 0 "$(grep -c 'nm: preflight' "$STUB_LOG")"
+
+reset_cluster
+run_cmd cmd_down
+STUB_CORDON_STATUS=cordoned run_cmd cmd_down
+rc=$?
+assert_eq "down repeats on a cordoned timmy this Mac parked" 0 "$rc"
+assert_eq "the repeat drains with --repeat" 2 "$(grep -c 'nm: drain timmy --spin-down --repeat$' "$STUB_LOG")"
+
+for case in "rc" "invalid"; do
+	reset_cluster
+	if [[ $case == rc ]]; then
+		STUB_NM_CORDON_STATUS_RC=1 run_cmd cmd_down
+	else
+		STUB_CORDON_STATUS=maybe run_cmd cmd_down
+	fi
+	rc=$?
+	assert_eq "down fails closed on a cordon-status $case failure" 1 "$rc"
+	assert_eq "a cordon-status $case failure mutates nothing" 0 "$(mutations)"
+done
 
 # --- up without cycle state ---------------------------------------------------
 park_fixture() { # parked state as a completed park would leave it

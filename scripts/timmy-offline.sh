@@ -425,6 +425,7 @@ cmd_down() {
 	# earlier node still owes a reboot. Ask it first: a refusal after the silence,
 	# suspend and park below leaves timmy half out with no instruction (2026-10-21).
 	# The cycle module also owns the already-cordoned repeat path.
+	require_own_cordon
 	log "preflight: node-maintenance.sh must be willing to drain $NODE"
 	"$NODE_MAINTENANCE" preflight "$NODE" --allow-repeat ||
 		die "node-maintenance.sh will not drain $NODE (see above); this run changed nothing"
@@ -440,7 +441,8 @@ cmd_down() {
 	log "drain via node-maintenance.sh (no reboot, pre-drain spin-down)"
 	# --spin-down is required here, not optional: it frees headroom for the
 	# pods evicted from timmy before the memory-headroom preflight runs.
-	"$NODE_MAINTENANCE" drain "$NODE" --spin-down
+	# --repeat: require_own_cordon above showed any cordon is this outage's own.
+	"$NODE_MAINTENANCE" drain "$NODE" --spin-down --repeat
 	# The drain itself can create new orphans: any unpinned pod evicted from timmy
 	# lands on another node and re-attaches its timmy-only volume from there. Check
 	# again after the drain and fail closed — the pod's owner must be added to PARKED.
@@ -455,6 +457,22 @@ cmd_down() {
 	log "timmy is parked, cordoned and drained. Power off when ready:"
 	log "    ssh -t $NODE sudo shutdown -h now"
 	log "When it is back on Ubuntu:  $SELF up"
+}
+
+# `park` writes the saved counts before the drain cordons, so a cordon this
+# Mac's `down` made always has them. A cordoned timmy without them was cordoned
+# by hand or by `down` on the other Mac, where re-parking would save the
+# current zeros as the counts `up` restores.
+require_own_cordon() {
+	local cordon
+	cordon=$("$NODE_MAINTENANCE" cordon-status "$NODE") || die "cannot read whether $NODE is cordoned; this run changed nothing"
+	case $cordon in
+	uncordoned) return 0 ;;
+	cordoned) ;;
+	*) die "unexpected cordon status for $NODE: $cordon; this run changed nothing" ;;
+	esac
+	[[ -s $SCALE_FILE ]] ||
+		die "$NODE is cordoned but this Mac has no parked state ($SCALE_FILE); run down/up from the Mac that started the outage — do not uncordon it to get past this. This run changed nothing"
 }
 
 cmd_up() {
