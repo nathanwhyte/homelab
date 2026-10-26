@@ -22,7 +22,7 @@ differs, is drift. A live field the release no longer defines is reported as
 Exit codes: 0 no drift, 3 drift, 1 the check could not run (bad arguments, config, a
 refusal, no importable openviking, an empty metadata read, port-forward or transport),
 130 interrupted, 143 terminated (SIGTERM). Each prints one JSON receipt on one line, and
-the port-forward child is stopped on the way out.
+the port-forward child is stopped on the way out. `--help` prints usage and exits 0.
 
 Usage: <venv>/bin/python -I ov-collection-schema-check.py [--configmap NAME]
 """
