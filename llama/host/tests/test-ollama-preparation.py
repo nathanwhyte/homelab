@@ -281,15 +281,17 @@ class PreparationTests(FixtureCase):
             self.prep.prepare()
         self.assertEqual(self.api.events, [])
 
-    def test_warm_publishes_witnesses_only_after_runtime_proof(self):
+    def test_warm_atomically_publishes_receipt_after_runtime_proof(self):
         runtime = FakeRuntime()
         receipt = self.prep.warm(runtime)
         self.assertEqual(runtime.stops, 0)
         self.assertEqual(receipt["revision"], self.posture.revision)
-        for tag in self.posture.required:
-            self.assertEqual(
-                self.api.tags()[self.posture.witness(tag)], self.api.tags()[tag]
-            )
+        self.assertEqual(receipt["schema"], 2)
+        self.assertEqual(receipt["residents"], self.posture.residents)
+        self.assertEqual(receipt["version"], self.data["version"])
+        self.assertFalse(
+            any(tag.startswith("homelab-prepared/") for tag in self.api.tags())
+        )
         self.assertEqual(
             json.loads((self.prep.state / "verified.json").read_text()), receipt
         )
@@ -355,6 +357,10 @@ class PreparationTests(FixtureCase):
 
     def test_next_successful_startup_removes_old_witnesses_before_prepare(self):
         self.prep.warm(FakeRuntime())
+        self.api.models["homelab-prepared/retired-model-old:" + "b" * 64] = {
+            "digest": "a" * 64,
+            "show": {},
+        }
         old_witnesses = {
             tag for tag in self.api.tags() if tag.startswith("homelab-prepared/")
         }
@@ -369,6 +375,39 @@ class PreparationTests(FixtureCase):
             if event[0] == "/api/delete"
         }
         self.assertEqual(removed, old_witnesses)
+
+    def test_cancelled_publication_cannot_leave_recovery_acceptance(self):
+        write = module.atomic_write
+        for after_commit in (False, True):
+            with self.subTest(after_commit=after_commit):
+                runtime = FakeRuntime()
+
+                def cancel(path, content):
+                    if Path(path).name != "verified.json":
+                        return write(path, content)
+                    if after_commit:
+                        write(path, content)
+                    raise KeyboardInterrupt("cancelled adoption")
+
+                with mock.patch.object(module, "atomic_write", side_effect=cancel):
+                    with self.assertRaisesRegex(
+                        PreparationError, "captured daemon stopped"
+                    ):
+                        self.prep.warm(runtime)
+                self.assertEqual(runtime.stops, 1)
+                self.assertFalse((self.prep.state / "verified.json").exists())
+                self.assertFalse(
+                    any(tag.startswith("homelab-prepared/") for tag in self.api.tags())
+                )
+
+    def test_invalidation_retires_removed_catalog_witnesses_only(self):
+        retired = "homelab-prepared/removed-resident-old:" + "a" * 64
+        unrelated = "homelab-prepared/operator:notes"
+        self.api.models[retired] = {"digest": "a" * 64, "show": {}}
+        self.api.models[unrelated] = {"digest": "b" * 64, "show": {}}
+        self.api.models["operator:keep"] = {"digest": "c" * 64, "show": {}}
+        self.prep.invalidate()
+        self.assertEqual(set(self.api.tags()), {unrelated, "operator:keep"})
 
     def test_startup_wait_does_not_retry_version_or_protocol_mismatch(self):
         for failure in ({"version": "0.40.10"}, PreparationError("invalid JSON")):
@@ -614,6 +653,7 @@ class PreparationTests(FixtureCase):
                     .split("\n", 1)[1]
                     .split("\n---\n", 1)[0]
                 )
+                self.assertIs(recovery["spec"]["suspend"], False)
                 env = recovery["spec"]["jobTemplate"]["spec"]["template"]["spec"][
                     "containers"
                 ][0]["env"]
@@ -684,38 +724,46 @@ class TransportTests(unittest.TestCase):
 
 
 class RecoveryTests(FixtureCase):
+    def recovery_fixture(self):
+        models = self.prep.prepare()
+        config = {
+            "revision": self.posture.revision,
+            "version": self.data["version"],
+            "residents": self.posture.residents,
+        }
+        return config, {"schema": 2, **config, "models": models}
+
     def test_verified_idle_recovery_readback(self):
-        self.prep.warm(FakeRuntime())
-        self.api.running = []
-        self.assertEqual(
-            recover(self.posture.recovery(), self.api)["status"], "recovered"
-        )
+        config, receipt = self.recovery_fixture()
+        self.assertEqual(recover(config, self.api, receipt)["status"], "recovered")
 
     def test_busy_courtesy_never_loads_or_evicts(self):
+        config, receipt = self.recovery_fixture()
+        self.api.events.clear()
         self.api.running = [{"name": "operator:model"}]
-        result = recover(self.posture.recovery(), self.api)
+        result = recover(config, self.api, receipt)
         self.assertEqual(result["status"], "busy")
         self.assertEqual(self.api.events, [])
 
-    def test_missing_or_stale_witness_refuses_load(self):
-        self.prep.prepare()
+    def test_missing_or_stale_receipt_refuses_load_even_with_public_alias(self):
+        config, receipt = self.recovery_fixture()
+        model = self.posture.resident
+        witness = f"homelab-prepared/{model.replace(':', '-')}:{self.posture.revision}"
+        self.api.models[witness] = copy.deepcopy(self.api.models[model])
         with self.assertRaisesRegex(PreparationError, "verification"):
-            recover(self.posture.recovery(), self.api)
-        self.prep.warm(FakeRuntime())
-        stale = self.posture.recovery()
-        self.api.running = []
+            recover(config, self.api, None)
         self.mutate_recipe("gemma4:vlm", lambda shown: shown.update(template="new"))
         self.prep.prepare()
+        self.api.models[witness] = copy.deepcopy(self.api.models[model])
         with self.assertRaisesRegex(PreparationError, "verification"):
-            recover(stale, self.api)
+            recover(config, self.api, receipt)
 
     def test_copresident_recovery_checks_both_models(self):
         self.make_preparation("qwen2.5-coder:fim")
-        self.prep.warm(FakeRuntime())
-        self.api.running = []
+        config, receipt = self.recovery_fixture()
         self.api.evict = True
         with self.assertRaisesRegex(PreparationError, "loaded models"):
-            recover(self.posture.recovery(), self.api)
+            recover(config, self.api, receipt)
 
     def test_http_load_requires_completed_load_only_response(self):
         api = Http("http://fixture.invalid")

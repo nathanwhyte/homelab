@@ -3,7 +3,7 @@
 
 Recipes are interpreted by the pinned Ollama CLI, not by a second Modelfile
 parser. A candidate manifest is read back before its serving tag is changed.
-Witness tags are published only after the selected runtime has been verified.
+The root-owned receipt is published only after the selected runtime is verified.
 """
 
 from __future__ import annotations
@@ -17,6 +17,7 @@ import os
 from pathlib import Path
 import re
 import shlex
+import signal
 import subprocess
 import sys
 import tempfile
@@ -28,7 +29,7 @@ from ollama_recovery import (
     PreparationError,
     TransportUnavailable,
     integer_parameter,
-    recover,
+    request_recovery,
     verify_loaded,
 )
 
@@ -108,14 +109,11 @@ class Posture:
             raise PreparationError("recipes must be direct .Modelfile children")
         return path
 
-    def witness(self, tag):
-        return f"homelab-prepared/{tag.replace(':', '-')}:{self.revision}"
-
     def recovery(self):
         return {
             "version": self.data["version"],
             "revision": self.revision,
-            "residents": {tag: self.witness(tag) for tag in self.residents},
+            "residents": list(self.residents),
         }
 
     def expected_runtime(self):
@@ -280,14 +278,10 @@ class Preparation:
 
     def invalidate(self):
         self.state.joinpath("verified.json").unlink(missing_ok=True)
-        # The module owns only this namespace and exact catalog model stems.
-        stems = {
-            f"homelab-prepared/{tag.replace(':', '-')}"
-            for tag in self.posture.data["models"]
-        }
+        # Retire the entire legacy certificate namespace, including models no
+        # longer in this catalog. Public aliases are never acceptance evidence.
         for tag in self.api.tags():
-            stem, _, revision = tag.rpartition(":")
-            if stem in stems and re.fullmatch(r"[0-9a-f]{64}", revision):
+            if re.fullmatch(r"homelab-prepared/[a-z0-9][a-z0-9.\-]*:[0-9a-f]{64}", tag):
                 self.api.call("/api/delete", {"model": tag}, method="DELETE")
                 if tag in self.api.tags():
                     raise PreparationError(
@@ -322,22 +316,18 @@ class Preparation:
         return result
 
     def certify(self, models, evidence):
+        inventory = self.api.tags()
         for tag, model in models.items():
-            witness = self.posture.witness(tag)
-            if self.api.tags().get(tag) != model["digest"]:
+            if inventory.get(tag) != model["digest"]:
                 raise PreparationError("model changed before verification publication")
-            if self.api.tags().get(witness) != model["digest"]:
-                self.api.call("/api/copy", {"source": tag, "destination": witness})
-            inventory = self.api.tags()
-            if (
-                inventory.get(witness) != model["digest"]
-                or inventory.get(tag) != model["digest"]
-            ):
-                raise PreparationError("verification witness failed readback")
+        # This root-owned atomic receipt is the only publication/commit point.
+        # HTTP clients can copy aliases, but cannot create this acceptance record.
         receipt = {
-            "schema": 1,
+            "schema": 2,
             "revision": self.posture.revision,
+            "version": self.posture.data["version"],
             "resident": self.posture.resident,
+            "residents": list(self.posture.residents),
             "models": models,
             "runtime": evidence,
         }
@@ -363,8 +353,9 @@ class Preparation:
             )
             # Check HTTP observations again after the process/runner proof.
             verify_loaded(self.api.loaded(), expected)
+            runtime._assert_current()
             return self.certify(models, evidence)
-        except Exception as exc:
+        except BaseException as exc:
             self.abort(runtime, exc)
 
     def abort(self, runtime, cause):
@@ -393,9 +384,11 @@ class Preparation:
             self.version()
             receipt = json.loads((self.state / "verified.json").read_text())
             if (
-                receipt.get("schema") != 1
+                receipt.get("schema") != 2
                 or receipt.get("revision") != self.posture.revision
+                or receipt.get("version") != self.posture.data["version"]
                 or receipt.get("resident") != self.posture.resident
+                or receipt.get("residents") != self.posture.residents
             ):
                 raise PreparationError("missing or stale posture verification receipt")
             models = receipt["models"]
@@ -403,13 +396,9 @@ class Preparation:
                 raise PreparationError("receipt does not cover all required models")
             inventory = self.api.tags()
             for tag, model in models.items():
-                if (
-                    model["tag"] != tag
-                    or inventory.get(tag) != model["digest"]
-                    or inventory.get(self.posture.witness(tag)) != model["digest"]
-                ):
+                if model["tag"] != tag or inventory.get(tag) != model["digest"]:
                     raise PreparationError(
-                        "receipt model/witness identity is no longer current"
+                        "receipt model identity is no longer current"
                     )
             expected = {tag: models[tag] for tag in self.posture.residents}
             verify_loaded(self.api.loaded(), expected)
@@ -423,11 +412,7 @@ class Preparation:
                     )
             verify_loaded(self.api.loaded(), expected)
             after = self.api.tags()
-            if any(
-                after.get(tag) != models[tag]["digest"]
-                or after.get(self.posture.witness(tag)) != models[tag]["digest"]
-                for tag in models
-            ):
+            if any(after.get(tag) != models[tag]["digest"] for tag in models):
                 raise PreparationError(
                     "model identity changed during receipt verification"
                 )
@@ -436,7 +421,7 @@ class Preparation:
                 "revision": self.posture.revision,
                 "runtime": evidence,
             }
-        except Exception as exc:
+        except BaseException as exc:
             if stop_on_failure:
                 self.abort(runtime, exc)
             raise PreparationError(f"verification failed: {exc}") from exc
@@ -452,7 +437,7 @@ class Preparation:
         if self.posture.revision != installed.revision:
             raise PreparationError(
                 "--files-only refuses a recipe revision change, including comments; "
-                "run full adoption to publish matching recovery witnesses"
+                "run full adoption to publish a matching recovery receipt"
             )
         # This mode accepts only byte-identical recipe inputs. Compiling them
         # again cannot admit another change, but would pull unused rollback bases.
@@ -499,7 +484,10 @@ def recovery_manifest(posture):
         "name": "warm",
         "image": "python:3.12-alpine",
         "env": [
-            {"name": "OLLAMA_URL", "value": "http://ollama.llama.svc:11434"},
+            {
+                "name": "OLLAMA_RECOVERY_URL",
+                "value": "http://ollama.llama.svc:9111/preparation/recover",
+            },
             {"name": "OLLAMA_RECOVERY", "value": encoded(posture.recovery())},
         ],
         "command": ["python3", "-c", program],
@@ -539,6 +527,7 @@ def recovery_manifest(posture):
         },
         "spec": {
             "schedule": "*/15 * * * *",
+            "suspend": False,
             "concurrencyPolicy": "Forbid",
             "successfulJobsHistoryLimit": 1,
             "failedJobsHistoryLimit": 3,
@@ -570,6 +559,18 @@ def render(posture, root, check):
             "generated adoption artifacts are stale: " + ", ".join(changed)
         )
     return {"revision": posture.revision, "changed": changed}
+
+
+@contextmanager
+def adoption_signals():
+    def cancelled(signum, _frame):
+        raise InterruptedError(f"adoption interrupted by signal {signum}")
+
+    previous = signal.signal(signal.SIGTERM, cancelled)
+    try:
+        yield
+    finally:
+        signal.signal(signal.SIGTERM, previous)
 
 
 def main():
@@ -609,6 +610,15 @@ def main():
     if args.command == "version":
         print(posture.data["version"])
         return
+    if args.command == "recover":
+        print(
+            json.dumps(
+                request_recovery(
+                    posture.recovery(), "http://127.0.0.1:9111/preparation/recover"
+                )
+            )
+        )
+        return
     if args.command == "render":
         result = render(posture, args.root, args.check)
     else:
@@ -621,7 +631,7 @@ def main():
                     raise PreparationError(
                         "host verification requires the local daemon endpoint"
                     )
-                with Runtime() as runtime:
+                with Runtime() as runtime, adoption_signals():
                     result = (
                         prep.warm(runtime)
                         if args.command == "warm"
@@ -631,8 +641,6 @@ def main():
                 result = prep.prepare()
             elif args.command == "pair":
                 result = prep.prepare(["qwen2.5-coder:fim", "gemma4:vlm"])
-            elif args.command == "recover":
-                result = recover(posture.recovery(), prep.api)
             else:
                 installed = Path(args.installed)
                 prep.files_check(

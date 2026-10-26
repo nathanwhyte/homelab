@@ -10,6 +10,7 @@
 #
 #   bash test-homelab-ollama-deploy.sh <path to llama/host>
 set -u
+[[ $EUID -ne 0 ]] || { echo 'ERROR: deployment fixtures require an unprivileged user; refusing real root deployment' >&2; exit 1; }
 # Fixtures must never inherit a hook's repository/index selection.
 while IFS='=' read -r key _; do
 	[[ $key == GIT_* ]] && unset "$key"

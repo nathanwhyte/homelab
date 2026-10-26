@@ -394,7 +394,7 @@ class InstallerTests(unittest.TestCase):
 
     def test_files_only_unit_comment_change_never_restarts(self):
         self.installed()
-        with (self.src / "ollama.service.d/homelab.conf").open("a") as file:
+        with (self.src / "ollama-warm.service").open("a") as file:
             file.write("# comment-only change\n")
         result = self.run_installer("--files-only")
         self.assertEqual(result.returncode, 0, result.stdout)

@@ -11,7 +11,7 @@ live host acceptance. Historical measurements in the Modelfiles retain their ori
 | `model-posture.json` and `llama/ollama/*.Modelfile` | `/opt/ollama-host/` and its `modelfiles/` directory | Release, resident profiles, runtime settings, complete recipes, and explicit blob pins |
 | `ollama_prepare.py` | `/opt/ollama-host/` | Preparation, adoption, verification receipts, and generated artifacts |
 | `ollama_runtime.py` | `/opt/ollama-host/` | Daemon/runner evidence and failure stop tied to one daemon generation |
-| `ollama_recovery.py` | `/opt/ollama-host/` and generated recovery CronJob | HTTP-only idle recovery using previously verified manifest witnesses |
+| `ollama_recovery.py` and `ollama_attestation.py` | Host preparation/exporter directories; generated HTTP client | Idle recovery authorized by a root-owned receipt under the preparation lock |
 | `ollama.service.d/homelab.conf` | `/etc/systemd/system/ollama.service.d/` | Generated daemon environment and failure-stop policy |
 | `ollama-warm.sh` and `ollama-warm.service` | `/opt/ollama-host/`, `/etc/systemd/system/` | Compatibility entrypoint and synchronous post-start adoption |
 | `99-homelab-dgpu-runpm.rules` | `/etc/udev/rules.d/` | Keeps the 9070 XT out of runtime suspend, which evicts VRAM to RAM (BUG-1242) |
@@ -69,11 +69,15 @@ process start time. It proves context, slots, batch/micro-batch, flash attention
 Vulkan device identity and complete GPU layer offload. Missing, rotated-out, malformed,
 ambiguous, or stale evidence fails closed; API availability is not a substitute.
 
-Only successful acceptance publishes `/var/lib/ollama-preparation/verified.json` and
-`homelab-prepared/<model-stem>:<revision>` witness tags. The receipt binds configuration,
+Only successful acceptance atomically publishes `/var/lib/ollama-preparation/verified.json`.
+Public Ollama aliases are not proof of host acceptance: API clients can copy them. The receipt binds configuration,
 recipes, manifest digests and daemon/runner generations. The revision includes the entire
 recipe text, including comments. Old `/run/ollama/models-ready` markers are not acceptance
 evidence. `verify` checks the receipt and current state again; it does not rewarm models.
+The exporter reads this root-owned record through `/preparation/recover`; HTTP callers
+cannot write it. The endpoint checks the current daemon generation and holds the same lock
+as preparation throughout recovery. Legacy witness tags are retired across the reserved
+namespace, including models removed from the current catalog.
 
 ## Change and validate source
 
@@ -87,7 +91,7 @@ pre-commit run --files llama/host/model-posture.json llama/host/ollama.service.d
 ```
 
 Include every changed source/recipe path in the hook invocation too. Rendering and these
-hermetic suites make no live model calls. The installer integration seam is available only
+hermetic suites make no live model calls and the dispatcher refuses root. The installer integration seam is available only
 to a non-root test process; root rejects its filesystem override. Passing tests, hooks and
 review does not establish live readiness. Merge and deployment each need their own approval.
 
@@ -96,6 +100,11 @@ review does not establish live readiness. Merge and deployment each need their o
 These are deployment instructions, not a record of operations performed. Use one reviewed,
 merged revision for the host and its generated recovery CronJob. Keep the existing Service,
 EndpointSlice, pull CronJob and GPU-hold workload outside a routine posture deployment.
+Before changing the host, suspend only the existing `ollama-warm` CronJob and let its active
+Job finish (or explicitly cancel it). This prevents the previous recovery client, which
+does not share the new lock, from interfering during migration. Preserve its current
+manifest for recovery. The generated replacement explicitly sets `suspend: false`, so the
+scoped apply after verified host adoption resumes the schedule.
 
 1. On timmy, install through the trusted-main wrapper:
 
@@ -109,7 +118,7 @@ EndpointSlice, pull CronJob and GPU-hold workload outside a routine posture depl
    prepares against the reachable daemon before changing host files, then installs all
    recipes/modules, restarts the daemon, waits for the warm unit, and runs
    `verify --stop-on-failure`. The host transaction has its own lock. Completion requires
-   current receipt, witness, residency and runtime evidence, not an asynchronous job
+   current receipt, residency and runtime evidence, not an asynchronous job
    acknowledgement or `/api/version` response. The deployed SHA is also logged in
    `/var/log/homelab-deploy.log`.
 
@@ -155,12 +164,14 @@ EndpointSlice, pull CronJob and GPU-hold workload outside a routine posture depl
 ### Files-only
 
 `sudo homelab-ollama-deploy.sh --files-only` copies eligible files and reloads systemd
-without restarting or warming. It requires an installed preparation configuration and a
-reachable pinned daemon for consumer-based recipe comparison. It refuses posture, version,
+without restarting or warming. It requires an installed preparation configuration, byte-identical
+recipe revisions, and a reachable pinned daemon. It does not compile or pull unused models. It refuses posture, version,
 pin, resident selection, effective unit/drop-in, or recipe changes. Even comment-only recipe
 edits require full adoption: their byte/revision change would otherwise strand the existing
-receipt and recovery witnesses. Comments in unit files may change if their directives stay
-the same. A legacy host without the new configuration requires full migration.
+receipt. Comments in hand-authored unit files may change if their directives stay the same.
+The generated drop-in must still match its generator byte for byte: change its comments in
+`dropin()` and rerender, rather than editing generated output. Such regenerated comment-only
+changes pass the directive comparison. A legacy host without the new configuration requires full migration.
 
 ## Failure and recovery boundaries
 
@@ -180,18 +191,29 @@ the explicit recovery workflow. A failed verifier must not be reported as a succ
 stop unless its stop evidence confirms it. Direct manual unit controls remain available
 for an operator; they do not establish a new acceptance receipt by themselves.
 
-The generated recovery CronJob runs every 15 minutes, unprivileged and HTTP-only. Any
-nonempty `/api/ps` response makes it leave the loaded model alone. When idle, it checks
-the pinned daemon version and serving/witness manifest equality for the generated revision,
-rechecks idle state and inventory, then issues load-only requests and verifies the resulting
-resident digests, contexts and GPU residency. It cannot prepare recipes, change systemd,
-stop the daemon, or perform the host's `/proc`/journal proof. Missing/stale witnesses require
-host adoption; a successful load acknowledgement does not make recovery succeed.
+The generated recovery CronJob runs every 15 minutes, unprivileged and HTTP-only. It posts
+its expected revision and residents to the existing exporter on port 9111. The exporter
+runs as `ollama`, validates the root-owned receipt and current process generation, and takes
+the preparation lock before loading. A busy lock or nonempty `/api/ps` makes recovery do no
+work. When idle, the adapter checks the pinned version and serving digests against the
+receipt, rechecks idle state, then issues load-only requests and verifies the resulting
+resident digests, contexts and GPU residency. Neither endpoint nor CronJob can publish
+acceptance, prepare recipes, change systemd, stop the daemon, or perform the privileged
+journal proof. Missing/stale receipts require host adoption; forged Ollama aliases authorize
+nothing. A successful load acknowledgement does not make recovery succeed.
 
-The repeated idle check narrows a courtesy race; it is not atomic admission. Another client
+The shared lock serializes recovery with host adoption. The repeated idle check narrows a
+separate courtesy race with ordinary inference callers; it is not atomic admission. Another client
 can load between the final observation and recovery's request, including between co-resident
 loads. Recovery can then fail its final readback; HTTP offers no transaction that reserves
 the GPU against such a caller. Plan host adoption or sensitive GPU work in a quiet window.
+
+The receipt rename is the publication commit point. Cancellation handled before or after
+that rename removes the receipt and attempts a generation-bound stop. An uncatchable process
+death before the rename cannot publish partial acceptance; after a completed rename, the
+durable receipt records completed proof even if the command's final reply was lost. Read it
+back with `verify` before claiming success. Abandoned candidate UUIDs are recorded before
+creation and cleaned on the next preparation under the shared lock, never by pruning the store.
 
 ## Passwordless setup and ordinary operations
 
