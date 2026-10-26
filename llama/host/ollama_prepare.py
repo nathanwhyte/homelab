@@ -236,6 +236,13 @@ def blob_ids(show):
     return blobs
 
 
+class AdoptionCancelled(BaseException):
+    """Cancellation must escape OSError/Exception retry machinery unchanged."""
+
+    def __init__(self, signum):
+        super().__init__(f"adoption interrupted by signal {signum}")
+
+
 class Preparation:
     def __init__(self, posture, api, state, creator=None, *, source=None, lock_fd=None):
         self.posture = posture
@@ -251,6 +258,25 @@ class Preparation:
         self._lock_fd = None
         self._adoption_depth = 0
         self._aborting = False
+        self.cancellation = None
+
+    def checkpoint(self):
+        # Abort must finish invalidation and attempt the captured-generation
+        # stop even when cancellation is sticky or more signals arrive.
+        if self.cancellation is not None and not self._aborting:
+            self.cancellation.check()
+
+    def operation(self, function, *args, **kwargs):
+        """Do no further external work after a swallowed/recorded cancellation.
+
+        Check both sides: a library may handle an unrelated exception while the
+        signal arrives, so the handler can only record it until that operation
+        returns. Direct helpers without a CLI controller retain their behavior.
+        """
+        self.checkpoint()
+        result = function(*args, **kwargs)
+        self.checkpoint()
+        return result
 
     @staticmethod
     def trusted_file(info, label, directory=False):
@@ -306,7 +332,7 @@ class Preparation:
     def version(self, timeout=None):
         options = {} if timeout is None else {"timeout": timeout}
         if (
-            self.api.call("/api/version", **options).get("version")
+            self.operation(self.api.call, "/api/version", **options).get("version")
             != self.posture.data["version"]
         ):
             raise PreparationError(
@@ -318,7 +344,7 @@ class Preparation:
         deadline = time.monotonic() + timeout
         last_error = None
         while True:
-            runtime._assert_current()
+            self.operation(runtime._assert_current)
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 raise PreparationError(
@@ -331,26 +357,27 @@ class Preparation:
             except TransportUnavailable as exc:
                 last_error = exc
             else:
-                runtime._assert_current()
+                self.operation(runtime._assert_current)
                 if time.monotonic() >= deadline:
                     raise PreparationError(
                         f"startup readiness timed out after {timeout:g}s"
                     )
                 return
-            runtime._assert_current()
+            self.operation(runtime._assert_current)
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 raise PreparationError(
                     f"startup readiness timed out after {timeout:g}s: {last_error}"
                 )
-            time.sleep(min(1.0, remaining))
+            self.operation(time.sleep, min(1.0, remaining))
 
     def create(self, tag, recipe):
         if self._lock_fd is None:
             raise PreparationError("candidate creation requires the preparation lock")
         env = dict(os.environ, OLLAMA_HOST=self.api.url)
         try:
-            result = subprocess.run(
+            result = self.operation(
+                subprocess.run,
                 ["ollama", "create", tag, "-f", str(recipe)],
                 env=env,
                 capture_output=True,
@@ -359,9 +386,21 @@ class Preparation:
                 check=False,
                 pass_fds=(self._lock_fd,),
             )
-        except InterruptedError:
-            raise
-        except (OSError, subprocess.TimeoutExpired) as exc:
+        except subprocess.TimeoutExpired as exc:
+            retry = (
+                "Adoption abort must invalidate verification and attempt to stop its captured daemon, "
+                "including a bootstrap daemon. After confirmed stop, retry the trusted host installer "
+                "with --bootstrap-recovery to restart and resume preparation with the same bounded limit"
+                if self._adoption_depth
+                else "This preparation command does not stop the daemon; retry the same prepare/pair "
+                "command with the same bounded limit"
+            )
+            raise PreparationError(
+                "candidate creation exceeded the 900-second limit, including any base-model download. "
+                "Keep the model store: cached blobs and resumable partial downloads may be reused on retry. "
+                + retry
+            ) from exc
+        except OSError as exc:
             raise PreparationError(f"candidate creation failed: {exc}") from exc
         if result.returncode:
             raise PreparationError(
@@ -369,6 +408,7 @@ class Preparation:
             )
 
     def intent_directory(self):
+        self.checkpoint()
         path = self.state / "candidate-intents"
         ensure_directory(path, mode=0o700)
         self.trusted_file(path.lstat(), "candidate intent directory", directory=True)
@@ -396,15 +436,17 @@ class Preparation:
             raise PreparationError(
                 "invalid candidate intent; refusing unrelated cleanup"
             )
-        if tag in self.api.tags():
-            self.api.call("/api/delete", {"model": tag}, method="DELETE")
-            if tag in self.api.tags():
+        if tag in self.operation(self.api.tags):
+            self.operation(
+                self.api.call, "/api/delete", {"model": tag}, method="DELETE"
+            )
+            if tag in self.operation(self.api.tags):
                 raise PreparationError(f"candidate cleanup did not remove {tag}")
         if snapshot.exists() or snapshot.is_symlink():
             self.trusted_file(snapshot.lstat(), "candidate recipe snapshot")
-            snapshot.unlink()
+            self.operation(snapshot.unlink)
             self.sync_directory(snapshot.parent)
-        path.unlink()
+        self.operation(path.unlink)
         self.sync_directory(path.parent)
 
     def replay_candidates(self):
@@ -414,7 +456,7 @@ class Preparation:
         # Only durable operation records authorize deletion. An unrecorded
         # homelab-preparing tag is someone else's, regardless of its spelling.
         directory = self.intent_directory()
-        recover_atomic_writes(directory)
+        self.operation(recover_atomic_writes, directory)
         for path in sorted(directory.iterdir()):
             if not re.fullmatch(r"[0-9a-f]{32}\.json", path.name):
                 raise PreparationError("unexpected candidate intent entry")
@@ -422,11 +464,12 @@ class Preparation:
 
     @contextmanager
     def candidate(self, tag, posture=None):
+        self.checkpoint()
         posture = posture or self.posture
         self.replay_candidates()
         token = uuid.uuid4().hex
         name = f"homelab-preparing/{tag.replace(':', '-')}:{token}"
-        if name in self.api.tags():
+        if name in self.operation(self.api.tags):
             raise PreparationError("candidate name collision")
         # Keep the captured file beside its source so relative FROM/ADAPTER
         # paths retain Ollama's own path semantics. The bytes are never reread.
@@ -434,12 +477,15 @@ class Preparation:
         if snapshot.exists() or snapshot.is_symlink():
             raise PreparationError("candidate snapshot collision")
         intent = self.intent_directory() / f"{token}.json"
-        atomic_write(
-            intent, json.dumps({"schema": 1, "tag": name, "snapshot": str(snapshot)})
+        self.operation(
+            atomic_write,
+            intent,
+            json.dumps({"schema": 1, "tag": name, "snapshot": str(snapshot)}),
         )
         self.sync_directory(intent.parent)
         cleanup_now = False
         try:
+            self.checkpoint()
             fd = os.open(
                 snapshot, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600
             )
@@ -448,14 +494,14 @@ class Preparation:
                 out.flush()
                 os.fsync(out.fileno())
             self.sync_directory(snapshot.parent)
-            self.creator(name, snapshot)
+            self.operation(self.creator, name, snapshot)
             cleanup_now = True
-            inventory = self.api.tags()
+            inventory = self.operation(self.api.tags)
             if name not in inventory:
                 raise PreparationError(
                     "create acknowledged without a readable candidate"
                 )
-            shown = self.api.show(name)
+            shown = self.operation(self.api.show, name)
             blobs = blob_ids(shown)
             pins = posture.data["models"][tag].get("blobs")
             if pins and blobs != pins:
@@ -473,7 +519,7 @@ class Preparation:
                 "show": shown,
             }
             yield name, value
-        except (InterruptedError, KeyboardInterrupt, SystemExit):
+        except (AdoptionCancelled, InterruptedError, KeyboardInterrupt, SystemExit):
             # The create request may have outlived its interrupted caller.
             # Leave its durable intent for the next lock-owning preparation.
             cleanup_now = False
@@ -483,6 +529,7 @@ class Preparation:
                 self.cleanup_intent(intent)
 
     def invalidate_receipt(self):
+        self.checkpoint()
         with publication_directory(self.state) as directory:
             reclaim_staging(directory)
             directory.joinpath("verified.json").unlink(missing_ok=True)
@@ -492,10 +539,12 @@ class Preparation:
         self.invalidate_receipt()
         # Retire the entire legacy certificate namespace, including models no
         # longer in this catalog. Public aliases are never acceptance evidence.
-        for tag in self.api.tags():
+        for tag in self.operation(self.api.tags):
             if re.fullmatch(r"homelab-prepared/[a-z0-9][a-z0-9.\-]*:[0-9a-f]{64}", tag):
-                self.api.call("/api/delete", {"model": tag}, method="DELETE")
-                if tag in self.api.tags():
+                self.operation(
+                    self.api.call, "/api/delete", {"model": tag}, method="DELETE"
+                )
+                if tag in self.operation(self.api.tags):
                     raise PreparationError(
                         "could not invalidate an old verification witness"
                     )
@@ -506,16 +555,18 @@ class Preparation:
         result = {}
         for tag in tags or self.posture.required:
             with self.candidate(tag) as (candidate, wanted):
-                if self.api.tags().get(tag) != wanted["digest"]:
+                if self.operation(self.api.tags).get(tag) != wanted["digest"]:
                     self.invalidate()
-                    self.api.call(
-                        "/api/copy", {"source": candidate, "destination": tag}
+                    self.operation(
+                        self.api.call,
+                        "/api/copy",
+                        {"source": candidate, "destination": tag},
                     )
-                if self.api.tags().get(tag) != wanted["digest"]:
+                if self.operation(self.api.tags).get(tag) != wanted["digest"]:
                     raise PreparationError(
                         f"{tag}: copy did not adopt the canonical candidate"
                     )
-                shown = self.api.show(tag)
+                shown = self.operation(self.api.show, tag)
                 if any(
                     shown.get(field) != wanted["show"].get(field)
                     for field in SEMANTIC_FIELDS
@@ -529,7 +580,7 @@ class Preparation:
         return result
 
     def certify(self, models, evidence):
-        inventory = self.api.tags()
+        inventory = self.operation(self.api.tags)
         for tag, model in models.items():
             if inventory.get(tag) != model["digest"]:
                 raise PreparationError("model changed before verification publication")
@@ -544,7 +595,11 @@ class Preparation:
             "models": models,
             "runtime": evidence,
         }
-        atomic_write(self.state / "verified.json", json.dumps(receipt, indent=2) + "\n")
+        self.operation(
+            atomic_write,
+            self.state / "verified.json",
+            json.dumps(receipt, indent=2) + "\n",
+        )
         return receipt
 
     @contextmanager
@@ -576,17 +631,17 @@ class Preparation:
             self.invalidate_receipt()
             self.wait_ready(runtime)
             self.invalidate()
-            models = self.prepare()
+            models = self.operation(self.prepare)
             expected = {tag: models[tag] for tag in self.posture.residents}
             for tag in self.posture.residents:
-                self.api.load(tag)
-            verify_loaded(self.api.loaded(), expected)
-            evidence = runtime.verify(
-                self.posture.expected_runtime(), list(expected.values())
+                self.operation(self.api.load, tag)
+            verify_loaded(self.operation(self.api.loaded), expected)
+            evidence = self.operation(
+                runtime.verify, self.posture.expected_runtime(), list(expected.values())
             )
             # Check HTTP observations again after the process/runner proof.
-            verify_loaded(self.api.loaded(), expected)
-            runtime._assert_current()
+            verify_loaded(self.operation(self.api.loaded), expected)
+            self.operation(runtime._assert_current)
             return self.certify(models, evidence)
 
     def abort(self, runtime, cause):
@@ -601,10 +656,10 @@ class Preparation:
         finally:
             # Deliver any pending cancellation only after invalidation and the
             # captured-generation stop attempt. A managed handler must not
-            # replace the cleanup outcome with another InterruptedError.
+            # replace the cleanup outcome with another cancellation exception.
             try:
                 signal.pthread_sigmask(signal.SIG_SETMASK, previous)
-            except (InterruptedError, KeyboardInterrupt):
+            except (AdoptionCancelled, InterruptedError, KeyboardInterrupt):
                 pass
 
     def _abort(self, runtime, cause):
@@ -638,7 +693,9 @@ class Preparation:
                 return self.verify(runtime)
         try:
             self.version()
-            receipt = json.loads((self.state / "verified.json").read_text())
+            receipt = json.loads(
+                self.operation((self.state / "verified.json").read_text)
+            )
             if (
                 receipt.get("schema") != 2
                 or receipt.get("revision") != self.posture.revision
@@ -650,24 +707,24 @@ class Preparation:
             models = receipt["models"]
             if set(models) != set(self.posture.required):
                 raise PreparationError("receipt does not cover all required models")
-            inventory = self.api.tags()
+            inventory = self.operation(self.api.tags)
             for tag, model in models.items():
                 if model["tag"] != tag or inventory.get(tag) != model["digest"]:
                     raise PreparationError(
                         "receipt model identity is no longer current"
                     )
             expected = {tag: models[tag] for tag in self.posture.residents}
-            verify_loaded(self.api.loaded(), expected)
-            evidence = runtime.verify(
-                self.posture.expected_runtime(), list(expected.values())
+            verify_loaded(self.operation(self.api.loaded), expected)
+            evidence = self.operation(
+                runtime.verify, self.posture.expected_runtime(), list(expected.values())
             )
             for field in ("boot_id", "invocation_id", "pid", "start_ticks"):
                 if evidence[field] != receipt["runtime"][field]:
                     raise PreparationError(
                         "receipt belongs to a different daemon generation"
                     )
-            verify_loaded(self.api.loaded(), expected)
-            after = self.api.tags()
+            verify_loaded(self.operation(self.api.loaded), expected)
+            after = self.operation(self.api.tags)
             if any(after.get(tag) != models[tag]["digest"] for tag in models):
                 raise PreparationError(
                     "model identity changed during receipt verification"
@@ -839,15 +896,21 @@ class CommandCancellation:
         self.completed = False
 
     def cancelled(self, signum, _frame):
-        if not self.completed and self.interrupted is None:
-            self.interrupted = signum
+        if not self.completed:
+            if self.interrupted is None:
+                self.interrupted = signum
             # An asynchronous raise while another exception is unwinding can
             # replace that exception before its cleanup guard runs. Record the
             # cancellation there and let the existing unwind reach abort. If an
-            # inner handler swallows that exception, complete() still rejects
-            # this recorded cancellation. Ordinary work remains interruptible.
+            # inner handler swallows that exception, the next operation boundary
+            # rejects this sticky cancellation. Every ordinary-work signal can
+            # raise again; an earlier signal never disables later interruption.
             if not self.cleaning_up() and sys.exc_info()[0] is None:
-                raise InterruptedError(f"adoption interrupted by signal {signum}")
+                raise AdoptionCancelled(signum)
+
+    def check(self):
+        if not self.completed and self.interrupted is not None:
+            raise AdoptionCancelled(self.interrupted)
 
     def quiesce(self):
         signal.pthread_sigmask(signal.SIG_BLOCK, self.SIGNALS)
@@ -859,13 +922,14 @@ class CommandCancellation:
         # A signal queued during setup is delivered only after both handlers
         # exist, inside the caller's adoption cleanup boundary.
         signal.pthread_sigmask(signal.SIG_UNBLOCK, self.SIGNALS)
+        self.check()
 
     def complete(self):
         self.quiesce()
         pending = signal.sigpending() & self.SIGNALS
         if self.interrupted is not None or pending:
             signum = self.interrupted if self.interrupted is not None else min(pending)
-            raise InterruptedError(f"adoption interrupted by signal {signum}")
+            raise AdoptionCancelled(signum)
         # The empty pending observation above is the linearization point. A
         # signal queued after it stays blocked and cannot reopen cancellation.
         self.completed = True
@@ -948,6 +1012,7 @@ def main():
                 with Runtime() as runtime:
                     if args.command == "warm" or args.stop_on_failure:
                         cancellation = CommandCancellation(lambda: prep._aborting)
+                        prep.cancellation = cancellation
                         try:
                             with prep.adopting(runtime):
                                 cancellation.activate()
@@ -956,7 +1021,9 @@ def main():
                                     if args.command == "warm"
                                     else prep.verify(runtime, True)
                                 )
+                                cancellation.check()
                                 print(json.dumps(result, sort_keys=True))
+                                cancellation.check()
                                 sys.stdout.flush()
                                 cancellation.complete()
                         finally:

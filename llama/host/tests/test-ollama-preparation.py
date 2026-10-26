@@ -1750,6 +1750,256 @@ class CancellationBoundaryTests(FixtureCase):
         self.assertFalse((self.prep.state / "verified.json").exists())
 
 
+class CancellationOperationTests(FixtureCase):
+    def test_recorded_cancellation_stops_before_next_model_operation(self):
+        phases = (
+            "create",
+            "show",
+            "copy",
+            "candidate-cleanup",
+            "load",
+            "loaded",
+            "runtime",
+            "ready-retry",
+        )
+        for phase in phases:
+            for signum in (signal.SIGTERM, signal.SIGINT):
+                with self.subTest(phase=phase, signal=signum):
+                    case = FixtureCase()
+                    case.setUp()
+                    self.addCleanup(case.doCleanups)
+                    runtime = FakeRuntime()
+                    owner, method = {
+                        "create": (case.api, "create"),
+                        "show": (case.api, "show"),
+                        "copy": (case.api, "call"),
+                        "candidate-cleanup": (case.api, "call"),
+                        "load": (case.api, "load"),
+                        "loaded": (case.api, "loaded"),
+                        "runtime": (runtime, "verify"),
+                        "ready-retry": (case.api, "call"),
+                    }[phase]
+                    original = getattr(owner, method)
+                    observed = []
+
+                    def wrapped(*args, **kwargs):
+                        selected = not observed and (
+                            phase not in ("copy", "candidate-cleanup", "ready-retry")
+                            or args[0]
+                            == {
+                                "copy": "/api/copy",
+                                "candidate-cleanup": "/api/delete",
+                                "ready-retry": "/api/version",
+                            }[phase]
+                        )
+                        if not selected:
+                            return original(*args, **kwargs)
+                        value = original(*args, **kwargs)
+                        try:
+                            raise OSError("internally handled adapter error")
+                        except OSError:
+                            os.kill(os.getpid(), signum)
+                        observed.append(len(case.api.events))
+                        if phase == "ready-retry":
+                            raise TransportUnavailable("fixture transient connection")
+                        return value
+
+                    with mock.patch.object(owner, method, side_effect=wrapped):
+                        with CancellationBoundaryTests.cli(case, runtime):
+                            with self.assertRaisesRegex(
+                                PreparationError, "adoption interrupted by signal"
+                            ):
+                                module.main()
+                    self.assertEqual(len(observed), 1)
+                    self.assertEqual(runtime.stops, 1)
+                    self.assertFalse((case.prep.state / "verified.json").exists())
+                    self.assertFalse(
+                        any(
+                            event[0] in ("create", "/api/copy", "load")
+                            for event in case.api.events[observed[0] :]
+                        ),
+                        case.api.events,
+                    )
+                    # Any interrupted candidate cleanup remains owned/replayable;
+                    # cancellation never uses an incomplete artifact as authority.
+                    case.prep.replay_candidates()
+                    self.assertFalse(
+                        list((case.prep.state / "candidate-intents").glob("*.json"))
+                    )
+                    self.assertFalse(
+                        list(case.recipes.glob(".ollama-preparing-*.Modelfile"))
+                    )
+
+    @staticmethod
+    def run_create_probe(mode, signum):
+        case = CancellationBoundaryTests()
+        case.setUp()
+        runtime = FakeRuntime()
+        script = case.root / "slow-create.py"
+        ready = case.root / "child-ready"
+        script.write_text(
+            "import os,sys,time\nfrom pathlib import Path\n"
+            "Path(sys.argv[1]).write_text(str(os.getpid()))\n"
+            "print('captured stdout', flush=True)\n"
+            "print('captured stderr', file=sys.stderr, flush=True)\n"
+            "time.sleep(5)\n"
+        )
+        real_run = subprocess.run
+        real_create = Preparation.create
+        result = {"creates": 0, "signals": 0, "swallowed": False}
+        stop_sending = threading.Event()
+        sender = None
+
+        def send():
+            deadline = time.monotonic() + 5
+            while not ready.exists() and not stop_sending.wait(0.01):
+                if time.monotonic() >= deadline:
+                    return
+            for _ in range(2 if mode == "swallow-first" else 1):
+                if stop_sending.wait(0.1):
+                    return
+                result["signals"] += 1
+                os.kill(os.getpid(), signum)
+
+        def run(argv, **kwargs):
+            nonlocal sender
+            assert argv[:2] == ["ollama", "create"]
+            assert kwargs["capture_output"] is True and kwargs["timeout"] == 900
+            assert kwargs["pass_fds"]
+            result["creates"] += 1
+            if mode == "timeout":
+                kwargs["timeout"] = 0.1
+            else:
+                sender = threading.Thread(target=send)
+                sender.start()
+            try:
+                return real_run([sys.executable, str(script), str(ready)], **kwargs)
+            except BaseException as exc:
+                if mode != "swallow-first" or not isinstance(
+                    exc, module.AdoptionCancelled
+                ):
+                    raise
+                result["swallowed"] = True
+            # Deliberately outside the except suite: the next signal must still
+            # interrupt ordinary work after a badly behaved dependency swallowed
+            # the first cancellation. This is still within one operation call.
+            time.sleep(5)
+            raise AssertionError("second cancellation did not interrupt work")
+
+        started = time.monotonic()
+        with CancellationBoundaryTests.cli(case, runtime):
+            with (
+                mock.patch.object(Preparation, "create", real_create),
+                mock.patch.object(subprocess, "run", side_effect=run),
+            ):
+                try:
+                    module.main()
+                except BaseException as exc:
+                    result["error"] = str(exc)
+                finally:
+                    stop_sending.set()
+                    if sender:
+                        sender.join(2)
+                        assert not sender.is_alive()
+        result["elapsed"] = time.monotonic() - started
+        result["stops"] = runtime.stops
+        result["receipt"] = (case.prep.state / "verified.json").exists()
+        result["model_events"] = case.api.events
+        result["intents"] = len(
+            list((case.prep.state / "candidate-intents").glob("*.json"))
+        )
+        try:
+            os.kill(int(ready.read_text()), 0)
+        except ProcessLookupError:
+            result["child_reaped"] = True
+        else:
+            result["child_reaped"] = False
+        case.prep.replay_candidates()
+        result["replayed"] = not list(
+            (case.prep.state / "candidate-intents").glob("*.json")
+        )
+        result["snapshots"] = len(
+            list(case.recipes.glob(".ollama-preparing-*.Modelfile"))
+        )
+        print(json.dumps(result), flush=True)
+        case.doCleanups()
+
+    def create_probe(self, mode, signum):
+        script = textwrap.dedent("""\
+            import importlib.util,sys
+            spec=importlib.util.spec_from_file_location('fixtures',sys.argv[1])
+            tests=importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(tests)
+            tests.CancellationOperationTests.run_create_probe(sys.argv[2],int(sys.argv[3]))
+        """)
+        child = subprocess.run(
+            [sys.executable, "-c", script, __file__, mode, str(signum)],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            env={**os.environ, "TMPDIR": str(self.root)},
+            check=False,
+        )
+        self.assertEqual(child.returncode, 0, (child.stdout, child.stderr))
+        result = json.loads(child.stdout.splitlines()[-1])
+        self.assertLess(result["elapsed"], 2, result)
+        self.assertEqual(result["creates"], 1, result)
+        self.assertEqual(result["stops"], 1, result)
+        self.assertFalse(result["receipt"], result)
+        self.assertEqual(result["model_events"], [], result)
+        self.assertTrue(result["child_reaped"], result)
+        self.assertEqual(result["intents"], 1, result)
+        self.assertTrue(result["replayed"], result)
+        self.assertEqual(result["snapshots"], 0, result)
+        return result
+
+    def test_pid_directed_cancellation_escapes_real_subprocess_selector(self):
+        self.assertFalse(issubclass(module.AdoptionCancelled, Exception))
+        for signum in (signal.SIGTERM, signal.SIGINT):
+            with self.subTest(signal=signum):
+                result = self.create_probe("cancel", signum)
+                self.assertEqual(result["signals"], 1)
+                self.assertIn("adoption interrupted by signal", result["error"])
+
+    def test_later_signals_still_raise_after_dependency_swallows_first(self):
+        for signum in (signal.SIGTERM, signal.SIGINT):
+            with self.subTest(signal=signum):
+                result = self.create_probe("swallow-first", signum)
+                self.assertEqual(result["signals"], 2)
+                self.assertTrue(result["swallowed"])
+
+    def test_bounded_create_timeout_stops_and_explains_resumable_bootstrap_retry(self):
+        result = self.create_probe("timeout", signal.SIGTERM)
+        for guidance in (
+            "900-second limit",
+            "base-model download",
+            "partial downloads",
+            "Keep the model store",
+            "bootstrap daemon",
+            "--bootstrap-recovery",
+            "same bounded limit",
+        ):
+            self.assertIn(guidance, result["error"])
+
+    def test_preparation_timeout_preserves_daemon_and_bounds_retry_guidance(self):
+        with (
+            self.prep.locked(),
+            mock.patch.object(
+                module.subprocess,
+                "run",
+                side_effect=subprocess.TimeoutExpired("ollama create", 900),
+            ) as run,
+        ):
+            with self.assertRaisesRegex(
+                PreparationError,
+                "does not stop the daemon; retry the same prepare/pair",
+            ) as failure:
+                self.prep.create("fixture:candidate", self.posture.recipe("gemma4:vlm"))
+        self.assertEqual(run.call_args.kwargs["timeout"], 900)
+        self.assertIn("same bounded limit", str(failure.exception))
+        self.assertNotIn("--bootstrap-recovery", str(failure.exception))
+
+
 class CancellationProcessTests(FixtureCase):
     """Real process signals at kernel transitions; only model/runtime I/O is fake."""
 
