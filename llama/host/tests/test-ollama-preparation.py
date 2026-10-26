@@ -1561,6 +1561,7 @@ class CancellationBoundaryTests(FixtureCase):
     @contextmanager
     def cli(self, runtime, command="warm", output=None):
         import ollama_runtime
+        import ollama_signals
 
         runtime.closed = False
 
@@ -1602,6 +1603,9 @@ class CancellationBoundaryTests(FixtureCase):
                 mock.patch.object(ollama_runtime, "Runtime", factory),
                 mock.patch.object(runtime, "stop_failed", side_effect=stopped),
                 mock.patch("sys.stdout", output or io.StringIO()),
+                mock.patch.object(
+                    ollama_signals._state, "retained", False, create=True
+                ),
             ):
                 yield
         finally:
@@ -1748,6 +1752,314 @@ class CancellationBoundaryTests(FixtureCase):
         self.assertTrue(failed)
         self.assertEqual(runtime.stops, 1)
         self.assertFalse((self.prep.state / "verified.json").exists())
+
+
+class ResourceCancellationTests(FixtureCase):
+    @staticmethod
+    def run_probe(action, boundary, signum):
+        import ollama_signals as scopes
+
+        case = FixtureCase()
+        case.setUp()
+        prep, runtime = case.prep, FakeRuntime()
+        receipt = prep.state / "verified.json"
+        receipt.write_text("old acceptance")
+        controller = module.CommandCancellation(lambda: prep._aborting)
+        prep.cancellation = controller
+        result = {"fired": False, "transitions": [], "error": None}
+        descriptors = []
+        real_open, real_close, real_fdopen = os.open, os.close, os.fdopen
+        real_mask = signal.pthread_sigmask
+        keeper = []
+
+        def fire(label):
+            if label == boundary and not result["fired"]:
+                result["fired"] = True
+                os.kill(os.getpid(), signum)
+                # A second cancellation must not unwind resource release/abort.
+                os.kill(
+                    os.getpid(),
+                    signal.SIGINT if signum == signal.SIGTERM else signal.SIGTERM,
+                )
+
+        def opened(*args, **kwargs):
+            fd = real_open(*args, **kwargs)
+            descriptors.append(fd)
+            return fd
+
+        class Stream:
+            def __init__(self, out):
+                self.out = out
+
+            def __enter__(self):
+                fire("stream-enter")
+                self.out.__enter__()
+                return self
+
+            def __exit__(self, *exc):
+                fire("stream-exit")
+                return self.out.__exit__(*exc)
+
+            def __getattr__(self, key):
+                return getattr(self.out, key)
+
+        def mask(how, values):
+            index = len(result["transitions"])
+            result["transitions"].append([int(how), sorted(values)])
+            fire(f"mask-{index}-before")
+            value = real_mask(how, values)
+            fire(f"mask-{index}-after")
+            return value
+
+        def trace(frame, event, _arg):
+            if event == "call" and frame.f_code.co_name in ("__enter__", "__exit__"):
+                manager = frame.f_locals.get("self")
+                generator = getattr(manager, "gen", None)
+                name = "locked" if action == "transaction" else "publication_directory"
+                if generator is not None and generator.gi_code.co_name == name:
+                    layer = (
+                        "outer"
+                        if isinstance(manager, scopes._DeferredContext)
+                        else "inner"
+                    )
+                    fire(f"{layer}-{frame.f_code.co_name}")
+            if frame.f_code in (
+                module.sync_directory.__wrapped__.__code__,
+                module.write_snapshot.__wrapped__.__code__,
+            ):
+                fire(f"{frame.f_code.co_name}-{event}")
+            return trace
+
+        def work():
+            if action == "publication":
+                with module.publication_directory(prep.state):
+                    pass
+            elif action == "receipt":
+                module.atomic_write(receipt, "new acceptance")
+            elif action == "intent":
+                token = "a" * 32
+                snapshot = case.recipes / f".ollama-preparing-{token}.Modelfile"
+                module.atomic_write(
+                    prep.intent_directory() / f"{token}.json",
+                    json.dumps(
+                        {
+                            "schema": 1,
+                            "tag": f"homelab-preparing/fixture:{token}",
+                            "snapshot": str(snapshot),
+                        }
+                    ),
+                )
+            elif action == "recovery":
+                module.recover_atomic_writes(prep.state)
+            elif action == "snapshot":
+                module.write_snapshot(
+                    case.recipes / "snapshot.Modelfile", b"captured bytes"
+                )
+            elif action == "sync":
+                module.sync_directory(prep.state)
+            elif action == "transaction":
+                with prep.locked():
+                    prep.checkpoint()
+            else:
+                raise AssertionError(action)
+
+        controller.activate()
+        started = time.monotonic()
+        with (
+            mock.patch.object(os, "open", opened),
+            mock.patch.object(
+                os,
+                "fdopen",
+                side_effect=lambda *args, **kwargs: Stream(
+                    real_fdopen(*args, **kwargs)
+                ),
+            ),
+            mock.patch.object(signal, "pthread_sigmask", mask),
+        ):
+            sys.settrace(trace)
+            try:
+                with prep.adopting(runtime):
+                    work()
+                    prep.checkpoint()
+                    raise PreparationError("end-of-probe cleanup")
+            except BaseException as exc:
+                keeper.append(
+                    exc
+                )  # Retain traceback: GC must not release locks for us.
+                result["error"] = str(exc)
+            finally:
+                sys.settrace(None)
+                controller.quiesce(terminal=True)
+        result["elapsed"] = time.monotonic() - started
+        result["stops"] = runtime.stops
+        result["receipt"] = receipt.exists()
+        result["leaked_descriptors"] = []
+        for fd in set(descriptors):
+            try:
+                os.fstat(fd)
+            except OSError as exc:
+                assert exc.errno == errno.EBADF
+            else:
+                result["leaked_descriptors"].append(fd)
+        for path, flags in (
+            (prep.state, os.O_RDONLY),
+            (prep.state / "preparation.lock", os.O_RDWR | os.O_CREAT),
+        ):
+            fd = real_open(path, flags, 0o644)
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            finally:
+                real_close(fd)
+        print(json.dumps(result), flush=True)
+        case.doCleanups()
+
+    def probe(self, action, boundary, signum):
+        script = textwrap.dedent("""\
+            import importlib.util,sys
+            spec=importlib.util.spec_from_file_location('fixtures',sys.argv[1])
+            tests=importlib.util.module_from_spec(spec);spec.loader.exec_module(tests)
+            tests.ResourceCancellationTests.run_probe(sys.argv[2],sys.argv[3],int(sys.argv[4]))
+        """)
+        child = subprocess.run(
+            [sys.executable, "-c", script, __file__, action, boundary, str(signum)],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+            env={**os.environ, "TMPDIR": str(self.root)},
+        )
+        self.assertEqual(child.returncode, 0, (child.stdout, child.stderr))
+        result = json.loads(child.stdout.splitlines()[-1])
+        if boundary != "observe":
+            self.assertTrue(result["fired"], result)
+        self.assertEqual(result["stops"], 1, result)
+        self.assertFalse(result["receipt"], result)
+        self.assertEqual(result["leaked_descriptors"], [], result)
+        self.assertNotIn("INVALIDATION FAILED", result["error"])
+        self.assertLess(result["elapsed"], 2, result)
+        return result
+
+    def test_real_signals_at_both_layers_of_resource_context_entry_and_exit(self):
+        for action in ("publication", "receipt", "intent", "recovery", "transaction"):
+            for layer in ("inner", "outer"):
+                for edge in ("__enter__", "__exit__"):
+                    for signum in (signal.SIGTERM, signal.SIGINT):
+                        with self.subTest(
+                            action=action, layer=layer, edge=edge, signal=signum
+                        ):
+                            self.probe(action, f"{layer}-{edge}", signum)
+
+    def test_real_signals_cover_file_stream_and_fsync_ownership(self):
+        for action, boundaries in (
+            ("receipt", ("stream-enter", "stream-exit")),
+            (
+                "snapshot",
+                (
+                    "stream-enter",
+                    "stream-exit",
+                    "write_snapshot-call",
+                    "write_snapshot-return",
+                ),
+            ),
+            ("sync", ("sync_directory-call", "sync_directory-return")),
+        ):
+            for boundary in boundaries:
+                for signum in (signal.SIGTERM, signal.SIGINT):
+                    with self.subTest(action=action, boundary=boundary, signal=signum):
+                        self.probe(action, boundary, signum)
+
+    def test_real_signals_before_and_after_every_resource_mask_transition(self):
+        baseline = self.probe("receipt", "observe", signal.SIGTERM)
+        for index in range(len(baseline["transitions"])):
+            for side in ("before", "after"):
+                for signum in (signal.SIGTERM, signal.SIGINT):
+                    with self.subTest(index=index, side=side, signal=signum):
+                        self.probe("receipt", f"mask-{index}-{side}", signum)
+
+    def test_contended_invalidation_is_bounded_and_still_attempts_stop(self):
+        self.prep.state.joinpath("verified.json").write_text("old acceptance")
+        holder = os.open(self.prep.state, os.O_RDONLY)
+        try:
+            fcntl.flock(holder, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            runtime = FakeRuntime()
+            started = time.monotonic()
+            with mock.patch.object(module, "PUBLICATION_LOCK_TIMEOUT", 0.05):
+                with self.assertRaisesRegex(
+                    PreparationError,
+                    "captured daemon stopped.*INVALIDATION FAILED.*publication directory lock",
+                ):
+                    self.prep.abort(runtime, RuntimeError("fixture failure"))
+            self.assertLess(time.monotonic() - started, 1)
+            self.assertEqual(runtime.stops, 1)
+            self.assertTrue((self.prep.state / "verified.json").exists())
+            runtime.stop_failed = mock.Mock(side_effect=OSError("stop unavailable"))
+            with mock.patch.object(module, "PUBLICATION_LOCK_TIMEOUT", 0.05):
+                with self.assertRaisesRegex(
+                    PreparationError,
+                    "STOP FAILED: stop unavailable.*INVALIDATION FAILED",
+                ):
+                    self.prep.abort(runtime, RuntimeError("fixture failure"))
+            runtime.stop_failed.assert_called_once()
+        finally:
+            os.close(holder)
+
+    def test_transaction_lock_wait_is_bounded_and_preserves_other_owner(self):
+        lock = self.prep.state / "preparation.lock"
+        with lock.open("a+") as holder:
+            fcntl.flock(holder, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            started = time.monotonic()
+            with mock.patch.object(module, "PREPARATION_LOCK_TIMEOUT", 0.05):
+                with self.assertRaisesRegex(
+                    PreparationError, "preparation transaction lock"
+                ):
+                    with self.prep.locked():
+                        self.fail("entered a contended transaction")
+            self.assertLess(time.monotonic() - started, 1)
+            self.assertIsNone(self.prep._lock_fd)
+            with lock.open("a+") as contender:
+                with self.assertRaises(BlockingIOError):
+                    fcntl.flock(contender, fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+    def test_invalidation_budget_never_prevents_target_stop(self):
+        runtime = FakeRuntime()
+        with mock.patch.object(module, "INVALIDATION_BUDGET", 0):
+            with self.assertRaisesRegex(
+                PreparationError,
+                "captured daemon stopped.*INVALIDATION FAILED.*time budget",
+            ):
+                self.prep.abort(runtime, RuntimeError("fixture failure"))
+        self.assertEqual(runtime.stops, 1)
+
+    def test_failed_stream_adoption_closes_raw_descriptor(self):
+        real_open = os.open
+        for operation in ("receipt", "snapshot"):
+            descriptors = []
+
+            def opened(*args, **kwargs):
+                fd = real_open(*args, **kwargs)
+                descriptors.append(fd)
+                return fd
+
+            with (
+                self.subTest(operation=operation),
+                mock.patch.object(os, "open", opened),
+                mock.patch.object(
+                    os, "fdopen", side_effect=OSError("stream ownership failed")
+                ),
+            ):
+                with self.assertRaisesRegex(OSError, "stream ownership failed"):
+                    if operation == "receipt":
+                        module.atomic_write(
+                            self.prep.state / "verified.json", "fixture"
+                        )
+                    else:
+                        module.write_snapshot(
+                            self.recipes / "fixture.Modelfile", b"fixture"
+                        )
+            for fd in set(descriptors):
+                with self.assertRaises(OSError) as failure:
+                    os.fstat(fd)
+                self.assertEqual(failure.exception.errno, errno.EBADF)
 
 
 class CancellationOperationTests(FixtureCase):
@@ -2066,8 +2378,8 @@ class CancellationProcessTests(FixtureCase):
 
         def masking(how, numbers):
             transition = None
-            if phase == "activate" and how == signal.SIG_UNBLOCK:
-                transition = "activate-unblock"
+            if how == signal.SIG_UNBLOCK and len(result["events"]) == 2:
+                transition = "operation-unblock"
             if phase == "complete" and how == signal.SIG_BLOCK:
                 transition = "complete-block"
             if transition:
@@ -2361,8 +2673,8 @@ class CancellationProcessTests(FixtureCase):
 
     def test_precompletion_signals_abort_with_runtime_and_lock_held(self):
         stages = (
-            "before-activate-unblock",
-            "after-activate-unblock",
+            "before-operation-unblock",
+            "after-operation-unblock",
             "after-publication",
             "response-write",
             "response-flush",

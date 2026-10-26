@@ -32,6 +32,14 @@ from ollama_recovery import (
     request_recovery,
     verify_loaded,
 )
+from ollama_signals import (
+    MANAGED_SIGNALS,
+    deferred,
+    deferred_context,
+    deferred_depth,
+    interruptible,
+    retain_signals_blocked,
+)
 
 HERE = Path(__file__).resolve().parent
 SEMANTIC_FIELDS = (
@@ -52,6 +60,9 @@ def encoded(value):
 
 
 STAGING_DIRECTORY = ".ollama-write-staging"
+PUBLICATION_LOCK_TIMEOUT = 1.0
+PREPARATION_LOCK_TIMEOUT = 30.0
+INVALIDATION_BUDGET = 30.0
 
 
 def ensure_directory(path, mode=0o755):
@@ -72,6 +83,7 @@ def ensure_directory(path, mode=0o755):
             raise
 
 
+@deferred
 def sync_directory(path):
     fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
     try:
@@ -80,20 +92,38 @@ def sync_directory(path):
         os.close(fd)
 
 
-@contextmanager
+def bounded_flock(fd, label, timeout):
+    deadline = time.monotonic() + timeout
+    while True:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            return
+        except BlockingIOError as exc:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise PreparationError(
+                    f"timed out acquiring {label} after {timeout:g}s"
+                ) from exc
+        # Leave the caught-error suite before interruptible waiting. The managed
+        # handler preserves active exceptions so resource cleanup can unwind.
+        # Publication scopes still defer delivery until ownership is released.
+        interruptible(time.sleep, min(0.05, remaining))
+
+
+@deferred_context
 def publication_directory(directory):
     """Serialize writers/reclaimers without leaving an additional lock file."""
     directory = Path(directory)
     ensure_directory(directory)
     fd = os.open(directory, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
     try:
-        fcntl.flock(fd, fcntl.LOCK_EX)
+        bounded_flock(fd, "publication directory lock", PUBLICATION_LOCK_TIMEOUT)
         yield directory
     finally:
         os.close(fd)
 
 
-def reclaim_staging(directory):
+def reclaim_staging(directory, checkpoint=lambda: None):
     """Caller holds the directory lock; staging bytes are never authority."""
     staging = directory / STAGING_DIRECTORY
     try:
@@ -102,6 +132,7 @@ def reclaim_staging(directory):
         return
     Preparation.trusted_file(info, "atomic write staging directory", directory=True)
     for temporary in staging.iterdir():
+        checkpoint()
         if not re.fullmatch(r"[0-9a-f]{32}\.tmp", temporary.name):
             raise PreparationError("unexpected atomic write staging entry")
         Preparation.trusted_file(temporary.lstat(), "atomic write staging file")
@@ -126,7 +157,12 @@ def atomic_write(path, content):
             fd = os.open(
                 temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600
             )
-            with os.fdopen(fd, "w") as out:
+            try:
+                out = os.fdopen(fd, "w")
+            except BaseException:
+                os.close(fd)
+                raise
+            with out:
                 out.write(content)
                 out.flush()
                 os.fchmod(out.fileno(), 0o644)
@@ -138,6 +174,22 @@ def atomic_write(path, content):
             sync_directory(directory)
         finally:
             reclaim_staging(directory)
+
+
+@deferred
+def write_snapshot(snapshot, content):
+    """Own the file from open through fdopen entry/exit and final directory sync."""
+    fd = os.open(snapshot, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+    try:
+        out = os.fdopen(fd, "wb")
+    except BaseException:
+        os.close(fd)
+        raise
+    with out:
+        out.write(content)
+        out.flush()
+        os.fsync(out.fileno())
+    sync_directory(snapshot.parent)
 
 
 class Posture:
@@ -263,7 +315,13 @@ class Preparation:
     def checkpoint(self):
         # Abort must finish invalidation and attempt the captured-generation
         # stop even when cancellation is sticky or more signals arrive.
-        if self.cancellation is not None and not self._aborting:
+        if self._aborting:
+            deadline = getattr(self, "_invalidation_deadline", None)
+            if deadline is not None and time.monotonic() >= deadline:
+                raise PreparationError(
+                    "verification invalidation exceeded its time budget"
+                )
+        elif self.cancellation is not None:
             self.cancellation.check()
 
     def operation(self, function, *args, **kwargs):
@@ -274,7 +332,14 @@ class Preparation:
         returns. Direct helpers without a CLI controller retain their behavior.
         """
         self.checkpoint()
-        result = function(*args, **kwargs)
+        # Resource owners keep signals deferred between operations. Only this
+        # explicit work boundary enables delivery; short critical scopes still
+        # forbid it (publication and file ownership must finish first).
+        result = (
+            function(*args, **kwargs)
+            if self._aborting
+            else interruptible(function, *args, **kwargs)
+        )
         self.checkpoint()
         return result
 
@@ -290,7 +355,7 @@ class Preparation:
                 f"{label} must be owned by the preparation user and not group/world-writable"
             )
 
-    @contextmanager
+    @deferred_context(critical=False)
     def locked(self):
         if self._lock_fd is not None:
             raise PreparationError("preparation lock is already held by this operation")
@@ -314,7 +379,7 @@ class Preparation:
                 raise PreparationError(
                     "inherited preparation lock does not match its state path"
                 )
-            fcntl.flock(fd, fcntl.LOCK_EX)
+            bounded_flock(fd, "preparation transaction lock", PREPARATION_LOCK_TIMEOUT)
             self._lock_fd = fd
             os.fchmod(fd, 0o644)
             os.chmod(self.state, 0o755)
@@ -487,14 +552,7 @@ class Preparation:
         cleanup_now = False
         try:
             self.checkpoint()
-            fd = os.open(
-                snapshot, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600
-            )
-            with os.fdopen(fd, "wb") as out:
-                out.write(posture.recipe_bytes[tag])
-                out.flush()
-                os.fsync(out.fileno())
-            self.sync_directory(snapshot.parent)
+            write_snapshot(snapshot, posture.recipe_bytes[tag])
             self.operation(self.creator, name, snapshot)
             cleanup_now = True
             inventory = self.operation(self.api.tags)
@@ -532,7 +590,8 @@ class Preparation:
     def invalidate_receipt(self):
         self.checkpoint()
         with publication_directory(self.state) as directory:
-            reclaim_staging(directory)
+            reclaim_staging(directory, self.checkpoint)
+            self.checkpoint()
             directory.joinpath("verified.json").unlink(missing_ok=True)
             self.sync_directory(directory)
 
@@ -541,6 +600,7 @@ class Preparation:
         # Retire the entire legacy certificate namespace, including models no
         # longer in this catalog. Public aliases are never acceptance evidence.
         for tag in self.operation(self.api.tags):
+            self.checkpoint()
             if re.fullmatch(r"homelab-prepared/[a-z0-9][a-z0-9.\-]*:[0-9a-f]{64}", tag):
                 self.operation(
                     self.api.call, "/api/delete", {"model": tag}, method="DELETE"
@@ -616,6 +676,7 @@ class Preparation:
         self._adoption_depth += 1
         try:
             yield
+            self.checkpoint()
         except BaseException as exc:
             if not self._aborting:
                 self.abort(runtime, exc)
@@ -649,6 +710,9 @@ class Preparation:
         # The managed handlers stop raising as soon as cleanup begins. This
         # covers teardown too; a second cancellation cannot bypass target stop.
         self._aborting = True
+        # No new cleanup request starts after this budget. Existing HTTP calls
+        # retain their finite transport timeout; target stop is outside this gate.
+        self._invalidation_deadline = time.monotonic() + INVALIDATION_BUDGET
         previous = signal.pthread_sigmask(
             signal.SIG_BLOCK, {signal.SIGTERM, signal.SIGINT}
         )
@@ -889,7 +953,7 @@ class CommandCancellation:
     preparation helpers do not install this process-lifetime CLI policy.
     """
 
-    SIGNALS = frozenset((signal.SIGTERM, signal.SIGINT))
+    SIGNALS = MANAGED_SIGNALS
 
     def __init__(self, cleaning_up=lambda: False):
         self.cleaning_up = cleaning_up
@@ -910,11 +974,16 @@ class CommandCancellation:
                 raise AdoptionCancelled(signum)
 
     def check(self):
-        if not self.completed and self.interrupted is not None:
-            raise AdoptionCancelled(self.interrupted)
+        pending = signal.sigpending() & self.SIGNALS
+        if not self.completed and (self.interrupted is not None or pending):
+            raise AdoptionCancelled(
+                self.interrupted if self.interrupted is not None else min(pending)
+            )
 
-    def quiesce(self):
+    def quiesce(self, terminal=False):
         signal.pthread_sigmask(signal.SIG_BLOCK, self.SIGNALS)
+        if terminal:
+            retain_signals_blocked()
 
     def activate(self):
         self.quiesce()
@@ -922,7 +991,8 @@ class CommandCancellation:
             signal.signal(signum, self.cancelled)
         # A signal queued during setup is delivered only after both handlers
         # exist, inside the caller's adoption cleanup boundary.
-        signal.pthread_sigmask(signal.SIG_UNBLOCK, self.SIGNALS)
+        if not deferred_depth():
+            signal.pthread_sigmask(signal.SIG_UNBLOCK, self.SIGNALS)
         self.check()
 
     def complete(self):
@@ -1031,7 +1101,7 @@ def main():
                             # Never restore SIG_DFL or unmask in this command.
                             # Failure cleanup has run, or success linearized;
                             # retain signal ownership through all resource exit.
-                            cancellation.quiesce()
+                            cancellation.quiesce(terminal=True)
                     else:
                         # Observational verify never acquires cancellation
                         # authority to invalidate a receipt or stop its daemon.
