@@ -423,10 +423,34 @@ cordon_node() { # <node> <owner>
 	die "cannot cordon $node: it changed on each of $CORDON_ATTEMPTS attempts"
 }
 
-# Uncordons and drops the owner in one write.
+# finish's ownership rule: the cordon names this Mac (any purpose), or has no
+# owner because it predates owners. Another Mac's newer cycle refuses, so a stale
+# `up` cannot restore or uncordon over it. Leaves NODE_VERSION for uncordon_node.
+require_finishable_cordon() {
+	local node=$1 host
+	host=$(cordon_owner finish) || die "cannot tell which Mac this is"
+	host=${host#finish:}
+	read_node_cordon "$node"
+	[[ $NODE_CORDONED == true ]] || die "$node is not cordoned; refusing to run finish"
+	[[ -z $NODE_OWNER || ${NODE_OWNER#*:} == "$host" ]] ||
+		die "$node is cordoned by $NODE_OWNER, not this Mac ($host); refusing to finish another cycle's cordon — run it on that Mac"
+}
+
+# Uncordons and drops the owner in one write carrying the resourceVersion of the
+# read that found the cordon finishable, re-checking on a 409 as cordon_node does.
 uncordon_node() {
-	kubectl patch node "$1" --type=merge \
-		-p "{\"spec\":{\"unschedulable\":null},\"metadata\":{\"annotations\":{\"$CORDON_OWNER_KEY\":null}}}" >/dev/null
+	local node=$1 attempt patch err
+	for ((attempt = 1; attempt <= CORDON_ATTEMPTS; attempt++)); do
+		require_finishable_cordon "$node"
+		patch=$(jq -cn --arg v "$NODE_VERSION" --arg k "$CORDON_OWNER_KEY" \
+			'{metadata: {resourceVersion: $v, annotations: {($k): null}}, spec: {unschedulable: null}}')
+		if err=$(kubectl patch node "$node" --type=merge -p "$patch" 2>&1 >/dev/null); then
+			return 0
+		fi
+		[[ $err == *'(Conflict)'* ]] || die "cannot uncordon $node: $err"
+		warn "[$node] changed while uncordoning (attempt $attempt of $CORDON_ATTEMPTS); re-reading"
+	done
+	die "cannot uncordon $node: it changed on each of $CORDON_ATTEMPTS attempts"
 }
 
 node_is_ready() {
@@ -1219,6 +1243,7 @@ cmd_finish() {
 	# and left the node cordoned. The check still precedes every mutation.
 	wait_for_api
 	require_only_target_cordoned "$node"
+	require_finishable_cordon "$node"
 
 	wait_for_node_ready "$node"
 
@@ -1297,7 +1322,7 @@ cmd_reboot() {
 	local drained=1
 	kubectl drain "$node" --ignore-daemonsets --delete-emptydir-data --timeout="$DRAIN_TIMEOUT" || drained=0
 	require_owned_cordon "$node" "$owner" "the cordon changed during the drain"
-	if ((!drained)); then
+	if ((! drained)); then
 		warn "drain incomplete — assessing what is left on $node"
 		local leftovers
 		# Fail closed: every non-terminal pod counts (Running, Pending, Unknown, or

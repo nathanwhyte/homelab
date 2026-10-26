@@ -617,6 +617,47 @@ class MaintenanceCycleTests(unittest.TestCase):
         self.run_command(OUTAGE, "down")
         self.assertEqual(len(self.drain_calls()), 2)
 
+    def test_stale_up_cannot_finish_the_other_macs_newer_outage(self):
+        self.run_command(OUTAGE, "down")
+        self.reboot()
+        # timmy is uncordoned by hand, then the other Mac starts its own outage.
+        state = self.read()
+        state["nodes"]["timmy"].update(cordoned=False, annotations={})
+        self.write(state)
+        first_mac = self.env["XDG_STATE_HOME"]
+        other_mac = self.root / "other-mac"
+        other_mac.mkdir()
+        self.env.update(XDG_STATE_HOME=str(other_mac), MAINTENANCE_HOST="mac-two")
+        self.run_command(OUTAGE, "down")
+        before = self.read()
+        self.env.update(XDG_STATE_HOME=first_mac, MAINTENANCE_HOST="mac-one")
+        self.reboot(boot=THIRD_BOOT)
+        before["nodes"]["timmy"]["boot"] = THIRD_BOOT
+        result = self.run_command(OUTAGE, "up", ok=False)
+        self.assertIn("outage:mac-two", result.stderr)
+        self.assertEqual(self.read(), before)
+        self.assertTrue((self.cycle / "timmy.boot-id").exists())
+
+    def test_up_finishes_an_ownerless_cordon_from_before_owners(self):
+        self.run_command(OUTAGE, "down")
+        state = self.read()
+        state["nodes"]["timmy"]["annotations"] = {}
+        self.write(state)
+        self.reboot()
+        self.run_command(OUTAGE, "up")
+        self.assert_restored()
+
+    def test_uncordon_retries_a_conflict(self):
+        self.run_command(OUTAGE, "down")
+        self.reboot()
+        state = self.read()
+        state["node_churn"] = 1
+        self.write(state)
+        result = self.run_command(OUTAGE, "up")
+        self.assertIn("changed while uncordoning", result.stdout)
+        self.assert_restored()
+        self.assertIsNone(self.owner())
+
     def test_cordon_retries_a_conflict(self):
         state = self.read()
         state["node_churn"] = 2

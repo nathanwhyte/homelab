@@ -316,6 +316,8 @@ finish_fixture() (
 	cordoned_nodes() {
 		if [[ -e $TMPDIR_TEST/cordoned ]]; then printf 'wemby\n'; fi
 	}
+	# shellcheck disable=SC2034 # read by uncordon_node
+	require_finishable_cordon() { NODE_VERSION=1; }
 	kubectl() {
 		[[ $1 == patch && $* == *'"unschedulable":null'* ]] || return 1
 		rm "$TMPDIR_TEST/cordoned"

@@ -184,7 +184,9 @@ and `finish` clears it with the uncordon. A bare `drain` refuses a cordoned node
 repeat after a reboot replaces that reboot's proof. So `down` repeats only on this Mac's own
 outage cordon, and refuses before any change on a hand cordon, a reboot or drain cycle's
 cordon, or the other Mac's outage; run `up` on the Mac that started the outage, and never
-uncordon another Mac's timmy outage. `kubectl drain` cordons by itself, so every drain is
+uncordon another Mac's timmy outage. `finish` (and so `up`) checks the owner before it
+restores anything: it refuses a cordon that names another Mac, so a late `up` cannot undo a
+newer outage, and accepts an ownerless one. `kubectl drain` cordons by itself, so every drain is
 followed by a check that the cordon is still this run's: one cleared mid-run comes back from
 the drain without an owner, and the run stops there. An owner left on an uncordoned node (after a hand
 uncordon) is stale: `status` lists it and the next cordon replaces it. A cordon from before
