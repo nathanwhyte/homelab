@@ -213,10 +213,16 @@ can load between the final observation and recovery's request, including between
 loads. Recovery can then fail its final readback; HTTP offers no transaction that reserves
 the GPU against such a caller. Plan host adoption or sensitive GPU work in a quiet window.
 
-The receipt rename is the publication commit point. For `warm` and
-`verify --stop-on-failure`, handled cancellation before or after that rename removes the
-receipt and attempts a generation-bound stop. This cleanup boundary includes signal-handler
-teardown and the final response flush; further cancellation is deferred during cleanup.
+The receipt rename publishes completed proof. For `warm` and
+`verify --stop-on-failure`, the CLI owns `SIGINT` and `SIGTERM` until process exit.
+Cancellation before command completion removes the receipt and attempts a generation-bound
+stop, including cancellation after publication or during the final response flush. A signal
+interrupts ordinary work immediately; during an existing exception's unwind it is recorded
+without replacing that exception, so cleanup can run. Further signals cannot interrupt cleanup.
+After durable publication and a flushed response, the CLI blocks both signals and checks for
+recorded or pending cancellation. An empty check completes the operation; later signals remain
+blocked through runtime and lock release and cannot cancel the completed adoption. The CLI
+never restores default signal handlers during that release.
 Plain `verify` does not invalidate acceptance or stop the daemon when it fails or is cancelled.
 An uncatchable process
 death before the rename cannot publish partial acceptance; after a completed rename, the
@@ -227,7 +233,9 @@ creation and cleaned on the next preparation under the shared lock, never by pru
 Atomic writers keep unfinished bytes in a separate `.ollama-write-staging` directory.
 Publication and staging reclamation share a directory lock; only committed UUID-named JSON
 intents authorize candidate cleanup. Interrupted staging is discarded without interpreting
-its contents. Publication and receipt invalidation sync their parent directory before returning.
+its contents. Files and directories are created with restrictive modes before publication,
+independent of a permissive umask; replay rejects unsafe existing state without repairing it.
+Publication and receipt invalidation sync their parent directory before returning.
 
 ## Passwordless setup and ordinary operations
 
