@@ -654,7 +654,8 @@ memory_headroom_preflight() {
 	if ((spin_down)); then
 		advice=" --spin-down is already in effect, so this figure is post-spin-down; --override-memory is the only remaining lever."
 	else
-		advice=" Re-run with: $SELF reboot $node --spin-down   (frees the memory-heavy services' headroom; --override-memory proceeds without it)."
+		# RERUN_AS names the command the operator actually ran (drain or reboot).
+		advice=" Re-run with: ${RERUN_AS:-$SELF reboot $node} --spin-down   (frees the memory-heavy services' headroom; --override-memory proceeds without it)."
 	fi
 	case $verdict in
 	pass) log "[$node] memory headroom OK." ;;
@@ -1047,6 +1048,7 @@ cmd_drain() {
 			die "$node is already cordoned; pass --repeat to re-drain your own outage's cordon. If no outage of yours owns it, finish that cycle or kubectl uncordon $node for a checked first drain — never uncordon another Mac's timmy outage"
 		repeat_drain "$node"
 	else
+		RERUN_AS="$SELF drain $node"
 		cmd_reboot "$node" --no-reboot ${first[@]+"${first[@]}"}
 	fi
 }
@@ -1079,9 +1081,14 @@ cmd_finish() {
 
 	if [[ -z $previous_boot_id ]]; then
 		previous_boot_id=$(load_cycle_boot_id "$node")
-	elif [[ -s $(cycle_state_file "$node") ]]; then
-		saved_boot_id=$(load_cycle_boot_id "$node")
-		[[ $saved_boot_id == "$previous_boot_id" ]] || die "provided boot ID does not match the saved cycle state for $node"
+	elif [[ -e $(cycle_state_file "$node") ]]; then
+		# Same reading as load_cycle_boot_id, but an empty record is what the
+		# explicit ID is for, so only a non-empty one must match it.
+		saved_boot_id=
+		IFS= read -r saved_boot_id <"$(cycle_state_file "$node")" || true
+		if [[ -n $(normalize_boot_id "$saved_boot_id") ]]; then
+			[[ $saved_boot_id == "$previous_boot_id" ]] || die "provided boot ID does not match the saved cycle state for $node"
+		fi
 	fi
 	require_valid_boot_id "$previous_boot_id"
 
@@ -1220,6 +1227,9 @@ cmd_preflight() {
 	(($# >= 1 && $# <= 2)) || die "usage: $SELF preflight <node> [--allow-repeat]"
 	local node=$1
 	require_node "$node"
+	# Both drains refuse a record path they cannot replace, so refuse it here,
+	# before a caller like timmy-offline parks anything.
+	require_cycle_state_path "$node"
 	if (($# == 2)); then
 		[[ $2 == --allow-repeat ]] || die "unknown preflight option '$2'"
 		# Pairs with `drain --repeat`, which re-drains any cordoned target.
@@ -1246,7 +1256,8 @@ cmd_restore_services() {
 	# An unlistable directory would glob to nothing and read as "no cycles".
 	require_state_dir_readable
 	for f in "$MAINTENANCE_STATE_DIR"/*.boot-id; do
-		[[ -e $f ]] || continue
+		# A dangling link is still a record, as cycle-status treats it.
+		[[ -e $f || -L $f ]] || continue
 		node=$(basename "${f%.boot-id}")
 		die "an active cycle owns the spin-down state: $node has saved reboot state; finish it instead: $SELF finish $node"
 	done

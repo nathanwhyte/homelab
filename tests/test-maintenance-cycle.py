@@ -309,7 +309,6 @@ class MaintenanceCycleTests(unittest.TestCase):
         self.assertFalse((self.cycle / "window").exists())
         for name in (
             "parked-scales",
-            "drain-started",
             "suspended-cronjobs",
             "silence-id",
             "silence-end",
@@ -452,26 +451,34 @@ class MaintenanceCycleTests(unittest.TestCase):
         self.assertEqual(len(self.drain_calls()), 1)
         self.assertEqual((self.cycle / "manu.boot-id").read_text().strip(), OLD_BOOT)
 
-    def test_down_refuses_hand_cordoned_timmy_before_mutating(self):
+    def test_down_on_a_hand_cordoned_timmy_repeats_as_on_main(self):
+        # A retained limit: down cannot tell whose cordon it sees, so it
+        # re-drains without the first drain's spin-down, as main's down does.
         state = self.read()
         state["nodes"]["timmy"]["cordoned"] = True
         self.write(state)
-        result = self.run_command(OUTAGE, "down", ok=False)
-        self.assertIn("not by a down on this Mac", result.stderr)
-        self.assertEqual(self.read(), state)
-        self.assertEqual(list(self.state_root.iterdir()), [])
-
-    def test_down_from_the_other_mac_refuses_before_mutating(self):
         self.run_command(OUTAGE, "down")
-        before = self.read()
+        self.assertEqual(len(self.drain_calls()), 1)
+        self.assertFalse((self.cycle / "spin-down-replicas").exists())
+        self.assertEqual((self.cycle / "timmy.boot-id").read_text().strip(), OLD_BOOT)
+        self.reboot()
+        self.run_command(OUTAGE, "up")
+        self.assert_restored()
+
+    def test_down_from_the_other_mac_parks_zeros_as_on_main(self):
+        # A retained limit: the other Mac has no outage state, so its down
+        # repeats and parks the first down's zeros as its own counts.
+        self.run_command(OUTAGE, "down")
         first_mac = self.env["XDG_STATE_HOME"]
         other_mac = self.root / "other-mac"
         other_mac.mkdir()
         self.env["XDG_STATE_HOME"] = str(other_mac)
-        result = self.run_command(OUTAGE, "down", ok=False)
-        self.assertIn("not by a down on this Mac", result.stderr)
-        self.assertEqual(self.read(), before)
-        self.assertEqual(list(other_mac.iterdir()), [])
+        self.run_command(OUTAGE, "down")
+        parked = (other_mac / "homelab-timmy-offline" / "parked-scales").read_text()
+        self.assertTrue(parked.splitlines())
+        for line in parked.splitlines():
+            self.assertTrue(line.endswith("\t0"), line)
+        # The first Mac's up still restores the real counts.
         self.env["XDG_STATE_HOME"] = first_mac
         self.reboot()
         self.run_command(OUTAGE, "up")
@@ -493,46 +500,80 @@ class MaintenanceCycleTests(unittest.TestCase):
             )
         )
 
-    def test_parked_state_alone_does_not_own_a_later_cordon(self):
-        # down stops inside its first drain, before the cordon, after parking.
-        state = self.read()
-        state["active_job"] = True
-        self.write(state)
-        self.run_command(OUTAGE, "down", ok=False)
-        self.assertTrue((self.outage / "parked-scales").exists())
-        self.assertFalse((self.outage / "drain-started").exists())
-        # Someone else cordons timmy before the retry.
-        state = self.read()
-        del state["active_job"]
-        state["nodes"]["timmy"]["cordoned"] = True
-        self.write(state)
-        before = self.read()
-        result = self.run_command(OUTAGE, "down", ok=False)
-        self.assertIn("not by a down on this Mac", result.stderr)
-        self.assertEqual(self.read(), before)
-        self.assertEqual(self.drain_calls(), [])
-        # Once that cordon is gone, the retry finishes and up restores.
-        state = self.read()
-        state["nodes"]["timmy"]["cordoned"] = False
-        self.write(state)
-        self.run_command(OUTAGE, "down")
-        self.reboot()
-        self.run_command(OUTAGE, "up")
-        self.assert_restored()
-
     def test_record_path_refusal_precedes_every_mutation(self):
         self.cycle.mkdir()
         (self.cycle / "timmy.boot-id").symlink_to(self.root / "elsewhere")
         before = self.read()
-        for args in (("drain", "timmy", "--spin-down"), ("reboot", "timmy")):
+        for script, args in (
+            (NODE, ("drain", "timmy", "--spin-down")),
+            (NODE, ("reboot", "timmy")),
+            (NODE, ("preflight", "timmy")),
+            (OUTAGE, ("down",)),
+        ):
             with self.subTest(args=args):
-                self.run_command(NODE, *args, ok=False)
+                self.run_command(script, *args, ok=False)
                 self.assertEqual(self.read(), before)
                 self.assertFalse((self.cycle / "spin-down-replicas").exists())
+                self.assertFalse(self.outage.exists())
         state = self.read()
         state["nodes"]["timmy"]["cordoned"] = True
         self.write(state)
-        self.run_command(NODE, "drain", "timmy", "--repeat", ok=False)
+        for script, args in (
+            (NODE, ("preflight", "timmy", "--allow-repeat")),
+            (NODE, ("drain", "timmy", "--repeat")),
+            (OUTAGE, ("down",)),
+        ):
+            with self.subTest(args=args):
+                self.run_command(script, *args, ok=False)
+                self.assertEqual(self.read(), state)
+                self.assertFalse(self.outage.exists())
+        self.assertEqual(self.drain_calls(), [])
+
+    def test_restore_services_refuses_a_dangling_record(self):
+        # cycle-status counts a dangling link as a record; so must this scan.
+        self.cycle.mkdir()
+        (self.cycle / "wemby.boot-id").symlink_to(self.root / "elsewhere")
+        self.assertEqual(
+            self.run_command(NODE, "cycle-status", "wemby", ok=False).stdout, ""
+        )
+        result = self.run_command(NODE, "restore-services", ok=False)
+        self.assertIn("wemby has saved reboot state", result.stderr)
+
+    def test_finish_takes_an_explicit_id_for_an_empty_record(self):
+        for content in ("", "\n"):
+            with self.subTest(content=repr(content)):
+                state = self.read()
+                state["nodes"]["timmy"]["cordoned"] = True
+                state["nodes"]["timmy"]["boot"] = OLD_BOOT
+                self.write(state)
+                self.record_cycle(boot="")
+                (self.cycle / "timmy.boot-id").write_text(content)
+                self.reboot()
+                self.run_command(NODE, "finish", "timmy", OLD_BOOT)
+                self.assertFalse(self.read()["nodes"]["timmy"]["cordoned"])
+                self.assertFalse((self.cycle / "timmy.boot-id").exists())
+
+    def test_memory_blocked_drain_advises_drain(self):
+        def pod(node, memory):
+            return {
+                "spec": {
+                    "nodeName": node,
+                    "containers": [{"resources": {"requests": {"memory": memory}}}],
+                }
+            }
+
+        state = self.read()
+        state["pods"] = [
+            pod("wemby", "20Gi"),
+            pod("manu", "60Gi"),
+            pod("timmy", "60Gi"),
+        ]
+        self.write(state)
+        result = self.run_command(NODE, "drain", "wemby", ok=False)
+        self.assertIn("memory preflight BLOCKED", result.stderr)
+        self.assertRegex(result.stderr, r"Re-run with: \S+ drain wemby --spin-down")
+        result = self.run_command(NODE, "reboot", "wemby", ok=False)
+        self.assertRegex(result.stderr, r"Re-run with: \S+ reboot wemby --spin-down")
         self.assertEqual(self.drain_calls(), [])
 
     def test_boot_record_save_is_atomic(self):

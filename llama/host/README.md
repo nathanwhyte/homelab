@@ -167,7 +167,7 @@ Ubuntu, `scripts/timmy-offline.sh up`. The outage script owns workload parking, 
 suspension and alert silences. It delegates the node cycle to `node-maintenance.sh`:
 `preflight <node>` checks before parking, `drain <node> --spin-down` starts the drain
 without rebooting (`preflight --allow-repeat` and `drain --spin-down --repeat` when `down`
-finds its own outage's cordon), and `recover <node>` finishes a recorded
+finds timmy already cordoned), and `recover <node>` finishes a recorded
 reboot or restores preparation that stopped before a drain. `cycle-status <node>` prints
 `recorded` or `none` for saved reboot evidence; use `scripts/maintenance-active.py` for
 bounded maintenance windows instead.
@@ -175,12 +175,12 @@ bounded maintenance windows instead.
 Recovery state remains local to the Mac that started the work. Each mutating node-cycle
 command takes the existing process lock; it does not lock the entire outage workflow
 or offline interval. A bare `drain` refuses a cordoned node; only `drain --repeat`, which
-`down` passes once it has found its own cordon, re-drains one; a repeat after a reboot
-replaces that reboot's proof. `down` treats a cordon as its own only when this Mac's earlier
-`down` reached its drain (`drain-started` in its state directory), and otherwise refuses
-before changing anything. If the other Mac's `down` made the cordon, run `down` and `up`
-there and do not uncordon timmy. If it was cordoned by hand or by a `node-maintenance.sh`
-cycle, finish that cycle or uncordon it, then re-run `down`. A recorded cycle still requires proof of a changed boot ID and a
+`down` passes only when its one check at the start found timmy cordoned, re-drains one; a
+repeat after a reboot replaces that reboot's proof. As on main, `down` cannot tell whose
+cordon it found: on a hand cordon, or on the other Mac mid-outage, it repeats and parks
+the counts it sees (zeros, if an outage already parked them), so run repeat `down` and
+`up` only on the Mac that started the outage, and never uncordon another Mac's timmy
+outage. A recorded cycle still requires proof of a changed boot ID and a
 cordoned target; manually uncordoning it does not make `recover` a cancellation command.
 If the Longhorn health check fails or is interrupted after uncordoning, the saved cycle
 remains and strict `recover`/`finish` refuses a retry; that case still needs manual recovery.

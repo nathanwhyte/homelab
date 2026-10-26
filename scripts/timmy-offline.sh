@@ -80,8 +80,6 @@ NODE=timmy
 STATE_ROOT=${XDG_STATE_HOME:-"$HOME/.local/state"}
 STATE_DIR=$STATE_ROOT/homelab-timmy-offline
 SCALE_FILE=$STATE_DIR/parked-scales
-# Written just before down's drain; marks a cordon as this Mac's (own_cordon).
-DRAIN_MARK=$STATE_DIR/drain-started
 DETACH_TIMEOUT_SECONDS=${DETACH_TIMEOUT_SECONDS:-300}
 READY_TIMEOUT_SECONDS=${READY_TIMEOUT_SECONDS:-600}
 KUBECTL=${KUBECTL:-kubectl}
@@ -197,7 +195,6 @@ unpark() {
 	# the silence and suspend records with nothing parked; `up` must still clear those.
 	[[ -s $SCALE_FILE ]] || {
 		log "nothing parked by down"
-		rm -f "$DRAIN_MARK"
 		return 0
 	}
 	while IFS=$'\t' read -r entry replicas; do
@@ -205,7 +202,7 @@ unpark() {
 		log "[$entry] scale 0 -> $replicas"
 		"$KUBECTL" -n "$ns" scale "$kind" "$name" --replicas="$replicas" >/dev/null
 	done <"$SCALE_FILE"
-	rm -f "$SCALE_FILE" "$DRAIN_MARK"
+	rm -f "$SCALE_FILE"
 }
 
 wait_parked_ready() {
@@ -427,12 +424,13 @@ cmd_down() {
 	# node-maintenance.sh refuses the drain while another cycle is active or an
 	# earlier node still owes a reboot. Ask it first: a refusal after the silence,
 	# suspend and park below leaves timmy half out with no instruction (2026-10-21).
-	# The cycle module also owns the already-cordoned repeat path. Decide once
-	# whether this is a repeat and pass that decision on: a cordon that appears
-	# after this read (`down` on the other Mac) then meets the strict preflight
-	# and a bare drain, which refuse it, instead of being taken as our own.
+	# The cycle module also owns the already-cordoned repeat path. Decide once,
+	# from timmy's cordon when down starts (main's rule), and pass that decision
+	# on: a cordon that appears after this read then meets the strict preflight
+	# or a bare drain, which refuse it. Ownership of a cordon that was already
+	# there is not checked, as on main (llama/host/README.md has the limits).
 	local preflight_args=() drain_args=(--spin-down)
-	if own_cordon; then
+	if already_cordoned; then
 		preflight_args=(--allow-repeat)
 		drain_args+=(--repeat)
 	fi
@@ -451,17 +449,9 @@ cmd_down() {
 	log "drain via node-maintenance.sh (no reboot, pre-drain spin-down)"
 	# --spin-down is required here, not optional: it frees headroom for the
 	# pods evicted from timmy before the memory-headroom preflight runs.
-	# --repeat only when own_cordon above saw this outage's own cordon. The mark
-	# goes down just before this Mac's drain can cordon, so own_cordon accepts a
-	# cordon only once this Mac may have made it: parked-scales alone is written
-	# before then, and a cordon that came first is someone else's.
-	date +%s >"$DRAIN_MARK"
-	if ! "$NODE_MAINTENANCE" drain "$NODE" "${drain_args[@]}"; then
-		# A drain that stopped before cordoning left no cordon of ours, so a
-		# cordon found on the retry is not this Mac's.
-		[[ $("$NODE_MAINTENANCE" cordon-status "$NODE" 2>/dev/null) == uncordoned ]] && rm -f "$DRAIN_MARK"
-		die "the drain did not finish (see above); fix that, then re-run: $SELF down — do not uncordon a timmy that the other Mac's down cordoned"
-	fi
+	# --repeat only when already_cordoned above saw timmy cordoned.
+	"$NODE_MAINTENANCE" drain "$NODE" "${drain_args[@]}" ||
+		die "the drain did not finish (see above); fix that, then re-run: $SELF down"
 	# The drain itself can create new orphans: any unpinned pod evicted from timmy
 	# lands on another node and re-attaches its timmy-only volume from there. Check
 	# again after the drain and fail closed — the pod's owner must be added to PARKED.
@@ -478,22 +468,17 @@ cmd_down() {
 	log "When it is back on Ubuntu:  $SELF up"
 }
 
-# `down` writes $DRAIN_MARK just before its drain, so a cordon this Mac's `down`
-# made always has it. A cordoned timmy without it was cordoned by hand, by a
-# node-maintenance cycle, or by `down` on the other Mac, where re-parking would
-# save the current zeros as the counts `up` restores. Succeeds for this Mac's
-# own cordon, fails for no cordon, and dies for anything else. Call it in the
-# calling shell (an `if`), never in a $( ), so the die ends the run.
-own_cordon() {
+# Succeeds for a cordoned timmy, fails for an uncordoned one, and dies on a
+# failed or unexpected read. Call it in the calling shell (an `if`), never in a
+# $( ), so the die ends the run.
+already_cordoned() {
 	local cordon
 	cordon=$("$NODE_MAINTENANCE" cordon-status "$NODE") || die "cannot read whether $NODE is cordoned; this run changed nothing"
 	case $cordon in
+	cordoned) return 0 ;;
 	uncordoned) return 1 ;;
-	cordoned) ;;
 	*) die "unexpected cordon status for $NODE: $cordon; this run changed nothing" ;;
 	esac
-	[[ -s $DRAIN_MARK && -s $SCALE_FILE ]] && return 0
-	die "$NODE is cordoned, but not by a down on this Mac (no $DRAIN_MARK); this run changed nothing. If the other Mac's down cordoned it, run down/up there and do not uncordon it. If it was cordoned by hand or by node-maintenance.sh, finish that cycle or kubectl uncordon $NODE, then re-run: $SELF down"
 }
 
 cmd_up() {

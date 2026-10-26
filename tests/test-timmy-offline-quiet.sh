@@ -247,31 +247,20 @@ for kind in directory symlink; do
 	assert_eq "before any silence, suspend or scale ($kind)" 0 "$(mutations)"
 done
 
-# down's own_cordon makes the repeat choice and passes it to preflight and
-# drain. The real-script integration suite exercises an actually cordoned node.
+# down's single cordon-status read makes the repeat choice and passes it to
+# preflight and drain. The integration suite exercises an actually cordoned node.
 reset_cluster
 run_cmd cmd_down
 run_cmd cmd_down
-# The stub keeps answering uncordoned, so neither down sees its own cordon.
+# The stub keeps answering uncordoned, so neither down repeats.
 assert_eq "an uncordoned timmy gets the strict preflight each time" 2 "$(grep -c 'nm: preflight timmy$' "$STUB_LOG")"
 assert_eq "an uncordoned timmy gets a bare drain each time" 2 "$(grep -c 'nm: drain timmy --spin-down$' "$STUB_LOG")"
-
-# A cordoned timmy is this Mac's outage only if this Mac parked it; otherwise
-# (a hand cordon, or down on the other Mac) re-parking would save zeros.
-reset_cluster
-out=$(STUB_CORDON_STATUS=cordoned run_cmd_out cmd_down)
-rc=$?
-assert_eq "down refuses a cordoned timmy this Mac never parked" 1 "$rc"
-assert_eq "that refusal mutates nothing" 0 "$(mutations)"
-assert_eq "that refusal says the cordon is not this Mac's" 1 "$(grep -c 'not by a down on this Mac' <<<"$out")"
-assert_eq "that refusal covers both a hand cordon and the other Mac" 1 "$(grep -c "run down/up there and do not uncordon it.*kubectl uncordon timmy, then re-run" <<<"$out")"
-assert_eq "that refusal runs before preflight" 0 "$(grep -c 'nm: preflight' "$STUB_LOG")"
 
 reset_cluster
 run_cmd cmd_down
 STUB_CORDON_STATUS=cordoned run_cmd cmd_down
 rc=$?
-assert_eq "down repeats on a cordoned timmy this Mac parked" 0 "$rc"
+assert_eq "down repeats on a cordoned timmy" 0 "$rc"
 assert_eq "only the repeat drains with --repeat" 1 "$(grep -c 'nm: drain timmy --spin-down --repeat$' "$STUB_LOG")"
 assert_eq "only the repeat allows a repeat in preflight" 1 "$(grep -c 'nm: preflight timmy --allow-repeat$' "$STUB_LOG")"
 
