@@ -21,7 +21,6 @@ import signal
 import subprocess
 import stat
 import sys
-import tempfile
 import time
 import uuid
 
@@ -52,19 +51,75 @@ def encoded(value):
     return json.dumps(value, sort_keys=True, separators=(",", ":"))
 
 
+STAGING_DIRECTORY = ".ollama-write-staging"
+
+
+def sync_directory(path):
+    fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
+
+@contextmanager
+def publication_directory(directory):
+    """Serialize writers/reclaimers without leaving an additional lock file."""
+    directory = Path(directory)
+    directory.mkdir(parents=True, exist_ok=True)
+    fd = os.open(directory, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        yield directory
+    finally:
+        os.close(fd)
+
+
+def reclaim_staging(directory):
+    """Caller holds the directory lock; staging bytes are never authority."""
+    staging = directory / STAGING_DIRECTORY
+    try:
+        info = staging.lstat()
+    except FileNotFoundError:
+        return
+    Preparation.trusted_file(info, "atomic write staging directory", directory=True)
+    for temporary in staging.iterdir():
+        if not re.fullmatch(r"[0-9a-f]{32}\.tmp", temporary.name):
+            raise PreparationError("unexpected atomic write staging entry")
+        Preparation.trusted_file(temporary.lstat(), "atomic write staging file")
+        temporary.unlink()
+    staging.rmdir()
+    sync_directory(directory)
+
+
+def recover_atomic_writes(directory):
+    with publication_directory(directory) as directory:
+        reclaim_staging(directory)
+
+
 def atomic_write(path, content):
     path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with tempfile.NamedTemporaryFile(mode="w", dir=path.parent, delete=False) as out:
-        temporary = Path(out.name)
+    with publication_directory(path.parent) as directory:
+        reclaim_staging(directory)
+        staging = directory / STAGING_DIRECTORY
+        staging.mkdir(mode=0o700)
+        temporary = staging / (uuid.uuid4().hex + ".tmp")
         try:
-            out.write(content)
-            out.flush()
-            os.fsync(out.fileno())
-            os.chmod(temporary, 0o644)
+            fd = os.open(
+                temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600
+            )
+            with os.fdopen(fd, "w") as out:
+                out.write(content)
+                out.flush()
+                os.fchmod(out.fileno(), 0o644)
+                os.fsync(out.fileno())
             temporary.replace(path)
+            # Rename is the acceptance commit point; sync its parent before
+            # acknowledging durability. A killed pre-rename writer leaves only
+            # opaque staging, reclaimed on the next locked write/preparation.
+            sync_directory(directory)
         finally:
-            temporary.unlink(missing_ok=True)
+            reclaim_staging(directory)
 
 
 class Posture:
@@ -176,6 +231,8 @@ class Preparation:
         self.creator = creator or self.create
         self.inherited_lock_fd = lock_fd
         self._lock_fd = None
+        self._adoption_depth = 0
+        self._aborting = False
 
     @staticmethod
     def trusted_file(info, label, directory=False):
@@ -220,6 +277,7 @@ class Preparation:
             # A caller may have waited while installation replaced these files.
             # Capture both configuration and recipe bytes only after the lock.
             self.posture = Posture(*self.source)
+            recover_atomic_writes(self.state)
             yield
         finally:
             self._lock_fd = None
@@ -302,13 +360,7 @@ class Preparation:
         self.sync_directory(path.parent.parent)
         return path
 
-    @staticmethod
-    def sync_directory(path):
-        fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY)
-        try:
-            os.fsync(fd)
-        finally:
-            os.close(fd)
+    sync_directory = staticmethod(sync_directory)
 
     def cleanup_intent(self, path):
         self.trusted_file(path.lstat(), "candidate intent")
@@ -338,10 +390,15 @@ class Preparation:
         self.sync_directory(path.parent)
 
     def replay_candidates(self):
+        if self._lock_fd is None:
+            with self.locked():
+                return self.replay_candidates()
         # Only durable operation records authorize deletion. An unrecorded
         # homelab-preparing tag is someone else's, regardless of its spelling.
-        for path in sorted(self.intent_directory().iterdir()):
-            if path.suffix != ".json":
+        directory = self.intent_directory()
+        recover_atomic_writes(directory)
+        for path in sorted(directory.iterdir()):
+            if not re.fullmatch(r"[0-9a-f]{32}\.json", path.name):
                 raise PreparationError("unexpected candidate intent entry")
             self.cleanup_intent(path)
 
@@ -405,8 +462,14 @@ class Preparation:
             if cleanup_now:
                 self.cleanup_intent(intent)
 
+    def invalidate_receipt(self):
+        with publication_directory(self.state) as directory:
+            reclaim_staging(directory)
+            directory.joinpath("verified.json").unlink(missing_ok=True)
+            self.sync_directory(directory)
+
     def invalidate(self):
-        self.state.joinpath("verified.json").unlink(missing_ok=True)
+        self.invalidate_receipt()
         # Retire the entire legacy certificate namespace, including models no
         # longer in this catalog. Public aliases are never acceptance evidence.
         for tag in self.api.tags():
@@ -464,13 +527,33 @@ class Preparation:
         atomic_write(self.state / "verified.json", json.dumps(receipt, indent=2) + "\n")
         return receipt
 
-    def warm(self, runtime):
+    @contextmanager
+    def adopting(self, runtime):
+        """Keep one cleanup boundary around the entire managed operation.
+
+        CLI callers put the signal context and flushed response inside this
+        guard, and the runtime/transaction lock outside it. Nested warm/verify
+        guards preserve direct-call cleanup without repeating a failed stop.
+        """
+        if self._adoption_depth == 0:
+            self._aborting = False
+        self._adoption_depth += 1
         try:
+            yield
+        except BaseException as exc:
+            if not self._aborting:
+                self.abort(runtime, exc)
+            raise
+        finally:
+            self._adoption_depth -= 1
+
+    def warm(self, runtime):
+        with self.adopting(runtime):
             # Type=simple can release the warm unit before HTTP starts accepting.
             # Invalidate the local claim immediately, then clear remote witnesses
             # as soon as this captured generation's API is reachable. If it never
             # becomes reachable, abort reports that cleanup gap and confirms stop.
-            self.state.joinpath("verified.json").unlink(missing_ok=True)
+            self.invalidate_receipt()
             self.wait_ready(runtime)
             self.invalidate()
             models = self.prepare()
@@ -485,20 +568,40 @@ class Preparation:
             verify_loaded(self.api.loaded(), expected)
             runtime._assert_current()
             return self.certify(models, evidence)
-        except BaseException as exc:
-            self.abort(runtime, exc)
 
     def abort(self, runtime, cause):
-        self.state.joinpath("verified.json").unlink(missing_ok=True)
+        # The managed handlers stop raising as soon as cleanup begins. This
+        # covers teardown too; a second cancellation cannot bypass target stop.
+        self._aborting = True
+        previous = signal.pthread_sigmask(
+            signal.SIG_BLOCK, {signal.SIGTERM, signal.SIGINT}
+        )
+        try:
+            self._abort(runtime, cause)
+        finally:
+            # Deliver any pending cancellation only after invalidation and the
+            # captured-generation stop attempt. A managed handler must not
+            # replace the cleanup outcome with another InterruptedError.
+            try:
+                signal.pthread_sigmask(signal.SIG_SETMASK, previous)
+            except (InterruptedError, KeyboardInterrupt):
+                pass
+
+    def _abort(self, runtime, cause):
+        cleanup_failure = ""
         try:
             self.invalidate()
-        except Exception as cleanup:
-            print(f"verification invalidation failed: {cleanup}", file=sys.stderr)
+        except BaseException as cleanup:
+            cleanup_failure = f" INVALIDATION FAILED: {cleanup}."
+            try:
+                print(f"verification invalidation failed: {cleanup}", file=sys.stderr)
+            except BaseException:
+                pass  # A broken diagnostic stream must not skip target stop.
         try:
             stopped = runtime.stop_failed()
-        except Exception as exc:
+        except BaseException as exc:
             raise PreparationError(
-                f"adoption failed: {cause}; STOP FAILED: {exc}. Inspect the current daemon before recovery"
+                f"adoption failed: {cause}; STOP FAILED: {exc}.{cleanup_failure} Inspect the current daemon before recovery"
             ) from exc
         outcome = (
             "captured daemon stopped"
@@ -506,10 +609,13 @@ class Preparation:
             else "captured daemon already exited"
         )
         raise PreparationError(
-            f"adoption failed; {outcome}. Correct the mismatch, then run the trusted host installer with --bootstrap-recovery. Cause: {cause}"
+            f"adoption failed; {outcome}.{cleanup_failure} Correct the mismatch, then run the trusted host installer with --bootstrap-recovery. Cause: {cause}"
         ) from cause
 
     def verify(self, runtime, stop_on_failure=False):
+        if stop_on_failure:
+            with self.adopting(runtime):
+                return self.verify(runtime)
         try:
             self.version()
             receipt = json.loads((self.state / "verified.json").read_text())
@@ -552,8 +658,6 @@ class Preparation:
                 "runtime": evidence,
             }
         except BaseException as exc:
-            if stop_on_failure:
-                self.abort(runtime, exc)
             raise PreparationError(f"verification failed: {exc}") from exc
 
     def files_check(self, installed):
@@ -680,6 +784,8 @@ def render(posture, root, check):
     }
     changed = []
     for path, content in outputs.items():
+        if not check:
+            recover_atomic_writes(path.parent)
         if not path.exists() or path.read_text() != content:
             changed.append(str(path))
             if not check:
@@ -692,15 +798,23 @@ def render(posture, root, check):
 
 
 @contextmanager
-def adoption_signals():
-    def cancelled(signum, _frame):
-        raise InterruptedError(f"adoption interrupted by signal {signum}")
+def adoption_signals(cleaning_up=lambda: False):
+    interrupted = False
 
-    previous = signal.signal(signal.SIGTERM, cancelled)
+    def cancelled(signum, _frame):
+        nonlocal interrupted
+        if not interrupted and not cleaning_up():
+            interrupted = True
+            raise InterruptedError(f"adoption interrupted by signal {signum}")
+
+    previous = {}
     try:
+        for signum in (signal.SIGTERM, signal.SIGINT):
+            previous[signum] = signal.signal(signum, cancelled)
         yield
     finally:
-        signal.signal(signal.SIGTERM, previous)
+        for signum, handler in previous.items():
+            signal.signal(signum, handler)
 
 
 def main():
@@ -771,12 +885,24 @@ def main():
                     raise PreparationError(
                         "host verification requires the local daemon endpoint"
                     )
-                with Runtime() as runtime, adoption_signals():
-                    result = (
-                        prep.warm(runtime)
-                        if args.command == "warm"
-                        else prep.verify(runtime, args.stop_on_failure)
-                    )
+                with Runtime() as runtime:
+                    if args.command == "warm" or args.stop_on_failure:
+                        with prep.adopting(runtime):
+                            with adoption_signals(lambda: prep._aborting):
+                                result = (
+                                    prep.warm(runtime)
+                                    if args.command == "warm"
+                                    else prep.verify(runtime, True)
+                                )
+                                print(json.dumps(result, sort_keys=True))
+                                sys.stdout.flush()
+                    else:
+                        # Observational verify never acquires cancellation
+                        # authority to invalidate a receipt or stop its daemon.
+                        result = prep.verify(runtime)
+                        print(json.dumps(result, sort_keys=True))
+                        sys.stdout.flush()
+                return
             elif args.command == "prepare":
                 result = prep.prepare()
             elif args.command == "pair":

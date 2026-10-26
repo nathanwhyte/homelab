@@ -16,8 +16,11 @@ import errno  # noqa: E402
 import fcntl  # noqa: E402
 import hashlib  # noqa: E402
 import io  # noqa: E402
+import inspect  # noqa: E402
 import json  # noqa: E402
 import os  # noqa: E402
+import signal  # noqa: E402
+import stat  # noqa: E402
 import subprocess  # noqa: E402
 import tempfile  # noqa: E402
 import textwrap  # noqa: E402
@@ -25,6 +28,7 @@ import threading  # noqa: E402
 import time  # noqa: E402
 import unittest  # noqa: E402
 import urllib.error  # noqa: E402
+from contextlib import contextmanager  # noqa: E402
 from unittest import mock  # noqa: E402
 
 HOST = Path(__file__).resolve().parents[1]
@@ -915,6 +919,519 @@ class PreparationTests(FixtureCase):
         (generated / "ollama-jobs.yaml").write_text("stale")
         with self.assertRaisesRegex(PreparationError, "stale"):
             module.render(self.posture, self.root / "rendered", True)
+
+
+class AtomicPublicationTests(FixtureCase):
+    WRITER = textwrap.dedent("""
+        import os, pathlib, signal, stat, sys, time
+        sys.path.insert(0, sys.argv[1])
+        import ollama_prepare as m
+        target, stage, content = pathlib.Path(sys.argv[2]), sys.argv[3], sys.argv[4]
+        def kill(): os.kill(os.getpid(), signal.SIGKILL)
+        mkdir, replace, fsync, fdopen = pathlib.Path.mkdir, pathlib.Path.replace, os.fsync, os.fdopen
+        def make(self, *args, **kwargs):
+            result = mkdir(self, *args, **kwargs)
+            if stage == 'mkdir' and self.name == m.STAGING_DIRECTORY: kill()
+            return result
+        def commit(self, destination):
+            if stage == 'before-rename': kill()
+            if stage == 'pause':
+                pathlib.Path(sys.argv[5]).touch()
+                deadline = time.monotonic() + 10
+                while not pathlib.Path(sys.argv[6]).exists():
+                    if time.monotonic() > deadline: raise RuntimeError('release timed out')
+                    time.sleep(.01)
+            result = replace(self, destination)
+            if stage == 'after-rename': kill()
+            return result
+        def sync(fd):
+            result = fsync(fd)
+            if stage == 'file-fsync' and stat.S_ISREG(os.fstat(fd).st_mode): kill()
+            return result
+        class PartialWrite:
+            def __init__(self, out): self.out = out
+            def __enter__(self): return self
+            def __exit__(self, *args): return self.out.__exit__(*args)
+            def write(self, content):
+                self.out.write(content[:max(1, len(content)//2)])
+                self.out.flush()
+                kill()
+            def __getattr__(self, name): return getattr(self.out, name)
+        def opened(*args, **kwargs):
+            out = fdopen(*args, **kwargs)
+            return PartialWrite(out) if stage == 'write' else out
+        pathlib.Path.mkdir, pathlib.Path.replace = make, commit
+        m.os.fsync, m.os.fdopen = sync, opened
+        m.atomic_write(target, content)
+    """)
+
+    def killed_write(self, target, stage, content):
+        result = subprocess.run(
+            [sys.executable, "-c", self.WRITER, str(HOST), str(target), stage, content],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        self.assertEqual(result.returncode, -signal.SIGKILL, result.stderr)
+
+    def test_intent_crash_stages_replay_without_using_staging_as_authority(self):
+        directory = self.prep.intent_directory()
+        for number, stage in enumerate(
+            ["mkdir", "write", "file-fsync", "before-rename", "after-rename"]
+        ):
+            with self.subTest(stage=stage):
+                token = f"{number + 1:032x}"
+                tag = "homelab-preparing/fixture:" + token
+                snapshot = self.recipes / (".ollama-preparing-" + token + ".Modelfile")
+                snapshot.write_text(
+                    "operator bytes that only a committed intent may delete"
+                )
+                self.api.models[tag] = {"digest": "a" * 64, "show": {}}
+                intent = {"schema": 1, "tag": tag, "snapshot": str(snapshot)}
+                self.killed_write(
+                    directory / (token + ".json"), stage, json.dumps(intent)
+                )
+                with self.prep.locked():
+                    self.prep.replay_candidates()
+                self.assertEqual(list(directory.iterdir()), [])
+                if stage == "after-rename":
+                    self.assertNotIn(tag, self.api.tags())
+                    self.assertFalse(snapshot.exists())
+                else:
+                    self.assertIn(tag, self.api.tags())
+                    self.assertTrue(snapshot.exists())
+                # Both retries were permanently blocked in the original probe.
+                for _ in range(2):
+                    with self.prep.locked():
+                        self.prep.prepare()
+
+    def test_receipt_crash_preserves_only_completed_rename(self):
+        receipt = self.prep.warm(FakeRuntime())
+        target = self.prep.state / "verified.json"
+        for stage in ["mkdir", "write", "file-fsync", "before-rename", "after-rename"]:
+            with self.subTest(stage=stage):
+                target.unlink(missing_ok=True)
+                self.killed_write(target, stage, json.dumps(receipt))
+                with self.prep.locked():
+                    if stage == "after-rename":
+                        self.assertEqual(
+                            self.prep.verify(FakeRuntime())["status"], "verified"
+                        )
+                    else:
+                        with self.assertRaises(PreparationError):
+                            self.prep.verify(FakeRuntime())
+                self.assertFalse((self.prep.state / module.STAGING_DIRECTORY).exists())
+
+    def test_render_reclaims_staging_even_when_renamed_output_is_already_current(self):
+        root = self.root / "rendered"
+        target = root / "llama/host/ollama.service.d/homelab.conf"
+        for stage in ["write", "before-rename", "after-rename"]:
+            with self.subTest(stage=stage):
+                self.killed_write(target, stage, module.dropin(self.posture))
+                module.render(self.posture, root, check=False)
+                module.render(self.posture, root, check=True)
+                self.assertFalse((target.parent / module.STAGING_DIRECTORY).exists())
+
+    def test_staging_schema_reclaims_opaque_bytes_without_parsing(self):
+        staging = self.prep.intent_directory() / module.STAGING_DIRECTORY
+        staging.mkdir(mode=0o700)
+        temporary = staging / ("a" * 32 + ".tmp")
+        temporary.write_text('{"tag":"operator:keep","snapshot":"/unrelated"')
+        self.api.models["operator:keep"] = {"digest": "b" * 64, "show": {}}
+        self.prep.replay_candidates()
+        self.assertFalse(staging.exists())
+        self.assertIn("operator:keep", self.api.tags())
+        self.assertEqual(self.api.events, [])
+
+    def test_staging_symlinks_permissions_and_unknown_names_are_not_reclaimed(self):
+        directory = self.prep.intent_directory()
+        staging = directory / module.STAGING_DIRECTORY
+        elsewhere = self.root / "keep"
+        elsewhere.mkdir()
+        keep = elsewhere / ("a" * 32 + ".tmp")
+        keep.write_text("keep")
+        staging.symlink_to(elsewhere, target_is_directory=True)
+        with self.assertRaisesRegex(PreparationError, "staging directory"):
+            self.prep.replay_candidates()
+        self.assertTrue(keep.exists())
+        staging.unlink()
+        staging.mkdir(mode=0o700)
+        temporary = staging / keep.name
+        temporary.symlink_to(keep)
+        with self.assertRaisesRegex(PreparationError, "staging file"):
+            self.prep.replay_candidates()
+        temporary.unlink()
+        temporary.write_text("opaque")
+        temporary.chmod(0o666)
+        with self.assertRaisesRegex(PreparationError, "staging file"):
+            self.prep.replay_candidates()
+        temporary.unlink()
+        unknown = staging / "operator.json"
+        unknown.write_text("{}")
+        with self.assertRaisesRegex(
+            PreparationError, "unexpected atomic write staging"
+        ):
+            self.prep.replay_candidates()
+        self.assertTrue(unknown.exists())
+
+    def test_staging_directory_ownership_and_write_permissions_are_checked(self):
+        staging = self.prep.intent_directory() / module.STAGING_DIRECTORY
+        staging.mkdir(mode=0o700)
+        temporary = staging / ("a" * 32 + ".tmp")
+        temporary.write_text("opaque")
+        staging.chmod(0o777)
+        with self.assertRaisesRegex(PreparationError, "staging directory"):
+            self.prep.replay_candidates()
+        staging.chmod(0o700)
+        lstat = Path.lstat
+
+        def wrong_owner(path, *args, **kwargs):
+            info = lstat(path, *args, **kwargs)
+            if path == staging:
+                fields = list(info)
+                fields[4] = os.geteuid() + 1
+                return os.stat_result(fields)
+            return info
+
+        with mock.patch.object(Path, "lstat", wrong_owner):
+            with self.assertRaisesRegex(PreparationError, "staging directory"):
+                self.prep.replay_candidates()
+        self.assertTrue(temporary.exists())
+
+    def test_active_writer_and_reclaimer_share_directory_lock(self):
+        target = self.root / "publication" / "verified.json"
+        ready, release = self.root / "writer-ready", self.root / "writer-release"
+        worker = subprocess.Popen(
+            [
+                sys.executable,
+                "-c",
+                self.WRITER,
+                str(HOST),
+                str(target),
+                "pause",
+                "complete",
+                str(ready),
+                str(release),
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        done, errors = threading.Event(), []
+
+        def reclaim():
+            try:
+                module.recover_atomic_writes(target.parent)
+            except BaseException as exc:
+                errors.append(exc)
+            finally:
+                done.set()
+
+        thread = threading.Thread(target=reclaim)
+        try:
+            deadline = time.monotonic() + 5
+            while not ready.exists() and time.monotonic() < deadline:
+                time.sleep(0.01)
+            self.assertTrue(ready.exists(), "writer did not reach controlled commit")
+            thread.start()
+            self.assertFalse(
+                done.wait(0.1), "reclaimer entered the active writer's staging"
+            )
+            release.touch()
+            out, err = worker.communicate(timeout=5)
+            self.assertEqual(worker.returncode, 0, out + err)
+            self.assertTrue(done.wait(5))
+            self.assertEqual(errors, [])
+            self.assertEqual(target.read_text(), "complete")
+            self.assertFalse((target.parent / module.STAGING_DIRECTORY).exists())
+        finally:
+            release.touch()
+            if worker.poll() is None:
+                worker.kill()
+            worker.communicate(timeout=5)
+            if thread.ident is not None:
+                thread.join(timeout=5)
+
+    def test_publication_and_invalidation_sync_parent_after_namespace_change(self):
+        events = []
+        replace, unlink, fsync = Path.replace, Path.unlink, os.fsync
+        target = self.prep.state / "verified.json"
+
+        def renamed(path, destination):
+            result = replace(path, destination)
+            events.append("rename")
+            return result
+
+        def removed(path, *args, **kwargs):
+            result = unlink(path, *args, **kwargs)
+            if path == target:
+                events.append("unlink")
+            return result
+
+        def synced(fd):
+            if stat.S_ISDIR(os.fstat(fd).st_mode):
+                events.append("directory fsync")
+            return fsync(fd)
+
+        with (
+            mock.patch.object(Path, "replace", renamed),
+            mock.patch.object(Path, "unlink", removed),
+            mock.patch.object(module.os, "fsync", synced),
+        ):
+            module.atomic_write(target, "complete")
+            self.assertIn("directory fsync", events[events.index("rename") + 1 :])
+            events.clear()
+            self.prep.invalidate_receipt()
+            self.assertIn("directory fsync", events[events.index("unlink") + 1 :])
+
+
+class CancellationBoundaryTests(FixtureCase):
+    @contextmanager
+    def cli(self, runtime, command="warm", output=None):
+        import ollama_runtime
+
+        runtime.closed = False
+
+        @contextmanager
+        def factory():
+            try:
+                yield runtime
+            finally:
+                runtime.closed = True
+
+        stop = runtime.stop_failed
+
+        def stopped():
+            self.assertFalse(
+                runtime.closed, "runtime closed before cancellation cleanup"
+            )
+            return stop()
+
+        argv = [
+            "ollama_prepare.py",
+            "--config",
+            str(self.config),
+            "--recipes",
+            str(self.recipes),
+            "--state",
+            str(self.prep.state),
+            *command.split(),
+        ]
+        previous = {
+            signum: signal.getsignal(signum)
+            for signum in (signal.SIGTERM, signal.SIGINT)
+        }
+        try:
+            with (
+                mock.patch.object(sys, "argv", argv),
+                mock.patch.object(module, "Http", return_value=self.api),
+                mock.patch.object(Preparation, "create", side_effect=self.api.create),
+                mock.patch.object(ollama_runtime, "Runtime", factory),
+                mock.patch.object(runtime, "stop_failed", side_effect=stopped),
+                mock.patch("sys.stdout", output or io.StringIO()),
+            ):
+                yield
+        finally:
+            for signum, handler in previous.items():
+                signal.signal(signum, handler)
+
+    def test_signal_on_leaving_managed_context_invalidates_with_runtime_still_open(
+        self,
+    ):
+        lines, first = inspect.getsourcelines(module.main)
+        boundary = first + next(
+            index
+            for index, line in enumerate(lines)
+            if "with adoption_signals(" in line
+        )
+        fired = False
+
+        def trace(frame, event, arg):
+            nonlocal fired
+            if (
+                not fired
+                and frame.f_code is module.main.__code__
+                and event == "line"
+                and frame.f_lineno == boundary
+                and (self.prep.state / "verified.json").exists()
+            ):
+                fired = True
+                self.assertTrue(callable(signal.getsignal(signal.SIGTERM)))
+                os.kill(os.getpid(), signal.SIGTERM)
+            return trace
+
+        runtime = FakeRuntime()
+        with self.cli(runtime):
+            sys.settrace(trace)
+            try:
+                with self.assertRaisesRegex(
+                    PreparationError, "captured daemon stopped"
+                ):
+                    module.main()
+            finally:
+                sys.settrace(None)
+        self.assertTrue(fired)
+        self.assertEqual(runtime.stops, 1)
+        self.assertFalse((self.prep.state / "verified.json").exists())
+
+    def test_cancellation_during_signal_handler_restoration_is_inside_cleanup(self):
+        for signum in (signal.SIGTERM, signal.SIGINT):
+            with self.subTest(signal=signum):
+                runtime, fired = FakeRuntime(), False
+                original = signal.signal
+                previous = signal.getsignal(signum)
+
+                def install(number, handler):
+                    nonlocal fired
+                    if (
+                        number == signum
+                        and handler == previous
+                        and not fired
+                        and (self.prep.state / "verified.json").exists()
+                    ):
+                        fired = True
+                        os.kill(os.getpid(), signum)
+                    return original(number, handler)
+
+                with (
+                    self.cli(runtime),
+                    mock.patch.object(module.signal, "signal", side_effect=install),
+                ):
+                    with self.assertRaisesRegex(
+                        PreparationError, "captured daemon stopped"
+                    ):
+                        module.main()
+                self.assertTrue(fired)
+                self.assertEqual(runtime.stops, 1)
+                self.assertFalse((self.prep.state / "verified.json").exists())
+
+    def test_response_write_and_flush_cancellation_are_adoption_failures(self):
+        for command in ("warm", "verify --stop-on-failure"):
+            for phase in ("write", "flush"):
+                with self.subTest(command=command, phase=phase):
+                    if command.startswith("verify"):
+                        self.prep.warm(FakeRuntime())
+
+                    class Output(io.StringIO):
+                        fired = False
+
+                        def write(inner, value):
+                            if phase == "write" and not inner.fired:
+                                inner.fired = True
+                                os.kill(os.getpid(), signal.SIGTERM)
+                            return super().write(value)
+
+                        def flush(inner):
+                            if phase == "flush" and not inner.fired:
+                                inner.fired = True
+                                os.kill(os.getpid(), signal.SIGINT)
+                            return super().flush()
+
+                    runtime, output = FakeRuntime(), Output()
+                    with self.cli(runtime, command, output):
+                        with self.assertRaisesRegex(
+                            PreparationError, "captured daemon stopped"
+                        ):
+                            module.main()
+                    self.assertTrue(output.fired)
+                    self.assertEqual(runtime.stops, 1)
+                    self.assertFalse((self.prep.state / "verified.json").exists())
+
+    def test_plain_verification_cancellation_does_not_invalidate_or_stop(self):
+        self.prep.warm(FakeRuntime())
+        receipt = (self.prep.state / "verified.json").read_bytes()
+        for where in ("verify", "response"):
+            with self.subTest(where=where):
+                runtime = FakeRuntime()
+
+                class Output(io.StringIO):
+                    def flush(inner):
+                        if where == "response":
+                            raise InterruptedError("observational response cancelled")
+
+                with (
+                    self.cli(runtime, "verify", Output()),
+                    mock.patch.object(module, "adoption_signals") as managed,
+                ):
+                    if where == "verify":
+                        runtime.verify = mock.Mock(
+                            side_effect=KeyboardInterrupt(
+                                "observational check cancelled"
+                            )
+                        )
+                    with self.assertRaises((PreparationError, InterruptedError)):
+                        module.main()
+                    managed.assert_not_called()
+                self.assertEqual(runtime.stops, 0)
+                self.assertEqual(
+                    (self.prep.state / "verified.json").read_bytes(), receipt
+                )
+
+    def test_repeated_signals_during_abort_cannot_skip_stop(self):
+        runtime = FakeRuntime(error=True)
+        tags = self.api.tags
+        delivered = False
+
+        def inventory():
+            nonlocal delivered
+            if self.prep._aborting and not delivered:
+                delivered = True
+                blocked = signal.pthread_sigmask(signal.SIG_BLOCK, set())
+                self.assertTrue({signal.SIGTERM, signal.SIGINT} <= blocked)
+                os.kill(os.getpid(), signal.SIGTERM)
+                os.kill(os.getpid(), signal.SIGINT)
+            return tags()
+
+        with (
+            self.prep.adopting(runtime),
+            module.adoption_signals(lambda: self.prep._aborting),
+            mock.patch.object(self.api, "tags", side_effect=inventory),
+        ):
+            with self.assertRaisesRegex(PreparationError, "captured daemon stopped"):
+                self.prep.warm(runtime)
+        self.assertTrue(delivered)
+        self.assertEqual(runtime.stops, 1)
+        self.assertFalse((self.prep.state / "verified.json").exists())
+
+    def test_invalidation_and_diagnostic_failures_still_attempt_stop(self):
+        runtime = FakeRuntime()
+        broken = mock.Mock()
+        broken.write.side_effect = OSError("closed stderr")
+        with (
+            mock.patch.object(
+                self.api, "tags", side_effect=KeyboardInterrupt("cleanup cancelled")
+            ),
+            mock.patch("sys.stderr", broken),
+        ):
+            with self.assertRaisesRegex(
+                PreparationError, "captured daemon stopped.*INVALIDATION FAILED"
+            ):
+                self.prep.abort(runtime, RuntimeError("original failure"))
+        self.assertEqual(runtime.stops, 1)
+
+    def test_failed_receipt_parent_sync_invalidates_publication_and_stops(self):
+        runtime, failed = FakeRuntime(), False
+        sync = module.sync_directory
+
+        def interrupted_sync(path):
+            nonlocal failed
+            if (
+                not failed
+                and Path(path) == self.prep.state
+                and (self.prep.state / "verified.json").exists()
+            ):
+                failed = True
+                raise OSError("receipt parent sync failed")
+            return sync(path)
+
+        with mock.patch.object(module, "sync_directory", side_effect=interrupted_sync):
+            with self.assertRaisesRegex(
+                PreparationError, "captured daemon stopped.*receipt parent sync failed"
+            ):
+                self.prep.warm(runtime)
+        self.assertTrue(failed)
+        self.assertEqual(runtime.stops, 1)
+        self.assertFalse((self.prep.state / "verified.json").exists())
 
 
 class TransportTests(unittest.TestCase):
