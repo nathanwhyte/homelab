@@ -44,7 +44,7 @@
                   },
                   {
                     "name": "OLLAMA_RECOVERY",
-                    "value": "{\"residents\":{\"gemma4:vlm\":\"homelab-prepared/gemma4-vlm:6f76bbe712fc8b605512d6871af39f4ba9bcb7d0921b6b1f5bd7aa62d33d5314\"},\"revision\":\"6f76bbe712fc8b605512d6871af39f4ba9bcb7d0921b6b1f5bd7aa62d33d5314\",\"version\":\"0.40.11\"}"
+                    "value": "{\"residents\":{\"gemma4:vlm\":\"homelab-prepared/gemma4-vlm:4e1263ea9b00f7c2353fd227fcf70aaa37d9cd868eeb15cf4ca84902a0d6db34\"},\"revision\":\"4e1263ea9b00f7c2353fd227fcf70aaa37d9cd868eeb15cf4ca84902a0d6db34\",\"version\":\"0.40.11\"}"
                   }
                 ],
                 "command": [
