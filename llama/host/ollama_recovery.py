@@ -73,8 +73,22 @@ class Http:
                 raise PreparationError(f"oversized {path} response")
             result = json.loads(raw) if raw else {}
         except urllib.error.HTTPError as exc:
-            exc.close()
-            raise PreparationError(f"{path}: HTTP {exc.code}") from exc
+            reason = ""
+            try:
+                with exc:
+                    raw = exc.read(4097)
+                if len(raw) <= 4096:
+                    error = json.loads(raw)
+                    if isinstance(error, dict) and isinstance(error.get("error"), str):
+                        # Preserve the adapter's refusal without allowing remote
+                        # control characters or unbounded text into job logs.
+                        reason = ": " + json.dumps(
+                            error["error"][:1024], ensure_ascii=True
+                        )
+            except (OSError, ValueError):
+                # Diagnostic failure must not hide the original HTTP rejection.
+                pass
+            raise PreparationError(f"{path}: HTTP {exc.code}{reason}") from exc
         except urllib.error.URLError as exc:
             if transient_connection_error(exc.reason):
                 raise TransportUnavailable(f"{path}: {exc.reason}") from exc

@@ -412,6 +412,54 @@ class ExporterTests(unittest.TestCase):
         with self.assertRaisesRegex(PreparationError, "endpoint"):
             recovery.request_recovery(config, "http://fixture.invalid/api/generate")
 
+    def test_http_refusal_preserves_bounded_adapter_diagnostic(self):
+        reason = "receipt revision differs; adopt the declared posture\n\x1b[31m"
+        body = io.BytesIO(json.dumps({"error": reason}).encode())
+        error = recovery.urllib.error.HTTPError(
+            "http://fixture.invalid", 409, "Conflict", {}, body
+        )
+        with mock.patch.object(recovery.urllib.request, "build_opener") as opener:
+            opener.return_value.open.side_effect = error
+            with self.assertRaises(PreparationError) as raised:
+                recovery.Http("http://fixture.invalid").call("/preparation/recover", {})
+        self.assertIn("HTTP 409", str(raised.exception))
+        self.assertIn("receipt revision differs", str(raised.exception))
+        self.assertNotIn("\n", str(raised.exception))
+        self.assertNotIn("\x1b", str(raised.exception))
+        self.assertTrue(body.closed)
+
+    def test_unusable_http_diagnostic_preserves_status_and_closes_response(self):
+        for raw in (b"not JSON", b"[]", b'{"error":null}', b"x" * 5000):
+            with self.subTest(raw=raw[:30]):
+                body = io.BytesIO(raw)
+                error = recovery.urllib.error.HTTPError(
+                    "http://fixture.invalid", 409, "Conflict", {}, body
+                )
+                with mock.patch.object(
+                    recovery.urllib.request, "build_opener"
+                ) as opener:
+                    opener.return_value.open.side_effect = error
+                    with self.assertRaisesRegex(
+                        PreparationError, "^/preparation/recover: HTTP 409$"
+                    ):
+                        recovery.Http("http://fixture.invalid").call(
+                            "/preparation/recover", {}
+                        )
+                self.assertTrue(body.closed)
+
+    def test_http_diagnostic_read_failure_preserves_status(self):
+        body = io.BytesIO()
+        body.read = mock.Mock(side_effect=OSError("response interrupted"))
+        error = recovery.urllib.error.HTTPError(
+            "http://fixture.invalid", 409, "Conflict", {}, body
+        )
+        with mock.patch.object(recovery.urllib.request, "build_opener") as opener:
+            opener.return_value.open.side_effect = error
+            with self.assertRaisesRegex(PreparationError, "HTTP 409"):
+                recovery.Http("http://fixture.invalid").call("/preparation/recover", {})
+        body.read.assert_called_once_with(4097)
+        self.assertTrue(body.closed)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -296,8 +296,14 @@ hostPort DNAT. Preserve deployment/configuration snapshots before a placement mi
 and verify LAN, Tailscale, cluster DNS, cloud proxy routing and Prometheus afterward.
 
 Node maintenance (`scripts/node-maintenance.sh reboot <node> --spin-down`) does not scale
-a retired Ollama Deployment. Host memory still counts:
-the preflight's `HOST_MEMORY_RESERVATIONS` default is `timmy=16Gi`, matching `MemoryMax`.
+a retired Ollama Deployment. The host daemon rides through a drain and stops on host reboot.
+Host memory still counts: the preflight's `HOST_MEMORY_RESERVATIONS` default is `timmy=16Gi`,
+matching `service_properties.MemoryMax` in `model-posture.json`. Keep that reservation in
+`scripts/node-maintenance.sh` in sync when changing the declared limit, then rerender.
+For a tight drain that needs the RAM, run `ssh timmy sudo systemctl stop ollama` manually
+before draining. The node's noninteractive sudo grant covers apt/reboot, so the maintenance
+script cannot stop this unit itself. After maintenance, restore the host through the
+authorized warm/verification workflow; a manual start alone is not acceptance.
 The GPU-hold workload reserves both AMD device-plugin slots so unrelated cluster jobs do
 not claim the card. Lending the GPU is a separately authorized sequence: stop the host,
 scale GPU-hold to zero, run the workload, then restore the guard and perform host verification.

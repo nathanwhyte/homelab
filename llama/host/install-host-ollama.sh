@@ -370,7 +370,7 @@ if [[ $mode == files ]]; then
 	old_directives=$(directives "$UNIT_DIR/ollama-exporter.service") || die "cannot read installed exporter unit"
 	new_directives=$(exporter_unit | directives) || die "cannot read source exporter unit"
 	compare_directives "ollama-exporter.service" "$old_directives" "$new_directives"
-	prepare files-check --installed "$HOST_DIR" || die "--files-only refuses an unverified or changed effective posture; run full adoption"
+  prepare files-check --installed "$HOST_DIR" || die "--files-only refused; follow the diagnostic above: changed posture requires full adoption; an unreachable or wrong-version daemon requires --bootstrap-recovery"
 	log "--files-only: complete recipes, posture and unit directives unchanged; nothing restarts"
 else
 	if [[ $mode != recovery ]]; then

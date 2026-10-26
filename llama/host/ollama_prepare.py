@@ -310,7 +310,7 @@ class Preparation:
             != self.posture.data["version"]
         ):
             raise PreparationError(
-                "running Ollama version differs from the posture; use explicit bootstrap/recovery after installing the pinned release"
+                "running Ollama version differs from the posture; rerun deployment with --bootstrap-recovery to install the pinned release and verify adoption"
             )
 
     def wait_ready(self, runtime, timeout=30.0):
