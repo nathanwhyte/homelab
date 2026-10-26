@@ -173,6 +173,11 @@ The generated drop-in must still match its generator byte for byte: change its c
 `dropin()` and rerender, rather than editing generated output. Such regenerated comment-only
 changes pass the directive comparison. A legacy host without the new configuration requires full migration.
 
+This mode also installs and applies the dedicated 9070 XT runtime-PM rule (BUG-1242),
+as full adoption does. It reloads udev, triggers the `1002:7550` PCI device, waits for
+udev to settle, and requires `power/control=on` before completing. Applying that policy
+resumes the card without restarting Ollama. The Raphael iGPU keeps its runtime-PM policy.
+
 ## Failure and recovery boundaries
 
 Warmup and the installer's final verification invalidate failed acceptance and ask the
@@ -247,6 +252,15 @@ the grant.
 | Inspect physical VRAM | Read `power/control`, `mem_info_vram_used` and `mem_info_gtt_used` under `/sys/bus/pci/devices/0000:03:00.0/`; `ollama ps` counts GTT as GPU |
 | Inspect metrics | `curl -fsS http://192.168.1.19:9111/metrics` |
 | Pull an unrelated model | Separately authorize the suspended `ollama-pull` template's model and Job |
+
+PCI runtime suspend can move the model's VRAM buffers into GTT (system RAM) while
+`ollama ps` still reports GPU residency. The BUG-1242 measurements on 2026-10-26 showed
+57 MB VRAM / 9,648 MB GTT while suspended and 9,305 MB VRAM / 410 MB GTT while serving.
+Those are measurements of that model and host state, not acceptance thresholds for all
+resident profiles. Check `power/control=on`, `power/runtime_status=active`, and the physical
+VRAM/GTT counters separately. The installer's policy readback and the preparation receipt
+do not prove that all model bytes remain in physical VRAM. The cost of keeping the card
+awake is its idle power draw.
 
 ## Original cutover and host maintenance
 

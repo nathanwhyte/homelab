@@ -23,6 +23,12 @@ import textwrap
 import unittest
 
 HOST = Path(__file__).resolve().parents[1]
+UDEV_RULE = "99-homelab-dgpu-runpm.rules"
+UDEV_CALLS = [
+    "udevadm control --reload",
+    "udevadm trigger --action=add --subsystem-match=pci --attr-match=vendor=0x1002 --attr-match=device=0x7550",
+    "udevadm settle",
+]
 
 CORE = r"""
 import json, os, pathlib, sys
@@ -152,6 +158,25 @@ elif name == "systemctl":
         sys.exit("unexpected systemctl command")
 elif name == "journalctl":
     print("fake journal")
+elif name == 'udevadm':
+    expected = {
+        'control': ['control', '--reload'],
+        'trigger': ['trigger', '--action=add', '--subsystem-match=pci', '--attr-match=vendor=0x1002', '--attr-match=device=0x7550'],
+        'settle': ['settle'],
+    }
+    if not args or args != expected.get(args[0]):
+        sys.exit('unexpected udev command')
+    rule = root / 'etc/udev/rules.d/99-homelab-dgpu-runpm.rules'
+    directive = 'ACTION=="add|bind", SUBSYSTEM=="pci", ATTR{vendor}=="0x1002", ATTR{device}=="0x7550", ATTR{power/control}="on"'
+    if directive not in rule.read_text().splitlines():
+        sys.exit('runtime-PM rule must be installed before udev activation')
+    if os.environ.get('FAIL_UDEV') == args[0]:
+        sys.exit('injected udev ' + args[0] + ' failure')
+    if args[0] == 'trigger' and not os.environ.get('FAKE_UDEV_NO_EFFECT'):
+        # A boundary fake for this exact selector, not a udev rule interpreter.
+        gpu = root / 'sys/bus/pci/devices/0000:03:00.0/power'
+        (gpu / 'control').write_text('on\n')
+        (gpu / 'runtime_status').write_text('active\n')
 else:
     sys.exit("unexpected host command: " + name)
 """
@@ -172,7 +197,12 @@ class InstallerTests(unittest.TestCase):
         self.src.mkdir(parents=True)
         self.recipes.mkdir(parents=True)
         (self.src / "ollama.service.d").mkdir()
-        for rel in ("install-host-ollama.sh", "ollama-warm.sh", "ollama-warm.service"):
+        for rel in (
+            "install-host-ollama.sh",
+            "ollama-warm.sh",
+            "ollama-warm.service",
+            UDEV_RULE,
+        ):
             shutil.copy2(HOST / rel, self.src / rel)
         (self.src / "ollama.service.d/homelab.conf").write_text(
             '[Service]\nEnvironment="OLLAMA_NUM_PARALLEL=4"\n'
@@ -200,6 +230,7 @@ class InstallerTests(unittest.TestCase):
         for path in (
             "usr/local/bin",
             "etc/systemd/system",
+            "etc/udev/rules.d",
             "run/lock",
             "usr/share/ollama/.ollama/models",
         ):
@@ -208,6 +239,12 @@ class InstallerTests(unittest.TestCase):
         self.log.touch()
         (self.root / "online").write_text("yes")
         (self.root / "generation").write_text("1")
+        self.dgpu = self.root / "sys/bus/pci/devices/0000:03:00.0/power"
+        self.igpu = self.root / "sys/bus/pci/devices/0000:13:00.0/power"
+        for gpu in (self.dgpu, self.igpu):
+            gpu.mkdir(parents=True)
+            (gpu / "control").write_text("auto\n")
+            (gpu / "runtime_status").write_text("suspended\n")
         self.env = dict(
             os.environ,
             PATH=str(self.bin) + os.pathsep + os.environ["PATH"],
@@ -225,6 +262,8 @@ class InstallerTests(unittest.TestCase):
             "FAKE_LOCK_BUSY",
             "FAKE_CUTOVER_FAIL",
             "FAKE_DIFF_ERROR",
+            "FAIL_UDEV",
+            "FAKE_UDEV_NO_EFFECT",
         ):
             self.env.pop(key, None)
         for command in (
@@ -246,6 +285,7 @@ class InstallerTests(unittest.TestCase):
             "chown",
             "findmnt",
             "diff",
+            "udevadm",
         ):
             self.write_command(self.bin / command)
         self.write_command(self.root / "usr/local/bin/ollama")
@@ -281,6 +321,7 @@ class InstallerTests(unittest.TestCase):
                     "useradd",
                     "usermod",
                     "apt-get",
+                    "udevadm ",
                 )
             )
         ]
@@ -289,6 +330,8 @@ class InstallerTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0, result.stdout)
         self.assertEqual(self.mutation_calls(), [])
         self.assertFalse((self.root / "opt/ollama-host").exists())
+        self.assertFalse((self.root / "etc/udev/rules.d" / UDEV_RULE).exists())
+        self.assertEqual((self.dgpu / "control").read_text(), "auto\n")
 
     def installed(self):
         result = self.run_installer()
@@ -301,6 +344,71 @@ class InstallerTests(unittest.TestCase):
         self.assert_no_adoption(result)
         self.assertIn("--bootstrap-recovery", result.stdout)
         self.assertFalse((self.root / "run/lock/ollama-install.lock").exists())
+
+    def test_check_reports_runtime_pm_without_applying_it(self):
+        result = self.run_installer("--check")
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertIn("control=auto status=suspended (want on / active)", result.stdout)
+        self.assertEqual(self.mutation_calls(), [])
+        self.assertFalse((self.root / "etc/udev/rules.d" / UDEV_RULE).exists())
+        self.assertFalse((self.root / "run/lock/ollama-install.lock").exists())
+
+    def test_udev_failures_abort_before_restart_or_warm(self):
+        for failure in ("control", "trigger", "settle", "readback"):
+            with self.subTest(failure=failure):
+                self.log.write_text("")
+                (self.dgpu / "control").write_text("auto\n")
+                result = self.run_installer(
+                    **(
+                        {"FAKE_UDEV_NO_EFFECT": "1"}
+                        if failure == "readback"
+                        else {"FAIL_UDEV": failure}
+                    )
+                )
+                self.assertNotEqual(result.returncode, 0, result.stdout)
+                self.assertIn(
+                    "power/control is not 'on'"
+                    if failure == "readback"
+                    else "injected udev " + failure + " failure",
+                    result.stdout,
+                )
+                self.assertFalse(
+                    any(
+                        line.startswith(
+                            (
+                                "systemctl restart",
+                                "systemctl start",
+                                "core warm ",
+                                "core verify ",
+                            )
+                        )
+                        for line in self.calls()
+                    )
+                )
+
+    def test_files_only_applies_runtime_pm_without_restart_or_warm(self):
+        self.installed()
+        (self.dgpu / "control").write_text("auto\n")
+        (self.dgpu / "runtime_status").write_text("suspended\n")
+        rule = self.root / "etc/udev/rules.d" / UDEV_RULE
+        rule.unlink()
+        result = self.run_installer("--files-only")
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertEqual(
+            self.mutation_calls(), UDEV_CALLS + ["systemctl daemon-reload"]
+        )
+        self.assertEqual(rule.read_bytes(), (self.src / UDEV_RULE).read_bytes())
+        self.assertIn(str(rule), result.stdout)
+        self.assertEqual((self.dgpu / "control").read_text(), "on\n")
+        self.assertEqual((self.igpu / "control").read_text(), "auto\n")
+        calls = self.calls()
+        checked = next(
+            i for i, call in enumerate(calls) if call.startswith("core files-check ")
+        )
+        self.assertLess(checked, calls.index(UDEV_CALLS[0]))
+        self.assertFalse(
+            any(call.startswith(("core warm ", "core verify ")) for call in calls)
+        )
 
     def test_prepare_failure_precedes_install_and_restart(self):
         result = self.run_installer(FAIL_CORE="prepare")
@@ -342,6 +450,11 @@ class InstallerTests(unittest.TestCase):
             i for i, line in enumerate(calls) if line.startswith("core verify ")
         )
         self.assertLess(prepare, restart)
+        self.assertEqual(
+            [call for call in calls if call.startswith("udevadm ")], UDEV_CALLS
+        )
+        self.assertLess(prepare, calls.index(UDEV_CALLS[0]))
+        self.assertLess(calls.index(UDEV_CALLS[-1]), restart)
         self.assertLess(restart, warm)
         self.assertLess(warm, verify)
         self.assertLess(verify, calls.index("systemctl restart ollama-exporter"))
@@ -374,6 +487,12 @@ class InstallerTests(unittest.TestCase):
             )
         unit = (self.root / "etc/systemd/system/ollama-exporter.service").read_text()
         self.assertIn("--preparation-state /var/lib/ollama-preparation", unit)
+        self.assertEqual(
+            (self.root / "etc/udev/rules.d" / UDEV_RULE).read_bytes(),
+            (self.src / UDEV_RULE).read_bytes(),
+        )
+        self.assertEqual((self.dgpu / "control").read_text(), "on\n")
+        self.assertEqual((self.igpu / "control").read_text(), "auto\n")
 
     def test_recovery_stops_old_producer_before_acquiring_its_lock(self):
         self.installed()
@@ -395,6 +514,14 @@ class InstallerTests(unittest.TestCase):
         self.assertNotIn("systemctl stop ollama", self.calls())
         self.assertTrue(any(line.startswith("core warm ") for line in self.calls()))
         self.assertTrue(any(line.startswith("core verify ") for line in self.calls()))
+        calls = self.calls()
+        self.assertEqual(
+            [call for call in calls if call.startswith("udevadm ")], UDEV_CALLS
+        )
+        self.assertLess(
+            calls.index(UDEV_CALLS[-1]), calls.index("systemctl restart ollama")
+        )
+        self.assertEqual((self.dgpu / "control").read_text(), "on\n")
 
     def test_bootstrap_does_not_bypass_cutover_preflight(self):
         self.assert_no_adoption(
@@ -468,7 +595,9 @@ class InstallerTests(unittest.TestCase):
             file.write("# comment-only change\n")
         result = self.run_installer("--files-only")
         self.assertEqual(result.returncode, 0, result.stdout)
-        self.assertEqual(self.mutation_calls(), ["systemctl daemon-reload"])
+        self.assertEqual(
+            self.mutation_calls(), UDEV_CALLS + ["systemctl daemon-reload"]
+        )
         self.assertTrue(
             any(line.startswith("core files-check ") for line in self.calls())
         )

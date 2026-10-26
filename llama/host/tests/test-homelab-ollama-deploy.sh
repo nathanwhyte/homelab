@@ -147,7 +147,11 @@ if [[ -e $TMP/blocked ]]; then
 	else
 		bad "competing wrapper entered active deployment (rc=$rc)"
 	fi
-	[[ $(cat "$SRC/REV") == v2 ]] && ok "active installer's source remains unchanged when main advances" || bad "active installer's source was replaced"
+	if [[ $(cat "$SRC/REV") == v2 ]]; then
+		ok "active installer's source remains unchanged when main advances"
+	else
+		bad "active installer's source was replaced"
+	fi
 else
 	bad "first wrapper did not reach the controlled installer"
 fi
@@ -155,9 +159,16 @@ touch "$TMP/release"
 wait "$worker"
 rc=$?
 worker=
-[[ $rc -eq 0 ]] && grep -q 'rev=v2' "$CALLS" && ok "first installer finishes from its captured main" || bad "first installer lost its source"
-run bash "$WRAPPER"
-[[ $? -eq 0 ]] && grep -q 'rev=v3' "$CALLS" && ok "deployment lock releases after installer exits" || bad "deployment lock did not release"
+if [[ $rc -eq 0 ]] && grep -q 'rev=v2' "$CALLS"; then
+	ok "first installer finishes from its captured main"
+else
+	bad "first installer lost its source"
+fi
+if run bash "$WRAPPER" && grep -q 'rev=v3' "$CALLS"; then
+	ok "deployment lock releases after installer exits"
+else
+	bad "deployment lock did not release"
+fi
 
 echo "wrapper: it refuses a loosened checkout"
 chmod g+w "$SRC"
