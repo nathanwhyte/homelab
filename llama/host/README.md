@@ -192,9 +192,19 @@ followed by a check that the cordon is still this run's owned cordon.
 These checks are made at moments, not held: nothing locks timmy across both Macs. Another
 Mac's command, or a hand `kubectl cordon`, `uncordon` or `annotate` on the node, while a run
 on this Mac is still going is outside what they cover. One that lands after `down`'s
-preflight is refused at the drain, after the silence, suspends and parking: this Mac's `up`
-then refuses too, while timmy carries the other cordon, so the Mac that owns it finishes its
-cycle first, and only then does this Mac's `up` undo its own preparation.
+preflight and leaves another owner (or none) on timmy is refused at the drain, after the
+silence, suspends and parking; a hand uncordon keeps this Mac's owner, so the drain's own
+re-cordon passes. After such a refusal this Mac's `up` refuses while timmy carries the other
+cordon, so that Mac finishes its cycle first. Then, if this Mac's refusal came before its
+cordon, its `up` undoes its preparation; if it came later (this Mac's boot-ID record is
+saved), its `up` cannot finish a cycle whose cordon is gone, and recovery is by hand: remove
+`~/.local/state/homelab-node-maintenance/timmy.boot-id` and re-run `up`, which then restores
+the preparation without a finish.
+
+`down` writes its owner with the cordon, after its silence, suspends, parking and spin-down.
+A `down` that stops before the cordon leaves nothing on timmy for the other Mac to refuse on,
+so the other Mac's `down` would save the zeros it sees: as before this change, recover such a
+`down` with `up` on the same Mac. A marker written before `down`'s first change is IDEA-1152.
 
 `kubectl uncordon` keeps annotations, so back out a cycle with `kubectl uncordon timmy &&
 kubectl annotate node timmy homelab/cordon-owner-`. An owner left on an uncordoned node is

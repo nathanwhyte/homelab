@@ -20,7 +20,8 @@
 #   node-maintenance.sh preflight <node>    the read-only refusals `reboot` starts with (another cycle
 #                                             active, an earlier node still owing a reboot), for a
 #                                             caller to run before it mutates anything of its own
-#                                             --allow-repeat: OK for a cordoned target (drain --repeat)
+#                                             --allow-repeat: OK for this Mac's own cordon (drain --repeat);
+#                                             add --outage for timmy-offline.sh down's
 #   node-maintenance.sh restore-services    scale the --spin-down services back without a finish, for
 #                                             a cycle that stopped before its drain; refuses while any
 #                                             node is cordoned or has saved reboot state
@@ -104,8 +105,9 @@ KUBECTL=${KUBECTL:-kubectl}
 # Who made a cordon (IMPR-1428), kept on the Node so both Macs and a hand cordon
 # see the same answer: "<purpose>:<Mac>", purpose outage (timmy-offline.sh down),
 # drain or reboot. A cordon without one was made by hand or before owners were
-# recorded. An owner left on an uncordoned node is stale: nothing trusts it, and
-# the next cordon replaces it. MAINTENANCE_HOST stands in for the ComputerName.
+# recorded. An owner left on an uncordoned node is stale (`kubectl uncordon` keeps
+# annotations), and a later hand cordon would carry it, so mutating commands clear
+# it (clear_stale_owners). MAINTENANCE_HOST stands in for the ComputerName.
 CORDON_OWNER_KEY=homelab/cordon-owner
 # The cordon write carries the resourceVersion it read; a 409 re-reads and re-checks.
 CORDON_ATTEMPTS=3
@@ -118,7 +120,7 @@ die() {
 }
 
 usage() {
-	sed -n '2,27p' "$SELF" | sed 's/^# \{0,1\}//'
+	sed -n '2,28p' "$SELF" | sed 's/^# \{0,1\}//'
 	exit 1
 }
 
@@ -390,14 +392,18 @@ read_node_cordon() {
 }
 
 # Dies unless <node> is cordoned with exactly <owner>. Also the check after each
-# `kubectl drain`, which cordons by itself: a cordon cleared mid-run comes back
-# from the drain without an owner, and must not pass as this run's.
+# `kubectl drain`, which cordons by itself: a cordon whose owner was removed or
+# replaced mid-run comes back from the drain without this run's owner and stops
+# it. A hand `kubectl uncordon` keeps the owner, so its re-cordon passes; the node
+# is drained for this run either way, and mid-run hand changes are out of scope.
 require_owned_cordon() { # <node> <owner> <what>
 	local node=$1 owner=$2
 	read_node_cordon "$node"
 	[[ $NODE_CORDONED == true && $NODE_OWNER == "$owner" ]] && return 0
-	if [[ $NODE_CORDONED == true ]]; then
-		die "$3: $node is cordoned by ${NODE_OWNER:-hand (no owner recorded)}, not $owner. Finish that work first. Only if it is this Mac's own (from before cordon owners were recorded, or re-cordoned by a drain after its cordon was cleared mid-run), claim it and re-run: kubectl annotate node $node $CORDON_OWNER_KEY='$owner' --overwrite"
+	if [[ $NODE_CORDONED == true && -n $NODE_OWNER && ${NODE_OWNER#*:} == "${owner#*:}" ]]; then
+		die "$3: $node is this Mac's ${NODE_OWNER%%:*} cordon ($NODE_OWNER), not $owner. Re-run with the matching purpose (--outage, or timmy-offline.sh down, for an outage cordon; no --outage for a drain), or finish that cycle"
+	elif [[ $NODE_CORDONED == true ]]; then
+		die "$3: $node is cordoned by ${NODE_OWNER:-hand (no owner recorded)}, not $owner. Finish that work first. Only if it is this Mac's own from before cordon owners were recorded, claim it and re-run: kubectl annotate node $node $CORDON_OWNER_KEY='$owner' --overwrite"
 	fi
 	die "$3: $node is no longer cordoned (its cordon was cleared mid-run); re-run once nothing else is working on it"
 }
@@ -420,7 +426,7 @@ cordon_node() { # <node> <owner>
 		[[ $err == *'(Conflict)'* ]] || die "cannot cordon $node: $err"
 		warn "[$node] changed while cordoning (attempt $attempt of $CORDON_ATTEMPTS); re-reading"
 	done
-	die "cannot cordon $node: it changed on each of $CORDON_ATTEMPTS attempts"
+	die "cannot cordon $node: it changed on each of $CORDON_ATTEMPTS attempts; nothing was cordoned — re-run the same command"
 }
 
 # finish's ownership rule: the cordon names this Mac (any purpose), or has no
@@ -473,7 +479,7 @@ uncordon_node() {
 		[[ $err == *'(Conflict)'* ]] || die "cannot uncordon $node: $err"
 		warn "[$node] changed while uncordoning (attempt $attempt of $CORDON_ATTEMPTS); re-reading"
 	done
-	die "cannot uncordon $node: it changed on each of $CORDON_ATTEMPTS attempts"
+	die "cannot uncordon $node: it changed on each of $CORDON_ATTEMPTS attempts; it is still cordoned — re-run the same command"
 }
 
 node_is_ready() {
@@ -1115,7 +1121,7 @@ cmd_status() {
 	owners=$(kubectl get nodes -o json | jq -r --arg k "$CORDON_OWNER_KEY" '.items[]
 		| (.metadata.annotations[$k] // "") as $o
 		| if .spec.unschedulable == true then "\(.metadata.name): cordoned by \(if $o == "" then "hand (no owner recorded)" else $o end)"
-		  elif $o != "" then "\(.metadata.name): stale cordon owner \($o) on an uncordoned node; the next cordon replaces it"
+		  elif $o != "" then "\(.metadata.name): stale cordon owner \($o) on an uncordoned node (a hand cordon would keep it); clear it: kubectl annotate node \(.metadata.name) \($k)-"
 		  else empty end' 2>/dev/null) || true
 	[[ -n $owners ]] && printf '%s\n' "$owners" | sed 's/^/    /'
 	echo
@@ -1205,7 +1211,7 @@ cmd_drain() {
 		# Only a caller that owns the cordon opts in; a bare drain of a cordoned
 		# node would skip every first-drain check on any node.
 		((repeat)) ||
-			die "$node is already cordoned; pass --repeat to re-drain this Mac's own cordon. If it is not yours, finish that cycle, or back it out (kubectl uncordon $node && kubectl annotate node $node $CORDON_OWNER_KEY-) for a checked first drain — never uncordon another Mac's timmy outage"
+			die "$node is already cordoned; pass --repeat (with --outage for timmy-offline.sh down's) to re-drain this Mac's own cordon. If it is not yours, finish that cycle, or back it out (kubectl uncordon $node && kubectl annotate node $node $CORDON_OWNER_KEY-) for a checked first drain — never uncordon another Mac's timmy outage"
 		require_owned_cordon "$node" "$owner" "this run changed nothing"
 		repeat_drain "$node" "$owner"
 	else
@@ -1226,6 +1232,12 @@ cmd_recover() {
 	fi
 	warn "no saved cycle for $node — preparation stopped before the drain; skipping finish"
 	if node_is_cordoned "$node"; then
+		read_node_cordon "$node"
+		local host
+		host=$(cordon_owner recover) || die "cannot tell which Mac this is"
+		if [[ -n $NODE_OWNER && ${NODE_OWNER#*:} != "${host#recover:}" ]]; then
+			die "$node carries $NODE_OWNER's cordon and this Mac has no cycle state; let that Mac finish its cycle, then re-run: ${NODE_MAINTENANCE_RERUN:-$SELF recover $node}"
+		fi
 		die "$node is cordoned without cycle state; finish it by hand: $SELF finish $node <previous-boot-id>"
 	fi
 	# A wrapping caller (timmy-offline.sh up) names its own command to re-run.

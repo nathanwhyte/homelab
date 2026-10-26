@@ -673,6 +673,32 @@ class MaintenanceCycleTests(unittest.TestCase):
                     before = self.cordon_by("timmy")
                     self.assert_down_refused_untouched(before)
 
+    def test_recovery_by_hand_after_a_refusal_past_the_record(self):
+        # The README's recovery: the drain's check refuses after the record save.
+        state = self.read()
+        state["clear_before_drain"] = True
+        self.write(state)
+        self.run_command(OUTAGE, "down", ok=False)
+        self.assertTrue((self.cycle / "timmy.boot-id").exists())
+        # timmy is uncordoned, as after the owning Mac's cycle ends.
+        state = self.read()
+        state["nodes"]["timmy"]["cordoned"] = False
+        self.write(state)
+        self.reboot()
+        result = self.run_command(OUTAGE, "up", ok=False)
+        self.assertIn("not cordoned", result.stderr)
+        (self.cycle / "timmy.boot-id").unlink()
+        self.run_command(OUTAGE, "up")
+        self.assert_restored()
+
+    def test_refusals_name_the_way_forward(self):
+        self.cordon_by("timmy", "outage:mac-one")
+        result = self.run_command(NODE, "drain", "timmy", "--repeat", ok=False)
+        self.assertIn("matching purpose", result.stderr)
+        self.cordon_by("timmy", "outage:mac-two")
+        result = self.run_command(NODE, "recover", "timmy", ok=False)
+        self.assertIn("let that Mac finish its cycle", result.stderr)
+
     def test_up_finishes_an_ownerless_cordon_from_before_owners(self):
         self.run_command(OUTAGE, "down")
         state = self.read()
