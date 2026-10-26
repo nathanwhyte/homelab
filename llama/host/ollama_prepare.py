@@ -20,11 +20,13 @@ import shlex
 import subprocess
 import sys
 import tempfile
+import time
 import uuid
 
 from ollama_recovery import (
     Http,
     PreparationError,
+    TransportUnavailable,
     integer_parameter,
     recover,
     verify_loaded,
@@ -177,11 +179,47 @@ class Preparation:
             fcntl.flock(lock, fcntl.LOCK_EX)
             yield
 
-    def version(self):
-        if self.api.call("/api/version").get("version") != self.posture.data["version"]:
+    def version(self, timeout=None):
+        options = {} if timeout is None else {"timeout": timeout}
+        if (
+            self.api.call("/api/version", **options).get("version")
+            != self.posture.data["version"]
+        ):
             raise PreparationError(
                 "running Ollama version differs from the posture; use explicit bootstrap/recovery after installing the pinned release"
             )
+
+    def wait_ready(self, runtime, timeout=30.0):
+        """Wait only for startup transport, never for a wrong/protocol-invalid daemon."""
+        deadline = time.monotonic() + timeout
+        last_error = None
+        while True:
+            runtime._assert_current()
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise PreparationError(
+                    f"startup readiness timed out after {timeout:g}s: {last_error}"
+                )
+            try:
+                # A slow connect/read cannot consume the default 15-second
+                # transport timeout after the readiness deadline is nearly up.
+                self.version(timeout=min(1.0, remaining))
+            except TransportUnavailable as exc:
+                last_error = exc
+            else:
+                runtime._assert_current()
+                if time.monotonic() >= deadline:
+                    raise PreparationError(
+                        f"startup readiness timed out after {timeout:g}s"
+                    )
+                return
+            runtime._assert_current()
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise PreparationError(
+                    f"startup readiness timed out after {timeout:g}s: {last_error}"
+                )
+            time.sleep(min(1.0, remaining))
 
     def create(self, tag, recipe):
         env = dict(os.environ, OLLAMA_HOST=self.api.url)
@@ -308,6 +346,12 @@ class Preparation:
 
     def warm(self, runtime):
         try:
+            # Type=simple can release the warm unit before HTTP starts accepting.
+            # Invalidate the local claim immediately, then clear remote witnesses
+            # as soon as this captured generation's API is reachable. If it never
+            # becomes reachable, abort reports that cleanup gap and confirms stop.
+            self.state.joinpath("verified.json").unlink(missing_ok=True)
+            self.wait_ready(runtime)
             self.invalidate()
             models = self.prepare()
             expected = {tag: models[tag] for tag in self.posture.residents}
@@ -405,22 +449,15 @@ class Preparation:
             raise PreparationError(
                 "--files-only refuses a posture/settings/pin/selection change; run full adoption"
             )
-        self.version()
-        # Ask the real consumer to compare both recipes. Comments and formatting
-        # may change; templates, inherited parameters, and every declared field
-        # must compile to the same complete manifest.
-        for tag in self.posture.data["models"]:
-            with self.candidate(tag) as (_, new):
-                with self.candidate(tag, installed) as (_, old):
-                    if new["digest"] != old["digest"]:
-                        raise PreparationError(
-                            f"--files-only refuses an effective recipe change for {tag}"
-                        )
         if self.posture.revision != installed.revision:
             raise PreparationError(
                 "--files-only refuses a recipe revision change, including comments; "
                 "run full adoption to publish matching recovery witnesses"
             )
+        # This mode accepts only byte-identical recipe inputs. Compiling them
+        # again cannot admit another change, but would pull unused rollback bases.
+        # Full prepare/warm retain canonical consumer identity verification.
+        self.version()
 
 
 def dropin(posture):

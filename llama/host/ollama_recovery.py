@@ -5,6 +5,7 @@ The host publishes revision-specific witness tags only after runtime verificatio
 Recovery never creates recipes, changes systemd, or evicts an existing runner.
 """
 
+import errno
 import json
 import os
 import re
@@ -15,6 +16,26 @@ import urllib.request
 
 class PreparationError(RuntimeError):
     """The requested posture has not been proved."""
+
+
+class TransportUnavailable(PreparationError):
+    """No usable connection yet; distinct from an HTTP/protocol rejection."""
+
+
+def transient_connection_error(error):
+    return isinstance(error, (ConnectionError, TimeoutError)) or (
+        isinstance(error, OSError)
+        and error.errno
+        in {
+            errno.ECONNREFUSED,
+            errno.ECONNRESET,
+            errno.ECONNABORTED,
+            errno.ETIMEDOUT,
+            errno.EHOSTUNREACH,
+            errno.ENETUNREACH,
+            errno.EPIPE,
+        }
+    )
 
 
 def digest(value):
@@ -28,7 +49,7 @@ class Http:
     def __init__(self, url):
         self.url = url.rstrip("/")
 
-    def call(self, path, body=None, method=None):
+    def call(self, path, body=None, method=None, timeout=None):
         payload = None if body is None else json.dumps(body).encode()
         request = urllib.request.Request(
             self.url + path,
@@ -38,14 +59,29 @@ class Http:
         )
         try:
             opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
-            with opener.open(
-                request, timeout=300 if path == "/api/generate" else 15
-            ) as response:
+            request_timeout = (
+                timeout
+                if timeout is not None
+                else 300
+                if path == "/api/generate"
+                else 15
+            )
+            with opener.open(request, timeout=request_timeout) as response:
                 raw = response.read(16 * 1024 * 1024 + 1)
             if len(raw) > 16 * 1024 * 1024:
                 raise PreparationError(f"oversized {path} response")
             result = json.loads(raw) if raw else {}
-        except (OSError, ValueError) as exc:
+        except urllib.error.HTTPError as exc:
+            raise PreparationError(f"{path}: HTTP {exc.code}") from exc
+        except urllib.error.URLError as exc:
+            if transient_connection_error(exc.reason):
+                raise TransportUnavailable(f"{path}: {exc.reason}") from exc
+            raise PreparationError(f"{path}: {exc}") from exc
+        except OSError as exc:
+            if transient_connection_error(exc):
+                raise TransportUnavailable(f"{path}: {exc}") from exc
+            raise PreparationError(f"{path}: {exc}") from exc
+        except ValueError as exc:
             raise PreparationError(f"{path}: {exc}") from exc
         if not isinstance(result, dict) or result.get("error"):
             raise PreparationError(

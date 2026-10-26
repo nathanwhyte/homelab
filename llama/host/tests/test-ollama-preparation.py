@@ -12,18 +12,38 @@ from git_env import scrub_environ  # noqa: E402
 scrub_environ()
 
 import copy  # noqa: E402
+import errno  # noqa: E402
 import hashlib  # noqa: E402
 import io  # noqa: E402
 import json  # noqa: E402
 import tempfile  # noqa: E402
 import unittest  # noqa: E402
+import urllib.error  # noqa: E402
 from unittest import mock  # noqa: E402
 
 HOST = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(HOST))
 import ollama_prepare as module  # noqa: E402
 from ollama_prepare import Posture, Preparation  # noqa: E402
-from ollama_recovery import Http, PreparationError, recover  # noqa: E402
+from ollama_recovery import (  # noqa: E402
+    Http,
+    PreparationError,
+    TransportUnavailable,
+    recover,
+)
+
+
+class FakeClock:
+    def __init__(self):
+        self.now = 0.0
+        self.sleeps = []
+
+    def monotonic(self):
+        return self.now
+
+    def sleep(self, seconds):
+        self.sleeps.append(seconds)
+        self.now += seconds
 
 
 class FakeOllama:
@@ -62,7 +82,7 @@ class FakeOllama:
         sha = hashlib.sha256(module.encoded(shown).encode()).hexdigest()
         self.models[tag] = {"digest": sha, "show": shown}
 
-    def call(self, path, body=None, method=None):
+    def call(self, path, body=None, method=None, timeout=None):
         if path == "/api/version":
             return {"version": self.version}
         self.events.append((path, copy.deepcopy(body)))
@@ -104,6 +124,13 @@ class FakeRuntime:
     def __init__(self, error=False):
         self.error = error
         self.stops = 0
+        self.current = True
+        self.generation_checks = 0
+
+    def _assert_current(self):
+        self.generation_checks += 1
+        if not self.current:
+            raise PreparationError("captured daemon generation changed")
 
     def verify(self, expected, models):
         if self.error:
@@ -117,6 +144,7 @@ class FakeRuntime:
         }
 
     def stop_failed(self):
+        self._assert_current()
         self.stops += 1
         return {"stopped": True}
 
@@ -266,6 +294,156 @@ class PreparationTests(FixtureCase):
             json.loads((self.prep.state / "verified.json").read_text()), receipt
         )
 
+    def test_startup_transport_wait_invalidates_receipt_before_any_probe(self):
+        clock = FakeClock()
+        runtime = FakeRuntime()
+        receipt = self.prep.state / "verified.json"
+        receipt.write_text('{"old": true}')
+        call = self.api.call
+        probes = []
+
+        def probe(path, body=None, method=None, timeout=None):
+            if path == "/api/version" and timeout is not None:
+                self.assertFalse(receipt.exists())
+                probes.append(timeout)
+                if len(probes) < 3:
+                    raise TransportUnavailable("connection refused")
+            return call(path, body, method)
+
+        with (
+            mock.patch.object(self.api, "call", side_effect=probe),
+            mock.patch.object(module.time, "monotonic", clock.monotonic),
+            mock.patch.object(module.time, "sleep", clock.sleep),
+        ):
+            result = self.prep.warm(runtime)
+        self.assertEqual(probes, [1.0, 1.0, 1.0])
+        self.assertEqual(clock.sleeps, [1.0, 1.0])
+        self.assertGreaterEqual(runtime.generation_checks, 6)
+        self.assertEqual(runtime.stops, 0)
+        self.assertEqual(result["revision"], self.posture.revision)
+
+    def test_failed_startup_wait_clears_receipt_and_reports_unreachable_witnesses(self):
+        self.prep.warm(FakeRuntime())
+        before = self.api.tags()
+        self.api.events.clear()
+        clock = FakeClock()
+        runtime = FakeRuntime()
+        with (
+            mock.patch.object(
+                self.api, "call", side_effect=TransportUnavailable("refused")
+            ) as calls,
+            mock.patch.object(
+                self.api, "tags", side_effect=TransportUnavailable("refused")
+            ),
+            mock.patch.object(module.time, "monotonic", clock.monotonic),
+            mock.patch.object(module.time, "sleep", clock.sleep),
+            mock.patch("sys.stderr", new_callable=io.StringIO) as stderr,
+        ):
+            with self.assertRaisesRegex(
+                PreparationError,
+                "captured daemon stopped.*startup readiness timed out after 30s",
+            ):
+                self.prep.warm(runtime)
+        self.assertEqual(clock.now, 30.0)
+        self.assertEqual(calls.call_count, 30)
+        self.assertEqual(runtime.stops, 1)
+        self.assertIn("verification invalidation failed: refused", stderr.getvalue())
+        self.assertFalse((self.prep.state / "verified.json").exists())
+        # HTTP was unreachable: no claim that persistent aliases were deleted.
+        self.assertEqual(self.api.tags(), before)
+        self.assertEqual(self.api.events, [])
+
+    def test_next_successful_startup_removes_old_witnesses_before_prepare(self):
+        self.prep.warm(FakeRuntime())
+        old_witnesses = {
+            tag for tag in self.api.tags() if tag.startswith("homelab-prepared/")
+        }
+        self.api.events.clear()
+        self.prep.warm(FakeRuntime())
+        first_create = next(
+            i for i, event in enumerate(self.api.events) if event[0] == "create"
+        )
+        removed = {
+            event[1]["model"]
+            for event in self.api.events[:first_create]
+            if event[0] == "/api/delete"
+        }
+        self.assertEqual(removed, old_witnesses)
+
+    def test_startup_wait_does_not_retry_version_or_protocol_mismatch(self):
+        for failure in ({"version": "0.40.10"}, PreparationError("invalid JSON")):
+            with self.subTest(failure=failure):
+                clock = FakeClock()
+                runtime = FakeRuntime()
+                with (
+                    mock.patch.object(self.api, "call", side_effect=[failure]) as call,
+                    mock.patch.object(module.time, "monotonic", clock.monotonic),
+                    mock.patch.object(module.time, "sleep", clock.sleep),
+                ):
+                    with self.assertRaises(PreparationError):
+                        self.prep.warm(runtime)
+                self.assertEqual(clock.sleeps, [])
+                self.assertEqual(call.call_count, 1)
+                self.assertEqual(runtime.stops, 1)
+                self.assertEqual(self.api.events, [])
+
+    def test_generation_change_during_wait_never_adopts_replacement(self):
+        runtime = FakeRuntime()
+        clock = FakeClock()
+
+        def replaced(seconds):
+            clock.sleep(seconds)
+            runtime.current = False
+
+        with (
+            mock.patch.object(
+                self.api, "call", side_effect=TransportUnavailable("refused")
+            ) as call,
+            mock.patch.object(module.time, "monotonic", clock.monotonic),
+            mock.patch.object(module.time, "sleep", replaced),
+        ):
+            with self.assertRaisesRegex(
+                PreparationError, "STOP FAILED: captured daemon generation changed"
+            ):
+                self.prep.warm(runtime)
+        self.assertEqual(call.call_count, 1)
+        self.assertEqual(runtime.stops, 0)
+        self.assertFalse((self.prep.state / "verified.json").exists())
+        self.assertEqual(self.api.events, [])
+
+    def test_probe_timeout_and_sleep_are_limited_by_remaining_deadline(self):
+        runtime = FakeRuntime()
+        clock = FakeClock()
+        timeouts = []
+
+        def slow_probe(path, timeout):
+            timeouts.append(timeout)
+            clock.now += timeout
+            raise TransportUnavailable("timed out")
+
+        with (
+            mock.patch.object(self.api, "call", side_effect=slow_probe),
+            mock.patch.object(module.time, "monotonic", clock.monotonic),
+            mock.patch.object(module.time, "sleep", clock.sleep),
+        ):
+            with self.assertRaisesRegex(PreparationError, "timed out after 2.5s"):
+                self.prep.wait_ready(runtime, timeout=2.5)
+        self.assertEqual(timeouts, [1.0, 0.5])
+        self.assertEqual(clock.sleeps, [1.0])
+        self.assertEqual(clock.now, 2.5)
+
+    def test_prepare_remains_immediate_on_unavailable_transport(self):
+        with (
+            mock.patch.object(
+                self.api, "call", side_effect=TransportUnavailable("refused")
+            ) as call,
+            mock.patch.object(module.time, "sleep") as sleep,
+        ):
+            with self.assertRaises(TransportUnavailable):
+                self.prep.prepare()
+        self.assertEqual(call.call_count, 1)
+        sleep.assert_not_called()
+
     def test_runtime_or_load_failure_stops_and_never_certifies(self):
         for load_error in (False, True):
             with self.subTest(load_error=load_error):
@@ -301,7 +479,7 @@ class PreparationTests(FixtureCase):
             self.prep.warm(runtime)
         self.assertEqual(runtime.stops, 1)
 
-    def test_files_only_checks_manifest_and_recovery_revision(self):
+    def test_files_only_checks_byte_identity_and_recovery_revision(self):
         installed_root = self.root / "installed"
         installed_recipes = installed_root / "modelfiles"
         installed_recipes.mkdir(parents=True)
@@ -323,9 +501,47 @@ class PreparationTests(FixtureCase):
         self.mutate_recipe(
             "gemma4:vlm", lambda shown: shown.update(template="different")
         )
-        with self.assertRaisesRegex(PreparationError, "effective recipe"):
+        with self.assertRaisesRegex(PreparationError, "recipe revision"):
             self.prep.files_check(old)
         self.assert_no_candidates()
+
+    def test_files_only_after_default_adoption_does_not_pull_unused_rollback_bases(
+        self,
+    ):
+        create = self.api.create
+
+        def selected_only(tag, recipe):
+            if "deepseek" in recipe.name:
+                raise PreparationError("unused rollback base unavailable")
+            return create(tag, recipe)
+
+        self.prep.creator = selected_only
+        self.prep.warm(FakeRuntime())
+        self.api.events.clear()
+        installed = Posture(self.config, self.recipes)
+        self.prep.files_check(installed)
+        self.assertEqual(self.api.events, [])
+        self.assertEqual({row["name"] for row in self.api.running}, {"gemma4:vlm"})
+
+    def test_files_only_refuses_configuration_or_any_recipe_bytes(self):
+        installed = Posture(self.config, self.recipes)
+        for tag in self.data["models"]:
+            with self.subTest(tag=tag):
+                path = self.posture.recipe(tag)
+                original = path.read_text()
+                # A byte-only difference leaves the fixture consumer output unchanged.
+                path.write_text(original + "\n")
+                self.make_preparation()
+                with self.assertRaisesRegex(PreparationError, "recipe revision"):
+                    self.prep.files_check(installed)
+                path.write_text(original)
+                self.make_preparation()
+        self.data["parallel"] = self.data["parallel"] + 1
+        self.config.write_text(json.dumps(self.data))
+        self.make_preparation()
+        with self.assertRaisesRegex(PreparationError, "posture/settings"):
+            self.prep.files_check(installed)
+        self.assertEqual(self.api.events, [])
 
     def test_cli_prepare_uses_same_contract_and_lock(self):
         argv = [
@@ -416,6 +632,55 @@ class PreparationTests(FixtureCase):
         (generated / "ollama-jobs.yaml").write_text("stale")
         with self.assertRaisesRegex(PreparationError, "stale"):
             module.render(self.posture, self.root / "rendered", True)
+
+
+class TransportTests(unittest.TestCase):
+    def test_only_connection_failures_are_retryable(self):
+        errors = [
+            urllib.error.URLError(
+                ConnectionRefusedError(errno.ECONNREFUSED, "refused")
+            ),
+            urllib.error.URLError(ConnectionResetError(errno.ECONNRESET, "reset")),
+            TimeoutError("timed out"),
+        ]
+        for error in errors:
+            with (
+                self.subTest(error=error),
+                mock.patch("ollama_recovery.urllib.request.build_opener") as factory,
+            ):
+                factory.return_value.open.side_effect = error
+                with self.assertRaises(TransportUnavailable):
+                    Http("http://fixture.invalid").call("/api/version", timeout=0.25)
+                self.assertEqual(
+                    factory.return_value.open.call_args.kwargs["timeout"], 0.25
+                )
+
+    def test_http_rejection_bad_url_permission_and_protocol_are_not_retryable(self):
+        errors = [
+            urllib.error.HTTPError(
+                "http://fixture.invalid", 503, "unavailable", {}, None
+            ),
+            urllib.error.URLError("unknown URL type"),
+            PermissionError(errno.EACCES, "denied"),
+        ]
+        for error in errors:
+            with (
+                self.subTest(error=error),
+                mock.patch("ollama_recovery.urllib.request.build_opener") as factory,
+            ):
+                factory.return_value.open.side_effect = error
+                with self.assertRaises(PreparationError) as caught:
+                    Http("http://fixture.invalid").call("/api/version")
+                self.assertNotIsInstance(caught.exception, TransportUnavailable)
+        for body in (b"not json", b"[]", b'{"error":"bad request"}'):
+            with (
+                self.subTest(body=body),
+                mock.patch("ollama_recovery.urllib.request.build_opener") as factory,
+            ):
+                factory.return_value.open.return_value = io.BytesIO(body)
+                with self.assertRaises(PreparationError) as caught:
+                    Http("http://fixture.invalid").call("/api/version")
+                self.assertNotIsInstance(caught.exception, TransportUnavailable)
 
 
 class RecoveryTests(FixtureCase):
