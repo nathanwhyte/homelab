@@ -79,6 +79,37 @@ if len(sys.argv) == 4:
     os.fchmod(fd, int(sys.argv[3], 8))
 PY
 }
+initialize_state_directory() {
+	python3 - "$STATE_DIR" <<'PY'
+import os, pathlib, stat, sys
+path = pathlib.Path(sys.argv[1])
+def create(directory):
+    try:
+        directory.mkdir(mode=0o755)
+    except FileNotFoundError:
+        create(directory.parent)
+        create(directory)
+    except FileExistsError:
+        pass
+create(path)
+def validate(info):
+    if (not stat.S_ISDIR(info.st_mode) or info.st_uid != os.geteuid()
+            or info.st_mode & 0o022):
+        sys.exit("preparation state must be a nonsymlink directory owned by the installer and not group/world-writable")
+expected = path.lstat()
+validate(expected)
+fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+try:
+    actual = os.fstat(fd)
+    validate(actual)
+    if (actual.st_dev, actual.st_ino) != (expected.st_dev, expected.st_ino):
+        sys.exit("preparation state changed during validation")
+    # Existing private state can become readable only after its trust check.
+    os.fchmod(fd, 0o755)
+finally:
+    os.close(fd)
+PY
+}
 # Empty directive output is valid; a read error is not an empty unit.
 directives() {
 	local status=0
@@ -315,7 +346,7 @@ if [[ $mode == recovery ]]; then
 		esac
 	done
 fi
-install -d -m 0755 "$STATE_DIR"
+initialize_state_directory || die "preparation state was not adopted; inspect $STATE_DIR and explicitly correct its ownership, type or permissions before retrying"
 [[ ! -L $STATE_DIR/preparation.lock ]] || die "preparation lock must not be a symlink"
 previous_umask=$(umask)
 umask 077
@@ -395,7 +426,6 @@ install -m 0644 "$SRC/ollama.service.d/homelab.conf" "$DROPIN_DIR/homelab.conf"
 install -m 0755 "$SRC/ollama-warm.sh" "$HOST_DIR/ollama-warm.sh"
 install -m 0644 "$SRC/model-posture.json" "$SRC/ollama_prepare.py" \
 	"$SRC/ollama_recovery.py" "$SRC/ollama_runtime.py" "$SRC/ollama_attestation.py" "$HOST_DIR/"
-install -d -m 0755 "$STATE_DIR"
 # The agentpair:* tags were retired 2026-10-06; drop their stale recipes.
 rm -f "$HOST_DIR"/modelfiles/agentpair-*.Modelfile
 install -m 0644 "$REPO_DIR"/llama/ollama/*.Modelfile "$HOST_DIR/modelfiles/"

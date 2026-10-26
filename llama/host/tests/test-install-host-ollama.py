@@ -401,6 +401,101 @@ class InstallerTests(unittest.TestCase):
         )
         self.assertEqual(locks[1].stat().st_mode & 0o777, 0o644)
 
+    def test_unsafe_state_is_refused_without_normalizing_or_replacing_it(self):
+        state = self.root / "var/lib/ollama-preparation"
+        state.parent.mkdir(parents=True)
+        for mode in (0o775, 0o777):
+            with self.subTest(mode=f"{mode:04o}"):
+                state.mkdir()
+                (state / "keep").write_text("operator data")
+                state.chmod(mode)
+                result = self.run_installer()
+                self.assertNotEqual(result.returncode, 0, result.stdout)
+                self.assertIn("not group/world-writable", result.stdout)
+                self.assertIn("explicitly correct", result.stdout)
+                self.assertEqual(state.stat().st_mode & 0o777, mode)
+                self.assertEqual((state / "keep").read_text(), "operator data")
+                self.assertEqual(self.mutation_calls(), [])
+                self.assertFalse((state / "preparation.lock").exists())
+                shutil.rmtree(state)
+                self.log.write_text("")
+        target = self.base / "operator-directory"
+        target.mkdir(mode=0o700)
+        (target / "keep").write_text("operator data")
+        state.symlink_to(target, target_is_directory=True)
+        result = self.run_installer()
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+        self.assertIn("nonsymlink directory", result.stdout)
+        self.assertTrue(state.is_symlink())
+        self.assertEqual(target.stat().st_mode & 0o777, 0o700)
+        self.assertEqual((target / "keep").read_text(), "operator data")
+        self.assertEqual(self.mutation_calls(), [])
+        state.unlink()
+        state.write_text("operator file")
+        result = self.run_installer()
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+        self.assertIn("nonsymlink directory", result.stdout)
+        self.assertEqual(state.read_text(), "operator file")
+        self.assertEqual(self.mutation_calls(), [])
+
+    def test_trusted_private_state_can_become_readable_after_validation(self):
+        state = self.root / "var/lib/ollama-preparation"
+        state.mkdir(parents=True, mode=0o700)
+        inode = state.stat().st_ino
+        (state / "keep").write_text("operator data")
+        result = self.run_installer()
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertEqual(state.stat().st_mode & 0o777, 0o755)
+        self.assertEqual(state.stat().st_ino, inode)
+        self.assertEqual((state / "keep").read_text(), "operator data")
+
+    def test_interrupted_state_creation_and_permission_adjustment_retry_safely(self):
+        hooks = self.base / "creation-hooks"
+        hooks.mkdir()
+        (hooks / "sitecustomize.py").write_text(
+            textwrap.dedent("""
+            import os, pathlib, signal
+            state = pathlib.Path(os.environ['INTERRUPT_STATE'])
+            boundary = os.environ['INTERRUPT_BOUNDARY']
+            mkdir, fchmod = os.mkdir, os.fchmod
+            def created(path, *args, **kwargs):
+                result = mkdir(path, *args, **kwargs)
+                target = state.parent if boundary == 'parent' else state
+                if boundary != 'before-chmod' and pathlib.Path(path) == target:
+                    os.kill(os.getpid(), signal.SIGKILL)
+                return result
+            def changed(fd, *args, **kwargs):
+                actual = os.fstat(fd)
+                if boundary == 'before-chmod' and state.exists():
+                    expected = state.stat()
+                    if (actual.st_dev, actual.st_ino) == (expected.st_dev, expected.st_ino):
+                        os.kill(os.getpid(), signal.SIGKILL)
+                return fchmod(fd, *args, **kwargs)
+            os.mkdir, os.fchmod = created, changed
+        """)
+        )
+        state = self.root / "var/lib/ollama-preparation"
+        for mask in (0o000, 0o002, 0o022, 0o077):
+            for boundary in ("parent", "state", "before-chmod"):
+                with self.subTest(boundary=boundary, umask=f"{mask:04o}"):
+                    shutil.rmtree(self.root / "var", ignore_errors=True)
+                    self.log.write_text("")
+                    result = self.run_installer(
+                        umask=mask,
+                        PYTHONPATH=str(hooks),
+                        INTERRUPT_STATE=str(state),
+                        INTERRUPT_BOUNDARY=boundary,
+                    )
+                    self.assertNotEqual(result.returncode, 0, result.stdout)
+                    self.assertIn("preparation state was not adopted", result.stdout)
+                    target = state.parent if boundary == "parent" else state
+                    self.assertTrue(target.is_dir())
+                    self.assertEqual(target.stat().st_mode & 0o777, 0o755 & ~mask)
+                    self.assertEqual(self.mutation_calls(), [])
+                    result = self.run_installer(umask=mask)
+                    self.assertEqual(result.returncode, 0, result.stdout)
+                    self.assertEqual(state.stat().st_mode & 0o777, 0o755)
+
     def test_normal_unreachable_refuses_before_host_mutation(self):
         (self.root / "online").write_text("no")
         result = self.run_installer()
