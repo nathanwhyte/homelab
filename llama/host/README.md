@@ -213,12 +213,21 @@ can load between the final observation and recovery's request, including between
 loads. Recovery can then fail its final readback; HTTP offers no transaction that reserves
 the GPU against such a caller. Plan host adoption or sensitive GPU work in a quiet window.
 
-The receipt rename is the publication commit point. Cancellation handled before or after
-that rename removes the receipt and attempts a generation-bound stop. An uncatchable process
+The receipt rename is the publication commit point. For `warm` and
+`verify --stop-on-failure`, handled cancellation before or after that rename removes the
+receipt and attempts a generation-bound stop. This cleanup boundary includes signal-handler
+teardown and the final response flush; further cancellation is deferred during cleanup.
+Plain `verify` does not invalidate acceptance or stop the daemon when it fails or is cancelled.
+An uncatchable process
 death before the rename cannot publish partial acceptance; after a completed rename, the
 durable receipt records completed proof even if the command's final reply was lost. Read it
 back with `verify` before claiming success. Abandoned candidate UUIDs are recorded before
 creation and cleaned on the next preparation under the shared lock, never by pruning the store.
+
+Atomic writers keep unfinished bytes in a separate `.ollama-write-staging` directory.
+Publication and staging reclamation share a directory lock; only committed UUID-named JSON
+intents authorize candidate cleanup. Interrupted staging is discarded without interpreting
+its contents. Publication and receipt invalidation sync their parent directory before returning.
 
 ## Passwordless setup and ordinary operations
 
