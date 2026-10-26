@@ -26,6 +26,9 @@
 #   3. Copy ollama-warm.sh + the OV-pair Modelfiles to /opt/ollama-host and
 #      install ollama-warm.service (PartOf=ollama.service).
 #   4. Reconcile ollama-exporter.service from llama/ollama/ollama-exporter.py.
+#      Also install the udev rule that keeps the 9070 XT out of runtime suspend
+#      and trigger it (BUG-1242); --files-only does this too, since it restarts
+#      nothing.
 #   5. daemon-reload, enable everything, restart ollama.service, verify the
 #      daemon is listening on 0.0.0.0:11434 and answers /api/version.
 #
@@ -46,6 +49,8 @@ OLLAMA_USER=ollama
 MODELS_DIR=/usr/share/ollama/.ollama/models
 HOST_DIR=/opt/ollama-host
 DROPIN_DIR=/etc/systemd/system/ollama.service.d
+UDEV_RULE=/etc/udev/rules.d/99-homelab-dgpu-runpm.rules
+DGPU=/sys/bus/pci/devices/0000:03:00.0
 PVC_NAME=${PVC_NAME:-pvc-5558663d-4631-446f-950e-bedd15b920c3}
 REPO_DIR=${REPO_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}
 SRC=$REPO_DIR/llama/host
@@ -180,6 +185,7 @@ log "ollama.service: $(systemctl is-enabled ollama 2>/dev/null || true) / $(syst
 log "listeners on 11434:"
 ss -Hltnp 2>/dev/null | awk '$4 ~ /:11434$/' | sed 's/^/    /' || true
 log "model store: $MODELS_DIR ($(du -sh "$MODELS_DIR" 2>/dev/null | cut -f1 || echo absent))"
+log "9070 XT runtime PM: control=$(cat "$DGPU/power/control" 2>/dev/null || echo ?) status=$(cat "$DGPU/power/runtime_status" 2>/dev/null || echo ?) (want on / active)"
 [[ $mode == check ]] && exit 0
 
 # --- 1. Model store sync ONLY (safe while the old pod serves) -----------------
@@ -277,6 +283,7 @@ installed_files=(
 	/etc/systemd/system/ollama-warm.service
 	/opt/ollama-exporter/ollama-exporter.py
 	/etc/systemd/system/ollama-exporter.service
+	"$UDEV_RULE"
 )
 checksums() {
 	local f
@@ -319,6 +326,14 @@ CPUQuota=20%
 [Install]
 WantedBy=multi-user.target
 EOF
+
+# Runtime suspend evicts the resident model's VRAM to system RAM (BUG-1242).
+# Triggering applies the rule now; it only resumes the card, so no restart.
+install -m 0644 "$SRC/99-homelab-dgpu-runpm.rules" "$UDEV_RULE"
+udevadm control --reload
+udevadm trigger --action=add --subsystem-match=pci --attr-match=vendor=0x1002 --attr-match=device=0x7550
+udevadm settle
+[[ $(cat "$DGPU/power/control" 2>/dev/null) == on ]] || die "udev rule installed but $DGPU/power/control is not 'on'"
 
 if [[ $mode == files ]]; then
 	systemctl daemon-reload
