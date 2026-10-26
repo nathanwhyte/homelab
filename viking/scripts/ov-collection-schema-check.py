@@ -19,9 +19,10 @@ A field the release defines that the live collection lacks, or one whose type
 differs, is drift. A live field the release no longer defines is reported as
 `extra` and is not a fault: OpenViking leaves it unwritten.
 
-Exit codes: 0 no drift, 3 drift, 1 the check could not run (config, a refusal, no
-importable openviking, an empty metadata read, port-forward or transport). Each prints
-one JSON receipt on one line.
+Exit codes: 0 no drift, 3 drift, 1 the check could not run (bad arguments, config, a
+refusal, no importable openviking, an empty metadata read, port-forward or transport),
+130 interrupted, 143 terminated (SIGTERM). Each prints one JSON receipt on one line, and
+the port-forward child is stopped on the way out.
 
 Usage: <venv>/bin/python -I ov-collection-schema-check.py [--configmap NAME]
 """
@@ -30,16 +31,23 @@ import argparse
 import contextlib
 import importlib.util
 import json
+import signal
 import sys
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 PROD_CONFIGMAP = "openviking-standalone-config"
 EXIT_OK, EXIT_ERROR, EXIT_DRIFT = 0, 1, 3
+EXIT_INTERRUPTED, EXIT_TERMINATED = 130, 143
+HELD = {signal.SIGINT, signal.SIGTERM}
 
 
 class CheckError(Exception):
     """The check cannot run."""
+
+
+class Terminated(BaseException):
+    """SIGTERM, raised so the same unwinding as an interrupt stops the port-forward."""
 
 
 def load_canary():
@@ -133,22 +141,56 @@ def run(configmap):
     }
 
 
+class Parser(argparse.ArgumentParser):
+    """Bad arguments end in a receipt and exit 1, like any run that cannot start."""
+
+    def error(self, message):
+        self.print_usage(sys.stderr)
+        emit({"configmap": None, "error": f"bad arguments: {message}"})
+        sys.exit(EXIT_ERROR)
+
+
+def on_sigterm(signum, frame):
+    raise Terminated
+
+
 def main(argv=None):
-    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    """Signal handling as in ov-test-write-canary.py's main (homelab#266 rounds 2-5)."""
+    ap = Parser(description=__doc__.splitlines()[0])
     ap.add_argument("--configmap", default=PROD_CONFIGMAP,
                     help=f"the ConfigMap whose ov.conf names the collection (default {PROD_CONFIGMAP})")  # fmt: skip
     args = ap.parse_args(argv)
     out = {"configmap": args.configmap}
+    previous = signal.getsignal(signal.SIGTERM)
+    mask = signal.pthread_sigmask(signal.SIG_BLOCK, set())
     try:
-        out.update(run(args.configmap))
+        try:
+            # SIGTERM unwinds run()'s ExitStack, so the port-forward child stops.
+            signal.signal(signal.SIGTERM, on_sigterm)
+            out.update(run(args.configmap))
+        finally:
+            # A signal from here on waits until the receipt is out.
+            signal.pthread_sigmask(signal.SIG_BLOCK, HELD)
         code = EXIT_DRIFT if out["failed"] else EXIT_OK
+    except KeyboardInterrupt:
+        out["error"], code = "interrupted", EXIT_INTERRUPTED
+    except Terminated:
+        out["error"], code = "terminated", EXIT_TERMINATED
     except Exception as exc:  # noqa: BLE001 — every run that ends prints a receipt
         out["error"] = (
             str(exc) if isinstance(exc, CheckError) else f"{type(exc).__name__}: {exc}"
         )
         code = EXIT_ERROR
-    print(json.dumps(out, default=str))
+    signal.signal(signal.SIGTERM, previous)
+    emit(out)
+    sys.stdout.flush()
+    signal.pthread_sigmask(signal.SIG_SETMASK, mask)
     return code
+
+
+def emit(out):
+    """The receipt, as one JSON line."""
+    print(json.dumps(out, default=str))
 
 
 if __name__ == "__main__":

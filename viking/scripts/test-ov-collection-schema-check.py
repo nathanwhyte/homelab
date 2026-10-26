@@ -20,6 +20,8 @@ import contextlib
 import importlib.util
 import io
 import json
+import os
+import signal
 import unittest
 from unittest import mock
 
@@ -142,8 +144,61 @@ class MainTests(unittest.TestCase):
         buf = io.StringIO()
         with mock.patch.object(sc, "run", side_effect=effect), \
              contextlib.redirect_stdout(buf), contextlib.redirect_stderr(io.StringIO()):  # fmt: skip
-            code = sc.main(list(argv))
+            try:
+                code = sc.main(list(argv))
+            except SystemExit as e:
+                code = e.code
         return code, buf.getvalue()
+
+    def test_bad_arguments_exit_1_with_a_receipt_before_any_run(self):
+        # homelab#275 round 1: argparse exited 2 with nothing on stdout.
+        run = mock.Mock()
+        with mock.patch.object(sc, "run", run):
+            code, out = self.run_main(run, ["--configmap"])
+        self.assertEqual(code, sc.EXIT_ERROR)
+        self.assertEqual(len(out.splitlines()), 1)
+        self.assertTrue(json.loads(out)["error"].startswith("bad arguments"))
+        run.assert_not_called()
+
+    def test_an_interrupt_prints_the_receipt_and_exits_130(self):
+        # homelab#275 round 1: Ctrl-C escaped `except Exception` with no receipt.
+        def interrupt(cm):
+            raise KeyboardInterrupt
+
+        code, out = self.run_main(interrupt)
+        self.assertEqual(code, sc.EXIT_INTERRUPTED)
+        self.assertEqual(json.loads(out)["error"], "interrupted")
+
+    def test_sigterm_during_the_read_stops_the_forward_and_prints_the_receipt(self):
+        # homelab#275 round 1: SIGTERM killed the process past the ExitStack and
+        # left the port-forward child running.
+        stopped = []
+
+        def read(cm):
+            with contextlib.ExitStack() as children:
+                children.callback(stopped.append, "forward")
+                os.kill(os.getpid(), signal.SIGTERM)
+            return {"failed": []}
+
+        code, out = self.run_main(read)
+        self.assertEqual(code, sc.EXIT_TERMINATED)
+        self.assertEqual(stopped, ["forward"])
+        self.assertEqual(json.loads(out)["error"], "terminated")
+        self.assertIs(signal.getsignal(signal.SIGTERM), signal.SIG_DFL)
+        self.assertFalse(sc.HELD & signal.pthread_sigmask(signal.SIG_BLOCK, set()))
+
+    def test_signals_wait_while_the_receipt_is_printed(self):
+        masks = []
+        real = sc.emit
+
+        def emit(out):
+            masks.append(signal.pthread_sigmask(signal.SIG_BLOCK, set()))
+            real(out)
+
+        with mock.patch.object(sc, "emit", side_effect=emit):
+            self.run_main(lambda cm: {"failed": []})
+        self.assertTrue(sc.HELD <= masks[0])
+        self.assertFalse(sc.HELD & signal.pthread_sigmask(signal.SIG_BLOCK, set()))
 
     def test_drift_exits_3_with_one_json_receipt(self):
         code, out = self.run_main(
