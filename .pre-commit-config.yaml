@@ -346,7 +346,7 @@ repos:
   # suites, and nothing linted them: a bare `shfmt -l` and `shellcheck -S warning`
   # run flagged 2 of those 6 files and 1. The other trees (97 shell files)
   # are not in scope: at adoption shfmt flagged 33 of them and shellcheck 7, and
-  # the repo mixes tab and 2-space indent, so widening the filter is a separate,
+  # they mix tab and space indent, so widening the filter is a separate,
   # reviewable reformat. Both hooks take pre-commit's `shell` type, which also
   # picks up shebang'd files without a `.sh` suffix. shellcheck-py ships the
   # shellcheck binary as a wheel and scop/pre-commit-shfmt ships shfmt's, so
