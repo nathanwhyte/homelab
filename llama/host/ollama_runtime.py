@@ -107,6 +107,21 @@ def _flag(argv, name):
     return argv[index + 1]
 
 
+def _gpu_description_matches(description, expected, backend):
+    if description == expected:
+        return True
+    # b11845 ggml-vulkan.cpp passes VkPhysicalDeviceProperties.deviceName
+    # through unchanged. Mesa 26.2.2 radv_physical_device.c constructs that
+    # from the exact marketing name plus " (RADV <family>[ (LLVM <version>)])".
+    # Accept only that complete annotation: never strip arbitrary parentheses
+    # or search for a hardware name inside another device's description.
+    suffix = r" \(RADV [A-Z][A-Z0-9_]*(?: \(LLVM [0-9]+(?:\.[0-9]+){1,2}[A-Za-z0-9.+~-]*\))?\)"
+    return (
+        backend == "Vulkan"
+        and re.fullmatch(re.escape(expected) + suffix, description) is not None
+    )
+
+
 class Runtime:
     """Capture a pidfd once; verify and stop only that daemon generation.
 
@@ -379,9 +394,10 @@ class Runtime:
             r"using device (\S+) \((.*?)\) \((.*?)\) - \d+ MiB free", text
         )
         device, name, pci = _one(devices, "loaded GPU device")
-        if (
-            not re.fullmatch(re.escape(expected["backend"]) + r"\d+", device)
-            or name != expected["gpu_name"]
+        if not re.fullmatch(
+            re.escape(expected["backend"]) + r"\d+", device
+        ) or not _gpu_description_matches(
+            name, expected["gpu_name"], expected["backend"]
         ):
             raise VerificationError(
                 "runner backend or GPU differs from declared posture"

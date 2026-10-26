@@ -1,4 +1,13 @@
-"""Hermetic Linux runtime evidence fixtures; no systemctl, signals or models."""
+"""Hermetic Linux runtime evidence fixtures; no systemctl, signals or models.
+
+Fixtures are constructed from pinned upstream formats, not a live-host capture:
+Ollama v0.40.11 llm/llama_server.go:385-424,457 (argv and slog marker);
+llama.cpp b11845 server-context.cpp:5550-5565 (/props), server.cpp:547-548
+and server-http.cpp:523-524 (listen marker), src/llama.cpp:303-309 (device).
+The Vulkan description is verbatim deviceName (ggml-vulkan.cpp:13005-13013).
+Mesa 26.2.2 radv_physical_device.c builds marketing_name with a RADV family
+annotation and optional nested LLVM version. Journal IDs/timestamps are fake.
+"""
 
 import sys
 from pathlib import Path
@@ -81,6 +90,10 @@ class Host:
             "262144",
             "-np",
             "4",
+            "--log-verbosity",
+            "4",
+            "--no-log-prefix",
+            "--no-log-timestamps",
             "--cache-type-k",
             "q8_0",
             "--cache-type-v",
@@ -100,13 +113,15 @@ class Host:
         )
         self.http_data = {
             "model_path": self.model_path,
+            "model_alias": self.model_path,
+            "modalities": {"vision": True, "video": False, "audio": False},
             "total_slots": 4,
-            "default_generation_settings": {"n_ctx": 65536},
+            "default_generation_settings": {"params": {}, "n_ctx": 65536},
         }
         self.messages = [
             'time=now level=INFO source=llama_server.go:457 msg="starting llama-server" cmd='
             + json.dumps(" ".join(self.argv)),
-            "llama_model_load_from_file_impl: using device Vulkan0 (AMD Radeon RX 9070 XT) (0000:03:00.0) - 16000 MiB free",
+            "llama_model_load_from_file_impl: using device Vulkan0 (AMD Radeon RX 9070 XT (RADV GFX1201)) (0000:03:00.0) - 16000 MiB free",
             f"llama_model_loader: loaded meta data with 42 key-value pairs and 400 tensors from {self.model_path} (version GGUF V3 (latest))",
             "load_tensors: offloaded 43/43 layers to GPU",
             "llama_context: n_ctx                 = 262144",
@@ -216,6 +231,54 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(result["models"][0]["slots"], 4)
         self.assertEqual(result["models"][0]["n_ctx_seq"], 65536)
         self.assertNotIn("environment", result)
+
+    def test_supported_radv_description_annotations(self):
+        original = self.host.messages[1]
+        base = "AMD Radeon RX 9070 XT"
+        for name in [
+            base,
+            base + " (RADV GFX1201)",
+            base + " (RADV GFX1201 (LLVM 9.0.1))",
+            base + " (RADV GFX1201 (LLVM 21.1.0git))",
+        ]:
+            with self.subTest(name=name):
+                self.host.messages[1] = original.replace(base + " (RADV GFX1201)", name)
+                evidence = self.verify()["models"][0]
+                self.assertEqual(evidence["gpu_name"], name)
+                self.assertEqual(evidence["pci_id"], "0000:03:00.0")
+
+    def test_gpu_name_substrings_and_unknown_suffixes_are_rejected(self):
+        original = self.host.messages[1]
+        base = "AMD Radeon RX 9070 XT"
+        names = [
+            "AMD Radeon RX 9070 (RADV GFX1201)",
+            "AMD Radeon RX 9060 XT (RADV GFX1200)",
+            "AMD Radeon Graphics (RADV RAPHAEL)",
+            base + "X (RADV GFX1201)",
+            "Other " + base + " (RADV GFX1201)",
+            base + " (llvmpipe)",
+            base + " (RADV GFX1201) trailing",
+            base + " (RADV GFX1201) (extra)",
+            base + " (RADV GFX1201 (LLVM unknown))",
+            base + " (RADV GFX1201 garbage)",
+        ]
+        for name in names:
+            with self.subTest(name=name):
+                self.host.messages[1] = original.replace(base + " (RADV GFX1201)", name)
+                with self.assertRaisesRegex(
+                    VerificationError, "backend or GPU differs"
+                ):
+                    self.verify()
+
+    def test_radv_annotation_does_not_expand_other_backend_names(self):
+        self.host.expected["backend"] = "ROCm"
+        self.host.messages[1] = self.host.messages[1].replace("Vulkan0", "ROCm0")
+        with self.assertRaisesRegex(VerificationError, "backend or GPU differs"):
+            self.verify()
+
+    def test_multiline_journal_messages_preserve_startup_fields(self):
+        self.host.messages[4:10] = ["\n".join(self.host.messages[4:10])]
+        self.verify()
 
     def test_two_sequential_residents_are_bound_independently(self):
         self.host.expected["max_loaded"] = 2
