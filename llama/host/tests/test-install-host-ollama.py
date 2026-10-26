@@ -128,7 +128,8 @@ elif name == "systemctl":
         sys.exit(0 if active else 3)
     elif action == "stop":
         if "ollama-warm" in args:
-            os.fstat(8)  # The old warm unit must stop before releasing the lock.
+            if "flock 8\n" in pathlib.Path(os.environ["FAKE_LOG"]).read_text():
+                os.fstat(8)  # Once acquired, retain the lock through stopping old warm.
             (root / "warm-active").unlink(missing_ok=True)
         if "ollama" in args:
             (root / "online").write_text("no")
@@ -180,7 +181,11 @@ class InstallerTests(unittest.TestCase):
             '{"version":"0.40.11","resident":"gemma4:vlm"}\n'
         )
         (self.src / "ollama_prepare.py").write_text(textwrap.dedent(CORE))
-        for module in ("ollama_recovery.py", "ollama_runtime.py"):
+        for module in (
+            "ollama_recovery.py",
+            "ollama_runtime.py",
+            "ollama_attestation.py",
+        ):
             (self.src / module).write_text("# fixture module\n")
         for recipe in (
             "gemma4-vlm",
@@ -350,6 +355,7 @@ class InstallerTests(unittest.TestCase):
             "ollama_prepare.py",
             "ollama_runtime.py",
             "ollama_recovery.py",
+            "ollama_attestation.py",
             "model-posture.json",
         ):
             self.assertEqual(
@@ -361,6 +367,23 @@ class InstallerTests(unittest.TestCase):
             )["generation"],
             "2",
         )
+        for name in ("ollama_attestation.py", "ollama_recovery.py"):
+            self.assertEqual(
+                (self.root / "opt/ollama-exporter" / name).read_bytes(),
+                (self.src / name).read_bytes(),
+            )
+        unit = (self.root / "etc/systemd/system/ollama-exporter.service").read_text()
+        self.assertIn("--preparation-state /var/lib/ollama-preparation", unit)
+
+    def test_recovery_stops_old_producer_before_acquiring_its_lock(self):
+        self.installed()
+        result = self.run_installer("--bootstrap-recovery")
+        self.assertEqual(result.returncode, 0, result.stdout)
+        calls = self.calls()
+        self.assertLess(
+            calls.index("systemctl stop ollama-warm"), calls.index("flock 8")
+        )
+        self.assertLess(calls.index("systemctl stop ollama"), calls.index("flock 8"))
 
     def test_bootstrap_recovery_offline_gets_same_final_verification(self):
         (self.root / "online").write_text("no")

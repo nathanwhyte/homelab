@@ -73,6 +73,7 @@ class Http:
                 raise PreparationError(f"oversized {path} response")
             result = json.loads(raw) if raw else {}
         except urllib.error.HTTPError as exc:
+            exc.close()
             raise PreparationError(f"{path}: HTTP {exc.code}") from exc
         except urllib.error.URLError as exc:
             if transient_connection_error(exc.reason):

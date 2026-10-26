@@ -189,7 +189,7 @@ Wants=ollama.service
 Type=simple
 User=ollama
 Group=ollama
-ExecStart=/usr/bin/python3 /opt/ollama-exporter/ollama-exporter.py --ollama http://localhost:11434 --port 9111
+ExecStart=/usr/bin/python3 /opt/ollama-exporter/ollama-exporter.py --ollama http://localhost:11434 --port 9111 --preparation-state /var/lib/ollama-preparation
 Restart=always
 RestartSec=5
 MemoryMax=128M
@@ -277,17 +277,31 @@ fi
 # Serialize the complete host transaction, not just the core's model operations.
 # A normal unavailable-daemon refusal above does not create even this lock file.
 exec 9>"$ROOT/run/lock/ollama-install.lock"
-flock -n 9 || die "another host adoption is running"
+flock -n 9 || die "another host adoption is running; retry after it finishes"
+for module in ollama_prepare.py ollama_recovery.py ollama_runtime.py ollama_attestation.py; do
+	[[ -f $SRC/$module ]] || die "preparation module is incomplete: $module"
+done
+prepare render --root "$REPO_DIR" --check || die "generated adoption artifacts must match the declared posture"
+if [[ $mode == recovery ]]; then
+	cutover_preflight
+	# Stop the old warm cgroup before waiting on its lock. Its orphaned create
+	# child may still hold that lock after a cancelled parent.
+	log "explicit bootstrap/recovery: stopping managed units before acquiring preparation lock"
+	for unit in ollama-warm ollama; do
+		load_state=$(systemctl show "$unit" --property=LoadState --value) || die "cannot inspect $unit for recovery"
+		case $load_state in
+		not-found) ;;
+		loaded | masked) systemctl stop "$unit" || die "could not stop $unit for recovery" ;;
+		*) die "unexpected $unit load state: $load_state" ;;
+		esac
+	done
+fi
 install -d -m 0755 "$STATE_DIR"
 [[ ! -L $STATE_DIR/preparation.lock ]] || die "preparation lock must not be a symlink"
 exec 8>>"$STATE_DIR/preparation.lock"
 chmod 0644 "$STATE_DIR/preparation.lock"
 flock 8 || die "cannot acquire the shared preparation lock"
 preparation_locked=1
-for module in ollama_prepare.py ollama_recovery.py ollama_runtime.py; do
-	[[ -f $SRC/$module ]] || die "preparation module is incomplete: $module"
-done
-prepare render --root "$REPO_DIR" --check || die "generated adoption artifacts must match the declared posture"
 if [[ $mode == files ]]; then
 	[[ -f $UNIT_DIR/ollama.service && -f $HOST_DIR/model-posture.json ]] || die "--files-only needs a full migration to the preparation module first"
 	for unit in ollama.service.d/homelab.conf ollama-warm.service; do
@@ -303,18 +317,8 @@ if [[ $mode == files ]]; then
 	prepare files-check --installed "$HOST_DIR" || die "--files-only refuses an unverified or changed effective posture; run full adoption"
 	log "--files-only: complete recipes, posture and unit directives unchanged; nothing restarts"
 else
-	cutover_preflight
-	if [[ $mode == recovery ]]; then
-		log "explicit bootstrap/recovery: stopping the managed units before controlled setup"
-		for unit in ollama-warm ollama; do
-			load_state=$(systemctl show "$unit" --property=LoadState --value) || die "cannot inspect $unit for recovery"
-			case $load_state in
-			not-found) ;; # An explicit bootstrap may start with no units at all.
-			loaded | masked) systemctl stop "$unit" || die "could not stop $unit for recovery" ;;
-			*) die "unexpected $unit load state: $load_state" ;;
-			esac
-		done
-	else
+	if [[ $mode != recovery ]]; then
+		cutover_preflight
 		log "verifying and preparing the declared recipes before host changes"
 		prepare prepare || die "recipe preparation failed; host installation unchanged"
 	fi
@@ -341,8 +345,11 @@ installed_files=(
 	"$HOST_DIR/ollama_prepare.py"
 	"$HOST_DIR/ollama_recovery.py"
 	"$HOST_DIR/ollama_runtime.py"
+	"$HOST_DIR/ollama_attestation.py"
 	"$UNIT_DIR/ollama-warm.service"
 	"$EXPORTER_DIR/ollama-exporter.py"
+	"$EXPORTER_DIR/ollama_recovery.py"
+	"$EXPORTER_DIR/ollama_attestation.py"
 	"$UNIT_DIR/ollama-exporter.service"
 	"$UDEV_RULE"
 )
@@ -362,7 +369,7 @@ install -d -m 0755 "$DROPIN_DIR" "$HOST_DIR" "$HOST_DIR/modelfiles"
 install -m 0644 "$SRC/ollama.service.d/homelab.conf" "$DROPIN_DIR/homelab.conf"
 install -m 0755 "$SRC/ollama-warm.sh" "$HOST_DIR/ollama-warm.sh"
 install -m 0644 "$SRC/model-posture.json" "$SRC/ollama_prepare.py" \
-	"$SRC/ollama_recovery.py" "$SRC/ollama_runtime.py" "$HOST_DIR/"
+	"$SRC/ollama_recovery.py" "$SRC/ollama_runtime.py" "$SRC/ollama_attestation.py" "$HOST_DIR/"
 install -d -m 0755 "$STATE_DIR"
 # The agentpair:* tags were retired 2026-10-06; drop their stale recipes.
 rm -f "$HOST_DIR"/modelfiles/agentpair-*.Modelfile
@@ -372,6 +379,7 @@ install -m 0644 "$SRC/ollama-warm.service" "$UNIT_DIR/ollama-warm.service"
 # --- 4. Exporter (same script the pod sidecar ran) ----------------------------
 install -d -m 0755 "$EXPORTER_DIR"
 install -m 0644 "$REPO_DIR/llama/ollama/ollama-exporter.py" "$EXPORTER_DIR/ollama-exporter.py"
+install -m 0644 "$SRC/ollama_recovery.py" "$SRC/ollama_attestation.py" "$EXPORTER_DIR/"
 exporter_unit >"$UNIT_DIR/ollama-exporter.service"
 
 # Runtime suspend evicts the resident model's VRAM to system RAM (BUG-1242).
