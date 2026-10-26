@@ -5,8 +5,9 @@
 # tolerate a ~60-90s Ollama restart between benchmark runs.
 #
 # RETIRED PATH (IMPR-1075, 2026-09): Ollama runs on timmy's host now, so there
-# is no Deployment to patch. To sweep NUM_PARALLEL today, edit
-# OLLAMA_NUM_PARALLEL in llama/host/ollama.service.d/homelab.conf, rerun
+# is no Deployment to patch. To sweep NUM_PARALLEL today, edit the profile's
+# parallel value in llama/host/model-posture.json, run
+# `python3 llama/host/ollama_prepare.py render --root .`, then rerun
 # `sudo llama/host/install-host-ollama.sh` on timmy, and run the benchmark
 # directly. The script below is kept for the record and refuses to run.
 #
@@ -29,7 +30,7 @@ set -euo pipefail
 
 if [[ ${SWEEP_ALLOW_RETIRED:-0} != 1 ]]; then
 	echo "sweep-num-parallel.sh: retired — Ollama runs on timmy's host (IMPR-1075), there is no Deployment to patch." >&2
-	echo "Edit OLLAMA_NUM_PARALLEL in llama/host/ollama.service.d/homelab.conf and rerun install-host-ollama.sh instead." >&2
+	echo "Edit the profile's parallel value in llama/host/model-posture.json, run ollama_prepare.py render --root ., then fully adopt with install-host-ollama.sh." >&2
 	exit 2
 fi
 

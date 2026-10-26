@@ -16,6 +16,7 @@ tools/server/server-context.cpp (/props), src/llama-{context,model,kv-cache}.cpp
 (actual startup values). Updating the supported version requires new fixtures.
 """
 
+import errno
 import json
 import os
 from pathlib import Path
@@ -30,6 +31,7 @@ import time
 import urllib.request
 
 from ollama_signals import deferred, interruptible, owned_descriptor
+from ollama_journal import JournalError, startup_rows
 
 
 class VerificationError(RuntimeError):
@@ -146,11 +148,27 @@ def _task_start(pid, *, socket_factory=None, monotonic_ns=None):
         if before > after or lower < 0 or upper < lower:
             raise VerificationError("invalid TASKSTATS monotonic timing")
         return lower, upper
-    except (OSError, ValueError, struct.error) as exc:
+    except TimeoutError as exc:
+        raise VerificationError(
+            "TASKSTATS request timed out; inspect kernel responsiveness"
+        ) from exc
+    except OSError as exc:
+        if exc.errno not in (
+            errno.EPERM,
+            errno.EACCES,
+            errno.ENOENT,
+            errno.EPROTONOSUPPORT,
+            errno.EAFNOSUPPORT,
+        ):
+            raise VerificationError(
+                f"TASKSTATS transport failed (errno {exc.errno})"
+            ) from exc
         raise VerificationError(
             "TASKSTATS monotonic process timing unavailable; use a kernel with "
             "CONFIG_TASKSTATS and run the verifier as root with CAP_NET_ADMIN"
         ) from exc
+    except (ValueError, struct.error) as exc:
+        raise VerificationError("malformed TASKSTATS protocol data") from exc
 
 
 def _command(argv):
@@ -239,7 +257,7 @@ class Runtime:
     """Capture a pidfd once; verify and stop only that daemon generation.
 
     Dependency injection is for hermetic tests. Production uses systemctl,
-    journalctl, procfs and loopback /props. No fallback to kill(PID) exists.
+    libsystemd, procfs and loopback /props. No fallback to kill(PID) exists.
     Keep this object open through the caller's adoption decision; call close()
     afterward, or use it as a context manager.
     """
@@ -257,6 +275,7 @@ class Runtime:
         user_uid=None,
         clock_ticks=None,
         task_start=None,
+        journal_open=None,
     ):
         self.proc = Path(proc_root)
         self.run = run or _command
@@ -269,6 +288,7 @@ class Runtime:
         self.user_uid = user_uid or (lambda name: pwd.getpwnam(name).pw_uid)
         self.ticks = clock_ticks or os.sysconf("SC_CLK_TCK")
         self.task_start = task_start or _task_start
+        self.journal_open = journal_open or startup_rows
         self.fd = None
         open_fd = pidfd_open or getattr(os, "pidfd_open", None)
         self.open_fd = open_fd
@@ -436,35 +456,44 @@ class Runtime:
             runners[pid] = {"start": start, "argv": argv}
         return runners
 
-    def _journal(self):
-        raw = interruptible(
-            self.run,
-            [
-                "journalctl",
-                "--no-pager",
-                "--all",
-                "--output=json",
-                "--lines=20000",
-                f"_BOOT_ID={self.boot_id.replace('-', '')}",
-                f"_SYSTEMD_INVOCATION_ID={self.invocation}",
-                f"_PID={self.pid}",
-            ],
-        )
+    def _journal(self, birth):
+        earliest, _ = birth
+        since = max(0, earliest - 5_000_000)
+        horizon = earliest + 1_000_000 / self.ticks
         rows = []
+        completed = False
+        active = False
         try:
-            for line in raw.splitlines():
-                row = json.loads(line)
-                if (
-                    row["_BOOT_ID"] != self.boot_id.replace("-", "")
-                    or row["_SYSTEMD_INVOCATION_ID"] != self.invocation
-                    or row["_PID"] != str(self.pid)
-                    or not isinstance(row["MESSAGE"], str)
-                ):
-                    raise VerificationError("journal identity mismatch")
-                stamp = int(row["__MONOTONIC_TIMESTAMP"])
-                if rows and stamp < rows[-1][0]:
-                    raise VerificationError("journal monotonic time went backwards")
-                rows.append((stamp, row["MESSAGE"]))
+            with self.journal_open(
+                self.boot_id, self.invocation, self.pid, since
+            ) as stream:
+                for row in stream:
+                    if (
+                        row["_BOOT_ID"] != self.boot_id.replace("-", "")
+                        or row["_SYSTEMD_INVOCATION_ID"] != self.invocation
+                        or row["_PID"] != str(self.pid)
+                        or not isinstance(row["MESSAGE"], str)
+                    ):
+                        raise VerificationError("journal identity mismatch")
+                    stamp = int(row["__MONOTONIC_TIMESTAMP"])
+                    if stamp < since or (rows and stamp < rows[-1][0]):
+                        raise VerificationError("journal monotonic time went backwards")
+                    message = row["MESSAGE"]
+                    rows.append((stamp, message))
+                    if 'msg="starting llama-server"' in message:
+                        if stamp >= horizon:
+                            break  # Ends the last eligible interval.
+                        active, completed = True, False
+                    if active and re.search(
+                        r"\blistening on http://127\.0\.0\.1:\d+(?:\s|$)", message
+                    ):
+                        completed = True
+                    # Scan the entire birth allowance for competing starts,
+                    # then stop at first completion, independent of later traffic.
+                    if stamp >= horizon and (completed or not active):
+                        break
+        except JournalError as exc:
+            raise VerificationError(str(exc)) from exc
         except (ValueError, KeyError, TypeError) as exc:
             raise VerificationError("malformed journal evidence") from exc
         return rows
@@ -543,6 +572,11 @@ class Runtime:
                 for event_stamp, message in [rows[i]]
                 for port in listening.findall(message)
             ]
+            # A startup ends at its first listening event. Later operational
+            # output cannot change the completed interval's evidence.
+            if ready:
+                first = ready[0][0]
+                ready = [event for event in ready if event[0] == first]
             # A completed earlier startup cannot belong to the new process,
             # even when its argv and port are identical and its start marker
             # happens to be inside the launch-delay allowance. An incomplete
@@ -682,7 +716,6 @@ class Runtime:
         runners = self._runners(props)
         if len(runners) != len(models):
             raise VerificationError("runner count differs from intended resident set")
-        rows = self._journal()
         result = []
         seen = set()
         for model in models:
@@ -702,6 +735,7 @@ class Runtime:
                 raise VerificationError("multiple model identities share one runner")
             seen.add(pid)
             birth = self._runner_start(pid, runner)
+            rows = self._journal(birth)
             argv = runner["argv"]
             values = {
                 "-c": model["context"] * expected["parallel"],

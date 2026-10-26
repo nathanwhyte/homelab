@@ -17,6 +17,8 @@ from git_env import scrub_environ  # noqa: E402
 
 scrub_environ()
 
+from contextlib import contextmanager
+import errno
 import json
 import signal
 import struct
@@ -125,13 +127,17 @@ class TaskstatsTests(unittest.TestCase):
         self.assertEqual(self.read(sock), (19_999_949, 20_000_050))
 
     def test_timeout_and_permission_failure_have_recovery_guidance(self):
-        for error in [TimeoutError(), PermissionError()]:
+        for error, diagnostic in [
+            (TimeoutError(), "request timed out"),
+            (PermissionError(errno.EPERM, "denied"), "CONFIG_TASKSTATS.*CAP_NET_ADMIN"),
+            (OSError(errno.EIO, "transport"), "transport failed"),
+            (ValueError("decode"), "malformed TASKSTATS protocol"),
+            (struct.error("decode"), "malformed TASKSTATS protocol"),
+        ]:
             with self.subTest(error=type(error).__name__):
                 sock = TaskstatsSocket()
                 sock.error = error
-                with self.assertRaisesRegex(
-                    VerificationError, "CONFIG_TASKSTATS.*CAP_NET_ADMIN"
-                ):
+                with self.assertRaisesRegex(VerificationError, diagnostic):
                     self.read(sock)
                 self.assertTrue(sock.closed)
 
@@ -341,16 +347,26 @@ class Host:
                 .split(",")
             )
             return "\n".join(f"{k}={self.props[k]}" for k in names)
-        if argv[0] == "journalctl":
-            return "\n".join(
-                json.dumps(row)
-                for row in (
-                    self.rows_override
-                    if self.rows_override is not None
-                    else self.rows()
-                )
-            )
         raise AssertionError(f"unexpected command {argv}")
+
+    @contextmanager
+    def journal(self, boot, invocation, pid, since):
+        self.journal_reads = 0
+        self.journal_closed = False
+        self.journal_query = (boot, invocation, pid, since)
+
+        def stream():
+            rows = self.rows_override if self.rows_override is not None else self.rows()
+            for row in rows:
+                if int(row["__MONOTONIC_TIMESTAMP"]) < since:
+                    continue
+                self.journal_reads += 1
+                yield row
+
+        try:
+            yield stream()
+        finally:
+            self.journal_closed = True
 
     def http(self, port):
         assert port == 43210
@@ -376,6 +392,7 @@ class Host:
             user_uid=lambda name: 992,
             clock_ticks=100,
             task_start=lambda pid: self.births[pid],
+            journal_open=self.journal,
         )
 
 
@@ -543,17 +560,53 @@ class RuntimeTests(unittest.TestCase):
                 with self.assertRaises(VerificationError):
                     self.verify()
 
-    def test_mixed_runner_listening_markers_do_not_select_only_matching_port(self):
+    def test_later_listening_output_does_not_change_completed_startup(self):
         current = self.host.rows()
         other = {
             **current[-1],
             "MESSAGE": current[-1]["MESSAGE"].replace("43210", "43211"),
         }
         self.host.rows_override = current + [other]
+        self.verify()
+        self.assertEqual(self.host.journal_reads, len(current))
+
+    def test_ambiguous_first_listening_event_fails_closed(self):
+        self.host.messages[-1] += " listening on http://127.0.0.1:43211"
         with self.assertRaisesRegex(
             VerificationError, "ambiguous runner listening marker"
         ):
             self.verify()
+
+    def test_later_traffic_cannot_displace_startup(self):
+        startup = self.host.rows()
+        later = [
+            {
+                **startup[-1],
+                "__MONOTONIC_TIMESTAMP": str(21_000_000 + i),
+                "MESSAGE": "GET /api/ps",
+                "UNUSED_METADATA": "x" * 2048,
+            }
+            for i in range(20001)
+        ]
+        self.host.rows_override = startup + later
+        self.verify()
+        self.assertEqual(self.host.journal_reads, len(startup))
+        self.assertTrue(self.host.journal_closed)
+        self.assertEqual(
+            self.host.journal_query,
+            (self.host.boot, self.host.invocation, 100, 14_999_999),
+        )
+
+    def test_startup_seek_skips_old_generations(self):
+        self.host.rows_override = self.host.rows(start=1_000_000) + self.host.rows()
+        self.verify()
+        self.assertEqual(self.host.journal_reads, len(self.host.messages))
+
+    def test_rotated_out_startup_fails_closed(self):
+        self.host.rows_override = self.host.rows()[1:]
+        with self.assertRaisesRegex(VerificationError, "startup interval"):
+            self.verify()
+        self.assertTrue(self.host.journal_closed)
 
     def test_only_wrong_current_listener_is_rejected(self):
         current = self.host.rows()

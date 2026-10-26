@@ -1558,6 +1558,31 @@ class AtomicPublicationTests(FixtureCase):
 
 
 class CancellationBoundaryTests(FixtureCase):
+    def test_pre_adoption_cancellation_preserves_acceptance_and_daemon(self):
+        import ollama_runtime
+
+        for phase in ("lock", "capture"):
+            with self.subTest(phase=phase):
+                self.prep.warm(FakeRuntime())
+                receipt = (self.prep.state / "verified.json").read_bytes()
+                runtime = FakeRuntime()
+                target = (
+                    mock.patch.object(
+                        module, "bounded_flock", side_effect=KeyboardInterrupt
+                    )
+                    if phase == "lock"
+                    else mock.patch.object(
+                        ollama_runtime, "Runtime", side_effect=KeyboardInterrupt
+                    )
+                )
+                with self.cli(runtime), target:
+                    with self.assertRaises(KeyboardInterrupt):
+                        module.main()
+                self.assertEqual(
+                    (self.prep.state / "verified.json").read_bytes(), receipt
+                )
+                self.assertEqual(runtime.stops, 0)
+
     @contextmanager
     def cli(self, runtime, command="warm", output=None):
         import ollama_runtime
@@ -2029,6 +2054,30 @@ class ResourceCancellationTests(FixtureCase):
             ):
                 self.prep.abort(runtime, RuntimeError("fixture failure"))
         self.assertEqual(runtime.stops, 1)
+
+    def test_real_runtime_stop_observations_keep_cleanup_signals_masked(self):
+        import importlib.util
+
+        spec = importlib.util.spec_from_file_location(
+            "runtime_fixtures", HOST / "tests/test-ollama-runtime.py"
+        )
+        fixtures = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(fixtures)
+        host = fixtures.Host(self.root / "proc-fixture")
+        with host.runtime() as runtime:
+            observed = []
+
+            def command(argv):
+                observed.append(signal.pthread_sigmask(signal.SIG_BLOCK, set()))
+                return host.command(argv)
+
+            runtime.run = command
+            with self.assertRaisesRegex(PreparationError, "captured daemon stopped"):
+                self.prep.abort(runtime, RuntimeError("fixture failure"))
+            self.assertTrue(observed)
+            for mask in observed:
+                self.assertTrue({signal.SIGTERM, signal.SIGINT} <= mask)
+            self.assertEqual(host.signals, [(1000, signal.SIGHUP, None, 0)])
 
     def test_failed_stream_adoption_closes_raw_descriptor(self):
         real_open = os.open

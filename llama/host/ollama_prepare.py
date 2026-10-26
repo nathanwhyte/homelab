@@ -727,7 +727,10 @@ class Preparation:
             except (AdoptionCancelled, InterruptedError, KeyboardInterrupt):
                 pass
 
+    @deferred
     def _abort(self, runtime, cause):
+        # Shared critical ownership also keeps Runtime's interruptible process
+        # observations masked until the stop attempt has finished.
         cleanup_failure = ""
         try:
             self.invalidate()
@@ -1082,6 +1085,9 @@ def main():
                     )
                 with Runtime() as runtime:
                     if args.command == "warm" or args.stop_on_failure:
+                        # Adoption authority begins only after lock ownership
+                        # and generation capture. Earlier cancellation changes
+                        # no acceptance and cannot stop an uncaptured daemon.
                         cancellation = CommandCancellation(lambda: prep._aborting)
                         prep.cancellation = cancellation
                         try:

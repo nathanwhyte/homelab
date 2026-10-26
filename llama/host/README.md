@@ -12,6 +12,7 @@ live host acceptance. Historical measurements in the Modelfiles retain their ori
 | `ollama_prepare.py` | `/opt/ollama-host/` | Preparation, adoption, verification receipts, and generated artifacts |
 | `ollama_runtime.py` | `/opt/ollama-host/` | Daemon/runner evidence and failure stop tied to one daemon generation |
 | `ollama_signals.py` | `/opt/ollama-host/` | Signal deferral across resource ownership and explicit interruptible work |
+| `ollama_journal.py` | `/opt/ollama-host/` | Bounded boot/monotonic startup reads through host libsystemd |
 | `ollama_recovery.py` and `ollama_attestation.py` | Host preparation/exporter directories; generated HTTP client | Idle recovery authorized by a root-owned receipt under the preparation lock |
 | `ollama.service.d/homelab.conf` | `/etc/systemd/system/ollama.service.d/` | Generated daemon environment and failure-stop policy |
 | `ollama-warm.sh` and `ollama-warm.service` | `/opt/ollama-host/`, `/etc/systemd/system/` | Compatibility entrypoint and synchronous post-start adoption |
@@ -72,6 +73,16 @@ evidence must match the current boot, systemd invocation, daemon PID, runner com
 process start time. It proves context, slots, batch/micro-batch, flash attention, KV-cache,
 Vulkan device identity and complete GPU layer offload. Missing, rotated-out, malformed,
 ambiguous, or stale evidence fails closed; API availability is not a substitute.
+
+The host must provide `libsystemd.so.0`. Its journal API seeks directly to the captured
+boot and monotonic birth window, with exact invocation and daemon-PID filters, then reads
+forward through startup. A startup ends at its first listening event; all start markers
+inside the birth allowance are still considered for ambiguity. Later request logs and
+unrelated journal metadata cannot displace this proof. Reads copy only identity, monotonic
+timestamp and message fields, capped at 256 KiB per field, 16 MiB and 20,000 rows per
+startup, with a 20-second deadline checked around native calls. These bounds apply to the
+startup traversal, not the daemon's accumulated uptime. Retention must still preserve
+the startup records; this verifier does not archive journal evidence or wait for new rows.
 
 Runner birth is measured in the journal's monotonic clock through Linux TASKSTATS;
 `/proc` boot-clock ticks identify the process generation, rather than being converted with
@@ -241,8 +252,11 @@ loads. Recovery can then fail its final readback; HTTP offers no transaction tha
 the GPU against such a caller. Plan host adoption or sensitive GPU work in a quiet window.
 
 The receipt rename publishes completed proof. For `warm` and
-`verify --stop-on-failure`, the CLI owns `SIGINT` and `SIGTERM` until process exit.
-Cancellation before command completion removes the receipt and attempts a generation-bound
+`verify --stop-on-failure`, adoption starts after acquiring the preparation lock and
+capturing the daemon generation. From that boundary the CLI owns `SIGINT` and `SIGTERM`
+until process exit. Cancellation during earlier lock acquisition or generation capture
+does not modify acceptance or stop a daemon: adoption authority has not begun.
+Cancellation during adoption before command completion removes the receipt and attempts a generation-bound
 stop, including cancellation after publication or during the final response flush. Ordinary
 work raises a dedicated cancellation exception outside the `OSError`/`Exception` retry
 hierarchies, and later signals can raise again. Resource contexts defer both signals before
