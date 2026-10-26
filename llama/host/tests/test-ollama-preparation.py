@@ -16,7 +16,6 @@ import errno  # noqa: E402
 import fcntl  # noqa: E402
 import hashlib  # noqa: E402
 import io  # noqa: E402
-import inspect  # noqa: E402
 import json  # noqa: E402
 import os  # noqa: E402
 import signal  # noqa: E402
@@ -1401,6 +1400,7 @@ class CancellationBoundaryTests(FixtureCase):
             signum: signal.getsignal(signum)
             for signum in (signal.SIGTERM, signal.SIGINT)
         }
+        previous_mask = signal.pthread_sigmask(signal.SIG_BLOCK, set())
         try:
             with (
                 mock.patch.object(sys, "argv", argv),
@@ -1412,78 +1412,20 @@ class CancellationBoundaryTests(FixtureCase):
             ):
                 yield
         finally:
+            # Only fixtures restore process state. The real adopting CLI owns
+            # these signals through exit and deliberately has no teardown.
+            signal.pthread_sigmask(signal.SIG_BLOCK, module.CommandCancellation.SIGNALS)
+            pending = signal.sigpending() & module.CommandCancellation.SIGNALS
+            while pending:
+                signal.sigwait(pending)
+                pending = signal.sigpending() & module.CommandCancellation.SIGNALS
             for signum, handler in previous.items():
                 signal.signal(signum, handler)
-
-    def test_signal_on_leaving_managed_context_invalidates_with_runtime_still_open(
-        self,
-    ):
-        lines, first = inspect.getsourcelines(module.main)
-        boundary = first + next(
-            index
-            for index, line in enumerate(lines)
-            if "with adoption_signals(" in line
-        )
-        fired = False
-
-        def trace(frame, event, arg):
-            nonlocal fired
-            if (
-                not fired
-                and frame.f_code is module.main.__code__
-                and event == "line"
-                and frame.f_lineno == boundary
-                and (self.prep.state / "verified.json").exists()
-            ):
-                fired = True
-                self.assertTrue(callable(signal.getsignal(signal.SIGTERM)))
-                os.kill(os.getpid(), signal.SIGTERM)
-            return trace
-
-        runtime = FakeRuntime()
-        with self.cli(runtime):
-            sys.settrace(trace)
-            try:
-                with self.assertRaisesRegex(
-                    PreparationError, "captured daemon stopped"
-                ):
-                    module.main()
-            finally:
-                sys.settrace(None)
-        self.assertTrue(fired)
-        self.assertEqual(runtime.stops, 1)
-        self.assertFalse((self.prep.state / "verified.json").exists())
-
-    def test_cancellation_during_signal_handler_restoration_is_inside_cleanup(self):
-        for signum in (signal.SIGTERM, signal.SIGINT):
-            with self.subTest(signal=signum):
-                runtime, fired = FakeRuntime(), False
-                original = signal.signal
-                previous = signal.getsignal(signum)
-
-                def install(number, handler):
-                    nonlocal fired
-                    if (
-                        number == signum
-                        and handler == previous
-                        and not fired
-                        and (self.prep.state / "verified.json").exists()
-                    ):
-                        fired = True
-                        os.kill(os.getpid(), signum)
-                    return original(number, handler)
-
-                with (
-                    self.cli(runtime),
-                    mock.patch.object(module.signal, "signal", side_effect=install),
-                ):
-                    with self.assertRaisesRegex(
-                        PreparationError, "captured daemon stopped"
-                    ):
-                        module.main()
-                self.assertTrue(fired)
-                self.assertEqual(runtime.stops, 1)
-                self.assertFalse((self.prep.state / "verified.json").exists())
+            pending = signal.sigpending() & module.CommandCancellation.SIGNALS
+            while pending:
+                signal.sigwait(pending)
+                pending = signal.sigpending() & module.CommandCancellation.SIGNALS
+            signal.pthread_sigmask(signal.SIG_SETMASK, previous_mask)
 
     def test_response_write_and_flush_cancellation_are_adoption_failures(self):
         for command in ("warm", "verify --stop-on-failure"):
@@ -1531,7 +1473,7 @@ class CancellationBoundaryTests(FixtureCase):
 
                 with (
                     self.cli(runtime, "verify", Output()),
-                    mock.patch.object(module, "adoption_signals") as managed,
+                    mock.patch.object(module, "CommandCancellation") as managed,
                 ):
                     if where == "verify":
                         runtime.verify = mock.Mock(
@@ -1563,10 +1505,11 @@ class CancellationBoundaryTests(FixtureCase):
             return tags()
 
         with (
-            self.prep.adopting(runtime),
-            module.adoption_signals(lambda: self.prep._aborting),
+            self.cli(runtime),
             mock.patch.object(self.api, "tags", side_effect=inventory),
         ):
+            cancellation = module.CommandCancellation(lambda: self.prep._aborting)
+            cancellation.activate()
             with self.assertRaisesRegex(PreparationError, "captured daemon stopped"):
                 self.prep.warm(runtime)
         self.assertTrue(delivered)
@@ -1612,6 +1555,419 @@ class CancellationBoundaryTests(FixtureCase):
         self.assertTrue(failed)
         self.assertEqual(runtime.stops, 1)
         self.assertFalse((self.prep.state / "verified.json").exists())
+
+
+class CancellationProcessTests(FixtureCase):
+    """Real process signals at kernel transitions; only model/runtime I/O is fake."""
+
+    @staticmethod
+    def run_probe(stage, signum, command):
+        # Called only by a disposable subprocess. Never restore dispositions or
+        # unblock signals here: this exercises the real command lifetime.
+        import ollama_runtime
+
+        case = FixtureCase()
+        case.setUp()
+        receipt = case.prep.state / "verified.json"
+        case.prep.warm(FakeRuntime())
+        initial_receipt = receipt.read_bytes()
+        print(
+            json.dumps(
+                {
+                    "root": str(case.root),
+                    "receipt_sha256": hashlib.sha256(initial_receipt).hexdigest(),
+                }
+            ),
+            flush=True,
+        )
+        runtime = FakeRuntime()
+        runtime.closed = False
+        result = {
+            "events": [],
+            "stops": 0,
+            "error": None,
+            "fired": False,
+            "unwind_steps": [],
+            "output_failed": False,
+        }
+        phase = None
+        real_signal = signal.signal
+        real_mask = signal.pthread_sigmask
+        real_pending = signal.sigpending
+        real_complete = module.CommandCancellation.complete
+        real_activate = module.CommandCancellation.activate
+        real_locked = Preparation.locked
+        real_certify = Preparation.certify
+        real_invalidate = Preparation.invalidate
+        real_verify = runtime.verify
+
+        def fire(event):
+            if event == stage and not result["fired"]:
+                result["fired"] = True
+                os.kill(os.getpid(), signum)
+
+        def install(number, handler):
+            event = f"install-{number}"
+            result["events"].append(event)
+            fire(f"before-{event}")
+            if stage == f"fail-{event}":
+                result["fired"] = True
+                # Setup can fail with both signals already pending, including
+                # when neither or only one disposition has been installed.
+                os.kill(os.getpid(), signal.SIGTERM)
+                os.kill(os.getpid(), signal.SIGINT)
+                raise OSError("handler setup failed")
+            value = real_signal(number, handler)
+            fire(f"after-{event}")
+            return value
+
+        def masking(how, numbers):
+            transition = None
+            if phase == "activate" and how == signal.SIG_UNBLOCK:
+                transition = "activate-unblock"
+            if phase == "complete" and how == signal.SIG_BLOCK:
+                transition = "complete-block"
+            if transition:
+                fire(f"before-{transition}")
+            value = real_mask(how, numbers)
+            if transition:
+                fire(f"after-{transition}")
+            return value
+
+        def pending():
+            if phase == "complete":
+                fire("before-pending-observation")
+            value = real_pending()
+            if phase == "complete":
+                fire("after-pending-observation")
+            return value
+
+        def activate(controller):
+            nonlocal phase
+            phase = "activate"
+            try:
+                return real_activate(controller)
+            finally:
+                phase = None
+
+        def complete(controller):
+            nonlocal phase
+            fire("before-complete")
+            phase = "complete"
+            try:
+                value = real_complete(controller)
+            finally:
+                phase = None
+            fire("after-complete")
+            return value
+
+        @contextmanager
+        def locked(prep):
+            with real_locked(prep):
+                try:
+                    yield
+                finally:
+                    fire("before-lock-release")
+            fire("after-lock-release")
+
+        @contextmanager
+        def factory():
+            try:
+                yield runtime
+            finally:
+                fire("before-runtime-release")
+                runtime.closed = True
+                fire("after-runtime-release")
+
+        def certify(prep, *args):
+            value = real_certify(prep, *args)
+            fire("after-publication")
+            return value
+
+        def invalidate(prep):
+            if prep._aborting and stage in (
+                "repeated-cleanup",
+                "stop-failure",
+                "broken-diagnostics",
+            ):
+                result["fired"] = True
+                os.kill(os.getpid(), signal.SIGTERM)
+                os.kill(os.getpid(), signal.SIGINT)
+            value = real_invalidate(prep)
+            if prep._aborting and stage == "broken-diagnostics":
+                raise OSError("invalidation diagnostic fixture")
+            return value
+
+        def stop():
+            result["stops"] += 1
+            (case.root / "stop-attempted").touch()
+            result["runtime_open_at_stop"] = not runtime.closed
+            with (case.prep.state / "preparation.lock").open("a+") as contender:
+                try:
+                    fcntl.flock(contender, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                except BlockingIOError:
+                    result["lock_held_at_stop"] = True
+                else:
+                    result["lock_held_at_stop"] = False
+            if stage == "stop-failure":
+                os.kill(os.getpid(), signal.SIGTERM)
+                os.kill(os.getpid(), signal.SIGINT)
+                raise OSError("targeted stop fixture failed")
+            return {"stopped": True}
+
+        def verify(*args):
+            if stage == "swallowed-exception":
+                try:
+                    raise OSError("internally handled runtime fixture error")
+                except OSError:
+                    fire(stage)
+            if stage == "inflight-work":
+                fire(stage)
+            result["runtime_returned"] = True
+            return real_verify(*args)
+
+        class Output(io.StringIO):
+            def write(self, value):
+                fire("response-write")
+                if stage.startswith("unwind-") or stage in (
+                    "broken-output-write",
+                    "repeated-cleanup",
+                    "stop-failure",
+                    "broken-diagnostics",
+                    "abort-entry-signal",
+                ):
+                    result["output_failed"] = True
+                    if stage != "abort-entry-signal" and not stage.startswith(
+                        "unwind-"
+                    ):
+                        result["fired"] = True
+                    if stage == "unwind-observe":
+                        result["fired"] = True
+                    raise OSError("response write failed")
+                return super().write(value)
+
+            def flush(self):
+                fire("response-flush")
+                if stage == "broken-output-flush":
+                    result["fired"] = True
+                    raise OSError("response flush failed")
+                return super().flush()
+
+        diagnostics = mock.Mock()
+        diagnostics.write.side_effect = OSError("stderr closed")
+
+        def trace(frame, event, _arg):
+            if event == "call" and frame.f_code is Preparation.abort.__code__:
+                fire("abort-entry-signal")
+            if (
+                result["output_failed"]
+                and result["stops"] == 0
+                and event in ("call", "line")
+                and frame.f_code
+                in (
+                    Preparation.adopting.__wrapped__.__code__,
+                    Preparation.abort.__code__,
+                    Preparation._abort.__code__,
+                )
+            ):
+                result["unwind_steps"].append(
+                    f"{frame.f_code.co_name}:{frame.f_lineno}:{event}"
+                )
+                fire(f"unwind-{len(result['unwind_steps'])}")
+            return trace
+
+        argv = [
+            "ollama_prepare.py",
+            "--config",
+            str(case.config),
+            "--recipes",
+            str(case.recipes),
+            "--state",
+            str(case.prep.state),
+            *command.split(),
+        ]
+        with (
+            mock.patch.object(sys, "argv", argv),
+            mock.patch.object(module, "Http", return_value=case.api),
+            mock.patch.object(Preparation, "create", side_effect=case.api.create),
+            mock.patch.object(ollama_runtime, "Runtime", factory),
+            mock.patch.object(runtime, "stop_failed", side_effect=stop),
+            mock.patch.object(runtime, "verify", side_effect=verify),
+            mock.patch.object(Preparation, "locked", locked),
+            mock.patch.object(Preparation, "certify", certify),
+            mock.patch.object(Preparation, "invalidate", invalidate),
+            mock.patch.object(module.CommandCancellation, "activate", activate),
+            mock.patch.object(module.CommandCancellation, "complete", complete),
+            mock.patch.object(signal, "signal", install),
+            mock.patch.object(signal, "pthread_sigmask", masking),
+            mock.patch.object(signal, "sigpending", pending),
+            mock.patch("sys.stdout", Output()),
+            mock.patch("sys.stderr", diagnostics),
+        ):
+            sys.settrace(trace)
+            try:
+                module.main()
+            except BaseException as exc:
+                result["error"] = f"{type(exc).__name__}: {exc}"
+            finally:
+                sys.settrace(None)
+        result["receipt"] = receipt.exists()
+        result["unchanged_receipt"] = (
+            receipt.exists() and receipt.read_bytes() == initial_receipt
+        )
+        result["blocked"] = sorted(real_mask(signal.SIG_BLOCK, set()))
+        result["pending"] = sorted(real_pending())
+        print(json.dumps(result), flush=True)
+        case.doCleanups()
+
+    def child(self, stage, signum=signal.SIGTERM, command="warm"):
+        script = textwrap.dedent("""\
+            import importlib.util, sys
+            spec = importlib.util.spec_from_file_location('fixtures', sys.argv[1])
+            tests = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(tests)
+            tests.CancellationProcessTests.run_probe(sys.argv[2], int(sys.argv[3]), sys.argv[4])
+        """)
+        return subprocess.run(
+            [sys.executable, "-c", script, __file__, stage, str(signum), command],
+            env={**os.environ, "TMPDIR": str(self.root)},
+            text=True,
+            capture_output=True,
+            timeout=15,
+            check=False,
+        )
+
+    def probe(self, stage, signum=signal.SIGTERM, command="warm"):
+        child = self.child(stage, signum, command)
+        self.assertEqual(child.returncode, 0, (child.stdout, child.stderr))
+        result = json.loads(child.stdout.splitlines()[-1])
+        self.assertTrue(result["fired"], (stage, result))
+        # Exactly the two handler installations, with no restoration at exit.
+        installs = [f"install-{signal.SIGTERM}", f"install-{signal.SIGINT}"]
+        if stage == f"fail-install-{signal.SIGTERM}":
+            installs.pop()
+        self.assertEqual(result["events"], installs)
+        self.assertTrue({signal.SIGTERM, signal.SIGINT} <= set(result["blocked"]))
+        return result
+
+    def test_plain_verify_real_signals_do_not_mutate_acceptance_or_stop(self):
+        terminated = self.child("response-flush", signal.SIGTERM, "verify")
+        self.assertEqual(terminated.returncode, -signal.SIGTERM, terminated.stderr)
+        initial = json.loads(terminated.stdout.splitlines()[0])
+        root = Path(initial["root"])
+        receipt = (root / "state" / "verified.json").read_bytes()
+        self.assertEqual(hashlib.sha256(receipt).hexdigest(), initial["receipt_sha256"])
+        self.assertFalse((root / "stop-attempted").exists())
+        interrupted = self.child("response-flush", signal.SIGINT, "verify")
+        self.assertEqual(interrupted.returncode, 0, interrupted.stderr)
+        result = json.loads(interrupted.stdout.splitlines()[-1])
+        self.assertTrue(result["unchanged_receipt"], result)
+        self.assertEqual(result["stops"], 0, result)
+        self.assertEqual(result["events"], [], result)
+
+    def assert_aborted(self, result):
+        self.assertFalse(result["receipt"], result)
+        self.assertEqual(result["stops"], 1, result)
+        self.assertTrue(result["runtime_open_at_stop"], result)
+        self.assertTrue(result["lock_held_at_stop"], result)
+        self.assertIn("captured daemon stopped", result["error"])
+
+    def test_signals_before_and_after_each_handler_installation_abort(self):
+        for changed in (signal.SIGTERM, signal.SIGINT):
+            for side in ("before", "after"):
+                for signum in (signal.SIGTERM, signal.SIGINT):
+                    with self.subTest(changed=changed, side=side, signal=signum):
+                        self.assert_aborted(
+                            self.probe(f"{side}-install-{changed}", signum)
+                        )
+
+    def test_handler_setup_failure_still_invalidates_and_stops(self):
+        for changed in (signal.SIGTERM, signal.SIGINT):
+            with self.subTest(changed=changed):
+                result = self.probe(f"fail-install-{changed}")
+                self.assert_aborted(result)
+                self.assertTrue(
+                    {signal.SIGTERM, signal.SIGINT} <= set(result["pending"])
+                )
+
+    def test_signal_entering_failure_cleanup_cannot_unwind_required_stop(self):
+        self.assert_aborted(self.probe("abort-entry-signal"))
+
+    def test_cancellation_recorded_during_swallowed_exception_rejects_completion(self):
+        for signum in (signal.SIGTERM, signal.SIGINT):
+            with self.subTest(signal=signum):
+                result = self.probe("swallowed-exception", signum)
+                self.assertTrue(result["runtime_returned"])
+                self.assert_aborted(result)
+
+    def test_normal_running_work_is_still_immediately_interruptible(self):
+        for signum in (signal.SIGTERM, signal.SIGINT):
+            with self.subTest(signal=signum):
+                result = self.probe("inflight-work", signum)
+                self.assertNotIn("runtime_returned", result)
+                self.assert_aborted(result)
+
+    def test_every_pre_stop_failure_unwind_transition_preserves_cleanup(self):
+        baseline = self.probe("unwind-observe")
+        self.assert_aborted(baseline)
+        self.assertGreater(len(baseline["unwind_steps"]), 10)
+        for index, location in enumerate(baseline["unwind_steps"], 1):
+            for signum in (signal.SIGTERM, signal.SIGINT):
+                with self.subTest(location=location, signal=signum):
+                    self.assert_aborted(self.probe(f"unwind-{index}", signum))
+
+    def test_precompletion_signals_abort_with_runtime_and_lock_held(self):
+        stages = (
+            "before-activate-unblock",
+            "after-activate-unblock",
+            "after-publication",
+            "response-write",
+            "response-flush",
+            "before-complete",
+            "before-complete-block",
+            "after-complete-block",
+            "before-pending-observation",
+        )
+        for command in ("warm", "verify --stop-on-failure"):
+            for stage in stages:
+                if command.startswith("verify") and stage == "after-publication":
+                    continue
+                for signum in (signal.SIGTERM, signal.SIGINT):
+                    with self.subTest(command=command, stage=stage, signal=signum):
+                        self.assert_aborted(self.probe(stage, signum, command))
+
+    def test_postcompletion_signals_stay_blocked_through_resource_release(self):
+        for stage in (
+            "after-pending-observation",
+            "after-complete",
+            "before-runtime-release",
+            "after-runtime-release",
+            "before-lock-release",
+            "after-lock-release",
+        ):
+            for signum in (signal.SIGTERM, signal.SIGINT):
+                with self.subTest(stage=stage, signal=signum):
+                    result = self.probe(stage, signum)
+                    self.assertTrue(result["receipt"], result)
+                    self.assertEqual(result["stops"], 0, result)
+                    self.assertIsNone(result["error"], result)
+                    self.assertIn(signum, result["pending"])
+
+    def test_output_errors_and_repeated_cleanup_signals_cannot_skip_stop(self):
+        for stage in (
+            "broken-output-write",
+            "broken-output-flush",
+            "repeated-cleanup",
+            "broken-diagnostics",
+        ):
+            with self.subTest(stage=stage):
+                self.assert_aborted(self.probe(stage))
+        result = self.probe("stop-failure")
+        self.assertFalse(result["receipt"], result)
+        self.assertEqual(result["stops"], 1, result)
+        self.assertTrue(result["runtime_open_at_stop"], result)
+        self.assertTrue(result["lock_held_at_stop"], result)
+        self.assertIn("STOP FAILED: targeted stop fixture failed", result["error"])
 
 
 class TransportTests(unittest.TestCase):

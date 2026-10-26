@@ -551,7 +551,7 @@ class Preparation:
     def adopting(self, runtime):
         """Keep one cleanup boundary around the entire managed operation.
 
-        CLI callers put the signal context and flushed response inside this
+        CLI callers put signal activation and the flushed response inside this
         guard, and the runtime/transaction lock outside it. Nested warm/verify
         guards preserve direct-call cleanup without repeating a failed stop.
         """
@@ -817,24 +817,58 @@ def render(posture, root, check):
     return {"revision": posture.revision, "changed": changed}
 
 
-@contextmanager
-def adoption_signals(cleaning_up=lambda: False):
-    interrupted = False
+class CommandCancellation:
+    """Own adopting CLI signals until process exit, with one completion point.
 
-    def cancelled(signum, _frame):
-        nonlocal interrupted
-        if not interrupted and not cleaning_up():
-            interrupted = True
-            raise InterruptedError(f"adoption interrupted by signal {signum}")
+    This is deliberately not a restoring context manager. Setup blocks both
+    signals before changing either disposition. After durable publication and
+    a flushed response, the empty pending-cancellation observation in complete()
+    linearizes success. Signals then remain blocked through runtime/lock release
+    and CLI exit; a later request cannot cancel the completed operation.
 
-    previous = {}
-    try:
+    Before that boundary, handled or queued cancellation must reach the outer
+    adoption guard while the runtime and preparation lock are still held. Direct
+    preparation helpers do not install this process-lifetime CLI policy.
+    """
+
+    SIGNALS = frozenset((signal.SIGTERM, signal.SIGINT))
+
+    def __init__(self, cleaning_up=lambda: False):
+        self.cleaning_up = cleaning_up
+        self.interrupted = None
+        self.completed = False
+
+    def cancelled(self, signum, _frame):
+        if not self.completed and self.interrupted is None:
+            self.interrupted = signum
+            # An asynchronous raise while another exception is unwinding can
+            # replace that exception before its cleanup guard runs. Record the
+            # cancellation there and let the existing unwind reach abort. If an
+            # inner handler swallows that exception, complete() still rejects
+            # this recorded cancellation. Ordinary work remains interruptible.
+            if not self.cleaning_up() and sys.exc_info()[0] is None:
+                raise InterruptedError(f"adoption interrupted by signal {signum}")
+
+    def quiesce(self):
+        signal.pthread_sigmask(signal.SIG_BLOCK, self.SIGNALS)
+
+    def activate(self):
+        self.quiesce()
         for signum in (signal.SIGTERM, signal.SIGINT):
-            previous[signum] = signal.signal(signum, cancelled)
-        yield
-    finally:
-        for signum, handler in previous.items():
-            signal.signal(signum, handler)
+            signal.signal(signum, self.cancelled)
+        # A signal queued during setup is delivered only after both handlers
+        # exist, inside the caller's adoption cleanup boundary.
+        signal.pthread_sigmask(signal.SIG_UNBLOCK, self.SIGNALS)
+
+    def complete(self):
+        self.quiesce()
+        pending = signal.sigpending() & self.SIGNALS
+        if self.interrupted is not None or pending:
+            signum = self.interrupted if self.interrupted is not None else min(pending)
+            raise InterruptedError(f"adoption interrupted by signal {signum}")
+        # The empty pending observation above is the linearization point. A
+        # signal queued after it stays blocked and cannot reopen cancellation.
+        self.completed = True
 
 
 def main():
@@ -907,8 +941,10 @@ def main():
                     )
                 with Runtime() as runtime:
                     if args.command == "warm" or args.stop_on_failure:
-                        with prep.adopting(runtime):
-                            with adoption_signals(lambda: prep._aborting):
+                        cancellation = CommandCancellation(lambda: prep._aborting)
+                        try:
+                            with prep.adopting(runtime):
+                                cancellation.activate()
                                 result = (
                                     prep.warm(runtime)
                                     if args.command == "warm"
@@ -916,6 +952,12 @@ def main():
                                 )
                                 print(json.dumps(result, sort_keys=True))
                                 sys.stdout.flush()
+                                cancellation.complete()
+                        finally:
+                            # Never restore SIG_DFL or unmask in this command.
+                            # Failure cleanup has run, or success linearized;
+                            # retain signal ownership through all resource exit.
+                            cancellation.quiesce()
                     else:
                         # Observational verify never acquires cancellation
                         # authority to invalidate a receipt or stop its daemon.
