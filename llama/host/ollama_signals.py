@@ -21,6 +21,18 @@ def deferred_depth():
     return getattr(_state, "depth", 0)
 
 
+def retain_signals_blocked():
+    """The adopting CLI's terminal state survives every enclosing scope exit."""
+    signal.pthread_sigmask(signal.SIG_BLOCK, MANAGED_SIGNALS)
+    _state.retained = True
+
+
+def _restore(previous):
+    if getattr(_state, "retained", False):
+        previous = set(previous) | MANAGED_SIGNALS
+    signal.pthread_sigmask(signal.SIG_SETMASK, previous)
+
+
 def _begin(critical):
     previous = signal.pthread_sigmask(signal.SIG_BLOCK, MANAGED_SIGNALS)
     _state.depth = deferred_depth() + 1
@@ -33,7 +45,7 @@ def _finish(previous, critical):
     _state.critical -= int(critical)
     # All descriptors owned by this scope have already been released. Delivery
     # here may raise; callers must treat that as failure of the whole operation.
-    signal.pthread_sigmask(signal.SIG_SETMASK, previous)
+    _restore(previous)
 
 
 def deferred(function):
@@ -115,11 +127,15 @@ def interruptible(function, *args, **kwargs):
     unwinds. Callers still check sticky/pending cancellation at operation
     boundaries; enabling delivery is not an acceptance/completion decision.
     """
-    if not deferred_depth() or getattr(_state, "critical", 0):
+    if (
+        not deferred_depth()
+        or getattr(_state, "critical", 0)
+        or getattr(_state, "retained", False)
+    ):
         return function(*args, **kwargs)
     previous = signal.pthread_sigmask(signal.SIG_BLOCK, set())
     try:
         signal.pthread_sigmask(signal.SIG_UNBLOCK, MANAGED_SIGNALS)
         return function(*args, **kwargs)
     finally:
-        signal.pthread_sigmask(signal.SIG_SETMASK, previous)
+        _restore(previous)
