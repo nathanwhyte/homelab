@@ -147,6 +147,15 @@ class TaskstatsTests(unittest.TestCase):
         with self.assertRaisesRegex(VerificationError, "CAP_NET_ADMIN"):
             self.read(sock)
 
+    def test_runner_exit_during_query_names_generation_change(self):
+        sock = TaskstatsSocket()
+        sock.replies[1] = struct.pack("=IHHIIi", 20, 2, 0, 2, 1234, -errno.ESRCH)
+        with self.assertRaisesRegex(
+            VerificationError, "generation changed during TASKSTATS"
+        ):
+            self.read(sock)
+        self.assertTrue(sock.closed)
+
     def test_truncated_wrong_sender_and_wrong_sequence_fail_closed(self):
         for failure in ["truncated", "sender", "sequence", "length", "multipart"]:
             with self.subTest(failure=failure):

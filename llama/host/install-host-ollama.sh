@@ -381,7 +381,7 @@ else
 	if [[ $mode != recovery ]]; then
 		cutover_preflight
 		log "verifying and preparing the declared recipes before host changes"
-		prepare prepare || die "recipe preparation failed; host installation unchanged. Follow the diagnostic above to choose the recovery command and mode"
+		prepare prepare || die "recipe preparation failed; host files and service processes unchanged, but acceptance and model aliases may have changed. Correct the cause and rerun the same deployment mode; use --bootstrap-recovery if the daemon is unreachable or the diagnostic requires it"
 	fi
 	if [[ $(installed_version) != "$OLLAMA_VERSION" ]]; then
 		log "installing ollama $OLLAMA_VERSION (base tarball, no ROCm) over $(installed_version)"

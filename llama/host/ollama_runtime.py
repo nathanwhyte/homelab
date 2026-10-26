@@ -153,6 +153,10 @@ def _task_start(pid, *, socket_factory=None, monotonic_ns=None):
             "TASKSTATS request timed out; inspect kernel responsiveness"
         ) from exc
     except OSError as exc:
+        if exc.errno == errno.ESRCH:
+            raise VerificationError(
+                "runner generation changed during TASKSTATS"
+            ) from exc
         if exc.errno not in (
             errno.EPERM,
             errno.EACCES,

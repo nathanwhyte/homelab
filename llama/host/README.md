@@ -230,9 +230,12 @@ retry. An adopting command invalidates acceptance and attempts to stop its captu
 including one started by bootstrap. After confirming that stop and correcting any failure,
 retry the trusted deployment with `--bootstrap-recovery`; the same bound and full proof apply.
 Standalone `prepare`/`pair` commands do not stop the daemon and can retry the same command.
-If preparation times out in the normal installer's pre-change gate, the host installation
-and daemon remain unchanged: rerun the same deployment command and mode after correcting
-the failure. That gate does not require a bootstrap recovery merely because creation timed out.
+If preparation times out in the normal installer's pre-change gate, host files and service
+processes remain in place. Preparation may already have withdrawn acceptance and re-pointed
+model aliases before a later recipe fails; receipt-based recovery stays disabled until full
+adoption succeeds. Correct the cause and rerun the same deployment command and mode. Use
+`--bootstrap-recovery` if the daemon is unreachable or the diagnostic requires it; a creation
+timeout alone does not require that mode.
 
 The generated recovery CronJob runs every 15 minutes, unprivileged and HTTP-only. It posts
 its expected revision and residents to the existing exporter on port 9111. The exporter
@@ -252,10 +255,12 @@ loads. Recovery can then fail its final readback; HTTP offers no transaction tha
 the GPU against such a caller. Plan host adoption or sensitive GPU work in a quiet window.
 
 The receipt rename publishes completed proof. For `warm` and
-`verify --stop-on-failure`, adoption starts after acquiring the preparation lock and
-capturing the daemon generation. From that boundary the CLI owns `SIGINT` and `SIGTERM`
-until process exit. Cancellation during earlier lock acquisition or generation capture
-does not modify acceptance or stop a daemon: adoption authority has not begun.
+`verify --stop-on-failure`, the CLI activates its `SIGINT` and `SIGTERM` handlers after
+acquiring the preparation lock and capturing the daemon generation, and keeps them until
+process exit. Signals delivered before activation use the previous dispositions and publish
+no new acceptance. Signals deferred during setup, including the final generation-capture
+observations, can remain pending at activation: these count as adoption cancellation and
+remove acceptance and attempt to stop the captured daemon.
 Cancellation during adoption before command completion removes the receipt and attempts a generation-bound
 stop, including cancellation after publication or during the final response flush. Ordinary
 work raises a dedicated cancellation exception outside the `OSError`/`Exception` retry

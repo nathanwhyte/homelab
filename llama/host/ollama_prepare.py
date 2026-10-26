@@ -1085,9 +1085,9 @@ def main():
                     )
                 with Runtime() as runtime:
                     if args.command == "warm" or args.stop_on_failure:
-                        # Adoption authority begins only after lock ownership
-                        # and generation capture. Earlier cancellation changes
-                        # no acceptance and cannot stop an uncaptured daemon.
+                        # Handler activation follows lock/generation capture.
+                        # Signals deferred across setup count as adoption
+                        # cancellation when activate() checks the pending set.
                         cancellation = CommandCancellation(lambda: prep._aborting)
                         prep.cancellation = cancellation
                         try:

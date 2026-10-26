@@ -1558,7 +1558,74 @@ class AtomicPublicationTests(FixtureCase):
 
 
 class CancellationBoundaryTests(FixtureCase):
-    def test_pre_adoption_cancellation_preserves_acceptance_and_daemon(self):
+    def capture_cancel_child(self, signum):
+        import importlib.util
+        import ollama_runtime
+
+        spec = importlib.util.spec_from_file_location(
+            "runtime_fixtures", HOST / "tests/test-ollama-runtime.py"
+        )
+        fixtures = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(fixtures)
+        self.prep.warm(FakeRuntime())
+        host = fixtures.Host(self.root / "proc-fixture")
+        pending = []
+
+        def trace(frame, event, arg):
+            if (
+                not pending
+                and event == "line"
+                and frame.f_code is fixtures.Runtime._assert_current.__code__
+                and "props" in frame.f_locals
+            ):
+                # Actual constructor tail, after its last interruptible
+                # observation, under the CLI preparation lock's mask.
+                os.kill(os.getpid(), signum)
+                pending.append(signum in signal.sigpending())
+            return trace
+
+        with (
+            self.cli(FakeRuntime()),
+            mock.patch.object(ollama_runtime, "Runtime", host.runtime),
+        ):
+            sys.settrace(trace)
+            try:
+                with self.assertRaisesRegex(
+                    PreparationError, "captured daemon stopped"
+                ):
+                    module.main()
+            finally:
+                sys.settrace(None)
+        self.assertEqual(pending, [True])
+        self.assertFalse((self.prep.state / "verified.json").exists())
+        self.assertEqual(host.signals, [(1000, signal.SIGHUP, None, 0)])
+
+    def test_real_signals_deferred_at_capture_tail_cancel_adoption(self):
+        script = textwrap.dedent("""
+            import importlib.util, sys
+            spec = importlib.util.spec_from_file_location('fixtures', sys.argv[1])
+            tests = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(tests)
+            case = tests.CancellationBoundaryTests()
+            case.setUp()
+            try:
+                case.capture_cancel_child(int(sys.argv[2]))
+            finally:
+                case.doCleanups()
+        """)
+        for signum in (signal.SIGTERM, signal.SIGINT):
+            with self.subTest(signal=signum):
+                result = subprocess.run(
+                    [sys.executable, "-c", script, __file__, str(signum)],
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                )
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_delivered_pre_activation_cancellation_preserves_acceptance_and_daemon(
+        self,
+    ):
         import ollama_runtime
 
         for phase in ("lock", "capture"):
@@ -2064,7 +2131,7 @@ class ResourceCancellationTests(FixtureCase):
         fixtures = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(fixtures)
         host = fixtures.Host(self.root / "proc-fixture")
-        with host.runtime() as runtime:
+        with host.runtime() as runtime, self.prep.locked():
             observed = []
 
             def command(argv):
@@ -2571,7 +2638,7 @@ class CancellationProcessTests(FixtureCase):
                 in (
                     Preparation.adopting.__wrapped__.__code__,
                     Preparation.abort.__code__,
-                    Preparation._abort.__code__,
+                    Preparation._abort.__wrapped__.__code__,
                 )
             ):
                 result["unwind_steps"].append(
