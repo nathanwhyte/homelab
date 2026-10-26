@@ -10,6 +10,10 @@
 #
 #   bash test-homelab-ollama-deploy.sh <path to llama/host>
 set -u
+# Fixtures must never inherit a hook's repository/index selection.
+while IFS='=' read -r key _; do
+	[[ $key == GIT_* ]] && unset "$key"
+done < <(env)
 HOST=${1:?usage: test-homelab-ollama-deploy.sh <path to llama/host>}
 HOST=$(cd "$HOST" && pwd)
 WRAPPER=$HOST/homelab-ollama-deploy.sh
@@ -59,6 +63,12 @@ run bash "$WRAPPER" --sync-models
 grep -q 'args=\[--sync-models\]' "$CALLS" && ok "--sync-models passed through" || bad "--sync-models"
 run bash "$WRAPPER" --files-only
 grep -q 'args=\[--files-only\]' "$CALLS" && ok "--files-only passed through" || bad "--files-only"
+run bash "$WRAPPER" --bootstrap-recovery
+if grep -q 'args=\[--bootstrap-recovery\]' "$CALLS"; then
+	ok "--bootstrap-recovery passed through"
+else
+	bad "--bootstrap-recovery"
+fi
 run bash "$WRAPPER" --evil
 rc=$?
 [[ $rc -eq 2 && ! -s $CALLS ]] && ok "unknown argument refused (exit 2), installer NOT run" || bad "unknown arg (rc=$rc)"

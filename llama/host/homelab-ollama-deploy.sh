@@ -3,7 +3,7 @@
 # timmy without a password. Installed to /usr/local/sbin (root:root 0755) by
 # install-sudo-deploy.sh; granted by /etc/sudoers.d/homelab-deploy.
 #
-#   sudo homelab-ollama-deploy.sh [--check | --sync-models | --sync-identity | --files-only]
+#   sudo homelab-ollama-deploy.sh [--check | --sync-models | --sync-identity | --files-only | --bootstrap-recovery]
 #
 # WHY A WRAPPER, AND NOT A SUDO RULE ON THE INSTALLER ITSELF.
 # install-host-ollama.sh, and everything it copies into /etc/systemd and
@@ -45,7 +45,7 @@ if [[ $# -gt 1 ]]; then
 fi
 mode=${1-}
 case $mode in
-"" | --check | --sync-models | --sync-identity | --files-only) ;;
+"" | --check | --sync-models | --sync-identity | --files-only | --bootstrap-recovery) ;;
 *)
 	echo "homelab-ollama-deploy: refusing argument '$mode'" >&2
 	exit 2
