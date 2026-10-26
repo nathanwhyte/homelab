@@ -29,6 +29,8 @@ import subprocess
 import time
 import urllib.request
 
+from ollama_signals import deferred, interruptible, owned_descriptor
+
 
 class VerificationError(RuntimeError):
     """The declared posture could not be proved for the captured generation."""
@@ -106,18 +108,22 @@ def _task_start(pid, *, socket_factory=None, monotonic_ns=None):
     try:
         # AF_NETLINK=16 and NETLINK_GENERIC=16 are Linux ABI values. Keeping
         # these here lets byte fixtures run on development hosts without Linux.
-        with factory(16, socket.SOCK_RAW, 16) as sock:
+        with owned_descriptor(
+            factory, 16, socket.SOCK_RAW, 16, closer=lambda sock: sock.close()
+        ) as sock:
             sock.settimeout(5)
             sock.bind((0, 0))
-            control = exchange(sock, 16, 3, 1, attribute(2, b"TASKSTATS\0"))
+            control = interruptible(
+                exchange, sock, 16, 3, 1, attribute(2, b"TASKSTATS\0")
+            )
             if len(control.get(1, b"")) != 2:
                 raise VerificationError("missing TASKSTATS family identity")
             family = struct.unpack("=H", control[1])[0]
             if family <= 16:
                 raise VerificationError("invalid TASKSTATS family identity")
             before = clock()
-            response = exchange(
-                sock, family, 1, 2, attribute(1, struct.pack("=I", pid))
+            response = interruptible(
+                exchange, sock, family, 1, 2, attribute(1, struct.pack("=I", pid))
             )
             after = clock()
         # TASKSTATS_TYPE_AGGR_PID contains TYPE_PID and TYPE_STATS. The basic
@@ -143,8 +149,7 @@ def _task_start(pid, *, socket_factory=None, monotonic_ns=None):
     except (OSError, ValueError, struct.error) as exc:
         raise VerificationError(
             "TASKSTATS monotonic process timing unavailable; use a kernel with "
-            "CONFIG_TASKSTATS and run the verifier as root with CAP_NET_ADMIN; "
-            "retry verification after restoring access"
+            "CONFIG_TASKSTATS and run the verifier as root with CAP_NET_ADMIN"
         ) from exc
 
 
@@ -279,7 +284,7 @@ class Runtime:
             if self.pid <= 1 or not re.fullmatch(r"[0-9a-f]{32}", self.invocation):
                 raise VerificationError("Ollama has no identifiable running generation")
             self.start = self._stat(self.pid)[1]
-            self.fd = open_fd(self.pid, 0)
+            self._capture_fd()
             self._assert_current()
         except VerificationError:
             self.close()
@@ -287,11 +292,21 @@ class Runtime:
         except (OSError, ValueError, KeyError) as exc:
             self.close()
             raise VerificationError("cannot capture Ollama generation") from exc
+        except BaseException:
+            # Deferred acquisition may deliver pending cancellation only after
+            # storing the fd. Constructor failure must release that ownership.
+            self.close()
+            raise
 
+    @deferred
+    def _capture_fd(self):
+        self.fd = self.open_fd(self.pid, 0)
+
+    @deferred
     def close(self):
-        if self.fd is not None:
-            self.close_fd(self.fd)
-            self.fd = None
+        fd, self.fd = self.fd, None
+        if fd is not None:
+            self.close_fd(fd)
 
     def __enter__(self):
         return self
@@ -319,7 +334,8 @@ class Runtime:
 
     def _properties(self, extra=()):
         names = sorted(_PROPERTIES | set(extra))
-        raw = self.run(
+        raw = interruptible(
+            self.run,
             [
                 "systemctl",
                 "show",
@@ -327,7 +343,7 @@ class Runtime:
                 "--all",
                 "--property=" + ",".join(names),
                 SERVICE,
-            ]
+            ],
         )
         props = {}
         for line in raw.splitlines():
@@ -421,7 +437,8 @@ class Runtime:
         return runners
 
     def _journal(self):
-        raw = self.run(
+        raw = interruptible(
+            self.run,
             [
                 "journalctl",
                 "--no-pager",
@@ -431,7 +448,7 @@ class Runtime:
                 f"_BOOT_ID={self.boot_id.replace('-', '')}",
                 f"_SYSTEMD_INVOCATION_ID={self.invocation}",
                 f"_PID={self.pid}",
-            ]
+            ],
         )
         rows = []
         try:
@@ -471,24 +488,30 @@ class Runtime:
             raise VerificationError(
                 "TASKSTATS requires an unshifted monotonic time namespace"
             )
-        fd = self.open_fd(pid, 0)
-        try:
+        with owned_descriptor(self.open_fd, pid, 0, closer=self.close_fd) as fd:
             identity = (self.pid, runner["start"])
-            if self._stat(pid) != identity or self.wait_exit(fd, 0):
-                raise VerificationError("runner generation changed before TASKSTATS")
-            lower, upper = self.task_start(pid)
-            if self.wait_exit(fd, 0) or self._stat(pid) != identity:
-                raise VerificationError("runner generation changed during TASKSTATS")
-        finally:
-            self.close_fd(fd)
-        # Keep uncertainty within the old proc starttime observation's single
-        # tick resolution. A delayed query supplies a wider interval, not a
-        # more precise birth; retry it instead of weakening generation binding.
-        if lower < 0 or upper < lower or upper - lower > 1_000_000 / self.ticks:
+            # A delayed query supplies a wider interval, not a more precise
+            # birth. Allow three independent samples of this retained pidfd;
+            # accept only a single sample within the original one-tick bound.
+            # Protocol/access failures and cancellation are not retryable.
+            for _ in range(3):
+                if self._stat(pid) != identity or self.wait_exit(fd, 0):
+                    raise VerificationError(
+                        "runner generation changed before TASKSTATS"
+                    )
+                lower, upper = interruptible(self.task_start, pid)
+                if self.wait_exit(fd, 0) or self._stat(pid) != identity:
+                    raise VerificationError(
+                        "runner generation changed during TASKSTATS"
+                    )
+                if lower < 0 or upper < lower:
+                    raise VerificationError("invalid TASKSTATS monotonic timing")
+                if upper - lower <= 1_000_000 / self.ticks:
+                    return lower, upper
             raise VerificationError(
-                "ambiguous TASKSTATS birth timing; retry verification when the host is responsive"
+                "ambiguous TASKSTATS birth timing after 3 samples; "
+                "runtime observation exceeded the one-tick uncertainty bound"
             )
-        return lower, upper
 
     def _startup_interval(self, runner, rows, birth):
         # A command/port can recur within one daemon invocation. First bind a
@@ -714,7 +737,7 @@ class Runtime:
             port = int(_flag(argv, "--port"))
             if not 1 <= port <= 65535:
                 raise VerificationError("invalid runner port")
-            data = self.http_get(port)
+            data = interruptible(self.http_get, port)
             if (
                 data["model_path"] != model_path
                 or data["total_slots"] != expected["parallel"]

@@ -20,6 +20,7 @@ scrub_environ()
 import json
 import signal
 import struct
+import subprocess
 import tempfile
 import unittest
 
@@ -79,6 +80,9 @@ class TaskstatsSocket:
         return self
 
     def __exit__(self, *_):
+        self.close()
+
+    def close(self):
         self.closed = True
 
     def settimeout(self, value):
@@ -810,6 +814,269 @@ class RuntimeTests(unittest.TestCase):
         self.host.births[101] = (20_110_000, 20_116_000)
         with self.assertRaisesRegex(VerificationError, "ambiguous runner birth"):
             self.verify()
+
+    def test_slow_samples_retry_same_generation_until_one_precise_sample(self):
+        for slow_count in (1, 2):
+            with self.subTest(slow_count=slow_count):
+                samples = [(19_980_000, 20_000_100)] * slow_count + [
+                    (19_999_999, 20_000_100)
+                ]
+                calls, opened = [], []
+                closed_before = len(self.host.closed)
+
+                def sample(pid):
+                    calls.append(pid)
+                    return samples.pop(0)
+
+                def open_fd(pid, flags):
+                    opened.append((pid, flags))
+                    return 1001
+
+                self.runtime.task_start = sample
+                self.runtime.open_fd = open_fd
+                evidence = self.verify()["models"][0]
+                self.assertEqual(calls, [101] * (slow_count + 1))
+                self.assertEqual(opened, [(101, 0)])
+                self.assertEqual(self.host.closed[closed_before:], [1001])
+                self.assertEqual(
+                    evidence["birth_monotonic_us"],
+                    {"lower": 19_999_999, "upper": 20_000_100},
+                )
+
+    def test_three_uncertain_samples_fail_without_combining_birth_bounds(self):
+        # Their intersection would be precise enough. Each independent
+        # observation is still too wide, so none can certify the runner.
+        samples = iter(
+            [
+                (19_990_000, 20_010_000),
+                (19_999_000, 20_019_000),
+                (19_981_000, 20_001_000),
+            ]
+        )
+        calls = []
+
+        def sample(pid):
+            calls.append(pid)
+            return next(samples)
+
+        self.runtime.task_start = sample
+        with self.assertRaisesRegex(VerificationError, "after 3 samples") as caught:
+            self.verify()
+        self.assertEqual(calls, [101] * 3)
+        self.assertEqual(self.host.closed, [1001])
+        self.assertNotIn("retry verification", str(caught.exception))
+
+    def test_generation_change_between_samples_prevents_another_query(self):
+        calls, checks = [], []
+        original_stat = self.runtime._stat
+
+        def stat(pid):
+            checks.append(pid)
+            if len(checks) == 3:
+                self.host.process(101, 100, 3000, self.host.argv)
+            return original_stat(pid)
+
+        def sample(pid):
+            calls.append(pid)
+            return 19_980_000, 20_000_100
+
+        self.runtime._stat = stat
+        self.runtime.task_start = sample
+        with self.assertRaisesRegex(VerificationError, "generation changed before"):
+            self.runtime._runner_start(101, {"start": 2000})
+        self.assertEqual(calls, [101])
+        self.assertEqual(self.host.closed, [1001])
+
+    def test_retained_pidfd_exit_between_samples_prevents_pid_reuse(self):
+        polls, calls = [], []
+
+        def exited(fd, timeout):
+            self.assertEqual(fd, 1001)
+            polls.append(fd)
+            return len(polls) == 3
+
+        def sample(pid):
+            calls.append(pid)
+            return 19_980_000, 20_000_100
+
+        self.runtime.wait_exit = exited
+        self.runtime.task_start = sample
+        with self.assertRaisesRegex(VerificationError, "generation changed before"):
+            self.runtime._runner_start(101, {"start": 2000})
+        self.assertEqual(calls, [101])
+        self.assertEqual(self.host.closed, [1001])
+
+    def test_protocol_or_access_failure_after_slow_sample_is_terminal(self):
+        for failure in ("protocol", "permission", "timeout"):
+            with self.subTest(failure=failure):
+                calls = []
+                sock = TaskstatsSocket()
+                if failure == "protocol":
+                    sock.replies[0] = b"invalid packet"
+                else:
+                    sock.error = (
+                        PermissionError() if failure == "permission" else TimeoutError()
+                    )
+
+                def sample(pid):
+                    calls.append(pid)
+                    if len(calls) == 1:
+                        return 19_980_000, 20_000_100
+                    return TaskstatsTests().read(sock)
+
+                self.runtime.task_start = sample
+                with self.assertRaises(VerificationError) as caught:
+                    self.verify()
+                self.assertEqual(calls, [101, 101])
+                self.assertNotIn("retry verification", str(caught.exception))
+                self.assertTrue(sock.closed)
+
+    def test_invalid_birth_bounds_do_not_retry(self):
+        for bounds in [(-1, 20_000_100), (20_000_100, 20_000_000)]:
+            with self.subTest(bounds=bounds):
+                calls = []
+
+                def sample(pid):
+                    calls.append(pid)
+                    return bounds
+
+                self.runtime.task_start = sample
+                with self.assertRaisesRegex(VerificationError, "invalid TASKSTATS"):
+                    self.verify()
+                self.assertEqual(calls, [101])
+
+    def test_cancellation_after_slow_sample_propagates_and_closes_pidfd(self):
+        class Cancelled(BaseException):
+            pass
+
+        cancelled = Cancelled("stop")
+        calls = []
+
+        def sample(pid):
+            calls.append(pid)
+            if len(calls) == 1:
+                return 19_980_000, 20_000_100
+            raise cancelled
+
+        self.runtime.task_start = sample
+        with self.assertRaises(Cancelled) as caught:
+            self.verify()
+        self.assertIs(caught.exception, cancelled)
+        self.assertEqual(calls, [101, 101])
+        self.assertEqual(self.host.closed, [1001])
+
+    def test_real_cancellation_at_descriptor_boundaries_releases_ownership(self):
+        # Each signal runs in its own process: faulty mask restoration cannot
+        # affect the suite. No real pidfds, netlink or Ollama calls are made.
+        script = r"""
+import runpy
+import signal
+import sys
+import tempfile
+
+fixtures = runpy.run_path(sys.argv[1], run_name="runtime_fixtures")
+Host, Socket, Reader = (fixtures[name] for name in ("Host", "TaskstatsSocket", "TaskstatsTests"))
+runtime_module, signals = (sys.modules[name] for name in ("ollama_runtime", "ollama_signals"))
+phase, signum = sys.argv[2], getattr(signal, sys.argv[3])
+
+class Cancelled(BaseException):
+    pass
+
+def cancel(signum, frame):
+    raise Cancelled(signum)
+
+signal.signal(signum, cancel)
+signal.pthread_sigmask(signal.SIG_UNBLOCK, {signum})
+initial_mask = signal.pthread_sigmask(signal.SIG_BLOCK, set())
+
+@signals.deferred_context(critical=False)
+def transaction():
+    yield
+
+with tempfile.TemporaryDirectory() as directory:
+    host, sock = Host(directory), Socket()
+    runtime = None if phase.startswith("capture") else host.runtime()
+    if runtime:
+        runtime.task_start = lambda pid: Reader().read(sock)
+    fired, signal_returned = False, False
+    capture_body = runtime_module.Runtime._capture_fd.__wrapped__
+
+    def trace(frame, event, arg):
+        global fired, signal_returned
+        matched = False
+        if phase == "capture_body_return":
+            matched = event == "return" and frame.f_code is capture_body.__code__
+        elif phase == "capture_helper_return":
+            matched = (event == "return" and frame.f_code.co_name == "run"
+                       and frame.f_locals.get("function") is capture_body)
+        elif event == "call":
+            if phase in {"runner_enter", "runner_exit", "socket_enter", "socket_exit"}:
+                method = "__enter__" if phase.endswith("enter") else "__exit__"
+                if frame.f_code is getattr(signals._DeferredContext, method).__code__:
+                    generator = frame.f_locals["self"].gen
+                    if generator and generator.gi_code.co_name == "owned_descriptor":
+                        runner = generator.gi_frame.f_locals["opener"] is runtime.open_fd
+                        matched = runner == phase.startswith("runner")
+            elif phase == "socket_exchange":
+                matched = frame.f_code is Socket.recvmsg.__code__
+            elif phase == "systemctl":
+                matched = frame.f_code is Host.command.__code__
+            elif phase == "http":
+                matched = frame.f_code is Host.http.__code__
+        if matched and not fired:
+            fired = True
+            signal.raise_signal(signum)
+            signal_returned = True
+        return trace
+
+    cancelled = False
+    try:
+        sys.settrace(trace)
+        if phase.startswith("capture"):
+            host.runtime()
+        else:
+            # Model the CLI's masked outer ownership transaction. Only the
+            # explicit bounded observation calls should enable delivery.
+            with transaction():
+                runtime.verify(host.expected, [host.model])
+    except Cancelled:
+        cancelled = True
+    finally:
+        sys.settrace(None)
+        if runtime:
+            runtime.close()
+    assert fired and cancelled, (phase, fired, cancelled)
+    assert host.closed.count(1000) == 1, host.closed
+    expected_runner_closes = 0 if phase.startswith("capture") or phase == "systemctl" else 1
+    assert host.closed.count(1001) == expected_runner_closes, host.closed
+    if phase.startswith("socket") or phase in {"http", "runner_exit"}:
+        assert sock.closed
+    if phase in {"socket_exchange", "systemctl", "http"}:
+        assert not signal_returned, "bounded observation masked cancellation"
+    assert signal.pthread_sigmask(signal.SIG_BLOCK, set()) == initial_mask
+"""
+        for phase in (
+            "capture_body_return",
+            "capture_helper_return",
+            "runner_enter",
+            "runner_exit",
+            "socket_enter",
+            "socket_exit",
+            "socket_exchange",
+            "systemctl",
+            "http",
+        ):
+            for signum in ("SIGTERM", "SIGINT"):
+                with self.subTest(phase=phase, signum=signum):
+                    result = subprocess.run(
+                        [sys.executable, "-c", script, __file__, phase, signum],
+                        capture_output=True,
+                        text=True,
+                        timeout=5,
+                    )
+                    self.assertEqual(
+                        result.returncode, 0, result.stdout + result.stderr
+                    )
 
     def test_stale_fields_inside_uncertain_birth_bounds_are_not_evidence(self):
         self.host.births[101] = (20_000_000, 20_008_000)
