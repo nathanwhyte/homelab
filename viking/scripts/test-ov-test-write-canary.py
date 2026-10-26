@@ -70,6 +70,32 @@ COUNTS = {
     "strict_count_no_match": 0,
 }
 WRITTEN = {"status": "ok", "result": {"vector_status": "complete"}}
+EMBEDDED = {"processed": 1, "requeue_count": 0, "error_count": 0, "errors": []}
+TAGGED = {
+    "status": "ok",
+    "result": {
+        "root_uri": "viking://resources/ov-test-write-canary",
+        "created": [],
+        "updated": [wc.PROBE_URI],
+        "unchanged": [],
+        "queue_status": {"Embedding": EMBEDDED},
+        "vector_status": "complete",
+    },
+}
+# Stock v0.5.1.1's reply to the tag update on ov-test, 2026-10-26 (BUG-1269), trimmed.
+STOCK_TAG_UPDATE = {
+    "status": "error",
+    "result": None,
+    "error": {
+        "code": "INTERNAL",
+        "message": "Batch write embedding refresh failed",
+        "details": {"queue_status": {"Embedding": {
+            "processed": 0, "requeue_count": 0, "error_count": 1,
+            "errors": [{"message": "Error processing embedding message:"
+                        " 'HttpCollectionAdapter' object has no attribute 'update_data'"}],
+        }}},
+    },
+}  # fmt: skip
 
 
 def vdb(**fields):
@@ -87,7 +113,9 @@ def passing():
         "observer_healthy": True,
         "replace": {"http": 200, "body": WRITTEN},
         "read_back_matches": True,
+        "tag_update": {"http": 200, "body": TAGGED},
         "probe_vector_written": True,
+        "probe_tagged": True,
         "vectordb": dict(COUNTS),
     }
 
@@ -113,8 +141,11 @@ def fake_forward(*children):
 class Server:
     """An HTTP double for ov-test that logs every request and stores the probe."""
 
-    def __init__(self, observer=(200, OBSERVER), write=(200, WRITTEN)):
+    def __init__(
+        self, observer=(200, OBSERVER), write=(200, WRITTEN), batch=(200, TAGGED)
+    ):
         self.observer, self.write, self.sent, self.content = observer, write, [], None
+        self.batch, self.tags = batch, []
 
     def __call__(
         self, base, headers, method, path, params=None, body=None, timeout=120
@@ -125,6 +156,11 @@ class Server:
             return self.observer
         if path == "/health":
             return 200, {}
+        if path == "/api/v1/content/batch-write":
+            if self.batch[0] == 200:
+                op = body["operations"][0]
+                self.content, self.tags = op["content"], op["tags"]
+            return self.batch
         if method == "POST":
             if self.write[0] == 200:
                 self.content = body["content"]
@@ -258,6 +294,33 @@ class ReplaceRetryTests(unittest.TestCase):
         self.assertIs(call.call_args.kwargs["body"]["wait"], True)
 
 
+class TagUpdateTests(unittest.TestCase):
+    # IMPR-1431 row 1: BUG-1269 failed only on a field-only update, which the
+    # replace (new content, so a re-embed) never reached.
+    def test_resends_the_same_bytes_with_the_tag_and_waits(self):
+        call = mock.Mock(return_value=(200, TAGGED))
+        status, body, tries = wc.tag_update_with_retry(
+            call, "same bytes", "ov-test-write-canary=abc", attempts=1, wait=0
+        )
+        self.assertEqual((status, body, tries), (200, TAGGED, 1))
+        self.assertEqual(call.call_args.args, ("POST", "/api/v1/content/batch-write"))
+        self.assertEqual(
+            call.call_args.kwargs["body"],
+            {"root_uri": "viking://resources/ov-test-write-canary",
+             "operations": [{"uri": wc.PROBE_URI, "content": "same bytes",
+                             "mode": "replace", "tags": ["ov-test-write-canary=abc"]}],
+             "wait": True},
+        )  # fmt: skip
+
+    def test_retries_on_409_like_the_replace(self):
+        replies = iter([(409, "busy"), (200, TAGGED)])
+        sleep = mock.Mock()
+        status, _, tries = wc.tag_update_with_retry(
+            lambda *a, **k: next(replies), "x", "t", attempts=3, wait=10, sleep=sleep
+        )
+        self.assertEqual((status, tries, sleep.call_count), (200, 2, 1))
+
+
 class ObserverTests(unittest.TestCase):
     def test_names_the_collection_on_its_own_line(self):
         self.assertEqual(wc.observer_names(OBSERVER, "context_test"), (True, True))
@@ -289,14 +352,30 @@ class ProbeVectorTests(unittest.TestCase):
                        {"error": "ERROR RuntimeError('boom')"}, None):  # fmt: skip
             self.assertFalse(wc.probe_vector_written(record, self.CONTENT), record)
 
-    def test_probe_record_reports_the_md5s_or_the_error(self):
+    def test_probe_record_reports_the_md5s_and_tags_or_the_error(self):
         adapter = mock.Mock()
-        adapter.query.return_value = [{"md5": "b"}, {"md5": "a"}, {"md5": None}, {}]
-        self.assertEqual(wc.probe_record(adapter), {"rows": 4, "md5s": ["a", "b"]})
+        adapter.query.return_value = [
+            {"md5": "b", "search_tags": ["t2", "t1"]},
+            {"md5": "a", "search_tags": None},
+            {"md5": None, "search_tags": "not-a-list"},
+            {},
+        ]
+        self.assertEqual(wc.probe_record(adapter),
+                         {"rows": 4, "md5s": ["a", "b"], "tags": ["t1", "t2"]})  # fmt: skip
         self.assertEqual(adapter.query.call_args.kwargs["filter"], wc.PROBE_FILTER)
-        self.assertIn("md5", adapter.query.call_args.kwargs["output_fields"])
+        fields = adapter.query.call_args.kwargs["output_fields"]
+        self.assertIn("md5", fields)
+        self.assertIn("search_tags", fields)
         adapter.query.side_effect = RuntimeError("boom")
         self.assertIn("error", wc.probe_record(adapter))
+
+    def test_only_a_record_carrying_this_runs_tag_counts(self):
+        tag = "ov-test-write-canary=abc"
+        self.assertTrue(wc.probe_tagged({"rows": 1, "md5s": [], "tags": [tag]}, tag))
+        for record in ({"rows": 1, "tags": ["ov-test-write-canary=old"]},
+                       {"rows": 1, "tags": []}, {"rows": 1},
+                       {"error": "ERROR RuntimeError('boom')"}, None):  # fmt: skip
+            self.assertFalse(wc.probe_tagged(record, tag), record)
 
     def test_a_termination_is_not_swallowed_as_a_result(self):
         # homelab#266 round 5: with Terminated an Exception, these would report it.
@@ -336,6 +415,37 @@ class VerdictTests(unittest.TestCase):
         out = {**passing(), "probe_vector_written": False}
         self.assertEqual(wc.failures(out, True),
                          ["probe_vector (no record carries this run's content md5)"])  # fmt: skip
+
+    def test_the_stock_field_only_update_failure_fails(self):
+        # BUG-1269 on stock v0.5.1.1: HTTP 500 and an Embedding error.
+        out = {**passing(), "tag_update": {"http": 500, "body": STOCK_TAG_UPDATE}}
+        self.assertEqual(wc.failures(out, True), ["tag_update"])
+        self.assertEqual(wc.failures({**passing(), "tag_update": None}, True),
+                         ["tag_update"])  # fmt: skip
+
+    def test_a_tag_update_that_did_not_land_as_a_field_update_fails(self):
+        def tagged(**result):
+            body = {"status": "ok", "result": {**TAGGED["result"], **result}}
+            return {**passing(), "tag_update": {"http": 200, "body": body}}
+
+        for out, want in (
+            (tagged(vector_status="queued"), "tag_update (vector_status is not complete)"),
+            (tagged(updated=[], unchanged=[wc.PROBE_URI]),
+             "tag_update (the probe is not listed as updated)"),
+            (tagged(queue_status={"Embedding": {**EMBEDDED, "error_count": 1}}),
+             "tag_update (Embedding work failed)"),
+        ):  # fmt: skip
+            self.assertEqual(wc.failures(out, True), [want])
+        # --no-vectordb still checks the server's own outcome.
+        self.assertEqual(
+            wc.failures({**tagged(vector_status="failed"), "vectordb": None}, False),
+            ["tag_update (vector_status is not complete)"],
+        )
+
+    def test_a_record_without_this_runs_tag_fails(self):
+        out = {**passing(), "probe_tagged": False}
+        self.assertEqual(wc.failures(out, True),
+                         ["probe_vector (no record carries this run's tag)"])  # fmt: skip
 
     def test_counts_must_be_possible_for_any_data(self):
         bad_shape = ["vectordb (a count errored or is not a non-negative integer)"]
@@ -388,18 +498,54 @@ class RunTests(unittest.TestCase):
         forward = fake_forward()
         out = {}
         with cluster(server, forward=forward) as adapter:
-            adapter.query.side_effect = lambda **k: [{"md5": md5(server.content)}]
+            adapter.query.side_effect = lambda **k: [
+                {"md5": md5(server.content), "search_tags": server.tags}
+            ]
             wc.run(args(write_timeout=42), out)
         self.assertEqual(out["failed"], [])
-        posts = server.posts()
-        self.assertEqual([p["body"]["mode"] for p in posts], ["create", "replace"])
+        *writes, batch = server.posts()
+        self.assertEqual([p["body"]["mode"] for p in writes], ["create", "replace"])
         # homelab#266 round 5: a POST to another URI or service passed the tests.
-        for p in posts:
+        for p in writes:
             self.assertEqual((p["path"], p["body"]["uri"], p["body"]["wait"], p["timeout"]),
                              ("/api/v1/content/write", wc.PROBE_URI, True, 42))  # fmt: skip
+        # IMPR-1431 row 1: the tag update resends the replace's exact bytes, so
+        # only the tag changes and the server plans a field-only update.
+        (op,) = batch["body"]["operations"]
+        self.assertEqual((batch["path"], op["uri"], op["content"], batch["body"]["wait"],
+                          batch["timeout"]),
+                         ("/api/v1/content/batch-write", wc.PROBE_URI,
+                          writes[1]["body"]["content"], True, 42))  # fmt: skip
+        self.assertEqual(op["tags"], [out["tag"]])
         self.assertEqual([c.args[:2] for c in forward.call_args_list],
                          [(wc.SERVER_SVC, wc.SERVER_PORT), ("svc/ov-vectordb-test", 5000)])  # fmt: skip
         self.assertTrue(out["probe_vector_written"])
+        self.assertTrue(out["probe_tagged"])
+
+    def test_each_run_tags_the_probe_with_a_new_tag(self):
+        # A tag an earlier run left on the record cannot satisfy this one.
+        tags = []
+        for _ in range(2):
+            out = {}
+            with cluster(Server()):
+                wc.run(args(), out)
+            tags.append(out["tag"])
+        self.assertNotEqual(tags[0], tags[1])
+        self.assertTrue(all(t.startswith(wc.TAG_KEY + "=") for t in tags))
+
+    def test_the_stock_server_fails_the_run_on_the_tag_update(self):
+        # IMPR-1431 row 1 done-when: stock v0.5.1.1 passed the canary before.
+        server = Server(batch=(500, STOCK_TAG_UPDATE))
+        out = {}
+        with cluster(server) as adapter:
+            adapter.query.side_effect = lambda **k: [
+                {"md5": md5(server.content), "search_tags": server.tags}
+            ]
+            wc.run(args(), out)
+        self.assertEqual(
+            out["failed"],
+            ["tag_update", "probe_vector (no record carries this run's tag)"],
+        )
 
     def test_a_record_left_by_the_create_fails(self):
         # homelab#266 round 5: a run that created the probe passed on the create's
@@ -446,7 +592,7 @@ class RunTests(unittest.TestCase):
         out = {}
         with cluster(server):
             wc.run(args(), out)
-        self.assertEqual(len(server.posts()), 2)
+        self.assertEqual(len(server.posts()), 3)
         self.assertIn("observer_names_collection", out["failed"])
 
     def test_no_vectordb_skips_the_vectordb_forward(self):
