@@ -246,7 +246,10 @@ STUB_APT_HANG=1 bash "$NM" apt wemby >"$XDG_STATE_HOME/out" 2>&1 &
 pid=$!
 # The poll, not the launch command, which also names APT_DONE_RC.
 poll='APT_DONE_RC=//p'
-for _ in $(seq 1 100); do grep -qF "$poll" "$STUB_LOG" && break; sleep 0.1; done
+for _ in $(seq 1 100); do
+	grep -qF "$poll" "$STUB_LOG" && break
+	sleep 0.1
+done
 polls=$(grep -cF "$poll" "$STUB_LOG")
 kill -TERM "$pid"
 touch "$XDG_STATE_HOME/apt-done" # the remote run ends right after

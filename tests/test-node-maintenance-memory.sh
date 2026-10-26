@@ -177,6 +177,8 @@ if (HOST_MEMORY_RESERVATIONS="timmy" remaining_headroom_bytes wemby) >/dev/null 
 else
 	ok "malformed reservation entry fails closed"
 fi
+# The reset is read by remaining_headroom_bytes in the sourced script, not here.
+# shellcheck disable=SC2034
 HOST_MEMORY_RESERVATIONS=""
 
 # Unscheduled Pending pods reserve no capacity on any node.
@@ -427,14 +429,14 @@ cat >"$STUB_PODS" <<'JSON'
 ]}
 JSON
 
-blocked_plain=$( (memory_headroom_preflight wemby 0 0) 2>&1 ) || true
+blocked_plain=$( (memory_headroom_preflight wemby 0 0) 2>&1) || true
 if [[ $blocked_plain == *"--spin-down"* ]]; then
 	ok "blocked preflight offers --spin-down when it has not run"
 else
 	bad "blocked preflight should offer --spin-down when it has not run"
 fi
 
-blocked_spun=$( (memory_headroom_preflight wemby 0 1) 2>&1 ) || true
+blocked_spun=$( (memory_headroom_preflight wemby 0 1) 2>&1) || true
 if [[ $blocked_spun == *"Re-run with --spin-down"* ]]; then
 	bad "blocked preflight recommends --spin-down while it is already in effect"
 elif [[ $blocked_spun == *"--override-memory"* ]]; then
