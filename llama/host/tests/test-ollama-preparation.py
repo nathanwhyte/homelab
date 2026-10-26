@@ -301,7 +301,7 @@ class PreparationTests(FixtureCase):
             self.prep.warm(runtime)
         self.assertEqual(runtime.stops, 1)
 
-    def test_files_only_uses_canonical_manifest_not_context_or_raw_bytes(self):
+    def test_files_only_checks_manifest_and_recovery_revision(self):
         installed_root = self.root / "installed"
         installed_recipes = installed_root / "modelfiles"
         installed_recipes.mkdir(parents=True)
@@ -313,8 +313,13 @@ class PreparationTests(FixtureCase):
                 json.dumps(json.loads(source.read_text()), indent=4)
             )
         old = Posture(installed_root / "model-posture.json", installed_recipes)
-        self.prep.files_check(old)
+        with self.assertRaisesRegex(PreparationError, "recipe revision"):
+            self.prep.files_check(old)
         self.assert_no_candidates()
+        for source in self.recipes.iterdir():
+            (installed_recipes / source.name).write_text(source.read_text())
+        old = Posture(installed_root / "model-posture.json", installed_recipes)
+        self.prep.files_check(old)
         self.mutate_recipe(
             "gemma4:vlm", lambda shown: shown.update(template="different")
         )

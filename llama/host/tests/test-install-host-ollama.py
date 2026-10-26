@@ -44,10 +44,8 @@ elif command == "files-check":
     if source.read_bytes() != (installed / "model-posture.json").read_bytes():
         sys.exit("changed posture")
     for recipe in pathlib.Path(option("--recipes", "")).glob("*.Modelfile"):
-        def effective(path):
-            return [line for line in path.read_text().splitlines() if line.strip() and not line.lstrip().startswith("#")]
-        if effective(recipe) != effective(installed / "modelfiles" / recipe.name):
-            sys.exit("changed complete recipe")
+        if recipe.read_bytes() != (installed / "modelfiles" / recipe.name).read_bytes():
+            sys.exit("changed recipe revision")
 elif command in ("warm", "verify"):
     state = pathlib.Path(option("--state", str(root / "var/lib/ollama-preparation")))
     receipt = state / "verified.json"
@@ -394,18 +392,24 @@ class InstallerTests(unittest.TestCase):
                 self.assertEqual(self.mutation_calls(), [])
                 path.write_text(before)
 
-    def test_files_only_comment_change_never_restarts(self):
+    def test_files_only_unit_comment_change_never_restarts(self):
         self.installed()
         with (self.src / "ollama.service.d/homelab.conf").open("a") as file:
             file.write("# comment-only change\n")
-        with (self.recipes / "gemma4-vlm.Modelfile").open("a") as file:
-            file.write("# recipe commentary\n")
         result = self.run_installer("--files-only")
         self.assertEqual(result.returncode, 0, result.stdout)
         self.assertEqual(self.mutation_calls(), ["systemctl daemon-reload"])
         self.assertTrue(
             any(line.startswith("core files-check ") for line in self.calls())
         )
+
+    def test_files_only_recipe_comment_requires_new_receipt(self):
+        self.installed()
+        with (self.recipes / "gemma4-vlm.Modelfile").open("a") as file:
+            file.write("# recipe commentary\n")
+        result = self.run_installer("--files-only")
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+        self.assertEqual(self.mutation_calls(), [])
 
     def test_declared_version_cannot_be_overridden(self):
         result = self.run_installer(OLLAMA_VERSION="9.9.9")

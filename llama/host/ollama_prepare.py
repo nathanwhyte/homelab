@@ -416,6 +416,11 @@ class Preparation:
                         raise PreparationError(
                             f"--files-only refuses an effective recipe change for {tag}"
                         )
+        if self.posture.revision != installed.revision:
+            raise PreparationError(
+                "--files-only refuses a recipe revision change, including comments; "
+                "run full adoption to publish matching recovery witnesses"
+            )
 
 
 def dropin(posture):
