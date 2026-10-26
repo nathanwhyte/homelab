@@ -9,6 +9,7 @@ and `llama/ollama-jobs.yaml` (CronJobs that talk to the daemon over HTTP).
 | --------------------------------- | --------------------------------------------------- | ----------------------------------------------------------------------- |
 | `ollama.service.d/homelab.conf`   | `/etc/systemd/system/ollama.service.d/`             | The env the pod used to carry (bind, ctx, KV, Vulkan, …)                |
 | `ollama-warm.sh` + `.service`     | `/opt/ollama-host/`, `/etc/systemd/system/`         | Post-start: build + load-only warm of the FIM tag, build the OV pair   |
+| `99-homelab-dgpu-runpm.rules`     | `/etc/udev/rules.d/`                                | Keeps the 9070 XT out of runtime suspend, which evicts VRAM to RAM (BUG-1242) |
 | `install-host-ollama.sh`          | run from a repo checkout, with sudo                 | Pins the binary, installs the above, reconciles the exporter            |
 | `homelab-ollama-deploy.sh`        | `/usr/local/sbin/` (root:root 0755)                 | Passwordless deploy of **GitHub main** only — see below                 |
 | `homelab-deploy.sudoers`          | `/etc/sudoers.d/homelab-deploy` (0440, no dot)      | Grants noot that wrapper plus ollama start/stop/restart, nothing else   |
@@ -115,6 +116,7 @@ LoadBalancer Service; the host daemon cannot bind `0.0.0.0:11434` until that is 
 | Pull a model from the cluster | `kubectl -n llama create job --from=cronjob/ollama-pull pull-$(date +%s)` after setting `MODEL`                        |
 | Is the FIM model resident?    | `curl -s 192.168.1.19:11434/api/ps`; `/run/ollama/models-ready` records successful startup warm, not current residency |
 | Metrics                       | `curl -s 192.168.1.19:9111/metrics`; Grafana scrapes `ollama.llama.svc:9111`                                           |
+| Is the model really in VRAM?  | `/sys/bus/pci/devices/0000:03:00.0/power/control` is `on`, `/sys/bus/pci/devices/0000:03:00.0/mem_info_vram_used` holds ~9 GB, and `/sys/bus/pci/devices/0000:03:00.0/mem_info_gtt_used` stays under 1 GB. `ollama ps` counts GTT as GPU, so it cannot tell |
 
 ### Passwordless deploys
 

@@ -1,0 +1,14 @@
+# Keep timmy's RX 9070 XT (1002:7550, 03:00.0) out of PCI runtime suspend (BUG-1242).
+#
+# With the default power/control=auto the card suspends whenever Ollama is idle,
+# and amdgpu evicts every VRAM buffer to GTT (system RAM) first. Measured
+# 2026-10-26: suspended, 57 MB VRAM / 9,648 MB GTT; serving, 9,305 MB VRAM /
+# 410 MB GTT. That 9.6 GB sits on the k3s control plane's 31 GB with no swap, and
+# OpenViking's bursty calls wake the card often, copying it back each time. On
+# 2026-10-25 it stacked with the prompt cache until timmy thrashed (load 50-71,
+# IO pressure full 67%). The cost of "on" is the card's idle power draw.
+#
+# Matched by vendor:device so the Raphael iGPU (13:00.0) keeps runtime PM.
+# Installed by install-host-ollama.sh to /etc/udev/rules.d/, which also triggers
+# it so it applies without a reboot.
+ACTION=="add|bind", SUBSYSTEM=="pci", ATTR{vendor}=="0x1002", ATTR{device}=="0x7550", ATTR{power/control}="on"
