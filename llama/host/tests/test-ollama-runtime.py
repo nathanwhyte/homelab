@@ -155,16 +155,16 @@ class Host:
             exe.unlink()
         exe.symlink_to(argv[0])
 
-    def rows(self):
+    def rows(self, *, start=19_995_000, messages=None):
         return [
             {
                 "_BOOT_ID": self.boot.replace("-", ""),
                 "_SYSTEMD_INVOCATION_ID": self.invocation,
                 "_PID": "100",
-                "__MONOTONIC_TIMESTAMP": str(19_995_000 + i * 10000),
+                "__MONOTONIC_TIMESTAMP": str(start + i * 10000),
                 "MESSAGE": message,
             }
-            for i, message in enumerate(self.messages)
+            for i, message in enumerate(self.messages if messages is None else messages)
         ]
 
     def command(self, argv):
@@ -279,6 +279,142 @@ class RuntimeTests(unittest.TestCase):
     def test_multiline_journal_messages_preserve_startup_fields(self):
         self.host.messages[4:10] = ["\n".join(self.host.messages[4:10])]
         self.verify()
+
+    def test_previous_same_argv_and_port_do_not_make_current_start_ambiguous(self):
+        current = self.host.rows()
+        # Cover both distant history and a completed prior load still within
+        # the five-second pre-spawn marker allowance for the current process.
+        for previous_start in [1_000_000, 19_000_000]:
+            with self.subTest(previous_start=previous_start):
+                self.host.rows_override = self.host.rows(start=previous_start) + current
+                evidence = self.verify()["models"][0]
+                self.assertEqual(evidence["start_ticks"], 2000)
+                self.assertEqual(evidence["gpu_layers"], 43)
+
+    def test_malformed_historical_command_is_not_current_identity(self):
+        previous = self.host.rows(start=1_000_000)
+        previous[0]["MESSAGE"] = 'msg="starting llama-server" cmd="unterminated'
+        self.host.rows_override = previous + self.host.rows()
+        self.verify()
+
+    def test_far_earlier_unfinished_startup_does_not_poison_current_proof(self):
+        self.host.rows_override = self.host.rows(start=1_000_000)[:1] + self.host.rows()
+        self.verify()
+
+    def test_earlier_bad_runtime_evidence_does_not_taint_current_load(self):
+        previous = self.host.rows(start=19_000_000)
+        for row in previous:
+            row["MESSAGE"] = (
+                row["MESSAGE"]
+                .replace("Vulkan0", "ROCm0")
+                .replace("43/43", "1/43")
+                .replace("K (q8_0)", "K (f16)")
+            )
+        self.host.rows_override = previous + self.host.rows()
+        self.verify()
+
+    def test_prior_good_load_cannot_rescue_bad_current_runtime_evidence(self):
+        previous = self.host.rows(start=19_000_000)
+        for before, after in [
+            ("Vulkan0", "ROCm0"),
+            ("AMD Radeon RX 9070 XT", "AMD Radeon Graphics"),
+            ("43/43", "1/43"),
+            ("K (q8_0)", "K (f16)"),
+            ("V (q8_0)", "V (f16)"),
+        ]:
+            with self.subTest(before=before):
+                current = self.host.rows()
+                for row in current:
+                    row["MESSAGE"] = row["MESSAGE"].replace(before, after)
+                self.host.rows_override = previous + current
+                with self.assertRaises(VerificationError):
+                    self.verify()
+
+    def test_stale_only_startup_is_not_current_even_inside_launch_allowance(self):
+        self.host.rows_override = self.host.rows(start=19_000_000)
+        with self.assertRaisesRegex(
+            VerificationError, "current runner startup interval"
+        ):
+            self.verify()
+
+    def test_missing_current_marker_cannot_reuse_prior_same_command(self):
+        self.host.rows_override = (
+            self.host.rows(start=19_000_000) + self.host.rows()[1:]
+        )
+        with self.assertRaisesRegex(
+            VerificationError, "current runner startup interval"
+        ):
+            self.verify()
+
+    def test_current_command_mismatch_is_not_rescued_by_historical_match(self):
+        current = self.host.rows()
+        current[0]["MESSAGE"] = current[0]["MESSAGE"].replace("43210", "43211")
+        self.host.rows_override = self.host.rows(start=1_000_000) + current
+        with self.assertRaisesRegex(
+            VerificationError, "current startup command differs"
+        ):
+            self.verify()
+
+    def test_two_start_markers_compatible_with_current_tick_are_ambiguous(self):
+        current = self.host.rows()
+        duplicate = {**current[0], "__MONOTONIC_TIMESTAMP": "20001000"}
+        self.host.rows_override = current[:1] + [duplicate] + current[1:]
+        with self.assertRaisesRegex(
+            VerificationError, "ambiguous current runner startup interval"
+        ):
+            self.verify()
+
+    def test_stale_fields_before_proc_start_cannot_complete_current_proof(self):
+        # Move each observation before the first possible process timestamp,
+        # while preserving the same current command and listening marker.
+        for index in [1, 2, 3, 4, 5, 6, 7, 8, 9]:
+            with self.subTest(index=index):
+                current = self.host.rows()
+                current[index]["__MONOTONIC_TIMESTAMP"] = "19999000"
+                self.host.rows_override = sorted(
+                    current, key=lambda row: int(row["__MONOTONIC_TIMESTAMP"])
+                )
+                with self.assertRaises(VerificationError):
+                    self.verify()
+
+    def test_mixed_runner_listening_markers_do_not_select_only_matching_port(self):
+        current = self.host.rows()
+        other = {
+            **current[-1],
+            "MESSAGE": current[-1]["MESSAGE"].replace("43210", "43211"),
+        }
+        self.host.rows_override = current + [other]
+        with self.assertRaisesRegex(
+            VerificationError, "ambiguous runner listening marker"
+        ):
+            self.verify()
+
+    def test_only_wrong_current_listener_is_rejected(self):
+        current = self.host.rows()
+        current[-1]["MESSAGE"] = current[-1]["MESSAGE"].replace("43210", "43211")
+        self.host.rows_override = current
+        with self.assertRaisesRegex(
+            VerificationError, "listener differs from runner port"
+        ):
+            self.verify()
+
+    def test_mixed_current_fields_cannot_select_only_the_matching_value(self):
+        for index, before, after in [
+            (1, "Vulkan0", "ROCm0"),
+            (3, "43/43", "1/43"),
+            (4, "262144", "131072"),
+            (9, "K (q8_0)", "K (f16)"),
+        ]:
+            with self.subTest(index=index):
+                current = self.host.rows()
+                other = {
+                    **current[index],
+                    "__MONOTONIC_TIMESTAMP": current[-1]["__MONOTONIC_TIMESTAMP"],
+                    "MESSAGE": current[index]["MESSAGE"].replace(before, after),
+                }
+                self.host.rows_override = current[:-1] + [other] + current[-1:]
+                with self.assertRaises(VerificationError):
+                    self.verify()
 
     def test_two_sequential_residents_are_bound_independently(self):
         self.host.expected["max_loaded"] = 2

@@ -4,6 +4,11 @@ This adapter observes an already loaded daemon; it never loads a model. The
 caller supplies recipe/API evidence and serializes preparation and loading.
 Missing, stale or ambiguous observations are failures, including journal loss.
 
+Runner text is forwarded through the daemon without a runner PID. Attribution
+therefore requires an ordered, retained startup interval consistent with proc
+starttime, exact argv, and /props; it is not an independently identified runner
+journal stream. Only that current interval supplies runtime observations.
+
 Sources: ollama/ollama v0.40.11 llm/llama_server.go (runner argv, forwarded
 stderr), server/routes.go (SIGINT/SIGTERM handling); ggml-org/llama.cpp b11845
 tools/server/server-context.cpp (/props), src/llama-{context,model,kv-cache}.cpp
@@ -341,42 +346,65 @@ class Runtime:
             raise VerificationError("malformed journal evidence") from exc
         return rows
 
+    def _startup_interval(self, runner, rows):
+        # A command/port can recur within one daemon invocation. First bind a
+        # monotonic lifecycle interval to the captured proc start tick; only
+        # then inspect its command or model. Historical command text is not an
+        # identity selector and cannot veto or supply proof for this process.
+        proc_start = runner["start"] * 1_000_000 / self.ticks
+        tick = 1_000_000 / self.ticks
+        starts = [
+            index
+            for index, (_, message) in enumerate(rows)
+            if 'msg="starting llama-server"' in message
+        ]
+        listening = re.compile(r"\blistening on http://127\.0\.0\.1:(\d+)(?:\s|$)")
+        candidates = []
+        for position, index in enumerate(starts):
+            stamp = rows[index][0]
+            # The Go marker precedes cmd.Start by at most the allowed launch
+            # delay; procfs rounds starttime down, unlike journal microseconds.
+            if not proc_start - 5_000_000 <= stamp < proc_start + tick:
+                continue
+            end = starts[position + 1] if position + 1 < len(starts) else len(rows)
+            ready = [
+                (i, event_stamp, port)
+                for i in range(index + 1, end)
+                for event_stamp, message in [rows[i]]
+                for port in listening.findall(message)
+            ]
+            # A completed earlier startup cannot belong to the new process,
+            # even when its argv and port are identical and its start marker
+            # happens to be inside the launch-delay allowance. An incomplete
+            # interval ends at the next start, or remains open and fails below.
+            ended = ready[0][1] if ready else rows[end][0] if end < len(rows) else None
+            if ended is None or ended >= proc_start:
+                candidates.append((index, ready))
+        index, ready = _one(candidates, "current runner startup interval")
+        match = re.search(r'\bcmd=("(?:[^"\\]|\\.)*")', rows[index][1])
+        if not match:
+            raise VerificationError("malformed runner startup marker")
+        try:
+            command = json.loads(match[1])
+        except ValueError as exc:
+            raise VerificationError("malformed runner command marker") from exc
+        if command != " ".join(runner["argv"]):
+            raise VerificationError("current startup command differs from runner argv")
+        ready_index, _, port = _one(ready, "runner listening marker")
+        if port != _flag(runner["argv"], "--port"):
+            raise VerificationError("current startup listener differs from runner port")
+        # All downstream assertions share this one interval. In particular, a
+        # stale GPU/cache/offload line logged before this process existed must
+        # never fill in a missing current observation.
+        return "\n".join(
+            message
+            for stamp, message in rows[index + 1 : ready_index + 1]
+            if stamp >= proc_start
+        )
+
     def _startup(self, runner, rows, model, expected):
         argv = runner["argv"]
-        command = " ".join(argv)
-        starts = []
-        for index, (stamp, message) in enumerate(rows):
-            if 'msg="starting llama-server"' not in message:
-                continue
-            match = re.search(r'\bcmd=("(?:[^"\\]|\\.)*")', message)
-            if not match:
-                raise VerificationError("malformed runner startup marker")
-            try:
-                cmd = json.loads(match[1])
-            except ValueError as exc:
-                raise VerificationError("malformed runner command marker") from exc
-            starts.append((index, stamp, cmd))
-        index, stamp, _ = _one(
-            [item for item in starts if item[2] == command], "current runner startup"
-        )
-        proc_start = runner["start"] * 1_000_000 / self.ticks
-        if not -1_000_000 / self.ticks <= proc_start - stamp <= 5_000_000:
-            # The Go log precedes cmd.Start; a prior process with identical argv
-            # cannot donate its startup evidence to this PID. procfs rounds
-            # starttime down to a clock tick, unlike journal microseconds.
-            raise VerificationError("runner startup does not match proc start time")
-        end = next((i for i, _, _ in starts if i > index), len(rows))
-        lines = [message for _, message in rows[index + 1 : end]]
-        port = _flag(argv, "--port")
-        ready = [
-            i
-            for i, line in enumerate(lines)
-            if re.search(
-                rf"\blistening on http://127\.0\.0\.1:{re.escape(port)}(?:\s|$)", line
-            )
-        ]
-        lines = lines[: _one(ready, "runner listening marker") + 1]
-        text = "\n".join(lines)
+        text = self._startup_interval(runner, rows)
         path = _flag(argv, "--model")
         if (
             len(
