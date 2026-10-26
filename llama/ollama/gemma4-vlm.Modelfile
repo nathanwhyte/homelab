@@ -73,7 +73,7 @@
 # summaries disappoint: a 15-20% gain at a quality cost, since they are not
 # QAT.
 #
-# HOST RAM: the E-series keeps its per-layer embedding tables on the CPU
+# HOST RAM (measured 2026-10-13): the E-series keeps its per-layer embedding tables on the CPU
 # (`CPU_Mapped model buffer size = 3536 MiB`, mmap'd page cache, hot). The 12B
 # kept 0.8 GiB there. timmy has 30 GiB with ~12 GiB available; this is
 # reclaimable under pressure at the cost of re-reading from NVMe, not a
@@ -87,6 +87,9 @@
 # them makes the choice visible in `ollama show --modelfile` and survives a
 # detection change upstream. `think` is per-request (the proxy injects
 # reasoning none).
+# In the pinned 0.40.11 API, the declared `gemma4` renderer resolves to
+# `gemma4-small` for E4B. Preparation compares canonical candidate identity
+# and matching API representations; raw and resolved names are not literal equals.
 #
 # PIN. The hf.co reference is a moving name: Unsloth re-uploads quants under
 # the same file name when they fix templates or re-quantize, and `ollama pull`
@@ -100,13 +103,17 @@
 #   sha256 ddf46c21d7078e95338cfc22306b19b276a29a5ad089023449dd54d4b6170a51
 # Ollama stores each download under its sha256 (models/blobs/sha256-f8854aa…
 # and sha256-ddf46c2…), and the tag's --modelfile lists the weights as the
-# first FROM and the projector as the second. ollama-warm.sh compares the
-# first FROM blob against OV_VLM_BASE_SHA256 (test 7): a mismatch fails the
-# warm unit and makes install-host-ollama.sh's --reconcile-only gate abort
-# before the restart. That is an installer/warming gate, not a serving
-# boundary: the daemon keeps serving whatever tag exists, so a drifted tag
-# would still load on the next OpenViking request or recovery CronJob run
-# until someone acts on the WARN. If a pull ever lands another blob, fetch
+# first FROM and the projector as the second. model-posture.json owns BOTH
+# approved blob pins. ollama_prepare.py compiles this complete recipe with
+# Ollama, checks both identities and reads back the canonical manifest after
+# adoption; matching num_ctx alone cannot bypass a changed recipe. Post-load
+# runtime verification also gates the root-owned, revision-bound receipt.
+# A failed host adoption invalidates acceptance and stops its captured daemon
+# generation through pidfd/SIGHUP, subject to the verified systemd stop policy.
+# HTTP recovery requires serving digests bound by that receipt and leaves any
+# loaded model alone; it is not a serving proxy or atomic admission boundary.
+# These are the IMPR-1426 source contract, not new live acceptance results.
+# If a pull ever lands another blob, fetch
 # BOTH pinned files by commit and build from the paths instead (a single
 # weights FROM builds a text-only tag; vision.* calls then fail):
 #   cd /var/lib/ollama
@@ -118,21 +125,23 @@
 #     FROM /var/lib/ollama/gemma-4-E4B-it-Q8_0.gguf
 #     FROM /var/lib/ollama/mmproj-F16.gguf
 #
-# Requires: ollama pull hf.co/unsloth/gemma-4-E4B-it-GGUF:Q8_0
-# Build:    ollama create gemma4:vlm -f gemma4-vlm.Modelfile
-# Rollback to the 12B: the recipe and the pin move TOGETHER, or the gate above
-# refuses the rolled-back tag (test 8). In one commit: FROM gemma4:12b-it-qat
-# here (RENDERER/PARSER may stay, they name the same values the library tag
-# carries), and in llama/host/ollama-warm.sh set OV_VLM_BASE=gemma4:12b-it-qat
-# and OV_VLM_BASE_SHA256 to the 12B weights blob (`ollama show
-# gemma4:12b-it-qat --modelfile | grep -m1 ^FROM`). Then rebuild; num_ctx is
-# baked by this file either way, so the num_ctx reconcile is unaffected.
+# Adopt through the reviewed host installer; see llama/host/README.md.
+# Rollback to the 12B: change FROM here to gemma4:12b-it-qat and update this
+# model's complete approved blob list in llama/host/model-posture.json from
+# inspected 12B weights/projector evidence. Keep the renderer/parser choice
+# explicit. Render the derived artifacts, validate, then perform full host
+# adoption followed by the matching recovery CronJob update. The serving tag
+# stays gemma4:vlm. Do not edit the thin warm adapter or manually treat create
+# acknowledgement as acceptance. Even recipe-comment edits change the posture
+# revision and require full adoption; --files-only conservatively refuses them.
 
 FROM hf.co/unsloth/gemma-4-E4B-it-GGUF:Q8_0
 RENDERER gemma4
 PARSER gemma4
 
-# 32768, raised from 16384 on 2026-09-21 after the BUG-1155 cold ingest.
+# HISTORICAL 2026-09-21: raised 16384 -> 32768 after the BUG-1155 cold ingest.
+# The 2026-10-13 change to 65536 is recorded below; retain these earlier figures
+# with their original model and date rather than treating them as today's proof.
 #
 # THE OVERFLOW IS DEMONSTRATED. During the 2026-09-21 cold ingest the ollama
 # daemon logged 6,221 llama.cpp slot releases, of which 36 carry `truncated = 1`
@@ -207,7 +216,8 @@ PARSER gemma4
 #   num_ctx 32768 x 4 slots -> ~2.21 GB KV      (+0.57 GB)
 #
 # Weights are ~7 GB, the card is 16 GB, and qwen2.5-coder:fim (2.73 GB) is the
-# other resident tag, so the delta fits comfortably.
+# other resident tag, so the delta fit that historical posture. This is not
+# capacity proof for the current Qwen/Gemma co-resident profile.
 #
 # 32768 IS VERY LIKELY SUFFICIENT, THOUGH NOT PROVEN. The unknown is the
 # CONTINUATION that would have been generated with more room, not a destroyed
@@ -234,9 +244,10 @@ PARSER gemma4
 # The deployed allocation is unverified until the daemon's startup allocation
 # log is read after the reload.
 #
-# DO NOT reconcile these numbers against the "4 slots x num_ctx 8192 = 4.5 GiB
-# q8_0 KV" line in llama/host/ollama.service.d/homelab.conf -- that figure
-# (IMPR-1083) sized a dense model with no sliding window and many more kv
+# DO NOT reconcile these numbers against the historical "4 slots x num_ctx
+# 8192 = 4.5 GiB q8_0 KV" estimate (IMPR-1083). That figure, previously in
+# homelab.conf before it became generated, sized a dense model with no sliding
+# window and many more kv
 # heads. Both are right for their model. Any future tag change here must
 # re-derive KV from ITS OWN /api/show shape and the allocator's padding rules.
 #
@@ -246,8 +257,8 @@ PARSER gemma4
 # (~1.68 GB) to keep the aggregate at 131072, but two slots halved completions
 # per minute and stalled the Semantic queue within 20 minutes; 8 x 65536
 # (~6.4 GiB KV) ran for 15 minutes that afternoon and gained nothing, since
-# the card is decode-bound at ~100 t/s for that model (see the drop-in). 4 it
-# is. Those KV figures are the 12B's; the E4B base allocates 2176 + 212 MiB
+# the card was decode-bound at ~100 t/s for that model. Four slots were retained.
+# Those KV figures are the 12B's; the E4B base allocated 2176 + 212 MiB
 # (~2.3 GiB) at 4 x 65536, and with 4.9 GiB of weights the card sits at
 # ~9.3 GiB with no second tag resident.
 #
@@ -267,9 +278,11 @@ PARSER gemma4
 # pre-load estimate is the gate: at 8 slots the same value made the estimator
 # offload 4 of 49 layers to CPU (1.27 GiB weights + 408 MiB KV on the host,
 # GPU 12-30% busy), which is why 8 x 2048 was reverted within minutes. At 4
-# slots the total is ~10.5 GiB. ollama-warm.sh reconciles num_ctx only, so a
-# num_batch change needs `ollama create gemma4:vlm -f <this file>` by hand
-# after `git pull` on timmy; the next installer run would not notice it.
+# slots the total was ~10.5 GiB. That measurement predates IMPR-1426: the old
+# warm script reconciled num_ctx only and required a manual rebuild for batch
+# changes. The preparation module now detects the complete recipe change and
+# verifies actual n_batch/n_ubatch during full adoption; do not rebuild by hand
+# and assume that proves the runtime or refreshes the recovery receipt.
 #
 # This time the wall was on the PROMPT side. Ollama admits a prompt unchanged
 # up to num_ctx - 1 tokens; a longer one is cut down to half the slot and

@@ -1,0 +1,52 @@
+# Suspended pull template; independent of the verified resident posture.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: ollama-pull
+  namespace: llama
+  labels:
+    app: ollama
+    homelab.nathanwhyte.dev/backend: host-systemd
+spec:
+  suspend: true
+  schedule: "0 0 31 2 *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      activeDeadlineSeconds: 5400
+      ttlSecondsAfterFinished: 172800
+      template:
+        metadata:
+          labels:
+            app: ollama
+            job: ollama-pull
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: pull
+              image: curlimages/curl:8.11.1
+              env:
+                - name: OLLAMA_URL
+                  value: http://ollama.llama.svc:11434
+                - name: MODEL
+                  value: deepseek-coder-v2:16b-lite-base-q4_0
+              command:
+                - sh
+                - -ec
+                - |
+                  echo "pulling $MODEL via $OLLAMA_URL"
+                  result=$(curl -fsS -m 5300 -X POST "$OLLAMA_URL/api/pull" \
+                    -H 'Content-Type: application/json' \
+                    -d "{\"model\":\"$MODEL\",\"stream\":false}")
+                  printf '%s\n' "$result"
+                  printf '%s' "$result" | grep -Eq '"status"[[:space:]]*:[[:space:]]*"success"'
+              resources:
+                requests:
+                  cpu: 10m
+                  memory: 16Mi
+                limits:
+                  cpu: 100m
+                  memory: 64Mi

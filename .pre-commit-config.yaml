@@ -307,6 +307,13 @@ repos:
         language: script
         types: [markdown]
         pass_filenames: true
+      - id: ollama-preparation-tests
+        name: Ollama preparation, runtime and adoption contracts
+        entry: bash llama/host/tests/run-tests.sh
+        language: system
+        pass_filenames: false
+        verbose: true
+        files: ^(llama/host/|llama/ollama/(.*\.Modelfile|ollama-exporter\.py)$|llama/ollama-jobs\.yaml$|\.pre-commit-config\.yaml$)
       # The two agentic-coding test files are the only guards for the harness's
       # score-corrupting defect classes (verifier bypass, token truncation,
       # metric drift) and there is no CI — so they run here, scoped to the

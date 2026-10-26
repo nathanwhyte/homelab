@@ -26,7 +26,8 @@ Cmnd_Alias HOMELAB_OLLAMA_DEPLOY = \
 	/usr/local/sbin/homelab-ollama-deploy.sh --check, \
 	/usr/local/sbin/homelab-ollama-deploy.sh --sync-models, \
 	/usr/local/sbin/homelab-ollama-deploy.sh --sync-identity, \
-	/usr/local/sbin/homelab-ollama-deploy.sh --files-only
+	/usr/local/sbin/homelab-ollama-deploy.sh --files-only, \
+	/usr/local/sbin/homelab-ollama-deploy.sh --bootstrap-recovery
 
 Cmnd_Alias HOMELAB_OLLAMA_UNITS = \
 	/usr/bin/systemctl restart ollama, \

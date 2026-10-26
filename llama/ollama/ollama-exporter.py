@@ -276,6 +276,49 @@ def format_metrics():
 
 
 class MetricsHandler(BaseHTTPRequestHandler):
+    def _json_response(self, status, body):
+        payload = json.dumps(body).encode()
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(payload)))
+        self.end_headers()
+        self.wfile.write(payload)
+
+    def _recover(self):
+        adapter = getattr(self.server, "preparation_recover", None)
+        if adapter is None:
+            self._json_response(404, {"error": "preparation recovery is disabled"})
+            return
+        try:
+            lengths = self.headers.get_all("Content-Length", [])
+            if len(lengths) != 1 or self.headers.get("Transfer-Encoding") is not None:
+                raise ValueError("one Content-Length is required")
+            length = int(lengths[0])
+            if not 0 < length <= 4096:
+                raise ValueError("recovery body must be between 1 and 4096 bytes")
+            self.connection.settimeout(5)
+            raw = self.rfile.read(length)
+            if len(raw) != length:
+                raise ValueError("incomplete recovery request")
+            config = json.loads(raw)
+            if not isinstance(config, dict) or set(config) != {
+                "revision",
+                "version",
+                "residents",
+            }:
+                raise ValueError(
+                    "recovery request requires exactly revision/version/residents"
+                )
+        except (OSError, ValueError) as exc:
+            self._json_response(400, {"error": str(exc)[:300]})
+            return
+        try:
+            result = adapter(config)
+        except (RuntimeError, OSError, ValueError) as exc:
+            self._json_response(409, {"error": str(exc)[:300]})
+            return
+        self._json_response(200, result)
+
     def do_GET(self):
         if self.path == "/metrics":
             body = format_metrics().encode()
@@ -294,7 +337,9 @@ class MetricsHandler(BaseHTTPRequestHandler):
             self.end_headers()
 
     def do_POST(self):
-        if self.path == "/push":
+        if self.path == "/preparation/recover":
+            self._recover()
+        elif self.path == "/push":
             length = int(self.headers.get("Content-Length", 0))
             body = json.loads(self.rfile.read(length)) if length else {}
             push_request_metrics(
@@ -327,6 +372,16 @@ def poll_loop(ollama_url, interval):
 # ── Main ─────────────────────────────────────────────────────────────────────
 
 
+def preparation_adapter(state):
+    # Non-host deployments need no preparation modules. Only the explicitly
+    # enabled host route imports this dependency, with no caller-supplied path.
+    if state is None:
+        return None
+    from ollama_attestation import recover_attested
+
+    return lambda config: recover_attested(config, state)
+
+
 def main():
     parser = argparse.ArgumentParser(description="Prometheus exporter for Ollama")
     parser.add_argument(
@@ -336,7 +391,12 @@ def main():
     parser.add_argument(
         "--interval", type=int, default=15, help="Poll interval in seconds"
     )
+    parser.add_argument(
+        "--preparation-state",
+        help="Enable host recovery using this root-owned verification state directory",
+    )
     args = parser.parse_args()
+    recover_prepared = preparation_adapter(args.preparation_state)
 
     print(f"ollama-exporter starting")
     print(f"  Ollama: {args.ollama}")
@@ -350,6 +410,7 @@ def main():
     poller.start()
 
     server = ThreadingHTTPServer(("0.0.0.0", args.port), MetricsHandler)
+    server.preparation_recover = recover_prepared
     try:
         server.serve_forever()
     except KeyboardInterrupt:

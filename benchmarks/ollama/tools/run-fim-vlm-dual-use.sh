@@ -16,15 +16,16 @@
 # for the dual-use and num_batch legs. The EXIT trap restores $RESIDENT_TAG with
 # keep_alive -1, pass or fail.
 #
-# RESIDENT_TAG is NOT hardcoded, and must not be. It was deepseek-coder-v2:fim,
-# then :instruct (homelab #127), and is qwen2.5-coder:fim since the OV pair
-# landed (#130/#132) -- each time a hardcoded restore silently re-pinned a stale
-# tag, leaving the editor to pay a reload on its next completion (BUG-1154).
-# The default tracks RESIDENT_TAG in llama/host/ollama-warm.sh, which is the
-# source of truth; override the env var for a host on another posture.
+# Set RESIDENT_TAG explicitly to the target host's declared single resident in
+# llama/host/model-posture.json. This benchmark-only variable controls cleanup;
+# it does not select the installed posture or change preparation/rendering.
+# There is no restore default: hardcoded restores have re-pinned stale tags
+# (BUG-1154). This one-tag cleanup cannot restore a co-resident profile. Suspend
+# recovery during an authorized benchmark and run host verification afterward;
+# this trap does not establish acceptance.
 #
 # Run from the repo root on any LAN/Tailscale host:
-#   benchmarks/ollama/tools/run-fim-vlm-dual-use.sh [REPS]
+#   RESIDENT_TAG=<declared-single-resident> benchmarks/ollama/tools/run-fim-vlm-dual-use.sh [REPS]
 # Env: OLLAMA_HOST (default http://192.168.1.19:11434), OUTPUT_DIR,
 #      DUAL_CONDITIONS (default A,B,D,F,G,H), NUM_BATCH_VARIANTS (default none),
 #      SWEEP_CONDITIONS (default A,F,H), VLM_DOC, VLM_TOKENS, PROBE (probe
@@ -34,9 +35,8 @@ set -euo pipefail
 
 REPS="${1:-8}"
 export OLLAMA_HOST="${OLLAMA_HOST:-http://192.168.1.19:11434}"
-# What cleanup() restores. Keep in step with RESIDENT_TAG in
-# llama/host/ollama-warm.sh -- this is only its benchmark-side mirror.
-RESIDENT_TAG="${RESIDENT_TAG:-qwen2.5-coder:fim}"
+# What cleanup() restores; require the operator to identify the target posture.
+RESIDENT_TAG="${RESIDENT_TAG:?set RESIDENT_TAG to the declared single resident on the target host}"
 # The historical FIM tag the baseline leg measures. Deliberately separate from
 # RESIDENT_TAG: the baseline is about the OLD serving tag, not what is pinned.
 BASELINE_TAG="${BASELINE_TAG:-deepseek-coder-v2:fim}"

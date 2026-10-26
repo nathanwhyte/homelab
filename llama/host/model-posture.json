@@ -1,0 +1,49 @@
+{
+  "schema": 1,
+  "version": "0.40.11",
+  "resident": "gemma4:vlm",
+  "parallel": 4,
+  "default_batch": 512,
+  "gpu_name": "AMD Radeon RX 9070 XT",
+  "environment": {
+    "OLLAMA_HOST": "0.0.0.0:11434",
+    "OLLAMA_MODELS": "/usr/share/ollama/.ollama/models",
+    "OLLAMA_CONTEXT_LENGTH": "131072",
+    "OLLAMA_FLASH_ATTENTION": "1",
+    "OLLAMA_KV_CACHE_TYPE": "q8_0",
+    "OLLAMA_KEEP_ALIVE": "-1",
+    "OLLAMA_LOAD_TIMEOUT": "15m",
+    "OLLAMA_VULKAN": "1",
+    "OLLAMA_LLM_LIBRARY": "vulkan"
+  },
+  "forbidden_environment": ["GGML_VK_VISIBLE_DEVICES", "VULKAN_VISIBLE_DEVICES", "OLLAMA_MULTIUSER_CACHE"],
+  "service_properties": {
+    "User": "ollama",
+    "Group": "ollama",
+    "MemoryMax": "17179869184",
+    "CPUQuotaPerSecUSec": "8s",
+    "RestartPreventExitStatus": "HUP",
+    "RestartForceExitStatus": "",
+    "KillMode": "control-group",
+    "SendSIGKILL": "yes",
+    "TimeoutStopUSec": "30s"
+  },
+  "models": {
+    "gemma4:vlm": {
+      "recipe": "gemma4-vlm.Modelfile",
+      "blobs": [
+        "f8854aa4480df62585a279e7ca0a881554fc18a41c59c4f62642d16a2ae47012",
+        "ddf46c21d7078e95338cfc22306b19b276a29a5ad089023449dd54d4b6170a51"
+      ]
+    },
+    "qwen2.5-coder:fim": {"recipe": "qwen2.5-coder-fim.Modelfile"},
+    "deepseek-coder-v2:fim": {"recipe": "deepseek-coder-v2-fim.Modelfile"},
+    "deepseek-coder-v2:instruct": {"recipe": "deepseek-coder-v2-instruct.Modelfile"}
+  },
+  "profiles": {
+    "gemma4:vlm": {"residents": ["gemma4:vlm"], "standby": ["qwen2.5-coder:fim"]},
+    "qwen2.5-coder:fim": {"residents": ["qwen2.5-coder:fim", "gemma4:vlm"], "standby": ["deepseek-coder-v2:instruct"]},
+    "deepseek-coder-v2:fim": {"residents": ["deepseek-coder-v2:fim"], "standby": ["deepseek-coder-v2:instruct", "qwen2.5-coder:fim", "gemma4:vlm"]},
+    "deepseek-coder-v2:instruct": {"residents": ["deepseek-coder-v2:instruct"], "standby": ["deepseek-coder-v2:fim", "qwen2.5-coder:fim", "gemma4:vlm"]}
+  }
+}

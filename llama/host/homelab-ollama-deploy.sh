@@ -3,7 +3,7 @@
 # timmy without a password. Installed to /usr/local/sbin (root:root 0755) by
 # install-sudo-deploy.sh; granted by /etc/sudoers.d/homelab-deploy.
 #
-#   sudo homelab-ollama-deploy.sh [--check | --sync-models | --sync-identity | --files-only]
+#   sudo homelab-ollama-deploy.sh [--check | --sync-models | --sync-identity | --files-only | --bootstrap-recovery]
 #
 # WHY A WRAPPER, AND NOT A SUDO RULE ON THE INSTALLER ITSELF.
 # install-host-ollama.sh, and everything it copies into /etc/systemd and
@@ -26,13 +26,14 @@ set -euo pipefail
 SRC=/opt/homelab-src
 REMOTE=https://github.com/nathanwhyte/homelab.git
 LOG=/var/log/homelab-deploy.log
+LOCK=/run/lock/homelab-ollama-deploy.lock
 INSTALLER_REL=llama/host/install-host-ollama.sh
 
 # Test seams, honoured ONLY when not running as root. Under sudo, env_reset
 # strips these anyway; the EUID check is the second lock, so a future
 # `Defaults env_keep` change cannot turn a test hook into a root redirect.
 if [[ ${HOMELAB_DEPLOY_TEST:-0} == 1 && $EUID -ne 0 ]]; then
-	SRC=${TEST_SRC:?} REMOTE=${TEST_REMOTE:?} LOG=${TEST_LOG:?}
+	SRC=${TEST_SRC:?} REMOTE=${TEST_REMOTE:?} LOG=${TEST_LOG:?} LOCK=${TEST_LOCK:?}
 elif [[ $EUID -ne 0 ]]; then
 	echo "homelab-ollama-deploy: run with sudo" >&2
 	exit 1
@@ -45,7 +46,7 @@ if [[ $# -gt 1 ]]; then
 fi
 mode=${1-}
 case $mode in
-"" | --check | --sync-models | --sync-identity | --files-only) ;;
+"" | --check | --sync-models | --sync-identity | --files-only | --bootstrap-recovery) ;;
 *)
 	echo "homelab-ollama-deploy: refusing argument '$mode'" >&2
 	exit 2
@@ -55,6 +56,24 @@ esac
 # Nothing from the caller's environment steers git or the installer.
 unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_CONFIG GIT_CONFIG_GLOBAL \
 	GIT_CONFIG_SYSTEM GIT_SSH GIT_SSH_COMMAND REPO_DIR
+
+# Lock order is deployment -> installer -> preparation. Keep the same open
+# description through exec so another wrapper cannot reset our source checkout
+# while the installer is still reading/copying it.
+[[ ! -L $LOCK ]] || { echo "homelab-ollama-deploy: lock is a symlink; refusing" >&2; exit 1; }
+previous_umask=$(umask)
+umask 077
+exec 7>>"$LOCK"
+umask "$previous_umask"
+python3 - "$LOCK" <<'PY' || exit 1
+import os, stat, sys
+actual, expected = os.fstat(7), os.lstat(sys.argv[1])
+if (not stat.S_ISREG(actual.st_mode) or not stat.S_ISREG(expected.st_mode)
+        or actual.st_uid != os.geteuid() or actual.st_mode & 0o022
+        or (actual.st_dev, actual.st_ino) != (expected.st_dev, expected.st_ino)):
+    sys.exit("homelab-ollama-deploy: lock must be owned by the deployment user and not group/world-writable")
+PY
+flock -n 7 || { echo "homelab-ollama-deploy: retry after current deployment finishes" >&2; exit 1; }
 
 # The checkout must stay root-owned and unwritable by anyone else. If someone
 # loosened it, the "only what is on main" guarantee no longer holds: stop.

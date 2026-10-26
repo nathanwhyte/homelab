@@ -10,11 +10,35 @@
 #
 #   bash test-homelab-ollama-deploy.sh <path to llama/host>
 set -u
+[[ $EUID -ne 0 ]] || { echo 'ERROR: deployment fixtures require an unprivileged user; refusing real root deployment' >&2; exit 1; }
+# Fixtures must never inherit a hook's repository/index selection.
+while IFS='=' read -r key _; do
+	[[ $key == GIT_* ]] && unset "$key"
+done < <(env)
 HOST=${1:?usage: test-homelab-ollama-deploy.sh <path to llama/host>}
 HOST=$(cd "$HOST" && pwd)
 WRAPPER=$HOST/homelab-ollama-deploy.sh
 TMP=$(mktemp -d)
-trap 'rm -rf "$TMP"' EXIT
+worker=
+cleanup() {
+	if [[ -n $worker ]]; then kill "$worker" 2>/dev/null || true; wait "$worker" 2>/dev/null || true; fi
+	rm -rf "$TMP"
+}
+trap cleanup EXIT
+mkdir "$TMP/bin"
+# macOS has no flock CLI. This adapter performs the real flock syscall on the
+# inherited descriptor, retaining the lock in the wrapper after it exits.
+cat >"$TMP/bin/flock.py" <<'PY'
+#!/usr/bin/env python3
+import fcntl, sys
+try:
+    fcntl.flock(int(sys.argv[-1]), fcntl.LOCK_EX | fcntl.LOCK_NB)
+except BlockingIOError:
+    sys.exit(1)
+PY
+chmod +x "$TMP/bin/flock.py"
+ln -s flock.py "$TMP/bin/flock"
+export PATH="$TMP/bin:$PATH"
 pass=0 fail=0
 ok() {
 	echo "  PASS  $1"
@@ -34,6 +58,14 @@ git clone -q "$REMOTE" "$work" 2>/dev/null
 mkdir -p "$work/llama/host"
 cat >"$work/llama/host/install-host-ollama.sh" <<'EOF'
 #!/usr/bin/env bash
+if [[ -n ${BLOCK_DEPLOY:-} ]]; then
+	touch "$BLOCK_DEPLOY"
+	for ((i=0; i<1000; i++)); do
+		[[ -e $RELEASE_DEPLOY ]] && break
+		sleep 0.01
+	done
+	[[ -e $RELEASE_DEPLOY ]] || exit 1
+fi
 printf 'args=[%s] repo_dir=%s rev=%s\n' "$*" "$REPO_DIR" "$(cat "$REPO_DIR/REV")" >>"$CALLS"
 EOF
 chmod +x "$work/llama/host/install-host-ollama.sh"
@@ -47,7 +79,7 @@ SRC=$TMP/src
 run() { # runs the wrapper through its test seam; extra env via "$@" before --
 	: >"$CALLS"
 	env HOMELAB_DEPLOY_TEST=1 TEST_SRC="$SRC" TEST_REMOTE="$REMOTE" \
-		TEST_LOG="$TMP/deploy.log" CALLS="$CALLS" "$@" >"$TMP/out" 2>&1
+		TEST_LOG="$TMP/deploy.log" TEST_LOCK="$TMP/deploy.lock" CALLS="$CALLS" "$@" >"$TMP/out" 2>&1
 }
 
 echo "wrapper: argument whitelist"
@@ -59,6 +91,12 @@ run bash "$WRAPPER" --sync-models
 grep -q 'args=\[--sync-models\]' "$CALLS" && ok "--sync-models passed through" || bad "--sync-models"
 run bash "$WRAPPER" --files-only
 grep -q 'args=\[--files-only\]' "$CALLS" && ok "--files-only passed through" || bad "--files-only"
+run bash "$WRAPPER" --bootstrap-recovery
+if grep -q 'args=\[--bootstrap-recovery\]' "$CALLS"; then
+	ok "--bootstrap-recovery passed through"
+else
+	bad "--bootstrap-recovery"
+fi
 run bash "$WRAPPER" --evil
 rc=$?
 [[ $rc -eq 2 && ! -s $CALLS ]] && ok "unknown argument refused (exit 2), installer NOT run" || bad "unknown arg (rc=$rc)"
@@ -68,6 +106,57 @@ rc=$?
 run bash "$WRAPPER" "--check; id"
 rc=$?
 [[ $rc -eq 2 && ! -s $CALLS ]] && ok "shell-metachar argument refused" || bad "metachar arg (rc=$rc)"
+
+echo "wrapper: lock creation survives interruption without permissive artifacts"
+cat >"$TMP/interrupt-lock-creation.sh" <<'EOF'
+set -T
+trap 'if [[ -e $KILL_LOCK_PATH ]]; then kill -KILL "$$"; fi' DEBUG
+EOF
+cat >"$TMP/run-with-umask.sh" <<'EOF'
+umask "$1"
+exec bash "$2"
+EOF
+for mask in 0000 0002 0022 0077; do
+	rm -f "$TMP/deploy.lock"
+	run env BASH_ENV="$TMP/interrupt-lock-creation.sh" KILL_LOCK_PATH="$TMP/deploy.lock" \
+		bash "$TMP/run-with-umask.sh" "$mask" "$WRAPPER"
+	rc=$?
+	if [[ $rc -eq 137 && ! -s $CALLS ]] && python3 - "$TMP/deploy.lock" <<'PY'
+import os, sys
+assert os.stat(sys.argv[1]).st_mode & 0o777 == 0o600
+PY
+	then
+		ok "killed wrapper leaves a safe lock under umask $mask"
+	else
+		bad "killed wrapper left unsafe lock under umask $mask (rc=$rc)"
+	fi
+	if run bash "$TMP/run-with-umask.sh" "$mask" "$WRAPPER" && grep -q 'rev=v1' "$CALLS"; then
+		ok "wrapper retries after lock creation interruption under umask $mask"
+	else
+		bad "wrapper retry failed under umask $mask"
+	fi
+done
+printf 'existing lock bytes\n' >"$TMP/deploy.lock"
+chmod 0664 "$TMP/deploy.lock"
+run bash "$WRAPPER"
+rc=$?
+if [[ $rc -ne 0 && ! -s $CALLS ]] && grep -q 'not group/world-writable' "$TMP/out" && python3 - "$TMP/deploy.lock" <<'PY'
+import os, pathlib, sys
+path = pathlib.Path(sys.argv[1])
+assert os.stat(path).st_mode & 0o777 == 0o664
+assert path.read_text() == 'existing lock bytes\n'
+PY
+then
+	ok "wrapper refuses an unsafe existing lock without repair or truncation"
+else
+	bad "wrapper repaired or changed an unsafe existing lock"
+fi
+chmod 0600 "$TMP/deploy.lock"
+if run bash "$WRAPPER" && grep -q '^existing lock bytes$' "$TMP/deploy.lock"; then
+	ok "wrapper preserves a trusted lock's existing bytes"
+else
+	bad "wrapper truncated its trusted lock"
+fi
 
 echo "wrapper: the caller cannot steer what runs"
 run env REPO_DIR=/tmp/evil bash "$WRAPPER"
@@ -87,6 +176,50 @@ run bash "$WRAPPER"
 grep -q 'rev=v2' "$CALLS" && ok "a new commit on main is picked up" || bad "stale deploy: $(cat "$CALLS")"
 sha=$(git -C "$work" rev-parse --short=12 HEAD)
 grep -q "sha=$sha mode=install" "$TMP/deploy.log" && ok "audit log records the deployed sha" || bad "audit log missing sha $sha"
+
+echo "wrapper: checkout refresh stays locked through installer completion"
+: >"$CALLS"
+env HOMELAB_DEPLOY_TEST=1 TEST_SRC="$SRC" TEST_REMOTE="$REMOTE" \
+	TEST_LOG="$TMP/deploy.log" TEST_LOCK="$TMP/deploy.lock" CALLS="$CALLS" \
+	BLOCK_DEPLOY="$TMP/blocked" RELEASE_DEPLOY="$TMP/release" bash "$WRAPPER" >"$TMP/first.out" 2>&1 &
+worker=$!
+for ((i=0; i<500; i++)); do
+	[[ -e $TMP/blocked ]] && break
+	sleep 0.01
+done
+if [[ -e $TMP/blocked ]]; then
+	echo v3 >"$work/REV"
+	git -C "$work" -c user.email=t@t -c user.name=t commit -qam v3
+	git -C "$work" push -q origin HEAD:main 2>/dev/null
+	run bash "$WRAPPER"
+	rc=$?
+	if [[ $rc -ne 0 && ! -s $CALLS ]] && grep -q 'retry after current deployment finishes' "$TMP/out"; then
+		ok "competing wrapper refuses before source refresh or installer invocation"
+	else
+		bad "competing wrapper entered active deployment (rc=$rc)"
+	fi
+	if [[ $(cat "$SRC/REV") == v2 ]]; then
+		ok "active installer's source remains unchanged when main advances"
+	else
+		bad "active installer's source was replaced"
+	fi
+else
+	bad "first wrapper did not reach the controlled installer"
+fi
+touch "$TMP/release"
+wait "$worker"
+rc=$?
+worker=
+if [[ $rc -eq 0 ]] && grep -q 'rev=v2' "$CALLS"; then
+	ok "first installer finishes from its captured main"
+else
+	bad "first installer lost its source"
+fi
+if run bash "$WRAPPER" && grep -q 'rev=v3' "$CALLS"; then
+	ok "deployment lock releases after installer exits"
+else
+	bad "deployment lock did not release"
+fi
 
 echo "wrapper: it refuses a loosened checkout"
 chmod g+w "$SRC"
