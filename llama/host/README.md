@@ -1,168 +1,253 @@
 # Host Ollama on timmy
 
-Since 2026-09 (IMPR-1075) Ollama runs **once**, on timmy's host under systemd, and the k3s
-cluster consumes it by name. The pod Deployment is retired. This directory is the whole host
-side; the cluster side is `llama/ollama-service.yaml` (selector-less Service + EndpointSlice)
-and `llama/ollama-jobs.yaml` (CronJobs that talk to the daemon over HTTP).
+The host placement dates to September 2026 (IMPR-1075): systemd owns timmy's Ollama daemon,
+and Kubernetes consumers reach it through the selector-less Service and EndpointSlice in
+`llama/ollama-service.yaml`. The pod Deployment is retired. This guide describes the
+IMPR-1426 source contract; its new verification and recovery paths have not yet received
+live host acceptance. Historical measurements in the Modelfiles retain their original dates.
 
-| Piece                             | Where it lands on timmy                             | What it does                                                            |
-| --------------------------------- | --------------------------------------------------- | ----------------------------------------------------------------------- |
-| `ollama.service.d/homelab.conf`   | `/etc/systemd/system/ollama.service.d/`             | The env the pod used to carry (bind, ctx, KV, Vulkan, …)                |
-| `ollama-warm.sh` + `.service`     | `/opt/ollama-host/`, `/etc/systemd/system/`         | Post-start: build + load-only warm of the FIM tag, build the OV pair   |
-| `99-homelab-dgpu-runpm.rules`     | `/etc/udev/rules.d/`                                | Keeps the 9070 XT out of runtime suspend, which evicts VRAM to RAM (BUG-1242) |
-| `install-host-ollama.sh`          | run from a repo checkout, with sudo                 | Pins the binary, installs the above, reconciles the exporter            |
-| `homelab-ollama-deploy.sh`        | `/usr/local/sbin/` (root:root 0755)                 | Passwordless deploy of **GitHub main** only — see below                 |
-| `homelab-deploy.sudoers`          | `/etc/sudoers.d/homelab-deploy` (0440, no dot)      | Grants noot that wrapper plus ollama start/stop/restart, nothing else   |
-| `install-sudo-deploy.sh`          | run once, with sudo, from `/opt/homelab-src`        | Installs the two above; validates sudoers before and after              |
-| `llama/ollama/ollama-exporter.py` | `/opt/ollama-exporter/` (`ollama-exporter.service`) | Prometheus metrics on `:9111`, scraped as `ollama.llama.svc:9111`       |
+| Piece | Installed location or consumer | Responsibility |
+| --- | --- | --- |
+| `model-posture.json` and `llama/ollama/*.Modelfile` | `/opt/ollama-host/` and its `modelfiles/` directory | Release, resident profiles, runtime settings, complete recipes, and explicit blob pins |
+| `ollama_prepare.py` | `/opt/ollama-host/` | Preparation, adoption, verification receipts, and generated artifacts |
+| `ollama_runtime.py` | `/opt/ollama-host/` | Daemon/runner evidence and failure stop tied to one daemon generation |
+| `ollama_recovery.py` | `/opt/ollama-host/` and generated recovery CronJob | HTTP-only idle recovery using previously verified manifest witnesses |
+| `ollama.service.d/homelab.conf` | `/etc/systemd/system/ollama.service.d/` | Generated daemon environment and failure-stop policy |
+| `ollama-warm.sh` and `ollama-warm.service` | `/opt/ollama-host/`, `/etc/systemd/system/` | Compatibility entrypoint and synchronous post-start adoption |
+| `99-homelab-dgpu-runpm.rules` | `/etc/udev/rules.d/` | Keeps the 9070 XT out of runtime suspend, which evicts VRAM to RAM (BUG-1242) |
+| `install-host-ollama.sh` | Run on timmy with sudo | Installation ordering, migration gates, and final verification |
+| `homelab-ollama-deploy.sh` | `/usr/local/sbin/`, root-owned | Passwordless deployment of GitHub `main` only |
+| `homelab-deploy.sudoers` | `/etc/sudoers.d/homelab-deploy` | Exact wrapper modes and scoped unit controls |
+| `llama/ollama/ollama-exporter.py` | `/opt/ollama-exporter/` | Prometheus metrics on port 9111 |
 
-Why host instead of pod: single owner of `11434` (no klipper DNAT arbitration), real VRAM
-accounting under Vulkan (no device-plugin injection, so no `CAP_PERFMON` workaround from
-IMPR-1022), and the daemon survives k3s restarts and node drains without a spin-down step.
-What moved out of Kubernetes: liveness/rollout for the daemon (systemd `Restart=always` covers
-crashes) and the image pin, which is now `OLLAMA_VERSION` in the install script.
+Host placement keeps one owner of port 11434, avoids Kubernetes hostPort/ServiceLB DNAT
+arbitration, and lets the daemon survive k3s restarts and node drains. `ollama.service`
+continues to run as user/group `ollama`. The warm unit uses `ExecStart=+` only for its
+root-owned administrative verifier: reading `/proc`, systemd properties and the journal,
+and retaining authority to stop the exact daemon it inspected.
 
-## Cutover runbook (one-time, ordered)
+## Preparation and acceptance
 
-The order matters because klipper's svclb pod holds host port `11434` for the old
-LoadBalancer Service; the host daemon cannot bind `0.0.0.0:11434` until that is gone
-(observed as `bind: address already in use` on 2026-09-08).
+Edit model facts in `model-posture.json` and the referenced Modelfiles. Generate the daemon
+drop-in and `llama/ollama-jobs.yaml` with `ollama_prepare.py render`; do not synchronize tag,
+context, slot, or pin literals by hand in callers. The release pin comes from the JSON;
+the installer rejects a contrary `OLLAMA_VERSION` environment override.
 
-1. **Copy the model store while the pod still runs** (Longhorn PVC → host, ~60 GB, local disk
-   to local disk):
+Preparation asks the pinned Ollama release to compile a unique candidate from each required
+recipe. It reads the candidate back, checks explicit weights/projector pins, copies the
+canonical manifest to the serving name when necessary, and reads the serving identity back.
+The manifest comparison covers the consumer's full recipe semantics, including inherited
+layers, templates/defaults, ordered stop strings, renderer/parser selection, and parameters
+other than `num_ctx`. Gemma has explicit weights and projector pins; a bare base tag name is
+still a moving reference. A successful create/copy request alone is insufficient.
 
-   ```bash
-   sudo llama/host/install-host-ollama.sh --check          # see current state
-   sudo llama/host/install-host-ollama.sh --sync-models    # rsync PVC models -> /usr/share/ollama/.ollama/models
-   sudo systemctl stop ollama                            # stops only the old host daemon
-   sudo llama/host/install-host-ollama.sh --sync-identity  # preserve the pod's cloud sign-in identity
-   ```
+These profiles remain selectable through the configuration's `resident` field. Rendering
+derives the loaded-model limit from the selected resident set. Selection is not proof that
+a profile fits the GPU: each selected profile must pass its own runtime verification.
 
-   `--sync-models` only copies models and exits successfully. It never installs a binary,
-   writes units, or restarts anything. Pause model pulls/creates during the copy; partial
-   downloads are excluded. Compare `/api/tags` names and digests before retiring the pod.
-   The daemon's cloud identity (`.ollama/id_ed25519`) is separate from the model store.
-   `--sync-identity` requires the host daemon to be stopped, backs up its previous identity
-   under a private `/var/backups/ollama-identity.*` directory, and copies the pod identity
-   with mode 0600. Do this while the PVC is still mounted. A loopback cloud probe before
-   removing ServiceLB DNAT can actually reach the pod; verify host authentication only
-   after cutover. Model copying alone caused cloud 401s during the first live deployment.
+| Selected resident | Intended loaded models | Additional prepared standby | Loaded-model limit |
+| --- | --- | --- | --- |
+| `gemma4:vlm` | Gemma | Qwen FIM | 1 |
+| `qwen2.5-coder:fim` | Qwen FIM and Gemma | Deepseek instruct | 2 |
+| `deepseek-coder-v2:fim` | Deepseek FIM | Deepseek instruct | 1 |
+| `deepseek-coder-v2:instruct` | Deepseek instruct | Deepseek FIM | 1 |
 
-   After cutover, `--files-only` installs the warm script, the Modelfiles, the exporter code
-   and the drop-in, runs `daemon-reload`, prints which installed files changed, and exits
-   without restarting anything (IMPR-1310). Use it when a merged diff is scripts, recipes
-   and comments. It refuses when the drop-in differs in a directive or a recipe moves
-   `num_ctx`: `ollama.service` has `Restart=always`, so such a change would otherwise take
-   effect at the next crash or reboot with no reconcile gate. Those take the full run, the
-   only path that restarts `ollama.service`.
+The default remains Gemma E4B Q8_0, `num_ctx=65536`, `num_batch=2048`, four slots, and one
+loaded model; Qwen FIM is a prepared rollback choice. These are configured values, not fresh
+measurements. The Gemma E4B-to-12B rollback changes its recipe and approved blob pins under
+the same `gemma4:vlm` name, then takes full adoption. It is not an extra resident selector.
+The compatibility shell accepts `--reconcile-only` for preparation without loading and
+`--ov-pair-only` for preparation of Qwen/Gemma without loading. Neither publishes runtime
+acceptance. Global Python options (`--config`, `--recipes`, `--resident`, `--url`, `--state`)
+precede the command.
 
-   Save the live Deployment, ConfigMap, and Service for rollback in a private directory.
-   Use those snapshots to preserve the deployed image/config, rather than pulling `latest`.
+Warmup serializes preparation and loads the intended residents sequentially. Acceptance
+checks `/api/ps` identity, context and GPU residency, the daemon's actual environment and
+systemd properties, runner process arguments, and each runner's `/props`. Startup journal
+evidence must match the current boot, systemd invocation, daemon PID, runner command and
+process start time. It proves context, slots, batch/micro-batch, flash attention, KV-cache,
+Vulkan device identity and complete GPU layer offload. Missing, rotated-out, malformed,
+ambiguous, or stale evidence fails closed; API availability is not a substitute.
 
-2. **Swap the Service** so the cluster name points at the host and svclb releases the port:
+Only successful acceptance publishes `/var/lib/ollama-preparation/verified.json` and
+`homelab-prepared/<model-stem>:<revision>` witness tags. The receipt binds configuration,
+recipes, manifest digests and daemon/runner generations. The revision includes the entire
+recipe text, including comments. Old `/run/ollama/models-ready` markers are not acceptance
+evidence. `verify` checks the receipt and current state again; it does not rewarm models.
 
-   ```bash
-   kubectl apply -f llama/ollama-service.yaml
-   # The legacy Endpoints object otherwise recreates mirrored pod slices.
-   kubectl -n llama delete endpoints ollama --ignore-not-found
-   kubectl -n llama delete endpointslice -l 'kubernetes.io/service-name=ollama,endpointslice.kubernetes.io/managed-by=endpointslice-controller.k8s.io'
-   kubectl -n llama delete endpointslice -l 'kubernetes.io/service-name=ollama,endpointslice.kubernetes.io/managed-by=endpointslicemirroring-controller.k8s.io'
-   kubectl -n llama get endpointslices -l kubernetes.io/service-name=ollama   # ollama-timmy-host -> 192.168.1.19
-   kubectl -n kube-system get pods | grep svclb-ollama                        # should be gone
-   ```
+## Change and validate source
 
-   This starts a maintenance gap. Verify the Service has no selector or external IPs.
-   Only `ollama-timmy-host` should remain. Host ports use DNAT rules,
-   which are invisible to `ss`; the installer checks both Kubernetes state and host NAT.
-
-3. **Release the pod's GPU, then bring the host daemon up**:
-
-   ```bash
-   kubectl -n llama scale deployment ollama --replicas=0
-   kubectl -n llama wait --for=delete pod -l app=ollama --timeout=120s
-   sudo llama/host/install-host-ollama.sh        # restarts ollama.service with the drop-in
-   journalctl -fu ollama-warm                      # watch the FIM warm
-   curl -s http://192.168.1.19:11434/api/tags | head -c 300
-   ```
-
-   Never warm the host while the pod runner still holds the GPU. The installer fails
-   before mutations if the old pod, ServiceLB pods, or old external DNAT rules remain.
-   Warmup runs asynchronously; API readiness does not prove model readiness. Check
-   `systemctl status ollama-warm`, `/api/ps`, a bounded FIM completion, and journal
-   evidence naming Vulkan and the RX 9070 XT. Verify LAN, Tailscale, cluster DNS, the
-   chat proxy's cloud route, and the Prometheus scrape before continuing.
-
-4. **Retire the Deployment** once consumers are verified:
-
-   ```bash
-   kubectl -n llama run -it --rm probe --image=curlimages/curl:8.11.1 --restart=Never -- -fsS http://ollama.llama.svc:11434/api/ps
-   kubectl -n llama delete deployment ollama
-   kubectl -n llama delete configmap ollama-startup
-   kubectl apply -f llama/ollama-jobs.yaml -f llama/ollama-gpu-hold.yaml
-   ```
-
-   Keep `llama-model-cache` (PVC) for a week as rollback, then delete it and `llama/pvc.yaml`.
-
-5. **Update the docs that name the pod** — `reference/llm-config.md`, `reference/service-routing.md`,
-   `llama/README.md` (done in the same PR), and compendium `INFO-1023`.
-
-## Day-to-day
-
-| Task                          | Command (on timmy unless noted)                                                                                        |
-| ----------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| Restart the daemon            | `sudo systemctl restart ollama` (warm re-runs via `PartOf`)                                                            |
-| Change an env value           | edit `homelab.conf` in the repo, `sudo llama/host/install-host-ollama.sh`                                              |
-| Upgrade Ollama                | bump `OLLAMA_VERSION` in the install script, merge, then `sudo homelab-ollama-deploy.sh` — it installs the base tarball, never ROCm. Dotfiles `auto-install.sh` no longer pins a Linux version |
-| Pull a model from the cluster | `kubectl -n llama create job --from=cronjob/ollama-pull pull-$(date +%s)` after setting `MODEL`                        |
-| Is the FIM model resident?    | `curl -s 192.168.1.19:11434/api/ps`; `/run/ollama/models-ready` records successful startup warm, not current residency |
-| Metrics                       | `curl -s 192.168.1.19:9111/metrics`; Grafana scrapes `ollama.llama.svc:9111`                                           |
-| Is the model really in VRAM?  | `/sys/bus/pci/devices/0000:03:00.0/power/control` is `on`, `/sys/bus/pci/devices/0000:03:00.0/mem_info_vram_used` holds ~9 GB, and `/sys/bus/pci/devices/0000:03:00.0/mem_info_gtt_used` stays under 1 GB. `ollama ps` counts GTT as GPU, so it cannot tell |
-
-### Passwordless deploys
-
-`install-host-ollama.sh` needs root, which used to mean a password prompt on every config
-change — so an agent session could prepare a change but never land it. A NOPASSWD rule on
-`~/code/homelab/llama/host/install-host-ollama.sh` would fix the prompt and open a hole: that
-file, and every drop-in and script it copies into `/etc/systemd` and `/opt/ollama-host`, is
-owned by noot. Anything that can edit noot's home — any agent running as noot — could change
-them and get root on the next passwordless run.
-
-So the grant covers a wrapper that deploys **only what is on GitHub main**:
+From the repository root, after editing the posture or any recipe:
 
 ```bash
-sudo homelab-ollama-deploy.sh            # == install-host-ollama.sh, from main
-sudo homelab-ollama-deploy.sh --check    # (and --sync-models / --sync-identity)
-sudo homelab-ollama-deploy.sh --files-only  # scripts, recipes, drop-in + daemon-reload; no restart
-sudo systemctl restart ollama            # start / stop / restart, ollama-warm start / restart
+uv run --no-project python llama/host/ollama_prepare.py render --root .
+uv run --no-project python llama/host/ollama_prepare.py render --root . --check
+uv run --no-project bash llama/host/tests/run-tests.sh
+pre-commit run --files llama/host/model-posture.json llama/host/ollama.service.d/homelab.conf llama/ollama-jobs.yaml
 ```
 
-It keeps a root-owned checkout at `/opt/homelab-src`, resets it to `origin/main` from the
-public remote on every run, refuses if that tree has been made writable by anyone else, and
-runs the installer from there with `REPO_DIR` pinned. `~/code/homelab` is never read. Getting
-code deployed without a password now means getting it merged. Every run appends the deployed
-sha to `/var/log/homelab-deploy.log`.
+Include every changed source/recipe path in the hook invocation too. Rendering and these
+hermetic suites make no live model calls. The installer integration seam is available only
+to a non-root test process; root rejects its filesystem override. Passing tests, hooks and
+review does not establish live readiness. Merge and deployment each need their own approval.
 
-**One-time setup** (and again only to change the wrapper or the grant — the privilege
-definition deliberately does not self-update, so it stays behind a human password):
+## Adopt a reviewed revision
+
+These are deployment instructions, not a record of operations performed. Use one reviewed,
+merged revision for the host and its generated recovery CronJob. Keep the existing Service,
+EndpointSlice, pull CronJob and GPU-hold workload outside a routine posture deployment.
+
+1. On timmy, install through the trusted-main wrapper:
+
+   ```bash
+   sudo homelab-ollama-deploy.sh
+   sudo git -C /opt/homelab-src rev-parse HEAD
+   sudo python3 /opt/ollama-host/ollama_prepare.py verify
+   ```
+
+   The normal installer refuses an unreachable API before host installation changes. It
+   prepares against the reachable daemon before changing host files, then installs all
+   recipes/modules, restarts the daemon, waits for the warm unit, and runs
+   `verify --stop-on-failure`. The host transaction has its own lock. Completion requires
+   current receipt, witness, residency and runtime evidence, not an asynchronous job
+   acknowledgement or `/api/version` response. The deployed SHA is also logged in
+   `/var/log/homelab-deploy.log`.
+
+2. If bootstrapping or recovering an unavailable/mismatched daemon is intended, use the
+   explicit mode instead:
+
+   ```bash
+   sudo homelab-ollama-deploy.sh --bootstrap-recovery
+   ```
+
+   It still checks cutover prerequisites, stops existing managed units, installs the pinned
+   release and files, then performs the same final adoption checks. It permits initially
+   absent units. It does not automatically roll back to another model or restart an
+   unverified fallback. The wrapper and sudoers grant must first include this exact mode;
+   see the passwordless setup section below.
+
+3. After host verification succeeds, match the local checkout to the deployed SHA and
+   extract only the `ollama-warm` CronJob from the generated multi-document file:
+
+   ```bash
+   warm_manifest=$(mktemp)
+   uv run --no-project --with pyyaml python -c '
+   import sys, yaml
+   docs = list(yaml.safe_load_all(open(sys.argv[1])))
+   matches = [d for d in docs if d and d.get("kind") == "CronJob" and d.get("metadata", {}).get("name") == "ollama-warm"]
+   if len(matches) != 1:
+       raise SystemExit("expected exactly one ollama-warm CronJob")
+   yaml.safe_dump(matches[0], sys.stdout)
+   ' llama/ollama-jobs.yaml > "$warm_manifest"
+   kubectl diff -f "$warm_manifest"
+   # Review the diff; apply only this object when the deployment is authorized.
+   kubectl apply -f "$warm_manifest"
+   kubectl -n llama get cronjob ollama-warm -o yaml
+   rm "$warm_manifest"
+   ```
+
+   `kubectl diff` returns 1 for differences and greater than 1 for an error; investigate an
+   error before applying. Read back the embedded recovery revision and intended residents.
+   Do not apply all of `llama/ollama-jobs.yaml`: its second object is the separate suspended
+   pull template. Observe the next authorized recovery run and relevant consumer paths
+   before recording live acceptance.
+
+### Files-only
+
+`sudo homelab-ollama-deploy.sh --files-only` copies eligible files and reloads systemd
+without restarting or warming. It requires an installed preparation configuration and a
+reachable pinned daemon for consumer-based recipe comparison. It refuses posture, version,
+pin, resident selection, effective unit/drop-in, or recipe changes. Even comment-only recipe
+edits require full adoption: their byte/revision change would otherwise strand the existing
+receipt and recovery witnesses. Comments in unit files may change if their directives stay
+the same. A legacy host without the new configuration requires full migration.
+
+## Failure and recovery boundaries
+
+Warmup and the installer's final verification invalidate failed acceptance and ask the
+runtime adapter to stop the daemon generation captured through a Linux pidfd. They never
+fall back to signalling a numeric PID that might have been reused. The signal is `SIGHUP`:
+the generated drop-in clears and sets `RestartPreventExitStatus=SIGHUP`, clears
+`RestartForceExitStatus`, and requires `KillMode=control-group`, `SendSIGKILL=yes` and a
+30-second stop timeout. Systemd readback uses the spelling `HUP`. These settings prevent
+`Restart=always` from immediately reviving the failed daemon and keep its runners under
+systemd cleanup. `SIGTERM` is not an interchangeable stop mechanism here.
+
+If the stop policy, pidfd support, captured generation or journal evidence cannot be
+validated, the operation reports failure instead of substituting a broader kill. Treat that
+as unresolved: inspect `journalctl -u ollama -u ollama-warm`, correct the mismatch, and use
+the explicit recovery workflow. A failed verifier must not be reported as a successful
+stop unless its stop evidence confirms it. Direct manual unit controls remain available
+for an operator; they do not establish a new acceptance receipt by themselves.
+
+The generated recovery CronJob runs every 15 minutes, unprivileged and HTTP-only. Any
+nonempty `/api/ps` response makes it leave the loaded model alone. When idle, it checks
+the pinned daemon version and serving/witness manifest equality for the generated revision,
+rechecks idle state and inventory, then issues load-only requests and verifies the resulting
+resident digests, contexts and GPU residency. It cannot prepare recipes, change systemd,
+stop the daemon, or perform the host's `/proc`/journal proof. Missing/stale witnesses require
+host adoption; a successful load acknowledgement does not make recovery succeed.
+
+The repeated idle check narrows a courtesy race; it is not atomic admission. Another client
+can load between the final observation and recovery's request, including between co-resident
+loads. Recovery can then fail its final readback; HTTP offers no transaction that reserves
+the GPU against such a caller. Plan host adoption or sensitive GPU work in a quiet window.
+
+## Passwordless setup and ordinary operations
+
+The passwordless grant covers a root-owned wrapper that deploys GitHub `main` from
+`/opt/homelab-src`. It fetches, resets and cleans that checkout and pins `REPO_DIR` to it;
+edits under a user's home cannot become root code through this path. The grant permits exact
+mode arguments and specific Ollama unit controls, with no `SETENV` or wildcard command.
+
+The wrapper and sudoers privilege definition do not update themselves. A human must install
+their reviewed versions with a password, including when adding `--bootstrap-recovery`:
 
 ```bash
+# First setup only, if the root-owned checkout is absent:
 sudo git clone https://github.com/nathanwhyte/homelab.git /opt/homelab-src
+# Use the reviewed main revision in this root-owned checkout before installing:
 sudo /opt/homelab-src/llama/host/install-sudo-deploy.sh
 ```
 
-The bootstrap refuses to run from a user-writable tree, so running it from `~/code/homelab`
-fails on purpose. It validates the fragment with `visudo -cf` before installing, re-validates
-the whole config after (rolling back if that fails — a bad include can break sudo entirely),
-and confirms with `sudo -l -U noot` that the grant is live, because sudo silently ignores any
-`sudoers.d` file whose name contains a dot. `--check` reports state; `--uninstall` removes it.
-Tests: `bash llama/host/tests/test-homelab-ollama-deploy.sh llama/host`.
+The setup refuses a user-writable source tree, validates sudoers before and after install,
+and confirms the grant with `sudo -l -U noot`. Its installed filename has no dot because sudo
+ignores dotted names under `sudoers.d`. Its `--check` and `--uninstall` modes inspect/remove
+the grant.
 
-Node maintenance: `scripts/node-maintenance.sh reboot <node> --spin-down` no longer scales `llama/ollama`
-(there is no Deployment); the daemon rides through drains and stops with the host on reboot.
-Its RAM is still counted: the preflight subtracts `HOST_MEMORY_RESERVATIONS` (default
-`timmy=16Gi`, the drop-in's `MemoryMax`) from timmy's headroom, so keep the two in sync. To
-free that memory for a tight drain, `ssh timmy sudo systemctl stop ollama` by hand first —
-the nodes' non-interactive sudo is scoped to apt/reboot, so the script cannot do it for you.
+| Task | Command or source change |
+| --- | --- |
+| Report host state | `sudo homelab-ollama-deploy.sh --check` |
+| Change model/runtime/release | Edit the posture/recipe, render, validate, review, merge, then adopt |
+| Check current acceptance | `sudo python3 /opt/ollama-host/ollama_prepare.py verify` |
+| Restart manually | `sudo systemctl restart ollama`; wait for warm completion and run `verify` |
+| Inspect residency | `curl -fsS http://192.168.1.19:11434/api/ps` is a snapshot, not full acceptance |
+| Inspect physical VRAM | Read `power/control`, `mem_info_vram_used` and `mem_info_gtt_used` under `/sys/bus/pci/devices/0000:03:00.0/`; `ollama ps` counts GTT as GPU |
+| Inspect metrics | `curl -fsS http://192.168.1.19:9111/metrics` |
+| Pull an unrelated model | Separately authorize the suspended `ollama-pull` template's model and Job |
+
+## Original cutover and host maintenance
+
+The September 2026 cutover sequence remains relevant only when moving back from the retired
+pod: copy the Longhorn model store with `--sync-models`, stop the old host before
+`--sync-identity`, replace the Service routing, wait for old pods/ServiceLB/DNAT rules to
+disappear, then explicitly bootstrap the host. Model copying excludes partial downloads
+and does not copy cloud identity. Identity sync requires an inactive host, preserves a
+private backup under `/var/backups/ollama-identity.*`, and installs the identity with mode
+0600. A loopback authentication probe before DNAT removal can reach the old pod.
+
+Never warm the host while the pod still holds the GPU. The installer checks the selector-less
+ClusterIP Service, absence of old Ollama and ServiceLB pods, the single `ollama-timmy-host`
+EndpointSlice pointing at `192.168.1.19`, NAT rules, and the listener. `ss` alone cannot show
+hostPort DNAT. Preserve deployment/configuration snapshots before a placement migration,
+and verify LAN, Tailscale, cluster DNS, cloud proxy routing and Prometheus afterward.
+
+Node maintenance (`scripts/node-maintenance.sh reboot <node> --spin-down`) does not scale
+a retired Ollama Deployment. Host memory still counts:
+the preflight's `HOST_MEMORY_RESERVATIONS` default is `timmy=16Gi`, matching `MemoryMax`.
+The GPU-hold workload reserves both AMD device-plugin slots so unrelated cluster jobs do
+not claim the card. Lending the GPU is a separately authorized sequence: stop the host,
+scale GPU-hold to zero, run the workload, then restore the guard and perform host verification.
 
 For a planned timmy outage, use `scripts/timmy-offline.sh down` and, after returning to
 Ubuntu, `scripts/timmy-offline.sh up`. The outage script owns workload parking, CronJob
@@ -228,31 +313,12 @@ cordoned target; manually uncordoning it does not make `recover` a cancellation 
 If the Longhorn health check fails or is interrupted after uncordoning, the saved cycle
 remains and strict `recover`/`finish` refuses a retry; that case still needs manual recovery.
 
-GPU exclusion: the retired pod's `amd.com/gpu: "2"` request was the only thing keeping other
-AMD-GPU pods (`gpu/amd/rocm-test-pod.yaml`, the nanochat training Job, the embedding
-benchmark) off the card. `llama/ollama-gpu-hold.yaml` restores that guard with a pause
-container holding both device-plugin slots; apply it with the Service and jobs. To lend the
-GPU to a cluster workload on purpose: `sudo systemctl stop ollama`, scale `ollama-gpu-hold`
-to 0, run the workload, reverse both.
+## Placement rollback
 
-## Rollback
-
-Suspend/delete the model CronJobs and finish/delete any active model Jobs first so they
-cannot warm the rollback pod unexpectedly. Stop all host units, then restore the saved
-ConfigMap and Deployment (initially at zero replicas) and their LoadBalancer Service:
-
-```bash
-kubectl -n llama delete cronjob ollama-warm ollama-pull --ignore-not-found
-sudo systemctl disable --now ollama-warm ollama-exporter ollama
-# Remove the dependency that would otherwise start warmup on a later manual start.
-sudo rm /etc/systemd/system/ollama.service.d/homelab.conf
-sudo systemctl daemon-reload
-kubectl apply -f <snapshot-dir>/configmap.json -f <snapshot-dir>/deployment.json -f <snapshot-dir>/service.json
-kubectl -n llama delete endpointslice ollama-timmy-host
-kubectl -n llama scale deployment ollama --replicas=1
-kubectl -n llama rollout status deployment/ollama --timeout=300s
-```
-
-The order is the mirror of the cutover: the svclb bind fails while the host daemon still holds
-`0.0.0.0:11434`.
-Verify the pod's local FIM, cloud route, metrics, and LoadBalancer access after rollback.
+A rollback to Kubernetes is an explicit placement change, separate from selecting one of
+the preserved host model profiles. Suspend/delete the model CronJobs and finish active
+model Jobs first; stop and disable host units; remove the host warm dependency; then restore
+reviewed snapshots of the ConfigMap, Deployment (initially zero replicas) and LoadBalancer
+Service. Diff and apply only those intended objects. Remove the host EndpointSlice and scale
+the pod only after the host releases port 11434 and the GPU. Verify model output, cloud route,
+metrics and LoadBalancer access. No preparation failure automatically performs this rollback.
