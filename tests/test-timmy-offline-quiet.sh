@@ -263,7 +263,7 @@ STUB_CORDON_STATUS=owned run_cmd cmd_down
 rc=$?
 assert_eq "down repeats on this Mac's outage cordon" 0 "$rc"
 assert_eq "only the repeat drains with --repeat" 1 "$(grep -c 'nm: drain timmy --spin-down --outage --repeat$' "$STUB_LOG")"
-assert_eq "only the repeat allows a repeat in preflight" 1 "$(grep -c 'nm: preflight timmy --allow-repeat$' "$STUB_LOG")"
+assert_eq "only the repeat allows its own outage cordon in preflight" 1 "$(grep -c 'nm: preflight timmy --allow-repeat --outage$' "$STUB_LOG")"
 
 # Any other cordon (IMPR-1428) refuses before the first change.
 for status in "cordoned" "cordoned outage:other-mac" "cordoned reboot:this-mac"; do

@@ -168,8 +168,8 @@ For a planned timmy outage, use `scripts/timmy-offline.sh down` and, after retur
 Ubuntu, `scripts/timmy-offline.sh up`. The outage script owns workload parking, CronJob
 suspension and alert silences. It delegates the node cycle to `node-maintenance.sh`:
 `preflight <node>` checks before parking, `drain <node> --spin-down --outage` starts the
-drain without rebooting (`preflight --allow-repeat` and `drain --spin-down --outage --repeat`
-when `down` finds its own cordon), and `recover <node>` finishes a recorded
+drain without rebooting (`preflight --allow-repeat --outage` and `drain --spin-down --outage
+--repeat` when `down` finds its own cordon), and `recover <node>` finishes a recorded
 reboot or restores preparation that stopped before a drain. `cycle-status <node>` prints
 `recorded` or `none` for saved reboot evidence; use `scripts/maintenance-active.py` for
 bounded maintenance windows instead.
@@ -184,7 +184,9 @@ and `finish` clears it with the uncordon. A bare `drain` refuses a cordoned node
 repeat after a reboot replaces that reboot's proof. So `down` repeats only on this Mac's own
 outage cordon, and refuses before any change on a hand cordon, a reboot or drain cycle's
 cordon, or the other Mac's outage; run `up` on the Mac that started the outage, and never
-uncordon another Mac's timmy outage. An owner left on an uncordoned node (after a hand
+uncordon another Mac's timmy outage. `kubectl drain` cordons by itself, so every drain is
+followed by a check that the cordon is still this run's: one cleared mid-run comes back from
+the drain without an owner, and the run stops there. An owner left on an uncordoned node (after a hand
 uncordon) is stale: `status` lists it and the next cordon replaces it. A cordon from before
 owners were recorded has none; if it is this Mac's outage, claim it with `kubectl annotate
 node timmy homelab/cordon-owner="outage:$(scutil --get ComputerName)" --overwrite` and re-run

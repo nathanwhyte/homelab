@@ -122,7 +122,14 @@ def fake_command(tool, args):
                     print(str(node["cordoned"]).lower())
                 # The other Mac's down finishes right after this read: its park
                 # and spin-down zero every workload, then its drain cordons.
-                if state.get("race_cordon") and args[2] == "timmy":
+                # Another writer replaces the owner right after down's read.
+                if state.get("race_owner") and query == "json" and args[2] == "timmy":
+                    node.setdefault("annotations", {})[OWNER_KEY] = state.pop(
+                        "race_owner"
+                    )
+                    node["version"] = node.get("version", 1) + 1
+                    save()
+                elif state.get("race_cordon") and args[2] == "timmy":
                     state["race_cordon"] = False
                     node["cordoned"] = True
                     node["annotations"] = {OWNER_KEY: "outage:mac-two"}
@@ -227,6 +234,14 @@ def fake_command(tool, args):
         if fault == "after":
             return 1
     elif verb == "drain":
+        node = state["nodes"][resource]
+        # Something clears the cordon and its owner just before the drain,
+        # which then cordons again itself, as kubectl drain does.
+        if state.pop("clear_before_drain", False):
+            node["cordoned"] = False
+            node["annotations"] = {}
+        node["cordoned"] = True
+        save()
         return 1 if state.get("fail_drain") else 0
     elif verb == "patch" and resource == "cronjob":
         state["cronjobs"][namespace + "/" + args[2]] = json.loads(args[-1])["spec"][
@@ -568,6 +583,39 @@ class MaintenanceCycleTests(unittest.TestCase):
         self.assertTrue(self.read()["nodes"]["timmy"]["cordoned"])
         self.assertEqual(self.owner(), "outage:mac-one")
         self.assertTrue((self.cycle / "spin-down-replicas").exists())
+
+    def test_owner_replaced_after_down_reads_it_refuses_before_any_change(self):
+        state = self.cordon_by("timmy", "outage:mac-one")
+        state["race_owner"] = "outage:mac-two"
+        self.write(state)
+        self.run_command(OUTAGE, "down", ok=False)
+        self.assertIsNone(self.read()["silence"])
+        self.assertEqual(self.read()["replicas"], self.initial["replicas"])
+        self.assertEqual(self.read()["cronjobs"], self.initial["cronjobs"])
+        self.assertFalse(self.outage.exists())
+        self.assertEqual(self.drain_calls(), [])
+
+    def test_a_drain_that_recordons_a_cleared_cordon_fails(self):
+        for repeat in (False, True):
+            with self.subTest(repeat=repeat):
+                self.write(self.initial)
+                if repeat:
+                    self.cordon_by("timmy", "drain:mac-one")
+                state = self.read()
+                state["clear_before_drain"] = True
+                self.write(state)
+                args = ("drain", "timmy", "--repeat") if repeat else ("drain", "timmy")
+                result = self.run_command(NODE, *args, ok=False)
+                self.assertIn("the cordon changed during the drain", result.stderr)
+                self.assertTrue(self.read()["nodes"]["timmy"]["cordoned"])
+                self.assertIsNone(self.owner())
+
+    def test_owner_with_a_backslash_still_repeats(self):
+        self.env["MAINTENANCE_HOST"] = "mac\\one"
+        self.run_command(OUTAGE, "down")
+        self.assertEqual(self.owner(), "outage:mac\\one")
+        self.run_command(OUTAGE, "down")
+        self.assertEqual(len(self.drain_calls()), 2)
 
     def test_cordon_retries_a_conflict(self):
         state = self.read()

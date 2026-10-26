@@ -380,13 +380,26 @@ cordon_owner() {
 # (true|false), NODE_OWNER (empty for none) and NODE_VERSION. Keep it in the
 # calling shell, as node_is_cordoned.
 read_node_cordon() {
-	local json fields
+	local json
 	json=$("$KUBECTL" get node "$1" -o json) || die "cannot read whether $1 is cordoned"
-	fields=$(jq -r --arg k "$CORDON_OWNER_KEY" \
-		'[.spec.unschedulable == true, .metadata.resourceVersion, (.metadata.annotations[$k] // "")] | @tsv' <<<"$json") ||
-		die "cannot parse node $1"
-	IFS=$'\t' read -r NODE_CORDONED NODE_VERSION NODE_OWNER <<<"$fields"
+	# One jq per field: the owner is compared byte for byte, and @tsv would escape it.
+	NODE_CORDONED=$(jq -r '.spec.unschedulable == true' <<<"$json") || die "cannot parse node $1"
+	NODE_VERSION=$(jq -r '.metadata.resourceVersion // ""' <<<"$json") || die "cannot parse node $1"
+	NODE_OWNER=$(jq -r --arg k "$CORDON_OWNER_KEY" '.metadata.annotations[$k] // ""' <<<"$json") || die "cannot parse node $1"
 	[[ -n $NODE_VERSION ]] || die "cannot read the resourceVersion of node $1"
+}
+
+# Dies unless <node> is cordoned with exactly <owner>. Also the check after each
+# `kubectl drain`, which cordons by itself: a cordon cleared mid-run comes back
+# from the drain without an owner, and must not pass as this run's.
+require_owned_cordon() { # <node> <owner> <what>
+	local node=$1 owner=$2
+	read_node_cordon "$node"
+	[[ $NODE_CORDONED == true && $NODE_OWNER == "$owner" ]] && return 0
+	if [[ $NODE_CORDONED == true ]]; then
+		die "$3: $node is cordoned by ${NODE_OWNER:-hand (no owner recorded)}, not $owner. Finish that work first. Only if it is this Mac's own (from before cordon owners were recorded, or re-cordoned by a drain after its cordon was cleared mid-run), claim it and re-run: kubectl annotate node $node $CORDON_OWNER_KEY='$owner' --overwrite"
+	fi
+	die "$3: $node is no longer cordoned (its cordon was cleared mid-run); re-run once nothing else is working on it"
 }
 
 # Cordons and records <owner> in one write carrying the resourceVersion just read,
@@ -1093,7 +1106,7 @@ drain_leftovers() {
 }
 
 repeat_drain() {
-	local node=$1 leftovers boot_id saved_boot_id cycle
+	local node=$1 owner=$2 leftovers boot_id saved_boot_id cycle
 	# Preserve the planned-outage repeat path: a caller that passes --repeat may
 	# drain its own cordoned target again without repeating the first drain's
 	# preflights or spin-down. cmd_drain has checked the cordon's owner; a saved
@@ -1102,6 +1115,7 @@ repeat_drain() {
 	require_cycle_state_path "$node"
 	"$KUBECTL" drain "$node" --ignore-daemonsets --delete-emptydir-data --timeout="$DRAIN_TIMEOUT" ||
 		warn "drain incomplete — assessing what is left on $node"
+	require_owned_cordon "$node" "$owner" "the cordon changed during the drain"
 	# Unlike a first drain, a repeat always checks leftovers, even after success.
 	leftovers=$(drain_leftovers "$node") || die "cannot read pods remaining on $node"
 	[[ -n $leftovers ]] && die "non-Longhorn pods still on $node after drain: $leftovers"
@@ -1145,9 +1159,8 @@ cmd_drain() {
 		# node would skip every first-drain check on any node.
 		((repeat)) ||
 			die "$node is already cordoned; pass --repeat to re-drain this Mac's own cordon. If it is not yours, finish that cycle or kubectl uncordon $node for a checked first drain — never uncordon another Mac's timmy outage"
-		[[ $NODE_OWNER == "$owner" ]] ||
-			die "$node is cordoned by ${NODE_OWNER:-hand (no owner recorded)}, not $owner; this run changed nothing. Finish that work first. Only if it is this Mac's own from before cordon owners were recorded, claim it and re-run: kubectl annotate node $node $CORDON_OWNER_KEY='$owner' --overwrite"
-		repeat_drain "$node"
+		require_owned_cordon "$node" "$owner" "this run changed nothing"
+		repeat_drain "$node" "$owner"
 	else
 		RERUN_AS="$SELF drain $node"
 		CORDON_PURPOSE=$purpose
@@ -1281,7 +1294,10 @@ cmd_reboot() {
 	# volume, the instance-manager PDB never releases (block-if-contains-last-replica),
 	# so a full drain is impossible by design. If the instance-manager is the only
 	# survivor, report the volumes that will blip during the reboot and proceed.
-	if ! kubectl drain "$node" --ignore-daemonsets --delete-emptydir-data --timeout="$DRAIN_TIMEOUT"; then
+	local drained=1
+	kubectl drain "$node" --ignore-daemonsets --delete-emptydir-data --timeout="$DRAIN_TIMEOUT" || drained=0
+	require_owned_cordon "$node" "$owner" "the cordon changed during the drain"
+	if ((!drained)); then
 		warn "drain incomplete — assessing what is left on $node"
 		local leftovers
 		# Fail closed: every non-terminal pod counts (Running, Pending, Unknown, or
@@ -1330,20 +1346,31 @@ cmd_reboot() {
 # before it gets here) can run them first. On 2026-10-21 `down` parked everything,
 # then this script's reboot-order check refused on wemby, leaving timmy half out.
 cmd_preflight() {
-	(($# >= 1 && $# <= 2)) || die "usage: $SELF preflight <node> [--allow-repeat]"
-	local node=$1
+	(($# >= 1 && $# <= 3)) || die "usage: $SELF preflight <node> [--allow-repeat [--outage]]"
+	local node=$1 allow_repeat=0 purpose=drain owner option
+	shift
 	require_node "$node"
+	for option in "$@"; do
+		case $option in
+		--allow-repeat) allow_repeat=1 ;;
+		--outage) purpose=outage ;;
+		*) die "unknown preflight option '$option'" ;;
+		esac
+	done
 	# Both drains refuse state they cannot read, lock or replace, so refuse it
 	# here, before a caller like timmy-offline parks anything.
 	require_state_dir_readable
 	require_state_dir_writable
 	require_cycle_state_path "$node"
 	require_cycle_record_readable "$node"
-	if (($# == 2)); then
-		[[ $2 == --allow-repeat ]] || die "unknown preflight option '$2'"
-		# Pairs with `drain --repeat`, which re-drains only this Mac's own cordon.
-		if node_is_cordoned "$node"; then
-			log "[$node] preflight OK: already cordoned; drain --repeat will re-drain it"
+	if ((allow_repeat)); then
+		# Pairs with `drain --repeat`, which re-drains only this Mac's own cordon:
+		# check the owner here too, the caller's last check before its own changes.
+		owner=$(cordon_owner "$purpose") || die "cannot tell which Mac this is"
+		read_node_cordon "$node"
+		if [[ $NODE_CORDONED == true ]]; then
+			require_owned_cordon "$node" "$owner" "refusing the repeat"
+			log "[$node] preflight OK: this Mac's cordon ($owner); drain --repeat will re-drain it"
 			return 0
 		fi
 	fi

@@ -431,7 +431,7 @@ cmd_down() {
 	# any other refuses here, before any change (IMPR-1428).
 	local preflight_args=() drain_args=(--spin-down --outage)
 	if own_outage_cordon; then
-		preflight_args=(--allow-repeat)
+		preflight_args=(--allow-repeat --outage)
 		drain_args+=(--repeat)
 	fi
 	log "preflight: node-maintenance.sh must be willing to drain $NODE"
