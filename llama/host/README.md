@@ -116,7 +116,7 @@ LoadBalancer Service; the host daemon cannot bind `0.0.0.0:11434` until that is 
 | Pull a model from the cluster | `kubectl -n llama create job --from=cronjob/ollama-pull pull-$(date +%s)` after setting `MODEL`                        |
 | Is the FIM model resident?    | `curl -s 192.168.1.19:11434/api/ps`; `/run/ollama/models-ready` records successful startup warm, not current residency |
 | Metrics                       | `curl -s 192.168.1.19:9111/metrics`; Grafana scrapes `ollama.llama.svc:9111`                                           |
-| Is the model really in VRAM?  | `cat /sys/bus/pci/devices/0000:03:00.0/power/control` is `on`, and `mem_info_vram_used` (same dir) holds ~9 GB with `mem_info_gtt_used` under 1 GB. `ollama ps` counts GTT as GPU, so it cannot tell |
+| Is the model really in VRAM?  | `/sys/bus/pci/devices/0000:03:00.0/power/control` is `on`, `/sys/bus/pci/devices/0000:03:00.0/mem_info_vram_used` holds ~9 GB, and `/sys/bus/pci/devices/0000:03:00.0/mem_info_gtt_used` stays under 1 GB. `ollama ps` counts GTT as GPU, so it cannot tell |
 
 ### Passwordless deploys
 
