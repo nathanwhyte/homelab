@@ -155,12 +155,28 @@ and confirms with `sudo -l -U noot` that the grant is live, because sudo silentl
 `sudoers.d` file whose name contains a dot. `--check` reports state; `--uninstall` removes it.
 Tests: `bash llama/host/tests/test-homelab-ollama-deploy.sh llama/host`.
 
-Node maintenance: `scripts/node-maintenance.sh --spin-down` no longer scales `llama/ollama`
+Node maintenance: `scripts/node-maintenance.sh reboot <node> --spin-down` no longer scales `llama/ollama`
 (there is no Deployment); the daemon rides through drains and stops with the host on reboot.
 Its RAM is still counted: the preflight subtracts `HOST_MEMORY_RESERVATIONS` (default
 `timmy=16Gi`, the drop-in's `MemoryMax`) from timmy's headroom, so keep the two in sync. To
 free that memory for a tight drain, `ssh timmy sudo systemctl stop ollama` by hand first —
 the nodes' non-interactive sudo is scoped to apt/reboot, so the script cannot do it for you.
+
+For a planned timmy outage, use `scripts/timmy-offline.sh down` and, after returning to
+Ubuntu, `scripts/timmy-offline.sh up`. The outage script owns workload parking, CronJob
+suspension and alert silences. It delegates the node cycle to `node-maintenance.sh`:
+`preflight <node> --allow-repeat` checks before parking, `drain <node> --spin-down`
+starts or repeats the drain without rebooting, and `recover <node>` finishes a recorded
+reboot or restores preparation that stopped before a drain. `cycle-status <node>` prints
+`recorded` or `none` for saved reboot evidence; use `scripts/maintenance-active.py` for
+bounded maintenance windows instead.
+
+Recovery state remains local to the Mac that started the work. Each mutating node-cycle
+command takes the existing process lock; it does not lock the entire outage workflow
+or offline interval. A recorded cycle still requires proof of a changed boot ID and a
+cordoned target; manually uncordoning it does not make `recover` a cancellation command.
+If the Longhorn health check fails or is interrupted after uncordoning, the saved cycle
+remains and strict `recover`/`finish` refuses a retry; that case still needs manual recovery.
 
 GPU exclusion: the retired pod's `amd.com/gpu: "2"` request was the only thing keeping other
 AMD-GPU pods (`gpu/amd/rocm-test-pod.yaml`, the nanochat training Job, the embedding

@@ -8,11 +8,16 @@
 # Phase 2 (disruptive, one node per invocation — agents first, timmy last):
 #   node-maintenance.sh reboot <node>       preflight → cordon → drain → reboot → uncordon → health gate
 #   node-maintenance.sh reboot <node> [--no-reboot] [--spin-down] [--override-memory]
+#   node-maintenance.sh drain <node> [--spin-down] [--override-memory]
+#                                             start or repeat a drain, leaving the reboot to the caller
+#   node-maintenance.sh recover <node>     finish a recorded cycle, or restore preparation before a drain
+#   node-maintenance.sh cycle-status <node> print recorded|none for saved reboot state (read-only)
 #   node-maintenance.sh finish <node> [previous-boot-id]
 #                                             verify reboot → wait for Ready → uncordon → health gate
 #   node-maintenance.sh preflight <node>    the read-only refusals `reboot` starts with (another cycle
 #                                             active, an earlier node still owing a reboot), for a
 #                                             caller to run before it mutates anything of its own
+#                                             --allow-repeat permits the already-cordoned drain path
 #   node-maintenance.sh restore-services    scale the --spin-down services back without a finish, for
 #                                             a cycle that stopped before its drain; refuses while any
 #                                             node is cordoned or has saved reboot state
@@ -102,7 +107,7 @@ die() {
 }
 
 usage() {
-	sed -n '2,19p' "$SELF" | sed 's/^# \{0,1\}//'
+	sed -n '2,24p' "$SELF" | sed 's/^# \{0,1\}//'
 	exit 1
 }
 
@@ -171,6 +176,23 @@ load_cycle_boot_id() {
 
 clear_cycle_state() {
 	rm -f "$(cycle_state_file "$1")"
+}
+
+# This describes recorded reboot evidence, not whether an outage is active. The
+# window files remain the deliberately bounded signal for maintenance watches.
+cmd_cycle_status() {
+	(($# == 1)) || die "usage: $SELF cycle-status <node>"
+	require_node "$1"
+	local file
+	file=$(cycle_state_file "$1")
+	if [[ -e $file || -L $file ]]; then
+		[[ -f $file && -r $file ]] || die "cannot read saved reboot state: $file"
+	fi
+	if [[ -s $file ]]; then
+		printf 'recorded\n'
+	else
+		printf 'none\n'
+	fi
 }
 
 # Returns non-zero instead of dying, so the apt EXIT trap can still release the
@@ -249,6 +271,20 @@ acquire_maintenance_lock() {
 cordoned_nodes() {
 	kubectl get nodes -o json |
 		jq -r '.items[] | select(.spec.unschedulable == true) | .metadata.name'
+}
+
+# A failed read must not select the uncordoned recovery/drain path. Keep this in
+# the calling shell: die inside a command substitution only ends that subshell.
+node_is_cordoned() {
+	local node=$1 value
+	value=$("$KUBECTL" get node "$node" -o jsonpath='{.spec.unschedulable}') || die "cannot read whether $node is cordoned"
+	[[ $value == true ]]
+}
+
+node_is_ready() {
+	local node=$1 value
+	value=$("$KUBECTL" get node "$node" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}') || die "cannot read whether $node is Ready"
+	[[ $value == True ]]
 }
 
 require_no_cordoned_nodes() {
@@ -905,6 +941,69 @@ cmd_status() {
 	fi
 }
 
+drain_leftovers() {
+	"$KUBECTL" get pods -A -o json --field-selector "spec.nodeName=$1" |
+		jq -r '.items[] | select((.status.phase // "Unknown") as $p | $p != "Succeeded" and $p != "Failed")
+			| select((.metadata.ownerReferences // []) | any(.kind == "DaemonSet") | not)
+			| select((.metadata.namespace == "longhorn-system" and (.metadata.name | startswith("instance-manager"))) | not)
+			| "\(.metadata.namespace)/\(.metadata.name) (\(.status.phase // "unknown"))"'
+}
+
+repeat_drain() {
+	local node=$1 leftovers boot_id
+	# Preserve the planned-outage repeat path: an already-cordoned target may be
+	# drained again without repeating the first drain's preflights or spin-down.
+	# It does not establish ownership of other cordons or require an old record.
+	warn "$node is already cordoned — re-draining"
+	"$KUBECTL" drain "$node" --ignore-daemonsets --delete-emptydir-data --timeout="$DRAIN_TIMEOUT" ||
+		warn "drain incomplete — assessing what is left on $node"
+	# Unlike a first drain, a repeat always checks leftovers, even after success.
+	leftovers=$(drain_leftovers "$node") || die "cannot read pods remaining on $node"
+	[[ -n $leftovers ]] && die "non-Longhorn pods still on $node after drain: $leftovers"
+	boot_id=$(remote_boot_id "$node") || die "cannot read boot ID from $node"
+	require_valid_boot_id "$boot_id"
+	save_cycle_boot_id "$node" "$boot_id"
+	log "[$node] saved current boot ID for recovery: $boot_id"
+}
+
+cmd_drain() {
+	(($# >= 1 && $# <= 3)) || die "usage: $SELF drain <node> [--spin-down] [--override-memory]"
+	local node=$1 option
+	shift
+	require_node "$node"
+	for option in "$@"; do
+		case $option in
+		--spin-down | --override-memory) ;;
+		*) die "unknown drain option '$option'" ;;
+		esac
+	done
+	if node_is_cordoned "$node"; then
+		repeat_drain "$node"
+	else
+		cmd_reboot "$node" --no-reboot "$@"
+	fi
+}
+
+cmd_recover() {
+	(($# == 1)) || die "usage: $SELF recover <node>"
+	local node=$1 cycle
+	require_node "$node"
+	cycle=$(cmd_cycle_status "$node") || return 1
+	if [[ $cycle == recorded ]]; then
+		cmd_finish "$node"
+		return
+	fi
+	warn "no saved cycle for $node — preparation stopped before the drain; skipping finish"
+	if node_is_cordoned "$node"; then
+		die "$node is cordoned without cycle state; finish it by hand: $SELF finish $node <previous-boot-id>"
+	fi
+	node_is_ready "$node" || die "$node is not Ready; wait for it, then re-run: $SELF recover $node"
+	# The shared spin-down record can belong to another node. Check all cordons
+	# and saved cycles under this command's lock before restoring any replicas.
+	cmd_restore_services
+	wait_longhorn_healthy
+}
+
 cmd_finish() {
 	(($# >= 1 && $# <= 2)) || die "usage: $SELF finish <node> [previous-boot-id]"
 	local node=$1 previous_boot_id=${2:-} saved_boot_id
@@ -1005,11 +1104,7 @@ cmd_reboot() {
 		local leftovers
 		# Fail closed: every non-terminal pod counts (Running, Pending, Unknown, or
 		# missing phase), not just Running — only Succeeded/Failed are safely done.
-		leftovers=$(kubectl get pods -A -o json --field-selector "spec.nodeName=$node" |
-			jq -r '.items[] | select((.status.phase // "Unknown") as $p | $p != "Succeeded" and $p != "Failed")
-				| select((.metadata.ownerReferences // []) | any(.kind == "DaemonSet") | not)
-				| select((.metadata.namespace == "longhorn-system" and (.metadata.name | startswith("instance-manager"))) | not)
-				| "\(.metadata.namespace)/\(.metadata.name) (\(.status.phase // "unknown"))"')
+		leftovers=$(drain_leftovers "$node") || die "cannot read pods remaining on $node"
 		[[ -n $leftovers ]] && die "non-Longhorn pods still on $node after drain: $leftovers"
 		warn "only the Longhorn instance-manager remains, pinned by last-replica volumes."
 		warn "single-replica volumes on $node — briefly unavailable during the reboot:"
@@ -1053,9 +1148,16 @@ cmd_reboot() {
 # before it gets here) can run them first. On 2026-10-21 `down` parked everything,
 # then this script's reboot-order check refused on wemby, leaving timmy half out.
 cmd_preflight() {
-	(($# == 1)) || die "usage: $SELF preflight <node>"
+	(($# >= 1 && $# <= 2)) || die "usage: $SELF preflight <node> [--allow-repeat]"
 	local node=$1
 	require_node "$node"
+	if (($# == 2)); then
+		[[ $2 == --allow-repeat ]] || die "unknown preflight option '$2'"
+		if node_is_cordoned "$node"; then
+			log "[$node] preflight OK: already cordoned; drain will repeat the existing outage path"
+			return 0
+		fi
+	fi
 	require_no_cordoned_nodes
 	require_reboot_order "$node"
 	log "[$node] preflight OK: no cycle active, no earlier node owes a reboot"
@@ -1091,6 +1193,9 @@ main() {
 	apt) shift && acquire_maintenance_lock && cmd_apt "$@" ;;
 	status) cmd_status ;;
 	preflight) shift && cmd_preflight "$@" ;;
+	cycle-status) shift && cmd_cycle_status "$@" ;;
+	drain) shift && acquire_maintenance_lock && cmd_drain "$@" ;;
+	recover) shift && acquire_maintenance_lock && cmd_recover "$@" ;;
 	reboot) shift && acquire_maintenance_lock && cmd_reboot "$@" ;;
 	finish) shift && acquire_maintenance_lock && cmd_finish "$@" ;;
 	restore-services) shift && acquire_maintenance_lock && cmd_restore_services "$@" ;;
