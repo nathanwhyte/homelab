@@ -49,8 +49,8 @@ a profile fits the GPU: each selected profile must pass its own runtime verifica
 | --- | --- | --- | --- |
 | `gemma4:vlm` | Gemma | Qwen FIM | 1 |
 | `qwen2.5-coder:fim` | Qwen FIM and Gemma | Deepseek instruct | 2 |
-| `deepseek-coder-v2:fim` | Deepseek FIM | Deepseek instruct | 1 |
-| `deepseek-coder-v2:instruct` | Deepseek instruct | Deepseek FIM | 1 |
+| `deepseek-coder-v2:fim` | Deepseek FIM | Deepseek instruct, Qwen FIM and Gemma | 1 |
+| `deepseek-coder-v2:instruct` | Deepseek instruct | Deepseek FIM, Qwen FIM and Gemma | 1 |
 
 The default remains Gemma E4B Q8_0, `num_ctx=65536`, `num_batch=2048`, four slots, and one
 loaded model; Qwen FIM is a prepared rollback choice. These are configured values, not fresh
@@ -60,6 +60,9 @@ The compatibility shell accepts `--reconcile-only` for preparation without loadi
 `--ov-pair-only` for preparation of Qwen/Gemma without loading. Neither publishes runtime
 acceptance. Global Python options (`--config`, `--recipes`, `--resident`, `--url`, `--state`)
 precede the command.
+`RESIDENT_TAG` in the caller's environment is ignored. Explicit `--resident` selects a
+temporary profile for that command; it does not update installed configuration. Production
+selection changes belong in `model-posture.json`, followed by rendering and full adoption.
 
 Warmup serializes preparation and loads the intended residents sequentially. Acceptance
 checks `/api/ps` identity, context and GPU residency, the daemon's actual environment and
@@ -68,6 +71,15 @@ evidence must match the current boot, systemd invocation, daemon PID, runner com
 process start time. It proves context, slots, batch/micro-batch, flash attention, KV-cache,
 Vulkan device identity and complete GPU layer offload. Missing, rotated-out, malformed,
 ambiguous, or stale evidence fails closed; API availability is not a substitute.
+
+Runner birth is measured in the journal's monotonic clock through Linux TASKSTATS;
+`/proc` boot-clock ticks identify the process generation, rather than being converted with
+the current suspend offset. This requires `CONFIG_TASKSTATS`, an unshifted monotonic time
+namespace, and root with `CAP_NET_ADMIN`; the existing warm unit's `ExecStart=+` supplies
+administrative privileges. The measured birth interval must be no wider than one proc tick.
+Unavailable or ambiguous timing refuses verification with a diagnostic; restore access or
+retry a slow observation. Suspend before or after process creation does not change the clock
+binding. Live kernel support and timing still need validation during authorized host adoption.
 
 Only successful acceptance atomically publishes `/var/lib/ollama-preparation/verified.json`.
 Public Ollama aliases are not proof of host acceptance: API clients can copy them. The receipt binds configuration,
@@ -196,6 +208,13 @@ the explicit recovery workflow. A failed verifier must not be reported as a succ
 stop unless its stop evidence confirms it. Direct manual unit controls remain available
 for an operator; they do not establish a new acceptance receipt by themselves.
 
+Each candidate create has a 900-second limit, including missing-base downloads. Keep the
+model store after a timeout: cached blobs and resumable partial downloads may be reused on
+retry. An adopting command invalidates acceptance and attempts to stop its captured daemon,
+including one started by bootstrap. After confirming that stop and correcting any failure,
+retry the trusted deployment with `--bootstrap-recovery`; the same bound and full proof apply.
+Standalone `prepare`/`pair` commands do not stop the daemon and can retry the same command.
+
 The generated recovery CronJob runs every 15 minutes, unprivileged and HTTP-only. It posts
 its expected revision and residents to the existing exporter on port 9111. The exporter
 runs as `ollama`, validates the root-owned receipt and current process generation, and takes
@@ -216,9 +235,12 @@ the GPU against such a caller. Plan host adoption or sensitive GPU work in a qui
 The receipt rename publishes completed proof. For `warm` and
 `verify --stop-on-failure`, the CLI owns `SIGINT` and `SIGTERM` until process exit.
 Cancellation before command completion removes the receipt and attempts a generation-bound
-stop, including cancellation after publication or during the final response flush. A signal
-interrupts ordinary work immediately; during an existing exception's unwind it is recorded
-without replacing that exception, so cleanup can run. Further signals cannot interrupt cleanup.
+stop, including cancellation after publication or during the final response flush. Ordinary
+work raises a dedicated cancellation exception outside the `OSError`/`Exception` retry
+hierarchies, and later signals can raise again. During an existing exception's unwind,
+cancellation is recorded without replacing that exception so cleanup can run. Checks before
+and after preparation operations reject recorded cancellation if an inner handler swallowed
+the exception. Further signals cannot interrupt cleanup.
 After durable publication and a flushed response, the CLI blocks both signals and checks for
 recorded or pending cancellation. An empty check completes the operation; later signals remain
 blocked through runtime and lock release and cannot cancel the completed adoption. The CLI
