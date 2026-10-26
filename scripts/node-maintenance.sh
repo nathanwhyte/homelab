@@ -8,17 +8,20 @@
 # Phase 2 (disruptive, one node per invocation — agents first, timmy last):
 #   node-maintenance.sh reboot <node>       preflight → cordon → drain → reboot → uncordon → health gate
 #   node-maintenance.sh reboot <node> [--no-reboot] [--spin-down] [--override-memory]
-#   node-maintenance.sh drain <node> [--spin-down] [--override-memory] [--repeat]
-#                                             start a drain (or, with --repeat, re-drain a cordoned target)
+#   node-maintenance.sh drain <node> [--spin-down] [--override-memory] [--repeat] [--outage]
+#                                             start a drain (or, with --repeat, re-drain this Mac's own
+#                                             cordon; --outage marks it as timmy-offline.sh down's)
 #   node-maintenance.sh recover <node>     finish a recorded cycle, or restore preparation before a drain
 #   node-maintenance.sh cycle-status <node> print recorded|none for saved reboot state (read-only)
-#   node-maintenance.sh cordon-status <node> print cordoned|uncordoned (read-only)
+#   node-maintenance.sh cordon-status <node> [--outage]
+#                                             print uncordoned|owned|cordoned [owner] (read-only)
 #   node-maintenance.sh finish <node> [previous-boot-id]
 #                                             verify reboot → wait for Ready → uncordon → health gate
 #   node-maintenance.sh preflight <node>    the read-only refusals `reboot` starts with (another cycle
 #                                             active, an earlier node still owing a reboot), for a
 #                                             caller to run before it mutates anything of its own
-#                                             --allow-repeat: OK for a cordoned target (drain --repeat)
+#                                             --allow-repeat: OK for this Mac's own cordon (drain --repeat);
+#                                             add --outage for timmy-offline.sh down's
 #   node-maintenance.sh restore-services    scale the --spin-down services back without a finish, for
 #                                             a cycle that stopped before its drain; refuses while any
 #                                             node is cordoned or has saved reboot state
@@ -99,6 +102,15 @@ APT_KEPT_WHAT=''
 LOCK_HELD=0
 # Overridable so tests can stub cluster reads/writes without a live cluster.
 KUBECTL=${KUBECTL:-kubectl}
+# Who made a cordon (IMPR-1428), kept on the Node so both Macs and a hand cordon
+# see the same answer: "<purpose>:<Mac>", purpose outage (timmy-offline.sh down),
+# drain or reboot. A cordon without one was made by hand or before owners were
+# recorded. An owner left on an uncordoned node is stale (`kubectl uncordon` keeps
+# annotations), and a later hand cordon would carry it, so mutating commands clear
+# it (clear_stale_owners). MAINTENANCE_HOST stands in for the ComputerName.
+CORDON_OWNER_KEY=homelab/cordon-owner
+# The cordon write carries the resourceVersion it read; a 409 re-reads and re-checks.
+CORDON_ATTEMPTS=3
 
 log() { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33mWARN:\033[0m %s\n' "$*"; }
@@ -108,7 +120,7 @@ die() {
 }
 
 usage() {
-	sed -n '2,25p' "$SELF" | sed 's/^# \{0,1\}//'
+	sed -n '2,28p' "$SELF" | sed 's/^# \{0,1\}//'
 	exit 1
 }
 
@@ -192,14 +204,25 @@ require_cycle_record_readable() {
 }
 
 # Read-only, for a caller that must decide on the cordon itself: prints
-# cordoned|uncordoned, and fails rather than guess on a read failure.
+# uncordoned, owned (this Mac's cordon for the purpose: outage with --outage,
+# else drain), or "cordoned [owner]" for any other; fails rather than guess on
+# a read failure.
 cmd_cordon_status() {
-	(($# == 1)) || die "usage: $SELF cordon-status <node>"
-	require_node "$1"
-	if node_is_cordoned "$1"; then
-		printf 'cordoned\n'
-	else
+	(($# == 1 || $# == 2)) || die "usage: $SELF cordon-status <node> [--outage]"
+	local node=$1 purpose=drain owner
+	require_node "$node"
+	if (($# == 2)); then
+		[[ $2 == --outage ]] || die "unknown cordon-status option '$2'"
+		purpose=outage
+	fi
+	owner=$(cordon_owner "$purpose") || die "cannot tell which Mac this is"
+	read_node_cordon "$node"
+	if [[ $NODE_CORDONED != true ]]; then
 		printf 'uncordoned\n'
+	elif [[ $NODE_OWNER == "$owner" ]]; then
+		printf 'owned\n'
+	else
+		printf 'cordoned%s\n' "${NODE_OWNER:+ $NODE_OWNER}"
 	fi
 }
 
@@ -345,6 +368,123 @@ node_is_cordoned() {
 	local node=$1 value
 	value=$("$KUBECTL" get node "$node" -o jsonpath='{.spec.unschedulable}') || die "cannot read whether $node is cordoned"
 	[[ $value == true ]]
+}
+
+# This Mac's owner value for <purpose>.
+cordon_owner() {
+	local host=${MAINTENANCE_HOST:-}
+	[[ -n $host ]] || host=$(scutil --get ComputerName 2>/dev/null) || host=$(hostname -s) || return 1
+	[[ -n $host ]] || return 1
+	printf '%s:%s\n' "$1" "$host"
+}
+
+# One read of a node's cordon, owner and resourceVersion into NODE_CORDONED
+# (true|false), NODE_OWNER (empty for none) and NODE_VERSION. Keep it in the
+# calling shell, as node_is_cordoned.
+read_node_cordon() {
+	local json
+	json=$("$KUBECTL" get node "$1" -o json) || die "cannot read whether $1 is cordoned"
+	# One jq per field: the owner is compared byte for byte, and @tsv would escape it.
+	NODE_CORDONED=$(jq -r '.spec.unschedulable == true' <<<"$json") || die "cannot parse node $1"
+	NODE_VERSION=$(jq -r '.metadata.resourceVersion // ""' <<<"$json") || die "cannot parse node $1"
+	NODE_OWNER=$(jq -r --arg k "$CORDON_OWNER_KEY" '.metadata.annotations[$k] // ""' <<<"$json") || die "cannot parse node $1"
+	[[ -n $NODE_VERSION ]] || die "cannot read the resourceVersion of node $1"
+}
+
+# Dies unless <node> is cordoned with exactly <owner>. Also the check after each
+# `kubectl drain`, which cordons by itself: a cordon whose owner was removed or
+# replaced mid-run comes back from the drain without this run's owner and stops
+# it. A hand `kubectl uncordon` keeps the owner, so its re-cordon passes; the node
+# is drained for this run either way, and mid-run hand changes are out of scope.
+require_owned_cordon() { # <node> <owner> <what>
+	local node=$1 owner=$2
+	read_node_cordon "$node"
+	[[ $NODE_CORDONED == true && $NODE_OWNER == "$owner" ]] && return 0
+	if [[ $NODE_CORDONED == true && -n $NODE_OWNER && ${NODE_OWNER#*:} == "${owner#*:}" ]]; then
+		# No drain or preflight option produces a reboot: owner, so only finishing applies.
+		[[ ${NODE_OWNER%%:*} != reboot ]] ||
+			die "$3: $node is this Mac's reboot cordon ($NODE_OWNER), not $owner. Finish that reboot cycle first: $SELF recover $node"
+		die "$3: $node is this Mac's ${NODE_OWNER%%:*} cordon ($NODE_OWNER), not $owner. Re-run with the matching purpose (--outage, or timmy-offline.sh down, for an outage cordon; no --outage for a drain), or finish that cycle"
+	elif [[ $NODE_CORDONED == true && -n $NODE_OWNER ]]; then
+		die "$3: $node is cordoned by $NODE_OWNER, not $owner. Let that Mac finish its cycle first"
+	elif [[ $NODE_CORDONED == true ]]; then
+		die "$3: $node is cordoned by hand (no owner recorded), not $owner. Finish that work first. Only if it is this Mac's own from before cordon owners were recorded, claim it and re-run: kubectl annotate node $node $CORDON_OWNER_KEY='$owner' --overwrite"
+	fi
+	die "$3: $node is no longer cordoned (its cordon was cleared mid-run); re-run once nothing else is working on it"
+}
+
+# Cordons and records <owner> in one write carrying the resourceVersion just read,
+# so a cordon that appears in between is refused (409) rather than adopted. No
+# cordon of ours ever lacks its owner, so the same Mac's repeat still recognises
+# one whose run was killed before the record save.
+cordon_node() { # <node> <owner>
+	local node=$1 owner=$2 attempt patch err
+	for ((attempt = 1; attempt <= CORDON_ATTEMPTS; attempt++)); do
+		read_node_cordon "$node"
+		[[ $NODE_CORDONED != true ]] ||
+			die "$node was cordoned (${NODE_OWNER:-no owner recorded}) after this cycle's checks; it is not this cycle's cordon"
+		patch=$(jq -cn --arg v "$NODE_VERSION" --arg k "$CORDON_OWNER_KEY" --arg o "$owner" \
+			'{metadata: {resourceVersion: $v, annotations: {($k): $o}}, spec: {unschedulable: true}}')
+		if err=$("$KUBECTL" patch node "$node" --type=merge -p "$patch" 2>&1 >/dev/null); then
+			return 0
+		fi
+		[[ $err == *'(Conflict)'* ]] || die "cannot cordon $node: $err"
+		warn "[$node] changed while cordoning (attempt $attempt of $CORDON_ATTEMPTS); re-reading"
+	done
+	die "cannot cordon $node: it changed on each of $CORDON_ATTEMPTS attempts; nothing was cordoned — re-run the same command"
+}
+
+# finish's ownership rule: the cordon names this Mac (any purpose), or has no
+# owner because it predates owners. Another Mac's newer cycle refuses, so a stale
+# `up` cannot restore or uncordon over it. Leaves NODE_VERSION for uncordon_node.
+require_finishable_cordon() {
+	local node=$1 host
+	host=$(cordon_owner finish) || die "cannot tell which Mac this is"
+	host=${host#finish:}
+	read_node_cordon "$node"
+	[[ $NODE_CORDONED == true ]] || die "$node is not cordoned; refusing to run finish"
+	[[ -z $NODE_OWNER || ${NODE_OWNER#*:} == "$host" ]] ||
+		die "$node is cordoned by $NODE_OWNER, not this Mac ($host); refusing to finish another cycle's cordon — run it on that Mac"
+}
+
+# `kubectl uncordon` keeps annotations, so a hand uncordon leaves the owner behind,
+# and a later hand cordon would carry it. Mutating commands drop any owner on an
+# uncordoned node, each removal conditioned on the resourceVersion it read. Best
+# effort: a failure only warns, and `status` lists what is left.
+clear_stale_owners() {
+	local nodes name version
+	nodes=$("$KUBECTL" get nodes -o json 2>/dev/null | jq -r --arg k "$CORDON_OWNER_KEY" \
+		'.items[] | select(.spec.unschedulable != true and (.metadata.annotations[$k] // "") != "")
+		| "\(.metadata.name) \(.metadata.resourceVersion)"') || {
+		warn "cannot read nodes to clear stale cordon owners"
+		return 0
+	}
+	while read -r name version; do
+		[[ -n $name ]] || continue
+		if "$KUBECTL" patch node "$name" --type=merge \
+			-p "$(jq -cn --arg v "$version" --arg k "$CORDON_OWNER_KEY" '{metadata: {resourceVersion: $v, annotations: {($k): null}}}')" >/dev/null 2>&1; then
+			log "[$name] cleared a stale cordon owner (the node is not cordoned)"
+		else
+			warn "[$name] could not clear its stale cordon owner; clear it by hand: kubectl annotate node $name $CORDON_OWNER_KEY-"
+		fi
+	done <<<"$nodes"
+}
+
+# Uncordons and drops the owner in one write carrying the resourceVersion of the
+# read that found the cordon finishable, re-checking on a 409 as cordon_node does.
+uncordon_node() {
+	local node=$1 attempt patch err
+	for ((attempt = 1; attempt <= CORDON_ATTEMPTS; attempt++)); do
+		require_finishable_cordon "$node"
+		patch=$(jq -cn --arg v "$NODE_VERSION" --arg k "$CORDON_OWNER_KEY" \
+			'{metadata: {resourceVersion: $v, annotations: {($k): null}}, spec: {unschedulable: null}}')
+		if err=$(kubectl patch node "$node" --type=merge -p "$patch" 2>&1 >/dev/null); then
+			return 0
+		fi
+		[[ $err == *'(Conflict)'* ]] || die "cannot uncordon $node: $err"
+		warn "[$node] changed while uncordoning (attempt $attempt of $CORDON_ATTEMPTS); re-reading"
+	done
+	die "cannot uncordon $node: it changed on each of $CORDON_ATTEMPTS attempts; it is still cordoned — re-run the same command"
 }
 
 node_is_ready() {
@@ -982,6 +1122,13 @@ cmd_status() {
 	local cordoned
 	cordoned=$(kubectl get nodes --no-headers | grep SchedulingDisabled | cut -d' ' -f1 || true)
 	[[ -n $cordoned ]] && warn "cordoned node(s) — leftover from an interrupted cycle? $cordoned"
+	local owners
+	owners=$(kubectl get nodes -o json | jq -r --arg k "$CORDON_OWNER_KEY" '.items[]
+		| (.metadata.annotations[$k] // "") as $o
+		| if .spec.unschedulable == true then "\(.metadata.name): cordoned by \(if $o == "" then "hand (no owner recorded)" else $o end)"
+		  elif $o != "" then "\(.metadata.name): stale cordon owner \($o) on an uncordoned node (a hand cordon would keep it); clear it: kubectl annotate node \(.metadata.name) \($k)-"
+		  else empty end' 2>/dev/null) || true
+	[[ -n $owners ]] && printf '%s\n' "$owners" | sed 's/^/    /'
 	echo
 	local node remote_status state kernel
 	for node in "${NODES[@]}"; do
@@ -1017,15 +1164,16 @@ drain_leftovers() {
 }
 
 repeat_drain() {
-	local node=$1 leftovers boot_id saved_boot_id cycle
+	local node=$1 owner=$2 leftovers boot_id saved_boot_id cycle
 	# Preserve the planned-outage repeat path: a caller that passes --repeat may
-	# drain an already-cordoned target again without repeating the first drain's
-	# preflights or spin-down. It does not establish ownership of any cordon or
-	# need a saved record, so an empty or missing one is rewritten here.
+	# drain its own cordoned target again without repeating the first drain's
+	# preflights or spin-down. cmd_drain has checked the cordon's owner; a saved
+	# record is not needed, so an empty or missing one is rewritten here.
 	warn "$node is already cordoned — re-draining"
 	require_cycle_state_path "$node"
 	"$KUBECTL" drain "$node" --ignore-daemonsets --delete-emptydir-data --timeout="$DRAIN_TIMEOUT" ||
 		warn "drain incomplete — assessing what is left on $node"
+	require_owned_cordon "$node" "$owner" "the cordon changed during the drain"
 	# Unlike a first drain, a repeat always checks leftovers, even after success.
 	leftovers=$(drain_leftovers "$node") || die "cannot read pods remaining on $node"
 	[[ -n $leftovers ]] && die "non-Longhorn pods still on $node after drain: $leftovers"
@@ -1050,25 +1198,30 @@ repeat_drain() {
 }
 
 cmd_drain() {
-	(($# >= 1 && $# <= 4)) || die "usage: $SELF drain <node> [--spin-down] [--override-memory] [--repeat]"
-	local node=$1 option repeat=0 first=()
+	(($# >= 1 && $# <= 5)) || die "usage: $SELF drain <node> [--spin-down] [--override-memory] [--repeat] [--outage]"
+	local node=$1 option repeat=0 purpose=drain first=() owner
 	shift
 	require_node "$node"
 	for option in "$@"; do
 		case $option in
 		--spin-down | --override-memory) first+=("$option") ;;
 		--repeat) repeat=1 ;;
+		--outage) purpose=outage ;;
 		*) die "unknown drain option '$option'" ;;
 		esac
 	done
-	if node_is_cordoned "$node"; then
-		# Only an outage caller that owns the cordon opts in; a bare drain of a
-		# cordoned node would skip every first-drain check on any node.
+	owner=$(cordon_owner "$purpose") || die "cannot tell which Mac this is; this run changed nothing"
+	read_node_cordon "$node"
+	if [[ $NODE_CORDONED == true ]]; then
+		# Only a caller that owns the cordon opts in; a bare drain of a cordoned
+		# node would skip every first-drain check on any node.
 		((repeat)) ||
-			die "$node is already cordoned; pass --repeat to re-drain your own outage's cordon. If no outage of yours owns it, finish that cycle or kubectl uncordon $node for a checked first drain — never uncordon another Mac's timmy outage"
-		repeat_drain "$node"
+			die "$node is already cordoned; pass --repeat (with --outage for timmy-offline.sh down's) to re-drain this Mac's own cordon. If it is not yours, finish that cycle, or back it out (kubectl uncordon $node && kubectl annotate node $node $CORDON_OWNER_KEY-) for a checked first drain — never uncordon another Mac's timmy outage"
+		require_owned_cordon "$node" "$owner" "this run changed nothing"
+		repeat_drain "$node" "$owner"
 	else
 		RERUN_AS="$SELF drain $node"
+		CORDON_PURPOSE=$purpose
 		cmd_reboot "$node" --no-reboot ${first[@]+"${first[@]}"}
 	fi
 }
@@ -1084,7 +1237,22 @@ cmd_recover() {
 	fi
 	warn "no saved cycle for $node — preparation stopped before the drain; skipping finish"
 	if node_is_cordoned "$node"; then
-		die "$node is cordoned without cycle state; finish it by hand: $SELF finish $node <previous-boot-id>"
+		read_node_cordon "$node"
+		local host
+		host=$(cordon_owner recover) || die "cannot tell which Mac this is"
+		if [[ -n $NODE_OWNER && ${NODE_OWNER#*:} != "${host#recover:}" ]]; then
+			die "$node carries $NODE_OWNER's cordon and this Mac has no cycle state; let that Mac finish its cycle, then re-run: ${NODE_MAINTENANCE_RERUN:-$SELF recover $node}"
+		elif [[ -n $NODE_OWNER ]]; then
+			# This Mac's run stopped between its cordon and its boot-ID record, so
+			# there is no boot ID to finish with.
+			local back_out="(kubectl uncordon $node && kubectl annotate node $node $CORDON_OWNER_KEY-), then re-run: ${NODE_MAINTENANCE_RERUN:-$SELF recover $node}"
+			case ${NODE_OWNER%%:*} in
+			outage) die "$node carries this Mac's outage cordon ($NODE_OWNER) but no cycle state; re-run timmy-offline.sh down to drain it again, or back it out: $back_out" ;;
+			drain) die "$node carries this Mac's drain cordon ($NODE_OWNER) but no cycle state; re-run $SELF drain $node --repeat to drain it again, or back it out: $back_out" ;;
+			*) die "$node carries this Mac's ${NODE_OWNER%%:*} cordon ($NODE_OWNER) but no cycle state; back it out: $back_out" ;;
+			esac
+		fi
+		die "$node is cordoned with no owner recorded and this Mac has no cycle state. If someone else is working on it, let them finish, then re-run: ${NODE_MAINTENANCE_RERUN:-$SELF recover $node}. Only if it is this Mac's own from before cordon owners were recorded, finish it by hand: $SELF finish $node <previous-boot-id>"
 	fi
 	# A wrapping caller (timmy-offline.sh up) names its own command to re-run.
 	node_is_ready "$node" || die "$node is not Ready; wait for it, then re-run: ${NODE_MAINTENANCE_RERUN:-$SELF recover $node}"
@@ -1124,15 +1292,18 @@ cmd_finish() {
 	# and left the node cordoned. The check still precedes every mutation.
 	wait_for_api
 	require_only_target_cordoned "$node"
+	require_finishable_cordon "$node"
 
 	wait_for_node_ready "$node"
+	# Again after a wait of up to READY_TIMEOUT_SECONDS, before anything is restored.
+	require_finishable_cordon "$node"
 
 	# Restore desired replicas while still cordoned: a failed scale keeps finish
 	# retryable. Pods pinned to this node can schedule once it is uncordoned.
 	restore_memory_services || return 1
 
 	log "[$node] uncordon"
-	kubectl uncordon "$node"
+	uncordon_node "$node"
 
 	wait_longhorn_healthy
 	clear_cycle_state "$node"
@@ -1142,7 +1313,7 @@ cmd_finish() {
 
 cmd_reboot() {
 	(($# >= 1 && $# <= 4)) || die "usage: $SELF reboot <node> [--no-reboot] [--spin-down] [--override-memory]"
-	local node=$1 boot_id
+	local node=$1 boot_id owner
 	local do_reboot=1 spin_down=0 override_memory=0
 	shift
 	while (($#)); do
@@ -1155,6 +1326,8 @@ cmd_reboot() {
 		shift
 	done
 	require_node "$node"
+	# drain sets CORDON_PURPOSE; a reboot cycle's own cordon is "reboot".
+	owner=$(cordon_owner "${CORDON_PURPOSE:-reboot}") || die "cannot tell which Mac this is; this run changed nothing"
 	require_cycle_state_path "$node"
 	require_no_cordoned_nodes
 	require_reboot_order "$node"
@@ -1188,8 +1361,9 @@ cmd_reboot() {
 	require_valid_boot_id "$boot_id"
 
 	open_maintenance_window "reboot cycle on $node"
-	log "[$node] cordon"
-	kubectl cordon "$node"
+	clear_stale_owners
+	log "[$node] cordon ($CORDON_OWNER_KEY=$owner)"
+	cordon_node "$node" "$owner"
 	save_cycle_boot_id "$node" "$boot_id"
 
 	log "[$node] drain (timeout $DRAIN_TIMEOUT)"
@@ -1197,7 +1371,10 @@ cmd_reboot() {
 	# volume, the instance-manager PDB never releases (block-if-contains-last-replica),
 	# so a full drain is impossible by design. If the instance-manager is the only
 	# survivor, report the volumes that will blip during the reboot and proceed.
-	if ! kubectl drain "$node" --ignore-daemonsets --delete-emptydir-data --timeout="$DRAIN_TIMEOUT"; then
+	local drained=1
+	kubectl drain "$node" --ignore-daemonsets --delete-emptydir-data --timeout="$DRAIN_TIMEOUT" || drained=0
+	require_owned_cordon "$node" "$owner" "the cordon changed during the drain"
+	if ((! drained)); then
 		warn "drain incomplete — assessing what is left on $node"
 		local leftovers
 		# Fail closed: every non-terminal pod counts (Running, Pending, Unknown, or
@@ -1216,7 +1393,7 @@ cmd_reboot() {
 
 	if ((! do_reboot)); then
 		log "[$node] --no-reboot: stopping before restart. Node is cordoned and drained."
-		log "[$node] next: ssh -t $node$NODE_SSH_SUFFIX sudo reboot   (or: kubectl uncordon $node to back out)"
+		log "[$node] next: ssh -t $node$NODE_SSH_SUFFIX sudo reboot   (or back out: kubectl uncordon $node && kubectl annotate node $node $CORDON_OWNER_KEY-)"
 		log "[$node] then: $SELF finish $node   (saved previous boot ID: $boot_id)"
 		return 0
 	fi
@@ -1246,20 +1423,31 @@ cmd_reboot() {
 # before it gets here) can run them first. On 2026-10-21 `down` parked everything,
 # then this script's reboot-order check refused on wemby, leaving timmy half out.
 cmd_preflight() {
-	(($# >= 1 && $# <= 2)) || die "usage: $SELF preflight <node> [--allow-repeat]"
-	local node=$1
+	(($# >= 1 && $# <= 3)) || die "usage: $SELF preflight <node> [--allow-repeat [--outage]]"
+	local node=$1 allow_repeat=0 purpose=drain owner option
+	shift
 	require_node "$node"
+	for option in "$@"; do
+		case $option in
+		--allow-repeat) allow_repeat=1 ;;
+		--outage) purpose=outage ;;
+		*) die "unknown preflight option '$option'" ;;
+		esac
+	done
 	# Both drains refuse state they cannot read, lock or replace, so refuse it
 	# here, before a caller like timmy-offline parks anything.
 	require_state_dir_readable
 	require_state_dir_writable
 	require_cycle_state_path "$node"
 	require_cycle_record_readable "$node"
-	if (($# == 2)); then
-		[[ $2 == --allow-repeat ]] || die "unknown preflight option '$2'"
-		# Pairs with `drain --repeat`, which re-drains any cordoned target.
-		if node_is_cordoned "$node"; then
-			log "[$node] preflight OK: already cordoned; drain --repeat will re-drain it"
+	if ((allow_repeat)); then
+		# Pairs with `drain --repeat`, which re-drains only this Mac's own cordon:
+		# check the owner here too, the caller's last check before its own changes.
+		owner=$(cordon_owner "$purpose") || die "cannot tell which Mac this is"
+		read_node_cordon "$node"
+		if [[ $NODE_CORDONED == true ]]; then
+			require_owned_cordon "$node" "$owner" "refusing the repeat"
+			log "[$node] preflight OK: this Mac's cordon ($owner); drain --repeat will re-drain it"
 			return 0
 		fi
 	fi
@@ -1286,6 +1474,7 @@ cmd_restore_services() {
 		node=$(basename "${f%.boot-id}")
 		die "an active cycle owns the spin-down state: $node has saved reboot state; finish it instead: $SELF finish $node"
 	done
+	clear_stale_owners
 	if [[ -s $(spin_down_state_file) ]]; then
 		restore_memory_services || die "restore failed; state kept in $(spin_down_state_file)"
 	else

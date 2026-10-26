@@ -35,14 +35,25 @@ case "$*" in
 	;;
 "get pdb -A -o json" | get\ pods\ -A\ -o\ json* | "get volumes.longhorn.io -n longhorn-system -o json") echo '{"items":[]}' ;;
 get\ jobs\ -n\ compendium*) printf '%s' "${STUB_ACTIVE_JOB:-}" ;;
-cordon\ *)
+cordon\ * | patch\ node\ *\"unschedulable\":true*)
+	n=$2
+	[[ $1 == patch ]] && n=$3 && printf '%s' "$6" >"$C.$n"
+	[[ $1 == cordon ]] && rm -f "$C.$n"
 	cat "$XDG_STATE_HOME/homelab-node-maintenance/window" >"$XDG_STATE_HOME/window-at-cordon" 2>/dev/null ||
 		echo absent >"$XDG_STATE_HOME/window-at-cordon"
-	echo "$2" >>"$C"
+	echo "$n" >>"$C"
 	;;
-uncordon\ *)
-	grep -vx "$2" "$C" >"$C.n" || true
+uncordon\ * | patch\ node\ *\"unschedulable\":null*)
+	n=$2
+	[[ $1 == patch ]] && n=$3
+	grep -vx "$n" "$C" >"$C.n" || true
 	mv "$C.n" "$C"
+	;;
+get\ node\ *\ -o\ json)
+	# The annotations of the last cordon patch, while the node stays cordoned.
+	u=false a='{}'
+	grep -qx "$3" "$C" && u=true && [[ -s $C.$3 ]] && a=$(jq -c '.metadata.annotations' "$C.$3")
+	printf '{"metadata":{"name":"%s","resourceVersion":"1","annotations":%s},"spec":{"unschedulable":%s}}\n' "$3" "$a" "$u"
 	;;
 get\ deployment\ *jsonpath*) printf 1 ;;
 get\ deployment\ *-o\ json*) echo '{"spec":{"selector":{"matchLabels":{"app":"x"}}}}' ;;

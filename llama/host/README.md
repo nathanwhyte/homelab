@@ -167,22 +167,63 @@ the nodes' non-interactive sudo is scoped to apt/reboot, so the script cannot do
 For a planned timmy outage, use `scripts/timmy-offline.sh down` and, after returning to
 Ubuntu, `scripts/timmy-offline.sh up`. The outage script owns workload parking, CronJob
 suspension and alert silences. It delegates the node cycle to `node-maintenance.sh`:
-`preflight <node>` checks before parking, `drain <node> --spin-down` starts the drain
-without rebooting (`preflight --allow-repeat` and `drain --spin-down --repeat` when `down`
-finds timmy already cordoned), and `recover <node>` finishes a recorded
+`preflight <node>` checks before parking, `drain <node> --spin-down --outage` starts the
+drain without rebooting (`preflight --allow-repeat --outage` and `drain --spin-down --outage
+--repeat` when `down` finds its own cordon), and `recover <node>` finishes a recorded
 reboot or restores preparation that stopped before a drain. `cycle-status <node>` prints
 `recorded` or `none` for saved reboot evidence; use `scripts/maintenance-active.py` for
 bounded maintenance windows instead.
 
 Recovery state remains local to the Mac that started the work. Each mutating node-cycle
 command takes the existing process lock; it does not lock the entire outage workflow
-or offline interval. A bare `drain` refuses a cordoned node; only `drain --repeat`, which
-`down` passes only when its one check at the start found timmy cordoned, re-drains one; a
-repeat after a reboot replaces that reboot's proof. As on main, `down` cannot tell whose
-cordon it found: on a hand cordon, or on the other Mac mid-outage, it repeats and parks
-the counts it sees (zeros, if an outage already parked them), so run repeat `down` and
-`up` only on the Mac that started the outage, and never uncordon another Mac's timmy
-outage. A recorded cycle still requires proof of a changed boot ID and a
+or offline interval. Cordon ownership does live in the cluster: every cordon
+`node-maintenance.sh` makes sets the Node annotation `homelab/cordon-owner` to
+`<purpose>:<ComputerName>` (`outage` for `down`, `drain`, or `reboot`) in the same write,
+and `finish` clears it with the uncordon. A bare `drain` refuses a cordoned node; `drain
+--repeat` re-drains only a cordon whose owner is this Mac with the same purpose, and a
+repeat after a reboot replaces that reboot's proof. So `down` repeats only on this Mac's own
+outage cordon, and refuses before any change on a hand cordon, a reboot or drain cycle's
+cordon, or the other Mac's outage; run `up` on the Mac that started the outage, and never
+uncordon another Mac's timmy outage. `finish` (and so `up`) checks the owner before its
+Ready wait and again before it restores anything: it refuses a cordon that names another
+Mac, and accepts an ownerless one. `kubectl drain` cordons by itself, so every drain is
+followed by a check that the cordon is still this run's owned cordon.
+
+These checks are made at moments, not held: nothing locks timmy across both Macs. Another
+Mac's command, or a hand `kubectl cordon`, `uncordon` or `annotate` on the node, while a run
+on this Mac is still going is outside what they cover. One that lands after `down`'s
+preflight and leaves another owner (or none) on timmy is refused at the drain, after the
+silence, suspends and parking; a hand uncordon keeps this Mac's owner, so the drain's own
+re-cordon passes. What this Mac's `up` does next depends on where the refusal came:
+
+- Before its cordon (no boot-ID record saved): `up` refuses while the other Mac's cordon is
+  on timmy, naming it, and refuses an ownerless one; once that cordon is gone, `up` undoes
+  this Mac's preparation.
+- After its boot-ID record is saved: `up` first waits for timmy's boot ID to change, so
+  before timmy reboots it times out without naming anyone. After a reboot it refuses a
+  cordon that names the other Mac, naming it, and finishes an ownerless one (the drain's own
+  re-cordon) as this Mac's. Once the other Mac has finished its cycle, this Mac's `up`
+  cannot finish a cycle whose cordon is gone, and recovery is by hand: remove
+  `~/.local/state/homelab-node-maintenance/timmy.boot-id` and re-run `up`, which then
+  restores the preparation without a finish.
+
+A `down` stopped between its cordon and its boot-ID record (a lost reply, or a kill) leaves
+this Mac's owned cordon with no record: re-run `down`, or back it out as below and run `up`.
+
+`down` writes its owner with the cordon, after its silence, suspends, parking and spin-down.
+A `down` that stops before the cordon leaves nothing on timmy for the other Mac to refuse on,
+so the other Mac's `down` would save the zeros it sees: as before this change, recover such a
+`down` with `up` on the same Mac. A marker written before `down`'s first change is IDEA-1152.
+
+`kubectl uncordon` keeps annotations, so back out a cycle with `kubectl uncordon timmy &&
+kubectl annotate node timmy homelab/cordon-owner-`. An owner left on an uncordoned node is
+stale: `status` lists it, and the next mutating command (`reboot`, a first `drain`,
+`restore-services`, `recover` without a cycle) removes it. A hand uncordon followed by a
+hand `kubectl cordon` with no such command between keeps the old owner, and that Mac's
+`down` would take the cordon as its own. A cordon from before
+owners were recorded has none; if it is this Mac's outage, claim it with `kubectl annotate
+node timmy homelab/cordon-owner="outage:$(scutil --get ComputerName)" --overwrite` and re-run
+`down`. A recorded cycle still requires proof of a changed boot ID and a
 cordoned target; manually uncordoning it does not make `recover` a cancellation command.
 If the Longhorn health check fails or is interrupted after uncordoning, the saved cycle
 remains and strict `recover`/`finish` refuses a retry; that case still needs manual recovery.

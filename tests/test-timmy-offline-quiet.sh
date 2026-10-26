@@ -224,7 +224,7 @@ if [[ -n $preflight_line && -n $silence_line ]] && ((preflight_line < silence_li
 else
 	bad "down must run preflight before the silence (preflight at '${preflight_line:-none}', silence at '${silence_line:-none}')"
 fi
-assert_eq "a first down drains through the cycle module with spin-down only" 1 "$(grep -c 'nm: drain timmy --spin-down$' "$STUB_LOG")"
+assert_eq "a first down drains through the cycle module as an outage, with spin-down" 1 "$(grep -c 'nm: drain timmy --spin-down --outage$' "$STUB_LOG")"
 assert_eq "a first down runs the strict preflight" 1 "$(grep -c 'nm: preflight timmy$' "$STUB_LOG")"
 if [[ $(<"$WINDOW_FILE") =~ ^[0-9]+\ planned\ timmy\ outage ]]; then ok "down opens the maintenance window"; else bad "down opens the maintenance window"; fi
 assert_eq "the window is open before the first workload is scaled down" "0 $(grep -c '^-n .* scale ' "$STUB_LOG")" \
@@ -253,16 +253,26 @@ reset_cluster
 run_cmd cmd_down
 run_cmd cmd_down
 # The stub keeps answering uncordoned, so neither down repeats.
+assert_eq "down asks for its outage cordon's owner" 2 "$(grep -c 'nm: cordon-status timmy --outage$' "$STUB_LOG")"
 assert_eq "an uncordoned timmy gets the strict preflight each time" 2 "$(grep -c 'nm: preflight timmy$' "$STUB_LOG")"
-assert_eq "an uncordoned timmy gets a bare drain each time" 2 "$(grep -c 'nm: drain timmy --spin-down$' "$STUB_LOG")"
+assert_eq "an uncordoned timmy gets a first outage drain each time" 2 "$(grep -c 'nm: drain timmy --spin-down --outage$' "$STUB_LOG")"
 
 reset_cluster
 run_cmd cmd_down
-STUB_CORDON_STATUS=cordoned run_cmd cmd_down
+STUB_CORDON_STATUS=owned run_cmd cmd_down
 rc=$?
-assert_eq "down repeats on a cordoned timmy" 0 "$rc"
-assert_eq "only the repeat drains with --repeat" 1 "$(grep -c 'nm: drain timmy --spin-down --repeat$' "$STUB_LOG")"
-assert_eq "only the repeat allows a repeat in preflight" 1 "$(grep -c 'nm: preflight timmy --allow-repeat$' "$STUB_LOG")"
+assert_eq "down repeats on this Mac's outage cordon" 0 "$rc"
+assert_eq "only the repeat drains with --repeat" 1 "$(grep -c 'nm: drain timmy --spin-down --outage --repeat$' "$STUB_LOG")"
+assert_eq "only the repeat allows its own outage cordon in preflight" 1 "$(grep -c 'nm: preflight timmy --allow-repeat --outage$' "$STUB_LOG")"
+
+# Any other cordon (IMPR-1428) refuses before the first change.
+for status in "cordoned" "cordoned outage:other-mac" "cordoned reboot:this-mac"; do
+	reset_cluster
+	STUB_CORDON_STATUS=$status run_cmd cmd_down
+	rc=$?
+	assert_eq "down refuses '$status'" 1 "$rc"
+	assert_eq "'$status' mutates nothing" 0 "$(mutations)"
+done
 
 for case in "rc" "invalid"; do
 	reset_cluster
