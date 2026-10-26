@@ -392,8 +392,9 @@ class Preparation:
                 "including a bootstrap daemon. After confirmed stop, retry the trusted host installer "
                 "with --bootstrap-recovery to restart and resume preparation with the same bounded limit"
                 if self._adoption_depth
-                else "This preparation command does not stop the daemon; retry the same prepare/pair "
-                "command with the same bounded limit"
+                else "This preparation step does not stop the daemon. If the installer invoked it, "
+                "rerun the same deployment command and mode; otherwise retry the same prepare/pair "
+                "command. The same bounded limit applies"
             )
             raise PreparationError(
                 "candidate creation exceeded the 900-second limit, including any base-model download. "

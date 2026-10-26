@@ -10,8 +10,9 @@
 #   sudo llama/host/install-host-ollama.sh --files-only   # unchanged posture; no restart
 #   sudo llama/host/install-host-ollama.sh --bootstrap-recovery # explicit offline recovery
 #
-# --files-only compares complete effective recipes and posture through Ollama,
-# and refuses unit/directive changes. A legacy installation needs full migration.
+# --files-only requires identical declared posture and recipe bytes, unchanged
+# unit directives, and a reachable pinned daemon; it does not compile recipes.
+# A legacy installation needs full migration.
 # A normal install requires the current API and prepares before host mutation.
 # --bootstrap-recovery explicitly permits setup while the API is unavailable;
 # it still requires the same complete recipe and runtime proof after startup.
@@ -51,7 +52,11 @@ for arg in "$@"; do
 	--files-only) mode=files ;;
 	--bootstrap-recovery) mode=recovery ;;
 	-h | --help)
-		sed -n '2,34p' "$0"
+		while IFS= read -r header_line; do
+			[[ $header_line == '#!'* ]] && continue
+			[[ $header_line == '#'* ]] || break
+			printf '%s\n' "$header_line"
+		done < "$0"
 		exit 0
 		;;
 	*)
@@ -370,13 +375,13 @@ if [[ $mode == files ]]; then
 	old_directives=$(directives "$UNIT_DIR/ollama-exporter.service") || die "cannot read installed exporter unit"
 	new_directives=$(exporter_unit | directives) || die "cannot read source exporter unit"
 	compare_directives "ollama-exporter.service" "$old_directives" "$new_directives"
-  prepare files-check --installed "$HOST_DIR" || die "--files-only refused; follow the diagnostic above: changed posture requires full adoption; an unreachable or wrong-version daemon requires --bootstrap-recovery"
+	prepare files-check --installed "$HOST_DIR" || die "--files-only refused; follow the diagnostic above: changed posture requires full adoption; an unreachable or wrong-version daemon requires --bootstrap-recovery"
 	log "--files-only: complete recipes, posture and unit directives unchanged; nothing restarts"
 else
 	if [[ $mode != recovery ]]; then
 		cutover_preflight
 		log "verifying and preparing the declared recipes before host changes"
-		prepare prepare || die "recipe preparation failed; host installation unchanged"
+		prepare prepare || die "recipe preparation failed; host installation unchanged. Correct the failure, then rerun the same deployment command and mode"
 	fi
 	if [[ $(installed_version) != "$OLLAMA_VERSION" ]]; then
 		log "installing ollama $OLLAMA_VERSION (base tarball, no ROCm) over $(installed_version)"

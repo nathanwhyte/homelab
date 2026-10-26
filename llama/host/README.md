@@ -214,6 +214,9 @@ retry. An adopting command invalidates acceptance and attempts to stop its captu
 including one started by bootstrap. After confirming that stop and correcting any failure,
 retry the trusted deployment with `--bootstrap-recovery`; the same bound and full proof apply.
 Standalone `prepare`/`pair` commands do not stop the daemon and can retry the same command.
+If preparation times out in the normal installer's pre-change gate, the host installation
+and daemon remain unchanged: rerun the same deployment command and mode after correcting
+the failure. That gate does not require a bootstrap recovery merely because creation timed out.
 
 The generated recovery CronJob runs every 15 minutes, unprivileged and HTTP-only. It posts
 its expected revision and residents to the existing exporter on port 9111. The exporter

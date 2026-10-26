@@ -1992,7 +1992,7 @@ class CancellationOperationTests(FixtureCase):
         ):
             with self.assertRaisesRegex(
                 PreparationError,
-                "does not stop the daemon; retry the same prepare/pair",
+                "does not stop the daemon",
             ) as failure:
                 self.prep.create("fixture:candidate", self.posture.recipe("gemma4:vlm"))
         self.assertEqual(run.call_args.kwargs["timeout"], 900)
