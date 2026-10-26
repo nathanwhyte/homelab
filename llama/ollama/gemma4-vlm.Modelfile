@@ -107,10 +107,10 @@
 # approved blob pins. ollama_prepare.py compiles this complete recipe with
 # Ollama, checks both identities and reads back the canonical manifest after
 # adoption; matching num_ctx alone cannot bypass a changed recipe. Post-load
-# runtime verification also gates the receipt and revision-specific witnesses.
+# runtime verification also gates the root-owned, revision-bound receipt.
 # A failed host adoption invalidates acceptance and stops its captured daemon
 # generation through pidfd/SIGHUP, subject to the verified systemd stop policy.
-# HTTP recovery requires matching serving/witness manifests and leaves any
+# HTTP recovery requires serving digests bound by that receipt and leaves any
 # loaded model alone; it is not a serving proxy or atomic admission boundary.
 # These are the IMPR-1426 source contract, not new live acceptance results.
 # If a pull ever lands another blob, fetch
@@ -132,7 +132,7 @@
 # explicit. Render the derived artifacts, validate, then perform full host
 # adoption followed by the matching recovery CronJob update. The serving tag
 # stays gemma4:vlm. Do not edit the thin warm adapter or manually treat create
-# acknowledgement as acceptance. Even recipe-comment edits change the witness
+# acknowledgement as acceptance. Even recipe-comment edits change the posture
 # revision and require full adoption; --files-only conservatively refuses them.
 
 FROM hf.co/unsloth/gemma-4-E4B-it-GGUF:Q8_0
@@ -282,7 +282,7 @@ PARSER gemma4
 # warm script reconciled num_ctx only and required a manual rebuild for batch
 # changes. The preparation module now detects the complete recipe change and
 # verifies actual n_batch/n_ubatch during full adoption; do not rebuild by hand
-# and assume that proves the runtime or refreshes recovery witnesses.
+# and assume that proves the runtime or refreshes the recovery receipt.
 #
 # This time the wall was on the PROMPT side. Ollama admits a prompt unchanged
 # up to num_ctx - 1 tokens; a longer one is cut down to half the slot and
