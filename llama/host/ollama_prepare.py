@@ -16,7 +16,6 @@ import json
 import os
 from pathlib import Path
 import re
-import shlex
 import signal
 import subprocess
 import stat
@@ -261,31 +260,50 @@ class Posture:
         }
 
 
-def blob_ids(show):
-    # `show.modelfile` is Ollama's generated display. Only its leading FROM
-    # block is inspected; a TEMPLATE body containing "FROM" is not a layer.
-    text = show.get("modelfile")
-    if not isinstance(text, str):
-        raise PreparationError("show lacks canonical Modelfile display")
-    blobs = []
-    for line in text.splitlines():
-        line = line.strip()
-        if not line or line.startswith("#"):
-            continue
-        fields = shlex.split(line)
-        if not fields or fields[0] != "FROM":
-            break
-        if len(fields) != 2:
-            raise PreparationError("malformed canonical FROM display")
-        match = re.fullmatch(r".*/sha256-([0-9a-f]{64})", fields[1])
-        if not match:
-            raise PreparationError(
-                "model does not expose a local content-addressed layer"
-            )
-        blobs.append(match[1])
-    if not blobs:
-        raise PreparationError("no model weights observed")
-    return blobs
+MANIFEST_LIMIT = 4 * 1024 * 1024
+
+
+def manifest_blob_ids(content, digest):
+    """Read identities from the exact consumer-produced candidate manifest.
+
+    A fresh, unique create produces one runnable manifest, even when FROM
+    selects a child of a base manifest list. Never treat the parent list as
+    that runnable child or infer a runner choice ourselves.
+    """
+    if not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest):
+        raise PreparationError("invalid candidate manifest digest")
+    if len(content) > MANIFEST_LIMIT:
+        raise PreparationError("candidate manifest exceeds size limit")
+    if hashlib.sha256(content).hexdigest() != digest:
+        raise PreparationError("candidate manifest bytes do not match API digest")
+    try:
+        manifest = json.loads(content)
+    except (ValueError, UnicodeError) as exc:
+        raise PreparationError("candidate manifest is not valid JSON") from exc
+    if (
+        not isinstance(manifest, dict)
+        or manifest.get("schemaVersion") != 2
+        or manifest.get("mediaType")
+        != "application/vnd.docker.distribution.manifest.v2+json"
+        or "manifests" in manifest
+        or not isinstance(manifest.get("layers"), list)
+    ):
+        raise PreparationError("candidate must expose a single runnable manifest")
+    identities = {"model": [], "projector": []}
+    for layer in manifest["layers"]:
+        if not isinstance(layer, dict):
+            raise PreparationError("invalid candidate manifest layer")
+        for kind in identities:
+            if layer.get("mediaType") == f"application/vnd.ollama.image.{kind}":
+                value = layer.get("digest")
+                if not isinstance(value, str) or not re.fullmatch(
+                    r"sha256:[0-9a-f]{64}", value
+                ):
+                    raise PreparationError(f"invalid {kind} layer digest")
+                identities[kind].append(value.removeprefix("sha256:"))
+    if len(identities["model"]) != 1:
+        raise PreparationError("candidate must expose exactly one weights layer")
+    return identities["model"] + identities["projector"]
 
 
 class AdoptionCancelled(BaseException):
@@ -296,7 +314,17 @@ class AdoptionCancelled(BaseException):
 
 
 class Preparation:
-    def __init__(self, posture, api, state, creator=None, *, source=None, lock_fd=None):
+    def __init__(
+        self,
+        posture,
+        api,
+        state,
+        creator=None,
+        *,
+        source=None,
+        lock_fd=None,
+        manifest_reader=None,
+    ):
         self.posture = posture
         self.source = source or (
             posture.path,
@@ -306,11 +334,36 @@ class Preparation:
         self.api = api
         self.state = Path(state)
         self.creator = creator or self.create
+        self.manifest_reader = manifest_reader or self.read_manifest
         self.inherited_lock_fd = lock_fd
         self._lock_fd = None
         self._adoption_depth = 0
         self._aborting = False
         self.cancellation = None
+
+    @deferred
+    def read_manifest(self, digest):
+        if not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest):
+            raise PreparationError("invalid candidate manifest digest")
+        store = Path(self.posture.data["environment"]["OLLAMA_MODELS"])
+        path = store / "blobs" / ("sha256-" + digest)
+        try:
+            fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+            try:
+                info = os.fstat(fd)
+                if not stat.S_ISREG(info.st_mode) or info.st_size > MANIFEST_LIMIT:
+                    raise PreparationError(
+                        "candidate manifest is not a bounded regular file"
+                    )
+                with os.fdopen(fd, "rb", closefd=False) as stream:
+                    return stream.read(MANIFEST_LIMIT + 1)
+            finally:
+                os.close(fd)
+        except OSError as exc:
+            raise PreparationError(
+                f"cannot read candidate manifest in declared model store {store}; "
+                "run preparation on the daemon host with access to its model store"
+            ) from exc
 
     def checkpoint(self):
         # Abort must finish invalidation and attempt the captured-generation
@@ -561,7 +614,13 @@ class Preparation:
                     "create acknowledged without a readable candidate"
                 )
             shown = self.operation(self.api.show, name)
-            blobs = blob_ids(shown)
+            digest = inventory[name]
+            content = self.operation(self.manifest_reader, digest)
+            blobs = manifest_blob_ids(content, digest)
+            if self.operation(self.api.tags).get(name) != digest:
+                raise PreparationError(
+                    "candidate identity changed during manifest readback"
+                )
             pins = posture.data["models"][tag].get("blobs")
             if pins and blobs != pins:
                 raise PreparationError(

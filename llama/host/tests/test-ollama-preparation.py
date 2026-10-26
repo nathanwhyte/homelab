@@ -62,6 +62,7 @@ class FakeOllama:
 
     def __init__(self):
         self.models = {}
+        self.manifests = {}
         self.running = []
         self.events = []
         self.version = "0.40.11"
@@ -88,8 +89,32 @@ class FakeOllama:
         shown = json.loads(recipe.read_text())
         if self.incomplete_create:
             return
-        sha = hashlib.sha256(module.encoded(shown).encode()).hexdigest()
+        manifest = {
+            "schemaVersion": 2,
+            "mediaType": "application/vnd.docker.distribution.manifest.v2+json",
+            "config": {
+                "digest": "sha256:"
+                + hashlib.sha256(module.encoded(shown).encode()).hexdigest()
+            },
+            "layers": [
+                {
+                    "mediaType": "application/vnd.ollama.image."
+                    + ("model" if i == 0 else "projector"),
+                    "digest": "sha256:" + digest,
+                }
+                for i, digest in enumerate(shown["fixture_blobs"])
+            ],
+        }
+        content = module.encoded(manifest).encode()
+        sha = hashlib.sha256(content).hexdigest()
+        self.manifests[sha] = content
+        blobs = recipe.parent.parent / "model-store" / "blobs"
+        blobs.mkdir(parents=True, exist_ok=True)
+        (blobs / ("sha256-" + sha)).write_bytes(content)
         self.models[tag] = {"digest": sha, "show": shown}
+
+    def read_manifest(self, digest):
+        return self.manifests[digest]
 
     def call(self, path, body=None, method=None, timeout=None):
         if path == "/api/version":
@@ -167,10 +192,12 @@ class FixtureCase(unittest.TestCase):
         self.recipes.mkdir()
         self.config = self.root / "model-posture.json"
         self.data = json.loads((HOST / "model-posture.json").read_text())
+        self.data["environment"]["OLLAMA_MODELS"] = str(self.root / "model-store")
         self.config.write_text(json.dumps(self.data))
         for tag, spec in self.data["models"].items():
             blobs = spec.get("blobs", [hashlib.sha256(tag.encode()).hexdigest()])
             shown = {
+                "fixture_blobs": blobs,
                 "modelfile": "\n".join(
                     "FROM /store/blobs/sha256-" + sha for sha in blobs
                 )
@@ -190,7 +217,10 @@ class FixtureCase(unittest.TestCase):
     def make_preparation(self, resident=None):
         self.posture = Posture(self.config, self.recipes, resident)
         self.prep = Preparation(
-            self.posture, self.api, self.root / "state", self.api.create
+            self.posture,
+            self.api,
+            self.root / "state",
+            self.api.create,
         )
         self.prep.state.mkdir(exist_ok=True)
 
@@ -205,6 +235,128 @@ class FixtureCase(unittest.TestCase):
         self.assertFalse(
             any(tag.startswith("homelab-preparing/") for tag in self.api.tags())
         )
+
+
+class ManifestEvidenceTests(FixtureCase):
+    def test_live_manifest_hash_and_weights_match_declared_pins(self):
+        content = (HOST / "tests/fixtures/gemma-live-manifest.json").read_bytes()
+        digest = "801854f4128b59d3194d829fb061ea4389390f29c98a3b0047a1ef839b710c33"
+        self.assertEqual(
+            module.manifest_blob_ids(content, digest),
+            self.data["models"]["gemma4:vlm"]["blobs"],
+        )
+
+    def test_actual_multiline_display_does_not_control_preparation(self):
+        live = json.loads((HOST / "tests/fixtures/gemma-live-show.json").read_text())
+        self.assertIn(
+            'TEMPLATE "{{ if .System }}<bos><|turn>system\n', live["modelfile"]
+        )
+        self.mutate_recipe("gemma4:vlm", lambda shown: shown.update(live))
+        self.prep.prepare()
+        self.assertEqual(self.api.show("gemma4:vlm")["template"], live["template"])
+        self.assert_no_candidates()
+
+    def test_display_is_not_required_or_used_as_weight_evidence(self):
+        for display in (
+            None,
+            "FROM /wrong/sha256-" + "0" * 64,
+            'TEMPLATE "unterminated',
+        ):
+            with self.subTest(display=display):
+                self.mutate_recipe(
+                    "gemma4:vlm", lambda shown: shown.update(modelfile=display)
+                )
+                self.prep.prepare()
+                self.assert_no_candidates()
+
+    def test_manifest_tampering_blocks_copy_and_cleans_candidate(self):
+        self.prep.manifest_reader = lambda digest: self.api.read_manifest(digest) + b" "
+        with self.assertRaisesRegex(PreparationError, "do not match API digest"):
+            self.prep.prepare()
+        self.assertNotIn("gemma4:vlm", self.api.tags())
+        self.assert_no_candidates()
+
+    def test_candidate_identity_change_during_readback_blocks_copy(self):
+        def replace_identity(digest):
+            content = self.api.read_manifest(digest)
+            for name, model in self.api.models.items():
+                if name.startswith("homelab-preparing/"):
+                    model["digest"] = "0" * 64
+            return content
+
+        self.prep.manifest_reader = replace_identity
+        with self.assertRaisesRegex(PreparationError, "identity changed"):
+            self.prep.prepare()
+        self.assertNotIn("gemma4:vlm", self.api.tags())
+        self.assert_no_candidates()
+
+    def test_manifest_schema_and_layer_errors_fail_closed(self):
+        valid = json.loads(
+            (HOST / "tests/fixtures/gemma-live-manifest.json").read_text()
+        )
+        cases = [
+            None,
+            {},
+            {**valid, "schemaVersion": 1},
+            {
+                **valid,
+                "mediaType": "application/vnd.docker.distribution.manifest.list.v2+json",
+            },
+            {**valid, "manifests": []},
+            {**valid, "layers": None},
+            {**valid, "layers": [None]},
+            {**valid, "layers": []},
+            {**valid, "layers": [valid["layers"][0]] * 2},
+            {
+                **valid,
+                "layers": [
+                    {
+                        "mediaType": "application/vnd.ollama.image.model",
+                        "digest": "../bad",
+                    }
+                ],
+            },
+        ]
+        for manifest in cases:
+            with self.subTest(manifest=manifest):
+                content = json.dumps(manifest).encode()
+                with self.assertRaises(PreparationError):
+                    module.manifest_blob_ids(
+                        content, hashlib.sha256(content).hexdigest()
+                    )
+        for content in (b"not JSON", b"\xff", b" " * (module.MANIFEST_LIMIT + 1)):
+            with self.assertRaises(PreparationError):
+                module.manifest_blob_ids(content, hashlib.sha256(content).hexdigest())
+
+    def test_missing_store_has_actionable_error(self):
+        with self.assertRaisesRegex(
+            PreparationError, "run preparation on the daemon host"
+        ):
+            self.prep.read_manifest("0" * 64)
+
+    def test_manifest_reader_rejects_paths_symlinks_fifo_and_oversize(self):
+        for digest in ("../bad", "sha256:" + "0" * 64, None):
+            with self.assertRaisesRegex(
+                PreparationError, "invalid candidate manifest digest"
+            ):
+                self.prep.read_manifest(digest)
+        blobs = self.root / "model-store/blobs"
+        blobs.mkdir(parents=True)
+        path = blobs / ("sha256-" + "0" * 64)
+        target = self.root / "target"
+        target.write_text("{}")
+        path.symlink_to(target)
+        with self.assertRaises(PreparationError):
+            self.prep.read_manifest("0" * 64)
+        path.unlink()
+        os.mkfifo(path)
+        with self.assertRaisesRegex(PreparationError, "bounded regular file"):
+            self.prep.read_manifest("0" * 64)
+        path.unlink()
+        with path.open("wb") as stream:
+            stream.truncate(module.MANIFEST_LIMIT + 1)
+        with self.assertRaisesRegex(PreparationError, "bounded regular file"):
+            self.prep.read_manifest("0" * 64)
 
 
 class PreparationTests(FixtureCase):
@@ -480,9 +632,7 @@ class PreparationTests(FixtureCase):
                 wanted = self.data["models"]["gemma4:vlm"]["blobs"][index]
                 self.mutate_recipe(
                     "gemma4:vlm",
-                    lambda shown: shown.update(
-                        modelfile=shown["modelfile"].replace(wanted, "0" * 64)
-                    ),
+                    lambda shown: shown["fixture_blobs"].__setitem__(index, "0" * 64),
                 )
                 with self.assertRaisesRegex(PreparationError, "pins"):
                     self.prep.prepare()
@@ -491,9 +641,7 @@ class PreparationTests(FixtureCase):
                 # Restore this fixture for the next independently tested pin.
                 self.mutate_recipe(
                     "gemma4:vlm",
-                    lambda shown: shown.update(
-                        modelfile=shown["modelfile"].replace("0" * 64, wanted)
-                    ),
+                    lambda shown: shown["fixture_blobs"].__setitem__(index, wanted),
                 )
 
     def test_create_and_copy_acknowledgements_are_not_proof(self):
@@ -1209,7 +1357,10 @@ class SafeCreationTests(FixtureCase):
 
     def assert_warm_replay(self, fresh):
         prep = Preparation(
-            self.posture, self.api, fresh / "parent/state", self.api.create
+            self.posture,
+            self.api,
+            fresh / "parent/state",
+            self.api.create,
         )
         for _ in range(2):
             runtime = FakeRuntime()

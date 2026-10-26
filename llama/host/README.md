@@ -43,6 +43,16 @@ layers, templates/defaults, ordered stop strings, renderer/parser selection, and
 other than `num_ctx`. Gemma has explicit weights and projector pins; a bare base tag name is
 still a moving reference. A successful create/copy request alone is insufficient.
 
+Weights and projector identities come from the candidate's structured manifest blob in
+the declared `environment.OLLAMA_MODELS` store. Its exact bytes must hash to the digest
+reported by `/api/tags`; identity is read back again before adoption. The unique candidate
+must be a single runnable manifest, not a base manifest-list parent. Ollama selects the
+base's runnable variant during compilation. Display text from `/api/show.modelfile` is
+never parsed for identity, so multiline templates do not affect this check. Missing,
+oversized, unreadable or mismatched manifest evidence blocks preparation with no fallback.
+Run preparation on the daemon host with access to its declared model store; `--url` does
+not provide remote filesystem access. HTTP-only recovery still uses the host verifier.
+
 These profiles remain selectable through the configuration's `resident` field. Rendering
 derives the loaded-model limit from the selected resident set. Selection is not proof that
 a profile fits the GPU: each selected profile must pass its own runtime verification.
