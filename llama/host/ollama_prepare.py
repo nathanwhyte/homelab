@@ -19,6 +19,7 @@ import re
 import shlex
 import signal
 import subprocess
+import stat
 import sys
 import tempfile
 import time
@@ -70,7 +71,10 @@ class Posture:
     def __init__(self, path, recipes=None, resident=None):
         self.path = Path(path).resolve()
         self.recipes = Path(recipes or self.path.parent / "modelfiles").resolve()
-        self.data = json.loads(self.path.read_text())
+        self.resident_override = resident
+        self.config_bytes = self.path.read_bytes()
+        self.data = json.loads(self.config_bytes)
+        self.recipe_bytes = {}
         if self.data.get("schema") != 1:
             raise PreparationError("unsupported posture schema")
         self.resident = resident or self.data["resident"]
@@ -94,7 +98,8 @@ class Posture:
             if not re.fullmatch(r"[a-z0-9][a-z0-9.\-]*:[a-z0-9][a-z0-9.\-]*", tag):
                 raise PreparationError(f"unsupported local tag {tag!r}")
             recipe = self.recipe(tag)
-            material["recipes"][tag] = recipe.read_text()
+            self.recipe_bytes[tag] = recipe.read_bytes()
+            material["recipes"][tag] = self.recipe_bytes[tag].decode("utf-8")
             for pin in spec.get("blobs", []):
                 if not re.fullmatch(r"[0-9a-f]{64}", pin):
                     raise PreparationError(f"invalid blob pin for {tag}")
@@ -159,23 +164,68 @@ def blob_ids(show):
 
 
 class Preparation:
-    def __init__(self, posture, api, state, creator=None):
+    def __init__(self, posture, api, state, creator=None, *, source=None, lock_fd=None):
         self.posture = posture
+        self.source = source or (
+            posture.path,
+            posture.recipes,
+            posture.resident_override,
+        )
         self.api = api
         self.state = Path(state)
         self.creator = creator or self.create
+        self.inherited_lock_fd = lock_fd
+        self._lock_fd = None
+
+    @staticmethod
+    def trusted_file(info, label, directory=False):
+        kind = stat.S_ISDIR if directory else stat.S_ISREG
+        if (
+            not kind(info.st_mode)
+            or info.st_uid != os.geteuid()
+            or info.st_mode & 0o022
+        ):
+            raise PreparationError(
+                f"{label} must be owned by the preparation user and not group/world-writable"
+            )
 
     @contextmanager
     def locked(self):
-        self.state.mkdir(parents=True, exist_ok=True)
-        with (self.state / "preparation.lock").open("a+") as lock:
-            # The installer is root; the warm unit's directory belongs to
-            # ollama. Keep a root-created lock accessible to its directory owner.
-            if os.geteuid() == 0:
-                owner = self.state.stat()
-                os.fchown(lock.fileno(), owner.st_uid, owner.st_gid)
-            fcntl.flock(lock, fcntl.LOCK_EX)
+        if self._lock_fd is not None:
+            raise PreparationError("preparation lock is already held by this operation")
+        self.state.mkdir(mode=0o755, parents=True, exist_ok=True)
+        self.trusted_file(
+            self.state.lstat(), "preparation state directory", directory=True
+        )
+        path = self.state / "preparation.lock"
+        if self.inherited_lock_fd is None:
+            fd = os.open(path, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o644)
+        else:
+            fd = os.dup(self.inherited_lock_fd)
+        try:
+            info = os.fstat(fd)
+            self.trusted_file(info, "preparation lock")
+            actual = path.lstat()
+            if not stat.S_ISREG(actual.st_mode) or (actual.st_dev, actual.st_ino) != (
+                info.st_dev,
+                info.st_ino,
+            ):
+                raise PreparationError(
+                    "inherited preparation lock does not match its state path"
+                )
+            fcntl.flock(fd, fcntl.LOCK_EX)
+            self._lock_fd = fd
+            os.fchmod(fd, 0o644)
+            os.chmod(self.state, 0o755)
+            # A caller may have waited while installation replaced these files.
+            # Capture both configuration and recipe bytes only after the lock.
+            self.posture = Posture(*self.source)
             yield
+        finally:
+            self._lock_fd = None
+            # An inherited descriptor shares the installer's open description:
+            # never LOCK_UN here, which would release its transaction lock too.
+            os.close(fd)
 
     def version(self, timeout=None):
         options = {} if timeout is None else {"timeout": timeout}
@@ -220,6 +270,8 @@ class Preparation:
             time.sleep(min(1.0, remaining))
 
     def create(self, tag, recipe):
+        if self._lock_fd is None:
+            raise PreparationError("candidate creation requires the preparation lock")
         env = dict(os.environ, OLLAMA_HOST=self.api.url)
         try:
             result = subprocess.run(
@@ -229,7 +281,10 @@ class Preparation:
                 text=True,
                 timeout=900,
                 check=False,
+                pass_fds=(self._lock_fd,),
             )
+        except InterruptedError:
+            raise
         except (OSError, subprocess.TimeoutExpired) as exc:
             raise PreparationError(f"candidate creation failed: {exc}") from exc
         if result.returncode:
@@ -237,14 +292,87 @@ class Preparation:
                 f"candidate creation failed for {recipe.name}: {result.stderr[-3000:]}"
             )
 
+    def intent_directory(self):
+        path = self.state / "candidate-intents"
+        path.mkdir(mode=0o700, parents=True, exist_ok=True)
+        self.trusted_file(path.lstat(), "candidate intent directory", directory=True)
+        # Persist the directory links too: fsyncing only the eventual intent
+        # file would not protect a newly created state/intent directory on crash.
+        self.sync_directory(path.parent)
+        self.sync_directory(path.parent.parent)
+        return path
+
+    @staticmethod
+    def sync_directory(path):
+        fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+
+    def cleanup_intent(self, path):
+        self.trusted_file(path.lstat(), "candidate intent")
+        intent = json.loads(path.read_text())
+        token = path.stem
+        tag = intent.get("tag", "")
+        snapshot = Path(intent.get("snapshot", ""))
+        if (
+            intent.get("schema") != 1
+            or not re.fullmatch(r"[0-9a-f]{32}", token)
+            or not re.fullmatch(r"homelab-preparing/[a-z0-9][a-z0-9.\-]*:" + token, tag)
+            or not snapshot.is_absolute()
+            or snapshot.name != f".ollama-preparing-{token}.Modelfile"
+        ):
+            raise PreparationError(
+                "invalid candidate intent; refusing unrelated cleanup"
+            )
+        if tag in self.api.tags():
+            self.api.call("/api/delete", {"model": tag}, method="DELETE")
+            if tag in self.api.tags():
+                raise PreparationError(f"candidate cleanup did not remove {tag}")
+        if snapshot.exists() or snapshot.is_symlink():
+            self.trusted_file(snapshot.lstat(), "candidate recipe snapshot")
+            snapshot.unlink()
+            self.sync_directory(snapshot.parent)
+        path.unlink()
+        self.sync_directory(path.parent)
+
+    def replay_candidates(self):
+        # Only durable operation records authorize deletion. An unrecorded
+        # homelab-preparing tag is someone else's, regardless of its spelling.
+        for path in sorted(self.intent_directory().iterdir()):
+            if path.suffix != ".json":
+                raise PreparationError("unexpected candidate intent entry")
+            self.cleanup_intent(path)
+
     @contextmanager
     def candidate(self, tag, posture=None):
         posture = posture or self.posture
-        name = f"homelab-preparing/{tag.replace(':', '-')}:{uuid.uuid4().hex}"
+        self.replay_candidates()
+        token = uuid.uuid4().hex
+        name = f"homelab-preparing/{tag.replace(':', '-')}:{token}"
         if name in self.api.tags():
             raise PreparationError("candidate name collision")
+        # Keep the captured file beside its source so relative FROM/ADAPTER
+        # paths retain Ollama's own path semantics. The bytes are never reread.
+        snapshot = posture.recipes / f".ollama-preparing-{token}.Modelfile"
+        if snapshot.exists() or snapshot.is_symlink():
+            raise PreparationError("candidate snapshot collision")
+        intent = self.intent_directory() / f"{token}.json"
+        atomic_write(
+            intent, json.dumps({"schema": 1, "tag": name, "snapshot": str(snapshot)})
+        )
+        self.sync_directory(intent.parent)
+        cleanup_now = False
         try:
-            self.creator(name, posture.recipe(tag))
+            with snapshot.open("xb") as out:
+                os.fchmod(out.fileno(), 0o600)
+                out.write(posture.recipe_bytes[tag])
+                out.flush()
+                os.fsync(out.fileno())
+            self.sync_directory(snapshot.parent)
+            self.creator(name, snapshot)
+            cleanup_now = True
             inventory = self.api.tags()
             if name not in inventory:
                 raise PreparationError(
@@ -268,13 +396,14 @@ class Preparation:
                 "show": shown,
             }
             yield name, value
+        except (InterruptedError, KeyboardInterrupt, SystemExit):
+            # The create request may have outlived its interrupted caller.
+            # Leave its durable intent for the next lock-owning preparation.
+            cleanup_now = False
+            raise
         finally:
-            # This UUID was absent before this operation's create. Never prune
-            # the store or remove a serving/base tag, including on partial create.
-            if name in self.api.tags():
-                self.api.call("/api/delete", {"model": name}, method="DELETE")
-                if name in self.api.tags():
-                    raise PreparationError(f"candidate cleanup did not remove {name}")
+            if cleanup_now:
+                self.cleanup_intent(intent)
 
     def invalidate(self):
         self.state.joinpath("verified.json").unlink(missing_ok=True)
@@ -290,6 +419,7 @@ class Preparation:
 
     def prepare(self, tags=None):
         self.version()
+        self.replay_candidates()
         result = {}
         for tag in tags or self.posture.required:
             with self.candidate(tag) as (candidate, wanted):
@@ -595,6 +725,9 @@ def main():
             "OLLAMA_PREPARATION_STATE", "/var/lib/ollama-preparation"
         ),
     )
+    parser.add_argument(
+        "--lock-fd", type=int, help="inherited preparation lock descriptor"
+    )
     subs = parser.add_subparsers(dest="command", required=True)
     for name in ("prepare", "warm", "pair", "recover", "version"):
         subs.add_parser(name)
@@ -606,24 +739,31 @@ def main():
     render_args.add_argument("--root", default=str(HERE.parents[1]))
     render_args.add_argument("--check", action="store_true")
     args = parser.parse_args()
-    posture = Posture(args.config, args.recipes, args.resident)
-    if args.command == "version":
-        print(posture.data["version"])
-        return
-    if args.command == "recover":
-        print(
-            json.dumps(
-                request_recovery(
-                    posture.recovery(), "http://127.0.0.1:9111/preparation/recover"
+    if args.command in ("version", "render", "recover"):
+        posture = Posture(args.config, args.recipes, args.resident)
+        if args.command == "version":
+            print(posture.data["version"])
+            return
+        if args.command == "recover":
+            print(
+                json.dumps(
+                    request_recovery(
+                        posture.recovery(), "http://127.0.0.1:9111/preparation/recover"
+                    )
                 )
             )
-        )
-        return
-    if args.command == "render":
+            return
         result = render(posture, args.root, args.check)
     else:
-        prep = Preparation(posture, Http(args.url), args.state)
+        prep = Preparation(
+            None,
+            Http(args.url),
+            args.state,
+            source=(args.config, args.recipes, args.resident),
+            lock_fd=args.lock_fd,
+        )
         with prep.locked():
+            posture = prep.posture
             if args.command in ("warm", "verify"):
                 from ollama_runtime import Runtime
 

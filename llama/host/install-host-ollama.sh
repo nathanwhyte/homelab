@@ -66,8 +66,25 @@ die() {
 	printf 'ERROR: %s\n' "$*" >&2
 	exit 1
 }
-# The lines of a unit drop-in or Modelfile that do something: no comments, no blanks.
-directives() { grep -vE '^[[:space:]]*(#|;|$)' "$1" || true; }
+# Empty directive output is valid; a read error is not an empty unit.
+directives() {
+	local status=0
+	grep -vE '^[[:space:]]*(#|;|$)' "$@" || status=$?
+	[[ $status -le 1 ]] || return "$status"
+}
+compare_directives() {
+	local label=$1 old=$2 new=$3 staged status
+	if staged=$(diff <(printf '%s\n' "$old") <(printf '%s\n' "$new") 2>&1); then
+		return
+	else
+		status=$?
+	fi
+	if [[ $status -eq 1 ]]; then
+		die "--files-only refuses effective unit changes in $label; run full adoption. Staged change:
+$staged"
+	fi
+	die "--files-only comparison failed for $label (diff exit $status): $staged"
+}
 
 # The integration harness gets a redirected filesystem ONLY as a normal user.
 # Root must never honor the harness's caller-supplied destination.
@@ -91,8 +108,10 @@ DGPU=$ROOT/sys/bus/pci/devices/0000:03:00.0
 [[ -f $SRC/ollama.service.d/homelab.conf ]] || die "drop-in not found at $SRC — run from a repo checkout"
 [[ $(hostname -s) == timmy ]] || die "this script is for timmy (hostname is $(hostname -s))"
 prepare() {
-	python3 "$SRC/ollama_prepare.py" --config "$SRC/model-posture.json" \
-		--recipes "$REPO_DIR/llama/ollama" --url http://127.0.0.1:11434 --state "$STATE_DIR" "$@"
+	local options=(--config "$SRC/model-posture.json" --recipes "$REPO_DIR/llama/ollama" \
+		--url http://127.0.0.1:11434 --state "$STATE_DIR")
+	if [[ ${preparation_locked:-0} == 1 ]]; then options+=(--lock-fd 8); fi
+	python3 "$SRC/ollama_prepare.py" "${options[@]}" "$@"
 }
 pinned_version=$(prepare version) || die "cannot read the declared Ollama version"
 [[ -z ${OLLAMA_VERSION:-} || $OLLAMA_VERSION == "$pinned_version" ]] || die "OLLAMA_VERSION contradicts model-posture.json ($pinned_version)"
@@ -259,6 +278,12 @@ fi
 # A normal unavailable-daemon refusal above does not create even this lock file.
 exec 9>"$ROOT/run/lock/ollama-install.lock"
 flock -n 9 || die "another host adoption is running"
+install -d -m 0755 "$STATE_DIR"
+[[ ! -L $STATE_DIR/preparation.lock ]] || die "preparation lock must not be a symlink"
+exec 8>>"$STATE_DIR/preparation.lock"
+chmod 0644 "$STATE_DIR/preparation.lock"
+flock 8 || die "cannot acquire the shared preparation lock"
+preparation_locked=1
 for module in ollama_prepare.py ollama_recovery.py ollama_runtime.py; do
 	[[ -f $SRC/$module ]] || die "preparation module is incomplete: $module"
 done
@@ -267,13 +292,14 @@ if [[ $mode == files ]]; then
 	[[ -f $UNIT_DIR/ollama.service && -f $HOST_DIR/model-posture.json ]] || die "--files-only needs a full migration to the preparation module first"
 	for unit in ollama.service.d/homelab.conf ollama-warm.service; do
 		[[ -f $UNIT_DIR/$unit ]] || die "--files-only refuses a missing installed unit: $unit; run full adoption"
-		staged=$(diff <(directives "$UNIT_DIR/$unit") <(directives "$SRC/$unit") || true)
-		[[ -z $staged ]] || die "--files-only refuses effective unit changes in $unit; run full adoption. Staged change:
-$staged"
+		old_directives=$(directives "$UNIT_DIR/$unit") || die "cannot read installed unit directives: $unit"
+		new_directives=$(directives "$SRC/$unit") || die "cannot read source unit directives: $unit"
+		compare_directives "$unit" "$old_directives" "$new_directives"
 	done
 	[[ -f $UNIT_DIR/ollama-exporter.service ]] || die "--files-only refuses a missing exporter unit; run full adoption"
-	staged=$(diff <(directives "$UNIT_DIR/ollama-exporter.service") <(exporter_unit | grep -vE '^[[:space:]]*(#|;|$)') || true)
-	[[ -z $staged ]] || die "--files-only refuses effective exporter unit changes; run full adoption"
+	old_directives=$(directives "$UNIT_DIR/ollama-exporter.service") || die "cannot read installed exporter unit"
+	new_directives=$(exporter_unit | directives) || die "cannot read source exporter unit"
+	compare_directives "ollama-exporter.service" "$old_directives" "$new_directives"
 	prepare files-check --installed "$HOST_DIR" || die "--files-only refuses an unverified or changed effective posture; run full adoption"
 	log "--files-only: complete recipes, posture and unit directives unchanged; nothing restarts"
 else
@@ -337,7 +363,7 @@ install -m 0644 "$SRC/ollama.service.d/homelab.conf" "$DROPIN_DIR/homelab.conf"
 install -m 0755 "$SRC/ollama-warm.sh" "$HOST_DIR/ollama-warm.sh"
 install -m 0644 "$SRC/model-posture.json" "$SRC/ollama_prepare.py" \
 	"$SRC/ollama_recovery.py" "$SRC/ollama_runtime.py" "$HOST_DIR/"
-install -d -m 0700 "$STATE_DIR"
+install -d -m 0755 "$STATE_DIR"
 # The agentpair:* tags were retired 2026-10-06; drop their stale recipes.
 rm -f "$HOST_DIR"/modelfiles/agentpair-*.Modelfile
 install -m 0644 "$REPO_DIR"/llama/ollama/*.Modelfile "$HOST_DIR/modelfiles/"
@@ -366,6 +392,8 @@ if [[ $mode == files ]]; then
 		log "--files-only: every installed file already matched the repo"
 	fi
 	log "--files-only: nothing restarted. ollama.service keeps its running Environment= values and ollama-exporter its loaded code until the next restart; ollama-warm.service picks the new script up on its next run. Run without --files-only to restart."
+	preparation_locked=0
+	exec 8>&-
 	exit 0
 fi
 
@@ -376,6 +404,10 @@ log "restarting ollama.service and waiting for verified model preparation"
 # Clear RemainAfterExit from the previous generation. Starting a unit whose
 # startup job is already queued joins that job and waits for its completion.
 systemctl stop ollama-warm
+# A stopped old warm unit cannot resume a stale waiter against copied files.
+# Release before restarting: the new warm unit needs this same lock itself.
+preparation_locked=0
+exec 8>&-
 systemctl restart ollama || die "daemon startup failed; inspect journalctl -u ollama and use --bootstrap-recovery after correction"
 systemctl start ollama-warm || die "model preparation failed; inspect journalctl -u ollama-warm and use --bootstrap-recovery after correction"
 systemctl is-active --quiet ollama-warm || die "warmup did not finish successfully"

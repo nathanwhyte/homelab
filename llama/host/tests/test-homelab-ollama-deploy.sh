@@ -19,7 +19,26 @@ HOST=${1:?usage: test-homelab-ollama-deploy.sh <path to llama/host>}
 HOST=$(cd "$HOST" && pwd)
 WRAPPER=$HOST/homelab-ollama-deploy.sh
 TMP=$(mktemp -d)
-trap 'rm -rf "$TMP"' EXIT
+worker=
+cleanup() {
+	if [[ -n $worker ]]; then kill "$worker" 2>/dev/null || true; wait "$worker" 2>/dev/null || true; fi
+	rm -rf "$TMP"
+}
+trap cleanup EXIT
+mkdir "$TMP/bin"
+# macOS has no flock CLI. This adapter performs the real flock syscall on the
+# inherited descriptor, retaining the lock in the wrapper after it exits.
+cat >"$TMP/bin/flock.py" <<'PY'
+#!/usr/bin/env python3
+import fcntl, sys
+try:
+    fcntl.flock(int(sys.argv[-1]), fcntl.LOCK_EX | fcntl.LOCK_NB)
+except BlockingIOError:
+    sys.exit(1)
+PY
+chmod +x "$TMP/bin/flock.py"
+ln -s flock.py "$TMP/bin/flock"
+export PATH="$TMP/bin:$PATH"
 pass=0 fail=0
 ok() {
 	echo "  PASS  $1"
@@ -39,6 +58,14 @@ git clone -q "$REMOTE" "$work" 2>/dev/null
 mkdir -p "$work/llama/host"
 cat >"$work/llama/host/install-host-ollama.sh" <<'EOF'
 #!/usr/bin/env bash
+if [[ -n ${BLOCK_DEPLOY:-} ]]; then
+	touch "$BLOCK_DEPLOY"
+	for ((i=0; i<1000; i++)); do
+		[[ -e $RELEASE_DEPLOY ]] && break
+		sleep 0.01
+	done
+	[[ -e $RELEASE_DEPLOY ]] || exit 1
+fi
 printf 'args=[%s] repo_dir=%s rev=%s\n' "$*" "$REPO_DIR" "$(cat "$REPO_DIR/REV")" >>"$CALLS"
 EOF
 chmod +x "$work/llama/host/install-host-ollama.sh"
@@ -52,7 +79,7 @@ SRC=$TMP/src
 run() { # runs the wrapper through its test seam; extra env via "$@" before --
 	: >"$CALLS"
 	env HOMELAB_DEPLOY_TEST=1 TEST_SRC="$SRC" TEST_REMOTE="$REMOTE" \
-		TEST_LOG="$TMP/deploy.log" CALLS="$CALLS" "$@" >"$TMP/out" 2>&1
+		TEST_LOG="$TMP/deploy.log" TEST_LOCK="$TMP/deploy.lock" CALLS="$CALLS" "$@" >"$TMP/out" 2>&1
 }
 
 echo "wrapper: argument whitelist"
@@ -98,6 +125,39 @@ run bash "$WRAPPER"
 grep -q 'rev=v2' "$CALLS" && ok "a new commit on main is picked up" || bad "stale deploy: $(cat "$CALLS")"
 sha=$(git -C "$work" rev-parse --short=12 HEAD)
 grep -q "sha=$sha mode=install" "$TMP/deploy.log" && ok "audit log records the deployed sha" || bad "audit log missing sha $sha"
+
+echo "wrapper: checkout refresh stays locked through installer completion"
+: >"$CALLS"
+env HOMELAB_DEPLOY_TEST=1 TEST_SRC="$SRC" TEST_REMOTE="$REMOTE" \
+	TEST_LOG="$TMP/deploy.log" TEST_LOCK="$TMP/deploy.lock" CALLS="$CALLS" \
+	BLOCK_DEPLOY="$TMP/blocked" RELEASE_DEPLOY="$TMP/release" bash "$WRAPPER" >"$TMP/first.out" 2>&1 &
+worker=$!
+for ((i=0; i<500; i++)); do
+	[[ -e $TMP/blocked ]] && break
+	sleep 0.01
+done
+if [[ -e $TMP/blocked ]]; then
+	echo v3 >"$work/REV"
+	git -C "$work" -c user.email=t@t -c user.name=t commit -qam v3
+	git -C "$work" push -q origin HEAD:main 2>/dev/null
+	run bash "$WRAPPER"
+	rc=$?
+	if [[ $rc -ne 0 && ! -s $CALLS ]] && grep -q 'retry after current deployment finishes' "$TMP/out"; then
+		ok "competing wrapper refuses before source refresh or installer invocation"
+	else
+		bad "competing wrapper entered active deployment (rc=$rc)"
+	fi
+	[[ $(cat "$SRC/REV") == v2 ]] && ok "active installer's source remains unchanged when main advances" || bad "active installer's source was replaced"
+else
+	bad "first wrapper did not reach the controlled installer"
+fi
+touch "$TMP/release"
+wait "$worker"
+rc=$?
+worker=
+[[ $rc -eq 0 ]] && grep -q 'rev=v2' "$CALLS" && ok "first installer finishes from its captured main" || bad "first installer lost its source"
+run bash "$WRAPPER"
+[[ $? -eq 0 ]] && grep -q 'rev=v3' "$CALLS" && ok "deployment lock releases after installer exits" || bad "deployment lock did not release"
 
 echo "wrapper: it refuses a loosened checkout"
 chmod g+w "$SRC"

@@ -13,10 +13,16 @@ scrub_environ()
 
 import copy  # noqa: E402
 import errno  # noqa: E402
+import fcntl  # noqa: E402
 import hashlib  # noqa: E402
 import io  # noqa: E402
 import json  # noqa: E402
+import os  # noqa: E402
+import subprocess  # noqa: E402
 import tempfile  # noqa: E402
+import textwrap  # noqa: E402
+import threading  # noqa: E402
+import time  # noqa: E402
 import unittest  # noqa: E402
 import urllib.error  # noqa: E402
 from unittest import mock  # noqa: E402
@@ -199,6 +205,240 @@ class FixtureCase(unittest.TestCase):
 
 
 class PreparationTests(FixtureCase):
+    def test_waiting_caller_snapshots_changed_recipe_and_config_after_lock(self):
+        stale_revision = self.posture.revision
+        waiting = threading.Event()
+        results = []
+        errors = []
+        real_flock = fcntl.flock
+        lock = self.prep.state / "preparation.lock"
+        with lock.open("a+") as owner:
+            real_flock(owner, fcntl.LOCK_EX)
+
+            def observe_flock(fd, operation):
+                waiting.set()
+                return real_flock(fd, operation)
+
+            def work():
+                try:
+                    with self.prep.locked():
+                        results.append(self.prep.warm(FakeRuntime()))
+                except BaseException as exc:
+                    errors.append(exc)
+
+            with mock.patch.object(module.fcntl, "flock", observe_flock):
+                worker = threading.Thread(target=work)
+                worker.start()
+                try:
+                    self.assertTrue(waiting.wait(5), "worker did not reach lock")
+                    recipe = self.posture.recipe("gemma4:vlm")
+                    shown = json.loads(recipe.read_text())
+                    shown["template"] = "replacement installed while caller waited"
+                    recipe.write_text(json.dumps(shown))
+                    self.data["parallel"] += 1
+                    self.config.write_text(json.dumps(self.data))
+                    expected = Posture(self.config, self.recipes)
+                finally:
+                    real_flock(owner, fcntl.LOCK_UN)
+                    worker.join(5)
+        self.assertFalse(worker.is_alive())
+        self.assertEqual(errors, [])
+        self.assertNotEqual(stale_revision, expected.revision)
+        self.assertEqual(results[0]["revision"], expected.revision)
+        self.assertEqual(self.api.show("gemma4:vlm")["template"], shown["template"])
+        self.assertEqual(self.prep.posture.data["parallel"], self.data["parallel"])
+
+    def test_compiler_reads_captured_bytes_beside_recipe_with_modelfile_suffix(self):
+        tag = "gemma4:vlm"
+        original = self.posture.recipe_bytes[tag]
+        seen = []
+
+        def create(name, snapshot):
+            seen.append(snapshot)
+            self.assertEqual(snapshot.parent, self.recipes.resolve())
+            self.assertEqual(snapshot.suffix, ".Modelfile")
+            self.assertEqual(snapshot.read_bytes(), original)
+            self.api.create(name, snapshot)
+
+        self.prep.creator = create
+        with self.prep.locked():
+            revision = self.prep.posture.revision
+            self.posture.recipe(tag).write_text("not a valid fixture recipe anymore")
+            result = self.prep.prepare([tag])
+        self.assertEqual(result[tag]["context"], 65536)
+        self.assertEqual(revision, self.prep.posture.revision)
+        self.assertTrue(seen)
+        self.assertTrue(all(not path.exists() for path in seen))
+
+    def test_inherited_lock_is_validated_and_remains_owned_after_context(self):
+        lock = self.prep.state / "preparation.lock"
+        with lock.open("a+") as owner, lock.open("a+") as competitor:
+            lock.chmod(0o600)
+            self.prep.state.chmod(0o700)
+            fcntl.flock(owner, fcntl.LOCK_EX)
+            self.prep.inherited_lock_fd = owner.fileno()
+            with self.prep.locked():
+                self.assertNotEqual(self.prep._lock_fd, owner.fileno())
+                self.assertEqual(lock.stat().st_mode & 0o777, 0o644)
+                self.assertEqual(self.prep.state.stat().st_mode & 0o777, 0o755)
+            with self.assertRaises(BlockingIOError):
+                fcntl.flock(competitor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            fcntl.flock(owner, fcntl.LOCK_UN)
+            fcntl.flock(competitor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        with (self.root / "unrelated.lock").open("a+") as unrelated:
+            self.prep.inherited_lock_fd = unrelated.fileno()
+            with self.assertRaisesRegex(PreparationError, "does not match"):
+                with self.prep.locked():
+                    self.fail("wrong inherited inode accepted")
+
+    def test_interrupted_candidate_is_replayed_from_exact_durable_intent(self):
+        unrelated = "homelab-preparing/operator:0123456789abcdef0123456789abcdef"
+        self.api.models[unrelated] = {"digest": "a" * 64, "show": {}}
+
+        def interrupted_create(name, snapshot):
+            intent = next((self.prep.state / "candidate-intents").glob("*.json"))
+            self.assertEqual(json.loads(intent.read_text())["tag"], name)
+            self.api.create(name, snapshot)
+            raise InterruptedError("cancelled fixture create")
+
+        self.prep.creator = interrupted_create
+        with self.prep.locked(), self.assertRaises(InterruptedError):
+            self.prep.prepare()
+        intents = list((self.prep.state / "candidate-intents").glob("*.json"))
+        self.assertEqual(len(intents), 1)
+        pending = json.loads(intents[0].read_text())
+        self.assertIn(pending["tag"], self.api.tags())
+        self.prep.creator = self.api.create
+        with self.prep.locked():
+            self.prep.prepare()
+        self.assertNotIn(pending["tag"], self.api.tags())
+        self.assertIn(unrelated, self.api.tags())
+        self.assertFalse(Path(pending["snapshot"]).exists())
+        self.assertEqual(list((self.prep.state / "candidate-intents").iterdir()), [])
+
+    def test_failed_replay_keeps_intent_until_confirmed_delete(self):
+        self.api.drop_delete = True
+        with self.prep.locked(), self.assertRaisesRegex(PreparationError, "cleanup"):
+            self.prep.prepare()
+        intents = list((self.prep.state / "candidate-intents").glob("*.json"))
+        self.assertEqual(len(intents), 1)
+        with self.prep.locked(), self.assertRaisesRegex(PreparationError, "cleanup"):
+            self.prep.prepare()
+        self.assertTrue(intents[0].exists())
+        self.api.drop_delete = False
+        with self.prep.locked():
+            self.prep.prepare()
+        self.assertFalse(intents[0].exists())
+        self.assert_no_candidates()
+
+    def test_invalid_intent_cannot_authorize_other_model_deletion(self):
+        token = "a" * 32
+        self.api.models["operator:keep"] = {"digest": "b" * 64, "show": {}}
+        intent = self.prep.intent_directory() / (token + ".json")
+        intent.write_text(
+            json.dumps(
+                {
+                    "schema": 1,
+                    "tag": "operator:keep",
+                    "snapshot": str(
+                        self.recipes / (".ollama-preparing-" + token + ".Modelfile")
+                    ),
+                }
+            )
+        )
+        with (
+            self.prep.locked(),
+            self.assertRaisesRegex(PreparationError, "unrelated cleanup"),
+        ):
+            self.prep.prepare()
+        self.assertIn("operator:keep", self.api.tags())
+        self.assertTrue(intent.exists())
+
+    def test_terminated_producer_holds_lock_until_child_exits_then_replays(self):
+        fixture_bin = self.root / "bin"
+        fixture_bin.mkdir()
+        ready = self.root / "child-ready.json"
+        release = self.root / "release-child"
+        finished = self.root / "child-finished"
+        child_source = self.root / "fake-ollama.py"
+        child_source.write_text(
+            "#!"
+            + sys.executable
+            + "\n"
+            + textwrap.dedent("""
+            import json, os, pathlib, sys, time
+            root = pathlib.Path(os.environ['PRODUCER_FIXTURE'])
+            (root / 'child-ready.json').write_text(json.dumps({'tag': sys.argv[2], 'snapshot': sys.argv[4]}))
+            deadline = time.monotonic() + 15
+            while not (root / 'release-child').exists() and time.monotonic() < deadline:
+                time.sleep(0.01)
+            (root / 'child-finished').touch()
+        """)
+        )
+        child_source.chmod(0o755)
+        (fixture_bin / "ollama").symlink_to(child_source)
+        worker_source = self.root / "producer.py"
+        worker_source.write_text(
+            textwrap.dedent("""
+            import pathlib, sys
+            sys.path.insert(0, sys.argv[1])
+            from ollama_prepare import Preparation
+            class Api:
+                url = 'http://fixture.invalid'
+                def call(self, path, **kwargs): return {'version': '0.40.11'}
+                def tags(self): return {}
+            root = pathlib.Path(sys.argv[2])
+            prep = Preparation(None, Api(), root / 'state', source=(root / 'model-posture.json', root / 'modelfiles', None))
+            with prep.locked():
+                prep.prepare()
+        """)
+        )
+        worker = subprocess.Popen(
+            [sys.executable, str(worker_source), str(HOST), str(self.root)],
+            env=dict(
+                os.environ,
+                PATH=str(fixture_bin) + os.pathsep + os.environ["PATH"],
+                PRODUCER_FIXTURE=str(self.root),
+            ),
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        try:
+            deadline = time.monotonic() + 5
+            while not ready.exists() and time.monotonic() < deadline:
+                time.sleep(0.01)
+            self.assertTrue(ready.exists(), "controlled create child did not start")
+            worker.terminate()
+            worker.wait(timeout=5)
+            pending = json.loads(ready.read_text())
+            with (self.prep.state / "preparation.lock").open("r") as probe:
+                with self.assertRaises(BlockingIOError):
+                    fcntl.flock(probe, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                release.touch()
+                deadline = time.monotonic() + 5
+                while True:
+                    try:
+                        fcntl.flock(probe, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                        break
+                    except BlockingIOError:
+                        if time.monotonic() >= deadline:
+                            self.fail("create child did not release inherited lock")
+                        time.sleep(0.01)
+            self.assertTrue(finished.exists())
+            self.api.create(pending["tag"], Path(pending["snapshot"]))
+            with self.prep.locked():
+                self.prep.prepare()
+            self.assertNotIn(pending["tag"], self.api.tags())
+            self.assertFalse(Path(pending["snapshot"]).exists())
+            self.assertEqual(
+                list((self.prep.state / "candidate-intents").iterdir()), []
+            )
+        finally:
+            release.touch()
+            if worker.poll() is None:
+                worker.terminate()
+            worker.wait(timeout=5)
+
     def test_missing_models_are_created_read_back_and_not_loaded(self):
         result = self.prep.prepare()
         self.assertEqual(set(result), set(self.posture.required))
@@ -550,7 +790,10 @@ class PreparationTests(FixtureCase):
         create = self.api.create
 
         def selected_only(tag, recipe):
-            if "deepseek" in recipe.name:
+            if (
+                "deepseek"
+                in json.loads(recipe.read_text())["model_info"]["general.name"]
+            ):
                 raise PreparationError("unused rollback base unavailable")
             return create(tag, recipe)
 

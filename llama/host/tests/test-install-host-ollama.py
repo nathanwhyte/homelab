@@ -32,6 +32,15 @@ def option(name, default):
     return args[args.index(name) + 1] if name in args else default
 commands = ("version", "prepare", "warm", "verify", "render", "files-check", "pair")
 command = next(arg for arg in args if arg in commands)
+if command in ('prepare', 'files-check') and os.environ.get('EXPECT_INSTALLER_LOCK'):
+    if option('--lock-fd', None) != '8':
+        sys.exit('installer did not delegate preparation lock')
+    actual = os.fstat(8)
+    expected = (root / 'var/lib/ollama-preparation/preparation.lock').stat()
+    if (actual.st_dev, actual.st_ino) != (expected.st_dev, expected.st_ino):
+        sys.exit('installer delegated wrong preparation lock')
+if command == 'verify' and '--lock-fd' in args:
+    sys.exit('installer retained preparation lock across warmup')
 with open(os.environ["FAKE_LOG"], "a") as log:
     log.write("core " + command + " " + " ".join(args) + "\n")
 if os.environ.get("FAIL_CORE") == command:
@@ -85,6 +94,12 @@ elif name == "iptables-save":
     pass
 elif name == "flock":
     sys.exit(1 if os.environ.get("FAKE_LOCK_BUSY") else 0)
+elif name == 'diff':
+    comparison = sum(line.startswith('diff ') for line in pathlib.Path(os.environ['FAKE_LOG']).read_text().splitlines())
+    if os.environ.get('FAKE_DIFF_ERROR') == str(comparison):
+        sys.stderr.write('injected comparison read failure\n')
+        sys.exit(2)
+    os.execv(os.environ['REAL_DIFF'], [os.environ['REAL_DIFF'], *args])
 elif name == "curl":
     if (root / "online").read_text() != "yes":
         sys.exit(7)
@@ -113,10 +128,17 @@ elif name == "systemctl":
         sys.exit(0 if active else 3)
     elif action == "stop":
         if "ollama-warm" in args:
+            os.fstat(8)  # The old warm unit must stop before releasing the lock.
             (root / "warm-active").unlink(missing_ok=True)
         if "ollama" in args:
             (root / "online").write_text("no")
     elif action == "restart" and args[-1] == "ollama":
+        try:
+            os.fstat(8)
+        except OSError:
+            pass
+        else:
+            sys.exit('installer holds preparation lock across daemon restart')
         (root / "generation").write_text(str(int((root / "generation").read_text()) + 1))
         (root / "online").write_text("yes")
     elif action == "start" and args[-1] == "ollama-warm":
@@ -188,6 +210,7 @@ class InstallerTests(unittest.TestCase):
             HOMELAB_INSTALL_TEST_ROOT=str(self.root),
             FAKE_ROOT=str(self.root),
             FAKE_LOG=str(self.log),
+            REAL_DIFF=shutil.which("diff"),
         )
         for key in (
             "OLLAMA_VERSION",
@@ -196,6 +219,7 @@ class InstallerTests(unittest.TestCase):
             "FAKE_STALE_RECEIPT",
             "FAKE_LOCK_BUSY",
             "FAKE_CUTOVER_FAIL",
+            "FAKE_DIFF_ERROR",
         ):
             self.env.pop(key, None)
         for command in (
@@ -216,6 +240,7 @@ class InstallerTests(unittest.TestCase):
             "rsync",
             "chown",
             "findmnt",
+            "diff",
         ):
             self.write_command(self.bin / command)
         self.write_command(self.root / "usr/local/bin/ollama")
@@ -227,7 +252,7 @@ class InstallerTests(unittest.TestCase):
     def run_installer(self, *args, **env):
         return subprocess.run(
             ["bash", str(self.src / "install-host-ollama.sh"), *args],
-            env=dict(self.env, **env),
+            env=dict(self.env, EXPECT_INSTALLER_LOCK="1", **env),
             text=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
@@ -276,6 +301,28 @@ class InstallerTests(unittest.TestCase):
         result = self.run_installer(FAIL_CORE="prepare")
         self.assert_no_adoption(result)
         self.assertFalse((self.root / "etc/systemd/system/ollama.service").exists())
+
+    def test_files_only_comparison_error_refuses_before_installed_file_changes(self):
+        self.installed()
+        installed = self.root / "opt/ollama-host/ollama-warm.sh"
+        before = installed.read_bytes()
+        with (self.src / "ollama-warm.sh").open("a") as script:
+            script.write(
+                "\n# A harmless script change must still wait for comparison.\n"
+            )
+        for comparison, label in ((1, "homelab.conf"), (3, "ollama-exporter.service")):
+            with self.subTest(unit=label):
+                self.log.write_text("")
+                result = self.run_installer(
+                    "--files-only", FAKE_DIFF_ERROR=str(comparison)
+                )
+                self.assertNotEqual(result.returncode, 0, result.stdout)
+                self.assertIn("comparison failed", result.stdout)
+                self.assertIn(label, result.stdout)
+                self.assertIn("diff exit 2", result.stdout)
+                self.assertIn("injected comparison read failure", result.stdout)
+                self.assertEqual(self.mutation_calls(), [])
+                self.assertEqual(installed.read_bytes(), before)
 
     def test_normal_install_waits_for_fresh_receipt_and_installs_every_recipe(self):
         result = self.run_installer()
