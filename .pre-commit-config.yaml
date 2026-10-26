@@ -342,6 +342,31 @@ repos:
           - --no-warnings
         exclude: ^viking/snapshots/
 
+  # IMPR-1429: scripts/ and tests/ hold the maintenance scripts and their test
+  # suites, and nothing linted them: a bare `shfmt -l` and `shellcheck -S warning`
+  # run flagged 2 of those 6 files and 1. The other trees (97 shell files)
+  # are not in scope: at adoption shfmt flagged 33 of them and shellcheck 7, and
+  # they mix tab and space indent, so widening the filter is a separate,
+  # reviewable reformat. Both hooks take pre-commit's `shell` type, which also
+  # picks up shebang'd files without a `.sh` suffix. shellcheck-py ships the
+  # shellcheck binary as a wheel and scop/pre-commit-shfmt ships shfmt's, so
+  # neither needs a toolchain on the CI runner.
+  - repo: https://github.com/shellcheck-py/shellcheck-py
+    rev: v0.11.0.1
+    hooks:
+      - id: shellcheck
+        args: [-S, warning]
+        files: ^(scripts|tests)/
+
+  - repo: https://github.com/scop/pre-commit-shfmt
+    rev: v3.14.1-1
+    hooks:
+      # Default style (tabs): the dominant indent in the repo's shell files, and
+      # the style scripts/ and tests/ already use. Rewrites in place, like
+      # ruff-format; CI's --show-diff-on-failure prints the change.
+      - id: shfmt
+        files: ^(scripts|tests)/
+
   - repo: https://github.com/DavidAnson/markdownlint-cli2
     rev: v0.22.1
     hooks:
