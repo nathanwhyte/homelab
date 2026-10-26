@@ -180,10 +180,26 @@ clear_cycle_state() {
 
 # This describes recorded reboot evidence, not whether an outage is active. The
 # window files remain the deliberately bounded signal for maintenance watches.
+# A test on a path under an unsearchable directory fails as if the path were
+# absent, so "no cycle state" is only trusted when the state directory is
+# listable, or its nearest existing ancestor is searchable.
+require_state_dir_readable() {
+	local dir=$MAINTENANCE_STATE_DIR
+	if [[ -e $dir || -L $dir ]]; then
+		[[ -d $dir && -r $dir && -x $dir ]] || die "cannot read maintenance state directory: $dir"
+		return 0
+	fi
+	while [[ ! -e $dir && ! -L $dir ]]; do
+		dir=$(dirname "$dir")
+	done
+	[[ -d $dir && -x $dir ]] || die "cannot tell whether maintenance state exists under: $dir"
+}
+
 cmd_cycle_status() {
 	(($# == 1)) || die "usage: $SELF cycle-status <node>"
 	require_node "$1"
 	local file
+	require_state_dir_readable
 	file=$(cycle_state_file "$1")
 	if [[ -e $file || -L $file ]]; then
 		[[ -f $file && -r $file ]] || die "cannot read saved reboot state: $file"
@@ -1107,9 +1123,12 @@ cmd_reboot() {
 	require_valid_boot_id "$boot_id"
 
 	open_maintenance_window "reboot cycle on $node"
+	# Save before cordoning: drain repeats only a cordon with saved state, so a
+	# stop between the two must leave state without a cordon (a retry starts a
+	# fresh first drain), never a cordon without state (refused as a hand cordon).
+	save_cycle_boot_id "$node" "$boot_id"
 	log "[$node] cordon"
 	kubectl cordon "$node"
-	save_cycle_boot_id "$node" "$boot_id"
 
 	log "[$node] drain (timeout $DRAIN_TIMEOUT)"
 	# Best-effort: on a node holding the LAST replica of any single-replica Longhorn
@@ -1191,6 +1210,8 @@ cmd_restore_services() {
 	(($# == 0)) || die "usage: $SELF restore-services"
 	local f node
 	require_no_cordoned_nodes
+	# An unlistable directory would glob to nothing and read as "no cycles".
+	require_state_dir_readable
 	for f in "$MAINTENANCE_STATE_DIR"/*.boot-id; do
 		[[ -e $f ]] || continue
 		node=$(basename "${f%.boot-id}")

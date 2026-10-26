@@ -166,8 +166,14 @@ def fake_command(tool, args):
         state["replicas"][key] = replicas
         save()
     elif verb in ("cordon", "uncordon"):
+        # A cordon can fail before the API applies it, or after (a lost reply).
+        fault = state.get("fail_cordon") if verb == "cordon" else None
+        if fault == "before":
+            return 1
         state["nodes"][resource]["cordoned"] = verb == "cordon"
         save()
+        if fault == "after":
+            return 1
     elif verb == "drain":
         return 1 if state.get("fail_drain") else 0
     elif verb == "patch" and resource == "cronjob":
@@ -439,6 +445,39 @@ class MaintenanceCycleTests(unittest.TestCase):
         self.run_command(OUTAGE, "down", ok=False)
         self.assertEqual(self.read(), state)
         self.assertEqual(list(self.state_root.iterdir()), [])
+
+    def interrupted_cordon_retries(self, fault):
+        state = self.read()
+        state["fail_cordon"] = fault
+        self.write(state)
+        self.run_command(OUTAGE, "down", ok=False)
+        self.assertEqual((self.cycle / "timmy.boot-id").read_text().strip(), OLD_BOOT)
+        state = self.read()
+        del state["fail_cordon"]
+        self.write(state)
+        self.run_command(OUTAGE, "down")
+        self.assertTrue(self.read()["nodes"]["timmy"]["cordoned"])
+        self.reboot()
+        self.run_command(OUTAGE, "up")
+        self.assert_restored()
+
+    def test_down_retries_after_cordon_applied_but_failed(self):
+        self.interrupted_cordon_retries("after")
+
+    def test_down_retries_after_cordon_never_applied(self):
+        self.interrupted_cordon_retries("before")
+
+    def test_unreadable_state_is_not_absent_state(self):
+        self.record_cycle()
+        for locked in (self.cycle, self.state_root):
+            with self.subTest(locked=locked.name):
+                locked.chmod(0)
+                self.addCleanup(locked.chmod, 0o700)
+                try:
+                    result = self.run_command(NODE, "cycle-status", "timmy", ok=False)
+                    self.assertNotIn("none", result.stdout)
+                finally:
+                    locked.chmod(0o700)
 
     def test_repeat_checks_leftovers_after_successful_drain(self):
         self.record_cycle()
