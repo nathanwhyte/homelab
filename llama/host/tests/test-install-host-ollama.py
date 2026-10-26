@@ -773,6 +773,68 @@ class InstallerTests(unittest.TestCase):
         self.assert_no_adoption(result)
         self.assertIn("contradicts model-posture.json", result.stdout)
 
+    def test_installer_real_render_and_files_check_ignore_ambient_resident(self):
+        self.installed()
+        installed = self.root / "opt/ollama-host"
+        for directory in (self.src, installed):
+            (directory / "model-posture.json").write_bytes(
+                (HOST / "model-posture.json").read_bytes()
+            )
+        # Execute the production CLI/profile/render/files-check implementation.
+        # Its only API operation is a pinned-version fake; no model or network
+        # adapter is available, so accidental compilation cannot pass this test.
+        (self.src / "ollama_prepare.py").write_text(
+            textwrap.dedent(f"""
+            import sys
+            sys.path.insert(0, {str(HOST)!r})
+            import ollama_prepare as implementation
+            class VersionOnly:
+                def __init__(self, url): self.url = url
+                def call(self, path, **kwargs):
+                    assert path == '/api/version', path
+                    return {{'version': '0.40.11'}}
+            implementation.Http = VersionOnly
+            implementation.main()
+        """)
+        )
+        rendered = subprocess.run(
+            [
+                sys.executable,
+                str(self.src / "ollama_prepare.py"),
+                "--config",
+                str(self.src / "model-posture.json"),
+                "--recipes",
+                str(self.recipes),
+                "render",
+                "--root",
+                str(self.repo),
+            ],
+            env=dict(self.env, RESIDENT_TAG="qwen2.5-coder:fim"),
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        self.assertEqual(rendered.returncode, 0, rendered.stderr)
+        dropin = self.src / "ollama.service.d/homelab.conf"
+        self.assertIn("OLLAMA_MAX_LOADED_MODELS=1", dropin.read_text())
+        shutil.copy2(
+            dropin, self.root / "etc/systemd/system/ollama.service.d/homelab.conf"
+        )
+        for ambient in ("qwen2.5-coder:fim", "not-a-profile"):
+            with self.subTest(ambient=ambient):
+                self.log.write_text("")
+                result = self.run_installer("--files-only", RESIDENT_TAG=ambient)
+                self.assertEqual(result.returncode, 0, result.stdout)
+                self.assertEqual(
+                    self.mutation_calls(), UDEV_CALLS + ["systemctl daemon-reload"]
+                )
+                self.assertEqual(
+                    json.loads((installed / "model-posture.json").read_text())[
+                        "resident"
+                    ],
+                    "gemma4:vlm",
+                )
+
     def test_competing_install_refuses(self):
         result = self.run_installer(FAKE_LOCK_BUSY="1")
         self.assert_no_adoption(result)

@@ -883,7 +883,13 @@ def main():
             else HERE.parent / "ollama"
         ),
     )
-    parser.add_argument("--resident", default=os.environ.get("RESIDENT_TAG"))
+    parser.add_argument(
+        "--resident",
+        help=(
+            "temporary explicit profile selection; RESIDENT_TAG is ignored. "
+            "For a persistent production change, edit model-posture.json and rerender"
+        ),
+    )
     parser.add_argument(
         "--url", default=os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434")
     )

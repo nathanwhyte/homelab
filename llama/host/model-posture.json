@@ -43,7 +43,7 @@
   "profiles": {
     "gemma4:vlm": {"residents": ["gemma4:vlm"], "standby": ["qwen2.5-coder:fim"]},
     "qwen2.5-coder:fim": {"residents": ["qwen2.5-coder:fim", "gemma4:vlm"], "standby": ["deepseek-coder-v2:instruct"]},
-    "deepseek-coder-v2:fim": {"residents": ["deepseek-coder-v2:fim"], "standby": ["deepseek-coder-v2:instruct"]},
-    "deepseek-coder-v2:instruct": {"residents": ["deepseek-coder-v2:instruct"], "standby": ["deepseek-coder-v2:fim"]}
+    "deepseek-coder-v2:fim": {"residents": ["deepseek-coder-v2:fim"], "standby": ["deepseek-coder-v2:instruct", "qwen2.5-coder:fim", "gemma4:vlm"]},
+    "deepseek-coder-v2:instruct": {"residents": ["deepseek-coder-v2:instruct"], "standby": ["deepseek-coder-v2:fim", "qwen2.5-coder:fim", "gemma4:vlm"]}
   }
 }

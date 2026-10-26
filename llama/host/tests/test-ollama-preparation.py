@@ -920,6 +920,199 @@ class PreparationTests(FixtureCase):
             module.render(self.posture, self.root / "rendered", True)
 
 
+class ProfileSelectionTests(FixtureCase):
+    REQUIRED = {
+        "gemma4:vlm": {"gemma4:vlm", "qwen2.5-coder:fim"},
+        "qwen2.5-coder:fim": {
+            "qwen2.5-coder:fim",
+            "gemma4:vlm",
+            "deepseek-coder-v2:instruct",
+        },
+        "deepseek-coder-v2:fim": {
+            "deepseek-coder-v2:fim",
+            "deepseek-coder-v2:instruct",
+            "qwen2.5-coder:fim",
+            "gemma4:vlm",
+        },
+        "deepseek-coder-v2:instruct": {
+            "deepseek-coder-v2:instruct",
+            "deepseek-coder-v2:fim",
+            "qwen2.5-coder:fim",
+            "gemma4:vlm",
+        },
+    }
+    PAIR = {"qwen2.5-coder:fim", "gemma4:vlm"}
+
+    def cli(self, *args, ambient="not-a-profile"):
+        argv = [
+            "ollama_prepare.py",
+            "--config",
+            str(self.config),
+            "--recipes",
+            str(self.recipes),
+            "--state",
+            str(self.prep.state),
+            *args,
+        ]
+        with (
+            mock.patch.object(sys, "argv", argv),
+            mock.patch.dict(os.environ, {"RESIDENT_TAG": ambient}),
+            mock.patch.object(module, "Http", return_value=self.api),
+            mock.patch.object(Preparation, "create", side_effect=self.api.create),
+            mock.patch("sys.stdout", new_callable=io.StringIO) as output,
+        ):
+            module.main()
+        return json.loads(output.getvalue())
+
+    def test_every_persisted_profile_refreshes_pair_without_extra_loads_and_binds_receipt(
+        self,
+    ):
+        for resident, required in self.REQUIRED.items():
+            with self.subTest(resident=resident):
+                self.api = FakeOllama()
+                for tag in self.PAIR:
+                    self.api.create(tag, self.posture.recipe(tag))
+                previous = self.api.tags()
+                for tag in self.PAIR:
+                    recipe = self.posture.recipe(tag)
+                    shown = json.loads(recipe.read_text())
+                    shown["template"] = "current recipe for " + resident
+                    recipe.write_text(json.dumps(shown))
+                self.data["resident"] = resident
+                self.config.write_text(json.dumps(self.data))
+                self.make_preparation()
+                runtime = FakeRuntime()
+                receipt = self.prep.warm(runtime)
+                expected_loaded = (
+                    [resident, "gemma4:vlm"]
+                    if resident == "qwen2.5-coder:fim"
+                    else [resident]
+                )
+                self.assertEqual(set(receipt["models"]), required)
+                self.assertEqual(
+                    [row["name"] for row in self.api.running], expected_loaded
+                )
+                self.assertEqual(self.prep.verify(runtime)["status"], "verified")
+                for tag in self.PAIR:
+                    self.assertNotEqual(previous[tag], receipt["models"][tag]["digest"])
+                    self.assertEqual(
+                        receipt["models"][tag]["digest"], self.api.tags()[tag]
+                    )
+                # Pair tags remain acceptance obligations even when not loaded.
+                tag = (
+                    next(tag for tag in self.PAIR if tag not in expected_loaded)
+                    if resident != "qwen2.5-coder:fim"
+                    else "gemma4:vlm"
+                )
+                saved = self.api.models.pop(tag)
+                with self.assertRaisesRegex(PreparationError, "identity"):
+                    self.prep.verify(runtime)
+                self.api.models[tag] = saved
+                del receipt["models"][tag]
+                (self.prep.state / "verified.json").write_text(json.dumps(receipt))
+                with self.assertRaisesRegex(PreparationError, "all required models"):
+                    self.prep.verify(runtime)
+
+    def test_explicit_cli_preparation_selects_each_profile_without_loading_or_persisting(
+        self,
+    ):
+        original = self.config.read_bytes()
+        for resident, required in self.REQUIRED.items():
+            with self.subTest(resident=resident):
+                self.api = FakeOllama()
+                result = self.cli("--resident", resident, "prepare")
+                self.assertEqual(set(result), required)
+                self.assertEqual(self.api.running, [])
+                self.assertFalse((self.prep.state / "verified.json").exists())
+                self.assertEqual(self.config.read_bytes(), original)
+
+    def test_pair_command_refreshes_current_recipes_without_loading_for_every_profile(
+        self,
+    ):
+        for resident in self.REQUIRED:
+            with self.subTest(resident=resident):
+                self.api = FakeOllama()
+                original = self.cli("--resident", resident, "pair")
+                for tag in self.PAIR:
+                    recipe = self.posture.recipe(tag)
+                    shown = json.loads(recipe.read_text())
+                    shown["template"] = "pair refresh for " + resident
+                    recipe.write_text(json.dumps(shown))
+                result = self.cli("--resident", resident, "pair")
+                self.assertEqual(set(result), self.PAIR)
+                self.assertTrue(
+                    all(
+                        result[tag]["digest"] != original[tag]["digest"]
+                        for tag in self.PAIR
+                    )
+                )
+                self.assertEqual(self.api.running, [])
+                self.assertFalse((self.prep.state / "verified.json").exists())
+
+    def test_ambient_resident_cannot_change_prepare_or_render_check(self):
+        root = self.root / "rendered"
+        expected = self.posture.revision
+        for ambient in ("qwen2.5-coder:fim", "not-a-profile"):
+            with self.subTest(ambient=ambient):
+                self.assertEqual(
+                    set(self.cli("prepare", ambient=ambient)),
+                    self.REQUIRED["gemma4:vlm"],
+                )
+                self.assertEqual(
+                    self.cli("render", "--root", str(root), ambient=ambient)[
+                        "revision"
+                    ],
+                    expected,
+                )
+                self.assertEqual(
+                    self.cli("render", "--root", str(root), "--check", ambient=ambient)[
+                        "changed"
+                    ],
+                    [],
+                )
+                self.assertEqual(self.api.running, [])
+
+    def test_explicit_profile_render_is_temporary_and_default_check_detects_difference(
+        self,
+    ):
+        original = self.config.read_bytes()
+        root = self.root / "explicit-render"
+        expected = Posture(self.config, self.recipes, "qwen2.5-coder:fim")
+        result = self.cli(
+            "--resident", "qwen2.5-coder:fim", "render", "--root", str(root)
+        )
+        self.assertEqual(result["revision"], expected.revision)
+        self.assertIn(
+            "OLLAMA_MAX_LOADED_MODELS=2",
+            (root / "llama/host/ollama.service.d/homelab.conf").read_text(),
+        )
+        self.assertEqual(
+            self.cli(
+                "--resident",
+                "qwen2.5-coder:fim",
+                "render",
+                "--root",
+                str(root),
+                "--check",
+            )["changed"],
+            [],
+        )
+        with self.assertRaisesRegex(PreparationError, "artifacts are stale"):
+            self.cli("render", "--root", str(root), "--check")
+        self.assertEqual(self.config.read_bytes(), original)
+
+    def test_files_check_ignores_ambient_profile_without_any_compilation(self):
+        installed = self.root / "installed"
+        installed.mkdir()
+        (installed / "model-posture.json").write_bytes(self.config.read_bytes())
+        (installed / "modelfiles").mkdir()
+        for recipe in self.recipes.iterdir():
+            (installed / "modelfiles" / recipe.name).write_bytes(recipe.read_bytes())
+        result = self.cli("files-check", "--installed", str(installed))
+        self.assertEqual(result["status"], "unchanged effective posture")
+        self.assertEqual(self.api.events, [])
+
+
 class SafeCreationTests(FixtureCase):
     # Kill at filesystem boundaries, including the older Path.open route. The
     # assertions concern the abandoned artifacts and two successful warm retries,
