@@ -9,6 +9,13 @@ production's `http` backend is skipped. This makes the same call that path makes
 vectordb service's UpdateVikingdbCollection, which appends them to the collection's
 field list. Existing records read the field's DefaultValue until a write fills it.
 
+After `--apply`, restart every OpenViking server that writes to the collection. A
+running server caches the collection's field list on first use
+(`_SingleAccountBackend._get_meta_data`) and `_filter_known_fields` drops any field
+missing from that cache. The server refreshes the cache only after its own schema
+or description update, and this script updates the schema from outside, so until
+a server restarts its writes leave the new field at its default.
+
 A dry run by default: it prints the field entries it would add and changes
 nothing. `--apply` sends them, then re-reads the collection's metadata and fails
 unless every added field is present with the release's type and no field was
