@@ -78,7 +78,6 @@ from __future__ import annotations
 import argparse
 import datetime
 import json
-import math
 import os
 import re
 import ssl
@@ -88,6 +87,8 @@ import urllib.parse
 import urllib.request
 from dataclasses import dataclass, field
 from pathlib import Path
+
+from lock_observations import observe_exporter
 
 UTC = datetime.timezone.utc
 TAG = "ov-lock-watchdog:"
@@ -166,21 +167,6 @@ class ParseError(Exception):
     """The exporter text is not what this job needs; the reason is logged."""
 
 
-# Copied from viking/tools/ovlock-janitor.py (_LABEL_RE, _parse_labels): the
-# janitor and this job ship in different ConfigMaps. Keep them in step.
-_LABEL_RE = re.compile(r'([A-Za-z_][A-Za-z0-9_]*)="((?:[^"\\]|\\.)*)"')
-_UNESCAPE = {"\\\\": "\\", '\\"': '"', "\\n": "\n"}
-_SAMPLE_RE = re.compile(r"^([A-Za-z_:][A-Za-z0-9_:]*)(\{.*\})?\s+(\S+)$")
-
-
-def _parse_labels(block: str) -> dict[str, str]:
-    """`a="x",b="y\\"z"` -> {"a": "x", "b": 'y"z'} (Prometheus text escaping)."""
-    return {
-        name: re.sub(r"\\.", lambda m: _UNESCAPE.get(m.group(0), m.group(0)), raw)
-        for name, raw in _LABEL_RE.findall(block)
-    }
-
-
 @dataclass(frozen=True)
 class LiveLock:
     key: str
@@ -204,84 +190,41 @@ class Exporter:
     queue_work: int | None
 
 
-_NEEDED = (
-    "openviking_up",
-    "openviking_last_poll_unix",
-    "openviking_s3_ovlock_poll_ok",
-    "openviking_s3_ovlock_live_age_seconds",
-    "openviking_queue_pending",
-    "openviking_queue_in_progress",
-)
-_LIVE_AGE_TYPE = "# TYPE openviking_s3_ovlock_live_age_seconds "
-
-
-def parse_exporter(text: str) -> Exporter:
-    """Exporter /metrics text -> Exporter, or ParseError naming what is wrong.
-
-    Only the series this job decides on are read, and a malformed line for one
-    of them is an error rather than a skipped sample.
-    """
-    singles: dict[str, float] = {}
-    locks: list[LiveLock] = []
-    queue: dict[str, float] = {}
-    has_age_series = _LIVE_AGE_TYPE in text
-    for raw in text.splitlines():
-        line = raw.strip()
-        if not line or line.startswith("#"):
-            continue
-        name = re.split(r"[{\s]", line, maxsplit=1)[0]
-        if name not in _NEEDED:
-            continue
-        match = _SAMPLE_RE.match(line)
-        if not match:
-            raise ParseError(f"unparseable {name} line: {line[:120]!r}")
-        try:
-            value = float(match[3])
-        except ValueError as e:
-            raise ParseError(f"non-numeric value on {name}: {line[:120]!r}") from e
-        if not math.isfinite(value):
-            raise ParseError(f"non-finite value on {name}: {line[:120]!r}")
-        labels = _parse_labels(match[2][1:-1]) if match[2] else {}
-        if name == "openviking_s3_ovlock_live_age_seconds":
-            key = labels.get("key", "")
-            if not key:
-                raise ParseError(f"{name} sample without a key label")
-            locks.append(
-                LiveLock(
-                    key=key,
-                    uri=labels.get("uri", "unknown"),
-                    owner=labels.get("owner", "unknown"),
-                    lock_type=labels.get("lock_type", "unknown"),
-                    age=value,
-                )
-            )
-        elif name in ("openviking_queue_pending", "openviking_queue_in_progress"):
-            if labels.get("queue", "").lower() == "total":
-                queue[name] = value
-        else:
-            singles[name] = value
-    for needed in (
-        "openviking_up",
-        "openviking_last_poll_unix",
-        "openviking_s3_ovlock_poll_ok",
+def parse_exporter(
+    text: str, *, source: str = "exporter", observed_at: float | None = None
+) -> Exporter:
+    """Adapt shared exporter facts to this watchdog's existing required evidence."""
+    observation = observe_exporter(text, source=source, observed_at=observed_at)
+    try:
+        locks = observation.require_locks()
+    except ValueError as e:
+        raise ParseError(str(e)) from e
+    # The oldest-age aggregate is report-only; this job has never required it.
+    errors = [str(d) for d in observation.diagnostics if d.field != "oldest_age"]
+    if errors:
+        raise ParseError("; ".join(errors))
+    if any(
+        v is None
+        for v in (observation.up, observation.lock_poll_ok, observation.last_poll)
     ):
-        if needed not in singles:
-            raise ParseError(f"exporter does not publish {needed}")
-    if not has_age_series:
         raise ParseError(
-            "exporter does not publish openviking_s3_ovlock_live_age_seconds "
-            "(it predates homelab#205)"
+            "exporter does not publish health, lock-poll status or poll time"
         )
+    pending = {k.lower(): v for k, v in observation.pending.items()}
+    in_progress = {k.lower(): v for k, v in observation.in_progress.items()}
     queue_work = (
-        int(queue["openviking_queue_pending"] + queue["openviking_queue_in_progress"])
-        if len(queue) == 2
+        int(pending["total"] + in_progress["total"])
+        if "total" in pending and "total" in in_progress
         else None
     )
     return Exporter(
-        up=singles["openviking_up"] == 1,
-        lock_poll_ok=singles["openviking_s3_ovlock_poll_ok"] == 1,
-        last_poll=singles["openviking_last_poll_unix"],
-        locks=tuple(locks),
+        up=observation.up,
+        lock_poll_ok=observation.lock_poll_ok,
+        last_poll=observation.last_poll,
+        locks=tuple(
+            LiveLock(lock.key, lock.uri, lock.owner, lock.lock_type, lock.age)
+            for lock in locks
+        ),
         queue_work=queue_work,
     )
 
@@ -892,9 +835,14 @@ def run(
 
     exporter = None
     try:
-        exporter = parse_exporter(fetch_metrics(cfg.exporter_url))
+        exporter = parse_exporter(
+            fetch_metrics(cfg.exporter_url),
+            source=cfg.exporter_url,
+            observed_at=now.timestamp(),
+        )
     except Exception as e:  # noqa: BLE001 - any failure is "exporter unusable"
-        errors["exporter"] = f"{type(e).__name__}: {str(e)[:200]}"
+        # Keep every parser diagnostic, including failures after the first row.
+        errors["exporter"] = f"{type(e).__name__}: {e}"
 
     stop, longs = gate(cfg, now, deploy, exporter, errors)
     log = None
@@ -935,7 +883,11 @@ def run(
     # failed re-read is an abort (retry in 15 min), not a failed restart.
     try:
         fresh = cluster.get_deployment()
-        exporter_again = parse_exporter(fetch_metrics(cfg.exporter_url))
+        exporter_again = parse_exporter(
+            fetch_metrics(cfg.exporter_url),
+            source=cfg.exporter_url,
+            observed_at=now_fn().timestamp(),
+        )
         again, still_long = gate(cfg, now_fn(), fresh, exporter_again, errors)
         same = [
             lock
@@ -958,7 +910,7 @@ def run(
             say(f"{TAG} ABORTED before restart: the openviking pod changed")
             return 0
     except Exception as e:  # noqa: BLE001 - nothing was changed; try next slot
-        say(f"{TAG} ABORTED before restart: {type(e).__name__}: {str(e)[:200]}")
+        say(f"{TAG} ABORTED before restart: {type(e).__name__}: {e}")
         return 2 if getattr(e, "blind", False) else 0
     try:
         cluster.restart(fresh.resource_version, note, now_fn())
