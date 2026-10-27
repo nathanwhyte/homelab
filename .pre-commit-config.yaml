@@ -245,9 +245,10 @@ repos:
       - id: lock-observation-tests
         name: shared exporter observations and ConfigMap imports
         entry: python3 viking/tools/test_lock_observations.py
-        language: system
+        language: python
+        additional_dependencies: [pyyaml==6.0.2]
         pass_filenames: false
-        files: ^viking/(tools/((test_)?lock_observations|ov-contention-watch|ov-lock-watchdog|ovlock-janitor)\.py|exporters/ov-exporter\.py|scripts/regen-(janitor|lock-watchdog)-configmap\.sh|manifests/(ovlock-janitor|ov-lock-watchdog)-configmap\.yaml)$
+        files: ^(\.pre-commit-config\.yaml|viking/(tools/((test_)?lock_observations|ov-contention-watch|ov-lock-watchdog|ovlock-janitor)\.py|exporters/(ov-exporter|s3lite)\.py|scripts/regen-(janitor|lock-watchdog)-configmap\.sh|manifests/(ovlock-janitor|ov-lock-watchdog)-configmap\.yaml))$
       # IMPR-1344: every OV embedding call passes through the prompt shim.
       - id: embedder-prompt-shim-tests
         name: embedder-prompt-shim tests

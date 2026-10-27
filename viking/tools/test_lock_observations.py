@@ -11,10 +11,14 @@ from git_env import scrub_environ  # noqa: E402
 scrub_environ()
 
 import importlib.util
+import os
+import shlex
 import subprocess
 import tempfile
 import unittest
 from unittest.mock import Mock, patch
+
+import yaml
 
 TOOLS = Path(__file__).resolve().parent
 sys.path.insert(0, str(TOOLS))
@@ -199,6 +203,82 @@ def configmap_files(path):
 
 
 class PackagedObservations(unittest.TestCase):
+    def test_actual_hook_dispatch_covers_all_packaging_inputs(self):
+        root = TOOLS.parents[1]
+        config = yaml.safe_load((root / ".pre-commit-config.yaml").read_text())
+        hook = next(
+            hook
+            for repo in config["repos"]
+            for hook in repo["hooks"]
+            if hook["id"] == "lock-observation-tests"
+        )
+        # Exercise pre-commit's own matcher with the real hook configuration.
+        # Replace only execution/environment: source parity and imports run above.
+        hook = dict(
+            hook,
+            language="system",
+            entry=shlex.join([sys.executable, "-c", "print('OBSERVATION_HOOK_RAN')"]),
+        )
+        hook.pop("additional_dependencies", None)
+        dependencies = [
+            ".pre-commit-config.yaml",
+            "viking/tools/lock_observations.py",
+            "viking/tools/test_lock_observations.py",
+            "viking/tools/ov-contention-watch.py",
+            "viking/tools/ov-lock-watchdog.py",
+            "viking/tools/ovlock-janitor.py",
+            "viking/exporters/ov-exporter.py",
+            "viking/exporters/s3lite.py",
+            "viking/scripts/regen-janitor-configmap.sh",
+            "viking/scripts/regen-lock-watchdog-configmap.sh",
+            "viking/manifests/ovlock-janitor-configmap.yaml",
+            "viking/manifests/ov-lock-watchdog-configmap.yaml",
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            env = dict(os.environ, PRE_COMMIT_HOME=str(Path(tmp, "cache")))
+            subprocess.run(["git", "init", "-q", tmp], check=True, env=env)
+            dispatch_config = Path(tmp, "dispatch.yaml")
+            dispatch_config.write_text(
+                yaml.safe_dump({"repos": [{"repo": "local", "hooks": [hook]}]})
+            )
+            for path in dependencies + ["unrelated.py"]:
+                fixture = Path(tmp, path)
+                fixture.parent.mkdir(parents=True, exist_ok=True)
+                fixture.write_text("fixture\n")
+            subprocess.run(
+                ["git", "add", "--", *dependencies, "unrelated.py"],
+                cwd=tmp,
+                check=True,
+                env=env,
+            )
+            for path in dependencies + ["unrelated.py"]:
+                with self.subTest(path=path):
+                    result = subprocess.run(
+                        [
+                            "pre-commit",
+                            "run",
+                            "--config",
+                            str(dispatch_config),
+                            "lock-observation-tests",
+                            "--verbose",
+                            "--files",
+                            path,
+                        ],
+                        cwd=tmp,
+                        env=env,
+                        capture_output=True,
+                        text=True,
+                        timeout=30,
+                    )
+                    self.assertEqual(
+                        result.returncode, 0, result.stdout + result.stderr
+                    )
+                    self.assertEqual(
+                        "OBSERVATION_HOOK_RAN" in result.stdout,
+                        path != "unrelated.py",
+                        result.stdout,
+                    )
+
     def test_configmaps_ship_current_sources_and_import_without_repo_paths(self):
         for stem, script in [
             ("ov-lock-watchdog", "ov-lock-watchdog.py"),
