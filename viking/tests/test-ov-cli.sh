@@ -264,6 +264,10 @@ section "3. Content Retrieval — L0/L1/L2"
 # Two test resources are required because the commands operate on different resource types:
 #   ov abstract / ov overview — operate on DIRECTORY resources (the directory itself has content)
 #   ov read                   — operates on LEAF FILES (created by ov write --mode create)
+#
+# Since v0.5.1 (#5897) `--mode create` is a server-side alias for `replace`: it
+# overwrites an existing file instead of failing, so a leftover test-read.md
+# from an earlier run no longer fails the probe below; only "resource is busy" does.
 
 SECT3_DIR_OK=true
 if ! $OV mkdir "${TEST_DIR}" --description "Test directory for ov CLI tests"; then
@@ -360,7 +364,9 @@ skip "ov add-resource with --to" "multipart upload fails through kubectl port-fo
 #
 # Strategy: test `ov write --mode create` with the first file only (imported.md),
 # then test `ov write --append` against the already-processed test-read.md from
-# Section 3. This covers both write paths without lock contention.
+# Section 3. This covers both write paths without lock contention. Since v0.5.1
+# `create` runs the server's replace path, so this also covers replace; nothing
+# here can test create-only (fail-if-exists) semantics, which the server dropped.
 
 # Create imported.md — this is the suite's `ov write --mode create` coverage.
 # (It was also the fixture for the Relations section, removed below.)
@@ -400,7 +406,8 @@ else
 fi
 
 # ov write --mode create is tested above (imported.md). Skip a second create
-# to avoid lock contention in a busy cluster.
+# to avoid lock contention in a busy cluster; since v0.5.1 a second create of
+# the same file would replace it, not exercise a distinct path.
 skip "ov write creates content (second create)" "skipped to avoid lock contention; create path tested by imported.md"
 
 # add-memory
