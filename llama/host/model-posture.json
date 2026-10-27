@@ -14,7 +14,8 @@
     "OLLAMA_KEEP_ALIVE": "-1",
     "OLLAMA_LOAD_TIMEOUT": "15m",
     "OLLAMA_VULKAN": "1",
-    "OLLAMA_LLM_LIBRARY": "vulkan"
+    "OLLAMA_LLM_LIBRARY": "vulkan",
+    "LLAMA_ARG_CACHE_RAM": "2048"
   },
   "forbidden_environment": ["GGML_VK_VISIBLE_DEVICES", "VULKAN_VISIBLE_DEVICES", "OLLAMA_MULTIUSER_CACHE"],
   "service_properties": {

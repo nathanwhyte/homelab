@@ -45,7 +45,7 @@
                   },
                   {
                     "name": "OLLAMA_RECOVERY",
-                    "value": "{\"residents\":[\"gemma4:vlm\"],\"revision\":\"61e5d59e7b6bfecdd0ddf3866b224724b63b0217f5126f01f559ab3ef7a29699\",\"version\":\"0.40.11\"}"
+                    "value": "{\"residents\":[\"gemma4:vlm\"],\"revision\":\"57ce36ceabe3f7fa6332ca01346a2c1a46e5d13b8ddb60a23d11e46e9f678702\",\"version\":\"0.40.11\"}"
                   }
                 ],
                 "command": [
