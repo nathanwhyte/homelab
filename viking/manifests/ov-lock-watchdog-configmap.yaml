@@ -1,5 +1,216 @@
 apiVersion: v1
 data:
+  lock_observations.py: |
+    """Decode ov-exporter evidence without choosing reporting or recovery policy.
+
+    This is the exporter's text format, not a general Prometheus client. A valid
+    lock selection can be empty, but is always limited to the producer's top N
+    locks past its minimum age. Absence never proves a lock does not exist.
+    Transport, freshness thresholds, S3 checks and restart decisions stay in callers.
+    """
+
+    from __future__ import annotations
+
+    import math
+    import re
+    from dataclasses import dataclass
+
+    LOCK_METRIC = "openviking_s3_ovlock_live_age_seconds"
+    _SCALARS = {
+        "openviking_up": "up",
+        "openviking_last_poll_unix": "last_poll",
+        "openviking_s3_ovlock_poll_ok": "lock_poll_ok",
+        "openviking_s3_ovlock_oldest_live_age_seconds": "oldest_age",
+    }
+    _QUEUES = {
+        "openviking_queue_pending": "pending",
+        "openviking_queue_in_progress": "in_progress",
+    }
+    _SAMPLE = re.compile(r"^([A-Za-z_:][A-Za-z0-9_:]*)(?:\{(.*)\})?\s+(\S+)$")
+    _NAME = re.compile(r"[A-Za-z_:][A-Za-z0-9_:]*")
+    _LABEL = re.compile(
+        r'\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*"((?:[^"\\\n]|\\["\\n])*)"\s*(?:,|$)'
+    )
+    _UNESCAPE = {"\\\\": "\\", '\\"': '"', "\\n": "\n"}
+
+
+    def _parse_labels(block: str) -> dict[str, str]:
+        labels = {}
+        pos = 0
+        while pos < len(block):
+            match = _LABEL.match(block, pos)
+            if match is None:
+                raise ValueError("malformed label block or unsupported escape")
+            name, raw = match.groups()
+            if name in labels:
+                raise ValueError(f"duplicate label {name!r}")
+            labels[name] = re.sub(r"\\.", lambda m: _UNESCAPE[m[0]], raw)
+            pos = match.end()
+        return labels
+
+
+    @dataclass(frozen=True)
+    class Diagnostic:
+        field: str
+        line: int | None
+        reason: str
+
+        def __str__(self) -> str:
+            location = f"line {self.line}: " if self.line is not None else ""
+            return f"{location}{self.field}: {self.reason}"
+
+
+    @dataclass(frozen=True)
+    class LockSample:
+        key: str
+        uri: str
+        owner: str
+        lock_type: str
+        age: float
+
+
+    @dataclass(frozen=True)
+    class Observation:
+        source: str
+        observed_at: float | None
+        # valid / missing / malformed; None never means an empty selection.
+        lock_status: str
+        locks: tuple[LockSample, ...] | None
+        diagnostics: tuple[Diagnostic, ...]
+        up: bool | None
+        lock_poll_ok: bool | None
+        last_poll: float | None
+        oldest_age: float | None
+        pending: dict[str, float]
+        in_progress: dict[str, float]
+        coverage: str = "exporter-selected: top N, past a minimum age"
+
+        def require_locks(self) -> tuple[LockSample, ...]:
+            if self.locks is None:
+                details = "; ".join(str(d) for d in self.diagnostics if d.field == "locks")
+                raise ValueError(f"{self.source}: {details}")
+            return self.locks
+
+
+    def observe_exporter(
+        text: str, *, source: str = "exporter", observed_at: float | None = None
+    ) -> Observation:
+        """One scrape's facts, with all lock rows discarded if any row is invalid.
+
+        Keep diagnostics for each affected field. Bad queue/scalar evidence does
+        not invalidate independent lock rows; callers choose which fields they
+        require. Producer health and poll time are facts, not freshness policy.
+        """
+        diagnostics = []
+        scalars = {}
+        queues = {"pending": {}, "in_progress": {}}
+        locks = []
+        keys = set()
+        declared = False
+
+        # Exposition records end at LF. splitlines() would also split valid UTF-8
+        # label characters such as U+0085 and U+2028 into invented records.
+        for number, raw in enumerate(text.split("\n"), 1):
+            line = raw.strip()
+            if not line:
+                continue
+            if line.startswith("#"):
+                parts = line.split()
+                if len(parts) >= 3 and parts[:3] == ["#", "TYPE", LOCK_METRIC]:
+                    if declared or parts != ["#", "TYPE", LOCK_METRIC, "gauge"]:
+                        diagnostics.append(
+                            Diagnostic(
+                                "locks", number, "invalid or duplicate family declaration"
+                            )
+                        )
+                    declared = True
+                continue
+            name_match = _NAME.match(line)
+            name = name_match[0] if name_match else ""
+            field = (
+                "locks" if name == LOCK_METRIC else _SCALARS.get(name) or _QUEUES.get(name)
+            )
+            if field is None:
+                continue
+            try:
+                match = _SAMPLE.fullmatch(line)
+                if match is None:
+                    raise ValueError("malformed sample")
+                labels = _parse_labels(match[2]) if match[2] is not None else {}
+                try:
+                    value = float(match[3])
+                except ValueError as e:
+                    raise ValueError("non-numeric value") from e
+                if not math.isfinite(value):
+                    raise ValueError("non-finite value")
+                if field == "locks":
+                    key = labels.get("key", "")
+                    if not key:
+                        raise ValueError("missing or empty key label")
+                    if key in keys:
+                        raise ValueError(f"duplicate lock key {key!r}")
+                    if value < 0:
+                        raise ValueError("negative presence age")
+                    keys.add(key)
+                    locks.append(
+                        LockSample(
+                            key,
+                            labels.get("uri", "unknown"),
+                            labels.get("owner", "unknown"),
+                            labels.get("lock_type", "unknown"),
+                            value,
+                        )
+                    )
+                elif field in queues:
+                    queue = labels.get("queue", "")
+                    if not queue:
+                        raise ValueError("missing or empty queue label")
+                    if queue in queues[field]:
+                        raise ValueError(f"duplicate queue {queue!r}")
+                    queues[field][queue] = value
+                else:
+                    if labels or field in scalars:
+                        raise ValueError("labelled or duplicate scalar")
+                    scalars[field] = value
+            except ValueError as e:
+                diagnostics.append(Diagnostic(field, number, f"{e}; sample={line[:160]!r}"))
+
+        if not declared:
+            diagnostics.append(
+                Diagnostic(
+                    "locks",
+                    None,
+                    "missing lock family declaration (exporter predates homelab#205 or scrape is incomplete)",
+                )
+            )
+        lock_errors = [d for d in diagnostics if d.field == "locks"]
+        status = (
+            "malformed"
+            if any(d.line is not None for d in lock_errors)
+            else "missing"
+            if not declared
+            else "valid"
+        )
+        # A later good row must not silently repair an ambiguous scalar or queue.
+        for diagnostic in diagnostics:
+            scalars.pop(diagnostic.field, None)
+            if diagnostic.field in queues:
+                queues[diagnostic.field].clear()
+        return Observation(
+            source=source,
+            observed_at=observed_at,
+            lock_status=status,
+            locks=None if lock_errors else tuple(locks),
+            diagnostics=tuple(diagnostics),
+            up=None if "up" not in scalars else scalars["up"] == 1,
+            lock_poll_ok=None
+            if "lock_poll_ok" not in scalars
+            else scalars["lock_poll_ok"] == 1,
+            last_poll=scalars.get("last_poll"),
+            oldest_age=scalars.get("oldest_age"),
+            pending=queues["pending"],
+            in_progress=queues["in_progress"],
+        )
   ov-lock-watchdog.py: |
     #!/usr/bin/env python3
     """Long-hold watchdog for OpenViking lock leases (BUG-1220).
@@ -81,7 +292,6 @@ data:
     import argparse
     import datetime
     import json
-    import math
     import os
     import re
     import ssl
@@ -91,6 +301,8 @@ data:
     import urllib.request
     from dataclasses import dataclass, field
     from pathlib import Path
+
+    from lock_observations import observe_exporter
 
     UTC = datetime.timezone.utc
     TAG = "ov-lock-watchdog:"
@@ -169,21 +381,6 @@ data:
         """The exporter text is not what this job needs; the reason is logged."""
 
 
-    # Copied from viking/tools/ovlock-janitor.py (_LABEL_RE, _parse_labels): the
-    # janitor and this job ship in different ConfigMaps. Keep them in step.
-    _LABEL_RE = re.compile(r'([A-Za-z_][A-Za-z0-9_]*)="((?:[^"\\]|\\.)*)"')
-    _UNESCAPE = {"\\\\": "\\", '\\"': '"', "\\n": "\n"}
-    _SAMPLE_RE = re.compile(r"^([A-Za-z_:][A-Za-z0-9_:]*)(\{.*\})?\s+(\S+)$")
-
-
-    def _parse_labels(block: str) -> dict[str, str]:
-        """`a="x",b="y\\"z"` -> {"a": "x", "b": 'y"z'} (Prometheus text escaping)."""
-        return {
-            name: re.sub(r"\\.", lambda m: _UNESCAPE.get(m.group(0), m.group(0)), raw)
-            for name, raw in _LABEL_RE.findall(block)
-        }
-
-
     @dataclass(frozen=True)
     class LiveLock:
         key: str
@@ -207,84 +404,41 @@ data:
         queue_work: int | None
 
 
-    _NEEDED = (
-        "openviking_up",
-        "openviking_last_poll_unix",
-        "openviking_s3_ovlock_poll_ok",
-        "openviking_s3_ovlock_live_age_seconds",
-        "openviking_queue_pending",
-        "openviking_queue_in_progress",
-    )
-    _LIVE_AGE_TYPE = "# TYPE openviking_s3_ovlock_live_age_seconds "
-
-
-    def parse_exporter(text: str) -> Exporter:
-        """Exporter /metrics text -> Exporter, or ParseError naming what is wrong.
-
-        Only the series this job decides on are read, and a malformed line for one
-        of them is an error rather than a skipped sample.
-        """
-        singles: dict[str, float] = {}
-        locks: list[LiveLock] = []
-        queue: dict[str, float] = {}
-        has_age_series = _LIVE_AGE_TYPE in text
-        for raw in text.splitlines():
-            line = raw.strip()
-            if not line or line.startswith("#"):
-                continue
-            name = re.split(r"[{\s]", line, maxsplit=1)[0]
-            if name not in _NEEDED:
-                continue
-            match = _SAMPLE_RE.match(line)
-            if not match:
-                raise ParseError(f"unparseable {name} line: {line[:120]!r}")
-            try:
-                value = float(match[3])
-            except ValueError as e:
-                raise ParseError(f"non-numeric value on {name}: {line[:120]!r}") from e
-            if not math.isfinite(value):
-                raise ParseError(f"non-finite value on {name}: {line[:120]!r}")
-            labels = _parse_labels(match[2][1:-1]) if match[2] else {}
-            if name == "openviking_s3_ovlock_live_age_seconds":
-                key = labels.get("key", "")
-                if not key:
-                    raise ParseError(f"{name} sample without a key label")
-                locks.append(
-                    LiveLock(
-                        key=key,
-                        uri=labels.get("uri", "unknown"),
-                        owner=labels.get("owner", "unknown"),
-                        lock_type=labels.get("lock_type", "unknown"),
-                        age=value,
-                    )
-                )
-            elif name in ("openviking_queue_pending", "openviking_queue_in_progress"):
-                if labels.get("queue", "").lower() == "total":
-                    queue[name] = value
-            else:
-                singles[name] = value
-        for needed in (
-            "openviking_up",
-            "openviking_last_poll_unix",
-            "openviking_s3_ovlock_poll_ok",
+    def parse_exporter(
+        text: str, *, source: str = "exporter", observed_at: float | None = None
+    ) -> Exporter:
+        """Adapt shared exporter facts to this watchdog's existing required evidence."""
+        observation = observe_exporter(text, source=source, observed_at=observed_at)
+        try:
+            locks = observation.require_locks()
+        except ValueError as e:
+            raise ParseError(str(e)) from e
+        # The oldest-age aggregate is report-only; this job has never required it.
+        errors = [str(d) for d in observation.diagnostics if d.field != "oldest_age"]
+        if errors:
+            raise ParseError("; ".join(errors))
+        if any(
+            v is None
+            for v in (observation.up, observation.lock_poll_ok, observation.last_poll)
         ):
-            if needed not in singles:
-                raise ParseError(f"exporter does not publish {needed}")
-        if not has_age_series:
             raise ParseError(
-                "exporter does not publish openviking_s3_ovlock_live_age_seconds "
-                "(it predates homelab#205)"
+                "exporter does not publish health, lock-poll status or poll time"
             )
+        pending = {k.lower(): v for k, v in observation.pending.items()}
+        in_progress = {k.lower(): v for k, v in observation.in_progress.items()}
         queue_work = (
-            int(queue["openviking_queue_pending"] + queue["openviking_queue_in_progress"])
-            if len(queue) == 2
+            int(pending["total"] + in_progress["total"])
+            if "total" in pending and "total" in in_progress
             else None
         )
         return Exporter(
-            up=singles["openviking_up"] == 1,
-            lock_poll_ok=singles["openviking_s3_ovlock_poll_ok"] == 1,
-            last_poll=singles["openviking_last_poll_unix"],
-            locks=tuple(locks),
+            up=observation.up,
+            lock_poll_ok=observation.lock_poll_ok,
+            last_poll=observation.last_poll,
+            locks=tuple(
+                LiveLock(lock.key, lock.uri, lock.owner, lock.lock_type, lock.age)
+                for lock in locks
+            ),
             queue_work=queue_work,
         )
 
@@ -895,9 +1049,14 @@ data:
 
         exporter = None
         try:
-            exporter = parse_exporter(fetch_metrics(cfg.exporter_url))
+            exporter = parse_exporter(
+                fetch_metrics(cfg.exporter_url),
+                source=cfg.exporter_url,
+                observed_at=now.timestamp(),
+            )
         except Exception as e:  # noqa: BLE001 - any failure is "exporter unusable"
-            errors["exporter"] = f"{type(e).__name__}: {str(e)[:200]}"
+            # Keep every parser diagnostic, including failures after the first row.
+            errors["exporter"] = f"{type(e).__name__}: {e}"
 
         stop, longs = gate(cfg, now, deploy, exporter, errors)
         log = None
@@ -938,7 +1097,11 @@ data:
         # failed re-read is an abort (retry in 15 min), not a failed restart.
         try:
             fresh = cluster.get_deployment()
-            exporter_again = parse_exporter(fetch_metrics(cfg.exporter_url))
+            exporter_again = parse_exporter(
+                fetch_metrics(cfg.exporter_url),
+                source=cfg.exporter_url,
+                observed_at=now_fn().timestamp(),
+            )
             again, still_long = gate(cfg, now_fn(), fresh, exporter_again, errors)
             same = [
                 lock
@@ -961,7 +1124,7 @@ data:
                 say(f"{TAG} ABORTED before restart: the openviking pod changed")
                 return 0
         except Exception as e:  # noqa: BLE001 - nothing was changed; try next slot
-            say(f"{TAG} ABORTED before restart: {type(e).__name__}: {str(e)[:200]}")
+            say(f"{TAG} ABORTED before restart: {type(e).__name__}: {e}")
             return 2 if getattr(e, "blind", False) else 0
         try:
             cluster.restart(fresh.resource_version, note, now_fn())

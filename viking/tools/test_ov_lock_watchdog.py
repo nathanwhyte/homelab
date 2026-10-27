@@ -19,6 +19,7 @@ import os
 import unittest
 
 _DIR = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, _DIR)
 _spec = importlib.util.spec_from_file_location(
     "ov_lock_watchdog", os.path.join(_DIR, "ov-lock-watchdog.py")
 )
@@ -407,6 +408,35 @@ class TestRun(unittest.TestCase):
         code, out = self.go(cluster, text)
         self.assertEqual((code, cluster.patches), (0, []))
         self.assertIn("predates homelab#205", out)
+
+    def test_partial_lock_selection_is_blind_and_never_patches(self):
+        cluster = FakeCluster(log=refresh_log(hold=4 * HOUR))
+        text = (
+            metrics_text(work=0)
+            + 'openviking_s3_ovlock_live_age_seconds{key="first-bad"} NaN\n'
+            + 'openviking_s3_ovlock_live_age_seconds{key="last-bad"} Inf\n'
+        )
+        code, out = self.go(cluster, text)
+        self.assertEqual((code, cluster.patches), (0, []))
+        self.assertIn("decision=blind", out)
+        self.assertIn("non-finite", out)
+        self.assertIn("first-bad", out)
+        self.assertIn("last-bad", out)
+
+    def test_malformed_recheck_aborts_and_retains_all_diagnostics(self):
+        cluster = FakeCluster(log=refresh_log(hold=4 * HOUR))
+        good = metrics_text(work=0)
+        bad = (
+            good
+            + 'openviking_s3_ovlock_live_age_seconds{key="first-bad"} NaN\n'
+            + 'openviking_s3_ovlock_live_age_seconds{key="last-bad"} Inf\n'
+        )
+        reads = iter([good, bad])
+        code, out = self.go(cluster, lambda url: next(reads))
+        self.assertEqual((code, cluster.patches), (0, []))
+        self.assertIn("ABORTED before restart", out)
+        self.assertIn("first-bad", out)
+        self.assertIn("last-bad", out)
 
     def test_missing_rbac_is_blind_and_exits_2(self):
         class Blind(FakeCluster):

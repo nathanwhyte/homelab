@@ -229,19 +229,26 @@ repos:
         entry: python3 viking/tools/test_ovlock_janitor.py
         language: system
         pass_filenames: false
-        files: ^viking/(exporters/s3lite\.py|tools/(test_)?ovlock[-_]janitor\.py)$
+        files: ^viking/(exporters/s3lite\.py|tools/((test_)?ovlock[-_]janitor|lock_observations)\.py)$
       - id: ov-lock-watchdog-tests
         name: ov-lock-watchdog tests
         entry: python3 viking/tools/test_ov_lock_watchdog.py
         language: system
         pass_filenames: false
-        files: ^viking/(tools/(test_)?ov[-_]lock[-_]watchdog\.py|manifests/ov-lock-watchdog-configmap\.yaml)$
+        files: ^viking/(tools/((test_)?ov[-_]lock[-_]watchdog|lock_observations)\.py|manifests/ov-lock-watchdog-configmap\.yaml)$
       - id: ov-contention-watch-tests
         name: ov-contention-watch tests
         entry: python3 viking/tools/test_ov_contention_watch.py
         language: system
         pass_filenames: false
-        files: ^viking/tools/(test_)?ov[-_]contention[-_]watch\.py$
+        files: ^viking/tools/((test_)?ov[-_]contention[-_]watch|lock_observations)\.py$
+      - id: lock-observation-tests
+        name: shared exporter observations and ConfigMap imports
+        entry: python3 viking/tools/test_lock_observations.py
+        language: python
+        additional_dependencies: [pyyaml==6.0.2]
+        pass_filenames: false
+        files: ^(\.pre-commit-config\.yaml|viking/(tools/((test_)?lock_observations|ov-contention-watch|ov-lock-watchdog|ovlock-janitor)\.py|exporters/(ov-exporter|s3lite)\.py|scripts/regen-(janitor|lock-watchdog)-configmap\.sh|manifests/(ovlock-janitor|ov-lock-watchdog)-configmap\.yaml))$
       # IMPR-1344: every OV embedding call passes through the prompt shim.
       - id: embedder-prompt-shim-tests
         name: embedder-prompt-shim tests

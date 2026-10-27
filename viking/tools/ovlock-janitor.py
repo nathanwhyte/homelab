@@ -59,11 +59,12 @@ from __future__ import annotations
 import argparse
 import datetime
 import os
-import re
 import sys
 import time
 import urllib.error
 import urllib.request
+
+from lock_observations import observe_exporter
 
 sys.path.insert(
     0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "exporters")
@@ -108,42 +109,17 @@ def _mtime_matches(
     return abs((current - expected).total_seconds()) <= tolerance
 
 
-PRESENCE_METRIC = "openviking_s3_ovlock_live_age_seconds"
-_LABEL_RE = re.compile(r'([A-Za-z_][A-Za-z0-9_]*)="((?:[^"\\]|\\.)*)"')
-_UNESCAPE = {"\\\\": "\\", '\\"': '"', "\\n": "\n"}
-
-
-def _parse_labels(block: str) -> dict[str, str]:
-    """`a="x",b="y\\"z"` -> {"a": "x", "b": 'y"z'} (Prometheus text escaping)."""
-    return {
-        name: re.sub(r"\\.", lambda m: _UNESCAPE.get(m.group(0), m.group(0)), raw)
-        for name, raw in _LABEL_RE.findall(block)
-    }
-
-
-def parse_presence_ages(text: str) -> dict[str, float]:
+def parse_presence_ages(text: str, *, source: str = "exporter") -> dict[str, float]:
     """{lock key: presence age (s)} from ov-exporter's /metrics text.
 
     Reads only the per-lock series ov-exporter publishes for its top-N
     longest-present live locks (BUG-1220). A key absent here was either
     present for less than the exporter's minimum age or outside its top N.
+    A missing family or any malformed lock sample raises ValueError; it must
+    degrade the whole report to unknown rather than imply an empty selection.
     """
-    ages: dict[str, float] = {}
-    prefix = PRESENCE_METRIC + "{"
-    for line in text.splitlines():
-        if not line.startswith(prefix):
-            continue
-        block, sep, value = line[len(prefix) :].rpartition("} ")
-        if not sep:
-            continue
-        key = _parse_labels(block).get("key")
-        try:
-            age = float(value.split()[0])
-        except (IndexError, ValueError):
-            continue
-        if key:
-            ages[key] = age
-    return ages
+    observation = observe_exporter(text, source=source, observed_at=time.time())
+    return {lock.key: lock.age for lock in observation.require_locks()}
 
 
 def fetch_presence_ages(url: str, timeout: float = 10.0) -> dict[str, float] | None:
@@ -158,7 +134,9 @@ def fetch_presence_ages(url: str, timeout: float = 10.0) -> dict[str, float] | N
         with urllib.request.urlopen(
             urllib.request.Request(url), timeout=timeout
         ) as resp:
-            return parse_presence_ages(resp.read().decode("utf-8", "replace"))
+            return parse_presence_ages(
+                resp.read().decode("utf-8", "replace"), source=url
+            )
     except Exception as e:  # noqa: BLE001 - report degrades, run carries on
         print(f"presence ages unavailable from ov-exporter ({url}): {e!r}")
         return None

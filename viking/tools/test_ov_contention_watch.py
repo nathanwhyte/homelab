@@ -28,6 +28,7 @@ import unittest
 from unittest import mock
 
 _DIR = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, _DIR)
 _spec = importlib.util.spec_from_file_location(
     "ov_contention_watch", os.path.join(_DIR, "ov-contention-watch.py")
 )
@@ -67,7 +68,10 @@ def wait_line(ms, path=LOCK):
 
 
 def metrics_text(poll_ok=1, live_age=None):
-    lines = [f"openviking_s3_ovlock_poll_ok {poll_ok}"]
+    lines = [
+        f"openviking_s3_ovlock_poll_ok {poll_ok}",
+        "# TYPE openviking_s3_ovlock_live_age_seconds gauge",
+    ]
     if live_age is not None:
         lines.append(
             "openviking_s3_ovlock_live_age_seconds"
@@ -444,6 +448,24 @@ class WaitRouting(unittest.TestCase):
         )
         out, _ = run_watch(fake, polls=3, log=self.log)
         self.assertEqual(len(has(out, "HOLD >= 600s")), 2)
+
+    def test_bad_selection_does_not_reset_alert_history(self):
+        good = metrics_text(live_age=700)
+        bad = good + '\nopenviking_s3_ovlock_live_age_seconds{key="bad"} NaN'
+        fake = FakeKubectl([POD_A], metrics=[good, bad, good])
+        out, _ = run_watch(fake, polls=3, log=self.log)
+        self.assertEqual(len(has(out, "HOLD >= 600s")), 1)
+        self.assertEqual(len(has(out, "WATCH ERROR metrics:")), 1)
+
+    def test_decoded_label_newline_keeps_hold_event_on_one_line(self):
+        text = metrics_text(live_age=700).replace(
+            'uri="viking://x/user/noot/y"', 'uri="viking://x/user/noot/new\\nline"'
+        )
+        out, _ = run_watch(FakeKubectl([POD_A], metrics=text), log=self.log)
+        hold = has(out, "HOLD >= 600s")
+        self.assertEqual(len(hold), 1)
+        self.assertIn("uri=user/noot/new line", hold[0])
+        self.assertFalse(any(line == "line" for line in out))
 
     def test_watch_error_wakes(self):
         fake = FakeKubectl([POD_A], metrics=metrics_text(poll_ok=0))
@@ -1014,6 +1036,26 @@ class TargetUptime(unittest.TestCase):
         # HOLD alerting is not changed by this: it still sees the first read
         self.assertEqual(len(has(out, "HOLD >= 600s")), 1)
 
+    def test_missing_or_malformed_selection_keeps_last_good_state(self):
+        good = metrics_text(live_age=700)
+        for bad in [
+            "openviking_s3_ovlock_poll_ok 1",
+            good + '\nopenviking_s3_ovlock_live_age_seconds{key="bad"} NaN',
+        ]:
+            with self.subTest(bad=bad):
+                a = [pod_item(POD_A, since=-3600)]
+                fake = PodListKubectl([a], metrics=[good, bad, bad])
+                out, _, _ = run_target(fake, 120, log=self.log)
+                self.assertIn("live=1 oldest=0s", has(out, "SEGMENT ")[0])
+                self.assertEqual(len(has(out, "WATCH ERROR metrics:")), 1)
+
+    def test_missing_selection_is_unknown_from_startup(self):
+        a = [pod_item(POD_A, since=-3600)]
+        out, _, _ = run_target(
+            PodListKubectl([a], metrics="openviking_s3_ovlock_poll_ok 1"), 120
+        )
+        self.assertIn("locks=unknown", has(out, "SEGMENT ")[0])
+
     def test_log_only_deploy_failure_does_not_open_the_streak(self):
         a = [pod_item(POD_A, since=-3600)]
         a_term = [pod_item(POD_A, since=-3600, terminating=True)]
@@ -1471,7 +1513,7 @@ class Finalizer(unittest.TestCase):
                 "#!/bin/sh\n"
                 'case "$*" in\n'
                 f"  *'get pods'*) printf '%s' '{pods}' ;;\n"
-                "  *exec*) echo 'openviking_s3_ovlock_poll_ok 1' ;;\n"
+                "  *exec*) printf '%s\\n' 'openviking_s3_ovlock_poll_ok 1' '# TYPE openviking_s3_ovlock_live_age_seconds gauge' ;;\n"
                 "esac\n"
             )
         os.chmod(kubectl, 0o755)
@@ -1504,6 +1546,7 @@ class Finalizer(unittest.TestCase):
             out, _ = proc.communicate(timeout=15)
         finally:
             proc.kill()
+            proc.communicate()
         self.assertEqual(proc.returncode, 130)
         self.assertIn("SEGMENT 1 ", out)
         self.assertIn("WATCH end: incomplete (interrupted)", out)

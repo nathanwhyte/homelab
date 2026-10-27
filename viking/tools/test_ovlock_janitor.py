@@ -24,6 +24,7 @@ import threading
 import unittest
 
 _DIR = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, _DIR)
 sys.path.insert(0, os.path.join(_DIR, "..", "exporters"))
 _spec = importlib.util.spec_from_file_location(
     "ovlock_janitor", os.path.join(_DIR, "ovlock-janitor.py")
@@ -251,19 +252,21 @@ class TestParsePresenceAges(unittest.TestCase):
         )
 
     def test_empty_and_malformed(self):
-        self.assertEqual(janitor.parse_presence_ages(""), {})
+        with self.assertRaisesRegex(ValueError, "missing lock family"):
+            janitor.parse_presence_ages("")
+        self.assertEqual(
+            janitor.parse_presence_ages(
+                "# TYPE openviking_s3_ovlock_live_age_seconds gauge\n"
+            ),
+            {},
+        )
         text = (
             'openviking_s3_ovlock_live_age_seconds{key="a"} notanumber\n'
             'openviking_s3_ovlock_live_age_seconds{owner="o"} 5\n'
             'openviking_s3_ovlock_live_age_seconds{key="b"\n'
         )
-        self.assertEqual(janitor.parse_presence_ages(text), {})
-
-    def test_parse_labels_unescapes(self):
-        self.assertEqual(
-            janitor._parse_labels('a="x\\\\y",b="q\\"r",c="l\\nm"'),
-            {"a": "x\\y", "b": 'q"r', "c": "l\nm"},
-        )
+        with self.assertRaises(ValueError):
+            janitor.parse_presence_ages(text)
 
 
 def _serve_once(payload: bytes) -> tuple[str, threading.Thread]:
@@ -310,6 +313,27 @@ class TestFetchPresenceAges(unittest.TestCase):
             b"HTTP/1.1 200 OK\r\nContent-Length: %d\r\n\r\n" % len(body) + body
         )
         self.assertEqual(got[WEDGED_KEY], 252000.0)
+
+    def test_missing_and_malformed_selection_return_none_with_diagnostics(self):
+        for text in [
+            "",
+            EXPORTER_TEXT + 'openviking_s3_ovlock_live_age_seconds{key="bad"} NaN\n',
+        ]:
+            with self.subTest(text=text):
+                body = text.encode()
+                got, out = self._fetch(
+                    b"HTTP/1.1 200 OK\r\nContent-Length: %d\r\n\r\n" % len(body) + body
+                )
+                self.assertIsNone(got)
+                self.assertIn("presence ages unavailable", out)
+
+    def test_declared_empty_selection_returns_empty_mapping(self):
+        body = b"# TYPE openviking_s3_ovlock_live_age_seconds gauge\n"
+        got, out = self._fetch(
+            b"HTTP/1.1 200 OK\r\nContent-Length: %d\r\n\r\n" % len(body) + body
+        )
+        self.assertEqual(got, {})
+        self.assertEqual(out, "")
 
 
 class TestDescribeLive(unittest.TestCase):
@@ -406,6 +430,24 @@ class TestWedgeReportInRun(unittest.TestCase):
         self.assertEqual(client.deleted, ["dead/.path.ovlock"])
         self.assertIn("presence_age=not-exported", out)
         self.assertIn("wedge report: 1 live lock(s) have no ov-exporter series", out)
+
+    def test_invalid_selection_is_unknown_but_deletion_is_unchanged(self):
+        for text in [
+            "",
+            EXPORTER_TEXT + 'openviking_s3_ovlock_live_age_seconds{key="bad"} NaN\n',
+        ]:
+            with self.subTest(text=text):
+                client = self._client()
+                rc, out = self._run(
+                    make_args(apply=True),
+                    client,
+                    None,
+                    presence_fn=lambda url: janitor.parse_presence_ages(text),
+                )
+                self.assertEqual((rc, client.deleted), (0, ["dead/.path.ovlock"]))
+                self.assertIn("presence_age=unknown", out)
+                self.assertNotIn("WEDGED live lock", out)
+                self.assertNotIn("presence_age=not-exported", out)
 
     def test_no_live_locks_skips_exporter(self):
         snap = {"dead/.path.ovlock": _ts(3600)}

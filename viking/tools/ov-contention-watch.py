@@ -132,6 +132,9 @@ Monitor recipe (a long soak that wakes the session only for actionable events):
 Exporter caveat: the labelled openviking_s3_ovlock_live_age_seconds series only
 appears once a lock has been held 15 min, so HOLD and the peak lease age see nothing
 shorter. Short contention shows up only as WAIT lines from the log.
+Missing or malformed lock selections report WATCH ERROR and preserve the last
+good lock state. Run from this checkout, or copy lock_observations.py alongside
+this script; both use the same exporter decoding as the watchdog and janitor.
 """
 
 from __future__ import annotations
@@ -145,6 +148,8 @@ import subprocess
 import sys
 import time
 from typing import NamedTuple
+
+from lock_observations import observe_exporter
 
 NS = "viking"
 POLL = 60
@@ -161,8 +166,6 @@ METRICS_PY = (
     "import urllib.request;"
     "print(urllib.request.urlopen('http://localhost:9210/metrics',timeout=20).read().decode())"
 )
-SAMPLE = re.compile(r"^([a-zA-Z_:][\w:]*)(\{[^}]*\})?\s+(\S+)$")
-LABEL = re.compile(r'(\w+)="((?:[^"\\]|\\.)*)"')
 LOCK_PATH = re.compile(r'lock_paths=\["([^"]+)"')
 WAIT_MS = re.compile(r"wait_ms=(\d+)")
 # A wait shorter than this is ordinary contention: counted for BEAT, not its own event.
@@ -364,30 +367,23 @@ def metrics(sink, pod):
     )
     if s is None:
         return None
-    m, live = {}, []
-    for line in s.splitlines():
-        hit = SAMPLE.match(line)
-        if not hit:
-            continue
-        name, labels, val = hit.groups()
-        try:
-            v = float(val)
-        except ValueError:
-            continue
-        if name == "openviking_s3_ovlock_live_age_seconds":
-            live.append((dict(LABEL.findall(labels or "")), v))
-        elif name == "openviking_queue_pending" and labels:
-            q = dict(LABEL.findall(labels)).get("queue")
-            m[f"q.{q}"] = v
-        else:
-            m[name] = v
-    if m.get("openviking_s3_ovlock_poll_ok") != 1:
+    observation = observe_exporter(
+        s, source=f"kubectl/{NS}/{pod}/ov-exporter:9210", observed_at=time.time()
+    )
+    try:
+        observation.require_locks()
+    except ValueError as e:
+        sink.emit(f"WATCH ERROR metrics: {e}")
+        return None
+    if observation.lock_poll_ok is not True:
+        sink.emit(f"WATCH ERROR metrics: exporter poll_ok={observation.lock_poll_ok}")
+    elif observation.diagnostics:
         sink.emit(
-            f"WATCH ERROR metrics: exporter poll_ok={m.get('openviking_s3_ovlock_poll_ok')}"
+            "WATCH ERROR metrics: " + "; ".join(str(d) for d in observation.diagnostics)
         )
     else:
         sink.ok("metrics")
-    return m, live
+    return observation
 
 
 def short(uri):
@@ -839,31 +835,30 @@ def watch(hours, sink, wake_wait_ms=DEFAULT_WAKE_WAIT_MS, target_uptime=None):
             if pod:
                 got = metrics(sink, pod)
                 if got:
-                    m, live = got
+                    live = got.locks
                     # An exporter read with poll_ok != 1 is an error, not lock state;
                     # HOLD and BEAT still see it, as in --hours mode.
-                    if tracker and m.get("openviking_s3_ovlock_poll_ok") == 1:
+                    if tracker and got.lock_poll_ok is True:
                         tracker.locks = (
                             len(live),
-                            m.get("openviking_s3_ovlock_oldest_live_age_seconds", 0),
+                            got.oldest_age or 0,
                         )
                     # A lease is its path plus its owner: a replacement holder, or a
                     # lock that was released and taken again, alerts afresh.
-                    leases = {
-                        (labels.get("key") or labels.get("uri"), labels.get("owner"))
-                        for labels, _ in live
-                    }
+                    leases = {(lock.key, lock.owner) for lock in live}
                     crossed = {c for c in crossed if c[0] in leases}
-                    for labels, age in live:
+                    for lock in live:
+                        age = lock.age
                         peak = max(peak, age)
-                        key = labels.get("key") or labels.get("uri")
-                        lease = (key, labels.get("owner"))
+                        lease = (lock.key, lock.owner)
                         for t in THRESHOLDS:
                             if age >= t and (lease, t) not in crossed:
                                 crossed.add((lease, t))
                                 sink.emit(
-                                    f"HOLD >= {t}s: age={age:.0f}s type={labels.get('lock_type')} "
-                                    f"owner={labels.get('owner', '')[:8]} uri={short(labels.get('uri', key))}"
+                                    one_line(
+                                        f"HOLD >= {t}s: age={age:.0f}s type={lock.lock_type} "
+                                        f"owner={lock.owner[:8]} uri={short(lock.uri)}"
+                                    )
                                 )
                 ev = log_events(sink, pod, cursor)
                 if ev is not None:
@@ -899,13 +894,12 @@ def watch(hours, sink, wake_wait_ms=DEFAULT_WAKE_WAIT_MS, target_uptime=None):
                             wake=actionable,
                         )
                 if n % BEAT_EVERY == 1 and got:
-                    m, live = got
                     sink.emit(
-                        f"BEAT live={len(live)} oldest={m.get('openviking_s3_ovlock_oldest_live_age_seconds', 0):.0f}s "
+                        f"BEAT live={len(got.locks)} oldest={got.oldest_age or 0:.0f}s "
                         f"peak={peak:.0f}s waits_total={tot_waits} max_wait={max_wait / 1000:.1f}s "
                         f"dag_miss={tot_dag_miss} outcomes_total={tot_outcomes or '{}'} "
-                        f"queue sem={m.get('q.semantic', 0):.0f} nodes={m.get('q.semantic_nodes', 0):.0f} "
-                        f"commit={m.get('q.sessioncommit', 0):.0f} total={m.get('q.total', 0):.0f}",
+                        f"queue sem={got.pending.get('semantic', 0):.0f} nodes={got.pending.get('semantic_nodes', 0):.0f} "
+                        f"commit={got.pending.get('sessioncommit', 0):.0f} total={got.pending.get('total', 0):.0f}",
                         wake=False,
                     )
             if done:
