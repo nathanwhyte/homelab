@@ -8,12 +8,12 @@
 #
 # Version pins (bump deliberately, together with a smoke run):
 #   image: python:3.13-slim as of 2026-07-07
-#   openviking CLI: 0.4.10 (IMPR-1062 Phase 3: the recovery phases rely on the
-#     0.4.10 `ov status`/durability contracts, and CLI 0.4.10 ↔ server 0.4.10 is
-#     what prod already runs from the Mac; bumped from 0.4.7 2026-07-16)
+#   openviking CLI: 0.5.1.1, matching the server (IMPR-1412 Phase 5, bumped
+#     from 0.4.10 2026-10-27; the `ls --output json`, `read`, `rm -r` and
+#     `language` calls behave as on 0.4.10, `ls` adds `has_more`)
 #   openviking-sdk: 0.1.16 (IMPR-1412). The in-process SyncHTTPClient comes from
-#     the separate openviking-sdk package; the 0.4.10 wheel requires
-#     openviking-sdk>=0.1.1 and pins nothing, so an unpinned install resolved
+#     the separate openviking-sdk package; the 0.5.1.1 wheel requires
+#     openviking-sdk>=0.1.15 and pins nothing, so an unpinned install resolves
 #     the newest SDK. Pin it beside openviking, at what the Job already ran.
 #     The SDK is the ONLY transport (IMPR-1081 retired the --client=cli
 #     rollback lever 2026-08-21 after the soak); pointers are written as PLAIN
@@ -98,7 +98,7 @@ spec:
                 exit 0
               fi
               apt-get update -qq && apt-get install -y -qq git >/dev/null
-              pip install --quiet openviking==0.4.10 openviking-sdk==0.1.16
+              pip install --quiet openviking==0.5.1.1 openviking-sdk==0.1.16
               # ov CLI requires a config file to exist even when env vars are set
               mkdir -p "$HOME/.openviking"
               printf '{"url":"%s","api_key":"%s","root_api_key":"%s","account":"default","user":"noot","timeout":300.0,"output":"table"}\n' \
