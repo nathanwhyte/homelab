@@ -117,8 +117,8 @@ if [ ! -f "$GRAFANA_DIR/manifests/rbac.yaml" ]; then
 	exit 1
 fi
 
-if [ ! -f "$GRAFANA_DIR/manifests/pvc-rwx.yaml" ]; then
-	echo "pvc-rwx.yaml file not found!"
+if [ ! -f "$GRAFANA_DIR/manifests/pvc.yaml" ]; then
+	echo "pvc.yaml file not found!"
 	exit 1
 fi
 
@@ -155,7 +155,7 @@ kubectl delete secret grafana-cloudflared-token -n "$NAMESPACE" --ignore-not-fou
 
 echo -e "\nApplying other manifests..."
 kubectl apply \
-	-f "$GRAFANA_DIR/manifests/pvc-rwx.yaml" \
+	-f "$GRAFANA_DIR/manifests/pvc.yaml" \
 	-f "$GRAFANA_DIR/manifests/rbac.yaml" \
 	-f "$GRAFANA_DIR/manifests/node-power-alerts.yaml" \
 	-f "$GRAFANA_DIR/manifests/backup-alerts.yaml" \
