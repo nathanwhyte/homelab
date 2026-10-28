@@ -21,8 +21,8 @@ spec:
     groupBy: [node, alertname]
     groupWait: 30s
     groupInterval: 5m
-    # Tighter than the storage route's 1h. A node approaching its thermal trip
-    # is a live condition, not a standing report.
+    # Tighter than the storage and backup routes' 4h. A node approaching its
+    # thermal trip is a live condition, not a standing report.
     repeatInterval: 30m
   receivers:
     - name: slack-homelab

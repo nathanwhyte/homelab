@@ -36,10 +36,10 @@ tests:
       - eval_time: 20m
         alertname: KubeJobFailed
         exp_alerts:
-          - exp_labels: { namespace: kube-system, job_name: backup-2, owner_name: backup, severity: warning }
+          - exp_labels: { namespace: kube-system, owner_name: backup, severity: warning }
             exp_annotations:
-              summary: Job kube-system/backup-2 failed and has not been superseded
-              description: "Job kube-system/backup-2 failed and no later run of the same CronJob has succeeded (standalone Jobs: failed in the last 24h). Check `kubectl -n kube-system describe job backup-2` and the pod logs. The alert clears on the next successful run; deleting the Job also clears it."
+              summary: CronJob kube-system/backup has a failed run not superseded by a success
+              description: "The newest failed Job of CronJob kube-system/backup started after its last successful run. List the runs with `kubectl -n kube-system get jobs --sort-by=.metadata.creationTimestamp` and read the newest failed one's pod logs. The alert clears on the next successful run."
 
   # 3. A later success clears a firing alert (the 2026-10-02 shape: failure,
   #    then the next run succeeds at t=40m).
@@ -57,10 +57,10 @@ tests:
       - eval_time: 30m
         alertname: KubeJobFailed
         exp_alerts:
-          - exp_labels: { namespace: viking, job_name: janitor-1, owner_name: janitor, severity: warning }
+          - exp_labels: { namespace: viking, owner_name: janitor, severity: warning }
             exp_annotations:
-              summary: Job viking/janitor-1 failed and has not been superseded
-              description: "Job viking/janitor-1 failed and no later run of the same CronJob has succeeded (standalone Jobs: failed in the last 24h). Check `kubectl -n viking describe job janitor-1` and the pod logs. The alert clears on the next successful run; deleting the Job also clears it."
+              summary: CronJob viking/janitor has a failed run not superseded by a success
+              description: "The newest failed Job of CronJob viking/janitor started after its last successful run. List the runs with `kubectl -n viking get jobs --sort-by=.metadata.creationTimestamp` and read the newest failed one's pod logs. The alert clears on the next successful run."
       - { eval_time: 60m, alertname: KubeJobFailed, exp_alerts: [] }
 
   # 4. CronJob that has never succeeded (no last_successful_time series).
@@ -77,10 +77,10 @@ tests:
       - eval_time: 20m
         alertname: KubeJobFailed
         exp_alerts:
-          - exp_labels: { namespace: media, job_name: new-1, owner_name: new, severity: warning }
+          - exp_labels: { namespace: media, owner_name: new, severity: warning }
             exp_annotations:
-              summary: Job media/new-1 failed and has not been superseded
-              description: "Job media/new-1 failed and no later run of the same CronJob has succeeded (standalone Jobs: failed in the last 24h). Check `kubectl -n media describe job new-1` and the pod logs. The alert clears on the next successful run; deleting the Job also clears it."
+              summary: CronJob media/new has a failed run not superseded by a success
+              description: "The newest failed Job of CronJob media/new started after its last successful run. List the runs with `kubectl -n media get jobs --sort-by=.metadata.creationTimestamp` and read the newest failed one's pod logs. The alert clears on the next successful run."
       - eval_time: 70m
         alertname: CronJobNotSucceeding
         exp_alerts:
@@ -106,8 +106,8 @@ tests:
         exp_alerts:
           - exp_labels: { namespace: kube-system, job_name: manual-1, severity: warning }
             exp_annotations:
-              summary: Job kube-system/manual-1 failed and has not been superseded
-              description: "Job kube-system/manual-1 failed and no later run of the same CronJob has succeeded (standalone Jobs: failed in the last 24h). Check `kubectl -n kube-system describe job manual-1` and the pod logs. The alert clears on the next successful run; deleting the Job also clears it."
+              summary: Job kube-system/manual-1 failed
+              description: "Standalone Job kube-system/manual-1 failed in the last 24h. Check `kubectl -n kube-system describe job manual-1` and the pod logs. Deleting the Job clears the alert."
       - { eval_time: 1500m, alertname: KubeJobFailed, exp_alerts: [] }
 
   # 6. Suspended CronJob with no recent success: CronJobNotSucceeding stays
@@ -136,3 +136,32 @@ tests:
         values: "1x120"
     alert_rule_test:
       - { eval_time: 30m, alertname: KubeJobFailed, exp_alerts: [] }
+
+  # 8. A CronJob failing run after run (the 2026-10-24 ollama-warm shape: a
+  #    */15 CronJob during an outage) is ONE alert, not one per failed Job.
+  #    Keyed on job_name, every new failed run joined the namespace group and
+  #    re-posted it to Slack.
+  - interval: 1m
+    input_series:
+      - series: 'kube_job_failed{job="kube-state-metrics",namespace="llama",job_name="warm-1",condition="true"}'
+        values: "1x120"
+      - series: 'kube_job_status_start_time{job="kube-state-metrics",namespace="llama",job_name="warm-1"}'
+        values: "600x120"
+      - series: 'kube_job_owner{job="kube-state-metrics",namespace="llama",job_name="warm-1",owner_kind="CronJob",owner_name="warm",owner_is_controller="true"}'
+        values: "1x120"
+      - series: 'kube_job_failed{job="kube-state-metrics",namespace="llama",job_name="warm-2",condition="true"}'
+        values: "_x15 1x105"
+      - series: 'kube_job_status_start_time{job="kube-state-metrics",namespace="llama",job_name="warm-2"}'
+        values: "_x15 1500x105"
+      - series: 'kube_job_owner{job="kube-state-metrics",namespace="llama",job_name="warm-2",owner_kind="CronJob",owner_name="warm",owner_is_controller="true"}'
+        values: "_x15 1x105"
+      - series: 'kube_cronjob_status_last_successful_time{job="kube-state-metrics",namespace="llama",cronjob="warm"}'
+        values: "60x120"
+    alert_rule_test:
+      - eval_time: 60m
+        alertname: KubeJobFailed
+        exp_alerts:
+          - exp_labels: { namespace: llama, owner_name: warm, severity: warning }
+            exp_annotations:
+              summary: CronJob llama/warm has a failed run not superseded by a success
+              description: "The newest failed Job of CronJob llama/warm started after its last successful run. List the runs with `kubectl -n llama get jobs --sort-by=.metadata.creationTimestamp` and read the newest failed one's pod logs. The alert clears on the next successful run."

@@ -15,7 +15,9 @@ spec:
     groupBy: [namespace, alertname]
     groupWait: 30s
     groupInterval: 5m
-    repeatInterval: 1h
+    # Backup rules are mostly critical; remind every 4h like the base critical
+    # route. Hourly re-sent each stale-backup alert ~22 times a day.
+    repeatInterval: 4h
   receivers:
     - name: slack-homelab
       slackConfigs:
