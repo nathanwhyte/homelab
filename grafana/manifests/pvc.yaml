@@ -1,0 +1,24 @@
+---
+# Grafana's data volume (grafana.db SQLite, plugins, csv/pdf/png).
+#
+# ReadWriteOnce since 2026-10-28. It was `grafana-storage-rwx` (ReadWriteMany)
+# "shared by all Grafana replicas in the scaled deployment", but Grafana runs
+# one replica, and RWX means Longhorn serves the volume over NFS through a
+# share-manager pod: SQLite on NFS is a known locking/corruption risk, and on
+# 2026-10-26 a hung share-manager took equal-risk's Postgres down for 2.5 days
+# the same way. The values file sets `deploymentStrategy: Recreate`, which an
+# RWO volume needs (a rolling update would wait on the old pod's attachment).
+# Copy procedure: grafana/rwo-migrator.yaml. The old RWX claim
+# `grafana-storage-rwx` is retained, unreferenced, for rollback.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: grafana-storage
+  namespace: grafana
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: longhorn-nvme
+  resources:
+    requests:
+      storage: 10Gi

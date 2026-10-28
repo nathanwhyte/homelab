@@ -1,0 +1,44 @@
+# FROZEN — 2026-10-28 RWX -> RWO migration of Grafana's data volume.
+#
+# Copies grafana-storage-rwx (RWX, NFS via Longhorn share-manager) into
+# grafana-storage (RWO, manifests/pvc.yaml). Same pattern as
+# harbor/rwo-migrators.yaml. Order used:
+#   1. kubectl apply -f grafana/manifests/pvc.yaml
+#   2. kubectl -n grafana scale deploy kube-prometheus-stack-grafana --replicas=0
+#   3. kubectl apply -f grafana/rwo-migrator.yaml; wait for Succeeded; read the log
+#      (the checksum dry-run must list no files); delete the pod
+#   4. deploy kube-prometheus-stack with the values change (existingClaim
+#      grafana-storage + deploymentStrategy Recreate); helm restores replicas: 1
+# Grafana runs as uid/gid 472; --numeric-ids keeps that ownership.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: grafana-rwo-migrator
+  namespace: grafana
+spec:
+  restartPolicy: Never
+  containers:
+    - name: rsync
+      image: alpine:3.20
+      command: ["/bin/sh", "-c"]
+      args:
+        - >-
+          apk add --no-cache rsync >/dev/null &&
+          rsync -aHAX --numeric-ids --delete /source/ /dest/ &&
+          echo "--- verify (checksum dry-run, expect no file lines):" &&
+          rsync -aHAXc --numeric-ids --delete --dry-run --itemize-changes /source/ /dest/ &&
+          echo "--- done" && du -sh /source /dest && sha256sum /source/grafana.db /dest/grafana.db
+      volumeMounts:
+        - name: source
+          mountPath: /source
+          readOnly: true
+        - name: dest
+          mountPath: /dest
+  volumes:
+    - name: source
+      persistentVolumeClaim:
+        claimName: grafana-storage-rwx
+        readOnly: true
+    - name: dest
+      persistentVolumeClaim:
+        claimName: grafana-storage

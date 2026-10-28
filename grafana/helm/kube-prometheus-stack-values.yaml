@@ -321,10 +321,17 @@ grafana:
     periodSeconds: 10
     successThreshold: 1
     timeoutSeconds: 5
+  # 2026-10-28: RWO claim (grafana/manifests/pvc.yaml), replacing the RWX
+  # `grafana-storage-rwx` — RWX is NFS via a Longhorn share-manager, and SQLite
+  # on NFS is a locking/corruption risk for a one-replica Deployment.
   persistence:
     enabled: true
-    existingClaim: grafana-storage-rwx
+    existingClaim: grafana-storage
     type: pvc
+  # Required with an RWO volume: a RollingUpdate starts the new pod while the
+  # old one still holds the attachment, and the rollout stalls on Multi-Attach.
+  deploymentStrategy:
+    type: Recreate
   readinessProbe:
     failureThreshold: 3
     httpGet:
