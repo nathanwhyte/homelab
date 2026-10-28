@@ -45,7 +45,7 @@ Web UI: <https://registry.nathanwhyte.dev> — projects, repos, vulnerability sc
 | Configuration values (image tags, RWO claims, resources, middleware)                      | `harbor/harbor-values.yaml`                                                                                                            |
 | Traefik push-size middleware                                                              | `harbor/harbor-middleware.yaml`                                                                                                        |
 | Longhorn RWO PVCs (registry, jobservice)                                                  | `harbor/rwo-pvcs.yaml`                                                                                                                 |
-| May 2026 RWX→RWO migration artifacts (frozen paper trail)                                 | `harbor/rwo-migrators.yaml` + `harbor/rwo-migration.md`                                                                                |
+| 2026-03-20 RWX→RWO migration artifacts (frozen paper trail)                               | `harbor/rwo-migrators.yaml` + `harbor/rwo-migration.md`                                                                                |
 | cert-manager ClusterIssuer                                                                | `harbor/letsencrypt-issuer.yaml`                                                                                                       |
 
 ## See also

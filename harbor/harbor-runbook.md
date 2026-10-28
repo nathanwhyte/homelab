@@ -77,7 +77,7 @@ kubectl describe pvc <name> -n harbor   # look at Events
 # Longhorn auto-replicates; usually a few minutes to reschedule.
 ```
 
-The May 2026 RWX→RWO migration that produced the pre-created `harbor-registry-rwo` and `harbor-jobservice-rwo` claims is documented in `harbor/rwo-migration.md`. The migration manifests in `harbor/rwo-migrators.yaml` are **frozen paper trail** — do not re-apply.
+The 2026-03-20 RWX→RWO migration (`58cf7a5`) that produced the pre-created `harbor-registry-rwo` and `harbor-jobservice-rwo` claims is documented in `harbor/rwo-migration.md`. The migration manifests in `harbor/rwo-migrators.yaml` are **frozen paper trail** — do not re-apply.
 
 ## Probe-timeout patch (chart 1.18.3 AND 1.19.1)
 
@@ -336,6 +336,6 @@ Unlike `HARBOR_ADMIN_PASSWORD` (which only writes the DB on first install), `sec
 
 - `harbor/harbor.md` — one-page index
 - `harbor/harbor-cli.md` — `harbor-cli` workflows
-- `harbor/rwo-migration.md` — May 2026 RWX→RWO migration runbook (frozen)
+- `harbor/rwo-migration.md` — 2026-03-20 RWX→RWO migration runbook (frozen)
 - `harbor/deploy-harbor.sh` — install / upgrade
 - `~/code/archive/personal-compendium/docs/plans/2026-06-10-IDEA-021-harbor-refresh-and-upgrade.md` — 2.15.1 upgrade plan (archived)
