@@ -25,7 +25,9 @@ spec:
     groupBy: [namespace, persistentvolumeclaim, alertname]
     groupWait: 30s
     groupInterval: 5m
-    repeatInterval: 1h
+    # Matches the base critical route's 4h reminder; a filling volume is not
+    # helped by an hourly re-post of the same group.
+    repeatInterval: 4h
     routes:
       # Send genuine PVC pressure to both the gated resolver and Slack. The
       # resolver independently rechecks filesystem use, scope, cap, cooldown,

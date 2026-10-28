@@ -52,13 +52,17 @@ Defined in `helm/kube-prometheus-stack-values.yaml` under `alertmanager.config.r
   merges _ahead_ of these routes with `continue: true`. Terminating them keeps
   them to one Slack message instead of two.
 - `severity = "info"` → `null`. Recorded in Prometheus for dashboards, not paged.
-- `alertname = "OpenVikingWedgedLockFile"` → `slack-homelab` with
-  `repeat_interval: 12h`. A cadence change, not a delivery one: a wedged lock
-  stays firing until OpenViking restarts, and the 1h default re-sent one ~70 h
-  wedge about 70 times (BUG-1220). A new wedged lock still notifies within
-  `group_interval`.
 - `severity = "critical"` → `slack-homelab` with `group_wait: 10s`,
-  `repeat_interval: 30m` — faster and more persistent than the 1h default.
+  `repeat_interval: 4h` — faster first notification than the default, and a
+  more frequent reminder than its 12h.
+
+**Cadence.** The default `repeat_interval` is 12h. A repeat is a reminder that
+an alert is still firing; new alerts, group changes and resolves post
+regardless. In the 30 days to 2026-10-28, 57% of the 1,035 posts in
+`#cron-homelab` were hourly repeats of a few unresolved alerts. The backup and
+storage CRs repeat every 4h (like critical); hardware stays at 30m because a
+thermal trip is a live condition. `OpenVikingWedgedLockFile` had its own 12h
+route (BUG-1220); it was removed once the default reached 12h.
 
 Adding an alertgroup CR means adding that group to the dedupe matcher. The
 checker fails if you forget, because the alert then pages twice.
