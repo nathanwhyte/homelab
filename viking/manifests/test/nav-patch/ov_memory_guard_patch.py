@@ -620,8 +620,9 @@ def drop_lifecycle_noise(operations) -> list[tuple[str, str]]:
 # ``delete_replacements`` entry is kept in both cases, so links, backlinks and neighbours
 # move to the replacement exactly as stock does (L952-L1022, ``_apply_upsert``,
 # ``_inherit_deleted_link_relations``), and only the delete loop (L1030) skips the file.
-# The kept file is a superseded copy: nothing links to it, and its own link list is left
-# as it was. Nothing is retargeted (Codex review of homelab#285: R1's two P1s came from
+# With a replacement, the kept file is a superseded copy: links move off it to the
+# replacement, and its own link list is left as it was. Without one (a bare delete), the
+# file and every link to it stay exactly as they were. Nothing is retargeted (Codex review of homelab#285: R1's two P1s came from
 # retargeting, R2's from dropping the replacement). Each kept file writes one
 # ``ov-singleton-guard {json}`` line on stderr. Disable with ``OV_SINGLETON_GUARD=0``.
 
