@@ -1587,8 +1587,9 @@ data:
     ``apply_operations``, on every call, an extraction-issued delete of ``profile``,
     ``identity`` or ``soul`` is dropped. A URI migration of one of them still writes its
     target, but the wrapped ``_materialize_uri_migrations`` no longer queues the source for
-    deletion, so the source file stays. Each case writes an ``ov-singleton-guard {json}``
-    stderr line (``delete_dropped`` or ``migration_source_kept``).
+    deletion, so the source file stays. Replacements are kept, so links move as stock moves
+    them. Each case writes an ``ov-singleton-guard {json}`` stderr line (``delete_dropped`` or
+    ``migration_source_kept``).
 
     **Git-lifecycle noise filter** (``drop_lifecycle_noise``, ``OV_EVENT_NOISE_FILTER``). Each
     request is filtered once, before it is guarded: in ``submit`` for a submitted request, in
@@ -2144,17 +2145,20 @@ data:
     # 2026-10-27 and 10-28 two extractions named a profile's page id in ``delete_ids``, taking
     # it for a duplicate of the other scope's copy, and stock ``apply_operations`` removed
     # pop's peer profile and then the user-level one (BUG-1276). A singleton is never deleted
-    # by an extraction. An explicit delete is dropped, along with its replacement entry, and
-    # the file stays (``guard_singletons``). A singleton update whose target URI differs from
-    # its snapshot's is a URI migration (``_is_uri_migration``, ``memory_updater.py``
-    # L1191-L1198). ``_materialize_uri_migrations`` (L1201-L1248) queues the snapshot's file
-    # for deletion with a replacement. The wrapper takes that source and its replacement back
-    # out (``keep_singleton_migration_sources``), so the migration writes its target and the
-    # source stays where it was, with every link and replacement unchanged. Both callers go
-    # through the classmethod: ``apply_operations`` (L900) and the streaming lock path
-    # (``streaming_memory_updater.py`` L2214), which a grouped flush reaches with deep-copied
-    # operations. Nothing is retargeted, so references to the target keep pointing at it
-    # (Codex review of homelab#285, both P1s). Each kept file writes one
+    # by an extraction: its entry leaves ``delete_file_contents`` and the file stays
+    # (``guard_singletons``). A singleton update whose target URI differs from its snapshot's
+    # is a URI migration (``_is_uri_migration``, ``memory_updater.py`` L1191-L1198).
+    # ``_materialize_uri_migrations`` (L1201-L1248) queues the snapshot's file for deletion
+    # with a replacement; the wrapper takes the source back out of the deletes
+    # (``keep_singleton_migration_sources``). Both callers go through the classmethod:
+    # ``apply_operations`` (L900) and the streaming lock path (``streaming_memory_updater.py``
+    # L2214), which a grouped flush reaches with deep-copied operations. The
+    # ``delete_replacements`` entry is kept in both cases, so links, backlinks and neighbours
+    # move to the replacement exactly as stock does (L952-L1022, ``_apply_upsert``,
+    # ``_inherit_deleted_link_relations``), and only the delete loop (L1030) skips the file.
+    # The kept file is a superseded copy: nothing links to it, and its own link list is left
+    # as it was. Nothing is retargeted (Codex review of homelab#285: R1's two P1s came from
+    # retargeting, R2's from dropping the replacement). Each kept file writes one
     # ``ov-singleton-guard {json}`` line on stderr. Disable with ``OV_SINGLETON_GUARD=0``.
 
     SINGLETON_TYPES = frozenset({"profile", "identity", "soul"})
@@ -2185,7 +2189,7 @@ data:
 
 
     def _drop_singleton_deletes(operations, action) -> list[str]:
-        """Remove singleton entries from ``delete_file_contents`` and their replacements.
+        """Remove singleton entries from ``delete_file_contents``; replacements stay.
 
         Returns the removed URIs, logging each with ``action(uri)``.
         """
@@ -2197,9 +2201,7 @@ data:
             if not is_singleton(memory_type, uri):
                 kept.append(file)
                 continue
-            replacement = (
-                replacements.pop(uri, None) if isinstance(replacements, dict) else None
-            )
+            replacement = replacements.get(uri) if isinstance(replacements, dict) else None
             dropped.append(uri)
             emit_singleton_record(
                 {
