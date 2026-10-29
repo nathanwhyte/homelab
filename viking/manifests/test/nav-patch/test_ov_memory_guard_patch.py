@@ -540,6 +540,17 @@ def singleton_records(run):
     return records, result
 
 
+def fake_materialize(cls, operations):
+    """Stock ``_materialize_uri_migrations`` in miniature: queue each migration source."""
+    for o in operations.upsert_operations:
+        old = o.old_memory_file_content
+        if old and old.uri and o.uris and o.uris[0] != old.uri:
+            if all(f.uri != old.uri for f in operations.delete_file_contents):
+                operations.delete_file_contents.append(old)
+            operations.delete_replacements[old.uri] = o.uris[0]
+    return []
+
+
 class SingletonGuardTests(unittest.TestCase):
     """BUG-1276: an extraction never deletes or migrates away a profile/identity/soul."""
 
@@ -551,14 +562,11 @@ class SingletonGuardTests(unittest.TestCase):
             deleted("viking://user/u/peers/p/memories/soul.md", "soul"),
             deleted(ENTITY, "entities"),
         ]
-        records, (dropped, pinned) = singleton_records(
-            lambda: mg.guard_singletons(operations)
-        )
+        records, dropped = singleton_records(lambda: mg.guard_singletons(operations))
         self.assertEqual(
             dropped,
             [PEER_PROFILE, USER_PROFILE, "viking://user/u/peers/p/memories/soul.md"],
         )
-        self.assertEqual(pinned, [])
         self.assertEqual([f.uri for f in operations.delete_file_contents], [ENTITY])
         self.assertEqual(operations.delete_replacements, {ENTITY: "x"})
         self.assertEqual(
@@ -573,40 +581,58 @@ class SingletonGuardTests(unittest.TestCase):
         )
         self.assertEqual(len(records), 3)
 
-    def test_a_singleton_migration_is_pinned_to_its_source(self):
+    def test_a_singleton_migration_writes_its_target_and_keeps_its_source(self):
         # enforce_merge_group_peer_id can retarget a user-level profile edit at the
         # peer scope; stock code would write the peer file and delete the user one.
-        o = op("profile", "s", memory_type="profile", old=deleted(USER_PROFILE))
-        o.uris = [PEER_PROFILE]
+        # Nothing is retargeted, so an in-place op on the target and every reference to
+        # it keep their URIs (Codex review of homelab#285, both P1s).
+        moved = op("profile", "s", memory_type="profile", old=deleted(USER_PROFILE))
+        moved.uris = [PEER_PROFILE]
+        in_place = op("profile", "t", memory_type="profile", old=deleted(PEER_PROFILE))
+        in_place.uris = [PEER_PROFILE]
+        entity = op("e", "s", memory_type="entities", old=deleted(ENTITY))
+        entity.uris = ["viking://user/u/peers/p/memories/entities/e.md"]
         link = types.SimpleNamespace(from_uri=ENTITY, to_uri=PEER_PROFILE)
-        operations = ops(o, links=[link], replacements={ENTITY: PEER_PROFILE})
-        tags = {PEER_PROFILE: ["t"]}
-        records, (dropped, pinned) = singleton_records(
-            lambda: mg.guard_singletons(operations, tags)
+        operations = ops(
+            moved, in_place, entity, links=[link], replacements={"x": PEER_PROFILE}
         )
-        self.assertEqual((dropped, pinned), ([], [(PEER_PROFILE, USER_PROFILE)]))
-        self.assertEqual(o.uris, [USER_PROFILE])
-        self.assertEqual(link.to_uri, USER_PROFILE)
-        self.assertEqual(operations.delete_replacements, {ENTITY: USER_PROFILE})
-        self.assertEqual(tags[USER_PROFILE], ["t"])
-        self.assertEqual(records[0]["action"], "migration_pinned")
+        operations.delete_file_contents = []
+        wrapped = mg.wrap_materialize_uri_migrations(fake_materialize)
+        records, errors = singleton_records(
+            lambda: wrapped.__get__(None, object)(operations)
+        )
+        self.assertEqual(errors, [])
+        self.assertEqual(
+            [f.uri for f in operations.delete_file_contents], [ENTITY]
+        )  # the entity migration still deletes its source
+        self.assertEqual(
+            operations.delete_replacements,
+            {
+                "x": PEER_PROFILE,
+                ENTITY: "viking://user/u/peers/p/memories/entities/e.md",
+            },
+        )
+        self.assertEqual((moved.uris, in_place.uris), ([PEER_PROFILE], [PEER_PROFILE]))
+        self.assertEqual((link.from_uri, link.to_uri), (ENTITY, PEER_PROFILE))
+        self.assertEqual(
+            [(r["action"], r["uri"], r["replacement"]) for r in records],
+            [("migration_source_kept", USER_PROFILE, PEER_PROFILE)],
+        )
 
-    def test_non_singleton_migrations_and_in_place_updates_are_untouched(self):
-        moved = op("e", "s", memory_type="entities", old=deleted(ENTITY))
-        moved.uris = ["viking://user/u/peers/p/memories/entities/e.md"]
-        in_place = op("profile", "s", memory_type="profile", old=deleted(USER_PROFILE))
-        in_place.uris = [USER_PROFILE]
-        records, result = singleton_records(
-            lambda: mg.guard_singletons(ops(moved, in_place))
-        )
-        self.assertEqual((records, result), ([], ([], [])))
-        self.assertEqual(moved.uris, ["viking://user/u/peers/p/memories/entities/e.md"])
+    def test_materialize_errors_pass_through_untouched(self):
+        operations = ops()
+        operations.delete_file_contents = [deleted(USER_PROFILE, "profile")]
+        err = [(USER_PROFILE, ValueError("x"))]
+        wrapped = mg.wrap_materialize_uri_migrations(lambda cls, o: err)
+        self.assertIs(wrapped.__get__(None, object)(operations), err)
+        self.assertEqual(len(operations.delete_file_contents), 1)
 
     def test_disabled_by_env(self):
         operations = ops()
         operations.delete_file_contents = [deleted(USER_PROFILE, "profile")]
         with mock.patch.dict(os.environ, {"OV_SINGLETON_GUARD": "0"}):
-            self.assertEqual(mg.guard_singletons(operations), ([], []))
+            self.assertEqual(mg.guard_singletons(operations), [])
+            self.assertEqual(mg.keep_singleton_migration_sources(operations, set()), [])
         self.assertEqual(len(operations.delete_file_contents), 1)
 
     def test_apply_operations_drops_the_delete_for_submitted_requests_too(self):
@@ -1779,8 +1805,7 @@ class Installed(unittest.TestCase):
 
     def test_singleton_guard_on_the_real_operation_types(self):
         # The guard reads ResolvedOperations.delete_file_contents / delete_replacements
-        # and MemoryFile.memory_type by name; check them on the real classes, and that
-        # a pinned profile edit is no longer a URI migration.
+        # and MemoryFile.memory_type by name; check them on the real classes.
         from openviking.session.memory.dataclass import ResolvedOperations
 
         operations = ResolvedOperations(
@@ -1792,16 +1817,55 @@ class Installed(unittest.TestCase):
             errors=[],
             delete_replacements={PEER_PROFILE: USER_PROFILE},
         )
-        _, (dropped, _) = singleton_records(lambda: mg.guard_singletons(operations))
+        _, dropped = singleton_records(lambda: mg.guard_singletons(operations))
         self.assertEqual(dropped, [PEER_PROFILE])
         self.assertEqual([f.uri for f in operations.delete_file_contents], [ENTITY])
         self.assertEqual(operations.delete_replacements, {})
-        o = op("profile", "s", memory_type="profile")
-        o.uris = [PEER_PROFILE]
-        o.old_memory_file_content = installed.MemoryFile(uri=USER_PROFILE)
-        self.assertTrue(installed.MemoryUpdater._is_uri_migration(o))
-        singleton_records(lambda: mg.guard_singletons(ops(o)))
-        self.assertFalse(installed.MemoryUpdater._is_uri_migration(o))
+
+    def test_real_materialize_keeps_a_migrated_singleton_source(self):
+        # The hook wrapped the real classmethod; a profile migration no longer queues
+        # its source for deletion, an entity migration still does.
+        from openviking.session.memory.dataclass import (
+            ResolvedOperation,
+            ResolvedOperations,
+        )
+
+        materialize = installed.MemoryUpdater.__dict__["_materialize_uri_migrations"]
+        self.assertTrue(getattr(materialize.__func__, "_ov_memory_guard", False))
+        self.assertEqual(
+            mg._source_hash(materialize.__func__.__wrapped__),
+            mg.EXPECTED_MATERIALIZE_SHA256,
+        )
+        entity_target = "viking://user/u/peers/p/memories/entities/e.md"
+        operations = ResolvedOperations(
+            upsert_operations=[
+                ResolvedOperation(
+                    memory_fields={},
+                    memory_type="profile",
+                    uris=[PEER_PROFILE],
+                    old_memory_file_content=installed.MemoryFile(
+                        uri=USER_PROFILE, memory_type="profile"
+                    ),
+                ),
+                ResolvedOperation(
+                    memory_fields={},
+                    memory_type="entities",
+                    uris=[entity_target],
+                    old_memory_file_content=installed.MemoryFile(
+                        uri=ENTITY, memory_type="entities"
+                    ),
+                ),
+            ],
+            delete_file_contents=[],
+            errors=[],
+        )
+        records, errors = singleton_records(
+            lambda: installed.MemoryUpdater._materialize_uri_migrations(operations)
+        )
+        self.assertEqual(errors, [])
+        self.assertEqual([f.uri for f in operations.delete_file_contents], [ENTITY])
+        self.assertEqual(operations.delete_replacements, {ENTITY: entity_target})
+        self.assertEqual([r["action"] for r in records], ["migration_source_kept"])
 
     def test_not_found_is_recognised_for_the_real_error(self):
         from openviking.storage.viking_fs import NotFoundError
