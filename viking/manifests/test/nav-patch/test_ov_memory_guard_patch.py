@@ -74,7 +74,13 @@ class FakeMemoryFileUtils:
 FAKE_MODULE = types.SimpleNamespace(MemoryFileUtils=FakeMemoryFileUtils)
 
 
-MODES = {"events": "add_only", "trajectories": "add_only", "entities": "upsert"}
+MODES = {
+    "events": "add_only",
+    "trajectories": "add_only",
+    "entities": "upsert",
+    "profile": "upsert",
+    "soul": "upsert",
+}
 
 
 class Registry:
@@ -508,6 +514,132 @@ class WrapperTests(unittest.TestCase):
                 )
                 updater = types.SimpleNamespace(registry=updater_registry)
                 self.assertEqual(asyncio.run(wrapped(updater, request)), [[expected]])
+
+
+USER_PROFILE = "viking://user/u/memories/profile.md"
+PEER_PROFILE = "viking://user/u/peers/p/memories/profile.md"
+ENTITY = "viking://user/u/memories/entities/e.md"
+
+
+def deleted(uri, memory_type=None, content="body"):
+    return types.SimpleNamespace(
+        uri=uri, memory_type=memory_type, extra_fields={}, content=content
+    )
+
+
+def singleton_records(run):
+    """``(records, result)``: the ``ov-singleton-guard`` records ``run()`` wrote."""
+    buf = io.StringIO()
+    with contextlib.redirect_stderr(buf):
+        result = run()
+    records = [
+        json.loads(line[len(mg.SINGLETON_PREFIX) :])
+        for line in buf.getvalue().splitlines()
+        if line.startswith(mg.SINGLETON_PREFIX)
+    ]
+    return records, result
+
+
+class SingletonGuardTests(unittest.TestCase):
+    """BUG-1276: an extraction never deletes or migrates away a profile/identity/soul."""
+
+    def test_singleton_deletes_are_dropped_and_others_kept(self):
+        operations = ops(replacements={PEER_PROFILE: USER_PROFILE, ENTITY: "x"})
+        operations.delete_file_contents = [
+            deleted(PEER_PROFILE, "profile", "# pop"),
+            deleted(USER_PROFILE, None),  # matched by URI when the type is missing
+            deleted("viking://user/u/peers/p/memories/soul.md", "soul"),
+            deleted(ENTITY, "entities"),
+        ]
+        records, (dropped, pinned) = singleton_records(
+            lambda: mg.guard_singletons(operations)
+        )
+        self.assertEqual(
+            dropped,
+            [PEER_PROFILE, USER_PROFILE, "viking://user/u/peers/p/memories/soul.md"],
+        )
+        self.assertEqual(pinned, [])
+        self.assertEqual([f.uri for f in operations.delete_file_contents], [ENTITY])
+        self.assertEqual(operations.delete_replacements, {ENTITY: "x"})
+        self.assertEqual(
+            records[0],
+            {
+                "action": "delete_dropped",
+                "memory_type": "profile",
+                "uri": PEER_PROFILE,
+                "replacement": USER_PROFILE,
+                "chars": 5,
+            },
+        )
+        self.assertEqual(len(records), 3)
+
+    def test_a_singleton_migration_is_pinned_to_its_source(self):
+        # enforce_merge_group_peer_id can retarget a user-level profile edit at the
+        # peer scope; stock code would write the peer file and delete the user one.
+        o = op("profile", "s", memory_type="profile", old=deleted(USER_PROFILE))
+        o.uris = [PEER_PROFILE]
+        link = types.SimpleNamespace(from_uri=ENTITY, to_uri=PEER_PROFILE)
+        operations = ops(o, links=[link], replacements={ENTITY: PEER_PROFILE})
+        tags = {PEER_PROFILE: ["t"]}
+        records, (dropped, pinned) = singleton_records(
+            lambda: mg.guard_singletons(operations, tags)
+        )
+        self.assertEqual((dropped, pinned), ([], [(PEER_PROFILE, USER_PROFILE)]))
+        self.assertEqual(o.uris, [USER_PROFILE])
+        self.assertEqual(link.to_uri, USER_PROFILE)
+        self.assertEqual(operations.delete_replacements, {ENTITY: USER_PROFILE})
+        self.assertEqual(tags[USER_PROFILE], ["t"])
+        self.assertEqual(records[0]["action"], "migration_pinned")
+
+    def test_non_singleton_migrations_and_in_place_updates_are_untouched(self):
+        moved = op("e", "s", memory_type="entities", old=deleted(ENTITY))
+        moved.uris = ["viking://user/u/peers/p/memories/entities/e.md"]
+        in_place = op("profile", "s", memory_type="profile", old=deleted(USER_PROFILE))
+        in_place.uris = [USER_PROFILE]
+        records, result = singleton_records(
+            lambda: mg.guard_singletons(ops(moved, in_place))
+        )
+        self.assertEqual((records, result), ([], ([], [])))
+        self.assertEqual(moved.uris, ["viking://user/u/peers/p/memories/entities/e.md"])
+
+    def test_disabled_by_env(self):
+        operations = ops()
+        operations.delete_file_contents = [deleted(USER_PROFILE, "profile")]
+        with mock.patch.dict(os.environ, {"OV_SINGLETON_GUARD": "0"}):
+            self.assertEqual(mg.guard_singletons(operations), ([], []))
+        self.assertEqual(len(operations.delete_file_contents), 1)
+
+    def test_apply_operations_drops_the_delete_for_submitted_requests_too(self):
+        # A flush runs apply_operations with no submit owner, a direct call with one set;
+        # a cross-session merge emits deletes after submit, so both paths are guarded.
+        seen = []
+
+        async def stock(
+            self, operations, ctx, extract_context, isolation_handler, tags
+        ):
+            seen.append([f.uri for f in operations.delete_file_contents])
+            return "result"
+
+        wrapped = mg.wrap_apply_operations(FAKE_MODULE, stock)
+        updater = types.SimpleNamespace(
+            _registry=Registry(), _get_viking_fs=lambda: FakeFS()
+        )
+        for owner in (None, object()):
+            with self.subTest(owner=owner):
+                operations = ops()
+                operations.delete_file_contents = [
+                    deleted(USER_PROFILE, "profile"),
+                    deleted(ENTITY, "entities"),
+                ]
+                token = mg._OWNER.set(owner)
+                try:
+                    _, out = singleton_records(
+                        lambda: asyncio.run(wrapped(updater, operations, None))
+                    )
+                finally:
+                    mg._OWNER.reset(token)
+                self.assertEqual(out, "result")
+                self.assertEqual(seen[-1], [ENTITY])
 
 
 def noise_records(run):
@@ -1644,6 +1776,32 @@ class Installed(unittest.TestCase):
         self.assertFalse(installed.MemoryUpdater._is_uri_migration(o))
         o.old_memory_file_content = types.SimpleNamespace(uri=target)
         self.assertTrue(installed.MemoryUpdater._is_uri_migration(o))
+
+    def test_singleton_guard_on_the_real_operation_types(self):
+        # The guard reads ResolvedOperations.delete_file_contents / delete_replacements
+        # and MemoryFile.memory_type by name; check them on the real classes, and that
+        # a pinned profile edit is no longer a URI migration.
+        from openviking.session.memory.dataclass import ResolvedOperations
+
+        operations = ResolvedOperations(
+            upsert_operations=[],
+            delete_file_contents=[
+                installed.MemoryFile(uri=PEER_PROFILE, memory_type="profile"),
+                installed.MemoryFile(uri=ENTITY, memory_type="entities"),
+            ],
+            errors=[],
+            delete_replacements={PEER_PROFILE: USER_PROFILE},
+        )
+        _, (dropped, _) = singleton_records(lambda: mg.guard_singletons(operations))
+        self.assertEqual(dropped, [PEER_PROFILE])
+        self.assertEqual([f.uri for f in operations.delete_file_contents], [ENTITY])
+        self.assertEqual(operations.delete_replacements, {})
+        o = op("profile", "s", memory_type="profile")
+        o.uris = [PEER_PROFILE]
+        o.old_memory_file_content = installed.MemoryFile(uri=USER_PROFILE)
+        self.assertTrue(installed.MemoryUpdater._is_uri_migration(o))
+        singleton_records(lambda: mg.guard_singletons(ops(o)))
+        self.assertFalse(installed.MemoryUpdater._is_uri_migration(o))
 
     def test_not_found_is_recognised_for_the_real_error(self):
         from openviking.storage.viking_fs import NotFoundError

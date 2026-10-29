@@ -44,7 +44,14 @@ L1399-L1405), so the guard no longer stands alone against that fallback. It stil
 on an unreadable slot: the slot walk has to decide free, duplicate or occupied, and a slot
 wrongly counted free that reads back on the stock pass would be merged into.
 
-``upsert`` memory types are untouched: merging into an existing file is their contract.
+``upsert`` memory types are untouched by the slot walk: merging into an existing file is
+their contract. The singleton guard below is the one exception.
+
+**Singleton guard** (``guard_singletons``, BUG-1276, ``OV_SINGLETON_GUARD=0``). In
+``apply_operations``, on every call, an extraction-issued delete of ``profile``,
+``identity`` or ``soul`` is dropped. A URI migration of one of them is pinned to its source
+URI, so the file is updated in place and never deleted. Each case writes an
+``ov-singleton-guard {json}`` stderr line (``delete_dropped`` or ``migration_pinned``).
 
 **Git-lifecycle noise filter** (``drop_lifecycle_noise``, ``OV_EVENT_NOISE_FILTER``). Each
 request is filtered once, before it is guarded: in ``submit`` for a submitted request, in
@@ -592,6 +599,117 @@ def drop_lifecycle_noise(operations) -> list[tuple[str, str]]:
     return dropped
 
 
+# --- Singleton guard (BUG-1276) --------------------------------------------------------
+#
+# ``profile``, ``identity`` and ``soul`` are one fixed file per scope
+# (``user/memories/profile.md``, ``user/peers/<peer>/memories/profile.md``), and the
+# extractor pre-reads every copy (``memory_isolation_handler.py`` L238-L258). On
+# 2026-10-27 and 10-28 two extractions named a profile's page id in ``delete_ids``, taking
+# it for a duplicate of the other scope's copy, and stock ``apply_operations`` removed
+# pop's peer profile and then the user-level one (BUG-1276). A singleton is never deleted
+# by an extraction: the delete is dropped, along with its replacement entry, and the file
+# stays. A singleton update whose target URI differs from its snapshot's, a URI migration
+# (``_is_uri_migration``, ``memory_updater.py`` L1191-L1198, which deletes the snapshot's
+# file at L1201-L1248), is pinned to the snapshot's URI. The file is then updated in
+# place rather than copied to the other scope and deleted, and no second copy appears for
+# a later extraction to dedupe. Each drop or pin writes one ``ov-singleton-guard {json}``
+# line on stderr. Disable with ``OV_SINGLETON_GUARD=0``.
+
+SINGLETON_TYPES = frozenset({"profile", "identity", "soul"})
+SINGLETON_URI = re.compile(r"/memories/(?:profile|identity|soul)\.md$")
+SINGLETON_PREFIX = "ov-singleton-guard "
+
+
+def _singleton_guard_enabled() -> bool:
+    return os.environ.get("OV_SINGLETON_GUARD", "1") != "0"
+
+
+def is_singleton(memory_type, uri) -> bool:
+    return memory_type in SINGLETON_TYPES or bool(
+        isinstance(uri, str) and SINGLETON_URI.search(uri)
+    )
+
+
+def emit_singleton_record(record: dict) -> None:
+    """One ``ov-singleton-guard {json}`` line on stderr, unwrapped (see emit_noise_record)."""
+    sys.stderr.write(SINGLETON_PREFIX + json.dumps(record, sort_keys=True) + "\n")
+    sys.stderr.flush()
+
+
+def guard_singletons(operations, search_tags_by_uri=None) -> tuple[list, list]:
+    """Drop singleton deletes and pin singleton migrations, in place.
+
+    Returns ``(dropped, pinned)``: the dropped delete URIs, and ``(target, source)`` pairs
+    for each pinned migration. Links, delete replacements and search tags that named a
+    pinned op's target follow it to the source URI.
+    """
+    if not _singleton_guard_enabled():
+        return [], []
+    replacements = getattr(operations, "delete_replacements", None)
+    kept, dropped = [], []
+    for file in list(getattr(operations, "delete_file_contents", None) or []):
+        memory_type = (getattr(file, "extra_fields", None) or {}).get(
+            "memory_type"
+        ) or getattr(file, "memory_type", None)
+        uri = getattr(file, "uri", None)
+        if not is_singleton(memory_type, uri):
+            kept.append(file)
+            continue
+        replacement = (
+            replacements.pop(uri, None) if isinstance(replacements, dict) else None
+        )
+        dropped.append(uri)
+        emit_singleton_record(
+            {
+                "action": "delete_dropped",
+                "memory_type": memory_type,
+                "uri": uri,
+                "replacement": replacement,
+                "chars": len(getattr(file, "content", "") or ""),
+            }
+        )
+    if dropped:
+        operations.delete_file_contents = kept
+    remap, pinned = {}, []
+    for op in getattr(operations, "upsert_operations", None) or []:
+        old = getattr(op, "old_memory_file_content", None)
+        source = getattr(old, "uri", None) if old else None
+        uris = list(getattr(op, "uris", None) or [])
+        if (
+            not source
+            or len(uris) != 1
+            or uris[0] == source
+            or not is_singleton(getattr(op, "memory_type", None), source)
+        ):
+            continue
+        target = uris[0]
+        op.uris = [source]
+        remap[target] = source
+        pinned.append((target, source))
+        emit_singleton_record(
+            {
+                "action": "migration_pinned",
+                "memory_type": getattr(op, "memory_type", None),
+                "uri": source,
+                "target": target,
+            }
+        )
+    for link in getattr(operations, "resolved_links", None) or []:
+        if link.from_uri in remap:
+            link.from_uri = remap[link.from_uri]
+        if link.to_uri in remap:
+            link.to_uri = remap[link.to_uri]
+    if isinstance(replacements, dict):
+        for key, value in list(replacements.items()):
+            if value in remap:
+                replacements[key] = remap[value]
+    if isinstance(search_tags_by_uri, dict):
+        for target, source in remap.items():
+            if target in search_tags_by_uri and source not in search_tags_by_uri:
+                search_tags_by_uri[source] = search_tags_by_uri[target]
+    return dropped, pinned
+
+
 def wrap_apply_operations(module, orig):
     @functools.wraps(orig)
     async def apply_operations(
@@ -611,6 +729,10 @@ def wrap_apply_operations(module, orig):
             # append request, so filtering again here would drop a replacement and log
             # every shadow match twice (Codex review of homelab#183, P1 and P3).
             drop_lifecycle_noise(operations)
+        # Every call, submitted or direct: the cross-session merge in a flush can emit
+        # deletes after submit has run, and every flush applies through here
+        # (streaming_memory_updater.py L512).
+        guard_singletons(operations, search_tags_by_uri)
         await guard_with_waits(
             lambda: guard_add_only(
                 module,
