@@ -56,10 +56,12 @@ spec:
             summary: "OpenViking memory extraction failed for a session commit"
             description: >-
               {{ $value | humanize }} session commit(s) on {{ $labels.pod }} ended Phase 2
-              with an error in the last 15m, so no memories were extracted from those
-              archives (each has .failed.json). Find the session and cause in Loki:
+              with an error in the last 15m, so extraction did not finish for those
+              archives (each has .failed.json; steps it lists as completed keep their
+              memories). Find the session and error in Loki:
               {namespace="viking", container="openviking"} |= "Memory extraction failed"
-              and |= "ov-extract-outcome" (failure_class timeout, lock_wait, degraded or
-              other; lock_wait means an events-tree reindex or a wedged .ovlock held the
-              tree). Re-extracting a failed archive is a replay into a fresh session
+              and |= "Phase 2 step". The ov-extract-outcome line with failure_class
+              (timeout, lock_wait, degraded or other; lock_wait means an events-tree
+              reindex or a wedged .ovlock held the tree) is in kubectl logs on that pod,
+              not in Loki (BUG-1279). Re-extracting a failed archive is a replay into a fresh session
               (BUG-1176 procedure), a prod write that needs the user's go-ahead.
