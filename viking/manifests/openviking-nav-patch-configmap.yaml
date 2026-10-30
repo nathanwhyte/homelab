@@ -517,12 +517,14 @@ data:
         (session.py:2041-2079), so a failure redoes one batch, not the archive. The same
         limits batch the Working Memory summary.
 
-    BUG-1237 adds one more: ``ExtractLoop`` passes raw ``memory_fields`` to the repair prompts,
-    and a field the model changed with ``obj.field.edit(...)`` holds a pydantic ``StrPatch``.
-    Both protocols render those prompts with a bare ``json.dumps``, so the ``TypeError`` failed
-    the archive before the repair round could run. ``_build_resolution_repair_instruction``
-    and ``_build_patch_repair_instruction`` now hand the renderers ``json_safe`` input, which
-    covers both protocols. Upstream's default branch still had the bare call on 2026-10-30.
+    BUG-1237 adds one more: ``ExtractLoop`` passes raw ``memory_fields`` to the resolution
+    repair prompt, and a field the model changed with ``obj.field.edit(...)`` holds a pydantic
+    ``StrPatch``. Both protocols render that prompt with a bare ``json.dumps``, so the
+    ``TypeError`` failed the archive before the repair round could run.
+    ``_build_resolution_repair_instruction`` now hands the renderer ``json_safe`` input, which
+    covers both protocols. ``_build_patch_repair_instruction`` gets the same wrapper as a
+    defence only: its ``patch_errors`` hold JSON-native values on v0.5.1.1. Upstream's default
+    branch still had the bare call on 2026-10-30.
 
     Guarded: applies only to openviking ``v0.5.1.1`` whose ``ExtractLoop.run`` source hashes to
     ``EXPECTED_RUN_SHA256``; otherwise it logs "NOT applied" and stock behaviour stays. The

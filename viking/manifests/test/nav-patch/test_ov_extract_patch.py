@@ -1629,6 +1629,8 @@ class RealRepairPromptTests(unittest.TestCase):
         return (PythonExtractionOutputProtocol(), JsonExtractionOutputProtocol())
 
     def issues(self):
+        # The resolution issue shape. Real patch_errors never carry a StrPatch; the patch
+        # builder takes this list only to prove its wrapper holds if that changes.
         from openviking.session.memory.merge_op.base import (
             SearchReplaceBlock,
             StrPatch,
