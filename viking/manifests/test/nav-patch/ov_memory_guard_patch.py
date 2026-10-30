@@ -44,7 +44,16 @@ L1399-L1405), so the guard no longer stands alone against that fallback. It stil
 on an unreadable slot: the slot walk has to decide free, duplicate or occupied, and a slot
 wrongly counted free that reads back on the stock pass would be merged into.
 
-``upsert`` memory types are untouched: merging into an existing file is their contract.
+``upsert`` memory types are untouched by the slot walk: merging into an existing file is
+their contract. The singleton guard below is the one exception.
+
+**Singleton guard** (``guard_singletons``, BUG-1276, ``OV_SINGLETON_GUARD=0``). In
+``apply_operations``, on every call, an extraction-issued delete of ``profile``,
+``identity`` or ``soul`` is dropped. A URI migration of one of them still writes its
+target, but the wrapped ``_materialize_uri_migrations`` no longer queues the source for
+deletion, so the source file stays. Replacements are kept, so links move as stock moves
+them. Each case writes an ``ov-singleton-guard {json}`` stderr line (``delete_dropped`` or
+``migration_source_kept``).
 
 **Git-lifecycle noise filter** (``drop_lifecycle_noise``, ``OV_EVENT_NOISE_FILTER``). Each
 request is filtered once, before it is guarded: in ``submit`` for a submitted request, in
@@ -592,6 +601,133 @@ def drop_lifecycle_noise(operations) -> list[tuple[str, str]]:
     return dropped
 
 
+# --- Singleton guard (BUG-1276) --------------------------------------------------------
+#
+# ``profile``, ``identity`` and ``soul`` are one fixed file per scope
+# (``user/memories/profile.md``, ``user/peers/<peer>/memories/profile.md``), and the
+# extractor pre-reads every copy (``memory_isolation_handler.py`` L238-L258). On
+# 2026-10-27 and 10-28 two extractions named a profile's page id in ``delete_ids``, taking
+# it for a duplicate of the other scope's copy, and stock ``apply_operations`` removed
+# pop's peer profile and then the user-level one (BUG-1276). A singleton is never deleted
+# by an extraction: its entry leaves ``delete_file_contents`` and the file stays
+# (``guard_singletons``). A singleton update whose target URI differs from its snapshot's
+# is a URI migration (``_is_uri_migration``, ``memory_updater.py`` L1191-L1198).
+# ``_materialize_uri_migrations`` (L1201-L1248) queues the snapshot's file for deletion
+# with a replacement; the wrapper takes the source back out of the deletes
+# (``keep_singleton_migration_sources``). Both callers go through the classmethod:
+# ``apply_operations`` (L900) and the streaming lock path (``streaming_memory_updater.py``
+# L2214), which a grouped flush reaches with deep-copied operations. The
+# ``delete_replacements`` entry is kept in both cases, so links, backlinks and neighbours
+# move to the replacement exactly as stock does (L952-L1022, ``_apply_upsert``,
+# ``_inherit_deleted_link_relations``), and only the delete loop (L1030) skips the file.
+# With a replacement, the kept file is a superseded copy: links move off it to the
+# replacement, and its own link list is left as it was. Without one (a bare delete), the
+# file and every link to it stay exactly as they were. Nothing is retargeted (Codex review of homelab#285: R1's two P1s came from
+# retargeting, R2's from dropping the replacement). Each kept file writes one
+# ``ov-singleton-guard {json}`` line on stderr. Disable with ``OV_SINGLETON_GUARD=0``.
+
+SINGLETON_TYPES = frozenset({"profile", "identity", "soul"})
+SINGLETON_URI = re.compile(r"/memories/(?:profile|identity|soul)\.md$")
+SINGLETON_PREFIX = "ov-singleton-guard "
+
+
+def _singleton_guard_enabled() -> bool:
+    return os.environ.get("OV_SINGLETON_GUARD", "1") != "0"
+
+
+def is_singleton(memory_type, uri) -> bool:
+    return memory_type in SINGLETON_TYPES or bool(
+        isinstance(uri, str) and SINGLETON_URI.search(uri)
+    )
+
+
+def emit_singleton_record(record: dict) -> None:
+    """One ``ov-singleton-guard {json}`` line on stderr, unwrapped (see emit_noise_record)."""
+    sys.stderr.write(SINGLETON_PREFIX + json.dumps(record, sort_keys=True) + "\n")
+    sys.stderr.flush()
+
+
+def _file_memory_type(file):
+    return (getattr(file, "extra_fields", None) or {}).get("memory_type") or getattr(
+        file, "memory_type", None
+    )
+
+
+def _drop_singleton_deletes(operations, action) -> list[str]:
+    """Remove singleton entries from ``delete_file_contents``; replacements stay.
+
+    Returns the removed URIs, logging each with ``action(uri)``.
+    """
+    replacements = getattr(operations, "delete_replacements", None)
+    kept, dropped = [], []
+    for file in list(getattr(operations, "delete_file_contents", None) or []):
+        memory_type = _file_memory_type(file)
+        uri = getattr(file, "uri", None)
+        if not is_singleton(memory_type, uri):
+            kept.append(file)
+            continue
+        replacement = replacements.get(uri) if isinstance(replacements, dict) else None
+        dropped.append(uri)
+        emit_singleton_record(
+            {
+                "action": action(uri),
+                "memory_type": memory_type,
+                "uri": uri,
+                "replacement": replacement,
+                "chars": len(getattr(file, "content", "") or ""),
+            }
+        )
+    if dropped:
+        operations.delete_file_contents = kept
+    return dropped
+
+
+def guard_singletons(operations) -> list[str]:
+    """Drop explicit singleton deletes in place; returns the dropped URIs."""
+    if not _singleton_guard_enabled():
+        return []
+    return _drop_singleton_deletes(operations, lambda uri: "delete_dropped")
+
+
+def keep_singleton_migration_sources(operations, before) -> list[str]:
+    """After ``_materialize_uri_migrations``: drop every singleton delete it left.
+
+    An entry absent from ``before`` (the delete URIs present before the call) is a
+    migration source the call queued; one already present is an explicit delete that
+    reached the call without passing ``guard_singletons`` (the streaming lock path runs
+    first) and is dropped too. Returns the dropped URIs.
+    """
+    if not _singleton_guard_enabled():
+        return []
+    return _drop_singleton_deletes(
+        operations,
+        lambda uri: "delete_dropped" if uri in before else "migration_source_kept",
+    )
+
+
+EXPECTED_MATERIALIZE_SHA256 = (
+    "731ce6ba1329d39d8db9498bc976efff9ae287f200c61198aa1bcd221db1babe"
+)
+
+
+def wrap_materialize_uri_migrations(func):
+    """Wrap the classmethod's function; returns a new ``classmethod``."""
+
+    @functools.wraps(func)
+    def _materialize_uri_migrations(cls, operations):
+        before = {
+            getattr(f, "uri", None)
+            for f in getattr(operations, "delete_file_contents", None) or []
+        }
+        errors = func(cls, operations)
+        if not errors:
+            keep_singleton_migration_sources(operations, before)
+        return errors
+
+    _materialize_uri_migrations._ov_memory_guard = True
+    return classmethod(_materialize_uri_migrations)
+
+
 def wrap_apply_operations(module, orig):
     @functools.wraps(orig)
     async def apply_operations(
@@ -611,6 +747,10 @@ def wrap_apply_operations(module, orig):
             # append request, so filtering again here would drop a replacement and log
             # every shadow match twice (Codex review of homelab#183, P1 and P3).
             drop_lifecycle_noise(operations)
+        # Every call, submitted or direct: the cross-session merge in a flush can emit
+        # deletes after submit has run, and every flush applies through here
+        # (streaming_memory_updater.py L512).
+        guard_singletons(operations)
         await guard_with_waits(
             lambda: guard_add_only(
                 module,
@@ -664,9 +804,25 @@ def apply(module) -> bool:
             upsert_digest,
         )
         return False
+    materialize = cls.__dict__.get("_materialize_uri_migrations")
+    func = getattr(materialize, "__func__", None)
+    materialize_digest = (
+        _source_hash(func) if isinstance(materialize, classmethod) else None
+    )
+    if materialize_digest != EXPECTED_MATERIALIZE_SHA256:
+        # Without this wrapper a singleton migration would still delete its source, so
+        # the whole guard stays off rather than half-applying (BUG-1276).
+        logger.warning(
+            "ov-memory-guard: NOT applied to MemoryUpdater (materialize_sha256=%s); "
+            "stock add_only writes and singleton deletes kept",
+            materialize_digest,
+        )
+        return False
+    cls._materialize_uri_migrations = wrap_materialize_uri_migrations(func)
     cls.apply_operations = wrap_apply_operations(module, orig)
     logger.warning(
-        "ov-memory-guard: applied to MemoryUpdater.apply_operations (pid %d)",
+        "ov-memory-guard: applied to MemoryUpdater.apply_operations and "
+        "_materialize_uri_migrations (pid %d)",
         os.getpid(),
     )
     return True

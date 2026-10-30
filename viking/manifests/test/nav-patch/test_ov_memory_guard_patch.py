@@ -74,7 +74,13 @@ class FakeMemoryFileUtils:
 FAKE_MODULE = types.SimpleNamespace(MemoryFileUtils=FakeMemoryFileUtils)
 
 
-MODES = {"events": "add_only", "trajectories": "add_only", "entities": "upsert"}
+MODES = {
+    "events": "add_only",
+    "trajectories": "add_only",
+    "entities": "upsert",
+    "profile": "upsert",
+    "soul": "upsert",
+}
 
 
 class Registry:
@@ -508,6 +514,163 @@ class WrapperTests(unittest.TestCase):
                 )
                 updater = types.SimpleNamespace(registry=updater_registry)
                 self.assertEqual(asyncio.run(wrapped(updater, request)), [[expected]])
+
+
+USER_PROFILE = "viking://user/u/memories/profile.md"
+PEER_PROFILE = "viking://user/u/peers/p/memories/profile.md"
+ENTITY = "viking://user/u/memories/entities/e.md"
+
+
+def deleted(uri, memory_type=None, content="body"):
+    return types.SimpleNamespace(
+        uri=uri, memory_type=memory_type, extra_fields={}, content=content
+    )
+
+
+def singleton_records(run):
+    """``(records, result)``: the ``ov-singleton-guard`` records ``run()`` wrote."""
+    buf = io.StringIO()
+    with contextlib.redirect_stderr(buf):
+        result = run()
+    records = [
+        json.loads(line[len(mg.SINGLETON_PREFIX) :])
+        for line in buf.getvalue().splitlines()
+        if line.startswith(mg.SINGLETON_PREFIX)
+    ]
+    return records, result
+
+
+def fake_materialize(cls, operations):
+    """Stock ``_materialize_uri_migrations`` in miniature: queue each migration source."""
+    for o in operations.upsert_operations:
+        old = o.old_memory_file_content
+        if old and old.uri and o.uris and o.uris[0] != old.uri:
+            if all(f.uri != old.uri for f in operations.delete_file_contents):
+                operations.delete_file_contents.append(old)
+            operations.delete_replacements[old.uri] = o.uris[0]
+    return []
+
+
+class SingletonGuardTests(unittest.TestCase):
+    """BUG-1276: an extraction never deletes or migrates away a profile/identity/soul."""
+
+    def test_singleton_deletes_are_dropped_and_others_kept(self):
+        operations = ops(replacements={PEER_PROFILE: USER_PROFILE, ENTITY: "x"})
+        operations.delete_file_contents = [
+            deleted(PEER_PROFILE, "profile", "# pop"),
+            deleted(USER_PROFILE, None),  # matched by URI when the type is missing
+            deleted("viking://user/u/peers/p/memories/soul.md", "soul"),
+            deleted(ENTITY, "entities"),
+        ]
+        records, dropped = singleton_records(lambda: mg.guard_singletons(operations))
+        self.assertEqual(
+            dropped,
+            [PEER_PROFILE, USER_PROFILE, "viking://user/u/peers/p/memories/soul.md"],
+        )
+        self.assertEqual([f.uri for f in operations.delete_file_contents], [ENTITY])
+        # Replacements stay, so stock still moves links to the replacement (R2 P1).
+        self.assertEqual(
+            operations.delete_replacements, {PEER_PROFILE: USER_PROFILE, ENTITY: "x"}
+        )
+        self.assertEqual(
+            records[0],
+            {
+                "action": "delete_dropped",
+                "memory_type": "profile",
+                "uri": PEER_PROFILE,
+                "replacement": USER_PROFILE,
+                "chars": 5,
+            },
+        )
+        self.assertEqual(len(records), 3)
+
+    def test_a_singleton_migration_writes_its_target_and_keeps_its_source(self):
+        # enforce_merge_group_peer_id can retarget a user-level profile edit at the
+        # peer scope; stock code would write the peer file and delete the user one.
+        # Nothing is retargeted, so an in-place op on the target and every reference to
+        # it keep their URIs (Codex review of homelab#285, R1's P1s), and the source's
+        # replacement stays for stock link migration (R2's P1).
+        moved = op("profile", "s", memory_type="profile", old=deleted(USER_PROFILE))
+        moved.uris = [PEER_PROFILE]
+        in_place = op("profile", "t", memory_type="profile", old=deleted(PEER_PROFILE))
+        in_place.uris = [PEER_PROFILE]
+        entity = op("e", "s", memory_type="entities", old=deleted(ENTITY))
+        entity.uris = ["viking://user/u/peers/p/memories/entities/e.md"]
+        link = types.SimpleNamespace(from_uri=ENTITY, to_uri=PEER_PROFILE)
+        operations = ops(
+            moved, in_place, entity, links=[link], replacements={"x": PEER_PROFILE}
+        )
+        operations.delete_file_contents = []
+        wrapped = mg.wrap_materialize_uri_migrations(fake_materialize)
+        records, errors = singleton_records(
+            lambda: wrapped.__get__(None, object)(operations)
+        )
+        self.assertEqual(errors, [])
+        self.assertEqual(
+            [f.uri for f in operations.delete_file_contents], [ENTITY]
+        )  # the entity migration still deletes its source
+        self.assertEqual(
+            operations.delete_replacements,
+            {
+                "x": PEER_PROFILE,
+                USER_PROFILE: PEER_PROFILE,
+                ENTITY: "viking://user/u/peers/p/memories/entities/e.md",
+            },
+        )
+        self.assertEqual((moved.uris, in_place.uris), ([PEER_PROFILE], [PEER_PROFILE]))
+        self.assertEqual((link.from_uri, link.to_uri), (ENTITY, PEER_PROFILE))
+        self.assertEqual(
+            [(r["action"], r["uri"], r["replacement"]) for r in records],
+            [("migration_source_kept", USER_PROFILE, PEER_PROFILE)],
+        )
+
+    def test_materialize_errors_pass_through_untouched(self):
+        operations = ops()
+        operations.delete_file_contents = [deleted(USER_PROFILE, "profile")]
+        err = [(USER_PROFILE, ValueError("x"))]
+        wrapped = mg.wrap_materialize_uri_migrations(lambda cls, o: err)
+        self.assertIs(wrapped.__get__(None, object)(operations), err)
+        self.assertEqual(len(operations.delete_file_contents), 1)
+
+    def test_disabled_by_env(self):
+        operations = ops()
+        operations.delete_file_contents = [deleted(USER_PROFILE, "profile")]
+        with mock.patch.dict(os.environ, {"OV_SINGLETON_GUARD": "0"}):
+            self.assertEqual(mg.guard_singletons(operations), [])
+            self.assertEqual(mg.keep_singleton_migration_sources(operations, set()), [])
+        self.assertEqual(len(operations.delete_file_contents), 1)
+
+    def test_apply_operations_drops_the_delete_for_submitted_requests_too(self):
+        # A flush runs apply_operations with no submit owner, a direct call with one set;
+        # a cross-session merge emits deletes after submit, so both paths are guarded.
+        seen = []
+
+        async def stock(
+            self, operations, ctx, extract_context, isolation_handler, tags
+        ):
+            seen.append([f.uri for f in operations.delete_file_contents])
+            return "result"
+
+        wrapped = mg.wrap_apply_operations(FAKE_MODULE, stock)
+        updater = types.SimpleNamespace(
+            _registry=Registry(), _get_viking_fs=lambda: FakeFS()
+        )
+        for owner in (None, object()):
+            with self.subTest(owner=owner):
+                operations = ops()
+                operations.delete_file_contents = [
+                    deleted(USER_PROFILE, "profile"),
+                    deleted(ENTITY, "entities"),
+                ]
+                token = mg._OWNER.set(owner)
+                try:
+                    _, out = singleton_records(
+                        lambda: asyncio.run(wrapped(updater, operations, None))
+                    )
+                finally:
+                    mg._OWNER.reset(token)
+                self.assertEqual(out, "result")
+                self.assertEqual(seen[-1], [ENTITY])
 
 
 def noise_records(run):
@@ -1644,6 +1807,192 @@ class Installed(unittest.TestCase):
         self.assertFalse(installed.MemoryUpdater._is_uri_migration(o))
         o.old_memory_file_content = types.SimpleNamespace(uri=target)
         self.assertTrue(installed.MemoryUpdater._is_uri_migration(o))
+
+    def test_singleton_guard_on_the_real_operation_types(self):
+        # The guard reads ResolvedOperations.delete_file_contents / delete_replacements
+        # and MemoryFile.memory_type by name; check them on the real classes.
+        from openviking.session.memory.dataclass import ResolvedOperations
+
+        operations = ResolvedOperations(
+            upsert_operations=[],
+            delete_file_contents=[
+                installed.MemoryFile(uri=PEER_PROFILE, memory_type="profile"),
+                installed.MemoryFile(uri=ENTITY, memory_type="entities"),
+            ],
+            errors=[],
+            delete_replacements={PEER_PROFILE: USER_PROFILE},
+        )
+        _, dropped = singleton_records(lambda: mg.guard_singletons(operations))
+        self.assertEqual(dropped, [PEER_PROFILE])
+        self.assertEqual([f.uri for f in operations.delete_file_contents], [ENTITY])
+        self.assertEqual(operations.delete_replacements, {PEER_PROFILE: USER_PROFILE})
+
+    def test_real_materialize_keeps_a_migrated_singleton_source(self):
+        # The hook wrapped the real classmethod; a profile migration no longer queues
+        # its source for deletion, an entity migration still does.
+        from openviking.session.memory.dataclass import (
+            ResolvedOperation,
+            ResolvedOperations,
+        )
+
+        materialize = installed.MemoryUpdater.__dict__["_materialize_uri_migrations"]
+        self.assertTrue(getattr(materialize.__func__, "_ov_memory_guard", False))
+        self.assertEqual(
+            mg._source_hash(materialize.__func__.__wrapped__),
+            mg.EXPECTED_MATERIALIZE_SHA256,
+        )
+        entity_target = "viking://user/u/peers/p/memories/entities/e.md"
+        operations = ResolvedOperations(
+            upsert_operations=[
+                ResolvedOperation(
+                    memory_fields={},
+                    memory_type="profile",
+                    uris=[PEER_PROFILE],
+                    old_memory_file_content=installed.MemoryFile(
+                        uri=USER_PROFILE, memory_type="profile"
+                    ),
+                ),
+                ResolvedOperation(
+                    memory_fields={},
+                    memory_type="entities",
+                    uris=[entity_target],
+                    old_memory_file_content=installed.MemoryFile(
+                        uri=ENTITY, memory_type="entities"
+                    ),
+                ),
+            ],
+            delete_file_contents=[],
+            errors=[],
+        )
+        records, errors = singleton_records(
+            lambda: installed.MemoryUpdater._materialize_uri_migrations(operations)
+        )
+        self.assertEqual(errors, [])
+        self.assertEqual([f.uri for f in operations.delete_file_contents], [ENTITY])
+        self.assertEqual(
+            operations.delete_replacements,
+            {USER_PROFILE: PEER_PROFILE, ENTITY: entity_target},
+        )
+        self.assertEqual([r["action"] for r in records], ["migration_source_kept"])
+
+    def test_real_apply_moves_links_like_stock_and_keeps_the_source(self):
+        # Codex review of homelab#285, R2 P1: a profile migration, then an ordinary
+        # entity replacement. The guarded store must link the target exactly as stock
+        # does at each stage; the only difference is that the source file stays.
+        from unittest.mock import AsyncMock
+
+        from openviking.session.memory.dataclass import (
+            ResolvedOperation,
+            ResolvedOperations,
+            StoredLink,
+        )
+
+        replacement = "viking://user/u/memories/entities/replacement.md"
+
+        class Store:
+            def __init__(self):
+                self.files = {}
+
+            async def read_file(self, uri, **kwargs):
+                if uri not in self.files:
+                    raise FileNotFoundError(uri)
+                return self.files[uri]
+
+            async def write_file(self, uri, content, **kwargs):
+                self.files[uri] = content
+
+            async def rm(self, uri, **kwargs):
+                del self.files[uri]
+
+            def put(self, mf):
+                self.files[mf.uri] = installed.MemoryFileUtils.write(mf)
+
+            def parsed(self, uri):
+                return installed.MemoryFileUtils.read(self.files[uri], uri=uri)
+
+        def run(guard):
+            fs = Store()
+            link = StoredLink(
+                from_uri=USER_PROFILE, to_uri=ENTITY, match_text="Entity"
+            ).model_dump()
+            fs.put(
+                installed.MemoryFile(
+                    uri=USER_PROFILE,
+                    memory_type="profile",
+                    content="About Entity.",
+                    links=[link],
+                )
+            )
+            fs.put(
+                installed.MemoryFile(
+                    uri=ENTITY,
+                    memory_type="entities",
+                    content="Entity",
+                    backlinks=[link],
+                )
+            )
+            fs.put(
+                installed.MemoryFile(
+                    uri=replacement, memory_type="entities", content="Replacement"
+                )
+            )
+            schema = types.SimpleNamespace(
+                fields=[],
+                content_template=None,
+                _account_content_template=False,
+                overview_template=None,
+                operation_mode="upsert",
+            )
+            updater = installed.MemoryUpdater(
+                registry=types.SimpleNamespace(get=lambda _: schema)
+            )
+            updater._viking_fs = fs
+            updater._sync_resource_refs_for_result = AsyncMock()
+            stages = []
+
+            def apply(operations, neighbor):
+                result = asyncio.run(updater.apply_operations(operations, None))
+                self.assertEqual(result.errors, [])
+                stages.append(
+                    (
+                        fs.parsed(PEER_PROFILE).links,
+                        fs.parsed(neighbor).backlinks,
+                        USER_PROFILE in fs.files,
+                    )
+                )
+
+            with mock.patch.dict(os.environ, {"OV_SINGLETON_GUARD": guard}):
+                migration = ResolvedOperation(
+                    memory_fields={},
+                    memory_type="profile",
+                    uris=[PEER_PROFILE],
+                    old_memory_file_content=fs.parsed(USER_PROFILE),
+                )
+                apply(
+                    ResolvedOperations(
+                        upsert_operations=[migration],
+                        delete_file_contents=[],
+                        errors=[],
+                    ),
+                    ENTITY,
+                )
+                apply(
+                    ResolvedOperations(
+                        upsert_operations=[],
+                        delete_file_contents=[fs.parsed(ENTITY)],
+                        errors=[],
+                        delete_replacements={ENTITY: replacement},
+                    ),
+                    replacement,
+                )
+            return stages
+
+        with contextlib.redirect_stderr(io.StringIO()):
+            guarded, stock = run("1"), run("0")
+        for (g_links, g_back, g_kept), (s_links, s_back, s_kept) in zip(guarded, stock):
+            self.assertEqual((g_links, g_back), (s_links, s_back))
+            self.assertEqual((g_kept, s_kept), (True, False))
+        self.assertEqual(guarded[1][0][0]["to_uri"], replacement)
 
     def test_not_found_is_recognised_for_the_real_error(self):
         from openviking.storage.viking_fs import NotFoundError
