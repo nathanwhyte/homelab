@@ -93,11 +93,20 @@ plus a streaming half that tracks writes for the lock-wait retry):
     (session.py:2041-2079), so a failure redoes one batch, not the archive. The same
     limits batch the Working Memory summary.
 
+BUG-1237 adds one more: ``ExtractLoop`` passes raw ``memory_fields`` to the resolution
+repair prompt, and a field the model changed with ``obj.field.edit(...)`` holds a pydantic
+``StrPatch``. Both protocols render that prompt with a bare ``json.dumps``, so the
+``TypeError`` failed the archive before the repair round could run.
+``_build_resolution_repair_instruction`` now hands the renderer ``json_safe`` input, which
+covers both protocols. ``_build_patch_repair_instruction`` gets the same wrapper as a
+defence only: its ``patch_errors`` hold JSON-native values on v0.5.1.1. Upstream's default
+branch still had the bare call on 2026-10-30.
+
 Guarded: applies only to openviking ``v0.5.1.1`` whose ``ExtractLoop.run`` source hashes to
 ``EXPECTED_RUN_SHA256``; otherwise it logs "NOT applied" and stock behaviour stays. The
-retry and chunking wrappers, and the streaming half's three write-tracking wrappers
-(``openviking.session.memory.streaming_memory_updater``), are each also guarded on the
-source hash of the function they wrap. Without the streaming half no lock wait is ever
+retry and chunking wrappers, the two repair-prompt wrappers, and the streaming half's three
+write-tracking wrappers (``openviking.session.memory.streaming_memory_updater``), are each
+also guarded on the source hash of the function they wrap. Without the streaming half no lock wait is ever
 tagged, so no lock wait is retried. Disable everything at runtime with
 ``OV_EXTRACT_PATCH=0``. Retry budget overrides: ``OV_EXTRACT_PATCH_RETRIES``,
 ``OV_EXTRACT_PATCH_BASE_DELAY``, ``OV_EXTRACT_PATCH_MAX_DELAY``.
@@ -118,6 +127,13 @@ import sys
 
 EXPECTED_VERSION = "v0.5.1.1"
 EXPECTED_RUN_SHA256 = "48d4bc4f14b03b0a157402779f5e73aad1ef58465df582e173ab34d7347076bb"
+# BUG-1237: the two repair-prompt builders on ExtractLoop on v0.5.1.1.
+EXPECTED_RESOLUTION_REPAIR_SHA256 = (
+    "1214a25e919bdd08a7ec4815d187a35ee76a51f16151785457f285d2a17d4692"
+)
+EXPECTED_PATCH_REPAIR_SHA256 = (
+    "7c1c20a49f8b8988bbfa0edbae284a9415d937024afebdc8c9aeb92ec040c782"
+)
 # BUG-1196: openviking.utils.model_retry.retry_async and
 # openviking.session.extraction_batch.resolve_extraction_batch_limits on v0.5.1.1.
 EXPECTED_RETRY_ASYNC_SHA256 = (
@@ -350,6 +366,38 @@ def wrap_run(orig):
 
     run._ov_extract_patch = True  # type: ignore[attr-defined]
     return run
+
+
+def json_safe(value):
+    """Return a copy ``json.dumps`` accepts; a pydantic model becomes its JSON dump."""
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    if isinstance(value, dict):
+        return {
+            key
+            if key is None or isinstance(key, (str, int, float, bool))
+            else str(key): json_safe(item)
+            for key, item in value.items()
+        }
+    if isinstance(value, (list, tuple, set, frozenset)):
+        return [json_safe(item) for item in value]
+    dump = getattr(value, "model_dump", None)
+    if callable(dump):
+        # A repair prompt must never be what fails the archive.
+        with contextlib.suppress(Exception):
+            return json_safe(dump(mode="json"))
+    return str(value)
+
+
+def wrap_repair_instruction(orig):
+    """Wrap a repair-prompt builder: its list reaches the renderer JSON-safe (BUG-1237)."""
+
+    @functools.wraps(orig)
+    def build(self, issues):
+        return orig(self, json_safe(issues))
+
+    build._ov_extract_patch = True  # type: ignore[attr-defined]
+    return build
 
 
 def wrap_is_retryable(orig):
@@ -625,8 +673,27 @@ def wrap_grouped_merge(orig):
 # --- installers -------------------------------------------------------------------------
 
 
+def _apply_repair_wrappers(cls) -> None:
+    """Wrap each repair-prompt builder whose source still hashes as expected."""
+    for name, expected in (
+        ("_build_resolution_repair_instruction", EXPECTED_RESOLUTION_REPAIR_SHA256),
+        ("_build_patch_repair_instruction", EXPECTED_PATCH_REPAIR_SHA256),
+    ):
+        fn = getattr(cls, name, None)
+        digest = _source_hash(fn) if fn else None
+        if digest != expected:
+            logger.warning(
+                "ov-extract-patch: NOT applied to ExtractLoop.%s (source_sha256=%s); "
+                "a StrPatch still fails that repair prompt",
+                name,
+                digest,
+            )
+            continue
+        setattr(cls, name, wrap_repair_instruction(fn))
+
+
 def apply_extract_loop(module) -> bool:
-    """Patch ``module.ExtractLoop.run`` in place; True if applied."""
+    """Patch ``module.ExtractLoop`` in place; True if ``run`` was patched."""
     if not _enabled():
         return False
     import openviking
@@ -646,6 +713,7 @@ def apply_extract_loop(module) -> bool:
         )
         return False
     cls.run = wrap_run(orig)
+    _apply_repair_wrappers(cls)
     _state["loop_applied"] = True
     logger.warning("ov-extract-patch: applied to ExtractLoop.run (pid %d)", os.getpid())
     return True

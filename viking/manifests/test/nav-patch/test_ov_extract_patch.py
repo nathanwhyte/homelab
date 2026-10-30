@@ -23,6 +23,7 @@ import contextlib
 import contextvars
 import dataclasses
 import importlib.util
+import inspect
 import io
 import json
 import os
@@ -930,6 +931,157 @@ class SessionInstallTests(EnvMixin, unittest.TestCase):
         self.assertIs(self.mod.resolve_extraction_batch_limits, resolve_stock)
 
 
+class FakePatch:
+    """Stands in for pydantic's ``StrPatch``: only ``model_dump`` is public."""
+
+    def __init__(self, dumped=None, error=None):
+        self.dumped = dumped
+        self.error = error
+
+    def model_dump(self, mode="python"):
+        if self.error:
+            raise self.error
+        return {"mode": mode, "value": self.dumped}
+
+    def __str__(self):
+        return "fake-patch"
+
+
+class JsonSafeTests(unittest.TestCase):
+    def test_models_are_dumped_at_any_depth(self):
+        issues = [{"operation": {"summary": FakePatch("x"), "tags": [FakePatch("y")]}}]
+        self.assertEqual(
+            ep.json_safe(issues),
+            [
+                {
+                    "operation": {
+                        "summary": {"mode": "json", "value": "x"},
+                        "tags": [{"mode": "json", "value": "y"}],
+                    }
+                }
+            ],
+        )
+
+    def test_a_dump_holding_a_model_is_cleaned_too(self):
+        out = ep.json_safe(FakePatch(FakePatch("inner")))
+        self.assertEqual(
+            out, {"mode": "json", "value": {"mode": "json", "value": "inner"}}
+        )
+
+    def test_json_values_pass_through_and_the_input_is_not_mutated(self):
+        patch = FakePatch("x")
+        issues = [{"a": 1, "b": 1.5, "c": True, "d": None, "e": "s", "f": patch}]
+        ep.json_safe(issues)
+        self.assertIs(issues[0]["f"], patch)
+        plain = {"a": 1, "b": 1.5, "c": True, "d": None, "e": "s", "g": [1]}
+        self.assertEqual(ep.json_safe(plain), plain)
+
+    def test_other_objects_and_keys_become_strings(self):
+        out = ep.json_safe({("a", "b"): object, "s": (1, 2)})
+        json.dumps(out)
+        self.assertEqual(out["s"], [1, 2])
+        self.assertEqual(out["('a', 'b')"], str(object))
+
+    def test_a_failing_dump_falls_back_to_str(self):
+        self.assertEqual(ep.json_safe(FakePatch(error=ValueError("no"))), "fake-patch")
+
+
+class RepairInstructionTests(EnvMixin, unittest.TestCase):
+    """BUG-1237: both repair prompts get JSON-safe input, under their own guards."""
+
+    def setUp(self):
+        super().setUp()
+
+        class Loop:
+            async def run(self):
+                return None, []
+
+            def _build_resolution_repair_instruction(self, issues):
+                return json.dumps(issues)
+
+            def _build_patch_repair_instruction(self, patch_errors):
+                return json.dumps(patch_errors)
+
+        self.cls = Loop
+        self.mod = types.SimpleNamespace(ExtractLoop=Loop)
+        self.saved = {
+            name: getattr(ep, name)
+            for name in (
+                "EXPECTED_RUN_SHA256",
+                "EXPECTED_RESOLUTION_REPAIR_SHA256",
+                "EXPECTED_PATCH_REPAIR_SHA256",
+            )
+        }
+        ep.EXPECTED_RUN_SHA256 = ep._source_hash(Loop.run)
+        ep.EXPECTED_RESOLUTION_REPAIR_SHA256 = ep._source_hash(
+            Loop._build_resolution_repair_instruction
+        )
+        ep.EXPECTED_PATCH_REPAIR_SHA256 = ep._source_hash(
+            Loop._build_patch_repair_instruction
+        )
+        self.saved_openviking = sys.modules.get("openviking")
+        fake = types.ModuleType("openviking")
+        fake.__version__ = ep.EXPECTED_VERSION
+        sys.modules["openviking"] = fake
+
+    def tearDown(self):
+        for name, value in self.saved.items():
+            setattr(ep, name, value)
+        if self.saved_openviking is None:
+            del sys.modules["openviking"]
+        else:
+            sys.modules["openviking"] = self.saved_openviking
+        ep._state["loop_applied"] = False
+        super().tearDown()
+
+    def test_both_builders_render_a_model(self):
+        self.assertTrue(ep.apply_extract_loop(self.mod))
+        issue = [{"operation": {"summary": FakePatch("x")}}]
+        loop = self.cls()
+        for build in (
+            loop._build_resolution_repair_instruction,
+            loop._build_patch_repair_instruction,
+        ):
+            self.assertEqual(
+                json.loads(build(issue)),
+                [{"operation": {"summary": {"mode": "json", "value": "x"}}}],
+            )
+
+    def test_apply_is_idempotent(self):
+        self.assertTrue(ep.apply_extract_loop(self.mod))
+        first = self.cls._build_patch_repair_instruction
+        self.assertTrue(ep.apply_extract_loop(self.mod))
+        self.assertIs(self.cls._build_patch_repair_instruction, first)
+
+    def test_a_hash_mismatch_keeps_that_builder_stock_and_the_rest_applied(self):
+        stock = self.cls._build_patch_repair_instruction
+        ep.EXPECTED_PATCH_REPAIR_SHA256 = "0" * 64
+        self.assertTrue(ep.apply_extract_loop(self.mod))
+        self.assertIs(self.cls._build_patch_repair_instruction, stock)
+        self.assertTrue(
+            getattr(self.cls._build_resolution_repair_instruction, "_ov_extract_patch")
+        )
+        self.assertTrue(getattr(self.cls.run, "_ov_extract_patch"))
+
+    def test_a_loop_without_the_builders_still_gets_the_run_wrapper(self):
+        class Bare:
+            async def run(self):
+                return None, []
+
+        ep.EXPECTED_RUN_SHA256 = ep._source_hash(Bare.run)
+        self.assertTrue(ep.apply_extract_loop(types.SimpleNamespace(ExtractLoop=Bare)))
+        self.assertTrue(getattr(Bare.run, "_ov_extract_patch"))
+
+    def test_disabled_by_env_leaves_the_builders_stock(self):
+        stock = self.cls._build_resolution_repair_instruction
+        os.environ["OV_EXTRACT_PATCH"] = "0"
+        try:
+            self.assertFalse(ep.apply_extract_loop(self.mod))
+        finally:
+            os.environ.pop("OV_EXTRACT_PATCH", None)
+        self.assertIs(self.cls._build_resolution_repair_instruction, stock)
+
+
 # --- real v0.5.1.1 targets (image only) -------------------------------------------------
 
 
@@ -1204,6 +1356,8 @@ def _phase2_harness_main(scenario):
     }
     wrapped = {
         "ExtractLoop.run": el.ExtractLoop.run,
+        "_build_resolution_repair_instruction": el.ExtractLoop._build_resolution_repair_instruction,
+        "_build_patch_repair_instruction": el.ExtractLoop._build_patch_repair_instruction,
         "retry_async": sm.retry_async,
         "is_retryable_api_error": sm.is_retryable_api_error,
         "resolve_extraction_batch_limits": sm.resolve_extraction_batch_limits,
@@ -1453,6 +1607,71 @@ def _phase2_harness_main(scenario):
         ],
     )
     print("HARNESS " + json.dumps(result, sort_keys=True))
+
+
+@requires_real
+class RealRepairPromptTests(unittest.TestCase):
+    """BUG-1237 against the real ``StrPatch``, both protocols and both real builders."""
+
+    BUILDERS = (
+        "_build_resolution_repair_instruction",
+        "_build_patch_repair_instruction",
+    )
+
+    def protocols(self):
+        from openviking.session.memory.extraction_output_protocol.json_protocol import (
+            JsonExtractionOutputProtocol,
+        )
+        from openviking.session.memory.extraction_output_protocol.python_protocol import (
+            PythonExtractionOutputProtocol,
+        )
+
+        return (PythonExtractionOutputProtocol(), JsonExtractionOutputProtocol())
+
+    def issues(self):
+        # The resolution issue shape. Real patch_errors never carry a StrPatch; the patch
+        # builder takes this list only to prove its wrapper holds if that changes.
+        from openviking.session.memory.merge_op.base import (
+            SearchReplaceBlock,
+            StrPatch,
+        )
+
+        patch = StrPatch(blocks=[SearchReplaceBlock(search="old", replace="new-text")])
+        return [{"memory_type": "events", "operation": {"summary": patch}}]
+
+    def stock(self, name):
+        from openviking.session.memory.extract_loop import ExtractLoop
+
+        # Another case in the suite's process may already have applied the patch.
+        return inspect.unwrap(getattr(ExtractLoop, name))
+
+    def test_stock_builders_crash_on_a_strpatch(self):
+        for protocol in self.protocols():
+            loop = types.SimpleNamespace(_output_protocol=protocol)
+            for name in self.BUILDERS:
+                with self.subTest(protocol=type(protocol).__name__, builder=name):
+                    with self.assertRaisesRegex(TypeError, "StrPatch"):
+                        self.stock(name)(loop, self.issues())
+
+    def test_wrapped_builders_render_the_patch_text(self):
+        for protocol in self.protocols():
+            loop = types.SimpleNamespace(_output_protocol=protocol)
+            for name in self.BUILDERS:
+                with self.subTest(protocol=type(protocol).__name__, builder=name):
+                    text = ep.wrap_repair_instruction(self.stock(name))(
+                        loop, self.issues()
+                    )
+                    self.assertIn("new-text", text)
+
+    def test_the_guards_match_the_real_builders(self):
+        self.assertEqual(
+            ep._source_hash(self.stock(self.BUILDERS[0])),
+            ep.EXPECTED_RESOLUTION_REPAIR_SHA256,
+        )
+        self.assertEqual(
+            ep._source_hash(self.stock(self.BUILDERS[1])),
+            ep.EXPECTED_PATCH_REPAIR_SHA256,
+        )
 
 
 @requires_real
