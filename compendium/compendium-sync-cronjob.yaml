@@ -97,11 +97,13 @@ spec:
                   set -euo pipefail
                   # Idle pre-check (IMPR-1154): most scheduled runs have nothing
                   # to deliver, and apt + pip + clone cost ~4.5 min to learn that.
-                  # Exit early only on the exact idle condition compendium-sync.py
-                  # itself uses (canonical --changed run, no journal run in the
-                  # state file, watermark == origin/main). Any doubt (other
-                  # flags, missing state, API error, odd SHA) falls through to
-                  # the full run.
+                  # Exit early only on compendium-sync.py's HEAD-equals-watermark
+                  # exit (canonical --changed run, no journal run in the state
+                  # file, watermark == origin/main). Its other no-delivery
+                  # exits, such as a merge touching no item files or a parked
+                  # journal run, still pay for setup. Any doubt (other flags,
+                  # missing state, API error, odd SHA) falls through to the
+                  # full run.
                   if python3 - <<'PRECHECK'
                   import json, os, re, sys, urllib.request
                   args = os.environ.get("SYNC_ARGS", "").split()

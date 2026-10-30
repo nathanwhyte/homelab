@@ -138,8 +138,8 @@ template:
     # Pending rather than let them pile up on whichever node has room". That
     # reasoning was sound while the pool was two worker nodes. It is wrong now
     # that one of the two IS the control plane: ScheduleAnyway expresses a
-    # preference, so with wemby unavailable or full, all 8 runners could legally
-    # land on timmy. At a 1500m limit that is 12 CPU of limits on an 8-core
+    # preference, so with wemby unavailable or full, all 7 runners could legally
+    # land on timmy. At a 1500m limit that is 10.5 CPU of limits on an 8-core
     # control plane — the exact failure this placement was supposed to prevent,
     # arriving precisely during degraded operation.
     #
@@ -149,13 +149,13 @@ template:
     # nodeTaintsPolicy Ignore is load-bearing, not decoration: a cordoned wemby
     # must still count as a topology domain. Under Honor it would drop out of
     # the domain set, leaving timmy as the only domain, trivially satisfying
-    # maxSkew and re-opening the all-8-on-timmy path this change closes.
+    # maxSkew and re-opening the all-on-timmy path this change closes.
     #
     # minDomains 2 closes the remaining case, which nodeTaintsPolicy does not:
     # wemby REMOVED from the cluster rather than cordoned. With one real domain
     # the global minimum is timmy's own count, so skew is identically 0 and the
-    # constraint stops binding — all 8 runners land, 12000m of limits on an
-    # 8-core control plane (150%). minDomains makes the scheduler treat the
+    # constraint stops binding — all 7 runners land, 10500m of limits on an
+    # 8-core control plane (131%). minDomains makes the scheduler treat the
     # absent domain as holding 0 pods, so a 2nd pod on timmy computes skew 2 >
     # maxSkew 1 and is refused. timmy caps at 1 until a second domain returns.
     #
@@ -165,10 +165,11 @@ template:
     # (the field is ignored under ScheduleAnyway) and k8s >= 1.30 for GA; this
     # cluster runs k3s v1.36.2.
     #
-    # THIS is the binding bound on timmy, not the CPU request below. With two
-    # domains and maxSkew 1, 8 pods admit only a 4/4 split, whatever the node's
-    # spare CPU happens to be. The request is defense in depth against this
-    # block being weakened or removed, not the primary mechanism.
+    # This block holds timmy to 4 whatever the node's spare CPU happens to be:
+    # with two domains and maxSkew 1, 7 pods admit at most a 4/3 split. The CPU
+    # request below is the tighter bound today, at 3 pods (2026-10-30
+    # re-measurement), and it is also the defense in depth against this block
+    # being weakened or removed.
     topologySpreadConstraints:
       - maxSkew: 1
         topologyKey: kubernetes.io/hostname
@@ -291,8 +292,8 @@ template:
         #   wemby 12000m allocatable - 6875m non-runner requests = 5125m free
         #          floor(5125 / 1000) = 5 pods
         #
-        # 4 + 5 = 9 >= maxRunners 8, so the healthy case loses no capacity —
-        # the reservation costs nothing operationally. With wemby unavailable,
+        # 4 + 5 = 9 >= the maxRunners of 8 then, so the healthy case lost no
+        # capacity — the reservation cost nothing operationally. With wemby unavailable,
         # timmy admits 4 and the rest stay Pending, which is the intended
         # degradation. 1000m is ~2x the 522m p90; that overshoot is the price
         # of the bound and is deliberate.
@@ -314,8 +315,8 @@ template:
         # on timmy shrink by ~280m, a 5th runner becomes admissible. That is
         # true of the request bound in isolation and irrelevant in practice:
         # the topologySpreadConstraint above caps timmy at 4 whatever the spare
-        # CPU is, because 8 pods across 2 domains at maxSkew 1 admit only a 4/4
-        # split. The request loosening to 5 cannot be reached while the spread
+        # CPU is, because 7 pods across 2 domains at maxSkew 1 admit at most a
+        # 4/3 split. The request loosening to 5 cannot be reached while the spread
         # holds. The genuine residual was the one-domain case, now closed by
         # minDomains 2 — see that block.
         #
