@@ -30,26 +30,32 @@ controllerServiceAccount:
 # the runner image, so the penalty for NOT keeping one warm is small. The
 # reason to keep four is capacity lead time, not cold start: a pod needs
 # create -> schedule -> pull -> register before GitHub can hand it a job, and
-# with 1 warm pod the remaining lanes of a run queue behind that. Four covers a
-# full vault-checks run's parallel jobs (script suites unit ∥ e2e, merge-ids,
-# lint), so a push starts immediately instead of waiting for the set to grow.
-# Cost is four idle pods (~37 MiB and ~4m CPU each between jobs).
+# with 1 warm pod the remaining lanes of a run queue behind that. Four warm
+# pods cover a vault-checks run's parallel jobs (script suites unit ∥ e2e ∥
+# landing, lint — see the job count below), so a push starts immediately
+# instead of waiting for the set to grow. Cost is four idle pods (~37 MiB and
+# ~4m CPU each between jobs).
 #
 # The `formatting` job this comment used to name was deleted on 2026-09-15 —
-# its two ruff steps were already covered by `make lint`. The count is still
-# four per branch push because merge-ids takes the freed slot; on main, where
-# merge-ids is skipped, a run needs three.
+# its two ruff steps were already covered by `make lint`. On 2026-10-19
+# (compendium IMPR-1363, ac2a3be9c) the e2e suite split into e2e and landing
+# lanes, so a branch push ran FIVE jobs (unit, e2e, landing, lint, merge-ids)
+# and a main push four. A compendium change opened 2026-10-30 folds merge-ids
+# into the lint job as a step, making it four on a branch and four on main.
 #
-# maxRunners: 8 — vault-checks runs FOUR parallel jobs per push, so 8 is
-# exactly two concurrent full runs' worth of work. Verified live at 7 with two
-# overlapping runs: the listener reported `assigned job=7 decision=7 max=7`
-# (saturated, queueing) and the pods split 4 manu / 4 wemby — that split
-# predates the 2026-09-15 move to wemby + timmy. Observed peak
-# per-run demand is 4–5 pods (a run's e2e lane holds its pod while the other
-# lanes finish), so 8 covers two runs and absorbs the +1 that overshoot would
-# otherwise queue behind.
+# maxRunners: 7 (8 until 2026-10-30). 8 was "two concurrent four-job runs",
+# but it stopped being placeable once timmy's other workloads grew: with the
+# 1000m request below, timmy admits three runners today (see the 2026-10-30
+# re-measurement in the resources block), and the maxSkew-1 spread then caps
+# wemby at four, so the eighth pod sat Pending with FailedScheduling (observed
+# 2026-10-30 14:18 CDT, right after the IMPR-1363 trial was ended). 7 is what
+# the two nodes place, and holds one full push plus two or three jobs of the
+# next. 7 was also verified live before the 2026-09-15 move (manu + wemby
+# then) with two overlapping runs: the listener reported `assigned job=7
+# decision=7 max=7` (saturated, queueing). If timmy frees ~221m, or the spread
+# loosens, 8 becomes placeable again — re-measure before raising.
 minRunners: 4
-maxRunners: 8
+maxRunners: 7
 
 # No containerMode: vault-checks runs plain steps only (no `container:` jobs,
 # no docker builds), so jobs execute directly in the runner container —
@@ -232,7 +238,7 @@ template:
         #   max_over_time(sum(max by (pod) (rate(
         #     container_cpu_usage_seconds_total{namespace="arc-runners",
         #     container="runner"}[5m])))[2d:5m])
-        # maxRunners bounds pod count and the 2-core limit bounds one pod, but
+        # maxRunners bounds pod count and the 1500m limit bounds one pod, but
         # the sum across concurrent pods on a node is unconstrained. IMPR-1166
         # weighs the candidate mechanisms (lower per-pod limit, a LimitRange or
         # ResourceQuota in arc-runners, or a larger request so scheduler fit
@@ -290,6 +296,18 @@ template:
         # timmy admits 4 and the rest stay Pending, which is the intended
         # degradation. 1000m is ~2x the 522m p90; that overshoot is the price
         # of the bound and is deliberate.
+        #
+        # Re-measured 2026-10-30 (kubectl describe node, 14:02–14:18 CDT),
+        # after the IMPR-1363 trial (min 4 / max 4, 2-CPU limit, Helm rev 10,
+        # 2026-10-19 to 2026-10-30) was ended and the baseline re-applied:
+        #
+        #   timmy  8000m allocatable - 4221m non-runner requests = 3779m free
+        #          floor(3779 / 1000) = 3 pods; a 4th needs 4000m and is refused
+        #   wemby 12000m allocatable - 2850m non-runner requests = 9150m free
+        #          floor(9150 / 1000) = 9 pods, but maxSkew 1 allows timmy + 1
+        #
+        # 3 + 4 = 7 placeable pods, hence maxRunners 7 above. The 4719m figure
+        # is history: timmy's other workloads grew by ~940m in the interval.
         #
         # Correction (2026-09-15): an earlier revision of this comment called
         # the reservation-sensitivity above "the" residual — if other workloads
