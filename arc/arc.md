@@ -92,8 +92,8 @@ gh workflow run "vault checks" -R nathanwhyte/compendium         # workflow_disp
   Four warm runners (not 1) means a push starts immediately: pods need
   create → schedule → pull → register before GitHub can assign a job, and with
   one warm pod the rest of the run queues behind that lead time. Runner pods are
-  kept off manu by a required node affinity (`NotIn: [manu]`, since the
-  BUG-1101 cooling fault on 2026-09-15) and spread across wemby and timmy by a
+  kept off manu by a required node affinity (`NotIn: [manu]`, since 2026-09-15,
+  after the BUG-1101 cooling fault on 2026-09-14) and spread across wemby and timmy by a
   hard `topologySpreadConstraint` (`maxSkew: 1`, `whenUnsatisfiable:
   DoNotSchedule`, `minDomains: 2`) — without the spread they all land on wemby,
   because the runner image is cached only there and `ImageLocality` outweighs

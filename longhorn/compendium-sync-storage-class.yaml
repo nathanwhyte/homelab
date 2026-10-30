@@ -10,7 +10,9 @@ allowVolumeExpansion: true
 reclaimPolicy: Retain
 volumeBindingMode: Immediate
 parameters:
-  # manu, timmy, and wemby currently have schedulable ssd-tagged disks. Two
+  # manu and timmy have schedulable ssd-tagged disks. wemby's is ssd-tagged too,
+  # but Longhorn reported it Schedulable=False (DiskPressure, under the 25%
+  # free-space minimum) on 2026-10-30, so it takes no new replicas. Two
   # replicas are fully placeable across distinct nodes and tolerate one node
   # loss without tripling storage for a tiny, reconstructible JSON baseline.
   numberOfReplicas: "2"
