@@ -82,18 +82,23 @@ gh workflow run "vault checks" -R nathanwhyte/compendium         # workflow_disp
 
 ## Operational notes
 
-- **Capacity and placement**: `maxRunners: 8` with `minRunners: 4`. vault-checks
-  runs four parallel jobs per push (`script suites (unit)` ∥ `script suites
-  (e2e)`, `lint`, `formatting`), and a run peaks at 4–5 pods because the e2e
-  lane holds its pod while the other lanes finish — so 8 covers two concurrent
-  runs. Four warm runners (not 1) means a push starts immediately: pods need
+- **Capacity and placement**: `maxRunners: 7` with `minRunners: 4` (8 until
+  2026-10-30). vault-checks runs four parallel jobs per push (`script suites
+  (unit)` ∥ `script suites (e2e)` ∥ `script suites (landing)`, `lint`; the
+  duplicate-ID check is a step of `lint` since 2026-10-30), and a run peaks at
+  4–5 pods because the e2e lane holds its pod while the other lanes finish. 7
+  is what wemby + timmy can place under the 1-CPU request and the maxSkew-1
+  spread (timmy admits 3, wemby then at most 4); an eighth pod sat Pending.
+  Four warm runners (not 1) means a push starts immediately: pods need
   create → schedule → pull → register before GitHub can assign a job, and with
   one warm pod the rest of the run queues behind that lead time. Runner pods are
-  spread across manu and wemby by a soft `topologySpreadConstraint`
-  (`maxSkew: 1`, `whenUnsatisfiable: ScheduleAnyway`) — without it they all land
-  on wemby, because the runner image is cached only there and `ImageLocality`
-  outweighs the resource-fit scores that favour the emptier manu. Verify
-  placement after a values change:
+  kept off manu by a required node affinity (`NotIn: [manu]`, since the
+  BUG-1101 cooling fault on 2026-09-15) and spread across wemby and timmy by a
+  hard `topologySpreadConstraint` (`maxSkew: 1`, `whenUnsatisfiable:
+  DoNotSchedule`, `minDomains: 2`) — without the spread they all land on wemby,
+  because the runner image is cached only there and `ImageLocality` outweighs
+  the resource-fit scores that favour the emptier node. Verify placement after
+  a values change:
 
   ```bash
   kubectl get pods -n arc-runners \
@@ -167,14 +172,18 @@ gh workflow run "vault checks" -R nathanwhyte/compendium         # workflow_disp
 
 ## Bounded CPU trial (IMPR-1363)
 
-The checked-in baseline remains min 4/max 8 runners with a 1-CPU request,
-1.5-CPU limit, and 512Mi/2Gi memory request/limit. The opt-in trial keeps four
+The checked-in baseline remains min 4/max 7 runners (max 8 until 2026-10-30)
+with a 1-CPU request, 1.5-CPU limit, and 512Mi/2Gi memory request/limit. The
+trial ran as Helm revision 10 from 2026-10-19 and was ended 2026-10-30 with
+`--runner-cpu-drain` (revision 11) then `--runner-cpu-baseline` (revision 12);
+compendium IMPR-1363 records what it measured. The opt-in trial keeps four
 warm runners but caps the pool at four and raises each runner's limit to
 2 CPUs. The existing hard two-node spread, CPU request, memory settings,
 image, security context, and network policy stay unchanged. At steady state
 the trial admits two runners per node, bounding runner CPU at four of timmy's
-eight reported CPUs. Do not combine the 2-CPU limit with the baseline max 8:
-four runners on timmy could consume all of its control-plane CPU capacity.
+eight reported CPUs. Do not combine the 2-CPU limit with the baseline maximum
+(7 now, 8 before 2026-10-30): four runners on timmy could consume all of its
+control-plane CPU capacity.
 
 This tests individual-job latency at the cost of burst capacity. More than four
 concurrent jobs can wait longer. The October 19 sample
