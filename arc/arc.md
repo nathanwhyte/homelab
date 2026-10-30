@@ -92,11 +92,13 @@ gh workflow run "vault checks" -R nathanwhyte/compendium         # workflow_disp
   Four warm runners (not 1) means a push starts immediately: pods need
   create → schedule → pull → register before GitHub can assign a job, and with
   one warm pod the rest of the run queues behind that lead time. Runner pods are
-  spread across manu and wemby by a soft `topologySpreadConstraint`
-  (`maxSkew: 1`, `whenUnsatisfiable: ScheduleAnyway`) — without it they all land
-  on wemby, because the runner image is cached only there and `ImageLocality`
-  outweighs the resource-fit scores that favour the emptier manu. Verify
-  placement after a values change:
+  kept off manu by a required node affinity (`NotIn: [manu]`, since the
+  BUG-1101 cooling fault on 2026-09-15) and spread across wemby and timmy by a
+  hard `topologySpreadConstraint` (`maxSkew: 1`, `whenUnsatisfiable:
+  DoNotSchedule`, `minDomains: 2`) — without the spread they all land on wemby,
+  because the runner image is cached only there and `ImageLocality` outweighs
+  the resource-fit scores that favour the emptier node. Verify placement after
+  a values change:
 
   ```bash
   kubectl get pods -n arc-runners \
@@ -179,8 +181,9 @@ warm runners but caps the pool at four and raises each runner's limit to
 2 CPUs. The existing hard two-node spread, CPU request, memory settings,
 image, security context, and network policy stay unchanged. At steady state
 the trial admits two runners per node, bounding runner CPU at four of timmy's
-eight reported CPUs. Do not combine the 2-CPU limit with the baseline max 8:
-four runners on timmy could consume all of its control-plane CPU capacity.
+eight reported CPUs. Do not combine the 2-CPU limit with the baseline maximum
+(7 now, 8 before 2026-10-30): four runners on timmy could consume all of its
+control-plane CPU capacity.
 
 This tests individual-job latency at the cost of burst capacity. More than four
 concurrent jobs can wait longer. The October 19 sample
