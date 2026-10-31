@@ -1,6 +1,6 @@
 ---
 # BUG-1220: long-hold watchdog. Restarts deploy/openviking when ONE lock has
-# been held by the SAME lease_ref for more than 3 h (WATCHDOG_HOLD_SECONDS).
+# been held by the SAME owner for more than 3 h (WATCHDOG_HOLD_SECONDS).
 # On 2026-10-09..12 one MCP session's memory extraction held its
 # .path.ovlock for ~70 h, refreshing every ~10 s, and only an unrelated pod
 # replacement cleared it. The BUG-1181 in-Job heal restarts only for a wedge
@@ -15,9 +15,10 @@
 # restart that lands between its read and its write turns it into a 409 no-op.
 #
 # Identity: ov-exporter's openviking_s3_ovlock_live_age_seconds (homelab#205,
-# port 9210 on the openviking Service) says how long the lock has been present;
-# the openviking container log must show ONE lease_ref refreshing it within the
-# last 60 s and, over the part of the window the log covers, no other. Anything
+# port 9210 on the openviking Service) says how long the lock has been present
+# under one owner and lock type. A read on a later exporter poll must agree
+# (WATCHDOG_RECHECK_SECONDS, 30 s) before the restart. v0.5.1.1 logs no lease
+# lines (BUG-1282), so a handoff under one owner reads as one hold. Anything
 # unclear logs a reason and restarts nothing.
 #
 # Disruption guard: prefer a quiet queue, force at WATCHDOG_FORCE_SECONDS (6 h).

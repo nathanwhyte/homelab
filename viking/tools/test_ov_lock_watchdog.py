@@ -31,9 +31,7 @@ UTC = datetime.timezone.utc
 NOW = datetime.datetime(2026, 10, 13, 12, 0, 0, tzinfo=UTC)
 HOUR = 3600.0
 KEY = "default/user/noot/sessions/mcp-store-e71a7b670fca/.path.ovlock"
-PATH = "/local/" + KEY
-LEASE = "5e9d7e9a-9f35-4b2d-af0f-ec494b7bd6c8"
-OWNER_ID = "9959d01e-e133-4e46-8074-04cc1de18b00"
+KEY2 = "default/user/noot/sessions/other/.path.ovlock"
 CFG = wd.Config()
 
 
@@ -75,43 +73,12 @@ def deploy(
     )
 
 
-def refresh_log(
-    path: str = PATH,
-    hold: float = 4 * HOUR,
-    lease: str = LEASE,
-    last_ago: float = 5.0,
-    covered_for: float | None = None,
-    step: float = 10.0,
-    drop: tuple[float, float] | None = None,
-    swap_at: float | None = None,
-    other_lease: str = "00000000-aaaa-bbbb-cccc-111111111111",
-) -> wd.LogRead:
-    """A log with one refresh every `step` s on `path` for `hold` s.
-
-    drop=(from_ago, to_ago) removes the lines in that span; swap_at=N makes
-    lines older than N s ago belong to other_lease.
-    """
-    sightings = []
-    t = last_ago
-    while t <= hold:
-        if not (drop and drop[1] <= t <= drop[0]):
-            use = other_lease if swap_at is not None and t > swap_at else lease
-            sightings.append((ago(t), use, OWNER_ID, (path,)))
-        t += step
-    covered = hold + 5 if covered_for is None else covered_for
-    return wd.LogRead(
-        now=NOW, covered_from=ago(covered), sightings=tuple(sorted(sightings))
-    )
-
-
 def decide(**kw) -> wd.Decision:
-    log = kw.pop("log", refresh_log())
     return wd.decide(
         CFG,
         NOW,
         kw.pop("deploy", deploy()),
         kw.pop("exporter", exporter([lock(4 * HOUR)])),
-        log,
         kw.pop("errors", None),
     )
 
@@ -124,26 +91,19 @@ class TestBug1220Policy(unittest.TestCase):
             exporter=exporter(
                 [lock(3.2 * HOUR)], work=0
             ),  # the wedged task is not in the queue
-            log=refresh_log(hold=3.2 * HOUR),
         )
         self.assertEqual(d.action, "restart", d.reason)
         self.assertIn("quiet", d.reason)
-        self.assertEqual(d.qualified[0].verdict.lease_ref, LEASE)
+        self.assertEqual(d.qualified[0].lock.owner, "tok-1")
 
     def test_busy_queue_defers_between_hold_and_force(self):
-        d = decide(
-            exporter=exporter([lock(4 * HOUR)], work=11),
-            log=refresh_log(hold=4 * HOUR),
-        )
+        d = decide(exporter=exporter([lock(4 * HOUR)], work=11))
         self.assertEqual(d.action, "defer", d.reason)
         self.assertIn("11 queue item(s) pending or in progress", d.reason)
         self.assertIn("forced restart in 7200s", d.reason)
 
     def test_busy_queue_is_forced_at_the_cap(self):
-        d = decide(
-            exporter=exporter([lock(6.1 * HOUR)], work=11),
-            log=refresh_log(hold=6.1 * HOUR),
-        )
+        d = decide(exporter=exporter([lock(6.1 * HOUR)], work=11))
         self.assertEqual(d.action, "restart", d.reason)
         self.assertIn("forced", d.reason)
 
@@ -151,9 +111,7 @@ class TestBug1220Policy(unittest.TestCase):
         e = exporter([lock(4 * HOUR)], work=None)
         self.assertEqual(decide(exporter=e).action, "defer")
         e = exporter([lock(7 * HOUR)], work=None)
-        self.assertEqual(
-            decide(exporter=e, log=refresh_log(hold=7 * HOUR)).action, "restart"
-        )
+        self.assertEqual(decide(exporter=e).action, "restart")
 
     def test_below_the_hold_threshold_does_nothing(self):
         d = decide(exporter=exporter([lock(2.9 * HOUR)]))
@@ -163,9 +121,7 @@ class TestBug1220Policy(unittest.TestCase):
     def test_quiet_max_work_is_configurable(self):
         cfg = wd.Config(quiet_max_work=3)
         for work, action in ((3, "restart"), (4, "defer")):
-            d = wd.decide(
-                cfg, NOW, deploy(), exporter([lock(4 * HOUR)], work=work), refresh_log()
-            )
+            d = wd.decide(cfg, NOW, deploy(), exporter([lock(4 * HOUR)], work=work))
             self.assertEqual(d.action, action, d.reason)
 
     def test_any_queued_work_defers_by_default(self):
@@ -174,55 +130,25 @@ class TestBug1220Policy(unittest.TestCase):
 
 
 class TestIdentity(unittest.TestCase):
-    def test_lease_ref_changing_on_the_path_is_not_a_wedge(self):
-        d = decide(log=refresh_log(swap_at=2 * HOUR))
-        self.assertEqual(d.action, "held")
-        self.assertIn("lease changed", d.locks[0].reason)
-
-    def test_refreshes_stopped_is_the_janitors_case(self):
-        d = decide(log=refresh_log(last_ago=600.0))
-        self.assertEqual(d.action, "held")
-        self.assertIn("refreshes stopped", d.locks[0].reason)
-
-    def test_a_refresh_gap_inside_the_window_blocks(self):
-        d = decide(log=refresh_log(drop=(2 * HOUR + 600, 2 * HOUR)))
-        self.assertEqual(d.action, "held")
-        self.assertIn("refresh gap", d.locks[0].reason)
-
-    def test_no_lease_line_for_the_path_blocks(self):
-        d = decide(log=refresh_log(path="/local/default/other/.path.ovlock"))
-        self.assertEqual(d.action, "held")
-        self.assertIn("no lease line", d.locks[0].reason)
-
-    def test_log_missing_blocks(self):
-        d = decide(log=None, errors={"log": "HTTP 403 on GET .../log"})
-        self.assertEqual(d.action, "held")
-        self.assertIn("pod log unavailable: HTTP 403", d.locks[0].reason)
-
-    def test_partial_log_coverage_is_judged_on_what_it_holds(self):
-        # The log starts 2 h into a 4 h hold (rotation): still one lease, no gap.
-        d = decide(log=refresh_log(covered_for=2 * HOUR))
+    def test_a_readable_owner_qualifies_on_exporter_evidence_alone(self):
+        # BUG-1282: v0.5.1.1 logs no lease line, so none may be required.
+        d = decide()
         self.assertEqual(d.action, "restart", d.reason)
-        self.assertIn("partial", d.locks[0].reason)
+        self.assertTrue(d.locks[0].qualified)
+        self.assertIn("one owner", d.locks[0].reason)
 
-    def test_a_lease_swap_before_the_covered_part_is_not_visible(self):
-        # Honest limit: that part rests on the exporter's holder-change reset.
-        d = decide(log=refresh_log(covered_for=2 * HOUR, swap_at=3 * HOUR))
-        self.assertEqual(d.action, "restart")
+    def test_unreadable_owner_blocks(self):
+        for owner in ("unknown", ""):
+            d = decide(exporter=exporter([lock(4 * HOUR, owner=owner)]))
+            self.assertEqual(d.action, "held", owner)
+            self.assertIn("owner unknown", d.locks[0].reason)
+            self.assertIn("none with a readable owner", d.reason)
 
-    def test_too_little_log_blocks(self):
-        d = decide(log=refresh_log(covered_for=300.0))
-        self.assertEqual(d.action, "held")
-        self.assertIn("log covers only 300s", d.locks[0].reason)
-
-    def test_unknown_exporter_owner_blocks(self):
-        d = decide(exporter=exporter([lock(4 * HOUR, owner="unknown")]))
-        self.assertEqual(d.action, "held")
-        self.assertIn("owner unknown", d.locks[0].reason)
-
-    def test_clock_skew_blocks(self):
-        log = refresh_log(last_ago=-120.0)
-        self.assertEqual(decide(log=log).action, "held")
+    def test_unread_lock_type_does_not_block_a_readable_owner(self):
+        e = exporter(
+            [wd.LiveLock(KEY, "viking://x", "tok-1", "unknown", 4 * HOUR)], work=0
+        )
+        self.assertEqual(decide(exporter=e).action, "restart")
 
 
 class TestGates(unittest.TestCase):
@@ -280,49 +206,33 @@ class TestGates(unittest.TestCase):
 
 class TestTwoLongLocks(unittest.TestCase):
     def test_one_decision_covers_both_and_names_both(self):
-        key2 = "default/user/noot/sessions/other/.path.ovlock"
-        log = refresh_log()
-        second = refresh_log(
-            path="/local/" + key2, lease="22222222-3333-4444-5555-666666666666"
-        )
-        both = wd.LogRead(
-            now=NOW,
-            covered_from=log.covered_from,
-            sightings=tuple(sorted(log.sightings + second.sightings)),
-        )
         d = decide(
-            exporter=exporter([lock(4 * HOUR), lock(4 * HOUR, key=key2)], work=0),
-            log=both,
+            exporter=exporter([lock(4 * HOUR), lock(4 * HOUR, key=KEY2)], work=0),
         )
         self.assertEqual(d.action, "restart", d.reason)
         self.assertEqual(len(d.qualified), 2)
         self.assertIn("quiet", d.reason)
 
     def test_one_rejected_lock_does_not_veto_the_other(self):
-        key2 = "default/user/noot/sessions/other/.path.ovlock"
         d = decide(
-            exporter=exporter([lock(4 * HOUR), lock(5 * HOUR, key=key2)], work=0),
-        )  # the log only has KEY
+            exporter=exporter(
+                [lock(5 * HOUR, owner="unknown"), lock(4 * HOUR, key=KEY2)], work=0
+            ),
+        )
         self.assertEqual(d.action, "restart", d.reason)
         self.assertEqual([r.qualified for r in d.locks], [False, True])
 
 
 class FakeCluster:
-    def __init__(self, deploy_state=None, log=None, pod=("ov-1", "uid-1")):
+    """No pod calls: the job needs only the Deployment since BUG-1282."""
+
+    def __init__(self, deploy_state=None):
         self.deploy_state = deploy_state or deploy()
-        self.log = log or refresh_log()
-        self.pod = pod
         self.patches = []
         self.restart_error = None
 
     def get_deployment(self):
         return self.deploy_state
-
-    def ov_pod(self):
-        return self.pod
-
-    def ov_log(self, pod, since, now):
-        return self.log
 
     def restart(self, resource_version, note, now):
         if self.restart_error:
@@ -331,12 +241,15 @@ class FakeCluster:
         return "patched"
 
 
+POLL_LINE = f"openviking_last_poll_unix {NOW.timestamp() - 3}\n"
+
+
 def metrics_text(age=4 * HOUR, work=11, up=1, poll_ok=1) -> str:
     return (
         "# TYPE openviking_up gauge\n"
         f"openviking_up {up}\n"
-        f"openviking_last_poll_unix {NOW.timestamp() - 3}\n"
-        f"openviking_s3_ovlock_poll_ok {poll_ok}\n"
+        + POLL_LINE
+        + f"openviking_s3_ovlock_poll_ok {poll_ok}\n"
         "# TYPE openviking_s3_ovlock_live_age_seconds gauge\n"
         f'openviking_s3_ovlock_live_age_seconds{{key="{KEY}",uri="viking://u/x",'
         f'owner="tok-1",lock_type="E"}} {age}\n'
@@ -348,34 +261,75 @@ def metrics_text(age=4 * HOUR, work=11, up=1, poll_ok=1) -> str:
 
 
 class TestRun(unittest.TestCase):
-    def go(self, cluster, text, dry_run=False, cfg=CFG):
+    def go(self, cluster, text, dry_run=False, cfg=CFG, new_polls=True):
+        """Each fetch is a later exporter poll unless new_polls=False."""
         out: list[str] = []
+        self.events: list[str] = []
+
+        def fetch(url):
+            self.events.append("fetch")
+            body = text if isinstance(text, str) else text(url)
+            if new_polls:
+                polled = NOW.timestamp() - 3 + self.events.count("fetch")
+                body = body.replace(POLL_LINE, f"openviking_last_poll_unix {polled}\n")
+            return body
+
         code = wd.run(
             cfg,
             cluster,
-            lambda url: text if isinstance(text, str) else text(url),
+            fetch,
             dry_run=dry_run,
             now_fn=lambda: NOW,
             say=out.append,
+            sleep=lambda s: self.events.append(f"sleep {s}"),
         )
         return code, "\n".join(out)
 
     def test_quiet_restart_patches_once_with_the_read_resource_version(self):
-        cluster = FakeCluster(log=refresh_log(hold=4 * HOUR))
+        cluster = FakeCluster()
         code, out = self.go(cluster, metrics_text(work=0))
         self.assertEqual(code, 0, out)
         self.assertEqual(len(cluster.patches), 1)
         self.assertEqual(cluster.patches[0][0], "42")
-        self.assertIn(f"lease_ref={LEASE}", out)
-        self.assertIn(f"owner_id={OWNER_ID}", out)
+        self.assertIn("owner=tok-1", out)
         self.assertIn("ov-lock-watchdog: RESTARTED deploy/openviking", out)
-        self.assertIn(PATH, out)
+        self.assertIn(KEY, out)
+
+    def test_restart_notes_name_no_lease(self):
+        cluster = FakeCluster()
+        code, out = self.go(cluster, metrics_text(work=0))
+        self.assertEqual(code, 0, out)
+        self.assertNotIn("lease_ref", out)
+        self.assertNotIn("lease_ref", cluster.patches[0][1])
+        self.assertIn("identity=same-owner", out)
+
+    def test_the_second_read_waits_for_a_later_poll(self):
+        cluster = FakeCluster()
+        self.go(cluster, metrics_text(work=0))
+        self.assertEqual(self.events, ["fetch", "sleep 30.0", "fetch"])
+
+    def test_two_reads_of_one_poll_abort(self):
+        # The exporter compares holders from the poll after labelling, so a
+        # re-read of the same poll proves nothing (BUG-1282).
+        cluster = FakeCluster()
+        code, out = self.go(cluster, metrics_text(work=0), new_polls=False)
+        self.assertEqual((code, cluster.patches), (0, []))
+        self.assertIn("ABORTED before restart: the exporter has not polled", out)
+
+    def test_lock_type_change_before_the_patch_aborts(self):
+        swapped = metrics_text(work=0).replace('lock_type="E"', 'lock_type="T"')
+        texts = iter([metrics_text(work=0), swapped])
+        cluster = FakeCluster()
+        code, out = self.go(cluster, lambda url: next(texts))
+        self.assertEqual((code, cluster.patches), (0, []))
+        self.assertIn("ABORTED before restart: lock gone or changed", out)
 
     def test_dry_run_never_patches(self):
         cluster = FakeCluster()
         code, out = self.go(cluster, metrics_text(work=0), dry_run=True)
         self.assertEqual(code, 0)
         self.assertEqual(cluster.patches, [])
+        self.assertEqual(self.events, ["fetch"])
         self.assertIn("DRY-RUN would restart", out)
         self.assertIn("mode=dry-run", out)
 
@@ -410,7 +364,7 @@ class TestRun(unittest.TestCase):
         self.assertIn("predates homelab#205", out)
 
     def test_partial_lock_selection_is_blind_and_never_patches(self):
-        cluster = FakeCluster(log=refresh_log(hold=4 * HOUR))
+        cluster = FakeCluster()
         text = (
             metrics_text(work=0)
             + 'openviking_s3_ovlock_live_age_seconds{key="first-bad"} NaN\n'
@@ -424,7 +378,7 @@ class TestRun(unittest.TestCase):
         self.assertIn("last-bad", out)
 
     def test_malformed_recheck_aborts_and_retains_all_diagnostics(self):
-        cluster = FakeCluster(log=refresh_log(hold=4 * HOUR))
+        cluster = FakeCluster()
         good = metrics_text(work=0)
         bad = (
             good
@@ -447,39 +401,6 @@ class TestRun(unittest.TestCase):
         code, out = self.go(cluster, metrics_text(work=0))
         self.assertEqual((code, cluster.patches), (2, []))
         self.assertIn("BLIND", out)
-
-    def test_log_forbidden_is_blind_and_never_restarts(self):
-        class NoLog(FakeCluster):
-            def ov_log(self, pod, since, now):
-                raise wd.K8sError("HTTP 403 on GET pods/log", blind=True)
-
-        cluster = NoLog()
-        code, out = self.go(cluster, metrics_text(work=0))
-        self.assertEqual((code, cluster.patches), (2, []))
-        self.assertIn("pod log unavailable", out)
-
-    def test_pod_replaced_during_the_log_read_blocks(self):
-        class Swap(FakeCluster):
-            calls = 0
-
-            def ov_pod(self):
-                Swap.calls += 1
-                return ("ov-1", "a") if Swap.calls == 1 else ("ov-2", "b")
-
-        cluster = Swap()
-        code, out = self.go(cluster, metrics_text(work=0))
-        self.assertEqual((code, cluster.patches), (0, []))
-        self.assertIn("pod changed", out)
-
-    def test_cooldown_blocks_before_the_log_is_read(self):
-        class NoLogRead(FakeCluster):
-            def ov_log(self, *a):
-                raise AssertionError("log must not be read")
-
-        cluster = NoLogRead(deploy_state=deploy(restarted_ago=600.0))
-        code, out = self.go(cluster, metrics_text(work=0))
-        self.assertEqual((code, cluster.patches), (0, []))
-        self.assertIn("cooldown", out)
 
     def test_conflict_on_patch_restarts_nothing_and_is_not_a_failure(self):
         cluster = FakeCluster()
@@ -541,7 +462,7 @@ class TestRun(unittest.TestCase):
         # homelab#251 Codex R1: the recheck must apply the quiet-queue rule to
         # the fresh queue count, not only the lock gates.
         texts = iter([metrics_text(work=0), metrics_text(work=11)])
-        cluster = FakeCluster(log=refresh_log(hold=4 * HOUR))
+        cluster = FakeCluster()
         code, out = self.go(cluster, lambda url: next(texts))
         self.assertEqual((code, cluster.patches), (0, []))
         self.assertIn("ABORTED before restart: busy:", out)
@@ -553,39 +474,29 @@ class TestRun(unittest.TestCase):
             if "queue" not in line
         )
         texts = iter([metrics_text(work=0), unreadable])
-        cluster = FakeCluster(log=refresh_log(hold=4 * HOUR))
+        cluster = FakeCluster()
         code, out = self.go(cluster, lambda url: next(texts))
         self.assertEqual((code, cluster.patches), (0, []))
         self.assertIn("queue unreadable", out)
 
     def test_busy_recheck_past_the_force_cap_still_restarts(self):
         texts = iter([metrics_text(age=7 * HOUR, work=0), metrics_text(age=7 * HOUR)])
-        cluster = FakeCluster(log=refresh_log(hold=7 * HOUR))
+        cluster = FakeCluster()
         code, out = self.go(cluster, lambda url: next(texts))
         self.assertEqual(code, 0, out)
         self.assertEqual(len(cluster.patches), 1)
         self.assertIn("forced:", out)
 
     def test_two_long_locks_still_patch_once(self):
-        key2 = "default/user/noot/sessions/other/.path.ovlock"
-        second = refresh_log(
-            path="/local/" + key2, lease="22222222-3333-4444-5555-666666666666"
-        )
-        base = refresh_log()
-        log = wd.LogRead(
-            now=NOW,
-            covered_from=base.covered_from,
-            sightings=tuple(sorted(base.sightings + second.sightings)),
-        )
         text = metrics_text(work=0) + (
-            f'openviking_s3_ovlock_live_age_seconds{{key="{key2}",uri="viking://u/y",'
+            f'openviking_s3_ovlock_live_age_seconds{{key="{KEY2}",uri="viking://u/y",'
             f'owner="tok-2",lock_type="E"}} {4 * HOUR}\n'
         )
-        cluster = FakeCluster(log=log)
+        cluster = FakeCluster()
         code, out = self.go(cluster, text)
         self.assertEqual(code, 0, out)
         self.assertEqual(len(cluster.patches), 1)
-        self.assertEqual(out.count("identity=same-lease"), 2)
+        self.assertEqual(out.count("identity=same-owner"), 2)
 
 
 class TestConfigMapInSync(unittest.TestCase):
@@ -610,41 +521,6 @@ class TestConfigMapInSync(unittest.TestCase):
 
 
 class TestParsers(unittest.TestCase):
-    REFRESH = (
-        "2026-10-13T14:38:40.214593Z  INFO ragfs::lock::manager: crates/ragfs/src/"
-        "lock/manager.rs:538: pathlock lease automatically refreshed "
-        f"lease_ref={LEASE} owner_id={OWNER_ID} lock_path={PATH}"
-    )
-
-    def test_refresh_line_with_kubelet_timestamp_prefix(self):
-        text = f"2026-10-13T14:38:40.214600123Z {self.REFRESH}\n"
-        read = wd.parse_pod_log(text, NOW)
-        ts, lease, owner, paths = read.sightings[0]
-        self.assertEqual((lease, owner, paths), (LEASE, OWNER_ID, (PATH,)))
-        self.assertEqual(ts, datetime.datetime(2026, 10, 13, 14, 38, 40, 214593, UTC))
-        self.assertEqual(read.covered_from.second, 40)
-
-    def test_kubelet_timestamp_offset_is_applied(self):
-        # Seen live: the API returns the node's local offset, not Z.
-        text = f"2026-10-13T09:38:40.214600123-05:00 {self.REFRESH}\n"
-        read = wd.parse_pod_log(text, NOW)
-        self.assertEqual(
-            read.covered_from,
-            datetime.datetime(2026, 10, 13, 14, 38, 40, 214600, UTC),
-        )
-        text = f"2026-10-13T16:38:40+02:00 {self.REFRESH}\n"
-        self.assertEqual(wd.parse_pod_log(text, NOW).covered_from.hour, 14)
-
-    def test_drifted_lock_line_fails_the_read(self):
-        bad = self.REFRESH.replace("lock_path=", "path=")
-        with self.assertRaises(ValueError):
-            wd.parse_pod_log(f"2026-10-13T14:38:40Z {bad}\n", NOW)
-
-    def test_other_lines_are_ignored(self):
-        text = "2026-10-13T11:39:59Z 2026-10-13 11:39:59,596 - uvicorn.access - INFO\n"
-        read = wd.parse_pod_log(text, NOW)
-        self.assertEqual(read.sightings, ())
-
     def test_exporter_text_round_trip(self):
         e = wd.parse_exporter(metrics_text(age=12345, work=11))
         self.assertTrue(e.up and e.lock_poll_ok)
@@ -706,11 +582,20 @@ class TestParsers(unittest.TestCase):
                 {"WATCHDOG_HOLD_SECONDS": "100", "WATCHDOG_FORCE_SECONDS": "50"}
             )
 
+    def test_config_rejects_a_negative_recheck(self):
+        with self.assertRaises(ValueError):
+            wd.Config.from_env({"WATCHDOG_RECHECK_SECONDS": "-1"})
+
     def test_config_defaults_match_the_spec(self):
         cfg = wd.Config.from_env({})
         self.assertEqual(
-            (cfg.hold, cfg.force, cfg.cooldown), (10800.0, 21600.0, 3600.0)
+            (cfg.hold, cfg.force, cfg.cooldown, cfg.recheck),
+            (10800.0, 21600.0, 3600.0, 30.0),
         )
+
+    def test_config_reads_the_recheck(self):
+        cfg = wd.Config.from_env({"WATCHDOG_RECHECK_SECONDS": "45"})
+        self.assertEqual(cfg.recheck, 45.0)
 
     def test_restart_patch_body_carries_the_precondition(self):
         sent = {}
