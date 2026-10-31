@@ -940,7 +940,10 @@ BULLET_LOG_CHARS = 300
 
 PROFILE_BULLET = re.compile(r"^\s*(?:[-*+]|\d+[.)])\s+")
 PROFILE_REASONS = (
-    ("pr_or_issue", re.compile(r"#\d+")),
+    # Up to 5 digits and a boundary after, so a 6- or 8-digit colour (#336699) and
+    # #123abc do not match; ``C#10`` and ``F#8`` are language versions. ``#123`` as a
+    # colour and similar short runs still match: the shadow records are the check.
+    ("pr_or_issue", re.compile(r"(?<!\b[CF])#\d{1,5}\b")),
     (
         "item_id",
         re.compile(r"\b(?:BUG|IMPR|TASK|FEAT|IDEA|PROJ|INFO|GUIDE)-\d+"),

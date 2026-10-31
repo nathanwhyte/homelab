@@ -1985,6 +1985,25 @@ class ProfileFilterTests(WriteCheckCase):
         ):
             self.assertEqual(mg.profile_bullet_reason(line), reason, line)
 
+    def test_issue_numbers_are_told_from_colours_and_language_versions(self):
+        # Codex round 4, P3: mode 1 must not cut these durable bullets
+        for line in (
+            "- Prefers the #336699 accent colour (as of 2026-10-21)",
+            "- Prefers the #33669900 accent colour (as of 2026-10-21)",
+            "- Writes C#10 at work (as of 2026-10-21)",
+            "- Writes F#8 on the side (as of 2026-10-21)",
+            "- Tag #123abc is a colour (as of 2026-10-21)",
+        ):
+            self.assertIsNone(mg.profile_bullet_reason(line), line)
+        for line in (
+            "- Merged homelab#296 (as of 2026-10-21)",
+            "- Merged #296 (as of 2026-10-21)",
+            "- Merged #12345 (as of 2026-10-21)",
+            "- Merged ABC#296 (as of 2026-10-21)",
+            "- Merged CF#296 (as of 2026-10-21)",
+        ):
+            self.assertEqual(mg.profile_bullet_reason(line), "pr_or_issue", line)
+
     def test_standing_facts_and_non_bullets_are_kept(self):
         for line in (
             "- Lives in Chicago (as of 2026-10-21)",
