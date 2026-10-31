@@ -2245,7 +2245,38 @@ data:
     # ``ov-singleton-guard {json}`` line on stderr. Disable with ``OV_SINGLETON_GUARD=0``.
 
     SINGLETON_TYPES = frozenset({"profile", "identity", "soul"})
-    SINGLETON_URI = re.compile(r"/memories/(?:profile|identity|soul)\.md$")
+    # ``viking://user/<user>[/peers/<peer>]/memories/<rest>``, anchored at both ends: a user ID
+    # such as ``peers``, ``memories`` or ``preferences`` is a path segment like any other, so
+    # every placement question (peer or user level, memory type, preferences root) is answered
+    # here and never by searching the URI for a substring (Codex round 2 of homelab#296).
+    USER_MEMORY_URI = re.compile(
+        r"^viking://user/(?P<user>[^/]+)(?:/peers/(?P<peer>[^/]+))?/memories/(?P<rest>[^/].*)$"
+    )
+
+
+    @dataclasses.dataclass(frozen=True)
+    class MemoryUri:
+        user: str
+        peer: str | None  # None for the user-level space
+        rest: str  # path under ``memories/``
+
+        @property
+        def memory_type(self) -> str:
+            """``profile`` for ``profile.md``, else the first directory (``events``, …)."""
+            head, slash, _ = self.rest.partition("/")
+            return head if slash else head.removesuffix(".md")
+
+        @property
+        def space(self) -> str:
+            peer = f"/peers/{self.peer}" if self.peer else ""
+            return f"viking://user/{self.user}{peer}/memories"
+
+
+    def parse_memory_uri(uri) -> MemoryUri | None:
+        match = USER_MEMORY_URI.match(uri) if isinstance(uri, str) else None
+        return MemoryUri(match["user"], match["peer"], match["rest"]) if match else None
+
+
     SINGLETON_PREFIX = "ov-singleton-guard "
 
 
@@ -2254,8 +2285,11 @@ data:
 
 
     def is_singleton(memory_type, uri) -> bool:
+        parsed = parse_memory_uri(uri)
         return memory_type in SINGLETON_TYPES or bool(
-            isinstance(uri, str) and SINGLETON_URI.search(uri)
+            parsed
+            and parsed.memory_type in SINGLETON_TYPES
+            and parsed.rest == f"{parsed.memory_type}.md"
         )
 
 
@@ -2480,11 +2514,12 @@ data:
     #   for its own change, since a skipped URI is still reported as written and stock
     #   ``_invalid_replacement_sources`` would then delete the replaced file (Codex round 1 of
     #   homelab#296). Files are named ``{{ user }}/{{ topic }}.md``, so a duplicate can sit
-    #   under another user or topic. Cost: a per-root digest index, built with a paginated
-    #   ``ls`` per level (``LS_PAGE`` entries a call) and one read per file, kept
-    #   ``PREF_INDEX_TTL_S`` seconds and extended by this process's own writes. A write costs
-    #   no listing while the index is fresh; another worker's write inside the TTL is a missed
-    #   record.
+    #   under another user or topic. Cost: each preferences write lists the target's own
+    #   ``<space>/memories/preferences`` root (a paginated ``ls`` per level, ``LS_PAGE`` entries
+    #   a call) and reads every file once. Nothing is cached between writes, so the record
+    #   never names a file that is gone, emptied or another tenant's; the price is that read
+    #   per file on every preferences write. The index is read before the operation writes, so
+    #   a duplicate between two targets of one operation is not recorded.
     # * ``OV_PROFILE_PREFETCH_PEER_ONLY`` (``ov-profile-prefetch``, BUG-1284): extraction's
     #   prefetch reads ``<dir>/profile.md`` for every directory from
     #   ``MemoryIsolationHandler.render_schema_directories`` (``session_extract_context_
@@ -2509,7 +2544,6 @@ data:
     PROFILE_TYPE = "profile"
     PREFERENCES = "preferences"
     BULLET_LOG_CHARS = 300
-    PREF_INDEX_TTL_S = 300.0
 
     PROFILE_BULLET = re.compile(r"^\s*(?:[-*+]|\d+[.)])\s+")
     PROFILE_REASONS = (
@@ -2593,20 +2627,20 @@ data:
     class _WriteScope:
         memory_type: str
         uris: frozenset
-        pref_index: dict | None = None  # uri -> body digest, for the file's root
-        final_digest: dict = dataclasses.field(default_factory=dict)
+        pref_index: dict = dataclasses.field(default_factory=dict)  # root -> {uri: digest}
 
 
     _WRITE_SCOPE: contextvars.ContextVar = contextvars.ContextVar(
         "ov_memory_guard_write_scope", default=None
     )
-    # preferences root -> (built_at, {uri: body digest})
-    _PREF_INDEX: dict[str, tuple[float, dict[str, str]]] = {}
 
 
     def _preferences_root(uri: str) -> str | None:
-        root, sep, _ = uri.partition("/preferences/")
-        return root + "/preferences" if sep else None
+        """The ``.../memories/preferences`` root a preference URI lives under, or None."""
+        parsed = parse_memory_uri(uri)
+        if parsed is None or parsed.memory_type != PREFERENCES or "/" not in parsed.rest:
+            return None
+        return f"{parsed.space}/{PREFERENCES}"
 
 
     LS_PAGE = 1000  # VikingFS.ls stops at node_limit=1000 entries unless paged
@@ -2647,14 +2681,8 @@ data:
         return _body_digest(body) if body else None
 
 
-    async def preference_index(module, fs, root, ctx, now=None) -> dict[str, str]:
-        """``{uri: body digest}`` for every ``.md`` under ``root``; cached ``PREF_INDEX_TTL_S``."""
-        import time
-
-        now = time.monotonic() if now is None else now
-        cached = _PREF_INDEX.get(root)
-        if cached and now - cached[0] < PREF_INDEX_TTL_S:
-            return cached[1]
+    async def preference_index(module, fs, root, ctx) -> dict[str, str]:
+        """``{uri: body digest}`` for every non-empty ``.md`` file under ``root``, read now."""
         files: list[str] = []
         for entry in await _list_files(fs, root, ctx):
             name = str(entry.get("name", ""))
@@ -2676,13 +2704,13 @@ data:
             digest = await _read_digest(module, fs, uri, ctx)
             if digest:
                 index[uri] = digest
-        _PREF_INDEX[root] = (now, index)
         return index
 
 
     def _check_profile(memory_file) -> None:
         mode = _env_mode("OV_PROFILE_FILTER")
-        if mode == "0" or "/peers/" not in (memory_file.uri or ""):
+        parsed = parse_memory_uri(memory_file.uri)
+        if mode == "0" or parsed is None or parsed.peer is None:
             return  # the user-level profile.md is the frozen fallback: never touched
         kept, removed = filter_profile_content(memory_file.content or "")
         for reason, bullet in removed:
@@ -2737,10 +2765,10 @@ data:
         if not body:
             return
         digest = _body_digest(body)
-        scope.final_digest[memory_file.uri] = digest
+        index = scope.pref_index.get(_preferences_root(memory_file.uri), {})
         matches = [
             uri
-            for uri, other in (scope.pref_index or {}).items()
+            for uri, other in index.items()
             if other == digest and uri != memory_file.uri
         ]
         if not matches:
@@ -2800,22 +2828,19 @@ data:
                 return await call()
             scope = _WriteScope(memory_type, frozenset(uris))
             if memory_type == PREFERENCES and _env_mode("OV_PREF_DEDUPE") != "0":
-                root = _preferences_root(uris[0])
                 try:
-                    if root:
-                        scope.pref_index = await preference_index(
+                    for root in {_preferences_root(u) for u in uris} - {None}:
+                        scope.pref_index[root] = await preference_index(
                             module, self._get_viking_fs(), root, ctx
                         )
                 except Exception as exc:  # noqa: BLE001 — no index, no duplicate check
                     logger.warning("ov-memory-guard: preference index failed: %r", exc)
+                    scope.pref_index.clear()
             token = _WRITE_SCOPE.set(scope)
             try:
                 result = await call()
             finally:
                 _WRITE_SCOPE.reset(token)
-            root = _preferences_root(uris[0]) if memory_type == PREFERENCES else None
-            if root and root in _PREF_INDEX:
-                _PREF_INDEX[root][1].update(scope.final_digest)
             return result
 
         _apply_upsert._ov_memory_guard = True
